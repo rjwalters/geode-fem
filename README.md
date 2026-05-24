@@ -41,12 +41,46 @@ benchmark — analytical Mie series ↔ strata FDTD ↔ GEODE-FEM eigenmode.
 
 ## Roadmap (v0)
 
-- [ ] Cargo workspace skeleton with Burn dependency
+- [x] Cargo workspace skeleton with Burn dependency
 - [ ] Scalar Helmholtz on a tetrahedral mesh (warmup before vector Maxwell)
 - [ ] Vector curl-conforming (Nédélec) elements
 - [ ] First eigenmode solver for a dielectric sphere
 - [ ] Mie scattering benchmark vs. analytic series and strata-fdtd
 - [ ] Map whiteroom L4 specification → GEODE-FEM operators
+
+## Build
+
+Requires Rust stable (1.92+, set in `rust-toolchain.toml`).
+
+```sh
+cargo build              # builds workspace with default `wgpu` backend
+cargo test               # runs the GPU smoke test
+cargo run --bin geode    # prints backend / device / smoke result
+```
+
+### Backend selection
+
+`geode-core` selects one Burn backend at compile time via mutually-exclusive
+features:
+
+```sh
+# default — wgpu (Metal on macOS, Vulkan on Linux, DX12 on Windows)
+cargo build
+
+# CUDA (requires a CUDA toolkit and an NVIDIA GPU)
+cargo build -p geode-core --no-default-features --features cuda
+```
+
+Enabling both `wgpu` and `cuda`, or neither, is a hard compile error — see
+`compile_error!` guards in `crates/geode-core/src/lib.rs`.
+
+### Workspace layout
+
+```
+crates/
+  geode-core/   # solver primitives, Backend type alias, FEM trait sketches
+  geode-cli/    # `geode` binary — prints device info and runs the smoke op
+```
 
 ## License
 

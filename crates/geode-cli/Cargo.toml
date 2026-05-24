@@ -1,0 +1,18 @@
+[package]
+name = "geode-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "GEODE-FEM command-line entry point."
+
+[[bin]]
+name = "geode"
+path = "src/main.rs"
+
+[dependencies]
+geode-core = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
