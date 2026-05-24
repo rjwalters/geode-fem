@@ -6,7 +6,9 @@
 //! Helmholtz (#3) and the eigenmode solver work that follows.
 
 pub mod mesh;
+pub mod p1;
 pub use mesh::{GmshReader, MeshError, MeshReader, TetMesh};
+pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
 
 use burn::tensor::backend::{Backend, BackendTypes};
 use burn::tensor::Tensor;
