@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/geode-core",
+    "crates/geode-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/rjwalters/geode-fem"
+rust-version = "1.92"
+
+[workspace.dependencies]
+burn = { version = "0.21", default-features = false, features = ["std"] }
+geode-core = { path = "crates/geode-core" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

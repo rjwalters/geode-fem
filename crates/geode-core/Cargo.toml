@@ -1,0 +1,19 @@
+[package]
+name = "geode-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "GEODE-FEM solver primitives: tensor ops over Burn."
+
+[dependencies]
+burn = { workspace = true }
+
+[features]
+default = ["wgpu"]
+wgpu = ["burn/wgpu"]
+cuda = ["burn/cuda"]
+
+[lints.rust]
+unsafe_code = "forbid"
