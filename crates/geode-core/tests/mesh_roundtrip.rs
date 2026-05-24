@@ -23,12 +23,16 @@ fn expected_nodes() -> [[f64; 3]; 8] {
 }
 
 /// Tet connectivity in 0-based indices (subtract 1 from each Gmsh tag).
+///
+/// All five tets are oriented so that `det(J) > 0` — the fourth tet's
+/// last two vertices are swapped vs. the naive 5-tet split to keep the
+/// vertex order right-handed (caught by `p1_local_matrices::unit_cube_fixture_volume_conservation`).
 fn expected_tets() -> [[u32; 4]; 5] {
     [
         [0, 1, 2, 5],
         [0, 2, 3, 7],
         [0, 5, 7, 4],
-        [0, 2, 5, 7],
+        [0, 2, 7, 5],
         [2, 5, 6, 7],
     ]
 }
