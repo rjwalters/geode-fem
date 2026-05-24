@@ -66,6 +66,13 @@ impl SparsityPattern {
 ///
 /// Returns `nodes: [n_nodes, 3]` as a float tensor (f32 on the active
 /// backend) and `tets: [n_elem, 4]` as an Int tensor.
+///
+/// # Panics
+///
+/// Panics if any node index exceeds [`i32::MAX`] (~2.1 billion). Burn's
+/// Int tensors are i32-backed, so very large meshes would otherwise wrap
+/// silently. A non-panicking alternative will land alongside the sparse
+/// eigensolver work where mesh sizes start to matter.
 pub fn upload_mesh<B: Backend>(
     mesh: &TetMesh,
     device: &B::Device,
@@ -83,7 +90,11 @@ pub fn upload_mesh<B: Backend>(
     let tet_data: Vec<i32> = mesh
         .tets
         .iter()
-        .flat_map(|t| t.iter().map(|&i| i as i32))
+        .flat_map(|t| {
+            t.iter().map(|&i| {
+                i32::try_from(i).expect("node index does not fit in i32 (Burn Int tensor limit)")
+            })
+        })
         .collect();
     let tets = Tensor::<B, 2, Int>::from_data(TensorData::new(tet_data, [n_elem, 4]), device);
 
@@ -105,7 +116,7 @@ pub fn gather_tet_coords<B: Backend>(nodes: Tensor<B, 2>, tets: Tensor<B, 2, Int
 }
 
 /// Assemble dense global stiffness and mass matrices from per-element
-/// local matrices, preserving autodiff through `scatter_nd(Add)`.
+/// local matrices, preserving autodiff through 1-D `scatter(0, …, Add)`.
 ///
 /// # Arguments
 ///
