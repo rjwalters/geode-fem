@@ -15,6 +15,12 @@ use mshio::mshfile::ElementType;
 ///
 /// Node indices in `tets` are 0-based linear indices into `nodes`,
 /// independent of the (possibly sparse, 1-based) tags in the source file.
+///
+/// Not to be confused with the [`Mesh`](crate::Mesh) trait in the crate
+/// root — that one is a placeholder for in-pipeline (potentially GPU-resident)
+/// mesh objects parameterized by a Burn backend. `TetMesh` is the raw CPU
+/// output of mesh I/O; a `Mesh`-implementing struct would typically wrap
+/// (or be constructed from) a `TetMesh` plus device-side tensors.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TetMesh {
     /// Node coordinates, `nodes[i] = [x, y, z]`.
@@ -139,6 +145,20 @@ impl MeshReader for GmshReader {
 }
 
 /// First tag we haven't yet observed; assumes contiguous append-order.
+///
+/// **Writer-convention dependency.** When `mshio` reports a node block as
+/// non-sparse (no `node_tags` map), it leaves us no way to recover the
+/// block's starting tag from `mshio`'s API — that information is normalized
+/// away in `mshio-0.4.2/src/parsers/nodes_section.rs`. We therefore rely
+/// on the convention that Gmsh emits node blocks in ascending tag order
+/// and that tags are contiguous across blocks. Both hold for files written
+/// by Gmsh ≥ 4.0 and for any hand-rolled fixture that meets the MSH 4.1
+/// node-tag uniqueness requirement.
+///
+/// If we ever encounter a file that violates this (e.g. node blocks with
+/// gaps between them but no per-block sparse map), the symptom will be
+/// tet connectivity referencing tags we never inserted, which surfaces
+/// cleanly as [`MeshError::InvalidNodeRef`].
 fn next_contiguous_start(map: &BTreeMap<u64, u32>) -> u64 {
     map.keys().next_back().map(|t| t + 1).unwrap_or(1)
 }
@@ -212,4 +232,66 @@ fn split_quoted_name(row: &str) -> Result<(&str, String), MeshError> {
         .find('"')
         .ok_or_else(|| MeshError::PhysicalNames(format!("missing closing quote in {row:?}")))?;
     Ok((&row[..open], rest[..close].to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_physical_names_err(input: &str, needle: &str) {
+        match parse_physical_names(input.as_bytes()) {
+            Err(MeshError::PhysicalNames(msg)) => assert!(
+                msg.contains(needle),
+                "expected error containing {needle:?}, got {msg:?}"
+            ),
+            Err(other) => panic!("expected PhysicalNames error, got {other:?}"),
+            Ok(map) => panic!("expected error, got Ok({map:?})"),
+        }
+    }
+
+    #[test]
+    fn happy_path_minimal() {
+        let input = "$PhysicalNames\n1\n3 1 \"domain\"\n$EndPhysicalNames\n";
+        let map = parse_physical_names(input.as_bytes()).unwrap();
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get(&(3, 1)).unwrap(), "domain");
+    }
+
+    #[test]
+    fn missing_section_is_ok_empty() {
+        let map = parse_physical_names(b"$MeshFormat\n4.1 0 8\n$EndMeshFormat\n").unwrap();
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn missing_end_terminator_errs() {
+        let input = "$PhysicalNames\n1\n3 1 \"domain\"\n";
+        assert_physical_names_err(input, "$EndPhysicalNames");
+    }
+
+    #[test]
+    fn count_mismatch_errs() {
+        // Declares 2 entries, provides only 1.
+        let input = "$PhysicalNames\n2\n3 1 \"domain\"\n$EndPhysicalNames\n";
+        assert_physical_names_err(input, "disagrees");
+    }
+
+    #[test]
+    fn missing_closing_quote_errs() {
+        let input = "$PhysicalNames\n1\n3 1 \"domain\n$EndPhysicalNames\n";
+        assert_physical_names_err(input, "closing quote");
+    }
+
+    #[test]
+    fn missing_opening_quote_errs() {
+        // Entry without quotes around the name.
+        let input = "$PhysicalNames\n1\n3 1 domain\n$EndPhysicalNames\n";
+        assert_physical_names_err(input, "opening quote");
+    }
+
+    #[test]
+    fn bad_count_line_errs() {
+        let input = "$PhysicalNames\nNOT_A_NUMBER\n3 1 \"domain\"\n$EndPhysicalNames\n";
+        assert_physical_names_err(input, "bad count line");
+    }
 }

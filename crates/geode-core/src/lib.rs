@@ -28,7 +28,11 @@ pub type DefaultBackend = burn::backend::Cuda;
 
 /// A geometric mesh: element connectivity and node coordinates.
 ///
-/// Concrete implementations (tetrahedral first) arrive with #3.
+/// This trait describes an *in-pipeline* mesh — backend-parameterized so a
+/// concrete impl can hold device-side tensors. The raw CPU output of mesh
+/// I/O lives in [`mesh::TetMesh`], which is what `MeshReader` returns; a
+/// future `Mesh`-implementing struct will typically wrap one of those plus
+/// the Burn tensors it owns.
 pub trait Mesh {
     type Backend: Backend;
 
