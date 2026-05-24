@@ -2397,6 +2397,7 @@ name = "geode-core"
 version = "0.1.0"
 dependencies = [
  "burn",
+ "geode-core",
  "mshio",
  "thiserror 2.0.18",
 ]

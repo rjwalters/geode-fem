@@ -5,9 +5,13 @@
 //! shape of the API; concrete implementations arrive with scalar
 //! Helmholtz (#3) and the eigenmode solver work that follows.
 
+pub mod assembly;
 pub mod mesh;
 pub mod p1;
-pub use mesh::{GmshReader, MeshError, MeshReader, TetMesh};
+pub use assembly::{
+    assemble_global_p1, gather_tet_coords, upload_mesh, GlobalSystem, SparsityPattern,
+};
+pub use mesh::{cube_tet_mesh, GmshReader, MeshError, MeshReader, TetMesh};
 pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
 
 use burn::tensor::backend::{Backend, BackendTypes};

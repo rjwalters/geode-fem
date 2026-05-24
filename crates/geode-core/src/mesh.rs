@@ -41,6 +41,62 @@ impl TetMesh {
     }
 }
 
+/// Generate a tetrahedralized cube `[0, side]^3` with `n` hexes per side,
+/// each hex split into 6 right-handed tets sharing the long diagonal.
+///
+/// Produces `(n+1)^3` nodes and `6 * n^3` tets. All tets have positive
+/// signed volume by construction. Vertex ordering matches what
+/// [`crate::p1::batched_p1_local_matrices`] expects (vertex 0 is the
+/// edge base).
+///
+/// Useful as a programmatic alternative to a Gmsh-generated fixture for
+/// assembly and eigensolver tests.
+pub fn cube_tet_mesh(n: usize, side: f64) -> TetMesh {
+    let nps = n + 1; // nodes per side
+    let h = side / n as f64;
+    let node_idx = |i: usize, j: usize, k: usize| -> u32 { (i + j * nps + k * nps * nps) as u32 };
+
+    let mut nodes = Vec::with_capacity(nps * nps * nps);
+    for k in 0..nps {
+        for j in 0..nps {
+            for i in 0..nps {
+                nodes.push([i as f64 * h, j as f64 * h, k as f64 * h]);
+            }
+        }
+    }
+
+    let mut tets = Vec::with_capacity(6 * n * n * n);
+    for k in 0..n {
+        for j in 0..n {
+            for i in 0..n {
+                let c = [
+                    node_idx(i, j, k),
+                    node_idx(i + 1, j, k),
+                    node_idx(i + 1, j + 1, k),
+                    node_idx(i, j + 1, k),
+                    node_idx(i, j, k + 1),
+                    node_idx(i + 1, j, k + 1),
+                    node_idx(i + 1, j + 1, k + 1),
+                    node_idx(i, j + 1, k + 1),
+                ];
+                // 6-tet split sharing diagonal c[0]→c[6]. All right-handed.
+                tets.push([c[0], c[1], c[2], c[6]]);
+                tets.push([c[0], c[2], c[3], c[6]]);
+                tets.push([c[0], c[3], c[7], c[6]]);
+                tets.push([c[0], c[7], c[4], c[6]]);
+                tets.push([c[0], c[4], c[5], c[6]]);
+                tets.push([c[0], c[5], c[1], c[6]]);
+            }
+        }
+    }
+
+    TetMesh {
+        nodes,
+        tets,
+        physical_groups: BTreeMap::new(),
+    }
+}
+
 /// Errors produced by mesh I/O.
 #[derive(Debug, thiserror::Error)]
 pub enum MeshError {

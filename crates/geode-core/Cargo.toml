@@ -16,6 +16,11 @@ thiserror = "2"
 default = ["wgpu"]
 wgpu = ["burn/wgpu"]
 cuda = ["burn/cuda"]
+# Autodiff backend wrapper — opt-in (gradient tests / inverse design).
+autodiff = ["burn/autodiff"]
+
+[dev-dependencies]
+geode-core = { path = ".", features = ["autodiff"] }
 
 [lints.rust]
 unsafe_code = "forbid"
