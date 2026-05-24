@@ -5,6 +5,9 @@
 //! shape of the API; concrete implementations arrive with scalar
 //! Helmholtz (#3) and the eigenmode solver work that follows.
 
+pub mod mesh;
+pub use mesh::{GmshReader, MeshError, MeshReader, TetMesh};
+
 use burn::tensor::backend::{Backend, BackendTypes};
 use burn::tensor::Tensor;
 
