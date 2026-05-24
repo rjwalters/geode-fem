@@ -22,12 +22,12 @@
 //! det = e_1 · g_1 = det(J).
 //! ```
 //!
-//! Then `∇φ_i = g_i / det(J)`, the signed element volume is `V = det/6`,
-//! and the local matrices are:
+//! Then `∇φ_i = g_i / det(J)`, the signed element volume is `V_signed = det/6`,
+//! the (positive) element volume is `V = |det|/6`, and the local matrices are:
 //!
 //! ```text
 //! K_{ij} = V (∇φ_i · ∇φ_j) = (g_i · g_j) / (6 |det|),
-//! M_{ij} = (V/20) (1 + δ_{ij})   (consistent mass, |V| inside).
+//! M_{ij} = (V / 20) (1 + δ_{ij})    (consistent mass).
 //! ```
 
 use burn::tensor::backend::Backend;
@@ -41,7 +41,12 @@ pub struct P1LocalMatrices<B: Backend> {
     /// Local consistent mass `[n_elem, 4, 4]`.
     pub m_local: Tensor<B, 3>,
     /// Signed element volumes `[n_elem]` — equals `det(J) / 6`.
-    /// Negative values indicate inverted vertex orientation.
+    ///
+    /// Negative entries indicate vertex-orientation reversal (inverted tets).
+    /// **For assembly weighting, use `signed_volumes.abs()`.** The sign here
+    /// is a mesh-quality diagnostic only; integrals `∫_T f dV` need the
+    /// unsigned volume `V = |det(J)|/6` or contributions from inverted tets
+    /// will cancel rather than add.
     pub signed_volumes: Tensor<B, 1>,
 }
 
@@ -128,7 +133,7 @@ pub fn batched_p1_local_matrices<B: Backend>(coords: Tensor<B, 3>) -> P1LocalMat
     ];
     let mass_pattern =
         Tensor::<B, 2>::from_floats(mass_pattern_data, &device).unsqueeze_dim::<3>(0);
-    // Scale: |det| / 120 = V / 20 with V = |det|/6, broadcast to [n_elem, 1, 1].
+    // Scale: V / 20 per element, computed as |det| / 120; broadcast to [n_elem, 1, 1].
     let m_scale = abs_det
         .div_scalar(120.0)
         .unsqueeze_dim::<2>(1)
