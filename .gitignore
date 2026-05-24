@@ -1,0 +1,19 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Loom local config (created if/when Loom is installed)
+.loom/config.json
+.loom/worktrees/
+.loom/loom-source-path
+
+# Build artifacts
+*.log
