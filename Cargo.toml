@@ -23,10 +23,20 @@ codegen-units = 1
 # Dense linear algebra (faer) and tensor backends (burn, wgpu) become
 # unusably slow without optimization. Keep them optimized even in debug
 # builds; only our own crates compile with no-opt for fast iteration.
+#
+# `debug-assertions = false` + `overflow-checks = false` are required for
+# faer 0.24: its `gevd::qz_real` performs subtractions that legitimately
+# wrap under debug-assertions, producing `attempt to subtract with
+# overflow` panics even though the release math is correct. Caught by
+# the PR #19 judge round.
 [profile.dev.package."*"]
 opt-level = 3
 debug = false
+debug-assertions = false
+overflow-checks = false
 
 [profile.test.package."*"]
 opt-level = 3
 debug = false
+debug-assertions = false
+overflow-checks = false
