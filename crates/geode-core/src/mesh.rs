@@ -39,7 +39,74 @@ impl TetMesh {
     pub fn n_tets(&self) -> usize {
         self.tets.len()
     }
+
+    /// Build the deduplicated, globally-oriented edge list of this mesh.
+    ///
+    /// Each edge `[a, b]` is stored with `a < b` (lower-tagged endpoint
+    /// first). This is the canonical orientation convention for first-
+    /// order Nédélec edge DOFs: two tets sharing the edge agree on its
+    /// direction so that tangential continuity is single-valued at the
+    /// shared edge.
+    ///
+    /// Returns the sorted-unique edge list. `n_edges = edges.len()` is
+    /// the size of the global linear system for Nédélec problems on
+    /// this mesh.
+    pub fn edges(&self) -> Vec<[u32; 2]> {
+        use std::collections::BTreeSet;
+        let mut set: BTreeSet<(u32, u32)> = BTreeSet::new();
+        for tet in &self.tets {
+            for &(la, lb) in TET_LOCAL_EDGES.iter() {
+                let a = tet[la];
+                let b = tet[lb];
+                let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+                set.insert((lo, hi));
+            }
+        }
+        set.into_iter().map(|(a, b)| [a, b]).collect()
+    }
+
+    /// For each tet, return the six `(global_edge_index, sign)` pairs
+    /// in the canonical local-edge order ([`TET_LOCAL_EDGES`]).
+    ///
+    /// `sign` is `+1` if the local edge orientation (from local vertex
+    /// `la` to local vertex `lb`, where `(la, lb)` is the slot in
+    /// [`TET_LOCAL_EDGES`]) agrees with the global edge direction
+    /// (lower global node → higher global node), and `-1` otherwise.
+    ///
+    /// Returns a `Vec<[(u32, i8); 6]>` of length `n_tets()`.
+    pub fn tet_edges(&self) -> Vec<[(u32, i8); 6]> {
+        use std::collections::HashMap;
+        let edges = self.edges();
+        let mut lookup: HashMap<(u32, u32), u32> = HashMap::with_capacity(edges.len());
+        for (idx, e) in edges.iter().enumerate() {
+            lookup.insert((e[0], e[1]), idx as u32);
+        }
+
+        self.tets
+            .iter()
+            .map(|tet| {
+                let mut out = [(0u32, 1i8); 6];
+                for (slot, &(la, lb)) in out.iter_mut().zip(TET_LOCAL_EDGES.iter()) {
+                    let a = tet[la];
+                    let b = tet[lb];
+                    let (lo, hi, sign) = if a < b { (a, b, 1i8) } else { (b, a, -1i8) };
+                    let idx = *lookup
+                        .get(&(lo, hi))
+                        .expect("edge derived from tet must be in edge table");
+                    *slot = (idx, sign);
+                }
+                out
+            })
+            .collect()
+    }
 }
+
+/// Canonical local edge → (local vertex pair) ordering on a tet,
+/// re-exported here so the mesh module is self-contained for callers
+/// that only need connectivity.
+///
+/// The order is fixed across the codebase. See [`crate::nedelec::TET_LOCAL_EDGES`].
+const TET_LOCAL_EDGES: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
 
 /// Generate a tetrahedralized cube `[0, side]^3` with `n` hexes per side,
 /// each hex split into 6 right-handed tets sharing the long diagonal.

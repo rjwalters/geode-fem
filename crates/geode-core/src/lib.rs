@@ -7,11 +7,17 @@
 
 pub mod assembly;
 pub mod mesh;
+pub mod nedelec;
+pub mod nedelec_assembly;
 pub mod p1;
 pub use assembly::{
     assemble_global_p1, gather_tet_coords, upload_mesh, GlobalSystem, SparsityPattern,
 };
 pub use mesh::{cube_tet_mesh, GmshReader, MeshError, MeshReader, TetMesh};
+pub use nedelec::{batched_nedelec_local_matrices, tet_edges, NedelecLocalMatrices};
+pub use nedelec_assembly::{
+    assemble_global_nedelec, cube_pec_interior_edges, pec_interior_edge_mask, NedelecGlobalSystem,
+};
 pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
 
 use burn::tensor::backend::{Backend, BackendTypes};
