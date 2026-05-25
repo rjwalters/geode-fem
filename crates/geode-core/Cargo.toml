@@ -22,6 +22,8 @@ autodiff = ["burn/autodiff"]
 
 [dev-dependencies]
 geode-core = { path = ".", features = ["autodiff"] }
+# Read regression-fixture TOML in `tests/cube_convergence_regression.rs`.
+toml = "0.8"
 
 [lints.rust]
 unsafe_code = "forbid"

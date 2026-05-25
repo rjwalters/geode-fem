@@ -82,6 +82,41 @@ crates/
   geode-cli/    # `geode` binary — prints device info and runs the smoke op
 ```
 
+## Regression fixtures
+
+Numerical baselines for the unit-cube Dirichlet Laplacian ground-mode
+sweep are committed under
+`crates/geode-core/tests/fixtures/cube_convergence.toml`. The values are
+**not** analytic targets; they record what the current assembly +
+`faer` eigensolver produces today. Their job is to catch unintended
+regressions when assembly or the eigensolver change.
+
+The diff-check test lives at
+`crates/geode-core/tests/cube_convergence_regression.rs`. It is
+`#[ignore]`d for the same reason as the other eigensolver tests:
+faer 0.24's `gevd::qz_real` panics under debug-assertions. Run with:
+
+```sh
+# Run the regression diff-check (and all other ignored faer tests):
+cargo test -p geode-core --release -- --ignored
+
+# Run only the convergence regression:
+cargo test -p geode-core --release \
+    --test cube_convergence_regression -- --ignored
+```
+
+If an intentional change (e.g. mass-lumping, eigensolver swap) shifts
+the per-level eigenvalues beyond the `1e-4` relative tolerance,
+regenerate the fixture and commit it alongside the code change:
+
+```sh
+cargo run -p geode-core --release \
+    --example regen_cube_convergence_fixture
+```
+
+Call out the regeneration in the PR description so reviewers know the
+baseline drift is intentional.
+
 ## License
 
 MIT
