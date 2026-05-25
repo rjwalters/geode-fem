@@ -99,15 +99,17 @@ use burn::tensor::Tensor;
 
 /// Canonical local edge → (local vertex pair) ordering on a tet.
 ///
-/// Used by both the host-side edge-table builder and the batched
-/// local-matrix kernel. The order is fixed across the codebase.
-pub const TET_LOCAL_EDGES: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
+/// Re-exported from [`crate::mesh::TET_LOCAL_EDGES`], which is the single
+/// source of truth. The order is fixed across the codebase and used by
+/// both the host-side edge-table builder ([`crate::mesh::TetMesh::edges`])
+/// and the batched local-matrix kernel ([`batched_nedelec_local_matrices`]).
+pub use crate::mesh::TET_LOCAL_EDGES;
 
 /// Returns the canonical local edge ordering (`(local_a, local_b)` pairs).
 ///
-/// Vertex pairs are emitted in ascending local index order. This is the
-/// convention used by [`batched_nedelec_local_matrices`] and by
-/// [`crate::mesh::TetMesh::edges`].
+/// Convenience wrapper around [`TET_LOCAL_EDGES`] for callers that prefer
+/// a function form (e.g., for `const`-context calls that need the array
+/// by value rather than by reference).
 pub const fn tet_edges() -> [(usize, usize); 6] {
     TET_LOCAL_EDGES
 }

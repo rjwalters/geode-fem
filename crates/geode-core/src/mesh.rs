@@ -101,12 +101,13 @@ impl TetMesh {
     }
 }
 
-/// Canonical local edge → (local vertex pair) ordering on a tet,
-/// re-exported here so the mesh module is self-contained for callers
-/// that only need connectivity.
+/// Canonical local edge → (local vertex pair) ordering on a tet.
 ///
-/// The order is fixed across the codebase. See [`crate::nedelec::TET_LOCAL_EDGES`].
-const TET_LOCAL_EDGES: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
+/// Used by both the host-side edge-table builder ([`TetMesh::edges`])
+/// and the batched Nédélec local-matrix kernel. The order is fixed
+/// across the codebase and re-exported from `crate::nedelec` for
+/// callers working in the FEM module.
+pub const TET_LOCAL_EDGES: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
 
 /// Generate a tetrahedralized cube `[0, side]^3` with `n` hexes per side,
 /// each hex split into 6 right-handed tets sharing the long diagonal.
