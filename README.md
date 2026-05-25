@@ -74,6 +74,28 @@ cargo build -p geode-core --no-default-features --features cuda
 Enabling both `wgpu` and `cuda`, or neither, is a hard compile error — see
 `compile_error!` guards in `crates/geode-core/src/lib.rs`.
 
+## System dependencies
+
+The default build is **pure Rust**: backend GPU drivers (Metal, Vulkan, CUDA,
+etc.) aside, no system Fortran/BLAS libraries are required. In particular,
+sparse generalized eigensolves use a built-in shift-and-invert Lanczos
+(`SparseShiftInvertLanczos`) that depends only on `faer`'s sparse LU.
+
+The optional `arpack` Cargo feature (off by default) switches in an
+ARPACK-backed driver via `arpack-ng-sys`. When enabled it requires:
+
+- a system `libarpack` install (`brew install arpack` on macOS,
+  `apt-get install libarpack2-dev` on Debian/Ubuntu), **and**
+- the `arpack/arpack.h` C header — which the macOS Homebrew formula does
+  *not* ship as of this writing; expect to vendor it or point `CFLAGS` at
+  a manual checkout.
+
+Because of the macOS header story the ARPACK driver currently ships as a
+stub that returns an error from `smallest_eigenvalues`. The Lanczos
+default satisfies the convergence acceptance for issue #13 without any
+Fortran dependency. The ARPACK FFI will be wired up once the header
+story is settled; tracked alongside follow-up sparse work.
+
 ### Workspace layout
 
 ```
