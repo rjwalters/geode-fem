@@ -7,8 +7,14 @@
 
 pub mod assembly;
 pub mod eigen;
+pub mod lanczos;
 pub mod mesh;
 pub mod p1;
+pub mod sparse;
+
+#[cfg(feature = "arpack")]
+pub mod arpack;
+
 pub use assembly::{
     assemble_global_p1, gather_tet_coords, upload_mesh, GlobalSystem, SparsityPattern,
 };
@@ -16,8 +22,13 @@ pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
     FaerDenseEigensolver,
 };
+pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 pub use mesh::{cube_tet_mesh, GmshReader, MeshError, MeshReader, TetMesh};
 pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
+pub use sparse::{global_system_to_sparse, SparseError, SparseSystem};
+
+#[cfg(feature = "arpack")]
+pub use arpack::ArpackEigensolver;
 
 use burn::tensor::backend::{Backend, BackendTypes};
 use burn::tensor::Tensor;

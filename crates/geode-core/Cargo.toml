@@ -9,9 +9,15 @@ description = "GEODE-FEM solver primitives: tensor ops over Burn."
 
 [dependencies]
 burn = { workspace = true }
-faer = { version = "0.24", default-features = false, features = ["std", "linalg"] }
+faer = { version = "0.24", default-features = false, features = ["std", "linalg", "sparse-linalg"] }
 mshio = "0.4"
 thiserror = "2"
+# Optional: raw FFI bindings to ARPACK (Fortran). Disabled by default — the
+# default sparse eigensolver path is a pure-Rust shift-and-invert Lanczos
+# that depends only on faer. The `arpack` feature switches in the canonical
+# ARPACK driver. See `## System dependencies` in the README for the build
+# requirements (system `libarpack` plus C headers).
+arpack-ng-sys = { version = "0.2", optional = true, default-features = false, features = ["system"] }
 
 [features]
 default = ["wgpu"]
@@ -19,9 +25,20 @@ wgpu = ["burn/wgpu"]
 cuda = ["burn/cuda"]
 # Autodiff backend wrapper — opt-in (gradient tests / inverse design).
 autodiff = ["burn/autodiff"]
+# Enable the ARPACK-backed sparse eigensolver. Off by default — requires a
+# working `libarpack` install plus its `arpack/arpack.h` C header (which
+# is NOT shipped by the macOS Homebrew formula as of 2026-05). When this
+# feature is off, `geode_core::lanczos::SparseShiftInvertLanczos` (pure
+# Rust, faer sparse LU under the hood) is the sparse path.
+arpack = ["dep:arpack-ng-sys"]
 
 [dev-dependencies]
 geode-core = { path = ".", features = ["autodiff"] }
 
 [lints.rust]
-unsafe_code = "forbid"
+# We intentionally allow scoped `unsafe` only inside the optional ARPACK
+# FFI module; every other module remains effectively unsafe-free via the
+# `#![deny(unsafe_code)]` inner attribute in `lib.rs`. The `forbid`
+# directive was incompatible with feature-gated FFI; `deny` keeps the
+# guarantee for the entire default build.
+unsafe_code = "deny"
