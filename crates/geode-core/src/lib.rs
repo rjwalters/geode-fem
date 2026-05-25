@@ -6,10 +6,15 @@
 //! Helmholtz (#3) and the eigenmode solver work that follows.
 
 pub mod assembly;
+pub mod eigen;
 pub mod mesh;
 pub mod p1;
 pub use assembly::{
     assemble_global_p1, gather_tet_coords, upload_mesh, GlobalSystem, SparsityPattern,
+};
+pub use eigen::{
+    apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
+    FaerDenseEigensolver,
 };
 pub use mesh::{cube_tet_mesh, GmshReader, MeshError, MeshReader, TetMesh};
 pub use p1::{batched_p1_local_matrices, P1LocalMatrices};

@@ -9,6 +9,7 @@ description = "GEODE-FEM solver primitives: tensor ops over Burn."
 
 [dependencies]
 burn = { workspace = true }
+faer = { version = "0.24", default-features = false, features = ["std", "linalg"] }
 mshio = "0.4"
 thiserror = "2"
 
