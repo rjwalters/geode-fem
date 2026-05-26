@@ -6,12 +6,14 @@
 //! Helmholtz (#3) and the eigenmode solver work that follows.
 
 pub mod assembly;
+pub mod complex_eigen;
 pub mod eigen;
 pub mod lanczos;
 pub mod mesh;
 pub mod nedelec;
 pub mod nedelec_assembly;
 pub mod p1;
+pub mod silvermuller;
 pub mod sparse;
 
 #[cfg(feature = "arpack")]
@@ -20,6 +22,7 @@ pub mod arpack;
 pub use assembly::{
     assemble_global_p1, gather_tet_coords, upload_mesh, GlobalSystem, SparsityPattern,
 };
+pub use complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
 pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
     FaerDenseEigensolver,
@@ -37,6 +40,7 @@ pub use nedelec_assembly::{
     sphere_pec_interior_edges, NedelecGlobalSystem,
 };
 pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
+pub use silvermuller::assemble_silver_muller_surface;
 pub use sparse::{global_system_to_sparse, SparseError, SparseSystem};
 
 #[cfg(feature = "arpack")]
