@@ -25,7 +25,11 @@ pub use eigen::{
     FaerDenseEigensolver,
 };
 pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
-pub use mesh::{cube_tet_mesh, GmshReader, MeshError, MeshReader, TetMesh};
+pub use mesh::{
+    cube_tet_mesh, read_sphere_fixture, GmshReader, MeshError, MeshReader, SphereFixture, TetMesh,
+    PHYS_OUTER_BOUNDARY, PHYS_SPHERE_INTERIOR, PHYS_SPHERE_SURFACE, PHYS_VACUUM_BUFFER, R_BUFFER,
+    R_SPHERE,
+};
 pub use nedelec::{batched_nedelec_local_matrices, tet_edges, NedelecLocalMatrices};
 pub use nedelec_assembly::{
     assemble_global_nedelec, cube_pec_interior_edges, pec_interior_edge_mask, NedelecGlobalSystem,

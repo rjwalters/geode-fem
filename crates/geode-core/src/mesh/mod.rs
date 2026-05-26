@@ -11,6 +11,13 @@ use std::collections::BTreeMap;
 
 use mshio::mshfile::ElementType;
 
+pub mod sphere;
+
+pub use sphere::{
+    read_sphere_fixture, SphereFixture, PHYS_OUTER_BOUNDARY, PHYS_SPHERE_INTERIOR,
+    PHYS_SPHERE_SURFACE, PHYS_VACUUM_BUFFER, R_BUFFER, R_SPHERE,
+};
+
 /// CPU-side tetrahedral mesh produced by a `MeshReader`.
 ///
 /// Node indices in `tets` are 0-based linear indices into `nodes`,
