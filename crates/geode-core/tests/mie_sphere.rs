@@ -1,0 +1,173 @@
+//! Mie-sphere benchmark acceptance test (issue #4).
+//!
+//! Re-runs the comparison logic from `examples/mie_sphere.rs`: assembles
+//! the PML eigenproblem on the bundled sphere fixture, extracts the
+//! lowest few physical complex eigenfrequencies, and asserts that the
+//! lowest mode's `Re(k)` agrees with the analytic PEC-cavity
+//! dielectric-sphere ground-mode (TM_1,1 at `k ≈ 1.303` for `n = 1.5`,
+//! `R_s = 1.0`, `R_b = 2.0`) to within a documented coarse-mesh
+//! tolerance.
+//!
+//! # Tolerance — calibrated, not aspirational
+//!
+//! At the bundled fixture's resolution (313 nodes / 1226 tets) and
+//! with the scalar-isotropic PML at σ₀ = 5.0 the observed relative
+//! error on the lowest physical mode's `Re(k)` is ≈ 23-25 %. The
+//! assertion uses a 30 % tolerance, leaving margin for the
+//! mesh-asymmetry-driven splitting of the 2ℓ+1 = 3-fold degenerate
+//! TM_1,1 triplet (see curator note on PR #19 / issue #14) and for
+//! minor numerical noise across release rebuilds. Tightening this
+//! number is the goal of follow-ups #33 (Mie root accuracy), #35
+//! (Silver-Müller exact quadrature), #38 (vacuum gap / σ₀ sweep) and
+//! a future refined-mesh fixture.
+//!
+//! # Why `#[ignore]`?
+//!
+//! Same as the other faer eigentests: faer 0.24's `gevd::qz_real`
+//! path panics under `debug-assertions`. Run with:
+//!
+//! ```sh
+//! cargo test -p geode-core --release --test mie_sphere -- --ignored
+//! ```
+
+use burn::tensor::backend::BackendTypes;
+
+use geode_core::{
+    apply_dirichlet_bc, assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
+    burn_complex_mass_to_faer, burn_matrix_to_faer, merged_roots, read_sphere_fixture,
+    sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii, upload_mesh,
+    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, R_BUFFER,
+    R_SPHERE,
+};
+
+type B = DefaultBackend;
+
+#[test]
+#[ignore = "faer 0.24 gevd panics under debug-assertions; run with --release"]
+fn mie_sphere_ground_mode_within_30_percent_of_analytic() {
+    let device = <B as BackendTypes>::Device::default();
+
+    let n_inside = 1.5;
+    let sigma_0 = 5.0;
+
+    // 1. Analytic side: lowest TM/TE roots for l ∈ {1, 2, 3}.
+    let analytic = merged_roots(n_inside, &[1, 2, 3], R_SPHERE, R_BUFFER, 3);
+    assert!(!analytic.is_empty(), "analytic side produced no roots");
+
+    let ground = analytic
+        .iter()
+        .min_by(|a, b| a.k.partial_cmp(&b.k).unwrap())
+        .expect("at least one analytic root");
+    assert_eq!(ground.pol, MiePolarisation::TM);
+    assert_eq!(ground.l, 1);
+    assert_eq!(ground.n, 1);
+    assert!(
+        (ground.k - 1.30343).abs() < 1e-3,
+        "analytic TM_1,1 ground k = {} (expected ≈ 1.30343)",
+        ground.k
+    );
+    eprintln!(
+        "analytic ground mode: TM_1,1 k = {:.5}, k² = {:.5}",
+        ground.k,
+        ground.k * ground.k
+    );
+
+    // 2. FEM side: assemble + reduce + complex eigensolve.
+    let f = read_sphere_fixture().expect("fixture load");
+    let radii = tet_centroid_radii(&f.mesh);
+    let eps_complex = build_complex_epsilon_r_pml(&f.tet_physical_tags, &radii, n_inside, sigma_0);
+
+    let edges = f.mesh.edges();
+    let n_edges = edges.len();
+    let tet_edges_idx = f.mesh.tet_edges();
+    let tet_idx: Vec<[u32; 6]> = tet_edges_idx
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].0))
+        .collect();
+    let tet_sign: Vec<[i8; 6]> = tet_edges_idx
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].1))
+        .collect();
+
+    let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device);
+    let sys = assemble_global_nedelec_with_complex_epsilon(
+        nodes_t,
+        tets_t,
+        &tet_idx,
+        &tet_sign,
+        n_edges,
+        &eps_complex,
+    );
+
+    let (_mask_edges, interior_mask) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);
+
+    let k_full = burn_matrix_to_faer(sys.k);
+    let m_complex_full = burn_complex_mass_to_faer(sys.m_re, sys.m_im);
+    let dummy_zero = faer::Mat::<f64>::zeros(k_full.nrows(), k_full.ncols());
+    let (k_int, _) = apply_dirichlet_bc(k_full.as_ref(), dummy_zero.as_ref(), &interior_mask)
+        .expect("BC reduction K");
+    let interior_idx: Vec<usize> = interior_mask
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &b)| if b { Some(i) } else { None })
+        .collect();
+    let dim = interior_idx.len();
+    let m_int_complex = faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| {
+        m_complex_full[(interior_idx[i], interior_idx[j])]
+    });
+    let k_int_complex =
+        faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| faer::c64::new(k_int[(i, j)], 0.0));
+
+    let spurious_dim = sphere_n_interior_nodes(&f.mesh, R_BUFFER);
+    let n_request = spurious_dim + 10;
+
+    let solver = FaerComplexEigensolver;
+    let lambdas = solver
+        .smallest_complex_pencil_eigenvalues(
+            k_int_complex.as_ref(),
+            m_int_complex.as_ref(),
+            n_request,
+        )
+        .expect("complex eigensolve");
+
+    // 3. Spurious filter and pick lowest physical mode.
+    let max_abs = lambdas
+        .iter()
+        .map(|l| l.re.hypot(l.im))
+        .fold(0.0_f64, f64::max);
+    let spurious_threshold = 1e-3 * max_abs;
+    let first_physical = lambdas
+        .iter()
+        .position(|l| l.re.hypot(l.im) > spurious_threshold)
+        .expect("at least one mode above spurious threshold");
+
+    let lam = lambdas[first_physical];
+    let r = (lam.re * lam.re + lam.im * lam.im).sqrt();
+    let re_k = ((r + lam.re) / 2.0).sqrt();
+    let im_k_mag = ((r - lam.re) / 2.0).sqrt();
+    let im_k = if lam.im >= 0.0 { im_k_mag } else { -im_k_mag };
+
+    let rel_err = (re_k - ground.k).abs() / ground.k;
+    eprintln!(
+        "FEM lowest physical mode: k = {:.5} + {:.5e}i (rel err vs analytic = {:.2}%)",
+        re_k,
+        im_k,
+        rel_err * 100.0
+    );
+
+    // Acceptance: tolerance calibrated to the bundled fixture's
+    // resolution. Document drift in the PR if you change this.
+    assert!(
+        rel_err < 0.30,
+        "lowest FEM mode Re(k) = {re_k} differs from analytic TM_1,1 = {} by {:.1}% (> 30%)",
+        ground.k,
+        rel_err * 100.0
+    );
+
+    // Sanity: the PML must be doing *some* absorption — Im(k) must
+    // be non-trivial.
+    assert!(
+        im_k.abs() > 1e-3,
+        "Im(k) = {im_k} too small — PML not coupling in"
+    );
+}

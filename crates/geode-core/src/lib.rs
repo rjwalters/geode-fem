@@ -10,6 +10,7 @@ pub mod complex_eigen;
 pub mod eigen;
 pub mod lanczos;
 pub mod mesh;
+pub mod mie;
 pub mod nedelec;
 pub mod nedelec_assembly;
 pub mod p1;
@@ -32,6 +33,11 @@ pub use mesh::{
     cube_tet_mesh, read_sphere_fixture, GmshReader, MeshError, MeshReader, SphereFixture, TetMesh,
     PHYS_OUTER_BOUNDARY, PHYS_SPHERE_INTERIOR, PHYS_SPHERE_SURFACE, PHYS_VACUUM_BUFFER, R_BUFFER,
     R_SPHERE,
+};
+pub use mie::{
+    characteristic_te, characteristic_tm, chi, chi_prime, merged_roots, psi, psi_prime,
+    resonance_roots, spherical_j, spherical_j_prime, spherical_y, spherical_y_prime,
+    MiePolarisation, MieRoot,
 };
 pub use nedelec::{batched_nedelec_local_matrices, tet_edges, NedelecLocalMatrices};
 pub use nedelec_assembly::{

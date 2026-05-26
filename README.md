@@ -139,6 +139,42 @@ cargo run -p geode-core --release \
 Call out the regeneration in the PR description so reviewers know the
 baseline drift is intentional.
 
+## Benchmarks
+
+### Mie sphere (issue #4)
+
+The project's stated north-star validation problem: FEM eigenmodes of a
+dielectric sphere (refractive index `n = 1.5`, radius `R = 1`) inside a
+vacuum buffer (`r ≤ R_buffer = 2`) terminated by a scalar isotropic PML,
+compared against analytic resonance roots.
+
+Run the benchmark:
+
+```sh
+cargo run -p geode-core --release --example mie_sphere
+```
+
+This prints a comparison table and writes
+[`benchmarks/mie_sphere/results.toml`](benchmarks/mie_sphere/results.toml)
+with the lowest 5 FEM modes paired against their closest analytic
+roots. v0 of the benchmark uses the **PEC-cavity dielectric resonator**
+as the analytic ground truth (a closed cavity with PEC at `r = R_buffer`,
+which is the limit the FEM hits as the PML absorption strength `σ₀ → 0`);
+the open-space Mie WGM positions — which require Hankel functions and
+complex Newton iteration — are deferred to v1, as is the driven
+scattering (`Q_ext`, `Q_sca` vs. `ka`) cross-check.
+
+The same physical problem is computed in the time domain by the sister
+project [`rjwalters/strata-fdtd`](https://github.com/rjwalters/strata-fdtd)
+via FDTD; eigenfrequency-level cross-validation across the two
+discretizations is the goal of this benchmark family.
+
+The corresponding acceptance test
+(`crates/geode-core/tests/mie_sphere.rs`) asserts the lowest FEM mode's
+`Re(k)` agrees with the analytic TM_1,1 root to within 30 % at the
+bundled fixture's coarse resolution. Tightening that tolerance is the
+goal of follow-ups #33, #35, and #38.
+
 ## License
 
 MIT
