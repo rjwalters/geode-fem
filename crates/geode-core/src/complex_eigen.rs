@@ -53,6 +53,31 @@ pub trait ComplexEigenSolver {
         k0: f64,
         n: usize,
     ) -> Result<Vec<c64>, EigenError>;
+
+    /// Solve the **fully-complex** generalized pencil `K E = λ M E`
+    /// where both `K` and `M` are complex (the PML / lossy-ε path,
+    /// issue #28) and return the lowest-`n` eigenvalues by `|Re(λ)|`.
+    ///
+    /// This is the natural surface for any path that produces a
+    /// complex mass matrix — PMLs, dispersive dielectrics, dispersive
+    /// boundary conditions. The Silver-Müller pencil is **not** a
+    /// special case of this entry point (its pencil is `(K + j k₀ S, M)`
+    /// with `M` real), so the two methods coexist.
+    ///
+    /// # Arguments
+    ///
+    /// * `k_complex` — complex curl-curl stiffness (typically real, but
+    ///   declared complex for forward compatibility with anisotropic
+    ///   PML where K can also pick up a tensor stretching).
+    /// * `m_complex` — complex mass matrix (typically scalar PML or
+    ///   dispersive ε).
+    /// * `n` — number of lowest-real-part eigenvalues to return.
+    fn smallest_complex_pencil_eigenvalues(
+        &self,
+        k_complex: MatRef<c64>,
+        m_complex: MatRef<c64>,
+        n: usize,
+    ) -> Result<Vec<c64>, EigenError>;
 }
 
 /// Dense `faer`-backed complex generalized eigensolver.
@@ -117,6 +142,65 @@ impl ComplexEigenSolver for FaerComplexEigensolver {
         // Whitney gradient nullspace cluster near zero, so by-Re sort
         // groups them at the front (the test layer is responsible for
         // detecting the spectral gap).
+        lambdas.sort_by(|a, b| {
+            a.re.abs()
+                .partial_cmp(&b.re.abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let take = n.min(lambdas.len());
+        Ok(lambdas.into_iter().take(take).collect())
+    }
+
+    fn smallest_complex_pencil_eigenvalues(
+        &self,
+        k_complex: MatRef<c64>,
+        m_complex: MatRef<c64>,
+        n: usize,
+    ) -> Result<Vec<c64>, EigenError> {
+        assert_eq!(
+            k_complex.nrows(),
+            k_complex.ncols(),
+            "K_complex must be square"
+        );
+        assert_eq!(
+            m_complex.nrows(),
+            m_complex.ncols(),
+            "M_complex must be square"
+        );
+        assert_eq!(
+            k_complex.nrows(),
+            m_complex.nrows(),
+            "K_complex and M_complex must agree in size"
+        );
+
+        let dim = k_complex.nrows();
+
+        // Materialize owned copies (faer's generalized_eigen takes
+        // owned-or-ref of the second argument; safest to clone).
+        let a = Mat::<c64>::from_fn(dim, dim, |i, j| k_complex[(i, j)]);
+        let b = Mat::<c64>::from_fn(dim, dim, |i, j| m_complex[(i, j)]);
+
+        let evd = a
+            .generalized_eigen(&b)
+            .map_err(|e| EigenError::FaerGevd(format!("{e:?}")))?;
+
+        let s_a = evd.S_a().column_vector();
+        let s_b = evd.S_b().column_vector();
+
+        let mut lambdas: Vec<c64> = Vec::with_capacity(dim);
+        for i in 0..dim {
+            let a_i = s_a[i];
+            let b_i = s_b[i];
+            let denom = b_i.re * b_i.re + b_i.im * b_i.im;
+            if denom < 1e-30 {
+                continue;
+            }
+            let re = (a_i.re * b_i.re + a_i.im * b_i.im) / denom;
+            let im = (a_i.im * b_i.re - a_i.re * b_i.im) / denom;
+            lambdas.push(c64::new(re, im));
+        }
+
         lambdas.sort_by(|a, b| {
             a.re.abs()
                 .partial_cmp(&b.re.abs())
