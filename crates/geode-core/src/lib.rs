@@ -12,6 +12,7 @@ pub mod eigen;
 pub mod lanczos;
 pub mod mesh;
 pub mod mie;
+pub mod mie_open;
 pub mod nedelec;
 pub mod nedelec_assembly;
 pub mod p1;
@@ -43,6 +44,11 @@ pub use mie::{
     characteristic_te, characteristic_tm, chi, chi_prime, merged_roots, mie_roots_catalog, psi,
     psi_prime, resonance_roots, spherical_j, spherical_j_prime, spherical_y, spherical_y_prime,
     MiePolarisation, MieRoot,
+};
+pub use mie_open::{
+    characteristic_te_open, characteristic_tm_open, open_space_wgm_roots_n15, spherical_h1_c,
+    spherical_j_c, spherical_y_c, MieRootComplex, OPEN_SPACE_WGM_N, OPEN_SPACE_WGM_R_S,
+    OPEN_SPACE_WGM_TABLE_N15,
 };
 pub use nedelec::{
     batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_matrices, tet_edges,

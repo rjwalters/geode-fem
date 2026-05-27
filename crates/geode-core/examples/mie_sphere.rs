@@ -21,9 +21,15 @@
 //!
 //! # Honest scope
 //!
-//! - **Analytic side**: real-only PEC-cavity roots, NOT the complex
-//!   open-space Mie WGM positions. The latter require Hankel functions
-//!   and complex Newton iteration; tracked separately as #33.
+//! - **Analytic side**: real-only PEC-cavity roots are the primary
+//!   pairing target (multiplicity-claim logic below). The open-space
+//!   Mie WGM positions (complex `k`, outgoing-wave BC) are also
+//!   tabulated in `geode_core::OPEN_SPACE_WGM_TABLE_N15` (issue #33)
+//!   and printed as a side-by-side cross-check at the bottom of the
+//!   run — they are the physically correct ground truth, but the
+//!   PML-truncated FEM does not yet reach them tightly (~30–40 % rel
+//!   err on `Re(k)` at the bundled fixture). Tightening that gap is
+//!   the target of #35.
 //! - **FEM side**: 774-node tet mesh (the bundled refined fixture
 //!   from issue #49, bumped from the original 313 nodes), **anisotropic
 //!   UPML** (diagonal complex permittivity tensor, issue #54) over the
@@ -72,10 +78,10 @@ use geode_core::{
     apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
     assemble_global_nedelec_with_complex_epsilon, build_anisotropic_pml_tensor_diag,
     build_complex_epsilon_r_pml, burn_complex_mass_to_faer, burn_matrix_to_faer, mie_roots_catalog,
-    read_sphere_fixture, sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii,
-    tet_centroids, upload_mesh, ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver,
-    MiePolarisation, MieRoot, SparseComplexEigenSolver, SparseComplexShiftInvertLanczos, R_BUFFER,
-    R_SPHERE,
+    open_space_wgm_roots_n15, read_sphere_fixture, sphere_n_interior_nodes,
+    sphere_pec_interior_edges, tet_centroid_radii, tet_centroids, upload_mesh, ComplexEigenSolver,
+    DefaultBackend, FaerComplexEigensolver, MiePolarisation, MieRoot, SparseComplexEigenSolver,
+    SparseComplexShiftInvertLanczos, R_BUFFER, R_SPHERE,
 };
 
 type B = DefaultBackend;
@@ -599,6 +605,71 @@ fn main() {
 
     // Persist.
     write_toml(&rows, &results_path(), scalar_pml);
+
+    // Issue #33 — open-space Mie WGM cross-check.
+    //
+    // The PEC-cavity table above is the σ₀ → 0 closed-shell limit. The
+    // open-space catalog `OPEN_SPACE_WGM_TABLE_N15` is the genuinely
+    // radiative target: complex `k`, outgoing Hankel waves, no PEC
+    // outer wall. We print a side-by-side for the lowest few FEM modes
+    // so the reviewer can see the magnitude of the residual gap that
+    // tighter PML profiles (issue #35) and finer meshes need to close.
+    let open_space = open_space_wgm_roots_n15();
+    eprintln!();
+    eprintln!("=== Open-space Mie WGM cross-check (issue #33) ===");
+    eprintln!("Lowest 8 open-space WGM roots (n = 1.5, R_s = 1.0; sign convention Im(k) < 0):");
+    for r in open_space.iter().take(8) {
+        eprintln!(
+            "  {}_{},{}  k = {:.5} + {:.5e}i  Q = {:.3}",
+            pol_str(r.pol),
+            r.l,
+            r.n,
+            r.re_k,
+            r.im_k,
+            r.q()
+        );
+    }
+    eprintln!();
+    eprintln!("Closest open-space WGM for each FEM mode (by |Δk|):");
+    eprintln!(
+        "{:>3}  {:>12}  {:>11}  {:>11}  {:>12}  {:>12}",
+        "i", "mode", "FEM Re(k)", "WGM Re(k)", "rel err Re(k)", "Q ratio"
+    );
+    eprintln!("{}", "-".repeat(70));
+    for (i, fk) in fem_k.iter().enumerate() {
+        // Closest in (Re(k), |Im(k)|) Euclidean metric.
+        let best = open_space
+            .iter()
+            .min_by(|a, b| {
+                let da = (a.re_k - fk.re).hypot(a.im_k.abs() - fk.im.abs());
+                let db = (b.re_k - fk.re).hypot(b.im_k.abs() - fk.im.abs());
+                da.partial_cmp(&db).unwrap()
+            })
+            .expect("non-empty open-space catalog");
+        let fem_q = if fk.im.abs() > 1e-12 {
+            fk.re / (2.0 * fk.im.abs())
+        } else {
+            f64::INFINITY
+        };
+        let rel_err = (fk.re - best.re_k).abs() / best.re_k;
+        let q_ratio = fem_q / best.q();
+        eprintln!(
+            "{:>3}  {:>9}_{},{}  {:>11.5}  {:>11.5}  {:>11.3}%  {:>12.3}",
+            i,
+            pol_str(best.pol),
+            best.l,
+            best.n,
+            fk.re,
+            best.re_k,
+            rel_err * 100.0,
+            q_ratio
+        );
+    }
+    eprintln!();
+    eprintln!("Note: 30–40 % rel err Re(k) and large Q ratios are expected on the");
+    eprintln!("bundled fixture — the PML-truncated FEM sits between PEC cavity and");
+    eprintln!("true open space. Tightening the gap is the target of #35.");
+    eprintln!();
 
     eprintln!("=== Done ===");
 }
