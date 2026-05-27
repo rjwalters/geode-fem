@@ -540,13 +540,21 @@ fn sphere_pml_eigenmode_sigma_zero_is_real() {
         lambdas.len()
     );
 
-    // Real-spectrum tolerance: f32 readback noise from the Burn
-    // backend dominates here, so use ~1e-5 rather than f64-precision.
-    // The point of the test is to catch *systematic* imag content, not
-    // to bound floating-point arithmetic to bit-for-bit zero.
+    // Real-spectrum tolerance: in practice the observed
+    // `max |Im(λ)| / max(|Re(λ)|, 1)` runs at ~2e-13 — small
+    // eigenvalues sit at f64 machine epsilon (~1e-16) while the
+    // largest eigenvalues (|λ| ~ 3) carry imaginary noise around
+    // ~1e-13 from f64 accumulation in the eigensolve. The complex
+    // pencil collapses to a real one when σ₀ = 0, so the lack of
+    // systematic imaginary content is the property we want to
+    // guard. We bound at 1e-10 — three orders of magnitude above
+    // the observed floor — to catch any regression that introduces
+    // *systematic* imaginary content (much tighter than the old
+    // 1e-5 bound, which would not have flagged a non-trivial
+    // Im(M) leak).
     assert!(
-        max_relative_im < 1e-5,
-        "σ₀ = 0 spectrum should be real to f32 readback noise; \
+        max_relative_im < 1e-10,
+        "σ₀ = 0 spectrum should be real to f64 precision; \
          observed max |Im(λ)|/|Re(λ)| = {max_relative_im:.3e}"
     );
 }
