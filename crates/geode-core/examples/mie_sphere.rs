@@ -24,10 +24,12 @@
 //! - **Analytic side**: real-only PEC-cavity roots, NOT the complex
 //!   open-space Mie WGM positions. The latter require Hankel functions
 //!   and complex Newton iteration; tracked separately as #33.
-//! - **FEM side**: 313-node tet mesh (the bundled fixture), scalar
-//!   isotropic PML over the vacuum buffer, σ₀ = 5.0. This is coarse:
-//!   expect ~20-50 % relative error in `Re(k)` for the lowest mode
-//!   at this resolution and PML strength.
+//! - **FEM side**: 774-node tet mesh (the bundled refined fixture
+//!   from issue #49, bumped from the original 313 nodes), scalar
+//!   isotropic PML over the vacuum buffer, σ₀ = 5.0. Expect ~16 %
+//!   relative error in `Re(k)` for the lowest mode at this
+//!   resolution and PML strength — mesh refinement alone does not
+//!   reduce the PML imprint, see comments in `tests/mie_sphere.rs`.
 //! - **Driven scattering** (Q_ext, Q_sca vs. ka) remains v2.
 //!
 //! Quantitative tightening lives in follow-up issues (#33, #35, #38).
@@ -388,7 +390,9 @@ fn write_toml(rows: &[Row], path: &PathBuf) {
     );
     s.push_str("  \"Real analytic roots only; complex open-space Mie roots are a separate axis (#33).\",\n");
     s.push_str("  \"Mode classification: walk catalog by ascending k, claim 2l+1 FEM modes per analytic root.\",\n");
-    s.push_str("  \"FEM side: scalar isotropic PML, bundled 313-node fixture — coarse.\",\n");
+    s.push_str(
+        "  \"FEM side: scalar isotropic PML, bundled 774-node refined fixture (issue #49).\",\n",
+    );
     s.push_str("  \"Driven scattering benchmark (Q_ext vs. ka) is v2 (separate scope).\",\n");
     s.push_str("]\n");
     s.push('\n');
