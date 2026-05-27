@@ -156,13 +156,27 @@ cargo run -p geode-core --release --example mie_sphere
 
 This prints a comparison table and writes
 [`benchmarks/mie_sphere/results.toml`](benchmarks/mie_sphere/results.toml)
-with the lowest 5 FEM modes paired against their closest analytic
-roots. v0 of the benchmark uses the **PEC-cavity dielectric resonator**
+with the lowest 8 FEM modes paired against the extended analytic
+catalog. The benchmark uses the **PEC-cavity dielectric resonator**
 as the analytic ground truth (a closed cavity with PEC at `r = R_buffer`,
 which is the limit the FEM hits as the PML absorption strength `σ₀ → 0`);
 the open-space Mie WGM positions — which require Hankel functions and
-complex Newton iteration — are deferred to v1, as is the driven
-scattering (`Q_ext`, `Q_sca` vs. `ka`) cross-check.
+complex Newton iteration — are tracked under #33, and the driven
+scattering (`Q_ext`, `Q_sca` vs. `ka`) cross-check remains a separate
+later step.
+
+**Catalog (v1, issue #40)**: roots for angular orders `l ∈ [1, 4]`,
+both TE and TM polarisations, lowest 5 radial overtones each (~40
+entries). Each root carries its `(l, n, polarisation, multiplicity = 2l+1)`
+label.
+
+**Mode classification (v1, issue #40)**: the v0 nearest-`k` pairing
+mis-labeled the second FEM triplet (Q ≈ 1.30) as a copy of TM_1,1.
+v1 walks the catalog in ascending `k`, and for each analytic root
+claims the next `2l + 1` consecutive FEM modes (sorted by `Re(k)`),
+producing an unambiguous `(l, n, pol, m_idx)` label per mode. On the
+bundled coarse fixture this identifies the lowest 3 FEM modes as the
+TM_1,1 triplet (Q ≈ 2.1) and the next 3 as TE_1,1 (Q ≈ 1.3).
 
 The same physical problem is computed in the time domain by the sister
 project [`rjwalters/strata-fdtd`](https://github.com/rjwalters/strata-fdtd)
@@ -170,10 +184,12 @@ via FDTD; eigenfrequency-level cross-validation across the two
 discretizations is the goal of this benchmark family.
 
 The corresponding acceptance test
-(`crates/geode-core/tests/mie_sphere.rs`) asserts the lowest FEM mode's
-`Re(k)` agrees with the analytic TM_1,1 root to within 30 % at the
-bundled fixture's coarse resolution. Tightening that tolerance is the
-goal of follow-ups #33, #35, and #38.
+(`crates/geode-core/tests/mie_sphere.rs`) asserts (a) the lowest FEM
+mode's `Re(k)` agrees with the analytic TM_1,1 root to within 30 % at
+the bundled fixture's coarse resolution, and (b) the lowest TM_1,1
+triplet's median Q is above 1.5 — a regression catch for PML
+mis-configuration (σ₀ drift, mask break, vacuum-gap removal).
+Tightening the Re(k) tolerance is the goal of follow-ups #33, #35, #38.
 
 ## License
 

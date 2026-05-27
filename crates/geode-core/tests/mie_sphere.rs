@@ -40,6 +40,23 @@ use geode_core::{
     R_SPHERE,
 };
 
+/// Q-factor band lower bound for the lowest TM_1,1 triplet (issue #40).
+///
+/// **Observed (v0 main, PR #39 baseline)**: median Q ≈ 2.14 across the
+/// three FEM modes of the 2l+1 = 3-fold degenerate ground triplet.
+///
+/// **Why a band test?** A Q regression is a sensitive proxy for PML
+/// misconfiguration: drift in σ₀, an accidental break in the
+/// `r ≥ R_SPHERE` PML mask, or a vacuum-gap removal would all degrade
+/// the radiative quality factor of the lowest physical mode. Bare
+/// `Re(k)` tests do not catch these because the mesh sets the real
+/// part more tightly than σ₀ does.
+///
+/// **Band choice (1.5)**: roughly `0.7 × observed` — wide enough to
+/// absorb release-rebuild drift and minor mesh variation, narrow
+/// enough to catch a real regression (which historically halves Q).
+const Q_LOWER_BAND_TM11: f64 = 1.5;
+
 type B = DefaultBackend;
 
 #[test]
@@ -169,5 +186,155 @@ fn mie_sphere_ground_mode_within_30_percent_of_analytic() {
     assert!(
         im_k.abs() > 1e-3,
         "Im(k) = {im_k} too small — PML not coupling in"
+    );
+}
+
+#[test]
+#[ignore = "faer 0.24 gevd panics under debug-assertions; run with --release"]
+fn mie_sphere_tm11_triplet_q_above_band() {
+    // Q-factor band assertion (issue #40).
+    //
+    // Takes the three lowest physical FEM modes — which the
+    // multiplicity-claim pairing in `examples/mie_sphere.rs` assigns
+    // to the analytic TM_1,1 triplet — and asserts that their median
+    // Q is above `Q_LOWER_BAND_TM11`.
+    //
+    // A Q below this band typically indicates one of:
+    //   • PML σ₀ drift (silent regression in `build_complex_epsilon_r_pml`).
+    //   • Vacuum-gap removal between sphere surface and PML mask.
+    //   • A bug in the `r ≥ R_SPHERE` predicate driving the PML mask
+    //     (the radiative loss couples too strongly when the mask
+    //     overlaps the dielectric).
+    //
+    // We use the median (not the mean) so a single outlier from
+    // mesh asymmetry does not drag the assertion below the band.
+
+    let device = <B as BackendTypes>::Device::default();
+
+    let n_inside = 1.5;
+    let sigma_0 = 5.0;
+
+    let f = read_sphere_fixture().expect("fixture load");
+    let radii = tet_centroid_radii(&f.mesh);
+    let eps_complex = build_complex_epsilon_r_pml(&f.tet_physical_tags, &radii, n_inside, sigma_0);
+
+    let edges = f.mesh.edges();
+    let n_edges = edges.len();
+    let tet_edges_idx = f.mesh.tet_edges();
+    let tet_idx: Vec<[u32; 6]> = tet_edges_idx
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].0))
+        .collect();
+    let tet_sign: Vec<[i8; 6]> = tet_edges_idx
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].1))
+        .collect();
+
+    let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device);
+    let sys = assemble_global_nedelec_with_complex_epsilon(
+        nodes_t,
+        tets_t,
+        &tet_idx,
+        &tet_sign,
+        n_edges,
+        &eps_complex,
+    );
+
+    let (_mask_edges, interior_mask) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);
+
+    let k_full = burn_matrix_to_faer(sys.k);
+    let m_complex_full = burn_complex_mass_to_faer(sys.m_re, sys.m_im);
+    let dummy_zero = faer::Mat::<f64>::zeros(k_full.nrows(), k_full.ncols());
+    let (k_int, _) = apply_dirichlet_bc(k_full.as_ref(), dummy_zero.as_ref(), &interior_mask)
+        .expect("BC reduction K");
+    let interior_idx: Vec<usize> = interior_mask
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &b)| if b { Some(i) } else { None })
+        .collect();
+    let dim = interior_idx.len();
+    let m_int_complex = faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| {
+        m_complex_full[(interior_idx[i], interior_idx[j])]
+    });
+    let k_int_complex =
+        faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| faer::c64::new(k_int[(i, j)], 0.0));
+
+    let spurious_dim = sphere_n_interior_nodes(&f.mesh, R_BUFFER);
+    let n_request = spurious_dim + 10;
+
+    let solver = FaerComplexEigensolver;
+    let lambdas = solver
+        .smallest_complex_pencil_eigenvalues(
+            k_int_complex.as_ref(),
+            m_int_complex.as_ref(),
+            n_request,
+        )
+        .expect("complex eigensolve");
+
+    // Spurious filter — same threshold as the other test.
+    let max_abs = lambdas
+        .iter()
+        .map(|l| l.re.hypot(l.im))
+        .fold(0.0_f64, f64::max);
+    let spurious_threshold = 1e-3 * max_abs;
+    let first_physical = lambdas
+        .iter()
+        .position(|l| l.re.hypot(l.im) > spurious_threshold)
+        .expect("at least one mode above spurious threshold");
+
+    // λ → k on principal branch (Re(k) ≥ 0), sorted by Re(k).
+    let mut ks: Vec<faer::c64> = lambdas
+        .iter()
+        .skip(first_physical)
+        .take(5)
+        .map(|lam| {
+            let r = (lam.re * lam.re + lam.im * lam.im).sqrt();
+            let re_k = ((r + lam.re) / 2.0).sqrt();
+            let im_k_mag = ((r - lam.re) / 2.0).sqrt();
+            let im_k = if lam.im >= 0.0 { im_k_mag } else { -im_k_mag };
+            faer::c64::new(re_k, im_k)
+        })
+        .collect();
+    ks.sort_by(|a, b| a.re.partial_cmp(&b.re).unwrap());
+
+    // The TM_1,1 triplet is the lowest 3 modes (claimed via
+    // multiplicity = 2l+1 = 3 by the example's pairing logic).
+    assert!(
+        ks.len() >= 3,
+        "expected ≥ 3 physical modes for the TM_1,1 triplet, got {}",
+        ks.len()
+    );
+    let triplet = &ks[..3];
+    let mut qs: Vec<f64> = triplet
+        .iter()
+        .map(|k| {
+            if k.im.abs() > 1e-12 {
+                k.re / (2.0 * k.im.abs())
+            } else {
+                f64::INFINITY
+            }
+        })
+        .collect();
+    qs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let q_median = qs[1];
+
+    // Cross-check: the TM_1,1 analytic root is the merged-roots ground.
+    let analytic = merged_roots(n_inside, &[1, 2, 3], R_SPHERE, R_BUFFER, 3);
+    let ground = analytic
+        .iter()
+        .min_by(|a, b| a.k.partial_cmp(&b.k).unwrap())
+        .expect("at least one analytic root");
+    assert_eq!(ground.pol, MiePolarisation::TM);
+    assert_eq!(ground.l, 1);
+
+    eprintln!(
+        "TM_1,1 triplet Q values (sorted): [{:.3}, {:.3}, {:.3}], median = {:.3}",
+        qs[0], qs[1], qs[2], q_median
+    );
+
+    assert!(
+        q_median > Q_LOWER_BAND_TM11,
+        "TM_1,1 triplet median Q = {q_median:.3} below band {Q_LOWER_BAND_TM11:.2} \
+         — likely PML σ₀ drift, mask break, or vacuum-gap removal"
     );
 }

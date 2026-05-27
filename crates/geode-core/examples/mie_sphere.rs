@@ -1,26 +1,35 @@
 //! Mie-sphere benchmark — FEM eigenmodes vs. analytic PEC-cavity
 //! dielectric-sphere resonance roots (issue #4, north-star deliverable).
 //!
-//! This is the **v0** cut: the analytic ground truth is the
-//! PEC-outer-wall dielectric resonator (`geode_core::mie`), and the
-//! FEM result is the scalar-PML eigenspectrum produced by
-//! `assemble_global_nedelec_with_complex_epsilon` on the bundled
-//! sphere fixture (the same physical setup as `tests/sphere_pml_*`).
+//! **v1** (issue #40 hardening of the v0 in PR #39):
+//!
+//! - **Extended analytic catalog**: roots for `l ∈ [1, L_MAX]`, both TE
+//!   and TM polarisations, lowest `N_MAX` radial overtones each — about
+//!   40 entries in the [0.1, 20] `k` window. Computed via the same
+//!   Newton+bisection scheme as v0, with Miller's downward recurrence
+//!   for the spherical Bessel `j_l` at high `l` / small `x`.
+//! - **Multiplicity-claim pairing**: walks the catalog in ascending-`k`
+//!   order. For each analytic root, claims the next `2 l + 1` FEM
+//!   modes (sorted by `Re(k)`) and labels each one with its slot
+//!   `m_idx ∈ [0, 2l]` within the magnetic-degeneracy multiplet. v0
+//!   used nearest-`k` pairing which mis-labeled the second FEM
+//!   triplet as TM_1,1; v1 correctly identifies it as TE_1,1.
+//! - **Im(k) banding sanity check**: within a claimed multiplet, the
+//!   per-mode Q's should be within ~10 % of each other. We log
+//!   violations as informational notes (mesh asymmetry routinely
+//!   breaks the band on the bundled fixture).
 //!
 //! # Honest scope
 //!
-//! - **Analytic side**: real-only PEC-cavity roots, NOT the
-//!   complex open-space Mie WGM positions. The latter require Hankel
-//!   functions and complex Newton iteration; v1.
+//! - **Analytic side**: real-only PEC-cavity roots, NOT the complex
+//!   open-space Mie WGM positions. The latter require Hankel functions
+//!   and complex Newton iteration; tracked separately as #33.
 //! - **FEM side**: 313-node tet mesh (the bundled fixture), scalar
 //!   isotropic PML over the vacuum buffer, σ₀ = 5.0. This is coarse:
 //!   expect ~20-50 % relative error in `Re(k)` for the lowest mode
 //!   at this resolution and PML strength.
-//! - **Driven scattering** (Q_ext, Q_sca vs. ka) is **v1** — see
-//!   issue #4 owner comment of 2026-05-26.
+//! - **Driven scattering** (Q_ext, Q_sca vs. ka) remains v2.
 //!
-//! The point of v0 is to **wire up the full comparison pipeline** in
-//! one program, write the table out, and have a starting baseline.
 //! Quantitative tightening lives in follow-up issues (#33, #35, #38).
 //!
 //! # Running
@@ -43,7 +52,7 @@ use burn::tensor::backend::BackendTypes;
 
 use geode_core::{
     apply_dirichlet_bc, assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
-    burn_complex_mass_to_faer, burn_matrix_to_faer, merged_roots, read_sphere_fixture,
+    burn_complex_mass_to_faer, burn_matrix_to_faer, mie_roots_catalog, read_sphere_fixture,
     sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii, upload_mesh,
     ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, MieRoot, R_BUFFER,
     R_SPHERE,
@@ -59,14 +68,32 @@ const N_INSIDE: f64 = 1.5;
 const SIGMA_0: f64 = 5.0;
 
 /// Number of physical FEM modes to compare (above the gradient nullspace).
-const N_MODES: usize = 5;
+///
+/// Bumped to 8 (v0 was 5) so the consecutive-multiplicity claim walks
+/// at least two full analytic groups: the 3-fold TM_1,1 triplet
+/// plus another (l, n, pol) cluster above it.
+const N_MODES: usize = 8;
+
+/// Maximum angular order in the analytic catalog (issue #40).
+const L_MAX: usize = 4;
+/// Maximum radial order per `(l, pol)` in the analytic catalog.
+const N_MAX: usize = 5;
 
 /// Result for a single benchmark row.
+///
+/// Each row records one FEM eigenmode together with the analytic
+/// `(l, n, polarisation)` group it was claimed into and which slot
+/// within the `2 l + 1` magnetic-degeneracy multiplet it occupies.
 #[derive(Debug, Clone)]
 struct Row {
     pol: &'static str,
     l: usize,
     n: usize,
+    /// Slot within the `2 l + 1` degenerate group (0-indexed).
+    m_idx: usize,
+    /// True if the FEM spectrum ran out before the full multiplicity
+    /// was filled.
+    incomplete: bool,
     analytic_k: f64,
     fem_re_k: f64,
     fem_im_k: f64,
@@ -218,60 +245,119 @@ fn fem_complex_k() -> Vec<faer::c64> {
         .collect()
 }
 
-fn pair_modes(analytic: &[MieRoot], fem: &[faer::c64]) -> Vec<Row> {
-    let mut rows = Vec::new();
-    for fem_k in fem {
-        // Find closest analytic root by |Re(k)|.
-        let (idx, best) = analytic
-            .iter()
-            .enumerate()
-            .min_by(|a, b| {
-                let da = (a.1.k - fem_k.re).abs();
-                let db = (b.1.k - fem_k.re).abs();
-                da.partial_cmp(&db).unwrap()
-            })
-            .expect("at least one analytic root");
-        let _ = idx;
-        let rel_err = (fem_k.re - best.k).abs() / best.k;
-        let q = if fem_k.im.abs() > 1e-12 {
-            fem_k.re / (2.0 * fem_k.im.abs())
-        } else {
-            f64::INFINITY
-        };
-        rows.push(Row {
-            pol: pol_str(best.pol),
-            l: best.l,
-            n: best.n,
-            analytic_k: best.k,
-            fem_re_k: fem_k.re,
-            fem_im_k: fem_k.im,
-            rel_err_re_k: rel_err,
-            q,
-        });
+/// Compute the Q factor of a complex `k`: `Q = Re(k) / (2 |Im(k)|)`.
+fn q_factor(k: faer::c64) -> f64 {
+    if k.im.abs() > 1e-12 {
+        k.re / (2.0 * k.im.abs())
+    } else {
+        f64::INFINITY
     }
+}
+
+/// Multiplicity-aware mode-claim pairing (issue #40).
+///
+/// Walks the analytic catalog in ascending-`k` order. For each root,
+/// claims the next `multiplicity = 2 l + 1` FEM modes (in sorted `Re(k)`
+/// order) and labels each one with its slot index `m_idx ∈ [0, 2l]`.
+///
+/// If fewer than `multiplicity` FEM modes remain when a group is
+/// reached, the row is still emitted with `incomplete = true`. This
+/// is informational, never panicking.
+///
+/// Im(k) banding tiebreaker is currently a soft sanity check: within
+/// each claimed group we record the median `Im(k)` and warn if the
+/// per-slot spread exceeds ~10 % of that median. The FEM coarse
+/// fixture often violates this band (mesh asymmetry), so the message
+/// is logged but not enforced.
+fn pair_modes(analytic: &[MieRoot], fem: &[faer::c64]) -> Vec<Row> {
+    // Sort FEM modes by Re(k) so consecutive claims are well-defined.
+    let mut fem_sorted: Vec<faer::c64> = fem.to_vec();
+    fem_sorted.sort_by(|a, b| a.re.partial_cmp(&b.re).unwrap());
+
+    let mut rows = Vec::new();
+    let mut cursor = 0_usize;
+
+    for root in analytic {
+        if cursor >= fem_sorted.len() {
+            break;
+        }
+        let mult = root.multiplicity;
+        let take = mult.min(fem_sorted.len() - cursor);
+        let group = &fem_sorted[cursor..cursor + take];
+        let incomplete = take < mult;
+
+        // Im(k) banding diagnostic: report the relative spread of the
+        // damping across this claimed multiplet.
+        if group.len() >= 2 {
+            let ims: Vec<f64> = group.iter().map(|k| k.im.abs()).collect();
+            let im_min = ims.iter().cloned().fold(f64::INFINITY, f64::min);
+            let im_max = ims.iter().cloned().fold(0.0_f64, f64::max);
+            let band = if im_min > 0.0 {
+                (im_max - im_min) / im_min
+            } else {
+                f64::INFINITY
+            };
+            if band > 0.10 {
+                eprintln!(
+                    "  note: {}_{},{} multiplet Im(k) band = {:.1}% > 10% (mesh asymmetry)",
+                    pol_str(root.pol),
+                    root.l,
+                    root.n,
+                    band * 100.0
+                );
+            }
+        }
+
+        for (slot, fem_k) in group.iter().enumerate() {
+            let rel_err = (fem_k.re - root.k).abs() / root.k;
+            rows.push(Row {
+                pol: pol_str(root.pol),
+                l: root.l,
+                n: root.n,
+                m_idx: slot,
+                incomplete,
+                analytic_k: root.k,
+                fem_re_k: fem_k.re,
+                fem_im_k: fem_k.im,
+                rel_err_re_k: rel_err,
+                q: q_factor(*fem_k),
+            });
+        }
+
+        cursor += take;
+    }
+
     rows
 }
 
 fn print_table(rows: &[Row]) {
     eprintln!();
     eprintln!(
-        "{:>3}  {:>9}  {:>11}  {:>11}  {:>11}  {:>12}  {:>10}",
-        "i", "mode", "analytic k", "FEM Re(k)", "FEM Im(k)", "rel err Re(k)", "Q"
+        "{:>3}  {:>12}  {:>4}  {:>11}  {:>11}  {:>11}  {:>12}  {:>10}",
+        "i", "mode", "m", "analytic k", "FEM Re(k)", "FEM Im(k)", "rel err Re(k)", "Q"
     );
-    eprintln!("{}", "-".repeat(3 + 9 + 11 + 11 + 11 + 12 + 10 + 6 * 2));
+    eprintln!(
+        "{}",
+        "-".repeat(3 + 12 + 4 + 11 + 11 + 11 + 12 + 10 + 7 * 2)
+    );
     for (i, r) in rows.iter().enumerate() {
+        let label = format!("{}_{},{}", r.pol, r.l, r.n);
+        let suffix = if r.incomplete { "*" } else { " " };
         eprintln!(
-            "{:>3}  {:>3}_{},{:<3}  {:>11.5}  {:>11.5}  {:>11.5e}  {:>12.3}%  {:>10.3e}",
+            "{:>3}  {:>11}{}  {:>4}  {:>11.5}  {:>11.5}  {:>11.5e}  {:>12.3}%  {:>10.3e}",
             i,
-            r.pol,
-            r.l,
-            r.n,
+            label,
+            suffix,
+            r.m_idx,
             r.analytic_k,
             r.fem_re_k,
             r.fem_im_k,
             r.rel_err_re_k * 100.0,
             r.q,
         );
+    }
+    if rows.iter().any(|r| r.incomplete) {
+        eprintln!("  (* = analytic multiplicity not fully filled by FEM modes)");
     }
     eprintln!();
 }
@@ -287,20 +373,23 @@ fn write_toml(rows: &[Row], path: &PathBuf) {
     s.push('\n');
 
     s.push_str("[meta]\n");
-    s.push_str("description = \"Mie sphere benchmark (issue #4 v0): FEM eigenmodes vs. analytic PEC-cavity dielectric-sphere resonance roots.\"\n");
+    s.push_str("description = \"Mie sphere benchmark (issue #4 v1, issue #40): FEM eigenmodes vs. extended analytic PEC-cavity catalog (l ∈ [1,4], TE+TM, n ∈ [1,5]) with multiplicity-claim mode classification.\"\n");
     s.push_str(&format!("generated_at_commit = \"{commit}\"\n"));
     s.push_str(&format!("n_inside = {}\n", N_INSIDE));
     s.push_str(&format!("sigma_0 = {}\n", SIGMA_0));
     s.push_str(&format!("r_sphere = {}\n", R_SPHERE));
     s.push_str(&format!("r_buffer = {}\n", R_BUFFER));
     s.push_str(&format!("n_modes = {}\n", N_MODES));
+    s.push_str(&format!("l_max = {}\n", L_MAX));
+    s.push_str(&format!("n_max_radial = {}\n", N_MAX));
     s.push_str("notes = [\n");
     s.push_str(
-        "  \"v0: analytic side is PEC-cavity dielectric resonator, not open-space Mie WGM.\",\n",
+        "  \"Analytic side is PEC-cavity dielectric resonator, not open-space Mie WGM.\",\n",
     );
-    s.push_str("  \"v0: real analytic roots only; complex Mie roots are v1.\",\n");
+    s.push_str("  \"Real analytic roots only; complex open-space Mie roots are a separate axis (#33).\",\n");
+    s.push_str("  \"Mode classification: walk catalog by ascending k, claim 2l+1 FEM modes per analytic root.\",\n");
     s.push_str("  \"FEM side: scalar isotropic PML, bundled 313-node fixture — coarse.\",\n");
-    s.push_str("  \"Driven scattering benchmark (Q_ext vs. ka) is v1.\",\n");
+    s.push_str("  \"Driven scattering benchmark (Q_ext vs. ka) is v2 (separate scope).\",\n");
     s.push_str("]\n");
     s.push('\n');
 
@@ -309,6 +398,8 @@ fn write_toml(rows: &[Row], path: &PathBuf) {
         s.push_str(&format!("polarisation = \"{}\"\n", r.pol));
         s.push_str(&format!("l = {}\n", r.l));
         s.push_str(&format!("n = {}\n", r.n));
+        s.push_str(&format!("m_idx = {}\n", r.m_idx));
+        s.push_str(&format!("incomplete = {}\n", r.incomplete));
         s.push_str(&format!("analytic_k = {:.15e}\n", r.analytic_k));
         s.push_str(&format!("fem_re_k = {:.15e}\n", r.fem_re_k));
         s.push_str(&format!("fem_im_k = {:.15e}\n", r.fem_im_k));
@@ -323,7 +414,7 @@ fn write_toml(rows: &[Row], path: &PathBuf) {
 }
 
 fn main() {
-    eprintln!("=== Mie sphere benchmark (issue #4 v0) ===");
+    eprintln!("=== Mie sphere benchmark (issue #4 v1, issue #40) ===");
     eprintln!();
     eprintln!(
         "Fixture geometry: R_sphere = {R_SPHERE}, R_buffer = {R_BUFFER}, n_inside = {N_INSIDE}",
@@ -331,19 +422,26 @@ fn main() {
     eprintln!("PML absorption: σ₀ = {SIGMA_0}");
     eprintln!();
 
-    // Analytic ground truth: lowest TE + TM roots for l ∈ {1, 2, 3}.
-    // The merged list is sorted by k, so the lowest `2 * N_MODES`
-    // entries cover the FEM spectrum window with margin.
-    let analytic = merged_roots(N_INSIDE, &[1, 2, 3], R_SPHERE, R_BUFFER, N_MODES);
-    eprintln!("Lowest analytic roots (PEC-cavity dielectric resonator):");
-    for r in &analytic {
+    // Analytic ground truth: extended catalog with l ∈ [1, L_MAX],
+    // both TE and TM polarisations, lowest N_MAX radial overtones each.
+    // Each MieRoot carries its (l, n, pol, multiplicity = 2l+1) label.
+    let analytic = mie_roots_catalog(N_INSIDE, L_MAX, N_MAX);
+    eprintln!(
+        "Analytic catalog: {} roots over l ∈ [1, {}], TE+TM, n ∈ [1, {}]",
+        analytic.len(),
+        L_MAX,
+        N_MAX
+    );
+    eprintln!("Lowest 12 analytic roots (PEC-cavity dielectric resonator):");
+    for r in analytic.iter().take(12) {
         eprintln!(
-            "  {}_{},{}  k = {:.5}  k² = {:.5}",
+            "  {}_{},{}  k = {:.5}  k² = {:.5}  mult = {}",
             pol_str(r.pol),
             r.l,
             r.n,
             r.k,
-            r.k * r.k
+            r.k * r.k,
+            r.multiplicity,
         );
     }
 

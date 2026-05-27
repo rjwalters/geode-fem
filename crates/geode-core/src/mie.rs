@@ -67,12 +67,28 @@ pub struct MieRoot {
     /// Resonance position `k` (units: inverse length, same units as
     /// `R_s`, `R_b`).
     pub k: f64,
+    /// Magnetic-quantum-number degeneracy = `2 l + 1`. For each
+    /// `(l, n, polarisation)` the cavity supports this many independent
+    /// eigenfunctions (`m = -l, …, +l`) sharing the same `k`. The FEM
+    /// solver lifts this degeneracy slightly via mesh asymmetry.
+    pub multiplicity: usize,
 }
 
 /// Spherical Bessel function `j_l(x)` of the first kind, real arg.
 ///
-/// Closed forms for `l = 0, 1`; upward recurrence for `l ≥ 2`. Stable
-/// for `x ≳ l` (the regime we evaluate in).
+/// Uses two strategies based on the relative size of `l` and `x`:
+///
+/// - **Upward recurrence** `j_l = (2l-1)/x · j_{l-1} - j_{l-2}` when
+///   `l ≤ x + 1`. Stable in this regime, and matches the original v0
+///   path so the existing roots for `l = 1, 2` are bit-identical.
+/// - **Miller's downward recurrence** when `l > x + 1`. Upward
+///   recurrence in this regime amplifies the irregular `y_l`
+///   contamination by a factor `~ ((2l)!/(2x)^l)²` per step, so we
+///   instead start at a high index `l_start` with the seed
+///   `j_{l_start+1} = 0, j_{l_start} = 1`, recurse downward, then
+///   normalise against the known closed form `j_0(x) = sin(x)/x`.
+///   `l_start = l + 20` and the canonical 1 / scale renormalisation
+///   give 12-digit accuracy across the catalog range (NR §6.5).
 pub fn spherical_j(l: usize, x: f64) -> f64 {
     if x.abs() < 1e-14 {
         return if l == 0 { 1.0 } else { 0.0 };
@@ -87,14 +103,62 @@ pub fn spherical_j(l: usize, x: f64) -> f64 {
     if l == 1 {
         return j1;
     }
-    let mut prev = j0;
-    let mut curr = j1;
-    for k in 2..=l {
-        let next = ((2 * k - 1) as f64) / x * curr - prev;
-        prev = curr;
-        curr = next;
+
+    // Upward recurrence regime: stable when `l ≤ x`.
+    if (l as f64) <= x.abs() + 1.0 {
+        let mut prev = j0;
+        let mut curr = j1;
+        for k in 2..=l {
+            let next = ((2 * k - 1) as f64) / x * curr - prev;
+            prev = curr;
+            curr = next;
+        }
+        return curr;
     }
-    curr
+
+    // Downward (Miller's) recurrence: seed with `j_{l_start+1} = 0`,
+    // `j_{l_start} = 1` (unnormalised), recurse downward using
+    // `j_{k-1} = (2k+1)/x · j_k - j_{k+1}` and normalise against the
+    // closed form `j_0(x) = sin(x)/x`.
+    let l_start = l + 20;
+    // `j_high = j_{k}`, `j_higher = j_{k+1}` at the top of each loop.
+    let mut j_higher = 0.0_f64;
+    let mut j_high = 1.0_f64;
+    // Snapshots at the rungs we care about.
+    let mut at_target = if l == l_start { Some(j_high) } else { None };
+    let mut at_zero: Option<f64> = None;
+    // Walk k = l_start, l_start - 1, …, 1; the body computes
+    // `j_{k-1}` and slides the window down.
+    for k in (1..=l_start).rev() {
+        let j_low = ((2 * k + 1) as f64) / x * j_high - j_higher;
+        // Slide.
+        j_higher = j_high;
+        j_high = j_low;
+        // Capture before any rescale so the ratio target/zero is
+        // preserved.
+        if k - 1 == l {
+            at_target = Some(j_high);
+        }
+        if k - 1 == 0 {
+            at_zero = Some(j_high);
+        }
+        // Rescale all live state if any element gets large.
+        let scale = j_high.abs().max(j_higher.abs());
+        if scale > 1e100 {
+            j_high /= scale;
+            j_higher /= scale;
+            if let Some(t) = at_target.as_mut() {
+                *t /= scale;
+            }
+            if let Some(z) = at_zero.as_mut() {
+                *z /= scale;
+            }
+        }
+    }
+    let target = at_target.expect("target rung visited");
+    let zero = at_zero.expect("k=0 rung visited");
+    // Normalise: true j_0(x) = sin(x)/x = j0.
+    target * (j0 / zero)
 }
 
 /// Spherical Bessel function `y_l(x)` of the second kind, real arg.
@@ -327,6 +391,7 @@ pub fn resonance_roots(
             l,
             n: idx + 1,
             k,
+            multiplicity: 2 * l + 1,
         })
         .collect()
 }
@@ -338,6 +403,37 @@ pub fn merged_roots(n: f64, l_set: &[usize], r_s: f64, r_b: f64, n_max: usize) -
     for &l in l_set {
         all.extend(resonance_roots(MiePolarisation::TE, n, l, r_s, r_b, n_max));
         all.extend(resonance_roots(MiePolarisation::TM, n, l, r_s, r_b, n_max));
+    }
+    all.sort_by(|a, b| a.k.partial_cmp(&b.k).unwrap());
+    all
+}
+
+/// Extended analytic catalog for issue #40 mode classification.
+///
+/// Returns the lowest `n_max` roots for every `(l, polarisation)`
+/// combination with `l ∈ [1, l_max]`, sorted globally by ascending
+/// `k`. Each [`MieRoot`] carries its full `(l, n, pol, multiplicity)`
+/// label so the FEM-side pairing logic in `examples/mie_sphere.rs`
+/// can walk the catalog in `k` order and claim `2l+1` consecutive
+/// FEM modes per analytic resonance.
+///
+/// Geometry is the bundled fixture (`R_SPHERE`, `R_BUFFER`); `m` is
+/// the dielectric refractive-index contrast (the variable name `m`
+/// follows the issue spec — internally we pass it through as the
+/// `n` parameter of [`resonance_roots`], not to be confused with the
+/// magnetic quantum number).
+pub fn mie_roots_catalog(m: f64, l_max: usize, n_max: usize) -> Vec<MieRoot> {
+    assert!(m > 0.0);
+    assert!(l_max >= 1);
+    assert!(n_max >= 1);
+
+    let r_s = crate::mesh::R_SPHERE;
+    let r_b = crate::mesh::R_BUFFER;
+
+    let mut all = Vec::new();
+    for l in 1..=l_max {
+        all.extend(resonance_roots(MiePolarisation::TE, m, l, r_s, r_b, n_max));
+        all.extend(resonance_roots(MiePolarisation::TM, m, l, r_s, r_b, n_max));
     }
     all.sort_by(|a, b| a.k.partial_cmp(&b.k).unwrap());
     all
@@ -398,6 +494,49 @@ mod tests {
             (k - 4.4934).abs() < 1e-2,
             "n=1 vacuum TE_1 ground k = {k}, expected ≈ 4.4934 (first zero of j_1)"
         );
+    }
+
+    #[test]
+    fn spherical_j_miller_downward_matches_closed_form_l3() {
+        // l = 3 closed form (Wikipedia): j_3(x) = (15/x^3 - 6/x) sin(x)/x
+        //                                    - (15/x^2 - 1) cos(x)/x.
+        for &x in &[0.5_f64, 1.0, 1.3, 1.5, 2.0, 3.0] {
+            let s = x.sin();
+            let c = x.cos();
+            let closed = (15.0 / x.powi(3) - 6.0 / x) * s / x - (15.0 / x.powi(2) - 1.0) * c / x;
+            let got = spherical_j(3, x);
+            assert!(
+                (closed - got).abs() < 1e-10,
+                "j_3({x}): closed = {closed}, miller = {got}, err = {}",
+                (closed - got).abs()
+            );
+        }
+    }
+
+    #[test]
+    fn spherical_j_small_x_high_l_is_finite_and_small() {
+        // For x ≪ l, j_l(x) ≈ x^l / (2l+1)!! — tiny but non-NaN.
+        for l in 2..=5_usize {
+            let x = 0.3;
+            let val = spherical_j(l, x);
+            assert!(val.is_finite(), "j_{l}({x}) = {val}");
+            assert!(val.abs() < 1.0, "j_{l}({x}) should be ≪ 1: got {val}");
+        }
+    }
+
+    #[test]
+    fn mie_roots_catalog_has_expected_extent() {
+        let cat = mie_roots_catalog(1.5, 3, 3);
+        // 2 polarisations × 3 angular orders × 3 radial orders.
+        assert_eq!(cat.len(), 2 * 3 * 3);
+        for r in &cat {
+            assert!(r.k > 0.0 && r.k.is_finite(), "bad root: {r:?}");
+            assert_eq!(r.multiplicity, 2 * r.l + 1);
+        }
+        // Sorted globally by k.
+        for w in cat.windows(2) {
+            assert!(w[0].k <= w[1].k);
+        }
     }
 
     #[test]

@@ -4,24 +4,29 @@
 # Consumed by `tests/mie_sphere.rs` and the README cross-link.
 
 [meta]
-description = "Mie sphere benchmark (issue #4 v0): FEM eigenmodes vs. analytic PEC-cavity dielectric-sphere resonance roots."
-generated_at_commit = "06db02f726f5eab36cdb50d72233ec37002c9d78"
+description = "Mie sphere benchmark (issue #4 v1, issue #40): FEM eigenmodes vs. extended analytic PEC-cavity catalog (l ∈ [1,4], TE+TM, n ∈ [1,5]) with multiplicity-claim mode classification."
+generated_at_commit = "5396fb4ba762a456889fd0d1c4bb9ffac533ff8a"
 n_inside = 1.5
 sigma_0 = 5
 r_sphere = 1
 r_buffer = 2
-n_modes = 5
+n_modes = 8
+l_max = 4
+n_max_radial = 5
 notes = [
-  "v0: analytic side is PEC-cavity dielectric resonator, not open-space Mie WGM.",
-  "v0: real analytic roots only; complex Mie roots are v1.",
+  "Analytic side is PEC-cavity dielectric resonator, not open-space Mie WGM.",
+  "Real analytic roots only; complex open-space Mie roots are a separate axis (#33).",
+  "Mode classification: walk catalog by ascending k, claim 2l+1 FEM modes per analytic root.",
   "FEM side: scalar isotropic PML, bundled 313-node fixture — coarse.",
-  "Driven scattering benchmark (Q_ext vs. ka) is v1.",
+  "Driven scattering benchmark (Q_ext vs. ka) is v2 (separate scope).",
 ]
 
 [mode_0]
 polarisation = "TM"
 l = 1
 n = 1
+m_idx = 0
+incomplete = false
 analytic_k = 1.303434130274992e0
 fem_re_k = 9.767692068720364e-1
 fem_im_k = 2.376316520534408e-1
@@ -32,6 +37,8 @@ q = 2.055216968008057e0
 polarisation = "TM"
 l = 1
 n = 1
+m_idx = 1
+incomplete = false
 analytic_k = 1.303434130274992e0
 fem_re_k = 9.976574242831773e-1
 fem_im_k = 2.330815682112031e-1
@@ -42,6 +49,8 @@ q = 2.140146541701586e0
 polarisation = "TM"
 l = 1
 n = 1
+m_idx = 2
+incomplete = false
 analytic_k = 1.303434130274992e0
 fem_re_k = 1.007808045363144e0
 fem_im_k = 2.338648142096668e-1
@@ -49,22 +58,62 @@ rel_err_re_k = 2.268055424093259e-1
 q = 2.154680790201331e0
 
 [mode_3]
-polarisation = "TM"
+polarisation = "TE"
 l = 1
 n = 1
-analytic_k = 1.303434130274992e0
+m_idx = 0
+incomplete = false
+analytic_k = 1.889433359545106e0
 fem_re_k = 1.353507841096154e0
 fem_im_k = 5.195302183921454e-1
-rel_err_re_k = 3.841675590510849e-2
+rel_err_re_k = 2.836435144650882e-1
 q = 1.302626674233716e0
 
 [mode_4]
-polarisation = "TM"
+polarisation = "TE"
 l = 1
 n = 1
-analytic_k = 1.303434130274992e0
+m_idx = 1
+incomplete = false
+analytic_k = 1.889433359545106e0
 fem_re_k = 1.359688666011950e0
 fem_im_k = 5.200636895559044e-1
-rel_err_re_k = 4.315871008003303e-2
+rel_err_re_k = 2.803722559766254e-1
 q = 1.307232838321228e0
+
+[mode_5]
+polarisation = "TE"
+l = 1
+n = 1
+m_idx = 2
+incomplete = false
+analytic_k = 1.889433359545106e0
+fem_re_k = 1.365479790243979e0
+fem_im_k = 5.310823549792577e-1
+rel_err_re_k = 2.773072501627006e-1
+q = 1.285563131067789e0
+
+[mode_6]
+polarisation = "TM"
+l = 2
+n = 1
+m_idx = 0
+incomplete = true
+analytic_k = 1.890736585383276e0
+fem_re_k = 1.382084717902614e0
+fem_im_k = 5.237164430865181e-1
+rel_err_re_k = 2.690231264433653e-1
+q = 1.319497159338086e0
+
+[mode_7]
+polarisation = "TM"
+l = 2
+n = 1
+m_idx = 1
+incomplete = true
+analytic_k = 1.890736585383276e0
+fem_re_k = 1.387628643656011e0
+fem_im_k = 5.350636869619039e-1
+rel_err_re_k = 2.660909751345816e-1
+q = 1.296694839762887e0
 
