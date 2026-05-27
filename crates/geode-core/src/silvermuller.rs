@@ -41,14 +41,35 @@
 //! ```
 //!
 //! with `N_e = λ_a ∇λ_b - λ_b ∇λ_a` the 2D Whitney basis on the
-//! triangle (in-plane gradients of barycentric coords). We evaluate
-//! this with a **single centroid quadrature point**: the integrand is
-//! piecewise-linear in barycentric coords (one `λ` factor times one
-//! constant gradient), so a 1-point rule at `λ_k = 1/3` is exact up
-//! to the linear part and produces a clean rank-1-style contribution.
-//! Higher-order quadrature would be exact, but the centroid rule is
-//! what the issue spec recommends for v0 (it's also the natural
-//! choice for the flat-triangle Whitney form).
+//! triangle (in-plane gradients of barycentric coords). The integrand
+//! `N_i · N_j` is **degree-2 polynomial** in barycentric coordinates
+//! (each Whitney basis is degree-1, the inner product is degree-2),
+//! so we evaluate it with the **3-point edge-midpoint quadrature**
+//! (Hammer-Stroud, degree-2 exact):
+//!
+//! ```text
+//! ∫_T f(λ) dA ≈ (area / 3) · [f(m_01) + f(m_02) + f(m_12)]
+//! ```
+//!
+//! where `m_ab` is the midpoint of local edge `(v_a, v_b)`. This rule
+//! is degree-2 exact on the standard reference triangle (vs. the
+//! 1-point centroid rule shipped in PR #34, which is only degree-1
+//! exact and produced per-edge biases of factor 5/6 on the diagonal
+//! `(0,1)` and 2/3 on `(1,2)` — see issue #35). The implementation
+//! is verified against the closed-form face mass on the unit right
+//! triangle to f64 precision; see the `face_mass_matches_analytic`
+//! unit test below.
+//!
+//! # Why the BAC-CAB rank reduction is valid here
+//!
+//! For first-order Nédélec on a **flat** triangle, the basis traces
+//! `N_e` lie entirely in the triangle plane: `N_e = λ_a ∇λ_b - λ_b ∇λ_a`,
+//! and both `∇λ_a` and `∇λ_b` are tangent to the face (they're the
+//! 2D gradients of barycentric coords). With `u, v` both tangent and
+//! `n` the unit normal, `n·u = n·v = 0`, so
+//! `(n × u) · (n × v) = (n·n)(u·v) - (n·u)(n·v) = u · v`. This
+//! identity fails for curved faces (where the basis acquires a
+//! normal component); we only use flat-faceted meshes.
 //!
 //! # Sign convention
 //!
@@ -104,10 +125,9 @@ use crate::mesh::TetMesh;
 ///
 /// # Implementation
 ///
-/// One 1-point centroid quadrature per face is used (see module docs
-/// for why this is exact for first-order Whitney on flat triangles).
-/// The 3×3 face contribution is built dense and scattered with the
-/// global edge sign on each axis.
+/// 3-point edge-midpoint quadrature (Hammer-Stroud, degree-2 exact)
+/// per face — see module docs. The 3×3 face contribution is built
+/// dense and scattered with the global edge sign on each axis.
 pub fn assemble_silver_muller_surface(
     mesh: &TetMesh,
     boundary_triangles: &[[u32; 3]],
@@ -160,9 +180,15 @@ pub fn assemble_silver_muller_surface(
 const TRI_LOCAL_EDGES: [(usize, usize); 3] = [(0, 1), (0, 2), (1, 2)];
 
 /// Build the 3×3 face contribution `S^face_{ij} = ∫_T N_i · N_j dA`
-/// using 1-point centroid quadrature on the first-order Whitney 1-form
-/// basis of a flat triangle, and the matching `(global_edge_idx, sign)`
-/// for each of the three local edges.
+/// using the 3-point edge-midpoint quadrature (Hammer-Stroud, degree-2
+/// exact) on the first-order Whitney 1-form basis of a flat triangle,
+/// and the matching `(global_edge_idx, sign)` for each of the three
+/// local edges.
+///
+/// The integrand `N_i · N_j` is exactly quadratic in barycentric
+/// coordinates, so the 3-point edge-midpoint rule reproduces the
+/// analytic face mass to floating-point precision. See the
+/// `face_mass_matches_analytic` unit test.
 fn face_silver_muller_block(
     tri: &[u32; 3],
     v: &[[f64; 3]; 3],
@@ -198,18 +224,12 @@ fn face_silver_muller_block(
         scale3(cross3(n_hat, opp[2]), 1.0 / two_area),
     ];
 
-    // Whitney basis at centroid: λ_a = λ_b = 1/3 for all k.
-    //   N_e(c) = λ_a · ∇λ_b - λ_b · ∇λ_a = (1/3) (∇λ_b - ∇λ_a).
-    // Sign + global-edge mapping comes from comparing the global node
-    // tags of the local edge endpoints (lower-tag first).
-    let mut basis_c: [[f64; 3]; 3] = [[0.0; 3]; 3];
+    // Compute the global-edge mapping and orientation sign for each
+    // local triangle edge. Sign + global-edge mapping comes from
+    // comparing the global node tags of the local edge endpoints
+    // (lower-tag first), matching the volume assembly convention.
     let mut edge_info: [(u32, i8); 3] = [(0, 1); 3];
     for (k, &(la, lb)) in TRI_LOCAL_EDGES.iter().enumerate() {
-        // local-vertex direction la -> lb.
-        let n_local = scale3(sub3(grad_lambda[lb], grad_lambda[la]), 1.0 / 3.0);
-        basis_c[k] = n_local;
-
-        // global-edge orientation: lower tag first.
         let ga = tri[la];
         let gb = tri[lb];
         let (lo, hi, sign) = if ga < gb {
@@ -223,13 +243,40 @@ fn face_silver_muller_block(
         edge_info[k] = (gidx, sign);
     }
 
-    // S^face_{ij} ≈ area · N_i(c) · N_j(c)  (1-point centroid rule).
+    // 3-point edge-midpoint quadrature (Hammer-Stroud, degree-2 exact):
+    //   ∫_T f dA ≈ (area/3) · [f(m_01) + f(m_02) + f(m_12)]
+    // where m_ab is the midpoint of local edge (la, lb). In barycentric
+    // coords this is λ_la = λ_lb = 1/2, λ_other = 0.
+    //
+    // We evaluate the 3 Whitney basis functions at each of the 3 edge
+    // midpoints, then sum the outer products.
+    //
+    // BARYCENTRIC_MIDPOINTS[q][k] = value of λ_k at quadrature point q.
+    // q=0 → midpoint of edge (0,1), q=1 → edge (0,2), q=2 → edge (1,2).
+    const BARYCENTRIC_MIDPOINTS: [[f64; 3]; 3] = [
+        [0.5, 0.5, 0.0], // m_01
+        [0.5, 0.0, 0.5], // m_02
+        [0.0, 0.5, 0.5], // m_12
+    ];
+
+    let weight = area / 3.0;
     let mut block = [[0.0_f64; 3]; 3];
-    for i in 0..3 {
-        for j in 0..3 {
-            block[i][j] = area * dot3(basis_c[i], basis_c[j]);
+    for lam in BARYCENTRIC_MIDPOINTS.iter() {
+        // Evaluate the three Whitney basis vectors at this midpoint.
+        // N_e(λ) = λ_la · ∇λ_lb − λ_lb · ∇λ_la for local edge (la, lb).
+        let mut basis_q: [[f64; 3]; 3] = [[0.0; 3]; 3];
+        for (k, &(la, lb)) in TRI_LOCAL_EDGES.iter().enumerate() {
+            let term_a = scale3(grad_lambda[lb], lam[la]);
+            let term_b = scale3(grad_lambda[la], lam[lb]);
+            basis_q[k] = sub3(term_a, term_b);
+        }
+        for i in 0..3 {
+            for j in 0..3 {
+                block[i][j] += weight * dot3(basis_q[i], basis_q[j]);
+            }
         }
     }
+
     (block, edge_info)
 }
 
@@ -351,6 +398,111 @@ mod tests {
                 .position(|e| e == fe)
                 .expect("non-face edge missing");
             assert_eq!(s[(idx, idx)], 0.0, "non-face diagonal must be zero");
+        }
+    }
+
+    #[test]
+    fn face_mass_matches_analytic() {
+        // Regression test for issue #35: verify the 3×3 face contribution
+        // matches the hand-derived closed-form `∫_T N_i · N_j dA` to
+        // f64 precision on the unit right triangle T with vertices
+        // v_0 = (0,0,0), v_1 = (1,0,0), v_2 = (0,1,0), area = 1/2.
+        //
+        // Whitney basis (local edge directions la → lb):
+        //   N_01 = λ_0 ∇λ_1 - λ_1 ∇λ_0 = (1 - y, x, 0)
+        //   N_02 = λ_0 ∇λ_2 - λ_2 ∇λ_0 = (y, 1 - x, 0)
+        //   N_12 = λ_1 ∇λ_2 - λ_2 ∇λ_1 = (-y, x, 0)
+        //
+        // Direct integration (using ∫_T λ_i^a λ_j^b λ_k^c dA =
+        // 2·area · (a!b!c!) / (a+b+c+2)! ) gives the closed-form
+        // face-mass matrix in the local-edge order [(0,1), (0,2), (1,2)]:
+        //
+        //   S_analytic = [ 1/3   1/6   0   ]
+        //                [ 1/6   1/3   0   ]
+        //                [ 0     0     1/6 ]
+        //
+        // Reference: Bossavit, "Whitney forms: a class of finite
+        // elements for three-dimensional computations in
+        // electromagnetism", IEE Proc. A 135 (1988); Hiptmair, "Finite
+        // elements in computational electromagnetism", Acta Numerica
+        // 11 (2002), §3.5 (Whitney 1-form face mass on a flat
+        // triangle). With the BAC-CAB rank reduction the surface
+        // integrand `(n × N_i) · (n × N_j)` reduces to `N_i · N_j`
+        // on flat faces, so S = M^face.
+        //
+        // The pre-#35 1-point centroid rule produced:
+        //   S_centroid = [ 5/18  ...   ...  ]  — diagonal (0,1) off by 5/6
+        //                [ ...   5/18  ...  ]
+        //                [ ...   ...   1/9  ]  — diagonal (1,2) off by 2/3
+        //
+        // The new 3-point edge-midpoint rule is degree-2 exact on
+        // quadratics in barycentric coords, so it reproduces
+        // S_analytic to f64 precision.
+        let nodes = vec![
+            [0.0_f64, 0.0, 0.0], // v_0
+            [1.0, 0.0, 0.0],     // v_1
+            [0.0, 1.0, 0.0],     // v_2
+            [0.0, 0.0, 1.0],     // v_3 (off-face dummy so tet is non-degenerate)
+        ];
+        let tets = vec![[0u32, 1, 2, 3]];
+        let mesh = TetMesh {
+            nodes,
+            tets,
+            physical_groups: BTreeMap::new(),
+        };
+        let tris = vec![[0u32, 1, 2]];
+        let tags = vec![3i32];
+        let edges = mesh.edges();
+        let s = assemble_silver_muller_surface(&mesh, &tris, &tags, 3, &edges);
+
+        // Locate the three face-edge rows/cols in the global edge table.
+        let i01 = edges
+            .iter()
+            .position(|e| e == &[0u32, 1])
+            .expect("(0,1) edge missing");
+        let i02 = edges
+            .iter()
+            .position(|e| e == &[0u32, 2])
+            .expect("(0,2) edge missing");
+        let i12 = edges
+            .iter()
+            .position(|e| e == &[1u32, 2])
+            .expect("(1,2) edge missing");
+
+        // All global edges (0,1), (0,2), (1,2) have ga<gb, so the
+        // orientation sign is +1 for each — the assembled entry equals
+        // the unsigned analytic value exactly.
+        let analytic = [
+            (i01, i01, 1.0 / 3.0),
+            (i02, i02, 1.0 / 3.0),
+            (i12, i12, 1.0 / 6.0),
+            (i01, i02, 1.0 / 6.0),
+            (i02, i01, 1.0 / 6.0),
+            (i01, i12, 0.0),
+            (i12, i01, 0.0),
+            (i02, i12, 0.0),
+            (i12, i02, 0.0),
+        ];
+        let tol = 1e-14;
+        for (i, j, expected) in analytic.iter() {
+            let got = s[(*i, *j)];
+            assert!(
+                (got - expected).abs() < tol,
+                "S[{i},{j}] = {got:.17e}, expected {expected:.17e} \
+                 (diff {:.3e})",
+                (got - expected).abs()
+            );
+        }
+
+        // Sanity: any entry not in the face-edge sub-block must be zero.
+        let face_rows = [i01, i02, i12];
+        for r in 0..s.nrows() {
+            for c in 0..s.ncols() {
+                if face_rows.contains(&r) && face_rows.contains(&c) {
+                    continue;
+                }
+                assert_eq!(s[(r, c)], 0.0, "off-face entry S[{r},{c}] non-zero");
+            }
         }
     }
 }
