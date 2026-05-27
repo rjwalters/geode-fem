@@ -344,12 +344,27 @@ pub fn tet_centroid_radii(mesh: &TetMesh) -> Vec<f64> {
 ///   `L = 0.5`, `k₀ ≈ 2`, so `σ₀ ≈ 5` gives `R(0) ≈ e⁻¹·⁷ ≈ 0.18`
 ///   at normal incidence — modest, deliberately so (heavy absorption
 ///   on a coarse mesh introduces its own discrete-PML reflections).
+///   This is the **normal-incidence plane-wave** reflection
+///   coefficient on a flat slab; the curved wavefronts emitted by a
+///   sphere have a different effective absorption (and the angle θ
+///   here is the local incidence angle on the PML inner interface,
+///   not the polar coordinate), so the formula is an order-of-
+///   magnitude guide rather than a precise reflection budget.
 /// - As a working rule, scale `σ₀ ∝ √ω` when changing the operating
 ///   frequency: low-k modes need stronger absorption per unit length
 ///   to attenuate the longer wavelength, while very-high-k modes are
 ///   already well-trapped and tolerate weaker σ₀.
 /// - If you refine the mesh inside the PML, you can usually push σ₀
 ///   higher without exciting numerical reflections.
+/// - **Practical upper limit on the bundled fixture.** The layered
+///   sphere fixture (post #42) sits near `Q ≈ 5.7` at `σ₀ = 5`, with
+///   headroom to push higher. The empirical sweet spot for this mesh
+///   density is roughly `σ₀ ∈ [5, 50]`: below 5 the absorption is too
+///   weak and outgoing energy reflects off the outer PEC wall; above
+///   ~50 the discrete jump in `Im(ε)` at the PML inner interface
+///   starts to dominate, and the reflection from the **discrete**
+///   interface (not the analytic profile) sets the floor. Mesh
+///   refinement inside the shell pushes this ceiling up.
 /// - `σ₀ = 0` reduces this routine to a real `ε = 1` everywhere
 ///   outside the dielectric (vacuum on both shells), recovering the
 ///   PEC-sphere eigenproblem. The `sphere_pml_eigenmode_sigma_zero`
