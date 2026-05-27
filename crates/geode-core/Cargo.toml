@@ -36,6 +36,37 @@ arpack = ["dep:arpack-ng-sys"]
 geode-core = { path = ".", features = ["autodiff"] }
 # Read regression-fixture TOML in `tests/cube_convergence_regression.rs`.
 toml = "0.8"
+# Performance benchmark harness (issue #50). Each `[[bench]]` below opts
+# out of the libtest harness and lets criterion own the entrypoint.
+criterion = "0.5"
+# Benches/examples need direct faer access (the trait surface we're
+# benching takes `MatRef<f64>` and `SparseColMatRef`). Pinned to the
+# same minor as the regular dependency line above.
+faer = { version = "0.24", default-features = false, features = ["std", "linalg", "sparse-linalg"] }
+# Read criterion's JSON `estimates.json` outputs in
+# `examples/extract_baseline.rs` to produce `benchmarks/perf/baseline.toml`.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bench]]
+name = "assembly_p1"
+harness = false
+
+[[bench]]
+name = "assembly_nedelec"
+harness = false
+
+[[bench]]
+name = "eigensolve_dense"
+harness = false
+
+[[bench]]
+name = "eigensolve_sparse"
+harness = false
+
+[[bench]]
+name = "mie_end_to_end"
+harness = false
 
 [lints.rust]
 # We intentionally allow scoped `unsafe` only inside the optional ARPACK

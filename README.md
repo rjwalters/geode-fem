@@ -139,7 +139,64 @@ cargo run -p geode-core --release \
 Call out the regeneration in the PR description so reviewers know the
 baseline drift is intentional.
 
-## Benchmarks
+## Performance baseline
+
+A `criterion`-based bench harness lives under
+[`crates/geode-core/benches/`](crates/geode-core/benches). It establishes
+a wall-clock baseline for the FEM pipeline so future performance
+work has something to push against. The current numbers (Apple Silicon,
+default `wgpu` backend) are committed to
+[`benchmarks/perf/baseline.toml`](benchmarks/perf/baseline.toml).
+
+**Reproduce the measurements:**
+
+```sh
+# Runs all 5 benches; total wall-clock ≈ 25-30 min on M-series hardware,
+# dominated by the Mie end-to-end (~70-90 s per sample × 10 samples).
+cargo bench -p geode-core
+```
+
+Criterion writes per-bench HTML reports under `target/criterion/`
+(gitignored). Extract a clean TOML summary (medians + median-absolute-
+deviation as an IQR proxy) with:
+
+```sh
+cargo run -p geode-core --example extract_baseline
+```
+
+This walks `target/criterion/<bench>/<input>/new/estimates.json` and
+overwrites `benchmarks/perf/baseline.toml`. The extractor is **not**
+wired into `cargo bench` itself — re-running the analysis is then a
+side-effect-free second step.
+
+**Dominant cost (today, n=10 cube):**
+
+| stage                              | median   |
+| ---------------------------------- | -------- |
+| `assemble_global_p1`               |  45 ms   |
+| `assemble_global_nedelec` (real)   | 289 ms   |
+| `assemble_global_nedelec` (cmplx)  | 407 ms   |
+| `FaerDenseEigensolver`             | **5.95 s** |
+| `SparseShiftInvertLanczos`         |  52 ms   |
+
+Dense `generalized_eigen` on the 9³ = 729 interior pencil dwarfs every
+other stage by **two orders of magnitude**. The pure-Rust sparse
+shift-and-invert Lanczos (faer sparse LU) brings the eigensolve down
+to roughly the same order as the Burn-side assembly, confirming the
+follow-up roadmap: **the dense eigensolve is the bottleneck**, and
+swapping it for sparse where applicable is the biggest win available.
+
+**Dominant cost (today, Mie sphere fixture):**
+
+The bundled 313-node sphere fixture (~1226 tets, ~7 k Nédélec edges)
+runs the *complex* dense generalized eigensolve over a ~6 k × 6 k
+interior pencil. Single-sample median wall-clock is **≈ 71 s**;
+assembly + I/O on the same problem extrapolates to well under one
+second from the cube assembly numbers. The dense complex eigensolve
+is responsible for essentially the entire end-to-end cost. Migrating
+this path to a sparse complex eigensolver (or, more cheaply, to a
+shift-and-invert wrapper around the real symmetric Lanczos with
+splittable mass) is the highest-leverage performance follow-up.
 
 ### Mie sphere (issue #4)
 
