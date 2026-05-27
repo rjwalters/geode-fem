@@ -25,11 +25,12 @@
 //!   open-space Mie WGM positions. The latter require Hankel functions
 //!   and complex Newton iteration; tracked separately as #33.
 //! - **FEM side**: 774-node tet mesh (the bundled refined fixture
-//!   from issue #49, bumped from the original 313 nodes), scalar
-//!   isotropic PML over the vacuum buffer, σ₀ = 5.0. Expect ~16 %
-//!   relative error in `Re(k)` for the lowest mode at this
-//!   resolution and PML strength — mesh refinement alone does not
-//!   reduce the PML imprint, see comments in `tests/mie_sphere.rs`.
+//!   from issue #49, bumped from the original 313 nodes), **anisotropic
+//!   UPML** (diagonal complex permittivity tensor, issue #54) over the
+//!   vacuum buffer, σ₀ = 5.0, k₀_ref = 2.0. Expect ~6 % relative
+//!   error in `Re(k)` for the lowest TM_1,1 mode. The legacy
+//!   scalar-isotropic PML (~16 % rel err) is still available via
+//!   `--scalar-pml`; see comments in `tests/mie_sphere.rs`.
 //! - **Driven scattering** (Q_ext, Q_sca vs. ka) remains v2.
 //!
 //! Quantitative tightening lives in follow-up issues (#33, #35, #38).
@@ -41,12 +42,15 @@
 //! ```
 //!
 //! By default the **sparse complex shift-and-invert Lanczos**
-//! eigensolver (issue #53) runs the FEM eigenproblem. Pass `--dense`
-//! to fall back on the dense `FaerComplexEigensolver` (the
-//! correctness oracle):
+//! eigensolver (issue #53) runs the FEM eigenproblem against the
+//! anisotropic UPML kernel (issue #54). Pass `--dense` to fall back
+//! on the dense `FaerComplexEigensolver` (the correctness oracle),
+//! and/or `--scalar-pml` to use the legacy scalar-isotropic PML for
+//! the cross-check baseline:
 //!
 //! ```sh
 //! cargo run -p geode-core --release --example mie_sphere -- --dense
+//! cargo run -p geode-core --release --example mie_sphere -- --scalar-pml
 //! ```
 //!
 //! `--release` is required because faer 0.24's `gevd` path panics
@@ -65,11 +69,13 @@ use burn::tensor::backend::BackendTypes;
 use faer::sparse::{SparseColMat, Triplet};
 
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
-    burn_complex_mass_to_faer, burn_matrix_to_faer, mie_roots_catalog, read_sphere_fixture,
-    sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii, upload_mesh,
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, MieRoot,
-    SparseComplexEigenSolver, SparseComplexShiftInvertLanczos, R_BUFFER, R_SPHERE,
+    apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
+    assemble_global_nedelec_with_complex_epsilon, build_anisotropic_pml_tensor_diag,
+    build_complex_epsilon_r_pml, burn_complex_mass_to_faer, burn_matrix_to_faer, mie_roots_catalog,
+    read_sphere_fixture, sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii,
+    tet_centroids, upload_mesh, ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver,
+    MiePolarisation, MieRoot, SparseComplexEigenSolver, SparseComplexShiftInvertLanczos, R_BUFFER,
+    R_SPHERE,
 };
 
 type B = DefaultBackend;
@@ -80,6 +86,13 @@ const N_INSIDE: f64 = 1.5;
 
 /// PML absorption strength. σ₀ = 5.0 matches `tests/sphere_pml_*`.
 const SIGMA_0: f64 = 5.0;
+
+/// Reference wavenumber used to scale the anisotropic-UPML stretching
+/// profiles `s_r = s_t = 1 - jσ/(ω₀ ε₀)` with ω₀ = k₀_ref. Matches the
+/// `tests/sphere_pml_anisotropic_eigenmode.rs` acceptance test —
+/// k₀_ref ≈ 2.0 is near the lowest physical mode's `Re(k)` and gives
+/// the documented ~6% TM_1,1 rel err on the bundled fixture.
+const K0_REF: f64 = 2.0;
 
 /// Number of physical FEM modes to compare (above the gradient nullspace).
 ///
@@ -154,7 +167,12 @@ fn results_path() -> PathBuf {
 /// `use_dense` selects the eigensolver: `true` uses the dense
 /// `FaerComplexEigensolver` (the correctness oracle), `false` uses the
 /// sparse `SparseComplexShiftInvertLanczos` (the default fast path).
-fn fem_complex_k(use_dense: bool) -> Vec<faer::c64> {
+///
+/// `scalar_pml` selects the PML kernel: `true` uses the legacy
+/// scalar-isotropic complex ε (16% rel err ceiling, issue #52),
+/// `false` (default) uses the anisotropic-UPML diagonal complex
+/// tensor (~6% rel err on TM_1,1, issue #54).
+fn fem_complex_k(use_dense: bool, scalar_pml: bool) -> Vec<faer::c64> {
     let device = <B as BackendTypes>::Device::default();
 
     let f = read_sphere_fixture().expect("fixture load");
@@ -164,9 +182,6 @@ fn fem_complex_k(use_dense: bool) -> Vec<faer::c64> {
         f.mesh.n_tets(),
         f.boundary_triangles.len(),
     );
-
-    let radii = tet_centroid_radii(&f.mesh);
-    let eps_complex = build_complex_epsilon_r_pml(&f.tet_physical_tags, &radii, N_INSIDE, SIGMA_0);
 
     let edges = f.mesh.edges();
     let n_edges = edges.len();
@@ -181,14 +196,37 @@ fn fem_complex_k(use_dense: bool) -> Vec<faer::c64> {
         .collect();
 
     let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device);
-    let sys = assemble_global_nedelec_with_complex_epsilon(
-        nodes_t,
-        tets_t,
-        &tet_idx,
-        &tet_sign,
-        n_edges,
-        &eps_complex,
-    );
+    let sys = if scalar_pml {
+        let radii = tet_centroid_radii(&f.mesh);
+        let eps_complex =
+            build_complex_epsilon_r_pml(&f.tet_physical_tags, &radii, N_INSIDE, SIGMA_0);
+        eprintln!(
+            "PML kernel: scalar-isotropic complex ε (legacy, --scalar-pml; expect ~16% TM_1,1 rel err)"
+        );
+        assemble_global_nedelec_with_complex_epsilon(
+            nodes_t,
+            tets_t,
+            &tet_idx,
+            &tet_sign,
+            n_edges,
+            &eps_complex,
+        )
+    } else {
+        let centroids = tet_centroids(&f.mesh);
+        let eps_aniso = build_anisotropic_pml_tensor_diag(
+            &f.tet_physical_tags,
+            &centroids,
+            N_INSIDE,
+            SIGMA_0,
+            K0_REF,
+        );
+        eprintln!(
+            "PML kernel: anisotropic UPML diagonal complex ε (default, issue #54; k₀_ref = {K0_REF}; expect ~6% TM_1,1 rel err)"
+        );
+        assemble_global_nedelec_with_anisotropic_epsilon(
+            nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &eps_aniso,
+        )
+    };
 
     let (_mask_edges, interior_mask) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);
 
@@ -427,8 +465,9 @@ fn print_table(rows: &[Row]) {
     eprintln!();
 }
 
-fn write_toml(rows: &[Row], path: &PathBuf) {
+fn write_toml(rows: &[Row], path: &PathBuf, scalar_pml: bool) {
     let commit = current_commit();
+    let pml_kind = if scalar_pml { "scalar" } else { "anisotropic" };
 
     let mut s = String::new();
     s.push_str("# Auto-generated by `cargo run -p geode-core --release \\\n");
@@ -438,10 +477,14 @@ fn write_toml(rows: &[Row], path: &PathBuf) {
     s.push('\n');
 
     s.push_str("[meta]\n");
-    s.push_str("description = \"Mie sphere benchmark (issue #4 v1, issue #40): FEM eigenmodes vs. extended analytic PEC-cavity catalog (l ∈ [1,4], TE+TM, n ∈ [1,5]) with multiplicity-claim mode classification.\"\n");
+    s.push_str("description = \"Mie sphere benchmark (issue #4 v1, issue #40, issue #54): FEM eigenmodes vs. extended analytic PEC-cavity catalog (l ∈ [1,4], TE+TM, n ∈ [1,5]) with multiplicity-claim mode classification.\"\n");
     s.push_str(&format!("generated_at_commit = \"{commit}\"\n"));
+    s.push_str(&format!("pml_kernel = \"{pml_kind}\"\n"));
     s.push_str(&format!("n_inside = {}\n", N_INSIDE));
     s.push_str(&format!("sigma_0 = {}\n", SIGMA_0));
+    if !scalar_pml {
+        s.push_str(&format!("k0_ref = {}\n", K0_REF));
+    }
     s.push_str(&format!("r_sphere = {}\n", R_SPHERE));
     s.push_str(&format!("r_buffer = {}\n", R_BUFFER));
     s.push_str(&format!("n_modes = {}\n", N_MODES));
@@ -453,9 +496,18 @@ fn write_toml(rows: &[Row], path: &PathBuf) {
     );
     s.push_str("  \"Real analytic roots only; complex open-space Mie roots are a separate axis (#33).\",\n");
     s.push_str("  \"Mode classification: walk catalog by ascending k, claim 2l+1 FEM modes per analytic root.\",\n");
-    s.push_str(
-        "  \"FEM side: scalar isotropic PML, bundled 774-node refined fixture (issue #49).\",\n",
-    );
+    if scalar_pml {
+        s.push_str(
+            "  \"FEM side: scalar isotropic PML (legacy --scalar-pml path), bundled 774-node refined fixture (issue #49). Has ~16% h-independent reflection ceiling on TM_1,1.\",\n",
+        );
+    } else {
+        s.push_str(
+            "  \"FEM side: anisotropic UPML diagonal complex permittivity tensor (default, issue #54), bundled 774-node refined fixture (issue #49). Breaks the 16% scalar ceiling — TM_1,1 ~6% rel err.\",\n",
+        );
+        s.push_str(
+            "  \"For s_r = s_t = 1 - jσ/ω the off-diagonal rotation terms are identically zero, so the diagonal-only tensor is mathematically exact (not an approximation) for this profile.\",\n",
+        );
+    }
     s.push_str("  \"Driven scattering benchmark (Q_ext vs. ka) is v2 (separate scope).\",\n");
     s.push_str("]\n");
     s.push('\n');
@@ -481,19 +533,32 @@ fn write_toml(rows: &[Row], path: &PathBuf) {
 }
 
 fn main() {
-    let use_dense = std::env::args().any(|a| a == "--dense");
+    let args: Vec<String> = std::env::args().collect();
+    let use_dense = args.iter().any(|a| a == "--dense");
+    let scalar_pml = args.iter().any(|a| a == "--scalar-pml");
 
-    eprintln!("=== Mie sphere benchmark (issue #4 v1, issue #40) ===");
+    eprintln!("=== Mie sphere benchmark (issue #4 v1, issue #40, issue #54) ===");
     if use_dense {
         eprintln!("  eigensolver: DENSE (correctness oracle, --dense flag)");
     } else {
         eprintln!("  eigensolver: SPARSE Lanczos (default, pass --dense to switch)");
+    }
+    if scalar_pml {
+        eprintln!("  PML kernel: SCALAR isotropic (--scalar-pml, legacy 16% ceiling)");
+    } else {
+        eprintln!(
+            "  PML kernel: ANISOTROPIC UPML diagonal (default, issue #54; \
+             pass --scalar-pml for the legacy cross-check)"
+        );
     }
     eprintln!();
     eprintln!(
         "Fixture geometry: R_sphere = {R_SPHERE}, R_buffer = {R_BUFFER}, n_inside = {N_INSIDE}",
     );
     eprintln!("PML absorption: σ₀ = {SIGMA_0}");
+    if !scalar_pml {
+        eprintln!("PML reference wavenumber: k₀_ref = {K0_REF}");
+    }
     eprintln!();
 
     // Analytic ground truth: extended catalog with l ∈ [1, L_MAX],
@@ -522,7 +587,7 @@ fn main() {
     // FEM eigensolve.
     eprintln!();
     eprintln!("=== FEM eigensolve ===");
-    let fem_k = fem_complex_k(use_dense);
+    let fem_k = fem_complex_k(use_dense, scalar_pml);
     eprintln!("Lowest {} physical FEM modes (k = sqrt(λ)):", fem_k.len());
     for (i, k) in fem_k.iter().enumerate() {
         eprintln!("  mode[{i}]  k = {:.5} + {:.5e}i", k.re, k.im);
@@ -533,7 +598,7 @@ fn main() {
     print_table(&rows);
 
     // Persist.
-    write_toml(&rows, &results_path());
+    write_toml(&rows, &results_path(), scalar_pml);
 
     eprintln!("=== Done ===");
 }

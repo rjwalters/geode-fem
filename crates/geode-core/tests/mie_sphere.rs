@@ -12,23 +12,23 @@
 //!
 //! At the **refined** fixture's resolution (~774 nodes / ~3335 tets,
 //! issue #49 — bumped from the original 313/1226 to enable
-//! quantitative Mie convergence study) and with the scalar-isotropic
-//! PML at σ₀ = 5.0 the observed relative error on the lowest
-//! physical mode's `Re(k)` is ≈ 16 %. The assertion uses a 25 %
-//! tolerance, leaving margin for the mesh-asymmetry-driven splitting
-//! of the 2ℓ+1 = 3-fold degenerate TM_1,1 triplet (see curator note
-//! on PR #19 / issue #14) and for minor numerical noise across
-//! release rebuilds.
+//! quantitative Mie convergence study) and with the **anisotropic
+//! UPML** at σ₀ = 5.0, k₀_ref = 2.0 (issue #54), the observed
+//! relative error on the lowest physical mode's `Re(k)` is ≈ 5.7 %.
+//! The assertion uses an 8 % tolerance, leaving margin for the
+//! mesh-asymmetry-driven splitting of the 2ℓ+1 = 3-fold degenerate
+//! TM_1,1 triplet (see curator note on PR #19 / issue #14) and for
+//! minor numerical noise across release rebuilds.
 //!
 //! **Finding from issue #49**: mesh refinement alone does NOT
 //! produce the O(h²) error reduction one might naively expect for
-//! the P1 Nédélec basis. The dominant error source at this PML
-//! configuration is the scalar-isotropic PML imprint on the
-//! discrete spectrum, not the FEM discretization. Tightening
-//! quantitative agreement therefore lives in follow-ups #33 (Mie
-//! root accuracy), #35 (Silver-Müller exact quadrature), #38
-//! (vacuum gap / σ₀ sweep) and #48 (vector-tracking k₀), not in
-//! further mesh refinement.
+//! the P1 Nédélec basis under the scalar-isotropic PML; the
+//! dominant error source there is the scalar-PML reflection
+//! imprint on the discrete spectrum (~16 % h-independent ceiling).
+//! Issue #54's anisotropic UPML breaks that ceiling — TM_1,1
+//! drops to ~5.7 % and TE_1,1 to ~1 %. Further tightening lives
+//! in follow-ups #33 (Mie root accuracy) and #35 (Silver-Müller
+//! exact quadrature).
 //!
 //! # Why `#[ignore]`?
 //!
@@ -42,20 +42,25 @@
 use burn::tensor::backend::BackendTypes;
 
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
-    burn_complex_mass_to_faer, burn_matrix_to_faer, merged_roots, read_sphere_fixture,
-    sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii, upload_mesh,
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, R_BUFFER,
-    R_SPHERE,
+    apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
+    build_anisotropic_pml_tensor_diag, burn_complex_mass_to_faer, burn_matrix_to_faer,
+    merged_roots, read_sphere_fixture, sphere_n_interior_nodes, sphere_pec_interior_edges,
+    tet_centroids, upload_mesh, ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver,
+    MiePolarisation, R_BUFFER, R_SPHERE,
 };
 
 /// Q-factor band lower bound for the lowest TM_1,1 triplet (issue #40).
 ///
-/// **Observed (PR #39 baseline, coarse fixture)**: median Q ≈ 2.14
+/// **Observed (anisotropic UPML default, issue #54)**: median Q ≈ 27
 /// across the three FEM modes of the 2l+1 = 3-fold degenerate ground
-/// triplet. With the refined fixture (issue #49) the median Q
-/// generally improves, but the lower bound is still set
-/// conservatively at 1.5 to catch regressions.
+/// triplet on the bundled refined fixture. The anisotropic UPML
+/// dramatically reduces the inner-shell reflection that previously
+/// over-damped the scalar-PML modes (Q ≈ 5.8) — i.e. the better
+/// impedance match means less spurious radiative loss, so Q rises.
+/// The lower band is held at 1.5 deliberately: this assertion's job
+/// is to catch a regression (PML σ₀ drift / mask break / vacuum-gap
+/// removal) that would halve or zero out Q, not to police absolute
+/// magnitude.
 ///
 /// **Why a band test?** A Q regression is a sensitive proxy for PML
 /// misconfiguration: drift in σ₀, an accidental break in the
@@ -64,16 +69,20 @@ use geode_core::{
 /// `Re(k)` tests do not catch these because the mesh sets the real
 /// part more tightly than σ₀ does.
 ///
-/// **Band choice (1.5)**: roughly `0.7 × observed` — wide enough to
-/// absorb release-rebuild drift and minor mesh variation, narrow
-/// enough to catch a real regression (which historically halves Q).
+/// **Band choice (1.5)**: very conservative against current Q ≈ 27,
+/// chosen so that even a partial PML regression that quenches Q by
+/// >90% still trips this catch.
 const Q_LOWER_BAND_TM11: f64 = 1.5;
+
+/// Reference wavenumber used by the anisotropic UPML stretching
+/// profiles, kept in sync with `examples/mie_sphere.rs`.
+const K0_REF: f64 = 2.0;
 
 type B = DefaultBackend;
 
 #[test]
 #[ignore = "faer 0.24 gevd panics under debug-assertions; run with --release"]
-fn mie_sphere_ground_mode_within_25_percent_of_analytic() {
+fn mie_sphere_ground_mode_within_8_percent_of_analytic() {
     let device = <B as BackendTypes>::Device::default();
 
     let n_inside = 1.5;
@@ -101,10 +110,17 @@ fn mie_sphere_ground_mode_within_25_percent_of_analytic() {
         ground.k * ground.k
     );
 
-    // 2. FEM side: assemble + reduce + complex eigensolve.
+    // 2. FEM side: assemble + reduce + complex eigensolve, using
+    //    the anisotropic UPML default (issue #54).
     let f = read_sphere_fixture().expect("fixture load");
-    let radii = tet_centroid_radii(&f.mesh);
-    let eps_complex = build_complex_epsilon_r_pml(&f.tet_physical_tags, &radii, n_inside, sigma_0);
+    let centroids = tet_centroids(&f.mesh);
+    let eps_aniso = build_anisotropic_pml_tensor_diag(
+        &f.tet_physical_tags,
+        &centroids,
+        n_inside,
+        sigma_0,
+        K0_REF,
+    );
 
     let edges = f.mesh.edges();
     let n_edges = edges.len();
@@ -119,13 +135,8 @@ fn mie_sphere_ground_mode_within_25_percent_of_analytic() {
         .collect();
 
     let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device);
-    let sys = assemble_global_nedelec_with_complex_epsilon(
-        nodes_t,
-        tets_t,
-        &tet_idx,
-        &tet_sign,
-        n_edges,
-        &eps_complex,
+    let sys = assemble_global_nedelec_with_anisotropic_epsilon(
+        nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &eps_aniso,
     );
 
     let (_mask_edges, interior_mask) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);
@@ -184,15 +195,16 @@ fn mie_sphere_ground_mode_within_25_percent_of_analytic() {
         rel_err * 100.0
     );
 
-    // Acceptance: tolerance calibrated to the refined fixture's
-    // resolution (issue #49). Observed ≈ 16 %; 25 % gives margin
-    // for release-rebuild drift and mesh-asymmetry-driven splitting
-    // within the TM_1,1 triplet. The PML imprint dominates the
-    // discretisation error — tighter agreement is the goal of #48
-    // and #35, not further mesh refinement.
+    // Acceptance: tolerance calibrated to the anisotropic-UPML
+    // default (issue #54) on the refined fixture (issue #49).
+    // Observed ≈ 5.7 %; 8 % gives margin for release-rebuild drift
+    // and mesh-asymmetry-driven splitting within the TM_1,1 triplet.
+    // The scalar-PML 16 % ceiling is now retained as the legacy
+    // `--scalar-pml` cross-check path in the example, not in this
+    // test. Tighter agreement is the goal of #33 and #35.
     assert!(
-        rel_err < 0.25,
-        "lowest FEM mode Re(k) = {re_k} differs from analytic TM_1,1 = {} by {:.1}% (> 25%)",
+        rel_err < 0.08,
+        "lowest FEM mode Re(k) = {re_k} differs from analytic TM_1,1 = {} by {:.1}% (> 8%)",
         ground.k,
         rel_err * 100.0
     );
@@ -231,8 +243,14 @@ fn mie_sphere_tm11_triplet_q_above_band() {
     let sigma_0 = 5.0;
 
     let f = read_sphere_fixture().expect("fixture load");
-    let radii = tet_centroid_radii(&f.mesh);
-    let eps_complex = build_complex_epsilon_r_pml(&f.tet_physical_tags, &radii, n_inside, sigma_0);
+    let centroids = tet_centroids(&f.mesh);
+    let eps_aniso = build_anisotropic_pml_tensor_diag(
+        &f.tet_physical_tags,
+        &centroids,
+        n_inside,
+        sigma_0,
+        K0_REF,
+    );
 
     let edges = f.mesh.edges();
     let n_edges = edges.len();
@@ -247,13 +265,8 @@ fn mie_sphere_tm11_triplet_q_above_band() {
         .collect();
 
     let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device);
-    let sys = assemble_global_nedelec_with_complex_epsilon(
-        nodes_t,
-        tets_t,
-        &tet_idx,
-        &tet_sign,
-        n_edges,
-        &eps_complex,
+    let sys = assemble_global_nedelec_with_anisotropic_epsilon(
+        nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &eps_aniso,
     );
 
     let (_mask_edges, interior_mask) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);

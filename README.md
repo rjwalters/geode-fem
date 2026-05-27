@@ -45,7 +45,7 @@ benchmark — analytical Mie series ↔ strata FDTD ↔ GEODE-FEM eigenmode.
 
 | | |
 |---|---|
-| **Mie comparison** | Lowest TM_1,1 mode (n=1.5 dielectric sphere, R/R_buffer=1/2, PEC outer + PML buffer): FEM Re(k) ≈ 1.09 vs analytic 1.30343, **16% rel err / Q ≈ 5.8** on the bundled 774-node fixture. Diagnosed (see #54): mesh refinement does **not** improve this — the scalar-isotropic PML reflection is an h-independent modelling floor. |
+| **Mie comparison** | Lowest TM_1,1 mode (n=1.5 dielectric sphere, R/R_buffer=1/2, PEC outer + anisotropic UPML buffer): FEM Re(k) ≈ 1.229 vs analytic 1.30343, **~5.7% rel err / Q ≈ 27** on the bundled 774-node fixture. PR #60's anisotropic UPML (issue #54) broke the 16% scalar-PML reflection ceiling diagnosed in #52 — the legacy scalar path is retained as `--scalar-pml` for cross-check. |
 | **Performance** | Sparse complex-symmetric Lanczos (Bai *Templates* §7.13) brings the Mie eigensolve from **126 s → 4 s** on the 774-node fixture (31× speedup; 107× on the original 313-node fixture). The Mie example uses the sparse path by default; pass `--dense` for the correctness oracle. |
 | **Math correctness** | M_{ij} = ∫ N_i · N_j ε(x) dV is **complex-symmetric** (M^T = M), not Hermitian (M^H ≠ M) — the Mie inner product is bilinear, not sesquilinear. Caught by a builder during PR #55, validated by both empirical check (`Im(v^H M v) ≈ −58`) and by-hand derivation. |
 | **Validated chain** | 27 PRs merged. Scalar Helmholtz cube modes (4.1% rel err at n=10), batched P1 + Nédélec local kernels with autodiff through assembly, dense (`faer::generalized_eigen`) and sparse (shift-and-invert Lanczos) eigensolvers, PEC cube + PEC sphere + Silver-Müller + PML absorbing BCs, all with regression tests. |
@@ -66,8 +66,8 @@ baselines.
 
 ### v1 (active)
 
-- [ ] **Anisotropic UPML** (issue #54) — canonical fix for the 16% PML accuracy ceiling
-- [x] **Vector-tracking k₀** (issue #48) — replace frozen-index Newton for self-consistent resonance tracking
+- [x] **Anisotropic UPML** (issue #54) — canonical fix for the 16% PML accuracy ceiling; default in `examples/mie_sphere.rs` per issue #61
+- [x] **Vector-tracking k₀** (issue #48) — replace frozen-index Newton for self-consistent resonance tracking on the Silver-Müller pencil
 - [ ] **Driven scattering** (Q_ext, Q_sca vs. ka) — v1 of the Mie benchmark
 - [ ] **Whiteroom L4 mapping** (issue #5) — once upstream slices stabilize
 
@@ -226,14 +226,17 @@ error of on the lowest two physical modes.
 
 The project's stated north-star validation problem: FEM eigenmodes of a
 dielectric sphere (refractive index `n = 1.5`, radius `R = 1`) inside a
-vacuum buffer (`r ≤ R_buffer = 2`) terminated by a scalar-isotropic PML,
-compared against analytic resonance roots.
+vacuum buffer (`r ≤ R_buffer = 2`) terminated by an **anisotropic UPML**
+(issue #54, default since issue #61), compared against analytic resonance
+roots. The legacy scalar-isotropic PML is retained as `--scalar-pml` for
+cross-check.
 
 Run the benchmark:
 
 ```sh
-cargo run -p geode-core --release --example mie_sphere           # sparse (default)
-cargo run -p geode-core --release --example mie_sphere -- --dense # dense oracle
+cargo run -p geode-core --release --example mie_sphere                # anisotropic UPML, sparse (defaults)
+cargo run -p geode-core --release --example mie_sphere -- --dense     # anisotropic UPML, dense oracle
+cargo run -p geode-core --release --example mie_sphere -- --scalar-pml # legacy 16% baseline cross-check
 ```
 
 This prints a comparison table and writes
@@ -259,35 +262,42 @@ root carries its `(l, n, polarisation, multiplicity = 2l+1)` label.
 **Mode classification**: walks the catalog in ascending `k` and for
 each analytic root claims the next `2l + 1` consecutive FEM modes
 (sorted by `Re(k)`), producing an unambiguous `(l, n, pol, m_idx)`
-label per mode. On the bundled fixture this identifies the lowest 3
-FEM modes as the TM_1,1 triplet (Q ≈ 5.8) and the next 3 as TE_1,1
-(Q ≈ 3.1).
+label per mode. On the bundled fixture (anisotropic UPML default)
+this identifies the lowest 3 FEM modes as the TM_1,1 triplet
+(Q ≈ 27) and the next 3 as TE_1,1 (rel err ≲ 2.5%).
 
-**Current numbers** (bundled fixture, σ₀ = 5.0):
+**Current numbers** (bundled fixture, anisotropic UPML default,
+σ₀ = 5.0, k₀_ref = 2.0):
 
 | mode    | analytic kR | FEM Re(kR) | rel err Re(k) | Q     |
 | ------- | ----------- | ---------- | ------------- | ----- |
-| TM_1,1  | 1.30343     | ≈ 1.092    | ≈ 16.2%       | ≈ 5.8 |
-| TE_1,1  | 1.88943     | ≈ 1.581    | ≈ 16.3%       | ≈ 3.1 |
+| TM_1,1  | 1.30343     | ≈ 1.229    | ≈ 5.7%        | ≈ 27  |
+| TE_1,1  | 1.88943     | ≈ 1.872 – 1.934 | ≈ 0.7 – 2.3% | ≈ 9 – 50 |
 
-**Accuracy ceiling — important strategic finding** (issue #52): the
-TM_1,1 / TE_1,1 / TM_2,1 modes ALL sit at ~16% rel err independent of
-mesh refinement. If P1 Nédélec discretization were the dominant
-error, higher-l modes would be worse — they aren't. This is the
-signature of an h-independent **scalar-isotropic PML reflection
-floor** at the inner PML interface. Refining further does not help.
+For comparison, the legacy `--scalar-pml` path produces TM_1,1 at
+~16.2% rel err / Q ≈ 5.8 — the h-independent reflection floor
+diagnosed in issue #52 and broken by issue #54's anisotropic UPML.
 
-**Anisotropic UPML breaks the ceiling** (issue #54). A diagonal
-anisotropic permittivity tensor in the global Cartesian basis,
-`ε_α = (1/s_r) r̂_α² + s_t (1 - r̂_α²)` per centroid radial unit
-vector `r̂`, is now available via
+**Why anisotropic helps** (issue #52 → #54). Under the scalar-isotropic
+PML the TM_1,1 / TE_1,1 / TM_2,1 modes ALL sat at ~16% rel err
+independent of mesh refinement — the signature of an h-independent
+reflection floor at the inner PML interface, not a discretization
+error. A diagonal anisotropic permittivity tensor in the global
+Cartesian basis, `ε_α = (1/s_r) r̂_α² + s_t (1 - r̂_α²)` per centroid
+radial unit vector `r̂`, absorbs along the propagation direction in
+a direction-aware way and removes the reflection floor. Available via
 [`assemble_global_nedelec_with_anisotropic_epsilon`] and
-[`build_anisotropic_pml_tensor_diag`]. On the bundled 774-node
-fixture the lowest TM_1,1 mode improves from **16% → ~6% rel err**
-(σ₀ = 5.0, k₀_ref = 2.0). The full off-diagonal rotation
-`R · diag(1/s_r, s_t, s_t) · R^T` is a follow-up; the diagonal-only
-approximation drops mixed-axis coupling for off-axis tets, so
-further accuracy gains are still on the table.
+[`build_anisotropic_pml_tensor_diag`]; default in `examples/mie_sphere.rs`
+since issue #61.
+
+**On the "full rotation" follow-up.** For the current PML profile
+`s_r = s_t = 1 - jσ/ω` the off-diagonal terms of the rotated tensor
+`R · diag(1/s_r, s_t, s_t) · R^T` are *identically zero*, so the
+diagonal-only kernel is mathematically exact (not an approximation)
+for this profile. The full off-diagonal kernel only matters when the
+radial and tangential profiles diverge (e.g., CFS-PML or split-field
+formulations), and is tracked as a future ticket against those
+profiles, not against the present implementation.
 
 **Vector-tracked self-consistent k₀** (issue #48): the Silver-Müller
 absorbing BC matches its impedance to a single guess `k₀`; the
@@ -314,12 +324,13 @@ via FDTD; eigenfrequency-level cross-validation across the two
 discretizations is the goal of this benchmark family.
 
 The acceptance test (`crates/geode-core/tests/mie_sphere.rs`) asserts
-(a) the lowest FEM mode's `Re(k)` agrees with the analytic TM_1,1 root
-to within 25% at the bundled fixture's resolution, and (b) the lowest
-TM_1,1 triplet's median Q is above 1.5 — a regression catch for PML
-mis-configuration (σ₀ drift, mask break, vacuum-gap removal).
-Tightening the Re(k) tolerance is the goal of follow-ups #38, #48,
-and especially #54.
+(a) the lowest FEM mode's `Re(k)` agrees with the analytic TM_1,1
+root to within **8%** at the bundled fixture's resolution under the
+anisotropic-UPML default (tightened from 25% per issue #61 after
+#54 broke the scalar 16% ceiling), and (b) the lowest TM_1,1
+triplet's median Q is above 1.5 — a regression catch for PML
+mis-configuration (σ₀ drift, mask break, vacuum-gap removal). The
+present median Q on the anisotropic path is ≈ 27.
 
 ## License
 
