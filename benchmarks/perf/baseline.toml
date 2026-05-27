@@ -6,155 +6,21 @@
 
 [meta]
 description = "Performance baseline for geode-core assembly + eigensolve (issue #50)."
-n_rows = 16
-
-["assembly_nedelec_complex.10"]
-group = "assembly_nedelec_complex"
-input = "10"
-median_ns = 406672854.000
-median_abs_dev_ns = 14451179.931
-mean_ns = 411748526.900
-human = "406.673 ms"
-
-["assembly_nedelec_complex.5"]
-group = "assembly_nedelec_complex"
-input = "5"
-median_ns = 37851281.214
-median_abs_dev_ns = 474602.276
-mean_ns = 38044199.681
-human = "37.851 ms"
-
-["assembly_nedelec_complex.8"]
-group = "assembly_nedelec_complex"
-input = "8"
-median_ns = 184629604.500
-median_abs_dev_ns = 1204766.422
-mean_ns = 186425644.533
-human = "184.630 ms"
-
-["assembly_nedelec_real.10"]
-group = "assembly_nedelec_real"
-input = "10"
-median_ns = 288818541.750
-median_abs_dev_ns = 3782915.361
-mean_ns = 290504114.575
-human = "288.819 ms"
-
-["assembly_nedelec_real.5"]
-group = "assembly_nedelec_real"
-input = "5"
-median_ns = 20584746.891
-median_abs_dev_ns = 378858.223
-mean_ns = 21886598.452
-human = "20.585 ms"
-
-["assembly_nedelec_real.8"]
-group = "assembly_nedelec_real"
-input = "8"
-median_ns = 123383984.375
-median_abs_dev_ns = 777507.673
-mean_ns = 123572251.050
-human = "123.384 ms"
-
-["assembly_p1.10"]
-group = "assembly_p1"
-input = "10"
-median_ns = 45390669.125
-median_abs_dev_ns = 511302.622
-mean_ns = 45546719.191
-human = "45.391 ms"
-
-["assembly_p1.5"]
-group = "assembly_p1"
-input = "5"
-median_ns = 8658624.298
-median_abs_dev_ns = 445649.427
-mean_ns = 8885392.253
-human = "8.659 ms"
-
-["assembly_p1.8"]
-group = "assembly_p1"
-input = "8"
-median_ns = 23683653.214
-median_abs_dev_ns = 212886.880
-mean_ns = 23888121.811
-human = "23.684 ms"
-
-["eigensolve_dense.10"]
-group = "eigensolve_dense"
-input = "10"
-median_ns = 5949391667.000
-median_abs_dev_ns = 65965165.697
-mean_ns = 5962709266.900
-human = "5.949 s"
-
-["eigensolve_dense.5"]
-group = "eigensolve_dense"
-input = "5"
-median_ns = 1127076.045
-median_abs_dev_ns = 10666.345
-mean_ns = 1142274.834
-human = "1.127 ms"
-
-["eigensolve_dense.8"]
-group = "eigensolve_dense"
-input = "8"
-median_ns = 79887775.273
-median_abs_dev_ns = 1741352.883
-mean_ns = 81490407.773
-human = "79.888 ms"
-
-["eigensolve_sparse.10"]
-group = "eigensolve_sparse"
-input = "10"
-median_ns = 51739629.125
-median_abs_dev_ns = 24472041.692
-mean_ns = 65611989.341
-human = "51.740 ms"
-
-["eigensolve_sparse.5"]
-group = "eigensolve_sparse"
-input = "5"
-median_ns = 4301712.194
-median_abs_dev_ns = 28628.652
-mean_ns = 4362450.430
-human = "4.302 ms"
-
-["eigensolve_sparse.8"]
-group = "eigensolve_sparse"
-input = "8"
-median_ns = 12134132.812
-median_abs_dev_ns = 65016.726
-mean_ns = 12727147.660
-human = "12.134 ms"
+n_rows = 2
 
 ["mie_end_to_end_dense.sphere_fixture"]
-# Pre-#53 baseline measurement, kept as the reference for the
-# speedup calculation. >99 % of this is the dense complex
-# generalized_eigen over the ~1566-edge PEC-interior pencil.
 group = "mie_end_to_end_dense"
 input = "sphere_fixture"
-median_ns = 70901036833.500
-median_abs_dev_ns = 52470283537.542
-mean_ns = 86553892737.600
-human = "70.901 s"
+median_ns = 126101073895.500
+median_abs_dev_ns = 849550047.612
+mean_ns = 124946648662.500
+human = "126.101 s"
 
 ["mie_end_to_end_sparse.sphere_fixture"]
-# Post-#53: sparse complex shift-and-invert Lanczos on the Mie
-# pencil. Measurement is the wall-clock printed by
-# `cargo run -p geode-core --release --example mie_sphere`
-# (sparse path is the default since #53). ~107× faster than the
-# dense path on the bundled 313-node fixture, matching the
-# expectation from the real-path 114× cube speedup at n=10.
-#
-# Measured on macOS / aarch64 / Apple Silicon on commit feature/issue-53.
-# The sample is the example's full eigensolve (one shot, not a
-# criterion median); criterion will refresh this number on its next
-# run via `cargo bench -p geode-core --bench mie_end_to_end`.
 group = "mie_end_to_end_sparse"
 input = "sphere_fixture"
-median_ns = 659000000.000
-median_abs_dev_ns = 0.000
-mean_ns = 659000000.000
-human = "659.000 ms"
+median_ns = 4069553229.000
+median_abs_dev_ns = 12487691.984
+mean_ns = 4081226485.500
+human = "4.070 s"
 
