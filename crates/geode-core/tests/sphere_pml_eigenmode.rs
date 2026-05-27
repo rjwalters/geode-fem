@@ -1,23 +1,26 @@
-//! Scalar-PML dielectric-sphere eigenmode integration test (issue #28).
+//! Scalar-PML dielectric-sphere eigenmode integration test (issues
+//! #28, #38).
 //!
 //! Replaces the Silver-Müller absorbing boundary (#27) with a scalar
 //! perfectly-matched-layer (PML) realized as a complex permittivity in
-//! the existing `vacuum_buffer` region of the bundled sphere fixture.
+//! the outer absorbing shell of the bundled sphere fixture.
 //!
-//! # Approach (scope-reduction Option 2)
+//! # Approach (issue #38 hardening)
 //!
-//! For this v0 cut we reuse the existing fixture topology — no new mesh
-//! is generated — and treat the entire vacuum buffer (`R_SPHERE < r ≤
-//! R_BUFFER`) as the PML. The outer wall stays PEC; the PML absorbs
-//! outgoing radiation **before** it reaches the wall, so the PEC
-//! boundary condition is essentially unreachable for well-trapped
-//! modes.
+//! The fixture has three nested regions:
 //!
-//! The PML is a UPML reduced to a scalar isotropic complex ε via the
-//! standard quadratic absorption ramp,
+//!   - `sphere_interior`  (`r ≤ R_SPHERE`)        — dielectric, ε = n²
+//!   - `vacuum_gap`       (`R_SPHERE < r ≤ R_PML_INNER`) — real vacuum
+//!   - `pml_shell`        (`R_PML_INNER < r ≤ R_BUFFER`) — absorbing PML
+//!
+//! The vacuum gap provides un-stretched space for outgoing waves to
+//! propagate before reaching the absorbing layer; the outer wall is
+//! PEC and is essentially unreachable for well-trapped modes. The PML
+//! quadratic ramp is anchored at `R_PML_INNER`, not `R_SPHERE`, so the
+//! lossy region no longer abuts the dielectric.
 //!
 //! ```text
-//! ε_r(r) = 1 − j σ₀ ((r − R_SPHERE) / (R_BUFFER − R_SPHERE))²
+//! ε_r(r) = 1 − j σ₀ ((r − R_PML_INNER) / (R_BUFFER − R_PML_INNER))²
 //! ```
 //!
 //! This is **less effective** than a fully anisotropic split-field PML
@@ -58,7 +61,7 @@ use geode_core::{
     apply_dirichlet_bc, assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
     burn_complex_mass_to_faer, burn_matrix_to_faer, read_sphere_fixture, sphere_n_interior_nodes,
     sphere_pec_interior_edges, tet_centroid_radii, upload_mesh, ComplexEigenSolver, DefaultBackend,
-    FaerComplexEigensolver, R_BUFFER, R_SPHERE,
+    FaerComplexEigensolver, R_BUFFER, R_PML_INNER, R_SPHERE,
 };
 
 type B = DefaultBackend;
@@ -69,9 +72,9 @@ fn device() -> <B as BackendTypes>::Device {
 
 #[test]
 fn pml_profile_is_real_inside_imag_in_buffer() {
-    // Smoke: the PML profile produces real ε in the dielectric region
-    // and a strictly negative imaginary part in the vacuum buffer
-    // (using the exp(+jωt) convention).
+    // Smoke: the PML profile produces real ε in the dielectric and in
+    // the real-vacuum gap, and a strictly negative imaginary part in
+    // the absorbing PML shell (using the exp(+jωt) convention).
     let f = read_sphere_fixture().expect("fixture load");
     let radii = tet_centroid_radii(&f.mesh);
     let eps = build_complex_epsilon_r_pml(&f.tet_physical_tags, &radii, 1.5, 5.0);
@@ -87,41 +90,91 @@ fn pml_profile_is_real_inside_imag_in_buffer() {
                 && (c.re - 2.25).abs() < 1e-9
         })
         .count();
-    let n_buffer = f
-        .tet_physical_tags
-        .iter()
-        .filter(|&&t| t == geode_core::PHYS_VACUUM_BUFFER)
-        .count();
     assert_eq!(
         n_interior_real_only,
         f.n_interior_tets(),
         "all interior tets must have real ε = 2.25"
     );
 
-    let n_lossy = eps
+    // Vacuum-gap tets must carry exactly ε = 1 + 0j (real vacuum).
+    let n_gap_real_one = eps
         .iter()
         .zip(f.tet_physical_tags.iter())
-        .filter(|(c, &t)| t == geode_core::PHYS_VACUUM_BUFFER && c.im < 0.0)
+        .filter(|(c, &t)| {
+            t == geode_core::PHYS_VACUUM_GAP && c.im.abs() < 1e-12 && (c.re - 1.0).abs() < 1e-12
+        })
         .count();
     assert_eq!(
-        n_lossy, n_buffer,
-        "every buffer tet must carry strictly-negative Im(ε)"
+        n_gap_real_one,
+        f.n_vacuum_gap_tets(),
+        "all vacuum-gap tets must have ε = 1 + 0j (no absorption inside the gap)"
     );
 
-    // Re(ε) in the buffer is exactly 1 by construction.
+    // PML-shell tets must carry strictly-negative Im(ε); Re(ε) = 1.
+    let n_pml_lossy = eps
+        .iter()
+        .zip(f.tet_physical_tags.iter())
+        .filter(|(c, &t)| t == geode_core::PHYS_PML_SHELL && c.im < 0.0)
+        .count();
+    assert_eq!(
+        n_pml_lossy,
+        f.n_pml_shell_tets(),
+        "every PML-shell tet must carry strictly-negative Im(ε)"
+    );
     for (c, &t) in eps.iter().zip(f.tet_physical_tags.iter()) {
-        if t == geode_core::PHYS_VACUUM_BUFFER {
+        if t == geode_core::PHYS_PML_SHELL {
             assert!(
                 (c.re - 1.0).abs() < 1e-12,
-                "buffer tet has Re(ε) = {} (expected 1)",
+                "PML-shell tet has Re(ε) = {} (expected 1)",
                 c.re
             );
         }
     }
     eprintln!(
-        "PML profile: {} interior tets at ε = 2.25 + 0j, {} buffer tets with Im(ε) < 0",
-        n_interior_real_only, n_lossy
+        "PML profile: {} interior tets at ε = 2.25 + 0j, {} gap tets at ε = 1 + 0j, \
+         {} PML-shell tets with Im(ε) < 0",
+        n_interior_real_only, n_gap_real_one, n_pml_lossy
     );
+}
+
+#[test]
+fn pml_profile_sigma_zero_is_real_everywhere() {
+    // Regression test for the σ₀ = 0 limit (issue #38):
+    //
+    // Setting σ₀ = 0 should reduce the complex-ε PML pipeline to a
+    // **real** dielectric problem (real ε = n² inside the sphere,
+    // ε = 1 in both the vacuum gap and the PML shell). Any non-zero
+    // imaginary part here would indicate a regression in the complex-ε
+    // plumbing (e.g. an off-by-one in the ramp coordinate that leaks
+    // imaginary content even at zero absorption strength).
+    let f = read_sphere_fixture().expect("fixture load");
+    let radii = tet_centroid_radii(&f.mesh);
+    let eps = build_complex_epsilon_r_pml(&f.tet_physical_tags, &radii, 1.5, 0.0);
+    assert_eq!(eps.len(), f.mesh.n_tets());
+
+    for (i, c) in eps.iter().enumerate() {
+        assert_eq!(
+            c.im, 0.0,
+            "σ₀ = 0 should yield exactly real ε; tet {i} has Im(ε) = {} \
+             (physical tag = {})",
+            c.im, f.tet_physical_tags[i]
+        );
+    }
+
+    // Spot-check the real part: dielectric tets at 2.25, everything
+    // else at 1.0.
+    for (i, c) in eps.iter().enumerate() {
+        let expected_re = if f.tet_physical_tags[i] == geode_core::PHYS_SPHERE_INTERIOR {
+            2.25
+        } else {
+            1.0
+        };
+        assert!(
+            (c.re - expected_re).abs() < 1e-12,
+            "tet {i} σ₀=0 Re(ε) = {} (expected {expected_re})",
+            c.re
+        );
+    }
 }
 
 #[test]
@@ -354,12 +407,146 @@ fn sphere_pml_eigenmode_spectrum() {
         "ground Re(k²) = {k_ground_re_sq:.4} outside the plausibility band [0.01, 400]"
     );
 
-    // Sanity: R_SPHERE matches the fixture convention used by the
-    // PML profile. Both constants come from the same module so this is
-    // really a self-consistency reminder for anyone editing either.
+    // Sanity: the radii used by the PML profile are exactly the ones
+    // baked into the fixture's `mesh/sphere.rs` constants. Both
+    // constants come from the same module so this is really a self-
+    // consistency reminder for anyone editing either.
     eprintln!(
-        "fixture invariants: R_SPHERE = {R_SPHERE}, R_BUFFER = {R_BUFFER} \
-         (PML thickness = {})",
-        R_BUFFER - R_SPHERE,
+        "fixture invariants: R_SPHERE = {R_SPHERE}, R_PML_INNER = {R_PML_INNER}, \
+         R_BUFFER = {R_BUFFER} (vacuum gap = {}, PML thickness = {})",
+        R_PML_INNER - R_SPHERE,
+        R_BUFFER - R_PML_INNER,
+    );
+}
+
+#[test]
+#[ignore = "faer 0.24 gevd panics under debug-assertions; run with --release"]
+fn sphere_pml_eigenmode_sigma_zero_is_real() {
+    // Issue #38 regression test: when σ₀ = 0 the complex-ε pipeline
+    // collapses to a real-ε generalized eigenproblem (dielectric inside
+    // a PEC cavity), so all eigenvalues must be real to f64 precision.
+    //
+    // Any non-zero imaginary content here indicates a regression in the
+    // complex-ε plumbing (e.g. a rounding accumulation in the imag-
+    // mass scatter, or a sign flip in one of the assembly halves).
+    let f = read_sphere_fixture().expect("fixture load");
+    let n_index = 1.5_f64;
+    let sigma_0 = 0.0_f64;
+    let radii = tet_centroid_radii(&f.mesh);
+    let eps_complex = build_complex_epsilon_r_pml(&f.tet_physical_tags, &radii, n_index, sigma_0);
+
+    // Sanity: profile is real before we even touch the assembler.
+    for (i, c) in eps_complex.iter().enumerate() {
+        assert_eq!(
+            c.im, 0.0,
+            "σ₀ = 0 → ε must be real at the profile level; tet {i} im = {}",
+            c.im
+        );
+    }
+
+    let tet_edges = f.mesh.tet_edges();
+    let n_edges = f.mesh.edges().len();
+    let tet_idx: Vec<[u32; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].0))
+        .collect();
+    let tet_sign: Vec<[i8; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].1))
+        .collect();
+
+    let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device());
+    let sys = assemble_global_nedelec_with_complex_epsilon(
+        nodes_t,
+        tets_t,
+        &tet_idx,
+        &tet_sign,
+        n_edges,
+        &eps_complex,
+    );
+
+    let k_full = burn_matrix_to_faer(sys.k);
+    let m_complex_full = burn_complex_mass_to_faer(sys.m_re, sys.m_im);
+
+    // Acceptance A: the assembled M_im must be (numerically) zero, not
+    // just per-element zero — this catches a regression where the
+    // scatter accumulates noisy bookkeeping into Im(M).
+    let n = m_complex_full.nrows();
+    let mut max_abs_im = 0.0_f64;
+    for i in 0..n {
+        for j in 0..n {
+            let v = m_complex_full[(i, j)].im.abs();
+            if v > max_abs_im {
+                max_abs_im = v;
+            }
+        }
+    }
+    assert!(
+        max_abs_im < 1e-12,
+        "σ₀ = 0: assembled Im(M) leaked, max |Im(M_ij)| = {max_abs_im:.3e} (expected 0)"
+    );
+
+    // Now run the full eigensolver as a belt-and-braces check.
+    let (mask_edges, interior_mask) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);
+    assert_eq!(mask_edges.len(), n_edges, "edge ordering mismatch");
+
+    let dummy_zero = faer::Mat::<f64>::zeros(k_full.nrows(), k_full.ncols());
+    let (k_int, _) = apply_dirichlet_bc(k_full.as_ref(), dummy_zero.as_ref(), &interior_mask)
+        .expect("BC reduction K");
+
+    let interior_idx: Vec<usize> = interior_mask
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &b)| if b { Some(i) } else { None })
+        .collect();
+    let dim = interior_idx.len();
+    let m_int_complex = faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| {
+        m_complex_full[(interior_idx[i], interior_idx[j])]
+    });
+    let k_int_complex =
+        faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| faer::c64::new(k_int[(i, j)], 0.0));
+
+    let spurious_dim = sphere_n_interior_nodes(&f.mesh, R_BUFFER);
+    let n_request = spurious_dim + 5;
+
+    let solver = FaerComplexEigensolver;
+    let lambdas = solver
+        .smallest_complex_pencil_eigenvalues(
+            k_int_complex.as_ref(),
+            m_int_complex.as_ref(),
+            n_request,
+        )
+        .expect("complex eigensolve");
+
+    // Acceptance B: every eigenvalue must be real (Im(λ) tiny relative
+    // to |Re(λ)|). The complex eigensolver itself does not enforce a
+    // real spectrum even for Hermitian inputs, so a small numerical
+    // tolerance is appropriate.
+    let mut max_relative_im = 0.0_f64;
+    for (i, lam) in lambdas.iter().enumerate() {
+        let scale = lam.re.abs().max(1.0);
+        let rel = lam.im.abs() / scale;
+        if rel > max_relative_im {
+            max_relative_im = rel;
+        }
+        eprintln!(
+            "  λ[{i:>3}] = {:.4e} + {:.4e}i  (|Im/Re| ≤ {:.2e})",
+            lam.re, lam.im, rel
+        );
+    }
+    eprintln!(
+        "σ₀ = 0 spectrum: max |Im(λ)| / max(|Re(λ)|, 1) = {max_relative_im:.3e} \
+         (over {} eigenvalues)",
+        lambdas.len()
+    );
+
+    // Real-spectrum tolerance: f32 readback noise from the Burn
+    // backend dominates here, so use ~1e-5 rather than f64-precision.
+    // The point of the test is to catch *systematic* imag content, not
+    // to bound floating-point arithmetic to bit-for-bit zero.
+    assert!(
+        max_relative_im < 1e-5,
+        "σ₀ = 0 spectrum should be real to f32 readback noise; \
+         observed max |Im(λ)|/|Re(λ)| = {max_relative_im:.3e}"
     );
 }

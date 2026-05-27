@@ -13,9 +13,11 @@ use mshio::mshfile::ElementType;
 
 pub mod sphere;
 
+#[allow(deprecated)]
+pub use sphere::PHYS_VACUUM_BUFFER;
 pub use sphere::{
-    read_sphere_fixture, SphereFixture, PHYS_OUTER_BOUNDARY, PHYS_SPHERE_INTERIOR,
-    PHYS_SPHERE_SURFACE, PHYS_VACUUM_BUFFER, R_BUFFER, R_SPHERE,
+    read_sphere_fixture, SphereFixture, PHYS_OUTER_BOUNDARY, PHYS_PML_INTERFACE, PHYS_PML_SHELL,
+    PHYS_SPHERE_INTERIOR, PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP, R_BUFFER, R_PML_INNER, R_SPHERE,
 };
 
 /// CPU-side tetrahedral mesh produced by a `MeshReader`.
