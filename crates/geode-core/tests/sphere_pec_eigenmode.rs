@@ -46,8 +46,8 @@ use burn::tensor::backend::BackendTypes;
 
 use geode_core::{
     apply_dirichlet_bc, assemble_global_nedelec_with_epsilon, build_epsilon_r, burn_matrix_to_faer,
-    read_sphere_fixture, sphere_n_interior_nodes, sphere_pec_interior_edges, upload_mesh,
-    DefaultBackend, EigenSolver, FaerDenseEigensolver, R_BUFFER,
+    merged_roots, read_sphere_fixture, sphere_n_interior_nodes, sphere_pec_interior_edges,
+    upload_mesh, DefaultBackend, EigenSolver, FaerDenseEigensolver, R_BUFFER, R_SPHERE,
 };
 
 type B = DefaultBackend;
@@ -279,4 +279,71 @@ fn sphere_pec_eigenmode_spectrum() {
          positive/real, ground k = {k0:.4}",
         n_spurious
     );
+
+    // 10. Quantitative acceptance (issue #69): each of the lowest 5
+    //     physical FEM eigenvalues `k_fem = √λ` pairs to the closest
+    //     analytic PEC-cavity root from `mie::merged_roots` within ≤ 15 %
+    //     relative on `k`.
+    //
+    //     The analytic catalog covers `l ∈ [1, 4]` with `n_max = 3`
+    //     radial orders per `(l, polarisation)` — well past the lowest
+    //     5 FEM roots, which on the bundled 313-node fixture sit in the
+    //     `k ∈ [1, 4]` band where the catalog is dense.
+    //
+    //     **Pairing rule**: closest-root by absolute `k` distance, not
+    //     index-ordered. Two FEM eigenvalues are allowed to pair to the
+    //     same analytic root (e.g. mesh-asymmetry splitting of a `2l+1`
+    //     degenerate multiplet) — we do not enforce distinct pairings.
+    //
+    //     **Tolerance**: the 15 % bound is calibrated to the bundled
+    //     coarse fixture (313 nodes / ~1226 tets); convergence-under-
+    //     refinement is the deferred sub-issue. Do not tighten this
+    //     bound in this ticket.
+    let analytic = merged_roots(n_index, &[1, 2, 3, 4], R_SPHERE, R_BUFFER, 3);
+    assert!(
+        !analytic.is_empty(),
+        "analytic PEC catalog produced no roots — merged_roots wiring broken"
+    );
+    eprintln!(
+        "analytic PEC catalog: {} roots for n = {}, R_s = {}, R_b = {}",
+        analytic.len(),
+        n_index,
+        R_SPHERE,
+        R_BUFFER,
+    );
+
+    let rel_tol = 0.15_f64;
+    for (i, &lam) in physical.iter().enumerate() {
+        let k_fem = lam.sqrt();
+        let closest = analytic
+            .iter()
+            .min_by(|a, b| {
+                (a.k - k_fem)
+                    .abs()
+                    .partial_cmp(&(b.k - k_fem).abs())
+                    .unwrap()
+            })
+            .expect("non-empty analytic catalog");
+        let rel_err = (k_fem - closest.k).abs() / closest.k;
+        eprintln!(
+            "  physical[{i}]: k_fem = {k_fem:.4} → closest analytic {pol:?}_{l},{n} k = {ka:.4} \
+             (rel err {err:.2}%)",
+            pol = closest.pol,
+            l = closest.l,
+            n = closest.n,
+            ka = closest.k,
+            err = 100.0 * rel_err,
+        );
+        assert!(
+            rel_err <= rel_tol,
+            "physical[{i}] k_fem = {k_fem:.4} does not pair to any analytic PEC root within \
+             {tol:.0}%: closest is {pol:?}_{l},{n} at k = {ka:.4} (rel err {err:.2}%)",
+            tol = 100.0 * rel_tol,
+            pol = closest.pol,
+            l = closest.l,
+            n = closest.n,
+            ka = closest.k,
+            err = 100.0 * rel_err,
+        );
+    }
 }
