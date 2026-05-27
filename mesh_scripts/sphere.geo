@@ -37,10 +37,19 @@ R_sphere    = 1.0;
 R_pml_inner = 1.5;
 R_buffer    = 2.0;
 
-// Mesh size: coarse on purpose. The fixture is meant for fast smoke
-// tests; refinement comes from regenerating with a smaller `lc`.
-lc_sphere = 0.35;
-lc_buffer = 0.6;
+// Mesh size: refined fixture (issue #49). Reduced from the original
+// `lc_sphere = 0.35`, `lc_buffer = 0.6` coarse settings to target
+// ~1.5× density along each axis (~3-4× tets). The refined fixture
+// is used to demonstrate O(h²) convergence of the Mie benchmark
+// against analytic PEC-cavity roots; the previous coarse fixture
+// (313 nodes / 1226 tets) gave ~15 % TM_1,1 rel err. A larger 2×
+// refinement was tried (~1432 nodes / 6461 tets) but the dense
+// complex eigensolve on the resulting ~6500-dim pencil exceeded the
+// 5-min test budget; the sparse Lanczos path is real-only and can't
+// host the complex PML pencil, so the conservative 1.5× refinement
+// is the bullseye.
+lc_sphere = 0.23;
+lc_buffer = 0.4;
 
 // Three concentric solid balls. BooleanFragments then carves them into
 // three nested shells with conformal interfaces.

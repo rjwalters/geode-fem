@@ -10,16 +10,25 @@
 //!
 //! # Tolerance — calibrated, not aspirational
 //!
-//! At the bundled fixture's resolution (313 nodes / 1226 tets) and
-//! with the scalar-isotropic PML at σ₀ = 5.0 the observed relative
-//! error on the lowest physical mode's `Re(k)` is ≈ 23-25 %. The
-//! assertion uses a 30 % tolerance, leaving margin for the
-//! mesh-asymmetry-driven splitting of the 2ℓ+1 = 3-fold degenerate
-//! TM_1,1 triplet (see curator note on PR #19 / issue #14) and for
-//! minor numerical noise across release rebuilds. Tightening this
-//! number is the goal of follow-ups #33 (Mie root accuracy), #35
-//! (Silver-Müller exact quadrature), #38 (vacuum gap / σ₀ sweep) and
-//! a future refined-mesh fixture.
+//! At the **refined** fixture's resolution (~774 nodes / ~3335 tets,
+//! issue #49 — bumped from the original 313/1226 to enable
+//! quantitative Mie convergence study) and with the scalar-isotropic
+//! PML at σ₀ = 5.0 the observed relative error on the lowest
+//! physical mode's `Re(k)` is ≈ 16 %. The assertion uses a 25 %
+//! tolerance, leaving margin for the mesh-asymmetry-driven splitting
+//! of the 2ℓ+1 = 3-fold degenerate TM_1,1 triplet (see curator note
+//! on PR #19 / issue #14) and for minor numerical noise across
+//! release rebuilds.
+//!
+//! **Finding from issue #49**: mesh refinement alone does NOT
+//! produce the O(h²) error reduction one might naively expect for
+//! the P1 Nédélec basis. The dominant error source at this PML
+//! configuration is the scalar-isotropic PML imprint on the
+//! discrete spectrum, not the FEM discretization. Tightening
+//! quantitative agreement therefore lives in follow-ups #33 (Mie
+//! root accuracy), #35 (Silver-Müller exact quadrature), #38
+//! (vacuum gap / σ₀ sweep) and #48 (vector-tracking k₀), not in
+//! further mesh refinement.
 //!
 //! # Why `#[ignore]`?
 //!
@@ -42,8 +51,11 @@ use geode_core::{
 
 /// Q-factor band lower bound for the lowest TM_1,1 triplet (issue #40).
 ///
-/// **Observed (v0 main, PR #39 baseline)**: median Q ≈ 2.14 across the
-/// three FEM modes of the 2l+1 = 3-fold degenerate ground triplet.
+/// **Observed (PR #39 baseline, coarse fixture)**: median Q ≈ 2.14
+/// across the three FEM modes of the 2l+1 = 3-fold degenerate ground
+/// triplet. With the refined fixture (issue #49) the median Q
+/// generally improves, but the lower bound is still set
+/// conservatively at 1.5 to catch regressions.
 ///
 /// **Why a band test?** A Q regression is a sensitive proxy for PML
 /// misconfiguration: drift in σ₀, an accidental break in the
@@ -61,7 +73,7 @@ type B = DefaultBackend;
 
 #[test]
 #[ignore = "faer 0.24 gevd panics under debug-assertions; run with --release"]
-fn mie_sphere_ground_mode_within_30_percent_of_analytic() {
+fn mie_sphere_ground_mode_within_25_percent_of_analytic() {
     let device = <B as BackendTypes>::Device::default();
 
     let n_inside = 1.5;
@@ -172,11 +184,15 @@ fn mie_sphere_ground_mode_within_30_percent_of_analytic() {
         rel_err * 100.0
     );
 
-    // Acceptance: tolerance calibrated to the bundled fixture's
-    // resolution. Document drift in the PR if you change this.
+    // Acceptance: tolerance calibrated to the refined fixture's
+    // resolution (issue #49). Observed ≈ 16 %; 25 % gives margin
+    // for release-rebuild drift and mesh-asymmetry-driven splitting
+    // within the TM_1,1 triplet. The PML imprint dominates the
+    // discretisation error — tighter agreement is the goal of #48
+    // and #35, not further mesh refinement.
     assert!(
-        rel_err < 0.30,
-        "lowest FEM mode Re(k) = {re_k} differs from analytic TM_1,1 = {} by {:.1}% (> 30%)",
+        rel_err < 0.25,
+        "lowest FEM mode Re(k) = {re_k} differs from analytic TM_1,1 = {} by {:.1}% (> 25%)",
         ground.k,
         rel_err * 100.0
     );

@@ -5,7 +5,7 @@
 
 [meta]
 description = "Mie sphere benchmark (issue #4 v1, issue #40): FEM eigenmodes vs. extended analytic PEC-cavity catalog (l ∈ [1,4], TE+TM, n ∈ [1,5]) with multiplicity-claim mode classification."
-generated_at_commit = "a2fc43bc5e8339ff7d2d61d5b5fc6736ebe993c7"
+generated_at_commit = "c80feaa155dedeed3d050f48908ce8532928b953"
 n_inside = 1.5
 sigma_0 = 5
 r_sphere = 1
@@ -17,7 +17,7 @@ notes = [
   "Analytic side is PEC-cavity dielectric resonator, not open-space Mie WGM.",
   "Real analytic roots only; complex open-space Mie roots are a separate axis (#33).",
   "Mode classification: walk catalog by ascending k, claim 2l+1 FEM modes per analytic root.",
-  "FEM side: scalar isotropic PML, bundled 313-node fixture — coarse.",
+  "FEM side: scalar isotropic PML, bundled 774-node refined fixture (issue #49).",
   "Driven scattering benchmark (Q_ext vs. ka) is v2 (separate scope).",
 ]
 
@@ -28,10 +28,10 @@ n = 1
 m_idx = 0
 incomplete = false
 analytic_k = 1.303434130274992e0
-fem_re_k = 1.106133193583890e0
-fem_im_k = 9.803138205773222e-2
-rel_err_re_k = 1.513700862271238e-1
-q = 5.641730078499103e0
+fem_re_k = 1.091477858968953e0
+fem_im_k = 9.488562738663581e-2
+rel_err_re_k = 1.626137189313290e-1
+q = 5.751544723003447e0
 
 [mode_1]
 polarisation = "TM"
@@ -40,10 +40,10 @@ n = 1
 m_idx = 1
 incomplete = false
 analytic_k = 1.303434130274992e0
-fem_re_k = 1.106599400780261e0
-fem_im_k = 9.700480406836774e-2
-rel_err_re_k = 1.510124101577756e-1
-q = 5.703838131564826e0
+fem_re_k = 1.092077001004836e0
+fem_im_k = 9.395272248789487e-2
+rel_err_re_k = 1.621540547089747e-1
+q = 5.811843297811525e0
 
 [mode_2]
 polarisation = "TM"
@@ -52,10 +52,10 @@ n = 1
 m_idx = 2
 incomplete = false
 analytic_k = 1.303434130274992e0
-fem_re_k = 1.106901675821355e0
-fem_im_k = 9.566502062457638e-2
-rel_err_re_k = 1.507805035089680e-1
-q = 5.785299938235687e0
+fem_re_k = 1.092238341810895e0
+fem_im_k = 9.464646115524726e-2
+rel_err_re_k = 1.620302733821617e-1
+q = 5.770096042044887e0
 
 [mode_3]
 polarisation = "TE"
@@ -64,10 +64,10 @@ n = 1
 m_idx = 0
 incomplete = false
 analytic_k = 1.889433359545106e0
-fem_re_k = 1.610802916978593e0
-fem_im_k = 2.547777610976749e-1
-rel_err_re_k = 1.474677268499142e-1
-q = 3.161192150442547e0
+fem_re_k = 1.579192738601756e0
+fem_im_k = 2.535986480906205e-1
+rel_err_re_k = 1.641977047647994e-1
+q = 3.113566950162624e0
 
 [mode_4]
 polarisation = "TE"
@@ -76,10 +76,10 @@ n = 1
 m_idx = 1
 incomplete = false
 analytic_k = 1.889433359545106e0
-fem_re_k = 1.611054914404906e0
-fem_im_k = 2.595362820594396e-1
-rel_err_re_k = 1.473343548921043e-1
-q = 3.103718103729210e0
+fem_re_k = 1.580017136376765e0
+fem_im_k = 2.523174539292092e-1
+rel_err_re_k = 1.637613846528228e-1
+q = 3.131010383491065e0
 
 [mode_5]
 polarisation = "TE"
@@ -88,10 +88,10 @@ n = 1
 m_idx = 2
 incomplete = false
 analytic_k = 1.889433359545106e0
-fem_re_k = 1.613911001880237e0
-fem_im_k = 2.611047077857281e-1
-rel_err_re_k = 1.458227443021343e-1
-q = 3.090543666498481e0
+fem_re_k = 1.581210785259691e0
+fem_im_k = 2.539596380519888e-1
+rel_err_re_k = 1.631296349925895e-1
+q = 3.113114346414363e0
 
 [mode_6]
 polarisation = "TM"
@@ -100,10 +100,10 @@ n = 1
 m_idx = 0
 incomplete = true
 analytic_k = 1.890736585383276e0
-fem_re_k = 1.614815995111759e0
-fem_im_k = 2.555629707531792e-1
-rel_err_re_k = 1.459328562236417e-1
-q = 3.159330928014874e0
+fem_re_k = 1.581761609966005e0
+fem_im_k = 2.554500615590684e-1
+rel_err_re_k = 1.634151355645547e-1
+q = 3.096029024835936e0
 
 [mode_7]
 polarisation = "TM"
@@ -112,8 +112,8 @@ n = 1
 m_idx = 1
 incomplete = true
 analytic_k = 1.890736585383276e0
-fem_re_k = 1.615084876780074e0
-fem_im_k = 2.591015691942202e-1
-rel_err_re_k = 1.457906462138534e-1
-q = 3.116702229559677e0
+fem_re_k = 1.584435351048642e0
+fem_im_k = 2.545251024570355e-1
+rel_err_re_k = 1.620010088674212e-1
+q = 3.112532586675020e0
 
