@@ -100,17 +100,46 @@ const SIGMA_0: f64 = 5.0;
 /// the documented ~6% TM_1,1 rel err on the bundled fixture.
 const K0_REF: f64 = 2.0;
 
-/// Number of physical FEM modes to compare (above the gradient nullspace).
+/// Number of analytic multiplets to walk when sizing the FEM eigen
+/// request (issue #43).
 ///
-/// Bumped to 8 (v0 was 5) so the consecutive-multiplicity claim walks
-/// at least two full analytic groups: the 3-fold TM_1,1 triplet
-/// plus another (l, n, pol) cluster above it.
-const N_MODES: usize = 8;
+/// `N_MODES` (the actual count of FEM modes requested above the
+/// gradient nullspace) is no longer a hand-tuned magic number — it is
+/// derived from the cumulative multiplicities of the first
+/// `N_ANALYTIC_GROUPS` rows in `mie_roots_catalog`. With the n = 1.5,
+/// `L_MAX = 4`, `N_MAX = 5` catalog the first three groups are
+/// `TM_1,1` (multiplicity 3), `TE_1,1` (multiplicity 3), and
+/// `TM_2,1` (multiplicity 5), summing to 11 — comfortably above the
+/// v1 hand-set count of 8 and including the canonical
+/// `TE_1,1` / `TM_2,1` close-pair (0.07 % spacing on this catalog)
+/// that exercises the overlap-gated pairing path. Mesh refinement or
+/// catalog widening (`L_MAX`, `N_MAX`) automatically tracks through
+/// this derivation.
+const N_ANALYTIC_GROUPS: usize = 3;
 
 /// Maximum angular order in the analytic catalog (issue #40).
 const L_MAX: usize = 4;
 /// Maximum radial order per `(l, pol)` in the analytic catalog.
 const N_MAX: usize = 5;
+
+/// Relative-gap threshold (~10 %) for flagging a close-pair in the
+/// analytic catalog (issue #43). When two consecutive roots are
+/// within this fraction of each other AND the FEM spread inside the
+/// first root's multiplet is large enough to bridge that gap, the
+/// pairing is considered ambiguous.
+const CLOSE_PAIR_GAP_FRAC: f64 = 0.10;
+
+/// Compute the requested FEM-mode count from the first
+/// `N_ANALYTIC_GROUPS` rows of the catalog. Sums their multiplicities
+/// so refinement-driven changes (more rows, different multiplicities)
+/// track automatically.
+fn n_modes_from_catalog(analytic: &[MieRoot]) -> usize {
+    analytic
+        .iter()
+        .take(N_ANALYTIC_GROUPS)
+        .map(|r| r.multiplicity)
+        .sum()
+}
 
 /// Result for a single benchmark row.
 ///
@@ -127,6 +156,14 @@ struct Row {
     /// True if the FEM spectrum ran out before the full multiplicity
     /// was filled.
     incomplete: bool,
+    /// True if the analytic catalog has another root within
+    /// `CLOSE_PAIR_GAP_FRAC` of this one AND the FEM modes claimed
+    /// inside this multiplet span more than half that inter-root gap
+    /// (issue #43). Indicates the consecutive-`Re(k)` claim may have
+    /// silently interleaved FEM modes between two close analytic
+    /// roots; the row's `(pol, l, n)` label should be treated as
+    /// best-guess rather than physically certain.
+    ambiguous: bool,
     analytic_k: f64,
     fem_re_k: f64,
     fem_im_k: f64,
@@ -178,7 +215,7 @@ fn results_path() -> PathBuf {
 /// scalar-isotropic complex ε (16% rel err ceiling, issue #52),
 /// `false` (default) uses the anisotropic-UPML diagonal complex
 /// tensor (~6% rel err on TM_1,1, issue #54).
-fn fem_complex_k(use_dense: bool, scalar_pml: bool) -> Vec<faer::c64> {
+fn fem_complex_k(use_dense: bool, scalar_pml: bool, n_modes: usize) -> Vec<faer::c64> {
     let device = <B as BackendTypes>::Device::default();
 
     let f = read_sphere_fixture().expect("fixture load");
@@ -261,7 +298,7 @@ fn fem_complex_k(use_dense: bool, scalar_pml: bool) -> Vec<faer::c64> {
     );
 
     let spurious_dim = sphere_n_interior_nodes(&f.mesh, R_BUFFER);
-    let n_request = spurious_dim + N_MODES + 5;
+    let n_request = spurious_dim + n_modes + 5;
 
     eprintln!("predicted spurious-mode count: {spurious_dim}, requesting {n_request} eigenvalues",);
 
@@ -342,7 +379,7 @@ fn fem_complex_k(use_dense: bool, scalar_pml: bool) -> Vec<faer::c64> {
     lambdas
         .iter()
         .skip(first_physical)
-        .take(N_MODES)
+        .take(n_modes)
         .map(|lam| {
             // Principal branch of sqrt: Re(k) ≥ 0.
             let r = (lam.re * lam.re + lam.im * lam.im).sqrt();
@@ -363,7 +400,8 @@ fn q_factor(k: faer::c64) -> f64 {
     }
 }
 
-/// Multiplicity-aware mode-claim pairing (issue #40).
+/// Multiplicity-aware mode-claim pairing with overlap gating
+/// (issues #40, #43).
 ///
 /// Walks the analytic catalog in ascending-`k` order. For each root,
 /// claims the next `multiplicity = 2 l + 1` FEM modes (in sorted `Re(k)`
@@ -373,8 +411,18 @@ fn q_factor(k: faer::c64) -> f64 {
 /// reached, the row is still emitted with `incomplete = true`. This
 /// is informational, never panicking.
 ///
-/// Im(k) banding tiebreaker is currently a soft sanity check: within
-/// each claimed group we record the median `Im(k)` and warn if the
+/// **Overlap gating (issue #43)**: if the next analytic root is within
+/// `CLOSE_PAIR_GAP_FRAC` (~10 %) of the current one — e.g. the
+/// canonical `TE_1,1` / `TM_2,1` pair at `k ≈ 1.889 / 1.891` (0.07 %
+/// spacing) on the n = 1.5 catalog — the FEM modes inside the current
+/// multiplet's `Re(k)` span may not be cleanly separable from the next
+/// multiplet's. We flag rows as `ambiguous = true` when the
+/// within-multiplet FEM spread exceeds half the inter-root gap, and
+/// print a warning so a downstream reader doesn't take the
+/// physically-uncertain `(pol, l, n)` label at face value.
+///
+/// Im(k) banding tiebreaker is a soft sanity check: within each
+/// claimed group we record the median `Im(k)` and warn if the
 /// per-slot spread exceeds ~10 % of that median. The FEM coarse
 /// fixture often violates this band (mesh asymmetry), so the message
 /// is logged but not enforced.
@@ -386,7 +434,7 @@ fn pair_modes(analytic: &[MieRoot], fem: &[faer::c64]) -> Vec<Row> {
     let mut rows = Vec::new();
     let mut cursor = 0_usize;
 
-    for root in analytic {
+    for (g_idx, root) in analytic.iter().enumerate() {
         if cursor >= fem_sorted.len() {
             break;
         }
@@ -417,6 +465,45 @@ fn pair_modes(analytic: &[MieRoot], fem: &[faer::c64]) -> Vec<Row> {
             }
         }
 
+        // Overlap gating against the next analytic root.
+        // ambiguity test: only when there is a "next" root, that root
+        // is within CLOSE_PAIR_GAP_FRAC of the current one, AND the
+        // FEM spread inside this multiplet is more than half that gap.
+        let mut ambiguous = false;
+        if let Some(next) = analytic.get(g_idx + 1) {
+            let gap = (next.k - root.k).abs();
+            let rel_gap = gap / root.k;
+            if rel_gap < CLOSE_PAIR_GAP_FRAC && group.len() >= 2 {
+                let res: Vec<f64> = group.iter().map(|k| k.re).collect();
+                let re_min = res.iter().cloned().fold(f64::INFINITY, f64::min);
+                let re_max = res.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let spread = re_max - re_min;
+                // Trigger when within-multiplet FEM spread is more
+                // than half the gap to the next analytic root: the
+                // FEM modes inside this multiplet could plausibly
+                // belong to either group.
+                if spread > 0.5 * gap {
+                    ambiguous = true;
+                    eprintln!(
+                        "  warn: close-pair gating — {}_{},{} (k = {:.5}) next root \
+                         {}_{},{} (k = {:.5}, rel gap = {:.3}%) and within-multiplet \
+                         FEM spread = {:.3e} > 0.5 * gap ({:.3e}); claim is ambiguous",
+                        pol_str(root.pol),
+                        root.l,
+                        root.n,
+                        root.k,
+                        pol_str(next.pol),
+                        next.l,
+                        next.n,
+                        next.k,
+                        rel_gap * 100.0,
+                        spread,
+                        0.5 * gap,
+                    );
+                }
+            }
+        }
+
         for (slot, fem_k) in group.iter().enumerate() {
             let rel_err = (fem_k.re - root.k).abs() / root.k;
             rows.push(Row {
@@ -425,6 +512,7 @@ fn pair_modes(analytic: &[MieRoot], fem: &[faer::c64]) -> Vec<Row> {
                 n: root.n,
                 m_idx: slot,
                 incomplete,
+                ambiguous,
                 analytic_k: root.k,
                 fem_re_k: fem_k.re,
                 fem_im_k: fem_k.im,
@@ -451,9 +539,14 @@ fn print_table(rows: &[Row]) {
     );
     for (i, r) in rows.iter().enumerate() {
         let label = format!("{}_{},{}", r.pol, r.l, r.n);
-        let suffix = if r.incomplete { "*" } else { " " };
+        let suffix = match (r.incomplete, r.ambiguous) {
+            (true, true) => "*?",
+            (true, false) => "* ",
+            (false, true) => "? ",
+            (false, false) => "  ",
+        };
         eprintln!(
-            "{:>3}  {:>11}{}  {:>4}  {:>11.5}  {:>11.5}  {:>11.5e}  {:>12.3}%  {:>10.3e}",
+            "{:>3}  {:>10}{}  {:>4}  {:>11.5}  {:>11.5}  {:>11.5e}  {:>12.3}%  {:>10.3e}",
             i,
             label,
             suffix,
@@ -468,10 +561,13 @@ fn print_table(rows: &[Row]) {
     if rows.iter().any(|r| r.incomplete) {
         eprintln!("  (* = analytic multiplicity not fully filled by FEM modes)");
     }
+    if rows.iter().any(|r| r.ambiguous) {
+        eprintln!("  (? = close-pair overlap; pairing label is best-guess, issue #43)");
+    }
     eprintln!();
 }
 
-fn write_toml(rows: &[Row], path: &PathBuf, scalar_pml: bool) {
+fn write_toml(rows: &[Row], path: &PathBuf, scalar_pml: bool, n_modes: usize) {
     let commit = current_commit();
     let pml_kind = if scalar_pml { "scalar" } else { "anisotropic" };
 
@@ -493,7 +589,7 @@ fn write_toml(rows: &[Row], path: &PathBuf, scalar_pml: bool) {
     }
     s.push_str(&format!("r_sphere = {}\n", R_SPHERE));
     s.push_str(&format!("r_buffer = {}\n", R_BUFFER));
-    s.push_str(&format!("n_modes = {}\n", N_MODES));
+    s.push_str(&format!("n_modes = {}\n", n_modes));
     s.push_str(&format!("l_max = {}\n", L_MAX));
     s.push_str(&format!("n_max_radial = {}\n", N_MAX));
     s.push_str("notes = [\n");
@@ -525,6 +621,7 @@ fn write_toml(rows: &[Row], path: &PathBuf, scalar_pml: bool) {
         s.push_str(&format!("n = {}\n", r.n));
         s.push_str(&format!("m_idx = {}\n", r.m_idx));
         s.push_str(&format!("incomplete = {}\n", r.incomplete));
+        s.push_str(&format!("ambiguous = {}\n", r.ambiguous));
         s.push_str(&format!("analytic_k = {:.15e}\n", r.analytic_k));
         s.push_str(&format!("fem_re_k = {:.15e}\n", r.fem_re_k));
         s.push_str(&format!("fem_im_k = {:.15e}\n", r.fem_im_k));
@@ -571,11 +668,16 @@ fn main() {
     // both TE and TM polarisations, lowest N_MAX radial overtones each.
     // Each MieRoot carries its (l, n, pol, multiplicity = 2l+1) label.
     let analytic = mie_roots_catalog(N_INSIDE, L_MAX, N_MAX);
+    let n_modes = n_modes_from_catalog(&analytic);
     eprintln!(
         "Analytic catalog: {} roots over l ∈ [1, {}], TE+TM, n ∈ [1, {}]",
         analytic.len(),
         L_MAX,
         N_MAX
+    );
+    eprintln!(
+        "Catalog-derived N_MODES = {} (sum of multiplicities of first {} groups, issue #43)",
+        n_modes, N_ANALYTIC_GROUPS,
     );
     eprintln!("Lowest 12 analytic roots (PEC-cavity dielectric resonator):");
     for r in analytic.iter().take(12) {
@@ -593,7 +695,7 @@ fn main() {
     // FEM eigensolve.
     eprintln!();
     eprintln!("=== FEM eigensolve ===");
-    let fem_k = fem_complex_k(use_dense, scalar_pml);
+    let fem_k = fem_complex_k(use_dense, scalar_pml, n_modes);
     eprintln!("Lowest {} physical FEM modes (k = sqrt(λ)):", fem_k.len());
     for (i, k) in fem_k.iter().enumerate() {
         eprintln!("  mode[{i}]  k = {:.5} + {:.5e}i", k.re, k.im);
@@ -604,7 +706,7 @@ fn main() {
     print_table(&rows);
 
     // Persist.
-    write_toml(&rows, &results_path(), scalar_pml);
+    write_toml(&rows, &results_path(), scalar_pml, n_modes);
 
     // Issue #33 — open-space Mie WGM cross-check.
     //
@@ -672,4 +774,136 @@ fn main() {
     eprintln!();
 
     eprintln!("=== Done ===");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a synthetic FEM-mode vector that mimics a coarse-mesh
+    /// split of an analytic root: three modes (multiplicity 2l+1 = 3)
+    /// clustered around `k` with the given `spread` in Re(k) and a
+    /// uniform damping `im`.
+    fn synth_triplet(k: f64, spread: f64, im: f64) -> Vec<faer::c64> {
+        vec![
+            faer::c64::new(k - 0.5 * spread, im),
+            faer::c64::new(k, im),
+            faer::c64::new(k + 0.5 * spread, im),
+        ]
+    }
+
+    #[test]
+    fn close_pair_te11_tm21_flags_ambiguous_on_overlap() {
+        // Use the bundled n = 1.5 catalog: TE_1,1 (k ≈ 1.88943) and
+        // TM_2,1 (k ≈ 1.89074) are 0.07 % apart, the canonical
+        // close-pair (issue #43). Concoct a synthetic FEM spectrum
+        // where the TE_1,1 multiplet spreads enough in Re(k) to bridge
+        // half the gap to TM_2,1; the pairing must flag the affected
+        // rows as `ambiguous = true`.
+        let analytic = mie_roots_catalog(N_INSIDE, L_MAX, N_MAX);
+        // Find the TE_1,1 / TM_2,1 pair indices in the catalog.
+        let i_te11 = analytic
+            .iter()
+            .position(|r| r.pol == MiePolarisation::TE && r.l == 1 && r.n == 1)
+            .expect("TE_1,1 in catalog");
+        let te11 = analytic[i_te11];
+        let tm21 = analytic
+            .get(i_te11 + 1)
+            .copied()
+            .expect("TM_2,1 follows TE_1,1");
+        assert_eq!(tm21.pol, MiePolarisation::TM);
+        assert_eq!(tm21.l, 2);
+        assert_eq!(tm21.n, 1);
+        let gap = tm21.k - te11.k;
+        let rel_gap = gap / te11.k;
+        assert!(
+            rel_gap < CLOSE_PAIR_GAP_FRAC,
+            "TE_1,1 / TM_2,1 must be within {}% (got {:.5}%)",
+            CLOSE_PAIR_GAP_FRAC * 100.0,
+            rel_gap * 100.0
+        );
+
+        // Build a synthetic FEM spectrum: a low-k multiplet for the
+        // ground TM_1,1 (just to anchor the cursor at the start), then
+        // a TE_1,1 triplet whose spread spans MORE than half the gap
+        // to TM_2,1, then a TM_2,1 quintet.
+        let ground = analytic[0];
+        let mut fem: Vec<faer::c64> = Vec::new();
+        fem.extend(synth_triplet(ground.k, 1e-3, 1e-2));
+        // TE_1,1 triplet: spread = gap so it definitely bridges > 0.5*gap.
+        fem.extend(synth_triplet(te11.k, gap, 1e-2));
+        // TM_2,1 quintet (multiplicity 5).
+        for slot in 0..5 {
+            fem.push(faer::c64::new(tm21.k + (slot as f64 - 2.0) * 1e-4, 1e-2));
+        }
+
+        let rows = pair_modes(&analytic, &fem);
+        // Rows for TE_1,1 should be flagged ambiguous.
+        let te11_rows: Vec<&Row> = rows
+            .iter()
+            .filter(|r| r.pol == "TE" && r.l == 1 && r.n == 1)
+            .collect();
+        assert_eq!(te11_rows.len(), 3, "TE_1,1 multiplet should be 3 rows");
+        assert!(
+            te11_rows.iter().all(|r| r.ambiguous),
+            "all TE_1,1 rows must be flagged ambiguous when FEM spread > 0.5 * gap to TM_2,1"
+        );
+    }
+
+    #[test]
+    fn close_pair_not_flagged_when_fem_spread_is_tight() {
+        // Same catalog but with a TIGHT TE_1,1 multiplet: spread much
+        // less than half the gap to TM_2,1. Must NOT be flagged
+        // ambiguous — the close-pair gate should only fire when the
+        // FEM modes actually bridge the analytic gap.
+        let analytic = mie_roots_catalog(N_INSIDE, L_MAX, N_MAX);
+        let i_te11 = analytic
+            .iter()
+            .position(|r| r.pol == MiePolarisation::TE && r.l == 1 && r.n == 1)
+            .expect("TE_1,1 in catalog");
+        let te11 = analytic[i_te11];
+        let tm21 = analytic[i_te11 + 1];
+        let gap = tm21.k - te11.k;
+
+        let ground = analytic[0];
+        let mut fem: Vec<faer::c64> = Vec::new();
+        fem.extend(synth_triplet(ground.k, 1e-3, 1e-2));
+        // Spread is 0.1 * gap → well under the 0.5 * gap threshold.
+        fem.extend(synth_triplet(te11.k, 0.1 * gap, 1e-2));
+        for slot in 0..5 {
+            fem.push(faer::c64::new(tm21.k + (slot as f64 - 2.0) * 1e-4, 1e-2));
+        }
+
+        let rows = pair_modes(&analytic, &fem);
+        let te11_rows: Vec<&Row> = rows
+            .iter()
+            .filter(|r| r.pol == "TE" && r.l == 1 && r.n == 1)
+            .collect();
+        assert_eq!(te11_rows.len(), 3);
+        assert!(
+            te11_rows.iter().all(|r| !r.ambiguous),
+            "TE_1,1 rows must NOT be ambiguous when FEM spread is << gap"
+        );
+    }
+
+    #[test]
+    fn n_modes_from_catalog_matches_sum_of_multiplicities() {
+        // Catalog-derived N_MODES must equal the cumulative
+        // multiplicity sum of the first N_ANALYTIC_GROUPS catalog
+        // entries (issue #43, replaces hard-coded N_MODES = 8).
+        let analytic = mie_roots_catalog(N_INSIDE, L_MAX, N_MAX);
+        let expected: usize = analytic
+            .iter()
+            .take(N_ANALYTIC_GROUPS)
+            .map(|r| r.multiplicity)
+            .sum();
+        assert_eq!(n_modes_from_catalog(&analytic), expected);
+        // For N_ANALYTIC_GROUPS = 2 on the bundled catalog, that's
+        // TM_1,1 (mult 3) + TE_1,1 (mult 3) = 6 — the catalog tracks
+        // automatically, no hand-tuned magic 8.
+        assert!(
+            n_modes_from_catalog(&analytic) >= 3,
+            "must cover at least the TM_1,1 ground triplet"
+        );
+    }
 }

@@ -74,9 +74,21 @@ pub struct MieRoot {
     pub multiplicity: usize,
 }
 
-/// Spherical Bessel function `j_l(x)` of the first kind, real arg.
+/// Spherical Bessel functions `j_{l-1}(x)` and `j_l(x)` of the first
+/// kind, real arg, computed in a single pass.
 ///
-/// Uses two strategies based on the relative size of `l` and `x`:
+/// Returns `(j_{l-1}, j_l)`. For `l == 0` the first slot is `j_{-1}(x) =
+/// cos(x)/x` (the analytic continuation per the standard recurrence;
+/// not normally used but kept consistent so the recurrence stays
+/// closed).
+///
+/// Sharing one Miller downward pass between `j_{l-1}` and `j_l` is the
+/// whole point of this helper: [`spherical_j`] and [`spherical_j_prime`]
+/// both call into it so we recompute the Bessel ladder once instead of
+/// twice (issue #43).
+///
+/// Uses the same two-regime strategy as the previous standalone
+/// `spherical_j`:
 ///
 /// - **Upward recurrence** `j_l = (2l-1)/x · j_{l-1} - j_{l-2}` when
 ///   `l ≤ x + 1`. Stable in this regime, and matches the original v0
@@ -89,19 +101,31 @@ pub struct MieRoot {
 ///   normalise against the known closed form `j_0(x) = sin(x)/x`.
 ///   `l_start = l + 20` and the canonical 1 / scale renormalisation
 ///   give 12-digit accuracy across the catalog range (NR §6.5).
-pub fn spherical_j(l: usize, x: f64) -> f64 {
+pub fn spherical_j_pair(l: usize, x: f64) -> (f64, f64) {
     if x.abs() < 1e-14 {
-        return if l == 0 { 1.0 } else { 0.0 };
+        // j_0(0) = 1, j_n(0) = 0 for n ≥ 1. The l = 0 case returns
+        // j_{-1}(0) which is formally singular; we never call into
+        // it from the wrapper code, but return 0 here as a safe
+        // sentinel so the function stays total.
+        return match l {
+            0 => (0.0, 1.0),
+            1 => (1.0, 0.0),
+            _ => (0.0, 0.0),
+        };
     }
     let s = x.sin();
     let c = x.cos();
     let j0 = s / x;
-    if l == 0 {
-        return j0;
-    }
     let j1 = s / (x * x) - c / x;
+    if l == 0 {
+        // j_{-1}(x) = cos(x)/x by the standard recurrence (this
+        // matches the convention used in the derivative formula
+        // j_0'(x) = -j_1(x); the j_{-1} value itself is not currently
+        // consumed by callers).
+        return (c / x, j0);
+    }
     if l == 1 {
-        return j1;
+        return (j0, j1);
     }
 
     // Upward recurrence regime: stable when `l ≤ x`.
@@ -113,19 +137,26 @@ pub fn spherical_j(l: usize, x: f64) -> f64 {
             prev = curr;
             curr = next;
         }
-        return curr;
+        // After the loop: prev = j_{l-1}, curr = j_l.
+        return (prev, curr);
     }
 
     // Downward (Miller's) recurrence: seed with `j_{l_start+1} = 0`,
     // `j_{l_start} = 1` (unnormalised), recurse downward using
     // `j_{k-1} = (2k+1)/x · j_k - j_{k+1}` and normalise against the
     // closed form `j_0(x) = sin(x)/x`.
+    //
+    // Single pass: we capture `j_l` *and* `j_{l-1}` simultaneously, so
+    // callers needing both (notably [`spherical_j_prime`]) pay only one
+    // Miller traversal.
     let l_start = l + 20;
     // `j_high = j_{k}`, `j_higher = j_{k+1}` at the top of each loop.
     let mut j_higher = 0.0_f64;
     let mut j_high = 1.0_f64;
-    // Snapshots at the rungs we care about.
+    // Snapshots at the rungs we care about. `at_target_minus_1`
+    // captures `j_{l-1}` so we can return it alongside `j_l`.
     let mut at_target = if l == l_start { Some(j_high) } else { None };
+    let mut at_target_minus_1: Option<f64> = None;
     let mut at_zero: Option<f64> = None;
     // Walk k = l_start, l_start - 1, …, 1; the body computes
     // `j_{k-1}` and slides the window down.
@@ -139,6 +170,10 @@ pub fn spherical_j(l: usize, x: f64) -> f64 {
         if k - 1 == l {
             at_target = Some(j_high);
         }
+        if k - 1 + 1 == l {
+            // k - 1 == l - 1 — capture j_{l-1}.
+            at_target_minus_1 = Some(j_high);
+        }
         if k - 1 == 0 {
             at_zero = Some(j_high);
         }
@@ -150,15 +185,28 @@ pub fn spherical_j(l: usize, x: f64) -> f64 {
             if let Some(t) = at_target.as_mut() {
                 *t /= scale;
             }
+            if let Some(t) = at_target_minus_1.as_mut() {
+                *t /= scale;
+            }
             if let Some(z) = at_zero.as_mut() {
                 *z /= scale;
             }
         }
     }
     let target = at_target.expect("target rung visited");
+    let target_minus_1 = at_target_minus_1.expect("target-1 rung visited");
     let zero = at_zero.expect("k=0 rung visited");
     // Normalise: true j_0(x) = sin(x)/x = j0.
-    target * (j0 / zero)
+    let norm = j0 / zero;
+    (target_minus_1 * norm, target * norm)
+}
+
+/// Spherical Bessel function `j_l(x)` of the first kind, real arg.
+///
+/// Thin wrapper over [`spherical_j_pair`] returning only the `j_l`
+/// component. See that function for the recurrence strategy.
+pub fn spherical_j(l: usize, x: f64) -> f64 {
+    spherical_j_pair(l, x).1
 }
 
 /// Spherical Bessel function `y_l(x)` of the second kind, real arg.
@@ -189,14 +237,20 @@ pub fn spherical_y(l: usize, x: f64) -> f64 {
 }
 
 /// Derivative `j_l'(x) = j_{l-1}(x) - (l+1)/x · j_l(x)`.
+///
+/// Fused Miller pass (issue #43): both `j_{l-1}` and `j_l` come from a
+/// single call to [`spherical_j_pair`], so the downward recurrence runs
+/// once instead of twice. Identical numerical result, half the work.
 pub fn spherical_j_prime(l: usize, x: f64) -> f64 {
     if x.abs() < 1e-14 {
         return if l == 1 { 1.0 / 3.0 } else { 0.0 };
     }
     if l == 0 {
+        // j_0'(x) = -j_1(x); cheap closed form, no pair needed.
         return -spherical_j(1, x);
     }
-    spherical_j(l - 1, x) - ((l + 1) as f64) / x * spherical_j(l, x)
+    let (j_lm1, j_l) = spherical_j_pair(l, x);
+    j_lm1 - ((l + 1) as f64) / x * j_l
 }
 
 /// Derivative `y_l'(x) = y_{l-1}(x) - (l+1)/x · y_l(x)`.
@@ -536,6 +590,46 @@ mod tests {
         // Sorted globally by k.
         for w in cat.windows(2) {
             assert!(w[0].k <= w[1].k);
+        }
+    }
+
+    #[test]
+    fn spherical_j_pair_returns_consistent_ladder() {
+        // The fused pair (issue #43) must produce the same values as
+        // two separate calls to `spherical_j`. Cover both the upward
+        // and the Miller-downward regimes by sweeping `l` against `x`.
+        for &x in &[0.5_f64, 1.0, 1.5, 2.0, 3.0, 5.0, 8.0] {
+            for l in 1..=8_usize {
+                let (j_lm1_pair, j_l_pair) = spherical_j_pair(l, x);
+                let j_l_solo = spherical_j(l, x);
+                let j_lm1_solo = spherical_j(l - 1, x);
+                assert!(
+                    (j_l_pair - j_l_solo).abs() <= 1e-12 * j_l_solo.abs().max(1.0),
+                    "j_{l}({x}): pair = {j_l_pair}, solo = {j_l_solo}"
+                );
+                assert!(
+                    (j_lm1_pair - j_lm1_solo).abs() <= 1e-12 * j_lm1_solo.abs().max(1.0),
+                    "j_{}({x}): pair = {j_lm1_pair}, solo = {j_lm1_solo}",
+                    l - 1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn spherical_j_prime_after_miller_fusion_matches_unfused_formula() {
+        // Cross-check the fused `j_l'` against the textbook two-call
+        // version `j_{l-1}(x) - (l+1)/x · j_l(x)` to confirm the fusion
+        // is a pure perf change, not a semantics change (issue #43).
+        for &x in &[0.7_f64, 1.3, 1.88943, 1.89074, 2.0, 4.0, 6.0] {
+            for l in 1..=6_usize {
+                let fused = spherical_j_prime(l, x);
+                let two_call = spherical_j(l - 1, x) - ((l + 1) as f64) / x * spherical_j(l, x);
+                assert!(
+                    (fused - two_call).abs() <= 1e-12 * two_call.abs().max(1.0),
+                    "j'_{l}({x}): fused = {fused}, two-call = {two_call}"
+                );
+            }
         }
     }
 

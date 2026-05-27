@@ -42,8 +42,8 @@ pub use mesh::{
 };
 pub use mie::{
     characteristic_te, characteristic_tm, chi, chi_prime, merged_roots, mie_roots_catalog, psi,
-    psi_prime, resonance_roots, spherical_j, spherical_j_prime, spherical_y, spherical_y_prime,
-    MiePolarisation, MieRoot,
+    psi_prime, resonance_roots, spherical_j, spherical_j_pair, spherical_j_prime, spherical_y,
+    spherical_y_prime, MiePolarisation, MieRoot,
 };
 pub use mie_open::{
     characteristic_te_open, characteristic_tm_open, open_space_wgm_roots_n15, spherical_h1_c,
