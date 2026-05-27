@@ -251,10 +251,10 @@ pub fn sphere_n_interior_nodes(mesh: &TetMesh, r_outer: f64) -> usize {
 /// index `n_inside`.
 ///
 /// Tets with physical tag [`crate::mesh::PHYS_SPHERE_INTERIOR`] receive
-/// `epsilon_r = n_inside.powi(2)`; tets with
-/// [`crate::mesh::PHYS_VACUUM_BUFFER`] receive `epsilon_r = 1.0`. Any
-/// other (unexpected) tag also defaults to `1.0` — the fixture only
-/// emits the two interior/buffer tags so this is a defensive default.
+/// `epsilon_r = n_inside.powi(2)`; tets in any of the surrounding
+/// vacuum regions ([`crate::mesh::PHYS_VACUUM_GAP`] and
+/// [`crate::mesh::PHYS_PML_SHELL`], plus any unexpected tag for
+/// defensive default) receive `epsilon_r = 1.0`.
 ///
 /// `physical_tags.len()` must equal the number of tets in the mesh.
 pub fn build_epsilon_r(physical_tags: &[i32], n_inside: f64) -> Vec<f64> {
@@ -297,7 +297,7 @@ pub fn tet_centroid_radii(mesh: &TetMesh) -> Vec<f64> {
 }
 
 /// Build a per-tet **complex** relative permittivity vector that
-/// realizes a scalar-isotropic PML in the vacuum buffer region of the
+/// realizes a scalar-isotropic PML in the outer absorbing shell of the
 /// bundled sphere fixture.
 ///
 /// This is a UPML-reduced-to-isotropic approximation (sometimes called a
@@ -311,18 +311,49 @@ pub fn tet_centroid_radii(mesh: &TetMesh) -> Vec<f64> {
 ///
 /// # Profile
 ///
-/// - Tet centroid `r_c ≤ R_SPHERE`: `ε = n_inside² + 0j` (real dielectric).
-/// - Tet centroid `r_c > R_SPHERE`: smooth quadratic absorption ramp
-///   anchored at the dielectric interface,
+/// - Tet in `sphere_interior` (`r_c ≤ R_SPHERE`): `ε = n_inside² + 0j`
+///   (real dielectric).
+/// - Tet in `vacuum_gap` (`R_SPHERE < r_c ≤ R_PML_INNER`): `ε = 1 + 0j`
+///   (real vacuum — no absorption inside the gap).
+/// - Tet in `pml_shell` (`R_PML_INNER < r_c ≤ R_BUFFER`): smooth
+///   quadratic absorption ramp anchored at the PML inner interface,
 ///
 ///   ```text
-///   ε(r) = 1 − j σ₀ ((r_c − R_SPHERE) / (R_BUFFER − R_SPHERE))²
+///   ε(r) = 1 − j σ₀ ((r_c − R_PML_INNER) / (R_BUFFER − R_PML_INNER))²
 ///   ```
 ///
-///   The `r → R_SPHERE` limit returns `ε = 1` (matches the vacuum) and
-///   the `r → R_BUFFER` limit gives the full absorption `ε = 1 − jσ₀`.
-///   The quadratic profile is the standard low-reflection start point
-///   for discrete PMLs.
+///   The `r → R_PML_INNER` limit returns `ε = 1` (matches the vacuum
+///   gap) and the `r → R_BUFFER` limit gives the full absorption
+///   `ε = 1 − jσ₀`. The quadratic profile is the standard low-
+///   reflection start point for discrete PMLs.
+///
+/// # σ₀ tuning
+///
+/// The σ₀ parameter sets the peak absorption at the outer wall. The
+/// bundled sphere test uses `σ₀ = 5.0`, which is **picked by hand** for
+/// the bundled fixture's coarse mesh and roughly resonant k₀ ≈ 2
+/// (dielectric n = 1.5, R_SPHERE = 1.0 → ground k ≈ π / (n·R) ≈ 2.1).
+/// It is not derived from a target reflection-coefficient calculation.
+///
+/// Rule-of-thumb tuning for a quadratic ramp of thickness
+/// `L = R_BUFFER − R_PML_INNER` and operating wavenumber `k₀`:
+///
+/// - Theoretical reflection of the scalar-ε approximation is roughly
+///   `R(θ) ≈ exp(−2 σ₀ L cos θ · k₀ / 3)` (the factor of 3 comes from
+///   integrating the quadratic profile). For our fixture
+///   `L = 0.5`, `k₀ ≈ 2`, so `σ₀ ≈ 5` gives `R(0) ≈ e⁻¹·⁷ ≈ 0.18`
+///   at normal incidence — modest, deliberately so (heavy absorption
+///   on a coarse mesh introduces its own discrete-PML reflections).
+/// - As a working rule, scale `σ₀ ∝ √ω` when changing the operating
+///   frequency: low-k modes need stronger absorption per unit length
+///   to attenuate the longer wavelength, while very-high-k modes are
+///   already well-trapped and tolerate weaker σ₀.
+/// - If you refine the mesh inside the PML, you can usually push σ₀
+///   higher without exciting numerical reflections.
+/// - `σ₀ = 0` reduces this routine to a real `ε = 1` everywhere
+///   outside the dielectric (vacuum on both shells), recovering the
+///   PEC-sphere eigenproblem. The `sphere_pml_eigenmode_sigma_zero`
+///   regression test exercises this limit.
 ///
 /// # Sign convention
 ///
@@ -338,14 +369,14 @@ pub fn build_complex_epsilon_r_pml(
     n_inside: f64,
     sigma_0: f64,
 ) -> Vec<faer::c64> {
-    use crate::mesh::{R_BUFFER, R_SPHERE};
+    use crate::mesh::{R_BUFFER, R_PML_INNER};
     assert_eq!(
         physical_tags.len(),
         centroid_radii.len(),
         "physical_tags and centroid_radii length mismatch"
     );
     let eps_inside = n_inside * n_inside;
-    let width = R_BUFFER - R_SPHERE;
+    let width = R_BUFFER - R_PML_INNER;
 
     physical_tags
         .iter()
@@ -353,15 +384,17 @@ pub fn build_complex_epsilon_r_pml(
         .map(|(&tag, &r_c)| {
             if tag == crate::mesh::PHYS_SPHERE_INTERIOR {
                 faer::c64::new(eps_inside, 0.0)
-            } else {
-                // Buffer region — apply quadratic PML ramp anchored at
-                // r = R_SPHERE. Clamp to the [0, 1] normalized range so
-                // any tet whose centroid drifts slightly outside R_BUFFER
-                // (mesh nodes on the outer wall + interior tet) does not
-                // overshoot.
-                let u = ((r_c - R_SPHERE) / width).clamp(0.0, 1.0);
+            } else if tag == crate::mesh::PHYS_PML_SHELL {
+                // Absorbing layer — apply quadratic PML ramp anchored
+                // at r = R_PML_INNER. Clamp to the [0, 1] normalized
+                // range so any tet whose centroid drifts slightly
+                // outside R_BUFFER does not overshoot.
+                let u = ((r_c - R_PML_INNER) / width).clamp(0.0, 1.0);
                 let im = -sigma_0 * u * u;
                 faer::c64::new(1.0, im)
+            } else {
+                // Vacuum gap (or any unrecognised tag): real vacuum.
+                faer::c64::new(1.0, 0.0)
             }
         })
         .collect()

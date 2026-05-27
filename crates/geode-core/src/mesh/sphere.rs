@@ -1,18 +1,34 @@
 //! Bundled sphere-in-vacuum mesh fixture for dielectric eigenmode work
-//! (issue #25).
+//! (issues #25, #28, #38).
 //!
 //! The fixture is a Gmsh-generated MSH 4.1 ASCII tet mesh of a dielectric
-//! sphere of radius `R_SPHERE = 1.0` embedded in a concentric vacuum buffer
-//! of outer radius `R_BUFFER = 2.0`. It carries four physical groups so
-//! downstream consumers can apply per-region material parameters and
-//! outer-boundary conditions:
+//! sphere of radius `R_SPHERE = 1.0` embedded in two concentric vacuum
+//! shells: a real-vacuum gap (`R_SPHERE < r ≤ R_PML_INNER`) and an
+//! absorbing PML shell (`R_PML_INNER < r ≤ R_BUFFER`). The gap places a
+//! few cell widths of un-stretched vacuum between the dielectric
+//! scatterer and the PML start — standard PML practice. The PML
+//! quadratic absorption ramp is anchored at `R_PML_INNER`, not
+//! `R_SPHERE`.
 //!
-//! | dim | tag | name              | meaning                                  |
-//! |-----|-----|-------------------|------------------------------------------|
-//! | 3   | 1   | `sphere_interior` | tets in `r <= R_SPHERE`                  |
-//! | 3   | 2   | `vacuum_buffer`   | tets in `R_SPHERE < r <= R_BUFFER`       |
-//! | 2   | 3   | `outer_boundary`  | surface triangles on `r = R_BUFFER`      |
-//! | 2   | 4   | `sphere_surface`  | surface triangles on the interface       |
+//! The fixture carries six physical groups so downstream consumers can
+//! apply per-region material parameters and outer-boundary conditions:
+//!
+//! | dim | tag | name              | meaning                                       |
+//! |-----|-----|-------------------|-----------------------------------------------|
+//! | 3   | 1   | `sphere_interior` | tets in `r <= R_SPHERE`                       |
+//! | 3   | 2   | `vacuum_gap`      | tets in `R_SPHERE < r <= R_PML_INNER`         |
+//! | 3   | 5   | `pml_shell`       | tets in `R_PML_INNER < r <= R_BUFFER`         |
+//! | 2   | 3   | `outer_boundary`  | surface triangles on `r = R_BUFFER`           |
+//! | 2   | 4   | `sphere_surface`  | surface triangles on `r = R_SPHERE`           |
+//! | 2   | 6   | `pml_interface`   | surface triangles on `r = R_PML_INNER`        |
+//!
+//! Backwards-compatibility note: the older two-shell fixture used a
+//! single `vacuum_buffer` (`r > R_SPHERE`) physical group with tag `2`.
+//! The new fixture promotes this region to two layered groups; the
+//! `PHYS_VACUUM_BUFFER` alias is kept as a deprecated synonym for
+//! `PHYS_VACUUM_GAP` so older callers (e.g. the `vacuum_buffer` symbol
+//! in [`build_complex_epsilon_r_pml`]) continue to compile, but new
+//! code should branch on `PHYS_VACUUM_GAP` and `PHYS_PML_SHELL`.
 //!
 //! The fixture is shipped as bytes via `include_bytes!`, so callers don't
 //! need Gmsh installed at runtime. The script that generated it lives at
@@ -46,20 +62,46 @@ use super::{GmshReader, MeshError, MeshReader, TetMesh};
 /// Inner dielectric sphere radius used by the bundled fixture.
 pub const R_SPHERE: f64 = 1.0;
 
-/// Outer vacuum buffer radius used by the bundled fixture.
+/// Inner radius of the absorbing PML shell — and equivalently the
+/// outer radius of the real-vacuum gap.
+pub const R_PML_INNER: f64 = 1.5;
+
+/// Outer vacuum buffer radius used by the bundled fixture. Same
+/// quantity as the PML outer boundary.
 pub const R_BUFFER: f64 = 2.0;
 
 /// Physical-group tag for the sphere interior (3D).
 pub const PHYS_SPHERE_INTERIOR: i32 = 1;
 
-/// Physical-group tag for the vacuum buffer shell (3D).
-pub const PHYS_VACUUM_BUFFER: i32 = 2;
+/// Physical-group tag for the real-vacuum gap shell (3D),
+/// `R_SPHERE < r ≤ R_PML_INNER`.
+pub const PHYS_VACUUM_GAP: i32 = 2;
+
+/// Deprecated alias kept for the (#25/#28) two-shell convention. The
+/// new layered fixture uses [`PHYS_VACUUM_GAP`] for the inner vacuum
+/// shell and [`PHYS_PML_SHELL`] for the outer absorbing shell. This
+/// alias preserves the integer tag (`2`) for callers that pattern-
+/// match on the raw physical id.
+#[deprecated(
+    since = "0.2.0",
+    note = "the layered sphere fixture replaced `vacuum_buffer` with `vacuum_gap` (PHYS_VACUUM_GAP) + `pml_shell` (PHYS_PML_SHELL); update call sites accordingly"
+)]
+pub const PHYS_VACUUM_BUFFER: i32 = PHYS_VACUUM_GAP;
+
+/// Physical-group tag for the absorbing PML shell (3D),
+/// `R_PML_INNER < r ≤ R_BUFFER`.
+pub const PHYS_PML_SHELL: i32 = 5;
 
 /// Physical-group tag for the outer boundary (2D, at `r = R_BUFFER`).
 pub const PHYS_OUTER_BOUNDARY: i32 = 3;
 
-/// Physical-group tag for the sphere–vacuum interface (2D).
+/// Physical-group tag for the sphere–vacuum interface (2D, at
+/// `r = R_SPHERE`).
 pub const PHYS_SPHERE_SURFACE: i32 = 4;
+
+/// Physical-group tag for the inner PML interface (2D, at
+/// `r = R_PML_INNER`).
+pub const PHYS_PML_INTERFACE: i32 = 6;
 
 /// Raw bytes of the bundled sphere fixture (MSH 4.1 ASCII).
 const SPHERE_MSH: &[u8] = include_bytes!("../../tests/fixtures/sphere.msh");
@@ -86,12 +128,46 @@ impl SphereFixture {
             .count()
     }
 
-    /// Number of tets tagged with `vacuum_buffer`.
-    pub fn n_buffer_tets(&self) -> usize {
+    /// Number of tets tagged with `vacuum_gap` (real-vacuum shell
+    /// between the dielectric and the PML).
+    pub fn n_vacuum_gap_tets(&self) -> usize {
         self.tet_physical_tags
             .iter()
-            .filter(|&&t| t == PHYS_VACUUM_BUFFER)
+            .filter(|&&t| t == PHYS_VACUUM_GAP)
             .count()
+    }
+
+    /// Number of tets tagged with `pml_shell` (absorbing layer).
+    pub fn n_pml_shell_tets(&self) -> usize {
+        self.tet_physical_tags
+            .iter()
+            .filter(|&&t| t == PHYS_PML_SHELL)
+            .count()
+    }
+
+    /// Total number of tets outside the inner dielectric ball — i.e.
+    /// the union of the `vacuum_gap` and `pml_shell` regions. Provided
+    /// for compatibility with the older two-shell fixture that exposed
+    /// a single `n_buffer_tets()` count.
+    pub fn n_buffer_tets(&self) -> usize {
+        self.n_vacuum_gap_tets() + self.n_pml_shell_tets()
+    }
+
+    /// 0-based tet indices (into `mesh.tets`) that lie in the
+    /// `pml_shell` region. Convenience helper for callers that need to
+    /// apply absorption only inside the PML.
+    pub fn pml_shell_tets(&self) -> Vec<u32> {
+        self.tet_physical_tags
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &t)| {
+                if t == PHYS_PML_SHELL {
+                    Some(i as u32)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }
 
@@ -414,24 +490,43 @@ mod tests {
             Some(&"sphere_interior".to_string()),
         );
         assert_eq!(
-            f.mesh.physical_groups.get(&(3, PHYS_VACUUM_BUFFER)),
-            Some(&"vacuum_buffer".to_string()),
+            f.mesh.physical_groups.get(&(3, PHYS_VACUUM_GAP)),
+            Some(&"vacuum_gap".to_string()),
+        );
+        assert_eq!(
+            f.mesh.physical_groups.get(&(3, PHYS_PML_SHELL)),
+            Some(&"pml_shell".to_string()),
         );
         assert_eq!(
             f.mesh.physical_groups.get(&(2, PHYS_OUTER_BOUNDARY)),
             Some(&"outer_boundary".to_string()),
         );
+        assert_eq!(
+            f.mesh.physical_groups.get(&(2, PHYS_PML_INTERFACE)),
+            Some(&"pml_interface".to_string()),
+        );
     }
 
     #[test]
-    fn fixture_has_both_volume_regions() {
+    fn fixture_has_all_volume_regions() {
         let f = read_sphere_fixture().expect("fixture load");
         assert!(f.n_interior_tets() > 0, "no interior tets");
-        assert!(f.n_buffer_tets() > 0, "no buffer tets");
+        assert!(f.n_vacuum_gap_tets() > 0, "no vacuum-gap tets");
+        assert!(f.n_pml_shell_tets() > 0, "no PML-shell tets");
         assert_eq!(
-            f.n_interior_tets() + f.n_buffer_tets(),
+            f.n_interior_tets() + f.n_vacuum_gap_tets() + f.n_pml_shell_tets(),
             f.mesh.n_tets(),
             "every tet must be tagged",
         );
+    }
+
+    #[test]
+    fn pml_shell_tet_indices_are_consistent() {
+        let f = read_sphere_fixture().expect("fixture load");
+        let pml = f.pml_shell_tets();
+        assert_eq!(pml.len(), f.n_pml_shell_tets());
+        for &i in &pml {
+            assert_eq!(f.tet_physical_tags[i as usize], PHYS_PML_SHELL);
+        }
     }
 }

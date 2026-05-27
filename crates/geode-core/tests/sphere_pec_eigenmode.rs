@@ -1,10 +1,12 @@
 //! PEC dielectric-sphere eigenmode integration test (issue #26).
 //!
 //! Drives the full first-order Nédélec pipeline on the bundled
-//! sphere-in-vacuum fixture (#25) with per-element relative permittivity:
+//! sphere-in-vacuum fixture (#25, layered per #38) with per-element
+//! relative permittivity:
 //!
 //! - `ε_r = n² = 2.25` for tets tagged `sphere_interior` (n = 1.5).
-//! - `ε_r = 1`           for tets tagged `vacuum_buffer`.
+//! - `ε_r = 1` for the surrounding vacuum (both `vacuum_gap` and
+//!   `pml_shell` regions — see [`build_epsilon_r`]).
 //!
 //! The outer boundary `r = R_BUFFER` is the PEC wall (`n × E = 0`), so
 //! every edge whose two endpoints both sit on that surface is removed
