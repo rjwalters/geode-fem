@@ -340,10 +340,12 @@ pub fn tet_centroid_radii(mesh: &TetMesh) -> Vec<f64> {
 ///
 /// - Theoretical reflection of the scalar-ε approximation is roughly
 ///   `R(θ) ≈ exp(−2 σ₀ L cos θ · k₀ / 3)` (the factor of 3 comes from
-///   integrating the quadratic profile). For our fixture
-///   `L = 0.5`, `k₀ ≈ 2`, so `σ₀ ≈ 5` gives `R(0) ≈ e⁻¹·⁷ ≈ 0.18`
-///   at normal incidence — modest, deliberately so (heavy absorption
-///   on a coarse mesh introduces its own discrete-PML reflections).
+///   integrating the quadratic profile, after Bérenger 1994 / Taflove
+///   §7.7). For our fixture `L = 0.5`, `k₀ ≈ 2`, so `σ₀ ≈ 5` gives
+///   `R(0) ≈ e⁻³·³³ ≈ 0.036` at normal incidence — small enough to
+///   keep PML-induced reflections below the dominant discretization
+///   error on our coarse mesh, but not so large that the discrete PML
+///   itself starts to reflect.
 ///   This is the **normal-incidence plane-wave** reflection
 ///   coefficient on a flat slab; the curved wavefronts emitted by a
 ///   sphere have a different effective absorption (and the angle θ
