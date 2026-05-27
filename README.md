@@ -45,7 +45,7 @@ benchmark — analytical Mie series ↔ strata FDTD ↔ GEODE-FEM eigenmode.
 
 | | |
 |---|---|
-| **Mie comparison** | Lowest TM_1,1 mode (n=1.5 dielectric sphere, R/R_buffer=1/2, PEC outer + PML buffer): FEM Re(k) ≈ 1.10 vs analytic 1.30343, **16% rel err / Q ≈ 5.8** on the bundled 774-node fixture. Diagnosed (see #54): mesh refinement does **not** improve this — the scalar-isotropic PML reflection is an h-independent modelling floor. |
+| **Mie comparison** | Lowest TM_1,1 mode (n=1.5 dielectric sphere, R/R_buffer=1/2, PEC outer + PML buffer): FEM Re(k) ≈ 1.09 vs analytic 1.30343, **16% rel err / Q ≈ 5.8** on the bundled 774-node fixture. Diagnosed (see #54): mesh refinement does **not** improve this — the scalar-isotropic PML reflection is an h-independent modelling floor. |
 | **Performance** | Sparse complex-symmetric Lanczos (Bai *Templates* §7.13) brings the Mie eigensolve from **126 s → 4 s** on the 774-node fixture (31× speedup; 107× on the original 313-node fixture). The Mie example uses the sparse path by default; pass `--dense` for the correctness oracle. |
 | **Math correctness** | M_{ij} = ∫ N_i · N_j ε(x) dV is **complex-symmetric** (M^T = M), not Hermitian (M^H ≠ M) — the Mie inner product is bilinear, not sesquilinear. Caught by a builder during PR #55, validated by both empirical check (`Im(v^H M v) ≈ −58`) and by-hand derivation. |
 | **Validated chain** | 27 PRs merged. Scalar Helmholtz cube modes (4.1% rel err at n=10), batched P1 + Nédélec local kernels with autodiff through assembly, dense (`faer::generalized_eigen`) and sparse (shift-and-invert Lanczos) eigensolvers, PEC cube + PEC sphere + Silver-Müller + PML absorbing BCs, all with regression tests. |
