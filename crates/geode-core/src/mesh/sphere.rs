@@ -529,4 +529,276 @@ mod tests {
             assert_eq!(f.tet_physical_tags[i as usize], PHYS_PML_SHELL);
         }
     }
+
+    // ---- Negative-path coverage for the hand-rolled $Entities / $Elements parsers ----
+    //
+    // Mirrors the precedent established for $PhysicalNames in
+    // `crates/geode-core/src/mesh/mod.rs` (PR #15): each test feeds a small
+    // in-memory MSH snippet and asserts the observable error contract.
+
+    /// Assert that `parse_entities_physical_tags(input)` returns
+    /// `Err(MeshError::Parse(msg))` with `msg.contains(needle)`.
+    fn assert_entities_parse_err(input: &str, needle: &str) {
+        match parse_entities_physical_tags(input) {
+            Err(MeshError::Parse(msg)) => assert!(
+                msg.contains(needle),
+                "expected Parse error containing {needle:?}, got {msg:?}"
+            ),
+            Err(other) => panic!("expected Parse error, got {other:?}"),
+            Ok(map) => panic!("expected error, got Ok({map:?})"),
+        }
+    }
+
+    /// Assert that `parse_elements_with_entity_tags(input, mesh, entity_phys)`
+    /// returns `Err(MeshError::Parse(msg))` with `msg.contains(needle)`.
+    fn assert_elements_parse_err(
+        input: &str,
+        mesh: &TetMesh,
+        entity_phys: &BTreeMap<(i32, i32), i32>,
+        needle: &str,
+    ) {
+        match parse_elements_with_entity_tags(input, mesh, entity_phys) {
+            Err(MeshError::Parse(msg)) => assert!(
+                msg.contains(needle),
+                "expected Parse error containing {needle:?}, got {msg:?}"
+            ),
+            Err(other) => panic!("expected Parse error, got {other:?}"),
+            Ok(out) => panic!("expected error, got Ok({out:?})"),
+        }
+    }
+
+    /// Minimal `$Nodes` block defining four nodes with tags 1..=4.
+    /// Used as a prefix in `$Elements` snippets so `build_node_tag_map`
+    /// succeeds and we can reach the `$Elements` parsing logic.
+    const NODES_4: &str = "\
+$Nodes
+1 4 1 4
+0 1 0 4
+1
+2
+3
+4
+0 0 0
+1 0 0
+0 1 0
+0 0 1
+$EndNodes
+";
+
+    // -- $Entities parser --
+
+    #[test]
+    fn entities_missing_section_is_ok_empty() {
+        // No $Entities section present at all: hand-rolled parser returns an
+        // empty map (parity with the precedent `missing_section_is_ok_empty`
+        // in $PhysicalNames). Confirms the BTreeMap::new() fallback.
+        let map = parse_entities_physical_tags("$MeshFormat\n4.1 0 8\n$EndMeshFormat\n")
+            .expect("missing $Entities is OK-empty");
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn entities_missing_end_terminator_errs() {
+        // Header + one volume row but no $EndEntities marker.
+        let input = "\
+$Entities
+0 0 0 1
+1 0 0 0 1 1 1 1 7 0
+";
+        assert_entities_parse_err(input, "$EndEntities");
+    }
+
+    #[test]
+    fn entities_count_mismatch_unexpected_eof() {
+        // Header declares 2 volumes; only 1 row follows. Unlike
+        // $PhysicalNames (which has a "disagrees" check), the entity parser
+        // surfaces this as "unexpected EOF" from `next_line` when it tries
+        // to read the missing second row.
+        let input = "\
+$Entities
+0 0 0 2
+1 0 0 0 1 1 1 1 7 0
+$EndEntities
+";
+        assert_entities_parse_err(input, "unexpected EOF");
+    }
+
+    #[test]
+    fn entities_non_numeric_tag_errs() {
+        // Volume row whose first field (the entity tag) is not parseable.
+        let input = "\
+$Entities
+0 0 0 1
+XYZ 0 0 0 1 1 1 1 7 0
+$EndEntities
+";
+        assert_entities_parse_err(input, "entity tag");
+    }
+
+    #[test]
+    fn entities_missing_bbox_columns_shifts_into_physical() {
+        // Volume row missing the last bbox value: bare `it.next()` silently
+        // consumes whatever is there, so dropping a bbox column shifts the
+        // remaining fields. Here the "numPhysical" slot reads `1` (originally
+        // the last bbox value), and the "physicalTag" slot reads `0`
+        // (originally numPhysical). That parses successfully — but then the
+        // next row is short, so the parser hits "missing token" on the
+        // "physical tag" we never had. Pin the observable error message.
+        //
+        // Row: tag=1, bbox=(0,0,0,1,1) [only 5 floats, not 6], 7, 0
+        // Parser consumes: tag=1, then 6 bbox tokens (0,0,0,1,1,7), then
+        // numPhysical=0 → no physical tag read, OK.
+        // But row had a stray trailing `0` left over, which is ignored.
+        // To force an error we need only 5 bbox tokens AND a numPhysical
+        // that requires more tokens than remain. Use bbox=(0,0,0,1,1), then
+        // a single token "2" interpreted as numPhysical=2, asking for two
+        // physical tags but only "1" remains — second physical tag is
+        // missing.
+        let input = "\
+$Entities
+0 0 0 1
+1 0 0 0 1 1 2 1
+$EndEntities
+";
+        // The bare `it.next()` for the 6th bbox eats the "2", then
+        // numPhysical reads "1", physicalTag reads "" (nothing left) →
+        // "missing token: physicalTag".
+        assert_entities_parse_err(input, "physicalTag");
+    }
+
+    // -- $Elements parser --
+
+    #[test]
+    fn elements_missing_section_errs() {
+        // $Nodes is present (so build_node_tag_map succeeds), but the file
+        // has no $Elements section at all.
+        let mesh = TetMesh::default();
+        let entity_phys: BTreeMap<(i32, i32), i32> = BTreeMap::new();
+        assert_elements_parse_err(NODES_4, &mesh, &entity_phys, "missing $Elements section");
+    }
+
+    #[test]
+    fn elements_missing_end_terminator_errs() {
+        // $Elements opens but never closes with $EndElements.
+        let mut input = String::from(NODES_4);
+        input.push_str(
+            "\
+$Elements
+1 1 1 1
+3 1 4 1
+1 1 2 3 4
+",
+        );
+        let mesh = TetMesh::default();
+        let entity_phys: BTreeMap<(i32, i32), i32> = BTreeMap::new();
+        assert_elements_parse_err(&input, &mesh, &entity_phys, "$EndElements");
+    }
+
+    #[test]
+    fn elements_tet_block_without_physical_tag_errs() {
+        // The tet branch (entityDim=3, elementType=4) errors hard when the
+        // entity has no physical tag in `entity_phys`. This pins the
+        // contract noted in the curator review (curator corrected the issue
+        // text on this point — the tet path is the strict one).
+        let mut input = String::from(NODES_4);
+        input.push_str(
+            "\
+$Elements
+1 1 1 1
+3 1 4 1
+1 1 2 3 4
+$EndElements
+",
+        );
+        let mut mesh = TetMesh::default();
+        // Single tet so the post-loop `tet count mismatch` check passes if
+        // we ever got past the missing-physical-tag error. We won't.
+        mesh.tets.push([0, 1, 2, 3]);
+        let entity_phys: BTreeMap<(i32, i32), i32> = BTreeMap::new();
+        assert_elements_parse_err(&input, &mesh, &entity_phys, "has no physical tag");
+    }
+
+    #[test]
+    fn elements_triangle_block_without_physical_tag_defaults_to_zero() {
+        // The triangle branch (entityDim=2, elementType=2) is permissive:
+        // when the entity has no physical tag, it defaults to 0 via
+        // `unwrap_or(0)` rather than erroring. Pin this behavior so a
+        // future tightening of the parser is an explicit decision.
+        let mut input = String::from(NODES_4);
+        input.push_str(
+            "\
+$Elements
+1 1 1 1
+2 7 2 1
+1 1 2 3
+$EndElements
+",
+        );
+        let mesh = TetMesh::default();
+        // No (2, 7) entry → triangle block has no physical tag.
+        let entity_phys: BTreeMap<(i32, i32), i32> = BTreeMap::new();
+        let (tet_tags, triangles, tri_tags) =
+            parse_elements_with_entity_tags(&input, &mesh, &entity_phys)
+                .expect("triangle without physical tag should not error");
+        assert!(tet_tags.is_empty());
+        assert_eq!(triangles, vec![[0u32, 1, 2]]);
+        assert_eq!(tri_tags, vec![0]);
+    }
+
+    #[test]
+    fn elements_triangle_with_unknown_node_tag_errs() {
+        // A triangle row referencing a node tag not present in $Nodes
+        // surfaces as `MeshError::InvalidNodeRef` (the only non-`Parse`
+        // error variant the new code can produce).
+        let mut input = String::from(NODES_4);
+        input.push_str(
+            "\
+$Elements
+1 1 1 1
+2 7 2 1
+1 1 2 99
+$EndElements
+",
+        );
+        let mesh = TetMesh::default();
+        let entity_phys: BTreeMap<(i32, i32), i32> = BTreeMap::new();
+        match parse_elements_with_entity_tags(&input, &mesh, &entity_phys) {
+            Err(MeshError::InvalidNodeRef(tag)) => assert_eq!(tag, 99),
+            other => panic!("expected InvalidNodeRef(99), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn elements_count_mismatch_unexpected_eof() {
+        // Tet block header declares 2 elements, only 1 row follows. The
+        // parser surfaces this as "unexpected EOF" from `next_line` rather
+        // than a "disagrees" check (the parser has no explicit count check
+        // — see curator notes).
+        let mut input = String::from(NODES_4);
+        input.push_str(
+            "\
+$Elements
+1 2 1 2
+3 1 4 2
+1 1 2 3 4
+$EndElements
+",
+        );
+        let mut mesh = TetMesh::default();
+        mesh.tets.push([0, 1, 2, 3]);
+        let mut entity_phys: BTreeMap<(i32, i32), i32> = BTreeMap::new();
+        entity_phys.insert((3, 1), PHYS_SPHERE_INTERIOR);
+        assert_elements_parse_err(&input, &mesh, &entity_phys, "unexpected EOF");
+    }
+
+    #[test]
+    fn elements_missing_nodes_section_errs() {
+        // `parse_elements_with_entity_tags` calls `build_node_tag_map` first;
+        // a missing $Nodes section therefore errors out before any $Elements
+        // parsing runs.
+        let input = "$Elements\n0 0 1 0\n$EndElements\n";
+        let mesh = TetMesh::default();
+        let entity_phys: BTreeMap<(i32, i32), i32> = BTreeMap::new();
+        assert_elements_parse_err(input, &mesh, &entity_phys, "missing $Nodes section");
+    }
 }
