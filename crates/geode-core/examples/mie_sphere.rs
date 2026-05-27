@@ -40,8 +40,19 @@
 //! cargo run -p geode-core --release --example mie_sphere
 //! ```
 //!
+//! By default the **sparse complex shift-and-invert Lanczos**
+//! eigensolver (issue #53) runs the FEM eigenproblem. Pass `--dense`
+//! to fall back on the dense `FaerComplexEigensolver` (the
+//! correctness oracle):
+//!
+//! ```sh
+//! cargo run -p geode-core --release --example mie_sphere -- --dense
+//! ```
+//!
 //! `--release` is required because faer 0.24's `gevd` path panics
 //! under `debug-assertions` (same root cause as `tests/sphere_pml_*`).
+//! The sparse path is independent of `gevd` but the dense fallback
+//! still needs release mode.
 //!
 //! Writes `benchmarks/mie_sphere/results.toml` relative to the
 //! workspace root (located via `CARGO_MANIFEST_DIR`).
@@ -51,13 +62,14 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use burn::tensor::backend::BackendTypes;
+use faer::sparse::{SparseColMat, Triplet};
 
 use geode_core::{
     apply_dirichlet_bc, assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
     burn_complex_mass_to_faer, burn_matrix_to_faer, mie_roots_catalog, read_sphere_fixture,
     sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii, upload_mesh,
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, MieRoot, R_BUFFER,
-    R_SPHERE,
+    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, MieRoot,
+    SparseComplexEigenSolver, SparseComplexShiftInvertLanczos, R_BUFFER, R_SPHERE,
 };
 
 type B = DefaultBackend;
@@ -138,7 +150,11 @@ fn results_path() -> PathBuf {
 
 /// Run the FEM eigensolve and return the lowest `N_MODES` physical
 /// eigenvalues `(k², Q)` as `Complex<f64>`s in `k = sqrt(λ)`.
-fn fem_complex_k() -> Vec<faer::c64> {
+///
+/// `use_dense` selects the eigensolver: `true` uses the dense
+/// `FaerComplexEigensolver` (the correctness oracle), `false` uses the
+/// sparse `SparseComplexShiftInvertLanczos` (the default fast path).
+fn fem_complex_k(use_dense: bool) -> Vec<faer::c64> {
     let device = <B as BackendTypes>::Device::default();
 
     let f = read_sphere_fixture().expect("fixture load");
@@ -205,14 +221,61 @@ fn fem_complex_k() -> Vec<faer::c64> {
 
     eprintln!("predicted spurious-mode count: {spurious_dim}, requesting {n_request} eigenvalues",);
 
-    let solver = FaerComplexEigensolver;
-    let lambdas = solver
-        .smallest_complex_pencil_eigenvalues(
-            k_int_complex.as_ref(),
-            m_int_complex.as_ref(),
-            n_request,
-        )
-        .expect("complex eigensolve");
+    let t_solve = std::time::Instant::now();
+    let lambdas = if use_dense {
+        eprintln!("eigensolver: dense FaerComplexEigensolver (oracle)");
+        FaerComplexEigensolver
+            .smallest_complex_pencil_eigenvalues(
+                k_int_complex.as_ref(),
+                m_int_complex.as_ref(),
+                n_request,
+            )
+            .expect("dense complex eigensolve")
+    } else {
+        eprintln!("eigensolver: sparse SparseComplexShiftInvertLanczos (default)");
+        // Project the dense complex matrices into sparse CSC form.
+        // The Mie pencil's Nédélec stencil is genuinely sparse — we
+        // walk the dense entries and keep only the non-zeros. At the
+        // bundled-fixture size (a few hundred interior edges) the
+        // cost of this pass is negligible next to the dense oracle's
+        // generalized_eigen, but for the larger refined meshes it
+        // pays for itself many times over.
+        let n = k_int_complex.nrows();
+        let mut k_trips: Vec<Triplet<usize, usize, faer::c64>> = Vec::new();
+        let mut m_trips: Vec<Triplet<usize, usize, faer::c64>> = Vec::new();
+        for j in 0..n {
+            for i in 0..n {
+                let kv = k_int_complex[(i, j)];
+                if kv.re != 0.0 || kv.im != 0.0 {
+                    k_trips.push(Triplet::new(i, j, kv));
+                }
+                let mv = m_int_complex[(i, j)];
+                if mv.re != 0.0 || mv.im != 0.0 {
+                    m_trips.push(Triplet::new(i, j, mv));
+                }
+            }
+        }
+        let k_sp = SparseColMat::<usize, faer::c64>::try_new_from_triplets(n, n, &k_trips)
+            .expect("complex K sparsification");
+        let m_sp = SparseColMat::<usize, faer::c64>::try_new_from_triplets(n, n, &m_trips)
+            .expect("complex M sparsification");
+        eprintln!(
+            "  sparsified pencil: nnz(K) = {}, nnz(M) = {}",
+            k_trips.len(),
+            m_trips.len()
+        );
+        SparseComplexShiftInvertLanczos {
+            sigma: 0.0,
+            max_iters: 256,
+            tol: 1e-9,
+        }
+        .smallest_complex_pencil_eigenvalues(k_sp.as_ref(), m_sp.as_ref(), n_request)
+        .expect("sparse complex eigensolve")
+    };
+    eprintln!(
+        "eigensolve wall-clock: {:.3} s",
+        t_solve.elapsed().as_secs_f64()
+    );
 
     // Spurious filter: anything with |λ| below 1e-3 of the largest
     // requested |λ| is treated as gradient-kernel noise.
@@ -418,7 +481,14 @@ fn write_toml(rows: &[Row], path: &PathBuf) {
 }
 
 fn main() {
+    let use_dense = std::env::args().any(|a| a == "--dense");
+
     eprintln!("=== Mie sphere benchmark (issue #4 v1, issue #40) ===");
+    if use_dense {
+        eprintln!("  eigensolver: DENSE (correctness oracle, --dense flag)");
+    } else {
+        eprintln!("  eigensolver: SPARSE Lanczos (default, pass --dense to switch)");
+    }
     eprintln!();
     eprintln!(
         "Fixture geometry: R_sphere = {R_SPHERE}, R_buffer = {R_BUFFER}, n_inside = {N_INSIDE}",
@@ -452,7 +522,7 @@ fn main() {
     // FEM eigensolve.
     eprintln!();
     eprintln!("=== FEM eigensolve ===");
-    let fem_k = fem_complex_k();
+    let fem_k = fem_complex_k(use_dense);
     eprintln!("Lowest {} physical FEM modes (k = sqrt(λ)):", fem_k.len());
     for (i, k) in fem_k.iter().enumerate() {
         eprintln!("  mode[{i}]  k = {:.5} + {:.5e}i", k.re, k.im);
