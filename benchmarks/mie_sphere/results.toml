@@ -17,7 +17,8 @@ notes = [
   "Analytic side is PEC-cavity dielectric resonator, not open-space Mie WGM.",
   "Real analytic roots only; complex open-space Mie roots are a separate axis (#33).",
   "Mode classification: walk catalog by ascending k, claim 2l+1 FEM modes per analytic root.",
-  "FEM side: scalar isotropic PML, bundled 774-node refined fixture (issue #49).",
+  "FEM side (this file): scalar isotropic PML, bundled 774-node refined fixture (issue #49).",
+  "Anisotropic UPML (issue #54) is now available via `assemble_global_nedelec_with_anisotropic_epsilon`; spot-check on the same fixture yields TM_1,1 rel err ≈ 5.7% (vs. 16.2% scalar). Full benchmark sweep with the new path is a follow-up — re-running the example with anisotropic ε is not yet wired into the example CLI.",
   "Driven scattering benchmark (Q_ext vs. ka) is v2 (separate scope).",
 ]
 

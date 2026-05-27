@@ -267,3 +267,157 @@ pub fn batched_nedelec_local_matrices<B: Backend>(coords: Tensor<B, 3>) -> Nedel
         signed_volumes,
     }
 }
+
+/// Per-element Nédélec local mass matrix for a **diagonal anisotropic**
+/// permittivity tensor expressed in the global Cartesian basis.
+///
+/// The integrand becomes
+///
+/// ```text
+/// (N_i)^T · diag(ε_x, ε_y, ε_z) · N_j
+///    = ε_x N_{i,x} N_{j,x} + ε_y N_{i,y} N_{j,y} + ε_z N_{i,z} N_{j,z},
+/// ```
+///
+/// which is exactly the existing scalar mass formula with the gradient
+/// gram `G_pq = ∇λ_p · ∇λ_q` replaced by the per-component product
+/// `G^(α)_pq = (∇λ_p)_α (∇λ_q)_α`. The three per-axis local matrices
+/// are linearly combined per element with the supplied diagonal entries.
+///
+/// This is the **diagonal-only** UPML simplification (Option B in
+/// issue #54): the off-diagonal terms of the full rotation
+/// `R · diag(1/s_r, s_t, s_t) · R^T` are dropped. For axis-aligned
+/// directions (the dominant absorption channels on a Cartesian-ish
+/// mesh) the diagonal already carries the correct anisotropy; for
+/// off-axis tets it is an approximation, but still strictly more
+/// accurate than scalar-isotropic.
+///
+/// # Arguments
+///
+/// * `coords` — `[n_elem, 4, 3]` per-tet vertex coordinates.
+/// * `eps_diag` — `[n_elem, 3]` per-tet, per-axis weights to apply
+///   to the three component-product mass matrices before summing.
+///
+/// # Returns
+///
+/// `[n_elem, 6, 6]` local mass matrix (sign-unaware, same orientation
+/// caveat as [`batched_nedelec_local_matrices`]).
+pub fn batched_nedelec_local_mass_anisotropic_diag<B: Backend>(
+    coords: Tensor<B, 3>,
+    eps_diag: Tensor<B, 2>,
+) -> Tensor<B, 3> {
+    let dims = coords.dims();
+    let n_elem = dims[0];
+    assert_eq!(dims[1], 4, "expected 4 vertices per tet, got {}", dims[1]);
+    assert_eq!(dims[2], 3, "expected 3-D coordinates, got {}", dims[2]);
+    let eps_dims = eps_diag.dims();
+    assert_eq!(
+        eps_dims,
+        [n_elem, 3],
+        "expected eps_diag shape [n_elem, 3], got {:?}",
+        eps_dims
+    );
+
+    // Reuse the same per-vertex / edge / cofactor / det machinery as
+    // the scalar kernel.
+    let v0 = coords
+        .clone()
+        .slice([0..n_elem, 0..1, 0..3])
+        .squeeze_dim::<2>(1);
+    let v1 = coords
+        .clone()
+        .slice([0..n_elem, 1..2, 0..3])
+        .squeeze_dim::<2>(1);
+    let v2 = coords
+        .clone()
+        .slice([0..n_elem, 2..3, 0..3])
+        .squeeze_dim::<2>(1);
+    let v3 = coords.slice([0..n_elem, 3..4, 0..3]).squeeze_dim::<2>(1);
+
+    let e1 = v1 - v0.clone();
+    let e2 = v2 - v0.clone();
+    let e3 = v3 - v0;
+
+    let g1 = e2.clone().cross(e3.clone(), 1);
+    let g2 = e3.clone().cross(e1.clone(), 1);
+    let g3 = e1.clone().cross(e2.clone(), 1);
+
+    let det = e1.mul(g1.clone()).sum_dim(1).squeeze_dim::<1>(1);
+    let g0 = (g1.clone() + g2.clone() + g3.clone()).neg();
+
+    // Stack into G: [n_elem, 4, 3] with row p = g_p (cofactor column,
+    // shape [3]).
+    let g_mat = Tensor::<B, 2>::stack::<3>(vec![g0, g1, g2, g3], 1); // [n_elem, 4, 3]
+
+    // Per-axis component product G^(α)_pq = g_p[α] g_q[α] / det²,
+    // captured here as gg^(α)_pq = g_p[α] g_q[α].
+    //
+    // Compute by slicing the α-column out of g_mat, getting a
+    // [n_elem, 4] tensor per axis, then forming the outer product
+    // [n_elem, 4, 4].
+    let abs_det = det.abs();
+    let inv_abs_det = abs_det.clone().recip();
+
+    // Per-axis epsilon weights: [n_elem] tensors for α ∈ {x, y, z}.
+    let eps_x = eps_diag
+        .clone()
+        .slice([0..n_elem, 0..1])
+        .squeeze_dim::<1>(1);
+    let eps_y = eps_diag
+        .clone()
+        .slice([0..n_elem, 1..2])
+        .squeeze_dim::<1>(1);
+    let eps_z = eps_diag.slice([0..n_elem, 2..3]).squeeze_dim::<1>(1);
+
+    let per_axis_gg = |alpha: usize| -> Tensor<B, 3> {
+        // g_mat[:, :, alpha] → [n_elem, 4]
+        let g_col = g_mat
+            .clone()
+            .slice([0..n_elem, 0..4, alpha..alpha + 1])
+            .squeeze_dim::<2>(2);
+        // outer product per element: [n_elem, 4, 1] × [n_elem, 1, 4]
+        let col_row = g_col.clone().unsqueeze_dim::<3>(2); // [n_elem, 4, 1]
+        let col_col = g_col.unsqueeze_dim::<3>(1); // [n_elem, 1, 4]
+        col_row.mul(col_col) // [n_elem, 4, 4]
+    };
+
+    let gg_x = per_axis_gg(0);
+    let gg_y = per_axis_gg(1);
+    let gg_z = per_axis_gg(2);
+
+    let gg_entry = |gg: &Tensor<B, 3>, p: usize, q: usize| -> Tensor<B, 1> {
+        gg.clone()
+            .slice([0..n_elem, p..p + 1, q..q + 1])
+            .squeeze_dim::<2>(1)
+            .squeeze_dim::<1>(1)
+    };
+
+    let mut m_entries: Vec<Tensor<B, 1>> = Vec::with_capacity(36);
+
+    for &(a, b) in TET_LOCAL_EDGES.iter() {
+        for &(c, d) in TET_LOCAL_EDGES.iter() {
+            let f_ac = if a == c { 2.0_f32 } else { 1.0_f32 };
+            let f_ad = if a == d { 2.0_f32 } else { 1.0_f32 };
+            let f_bc = if b == c { 2.0_f32 } else { 1.0_f32 };
+            let f_bd = if b == d { 2.0_f32 } else { 1.0_f32 };
+
+            // Per-axis closed-form integrand. Same shape as the scalar
+            // kernel but with G replaced by gg^(α) / det²; the /det²
+            // and (V/20) = (|det|/120) collapse into 1/(120 |det|).
+            let m_axis = |gg: &Tensor<B, 3>, eps: &Tensor<B, 1>| -> Tensor<B, 1> {
+                let term = gg_entry(gg, b, d).mul_scalar(f_ac)
+                    - gg_entry(gg, b, c).mul_scalar(f_ad)
+                    - gg_entry(gg, a, d).mul_scalar(f_bc)
+                    + gg_entry(gg, a, c).mul_scalar(f_bd);
+                term.mul(inv_abs_det.clone())
+                    .div_scalar(120.0)
+                    .mul(eps.clone())
+            };
+
+            let m_val = m_axis(&gg_x, &eps_x) + m_axis(&gg_y, &eps_y) + m_axis(&gg_z, &eps_z);
+            m_entries.push(m_val);
+        }
+    }
+
+    let m_stacked = Tensor::<B, 1>::stack::<2>(m_entries, 1); // [n_elem, 36]
+    m_stacked.reshape([n_elem, 6, 6])
+}

@@ -24,7 +24,7 @@ use burn::tensor::Tensor;
 use burn::tensor::{IndexingUpdateOp, Int, TensorData};
 
 use crate::assembly::{gather_tet_coords, SparsityPattern};
-use crate::nedelec::batched_nedelec_local_matrices;
+use crate::nedelec::{batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_matrices};
 use crate::TetMesh;
 
 /// Assembled global Nédélec linear system in dense Burn-tensor form.
@@ -544,6 +544,248 @@ pub fn assemble_global_nedelec_with_complex_epsilon<B: Backend>(
         m_re: sys_re.m,
         m_im: sys_im.m,
         sparsity: sys_re.sparsity,
+    }
+}
+
+/// Build a per-tet **diagonal anisotropic** complex permittivity tensor
+/// in the global Cartesian basis for the bundled sphere fixture's PML
+/// shell (issue #54).
+///
+/// This implements the diagonal-only UPML simplification:
+/// `ε(x) = R · diag(1/s_r, s_t, s_t) · R^T`, restricted to its main
+/// diagonal entries (`ε_x, ε_y, ε_z`). For the simplified UPML
+/// `s_r = s_t = 1 - jσ(r)/ω` (Sacks et al. 1995, §III), the
+/// per-tet diagonal evaluates to
+///
+/// ```text
+/// ε_α(x) = (1/s_r) r̂_α² + s_t (1 - r̂_α²),     α ∈ {x, y, z},
+/// ```
+///
+/// where `r̂ = c / |c|` is the outward radial unit vector at the tet
+/// centroid `c`. Outside the PML shell (interior + vacuum gap) the
+/// tensor reduces to the real scalar `(ε_r, ε_r, ε_r)`.
+///
+/// # σ(r) profile
+///
+/// Same quadratic ramp as [`build_complex_epsilon_r_pml`]:
+/// `σ(r_c) = σ₀ · ((r_c − R_PML_INNER) / (R_BUFFER − R_PML_INNER))²`.
+/// `σ₀ = 0` collapses the tensor to the real scalar everywhere, which
+/// is the regression test point: with `n_inside = 1.0` it must
+/// reproduce the PEC-cavity numbers bit-identically.
+///
+/// # ω heuristic
+///
+/// The constitutive frequency `ω` is approximated by `k0_ref` (the
+/// reference wavenumber convention shared with Silver-Müller). For a
+/// driven eigenproblem the iteration over k₀ is left to follow-up
+/// #48.
+///
+/// # Sign convention
+///
+/// `exp(+jωt)` time convention. Outgoing absorption requires
+/// `Im(ε) < 0`, which is what the ramp produces.
+///
+/// `physical_tags.len()`, `centroid_radii.len()`, and `centroids.len()`
+/// must all equal the number of tets in the mesh.
+pub fn build_anisotropic_pml_tensor_diag(
+    physical_tags: &[i32],
+    centroids: &[[f64; 3]],
+    n_inside: f64,
+    sigma_0: f64,
+    k0_ref: f64,
+) -> Vec<[faer::c64; 3]> {
+    use crate::mesh::{R_BUFFER, R_PML_INNER};
+    assert_eq!(
+        physical_tags.len(),
+        centroids.len(),
+        "physical_tags and centroids length mismatch"
+    );
+    let eps_inside = n_inside * n_inside;
+    let width = R_BUFFER - R_PML_INNER;
+    let omega = k0_ref.max(1e-12);
+
+    physical_tags
+        .iter()
+        .zip(centroids.iter())
+        .map(|(&tag, c)| {
+            let r_c = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt();
+            let eps_scalar = if tag == crate::mesh::PHYS_SPHERE_INTERIOR {
+                eps_inside
+            } else {
+                1.0
+            };
+
+            if tag != crate::mesh::PHYS_PML_SHELL || r_c <= R_PML_INNER {
+                // Interior dielectric or vacuum gap: real, isotropic.
+                let v = faer::c64::new(eps_scalar, 0.0);
+                return [v, v, v];
+            }
+
+            // PML shell: build s_r = s_t = 1 - jσ/ω and combine with
+            // r̂ to form the diagonal in Cartesian.
+            let u = ((r_c - R_PML_INNER) / width).clamp(0.0, 1.0);
+            let sigma = sigma_0 * u * u;
+            let s = faer::c64::new(1.0, -sigma / omega); // s_r = s_t = 1 - jσ/ω
+            let s_inv = faer::c64::new(1.0, 0.0) / s;
+
+            // Radial unit vector at the centroid. Guard against |c| ≈ 0
+            // (PML shell tets are always well away from the origin, but
+            // defensive guard is cheap).
+            let inv_r = if r_c > 1e-12 { 1.0 / r_c } else { 0.0 };
+            let rx = c[0] * inv_r;
+            let ry = c[1] * inv_r;
+            let rz = c[2] * inv_r;
+
+            // ε_α = s_inv · r̂_α² + s · (1 - r̂_α²)
+            let bg = faer::c64::new(eps_scalar, 0.0);
+            let mk = |r_alpha: f64| -> faer::c64 {
+                let w = r_alpha * r_alpha;
+                bg * (s_inv * w + s * (1.0 - w))
+            };
+            [mk(rx), mk(ry), mk(rz)]
+        })
+        .collect()
+}
+
+/// Compute per-tet centroids `(x, y, z)` for every tet in `mesh`.
+///
+/// Returned in `mesh.tets` order; companion to [`tet_centroid_radii`]
+/// for callers that need the full vector centroid (e.g. the
+/// anisotropic PML tensor builder, which needs the radial direction
+/// not just its magnitude).
+pub fn tet_centroids(mesh: &TetMesh) -> Vec<[f64; 3]> {
+    mesh.tets
+        .iter()
+        .map(|tet| {
+            let mut c = [0.0_f64; 3];
+            for &v in tet {
+                let p = mesh.nodes[v as usize];
+                c[0] += p[0];
+                c[1] += p[1];
+                c[2] += p[2];
+            }
+            c[0] *= 0.25;
+            c[1] *= 0.25;
+            c[2] *= 0.25;
+            c
+        })
+        .collect()
+}
+
+/// Anisotropic-ε variant of [`assemble_global_nedelec_with_complex_epsilon`].
+///
+/// Accepts a **diagonal** per-tet complex permittivity tensor in the
+/// global Cartesian basis (3 complex entries per tet) and assembles
+/// the resulting complex mass matrix using
+/// [`batched_nedelec_local_mass_anisotropic_diag`]. The stiffness
+/// (curl-curl) and sparsity pattern are computed exactly as in the
+/// scalar path.
+///
+/// Returns the same [`NedelecComplexGlobalSystem`] struct as the
+/// scalar-ε complex assembler so downstream eigensolvers and PEC
+/// reductions don't have to branch on the PML variant.
+///
+/// # Implementation
+///
+/// Real and imaginary parts of the per-tet tensor are pushed through
+/// the new kernel as two separate Burn tensors (Re-pass, Im-pass),
+/// matching the two-pass split established for the scalar complex
+/// path. Stiffness is computed once via
+/// [`batched_nedelec_local_matrices`] and reused — the curl-curl
+/// integrand is permittivity-independent.
+pub fn assemble_global_nedelec_with_anisotropic_epsilon<B: Backend>(
+    nodes: Tensor<B, 2>,
+    tets: Tensor<B, 2, Int>,
+    tet_edge_idx: &[[u32; 6]],
+    tet_edge_sign: &[[i8; 6]],
+    n_edges: usize,
+    epsilon_tensor_diag: &[[faer::c64; 3]],
+) -> NedelecComplexGlobalSystem<B> {
+    let device = nodes.device();
+    let [n_elem, _] = tets.dims();
+    assert_eq!(tet_edge_idx.len(), n_elem, "tet_edge_idx length mismatch");
+    assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
+    assert_eq!(
+        epsilon_tensor_diag.len(),
+        n_elem,
+        "epsilon_tensor_diag length mismatch"
+    );
+
+    // 1. Compute element-local Nédélec stiffness (real, permittivity-
+    //    independent) and the anisotropic mass twice (Re-pass + Im-pass).
+    let coords = gather_tet_coords(nodes, tets);
+    let local = batched_nedelec_local_matrices(coords.clone());
+
+    let eps_re_flat: Vec<f32> = epsilon_tensor_diag
+        .iter()
+        .flat_map(|row| row.iter().map(|c| c.re as f32))
+        .collect();
+    let eps_im_flat: Vec<f32> = epsilon_tensor_diag
+        .iter()
+        .flat_map(|row| row.iter().map(|c| c.im as f32))
+        .collect();
+    let eps_re_tensor =
+        Tensor::<B, 2>::from_data(TensorData::new(eps_re_flat, [n_elem, 3]), &device);
+    let eps_im_tensor =
+        Tensor::<B, 2>::from_data(TensorData::new(eps_im_flat, [n_elem, 3]), &device);
+
+    let m_local_re = batched_nedelec_local_mass_anisotropic_diag(coords.clone(), eps_re_tensor);
+    let m_local_im = batched_nedelec_local_mass_anisotropic_diag(coords, eps_im_tensor);
+
+    // 2. Sign outer product.
+    let sign_flat: Vec<f32> = tet_edge_sign
+        .iter()
+        .flat_map(|row| row.iter().map(|&s| s as f32))
+        .collect();
+    let sign_2d = Tensor::<B, 2>::from_data(TensorData::new(sign_flat, [n_elem, 6]), &device);
+    let sign_row = sign_2d.clone().unsqueeze_dim::<3>(2);
+    let sign_col = sign_2d.unsqueeze_dim::<3>(1);
+    let sign_outer = sign_row.mul(sign_col);
+
+    let k_signed = local.k_local.mul(sign_outer.clone());
+    let m_re_signed = m_local_re.mul(sign_outer.clone());
+    let m_im_signed = m_local_im.mul(sign_outer);
+
+    // 3. Flat scatter indices.
+    let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 36);
+    let n_edges_i32 = n_edges as i32;
+    for row in tet_edge_idx {
+        for i in 0..6 {
+            for j in 0..6 {
+                linear_idx.push(row[i] as i32 * n_edges_i32 + row[j] as i32);
+            }
+        }
+    }
+    let flat_indices =
+        Tensor::<B, 1, Int>::from_data(TensorData::new(linear_idx, [n_elem * 36]), &device);
+
+    // 4. Scatter-add into flat zero tensors.
+    let k_flat = k_signed.reshape([n_elem * 36]);
+    let m_re_flat = m_re_signed.reshape([n_elem * 36]);
+    let m_im_flat = m_im_signed.reshape([n_elem * 36]);
+
+    let zeros_flat = Tensor::<B, 1>::zeros([n_edges * n_edges], &device);
+    let k_assembled =
+        zeros_flat
+            .clone()
+            .scatter(0, flat_indices.clone(), k_flat, IndexingUpdateOp::Add);
+    let m_re_assembled =
+        zeros_flat
+            .clone()
+            .scatter(0, flat_indices.clone(), m_re_flat, IndexingUpdateOp::Add);
+    let m_im_assembled = zeros_flat.scatter(0, flat_indices, m_im_flat, IndexingUpdateOp::Add);
+
+    let k = k_assembled.reshape([n_edges, n_edges]);
+    let m_re = m_re_assembled.reshape([n_edges, n_edges]);
+    let m_im = m_im_assembled.reshape([n_edges, n_edges]);
+
+    let sparsity = sparsity_pattern_from_tet_edges(tet_edge_idx);
+
+    NedelecComplexGlobalSystem {
+        k,
+        m_re,
+        m_im,
+        sparsity,
     }
 }
 

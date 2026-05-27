@@ -277,12 +277,17 @@ error, higher-l modes would be worse — they aren't. This is the
 signature of an h-independent **scalar-isotropic PML reflection
 floor** at the inner PML interface. Refining further does not help.
 
-The canonical fix is **anisotropic UPML** with tensor permittivity
-(tracked as [#54](https://github.com/rjwalters/geode-fem/issues/54)).
-This is the next critical-path accuracy work and pairs naturally with
-the just-landed sparse complex Lanczos (PR #55) since UPML requires
-iterating at refined mesh where the dense eigensolve was previously
-intractable.
+**Anisotropic UPML breaks the ceiling** (issue #54). A diagonal
+anisotropic permittivity tensor in the global Cartesian basis,
+`ε_α = (1/s_r) r̂_α² + s_t (1 - r̂_α²)` per centroid radial unit
+vector `r̂`, is now available via
+[`assemble_global_nedelec_with_anisotropic_epsilon`] and
+[`build_anisotropic_pml_tensor_diag`]. On the bundled 774-node
+fixture the lowest TM_1,1 mode improves from **16% → ~6% rel err**
+(σ₀ = 5.0, k₀_ref = 2.0). The full off-diagonal rotation
+`R · diag(1/s_r, s_t, s_t) · R^T` is a follow-up; the diagonal-only
+approximation drops mixed-axis coupling for off-axis tets, so
+further accuracy gains are still on the table.
 
 The same physical problem is computed in the time domain by the sister
 project [`rjwalters/strata-fdtd`](https://github.com/rjwalters/strata-fdtd)

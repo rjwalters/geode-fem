@@ -44,12 +44,16 @@ pub use mie::{
     psi_prime, resonance_roots, spherical_j, spherical_j_prime, spherical_y, spherical_y_prime,
     MiePolarisation, MieRoot,
 };
-pub use nedelec::{batched_nedelec_local_matrices, tet_edges, NedelecLocalMatrices};
+pub use nedelec::{
+    batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_matrices, tet_edges,
+    NedelecLocalMatrices,
+};
 pub use nedelec_assembly::{
-    assemble_global_nedelec, assemble_global_nedelec_with_complex_epsilon,
-    assemble_global_nedelec_with_epsilon, build_complex_epsilon_r_pml, build_epsilon_r,
+    assemble_global_nedelec, assemble_global_nedelec_with_anisotropic_epsilon,
+    assemble_global_nedelec_with_complex_epsilon, assemble_global_nedelec_with_epsilon,
+    build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml, build_epsilon_r,
     burn_complex_mass_to_faer, cube_pec_interior_edges, pec_interior_edge_mask,
-    sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii,
+    sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii, tet_centroids,
     NedelecComplexGlobalSystem, NedelecGlobalSystem,
 };
 pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
