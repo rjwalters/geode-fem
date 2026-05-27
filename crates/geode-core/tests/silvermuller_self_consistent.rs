@@ -144,6 +144,9 @@ fn self_consistent_converges_for_target_mode() {
         SelfConsistentResult::Diverged { last_k, iterations } => {
             (last_k, q_of(last_k), iterations, "Diverged")
         }
+        SelfConsistentResult::ModeLost {
+            last_k, iterations, ..
+        } => (last_k, q_of(last_k), iterations, "ModeLost"),
     };
 
     eprintln!(
@@ -206,6 +209,20 @@ fn self_consistent_diverges_returns_clean_result() {
                 "unexpectedly converged in {iterations} iters from seed=20.0: \
                  k = {:.4} + {:.4e}i, Q = {q:.4e}",
                 k.re, k.im
+            );
+        }
+        SelfConsistentResult::ModeLost {
+            last_k,
+            iterations,
+            best_overlap,
+        } => {
+            // Frozen-int self_consistent_k does not produce ModeLost,
+            // so this branch should be unreachable for this driver.
+            // Log defensively rather than panic.
+            eprintln!(
+                "unexpected ModeLost from frozen-int driver: iters={iterations}, \
+                 last k = {:.4} + {:.4e}i, best_overlap = {best_overlap}",
+                last_k.re, last_k.im
             );
         }
     }
@@ -304,6 +321,17 @@ fn frozen_target_idx_prevents_mode_hop() {
             eprintln!(
                 "frozen-idx diverged in {iterations} iters at k = {:.4} + {:.4e}i — \
                  acceptable as long as it didn't hop to the neighbour",
+                last_k.re, last_k.im
+            );
+        }
+        SelfConsistentResult::ModeLost {
+            last_k,
+            iterations,
+            best_overlap,
+        } => {
+            eprintln!(
+                "unexpected ModeLost from frozen-int driver: iters={iterations}, \
+                 last k = {:.4} + {:.4e}i, best_overlap = {best_overlap}",
                 last_k.re, last_k.im
             );
         }

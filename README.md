@@ -67,7 +67,7 @@ baselines.
 ### v1 (active)
 
 - [ ] **Anisotropic UPML** (issue #54) — canonical fix for the 16% PML accuracy ceiling
-- [ ] **Vector-tracking k₀** (issue #48) — replace frozen-index Newton for self-consistent resonance tracking
+- [x] **Vector-tracking k₀** (issue #48) — replace frozen-index Newton for self-consistent resonance tracking
 - [ ] **Driven scattering** (Q_ext, Q_sca vs. ka) — v1 of the Mie benchmark
 - [ ] **Whiteroom L4 mapping** (issue #5) — once upstream slices stabilize
 
@@ -288,6 +288,25 @@ fixture the lowest TM_1,1 mode improves from **16% → ~6% rel err**
 `R · diag(1/s_r, s_t, s_t) · R^T` is a follow-up; the diagonal-only
 approximation drops mixed-axis coupling for off-axis tets, so
 further accuracy gains are still on the table.
+
+**Vector-tracked self-consistent k₀** (issue #48): the Silver-Müller
+absorbing BC matches its impedance to a single guess `k₀`; the
+resulting Q is dominated by impedance mismatch when `k₀` is far from
+`Re(k_target)`. PR #47 added a damped Newton iteration with a frozen
+integer index, which improved Q only marginally (≈ 0.54) because the
+177-mode Whitney spurious cluster re-shuffles as `k₀` drifts and the
+integer-index target drifts off the physical mode. The vector-tracked
+variant (`self_consistent_k_vector_tracked` in
+`silvermuller_self_consistent.rs`) instead selects, at every Newton
+iteration, the mode whose **eigenvector** has maximum bilinear-M
+overlap with the prior iteration's target — metric-consistent with the
+complex-symmetric mass matrix. Mode death is surfaced as a dedicated
+`SelfConsistentResult::ModeLost` variant when the maximum overlap
+falls below 0.5 (signalling the seed is far from any physical
+resonance). This is the unblocker for tightening Q-factor agreement
+on the Silver-Müller path; full convergence and Q comparison runs
+live under `tests/silvermuller_self_consistent_vector_tracking.rs`
+(`#[ignore]`'d, faer-dense-release-only).
 
 The same physical problem is computed in the time domain by the sister
 project [`rjwalters/strata-fdtd`](https://github.com/rjwalters/strata-fdtd)

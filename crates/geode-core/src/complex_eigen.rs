@@ -78,6 +78,36 @@ pub trait ComplexEigenSolver {
         m_complex: MatRef<c64>,
         n: usize,
     ) -> Result<Vec<c64>, EigenError>;
+
+    /// Solve `(K + j k₀ S) E = λ M E` and return the lowest-`n`
+    /// **(eigenvalue, eigenvector)** pairs by `|Re(λ)|`.
+    ///
+    /// The eigenvector storage is `Vec<c64>` of length `n_dofs` per
+    /// returned pair. Pairs are sorted by `|Re(λ)|` ascending to match
+    /// [`smallest_complex_eigenvalues`].
+    ///
+    /// Eigenvectors are **not** normalized — callers performing
+    /// mode-tracking under the M-bilinear form should normalize via
+    /// `‖v‖_M = sqrt(Re(v^T M v))` themselves (the real-part trick
+    /// keeps the norm well-defined for the complex-symmetric pencil).
+    ///
+    /// Default implementation returns [`EigenError::FaerGevd`] with a
+    /// descriptive message — implementations that can return Ritz
+    /// vectors (e.g. the dense Faer path) should override this.
+    fn smallest_complex_pairs(
+        &self,
+        _k: MatRef<f64>,
+        _s: MatRef<f64>,
+        _m: MatRef<f64>,
+        _k0: f64,
+        _n: usize,
+    ) -> Result<Vec<(c64, Vec<c64>)>, EigenError> {
+        Err(EigenError::FaerGevd(
+            "smallest_complex_pairs not implemented for this eigensolver; \
+             use FaerComplexEigensolver for the dense eigenvector path"
+                .into(),
+        ))
+    }
 }
 
 /// Dense `faer`-backed complex generalized eigensolver.
@@ -209,5 +239,66 @@ impl ComplexEigenSolver for FaerComplexEigensolver {
 
         let take = n.min(lambdas.len());
         Ok(lambdas.into_iter().take(take).collect())
+    }
+
+    fn smallest_complex_pairs(
+        &self,
+        k: MatRef<f64>,
+        s: MatRef<f64>,
+        m: MatRef<f64>,
+        k0: f64,
+        n: usize,
+    ) -> Result<Vec<(c64, Vec<c64>)>, EigenError> {
+        assert_eq!(k.nrows(), k.ncols(), "K must be square");
+        assert_eq!(s.nrows(), s.ncols(), "S must be square");
+        assert_eq!(m.nrows(), m.ncols(), "M must be square");
+        assert_eq!(k.nrows(), s.nrows(), "K and S must agree in size");
+        assert_eq!(k.nrows(), m.nrows(), "K and M must agree in size");
+
+        let dim = k.nrows();
+
+        // Build A = K + j k₀ S and B = M as complex matrices.
+        let a = Mat::<c64>::from_fn(dim, dim, |i, j| c64::new(k[(i, j)], k0 * s[(i, j)]));
+        let b = Mat::<c64>::from_fn(dim, dim, |i, j| c64::new(m[(i, j)], 0.0));
+
+        let evd = a
+            .generalized_eigen(&b)
+            .map_err(|e| EigenError::FaerGevd(format!("{e:?}")))?;
+
+        let s_a = evd.S_a().column_vector();
+        let s_b = evd.S_b().column_vector();
+        let u = evd.U();
+
+        // Build (lambda, eigenvector, original_column) tuples, filtering
+        // singular-pencil tokens.
+        let mut pairs: Vec<(c64, Vec<c64>)> = Vec::with_capacity(dim);
+        for i in 0..dim {
+            let a_i = s_a[i];
+            let b_i = s_b[i];
+            let denom = b_i.re * b_i.re + b_i.im * b_i.im;
+            if denom < 1e-30 {
+                continue;
+            }
+            let re = (a_i.re * b_i.re + a_i.im * b_i.im) / denom;
+            let im = (a_i.im * b_i.re - a_i.re * b_i.im) / denom;
+            let lambda = c64::new(re, im);
+
+            // Materialize column `i` of `U` as the eigenvector.
+            let mut v: Vec<c64> = Vec::with_capacity(dim);
+            for row in 0..dim {
+                v.push(u[(row, i)]);
+            }
+            pairs.push((lambda, v));
+        }
+
+        pairs.sort_by(|a, b| {
+            a.0.re
+                .abs()
+                .partial_cmp(&b.0.re.abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let take = n.min(pairs.len());
+        Ok(pairs.into_iter().take(take).collect())
     }
 }
