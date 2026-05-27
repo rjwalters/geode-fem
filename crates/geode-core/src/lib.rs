@@ -35,8 +35,8 @@ pub use mesh::{
     R_SPHERE,
 };
 pub use mie::{
-    characteristic_te, characteristic_tm, chi, chi_prime, merged_roots, psi, psi_prime,
-    resonance_roots, spherical_j, spherical_j_prime, spherical_y, spherical_y_prime,
+    characteristic_te, characteristic_tm, chi, chi_prime, merged_roots, mie_roots_catalog, psi,
+    psi_prime, resonance_roots, spherical_j, spherical_j_prime, spherical_y, spherical_y_prime,
     MiePolarisation, MieRoot,
 };
 pub use nedelec::{batched_nedelec_local_matrices, tet_edges, NedelecLocalMatrices};
