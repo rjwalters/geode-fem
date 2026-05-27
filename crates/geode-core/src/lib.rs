@@ -15,6 +15,7 @@ pub mod nedelec;
 pub mod nedelec_assembly;
 pub mod p1;
 pub mod silvermuller;
+pub mod silvermuller_self_consistent;
 pub mod sparse;
 
 #[cfg(feature = "arpack")]
@@ -51,6 +52,7 @@ pub use nedelec_assembly::{
 };
 pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
 pub use silvermuller::assemble_silver_muller_surface;
+pub use silvermuller_self_consistent::{self_consistent_k, SelfConsistentResult};
 pub use sparse::{global_system_to_sparse, SparseError, SparseSystem};
 
 #[cfg(feature = "arpack")]
