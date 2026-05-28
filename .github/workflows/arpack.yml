@@ -1,0 +1,60 @@
+name: arpack
+
+# Issue #24 — exercises the opt-in `arpack` Cargo feature on Linux.
+# The default build path (pure-Rust Lanczos) does not need libarpack and
+# is not exercised here; this workflow's only job is to keep the ARPACK
+# FFI from regressing.
+#
+# We deliberately do not run the full test suite here — the heavy
+# physics tests (Mie, Silver-Müller PML) are platform-sensitive and out
+# of scope for the ARPACK glue. We just build the workspace with the
+# feature on and run the gated `sparse_eigensolver` test, which is the
+# acceptance bar for issue #24.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: cargo test --features arpack (linux)
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libarpack2-dev and pkg-config
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarpack2-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-arpack-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build geode-core with --features arpack
+        run: cargo build -p geode-core --features arpack --release
+
+      - name: Clippy (with arpack)
+        run: cargo clippy --tests --features arpack -- -D warnings
+
+      - name: Run the gated sparse-eigensolver acceptance test
+        # Issue #24 acceptance: matches dense oracle to 1e-6 at n=5 with
+        # the same fixture as the Lanczos check.
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test sparse_eigensolver -- --ignored

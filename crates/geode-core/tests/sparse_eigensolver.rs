@@ -11,9 +11,15 @@
 //!    P1 + consistent mass. Slope of `log(err)` vs `log(h)` is in
 //!    `[-2.2, -1.8]`.
 //!
+//! The optional `arpack` feature also adds a third check
+//! (`arpack_matches_dense_at_n5`) that exercises the same n=5 oracle
+//! bound against the system ARPACK driver. It is feature-gated and only
+//! compiled when `--features arpack` is on; it satisfies the issue #24
+//! acceptance criterion (1e-6 oracle agreement at n=5).
+//!
 //! # Running these tests
 //!
-//! Both tests are `#[ignore]`d by default with the same rationale as the
+//! All tests are `#[ignore]`d by default with the same rationale as the
 //! dense `tests/eigensolver.rs`: faer 0.24's dense generalized eigen path
 //! (used by the oracle) panics under debug-assertions. The sparse path
 //! itself does not depend on `qz_real`, but the oracle comparison does.
@@ -21,6 +27,10 @@
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test sparse_eigensolver -- --ignored
+//!
+//! # With ARPACK (requires libarpack — see README §System dependencies):
+//! cargo test --features arpack -p geode-core --release \
+//!     --test sparse_eigensolver -- --ignored
 //! ```
 
 use geode_core::{
@@ -132,4 +142,52 @@ fn sparse_convergence_slope() {
         (1.8..=2.2).contains(&slope),
         "convergence slope {slope:.4} not in [1.8, 2.2] — expected O(h²)"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Issue #24: ARPACK-backed sparse eigensolver oracle agreement at n=5.
+//
+// Only built when `--features arpack` is on. Same fixture and tolerance
+// as the Lanczos check above, but uses `ArpackEigensolver` instead of
+// `SparseShiftInvertLanczos`. This satisfies the issue acceptance
+// (matches dense oracle to 1e-6 at n=5).
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "arpack")]
+mod arpack_oracle {
+    use super::*;
+    use geode_core::ArpackEigensolver;
+
+    fn arpack_eigs(n: usize, n_modes: usize) -> Vec<f64> {
+        let mesh = cube_tet_mesh(n, 1.0);
+        let (nodes, tets) = upload_mesh::<B>(&mesh, &device());
+        let sys = assemble_global_p1(nodes, tets, mesh.n_nodes());
+        let mask = cube_interior_mask(&mesh.nodes, 1.0);
+        let sparse = global_system_to_sparse(sys, Some(&mask)).expect("sparse projection");
+
+        ArpackEigensolver::default()
+            .smallest_eigenvalues(sparse.k.as_ref(), sparse.m.as_ref(), n_modes)
+            .expect("ARPACK eigensolve")
+    }
+
+    #[test]
+    #[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
+    fn arpack_matches_dense_at_n5() {
+        // Same fixture as sparse_matches_dense_at_n5: n=5 cube, 5 modes,
+        // 1e-6 relative tolerance against the faer dense oracle.
+        let dense = dense_eigs(5, 5);
+        let arpack = arpack_eigs(5, 5);
+
+        eprintln!("dense  λ = {dense:.10?}");
+        eprintln!("arpack λ = {arpack:.10?}");
+
+        assert_eq!(arpack.len(), 5);
+        for (i, (s, d)) in arpack.iter().zip(dense.iter()).enumerate() {
+            let rel = (s - d).abs() / d.abs().max(1.0);
+            assert!(
+                rel < 1e-6,
+                "λ[{i}]: arpack {s}, dense {d}, rel err {rel:.3e} exceeds 1e-6"
+            );
+        }
+    }
 }

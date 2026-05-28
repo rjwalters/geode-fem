@@ -104,20 +104,54 @@ etc.) aside, no system Fortran/BLAS libraries are required. In particular,
 sparse generalized eigensolves use a built-in shift-and-invert Lanczos
 (`SparseShiftInvertLanczos`) that depends only on `faer`'s sparse LU.
 
-The optional `arpack` Cargo feature (off by default) switches in an
-ARPACK-backed driver via `arpack-ng-sys`. When enabled it requires:
+### Optional `arpack` feature
 
-- a system `libarpack` install (`brew install arpack` on macOS,
-  `apt-get install libarpack2-dev` on Debian/Ubuntu), **and**
-- the `arpack/arpack.h` C header — which the macOS Homebrew formula does
-  *not* ship as of this writing; expect to vendor it or point `CFLAGS` at
-  a manual checkout.
+The opt-in `arpack` Cargo feature switches in an ARPACK-backed driver
+(`ArpackEigensolver`) as a canonical reference alongside the in-tree
+Lanczos. The Lanczos remains the default; ARPACK never becomes the
+default by design (issue #24 non-goal). FFI bindings to `dsaupd_c` /
+`dseupd_c` (the stable ARPACK ICB C wrappers, available since arpack-ng
+3.7) are vendored inline in `crates/geode-core/src/arpack.rs`, so no
+`bindgen` / `clang` / `gfortran` toolchain is required at build time —
+the only build-time work is `pkg-config`-based discovery of the system
+`libarpack`.
 
-Because of the macOS header story the ARPACK driver currently ships as a
-stub that returns an error from `smallest_eigenvalues`. The Lanczos
-default satisfies the convergence acceptance for issue #13 without any
-Fortran dependency. The ARPACK FFI will be wired up once the header
-story is settled; tracked alongside follow-up sparse work.
+Install one of:
+
+```sh
+# macOS (Homebrew)
+brew install arpack pkg-config
+
+# Debian / Ubuntu
+sudo apt-get install -y libarpack2-dev pkg-config
+```
+
+Then build / test with the feature:
+
+```sh
+cargo build --features arpack -p geode-core
+cargo test  --features arpack -p geode-core --release \
+    --test sparse_eigensolver -- --ignored
+```
+
+If `pkg-config` cannot find `libarpack` on your system, you can point
+the build script at it manually:
+
+```sh
+ARPACK_LIB_DIR=/opt/homebrew/opt/arpack/lib \
+    cargo build --features arpack -p geode-core
+```
+
+Set `ARPACK_STATIC=1` to request static linking (only useful if your
+`libarpack.a` is in the search path; Homebrew ships the dylib only).
+
+The Homebrew `arpack` formula does ship the ICB C headers under
+`$(brew --prefix arpack)/include/arpack/` and a working pkg-config file
+— we use neither, since our FFI declarations are vendored. The header
+story that motivated the original opt-in framing (a quirk in
+`arpack-ng-sys` where its `system` feature can't resolve
+`<arpack/arpack.h>` because Homebrew's `arpack.pc` sets `includedir`
+one level too deep) is documented in `crates/geode-core/src/arpack.rs`.
 
 ### Workspace layout
 
