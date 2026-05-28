@@ -232,13 +232,13 @@ impl MeshReader for GmshReader {
                     // Contiguous tags starting at the smallest tag in this block.
                     // mshio doesn't expose a min-tag-per-block field, but the
                     // ordering matches the order of `block.nodes` exactly.
-                    let mut next_tag = next_contiguous_start(&tag_to_index);
-                    for node in &block.nodes {
+                    let start_tag = next_contiguous_start(&tag_to_index);
+                    for (offset, node) in block.nodes.iter().enumerate() {
+                        let next_tag = start_tag + offset as u64;
                         let linear_idx = u32::try_from(nodes.len())
                             .map_err(|_| MeshError::NodeTagOverflow(next_tag))?;
                         tag_to_index.insert(next_tag, linear_idx);
                         nodes.push([node.x, node.y, node.z]);
-                        next_tag += 1;
                     }
                 }
             }
