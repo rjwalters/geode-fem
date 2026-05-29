@@ -12,28 +12,47 @@ burn = { workspace = true }
 faer = { version = "0.24", default-features = false, features = ["std", "linalg", "sparse-linalg"] }
 mshio = "0.4"
 thiserror = "2"
-# Optional: raw FFI bindings to ARPACK (Fortran). Disabled by default — the
-# default sparse eigensolver path is a pure-Rust shift-and-invert Lanczos
-# that depends only on faer. The `arpack` feature switches in the canonical
-# ARPACK driver. See `## System dependencies` in the README for the build
-# requirements (system `libarpack` plus C headers).
-arpack-ng-sys = { version = "0.2", optional = true, default-features = false, features = ["system"] }
+
+# Optional: link-time discovery of the system `libarpack` for the `arpack`
+# Cargo feature. Bindings to `dsaupd_c` / `dseupd_c` (the stable ARPACK
+# ICB C wrappers) are vendored as hand-written `extern "C"` declarations
+# in `src/arpack.rs`, so no `bindgen` / `clang` / `gfortran` toolchain is
+# required at build time. The build.rs script just runs pkg-config; see
+# `## System dependencies` in the README for the platform install
+# one-liners.
+[build-dependencies]
+pkg-config = { version = "0.3", optional = true }
 
 [features]
 default = ["wgpu"]
 wgpu = ["burn/wgpu"]
 cuda = ["burn/cuda"]
+# CPU (ndarray) backend — opt-in, headless. Used by CI (no Vulkan/CUDA
+# adapter on the runner) to exercise the `arpack` acceptance test against
+# a real backend. Locally the `wgpu` default still wins. `DefaultBackend`
+# resolves to `NdArray<f64>` so the f64 ARPACK driver keeps full
+# double-precision parity with the dense oracle (1e-6 bound).
+ndarray = ["burn/ndarray"]
 # Autodiff backend wrapper — opt-in (gradient tests / inverse design).
 autodiff = ["burn/autodiff"]
-# Enable the ARPACK-backed sparse eigensolver. Off by default — requires a
-# working `libarpack` install plus its `arpack/arpack.h` C header (which
-# is NOT shipped by the macOS Homebrew formula as of 2026-05). When this
-# feature is off, `geode_core::lanczos::SparseShiftInvertLanczos` (pure
-# Rust, faer sparse LU under the hood) is the sparse path.
-arpack = ["dep:arpack-ng-sys"]
+# Enable the ARPACK-backed sparse eigensolver. Off by default — the
+# default sparse path is `geode_core::lanczos::SparseShiftInvertLanczos`
+# (pure Rust, faer sparse LU under the hood). Turning this on requires a
+# working system `libarpack` (Homebrew `arpack`, apt `libarpack2-dev`)
+# discoverable via pkg-config; we vendor the FFI declarations ourselves,
+# so no C headers or Fortran toolchain are needed at build time. See
+# README §System dependencies.
+arpack = ["dep:pkg-config"]
 
 [dev-dependencies]
-geode-core = { path = ".", features = ["autodiff"] }
+# Self-reference to enable the `autodiff` feature for the gradient tests
+# (tests/assembly.rs, tests/nedelec.rs, benches/assembly_p1.rs).
+# `default-features = false` is critical: without it this edge would
+# re-activate the package's default `wgpu` backend in every test/bench
+# build, defeating `--no-default-features` and pulling wgpu onto the
+# headless CI runner. The backend now comes solely from the top-level
+# feature selection (wgpu by default, or ndarray on CI).
+geode-core = { path = ".", default-features = false, features = ["autodiff"] }
 # Read regression-fixture TOML in `tests/cube_convergence_regression.rs`.
 toml = "0.8"
 # Performance benchmark harness (issue #50). Each `[[bench]]` below opts

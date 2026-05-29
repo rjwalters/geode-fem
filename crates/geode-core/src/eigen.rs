@@ -121,11 +121,15 @@ impl EigenSolver for FaerDenseEigensolver {
 
 /// Convert a 2-D Burn tensor (any backend) into an owned `faer::Mat<f64>`.
 ///
-/// Pulls the tensor data off the device once and upcasts f32 → f64.
+/// Pulls the tensor data off the device once. `TensorData::iter::<f64>`
+/// reads the values as f64 regardless of the backend's stored float dtype
+/// (f32 on the wgpu/cuda GPU backends, f64 on the ndarray CPU backend),
+/// so this is genuinely backend-agnostic — the f32 GPU path upcasts and
+/// the f64 CPU path is read losslessly.
 pub fn burn_matrix_to_faer<B: Backend>(t: Tensor<B, 2>) -> Mat<f64> {
     let dims = t.dims();
-    let data: Vec<f32> = t.into_data().to_vec().expect("readback");
-    Mat::<f64>::from_fn(dims[0], dims[1], |i, j| data[i * dims[1] + j] as f64)
+    let data: Vec<f64> = t.into_data().iter::<f64>().collect();
+    Mat::<f64>::from_fn(dims[0], dims[1], |i, j| data[i * dims[1] + j])
 }
 
 /// Apply homogeneous Dirichlet boundary conditions by extracting the
