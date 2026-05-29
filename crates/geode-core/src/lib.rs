@@ -75,20 +75,41 @@ pub use arpack::ArpackEigensolver;
 use burn::tensor::backend::{Backend, BackendTypes};
 use burn::tensor::Tensor;
 
-#[cfg(all(feature = "wgpu", feature = "cuda"))]
+// Backend selection is feature-driven and the three backends are mutually
+// exclusive. `wgpu` is the default (local/GPU). `cuda` is the NVIDIA path.
+// `ndarray` is the headless CPU path used by CI, where no Vulkan/CUDA
+// adapter exists. Exactly one must be enabled.
+#[cfg(any(
+    all(feature = "wgpu", feature = "cuda"),
+    all(feature = "wgpu", feature = "ndarray"),
+    all(feature = "cuda", feature = "ndarray"),
+))]
 compile_error!(
-    "geode-core: features `wgpu` and `cuda` are mutually exclusive. \
-     Use --no-default-features --features cuda to switch backends."
+    "geode-core: backend features `wgpu`, `cuda`, and `ndarray` are mutually \
+     exclusive — enable exactly one. To use a non-default backend, build with \
+     e.g. --no-default-features --features ndarray (CPU) or \
+     --no-default-features --features cuda (NVIDIA)."
 );
 
-#[cfg(not(any(feature = "wgpu", feature = "cuda")))]
-compile_error!("geode-core: enable exactly one backend feature: `wgpu` (default) or `cuda`.");
+#[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "ndarray")))]
+compile_error!(
+    "geode-core: enable exactly one backend feature: `wgpu` (default), \
+     `cuda`, or `ndarray` (CPU)."
+);
 
 #[cfg(feature = "wgpu")]
 pub type DefaultBackend = burn::backend::Wgpu;
 
 #[cfg(feature = "cuda")]
 pub type DefaultBackend = burn::backend::Cuda;
+
+// CPU backend with f64 floats so the double-precision ARPACK driver
+// (`dsaupd_c`/`dseupd_c`) keeps full precision parity with the dense oracle.
+// The Int element is pinned to `i32` (NdArray's default is `i64`) to match
+// the GPU backends: `assembly::tets_to_cpu` reads connectivity back as
+// `i32`, and Burn's typed readback rejects a width mismatch.
+#[cfg(feature = "ndarray")]
+pub type DefaultBackend = burn::backend::NdArray<f64, i32>;
 
 /// A geometric mesh: element connectivity and node coordinates.
 ///
@@ -138,6 +159,9 @@ const BACKEND_NAME: &str = "wgpu";
 
 #[cfg(feature = "cuda")]
 const BACKEND_NAME: &str = "cuda";
+
+#[cfg(feature = "ndarray")]
+const BACKEND_NAME: &str = "ndarray";
 
 fn default_device_label() -> String {
     let device = <DefaultBackend as BackendTypes>::Device::default();
