@@ -108,6 +108,77 @@ impl TetMesh {
             })
             .collect()
     }
+
+    /// Build the deduplicated, globally-oriented face list of this mesh.
+    ///
+    /// Each face is stored as a vertex triple `[a, b, c]` with
+    /// `a < b < c` (ascending global tags) — the canonical orientation
+    /// convention for face DOFs of an `H(div)`-conforming space on tets,
+    /// and the row dimension of the discrete curl operator `d¹` (see
+    /// [`crate::derham::curl_map`]). Two tets sharing the face agree on
+    /// the orientation so that the normal flux is single-valued on the
+    /// shared face.
+    ///
+    /// Returns the sorted-unique face list. `n_faces = faces.len()` is
+    /// the number of global faces of this mesh.
+    ///
+    /// Mirrors the [`TetMesh::edges`] pattern (`BTreeSet` of canonical
+    /// lower-tag-first tuples, deduplicated across the four faces of
+    /// every tet).
+    pub fn faces(&self) -> Vec<[u32; 3]> {
+        use std::collections::BTreeSet;
+        let mut set: BTreeSet<(u32, u32, u32)> = BTreeSet::new();
+        for tet in &self.tets {
+            for lf in &TET_LOCAL_FACES {
+                let mut tri = [tet[lf[0]], tet[lf[1]], tet[lf[2]]];
+                tri.sort_unstable();
+                set.insert((tri[0], tri[1], tri[2]));
+            }
+        }
+        set.into_iter().map(|(a, b, c)| [a, b, c]).collect()
+    }
+
+    /// For each tet, return the four `(global_face_index, sign)` pairs in
+    /// the canonical local-face order ([`TET_LOCAL_FACES`] /
+    /// [`TET_LOCAL_FACE_EDGES`]).
+    ///
+    /// `sign` is `+1` if the cyclic vertex order of the local face (as
+    /// listed in [`TET_LOCAL_FACES`]) is an even permutation of the
+    /// global lower-tag-first ascending triple `(a, b, c)` (with
+    /// `a < b < c`), and `-1` if it is the reverse 3-cycle (odd
+    /// permutation). Equivalently: `sign = +1` iff the local 1-cycle
+    /// `v_lf[0] → v_lf[1] → v_lf[2] → v_lf[0]` matches the global cycle
+    /// `a → b → c → a`, modulo cyclic rotation.
+    ///
+    /// Returns a `Vec<[(u32, i8); 4]>` of length `n_tets()`. Analogous to
+    /// [`TetMesh::tet_edges`], and intended for consumers of face DOFs
+    /// (the eventual `d²: face → volume` divergence operator).
+    pub fn tet_faces(&self) -> Vec<[(u32, i8); 4]> {
+        use std::collections::HashMap;
+        let faces = self.faces();
+        let mut lookup: HashMap<(u32, u32, u32), u32> = HashMap::with_capacity(faces.len());
+        for (idx, f) in faces.iter().enumerate() {
+            lookup.insert((f[0], f[1], f[2]), idx as u32);
+        }
+
+        self.tets
+            .iter()
+            .map(|tet| {
+                let mut out = [(0u32, 1i8); 4];
+                for (slot, lf) in out.iter_mut().zip(TET_LOCAL_FACES.iter()) {
+                    let local = [tet[lf[0]], tet[lf[1]], tet[lf[2]]];
+                    let mut sorted = local;
+                    sorted.sort_unstable();
+                    let sign = triple_permutation_sign(&local);
+                    let idx = *lookup
+                        .get(&(sorted[0], sorted[1], sorted[2]))
+                        .expect("face derived from tet must be in face table");
+                    *slot = (idx, sign);
+                }
+                out
+            })
+            .collect()
+    }
 }
 
 /// Canonical local edge → (local vertex pair) ordering on a tet.
@@ -117,6 +188,95 @@ impl TetMesh {
 /// across the codebase and re-exported from `crate::nedelec` for
 /// callers working in the FEM module.
 pub const TET_LOCAL_EDGES: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
+
+/// Canonical local face → (local vertex triple) ordering on a tet.
+///
+/// Face `i` is the face opposite local vertex `i`. Vertex triples are
+/// listed in **ascending local order**, which fixes the cyclic
+/// boundary traversal at `a → b → c → a` on each face's three local
+/// vertices `a < b < c`. This is the choice that makes `d¹ ∘ d⁰ ≡ 0`
+/// bit-exact (see [`TET_LOCAL_FACE_EDGES`] for the full argument).
+///
+/// Source-of-truth for [`TetMesh::faces`] and [`TetMesh::tet_faces`].
+pub const TET_LOCAL_FACES: [[usize; 3]; 4] = [
+    // Face 0 (opposite local vertex 0): {1, 2, 3}, cycle 1 → 2 → 3 → 1.
+    [1, 2, 3],
+    // Face 1 (opposite local vertex 1): {0, 2, 3}, cycle 0 → 2 → 3 → 0.
+    [0, 2, 3],
+    // Face 2 (opposite local vertex 2): {0, 1, 3}, cycle 0 → 1 → 3 → 0.
+    [0, 1, 3],
+    // Face 3 (opposite local vertex 3): {0, 1, 2}, cycle 0 → 1 → 2 → 0.
+    [0, 1, 2],
+];
+
+/// Canonical local face → 3 local edge indices (into [`TET_LOCAL_EDGES`])
+/// bounding the face, in the cyclic order that traverses the face's
+/// three local vertices in ascending order (`a → b → c → a` with
+/// `a < b < c` the local indices from [`TET_LOCAL_FACES`]).
+///
+/// # Why this exact cyclic order
+///
+/// Walking each face in the ascending-local cycle `a → b → c → a`
+/// yields three legs whose signs against the canonical lower-tag-first
+/// edge orientation are
+///
+/// ```text
+/// a → b   matches (a, b)    →  +1
+/// b → c   matches (b, c)    →  +1
+/// c → a   reverses (a, c)   →  -1
+/// ```
+///
+/// Crucially, this pattern is *also* what the global ascending cycle on
+/// the canonical face triple `(α, β, γ)` (with `α < β < γ`) produces:
+/// `+1` at edge `(α, β)`, `+1` at `(β, γ)`, `-1` at `(α, γ)`. The local
+/// and global cycles agree up to an overall sign — the per-tet face
+/// sign captured by [`TetMesh::tet_faces`]. Pinned this way,
+/// [`crate::derham::curl_map`] yields rows whose pattern is exactly the
+/// signed boundary of the global ascending cycle on each face, and the
+/// composition `curl_map · gradient_map` is the zero matrix bit-exactly
+/// on any mesh (the discrete `d¹ ∘ d⁰ ≡ 0` identity of the de Rham
+/// complex; see Hiptmair, *Acta Numerica* 2002, §4 and Arnold–Falk–
+/// Winther, *Acta Numerica* 2006, §1.2).
+///
+/// # Layout
+///
+/// Each face's entry is `[edge_ab, edge_bc, edge_ac]`, indices into
+/// [`TET_LOCAL_EDGES`]. The first two legs traverse their edges
+/// forward (matching the canonical lower-tag-first orientation); the
+/// third leg traverses its edge backward.
+pub const TET_LOCAL_FACE_EDGES: [[usize; 3]; 4] = [
+    // Face 0 = {1, 2, 3}: edges (1,2)=3, (2,3)=5, (1,3)=4.
+    [3, 5, 4],
+    // Face 1 = {0, 2, 3}: edges (0,2)=1, (2,3)=5, (0,3)=2.
+    [1, 5, 2],
+    // Face 2 = {0, 1, 3}: edges (0,1)=0, (1,3)=4, (0,3)=2.
+    [0, 4, 2],
+    // Face 3 = {0, 1, 2}: edges (0,1)=0, (1,2)=3, (0,2)=1.
+    [0, 3, 1],
+];
+
+/// Sign of the permutation taking the 3-tuple `local` to its ascending
+/// sort: `+1` for an even permutation (identity or one of the two
+/// 3-cycles), `-1` for an odd permutation (any transposition).
+///
+/// Implementation: parity of the inversion count of `local`.
+fn triple_permutation_sign(local: &[u32; 3]) -> i8 {
+    let mut inv = 0usize;
+    if local[0] > local[1] {
+        inv += 1;
+    }
+    if local[0] > local[2] {
+        inv += 1;
+    }
+    if local[1] > local[2] {
+        inv += 1;
+    }
+    if inv.is_multiple_of(2) {
+        1
+    } else {
+        -1
+    }
+}
 
 /// Generate a tetrahedralized cube `[0, side]^3` with `n` hexes per side,
 /// each hex split into 6 right-handed tets sharing the long diagonal.
@@ -426,5 +586,135 @@ mod tests {
     fn bad_count_line_errs() {
         let input = "$PhysicalNames\nNOT_A_NUMBER\n3 1 \"domain\"\n$EndPhysicalNames\n";
         assert_physical_names_err(input, "bad count line");
+    }
+
+    /// The reference tet — single tet on nodes 0..4.
+    fn reference_tet() -> TetMesh {
+        TetMesh {
+            nodes: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            tets: vec![[0, 1, 2, 3]],
+            physical_groups: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn faces_on_reference_tet_are_canonical_triples() {
+        let mesh = reference_tet();
+        let faces = mesh.faces();
+        assert_eq!(
+            faces,
+            vec![[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
+            "faces must be the deduplicated ascending triples on (0,1,2,3)"
+        );
+    }
+
+    #[test]
+    fn tet_faces_on_reference_tet_have_positive_signs() {
+        // For the trivially-ordered tet [0,1,2,3], every local face's
+        // ascending-local cycle (from TET_LOCAL_FACES) is *already* the
+        // ascending-global cycle, so all four signs are +1.
+        let mesh = reference_tet();
+        let tet_faces = mesh.tet_faces();
+        assert_eq!(tet_faces.len(), 1);
+        let tf = tet_faces[0];
+
+        // Face indices in TET_LOCAL_FACES order:
+        //   local face 0 (opp v0) = {1,2,3} → global face index 3
+        //   local face 1 (opp v1) = {0,2,3} → global face index 2
+        //   local face 2 (opp v2) = {0,1,3} → global face index 1
+        //   local face 3 (opp v3) = {0,1,2} → global face index 0
+        // (Face enumeration is BTreeSet-sorted ascending.)
+        assert_eq!(tf[0], (3, 1));
+        assert_eq!(tf[1], (2, 1));
+        assert_eq!(tf[2], (1, 1));
+        assert_eq!(tf[3], (0, 1));
+    }
+
+    #[test]
+    fn tet_faces_signs_are_negative_for_one_transposition() {
+        // Swap two vertices to make a single transposition (odd
+        // permutation) on every face that contains both. Tet
+        // [1,0,2,3] = swap(v0, v1) of the reference tet.
+        let mesh = TetMesh {
+            nodes: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            tets: vec![[1, 0, 2, 3]],
+            physical_groups: BTreeMap::new(),
+        };
+        let tet_faces = mesh.tet_faces();
+        let tf = tet_faces[0];
+        // Face opposite local v0 (= global 1) = {0,2,3} → local cycle is
+        // [0,2,3] (=tet[1], tet[2], tet[3] = 0, 2, 3) — already ascending.
+        // Sign should be +1.
+        assert_eq!(tf[0].1, 1);
+        // Face opposite local v1 (= global 0) = {1,2,3} → local cycle
+        // [tet[0], tet[2], tet[3]] = [1, 2, 3] — ascending → +1.
+        assert_eq!(tf[1].1, 1);
+        // Face opposite local v2 (= global 2) — contains global 1,0,3 in
+        // local order [tet[0], tet[1], tet[3]] = [1, 0, 3]. Sorted is
+        // [0,1,3]; (1,0,3) → (0,1,3) is one transposition (swap pos 0,1)
+        // → -1.
+        assert_eq!(tf[2].1, -1);
+        // Face opposite local v3 — contains global 1,0,2 in local order
+        // [tet[0], tet[1], tet[2]] = [1, 0, 2]. (1,0,2) → (0,1,2) is one
+        // transposition → -1.
+        assert_eq!(tf[3].1, -1);
+    }
+
+    #[test]
+    fn triple_permutation_sign_table() {
+        // All 6 permutations of (0,1,2). Identity and the two 3-cycles
+        // are even (+1); the three transpositions are odd (-1).
+        assert_eq!(triple_permutation_sign(&[0, 1, 2]), 1); // identity
+        assert_eq!(triple_permutation_sign(&[1, 2, 0]), 1); // 3-cycle
+        assert_eq!(triple_permutation_sign(&[2, 0, 1]), 1); // 3-cycle
+        assert_eq!(triple_permutation_sign(&[1, 0, 2]), -1); // swap (0,1)
+        assert_eq!(triple_permutation_sign(&[0, 2, 1]), -1); // swap (1,2)
+        assert_eq!(triple_permutation_sign(&[2, 1, 0]), -1); // swap (0,2)
+    }
+
+    #[test]
+    fn tet_local_face_edges_are_consistent_with_tet_local_faces() {
+        // Each face's three local edges must be the boundary 1-cycle of
+        // its three local vertices, traversed in the ascending order
+        // a → b → c → a (with a < b < c the local vertices).
+        for (face_i, vertices) in TET_LOCAL_FACES.iter().enumerate() {
+            let mut sorted = *vertices;
+            sorted.sort_unstable();
+            // TET_LOCAL_FACES already stores vertices ascending.
+            assert_eq!(sorted, *vertices);
+            let (a, b, c) = (sorted[0], sorted[1], sorted[2]);
+
+            // The expected three edges of the ascending cycle:
+            //   leg 1: (a, b) → TET_LOCAL_EDGES index of (min(a,b), max(a,b)) = (a,b).
+            //   leg 2: (b, c) → (b,c).
+            //   leg 3: (c, a) → canonical edge (a,c).
+            let want_ab = local_edge_index(a, b);
+            let want_bc = local_edge_index(b, c);
+            let want_ac = local_edge_index(a, c);
+
+            assert_eq!(
+                TET_LOCAL_FACE_EDGES[face_i],
+                [want_ab, want_bc, want_ac],
+                "face {face_i} (vertices {vertices:?}) has wrong local edges"
+            );
+        }
+    }
+
+    fn local_edge_index(a: usize, b: usize) -> usize {
+        let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+        TET_LOCAL_EDGES
+            .iter()
+            .position(|&(la, lb)| la == lo && lb == hi)
+            .expect("(lo, hi) must be a local edge")
     }
 }
