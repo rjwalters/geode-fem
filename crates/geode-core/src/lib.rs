@@ -8,6 +8,7 @@
 pub mod assembly;
 pub mod complex_eigen;
 pub mod complex_lanczos;
+pub mod derham;
 pub mod eigen;
 pub mod lanczos;
 pub mod mesh;
@@ -28,6 +29,7 @@ pub use assembly::{
 };
 pub use complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
 pub use complex_lanczos::{SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
+pub use derham::{apply_gradient, gradient_map};
 pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
     FaerDenseEigensolver,
