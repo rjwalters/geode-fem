@@ -315,7 +315,9 @@ fn cube_pec_curl_curl_annihilates_gradients() {
     );
     eprintln!(
         "cube n=8 PEC: max gauge residual ratio over {} fields = {:.3e} (tol {:.0e})",
-        N_FIELDS, max_ratio, residual_tol()
+        N_FIELDS,
+        max_ratio,
+        residual_tol()
     );
     assert!(max_ratio < residual_tol());
 }
@@ -333,7 +335,9 @@ fn sphere_pml_curl_curl_annihilates_gradients() {
     );
     eprintln!(
         "sphere PML: max gauge residual ratio over {} fields = {:.3e} (tol {:.0e})",
-        N_FIELDS, max_ratio, residual_tol()
+        N_FIELDS,
+        max_ratio,
+        residual_tol()
     );
     assert!(max_ratio < residual_tol());
 }
