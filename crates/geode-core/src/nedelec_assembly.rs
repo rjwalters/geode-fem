@@ -811,7 +811,11 @@ pub fn assemble_global_nedelec_with_anisotropic_epsilon<B: Backend>(
 ///
 /// Mirrors [`crate::eigen::burn_matrix_to_faer`] for complex inputs.
 /// Pulls both halves off the device once and zips them into the
-/// complex output.
+/// complex output. `TensorData::iter::<f64>` reads the values as f64
+/// regardless of the backend's stored float dtype (f32 on the wgpu/cuda
+/// GPU backends, f64 on the ndarray CPU backend), so this is genuinely
+/// backend-agnostic — the f32 GPU path upcasts and the f64 CPU path is
+/// read losslessly.
 pub fn burn_complex_mass_to_faer<B: Backend>(
     m_re: Tensor<B, 2>,
     m_im: Tensor<B, 2>,
@@ -819,11 +823,11 @@ pub fn burn_complex_mass_to_faer<B: Backend>(
     let dims_re = m_re.dims();
     let dims_im = m_im.dims();
     assert_eq!(dims_re, dims_im, "M_re and M_im must have matching dims");
-    let data_re: Vec<f32> = m_re.into_data().to_vec().expect("readback Re");
-    let data_im: Vec<f32> = m_im.into_data().to_vec().expect("readback Im");
+    let data_re: Vec<f64> = m_re.into_data().iter::<f64>().collect();
+    let data_im: Vec<f64> = m_im.into_data().iter::<f64>().collect();
     let n = dims_re[0];
     faer::Mat::<faer::c64>::from_fn(n, dims_re[1], |i, j| {
         let idx = i * dims_re[1] + j;
-        faer::c64::new(data_re[idx] as f64, data_im[idx] as f64)
+        faer::c64::new(data_re[idx], data_im[idx])
     })
 }
