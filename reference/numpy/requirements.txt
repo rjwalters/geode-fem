@@ -1,0 +1,9 @@
+# Python dependencies for the NumPy reference implementations.
+#
+# Pinned to a minor range so the precomputed fixture baselines remain
+# byte-identical across reproductions. Bump deliberately and regenerate
+# the fixtures when bumping.
+#
+# Python: tested on 3.14.5; should work on >= 3.10 (no new-syntax usage).
+
+numpy >= 2.0, < 3.0
