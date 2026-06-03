@@ -14,11 +14,14 @@
 //!      probe at a single picked node within a coarse tolerance.
 
 use burn::backend::Autodiff;
-use burn::tensor::backend::{Backend, BackendTypes};
+use burn::tensor::backend::BackendTypes;
 use burn::tensor::ElementConversion;
 use burn::tensor::{Int, Tensor, TensorData};
 
 use geode_core::{assemble_global_p1, cube_tet_mesh, upload_mesh, DefaultBackend};
+
+mod common;
+use common::readback_f64;
 
 type B = DefaultBackend;
 type Ad = Autodiff<B>;
@@ -31,19 +34,6 @@ fn device() -> <B as BackendTypes>::Device {
 
 fn ad_device() -> <Ad as BackendTypes>::Device {
     <Ad as BackendTypes>::Device::default()
-}
-
-/// Read a 2-D float Burn tensor back to host as `Vec<f64>`, regardless
-/// of whether the active backend's `B::FloatElem` is `f32` or `f64`.
-/// `to_vec::<E>` requires the storage element type to match exactly, so
-/// we read at `B::FloatElem` and upcast to `f64` for the test logic.
-fn readback_f64<BB: Backend, const D: usize>(t: Tensor<BB, D>) -> Vec<f64> {
-    t.into_data()
-        .to_vec::<BB::FloatElem>()
-        .expect("readback at B::FloatElem")
-        .into_iter()
-        .map(|x| x.elem::<f64>())
-        .collect()
 }
 
 // --- CPU reference assembler -------------------------------------------------
