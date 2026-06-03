@@ -93,3 +93,35 @@ gated behind a slow, optional CI job rather than the default
 `cargo test` run. The fast path (JAX vs Burn) is exercised by
 `cargo test -p geode-validation --release --test cube_cavity_jax_reference -- --ignored`
 and does not require any JVM infrastructure.
+
+The gated workflow lives at `.github/workflows/tfjava-cube-cavity.yml`
+(landed by #102). It triggers on:
+
+- **Path-filtered `push` / `pull_request` to `main`** — runs only when
+  the change actually touches `reference/tf_java/**`, the TF-Java
+  sidecar driver, the NumPy minimal baseline (which the comparison
+  reads), the in-tree JAX baseline fixture, or the workflow file
+  itself. Default `cargo test` CI is unaffected.
+- **`workflow_dispatch`** — manual trigger with optional `n` and `rtol`
+  inputs, for on-demand audits (e.g. TF-Java version bumps, cross-XLA
+  drift investigations).
+
+The CI job:
+
+1. Sets up JDK 17 (Temurin) + Maven cache + Python 3.12 with `numpy`
+   and `scipy` from `reference/numpy/requirements.txt`.
+2. Runs `mvn -Plinux-x86_64 -DskipTests package` in
+   `reference/tf_java/cube_cavity/`.
+3. Runs `mvn exec:java` to produce `reduced_kM.json`.
+4. Runs `reference/driver/eigensolve_from_tfjava.py` over the sidecar
+   to compute the TF-Java row of eigenvalues.
+5. Runs `reference/driver/emit_numpy_eigenvalues.py` to produce a NumPy
+   row on the same mesh (no JAX dependency in CI — the JAX row is read
+   from the committed `reference/fixtures/cube_cavity/jax_baseline.json`).
+6. Calls `reference/driver/compare_eigenvalues.py` with `rtol=1e-5`
+   (matching the #88 cross-language reproducibility tolerance) and
+   fails the job on any disagreement. The agreement table is uploaded
+   as a workflow artifact on every run, regardless of pass/fail, so
+   the Friction artifact stays visible. An XLA-vs-XLA disagreement
+   between TF-Java and JAX is the most informative possible outcome —
+   that's the surface this CI job exists to monitor.
