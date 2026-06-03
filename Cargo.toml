@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/geode-core",
     "crates/geode-cli",
+    "crates/geode-validation",
 ]
 
 [workspace.package]

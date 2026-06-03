@@ -1,0 +1,57 @@
+{
+  "schema_version": "1",
+  "fixture_id": "p1_reference_tet/local_stiffness",
+  "description": "P1 (linear) tetrahedral reference element: local stiffness K, local consistent mass M, and signed volume V for the canonical reference tet with vertices (0,0,0),(1,0,0),(0,1,0),(0,0,1). Vertex ordering matches geode_core::p1: v_0 is the 'base' for edge vectors e_k = v_k - v_0.",
+  "units": "dimensionless (geometry is unit-scaled; values are exact rationals encoded as f64)",
+  "inputs": {
+    "coords": {
+      "shape": [1, 4, 3],
+      "dtype": "f64",
+      "description": "Per-element vertex coordinates [n_elem, 4 vertices, 3 spatial dims].",
+      "data": [
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0]
+      ]
+    }
+  },
+  "outputs": {
+    "k_local": {
+      "shape": [1, 4, 4],
+      "dtype": "f64",
+      "description": "Local stiffness K_{ij} = V (grad phi_i . grad phi_j). Symmetric.",
+      "tolerance_abs": 1e-12,
+      "data": [
+        [ 0.5,                -0.16666666666666666, -0.16666666666666666, -0.16666666666666666 ],
+        [-0.16666666666666666, 0.16666666666666666,  0.0,                  0.0                 ],
+        [-0.16666666666666666, 0.0,                  0.16666666666666666,  0.0                 ],
+        [-0.16666666666666666, 0.0,                  0.0,                  0.16666666666666666 ]
+      ]
+    },
+    "m_local": {
+      "shape": [1, 4, 4],
+      "dtype": "f64",
+      "description": "Local consistent mass M_{ij} = (V/20)(1 + delta_{ij}).",
+      "tolerance_abs": 1e-12,
+      "data": [
+        [0.016666666666666666, 0.008333333333333333, 0.008333333333333333, 0.008333333333333333],
+        [0.008333333333333333, 0.016666666666666666, 0.008333333333333333, 0.008333333333333333],
+        [0.008333333333333333, 0.008333333333333333, 0.016666666666666666, 0.008333333333333333],
+        [0.008333333333333333, 0.008333333333333333, 0.008333333333333333, 0.016666666666666666]
+      ]
+    },
+    "signed_volume": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Signed element volume V = det(J)/6. Positive for the canonical orientation.",
+      "tolerance_abs": 1e-15,
+      "data": [0.16666666666666666]
+    }
+  },
+  "provenance": {
+    "source": "hand-computed exact rationals",
+    "verified_against": "geode_core::p1::batched_p1_local_matrices and crates/geode-core/tests/p1_local_matrices.rs::reference_tet_exact",
+    "issue": "#89 (parent epic #88)"
+  }
+}
