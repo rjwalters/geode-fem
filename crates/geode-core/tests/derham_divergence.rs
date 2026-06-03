@@ -52,11 +52,7 @@ fn shape_is_n_tets_by_n_faces() {
     let n_tets = mesh.n_tets();
     let n_faces = mesh.faces().len();
 
-    assert_eq!(
-        d2.shape(),
-        (n_tets, n_faces),
-        "d² must be n_tets × n_faces"
-    );
+    assert_eq!(d2.shape(), (n_tets, n_faces), "d² must be n_tets × n_faces");
 }
 
 #[test]
