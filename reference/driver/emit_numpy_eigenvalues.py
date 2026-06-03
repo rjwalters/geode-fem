@@ -41,7 +41,7 @@ def main() -> int:
         "fixture_id": f"cube_cavity/n{args.n}_numpy_minimal_eigensolve",
         "description": (
             "Lowest k cube-cavity eigenvalues from reference/numpy/cube_cavity_minimal.py. "
-            "Emitted in fixture-schema form so the four-way agreement table in "
+            "Emitted in fixture-schema form so the cross-IR agreement table in "
             "reference/driver/compare_eigenvalues.py can consume it without "
             "language-specific code paths (Epic #88 / #93)."
         ),

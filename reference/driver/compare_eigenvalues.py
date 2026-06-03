@@ -1,13 +1,20 @@
-"""Four-way eigenvalue comparison for the cube-cavity reference (Epic #88 / #93).
+"""Cross-IR eigenvalue comparison for the cube-cavity reference (Epic #88 / #93).
 
 Given a TF-Java eigenresult JSON (produced by `eigensolve_from_tfjava.py`)
 and the in-tree JAX baseline JSON (`reference/fixtures/cube_cavity/jax_baseline.json`),
 plus an optional NumPy result computed in-process from
 `reference/numpy/cube_cavity_minimal.py`, this script writes a
-four-way agreement table and asserts the TF-Java eigenvalues agree
+cross-IR agreement table and asserts the TF-Java eigenvalues agree
 with the JAX/NumPy baselines on the lowest 5 modes within a relative
 tolerance (default 1e-5, per the Epic #88 framing comment on
 cross-language f64 reproducibility).
+
+When invoked from the TF-Java CI job (`tfjava-cube-cavity.yml`) the
+`--burn` argument is not supplied — that gate is intentionally three-way
+(TF-Java vs JAX vs NumPy). Burn agreement against the same JAX baseline
+is exercised separately by the `arpack` workflow and by the per-push
+`cube_cavity_jax_reference` cargo test. Passing `--burn` here is still
+supported for ad-hoc/local audits where all four rows are convenient.
 
 Exit code:
     0 — agreement within tolerance.
@@ -16,7 +23,7 @@ Exit code:
 This script is intentionally framework-light (only numpy + stdlib) so it
 runs inside the TF-Java CI job without dragging JAX into the JVM-side
 container. The Burn row is read from a fixture-shaped JSON if provided,
-or omitted with a clearly-marked dash.
+or omitted with a footnote pointing at where Burn agreement is checked.
 
 Usage
 =====
@@ -27,6 +34,11 @@ Usage
         [--burn  path/to/burn_baseline.json] \
         [--rtol 1e-5] \
         [--out path/to/agreement_table.md]
+
+Note: `--burn` is optional and is NOT wired in by `tfjava-cube-cavity.yml`.
+The CI gate is three-way (TF-Java vs JAX vs NumPy); Burn agreement against
+the same JAX baseline is exercised by the `arpack` workflow and the
+`cube_cavity_jax_reference` cargo test.
 """
 
 from __future__ import annotations
@@ -115,17 +127,32 @@ def main() -> int:
         max_rel_tj_burn = float(np.max(rel_tfjava_vs_burn))
 
     # --- Render Markdown table ---
+    # Title reflects the actual gate scope: cross-IR agreement among the
+    # backends that were actually provided. When `--burn` is not supplied
+    # (the default in the TF-Java CI workflow), the Burn row is omitted
+    # entirely and replaced by an explicit footnote pointing at where
+    # Burn agreement is checked. See issue #111.
+    if burn_e is not None:
+        title = "## Cube-cavity cross-IR eigenvalue agreement (TF-Java vs JAX vs NumPy vs Burn)"
+    else:
+        title = "## Cube-cavity cross-IR eigenvalue agreement (TF-Java vs JAX vs NumPy)"
+
+    backend_rows = [
+        _format_row("NumPy", numpy_e, k),
+        _format_row("JAX",   jax_e, k),
+        _format_row("TF-Java", tfjava, k),
+    ]
+    if burn_e is not None:
+        backend_rows.append(_format_row("Burn", burn_e, k))
+
     lines = [
-        "## Cube-cavity four-way eigenvalue agreement",
+        title,
         "",
         f"Lowest {k} modes; rtol gate = {args.rtol:g}",
         "",
         "| Backend  | " + " | ".join(f"λ[{i}]" for i in range(k)) + " |",
         "|----------|" + "|".join(["----------------"] * k) + "|",
-        _format_row("NumPy", numpy_e, k),
-        _format_row("JAX",   jax_e, k),
-        _format_row("TF-Java", tfjava, k),
-        _format_row("Burn",  burn_e, k),
+        *backend_rows,
         "",
         "### Relative drift vs JAX (XLA-vs-XLA)",
         "",
@@ -135,6 +162,15 @@ def main() -> int:
         lines.append(f"- max |TF-Java − NumPy| / |NumPy| over {k} modes: **{max_rel_tj_np:.3e}**")
     if max_rel_tj_burn is not None:
         lines.append(f"- max |TF-Java − Burn|  / |Burn|  over {k} modes: **{max_rel_tj_burn:.3e}**")
+    else:
+        lines.extend([
+            "",
+            "> **Note:** the Burn row is not included in this gate. Burn agreement",
+            "> against the same JAX baseline is exercised by `cargo test --features arpack`",
+            "> (see `.github/workflows/arpack.yml`) and by the default-CI",
+            "> `cube_cavity_jax_reference` cargo test. See issue #111 for the",
+            "> decoupling rationale.",
+        ])
 
     table_md = "\n".join(lines) + "\n"
     print(table_md)
