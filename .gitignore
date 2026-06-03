@@ -49,3 +49,11 @@ Cargo.lock.bak
 .loom/*.log
 .loom/*.sock
 .loom/logs/
+
+# Python (reference/ implementations)
+__pycache__/
+*.pyc
+*.pyo
+.python-version
+venv/
+.venv/

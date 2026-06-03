@@ -21,10 +21,16 @@ reference/
 ├── README.md                       — this file
 ├── SCHEMA.md                       — fixture schema (v1)
 ├── fixtures/                       — canonical (input, golden output) bundles
-│   └── p1_reference_tet/
-│       └── local_stiffness.json    — Phase A smoke fixture
+│   ├── p1_reference_tet/
+│   │   └── local_stiffness.json    — Phase A smoke fixture
+│   └── p1_local/
+│       ├── standard.json           — 5-tet P1 fixture (inputs + NumPy baseline outputs, #90)
+│       └── standard.schema.md      — per-fixture schema notes for `standard.json`
 ├── numpy/                          — NumPy/SciPy reference impls (Python)
-│   └── README.md
+│   ├── README.md
+│   ├── requirements.txt            — pinned NumPy version (#90)
+│   ├── p1_local_matrices.py        — P1 element-local K and M (#90)
+│   └── gen_p1_local_standard.py    — regenerates `fixtures/p1_local/standard.json` (#90)
 ├── jax/                            — JAX reference impls (deferred)
 │   └── README.md
 ├── julia/                          — Julia reference impls (deferred)
@@ -138,13 +144,60 @@ See `crates/geode-validation/tests/smoke.rs` for the end-to-end loop.
 |---|---|
 | Where do I add a new fixture? | `reference/fixtures/<slice>/<case>.json` (or `.h5` once #92 lands HDF5) |
 | Where do I add a new Rust comparison test? | `crates/geode-validation/tests/<slice>_<case>.rs` |
-| Where does the NumPy implementation live? | `reference/numpy/<slice>.py` (lands with #90) |
+| Where does the NumPy implementation live? | `reference/numpy/<slice>.py` (e.g. `p1_local_matrices.py` for #90) |
 | What schema version are we on? | `1` — see `SCHEMA.md` |
 | What tolerance should I use? | Per-field, declared in the fixture's `outputs.<field>.tolerance_abs`. There is no global tolerance. |
+
+## Reference impls in flight
+
+### P1 local matrices (NumPy, #90)
+
+First concrete reference impl on top of the Phase-A scaffolding.
+
+- **Reference**: `numpy/p1_local_matrices.py` — element-local stiffness
+  and mass for the P1 reference tet, f64 throughout.
+- **Fixture**: `fixtures/p1_local/standard.json` — a 5-tet cluster with
+  inputs (vertex coordinates) plus pre-computed NumPy baseline outputs
+  under `reference.numpy`. Per-fixture schema notes live next to it in
+  `standard.schema.md`; the canonical schema is still `SCHEMA.md` at
+  the root.
+- **Rust comparator (interim location)**: lives at
+  `crates/geode-core/tests/p1_local_numpy_reference.rs` rather than the
+  `geode-validation` slot above. This is **Option A** for #90 — the PR
+  inlined a minimal load-and-compare path against the standard fixture
+  to unblock the cross-check without taking a dependency on the broader
+  harness API surface. Migrating this test onto `geode-validation`'s
+  `Fixture::compare_against` flow is tracked as a follow-up; the
+  fixture itself is already canonical-shape, so the move is mechanical.
+
+**Regenerating the fixture** (deterministic on a pinned NumPy):
+
+```bash
+cd reference
+python3 -m pip install -r numpy/requirements.txt
+python3 numpy/gen_p1_local_standard.py
+```
+
+Re-runs should produce a byte-identical `standard.json` for the same
+pinned NumPy version (see `numpy/requirements.txt`).
+
+**Per-backend dtype honesty.** The NumPy reference is f64 throughout.
+The Burn default backend (wgpu) runs f32; the optional `ndarray`
+backend runs f64. The #90 comparator applies a backend-aware tolerance:
+
+| Rust backend | Burn dtype | Tolerance vs. NumPy baseline |
+|---|---|---|
+| `ndarray` (CI / `--features ndarray`) | f64 | `1e-10` relative, `1e-12` absolute |
+| `wgpu` / `cuda` (default, GPU) | f32 | `5e-5` relative, `1e-6` absolute |
+
+This is the f32-vs-f64 friction artifact called out in #88; see
+PR #73 / PR #86 / [#5 (curator pass 2026-06-02)](https://github.com/rjwalters/geode-fem/issues/5#issuecomment-4606094785).
 
 ## Parent epic
 
 - **#88** — cross-validated L4 lowerings
 - **#89** — this scaffolding (Phase A)
 - **#90** — NumPy P1 local matrices (Phase B, in flight)
+- **#91** — d² discrete operator (parallel slice)
 - **#92** — cube-cavity end-to-end (Phase B continued)
+- **#5** — whiteroom tracker (file friction artifacts here)
