@@ -25,8 +25,8 @@
       mvn package
 
   Run:
-      mvn exec:java -Dexec.mainClass=dev.geodefem.refcubecavity.CubeCavityMain \
-                    -Dexec.args="--n 4 --out reduced_kM.json"
+      mvn exec:java -Dexec.mainClass=dev.geodefem.refcubecavity.CubeCavityMain
+      (pass CLI flags via -Dexec.args; see README for examples).
       python3 ../driver/eigensolve_from_tfjava.py reduced_kM.json
 
   CI gating:

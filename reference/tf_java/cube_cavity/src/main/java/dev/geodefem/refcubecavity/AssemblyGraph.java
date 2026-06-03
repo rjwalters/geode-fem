@@ -9,7 +9,6 @@ import org.tensorflow.ndarray.StdArrays;
 import org.tensorflow.op.Ops;
 import org.tensorflow.op.core.Constant;
 import org.tensorflow.op.core.Placeholder;
-import org.tensorflow.op.linalg.MatMul;
 import org.tensorflow.types.TFloat64;
 import org.tensorflow.types.TInt32;
 import org.tensorflow.types.TInt64;
@@ -104,9 +103,21 @@ public final class AssemblyGraph implements AutoCloseable {
                 java.util.Arrays.asList(g0, g1, g2, g3),
                 org.tensorflow.op.core.Stack.axis(1L));
 
-        // gg = gMat @ gMat^T per-batch ⇒ matmul with transpose_b=true.
-        Operand<TFloat64> gg = tf.linalg.matMul(gMat, gMat,
-                MatMul.transposeB(true));  // [nElem, 4, 4]
+        // gg = gMat @ gMat^T per-batch ⇒ batched contraction over last axis.
+        //
+        // TF-Java 1.0.0 note: tf.linalg.matMul requires rank-2 operands and
+        // does NOT broadcast over a leading batch dimension (unlike
+        // numpy/JAX `A @ B.T` on rank-3 arrays). The natural lowering is
+        // einsum, which captures the contraction explicitly:
+        //
+        //   gg[e, i, j] = sum_k gMat[e, i, k] * gMat[e, j, k]
+        //
+        // i.e. einsum("eik,ejk->eij", gMat, gMat). This is shape-stable
+        // for any batch size and preserves the per-element matmul semantics
+        // of the JAX reference (`g_mat @ g_mat.T` inside a `vmap`).
+        Operand<TFloat64> gg = tf.linalg.einsum(
+                java.util.Arrays.asList(gMat, gMat),
+                "eik,ejk->eij");  // [nElem, 4, 4]
 
         // ----- K_local = gg / (6 * |det|) -----
         Operand<TFloat64> sixAbsDet = tf.math.mul(tf.constant(6.0), absDet);
@@ -154,9 +165,12 @@ public final class AssemblyGraph implements AutoCloseable {
 
         // scatterNd(indices, updates, shape) — non-mutating; equivalent to
         // (zeros + scatter_add). f64 scatter is supported.
+        // TF-Java 1.0.0: indices and shape must share type parameter T, so cast
+        // indexPairs from TInt32 to TInt64 to match shape64.
         Operand<TInt64> shape64 = tf.constant(new long[] {(long) nNodes, (long) nNodes});
-        kGlobalOp = tf.scatterNd(indexPairs, kLocalFlat, shape64);
-        mGlobalOp = tf.scatterNd(indexPairs, mLocalFlat, shape64);
+        Operand<TInt64> indexPairs64 = tf.dtypes.cast(indexPairs, TInt64.class);
+        kGlobalOp = tf.scatterNd(indexPairs64, kLocalFlat, shape64);
+        mGlobalOp = tf.scatterNd(indexPairs64, mLocalFlat, shape64);
 
         this.session = new Session(graph);
     }

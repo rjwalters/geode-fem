@@ -1,0 +1,171 @@
+name: tfjava-cube-cavity
+
+# Gated, optional CI job for the TF-Java cube-cavity reference (Epic #88 / #93 / #102).
+#
+# TF-Java pulls ~200 MB of native libraries and requires JDK 17+, so this
+# workflow is intentionally NOT part of the default per-push CI matrix.
+# It triggers in two ways:
+#
+#   1. Path-filtered `pull_request` / `push` to main: runs only when the
+#      change actually touches the TF-Java reference (its Maven project,
+#      its Java sources, or the sidecar driver that closes the
+#      eigensolve at the SciPy boundary). The NumPy minimal baseline is
+#      also a path because the comparison job reads it in-process.
+#   2. Manual `workflow_dispatch`: run on demand against any branch,
+#      e.g. when bumping TF-Java versions or auditing cross-XLA drift.
+#
+# Per #102 acceptance: this closes the loop on #93 AC#3 (TF-Java reference
+# builds and runs end-to-end) and #93 AC#4 (four-way NumPy / JAX / TF-Java
+# / Burn agreement table) by actually exercising the pipeline in CI and
+# asserting agreement to 1e-5 relative on the lowest 5 modes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'reference/tf_java/**'
+      - 'reference/driver/eigensolve_from_tfjava.py'
+      - 'reference/driver/compare_eigenvalues.py'
+      - 'reference/driver/emit_numpy_eigenvalues.py'
+      - 'reference/numpy/cube_cavity_minimal.py'
+      - 'reference/numpy/p1_local_matrices.py'
+      - 'reference/numpy/requirements.txt'
+      - 'reference/fixtures/cube_cavity/jax_baseline.json'
+      - '.github/workflows/tfjava-cube-cavity.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'reference/tf_java/**'
+      - 'reference/driver/eigensolve_from_tfjava.py'
+      - 'reference/driver/compare_eigenvalues.py'
+      - 'reference/driver/emit_numpy_eigenvalues.py'
+      - 'reference/numpy/cube_cavity_minimal.py'
+      - 'reference/numpy/p1_local_matrices.py'
+      - 'reference/numpy/requirements.txt'
+      - 'reference/fixtures/cube_cavity/jax_baseline.json'
+      - '.github/workflows/tfjava-cube-cavity.yml'
+  workflow_dispatch:
+    inputs:
+      n:
+        description: 'Cells per side for the cube mesh (default 4).'
+        required: false
+        default: '4'
+      rtol:
+        description: 'Relative tolerance for the cross-backend eigenvalue gate.'
+        required: false
+        default: '1e-5'
+
+jobs:
+  build-and-cross-check:
+    name: TF-Java assembly + SciPy eigensolve + four-way agreement
+    runs-on: ubuntu-latest
+    env:
+      MAVEN_OPTS: "-Xmx2g"
+      # `n` and `rtol` are derived once here so manual-dispatch overrides
+      # flow into every step. Defaults match the AC: n=4, rtol=1e-5.
+      CUBE_N: ${{ inputs.n || '4' }}
+      CUBE_RTOL: ${{ inputs.rtol || '1e-5' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          # `setup-java` ships its own Maven cache controller; this keys
+          # off the pom.xml so the ~200 MB TF-Java native pull only
+          # re-downloads when dependencies actually change.
+          cache: maven
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: reference/numpy/requirements.txt
+
+      - name: Install Python deps (NumPy + SciPy)
+        # The TF-Java sidecar driver and the NumPy emitter both depend
+        # on numpy + scipy. We deliberately do NOT install JAX here —
+        # the JAX row of the agreement table comes from the in-tree
+        # `reference/fixtures/cube_cavity/jax_baseline.json` snapshot
+        # (which was itself produced by JAX), so the CI job stays
+        # JVM + numpy + scipy and doesn't bloat to ~1 GB.
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r reference/numpy/requirements.txt
+
+      - name: Show toolchain versions (debug)
+        run: |
+          java -version
+          mvn -version
+          python3 --version
+          python3 -c "import numpy, scipy; print('numpy', numpy.__version__); print('scipy', scipy.__version__)"
+
+      - name: Build the TF-Java cube-cavity Maven project
+        working-directory: reference/tf_java/cube_cavity
+        # `-Plinux-x86_64` activates the linux-x86_64 native classifier
+        # for `tensorflow-core-native`, matching the ubuntu-latest runner.
+        # `-DskipTests` because the Maven project has no JUnit tests yet
+        # (the validation contract is the four-way agreement table below,
+        # not in-JVM unit tests).
+        run: |
+          mvn -B -Plinux-x86_64 -DskipTests package
+
+      - name: Run TF-Java assembly → sidecar dump
+        working-directory: reference/tf_java/cube_cavity
+        run: |
+          mkdir -p target/out
+          mvn -B -Plinux-x86_64 exec:java \
+              -Dexec.mainClass=dev.geodefem.refcubecavity.CubeCavityMain \
+              -Dexec.args="--n ${CUBE_N} --side 1.0 --out target/out/reduced_kM.json"
+          ls -lh target/out/
+
+      - name: Run SciPy eigensolve over the TF-Java sidecar
+        working-directory: reference/tf_java/cube_cavity
+        run: |
+          python3 ../../driver/eigensolve_from_tfjava.py \
+              target/out/reduced_kM.json \
+              --k 5 \
+              --out target/out/eigenresult_tfjava.json
+          cat target/out/eigenresult_tfjava.json
+
+      - name: Emit NumPy reference eigenvalues for the same mesh
+        run: |
+          mkdir -p reference/tf_java/cube_cavity/target/out
+          python3 reference/driver/emit_numpy_eigenvalues.py \
+              --n "${CUBE_N}" --side 1.0 --k 5 \
+              --out reference/tf_java/cube_cavity/target/out/numpy_baseline.json
+
+      - name: Four-way agreement gate (TF-Java vs JAX vs NumPy, rtol=${{ env.CUBE_RTOL }})
+        # This is the AC#5 hard gate: TF-Java eigenvalues must match the
+        # JAX and NumPy baselines on the lowest 5 modes within `rtol`.
+        # A failure here is the most-informative possible outcome — an
+        # XLA-vs-XLA disagreement between TF-Java and JAX would isolate a
+        # genuine compiler-semantics drift on the same algorithm. We
+        # always upload the agreement table as an artifact, regardless
+        # of pass/fail, so the Friction artifact stays visible.
+        run: |
+          python3 reference/driver/compare_eigenvalues.py \
+              --tfjava reference/tf_java/cube_cavity/target/out/eigenresult_tfjava.json \
+              --jax    reference/fixtures/cube_cavity/jax_baseline.json \
+              --numpy  reference/tf_java/cube_cavity/target/out/numpy_baseline.json \
+              --k 5 \
+              --rtol "${CUBE_RTOL}" \
+              --out   reference/tf_java/cube_cavity/target/out/agreement_table.md
+
+      - name: Upload TF-Java sidecar + agreement artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfjava-cube-cavity-artifacts
+          path: |
+            reference/tf_java/cube_cavity/target/out/reduced_kM.json
+            reference/tf_java/cube_cavity/target/out/eigenresult_tfjava.json
+            reference/tf_java/cube_cavity/target/out/numpy_baseline.json
+            reference/tf_java/cube_cavity/target/out/agreement_table.md
+          if-no-files-found: warn
+          retention-days: 30
