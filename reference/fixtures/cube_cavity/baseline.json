@@ -4428,8 +4428,8 @@
         1
       ],
       "dtype": "f64",
-      "description": "Frobenius norm of the Dirichlet-interior global stiffness K_int. Sub-stage diagnostic: this scalar pins assembly agreement before the eigensolve runs.",
-      "tolerance_abs": 1e-06,
+      "description": "Frobenius norm of the Dirichlet-interior global stiffness K_int. Sub-stage diagnostic: this scalar pins assembly agreement before the eigensolve runs. Post-#99 (upload_mesh honors B::FloatElem), the f64 ndarray backend hits ~1e-13 here; the 1e-11 tolerance gives 100x headroom for cross-platform LLVM FMA / SIMD reduction-order drift.",
+      "tolerance_abs": 1e-11,
       "data": [
         17.358571369787306
       ]
@@ -4439,8 +4439,8 @@
         1
       ],
       "dtype": "f64",
-      "description": "Frobenius norm of the Dirichlet-interior global mass M_int. Sub-stage diagnostic; companion to k_int_frobenius.",
-      "tolerance_abs": 1e-06,
+      "description": "Frobenius norm of the Dirichlet-interior global mass M_int. Sub-stage diagnostic; companion to k_int_frobenius. Post-#99 the f64 ndarray backend hits ~1e-16 here (M entries are O(h^3) ≈ 1e-3, with f64 roundoff scaling accordingly); the 1e-13 tolerance keeps headroom for cross-platform drift.",
+      "tolerance_abs": 1e-13,
       "data": [
         0.011522152576667256
       ]
@@ -4450,8 +4450,8 @@
         729
       ],
       "dtype": "f64",
-      "description": "Diagonal of the Dirichlet-interior global stiffness K_int. Full per-row sub-stage diagnostic \u2014 if assembly disagrees anywhere, at least one diagonal entry surfaces it.",
-      "tolerance_abs": 1e-07,
+      "description": "Diagonal of the Dirichlet-interior global stiffness K_int. Full per-row sub-stage diagnostic \u2014 if assembly disagrees anywhere, at least one diagonal entry surfaces it. Post-#99 the f64 ndarray backend hits ~1e-14 per entry; tolerance 1e-12 keeps ~100x headroom.",
+      "tolerance_abs": 1e-12,
       "data": [
         0.6,
         0.6,
@@ -5189,8 +5189,8 @@
         729
       ],
       "dtype": "f64",
-      "description": "Diagonal of the Dirichlet-interior global mass M_int.",
-      "tolerance_abs": 1e-07,
+      "description": "Diagonal of the Dirichlet-interior global mass M_int. Post-#99 the f64 ndarray backend hits ~1e-18 here (M diagonal entries are O(h^3) ≈ 4e-4); tolerance 1e-14 keeps room for cross-platform drift.",
+      "tolerance_abs": 1e-14,
       "data": [
         0.00040000000000000013,
         0.0004000000000000002,

@@ -81,23 +81,27 @@ from cube_cavity import (  # noqa: E402
 # headroom against ARPACK convergence noise.
 EIGENVALUE_TOL_ABS = 1e-4  # ~3.4e-6 relative at λ_min ≈ 29.6
 
-# Frobenius / diagonal tolerances honor the f32-upload friction in
-# `geode_core::assembly::upload_mesh`: the mesh coordinates are
-# unconditionally truncated to f32 at the Burn-tensor boundary, so the
-# Burn-side K and M carry f32 precision regardless of whether the
-# active backend is the f64 `ndarray` or an f32 GPU backend. The
-# observed agreement on the n=10 cube cavity at #92 is:
-#   * K_int diag max abs err ≈ 5e-8
-#   * K_int frobenius abs err ≈ 2e-7
-#   * M_int diag max abs err ≈ 1e-10  (mass entries scale as h^3, smaller)
-#   * M_int frobenius abs err ≈ 5e-10
-# Tolerances below are set ~5–10x larger than observed so the fixture
-# doesn't flap on harmless reorderings while still catching real
-# regressions. The friction itself is tracked on #5 — once
-# `upload_mesh` is fixed to honor `B::FloatElem`, these bounds should
-# tighten to ~1e-12 on the ndarray backend.
-FROBENIUS_TOL_ABS = 1e-6
-DIAG_TOL_ABS = 1e-7
+# Frobenius / diagonal tolerances are tight (f64-vs-f64 floor) under
+# the `ndarray` backend now that issue #99 fixed
+# `geode_core::assembly::upload_mesh` to honor `B::FloatElem`. Burn's
+# K and M carry full f64 precision on `ndarray` (the CI backend), so
+# the cross-backend agreement on the n=10 cube cavity hits f64
+# roundoff. Observed post-fix maxima:
+#   * K_int diag max abs err ≈ 1e-14
+#   * K_int frobenius abs err ≈ 1e-13 (rel ~1e-15 against ‖K‖_F ≈ 17.36)
+#   * M_int diag max abs err ≈ 1e-18  (M entries scale as h^3 ≈ 4e-4)
+#   * M_int frobenius abs err ≈ 1e-15
+# Tolerances are set ~100x looser than observed so the fixture absorbs
+# cross-platform LLVM FMA / SIMD reduction-order drift while still
+# catching real regressions (the original f32 truncation was a 5e-8
+# floor — comfortably above these new bounds).
+# GPU backends (wgpu/cuda) have `B::FloatElem = f32` and apply looser
+# bounds at the test level (see NDARRAY_F64_TOLERANCES /
+# GPU_F32_TOLERANCES in cube_cavity_numpy_reference.rs).
+FROBENIUS_TOL_ABS_K = 1e-11
+FROBENIUS_TOL_ABS_M = 1e-13
+DIAG_TOL_ABS_K = 1e-12
+DIAG_TOL_ABS_M = 1e-14
 
 # Analytic eigenvalues are compared with the O(h²) tolerance band that
 # both Burn and NumPy share by construction. The ground mode hits 4.1%
@@ -258,9 +262,12 @@ def main():
                 "description": (
                     "Frobenius norm of the Dirichlet-interior global stiffness "
                     "K_int. Sub-stage diagnostic: this scalar pins assembly "
-                    "agreement before the eigensolve runs."
+                    "agreement before the eigensolve runs. Post-#99 "
+                    "(upload_mesh honors B::FloatElem), the f64 ndarray backend "
+                    "hits ~1e-13 here; the 1e-11 tolerance gives 100x headroom "
+                    "for cross-platform LLVM FMA / SIMD reduction-order drift."
                 ),
-                "tolerance_abs": FROBENIUS_TOL_ABS,
+                "tolerance_abs": FROBENIUS_TOL_ABS_K,
                 "data": [result["k_int_frobenius"]],
             },
             "m_int_frobenius": {
@@ -268,9 +275,12 @@ def main():
                 "dtype": "f64",
                 "description": (
                     "Frobenius norm of the Dirichlet-interior global mass M_int. "
-                    "Sub-stage diagnostic; companion to k_int_frobenius."
+                    "Sub-stage diagnostic; companion to k_int_frobenius. Post-#99 "
+                    "the f64 ndarray backend hits ~1e-16 here (M entries are "
+                    "O(h^3) ≈ 1e-3, with f64 roundoff scaling accordingly); the "
+                    "1e-13 tolerance keeps headroom for cross-platform drift."
                 ),
-                "tolerance_abs": FROBENIUS_TOL_ABS,
+                "tolerance_abs": FROBENIUS_TOL_ABS_M,
                 "data": [result["m_int_frobenius"]],
             },
             "k_int_diag": {
@@ -279,18 +289,23 @@ def main():
                 "description": (
                     "Diagonal of the Dirichlet-interior global stiffness K_int. "
                     "Full per-row sub-stage diagnostic — if assembly disagrees "
-                    "anywhere, at least one diagonal entry surfaces it."
+                    "anywhere, at least one diagonal entry surfaces it. Post-#99 "
+                    "the f64 ndarray backend hits ~1e-14 per entry; tolerance "
+                    "1e-12 keeps ~100x headroom."
                 ),
-                "tolerance_abs": DIAG_TOL_ABS,
+                "tolerance_abs": DIAG_TOL_ABS_K,
                 "data": result["k_int_diag"].tolist(),
             },
             "m_int_diag": {
                 "shape": [result["n_int"]],
                 "dtype": "f64",
                 "description": (
-                    "Diagonal of the Dirichlet-interior global mass M_int."
+                    "Diagonal of the Dirichlet-interior global mass M_int. "
+                    "Post-#99 the f64 ndarray backend hits ~1e-18 here (M "
+                    "diagonal entries are O(h^3) ≈ 4e-4); tolerance 1e-14 keeps "
+                    "room for cross-platform drift."
                 ),
-                "tolerance_abs": DIAG_TOL_ABS,
+                "tolerance_abs": DIAG_TOL_ABS_M,
                 "data": result["m_int_diag"].tolist(),
             },
             "analytic_eigenvalues": {

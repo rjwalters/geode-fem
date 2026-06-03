@@ -29,6 +29,7 @@
 use std::collections::BTreeSet;
 
 use burn::tensor::backend::Backend;
+use burn::tensor::ElementConversion;
 use burn::tensor::Tensor;
 use burn::tensor::{IndexingUpdateOp, Int, TensorData};
 
@@ -64,8 +65,19 @@ impl SparsityPattern {
 
 /// Push a `TetMesh` onto the given device as `(nodes, tets)` Burn tensors.
 ///
-/// Returns `nodes: [n_nodes, 3]` as a float tensor (f32 on the active
-/// backend) and `tets: [n_elem, 4]` as an Int tensor.
+/// Returns `nodes: [n_nodes, 3]` as a float tensor at the active backend's
+/// `B::FloatElem` precision (f64 on `ndarray`, f32 on `wgpu`/`cuda`) and
+/// `tets: [n_elem, 4]` as an Int tensor.
+///
+/// # Precision
+///
+/// `TetMesh::nodes` holds coordinates as `f64`. Each value is converted
+/// to `B::FloatElem` via [`ElementConversion::elem`] so that the f64
+/// path under the `ndarray` backend actually delivers f64 K/M assembly
+/// downstream. Earlier versions of this function force-cast to `f32`
+/// regardless of `B::FloatElem`, which silently truncated precision on
+/// the nominally-f64 CPU backend; that bug was the original surface of
+/// issue #99 (discovered cross-backend in PR #98).
 ///
 /// # Panics
 ///
@@ -80,10 +92,16 @@ pub fn upload_mesh<B: Backend>(
     let n_nodes = mesh.n_nodes();
     let n_elem = mesh.n_tets();
 
-    let node_data: Vec<f32> = mesh
+    // Convert each coordinate to the backend's float element type so that
+    // the f64-on-ndarray path carries full double precision into K/M.
+    // `B::FloatElem` is `f32` on `wgpu`/`cuda` and `f64` on `ndarray` —
+    // `ElementConversion::elem` is the canonical Burn-side cast across
+    // both. See `burn-backend/src/backend/ops/modules/unfold.rs` for the
+    // same `vec![..; n].elem()` idiom in upstream code.
+    let node_data: Vec<B::FloatElem> = mesh
         .nodes
         .iter()
-        .flat_map(|n| n.iter().map(|&x| x as f32))
+        .flat_map(|n| n.iter().map(|&x| x.elem::<B::FloatElem>()))
         .collect();
     let nodes = Tensor::<B, 2>::from_data(TensorData::new(node_data, [n_nodes, 3]), device);
 
