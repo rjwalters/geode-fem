@@ -100,18 +100,22 @@ struct BackendTolerances {
     subspace_overlap_abs: f64,
 }
 
-// NB: even under `--features ndarray` Burn's `assembly::upload_mesh`
-// truncates node coordinates to f32 at the tensor-upload boundary
-// (`crates/geode-core/src/assembly.rs:83`), so K_int / M_int carry
-// f32-roughly-1e-7 precision regardless of which backend is active.
-// The ndarray tolerances below reflect Burn's actual delivered
-// precision, NOT the precision the ndarray backend would deliver if
-// the upload path honored `B::FloatElem`. Friction tracked on #5;
-// once upload is fixed, tighten the ndarray bounds back to ~1e-12.
+// Under `--features geode-core/ndarray`, `B::FloatElem = f64` and
+// `assembly::upload_mesh` carries node coordinates through at f64
+// (issue #99 fixed the previous force-cast to f32). With f64 on both
+// sides of the Burn-vs-NumPy comparison, K_int / M_int agree to
+// floating-point roundoff of the assembly arithmetic. Observed
+// post-fix maxima on the n=10 cube cavity:
+//   * K_int Frobenius rel err: ~1e-15 (was ~1.2e-8 pre-fix)
+//   * K_int diag max abs err:  ~1e-14 (was ~5.4e-8 pre-fix)
+//   * M_int Frobenius rel err: ~1e-13
+//   * M_int diag max abs err:  ~1e-18
+// Tolerances are set ~100x looser than observed to absorb
+// cross-platform LLVM FMA / SIMD reduction-order drift.
 const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
     eigenvalue_rel: 1e-6, // 1e-6 relative, acceptance criterion #2
-    frobenius_rel: 1e-7,  // observed: K_int Frobenius rel err ~1.2e-8
-    diagonal_abs: 1e-6,   // observed: K_int diag max-abs err ~5.4e-8
+    frobenius_rel: 1e-13,
+    diagonal_abs: 1e-12,
     subspace_overlap_abs: 1e-5,
 };
 

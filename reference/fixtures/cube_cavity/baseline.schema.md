@@ -28,39 +28,44 @@ cube-cavity Helmholtz eigenmode slice (issue #92, parent epic #88).
 | Field                  | Shape    | Tolerance       | What it pins                                                                |
 |------------------------|----------|-----------------|-----------------------------------------------------------------------------|
 | `eigenvalues`          | `[5]`    | `1e-4` absolute (~3.4e-6 relative at λ_min) | The headline cross-backend agreement metric. |
-| `k_int_frobenius`      | `[1]`    | `1e-6` absolute (~6e-8 relative on the n=10 K_int) | Total energy norm of the stiffness — a single scalar that catches catastrophic assembly drift. Tolerance set to absorb Burn's f32-upload friction (see note below). |
-| `m_int_frobenius`      | `[1]`    | `1e-6` absolute | Same as above, for the mass matrix. |
-| `k_int_diag`           | `[729]`  | `1e-7` absolute | Per-DOF stiffness diagonal. Each entry is the sum of element contributions to a single node — a real sub-stage friction signal. Tolerance absorbs the f32 upload (see below). |
-| `m_int_diag`           | `[729]`  | `1e-7` absolute | Per-DOF mass diagonal. |
+| `k_int_frobenius`      | `[1]`    | `1e-11` absolute (~6e-13 relative on the n=10 K_int ≈ 17.36) | Total energy norm of the stiffness — a single scalar that catches catastrophic assembly drift. Tight f64-vs-f64 floor post-#99. |
+| `m_int_frobenius`      | `[1]`    | `1e-13` absolute | Same as above, for the mass matrix. |
+| `k_int_diag`           | `[729]`  | `1e-12` absolute | Per-DOF stiffness diagonal. Each entry is the sum of element contributions to a single node — a real sub-stage friction signal. Tight f64-vs-f64 floor post-#99. |
+| `m_int_diag`           | `[729]`  | `1e-14` absolute | Per-DOF mass diagonal. M entries are O(h^3) ≈ 4e-4 on the n=10 mesh; the per-entry roundoff scales accordingly. |
 | `analytic_eigenvalues` | `[5]`    | `~10.7` absolute (12% relative at 9π² ≈ 88.8) | Confirms the reference is anchored to physics, not just to itself. |
 | `n_int`                | `[1]`    | `0.5` absolute  | Trivial integer-as-f64 shape check on the Dirichlet reduction. |
 
-### Why K_int / M_int sub-stage tolerances are loose
+### K_int / M_int sub-stage tolerances are tight (f64-vs-f64 floor)
 
-Burn's `assembly::upload_mesh` (`crates/geode-core/src/assembly.rs:83`)
-truncates node coordinates to **f32** at the tensor-upload boundary
-regardless of the active backend's `FloatElem`. The downstream
-assembly tensors therefore carry f32 precision (~1e-7) even under the
-nominally-f64 `ndarray` backend; faer upcasts to f64 too late to
-recover precision. Observed maxima on the n=10 cube cavity:
+Issue **#99** fixed `assembly::upload_mesh` to honor `B::FloatElem`
+instead of force-casting node coordinates to `f32`. Under the
+nominally-f64 `ndarray` backend, K and M are now assembled in full
+f64 and agree with the NumPy reference at the natural f64-vs-f64
+roundoff floor. Observed post-fix maxima on the n=10 cube cavity:
 
-| Quantity              | Burn-vs-NumPy max abs err | Tolerance set to |
-|-----------------------|---------------------------|------------------|
-| K_int diag            | ~5.4e-8                   | 1e-7             |
-| K_int Frobenius       | ~2.0e-7                   | 1e-6             |
-| M_int diag            | ~1.1e-10                  | 1e-7             |
-| M_int Frobenius       | ~5.2e-10                  | 1e-6             |
+| Quantity              | Pre-#99 max abs err | Post-#99 max abs err | Tolerance set to |
+|-----------------------|---------------------|----------------------|------------------|
+| K_int diag            | ~5.4e-8             | ~1e-14               | 1e-12            |
+| K_int Frobenius       | ~2.0e-7             | ~1e-15 (rel)         | 1e-11            |
+| M_int diag            | ~1.1e-10            | ~1e-18               | 1e-14            |
+| M_int Frobenius       | ~5.2e-10            | ~1e-13 (rel)         | 1e-13            |
 
-This friction is tracked on issue #5 (whiteroom). Once `upload_mesh`
-is fixed to honor `B::FloatElem`, the K/M sub-stage tolerances should
-tighten to ~1e-12 on the ndarray backend (the natural f64-vs-f64
-roundoff at this matrix size).
+The tolerances above are set ~100x looser than the observed post-fix
+errors to absorb cross-platform LLVM FMA / SIMD reduction-order
+drift, without giving up the ability to catch real regressions like
+the original f32 truncation bug.
 
-The **eigenvalue** tolerance is unaffected because the eigenvalues
-have intrinsic conditioning (the K-M pencil is symmetric SPD and the
-n=10 spectrum has clean gaps); the f32 upload friction propagates as
-a ~3e-9 *relative* shift on the eigenvalues, comfortably under the
-1e-6 acceptance criterion.
+GPU backends (`wgpu`/`cuda`) where `B::FloatElem = f32` continue to
+carry ~1e-7 friction by construction; the cross-backend test
+(`crates/geode-validation/tests/cube_cavity_numpy_reference.rs`)
+applies looser per-DOF/Frobenius bounds when the active backend is
+not `ndarray` (see `GPU_F32_TOLERANCES`).
+
+The **eigenvalue** tolerance was unaffected by the bug because the
+eigenvalues have intrinsic conditioning (the K-M pencil is symmetric
+SPD and the n=10 spectrum has clean gaps); the pre-fix f32 upload
+friction propagated as only a ~3e-9 *relative* shift on the
+eigenvalues, comfortably under the 1e-6 acceptance criterion.
 
 ## Input fields (under `inputs`)
 

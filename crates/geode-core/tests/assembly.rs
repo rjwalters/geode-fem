@@ -14,7 +14,8 @@
 //!      probe at a single picked node within a coarse tolerance.
 
 use burn::backend::Autodiff;
-use burn::tensor::backend::BackendTypes;
+use burn::tensor::backend::{Backend, BackendTypes};
+use burn::tensor::ElementConversion;
 use burn::tensor::{Int, Tensor, TensorData};
 
 use geode_core::{assemble_global_p1, cube_tet_mesh, upload_mesh, DefaultBackend};
@@ -30,6 +31,19 @@ fn device() -> <B as BackendTypes>::Device {
 
 fn ad_device() -> <Ad as BackendTypes>::Device {
     <Ad as BackendTypes>::Device::default()
+}
+
+/// Read a 2-D float Burn tensor back to host as `Vec<f64>`, regardless
+/// of whether the active backend's `B::FloatElem` is `f32` or `f64`.
+/// `to_vec::<E>` requires the storage element type to match exactly, so
+/// we read at `B::FloatElem` and upcast to `f64` for the test logic.
+fn readback_f64<BB: Backend, const D: usize>(t: Tensor<BB, D>) -> Vec<f64> {
+    t.into_data()
+        .to_vec::<BB::FloatElem>()
+        .expect("readback at B::FloatElem")
+        .into_iter()
+        .map(|x| x.elem::<f64>())
+        .collect()
 }
 
 // --- CPU reference assembler -------------------------------------------------
@@ -108,8 +122,8 @@ fn assemble_unit_cube_total_mass_equals_volume() {
     let (nodes, tets) = upload_mesh::<B>(&mesh, &device());
     let sys = assemble_global_p1(nodes, tets, mesh.n_nodes());
 
-    let m_data: Vec<f32> = sys.m.into_data().to_vec().expect("readback");
-    let total: f64 = m_data.iter().map(|&v| v as f64).sum();
+    let m_data: Vec<f64> = readback_f64(sys.m);
+    let total: f64 = m_data.iter().sum();
     assert!(
         (total - 1.0).abs() < F32_TOL,
         "Σ M_ij = {total} (expected 1.0 for unit cube)"
@@ -125,15 +139,15 @@ fn assemble_5x5x5_matches_cpu_reference() {
     let (k_ref, m_ref) = cpu_assemble(&mesh.nodes, &mesh.tets);
     let n = mesh.n_nodes();
 
-    let k_got: Vec<f32> = sys.k.into_data().to_vec().expect("readback k");
-    let m_got: Vec<f32> = sys.m.into_data().to_vec().expect("readback m");
+    let k_got: Vec<f64> = readback_f64(sys.k);
+    let m_got: Vec<f64> = readback_f64(sys.m);
 
     let mut max_k_err = 0.0f64;
     let mut max_m_err = 0.0f64;
     for i in 0..n {
         for j in 0..n {
-            let kg = k_got[i * n + j] as f64;
-            let mg = m_got[i * n + j] as f64;
+            let kg = k_got[i * n + j];
+            let mg = m_got[i * n + j];
             let kref = k_ref[i][j];
             let mref = m_ref[i][j];
             max_k_err = max_k_err.max((kg - kref).abs());
@@ -158,13 +172,13 @@ fn assembled_k_is_symmetric() {
     let (nodes, tets) = upload_mesh::<B>(&mesh, &device());
     let sys = assemble_global_p1(nodes, tets, mesh.n_nodes());
     let n = mesh.n_nodes();
-    let k: Vec<f32> = sys.k.into_data().to_vec().expect("readback");
+    let k: Vec<f64> = readback_f64(sys.k);
     for i in 0..n {
         for j in (i + 1)..n {
             let kij = k[i * n + j];
             let kji = k[j * n + i];
             assert!(
-                ((kij - kji) as f64).abs() < F32_TOL,
+                (kij - kji).abs() < F32_TOL,
                 "K[{i},{j}] = {kij} vs K[{j},{i}] = {kji}"
             );
         }
@@ -178,7 +192,7 @@ fn sparsity_pattern_matches_assembled_k() {
     let sys = assemble_global_p1(nodes, tets, mesh.n_nodes());
 
     let n = mesh.n_nodes();
-    let k: Vec<f32> = sys.k.clone().into_data().to_vec().expect("readback");
+    let k: Vec<f64> = readback_f64(sys.k.clone());
 
     // Build the set of (row, col) reported by sparsity.
     use std::collections::HashSet;
@@ -193,7 +207,7 @@ fn sparsity_pattern_matches_assembled_k() {
     // Every non-zero entry of K must be reported.
     for i in 0..n {
         for j in 0..n {
-            if (k[i * n + j] as f64).abs() > F32_TOL {
+            if k[i * n + j].abs() > F32_TOL {
                 assert!(
                     reported.contains(&(i as u32, j as u32)),
                     "K[{i},{j}] = {} is non-zero but not in sparsity pattern",
@@ -212,10 +226,13 @@ fn assembly_preserves_autodiff() {
     let n_elem = mesh.n_tets();
     let ad_dev = ad_device();
 
-    let node_flat: Vec<f32> = mesh
+    // Carry node coordinates at the backend's FloatElem precision so the
+    // f64 ndarray path delivers f64 autodiff (issue #99: upload_mesh now
+    // honors B::FloatElem; tests should match the same discipline).
+    let node_flat: Vec<<Ad as BackendTypes>::FloatElem> = mesh
         .nodes
         .iter()
-        .flat_map(|p| p.iter().map(|&x| x as f32))
+        .flat_map(|p| p.iter().map(|&x| x.elem::<<Ad as BackendTypes>::FloatElem>()))
         .collect();
     let tet_flat: Vec<i32> = mesh
         .tets
@@ -239,7 +256,7 @@ fn assembly_preserves_autodiff() {
     let dims = dnodes.dims();
     assert_eq!(dims, [n, 3], "gradient shape mismatch");
 
-    let dnodes_vec: Vec<f32> = dnodes.into_data().to_vec().expect("readback");
+    let dnodes_vec: Vec<f64> = readback_f64(dnodes);
     let mut finite = 0;
     let mut nonzero = 0;
     for &g in &dnodes_vec {
@@ -265,9 +282,9 @@ fn assembly_preserves_autodiff() {
     let probe_node = n / 2;
     let probe_dim = 0; // x
     let probe_idx = probe_node * 3 + probe_dim;
-    let analytic_grad = dnodes_vec[probe_idx] as f64;
+    let analytic_grad = dnodes_vec[probe_idx];
 
-    let loss_of = |perturbed: &[f32]| -> f64 {
+    let loss_of = |perturbed: &[<B as BackendTypes>::FloatElem]| -> f64 {
         let nodes_b =
             Tensor::<B, 2>::from_data(TensorData::new(perturbed.to_vec(), [n, 3]), &device());
         let tet_flat_b: Vec<i32> = mesh
@@ -278,15 +295,15 @@ fn assembly_preserves_autodiff() {
         let tets_b =
             Tensor::<B, 2, Int>::from_data(TensorData::new(tet_flat_b, [n_elem, 4]), &device());
         let sys_b = assemble_global_p1(nodes_b, tets_b, n);
-        let k_data: Vec<f32> = sys_b.k.into_data().to_vec().expect("readback");
-        k_data.iter().map(|&v| (v as f64).powi(2)).sum()
+        let k_data: Vec<f64> = readback_f64(sys_b.k);
+        k_data.iter().map(|&v| v.powi(2)).sum()
     };
 
-    let eps = 5e-3;
+    let eps = 5e-3_f64;
     let mut plus = node_flat.clone();
-    plus[probe_idx] += eps as f32;
+    plus[probe_idx] = (plus[probe_idx].elem::<f64>() + eps).elem();
     let mut minus = node_flat.clone();
-    minus[probe_idx] -= eps as f32;
+    minus[probe_idx] = (minus[probe_idx].elem::<f64>() - eps).elem();
     let fd_grad = (loss_of(&plus) - loss_of(&minus)) / (2.0 * eps);
 
     // Assembly involves f32 + scatter-add; the FD<-> autodiff agreement is
