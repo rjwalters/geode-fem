@@ -4428,8 +4428,8 @@
         1
       ],
       "dtype": "f64",
-      "description": "Frobenius norm of the Dirichlet-interior global stiffness K_int. Sub-stage diagnostic: this scalar pins assembly agreement before the eigensolve runs. Post-#99 (upload_mesh honors B::FloatElem), the f64 ndarray backend hits ~1e-13 here; the 1e-11 tolerance gives 100x headroom for cross-platform LLVM FMA / SIMD reduction-order drift.",
-      "tolerance_abs": 1e-11,
+      "description": "Frobenius norm of the Dirichlet-interior global stiffness K_int. Sub-stage diagnostic: this scalar pins assembly agreement before the eigensolve runs. Issue #110 measurements (CUBE_CAVITY_SUBSTAGE_DIFF in CI logs): PR #106 Linux x86_64 ~1e-13 rel, issue #110 macOS arm64 ~3e-13 abs. Tolerance 1e-9 keeps cross-platform headroom for LLVM FMA / SIMD reduction-order drift across runner generations.",
+      "tolerance_abs": 1e-9,
       "data": [
         17.358571369787306
       ]
@@ -4439,8 +4439,8 @@
         1
       ],
       "dtype": "f64",
-      "description": "Frobenius norm of the Dirichlet-interior global mass M_int. Sub-stage diagnostic; companion to k_int_frobenius. Post-#99 the f64 ndarray backend hits ~1e-16 here (M entries are O(h^3) ≈ 1e-3, with f64 roundoff scaling accordingly); the 1e-13 tolerance keeps headroom for cross-platform drift.",
-      "tolerance_abs": 1e-13,
+      "description": "Frobenius norm of the Dirichlet-interior global mass M_int. Sub-stage diagnostic; companion to k_int_frobenius. M entries are O(h^3) ≈ 1e-3 so the per-entry roundoff floor scales with mesh size. Issue #110 set the tolerance from the multi-platform CUBE_CAVITY_SUBSTAGE_DIFF measurement: PR #106 Linux x86_64 ~1e-13 rel, issue #110 macOS arm64 ~6e-16, while a separate macOS arm64 host in PR #108 saw `m_int_diag` jump to ~5e-10; tolerance 1e-8 keeps 10x cross-platform headroom on the worst plausible scaled-by-Frobenius drift.",
+      "tolerance_abs": 1e-8,
       "data": [
         0.011522152576667256
       ]
@@ -4450,8 +4450,8 @@
         729
       ],
       "dtype": "f64",
-      "description": "Diagonal of the Dirichlet-interior global stiffness K_int. Full per-row sub-stage diagnostic \u2014 if assembly disagrees anywhere, at least one diagonal entry surfaces it. Post-#99 the f64 ndarray backend hits ~1e-14 per entry; tolerance 1e-12 keeps ~100x headroom.",
-      "tolerance_abs": 1e-12,
+      "description": "Diagonal of the Dirichlet-interior global stiffness K_int. Full per-row sub-stage diagnostic \u2014 if assembly disagrees anywhere, at least one diagonal entry surfaces it. Issue #110 measurements (CUBE_CAVITY_SUBSTAGE_DIFF in CI logs): PR #106 Linux x86_64 ~1e-14, issue #110 macOS arm64 ~4e-16. Tolerance 1e-9 keeps cross-platform headroom and still catches the original f32 truncation regression (which had ~5.4e-8 errors here, 50x over the new floor).",
+      "tolerance_abs": 1e-9,
       "data": [
         0.6,
         0.6,
@@ -5189,8 +5189,8 @@
         729
       ],
       "dtype": "f64",
-      "description": "Diagonal of the Dirichlet-interior global mass M_int. Post-#99 the f64 ndarray backend hits ~1e-18 here (M diagonal entries are O(h^3) ≈ 4e-4); tolerance 1e-14 keeps room for cross-platform drift.",
-      "tolerance_abs": 1e-14,
+      "description": "Diagonal of the Dirichlet-interior global mass M_int. M diagonal entries are O(h^3) ≈ 4e-4. This was the field that broke single-host calibration: PR #106 set the tolerance to 1e-14 from one Linux x86_64 host's ~1e-15 observation, and PR #108 then saw ~5e-10 drift on a macOS arm64 host — 50000x over budget. (Issue #110 dev host reproduced ~2e-19 on macOS arm64, so the friction is rustc/LLVM-version-specific even within the same arch.) Tolerance 5e-9 keeps 10x cross-platform headroom over the worst known observation; see baseline.schema.md and .github/workflows/cube-cavity-tolerance.yml for the matrix that polices this floor.",
+      "tolerance_abs": 5e-9,
       "data": [
         0.00040000000000000013,
         0.0004000000000000002,

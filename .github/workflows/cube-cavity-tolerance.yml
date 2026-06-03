@@ -1,0 +1,126 @@
+name: cube-cavity-tolerance
+
+# Issue #110 — characterize the cross-platform tolerance floor of the
+# Burn↔NumPy cube-cavity sub-stage comparison.
+#
+# This workflow runs the `--ignored` `cube_cavity_numpy_reference` test
+# across three runner platforms (`ubuntu-latest`, `macos-latest` arm64,
+# `macos-13` Intel x86_64) so the observed `m_int_diag` / `k_int_diag` /
+# Frobenius drift surfaces in the CI log under `--nocapture`. The
+# `print_substage_diff` helper in the test emits machine-readable
+# `CUBE_CAVITY_SUBSTAGE_DIFF` lines per field per platform, which the
+# `extract-tolerance-table` job collects into a single artifact for the
+# schema doc.
+#
+# Why this workflow exists separately from `tfjava-cube-cavity.yml`:
+#   - tfjava-cube-cavity is heavy (JDK 17, Maven, ~200 MB native libs)
+#     and runs Ubuntu-only. Bolting a macOS matrix onto it would slow
+#     the path-filtered TF-Java gate without buying the macOS runners
+#     anything they need (they don't have JDK 17 + Maven configured for
+#     TF-Java's native classifier).
+#   - The Rust toolchain + the `--ignored` test takes ~10 minutes per
+#     platform; total wall-clock is ~30 minutes parallelized.
+#
+# Triggers:
+#   - `pull_request` / `push` to main when the fixture, the test, or
+#     the assembly path that feeds it changes.
+#   - `workflow_dispatch` for ad-hoc re-measurement (e.g., after a
+#     toolchain bump).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/geode-core/src/assembly/**'
+      - 'crates/geode-core/src/upload_mesh.rs'
+      - 'crates/geode-validation/tests/cube_cavity_numpy_reference.rs'
+      - 'reference/fixtures/cube_cavity/baseline.json'
+      - 'reference/fixtures/cube_cavity/baseline.schema.md'
+      - 'reference/fixtures/cube_cavity/unit_cube.msh'
+      - '.github/workflows/cube-cavity-tolerance.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/geode-core/src/assembly/**'
+      - 'crates/geode-core/src/upload_mesh.rs'
+      - 'crates/geode-validation/tests/cube_cavity_numpy_reference.rs'
+      - 'reference/fixtures/cube_cavity/baseline.json'
+      - 'reference/fixtures/cube_cavity/baseline.schema.md'
+      - 'reference/fixtures/cube_cavity/unit_cube.msh'
+      - '.github/workflows/cube-cavity-tolerance.yml'
+  workflow_dispatch: {}
+
+jobs:
+  cube-cavity-substage-matrix:
+    name: cube-cavity substage diff (${{ matrix.os }})
+    strategy:
+      # Don't fail-fast: we want every platform's diff line in the log,
+      # even if one platform fails the tolerance bar. The whole point of
+      # this workflow is to *see* the worst-case across the matrix.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-13]
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          # Cache key is per-OS because the build artifacts are not
+          # portable across Linux/macOS/x86_64/arm64. Bumping
+          # Cargo.lock invalidates the cache.
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-cube-cavity-tol-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Print runner/toolchain info
+        # Capture the exact CPU + OS + rustc combo so the tolerance
+        # table in baseline.schema.md can cite a concrete provenance
+        # for each platform's number.
+        run: |
+          uname -a
+          rustc --version
+          cargo --version
+          echo "runner.os=${{ runner.os }}"
+          echo "runner.arch=${{ runner.arch }}"
+
+      # Per the test's own doc comment: faer 0.24's `qz_real`
+      # subtractions wrap under debug-assertions even though release
+      # math is correct. Run --release with --ignored so the
+      # eigensolve test path is exercised.
+      - name: Run cube_cavity substage test (--ignored --nocapture, ndarray, release)
+        run: |
+          cargo test --no-default-features --features geode-core/ndarray \
+            --release -p geode-validation \
+            --test cube_cavity_numpy_reference \
+            -- --ignored --nocapture \
+            2>&1 | tee cube_cavity_substage.log
+
+      - name: Extract CUBE_CAVITY_SUBSTAGE_DIFF lines
+        # Filter the log down to just the machine-readable diff lines
+        # the test emits via `print_substage_diff`. These are the
+        # source-of-truth observations for `baseline.schema.md`.
+        if: always()
+        run: |
+          echo "=== Platform: ${{ matrix.os }} (${{ runner.os }}/${{ runner.arch }}) ==="
+          grep '^CUBE_CAVITY_SUBSTAGE_DIFF' cube_cavity_substage.log || \
+            echo "(no CUBE_CAVITY_SUBSTAGE_DIFF lines found — test may have failed before reaching the diff printer)"
+
+      - name: Upload substage diff log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cube-cavity-substage-${{ matrix.os }}
+          path: cube_cavity_substage.log
+          if-no-files-found: warn
+          retention-days: 30
