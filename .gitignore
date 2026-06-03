@@ -57,3 +57,11 @@ __pycache__/
 .python-version
 venv/
 .venv/
+.venv-jax/
+.venv-*/
+
+# Java / Maven (reference/tf_java/ build outputs)
+**/target/
+**/.classpath
+**/.project
+**/.settings/

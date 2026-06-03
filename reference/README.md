@@ -29,6 +29,7 @@ reference/
 │   └── cube_cavity/
 │       ├── baseline.json           — cube-cavity NumPy baseline (eigenvalues + sub-stages + Q_numpy, #92)
 │       ├── baseline.schema.md      — per-fixture schema notes for `baseline.json`
+│       ├── jax_baseline.json       — lowest 5 eigenvalues + traces from JAX (#93)
 │       └── unit_cube.msh           — shared n=10 mesh (MSH 4.1 ASCII via meshio, #92)
 ├── numpy/                          — NumPy/SciPy reference impls (Python)
 │   ├── README.md
@@ -36,14 +37,26 @@ reference/
 │   ├── p1_local_matrices.py        — P1 element-local K and M (#90)
 │   ├── gen_p1_local_standard.py    — regenerates `fixtures/p1_local/standard.json` (#90)
 │   ├── cube_cavity.py              — cube-cavity end-to-end driver (#92)
+│   ├── cube_cavity_minimal.py      — minimal programmatic-mesh NumPy cube-cavity (#93 sibling, n=4)
 │   └── gen_cube_cavity_baseline.py — regenerates `fixtures/cube_cavity/baseline.json` (#92)
-├── jax/                            — JAX reference impls (deferred)
-│   └── README.md
+├── jax/                            — JAX reference impls (Python)
+│   ├── README.md                   — DX friction notes (per #88 JAX-DX follow-up)
+│   ├── cube_cavity.py              — Cube-cavity assembly + autodiff anchor (#93)
+│   └── gen_cube_cavity_fixture.py  — regenerates fixtures/cube_cavity/jax_baseline.json (#93)
+├── tf_java/                        — TF-Java reference impls (Java + Maven)
+│   ├── README.md
+│   └── cube_cavity/                — Maven project, static-graph assembly (#93)
+│       ├── pom.xml
+│       └── src/main/java/dev/geodefem/refcubecavity/
+│           ├── CubeMesh.java        — JVM-side mesh
+│           ├── AssemblyGraph.java   — TF-Java Ops + Session static graph
+│           └── CubeCavityMain.java  — driver + sidecar emitter
+├── driver/                         — cross-language seam scripts
+│   ├── README.md
+│   └── eigensolve_from_tfjava.py    — SciPy eigensolve from TF-Java sidecar
 ├── julia/                          — Julia reference impls (deferred)
 │   └── README.md
-├── onnx/                           — ONNX graph references (deferred)
-│   └── README.md
-└── tf_java/                        — TF-Java reference impls (deferred)
+└── onnx/                           — ONNX graph references (deferred)
     └── README.md
 ```
 
@@ -233,16 +246,52 @@ python3 numpy/gen_cube_cavity_baseline.py
 ```
 
 **Cross-backend mesh sharing**: the same `unit_cube.msh` is the input
-for `reference/jax/cube_cavity.py` and the eventual TF-Java
-`cube_cavity` driver (issue #93). All three impls consume an identical
-mesh so cross-backend disagreements are not contaminated by mesh I/O
-friction.
+for the meshio path of `reference/jax/cube_cavity.py` and the eventual
+TF-Java meshio integration. The programmatic n=4 path
+(`numpy/cube_cavity_minimal.py`, JAX assembly, TF-Java assembly) skips
+mesh I/O entirely so cross-backend disagreements are not contaminated
+by mesh-reader friction.
+
+### Cube-cavity Helmholtz (JAX + TF-Java, #93)
+
+Second + third concrete backends for the cube-cavity spine slice
+(siblings to the NumPy reference in #92).
+
+- **JAX reference**: `jax/cube_cavity.py` — full pipeline on a
+  programmatic n=4 mesh, JAX assembly + SciPy eigensolve boundary,
+  with a `jax.grad(tr(K_int))` autodiff anchor
+  finite-difference-validated to `1e-5` (actually `~1e-10` per the
+  self-check). The programmatic mesh is what lets autodiff propagate
+  cleanly through assembly without I/O in the path.
+- **TF-Java reference**: `tf_java/cube_cavity/` — Maven project,
+  static-graph (`Ops` + `Session`) assembly that emits a JSON sidecar
+  for the eigensolve seam in `driver/eigensolve_from_tfjava.py`. The
+  baked graph is the differentiable artifact, so a programmatic mesh
+  is required here too.
+- **NumPy sibling oracle**: `numpy/cube_cavity_minimal.py` — minimal
+  NumPy cube-cavity on the **same** programmatic n=4 mesh that JAX
+  and TF-Java use. This is the same-tree NumPy oracle for the
+  programmatic path; it is a genuine sibling to `cube_cavity.py`
+  (n=10 / Gmsh path), not a duplicate.
+- **JAX baseline fixture**: `fixtures/cube_cavity/jax_baseline.json`
+  — schema v1, lowest 5 eigenvalues + interior-DOF traces. Lives
+  beside `baseline.json` (different `n`, different schema, different
+  mesh source).
+- **Rust comparator**: `crates/geode-core/tests/cube_cavity_jax_reference.rs`
+  loads the JAX baseline and runs the Burn cube-cavity path
+  (`assemble_global_p1` + `apply_dirichlet_bc` + `FaerDenseEigensolver`)
+  against it. Same Option-A pattern as #90 — interim location in
+  `geode-core/tests/` to avoid forcing Burn into the harness crate.
+- **TF-Java runtime CI**: deferred to a follow-up CI-config issue;
+  the source + Maven project ship here, but JVM/Maven setup in CI is
+  out of scope for #93.
 
 ## Parent epic
 
 - **#88** — cross-validated L4 lowerings
 - **#89** — this scaffolding (Phase A)
-- **#90** — NumPy P1 local matrices (Phase B, in flight)
-- **#91** — d² discrete operator (parallel slice)
-- **#92** — cube-cavity end-to-end (Phase B continued)
+- **#90** — NumPy P1 local matrices (Phase B, **merged**)
+- **#91** — d² discrete operator (parallel slice, **merged**)
+- **#92** — cube-cavity end-to-end NumPy (Phase B, in flight wave 2)
+- **#93** — cube-cavity JAX + TF-Java (Phase C+D, this PR)
 - **#5** — whiteroom tracker (file friction artifacts here)
