@@ -15,9 +15,18 @@ name: tfjava-cube-cavity
 #      e.g. when bumping TF-Java versions or auditing cross-XLA drift.
 #
 # Per #102 acceptance: this closes the loop on #93 AC#3 (TF-Java reference
-# builds and runs end-to-end) and #93 AC#4 (four-way NumPy / JAX / TF-Java
-# / Burn agreement table) by actually exercising the pipeline in CI and
+# builds and runs end-to-end) and #93 AC#4 (cross-IR NumPy / JAX / TF-Java
+# agreement table) by actually exercising the pipeline in CI and
 # asserting agreement to 1e-5 relative on the lowest 5 modes.
+#
+# Scope clarification (issue #111): this gate is three-way — it checks the
+# TF-Java row against the JAX baseline fixture and a freshly-emitted
+# NumPy baseline. The Burn row is exercised separately by the `arpack`
+# workflow (`.github/workflows/arpack.yml`) and by the per-push
+# `cube_cavity_jax_reference` cargo test, both of which compare Burn
+# against the same JAX baseline this gate uses. We deliberately do not
+# rebuild `geode-core` with `--features arpack` inside this JVM-heavy job;
+# keeping the toolchains decoupled keeps both gates fast.
 
 on:
   push:
@@ -57,7 +66,7 @@ on:
 
 jobs:
   build-and-cross-check:
-    name: TF-Java assembly + SciPy eigensolve + four-way agreement
+    name: TF-Java assembly + SciPy eigensolve + cross-IR agreement (TF-Java vs JAX vs NumPy)
     runs-on: ubuntu-latest
     env:
       MAVEN_OPTS: "-Xmx2g"
@@ -110,7 +119,7 @@ jobs:
         # `-Plinux-x86_64` activates the linux-x86_64 native classifier
         # for `tensorflow-core-native`, matching the ubuntu-latest runner.
         # `-DskipTests` because the Maven project has no JUnit tests yet
-        # (the validation contract is the four-way agreement table below,
+        # (the validation contract is the cross-IR agreement table below,
         # not in-JVM unit tests).
         run: |
           mvn -B -Plinux-x86_64 -DskipTests package
@@ -140,7 +149,7 @@ jobs:
               --n "${CUBE_N}" --side 1.0 --k 5 \
               --out reference/tf_java/cube_cavity/target/out/numpy_baseline.json
 
-      - name: Four-way agreement gate (TF-Java vs JAX vs NumPy, rtol=${{ env.CUBE_RTOL }})
+      - name: Cross-IR agreement gate (TF-Java vs JAX vs NumPy, rtol=${{ env.CUBE_RTOL }})
         # This is the AC#5 hard gate: TF-Java eigenvalues must match the
         # JAX and NumPy baselines on the lowest 5 modes within `rtol`.
         # A failure here is the most-informative possible outcome — an
@@ -148,6 +157,11 @@ jobs:
         # genuine compiler-semantics drift on the same algorithm. We
         # always upload the agreement table as an artifact, regardless
         # of pass/fail, so the Friction artifact stays visible.
+        #
+        # Burn agreement is intentionally not part of this gate; it is
+        # exercised by the `arpack` workflow and by the per-push
+        # `cube_cavity_jax_reference` cargo test against the same JAX
+        # baseline. The `--burn` flag is therefore omitted here.
         run: |
           python3 reference/driver/compare_eigenvalues.py \
               --tfjava reference/tf_java/cube_cavity/target/out/eigenresult_tfjava.json \

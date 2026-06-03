@@ -125,3 +125,29 @@ The CI job:
    the Friction artifact stays visible. An XLA-vs-XLA disagreement
    between TF-Java and JAX is the most informative possible outcome —
    that's the surface this CI job exists to monitor.
+
+### Scope of the TF-Java CI gate (issue #111)
+
+The `tfjava-cube-cavity.yml` workflow's agreement gate is **cross-IR
+three-way**: it compares TF-Java against JAX (XLA-vs-XLA) and NumPy
+(structured-sparse reference). It does **not** include the Burn row.
+
+Burn agreement is checked in two other places against the same
+JAX baseline fixture, so the cross-language coverage is not actually
+narrower — only the per-run artifact:
+
+- `cargo test -p geode-validation --release --test cube_cavity_jax_reference -- --ignored`
+  runs in the default per-push CI matrix without ARPACK; it asserts
+  the Burn-side eigenvalues agree with the in-tree JAX baseline.
+- `.github/workflows/arpack.yml` exercises the same Burn lowering with
+  the opt-in `arpack` Cargo feature (sparse generalized eigensolver
+  FFI to libarpack-ng) and runs the gated `sparse_eigensolver`
+  acceptance test.
+
+Keeping the JVM-heavy TF-Java gate separate from the Rust/ARPACK build
+means a TF-Java version bump or XLA drift fails fast on the JVM side
+without rebuilding `geode-core` with `arpack`, and a Rust/ARPACK
+regression fails fast on the cargo side without pulling ~200 MB of
+TF-Java natives. `compare_eigenvalues.py` still accepts `--burn` for
+local audits where it is convenient to render all four backends in
+one table.
