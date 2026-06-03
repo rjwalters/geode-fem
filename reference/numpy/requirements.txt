@@ -7,3 +7,13 @@
 # Python: tested on 3.14.5; should work on >= 3.10 (no new-syntax usage).
 
 numpy >= 2.0, < 3.0
+# scipy: needed by reference/numpy/cube_cavity.py for sparse generalized
+# eigensolve (`scipy.sparse.linalg.eigsh`) and sparse CSR assembly.
+# Range pinned to the 1.x line; bump deliberately and regenerate the
+# cube-cavity fixture when bumping.
+scipy >= 1.10, < 2.0
+# meshio: cross-format mesh I/O used by reference/numpy/cube_cavity.py
+# to read and write the shared `unit_cube.msh` fixture. Adopted for #92
+# to free this slice from re-implementing Gmsh's MSH parser; the same
+# library is the canonical mesh-I/O lever for sibling backends (#93).
+meshio >= 5.3, < 6.0

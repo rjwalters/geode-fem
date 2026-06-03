@@ -12,5 +12,23 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
+[dev-dependencies]
+# The cube-cavity cross-backend integration test (#92) runs the full Burn
+# pipeline (mesh I/O, P1 assembly, Dirichlet, dense generalized eigensolve)
+# against the NumPy reference fixture. The geode-core backend is selected
+# via the workspace's `--features` flags at test invocation time; CI runs
+# `cargo test -p geode-validation --features geode-core/ndarray` for the
+# f64 cross-check, and the default `cargo test` falls back to geode-core's
+# default `wgpu` (or `ndarray` if it wins precedence under unification).
+geode-core = { workspace = true }
+burn = { workspace = true }
+# Direct faer access in the cube-cavity test: we materialize the K_int /
+# M_int interior matrices via `burn_matrix_to_faer`, then call
+# `generalized_eigen` directly to recover both eigenvalues AND
+# eigenvectors (the existing `EigenSolver` trait surface only returns
+# eigenvalues — extending it is tracked as a follow-up). Pinned to the
+# same minor as geode-core's dep above.
+faer = { version = "0.24", default-features = false, features = ["std", "linalg"] }
+
 [lints.rust]
 unsafe_code = "forbid"
