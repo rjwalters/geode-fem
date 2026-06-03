@@ -1,22 +1,20 @@
-"""Minimal NumPy cube-cavity Helmholtz pipeline (for #93's parallel coordination).
+"""Minimal NumPy cube-cavity Helmholtz pipeline (programmatic-mesh sibling).
 
-This module exists so the JAX (#93) and TF-Java (#93) implementations
-have a self-contained, reproducible NumPy baseline to agree with *before*
-issue #92 lands its canonical `reference/numpy/cube_cavity.py` with the
-full Gmsh-fixture flow. When #92 merges, this module becomes a thin
-wrapper around (or is replaced by) #92's canonical implementation; the
-shape of inputs/outputs is intentionally aligned so the migration is
-mechanical.
+This module is the NumPy oracle for the programmatic-mesh cube-cavity
+spine slice (issue #93). It is the sibling of
+:mod:`cube_cavity` — same assembly math, same eigensolve, different
+mesh source: the programmatic ``cube_tet_mesh(n)`` rather than the
+Gmsh-fixture ``unit_cube.msh`` at n=10. The JAX (#93) and TF-Java
+(#93) backends consume the same programmatic mesh so the cross-backend
+comparison is not contaminated by mesh-reader friction.
 
-Why duplicate?
-==============
-
-The sweep that scheduled #93 ran wave 2 in parallel with #92. The honest
-answer to that scheduling decision is to ship *both* pipelines and let
-the harness verify they agree. If #92's eventual baseline differs from
-this one, that disagreement is itself an Epic #88 friction artifact (it
-implies a meshing or normalization convention drift between sibling
-references — informative, by design).
+Issue #103 factored the mesh primitives (``cube_tet_mesh``,
+``cube_interior_mask``, ``load_msh``, ``write_msh``) into the shared
+:mod:`mesh` module so the two cube-cavity entry points share one source
+of truth. This module re-exports ``cube_tet_mesh`` and
+``cube_interior_mask`` so the existing JAX consumer
+(``reference/jax/cube_cavity.py``) keeps importing them from
+``cube_cavity_minimal`` without churn.
 
 What this is
 ============
@@ -25,9 +23,8 @@ A faithful, line-by-line NumPy transcription of the *same* assembly
 math the Burn path runs:
 
 - Mesh: the programmatic `cube_tet_mesh(n, side=1.0)` from
-  `geode-core::mesh` — `(n+1)^3` nodes, `6 * n^3` tets, each hex split
-  on the long diagonal. Re-implemented here in NumPy to keep this file
-  zero-dependency on the Rust side.
+  :mod:`mesh` — `(n+1)^3` nodes, `6 * n^3` tets, each hex split on the
+  long diagonal. NumPy mirror of `geode_core::mesh::cube_tet_mesh`.
 - Local matrices: `reference/numpy/p1_local_matrices.py` (already
   landed by #90).
 - Global assembly: COO triples → CSR via `scipy.sparse`.
@@ -68,69 +65,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from p1_local_matrices import batched_p1_local_matrices  # noqa: E402
 
-
-def cube_tet_mesh(n: int, side: float = 1.0):
-    """Mirror `geode_core::mesh::cube_tet_mesh` in NumPy.
-
-    Returns (nodes, tets) where:
-      - nodes: ndarray shape ((n+1)**3, 3) of vertex coordinates
-      - tets: ndarray shape (6 * n**3, 4) of int connectivity
-
-    Each hex is split into 6 right-handed tets sharing the long diagonal
-    c[0] → c[6]. Vertex ordering matches the Rust path exactly.
-    """
-    nps = n + 1
-    h = side / n
-    # Build nodes in (k, j, i) order so node_idx(i, j, k) = i + j*nps + k*nps^2.
-    coords = np.empty((nps**3, 3), dtype=np.float64)
-    for k in range(nps):
-        for j in range(nps):
-            for i in range(nps):
-                lin = i + j * nps + k * nps * nps
-                coords[lin] = [i * h, j * h, k * h]
-
-    def node_idx(i, j, k):
-        return i + j * nps + k * nps * nps
-
-    tets = []
-    for k in range(n):
-        for j in range(n):
-            for i in range(n):
-                c = [
-                    node_idx(i, j, k),
-                    node_idx(i + 1, j, k),
-                    node_idx(i + 1, j + 1, k),
-                    node_idx(i, j + 1, k),
-                    node_idx(i, j, k + 1),
-                    node_idx(i + 1, j, k + 1),
-                    node_idx(i + 1, j + 1, k + 1),
-                    node_idx(i, j + 1, k + 1),
-                ]
-                tets.append([c[0], c[1], c[2], c[6]])
-                tets.append([c[0], c[2], c[3], c[6]])
-                tets.append([c[0], c[3], c[7], c[6]])
-                tets.append([c[0], c[7], c[4], c[6]])
-                tets.append([c[0], c[4], c[5], c[6]])
-                tets.append([c[0], c[5], c[1], c[6]])
-    return coords, np.asarray(tets, dtype=np.int64)
-
-
-def cube_interior_mask(nodes: np.ndarray, side: float = 1.0):
-    """Mirror `geode_core::eigen::cube_interior_mask`.
-
-    True = interior (free DOF). False = on any face of [0, side]^3.
-    """
-    tol = 1e-9 * max(side, 1.0)
-    x, y, z = nodes[:, 0], nodes[:, 1], nodes[:, 2]
-    on_boundary = (
-        (x < tol)
-        | (np.abs(x - side) < tol)
-        | (y < tol)
-        | (np.abs(y - side) < tol)
-        | (z < tol)
-        | (np.abs(z - side) < tol)
-    )
-    return ~on_boundary
+# Mesh primitives live in `mesh.py` (issue #103) — re-exported here so
+# the JAX consumer (`reference/jax/cube_cavity.py`) keeps importing
+# `cube_tet_mesh` and `cube_interior_mask` from this module without
+# churn.
+from mesh import cube_interior_mask, cube_tet_mesh  # noqa: E402, F401
 
 
 def assemble_global_p1(nodes: np.ndarray, tets: np.ndarray):

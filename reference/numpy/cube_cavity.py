@@ -8,7 +8,9 @@ The pipeline
 
 1. Mesh I/O — either generate the canonical tet-split cube
    (``cube_tet_mesh(n)``) or load a ``.msh`` via ``meshio``
-   (``load_msh(path)``).
+   (``load_msh(path)``). Both live in :mod:`mesh` (issue #103) and are
+   re-exported here for backward compatibility with consumers like
+   ``gen_cube_cavity_baseline.py``.
 2. P1 local matrices — delegated to :mod:`p1_local_matrices` (NumPy
    reference shared with issue #90; pinned by the per-case fixtures
    under ``reference/fixtures/p1_local/<case>.json`` per #101).
@@ -42,10 +44,15 @@ error — the residual being the standard P1 discretization error
 Public API
 ==========
 
+Mesh primitives (re-exported from :mod:`mesh` for backward compat):
+
 - :func:`cube_tet_mesh(n)` — generate the tet-split cube mesh.
 - :func:`load_msh(path)` — read a Gmsh ``.msh`` file via ``meshio``.
 - :func:`write_msh(path, nodes, tets)` — write a Gmsh ``.msh`` file.
 - :func:`cube_interior_mask(nodes)` — boolean mask of interior nodes.
+
+Assembly + eigensolve:
+
 - :func:`assemble_global_p1(nodes, tets)` — assembled ``(K, M)`` as
   scipy CSR matrices.
 - :func:`apply_dirichlet(K, M, mask)` — restrict K, M to interior DOFs.
@@ -63,135 +70,20 @@ import numpy as np
 import scipy.sparse
 import scipy.sparse.linalg
 
-# Allow `python3 cube_cavity.py` to find the sibling module regardless of cwd.
+# Allow `python3 cube_cavity.py` to find the sibling modules regardless of cwd.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from p1_local_matrices import batched_p1_local_matrices  # noqa: E402
 
-
-# --------------------------------------------------------------------------- #
-# Mesh generation / I/O
-# --------------------------------------------------------------------------- #
-
-
-def cube_tet_mesh(n: int, side: float = 1.0):
-    """Generate the n-per-side tet-split unit cube.
-
-    Faithful NumPy mirror of ``geode_core::cube_tet_mesh`` (see
-    ``crates/geode-core/src/mesh/mod.rs``). For each ``n × n × n`` hex
-    cell we emit 6 right-handed tets sharing the long diagonal
-    ``c[0] → c[6]``. Node order matches Burn so the same node-indexed
-    Dirichlet mask works on both backends.
-
-    Parameters
-    ----------
-    n : int
-        Hexes per side.
-    side : float
-        Cube side length (default 1.0).
-
-    Returns
-    -------
-    nodes : ndarray, shape ``((n+1)**3, 3)``, dtype float64
-        Node coordinates in lexicographic ``(i, j, k)`` order with ``i``
-        fastest.
-    tets : ndarray, shape ``(6 * n**3, 4)``, dtype int64
-        Tet connectivity, 0-based linear node indices.
-    """
-    nps = n + 1
-    h = side / n
-
-    nodes = np.zeros((nps**3, 3), dtype=np.float64)
-    for k in range(nps):
-        for j in range(nps):
-            for i in range(nps):
-                nodes[i + j * nps + k * nps * nps] = [i * h, j * h, k * h]
-
-    def node_idx(i, j, k):
-        return i + j * nps + k * nps * nps
-
-    tets = np.empty((6 * n**3, 4), dtype=np.int64)
-    t = 0
-    for k in range(n):
-        for j in range(n):
-            for i in range(n):
-                c = [
-                    node_idx(i, j, k),
-                    node_idx(i + 1, j, k),
-                    node_idx(i + 1, j + 1, k),
-                    node_idx(i, j + 1, k),
-                    node_idx(i, j, k + 1),
-                    node_idx(i + 1, j, k + 1),
-                    node_idx(i + 1, j + 1, k + 1),
-                    node_idx(i, j + 1, k + 1),
-                ]
-                # 6-tet split sharing diagonal c[0] -> c[6]. All right-handed.
-                tets[t + 0] = [c[0], c[1], c[2], c[6]]
-                tets[t + 1] = [c[0], c[2], c[3], c[6]]
-                tets[t + 2] = [c[0], c[3], c[7], c[6]]
-                tets[t + 3] = [c[0], c[7], c[4], c[6]]
-                tets[t + 4] = [c[0], c[4], c[5], c[6]]
-                tets[t + 5] = [c[0], c[5], c[1], c[6]]
-                t += 6
-
-    return nodes, tets
-
-
-def load_msh(path):
-    """Read a Gmsh ``.msh`` file and return ``(nodes, tets)`` as ndarrays.
-
-    Uses ``meshio`` (well-tested cross-format mesh I/O). Only ``tetra``
-    cells are kept — surface triangles and lines are silently dropped
-    (they are valid inputs but not the volume elements we want here).
-    """
-    import meshio
-
-    m = meshio.read(path)
-    nodes = np.asarray(m.points, dtype=np.float64)
-    tets_blocks = [c.data for c in m.cells if c.type == "tetra"]
-    if not tets_blocks:
-        raise ValueError(f"no tet cells in {path}")
-    tets = np.concatenate(tets_blocks, axis=0).astype(np.int64)
-    return nodes, tets
-
-
-def write_msh(path, nodes, tets):
-    """Write a Gmsh ``.msh`` file (MSH 4.1 ASCII) via ``meshio``.
-
-    The output is consumable by ``geode_core::GmshReader`` and by any
-    cross-backend reference impl (issue #93's JAX/TF-Java pipeline
-    consumes the same file).
-    """
-    import meshio
-
-    nodes = np.asarray(nodes, dtype=np.float64)
-    tets = np.asarray(tets, dtype=np.int64)
-    m = meshio.Mesh(points=nodes, cells=[("tetra", tets)])
-    meshio.write(path, m, file_format="gmsh", binary=False)
-
-
-# --------------------------------------------------------------------------- #
-# Dirichlet boundary mask
-# --------------------------------------------------------------------------- #
-
-
-def cube_interior_mask(nodes, side: float = 1.0):
-    """Boolean mask: True if the node is strictly inside the cube.
-
-    Mirrors ``geode_core::cube_interior_mask``. A node is "boundary"
-    iff any coordinate is within ``1e-9 * max(side, 1)`` of 0 or
-    ``side``.
-    """
-    nodes = np.asarray(nodes, dtype=np.float64)
-    tol = 1e-9 * max(side, 1.0)
-    on_boundary = (
-        (nodes[:, 0] < tol)
-        | (np.abs(nodes[:, 0] - side) < tol)
-        | (nodes[:, 1] < tol)
-        | (np.abs(nodes[:, 1] - side) < tol)
-        | (nodes[:, 2] < tol)
-        | (np.abs(nodes[:, 2] - side) < tol)
-    )
-    return ~on_boundary
+# Mesh primitives live in `mesh.py` (issue #103) and are re-exported
+# here so existing callers (`gen_cube_cavity_baseline.py`, downstream
+# tests) keep importing `cube_tet_mesh`, `load_msh`, `write_msh`, and
+# `cube_interior_mask` from `cube_cavity` without churn.
+from mesh import (  # noqa: E402, F401
+    cube_interior_mask,
+    cube_tet_mesh,
+    load_msh,
+    write_msh,
+)
 
 
 # --------------------------------------------------------------------------- #

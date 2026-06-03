@@ -37,10 +37,11 @@ reference/
 ├── numpy/                          — NumPy/SciPy reference impls (Python)
 │   ├── README.md
 │   ├── requirements.txt            — pinned NumPy + scipy + meshio versions (#90, #92)
+│   ├── mesh.py                     — shared mesh builders (cube_tet_mesh, cube_interior_mask, load_msh, write_msh) (#103)
 │   ├── p1_local_matrices.py        — P1 element-local K and M (#90)
 │   ├── gen_p1_local_per_case.py    — regenerates `fixtures/p1_local/<case>.json` (#90 / #101)
-│   ├── cube_cavity.py              — cube-cavity end-to-end driver (#92)
-│   ├── cube_cavity_minimal.py      — minimal programmatic-mesh NumPy cube-cavity (#93 sibling, n=4)
+│   ├── cube_cavity.py              — cube-cavity end-to-end driver, n=10 + Gmsh-fixture path (#92)
+│   ├── cube_cavity_minimal.py      — sibling cube-cavity driver, programmatic n=4 path (#93)
 │   └── gen_cube_cavity_baseline.py — regenerates `fixtures/cube_cavity/baseline.json` (#92)
 ├── jax/                            — JAX reference impls (Python)
 │   ├── README.md                   — DX friction notes (per #88 JAX-DX follow-up)
