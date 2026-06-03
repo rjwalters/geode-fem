@@ -154,9 +154,12 @@ public final class AssemblyGraph implements AutoCloseable {
 
         // scatterNd(indices, updates, shape) — non-mutating; equivalent to
         // (zeros + scatter_add). f64 scatter is supported.
+        // TF-Java 1.0.0: indices and shape must share type parameter T, so cast
+        // indexPairs from TInt32 to TInt64 to match shape64.
         Operand<TInt64> shape64 = tf.constant(new long[] {(long) nNodes, (long) nNodes});
-        kGlobalOp = tf.scatterNd(indexPairs, kLocalFlat, shape64);
-        mGlobalOp = tf.scatterNd(indexPairs, mLocalFlat, shape64);
+        Operand<TInt64> indexPairs64 = tf.dtypes.cast(indexPairs, TInt64.class);
+        kGlobalOp = tf.scatterNd(indexPairs64, kLocalFlat, shape64);
+        mGlobalOp = tf.scatterNd(indexPairs64, mLocalFlat, shape64);
 
         this.session = new Session(graph);
     }
