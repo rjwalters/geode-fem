@@ -23,14 +23,20 @@ reference/
 ├── fixtures/                       — canonical (input, golden output) bundles
 │   ├── p1_reference_tet/
 │   │   └── local_stiffness.json    — Phase A smoke fixture
-│   └── p1_local/
-│       ├── standard.json           — 5-tet P1 fixture (inputs + NumPy baseline outputs, #90)
-│       └── standard.schema.md      — per-fixture schema notes for `standard.json`
+│   ├── p1_local/
+│   │   ├── standard.json           — 5-tet P1 fixture (inputs + NumPy baseline outputs, #90)
+│   │   └── standard.schema.md      — per-fixture schema notes for `standard.json`
+│   └── cube_cavity/
+│       ├── baseline.json           — cube-cavity NumPy baseline (eigenvalues + sub-stages + Q_numpy, #92)
+│       ├── baseline.schema.md      — per-fixture schema notes for `baseline.json`
+│       └── unit_cube.msh           — shared n=10 mesh (MSH 4.1 ASCII via meshio, #92)
 ├── numpy/                          — NumPy/SciPy reference impls (Python)
 │   ├── README.md
-│   ├── requirements.txt            — pinned NumPy version (#90)
+│   ├── requirements.txt            — pinned NumPy + scipy + meshio versions (#90, #92)
 │   ├── p1_local_matrices.py        — P1 element-local K and M (#90)
-│   └── gen_p1_local_standard.py    — regenerates `fixtures/p1_local/standard.json` (#90)
+│   ├── gen_p1_local_standard.py    — regenerates `fixtures/p1_local/standard.json` (#90)
+│   ├── cube_cavity.py              — cube-cavity end-to-end driver (#92)
+│   └── gen_cube_cavity_baseline.py — regenerates `fixtures/cube_cavity/baseline.json` (#92)
 ├── jax/                            — JAX reference impls (deferred)
 │   └── README.md
 ├── julia/                          — Julia reference impls (deferred)
@@ -192,6 +198,45 @@ backend runs f64. The #90 comparator applies a backend-aware tolerance:
 
 This is the f32-vs-f64 friction artifact called out in #88; see
 PR #73 / PR #86 / [#5 (curator pass 2026-06-02)](https://github.com/rjwalters/geode-fem/issues/5#issuecomment-4606094785).
+
+### Cube cavity end-to-end (NumPy, #92)
+
+Phase B Phase B closure: the first reference impl that exercises the
+**full** scalar-Helmholtz pipeline — mesh I/O → P1 local matrices →
+global assembly → Dirichlet BC → generalized eigensolve.
+
+- **Reference**: `numpy/cube_cavity.py` — end-to-end scalar Helmholtz
+  driver. Reads a `.msh` via `meshio`, assembles global CSR via
+  `scipy.sparse.coo_matrix(...).tocsr()`, eigensolves via
+  `scipy.sparse.linalg.eigsh(K, k=5, M=M, sigma=0.0, which='LM')`.
+- **Fixture**: `fixtures/cube_cavity/baseline.json` + the shared
+  `fixtures/cube_cavity/unit_cube.msh` (n=10 mesh, 1331 nodes, 6000
+  tets). The fixture stores eigenvalues, K_int / M_int Frobenius
+  norms, full diagonals of K_int / M_int, the analytic Dirichlet
+  Laplacian targets, AND the NumPy eigenvectors `Q_numpy` as an
+  *input* field (so the Rust harness can compute subspace overlap —
+  the elementwise comparison is the wrong metric for degenerate
+  eigenspaces). See `fixtures/cube_cavity/baseline.schema.md` for the
+  per-field tolerance table and the cluster-overlap convention.
+- **Rust comparator**: `crates/geode-validation/tests/cube_cavity_numpy_reference.rs`
+  — built on `geode-validation`'s `Fixture` + `ComparisonReport` per
+  the canonical pattern (the #90 inline shortcut is explicitly *not*
+  repeated here). Writes a structured diff artifact to
+  `CARGO_TARGET_TMPDIR/cube_cavity_diff.json` on every run.
+
+**Regenerating the fixture**:
+
+```bash
+cd reference
+python3 -m pip install -r numpy/requirements.txt
+python3 numpy/gen_cube_cavity_baseline.py
+```
+
+**Cross-backend mesh sharing**: the same `unit_cube.msh` is the input
+for `reference/jax/cube_cavity.py` and the eventual TF-Java
+`cube_cavity` driver (issue #93). All three impls consume an identical
+mesh so cross-backend disagreements are not contaminated by mesh I/O
+friction.
 
 ## Parent epic
 

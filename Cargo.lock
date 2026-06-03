@@ -2576,6 +2576,9 @@ dependencies = [
 name = "geode-validation"
 version = "0.1.0"
 dependencies = [
+ "burn",
+ "faer",
+ "geode-core",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
