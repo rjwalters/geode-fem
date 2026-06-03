@@ -23,9 +23,12 @@ reference/
 ├── fixtures/                       — canonical (input, golden output) bundles
 │   ├── p1_reference_tet/
 │   │   └── local_stiffness.json    — Phase A smoke fixture
-│   ├── p1_local/
-│   │   ├── standard.json           — 5-tet P1 fixture (inputs + NumPy baseline outputs, #90)
-│   │   └── standard.schema.md      — per-fixture schema notes for `standard.json`
+│   ├── p1_local/                   — 5 per-case canonical fixtures (one fixture pins one identity; #90 / #101)
+│   │   ├── canonical_reference_tet.json
+│   │   ├── regular_tet.json
+│   │   ├── anisotropic_well_shaped.json
+│   │   ├── near_degenerate_sliver.json
+│   │   └── inverted_tet.json
 │   └── cube_cavity/
 │       ├── baseline.json           — cube-cavity NumPy baseline (eigenvalues + sub-stages + Q_numpy, #92)
 │       ├── baseline.schema.md      — per-fixture schema notes for `baseline.json`
@@ -35,7 +38,7 @@ reference/
 │   ├── README.md
 │   ├── requirements.txt            — pinned NumPy + scipy + meshio versions (#90, #92)
 │   ├── p1_local_matrices.py        — P1 element-local K and M (#90)
-│   ├── gen_p1_local_standard.py    — regenerates `fixtures/p1_local/standard.json` (#90)
+│   ├── gen_p1_local_per_case.py    — regenerates `fixtures/p1_local/<case>.json` (#90 / #101)
 │   ├── cube_cavity.py              — cube-cavity end-to-end driver (#92)
 │   ├── cube_cavity_minimal.py      — minimal programmatic-mesh NumPy cube-cavity (#93 sibling, n=4)
 │   └── gen_cube_cavity_baseline.py — regenerates `fixtures/cube_cavity/baseline.json` (#92)
@@ -169,35 +172,35 @@ See `crates/geode-validation/tests/smoke.rs` for the end-to-end loop.
 
 ## Reference impls in flight
 
-### P1 local matrices (NumPy, #90)
+### P1 local matrices (NumPy, #90 / #101)
 
 First concrete reference impl on top of the Phase-A scaffolding.
 
 - **Reference**: `numpy/p1_local_matrices.py` — element-local stiffness
   and mass for the P1 reference tet, f64 throughout.
-- **Fixture**: `fixtures/p1_local/standard.json` — a 5-tet cluster with
-  inputs (vertex coordinates) plus pre-computed NumPy baseline outputs
-  under `reference.numpy`. Per-fixture schema notes live next to it in
-  `standard.schema.md`; the canonical schema is still `SCHEMA.md` at
-  the root.
-- **Rust comparator (interim location)**: lives at
-  `crates/geode-core/tests/p1_local_numpy_reference.rs` rather than the
-  `geode-validation` slot above. This is **Option A** for #90 — the PR
-  inlined a minimal load-and-compare path against the standard fixture
-  to unblock the cross-check without taking a dependency on the broader
-  harness API surface. Migrating this test onto `geode-validation`'s
-  `Fixture::compare_against` flow is tracked as a follow-up; the
-  fixture itself is already canonical-shape, so the move is mechanical.
+- **Fixtures**: `fixtures/p1_local/<case>.json` — **five per-case
+  canonical-schema-v1 fixtures**, one per tet (`canonical_reference_tet`,
+  `regular_tet`, `anisotropic_well_shaped`, `near_degenerate_sliver`,
+  `inverted_tet`). Each pins one identity. Per-field tolerances are
+  loose absolute (f32-friendly tripwires); the Rust comparator layers a
+  tighter backend-aware mixed abs/rel check on top. This shape was
+  consolidated from a legacy multi-case `standard.json` bundle in #101
+  to land on the canonical `Fixture` / `ComparisonReport` API.
+- **Rust comparator**:
+  `crates/geode-validation/tests/p1_local_numpy_reference.rs` — uses
+  the canonical `Fixture::compare_against` flow and writes one diff
+  artifact per case to
+  `CARGO_TARGET_TMPDIR/p1_local_<case>_diff.json` on every run.
 
-**Regenerating the fixture** (deterministic on a pinned NumPy):
+**Regenerating the fixtures** (deterministic on a pinned NumPy):
 
 ```bash
 cd reference
 python3 -m pip install -r numpy/requirements.txt
-python3 numpy/gen_p1_local_standard.py
+python3 numpy/gen_p1_local_per_case.py
 ```
 
-Re-runs should produce a byte-identical `standard.json` for the same
+Re-runs should produce byte-identical per-case fixtures for the same
 pinned NumPy version (see `numpy/requirements.txt`).
 
 **Per-backend dtype honesty.** The NumPy reference is f64 throughout.
@@ -277,11 +280,12 @@ Second + third concrete backends for the cube-cavity spine slice
   — schema v1, lowest 5 eigenvalues + interior-DOF traces. Lives
   beside `baseline.json` (different `n`, different schema, different
   mesh source).
-- **Rust comparator**: `crates/geode-core/tests/cube_cavity_jax_reference.rs`
-  loads the JAX baseline and runs the Burn cube-cavity path
-  (`assemble_global_p1` + `apply_dirichlet_bc` + `FaerDenseEigensolver`)
-  against it. Same Option-A pattern as #90 — interim location in
-  `geode-core/tests/` to avoid forcing Burn into the harness crate.
+- **Rust comparator**: `crates/geode-validation/tests/cube_cavity_jax_reference.rs`
+  loads the JAX baseline via the canonical `Fixture` loader and runs
+  the Burn cube-cavity path (`assemble_global_p1` +
+  `apply_dirichlet_bc` + `FaerDenseEigensolver`) against it. Migrated
+  from `crates/geode-core/tests/` onto `geode-validation` in #101 (was
+  Option-A interim placement under #93).
 - **TF-Java runtime CI**: deferred to a follow-up CI-config issue;
   the source + Maven project ship here, but JVM/Maven setup in CI is
   out of scope for #93.

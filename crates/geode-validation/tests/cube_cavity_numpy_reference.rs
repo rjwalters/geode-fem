@@ -71,7 +71,7 @@ type B = DefaultBackend;
 // ---------------------------------------------------------------------------
 //
 // Backend-aware tolerances mirror the pattern in
-// `crates/geode-core/tests/p1_local_numpy_reference.rs`: the ndarray
+// `crates/geode-validation/tests/p1_local_numpy_reference.rs`: the ndarray
 // backend stores f64 and produces near-bit-exact assembly; wgpu/cuda
 // store f32 internally and accumulate roundoff at the scatter-add step.
 //

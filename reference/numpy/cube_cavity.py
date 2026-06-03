@@ -10,7 +10,8 @@ The pipeline
    (``cube_tet_mesh(n)``) or load a ``.msh`` via ``meshio``
    (``load_msh(path)``).
 2. P1 local matrices — delegated to :mod:`p1_local_matrices` (NumPy
-   reference shared with issue #90, lands in ``standard.json``).
+   reference shared with issue #90; pinned by the per-case fixtures
+   under ``reference/fixtures/p1_local/<case>.json`` per #101).
 3. Global assembly — scatter per-element ``[4, 4]`` local matrices into
    global ``[n_nodes, n_nodes]`` CSR via
    ``scipy.sparse.coo_matrix(...).tocsr()``. Stays close to the math:
