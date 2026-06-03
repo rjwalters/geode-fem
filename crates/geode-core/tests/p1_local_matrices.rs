@@ -14,6 +14,9 @@ use burn::tensor::{Tensor, TensorData};
 
 use geode_core::{batched_p1_local_matrices, DefaultBackend, GmshReader, MeshReader};
 
+mod common;
+use common::readback_f64;
+
 type B = DefaultBackend;
 
 const UNIT_CUBE_MSH: &[u8] = include_bytes!("fixtures/unit_cube.msh");
@@ -33,10 +36,6 @@ fn coords_tensor_from_vec(tets: &[[[f64; 3]; 4]]) -> Tensor<B, 3> {
         .collect();
     let data = TensorData::new(flat, [n, 4, 3]);
     Tensor::<B, 3>::from_data(data, &device())
-}
-
-fn tensor_to_vec_f32<const D: usize>(t: Tensor<B, D>) -> Vec<f32> {
-    t.into_data().to_vec::<f32>().expect("readback f32")
 }
 
 /// CPU reference for a single tet — used as ground truth for the batched test.
@@ -125,15 +124,15 @@ fn reference_unit_tet_stiffness_matches_analytic() {
     let coords = coords_tensor_from_vec(&[ref_tet]);
     let result = batched_p1_local_matrices(coords);
 
-    let k = tensor_to_vec_f32(result.k_local);
+    let k = readback_f64(result.k_local);
     // Analytic K for the reference tet, row-major.
     let expected = [
-        3.0, -1.0, -1.0, -1.0, -1.0, 1.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 1.0,
+        3.0_f64, -1.0, -1.0, -1.0, -1.0, 1.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 1.0,
     ];
     for (idx, (g, e)) in k.iter().zip(expected.iter()).enumerate() {
-        let want = (e / 6.0) as f32;
+        let want = e / 6.0;
         assert!(
-            ((g - want) as f64).abs() < F32_TOL,
+            (g - want).abs() < F32_TOL,
             "K[{idx}] = {g}, want {want}"
         );
     }
@@ -145,15 +144,15 @@ fn reference_unit_tet_mass_matches_analytic() {
     let coords = coords_tensor_from_vec(&[ref_tet]);
     let result = batched_p1_local_matrices(coords);
 
-    let m = tensor_to_vec_f32(result.m_local);
+    let m = readback_f64(result.m_local);
     // Analytic M = (V/20)*(I + ones) with V = 1/6, row-major.
     let pattern = [
-        2.0, 1.0, 1.0, 1.0, 1.0, 2.0, 1.0, 1.0, 1.0, 1.0, 2.0, 1.0, 1.0, 1.0, 1.0, 2.0,
+        2.0_f64, 1.0, 1.0, 1.0, 1.0, 2.0, 1.0, 1.0, 1.0, 1.0, 2.0, 1.0, 1.0, 1.0, 1.0, 2.0,
     ];
     for (idx, (g, e)) in m.iter().zip(pattern.iter()).enumerate() {
-        let want = (e / 120.0) as f32; // (V/20) = 1/120, times pattern entry
+        let want = e / 120.0; // (V/20) = 1/120, times pattern entry
         assert!(
-            ((g - want) as f64).abs() < F32_TOL,
+            (g - want).abs() < F32_TOL,
             "M[{idx}] = {g}, want {want}"
         );
     }
@@ -165,9 +164,9 @@ fn reference_unit_tet_signed_volume_is_one_sixth() {
     let coords = coords_tensor_from_vec(&[ref_tet]);
     let result = batched_p1_local_matrices(coords);
 
-    let v = tensor_to_vec_f32(result.signed_volumes);
+    let v = readback_f64(result.signed_volumes);
     assert_eq!(v.len(), 1);
-    assert!(((v[0] - 1.0f32 / 6.0) as f64).abs() < F32_TOL);
+    assert!((v[0] - 1.0 / 6.0).abs() < F32_TOL);
 }
 
 #[test]
@@ -178,14 +177,14 @@ fn batched_random_tets_match_cpu_reference() {
     let coords = coords_tensor_from_vec(&tets);
     let result = batched_p1_local_matrices(coords);
 
-    let k_flat = tensor_to_vec_f32(result.k_local);
-    let m_flat = tensor_to_vec_f32(result.m_local);
-    let v_flat = tensor_to_vec_f32(result.signed_volumes);
+    let k_flat = readback_f64(result.k_local);
+    let m_flat = readback_f64(result.m_local);
+    let v_flat = readback_f64(result.signed_volumes);
 
     for (e_idx, tet) in tets.iter().enumerate() {
         let (k_ref, m_ref, v_ref) = p1_local_reference(tet);
 
-        let v_got = v_flat[e_idx] as f64;
+        let v_got = v_flat[e_idx];
         let v_tol = F32_TOL * (1.0 + v_ref.abs());
         assert!(
             (v_got - v_ref).abs() < v_tol,
@@ -194,7 +193,7 @@ fn batched_random_tets_match_cpu_reference() {
 
         for i in 0..4 {
             for j in 0..4 {
-                let k_got = k_flat[(e_idx * 16) + i * 4 + j] as f64;
+                let k_got = k_flat[(e_idx * 16) + i * 4 + j];
                 let k_ref_ij = k_ref[i][j];
                 // Stiffness magnitudes can be O(1/V) — scale tolerance to reference.
                 let k_tol = F32_TOL * (1.0 + k_ref_ij.abs());
@@ -203,7 +202,7 @@ fn batched_random_tets_match_cpu_reference() {
                     "elem {e_idx} K[{i},{j}]: got {k_got}, ref {k_ref_ij}"
                 );
 
-                let m_got = m_flat[(e_idx * 16) + i * 4 + j] as f64;
+                let m_got = m_flat[(e_idx * 16) + i * 4 + j];
                 let m_ref_ij = m_ref[i][j];
                 let m_tol = F32_TOL * (1.0 + m_ref_ij.abs());
                 assert!(
@@ -232,8 +231,8 @@ fn unit_cube_fixture_volume_conservation() {
 
     let coords = coords_tensor_from_vec(&tets);
     let result = batched_p1_local_matrices(coords);
-    let volumes = tensor_to_vec_f32(result.signed_volumes);
-    let total: f64 = volumes.iter().map(|&v| v as f64).sum();
+    let volumes = readback_f64(result.signed_volumes);
+    let total: f64 = volumes.iter().sum();
     assert!(
         (total.abs() - 1.0).abs() < 1e-5,
         "|sum signed volumes| = {} (expected 1.0)",
@@ -259,12 +258,12 @@ fn unit_cube_fixture_invariants() {
     let coords = coords_tensor_from_vec(&tets);
     let result = batched_p1_local_matrices(coords);
 
-    let k_flat = tensor_to_vec_f32(result.k_local);
-    let m_flat = tensor_to_vec_f32(result.m_local);
-    let v_flat = tensor_to_vec_f32(result.signed_volumes);
+    let k_flat = readback_f64(result.k_local);
+    let m_flat = readback_f64(result.m_local);
+    let v_flat = readback_f64(result.signed_volumes);
 
     for e in 0..tets.len() {
-        let v_e = (v_flat[e] as f64).abs();
+        let v_e = v_flat[e].abs();
 
         // K symmetric
         for i in 0..4 {
@@ -272,7 +271,7 @@ fn unit_cube_fixture_invariants() {
                 let kij = k_flat[e * 16 + i * 4 + j];
                 let kji = k_flat[e * 16 + j * 4 + i];
                 assert!(
-                    ((kij - kji) as f64).abs() < 1e-5,
+                    (kij - kji).abs() < 1e-5,
                     "K not symmetric at elem {e} ({i},{j}): {kij} vs {kji}"
                 );
             }
@@ -280,16 +279,16 @@ fn unit_cube_fixture_invariants() {
 
         // K row sums equal zero (partition of unity: ∇1 = 0 ⇒ K·1 = 0).
         for i in 0..4 {
-            let row_sum: f32 = (0..4).map(|j| k_flat[e * 16 + i * 4 + j]).sum();
+            let row_sum: f64 = (0..4).map(|j| k_flat[e * 16 + i * 4 + j]).sum();
             assert!(
-                ((row_sum) as f64).abs() < 1e-4,
+                row_sum.abs() < 1e-4,
                 "K row {i} of elem {e} sums to {row_sum} (expected 0)"
             );
         }
 
         // M row sums equal V_e (consistent mass: ∫_T φ_i dV = V/4, summed = V).
         for i in 0..4 {
-            let row_sum: f64 = (0..4).map(|j| m_flat[e * 16 + i * 4 + j] as f64).sum();
+            let row_sum: f64 = (0..4).map(|j| m_flat[e * 16 + i * 4 + j]).sum();
             assert!(
                 (row_sum - v_e / 4.0).abs() < 1e-5 * (1.0 + v_e),
                 "M row {i} of elem {e}: row_sum={row_sum}, expected V/4 = {}",

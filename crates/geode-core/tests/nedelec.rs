@@ -18,6 +18,9 @@ use geode_core::{
     cube_tet_mesh, tet_edges, upload_mesh, DefaultBackend, TetMesh,
 };
 
+mod common;
+use common::readback_f64;
+
 type B = DefaultBackend;
 
 /// f32 tolerance — Burn's default float backend is f32, reference is f64.
@@ -35,10 +38,6 @@ fn coords_tensor_from_vec(tets: &[[[f64; 3]; 4]]) -> Tensor<B, 3> {
         .collect();
     let data = TensorData::new(flat, [n, 4, 3]);
     Tensor::<B, 3>::from_data(data, &device())
-}
-
-fn tensor_to_vec_f32<const D: usize>(t: Tensor<B, D>) -> Vec<f32> {
-    t.into_data().to_vec::<f32>().expect("readback f32")
 }
 
 // --- CPU reference -----------------------------------------------------------
@@ -160,7 +159,7 @@ fn reference_unit_tet_k_matches_hand_tabulated() {
     let coords = coords_tensor_from_vec(&[ref_tet]);
     let result = batched_nedelec_local_matrices(coords);
 
-    let k = tensor_to_vec_f32(result.k_local);
+    let k = readback_f64(result.k_local);
 
     let c = [
         [0.0, -2.0, 2.0],
@@ -181,7 +180,7 @@ fn reference_unit_tet_k_matches_hand_tabulated() {
 
     for i in 0..6 {
         for j in 0..6 {
-            let g = k[i * 6 + j] as f64;
+            let g = k[i * 6 + j];
             let e = expected[i][j];
             assert!(
                 (g - e).abs() < F32_TOL * (1.0 + e.abs()),
@@ -203,7 +202,7 @@ fn reference_unit_tet_m_matches_hand_tabulated() {
     let coords = coords_tensor_from_vec(&[ref_tet]);
     let result = batched_nedelec_local_matrices(coords);
 
-    let m = tensor_to_vec_f32(result.m_local);
+    let m = readback_f64(result.m_local);
     let (_, m_ref, _) = nedelec_local_reference(&ref_tet);
 
     // Independent spot checks of two entries we computed by hand in
@@ -221,7 +220,7 @@ fn reference_unit_tet_m_matches_hand_tabulated() {
 
     for i in 0..6 {
         for j in 0..6 {
-            let g = m[i * 6 + j] as f64;
+            let g = m[i * 6 + j];
             let e = m_ref[i][j];
             assert!(
                 (g - e).abs() < F32_TOL * (1.0 + e.abs()),
@@ -237,9 +236,9 @@ fn reference_unit_tet_signed_volume_is_one_sixth() {
     let coords = coords_tensor_from_vec(&[ref_tet]);
     let result = batched_nedelec_local_matrices(coords);
 
-    let v = tensor_to_vec_f32(result.signed_volumes);
+    let v = readback_f64(result.signed_volumes);
     assert_eq!(v.len(), 1);
-    assert!(((v[0] - 1.0f32 / 6.0) as f64).abs() < F32_TOL);
+    assert!((v[0] - 1.0 / 6.0).abs() < F32_TOL);
 }
 
 #[test]
@@ -250,14 +249,14 @@ fn batched_random_tets_match_cpu_reference() {
     let coords = coords_tensor_from_vec(&tets);
     let result = batched_nedelec_local_matrices(coords);
 
-    let k_flat = tensor_to_vec_f32(result.k_local);
-    let m_flat = tensor_to_vec_f32(result.m_local);
-    let v_flat = tensor_to_vec_f32(result.signed_volumes);
+    let k_flat = readback_f64(result.k_local);
+    let m_flat = readback_f64(result.m_local);
+    let v_flat = readback_f64(result.signed_volumes);
 
     for (e_idx, tet) in tets.iter().enumerate() {
         let (k_ref, m_ref, v_ref) = nedelec_local_reference(tet);
 
-        let v_got = v_flat[e_idx] as f64;
+        let v_got = v_flat[e_idx];
         let v_tol = F32_TOL * (1.0 + v_ref.abs());
         assert!(
             (v_got - v_ref).abs() < v_tol,
@@ -266,7 +265,7 @@ fn batched_random_tets_match_cpu_reference() {
 
         for i in 0..6 {
             for j in 0..6 {
-                let k_got = k_flat[(e_idx * 36) + i * 6 + j] as f64;
+                let k_got = k_flat[(e_idx * 36) + i * 6 + j];
                 let k_ref_ij = k_ref[i][j];
                 let k_tol = 1e-4 * (1.0 + k_ref_ij.abs());
                 assert!(
@@ -274,7 +273,7 @@ fn batched_random_tets_match_cpu_reference() {
                     "elem {e_idx} K[{i},{j}]: got {k_got}, ref {k_ref_ij}"
                 );
 
-                let m_got = m_flat[(e_idx * 36) + i * 6 + j] as f64;
+                let m_got = m_flat[(e_idx * 36) + i * 6 + j];
                 let m_ref_ij = m_ref[i][j];
                 let m_tol = 1e-4 * (1.0 + m_ref_ij.abs());
                 assert!(
@@ -315,20 +314,20 @@ fn k_invariant_under_rigid_motion() {
     let res_ref = batched_nedelec_local_matrices(coords_ref);
     let res_moved = batched_nedelec_local_matrices(coords_moved);
 
-    let k_ref = tensor_to_vec_f32(res_ref.k_local);
-    let k_moved = tensor_to_vec_f32(res_moved.k_local);
-    let m_ref = tensor_to_vec_f32(res_ref.m_local);
-    let m_moved = tensor_to_vec_f32(res_moved.m_local);
+    let k_ref = readback_f64(res_ref.k_local);
+    let k_moved = readback_f64(res_moved.k_local);
+    let m_ref = readback_f64(res_ref.m_local);
+    let m_moved = readback_f64(res_moved.m_local);
 
     for (a, b) in k_ref.iter().zip(k_moved.iter()) {
         assert!(
-            ((a - b) as f64).abs() < 1e-4,
+            (a - b).abs() < 1e-4,
             "K not invariant under rigid motion: {a} vs {b}"
         );
     }
     for (a, b) in m_ref.iter().zip(m_moved.iter()) {
         assert!(
-            ((a - b) as f64).abs() < 1e-4,
+            (a - b).abs() < 1e-4,
             "M not invariant under rigid motion: {a} vs {b}"
         );
     }
@@ -350,10 +349,10 @@ fn m_scales_linearly_with_uniform_dilation() {
     let coords = coords_tensor_from_vec(&[scaled]);
     let result = batched_nedelec_local_matrices(coords);
     let (_, m_ref, _) = nedelec_local_reference(&scaled);
-    let m_got = tensor_to_vec_f32(result.m_local);
+    let m_got = readback_f64(result.m_local);
     for i in 0..6 {
         for j in 0..6 {
-            let g = m_got[i * 6 + j] as f64;
+            let g = m_got[i * 6 + j];
             let e = m_ref[i][j];
             assert!(
                 (g - e).abs() < 1e-3 * (1.0 + e.abs()),
@@ -503,21 +502,21 @@ fn shared_edge_assembly_signs_apply_correctly() {
         .collect();
 
     let sys = assemble_global_nedelec(nodes_t, tets_t, &tet_idx, &tet_sign, n_edges);
-    let k: Vec<f32> = sys.k.into_data().to_vec().expect("readback");
-    let m: Vec<f32> = sys.m.into_data().to_vec().expect("readback");
+    let k = readback_f64(sys.k);
+    let m = readback_f64(sys.m);
 
     for i in 0..n_edges {
         for j in (i + 1)..n_edges {
             let kij = k[i * n_edges + j];
             let kji = k[j * n_edges + i];
             assert!(
-                ((kij - kji) as f64).abs() < 1e-4,
+                (kij - kji).abs() < 1e-4,
                 "K not symmetric ({i},{j}): {kij} vs {kji}"
             );
             let mij = m[i * n_edges + j];
             let mji = m[j * n_edges + i];
             assert!(
-                ((mij - mji) as f64).abs() < 1e-5,
+                (mij - mji).abs() < 1e-5,
                 "M not symmetric ({i},{j}): {mij} vs {mji}"
             );
         }
@@ -544,8 +543,8 @@ fn cube_assembly_k_symmetric_and_m_total_mass_positive() {
     let (nodes, tets) = upload_mesh::<B>(&mesh, &device());
     let sys = assemble_global_nedelec(nodes, tets, &tet_idx, &tet_sign, n_edges);
 
-    let k: Vec<f32> = sys.k.into_data().to_vec().expect("readback k");
-    let m: Vec<f32> = sys.m.clone().into_data().to_vec().expect("readback m");
+    let k = readback_f64(sys.k);
+    let m = readback_f64(sys.m);
 
     // K and M symmetric.
     for i in 0..n_edges {
@@ -553,13 +552,13 @@ fn cube_assembly_k_symmetric_and_m_total_mass_positive() {
             let kij = k[i * n_edges + j];
             let kji = k[j * n_edges + i];
             assert!(
-                ((kij - kji) as f64).abs() < 1e-4,
+                (kij - kji).abs() < 1e-4,
                 "K not symmetric ({i},{j})"
             );
             let mij = m[i * n_edges + j];
             let mji = m[j * n_edges + i];
             assert!(
-                ((mij - mji) as f64).abs() < 1e-5,
+                (mij - mji).abs() < 1e-5,
                 "M not symmetric ({i},{j})"
             );
         }
@@ -671,7 +670,7 @@ fn assembly_preserves_autodiff_smoke() {
     let dnodes = nodes
         .grad(&grads)
         .expect("gradient w.r.t. nodes should exist");
-    let dnodes_vec: Vec<f32> = dnodes.into_data().to_vec().expect("readback");
+    let dnodes_vec = readback_f64(dnodes);
     let mut finite = 0;
     let mut nonzero = 0;
     for &g in &dnodes_vec {

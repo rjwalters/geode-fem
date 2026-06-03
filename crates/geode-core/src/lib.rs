@@ -182,7 +182,7 @@ fn default_device_label() -> String {
 /// elementwise sum within tolerance; `Err` otherwise. Failure here
 /// indicates a backend wiring problem (driver, adapter, feature flag).
 pub fn smoke_add() -> Result<DeviceInfo, String> {
-    use burn::tensor::TensorData;
+    use burn::tensor::{ElementConversion, TensorData};
 
     type B = DefaultBackend;
     let device = <B as BackendTypes>::Device::default();
@@ -191,12 +191,20 @@ pub fn smoke_add() -> Result<DeviceInfo, String> {
     let b = Tensor::<B, 1>::from_data(TensorData::from([4.0f32, 3.0, 2.0, 1.0]), &device);
     let c = a + b;
 
+    // Read back at `B::FloatElem` (which may be `f32` or `f64` depending
+    // on the backend selected via feature flags) and upcast to `f64` so
+    // the comparison logic is backend-agnostic. The previous
+    // `to_vec::<f32>()` panicked with `TypeMismatch` on the f64
+    // `ndarray` backend.
     let data = c.into_data();
-    let values: Vec<f32> = data
-        .to_vec::<f32>()
-        .map_err(|e| format!("tensor readback failed: {e:?}"))?;
+    let values: Vec<f64> = data
+        .to_vec::<<B as BackendTypes>::FloatElem>()
+        .map_err(|e| format!("tensor readback failed: {e:?}"))?
+        .into_iter()
+        .map(|x| x.elem::<f64>())
+        .collect();
 
-    let expected = [5.0f32; 4];
+    let expected = [5.0f64; 4];
     if values.len() != expected.len()
         || values
             .iter()
