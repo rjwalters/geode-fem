@@ -1,0 +1,63 @@
+{
+  "schema_version": "1",
+  "fixture_id": "p1_local/canonical_reference_tet",
+  "description": "P1 (linear) tetrahedral local matrices for the canonical reference tet [(0,0,0),(1,0,0),(0,1,0),(0,0,1)] — the affine identity. NumPy baseline produced by reference/numpy/p1_local_matrices.py via gen_p1_local_per_case.py.",
+  "units": "dimensionless (geometry is unit-scaled; values are exact rationals encoded as f64)",
+  "inputs": {
+    "coords": {
+      "shape": [1, 4, 3],
+      "dtype": "f64",
+      "description": "Per-element vertex coordinates [n_elem, 4 vertices, 3 spatial dims].",
+      "data": [
+        [
+          [0.0, 0.0, 0.0],
+          [1.0, 0.0, 0.0],
+          [0.0, 1.0, 0.0],
+          [0.0, 0.0, 1.0]
+        ]
+      ]
+    }
+  },
+  "outputs": {
+    "k_local": {
+      "shape": [1, 4, 4],
+      "dtype": "f64",
+      "description": "Local stiffness K_{ij} = V (grad phi_i . grad phi_j), row-major. Tolerance set loose enough for the f32 default backend; the Rust comparator layers a tighter backend-aware rel-tol check on top (see crates/geode-validation/tests/p1_local_numpy_reference.rs).",
+      "tolerance_abs": 1.0e-4,
+      "data": [
+        [
+          [ 0.5,                -0.16666666666666666, -0.16666666666666666, -0.16666666666666666],
+          [-0.16666666666666666, 0.16666666666666666,  0.0,                  0.0                ],
+          [-0.16666666666666666, 0.0,                  0.16666666666666666,  0.0                ],
+          [-0.16666666666666666, 0.0,                  0.0,                  0.16666666666666666]
+        ]
+      ]
+    },
+    "m_local": {
+      "shape": [1, 4, 4],
+      "dtype": "f64",
+      "description": "Local consistent mass M_{ij} = (V/20)(1 + delta_{ij}), row-major.",
+      "tolerance_abs": 1.0e-5,
+      "data": [
+        [
+          [0.016666666666666666, 0.008333333333333333, 0.008333333333333333, 0.008333333333333333],
+          [0.008333333333333333, 0.016666666666666666, 0.008333333333333333, 0.008333333333333333],
+          [0.008333333333333333, 0.008333333333333333, 0.016666666666666666, 0.008333333333333333],
+          [0.008333333333333333, 0.008333333333333333, 0.008333333333333333, 0.016666666666666666]
+        ]
+      ]
+    },
+    "signed_volume": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Signed element volume V = det(J)/6. Positive for the canonical orientation.",
+      "tolerance_abs": 1.0e-5,
+      "data": [0.16666666666666666]
+    }
+  },
+  "provenance": {
+    "source": "reference/numpy/p1_local_matrices.py via reference/numpy/gen_p1_local_per_case.py (formerly gen_p1_local_standard.py)",
+    "verified_against": "crates/geode-validation/tests/p1_local_numpy_reference.rs (Burn vs. NumPy on the same five canonical cases)",
+    "issue": "#90 / #101 (consolidation onto geode-validation harness)"
+  }
+}

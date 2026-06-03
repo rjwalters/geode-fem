@@ -67,7 +67,7 @@ table goes here. The harness path is:
    `reference/fixtures/cube_cavity/jax_baseline.json` (JAX baseline).
 3. `mvn exec:java` + `python3 .../eigensolve_from_tfjava.py` →
    TF-Java path eigenvalues.
-4. `crates/geode-core/tests/cube_cavity_jax_reference.rs` → Burn
+4. `crates/geode-validation/tests/cube_cavity_jax_reference.rs` → Burn
    path eigenvalues vs JAX baseline.
 
 A side-by-side table goes in this README after the first CI run of
@@ -83,7 +83,7 @@ the TF-Java path lands. For now, the *expected* table is:
 (JAX vs NumPy was measured at `1e-13` relative on `n=4` during
 fixture generation; see `gen_cube_cavity_fixture.py` output. Burn
 vs JAX is measured by
-`crates/geode-core/tests/cube_cavity_jax_reference.rs` at `~7e-7`
+`crates/geode-validation/tests/cube_cavity_jax_reference.rs` at `~7e-7`
 relative for `n=4`. TF-Java number pending first build.)
 
 ## CI gating
@@ -91,5 +91,5 @@ relative for `n=4`. TF-Java number pending first build.)
 TF-Java pulls ~200 MB of native libs and requires JDK 17+, so it is
 gated behind a slow, optional CI job rather than the default
 `cargo test` run. The fast path (JAX vs Burn) is exercised by
-`cargo test -p geode-core --release --test cube_cavity_jax_reference`
+`cargo test -p geode-validation --release --test cube_cavity_jax_reference -- --ignored`
 and does not require any JVM infrastructure.
