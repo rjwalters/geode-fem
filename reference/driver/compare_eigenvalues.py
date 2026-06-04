@@ -19,6 +19,11 @@ The CI workflows wire this script with different primary backends:
   + a freshly emitted NumPy n=10 row. The JAX row is omitted from the
   Julia gate when meshes don't match (jax_baseline.json is n=4); see
   the workflow header for the rationale.
+- `.github/workflows/onnx-cube-cavity.yml` (issue #123): ONNX primary,
+  compared against the NumPy n=10 canonical baseline + a freshly
+  emitted NumPy n=10 row. The JAX row is shown for diagnostic context
+  but omitted from the rtol gate via `--skip-jax-comparison`, same
+  pattern as the Julia gate (jax_baseline.json is pinned at n=4).
 
 Optional `--burn` is supported for ad-hoc/local audits where all four
 rows are convenient.
@@ -36,16 +41,17 @@ Usage
     python3 reference/driver/compare_eigenvalues.py \
         [--tfjava path/to/eigenresult_tfjava.json] \
         [--julia  path/to/julia_baseline.json] \
+        [--onnx   path/to/eigenresult_onnx.json] \
         --jax    reference/fixtures/cube_cavity/jax_baseline.json \
         [--numpy path/to/numpy_baseline.json] \
         [--burn  path/to/burn_baseline.json] \
         [--rtol 1e-5] \
         [--out path/to/agreement_table.md]
 
-At least one of `--tfjava` or `--julia` must be supplied. The `--jax`
-flag is required so the comparator always emits the cross-IR XLA-vs-
-ARPACK columns (even when one row is omitted due to mesh mismatch, the
-header documents the omission explicitly).
+At least one of `--tfjava`, `--julia`, or `--onnx` must be supplied.
+The `--jax` flag is required so the comparator always emits the
+cross-IR XLA-vs-ARPACK columns (even when one row is omitted due to
+mesh mismatch, the header documents the omission explicitly).
 """
 
 from __future__ import annotations
@@ -92,6 +98,8 @@ def main() -> int:
                         help="Path to the TF-Java eigenresult JSON (from eigensolve_from_tfjava.py).")
     parser.add_argument("--julia", type=Path, default=None,
                         help="Path to the Julia eigenresult JSON (from reference/julia/cube_cavity.jl).")
+    parser.add_argument("--onnx", type=Path, default=None,
+                        help="Path to the ONNX eigenresult JSON (from eigensolve_from_onnx.py).")
     parser.add_argument("--jax", required=True, type=Path,
                         help="Path to the JAX baseline JSON.")
     parser.add_argument("--numpy", type=Path, default=None,
@@ -113,8 +121,8 @@ def main() -> int:
                         ))
     args = parser.parse_args()
 
-    if args.tfjava is None and args.julia is None:
-        print("ERROR: at least one of --tfjava or --julia must be supplied.",
+    if args.tfjava is None and args.julia is None and args.onnx is None:
+        print("ERROR: at least one of --tfjava, --julia, or --onnx must be supplied.",
               file=sys.stderr)
         return 1
 
@@ -136,16 +144,24 @@ def main() -> int:
             return 1
         julia = _load_eigenvalues(args.julia)
 
+    onnx_e = None
+    if args.onnx is not None:
+        if not args.onnx.exists():
+            print(f"ONNX eigenresult not found: {args.onnx}", file=sys.stderr)
+            return 1
+        onnx_e = _load_eigenvalues(args.onnx)
+
     jax_e = _load_eigenvalues(args.jax)
     numpy_e = _load_eigenvalues(args.numpy) if args.numpy and args.numpy.exists() else None
     burn_e = _load_eigenvalues(args.burn) if args.burn and args.burn.exists() else None
 
     # Truncate to k across whatever rows are present.
-    present = [v.size for v in (tfjava, julia, jax_e) if v is not None]
+    present = [v.size for v in (tfjava, julia, onnx_e, jax_e) if v is not None]
     k = min(args.k, *present)
     jax_k = jax_e[:k]
     tfjava_k = tfjava[:k] if tfjava is not None else None
     julia_k = julia[:k] if julia is not None else None
+    onnx_k = onnx_e[:k] if onnx_e is not None else None
     numpy_k = numpy_e[:k] if numpy_e is not None else None
     burn_k = burn_e[:k] if burn_e is not None else None
 
@@ -162,11 +178,15 @@ def main() -> int:
             drift[(primary_label, "Julia")] = _max_rel(primary, julia_k)
         if tfjava_k is not None and primary_label != "TF-Java":
             drift[(primary_label, "TF-Java")] = _max_rel(primary, tfjava_k)
+        if onnx_k is not None and primary_label != "ONNX":
+            drift[(primary_label, "ONNX")] = _max_rel(primary, onnx_k)
 
     if tfjava_k is not None:
         _record("TF-Java", tfjava_k)
     if julia_k is not None:
         _record("Julia", julia_k)
+    if onnx_k is not None:
+        _record("ONNX", onnx_k)
 
     # --- Render Markdown table ---
     primary_labels = []
@@ -174,6 +194,8 @@ def main() -> int:
         primary_labels.append("TF-Java")
     if julia_k is not None:
         primary_labels.append("Julia")
+    if onnx_k is not None:
+        primary_labels.append("ONNX")
 
     other_labels = ["JAX"]
     if numpy_k is not None:
@@ -192,6 +214,8 @@ def main() -> int:
         backend_rows.append(_format_row("TF-Java", tfjava, k))
     if julia is not None:
         backend_rows.append(_format_row("Julia", julia, k))
+    if onnx_e is not None:
+        backend_rows.append(_format_row("ONNX", onnx_e, k))
     if burn_e is not None:
         backend_rows.append(_format_row("Burn", burn_e, k))
 
@@ -208,7 +232,7 @@ def main() -> int:
         "",
     ]
     for primary_label in primary_labels:
-        for other in [lab for lab in ("JAX", "NumPy", "Burn", "Julia", "TF-Java")
+        for other in [lab for lab in ("JAX", "NumPy", "Burn", "Julia", "TF-Java", "ONNX")
                       if lab != primary_label and (primary_label, lab) in drift]:
             tag = ""
             if other == "JAX" and args.skip_jax_comparison:
