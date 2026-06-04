@@ -29,21 +29,28 @@ reference/
 │   │   ├── anisotropic_well_shaped.json
 │   │   ├── near_degenerate_sliver.json
 │   │   └── inverted_tet.json
-│   └── cube_cavity/
-│       ├── baseline.json           — cube-cavity NumPy baseline (eigenvalues + sub-stages + Q_numpy, #92)
+│   ├── cube_cavity/
+│   │   ├── baseline.json           — cube-cavity NumPy baseline (eigenvalues + sub-stages + Q_numpy, #92)
+│   │   ├── baseline.schema.md      — per-fixture schema notes for `baseline.json`
+│   │   ├── jax_baseline.json       — lowest 5 eigenvalues + traces from JAX (#93)
+│   │   ├── julia_baseline.json     — lowest 5 eigenvalues + sub-stages from Julia + Arpack.jl (#115)
+│   │   └── unit_cube.msh           — shared n=10 mesh (MSH 4.1 ASCII via meshio, #92)
+│   └── sphere_pec/
+│       ├── baseline.json           — sphere-PEC NumPy baseline (#118)
 │       ├── baseline.schema.md      — per-fixture schema notes for `baseline.json`
-│       ├── jax_baseline.json       — lowest 5 eigenvalues + traces from JAX (#93)
-│       ├── julia_baseline.json     — lowest 5 eigenvalues + sub-stages from Julia + Arpack.jl (#115)
-│       └── unit_cube.msh           — shared n=10 mesh (MSH 4.1 ASCII via meshio, #92)
+│       └── sphere.msh              — bundled sphere fixture (copy of crates/geode-core/tests/fixtures/sphere.msh, #118)
 ├── numpy/                          — NumPy/SciPy reference impls (Python)
 │   ├── README.md
 │   ├── requirements.txt            — pinned NumPy + scipy + meshio versions (#90, #92)
 │   ├── mesh.py                     — shared mesh builders (cube_tet_mesh, cube_interior_mask, load_msh, write_msh) (#103)
 │   ├── p1_local_matrices.py        — P1 element-local K and M (#90)
+│   ├── nedelec_local_matrices.py   — Nédélec element-local K and M (#117)
 │   ├── gen_p1_local_per_case.py    — regenerates `fixtures/p1_local/<case>.json` (#90 / #101)
 │   ├── cube_cavity.py              — cube-cavity end-to-end driver, n=10 + Gmsh-fixture path (#92)
 │   ├── cube_cavity_minimal.py      — sibling cube-cavity driver, programmatic n=4 path (#93)
-│   └── gen_cube_cavity_baseline.py — regenerates `fixtures/cube_cavity/baseline.json` (#92)
+│   ├── gen_cube_cavity_baseline.py — regenerates `fixtures/cube_cavity/baseline.json` (#92)
+│   ├── sphere_pec.py               — sphere-PEC end-to-end driver (#118)
+│   └── gen_sphere_pec_baseline.py  — regenerates `fixtures/sphere_pec/baseline.json` (#118)
 ├── jax/                            — JAX reference impls (Python)
 │   ├── README.md                   — DX friction notes (per #88 JAX-DX follow-up)
 │   ├── cube_cavity.py              — Cube-cavity assembly + autodiff anchor (#93)
