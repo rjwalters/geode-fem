@@ -25,10 +25,13 @@ f64-pair representation used in Burn/NumPy.
 ## Toolchain bootstrap
 
 The reference uses Julia 1.10 LTS, `Arpack.jl 0.5`, and `JSON3.jl`.
-Dependencies are pinned in `Project.toml`; the curator pass on issue
-#115 recommends committing `Manifest.toml` for applications, but the
-initial PR ships without it to avoid lock-file churn (revisit per
-Open Question #1 if reproducibility friction surfaces).
+Dependencies are pinned in `Project.toml`; `Manifest.toml` is
+committed per the curator's Open Question #1 recommendation
+(reproducible builds for an application). This directory is a plain
+Julia *environment*, not a package — there is no `name`/`uuid`/`version`
+in `Project.toml` and no `src/` module, which keeps
+`Pkg.instantiate()` from trying to precompile a non-existent
+top-level module.
 
 ```sh
 # One-time setup: resolve and precompile dependencies.
@@ -111,12 +114,41 @@ This section is the durable record the Epic #88 framing asks for —
 observations go to #5 as supporting evidence, not side-channel
 grumbling.
 
-Initially empty: the cube-cavity slice is real-symmetric, so this
-PR (#115) does not surface complex-arithmetic friction directly. The
-slot is reserved for Phase G's Nédélec curl-curl (where complex
-permittivities will exercise complex-typed assembly) and Phase H's
-PML (where stretched-coordinate complex frequencies surface
-directly).
+The cube-cavity slice is real-symmetric, so PR #115 does not surface
+complex-arithmetic friction directly. The slot remains open for Phase
+G's Nédélec curl-curl (where complex permittivities will exercise
+complex-typed assembly) and Phase H's PML (where stretched-coordinate
+complex frequencies surface directly).
+
+### Real-arithmetic friction: Arpack.jl 0.5 shift-invert API divergence
+
+The first concrete Julia friction artifact, surfaced during PR #115
+review: **the canonical SciPy recipe
+`eigsh(K, k, M=M, sigma=0, which="LM")` for "lowest generalized
+eigenvalues" does not work as-is in `Arpack.jl 0.5`.** When the
+problem is generalized (B matrix present) and `sigma !== nothing`,
+Arpack.jl 0.5 takes the `:auto` `explicittransform=:shiftinvert`
+path, swaps `:LM ↔ :SM` internally, factorizes `σB - A = -K` at
+σ=0, and solves the standard problem for `-K⁻¹M` with `:SM` — which
+returns the *largest* generalized eigenvalues of the original pencil,
+the opposite of what the user requested. The post-processing step
+`λ = σ - 1/μ` does invert the transform, but on the wrong end of the
+spectrum.
+
+Workaround: use Arpack.jl's regular-inverse mode — `eigs(K, M; nev,
+which=:SM)` with no `sigma`. This factorizes M once and Lanczos-
+iterates on `M⁻¹K` asking for smallest-magnitude eigenvalues. Matches
+the dense `eigvals(K, M)` reference to ~1e-13.
+
+This is a **calling-convention divergence between Julia and SciPy on
+top of the same libarpack**, exactly the kind of L4 friction Epic #88
+is designed to surface. The two ecosystems wrap the same Fortran with
+incompatible conventions, and the iteration trace agreement that
+motivated the Arpack.jl choice still holds for the *operator* — just
+not for the SciPy-shaped API call. Recorded here, in the docstring
+of `cube_cavity.jl::eigensolve_arpack`, and in the
+`provenance.verified_against` field of the generated fixture. File on
+#5 as supporting evidence for the friction-mining loop.
 
 ### Positive friction artifact: Julia's f64 default
 

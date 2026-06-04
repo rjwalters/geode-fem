@@ -21,10 +21,14 @@ Algorithmic structure mirrors `reference/numpy/cube_cavity.py` exactly:
    which collapses duplicates by sum (same semantics as scipy's
    `coo_matrix.tocsr`).
 4. Dirichlet BC — restrict K, M to interior nodes via fancy indexing.
-5. Generalized eigensolve — `Arpack.eigs(K_int, M_int, nev=5, sigma=0.0,
-   which=:LM)`. Arpack.jl binds the same `libarpack` as
-   `scipy.sparse.linalg.eigsh`, making this a near-bit-equivalent of the
-   NumPy reference at the iteration-trace level.
+5. Generalized eigensolve — `Arpack.eigs(K_int, M_int, nev=5, which=:SM)`.
+   Arpack.jl binds the same `libarpack` as `scipy.sparse.linalg.eigsh`,
+   making this a near-bit-equivalent of the NumPy reference at the
+   iteration-trace level. The exact call differs from SciPy's
+   `eigsh(K, k, M=M, sigma=0, which="LM")`: Arpack.jl 0.5 mis-handles
+   that shift-invert recipe on the generalized pencil and returns the
+   largest eigenvalues instead. See `eigensolve_arpack` for the gory
+   details and the regular-inverse-mode workaround.
 
 Usage
 =====
@@ -44,11 +48,27 @@ ARPACK iteration-trace caveat
 =============================
 
 Arpack.jl's `eigs` is sensitive to the Arnoldi starting vector. We
-explicitly seed v0 (see `_solve_arpack`) so the run is deterministic
-across machines. Eigenvalues are stable to ~1e-13 across re-runs;
-eigenvectors within a degenerate cluster require the subspace-overlap
-convention (we do not store eigenvectors in `julia_baseline.json` —
-mirroring `jax_baseline.json`'s shape).
+explicitly seed v0 (see `eigensolve_arpack`) so the run is
+deterministic across machines. Eigenvalues are stable to ~1e-13
+across re-runs; eigenvectors within a degenerate cluster require the
+subspace-overlap convention (we do not store eigenvectors in
+`julia_baseline.json` — mirroring `jax_baseline.json`'s shape).
+
+Arpack.jl vs SciPy calling-convention divergence
+================================================
+
+Arpack.jl 0.5.x and SciPy share the same underlying libarpack, so they
+agree to the iteration-trace level on the *same* operator. They do not
+agree on how to set up the "lowest generalized eigenvalues" call. SciPy
+uses `eigsh(K, k, M=M, sigma=0, which="LM")` (shift-invert at σ=0,
+ask for largest-magnitude eigenvalues of `(K-σM)⁻¹M`); Arpack.jl 0.5
+mis-routes that recipe through its `:auto` explicit-transform path and
+returns the *largest* eigenvalues. We use `eigs(K, M; nev, which=:SM)`
+(no `sigma`) — Arpack.jl's regular-inverse mode (`mode = 2`) — which
+factorizes M once and Lanczos-iterates on `M⁻¹K`, asking for
+smallest-magnitude. This matches the dense `eigvals(K, M)` result to
+~1e-13 and is the Julia friction artifact for Epic #88 Phase E
+(complex-arithmetic toolchain bring-up).
 """
 
 push!(LOAD_PATH, @__DIR__)
@@ -190,14 +210,35 @@ end
 """
     eigensolve_arpack(K, M; nev=5) -> (eigvals, eigvecs)
 
-Lowest-`nev` generalized eigenpairs of `K x = λ M x` via Arpack.jl with
-shift-and-invert at σ = 0. Arpack.jl wraps the same libarpack used by
-scipy.sparse.linalg.eigsh, so the iteration trace agrees with the NumPy
-reference to ~bit-equivalent precision.
+Lowest-`nev` generalized eigenpairs of `K x = λ M x` via Arpack.jl.
 
-A deterministic starting vector is supplied via `v0` so repeated runs
-on the same machine produce identical eigenvectors (eigenvalues are
-stable regardless).
+Arpack.jl wraps the same libarpack used by `scipy.sparse.linalg.eigsh`,
+so the iteration trace agrees with the NumPy reference at the
+bit-equivalent precision level on the same matrices.
+
+**Calling convention — `which=:SM` (regular inverse mode), NOT
+`sigma=0; which=:LM` (shift-invert).**
+
+`scipy.sparse.linalg.eigsh(K, k, M=M, sigma=0.0, which="LM")` is the
+canonical recipe for "lowest-`k` generalized eigenvalues" in SciPy.
+**Arpack.jl 0.5 does not produce the same result on the generalized
+problem with that call**: when `sigma !== nothing` and the problem is
+generalized, Arpack.jl 0.5 internally takes the `:auto`
+`explicittransform=:shiftinvert` path, swaps `:LM ↔ :SM`, factorizes
+`σB - A = -K` (at σ=0), and ends up solving the standard problem for
+`-K⁻¹ M` with `:SM`. The smallest-magnitude eigenvalues of `-K⁻¹ M`
+correspond to the *largest* generalized eigenvalues of `K x = λ M x`,
+so the post-processing step `λ = σ - 1/μ` returns the **largest**
+generalized eigenvalues — the opposite of what the user requested.
+
+For the generalized pencil with M SPD, Arpack.jl's "regular inverse
+mode" (`mode = 2`, `which=:SM`, no `sigma`) does the right thing:
+it factorizes M once, then runs Lanczos on the operator
+`x ↦ M⁻¹ K x`, asking for the smallest-magnitude eigenvalues.
+
+A deterministic v0 is supplied so repeated runs on the same machine
+produce identical Arnoldi traces; eigenvalues are stable across
+machines regardless.
 """
 function eigensolve_arpack(K::SparseMatrixCSC{Float64}, M::SparseMatrixCSC{Float64};
                           nev::Int=5)
@@ -205,9 +246,10 @@ function eigensolve_arpack(K::SparseMatrixCSC{Float64}, M::SparseMatrixCSC{Float
     # Deterministic seed: all ones, normalized. Matches scipy's "supplied v0"
     # idiom; eliminates random-restart drift between machines.
     v0 = ones(Float64, n) ./ sqrt(n)
-    # which=:LM with sigma=0 is the canonical "smallest-magnitude" recipe in
-    # shift-invert mode.
-    eigvals, eigvecs = eigs(K, M; nev=nev, sigma=0.0, which=:LM, v0=v0)
+    # which=:SM in regular-inverse mode (no sigma) for the generalized
+    # pencil — see the docstring above for why the SciPy-style
+    # `sigma=0, which=:LM` call is buggy under Arpack.jl 0.5.
+    eigvals, eigvecs = eigs(K, M; nev=nev, which=:SM, v0=v0)
     # Real symmetric pencil ⇒ imaginary parts are at round-off; strip them.
     eigvals_real = real.(eigvals)
     eigvecs_real = real.(eigvecs)

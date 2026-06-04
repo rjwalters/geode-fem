@@ -214,7 +214,11 @@ function main()
             "verified_against" =>
                 "reference/numpy/cube_cavity.py — eigenvalues agree to ~1e-13 " *
                 "relative because Arpack.jl and scipy.sparse.linalg.eigsh both " *
-                "bind libarpack",
+                "bind libarpack (note: the calling convention differs — Arpack.jl " *
+                "uses regular-inverse mode via `which=:SM` with no `sigma`, " *
+                "while scipy uses shift-invert via `sigma=0` + `which=\"LM\"`; " *
+                "see reference/julia/cube_cavity.jl::eigensolve_arpack for the " *
+                "Arpack.jl 0.5 friction artifact)",
             "issue" => "#115 (Phase E — Julia cube-cavity Helmholtz reference)",
             "regenerated_at" => string(now()),
         ),
