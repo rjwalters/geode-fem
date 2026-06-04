@@ -234,18 +234,26 @@ pub fn batched_nedelec_local_matrices<B: Backend>(coords: Tensor<B, 3>) -> Nedel
     for &(a, b) in TET_LOCAL_EDGES.iter() {
         for &(c, d) in TET_LOCAL_EDGES.iter() {
             // K_ij = (2/3) · (gg_ac gg_bd − gg_ad gg_bc) / |det|^3
+            //
+            // The `2/3` scalar is computed in f64 — using an `f32` literal
+            // truncates the ratio to single precision *before* upcasting,
+            // costing ~5e-8 of accuracy on the f64 backend and dragging the
+            // backend-agnostic tolerance floor down to 1e-7. The
+            // f32-backend `mul_scalar` still converts to f32 internally.
             let k_term = gg_entry(a, c).mul(gg_entry(b, d)) - gg_entry(a, d).mul(gg_entry(b, c));
-            let k_val = k_term.mul(inv_abs_det3.clone()).mul_scalar(2.0_f32 / 3.0);
+            let k_val = k_term.mul(inv_abs_det3.clone()).mul_scalar(2.0_f64 / 3.0);
             k_entries.push(k_val);
 
             // M_ij = (V/20) [ (1 + δ_ac) G_bd − (1 + δ_ad) G_bc
             //              − (1 + δ_bc) G_ad + (1 + δ_bd) G_ac ]
             // With (V/20) G_pq = gg_pq / (120 |det|), each prefactor (1 + δ)
-            // is a constant we fold into a scalar multiply.
-            let f_ac = if a == c { 2.0_f32 } else { 1.0_f32 };
-            let f_ad = if a == d { 2.0_f32 } else { 1.0_f32 };
-            let f_bc = if b == c { 2.0_f32 } else { 1.0_f32 };
-            let f_bd = if b == d { 2.0_f32 } else { 1.0_f32 };
+            // is a constant we fold into a scalar multiply. (`1.0` and
+            // `2.0` are exact in f32, so the literal type only matters
+            // for code-doc consistency with the K block above.)
+            let f_ac = if a == c { 2.0_f64 } else { 1.0_f64 };
+            let f_ad = if a == d { 2.0_f64 } else { 1.0_f64 };
+            let f_bc = if b == c { 2.0_f64 } else { 1.0_f64 };
+            let f_bd = if b == d { 2.0_f64 } else { 1.0_f64 };
 
             let m_term = gg_entry(b, d).mul_scalar(f_ac)
                 - gg_entry(b, c).mul_scalar(f_ad)

@@ -1,0 +1,201 @@
+{
+  "schema_version": "1",
+  "fixture_id": "nedelec_local/anisotropic_well_shaped",
+  "description": "N\u00e9d\u00e9lec edge-element local matrices for the reference tet scaled by (1, 0.5, 0.25) per axis \u2014 anisotropic but well-shaped. K entries scale up as the smaller axis shrinks.",
+  "units": "dimensionless",
+  "inputs": {
+    "coords": {
+      "shape": [
+        1,
+        4,
+        3
+      ],
+      "dtype": "f64",
+      "description": "Per-element vertex coordinates [n_elem, 4 vertices, 3 spatial dims].",
+      "data": [
+        [
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.5,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.25
+          ]
+        ]
+      ]
+    },
+    "tet_local_edge_signs": {
+      "shape": [
+        1,
+        6
+      ],
+      "dtype": "f64",
+      "description": "Per-element, per-edge sign s_i in {+1, -1} recording whether each local edge's orientation (lower local vertex index \u2192 higher) agrees with the global edge direction. NumPy reference always uses +1 for all six edges; the Rust harness multiplies the Burn output's [i, j] entry by s_i * s_j before comparing (per nedelec.rs:30-34). Edge order is canonical: [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)].",
+      "data": [
+        [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      ]
+    }
+  },
+  "outputs": {
+    "k_local": {
+      "shape": [
+        1,
+        6,
+        6
+      ],
+      "dtype": "f64",
+      "description": "Local curl-curl K_{ij} = 4 V (G_ac G_bd - G_ad G_bc) for the 6 edges in TET_LOCAL_EDGES order. Tolerance is loose absolute (f32-friendly tripwire); the Rust comparator layers a backend-aware mixed abs/rel check on top.",
+      "tolerance_abs": 0.001,
+      "data": [
+        [
+          [
+            1.6666666666666665,
+            -0.3333333333333333,
+            -1.3333333333333333,
+            0.3333333333333333,
+            1.3333333333333333,
+            0.0
+          ],
+          [
+            -0.3333333333333333,
+            5.666666666666666,
+            -5.333333333333333,
+            -0.3333333333333333,
+            0.0,
+            5.333333333333333
+          ],
+          [
+            -1.3333333333333333,
+            -5.333333333333333,
+            6.666666666666666,
+            0.0,
+            -1.3333333333333333,
+            -5.333333333333333
+          ],
+          [
+            0.3333333333333333,
+            -0.3333333333333333,
+            0.0,
+            0.3333333333333333,
+            0.0,
+            0.0
+          ],
+          [
+            1.3333333333333333,
+            0.0,
+            -1.3333333333333333,
+            0.0,
+            1.3333333333333333,
+            0.0
+          ],
+          [
+            0.0,
+            5.333333333333333,
+            -5.333333333333333,
+            0.0,
+            0.0,
+            5.333333333333333
+          ]
+        ]
+      ]
+    },
+    "m_local": {
+      "shape": [
+        1,
+        6,
+        6
+      ],
+      "dtype": "f64",
+      "description": "Local Whitney 1-form mass M_{ij} per nedelec.rs:67-74. Same edge order and sign convention as k_local.",
+      "tolerance_abs": 1e-06,
+      "data": [
+        [
+          [
+            0.04791666666666667,
+            0.027083333333333334,
+            0.03958333333333333,
+            0.00625,
+            0.03125,
+            0.0125
+          ],
+          [
+            0.027083333333333334,
+            0.06041666666666667,
+            0.042708333333333334,
+            0.00625,
+            0.015625,
+            0.025
+          ],
+          [
+            0.03958333333333333,
+            0.042708333333333334,
+            0.11041666666666666,
+            0.003125,
+            0.03125,
+            0.025
+          ],
+          [
+            0.00625,
+            0.00625,
+            0.003125,
+            0.010416666666666666,
+            0.0010416666666666667,
+            -0.004166666666666667
+          ],
+          [
+            0.03125,
+            0.015625,
+            0.03125,
+            0.0010416666666666667,
+            0.035416666666666666,
+            0.016666666666666666
+          ],
+          [
+            0.0125,
+            0.025,
+            0.025,
+            -0.004166666666666667,
+            0.016666666666666666,
+            0.041666666666666664
+          ]
+        ]
+      ]
+    },
+    "signed_volume": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "Signed element volume V = det(J)/6. Negative for inverted tets; use |signed_volume| for assembly weighting.",
+      "tolerance_abs": 1e-06,
+      "data": [
+        0.020833333333333332
+      ]
+    }
+  },
+  "provenance": {
+    "source": "reference/numpy/nedelec_local_matrices.py via reference/numpy/gen_nedelec_local_per_case.py @ acb7be7",
+    "verified_against": "crates/geode-validation/tests/nedelec_local_numpy_reference.rs",
+    "issue": "#117 (Epic #88 Phase G.1)"
+  }
+}
