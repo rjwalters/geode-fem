@@ -12,8 +12,9 @@
 //!    `tet_edge_idx` and `tet_edge_sign` arrays compared bit-exactly
 //!    (integer equality via the strict tolerance). Also: `n_edges`.
 //! 4. PEC mask — `n_interior_edges`, full `interior_mask` array, and
-//!    `spurious_dim` (predicted gradient kernel dimension) compared
-//!    bit-exactly.
+//!    `spurious_dim` (= `rank(d⁰_interior)`, the algebraic gradient
+//!    kernel dimension from `spurious_dim_from_derham` — Issue #124)
+//!    compared bit-exactly.
 //! 5. Global assembly — Burn-side `assemble_global_nedelec_with_epsilon`
 //!    then `apply_dirichlet_bc`. K_int / M_int compared via Frobenius
 //!    norms, per-DOF diagonals, per-row nnz histograms (sparsity-pattern
@@ -22,17 +23,21 @@
 //! 6. Spectrum — lowest `spurious_dim + 8` eigenvalues from faer's dense
 //!    `generalized_eigen`; compared element-wise at relative
 //!    `1e-6` (ndarray f64) / `5e-4` (GPU f32).
-//! 7. Spurious-mode filter — the largest-relative-gap heuristic
-//!    (verbatim port of `sphere_pec_eigenmode.rs:194-215`) re-run on
-//!    Burn's spectrum; `n_spurious` and `best_gap` must match the
-//!    NumPy reference bit-exactly. NOTE: on the bundled 774-node fixture
-//!    the heuristic gives `n_spurious = 371` (the Burn-side test's
-//!    `n_spurious == spurious_dim = 368` check is broken on this layered
-//!    fixture; see baseline.schema.md for details). This comparator
-//!    asserts Burn-NumPy agreement on the *observed* heuristic output —
-//!    the integer cross-check that the parent issue actually wants.
+//! 7. Spurious-mode classifier — algebraic d⁰-rank count
+//!    (`rank(d⁰_interior)`), NOT the deprecated largest-relative-gap
+//!    eigenvalue heuristic (Issue #124). Both Burn and NumPy compute
+//!    the rank via SVD with the same `1e-12 · σ_max` cutoff and report
+//!    `n_spurious = 368` on the bundled 774-node fixture. The integer
+//!    cross-check `n_spurious_burn == n_spurious_numpy == 368` is the
+//!    load-bearing cross-check on edge orientation + boundary masking
+//!    that the parent issue called out — now also algebraically
+//!    consistent with the discrete de-Rham complex
+//!    (`kernel(K) = image(d⁰)`, Epic #57 Phase 3.A).
 //! 8. Physical eigenvalues — lowest 5 after spurious filtering; compared
 //!    at `1e-6` relative (acceptance criterion from the parent issue).
+//!    With the d⁰-rank classifier the lowest-5 physical band now
+//!    includes the λ ≈ 1.42 triplet that the old heuristic
+//!    mis-classified as spurious.
 //!
 //! # Why `#[ignore]` on the eigensolve test
 //!
@@ -62,8 +67,8 @@ use faer::Mat;
 
 use geode_core::{
     apply_dirichlet_bc, assemble_global_nedelec_with_epsilon, build_epsilon_r, burn_matrix_to_faer,
-    read_sphere_fixture, sphere_n_interior_nodes, sphere_pec_interior_edges, upload_mesh,
-    DefaultBackend, R_BUFFER,
+    read_sphere_fixture, sphere_pec_interior_edges, sphere_pec_node_interior_mask,
+    spurious_dim_from_derham, upload_mesh, DefaultBackend, R_BUFFER,
 };
 use geode_validation::{Fixture, FixtureFormat};
 
@@ -182,7 +187,14 @@ fn run_burn_pipeline() -> BurnPipeline {
     let (mask_edges, interior_mask) = sphere_pec_interior_edges(&fixture.mesh, R_BUFFER);
     assert_eq!(mask_edges.len(), n_edges, "Burn-side edge mask shape");
     let n_interior_edges = interior_mask.iter().filter(|&&b| b).count();
-    let spurious_dim = sphere_n_interior_nodes(&fixture.mesh, R_BUFFER);
+    // `spurious_dim` is computed via the algebraic d⁰-rank classifier
+    // (Issue #124) — mirrors `sphere_pec.py::spurious_dim_from_derham`.
+    // The deprecated largest-relative-gap eigenvalue heuristic gave 371
+    // on this fixture by mis-classifying the λ ≈ 1.42 physical triplet
+    // as spurious; the d⁰-rank classifier gives the algebraically
+    // correct 368.
+    let node_interior_mask = sphere_pec_node_interior_mask(&fixture.mesh, R_BUFFER);
+    let spurious_dim = spurious_dim_from_derham(&fixture.mesh, &interior_mask, &node_interior_mask);
 
     let device = <B as BackendTypes>::Device::default();
     let (nodes_t, tets_t) = upload_mesh::<B>(&fixture.mesh, &device);
@@ -307,26 +319,30 @@ fn dense_lowest_eigenvalues(k: MatRef<f64>, m: MatRef<f64>, n_take: usize) -> Ve
     eigs
 }
 
-/// Largest-relative-gap spurious-mode filter — verbatim port of the
-/// heuristic in `crates/geode-core/tests/sphere_pec_eigenmode.rs:194-215`
-/// and `reference/numpy/sphere_pec.py::filter_spurious`. Returns
-/// `(n_spurious, best_gap)`. Mirrors the Rust code 1:1 so any
-/// disagreement between Burn and the NumPy port surfaces as an explicit
-/// integer mismatch, not as a subtle off-by-one in the gap calculation.
-fn filter_spurious(lambdas: &[f64], spurious_dim: usize) -> (usize, f64) {
-    let mut gap_idx = 0usize;
-    let mut best_gap = 0.0_f64;
-    let scan_to = (spurious_dim + 5).min(lambdas.len().saturating_sub(1));
-    for i in 0..scan_to {
-        let a = lambdas[i].abs();
-        let b = lambdas[i + 1].abs();
-        let ratio = if a < 1e-9 { b } else { b / a };
-        if ratio > best_gap {
-            best_gap = ratio;
-            gap_idx = i;
+/// Spurious-cluster → physical-band diagnostic ratio
+/// `λ[n_spurious] / λ[n_spurious - 1]` on Burn's spectrum, computed
+/// against the algebraic d⁰-rank `n_spurious` (not the deprecated
+/// largest-relative-gap heuristic). Mirror of
+/// `reference/numpy/sphere_pec.py::filter_spurious`.
+///
+/// Returns `(n_spurious, ratio)` where `n_spurious` is passed through
+/// unchanged (it is computed once via [`spurious_dim_from_derham`] in
+/// the pipeline) and `ratio` is the diagnostic — replaces the old
+/// `best_gap` field, see `baseline.schema.md` "Spurious-mode classifier"
+/// section.
+fn filter_spurious(lambdas: &[f64], n_spurious: usize) -> (usize, f64) {
+    let ratio = if n_spurious == 0 || n_spurious >= lambdas.len() {
+        f64::NAN
+    } else {
+        let a = lambdas[n_spurious - 1].abs();
+        let b = lambdas[n_spurious].abs();
+        if a > 0.0 {
+            b / a
+        } else {
+            f64::INFINITY
         }
-    }
-    (gap_idx + 1, best_gap)
+    };
+    (n_spurious, ratio)
 }
 
 // ---------------------------------------------------------------------------
@@ -645,24 +661,41 @@ fn sphere_pec_spectrum_agrees_with_numpy() {
         golden_spectrum.data[idx_max]
     );
 
-    // 7. Spurious-mode filter — re-run on Burn's spectrum, assert
-    //    bit-exact agreement with NumPy on `n_spurious` and ~1e-6 on
-    //    `best_gap`. THIS IS THE INTEGER CROSS-CHECK on edge orientation
-    //    + boundary masking that the parent issue calls out.
-    let (n_spurious_burn, best_gap_burn) = filter_spurious(&burn_spectrum, burn.spurious_dim);
+    // 7. Spurious-mode classifier (Issue #124) — algebraic d⁰-rank
+    //    count, NOT the deprecated largest-relative-gap heuristic.
+    //    `burn.spurious_dim` is already the d⁰ rank
+    //    (`spurious_dim_from_derham` is called in `run_burn_pipeline`);
+    //    the cross-check here is integer equality against the NumPy
+    //    fixture's `n_spurious_observed`, which is also d⁰-rank-derived.
+    //    This is the load-bearing integer cross-check on edge
+    //    orientation + boundary masking that the parent issue calls
+    //    out (now also pinned to the discrete de-Rham complex).
+    let (n_spurious_burn, ratio_burn) = filter_spurious(&burn_spectrum, burn.spurious_dim);
     let want_n_spurious = fixture.output_f64("n_spurious_observed").unwrap().data[0];
     assert_eq!(
         n_spurious_burn, want_n_spurious as usize,
         "n_spurious: Burn = {}, NumPy = {}",
         n_spurious_burn, want_n_spurious as usize
     );
-    let want_best_gap = fixture.output_f64("best_gap").unwrap().data[0];
-    let gap_rel_err = (best_gap_burn - want_best_gap).abs() / want_best_gap.abs().max(1.0);
+    // The diagnostic `λ[n_spurious] / λ[n_spurious-1]` ratio is the
+    // ratio of the physical-band floor to the spurious-cluster
+    // ceiling. The numerator is deterministic (lowest physical mode),
+    // but the denominator is the f64 noise floor of the spurious
+    // cluster — set by ARPACK shift-invert convergence on NumPy and
+    // dense QZ on Burn, which differ at f64-ULP scale. So we only
+    // assert it's well above the 10× algebraic gap floor required by
+    // the geode-core integration test, not bit-exact agreement with
+    // the fixture's stored NumPy diagnostic.
+    let want_ratio = fixture.output_f64("best_gap").unwrap().data[0];
+    eprintln!(
+        "spurious→physical diagnostic ratio: Burn = {ratio_burn:.3e}, \
+         NumPy (fixture) = {want_ratio:.3e}"
+    );
     assert!(
-        gap_rel_err < tol.eigenvalue_rel,
-        "best_gap rel err {gap_rel_err:.3e} exceeds {:.0e} \
-         (Burn = {best_gap_burn:.6e}, NumPy = {want_best_gap:.6e})",
-        tol.eigenvalue_rel
+        ratio_burn.is_finite() && ratio_burn >= 10.0,
+        "spurious→physical ratio {ratio_burn:.3e} below 10× floor — \
+         spurious cluster bleeding into physical band suggests assembly \
+         or de-Rham rank classifier is wrong"
     );
 
     // 8. Physical eigenvalues — lowest 5 after spurious filtering.

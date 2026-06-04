@@ -226,8 +226,8 @@ def main():
     print(f"  n_nodes={n_nodes}, n_tets={n_tets}, n_edges={n_edges}")
     print(f"  n_interior_edges={n_interior_edges}, spurious_dim={spurious_dim}")
     print(
-        f"  n_spurious_observed={n_spurious} (filter heuristic; gap "
-        f"{best_gap:.3e})"
+        f"  n_spurious_observed={n_spurious} (d⁰-rank classifier; "
+        f"diagnostic ratio λ[n_spurious]/λ[n_spurious-1] = {best_gap:.3e})"
     )
     print("  lowest 5 physical eigenvalues (λ = k²):")
     for i, lam in enumerate(physical):
@@ -501,11 +501,12 @@ def main():
                     f"Lowest {n_request} = spurious_dim + 8 eigenvalues of "
                     "K_int x = λ M_int x, ascending. Includes the entire "
                     "spurious near-zero cluster (gradients of H¹₀ are in "
-                    "the kernel of curl-curl, with dimension ≈ "
+                    "the kernel of curl-curl, with dimension equal to "
                     "spurious_dim) plus a handful of physical modes. The "
-                    "comparator can re-run the largest-relative-gap "
-                    "heuristic on this sequence and assert bit-exact "
-                    "agreement with Burn's gap_idx + best_gap."
+                    "spurious count is computed algebraically via "
+                    "`spurious_dim_from_derham` (Issue #124), not from "
+                    "this sequence; the spectrum itself is preserved as a "
+                    "sub-stage diagnostic for cross-backend comparison."
                 ),
                 # The spurious cluster sits at ~1e-13 (f64 roundoff scaled
                 # by the shift-invert residual), the physical modes at
@@ -519,24 +520,24 @@ def main():
                 "shape": [1],
                 "dtype": "f64",
                 "description": (
-                    "Output of the largest-relative-gap heuristic "
-                    "(`filter_spurious`, verbatim port of "
-                    "`sphere_pec_eigenmode.rs:194-215`). The bit-exact-"
-                    "integer cross-check on edge orientation + boundary "
-                    "masking flagged by the parent issue. NOTE: on the "
-                    "bundled 774-node fixture, this is 371, not the "
-                    "predicted 368 — both Burn and NumPy observe the same "
-                    "discrepancy because the heuristic finds a larger "
-                    "ratio jump at index 370→371 (3.27 / 1.42 = 2.30x) "
-                    "than at the actual spurious→physical boundary at "
-                    "367→368 (absolute jump 1.42, treated as ratio under "
-                    "the `a < 1e-9` branch). The Burn-side acceptance "
-                    "check `n_spurious == spurious_dim` fails on this "
-                    "fixture for the same reason — it is a *Burn test* "
-                    "calibration issue against the new layered fixture, "
-                    "tracked as a follow-up. The cross-backend agreement "
-                    "on the *observed* n_spurious is bit-exact, which is "
-                    "the cross-check this fixture establishes."
+                    "Algebraic spurious-mode dimension = "
+                    "`rank(d⁰_interior)` (`spurious_dim_from_derham`, "
+                    "mirror of `geode_core::spurious_dim_from_derham`). "
+                    "This equals `kernel_dim(K_int, M_int)` by the "
+                    "`kernel(K) = image(d⁰)` identity (Epic #57 Phase "
+                    "3.A; see `tests/derham_kernel_dim.rs`). On the "
+                    "bundled 774-node fixture this is 368 — same as "
+                    "`spurious_dim` (= number of strictly-interior "
+                    "nodes), as expected for the Whitney/Nédélec pair "
+                    "where the discrete H¹_0 → H(curl) gradient map is "
+                    "injective. Cross-backend agreement is bit-exact "
+                    "between Burn and NumPy because both use the same "
+                    "SVD rank cutoff (`1e-12 · σ_max`) on the same "
+                    "sparse-incidence matrix; LAPACK is the underlying "
+                    "driver on both sides. Replaces the deprecated "
+                    "largest-relative-gap heuristic (Issue #124), which "
+                    "gave 371 by mis-classifying the λ ≈ 1.42 physical "
+                    "triplet."
                 ),
                 "tolerance_abs": 0.5,
                 "data": [float(n_spurious)],
@@ -545,11 +546,19 @@ def main():
                 "shape": [1],
                 "dtype": "f64",
                 "description": (
-                    "Largest ratio jump observed by the spurious-mode "
-                    "filter heuristic. Documented as a sub-stage "
-                    "diagnostic (the Burn assertion `best_gap > 100` "
-                    "doesn't hold on this fixture; the cross-backend "
-                    "comparison asserts agreement on the observed value)."
+                    "Diagnostic ratio `λ[n_spurious] / λ[n_spurious - 1]`. "
+                    "With the d⁰-rank classifier (Issue #124) this is "
+                    "the spurious-cluster ceiling → physical-band floor "
+                    "ratio on the *true* split, not the largest "
+                    "gap-jump scan. On the bundled 774-node fixture "
+                    "this is `1.4195 / 2.81e-13 ≈ 5e12` (twelve orders "
+                    "above the algebraic 10× gap floor required by "
+                    "`sphere_pec_eigenmode_spectrum`). Stored for "
+                    "fixture provenance; the comparator no longer "
+                    "asserts a tight numerical match on this field "
+                    "because the ratio depends on the spurious-cluster "
+                    "noise floor (ARPACK convergence residual, "
+                    "platform-dependent at f64 ULP scale)."
                 ),
                 "tolerance_abs": 1.0e-6,
                 "data": [best_gap],

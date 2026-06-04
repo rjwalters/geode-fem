@@ -12,42 +12,55 @@
 //! every edge whose two endpoints both sit on that surface is removed
 //! before the generalized eigensolve. The discrete curl-curl operator
 //! has a large gradient kernel (Whitney 1-forms include all `∇φ` for
-//! φ ∈ H¹_0); the spurious-mode dimension equals the number of vertices
-//! strictly inside the PEC sphere (i.e. not on the outer wall).
+//! φ ∈ H¹_0); the spurious-mode dimension equals the rank of the
+//! interior-restricted discrete gradient `d⁰_interior` (Epic #57, Phase
+//! 3.A, Issue #81 — `kernel(K) = image(d⁰)` on the Whitney/Nédélec pair).
 //!
 //! # Acceptance
 //!
-//! We use a **soft acceptance** appropriate for the coarse fixture
-//! (313 nodes / ~1226 tets). Authoritative Mie PEC-dielectric-sphere
-//! roots for `n=1.5, R_sphere=1.0, R_buffer=2.0` are not yet tabulated
-//! in this codebase; deriving them from scratch is its own non-trivial
-//! root-finding problem (`J_{l+1/2}` zeros of the boundary determinant
-//! across the dielectric interface). Until those roots land we assert:
+//! We use a **soft acceptance** appropriate for the bundled coarse
+//! fixture (774 nodes / 3335 tets). The lowest 5 physical eigenvalues
+//! on this mesh sit at λ ≈ {1.42, 1.42, 1.42, 3.27, 3.28} — a 3-fold-
+//! degenerate cluster near λ ≈ 1.42 followed by the next physical band
+//! near λ ≈ 3.27. We assert:
 //!
 //! 1. The lowest 5 physical eigenvalues are positive and real.
-//! 2. There is a clear spectral gap between the spurious nullspace
-//!    cluster and the first physical mode (≥ 100× scale jump).
-//! 3. The spurious-mode count matches the predicted gradient kernel
-//!    dimension (= number of interior vertices not on the outer wall).
+//! 2. There is a clear gap between the spurious null cluster ceiling
+//!    (largest |λ| classified as kernel) and the lowest physical mode
+//!    `physical[0]` — ≥ 10× margin against the kernel threshold.
+//! 3. The spurious-mode count matches the d⁰-rank prediction
+//!    `rank(d⁰_interior)`, computed algebraically from the de-Rham
+//!    operator independent of the eigenspectrum.
+//! 4. Each of the lowest 5 physical eigenvalues pairs to an analytic
+//!    Mie PEC-cavity root within 15 % relative on `k = √λ`.
 //!
-//! Quantitative Mie comparison is tracked as a follow-up.
+//! Previously this test used a largest-relative-gap eigenvalue
+//! heuristic to count spurious modes. On the bundled 774-node fixture
+//! that heuristic gave `n_spurious = 371` and mis-classified the
+//! `λ ≈ 1.42` triplet as spurious; the d⁰-rank classifier gives the
+//! algebraically correct `n_spurious = 368` (Issue #124). The d⁰
+//! machinery comes from Issue #58 (`derham::gradient_map`) and Issue
+//! #81 (`tests/derham_kernel_dim.rs::cube_pec_kernel_dim_matches_d0_rank`,
+//! the precedent this test now extends to the sphere fixture).
 //!
 //! # Running
 //!
-//! This test is `#[ignore]`d because faer 0.24's `gevd::qz_real` panics
-//! under `debug-assertions` (same root cause as `tests/eigensolver.rs`).
-//! Run with:
+//! This test is now exercised in release mode without `#[ignore]`d.
+//! faer 0.24's `gevd::qz_real` panics under `debug-assertions`, so the
+//! workspace `[profile.test.package.faer]` override + the release-
+//! profile invocation below remain the recipe.
 //!
 //! ```sh
-//! cargo test -p geode-core --release --test sphere_pec_eigenmode -- --ignored
+//! cargo test -p geode-core --release --test sphere_pec_eigenmode
 //! ```
 
 use burn::tensor::backend::BackendTypes;
 
 use geode_core::{
     apply_dirichlet_bc, assemble_global_nedelec_with_epsilon, build_epsilon_r, burn_matrix_to_faer,
-    merged_roots, read_sphere_fixture, sphere_n_interior_nodes, sphere_pec_interior_edges,
-    upload_mesh, DefaultBackend, EigenSolver, FaerDenseEigensolver, R_BUFFER, R_SPHERE,
+    merged_roots, read_sphere_fixture, sphere_pec_interior_edges, sphere_pec_node_interior_mask,
+    spurious_dim_from_derham, upload_mesh, DefaultBackend, EigenSolver, FaerDenseEigensolver,
+    R_BUFFER, R_SPHERE,
 };
 
 type B = DefaultBackend;
@@ -114,7 +127,6 @@ fn pec_mask_excludes_outer_wall_edges() {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
 fn sphere_pec_eigenmode_spectrum() {
     // 1. Load the sphere fixture.
     let f = read_sphere_fixture().expect("fixture load");
@@ -167,8 +179,17 @@ fn sphere_pec_eigenmode_spectrum() {
     // 6. Solve generalized eigenproblem.
     // We ask for enough eigenvalues to skip past the spurious gradient
     // nullspace and grab the lowest 5 physical modes.
-    let spurious_dim = sphere_n_interior_nodes(&f.mesh, R_BUFFER);
-    eprintln!("predicted spurious-mode count: {spurious_dim}");
+    //
+    // The spurious-mode dimension is computed *algebraically* via
+    // `rank(d⁰_interior)` (Epic #57, Phase 3.A) — not via an eigenvalue
+    // heuristic. This is the same machinery the cube/sphere precedents
+    // in `tests/derham_kernel_dim.rs` use; on the bundled 774-node sphere
+    // fixture it gives 368, which equals the number of interior nodes
+    // (= dimension of `H¹_0(Ω) ∩ ℙ¹`) and exactly the kernel dimension
+    // of the discrete curl-curl operator post-PEC reduction.
+    let node_interior_mask = sphere_pec_node_interior_mask(&f.mesh, R_BUFFER);
+    let spurious_dim = spurious_dim_from_derham(&f.mesh, &interior_mask, &node_interior_mask);
+    eprintln!("d⁰-rank spurious-mode dimension: {spurious_dim}");
     let n_request = spurious_dim + 8; // 5 physical + small safety margin
     let lambdas = FaerDenseEigensolver
         .smallest_eigenvalues(k_int.as_ref(), m_int.as_ref(), n_request)
@@ -183,52 +204,72 @@ fn sphere_pec_eigenmode_spectrum() {
         eprintln!("  λ[{i:>3}] = {lam:.6e}");
     }
 
-    // 8. Spurious-mode filter. Gradients of H¹_0 are in the kernel of the
-    //    curl-curl operator; numerically they cluster near zero but not
-    //    exactly at zero. We classify "spurious" as any eigenvalue whose
-    //    magnitude is below a small fraction of the next (physical) mode.
-    //
-    //    Empirically the cleanest split is: sort, then find the largest
-    //    relative gap inside the first `spurious_dim + 5` slots. The
-    //    first index after that gap is the first physical mode.
-    let mut gap_idx = 0usize;
-    let mut best_gap = 0.0f64;
-    let scan_to = (spurious_dim + 5).min(lambdas.len().saturating_sub(1));
-    for i in 0..scan_to {
-        // Use absolute jump on near-zero spurious cluster, relative once
-        // we leave it.
-        let a = lambdas[i].abs();
-        let b = lambdas[i + 1].abs();
-        // Avoid division by zero — fall back to absolute difference.
-        let ratio = if a < 1e-9 { b } else { b / a };
-        if ratio > best_gap {
-            best_gap = ratio;
-            gap_idx = i;
-        }
-    }
+    // 8. Spurious-mode classifier: the first `spurious_dim` eigenvalues
+    //    are in the gradient nullspace by construction
+    //    (`kernel(K) = image(d⁰)`; see
+    //    `tests/derham_kernel_dim.rs::cube_pec_kernel_dim_matches_d0_rank`
+    //    for the integer-count proof on the cube fixture, and the
+    //    `sphere_pml_kernel_dim_matches_d0_rank` companion on the
+    //    sphere). No heuristic; the algebraic statement is tautological
+    //    once `spurious_dim` is the d⁰ rank.
+    let n_spurious = spurious_dim;
+    let first_physical = n_spurious;
+    let physical_band_floor = lambdas[first_physical];
+    let largest_kernel_abs = lambdas[..n_spurious]
+        .iter()
+        .map(|l| l.abs())
+        .fold(0.0_f64, f64::max);
     eprintln!(
-        "max ratio jump at index {gap_idx} → {gap_idx_plus_one}: ratio {best_gap:.3e}",
-        gap_idx_plus_one = gap_idx + 1
+        "algebraic spurious classifier: n_spurious = {n_spurious}; \
+         largest |λ_kernel| = {:.3e}, physical[0] = {:.3e}",
+        largest_kernel_abs, physical_band_floor
     );
-    let first_physical = gap_idx + 1;
-    let n_spurious = first_physical;
-    eprintln!("observed spurious count: {n_spurious} (predicted: {spurious_dim})");
 
-    // Acceptance check 1: spurious count must match the predicted
-    // gradient nullspace dimension exactly.
+    // Acceptance check 1 (replaces the old heuristic): the algebraic
+    // d⁰-rank spurious count matches the number of strictly-interior
+    // nodes. This is the discrete `H¹_0 → H(curl)` injectivity
+    // statement: every interior nodal scalar gives a distinct gradient
+    // edge-DOF mode. The check is redundant by construction with the
+    // d⁰-rank computation but serves as a regression guard if the
+    // `restrict_gradient_dense` / `rank_via_svd` helpers ever silently
+    // drift.
+    let n_interior_nodes = node_interior_mask.iter().filter(|&&b| b).count();
     assert_eq!(
-        n_spurious, spurious_dim,
-        "spurious count {n_spurious} disagrees with predicted gradient \
-         nullspace dim {spurious_dim} — gradient kernel filter is off"
+        spurious_dim, n_interior_nodes,
+        "d⁰-rank spurious dim {spurious_dim} differs from interior-node \
+         count {n_interior_nodes} — discrete H¹_0 → H(curl) injectivity \
+         broken at the algebraic level"
     );
 
-    // Acceptance check 2: clear spectral gap (≥ 100×) between the
-    // spurious cluster and the first physical mode. This catches the
-    // case where ε scaling silently went sideways.
+    // Acceptance check 2: physical-band floor separation. The lowest
+    // physical eigenvalue must sit well above the kernel cluster
+    // ceiling — otherwise ε scaling or the PEC mask is silently off.
+    // We require `physical[0] / largest_kernel_abs >= 10` (the same
+    // 10× gap floor used by `derham_kernel_dim.rs`'s sphere PML test).
+    //
+    // The previous test required ≥ 100× on a heuristic "best ratio
+    // jump". On the bundled 774-node fixture the spurious cluster
+    // ceiling sits at ~3e-13 and `physical[0] ≈ 1.42`, giving a gap
+    // of ~4.7e12 — twelve orders above the floor with plenty of
+    // headroom. The 10× floor is the algebraically meaningful gap
+    // (anything below 10× means the kernel cutoff in the SVD threshold
+    // would be flirting with the physical band) and is the same floor
+    // used by the cube/sphere de-Rham kernel-dim companion tests.
+    let physical_gap = if largest_kernel_abs > 0.0 {
+        physical_band_floor / largest_kernel_abs
+    } else {
+        f64::INFINITY
+    };
+    eprintln!(
+        "physical-band gap: physical[0] / largest |λ_kernel| = {:.3e} \
+         (require ≥ 10)",
+        physical_gap
+    );
     assert!(
-        best_gap > 1.0e2,
-        "spurious → physical gap is only {best_gap:.3e}; expected ≥ 1e2 \
-         (no clean separation suggests ε scaling or PEC mask is wrong)"
+        physical_gap >= 10.0,
+        "physical-band floor sits only {physical_gap:.3e}× above kernel ceiling; \
+         expected ≥ 10× (kernel cluster bleeding into physical band suggests \
+         ε scaling or PEC mask is wrong)"
     );
 
     // Acceptance check 3: the lowest 5 physical eigenvalues are real,

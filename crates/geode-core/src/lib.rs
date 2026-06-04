@@ -60,9 +60,10 @@ pub use nedelec_assembly::{
     assemble_global_nedelec, assemble_global_nedelec_with_anisotropic_epsilon,
     assemble_global_nedelec_with_complex_epsilon, assemble_global_nedelec_with_epsilon,
     build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml, build_epsilon_r,
-    burn_complex_mass_to_faer, cube_pec_interior_edges, pec_interior_edge_mask,
-    sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii, tet_centroids,
-    NedelecComplexGlobalSystem, NedelecGlobalSystem,
+    burn_complex_mass_to_faer, cube_pec_interior_edges, pec_interior_edge_mask, rank_via_svd,
+    restrict_gradient_dense, sphere_n_interior_nodes, sphere_pec_interior_edges,
+    sphere_pec_node_interior_mask, spurious_dim_from_derham, tet_centroid_radii, tet_centroids,
+    NedelecComplexGlobalSystem, NedelecGlobalSystem, DERHAM_RANK_THRESHOLD_REL,
 };
 pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
 pub use silvermuller::assemble_silver_muller_surface;

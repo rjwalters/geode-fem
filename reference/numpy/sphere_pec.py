@@ -40,12 +40,18 @@ The pipeline
    numerically scattered around zero — ARPACK's default no-shift mode
    would converge slowly and unreliably onto the cluster center of
    mass rather than the cluster's outer rim.
-8. Spurious-mode filter — same largest-relative-gap heuristic as the
-   Burn test (``sphere_pec_eigenmode.rs:194-215``) verbatim. The
-   observed spurious count must equal the predicted gradient-kernel
-   dimension (number of interior vertices not on the outer wall) — that
-   integer match is a bit-exact cross-check on edge orientation +
-   boundary masking.
+8. Spurious-mode classifier — algebraic d⁰-rank count
+   (``spurious_dim_from_derham``), mirroring
+   ``geode_core::spurious_dim_from_derham``. The classifier computes
+   ``rank(d⁰_interior)`` via SVD with relative cutoff
+   ``1e-12 · σ_max`` (matches the Burn side bit-exactly via LAPACK).
+   On the bundled 774-node fixture this gives ``n_spurious = 368``,
+   equal to ``spurious_dim`` (the number of strictly-interior nodes).
+   The integer match is the bit-exact cross-check on edge orientation +
+   boundary masking, now also algebraically consistent with the
+   discrete de-Rham complex (``kernel(K) = image(d⁰)``, Epic #57 Phase
+   3.A). Replaces a prior largest-relative-gap eigenvalue heuristic
+   that mis-classified the λ ≈ 1.42 physical triplet (Issue #124).
 
 Sign convention recap
 =====================
@@ -87,8 +93,13 @@ Public API
 - :func:`apply_dirichlet(K, M, mask)` — restrict K, M to interior DOFs.
 - :func:`eigensolve(K, M, k)` — lowest-k generalized eigenpairs via
   shift-and-invert eigsh.
-- :func:`filter_spurious(lambdas, spurious_dim)` — implement the
-  largest-relative-gap heuristic; return ``(n_spurious, physical)``.
+- :func:`restrict_gradient_dense(edges, edge_mask, node_mask)` — dense
+  interior-restricted ``d⁰`` operator.
+- :func:`spurious_dim_from_derham(nodes, edges, edge_mask)` — algebraic
+  ``rank(d⁰_interior)`` count (Issue #124).
+- :func:`filter_spurious(lambdas, n_spurious)` — slice the spectrum at
+  the precomputed d⁰-rank ``n_spurious``; returns a diagnostic ratio
+  (the deprecated largest-relative-gap heuristic is gone — see #124).
 - :func:`run_sphere_pec(mesh_path, n_index=1.5, n_take=5)` — orchestrator
   returning a dict with all intermediate quantities for cross-backend
   comparison.
@@ -476,44 +487,114 @@ def eigensolve(K, M, k_request: int):
     return eigvals[order], eigvecs[:, order]
 
 
-def filter_spurious(lambdas, spurious_dim: int):
-    """Largest-relative-gap heuristic — verbatim port of
-    ``crates/geode-core/tests/sphere_pec_eigenmode.rs:194-215``.
+DERHAM_RANK_THRESHOLD_REL: float = 1e-12
+"""Relative threshold for "near-zero singular value" in the d⁰ rank
+computation. Mirror of ``geode_core::DERHAM_RANK_THRESHOLD_REL``."""
 
-    Scans the first ``spurious_dim + 5`` slots, finds the largest
-    "ratio jump" between consecutive eigenvalues (absolute on the near-
-    zero cluster, relative once we leave it), and returns the index
-    after that gap as the start of the physical band.
+
+def restrict_gradient_dense(edges, edge_mask, node_mask) -> np.ndarray:
+    """Build the dense interior×interior restriction of d⁰.
+
+    Mirror of ``geode_core::restrict_gradient_dense``: each edge
+    contributes exactly two ±1.0 entries (lower-tag endpoint = -1,
+    higher-tag = +1), filtered to
+    ``edge_mask[i] & node_mask[a] & node_mask[b]``.
+
+    Parameters
+    ----------
+    edges : (n_edges, 2) int — output of :func:`build_edges`
+    edge_mask : (n_edges,) bool — True on interior edges
+    node_mask : (n_nodes,) bool — True on interior nodes
 
     Returns
     -------
-    n_spurious : int
-        Number of eigenvalues classified as spurious (the index of the
-        first physical mode).
-    physical_idx : int
-        Same as ``n_spurious`` (alias, kept explicit because the
-        downstream filter reads more naturally with both names).
-    best_gap : float
-        The ratio at the chosen split. The Burn test asserts this is
-        ≥ 100x (acceptance criterion 2: clear gap between spurious
-        cluster and first physical mode).
+    d0 : (n_interior_edges, n_interior_nodes) float64
+        Dense interior-restricted discrete gradient operator.
+    """
+    edges = np.asarray(edges, dtype=np.int64)
+    edge_mask = np.asarray(edge_mask, dtype=bool)
+    node_mask = np.asarray(node_mask, dtype=bool)
+
+    n_interior_nodes = int(np.sum(node_mask))
+    n_interior_edges = int(np.sum(edge_mask))
+
+    # Map global node index → interior column (or -1 if boundary).
+    node_to_interior = -np.ones(node_mask.shape[0], dtype=np.int64)
+    node_to_interior[node_mask] = np.arange(n_interior_nodes, dtype=np.int64)
+
+    # Map global edge index → interior row (or -1 if boundary edge).
+    edge_to_interior = -np.ones(edge_mask.shape[0], dtype=np.int64)
+    edge_to_interior[edge_mask] = np.arange(n_interior_edges, dtype=np.int64)
+
+    d0 = np.zeros((n_interior_edges, n_interior_nodes), dtype=np.float64)
+    for edge_idx, (a, b) in enumerate(edges):
+        row = edge_to_interior[edge_idx]
+        if row < 0:
+            continue
+        col_a = node_to_interior[a]
+        col_b = node_to_interior[b]
+        if col_a >= 0:
+            d0[row, col_a] = -1.0
+        if col_b >= 0:
+            d0[row, col_b] = 1.0
+    return d0
+
+
+def spurious_dim_from_derham(
+    nodes,
+    edges,
+    edge_mask,
+    r_outer: float = R_BUFFER,
+) -> int:
+    """Algebraic spurious-mode dimension = ``rank(d⁰_interior)``.
+
+    Mirror of ``geode_core::spurious_dim_from_derham``. The Nédélec
+    curl-curl kernel is the image of the discrete gradient
+    (``kernel(K) = image(d⁰)`` per Epic #57 Phase 3.A; see
+    ``crates/geode-core/tests/derham_kernel_dim.rs``), so its rank is
+    the spurious-mode count.
+
+    Unlike the deprecated largest-relative-gap eigenvalue heuristic,
+    this classifier has no calibration knob and gives the algebraically
+    correct answer for any PEC fixture (including ones with low-lying
+    degenerate physical clusters that confuse magnitude/gap heuristics).
+
+    Returns the rank computed via dense SVD with relative cutoff
+    :data:`DERHAM_RANK_THRESHOLD_REL` × ``σ_max``, matching the Rust
+    side bit-exactly (the SVD itself runs through the LAPACK driver
+    chosen by ``numpy.linalg.matrix_rank``, which is the same LAPACK
+    binding faer 0.24 uses via ``faer::Mat::singular_values``).
+    """
+    nodes = np.asarray(nodes, dtype=np.float64)
+    tol = 1e-6 * max(r_outer, 1.0)
+    r = np.linalg.norm(nodes, axis=1)
+    node_mask = np.abs(r - r_outer) >= tol
+    d0 = restrict_gradient_dense(edges, edge_mask, node_mask)
+    # np.linalg.matrix_rank uses the same `σ_i > tol · σ_max` count
+    # as the Rust `rank_via_svd` helper.
+    return int(np.linalg.matrix_rank(d0, tol=DERHAM_RANK_THRESHOLD_REL * np.linalg.norm(d0, ord=2)))
+
+
+def filter_spurious(lambdas, n_spurious: int):
+    """Slice the spectrum at a precomputed spurious dimension.
+
+    Returns ``(n_spurious, n_spurious, spurious_physical_ratio)`` where
+    ``spurious_physical_ratio = λ[n_spurious] / λ[n_spurious - 1]``
+    (diagnostic only — replaces the deprecated ``best_gap`` field of
+    the largest-relative-gap heuristic).
+
+    The d⁰-rank ``n_spurious`` is computed *algebraically* upstream by
+    :func:`spurious_dim_from_derham`; this function just returns it
+    paired with the diagnostic ratio for fixture provenance.
     """
     lambdas = np.asarray(lambdas, dtype=np.float64)
-    gap_idx = 0
-    best_gap = 0.0
-    scan_to = min(spurious_dim + 5, len(lambdas) - 1)
-    for i in range(scan_to):
-        a = abs(lambdas[i])
-        b = abs(lambdas[i + 1])
-        if a < 1e-9:
-            ratio = b
-        else:
-            ratio = b / a
-        if ratio > best_gap:
-            best_gap = ratio
-            gap_idx = i
-    first_physical = gap_idx + 1
-    return first_physical, first_physical, best_gap
+    if n_spurious < 1 or n_spurious >= len(lambdas):
+        spurious_physical_ratio = float("nan")
+    else:
+        a = abs(lambdas[n_spurious - 1])
+        b = abs(lambdas[n_spurious])
+        spurious_physical_ratio = float(b / a) if a > 0.0 else float("inf")
+    return int(n_spurious), int(n_spurious), spurious_physical_ratio
 
 
 # --------------------------------------------------------------------------- #
@@ -541,7 +622,7 @@ def run_sphere_pec(
     n_take : int
         Number of *physical* eigenvalues to return after spurious
         filtering. The eigensolve fetches ``spurious_dim + 8`` (same
-        heuristic as the Burn test).
+        request size as the Burn test).
 
     Returns
     -------
@@ -558,8 +639,14 @@ def run_sphere_pec(
         - ``K_int, M_int`` : interior matrices (post-Dirichlet)
         - ``eigenvalues_all`` : raw lowest spectrum slice (length
           ``spurious_dim + 8``)
-        - ``n_spurious`` : observed spurious count (filter heuristic)
-        - ``best_gap`` : largest ratio jump (≥ 100 acceptance gate)
+        - ``n_spurious`` : algebraic d⁰-rank spurious count
+          (``rank(d⁰_interior)`` — Issue #124, mirrors
+          ``geode_core::spurious_dim_from_derham``).
+        - ``best_gap`` : diagnostic ratio
+          ``λ[n_spurious] / λ[n_spurious - 1]``. Kept for fixture
+          provenance; was the largest-gap-jump value in the deprecated
+          heuristic, now is the spurious-cluster ceiling → physical-
+          band floor ratio at the true (d⁰-rank) split.
         - ``physical_eigenvalues`` : lowest ``n_take`` physical
           eigenvalues, ascending
         - ``k_int_frobenius``, ``m_int_frobenius`` : Frobenius norms
@@ -572,6 +659,11 @@ def run_sphere_pec(
         fixture.nodes, edges, r_outer=r_outer
     )
     n_interior_edges = int(np.sum(interior_mask))
+    # `spurious_dim` is the *predicted* count (= interior nodes). On
+    # PEC-cavity fixtures with no low-lying degenerate physical
+    # cluster this equals `n_spurious` exactly. On the bundled 774-node
+    # sphere fixture it also equals the d⁰-rank algebraic count because
+    # the kernel = image(d⁰) identity holds (Epic #57 Phase 3.A).
     spurious_dim = sphere_n_interior_nodes(fixture.nodes, r_outer=r_outer)
 
     K, M = assemble_global_nedelec(
@@ -584,10 +676,17 @@ def run_sphere_pec(
     )
     K_int, M_int = apply_dirichlet(K, M, interior_mask)
 
+    # Algebraic spurious-mode dimension via the discrete de-Rham `d⁰`
+    # operator. Replaces the deprecated largest-relative-gap heuristic
+    # that mis-classified the λ ≈ 1.42 triplet on this fixture (#124).
+    n_spurious_algebraic = spurious_dim_from_derham(
+        fixture.nodes, edges, interior_mask, r_outer=r_outer
+    )
+
     n_request = spurious_dim + 8
     eigvals, eigvecs = eigensolve(K_int, M_int, k_request=n_request)
 
-    n_spurious, _, best_gap = filter_spurious(eigvals, spurious_dim)
+    n_spurious, _, best_gap = filter_spurious(eigvals, n_spurious_algebraic)
     if n_spurious + n_take > len(eigvals):
         raise RuntimeError(
             f"requested {n_take} physical modes but only "
@@ -643,7 +742,10 @@ if __name__ == "__main__":
     )
     print(f"predicted spurious-mode count: {result['spurious_dim']}")
     print(f"observed spurious count: {result['n_spurious']}")
-    print(f"max ratio jump (spurious -> physical): {result['best_gap']:.3e}")
+    print(
+        f"spurious->physical diagnostic ratio "
+        f"(λ[n_spurious] / λ[n_spurious-1]): {result['best_gap']:.3e}"
+    )
     print()
     print("lowest 5 physical eigenvalues (λ = k²) and k = sqrt(λ):")
     for i, lam in enumerate(result["physical_eigenvalues"]):

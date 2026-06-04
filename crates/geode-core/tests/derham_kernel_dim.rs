@@ -87,8 +87,9 @@ use geode_core::{
     apply_dirichlet_bc, assemble_global_nedelec, assemble_global_nedelec_with_complex_epsilon,
     build_complex_epsilon_r_pml, burn_complex_mass_to_faer, burn_matrix_to_faer,
     cube_interior_mask, cube_pec_interior_edges, cube_tet_mesh, gradient_map, read_sphere_fixture,
-    sphere_pec_interior_edges, tet_centroid_radii, upload_mesh, ComplexEigenSolver, DefaultBackend,
-    EigenSolver, FaerComplexEigensolver, FaerDenseEigensolver, TetMesh, R_BUFFER,
+    restrict_gradient_dense, sphere_pec_interior_edges, tet_centroid_radii, upload_mesh,
+    ComplexEigenSolver, DefaultBackend, EigenSolver, FaerComplexEigensolver, FaerDenseEigensolver,
+    TetMesh, R_BUFFER,
 };
 
 type B = DefaultBackend;
@@ -135,67 +136,12 @@ fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
 }
 
-/// Build the dense interior×interior restriction of `d⁰` directly from
-/// the mesh edge list. Each edge contributes exactly two `±1.0` entries
-/// (lower-tag endpoint = -1, higher-tag = +1), and we filter to
-/// `edge_mask[i] && node_mask[a] && node_mask[b]` per the de-Rham phase-1
-/// convention (see `derham.rs::gradient_map`'s docstring).
-///
-/// Returns the dense matrix in row-major (faer column-major Mat) layout
-/// — `nrows = #interior_edges`, `ncols = #interior_nodes`. Equivalent
-/// to taking `gradient_map(mesh)` (sparse) and slicing rows by
-/// `edge_mask`, columns by `node_mask`, but avoids the sparse-to-dense
-/// densify step that faer 0.24 does not directly expose.
-fn restrict_gradient_dense(mesh: &TetMesh, edge_mask: &[bool], node_mask: &[bool]) -> Mat<f64> {
-    // Map global node index → interior column (None if boundary).
-    let mut node_to_interior: Vec<Option<usize>> = Vec::with_capacity(node_mask.len());
-    let mut n_interior_nodes = 0usize;
-    for &b in node_mask {
-        if b {
-            node_to_interior.push(Some(n_interior_nodes));
-            n_interior_nodes += 1;
-        } else {
-            node_to_interior.push(None);
-        }
-    }
-
-    // Map global edge index → interior row (None if boundary edge).
-    let mut edge_to_interior: Vec<Option<usize>> = Vec::with_capacity(edge_mask.len());
-    let mut n_interior_edges = 0usize;
-    for &b in edge_mask {
-        if b {
-            edge_to_interior.push(Some(n_interior_edges));
-            n_interior_edges += 1;
-        } else {
-            edge_to_interior.push(None);
-        }
-    }
-
-    let edges = mesh.edges();
-    assert_eq!(
-        edges.len(),
-        edge_mask.len(),
-        "edge_mask must align with mesh.edges()"
-    );
-
-    // Start with a zero matrix and stamp ±1.0 at the two endpoint
-    // columns (when both endpoints survive the node mask). Boundary
-    // endpoints simply produce zero-column entries — this matches
-    // "drop column k" in the matrix sense.
-    let mut d0 = Mat::<f64>::zeros(n_interior_edges, n_interior_nodes);
-    for (edge_idx, &[a, b]) in edges.iter().enumerate() {
-        let Some(row) = edge_to_interior[edge_idx] else {
-            continue;
-        };
-        if let Some(col) = node_to_interior[a as usize] {
-            d0[(row, col)] = -1.0;
-        }
-        if let Some(col) = node_to_interior[b as usize] {
-            d0[(row, col)] = 1.0;
-        }
-    }
-    d0
-}
+// `restrict_gradient_dense` was lifted into `geode_core::nedelec_assembly`
+// for reuse from the sphere PEC eigenmode test, the geode-validation
+// comparator, and any future PEC cavity fixture (Issue #124). The
+// dense materialisation logic and the sign / mask conventions are
+// unchanged from the original test-local helper that lived here when
+// this file was first written.
 
 /// Sanity check: cross-validate `restrict_gradient_dense` against the
 /// canonical `gradient_map(mesh)` sparse operator by comparing the
@@ -251,7 +197,7 @@ fn validate_gradient_restriction(
 /// below-threshold (= largest kernel σ) for gap diagnostics.
 ///
 /// Returns `(rank, sigma_min_nonkernel, sigma_max_kernel, sigma_max)`.
-fn rank_via_svd(d0: &Mat<f64>) -> (usize, f64, f64, f64) {
+fn rank_via_svd_with_diagnostics(d0: &Mat<f64>) -> (usize, f64, f64, f64) {
     let sigmas = d0
         .as_ref()
         .singular_values()
@@ -303,7 +249,7 @@ fn cube_pec_kernel_dim_matches_d0_rank() {
     // ── 2. rank(d⁰_interior) via SVD.
     let d0 = restrict_gradient_dense(&mesh, &edge_mask, &node_mask);
     validate_gradient_restriction(&mesh, &edge_mask, &node_mask, &d0);
-    let (rank, sigma_min_nz, sigma_max_kernel, sigma_max) = rank_via_svd(&d0);
+    let (rank, sigma_min_nz, sigma_max_kernel, sigma_max) = rank_via_svd_with_diagnostics(&d0);
     let sigma_threshold = RANK_THRESHOLD_REL * sigma_max;
     eprintln!(
         "[cube n={N_CUBE} PEC] d⁰ shape ({}, {}), σ_max = {:.4e}, σ_min_nonkernel = {:.4e}, \
@@ -477,7 +423,7 @@ fn sphere_pml_kernel_dim_matches_d0_rank() {
     // ── 3. rank(d⁰_interior) via SVD.
     let d0 = restrict_gradient_dense(&f.mesh, &edge_mask, &node_mask);
     validate_gradient_restriction(&f.mesh, &edge_mask, &node_mask, &d0);
-    let (rank, sigma_min_nz, sigma_max_kernel, sigma_max) = rank_via_svd(&d0);
+    let (rank, sigma_min_nz, sigma_max_kernel, sigma_max) = rank_via_svd_with_diagnostics(&d0);
     let sigma_threshold = RANK_THRESHOLD_REL * sigma_max;
     eprintln!(
         "[sphere PML] d⁰ shape ({}, {}), σ_max = {:.4e}, σ_min_nonkernel = {:.4e}, \

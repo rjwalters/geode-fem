@@ -36,13 +36,16 @@ sibling of #117). Analog of `reference/fixtures/cube_cavity/baseline.schema.md`.
 - **Spectrum**: full `eigenvalues_lowest` slice of length
   `spurious_dim + 8 = 376` from `scipy.sparse.linalg.eigsh(K_int, k,
   M=M_int, sigma=0, which='LM')`. The comparator runs the spurious-
-  mode filter on Burn's spectrum and asserts agreement with the
-  NumPy-observed `n_spurious_observed` (371 on this fixture; see the
-  "Spurious-mode filter discrepancy" note below).
+  mode classifier (`spurious_dim_from_derham`) on Burn's spectrum and
+  asserts agreement with the NumPy-observed `n_spurious_observed`
+  (368 on this fixture — the algebraic d⁰-rank; see the "Spurious-mode
+  classifier" section below).
 - **Physical eigenvalues**: lowest 5 physical eigenvalues after
-  spurious filtering. On the bundled fixture: λ ≈ {3.272, 3.277, 3.280,
-  3.285, 3.293} (so `k = √λ` ≈ {1.81, 1.81, 1.81, 1.81, 1.81} — a
-  near-degenerate cluster).
+  spurious filtering. On the bundled fixture: λ ≈ {1.420, 1.420, 1.421,
+  3.272, 3.277} — a 3-fold-degenerate cluster at λ ≈ 1.42 (`k = √λ` ≈
+  1.19) followed by the next physical band at λ ≈ 3.27 (`k = √λ` ≈
+  1.81). The λ ≈ 1.42 triplet was previously mis-classified as
+  spurious by the deprecated largest-relative-gap heuristic (Issue #124).
 
 ## Output fields (under `outputs`)
 
@@ -66,39 +69,66 @@ sibling of #117). Analog of `reference/fixtures/cube_cavity/baseline.schema.md`.
 | `k_int_symmetry_residual`  | `[1]`                  | `1e-10` absolute       | `max(|K - K^T|)` — exact zero modulo COO->CSR float roundoff.                       |
 | `m_int_symmetry_residual`  | `[1]`                  | `1e-12` absolute       | `max(|M - M^T|)` — same as K.                                                       |
 | `eigenvalues_lowest`       | `[spurious_dim + 8]`   | `1e-6` absolute        | Full lowest-spectrum slice (spurious cluster + physical band).                      |
-| `n_spurious_observed`      | `[1]`                  | `0.5` absolute         | Largest-gap heuristic output. Bit-exact integer cross-check on edge sign + masking. |
-| `best_gap`                 | `[1]`                  | `1e-6` absolute        | Ratio at the largest gap (filter heuristic diagnostic).                             |
+| `n_spurious_observed`      | `[1]`                  | `0.5` absolute         | Algebraic d⁰-rank spurious count. Bit-exact integer cross-check (de-Rham classifier).|
+| `best_gap`                 | `[1]`                  | `1e-6` absolute        | Diagnostic ratio `λ[n_spurious] / λ[n_spurious-1]` (provenance, not asserted tight). |
 | `physical_eigenvalues`     | `[5]`                  | `1e-5` absolute        | Lowest 5 physical eigenvalues (post-spurious filter). 1e-5 abs ≈ 7e-6 rel at λ≈1.4. |
 
-## Spurious-mode filter discrepancy
+## Spurious-mode classifier
 
-On the bundled 774-node sphere fixture, the largest-relative-gap
-heuristic (verbatim port from `sphere_pec_eigenmode.rs:194-215`) gives
-`n_spurious = 371`, *not* the predicted `spurious_dim = 368`. **This
-disagreement is reproduced bit-exactly by both Burn and NumPy** — it is
-not a port bug; both backends compute the same eigenvalues and run the
-same heuristic. The mechanism:
+The spurious-mode dimension is computed algebraically via the discrete
+de-Rham `d⁰` operator (Issue #124, leveraging Epic #57 Phase 3.A
+machinery from Issues #58 and #81). On the bundled 774-node sphere
+fixture this gives `n_spurious_observed = 368`, exactly matching the
+predicted `spurious_dim` (= number of strictly-interior nodes, the
+dimension of `H¹_0(Ω) ∩ ℙ¹`).
 
-- Eigenvalues 0..367 cluster near zero (gradient kernel, f64 roundoff
-  scaled by the shift-invert residual).
-- Eigenvalues 368, 369, 370 sit at λ ≈ 1.42 (a true 3-fold-degenerate
-  physical mode at `2l + 1 = 3`).
-- Eigenvalue 371 jumps to λ ≈ 3.27 (next physical band).
+The algebraic identity is:
 
-The heuristic's gap calculation treats the spurious-cluster→1.42
-transition as an **absolute** jump (`a < 1e-9` branch, `gap = b ≈ 1.42`)
-and the 1.42→3.27 transition as a **relative** jump (`gap = 3.27 / 1.42
-= 2.30`). 2.30 > 1.42, so the heuristic picks the latter, classifying
-the 1.42 cluster as spurious.
+```text
+n_spurious  ==  rank(d⁰_interior)  ==  dim(kernel(K_int, M_int))
+```
 
-The Burn-side test `sphere_pec_eigenmode_spectrum` asserts `n_spurious
-== spurious_dim` (= 368) and `best_gap > 100` — both of which fail on
-this fixture for the same reason. The Burn test was calibrated against
-an earlier, smaller sphere fixture ("313 nodes / ~1226 tets" per the
-parent issue body) where the heuristic worked. This is tracked as a
-follow-up Burn-side calibration issue and is **out of scope for this
-PR** — the cross-backend agreement on the *observed* heuristic output
-is what this fixture and comparator establish.
+where `d⁰_interior` is the discrete gradient operator restricted to
+strictly-interior nodes (columns) and PEC-surviving edges (rows). The
+identity `kernel(K) = image(d⁰)` was proven at integer-count
+precision by `tests/derham_kernel_dim.rs::cube_pec_kernel_dim_matches_d0_rank`
+on the cube fixture and the matching sphere PML test. This fixture
+extends that algebraic guarantee to the sphere PEC case.
+
+**Implementation**:
+
+- Burn side: `geode_core::spurious_dim_from_derham` materializes
+  `d⁰_interior` as a dense `[n_interior_edges, n_interior_nodes]`
+  matrix and counts singular values above `1e-12 · σ_max` (relative
+  threshold, `DERHAM_RANK_THRESHOLD_REL`).
+- NumPy side: mirror in `reference/numpy/sphere_pec.py` via
+  `restrict_gradient_dense` + `np.linalg.matrix_rank(d0,
+  tol=1e-12 * np.linalg.norm(d0, ord=2))`. Same cutoff, same LAPACK
+  driver underneath, bit-exact integer cross-check.
+
+The spectrum's lowest 5 physical eigenvalues
+(`physical_eigenvalues`) sit at λ ≈ {1.420, 1.420, 1.421, 3.272,
+3.277}: a true 3-fold-degenerate cluster at λ ≈ 1.42 followed by the
+next physical band at λ ≈ 3.27. The first physical mode pairs to the
+analytic Mie root within the 15 % relative tolerance the parent issue
+calls out (see `crates/geode-core/tests/sphere_pec_eigenmode.rs` for
+the pairing logic).
+
+### Deprecated: largest-relative-gap heuristic
+
+A prior version of this comparator used a largest-relative-gap
+eigenvalue heuristic to count spurious modes (verbatim from an
+earlier `sphere_pec_eigenmode.rs:194-215`). That heuristic gave
+`n_spurious = 371` on this fixture and mis-classified the λ ≈ 1.42
+triplet as spurious — the gap calculation treated the
+spurious→1.42 transition as an absolute jump (`a < 1e-9` branch,
+`gap = b ≈ 1.42`) and the 1.42→3.27 transition as a relative jump
+(`gap = 3.27 / 1.42 = 2.30`); since 2.30 > 1.42, the heuristic
+picked the latter split. The d⁰-rank classifier replaces it
+because (a) it has no calibration knob and (b) it gives the
+algebraically correct answer on any PEC cavity fixture, including
+ones with low-lying degenerate physical clusters. See Issue #124
+for the full root-cause analysis.
 
 ## Open-question resolutions (from issue #118)
 

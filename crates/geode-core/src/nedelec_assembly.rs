@@ -22,6 +22,7 @@ use std::collections::BTreeSet;
 use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
 use burn::tensor::{IndexingUpdateOp, Int, TensorData};
+use faer::Mat;
 
 use crate::assembly::{gather_tet_coords, SparsityPattern};
 use crate::nedelec::{batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_matrices};
@@ -244,6 +245,170 @@ pub fn sphere_n_interior_nodes(mesh: &TetMesh, r_outer: f64) -> usize {
             (r - r_outer).abs() >= tol
         })
         .count()
+}
+
+/// Relative threshold for "near-zero singular value" used by the
+/// [`rank_via_svd`] rank counter on the de-Rham `d⁰_interior` operator.
+///
+/// With `σ_max = O(1)` for an incidence matrix (Poincaré spectral floor
+/// `σ ≳ O(1)` set by mesh connectivity), this puts the absolute cutoff
+/// at ~1e-12 — three orders below the smallest non-kernel σ observed on
+/// the bundled cube and sphere fixtures and two orders above the f64
+/// SVD-noise floor (~1e-14 · σ_max). Matches the constant the
+/// `tests/derham_kernel_dim.rs` precedent uses.
+pub const DERHAM_RANK_THRESHOLD_REL: f64 = 1e-12;
+
+/// Build the dense interior×interior restriction of the de-Rham `d⁰`
+/// operator directly from the mesh edge list.
+///
+/// Each edge contributes exactly two `±1.0` entries (lower-tag endpoint
+/// `= -1`, higher-tag `= +1`), filtered to
+/// `edge_mask[i] && node_mask[a] && node_mask[b]` per the de-Rham
+/// Phase 1 convention (see [`crate::derham::gradient_map`] for the sign
+/// convention and the underlying sparse operator).
+///
+/// Returns the dense matrix in `faer::Mat` (column-major) layout —
+/// `nrows = #interior_edges`, `ncols = #interior_nodes`. Equivalent to
+/// taking `gradient_map(mesh)` (sparse) and slicing rows by `edge_mask`,
+/// columns by `node_mask`, but avoids the sparse-to-dense densify step
+/// that faer 0.24 does not directly expose.
+///
+/// `edge_mask.len()` must equal `mesh.edges().len()` and
+/// `node_mask.len()` must equal `mesh.n_nodes()`.
+///
+/// This was originally lifted from
+/// `crates/geode-core/tests/derham_kernel_dim.rs` (Issue #81) so it can
+/// be reused by integration tests, the geode-validation cross-checks,
+/// and downstream callers without copy-pasting the dense materialisation.
+pub fn restrict_gradient_dense(
+    mesh: &TetMesh,
+    edge_mask: &[bool],
+    node_mask: &[bool],
+) -> Mat<f64> {
+    // Map global node index → interior column (None if boundary).
+    let mut node_to_interior: Vec<Option<usize>> = Vec::with_capacity(node_mask.len());
+    let mut n_interior_nodes = 0usize;
+    for &b in node_mask {
+        if b {
+            node_to_interior.push(Some(n_interior_nodes));
+            n_interior_nodes += 1;
+        } else {
+            node_to_interior.push(None);
+        }
+    }
+
+    // Map global edge index → interior row (None if boundary edge).
+    let mut edge_to_interior: Vec<Option<usize>> = Vec::with_capacity(edge_mask.len());
+    let mut n_interior_edges = 0usize;
+    for &b in edge_mask {
+        if b {
+            edge_to_interior.push(Some(n_interior_edges));
+            n_interior_edges += 1;
+        } else {
+            edge_to_interior.push(None);
+        }
+    }
+
+    let edges = mesh.edges();
+    assert_eq!(
+        edges.len(),
+        edge_mask.len(),
+        "edge_mask must align with mesh.edges()"
+    );
+    assert_eq!(
+        node_mask.len(),
+        mesh.n_nodes(),
+        "node_mask must align with mesh.n_nodes()"
+    );
+
+    // Start with a zero matrix and stamp ±1.0 at the two endpoint
+    // columns (when both endpoints survive the node mask). Boundary
+    // endpoints simply produce zero-column entries — this matches
+    // "drop column k" in the matrix sense.
+    let mut d0 = Mat::<f64>::zeros(n_interior_edges, n_interior_nodes);
+    for (edge_idx, &[a, b]) in edges.iter().enumerate() {
+        let Some(row) = edge_to_interior[edge_idx] else {
+            continue;
+        };
+        if let Some(col) = node_to_interior[a as usize] {
+            d0[(row, col)] = -1.0;
+        }
+        if let Some(col) = node_to_interior[b as usize] {
+            d0[(row, col)] = 1.0;
+        }
+    }
+    d0
+}
+
+/// Count singular values above `threshold_rel · σ_max` for the dense
+/// `d⁰_interior` operator built by [`restrict_gradient_dense`].
+///
+/// Returns the rank (= number of singular values above the cutoff).
+/// The full-rank case for `d⁰_interior` (the discrete gradient) has a
+/// very clean spectral gap: the smallest σ above the kernel is set by
+/// the mesh connectivity (a discrete Poincaré constant ~`O(1)`), while
+/// the kernel σ's are mathematically zero. With
+/// `threshold_rel = `[`DERHAM_RANK_THRESHOLD_REL`] (`1e-12`), the cutoff
+/// sits well above the f64 SVD-noise floor (~1e-14 · σ_max) and well
+/// below the smallest non-kernel σ on either fixture.
+///
+/// # Panics
+///
+/// Panics if `faer::Mat::singular_values()` returns `None` (an internal
+/// SVD failure — should not happen on a finite incidence matrix).
+pub fn rank_via_svd(d0: &Mat<f64>, threshold_rel: f64) -> usize {
+    let sigmas = d0
+        .as_ref()
+        .singular_values()
+        .expect("dense SVD of d⁰_interior failed");
+    // Sorted descending per faer docs.
+    let sigma_max = sigmas.first().copied().unwrap_or(0.0);
+    let threshold = threshold_rel * sigma_max;
+    sigmas.iter().filter(|&&s| s > threshold).count()
+}
+
+/// Spurious-mode dimension via the de-Rham `d⁰` operator.
+///
+/// Returns `rank(d⁰_interior)`, which is the algebraically correct
+/// number of spurious near-zero eigenvalues of the Nédélec curl-curl
+/// generalized pencil `(K_int, M_int)` after Dirichlet (PEC) reduction.
+/// The Nédélec curl-curl kernel is the image of the discrete gradient
+/// (`kernel(K) = image(d⁰)` per Epic #57, Phase 3.A; see
+/// `tests/derham_kernel_dim.rs::cube_pec_kernel_dim_matches_d0_rank`),
+/// so its rank is the spurious-mode count.
+///
+/// Unlike the deprecated largest-relative-gap eigenvalue heuristic,
+/// this classifier has no calibration knob and gives the algebraically
+/// correct answer for any PEC fixture with any number of low-lying
+/// physical eigenvalue clusters.
+///
+/// `edge_mask.len()` must equal `mesh.edges().len()` and
+/// `node_mask.len()` must equal `mesh.n_nodes()`.
+pub fn spurious_dim_from_derham(
+    mesh: &TetMesh,
+    edge_mask: &[bool],
+    node_mask: &[bool],
+) -> usize {
+    let d0 = restrict_gradient_dense(mesh, edge_mask, node_mask);
+    rank_via_svd(&d0, DERHAM_RANK_THRESHOLD_REL)
+}
+
+/// Per-node "strictly inside the outer PEC sphere" mask for the bundled
+/// sphere fixture. A node with radius `|p|` within `tol` of `r_outer`
+/// is on the wall (`false`); every other node is interior (`true`).
+///
+/// Companion to [`sphere_pec_interior_edges`] (which returns the edge-
+/// side mask). Together the pair gives the inputs for
+/// [`spurious_dim_from_derham`] on the sphere PEC case.
+pub fn sphere_pec_node_interior_mask(mesh: &TetMesh, r_outer: f64) -> Vec<bool> {
+    let tol = 1e-6 * r_outer.max(1.0);
+    mesh.nodes
+        .iter()
+        .map(|p| {
+            let r = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
+            (r - r_outer).abs() >= tol
+        })
+        .collect()
 }
 
 /// Build a per-tet relative permittivity vector for the bundled
