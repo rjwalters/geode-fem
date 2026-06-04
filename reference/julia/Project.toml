@@ -1,0 +1,34 @@
+# Julia reference for the cube-cavity scalar Helmholtz eigenmode problem
+# (Epic #88 / Phase E, issue #115). This directory is a plain Julia
+# *environment* (not a package — no `name`/`uuid`/`version` keys, no
+# `src/` module). Scripts are invoked via `julia --project=.` and use
+# `include(...)` rather than `using`.
+#
+# The Julia row is the complex-arithmetic reference per Epic #88's
+# principle 4 — even though this slice is real-symmetric, landing
+# Julia here lays the toolchain track for the Nédélec / PML / NLEPS
+# phases where complex types matter.
+#
+# Eigensolver: Arpack.jl binds the same libarpack as
+# scipy.sparse.linalg.eigsh, making the Julia eigensolve a
+# near-bit-equivalent of the NumPy reference at the iteration-trace
+# level. See reference/julia/README.md for the rationale.
+
+[deps]
+Arpack = "7d9fca2a-8960-54d3-9f78-7d1dccf2cb97"
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[compat]
+# Julia 1.10 LTS line per the curator note. Revisit if Arpack.jl drops 1.10.
+julia = "1.10"
+Arpack = "0.5"
+JSON3 = "1"
+
+# Note (Open Question #1 in the curator pass): Manifest.toml is committed in
+# git for this reference because it is an application (a fixture generator),
+# and Julia best practice is to commit Manifest for applications. This
+# matches the cross-backend convention that each toolchain owns its own
+# pinning (NumPy uses requirements.txt, JAX too, TF-Java uses pom.xml).
