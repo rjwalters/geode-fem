@@ -1,0 +1,250 @@
+name: julia-cube-cavity
+
+# Gated CI job for the Julia cube-cavity reference (Epic #88 / Phase E,
+# issue #115).
+#
+# Julia + Arpack.jl is the complex-arithmetic reference per Epic #88's
+# principle 4. Even though the cube-cavity slice is real-symmetric, this
+# gate is the toolchain bring-up for Phases G–J (Nédélec, PML, NLEPS),
+# where complex types matter.
+#
+# Triggers:
+#   1. Path-filtered `pull_request` / `push` to main: runs only when the
+#      change actually touches the Julia reference, its baseline fixture,
+#      the cross-IR comparator driver, or this workflow.
+#   2. Manual `workflow_dispatch`: run on demand against any branch with
+#      configurable `n` (default 10, matching baseline.json) and `rtol`
+#      (default 1e-5, matching the Epic #88 framing for cross-language
+#      f64 reproducibility).
+#
+# Scope clarification:
+# This gate runs Julia at n=10 (matching the canonical NumPy baseline.json
+# rather than the TF-Java gate's n=4 cost-floor compromise — Julia +
+# Arpack.jl is closer to NumPy + ARPACK in cost than to TF-Java + Maven
+# bootstrap). The gate compares Julia eigenvalues against:
+#   - the canonical NumPy baseline.json (n=10, the cross-IR f64 anchor)
+#   - a freshly emitted NumPy n=10 row (sanity check vs the committed fixture)
+# The JAX row is shown for diagnostic context but is excluded from the
+# rtol gate via `--skip-jax-comparison` because `jax_baseline.json` is
+# pinned at n=4 (mesh mismatch would produce a misleading drift number).
+# Burn agreement is exercised separately by the per-push
+# `cube_cavity_julia_reference` cargo test and by `arpack.yml`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'reference/julia/**'
+      - 'reference/driver/compare_eigenvalues.py'
+      - 'reference/driver/emit_numpy_eigenvalues.py'
+      - 'reference/numpy/cube_cavity.py'
+      - 'reference/numpy/cube_cavity_minimal.py'
+      - 'reference/numpy/mesh.py'
+      - 'reference/numpy/p1_local_matrices.py'
+      - 'reference/numpy/requirements.txt'
+      - 'reference/fixtures/cube_cavity/jax_baseline.json'
+      - 'reference/fixtures/cube_cavity/baseline.json'
+      - 'reference/fixtures/cube_cavity/unit_cube.msh'
+      - 'reference/fixtures/cube_cavity/julia_baseline.json'
+      - '.github/workflows/julia-cube-cavity.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'reference/julia/**'
+      - 'reference/driver/compare_eigenvalues.py'
+      - 'reference/driver/emit_numpy_eigenvalues.py'
+      - 'reference/numpy/cube_cavity.py'
+      - 'reference/numpy/cube_cavity_minimal.py'
+      - 'reference/numpy/mesh.py'
+      - 'reference/numpy/p1_local_matrices.py'
+      - 'reference/numpy/requirements.txt'
+      - 'reference/fixtures/cube_cavity/jax_baseline.json'
+      - 'reference/fixtures/cube_cavity/baseline.json'
+      - 'reference/fixtures/cube_cavity/unit_cube.msh'
+      - 'reference/fixtures/cube_cavity/julia_baseline.json'
+      - '.github/workflows/julia-cube-cavity.yml'
+  workflow_dispatch:
+    inputs:
+      n:
+        description: 'Cells per side for the cube mesh (default 10 — matches baseline.json).'
+        required: false
+        default: '10'
+      rtol:
+        description: 'Relative tolerance for the cross-backend eigenvalue gate.'
+        required: false
+        default: '1e-5'
+
+jobs:
+  build-and-cross-check:
+    name: Julia assembly + Arpack.jl eigensolve + cross-IR agreement (Julia vs JAX vs NumPy)
+    runs-on: ubuntu-latest
+    env:
+      # `n` and `rtol` are derived once here so manual-dispatch overrides
+      # flow into every step. Defaults match the AC: n=10, rtol=1e-5.
+      CUBE_N: ${{ inputs.n || '10' }}
+      CUBE_RTOL: ${{ inputs.rtol || '1e-5' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Julia 1.10
+        uses: julia-actions/setup-julia@v2
+        with:
+          # Julia 1.10 is the current LTS. Revisit if Arpack.jl drops 1.10.
+          version: '1.10'
+
+      - name: Cache Julia depot
+        uses: julia-actions/cache@v2
+        with:
+          # Keyed off Project.toml so the libarpack JLL only re-downloads
+          # when dependencies actually change.
+          cache-name: julia-cube-cavity-${{ hashFiles('reference/julia/Project.toml') }}
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: reference/numpy/requirements.txt
+
+      - name: Install Python deps (NumPy + SciPy)
+        # The cross-IR comparator and the NumPy emitter both depend on
+        # numpy + scipy. We deliberately do NOT install JAX here — the
+        # JAX row (when shown) comes from the in-tree
+        # `reference/fixtures/cube_cavity/jax_baseline.json` snapshot.
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r reference/numpy/requirements.txt
+
+      - name: Show toolchain versions (debug)
+        run: |
+          julia --version
+          python3 --version
+          python3 -c "import numpy, scipy; print('numpy', numpy.__version__); print('scipy', scipy.__version__)"
+
+      - name: Instantiate Julia project (resolve + precompile deps)
+        working-directory: reference/julia
+        # `Pkg.instantiate()` resolves the manifest and precompiles
+        # Arpack.jl + JSON3.jl. On a cold depot this is the bulk of the
+        # wall-clock budget (~30-60s); cached it's a few seconds.
+        run: |
+          julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.status()'
+
+      - name: Run Julia cube-cavity pipeline (assembly + Arpack.jl eigensolve)
+        working-directory: reference/julia
+        # Regenerate the Julia baseline fixture from scratch on this CI
+        # run. The committed `julia_baseline.json` is the seed (boot-
+        # strapped from NumPy at issue-#115 PR time); this step rewrites
+        # it to the actual Julia output for the rest of the gate.
+        run: |
+          mkdir -p target/out
+          julia --project=. gen_cube_cavity_baseline.jl \
+              --n "${CUBE_N}" --side 1.0 --k 5 \
+              --mesh ../fixtures/cube_cavity/unit_cube.msh \
+              --out  target/out/julia_baseline.json
+          # Also run the bare pipeline with stdout reporting for the log.
+          julia --project=. cube_cavity.jl \
+              --n "${CUBE_N}" --side 1.0 --k 5 \
+              --mesh ../fixtures/cube_cavity/unit_cube.msh
+
+      - name: Emit fresh NumPy reference eigenvalues for the same mesh
+        # Use the n=10 / mesh-loading reference (cube_cavity.py, not the
+        # minimal n=4 sibling) so the comparison is apples-to-apples
+        # with the Julia n=10 run.
+        run: |
+          mkdir -p reference/julia/target/out
+          python3 - <<'PY'
+          import json, sys
+          sys.path.insert(0, "reference/numpy")
+          from cube_cavity import run_cube_cavity, analytic_lowest_five
+          n = int("${{ env.CUBE_N }}")
+          r = run_cube_cavity(
+              n=n, k=5,
+              mesh_path="reference/fixtures/cube_cavity/unit_cube.msh",
+          )
+          fixture = {
+              "schema_version": "1",
+              "fixture_id": f"cube_cavity/n{n}_numpy_canonical_in_gate",
+              "description": (
+                  "Freshly emitted NumPy n=" + str(n) + " baseline used by "
+                  "the Julia cross-IR gate (issue #115). Same mesh + same "
+                  "pipeline as reference/fixtures/cube_cavity/baseline.json; "
+                  "regenerated in-job to keep the gate honest."
+              ),
+              "units": "dimensionless",
+              "inputs": {
+                  "n":    {"shape": [1], "dtype": "i64",
+                           "description": "Cells per side.", "data": [n]},
+                  "side": {"shape": [1], "dtype": "f64",
+                           "description": "Cube side.", "data": [1.0]},
+              },
+              "outputs": {
+                  "eigenvalues": {
+                      "shape": [5], "dtype": "f64",
+                      "description": "Lowest 5 eigenvalues, ascending.",
+                      "tolerance_abs": 1.0e-8,
+                      "data": r["eigenvalues"].tolist(),
+                  },
+              },
+              "provenance": {
+                  "source":
+                      "reference/numpy/cube_cavity.py via in-line emit "
+                      "(julia-cube-cavity.yml gate, issue #115)",
+                  "issue": "#115",
+              },
+          }
+          with open("reference/julia/target/out/numpy_baseline.json", "w") as f:
+              json.dump(fixture, f, indent=2)
+              f.write("\n")
+          print("Wrote reference/julia/target/out/numpy_baseline.json")
+          PY
+
+      - name: Cross-IR agreement gate (Julia vs JAX vs NumPy, rtol=${{ env.CUBE_RTOL }})
+        # AC#5 hard gate: Julia eigenvalues must match the canonical
+        # NumPy baseline + freshly emitted NumPy row on the lowest 5 modes
+        # within `rtol`. The JAX row is shown for diagnostic context but
+        # excluded from the rtol gate (`--skip-jax-comparison`) because
+        # `jax_baseline.json` is pinned at n=4 while this gate runs at
+        # the n=10 canonical mesh.
+        #
+        # A failure here is highly informative — Arpack.jl vs scipy.eigsh
+        # disagreement would isolate Julia-vs-NumPy libarpack-binding
+        # drift on the same algorithm. We upload the agreement table as
+        # an artifact regardless of pass/fail so the Friction artifact
+        # stays visible.
+        run: |
+          python3 reference/driver/compare_eigenvalues.py \
+              --julia reference/julia/target/out/julia_baseline.json \
+              --jax   reference/fixtures/cube_cavity/jax_baseline.json \
+              --numpy reference/fixtures/cube_cavity/baseline.json \
+              --skip-jax-comparison \
+              --k 5 \
+              --rtol "${CUBE_RTOL}" \
+              --out   reference/julia/target/out/agreement_table.md
+
+      - name: Sanity-check freshly emitted NumPy row vs committed baseline.json
+        # Extra belt-and-braces: confirm the fresh in-job NumPy emit
+        # agrees with the committed canonical baseline.json. This is a
+        # regression guard for the NumPy reference itself; orthogonal to
+        # the Julia agreement check above.
+        run: |
+          python3 reference/driver/compare_eigenvalues.py \
+              --julia reference/julia/target/out/numpy_baseline.json \
+              --jax   reference/fixtures/cube_cavity/jax_baseline.json \
+              --numpy reference/fixtures/cube_cavity/baseline.json \
+              --skip-jax-comparison \
+              --k 5 \
+              --rtol "${CUBE_RTOL}"
+
+      - name: Upload Julia sidecar + agreement artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: julia-cube-cavity-artifacts
+          path: |
+            reference/julia/target/out/julia_baseline.json
+            reference/julia/target/out/numpy_baseline.json
+            reference/julia/target/out/agreement_table.md
+          if-no-files-found: warn
+          retention-days: 30

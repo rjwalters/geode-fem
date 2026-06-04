@@ -1,44 +1,51 @@
-"""Cross-IR eigenvalue comparison for the cube-cavity reference (Epic #88 / #93).
+"""Cross-IR eigenvalue comparison for the cube-cavity reference (Epic #88 / #93 / #115).
 
-Given a TF-Java eigenresult JSON (produced by `eigensolve_from_tfjava.py`)
-and the in-tree JAX baseline JSON (`reference/fixtures/cube_cavity/jax_baseline.json`),
+Given a primary eigenresult JSON (TF-Java via `eigensolve_from_tfjava.py`,
+or Julia via `reference/julia/cube_cavity.jl --out ...`, or both) and
+the in-tree JAX baseline JSON (`reference/fixtures/cube_cavity/jax_baseline.json`),
 plus an optional NumPy result computed in-process from
 `reference/numpy/cube_cavity_minimal.py`, this script writes a
-cross-IR agreement table and asserts the TF-Java eigenvalues agree
-with the JAX/NumPy baselines on the lowest 5 modes within a relative
-tolerance (default 1e-5, per the Epic #88 framing comment on
+cross-IR agreement table and asserts the primary eigenvalues agree
+with the JAX/NumPy/Julia baselines on the lowest 5 modes within a
+relative tolerance (default 1e-5, per the Epic #88 framing comment on
 cross-language f64 reproducibility).
 
-When invoked from the TF-Java CI job (`tfjava-cube-cavity.yml`) the
-`--burn` argument is not supplied — that gate is intentionally three-way
-(TF-Java vs JAX vs NumPy). Burn agreement against the same JAX baseline
-is exercised separately by the `arpack` workflow and by the per-push
-`cube_cavity_jax_reference` cargo test. Passing `--burn` here is still
-supported for ad-hoc/local audits where all four rows are convenient.
+The CI workflows wire this script with different primary backends:
+
+- `.github/workflows/tfjava-cube-cavity.yml` (PR #107 / #112): TF-Java
+  primary, compared against JAX baseline + NumPy n=4 row.
+- `.github/workflows/julia-cube-cavity.yml` (issue #115): Julia primary,
+  compared against the NumPy n=10 canonical baseline (`baseline.json`)
+  + a freshly emitted NumPy n=10 row. The JAX row is omitted from the
+  Julia gate when meshes don't match (jax_baseline.json is n=4); see
+  the workflow header for the rationale.
+
+Optional `--burn` is supported for ad-hoc/local audits where all four
+rows are convenient.
 
 Exit code:
     0 — agreement within tolerance.
     1 — disagreement (or missing input).
 
 This script is intentionally framework-light (only numpy + stdlib) so it
-runs inside the TF-Java CI job without dragging JAX into the JVM-side
-container. The Burn row is read from a fixture-shaped JSON if provided,
-or omitted with a footnote pointing at where Burn agreement is checked.
+runs inside the TF-Java / Julia CI jobs without dragging JAX into the
+JVM-side or Julia-side container.
 
 Usage
 =====
     python3 reference/driver/compare_eigenvalues.py \
-        --tfjava path/to/eigenresult_tfjava.json \
+        [--tfjava path/to/eigenresult_tfjava.json] \
+        [--julia  path/to/julia_baseline.json] \
         --jax    reference/fixtures/cube_cavity/jax_baseline.json \
         [--numpy path/to/numpy_baseline.json] \
         [--burn  path/to/burn_baseline.json] \
         [--rtol 1e-5] \
         [--out path/to/agreement_table.md]
 
-Note: `--burn` is optional and is NOT wired in by `tfjava-cube-cavity.yml`.
-The CI gate is three-way (TF-Java vs JAX vs NumPy); Burn agreement against
-the same JAX baseline is exercised by the `arpack` workflow and the
-`cube_cavity_jax_reference` cargo test.
+At least one of `--tfjava` or `--julia` must be supplied. The `--jax`
+flag is required so the comparator always emits the cross-IR XLA-vs-
+ARPACK columns (even when one row is omitted due to mesh mismatch, the
+header documents the omission explicitly).
 """
 
 from __future__ import annotations
@@ -74,10 +81,17 @@ def _format_row(name: str, eigs: Optional[np.ndarray], k: int) -> str:
     return f"| {name:<8} | " + " | ".join(f"{e:.9e}" for e in eigs[:k]) + " |"
 
 
+def _max_rel(a: np.ndarray, b: np.ndarray) -> float:
+    """Max |a - b| / max(|b|, 1e-30) over the full vector."""
+    return float(np.max(np.abs(a - b) / np.maximum(np.abs(b), 1e-30)))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tfjava", required=True, type=Path,
+    parser.add_argument("--tfjava", type=Path, default=None,
                         help="Path to the TF-Java eigenresult JSON (from eigensolve_from_tfjava.py).")
+    parser.add_argument("--julia", type=Path, default=None,
+                        help="Path to the Julia eigenresult JSON (from reference/julia/cube_cavity.jl).")
     parser.add_argument("--jax", required=True, type=Path,
                         help="Path to the JAX baseline JSON.")
     parser.add_argument("--numpy", type=Path, default=None,
@@ -90,58 +104,94 @@ def main() -> int:
                         help="Number of lowest eigenmodes to compare.")
     parser.add_argument("--out", type=Path, default=None,
                         help="Optional Markdown agreement-table output path.")
+    parser.add_argument("--skip-jax-comparison", action="store_true",
+                        help=(
+                            "Render the JAX row in the table but DO NOT include it "
+                            "in the rtol gate. Used by the Julia gate (issue #115) "
+                            "when the Julia pipeline runs at a different `n` than "
+                            "the JAX baseline (jax_baseline.json is pinned at n=4)."
+                        ))
     args = parser.parse_args()
 
-    if not args.tfjava.exists():
-        print(f"TF-Java eigenresult not found: {args.tfjava}", file=sys.stderr)
+    if args.tfjava is None and args.julia is None:
+        print("ERROR: at least one of --tfjava or --julia must be supplied.",
+              file=sys.stderr)
         return 1
+
     if not args.jax.exists():
         print(f"JAX baseline not found: {args.jax}", file=sys.stderr)
         return 1
 
-    tfjava = _load_eigenvalues(args.tfjava)
+    tfjava = None
+    if args.tfjava is not None:
+        if not args.tfjava.exists():
+            print(f"TF-Java eigenresult not found: {args.tfjava}", file=sys.stderr)
+            return 1
+        tfjava = _load_eigenvalues(args.tfjava)
+
+    julia = None
+    if args.julia is not None:
+        if not args.julia.exists():
+            print(f"Julia eigenresult not found: {args.julia}", file=sys.stderr)
+            return 1
+        julia = _load_eigenvalues(args.julia)
+
     jax_e = _load_eigenvalues(args.jax)
     numpy_e = _load_eigenvalues(args.numpy) if args.numpy and args.numpy.exists() else None
     burn_e = _load_eigenvalues(args.burn) if args.burn and args.burn.exists() else None
 
-    k = min(args.k, tfjava.size, jax_e.size)
-    tfjava_k = tfjava[:k]
+    # Truncate to k across whatever rows are present.
+    present = [v.size for v in (tfjava, julia, jax_e) if v is not None]
+    k = min(args.k, *present)
     jax_k = jax_e[:k]
+    tfjava_k = tfjava[:k] if tfjava is not None else None
+    julia_k = julia[:k] if julia is not None else None
+    numpy_k = numpy_e[:k] if numpy_e is not None else None
+    burn_k = burn_e[:k] if burn_e is not None else None
 
-    # --- Compute agreement ---
-    rel_tfjava_vs_jax = np.abs(tfjava_k - jax_k) / np.maximum(np.abs(jax_k), 1e-30)
-    max_rel_tj_jax = float(np.max(rel_tfjava_vs_jax))
+    # --- Compute per-primary drift against every other backend ---
+    drift = {}  # (primary_label, other_label) -> max_rel
 
-    rel_tfjava_vs_numpy = None
-    max_rel_tj_np = None
-    if numpy_e is not None:
-        numpy_k = numpy_e[:k]
-        rel_tfjava_vs_numpy = np.abs(tfjava_k - numpy_k) / np.maximum(np.abs(numpy_k), 1e-30)
-        max_rel_tj_np = float(np.max(rel_tfjava_vs_numpy))
+    def _record(primary_label: str, primary: np.ndarray):
+        drift[(primary_label, "JAX")] = _max_rel(primary, jax_k)
+        if numpy_k is not None:
+            drift[(primary_label, "NumPy")] = _max_rel(primary, numpy_k)
+        if burn_k is not None:
+            drift[(primary_label, "Burn")] = _max_rel(primary, burn_k)
+        if julia_k is not None and primary_label != "Julia":
+            drift[(primary_label, "Julia")] = _max_rel(primary, julia_k)
+        if tfjava_k is not None and primary_label != "TF-Java":
+            drift[(primary_label, "TF-Java")] = _max_rel(primary, tfjava_k)
 
-    rel_tfjava_vs_burn = None
-    max_rel_tj_burn = None
-    if burn_e is not None:
-        burn_k = burn_e[:k]
-        rel_tfjava_vs_burn = np.abs(tfjava_k - burn_k) / np.maximum(np.abs(burn_k), 1e-30)
-        max_rel_tj_burn = float(np.max(rel_tfjava_vs_burn))
+    if tfjava_k is not None:
+        _record("TF-Java", tfjava_k)
+    if julia_k is not None:
+        _record("Julia", julia_k)
 
     # --- Render Markdown table ---
-    # Title reflects the actual gate scope: cross-IR agreement among the
-    # backends that were actually provided. When `--burn` is not supplied
-    # (the default in the TF-Java CI workflow), the Burn row is omitted
-    # entirely and replaced by an explicit footnote pointing at where
-    # Burn agreement is checked. See issue #111.
-    if burn_e is not None:
-        title = "## Cube-cavity cross-IR eigenvalue agreement (TF-Java vs JAX vs NumPy vs Burn)"
-    else:
-        title = "## Cube-cavity cross-IR eigenvalue agreement (TF-Java vs JAX vs NumPy)"
+    primary_labels = []
+    if tfjava_k is not None:
+        primary_labels.append("TF-Java")
+    if julia_k is not None:
+        primary_labels.append("Julia")
 
-    backend_rows = [
-        _format_row("NumPy", numpy_e, k),
-        _format_row("JAX",   jax_e, k),
-        _format_row("TF-Java", tfjava, k),
-    ]
+    other_labels = ["JAX"]
+    if numpy_k is not None:
+        other_labels.append("NumPy")
+    if burn_k is not None:
+        other_labels.append("Burn")
+
+    title = "## Cube-cavity cross-IR eigenvalue agreement (" + \
+        " vs ".join(primary_labels + other_labels) + ")"
+
+    backend_rows = []
+    if numpy_e is not None:
+        backend_rows.append(_format_row("NumPy", numpy_e, k))
+    backend_rows.append(_format_row("JAX", jax_e, k))
+    if tfjava is not None:
+        backend_rows.append(_format_row("TF-Java", tfjava, k))
+    if julia is not None:
+        backend_rows.append(_format_row("Julia", julia, k))
     if burn_e is not None:
         backend_rows.append(_format_row("Burn", burn_e, k))
 
@@ -154,22 +204,36 @@ def main() -> int:
         "|----------|" + "|".join(["----------------"] * k) + "|",
         *backend_rows,
         "",
-        "### Relative drift vs JAX (XLA-vs-XLA)",
+        "### Pairwise relative drift",
         "",
-        f"- max |TF-Java − JAX| / |JAX| over {k} modes: **{max_rel_tj_jax:.3e}**",
     ]
-    if max_rel_tj_np is not None:
-        lines.append(f"- max |TF-Java − NumPy| / |NumPy| over {k} modes: **{max_rel_tj_np:.3e}**")
-    if max_rel_tj_burn is not None:
-        lines.append(f"- max |TF-Java − Burn|  / |Burn|  over {k} modes: **{max_rel_tj_burn:.3e}**")
-    else:
+    for primary_label in primary_labels:
+        for other in [lab for lab in ("JAX", "NumPy", "Burn", "Julia", "TF-Java")
+                      if lab != primary_label and (primary_label, lab) in drift]:
+            tag = ""
+            if other == "JAX" and args.skip_jax_comparison:
+                tag = " *(diagnostic only — excluded from gate; see header)*"
+            lines.append(
+                f"- max |{primary_label} − {other}| / |{other}| over {k} modes: "
+                f"**{drift[(primary_label, other)]:.3e}**{tag}"
+            )
+    if burn_e is None:
         lines.extend([
             "",
             "> **Note:** the Burn row is not included in this gate. Burn agreement",
             "> against the same JAX baseline is exercised by `cargo test --features arpack`",
             "> (see `.github/workflows/arpack.yml`) and by the default-CI",
-            "> `cube_cavity_jax_reference` cargo test. See issue #111 for the",
-            "> decoupling rationale.",
+            "> `cube_cavity_jax_reference` / `cube_cavity_julia_reference` cargo tests.",
+            "> See issue #111 for the decoupling rationale.",
+        ])
+    if args.skip_jax_comparison:
+        lines.extend([
+            "",
+            "> **Note:** the JAX row is shown for diagnostic context but is",
+            "> excluded from the rtol gate because `jax_baseline.json` is pinned",
+            "> at n=4 while this gate runs at a different mesh resolution.",
+            "> Julia agreement against JAX at matching meshes is verifiable by",
+            "> rerunning Julia at `--n 4` locally.",
         ])
 
     table_md = "\n".join(lines) + "\n"
@@ -182,22 +246,26 @@ def main() -> int:
 
     # --- Gate decision ---
     failures = []
-    if max_rel_tj_jax > args.rtol:
-        failures.append(f"TF-Java vs JAX: {max_rel_tj_jax:.3e} > {args.rtol:g}")
-    if max_rel_tj_np is not None and max_rel_tj_np > args.rtol:
-        failures.append(f"TF-Java vs NumPy: {max_rel_tj_np:.3e} > {args.rtol:g}")
-    if max_rel_tj_burn is not None and max_rel_tj_burn > args.rtol:
-        failures.append(f"TF-Java vs Burn: {max_rel_tj_burn:.3e} > {args.rtol:g}")
+    for (primary_label, other_label), max_rel in drift.items():
+        if other_label == "JAX" and args.skip_jax_comparison:
+            continue
+        if max_rel > args.rtol:
+            failures.append(
+                f"{primary_label} vs {other_label}: {max_rel:.3e} > {args.rtol:g}"
+            )
 
     if failures:
-        print("AGREEMENT FAILURE (cross-XLA-vs-XLA drift is highly informative — see #88):",
+        print("AGREEMENT FAILURE (cross-IR drift is highly informative — see #88):",
               file=sys.stderr)
         for f in failures:
             print(f"  - {f}", file=sys.stderr)
         return 1
 
-    print(f"OK: TF-Java agrees with all available baselines to within {args.rtol:g} relative.",
-          file=sys.stderr)
+    print(
+        f"OK: {', '.join(primary_labels)} agree with all gated baselines to within "
+        f"{args.rtol:g} relative.",
+        file=sys.stderr,
+    )
     return 0
 
 

@@ -33,6 +33,7 @@ reference/
 │       ├── baseline.json           — cube-cavity NumPy baseline (eigenvalues + sub-stages + Q_numpy, #92)
 │       ├── baseline.schema.md      — per-fixture schema notes for `baseline.json`
 │       ├── jax_baseline.json       — lowest 5 eigenvalues + traces from JAX (#93)
+│       ├── julia_baseline.json     — lowest 5 eigenvalues + sub-stages from Julia + Arpack.jl (#115)
 │       └── unit_cube.msh           — shared n=10 mesh (MSH 4.1 ASCII via meshio, #92)
 ├── numpy/                          — NumPy/SciPy reference impls (Python)
 │   ├── README.md
@@ -57,9 +58,15 @@ reference/
 │           └── CubeCavityMain.java  — driver + sidecar emitter
 ├── driver/                         — cross-language seam scripts
 │   ├── README.md
-│   └── eigensolve_from_tfjava.py    — SciPy eigensolve from TF-Java sidecar
-├── julia/                          — Julia reference impls (deferred)
-│   └── README.md
+│   ├── eigensolve_from_tfjava.py    — SciPy eigensolve from TF-Java sidecar
+│   ├── emit_numpy_eigenvalues.py    — fixture-schema JSON shim for NumPy n=4/n=10 in-job
+│   └── compare_eigenvalues.py       — cross-IR agreement table (TF-Java / Julia vs JAX / NumPy / Burn)
+├── julia/                          — Julia reference impls
+│   ├── README.md                   — toolchain bootstrap + Julia friction notes (#115)
+│   ├── Project.toml                — pinned Arpack.jl + JSON3.jl deps
+│   ├── mesh.jl                     — cube_tet_mesh + inline MSH 4.1 parser + cube_interior_mask
+│   ├── cube_cavity.jl              — Cube-cavity assembly + Arpack.jl eigensolve (#115)
+│   └── gen_cube_cavity_baseline.jl — regenerates fixtures/cube_cavity/julia_baseline.json
 └── onnx/                           — ONNX graph references (deferred)
     └── README.md
 ```
