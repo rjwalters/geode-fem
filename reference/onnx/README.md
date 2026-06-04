@@ -12,15 +12,18 @@ to articulate explicitly.
 Phase F is split into two sequenced issues under Epic #88:
 
 - **Phase F.1 — expressibility audit (issue [#116](https://github.com/rjwalters/geode-fem/issues/116))**:
-  the cube-cavity operator-by-operator audit. **Landed in this PR.**
-  Lives under [`audit/`](audit/) — Markdown gap-list plus three runnable
-  probe scripts. No CI gate; the audit *is* the deliverable.
-- **Phase F.2 — end-to-end cube-cavity ONNX assembly graph (planned)**:
-  the runtime payload (`cube_cavity/`), the sidecar driver
-  (`reference/driver/eigensolve_from_onnx.py` or a refactored
-  backend-agnostic shared driver), and the CI gate analogous to
-  `.github/workflows/tfjava-cube-cavity.yml`. Filed after this PR
-  merges so its curation can incorporate what F.1 actually learned.
+  the cube-cavity operator-by-operator audit. Lives under
+  [`audit/`](audit/) — Markdown gap-list plus three runnable probe
+  scripts. No CI gate; the audit *is* the deliverable.
+- **Phase F.2 — end-to-end cube-cavity ONNX assembly graph
+  (issue [#123](https://github.com/rjwalters/geode-fem/issues/123))**:
+  shipped. The runtime payload lives in [`cube_cavity/`](cube_cavity/),
+  the sidecar driver is
+  [`reference/driver/eigensolve_from_onnx.py`](../driver/eigensolve_from_onnx.py),
+  and the CI gate is
+  [`.github/workflows/onnx-cube-cavity.yml`](../../.github/workflows/onnx-cube-cavity.yml)
+  — modeled on `tfjava-cube-cavity.yml` and aligned with the n=10
+  convention of the canonical NumPy baseline.
 
 ## Boundary conventions inherited from the reference set
 
@@ -55,10 +58,10 @@ reference/onnx/
 │   ├── probe_p1_local.py              — per-element P1 local matrices
 │   ├── probe_assembly_scatter.py      — global K/M scatter-add (ScatterND)
 │   └── probe_dirichlet_mask.py        — interior-DOF restriction (NonZero)
-└── (planned Phase F.2)
-    ├── cube_cavity/
-    │   ├── assembly_graph.py          — analog of tf_java/.../AssemblyGraph.java
-    │   └── gen_cube_cavity_reduced.py — emits reduced_kM.json sidecar
+└── cube_cavity/                       — Phase F.2 runtime payload
+    ├── README.md                      — graph design + reproduction notes
+    ├── assembly_graph.py              — analog of tf_java/.../AssemblyGraph.java
+    └── gen_cube_cavity_reduced.py     — emits reduced_kM.json sidecar
 ```
 
 ## Re-running the Phase F.1 probes
@@ -75,6 +78,30 @@ Each probe ends with a one-screen verdict. The verdicts roll up into
 the audit table in [`audit/cube_cavity_operator_audit.md`](audit/cube_cavity_operator_audit.md).
 If a probe's verdict diverges from the table after a version bump,
 the table is stale — re-audit.
+
+## Re-running the Phase F.2 pipeline
+
+```bash
+cd reference/onnx
+python3 -m pip install -r requirements.txt
+mkdir -p ../../target/out
+python3 cube_cavity/gen_cube_cavity_reduced.py \
+    --n 10 --side 1.0 --out ../../target/out/reduced_kM.json
+python3 ../driver/eigensolve_from_onnx.py \
+    ../../target/out/reduced_kM.json --k 5 \
+    --out ../../target/out/eigenresult_onnx.json
+python3 ../driver/compare_eigenvalues.py \
+    --onnx ../../target/out/eigenresult_onnx.json \
+    --jax  ../fixtures/cube_cavity/jax_baseline.json \
+    --numpy ../fixtures/cube_cavity/baseline.json \
+    --skip-jax-comparison --k 5 --rtol 1e-5
+```
+
+See [`cube_cavity/README.md`](cube_cavity/README.md) for graph-design
+details and the rationale for raw `onnx.helper` over `onnxscript`. The
+CI gate at [`.github/workflows/onnx-cube-cavity.yml`](../../.github/workflows/onnx-cube-cavity.yml)
+runs the same three steps on every PR that touches the ONNX or NumPy
+reference paths.
 
 ## Phase F.1 headline finding (one paragraph)
 
@@ -104,31 +131,32 @@ artifacts accumulate for upstream
 [`crutcher/palace_whiteroom`](https://github.com/crutcher/palace_whiteroom)
 review.
 
-## Pointer to Phase F.2 planned layout
+## Phase F.2 design — derived from the audit
 
-The Phase F.2 issue (to be filed) will land:
+The Phase F.2 runtime payload follows directly from the audit's
+operator-by-operator findings. Inherited design points (shipped in
+issue #123 / this directory):
 
-```
-reference/onnx/cube_cavity/
-├── assembly_graph.py                  — builds the ONNX assembly graph
-│                                        (analog of TF-Java AssemblyGraph.java).
-│                                        Graph inputs: nodes, tets, idx_int.
-│                                        Graph outputs: K_int, M_int.
-└── gen_cube_cavity_reduced.py         — runs onnxruntime over the graph
-                                        and emits reduced_kM.json (same schema
-                                        as TF-Java's sidecar).
-reference/driver/
-└── eigensolve_from_onnx.py            — near-clone of eigensolve_from_tfjava.py
-                                        (or refactored into a backend-agnostic
-                                        eigensolve_from_sidecar.py — decision
-                                        belongs in F.2's curation).
-.github/workflows/onnx-cube-cavity.yml — CI gate, mirroring tfjava-cube-cavity.yml
-                                        for three-way cross-IR agreement
-                                        (ONNX vs JAX vs NumPy at rtol=1e-5).
-```
-
-The F.2 design is **derived from**, not independent of, the audit
-deliverable in this directory.
+- Graph inputs: `nodes (n_nodes, 3) f64`, `tets (n_elem, 4) i64`,
+  `idx_int (n_int,) i64`. Host-computed `idx`; `NonZero` is excluded
+  from the graph (audit Stage 3 recommendation).
+- Graph outputs: `K_int (n_int, n_int) f64`, `M_int (n_int, n_int) f64`.
+- Stage 1 uses `MatMul` for the batched `(N, 4, 3) @ (N, 3, 4)`
+  contraction — ONNX broadcasts the batch dim natively (no `einsum`
+  fallback like TF-Java had to drop to; audit Stage 1).
+- Stage 2 uses `ScatterND(reduction="add")` on a `ConstantOfShape` zero
+  buffer (audit Stage 2 headline operator).
+- Stage 3 uses two successive `Gather`s for the outer-product
+  `np.ix_(idx, idx)` (audit Stage 3, Path A).
+- Authoring: raw `onnx.helper`, not `onnxscript`, to preserve the
+  audit's IR-level transparency contract (audit doc lines 51–55; F.2
+  curator decision on issue #123).
+- Eigensolve seam: a JSON sidecar consumed by
+  [`reference/driver/eigensolve_from_onnx.py`](../driver/eigensolve_from_onnx.py)
+  — near-clone of `eigensolve_from_tfjava.py`. Consolidation into a
+  backend-agnostic `eigensolve_from_sidecar.py` is deferred to a
+  follow-up issue once a second sidecar consumer triggers the
+  generalization.
 
 ## Parent epic + related
 
