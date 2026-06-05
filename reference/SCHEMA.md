@@ -47,8 +47,31 @@ Same as `Field`, plus:
 - **Row-major** flattening throughout. A `[1, 4, 4]` tensor flattens to
   a length-16 vector with `(b, i, j) → b*16 + i*4 + j`.
 - **dtype names** match NumPy: `f64`, `f32`, `i64`, `i32`, `c128`,
-  `c64`. The harness only consumes the loader path for `f64` today; the
-  schema reserves the others for forward use.
+  `c64`. The harness consumes the loader path for `f64` and `c128`
+  today (Phase H scaffolding, issue #145); other dtypes remain reserved
+  for forward use.
+
+### Complex encoding (`c128`)
+
+`c128` arrays are encoded as **real–imag interleaved** flat numeric
+arrays of length `2 · prod(shape)`. The element at logical row-major
+index `k` occupies disk positions `2k` (real part) and `2k+1`
+(imaginary part), both as plain JSON numbers.
+
+> **Note**: this is *not* NumPy's `np.complex128` byte layout — JSON
+> is text, so the layout has to be explicit. Use
+> `np.asarray(z).view(np.float64).tolist()` (on a contiguous c128
+> array) to serialize, or equivalently
+> `np.column_stack([z.real, z.imag]).flatten().tolist()`. On the load
+> side, `geode_validation::Fixture::output_c128` consumes the
+> interleaved flat list into `Vec<num_complex::Complex<f64>>`.
+
+For `c128` **output fields**, `tolerance_abs` is applied to the
+**complex modulus** `|Δ| = |actual − golden|`. Per-component
+(separate `(Re, Im)`) tolerances are not part of v1 — if a fixture
+needs them, document the convention in the fixture's per-field
+description and split into two real fields until v2 lands a typed
+`tolerance` shape.
 - **Per-field tolerances** are absolute. Relative tolerances are
   deliberately omitted at v1 — they would require deciding whether to
   divide by the golden, the actual, or their mean, and Phase A doesn't

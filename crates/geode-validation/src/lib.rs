@@ -58,4 +58,10 @@ pub mod diff;
 pub mod fixture;
 
 pub use diff::{ComparisonReport, FieldDiff};
-pub use fixture::{Field, Fixture, FixtureError, FixtureFormat, OutputField, Provenance};
+pub use fixture::{
+    Field, Fixture, FixtureError, FixtureFormat, GoldenC128, GoldenF64, OutputField, Provenance,
+};
+
+// Re-export the complex scalar type so downstream tests don't need to
+// pin the `num-complex` major version independently.
+pub use num_complex::Complex64;

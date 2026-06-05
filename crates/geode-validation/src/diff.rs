@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use num_complex::Complex64;
 use serde::{Deserialize, Serialize};
 
 use crate::fixture::{Fixture, FixtureError};
@@ -102,12 +103,21 @@ pub struct WorstOffender {
 }
 
 /// Core comparison. Public via [`Fixture::compare_against`].
+///
+/// Skips `c128`-dtype fields — those go through [`compare_complex`].
+/// This keeps fixtures that mix real and complex outputs (e.g. the
+/// Phase H sphere PML fixture: real `sigma_0` + real `q_factor` +
+/// complex `eigenvalues_lowest_complex`) viable without forcing
+/// callers to demux at the call site.
 pub(crate) fn compare(fixture: &Fixture, actual: &BTreeMap<String, Vec<f64>>) -> ComparisonReport {
     let mut fields = Vec::with_capacity(fixture.outputs.len());
 
     // Iterate in the fixture's BTreeMap order so reports are
     // deterministic regardless of caller insertion order.
     for (name, golden_field) in fixture.iter_outputs() {
+        if golden_field.dtype == "c128" {
+            continue;
+        }
         let golden = match fixture.output_f64(name) {
             Ok(g) => g,
             Err(FixtureError::MissingField(_)) => unreachable!(),
@@ -195,6 +205,165 @@ pub(crate) fn compare(fixture: &Fixture, actual: &BTreeMap<String, Vec<f64>>) ->
             index: max_idx,
             golden: golden.data[max_idx],
             actual: actual_data[max_idx],
+            abs_error: max_err,
+        };
+
+        if violations == 0 {
+            fields.push(FieldDiff {
+                field: name.to_string(),
+                passed: true,
+                status: FieldStatus::Ok,
+                tolerance_abs: golden.tolerance_abs,
+                golden_shape: golden_field.shape.clone(),
+                actual_len: actual_data.len(),
+                max_abs_error: Some(max_err),
+                worst_offender: Some(worst),
+            });
+        } else {
+            fields.push(FieldDiff {
+                field: name.to_string(),
+                passed: false,
+                status: FieldStatus::ToleranceExceeded {
+                    n_violations: violations,
+                },
+                tolerance_abs: golden.tolerance_abs,
+                golden_shape: golden_field.shape.clone(),
+                actual_len: actual_data.len(),
+                max_abs_error: Some(max_err),
+                worst_offender: Some(worst),
+            });
+        }
+    }
+
+    let passed = fields.iter().all(|f| f.passed);
+    ComparisonReport {
+        fixture_id: fixture.fixture_id.clone(),
+        passed,
+        fields,
+        report_schema_version: "1".to_string(),
+    }
+}
+
+/// Complex-valued counterpart of [`compare`]. Public via
+/// [`Fixture::compare_complex_against`].
+///
+/// Per-field absolute tolerance is applied to the **complex modulus**
+/// of the residual: a field passes iff
+/// `max_i |actual[i] - golden[i]| ≤ tolerance_abs`.
+///
+/// Skips any output field whose declared dtype is not `c128` — those
+/// belong to the real-valued [`compare`] path. The
+/// [`WorstOffender::golden`] / `actual` fields project the worst
+/// element onto its complex modulus (so the artifact stays a single
+/// pair of `f64`s rather than mixing real and complex JSON shapes at
+/// v1 of the report schema); the residual `abs_error` is `|Δ|` as
+/// expected.
+pub(crate) fn compare_complex(
+    fixture: &Fixture,
+    actual: &BTreeMap<String, Vec<Complex64>>,
+) -> ComparisonReport {
+    let mut fields = Vec::with_capacity(fixture.outputs.len());
+
+    for (name, golden_field) in fixture.iter_outputs() {
+        if golden_field.dtype != "c128" {
+            continue;
+        }
+
+        let golden = match fixture.output_c128(name) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("fixture output_c128 error for {name}: {e}");
+                fields.push(FieldDiff {
+                    field: name.to_string(),
+                    passed: false,
+                    status: FieldStatus::MissingFromActual,
+                    tolerance_abs: golden_field.tolerance_abs,
+                    golden_shape: golden_field.shape.clone(),
+                    actual_len: 0,
+                    max_abs_error: None,
+                    worst_offender: None,
+                });
+                continue;
+            }
+        };
+
+        let Some(actual_data) = actual.get(name) else {
+            fields.push(FieldDiff {
+                field: name.to_string(),
+                passed: false,
+                status: FieldStatus::MissingFromActual,
+                tolerance_abs: golden.tolerance_abs,
+                golden_shape: golden_field.shape.clone(),
+                actual_len: 0,
+                max_abs_error: None,
+                worst_offender: None,
+            });
+            continue;
+        };
+
+        let expected_n = golden.numel();
+        if actual_data.len() != expected_n {
+            fields.push(FieldDiff {
+                field: name.to_string(),
+                passed: false,
+                status: FieldStatus::ShapeMismatch {
+                    expected: expected_n,
+                    actual: actual_data.len(),
+                },
+                tolerance_abs: golden.tolerance_abs,
+                golden_shape: golden_field.shape.clone(),
+                actual_len: actual_data.len(),
+                max_abs_error: None,
+                worst_offender: None,
+            });
+            continue;
+        }
+
+        // Sanity-check for NaN/Inf in actual (golden is assumed clean).
+        if let Some((first_bad, _)) = actual_data
+            .iter()
+            .enumerate()
+            .find(|(_, z)| !z.re.is_finite() || !z.im.is_finite())
+        {
+            fields.push(FieldDiff {
+                field: name.to_string(),
+                passed: false,
+                status: FieldStatus::NonFiniteInActual {
+                    first_index: first_bad,
+                },
+                tolerance_abs: golden.tolerance_abs,
+                golden_shape: golden_field.shape.clone(),
+                actual_len: actual_data.len(),
+                max_abs_error: None,
+                worst_offender: None,
+            });
+            continue;
+        }
+
+        let mut max_err = 0.0_f64;
+        let mut max_idx = 0usize;
+        let mut violations = 0usize;
+        for (i, (g, a)) in golden.data.iter().zip(actual_data.iter()).enumerate() {
+            let err = (a - g).norm();
+            if err > max_err {
+                max_err = err;
+                max_idx = i;
+            }
+            if err > golden.tolerance_abs {
+                violations += 1;
+            }
+        }
+
+        // The `WorstOffender` shape is real-valued in report-schema v1;
+        // we project to complex modulus so callers reading the JSON
+        // artifact see a consistent (golden, actual, abs_error) triple
+        // even for complex fields. Full complex pairs (re_g, im_g,
+        // re_a, im_a) are deferred to a future report schema bump if a
+        // downstream tool asks for them.
+        let worst = WorstOffender {
+            index: max_idx,
+            golden: golden.data[max_idx].norm(),
+            actual: actual_data[max_idx].norm(),
             abs_error: max_err,
         };
 

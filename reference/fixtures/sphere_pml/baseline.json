@@ -1,0 +1,137 @@
+{
+  "schema_version": "1",
+  "fixture_id": "sphere_pml/n774_pml_eigenmode_stub",
+  "description": "Scalar-isotropic PML sphere eigenmode SCAFFOLDING STUB (issue #145, parent epic #88, Phase H). Exercises the c128 on-disk encoding and complex comparator end-to-end. Full numerical content lands with H.1 (#146 NumPy) / H.2 (#147 Julia) / H.3 (#148 JAX).",
+  "units": "\u03bb = k\u00b2 (inverse-length squared) with negative-imaginary convention under exp(+j\u03c9t); dimensionless mesh coordinates",
+  "inputs": {
+    "mesh_path": {
+      "shape": [
+        0
+      ],
+      "dtype": "f64",
+      "description": "reference/fixtures/sphere_pml/sphere.msh \u2014 copy of the bundled sphere fixture (same mesh as sphere_pec/).",
+      "data": []
+    },
+    "sigma_0": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "PML absorption strength; matches the value used in crates/geode-core/tests/sphere_pml_eigenmode.rs.",
+      "data": [
+        5.0
+      ]
+    },
+    "r_sphere": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "Inner dielectric sphere radius.",
+      "data": [
+        1.0
+      ]
+    },
+    "r_pml_inner": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "PML inner radius \u2014 start of the absorbing layer.",
+      "data": [
+        1.5
+      ]
+    },
+    "r_buffer": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "Outer PEC wall radius.",
+      "data": [
+        2.0
+      ]
+    },
+    "n_index": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "Refractive index inside the dielectric sphere; \u03b5_r = n\u00b2 = 2.25 inside.",
+      "data": [
+        1.5
+      ]
+    },
+    "epsilon_r_complex": {
+      "shape": [
+        4
+      ],
+      "dtype": "c128",
+      "description": "Per-tet complex relative permittivity. STUB at scaffolding time: 4 illustrative entries covering the dielectric / vacuum-gap / PML-shell regions. Full [n_tets] vector lands with H.1 (#146). On-disk: real-imag interleaved flat array per reference/SCHEMA.md.",
+      "data": [
+        2.25,
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        -5.0,
+        1.0,
+        -1.25
+      ]
+    }
+  },
+  "outputs": {
+    "n_nodes": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "Number of mesh nodes. Stored as f64; strict-equality semantics (tolerance < 1).",
+      "tolerance_abs": 0.5,
+      "data": [
+        774.0
+      ]
+    },
+    "n_tets": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "Number of mesh tets. Stored as f64; strict-equality.",
+      "tolerance_abs": 0.5,
+      "data": [
+        3335.0
+      ]
+    },
+    "eigenvalues_lowest_complex": {
+      "shape": [
+        2
+      ],
+      "dtype": "c128",
+      "description": "STUB: 2 synthetic complex eigenvalues exercising the c128 comparator path. Entry 0 is a spurious-cluster sentinel (near zero); entry 1 is a physical-band stub (1.42 - 0.1j) with the expected Im(\u03bb) < 0 PML signature. Full physical spectrum lands with H.1 (#146).",
+      "tolerance_abs": 1e-06,
+      "data": [
+        1e-13,
+        0.0,
+        1.42,
+        -0.1
+      ]
+    },
+    "q_factor_lowest_physical": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "Derived quality factor Q = -Re(\u03bb)/(2\u00b7Im(\u03bb)) for the lowest physical mode in eigenvalues_lowest_complex. Sign convention: positive Q indicates an absorbing mode under exp(+j\u03c9t) with Im(\u03bb) < 0.",
+      "tolerance_abs": 1e-06,
+      "data": [
+        7.1
+      ]
+    }
+  },
+  "provenance": {
+    "source": "reference/numpy/gen_sphere_pml_baseline.py @ commit 3537ec9 ; numpy 2.4.1, python 3.14.5 ; SCAFFOLDING STUB - full numerics deferred to H.1 (#146)",
+    "verified_against": "crates/geode-validation/tests/sphere_pml_schema_smoke.rs (scaffolding smoke: loader + complex comparator round-trip)",
+    "issue": "#145 (parent epic #88, Phase H scaffolding)"
+  }
+}

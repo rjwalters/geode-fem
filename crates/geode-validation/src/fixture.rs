@@ -18,6 +18,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use num_complex::Complex64;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -47,6 +48,26 @@ pub enum FixtureError {
     /// HDF5 format requested but not compiled in.
     #[error("HDF5 fixture format is not enabled in this build")]
     HdfNotEnabled,
+
+    /// A `c128` field had an odd-length interleaved payload (real-imag
+    /// interleave requires `len == 2 * prod(shape)`).
+    #[error(
+        "fixture field '{name}' is dtype c128 but flattened payload has length {got}; \
+         expected {expected} (= 2 × prod(shape) for real-imag interleave)"
+    )]
+    InvalidComplexLength {
+        name: String,
+        got: usize,
+        expected: usize,
+    },
+
+    /// A field was requested under one dtype but declared as another.
+    #[error("fixture field '{name}' has dtype '{declared}', not '{requested}'")]
+    DtypeMismatch {
+        name: String,
+        declared: String,
+        requested: &'static str,
+    },
 }
 
 /// On-disk fixture format selector.
@@ -216,6 +237,86 @@ impl Fixture {
     pub fn iter_outputs(&self) -> impl Iterator<Item = (&str, &OutputField)> {
         self.outputs.iter().map(|(k, v)| (k.as_str(), v))
     }
+
+    /// Get a golden output field by name, returning the values as a
+    /// flat row-major `Vec<Complex64>`.
+    ///
+    /// The on-disk encoding is the real-imag interleaved layout
+    /// documented in `reference/SCHEMA.md` ("Complex encoding
+    /// (`c128`)"). The declared `shape` is taken from the fixture
+    /// without modification — the interleave is invisible to callers
+    /// (length `prod(shape)`, not `2 * prod(shape)`).
+    ///
+    /// # Errors
+    ///
+    /// - [`FixtureError::MissingField`] if the field is not declared.
+    /// - [`FixtureError::DtypeMismatch`] if the field is declared with
+    ///   a non-`c128` dtype.
+    /// - [`FixtureError::InvalidComplexLength`] if the flattened
+    ///   payload length is not `2 * prod(shape)`.
+    pub fn output_c128<'a>(&'a self, name: &str) -> Result<GoldenC128<'a>, FixtureError> {
+        let (key, f) = self
+            .outputs
+            .get_key_value(name)
+            .ok_or_else(|| FixtureError::MissingField(name.to_string()))?;
+        if f.dtype != "c128" {
+            return Err(FixtureError::DtypeMismatch {
+                name: name.to_string(),
+                declared: f.dtype.clone(),
+                requested: "c128",
+            });
+        }
+        let flat = flatten_to_f64(&f.data);
+        let expected_re_im = 2 * f.shape.iter().product::<usize>();
+        if flat.len() != expected_re_im {
+            return Err(FixtureError::InvalidComplexLength {
+                name: name.to_string(),
+                got: flat.len(),
+                expected: expected_re_im,
+            });
+        }
+        let data = flat
+            .chunks_exact(2)
+            .map(|c| Complex64::new(c[0], c[1]))
+            .collect();
+        Ok(GoldenC128 {
+            name: key.as_str(),
+            shape: &f.shape,
+            tolerance_abs: f.tolerance_abs,
+            data,
+        })
+    }
+
+    /// Like [`output_c128`](Self::output_c128) but reads from `inputs`
+    /// instead of `outputs`. Used by reference-impl drivers that need
+    /// to consume a complex input (e.g. per-tet `epsilon_r_complex`)
+    /// from the fixture.
+    pub fn input_c128(&self, name: &str) -> Result<Vec<Complex64>, FixtureError> {
+        let f = self
+            .inputs
+            .get(name)
+            .ok_or_else(|| FixtureError::MissingField(name.to_string()))?;
+        if f.dtype != "c128" {
+            return Err(FixtureError::DtypeMismatch {
+                name: name.to_string(),
+                declared: f.dtype.clone(),
+                requested: "c128",
+            });
+        }
+        let flat = flatten_to_f64(&f.data);
+        let expected_re_im = 2 * f.shape.iter().product::<usize>();
+        if flat.len() != expected_re_im {
+            return Err(FixtureError::InvalidComplexLength {
+                name: name.to_string(),
+                got: flat.len(),
+                expected: expected_re_im,
+            });
+        }
+        Ok(flat
+            .chunks_exact(2)
+            .map(|c| Complex64::new(c[0], c[1]))
+            .collect())
+    }
 }
 
 /// A golden output field flattened into f64 row-major.
@@ -231,6 +332,30 @@ pub struct GoldenF64<'fix> {
 }
 
 impl GoldenF64<'_> {
+    /// Total element count implied by `shape`.
+    pub fn numel(&self) -> usize {
+        self.shape.iter().product()
+    }
+}
+
+/// A golden output field flattened into `Complex64` row-major.
+///
+/// On-disk this corresponds to a `c128`-dtype field with real-imag
+/// interleaved storage (length `2 * prod(shape)` on disk, length
+/// `prod(shape)` in memory). See `reference/SCHEMA.md` for the
+/// encoding convention.
+#[derive(Debug, Clone)]
+pub struct GoldenC128<'fix> {
+    pub name: &'fix str,
+    pub shape: &'fix [usize],
+    /// Absolute tolerance applied to the **complex modulus** of the
+    /// per-element residual (`|actual − golden|`). See
+    /// `reference/SCHEMA.md` → "Complex encoding (c128)".
+    pub tolerance_abs: f64,
+    pub data: Vec<Complex64>,
+}
+
+impl GoldenC128<'_> {
     /// Total element count implied by `shape`.
     pub fn numel(&self) -> usize {
         self.shape.iter().product()
@@ -275,7 +400,27 @@ impl Fixture {
     /// in this fixture. Returns a [`ComparisonReport`] describing each
     /// field's pass/fail status. Missing fields, shape mismatches, and
     /// tolerance violations all surface as distinct failure modes.
+    ///
+    /// Only `f64`-dtype output fields are checked by this entry point;
+    /// `c128` fields go through [`compare_complex_against`](Self::compare_complex_against).
     pub fn compare_against(&self, actual: &BTreeMap<String, Vec<f64>>) -> crate::ComparisonReport {
         crate::diff::compare(self, actual)
+    }
+
+    /// Compare a set of named complex actual outputs against the
+    /// `c128`-dtype golden fields in this fixture. Per-field tolerance
+    /// is applied to the **complex modulus** of the residual
+    /// `|actual − golden|`.
+    ///
+    /// Fields whose declared dtype is not `c128` are skipped (the
+    /// caller is expected to compare them separately via
+    /// [`compare_against`](Self::compare_against) — the two diff
+    /// reports can be merged or kept independent depending on the
+    /// downstream tool).
+    pub fn compare_complex_against(
+        &self,
+        actual: &BTreeMap<String, Vec<Complex64>>,
+    ) -> crate::ComparisonReport {
+        crate::diff::compare_complex(self, actual)
     }
 }
