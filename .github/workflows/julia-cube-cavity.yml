@@ -41,11 +41,16 @@ on:
       - 'reference/numpy/cube_cavity_minimal.py'
       - 'reference/numpy/mesh.py'
       - 'reference/numpy/p1_local_matrices.py'
+      - 'reference/numpy/nedelec_local_matrices.py'
+      - 'reference/numpy/sphere_pec.py'
       - 'reference/numpy/requirements.txt'
       - 'reference/fixtures/cube_cavity/jax_baseline.json'
       - 'reference/fixtures/cube_cavity/baseline.json'
       - 'reference/fixtures/cube_cavity/unit_cube.msh'
       - 'reference/fixtures/cube_cavity/julia_baseline.json'
+      - 'reference/fixtures/sphere_pec/sphere.msh'
+      - 'reference/fixtures/sphere_pec/baseline.json'
+      - 'reference/fixtures/sphere_pec/julia_baseline.json'
       - '.github/workflows/julia-cube-cavity.yml'
   pull_request:
     branches: [main]
@@ -57,11 +62,16 @@ on:
       - 'reference/numpy/cube_cavity_minimal.py'
       - 'reference/numpy/mesh.py'
       - 'reference/numpy/p1_local_matrices.py'
+      - 'reference/numpy/nedelec_local_matrices.py'
+      - 'reference/numpy/sphere_pec.py'
       - 'reference/numpy/requirements.txt'
       - 'reference/fixtures/cube_cavity/jax_baseline.json'
       - 'reference/fixtures/cube_cavity/baseline.json'
       - 'reference/fixtures/cube_cavity/unit_cube.msh'
       - 'reference/fixtures/cube_cavity/julia_baseline.json'
+      - 'reference/fixtures/sphere_pec/sphere.msh'
+      - 'reference/fixtures/sphere_pec/baseline.json'
+      - 'reference/fixtures/sphere_pec/julia_baseline.json'
       - '.github/workflows/julia-cube-cavity.yml'
   workflow_dispatch:
     inputs:
@@ -237,6 +247,23 @@ jobs:
               --k 5 \
               --rtol "${CUBE_RTOL}"
 
+      # -----------------------------------------------------------------------
+      # Sphere-PEC Nédélec pipeline (Epic #88 / Phase G.4, issue #129).
+      # -----------------------------------------------------------------------
+
+      - name: Run Julia sphere-PEC Nédélec pipeline (assembly + Arpack.jl eigensolve)
+        # Generate the Julia sphere-PEC baseline fixture from scratch on this CI
+        # run and cross-check physical eigenvalues against the committed NumPy
+        # baseline.json at 1e-5 relative tolerance (Epic #88 cross-IR floor).
+        run: |
+          mkdir -p reference/julia/target/out
+          julia --project=reference/julia reference/julia/gen_sphere_pec_baseline.jl \
+              --mesh reference/fixtures/sphere_pec/sphere.msh \
+              --out  reference/julia/target/out/julia_sphere_pec_baseline.json
+          # Also run the bare pipeline for the log.
+          julia --project=reference/julia reference/julia/sphere_pec.jl \
+              --mesh reference/fixtures/sphere_pec/sphere.msh
+
       - name: Upload Julia sidecar + agreement artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -246,5 +273,6 @@ jobs:
             reference/julia/target/out/julia_baseline.json
             reference/julia/target/out/numpy_baseline.json
             reference/julia/target/out/agreement_table.md
+            reference/julia/target/out/julia_sphere_pec_baseline.json
           if-no-files-found: warn
           retention-days: 30

@@ -1,16 +1,18 @@
 """
-Mesh primitives for the cube-cavity Julia reference (Epic #88 / Phase E).
+Mesh primitives for the Julia reference backends (Epic #88 / Phases E and G.4).
 
 Local equivalent of `reference/numpy/mesh.py` — provides the canonical
 programmatic n-per-side tet-split unit cube, an inline MSH 4.1 ASCII
-parser, and the interior-DOF Dirichlet mask. We do **not** depend on
-Gmsh.jl: the libgmsh native dependency is ~50 MB and the MSH 4.1 ASCII
+parser, the interior-DOF Dirichlet mask, and Nédélec edge-table builders
+for the sphere-PEC pipeline (Phase G.4, issue #129). We do **not** depend
+on Gmsh.jl: the libgmsh native dependency is ~50 MB and the MSH 4.1 ASCII
 files we consume here are simple enough to parse inline (see Open
 Question #3 in the curator pass on issue #115).
 
 Public API
 ==========
 
+Cube-cavity (Phase E):
 - `cube_tet_mesh(n; side=1.0)` — generate the n-per-side tet-split unit
   cube. Mirror of `geode_core::mesh::cube_tet_mesh` and
   `reference/numpy/mesh.py::cube_tet_mesh`.
@@ -19,12 +21,22 @@ Public API
 - `load_msh(path)` — read a Gmsh `.msh` (MSH 4.1 ASCII) and return
   `(nodes, tets)` as `(Matrix{Float64}, Matrix{Int})`.
 
+Sphere-PEC Nédélec (Phase G.4):
+- `load_msh_with_tags(path)` — extended version of `load_msh` that also
+  returns per-tet physical group tags `(nodes, tets, phys_tags)`.
+- `build_edges(tets)` — build globally-oriented edge table and per-tet
+  edge-sign table. Mirror of `geode_core::TetMesh::edges` +
+  `reference/numpy/sphere_pec.py::build_edges`.
+- `sphere_pec_interior_edges(nodes, edges; r_outer, tol)` — boolean mask
+  of interior edges (not both endpoints on the PEC wall).
+
 Node ordering matches Burn / NumPy exactly so the same node-indexed
 Dirichlet mask works on all three backends.
 """
 module CubeMesh
 
-export cube_tet_mesh, cube_interior_mask, load_msh
+export cube_tet_mesh, cube_interior_mask, load_msh,
+       load_msh_with_tags, build_edges, sphere_pec_interior_edges
 
 """
     cube_tet_mesh(n; side=1.0) -> (nodes, tets)
@@ -311,5 +323,301 @@ function _skip_section(io::IO, opener::AbstractString)
     end
     error("load_msh: section $opener never closed with $closer")
 end
+
+
+# ---------------------------------------------------------------------------
+# Extended MSH reader with physical group tags (Phase G.4 — sphere-PEC).
+# ---------------------------------------------------------------------------
+
+"""
+    load_msh_with_tags(path) -> (nodes, tets, phys_tags)
+
+Extended version of `load_msh` that also returns per-tet 3D physical group
+tags. Used by the sphere-PEC pipeline (Phase G.4, issue #129) for ε_r
+assignment: tags distinguish `sphere_interior` (1), `vacuum_gap` (2), and
+`pml_shell` (5) volume groups in the bundled `sphere.msh`.
+
+Two-pass reader:
+  1. Parse `\$Entities` to build a `(dim=3, entity_tag) → phys_tag` map.
+  2. Parse `\$Nodes` + `\$Elements`, resolving each tet's entity_tag → phys_tag.
+
+# Returns
+- `nodes::Matrix{Float64}` of shape `(n_nodes, 3)`.
+- `tets::Matrix{Int}` of shape `(n_tets, 4)`, **1-based** vertex indices.
+- `phys_tags::Vector{Int}` of length `n_tets` — per-tet physical group tag.
+"""
+function load_msh_with_tags(path::AbstractString)
+    # Pass 1: build (dim=3, entity_tag) → phys_tag map from $Entities.
+    entity_phys_map = _parse_entity_phys_map(path)
+
+    # Pass 2: read nodes + elements, resolving entity_tag → phys_tag.
+    open(path, "r") do io
+        line = strip(readline(io))
+        line != "\$MeshFormat" && error("load_msh_with_tags: expected \$MeshFormat, got '$line'")
+        parts = split(strip(readline(io)))
+        startswith(parts[1], "4.1") || error("load_msh_with_tags: only MSH 4.1 ASCII supported")
+        strip(readline(io))  # $EndMeshFormat
+
+        nodes    = Matrix{Float64}(undef, 0, 3)
+        tets     = Matrix{Int}(undef, 0, 4)
+        phys_tags = Int[]
+
+        while !eof(io)
+            line = strip(readline(io))
+            if isempty(line)
+                continue
+            elseif line == "\$Nodes"
+                nodes = _read_nodes_section(io)
+            elseif line == "\$Elements"
+                tets, raw_entity_tags = _read_elements_with_entity_tags(io)
+                # Resolve entity_tag → phys_tag (0 if not in map).
+                phys_tags = [get(entity_phys_map, (3, tag), 0) for tag in raw_entity_tags]
+            elseif startswith(line, "\$") && !startswith(line, "\$End")
+                _skip_section(io, line)
+            end
+        end
+
+        size(nodes, 1) == 0 && error("load_msh_with_tags: no nodes found in $path")
+        size(tets,  1) == 0 && error("load_msh_with_tags: no tets found in $path")
+        return nodes, tets, phys_tags
+    end
+end
+
+
+"""
+Parse `\$Entities` from an MSH 4.1 file.
+
+Returns a `Dict{Tuple{Int,Int}, Int}` mapping `(dim, entity_tag) → phys_tag`
+for entities that carry exactly one physical group tag. Entities with zero
+tags (unnamed internal entities) are omitted; entities with multiple tags
+store only the first.
+
+MSH 4.1 `\$Entities` format (ASCII, by dimension):
+  Points  (dim=0): tag  x  y  z  numPhysTags  [physTag...]  numBndCurves  [curveTag...]
+  Curves  (dim=1): tag  xmin..zmax  numPhysTags  [physTag...]  numBndPts  [ptTag...]
+  Surfaces (dim=2): tag  xmin..zmax  numPhysTags  [physTag...]  numBndCurves  [curveTag...]
+  Volumes (dim=3): tag  xmin..zmax  numPhysTags  [physTag...]  numBndSurfaces  [surfTag...]
+
+All lines are single-line records (no continuation). We read each line
+as a split token sequence and index into it.
+"""
+function _parse_entity_phys_map(path::AbstractString)
+    entity_phys = Dict{Tuple{Int,Int}, Int}()
+    open(path, "r") do io
+        while !eof(io)
+            line = strip(readline(io))
+            if line == "\$Entities"
+                # Header: numPoints numCurves numSurfaces numVolumes
+                hparts = split(strip(readline(io)))
+                n_pts  = parse(Int, hparts[1])
+                n_cur  = parse(Int, hparts[2])
+                n_surf = parse(Int, hparts[3])
+                n_vol  = parse(Int, hparts[4])
+
+                # Skip points (dim=0): tag x y z numPhysTags [physTag...] numBndCurves [curveTag...]
+                # Points have 4 fixed tokens before numPhysTags (tag + x + y + z).
+                for _ in 1:n_pts
+                    readline(io)  # single-line format; skip entirely
+                end
+                # Skip curves (dim=1): skip entirely.
+                for _ in 1:n_cur
+                    readline(io)
+                end
+                # Skip surfaces (dim=2): skip entirely.
+                for _ in 1:n_surf
+                    readline(io)
+                end
+                # Parse volumes (dim=3): tag xmin ymin zmin xmax ymax zmax numPhysTags [physTag...] ...
+                # Tokens: [1]=tag [2..7]=bbox(6) [8]=numPhysTags [9..]=physTags...
+                for _ in 1:n_vol
+                    lparts = split(strip(readline(io)))
+                    vtag   = parse(Int, lparts[1])
+                    n_phys = parse(Int, lparts[8])
+                    if n_phys > 0
+                        ptag = parse(Int, lparts[9])
+                        entity_phys[(3, vtag)] = ptag
+                    end
+                end
+
+                line2 = strip(readline(io))
+                line2 != "\$EndEntities" &&
+                    error("_parse_entity_phys_map: expected \$EndEntities, got '$line2'")
+                break
+            end
+        end
+    end
+    return entity_phys
+end
+
+
+"""Read `\$Elements`, returning `(tets, raw_entity_tags)` without resolving phys tags."""
+function _read_elements_with_entity_tags(io::IO)
+    parts = split(strip(readline(io)))
+    n_entity_blocks = parse(Int, parts[1])
+
+    tet_rows        = Vector{NTuple{4,Int}}()
+    tet_entity_tags = Vector{Int}()
+
+    for _ in 1:n_entity_blocks
+        # entityDim entityTag elementType numElementsInBlock
+        bparts     = split(strip(readline(io)))
+        entity_tag = parse(Int, bparts[2])
+        elem_type  = parse(Int, bparts[3])
+        n_in_block = parse(Int, bparts[4])
+
+        if elem_type == 4  # tetrahedra
+            for _ in 1:n_in_block
+                lparts = split(strip(readline(io)))
+                v1 = parse(Int, lparts[2])
+                v2 = parse(Int, lparts[3])
+                v3 = parse(Int, lparts[4])
+                v4 = parse(Int, lparts[5])
+                push!(tet_rows, (v1, v2, v3, v4))
+                push!(tet_entity_tags, entity_tag)
+            end
+        else
+            for _ in 1:n_in_block
+                readline(io)
+            end
+        end
+    end
+
+    line = strip(readline(io))
+    line != "\$EndElements" &&
+        error("_read_elements_with_entity_tags: expected \$EndElements, got '$line'")
+
+    tets = Matrix{Int}(undef, length(tet_rows), 4)
+    for (i, t) in enumerate(tet_rows)
+        tets[i, 1] = t[1]; tets[i, 2] = t[2]
+        tets[i, 3] = t[3]; tets[i, 4] = t[4]
+    end
+    return tets, tet_entity_tags
+end
+
+
+# ---------------------------------------------------------------------------
+# Nédélec edge-table builders (Phase G.4 — sphere-PEC pipeline).
+# Mirror of reference/numpy/sphere_pec.py::build_edges and
+# ::sphere_pec_interior_edges.
+# ---------------------------------------------------------------------------
+
+"""
+    build_edges(tets) -> (edges, tet_edge_idx, tet_edge_sign)
+
+Build the globally-oriented edge table and per-tet edge-sign table for a
+tetrahedral mesh. Mirror of `geode_core::TetMesh::edges` and
+`reference/numpy/sphere_pec.py::build_edges`.
+
+Local edge ordering on each tet (1-indexed local vertices):
+
+    local edge 1: (v1, v2)
+    local edge 2: (v1, v3)
+    local edge 3: (v1, v4)
+    local edge 4: (v2, v3)
+    local edge 5: (v2, v4)
+    local edge 6: (v3, v4)
+
+This matches the Python 0-indexed `TET_LOCAL_EDGES = [(0,1),(0,2),(0,3),(1,2),(1,3),(2,3)]`
+shifted by 1.
+
+Global canonical orientation: `min(va, vb) → max(va, vb)`.
+`tet_edge_sign[t, k] = +1` if the local pair `(va, vb)` has `va < vb`
+(agrees with canonical), else `-1`.
+
+**Global edge ordering**: edges are numbered in first-seen order as tets
+are visited. This differs from the NumPy reference's lexicographic sort
+(`np.unique`), so the global edge index of a given `(lo, hi)` pair will
+differ between Julia and NumPy. This is intentional and harmless: only the
+assembled K, M matrices must agree — the global edge indices are internal.
+
+# Arguments
+- `tets::Matrix{Int}` of shape `(n_tets, 4)`, **1-based** vertex indices.
+
+# Returns
+- `edges::Matrix{Int}` of shape `(n_edges, 2)` — first-seen global edge
+  table; each row `[lo, hi]` satisfies `lo < hi`.
+- `tet_edge_idx::Matrix{Int}` of shape `(n_tets, 6)` — per-tet global
+  edge indices (1-based).
+- `tet_edge_sign::Matrix{Int}` of shape `(n_tets, 6)` — orientation signs
+  `+1` or `-1`.
+"""
+function build_edges(tets::Matrix{Int})
+    # TET_LOCAL_EDGES: 1-indexed local vertex pairs.
+    # Corresponds to Python's (0,1),(0,2),(0,3),(1,2),(1,3),(2,3) shifted +1.
+    TET_LOCAL_EDGES = ((1,2),(1,3),(1,4),(2,3),(2,4),(3,4))
+    n_tets = size(tets, 1)
+
+    edge_pairs    = Dict{Tuple{Int,Int}, Int}()  # (lo, hi) → 1-based global index
+    edge_list     = Vector{Tuple{Int,Int}}()      # ordered list of (lo, hi)
+    tet_edge_idx  = zeros(Int, n_tets, 6)
+    tet_edge_sign = zeros(Int, n_tets, 6)
+
+    for t in 1:n_tets
+        for (k, (la, lb)) in enumerate(TET_LOCAL_EDGES)
+            va = tets[t, la]
+            vb = tets[t, lb]
+            lo, hi = va < vb ? (va, vb) : (vb, va)
+            key = (lo, hi)
+            if !haskey(edge_pairs, key)
+                push!(edge_list, key)
+                edge_pairs[key] = length(edge_list)
+            end
+            gidx = edge_pairs[key]
+            tet_edge_idx[t, k]  = gidx
+            tet_edge_sign[t, k] = (va < vb) ? 1 : -1
+        end
+    end
+
+    n_edges = length(edge_list)
+    edges = Matrix{Int}(undef, n_edges, 2)
+    for (i, (lo, hi)) in enumerate(edge_list)
+        edges[i, 1] = lo
+        edges[i, 2] = hi
+    end
+
+    return edges, tet_edge_idx, tet_edge_sign
+end
+
+
+"""
+    sphere_pec_interior_edges(nodes, edges; r_outer=2.0, tol=1e-6) -> BitVector
+
+Return a boolean mask of interior edges for the sphere-PEC problem.
+
+An edge is *interior* (mask entry `true`) iff at least one endpoint is
+strictly inside the outer PEC wall. Equivalently, an edge is eliminated
+iff **both** endpoints lie on the outer sphere within
+`tol * max(r_outer, 1.0)` of `r_outer`.
+
+Mirror of `reference/numpy/sphere_pec.py::sphere_pec_interior_edges`.
+
+# Arguments
+- `nodes::Matrix{Float64}` of shape `(n_nodes, 3)`.
+- `edges::Matrix{Int}` of shape `(n_edges, 2)` — from `build_edges`.
+- `r_outer::Float64` — outer PEC wall radius (default `2.0`).
+- `tol::Float64` — relative tolerance for "on the wall" test (default
+  `1e-6`; absolute tol = `tol * max(r_outer, 1.0)`).
+
+# Returns
+- `interior::BitVector` of length `n_edges`, `true` for interior edges.
+"""
+function sphere_pec_interior_edges(nodes::Matrix{Float64}, edges::Matrix{Int};
+                                    r_outer::Float64=2.0, tol::Float64=1e-6)
+    abs_tol = tol * max(r_outer, 1.0)
+    n_nodes = size(nodes, 1)
+    node_r  = [sqrt(nodes[i,1]^2 + nodes[i,2]^2 + nodes[i,3]^2) for i in 1:n_nodes]
+    on_wall = [abs(node_r[i] - r_outer) < abs_tol for i in 1:n_nodes]
+
+    n_edges  = size(edges, 1)
+    interior = BitVector(undef, n_edges)
+    @inbounds for e in 1:n_edges
+        va = edges[e, 1]
+        vb = edges[e, 2]
+        # Interior iff NOT (both endpoints on the PEC wall).
+        interior[e] = !(on_wall[va] && on_wall[vb])
+    end
+    return interior
+end
+
 
 end  # module CubeMesh
