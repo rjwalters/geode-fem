@@ -1,7 +1,16 @@
-name: onnx-cube-cavity
+name: onnx-references
 
-# Gated CI job for the ONNX cube-cavity reference (Epic #88 / Phase F.2,
-# issue #123).
+# Gated CI job(s) for the ONNX references (Epic #88).
+#
+# This workflow runs two parallel agreement gates:
+#
+#   * `build-and-cross-check` — cube-cavity P1 scalar Helmholtz spine
+#     (Phase F.2, issue #123). Established by PR #125.
+#   * `build-and-cross-check-sphere-pec` — vector-Nédélec sphere-PEC
+#     eigenmode spine (Phase G.7, issue #140). Follows the G.6 audit
+#     (PR #138): host-computed `build_edges` (the secretly-imperative L4
+#     escape), ONNX partial-assembly graph emits (K_int, M_int), SciPy
+#     ARPACK shift-and-invert closes the eigenproblem.
 #
 # ONNX is the graph-only constraint backend per Epic #88's framing. The
 # Phase F.1 audit (issue #116, PR #119) established that the cube-cavity
@@ -38,16 +47,22 @@ on:
       - 'reference/onnx/**'
       - 'reference/driver/eigensolve_from_onnx.py'
       - 'reference/driver/eigensolve_from_sidecar.py'
+      - 'reference/driver/eigensolve_sphere_pec_sidecar.py'
       - 'reference/driver/compare_eigenvalues.py'
       - 'reference/driver/emit_numpy_eigenvalues.py'
       - 'reference/numpy/cube_cavity.py'
       - 'reference/numpy/cube_cavity_minimal.py'
       - 'reference/numpy/mesh.py'
       - 'reference/numpy/p1_local_matrices.py'
+      - 'reference/numpy/nedelec_local_matrices.py'
+      - 'reference/numpy/sphere_pec.py'
       - 'reference/numpy/requirements.txt'
       - 'reference/fixtures/cube_cavity/jax_baseline.json'
       - 'reference/fixtures/cube_cavity/baseline.json'
       - 'reference/fixtures/cube_cavity/onnx_baseline.json'
+      - 'reference/fixtures/sphere_pec/baseline.json'
+      - 'reference/fixtures/sphere_pec/onnx_sidecar.json'
+      - 'reference/fixtures/sphere_pec/sphere.msh'
       - '.github/workflows/onnx-cube-cavity.yml'
   pull_request:
     branches: [main]
@@ -55,16 +70,22 @@ on:
       - 'reference/onnx/**'
       - 'reference/driver/eigensolve_from_onnx.py'
       - 'reference/driver/eigensolve_from_sidecar.py'
+      - 'reference/driver/eigensolve_sphere_pec_sidecar.py'
       - 'reference/driver/compare_eigenvalues.py'
       - 'reference/driver/emit_numpy_eigenvalues.py'
       - 'reference/numpy/cube_cavity.py'
       - 'reference/numpy/cube_cavity_minimal.py'
       - 'reference/numpy/mesh.py'
       - 'reference/numpy/p1_local_matrices.py'
+      - 'reference/numpy/nedelec_local_matrices.py'
+      - 'reference/numpy/sphere_pec.py'
       - 'reference/numpy/requirements.txt'
       - 'reference/fixtures/cube_cavity/jax_baseline.json'
       - 'reference/fixtures/cube_cavity/baseline.json'
       - 'reference/fixtures/cube_cavity/onnx_baseline.json'
+      - 'reference/fixtures/sphere_pec/baseline.json'
+      - 'reference/fixtures/sphere_pec/onnx_sidecar.json'
+      - 'reference/fixtures/sphere_pec/sphere.msh'
       - '.github/workflows/onnx-cube-cavity.yml'
   workflow_dispatch:
     inputs:
@@ -73,7 +94,11 @@ on:
         required: false
         default: '10'
       rtol:
-        description: 'Relative tolerance for the cross-backend eigenvalue gate.'
+        description: 'Relative tolerance for the cube-cavity cross-backend eigenvalue gate.'
+        required: false
+        default: '1e-5'
+      sphere_rtol:
+        description: 'Relative tolerance for the sphere-PEC cross-backend eigenvalue gate (Phase G.7).'
         required: false
         default: '1e-5'
 
@@ -236,5 +261,82 @@ jobs:
             target/out/eigenresult_onnx.json
             target/out/numpy_baseline.json
             target/out/agreement_table.md
+          if-no-files-found: warn
+          retention-days: 30
+
+  build-and-cross-check-sphere-pec:
+    name: ONNX sphere-PEC Nédélec assembly + SciPy eigensolve (Phase G.7)
+    runs-on: ubuntu-latest
+    env:
+      # Phase G.7 (issue #140) AC: physical eigenvalue agreement against
+      # baseline.json within 2e-5 relative (provisional, per issue body).
+      # Empirically on this fixture the ONNX path is bit-exact on
+      # Frobenius norms and ~1e-10 relative on eigenvalues — so the
+      # strict 1e-5 floor holds with margin. Default 1e-5.
+      SPHERE_RTOL: ${{ inputs.sphere_rtol || '1e-5' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            reference/onnx/requirements.txt
+            reference/numpy/requirements.txt
+
+      - name: Install Python deps (ONNX + NumPy + SciPy + meshio)
+        # ONNX assembly: onnx + onnxruntime; sphere mesh I/O: meshio
+        # (pulled in by reference/numpy/sphere_pec.read_sphere_fixture).
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r reference/onnx/requirements.txt
+          python3 -m pip install -r reference/numpy/requirements.txt
+
+      - name: Show toolchain versions (debug)
+        run: |
+          python3 --version
+          python3 -c "import onnx, onnxruntime; print('onnx', onnx.__version__); print('onnxruntime', onnxruntime.__version__)"
+          python3 -c "import numpy, scipy, meshio; print('numpy', numpy.__version__); print('scipy', scipy.__version__); print('meshio', meshio.__version__)"
+
+      - name: Run ONNX sphere-PEC partial assembly → sidecar dump
+        # Phase G.7 driver: build the partial graph (host-computed
+        # topology + ε_r + interior_idx), run onnxruntime, emit a
+        # schema-v1 sidecar consumed by the sphere-PEC eigensolve driver.
+        run: |
+          mkdir -p target/out
+          python3 reference/onnx/sphere_pec/gen_sphere_pec_reduced.py \
+              --mesh reference/fixtures/sphere_pec/sphere.msh \
+              --n-index 1.5 \
+              --r-buffer 2.0 \
+              --out target/out/reduced_kM_sphere_pec_onnx.json
+          ls -lh target/out/
+
+      - name: Run SciPy shift-and-invert eigensolve over the ONNX sphere-PEC sidecar
+        # eigensolve_sphere_pec_sidecar.py: ARPACK shift-and-invert at
+        # sigma=0 (essential for the large Nédélec gradient nullspace),
+        # spurious-mode filter (d⁰-rank, hard-coded fallback 368 for the
+        # 774-node fixture or read from baseline.json), cross-backend
+        # comparison gate at --rtol.
+        run: |
+          python3 reference/driver/eigensolve_sphere_pec_sidecar.py \
+              target/out/reduced_kM_sphere_pec_onnx.json \
+              --baseline reference/fixtures/sphere_pec/baseline.json \
+              --rtol "${SPHERE_RTOL}" \
+              --k 5 \
+              --out target/out/eigenresult_sphere_pec_onnx.json
+          cat target/out/eigenresult_sphere_pec_onnx.json
+
+      - name: Upload ONNX sphere-PEC sidecar + eigenresult artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onnx-sphere-pec-artifacts
+          path: |
+            target/out/reduced_kM_sphere_pec_onnx.json
+            target/out/eigenresult_sphere_pec_onnx.json
           if-no-files-found: warn
           retention-days: 30

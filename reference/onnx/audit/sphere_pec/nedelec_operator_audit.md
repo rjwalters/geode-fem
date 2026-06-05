@@ -390,3 +390,47 @@ python3 audit/sphere_pec/probe_pec_mask.py
 Each probe prints a one-screen verdict that should match the
 corresponding row(s) in this table. If a probe's verdict disagrees
 with the table after a version bump, the table is stale — re-audit.
+
+## Phase G.7 — empirical confirmation of the recommended design
+
+The Phase G.7 implementation
+([`reference/onnx/sphere_pec/assembly_graph.py`](../../sphere_pec/assembly_graph.py),
+issue [#140](https://github.com/rjwalters/geode-fem/issues/140))
+realises the recommended design verbatim — host-computed
+`edges`, `tet_edge_idx`, `tet_edge_sign`, `epsilon_r`, and
+`interior_idx`; `n_edges` baked at graph generation time; `n_int`
+left dynamic in the Dirichlet Gather. The driver
+[`reference/onnx/sphere_pec/gen_sphere_pec_reduced.py`](../../sphere_pec/gen_sphere_pec_reduced.py)
+runs this graph end-to-end on the bundled 774-node sphere fixture and
+emits a schema-v1 sidecar consumed by
+[`reference/driver/eigensolve_sphere_pec_sidecar.py`](../../../driver/eigensolve_sphere_pec_sidecar.py).
+
+Empirical results on the canonical fixture (n_nodes=774, n_tets=3335,
+n_edges=4512, n_int=3300):
+
+| Cross-check | ONNX vs NumPy baseline |
+|---|---|
+| `K_int` Frobenius norm | **bit-exact** (abs diff = 0.000e+00) |
+| `M_int` Frobenius norm | **bit-exact** (abs diff = 0.000e+00) |
+| `K_int` sorted-diagonal max-abs | 3.2e-14 (f64 noise floor) |
+| `M_int` sorted-diagonal max-abs | 1.1e-16 (f64 noise floor) |
+| Physical eigenvalues λ[1..5] | rel err ≤ 2.5e-9 (G.7 AC: 2e-5 rel) |
+| `on_boundary` mask | exact match (3 mask bits per audit Stage 4a) |
+
+The scatter-add accumulation order concern flagged by Phase G.5 (where
+the TF-Java `scatterNd` produced ~1.2e-5 relative drift on the lowest
+eigenvalue, motivating a tolerance loosening from 1e-5 → 2e-5) does
+**not** appear in the ONNX path: onnxruntime's `ScatterND` reduction
+mode evidently produces the same accumulation order as scipy's
+COO→CSR collapse on this fixture (or at least one whose f64 ULP error
+is dominated by floating-point rounding in the local matrix arithmetic,
+not in the scatter). The strict 1e-5 cross-IR floor holds with margin.
+
+**Verdict confirmation**: the recommended design works end-to-end on
+the sphere fixture with f64 numerical behavior indistinguishable from
+the NumPy baseline. Stages 1, 3, 4a, 5 (static `n_edges`), and 6 of
+this audit are realised in the resulting partial graph. Stages 2b and
+4b remain host-side (the audit's central findings).
+
+See [issue #140](https://github.com/rjwalters/geode-fem/issues/140) for
+the Phase G.7 PR and full empirical numbers.

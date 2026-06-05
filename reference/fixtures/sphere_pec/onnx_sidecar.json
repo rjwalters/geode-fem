@@ -1,0 +1,109 @@
+{
+  "schema_version": "1",
+  "fixture_id": "sphere_pec/n774_pec_eigenmode_onnx",
+  "description": "PLACEHOLDER — ONNX partial-assembly reference for the vector-Nédélec sphere-PEC eigenmode pipeline (Epic #88 Phase G.7 / issue #140). This file records the expected structural metadata only; the actual K_int / M_int matrix data are produced at CI time by running reference/onnx/sphere_pec/gen_sphere_pec_reduced.py and comparing to reference/fixtures/sphere_pec/baseline.json. Regenerate with: python3 reference/onnx/sphere_pec/gen_sphere_pec_reduced.py --mesh reference/fixtures/sphere_pec/sphere.msh --out reference/fixtures/sphere_pec/onnx_sidecar.json (and then trim the matrix `data` fields if updating the placeholder). Design follows the G.6 audit (PR #138): build_edges is host-computed (the secretly-imperative L4 escape on the Nédélec spine).",
+  "units": "lambda = k^2 (inverse-length squared); dimensionless mesh coordinates",
+  "inputs": {
+    "mesh_path": {
+      "shape": [1],
+      "dtype": "str",
+      "description": "Path to the bundled Gmsh .msh fixture (reference/fixtures/sphere_pec/sphere.msh).",
+      "data": ["reference/fixtures/sphere_pec/sphere.msh"]
+    },
+    "n_index": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Refractive index inside the dielectric sphere; epsilon_r = n^2 = 2.25 inside.",
+      "data": [1.5]
+    },
+    "r_buffer": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Outer PEC wall radius.",
+      "data": [2.0]
+    },
+    "n_int": {
+      "shape": [1],
+      "dtype": "i64",
+      "description": "Interior edge count (DOFs after PEC elimination). Should equal 3300 for the 774-node fixture.",
+      "data": [3300]
+    },
+    "n": {
+      "shape": [1],
+      "dtype": "i64",
+      "description": "Alias for eigensolve_sphere_pec_sidecar.py compatibility: = n_int = 3300.",
+      "data": [3300]
+    },
+    "side": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Alias for sidecar driver compatibility: = r_buffer = 2.0.",
+      "data": [2.0]
+    }
+  },
+  "outputs": {
+    "n_nodes": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Number of mesh nodes. Strict equality.",
+      "tolerance_abs": 0.5,
+      "data": [774.0]
+    },
+    "n_tets": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Number of mesh tets. Strict equality.",
+      "tolerance_abs": 0.5,
+      "data": [3335.0]
+    },
+    "n_edges": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Total global edge count (before PEC elimination). Host-computed via build_edges — audit Stage 2b: NOT EXPRESSIBLE in ONNX (secretly-imperative L4 escape). Should equal 4512.",
+      "tolerance_abs": 0.5,
+      "data": [4512.0]
+    },
+    "n_interior_edges": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Interior edge count (DOFs after PEC elimination). Should equal 3300.",
+      "tolerance_abs": 0.5,
+      "data": [3300.0]
+    },
+    "k_int_frobenius": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Frobenius norm of K_int. ONNX partial-assembly is bit-exact vs NumPy in f64 on this fixture (verified at Phase G.7 ship time; abs diff = 0.000e+00). Expected ~1093.85; tolerance 1e-6 absolute.",
+      "tolerance_abs": 1e-6,
+      "data": [1093.8505285100885]
+    },
+    "m_int_frobenius": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Frobenius norm of M_int. ONNX partial-assembly is bit-exact vs NumPy in f64 on this fixture (verified at Phase G.7 ship time; abs diff = 0.000e+00). Expected ~9.7438; tolerance 1e-6 absolute.",
+      "tolerance_abs": 1e-6,
+      "data": [9.743795100368402]
+    },
+    "k_diag_sum": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "trace(K_int) — ONNX assembly readback. Tolerance 1e-6 absolute.",
+      "tolerance_abs": 1e-6,
+      "data": [48076.39013790]
+    },
+    "m_diag_sum": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "trace(M_int) — ONNX assembly readback. Tolerance 1e-6 absolute.",
+      "tolerance_abs": 1e-6,
+      "data": [448.2706700163]
+    }
+  },
+  "provenance": {
+    "source": "reference/onnx/sphere_pec/assembly_graph.py via gen_sphere_pec_reduced.py (Epic #88 Phase G.7 / issue #140)",
+    "verified_against": "reference/fixtures/sphere_pec/baseline.json — expected K_int Frobenius ~1093.85, M_int Frobenius ~9.74, physical eigenvalues [1.4195, 1.4204, 1.4207, 3.2719, 3.2775] to < 1e-5 relative. Phase G.7 empirical result on the 774-node fixture: Frobenius norms bit-exact (abs diff = 0) and physical eigenvalues agree to ~1e-10 relative — well inside the strict 1e-5 floor.",
+    "issue": "#140",
+    "audit": "reference/onnx/audit/sphere_pec/nedelec_operator_audit.md",
+    "note": "This is a placeholder fixture (matches the TF-Java sidecar convention). The full K_int / M_int matrix data are NOT embedded here (3300x3300 = 10.9M entries would be ~90MB JSON). The CI workflow runs the ONNX assembly at test time and compares the emitted sidecar to baseline.json using eigensolve_sphere_pec_sidecar.py. Design: host-computed-topology — the graph consumes edges, tet_edge_idx, tet_edge_sign, epsilon_r, and interior_idx as inputs because build_edges deduplication is the secretly-imperative L4 escape on the Nédélec spine (G.6 audit Stage 2b verdict)."
+  }
+}
