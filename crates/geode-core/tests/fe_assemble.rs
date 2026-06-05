@@ -7,8 +7,9 @@
 use burn::tensor::backend::BackendTypes;
 
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_p1, burn_matrix_to_faer, cube_interior_mask,
-    cube_tet_mesh, upload_mesh, DefaultBackend, DirichletBc, ElementType,
+    apply_dirichlet_bc, assemble_global_nedelec_with_epsilon, assemble_global_p1, build_epsilon_r,
+    burn_matrix_to_faer, cube_interior_mask, cube_tet_mesh, read_sphere_fixture,
+    sphere_pec_interior_edges, upload_mesh, DefaultBackend, DirichletBc, ElementType, R_BUFFER,
 };
 use geode_core::fe_assemble::fe_assemble;
 
@@ -126,6 +127,104 @@ fn fe_assemble_p1_interior_dof_count_is_smaller_than_total() {
     assert!(
         n_interior < mesh.n_nodes(),
         "interior DOF count {n_interior} must be < total {}", mesh.n_nodes()
+    );
+}
+
+/// Verify that `fe_assemble(Nedelec, sphere_mesh, …)` matches the manual
+/// two-step path `assemble_global_nedelec_with_epsilon` + `apply_dirichlet_bc`
+/// on the bundled sphere fixture with PEC outer-wall edge masking.
+#[test]
+fn fe_assemble_nedelec_matches_manual_two_step_path() {
+    // Load the bundled sphere fixture and build inputs.
+    let f = read_sphere_fixture().expect("fixture load");
+    let n_index = 1.5_f64;
+    let epsilon_r = build_epsilon_r(&f.tet_physical_tags, n_index);
+
+    // PEC edge mask: edges with both endpoints on the outer wall are
+    // Dirichlet (false); every other edge is free (true).
+    let (_edges, interior_mask) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);
+    let bc = DirichletBc {
+        interior_mask: interior_mask.clone(),
+    };
+
+    // --- New L4 path ---
+    let result = fe_assemble::<B>(
+        ElementType::Nedelec {
+            epsilon_r: &epsilon_r,
+        },
+        &f.mesh,
+        &bc,
+        &device(),
+    )
+    .expect("fe_assemble Nédélec should succeed on the sphere fixture");
+
+    // --- Reference two-step path ---
+    let tet_edges = f.mesh.tet_edges();
+    let tet_idx: Vec<[u32; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].0))
+        .collect();
+    let tet_sign: Vec<[i8; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].1))
+        .collect();
+    let n_edges = f.mesh.edges().len();
+    let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device());
+    let sys = assemble_global_nedelec_with_epsilon(
+        nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &epsilon_r,
+    );
+    let k_faer = burn_matrix_to_faer(sys.k);
+    let m_faer = burn_matrix_to_faer(sys.m);
+    let (k_int_ref, m_int_ref) =
+        apply_dirichlet_bc(k_faer.as_ref(), m_faer.as_ref(), &interior_mask)
+            .expect("manual Dirichlet BC should succeed");
+
+    // --- Compare dimensions ---
+    assert_eq!(
+        result.k_int.nrows(),
+        k_int_ref.nrows(),
+        "K_int row count mismatch"
+    );
+    assert_eq!(
+        result.k_int.ncols(),
+        k_int_ref.ncols(),
+        "K_int col count mismatch"
+    );
+    assert_eq!(
+        result.m_int.nrows(),
+        m_int_ref.nrows(),
+        "M_int row count mismatch"
+    );
+    assert_eq!(
+        result.m_int.ncols(),
+        m_int_ref.ncols(),
+        "M_int col count mismatch"
+    );
+
+    // --- Compare values entrywise ---
+    let k_new = mat_to_vec(&result.k_int);
+    let k_ref = mat_to_vec(&k_int_ref);
+    let m_new = mat_to_vec(&result.m_int);
+    let m_ref = mat_to_vec(&m_int_ref);
+
+    let max_k_err = k_new
+        .iter()
+        .zip(k_ref.iter())
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f64, f64::max);
+    let max_m_err = m_new
+        .iter()
+        .zip(m_ref.iter())
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f64, f64::max);
+
+    assert!(
+        max_k_err <= TOL,
+        "K_int (Nédélec) max entry error {max_k_err} exceeds tolerance {TOL}"
+    );
+    assert!(
+        max_m_err <= TOL,
+        "M_int (Nédélec) max entry error {max_m_err} exceeds tolerance {TOL}"
     );
 }
 

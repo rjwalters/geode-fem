@@ -12,15 +12,21 @@
 //!
 //! [`ElementType::P1`] — nodal Lagrange tetrahedra (scalar Helmholtz).
 //!
-//! Nédélec and other element families will be added here as subsequent
-//! Epic #88 phases land.
+//! [`ElementType::Nedelec`] — first-order edge-based Nédélec
+//! tetrahedra (vector curl-curl) with a per-element relative
+//! permittivity `ε_r`. DOFs are mesh edges, not nodes.
+//!
+//! Other element families will be added here as subsequent Epic #88
+//! phases land.
 //!
 //! # Boundary Conditions
 //!
 //! [`DirichletBc`] carries a boolean interior mask (one entry per global
-//! DOF; `true` = free). Homogeneous Dirichlet elimination is applied
-//! inside `fe_assemble` via [`apply_dirichlet_bc`], so callers receive
-//! already-reduced matrices ready for the eigensolver.
+//! DOF; `true` = free). For P1 the DOF count equals the number of mesh
+//! nodes; for Nédélec it equals the number of mesh edges. Homogeneous
+//! Dirichlet elimination is applied inside `fe_assemble` via
+//! [`apply_dirichlet_bc`], so callers receive already-reduced matrices
+//! ready for the eigensolver.
 //!
 //! # Backend Agnosticism
 //!
@@ -34,18 +40,31 @@ use faer::Mat;
 
 use crate::assembly::{assemble_global_p1, upload_mesh};
 use crate::eigen::{apply_dirichlet_bc, burn_matrix_to_faer, EigenError};
+use crate::nedelec_assembly::assemble_global_nedelec_with_epsilon;
 use crate::TetMesh;
 
 /// Selector for the finite element type passed to [`fe_assemble`].
 ///
-/// Only [`P1`](ElementType::P1) (linear nodal Lagrange on tetrahedra) is
-/// implemented in this release. The enum is non-exhaustive so callers
-/// cannot match on it exhaustively and break when new variants arrive.
+/// The enum is non-exhaustive so callers cannot match on it exhaustively
+/// and break when new variants arrive. The `'a` lifetime carries
+/// element-specific borrowed inputs (e.g. the Nédélec per-element
+/// relative permittivity slice).
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ElementType {
+#[derive(Debug, Clone)]
+pub enum ElementType<'a> {
     /// Linear P1 nodal element on tetrahedral meshes (scalar fields).
     P1,
+    /// First-order edge-based Nédélec element on tetrahedral meshes
+    /// (vector fields, curl-curl operator) with per-tet relative
+    /// permittivity `epsilon_r`.
+    ///
+    /// `epsilon_r.len()` must equal `mesh.n_tets()`. The mass matrix is
+    /// scaled element-wise by `epsilon_r[e]`; the curl-curl stiffness
+    /// is unchanged.
+    Nedelec {
+        /// Per-tetrahedron relative permittivity (length `n_tets`).
+        epsilon_r: &'a [f64],
+    },
 }
 
 /// Homogeneous Dirichlet boundary condition descriptor.
@@ -116,13 +135,14 @@ pub struct FeAssembleResult {
 /// assert!(result.k_int.nrows() > 0, "interior system must be non-empty");
 /// ```
 pub fn fe_assemble<B: Backend>(
-    element: ElementType,
+    element: ElementType<'_>,
     mesh: &TetMesh,
     bc: &DirichletBc,
     device: &B::Device,
 ) -> Result<FeAssembleResult, EigenError> {
     match element {
         ElementType::P1 => fe_assemble_p1::<B>(mesh, bc, device),
+        ElementType::Nedelec { epsilon_r } => fe_assemble_nedelec::<B>(mesh, bc, epsilon_r, device),
     }
 }
 
@@ -143,6 +163,47 @@ fn fe_assemble_p1<B: Backend>(
     let m_faer = burn_matrix_to_faer(sys.m);
 
     // Apply Dirichlet BCs to extract interior sub-matrices.
+    let (k_int, m_int) = apply_dirichlet_bc(k_faer.as_ref(), m_faer.as_ref(), &bc.interior_mask)?;
+
+    Ok(FeAssembleResult { k_int, m_int })
+}
+
+/// GEODE-FEM realization of the whiteroom L4 `fe_assemble` operator,
+/// Nédélec element specialization. See Epic #88.
+///
+/// Composes `assemble_global_nedelec_with_epsilon` + `apply_dirichlet_bc`:
+/// edge-DOF curl-curl + ε-scaled mass assembly, followed by edge-mask
+/// Dirichlet (PEC) elimination. DOF count is `mesh.edges().len()`, not
+/// `mesh.n_nodes()`; `bc.interior_mask` is therefore an edge mask.
+fn fe_assemble_nedelec<B: Backend>(
+    mesh: &TetMesh,
+    bc: &DirichletBc,
+    epsilon_r: &[f64],
+    device: &B::Device,
+) -> Result<FeAssembleResult, EigenError> {
+    // Build edge tables from the mesh: global edge count, per-tet edge
+    // indices, and per-tet edge orientation signs.
+    let n_edges = mesh.edges().len();
+    let tet_edges = mesh.tet_edges();
+    let tet_idx: Vec<[u32; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].0))
+        .collect();
+    let tet_sign: Vec<[i8; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].1))
+        .collect();
+
+    // Upload mesh to device and assemble with ε-scaled mass.
+    let (nodes, tets) = upload_mesh::<B>(mesh, device);
+    let sys =
+        assemble_global_nedelec_with_epsilon(nodes, tets, &tet_idx, &tet_sign, n_edges, epsilon_r);
+
+    // Convert dense Burn tensors to faer for Dirichlet elimination.
+    let k_faer = burn_matrix_to_faer(sys.k);
+    let m_faer = burn_matrix_to_faer(sys.m);
+
+    // Apply Dirichlet BCs (PEC edge mask) to extract interior sub-matrices.
     let (k_int, m_int) = apply_dirichlet_bc(k_faer.as_ref(), m_faer.as_ref(), &bc.interior_mask)?;
 
     Ok(FeAssembleResult { k_int, m_int })
