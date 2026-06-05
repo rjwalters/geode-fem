@@ -21,6 +21,19 @@ f64-pair representation used in Burn/NumPy.
   `reference/fixtures/cube_cavity/julia_baseline.json` in the
   canonical v1 schema. CI regenerates this fixture on every run and
   asserts cross-IR agreement against the NumPy canonical baseline.
+- **`sphere_pec.jl` + `gen_sphere_pec_baseline.jl`** — vector-Nédélec
+  sphere-PEC eigenmode pipeline (Epic #88 / Phase G.4, issue #129).
+  First Nédélec slice; eigensolve fallback path (Issue #133) uses
+  `LinearAlgebra.eigen` on the dense pencil since n ≈ 3300 is small
+  enough and the spurious cluster at λ ≈ 0 confuses sparse Arnoldi
+  in regular-inverse mode.
+- **`sphere_pml.jl` + `gen_sphere_pml_baseline.jl`** — scalar-isotropic
+  sphere-PML Nédélec eigenmode pipeline (Epic #88 / Phase H.2, issue
+  #147). **First complex-arithmetic spine slice**: per-tet ε_r is
+  `ComplexF64`, mass matrix is `SparseMatrixCSC{ComplexF64,Int}`,
+  eigensolve via `Arpack.eigs` shift-invert. Pipeline cross-checks
+  against the Phase G.4 NumPy PEC baseline at σ₀ = 0 (the
+  PEC-collapse regression).
 
 ## Toolchain bootstrap
 
@@ -119,6 +132,78 @@ complex-arithmetic friction directly. The slot remains open for Phase
 G's Nédélec curl-curl (where complex permittivities will exercise
 complex-typed assembly) and Phase H's PML (where stretched-coordinate
 complex frequencies surface directly).
+
+### Phase H.2 (sphere PML) — Julia ergonomics wins
+
+The scalar-isotropic sphere PML phase (`sphere_pml.jl`, issue #147)
+is the first cross-IR spine slice where Julia's native `ComplexF64`
+types do real work. Observations:
+
+**Positive: native complex types remove the spine ceremony.**
+The per-region ε_r assignment is **one line of Julia per region** —
+no `complex128` dtype declaration, no NumPy `view(np.float64)`
+interleave, no Burn-side paired-real `Mat<f64>` representation:
+
+```julia
+eps_complex[t] = ComplexF64(1.0, -sigma0 * u * u)  # PML shell
+```
+
+The mass-matrix scatter then "Just Works":
+`V_mass[p] = (s * M_local[le_i, le_j]) * eps_t` — Julia promotes the
+real `M_local` × complex `eps_t` to ComplexF64 at the multiplication
+site without any annotation. The resulting `SparseMatrixCSC{ComplexF64,Int}`
+flows through `Arpack.eigs` without any wrapper. **The Burn side has
+a ~500-line `SparseComplexShiftInvertLanczos` re-implementing this
+from faer primitives** because faer 0.24 lacks a sparse complex
+shift-invert. Julia gives the same in one line: `eigs(K, M; nev, sigma)`.
+
+**Negative: `Arpack.eigs` shift-invert calling-convention bug for
+complex generalized problems.** The `explicittransform=:auto` branch
+(the default) for generalized complex problems with `sigma ≠ 0` swaps
+`:LM ↔ :SM` internally in a way that returns eigenvalues *farthest*
+from σ rather than closest. **Workaround**: pass
+`explicittransform=:none` to delegate shift-invert to libarpack
+natively. This is the same family of friction as the cube_cavity
+calling-convention divergence above — same root cause (Julia wrapping
+of libarpack with non-scipy-compatible semantics), surfaced again on
+the complex generalized branch. Recorded in
+`sphere_pml.jl::eigensolve_physical_shift_invert`'s docstring.
+
+**Negative: σ-shift choice is non-obvious for the sphere mesh.** The
+Phase G.4 PEC fix uses σ ≈ 0.01 (just above the spurious cluster at 0)
+with `nev = spurious_dim + 8 = 376` to grab all spurious + 8 physical
+in one shot. That pattern is **not viable for the complex case**:
+`nev = 376` from a 3300-dim sparse complex pencil exceeds Arpack's
+practical convergence budget on the bundled mesh (timeouts at 10+
+minutes; a dense `LinearAlgebra.eigen` on the 3300×3300 ComplexF64
+pencil takes 30+ minutes on Apple Silicon — much steeper cost
+asymmetry vs. the real-symmetric `eigen(Symmetric, Symmetric)` path
+that finishes in seconds).
+
+The H.2 fix: shift σ = 2.0 (**above** the physical band) so Arpack
+converges to physical modes by geometric proximity. Spurious cluster
+at distance 2.0, physical at distance ≈ 0.58 (PEC) or ≈ 0.14 (σ₀=5
+PML). With ratio > 3×, Arnoldi stays out of the 368-dim spurious
+invariant subspace. Tried `σ ∈ (0, λ_phys)` (e.g. 0.8, 1.0, 1.42)
+experimentally — all spuriously dominated by the degenerate cluster.
+
+**Negative: Arpack non-determinism without fixed `v0`.** The default
+random starting vector gives ~1e-2 variability in converged
+eigenvalues across runs. Fixed by passing `v0 = ones(ComplexF64, n) /
+sqrt(n)`. Recorded in the eigensolver docstring.
+
+**Negative: Arpack ghost conjugate-pair modes.** For non-Hermitian
+generalized problems, Arpack occasionally returns a `λ̄`-partner of a
+near-real physical mode (Im(λ) > 0 instead of ≤ 0). Filter via
+`imag(lam) <= tol` and request `n_physical + n_extra` modes to absorb
+the loss. Sign-convention check (`Im(λ) ≤ 0` under exp(+jωt))
+catches it.
+
+**Net: spec-mining payoff for Julia's inclusion is real.** The
+constitutive + assembly layer (the things FEM users actually write)
+is genuinely cleaner. The eigensolve layer has a 4-line set of
+gotchas that should be promoted to the calling-convention notes for
+any Phase J (NLEPS) work that lands later.
 
 ### Real-arithmetic friction: Arpack.jl 0.5 shift-invert API divergence
 
