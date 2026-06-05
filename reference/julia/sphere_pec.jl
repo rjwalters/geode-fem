@@ -390,9 +390,11 @@ function eigensolve_arpack(
         M::SparseMatrixCSC{Float64};
         nev::Int,
 )
-    n  = size(K, 1)
-    v0 = ones(Float64, n) ./ sqrt(Float64(n))   # deterministic seed
-    eigvals_raw, _ = eigs(K, M; nev=nev, which=:SM, v0=v0)
+    n   = size(K, 1)
+    v0  = ones(Float64, n) ./ sqrt(Float64(n))   # deterministic seed
+    ncv = min(n, max(nev + 60, 2 * nev))
+    eigvals_raw, _ = eigs(K, M; nev=nev, which=:SM, v0=v0,
+                          ncv=ncv, maxiter=10 * n, tol=1e-10)
     eigvals_real   = real.(eigvals_raw)
     sort!(eigvals_real)
     return eigvals_real
