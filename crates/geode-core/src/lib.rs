@@ -10,6 +10,7 @@ pub mod complex_eigen;
 pub mod complex_lanczos;
 pub mod derham;
 pub mod eigen;
+pub mod fe_assemble;
 pub mod lanczos;
 pub mod mesh;
 pub mod mie;
@@ -34,6 +35,7 @@ pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
     FaerDenseEigensolver,
 };
+pub use fe_assemble::{fe_assemble, DirichletBc, ElementType, FeAssembleResult};
 pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 #[allow(deprecated)]
 pub use mesh::PHYS_VACUUM_BUFFER;
