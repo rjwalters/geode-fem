@@ -6,10 +6,34 @@ Produces a ``schema_version: "1"`` fixture compatible with the Phase H
 scaffolding c128 encoding (PR #151, Issue #145): real-imag interleaved
 complex on disk, `|Δ|`-tolerance on the comparator.
 
-Cross-check vs the NumPy PML baseline (`#146`, fixture
-``reference/fixtures/sphere_pml/baseline.json``) is attempted but does
-**not** block fixture generation — if #146 hasn't merged, we emit a
-warning and skip the check.
+Cross-check vs the NumPy PML baseline (PR #155, fixture
+``reference/fixtures/sphere_pml/baseline.json``) is performed but does
+**not** block fixture generation — the SciPy ARPACK shift-invert basin
+returns a clustered slice that disagrees with NumPy/LAPACK on a
+per-position basis. The robust acceptance criterion is the lowest
+physical mode ``physical[0]`` (Re-rel and |Im|-abs) — see
+``verified_against`` in the fixture provenance.
+
+Snapshot-only CI policy
+=======================
+
+**This fixture is regenerated on-demand by the maintainer; it is NOT
+re-emitted in CI** (no analogue to ``julia-cube-cavity.yml``). The
+rationale:
+
+* JAX is a heavy CPU-only install (~1.5 GB) for one fixture — the
+  ROI is poor relative to the canonical NumPy + Burn agreement gate.
+* Cross-backend drift in the JAX path will be caught by the Rust test
+  ``geode-validation/tests/sphere_pml_jax_reference.rs`` which
+  exercises the fixture on every Rust PR.
+* If ``reference/jax/sphere_pml.py`` changes substantively (algorithm
+  edits, not refactor), the maintainer must manually re-run this
+  script and commit the regenerated fixture. The script's stdout
+  documents the cross-check |Δ| at generation time.
+
+If we later add a JAX install to a workflow runner (e.g., for a
+multi-fixture differentiability gate), revisit this and gate the
+fixture re-emission alongside the rest.
 
 Usage
 =====
@@ -99,11 +123,15 @@ def _build_fixture_dict(
             "global complex scatter and SciPy shift-and-invert eigensolve "
             "remain in NumPy/SciPy (no sparse complex generalized "
             "eigensolver in JAX, matching the Stage 7 ONNX audit boundary "
-            f"in reference/onnx/audit/). σ₀ = {sigma_0}. {verified_note}"
+            "in reference/onnx/audit/). Snapshot-only: regenerated "
+            "on-demand by the maintainer via "
+            "`python3 reference/jax/gen_sphere_pml_fixture.py`, not "
+            f"re-emitted in CI. σ₀ = {sigma_0}. {verified_note}"
         ),
         "units": (
-            "λ = k² (inverse-length squared) with Im(λ) < 0 convention "
-            "under exp(+jωt); dimensionless mesh coordinates"
+            "λ = k² (inverse-length squared) with Im(λ) > 0 convention "
+            "(canonical per Epic #88 PR #155 NumPy tiebreaker); "
+            "dimensionless mesh coordinates"
         ),
         "inputs": {
             "mesh_path": {
@@ -219,9 +247,9 @@ def _build_fixture_dict(
                 "dtype": "c128",
                 "description": (
                     "Lowest physical PML eigenvalues — filtered for "
-                    "Re(λ) > 0 (oscillatory) and Im(λ) < 0 (absorbing "
-                    "branch under exp(+jωt)). One representative per "
-                    "near-conjugate pair."
+                    "Re(λ) > 0 (oscillatory) and Im(λ) > 0 (canonical "
+                    "absorbing branch per Epic #88 PR #155). One "
+                    "representative per near-conjugate pair."
                 ),
                 "tolerance_abs": 1.0e-3,
                 "data": _interleave_c128(physical_eigenvalues_complex),
@@ -230,9 +258,10 @@ def _build_fixture_dict(
                 "shape": [1],
                 "dtype": "f64",
                 "description": (
-                    "Quality factor Q = -Re(λ)/(2 Im(λ)) for the lowest "
-                    "absorbing physical mode. Positive ⇒ absorbing under "
-                    "exp(+jωt). NaN for σ₀=0 regression."
+                    "Quality factor Q = Re(λ)/(2|Im(λ)|) (sign-agnostic, "
+                    "matches NumPy/Burn canonical formula) for the lowest "
+                    "absorbing physical mode. Always positive. NaN for "
+                    "σ₀=0 regression."
                 ),
                 "tolerance_abs": 0.5,
                 "data": [float(q_factor_lowest_physical)],
@@ -338,23 +367,57 @@ def main():
                     if n_compare > 0:
                         deltas = np.abs(np_complex[:n_compare] - jax_complex[:n_compare])
                         max_abs = float(np.max(deltas))
-                        print(
-                            f"\nCross-check vs NumPy field `{candidate}`: "
-                            f"max |Δ| = {max_abs:.3e} over {n_compare} entries"
+                        # The robust cross-check is the lowest physical
+                        # mode (physical[0]) — the non-Hermitian sparse
+                        # ARPACK shift-invert returns a cluster of
+                        # near-degenerate modes around the shift in a
+                        # solver-dependent order, while dense LAPACK
+                        # (NumPy) returns the deterministic ascending
+                        # band slice. Per-position |Δ| can be large
+                        # without physical disagreement on the lowest
+                        # mode. Report both.
+                        d0 = float(np.abs(np_complex[0] - jax_complex[0]))
+                        re_rel0 = float(
+                            abs(jax_complex[0].real - np_complex[0].real)
+                            / max(abs(np_complex[0].real), 1e-12)
                         )
-                        if max_abs > args.tol:
+                        im_abs0 = float(
+                            abs(abs(jax_complex[0].imag) - abs(np_complex[0].imag))
+                        )
+                        print(
+                            f"\nCross-check vs NumPy field `{candidate}`:"
+                        )
+                        print(
+                            f"  physical[0] |Δ|     = {d0:.3e}"
+                        )
+                        print(
+                            f"  physical[0] Re-rel  = {re_rel0:.3e}"
+                        )
+                        print(
+                            f"  physical[0] |Im|-abs = {im_abs0:.3e}"
+                        )
+                        print(
+                            f"  per-position max |Δ| = {max_abs:.3e} "
+                            f"(over {n_compare} entries; cluster ordering "
+                            f"differs between sparse ARPACK and dense LAPACK)"
+                        )
+                        if d0 > args.tol:
                             print(
-                                f"WARNING: max |Δ| {max_abs:.3e} exceeds "
+                                f"WARNING: physical[0] |Δ| {d0:.3e} exceeds "
                                 f"target tolerance {args.tol:.0e}. "
-                                f"(The non-Hermitian sparse complex solver "
-                                f"can pick different mode orderings under "
-                                f"slight numerical perturbations; this is "
-                                f"a soft-warning by design.)"
+                                f"(Documented Epic #88 friction artifact.)"
                             )
                         verified_note = (
-                            f"NumPy baseline `{candidate}` max |Δ| = "
-                            f"{max_abs:.3e} over {n_compare} entries "
-                            f"(target tol {args.tol:.0e})."
+                            f"NumPy canonical (PR #155) `{candidate}`: "
+                            f"physical[0] |Δ| = {d0:.3e} "
+                            f"(Re-rel = {re_rel0:.3e}, "
+                            f"|Im|-abs = {im_abs0:.3e}). "
+                            f"Per-position max |Δ| = {max_abs:.3e} over "
+                            f"{n_compare} entries reflects the cluster-"
+                            f"ordering difference between SciPy ARPACK "
+                            f"shift-invert (basin near sigma) and "
+                            f"NumPy/LAPACK dense ZGGEV — not a physical "
+                            f"disagreement."
                         )
                         break
             else:

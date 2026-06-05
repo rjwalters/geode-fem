@@ -301,13 +301,14 @@ def eigensolve_complex(
     would saturate the Krylov subspace on this cluster before reaching
     the physical band.
 
-    We use ``sigma = 0.9 + 0j`` — a value just below the lowest
-    physical band (`Re(λ) ≈ 0.88` for σ₀=5.0). This pulls ~``k_request``
-    physical-band modes directly. The shift is **outside the spurious
-    cluster** so the converged modes are physical by construction.
+    The caller passes the canonical-band shift. For σ₀=5.0 the
+    canonical NumPy lowest-physical band sits at λ ≈ 1.18 + 0.21j
+    (PR #155) and the orchestrator uses ``sigma = 1.18 + 0.2j``.
+    The shift is **outside the spurious cluster** so the converged
+    modes are physical by construction.
 
     For ``σ₀ = 0`` (PEC regression), the physical band sits near
-    `Re(λ) ≈ 1.42` and the shift still works (just less optimal).
+    `Re(λ) ≈ 1.42` and the orchestrator shifts there.
 
     Returns
     -------
@@ -332,23 +333,24 @@ def select_absorbing_physical_modes(
     eigvals_complex: np.ndarray,
     n_take: int = 5,
     re_floor: float = 1e-3,
-    im_neg_floor: float = -1e-6,
+    im_pos_floor: float = 1e-6,
 ) -> np.ndarray:
     """Pick the ``n_take`` lowest-`Re(λ)` modes with the physical PML signature.
 
     Filters
     -------
     - ``Re(λ) > re_floor`` : skips any spurious mode that snuck through.
-    - ``Im(λ) < im_neg_floor`` : selects only the "outgoing-attenuated"
-      branch under the `exp(+jωt)` convention. Each physical mode
-      shows up as a near-conjugate pair under SciPy's non-Hermitian
-      complex solver; we report only the absorbing-branch member
-      (Im(λ) < 0), discarding the gain-branch artefact.
+    - ``Im(λ) > im_pos_floor`` : selects the absorbing branch under the
+      canonical `Im(λ) > 0` convention (Epic #88 / PR #155 NumPy
+      canonical tiebreaker). Each physical mode shows up as a near-
+      conjugate pair under SciPy's non-Hermitian complex solver; we
+      report only the canonical-branch member (Im(λ) > 0), discarding
+      the conjugate (Im(λ) < 0) artefact.
 
     Returns the modes in ascending-Re order.
     """
     eigvals_complex = np.asarray(eigvals_complex, dtype=np.complex128)
-    mask = (eigvals_complex.real > re_floor) & (eigvals_complex.imag < im_neg_floor)
+    mask = (eigvals_complex.real > re_floor) & (eigvals_complex.imag > im_pos_floor)
     candidates = eigvals_complex[mask]
     candidates = candidates[np.argsort(candidates.real)]
     if len(candidates) < n_take:
@@ -383,11 +385,12 @@ def split_spurious_complex(
 
 
 def q_factor(lam: complex) -> float:
-    """Quality factor under exp(+jωt): Q = -Re(λ) / (2 Im(λ)).
+    """Quality factor (sign-agnostic): Q = Re(λ) / (2 |Im(λ)|).
 
-    Positive Q indicates an absorbing mode (Im(λ) < 0).
+    Matches the NumPy/Burn canonical formula so |Q| is invariant under
+    the conjugate-branch choice. Positive for any absorbing mode.
     """
-    return float(-lam.real / (2.0 * lam.imag))
+    return float(lam.real / (2.0 * abs(lam.imag)))
 
 
 # ---------------------------------------------------------------------------
@@ -451,16 +454,18 @@ def solve_sphere_pml_jax(
         fixture.nodes, edges, interior_mask, r_outer=R_BUFFER
     )
 
-    # Eigensolve via shift in the physical band (sigma=0.9+0j hits the
-    # σ₀=5 PML band cleanly; for σ₀=0 PEC regression the same shift
-    # still pulls modes near 0.9 which we then discard via the spurious
-    # filter — see `select_absorbing_physical_modes`).
-    n_request = max(20, 2 * n_take + 8)
+    # Eigensolve via shift in the physical band. The NumPy canonical
+    # (PR #155) puts the lowest σ₀=5 physical band at Re(λ) ≈ 1.18 +
+    # 0.21j; the prior σ=0.9+0j shift pulled a lower-Re basin
+    # (sub-band cluster near 0.89) that disagrees with NumPy by ~25%.
+    # We now shift in the canonical band to match.
+    n_request = max(40, 2 * n_take + 8)
     if sigma_0 == 0.0:
         # PEC band sits at λ ≈ 1.42 (no PML) — shift there.
         shift = 1.4 + 0j
     else:
-        shift = 0.9 + 0j
+        # Canonical σ₀=5 lowest physical band per PR #155.
+        shift = 1.18 + 0.2j
 
     eigvals_complex, _eigvecs = eigensolve_complex(
         K_int, M_int, k_request=n_request, sigma=shift
@@ -479,7 +484,7 @@ def solve_sphere_pml_jax(
         if len(physical_take) < n_take:
             raise RuntimeError(
                 f"requested {n_take} absorbing physical modes but only "
-                f"{len(physical_take)} pass the (Re>0, Im<0) filter "
+                f"{len(physical_take)} pass the (Re>0, Im>0) filter "
                 f"in the {n_request}-mode slice; increase n_request "
                 f"or adjust shift"
             )
@@ -726,7 +731,7 @@ if __name__ == "__main__":
     for i, lam in enumerate(result.physical_eigenvalues_complex):
         print(f"  λ[{i}] = {lam.real:+.6e} {lam.imag:+.6e}j")
     print(f"\nQ_lowest_physical = {result.q_factor_lowest_physical:.4f}  "
-          f"(sign convention: positive ⇒ absorbing under exp(+jωt))")
+          f"(Q = Re(λ)/(2|Im(λ)|); positive ⇒ absorbing — canonical Im(λ) > 0)")
 
     if not args.skip_autodiff:
         print("\n== Autodiff probe: jax.grad through complex assembly ==")

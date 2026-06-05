@@ -198,9 +198,10 @@ fn jax_pml_complex_epsilon_input_round_trips_burn() {
 fn jax_pml_complex_eigenvalues_have_pml_signature() {
     // Pure schema-load sanity (no Burn eigensolve): confirm the
     // physical_eigenvalues_complex field in the fixture has the
-    // expected PML signature (Im < 0, Re > 0) for σ₀ > 0. This is
-    // the *fixture-side* sanity check; full Burn-vs-JAX agreement
-    // requires the gated `--ignored` test below.
+    // canonical PML signature (Re > 0, Im > 0) for σ₀ > 0 — Epic #88
+    // PR #155 NumPy canonical convention. This is the *fixture-side*
+    // sanity check; full Burn-vs-JAX agreement requires the gated
+    // `--ignored` test below.
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("sphere_pml/jax_baseline.json should load");
 
@@ -226,9 +227,9 @@ fn jax_pml_complex_eigenvalues_have_pml_signature() {
             lam.re
         );
         assert!(
-            lam.im < 0.0,
-            "physical[{i}] has Im(λ) = {} ≥ 0 — should be absorbing branch \
-             under exp(+jωt) convention",
+            lam.im > 0.0,
+            "physical[{i}] has Im(λ) = {} ≤ 0 — should be canonical \
+             absorbing branch (Im(λ) > 0 per Epic #88 PR #155)",
             lam.im
         );
     }
@@ -287,8 +288,8 @@ fn jax_pml_lowest_physical_eigenvalue_agrees_with_burn() {
     // numerical baseline; here we just confirm the fixture's recorded
     // lowest physical λ is in the documented neighbourhood.
     //
-    // Expected window: σ₀=5.0 puts the lowest physical mode at
-    // Re(λ) ∈ [0.85, 0.92], Im(λ) ∈ [-0.05, -1e-4].
+    // Expected window: σ₀=5.0 puts the lowest physical mode in the
+    // NumPy canonical band Re(λ) ≈ 1.18, Im(λ) ≈ +0.21.
     let sigma_0 = fixture.inputs["sigma_0"].data.as_array().unwrap()[0]
         .as_f64()
         .unwrap();
@@ -304,8 +305,8 @@ fn jax_pml_lowest_physical_eigenvalue_agrees_with_burn() {
         lambda_jax.re
     );
     assert!(
-        lambda_jax.im < 0.0 && lambda_jax.im > -0.5,
-        "lowest physical Im(λ) = {} out of expected PML absorption band (-0.5, 0)",
+        lambda_jax.im > 0.0 && lambda_jax.im < 0.5,
+        "lowest physical Im(λ) = {} out of expected canonical PML absorption band (0, 0.5)",
         lambda_jax.im
     );
 }
