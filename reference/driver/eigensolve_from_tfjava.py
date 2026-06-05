@@ -1,8 +1,10 @@
 """Thin wrapper — delegates to eigensolve_from_sidecar.py --backend tfjava.
 
-Preserved for backward compatibility: CI workflows and any callers referencing
-this path continue to work unchanged. All logic lives in the consolidated
-``eigensolve_from_sidecar.py`` (issue #127).
+Deprecated: use ``eigensolve_from_sidecar.py --problem cube-cavity
+--backend tfjava`` directly. Preserved for backward compatibility: CI
+workflows and any callers referencing this path continue to work
+unchanged. All logic lives in the consolidated
+``eigensolve_from_sidecar.py`` (issues #127, #144).
 """
 
 import sys
