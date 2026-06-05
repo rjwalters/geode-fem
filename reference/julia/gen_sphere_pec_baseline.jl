@@ -92,8 +92,8 @@ function main()
             "Julia reference backend for cross-IR agreement against the NumPy canonical " *
             "baseline.json. Assembly uses the same cofactor Gram matrix formula as " *
             "reference/numpy/nedelec_local_matrices.py and crates/geode-core/src/nedelec.rs. " *
-            "Eigensolve via Arpack.jl with which=:SM (regular-inverse mode, no sigma) — " *
-            "see cube_cavity.jl for the Arpack.jl 0.5 calling-convention note. " *
+            "Eigensolve via dense LinearAlgebra.eigen (n≤5000 path, Issue #133 fix) — " *
+            "consistent with Rust faer generalized_eigen path. " *
             "Cross-checked against NumPy baseline.json at 1e-5 relative tolerance " *
             "for physical eigenvalues at generation time.",
         "units"  => "λ = k² (inverse-length squared); dimensionless mesh coordinates",
@@ -231,9 +231,9 @@ function main()
             "verified_against" =>
                 "reference/fixtures/sphere_pec/baseline.json — physical eigenvalues " *
                 "agree to < 1e-5 relative (cross-IR f64 floor per Epic #88). " *
-                "Arpack.jl regular-inverse mode (which=:SM, no sigma) — see " *
-                "cube_cavity.jl::eigensolve_arpack for the Arpack.jl 0.5 friction artifact.",
-            "issue"            => "#129 (Phase G.4 — Julia sphere-PEC Nédélec reference)",
+                "Dense LinearAlgebra.eigen path (Issue #133 fix) — consistent with " *
+                "Rust faer generalized_eigen.",
+            "issue"            => "#129 / #133 (Phase G.4 — Julia sphere-PEC Nédélec reference, dense eigensolve fix)",
             "regenerated_at"   => string(now()),
         ),
     )

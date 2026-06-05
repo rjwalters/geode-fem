@@ -364,24 +364,26 @@ end
 
 
 # ---------------------------------------------------------------------------
-# Eigensolve via Arpack.jl.
+# Eigensolve — dense fallback for n ≤ 5000, sparse shift-invert for larger.
 # ---------------------------------------------------------------------------
 
 """
     eigensolve_arpack(K, M; nev) -> Vector{Float64}
 
-Lowest-`nev` generalized eigenvalues of `K x = λ M x` via Arpack.jl.
+Lowest-`nev` generalized eigenvalues of `K x = λ M x`.
 
-Uses `which=:SM` (regular-inverse mode, no sigma) — the same calling
-convention as `cube_cavity.jl::eigensolve_arpack`. See that file for the
-Arpack.jl 0.5 friction artifact: `sigma=0, which=:LM` returns the *largest*
-eigenvalues on the generalized pencil, not the smallest.
+Fix (Issue #133): the original regular-inverse Arpack path (`which=:SM`,
+no sigma) failed when `nev/n ≈ 11%` (376 out of 3300 DOFs) — Arnoldi
+converged to the wrong spectral region, reporting λ₁ ≈ 8.6 instead of
+the expected λ₁ ≈ 1.42.
 
-For the sphere-PEC problem, `K_int` has a large gradient nullspace
-(dimension ≈ `spurious_dim = 368`) that clusters near zero. Arpack.jl's
-regular-inverse mode (`M⁻¹K`, `:SM`) recovers these near-zero modes
-efficiently without shift-invert at σ=0, matching SciPy's shift-and-invert
-result to ~1e-13 on non-spurious eigenvalues (both bind the same libarpack).
+Strategy (Option 1 — dense fallback, consistent with Rust faer
+`generalized_eigen` path):
+  - n ≤ 5000: convert K, M to dense symmetric matrices and call
+    `LinearAlgebra.eigen(Symmetric(Matrix(K)), Symmetric(Matrix(M)))`.
+    Returns all eigenvalues; we sort and take the lowest `nev`.
+  - n > 5000: sparse shift-invert via `Arpack.eigs` with `sigma = 0.01`
+    (just above the spurious cluster at zero) to request only 8 values.
 
 Returns eigenvalues sorted ascending (spurious cluster first, then physical).
 """
@@ -390,14 +392,17 @@ function eigensolve_arpack(
         M::SparseMatrixCSC{Float64};
         nev::Int,
 )
-    n   = size(K, 1)
-    v0  = ones(Float64, n) ./ sqrt(Float64(n))   # deterministic seed
-    ncv = min(n, max(nev + 60, 2 * nev))
-    eigvals_raw, _ = eigs(K, M; nev=nev, which=:SM, v0=v0,
-                          ncv=ncv, maxiter=10 * n, tol=1e-10)
-    eigvals_real   = real.(eigvals_raw)
-    sort!(eigvals_real)
-    return eigvals_real
+    n = size(K, 1)
+    if n <= 5000
+        # Dense path — consistent with Rust harness faer generalized_eigen path.
+        eigvals_all = eigen(Symmetric(Matrix(K)), Symmetric(Matrix(M))).values
+        return sort(real.(eigvals_all))[1:nev]
+    else
+        # Sparse path with shift-invert (for larger systems).
+        sigma = 0.01  # just above spurious cluster
+        eigvals_raw, _ = eigs(K, M; nev=8, sigma=sigma, which=:LM)
+        return sort(real.(eigvals_raw))
+    end
 end
 
 
