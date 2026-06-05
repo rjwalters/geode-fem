@@ -20,8 +20,17 @@ reference/numpy/
 ├── pyproject.toml                  — pinned NumPy/SciPy versions (lands with #90)
 ├── p1_local_matrices.py            — element-local K and M for the P1 reference tet (#90)
 ├── cube_cavity.py                  — end-to-end cube-cavity eigenmode driver (#92)
+├── derham.py                       — discrete de Rham operators d⁰, d¹, d² (#149, Epic #88 Phase I bridge)
+├── gen_derham_baseline.py          — fixture generator for reference/fixtures/derham/baseline.json (#149)
 └── _harness.py                     — fixture I/O helper shared across slices
 ```
+
+The `derham.py` module is the formal NumPy reference for the discrete
+de Rham complex (`gradient_map`, `curl_map`, `divergence_map`) plus the
+interior-restricted ``rank(d⁰)`` spurious-mode classifier consumed by
+``sphere_pec.py``. It cross-checks against
+``geode_core::derham::{gradient_map, curl_map, divergence_map}`` at the
+bit-exact integer-CSR level (no floating-point tolerance).
 
 ## Invocation convention
 

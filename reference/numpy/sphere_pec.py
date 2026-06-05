@@ -124,6 +124,17 @@ from nedelec_local_matrices import (  # noqa: E402
     batched_nedelec_local_matrices,
 )
 
+# Issue #149: the d⁰-rank spurious classifier and the dense
+# interior-restricted gradient now live in the formal de Rham reference
+# module (``derham.py``), not inlined here. Re-export under the original
+# names so existing consumers (Phase G fixture generators, downstream
+# tests) keep working without import churn.
+from derham import (  # noqa: E402
+    DERHAM_RANK_THRESHOLD_REL,
+    restrict_gradient_dense,
+    spurious_dim_from_derham as _derham_spurious_dim,
+)
+
 
 # --------------------------------------------------------------------------- #
 # Sphere fixture geometry — mirror of ``geode_core::mesh::sphere`` constants.
@@ -487,59 +498,6 @@ def eigensolve(K, M, k_request: int):
     return eigvals[order], eigvecs[:, order]
 
 
-DERHAM_RANK_THRESHOLD_REL: float = 1e-12
-"""Relative threshold for "near-zero singular value" in the d⁰ rank
-computation. Mirror of ``geode_core::DERHAM_RANK_THRESHOLD_REL``."""
-
-
-def restrict_gradient_dense(edges, edge_mask, node_mask) -> np.ndarray:
-    """Build the dense interior×interior restriction of d⁰.
-
-    Mirror of ``geode_core::restrict_gradient_dense``: each edge
-    contributes exactly two ±1.0 entries (lower-tag endpoint = -1,
-    higher-tag = +1), filtered to
-    ``edge_mask[i] & node_mask[a] & node_mask[b]``.
-
-    Parameters
-    ----------
-    edges : (n_edges, 2) int — output of :func:`build_edges`
-    edge_mask : (n_edges,) bool — True on interior edges
-    node_mask : (n_nodes,) bool — True on interior nodes
-
-    Returns
-    -------
-    d0 : (n_interior_edges, n_interior_nodes) float64
-        Dense interior-restricted discrete gradient operator.
-    """
-    edges = np.asarray(edges, dtype=np.int64)
-    edge_mask = np.asarray(edge_mask, dtype=bool)
-    node_mask = np.asarray(node_mask, dtype=bool)
-
-    n_interior_nodes = int(np.sum(node_mask))
-    n_interior_edges = int(np.sum(edge_mask))
-
-    # Map global node index → interior column (or -1 if boundary).
-    node_to_interior = -np.ones(node_mask.shape[0], dtype=np.int64)
-    node_to_interior[node_mask] = np.arange(n_interior_nodes, dtype=np.int64)
-
-    # Map global edge index → interior row (or -1 if boundary edge).
-    edge_to_interior = -np.ones(edge_mask.shape[0], dtype=np.int64)
-    edge_to_interior[edge_mask] = np.arange(n_interior_edges, dtype=np.int64)
-
-    d0 = np.zeros((n_interior_edges, n_interior_nodes), dtype=np.float64)
-    for edge_idx, (a, b) in enumerate(edges):
-        row = edge_to_interior[edge_idx]
-        if row < 0:
-            continue
-        col_a = node_to_interior[a]
-        col_b = node_to_interior[b]
-        if col_a >= 0:
-            d0[row, col_a] = -1.0
-        if col_b >= 0:
-            d0[row, col_b] = 1.0
-    return d0
-
-
 def spurious_dim_from_derham(
     nodes,
     edges,
@@ -548,31 +506,20 @@ def spurious_dim_from_derham(
 ) -> int:
     """Algebraic spurious-mode dimension = ``rank(d⁰_interior)``.
 
+    Thin wrapper around :func:`derham.spurious_dim_from_derham` so the
+    Phase G PEC pipeline keeps a stable default ``r_outer = R_BUFFER``
+    argument. The actual computation (the dense interior-restricted d⁰
+    + ``np.linalg.matrix_rank`` SVD with relative cutoff
+    :data:`DERHAM_RANK_THRESHOLD_REL` × ``σ_max``) now lives in the
+    formal de Rham reference module ``reference/numpy/derham.py``
+    (Issue #149 consolidation deliverable).
+
     Mirror of ``geode_core::spurious_dim_from_derham``. The Nédélec
     curl-curl kernel is the image of the discrete gradient
-    (``kernel(K) = image(d⁰)`` per Epic #57 Phase 3.A; see
-    ``crates/geode-core/tests/derham_kernel_dim.rs``), so its rank is
+    (``kernel(K) = image(d⁰)`` per Epic #57 Phase 3.A), so its rank is
     the spurious-mode count.
-
-    Unlike the deprecated largest-relative-gap eigenvalue heuristic,
-    this classifier has no calibration knob and gives the algebraically
-    correct answer for any PEC fixture (including ones with low-lying
-    degenerate physical clusters that confuse magnitude/gap heuristics).
-
-    Returns the rank computed via dense SVD with relative cutoff
-    :data:`DERHAM_RANK_THRESHOLD_REL` × ``σ_max``, matching the Rust
-    side bit-exactly (the SVD itself runs through the LAPACK driver
-    chosen by ``numpy.linalg.matrix_rank``, which is the same LAPACK
-    binding faer 0.24 uses via ``faer::Mat::singular_values``).
     """
-    nodes = np.asarray(nodes, dtype=np.float64)
-    tol = 1e-6 * max(r_outer, 1.0)
-    r = np.linalg.norm(nodes, axis=1)
-    node_mask = np.abs(r - r_outer) >= tol
-    d0 = restrict_gradient_dense(edges, edge_mask, node_mask)
-    # np.linalg.matrix_rank uses the same `σ_i > tol · σ_max` count
-    # as the Rust `rank_via_svd` helper.
-    return int(np.linalg.matrix_rank(d0, tol=DERHAM_RANK_THRESHOLD_REL * np.linalg.norm(d0, ord=2)))
+    return _derham_spurious_dim(nodes, edges, edge_mask, r_outer=r_outer)
 
 
 def filter_spurious(lambdas, n_spurious: int):
