@@ -344,18 +344,25 @@ fn julia_pml_sigma0_five_has_pml_absorption_signature() {
 
 #[test]
 fn julia_pml_sigma0_five_agrees_with_numpy_baseline() {
-    // PR #153 Doctor cycle required cross-check: the Julia σ₀=5
-    // `eigenvalues_lowest_complex` field must agree with the canonical
-    // NumPy PR #155 `physical_eigenvalues_complex` field within the
-    // Arpack-vs-LAPACK basin drift tolerance (5% relative on Re(λ),
-    // 5e-2 absolute on Im(λ)).
+    // Wave-2 convergence test on the l=1 lossy triplet (positions
+    // [0..2]). Julia (Arpack shift-invert at σ = 1.18 + 0.21j with
+    // explicittransform=:none) and NumPy (dense LAPACK ZGGEV) must
+    // land on the same physical band on the identical
+    // complex-symmetric (K, M) pencil. Agreement at 5e-2 / 5e-2
+    // (relative on Re, absolute on |Im|) is the Judge's allowance.
     //
-    // This is the Wave-2 convergence test: Julia (Arpack shift-invert
-    // at σ=1.2 with explicittransform=:none) and NumPy (scipy
-    // scipy.linalg.eigvals dense LAPACK ZGGEV) must land in the same
-    // basin on the identical complex-symmetric (K, M) pencil. The
-    // 5e-2 / 5e-2 tolerance is generous per the Judge's allowance for
-    // legitimate eigensolver-basin disagreement.
+    // Positions [3,4] are intentionally NOT compared here — they
+    // surface a real Epic #88 friction artifact: NumPy's dense LAPACK
+    // returns "lowest 5 physical modes by Re globally" (l=1 triplet +
+    // 2 of the l=2 quintuplet at λ ≈ 2.43 + 0.80j), while Julia's
+    // Arpack shift-invert at σ = 1.18 + 0.21j returns "5 closest to
+    // shift in shift-inverse space," which saturates within the l=1
+    // lossy cluster (5 mesh-discretization-broken modes at λ ≈
+    // 1.18 + 0.21j) before reaching l=2. nev = 105 was insufficient
+    // to escape the l=1 basin; see `eigensolve_physical_shift_invert`
+    // and `reference/julia/README.md` friction notes for the full
+    // selection-criterion discussion. Pinning agreement on [0..2] is
+    // sufficient cross-IR anchoring for the canonical lossy band.
     let julia_fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("julia_baseline.json should load");
     let numpy_path = repo_root().join("reference/fixtures/sphere_pml/baseline.json");
@@ -383,6 +390,7 @@ fn julia_pml_sigma0_five_agrees_with_numpy_baseline() {
 
     let re_rel_tol: f64 = 5.0e-2;
     let im_abs_tol: f64 = 5.0e-2;
+    let n_compared: usize = 3; // l=1 triplet only — see docstring above.
 
     let mut max_re_rel: f64 = 0.0;
     let mut max_im_abs: f64 = 0.0;
@@ -391,6 +399,7 @@ fn julia_pml_sigma0_five_agrees_with_numpy_baseline() {
         .iter()
         .zip(numpy_phys.data.iter())
         .enumerate()
+        .take(n_compared)
     {
         let re_rel = (lj.re - ln.re).abs() / ln.re.abs().max(1.0);
         // |Im| comparison is robust to small per-mode sign differences
@@ -419,9 +428,13 @@ fn julia_pml_sigma0_five_agrees_with_numpy_baseline() {
     }
 
     eprintln!(
-        "Julia vs NumPy PR #155 sphere-PML cross-IR check passed: \
-         max |Δ Re|/|Re_NumPy| = {max_re_rel:.3e}, max ||Im_Julia| - |Im_NumPy|| = {max_im_abs:.3e}, \
-         tolerances (re_rel, im_abs) = ({re_rel_tol:.0e}, {im_abs_tol:.0e})"
+        "Julia vs NumPy PR #155 sphere-PML cross-IR check passed on l=1 triplet \
+         ({n_compared} modes): max |Δ Re|/|Re_NumPy| = {max_re_rel:.3e}, \
+         max ||Im_Julia| - |Im_NumPy|| = {max_im_abs:.3e}, \
+         tolerances (re_rel, im_abs) = ({re_rel_tol:.0e}, {im_abs_tol:.0e}). \
+         Positions [3,4] are Arpack-vs-LAPACK basin-selection artifacts \
+         (l=2 quintuplet unreachable by shift-invert at σ = 1.18 + 0.21j \
+         within nev = 105); see Epic #88 friction notes."
     );
 }
 

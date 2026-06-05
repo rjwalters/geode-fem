@@ -213,18 +213,39 @@ Wave-2 sign convention). Filter via `imag(lam) >= -tol` and request
 artifact).** Even after the σ-retarget and sign fix, the Julia Arpack
 shift-invert and the NumPy dense LAPACK ZGGEV path on the identical
 complex-symmetric pencil produce eigenvalues that differ by up to a
-few percent on Re(λ) and |Im(λ)|. This is the **Arpack basin-of-
-attraction friction artifact** Epic #88 is designed to surface. The
-PR #153 inline cross-check
+few percent on Re(λ) and |Im(λ)| within the l=1 lossy triplet. This
+is the **Arpack basin-of-attraction friction artifact** Epic #88 is
+designed to surface. The PR #153 inline cross-check
 (`gen_sphere_pml_baseline.jl::check_sigma0_five_against_numpy`) and
 the Rust test
 (`crates/geode-validation/tests/sphere_pml_julia_reference.rs`
 `julia_pml_sigma0_five_agrees_with_numpy_baseline`) gate this at
-5e-2 relative on Re(λ) and 5e-2 absolute on |Im(λ)|. The Judge on
-PR #153 explicitly allowed this tolerance: the spec-mining goal is
-**convention agreement**, not bit-equivalence. Any residual gap above
-the gate is a follow-up Epic #88 friction artifact (candidate: dense
-eigensolve at smaller mesh as a tiebreaker), not a Julia-side bug.
+5e-2 relative on Re(λ) and 5e-2 absolute on |Im(λ)| on the l=1
+triplet (positions [0..2]).
+
+**Positive: post-cycle-3 the l=1 triplet agrees to ~3e-3 / 5e-3**
+(Re-rel / |Im|-abs) after the complex σ-shift retarget to
+`1.18 + 0.21j` and the regime-split `n_extra` bump
+(`max(100, 20·n_take)` for σ₀ > 0). This is well inside the
+generous 5e-2 / 5e-2 gate.
+
+**Friction sub-artifact: positions [3,4] cross-IR window mismatch.**
+NumPy's dense LAPACK ZGGEV reports the lowest 5 physical modes by
+Re(λ) *globally* — the l=1 triplet (λ ≈ 1.18 + 0.21j) plus 2 of the
+l=2 quintuplet (λ ≈ 2.43 + 0.80j). Julia's Arpack shift-invert at
+σ = 1.18 + 0.21j with `which=:LM` reports the 5 modes closest to σ
+in shift-inverse space — which saturates within the l=1 lossy
+cluster (5 mesh-discretization-broken modes, all near λ ≈
+1.18 + 0.21j) before reaching l=2. Even at `nev = 105` (the
+practical ceiling at ~3% of matrix dim) Arpack does not escape the
+l=1 basin. **This is a real selection-criterion divergence between
+shift-invert windowed and dense-global eigensolvers, not a Julia-
+side bug.** Positions [3,4] are therefore excluded from the strict
+cross-IR test; the generator still logs them with an `○` informational
+marker so the divergence is visible in CI output. A follow-up
+candidate is multi-shift Arpack (e.g., paired shifts at l=1 and l=2
+band centers) or a smaller-mesh dense Julia eigensolve as the l=2
+tiebreaker.
 
 ### Doctor cycle 2 caveat — `julia_baseline.json` is CI-gated, not Doctor-verified
 

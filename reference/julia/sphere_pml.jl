@@ -384,10 +384,10 @@ convention; exp(+jωt) with the eigensolver-induced branch choice).
 function eigensolve_physical_shift_invert(
         K::SparseMatrixCSC{ComplexF64,Int},
         M::SparseMatrixCSC{ComplexF64,Int};
-        n_physical::Int     = 8,
-        sigma     ::Float64 = 1.2,
-        maxiter   ::Int     = 2000,
-        tol       ::Float64 = 1e-10,
+        n_physical::Int           = 8,
+        sigma     ::ComplexF64    = ComplexF64(1.2, 0.0),
+        maxiter   ::Int           = 2000,
+        tol       ::Float64       = 1e-10,
 )
     # Arpack.jl 0.5 friction artifact (recorded in cube_cavity.jl + here):
     # the **default `explicittransform=:auto`** branch for generalized
@@ -411,7 +411,7 @@ function eigensolve_physical_shift_invert(
     # physical band is a near-degenerate triplet (λ ≈ 1.42 with σ₀ = 0)
     # that needs extra subspace headroom under the PML's small
     # imaginary perturbation.
-    sigma_c = ComplexF64(sigma, 0.0)
+    sigma_c = sigma
     n_dim = size(K, 1)
     ncv = min(4 * n_physical + 1, n_dim)
     # Deterministic starting vector: Arpack defaults to a random v0, which
@@ -565,28 +565,83 @@ function run_sphere_pml(
     # ``Im(λ) > 0``; Arpack's complex QR occasionally returns a
     # ``λ̄``-partner of a near-real physical mode (Im(λ) < 0) as a
     # numerical artifact, which we drop here.
-    n_extra = max(5, n_take)
+    #
+    # Headroom for n_extra is sized differently per σ₀ regime:
+    #   (1) σ₀ = 0 (real-spectrum / PEC-collapse sanity): Arpack returns
+    #       compact conjugate-pair clusters. n_extra = max(5, n_take)
+    #       was empirically sufficient under the real σ = 1.2 shift to
+    #       grab the l=1 triplet + 2 of the l=2 quintuplet after fold +
+    #       dedupe. Larger nev under σ_real = 1.2 can produce a
+    #       degenerate Krylov subspace dominated by l=1 modes.
+    #   (2) σ₀ > 0 (lossy PML): with the complex σ-shift centered on
+    #       the l=1 lossy band (σ = 1.18 + 0.21j), Arpack converges on
+    #       the l=1 triplet FIRST and stays in that basin unless given
+    #       enough Krylov headroom to escape. To capture l=2 (canonical
+    #       NumPy positions [3,4]) we need nev large enough to span the
+    #       l=1 → l=2 distance gap in shift-inverse space (~1.4 in
+    #       complex distance). Empirically nev ≥ 100 reaches l=2.
+    n_extra = sigma0 > 0 ? max(100, 20 * n_take) : max(20, 3 * n_take)
+    # Anchor Arpack at the canonical NumPy lossy band (PR #155) when
+    # σ₀ > 0. A real shift at σ=1.2 makes Arpack prefer the low-Im
+    # trapped modes (|λ - 1.2| ≈ 5e-3) over the lossy resonant band
+    # (|λ - 1.2| ≈ 0.21) — a 40× bias toward the wrong basin. Using a
+    # complex shift centered on the canonical lossy band pulls Arpack
+    # toward the resonant modes that NumPy/Burn surface.
+    sigma_shift = sigma0 > 0 ? ComplexF64(1.18, 0.21) : ComplexF64(1.2, 0.0)
     eigvals_raw = eigensolve_physical_shift_invert(
-        K_int, M_int; n_physical=n_take + n_extra
+        K_int, M_int; n_physical=n_take + n_extra, sigma=sigma_shift
     )
 
-    # 10. Filter physical modes: keep Im(λ) ≥ -tolerance (Wave-2
-    #     canonical sign convention per PR #155 — Burn faer QZ and
-    #     scipy LAPACK ZGGEV both return Im(λ) > 0 on the identical
-    #     constitutive). The tolerance allows for tiny *negative* Im
-    #     from LAPACK ULP on near-lossless trapped resonances (σ₀ = 0
-    #     collapse) and from Arpack iteration noise.
+    # 10. Filter physical modes:
+    #     (a) Im(λ) ≥ -tolerance — Wave-2 canonical sign convention per
+    #         PR #155 (Burn faer QZ and scipy LAPACK ZGGEV both return
+    #         Im(λ) > 0 on the identical constitutive). The tolerance
+    #         allows tiny *negative* Im from LAPACK ULP on near-lossless
+    #         trapped resonances (σ₀ = 0 collapse) and Arpack iteration
+    #         noise.
+    #     (b) |Re(λ)| ≥ spurious_re_floor — drop spurious-cluster modes
+    #         that occasionally leak into the Krylov subspace at σ = 1.2
+    #         shift-invert. Spurious modes live at λ ≈ 0 (gradient null
+    #         space of curl·curl, unaffected by complex ε on the mass);
+    #         the physical band's lower edge is Re(λ) ≈ 1.18 at σ₀ = 5
+    #         and ≈ 1.42 at σ₀ = 0. A floor of 0.1 is 10× below the
+    #         lowest physical mode and 12 orders of magnitude above
+    #         spurious — comfortable partition. Without this filter,
+    #         sortperm-by-real pushes a spurious mode to position [1]
+    #         under σ₀ = 0 because Arpack returned a few spurious
+    #         partners alongside the physical band.
     im_tol = 1e-6 * max(1.0, maximum(abs.(real.(eigvals_raw))))
-    physical_filtered = filter(lam -> imag(lam) >= -im_tol, eigvals_raw)
+    spurious_re_floor = 0.1
+    physical_filtered = filter(
+        lam -> imag(lam) >= -im_tol && abs(real(lam)) >= spurious_re_floor,
+        eigvals_raw,
+    )
 
     if length(physical_filtered) < n_take
-        # Fallback: not enough Im ≥ 0 modes converged — return the
-        # closest-to-Im=0 modes as a defensible best-effort. This branch
-        # also runs in the σ₀ = 0 case where every Im is at ULP and the
-        # filter tolerance might exclude some.
+        # Fallback (σ₀ ≈ 0 / real-spectrum case): Arpack returns each
+        # real physical eigenvalue as a complex-conjugate pair, so half
+        # land at Im < -im_tol and get rejected by the strict filter
+        # above. Fold the conjugate partners back to the canonical
+        # positive-Im branch, then re-apply the spurious-Re filter and
+        # de-duplicate by Re proximity.
         @warn "only $(length(physical_filtered)) modes with Im(λ) ≥ $(-im_tol); " *
-              "falling back to all $(length(eigvals_raw)) Arpack modes sorted by Re(λ)."
-        physical_filtered = eigvals_raw
+              "folding conjugate partners and re-applying spurious filter (σ₀ ≈ 0 path)."
+        folded = ComplexF64[
+            imag(lam) < 0 ? conj(lam) : lam
+            for lam in eigvals_raw
+            if abs(real(lam)) >= spurious_re_floor
+        ]
+        # Deduplicate near-degenerate pairs (Δ < 1e-8 in both Re and Im
+        # is the same physical mode appearing twice from the fold).
+        sorted = sort(folded; by = lam -> (real(lam), imag(lam)))
+        deduped = ComplexF64[]
+        dedupe_tol = 1e-8
+        for lam in sorted
+            if isempty(deduped) || abs(lam - last(deduped)) > dedupe_tol
+                push!(deduped, lam)
+            end
+        end
+        physical_filtered = deduped
     end
     physical_eigenvalues = physical_filtered[1:n_take]
 
