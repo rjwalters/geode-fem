@@ -50,12 +50,23 @@ content is owned by H.1.
 
 ## Output fields (under `outputs`)
 
+The Phase H.1 promotion (#146) replaces the synthetic 2-entry
+`eigenvalues_lowest_complex` stub with a full
+`spurious_dim + 8 = 376`-entry complex spectrum from the NumPy
+dense generalized eigensolve, and adds the
+`physical_eigenvalues_complex` and `n_spurious_observed` outputs.
+
 | Field                          | Shape          | Dtype | Tolerance          | What it pins                                                                                  |
 |--------------------------------|----------------|-------|--------------------|-----------------------------------------------------------------------------------------------|
 | `n_nodes`                      | `[1]`          | `f64` | `0.5` absolute     | Integer cross-check on mesh I/O.                                                              |
 | `n_tets`                       | `[1]`          | `f64` | `0.5` absolute     | Integer cross-check on mesh I/O.                                                              |
-| `eigenvalues_lowest_complex`   | `[2]` (stub)   | `c128`| `1e-6` (on `|Δ|`)  | Lowest complex eigenvalues. **Stub**: 2 synthetic entries at scaffolding; expanded under H.1. |
-| `q_factor_lowest_physical`     | `[1]`          | `f64` | `1e-6` absolute    | Derived metric `-Re(λ)/(2·Im(λ))` for the lowest non-spurious mode. Sanity output.            |
+| `n_edges`                      | `[1]`          | `f64` | `0.5` absolute     | Integer cross-check on edge enumeration.                                                      |
+| `n_interior_edges`             | `[1]`          | `f64` | `0.5` absolute     | Integer cross-check on PEC mask reduction.                                                    |
+| `spurious_dim`                 | `[1]`          | `f64` | `0.5` absolute     | Predicted d⁰-rank spurious-mode dimension (= number of interior nodes).                       |
+| `n_spurious_observed`          | `[1]`          | `f64` | `0.5` absolute     | Algebraic d⁰-rank classifier output (Issue #124). Same value as the PEC fixture (368).        |
+| `eigenvalues_lowest_complex`   | `[376]`        | `c128`| `1e-5` (on `|Δ|`)  | Lowest `spurious_dim + 8` complex eigenvalues, sorted by `|Re(λ)|`. Includes spurious cluster + physical. |
+| `physical_eigenvalues_complex` | `[5]`          | `c128`| `1e-5` (on `|Δ|`)  | Lowest 5 physical complex eigenvalues past the d⁰-rank split.                                 |
+| `q_factor_lowest_physical`     | `[1]`          | `f64` | `1e-3` absolute    | Sign-agnostic `Re(k) / (2 |Im(k)|)` for the lowest physical mode. Sanity output.              |
 
 ## Input fields (under `inputs`)
 
@@ -67,15 +78,7 @@ content is owned by H.1.
 | `r_pml_inner`          | `[1]`       | `f64` | PML inner radius (`R_PML_INNER` = 1.5).                                                |
 | `r_buffer`             | `[1]`       | `f64` | Outer PEC wall radius (`R_BUFFER` = 2.0).                                              |
 | `n_index`              | `[1]`       | `f64` | Refractive index inside the dielectric sphere (`1.5`).                                 |
-| `epsilon_r_complex`    | `[n_tets]`  | `c128`| Per-tet **complex** relative permittivity. Stub-populated at scaffolding (small slice; see note). |
-
-> **Note on `epsilon_r_complex` at scaffolding time**: the long-term
-> shape is `[n_tets]`, but the scaffolding stub
-> (`gen_sphere_pml_baseline.py`) populates **4 illustrative entries**
-> covering the three regions (dielectric / vacuum-gap / PML-shell) and
-> declares the shape as `[4]` in the stub fixture so the length-check
-> in `Fixture::input_c128` stays meaningful. H.1 (#146) will swap to
-> the full `[n_tets]` vector when the NumPy reference lands.
+| `epsilon_r_complex`    | `[n_tets]`  | `c128`| Per-tet **complex** relative permittivity (full vector after H.1 promotion).           |
 
 ## On-disk encoding for `c128`
 
@@ -104,14 +107,40 @@ the comparator step is responsible for matching sign before comparing.
 
 ## Tolerance budget
 
-The scaffolding fixture's `c128` tolerance (`1e-6`) is loose-but-real:
-the synthetic 2-entry stub uses round-number values where exact
-equality holds, so the tolerance is reserved for when H.1 lands real
-eigensolver output. Real eigenvalue tolerances at the physical-band
-floor (λ ≈ 1.4) will likely settle at `1e-5` absolute (~7e-6
-relative), mirroring the `sphere_pec/` fixture's
-`physical_eigenvalues` field — H.1 will revisit this when the NumPy
-output lands.
+After the H.1 promotion (#146):
+
+- `eigenvalues_lowest_complex` and `physical_eigenvalues_complex`:
+  `1e-5` absolute on `|Δ|`. The Burn-side faer QZ vs the NumPy LAPACK
+  ZGGEV drift is at most ~`1e-7` absolute on the bundled fixture's
+  physical-band modes (`λ ≈ 1.18 + 0.21j`); `1e-5` provides ~100×
+  headroom for the lossy ε scatter accumulation. Sign of `Im(λ)` is
+  not enforced — see the note on eigensolver convention below.
+- `q_factor_lowest_physical`: `1e-3` absolute. The Q-factor derives
+  from `k = sqrt(λ)`, so a `1e-5` λ residual maps to roughly `1e-4`
+  on Q at the bundled fixture's ground mode (`Q ≈ 1.2`). `1e-3` is
+  a defensible round-number floor with cross-platform headroom.
+- `epsilon_r_complex`: `1e-14` absolute (bit-exact f64 c128
+  round-trip).
+
+### Eigensolver `Im(λ)` sign convention
+
+The complex-symmetric pencil `(K, M)` with complex M admits
+eigenvalues with **either** sign of `Im(λ)`. The Burn-side faer QZ
+and the NumPy LAPACK ZGGEV may pick different signs for the same
+physical mode (the eigenvector phase is platform-dependent). The
+`|Δ| ≤ tolerance_abs` comparator is sign-aware (it measures the
+complex modulus of the residual), so cross-backend agreement
+requires either:
+
+1. both backends pick the same sign by convention, or
+2. each backend's `physical_eigenvalues_complex` output is post-
+   processed to normalize the sign of `Im(λ)` before comparison.
+
+In practice the bundled fixture exhibits **consistent signs** between
+the two backends (both place `Im(λ) > 0` for the absorbing modes at
+σ₀ = 5), so option (1) is satisfied without additional code. The
+σ₀ = 0 regression test sidesteps the question entirely
+(`Im(λ) ≈ 0` to f64 precision in both backends).
 
 ## Spurious filter / cluster detection
 
