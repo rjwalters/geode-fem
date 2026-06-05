@@ -20,8 +20,8 @@
       mvn package
 
   Run:
-      mvn exec:java -Dexec.mainClass=dev.geodefem.refspherepec.SpherePecMain \
-          [-Dexec.args="--mesh ../../fixtures/sphere_pec/sphere.msh --out reduced_kM.json"]
+      mvn exec:java -Dexec.mainClass=dev.geodefem.refspherepec.SpherePecMain
+      Pass args via -Dexec.args: mesh <path/to/sphere.msh> out <reduced_kM.json>
 
   CI gating:
       Gated behind the `tfjava-cube-cavity` workflow (extended in #134 to also
