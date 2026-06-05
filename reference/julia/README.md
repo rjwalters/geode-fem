@@ -226,6 +226,49 @@ PR #153 explicitly allowed this tolerance: the spec-mining goal is
 the gate is a follow-up Epic #88 friction artifact (candidate: dense
 eigensolve at smaller mesh as a tiebreaker), not a Julia-side bug.
 
+### Doctor cycle 2 caveat — `julia_baseline.json` is CI-gated, not Doctor-verified
+
+The PR #153 Doctor cycle 1 seeded
+`reference/fixtures/sphere_pml/julia_baseline.json` from the NumPy
+canonical fixture without running Julia (Julia was not available in
+that Doctor's harness). The Doctor cycle 2 lift wired the
+`.github/workflows/julia-cube-cavity.yml` workflow to actually run
+`gen_sphere_pml_baseline.jl` on every PR and **fail loudly** if the
+freshly emitted fixture differs from the committed snapshot beyond
+each field's `tolerance_abs`. The drift comparator is strict (real-
+imag |Δ| on c128 fields, max-|Δ| on f64 fields).
+
+**What this means for reviewers**: the first CI run on a PR that
+touches the sphere-PML pipeline is the verification gate. If the gate
+fails, the committed snapshot is stale — regenerate locally with:
+
+```sh
+julia --project=reference/julia \
+    reference/julia/gen_sphere_pml_baseline.jl \
+    --mesh reference/fixtures/sphere_pml/sphere.msh \
+    --out  reference/fixtures/sphere_pml/julia_baseline.json \
+    --sigma0 5.0
+```
+
+and commit. Specifically suspect fields under the cycle-1 seed:
+
+  * `m_int_frobenius_complex` — guessed at ~11.52 from a rough scaling
+    of the PEC value (9.74) by the expected PML-shell complex-ε
+    contribution. The real Julia value may shift outside the 1e-4
+    tolerance.
+  * `eigenvalues_lowest_complex` (σ₀=5) — seeded with the NumPy
+    canonical complex eigenvalues. Arpack basin drift may push Re(λ)
+    or Im(λ) outside the 0.1 absolute tolerance. The 5e-2 inline
+    Julia→NumPy `@warn`-level check in `gen_sphere_pml_baseline.jl`
+    is independent of this drift comparator.
+  * `q_factor_lowest_physical` — seeded at the NumPy value (5.75);
+    the 1.0 absolute tolerance is generous and should absorb a few-
+    percent Arpack drift on Re/Im.
+
+The PEC-collapse field (`eigenvalues_lowest_complex_sigma0`) and the
+mesh-count fields are deterministic and should pass on the first CI
+run without modification.
+
 **Net: spec-mining payoff for Julia's inclusion is real.** The
 constitutive + assembly layer (the things FEM users actually write)
 is genuinely cleaner. The eigensolve layer has a 4-line set of

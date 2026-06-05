@@ -43,6 +43,7 @@ on:
       - 'reference/numpy/p1_local_matrices.py'
       - 'reference/numpy/nedelec_local_matrices.py'
       - 'reference/numpy/sphere_pec.py'
+      - 'reference/numpy/sphere_pml.py'
       - 'reference/numpy/requirements.txt'
       - 'reference/fixtures/cube_cavity/jax_baseline.json'
       - 'reference/fixtures/cube_cavity/baseline.json'
@@ -51,6 +52,9 @@ on:
       - 'reference/fixtures/sphere_pec/sphere.msh'
       - 'reference/fixtures/sphere_pec/baseline.json'
       - 'reference/fixtures/sphere_pec/julia_baseline.json'
+      - 'reference/fixtures/sphere_pml/sphere.msh'
+      - 'reference/fixtures/sphere_pml/baseline.json'
+      - 'reference/fixtures/sphere_pml/julia_baseline.json'
       - '.github/workflows/julia-cube-cavity.yml'
   pull_request:
     branches: [main]
@@ -64,6 +68,7 @@ on:
       - 'reference/numpy/p1_local_matrices.py'
       - 'reference/numpy/nedelec_local_matrices.py'
       - 'reference/numpy/sphere_pec.py'
+      - 'reference/numpy/sphere_pml.py'
       - 'reference/numpy/requirements.txt'
       - 'reference/fixtures/cube_cavity/jax_baseline.json'
       - 'reference/fixtures/cube_cavity/baseline.json'
@@ -72,6 +77,9 @@ on:
       - 'reference/fixtures/sphere_pec/sphere.msh'
       - 'reference/fixtures/sphere_pec/baseline.json'
       - 'reference/fixtures/sphere_pec/julia_baseline.json'
+      - 'reference/fixtures/sphere_pml/sphere.msh'
+      - 'reference/fixtures/sphere_pml/baseline.json'
+      - 'reference/fixtures/sphere_pml/julia_baseline.json'
       - '.github/workflows/julia-cube-cavity.yml'
   workflow_dispatch:
     inputs:
@@ -264,6 +272,167 @@ jobs:
           julia --project=reference/julia reference/julia/sphere_pec.jl \
               --mesh reference/fixtures/sphere_pec/sphere.msh
 
+      # -----------------------------------------------------------------------
+      # Sphere-PML scalar-isotropic Nédélec pipeline (Epic #88 / Phase H.2,
+      # issue #147 — added by PR #153 Doctor cycle 2).
+      # -----------------------------------------------------------------------
+      #
+      # Why this is the gate of record:
+      #
+      #   * The PR #153 Doctor cycle 1 seeded `julia_baseline.json` from the
+      #     NumPy canonical fixture without running Julia, because Julia was
+      #     not available in that Doctor's harness. The Rust cross-check test
+      #     in `crates/geode-validation/tests/sphere_pml_julia_reference.rs`
+      #     then passed tautologically (both files held the same numbers).
+      #   * The Doctor cycle 2 lift (this PR) wires CI to actually run Julia
+      #     and fail loudly if the regenerated fixture drifts from the
+      #     committed one beyond each field's declared `tolerance_abs`.
+      #   * The inline cross-IR check against the NumPy PR #155 canonical
+      #     `physical_eigenvalues_complex` field already lives in
+      #     `gen_sphere_pml_baseline.jl::check_sigma0_five_against_numpy`
+      #     (5e-2 rel on Re, 5e-2 abs on |Im|, `@warn`-level by design —
+      #     Arpack-vs-LAPACK basin drift tolerance per Judge's PR #153
+      #     allowance).
+      #
+      # The drift comparator below is **strict**: if the freshly emitted
+      # Julia fixture disagrees with the committed `julia_baseline.json`
+      # beyond per-field `tolerance_abs`, this step fails. That is the
+      # signal Cycle 1 lacked.
+
+      - name: Run Julia sphere-PML pipeline (regenerate fixture for drift comparator)
+        # Regenerate `julia_baseline.json` from the Julia pipeline into
+        # target/out. The committed file in reference/fixtures/sphere_pml/
+        # is the snapshot; this step is the snapshot's gate.
+        run: |
+          mkdir -p reference/julia/target/out
+          julia --project=reference/julia reference/julia/gen_sphere_pml_baseline.jl \
+              --mesh reference/fixtures/sphere_pml/sphere.msh \
+              --out  reference/julia/target/out/julia_sphere_pml_baseline.json \
+              --sigma0 5.0
+          # Also run the bare pipeline at σ₀=5 for the log.
+          julia --project=reference/julia reference/julia/sphere_pml.jl \
+              --mesh reference/fixtures/sphere_pml/sphere.msh \
+              --sigma0 5.0
+
+      - name: Snapshot drift gate — fresh Julia sphere-PML fixture vs committed
+        # Strict numeric diff: every output field in the freshly emitted
+        # `target/out/julia_sphere_pml_baseline.json` must agree with the
+        # committed `reference/fixtures/sphere_pml/julia_baseline.json`
+        # within the field's declared `tolerance_abs`. c128 fields are
+        # compared on the magnitude of the complex residual (|Δ| =
+        # |z_actual − z_golden|), matching the contract in
+        # `reference/SCHEMA.md`. Failure here means either:
+        #
+        #   (a) the committed snapshot is stale — regenerate locally with
+        #       `julia --project=reference/julia
+        #        reference/julia/gen_sphere_pml_baseline.jl` and commit,
+        #       OR
+        #   (b) the Julia pipeline genuinely changed output (review the
+        #       diff and decide whether to widen tolerance or fix the
+        #       regression).
+        #
+        # This is the gate the PR #153 Cycle 1 Doctor was missing. With it
+        # in place, a tautological seed (Cycle 1's failure mode) cannot
+        # silently pass — the first CI run on this PR will surface any
+        # drift between the seed and the real Julia output.
+        run: |
+          python3 <<'PY'
+          import json, math, sys
+          from pathlib import Path
+
+          fresh_path     = Path("reference/julia/target/out/julia_sphere_pml_baseline.json")
+          committed_path = Path("reference/fixtures/sphere_pml/julia_baseline.json")
+
+          def load(p):
+              with open(p) as f:
+                  return json.load(f)
+
+          fresh     = load(fresh_path)
+          committed = load(committed_path)
+
+          # Compare every output field. Skip fields that have no
+          # `tolerance_abs` (descriptive-only fields) — none in the
+          # current schema, but be robust.
+          fresh_out     = fresh["outputs"]
+          committed_out = committed["outputs"]
+
+          missing_in_fresh     = set(committed_out) - set(fresh_out)
+          missing_in_committed = set(fresh_out)     - set(committed_out)
+          if missing_in_fresh or missing_in_committed:
+              print(f"FAIL: output-field set mismatch", file=sys.stderr)
+              print(f"  missing in fresh     : {sorted(missing_in_fresh)}", file=sys.stderr)
+              print(f"  missing in committed : {sorted(missing_in_committed)}", file=sys.stderr)
+              sys.exit(1)
+
+          n_fail = 0
+          n_ok   = 0
+          for name in sorted(fresh_out):
+              f = fresh_out[name]
+              c = committed_out[name]
+              tol = float(c.get("tolerance_abs", 0.0))
+              dtype = c.get("dtype", "f64")
+              fd = list(f["data"])
+              cd = list(c["data"])
+              if len(fd) != len(cd):
+                  print(f"FAIL [{name}]: length mismatch fresh={len(fd)} committed={len(cd)}",
+                        file=sys.stderr)
+                  n_fail += 1
+                  continue
+              if dtype == "c128":
+                  # Real-imag interleaved: |Δ| on complex residual.
+                  if len(fd) % 2 != 0:
+                      print(f"FAIL [{name}]: c128 interleave length must be even, got {len(fd)}",
+                            file=sys.stderr)
+                      n_fail += 1
+                      continue
+                  max_abs = 0.0
+                  worst_i = -1
+                  for i in range(0, len(fd), 2):
+                      dr = fd[i]   - cd[i]
+                      di = fd[i+1] - cd[i+1]
+                      mag = math.hypot(dr, di)
+                      if mag > max_abs:
+                          max_abs = mag
+                          worst_i = i // 2
+                  status = "OK" if max_abs <= tol else "FAIL"
+                  print(f"  [{status}] {name:42s} (c128) "
+                        f"max |Δ| = {max_abs:.6e}  tol = {tol:.6e}  "
+                        f"worst_idx = {worst_i}")
+                  if max_abs > tol:
+                      lj_re = fd[2*worst_i]   ; lj_im = fd[2*worst_i+1]
+                      lc_re = cd[2*worst_i]   ; lc_im = cd[2*worst_i+1]
+                      print(f"      fresh[{worst_i}]     = ({lj_re:+.9e}, {lj_im:+.9e})",
+                            file=sys.stderr)
+                      print(f"      committed[{worst_i}] = ({lc_re:+.9e}, {lc_im:+.9e})",
+                            file=sys.stderr)
+                      n_fail += 1
+                  else:
+                      n_ok += 1
+              else:
+                  # f64 (and any other real-valued dtype): max |Δ|.
+                  max_abs = max((abs(a - b) for a, b in zip(fd, cd)), default=0.0)
+                  status = "OK" if max_abs <= tol else "FAIL"
+                  print(f"  [{status}] {name:42s} ({dtype:>4}) "
+                        f"max |Δ| = {max_abs:.6e}  tol = {tol:.6e}")
+                  if max_abs > tol:
+                      n_fail += 1
+                  else:
+                      n_ok += 1
+
+          print()
+          print(f"summary: {n_ok} fields OK, {n_fail} fields FAIL")
+          if n_fail > 0:
+              print()
+              print("snapshot is stale — regenerate locally with:", file=sys.stderr)
+              print("  julia --project=reference/julia "
+                    "reference/julia/gen_sphere_pml_baseline.jl "
+                    "--mesh reference/fixtures/sphere_pml/sphere.msh "
+                    "--out reference/fixtures/sphere_pml/julia_baseline.json "
+                    "--sigma0 5.0", file=sys.stderr)
+              print("then commit the regenerated fixture.", file=sys.stderr)
+              sys.exit(1)
+          PY
+
       - name: Upload Julia sidecar + agreement artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -274,5 +443,6 @@ jobs:
             reference/julia/target/out/numpy_baseline.json
             reference/julia/target/out/agreement_table.md
             reference/julia/target/out/julia_sphere_pec_baseline.json
+            reference/julia/target/out/julia_sphere_pml_baseline.json
           if-no-files-found: warn
           retention-days: 30
