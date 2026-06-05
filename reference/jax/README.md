@@ -15,6 +15,21 @@ survives the assembly path.
   `reference/fixtures/cube_cavity/jax_baseline.json` in the canonical
   v1 schema (cross-checked against the sibling
   `reference/numpy/cube_cavity_minimal.py` at fixture-gen time).
+- **`sphere_pec.py`** — full sphere-PEC Nédélec eigenmode pipeline
+  (Epic #88 / Phase G.3 / Issue #128). Per-element curl-curl + ε-mass
+  via `jit`+`vmap`; SciPy `eigsh` at the eigensolve boundary.
+  Autodiff anchor: `jax.grad(tr(K_int_cc))` vs node coordinates,
+  cross-checked against finite difference.
+- **`sphere_pml.py`** — sphere-PML Nédélec pipeline with **complex**
+  per-tet ε (Epic #88 / Phase H.3 / Issue #148). Adds the c128
+  constitutive path. SciPy `eigs` at the eigensolve boundary with a
+  physical-band shift (`σ=0.9+0j`) to bypass the spurious cluster.
+  Includes `probe_autodiff_complex_assembly` — the explicit
+  differentiability probe for complex assembly (documentation-only,
+  per issue #148).
+- **`gen_sphere_pml_fixture.py`** — fixture generator producing
+  `reference/fixtures/sphere_pml/jax_baseline.json` using the Phase H
+  c128 schema (real-imag interleaved on disk, `|Δ|`-tolerance).
 
 ## Quick start
 
@@ -135,6 +150,76 @@ Minor: when printing the config state for the self-check banner, the
 returned value is `'1'` (string), not `True` (bool). Caught a typo
 where I'd assumed bool. Documented here so the next person doesn't.
 
+## Phase H JAX friction notes (Issue #148, complex assembly)
+
+The Phase H.3 deliverable was explicitly framed as a friction-mining
+probe: does JAX's autodiff + JIT trace cleanly through complex
+(`c128`) constitutive assembly? Here is the record.
+
+### A. `BCOO[complex128]` works end-to-end
+
+`jax.experimental.sparse.BCOO` accepts `dtype=jnp.complex128` data
+and round-trips through `.todense()` and complex matvec without
+issue. We **did not** end up using it on the eigensolve hot path —
+the `scipy.sparse` scatter is cheaper for fixture generation and
+the downstream `scipy.sparse.linalg.eigs` boundary requires SciPy
+sparse anyway — but a positive smoke result is in
+`reference/jax/sphere_pml.py`'s loader path. If a future child
+issue wants in-graph complex sparse linear algebra,
+`BCOO[complex128]` is a viable substrate.
+
+### B. JIT lowers complex assembly without errors
+
+`jax.jit` of the in-graph dense complex assembly path
+(`_make_complex_assembly_loss` in `sphere_pml.py`) lowers to XLA
+cleanly. No `complex128 unsupported on backend cpu` errors. The
+trace closes a complex multiply (`m_local_real * eps_complex`),
+complex scatter-add (`at[rows, cols].add(complex_vals)`), interior
+restriction (`jnp.ix_`), and a complex `jnp.trace`. All XLA-native.
+
+### C. `jax.grad` through complex assembly returns finite gradients
+
+The explicit probe (`probe_autodiff_complex_assembly`) wraps
+`loss(eps_re, eps_im) = trace(K) + |trace(M)|²` with a real-valued
+output and differentiates w.r.t. both halves of the complex per-tet ε
+vector. Both `grad_re` and `grad_im` are finite, bounded, and
+nontrivial. No NaN/inf injection.
+
+This is the positive friction-mining result: **JAX can autodiff
+through a complex FEM assembly path on f64/c128 without any custom
+VJPs or workarounds.** That validates one of Epic #88's open
+questions ("does autodiff survive lossy ε?") in the affirmative,
+for the assembly stage at least.
+
+### D. Eigensolve boundary survives unchanged
+
+As predicted by the Phase G.6 ONNX audit (`reference/onnx/audit/`
+Stage 7), no JAX backend lowers the generalized eigensolve in-graph.
+We use `scipy.sparse.linalg.eigs` (NOT `eigsh` — the complex pencil
+is non-Hermitian under SciPy's convention even when complex-
+symmetric). The boundary is identical to Phase G.3.
+
+### E. Friction: shift-and-invert location matters
+
+`scipy.sparse.linalg.eigs` with `sigma=0.0+0j` saturates on the
+spurious gradient cluster (~`spurious_dim` modes near `λ=0` that
+are largely unaffected by the lossy ε scaling). The fix is a
+physical-band shift (`sigma=0.9+0j` for σ₀=5.0; `sigma=1.4+0j` for
+the σ₀=0 PEC regression). This is a SciPy property, not a JAX one,
+but it's worth documenting for the Phase H series because all three
+backends (NumPy / JAX / Julia) hit the same wall.
+
+### F. Wirtinger / complex-grad nuance
+
+`jax.grad` requires real-valued outputs. The probe sidesteps this by
+splitting the complex `ε` into `(re, im)` real arrays as the
+differentiated inputs and using `Re(·)` to land on a real scalar.
+`jax.grad` of a complex-output function raises a clear error
+(`gradient requires real-valued outputs; got dtype complex128`);
+the JAX docs cover this via Wirtinger calculus support, but for a
+FEM-shaped probe the split-real-input pattern is friction-free and
+the conventional choice. No surprises here.
+
 ## Planned layout
 
 This directory will grow per-spine-slice files alongside
@@ -145,5 +230,9 @@ reference/jax/
 ├── README.md                         — this file
 ├── cube_cavity.py                    — Epic #88 / #93 (#93 wave 2)
 ├── gen_cube_cavity_fixture.py
+├── sphere_pec.py                     — Epic #88 / #128 (Phase G.3)
+├── gen_sphere_pec_fixture.py
+├── sphere_pml.py                     — Epic #88 / #148 (Phase H.3)
+├── gen_sphere_pml_fixture.py
 └── <next_slice>.py                   — future spine slices
 ```
