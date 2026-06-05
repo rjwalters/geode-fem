@@ -37,6 +37,7 @@ on:
     paths:
       - 'reference/onnx/**'
       - 'reference/driver/eigensolve_from_onnx.py'
+      - 'reference/driver/eigensolve_from_sidecar.py'
       - 'reference/driver/compare_eigenvalues.py'
       - 'reference/driver/emit_numpy_eigenvalues.py'
       - 'reference/numpy/cube_cavity.py'
@@ -53,6 +54,7 @@ on:
     paths:
       - 'reference/onnx/**'
       - 'reference/driver/eigensolve_from_onnx.py'
+      - 'reference/driver/eigensolve_from_sidecar.py'
       - 'reference/driver/compare_eigenvalues.py'
       - 'reference/driver/emit_numpy_eigenvalues.py'
       - 'reference/numpy/cube_cavity.py'

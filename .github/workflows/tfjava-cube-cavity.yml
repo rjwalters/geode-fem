@@ -34,6 +34,7 @@ on:
     paths:
       - 'reference/tf_java/**'
       - 'reference/driver/eigensolve_from_tfjava.py'
+      - 'reference/driver/eigensolve_from_sidecar.py'
       - 'reference/driver/compare_eigenvalues.py'
       - 'reference/driver/emit_numpy_eigenvalues.py'
       - 'reference/numpy/cube_cavity_minimal.py'
@@ -46,6 +47,7 @@ on:
     paths:
       - 'reference/tf_java/**'
       - 'reference/driver/eigensolve_from_tfjava.py'
+      - 'reference/driver/eigensolve_from_sidecar.py'
       - 'reference/driver/compare_eigenvalues.py'
       - 'reference/driver/emit_numpy_eigenvalues.py'
       - 'reference/numpy/cube_cavity_minimal.py'
