@@ -180,12 +180,22 @@ pencil takes 30+ minutes on Apple Silicon — much steeper cost
 asymmetry vs. the real-symmetric `eigen(Symmetric, Symmetric)` path
 that finishes in seconds).
 
-The H.2 fix: shift σ = 2.0 (**above** the physical band) so Arpack
-converges to physical modes by geometric proximity. Spurious cluster
-at distance 2.0, physical at distance ≈ 0.58 (PEC) or ≈ 0.14 (σ₀=5
-PML). With ratio > 3×, Arnoldi stays out of the 368-dim spurious
-invariant subspace. Tried `σ ∈ (0, λ_phys)` (e.g. 0.8, 1.0, 1.42)
-experimentally — all spuriously dominated by the degenerate cluster.
+The H.2 fix (PR #153 Doctor cycle, after the H.1 NumPy reference
+landed in PR #155): shift σ = 1.2 **centered on the canonical NumPy
+physical band** at λ ≈ 1.18 + 0.21j. The earlier H.2 seed used
+σ = 2.0 *above* the band — that converged onto a higher cluster at
+Re ≈ 1.94, Im ≈ −0.003 (Q ≈ 327), not the canonical NumPy physical[0]
+(Q ≈ 5.75). The Judge on PR #153 diagnosed this as **case (B) Arpack
+converges on a wrong cluster** compounded by case (A) sign-convention
+divergence, and required the σ-retarget + sign flip.
+
+With σ = 1.2 the geometry is: canonical NumPy physical[0..2] triplet
+at distance ≈ 0.21 (almost purely imaginary), higher cluster (what
+σ = 2.0 was finding) at distance ≈ 0.74, spurious cluster at λ ≈ 0 at
+distance ≈ 1.2. Arpack `:LM` shift-invert lands on the canonical
+band. Tried σ ∈ {0.5, 1.0, 1.2}; σ = 1.2 wins by including both the
+σ₀ = 0 PEC band (Re ≈ 1.42, distance 0.22) and the σ₀ = 5 PML band
+(Re ≈ 1.18, distance 0.21) in the closest-to-shift neighborhood.
 
 **Negative: Arpack non-determinism without fixed `v0`.** The default
 random starting vector gives ~1e-2 variability in converged
@@ -194,10 +204,27 @@ sqrt(n)`. Recorded in the eigensolver docstring.
 
 **Negative: Arpack ghost conjugate-pair modes.** For non-Hermitian
 generalized problems, Arpack occasionally returns a `λ̄`-partner of a
-near-real physical mode (Im(λ) > 0 instead of ≤ 0). Filter via
-`imag(lam) <= tol` and request `n_physical + n_extra` modes to absorb
-the loss. Sign-convention check (`Im(λ) ≤ 0` under exp(+jωt))
-catches it.
+near-real physical mode (Im(λ) < 0 instead of > 0 under the canonical
+Wave-2 sign convention). Filter via `imag(lam) >= -tol` and request
+`n_physical + n_extra` modes to absorb the loss. Sign-convention check
+(`Im(λ) > 0` under the Wave-2 reference per PR #155) catches it.
+
+**Negative: residual Re-band drift Arpack-vs-LAPACK (Wave-2 friction
+artifact).** Even after the σ-retarget and sign fix, the Julia Arpack
+shift-invert and the NumPy dense LAPACK ZGGEV path on the identical
+complex-symmetric pencil produce eigenvalues that differ by up to a
+few percent on Re(λ) and |Im(λ)|. This is the **Arpack basin-of-
+attraction friction artifact** Epic #88 is designed to surface. The
+PR #153 inline cross-check
+(`gen_sphere_pml_baseline.jl::check_sigma0_five_against_numpy`) and
+the Rust test
+(`crates/geode-validation/tests/sphere_pml_julia_reference.rs`
+`julia_pml_sigma0_five_agrees_with_numpy_baseline`) gate this at
+5e-2 relative on Re(λ) and 5e-2 absolute on |Im(λ)|. The Judge on
+PR #153 explicitly allowed this tolerance: the spec-mining goal is
+**convention agreement**, not bit-equivalence. Any residual gap above
+the gate is a follow-up Epic #88 friction artifact (candidate: dense
+eigensolve at smaller mesh as a tiebreaker), not a Julia-side bug.
 
 **Net: spec-mining payoff for Julia's inclusion is real.** The
 constitutive + assembly layer (the things FEM users actually write)

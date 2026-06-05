@@ -18,21 +18,31 @@
 //!    reduces to the real PEC case and the spectrum must collapse onto the
 //!    Phase G.4 baseline.
 //! 4. **σ₀ = 5 PML signature**: the `eigenvalues_lowest_complex` field has
-//!    all `Im(λ) ≤ 0` (negative imaginary, per the exp(+jωt) absorbing
-//!    convention) and the `q_factor_lowest_physical` is positive. This is
-//!    the **physical-content** check: the PML actually absorbs.
+//!    all `Im(λ) ≥ 0` (positive imaginary, per the Wave-2 canonical sign
+//!    convention — PR #155 Judge's binding decision; matches scipy LAPACK
+//!    ZGGEV and Burn faer QZ on the identical complex-symmetric pencil)
+//!    and the `q_factor_lowest_physical` (sign-agnostic `Re(k)/(2|Im(k)|)`
+//!    form) is positive. This is the **physical-content** check: the PML
+//!    actually absorbs.
 //! 5. **Self-comparator round-trip**: the c128 comparator (#145 / PR #151)
 //!    passes when actual == golden, exercising the Wave 1 infrastructure
 //!    that this baseline is built against.
+//! 6. **Cross-IR pin to NumPy PR #155** (PR #153 Doctor refinement): the
+//!    σ₀ = 5 `eigenvalues_lowest_complex` field cross-checks against the
+//!    canonical NumPy `physical_eigenvalues_complex` field at 5e-2
+//!    relative on Re(λ) and 5e-2 absolute on Im(λ). This is the Wave-2
+//!    convergence test; tolerances accommodate Arpack-vs-LAPACK basin
+//!    drift per the Judge's PR #153 allowance.
 //!
-//! # Cross-backend comparison (deferred)
+//! # Cross-backend comparison
 //!
-//! Comparison against the H.1 NumPy baseline (#146, in-flight) and the
-//! Burn-side PML eigensolve (gated on `SparseComplexShiftInvertLanczos`
-//! via `crates/geode-core/tests/sphere_pml_eigenmode.rs`) is deferred to
-//! a follow-on test under the same fixture. The Julia baseline lands first
-//! and is the **complex-arithmetic reference of record** for the PML phase
-//! per Epic #88 principle 4.
+//! Comparison against the Burn-side PML eigensolve (gated on
+//! `SparseComplexShiftInvertLanczos` via
+//! `crates/geode-core/tests/sphere_pml_eigenmode.rs`) is exercised
+//! through the separate `sphere_pml_numpy_reference.rs` driver — Burn
+//! is pinned to NumPy, NumPy is pinned to Julia, transitively pinning
+//! Julia to Burn. The Julia baseline is the **complex-arithmetic
+//! reference of record** for the PML phase per Epic #88 principle 4.
 //!
 //! # Running
 //!
@@ -287,7 +297,10 @@ fn julia_pml_sigma0_zero_collapses_to_numpy_pec_baseline() {
 #[test]
 fn julia_pml_sigma0_five_has_pml_absorption_signature() {
     // Physical-content correctness: with σ₀ = 5, all lowest physical
-    // modes must have Im(λ) ≤ 0 (exp(+jωt) absorbing convention).
+    // modes must have Im(λ) ≥ 0 under the Wave-2 canonical sign
+    // convention (PR #155 Judge's binding decision; matches scipy
+    // LAPACK ZGGEV and Burn faer QZ on the identical pencil; PR #153
+    // Doctor cycle flipped Julia to conform).
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("julia_baseline.json should load");
 
@@ -297,30 +310,118 @@ fn julia_pml_sigma0_five_has_pml_absorption_signature() {
     let q = fixture.output_f64("q_factor_lowest_physical").unwrap().data[0];
 
     for (i, lam) in eigs.data.iter().enumerate() {
-        // Allow tiny positive imaginary at ULP for the most weakly
-        // coupled trapped mode (the test passes if Im ≤ 1e-6).
+        // Allow tiny negative imaginary at ULP for the most weakly
+        // coupled trapped mode (the test passes if Im ≥ -1e-6).
         assert!(
-            lam.im <= 1e-6,
-            "physical[{i}] = {lam:?} has Im(λ) > 0 — sign-convention error or \
-             un-filtered Arpack ghost mode"
+            lam.im >= -1e-6,
+            "physical[{i}] = {lam:?} has Im(λ) < 0 — sign-convention regression \
+             or un-filtered Arpack ghost-conjugate mode"
         );
     }
 
-    // Q-factor must be finite and positive (a sensible PML Q is in the
-    // range ~1 to ~1000; the lowest trapped mode often shows Q > 100).
+    // Q-factor must be finite and positive. With the sign-agnostic
+    // k-space form `Q = Re(k) / (2|Im(k)|)` (PR #155 / PR #153), a
+    // sensible PML Q on the lowest mode is order ~1-10 (canonical
+    // NumPy lowest physical[0] gives Q ≈ 5.75).
     assert!(q.is_finite(), "Q-factor must be finite, got {q}");
     assert!(
         q > 0.0,
         "Q-factor for the lowest physical mode must be positive (PML absorption), got {q}"
     );
 
-    // Re(λ) must shift up from PEC baseline (1.42 triplet) — with σ₀=5
-    // the PML coupling pulls the lowest physical band up to ~1.9. Loose
-    // sanity bound: should be in [1.4, 3.0].
+    // Re(λ) for the canonical NumPy PR #155 physical[0] is ≈ 1.18.
+    // Loose sanity bound accommodating Arpack-vs-LAPACK basin drift:
+    // should be in [1.0, 2.5]. The earlier seed at σ_shift = 2.0
+    // landed at Re ≈ 1.94 (a higher band); the PR #153 σ_shift = 1.2
+    // refinement targets the canonical band.
     let re_lowest = eigs.data[0].re;
     assert!(
-        (1.4..3.0).contains(&re_lowest),
-        "Re(λ_lowest_physical) = {re_lowest} outside [1.4, 3.0] sanity band for σ₀=5 PML"
+        (1.0..2.5).contains(&re_lowest),
+        "Re(λ_lowest_physical) = {re_lowest} outside [1.0, 2.5] sanity band for σ₀=5 PML \
+         — expected canonical NumPy band around 1.18"
+    );
+}
+
+#[test]
+fn julia_pml_sigma0_five_agrees_with_numpy_baseline() {
+    // PR #153 Doctor cycle required cross-check: the Julia σ₀=5
+    // `eigenvalues_lowest_complex` field must agree with the canonical
+    // NumPy PR #155 `physical_eigenvalues_complex` field within the
+    // Arpack-vs-LAPACK basin drift tolerance (5% relative on Re(λ),
+    // 5e-2 absolute on Im(λ)).
+    //
+    // This is the Wave-2 convergence test: Julia (Arpack shift-invert
+    // at σ=1.2 with explicittransform=:none) and NumPy (scipy
+    // scipy.linalg.eigvals dense LAPACK ZGGEV) must land in the same
+    // basin on the identical complex-symmetric (K, M) pencil. The
+    // 5e-2 / 5e-2 tolerance is generous per the Judge's allowance for
+    // legitimate eigensolver-basin disagreement.
+    let julia_fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
+        .expect("julia_baseline.json should load");
+    let numpy_path = repo_root().join("reference/fixtures/sphere_pml/baseline.json");
+    let numpy_fixture = Fixture::load_from(&numpy_path, FixtureFormat::Json)
+        .expect("NumPy PR #155 baseline.json should load");
+
+    let julia_phys = julia_fixture
+        .output_c128("eigenvalues_lowest_complex")
+        .expect("Julia eigenvalues_lowest_complex decodes");
+    let numpy_phys = numpy_fixture
+        .output_c128("physical_eigenvalues_complex")
+        .expect(
+            "NumPy physical_eigenvalues_complex decodes — \
+                 requires PR #155 baseline on main",
+        );
+
+    assert_eq!(
+        julia_phys.data.len(),
+        numpy_phys.data.len(),
+        "Julia (shape={}) and NumPy (shape={}) must declare the same number \
+         of physical modes",
+        julia_phys.data.len(),
+        numpy_phys.data.len()
+    );
+
+    let re_rel_tol: f64 = 5.0e-2;
+    let im_abs_tol: f64 = 5.0e-2;
+
+    let mut max_re_rel: f64 = 0.0;
+    let mut max_im_abs: f64 = 0.0;
+    for (i, (lj, ln)) in julia_phys
+        .data
+        .iter()
+        .zip(numpy_phys.data.iter())
+        .enumerate()
+    {
+        let re_rel = (lj.re - ln.re).abs() / ln.re.abs().max(1.0);
+        // |Im| comparison is robust to small per-mode sign differences
+        // that might survive Arpack filtering near the spurious
+        // boundary — primary sign-convention is enforced by the
+        // companion test `julia_pml_sigma0_five_has_pml_absorption_signature`.
+        let im_abs = (lj.im.abs() - ln.im.abs()).abs();
+        max_re_rel = max_re_rel.max(re_rel);
+        max_im_abs = max_im_abs.max(im_abs);
+        assert!(
+            re_rel <= re_rel_tol,
+            "physical[{i}] Re(λ) disagrees with NumPy PR #155: Julia={}, NumPy={}, \
+             |Δ Re|/|Re_NumPy| = {re_rel:.3e} > tolerance {re_rel_tol:.0e} \
+             (Arpack-vs-LAPACK basin drift; if Arpack is genuinely converging \
+             on a different cluster, retarget σ_shift)",
+            lj.re,
+            ln.re
+        );
+        assert!(
+            im_abs <= im_abs_tol,
+            "physical[{i}] |Im(λ)| disagrees with NumPy PR #155: Julia={}, NumPy={}, \
+             ||Im_Julia| - |Im_NumPy|| = {im_abs:.3e} > tolerance {im_abs_tol:.0e}",
+            lj.im,
+            ln.im
+        );
+    }
+
+    eprintln!(
+        "Julia vs NumPy PR #155 sphere-PML cross-IR check passed: \
+         max |Δ Re|/|Re_NumPy| = {max_re_rel:.3e}, max ||Im_Julia| - |Im_NumPy|| = {max_im_abs:.3e}, \
+         tolerances (re_rel, im_abs) = ({re_rel_tol:.0e}, {im_abs_tol:.0e})"
     );
 }
 

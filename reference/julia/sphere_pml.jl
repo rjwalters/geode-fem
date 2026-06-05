@@ -28,6 +28,12 @@ Using the ``exp(+jωt)`` convention. The negative imaginary part on ε_r in the
 absorbing shell is the standard convention for outgoing-wave attenuation, and
 this matches ``geode_core::build_complex_epsilon_r_pml`` exactly.
 
+Note: the resulting **eigenvalue** ``λ`` has ``Im(λ) > 0`` under the canonical
+Wave-2 sign convention (PR #155 Judge's binding decision) — both scipy LAPACK
+ZGGEV (NumPy reference) and faer QZ (Burn production solver) place physical
+PML modes there on the identical complex-symmetric pencil. The earlier H.2
+seed reported ``Im(λ) < 0``; PR #153 Doctor cycle flipped Julia to conform.
+
 ## Eigensolver
 
 Same shift-invert / dense-fallback pattern as ``sphere_pec.jl`` (Phase G.4 fix,
@@ -45,7 +51,8 @@ Mirrors ``sphere_pec.jl``'s sub-stage diagnostics, lifted to complex:
   * ``k_int_frobenius`` / ``m_int_frobenius``: complex Frobenius norms
   * ``eigenvalues_lowest_complex``: lowest spurious_dim + n_take complex eigenvalues
   * ``physical_eigenvalues_complex``: lowest n_take complex modes after spurious filter
-  * ``q_factor_lowest_physical``: ``-Re(λ) / (2·Im(λ))`` for the lowest physical mode
+  * ``q_factor_lowest_physical``: sign-agnostic ``Re(k) / (2|Im(k)|)`` with
+    ``k = √λ`` for the lowest physical mode (matches NumPy / Burn conventions)
 
 ## Usage
 
@@ -276,48 +283,67 @@ Julia-specific friction artifact for H.2: ``zggev`` cost asymmetry vs.
 forces shift-invert as the only viable path even on the small 3300-DOF
 bundled mesh.
 
-# Spurious-cluster bypass via σ above the physical band floor
+# Spurious-cluster bypass via σ centered on the canonical physical band
 
 The PEC fix (PR #133) used ``σ ≈ 0.01`` with ``nev = spurious_dim + 8``
 to grab all 368 spurious + 8 physical in one shot. For the complex case,
 ``nev = 376`` from a 3300-dim sparse complex pencil exceeds Arpack's
 practical convergence budget on this mesh (timeouts at 10+ minutes).
 
-The H.2 fix: shift **above** the physical band so Arpack converges to
-physical modes by geometric proximity. With ``σ = 2.0``:
+The H.2 fix (PR #153 Doctor refinement after Judge feedback): shift
+**at** the canonical physical band so Arpack converges geometrically
+to physical modes. The canonical NumPy ZGGEV reference (PR #155) places
+the σ₀ = 5 PML physical[0] at ``λ ≈ 1.18 + 0.21j`` with the next two
+triplet members at ``≈ 1.184 + 0.205j`` (Q ≈ 5.75). The earlier H.2
+seed used ``σ = 2.0`` above the band, which on Arpack converges to a
+*different* higher band (Re ≈ 1.94, Im ≈ −0.003, Q ≈ 327) — a clean
+cluster but **not** the canonical physical[0].
 
-  * PEC band floor (σ₀ = 0): λ ≈ {1.420, 1.420, 1.421, 3.272, 3.277}.
-    Closest to σ=2: the 1.42 triplet at distance ≈ 0.58, comfortably
-    closer than the spurious cluster at distance 2.0.
-  * σ₀ = 5 PML: physical modes shift up to λ ≈ {1.86 − ε·j, ...} —
-    closer to σ=2 (distance ≈ 0.14), spurious still at ≈ 2.0.
+With ``σ = 1.2`` (real-valued; ``Arpack.jl`` accepts a complex shift
+but a purely real shift centered on the canonical band is enough):
+
+  * Canonical NumPy physical[0..2] triplet at ``1.18 + 0.21j``: distance
+    to σ=1.2 is ``≈ 0.21`` (almost purely imaginary).
+  * Higher band (the cluster σ=2.0 was finding) at ``Re ≈ 1.94``:
+    distance to σ=1.2 is ``≈ 0.74``, comfortably farther.
+  * Spurious cluster at ``λ ≈ 0``: distance to σ=1.2 is ``≈ 1.2``,
+    farthest of all.
 
 ``Arpack.eigs(K, M; nev=n_physical, sigma=σ, which=:LM)`` requests the
-``n_physical`` eigenvalues closest to ``σ``, which are physical modes.
-No ``n_spurious + 8`` request, no post-hoc filter, no large Lanczos
-subspace.
+``n_physical`` eigenvalues closest to ``σ``, which under this geometry
+are the canonical NumPy physical band.
 
-# Why not σ ∈ [0, λ_phys]?
+# Why not σ ∈ [0, λ_phys_floor)?
 
-Tried experimentally and **does not work** for σ₀ = 0 (real-symmetric
-PEC limit):
+Tried experimentally during the H.2 build and **does not work** for the
+σ₀ = 0 PEC limit:
   * σ = 0.8 (between spurious cluster at 0 and physical at 1.42):
     spurious modes are at distance 0.8, physical at 0.62 — physical
     "should win" by ~30%. Arpack instead converged to spurious modes,
     because the 368-dimensional spurious eigenspace at exactly λ=0
     dominates the Arnoldi iteration's invariant subspace before the
     8-dimensional physical band can be resolved.
-  * σ = 1.42 (right at physical band floor): same — Arpack picked up
-    spurious cluster modes (ill-conditioning of `K - σM` when σ is
+  * σ = 1.42 (right at the σ₀=0 PEC band floor): same — Arpack picked
+    up spurious cluster modes (ill-conditioning of `K - σM` when σ is
     near eigenvalues didn't help either).
-  * σ = 2.0: works on both σ₀ = 0 (recovers PEC baseline to 1e-10) and
-    σ₀ = 5 (returns physical modes with the expected Im(λ) < 0).
 
-The geometric intuition: with σ above the physical band, spurious cluster
-is at |distance| = σ, physical at |distance| ≈ σ - λ_phys_max < σ. The
-ratio matters; ratio > ~3 keeps Arnoldi out of the spurious subspace
-even at 368-fold degeneracy. This is **a Julia-Arpack-specific friction
-artifact recorded on Epic #88**.
+# Why σ = 1.2 (not σ ∈ {0.5, 1.0})?
+
+After the PR #155 NumPy reference established the canonical physical[0]
+at ``1.18 + 0.21j``, the Doctor cycle on PR #153 retried σ centered on
+that location. σ = 1.2 wins: distance to canonical physical band is
+``≈ 0.21``, distance to next higher band is ``≈ 0.74``. σ = 1.0 keeps
+the spurious-cluster ratio at ``1.0 / 0.21 ≈ 4.8`` (acceptable) but
+σ = 1.2 also includes the σ₀ = 0 PEC band (``Re ≈ 1.42``) within
+distance ``0.22``, which keeps the PEC-collapse regression hitting the
+expected modes. σ = 0.5 is too close to the spurious cluster at λ ≈ 0
+(ratio = 0.5 / [0.5 - 1.18] = 0.74, sign-inverted) and was
+experimentally observed to converge onto the spurious basin.
+
+This is **a Julia-Arpack-specific friction artifact recorded on
+Epic #88** — σ-shift choice for shift-invert Arnoldi on complex
+generalized pencils is geometry-sensitive and not directly portable
+from scipy's dense LAPACK path.
 
 # Julia ergonomics note (Epic #88)
 
@@ -333,18 +359,33 @@ in stable). Julia gives it in one line: ``eigs(K, M; nev, sigma)``.
 When σ₀ = 0, ε_r is purely real and the spectrum collapses to the PEC
 case. The complex eigenvalues come out with ``Im(λ) ≈ 0`` (to LAPACK
 ULP) and ``Re(λ)`` matching the PEC NumPy baseline. The shift-invert
-path still works — ``Arpack.eigs`` does not require Im(σ) ≠ 0.
+path still works — ``Arpack.eigs`` does not require Im(σ) ≠ 0. With
+σ = 1.2 (PR #153 Doctor refinement), the PEC band floor at
+``Re ≈ 1.42`` is at distance ``0.22``, comfortably bypassing the
+368-dim spurious cluster at λ = 0 (distance 1.2).
+
+# Sign convention (PR #153 Doctor fix)
+
+The canonical NumPy reference (PR #155, ``reference/numpy/sphere_pml.py``)
+uses ``scipy.linalg.eigvals`` (dense LAPACK ZGGEV) and returns
+``Im(λ) > 0`` for the physical PML band. The Burn production solver
+(``crates/geode-core/src/nedelec_assembly.rs:566-580``, faer QZ on the
+same complex-symmetric pencil) likewise returns ``Im(λ) > 0``.
+**Julia must conform.** The filter downstream
+(``run_sphere_pml`` → ``physical_filtered``) discards ``Im(λ) < -tol``
+ghost-conjugate partners; positive Im is the physical branch.
 
 # Returns
 
 ``Vector{ComplexF64}`` of length ``n_physical``, sorted by ``Re(λ)``
-ascending. The PML modes have ``Im(λ) < 0`` (exp(+jωt) convention).
+ascending. The PML modes have ``Im(λ) > 0`` (PR #155 Wave-2 sign
+convention; exp(+jωt) with the eigensolver-induced branch choice).
 """
 function eigensolve_physical_shift_invert(
         K::SparseMatrixCSC{ComplexF64,Int},
         M::SparseMatrixCSC{ComplexF64,Int};
         n_physical::Int     = 8,
-        sigma     ::Float64 = 2.0,
+        sigma     ::Float64 = 1.2,
         maxiter   ::Int     = 2000,
         tol       ::Float64 = 1e-10,
 )
@@ -383,9 +424,10 @@ function eigensolve_physical_shift_invert(
                           maxiter=maxiter, tol=tol, ncv=ncv,
                           explicittransform=:none, v0=v0)
     # Sort by Re(λ) ascending — physical modes are clustered near the
-    # band floor at 1.42 with small negative Im(λ), so Re-ordering gives
-    # the canonical "lowest physical mode first" convention used by the
-    # sphere PEC reference.
+    # canonical NumPy physical band (Re ≈ 1.18 at σ₀=5, Re ≈ 1.42 at
+    # σ₀=0) with Im(λ) > 0 under the Wave-2 sign convention. Re-ordering
+    # gives the canonical "lowest physical mode first" convention used
+    # by the sphere PEC reference.
     perm = sortperm(eigvals_raw; by = real)
     return eigvals_raw[perm]
 end
@@ -398,22 +440,32 @@ end
 """
     q_factor(lam) -> Float64
 
-Quality factor under the ``exp(+jωt)`` convention with the negative-`Im`
-absorbing-mode sign:
+Quality factor in the **sign-agnostic k-space form** (PR #155 Wave-2
+convention), mirroring the NumPy reference and the Burn-side print in
+``crates/geode-core/tests/sphere_pml_eigenmode.rs``:
 
-    Q = -Re(λ) / (2 · Im(λ))
+    k       = √λ                  (principal branch, Re(k) ≥ 0)
+    r       = |λ|
+    Re(k)   = sqrt((r + Re(λ)) / 2)
+    |Im(k)| = sqrt((r − Re(λ)) / 2)
+    Q       = Re(k) / (2 · |Im(k)|)
 
-Positive Q indicates an absorbing mode (the PML signature: ``Im(λ) < 0``
-turns into Q > 0).
+This form is **invariant under the sign of Im(λ)** — it gives the same
+positive Q whether the eigensolver places the physical mode at
+``Im(λ) > 0`` (canonical NumPy/Burn) or ``Im(λ) < 0`` (the original
+H.2 seed). This is the cross-backend tiebreaker form per the Judge's
+PR #153 binding direction for Wave 2.
 
-Returns `Inf` if ``Im(λ) ≈ 0`` to avoid a divide-by-zero on lossless
-spurious modes that slip past the filter.
+Returns `Inf` if ``|Im(k)| ≈ 0`` (purely real, lossless mode).
 """
 function q_factor(lam::ComplexF64)
-    if abs(imag(lam)) < 1e-14
+    r       = abs(lam)
+    re_k    = sqrt(max(0.5 * (r + real(lam)), 0.0))
+    im_k_mag = sqrt(max(0.5 * (r - real(lam)), 0.0))
+    if im_k_mag < 1e-12
         return Inf
     end
-    return -real(lam) / (2.0 * imag(lam))
+    return re_k / (2.0 * im_k_mag)
 end
 
 
@@ -506,27 +558,33 @@ function run_sphere_pml(
     #    n_extra cushion: request a few extra modes above n_take so that
     #    if Arpack picks up a stray higher-band mode we still have all
     #    `n_take` low ones after sorting.
-    # Request extra modes so we can post-filter any Arpack-noise modes
-    # with positive Im(λ) (sign-convention should give Im(λ) ≤ 0 under
-    # exp(+jωt); occasional Im > 0 comes back when Arpack's complex QR
-    # produces a conjugate-pair partner of a near-real physical mode).
+    # Request extra modes so we can post-filter any Arpack ghost-conjugate
+    # partners (Im(λ) < 0 under the canonical Wave-2 sign convention; see
+    # PR #155 Judge's binding decision and PR #153 Doctor fix). The
+    # canonical NumPy/Burn reference returns physical modes with
+    # ``Im(λ) > 0``; Arpack's complex QR occasionally returns a
+    # ``λ̄``-partner of a near-real physical mode (Im(λ) < 0) as a
+    # numerical artifact, which we drop here.
     n_extra = max(5, n_take)
     eigvals_raw = eigensolve_physical_shift_invert(
         K_int, M_int; n_physical=n_take + n_extra
     )
 
-    # 10. Filter physical modes: keep Im(λ) ≤ tolerance (PML absorption
-    #     sign convention). The tolerance allows for tiny positive Im
-    #     from LAPACK ULP on near-lossless trapped resonances.
+    # 10. Filter physical modes: keep Im(λ) ≥ -tolerance (Wave-2
+    #     canonical sign convention per PR #155 — Burn faer QZ and
+    #     scipy LAPACK ZGGEV both return Im(λ) > 0 on the identical
+    #     constitutive). The tolerance allows for tiny *negative* Im
+    #     from LAPACK ULP on near-lossless trapped resonances (σ₀ = 0
+    #     collapse) and from Arpack iteration noise.
     im_tol = 1e-6 * max(1.0, maximum(abs.(real.(eigvals_raw))))
-    physical_filtered = filter(lam -> imag(lam) <= im_tol, eigvals_raw)
+    physical_filtered = filter(lam -> imag(lam) >= -im_tol, eigvals_raw)
 
     if length(physical_filtered) < n_take
-        # Fallback: not enough Im ≤ 0 modes converged — return the
+        # Fallback: not enough Im ≥ 0 modes converged — return the
         # closest-to-Im=0 modes as a defensible best-effort. This branch
         # also runs in the σ₀ = 0 case where every Im is at ULP and the
         # filter tolerance might exclude some.
-        @warn "only $(length(physical_filtered)) modes with Im(λ) ≤ $(im_tol); " *
+        @warn "only $(length(physical_filtered)) modes with Im(λ) ≥ $(-im_tol); " *
               "falling back to all $(length(eigvals_raw)) Arpack modes sorted by Re(λ)."
         physical_filtered = eigvals_raw
     end
@@ -534,7 +592,7 @@ function run_sphere_pml(
 
     # `eigenvalues_lowest_complex` for the fixture: we report the
     # filtered physical modes. The spurious cluster is bypassed by the
-    # σ = 2.0 shift (see eigensolve_physical_shift_invert docstring).
+    # σ = 1.2 shift (see eigensolve_physical_shift_invert docstring).
     eigvals_all = eigvals_raw
 
     # 11. Q-factor of the lowest physical mode.
