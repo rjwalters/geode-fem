@@ -324,6 +324,7 @@ jobs:
         run: |
           python3 reference/driver/eigensolve_sphere_pec_sidecar.py \
               target/out/reduced_kM_sphere_pec_onnx.json \
+              --backend onnx \
               --baseline reference/fixtures/sphere_pec/baseline.json \
               --rtol "${SPHERE_RTOL}" \
               --k 5 \

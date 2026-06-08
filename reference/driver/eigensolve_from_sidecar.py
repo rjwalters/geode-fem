@@ -105,6 +105,48 @@ BACKENDS: dict[str, dict] = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# Per-backend metadata (sphere-PEC path)
+# ---------------------------------------------------------------------------
+#
+# Sphere-PEC mirrors the cube-cavity per-backend convention so that the
+# emitted eigenresult fixture_id varies by assembly backend (instead of
+# the legacy hardcoded `tfjava_eigenresult` literal, which incorrectly
+# labelled ONNX-computed eigenvalues with TF-Java provenance — see
+# issue #161). Suffixes follow the sphere-PEC schema rather than the
+# cube-cavity `_eigensolve` suffix because the sphere-PEC pipeline emits
+# a richer artifact (physical_eigenvalues + best_gap + eigenvalues_lowest)
+# rather than a plain dense eigensolve.
+
+SPHERE_PEC_BACKENDS: dict[str, dict] = {
+    "tfjava": {
+        "fixture_id_suffix": "tfjava_eigenresult",
+        "comparison_header": "TF-Java",
+        "description": (
+            "Physical eigenvalues from the TF-Java sphere-PEC Nédélec assembly + "
+            "SciPy shift-and-invert eigensolve (Epic #88 / #134). "
+            "Cross-checked against reference/fixtures/sphere_pec/baseline.json."
+        ),
+        "provenance_source": (
+            "reference/tf_java/sphere_pec (assembly) → "
+            "reference/driver/eigensolve_from_sidecar.py (SciPy eigensolve seam)"
+        ),
+    },
+    "onnx": {
+        "fixture_id_suffix": "onnx_eigenresult",
+        "comparison_header": "ONNX",
+        "description": (
+            "Physical eigenvalues from the ONNX sphere-PEC Nédélec assembly + "
+            "SciPy shift-and-invert eigensolve (Epic #88 / #134 / #140). "
+            "Cross-checked against reference/fixtures/sphere_pec/baseline.json."
+        ),
+        "provenance_source": (
+            "reference/onnx/sphere_pec (assembly) → "
+            "reference/driver/eigensolve_from_sidecar.py (SciPy eigensolve seam)"
+        ),
+    },
+}
+
 PROBLEMS = ("cube-cavity", "sphere-pec", "sphere-pml")
 
 # Per-fixture spurious-dim fallback when no baseline.json is supplied.
@@ -254,6 +296,19 @@ def _run_sphere_pec(args, sidecar: dict, sidecar_path: Path) -> None:
     import scipy.sparse as sp
     import scipy.sparse.linalg as spla
 
+    if args.backend not in SPHERE_PEC_BACKENDS:
+        # Defensive guard for future backends added to BACKENDS but not yet
+        # to SPHERE_PEC_BACKENDS — keeps the schema-hygiene contract honest
+        # (no silent fallback to TF-Java labelling for non-TF-Java runs).
+        print(
+            f"[sphere-pec-driver] ERROR: backend '{args.backend}' has no "
+            f"sphere-PEC metadata. Add an entry to SPHERE_PEC_BACKENDS in "
+            f"{Path(__file__).name} mirroring the cube-cavity convention.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    sphere_meta = SPHERE_PEC_BACKENDS[args.backend]
+
     # --- Load K_int, M_int ---
     k_int_flat = _load_field(sidecar, "outputs", "k_int")
     m_int_flat = _load_field(sidecar, "outputs", "m_int")
@@ -355,7 +410,7 @@ def _run_sphere_pec(args, sidecar: dict, sidecar_path: Path) -> None:
         ref_physical = np.array(bl["outputs"]["physical_eigenvalues"]["data"])
         n_compare = min(len(physical), len(ref_physical))
         print("\n[sphere-pec-driver] Cross-backend comparison vs NumPy baseline:")
-        print(f"  {'i':>3}  {'TF-Java':>14}  {'NumPy':>14}  {'rel':>10}")
+        print(f"  {'i':>3}  {sphere_meta['comparison_header']:>14}  {'NumPy':>14}  {'rel':>10}")
         all_ok = True
         for i in range(n_compare):
             got  = physical[i]
@@ -379,12 +434,8 @@ def _run_sphere_pec(args, sidecar: dict, sidecar_path: Path) -> None:
 
     result_fixture = {
         "schema_version": "1",
-        "fixture_id": "sphere_pec/n774_pec_eigenmode_tfjava_eigenresult",
-        "description": (
-            "Physical eigenvalues from the TF-Java sphere-PEC Nédélec assembly + "
-            "SciPy shift-and-invert eigensolve (Epic #88 / #134). "
-            "Cross-checked against reference/fixtures/sphere_pec/baseline.json."
-        ),
+        "fixture_id": f"sphere_pec/n774_pec_eigenmode_{sphere_meta['fixture_id_suffix']}",
+        "description": sphere_meta["description"],
         "units": "lambda = k^2 (inverse-length squared); dimensionless mesh coordinates",
         "inputs": {
             "n_index": {
@@ -439,10 +490,7 @@ def _run_sphere_pec(args, sidecar: dict, sidecar_path: Path) -> None:
             },
         },
         "provenance": {
-            "source": (
-                "reference/tf_java/sphere_pec (assembly) → "
-                "reference/driver/eigensolve_sphere_pec_sidecar.py (SciPy eigensolve seam)"
-            ),
+            "source": sphere_meta["provenance_source"],
             "verified_against": "reference/fixtures/sphere_pec/baseline.json",
             "issue": "#134",
         },

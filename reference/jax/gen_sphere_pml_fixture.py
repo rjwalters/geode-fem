@@ -14,26 +14,41 @@ per-position basis. The robust acceptance criterion is the lowest
 physical mode ``physical[0]`` (Re-rel and |Im|-abs) — see
 ``verified_against`` in the fixture provenance.
 
-Snapshot-only CI policy
-=======================
+CI policy: Option A drift gate
+==============================
 
-**This fixture is regenerated on-demand by the maintainer; it is NOT
-re-emitted in CI** (no analogue to ``julia-cube-cavity.yml``). The
-rationale:
+**As of issue #159, this fixture is gated in CI by
+``.github/workflows/jax-sphere-pml.yml``**, which re-runs this
+generator on every PR that touches the JAX pipeline, the generator,
+the committed baseline fixture, or the workflow itself. The freshly
+emitted fixture is strictly diffed against the committed
+``reference/fixtures/sphere_pml/jax_baseline.json`` per each field's
+declared ``tolerance_abs`` (c128 fields compared on |Δ|), bringing
+the JAX path to parity with the Julia path
+(``julia-cube-cavity.yml``).
 
-* JAX is a heavy CPU-only install (~1.5 GB) for one fixture — the
-  ROI is poor relative to the canonical NumPy + Burn agreement gate.
-* Cross-backend drift in the JAX path will be caught by the Rust test
-  ``geode-validation/tests/sphere_pml_jax_reference.rs`` which
-  exercises the fixture on every Rust PR.
-* If ``reference/jax/sphere_pml.py`` changes substantively (algorithm
-  edits, not refactor), the maintainer must manually re-run this
-  script and commit the regenerated fixture. The script's stdout
-  documents the cross-check |Δ| at generation time.
+There are now two independent and complementary drift gates:
 
-If we later add a JAX install to a workflow runner (e.g., for a
-multi-fixture differentiability gate), revisit this and gate the
-fixture re-emission alongside the rest.
+* **This workflow** (Option A): freshly emitted JAX fixture vs the
+  committed snapshot — catches drift between
+  ``reference/jax/sphere_pml.py`` and the on-disk baseline.
+* **Rust per-PR test**
+  (``geode-validation/tests/sphere_pml_jax_reference.rs``): Burn
+  output vs the committed snapshot — catches drift between the Rust
+  pipeline and the JAX baseline.
+
+When ``reference/jax/sphere_pml.py`` changes substantively
+(algorithm edits, not refactor), the maintainer must re-run this
+script locally, review the cross-check |Δ| reported on stdout, and
+commit the regenerated fixture. CI will then verify the committed
+snapshot is reproducible on the runner. Sign convention ``Im(λ) > 0``
+is part of the committed snapshot; convention drift surfaces as a
+|Δ| violation on the c128 eigenvalue fields.
+
+History: PR #154 (issue #148) originally adopted Option B
+(snapshot-only, no CI re-emission) on ROI grounds — a ~1.5 GB JAX
+install for one fixture. Issue #159 reversed that decision for
+parity with the Julia Option A gate from PR #153 cycle 2.
 
 Usage
 =====
@@ -123,10 +138,11 @@ def _build_fixture_dict(
             "global complex scatter and SciPy shift-and-invert eigensolve "
             "remain in NumPy/SciPy (no sparse complex generalized "
             "eigensolver in JAX, matching the Stage 7 ONNX audit boundary "
-            "in reference/onnx/audit/). Snapshot-only: regenerated "
-            "on-demand by the maintainer via "
-            "`python3 reference/jax/gen_sphere_pml_fixture.py`, not "
-            f"re-emitted in CI. σ₀ = {sigma_0}. {verified_note}"
+            "in reference/onnx/audit/). Option A CI gate: regenerated "
+            "by `.github/workflows/jax-sphere-pml.yml` on every PR that "
+            "touches the JAX pipeline and strictly diffed against this "
+            "committed snapshot per field `tolerance_abs` (c128 on |Δ|). "
+            f"σ₀ = {sigma_0}. {verified_note}"
         ),
         "units": (
             "λ = k² (inverse-length squared) with Im(λ) > 0 convention "

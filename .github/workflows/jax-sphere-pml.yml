@@ -1,0 +1,267 @@
+name: jax-sphere-pml
+
+# Gated CI job for the JAX sphere-PML reference (Epic #88 / Phase H.3,
+# issues #148 / #159).
+#
+# This brings JAX up to parity with Julia (`julia-cube-cavity.yml`) by
+# running the JAX pipeline in CI and asserting that the freshly emitted
+# fixture matches the committed snapshot at
+# `reference/fixtures/sphere_pml/jax_baseline.json` within each field's
+# declared `tolerance_abs`. This is Option A (CI-run drift gate),
+# replacing the snapshot-only policy that PR #154 chose.
+#
+# Triggers:
+#   1. Path-filtered `pull_request` / `push` to main: runs only when the
+#      change actually touches the JAX sphere-PML reference, its
+#      generator, the committed baseline fixture, or this workflow.
+#   2. Manual `workflow_dispatch`: run on demand against any branch with
+#      configurable `sigma0` (default 5.0, matching the committed
+#      baseline).
+#
+# Scope clarification:
+# This gate runs JAX at σ₀=5.0 on the bundled sphere mesh (n_nodes=774,
+# n_tets=3335) — same mesh and same physics constants as the committed
+# `jax_baseline.json`. The drift gate is **strict**: every output field
+# in the freshly emitted fixture must agree with the committed one
+# within the field's declared `tolerance_abs`. c128 fields are compared
+# on the magnitude of the complex residual (|Δ| = |z_actual − z_golden|),
+# matching the contract in `reference/SCHEMA.md`.
+#
+# This gate is independent of and complementary to the Rust per-PR
+# drift gate in `geode-validation/tests/sphere_pml_jax_reference.rs`
+# (which exercises the on-disk fixture from the Rust side). Both must
+# pass: the Rust gate guards Burn vs the JAX snapshot, this gate guards
+# the JAX snapshot vs the JAX pipeline.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'reference/jax/sphere_pml.py'
+      - 'reference/jax/gen_sphere_pml_fixture.py'
+      - 'reference/jax/requirements.txt'
+      - 'reference/fixtures/sphere_pml/jax_baseline.json'
+      - 'reference/fixtures/sphere_pml/sphere.msh'
+      - '.github/workflows/jax-sphere-pml.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'reference/jax/sphere_pml.py'
+      - 'reference/jax/gen_sphere_pml_fixture.py'
+      - 'reference/jax/requirements.txt'
+      - 'reference/fixtures/sphere_pml/jax_baseline.json'
+      - 'reference/fixtures/sphere_pml/sphere.msh'
+      - '.github/workflows/jax-sphere-pml.yml'
+  workflow_dispatch:
+    inputs:
+      sigma0:
+        description: 'PML absorption strength (default 5.0 — matches jax_baseline.json).'
+        required: false
+        default: '5.0'
+
+jobs:
+  build-and-drift-check:
+    name: JAX sphere-PML pipeline + strict snapshot drift gate
+    runs-on: ubuntu-latest
+    env:
+      # `sigma0` is derived once here so manual-dispatch overrides flow
+      # into every step. Default matches the committed fixture: σ₀=5.0.
+      PML_SIGMA0: ${{ inputs.sigma0 || '5.0' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            reference/jax/requirements.txt
+            reference/numpy/requirements.txt
+
+      - name: Install JAX (CPU) + NumPy + SciPy + meshio
+        # CPU-only JAX install per reference/jax/requirements.txt.
+        # JAX is ~1.5 GB unpacked; pip cache (above) keeps cold-start
+        # CI runs reasonable. Versions are loosely pinned in the
+        # requirements file so we don't trip on resolver issues across
+        # minor Python patch releases.
+        #
+        # We also install reference/numpy/requirements.txt because the
+        # JAX sphere-PML pipeline transitively depends on
+        # `reference/numpy/sphere_pec.read_sphere_fixture` for mesh I/O,
+        # which imports `meshio` (declared in the NumPy requirements
+        # file). Mirrors the pattern in `onnx-cube-cavity.yml`'s
+        # sphere-PEC job, which handles the same transitive dep.
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r reference/jax/requirements.txt
+          python3 -m pip install -r reference/numpy/requirements.txt
+
+      - name: Show toolchain versions (debug)
+        run: |
+          python3 --version
+          python3 -c "import jax, numpy, scipy; print('jax', jax.__version__); print('numpy', numpy.__version__); print('scipy', scipy.__version__)"
+          python3 -c "import meshio; print('meshio', meshio.__version__)"
+
+      # -----------------------------------------------------------------------
+      # JAX sphere-PML pipeline (Epic #88 / Phase H.3, issue #148; Option A
+      # CI gate added by issue #159).
+      # -----------------------------------------------------------------------
+      #
+      # Why this is the gate of record:
+      #
+      #   * PR #154 chose Option B (snapshot-only fixture with per-PR Rust
+      #     drift gate) for JAX sphere-PML. The Rust gate at
+      #     `geode-validation/tests/sphere_pml_jax_reference.rs` exercises
+      #     the on-disk fixture but cannot detect drift between
+      #     `reference/jax/sphere_pml.py` and the committed
+      #     `jax_baseline.json` — only this workflow can.
+      #   * Issue #159 lifts this to Option A parity with Julia
+      #     (`julia-cube-cavity.yml`): re-emit the fixture from the JAX
+      #     pipeline on every relevant PR, then diff strictly against the
+      #     committed snapshot.
+      #
+      # The drift comparator below is **strict**: if the freshly emitted
+      # JAX fixture disagrees with the committed `jax_baseline.json`
+      # beyond per-field `tolerance_abs`, this step fails. Sign convention
+      # `Im(λ) > 0` is enforced upstream in `sphere_pml.py` and is part
+      # of the committed snapshot — drift in convention would surface
+      # here as a |Δ| violation on the c128 eigenvalue fields.
+
+      - name: Run JAX sphere-PML pipeline (regenerate fixture for drift comparator)
+        # Regenerate `jax_baseline.json` from the JAX pipeline into
+        # target/out. The committed file in reference/fixtures/sphere_pml/
+        # is the snapshot; this step is the snapshot's gate.
+        run: |
+          mkdir -p reference/jax/target/out
+          python3 reference/jax/gen_sphere_pml_fixture.py \
+              --out reference/jax/target/out/jax_baseline.json \
+              --sigma0 "${PML_SIGMA0}"
+
+      - name: Snapshot drift gate — fresh JAX sphere-PML fixture vs committed
+        # Strict numeric diff: every output field in the freshly emitted
+        # `target/out/jax_baseline.json` must agree with the committed
+        # `reference/fixtures/sphere_pml/jax_baseline.json` within the
+        # field's declared `tolerance_abs`. c128 fields are compared on
+        # the magnitude of the complex residual (|Δ| =
+        # |z_actual − z_golden|), matching the contract in
+        # `reference/SCHEMA.md`. Failure here means either:
+        #
+        #   (a) the committed snapshot is stale — regenerate locally with
+        #       `python3 reference/jax/gen_sphere_pml_fixture.py` and
+        #       commit, OR
+        #   (b) the JAX pipeline genuinely changed output (review the
+        #       diff and decide whether to widen tolerance or fix the
+        #       regression).
+        #
+        # The inline comparator below mirrors the one in
+        # `julia-cube-cavity.yml`'s "Snapshot drift gate" step so the
+        # behavior (and the failure message) is identical across the
+        # JAX and Julia gates.
+        run: |
+          python3 <<'PY'
+          import json, math, sys
+          from pathlib import Path
+
+          fresh_path     = Path("reference/jax/target/out/jax_baseline.json")
+          committed_path = Path("reference/fixtures/sphere_pml/jax_baseline.json")
+
+          def load(p):
+              with open(p) as f:
+                  return json.load(f)
+
+          fresh     = load(fresh_path)
+          committed = load(committed_path)
+
+          # Compare every output field. Skip fields that have no
+          # `tolerance_abs` (descriptive-only fields) — none in the
+          # current schema, but be robust.
+          fresh_out     = fresh["outputs"]
+          committed_out = committed["outputs"]
+
+          missing_in_fresh     = set(committed_out) - set(fresh_out)
+          missing_in_committed = set(fresh_out)     - set(committed_out)
+          if missing_in_fresh or missing_in_committed:
+              print(f"FAIL: output-field set mismatch", file=sys.stderr)
+              print(f"  missing in fresh     : {sorted(missing_in_fresh)}", file=sys.stderr)
+              print(f"  missing in committed : {sorted(missing_in_committed)}", file=sys.stderr)
+              sys.exit(1)
+
+          n_fail = 0
+          n_ok   = 0
+          for name in sorted(fresh_out):
+              f = fresh_out[name]
+              c = committed_out[name]
+              tol = float(c.get("tolerance_abs", 0.0))
+              dtype = c.get("dtype", "f64")
+              fd = list(f["data"])
+              cd = list(c["data"])
+              if len(fd) != len(cd):
+                  print(f"FAIL [{name}]: length mismatch fresh={len(fd)} committed={len(cd)}",
+                        file=sys.stderr)
+                  n_fail += 1
+                  continue
+              if dtype == "c128":
+                  # Real-imag interleaved: |Δ| on complex residual.
+                  if len(fd) % 2 != 0:
+                      print(f"FAIL [{name}]: c128 interleave length must be even, got {len(fd)}",
+                            file=sys.stderr)
+                      n_fail += 1
+                      continue
+                  max_abs = 0.0
+                  worst_i = -1
+                  for i in range(0, len(fd), 2):
+                      dr = fd[i]   - cd[i]
+                      di = fd[i+1] - cd[i+1]
+                      mag = math.hypot(dr, di)
+                      if mag > max_abs:
+                          max_abs = mag
+                          worst_i = i // 2
+                  status = "OK" if max_abs <= tol else "FAIL"
+                  print(f"  [{status}] {name:42s} (c128) "
+                        f"max |Δ| = {max_abs:.6e}  tol = {tol:.6e}  "
+                        f"worst_idx = {worst_i}")
+                  if max_abs > tol:
+                      lj_re = fd[2*worst_i]   ; lj_im = fd[2*worst_i+1]
+                      lc_re = cd[2*worst_i]   ; lc_im = cd[2*worst_i+1]
+                      print(f"      fresh[{worst_i}]     = ({lj_re:+.9e}, {lj_im:+.9e})",
+                            file=sys.stderr)
+                      print(f"      committed[{worst_i}] = ({lc_re:+.9e}, {lc_im:+.9e})",
+                            file=sys.stderr)
+                      n_fail += 1
+                  else:
+                      n_ok += 1
+              else:
+                  # f64 (and any other real-valued dtype): max |Δ|.
+                  max_abs = max((abs(a - b) for a, b in zip(fd, cd)), default=0.0)
+                  status = "OK" if max_abs <= tol else "FAIL"
+                  print(f"  [{status}] {name:42s} ({dtype:>4}) "
+                        f"max |Δ| = {max_abs:.6e}  tol = {tol:.6e}")
+                  if max_abs > tol:
+                      n_fail += 1
+                  else:
+                      n_ok += 1
+
+          print()
+          print(f"summary: {n_ok} fields OK, {n_fail} fields FAIL")
+          if n_fail > 0:
+              print()
+              print("snapshot is stale — regenerate locally with:", file=sys.stderr)
+              print("  python3 reference/jax/gen_sphere_pml_fixture.py "
+                    "--out reference/fixtures/sphere_pml/jax_baseline.json "
+                    "--sigma0 5.0", file=sys.stderr)
+              print("then commit the regenerated fixture.", file=sys.stderr)
+              sys.exit(1)
+          PY
+
+      - name: Upload JAX sidecar artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jax-sphere-pml-artifacts
+          path: |
+            reference/jax/target/out/jax_baseline.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -34,6 +34,16 @@ f64-pair representation used in Burn/NumPy.
   eigensolve via `Arpack.eigs` shift-invert. Pipeline cross-checks
   against the Phase G.4 NumPy PEC baseline at σ₀ = 0 (the
   PEC-collapse regression).
+- **`sphere_pml_small.jl` + `gen_sphere_pml_small_baseline.jl`** —
+  small-mesh dense `LinearAlgebra.eigen(K, M)` tiebreaker for the
+  Julia PML reference (Epic #88 / Phase H.2, issue #160). Runs on the
+  197-tet `sphere_pml_small/` fixture from PR #164 (214-DOF interior
+  pencil — well within dense-Julia's reach at ~1 s). Surfaces both
+  the l=1 triplet and 2 of the l=2 quintuplet cleanly, where
+  `sphere_pml.jl`'s Arpack shift-invert path saturates in the l=1
+  basin. **Resolution of PR #153 cycle 3's l=2-unreachability
+  finding**; see the "Phase H.2 follow-up (issue #160)" section
+  below.
 
 ## Toolchain bootstrap
 
@@ -241,11 +251,68 @@ practical ceiling at ~3% of matrix dim) Arpack does not escape the
 l=1 basin. **This is a real selection-criterion divergence between
 shift-invert windowed and dense-global eigensolvers, not a Julia-
 side bug.** Positions [3,4] are therefore excluded from the strict
-cross-IR test; the generator still logs them with an `○` informational
-marker so the divergence is visible in CI output. A follow-up
-candidate is multi-shift Arpack (e.g., paired shifts at l=1 and l=2
-band centers) or a smaller-mesh dense Julia eigensolve as the l=2
-tiebreaker.
+cross-IR test on the full-mesh fixture; the generator still logs
+them with an `○` informational marker so the divergence is visible
+in CI output.
+
+### Phase H.2 follow-up (issue #160) — Option (b) small-mesh dense path
+
+The "follow-up candidate" mentioned above (multi-shift Arpack OR a
+smaller-mesh dense Julia eigensolve as the l=2 tiebreaker) landed in
+PR for issue #160. We picked **Option (b)** — the smaller-mesh dense
+path — because PR #164 (issue #158) had just merged the small-mesh
+PML fixture (`reference/fixtures/sphere_pml_small/sphere.msh`, 197
+tets, **214-DOF interior pencil**). On that pencil dense
+`LinearAlgebra.eigen(Matrix(K), Matrix(M))` finishes in ~1 s — well
+within the default `cargo test` budget. Files:
+
+  * **`sphere_pml_small.jl`** — adds `eigensolve_complex_dense` (pure
+    `LinearAlgebra.eigen` on the materialized complex pencil) and
+    `run_sphere_pml_small` (the small-mesh end-to-end driver). Reuses
+    the assembly / Dirichlet / ε helpers from `sphere_pml.jl`
+    verbatim — only the eigensolve step is replaced.
+  * **`gen_sphere_pml_small_baseline.jl`** — emits
+    `reference/fixtures/sphere_pml/julia_small_baseline.json` (sibling
+    of the full-mesh `julia_baseline.json`) with the same field set
+    as the NumPy small-mesh baseline at
+    `reference/fixtures/sphere_pml_small/baseline.json` (PR #164).
+  * **`crates/geode-validation/tests/sphere_pml_julia_small_reference.rs`**
+    — Rust cross-IR test gating the **full scope [0..4]** (all 5
+    physical modes: l=1 triplet + 2 of l=2 quintuplet) at 5e-3
+    absolute on `|Δ|`. Both backends use LAPACK ZGGEV on the
+    identical pencil; measured residual is ~1.3e-13, giving ~50×
+    headroom under the 5e-3 floor.
+
+**Why Option (b) over Option (a) (multi-shift Arpack)**:
+
+  1. Lower friction. Once #158 / PR #164 shipped the small-mesh
+     fixture, the additional Julia surface area is one ~150-line
+     `sphere_pml_small.jl` file replacing one Arpack call site with a
+     dense `eigen` call — no shift-merging logic, no σ-pair calibration.
+  2. Cleaner spec-mining signal. Multi-shift Arpack would surface
+     additional Arpack basin-of-attraction questions per shift; the
+     dense path takes those off the table entirely (LAPACK ZGGEV sees
+     the entire spectrum at once).
+  3. Convergence on canonical NumPy selection. The dense path uses
+     "lowest 5 physical by `|Re(λ)|` globally past d⁰-rank spurious
+     split" — bit-equivalent to the NumPy `run_sphere_pml` convention.
+     Multi-shift Arpack would require post-hoc merging + dedup to
+     reproduce that ordering.
+
+**The full-mesh test (`sphere_pml_julia_reference.rs`) stays at
+scope [0..2]** under this resolution — extending it to [0..4] would
+still require Option (a) multi-shift Arpack on the 3300-DOF pencil,
+which is out of scope for #160. The small-mesh sibling test is the
+canonical [0..4] cross-IR pin; the full-mesh test gates the l=1
+triplet at higher resolution.
+
+Cross-mesh comparability note: the small-mesh ground mode is at
+λ ≈ 1.92 + 0.06j (vs the full mesh's λ ≈ 1.18 + 0.21j) and Q ≈ 34.8
+(vs the full mesh's ~1.2) — coarser discretization pushes physical
+bands higher and reduces per-mode loss. The cross-mesh shifts are
+documented in
+`reference/fixtures/sphere_pml_small/baseline.schema.md` and are
+expected.
 
 ### Doctor cycle 2 caveat — `julia_baseline.json` is CI-gated, not Doctor-verified
 
