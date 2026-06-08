@@ -13,8 +13,9 @@
   schema-v1 JSON sidecar.
 
   The companion Python driver
-  (reference/driver/eigensolve_from_sidecar.py --problem sphere-pml
-   --backend tfjava) reads the sidecar, rebuilds the complex M_int
+  (reference/driver/eigensolve_from_sidecar.py, invoked with the
+   problem flag set to sphere-pml and the backend flag set to tfjava)
+   reads the sidecar, rebuilds the complex M_int
   from the (Re, Im) pair, and runs the SciPy dense LAPACK ZGGEV
   complex generalized eigensolve (TF-Java cannot natively close the
   complex pencil).
@@ -34,12 +35,15 @@
 
   Run:
       mvn exec:java -Dexec.mainClass=dev.geodefem.refspherepml.SpherePmlMain
-      Pass args via -Dexec.args:
-          --mesh ../../fixtures/sphere_pml/sphere.msh
-          --sigma0 5.0
-          --n-index 1.5
-          --r-buffer 2.0
-          --out reduced_kM_sphere_pml.json
+      Pass args via -Dexec.args (each flag takes a value, written here
+      as 'flag value' since XML comments cannot contain a literal
+      double-hyphen — prepend a double-hyphen to each flag name on the
+      actual command line):
+          'mesh' ../../fixtures/sphere_pml/sphere.msh
+          'sigma0' 5.0
+          'n-index' 1.5
+          'r-buffer' 2.0
+          'out' reduced_kM_sphere_pml.json
 
   CI gating:
       Gated behind the `tfjava-cube-cavity` workflow (extended in #156 to
