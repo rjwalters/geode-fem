@@ -40,9 +40,9 @@ pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 #[allow(deprecated)]
 pub use mesh::PHYS_VACUUM_BUFFER;
 pub use mesh::{
-    cube_tet_mesh, read_sphere_fixture, GmshReader, MeshError, MeshReader, SphereFixture, TetMesh,
-    PHYS_OUTER_BOUNDARY, PHYS_PML_INTERFACE, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR,
-    PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP, R_BUFFER, R_PML_INNER, R_SPHERE,
+    cube_tet_mesh, read_sphere_fixture, read_sphere_fixture_from_bytes, GmshReader, MeshError,
+    MeshReader, SphereFixture, TetMesh, PHYS_OUTER_BOUNDARY, PHYS_PML_INTERFACE, PHYS_PML_SHELL,
+    PHYS_SPHERE_INTERIOR, PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP, R_BUFFER, R_PML_INNER, R_SPHERE,
 };
 pub use mie::{
     characteristic_te, characteristic_tm, chi, chi_prime, merged_roots, mie_roots_catalog, psi,
