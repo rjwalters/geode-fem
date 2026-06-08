@@ -177,9 +177,28 @@ impl SphereFixture {
 /// and per-triangle physical tags. See module docs for the physical-group
 /// convention.
 pub fn read_sphere_fixture() -> Result<SphereFixture, MeshError> {
-    let mesh = GmshReader.read_tet_mesh(SPHERE_MSH)?;
+    read_sphere_fixture_from_bytes(SPHERE_MSH)
+}
 
-    let text = std::str::from_utf8(SPHERE_MSH)
+/// Load a sphere-in-vacuum mesh fixture from arbitrary MSH 4.1 ASCII
+/// bytes.
+///
+/// Same parsing path as [`read_sphere_fixture`] but with the source
+/// bytes provided by the caller — used by sibling fixtures (e.g. the
+/// small-mesh sphere PML fixture under
+/// `reference/fixtures/sphere_pml_small/` for default-CI Burn vs NumPy
+/// cross-check, issue #158) that share the bundled fixture's
+/// physical-group convention but use a different mesh.
+///
+/// The bytes must follow the same physical-group convention as the
+/// bundled mesh (see module-level docs): physical tags `1` for
+/// `sphere_interior`, `2` for `vacuum_gap`, `5` for `pml_shell`, `3`
+/// for `outer_boundary`, `4` for `sphere_surface`, `6` for
+/// `pml_interface`.
+pub fn read_sphere_fixture_from_bytes(source: &[u8]) -> Result<SphereFixture, MeshError> {
+    let mesh = GmshReader.read_tet_mesh(source)?;
+
+    let text = std::str::from_utf8(source)
         .map_err(|e| MeshError::Parse(format!("fixture is not UTF-8: {e}")))?;
 
     let entity_phys = parse_entities_physical_tags(text)?;
