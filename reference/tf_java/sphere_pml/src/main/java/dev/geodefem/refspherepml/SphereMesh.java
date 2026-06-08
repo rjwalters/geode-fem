@@ -5,6 +5,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -87,6 +88,7 @@ public final class SphereMesh {
     private static Mesh parse(BufferedReader br) throws IOException {
         double[][] nodes   = null;
         long[] nodeGmshIds = null;
+        Map<Integer, Integer> volEntityToPhysical = new HashMap<>();
         List<int[]> tetList    = new ArrayList<>();
         List<Integer> tagList  = new ArrayList<>();
 
@@ -101,7 +103,7 @@ public final class SphereMesh {
                     skipUntilEnd(br, "$EndPhysicalNames");
                     break;
                 case "$Entities":
-                    skipUntilEnd(br, "$EndEntities");
+                    volEntityToPhysical = parseEntities(br);
                     break;
                 case "$PartitionedEntities":
                     skipUntilEnd(br, "$EndPartitionedEntities");
@@ -116,7 +118,7 @@ public final class SphereMesh {
                     if (nodes == null) {
                         throw new IOException("$Elements section before $Nodes");
                     }
-                    parseElements(br, nodeGmshIds, tetList, tagList);
+                    parseElements(br, nodeGmshIds, volEntityToPhysical, tetList, tagList);
                     break;
                 default:
                     if (line.startsWith("$") && !line.startsWith("$End")) {
@@ -187,6 +189,7 @@ public final class SphereMesh {
     }
 
     private static void parseElements(BufferedReader br, long[] tagToIdx,
+            Map<Integer, Integer> volEntityToPhysical,
             List<int[]> tetList, List<Integer> tagList) throws IOException {
         String header = br.readLine();
         if (header == null) throw new IOException("Unexpected EOF in $Elements header");
@@ -197,11 +200,24 @@ public final class SphereMesh {
             String bh = br.readLine();
             if (bh == null) throw new IOException("Unexpected EOF in $Elements block header");
             String[] bhp = bh.trim().split("\\s+");
-            int entityTag   = Integer.parseInt(bhp[1]);
-            int elemType    = Integer.parseInt(bhp[2]);
-            int nInBlock    = Integer.parseInt(bhp[3]);
+            int entityDim  = Integer.parseInt(bhp[0]);
+            int entityTag  = Integer.parseInt(bhp[1]);
+            int elemType   = Integer.parseInt(bhp[2]);
+            int nInBlock   = Integer.parseInt(bhp[3]);
 
             boolean isTet4 = (elemType == 4);
+
+            // Resolve the per-tet physical-group tag via the $Entities map.
+            // MSH4 element blocks carry the geometric entity tag, not the
+            // physical group tag — meshio's `gmsh:physical` is what the
+            // NumPy/Burn sides consume, so we mirror that semantics here.
+            // Fallback to entityTag preserves the legacy single-physical-
+            // group shortcut for meshes without an $Entities section.
+            int physicalTag = entityTag;
+            if (isTet4 && entityDim == 3) {
+                Integer mapped = volEntityToPhysical.get(entityTag);
+                if (mapped != null) physicalTag = mapped;
+            }
 
             for (int i = 0; i < nInBlock; i++) {
                 String eLine = br.readLine();
@@ -217,7 +233,7 @@ public final class SphereMesh {
                     }
                 }
                 tetList.add(tet);
-                tagList.add(entityTag);
+                tagList.add(physicalTag);
             }
         }
 
@@ -225,6 +241,55 @@ public final class SphereMesh {
         if (endLine == null || !endLine.trim().equals("$EndElements")) {
             throw new IOException("Expected $EndElements, got: " + endLine);
         }
+    }
+
+    /**
+     * Parse the {@code $Entities} section and return a
+     * {@code volumeEntityTag → physicalGroupTag} map for 3-D entities.
+     *
+     * <p>MSH 4.x volume entity rows have the layout:
+     * <pre>
+     * volTag xMin yMin zMin xMax yMax zMax numPhysicalTags physTag1 ... numBoundingSurfaces ...
+     * </pre>
+     *
+     * <p>The bundled sphere fixtures assign exactly one physical-group tag
+     * per volume; only the first physical tag is recorded. Volumes with
+     * zero physical tags are skipped.
+     */
+    private static Map<Integer, Integer> parseEntities(BufferedReader br) throws IOException {
+        String header = br.readLine();
+        if (header == null) throw new IOException("Unexpected EOF in $Entities header");
+        String[] hp = header.trim().split("\\s+");
+        int numPoints   = Integer.parseInt(hp[0]);
+        int numCurves   = Integer.parseInt(hp[1]);
+        int numSurfaces = Integer.parseInt(hp[2]);
+        int numVolumes  = Integer.parseInt(hp[3]);
+
+        int subVolumeRows = numPoints + numCurves + numSurfaces;
+        for (int i = 0; i < subVolumeRows; i++) {
+            if (br.readLine() == null) {
+                throw new IOException("Unexpected EOF in $Entities sub-volume section");
+            }
+        }
+
+        Map<Integer, Integer> map = new HashMap<>();
+        for (int i = 0; i < numVolumes; i++) {
+            String line = br.readLine();
+            if (line == null) throw new IOException("Unexpected EOF in $Entities volume row");
+            String[] p = line.trim().split("\\s+");
+            int volTag  = Integer.parseInt(p[0]);
+            int numPhys = Integer.parseInt(p[7]);
+            if (numPhys >= 1) {
+                int physTag = Integer.parseInt(p[8]);
+                map.put(volTag, physTag);
+            }
+        }
+
+        String endLine = br.readLine();
+        if (endLine == null || !endLine.trim().equals("$EndEntities")) {
+            throw new IOException("Expected $EndEntities, got: " + endLine);
+        }
+        return map;
     }
 
     private static void skipUntilEnd(BufferedReader br, String endTag) throws IOException {

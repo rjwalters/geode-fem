@@ -86,6 +86,7 @@ public final class SphereMesh {
         // We read section by section in a top-level loop.
         double[][] nodes   = null;
         long[] nodeGmshIds = null; // Gmsh 1-based node IDs -> 0-based index map
+        Map<Integer, Integer> volEntityToPhysical = new HashMap<>();
         List<int[]> tetList    = new ArrayList<>();
         List<Integer> tagList  = new ArrayList<>();
 
@@ -100,7 +101,7 @@ public final class SphereMesh {
                     skipUntilEnd(br, "$EndPhysicalNames");
                     break;
                 case "$Entities":
-                    skipUntilEnd(br, "$EndEntities");
+                    volEntityToPhysical = parseEntities(br);
                     break;
                 case "$PartitionedEntities":
                     skipUntilEnd(br, "$EndPartitionedEntities");
@@ -115,7 +116,7 @@ public final class SphereMesh {
                     if (nodes == null) {
                         throw new IOException("$Elements section before $Nodes");
                     }
-                    parseElements(br, nodeGmshIds, tetList, tagList);
+                    parseElements(br, nodeGmshIds, volEntityToPhysical, tetList, tagList);
                     break;
                 default:
                     // Skip unknown or unneeded sections.
@@ -224,26 +225,18 @@ public final class SphereMesh {
      * $EndElements
      * </pre>
      *
-     * <p>Element type 4 = 4-node tetrahedron (Tet4). We record the
-     * {@code entityTag} for each tet block's entity as the physical group
-     * tag, matching the per-block assignment in
-     * {@code reference/numpy/sphere_pec.py::read_sphere_fixture}.
+     * <p>Element type 4 = 4-node tetrahedron (Tet4). For each tet block the
+     * geometric entity tag is resolved to the physical-group tag via the
+     * {@code $Entities} map ({@link #parseEntities}); this matches the
+     * per-tet {@code gmsh:physical} cell-data that
+     * {@code reference/numpy/sphere_pec.py::read_sphere_fixture} consumes.
      *
-     * <p>Note: the MSH4 element block header gives the entity tag directly.
-     * The entity's physical group tag is what {@code meshio} exposes via
-     * {@code gmsh:physical}; for the bundled sphere fixture the entity
-     * tags are identical to the physical group tags because Gmsh 4.x
-     * assigns entity tags sequentially to match the physical group tag
-     * when a physical group contains exactly one entity. We read from the
-     * $Entities section in production parsers; here we rely on the fact
-     * that the fixture file's entity tags equal the physical tags
-     * (verified against meshio's output).
-     *
-     * <p>If the entity tag does not match a known physical group the block
-     * is still collected with the raw entity tag, which will produce a
-     * warning at runtime.
+     * <p>If a tet block's entity is absent from the map (no $Entities
+     * section, or no physical-group assignment), the block is collected
+     * with the raw entity tag as a fallback.
      */
     private static void parseElements(BufferedReader br, long[] tagToIdx,
+            Map<Integer, Integer> volEntityToPhysical,
             List<int[]> tetList, List<Integer> tagList) throws IOException {
         String header = br.readLine();
         if (header == null) throw new IOException("Unexpected EOF in $Elements header");
@@ -255,11 +248,24 @@ public final class SphereMesh {
             if (bh == null) throw new IOException("Unexpected EOF in $Elements block header");
             String[] bhp = bh.trim().split("\\s+");
             // entityDim entityTag elementType numElementsInBlock
-            int entityTag   = Integer.parseInt(bhp[1]);
-            int elemType    = Integer.parseInt(bhp[2]);
-            int nInBlock    = Integer.parseInt(bhp[3]);
+            int entityDim  = Integer.parseInt(bhp[0]);
+            int entityTag  = Integer.parseInt(bhp[1]);
+            int elemType   = Integer.parseInt(bhp[2]);
+            int nInBlock   = Integer.parseInt(bhp[3]);
 
             boolean isTet4 = (elemType == 4); // Gmsh element type 4 = 4-node tet
+
+            // Resolve the physical-group tag from $Entities. The MSH4 block
+            // header carries the geometric entity tag, not the physical
+            // tag; meshio's `gmsh:physical` (what the NumPy/Burn sides
+            // consume) is the physical-group tag. Fallback to entityTag
+            // preserves the single-physical-group shortcut for fixtures
+            // where the two coincide.
+            int physicalTag = entityTag;
+            if (isTet4 && entityDim == 3) {
+                Integer mapped = volEntityToPhysical.get(entityTag);
+                if (mapped != null) physicalTag = mapped;
+            }
 
             for (int i = 0; i < nInBlock; i++) {
                 String eLine = br.readLine();
@@ -276,7 +282,7 @@ public final class SphereMesh {
                     }
                 }
                 tetList.add(tet);
-                tagList.add(entityTag);
+                tagList.add(physicalTag);
             }
         }
 
@@ -284,6 +290,55 @@ public final class SphereMesh {
         if (endLine == null || !endLine.trim().equals("$EndElements")) {
             throw new IOException("Expected $EndElements, got: " + endLine);
         }
+    }
+
+    /**
+     * Parse the {@code $Entities} section and return a
+     * {@code volumeEntityTag → physicalGroupTag} map for 3-D entities.
+     *
+     * <p>MSH 4.x volume entity rows have the layout:
+     * <pre>
+     * volTag xMin yMin zMin xMax yMax zMax numPhysicalTags physTag1 ... numBoundingSurfaces ...
+     * </pre>
+     *
+     * <p>The bundled sphere fixtures assign exactly one physical-group tag
+     * per volume; only the first physical tag is recorded. Volumes with
+     * zero physical tags are skipped.
+     */
+    private static Map<Integer, Integer> parseEntities(BufferedReader br) throws IOException {
+        String header = br.readLine();
+        if (header == null) throw new IOException("Unexpected EOF in $Entities header");
+        String[] hp = header.trim().split("\\s+");
+        int numPoints   = Integer.parseInt(hp[0]);
+        int numCurves   = Integer.parseInt(hp[1]);
+        int numSurfaces = Integer.parseInt(hp[2]);
+        int numVolumes  = Integer.parseInt(hp[3]);
+
+        int subVolumeRows = numPoints + numCurves + numSurfaces;
+        for (int i = 0; i < subVolumeRows; i++) {
+            if (br.readLine() == null) {
+                throw new IOException("Unexpected EOF in $Entities sub-volume section");
+            }
+        }
+
+        Map<Integer, Integer> map = new HashMap<>();
+        for (int i = 0; i < numVolumes; i++) {
+            String line = br.readLine();
+            if (line == null) throw new IOException("Unexpected EOF in $Entities volume row");
+            String[] p = line.trim().split("\\s+");
+            int volTag  = Integer.parseInt(p[0]);
+            int numPhys = Integer.parseInt(p[7]);
+            if (numPhys >= 1) {
+                int physTag = Integer.parseInt(p[8]);
+                map.put(volTag, physTag);
+            }
+        }
+
+        String endLine = br.readLine();
+        if (endLine == null || !endLine.trim().equals("$EndEntities")) {
+            throw new IOException("Expected $EndEntities, got: " + endLine);
+        }
+        return map;
     }
 
     private static void skipUntilEnd(BufferedReader br, String endTag) throws IOException {
