@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TF-Java sphere-PML reference (Epic #88 / #156, Phase H.4).
+
+  Mirrors reference/tf_java/sphere_pec/ but for the scalar-isotropic
+  complex-epsilon PML problem family. The static-graph API (Ops +
+  Session) assembles the global Nédélec curl-curl K (real-valued) and
+  the **complex** epsilon-scaled mass M (real and imaginary parts
+  emitted separately, since TF-Java 1.0.0 has no native c128 typed
+  value). The JVM side applies PEC boundary elimination (dropping
+  edges with both endpoints on the outer sphere at r = R_BUFFER = 2.0)
+  and emits the reduced (K_int, Re(M_int), Im(M_int)) matrices as a
+  schema-v1 JSON sidecar.
+
+  The companion Python driver
+  (reference/driver/eigensolve_from_sidecar.py --problem sphere-pml
+   --backend tfjava) reads the sidecar, rebuilds the complex M_int
+  from the (Re, Im) pair, and runs the SciPy dense LAPACK ZGGEV
+  complex generalized eigensolve (TF-Java cannot natively close the
+  complex pencil).
+
+  Mesh I/O: the bundled Gmsh MSH4 fixture
+  (reference/fixtures/sphere_pml/sphere.msh, identical to the sphere_pec/
+  bundled mesh: 774 nodes, 3335 tets) is parsed on the JVM side without
+  TensorFlow involvement — only the assembly kernel (per-tet 6×6
+  Nédélec local matrices + COO scatter, both real and complex paths)
+  runs through the TF-Java static graph. This matches the
+  JAX / Julia / NumPy pattern where mesh I/O and edge enumeration stay
+  in the host language.
+
+  Build:
+      cd reference/tf_java/sphere_pml
+      mvn package
+
+  Run:
+      mvn exec:java -Dexec.mainClass=dev.geodefem.refspherepml.SpherePmlMain
+      Pass args via -Dexec.args:
+          --mesh ../../fixtures/sphere_pml/sphere.msh
+          --sigma0 5.0
+          --n-index 1.5
+          --r-buffer 2.0
+          --out reduced_kM_sphere_pml.json
+
+  CI gating:
+      Gated behind the `tfjava-cube-cavity` workflow (extended in #156 to
+      also cover the sphere PML path). TF-Java pulls ~200MB of native
+      libs; JDK 17+ required.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>dev.geodefem.reference</groupId>
+    <artifactId>sphere-pml-tfjava</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>sphere-pml-tfjava</name>
+    <description>
+        TF-Java static-graph reference impl of the sphere-PML vector-Nédélec
+        complex-epsilon eigenproblem assembly. Part of Epic #88 / #156.
+    </description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <tensorflow.version>1.0.0</tensorflow.version>
+    </properties>
+
+    <dependencies>
+        <!--
+            TF-Java core API (Ops, Session, Graph). Pinned to 1.0.0
+            since the symbolic-graph API stabilized at that release.
+        -->
+        <dependency>
+            <groupId>org.tensorflow</groupId>
+            <artifactId>tensorflow-core-api</artifactId>
+            <version>${tensorflow.version}</version>
+        </dependency>
+        <!--
+            Native libraries (CPU only). The platform-agnostic JAR plus the
+            classifier-discriminated bundles; CI overrides via profile.
+        -->
+        <dependency>
+            <groupId>org.tensorflow</groupId>
+            <artifactId>tensorflow-core-native</artifactId>
+            <version>${tensorflow.version}</version>
+        </dependency>
+
+        <!-- JSON sidecar for the reduced K, Re(M), Im(M) matrix dump. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.17.2</version>
+        </dependency>
+
+        <!-- CLI args. -->
+        <dependency>
+            <groupId>info.picocli</groupId>
+            <artifactId>picocli</artifactId>
+            <version>4.7.6</version>
+        </dependency>
+
+        <!-- Testing. -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.3</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+            </plugin>
+            <plugin>
+                <!-- Convenient `mvn exec:java` invocation. -->
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.4.1</version>
+                <configuration>
+                    <mainClass>dev.geodefem.refspherepml.SpherePmlMain</mainClass>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedClassifierName>fat</shadedClassifierName>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>dev.geodefem.refspherepml.SpherePmlMain</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!--
+            CI / Linux-x86_64 native lib selector. Activate with
+            `mvn -Plinux-x86_64 …` on CI runners.
+        -->
+        <profile>
+            <id>linux-x86_64</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.tensorflow</groupId>
+                    <artifactId>tensorflow-core-native</artifactId>
+                    <version>${tensorflow.version}</version>
+                    <classifier>linux-x86_64</classifier>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>macos-arm64</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.tensorflow</groupId>
+                    <artifactId>tensorflow-core-native</artifactId>
+                    <version>${tensorflow.version}</version>
+                    <classifier>macosx-arm64</classifier>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
+</project>
