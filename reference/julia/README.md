@@ -44,6 +44,28 @@ f64-pair representation used in Burn/NumPy.
   basin. **Resolution of PR #153 cycle 3's l=2-unreachability
   finding**; see the "Phase H.2 follow-up (issue #160)" section
   below.
+- **`mie_roots.jl` + `gen_mie_roots_julia_baseline.jl`** — independent
+  analytic Mie root catalogue (Epic #88 / Phase J.3, issue #172).
+  Spherical Bessel via **SpecialFunctions.jl half-order
+  `besselj`/`bessely`** (openspecfun/AMOS lineage — independent of
+  both scipy.special and the hand-rolled Burn ladder), identical
+  dense-sampling bracket walk as `geode_core::mie`, bisection-to-f64-
+  exhaustion refinement. Emits
+  `reference/fixtures/mie_roots/julia_baseline.json`; the generator
+  cross-checks all 40 roots (l = 1..4, n = 1..5, TE+TM) against the
+  J.1 SciPy catalogue and **throws** on > 1e-10 relative disagreement
+  (measured worst case ~1.5e-15).
+- **`sphere_mie_small.jl` + `gen_sphere_mie_small_baseline.jl`** —
+  small-mesh anisotropic-UPML dielectric-sphere Mie eigensolve
+  (Epic #88 / Phase J.3, issue #172). Julia port of the J.2 diagonal
+  UPML tensor (`build_anisotropic_pml_tensor_diag`) and the per-axis
+  anisotropic Nédélec mass kernel, solved **dense**
+  (`LinearAlgebra.eigen`, LAPACK ZGGEV) on the 214-DOF interior
+  pencil per the #160 tiebreaker pattern — Arpack shift-invert
+  explicitly avoided (lossy-cluster saturation). Emits
+  `reference/fixtures/sphere_mie_small/julia_baseline.json`; agrees
+  with the NumPy J.2 small baseline at ~1e-13 on the physical band.
+  See the "Phase J.3 (Mie chain)" section below.
 
 ## Toolchain bootstrap
 
@@ -362,6 +384,43 @@ constitutive + assembly layer (the things FEM users actually write)
 is genuinely cleaner. The eigensolve layer has a 4-line set of
 gotchas that should be promoted to the calling-convention notes for
 any Phase J (NLEPS) work that lands later.
+
+### Phase J.3 (Mie chain) — issue #172
+
+Two-part Julia reference for the Mie slice, consuming the merged J.1
+catalogue (PR #177) and J.2 small-mesh fixture conventions (PR #179):
+
+  * **Analytic roots** (`mie_roots.jl`): the TE/TM characteristic
+    functions are a direct transliteration of `geode_core::mie`; the
+    only Julia-specific design choice is computing `j_l`/`y_l` from
+    half-order `besselj`/`bessely` (`j_l(x) = sqrt(π/2x) J_{l+1/2}(x)`)
+    with the Riccati derivatives in recurrence form
+    (`ψ_l' = x j_{l-1} − l j_l`, `χ_l' = l y_l − x y_{l-1}`) instead of
+    differentiating numerically. Root refinement is plain bisection
+    driven to floating-point exhaustion — Roots.jl was *not* added; a
+    15-line bisection keeps the dependency surface flat and matches the
+    Rust side's fixed-step bisection philosophy. Three-lineage
+    agreement (Burn ladder / scipy / AMOS): worst case **1.5e-15
+    relative** over all 40 roots — four orders of magnitude inside the
+    1e-10 contract.
+  * **Small-mesh UPML eigensolve** (`sphere_mie_small.jl`): reuses the
+    H.2 stack (`eigensolve_complex_dense`, Dirichlet, d⁰ classifier)
+    verbatim; the new code is the per-tet diagonal tensor builder and
+    the per-axis anisotropic mass kernel. Cross-IR vs the NumPy J.2
+    small baseline: **max |Δλ| = 1.0e-13** on all 5 physical modes
+    (LAPACK ZGGEV vs LAPACK ZGGEV on the identical pencil). The
+    small-mesh sign note from PR #179 holds on the Julia side too:
+    physical `Im(λ) < 0` on this tensor pencil (mesh-dependent — not a
+    solver branch).
+
+**Complex-arithmetic ergonomics**: no new friction beyond the H.2
+record. The tensor builder is `s = 1.0 - im * (sigma / omega)` and
+`inv(s)` as plain scalar expressions; the per-axis 6×6 mass kernel
+accumulates `ComplexF64` directly with no dtype ceremony (contrast the
+NumPy side's `astype(np.complex128)` casts and the Burn side's
+f64-pair `(m_re, m_im)` split kernels). One minor note: `Pkg.add`
+rewrites `Project.toml` and strips comments — the curator-note comments
+had to be restored by hand after adding SpecialFunctions.
 
 ### Real-arithmetic friction: Arpack.jl 0.5 shift-invert API divergence
 
