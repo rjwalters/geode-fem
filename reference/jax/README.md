@@ -30,6 +30,21 @@ survives the assembly path.
 - **`gen_sphere_pml_fixture.py`** — fixture generator producing
   `reference/fixtures/sphere_pml/jax_baseline.json` using the Phase H
   c128 schema (real-imag interleaved on disk, `|Δ|`-tolerance).
+- **`sphere_mie.py`** — anisotropic-UPML dielectric-sphere Mie
+  pipeline (Epic #88 / Phase J.4 / Issue #173). Ports the J.2
+  tensor-ε assembly: per-axis cofactor-gram mass kernel in c128
+  (`jax.vmap`/`jit`), `BCOO[complex128]` global scatter, eigensolve
+  out-of-graph on host LAPACK ZGGEV (dense canonical-tiebreaker
+  path). Includes `probe_autodiff_tensor_assembly` — `jax.grad`
+  through the **tensor-valued** complex-ε kernel, closing the H.3
+  scalar-only caveat (verdict: traces cleanly, zero custom VJPs).
+- **`gen_sphere_mie_fixture.py`** — fixture generator producing
+  `reference/fixtures/sphere_mie_small/jax_baseline.json` (small-mesh
+  granularity — the default-CI-checkable slice, #158/#164/#160
+  precedent). Hard-asserts the NumPy J.2 spectrum (dense vs dense),
+  the J.1 analytic TM_1,1 anchor, Q tripwires, the σ₀ = 0 collapse,
+  and a clean autodiff probe verdict at generation time; gated by
+  `.github/workflows/jax-sphere-mie.yml` (Option A).
 
 ## Quick start
 
