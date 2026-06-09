@@ -13,6 +13,13 @@
 # scipy.sparse.linalg.eigsh, making the Julia eigensolve a
 # near-bit-equivalent of the NumPy reference at the iteration-trace
 # level. See reference/julia/README.md for the rationale.
+#
+# SpecialFunctions.jl (Phase J.3, issue #172): half-order besselj/bessely
+# for the analytic Mie-root catalogue (`mie_roots.jl`) — a genuinely
+# independent Bessel implementation lineage (openspecfun/AMOS) from
+# scipy.special.spherical_jn/spherical_yn, making the Julia catalogue a
+# second opinion on the J.1 analytic anchor rather than a re-test of the
+# same special-function code.
 
 [deps]
 Arpack = "7d9fca2a-8960-54d3-9f78-7d1dccf2cb97"
@@ -20,12 +27,14 @@ JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [compat]
 # Julia 1.10 LTS line per the curator note. Revisit if Arpack.jl drops 1.10.
 julia = "1.10"
 Arpack = "0.5"
 JSON3 = "1"
+SpecialFunctions = "2"
 
 # Note (Open Question #1 in the curator pass): Manifest.toml is committed in
 # git for this reference because it is an application (a fixture generator),

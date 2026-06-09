@@ -1,0 +1,412 @@
+{
+    "units": "k in inverse length, same units as R_s / R_b (dimensionless geometry)",
+    "provenance": {
+        "julia_version": "1.10.11",
+        "issue": "#172 (Epic #88, Phase J.3; catalogue extent from #170)",
+        "source": "reference/julia/mie_roots.jl — SpecialFunctions.jl half-order besselj/bessely (j_l(x) = sqrt(pi/2x) J_{l+1/2}(x)) + bisection-to-f64-exhaustion refinement, with the identical dense-sampling bracket walk as geode_core::mie (30000 samples on (0.1, 20.0], 1e8 pole-rejection, 1e-5 consecutive dedup).",
+        "verified_against": "reference/fixtures/mie_roots/baseline.json (J.1 SciPy catalogue; root-for-root (pol, l, n) join at <= 1e-10 relative in this generator) AND crates/geode-validation/tests/mie_roots_julia_reference.rs (Burn-side join at the same contract)."
+    },
+    "outputs": {
+        "root_pol": {
+            "dtype": "f64",
+            "shape": [
+                40
+            ],
+            "data": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1
+            ],
+            "tolerance_abs": 0.5,
+            "description": "Polarisation tag per root: 0 = TE, 1 = TM."
+        },
+        "root_l": {
+            "dtype": "f64",
+            "shape": [
+                40
+            ],
+            "data": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                2,
+                2,
+                2,
+                2,
+                3,
+                3,
+                3,
+                3,
+                3,
+                4,
+                4,
+                4,
+                4,
+                4,
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                2,
+                2,
+                2,
+                2,
+                3,
+                3,
+                3,
+                3,
+                3,
+                4,
+                4,
+                4,
+                4,
+                4
+            ],
+            "tolerance_abs": 0.5,
+            "description": "Angular order l per root."
+        },
+        "root_n": {
+            "dtype": "f64",
+            "shape": [
+                40
+            ],
+            "data": [
+                1,
+                2,
+                3,
+                4,
+                5,
+                1,
+                2,
+                3,
+                4,
+                5,
+                1,
+                2,
+                3,
+                4,
+                5,
+                1,
+                2,
+                3,
+                4,
+                5,
+                1,
+                2,
+                3,
+                4,
+                5,
+                1,
+                2,
+                3,
+                4,
+                5,
+                1,
+                2,
+                3,
+                4,
+                5,
+                1,
+                2,
+                3,
+                4,
+                5
+            ],
+            "tolerance_abs": 0.5,
+            "description": "Radial order n per root (1 = lowest in window)."
+        },
+        "root_k": {
+            "dtype": "f64",
+            "shape": [
+                40
+            ],
+            "data": [
+                1.889433359545332,
+                3.094724628594159,
+                4.445130684813233,
+                5.567168763852559,
+                6.970269231314527,
+                2.5249378803312403,
+                3.7334565364213104,
+                5.001036201653038,
+                6.215203182025663,
+                7.5823079803388325,
+                3.1892083849930675,
+                4.346472636389386,
+                5.570863504379059,
+                6.870950341312653,
+                8.140732741087515,
+                3.859498947034802,
+                4.950433764443083,
+                6.16725567126578,
+                7.505414144425025,
+                8.697020690319146,
+                1.3034341302750474,
+                2.3848569315543338,
+                3.82294497680273,
+                4.977646633391036,
+                6.258573174045495,
+                1.8907365853830633,
+                2.9793735352944806,
+                4.451281226131002,
+                5.529976051892204,
+                6.94239499990551,
+                2.4615808619392148,
+                3.618123168023903,
+                5.027507476324267,
+                6.135348754908346,
+                7.582402191954591,
+                3.017858013639196,
+                4.290951709732607,
+                5.571772068659776,
+                6.782927691124719,
+                8.163588154246558
+            ],
+            "tolerance_abs": 2.0e-9,
+            "description": "Resonance positions k, ordered by (pol, l, n) in lockstep with root_pol / root_l / root_n. Bisection-refined to f64 exhaustion; cross-check contract is <= 1e-10 relative (vs both the J.1 SciPy catalogue and geode_core::mie)."
+        },
+        "r_sphere": {
+            "dtype": "f64",
+            "shape": [
+                1
+            ],
+            "data": [
+                1
+            ],
+            "tolerance_abs": 1.0e-15,
+            "description": "R_s (replicated as output; must equal Burn mesh::R_SPHERE)."
+        },
+        "root_count_te": {
+            "dtype": "f64",
+            "shape": [
+                4
+            ],
+            "data": [
+                5,
+                5,
+                5,
+                5
+            ],
+            "tolerance_abs": 0.5,
+            "description": "TE root count per l = 1..l_max (after the n_max cap)."
+        },
+        "n_roots": {
+            "dtype": "f64",
+            "shape": [
+                1
+            ],
+            "data": [
+                40
+            ],
+            "tolerance_abs": 0.5,
+            "description": "Total catalogued roots."
+        },
+        "r_buffer": {
+            "dtype": "f64",
+            "shape": [
+                1
+            ],
+            "data": [
+                2
+            ],
+            "tolerance_abs": 1.0e-15,
+            "description": "R_b (replicated as output; must equal Burn mesh::R_BUFFER)."
+        },
+        "n_inside": {
+            "dtype": "f64",
+            "shape": [
+                1
+            ],
+            "data": [
+                1.5
+            ],
+            "tolerance_abs": 1.0e-15,
+            "description": "Refractive index (replicated as output for harness-side constant pinning)."
+        },
+        "root_multiplicity": {
+            "dtype": "f64",
+            "shape": [
+                40
+            ],
+            "data": [
+                3,
+                3,
+                3,
+                3,
+                3,
+                5,
+                5,
+                5,
+                5,
+                5,
+                7,
+                7,
+                7,
+                7,
+                7,
+                9,
+                9,
+                9,
+                9,
+                9,
+                3,
+                3,
+                3,
+                3,
+                3,
+                5,
+                5,
+                5,
+                5,
+                5,
+                7,
+                7,
+                7,
+                7,
+                7,
+                9,
+                9,
+                9,
+                9,
+                9
+            ],
+            "tolerance_abs": 0.5,
+            "description": "Degeneracy 2l + 1 per root."
+        },
+        "cross_check_max_rel_vs_scipy": {
+            "dtype": "f64",
+            "shape": [
+                1
+            ],
+            "data": [
+                1.526695937626119e-15
+            ],
+            "tolerance_abs": 1.0e-10,
+            "description": "Worst-case relative |Δk|/k observed in the generation-time root-for-root join against the J.1 SciPy catalogue (reference/fixtures/mie_roots/baseline.json). Pinned on disk so the <= 1e-10 agreement claim is auditable; the generator throws if any root exceeds 1e-10 relative."
+        },
+        "l_max": {
+            "dtype": "f64",
+            "shape": [
+                1
+            ],
+            "data": [
+                4
+            ],
+            "tolerance_abs": 0.5,
+            "description": "Maximum angular order in the catalogue (matches examples/mie_sphere.rs L_MAX)."
+        },
+        "n_max": {
+            "dtype": "f64",
+            "shape": [
+                1
+            ],
+            "data": [
+                5
+            ],
+            "tolerance_abs": 0.5,
+            "description": "Roots per (l, polarisation) channel (matches examples/mie_sphere.rs N_MAX)."
+        },
+        "root_count_tm": {
+            "dtype": "f64",
+            "shape": [
+                4
+            ],
+            "data": [
+                5,
+                5,
+                5,
+                5
+            ],
+            "tolerance_abs": 0.5,
+            "description": "TM root count per l = 1..l_max (after the n_max cap)."
+        }
+    },
+    "fixture_id": "mie_roots/n15_pec_cavity_l4_n5_julia",
+    "schema_version": "1",
+    "description": "Analytic Mie resonance root catalogue for the dielectric sphere (n = 1.5, R_s = 1.0) inside a PEC cavity (R_b = 2.0) — issue #172, parent epic #88, Phase J.3. Julia reference (reference/julia/mie_roots.jl) using SpecialFunctions.jl half-order besselj/bessely (openspecfun/AMOS lineage — independent of both scipy.special and the hand-rolled Burn ladder) with the identical dense-sampling bracket walk. TE/TM roots for l = 1..4, first 5 roots per channel, stored sorted by the canonical (pol, l, n) key (pol: 0 = TE, 1 = TM) — same layout as the J.1 baseline.json.",
+    "inputs": {
+        "k_window": {
+            "dtype": "f64",
+            "shape": [
+                2
+            ],
+            "data": [
+                0.1,
+                20.0
+            ],
+            "description": "Root search window (k_min, k_max]."
+        },
+        "r_buffer": {
+            "dtype": "f64",
+            "shape": [
+                1
+            ],
+            "data": [
+                2
+            ],
+            "description": "PEC wall radius R_b (Burn: mesh::R_BUFFER)."
+        },
+        "n_inside": {
+            "dtype": "f64",
+            "shape": [
+                1
+            ],
+            "data": [
+                1.5
+            ],
+            "description": "Refractive index of the inner sphere."
+        },
+        "r_sphere": {
+            "dtype": "f64",
+            "shape": [
+                1
+            ],
+            "data": [
+                1
+            ],
+            "description": "Inner sphere radius R_s (Burn: mesh::R_SPHERE)."
+        }
+    }
+}
