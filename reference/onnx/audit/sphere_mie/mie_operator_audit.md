@@ -400,11 +400,15 @@ python3 audit/sphere_mie/probe_root_finding_loop.py
 ```
 
 Each probe prints a one-screen verdict block and exits nonzero if any
-check fails. The probes' captured runtime errors (the c128 `Mul`
-rejection; the f64 `Cos` `NOT_IMPLEMENTED`) are the load-bearing
-freshness signals: if a future onnxruntime registers those kernels,
-the corresponding fallback rows collapse to emittable and this audit
-is stale — re-audit.
+check fails. The probes' expected-failure controls are the load-bearing
+freshness signals: the tensor probe's graph (A) asserts the c128 `Mul`
+rejection, and the root-finding probe's native f64 `Cos` control
+asserts the `NOT_IMPLEMENTED` session-create failure behind the
+`Sin(x+π/2)` fallback. If a future onnxruntime registers either
+kernel, the corresponding probe exits nonzero, the fallback row
+collapses to emittable, and this audit is stale — re-audit. (f64
+`Tan`/`Atan` are likewise missing but unused by the pipeline, so they
+carry no control.)
 
 ## Acknowledgements / cross-references
 

@@ -45,6 +45,12 @@ The probe never self-compares: every numerical check is against
 ``reference/numpy/mie_roots.py`` (scipy ``spherical_jn``/``spherical_yn``
 + ``brentq``), scipy directly, or the J.1 baseline fixture.
 
+A one-node native f64 ``Cos`` control graph (mirror of graph (A) in
+``probe_tensor_eps_ramp.py``) asserts the ``NOT_IMPLEMENTED``
+session-create failure that motivates the ``Sin(x + π/2)`` fallback in
+``emit_cos_f64``; the assertion is folded into the overall PASS so the
+fallback row gets re-audited if a future onnxruntime adds the kernel.
+
 Run
 ===
 
@@ -422,6 +428,25 @@ def make_model(g: Emitter, name: str, inputs, outputs) -> onnx.ModelProto:
     )
 
 
+def build_native_cos_f64_graph() -> onnx.ModelProto:
+    """One-node native f64 ``Cos`` — the expected-failure control for
+    the ``emit_cos_f64`` fallback (mirror of graph (A) in
+    ``probe_tensor_eps_ramp.py``). Session creation must FAIL with
+    ``NOT_IMPLEMENTED`` under onnxruntime 1.26.0. If a future runtime
+    registers the f64 kernel, this control makes the probe exit
+    nonzero so the ``Sin(x + π/2)`` fallback row gets re-audited.
+    """
+    graph = oh.make_graph(
+        [oh.make_node("Cos", ["x"], ["y"])],
+        "native_cos_f64_control",
+        [oh.make_tensor_value_info("x", TensorProto.DOUBLE, ["N"])],
+        [oh.make_tensor_value_info("y", TensorProto.DOUBLE, ["N"])],
+    )
+    return oh.make_model(
+        graph, opset_imports=[oh.make_opsetid("", OPSET)], ir_version=9
+    )
+
+
 def build_characteristic_graph(l: int) -> onnx.ModelProto:
     g = Emitter()
     f = emit_characteristic_te(g, "ks", l)
@@ -688,6 +713,31 @@ def main() -> int:  # noqa: PLR0915
 
     dk = (K_MAX - K_MIN) / N_SAMPLES
     ks = (K_MIN + dk * np.arange(N_SAMPLES + 1)).astype(np.float64)
+
+    # ------------------------------------------------------------- #
+    # Control: native f64 Cos (expected failure — freshness signal)
+    # ------------------------------------------------------------- #
+    print("--- Control: native f64 Cos node (expected session-create failure) ---")
+    model_cos = build_native_cos_f64_graph()
+    onnx.checker.check_model(model_cos)  # schema-OK; the missing piece is the kernel
+    cos_failed = False
+    try:
+        ort.InferenceSession(model_cos.SerializeToString())
+    except Exception as e:  # noqa: BLE001
+        cos_failed = True
+        msg = repr(e)
+        if len(msg) > 400:
+            msg = msg[:380] + "...(truncated)"
+        print(f"  session create: FAIL (expected) — {msg}")
+    else:
+        print("  session create: OK — onnxruntime now registers an f64 Cos kernel;")
+        print("  the Stage (a) Sin(x+π/2) fallback row in the audit is STALE — re-audit.")
+    ok &= cos_failed
+    print(f"  emit_cos_f64 Sin(x+π/2) fallback still required: "
+          f"{'PASS' if cos_failed else 'FAIL'}")
+    print("  (f64 Tan/Atan kernels are likewise missing in 1.26.0, but this")
+    print("   pipeline never needs them — no control graph required.)")
+    print()
 
     # ------------------------------------------------------------- #
     # (a) characteristic function evaluation
