@@ -28,6 +28,9 @@ reference/numpy/
 ├── gen_sphere_pml_baseline.py      — fixture generator for sphere_pml/baseline.json (#146)
 ├── mie_roots.py                    — analytic Mie root catalogue, SciPy port of geode_core::mie (#170, Phase J.1)
 ├── gen_mie_roots_baseline.py       — fixture generator for mie_roots/baseline.json (#170)
+├── sphere_mie.py                   — end-to-end anisotropic-UPML Mie driver (#171, Phase J.2)
+├── gen_sphere_mie_baseline.py      — fixture generator for sphere_mie/baseline.json (#171)
+├── gen_sphere_mie_small_baseline.py— fixture generator for sphere_mie_small/baseline.json (#171)
 └── _harness.py                     — fixture I/O helper shared across slices
 ```
 
@@ -59,6 +62,28 @@ operator K is singular (gradient kernel of dimension ~368) so
 physical band biases the selection. The dense path sees the entire
 spectrum and slices it deterministically; it is the canonical-
 tiebreaker reference for the H sub-epic regardless of cost.
+
+### Anisotropic-UPML Mie sphere (`sphere_mie.py`, Phase J.2)
+
+Issue #171 carries the anisotropic-UPML port that Phase H deferred:
+the end-to-end Mie pipeline of `crates/geode-core/tests/mie_sphere.rs`
+(dielectric sphere, diagonal UPML tensor at σ₀ = 5.0, k₀_ref = 2.0),
+anchored to the Phase J.1 analytic root catalogue. The constitutive
+piece mirrors `geode_core::build_anisotropic_pml_tensor_diag` +
+`batched_nedelec_local_mass_anisotropic_diag`; everything else is
+shared with `sphere_pec.py` / `sphere_pml.py`.
+
+```bash
+# Quick smoke print on the small mesh (modes + J.1 classification + Q).
+python3 reference/numpy/sphere_mie.py
+
+# σ₀ = 0 collapse — the tensor degenerates to the real isotropic scalar.
+python3 reference/numpy/sphere_mie.py --sigma0 0.0
+
+# Regenerate the small baseline (seconds) / full baseline (~1 h dense ZGGEV).
+python3 reference/numpy/gen_sphere_mie_small_baseline.py
+python3 reference/numpy/gen_sphere_mie_baseline.py
+```
 
 The `derham.py` module is the formal NumPy reference for the discrete
 de Rham complex (`gradient_map`, `curl_map`, `divergence_map`) plus the
