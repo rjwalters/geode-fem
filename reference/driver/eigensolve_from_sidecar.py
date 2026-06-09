@@ -17,6 +17,14 @@ the multi-backend reference set:
   LAPACK ZGGEV complex generalized eigensolve (mirror of
   ``reference/numpy/sphere_pml.py::eigensolve_complex_dense``). Canonical
   sign convention: ``Im(λ) > 0`` per PR #155 Judge's binding decision.
+* ``--problem sphere-mie`` — vector Nédélec curl-curl with the
+  **anisotropic UPML diagonal tensor ε** on the PEC-bounded dielectric
+  sphere (Phase J.5 / issue #174). Same sidecar surface as sphere-pml —
+  (K_int, Re(M_int), Im(M_int)) fused into a complex128 pencil, dense
+  LAPACK ZGGEV — but with NO sign canonicalization: the tensor pencil's
+  physical eigenvalues carry ``Im(λ) < 0`` on the small mesh (a property
+  of the pencil, agreed on by LAPACK ZGGEV and faer QZ — see the J.2
+  fixture description in ``reference/fixtures/sphere_mie_small/``).
 
 This script consolidates four legacy entry points:
 
@@ -147,7 +155,7 @@ SPHERE_PEC_BACKENDS: dict[str, dict] = {
     },
 }
 
-PROBLEMS = ("cube-cavity", "sphere-pec", "sphere-pml")
+PROBLEMS = ("cube-cavity", "sphere-pec", "sphere-pml", "sphere-mie")
 
 # Per-fixture spurious-dim fallback when no baseline.json is supplied.
 # Matches the historical fallback in eigensolve_sphere_pec_sidecar.py.
@@ -157,6 +165,9 @@ SPHERE_PEC_SPURIOUS_DIM_FALLBACK = 368
 # Nédélec curl-curl is invariant under complex-ε scaling on the mass —
 # Epic #57 / Phase H risk note).
 SPHERE_PML_SPURIOUS_DIM_FALLBACK = 368
+# Sphere-Mie runs on the SMALL mesh (48 nodes, 197 tets, shared with the
+# #158 sphere_pml_small fixture): 31 strictly-interior nodes = d⁰ rank.
+SPHERE_MIE_SPURIOUS_DIM_FALLBACK = 31
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -850,6 +861,350 @@ def _run_sphere_pml(args, sidecar: dict, sidecar_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Sphere-Mie path (anisotropic UPML tensor ε; Phase J.5 / #174)
+# ---------------------------------------------------------------------------
+
+
+def _run_sphere_mie(args, sidecar: dict, sidecar_path: Path) -> None:
+    """Dense ZGGEV over a tensor-ε sidecar — sphere-pml's sibling with two
+    deliberate differences:
+
+    1. **No sign canonicalization.** The anisotropic UPML pencil's
+       physical eigenvalues come out with ``Im(λ) < 0`` on the small
+       mesh: the radial tensor entry carries ``1/s_r`` (``Im > 0``)
+       while the transverse entries carry ``s_t`` (``Im < 0``), and the
+       net sign is a property of the pencil — not a solver convention
+       (see the J.2 fixture description). Flipping to ``Im(λ) > 0``
+       (the scalar-PML PR #155 convention) would *break* agreement with
+       the NumPy / JAX / Julia Mie baselines.
+    2. **Hard comparison gate.** When ``--baseline`` is supplied the
+       per-position |Δ| against ``physical_eigenvalues_complex`` is
+       enforced at ``--rtol`` (absolute, c128 |Δ| semantics) and the
+       driver exits non-zero on failure — this is the CI gate for the
+       live JVM assembly path.
+    """
+    import scipy.linalg
+
+    # --- Load K_int (real) and the complex M_int (fused from Re+Im halves) ---
+    k_int_real = _load_field(sidecar, "outputs", "k_int")
+    n_int = k_int_real.shape[0]
+    print(f"[sphere-mie-driver] Loaded sidecar: fixture_id={sidecar.get('fixture_id', 'N/A')}")
+    print(f"[sphere-mie-driver] n_int (interior edges) = {n_int}")
+
+    k_int = k_int_real.astype(np.complex128)
+    m_int = _load_complex_matrix_from_re_im(sidecar, "m_re_int", "m_im_int")
+    if m_int.shape != k_int.shape:
+        print(
+            f"K_int and M_int shape mismatch: {k_int.shape} vs {m_int.shape}",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+
+    # --- Mesh metadata ---
+    n_nodes = int(sidecar["outputs"]["n_nodes"]["data"][0]) if "n_nodes" in sidecar["outputs"] else None
+    n_tets  = int(sidecar["outputs"]["n_tets"]["data"][0]) if "n_tets" in sidecar["outputs"] else None
+    n_edges = int(sidecar["outputs"]["n_edges"]["data"][0]) if "n_edges" in sidecar["outputs"] else None
+    if n_nodes:
+        print(f"[sphere-mie-driver] n_nodes={n_nodes}, n_tets={n_tets}, n_edges={n_edges}")
+
+    # --- Spurious-mode count (d⁰-rank is invariant under the tensor-ε mass) ---
+    n_spurious = args.n_spurious
+    if n_spurious is None:
+        baseline_path = args.baseline
+        if baseline_path is None:
+            # Walk up from the sidecar looking for the repo-root `reference/`
+            # tree (the H.4 relative-parent heuristic broke for nested
+            # target/out layouts; walking up is robust).
+            for ancestor in sidecar_path.resolve().parents:
+                cand = ancestor / "reference" / "fixtures" / "sphere_mie_small" / "baseline.json"
+                if cand.exists():
+                    baseline_path = str(cand)
+                    break
+        if baseline_path is not None and Path(baseline_path).exists():
+            with open(baseline_path) as f:
+                bl = json.load(f)
+            ns_field = bl.get("outputs", {}).get("n_spurious_observed") or \
+                       bl.get("outputs", {}).get("spurious_dim")
+            if ns_field is not None:
+                n_spurious = int(ns_field["data"][0])
+                print(f"[sphere-mie-driver] spurious_dim from baseline.json = {n_spurious}")
+        if n_spurious is None:
+            n_spurious = SPHERE_MIE_SPURIOUS_DIM_FALLBACK
+            print(
+                f"[sphere-mie-driver] WARNING: no baseline.json found; "
+                f"using hard-coded spurious_dim fallback = {n_spurious}"
+            )
+
+    n_request = n_spurious + args.n_request_extra
+    print(f"[sphere-mie-driver] Requesting {n_request} eigenvalues "
+          f"({n_spurious} spurious + {args.n_request_extra} extra)")
+
+    # --- Sanity readouts ---
+    print(f"[sphere-mie-driver] trace(K_int)       = {np.trace(k_int_real):.12e}")
+    print(f"[sphere-mie-driver] trace(Re(M_int))   = {np.trace(m_int.real):.12e}")
+    print(f"[sphere-mie-driver] trace(Im(M_int))   = {np.trace(m_int.imag):.12e}")
+
+    # --- Dense LAPACK ZGGEV complex generalized eigensolve ---
+    # Mirror of reference/numpy/sphere_pml.py::eigensolve_complex_dense
+    # (the J.2 Mie pipeline reuses the same eigensolve seam). Dense is the
+    # canonical tiebreaker path; the near-singular gradient kernel rules
+    # out ARPACK shift-invert at sigma=0.
+    print("[sphere-mie-driver] Running scipy.linalg.eigvals (dense LAPACK ZGGEV)...")
+    eigvals = scipy.linalg.eigvals(k_int, m_int)
+    finite_mask = np.isfinite(eigvals.real) & np.isfinite(eigvals.imag)
+    eigvals = eigvals[finite_mask]
+
+    # NO sign canonicalization (see docstring) — sort by |Re(λ)| ascending
+    # to match Burn's `FaerComplexEigensolver` ordering and slice.
+    order = np.argsort(np.abs(eigvals.real))
+    eigvals = eigvals[order]
+    eigvals = eigvals[:n_request]
+
+    print(f"[sphere-mie-driver] Recovered {len(eigvals)} finite eigenvalues; "
+          f"keeping lowest {len(eigvals)} by |Re(λ)|.")
+    print(f"[sphere-mie-driver] Lowest {min(5, len(eigvals))} eigenvalues (raw):")
+    for i in range(min(5, len(eigvals))):
+        lam = eigvals[i]
+        print(f"  λ[{i}] = {lam.real:+.6e} {lam.imag:+.6e}j")
+
+    # --- Spurious filter ---
+    if n_spurious + args.k > len(eigvals):
+        print(
+            f"[sphere-mie-driver] ERROR: requested {args.k} physical modes but only "
+            f"{len(eigvals) - n_spurious} available (n_request={n_request}, "
+            f"n_spurious={n_spurious}).",
+            file=sys.stderr,
+        )
+        sys.exit(4)
+
+    physical = eigvals[n_spurious : n_spurious + args.k]
+
+    # --- Q-factor (sign-agnostic k-space form) of the lowest physical mode ---
+    lam_lowest = physical[0]
+    r = abs(lam_lowest)
+    re_k_lowest = max(0.5 * (r + lam_lowest.real), 0.0) ** 0.5
+    im_k_mag = max(0.5 * (r - lam_lowest.real), 0.0) ** 0.5
+    q_factor = float(re_k_lowest / (2.0 * im_k_mag)) if im_k_mag > 1e-12 else float("inf")
+
+    print(f"[sphere-mie-driver] n_spurious = {n_spurious}")
+    print(f"[sphere-mie-driver] Lowest {args.k} physical complex eigenvalues:")
+    for i, lam in enumerate(physical):
+        print(f"  physical[{i}]: λ = {lam.real:+.6e} {lam.imag:+.6e}j")
+    print(f"[sphere-mie-driver] Q-factor of lowest physical mode = {q_factor:.4f}")
+
+    # --- Cross-backend comparison (hard gate if baseline provided) ---
+    if args.baseline and Path(args.baseline).exists():
+        with open(args.baseline) as f:
+            bl = json.load(f)
+        bl_physical_field = bl["outputs"].get("physical_eigenvalues_complex")
+        if bl_physical_field is not None and bl_physical_field.get("dtype") == "c128":
+            ref_flat = np.asarray(bl_physical_field["data"], dtype=np.float64)
+            ref_physical = ref_flat.view(np.complex128)
+            n_compare = min(len(physical), len(ref_physical))
+            print("\n[sphere-mie-driver] Cross-backend comparison vs NumPy baseline "
+                  "(physical_eigenvalues_complex):")
+            print(f"  {'i':>3}  {'TF-Java':>30}  {'NumPy':>30}  {'|Δ|':>10}")
+            all_ok = True
+            max_abs = 0.0
+            for i in range(n_compare):
+                got  = physical[i]
+                want = ref_physical[i]
+                delta = abs(got - want)
+                max_abs = max(max_abs, delta)
+                flag = "" if delta < args.rtol else "  <-- FAIL"
+                if delta >= args.rtol:
+                    all_ok = False
+                print(
+                    f"  {i:>3}  "
+                    f"{got.real:+.6e}{got.imag:+.4e}j   "
+                    f"{want.real:+.6e}{want.imag:+.4e}j   "
+                    f"{delta:>10.2e}{flag}"
+                )
+            print(f"[sphere-mie-driver] per-position max |Δ| = {max_abs:.3e} "
+                  f"(gate = {args.rtol:.0e} absolute)")
+            if all_ok:
+                print(f"[sphere-mie-driver] PASS: all physical eigenvalues agree to "
+                      f"< {args.rtol:.0e} absolute |Δ|.")
+            else:
+                print(f"[sphere-mie-driver] FAIL: some physical eigenvalues exceed "
+                      f"{args.rtol:.0e} absolute |Δ|.")
+                sys.exit(5)
+
+    # --- Emit schema-v1 fixture ---
+    n_index = float(sidecar["inputs"]["n_index"]["data"][0]) \
+        if "n_index" in sidecar.get("inputs", {}) else 1.5
+    r_buffer = float(sidecar["inputs"]["r_buffer"]["data"][0]) \
+        if "r_buffer" in sidecar.get("inputs", {}) else 2.0
+    sigma_0 = float(sidecar["inputs"]["sigma_0"]["data"][0]) \
+        if "sigma_0" in sidecar.get("inputs", {}) else 5.0
+    k0_ref = float(sidecar["inputs"]["k0_ref"]["data"][0]) \
+        if "k0_ref" in sidecar.get("inputs", {}) else 2.0
+
+    def _interleave(z: np.ndarray) -> list[float]:
+        return np.ascontiguousarray(z, dtype=np.complex128).view(np.float64).tolist()
+
+    # Tolerances match the J.2 / J.4 small-mesh fixtures: 5e-4 on the full
+    # slice (near-zero spurious cluster inflates solver residuals), 1e-4
+    # on the physical band.
+    EIG_TOL_ABS = 5.0e-4
+    PHYSICAL_TOL_ABS = 1.0e-4
+    Q_TOL_ABS = 5.0
+
+    result_fixture = {
+        "schema_version": "1",
+        "fixture_id": "sphere_mie_small/n48_aniso_upml_mie_tfjava_eigenresult",
+        "description": (
+            "Physical complex eigenvalues from the TF-Java sphere-Mie "
+            "anisotropic-UPML tensor-ε Nédélec assembly + SciPy dense "
+            "LAPACK ZGGEV eigensolve (Epic #88 / Phase J.5 / Issue #174). "
+            "TF-Java carries the per-tet diagonal complex tensor as two "
+            "parallel [nTets, 3] f64 placeholders and emits Re(M) / Im(M) "
+            "as parallel f64 tensors (no native c128 typed value in "
+            "TF-Java 1.0.0); the Python driver fuses them into a "
+            "complex128 pencil before the eigensolve. No sign "
+            "canonicalization (physical Im(λ) < 0 is a property of the "
+            "small-mesh tensor pencil). Cross-checked against "
+            "reference/fixtures/sphere_mie_small/baseline.json."
+        ),
+        "units": (
+            "λ = k² (inverse-length squared) under exp(+jωt); "
+            "dimensionless mesh coordinates"
+        ),
+        "inputs": {
+            "mesh_path": {
+                "shape": [0], "dtype": "f64",
+                "description":
+                    "reference/fixtures/sphere_pml_small/sphere.msh — small mesh "
+                    "shared with the #158 sphere_pml_small fixture.",
+                "data": [],
+            },
+            "sigma_0": {
+                "shape": [1], "dtype": "f64",
+                "description": "UPML absorption strength at r=R_BUFFER.",
+                "data": [sigma_0],
+            },
+            "k0_ref": {
+                "shape": [1], "dtype": "f64",
+                "description": "Reference wavenumber ω heuristic in the UPML stretch.",
+                "data": [k0_ref],
+            },
+            "r_sphere": {
+                "shape": [1], "dtype": "f64",
+                "description": "Inner dielectric sphere radius.",
+                "data": [1.0],
+            },
+            "r_pml_inner": {
+                "shape": [1], "dtype": "f64",
+                "description": "PML inner radius.",
+                "data": [1.5],
+            },
+            "r_buffer": {
+                "shape": [1], "dtype": "f64",
+                "description": "Outer PEC wall radius.",
+                "data": [r_buffer],
+            },
+            "n_index": {
+                "shape": [1], "dtype": "f64",
+                "description": "Refractive index in the dielectric.",
+                "data": [n_index],
+            },
+            "n_int": {
+                "shape": [1], "dtype": "i64",
+                "description": "Interior edge count (DOFs after PEC elimination).",
+                "data": [n_int],
+            },
+            "n_spurious": {
+                "shape": [1], "dtype": "i64",
+                "description": "Predicted spurious-mode count (d⁰ rank).",
+                "data": [n_spurious],
+            },
+        },
+        "outputs": {
+            "n_nodes": {
+                "shape": [1], "dtype": "f64",
+                "description": "Number of mesh nodes.",
+                "tolerance_abs": 0.5,
+                "data": [float(n_nodes) if n_nodes is not None else 48.0],
+            },
+            "n_tets": {
+                "shape": [1], "dtype": "f64",
+                "description": "Number of tetrahedra.",
+                "tolerance_abs": 0.5,
+                "data": [float(n_tets) if n_tets is not None else 197.0],
+            },
+            "n_edges": {
+                "shape": [1], "dtype": "f64",
+                "description": "Total global edge count.",
+                "tolerance_abs": 0.5,
+                "data": [float(n_edges) if n_edges is not None else 259.0],
+            },
+            "n_interior_edges": {
+                "shape": [1], "dtype": "f64",
+                "description": "Interior edge count after PEC.",
+                "tolerance_abs": 0.5,
+                "data": [float(n_int)],
+            },
+            "spurious_dim": {
+                "shape": [1], "dtype": "f64",
+                "description":
+                    "Algebraic spurious-mode dimension = rank(d⁰_interior); "
+                    "invariant under the tensor-ε scaling on the mass.",
+                "tolerance_abs": 0.5,
+                "data": [float(n_spurious)],
+            },
+            "eigenvalues_lowest_complex": {
+                "shape": [len(eigvals)], "dtype": "c128",
+                "description":
+                    f"Lowest {len(eigvals)} complex eigenvalues from the "
+                    "dense LAPACK ZGGEV tensor-ε pencil (spurious + "
+                    "physical, before filtering). Sorted by |Re(λ)| "
+                    "ascending. No sign canonicalization.",
+                "tolerance_abs": EIG_TOL_ABS,
+                "data": _interleave(eigvals),
+            },
+            "physical_eigenvalues_complex": {
+                "shape": [args.k], "dtype": "c128",
+                "description":
+                    f"Lowest {args.k} physical complex eigenvalues past "
+                    f"the d⁰-rank spurious cluster (n_spurious={n_spurious}). "
+                    "Physical Im(λ) < 0 on the small-mesh tensor pencil. "
+                    "Acceptance criterion: 1e-4 absolute on |Δ| vs the "
+                    "NumPy J.2 baseline (matches the JAX/Julia Mie "
+                    "baseline tolerance).",
+                "tolerance_abs": PHYSICAL_TOL_ABS,
+                "data": _interleave(physical),
+            },
+            "q_factor_lowest_physical": {
+                "shape": [1], "dtype": "f64",
+                "description":
+                    "Quality factor Q = Re(k) / (2|Im(k)|) for k = sqrt(λ) "
+                    "of the lowest physical complex mode (sign-agnostic "
+                    "k-space form; matches NumPy/Burn canonical formula).",
+                "tolerance_abs": Q_TOL_ABS,
+                "data": [q_factor],
+            },
+        },
+        "provenance": {
+            "source":
+                "reference/tf_java/sphere_mie (assembly) → "
+                "reference/driver/eigensolve_from_sidecar.py "
+                "(--problem sphere-mie --backend tfjava; SciPy ZGGEV)",
+            "verified_against":
+                "reference/fixtures/sphere_mie_small/baseline.json "
+                "(NumPy J.2 canonical, PR #179)",
+            "issue": "#174 (parent epic #88, Phase J.5)",
+        },
+    }
+
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(result_fixture, f, indent=2)
+        f.write("\n")
+    print(f"\n[sphere-mie-driver] Wrote {out_path}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -943,7 +1298,11 @@ def main():
             "[sphere-pml] Reinterpreted as absolute tolerance on |Δ| for "
             "the comparator table (default value not enforced for sphere-pml "
             "— the table is informational; the Rust harness gates on "
-            "physical_eigenvalues_complex[0])."
+            "physical_eigenvalues_complex[0]). "
+            "[sphere-mie] Absolute tolerance on |Δ| for the per-position "
+            "physical-eigenvalue gate vs the NumPy J.2 baseline — ENFORCED "
+            "(driver exits non-zero on failure; this is the CI gate for the "
+            "live JVM tensor-ε assembly path)."
         ),
     )
     parser.add_argument(
@@ -980,6 +1339,8 @@ def main():
             args.out = "eigenresult_sphere_pec.json"
         elif args.problem == "sphere-pml":
             args.out = "eigenresult_sphere_pml.json"
+        elif args.problem == "sphere-mie":
+            args.out = "eigenresult_sphere_mie.json"
         else:
             args.out = "eigenresult.json"
 
@@ -996,6 +1357,8 @@ def main():
         _run_sphere_pec(args, sidecar, sidecar_path)
     elif args.problem == "sphere-pml":
         _run_sphere_pml(args, sidecar, sidecar_path)
+    elif args.problem == "sphere-mie":
+        _run_sphere_mie(args, sidecar, sidecar_path)
     else:
         # Unreachable given the argparse `choices` guard.
         print(f"Unhandled problem: {args.problem}", file=sys.stderr)

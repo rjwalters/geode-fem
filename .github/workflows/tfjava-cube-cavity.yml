@@ -1,7 +1,7 @@
 name: tfjava-cube-cavity
 
-# Gated, optional CI job for the TF-Java cube-cavity, sphere-PEC, AND sphere-PML
-# references (Epic #88 / #93 / #102 / #134 / #156).
+# Gated, optional CI job for the TF-Java cube-cavity, sphere-PEC, sphere-PML,
+# AND sphere-Mie references (Epic #88 / #93 / #102 / #134 / #156 / #174).
 #
 # TF-Java pulls ~200 MB of native libraries and requires JDK 17+, so this
 # workflow is intentionally NOT part of the default per-push CI matrix.
@@ -31,6 +31,17 @@ name: tfjava-cube-cavity
 # canonical Im(λ) > 0 sign per PR #155, asserting 1e-3 absolute agreement
 # on the lowest physical complex eigenvalue vs the NumPy canonical baseline.
 #
+# Per #174 acceptance (Phase J.5): adds a sphere-Mie job that exercises the
+# TENSOR-constitutive complex-Nédélec assembly — the per-tet diagonal
+# anisotropic UPML permittivity tensor (ε_x, ε_y, ε_z) enters the TF-Java
+# static graph as two parallel [nTets, 3] f64 placeholders and the per-axis
+# cofactor gram is contracted against it inside the graph — then runs the
+# SciPy dense LAPACK ZGGEV via the sidecar driver with NO sign
+# canonicalization (physical Im(λ) < 0 is a property of the small-mesh
+# tensor pencil), hard-gating per-position 1e-4 absolute agreement on the
+# physical band vs the NumPy J.2 canonical baseline AND vs the checked-in
+# tfjava_baseline.json snapshot.
+#
 # Scope clarification (issue #111): the Burn row is exercised separately by
 # the `arpack` workflow and per-push cargo tests. We deliberately do not
 # rebuild `geode-core` inside this JVM-heavy job; keeping toolchains
@@ -59,6 +70,10 @@ on:
       - 'reference/fixtures/sphere_pml/baseline.json'
       - 'reference/fixtures/sphere_pml/tfjava_baseline.json'
       - 'reference/fixtures/sphere_pml/sphere.msh'
+      - 'reference/numpy/sphere_mie.py'
+      - 'reference/fixtures/sphere_mie_small/baseline.json'
+      - 'reference/fixtures/sphere_mie_small/tfjava_baseline.json'
+      - 'reference/fixtures/sphere_pml_small/sphere.msh'
       - '.github/workflows/tfjava-cube-cavity.yml'
   pull_request:
     branches: [main]
@@ -82,6 +97,10 @@ on:
       - 'reference/fixtures/sphere_pml/baseline.json'
       - 'reference/fixtures/sphere_pml/tfjava_baseline.json'
       - 'reference/fixtures/sphere_pml/sphere.msh'
+      - 'reference/numpy/sphere_mie.py'
+      - 'reference/fixtures/sphere_mie_small/baseline.json'
+      - 'reference/fixtures/sphere_mie_small/tfjava_baseline.json'
+      - 'reference/fixtures/sphere_pml_small/sphere.msh'
       - '.github/workflows/tfjava-cube-cavity.yml'
   workflow_dispatch:
     inputs:
@@ -432,5 +451,140 @@ jobs:
           path: |
             reference/tf_java/sphere_pml/target/out/reduced_kM_sphere_pml.json
             reference/tf_java/sphere_pml/target/out/eigenresult_sphere_pml.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Sphere-Mie job — TF-Java TENSOR-ε complex-Nédélec assembly + SciPy ZGGEV
+  # (Issue #174, Epic #88 Phase J.5)
+  # ---------------------------------------------------------------------------
+  sphere-mie-tfjava:
+    name: TF-Java sphere-Mie tensor-ε Nédélec assembly + SciPy ZGGEV + NumPy agreement
+    runs-on: ubuntu-latest
+    env:
+      MAVEN_OPTS: "-Xmx2g"
+      # Absolute tolerance for the per-position physical-eigenvalue gate
+      # vs the NumPy J.2 canonical baseline. 1e-4 matches the JAX / Julia
+      # Mie baseline tolerance (the small 214-DOF pencil + dense ZGGEV
+      # both sides leaves only scatterNd-accumulation-order drift, which
+      # the Phase G.5 PR #137 measurement bounds at ~1.2e-5 relative on
+      # a mesh 15x larger). The driver enforces this gate itself and
+      # exits non-zero on failure (unlike sphere-pml, where the table is
+      # informational).
+      SPHERE_MIE_TOL: '1e-4'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: reference/numpy/requirements.txt
+
+      - name: Install Python deps (NumPy + SciPy)
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r reference/numpy/requirements.txt
+
+      - name: Show toolchain versions (debug)
+        run: |
+          java -version
+          mvn -version
+          python3 --version
+          python3 -c "import numpy, scipy; print('numpy', numpy.__version__); print('scipy', scipy.__version__)"
+
+      - name: Build the TF-Java sphere-Mie Maven project
+        working-directory: reference/tf_java/sphere_mie
+        # `-Plinux-x86_64` activates the linux-x86_64 native classifier.
+        # `-DskipTests` — no JUnit tests in the Maven project; the validation
+        # contract is the cross-IR Python eigensolve gate below.
+        run: |
+          mvn -B -Plinux-x86_64 -DskipTests package
+
+      - name: Run TF-Java sphere-Mie tensor-ε assembly → sidecar dump
+        # The Java main reads sphere.msh from the path given via --mesh.
+        # The SMALL mesh (48 nodes, 197 tets) is shared with the #158
+        # sphere_pml_small fixture; --sigma0 5.0 / --k0-ref 2.0 match the
+        # canonical NumPy J.2 baseline
+        # (reference/fixtures/sphere_mie_small/baseline.json @ PR #179).
+        working-directory: reference/tf_java/sphere_mie
+        run: |
+          mkdir -p target/out
+          mvn -B -Plinux-x86_64 exec:java \
+              -Dexec.mainClass=dev.geodefem.refspheremie.SphereMieMain \
+              -Dexec.args="--mesh ../../fixtures/sphere_pml_small/sphere.msh \
+                           --sigma0 5.0 \
+                           --k0-ref 2.0 \
+                           --n-index 1.5 \
+                           --r-buffer 2.0 \
+                           --out target/out/reduced_kM_sphere_mie.json"
+          ls -lh target/out/
+
+      - name: Run SciPy ZGGEV + spurious filter + NumPy hard gate
+        # The eigensolve driver reads the sidecar, fuses the (Re(M), Im(M))
+        # f64 pair into a complex128 pencil, runs dense LAPACK ZGGEV,
+        # applies the d⁰-rank spurious filter (n_spurious=31 from
+        # baseline.json), applies NO sign canonicalization (physical
+        # Im(λ) < 0 is a property of the small-mesh tensor pencil), and
+        # hard-gates per-position agreement vs the NumPy J.2 canonical
+        # baseline at ${SPHERE_MIE_TOL} absolute (driver exits non-zero
+        # on failure).
+        run: |
+          python3 reference/driver/eigensolve_from_sidecar.py \
+              reference/tf_java/sphere_mie/target/out/reduced_kM_sphere_mie.json \
+              --backend tfjava \
+              --problem sphere-mie \
+              --k 5 \
+              --baseline reference/fixtures/sphere_mie_small/baseline.json \
+              --rtol "${SPHERE_MIE_TOL}" \
+              --out reference/tf_java/sphere_mie/target/out/eigenresult_sphere_mie.json
+          cat reference/tf_java/sphere_mie/target/out/eigenresult_sphere_mie.json
+
+      - name: Cross-check live JVM output against checked-in tfjava_baseline.json
+        # The checked-in tfjava_baseline.json was generated via
+        # `reference/tf_java/sphere_mie/gen_tfjava_baseline.py` against the
+        # canonical NumPy pipeline (the TF-Java JVM path produces
+        # numerically equivalent results modulo scatterNd accumulation
+        # order — documented Phase G.5 PR #137 friction artifact). This
+        # gate detects JVM-side drift beyond the documented tolerance,
+        # per-position over the whole physical band (the Mie chain has no
+        # conjugate freedom — both sides carry Im(λ) < 0 natively).
+        run: |
+          python3 -c "
+          import json
+          import numpy as np
+          live = json.load(open('reference/tf_java/sphere_mie/target/out/eigenresult_sphere_mie.json'))
+          stored = json.load(open('reference/fixtures/sphere_mie_small/tfjava_baseline.json'))
+          live_phys = np.asarray(live['outputs']['physical_eigenvalues_complex']['data'], dtype=np.float64).view(np.complex128)
+          stored_phys = np.asarray(stored['outputs']['physical_eigenvalues_complex']['data'], dtype=np.float64).view(np.complex128)
+          n = min(len(live_phys), len(stored_phys))
+          deltas = np.abs(live_phys[:n] - stored_phys[:n])
+          max_abs = float(np.max(deltas))
+          print(f'live JVM physical[0]    = {live_phys[0]}')
+          print(f'stored fixture phys[0]  = {stored_phys[0]}')
+          print(f'per-position max |Δ|    = {max_abs:.3e} (over {n} entries)')
+          tol = 1e-4
+          assert max_abs < tol, f'live vs stored fixture per-position max |Δ| {max_abs:.3e} exceeds {tol:.0e}'
+          print('PASS')
+          "
+
+      - name: Upload sphere-Mie TF-Java artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfjava-sphere-mie-artifacts
+          path: |
+            reference/tf_java/sphere_mie/target/out/reduced_kM_sphere_mie.json
+            reference/tf_java/sphere_mie/target/out/eigenresult_sphere_mie.json
           if-no-files-found: warn
           retention-days: 30
