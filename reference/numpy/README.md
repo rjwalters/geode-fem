@@ -26,6 +26,8 @@ reference/numpy/
 ├── gen_derham_baseline.py          — fixture generator for reference/fixtures/derham/baseline.json (#149)
 ├── gen_sphere_pec_baseline.py      — fixture generator for sphere_pec/baseline.json
 ├── gen_sphere_pml_baseline.py      — fixture generator for sphere_pml/baseline.json (#146)
+├── mie_roots.py                    — analytic Mie root catalogue, SciPy port of geode_core::mie (#170, Phase J.1)
+├── gen_mie_roots_baseline.py       — fixture generator for mie_roots/baseline.json (#170)
 └── _harness.py                     — fixture I/O helper shared across slices
 ```
 

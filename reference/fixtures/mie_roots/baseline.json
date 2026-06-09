@@ -1,0 +1,400 @@
+{
+ "schema_version": "1",
+ "fixture_id": "mie_roots/n15_pec_cavity_l4_n5",
+ "description": "Analytic Mie resonance root catalogue for the dielectric sphere (n = 1.5, R_s = 1.0) inside a PEC cavity (R_b = 2.0) \u2014 issue #170, parent epic #88, Phase J.1. SciPy reference (reference/numpy/mie_roots.py) for geode_core::mie::{resonance_roots, merged_roots, mie_roots_catalog}: TE/TM roots for l = 1..4, first 5 roots per channel, stored sorted by the canonical (pol, l, n) key (pol: 0 = TE, 1 = TM).",
+ "units": "k in inverse length, same units as R_s / R_b (dimensionless geometry)",
+ "inputs": {
+  "n_inside": {
+   "shape": [
+    1
+   ],
+   "dtype": "f64",
+   "description": "Refractive index of the inner sphere.",
+   "data": [
+    1.5
+   ]
+  },
+  "r_sphere": {
+   "shape": [
+    1
+   ],
+   "dtype": "f64",
+   "description": "Inner sphere radius R_s (Burn: mesh::R_SPHERE).",
+   "data": [
+    1.0
+   ]
+  },
+  "r_buffer": {
+   "shape": [
+    1
+   ],
+   "dtype": "f64",
+   "description": "PEC wall radius R_b (Burn: mesh::R_BUFFER).",
+   "data": [
+    2.0
+   ]
+  },
+  "k_window": {
+   "shape": [
+    2
+   ],
+   "dtype": "f64",
+   "description": "Root search window (k_min, k_max].",
+   "data": [
+    0.1,
+    20.0
+   ]
+  }
+ },
+ "outputs": {
+  "l_max": {
+   "shape": [
+    1
+   ],
+   "dtype": "f64",
+   "description": "Maximum angular order in the catalogue (matches examples/mie_sphere.rs L_MAX).",
+   "tolerance_abs": 0.5,
+   "data": [
+    4
+   ]
+  },
+  "n_max": {
+   "shape": [
+    1
+   ],
+   "dtype": "f64",
+   "description": "Roots per (l, polarisation) channel (matches examples/mie_sphere.rs N_MAX).",
+   "tolerance_abs": 0.5,
+   "data": [
+    5
+   ]
+  },
+  "n_roots": {
+   "shape": [
+    1
+   ],
+   "dtype": "f64",
+   "description": "Total catalogued roots.",
+   "tolerance_abs": 0.5,
+   "data": [
+    40
+   ]
+  },
+  "n_inside": {
+   "shape": [
+    1
+   ],
+   "dtype": "f64",
+   "description": "Refractive index (replicated as output for harness-side constant pinning).",
+   "tolerance_abs": 1e-15,
+   "data": [
+    1.5
+   ]
+  },
+  "r_sphere": {
+   "shape": [
+    1
+   ],
+   "dtype": "f64",
+   "description": "R_s (replicated as output; must equal Burn mesh::R_SPHERE).",
+   "tolerance_abs": 1e-15,
+   "data": [
+    1.0
+   ]
+  },
+  "r_buffer": {
+   "shape": [
+    1
+   ],
+   "dtype": "f64",
+   "description": "R_b (replicated as output; must equal Burn mesh::R_BUFFER).",
+   "tolerance_abs": 1e-15,
+   "data": [
+    2.0
+   ]
+  },
+  "root_pol": {
+   "shape": [
+    40
+   ],
+   "dtype": "f64",
+   "description": "Polarisation tag per root: 0 = TE, 1 = TM.",
+   "tolerance_abs": 0.5,
+   "data": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+   ]
+  },
+  "root_l": {
+   "shape": [
+    40
+   ],
+   "dtype": "f64",
+   "description": "Angular order l per root.",
+   "tolerance_abs": 0.5,
+   "data": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    2,
+    2,
+    2,
+    2,
+    2,
+    3,
+    3,
+    3,
+    3,
+    3,
+    4,
+    4,
+    4,
+    4,
+    4,
+    1,
+    1,
+    1,
+    1,
+    1,
+    2,
+    2,
+    2,
+    2,
+    2,
+    3,
+    3,
+    3,
+    3,
+    3,
+    4,
+    4,
+    4,
+    4,
+    4
+   ]
+  },
+  "root_n": {
+   "shape": [
+    40
+   ],
+   "dtype": "f64",
+   "description": "Radial order n per root (1 = lowest in window).",
+   "tolerance_abs": 0.5,
+   "data": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    1,
+    2,
+    3,
+    4,
+    5,
+    1,
+    2,
+    3,
+    4,
+    5,
+    1,
+    2,
+    3,
+    4,
+    5,
+    1,
+    2,
+    3,
+    4,
+    5,
+    1,
+    2,
+    3,
+    4,
+    5,
+    1,
+    2,
+    3,
+    4,
+    5,
+    1,
+    2,
+    3,
+    4,
+    5
+   ]
+  },
+  "root_multiplicity": {
+   "shape": [
+    40
+   ],
+   "dtype": "f64",
+   "description": "Degeneracy 2l + 1 per root.",
+   "tolerance_abs": 0.5,
+   "data": [
+    3,
+    3,
+    3,
+    3,
+    3,
+    5,
+    5,
+    5,
+    5,
+    5,
+    7,
+    7,
+    7,
+    7,
+    7,
+    9,
+    9,
+    9,
+    9,
+    9,
+    3,
+    3,
+    3,
+    3,
+    3,
+    5,
+    5,
+    5,
+    5,
+    5,
+    7,
+    7,
+    7,
+    7,
+    7,
+    9,
+    9,
+    9,
+    9,
+    9
+   ]
+  },
+  "root_k": {
+   "shape": [
+    40
+   ],
+   "dtype": "f64",
+   "description": "Resonance positions k, ordered by (pol, l, n) in lockstep with root_pol / root_l / root_n. brentq-refined to near machine precision; cross-check contract is <= 1e-10 relative.",
+   "tolerance_abs": 2e-09,
+   "data": [
+    1.8894333595453319,
+    3.0947246285941588,
+    4.445130684813233,
+    5.567168763852558,
+    6.9702692313145285,
+    2.5249378803312372,
+    3.7334565364213104,
+    5.001036201653037,
+    6.215203182025664,
+    7.582307980338831,
+    3.189208384993067,
+    4.346472636389386,
+    5.570863504379058,
+    6.870950341312652,
+    8.140732741087508,
+    3.8594989470348016,
+    4.950433764443084,
+    6.167255671265781,
+    7.505414144425027,
+    8.697020690319151,
+    1.3034341302750476,
+    2.384856931554334,
+    3.82294497680273,
+    4.977646633391038,
+    6.258573174045494,
+    1.8907365853830662,
+    2.979373535294481,
+    4.451281226131001,
+    5.5299760518922065,
+    6.94239499990551,
+    2.4615808619392148,
+    3.6181231680239034,
+    5.027507476324266,
+    6.135348754908346,
+    7.58240219195459,
+    3.017858013639195,
+    4.290951709732607,
+    5.571772068659776,
+    6.782927691124718,
+    8.163588154246554
+   ]
+  },
+  "root_count_te": {
+   "shape": [
+    4
+   ],
+   "dtype": "f64",
+   "description": "TE root count per l = 1..l_max (after the n_max cap).",
+   "tolerance_abs": 0.5,
+   "data": [
+    5,
+    5,
+    5,
+    5
+   ]
+  },
+  "root_count_tm": {
+   "shape": [
+    4
+   ],
+   "dtype": "f64",
+   "description": "TM root count per l = 1..l_max (after the n_max cap).",
+   "tolerance_abs": 0.5,
+   "data": [
+    5,
+    5,
+    5,
+    5
+   ]
+  }
+ },
+ "provenance": {
+  "source": "reference/numpy/mie_roots.py \u2014 SciPy (scipy.special.spherical_jn/spherical_yn + scipy.optimize.brentq) reimplementation of geode_core::mie with the identical dense-sampling bracket walk (30000 samples on (0.1, 20.0], 1e8 pole-rejection, 1e-5 consecutive dedup).",
+  "verified_against": "crates/geode-validation/tests/mie_roots_numpy_reference.rs \u2014 root-for-root (pol, l, n) join at <= 1e-10 relative.",
+  "issue": "#170 (Epic #88, Phase J.1); generated at git commit e46571a"
+ }
+}
