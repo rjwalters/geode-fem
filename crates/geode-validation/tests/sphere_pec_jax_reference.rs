@@ -150,8 +150,7 @@ fn run_burn_pipeline() -> BurnPipeline {
 
     // Algebraic spurious-mode dimension via de-Rham d⁰ rank (Issue #124).
     let node_interior_mask = sphere_pec_node_interior_mask(&fixture.mesh, R_BUFFER);
-    let spurious_dim =
-        spurious_dim_from_derham(&fixture.mesh, &interior_mask, &node_interior_mask);
+    let spurious_dim = spurious_dim_from_derham(&fixture.mesh, &interior_mask, &node_interior_mask);
 
     let device = <B as BackendTypes>::Device::default();
     let (nodes_t, tets_t) = upload_mesh::<B>(&fixture.mesh, &device);
@@ -263,24 +262,39 @@ fn sphere_pec_jax_integer_cross_checks() {
     let burn = run_burn_pipeline();
 
     let n_nodes_ref = fixture.output_f64("n_nodes").unwrap().data[0];
-    assert_eq!(burn.n_nodes, n_nodes_ref as usize,
-        "n_nodes: Burn = {}, JAX = {}", burn.n_nodes, n_nodes_ref);
+    assert_eq!(
+        burn.n_nodes, n_nodes_ref as usize,
+        "n_nodes: Burn = {}, JAX = {}",
+        burn.n_nodes, n_nodes_ref
+    );
 
     let n_tets_ref = fixture.output_f64("n_tets").unwrap().data[0];
-    assert_eq!(burn.n_tets, n_tets_ref as usize,
-        "n_tets: Burn = {}, JAX = {}", burn.n_tets, n_tets_ref);
+    assert_eq!(
+        burn.n_tets, n_tets_ref as usize,
+        "n_tets: Burn = {}, JAX = {}",
+        burn.n_tets, n_tets_ref
+    );
 
     let n_edges_ref = fixture.output_f64("n_edges").unwrap().data[0];
-    assert_eq!(burn.n_edges, n_edges_ref as usize,
-        "n_edges: Burn = {}, JAX = {}", burn.n_edges, n_edges_ref);
+    assert_eq!(
+        burn.n_edges, n_edges_ref as usize,
+        "n_edges: Burn = {}, JAX = {}",
+        burn.n_edges, n_edges_ref
+    );
 
     let n_int_ref = fixture.output_f64("n_interior_edges").unwrap().data[0];
-    assert_eq!(burn.n_interior_edges, n_int_ref as usize,
-        "n_interior_edges: Burn = {}, JAX = {}", burn.n_interior_edges, n_int_ref);
+    assert_eq!(
+        burn.n_interior_edges, n_int_ref as usize,
+        "n_interior_edges: Burn = {}, JAX = {}",
+        burn.n_interior_edges, n_int_ref
+    );
 
     let spurious_ref = fixture.output_f64("spurious_dim").unwrap().data[0];
-    assert_eq!(burn.spurious_dim, spurious_ref as usize,
-        "spurious_dim: Burn = {}, JAX = {}", burn.spurious_dim, spurious_ref);
+    assert_eq!(
+        burn.spurious_dim, spurious_ref as usize,
+        "spurious_dim: Burn = {}, JAX = {}",
+        burn.spurious_dim, spurious_ref
+    );
 }
 
 #[test]
@@ -446,7 +460,6 @@ fn sphere_pec_jax_spectrum_agrees() {
         "sphere_pec JAX cross-backend agreement: \
          lowest-spectrum max abs err {:.3e}, \
          lowest 5 physical eigenvalues within {:.0e} relative.",
-        max_abs,
-        tol.eigenvalue_rel
+        max_abs, tol.eigenvalue_rel
     );
 }

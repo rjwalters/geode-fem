@@ -280,11 +280,7 @@ pub const DERHAM_RANK_THRESHOLD_REL: f64 = 1e-12;
 /// `crates/geode-core/tests/derham_kernel_dim.rs` (Issue #81) so it can
 /// be reused by integration tests, the geode-validation cross-checks,
 /// and downstream callers without copy-pasting the dense materialisation.
-pub fn restrict_gradient_dense(
-    mesh: &TetMesh,
-    edge_mask: &[bool],
-    node_mask: &[bool],
-) -> Mat<f64> {
+pub fn restrict_gradient_dense(mesh: &TetMesh, edge_mask: &[bool], node_mask: &[bool]) -> Mat<f64> {
     // Map global node index → interior column (None if boundary).
     let mut node_to_interior: Vec<Option<usize>> = Vec::with_capacity(node_mask.len());
     let mut n_interior_nodes = 0usize;
@@ -384,11 +380,7 @@ pub fn rank_via_svd(d0: &Mat<f64>, threshold_rel: f64) -> usize {
 ///
 /// `edge_mask.len()` must equal `mesh.edges().len()` and
 /// `node_mask.len()` must equal `mesh.n_nodes()`.
-pub fn spurious_dim_from_derham(
-    mesh: &TetMesh,
-    edge_mask: &[bool],
-    node_mask: &[bool],
-) -> usize {
+pub fn spurious_dim_from_derham(mesh: &TetMesh, edge_mask: &[bool], node_mask: &[bool]) -> usize {
     let d0 = restrict_gradient_dense(mesh, edge_mask, node_mask);
     rank_via_svd(&d0, DERHAM_RANK_THRESHOLD_REL)
 }

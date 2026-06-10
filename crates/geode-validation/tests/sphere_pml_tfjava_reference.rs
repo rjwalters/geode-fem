@@ -315,7 +315,10 @@ fn tfjava_pml_physical_eigenvalues_agree_with_numpy_canonical() {
             diff < abs_tol,
             "physical[{i}]: |Δ| = {diff:.3e} exceeds {abs_tol:.0e} \
              (TF-Java = {} {:+}j, NumPy = {} {:+}j)",
-            t.re, t.im, n.re, n.im
+            t.re,
+            t.im,
+            n.re,
+            n.im
         );
     }
 
