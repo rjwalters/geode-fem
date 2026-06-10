@@ -89,19 +89,19 @@ struct BackendTolerances {
 }
 
 const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
-    frobenius_rel:  1e-4,
-    diagonal_abs:   1e-5,
-    spectrum_abs:   1e-3,
+    frobenius_rel: 1e-4,
+    diagonal_abs: 1e-5,
+    spectrum_abs: 1e-3,
     eigenvalue_rel: 1e-5,
-    symmetry_abs:   1e-10,
+    symmetry_abs: 1e-10,
 };
 
 const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
-    frobenius_rel:  5e-4,
-    diagonal_abs:   5e-5,
-    spectrum_abs:   1e-2,
+    frobenius_rel: 5e-4,
+    diagonal_abs: 5e-5,
+    spectrum_abs: 1e-2,
     eigenvalue_rel: 5e-4,
-    symmetry_abs:   1e-6,
+    symmetry_abs: 1e-6,
 };
 
 fn active_backend_tolerances() -> BackendTolerances {
@@ -145,7 +145,7 @@ fn numpy_fixture_path() -> PathBuf {
 struct BurnPipeline {
     n_nodes: usize,
     n_tets: usize,
-    #[allow(dead_code)]  // assembled but not directly cross-checked in this harness
+    #[allow(dead_code)] // assembled but not directly cross-checked in this harness
     epsilon_r: Vec<f64>,
     n_edges: usize,
     n_interior_edges: usize,
@@ -300,9 +300,9 @@ fn sphere_pec_tfjava_mesh_substages_agree() {
 
     // 1. Mesh shape — integer equality.
     let n_nodes_ref = tfjava_fixture.output_f64("n_nodes").unwrap().data[0];
-    let n_tets_ref  = tfjava_fixture.output_f64("n_tets").unwrap().data[0];
+    let n_tets_ref = tfjava_fixture.output_f64("n_tets").unwrap().data[0];
     assert_eq!(burn.n_nodes, n_nodes_ref as usize, "n_nodes");
-    assert_eq!(burn.n_tets,  n_tets_ref  as usize, "n_tets");
+    assert_eq!(burn.n_tets, n_tets_ref as usize, "n_tets");
 
     // 2. Global edge count.
     let n_edges_ref = tfjava_fixture.output_f64("n_edges").unwrap().data[0];
@@ -310,7 +310,10 @@ fn sphere_pec_tfjava_mesh_substages_agree() {
 
     // 3. Interior edge count (after PEC elimination).
     let n_int_ref = tfjava_fixture.output_f64("n_interior_edges").unwrap().data[0];
-    assert_eq!(burn.n_interior_edges, n_int_ref as usize, "n_interior_edges");
+    assert_eq!(
+        burn.n_interior_edges, n_int_ref as usize,
+        "n_interior_edges"
+    );
 
     eprintln!(
         "sphere_pec_tfjava mesh: n_nodes={}, n_tets={}, n_edges={}, n_interior_edges={}, spurious_dim={}",
@@ -339,8 +342,8 @@ fn sphere_pec_tfjava_assembly_agrees_with_numpy_baseline() {
     // 5a. Frobenius norms (compared to NumPy baseline, same cross-check target
     //     that the TF-Java CI eigensolve driver uses).
     let want_kf = numpy_fixture.output_f64("k_int_frobenius").unwrap().data[0];
-    let got_kf  = frobenius_norm(burn.k_int.as_ref());
-    let rel_kf  = (got_kf - want_kf).abs() / want_kf.abs().max(1.0);
+    let got_kf = frobenius_norm(burn.k_int.as_ref());
+    let rel_kf = (got_kf - want_kf).abs() / want_kf.abs().max(1.0);
     assert!(
         rel_kf < tol.frobenius_rel,
         "K_int Frobenius: rel err {rel_kf:.3e} exceeds {:.0e} \
@@ -349,8 +352,8 @@ fn sphere_pec_tfjava_assembly_agrees_with_numpy_baseline() {
     );
 
     let want_mf = numpy_fixture.output_f64("m_int_frobenius").unwrap().data[0];
-    let got_mf  = frobenius_norm(burn.m_int.as_ref());
-    let rel_mf  = (got_mf - want_mf).abs() / want_mf.abs().max(1.0);
+    let got_mf = frobenius_norm(burn.m_int.as_ref());
+    let rel_mf = (got_mf - want_mf).abs() / want_mf.abs().max(1.0);
     assert!(
         rel_mf < tol.frobenius_rel,
         "M_int Frobenius: rel err {rel_mf:.3e} exceeds {:.0e} \
@@ -377,8 +380,11 @@ fn sphere_pec_tfjava_assembly_agrees_with_numpy_baseline() {
     //     for robustness).
     let golden_k_diag = numpy_fixture.output_f64("k_int_diag").unwrap();
     let golden_m_diag = numpy_fixture.output_f64("m_int_diag").unwrap();
-    assert_eq!(golden_k_diag.data.len(), burn.k_int.nrows(),
-               "K_int diagonal length mismatch (Burn vs NumPy)");
+    assert_eq!(
+        golden_k_diag.data.len(),
+        burn.k_int.nrows(),
+        "K_int diagonal length mismatch (Burn vs NumPy)"
+    );
 
     let mut burn_k_diag: Vec<f64> = (0..burn.k_int.nrows())
         .map(|i| burn.k_int[(i, i)])
@@ -390,7 +396,9 @@ fn sphere_pec_tfjava_assembly_agrees_with_numpy_baseline() {
     let mut max_kd = 0.0_f64;
     for (got, want) in burn_k_diag.iter().zip(numpy_k_diag.iter()) {
         let err = (got - want).abs();
-        if err > max_kd { max_kd = err; }
+        if err > max_kd {
+            max_kd = err;
+        }
     }
     assert!(
         max_kd < tol.diagonal_abs,
@@ -408,7 +416,9 @@ fn sphere_pec_tfjava_assembly_agrees_with_numpy_baseline() {
     let mut max_md = 0.0_f64;
     for (got, want) in burn_m_diag.iter().zip(numpy_m_diag.iter()) {
         let err = (got - want).abs();
-        if err > max_md { max_md = err; }
+        if err > max_md {
+            max_md = err;
+        }
     }
     assert!(
         max_md < tol.diagonal_abs,
@@ -452,18 +462,23 @@ fn sphere_pec_tfjava_spectrum_agrees() {
         dense_lowest_eigenvalues(burn.k_int.as_ref(), burn.m_int.as_ref(), n_request);
 
     // n_spurious from the NumPy baseline (algebraic d⁰-rank, Issue #124).
-    let n_sp = numpy_fixture.output_f64("n_spurious_observed").unwrap().data[0] as usize;
+    let n_sp = numpy_fixture
+        .output_f64("n_spurious_observed")
+        .unwrap()
+        .data[0] as usize;
 
     // Integer cross-check: Burn spurious_dim must match NumPy.
     assert_eq!(
         burn.spurious_dim, n_sp,
-        "n_spurious: Burn={}, NumPy={}", burn.spurious_dim, n_sp
+        "n_spurious: Burn={}, NumPy={}",
+        burn.spurious_dim, n_sp
     );
 
     assert!(
         n_sp + n_physical <= burn_spectrum.len(),
         "spectrum too short: n_spurious={n_sp}, n_physical={n_physical}, \
-         spectrum_len={}", burn_spectrum.len()
+         spectrum_len={}",
+        burn_spectrum.len()
     );
     let burn_physical = &burn_spectrum[n_sp..n_sp + n_physical];
 
@@ -506,8 +521,6 @@ fn sphere_pec_tfjava_spectrum_agrees() {
         .enumerate()
     {
         let rel = (got - want).abs() / want.abs().max(1.0);
-        println!(
-            "  physical[{i}]: Burn={got:.10e}  NumPy={want:.10e}  rel={rel:.2e}"
-        );
+        println!("  physical[{i}]: Burn={got:.10e}  NumPy={want:.10e}  rel={rel:.2e}");
     }
 }

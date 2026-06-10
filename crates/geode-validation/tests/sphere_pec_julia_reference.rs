@@ -58,7 +58,7 @@ type B = DefaultBackend;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]  // spectrum_abs used only in the #[ignore]d eigensolve test
+#[allow(dead_code)] // spectrum_abs used only in the #[ignore]d eigensolve test
 struct BackendTolerances {
     /// Relative tolerance on K_int / M_int Frobenius norms.
     frobenius_rel: f64,
@@ -74,19 +74,19 @@ struct BackendTolerances {
 }
 
 const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
-    frobenius_rel:  1e-4,    // Julia ↔ Burn ndarray, relaxed vs Julia↔NumPy (1e-8)
-    diagonal_abs:   1e-5,    // per-DOF absolute
-    spectrum_abs:   1e-3,    // near-zero spurious cluster is solver-dependent
-    eigenvalue_rel: 1e-5,    // Epic #88 cross-IR floor for physical modes
-    symmetry_abs:   1e-10,
+    frobenius_rel: 1e-4,  // Julia ↔ Burn ndarray, relaxed vs Julia↔NumPy (1e-8)
+    diagonal_abs: 1e-5,   // per-DOF absolute
+    spectrum_abs: 1e-3,   // near-zero spurious cluster is solver-dependent
+    eigenvalue_rel: 1e-5, // Epic #88 cross-IR floor for physical modes
+    symmetry_abs: 1e-10,
 };
 
 const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
-    frobenius_rel:  5e-4,
-    diagonal_abs:   5e-5,
-    spectrum_abs:   1e-2,
+    frobenius_rel: 5e-4,
+    diagonal_abs: 5e-5,
+    spectrum_abs: 1e-2,
     eigenvalue_rel: 5e-4,
-    symmetry_abs:   1e-6,
+    symmetry_abs: 1e-6,
 };
 
 fn active_backend_tolerances() -> BackendTolerances {
@@ -286,9 +286,9 @@ fn sphere_pec_julia_mesh_substages_agree() {
 
     // 1. Mesh shape — integer equality.
     let n_nodes_ref = fixture.output_f64("n_nodes").unwrap().data[0];
-    let n_tets_ref  = fixture.output_f64("n_tets").unwrap().data[0];
+    let n_tets_ref = fixture.output_f64("n_tets").unwrap().data[0];
     assert_eq!(burn.n_nodes, n_nodes_ref as usize, "n_nodes");
-    assert_eq!(burn.n_tets,  n_tets_ref  as usize, "n_tets");
+    assert_eq!(burn.n_tets, n_tets_ref as usize, "n_tets");
 
     // 2. ε_r — bit-exact (f64 ULP × max value).
     let eps_ref = fixture.output_f64("epsilon_r");
@@ -310,7 +310,10 @@ fn sphere_pec_julia_mesh_substages_agree() {
 
     // 4a. n_interior_edges — integer equality.
     let n_int_ref = fixture.output_f64("n_interior_edges").unwrap().data[0];
-    assert_eq!(burn.n_interior_edges, n_int_ref as usize, "n_interior_edges");
+    assert_eq!(
+        burn.n_interior_edges, n_int_ref as usize,
+        "n_interior_edges"
+    );
 
     // 4b. spurious_dim (= interior-node count) — integer equality.
     let spurious_dim_ref = fixture.output_f64("spurious_dim").unwrap().data[0];
@@ -318,8 +321,11 @@ fn sphere_pec_julia_mesh_substages_agree() {
 
     // 4c. n_spurious_observed (algebraic d⁰-rank, Issue #124) — integer equality.
     let n_sp_ref = fixture.output_f64("n_spurious_observed").unwrap().data[0];
-    assert_eq!(burn.spurious_dim, n_sp_ref as usize,
-               "n_spurious_observed: Burn = {}, Julia = {}", burn.spurious_dim, n_sp_ref as usize);
+    assert_eq!(
+        burn.spurious_dim, n_sp_ref as usize,
+        "n_spurious_observed: Burn = {}, Julia = {}",
+        burn.spurious_dim, n_sp_ref as usize
+    );
 }
 
 #[test]
@@ -340,8 +346,8 @@ fn sphere_pec_julia_assembly_substages_agree() {
 
     // 5a. Frobenius norms.
     let want_kf = fixture.output_f64("k_int_frobenius").unwrap().data[0];
-    let got_kf  = frobenius_norm(burn.k_int.as_ref());
-    let rel_kf  = (got_kf - want_kf).abs() / want_kf.abs().max(1.0);
+    let got_kf = frobenius_norm(burn.k_int.as_ref());
+    let rel_kf = (got_kf - want_kf).abs() / want_kf.abs().max(1.0);
     assert!(
         rel_kf < tol.frobenius_rel,
         "K_int Frobenius: rel err {rel_kf:.3e} exceeds {:.0e} \
@@ -350,8 +356,8 @@ fn sphere_pec_julia_assembly_substages_agree() {
     );
 
     let want_mf = fixture.output_f64("m_int_frobenius").unwrap().data[0];
-    let got_mf  = frobenius_norm(burn.m_int.as_ref());
-    let rel_mf  = (got_mf - want_mf).abs() / want_mf.abs().max(1.0);
+    let got_mf = frobenius_norm(burn.m_int.as_ref());
+    let rel_mf = (got_mf - want_mf).abs() / want_mf.abs().max(1.0);
     assert!(
         rel_mf < tol.frobenius_rel,
         "M_int Frobenius: rel err {rel_mf:.3e} exceeds {:.0e} \
@@ -367,8 +373,11 @@ fn sphere_pec_julia_assembly_substages_agree() {
     // matrix up to reordering, without assuming a shared global DOF numbering.
     let golden_k_diag = fixture.output_f64("k_int_diag").unwrap();
     let golden_m_diag = fixture.output_f64("m_int_diag").unwrap();
-    assert_eq!(golden_k_diag.data.len(), burn.k_int.nrows(),
-               "K_int diagonal length mismatch");
+    assert_eq!(
+        golden_k_diag.data.len(),
+        burn.k_int.nrows(),
+        "K_int diagonal length mismatch"
+    );
 
     let mut burn_k_diag: Vec<f64> = (0..burn.k_int.nrows())
         .map(|i| burn.k_int[(i, i)])
@@ -380,7 +389,9 @@ fn sphere_pec_julia_assembly_substages_agree() {
     let mut max_kd = 0.0_f64;
     for (got, want) in burn_k_diag.iter().zip(julia_k_diag.iter()) {
         let err = (got - want).abs();
-        if err > max_kd { max_kd = err; }
+        if err > max_kd {
+            max_kd = err;
+        }
     }
     assert!(
         max_kd < tol.diagonal_abs,
@@ -398,7 +409,9 @@ fn sphere_pec_julia_assembly_substages_agree() {
     let mut max_md = 0.0_f64;
     for (got, want) in burn_m_diag.iter().zip(julia_m_diag.iter()) {
         let err = (got - want).abs();
-        if err > max_md { max_md = err; }
+        if err > max_md {
+            max_md = err;
+        }
     }
     assert!(
         max_md < tol.diagonal_abs,
@@ -458,13 +471,15 @@ fn sphere_pec_julia_spectrum_agrees() {
     // Integer cross-check: Burn spurious_dim must match Julia n_spurious_observed.
     assert_eq!(
         burn.spurious_dim, n_sp_julia,
-        "n_spurious: Burn={}, Julia={}", burn.spurious_dim, n_sp_julia
+        "n_spurious: Burn={}, Julia={}",
+        burn.spurious_dim, n_sp_julia
     );
 
     assert!(
         n_sp_julia + n_physical <= burn_spectrum.len(),
         "spectrum too short: n_spurious={n_sp_julia}, n_physical={n_physical}, \
-         spectrum_len={}", burn_spectrum.len()
+         spectrum_len={}",
+        burn_spectrum.len()
     );
     let burn_physical = &burn_spectrum[n_sp_julia..n_sp_julia + n_physical];
 
@@ -507,8 +522,6 @@ fn sphere_pec_julia_spectrum_agrees() {
         .enumerate()
     {
         let rel = (got - want).abs() / want.abs().max(1.0);
-        println!(
-            "  physical[{i}]: Burn={got:.10e}  Julia={want:.10e}  rel={rel:.2e}"
-        );
+        println!("  physical[{i}]: Burn={got:.10e}  Julia={want:.10e}  rel={rel:.2e}");
     }
 }

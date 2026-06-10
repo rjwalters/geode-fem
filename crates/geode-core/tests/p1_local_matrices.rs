@@ -131,10 +131,7 @@ fn reference_unit_tet_stiffness_matches_analytic() {
     ];
     for (idx, (g, e)) in k.iter().zip(expected.iter()).enumerate() {
         let want = e / 6.0;
-        assert!(
-            (g - want).abs() < F32_TOL,
-            "K[{idx}] = {g}, want {want}"
-        );
+        assert!((g - want).abs() < F32_TOL, "K[{idx}] = {g}, want {want}");
     }
 }
 
@@ -151,10 +148,7 @@ fn reference_unit_tet_mass_matches_analytic() {
     ];
     for (idx, (g, e)) in m.iter().zip(pattern.iter()).enumerate() {
         let want = e / 120.0; // (V/20) = 1/120, times pattern entry
-        assert!(
-            (g - want).abs() < F32_TOL,
-            "M[{idx}] = {g}, want {want}"
-        );
+        assert!((g - want).abs() < F32_TOL, "M[{idx}] = {g}, want {want}");
     }
 }
 

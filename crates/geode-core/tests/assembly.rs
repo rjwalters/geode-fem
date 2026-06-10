@@ -222,7 +222,10 @@ fn assembly_preserves_autodiff() {
     let node_flat: Vec<<Ad as BackendTypes>::FloatElem> = mesh
         .nodes
         .iter()
-        .flat_map(|p| p.iter().map(|&x| x.elem::<<Ad as BackendTypes>::FloatElem>()))
+        .flat_map(|p| {
+            p.iter()
+                .map(|&x| x.elem::<<Ad as BackendTypes>::FloatElem>())
+        })
         .collect();
     let tet_flat: Vec<i32> = mesh
         .tets

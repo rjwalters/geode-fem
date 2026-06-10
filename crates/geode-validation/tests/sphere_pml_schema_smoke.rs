@@ -94,7 +94,10 @@ fn stub_fixture_loads_and_has_expected_schema() {
         fixture.outputs["eigenvalues_lowest_complex"].dtype, "c128",
         "the c128 schema branch must be exercised by at least one output field"
     );
-    assert_eq!(fixture.outputs["physical_eigenvalues_complex"].dtype, "c128");
+    assert_eq!(
+        fixture.outputs["physical_eigenvalues_complex"].dtype,
+        "c128"
+    );
     assert_eq!(fixture.outputs["q_factor_lowest_physical"].dtype, "f64");
 
     // Sanity on the input mesh-derived counts: pulled from the bundled
@@ -164,7 +167,10 @@ fn input_c128_decodes_real_imag_interleave() {
         eps.len(),
         "every tet should land in one of the three regions"
     );
-    assert!(n_real_dielectric > 0, "expected at least one dielectric tet");
+    assert!(
+        n_real_dielectric > 0,
+        "expected at least one dielectric tet"
+    );
     assert!(n_real_vacuum > 0, "expected at least one vacuum-gap tet");
     assert!(n_pml_lossy > 0, "expected at least one lossy PML-shell tet");
 }
@@ -219,8 +225,7 @@ fn complex_comparator_passes_on_exact_match() {
     // real-valued `compare` path. Confirms the dtype split is clean.
     for f in &report.fields {
         assert!(
-            f.field == "eigenvalues_lowest_complex"
-                || f.field == "physical_eigenvalues_complex",
+            f.field == "eigenvalues_lowest_complex" || f.field == "physical_eigenvalues_complex",
             "f64-dtype field {} leaked into the complex report",
             f.field
         );

@@ -551,16 +551,10 @@ fn cube_assembly_k_symmetric_and_m_total_mass_positive() {
         for j in (i + 1)..n_edges {
             let kij = k[i * n_edges + j];
             let kji = k[j * n_edges + i];
-            assert!(
-                (kij - kji).abs() < 1e-4,
-                "K not symmetric ({i},{j})"
-            );
+            assert!((kij - kji).abs() < 1e-4, "K not symmetric ({i},{j})");
             let mij = m[i * n_edges + j];
             let mji = m[j * n_edges + i];
-            assert!(
-                (mij - mji).abs() < 1e-5,
-                "M not symmetric ({i},{j})"
-            );
+            assert!((mij - mji).abs() < 1e-5, "M not symmetric ({i},{j})");
         }
     }
 
