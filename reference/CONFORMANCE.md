@@ -24,8 +24,13 @@ Status roll-up for [Epic #88](https://github.com/rjwalters/geode-fem/issues/88)
    to a host solver at the same boundary. Among the five reference backends,
    the SciPy/LAPACK lineage is shared by NumPy, JAX, and TF-Java; the
    genuinely independent solver pairs are LAPACK ZGGEV vs Burn's faer QZ
-   (agreeing at ~1e-13 on the small-mesh tensor pencil) and SciPy `eigsh`
-   vs Arpack.jl vs Burn's Lanczos/ARPACK-FFI on the real slices.
+   (agreeing at 8.2e-7 on the full-mesh physical band and 5.6e-5 on the
+   small-mesh strict TM₁,₁ window of the tensor pencil,
+   [PR #179](https://github.com/rjwalters/geode-fem/pull/179)) and SciPy
+   `eigsh` vs Arpack.jl vs Burn's Lanczos/ARPACK-FFI on the real slices.
+   The ~1e-13 small-mesh figures (JAX 1.9e-13, Julia 1.0e-13, both vs
+   NumPy) are shared-LAPACK-lineage comparisons on the identical pencil —
+   they measure assembly agreement, not independent-solver agreement.
 3. **TF-Java is sidecar-bounded at the eigensolve on every slice** — the
    typed static graph assembles `(K_int, M_int)` but delegates the
    eigensolve to SciPy through the sidecar seam
@@ -313,9 +318,16 @@ same boundary. This row is therefore met as an opaque operator node
   [PR #73](https://github.com/rjwalters/geode-fem/pull/73)).
 
 Independent solver lineages cross-checked: SciPy/LAPACK vs Arpack.jl vs
-Burn's faer QZ + Lanczos/ARPACK-FFI; LAPACK-vs-faer agreement on the
-small-mesh tensor pencil at ~1e-13–5.6e-5 depending on band (see
-[`fixtures/sphere_mie_small/baseline.schema.md`](fixtures/sphere_mie_small/baseline.schema.md)).
+Burn's faer QZ + Lanczos/ARPACK-FFI. LAPACK-ZGGEV-vs-faer-QZ agreement
+on the tensor pencil: max |Δλ| = 8.2e-7 on the full-mesh physical band
+(worst spurious-cluster offender 1.83e-5) and 5.6e-5 on the small-mesh
+strict TM₁,₁ window
+([PR #179](https://github.com/rjwalters/geode-fem/pull/179); full-mesh
+figure also pinned in
+[`fixtures/sphere_mie/baseline.schema.md`](fixtures/sphere_mie/baseline.schema.md)).
+The ~1e-13 small-mesh figures (JAX 1.9e-13, Julia 1.0e-13, both vs
+NumPy) are LAPACK-vs-LAPACK on the identical pencil — shared lineage,
+not independent-solver agreement.
 
 ### Row 10 — Analytic Mie root catalogue (exactly at the bar)
 
