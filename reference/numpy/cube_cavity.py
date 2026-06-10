@@ -63,6 +63,7 @@ Assembly + eigensolve:
 
 from __future__ import annotations
 
+import inspect
 import sys
 from pathlib import Path
 
@@ -158,6 +159,27 @@ def apply_dirichlet(K, M, mask):
 # --------------------------------------------------------------------------- #
 
 
+def _deterministic_arpack_kwargs(n, solver, complex_pencil=False):
+    """Deterministic ARPACK kwargs (issue #191).
+
+    Fixed-seed normalized start vector ``v0`` so near-degenerate
+    clusters converge reproducibly run-to-run; on scipy >= 1.17 also a
+    fixed-seed ``rng``, because the rewritten ARPACK wrapper draws its
+    internal *restart* vectors from OS entropy even when ``v0`` is
+    pinned (older Fortran-ARPACK scipy is deterministic given ``v0``).
+    """
+    rng = np.random.default_rng(0)
+    if complex_pencil:
+        v0 = rng.standard_normal(n) + 1j * rng.standard_normal(n)
+    else:
+        v0 = rng.standard_normal(n)
+    v0 = v0 / np.linalg.norm(v0)
+    kwargs = {"v0": v0}
+    if "rng" in inspect.signature(solver).parameters:
+        kwargs["rng"] = np.random.default_rng(0)
+    return kwargs
+
+
 def eigensolve(K, M, k: int = 5):
     """Lowest-k generalized eigenpairs of ``K x = λ M x``.
 
@@ -177,12 +199,16 @@ def eigensolve(K, M, k: int = 5):
     # eigsh's shift-and-invert path requires a sparse SPD K-σM; at σ=0 that
     # is just K, which is positive *semi*-definite (the constant mode is in
     # the null space, but Dirichlet-restricted K is SPD on the interior).
+    # Deterministic ARPACK iterations: reproducibility for
+    # near-degenerate clusters (issue #191).
+    det = _deterministic_arpack_kwargs(K.shape[0], scipy.sparse.linalg.eigsh)
     eigvals, eigvecs = scipy.sparse.linalg.eigsh(
         K.astype(np.float64),
         k=k,
         M=M.astype(np.float64),
         sigma=0.0,
         which="LM",
+        **det,
     )
     # eigsh in shift-invert mode returns eigenvalues not necessarily sorted.
     order = np.argsort(eigvals)

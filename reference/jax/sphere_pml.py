@@ -122,6 +122,7 @@ _nedelec_mass_batch_jax = _jax_pec._nedelec_mass_batch_jax
 
 # NumPy-side helpers (algorithmic source of truth shared with PEC).
 from sphere_pec import (  # noqa: E402  (numpy module via numpy/sphere_pec.py)
+    _deterministic_arpack_kwargs,
     PHYS_SPHERE_INTERIOR,
     PHYS_PML_SHELL,
     PHYS_VACUUM_GAP,
@@ -317,6 +318,12 @@ def eigensolve_complex(
     """
     K_c = K_int.astype(np.complex128)
     M_c = M_int.astype(np.complex128)
+    # Deterministic ARPACK iterations: reproducibility for
+    # near-degenerate clusters (issue #191). Complex pencil, so the
+    # start vector seeds both real and imaginary parts.
+    det = _deterministic_arpack_kwargs(
+        K_c.shape[0], scipy.sparse.linalg.eigs, complex_pencil=True
+    )
     eigvals, eigvecs = scipy.sparse.linalg.eigs(
         K_c,
         k=int(k_request),
@@ -324,6 +331,7 @@ def eigensolve_complex(
         sigma=complex(sigma),
         which="LM",
         tol=1e-10,
+        **det,
     )
     order = np.argsort(eigvals.real)
     return eigvals[order], eigvecs[:, order]

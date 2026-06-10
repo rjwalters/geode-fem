@@ -68,11 +68,34 @@ the JAX / NumPy baselines without language-specific code paths (see
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import sys
 from pathlib import Path
 
 import numpy as np
+
+
+def _deterministic_arpack_kwargs(n, solver, complex_pencil=False):
+    """Deterministic ARPACK kwargs (issue #191).
+
+    Fixed-seed normalized start vector ``v0`` so near-degenerate
+    clusters converge reproducibly run-to-run; on scipy >= 1.17 also a
+    fixed-seed ``rng``, because the rewritten ARPACK wrapper draws its
+    internal *restart* vectors from OS entropy even when ``v0`` is
+    pinned (older Fortran-ARPACK scipy is deterministic given ``v0``).
+    """
+    rng = np.random.default_rng(0)
+    if complex_pencil:
+        v0 = rng.standard_normal(n) + 1j * rng.standard_normal(n)
+    else:
+        v0 = rng.standard_normal(n)
+    v0 = v0 / np.linalg.norm(v0)
+    kwargs = {"v0": v0}
+    if "rng" in inspect.signature(solver).parameters:
+        kwargs["rng"] = np.random.default_rng(0)
+    return kwargs
+
 
 # ---------------------------------------------------------------------------
 # Per-backend metadata (cube-cavity path)
@@ -251,7 +274,12 @@ def _run_cube_cavity(args, sidecar: dict) -> None:
         import scipy.sparse.linalg as spla
         k_sp = sp.csr_matrix(k_int)
         m_sp = sp.csr_matrix(m_int)
-        eigvals, eigvecs = spla.eigsh(k_sp, k=args.k, M=m_sp, sigma=0.0, which="LM")
+        # Deterministic ARPACK iterations: reproducibility for
+        # near-degenerate clusters (issue #191).
+        det = _deterministic_arpack_kwargs(k_sp.shape[0], spla.eigsh)
+        eigvals, eigvecs = spla.eigsh(
+            k_sp, k=args.k, M=m_sp, sigma=0.0, which="LM", **det
+        )
         order = np.argsort(eigvals)
         eigvals = eigvals[order]
         eigvecs = eigvecs[:, order]
@@ -609,7 +637,12 @@ def _run_sphere_pec(args, sidecar: dict, sidecar_path: Path) -> None:
     k_sp = sp.csr_matrix(k_int_flat)
     m_sp = sp.csr_matrix(m_int_flat)
     print("[sphere-pec-driver] Running scipy.sparse.linalg.eigsh (shift-invert, sigma=0)...")
-    eigvals, eigvecs = spla.eigsh(k_sp, k=n_request, M=m_sp, sigma=0.0, which="LM")
+    # Deterministic ARPACK iterations: reproducibility for
+    # near-degenerate clusters (issue #191).
+    det = _deterministic_arpack_kwargs(k_sp.shape[0], spla.eigsh)
+    eigvals, eigvecs = spla.eigsh(
+        k_sp, k=n_request, M=m_sp, sigma=0.0, which="LM", **det
+    )
     order = np.argsort(eigvals)
     eigvals = eigvals[order]
 
