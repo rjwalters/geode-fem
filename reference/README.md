@@ -14,6 +14,12 @@ shared docs that the Rust-side comparison harness
 > GEODE-FEM. Burn remains the production runtime; the backends here
 > are reference / validation tools.
 
+**Epic #88 close-out:** see [`CONFORMANCE.md`](CONFORMANCE.md) for the
+cross-backend conformance matrix (spine operators × backends), the
+consolidated disagreement catalogue (friction artifacts 1–14), and the
+Burn re-anchoring statement. The layout sketch below reflects the early
+phases; `CONFORMANCE.md` is the authoritative per-slice coverage map.
+
 ## Layout
 
 ```
