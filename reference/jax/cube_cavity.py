@@ -46,6 +46,7 @@ HERE = Path(__file__).resolve().parent
 REPO_REF = HERE.parent  # reference/
 sys.path.insert(0, str(REPO_REF / "numpy"))
 from cube_cavity_minimal import (  # noqa: E402
+    _deterministic_arpack_kwargs,
     cube_interior_mask,
     cube_tet_mesh,
 )
@@ -218,8 +219,11 @@ def solve_cube_cavity_jax(n: int = 4, side: float = 1.0, k: int = 5,
     else:
         k_sparse = sp.csr_matrix(k_int)
         m_sparse = sp.csr_matrix(m_int)
+        # Deterministic ARPACK iterations: reproducibility for
+        # near-degenerate clusters (issue #191).
+        det = _deterministic_arpack_kwargs(k_sparse.shape[0], spla.eigsh)
         eigvals, eigvecs = spla.eigsh(
-            k_sparse, k=k, M=m_sparse, sigma=0.0, which="LM"
+            k_sparse, k=k, M=m_sparse, sigma=0.0, which="LM", **det
         )
         order = np.argsort(eigvals)
         eigvals = eigvals[order]

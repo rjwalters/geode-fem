@@ -54,6 +54,7 @@ The analytic targets for `side=1.0` are eigenvalues at
 
 from __future__ import annotations
 
+import inspect
 import sys
 from pathlib import Path
 
@@ -108,6 +109,27 @@ def restrict_to_interior(k_csr, m_csr, mask: np.ndarray):
     return k_int, m_int
 
 
+def _deterministic_arpack_kwargs(n, solver, complex_pencil=False):
+    """Deterministic ARPACK kwargs (issue #191).
+
+    Fixed-seed normalized start vector ``v0`` so near-degenerate
+    clusters converge reproducibly run-to-run; on scipy >= 1.17 also a
+    fixed-seed ``rng``, because the rewritten ARPACK wrapper draws its
+    internal *restart* vectors from OS entropy even when ``v0`` is
+    pinned (older Fortran-ARPACK scipy is deterministic given ``v0``).
+    """
+    rng = np.random.default_rng(0)
+    if complex_pencil:
+        v0 = rng.standard_normal(n) + 1j * rng.standard_normal(n)
+    else:
+        v0 = rng.standard_normal(n)
+    v0 = v0 / np.linalg.norm(v0)
+    kwargs = {"v0": v0}
+    if "rng" in inspect.signature(solver).parameters:
+        kwargs["rng"] = np.random.default_rng(0)
+    return kwargs
+
+
 def solve_cube_cavity(n: int = 4, side: float = 1.0, k: int = 5, dense: bool = False):
     """End-to-end cube-cavity scalar Helmholtz eigenproblem.
 
@@ -145,7 +167,12 @@ def solve_cube_cavity(n: int = 4, side: float = 1.0, k: int = 5, dense: bool = F
         eigvecs = eigvecs[:, :k]
     else:
         # Sparse path: ARPACK shift-and-invert at sigma=0.
-        eigvals, eigvecs = spla.eigsh(k_int, k=k, M=m_int, sigma=0.0, which="LM")
+        # Deterministic ARPACK iterations: reproducibility for
+        # near-degenerate clusters (issue #191).
+        det = _deterministic_arpack_kwargs(k_int.shape[0], spla.eigsh)
+        eigvals, eigvecs = spla.eigsh(
+            k_int, k=k, M=m_int, sigma=0.0, which="LM", **det
+        )
         # eigsh returns in ascending magnitude of (1/(lam-sigma)); sort by lam.
         order = np.argsort(eigvals)
         eigvals = eigvals[order]
