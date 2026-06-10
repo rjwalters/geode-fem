@@ -10,6 +10,11 @@ the multi-backend reference set:
   sphere (Phase G / issue #134). Always ARPACK shift-and-invert at
   ``sigma=0`` to recover the gradient nullspace, then the d⁰-rank
   spurious-mode classifier (PR #126) filters the physical modes.
+  SUMMARY sidecars (the checked-in fixtures under
+  ``reference/fixtures/sphere_pec/``, which carry only scalar invariants
+  instead of the ~90 MB dense matrices) are auto-detected and routed to
+  an invariants-only comparison vs the NumPy baseline — no eigensolve
+  (issue #186).
 * ``--problem sphere-pml`` — vector Nédélec curl-curl with scalar-isotropic
   complex-ε PML on the PEC-bounded sphere (Phase H / issue #156). Loads
   the (K_int, Re(M_int), Im(M_int)) triple from the sidecar, fuses the
@@ -160,6 +165,11 @@ PROBLEMS = ("cube-cavity", "sphere-pec", "sphere-pml", "sphere-mie")
 # Per-fixture spurious-dim fallback when no baseline.json is supplied.
 # Matches the historical fallback in eigensolve_sphere_pec_sidecar.py.
 SPHERE_PEC_SPURIOUS_DIM_FALLBACK = 368
+# Relative gate for the invariants-only sphere-PEC comparison (summary
+# sidecars without embedded matrices). Matches `frobenius_rel` for the
+# f64 ndarray path in the Rust harness
+# (crates/geode-validation/tests/sphere_pec_{tfjava,onnx}_reference.rs).
+SPHERE_PEC_INVARIANTS_REL = 1e-4
 # Sphere-PML shares the same mesh (774 nodes, 3335 tets) as sphere-PEC, so
 # the d⁰-rank spurious-mode count is identical (gradient kernel of the
 # Nédélec curl-curl is invariant under complex-ε scaling on the mass —
@@ -303,6 +313,206 @@ def _run_cube_cavity(args, sidecar: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _find_sphere_pec_baseline(args, sidecar_path: Path) -> Path | None:
+    """Locate the NumPy sphere-PEC baseline: explicit --baseline first,
+    then the legacy relative heuristic, then a repo-root walk-up (the
+    sphere-mie pattern — robust to nested target/out layouts)."""
+    if args.baseline is not None and Path(args.baseline).exists():
+        return Path(args.baseline)
+    default_bl = sidecar_path.parent.parent.parent / "fixtures" / "sphere_pec" / "baseline.json"
+    if default_bl.exists():
+        return default_bl
+    for ancestor in sidecar_path.resolve().parents:
+        cand = ancestor / "reference" / "fixtures" / "sphere_pec" / "baseline.json"
+        if cand.exists():
+            return cand
+    return None
+
+
+def _run_sphere_pec_invariants_only(
+    args, sidecar: dict, sidecar_path: Path, sphere_meta: dict
+) -> None:
+    """Invariants-only comparison for SUMMARY sphere-PEC sidecars.
+
+    The checked-in fixtures `reference/fixtures/sphere_pec/tfjava_sidecar.json`
+    and `onnx_sidecar.json` deliberately do NOT embed the full K_int / M_int
+    matrices (3300x3300 dense f64 = ~90 MB JSON each — see the docblock in
+    crates/geode-validation/tests/sphere_pec_tfjava_reference.rs). They carry
+    scalar invariants instead: Frobenius norms, diagonal sums, and mesh
+    counts. This mode compares those invariants against the NumPy baseline
+    (reference/fixtures/sphere_pec/baseline.json) and clearly labels the
+    output as invariants-only — NO eigensolve is performed.
+
+    The live CI paths are unaffected: CI regenerates full sidecars from the
+    JVM / ONNX assembly runs, which take the full-matrix eigensolve path.
+    """
+    outputs = sidecar["outputs"]
+    print(
+        "[sphere-pec-driver] Summary sidecar detected (no embedded "
+        "k_int/m_int matrices)."
+    )
+    print(
+        "[sphere-pec-driver] Running INVARIANTS-ONLY comparison vs the "
+        "NumPy baseline — no eigensolve is performed in this mode."
+    )
+
+    baseline_path = _find_sphere_pec_baseline(args, sidecar_path)
+    if baseline_path is None:
+        print(
+            "[sphere-pec-driver] ERROR: invariants-only mode requires the "
+            "NumPy baseline (reference/fixtures/sphere_pec/baseline.json); "
+            "none found. Pass --baseline explicitly.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    with open(baseline_path) as f:
+        baseline = json.load(f)
+    bl_outputs = baseline["outputs"]
+    print(f"[sphere-pec-driver] Baseline: {baseline_path}")
+
+    rel_tol = SPHERE_PEC_INVARIANTS_REL
+    rows: list[tuple[str, float, float, float, bool]] = []
+    all_ok = True
+    skipped: list[str] = []
+
+    # --- Integer mesh counts (exact agreement) ---
+    for key in ("n_nodes", "n_tets", "n_edges", "n_interior_edges"):
+        if key in outputs and key in bl_outputs:
+            got = float(outputs[key]["data"][0])
+            want = float(bl_outputs[key]["data"][0])
+            ok = abs(got - want) < 0.5
+            rows.append((key, got, want, abs(got - want), ok))
+            all_ok &= ok
+        else:
+            skipped.append(key)
+
+    # --- Frobenius norms (relative gate, matches the Rust harness) ---
+    for key in ("k_int_frobenius", "m_int_frobenius"):
+        if key not in outputs or key not in bl_outputs:
+            print(
+                f"[sphere-pec-driver] ERROR: invariant `{key}` missing from "
+                f"{'sidecar' if key not in outputs else 'baseline'}; cannot "
+                "run the invariants-only comparison.",
+                file=sys.stderr,
+            )
+            sys.exit(3)
+        got = float(outputs[key]["data"][0])
+        want = float(bl_outputs[key]["data"][0])
+        rel = abs(got - want) / max(abs(want), 1e-30)
+        ok = rel < rel_tol
+        rows.append((key, got, want, rel, ok))
+        all_ok &= ok
+
+    # --- Diagonal sums vs sum(baseline per-DOF diagonal) ---
+    # The TF-Java summary fixture carries 0.0 placeholders for the diag
+    # sums (the JVM dump predates the field); skip those with a note
+    # rather than failing on a known-unpopulated value.
+    for sum_key, diag_key in (("k_diag_sum", "k_int_diag"), ("m_diag_sum", "m_int_diag")):
+        if sum_key not in outputs or diag_key not in bl_outputs:
+            skipped.append(sum_key)
+            continue
+        got = float(outputs[sum_key]["data"][0])
+        if got == 0.0:
+            print(
+                f"[sphere-pec-driver] NOTE: sidecar `{sum_key}` is the 0.0 "
+                "placeholder (unpopulated in this fixture); skipping."
+            )
+            skipped.append(sum_key)
+            continue
+        want = float(np.sum(np.asarray(bl_outputs[diag_key]["data"], dtype=np.float64)))
+        rel = abs(got - want) / max(abs(want), 1e-30)
+        ok = rel < rel_tol
+        rows.append((sum_key, got, want, rel, ok))
+        all_ok &= ok
+
+    # --- Report ---
+    print(
+        f"\n[sphere-pec-driver] Invariants-only comparison "
+        f"({sphere_meta['comparison_header']} sidecar vs NumPy baseline, "
+        f"rel gate {rel_tol:.0e}):"
+    )
+    print(f"  {'invariant':<22}  {'sidecar':>20}  {'baseline':>20}  {'delta':>10}")
+    for name, got, want, delta, ok in rows:
+        flag = "" if ok else "  <-- FAIL"
+        print(f"  {name:<22}  {got:>20.12e}  {want:>20.12e}  {delta:>10.2e}{flag}")
+    if skipped:
+        print(f"  (skipped: {', '.join(skipped)})")
+
+    if all_ok:
+        print(
+            f"[sphere-pec-driver] PASS (invariants-only): all available "
+            f"invariants agree with the NumPy baseline to < {rel_tol:.0e} "
+            "relative."
+        )
+    else:
+        print(
+            "[sphere-pec-driver] FAIL (invariants-only): some invariants "
+            "disagree with the NumPy baseline.",
+        )
+
+    # --- Emit a clearly-labelled invariants-only result fixture ---
+    result_fixture = {
+        "schema_version": "1",
+        "fixture_id": (
+            f"sphere_pec/n774_pec_invariants_only_{sphere_meta['fixture_id_suffix']}"
+        ),
+        "description": (
+            "INVARIANTS-ONLY comparison result for a summary sphere-PEC "
+            "sidecar (no embedded K_int/M_int matrices, so no eigensolve "
+            "was performed). Scalar assembly invariants (Frobenius norms, "
+            "diagonal sums, mesh counts) compared against "
+            "reference/fixtures/sphere_pec/baseline.json. This is the "
+            "smoke path for the checked-in summary fixtures; the full "
+            "eigensolve path runs in CI against the live assembly sidecar."
+        ),
+        "units": "dimensionless invariants; dimensionless mesh coordinates",
+        "inputs": {
+            "mode": {
+                "shape": [0], "dtype": "f64",
+                "description": "invariants-only (summary sidecar; no eigensolve)",
+                "data": [],
+            },
+        },
+        "outputs": {
+            "invariants_match": {
+                "shape": [1], "dtype": "f64",
+                "description": (
+                    f"1.0 if every available invariant agreed with the NumPy "
+                    f"baseline to < {rel_tol:.0e} relative, else 0.0."
+                ),
+                "tolerance_abs": 0.5,
+                "data": [1.0 if all_ok else 0.0],
+            },
+            **{
+                name: {
+                    "shape": [1], "dtype": "f64",
+                    "description": (
+                        f"Sidecar invariant `{name}` (baseline value "
+                        f"{want:.12e}, delta {delta:.2e})."
+                    ),
+                    "tolerance_abs": rel_tol * max(abs(want), 1.0),
+                    "data": [got],
+                }
+                for name, got, want, delta, _ok in rows
+            },
+        },
+        "provenance": {
+            "source": sphere_meta["provenance_source"],
+            "verified_against": str(baseline_path),
+            "issue": "#186 (summary-sidecar invariants-only smoke; parent #134)",
+        },
+    }
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(result_fixture, f, indent=2)
+        f.write("\n")
+    print(f"[sphere-pec-driver] Wrote {out_path} (invariants-only result)")
+
+    if not all_ok:
+        sys.exit(5)
+
+
 def _run_sphere_pec(args, sidecar: dict, sidecar_path: Path) -> None:
     import scipy.sparse as sp
     import scipy.sparse.linalg as spla
@@ -319,6 +529,26 @@ def _run_sphere_pec(args, sidecar: dict, sidecar_path: Path) -> None:
         )
         sys.exit(1)
     sphere_meta = SPHERE_PEC_BACKENDS[args.backend]
+
+    # --- Summary-sidecar dispatch (issue #186) ---
+    # The checked-in fixtures under reference/fixtures/sphere_pec/ are
+    # summary sidecars: their `outputs` carry only scalar invariants
+    # (Frobenius norms, diag sums, counts), not the full matrices. Route
+    # those to the invariants-only comparison; full sidecars (the live
+    # CI path) continue through the eigensolve below unchanged.
+    outputs = sidecar.get("outputs", {})
+    if "k_int" not in outputs or "m_int" not in outputs:
+        if "k_int_frobenius" in outputs and "m_int_frobenius" in outputs:
+            _run_sphere_pec_invariants_only(args, sidecar, sidecar_path, sphere_meta)
+            return
+        print(
+            "[sphere-pec-driver] ERROR: sidecar outputs carry neither the "
+            "full matrices (k_int, m_int) nor the summary invariants "
+            "(k_int_frobenius, m_int_frobenius); unrecognized sidecar "
+            f"schema. Keys present: {sorted(outputs)}",
+            file=sys.stderr,
+        )
+        sys.exit(3)
 
     # --- Load K_int, M_int ---
     k_int_flat = _load_field(sidecar, "outputs", "k_int")
