@@ -1,0 +1,32 @@
+name: rustfmt
+
+# Issue #185 — enforce `cargo fmt` so format drift can't accumulate.
+#
+# Before this gate existed, ~11 files drifted from rustfmt and every PR
+# had to manually carve them out of its diff. The check is cheap (no
+# build, no dependency resolution — rustfmt only parses), so it runs
+# unconditionally on every push/PR rather than behind a path filter.
+#
+# All other workflows in this repo are specialized, path-filtered
+# physics/cross-check jobs; this is the one repo-wide lint gate.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  fmt:
+    name: cargo fmt --all -- --check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check

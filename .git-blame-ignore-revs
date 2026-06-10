@@ -1,0 +1,5 @@
+# Commits to ignore in `git blame` (GitHub honors this file natively;
+# locally: git config blame.ignoreRevsFile .git-blame-ignore-revs).
+
+# style: cargo fmt --all — fix accumulated format drift (#185)
+ddda725eb552510e225ad928c80ef21b3a5765d1
