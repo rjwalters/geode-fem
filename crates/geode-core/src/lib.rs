@@ -13,6 +13,7 @@ pub mod driven;
 pub mod eigen;
 pub mod fe_assemble;
 pub mod lanczos;
+pub mod lumped_port;
 pub mod mesh;
 pub mod mie;
 pub mod mie_open;
@@ -35,8 +36,9 @@ pub use complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
 pub use complex_lanczos::{SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
 pub use derham::{apply_divergence, apply_gradient, curl_map, divergence_map, gradient_map};
 pub use driven::{
-    driven_solve, driven_solve_quad, driven_solve_with_sigma, driven_solve_with_sigma_quad,
-    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenSolution, QuadCurrentSource,
+    driven_solve, driven_solve_quad, driven_solve_with_ports, driven_solve_with_sigma,
+    driven_solve_with_sigma_quad, CurrentSource, DrivenBcs, DrivenError, DrivenMaterials,
+    DrivenSolution, QuadCurrentSource,
 };
 pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
@@ -44,6 +46,10 @@ pub use eigen::{
 };
 pub use fe_assemble::{fe_assemble, DirichletBc, ElementType, FeAssembleResult};
 pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
+pub use lumped_port::{
+    assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
+    port_voltage, LumpedPort,
+};
 #[allow(deprecated)]
 pub use mesh::PHYS_VACUUM_BUFFER;
 pub use mesh::{

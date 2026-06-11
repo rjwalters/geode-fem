@@ -46,6 +46,15 @@
 //!   [`crate::scattering::build_matched_upml_materials`]; the
 //!   host-assembled oracle is
 //!   [`crate::scattering::solve_scattered_field_matched_upml`].
+//! - **Lumped port** (issue #202) — a Palace-style uniform port on a
+//!   boundary surface Γ_p ([`crate::lumped_port::LumpedPort`], passed
+//!   to [`driven_solve_with_ports`]): a resistive termination adds the
+//!   iω-scaled tangential surface mass `(jω/Z_s) S_p` to `A(ω)`
+//!   (`Z_s = R·w/l`; real symmetric `S_p`, so `A(ω)ᵀ = A(ω)` is
+//!   preserved), and a non-zero incident voltage `V_inc` adds the
+//!   surface drive `b_i += (2jω/Z_s)(V_inc/l) ∮ N_i · ê dS` to the
+//!   RHS. See `lumped_port.rs` for the derivation and the V/I
+//!   bookkeeping helpers.
 //!
 //! # Solver
 //!
@@ -86,6 +95,7 @@ use faer::sparse::{SparseColMat, Triplet};
 
 use crate::complex_lanczos::{solve_with_lu, spmv};
 use crate::eigen::burn_matrix_to_faer;
+use crate::lumped_port::{assemble_port_flux, assemble_port_surface_mass, LumpedPort};
 use crate::nedelec_assembly::{
     assemble_global_nedelec_with_anisotropic_epsilon, assemble_global_nedelec_with_complex_epsilon,
     assemble_global_nedelec_with_full_tensors, assemble_nedelec_current_rhs,
@@ -106,6 +116,8 @@ pub enum DrivenError {
     SigmaDimMismatch { got: usize, want: usize },
     #[error("driven system has no interior DOFs after PEC elimination")]
     EmptyInterior,
+    #[error("invalid lumped port {index}: {reason}")]
+    InvalidPort { index: usize, reason: String },
     #[error("sparse system assembly failed: {0}")]
     SparseAssembly(String),
     #[error("sparse LU factorization of A(ω) failed: {0}")]
@@ -324,6 +336,54 @@ pub fn driven_solve_with_sigma<B: Backend>(
         materials,
         sigma_tet,
         bcs,
+        &[],
+        omega,
+        RhsSamples::Constant(&source.j_tet),
+        device,
+    )
+}
+
+/// [`driven_solve_with_sigma`] with **lumped ports** (issue #202).
+///
+/// Each [`LumpedPort`] contributes two boundary-surface terms on its
+/// port surface Γ_p (Palace-style uniform port, surface impedance
+/// `Z_s = R·w/l`):
+///
+/// ```text
+/// A(ω) += (jω/Z_s) S_p,                        S_p = ∮ (n×N_i)·(n×N_j) dS
+/// b_i  += (2jω/Z_s) (V_inc/l) ∮ N_i · ê dS     (only if V_inc ≠ 0)
+/// ```
+///
+/// The admittance term is a real-symmetric surface mass scaled by `jω`,
+/// so the complex-symmetry invariant `A(ω)ᵀ = A(ω)` (PR #55) is
+/// preserved with ports present. Ports compose with PEC walls the same
+/// way the other surface terms do: PEC-eliminated edges are dropped
+/// from both the port matrix rows/columns and the port RHS.
+///
+/// Port voltage / current / input impedance are read off the solution
+/// with [`crate::lumped_port::port_voltage`],
+/// [`crate::lumped_port::port_current`] and
+/// [`crate::lumped_port::port_input_impedance`].
+///
+/// An empty `ports` slice reproduces [`driven_solve_with_sigma`]
+/// exactly.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_solve_with_ports<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
+    omega: f64,
+    source: &CurrentSource,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
+    driven_solve_impl::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        ports,
         omega,
         RhsSamples::Constant(&source.j_tet),
         device,
@@ -361,17 +421,20 @@ pub fn driven_solve_with_sigma_quad<B: Backend>(
         materials,
         sigma_tet,
         bcs,
+        &[],
         omega,
         RhsSamples::Quad(&source.j_quad),
         device,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn driven_solve_impl<B: Backend>(
     mesh: &TetMesh,
     materials: DrivenMaterials<'_>,
     sigma_tet: Option<&[f64]>,
     bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
     omega: f64,
     rhs: RhsSamples<'_>,
     device: &B::Device,
@@ -421,6 +484,36 @@ fn driven_solve_impl<B: Backend>(
                 got: sigma.len(),
                 want: n_tets,
             });
+        }
+    }
+    for (index, port) in ports.iter().enumerate() {
+        let invalid = |reason: &str| DrivenError::InvalidPort {
+            index,
+            reason: reason.to_string(),
+        };
+        if port.faces.is_empty() {
+            return Err(invalid("port has no faces"));
+        }
+        if !(port.resistance.is_finite() && port.resistance > 0.0) {
+            return Err(invalid("resistance must be finite and positive"));
+        }
+        if !(port.width.is_finite() && port.width > 0.0) {
+            return Err(invalid("width must be finite and positive"));
+        }
+        if !(port.length.is_finite() && port.length > 0.0) {
+            return Err(invalid("length must be finite and positive"));
+        }
+        let e_norm = (port.e_hat[0].powi(2) + port.e_hat[1].powi(2) + port.e_hat[2].powi(2)).sqrt();
+        if (e_norm - 1.0).abs() >= 1e-8 || e_norm.is_nan() {
+            return Err(invalid("e_hat must be a unit vector"));
+        }
+        let n_nodes = mesh.n_nodes() as u32;
+        if port
+            .faces
+            .iter()
+            .any(|f| f.iter().any(|&node| node >= n_nodes))
+        {
+            return Err(invalid("face node index out of range"));
         }
     }
 
@@ -541,11 +634,28 @@ fn driven_solve_impl<B: Backend>(
     let rhs_im: Vec<f64> = rhs_im.into_data().iter::<f64>().collect();
 
     // b = iωμ₀ ∫ N · J dV with μ₀ = 1:  iω (re + i·im) = ω(−im + i·re).
-    let b_full: Vec<c64> = rhs_re
+    let mut b_full: Vec<c64> = rhs_re
         .iter()
         .zip(rhs_im.iter())
         .map(|(&re, &im)| c64::new(-omega * im, omega * re))
         .collect();
+
+    // --- Lumped-port excitation (issue #202) --------------------------------
+    // Matched-source port drive: b_i += (2jω/Z_s)(V_inc/l) ∮ N_i · ê dS.
+    // The flux vector f_i = ∮ N_i · ê dS doubles as the port-voltage
+    // readout functional (see lumped_port.rs).
+    for port in ports {
+        if port.v_inc == c64::new(0.0, 0.0) {
+            continue;
+        }
+        let zs = port.surface_impedance();
+        let e_inc = port.v_inc * (1.0 / port.length);
+        let drive = c64::new(0.0, 2.0 * omega / zs) * e_inc;
+        let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
+        for (b, f) in b_full.iter_mut().zip(flux.iter()) {
+            *b += drive * *f;
+        }
+    }
 
     // --- Host transfer + PEC reduction -------------------------------------
     let k_full = burn_matrix_to_faer(k_re_t);
@@ -583,6 +693,25 @@ fn driven_solve_impl<B: Backend>(
         }
         triplets.push(Triplet::new(rr as usize, cc as usize, a_val));
     }
+
+    // --- Lumped-port admittance terms (issue #202) --------------------------
+    // A(ω) += (jω/Z_s) S_p per port. S_p is real symmetric, so the
+    // complex-symmetry invariant A(ω)ᵀ = A(ω) is preserved. The port
+    // faces are boundary faces of mesh tets, so every (r, c) pair below
+    // already exists in the volume sparsity pattern; faer's
+    // `try_new_from_triplets` sums duplicate entries.
+    for port in ports {
+        let zs = port.surface_impedance();
+        let scale = c64::new(0.0, omega / zs);
+        for (r, c, v) in assemble_port_surface_mass(mesh, port.faces, &edges) {
+            let (rr, cc) = (remap[r], remap[c]);
+            if rr < 0 || cc < 0 {
+                continue;
+            }
+            triplets.push(Triplet::new(rr as usize, cc as usize, scale * v));
+        }
+    }
+
     let a_int =
         SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
             .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
