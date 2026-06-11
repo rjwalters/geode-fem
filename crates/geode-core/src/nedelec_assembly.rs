@@ -20,12 +20,16 @@
 use std::collections::BTreeSet;
 
 use burn::tensor::backend::Backend;
+use burn::tensor::ElementConversion;
 use burn::tensor::Tensor;
 use burn::tensor::{IndexingUpdateOp, Int, TensorData};
 use faer::Mat;
 
 use crate::assembly::{gather_tet_coords, SparsityPattern};
-use crate::nedelec::{batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_matrices};
+use crate::nedelec::{
+    batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_mass_anisotropic_full,
+    batched_nedelec_local_matrices, batched_nedelec_local_stiffness_weighted,
+};
 use crate::TetMesh;
 
 /// Assembled global Nédélec linear system in dense Burn-tensor form.
@@ -37,6 +41,29 @@ pub struct NedelecGlobalSystem<B: Backend> {
     pub m: Tensor<B, 2>,
     /// `(row, col)` index pairs touched during assembly. Always
     /// symmetric for the Nédélec curl-curl / mass pair.
+    pub sparsity: SparsityPattern,
+}
+
+/// Assembled global Nédélec system with **both** matrices complex:
+/// full-3×3-tensor-weighted curl-curl stiffness `K(ν)` and mass
+/// `M(ε)` (matched UPML, issue #199).
+///
+/// Where [`NedelecComplexGlobalSystem`] keeps `K` real (only ε is
+/// stretched), the matched (full Sacks) UPML stretches both
+/// constitutive tensors, so the curl-curl weight `ν = Λ⁻¹` is complex
+/// too. Combine with [`burn_complex_mass_to_faer`] (which is weight-
+/// agnostic — it just zips a Re/Im pair) on the host side.
+#[derive(Debug, Clone)]
+pub struct NedelecFullTensorGlobalSystem<B: Backend> {
+    /// Real part of the ν-weighted curl-curl stiffness, `[n_edges, n_edges]`.
+    pub k_re: Tensor<B, 2>,
+    /// Imaginary part of the ν-weighted curl-curl stiffness.
+    pub k_im: Tensor<B, 2>,
+    /// Real part of the ε-weighted mass matrix.
+    pub m_re: Tensor<B, 2>,
+    /// Imaginary part of the ε-weighted mass matrix.
+    pub m_im: Tensor<B, 2>,
+    /// `(row, col)` index pairs touched during assembly.
     pub sparsity: SparsityPattern,
 }
 
@@ -1061,6 +1088,143 @@ pub fn assemble_global_nedelec_with_anisotropic_epsilon<B: Backend>(
     }
 }
 
+/// Upload one real component (Re or Im) of a per-tet 3×3 complex
+/// tensor field as a `[n_elem, 3, 3]` Burn tensor at the backend's
+/// full float precision (`B::FloatElem` — f64 on the ndarray CPU
+/// backend, f32 on the GPU backends; same idiom as
+/// [`crate::assembly::upload_mesh`]).
+fn upload_tensor33_component<B: Backend>(
+    field: &[[[faer::c64; 3]; 3]],
+    pick: impl Fn(&faer::c64) -> f64,
+    device: &B::Device,
+) -> Tensor<B, 3> {
+    let n_elem = field.len();
+    let flat: Vec<B::FloatElem> = field
+        .iter()
+        .flat_map(|t| t.iter().flat_map(|row| row.iter().map(|c| pick(c).elem())))
+        .collect();
+    Tensor::<B, 3>::from_data(TensorData::new(flat, [n_elem, 3, 3]), device)
+}
+
+/// Matched-UPML (full Sacks) variant of the global Nédélec assembly
+/// (issue #199): **full 3×3 complex** per-tet weight tensors on both
+/// the curl-curl stiffness and the mass,
+///
+/// ```text
+/// K(ν)_ij = ∫ (∇×N_i)ᵀ ν (∇×N_j) dV,    M(ε)_ij = ∫ N_iᵀ ε N_j dV,
+/// ```
+///
+/// with `ν = Λ⁻¹` (the `μ = Λ` stretch lands on the curl term) and
+/// `ε = ε_r·Λ` for the matched UPML
+/// ([`crate::scattering::upml_matched_tensors`] /
+/// [`crate::scattering::build_matched_upml_materials`]). Off-diagonal
+/// tensor entries are kept — unlike the diagonal-restriction
+/// approximation of [`build_anisotropic_pml_tensor_diag`] — so the
+/// result agrees with the host-assembled oracle
+/// ([`crate::scattering::solve_scattered_field_matched_upml`]) at
+/// assembly precision.
+///
+/// # Implementation / autodiff
+///
+/// Each complex weight is split into Re/Im passes through the new
+/// batched kernels ([`batched_nedelec_local_stiffness_weighted`],
+/// [`batched_nedelec_local_mass_anisotropic_full`]) — four kernel
+/// invocations total — and scattered through the same autodiff-
+/// preserving 1-D `scatter(0, …, Add)` path as every other assembler
+/// in this module. Combine Re/Im pairs on the host with
+/// [`burn_complex_mass_to_faer`].
+///
+/// # Symmetry
+///
+/// For symmetric weights (Λ and Λ⁻¹ are symmetric) all four outputs
+/// are symmetric, preserving the complex-symmetric (`Aᵀ = A`, NOT
+/// Hermitian) pencil invariant.
+pub fn assemble_global_nedelec_with_full_tensors<B: Backend>(
+    nodes: Tensor<B, 2>,
+    tets: Tensor<B, 2, Int>,
+    tet_edge_idx: &[[u32; 6]],
+    tet_edge_sign: &[[i8; 6]],
+    n_edges: usize,
+    epsilon_tensor: &[[[faer::c64; 3]; 3]],
+    nu_tensor: &[[[faer::c64; 3]; 3]],
+) -> NedelecFullTensorGlobalSystem<B> {
+    let device = nodes.device();
+    let [n_elem, _] = tets.dims();
+    assert_eq!(tet_edge_idx.len(), n_elem, "tet_edge_idx length mismatch");
+    assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
+    assert_eq!(
+        epsilon_tensor.len(),
+        n_elem,
+        "epsilon_tensor length mismatch"
+    );
+    assert_eq!(nu_tensor.len(), n_elem, "nu_tensor length mismatch");
+
+    // 1. Element-local weighted matrices: Re/Im pass per weight.
+    let coords = gather_tet_coords(nodes, tets);
+    let eps_re = upload_tensor33_component::<B>(epsilon_tensor, |c| c.re, &device);
+    let eps_im = upload_tensor33_component::<B>(epsilon_tensor, |c| c.im, &device);
+    let nu_re = upload_tensor33_component::<B>(nu_tensor, |c| c.re, &device);
+    let nu_im = upload_tensor33_component::<B>(nu_tensor, |c| c.im, &device);
+
+    let k_local_re = batched_nedelec_local_stiffness_weighted(coords.clone(), nu_re);
+    let k_local_im = batched_nedelec_local_stiffness_weighted(coords.clone(), nu_im);
+    let m_local_re = batched_nedelec_local_mass_anisotropic_full(coords.clone(), eps_re);
+    let m_local_im = batched_nedelec_local_mass_anisotropic_full(coords, eps_im);
+
+    // 2. Sign outer product (orientation flips).
+    let sign_flat: Vec<f32> = tet_edge_sign
+        .iter()
+        .flat_map(|row| row.iter().map(|&s| s as f32))
+        .collect();
+    let sign_2d = Tensor::<B, 2>::from_data(TensorData::new(sign_flat, [n_elem, 6]), &device);
+    let sign_row = sign_2d.clone().unsqueeze_dim::<3>(2);
+    let sign_col = sign_2d.unsqueeze_dim::<3>(1);
+    let sign_outer = sign_row.mul(sign_col);
+
+    // 3. Flat scatter indices (shared by all four matrices).
+    let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 36);
+    let n_edges_i32 = n_edges as i32;
+    for row in tet_edge_idx {
+        for i in 0..6 {
+            for j in 0..6 {
+                linear_idx.push(row[i] as i32 * n_edges_i32 + row[j] as i32);
+            }
+        }
+    }
+    let flat_indices =
+        Tensor::<B, 1, Int>::from_data(TensorData::new(linear_idx, [n_elem * 36]), &device);
+
+    // 4. Scatter-add each signed local matrix into a flat zero tensor.
+    let zeros_flat = Tensor::<B, 1>::zeros([n_edges * n_edges], &device);
+    let scatter_one = |local: Tensor<B, 3>| -> Tensor<B, 2> {
+        let signed = local.mul(sign_outer.clone());
+        zeros_flat
+            .clone()
+            .scatter(
+                0,
+                flat_indices.clone(),
+                signed.reshape([n_elem * 36]),
+                IndexingUpdateOp::Add,
+            )
+            .reshape([n_edges, n_edges])
+    };
+
+    let k_re = scatter_one(k_local_re);
+    let k_im = scatter_one(k_local_im);
+    let m_re = scatter_one(m_local_re);
+    let m_im = scatter_one(m_local_im);
+
+    let sparsity = sparsity_pattern_from_tet_edges(tet_edge_idx);
+
+    NedelecFullTensorGlobalSystem {
+        k_re,
+        k_im,
+        m_re,
+        m_im,
+        sparsity,
+    }
+}
+
 /// Assemble the global Nédélec right-hand-side vector for a
 /// **piecewise-constant** volumetric current density `J`.
 ///
@@ -1127,6 +1291,70 @@ pub fn assemble_nedelec_current_rhs<B: Backend>(
 
     // 4. Scatter-add into a [n_edges] zero tensor. Autodiff flows
     //    through the values via IndexingUpdateOp::Add.
+    let b_flat = b_signed.reshape([n_elem * 6]);
+    let zeros = Tensor::<B, 1>::zeros([n_edges], &device);
+    zeros.scatter(0, flat_indices, b_flat, IndexingUpdateOp::Add)
+}
+
+/// Degree-2 (4-point) quadrature variant of
+/// [`assemble_nedelec_current_rhs`] for a **spatially varying**
+/// current density sampled at the per-tet quadrature points
+/// (issue #199): `b_i = Σ_T Σ_q (V/4) N_i(x_q) · J(x_q)`.
+///
+/// Same batched-local-kernel
+/// ([`crate::nedelec::batched_nedelec_local_rhs_quad4`]) + sign +
+/// autodiff-preserving 1-D `scatter(0, …, Add)` structure as the
+/// constant-`J` assembler; reduces to it exactly when the four samples
+/// of a tet are equal. The samples are uploaded at the backend's full
+/// float precision (`B::FloatElem`).
+///
+/// * `j_quad` — `[n_elem][4][3]` per-tet current density at the four
+///   degree-2 quadrature points (see
+///   [`crate::nedelec::TET_QUAD4_A`] for the point convention; use
+///   [`crate::driven::QuadCurrentSource`] to sample a continuous
+///   `J(x)`).
+pub fn assemble_nedelec_current_rhs_quad4<B: Backend>(
+    nodes: Tensor<B, 2>,
+    tets: Tensor<B, 2, Int>,
+    tet_edge_idx: &[[u32; 6]],
+    tet_edge_sign: &[[i8; 6]],
+    n_edges: usize,
+    j_quad: &[[[f64; 3]; 4]],
+) -> Tensor<B, 1> {
+    let device = nodes.device();
+    let [n_elem, _] = tets.dims();
+    assert_eq!(tet_edge_idx.len(), n_elem, "tet_edge_idx length mismatch");
+    assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
+    assert_eq!(j_quad.len(), n_elem, "j_quad length mismatch");
+
+    // 1. Per-element local RHS from the quadrature samples.
+    let coords = gather_tet_coords(nodes, tets);
+    let j_flat: Vec<B::FloatElem> = j_quad
+        .iter()
+        .flat_map(|t| t.iter().flat_map(|q| q.iter().map(|&x| x.elem())))
+        .collect();
+    let j_tensor = Tensor::<B, 3>::from_data(TensorData::new(j_flat, [n_elem, 4, 3]), &device);
+    let local = crate::nedelec::batched_nedelec_local_rhs_quad4(coords, j_tensor); // [n_elem, 6]
+
+    // 2. Apply per-DOF orientation signs (single factor for a vector).
+    let sign_flat: Vec<f32> = tet_edge_sign
+        .iter()
+        .flat_map(|row| row.iter().map(|&s| s as f32))
+        .collect();
+    let sign_2d = Tensor::<B, 2>::from_data(TensorData::new(sign_flat, [n_elem, 6]), &device);
+    let b_signed = local.mul(sign_2d);
+
+    // 3. Flat scatter indices: global edge index per (e, i).
+    let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 6);
+    for row in tet_edge_idx {
+        for &edge in row.iter() {
+            linear_idx.push(edge as i32);
+        }
+    }
+    let flat_indices =
+        Tensor::<B, 1, Int>::from_data(TensorData::new(linear_idx, [n_elem * 6]), &device);
+
+    // 4. Scatter-add into a [n_edges] zero tensor.
     let b_flat = b_signed.reshape([n_elem * 6]);
     let zeros = Tensor::<B, 1>::zeros([n_edges], &device);
     zeros.scatter(0, flat_indices, b_flat, IndexingUpdateOp::Add)

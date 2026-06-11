@@ -24,7 +24,7 @@
 //! equation is never posed inside the PML, so the formulation stays
 //! exact.
 //!
-//! # Matched UPML — why this module carries its own solve
+//! # Matched UPML — host oracle vs Burn path
 //!
 //! The eigenmode benchmarks' anisotropic UPML
 //! ([`crate::nedelec_assembly::build_anisotropic_pml_tensor_diag`])
@@ -50,12 +50,29 @@
 //! `A(ω) = K(Λ⁻¹) − ω² M(ε_r Λ)`. Because the lowest-order Nédélec
 //! curls are constant per tet and `∫ λ_p λ_q dV = (V/20)(1 + δ_pq)`
 //! is closed-form, both weighted matrices assemble exactly on the
-//! host (CPU, f64) without quadrature — this path deliberately skips
-//! the Burn batched-kernel layer (no autodiff through the benchmark;
-//! lifting the matched UPML into the Burn assembly layer so
-//! [`crate::driven::driven_solve`] can express it is tracked as
-//! follow-up work). The factorization reuses the same faer sparse LU
-//! as the driven solve.
+//! host (CPU, f64) without quadrature. The factorization reuses the
+//! same faer sparse LU as the driven solve.
+//!
+//! ## Burn path (issue #199) and the oracle decision: KEEP this solve
+//!
+//! The matched UPML is also expressible through the Burn batched-
+//! kernel layer: [`build_matched_upml_materials`] evaluates the per-tet
+//! `(ε_r·Λ, Λ⁻¹)` pair at tet centroids and
+//! [`crate::driven::DrivenMaterials::MatchedUpml`] feeds it to
+//! [`crate::driven::driven_solve`], which assembles `K(Λ⁻¹)` and
+//! `M(ε_rΛ)` through the autodiff-preserving scatter path
+//! ([`crate::nedelec_assembly::assemble_global_nedelec_with_full_tensors`]).
+//! The Burn path and this host path agree at assembly precision for
+//! the same `(σ₀, ω)` and the same per-tet-constant source
+//! (`tests/mie_driven_scattering.rs`).
+//!
+//! **Recorded decision**: `solve_scattered_field_matched_upml` is
+//! **kept** as an independent oracle rather than retired. It is the
+//! only assembly-independent cross-check of the Burn tensor-weighted
+//! kernels (closed-form host f64 assembly vs batched Burn scatter),
+//! exactly the role the CPU reference kernels play for the scalar
+//! path. Production/differentiable callers should prefer the Burn
+//! path via `driven_solve`.
 //!
 //! # Efficiency extraction — recorded choice (issue #195)
 //!
@@ -244,9 +261,11 @@ fn eval_curl(geom: &TetGeometry, dofs: &[c64; 6]) -> [c64; 3] {
 }
 
 /// Degree-2 4-point tet quadrature (barycentric points, equal weights
-/// `V/4`).
-const QUAD_A: f64 = 0.585_410_196_624_968_5;
-const QUAD_B: f64 = 0.138_196_601_125_010_5;
+/// `V/4`). Shared with the Burn-side quadrature RHS kernel
+/// ([`crate::nedelec::batched_nedelec_local_rhs_quad4`]) so the host
+/// and Burn paths integrate spatially varying sources identically.
+const QUAD_A: f64 = crate::nedelec::TET_QUAD4_A;
+const QUAD_B: f64 = crate::nedelec::TET_QUAD4_B;
 
 /// Extinction power via the volume optical theorem,
 ///
@@ -462,6 +481,65 @@ pub fn upml_matched_tensors(
     (lam, lam_inv)
 }
 
+/// Per-tet matched-UPML constitutive tensors for the Burn assembly
+/// path (issue #199): evaluates [`upml_matched_tensors`] at each tet
+/// centroid and returns `(ε, ν)` with `ε = ε_r·Λ` (mass weight) and
+/// `ν = Λ⁻¹` (curl-curl weight) — exactly the per-tet inputs the host
+/// path [`solve_scattered_field_matched_upml`] uses internally, so a
+/// [`crate::driven::driven_solve`] call with
+/// [`crate::driven::DrivenMaterials::MatchedUpml`] is a pure
+/// assembly-equivalence counterpart of the host solve.
+///
+/// - `ε_r = n_inside²` on tets tagged `interior_tag`, 1 elsewhere
+///   (the PML stretch multiplies on top).
+/// - `Λ ≠ I` only on tets tagged [`crate::mesh::PHYS_PML_SHELL`] with
+///   centroid radius beyond `R_PML_INNER` (identity in the interior /
+///   vacuum gap, and for `σ₀ = 0`).
+///
+/// `tet_physical_tags.len()` must equal the number of tets in `mesh`.
+#[allow(clippy::type_complexity)]
+pub fn build_matched_upml_materials(
+    mesh: &TetMesh,
+    tet_physical_tags: &[i32],
+    interior_tag: i32,
+    n_inside: f64,
+    sigma_0: f64,
+    omega: f64,
+) -> (Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>) {
+    assert_eq!(
+        tet_physical_tags.len(),
+        mesh.n_tets(),
+        "one physical tag per tet"
+    );
+    let centroids = crate::nedelec_assembly::tet_centroids(mesh);
+    let identity = {
+        let mut w = [[c64::new(0.0, 0.0); 3]; 3];
+        for (k, row) in w.iter_mut().enumerate() {
+            row[k] = c64::new(1.0, 0.0);
+        }
+        w
+    };
+
+    let mut eps_tensor = Vec::with_capacity(mesh.n_tets());
+    let mut nu_tensor = Vec::with_capacity(mesh.n_tets());
+    for (c, &tag) in centroids.iter().zip(tet_physical_tags.iter()) {
+        let eps_r = if tag == interior_tag {
+            n_inside * n_inside
+        } else {
+            1.0
+        };
+        let (lam, lam_inv) = if tag == crate::mesh::PHYS_PML_SHELL {
+            upml_matched_tensors(*c, sigma_0, omega)
+        } else {
+            (identity, identity)
+        };
+        let eps = lam.map(|row| row.map(|v| v * c64::new(eps_r, 0.0)));
+        eps_tensor.push(eps);
+        nu_tensor.push(lam_inv);
+    }
+    (eps_tensor, nu_tensor)
+}
+
 /// Quadratic form `aᵀ W b` for a complex 3×3 tensor and real vectors.
 fn sandwich(w: &[[c64; 3]; 3], a: [f64; 3], b: [f64; 3]) -> c64 {
     let mut acc = c64::new(0.0, 0.0);
@@ -475,8 +553,11 @@ fn sandwich(w: &[[c64; 3]; 3], a: [f64; 3], b: [f64; 3]) -> c64 {
 
 /// Scattered-field driven solve with the **matched** (full Sacks)
 /// UPML: `A(ω) x = b` with `A(ω) = K(Λ⁻¹) − ω² M(ε_r Λ)` assembled
-/// exactly on the host (see module docs for why this benchmark cannot
-/// use the ε-only UPML of [`crate::driven::driven_solve`]).
+/// exactly on the host. Kept as the **independent oracle** for the
+/// Burn-path matched UPML
+/// ([`crate::driven::DrivenMaterials::MatchedUpml`] +
+/// [`build_matched_upml_materials`]) — see the module docs for the
+/// recorded retire-vs-keep decision.
 ///
 /// - `pec_interior_mask` — per-edge keep mask over `mesh.edges()`
 ///   order (e.g. from

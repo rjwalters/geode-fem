@@ -537,3 +537,291 @@ pub fn batched_nedelec_local_mass_anisotropic_diag<B: Backend>(
     let m_stacked = Tensor::<B, 1>::stack::<2>(m_entries, 1); // [n_elem, 36]
     m_stacked.reshape([n_elem, 6, 6])
 }
+
+/// Barycentric weight of the "own" vertex in the symmetric degree-2
+/// 4-point tet quadrature rule: point `q` has `λ_q = TET_QUAD4_A` and
+/// `λ_p = TET_QUAD4_B` for `p ≠ q`, with equal weights `V/4`. Shared
+/// with the host-side reference assembly in [`crate::scattering`] so
+/// the two paths integrate spatially varying sources identically.
+pub const TET_QUAD4_A: f64 = 0.585_410_196_624_968_5;
+/// Barycentric weight of the three "other" vertices in the degree-2
+/// 4-point tet rule (see [`TET_QUAD4_A`]).
+pub const TET_QUAD4_B: f64 = 0.138_196_601_125_010_5;
+
+/// Per-vertex cofactor vectors `g_p` (`[n_elem, 4, 3]`, row `p` = `g_p`)
+/// and the per-element determinant `det(J)` (`[n_elem]`) shared by the
+/// tensor-weighted kernels below. `∇λ_p = g_p / det(J)`.
+fn cofactor_rows_and_det<B: Backend>(coords: Tensor<B, 3>) -> (Tensor<B, 3>, Tensor<B, 1>) {
+    let dims = coords.dims();
+    let n_elem = dims[0];
+    assert_eq!(dims[1], 4, "expected 4 vertices per tet, got {}", dims[1]);
+    assert_eq!(dims[2], 3, "expected 3-D coordinates, got {}", dims[2]);
+
+    let v0 = coords
+        .clone()
+        .slice([0..n_elem, 0..1, 0..3])
+        .squeeze_dim::<2>(1);
+    let v1 = coords
+        .clone()
+        .slice([0..n_elem, 1..2, 0..3])
+        .squeeze_dim::<2>(1);
+    let v2 = coords
+        .clone()
+        .slice([0..n_elem, 2..3, 0..3])
+        .squeeze_dim::<2>(1);
+    let v3 = coords.slice([0..n_elem, 3..4, 0..3]).squeeze_dim::<2>(1);
+
+    let e1 = v1 - v0.clone();
+    let e2 = v2 - v0.clone();
+    let e3 = v3 - v0;
+
+    let g1 = e2.clone().cross(e3.clone(), 1);
+    let g2 = e3.clone().cross(e1.clone(), 1);
+    let g3 = e1.clone().cross(e2.clone(), 1);
+
+    let det = e1.mul(g1.clone()).sum_dim(1).squeeze_dim::<1>(1);
+    let g0 = (g1.clone() + g2.clone() + g3.clone()).neg();
+
+    let g_mat = Tensor::<B, 2>::stack::<3>(vec![g0, g1, g2, g3], 1); // [n_elem, 4, 3]
+    (g_mat, det)
+}
+
+/// Per-element Nédélec curl-curl (stiffness) matrix with a **full 3×3**
+/// per-tet weight tensor `W` on the curls (issue #199):
+///
+/// ```text
+/// K^W_ij = ∫_T (∇×N_i)ᵀ · W · (∇×N_j) dV = V · c_iᵀ W c_j,
+/// ```
+///
+/// where `c_i = 2(∇λ_a × ∇λ_b)` is the constant per-tet curl of Whitney
+/// edge basis `i = (a, b)`. This is the stiffness analogue of the
+/// weighted mass kernels: for the matched (full Sacks) UPML the curl
+/// weight is `W = Λ⁻¹` (`μ = Λ` stretched, so `μ⁻¹ = Λ⁻¹` lands on the
+/// curl-curl term). Complex weights run as two passes (`Re(W)`,
+/// `Im(W)`), exactly like the complex-ε mass path.
+///
+/// With `W = I` this reduces to the `k_local` of
+/// [`batched_nedelec_local_matrices`] (Lagrange identity
+/// `(u×v)·(w×z) = (u·w)(v·z) − (u·z)(v·w)`).
+///
+/// # Arguments
+///
+/// * `coords` — `[n_elem, 4, 3]` per-tet vertex coordinates.
+/// * `weight` — `[n_elem, 3, 3]` per-tet weight tensor in the global
+///   Cartesian basis (real; complex weights are split by the caller).
+///
+/// # Returns
+///
+/// `[n_elem, 6, 6]` local stiffness (sign-unaware, same orientation
+/// caveat as [`batched_nedelec_local_matrices`]).
+pub fn batched_nedelec_local_stiffness_weighted<B: Backend>(
+    coords: Tensor<B, 3>,
+    weight: Tensor<B, 3>,
+) -> Tensor<B, 3> {
+    let n_elem = coords.dims()[0];
+    let w_dims = weight.dims();
+    assert_eq!(
+        w_dims,
+        [n_elem, 3, 3],
+        "expected weight shape [n_elem, 3, 3], got {:?}",
+        w_dims
+    );
+
+    let (g_mat, det) = cofactor_rows_and_det(coords);
+
+    // Unnormalized curl directions: cr_i = g_a × g_b per local edge,
+    // shape [n_elem, 6, 3]. The physical curl is 2(∇λ_a × ∇λ_b)
+    // = 2 cr_i / det²; the dangling scale factors are folded below.
+    let g_row = |p: usize| -> Tensor<B, 2> {
+        g_mat
+            .clone()
+            .slice([0..n_elem, p..p + 1, 0..3])
+            .squeeze_dim::<2>(1)
+    };
+    let cr_rows: Vec<Tensor<B, 2>> = TET_LOCAL_EDGES
+        .iter()
+        .map(|&(a, b)| g_row(a).cross(g_row(b), 1))
+        .collect();
+    let cr = Tensor::<B, 2>::stack::<3>(cr_rows, 1); // [n_elem, 6, 3]
+
+    // K_ij = V · (2 cr_i / det²)ᵀ W (2 cr_j / det²)
+    //      = (|det|/6) · 4/det⁴ · cr_iᵀ W cr_j
+    //      = (2 / (3 |det|³)) · cr_iᵀ W cr_j.
+    // (det⁴ = |det|⁴ — even power.) Same f64-literal note as the scalar
+    // kernel: keep `2/3` in double precision.
+    let abs_det = det.abs();
+    let inv_abs_det = abs_det.recip();
+    let scale = (inv_abs_det.clone() * inv_abs_det.clone() * inv_abs_det).mul_scalar(2.0_f64 / 3.0);
+    let scale_3d = scale.unsqueeze_dim::<2>(1).unsqueeze_dim::<3>(2); // [n_elem, 1, 1]
+
+    cr.clone()
+        .matmul(weight)
+        .matmul(cr.swap_dims(1, 2))
+        .mul(scale_3d)
+}
+
+/// Per-element Nédélec local mass matrix for a **full 3×3** per-tet
+/// weight tensor `W` in the global Cartesian basis (issue #199):
+///
+/// ```text
+/// M^W_ij = ∫_T N_iᵀ · W · N_j dV.
+/// ```
+///
+/// Generalizes [`batched_nedelec_local_mass_anisotropic_diag`] by
+/// keeping the off-diagonal entries of `W` — required for the matched
+/// (full Sacks) UPML whose Cartesian tensor `ε = ε_r·Λ` has
+/// off-diagonals away from the coordinate axes. With
+/// `∫_T λ_p λ_q dV = (V/20)(1 + δ_pq)` the closed form is the scalar
+/// mass formula with the gradient gram `G_pq = ∇λ_p · ∇λ_q` replaced
+/// by the weighted gram `G^W_pq = ∇λ_pᵀ W ∇λ_q`:
+///
+/// ```text
+/// M^W_ij = (V/20) [   (1 + δ_ac) G^W_bd − (1 + δ_ad) G^W_bc
+///                   − (1 + δ_bc) G^W_ad + (1 + δ_bd) G^W_ac ].
+/// ```
+///
+/// Note `G^W` is asymmetric for asymmetric `W`; the index order above
+/// (first basis index contracts the **left** slot of `W`) matches the
+/// host-path reference in [`crate::scattering`]. Complex weights run as
+/// two passes (`Re(W)`, `Im(W)`).
+///
+/// # Arguments
+///
+/// * `coords` — `[n_elem, 4, 3]` per-tet vertex coordinates.
+/// * `weight` — `[n_elem, 3, 3]` per-tet weight tensor (real part or
+///   imaginary part of the complex constitutive tensor).
+///
+/// # Returns
+///
+/// `[n_elem, 6, 6]` local mass matrix (sign-unaware, same orientation
+/// caveat as [`batched_nedelec_local_matrices`]).
+pub fn batched_nedelec_local_mass_anisotropic_full<B: Backend>(
+    coords: Tensor<B, 3>,
+    weight: Tensor<B, 3>,
+) -> Tensor<B, 3> {
+    let n_elem = coords.dims()[0];
+    let w_dims = weight.dims();
+    assert_eq!(
+        w_dims,
+        [n_elem, 3, 3],
+        "expected weight shape [n_elem, 3, 3], got {:?}",
+        w_dims
+    );
+
+    let (g_mat, det) = cofactor_rows_and_det(coords);
+    let abs_det = det.abs();
+    let inv_abs_det = abs_det.recip();
+
+    // Weighted gram gw_pq = g_pᵀ W g_q, shape [n_elem, 4, 4]. The
+    // physical weighted gram is G^W_pq = gw_pq / det²; the /det² and
+    // (V/20) = (|det|/120) collapse into 1/(120 |det|) below.
+    let gw = g_mat.clone().matmul(weight).matmul(g_mat.swap_dims(1, 2));
+
+    let gw_entry = |p: usize, q: usize| -> Tensor<B, 1> {
+        gw.clone()
+            .slice([0..n_elem, p..p + 1, q..q + 1])
+            .squeeze_dim::<2>(1)
+            .squeeze_dim::<1>(1)
+    };
+
+    let mut m_entries: Vec<Tensor<B, 1>> = Vec::with_capacity(36);
+    for &(a, b) in TET_LOCAL_EDGES.iter() {
+        for &(c, d) in TET_LOCAL_EDGES.iter() {
+            let f_ac = if a == c { 2.0_f64 } else { 1.0_f64 };
+            let f_ad = if a == d { 2.0_f64 } else { 1.0_f64 };
+            let f_bc = if b == c { 2.0_f64 } else { 1.0_f64 };
+            let f_bd = if b == d { 2.0_f64 } else { 1.0_f64 };
+
+            let term = gw_entry(b, d).mul_scalar(f_ac)
+                - gw_entry(b, c).mul_scalar(f_ad)
+                - gw_entry(a, d).mul_scalar(f_bc)
+                + gw_entry(a, c).mul_scalar(f_bd);
+            m_entries.push(term.mul(inv_abs_det.clone()).div_scalar(120.0));
+        }
+    }
+
+    let m_stacked = Tensor::<B, 1>::stack::<2>(m_entries, 1); // [n_elem, 36]
+    m_stacked.reshape([n_elem, 6, 6])
+}
+
+/// Batched Nédélec element-local RHS with the **degree-2 (4-point)**
+/// tet quadrature for a spatially varying current density `J(x)`
+/// sampled at the quadrature points (issue #199):
+///
+/// ```text
+/// b_local_i = ∫_T N_i · J dV ≈ Σ_q (V/4) N_i(x_q) · J_q,
+/// ```
+///
+/// with the symmetric rule `λ_p(x_q) = TET_QUAD4_A` if `p = q` else
+/// `TET_QUAD4_B` ([`TET_QUAD4_A`]/[`TET_QUAD4_B`] — the same rule the
+/// host-side reference assembly in
+/// [`crate::scattering::solve_scattered_field_matched_upml`] uses, so
+/// the two RHS paths agree to round-off for the same samples).
+///
+/// # Closed form used
+///
+/// With `N_i = λ_a ∇λ_b − λ_b ∇λ_a`, `∇λ_p = g_p / det(J)`, and
+/// `D_qp = J_q · g_p`,
+///
+/// ```text
+/// b_i = sign(det)/24 · [ (A − B)(D_ab − D_ba) + B (S_b − S_a) ],
+/// S_p = Σ_q D_qp,
+/// ```
+///
+/// which reduces **exactly** to [`batched_nedelec_local_rhs`] for a
+/// per-tet-constant `J` (then `D_qp = J·g_p` for all `q` and
+/// `A + 3B = 1`). Complex `J` runs as two passes (Re, Im), like the
+/// constant-`J` path.
+///
+/// # Arguments
+///
+/// * `coords` — `[n_elem, 4, 3]` per-tet vertex coordinates.
+/// * `j_quad` — `[n_elem, 4, 3]` current density at the four degree-2
+///   quadrature points, in the rule's point order (point `q` is the
+///   one with weight `TET_QUAD4_A` on vertex `q`).
+///
+/// # Returns
+///
+/// `[n_elem, 6]` local RHS in canonical local-edge order, sign-unaware
+/// (same caveat as [`batched_nedelec_local_rhs`]).
+pub fn batched_nedelec_local_rhs_quad4<B: Backend>(
+    coords: Tensor<B, 3>,
+    j_quad: Tensor<B, 3>,
+) -> Tensor<B, 2> {
+    let n_elem = coords.dims()[0];
+    let j_dims = j_quad.dims();
+    assert_eq!(
+        j_dims,
+        [n_elem, 4, 3],
+        "expected j_quad shape [n_elem, 4, 3], got {:?}",
+        j_dims
+    );
+
+    let (g_mat, det) = cofactor_rows_and_det(coords);
+
+    // D[q][p] = J_q · g_p, shape [n_elem, 4, 4].
+    let d = j_quad.matmul(g_mat.swap_dims(1, 2));
+    // S[p] = Σ_q D[q][p], shape [n_elem, 4] (sum over the quad axis).
+    let s = d.clone().sum_dim(1).squeeze_dim::<2>(1);
+
+    let d_entry = |q: usize, p: usize| -> Tensor<B, 1> {
+        d.clone()
+            .slice([0..n_elem, q..q + 1, p..p + 1])
+            .squeeze_dim::<2>(1)
+            .squeeze_dim::<1>(1)
+    };
+    let s_entry =
+        |p: usize| -> Tensor<B, 1> { s.clone().slice([0..n_elem, p..p + 1]).squeeze_dim::<1>(1) };
+
+    // sign(det)/24 — same orientation handling as the constant-J RHS.
+    let factor = det.clone().div(det.abs()).div_scalar(24.0); // [n_elem]
+    let a_minus_b = TET_QUAD4_A - TET_QUAD4_B;
+
+    let mut entries: Vec<Tensor<B, 1>> = Vec::with_capacity(6);
+    for &(a, b) in TET_LOCAL_EDGES.iter() {
+        let t = (d_entry(a, b) - d_entry(b, a)).mul_scalar(a_minus_b)
+            + (s_entry(b) - s_entry(a)).mul_scalar(TET_QUAD4_B);
+        entries.push(t.mul(factor.clone()));
+    }
+    Tensor::<B, 1>::stack::<2>(entries, 1) // [n_elem, 6]
+}

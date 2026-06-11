@@ -37,6 +37,15 @@
 //!   ([`crate::nedelec_assembly::build_anisotropic_pml_tensor_diag`])
 //!   makes `M` complex, which makes `A(ω)` invertible for real ω and
 //!   absorbs outgoing radiation.
+//! - **Matched (full Sacks) UPML** — also a material
+//!   ([`DrivenMaterials::MatchedUpml`], issue #199): both constitutive
+//!   tensors are stretched (`ε = ε_r·Λ`, `μ = Λ`), so the curl-curl
+//!   stiffness gains a complex full-3×3 weight `ν = Λ⁻¹` and the system
+//!   is `A(ω) = K(ν) + iωC(σ) − ω²M(ε)`. `Λ` is symmetric, so
+//!   `A(ω)ᵀ = A(ω)` still holds. Per-tet tensors come from
+//!   [`crate::scattering::build_matched_upml_materials`]; the
+//!   host-assembled oracle is
+//!   [`crate::scattering::solve_scattered_field_matched_upml`].
 //!
 //! # Solver
 //!
@@ -79,7 +88,8 @@ use crate::complex_lanczos::{solve_with_lu, spmv};
 use crate::eigen::burn_matrix_to_faer;
 use crate::nedelec_assembly::{
     assemble_global_nedelec_with_anisotropic_epsilon, assemble_global_nedelec_with_complex_epsilon,
-    assemble_nedelec_current_rhs, burn_complex_mass_to_faer, tet_centroids,
+    assemble_global_nedelec_with_full_tensors, assemble_nedelec_current_rhs,
+    assemble_nedelec_current_rhs_quad4, burn_complex_mass_to_faer, tet_centroids,
 };
 use crate::TetMesh;
 
@@ -122,6 +132,21 @@ pub enum DrivenMaterials<'a> {
     /// [`crate::nedelec_assembly::build_anisotropic_pml_tensor_diag`]
     /// for the UPML shell.
     DiagTensor(&'a [[c64; 3]]),
+    /// Matched (full Sacks) UPML materials (issue #199): full 3×3
+    /// complex per-tet tensors for **both** constitutive weights, as
+    /// produced by [`crate::scattering::build_matched_upml_materials`].
+    /// The system becomes `A(ω) = K(ν) + iωC(σ) − ω²M(ε)` with
+    /// `ε = ε_r·Λ` and `ν = Λ⁻¹` — the stiffness is complex too, but
+    /// `Λ` is symmetric so the complex-symmetry invariant
+    /// `A(ω)ᵀ = A(ω)` is preserved.
+    MatchedUpml {
+        /// Per-tet full 3×3 complex permittivity tensor `ε = ε_r·Λ`
+        /// (mass weight) in the global Cartesian basis.
+        epsilon_tensor: &'a [[[c64; 3]; 3]],
+        /// Per-tet full 3×3 complex inverse-permeability tensor
+        /// `ν = μ⁻¹ = Λ⁻¹` (curl-curl weight).
+        nu_tensor: &'a [[[c64; 3]; 3]],
+    },
 }
 
 /// Boundary conditions for the driven solve.
@@ -149,6 +174,75 @@ impl CurrentSource {
     pub fn from_centroids(mesh: &TetMesh, f: impl Fn([f64; 3]) -> [c64; 3]) -> Self {
         let j_tet = tet_centroids(mesh).into_iter().map(f).collect();
         Self { j_tet }
+    }
+}
+
+/// Volumetric current source sampled at the **degree-2 (4-point)** tet
+/// quadrature points (issue #199) — for spatially varying `J(x)` whose
+/// per-tet variation matters (e.g. the plane-wave phase of the Mie
+/// scattered-field polarization current). The RHS is integrated with
+/// the same rule the host-side matched-UPML oracle uses
+/// ([`crate::scattering::solve_scattered_field_matched_upml`]), so the
+/// two paths agree to round-off for the same `J`.
+///
+/// For a per-tet-constant `J` this reduces exactly to
+/// [`CurrentSource`] (the rule integrates constant and linear
+/// integrands exactly).
+#[derive(Debug, Clone)]
+pub struct QuadCurrentSource {
+    /// `[n_tets][4][3]` complex current density at the four degree-2
+    /// quadrature points of each tet, in `mesh.tets` order. Point `q`
+    /// of a tet has barycentric weight
+    /// [`crate::nedelec::TET_QUAD4_A`] on vertex `q` and
+    /// [`crate::nedelec::TET_QUAD4_B`] on the other three.
+    pub j_quad: Vec<[[c64; 3]; 4]>,
+}
+
+impl QuadCurrentSource {
+    /// Sample `J(tet, x)` at every degree-2 quadrature point of every
+    /// tet. The closure signature matches the `j_at` argument of
+    /// [`crate::scattering::solve_scattered_field_matched_upml`], so a
+    /// host-oracle source closure (e.g.
+    /// [`crate::scattering::plane_wave_polarization_current`]) can be
+    /// passed directly.
+    pub fn from_fn(mesh: &TetMesh, f: impl Fn(usize, [f64; 3]) -> [c64; 3]) -> Self {
+        use crate::nedelec::{TET_QUAD4_A, TET_QUAD4_B};
+        let j_quad = mesh
+            .tets
+            .iter()
+            .enumerate()
+            .map(|(t, tet)| {
+                let verts: [[f64; 3]; 4] = std::array::from_fn(|v| mesh.nodes[tet[v] as usize]);
+                std::array::from_fn(|q| {
+                    let x_q: [f64; 3] = std::array::from_fn(|k| {
+                        (0..4)
+                            .map(|v| {
+                                let lam = if v == q { TET_QUAD4_A } else { TET_QUAD4_B };
+                                lam * verts[v][k]
+                            })
+                            .sum::<f64>()
+                    });
+                    f(t, x_q)
+                })
+            })
+            .collect();
+        Self { j_quad }
+    }
+}
+
+/// Internal RHS dispatch: per-tet-constant samples (centroid `J`) or
+/// degree-2 quadrature samples.
+enum RhsSamples<'a> {
+    Constant(&'a [[c64; 3]]),
+    Quad(&'a [[[c64; 3]; 4]]),
+}
+
+impl RhsSamples<'_> {
+    fn len(&self) -> usize {
+        match self {
+            RhsSamples::Constant(j) => j.len(),
+            RhsSamples::Quad(j) => j.len(),
+        }
     }
 }
 
@@ -225,6 +319,63 @@ pub fn driven_solve_with_sigma<B: Backend>(
     source: &CurrentSource,
     device: &B::Device,
 ) -> Result<DrivenSolution, DrivenError> {
+    driven_solve_impl::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        omega,
+        RhsSamples::Constant(&source.j_tet),
+        device,
+    )
+}
+
+/// [`driven_solve`] with a degree-2 quadrature source
+/// ([`QuadCurrentSource`]) for spatially varying `J(x)` (issue #199).
+/// Everything else (materials, σ, BCs, solver) is identical to
+/// [`driven_solve_with_sigma`].
+pub fn driven_solve_quad<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &QuadCurrentSource,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
+    driven_solve_with_sigma_quad::<B>(mesh, materials, None, bcs, omega, source, device)
+}
+
+/// [`driven_solve_quad`] with an optional per-tet conductivity — the
+/// quadrature-source counterpart of [`driven_solve_with_sigma`].
+pub fn driven_solve_with_sigma_quad<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &QuadCurrentSource,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
+    driven_solve_impl::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        omega,
+        RhsSamples::Quad(&source.j_quad),
+        device,
+    )
+}
+
+fn driven_solve_impl<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    rhs: RhsSamples<'_>,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
     let n_tets = mesh.n_tets();
     let edges = mesh.edges();
     let n_edges = edges.len();
@@ -236,15 +387,27 @@ pub fn driven_solve_with_sigma<B: Backend>(
             want: n_edges,
         });
     }
-    if source.j_tet.len() != n_tets {
+    if rhs.len() != n_tets {
         return Err(DrivenError::SourceDimMismatch {
-            got: source.j_tet.len(),
+            got: rhs.len(),
             want: n_tets,
         });
     }
     let material_len = match materials {
         DrivenMaterials::Scalar(eps) => eps.len(),
         DrivenMaterials::DiagTensor(eps) => eps.len(),
+        DrivenMaterials::MatchedUpml {
+            epsilon_tensor,
+            nu_tensor,
+        } => {
+            if nu_tensor.len() != n_tets {
+                return Err(DrivenError::MaterialDimMismatch {
+                    got: nu_tensor.len(),
+                    want: n_tets,
+                });
+            }
+            epsilon_tensor.len()
+        }
     };
     if material_len != n_tets {
         return Err(DrivenError::MaterialDimMismatch {
@@ -273,24 +436,48 @@ pub fn driven_solve_with_sigma<B: Backend>(
         .collect();
 
     // --- Assemble K, M(ε) on the Burn backend ------------------------------
+    // The stiffness imaginary part is `None` for the ε-only material
+    // models (K is real there); the matched UPML stretches μ too, so
+    // its `K(Λ⁻¹)` carries an imaginary part.
     let (nodes_t, tets_t) = crate::assembly::upload_mesh::<B>(mesh, device);
-    let sys = match materials {
-        DrivenMaterials::Scalar(eps) => assemble_global_nedelec_with_complex_epsilon(
-            nodes_t.clone(),
-            tets_t.clone(),
-            &tet_idx,
-            &tet_sign,
-            n_edges,
-            eps,
-        ),
-        DrivenMaterials::DiagTensor(eps) => assemble_global_nedelec_with_anisotropic_epsilon(
-            nodes_t.clone(),
-            tets_t.clone(),
-            &tet_idx,
-            &tet_sign,
-            n_edges,
-            eps,
-        ),
+    let (k_re_t, k_im_t, m_re_t, m_im_t, sparsity) = match materials {
+        DrivenMaterials::Scalar(eps) => {
+            let sys = assemble_global_nedelec_with_complex_epsilon(
+                nodes_t.clone(),
+                tets_t.clone(),
+                &tet_idx,
+                &tet_sign,
+                n_edges,
+                eps,
+            );
+            (sys.k, None, sys.m_re, sys.m_im, sys.sparsity)
+        }
+        DrivenMaterials::DiagTensor(eps) => {
+            let sys = assemble_global_nedelec_with_anisotropic_epsilon(
+                nodes_t.clone(),
+                tets_t.clone(),
+                &tet_idx,
+                &tet_sign,
+                n_edges,
+                eps,
+            );
+            (sys.k, None, sys.m_re, sys.m_im, sys.sparsity)
+        }
+        DrivenMaterials::MatchedUpml {
+            epsilon_tensor,
+            nu_tensor,
+        } => {
+            let sys = assemble_global_nedelec_with_full_tensors(
+                nodes_t.clone(),
+                tets_t.clone(),
+                &tet_idx,
+                &tet_sign,
+                n_edges,
+                epsilon_tensor,
+                nu_tensor,
+            );
+            (sys.k_re, Some(sys.k_im), sys.m_re, sys.m_im, sys.sparsity)
+        }
     };
 
     // --- Assemble the conductivity damping matrix C(σ), if any -------------
@@ -309,27 +496,47 @@ pub fn driven_solve_with_sigma<B: Backend>(
     });
 
     // --- Assemble the current-source RHS -----------------------------------
-    // The Burn RHS kernel is real-valued; a complex J runs as two passes
-    // (Re(J), Im(J)) — same split as the complex-ε mass assembly.
-    let j_re: Vec<[f64; 3]> = source
-        .j_tet
-        .iter()
-        .map(|j| [j[0].re, j[1].re, j[2].re])
-        .collect();
-    let j_im: Vec<[f64; 3]> = source
-        .j_tet
-        .iter()
-        .map(|j| [j[0].im, j[1].im, j[2].im])
-        .collect();
-    let rhs_re = assemble_nedelec_current_rhs(
-        nodes_t.clone(),
-        tets_t.clone(),
-        &tet_idx,
-        &tet_sign,
-        n_edges,
-        &j_re,
-    );
-    let rhs_im = assemble_nedelec_current_rhs(nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &j_im);
+    // The Burn RHS kernels are real-valued; a complex J runs as two
+    // passes (Re(J), Im(J)) — same split as the complex-ε mass assembly.
+    let (rhs_re, rhs_im) = match rhs {
+        RhsSamples::Constant(j_tet) => {
+            let j_re: Vec<[f64; 3]> = j_tet.iter().map(|j| [j[0].re, j[1].re, j[2].re]).collect();
+            let j_im: Vec<[f64; 3]> = j_tet.iter().map(|j| [j[0].im, j[1].im, j[2].im]).collect();
+            let rhs_re = assemble_nedelec_current_rhs(
+                nodes_t.clone(),
+                tets_t.clone(),
+                &tet_idx,
+                &tet_sign,
+                n_edges,
+                &j_re,
+            );
+            let rhs_im =
+                assemble_nedelec_current_rhs(nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &j_im);
+            (rhs_re, rhs_im)
+        }
+        RhsSamples::Quad(j_quad) => {
+            let j_re: Vec<[[f64; 3]; 4]> = j_quad
+                .iter()
+                .map(|t| t.map(|q| [q[0].re, q[1].re, q[2].re]))
+                .collect();
+            let j_im: Vec<[[f64; 3]; 4]> = j_quad
+                .iter()
+                .map(|t| t.map(|q| [q[0].im, q[1].im, q[2].im]))
+                .collect();
+            let rhs_re = assemble_nedelec_current_rhs_quad4(
+                nodes_t.clone(),
+                tets_t.clone(),
+                &tet_idx,
+                &tet_sign,
+                n_edges,
+                &j_re,
+            );
+            let rhs_im = assemble_nedelec_current_rhs_quad4(
+                nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &j_im,
+            );
+            (rhs_re, rhs_im)
+        }
+    };
     let rhs_re: Vec<f64> = rhs_re.into_data().iter::<f64>().collect();
     let rhs_im: Vec<f64> = rhs_im.into_data().iter::<f64>().collect();
 
@@ -341,8 +548,9 @@ pub fn driven_solve_with_sigma<B: Backend>(
         .collect();
 
     // --- Host transfer + PEC reduction -------------------------------------
-    let k_full = burn_matrix_to_faer(sys.k);
-    let m_full = burn_complex_mass_to_faer(sys.m_re, sys.m_im);
+    let k_full = burn_matrix_to_faer(k_re_t);
+    let k_im_full = k_im_t.map(burn_matrix_to_faer);
+    let m_full = burn_complex_mass_to_faer(m_re_t, m_im_t);
     let c_full = c_burn.map(burn_matrix_to_faer);
 
     // Remap full edge indices → contiguous interior indices.
@@ -360,14 +568,15 @@ pub fn driven_solve_with_sigma<B: Backend>(
 
     // --- Sparse A(ω) = K + iωC − ω² M over the recorded sparsity pattern ---
     let omega2 = omega * omega;
-    let mut triplets: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(sys.sparsity.rows.len());
-    for (&r_u32, &c_u32) in sys.sparsity.rows.iter().zip(sys.sparsity.cols.iter()) {
+    let mut triplets: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(sparsity.rows.len());
+    for (&r_u32, &c_u32) in sparsity.rows.iter().zip(sparsity.cols.iter()) {
         let (r, c) = (r_u32 as usize, c_u32 as usize);
         let (rr, cc) = (remap[r], remap[c]);
         if rr < 0 || cc < 0 {
             continue;
         }
-        let mut a_val = c64::new(k_full[(r, c)], 0.0) - m_full[(r, c)] * omega2;
+        let k_im_val = k_im_full.as_ref().map_or(0.0, |m| m[(r, c)]);
+        let mut a_val = c64::new(k_full[(r, c)], k_im_val) - m_full[(r, c)] * omega2;
         if let Some(cm) = &c_full {
             // Conduction loss: + iω C (exp(+jωt) convention).
             a_val += c64::new(0.0, omega * cm[(r, c)]);
