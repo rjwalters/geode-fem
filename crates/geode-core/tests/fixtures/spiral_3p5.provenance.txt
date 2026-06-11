@@ -1,0 +1,45 @@
+fixture:        spiral_3p5.msh
+sha256:         c9707fb9bd5f3f484b845e96b90cf53f0b196794c5793f7e4f682bf97e101589
+generated:      2026-06-11T22:04:10+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/spiral_inductor.geo
+wrapper:        reference/gmsh/generate_spiral_fixture.py
+parameters:     spiral_3p5_generic.yaml
+
+parameter values:
+  spiral:
+    n_turns: 3.5
+    w: 6.0
+    s: 4.0
+    d_in: 60.0
+    g: 4.0
+    feed_len: 20.0
+    stub_len: 8.0
+  stack:
+    h_sub: 50.0
+    h_ox: 10.0
+    z1_bot: 1.0
+    t1: 2.0
+    z2_bot: 5.0
+    t2: 3.0
+    h_air: 25.0
+    h_buf: 25.0
+    margin: 45.0
+  mesh:
+    lc_cond: 4.0
+    lc_port: 1.5
+    lc_far: 30.0
+    dist_far: 45.0
+  materials:
+    substrate_eps_r: 11.9
+    substrate_tan_delta: 0.005
+    dielectric_eps_r: 4.0
+    dielectric_tan_delta: 0.001
+    conductor_sigma_s_m: 58000000.0
+
+quality report:
+  nodes: 8548
+  tets: 42341
+  unique edges: 54428 (budget 100000)
+  inverted tets: 0
+  min dihedral angle: 10.28 deg
