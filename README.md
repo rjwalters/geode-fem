@@ -68,7 +68,7 @@ baselines.
 
 - [x] **Anisotropic UPML** (issue #54) — canonical fix for the 16% PML accuracy ceiling; default in `examples/mie_sphere.rs` per issue #61
 - [x] **Vector-tracking k₀** (issue #48) — replace frozen-index Newton for self-consistent resonance tracking on the Silver-Müller pencil
-- [ ] **Driven scattering** (Q_ext, Q_sca vs. ka) — v1 of the Mie benchmark
+- [x] **Driven scattering** (Q_ext, Q_sca vs. ka) — v1 of the Mie benchmark (issue #195): plane-wave scattered-field driven solve with a matched (full Sacks) UPML, `Q_ext` via the volume optical theorem, `Q_sca` via Poynting flux, vs. the analytic Mie series (`cargo run -p geode-core --release --example mie_driven_scattering`; results in [`benchmarks/mie_sphere/driven_results.toml`](benchmarks/mie_sphere/driven_results.toml))
 - [ ] **Whiteroom L4 mapping** (issue #5) — once upstream slices stabilize
 
 ## Build
@@ -280,9 +280,11 @@ catalog. The benchmark uses the **PEC-cavity dielectric resonator**
 as the analytic ground truth (a closed cavity with PEC at `r = R_buffer`,
 which is the limit the FEM hits as the PML absorption strength `σ₀ → 0`);
 the open-space Mie WGM positions — which require Hankel functions and
-complex Newton iteration — are tracked under #33, and the driven
-scattering (`Q_ext`, `Q_sca` vs. `ka`) cross-check remains a separate
-later step.
+complex Newton iteration — are tracked under #33. The driven
+scattering (`Q_ext`, `Q_sca` vs. `ka`) cross-check is the companion
+benchmark `examples/mie_driven_scattering.rs` (issue #195), which
+writes
+[`benchmarks/mie_sphere/driven_results.toml`](benchmarks/mie_sphere/driven_results.toml).
 
 **Mesh**: bundled 774-node / 3335-tet fixture (`tests/fixtures/sphere.msh`,
 regenerated from `mesh_scripts/sphere.geo` via Gmsh CLI). Layered into

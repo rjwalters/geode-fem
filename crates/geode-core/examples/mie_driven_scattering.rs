@@ -1,0 +1,237 @@
+//! Driven Mie scattering benchmark: `Q_ext` / `Q_sca` vs. `ka` against
+//! the analytic Mie series (issue #195, Epic #193 Phase 1 — the open
+//! v1 roadmap item in README.md).
+//!
+//! A plane wave `E_inc = x̂·exp(−iωz)` illuminates the bundled `n = 1.5`
+//! dielectric sphere (774-node fixture). **Scattered-field
+//! formulation**: the driven system is fed the volumetric polarization
+//! current `J = −iω(ε_r − 1)E_inc` over the sphere interior, the
+//! **matched** (full Sacks) UPML shell absorbs the outgoing scattered
+//! field (`geode_core::solve_scattered_field_matched_upml` — see the
+//! `geode_core::scattering` module docs for why the eigenmode
+//! benchmarks' ε-only UPML is insufficient here), and the PEC outer
+//! wall closes the system.
+//!
+//! Per solve, two **independent** efficiency extractions (choice
+//! recorded in `geode_core::scattering` module docs):
+//!
+//! - `Q_ext` — volume form of the optical theorem (work done by the
+//!   incident field on the polarization current).
+//! - `Q_sca` — direct Poynting flux of `E_sca` through the polyhedral
+//!   tet-boundary surface at `r_obs` in the vacuum gap.
+//!
+//! Both are compared against the analytic Mie series
+//! (`geode_core::mie_scattering::mie_efficiencies`; independent NumPy
+//! sidecar in `reference/numpy/mie_efficiencies.py`). For the lossless
+//! sphere `Q_ext = Q_sca` analytically.
+//!
+//! The `ka` sweep {1.0, 1.5, 1.9, 2.4, 3.0} spans the two lowest
+//! open-space Mie resonances of the `n = 1.5` sphere
+//! (`geode_core::mie_open`: TE_1,1 at `ka ≈ 1.26`, TM_1,1 at
+//! `ka ≈ 1.88`) and stays inside the mesh-resolution band validated by
+//! the eigenmode benchmark (`k ≲ 3` on the 774-node fixture).
+//!
+//! Writes `benchmarks/mie_sphere/driven_results.toml` (the sibling of
+//! the eigenmode benchmark's auto-generated `results.toml`).
+//!
+//! Run with:
+//!
+//! ```sh
+//! cargo run -p geode-core --release --example mie_driven_scattering
+//! ```
+
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+
+use geode_core::{
+    extinction_power, mie_efficiencies, plane_wave_polarization_current, q_from_power,
+    read_sphere_fixture, scattered_flux_power, solve_scattered_field_matched_upml,
+    sphere_pec_interior_edges, SphereFixture, PHYS_SPHERE_INTERIOR, R_BUFFER, R_PML_INNER,
+    R_SPHERE,
+};
+
+/// Refractive index of the sphere — matches the eigenmode benchmark.
+const N_INSIDE: f64 = 1.5;
+
+/// Matched-UPML strength (quadratic profile). Calibrated for the
+/// driven benchmark: continuum round-trip attenuation
+/// `exp(−2σ₀d/3) ≈ 2e-4`; lower values leave visible quasi-cavity
+/// contamination, higher values increase the discrete transition
+/// reflection on the ~3-cell-thick shell.
+const SIGMA_0: f64 = 25.0;
+
+/// Poynting-flux surface radius: middle of the vacuum gap between the
+/// sphere surface (R_SPHERE = 1.0) and the PML inner radius (1.5).
+const R_OBS: f64 = 0.5 * (R_SPHERE + R_PML_INNER);
+
+/// The benchmark `ka` sweep (see module docs).
+const KA_VALUES: [f64; 5] = [1.0, 1.5, 1.9, 2.4, 3.0];
+
+struct Row {
+    ka: f64,
+    q_ext_analytic: f64,
+    q_sca_analytic: f64,
+    q_ext_fem: f64,
+    q_sca_fem: f64,
+    rel_err_q_ext: f64,
+    rel_err_q_sca: f64,
+    residual_rel: f64,
+}
+
+fn run_one(fixture: &SphereFixture, ka: f64) -> Row {
+    let omega = ka / R_SPHERE;
+
+    let (_, interior) = sphere_pec_interior_edges(&fixture.mesh, R_BUFFER);
+    let j_at = plane_wave_polarization_current(
+        &fixture.tet_physical_tags,
+        PHYS_SPHERE_INTERIOR,
+        N_INSIDE,
+        omega,
+    );
+
+    let sol = solve_scattered_field_matched_upml(
+        &fixture.mesh,
+        &fixture.tet_physical_tags,
+        PHYS_SPHERE_INTERIOR,
+        &interior,
+        N_INSIDE,
+        SIGMA_0,
+        omega,
+        j_at,
+    )
+    .expect("matched-UPML scattered-field solve");
+
+    let p_ext = extinction_power(
+        &fixture.mesh,
+        &fixture.tet_physical_tags,
+        PHYS_SPHERE_INTERIOR,
+        N_INSIDE,
+        omega,
+        &sol.e_edges,
+    );
+    let p_sca = scattered_flux_power(&fixture.mesh, omega, &sol.e_edges, R_OBS);
+
+    let q_ext_fem = q_from_power(p_ext, R_SPHERE);
+    let q_sca_fem = q_from_power(p_sca, R_SPHERE);
+
+    let analytic = mie_efficiencies(N_INSIDE, ka);
+
+    Row {
+        ka,
+        q_ext_analytic: analytic.q_ext,
+        q_sca_analytic: analytic.q_sca,
+        q_ext_fem,
+        q_sca_fem,
+        rel_err_q_ext: (q_ext_fem - analytic.q_ext).abs() / analytic.q_ext,
+        rel_err_q_sca: (q_sca_fem - analytic.q_sca).abs() / analytic.q_sca,
+        residual_rel: sol.residual_rel,
+    }
+}
+
+fn current_commit() -> String {
+    Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn results_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("benchmarks")
+        .join("mie_sphere")
+        .join("driven_results.toml")
+}
+
+fn write_toml(rows: &[Row], path: &PathBuf) {
+    let commit = current_commit();
+    let max_ext = rows.iter().map(|r| r.rel_err_q_ext).fold(0.0_f64, f64::max);
+    let max_sca = rows.iter().map(|r| r.rel_err_q_sca).fold(0.0_f64, f64::max);
+
+    let mut s = String::new();
+    s.push_str("# Auto-generated by `cargo run -p geode-core --release \\\n");
+    s.push_str("#   --example mie_driven_scattering`.\n");
+    s.push_str("# Do NOT edit by hand — regenerate after any intentional change.\n");
+    s.push_str("# Consumed by `tests/mie_driven_scattering.rs` (tolerances) and the README.\n");
+    s.push('\n');
+    s.push_str("[meta]\n");
+    s.push_str("description = \"Driven Mie scattering benchmark (issue #195, Epic #193): plane-wave scattered-field driven solve on the bundled 774-node fixture, Q_ext (volume optical theorem) and Q_sca (Poynting flux at r_obs) vs. the analytic Mie series.\"\n");
+    s.push_str(&format!("generated_at_commit = \"{commit}\"\n"));
+    s.push_str("pml_kernel = \"matched_sacks_upml\"\n");
+    s.push_str(&format!("n_inside = {N_INSIDE}\n"));
+    s.push_str(&format!("sigma_0 = {SIGMA_0}\n"));
+    s.push_str(&format!("r_sphere = {R_SPHERE}\n"));
+    s.push_str(&format!("r_obs = {R_OBS}\n"));
+    s.push_str(&format!("max_rel_err_q_ext = {max_ext:.15e}\n"));
+    s.push_str(&format!("max_rel_err_q_sca = {max_sca:.15e}\n"));
+    s.push_str("notes = [\n");
+    s.push_str("  \"Scattered-field formulation: J = -i*omega*(eps_r - 1)*E_inc over the sphere; the matched (full Sacks, mu and eps both stretched) UPML absorbs E_sca. The eigen benchmarks' eps-only UPML reflects too strongly for driven scattering (up to ~450% Q error on quasi-cavity resonances).\",\n");
+    s.push_str("  \"Residual error is dominated by the fixture's coarse-mesh dispersion (the same ~6% resonance-position error the eigenmode benchmark documents): points on resonance features (ka = 1.9 on TM_1,1; ka = 3.0 on TE_1,2) carry ~15-19% Q error, off-feature points sit at ~4-9%.\",\n");
+    s.push_str("  \"Q_ext via volume optical theorem; Q_sca via Poynting flux through the tet-boundary surface at r_obs (recorded choice, issue #195).\",\n");
+    s.push_str("  \"ka sweep spans the open-space TE_1,1 (ka ~ 1.26) and TM_1,1 (ka ~ 1.88) Mie resonances of the n = 1.5 sphere.\",\n");
+    s.push_str("  \"Analytic oracle: geode_core::mie_scattering (B&H series); independent NumPy sidecar under reference/numpy/mie_efficiencies.py.\",\n");
+    s.push_str("]\n");
+    s.push('\n');
+
+    for (i, r) in rows.iter().enumerate() {
+        s.push_str(&format!("[point_{i}]\n"));
+        s.push_str(&format!("ka = {:.15e}\n", r.ka));
+        s.push_str(&format!("q_ext_analytic = {:.15e}\n", r.q_ext_analytic));
+        s.push_str(&format!("q_sca_analytic = {:.15e}\n", r.q_sca_analytic));
+        s.push_str(&format!("q_ext_fem = {:.15e}\n", r.q_ext_fem));
+        s.push_str(&format!("q_sca_fem = {:.15e}\n", r.q_sca_fem));
+        s.push_str(&format!("rel_err_q_ext = {:.15e}\n", r.rel_err_q_ext));
+        s.push_str(&format!("rel_err_q_sca = {:.15e}\n", r.rel_err_q_sca));
+        s.push_str(&format!("solve_residual_rel = {:.3e}\n", r.residual_rel));
+        s.push('\n');
+    }
+
+    fs::create_dir_all(path.parent().expect("results parent")).expect("mkdir");
+    fs::write(path, s).expect("write driven_results.toml");
+    eprintln!("wrote {}", path.display());
+}
+
+fn main() {
+    let fixture = read_sphere_fixture().expect("bundled sphere fixture");
+    eprintln!(
+        "driven Mie scattering on the bundled fixture: {} nodes, {} tets ({} in sphere)",
+        fixture.mesh.n_nodes(),
+        fixture.mesh.n_tets(),
+        fixture.n_interior_tets(),
+    );
+    eprintln!(
+        "{:>5}  {:>10}  {:>10}  {:>10}  {:>10}  {:>8}  {:>8}",
+        "ka", "Q_ext(an)", "Q_ext(fem)", "Q_sca(an)", "Q_sca(fem)", "err_ext", "err_sca"
+    );
+
+    let mut rows = Vec::new();
+    for &ka in &KA_VALUES {
+        let t0 = std::time::Instant::now();
+        let row = run_one(&fixture, ka);
+        eprintln!(
+            "{:>5.2}  {:>10.5}  {:>10.5}  {:>10.5}  {:>10.5}  {:>7.2}%  {:>7.2}%   ({:.1} s, residual {:.1e})",
+            row.ka,
+            row.q_ext_analytic,
+            row.q_ext_fem,
+            row.q_sca_analytic,
+            row.q_sca_fem,
+            100.0 * row.rel_err_q_ext,
+            100.0 * row.rel_err_q_sca,
+            t0.elapsed().as_secs_f64(),
+            row.residual_rel,
+        );
+        rows.push(row);
+    }
+
+    write_toml(&rows, &results_path());
+}

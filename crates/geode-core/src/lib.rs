@@ -16,9 +16,11 @@ pub mod lanczos;
 pub mod mesh;
 pub mod mie;
 pub mod mie_open;
+pub mod mie_scattering;
 pub mod nedelec;
 pub mod nedelec_assembly;
 pub mod p1;
+pub mod scattering;
 pub mod silvermuller;
 pub mod silvermuller_self_consistent;
 pub mod sparse;
@@ -59,6 +61,9 @@ pub use mie_open::{
     spherical_j_c, spherical_y_c, MieRootComplex, OPEN_SPACE_WGM_N, OPEN_SPACE_WGM_R_S,
     OPEN_SPACE_WGM_TABLE_N15,
 };
+pub use mie_scattering::{
+    mie_a_b, mie_coefficients, mie_efficiencies, mie_series_order, MieCoefficients, MieEfficiencies,
+};
 pub use nedelec::{
     batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_matrices,
     batched_nedelec_local_rhs, tet_edges, NedelecLocalMatrices,
@@ -74,6 +79,10 @@ pub use nedelec_assembly::{
     NedelecComplexGlobalSystem, NedelecGlobalSystem, DERHAM_RANK_THRESHOLD_REL,
 };
 pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
+pub use scattering::{
+    extinction_power, mie_polarization_source, plane_wave_e_inc, plane_wave_polarization_current,
+    q_from_power, scattered_flux_power, solve_scattered_field_matched_upml, upml_matched_tensors,
+};
 pub use silvermuller::assemble_silver_muller_surface;
 pub use silvermuller_self_consistent::{
     self_consistent_k, self_consistent_k_vector_tracked, SelfConsistentResult,

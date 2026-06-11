@@ -31,6 +31,8 @@ reference/numpy/
 ├── sphere_mie.py                   — end-to-end anisotropic-UPML Mie driver (#171, Phase J.2)
 ├── gen_sphere_mie_baseline.py      — fixture generator for sphere_mie/baseline.json (#171)
 ├── gen_sphere_mie_small_baseline.py— fixture generator for sphere_mie_small/baseline.json (#171)
+├── mie_efficiencies.py             — Q_ext/Q_sca Mie efficiency curve, BHMIE log-derivative algorithm (#195, Epic #193)
+├── gen_mie_efficiencies_baseline.py— fixture generator for mie_efficiencies/baseline.json (#195)
 └── _harness.py                     — fixture I/O helper shared across slices
 ```
 
@@ -83,6 +85,24 @@ python3 reference/numpy/sphere_mie.py --sigma0 0.0
 # Regenerate the small baseline (seconds) / full baseline (~1 h dense ZGGEV).
 python3 reference/numpy/gen_sphere_mie_small_baseline.py
 python3 reference/numpy/gen_sphere_mie_baseline.py
+```
+
+### Mie scattering efficiencies (`mie_efficiencies.py`, Epic #193)
+
+Issue #195's analytic oracle for the **driven** Mie scattering
+benchmark (`examples/mie_driven_scattering.rs`): `Q_ext` / `Q_sca` for
+the `n = 1.5` sphere via the BHMIE logarithmic-derivative algorithm —
+deliberately a *different algorithm* from the Rust direct
+`ψ_l(mx)`-formula evaluation in `geode_core::mie_scattering`, so the
+cross-check (`mie_efficiencies_numpy_reference.rs`, ≤ 1e-10 absolute)
+pins the series itself. Pure special functions, no mesh, no solve.
+
+```bash
+# Self-check (Rayleigh limit, lossless unitarity) + benchmark-grid table.
+python3 reference/numpy/mie_efficiencies.py
+
+# Regenerate the baseline (instant).
+python3 reference/numpy/gen_mie_efficiencies_baseline.py
 ```
 
 The `derham.py` module is the formal NumPy reference for the discrete
