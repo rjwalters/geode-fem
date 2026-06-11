@@ -963,6 +963,77 @@ pub fn assemble_global_nedelec_with_anisotropic_epsilon<B: Backend>(
     }
 }
 
+/// Assemble the global Nédélec right-hand-side vector for a
+/// **piecewise-constant** volumetric current density `J`.
+///
+/// Computes `b_i = ∫_Ω N_i · J dV` over the global edge basis (no `iωμ₀`
+/// prefactor — that is applied by the caller, see
+/// [`crate::driven::driven_solve`]). Follows the same batched-local-
+/// kernel + autodiff-preserving 1-D `scatter(0, …, Add)` pattern as
+/// [`assemble_global_nedelec`]: the per-element `[n_elem, 6]` local RHS
+/// from [`crate::nedelec::batched_nedelec_local_rhs`] is multiplied by
+/// the per-DOF orientation sign `s_i` (a single factor — the RHS is
+/// linear in the basis, unlike the `s_i s_j` outer product of the
+/// matrix path) and scatter-added into a `[n_edges]` zero tensor.
+///
+/// # Arguments
+///
+/// * `nodes`, `tets`, `tet_edge_idx`, `tet_edge_sign`, `n_edges` — same
+///   as [`assemble_global_nedelec`].
+/// * `j_tet` — `[n_elem][3]` per-tet constant current density (typically
+///   `J(x)` sampled at tet centroids; see [`tet_centroids`]).
+///
+/// # Returns
+///
+/// Dense `[n_edges]` Burn tensor with the assembled linear functional.
+pub fn assemble_nedelec_current_rhs<B: Backend>(
+    nodes: Tensor<B, 2>,
+    tets: Tensor<B, 2, Int>,
+    tet_edge_idx: &[[u32; 6]],
+    tet_edge_sign: &[[i8; 6]],
+    n_edges: usize,
+    j_tet: &[[f64; 3]],
+) -> Tensor<B, 1> {
+    let device = nodes.device();
+    let [n_elem, _] = tets.dims();
+    assert_eq!(tet_edge_idx.len(), n_elem, "tet_edge_idx length mismatch");
+    assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
+    assert_eq!(j_tet.len(), n_elem, "j_tet length mismatch");
+
+    // 1. Per-element local RHS.
+    let coords = gather_tet_coords(nodes, tets);
+    let j_flat: Vec<f32> = j_tet
+        .iter()
+        .flat_map(|row| row.iter().map(|&x| x as f32))
+        .collect();
+    let j_tensor = Tensor::<B, 2>::from_data(TensorData::new(j_flat, [n_elem, 3]), &device);
+    let local = crate::nedelec::batched_nedelec_local_rhs(coords, j_tensor); // [n_elem, 6]
+
+    // 2. Apply per-DOF orientation signs (single factor for a vector).
+    let sign_flat: Vec<f32> = tet_edge_sign
+        .iter()
+        .flat_map(|row| row.iter().map(|&s| s as f32))
+        .collect();
+    let sign_2d = Tensor::<B, 2>::from_data(TensorData::new(sign_flat, [n_elem, 6]), &device);
+    let b_signed = local.mul(sign_2d);
+
+    // 3. Flat scatter indices: global edge index per (e, i).
+    let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 6);
+    for row in tet_edge_idx {
+        for &edge in row.iter() {
+            linear_idx.push(edge as i32);
+        }
+    }
+    let flat_indices =
+        Tensor::<B, 1, Int>::from_data(TensorData::new(linear_idx, [n_elem * 6]), &device);
+
+    // 4. Scatter-add into a [n_edges] zero tensor. Autodiff flows
+    //    through the values via IndexingUpdateOp::Add.
+    let b_flat = b_signed.reshape([n_elem * 6]);
+    let zeros = Tensor::<B, 1>::zeros([n_edges], &device);
+    zeros.scatter(0, flat_indices, b_flat, IndexingUpdateOp::Add)
+}
+
 /// Combine the real and imaginary parts of a Burn-resident complex
 /// mass matrix into an owned `faer::Mat<faer::c64>`.
 ///

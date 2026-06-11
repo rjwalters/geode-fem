@@ -101,7 +101,7 @@ pub trait SparseComplexEigenSolver {
 }
 
 /// Compute `y += A · x` for complex `A` in CSC form.
-fn spmv_add(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
+pub(crate) fn spmv_add(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
     let col_ptr = a.col_ptr();
     let row_idx = a.row_idx();
     let val = a.val();
@@ -121,7 +121,7 @@ fn spmv_add(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
 }
 
 /// Compute `y = A · x` (overwrite) for complex sparse `A`.
-fn spmv(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
+pub(crate) fn spmv(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
     for v in y.iter_mut() {
         *v = c64::new(0.0, 0.0);
     }
@@ -195,7 +195,11 @@ fn shifted_pencil_complex(
 }
 
 /// Solve `A y = b` in-place via a precomputed complex sparse LU.
-fn solve_with_lu(lu: &Lu<usize, c64>, rhs: &[c64], out: &mut [c64]) -> Result<(), EigenError> {
+pub(crate) fn solve_with_lu(
+    lu: &Lu<usize, c64>,
+    rhs: &[c64],
+    out: &mut [c64],
+) -> Result<(), EigenError> {
     use faer::linalg::solvers::Solve;
     let n = rhs.len();
     let mut work: Mat<c64> = Mat::from_fn(n, 1, |i, _| rhs[i]);

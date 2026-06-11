@@ -9,6 +9,7 @@ pub mod assembly;
 pub mod complex_eigen;
 pub mod complex_lanczos;
 pub mod derham;
+pub mod driven;
 pub mod eigen;
 pub mod fe_assemble;
 pub mod lanczos;
@@ -31,6 +32,9 @@ pub use assembly::{
 pub use complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
 pub use complex_lanczos::{SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
 pub use derham::{apply_divergence, apply_gradient, curl_map, divergence_map, gradient_map};
+pub use driven::{
+    driven_solve, CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenSolution,
+};
 pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
     FaerDenseEigensolver,
@@ -55,15 +59,15 @@ pub use mie_open::{
     OPEN_SPACE_WGM_TABLE_N15,
 };
 pub use nedelec::{
-    batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_matrices, tet_edges,
-    NedelecLocalMatrices,
+    batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_matrices,
+    batched_nedelec_local_rhs, tet_edges, NedelecLocalMatrices,
 };
 pub use nedelec_assembly::{
     assemble_global_nedelec, assemble_global_nedelec_with_anisotropic_epsilon,
     assemble_global_nedelec_with_complex_epsilon, assemble_global_nedelec_with_epsilon,
-    build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml, build_epsilon_r,
-    burn_complex_mass_to_faer, cube_pec_interior_edges, pec_interior_edge_mask, rank_via_svd,
-    restrict_gradient_dense, sphere_n_interior_nodes, sphere_pec_interior_edges,
+    assemble_nedelec_current_rhs, build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml,
+    build_epsilon_r, burn_complex_mass_to_faer, cube_pec_interior_edges, pec_interior_edge_mask,
+    rank_via_svd, restrict_gradient_dense, sphere_n_interior_nodes, sphere_pec_interior_edges,
     sphere_pec_node_interior_mask, spurious_dim_from_derham, tet_centroid_radii, tet_centroids,
     NedelecComplexGlobalSystem, NedelecGlobalSystem, DERHAM_RANK_THRESHOLD_REL,
 };
