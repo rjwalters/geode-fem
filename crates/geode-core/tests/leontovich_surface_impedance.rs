@@ -891,3 +891,55 @@ fn leontovich_loss_follows_sqrt_omega_scaling() {
     // Monotone increase is implied by the power law but cheap to pin.
     assert!(r_norm[0] < r_norm[1] && r_norm[1] < r_norm[2]);
 }
+
+// ---------------------------------------------------------------------------
+// 6. No-op composition: empty surface list reproduces driven_solve.
+// ---------------------------------------------------------------------------
+
+/// An empty surface list must reproduce `driven_solve` exactly
+/// (bit-for-bit at the linear-system level — same assembly, same
+/// factorization). This pins the no-op default now that the shared
+/// `driven_solve_impl` also threads the lumped-port surface terms
+/// (issue #202): with `ports = &[]` and `surfaces = &[]` the system is
+/// the plain `A(ω) = K + iωC − ω²M`.
+#[test]
+fn empty_surface_list_matches_driven_solve() {
+    let mesh = cube_tet_mesh(2, 1.0);
+    let (_, mask) = cube_pec_interior_edges(&mesh, 1.0);
+    let eps = vacuum(&mesh);
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mask,
+    };
+    let source = CurrentSource::from_centroids(&mesh, |c| {
+        [
+            c64::new(0.0, 0.0),
+            c64::new((PI * c[2]).sin(), 0.0),
+            c64::new(0.0, 0.0),
+        ]
+    });
+    let omega = 1.1;
+    let sol_s = driven_solve_with_surface_impedance::<B>(
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &bcs,
+        &[],
+        omega,
+        &source,
+        &device(),
+    )
+    .expect("empty-surfaces solve");
+    let sol_0 = driven_solve::<B>(
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
+        &bcs,
+        omega,
+        &source,
+        &device(),
+    )
+    .expect("plain solve");
+    assert_eq!(sol_s.n_interior, sol_0.n_interior);
+    for (a, b) in sol_s.e_edges.iter().zip(sol_0.e_edges.iter()) {
+        assert_eq!(a, b, "empty surface list changed the solution");
+    }
+}
