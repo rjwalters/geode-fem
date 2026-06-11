@@ -42,8 +42,12 @@ REPO_ROOT = HERE.parent.parent  # reference/numpy -> repo root
 FIXTURE_DIR = REPO_ROOT / "reference" / "fixtures" / "mie_roots"
 FIXTURE_PATH = FIXTURE_DIR / "baseline.json"
 
-sys.path.insert(0, str(HERE))
-from mie_roots import (  # noqa: E402
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
+from reference.numpy.mie_roots import (  # noqa: E402
     K_MAX,
     K_MIN,
     N_INSIDE,

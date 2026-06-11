@@ -28,13 +28,14 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 
-HERE = Path(__file__).resolve().parent
-REFERENCE_ROOT = HERE.parent.parent  # reference/
-sys.path.insert(0, str(REFERENCE_ROOT / "numpy"))
-sys.path.insert(0, str(HERE))
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[3])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 
-from mesh import cube_interior_mask, cube_tet_mesh  # noqa: E402
-from assembly_graph import build_cube_cavity_graph  # noqa: E402
+from reference.numpy.mesh import cube_interior_mask, cube_tet_mesh  # noqa: E402
+from reference.onnx.cube_cavity.assembly_graph import build_cube_cavity_graph  # noqa: E402
 
 
 def _scalar_input_field(value, dtype: str, description: str) -> dict:

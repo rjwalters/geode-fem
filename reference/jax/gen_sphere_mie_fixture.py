@@ -58,7 +58,6 @@ Usage
 from __future__ import annotations
 
 import argparse
-import importlib.util as _ilu
 import json
 import os
 import subprocess
@@ -69,9 +68,12 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
-# NumPy reference dir first so bare module names resolve to the NumPy
-# modules; the JAX sphere_mie is loaded by explicit file path below.
-sys.path.insert(0, str(REPO_ROOT / "reference" / "numpy"))
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187). Package-qualified imports
+# disambiguate the same-named NumPy and JAX modules.
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 
 MESH_PATH = (
     REPO_ROOT / "reference" / "fixtures" / "sphere_pml_small" / "sphere.msh"
@@ -110,12 +112,11 @@ def _interleave_c128(z: np.ndarray) -> list[float]:
 
 
 def _load_jax_mie():
-    """Load reference/jax/sphere_mie.py by file path (the bare name
-    `sphere_mie` must keep resolving to the NumPy module)."""
-    spec = _ilu.spec_from_file_location("_jax_sphere_mie", HERE / "sphere_mie.py")
-    mod = _ilu.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    """Import reference.jax.sphere_mie lazily (defers the JAX import
+    until the solve is actually requested)."""
+    from reference.jax import sphere_mie as jax_sphere_mie
+
+    return jax_sphere_mie
 
 
 # --------------------------------------------------------------------------- #
@@ -158,13 +159,13 @@ def main() -> None:
     out_path = Path(args.out)
 
     jax_mie = _load_jax_mie()
-    from sphere_mie import (  # NumPy module (path-ordered import)
+    from reference.numpy.sphere_mie import (
         K0_REF,
         classify_modes_against_catalogue,
         load_mie_roots_catalogue,
         q_factor_from_lambda,
     )
-    from sphere_pec import R_BUFFER, R_PML_INNER, R_SPHERE
+    from reference.numpy.sphere_pec import R_BUFFER, R_PML_INNER, R_SPHERE
 
     print(f"Running anisotropic-UPML Mie JAX pipeline on {MESH_PATH} ...")
     print(f"  sigma_0 = {args.sigma0}, n_index = {N_INDEX}, k0_ref = {K0_REF}")

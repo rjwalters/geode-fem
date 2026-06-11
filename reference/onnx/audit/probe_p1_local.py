@@ -49,11 +49,13 @@ import onnx.helper as oh
 import onnxruntime as ort
 from onnx import TensorProto
 
-HERE = Path(__file__).resolve().parent
-REFERENCE_ROOT = HERE.parent.parent
-sys.path.insert(0, str(REFERENCE_ROOT / "numpy"))
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[3])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 
-from p1_local_matrices import batched_p1_local_matrices  # noqa: E402
+from reference.numpy.p1_local_matrices import batched_p1_local_matrices  # noqa: E402
 
 OPSET = 18
 

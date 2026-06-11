@@ -50,7 +50,11 @@ import numpy as np
 
 _HERE = Path(__file__).resolve().parent
 _REPO_ROOT = _HERE.parent.parent
-sys.path.insert(0, str(_REPO_ROOT / "reference" / "numpy"))
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 
 PROBLEMS = ("cube-cavity", "sphere-pec", "sphere-pml", "sphere-mie")
 
@@ -105,8 +109,8 @@ def _real_part_checked(mat: np.ndarray, name: str) -> np.ndarray:
 
 
 def _make_cube_cavity(args) -> dict:
-    from cube_cavity_minimal import assemble_global_p1, restrict_to_interior
-    from mesh import cube_interior_mask, cube_tet_mesh
+    from reference.numpy.cube_cavity_minimal import assemble_global_p1, restrict_to_interior
+    from reference.numpy.mesh import cube_interior_mask, cube_tet_mesh
 
     nodes, tets = cube_tet_mesh(args.n, args.side)
     k_csr, m_csr = assemble_global_p1(nodes, tets)
@@ -144,7 +148,7 @@ def _make_cube_cavity(args) -> dict:
 
 
 def _make_sphere_pec(args) -> dict:
-    from sphere_pec import (
+    from reference.numpy.sphere_pec import (
         apply_dirichlet,
         assemble_global_nedelec,
         build_edges,
@@ -204,7 +208,7 @@ def _make_sphere_pec(args) -> dict:
 def _make_sphere_complex(args, problem: str) -> dict:
     """Shared synthesis for sphere-pml (scalar complex epsilon) and
     sphere-mie (anisotropic UPML diagonal tensor epsilon)."""
-    from sphere_pec import (
+    from reference.numpy.sphere_pec import (
         apply_dirichlet,
         build_edges,
         read_sphere_fixture,
@@ -218,7 +222,7 @@ def _make_sphere_complex(args, problem: str) -> dict:
     )
 
     if problem == "sphere-pml":
-        from sphere_pml import (
+        from reference.numpy.sphere_pml import (
             assemble_global_nedelec_complex,
             build_complex_epsilon_r_pml,
             tet_centroid_radii,
@@ -237,7 +241,7 @@ def _make_sphere_complex(args, problem: str) -> dict:
         extra_inputs = {}
         epsilon_desc = "scalar-isotropic complex-epsilon PML"
     else:
-        from sphere_mie import (
+        from reference.numpy.sphere_mie import (
             assemble_global_nedelec_anisotropic,
             build_anisotropic_pml_tensor_diag,
             tet_centroids,

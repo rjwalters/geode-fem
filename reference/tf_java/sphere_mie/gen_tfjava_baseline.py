@@ -74,7 +74,11 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "reference" / "numpy"))
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[3])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 
 # Strict cross-IR window (#160 cluster closure): the TM_1,1 triplet.
 STRICT_MODE_WINDOW_LEN = 3
@@ -165,7 +169,7 @@ def main():
     # this line-for-line modulo accumulation order; the actual JVM
     # regeneration happens in CI via the tfjava-cube-cavity workflow
     # (sphere-mie-tfjava job) which builds + runs the Maven module.
-    from sphere_mie import (
+    from reference.numpy.sphere_mie import (
         classify_modes_against_catalogue,
         load_mie_roots_catalogue,
         q_factor_from_lambda,

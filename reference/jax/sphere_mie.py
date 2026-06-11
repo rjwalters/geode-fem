@@ -95,36 +95,26 @@ jax.config.update("jax_enable_x64", True)
 # ---------------------------------------------------------------------------
 # Import from siblings.
 #
-# The NumPy reference directory is pushed to the front of sys.path so
-# that bare module names (`sphere_pec`, `sphere_pml`, `sphere_mie`,
-# `nedelec_local_matrices`) always resolve to the *NumPy* modules —
-# the JAX siblings with the same file names are only ever loaded by
-# explicit file path under private module names (`_jax_*`). This is
-# the same collision-avoidance pattern as `reference/jax/sphere_pml.py`.
+# Package-qualified imports (`reference.numpy.*` vs `reference.jax.*`)
+# disambiguate the same-named NumPy and JAX modules; the shim below
+# only ensures the repo root is on sys.path so the `reference.*` PEP
+# 420 namespace packages resolve regardless of cwd (issue #187).
 # ---------------------------------------------------------------------------
 
 HERE = Path(__file__).resolve().parent
 REPO_REF = HERE.parent  # reference/
 
-sys.path.insert(0, str(REPO_REF / "numpy"))
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 
-import importlib.util as _ilu  # noqa: E402
-
-
-def _load_by_path(name: str, path: Path):
-    spec = _ilu.spec_from_file_location(name, path)
-    mod = _ilu.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-# JAX sphere-PEC kernels (curl-curl + local-edge table) by file path.
-_jax_pec = _load_by_path("_jax_sphere_pec_kernels", HERE / "sphere_pec.py")
+# JAX sphere-PEC kernels (curl-curl + local-edge table).
+from reference.jax import sphere_pec as _jax_pec  # noqa: E402
 _nedelec_cc_batch_jax = _jax_pec._nedelec_cc_batch_jax
 _LOCAL_EDGES_ARR = _jax_pec._LOCAL_EDGES_ARR  # (6, 2) int32
 
 # NumPy reference modules (algorithmic source of truth).
-from sphere_pec import (  # noqa: E402
+from reference.numpy.sphere_pec import (  # noqa: E402
     R_BUFFER,
     R_PML_INNER,
     R_SPHERE,
@@ -134,12 +124,12 @@ from sphere_pec import (  # noqa: E402
     sphere_pec_interior_edges,
     spurious_dim_from_derham,
 )
-from sphere_pml import eigensolve_complex_dense  # noqa: E402
+from reference.numpy.sphere_pml import eigensolve_complex_dense  # noqa: E402
 
 # The J.2 NumPy Mie module: constitutive tensor builder, λ → k helpers,
 # and the J.1 catalogue classification — all shared verbatim so the JAX
 # port differs from NumPy *only* in the assembly kernels.
-from sphere_mie import (  # noqa: E402
+from reference.numpy.sphere_mie import (  # noqa: E402
     K0_REF,
     SIGMA_0_DEFAULT,
     build_anisotropic_pml_tensor_diag,

@@ -90,10 +90,12 @@ import numpy as np
 # Reuse the P1 reference's signed-volume / area-weighted-gradient
 # helpers verbatim. This is by design — the issue acceptance criteria
 # call out that the signed-volume computation should not be duplicated.
-HERE = Path(__file__).resolve().parent
-if str(HERE) not in sys.path:
-    sys.path.insert(0, str(HERE))
-from p1_local_matrices import batched_p1_local_matrices  # noqa: E402
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
+from reference.numpy.p1_local_matrices import batched_p1_local_matrices  # noqa: E402
 
 # Canonical local edge order on a tet. Mirrors
 # ``crates/geode-core/src/mesh/mod.rs::TET_LOCAL_EDGES``; the order is

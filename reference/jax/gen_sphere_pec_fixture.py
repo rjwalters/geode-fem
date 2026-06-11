@@ -34,8 +34,11 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent  # reference/ -> repo root
-sys.path.insert(0, str(REPO_ROOT / "reference" / "numpy"))
-sys.path.insert(0, str(REPO_ROOT / "reference" / "jax"))
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 
 
 def _git_commit() -> str:
@@ -326,7 +329,7 @@ def main():
 
     # Try to import JAX
     try:
-        from sphere_pec import solve_sphere_pec_jax, JaxSpherePecResult
+        from reference.jax.sphere_pec import solve_sphere_pec_jax, JaxSpherePecResult
     except ImportError as e:
         print(f"ERROR: Could not import JAX pipeline: {e}")
         print("Install JAX with: pip install 'jax[cpu]'")

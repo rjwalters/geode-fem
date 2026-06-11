@@ -71,15 +71,18 @@ import numpy as np
 import scipy.sparse
 import scipy.sparse.linalg
 
-# Allow `python3 cube_cavity.py` to find the sibling modules regardless of cwd.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from p1_local_matrices import batched_p1_local_matrices  # noqa: E402
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
+from reference.numpy.p1_local_matrices import batched_p1_local_matrices  # noqa: E402
 
 # Mesh primitives live in `mesh.py` (issue #103) and are re-exported
 # here so existing callers (`gen_cube_cavity_baseline.py`, downstream
 # tests) keep importing `cube_tet_mesh`, `load_msh`, `write_msh`, and
 # `cube_interior_mask` from `cube_cavity` without churn.
-from mesh import (  # noqa: E402, F401
+from reference.numpy.mesh import (  # noqa: E402, F401
     cube_interior_mask,
     cube_tet_mesh,
     load_msh,

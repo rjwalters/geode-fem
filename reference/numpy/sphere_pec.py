@@ -116,11 +116,12 @@ import numpy as np
 import scipy.sparse
 import scipy.sparse.linalg
 
-# Allow `python3 sphere_pec.py` to find sibling modules regardless of cwd.
-HERE = Path(__file__).resolve().parent
-if str(HERE) not in sys.path:
-    sys.path.insert(0, str(HERE))
-from nedelec_local_matrices import (  # noqa: E402
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
+from reference.numpy.nedelec_local_matrices import (  # noqa: E402
     TET_LOCAL_EDGES,
     batched_nedelec_local_matrices,
 )
@@ -130,7 +131,7 @@ from nedelec_local_matrices import (  # noqa: E402
 # module (``derham.py``), not inlined here. Re-export under the original
 # names so existing consumers (Phase G fixture generators, downstream
 # tests) keep working without import churn.
-from derham import (  # noqa: E402
+from reference.numpy.derham import (  # noqa: E402
     DERHAM_RANK_THRESHOLD_REL,
     restrict_gradient_dense,
     spurious_dim_from_derham as _derham_spurious_dim,
