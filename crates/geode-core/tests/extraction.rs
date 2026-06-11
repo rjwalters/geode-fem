@@ -45,8 +45,9 @@ use faer::c64;
 use geode_core::{
     detect_srf, driven_frequency_sweep, driven_solve_with_ports,
     driven_solve_with_surface_impedance, extract_port_circuit, port_input_impedance, s11,
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, DrivenOperator, LumpedPort,
-    SurfaceImpedanceBc, SurfaceImpedanceModel, TetMesh,
+    s_parameter_frequency_sweep, CurrentSource, DefaultBackend, DrivenBcs, DrivenError,
+    DrivenMaterials, DrivenOperator, LumpedPort, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    TetMesh,
 };
 
 type B = DefaultBackend;
@@ -634,6 +635,182 @@ fn operator_sweep_matches_single_solves_with_ports() {
         assert_eq!(point.ports[0].v, pc.v);
         assert_eq!(point.ports[0].i, pc.i);
         assert_eq!(point.ports[0].z, z_ref);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// N-port S-parameter sweep (issue #214)
+// ---------------------------------------------------------------------------
+
+/// Single-port regression (issue #214 acceptance criterion): the
+/// N-port S-parameter sweep with N = 1 reproduces the existing
+/// `driven_frequency_sweep` → `s11` reflection coefficient
+/// **bit-for-bit** (same operator assembly, same factorization, same
+/// RHS arithmetic, same scalar S₁₁ formula).
+#[test]
+fn one_port_s_parameter_sweep_matches_s11_bitwise() {
+    let n = 4;
+    let mesh = geode_core::cube_tet_mesh(n, 1.0);
+    let edges = mesh.edges();
+    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
+    let eps = vacuum(&mesh);
+    let resistance = 1.0;
+    let port = LumpedPort {
+        faces: &port_faces,
+        e_hat: [0.0, 1.0, 0.0],
+        resistance,
+        width: 1.0,
+        length: 1.0,
+        v_inc: c64::new(1.0, 0.0),
+    };
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mask,
+    };
+    let omegas = [0.5, 1.0, 2.0];
+
+    let sweep = driven_frequency_sweep::<B>(
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &bcs,
+        std::slice::from_ref(&port),
+        &[],
+        &omegas,
+        &zero_source(&mesh),
+        &device(),
+    )
+    .expect("Z sweep");
+    let s_points = s_parameter_frequency_sweep::<B>(
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &bcs,
+        std::slice::from_ref(&port),
+        &[],
+        &omegas,
+        &device(),
+    )
+    .expect("S sweep");
+
+    assert_eq!(sweep.len(), s_points.len());
+    for (zp, sp) in sweep.iter().zip(s_points.iter()) {
+        assert_eq!(sp.s.n_ports, 1);
+        // Bit-for-bit: exact equality, not a tolerance.
+        assert_eq!(
+            sp.z[0], zp.ports[0].z,
+            "single-port Z diverged at ω = {}",
+            zp.omega
+        );
+        assert_eq!(
+            sp.s.entry(0, 0),
+            s11(zp.ports[0].z, resistance),
+            "single-port S11 diverged at ω = {}",
+            zp.omega
+        );
+    }
+}
+
+/// S-parameter extraction needs every port excitable: zero `v_inc`
+/// ports (and an empty port list) are rejected as `InvalidPort`, not
+/// silently swept with a zero column.
+#[test]
+fn s_parameter_sweep_rejects_unexcitable_ports() {
+    let mesh = geode_core::cube_tet_mesh(2, 1.0);
+    let edges = mesh.edges();
+    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
+    let eps = vacuum(&mesh);
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mask,
+    };
+
+    let passive = LumpedPort {
+        faces: &port_faces,
+        e_hat: [0.0, 1.0, 0.0],
+        resistance: 1.0,
+        width: 1.0,
+        length: 1.0,
+        v_inc: c64::new(0.0, 0.0),
+    };
+    let err = s_parameter_frequency_sweep::<B>(
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &bcs,
+        std::slice::from_ref(&passive),
+        &[],
+        &[1.0],
+        &device(),
+    )
+    .unwrap_err();
+    assert!(matches!(err, DrivenError::InvalidPort { .. }));
+
+    let err = s_parameter_frequency_sweep::<B>(
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &bcs,
+        &[],
+        &[],
+        &[1.0],
+        &device(),
+    )
+    .unwrap_err();
+    assert!(matches!(err, DrivenError::InvalidPort { .. }));
+}
+
+/// The factor-once/multi-RHS split itself (issue #214): at a fixed ω,
+/// `factor_at(ω)?.solve()` is bit-for-bit `solve_at(ω)`, and with a
+/// single port `solve_excited(0)` is bit-for-bit `solve()` (the only
+/// drive is port 0's).
+#[test]
+fn factored_operator_solves_match_solve_at_bitwise() {
+    let mesh = geode_core::cube_tet_mesh(2, 1.0);
+    let edges = mesh.edges();
+    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
+    let eps = vacuum(&mesh);
+    let port = LumpedPort {
+        faces: &port_faces,
+        e_hat: [0.0, 1.0, 0.0],
+        resistance: 2.0,
+        width: 1.0,
+        length: 1.0,
+        v_inc: c64::new(1.0, 0.5),
+    };
+    let op = DrivenOperator::assemble::<B>(
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        std::slice::from_ref(&port),
+        &[],
+        &zero_source(&mesh),
+        &device(),
+    )
+    .expect("operator assembly");
+
+    for omega in [0.8, 1.7] {
+        let sol_at = op.solve_at(omega).expect("solve_at");
+        let factored = op.factor_at(omega).expect("factor_at");
+        let sol_f = factored.solve().expect("factored solve");
+        let sol_e = factored.solve_excited(0).expect("factored excited solve");
+        assert_eq!(factored.omega(), omega);
+        for ((a, b), c) in sol_at
+            .e_edges
+            .iter()
+            .zip(sol_f.e_edges.iter())
+            .zip(sol_e.e_edges.iter())
+        {
+            assert_eq!(
+                a, b,
+                "factor_at + solve diverged from solve_at at ω={omega}"
+            );
+            assert_eq!(b, c, "solve_excited(0) diverged from solve() at ω={omega}");
+        }
     }
 }
 
