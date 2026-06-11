@@ -77,8 +77,12 @@ MESH_PATH = (
     REPO_ROOT / "reference" / "fixtures" / "sphere_pml_small" / "sphere.msh"
 )
 
-sys.path.insert(0, str(HERE))
-from sphere_mie import (  # noqa: E402
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
+from reference.numpy.sphere_mie import (  # noqa: E402
     K0_REF,
     SIGMA_0_DEFAULT,
     classify_modes_against_catalogue,
@@ -86,7 +90,7 @@ from sphere_mie import (  # noqa: E402
     q_factor_from_lambda,
     run_sphere_mie,
 )
-from sphere_pec import R_BUFFER, R_PML_INNER, R_SPHERE  # noqa: E402
+from reference.numpy.sphere_pec import R_BUFFER, R_PML_INNER, R_SPHERE  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # Tolerances applied to the on-disk baseline.

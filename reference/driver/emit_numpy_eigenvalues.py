@@ -19,11 +19,13 @@ import json
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-REPO_REF = HERE.parent  # reference/
-sys.path.insert(0, str(REPO_REF / "numpy"))
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 
-from cube_cavity_minimal import solve_cube_cavity  # noqa: E402
+from reference.numpy.cube_cavity_minimal import solve_cube_cavity  # noqa: E402
 
 
 def main() -> int:

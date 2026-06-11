@@ -49,8 +49,12 @@ FIXTURE_DIR = REPO_ROOT / "reference" / "fixtures" / "derham"
 FIXTURE_PATH = FIXTURE_DIR / "baseline.json"
 MESH_PATH = REPO_ROOT / "reference" / "fixtures" / "sphere_pec" / "sphere.msh"
 
-sys.path.insert(0, str(HERE))
-from derham import (  # noqa: E402
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
+from reference.numpy.derham import (  # noqa: E402
     _read_msh_tets,
     build_edges,
     build_faces,

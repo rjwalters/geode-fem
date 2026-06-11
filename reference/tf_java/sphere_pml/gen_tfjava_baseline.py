@@ -65,7 +65,11 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "reference" / "numpy"))
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[3])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 
 
 def _git_commit() -> str:
@@ -349,7 +353,7 @@ def main():
     # this line-for-line modulo accumulation order; the actual JVM
     # regeneration happens in CI via the tfjava-cube-cavity workflow
     # (sphere-pml-tfjava job) which builds + runs the Maven module.
-    from sphere_pml import run_sphere_pml
+    from reference.numpy.sphere_pml import run_sphere_pml
 
     print(f"Running NumPy reference pipeline (σ₀={args.sigma0}, n_index={args.n_index})...")
     print("(TF-Java JVM path is numerically equivalent modulo scatterNd accumulation order;")

@@ -104,24 +104,22 @@ jax.config.update("jax_enable_x64", True)
 HERE = Path(__file__).resolve().parent
 REPO_REF = HERE.parent  # reference/
 
-# Import the JAX kernels by *file path* to avoid name collision with the
-# NumPy `sphere_pec` module (same module name, different package).
-import importlib.util as _ilu
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187). Package-qualified imports
+# disambiguate the same-named NumPy and JAX modules.
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 
-_JAX_PEC_SPEC = _ilu.spec_from_file_location(
-    "_jax_sphere_pec_kernels", HERE / "sphere_pec.py"
-)
-_jax_pec = _ilu.module_from_spec(_JAX_PEC_SPEC)
-
-# Make the NumPy reference importable for the JAX module's `from sphere_pec import ...`.
-sys.path.insert(0, str(REPO_REF / "numpy"))
-_JAX_PEC_SPEC.loader.exec_module(_jax_pec)
+# JAX sphere-PEC kernels (sibling module; same basename as the NumPy
+# reference, disambiguated by the package path).
+from reference.jax import sphere_pec as _jax_pec  # noqa: E402
 
 _nedelec_cc_batch_jax = _jax_pec._nedelec_cc_batch_jax
 _nedelec_mass_batch_jax = _jax_pec._nedelec_mass_batch_jax
 
 # NumPy-side helpers (algorithmic source of truth shared with PEC).
-from sphere_pec import (  # noqa: E402  (numpy module via numpy/sphere_pec.py)
+from reference.numpy.sphere_pec import (  # noqa: E402
     _deterministic_arpack_kwargs,
     PHYS_SPHERE_INTERIOR,
     PHYS_PML_SHELL,

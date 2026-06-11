@@ -73,10 +73,14 @@ from scipy.special import spherical_jn, spherical_yn
 
 HERE = Path(__file__).resolve().parent
 REFERENCE_ROOT = HERE.parent.parent.parent
-sys.path.insert(0, str(REFERENCE_ROOT / "numpy"))
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[4])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 
-import mie_roots  # noqa: E402
-from mie_roots import (  # noqa: E402
+from reference.numpy import mie_roots  # noqa: E402
+from reference.numpy.mie_roots import (  # noqa: E402
     DEDUP_TOL,
     K_MAX,
     K_MIN,

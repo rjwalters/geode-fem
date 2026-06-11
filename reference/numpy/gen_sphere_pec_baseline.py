@@ -110,8 +110,12 @@ FIXTURE_DIR = REPO_ROOT / "reference" / "fixtures" / "sphere_pec"
 FIXTURE_PATH = FIXTURE_DIR / "baseline.json"
 MESH_PATH = FIXTURE_DIR / "sphere.msh"
 
-sys.path.insert(0, str(HERE))
-from sphere_pec import (  # noqa: E402
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
+from reference.numpy.sphere_pec import (  # noqa: E402
     R_BUFFER,
     R_SPHERE,
     run_sphere_pec,

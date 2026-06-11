@@ -62,15 +62,18 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-from p1_local_matrices import batched_p1_local_matrices  # noqa: E402
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
+from reference.numpy.p1_local_matrices import batched_p1_local_matrices  # noqa: E402
 
 # Mesh primitives live in `mesh.py` (issue #103) — re-exported here so
 # the JAX consumer (`reference/jax/cube_cavity.py`) keeps importing
 # `cube_tet_mesh` and `cube_interior_mask` from this module without
 # churn.
-from mesh import cube_interior_mask, cube_tet_mesh  # noqa: E402, F401
+from reference.numpy.mesh import cube_interior_mask, cube_tet_mesh  # noqa: E402, F401
 
 
 def assemble_global_p1(nodes: np.ndarray, tets: np.ndarray):

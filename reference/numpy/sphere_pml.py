@@ -92,16 +92,18 @@ import scipy.linalg
 import scipy.sparse
 import scipy.sparse.linalg
 
-HERE = Path(__file__).resolve().parent
-if str(HERE) not in sys.path:
-    sys.path.insert(0, str(HERE))
+# Repo root on sys.path: `reference.*` resolves as PEP 420 namespace
+# packages regardless of cwd (issue #187).
+_REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT_STR not in sys.path:
+    sys.path.insert(0, _REPO_ROOT_STR)
 
-from nedelec_local_matrices import batched_nedelec_local_matrices  # noqa: E402
+from reference.numpy.nedelec_local_matrices import batched_nedelec_local_matrices  # noqa: E402
 
 # Reuse the Phase G mesh I/O, edge enumeration, PEC mask, and d⁰-rank
 # classifier verbatim — the PML problem differs only in the constitutive
 # scaling on the mass.
-from sphere_pec import (  # noqa: E402
+from reference.numpy.sphere_pec import (  # noqa: E402
     PHYS_PML_SHELL,
     PHYS_SPHERE_INTERIOR,
     R_BUFFER,
