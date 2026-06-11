@@ -11,6 +11,7 @@ pub mod complex_lanczos;
 pub mod derham;
 pub mod driven;
 pub mod eigen;
+pub mod extraction;
 pub mod fe_assemble;
 pub mod lanczos;
 pub mod lumped_port;
@@ -38,12 +39,16 @@ pub use derham::{apply_divergence, apply_gradient, curl_map, divergence_map, gra
 pub use driven::{
     driven_solve, driven_solve_quad, driven_solve_with_ports, driven_solve_with_sigma,
     driven_solve_with_sigma_quad, driven_solve_with_surface_impedance, CurrentSource, DrivenBcs,
-    DrivenError, DrivenMaterials, DrivenSolution, QuadCurrentSource, SurfaceImpedanceBc,
-    SurfaceImpedanceModel,
+    DrivenError, DrivenMaterials, DrivenOperator, DrivenSolution, QuadCurrentSource,
+    SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
 pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
     FaerDenseEigensolver,
+};
+pub use extraction::{
+    detect_srf, driven_frequency_sweep, extract_port_circuit, im_z_zero_crossings, inductance,
+    quality_factor, s11, PortCircuit, SMatrix, SweepPoint,
 };
 pub use fe_assemble::{fe_assemble, DirichletBc, ElementType, FeAssembleResult};
 pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};

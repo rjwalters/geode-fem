@@ -632,348 +632,643 @@ fn driven_solve_impl<B: Backend>(
     rhs: RhsSamples<'_>,
     device: &B::Device,
 ) -> Result<DrivenSolution, DrivenError> {
-    let n_tets = mesh.n_tets();
-    let edges = mesh.edges();
-    let n_edges = edges.len();
+    let op = DrivenOperator::assemble_impl::<B>(
+        mesh, materials, sigma_tet, bcs, ports, surfaces, rhs, device,
+    )?;
+    op.solve_at(omega)
+}
 
-    // --- Input validation -------------------------------------------------
-    if bcs.pec_interior_mask.len() != n_edges {
-        return Err(DrivenError::MaskDimMismatch {
-            got: bcs.pec_interior_mask.len(),
-            want: n_edges,
-        });
+/// One lumped port of a [`DrivenOperator`]: the ω-independent pieces of
+/// the port's system / RHS / readout contributions, cached at assembly
+/// time.
+struct OperatorPort {
+    /// Interior-remapped triplets of the tangential surface mass `S_p`
+    /// (PEC-eliminated pairs already dropped).
+    mass_triplets: Vec<(usize, usize, f64)>,
+    /// Full-length port flux functional `f_i = ∮ N_i · ê dS` — drives
+    /// the excitation and reads back the port voltage.
+    flux: Vec<f64>,
+    /// Surface impedance `Z_s = R·w/l`.
+    z_s: f64,
+    /// Incident (drive) voltage.
+    v_inc: c64,
+    /// Gap length `l`.
+    length: f64,
+    /// Port width `w`.
+    width: f64,
+    /// Lumped resistance `R`.
+    resistance: f64,
+}
+
+/// One Leontovich impedance surface of a [`DrivenOperator`]: the
+/// ω-independent real surface mass values plus the model whose scalar
+/// coefficient `iω/Z_s(ω)` is re-evaluated at every frequency.
+struct OperatorSurface {
+    /// `S_Γ` values aligned with the operator's interior-filtered
+    /// sparsity entries.
+    s_vals: Vec<f64>,
+    /// Surface-impedance model (ω-dependent coefficient).
+    model: SurfaceImpedanceModel,
+}
+
+/// Pre-assembled driven frequency-domain operator for **frequency
+/// sweeps** (Epic #193, issue #203).
+///
+/// `A(ω) = K + iωC − ω²M + Σ_p (iω/Z_s,p) S_p + Σ_Γ (iω/Z_s,Γ(ω)) S_Γ`
+/// re-forms per frequency by linear combination of ω-independent
+/// matrices (the design rationale recorded in PR #198), so a sweep
+/// should run the (expensive) Burn volume assembly **once** and then
+/// re-form + re-factor the sparse system at every ω. This type caches
+/// everything ω-independent:
+///
+/// - the interior-filtered sparsity pattern with aligned `K`, `M`, and
+///   `C(σ)` values,
+/// - per-port surface-mass triplets and flux functionals (the port
+///   scalar `iω/Z_s` and the drive `(2iω/Z_s)(V_inc/l)` are applied per
+///   ω),
+/// - per-surface Leontovich masses `S_Γ` (their scalar `iω/Z_s(ω)` is
+///   **not** a fixed polynomial in ω — e.g. `∝ √ω(1+i)` for the
+///   good-conductor model — so it is re-evaluated at every frequency,
+///   as required by the issue-#204 caveat),
+/// - the raw current-source moments `∫ N_i · J dV` (scaled by `iω` per
+///   frequency).
+///
+/// [`DrivenOperator::solve_at`] then builds and LU-factors `A(ω)` and
+/// solves — *re-factorize per ω, never re-assemble*. A single
+/// `assemble` + `solve_at(ω)` pair reproduces
+/// [`driven_solve_with_ports`] / [`driven_solve_with_surface_impedance`]
+/// exactly (the single-ω entry points are implemented on top of this
+/// type).
+pub struct DrivenOperator {
+    n_edges: usize,
+    n_interior: usize,
+    /// Full edge index → interior index (−1 = PEC-eliminated).
+    remap: Vec<i64>,
+    /// Owned copy of the PEC interior mask (RHS reduction per ω).
+    pec_interior_mask: Vec<bool>,
+    /// Interior-remapped row/col of every kept sparsity entry, in the
+    /// recorded assembly-pattern order.
+    rows: Vec<usize>,
+    cols: Vec<usize>,
+    /// Stiffness values aligned with `rows`/`cols` (complex for the
+    /// matched-UPML material, real otherwise).
+    k_vals: Vec<c64>,
+    /// Mass values `M(ε)` aligned with `rows`/`cols`.
+    m_vals: Vec<c64>,
+    /// Conductivity damping values `C(σ)`, if a σ was supplied.
+    c_vals: Option<Vec<f64>>,
+    /// Leontovich impedance surfaces (issue #204).
+    surfaces: Vec<OperatorSurface>,
+    /// Lumped ports (issue #202).
+    ports: Vec<OperatorPort>,
+    /// Raw current-source moments `∫ N_i · J dV` (real / imaginary
+    /// parts), full edge length; `b(ω) = iω (rhs_re + i·rhs_im)`.
+    rhs_re: Vec<f64>,
+    rhs_im: Vec<f64>,
+}
+
+impl DrivenOperator {
+    /// Assemble the ω-independent operator: Burn volume assembly of
+    /// `K`, `M(ε)`, `C(σ)` and the source moments, host-side port /
+    /// impedance-surface masses and port flux functionals, and the PEC
+    /// interior reduction. Inputs are validated exactly as in
+    /// [`driven_solve_with_ports`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same shape-mismatch / invalid-port / empty-interior
+    /// errors as the single-ω entry points. (Surface-impedance models
+    /// are evaluated per frequency inside [`DrivenOperator::solve_at`],
+    /// so a singular `Z_s(ω)` surfaces there.)
+    #[allow(clippy::too_many_arguments)]
+    pub fn assemble<B: Backend>(
+        mesh: &TetMesh,
+        materials: DrivenMaterials<'_>,
+        sigma_tet: Option<&[f64]>,
+        bcs: &DrivenBcs<'_>,
+        ports: &[LumpedPort<'_>],
+        surfaces: &[SurfaceImpedanceBc<'_>],
+        source: &CurrentSource,
+        device: &B::Device,
+    ) -> Result<Self, DrivenError> {
+        Self::assemble_impl::<B>(
+            mesh,
+            materials,
+            sigma_tet,
+            bcs,
+            ports,
+            surfaces,
+            RhsSamples::Constant(&source.j_tet),
+            device,
+        )
     }
-    if rhs.len() != n_tets {
-        return Err(DrivenError::SourceDimMismatch {
-            got: rhs.len(),
-            want: n_tets,
-        });
-    }
-    let material_len = match materials {
-        DrivenMaterials::Scalar(eps) => eps.len(),
-        DrivenMaterials::DiagTensor(eps) => eps.len(),
-        DrivenMaterials::MatchedUpml {
-            epsilon_tensor,
-            nu_tensor,
-        } => {
-            if nu_tensor.len() != n_tets {
-                return Err(DrivenError::MaterialDimMismatch {
-                    got: nu_tensor.len(),
-                    want: n_tets,
-                });
-            }
-            epsilon_tensor.len()
+
+    #[allow(clippy::too_many_arguments)]
+    fn assemble_impl<B: Backend>(
+        mesh: &TetMesh,
+        materials: DrivenMaterials<'_>,
+        sigma_tet: Option<&[f64]>,
+        bcs: &DrivenBcs<'_>,
+        ports: &[LumpedPort<'_>],
+        surfaces: &[SurfaceImpedanceBc<'_>],
+        rhs: RhsSamples<'_>,
+        device: &B::Device,
+    ) -> Result<Self, DrivenError> {
+        let n_tets = mesh.n_tets();
+        let edges = mesh.edges();
+        let n_edges = edges.len();
+
+        // --- Input validation -------------------------------------------------
+        if bcs.pec_interior_mask.len() != n_edges {
+            return Err(DrivenError::MaskDimMismatch {
+                got: bcs.pec_interior_mask.len(),
+                want: n_edges,
+            });
         }
-    };
-    if material_len != n_tets {
-        return Err(DrivenError::MaterialDimMismatch {
-            got: material_len,
-            want: n_tets,
-        });
-    }
-    if let Some(sigma) = sigma_tet {
-        if sigma.len() != n_tets {
-            return Err(DrivenError::SigmaDimMismatch {
-                got: sigma.len(),
+        if rhs.len() != n_tets {
+            return Err(DrivenError::SourceDimMismatch {
+                got: rhs.len(),
                 want: n_tets,
             });
         }
-    }
-    for (index, port) in ports.iter().enumerate() {
-        let invalid = |reason: &str| DrivenError::InvalidPort {
-            index,
-            reason: reason.to_string(),
-        };
-        if port.faces.is_empty() {
-            return Err(invalid("port has no faces"));
-        }
-        if !(port.resistance.is_finite() && port.resistance > 0.0) {
-            return Err(invalid("resistance must be finite and positive"));
-        }
-        if !(port.width.is_finite() && port.width > 0.0) {
-            return Err(invalid("width must be finite and positive"));
-        }
-        if !(port.length.is_finite() && port.length > 0.0) {
-            return Err(invalid("length must be finite and positive"));
-        }
-        let e_norm = (port.e_hat[0].powi(2) + port.e_hat[1].powi(2) + port.e_hat[2].powi(2)).sqrt();
-        if (e_norm - 1.0).abs() >= 1e-8 || e_norm.is_nan() {
-            return Err(invalid("e_hat must be a unit vector"));
-        }
-        let n_nodes = mesh.n_nodes() as u32;
-        if port
-            .faces
-            .iter()
-            .any(|f| f.iter().any(|&node| node >= n_nodes))
-        {
-            return Err(invalid("face node index out of range"));
-        }
-    }
-
-    // --- Leontovich impedance surfaces (issue #204) -------------------------
-    // Per-surface weak coefficient iω/Z_s(ω) on the real surface mass
-    // S_Γ. The coefficient is ω-dependent (∝ √ω·(1+i) for the
-    // good-conductor model), so this block is re-formed on every call;
-    // S_Γ itself is ω-independent. Every (i, j) pair S_Γ couples lies
-    // within the 6×6 edge block of the tet owning the boundary face, so
-    // the surface entries are a subset of the recorded volume sparsity
-    // pattern and the triplet loop below picks them all up.
-    let surface_blocks: Vec<(faer::Mat<f64>, c64)> = surfaces
-        .iter()
-        .map(|bc| {
-            let coeff = bc.model.weak_coefficient(omega)?;
-            let s = crate::silvermuller::assemble_surface_mass(mesh, bc.triangles, &edges);
-            Ok((s, coeff))
-        })
-        .collect::<Result<_, DrivenError>>()?;
-
-    // --- Edge tables ------------------------------------------------------
-    let tet_edges = mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
-
-    // --- Assemble K, M(ε) on the Burn backend ------------------------------
-    // The stiffness imaginary part is `None` for the ε-only material
-    // models (K is real there); the matched UPML stretches μ too, so
-    // its `K(Λ⁻¹)` carries an imaginary part.
-    let (nodes_t, tets_t) = crate::assembly::upload_mesh::<B>(mesh, device);
-    let (k_re_t, k_im_t, m_re_t, m_im_t, sparsity) = match materials {
-        DrivenMaterials::Scalar(eps) => {
-            let sys = assemble_global_nedelec_with_complex_epsilon(
-                nodes_t.clone(),
-                tets_t.clone(),
-                &tet_idx,
-                &tet_sign,
-                n_edges,
-                eps,
-            );
-            (sys.k, None, sys.m_re, sys.m_im, sys.sparsity)
-        }
-        DrivenMaterials::DiagTensor(eps) => {
-            let sys = assemble_global_nedelec_with_anisotropic_epsilon(
-                nodes_t.clone(),
-                tets_t.clone(),
-                &tet_idx,
-                &tet_sign,
-                n_edges,
-                eps,
-            );
-            (sys.k, None, sys.m_re, sys.m_im, sys.sparsity)
-        }
-        DrivenMaterials::MatchedUpml {
-            epsilon_tensor,
-            nu_tensor,
-        } => {
-            let sys = assemble_global_nedelec_with_full_tensors(
-                nodes_t.clone(),
-                tets_t.clone(),
-                &tet_idx,
-                &tet_sign,
-                n_edges,
+        let material_len = match materials {
+            DrivenMaterials::Scalar(eps) => eps.len(),
+            DrivenMaterials::DiagTensor(eps) => eps.len(),
+            DrivenMaterials::MatchedUpml {
                 epsilon_tensor,
                 nu_tensor,
-            );
-            (sys.k_re, Some(sys.k_im), sys.m_re, sys.m_im, sys.sparsity)
+            } => {
+                if nu_tensor.len() != n_tets {
+                    return Err(DrivenError::MaterialDimMismatch {
+                        got: nu_tensor.len(),
+                        want: n_tets,
+                    });
+                }
+                epsilon_tensor.len()
+            }
+        };
+        if material_len != n_tets {
+            return Err(DrivenError::MaterialDimMismatch {
+                got: material_len,
+                want: n_tets,
+            });
         }
-    };
+        if let Some(sigma) = sigma_tet {
+            if sigma.len() != n_tets {
+                return Err(DrivenError::SigmaDimMismatch {
+                    got: sigma.len(),
+                    want: n_tets,
+                });
+            }
+        }
+        for (index, port) in ports.iter().enumerate() {
+            let invalid = |reason: &str| DrivenError::InvalidPort {
+                index,
+                reason: reason.to_string(),
+            };
+            if port.faces.is_empty() {
+                return Err(invalid("port has no faces"));
+            }
+            if !(port.resistance.is_finite() && port.resistance > 0.0) {
+                return Err(invalid("resistance must be finite and positive"));
+            }
+            if !(port.width.is_finite() && port.width > 0.0) {
+                return Err(invalid("width must be finite and positive"));
+            }
+            if !(port.length.is_finite() && port.length > 0.0) {
+                return Err(invalid("length must be finite and positive"));
+            }
+            let e_norm =
+                (port.e_hat[0].powi(2) + port.e_hat[1].powi(2) + port.e_hat[2].powi(2)).sqrt();
+            if (e_norm - 1.0).abs() >= 1e-8 || e_norm.is_nan() {
+                return Err(invalid("e_hat must be a unit vector"));
+            }
+            let n_nodes = mesh.n_nodes() as u32;
+            if port
+                .faces
+                .iter()
+                .any(|f| f.iter().any(|&node| node >= n_nodes))
+            {
+                return Err(invalid("face node index out of range"));
+            }
+        }
 
-    // --- Assemble the conductivity damping matrix C(σ), if any -------------
-    // C shares the (K, M) sparsity pattern — it is a σ-weighted mass
-    // assembled over the same tet→edge scatter indices — so the triplet
-    // loop below can read it through the recorded pattern directly.
-    let c_burn = sigma_tet.map(|sigma| {
-        crate::nedelec_assembly::assemble_nedelec_sigma_damping::<B>(
-            nodes_t.clone(),
-            tets_t.clone(),
-            &tet_idx,
-            &tet_sign,
-            n_edges,
-            sigma,
-        )
-    });
+        // --- Leontovich impedance surfaces (issue #204) -------------------------
+        // The real surface mass S_Γ is ω-independent and cached; its weak
+        // coefficient iω/Z_s(ω) is ω-dependent (∝ √ω·(1+i) for the
+        // good-conductor model), so it is re-evaluated inside `solve_at` at
+        // every frequency. Every (i, j) pair S_Γ couples lies within the
+        // 6×6 edge block of the tet owning the boundary face, so the
+        // surface entries are a subset of the recorded volume sparsity
+        // pattern and the value-caching loop below picks them all up.
+        let surface_masses: Vec<(faer::Mat<f64>, SurfaceImpedanceModel)> = surfaces
+            .iter()
+            .map(|bc| {
+                let s = crate::silvermuller::assemble_surface_mass(mesh, bc.triangles, &edges);
+                (s, bc.model)
+            })
+            .collect();
 
-    // --- Assemble the current-source RHS -----------------------------------
-    // The Burn RHS kernels are real-valued; a complex J runs as two
-    // passes (Re(J), Im(J)) — same split as the complex-ε mass assembly.
-    let (rhs_re, rhs_im) = match rhs {
-        RhsSamples::Constant(j_tet) => {
-            let j_re: Vec<[f64; 3]> = j_tet.iter().map(|j| [j[0].re, j[1].re, j[2].re]).collect();
-            let j_im: Vec<[f64; 3]> = j_tet.iter().map(|j| [j[0].im, j[1].im, j[2].im]).collect();
-            let rhs_re = assemble_nedelec_current_rhs(
+        // --- Edge tables ------------------------------------------------------
+        let tet_edges = mesh.tet_edges();
+        let tet_idx: Vec<[u32; 6]> = tet_edges
+            .iter()
+            .map(|row| std::array::from_fn(|i| row[i].0))
+            .collect();
+        let tet_sign: Vec<[i8; 6]> = tet_edges
+            .iter()
+            .map(|row| std::array::from_fn(|i| row[i].1))
+            .collect();
+
+        // --- Assemble K, M(ε) on the Burn backend ------------------------------
+        // The stiffness imaginary part is `None` for the ε-only material
+        // models (K is real there); the matched UPML stretches μ too, so
+        // its `K(Λ⁻¹)` carries an imaginary part.
+        let (nodes_t, tets_t) = crate::assembly::upload_mesh::<B>(mesh, device);
+        let (k_re_t, k_im_t, m_re_t, m_im_t, sparsity) = match materials {
+            DrivenMaterials::Scalar(eps) => {
+                let sys = assemble_global_nedelec_with_complex_epsilon(
+                    nodes_t.clone(),
+                    tets_t.clone(),
+                    &tet_idx,
+                    &tet_sign,
+                    n_edges,
+                    eps,
+                );
+                (sys.k, None, sys.m_re, sys.m_im, sys.sparsity)
+            }
+            DrivenMaterials::DiagTensor(eps) => {
+                let sys = assemble_global_nedelec_with_anisotropic_epsilon(
+                    nodes_t.clone(),
+                    tets_t.clone(),
+                    &tet_idx,
+                    &tet_sign,
+                    n_edges,
+                    eps,
+                );
+                (sys.k, None, sys.m_re, sys.m_im, sys.sparsity)
+            }
+            DrivenMaterials::MatchedUpml {
+                epsilon_tensor,
+                nu_tensor,
+            } => {
+                let sys = assemble_global_nedelec_with_full_tensors(
+                    nodes_t.clone(),
+                    tets_t.clone(),
+                    &tet_idx,
+                    &tet_sign,
+                    n_edges,
+                    epsilon_tensor,
+                    nu_tensor,
+                );
+                (sys.k_re, Some(sys.k_im), sys.m_re, sys.m_im, sys.sparsity)
+            }
+        };
+
+        // --- Assemble the conductivity damping matrix C(σ), if any -------------
+        // C shares the (K, M) sparsity pattern — it is a σ-weighted mass
+        // assembled over the same tet→edge scatter indices — so the triplet
+        // loop below can read it through the recorded pattern directly.
+        let c_burn = sigma_tet.map(|sigma| {
+            crate::nedelec_assembly::assemble_nedelec_sigma_damping::<B>(
                 nodes_t.clone(),
                 tets_t.clone(),
                 &tet_idx,
                 &tet_sign,
                 n_edges,
-                &j_re,
-            );
-            let rhs_im =
-                assemble_nedelec_current_rhs(nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &j_im);
-            (rhs_re, rhs_im)
-        }
-        RhsSamples::Quad(j_quad) => {
-            let j_re: Vec<[[f64; 3]; 4]> = j_quad
-                .iter()
-                .map(|t| t.map(|q| [q[0].re, q[1].re, q[2].re]))
-                .collect();
-            let j_im: Vec<[[f64; 3]; 4]> = j_quad
-                .iter()
-                .map(|t| t.map(|q| [q[0].im, q[1].im, q[2].im]))
-                .collect();
-            let rhs_re = assemble_nedelec_current_rhs_quad4(
-                nodes_t.clone(),
-                tets_t.clone(),
-                &tet_idx,
-                &tet_sign,
-                n_edges,
-                &j_re,
-            );
-            let rhs_im = assemble_nedelec_current_rhs_quad4(
-                nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &j_im,
-            );
-            (rhs_re, rhs_im)
-        }
-    };
-    let rhs_re: Vec<f64> = rhs_re.into_data().iter::<f64>().collect();
-    let rhs_im: Vec<f64> = rhs_im.into_data().iter::<f64>().collect();
+                sigma,
+            )
+        });
 
-    // b = iωμ₀ ∫ N · J dV with μ₀ = 1:  iω (re + i·im) = ω(−im + i·re).
-    let mut b_full: Vec<c64> = rhs_re
-        .iter()
-        .zip(rhs_im.iter())
-        .map(|(&re, &im)| c64::new(-omega * im, omega * re))
-        .collect();
+        // --- Assemble the current-source RHS -----------------------------------
+        // The Burn RHS kernels are real-valued; a complex J runs as two
+        // passes (Re(J), Im(J)) — same split as the complex-ε mass assembly.
+        let (rhs_re, rhs_im) = match rhs {
+            RhsSamples::Constant(j_tet) => {
+                let j_re: Vec<[f64; 3]> =
+                    j_tet.iter().map(|j| [j[0].re, j[1].re, j[2].re]).collect();
+                let j_im: Vec<[f64; 3]> =
+                    j_tet.iter().map(|j| [j[0].im, j[1].im, j[2].im]).collect();
+                let rhs_re = assemble_nedelec_current_rhs(
+                    nodes_t.clone(),
+                    tets_t.clone(),
+                    &tet_idx,
+                    &tet_sign,
+                    n_edges,
+                    &j_re,
+                );
+                let rhs_im = assemble_nedelec_current_rhs(
+                    nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &j_im,
+                );
+                (rhs_re, rhs_im)
+            }
+            RhsSamples::Quad(j_quad) => {
+                let j_re: Vec<[[f64; 3]; 4]> = j_quad
+                    .iter()
+                    .map(|t| t.map(|q| [q[0].re, q[1].re, q[2].re]))
+                    .collect();
+                let j_im: Vec<[[f64; 3]; 4]> = j_quad
+                    .iter()
+                    .map(|t| t.map(|q| [q[0].im, q[1].im, q[2].im]))
+                    .collect();
+                let rhs_re = assemble_nedelec_current_rhs_quad4(
+                    nodes_t.clone(),
+                    tets_t.clone(),
+                    &tet_idx,
+                    &tet_sign,
+                    n_edges,
+                    &j_re,
+                );
+                let rhs_im = assemble_nedelec_current_rhs_quad4(
+                    nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &j_im,
+                );
+                (rhs_re, rhs_im)
+            }
+        };
+        let rhs_re: Vec<f64> = rhs_re.into_data().iter::<f64>().collect();
+        let rhs_im: Vec<f64> = rhs_im.into_data().iter::<f64>().collect();
 
-    // --- Lumped-port excitation (issue #202) --------------------------------
-    // Matched-source port drive: b_i += (2jω/Z_s)(V_inc/l) ∮ N_i · ê dS.
-    // The flux vector f_i = ∮ N_i · ê dS doubles as the port-voltage
-    // readout functional (see lumped_port.rs).
-    for port in ports {
-        if port.v_inc == c64::new(0.0, 0.0) {
-            continue;
-        }
-        let zs = port.surface_impedance();
-        let e_inc = port.v_inc * (1.0 / port.length);
-        let drive = c64::new(0.0, 2.0 * omega / zs) * e_inc;
-        let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
-        for (b, f) in b_full.iter_mut().zip(flux.iter()) {
-            *b += drive * *f;
-        }
-    }
+        // --- Lumped-port flux + surface mass (issue #202) ------------------------
+        // The flux vector f_i = ∮ N_i · ê dS serves both the per-ω
+        // excitation `b_i += (2jω/Z_s)(V_inc/l) f_i` and the port-voltage
+        // readout (see lumped_port.rs). Both it and the tangential surface
+        // mass S_p are ω-independent.
+        let port_fluxes: Vec<Vec<f64>> = ports
+            .iter()
+            .map(|port| assemble_port_flux(mesh, port.faces, port.e_hat, &edges))
+            .collect();
 
-    // --- Host transfer + PEC reduction -------------------------------------
-    let k_full = burn_matrix_to_faer(k_re_t);
-    let k_im_full = k_im_t.map(burn_matrix_to_faer);
-    let m_full = burn_complex_mass_to_faer(m_re_t, m_im_t);
-    let c_full = c_burn.map(burn_matrix_to_faer);
+        // --- Host transfer + PEC reduction -------------------------------------
+        let k_full = burn_matrix_to_faer(k_re_t);
+        let k_im_full = k_im_t.map(burn_matrix_to_faer);
+        let m_full = burn_complex_mass_to_faer(m_re_t, m_im_t);
+        let c_full = c_burn.map(burn_matrix_to_faer);
 
-    // Remap full edge indices → contiguous interior indices.
-    let mut remap = vec![-1_i64; n_edges];
-    let mut n_interior = 0_usize;
-    for (i, &keep) in bcs.pec_interior_mask.iter().enumerate() {
-        if keep {
-            remap[i] = n_interior as i64;
-            n_interior += 1;
+        // Remap full edge indices → contiguous interior indices.
+        let mut remap = vec![-1_i64; n_edges];
+        let mut n_interior = 0_usize;
+        for (i, &keep) in bcs.pec_interior_mask.iter().enumerate() {
+            if keep {
+                remap[i] = n_interior as i64;
+                n_interior += 1;
+            }
         }
-    }
-    if n_interior == 0 {
-        return Err(DrivenError::EmptyInterior);
-    }
+        if n_interior == 0 {
+            return Err(DrivenError::EmptyInterior);
+        }
 
-    // --- Sparse A(ω) = K + iωC − ω² M over the recorded sparsity pattern ---
-    let omega2 = omega * omega;
-    let mut triplets: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(sparsity.rows.len());
-    for (&r_u32, &c_u32) in sparsity.rows.iter().zip(sparsity.cols.iter()) {
-        let (r, c) = (r_u32 as usize, c_u32 as usize);
-        let (rr, cc) = (remap[r], remap[c]);
-        if rr < 0 || cc < 0 {
-            continue;
-        }
-        let k_im_val = k_im_full.as_ref().map_or(0.0, |m| m[(r, c)]);
-        let mut a_val = c64::new(k_full[(r, c)], k_im_val) - m_full[(r, c)] * omega2;
-        if let Some(cm) = &c_full {
-            // Conduction loss: + iω C (exp(+jωt) convention).
-            a_val += c64::new(0.0, omega * cm[(r, c)]);
-        }
-        for (s, coeff) in &surface_blocks {
-            // Leontovich surface loss: + (iω/Z_s) S_Γ (issue #204).
-            a_val += *coeff * s[(r, c)];
-        }
-        triplets.push(Triplet::new(rr as usize, cc as usize, a_val));
-    }
-
-    // --- Lumped-port admittance terms (issue #202) --------------------------
-    // A(ω) += (jω/Z_s) S_p per port. S_p is real symmetric, so the
-    // complex-symmetry invariant A(ω)ᵀ = A(ω) is preserved. The port
-    // faces are boundary faces of mesh tets, so every (r, c) pair below
-    // already exists in the volume sparsity pattern; faer's
-    // `try_new_from_triplets` sums duplicate entries.
-    for port in ports {
-        let zs = port.surface_impedance();
-        let scale = c64::new(0.0, omega / zs);
-        for (r, c, v) in assemble_port_surface_mass(mesh, port.faces, &edges) {
+        // --- Cache interior-filtered values over the recorded sparsity pattern --
+        // One aligned value per kept (interior, interior) entry, in pattern
+        // order, so `solve_at` re-forms A(ω) = K + iωC − ω²M + Σ coeff·S by
+        // pure linear combination — no re-assembly.
+        let n_entries = sparsity.rows.len();
+        let mut rows = Vec::with_capacity(n_entries);
+        let mut cols = Vec::with_capacity(n_entries);
+        let mut k_vals = Vec::with_capacity(n_entries);
+        let mut m_vals = Vec::with_capacity(n_entries);
+        let mut c_vals = c_full.as_ref().map(|_| Vec::with_capacity(n_entries));
+        let mut surface_vals: Vec<Vec<f64>> = surface_masses
+            .iter()
+            .map(|_| Vec::with_capacity(n_entries))
+            .collect();
+        for (&r_u32, &c_u32) in sparsity.rows.iter().zip(sparsity.cols.iter()) {
+            let (r, c) = (r_u32 as usize, c_u32 as usize);
             let (rr, cc) = (remap[r], remap[c]);
             if rr < 0 || cc < 0 {
                 continue;
             }
-            triplets.push(Triplet::new(rr as usize, cc as usize, scale * v));
+            rows.push(rr as usize);
+            cols.push(cc as usize);
+            let k_im_val = k_im_full.as_ref().map_or(0.0, |m| m[(r, c)]);
+            k_vals.push(c64::new(k_full[(r, c)], k_im_val));
+            m_vals.push(m_full[(r, c)]);
+            if let (Some(vals), Some(cm)) = (c_vals.as_mut(), c_full.as_ref()) {
+                vals.push(cm[(r, c)]);
+            }
+            for (vals, (s, _)) in surface_vals.iter_mut().zip(surface_masses.iter()) {
+                vals.push(s[(r, c)]);
+            }
         }
+
+        // --- Lumped-port admittance masses (issue #202) --------------------------
+        // S_p triplets, interior-remapped. The port faces are boundary faces
+        // of mesh tets, so every (r, c) pair below already exists in the
+        // volume sparsity pattern; faer's `try_new_from_triplets` sums
+        // duplicate entries at solve time.
+        let operator_ports: Vec<OperatorPort> = ports
+            .iter()
+            .zip(port_fluxes)
+            .map(|(port, flux)| {
+                let mass_triplets = assemble_port_surface_mass(mesh, port.faces, &edges)
+                    .into_iter()
+                    .filter_map(|(r, c, v)| {
+                        let (rr, cc) = (remap[r], remap[c]);
+                        if rr < 0 || cc < 0 {
+                            None
+                        } else {
+                            Some((rr as usize, cc as usize, v))
+                        }
+                    })
+                    .collect();
+                OperatorPort {
+                    mass_triplets,
+                    flux,
+                    z_s: port.surface_impedance(),
+                    v_inc: port.v_inc,
+                    length: port.length,
+                    width: port.width,
+                    resistance: port.resistance,
+                }
+            })
+            .collect();
+
+        let operator_surfaces: Vec<OperatorSurface> = surface_vals
+            .into_iter()
+            .zip(surface_masses.iter())
+            .map(|(s_vals, (_, model))| OperatorSurface {
+                s_vals,
+                model: *model,
+            })
+            .collect();
+
+        Ok(DrivenOperator {
+            n_edges,
+            n_interior,
+            remap,
+            pec_interior_mask: bcs.pec_interior_mask.to_vec(),
+            rows,
+            cols,
+            k_vals,
+            m_vals,
+            c_vals,
+            surfaces: operator_surfaces,
+            ports: operator_ports,
+            rhs_re,
+            rhs_im,
+        })
     }
 
-    let a_int =
-        SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
-            .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
-
-    let b_int: Vec<c64> = bcs
-        .pec_interior_mask
-        .iter()
-        .zip(b_full.iter())
-        .filter_map(|(&keep, &b)| if keep { Some(b) } else { None })
-        .collect();
-
-    // --- Factor once + direct solve (same machinery as complex Lanczos) ----
-    let lu = a_int
-        .as_ref()
-        .sp_lu()
-        .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
-    let mut x_int = vec![c64::new(0.0, 0.0); n_interior];
-    solve_with_lu(&lu, &b_int, &mut x_int).map_err(|e| DrivenError::Solve(format!("{e}")))?;
-
-    // --- Post-solve residual check ------------------------------------------
-    let mut ax = vec![c64::new(0.0, 0.0); n_interior];
-    spmv(a_int.as_ref(), &x_int, &mut ax);
-    let mut res2 = 0.0_f64;
-    let mut b2 = 0.0_f64;
-    for i in 0..n_interior {
-        let r = ax[i] - b_int[i];
-        res2 += r.re * r.re + r.im * r.im;
-        b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
+    /// Number of lumped ports the operator was assembled with.
+    pub fn n_ports(&self) -> usize {
+        self.ports.len()
     }
-    let residual_rel = if b2 > 0.0 {
-        (res2 / b2).sqrt()
-    } else {
-        res2.sqrt()
-    };
 
-    // --- Scatter back to the full edge vector --------------------------------
-    let mut e_edges = vec![c64::new(0.0, 0.0); n_edges];
-    for (full_idx, &ri) in remap.iter().enumerate() {
-        if ri >= 0 {
-            e_edges[full_idx] = x_int[ri as usize];
+    /// Number of interior (kept) DOFs after PEC elimination.
+    pub fn n_interior(&self) -> usize {
+        self.n_interior
+    }
+
+    /// Port voltage `V = (1/w) ∮ E · ê dS` of port `port` read off a
+    /// solution's full-length edge vector, using the cached flux
+    /// functional — identical to [`crate::lumped_port::port_voltage`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `port ≥ self.n_ports()` or `e_edges` has the wrong
+    /// length.
+    pub fn port_voltage(&self, port: usize, e_edges: &[c64]) -> c64 {
+        let p = &self.ports[port];
+        assert_eq!(e_edges.len(), self.n_edges, "edge vector length mismatch");
+        let mut v = c64::new(0.0, 0.0);
+        for (f, e) in p.flux.iter().zip(e_edges.iter()) {
+            v += *e * *f;
         }
+        v * (1.0 / p.width)
     }
 
-    Ok(DrivenSolution {
-        e_edges,
-        n_interior,
-        residual_rel,
-    })
+    /// Port current from the Thevenin admittance relation
+    /// `I = (2 V_inc − V) / R` of port `port` — identical to
+    /// [`crate::lumped_port::port_current`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `port ≥ self.n_ports()`.
+    pub fn port_current(&self, port: usize, v_port: c64) -> c64 {
+        let p = &self.ports[port];
+        (p.v_inc * 2.0 - v_port) * (1.0 / p.resistance)
+    }
+
+    /// Re-form `A(ω)`, factor it, and solve at one frequency.
+    ///
+    /// This is the sweep workhorse: only per-ω scalar work plus the
+    /// sparse LU happen here — the Burn volume assembly ran once in
+    /// [`DrivenOperator::assemble`]. A single `assemble` + `solve_at`
+    /// pair reproduces the corresponding single-ω entry point exactly
+    /// (same arithmetic, same triplet stream).
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::SurfaceImpedanceSingular`] if a Leontovich model
+    /// evaluates to a zero/non-finite `Z_s(ω)`, plus the sparse
+    /// assembly / factorization / solve failures of [`driven_solve`].
+    pub fn solve_at(&self, omega: f64) -> Result<DrivenSolution, DrivenError> {
+        // Leontovich coefficients iω/Z_s(ω) — ω-dependent, re-evaluated
+        // here at every frequency (issue #204 sweep caveat).
+        let surface_coeffs: Vec<c64> = self
+            .surfaces
+            .iter()
+            .map(|s| s.model.weak_coefficient(omega))
+            .collect::<Result<_, DrivenError>>()?;
+
+        // b = iωμ₀ ∫ N · J dV with μ₀ = 1:  iω (re + i·im) = ω(−im + i·re).
+        let mut b_full: Vec<c64> = self
+            .rhs_re
+            .iter()
+            .zip(self.rhs_im.iter())
+            .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+            .collect();
+
+        // Matched-source port drive: b_i += (2jω/Z_s)(V_inc/l) f_i.
+        for port in &self.ports {
+            if port.v_inc == c64::new(0.0, 0.0) {
+                continue;
+            }
+            let e_inc = port.v_inc * (1.0 / port.length);
+            let drive = c64::new(0.0, 2.0 * omega / port.z_s) * e_inc;
+            for (b, f) in b_full.iter_mut().zip(port.flux.iter()) {
+                *b += drive * *f;
+            }
+        }
+
+        // --- Sparse A(ω) = K + iωC − ω²M + Σ coeff·S by linear combination --
+        let omega2 = omega * omega;
+        let n_port_entries: usize = self.ports.iter().map(|p| p.mass_triplets.len()).sum();
+        let mut triplets: Vec<Triplet<usize, usize, c64>> =
+            Vec::with_capacity(self.rows.len() + n_port_entries);
+        for idx in 0..self.rows.len() {
+            let mut a_val = self.k_vals[idx] - self.m_vals[idx] * omega2;
+            if let Some(c_vals) = &self.c_vals {
+                // Conduction loss: + iω C (exp(+jωt) convention).
+                a_val += c64::new(0.0, omega * c_vals[idx]);
+            }
+            for (s, coeff) in self.surfaces.iter().zip(surface_coeffs.iter()) {
+                // Leontovich surface loss: + (iω/Z_s) S_Γ (issue #204).
+                a_val += *coeff * s.s_vals[idx];
+            }
+            triplets.push(Triplet::new(self.rows[idx], self.cols[idx], a_val));
+        }
+
+        // Port admittance: A(ω) += (jω/Z_s) S_p per port (issue #202).
+        // S_p is real symmetric, so A(ω)ᵀ = A(ω) is preserved.
+        for port in &self.ports {
+            let scale = c64::new(0.0, omega / port.z_s);
+            for &(rr, cc, v) in &port.mass_triplets {
+                triplets.push(Triplet::new(rr, cc, scale * v));
+            }
+        }
+
+        let a_int = SparseColMat::<usize, c64>::try_new_from_triplets(
+            self.n_interior,
+            self.n_interior,
+            &triplets,
+        )
+        .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
+
+        let b_int: Vec<c64> = self
+            .pec_interior_mask
+            .iter()
+            .zip(b_full.iter())
+            .filter_map(|(&keep, &b)| if keep { Some(b) } else { None })
+            .collect();
+
+        // --- Factor once + direct solve (same machinery as complex Lanczos) -
+        let lu = a_int
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+        let mut x_int = vec![c64::new(0.0, 0.0); self.n_interior];
+        solve_with_lu(&lu, &b_int, &mut x_int).map_err(|e| DrivenError::Solve(format!("{e}")))?;
+
+        // --- Post-solve residual check --------------------------------------
+        let mut ax = vec![c64::new(0.0, 0.0); self.n_interior];
+        spmv(a_int.as_ref(), &x_int, &mut ax);
+        let mut res2 = 0.0_f64;
+        let mut b2 = 0.0_f64;
+        for i in 0..self.n_interior {
+            let r = ax[i] - b_int[i];
+            res2 += r.re * r.re + r.im * r.im;
+            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
+        }
+        let residual_rel = if b2 > 0.0 {
+            (res2 / b2).sqrt()
+        } else {
+            res2.sqrt()
+        };
+
+        // --- Scatter back to the full edge vector ---------------------------
+        let mut e_edges = vec![c64::new(0.0, 0.0); self.n_edges];
+        for (full_idx, &ri) in self.remap.iter().enumerate() {
+            if ri >= 0 {
+                e_edges[full_idx] = x_int[ri as usize];
+            }
+        }
+
+        Ok(DrivenSolution {
+            e_edges,
+            n_interior: self.n_interior,
+            residual_rel,
+        })
+    }
 }
 
 #[cfg(test)]
