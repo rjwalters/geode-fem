@@ -140,7 +140,44 @@ pub fn assemble_silver_muller_surface(
         boundary_tags.len(),
         "triangles and tags length mismatch"
     );
+    let selected: Vec<[u32; 3]> = boundary_triangles
+        .iter()
+        .zip(boundary_tags.iter())
+        .filter(|(_, &tag)| tag == outer_tag)
+        .map(|(tri, _)| *tri)
+        .collect();
+    assemble_surface_mass(mesh, &selected, edges)
+}
 
+/// Assemble the tangential-trace surface mass
+/// `S_{ij} = ∮_Γ (n × N_i) · (n × N_j) dS = ∮_Γ N_i · N_j dS`
+/// over an explicit list of boundary triangles (no tag filtering).
+///
+/// This is the tag-free core of [`assemble_silver_muller_surface`] and
+/// is shared by every impedance-type boundary condition that is a
+/// complex multiple of the same surface integral:
+///
+/// - **Silver-Müller** (issue #27): coefficient `+j k₀ / η₀` (natural
+///   units `η₀ = 1`, so `+j k₀ S`).
+/// - **Leontovich surface impedance** (Epic #193, issue #204):
+///   coefficient `+j ω / Z_s(ω)` — see
+///   [`crate::driven::driven_solve_with_surface_impedance`].
+///
+/// Returns a real, symmetric `[n_edges, n_edges]` dense matrix whose
+/// only non-zero rows/columns are the edges of the listed triangles.
+/// The caller applies the complex coefficient at solve time so the
+/// kernel stays purely `f64` (and, for ω-dependent coefficients, so the
+/// matrix can be assembled once and rescaled per frequency).
+///
+/// # Panics
+///
+/// Panics if a triangle edge does not appear in `edges` — i.e. if the
+/// triangles are not faces of the tet mesh whose edge table was passed.
+pub fn assemble_surface_mass(
+    mesh: &TetMesh,
+    triangles: &[[u32; 3]],
+    edges: &[[u32; 2]],
+) -> Mat<f64> {
     let n_edges = edges.len();
     let mut s = Mat::<f64>::zeros(n_edges, n_edges);
 
@@ -150,10 +187,7 @@ pub fn assemble_silver_muller_surface(
         edge_lookup.insert((e[0], e[1]), idx as u32);
     }
 
-    for (tri, &tag) in boundary_triangles.iter().zip(boundary_tags.iter()) {
-        if tag != outer_tag {
-            continue;
-        }
+    for tri in triangles.iter() {
         let v: [[f64; 3]; 3] = [
             mesh.nodes[tri[0] as usize],
             mesh.nodes[tri[1] as usize],

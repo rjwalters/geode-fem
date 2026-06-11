@@ -37,8 +37,9 @@ pub use complex_lanczos::{SparseComplexEigenSolver, SparseComplexShiftInvertLanc
 pub use derham::{apply_divergence, apply_gradient, curl_map, divergence_map, gradient_map};
 pub use driven::{
     driven_solve, driven_solve_quad, driven_solve_with_ports, driven_solve_with_sigma,
-    driven_solve_with_sigma_quad, CurrentSource, DrivenBcs, DrivenError, DrivenMaterials,
-    DrivenSolution, QuadCurrentSource,
+    driven_solve_with_sigma_quad, driven_solve_with_surface_impedance, CurrentSource, DrivenBcs,
+    DrivenError, DrivenMaterials, DrivenSolution, QuadCurrentSource, SurfaceImpedanceBc,
+    SurfaceImpedanceModel,
 };
 pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
@@ -94,7 +95,7 @@ pub use scattering::{
     plane_wave_polarization_current, q_from_power, scattered_flux_power,
     solve_scattered_field_matched_upml, upml_matched_tensors,
 };
-pub use silvermuller::assemble_silver_muller_surface;
+pub use silvermuller::{assemble_silver_muller_surface, assemble_surface_mass};
 pub use silvermuller_self_consistent::{
     self_consistent_k, self_consistent_k_vector_tracked, SelfConsistentResult,
 };

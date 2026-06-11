@@ -55,6 +55,19 @@
 //!   surface drive `b_i += (2jω/Z_s)(V_inc/l) ∮ N_i · ê dS` to the
 //!   RHS. See `lumped_port.rs` for the derivation and the V/I
 //!   bookkeeping helpers.
+//! - **Surface impedance (Leontovich)** — Epic #193, issue #204: thick
+//!   conductors whose skin depth the mesh cannot afford to resolve are
+//!   replaced by the impedance condition `E_t = −Z_s(ω) n̂ × H` on the
+//!   conductor surface, which adds the complex-scaled surface mass
+//!   `+ (iω / Z_s(ω)) S_Γ` to `A(ω)` (see
+//!   [`driven_solve_with_surface_impedance`]). Silver-Müller is the
+//!   `Z_s = η₀` special case of the same term. The scalar coefficient
+//!   is **ω-dependent** (for the good-conductor model it is
+//!   `(1+i)√(ωσ/2)` ∝ `√ω·(1+i)`), so unlike `K`/`M`/`C` the surface
+//!   block cannot be folded into an ω-independent linear combination
+//!   across a frequency sweep — sweep drivers must re-apply the scalar
+//!   coefficient at every ω (the real matrix `S_Γ` itself is
+//!   ω-independent and cacheable).
 //!
 //! # Solver
 //!
@@ -114,6 +127,12 @@ pub enum DrivenError {
     MaterialDimMismatch { got: usize, want: usize },
     #[error("sigma has {got} per-tet entries but mesh has {want} tets")]
     SigmaDimMismatch { got: usize, want: usize },
+    #[error(
+        "surface impedance Z_s(ω) = {z_re} + {z_im}i is singular or non-finite at ω = {omega} \
+         (|Z_s| must be positive and finite; the Z_s → 0 PEC limit is expressed by eliminating \
+         the surface edges through the PEC mask instead)"
+    )]
+    SurfaceImpedanceSingular { z_re: f64, z_im: f64, omega: f64 },
     #[error("driven system has no interior DOFs after PEC elimination")]
     EmptyInterior,
     #[error("invalid lumped port {index}: {reason}")]
@@ -165,12 +184,108 @@ pub enum DrivenMaterials<'a> {
 ///
 /// Currently the PEC interior-edge mask; the UPML/scalar-PML absorbing
 /// boundary is a *material* (see [`DrivenMaterials`]) and composes with
-/// the PEC outer wall exactly as in the eigenpencil tests.
+/// the PEC outer wall exactly as in the eigenpencil tests. Impedance
+/// surfaces (Leontovich, issue #204) are passed separately to
+/// [`driven_solve_with_surface_impedance`] because their contribution
+/// is rebuilt per frequency.
 #[derive(Debug, Clone)]
 pub struct DrivenBcs<'a> {
     /// Per-edge mask over `mesh.edges()` order: `true` = kept interior
     /// DOF, `false` = PEC-eliminated edge (forced to zero).
     pub pec_interior_mask: &'a [bool],
+}
+
+/// Surface-impedance model `Z_s(ω)` for the Leontovich boundary
+/// condition (Epic #193, issue #204).
+///
+/// The Leontovich BC replaces a thick-conductor interior (skin depth
+/// `δ = √(2/ωμσ)` too fine to mesh) with the impedance condition
+/// `E_t = −Z_s(ω) n̂ × H` on the conductor surface (`n̂` the outward
+/// normal of the *computational* domain, pointing into the conductor).
+/// In the weak form this is the surface term `+(iω/Z_s) ∮ v · E_t dS`
+/// — the Silver-Müller term with `1/η₀ → 1/Z_s(ω)`.
+#[derive(Debug, Clone, Copy)]
+pub enum SurfaceImpedanceModel {
+    /// Frequency-independent complex surface impedance. `Fixed(η₀)`
+    /// (`= 1` in natural units) reproduces the first-order
+    /// Silver-Müller absorbing boundary exactly.
+    Fixed(c64),
+    /// Built-in **good-conductor** model
+    ///
+    /// ```text
+    /// Z_s(ω) = (1 + i) √(ωμ / 2σ) = (1 + i) / (σ δ),   δ = √(2 / ωμσ),
+    /// ```
+    ///
+    /// in natural units (`μ = 1`). `sigma` is the conductor's electrical
+    /// conductivity in natural units `1/length`
+    /// (`σ_nat = σ_SI · Z₀ · L_unit`), the same normalization as the
+    /// volumetric `sigma_tet` of [`driven_solve_with_sigma`]. Note the
+    /// **ω-dependence**: `Z_s ∝ √ω · (1+i)`, so the weak-form
+    /// coefficient `iω/Z_s = (1+i)√(ωσ/2) = (1+i)/δ` scales as `√ω`.
+    GoodConductor {
+        /// Conductivity σ in natural units (`1/length`). Must be `> 0`.
+        sigma: f64,
+    },
+}
+
+impl SurfaceImpedanceModel {
+    /// Evaluate `Z_s(ω)`.
+    pub fn z_s(&self, omega: f64) -> c64 {
+        match *self {
+            SurfaceImpedanceModel::Fixed(z) => z,
+            SurfaceImpedanceModel::GoodConductor { sigma } => {
+                // (1 + i) √(ωμ / 2σ), μ = 1 natural units.
+                let a = (omega / (2.0 * sigma)).sqrt();
+                c64::new(a, a)
+            }
+        }
+    }
+
+    /// The weak-form surface coefficient `iω / Z_s(ω)` multiplying the
+    /// real surface mass `S_Γ`. For [`SurfaceImpedanceModel::Fixed`]
+    /// with `Z_s = η₀ = 1` this is `i k₀` — exactly the Silver-Müller
+    /// factor; for the good-conductor model it is
+    /// `(1+i)√(ωσ/2) = (1+i)/δ`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrivenError::SurfaceImpedanceSingular`] when `Z_s(ω)`
+    /// is zero or non-finite (e.g. `Fixed(0)`, or `GoodConductor` with
+    /// `σ ≤ 0`). The `Z_s → 0` PEC limit must be expressed through the
+    /// PEC edge mask, not through a vanishing impedance.
+    pub fn weak_coefficient(&self, omega: f64) -> Result<c64, DrivenError> {
+        let z = self.z_s(omega);
+        let singular = |z: c64| DrivenError::SurfaceImpedanceSingular {
+            z_re: z.re,
+            z_im: z.im,
+            omega,
+        };
+        if !(z.re.is_finite() && z.im.is_finite()) {
+            return Err(singular(z));
+        }
+        let abs2 = z.re * z.re + z.im * z.im;
+        if abs2 == 0.0 {
+            return Err(singular(z));
+        }
+        // iω / Z_s = iω · conj(Z_s) / |Z_s|².
+        Ok(c64::new(omega * z.im / abs2, omega * z.re / abs2))
+    }
+}
+
+/// One Leontovich impedance surface: a set of conforming boundary
+/// triangles sharing a surface-impedance model.
+///
+/// Multiple [`SurfaceImpedanceBc`]s with different models may be passed
+/// to [`driven_solve_with_surface_impedance`] (per-surface `Z_s(ω)`,
+/// e.g. different conductor metals on different walls).
+#[derive(Debug, Clone, Copy)]
+pub struct SurfaceImpedanceBc<'a> {
+    /// Boundary triangles (0-based node indices into `mesh.nodes`,
+    /// any winding). Each triangle must be a face of the tet mesh —
+    /// its three edges must appear in the global edge table.
+    pub triangles: &'a [[u32; 3]],
+    /// Surface impedance `Z_s(ω)` on these triangles.
+    pub model: SurfaceImpedanceModel,
 }
 
 /// Volumetric current source, piecewise constant per tet.
@@ -337,6 +452,7 @@ pub fn driven_solve_with_sigma<B: Backend>(
         sigma_tet,
         bcs,
         &[],
+        &[],
         omega,
         RhsSamples::Constant(&source.j_tet),
         device,
@@ -384,6 +500,81 @@ pub fn driven_solve_with_ports<B: Backend>(
         sigma_tet,
         bcs,
         ports,
+        &[],
+        omega,
+        RhsSamples::Constant(&source.j_tet),
+        device,
+    )
+}
+
+/// [`driven_solve_with_sigma`] with **Leontovich surface-impedance
+/// boundaries** (Epic #193, issue #204) for thick conductors whose skin
+/// depth is too fine to mesh.
+///
+/// Each [`SurfaceImpedanceBc`] in `surfaces` contributes the surface
+/// term
+///
+/// ```text
+/// A(ω) = K + iωC(σ) − ω²M(ε) + Σ_Γ (iω / Z_s,Γ(ω)) · S_Γ,
+/// S_Γij = ∮_Γ (n × N_i) · (n × N_j) dS,
+/// ```
+///
+/// with `S_Γ` the real-symmetric tangential surface mass
+/// ([`crate::silvermuller::assemble_surface_mass`]) over the surface's
+/// triangles. The complex weight is a *scalar* per surface, so the
+/// complex-symmetry invariant `A(ω)ᵀ = A(ω)` is preserved.
+///
+/// # Frequency sweeps: the surface block does NOT fold into K/M/C
+///
+/// `K`, `M`, and `C` are ω-independent, so a sweep can assemble them
+/// once and re-form `A(ω)` by linear combination. The Leontovich
+/// coefficient `iω/Z_s(ω)` is **not** a fixed polynomial in ω (for the
+/// good-conductor model it is `(1+i)√(ωσ/2)` ∝ `√ω·(1+i)`), so the
+/// surface contribution must be re-applied at every frequency. This
+/// function does exactly that — it is a single-ω solve, and repeated
+/// calls re-form the (small) surface block each time. A sweep driver
+/// that re-forms `A(ω)` itself must cache `S_Γ` (ω-independent, real)
+/// and rescale by `iω/Z_s(ω)` per frequency.
+///
+/// # Limits
+///
+/// - `Z_s = η₀` (`Fixed(1)` in natural units) reproduces the
+///   first-order Silver-Müller absorbing term `+ i k₀ S`.
+/// - `Z_s → 0` approaches PEC behavior on the surface (`E_t → 0`); the
+///   exact PEC limit is expressed by eliminating the surface edges via
+///   `bcs.pec_interior_mask` instead (a literal `Z_s = 0` is rejected
+///   as [`DrivenError::SurfaceImpedanceSingular`]).
+/// - `surfaces = &[]` reproduces [`driven_solve_with_sigma`] exactly.
+///
+/// # Errors
+///
+/// In addition to the [`driven_solve`] errors, returns
+/// [`DrivenError::SurfaceImpedanceSingular`] if any model evaluates to
+/// a zero or non-finite `Z_s(ω)`.
+///
+/// # Panics
+///
+/// Panics (in the surface assembly) if a triangle in `surfaces` is not
+/// a conforming face of `mesh` — i.e. one of its edges is missing from
+/// the mesh edge table.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_solve_with_surface_impedance<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    omega: f64,
+    source: &CurrentSource,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
+    driven_solve_impl::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        &[],
+        surfaces,
         omega,
         RhsSamples::Constant(&source.j_tet),
         device,
@@ -422,6 +613,7 @@ pub fn driven_solve_with_sigma_quad<B: Backend>(
         sigma_tet,
         bcs,
         &[],
+        &[],
         omega,
         RhsSamples::Quad(&source.j_quad),
         device,
@@ -435,6 +627,7 @@ fn driven_solve_impl<B: Backend>(
     sigma_tet: Option<&[f64]>,
     bcs: &DrivenBcs<'_>,
     ports: &[LumpedPort<'_>],
+    surfaces: &[SurfaceImpedanceBc<'_>],
     omega: f64,
     rhs: RhsSamples<'_>,
     device: &B::Device,
@@ -516,6 +709,23 @@ fn driven_solve_impl<B: Backend>(
             return Err(invalid("face node index out of range"));
         }
     }
+
+    // --- Leontovich impedance surfaces (issue #204) -------------------------
+    // Per-surface weak coefficient iω/Z_s(ω) on the real surface mass
+    // S_Γ. The coefficient is ω-dependent (∝ √ω·(1+i) for the
+    // good-conductor model), so this block is re-formed on every call;
+    // S_Γ itself is ω-independent. Every (i, j) pair S_Γ couples lies
+    // within the 6×6 edge block of the tet owning the boundary face, so
+    // the surface entries are a subset of the recorded volume sparsity
+    // pattern and the triplet loop below picks them all up.
+    let surface_blocks: Vec<(faer::Mat<f64>, c64)> = surfaces
+        .iter()
+        .map(|bc| {
+            let coeff = bc.model.weak_coefficient(omega)?;
+            let s = crate::silvermuller::assemble_surface_mass(mesh, bc.triangles, &edges);
+            Ok((s, coeff))
+        })
+        .collect::<Result<_, DrivenError>>()?;
 
     // --- Edge tables ------------------------------------------------------
     let tet_edges = mesh.tet_edges();
@@ -690,6 +900,10 @@ fn driven_solve_impl<B: Backend>(
         if let Some(cm) = &c_full {
             // Conduction loss: + iω C (exp(+jωt) convention).
             a_val += c64::new(0.0, omega * cm[(r, c)]);
+        }
+        for (s, coeff) in &surface_blocks {
+            // Leontovich surface loss: + (iω/Z_s) S_Γ (issue #204).
+            a_val += *coeff * s[(r, c)];
         }
         triplets.push(Triplet::new(rr as usize, cc as usize, a_val));
     }
@@ -949,6 +1163,133 @@ mod tests {
             max_rel < 1e-4,
             "scalar vs diag-tensor isotropic mismatch: max relative diff {max_rel}"
         );
+    }
+
+    /// The built-in good-conductor model must match the analytic
+    /// formulas: `Z_s = (1+i)√(ω/2σ)` and weak coefficient
+    /// `iω/Z_s = (1+i)√(ωσ/2) = (1+i)/δ` with `δ = √(2/(ωσ))`.
+    #[test]
+    fn good_conductor_model_matches_skin_depth_formula() {
+        let omega = 2.5;
+        let sigma = 12.0;
+        let model = SurfaceImpedanceModel::GoodConductor { sigma };
+
+        let a = (omega / (2.0 * sigma)).sqrt();
+        let z = model.z_s(omega);
+        assert!((z.re - a).abs() < 1e-15 && (z.im - a).abs() < 1e-15);
+
+        let delta = (2.0 / (omega * sigma)).sqrt();
+        let coeff = model.weak_coefficient(omega).expect("finite Z_s");
+        assert!(
+            (coeff.re - 1.0 / delta).abs() < 1e-12 * (1.0 / delta),
+            "Re(iω/Z_s) = {} must equal 1/δ = {}",
+            coeff.re,
+            1.0 / delta
+        );
+        assert!(
+            (coeff.im - 1.0 / delta).abs() < 1e-12 * (1.0 / delta),
+            "Im(iω/Z_s) = {} must equal 1/δ = {}",
+            coeff.im,
+            1.0 / delta
+        );
+    }
+
+    /// `Fixed(η₀ = 1)` must reproduce the Silver-Müller factor `i k₀`
+    /// exactly (Silver-Müller is the `Z_s = η₀` special case).
+    #[test]
+    fn fixed_eta0_weak_coefficient_is_silver_muller_factor() {
+        let omega = 1.75;
+        let coeff = SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0))
+            .weak_coefficient(omega)
+            .expect("finite Z_s");
+        assert_eq!(coeff.re, 0.0);
+        assert_eq!(coeff.im, omega);
+    }
+
+    /// Zero or non-finite `Z_s(ω)` must error, not divide by zero.
+    #[test]
+    fn singular_surface_impedance_errors() {
+        let zero = SurfaceImpedanceModel::Fixed(c64::new(0.0, 0.0));
+        assert!(matches!(
+            zero.weak_coefficient(1.0),
+            Err(DrivenError::SurfaceImpedanceSingular { .. })
+        ));
+        // Negative σ → √(negative) = NaN → non-finite Z_s.
+        let bad = SurfaceImpedanceModel::GoodConductor { sigma: -3.0 };
+        assert!(matches!(
+            bad.weak_coefficient(1.0),
+            Err(DrivenError::SurfaceImpedanceSingular { .. })
+        ));
+
+        // The solver surfaces the same error.
+        let mesh = cube_tet_mesh(2, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+        let tris: Vec<[u32; 3]> = vec![];
+        let err = driven_solve_with_surface_impedance::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[SurfaceImpedanceBc {
+                triangles: &tris,
+                model: zero,
+            }],
+            1.0,
+            &source,
+            &device(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, DrivenError::SurfaceImpedanceSingular { .. }));
+    }
+
+    /// An empty surface list must reproduce [`driven_solve`] bitwise
+    /// (the no-op guarantee for existing callers).
+    #[test]
+    fn empty_surface_list_matches_plain_driven_solve() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(c[2], 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let omega = 1.3;
+        let sol_s = driven_solve_with_surface_impedance::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &bcs,
+            &[],
+            omega,
+            &source,
+            &device(),
+        )
+        .expect("surface-impedance path");
+        let sol_p = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &bcs,
+            omega,
+            &source,
+            &device(),
+        )
+        .expect("plain path");
+        for (a, b) in sol_s.e_edges.iter().zip(sol_p.e_edges.iter()) {
+            assert_eq!(a.re, b.re);
+            assert_eq!(a.im, b.im);
+        }
     }
 
     /// Shape-mismatch inputs must error, not panic.
