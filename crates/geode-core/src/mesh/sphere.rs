@@ -223,7 +223,13 @@ pub fn read_sphere_fixture_from_bytes(source: &[u8]) -> Result<SphereFixture, Me
 ///
 /// We only need the first physical tag per entity (Gmsh allows multiple
 /// per entity; this fixture writes at most one).
-fn parse_entities_physical_tags(text: &str) -> Result<BTreeMap<(i32, i32), i32>, MeshError> {
+///
+/// Nothing in this parser is sphere-specific — it is shared with the
+/// spiral-inductor fixture loader ([`super::spiral`]), hence the
+/// module-level visibility.
+pub(super) fn parse_entities_physical_tags(
+    text: &str,
+) -> Result<BTreeMap<(i32, i32), i32>, MeshError> {
     let Some(start) = text.find("$Entities") else {
         // Missing $Entities is fine — no per-tet tagging available.
         return Ok(BTreeMap::new());
@@ -339,9 +345,12 @@ where
 /// tags, surface triangle connectivity (0-based), and per-triangle 2D
 /// physical tags. Named so the function signature stays under
 /// clippy's `type_complexity` threshold.
-type ElementTagOutput = (Vec<i32>, Vec<[u32; 3]>, Vec<i32>);
+pub(super) type ElementTagOutput = (Vec<i32>, Vec<[u32; 3]>, Vec<i32>);
 
-fn parse_elements_with_entity_tags(
+/// Shared with the spiral-inductor fixture loader ([`super::spiral`]) —
+/// nothing here is sphere-specific (see
+/// [`parse_entities_physical_tags`]).
+pub(super) fn parse_elements_with_entity_tags(
     text: &str,
     mesh: &TetMesh,
     entity_phys: &BTreeMap<(i32, i32), i32>,

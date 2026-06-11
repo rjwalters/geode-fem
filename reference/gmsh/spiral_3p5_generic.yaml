@@ -1,0 +1,46 @@
+# Generic 3.5-turn square spiral inductor on a simple 2-metal process
+# stack (issue #210 benchmark fixture). PDK-style schema mirroring the
+# mom-geom parameterization (~/GitHub/sphere/eda/mom: SpiralParams +
+# LayerStack/pdk_yaml).
+#
+# Geometry units: microns. Material values are recorded here as fixture
+# provenance and mirrored as documented constants in
+# crates/geode-core/src/mesh/spiral.rs (the mesh itself carries only
+# region tags; materials are applied at solve time).
+
+name: spiral_3p5_generic
+
+spiral:
+  n_turns: 3.5       # quarter-turn resolution (4*n_turns legs)
+  w: 6.0             # trace width
+  s: 4.0             # turn-to-turn spacing (pitch p = w + s = 10)
+  d_in: 60.0         # inner diameter (center opening)
+  g: 4.0             # port gap between feed and return stubs
+  feed_len: 20.0     # feed-stub extension beyond the spiral footprint
+  stub_len: 8.0      # return-stub length from port gap to via2
+
+stack:
+  h_sub: 50.0        # substrate thickness (domain floor at z = -h_sub)
+  h_ox: 10.0         # oxide (dielectric) thickness, z in [0, h_ox]
+  z1_bot: 1.0        # m1 (underpass) bottom
+  t1: 2.0            # m1 thickness
+  z2_bot: 5.0        # m2 (spiral) bottom
+  t2: 3.0            # m2 thickness
+  h_air: 25.0        # air core above the oxide
+  h_buf: 25.0        # air buffer slab reserved for UPML
+  margin: 45.0       # lateral margin around the conductor footprint
+
+mesh:
+  lc_cond: 4.0       # target size on conductor surfaces
+  lc_port: 1.5       # target size on the port rectangle
+  lc_far: 30.0       # far-field size
+  dist_far: 45.0     # distance over which size grows to lc_far
+
+# Material parameters (per region tag; NOT consumed by gmsh — recorded
+# for the solver side; see EPS_* / SIGMA_* constants in mesh/spiral.rs).
+materials:
+  substrate_eps_r: 11.9        # silicon
+  substrate_tan_delta: 0.005
+  dielectric_eps_r: 4.0        # SiO2
+  dielectric_tan_delta: 0.001
+  conductor_sigma_s_m: 5.8e7   # copper, S/m (Leontovich surface model)
