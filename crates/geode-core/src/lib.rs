@@ -39,8 +39,8 @@ pub use derham::{apply_divergence, apply_gradient, curl_map, divergence_map, gra
 pub use driven::{
     driven_solve, driven_solve_quad, driven_solve_with_ports, driven_solve_with_sigma,
     driven_solve_with_sigma_quad, driven_solve_with_surface_impedance, CurrentSource, DrivenBcs,
-    DrivenError, DrivenMaterials, DrivenOperator, DrivenSolution, QuadCurrentSource,
-    SurfaceImpedanceBc, SurfaceImpedanceModel,
+    DrivenError, DrivenMaterials, DrivenOperator, DrivenSolution, FactoredDrivenOperator,
+    QuadCurrentSource, SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
 pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
@@ -48,7 +48,8 @@ pub use eigen::{
 };
 pub use extraction::{
     detect_srf, driven_frequency_sweep, extract_port_circuit, im_z_zero_crossings, inductance,
-    quality_factor, s11, PortCircuit, SMatrix, SweepPoint,
+    quality_factor, s11, s_parameter_frequency_sweep, PortCircuit, SMatrix, SParameterSweepPoint,
+    SweepPoint,
 };
 pub use fe_assemble::{fe_assemble, DirichletBc, ElementType, FeAssembleResult};
 pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};

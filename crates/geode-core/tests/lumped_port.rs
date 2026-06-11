@@ -22,8 +22,9 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::{
     assemble_nedelec_current_rhs, cube_tet_mesh, driven_solve, driven_solve_with_ports,
-    port_current, port_input_impedance, port_voltage, upload_mesh, CurrentSource, DefaultBackend,
-    DrivenBcs, DrivenError, DrivenMaterials, LumpedPort, TetMesh,
+    port_current, port_input_impedance, port_voltage, s_parameter_frequency_sweep, upload_mesh,
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenError, DrivenMaterials, LumpedPort,
+    SParameterSweepPoint, TetMesh,
 };
 
 type B = DefaultBackend;
@@ -139,6 +140,188 @@ fn transmission_line_input_impedance_matches_analytic() {
         assert!(
             err8 < 0.5 * err4,
             "ω = {omega}: no mesh convergence (err n=4: {err4:.3e}, n=8: {err8:.3e})"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Two-port transmission-line section (issue #214)
+// ---------------------------------------------------------------------------
+
+/// Two-port section of the parallel-plate line: same unit-cube fixture
+/// as [`parallel_plate_z_in`] but with the PEC short at z = 1 replaced
+/// by a second lumped port (port 1 across z = 0, port 2 across z = 1,
+/// ê = ŷ on both, PMC side walls at x = 0/1). Line parameters:
+/// characteristic impedance `Z₀ = l/w = 1`, length `d = 1`, `β = ω`.
+fn two_port_line_s(n: usize, omegas: &[f64], r1: f64, r2: f64) -> Vec<SParameterSweepPoint> {
+    let mesh = cube_tet_mesh(n, 1.0);
+    let edges = mesh.edges();
+    let p1_faces = plane_faces(&mesh, 2, 0.0);
+    let p2_faces = plane_faces(&mesh, 2, 1.0);
+    assert!(!p1_faces.is_empty() && !p2_faces.is_empty());
+    let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
+    let eps = vacuum(&mesh);
+    let port1 = LumpedPort {
+        faces: &p1_faces,
+        e_hat: [0.0, 1.0, 0.0],
+        resistance: r1,
+        width: 1.0,
+        length: 1.0,
+        v_inc: c64::new(1.0, 0.0),
+    };
+    let port2 = LumpedPort {
+        faces: &p2_faces,
+        e_hat: [0.0, 1.0, 0.0],
+        resistance: r2,
+        width: 1.0,
+        length: 1.0,
+        v_inc: c64::new(1.0, 0.0),
+    };
+    let points = s_parameter_frequency_sweep::<B>(
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        &[port1, port2],
+        &[],
+        omegas,
+        &device(),
+    )
+    .expect("two-port S-parameter sweep");
+    for p in &points {
+        assert!(
+            p.residual_rel < 1e-10,
+            "direct-solve residual too large at ω = {}: {}",
+            p.omega,
+            p.residual_rel
+        );
+    }
+    points
+}
+
+/// Analytic S-parameters of the lossless line section (`Z₀ = 1`,
+/// `d = 1`) via its ABCD matrix `A = D = cos ω`, `B = C = j sin ω`,
+/// with (possibly unequal) real references `r1`, `r2`:
+/// `S₁₁ = (A r₂ + B − C r₁ r₂ − D r₁)/Δ`, `S₂₁ = 2√(r₁ r₂)/Δ`,
+/// `S₂₂ = (−A r₂ + B − C r₁ r₂ + D r₁)/Δ`,
+/// `Δ = A r₂ + B + C r₁ r₂ + D r₁` (Pozar table; `AD − BC = 1` so
+/// `S₁₂ = S₂₁`).
+fn line_abcd_s(omega: f64, r1: f64, r2: f64) -> [c64; 4] {
+    let a = c64::new(omega.cos(), 0.0);
+    let b = c64::new(0.0, omega.sin());
+    let cc = c64::new(0.0, omega.sin());
+    let d = a;
+    let denom = a * r2 + b + cc * (r1 * r2) + d * r1;
+    let s11 = (a * r2 + b - cc * (r1 * r2) - d * r1) / denom;
+    let s21 = c64::new(2.0 * (r1 * r2).sqrt(), 0.0) / denom;
+    let s22 = (a * (-r2) + b - cc * (r1 * r2) + d * r1) / denom;
+    [s11, s21, s21, s22] // row-major [S11, S12, S21, S22]
+}
+
+/// Acceptance oracle (issue #214): the matched two-port line
+/// (`r₁ = r₂ = Z₀ = 1`) reproduces the analytic S-parameters
+/// `S₁₁ = 0`, `S₂₁ = e^{−jω}` across ≥3 frequencies within
+/// mesh-convergence tolerance, improving under refinement.
+#[test]
+fn two_port_line_s_parameters_match_analytic() {
+    // (ω, absolute tolerance at n = 8) — the matched line's S-errors
+    // are O((ωh)²) FEM dispersion plus the uniform-port discretization
+    // residual; measured n = 8 errors are well below these bounds (see
+    // printed values).
+    let cases = [(0.5_f64, 5e-3), (1.0, 1e-2), (2.0, 4e-2)];
+    let omegas: Vec<f64> = cases.iter().map(|&(w, _)| w).collect();
+    let points8 = two_port_line_s(8, &omegas, 1.0, 1.0);
+    for (&(omega, tol), p) in cases.iter().zip(points8.iter()) {
+        let s_ref = line_abcd_s(omega, 1.0, 1.0);
+        // Matched: S11 = 0 and S21 = e^{−jω} analytically.
+        assert!((s_ref[0]).norm() < 1e-15);
+        assert!((s_ref[1] - c64::new(omega.cos(), -omega.sin())).norm() < 1e-15);
+        let s11 = p.s.entry(0, 0);
+        let s21 = p.s.entry(1, 0);
+        let err11 = (s11 - s_ref[0]).norm();
+        let err21 = (s21 - s_ref[2]).norm();
+        println!(
+            "ω = {omega}: S11 = {s11} (want {}), S21 = {s21} (want {}), \
+             |ΔS11| = {err11:.3e}, |ΔS21| = {err21:.3e}",
+            s_ref[0], s_ref[2]
+        );
+        assert!(
+            err11 < tol,
+            "ω = {omega}: S11 = {s11} vs analytic {} (err {err11:.3e} > tol {tol:.1e})",
+            s_ref[0]
+        );
+        assert!(
+            err21 < tol,
+            "ω = {omega}: S21 = {s21} vs analytic {} (err {err21:.3e} > tol {tol:.1e})",
+            s_ref[2]
+        );
+    }
+
+    // Mesh convergence at ω = 1: the n = 8 S21 error must beat n = 4.
+    let p4 = &two_port_line_s(4, &[1.0], 1.0, 1.0)[0];
+    let p8 = &points8[1];
+    let s_ref = line_abcd_s(1.0, 1.0, 1.0);
+    let err4 = (p4.s.entry(1, 0) - s_ref[2]).norm();
+    let err8 = (p8.s.entry(1, 0) - s_ref[2]).norm();
+    println!("S21 convergence: err(n=4) = {err4:.3e}, err(n=8) = {err8:.3e}");
+    assert!(
+        err8 < err4,
+        "no mesh convergence in S21: n=4 err {err4:.3e}, n=8 err {err8:.3e}"
+    );
+}
+
+/// Per-port **distinct** reference impedances (issue #214 edge case):
+/// terminating port 2 in r₂ = 2 ≠ Z₀ creates a real reflection, and
+/// all four S-parameters must follow the general unequal-reference
+/// ABCD conversion.
+#[test]
+fn two_port_line_with_unequal_references_matches_abcd() {
+    let (omega, r1, r2) = (1.0, 1.0, 2.0);
+    let p = &two_port_line_s(6, &[omega], r1, r2)[0];
+    let s_ref = line_abcd_s(omega, r1, r2);
+    for (idx, (i, j)) in [(0usize, 0usize), (0, 1), (1, 0), (1, 1)]
+        .iter()
+        .enumerate()
+    {
+        let got = p.s.entry(*i, *j);
+        let want = s_ref[idx];
+        let err = (got - want).norm();
+        println!("S[{i}][{j}] = {got} vs analytic {want} (err {err:.3e})");
+        assert!(
+            err < 2e-2,
+            "S[{i}][{j}] = {got} vs analytic {want} (err {err:.3e})"
+        );
+    }
+}
+
+/// Reciprocity regression (issue #214 acceptance criterion): the
+/// discrete system is complex-symmetric and the port drive/measure
+/// functionals are adjoint-consistent, so `S₂₁ = S₁₂` must hold to
+/// solver precision — even with unequal references (the √Z₀
+/// normalization in `SMatrix::from_z_matrix` is what preserves this).
+#[test]
+fn two_port_s_matrix_is_reciprocal_to_solver_precision() {
+    for &(r1, r2) in &[(1.0, 1.0), (1.0, 2.0)] {
+        let p = &two_port_line_s(4, &[1.3], r1, r2)[0];
+        let s12 = p.s.entry(0, 1);
+        let s21 = p.s.entry(1, 0);
+        let scale = s12.norm().max(s21.norm());
+        assert!(scale > 0.0, "degenerate two-port: zero transmission");
+        let asym = (s12 - s21).norm() / scale;
+        println!("(r1, r2) = ({r1}, {r2}): S12 = {s12}, S21 = {s21}, rel asym = {asym:.3e}");
+        assert!(
+            asym < 1e-10,
+            "reciprocity violated: S12 = {s12}, S21 = {s21} (rel asym {asym:.3e})"
+        );
+        // The Z-matrix behind it is symmetric too.
+        let zasym = (p.z[1] - p.z[2]).norm() / p.z[1].norm().max(p.z[2].norm());
+        assert!(
+            zasym < 1e-10,
+            "Z-matrix asymmetry {zasym:.3e}: Z12 = {}, Z21 = {}",
+            p.z[1],
+            p.z[2]
         );
     }
 }

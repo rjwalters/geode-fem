@@ -35,12 +35,28 @@
 //! Leontovich surface terms (issue #204) are cheap host-side scalar
 //! rescales applied inside [`DrivenOperator::solve_at`].
 //!
-//! # Multi-port S-parameters
+//! # Multi-port S-parameters (issue #214)
 //!
-//! [`SMatrix`] carries the n-port structure, but only the single-port
-//! constructor ([`SMatrix::from_single_port_z`]) is implemented in this
-//! phase — the multi-port S-matrix needs one driven solve per excited
-//! port and lands with the Phase 3 spiral work (Epic #193).
+//! [`s_parameter_frequency_sweep`] extracts the full N-port S-matrix:
+//! column `j` of `S(ω)` comes from driving port `j` (its `v_inc`) with
+//! every other port passively terminated in its own reference `R`. At
+//! a fixed ω all N excitations share one LU factorization
+//! ([`DrivenOperator::factor_at`] +
+//! [`crate::driven::FactoredDrivenOperator::solve_excited`]), so an
+//! N-port S-matrix costs one factorization + N back-substitutions per
+//! frequency. The per-excitation port V/I readbacks assemble the
+//! impedance matrix `Z = V·I⁻¹` and then
+//!
+//! ```text
+//! S = F (Z − Z₀)(Z + Z₀)⁻¹ F⁻¹,    Z₀ = diag(R_k),  F = diag(1/√R_k),
+//! ```
+//!
+//! the standard real-reference S-matrix with per-port reference
+//! impedances (the √R normalization keeps `Sᵀ = S` for the reciprocal
+//! systems this solver produces; it cancels when all references are
+//! equal). The single-port path (`n = 1`) routes through the same
+//! factorization machinery and the scalar [`s11`], reproducing the
+//! [`driven_frequency_sweep`] S₁₁ bit-for-bit.
 
 use burn::tensor::backend::Backend;
 use faer::c64;
@@ -127,18 +143,18 @@ pub fn s11(z: c64, z0: f64) -> c64 {
     (z - z0) / (z + z0)
 }
 
-/// Single-frequency S-parameter matrix vs a real reference impedance
-/// `Z₀` (n-port structure; Phase 2 implements the single-port path).
+/// Single-frequency N-port S-parameter matrix vs real per-port
+/// reference impedances `Z₀ = diag(R_k)` (issue #214).
 ///
-/// The multi-port constructor requires one driven solve per excited
-/// port (column `j` of `S` comes from driving port `j` with all other
-/// ports passively terminated) and is deferred to the Phase 3 spiral
-/// work of Epic #193 — only [`SMatrix::from_single_port_z`] exists
-/// here, and it is exact.
+/// Construct from a port input impedance ([`SMatrix::from_single_port_z`],
+/// single-port, exact) or from a full impedance matrix
+/// ([`SMatrix::from_z_matrix`], N-port). The sweep driver
+/// [`s_parameter_frequency_sweep`] produces one per frequency from
+/// per-excitation port-driven solves.
 #[derive(Debug, Clone)]
 pub struct SMatrix {
-    /// Real reference impedance `Z₀`.
-    pub z0: f64,
+    /// Real per-port reference impedances `Z₀ₖ` (length `n`).
+    pub z0: Vec<f64>,
     /// Number of ports `n`.
     pub n_ports: usize,
     /// Row-major `n × n` entries.
@@ -150,9 +166,67 @@ impl SMatrix {
     /// `S = [S₁₁]` with `S₁₁ = (Z − Z₀)/(Z + Z₀)`.
     pub fn from_single_port_z(z: c64, z0: f64) -> Self {
         Self {
-            z0,
+            z0: vec![z0],
             n_ports: 1,
             s: vec![s11(z, z0)],
+        }
+    }
+
+    /// N-port S-matrix from a row-major `n × n` impedance matrix `z`
+    /// and real per-port reference impedances `z0` (`n = z0.len()`):
+    ///
+    /// ```text
+    /// S = F (Z − Z₀)(Z + Z₀)⁻¹ F⁻¹,   Z₀ = diag(z0),  F = diag(1/√z0ₖ),
+    /// ```
+    ///
+    /// the standard real-reference (power-wave) S-matrix. The `F`
+    /// similarity is what keeps `Sᵀ = S` for a reciprocal (symmetric)
+    /// `Z` with **unequal** references; with all `z0ₖ` equal it cancels
+    /// and the formula reduces to the textbook
+    /// `S = (Z − Z₀)(Z + Z₀)⁻¹`.
+    ///
+    /// The `n = 1` case delegates to [`SMatrix::from_single_port_z`]
+    /// (same scalar arithmetic as [`s11`] — the bit-for-bit single-port
+    /// guarantee of issue #214).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `z.len() ≠ z0.len()²`, if `z0` is empty or contains a
+    /// non-positive/non-finite reference, or if `Z + Z₀` is singular.
+    pub fn from_z_matrix(z: &[c64], z0: &[f64]) -> Self {
+        let n = z0.len();
+        assert!(n > 0, "S-matrix needs at least one port");
+        assert_eq!(
+            z.len(),
+            n * n,
+            "Z must be a row-major n × n matrix with n = z0.len()"
+        );
+        assert!(
+            z0.iter().all(|&r| r.is_finite() && r > 0.0),
+            "reference impedances must be finite and positive"
+        );
+        if n == 1 {
+            return Self::from_single_port_z(z[0], z0[0]);
+        }
+
+        // A = Z − Z₀, B = Z + Z₀ (Z₀ diagonal).
+        let mut a = z.to_vec();
+        let mut b = z.to_vec();
+        for p in 0..n {
+            a[p * n + p] -= z0[p];
+            b[p * n + p] += z0[p];
+        }
+        let mut s = right_divide(&a, &b, n).expect("Z + Z0 must be non-singular");
+        // Reference normalization: S ← F S F⁻¹, F = diag(1/√z0).
+        for i in 0..n {
+            for j in 0..n {
+                s[i * n + j] *= (z0[j] / z0[i]).sqrt();
+            }
+        }
+        Self {
+            z0: z0.to_vec(),
+            n_ports: n,
+            s,
         }
     }
 
@@ -165,6 +239,84 @@ impl SMatrix {
         assert!(i < self.n_ports && j < self.n_ports, "S-matrix index");
         self.s[i * self.n_ports + j]
     }
+}
+
+/// Gauss-Jordan inverse with partial pivoting of a row-major `n × n`
+/// complex matrix. Returns `None` on an exactly singular pivot. The
+/// port-count matrices this serves are tiny (n = number of ports), so
+/// a dense elimination is the right tool.
+fn invert_complex(m: &[c64], n: usize) -> Option<Vec<c64>> {
+    debug_assert_eq!(m.len(), n * n);
+    let mut a = m.to_vec();
+    let mut inv: Vec<c64> = (0..n * n)
+        .map(|idx| {
+            if idx % (n + 1) == 0 {
+                c64::new(1.0, 0.0)
+            } else {
+                c64::new(0.0, 0.0)
+            }
+        })
+        .collect();
+    for col in 0..n {
+        // Partial pivot on the largest |a[r][col]|, r ≥ col.
+        let mut piv = col;
+        let mut piv_norm = a[col * n + col].norm();
+        for r in (col + 1)..n {
+            let v = a[r * n + col].norm();
+            if v > piv_norm {
+                piv = r;
+                piv_norm = v;
+            }
+        }
+        if piv_norm == 0.0 || piv_norm.is_nan() {
+            return None;
+        }
+        if piv != col {
+            for c in 0..n {
+                a.swap(col * n + c, piv * n + c);
+                inv.swap(col * n + c, piv * n + c);
+            }
+        }
+        let d = a[col * n + col];
+        for c in 0..n {
+            a[col * n + c] /= d;
+            inv[col * n + c] /= d;
+        }
+        for r in 0..n {
+            if r == col {
+                continue;
+            }
+            let f = a[r * n + col];
+            if f.re == 0.0 && f.im == 0.0 {
+                continue;
+            }
+            for c in 0..n {
+                let av = a[col * n + c] * f;
+                a[r * n + c] -= av;
+                let iv = inv[col * n + c] * f;
+                inv[r * n + c] -= iv;
+            }
+        }
+    }
+    Some(inv)
+}
+
+/// Right matrix division `A · B⁻¹` of row-major `n × n` complex
+/// matrices. Returns `None` if `B` is singular.
+fn right_divide(a: &[c64], b: &[c64], n: usize) -> Option<Vec<c64>> {
+    debug_assert_eq!(a.len(), n * n);
+    let b_inv = invert_complex(b, n)?;
+    let mut out = vec![c64::new(0.0, 0.0); n * n];
+    for r in 0..n {
+        for c in 0..n {
+            let mut acc = c64::new(0.0, 0.0);
+            for k in 0..n {
+                acc += a[r * n + k] * b_inv[k * n + c];
+            }
+            out[r * n + c] = acc;
+        }
+    }
+    Some(out)
 }
 
 /// One frequency point of a port-driven sweep.
@@ -231,6 +383,142 @@ pub fn driven_frequency_sweep<B: Backend>(
                 omega,
                 residual_rel: sol.residual_rel,
                 ports,
+            })
+        })
+        .collect()
+}
+
+/// One frequency point of an N-port S-parameter sweep
+/// ([`s_parameter_frequency_sweep`]).
+#[derive(Debug, Clone)]
+pub struct SParameterSweepPoint {
+    /// Frequency `ω ≡ k₀` (natural units, as in [`crate::driven`]).
+    pub omega: f64,
+    /// Worst (largest) direct-solve relative residual over the N
+    /// per-excitation solves at this frequency.
+    pub residual_rel: f64,
+    /// Row-major `n × n` impedance matrix `Z(ω) = V·I⁻¹` assembled from
+    /// the per-excitation port V/I readbacks (`V[k][j]`, `I[k][j]` =
+    /// voltage/current at port `k` when port `j` is excited).
+    pub z: Vec<c64>,
+    /// S-matrix `S = F(Z − Z₀)(Z + Z₀)⁻¹F⁻¹` vs the per-port reference
+    /// impedances `Z₀ₖ = Rₖ` (each port's own termination resistance).
+    pub s: SMatrix,
+}
+
+/// N-port S-parameter sweep driver (issue #214): assemble the
+/// ω-independent operator **once**, then per frequency factor `A(ω)`
+/// **once** and back-substitute one RHS per excited port — port `j`
+/// driven at its `v_inc` with every other port passively terminated in
+/// its own `R` (the issue-#202 admittance term, already in `A(ω)`).
+///
+/// The per-excitation V/I readbacks assemble `Z(ω) = V·I⁻¹` and
+/// `S(ω) = F(Z − Z₀)(Z + Z₀)⁻¹F⁻¹` with per-port references
+/// `Z₀ₖ = Rₖ` ([`SMatrix::from_z_matrix`]). For a reciprocal structure
+/// (every system this solver assembles is complex-symmetric) `S` is
+/// symmetric to solver precision — `S₂₁ = S₁₂` is a free regression.
+///
+/// The structure must be **purely port-driven**: there is no volume
+/// current source (an internal all-zero source is assembled), and every
+/// port needs a non-zero `v_inc` to serve as an excitation. With a
+/// single port this reproduces the [`driven_frequency_sweep`] →
+/// [`s11`] reflection coefficient bit-for-bit (same factorization, same
+/// RHS arithmetic, same scalar `S₁₁` formula).
+///
+/// # Errors
+///
+/// [`DrivenError::InvalidPort`] if `ports` is empty or any port has a
+/// zero `v_inc`; any [`DrivenError`] from assembly or the per-ω
+/// factorizations/solves (the sweep stops at the first failure);
+/// [`DrivenError::Solve`] if the per-excitation current matrix `I` is
+/// singular (no well-defined `Z`).
+#[allow(clippy::too_many_arguments)]
+pub fn s_parameter_frequency_sweep<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    omegas: &[f64],
+    device: &B::Device,
+) -> Result<Vec<SParameterSweepPoint>, DrivenError> {
+    if ports.is_empty() {
+        return Err(DrivenError::InvalidPort {
+            index: 0,
+            reason: "S-parameter extraction needs at least one port".to_string(),
+        });
+    }
+    for (index, port) in ports.iter().enumerate() {
+        if port.v_inc == c64::new(0.0, 0.0) {
+            return Err(DrivenError::InvalidPort {
+                index,
+                reason: "every port needs a non-zero v_inc to serve as an S-parameter excitation"
+                    .to_string(),
+            });
+        }
+    }
+
+    // Purely port-driven: zero volume current source.
+    let zero_source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+    };
+    let op = DrivenOperator::assemble::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        ports,
+        surfaces,
+        &zero_source,
+        device,
+    )?;
+    let n = op.n_ports();
+    let z0: Vec<f64> = (0..n).map(|p| op.port_resistance(p)).collect();
+
+    omegas
+        .iter()
+        .map(|&omega| {
+            // One factorization, N back-substitutions (issue #214).
+            let factored = op.factor_at(omega)?;
+            let mut residual_rel = 0.0_f64;
+            // v_mat[k][j] / i_mat[k][j]: port-k readback under excitation j.
+            let mut v_mat = vec![c64::new(0.0, 0.0); n * n];
+            let mut i_mat = vec![c64::new(0.0, 0.0); n * n];
+            for j in 0..n {
+                let sol = factored.solve_excited(j)?;
+                residual_rel = residual_rel.max(sol.residual_rel);
+                for k in 0..n {
+                    let v = op.port_voltage(k, &sol.e_edges);
+                    // Port k is driven only in its own excitation solve;
+                    // elsewhere it is a passive termination (V_inc = 0).
+                    let v_inc = if k == j {
+                        op.port_v_inc(k)
+                    } else {
+                        c64::new(0.0, 0.0)
+                    };
+                    v_mat[k * n + j] = v;
+                    i_mat[k * n + j] = op.port_current_with_v_inc(k, v_inc, v);
+                }
+            }
+            // Z = V·I⁻¹. The n = 1 scalar V/I matches PortCircuit::z
+            // bit-for-bit (issue-#214 single-port guarantee).
+            let z = if n == 1 {
+                vec![v_mat[0] / i_mat[0]]
+            } else {
+                right_divide(&v_mat, &i_mat, n).ok_or_else(|| {
+                    DrivenError::Solve(format!(
+                        "singular per-excitation port-current matrix at ω = {omega}: \
+                         Z(ω) = V·I⁻¹ is not defined"
+                    ))
+                })?
+            };
+            let s = SMatrix::from_z_matrix(&z, &z0);
+            Ok(SParameterSweepPoint {
+                omega,
+                residual_rel,
+                z,
+                s,
             })
         })
         .collect()
@@ -329,6 +617,102 @@ mod tests {
         let m = SMatrix::from_single_port_z(z, 50.0);
         assert_eq!(m.n_ports, 1);
         assert_eq!(m.entry(0, 0), s11(z, 50.0));
+    }
+
+    /// `from_z_matrix` with n = 1 delegates to the scalar path —
+    /// bit-for-bit identical to `from_single_port_z` (issue #214).
+    #[test]
+    fn one_port_z_matrix_is_bitwise_single_port() {
+        let z = c(25.0, 10.0);
+        let m = SMatrix::from_z_matrix(&[z], &[50.0]);
+        let m1 = SMatrix::from_single_port_z(z, 50.0);
+        assert_eq!(m.n_ports, 1);
+        assert_eq!(m.z0, m1.z0);
+        assert_eq!(m.entry(0, 0), m1.entry(0, 0));
+    }
+
+    /// A matched impedance matrix `Z = diag(Z₀)` is reflectionless and
+    /// isolation-free: `S = 0`.
+    #[test]
+    fn matched_z_matrix_gives_zero_s() {
+        let z0 = [50.0, 75.0];
+        let z = [c(50.0, 0.0), c(0.0, 0.0), c(0.0, 0.0), c(75.0, 0.0)];
+        let m = SMatrix::from_z_matrix(&z, &z0);
+        for i in 0..2 {
+            for j in 0..2 {
+                assert!(
+                    m.entry(i, j).norm() < 1e-15,
+                    "matched S[{i}][{j}] = {} must vanish",
+                    m.entry(i, j)
+                );
+            }
+        }
+    }
+
+    /// A diagonal (uncoupled) Z-matrix with distinct per-port
+    /// references reduces to independent scalar reflections.
+    #[test]
+    fn diagonal_z_matrix_reduces_to_per_port_s11() {
+        let z0 = [50.0, 75.0];
+        let (z1, z2) = (c(30.0, 12.0), c(100.0, -40.0));
+        let z = [z1, c(0.0, 0.0), c(0.0, 0.0), z2];
+        let m = SMatrix::from_z_matrix(&z, &z0);
+        assert!((m.entry(0, 0) - s11(z1, z0[0])).norm() < 1e-15);
+        assert!((m.entry(1, 1) - s11(z2, z0[1])).norm() < 1e-15);
+        assert!(m.entry(0, 1).norm() < 1e-15);
+        assert!(m.entry(1, 0).norm() < 1e-15);
+    }
+
+    /// Shunt-impedance two-port (`Z` all-ones × z_p) vs the textbook
+    /// result `S₁₁ = −Z₀/(Z₀ + 2 z_p)`, `S₂₁ = 2 z_p/(Z₀ + 2 z_p)`
+    /// (equal references).
+    #[test]
+    fn shunt_impedance_two_port_matches_textbook() {
+        let z0 = 50.0;
+        let z_p = c(20.0, 35.0);
+        let z = [z_p, z_p, z_p, z_p];
+        let m = SMatrix::from_z_matrix(&z, &[z0, z0]);
+        let denom = z_p * 2.0 + z0;
+        let s11_ref = c(-z0, 0.0) / denom;
+        let s21_ref = z_p * 2.0 / denom;
+        assert!((m.entry(0, 0) - s11_ref).norm() < 1e-14);
+        assert!((m.entry(1, 1) - s11_ref).norm() < 1e-14);
+        assert!((m.entry(0, 1) - s21_ref).norm() < 1e-14);
+        assert!((m.entry(1, 0) - s21_ref).norm() < 1e-14);
+    }
+
+    /// Reciprocity is preserved under **unequal** per-port references:
+    /// a symmetric Z must produce a symmetric S (this is exactly what
+    /// the `F = diag(1/√Z₀)` normalization buys; the unnormalized
+    /// `(Z − Z₀)(Z + Z₀)⁻¹` is not symmetric here).
+    #[test]
+    fn symmetric_z_gives_symmetric_s_with_unequal_references() {
+        let z0 = [1.0, 2.0];
+        let zm = c(0.5, 0.1); // mutual
+        let z = [c(1.0, 2.0), zm, zm, c(3.0, -1.0)];
+        let m = SMatrix::from_z_matrix(&z, &z0);
+        let asym = (m.entry(0, 1) - m.entry(1, 0)).norm();
+        assert!(
+            asym < 1e-15 * m.entry(0, 1).norm().max(1.0),
+            "Sᵀ ≠ S for symmetric Z: |S12 − S21| = {asym}"
+        );
+    }
+
+    /// The dense helpers: `A·A⁻¹ = I` for a well-conditioned complex
+    /// matrix, and an exactly singular matrix is reported as `None`.
+    #[test]
+    fn invert_and_right_divide_helpers() {
+        let a = [c(2.0, 1.0), c(0.5, -0.3), c(-1.0, 0.2), c(1.5, 2.5)];
+        let ident = right_divide(&a, &a, 2).expect("non-singular");
+        for i in 0..2 {
+            for j in 0..2 {
+                let want = if i == j { c(1.0, 0.0) } else { c(0.0, 0.0) };
+                assert!((ident[i * 2 + j] - want).norm() < 1e-15);
+            }
+        }
+        // Rank-1 (singular) matrix.
+        let s = [c(1.0, 0.0), c(2.0, 0.0), c(2.0, 0.0), c(4.0, 0.0)];
+        assert!(invert_complex(&s, 2).is_none());
     }
 
     /// SRF detection on a series-LC impedance `Im Z = ωL − 1/(ωC)`:

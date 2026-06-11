@@ -104,6 +104,7 @@
 
 use burn::tensor::backend::Backend;
 use faer::c64;
+use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, Triplet};
 
 use crate::complex_lanczos::{solve_with_lu, spmv};
@@ -1138,14 +1139,51 @@ impl DrivenOperator {
 
     /// Port current from the Thevenin admittance relation
     /// `I = (2 V_inc − V) / R` of port `port` — identical to
-    /// [`crate::lumped_port::port_current`].
+    /// [`crate::lumped_port::port_current`], using the port's **baked**
+    /// `V_inc`. For per-excitation bookkeeping (where a port may be
+    /// driven in one solve and passively terminated in another), use
+    /// [`DrivenOperator::port_current_with_v_inc`].
     ///
     /// # Panics
     ///
     /// Panics if `port ≥ self.n_ports()`.
     pub fn port_current(&self, port: usize, v_port: c64) -> c64 {
+        self.port_current_with_v_inc(port, self.ports[port].v_inc, v_port)
+    }
+
+    /// Port current `I = (2 V_inc − V) / R` with an **explicit**
+    /// incident voltage instead of the port's baked `v_inc` — the
+    /// per-excitation readback for multi-port S-parameter extraction
+    /// (issue #214), where port `p` is driven (`v_inc ≠ 0`) in its own
+    /// excitation solve and passively terminated (`v_inc = 0`) in all
+    /// others. `port_current_with_v_inc(p, self.port_v_inc(p), v)`
+    /// reproduces [`DrivenOperator::port_current`] exactly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `port ≥ self.n_ports()`.
+    pub fn port_current_with_v_inc(&self, port: usize, v_inc: c64, v_port: c64) -> c64 {
         let p = &self.ports[port];
-        (p.v_inc * 2.0 - v_port) * (1.0 / p.resistance)
+        (v_inc * 2.0 - v_port) * (1.0 / p.resistance)
+    }
+
+    /// Baked incident (drive) voltage `V_inc` of port `port`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `port ≥ self.n_ports()`.
+    pub fn port_v_inc(&self, port: usize) -> c64 {
+        self.ports[port].v_inc
+    }
+
+    /// Lumped resistance `R` of port `port` (the natural per-port
+    /// reference impedance for S-parameters).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `port ≥ self.n_ports()`.
+    pub fn port_resistance(&self, port: usize) -> f64 {
+        self.ports[port].resistance
     }
 
     /// Re-form `A(ω)`, factor it, and solve at one frequency.
@@ -1156,12 +1194,37 @@ impl DrivenOperator {
     /// pair reproduces the corresponding single-ω entry point exactly
     /// (same arithmetic, same triplet stream).
     ///
+    /// Implemented as [`DrivenOperator::factor_at`] followed by
+    /// [`FactoredDrivenOperator::solve`] — multi-RHS callers (one
+    /// excitation per port at fixed ω, issue #214) should hold the
+    /// factorization and back-substitute per excitation instead of
+    /// calling this once per excitation.
+    ///
     /// # Errors
     ///
     /// [`DrivenError::SurfaceImpedanceSingular`] if a Leontovich model
     /// evaluates to a zero/non-finite `Z_s(ω)`, plus the sparse
     /// assembly / factorization / solve failures of [`driven_solve`].
     pub fn solve_at(&self, omega: f64) -> Result<DrivenSolution, DrivenError> {
+        self.factor_at(omega)?.solve()
+    }
+
+    /// Re-form `A(ω)` and LU-factor it **once**, returning a handle
+    /// that back-substitutes any number of RHS vectors at this
+    /// frequency (issue #214: an N-port S-matrix costs one
+    /// factorization + N solves per ω).
+    ///
+    /// The triplet stream and factorization are exactly those of
+    /// [`DrivenOperator::solve_at`] (which delegates here), so
+    /// `factor_at(ω)?.solve()` is bit-for-bit identical to
+    /// `solve_at(ω)`.
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::SurfaceImpedanceSingular`] if a Leontovich model
+    /// evaluates to a zero/non-finite `Z_s(ω)`, plus the sparse
+    /// assembly / factorization failures of [`driven_solve`].
+    pub fn factor_at(&self, omega: f64) -> Result<FactoredDrivenOperator<'_>, DrivenError> {
         // Leontovich coefficients iω/Z_s(ω) — ω-dependent, re-evaluated
         // here at every frequency (issue #204 sweep caveat).
         let surface_coeffs: Vec<c64> = self
@@ -1169,26 +1232,6 @@ impl DrivenOperator {
             .iter()
             .map(|s| s.model.weak_coefficient(omega))
             .collect::<Result<_, DrivenError>>()?;
-
-        // b = iωμ₀ ∫ N · J dV with μ₀ = 1:  iω (re + i·im) = ω(−im + i·re).
-        let mut b_full: Vec<c64> = self
-            .rhs_re
-            .iter()
-            .zip(self.rhs_im.iter())
-            .map(|(&re, &im)| c64::new(-omega * im, omega * re))
-            .collect();
-
-        // Matched-source port drive: b_i += (2jω/Z_s)(V_inc/l) f_i.
-        for port in &self.ports {
-            if port.v_inc == c64::new(0.0, 0.0) {
-                continue;
-            }
-            let e_inc = port.v_inc * (1.0 / port.length);
-            let drive = c64::new(0.0, 2.0 * omega / port.z_s) * e_inc;
-            for (b, f) in b_full.iter_mut().zip(port.flux.iter()) {
-                *b += drive * *f;
-            }
-        }
 
         // --- Sparse A(ω) = K + iωC − ω²M + Σ coeff·S by linear combination --
         let omega2 = omega * omega;
@@ -1224,27 +1267,134 @@ impl DrivenOperator {
         )
         .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
 
-        let b_int: Vec<c64> = self
+        // --- Factor once (same machinery as complex Lanczos) ----------------
+        let lu = a_int
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+
+        Ok(FactoredDrivenOperator {
+            op: self,
+            omega,
+            a_int,
+            lu,
+        })
+    }
+}
+
+/// `A(ω)` re-formed and LU-factored at one frequency, holding a borrow
+/// of its [`DrivenOperator`] (issue #214).
+///
+/// Each `solve*` call only builds an RHS and back-substitutes through
+/// the cached factorization, so N excitations at a fixed ω cost one
+/// factorization + N triangular solves — the multi-RHS structure the
+/// N-port S-matrix extraction needs (one solve per excited port; see
+/// [`crate::extraction::s_parameter_frequency_sweep`]).
+pub struct FactoredDrivenOperator<'a> {
+    op: &'a DrivenOperator,
+    omega: f64,
+    a_int: SparseColMat<usize, c64>,
+    lu: Lu<usize, c64>,
+}
+
+impl FactoredDrivenOperator<'_> {
+    /// The frequency `ω` this factorization was formed at.
+    pub fn omega(&self) -> f64 {
+        self.omega
+    }
+
+    /// Solve with **all** baked excitations active (the volume current
+    /// source plus every port's `v_inc` drive) — exactly the RHS of the
+    /// pre-split [`DrivenOperator::solve_at`], which now delegates
+    /// here.
+    ///
+    /// # Errors
+    ///
+    /// The sparse solve failures of [`driven_solve`].
+    pub fn solve(&self) -> Result<DrivenSolution, DrivenError> {
+        self.solve_with_excitation(None)
+    }
+
+    /// Solve with **only port `excited` driven** (at its baked
+    /// `v_inc`): all other ports keep their resistive termination
+    /// (already in the factored `A(ω)`) but contribute no drive. The
+    /// volume current-source moments are still applied — pass a zero
+    /// [`CurrentSource`] at assembly time for pure port-driven
+    /// S-parameter extraction (issue #214).
+    ///
+    /// With a single port, `solve_excited(0)` is bit-for-bit identical
+    /// to [`FactoredDrivenOperator::solve`].
+    ///
+    /// # Errors
+    ///
+    /// The sparse solve failures of [`driven_solve`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `excited ≥ n_ports`, or if port `excited` has a zero
+    /// baked `v_inc` (its excitation would be identically zero —
+    /// almost certainly a setup bug).
+    pub fn solve_excited(&self, excited: usize) -> Result<DrivenSolution, DrivenError> {
+        assert!(
+            excited < self.op.ports.len(),
+            "excited port index {excited} out of range ({} ports)",
+            self.op.ports.len()
+        );
+        assert!(
+            self.op.ports[excited].v_inc != c64::new(0.0, 0.0),
+            "excited port {excited} has v_inc = 0 (no drive)"
+        );
+        self.solve_with_excitation(Some(excited))
+    }
+
+    /// Build the RHS (volume source + port drives restricted to
+    /// `excited` if given) and back-substitute through the cached LU.
+    fn solve_with_excitation(&self, excited: Option<usize>) -> Result<DrivenSolution, DrivenError> {
+        let op = self.op;
+        let omega = self.omega;
+
+        // b = iωμ₀ ∫ N · J dV with μ₀ = 1:  iω (re + i·im) = ω(−im + i·re).
+        let mut b_full: Vec<c64> = op
+            .rhs_re
+            .iter()
+            .zip(op.rhs_im.iter())
+            .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+            .collect();
+
+        // Matched-source port drive: b_i += (2jω/Z_s)(V_inc/l) f_i —
+        // restricted to the excited port when one is selected.
+        for (p, port) in op.ports.iter().enumerate() {
+            if excited.is_some_and(|j| j != p) {
+                continue;
+            }
+            if port.v_inc == c64::new(0.0, 0.0) {
+                continue;
+            }
+            let e_inc = port.v_inc * (1.0 / port.length);
+            let drive = c64::new(0.0, 2.0 * omega / port.z_s) * e_inc;
+            for (b, f) in b_full.iter_mut().zip(port.flux.iter()) {
+                *b += drive * *f;
+            }
+        }
+
+        let b_int: Vec<c64> = op
             .pec_interior_mask
             .iter()
             .zip(b_full.iter())
             .filter_map(|(&keep, &b)| if keep { Some(b) } else { None })
             .collect();
 
-        // --- Factor once + direct solve (same machinery as complex Lanczos) -
-        let lu = a_int
-            .as_ref()
-            .sp_lu()
-            .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
-        let mut x_int = vec![c64::new(0.0, 0.0); self.n_interior];
-        solve_with_lu(&lu, &b_int, &mut x_int).map_err(|e| DrivenError::Solve(format!("{e}")))?;
+        // --- Direct solve through the cached factorization ------------------
+        let mut x_int = vec![c64::new(0.0, 0.0); op.n_interior];
+        solve_with_lu(&self.lu, &b_int, &mut x_int)
+            .map_err(|e| DrivenError::Solve(format!("{e}")))?;
 
         // --- Post-solve residual check --------------------------------------
-        let mut ax = vec![c64::new(0.0, 0.0); self.n_interior];
-        spmv(a_int.as_ref(), &x_int, &mut ax);
+        let mut ax = vec![c64::new(0.0, 0.0); op.n_interior];
+        spmv(self.a_int.as_ref(), &x_int, &mut ax);
         let mut res2 = 0.0_f64;
         let mut b2 = 0.0_f64;
-        for i in 0..self.n_interior {
+        for i in 0..op.n_interior {
             let r = ax[i] - b_int[i];
             res2 += r.re * r.re + r.im * r.im;
             b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
@@ -1256,8 +1406,8 @@ impl DrivenOperator {
         };
 
         // --- Scatter back to the full edge vector ---------------------------
-        let mut e_edges = vec![c64::new(0.0, 0.0); self.n_edges];
-        for (full_idx, &ri) in self.remap.iter().enumerate() {
+        let mut e_edges = vec![c64::new(0.0, 0.0); op.n_edges];
+        for (full_idx, &ri) in op.remap.iter().enumerate() {
             if ri >= 0 {
                 e_edges[full_idx] = x_int[ri as usize];
             }
@@ -1265,7 +1415,7 @@ impl DrivenOperator {
 
         Ok(DrivenSolution {
             e_edges,
-            n_interior: self.n_interior,
+            n_interior: op.n_interior,
             residual_rel,
         })
     }
