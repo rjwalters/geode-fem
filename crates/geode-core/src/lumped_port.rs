@@ -361,7 +361,8 @@ pub fn port_current(port: &LumpedPort<'_>, v_port: c64) -> c64 {
 /// This is the structure's input impedance **excluding** the port's own
 /// resistance `R` (the source impedance) — the quantity the
 /// transmission-line oracle compares against `j Z₀ tan(ωd)`. The
-/// full `Z(ω) → L/R/Q/S` extraction API is issue #203.
+/// full `Z(ω) → L/R/Q/S` extraction API and the assembly-reusing
+/// frequency-sweep driver live in [`crate::extraction`] (issue #203).
 pub fn port_input_impedance(
     mesh: &TetMesh,
     port: &LumpedPort<'_>,
