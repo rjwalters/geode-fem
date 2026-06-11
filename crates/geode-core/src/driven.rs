@@ -5,14 +5,20 @@
 //! this module solves the *forced* problem at a prescribed frequency ω:
 //!
 //! ```text
-//! A(ω) x = b,        A(ω) = K − (ω/c)² M(ε),
+//! A(ω) x = b,        A(ω) = K + iω C(σ) − (ω/c)² M(ε),
 //! b_i = i ω μ₀ ∫_Ω N_i · J dV,
 //! ```
 //!
 //! in the codebase's natural units (`c = μ₀ = ε₀ = 1`, so `ω ≡ k₀` and
 //! eigenvalues of the pencil are `k²`). `K` is the Nédélec curl-curl
 //! stiffness, `M(ε)` the (possibly complex / anisotropic-diagonal) mass,
-//! and `J` a per-tet piecewise-constant current density.
+//! `C(σ)` the σ-weighted conductivity damping matrix (issue #196 — see
+//! [`crate::nedelec_assembly::assemble_nedelec_sigma_damping`] for the
+//! form choice: `K`, `M`, `C` are all ω-independent so frequency sweeps
+//! re-form `A(ω)` by linear combination; equivalently
+//! `A(ω) = K − ω² M(ε − iσ/ω)`), and `J` a per-tet piecewise-constant
+//! current density. All three matrices are real- or complex-**symmetric**,
+//! so `A(ω)ᵀ = A(ω)` with or without conductivity.
 //!
 //! # Boundary conditions
 //!
@@ -86,6 +92,8 @@ pub enum DrivenError {
     SourceDimMismatch { got: usize, want: usize },
     #[error("material has {got} per-tet entries but mesh has {want} tets")]
     MaterialDimMismatch { got: usize, want: usize },
+    #[error("sigma has {got} per-tet entries but mesh has {want} tets")]
+    SigmaDimMismatch { got: usize, want: usize },
     #[error("driven system has no interior DOFs after PEC elimination")]
     EmptyInterior,
     #[error("sparse system assembly failed: {0}")]
@@ -183,6 +191,40 @@ pub fn driven_solve<B: Backend>(
     source: &CurrentSource,
     device: &B::Device,
 ) -> Result<DrivenSolution, DrivenError> {
+    driven_solve_with_sigma::<B>(mesh, materials, None, bcs, omega, source, device)
+}
+
+/// [`driven_solve`] with an optional per-tet electrical conductivity
+/// `σ(x)` for lossy volumetric materials (issue #196).
+///
+/// When `sigma_tet` is `Some`, the σ-weighted damping matrix
+/// `C_ij = ∫ N_i · N_j σ dV` is assembled through the same autodiff-
+/// preserving Burn scatter path as `M`
+/// ([`crate::nedelec_assembly::assemble_nedelec_sigma_damping`]) and
+/// the interior system becomes
+///
+/// ```text
+/// A(ω) = K + iω C(σ) − ω² M(ε)   ( ≡ K − ω² M(ε − iσ/ω) ),
+/// ```
+///
+/// in natural units (`μ₀ = 1`; `exp(+jωt)` convention, so conduction
+/// loss enters with `+iωC`, i.e. `Im(ε_eff) = −σ/ω < 0` — absorption).
+/// `C` is real symmetric, so the complex-symmetry invariant
+/// `A(ω)ᵀ = A(ω)` is preserved. `sigma_tet = None` (or an all-zero σ)
+/// reproduces [`driven_solve`] exactly.
+///
+/// `σ` is in natural units `1/length`
+/// (`σ_nat = σ_SI · Z₀ · L_unit`); the analytic skin depth is
+/// `δ = √(2/(ω σ))`.
+pub fn driven_solve_with_sigma<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
     let n_tets = mesh.n_tets();
     let edges = mesh.edges();
     let n_edges = edges.len();
@@ -209,6 +251,14 @@ pub fn driven_solve<B: Backend>(
             got: material_len,
             want: n_tets,
         });
+    }
+    if let Some(sigma) = sigma_tet {
+        if sigma.len() != n_tets {
+            return Err(DrivenError::SigmaDimMismatch {
+                got: sigma.len(),
+                want: n_tets,
+            });
+        }
     }
 
     // --- Edge tables ------------------------------------------------------
@@ -242,6 +292,21 @@ pub fn driven_solve<B: Backend>(
             eps,
         ),
     };
+
+    // --- Assemble the conductivity damping matrix C(σ), if any -------------
+    // C shares the (K, M) sparsity pattern — it is a σ-weighted mass
+    // assembled over the same tet→edge scatter indices — so the triplet
+    // loop below can read it through the recorded pattern directly.
+    let c_burn = sigma_tet.map(|sigma| {
+        crate::nedelec_assembly::assemble_nedelec_sigma_damping::<B>(
+            nodes_t.clone(),
+            tets_t.clone(),
+            &tet_idx,
+            &tet_sign,
+            n_edges,
+            sigma,
+        )
+    });
 
     // --- Assemble the current-source RHS -----------------------------------
     // The Burn RHS kernel is real-valued; a complex J runs as two passes
@@ -278,6 +343,7 @@ pub fn driven_solve<B: Backend>(
     // --- Host transfer + PEC reduction -------------------------------------
     let k_full = burn_matrix_to_faer(sys.k);
     let m_full = burn_complex_mass_to_faer(sys.m_re, sys.m_im);
+    let c_full = c_burn.map(burn_matrix_to_faer);
 
     // Remap full edge indices → contiguous interior indices.
     let mut remap = vec![-1_i64; n_edges];
@@ -292,7 +358,7 @@ pub fn driven_solve<B: Backend>(
         return Err(DrivenError::EmptyInterior);
     }
 
-    // --- Sparse A(ω) = K − ω² M over the recorded sparsity pattern ---------
+    // --- Sparse A(ω) = K + iωC − ω² M over the recorded sparsity pattern ---
     let omega2 = omega * omega;
     let mut triplets: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(sys.sparsity.rows.len());
     for (&r_u32, &c_u32) in sys.sparsity.rows.iter().zip(sys.sparsity.cols.iter()) {
@@ -301,7 +367,11 @@ pub fn driven_solve<B: Backend>(
         if rr < 0 || cc < 0 {
             continue;
         }
-        let a_val = c64::new(k_full[(r, c)], 0.0) - m_full[(r, c)] * omega2;
+        let mut a_val = c64::new(k_full[(r, c)], 0.0) - m_full[(r, c)] * omega2;
+        if let Some(cm) = &c_full {
+            // Conduction loss: + iω C (exp(+jωt) convention).
+            a_val += c64::new(0.0, omega * cm[(r, c)]);
+        }
         triplets.push(Triplet::new(rr as usize, cc as usize, a_val));
     }
     let a_int =

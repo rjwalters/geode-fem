@@ -657,6 +657,104 @@ pub fn assemble_global_nedelec_with_epsilon<B: Backend>(
     NedelecGlobalSystem { k, m, sparsity }
 }
 
+/// Assemble the global Nédélec **conductivity damping matrix**
+/// `C_ij = ∫ N_i · N_j σ(x) dV` for a piecewise-constant per-tet
+/// electrical conductivity `σ` (issue #196).
+///
+/// # Where C enters the physics
+///
+/// In the frequency domain (`exp(+jωt)` convention) a finite
+/// conductivity adds the conduction current `J_c = σE` to Ampère's
+/// law, which is equivalent to the effective complex permittivity
+///
+/// ```text
+/// ε_eff(ω) = ε − i σ/ω        (Im(ε_eff) < 0 ⇒ absorption)
+/// ```
+///
+/// The discrete driven system becomes (natural units, `c = μ₀ = ε₀ = 1`)
+///
+/// ```text
+/// A(ω) = K + iω C(σ) − ω² M(ε)  ≡  K − ω² M(ε_eff(ω)).
+/// ```
+///
+/// **Chosen factorization-friendly form**: this codebase keeps `C`
+/// separate rather than folding σ into a frequency-dependent complex
+/// mass, because `K`, `M`, and `C` are all ω-independent — a frequency
+/// sweep (the Epic #193 use case: R(ω)/L(ω) extraction) re-forms
+/// `A(ω)` per frequency by a cheap linear combination instead of
+/// re-running the Burn assembly. The two forms are algebraically
+/// identical; [`build_complex_epsilon_eff`] provides the folded
+/// `ε_eff` bridge for the fixed-ω eigenpencil path.
+///
+/// # Complex symmetry
+///
+/// `C` is a σ-weighted *real symmetric* mass matrix, so adding `iωC`
+/// preserves the established complex-symmetric (NOT Hermitian) pencil
+/// invariant (`Aᵀ = A`, see README "Math correctness" / PR #55).
+///
+/// # Units
+///
+/// `σ` is in natural units `1/length`: `σ_nat = σ_SI · Z₀ · L_unit`
+/// with `Z₀ = √(μ₀/ε₀) ≈ 376.73 Ω` and `L_unit` the metres per mesh
+/// length unit. The analytic skin depth is `δ = √(2/(ω σ_nat))`.
+///
+/// # Implementation / autodiff
+///
+/// The integrand is identical to the ε-weighted mass, so this is a
+/// thin wrapper over [`assemble_global_nedelec_with_epsilon`] with the
+/// per-tet weights set to `σ`, keeping the autodiff-preserving batched
+/// local kernel + 1-D `scatter(0, …, Add)` path intact.
+pub fn assemble_nedelec_sigma_damping<B: Backend>(
+    nodes: Tensor<B, 2>,
+    tets: Tensor<B, 2, Int>,
+    tet_edge_idx: &[[u32; 6]],
+    tet_edge_sign: &[[i8; 6]],
+    n_edges: usize,
+    sigma_tet: &[f64],
+) -> Tensor<B, 2> {
+    assemble_global_nedelec_with_epsilon(
+        nodes,
+        tets,
+        tet_edge_idx,
+        tet_edge_sign,
+        n_edges,
+        sigma_tet,
+    )
+    .m
+}
+
+/// Fold a per-tet conductivity into the per-tet complex permittivity:
+/// `ε_eff = ε − i σ/ω` (`exp(+jωt)` convention, natural units — see
+/// [`assemble_nedelec_sigma_damping`] for the conventions and the
+/// equivalence `K − ω²M(ε_eff) = K + iωC(σ) − ω²M(ε)`).
+///
+/// This is the bridge for the **eigenpencil** path: a fixed-ω complex-
+/// symmetric eigensolve with lossy volumetric materials reuses the
+/// existing [`assemble_global_nedelec_with_complex_epsilon`] machinery
+/// unchanged by passing the folded `ε_eff`.
+///
+/// # Panics
+///
+/// Panics if the slice lengths disagree or `omega <= 0` (the fold is
+/// singular at ω = 0).
+pub fn build_complex_epsilon_eff(
+    epsilon_r: &[faer::c64],
+    sigma_tet: &[f64],
+    omega: f64,
+) -> Vec<faer::c64> {
+    assert_eq!(
+        epsilon_r.len(),
+        sigma_tet.len(),
+        "epsilon_r and sigma_tet length mismatch"
+    );
+    assert!(omega > 0.0, "omega must be positive to fold sigma into eps");
+    epsilon_r
+        .iter()
+        .zip(sigma_tet.iter())
+        .map(|(&eps, &sigma)| faer::c64::new(eps.re, eps.im - sigma / omega))
+        .collect()
+}
+
 /// Variant of [`assemble_global_nedelec_with_epsilon`] that accepts a
 /// **complex** per-tet permittivity and returns the real K plus the
 /// real/imaginary parts of the complex-scaled mass matrix.

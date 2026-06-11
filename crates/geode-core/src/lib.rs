@@ -33,7 +33,8 @@ pub use complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
 pub use complex_lanczos::{SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
 pub use derham::{apply_divergence, apply_gradient, curl_map, divergence_map, gradient_map};
 pub use driven::{
-    driven_solve, CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenSolution,
+    driven_solve, driven_solve_with_sigma, CurrentSource, DrivenBcs, DrivenError, DrivenMaterials,
+    DrivenSolution,
 };
 pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
@@ -65,7 +66,8 @@ pub use nedelec::{
 pub use nedelec_assembly::{
     assemble_global_nedelec, assemble_global_nedelec_with_anisotropic_epsilon,
     assemble_global_nedelec_with_complex_epsilon, assemble_global_nedelec_with_epsilon,
-    assemble_nedelec_current_rhs, build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml,
+    assemble_nedelec_current_rhs, assemble_nedelec_sigma_damping,
+    build_anisotropic_pml_tensor_diag, build_complex_epsilon_eff, build_complex_epsilon_r_pml,
     build_epsilon_r, burn_complex_mass_to_faer, cube_pec_interior_edges, pec_interior_edge_mask,
     rank_via_svd, restrict_gradient_dense, sphere_n_interior_nodes, sphere_pec_interior_edges,
     sphere_pec_node_interior_mask, spurious_dim_from_derham, tet_centroid_radii, tet_centroids,
