@@ -276,6 +276,114 @@ pub fn batched_nedelec_local_matrices<B: Backend>(coords: Tensor<B, 3>) -> Nedel
     }
 }
 
+/// Batched first-order Nédélec element-local right-hand-side vector for
+/// a **piecewise-constant** volumetric current density `J`.
+///
+/// Computes, for each tet `T` and each local edge `i = (a, b)`,
+///
+/// ```text
+/// b_local_i = ∫_T N_i · J dV,
+/// ```
+///
+/// where `J` is held constant per element (typically sampled at the tet
+/// centroid). With the Whitney 1-form basis `N_i = λ_a ∇λ_b − λ_b ∇λ_a`
+/// and `∫_T λ_p dV = V/4`, the integral is closed-form:
+///
+/// ```text
+/// ∫_T N_i dV = (V/4) (∇λ_b − ∇λ_a)
+///            = sign(det J) / 24 · (g_b − g_a),
+/// ```
+///
+/// using `∇λ_p = g_p / det(J)` (cofactor vectors `g_p`) and
+/// `V = |det(J)| / 6`. Unlike the K/M kernels — where the gradients
+/// appear in **pairs** and the sign of `det(J)` cancels — the RHS is
+/// linear in the gradients, so the orientation sign of the tet must be
+/// kept.
+///
+/// # Arguments
+///
+/// * `coords` — `[n_elem, 4, 3]` per-tet vertex coordinates (same
+///   convention as [`batched_nedelec_local_matrices`]).
+/// * `j_tet` — `[n_elem, 3]` per-tet constant current density.
+///
+/// # Returns
+///
+/// `[n_elem, 6]` local RHS entries in canonical local-edge order
+/// ([`TET_LOCAL_EDGES`]). Sign-unaware: the per-tet local-vs-global
+/// orientation sign `s_i` must be applied at assembly time (a single
+/// factor `s_i`, not the `s_i s_j` outer product of the matrix path).
+///
+/// # Panics
+///
+/// Panics if `coords` is not `[*, 4, 3]` or `j_tet` is not `[*, 3]`
+/// with matching element counts.
+pub fn batched_nedelec_local_rhs<B: Backend>(
+    coords: Tensor<B, 3>,
+    j_tet: Tensor<B, 2>,
+) -> Tensor<B, 2> {
+    let dims = coords.dims();
+    let n_elem = dims[0];
+    assert_eq!(dims[1], 4, "expected 4 vertices per tet, got {}", dims[1]);
+    assert_eq!(dims[2], 3, "expected 3-D coordinates, got {}", dims[2]);
+    let j_dims = j_tet.dims();
+    assert_eq!(
+        j_dims,
+        [n_elem, 3],
+        "expected j_tet shape [n_elem, 3], got {:?}",
+        j_dims
+    );
+
+    // Same per-vertex / edge / cofactor / det machinery as the matrix
+    // kernels.
+    let v0 = coords
+        .clone()
+        .slice([0..n_elem, 0..1, 0..3])
+        .squeeze_dim::<2>(1);
+    let v1 = coords
+        .clone()
+        .slice([0..n_elem, 1..2, 0..3])
+        .squeeze_dim::<2>(1);
+    let v2 = coords
+        .clone()
+        .slice([0..n_elem, 2..3, 0..3])
+        .squeeze_dim::<2>(1);
+    let v3 = coords.slice([0..n_elem, 3..4, 0..3]).squeeze_dim::<2>(1);
+
+    let e1 = v1 - v0.clone();
+    let e2 = v2 - v0.clone();
+    let e3 = v3 - v0;
+
+    let g1 = e2.clone().cross(e3.clone(), 1);
+    let g2 = e3.clone().cross(e1.clone(), 1);
+    let g3 = e1.clone().cross(e2.clone(), 1);
+
+    let det = e1.mul(g1.clone()).sum_dim(1).squeeze_dim::<1>(1); // [n_elem]
+    let g0 = (g1.clone() + g2.clone() + g3.clone()).neg();
+
+    // sign(det) / 24 per element. det / |det| is exactly ±1 in floating
+    // point for non-degenerate tets (degenerate tets produce NaN here,
+    // exactly as they produce Inf/NaN in the K/M kernels).
+    let factor = det.clone().div(det.abs()).div_scalar(24.0); // [n_elem]
+
+    let g_mat = Tensor::<B, 2>::stack::<3>(vec![g0, g1, g2, g3], 1); // [n_elem, 4, 3]
+    let g_row = |p: usize| -> Tensor<B, 2> {
+        g_mat
+            .clone()
+            .slice([0..n_elem, p..p + 1, 0..3])
+            .squeeze_dim::<2>(1)
+    };
+
+    let mut entries: Vec<Tensor<B, 1>> = Vec::with_capacity(6);
+    for &(a, b) in TET_LOCAL_EDGES.iter() {
+        // (g_b − g_a) · J, per element.
+        let diff = g_row(b) - g_row(a); // [n_elem, 3]
+        let dot = diff.mul(j_tet.clone()).sum_dim(1).squeeze_dim::<1>(1); // [n_elem]
+        entries.push(dot.mul(factor.clone()));
+    }
+
+    Tensor::<B, 1>::stack::<2>(entries, 1) // [n_elem, 6]
+}
+
 /// Per-element Nédélec local mass matrix for a **diagonal anisotropic**
 /// permittivity tensor expressed in the global Cartesian basis.
 ///
