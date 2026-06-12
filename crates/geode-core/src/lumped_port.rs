@@ -75,10 +75,9 @@
 //! terms are frequency-independent real matrices/vectors scaled by
 //! `jω/Z_s` at solve time inside [`crate::driven`].
 
-use std::collections::HashMap;
-
 use faer::c64;
 
+use crate::whitney_face::{self, dot3, edge_lookup, face_geometry, scale3, sub3, TRI_LOCAL_EDGES};
 use crate::TetMesh;
 
 /// Palace-style uniform lumped port specification.
@@ -116,78 +115,6 @@ impl LumpedPort<'_> {
     }
 }
 
-/// Per-face Whitney geometry shared by the mass and flux kernels.
-struct FaceGeometry {
-    /// Triangle area.
-    area: f64,
-    /// In-plane gradients of the three barycentric coordinates.
-    grad_lambda: [[f64; 3]; 3],
-    /// `(global_edge_index, orientation_sign)` for the three local
-    /// edges in [`TRI_LOCAL_EDGES`] order.
-    edge_info: [(u32, i8); 3],
-}
-
-/// Local edge order on a triangle face (lower local index first),
-/// matching `silvermuller.rs`.
-const TRI_LOCAL_EDGES: [(usize, usize); 3] = [(0, 1), (0, 2), (1, 2)];
-
-fn face_geometry(
-    tri: &[u32; 3],
-    v: &[[f64; 3]; 3],
-    edge_lookup: &HashMap<(u32, u32), u32>,
-) -> FaceGeometry {
-    let e10 = sub3(v[1], v[0]);
-    let e20 = sub3(v[2], v[0]);
-    let cross = cross3(e10, e20);
-    let two_area = norm3(cross);
-    let area = 0.5 * two_area;
-    let n_hat = [
-        cross[0] / two_area,
-        cross[1] / two_area,
-        cross[2] / two_area,
-    ];
-
-    // In-plane gradients of triangle barycentric coords:
-    //   ∇λ_k = (n_hat × edge_opposite_k) / (2 area).
-    let opp = [sub3(v[2], v[1]), sub3(v[0], v[2]), sub3(v[1], v[0])];
-    let grad_lambda: [[f64; 3]; 3] = [
-        scale3(cross3(n_hat, opp[0]), 1.0 / two_area),
-        scale3(cross3(n_hat, opp[1]), 1.0 / two_area),
-        scale3(cross3(n_hat, opp[2]), 1.0 / two_area),
-    ];
-
-    // Global-edge mapping + orientation sign (lower-tag-first), same
-    // convention as the volume assembly and silvermuller.rs.
-    let mut edge_info: [(u32, i8); 3] = [(0, 1); 3];
-    for (k, &(la, lb)) in TRI_LOCAL_EDGES.iter().enumerate() {
-        let ga = tri[la];
-        let gb = tri[lb];
-        let (lo, hi, sign) = if ga < gb {
-            (ga, gb, 1i8)
-        } else {
-            (gb, ga, -1i8)
-        };
-        let gidx = *edge_lookup
-            .get(&(lo, hi))
-            .expect("port face edge must appear in global edge table");
-        edge_info[k] = (gidx, sign);
-    }
-
-    FaceGeometry {
-        area,
-        grad_lambda,
-        edge_info,
-    }
-}
-
-fn edge_lookup(edges: &[[u32; 2]]) -> HashMap<(u32, u32), u32> {
-    let mut lookup = HashMap::with_capacity(edges.len());
-    for (idx, e) in edges.iter().enumerate() {
-        lookup.insert((e[0], e[1]), idx as u32);
-    }
-    lookup
-}
-
 /// Assemble the **tangential surface mass** of a port surface as signed
 /// global triplets:
 ///
@@ -202,9 +129,12 @@ fn edge_lookup(edges: &[[u32; 2]]) -> HashMap<(u32, u32), u32> {
 /// `A(ω)ᵀ = A(ω)`.
 ///
 /// Same kernel as
-/// [`crate::silvermuller::assemble_silver_muller_surface`] (3-point
-/// edge-midpoint quadrature, degree-2 exact) in sparse triplet form —
-/// the unit tests cross-validate the two implementations.
+/// [`crate::silvermuller::assemble_surface_mass_triplets`] — both are
+/// thin delegates to the shared [`crate::whitney_face`] module (3-point
+/// edge-midpoint quadrature, degree-2 exact; issue #208), so the two
+/// entry points produce bit-identical triplet streams. The unit tests
+/// cross-validate this path against the dense Silver-Müller assembly as
+/// a regression on the unified kernel.
 ///
 /// # Panics
 ///
@@ -215,49 +145,7 @@ pub fn assemble_port_surface_mass(
     faces: &[[u32; 3]],
     edges: &[[u32; 2]],
 ) -> Vec<(usize, usize, f64)> {
-    let lookup = edge_lookup(edges);
-    let mut triplets = Vec::with_capacity(faces.len() * 9);
-
-    // λ values at the three edge midpoints (degree-2 exact rule).
-    const BARYCENTRIC_MIDPOINTS: [[f64; 3]; 3] = [
-        [0.5, 0.5, 0.0], // m_01
-        [0.5, 0.0, 0.5], // m_02
-        [0.0, 0.5, 0.5], // m_12
-    ];
-
-    for tri in faces {
-        let v: [[f64; 3]; 3] = [
-            mesh.nodes[tri[0] as usize],
-            mesh.nodes[tri[1] as usize],
-            mesh.nodes[tri[2] as usize],
-        ];
-        let geo = face_geometry(tri, &v, &lookup);
-
-        let weight = geo.area / 3.0;
-        let mut block = [[0.0_f64; 3]; 3];
-        for lam in BARYCENTRIC_MIDPOINTS.iter() {
-            // Whitney trace N_e(λ) = λ_la ∇λ_lb − λ_lb ∇λ_la.
-            let mut basis_q: [[f64; 3]; 3] = [[0.0; 3]; 3];
-            for (k, &(la, lb)) in TRI_LOCAL_EDGES.iter().enumerate() {
-                let term_a = scale3(geo.grad_lambda[lb], lam[la]);
-                let term_b = scale3(geo.grad_lambda[la], lam[lb]);
-                basis_q[k] = sub3(term_a, term_b);
-            }
-            for i in 0..3 {
-                for j in 0..3 {
-                    block[i][j] += weight * dot3(basis_q[i], basis_q[j]);
-                }
-            }
-        }
-
-        for (row, &(gi, si)) in block.iter().zip(geo.edge_info.iter()) {
-            for (&val, &(gj, sj)) in row.iter().zip(geo.edge_info.iter()) {
-                triplets.push((gi as usize, gj as usize, val * (si as f64) * (sj as f64)));
-            }
-        }
-    }
-
-    triplets
+    whitney_face::assemble_surface_mass_triplets(mesh, faces, edges)
 }
 
 /// Assemble the **port flux vector**
@@ -374,35 +262,6 @@ pub fn port_input_impedance(
     v / i
 }
 
-#[inline]
-fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-#[inline]
-fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-#[inline]
-fn norm3(a: [f64; 3]) -> f64 {
-    (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
-}
-
-#[inline]
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-#[inline]
-fn scale3(a: [f64; 3], s: f64) -> [f64; 3] {
-    [a[0] * s, a[1] * s, a[2] * s]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,6 +320,31 @@ mod tests {
             max_diff < 1e-14,
             "port mass disagrees with Silver-Müller kernel: {max_diff}"
         );
+    }
+
+    /// The two public triplet entry points must produce **bit-identical**
+    /// triplet streams (same face order, same duplicate-unsummed
+    /// convention) — issue #208 acceptance criterion: both delegate to
+    /// the single kernel in `whitney_face`.
+    #[test]
+    fn port_mass_triplets_bit_identical_to_silver_muller_triplets() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces: Vec<[u32; 3]> = mesh
+            .faces()
+            .into_iter()
+            .filter(|f| f.iter().all(|&n| mesh.nodes[n as usize][2].abs() < 1e-12))
+            .collect();
+        assert!(!faces.is_empty());
+
+        let port = assemble_port_surface_mass(&mesh, &faces, &edges);
+        let sm = crate::silvermuller::assemble_surface_mass_triplets(&mesh, &faces, &edges);
+        assert_eq!(port.len(), sm.len());
+        for (a, b) in port.iter().zip(sm.iter()) {
+            assert_eq!(a.0, b.0);
+            assert_eq!(a.1, b.1);
+            assert_eq!(a.2.to_bits(), b.2.to_bits(), "triplet values differ");
+        }
     }
 
     /// The assembled port surface mass must be symmetric (the iω-scaled

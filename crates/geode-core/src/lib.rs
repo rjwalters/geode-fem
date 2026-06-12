@@ -26,6 +26,7 @@ pub mod scattering;
 pub mod silvermuller;
 pub mod silvermuller_self_consistent;
 pub mod sparse;
+pub(crate) mod whitney_face;
 
 #[cfg(feature = "arpack")]
 pub mod arpack;
