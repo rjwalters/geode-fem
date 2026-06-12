@@ -1,63 +1,135 @@
 {
   "schema_version": "1",
   "fixture_id": "p1_local/anisotropic_well_shaped",
-  "description": "P1 local matrices for the reference tet scaled by (1, 0.5, 0.25) per axis — anisotropic but well-shaped. NumPy baseline produced by reference/numpy/p1_local_matrices.py via gen_p1_local_per_case.py.",
+  "description": "P1 local matrices for the reference tet scaled by (1, 0.5, 0.25) per axis \u2014 anisotropic but well-shaped.",
   "units": "dimensionless",
   "inputs": {
     "coords": {
-      "shape": [1, 4, 3],
+      "shape": [
+        1,
+        4,
+        3
+      ],
       "dtype": "f64",
       "description": "Per-element vertex coordinates [n_elem, 4 vertices, 3 spatial dims].",
       "data": [
         [
-          [0.0, 0.0, 0.0],
-          [1.0, 0.0, 0.0],
-          [0.0, 0.5, 0.0],
-          [0.0, 0.0, 0.25]
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.5,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.25
+          ]
         ]
       ]
     }
   },
   "outputs": {
     "k_local": {
-      "shape": [1, 4, 4],
+      "shape": [
+        1,
+        4,
+        4
+      ],
       "dtype": "f64",
-      "description": "Local stiffness K_{ij}.",
-      "tolerance_abs": 1.0e-4,
+      "description": "Local stiffness K_{ij}. Tolerance is loose absolute (f32-friendly tripwire); the Rust comparator layers a tighter backend-aware mixed abs/rel check on top.",
+      "tolerance_abs": 0.0001,
       "data": [
         [
-          [ 0.4375,               -0.020833333333333332, -0.08333333333333333, -0.3333333333333333],
-          [-0.020833333333333332,  0.020833333333333332,  0.0,                  0.0               ],
-          [-0.08333333333333333,   0.0,                   0.08333333333333333,  0.0               ],
-          [-0.3333333333333333,    0.0,                   0.0,                  0.3333333333333333]
+          [
+            0.4375,
+            -0.020833333333333332,
+            -0.08333333333333333,
+            -0.3333333333333333
+          ],
+          [
+            -0.020833333333333332,
+            0.020833333333333332,
+            0.0,
+            0.0
+          ],
+          [
+            -0.08333333333333333,
+            0.0,
+            0.08333333333333333,
+            0.0
+          ],
+          [
+            -0.3333333333333333,
+            0.0,
+            0.0,
+            0.3333333333333333
+          ]
         ]
       ]
     },
     "m_local": {
-      "shape": [1, 4, 4],
+      "shape": [
+        1,
+        4,
+        4
+      ],
       "dtype": "f64",
       "description": "Local consistent mass M_{ij}.",
-      "tolerance_abs": 1.0e-6,
+      "tolerance_abs": 1e-06,
       "data": [
         [
-          [0.0020833333333333333, 0.0010416666666666667, 0.0010416666666666667, 0.0010416666666666667],
-          [0.0010416666666666667, 0.0020833333333333333, 0.0010416666666666667, 0.0010416666666666667],
-          [0.0010416666666666667, 0.0010416666666666667, 0.0020833333333333333, 0.0010416666666666667],
-          [0.0010416666666666667, 0.0010416666666666667, 0.0010416666666666667, 0.0020833333333333333]
+          [
+            0.0020833333333333333,
+            0.0010416666666666667,
+            0.0010416666666666667,
+            0.0010416666666666667
+          ],
+          [
+            0.0010416666666666667,
+            0.0020833333333333333,
+            0.0010416666666666667,
+            0.0010416666666666667
+          ],
+          [
+            0.0010416666666666667,
+            0.0010416666666666667,
+            0.0020833333333333333,
+            0.0010416666666666667
+          ],
+          [
+            0.0010416666666666667,
+            0.0010416666666666667,
+            0.0010416666666666667,
+            0.0020833333333333333
+          ]
         ]
       ]
     },
     "signed_volume": {
-      "shape": [1],
+      "shape": [
+        1
+      ],
       "dtype": "f64",
-      "description": "Signed element volume V = det(J)/6 = (1 * 0.5 * 0.25) / 6 = 1/48.",
-      "tolerance_abs": 1.0e-6,
-      "data": [0.020833333333333332]
+      "description": "Signed element volume V = det(J)/6.",
+      "tolerance_abs": 1e-06,
+      "data": [
+        0.020833333333333332
+      ]
     }
   },
   "provenance": {
     "source": "reference/numpy/p1_local_matrices.py via reference/numpy/gen_p1_local_per_case.py",
     "verified_against": "crates/geode-validation/tests/p1_local_numpy_reference.rs",
-    "issue": "#90 / #101"
+    "issue": "#90 / #101 (consolidation onto geode-validation harness)"
   }
 }

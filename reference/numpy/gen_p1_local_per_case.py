@@ -36,7 +36,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -151,26 +150,12 @@ CASES = [
 ]
 
 
-def _git_commit() -> str:
-    """Return current git HEAD short SHA, or 'unknown'."""
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
-
-
 def _nested(a: np.ndarray) -> list:
     return a.tolist()
 
 
 def main():
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
-    sha = _git_commit()
 
     summary = []
     for slug, builder, description, tols in CASES:
@@ -215,7 +200,7 @@ def main():
                 },
             },
             "provenance": {
-                "source": f"reference/numpy/p1_local_matrices.py via reference/numpy/gen_p1_local_per_case.py @ {sha}",
+                "source": "reference/numpy/p1_local_matrices.py via reference/numpy/gen_p1_local_per_case.py",
                 "verified_against": "crates/geode-validation/tests/p1_local_numpy_reference.rs",
                 "issue": "#90 / #101 (consolidation onto geode-validation harness)",
             },
