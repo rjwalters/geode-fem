@@ -1,0 +1,56 @@
+fixture:        spiral_mom/baseline.json
+generated:      2026-06-12
+generator:      reference/mom/geode_spiral_baseline (cargo run --release)
+mom repo:       ~/GitHub/sphere/eda/mom (sibling checkout; https://github.com/spheresemi/mom)
+mom commit:     ddc02134ce06f7e6ad3583083cce992a5bb2a64c
+solver:         multifilament PEEC (3 lateral filaments/segment),
+                stratified substrate Green's function, direct dense solve
+                (mom_backend_cpu::extract_mna_impedance_multifilament_stratified)
+
+geometry (matches tests/fixtures/spiral_3p5.provenance.txt except n_turns):
+  shape:        square
+  w:            6.0 um
+  s:            4.0 um
+  d_in:         60.0 um
+  crossover:    via underpass on m1 (the geode fixture topology)
+  n_turns:      3 and 4  <-- INTEGER-TURN BRACKETS around the geode
+                fixture's 3.5 turns: mom_geom::SpiralParams::n_turns is
+                u32, so the fractional-turn fixture geometry is not
+                expressible. The comparison test checks that the FEM
+                low-frequency L falls inside the [n=3, n=4] bracket and
+                uses the Mohan current-sheet ratio
+                L(3.5)/L(n) to project each bracket onto n = 3.5.
+                The mom feed/escape topology also differs in detail from
+                the gmsh fixture (mom routes the underpass out below the
+                footprint and has no 20 um feed stub / 4 um port gap).
+
+stack (matches reference/gmsh/spiral_3p5_generic.yaml):
+  substrate:    Si, eps_r 11.9, tan_delta 0.005, 50 um thick,
+                PEC ground plane at the substrate bottom (-50 um) --
+                mirrors the geode fixture's PEC outer wall
+  dielectric:   SiO2, eps_r 4.0, tan_delta 0.001, 10 um (z 0..10 um)
+  m1:           z 1..3 um (t = 2 um), Cu
+  m2 (spiral):  z 5..8 um (t = 3 um), Cu
+  conductor:    copper, sigma = 5.8e7 S/m (resistivity 1.724e-8 ohm-m),
+                no surface-roughness correction
+
+frequencies:    0.1, 0.25, 0.5, 1, 2, 4, 6, 8, 10, 15, 20, 30, 40 GHz
+                (the geode benchmark sweep, examples/spiral_inductor.rs)
+
+headline values (low-frequency L at 0.1 GHz):
+  n = 3:        L = 1.2778 nH   (Mohan current-sheet n=3: 1.229 nH, +3.9%)
+  n = 4:        L = 2.2055 nH   (Mohan current-sheet n=4: 2.199 nH, +0.3%)
+  n = 3 Q peak: ~7.4 near 30 GHz; n = 4 Q peak: ~7.2 near 20 GHz
+  n = 4 SRF:    beyond 40 GHz (Im Z stays inductive over the sweep for
+                both brackets; the n = 4 upturn at 40 GHz approaches it)
+
+regeneration:   cd reference/mom/geode_spiral_baseline && cargo run --release
+                (requires the sphere monorepo checked out as a sibling of
+                this repository; the committed Cargo.toml uses the
+                relative path ../../../../sphere/eda/mom)
+
+FastHenry:      NOT generated -- fasthenry is not installed on the
+                generation machine (toolchain gap, same convention as the
+                Julia sidecars). A FastHenry baseline can be added next to
+                this file with its own provenance when an install is
+                available.

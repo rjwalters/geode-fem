@@ -1,0 +1,28 @@
+# Offline mom-PEEC baseline generator for the geode-fem spiral-inductor
+# benchmark (issue #211). NOT part of the geode workspace and NOT built
+# in CI — same offline-sidecar convention as `reference/gmsh/` (gmsh)
+# and `reference/numpy/` (NumPy).
+#
+# Requires the `mom` workspace (https://github.com/spheresemi/mom,
+# checked out inside the `sphere` monorepo) as a sibling of this
+# repository: `<parent>/sphere/eda/mom`. Run from this directory:
+#
+#   cargo run --release
+#
+# Writes `reference/fixtures/spiral_mom/baseline.json`. Record the mom
+# commit in `reference/fixtures/spiral_mom/baseline.provenance.txt`.
+
+[package]
+name = "geode-spiral-mom-baseline"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+mom-core = { path = "../../../../sphere/eda/mom/crates/mom-core" }
+mom-geom = { path = "../../../../sphere/eda/mom/crates/mom-geom" }
+mom-physics = { path = "../../../../sphere/eda/mom/crates/mom-physics" }
+mom-backend-cpu = { path = "../../../../sphere/eda/mom/crates/mom-backend-cpu" }
+serde_json = "1"
