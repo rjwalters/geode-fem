@@ -180,13 +180,42 @@ pub fn assemble_surface_mass(
 ) -> Mat<f64> {
     let n_edges = edges.len();
     let mut s = Mat::<f64>::zeros(n_edges, n_edges);
+    for (r, c, v) in assemble_surface_mass_triplets(mesh, triangles, edges) {
+        s[(r, c)] += v;
+    }
+    s
+}
 
+/// Sparse-triplet core of [`assemble_surface_mass`] (issue #218): the
+/// same face-block-wise kernel, returned as signed `(row, col, value)`
+/// triplets over global edge indices instead of a dense
+/// `[n_edges, n_edges]` matrix (which costs O(n_edges²) memory —
+/// ~23.7 GB at the 54 k-edge spiral benchmark fixture).
+///
+/// Duplicate `(row, col)` entries (edges shared by adjacent faces) are
+/// **not** summed — the caller accumulates them (e.g. faer's
+/// `try_new_from_triplets`, or a pattern-slot scatter as in
+/// [`crate::driven::DrivenOperator`]). Triplets appear in face order,
+/// so summing them reproduces the dense accumulation order exactly.
+/// Same convention as
+/// [`crate::lumped_port::assemble_port_surface_mass`].
+///
+/// # Panics
+///
+/// Panics if a triangle edge does not appear in `edges` — i.e. if the
+/// triangles are not faces of the tet mesh whose edge table was passed.
+pub fn assemble_surface_mass_triplets(
+    mesh: &TetMesh,
+    triangles: &[[u32; 3]],
+    edges: &[[u32; 2]],
+) -> Vec<(usize, usize, f64)> {
     // Build edge lookup: (lo, hi) -> global edge index.
-    let mut edge_lookup: HashMap<(u32, u32), u32> = HashMap::with_capacity(n_edges);
+    let mut edge_lookup: HashMap<(u32, u32), u32> = HashMap::with_capacity(edges.len());
     for (idx, e) in edges.iter().enumerate() {
         edge_lookup.insert((e[0], e[1]), idx as u32);
     }
 
+    let mut triplets = Vec::with_capacity(triangles.len() * 9);
     for tri in triangles.iter() {
         let v: [[f64; 3]; 3] = [
             mesh.nodes[tri[0] as usize],
@@ -200,13 +229,12 @@ pub fn assemble_surface_mass(
             for j in 0..3 {
                 let (gj, sj) = edge_info[j];
                 let val = face_s[i][j] * (si as f64) * (sj as f64);
-                let cur = s[(gi as usize, gj as usize)];
-                s[(gi as usize, gj as usize)] = cur + val;
+                triplets.push((gi as usize, gj as usize, val));
             }
         }
     }
 
-    s
+    triplets
 }
 
 /// Local edge order on a triangle face. Mirrors `TET_LOCAL_EDGES` for

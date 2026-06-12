@@ -108,12 +108,13 @@ use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, Triplet};
 
 use crate::complex_lanczos::{solve_with_lu, spmv};
-use crate::eigen::burn_matrix_to_faer;
 use crate::lumped_port::{assemble_port_flux, assemble_port_surface_mass, LumpedPort};
 use crate::nedelec_assembly::{
-    assemble_global_nedelec_with_anisotropic_epsilon, assemble_global_nedelec_with_complex_epsilon,
-    assemble_global_nedelec_with_full_tensors, assemble_nedelec_current_rhs,
-    assemble_nedelec_current_rhs_quad4, burn_complex_mass_to_faer, tet_centroids,
+    assemble_global_nedelec_with_anisotropic_epsilon_sparse,
+    assemble_global_nedelec_with_complex_epsilon_sparse,
+    assemble_global_nedelec_with_full_tensors_sparse, assemble_nedelec_current_rhs,
+    assemble_nedelec_current_rhs_quad4, assemble_nedelec_sigma_damping_sparse, tet_centroids,
+    NedelecScatterMap,
 };
 use crate::TetMesh;
 
@@ -521,7 +522,7 @@ pub fn driven_solve_with_ports<B: Backend>(
 /// ```
 ///
 /// with `S_Γ` the real-symmetric tangential surface mass
-/// ([`crate::silvermuller::assemble_surface_mass`]) over the surface's
+/// ([`crate::silvermuller::assemble_surface_mass_triplets`]) over the surface's
 /// triangles. The complex weight is a *scalar* per surface, so the
 /// complex-symmetry invariant `A(ω)ᵀ = A(ω)` is preserved.
 ///
@@ -854,22 +855,6 @@ impl DrivenOperator {
             }
         }
 
-        // --- Leontovich impedance surfaces (issue #204) -------------------------
-        // The real surface mass S_Γ is ω-independent and cached; its weak
-        // coefficient iω/Z_s(ω) is ω-dependent (∝ √ω·(1+i) for the
-        // good-conductor model), so it is re-evaluated inside `solve_at` at
-        // every frequency. Every (i, j) pair S_Γ couples lies within the
-        // 6×6 edge block of the tet owning the boundary face, so the
-        // surface entries are a subset of the recorded volume sparsity
-        // pattern and the value-caching loop below picks them all up.
-        let surface_masses: Vec<(faer::Mat<f64>, SurfaceImpedanceModel)> = surfaces
-            .iter()
-            .map(|bc| {
-                let s = crate::silvermuller::assemble_surface_mass(mesh, bc.triangles, &edges);
-                (s, bc.model)
-            })
-            .collect();
-
         // --- Edge tables ------------------------------------------------------
         let tet_edges = mesh.tet_edges();
         let tet_idx: Vec<[u32; 6]> = tet_edges
@@ -881,62 +866,97 @@ impl DrivenOperator {
             .map(|row| std::array::from_fn(|i| row[i].1))
             .collect();
 
+        // --- Pattern-slot scatter map (issue #218) ------------------------------
+        // All volume assembly below scatters into flat [nnz] value tensors
+        // aligned with this sorted sparsity pattern: O(nnz) peak memory
+        // instead of O(n_edges²), and no i32 linear-index overflow for
+        // n_edges > 46_340 (the 54k-edge spiral benchmark fixture).
+        let scatter = NedelecScatterMap::new(&tet_idx);
+        let nnz = scatter.nnz();
+
+        // --- Leontovich impedance surfaces (issue #204) -------------------------
+        // The real surface mass S_Γ is ω-independent and cached; its weak
+        // coefficient iω/Z_s(ω) is ω-dependent (∝ √ω·(1+i) for the
+        // good-conductor model), so it is re-evaluated inside `solve_at` at
+        // every frequency. Every (i, j) pair S_Γ couples lies within the
+        // 6×6 edge block of the tet owning the boundary face, so the
+        // surface entries are a subset of the volume sparsity pattern —
+        // accumulate the face-block triplets straight into [nnz] vectors
+        // aligned with the pattern (no dense [n_edges²] matrix, issue #218).
+        let surface_masses: Vec<(Vec<f64>, SurfaceImpedanceModel)> = surfaces
+            .iter()
+            .map(|bc| {
+                let mut vals = vec![0.0_f64; nnz];
+                for (r, c, v) in
+                    crate::silvermuller::assemble_surface_mass_triplets(mesh, bc.triangles, &edges)
+                {
+                    let slot = scatter
+                        .slot_of(r as u32, c as u32)
+                        .expect("surface-mass entry must lie within the volume sparsity pattern");
+                    vals[slot] += v;
+                }
+                (vals, bc.model)
+            })
+            .collect();
+
         // --- Assemble K, M(ε) on the Burn backend ------------------------------
         // The stiffness imaginary part is `None` for the ε-only material
         // models (K is real there); the matched UPML stretches μ too, so
-        // its `K(Λ⁻¹)` carries an imaginary part.
+        // its `K(Λ⁻¹)` carries an imaginary part. Everything lands in flat
+        // [nnz] pattern-aligned value tensors.
         let (nodes_t, tets_t) = crate::assembly::upload_mesh::<B>(mesh, device);
-        let (k_re_t, k_im_t, m_re_t, m_im_t, sparsity) = match materials {
+        let (k_re_t, k_im_t, m_re_t, m_im_t) = match materials {
             DrivenMaterials::Scalar(eps) => {
-                let sys = assemble_global_nedelec_with_complex_epsilon(
+                let sys = assemble_global_nedelec_with_complex_epsilon_sparse(
                     nodes_t.clone(),
                     tets_t.clone(),
-                    &tet_idx,
                     &tet_sign,
-                    n_edges,
+                    &scatter,
                     eps,
                 );
-                (sys.k, None, sys.m_re, sys.m_im, sys.sparsity)
+                (sys.k_vals, None, sys.m_re_vals, sys.m_im_vals)
             }
             DrivenMaterials::DiagTensor(eps) => {
-                let sys = assemble_global_nedelec_with_anisotropic_epsilon(
+                let sys = assemble_global_nedelec_with_anisotropic_epsilon_sparse(
                     nodes_t.clone(),
                     tets_t.clone(),
-                    &tet_idx,
                     &tet_sign,
-                    n_edges,
+                    &scatter,
                     eps,
                 );
-                (sys.k, None, sys.m_re, sys.m_im, sys.sparsity)
+                (sys.k_vals, None, sys.m_re_vals, sys.m_im_vals)
             }
             DrivenMaterials::MatchedUpml {
                 epsilon_tensor,
                 nu_tensor,
             } => {
-                let sys = assemble_global_nedelec_with_full_tensors(
+                let sys = assemble_global_nedelec_with_full_tensors_sparse(
                     nodes_t.clone(),
                     tets_t.clone(),
-                    &tet_idx,
                     &tet_sign,
-                    n_edges,
+                    &scatter,
                     epsilon_tensor,
                     nu_tensor,
                 );
-                (sys.k_re, Some(sys.k_im), sys.m_re, sys.m_im, sys.sparsity)
+                (
+                    sys.k_re_vals,
+                    Some(sys.k_im_vals),
+                    sys.m_re_vals,
+                    sys.m_im_vals,
+                )
             }
         };
 
         // --- Assemble the conductivity damping matrix C(σ), if any -------------
         // C shares the (K, M) sparsity pattern — it is a σ-weighted mass
-        // assembled over the same tet→edge scatter indices — so the triplet
-        // loop below can read it through the recorded pattern directly.
+        // assembled over the same tet→edge scatter slots — so its values
+        // align with the pattern directly.
         let c_burn = sigma_tet.map(|sigma| {
-            crate::nedelec_assembly::assemble_nedelec_sigma_damping::<B>(
+            assemble_nedelec_sigma_damping_sparse::<B>(
                 nodes_t.clone(),
                 tets_t.clone(),
-                &tet_idx,
                 &tet_sign,
-                n_edges,
+                &scatter,
                 sigma,
             )
         });
@@ -999,11 +1019,15 @@ impl DrivenOperator {
             .map(|port| assemble_port_flux(mesh, port.faces, port.e_hat, &edges))
             .collect();
 
-        // --- Host transfer + PEC reduction -------------------------------------
-        let k_full = burn_matrix_to_faer(k_re_t);
-        let k_im_full = k_im_t.map(burn_matrix_to_faer);
-        let m_full = burn_complex_mass_to_faer(m_re_t, m_im_t);
-        let c_full = c_burn.map(burn_matrix_to_faer);
+        // --- Host transfer ------------------------------------------------------
+        // [nnz] pattern-aligned value vectors — no dense [n_edges²] faer
+        // intermediates (issue #218). `iter::<f64>` upcasts losslessly from
+        // whatever float dtype the backend stores.
+        let k_re_host: Vec<f64> = k_re_t.into_data().iter::<f64>().collect();
+        let k_im_host: Option<Vec<f64>> = k_im_t.map(|t| t.into_data().iter::<f64>().collect());
+        let m_re_host: Vec<f64> = m_re_t.into_data().iter::<f64>().collect();
+        let m_im_host: Vec<f64> = m_im_t.into_data().iter::<f64>().collect();
+        let c_host: Option<Vec<f64>> = c_burn.map(|t| t.into_data().iter::<f64>().collect());
 
         // Remap full edge indices → contiguous interior indices.
         let mut remap = vec![-1_i64; n_edges];
@@ -1022,17 +1046,18 @@ impl DrivenOperator {
         // One aligned value per kept (interior, interior) entry, in pattern
         // order, so `solve_at` re-forms A(ω) = K + iωC − ω²M + Σ coeff·S by
         // pure linear combination — no re-assembly.
-        let n_entries = sparsity.rows.len();
+        let pattern = scatter.pattern();
+        let n_entries = pattern.nnz();
         let mut rows = Vec::with_capacity(n_entries);
         let mut cols = Vec::with_capacity(n_entries);
         let mut k_vals = Vec::with_capacity(n_entries);
         let mut m_vals = Vec::with_capacity(n_entries);
-        let mut c_vals = c_full.as_ref().map(|_| Vec::with_capacity(n_entries));
+        let mut c_vals = c_host.as_ref().map(|_| Vec::with_capacity(n_entries));
         let mut surface_vals: Vec<Vec<f64>> = surface_masses
             .iter()
             .map(|_| Vec::with_capacity(n_entries))
             .collect();
-        for (&r_u32, &c_u32) in sparsity.rows.iter().zip(sparsity.cols.iter()) {
+        for (idx, (&r_u32, &c_u32)) in pattern.rows.iter().zip(pattern.cols.iter()).enumerate() {
             let (r, c) = (r_u32 as usize, c_u32 as usize);
             let (rr, cc) = (remap[r], remap[c]);
             if rr < 0 || cc < 0 {
@@ -1040,14 +1065,14 @@ impl DrivenOperator {
             }
             rows.push(rr as usize);
             cols.push(cc as usize);
-            let k_im_val = k_im_full.as_ref().map_or(0.0, |m| m[(r, c)]);
-            k_vals.push(c64::new(k_full[(r, c)], k_im_val));
-            m_vals.push(m_full[(r, c)]);
-            if let (Some(vals), Some(cm)) = (c_vals.as_mut(), c_full.as_ref()) {
-                vals.push(cm[(r, c)]);
+            let k_im_val = k_im_host.as_ref().map_or(0.0, |v| v[idx]);
+            k_vals.push(c64::new(k_re_host[idx], k_im_val));
+            m_vals.push(c64::new(m_re_host[idx], m_im_host[idx]));
+            if let (Some(vals), Some(ch)) = (c_vals.as_mut(), c_host.as_ref()) {
+                vals.push(ch[idx]);
             }
             for (vals, (s, _)) in surface_vals.iter_mut().zip(surface_masses.iter()) {
-                vals.push(s[(r, c)]);
+                vals.push(s[idx]);
             }
         }
 

@@ -5,10 +5,10 @@
 //! `reference/gmsh/spiral_inductor.geo`:
 //!
 //! - **benchmark** (`spiral_3p5.msh`, ~54 k edges) — the Phase 3
-//!   benchmark mesh for issue #211; too large for the current dense
-//!   Burn scatter assembly, so only mesh-level checks run on it here;
+//!   benchmark mesh for issue #211, assemblable since the sparse
+//!   `[nnz]` Burn scatter landed (issue #218);
 //! - **smoke** (`spiral_3p5_smoke.msh`, ~15 k edges) — same topology,
-//!   coarser, used for the end-to-end solve.
+//!   coarser, used for the fast end-to-end solve.
 //!
 //! Coverage:
 //!
@@ -32,6 +32,12 @@
 //!    outer walls + PEC conductor cavity via the edge-exact mask)
 //!    completes with a healthy direct-solve residual and finite,
 //!    non-zero port V / I / Z_in.
+//! 5. **Benchmark-fixture solve** (issue #218) — [`DrivenOperator`]
+//!    assembly + one `solve_at` on the full 54 k-edge benchmark mesh
+//!    (above the 46 340-edge i32 dense-scatter overflow threshold),
+//!    port-driven with the conductor as a Leontovich (good-conductor)
+//!    impedance surface — exercising both the `[nnz]` volume scatter
+//!    and the triplet-based surface mass at scale.
 
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
@@ -42,7 +48,8 @@ use geode_core::mesh::spiral::{
 use geode_core::{
     driven_solve_with_ports, pec_interior_mask_from_triangles, port_current, port_input_impedance,
     port_voltage, read_spiral_fixture, read_spiral_smoke_fixture, CurrentSource, DefaultBackend,
-    DrivenBcs, DrivenMaterials, SpiralFixture, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    DrivenBcs, DrivenMaterials, DrivenOperator, SpiralFixture, SurfaceImpedanceBc,
+    SurfaceImpedanceModel,
 };
 use std::collections::BTreeSet;
 
@@ -302,6 +309,97 @@ fn driven_solve_with_ports_end_to_end_smoke() {
     // collapsed to 0, not blown up) — a loose physical sanity band, not
     // a benchmark assertion (that is issue #211's job).
     let z_ohms = z * 376.730_313_668;
+    assert!(
+        z_ohms.norm() > 1e-3 && z_ohms.norm() < 1e6,
+        "Z_in = {z_ohms} Ω outside loose sanity band"
+    );
+}
+
+/// Benchmark-fixture solve (issue #218 acceptance): [`DrivenOperator`]
+/// assembly + one `solve_at` on the full 54,428-edge spiral mesh.
+///
+/// This mesh sits **above** the 46,340-edge threshold where the old
+/// dense `[n_edges²]` Burn scatter overflowed its i32 linear index
+/// (debug-build panic) and would have needed ~12 GB per f32 tensor
+/// (~24 GB per dense f64 faer intermediate) — the sparse `[nnz]`
+/// pattern-slot assembly handles it in O(nnz) ≈ 1 M values per matrix.
+///
+/// Setup mirrors the smoke solve, with one upgrade: the conductor
+/// surface is a Leontovich good-conductor impedance BC instead of a
+/// PEC cavity, so the triplet-based surface mass (the second dense
+/// `[n_edges²]` object eliminated by #218) is exercised at scale too.
+/// PEC outer walls, 50 Ω port driven with V_inc = 1 at 10 GHz, no
+/// volume current.
+#[test]
+fn driven_operator_assembles_and_solves_benchmark_fixture() {
+    let f = read_spiral_fixture().expect("benchmark fixture must load");
+    let edges = f.mesh.edges();
+    assert!(
+        edges.len() > 46_340,
+        "benchmark fixture has {} edges — must exceed the i32 dense-scatter \
+         overflow threshold for this regression to bite",
+        edges.len()
+    );
+
+    let eps = f.epsilon_r_default();
+
+    // PEC outer walls only — the conductor surface gets the impedance BC.
+    let outer = f.outer_boundary_triangles();
+    let mask = pec_interior_mask_from_triangles(&edges, &[outer.as_slice()]);
+    assert!(mask.iter().any(|&keep| !keep) && mask.iter().any(|&keep| keep));
+
+    let cond = f.conductor_triangles();
+    let surface = SurfaceImpedanceBc {
+        triangles: &cond,
+        model: SurfaceImpedanceModel::GoodConductor {
+            sigma: CONDUCTOR_SIGMA_NATURAL,
+        },
+    };
+
+    let port = f.port();
+    let r_50 = 50.0 / 376.730_313_668;
+    let lp = port.lumped_port(r_50, c64::new(1.0, 0.0));
+
+    let source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; f.mesh.n_tets()],
+    };
+
+    let op = DrivenOperator::assemble::<B>(
+        &f.mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        std::slice::from_ref(&lp),
+        std::slice::from_ref(&surface),
+        &source,
+        &device(),
+    )
+    .expect("sparse assembly on the 54k-edge benchmark fixture must succeed");
+
+    let sol = op
+        .solve_at(OMEGA_10GHZ)
+        .expect("port-driven solve on the benchmark fixture must succeed");
+
+    assert!(
+        sol.residual_rel < 1e-8,
+        "direct-solve residual {} not at round-off floor",
+        sol.residual_rel
+    );
+    assert!(sol
+        .e_edges
+        .iter()
+        .all(|e| e.re.is_finite() && e.im.is_finite()));
+
+    let v = op.port_voltage(0, &sol.e_edges);
+    let i = op.port_current(0, v);
+    assert!(v.re.is_finite() && v.im.is_finite(), "V = {v} not finite");
+    assert!(i.re.is_finite() && i.im.is_finite(), "I = {i} not finite");
+    assert!(v.norm() > 0.0, "port voltage must be non-zero when driven");
+    assert!(i.norm() > 0.0, "port current must be non-zero when driven");
+
+    let z_ohms = (v / i) * 376.730_313_668;
     assert!(
         z_ohms.norm() > 1e-3 && z_ohms.norm() < 1e6,
         "Z_in = {z_ohms} Ω outside loose sanity band"

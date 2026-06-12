@@ -173,7 +173,13 @@ pub fn assemble_global_nedelec<B: Backend>(
     NedelecGlobalSystem { k, m, sparsity }
 }
 
-fn sparsity_pattern_from_tet_edges(tet_edge_idx: &[[u32; 6]]) -> SparsityPattern {
+/// Build the Nédélec edge-DOF [`SparsityPattern`] from the host-side
+/// per-tet global edge indices: every `(tet_edge_idx[e][i],
+/// tet_edge_idx[e][j])` pair contributes one entry, duplicates
+/// collapsed. Entries are **sorted lexicographically** by `(row, col)`
+/// (BTreeSet iteration order) — the invariant the slot binary search of
+/// [`NedelecScatterMap`] relies on.
+pub fn sparsity_pattern_from_tet_edges(tet_edge_idx: &[[u32; 6]]) -> SparsityPattern {
     let mut set: BTreeSet<(u32, u32)> = BTreeSet::new();
     for row in tet_edge_idx {
         for i in 0..6 {
@@ -189,6 +195,182 @@ fn sparsity_pattern_from_tet_edges(tet_edge_idx: &[[u32; 6]]) -> SparsityPattern
         cols.push(c);
     }
     SparsityPattern { rows, cols }
+}
+
+/// Binary search a `(row, col)` pair in the lexicographically sorted
+/// pattern produced by [`sparsity_pattern_from_tet_edges`]. Returns the
+/// slot index, or `None` if the entry is not in the pattern.
+fn pattern_slot(pattern: &SparsityPattern, row: u32, col: u32) -> Option<usize> {
+    let key = (row, col);
+    let mut lo = 0usize;
+    let mut hi = pattern.rows.len();
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if (pattern.rows[mid], pattern.cols[mid]) < key {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if lo < pattern.rows.len() && (pattern.rows[lo], pattern.cols[lo]) == key {
+        Some(lo)
+    } else {
+        None
+    }
+}
+
+/// Host-side scatter map from per-element local 6×6 entries to slots of
+/// the sorted global [`SparsityPattern`] (issue #218).
+///
+/// The dense assemblers in this module scatter into a flat
+/// `[n_edges * n_edges]` tensor with `row * n_edges + col` linear
+/// indices, which (a) overflows Burn's i32 Int index for
+/// `n_edges > 46_340` and (b) costs O(n_edges²) memory. This map
+/// precomputes, for every `(element, i, j)` local entry, the index of
+/// its `(row, col)` pair in the sorted pattern, so the same
+/// autodiff-preserving 1-D `scatter(0, …, Add)` can target a flat
+/// `[nnz]` tensor instead. For a tet mesh `nnz ≈ 15–20 × n_edges`
+/// (~1 M entries at the 54 k-edge spiral benchmark fixture, vs ~3 G
+/// dense), and i32 slot indices stay safe to ~2.1 B non-zeros —
+/// comfortably past the 100 k-edge direct-sparse-LU budget.
+///
+/// Construction is O(36 · n_elem · log nnz) host work. The indices are
+/// pure integers (no autodiff flows through them); gradients flow
+/// through the scattered *values* exactly as on the dense path.
+#[derive(Debug, Clone)]
+pub struct NedelecScatterMap {
+    pattern: SparsityPattern,
+    /// Pattern-slot index of every `(e, i, j)` local entry, `[n_elem * 36]`.
+    slot_idx: Vec<i32>,
+}
+
+impl NedelecScatterMap {
+    /// Build the map from the per-tet global edge indices
+    /// (`tet_edge_idx` from [`TetMesh::tet_edges`]).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pattern's `nnz` exceeds `i32::MAX` (the Burn Int
+    /// tensor index limit — ~2.1 B non-zeros).
+    pub fn new(tet_edge_idx: &[[u32; 6]]) -> Self {
+        let pattern = sparsity_pattern_from_tet_edges(tet_edge_idx);
+        assert!(
+            pattern.nnz() <= i32::MAX as usize,
+            "sparsity pattern nnz {} exceeds the i32 Burn Int index range",
+            pattern.nnz()
+        );
+        let mut slot_idx = Vec::with_capacity(tet_edge_idx.len() * 36);
+        for row in tet_edge_idx {
+            for i in 0..6 {
+                for j in 0..6 {
+                    let slot = pattern_slot(&pattern, row[i], row[j])
+                        .expect("every (e, i, j) entry is in the pattern by construction");
+                    slot_idx.push(slot as i32);
+                }
+            }
+        }
+        Self { pattern, slot_idx }
+    }
+
+    /// The sorted sparsity pattern the slot indices point into.
+    pub fn pattern(&self) -> &SparsityPattern {
+        &self.pattern
+    }
+
+    /// Number of unique non-zero entries — the length of every `[nnz]`
+    /// value tensor assembled through this map.
+    pub fn nnz(&self) -> usize {
+        self.pattern.nnz()
+    }
+
+    /// Number of elements the map was built from.
+    pub fn n_elem(&self) -> usize {
+        self.slot_idx.len() / 36
+    }
+
+    /// Pattern slot of a global `(row, col)` entry, if present
+    /// (O(log nnz) binary search). Lets host-side surface assemblies
+    /// (port / Leontovich masses, whose entries are subsets of the
+    /// volume pattern) align their values with the `[nnz]` layout.
+    pub fn slot_of(&self, row: u32, col: u32) -> Option<usize> {
+        pattern_slot(&self.pattern, row, col)
+    }
+
+    /// Upload the per-`(e, i, j)` slot indices as a Burn Int tensor
+    /// `[n_elem * 36]` for the 1-D scatter.
+    fn slot_tensor<B: Backend>(&self, device: &B::Device) -> Tensor<B, 1, Int> {
+        Tensor::<B, 1, Int>::from_data(
+            TensorData::new(self.slot_idx.clone(), [self.slot_idx.len()]),
+            device,
+        )
+    }
+}
+
+/// Per-element orientation-sign outer product `[n_elem, 6, 6]` —
+/// `sign[e, i] * sign[e, j]` — shared by the sparse assemblers. Same
+/// arithmetic (f32 upload, broadcasted multiply) as the inline code of
+/// the dense assemblers, so the two paths agree bitwise.
+fn sign_outer_tensor<B: Backend>(tet_edge_sign: &[[i8; 6]], device: &B::Device) -> Tensor<B, 3> {
+    let n_elem = tet_edge_sign.len();
+    let sign_flat: Vec<f32> = tet_edge_sign
+        .iter()
+        .flat_map(|row| row.iter().map(|&s| s as f32))
+        .collect();
+    let sign_2d = Tensor::<B, 2>::from_data(TensorData::new(sign_flat, [n_elem, 6]), device);
+    let sign_row = sign_2d.clone().unsqueeze_dim::<3>(2); // [n_elem, 6, 1]
+    let sign_col = sign_2d.unsqueeze_dim::<3>(1); // [n_elem, 1, 6]
+    sign_row.mul(sign_col)
+}
+
+/// Scatter one signed `[n_elem, 6, 6]` local tensor into a flat `[nnz]`
+/// value tensor through the precomputed pattern-slot indices. Autodiff
+/// flows through the values via `IndexingUpdateOp::Add`, exactly as on
+/// the dense `[n_edges²]` path.
+fn scatter_to_pattern_vals<B: Backend>(
+    signed_local: Tensor<B, 3>,
+    slot_indices: &Tensor<B, 1, Int>,
+    nnz: usize,
+    device: &B::Device,
+) -> Tensor<B, 1> {
+    let [n_elem, _, _] = signed_local.dims();
+    Tensor::<B, 1>::zeros([nnz], device).scatter(
+        0,
+        slot_indices.clone(),
+        signed_local.reshape([n_elem * 36]),
+        IndexingUpdateOp::Add,
+    )
+}
+
+/// Sparse-values counterpart of [`NedelecComplexGlobalSystem`]
+/// (issue #218): the same assembly arithmetic, but each matrix is a
+/// flat `[nnz]` Burn value tensor aligned with the sorted
+/// [`SparsityPattern`] of the [`NedelecScatterMap`] it was assembled
+/// through, instead of a dense `[n_edges, n_edges]` matrix. Peak memory
+/// is O(nnz), and no i32 linear-index overflow occurs for
+/// `n_edges > 46_340`.
+#[derive(Debug, Clone)]
+pub struct NedelecSparseComplexSystem<B: Backend> {
+    /// Curl-curl stiffness values (real), `[nnz]` in pattern order.
+    pub k_vals: Tensor<B, 1>,
+    /// Real part of the ε-weighted mass values, `[nnz]`.
+    pub m_re_vals: Tensor<B, 1>,
+    /// Imaginary part of the ε-weighted mass values, `[nnz]`.
+    pub m_im_vals: Tensor<B, 1>,
+}
+
+/// Sparse-values counterpart of [`NedelecFullTensorGlobalSystem`]
+/// (matched UPML, issue #199) — see [`NedelecSparseComplexSystem`] for
+/// the layout convention.
+#[derive(Debug, Clone)]
+pub struct NedelecSparseFullTensorSystem<B: Backend> {
+    /// Real part of the ν-weighted curl-curl stiffness values, `[nnz]`.
+    pub k_re_vals: Tensor<B, 1>,
+    /// Imaginary part of the ν-weighted curl-curl stiffness values.
+    pub k_im_vals: Tensor<B, 1>,
+    /// Real part of the ε-weighted mass values, `[nnz]`.
+    pub m_re_vals: Tensor<B, 1>,
+    /// Imaginary part of the ε-weighted mass values, `[nnz]`.
+    pub m_im_vals: Tensor<B, 1>,
 }
 
 /// Build a boolean mask `[n_edges]` marking each global edge as either
@@ -846,6 +1028,116 @@ pub fn assemble_global_nedelec_with_complex_epsilon<B: Backend>(
     }
 }
 
+/// Sparse (`[nnz]` pattern-aligned) variant of
+/// [`assemble_global_nedelec_with_complex_epsilon`] (issue #218).
+///
+/// Same element-local kernels, same f32 weight upload, same orientation
+/// signs and the same autodiff-preserving 1-D `scatter(0, …, Add)` —
+/// only the scatter target changes from the dense flat `[n_edges²]`
+/// tensor to a flat `[nnz]` tensor indexed by the precomputed
+/// pattern-slot map. Per pattern entry, the summands accumulate in the
+/// same `(e, i, j)` order as on the dense path, so the values agree
+/// with the dense matrices read over the same pattern to bit precision
+/// on a deterministic backend. Unlike the dense complex path (two full
+/// passes through the scalar-ε assembler), the local matrices are
+/// computed **once** and the stiffness is scattered once.
+///
+/// `scatter` must be built from the same `tet_edge_idx` used for
+/// `tet_edge_sign` (see [`NedelecScatterMap::new`]).
+pub fn assemble_global_nedelec_with_complex_epsilon_sparse<B: Backend>(
+    nodes: Tensor<B, 2>,
+    tets: Tensor<B, 2, Int>,
+    tet_edge_sign: &[[i8; 6]],
+    scatter: &NedelecScatterMap,
+    epsilon_r_complex: &[faer::c64],
+) -> NedelecSparseComplexSystem<B> {
+    let device = nodes.device();
+    let [n_elem, _] = tets.dims();
+    assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
+    assert_eq!(
+        scatter.n_elem(),
+        n_elem,
+        "scatter map element count mismatch"
+    );
+    assert_eq!(
+        epsilon_r_complex.len(),
+        n_elem,
+        "complex epsilon_r length mismatch"
+    );
+
+    // 1. Element-local stiffness and mass — computed once (the dense
+    //    complex path runs the scalar assembler twice and discards a
+    //    duplicate K).
+    let coords = gather_tet_coords(nodes, tets);
+    let local = batched_nedelec_local_matrices(coords);
+
+    // 1b. Scale per-element mass by Re(ε) / Im(ε) via broadcasting —
+    //     same f32 upload as the dense scalar-ε path.
+    let eps_re_flat: Vec<f32> = epsilon_r_complex.iter().map(|c| c.re as f32).collect();
+    let eps_im_flat: Vec<f32> = epsilon_r_complex.iter().map(|c| c.im as f32).collect();
+    let eps_re_3d = Tensor::<B, 1>::from_data(TensorData::new(eps_re_flat, [n_elem]), &device)
+        .unsqueeze_dim::<2>(1)
+        .unsqueeze_dim::<3>(2); // [n_elem, 1, 1]
+    let eps_im_3d = Tensor::<B, 1>::from_data(TensorData::new(eps_im_flat, [n_elem]), &device)
+        .unsqueeze_dim::<2>(1)
+        .unsqueeze_dim::<3>(2);
+    let m_re_local = local.m_local.clone().mul(eps_re_3d);
+    let m_im_local = local.m_local.mul(eps_im_3d);
+
+    // 2. Orientation-sign outer product.
+    let sign_outer = sign_outer_tensor::<B>(tet_edge_sign, &device);
+    let k_signed = local.k_local.mul(sign_outer.clone());
+    let m_re_signed = m_re_local.mul(sign_outer.clone());
+    let m_im_signed = m_im_local.mul(sign_outer);
+
+    // 3. Scatter-add into flat [nnz] value tensors.
+    let slot_indices = scatter.slot_tensor::<B>(&device);
+    let nnz = scatter.nnz();
+    NedelecSparseComplexSystem {
+        k_vals: scatter_to_pattern_vals(k_signed, &slot_indices, nnz, &device),
+        m_re_vals: scatter_to_pattern_vals(m_re_signed, &slot_indices, nnz, &device),
+        m_im_vals: scatter_to_pattern_vals(m_im_signed, &slot_indices, nnz, &device),
+    }
+}
+
+/// Sparse (`[nnz]` pattern-aligned) variant of
+/// [`assemble_nedelec_sigma_damping`] (issue #218): the σ-weighted
+/// damping values `C_ij = ∫ N_i · N_j σ dV` in pattern order. Same
+/// kernels, f32 weight upload, signs and values-side autodiff as the
+/// dense path — only the scatter target changes.
+pub fn assemble_nedelec_sigma_damping_sparse<B: Backend>(
+    nodes: Tensor<B, 2>,
+    tets: Tensor<B, 2, Int>,
+    tet_edge_sign: &[[i8; 6]],
+    scatter: &NedelecScatterMap,
+    sigma_tet: &[f64],
+) -> Tensor<B, 1> {
+    let device = nodes.device();
+    let [n_elem, _] = tets.dims();
+    assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
+    assert_eq!(
+        scatter.n_elem(),
+        n_elem,
+        "scatter map element count mismatch"
+    );
+    assert_eq!(sigma_tet.len(), n_elem, "sigma_tet length mismatch");
+
+    let coords = gather_tet_coords(nodes, tets);
+    let local = batched_nedelec_local_matrices(coords);
+
+    let sigma_flat: Vec<f32> = sigma_tet.iter().map(|&s| s as f32).collect();
+    let sigma_3d = Tensor::<B, 1>::from_data(TensorData::new(sigma_flat, [n_elem]), &device)
+        .unsqueeze_dim::<2>(1)
+        .unsqueeze_dim::<3>(2); // [n_elem, 1, 1]
+    let c_local = local.m_local.mul(sigma_3d);
+
+    let sign_outer = sign_outer_tensor::<B>(tet_edge_sign, &device);
+    let c_signed = c_local.mul(sign_outer);
+
+    let slot_indices = scatter.slot_tensor::<B>(&device);
+    scatter_to_pattern_vals(c_signed, &slot_indices, scatter.nnz(), &device)
+}
+
 /// Build a per-tet **diagonal anisotropic** complex permittivity tensor
 /// in the global Cartesian basis for the bundled sphere fixture's PML
 /// shell (issue #54).
@@ -1088,6 +1380,69 @@ pub fn assemble_global_nedelec_with_anisotropic_epsilon<B: Backend>(
     }
 }
 
+/// Sparse (`[nnz]` pattern-aligned) variant of
+/// [`assemble_global_nedelec_with_anisotropic_epsilon`] (issue #218).
+/// Same kernels (Re-pass + Im-pass through
+/// [`batched_nedelec_local_mass_anisotropic_diag`]), signs and
+/// values-side autodiff as the dense path — only the scatter target
+/// changes. See [`assemble_global_nedelec_with_complex_epsilon_sparse`]
+/// for the layout convention.
+pub fn assemble_global_nedelec_with_anisotropic_epsilon_sparse<B: Backend>(
+    nodes: Tensor<B, 2>,
+    tets: Tensor<B, 2, Int>,
+    tet_edge_sign: &[[i8; 6]],
+    scatter: &NedelecScatterMap,
+    epsilon_tensor_diag: &[[faer::c64; 3]],
+) -> NedelecSparseComplexSystem<B> {
+    let device = nodes.device();
+    let [n_elem, _] = tets.dims();
+    assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
+    assert_eq!(
+        scatter.n_elem(),
+        n_elem,
+        "scatter map element count mismatch"
+    );
+    assert_eq!(
+        epsilon_tensor_diag.len(),
+        n_elem,
+        "epsilon_tensor_diag length mismatch"
+    );
+
+    // 1. Element-local stiffness (real) + anisotropic mass (Re/Im pass).
+    let coords = gather_tet_coords(nodes, tets);
+    let local = batched_nedelec_local_matrices(coords.clone());
+
+    let eps_re_flat: Vec<f32> = epsilon_tensor_diag
+        .iter()
+        .flat_map(|row| row.iter().map(|c| c.re as f32))
+        .collect();
+    let eps_im_flat: Vec<f32> = epsilon_tensor_diag
+        .iter()
+        .flat_map(|row| row.iter().map(|c| c.im as f32))
+        .collect();
+    let eps_re_tensor =
+        Tensor::<B, 2>::from_data(TensorData::new(eps_re_flat, [n_elem, 3]), &device);
+    let eps_im_tensor =
+        Tensor::<B, 2>::from_data(TensorData::new(eps_im_flat, [n_elem, 3]), &device);
+
+    let m_local_re = batched_nedelec_local_mass_anisotropic_diag(coords.clone(), eps_re_tensor);
+    let m_local_im = batched_nedelec_local_mass_anisotropic_diag(coords, eps_im_tensor);
+
+    // 2. Signs + 3. flat [nnz] scatters.
+    let sign_outer = sign_outer_tensor::<B>(tet_edge_sign, &device);
+    let k_signed = local.k_local.mul(sign_outer.clone());
+    let m_re_signed = m_local_re.mul(sign_outer.clone());
+    let m_im_signed = m_local_im.mul(sign_outer);
+
+    let slot_indices = scatter.slot_tensor::<B>(&device);
+    let nnz = scatter.nnz();
+    NedelecSparseComplexSystem {
+        k_vals: scatter_to_pattern_vals(k_signed, &slot_indices, nnz, &device),
+        m_re_vals: scatter_to_pattern_vals(m_re_signed, &slot_indices, nnz, &device),
+        m_im_vals: scatter_to_pattern_vals(m_im_signed, &slot_indices, nnz, &device),
+    }
+}
+
 /// Upload one real component (Re or Im) of a per-tet 3×3 complex
 /// tensor field as a `[n_elem, 3, 3]` Burn tensor at the backend's
 /// full float precision (`B::FloatElem` — f64 on the ndarray CPU
@@ -1222,6 +1577,63 @@ pub fn assemble_global_nedelec_with_full_tensors<B: Backend>(
         m_re,
         m_im,
         sparsity,
+    }
+}
+
+/// Sparse (`[nnz]` pattern-aligned) variant of
+/// [`assemble_global_nedelec_with_full_tensors`] (matched UPML,
+/// issues #199/#218). Same four weighted kernel invocations, signs and
+/// values-side autodiff as the dense path — only the scatter target
+/// changes. See [`assemble_global_nedelec_with_complex_epsilon_sparse`]
+/// for the layout convention.
+pub fn assemble_global_nedelec_with_full_tensors_sparse<B: Backend>(
+    nodes: Tensor<B, 2>,
+    tets: Tensor<B, 2, Int>,
+    tet_edge_sign: &[[i8; 6]],
+    scatter: &NedelecScatterMap,
+    epsilon_tensor: &[[[faer::c64; 3]; 3]],
+    nu_tensor: &[[[faer::c64; 3]; 3]],
+) -> NedelecSparseFullTensorSystem<B> {
+    let device = nodes.device();
+    let [n_elem, _] = tets.dims();
+    assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
+    assert_eq!(
+        scatter.n_elem(),
+        n_elem,
+        "scatter map element count mismatch"
+    );
+    assert_eq!(
+        epsilon_tensor.len(),
+        n_elem,
+        "epsilon_tensor length mismatch"
+    );
+    assert_eq!(nu_tensor.len(), n_elem, "nu_tensor length mismatch");
+
+    // 1. Element-local weighted matrices: Re/Im pass per weight.
+    let coords = gather_tet_coords(nodes, tets);
+    let eps_re = upload_tensor33_component::<B>(epsilon_tensor, |c| c.re, &device);
+    let eps_im = upload_tensor33_component::<B>(epsilon_tensor, |c| c.im, &device);
+    let nu_re = upload_tensor33_component::<B>(nu_tensor, |c| c.re, &device);
+    let nu_im = upload_tensor33_component::<B>(nu_tensor, |c| c.im, &device);
+
+    let k_local_re = batched_nedelec_local_stiffness_weighted(coords.clone(), nu_re);
+    let k_local_im = batched_nedelec_local_stiffness_weighted(coords.clone(), nu_im);
+    let m_local_re = batched_nedelec_local_mass_anisotropic_full(coords.clone(), eps_re);
+    let m_local_im = batched_nedelec_local_mass_anisotropic_full(coords, eps_im);
+
+    // 2. Signs + 3. flat [nnz] scatters (shared slot indices).
+    let sign_outer = sign_outer_tensor::<B>(tet_edge_sign, &device);
+    let slot_indices = scatter.slot_tensor::<B>(&device);
+    let nnz = scatter.nnz();
+    let scatter_one = |local: Tensor<B, 3>| -> Tensor<B, 1> {
+        scatter_to_pattern_vals(local.mul(sign_outer.clone()), &slot_indices, nnz, &device)
+    };
+
+    NedelecSparseFullTensorSystem {
+        k_re_vals: scatter_one(k_local_re),
+        k_im_vals: scatter_one(k_local_im),
+        m_re_vals: scatter_one(m_local_re),
+        m_im_vals: scatter_one(m_local_im),
     }
 }
 

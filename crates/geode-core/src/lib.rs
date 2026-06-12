@@ -87,15 +87,19 @@ pub use nedelec::{
 };
 pub use nedelec_assembly::{
     assemble_global_nedelec, assemble_global_nedelec_with_anisotropic_epsilon,
-    assemble_global_nedelec_with_complex_epsilon, assemble_global_nedelec_with_epsilon,
-    assemble_global_nedelec_with_full_tensors, assemble_nedelec_current_rhs,
-    assemble_nedelec_current_rhs_quad4, assemble_nedelec_sigma_damping,
+    assemble_global_nedelec_with_anisotropic_epsilon_sparse,
+    assemble_global_nedelec_with_complex_epsilon,
+    assemble_global_nedelec_with_complex_epsilon_sparse, assemble_global_nedelec_with_epsilon,
+    assemble_global_nedelec_with_full_tensors, assemble_global_nedelec_with_full_tensors_sparse,
+    assemble_nedelec_current_rhs, assemble_nedelec_current_rhs_quad4,
+    assemble_nedelec_sigma_damping, assemble_nedelec_sigma_damping_sparse,
     build_anisotropic_pml_tensor_diag, build_complex_epsilon_eff, build_complex_epsilon_r_pml,
     build_epsilon_r, burn_complex_mass_to_faer, cube_pec_interior_edges, pec_interior_edge_mask,
-    rank_via_svd, restrict_gradient_dense, sphere_n_interior_nodes, sphere_pec_interior_edges,
-    sphere_pec_node_interior_mask, spurious_dim_from_derham, tet_centroid_radii, tet_centroids,
-    NedelecComplexGlobalSystem, NedelecFullTensorGlobalSystem, NedelecGlobalSystem,
-    DERHAM_RANK_THRESHOLD_REL,
+    rank_via_svd, restrict_gradient_dense, sparsity_pattern_from_tet_edges,
+    sphere_n_interior_nodes, sphere_pec_interior_edges, sphere_pec_node_interior_mask,
+    spurious_dim_from_derham, tet_centroid_radii, tet_centroids, NedelecComplexGlobalSystem,
+    NedelecFullTensorGlobalSystem, NedelecGlobalSystem, NedelecScatterMap,
+    NedelecSparseComplexSystem, NedelecSparseFullTensorSystem, DERHAM_RANK_THRESHOLD_REL,
 };
 pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
 pub use scattering::{
@@ -103,7 +107,9 @@ pub use scattering::{
     plane_wave_polarization_current, q_from_power, scattered_flux_power,
     solve_scattered_field_matched_upml, upml_matched_tensors,
 };
-pub use silvermuller::{assemble_silver_muller_surface, assemble_surface_mass};
+pub use silvermuller::{
+    assemble_silver_muller_surface, assemble_surface_mass, assemble_surface_mass_triplets,
+};
 pub use silvermuller_self_consistent::{
     self_consistent_k, self_consistent_k_vector_tracked, SelfConsistentResult,
 };
