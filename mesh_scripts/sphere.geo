@@ -48,8 +48,14 @@ R_buffer    = 2.0;
 // 5-min test budget; the sparse Lanczos path is real-only and can't
 // host the complex PML pencil, so the conservative 1.5× refinement
 // is the bullseye.
-lc_sphere = 0.23;
-lc_buffer = 0.4;
+//
+// Both characteristic lengths can be overridden with -setnumber on
+// the gmsh command line; `reference/gmsh/generate_sphere_fixture.py`
+// does exactly that to produce the finer driven-benchmark fixture
+// `sphere_fine.msh` (issue #215). The defaults below reproduce the
+// committed coarse fixture `sphere.msh`.
+DefineConstant[ lc_sphere = 0.23 ];
+DefineConstant[ lc_buffer = 0.4  ];
 
 // Three concentric solid balls. BooleanFragments then carves them into
 // three nested shells with conformal interfaces.

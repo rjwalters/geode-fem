@@ -1,0 +1,17 @@
+fixture:        sphere_fine.msh
+sha256:         965905b373c3ca3fc0df27db7d1cb98d09a1b7c0cb9a76aa014998f63715489a
+generated:      2026-06-12T14:10:18+00:00
+gmsh version:   4.15.2-git
+script:         mesh_scripts/sphere.geo
+wrapper:        reference/gmsh/generate_sphere_fixture.py
+
+parameter values:
+  lc_sphere: 0.11
+  lc_buffer: 0.18
+
+quality report:
+  nodes: 5934
+  tets: 30740
+  unique edges: 38566 (budget 46000)
+  inverted tets: 0
+  min dihedral angle: 12.18 deg

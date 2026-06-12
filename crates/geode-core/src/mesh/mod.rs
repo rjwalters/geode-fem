@@ -17,9 +17,9 @@ pub mod spiral;
 #[allow(deprecated)]
 pub use sphere::PHYS_VACUUM_BUFFER;
 pub use sphere::{
-    read_sphere_fixture, read_sphere_fixture_from_bytes, SphereFixture, PHYS_OUTER_BOUNDARY,
-    PHYS_PML_INTERFACE, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR, PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP,
-    R_BUFFER, R_PML_INNER, R_SPHERE,
+    read_sphere_fine_fixture, read_sphere_fixture, read_sphere_fixture_from_bytes, SphereFixture,
+    PHYS_OUTER_BOUNDARY, PHYS_PML_INTERFACE, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR,
+    PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP, R_BUFFER, R_PML_INNER, R_SPHERE,
 };
 // The spiral fixture's PHYS_* tag constants stay namespaced under
 // `mesh::spiral` — several names (e.g. `PHYS_OUTER_BOUNDARY`) would
