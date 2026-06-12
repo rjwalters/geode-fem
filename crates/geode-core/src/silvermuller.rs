@@ -60,6 +60,10 @@
 //! triangle to f64 precision; see the `face_mass_matches_analytic`
 //! unit test below.
 //!
+//! The per-face geometry and quadrature kernel live in the shared
+//! [`crate::whitney_face`] module (issue #208), which this module and
+//! [`crate::lumped_port`] both delegate to.
+//!
 //! # Why the BAC-CAB rank reduction is valid here
 //!
 //! For first-order Nédélec on a **flat** triangle, the basis traces
@@ -82,11 +86,10 @@
 //! entry `(i, j)` is multiplied by `s_i · s_j` before adding to the
 //! global `S`.
 
-use std::collections::HashMap;
-
 use faer::Mat;
 
 use crate::mesh::TetMesh;
+use crate::whitney_face;
 
 /// Assemble the dense Silver-Müller surface matrix `S` on the outer
 /// boundary triangles.
@@ -198,7 +201,10 @@ pub fn assemble_surface_mass(
 /// [`crate::driven::DrivenOperator`]). Triplets appear in face order,
 /// so summing them reproduces the dense accumulation order exactly.
 /// Same convention as
-/// [`crate::lumped_port::assemble_port_surface_mass`].
+/// [`crate::lumped_port::assemble_port_surface_mass`], which is the
+/// **same kernel** — both delegate to the shared
+/// [`crate::whitney_face`] module (issue #208), so the two entry points
+/// produce bit-identical triplet streams.
 ///
 /// # Panics
 ///
@@ -209,166 +215,7 @@ pub fn assemble_surface_mass_triplets(
     triangles: &[[u32; 3]],
     edges: &[[u32; 2]],
 ) -> Vec<(usize, usize, f64)> {
-    // Build edge lookup: (lo, hi) -> global edge index.
-    let mut edge_lookup: HashMap<(u32, u32), u32> = HashMap::with_capacity(edges.len());
-    for (idx, e) in edges.iter().enumerate() {
-        edge_lookup.insert((e[0], e[1]), idx as u32);
-    }
-
-    let mut triplets = Vec::with_capacity(triangles.len() * 9);
-    for tri in triangles.iter() {
-        let v: [[f64; 3]; 3] = [
-            mesh.nodes[tri[0] as usize],
-            mesh.nodes[tri[1] as usize],
-            mesh.nodes[tri[2] as usize],
-        ];
-        let (face_s, edge_info) = face_silver_muller_block(tri, &v, &edge_lookup);
-
-        for i in 0..3 {
-            let (gi, si) = edge_info[i];
-            for j in 0..3 {
-                let (gj, sj) = edge_info[j];
-                let val = face_s[i][j] * (si as f64) * (sj as f64);
-                triplets.push((gi as usize, gj as usize, val));
-            }
-        }
-    }
-
-    triplets
-}
-
-/// Local edge order on a triangle face. Mirrors `TET_LOCAL_EDGES` for
-/// tets: lower local index first.
-const TRI_LOCAL_EDGES: [(usize, usize); 3] = [(0, 1), (0, 2), (1, 2)];
-
-/// Build the 3×3 face contribution `S^face_{ij} = ∫_T N_i · N_j dA`
-/// using the 3-point edge-midpoint quadrature (Hammer-Stroud, degree-2
-/// exact) on the first-order Whitney 1-form basis of a flat triangle,
-/// and the matching `(global_edge_idx, sign)` for each of the three
-/// local edges.
-///
-/// The integrand `N_i · N_j` is exactly quadratic in barycentric
-/// coordinates, so the 3-point edge-midpoint rule reproduces the
-/// analytic face mass to floating-point precision. See the
-/// `face_mass_matches_analytic` unit test.
-fn face_silver_muller_block(
-    tri: &[u32; 3],
-    v: &[[f64; 3]; 3],
-    edge_lookup: &HashMap<(u32, u32), u32>,
-) -> ([[f64; 3]; 3], [(u32, i8); 3]) {
-    // Triangle edges in 3D and the unit outward normal direction (raw
-    // cross product gives 2·area * n_hat). We never need the actual n
-    // for the integrand (rank-reducing identity `(n × u) · (n × v) = u · v`
-    // for in-plane u, v) but we DO need the area.
-    let e10 = sub3(v[1], v[0]);
-    let e20 = sub3(v[2], v[0]);
-    let cross = cross3(e10, e20);
-    let two_area = norm3(cross);
-    let area = 0.5 * two_area;
-    // Unit normal — direction is the right-hand-rule one from vertex
-    // ordering. Sign does not matter because the integrand only sees
-    // the in-plane components of the basis.
-    let n_hat = [
-        cross[0] / two_area,
-        cross[1] / two_area,
-        cross[2] / two_area,
-    ];
-
-    // In-plane gradients of triangle barycentric coords:
-    //   ∇λ_k = (n_hat × edge_opposite_k) / (2 area)
-    // where edge_opposite_k goes from v_{(k+1)%3} to v_{(k+2)%3}.
-    // This formula puts ∇λ_k perpendicular to the opposite edge, in the
-    // triangle plane, with the right magnitude (1 / height_from_k).
-    let opp = [sub3(v[2], v[1]), sub3(v[0], v[2]), sub3(v[1], v[0])];
-    let grad_lambda: [[f64; 3]; 3] = [
-        scale3(cross3(n_hat, opp[0]), 1.0 / two_area),
-        scale3(cross3(n_hat, opp[1]), 1.0 / two_area),
-        scale3(cross3(n_hat, opp[2]), 1.0 / two_area),
-    ];
-
-    // Compute the global-edge mapping and orientation sign for each
-    // local triangle edge. Sign + global-edge mapping comes from
-    // comparing the global node tags of the local edge endpoints
-    // (lower-tag first), matching the volume assembly convention.
-    let mut edge_info: [(u32, i8); 3] = [(0, 1); 3];
-    for (k, &(la, lb)) in TRI_LOCAL_EDGES.iter().enumerate() {
-        let ga = tri[la];
-        let gb = tri[lb];
-        let (lo, hi, sign) = if ga < gb {
-            (ga, gb, 1i8)
-        } else {
-            (gb, ga, -1i8)
-        };
-        let gidx = *edge_lookup
-            .get(&(lo, hi))
-            .expect("triangle edge must appear in global edge table");
-        edge_info[k] = (gidx, sign);
-    }
-
-    // 3-point edge-midpoint quadrature (Hammer-Stroud, degree-2 exact):
-    //   ∫_T f dA ≈ (area/3) · [f(m_01) + f(m_02) + f(m_12)]
-    // where m_ab is the midpoint of local edge (la, lb). In barycentric
-    // coords this is λ_la = λ_lb = 1/2, λ_other = 0.
-    //
-    // We evaluate the 3 Whitney basis functions at each of the 3 edge
-    // midpoints, then sum the outer products.
-    //
-    // BARYCENTRIC_MIDPOINTS[q][k] = value of λ_k at quadrature point q.
-    // q=0 → midpoint of edge (0,1), q=1 → edge (0,2), q=2 → edge (1,2).
-    const BARYCENTRIC_MIDPOINTS: [[f64; 3]; 3] = [
-        [0.5, 0.5, 0.0], // m_01
-        [0.5, 0.0, 0.5], // m_02
-        [0.0, 0.5, 0.5], // m_12
-    ];
-
-    let weight = area / 3.0;
-    let mut block = [[0.0_f64; 3]; 3];
-    for lam in BARYCENTRIC_MIDPOINTS.iter() {
-        // Evaluate the three Whitney basis vectors at this midpoint.
-        // N_e(λ) = λ_la · ∇λ_lb − λ_lb · ∇λ_la for local edge (la, lb).
-        let mut basis_q: [[f64; 3]; 3] = [[0.0; 3]; 3];
-        for (k, &(la, lb)) in TRI_LOCAL_EDGES.iter().enumerate() {
-            let term_a = scale3(grad_lambda[lb], lam[la]);
-            let term_b = scale3(grad_lambda[la], lam[lb]);
-            basis_q[k] = sub3(term_a, term_b);
-        }
-        for i in 0..3 {
-            for j in 0..3 {
-                block[i][j] += weight * dot3(basis_q[i], basis_q[j]);
-            }
-        }
-    }
-
-    (block, edge_info)
-}
-
-#[inline]
-fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-#[inline]
-fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-#[inline]
-fn norm3(a: [f64; 3]) -> f64 {
-    (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
-}
-
-#[inline]
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-#[inline]
-fn scale3(a: [f64; 3], s: f64) -> [f64; 3] {
-    [a[0] * s, a[1] * s, a[2] * s]
+    whitney_face::assemble_surface_mass_triplets(mesh, triangles, edges)
 }
 
 #[cfg(test)]
