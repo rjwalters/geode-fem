@@ -1,63 +1,135 @@
 {
   "schema_version": "1",
   "fixture_id": "p1_local/near_degenerate_sliver",
-  "description": "P1 local matrices for a near-coplanar sliver tet (v3.z = 1e-6) — small but strictly positive volume. Stress case for numerical stability. NumPy baseline produced by reference/numpy/p1_local_matrices.py via gen_p1_local_per_case.py.",
+  "description": "P1 local matrices for a near-coplanar sliver tet (v3.z = 1e-6) \u2014 small but strictly positive volume. Stress case for numerical stability.",
   "units": "dimensionless",
   "inputs": {
     "coords": {
-      "shape": [1, 4, 3],
+      "shape": [
+        1,
+        4,
+        3
+      ],
       "dtype": "f64",
-      "description": "Per-element vertex coordinates. v3 is barely lifted off the xy-plane.",
+      "description": "Per-element vertex coordinates [n_elem, 4 vertices, 3 spatial dims].",
       "data": [
         [
-          [0.0, 0.0, 0.0],
-          [1.0, 0.0, 0.0],
-          [0.0, 1.0, 0.0],
-          [0.3, 0.3, 1.0e-06]
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.3,
+            0.3,
+            1e-06
+          ]
         ]
       ]
     }
   },
   "outputs": {
     "k_local": {
-      "shape": [1, 4, 4],
+      "shape": [
+        1,
+        4,
+        4
+      ],
       "dtype": "f64",
-      "description": "Local stiffness K_{ij}. Entries are O(1e5) because the sliver geometry inflates gradient magnitudes. Tolerance is loose absolute (= 5e-5 * |max_entry| floor) to absorb f32 backend drift; the Rust comparator layers a backend-aware mixed abs/rel check on top.",
-      "tolerance_abs": 1.0e1,
+      "description": "Local stiffness K_{ij}. Tolerance is loose absolute (f32-friendly tripwire); the Rust comparator layers a tighter backend-aware mixed abs/rel check on top.",
+      "tolerance_abs": 10.0,
       "data": [
         [
-          [ 26666.666667,        19999.999999833333,  19999.99999983333,  -66666.66666666667],
-          [ 19999.999999833333,  15000.000000166663,  14999.999999999998, -49999.99999999999],
-          [ 19999.99999983333,   14999.999999999998,  15000.000000166667, -49999.99999999999],
-          [-66666.66666666667,  -49999.99999999999,  -49999.99999999999,  166666.66666666666]
+          [
+            26666.666667,
+            19999.999999833333,
+            19999.99999983333,
+            -66666.66666666667
+          ],
+          [
+            19999.999999833333,
+            15000.000000166663,
+            14999.999999999998,
+            -49999.99999999999
+          ],
+          [
+            19999.99999983333,
+            14999.999999999998,
+            15000.000000166667,
+            -49999.99999999999
+          ],
+          [
+            -66666.66666666667,
+            -49999.99999999999,
+            -49999.99999999999,
+            166666.66666666666
+          ]
         ]
       ]
     },
     "m_local": {
-      "shape": [1, 4, 4],
+      "shape": [
+        1,
+        4,
+        4
+      ],
       "dtype": "f64",
-      "description": "Local consistent mass M_{ij}. Entries are O(1e-8).",
-      "tolerance_abs": 1.0e-12,
+      "description": "Local consistent mass M_{ij}.",
+      "tolerance_abs": 1e-12,
       "data": [
         [
-          [1.6666666666666667e-08, 8.333333333333334e-09,  8.333333333333334e-09,  8.333333333333334e-09],
-          [8.333333333333334e-09,  1.6666666666666667e-08, 8.333333333333334e-09,  8.333333333333334e-09],
-          [8.333333333333334e-09,  8.333333333333334e-09,  1.6666666666666667e-08, 8.333333333333334e-09],
-          [8.333333333333334e-09,  8.333333333333334e-09,  8.333333333333334e-09,  1.6666666666666667e-08]
+          [
+            1.6666666666666667e-08,
+            8.333333333333334e-09,
+            8.333333333333334e-09,
+            8.333333333333334e-09
+          ],
+          [
+            8.333333333333334e-09,
+            1.6666666666666667e-08,
+            8.333333333333334e-09,
+            8.333333333333334e-09
+          ],
+          [
+            8.333333333333334e-09,
+            8.333333333333334e-09,
+            1.6666666666666667e-08,
+            8.333333333333334e-09
+          ],
+          [
+            8.333333333333334e-09,
+            8.333333333333334e-09,
+            8.333333333333334e-09,
+            1.6666666666666667e-08
+          ]
         ]
       ]
     },
     "signed_volume": {
-      "shape": [1],
+      "shape": [
+        1
+      ],
       "dtype": "f64",
-      "description": "Signed element volume V = det(J)/6 ≈ 1.67e-7.",
-      "tolerance_abs": 1.0e-11,
-      "data": [1.6666666666666665e-07]
+      "description": "Signed element volume V = det(J)/6.",
+      "tolerance_abs": 1e-11,
+      "data": [
+        1.6666666666666665e-07
+      ]
     }
   },
   "provenance": {
     "source": "reference/numpy/p1_local_matrices.py via reference/numpy/gen_p1_local_per_case.py",
     "verified_against": "crates/geode-validation/tests/p1_local_numpy_reference.rs",
-    "issue": "#90 / #101"
+    "issue": "#90 / #101 (consolidation onto geode-validation harness)"
   }
 }
