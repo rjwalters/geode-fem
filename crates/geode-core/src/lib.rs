@@ -19,6 +19,7 @@ pub mod mesh;
 pub mod mie;
 pub mod mie_open;
 pub mod mie_scattering;
+pub mod mohan;
 pub mod nedelec;
 pub mod nedelec_assembly;
 pub mod p1;
@@ -80,6 +81,7 @@ pub use mie_open::{
 pub use mie_scattering::{
     mie_a_b, mie_coefficients, mie_efficiencies, mie_series_order, MieCoefficients, MieEfficiencies,
 };
+pub use mohan::{modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l, SquareSpiral};
 pub use nedelec::{
     batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_mass_anisotropic_full,
     batched_nedelec_local_matrices, batched_nedelec_local_rhs, batched_nedelec_local_rhs_quad4,
