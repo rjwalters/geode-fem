@@ -483,3 +483,54 @@ fn burn_matched_upml_reproduces_benchmark_accuracy() {
         MAX_REL_ERR_Q_SCA
     );
 }
+
+/// Fast default-profile guard on the bundled fine fixture (issue
+/// #215): loads and validates the mesh against its recorded
+/// provenance (`sphere_fine.provenance.txt`) without solving.
+#[test]
+fn fine_fixture_loads_with_recorded_stats() {
+    let fixture = geode_core::read_sphere_fine_fixture().expect("bundled fine sphere fixture");
+    assert_eq!(fixture.mesh.n_nodes(), 5934, "fine fixture node count");
+    assert_eq!(fixture.mesh.n_tets(), 30740, "fine fixture tet count");
+    assert_eq!(
+        fixture.mesh.edges().len(),
+        38566,
+        "fine fixture unique-edge count"
+    );
+    assert!(
+        fixture.tet_physical_tags.contains(&PHYS_SPHERE_INTERIOR),
+        "fine fixture must tag sphere-interior tets"
+    );
+}
+
+/// On-resonance acceptance on the fine fixture (issue #215): the
+/// TM_1,1 feature at ka = 1.9 — the coarse fixture's worst point
+/// (~15-19%) — must extract Q_ext and Q_sca within 5% of the analytic
+/// series. Heavy (38.6k-edge host sparse solve); see
+/// `benchmarks/mie_sphere/driven_results_fine.toml` for the full
+/// 5-point sweep.
+#[test]
+#[ignore = "heavy: 38.6k-edge driven solve; run with --release"]
+fn fine_fixture_on_resonance_below_five_percent() {
+    let fixture = geode_core::read_sphere_fine_fixture().expect("bundled fine sphere fixture");
+    let ka = 1.9;
+    let (q_ext, q_sca, _res) = solve_and_extract(&fixture, ka);
+    let analytic = mie_efficiencies(N_INSIDE, ka);
+    let err_ext = (q_ext - analytic.q_ext).abs() / analytic.q_ext;
+    let err_sca = (q_sca - analytic.q_sca).abs() / analytic.q_sca;
+    eprintln!(
+        "fine fixture ka = {ka}: Q_ext rel err {:.2}%, Q_sca rel err {:.2}%",
+        100.0 * err_ext,
+        100.0 * err_sca
+    );
+    assert!(
+        err_ext < 0.05,
+        "fine-fixture on-resonance Q_ext rel err {:.2}% ≥ 5%",
+        100.0 * err_ext
+    );
+    assert!(
+        err_sca < 0.05,
+        "fine-fixture on-resonance Q_sca rel err {:.2}% ≥ 5%",
+        100.0 * err_sca
+    );
+}

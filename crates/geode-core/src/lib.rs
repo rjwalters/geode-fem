@@ -61,7 +61,7 @@ pub use lumped_port::{
 #[allow(deprecated)]
 pub use mesh::PHYS_VACUUM_BUFFER;
 pub use mesh::{
-    cube_tet_mesh, pec_interior_mask_from_triangles, read_sphere_fixture,
+    cube_tet_mesh, pec_interior_mask_from_triangles, read_sphere_fine_fixture, read_sphere_fixture,
     read_sphere_fixture_from_bytes, read_spiral_fixture, read_spiral_fixture_from_bytes,
     read_spiral_smoke_fixture, GmshReader, MeshError, MeshReader, SphereFixture, SpiralFixture,
     SpiralPort, TetMesh, PHYS_OUTER_BOUNDARY, PHYS_PML_INTERFACE, PHYS_PML_SHELL,
