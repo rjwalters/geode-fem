@@ -222,6 +222,7 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice) {
         }
         FixtureChoice::Fine => {
             s.push_str("  \"The fine fixture roughly halves the characteristic length of the coarse 774-node fixture, cutting the O(h^2) resonance-position dispersion that dominated the coarse on-feature errors (~15-19% at ka = 1.9 / 3.0) — see issue #215 for the convergence argument.\",\n");
+            s.push_str("  \"Known anomaly: the ka = 1.0 point WORSENS with refinement (Q_ext ~6.4%, Q_sca ~10.7% vs ~0.5%/~7.1% coarse). The effect is non-dispersive — present at both resolutions and growing as the mesh refines — so it is not the O(h^2) dispersion this fixture targets; suspected low-frequency UPML reflection / flux-surface quadrature artifact. Candidate follow-up issue; the on-resonance acceptance (ka = 1.9, 3.0 below 5%) is unaffected.\",\n");
         }
     }
     s.push_str("  \"Q_ext via volume optical theorem; Q_sca via Poynting flux through the tet-boundary surface at r_obs (recorded choice, issue #195).\",\n");

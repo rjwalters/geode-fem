@@ -21,7 +21,7 @@ Pipeline:
 Usage:
   # The fine driven-benchmark fixture (issue #215):
   python3 reference/gmsh/generate_sphere_fixture.py \
-      --lc-sphere 0.13 --lc-buffer 0.23 \
+      --lc-sphere 0.11 --lc-buffer 0.18 \
       crates/geode-core/tests/fixtures/sphere_fine.msh
 
   # The bundled coarse fixture (defaults match mesh_scripts/sphere.geo):
