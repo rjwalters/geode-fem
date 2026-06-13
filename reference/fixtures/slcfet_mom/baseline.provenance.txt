@@ -1,0 +1,74 @@
+fixture:        slcfet_mom/baseline.json
+generated:      2026-06-12
+generator:      reference/mom/geode_slcfet_baseline (cargo run --release)
+mom repo:       ~/GitHub/sphere/eda/mom (sibling checkout; https://github.com/spheresemi/mom)
+mom commit:     ddc02134ce06f7e6ad3583083cce992a5bb2a64c
+solver:         multifilament PEEC (3 lateral filaments/segment),
+                stratified substrate Green's function, direct dense solve
+                (mom_backend_cpu::extract_mna_impedance_multifilament_stratified)
+
+geometry (matches tests/fixtures/spiral_slcfet_3hp.provenance.txt — EXACT
+integer-turn match, no bracket needed unlike the issue-#211 generic
+baseline):
+  shape:        square
+  n_turns:      3
+  w:            10.0 um
+  s:            5.0 um
+  d_in:         100.0 um
+  spiral layer: OVERLAY (Au, 2.25 um, z 5..7.25 um)
+  underpass:    PASSIV (Au, 3.0 um, z 0..3 um), via underpass
+  crossover:    via_underpass on BOTH sides so the geometries match by
+                construction. NOTE: the physical 3HP process qualifies
+                only AIR-BRIDGE crossovers for spirals (via_underpass
+                shorts the spiral per qualification — a fab result, not
+                a simulation limitation); the simulated topology is a
+                documented delta from the fab flow.
+                Remaining topology deltas: mom routes the underpass out
+                below the footprint and has no 20 um feed stub / 4 um
+                port gap; the mom 3HP VIA is the 60x60 um fab via while
+                the gmsh fixture uses a w x w (10x10 um) via column.
+
+stack (canonical PDK ~/GitHub/sphere/pdk/slcfet/slcfet_3hp.pdk.yaml via
+mom_geom::pdk::load_pdk("slcfet_3hp")):
+  substrate:    SiC, eps_r 9.7, tan_delta 0.004 (ADS Momentum LTD),
+                100 um thick, PEC ground plane at the substrate bottom
+                (-100 um) -- mirrors the geode fixture's PEC outer wall
+  above SiC:    air (the 0.16 um SiN passivation, eps_r 6.273, is
+                omitted on both sides -- documented stack delta)
+  m1 (PASSIV):  z 0..3.0 um, Au
+  m2 (OVERLAY): z 5.0..7.25 um, Au (interlayer gap 2.0 um)
+  conductor:    Au metallization, rho = 0.01943 ohm-um
+                (sigma ~ 5.15e7 S/m, back-calculated from the ADS
+                Momentum R extraction; mom issue #358),
+                no surface-roughness correction
+
+frequencies:    0.5, 1, 2, 3, 5, 8, 10, 15, 20, 25, 30, 40 GHz
+                (the geode 3HP benchmark sweep,
+                examples/slcfet_3hp_spiral.rs; quote frequency 3 GHz =
+                the mom 3HP LUT ref_freq,
+                ~/GitHub/sphere/eda/mom/jobs/slcfet_3hp_spiral_sweep.toml)
+
+headline values (at the 3 GHz quote frequency):
+  L = 2.1487 nH   R = 7.2135 ohm   Q = 5.615
+  (Mohan current-sheet for n=3, w=10, s=5, d_in=100: 2.054 nH, +4.6%)
+  Q peak ~9.1 near 25 GHz; SRF beyond 40 GHz (Im Z stays inductive
+  over the sweep; the 40 GHz upturn approaches it)
+
+Q caveat (carried over from the issue-#211 calibration): mom's
+3-filament lateral discretization cannot resolve the sub-um Au skin
+depth above ~2 GHz (delta = 1.28 um at 3 GHz vs 10 um wide traces), so
+mom OVERESTIMATES R / underestimates Q there. mom is the L oracle; the
+realistic Q oracle is Palace (operator-assisted, see
+benchmarks/slcfet_3hp/results.toml [oracles.palace]).
+
+regeneration:   cd reference/mom/geode_slcfet_baseline && cargo run --release
+                (requires the sphere monorepo checked out as a sibling of
+                this repository; the committed Cargo.toml uses the
+                relative path ../../../../sphere/eda/mom)
+
+Palace:         NOT generated -- no Palace install exists on the
+                generation machine (mom/external/palace-install does not
+                exist; only a Docker build recipe). Operator-run Palace
+                results can be added next to this file with their own
+                provenance (toolchain-gap convention, same as the
+                FastHenry slot of the issue-#211 baseline).

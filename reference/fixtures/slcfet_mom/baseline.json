@@ -1,0 +1,138 @@
+{
+  "description": "mom MoM/PEEC impedance baseline for the geode-fem SLCFET 3HP spiral benchmark (issue #212): square spiral n = 3, w = 10 um, s = 5 um, d_in = 100 um on the canonical SLCFET 3HP stack (load_pdk(\"slcfet_3hp\"): SiC 9.7/0.004 100 um with PEC ground at -100 um, Au rho = 0.01943 ohm-um, OVERLAY 2.25 um spiral over PASSIV 3 um via-underpass). Exact integer-turn geometry match to the geode fixture (no bracket).",
+  "fixture_id": "slcfet_mom/geode_slcfet_3hp_n3",
+  "generator": "reference/mom/geode_slcfet_baseline (offline; see baseline.provenance.txt for the mom commit)",
+  "schema_version": "1",
+  "solver": {
+    "frequencies_ghz": [
+      0.5,
+      1.0,
+      2.0,
+      3.0,
+      5.0,
+      8.0,
+      10.0,
+      15.0,
+      20.0,
+      25.0,
+      30.0,
+      40.0
+    ],
+    "kernel": "multifilament PEEC, stratified substrate Green's function",
+    "n_filaments": 3
+  },
+  "spirals": [
+    {
+      "crossover": "via_underpass",
+      "d_inner_um": 100.0,
+      "n_segments": 243,
+      "n_turns": 3,
+      "path_length_um": 1739.9999999999998,
+      "points": [
+        {
+          "f_ghz": 0.5,
+          "l_nh": 2.1549509346093907,
+          "q": 3.298647783435081,
+          "r_ohm": 2.052349468473816,
+          "z_im_ohm": 6.7699780250153205,
+          "z_re_ohm": 2.052349468473816
+        },
+        {
+          "f_ghz": 1.0,
+          "l_nh": 2.146393660237243,
+          "q": 4.990457044104429,
+          "r_ohm": 2.70239559027128,
+          "z_im_ohm": 13.486189109426055,
+          "z_re_ohm": 2.70239559027128
+        },
+        {
+          "f_ghz": 2.0,
+          "l_nh": 2.145523686135153,
+          "q": 5.6748874057848,
+          "r_ohm": 4.75100982168857,
+          "z_im_ohm": 26.961445801860357,
+          "z_re_ohm": 4.75100982168857
+        },
+        {
+          "f_ghz": 3.0,
+          "l_nh": 2.148699447238335,
+          "q": 5.6147587409366935,
+          "r_ohm": 7.213494338412406,
+          "z_im_ohm": 40.50203038929841,
+          "z_re_ohm": 7.213494338412406
+        },
+        {
+          "f_ghz": 5.0,
+          "l_nh": 2.1568590103787573,
+          "q": 5.747681834666461,
+          "r_ohm": 11.789052728991333,
+          "z_im_ohm": 67.75972421834855,
+          "z_re_ohm": 11.789052728991333
+        },
+        {
+          "f_ghz": 8.0,
+          "l_nh": 2.1751456482713007,
+          "q": 6.4864540024364254,
+          "r_ohm": 16.85585766652824,
+          "z_im_ohm": 109.33474542555082,
+          "z_re_ohm": 16.85585766652824
+        },
+        {
+          "f_ghz": 10.0,
+          "l_nh": 2.193245508757421,
+          "q": 7.054449954974832,
+          "r_ohm": 19.53457469202701,
+          "z_im_ohm": 137.80567955662244,
+          "z_re_ohm": 19.53457469202701
+        },
+        {
+          "f_ghz": 15.0,
+          "l_nh": 2.264177004096074,
+          "q": 8.255633650459831,
+          "r_ohm": 25.848246701568367,
+          "z_im_ohm": 213.39365527485515,
+          "z_re_ohm": 25.848246701568367
+        },
+        {
+          "f_ghz": 20.0,
+          "l_nh": 2.379752115001213,
+          "q": 8.956780756403507,
+          "r_ohm": 33.387941338220585,
+          "z_im_ohm": 299.0484704741033,
+          "z_re_ohm": 33.387941338220585
+        },
+        {
+          "f_ghz": 25.0,
+          "l_nh": 2.554513202551895,
+          "q": 9.138002491389136,
+          "r_ohm": 43.91134669856711,
+          "z_im_ohm": 401.2619955317584,
+          "z_re_ohm": 43.91134669856711
+        },
+        {
+          "f_ghz": 30.0,
+          "l_nh": 2.814259273822211,
+          "q": 8.82822345533847,
+          "r_ohm": 60.08857594960707,
+          "z_im_ohm": 530.4753755962082,
+          "z_re_ohm": 60.08857594960707
+        },
+        {
+          "f_ghz": 40.0,
+          "l_nh": 3.8389568339767,
+          "q": 6.854801549337058,
+          "r_ohm": 140.7531757150393,
+          "z_im_ohm": 964.8350869655626,
+          "z_re_ohm": 140.7531757150393
+        }
+      ],
+      "primary_layer": "OVERLAY",
+      "segments_per_side": 16,
+      "shape": "square",
+      "spacing_um": 5.0,
+      "srf_ghz": null,
+      "underpass_layer": "PASSIV",
+      "width_um": 10.0
+    }
+  ]
+}

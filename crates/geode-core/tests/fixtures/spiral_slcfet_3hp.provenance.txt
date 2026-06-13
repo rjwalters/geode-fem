@@ -1,0 +1,45 @@
+fixture:        spiral_slcfet_3hp.msh
+sha256:         7770873496af8f33f3ebe38239aaad8f3d12e89d180c6ec59c90c7903e02bca3
+generated:      2026-06-12T17:25:28+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/spiral_inductor.geo
+wrapper:        reference/gmsh/generate_spiral_fixture.py
+parameters:     spiral_slcfet_3hp.yaml
+
+parameter values:
+  spiral:
+    n_turns: 3.0
+    w: 10.0
+    s: 5.0
+    d_in: 100.0
+    g: 4.0
+    feed_len: 20.0
+    stub_len: 10.0
+  stack:
+    h_sub: 100.0
+    h_ox: 10.0
+    z1_bot: 0.0
+    t1: 3.0
+    z2_bot: 5.0
+    t2: 2.25
+    h_air: 110.0
+    h_buf: 40.0
+    margin: 110.0
+  mesh:
+    lc_cond: 5.0
+    lc_port: 1.5
+    lc_far: 55.0
+    dist_far: 110.0
+  materials:
+    substrate_eps_r: 9.7
+    substrate_tan_delta: 0.004
+    dielectric_eps_r: 1.0
+    dielectric_tan_delta: 0.0
+    conductor_sigma_s_m: 51467000.0
+
+quality report:
+  nodes: 11733
+  tets: 61609
+  unique edges: 76964 (budget 100000)
+  inverted tets: 0
+  min dihedral angle: 10.46 deg

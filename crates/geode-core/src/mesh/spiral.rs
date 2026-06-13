@@ -9,6 +9,15 @@
 //! **microns**, so the solver's natural-unit frequency `ω = k₀` is in
 //! rad/µm.
 //!
+//! Issue #212 adds the **SLCFET 3HP** (GaN-on-SiC) fixtures with the
+//! same physical-group convention: a 3-turn square spiral (w = 10 µm,
+//! s = 5 µm, d_in = 100 µm) with the OVERLAY (Au 2.25 µm) spiral over a
+//! PASSIV (Au 3 µm) via-underpass directly on a 100 µm SiC substrate,
+//! metals in air (the tag-2 "dielectric" region is assigned ε_r = 1 at
+//! solve time). Loaders: [`read_spiral_slcfet_3hp_fixture`] /
+//! [`read_spiral_slcfet_3hp_smoke_fixture`]; materials:
+//! [`SLCFET_3HP_MATERIALS`].
+//!
 //! The conductor interior is **excluded from the mesh** (boolean-
 //! subtracted cavity): per the issue-#210 design decision, skin-depth
 //! meshing is avoided entirely — the cavity walls carry either the
@@ -87,11 +96,80 @@ pub const PHYS_CONDUCTOR_SURFACE: i32 = 12;
 /// Physical-group tag for the outer domain walls (2D).
 pub const PHYS_OUTER_BOUNDARY: i32 = 13;
 
-/// Port gap direction `ê` of the bundled fixture: the feed and return
-/// stubs face each other along **+y** (from the return-stub end face to
-/// the feed-stub end face), tangential to the horizontal port
-/// rectangle.
+/// Port gap direction `ê` of the bundled fixtures: the feed and return
+/// stubs face each other along **y**, tangential to the horizontal port
+/// rectangle. For the half-integer-turn generic fixtures +y points from
+/// the return-stub end face to the feed-stub end face; for the
+/// integer-turn SLCFET 3HP fixtures (issue #212, +y exit) the roles are
+/// swapped — `Z = V/I`, `Q` and `S₁₁` are invariant under `ê → −ê`
+/// (`V` and `I` flip together), so the same constant serves both.
 pub const PORT_E_HAT: [f64; 3] = [0.0, 1.0, 0.0];
+
+/// Free-space impedance η₀ (Ω) used by the natural-unit conversion of
+/// [`SpiralMaterials::conductor_sigma_natural`].
+const Z0_OHM: f64 = 376.730_313_668;
+
+/// Per-fixture material set applied at solve time (issue #212): the
+/// mesh carries only region tags, so each fixture YAML's recorded
+/// materials are mirrored here as a constant of this type
+/// ([`GENERIC_MATERIALS`], [`SLCFET_3HP_MATERIALS`]) and turned into
+/// per-tet permittivities by [`SpiralFixture::epsilon_r_for`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpiralMaterials {
+    /// Substrate relative permittivity (tag [`PHYS_SUBSTRATE`]).
+    pub eps_r_substrate: f64,
+    /// Substrate loss tangent.
+    pub tan_delta_substrate: f64,
+    /// "Dielectric" slab relative permittivity (tag
+    /// [`PHYS_DIELECTRIC`]) — the region between substrate top and the
+    /// air core. ε_r = 1 for processes whose metals sit in air.
+    pub eps_r_dielectric: f64,
+    /// Dielectric slab loss tangent.
+    pub tan_delta_dielectric: f64,
+    /// Conductor conductivity in SI units (S/m) — Leontovich surface
+    /// model on the cavity walls; the interior is excluded from the
+    /// mesh.
+    pub conductor_sigma_s_m: f64,
+}
+
+impl SpiralMaterials {
+    /// Conductor conductivity in the solver's natural units `1/length`
+    /// with the fixture's micron length unit:
+    /// `σ_nat = σ_SI · Z₀ · L_unit` with `L_unit = 1e-6 m` (same
+    /// normalization as
+    /// [`crate::driven::SurfaceImpedanceModel::GoodConductor`]).
+    pub fn conductor_sigma_natural(&self) -> f64 {
+        self.conductor_sigma_s_m * Z0_OHM * 1e-6
+    }
+}
+
+/// Materials of the generic 2-metal fixture
+/// (`reference/gmsh/spiral_3p5_generic.yaml`): lossy silicon substrate,
+/// SiO₂ oxide, copper conductors.
+pub const GENERIC_MATERIALS: SpiralMaterials = SpiralMaterials {
+    eps_r_substrate: EPS_R_SUBSTRATE,
+    tan_delta_substrate: TAN_DELTA_SUBSTRATE,
+    eps_r_dielectric: EPS_R_DIELECTRIC,
+    tan_delta_dielectric: TAN_DELTA_DIELECTRIC,
+    conductor_sigma_s_m: CONDUCTOR_SIGMA_S_M,
+};
+
+/// Materials of the SLCFET 3HP (GaN-on-SiC) fixtures
+/// (`reference/gmsh/spiral_slcfet_3hp.yaml`, issue #212), from the
+/// canonical PDK (`pdk/slcfet/slcfet_3hp.pdk.yaml` in the sphere
+/// monorepo): SiC substrate ε_r = 9.7 / tan δ = 0.004 (ADS Momentum
+/// LTD), Au metallization σ = 1/ρ with ρ = 0.01943 Ω·µm ≈ 5.15e7 S/m
+/// (back-calculated from the Momentum R extraction, mom issue #358).
+/// The tag-[`PHYS_DIELECTRIC`] slab is **air** (ε_r = 1): the 3HP
+/// metals sit in air above the SiC — the 0.16 µm SiN passivation is
+/// omitted from the mesh (documented stack delta).
+pub const SLCFET_3HP_MATERIALS: SpiralMaterials = SpiralMaterials {
+    eps_r_substrate: 9.7,
+    tan_delta_substrate: 0.004,
+    eps_r_dielectric: 1.0,
+    tan_delta_dielectric: 0.0,
+    conductor_sigma_s_m: 1.0 / (0.01943 * 1e-6),
+};
 
 /// Substrate relative permittivity (silicon) recorded in the fixture
 /// YAML (`reference/gmsh/spiral_3p5_generic.yaml`).
@@ -116,6 +194,13 @@ const SPIRAL_MSH: &[u8] = include_bytes!("../../tests/fixtures/spiral_3p5.msh");
 
 /// Raw bytes of the bundled coarse smoke-test spiral fixture.
 const SPIRAL_SMOKE_MSH: &[u8] = include_bytes!("../../tests/fixtures/spiral_3p5_smoke.msh");
+
+/// Raw bytes of the bundled SLCFET 3HP benchmark spiral fixture.
+const SPIRAL_SLCFET_MSH: &[u8] = include_bytes!("../../tests/fixtures/spiral_slcfet_3hp.msh");
+
+/// Raw bytes of the bundled coarse SLCFET 3HP smoke spiral fixture.
+const SPIRAL_SLCFET_SMOKE_MSH: &[u8] =
+    include_bytes!("../../tests/fixtures/spiral_slcfet_3hp_smoke.msh");
 
 /// Loaded spiral-inductor mesh fixture: volume mesh plus per-element
 /// region/surface tags (same shape as [`super::SphereFixture`]).
@@ -184,16 +269,28 @@ impl SpiralFixture {
         self.tet_physical_tags.iter().map(|&t| f(t)).collect()
     }
 
-    /// Per-tet permittivity with the fixture's recorded materials:
-    /// lossy silicon substrate and SiO₂ dielectric
+    /// Per-tet permittivity for a given fixture material set
     /// (`ε = ε_r (1 − i·tan δ)`, the `Im(ε) < 0` absorption sign of
     /// the codebase's `exp(+jωt)` convention), `ε_r = 1` air/buffer.
-    pub fn epsilon_r_default(&self) -> Vec<c64> {
+    pub fn epsilon_r_for(&self, m: &SpiralMaterials) -> Vec<c64> {
         self.epsilon_r_by_tag(|tag| match tag {
-            PHYS_SUBSTRATE => c64::new(EPS_R_SUBSTRATE, -EPS_R_SUBSTRATE * TAN_DELTA_SUBSTRATE),
-            PHYS_DIELECTRIC => c64::new(EPS_R_DIELECTRIC, -EPS_R_DIELECTRIC * TAN_DELTA_DIELECTRIC),
+            PHYS_SUBSTRATE => {
+                c64::new(m.eps_r_substrate, -m.eps_r_substrate * m.tan_delta_substrate)
+            }
+            PHYS_DIELECTRIC => c64::new(
+                m.eps_r_dielectric,
+                -m.eps_r_dielectric * m.tan_delta_dielectric,
+            ),
             _ => c64::new(1.0, 0.0),
         })
+    }
+
+    /// Per-tet permittivity with the **generic** fixture's recorded
+    /// materials ([`GENERIC_MATERIALS`]): lossy silicon substrate and
+    /// SiO₂ dielectric. The SLCFET 3HP fixtures use
+    /// [`SpiralFixture::epsilon_r_for`] with [`SLCFET_3HP_MATERIALS`].
+    pub fn epsilon_r_default(&self) -> Vec<c64> {
+        self.epsilon_r_for(&GENERIC_MATERIALS)
     }
 
     /// Build the lumped-port adapter from the tagged port faces.
@@ -322,6 +419,29 @@ pub fn read_spiral_smoke_fixture() -> Result<SpiralFixture, MeshError> {
     read_spiral_fixture_from_bytes(SPIRAL_SMOKE_MSH)
 }
 
+/// Load the bundled SLCFET 3HP 3-turn spiral **benchmark** fixture
+/// (`spiral_slcfet_3hp.msh`, ~45 k edges — generated from
+/// `reference/gmsh/spiral_slcfet_3hp.yaml`, issue #212): square spiral,
+/// n = 3, w = 10 µm, s = 5 µm, d_in = 100 µm, OVERLAY (Au 2.25 µm)
+/// spiral over a PASSIV (Au 3 µm) via-underpass on a 100 µm SiC
+/// substrate. Materials: [`SLCFET_3HP_MATERIALS`].
+pub fn read_spiral_slcfet_3hp_fixture() -> Result<SpiralFixture, MeshError> {
+    read_spiral_fixture_from_bytes(SPIRAL_SLCFET_MSH)
+}
+
+/// Load the bundled coarse SLCFET 3HP spiral **smoke** fixture
+/// (`spiral_slcfet_3hp_smoke.msh`, ~13 k edges — generated from
+/// `reference/gmsh/spiral_slcfet_3hp_smoke.yaml`).
+///
+/// Same topology, layer stack, and physical-group convention as the
+/// 3HP benchmark fixture, but with a smaller footprint and coarser
+/// sizing so an end-to-end
+/// [`crate::driven::driven_solve_with_ports`] solve stays affordable in
+/// default CI.
+pub fn read_spiral_slcfet_3hp_smoke_fixture() -> Result<SpiralFixture, MeshError> {
+    read_spiral_fixture_from_bytes(SPIRAL_SLCFET_SMOKE_MSH)
+}
+
 /// Load a spiral-inductor fixture from arbitrary MSH 4.1 ASCII bytes
 /// following the same physical-group convention as the bundled mesh
 /// (see module docs) — e.g. re-generated meshes from
@@ -365,5 +485,44 @@ mod tests {
     fn conductor_sigma_natural_units() {
         // σ_nat = σ_SI · Z₀ · L_unit for L_unit = 1 µm.
         assert!((CONDUCTOR_SIGMA_NATURAL - 2.185e4).abs() / 2.185e4 < 1e-3);
+        // The generic material set reproduces the legacy constant.
+        assert_eq!(
+            GENERIC_MATERIALS.conductor_sigma_natural(),
+            CONDUCTOR_SIGMA_NATURAL
+        );
+    }
+
+    /// Dimensional sanity in physical units for the SLCFET 3HP material
+    /// set (issue #212): the µm/natural-unit conversion is the most
+    /// likely silent-error site of the physical-process benchmark.
+    #[test]
+    fn slcfet_3hp_sigma_and_skin_depth_dimensional_sanity() {
+        // Au metallization: σ = 1/ρ with ρ = 0.01943 Ω·µm ≈ 5.15e7 S/m.
+        let sigma_si = SLCFET_3HP_MATERIALS.conductor_sigma_s_m;
+        assert!((sigma_si - 5.1467e7).abs() / 5.1467e7 < 1e-3);
+
+        // σ_nat = σ_SI · Z₀ · 1e-6 ≈ 1.939e4 /µm.
+        let sigma_nat = SLCFET_3HP_MATERIALS.conductor_sigma_natural();
+        assert!((sigma_nat - 1.939e4).abs() / 1.939e4 < 1e-3);
+
+        // Skin depth at the 3 GHz quote frequency, two independent ways:
+        // (a) SI: δ = sqrt(2 / (ω_SI µ0 σ_SI)) in meters → µm;
+        // (b) natural units: δ_nat = sqrt(2 / (ω_nat σ_nat)) with
+        //     ω_nat = k0 in rad/µm (the GoodConductor model's δ).
+        let f_hz = 3.0e9;
+        let mu0 = 4.0e-7 * std::f64::consts::PI;
+        let omega_si = 2.0 * std::f64::consts::PI * f_hz;
+        let delta_si_um = (2.0 / (omega_si * mu0 * sigma_si)).sqrt() * 1e6;
+
+        let c_um_per_s = 2.997_924_58e14;
+        let omega_nat = omega_si / c_um_per_s; // rad/µm
+        let delta_nat_um = (2.0 / (omega_nat * sigma_nat)).sqrt();
+
+        // Both must agree (the conversion identity) and sit near the
+        // documented 1.28 µm — below the 2.25 µm OVERLAY thickness, so
+        // the Leontovich model is valid at the quote frequency.
+        assert!((delta_si_um - delta_nat_um).abs() / delta_si_um < 1e-9);
+        assert!((delta_si_um - 1.28).abs() < 0.05, "δ = {delta_si_um} µm");
+        assert!(delta_si_um < 2.25);
     }
 }

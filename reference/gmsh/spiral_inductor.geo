@@ -19,10 +19,14 @@
 //
 // The lumped-port surface is a horizontal rectangle spanning the gap
 // between the feed-stub and return-stub end faces, embedded conformally
-// in the oxide mesh at the m2 mid-height plane. Port direction
-// e_hat = +y (from return stub to feed stub), width = trace width w,
+// in the oxide mesh at the m2 mid-height plane. The exit direction
+// depends on the turn count (see the outer-terminal block below):
+// half-integer turns exit -y (return stub below the feed), integer
+// turns exit +y (return stub above the feed). Either way the gap
+// direction is along y: e_hat = +-y, width = trace width w,
 // length = gap g  =>  Z_s = R*w/g (Palace-style uniform port,
-// lumped_port.rs).
+// lumped_port.rs; Z = V/I is invariant under e_hat -> -e_hat since V
+// and I flip together).
 //
 // Physical groups (consumed by crates/geode-core/src/mesh/spiral.rs —
 // keep the (dim, tag, name) table below in sync with the PHYS_*
@@ -97,10 +101,12 @@ z2_top = z2_bot + t2;
 z2_mid = z2_bot + t2 / 2;
 
 // Square-spiral centerline. Left-turn (CCW in the (dx,dy)->(-dy,dx)
-// sense) cycle starting in -x so that the LAST leg always heads -y for
-// quarter-turn counts n_legs = 4*n_turns with n_turns = k + 1/2:
-// dir(i) = cycle[i % 4], cycle = (-x, -y, +x, +y); leg i has length
-// d_in + Floor(i/2)*p. Start vertex (inner terminal): (d_in/2, d_in/2).
+// sense) cycle starting in -x: dir(i) = cycle[i % 4],
+// cycle = (-x, -y, +x, +y); leg i has length d_in + Floor(i/2)*p.
+// Start vertex (inner terminal): (d_in/2, d_in/2). The LAST leg heads
+// -y for half-integer turn counts (n_legs = 4*n_turns % 4 == 2) and +y
+// for integer turn counts (n_legs % 4 == 0) — the stub/port block
+// below branches on this.
 n_legs = Round(4 * n_turns);
 dirx[] = {-1, 0, 1, 0};
 diry[] = {0, -1, 0, 1};
@@ -132,31 +138,62 @@ For i In {0 : n_legs - 1}
   fp_ymax = (fp_ymax + by1) / 2 + Fabs(fp_ymax - by1) / 2;
 EndFor
 
-// Outer terminal of the spiral (heads -y after the last leg).
+// Outer terminal of the spiral. The exit direction depends on the
+// turn count: the left-turn leg cycle (-x, -y, +x, +y) means the last
+// leg heads -y for half-integer turns (n_legs % 4 == 2, the original
+// issue-#210 fixture) and +y for integer turns (n_legs % 4 == 0, the
+// issue-#212 SLCFET 3HP fixture). The feed/return stubs, port gap and
+// underpass mirror accordingly; everything else is shared.
 x_out = cx;  y_out = cy;
 // Inner terminal (spiral start).
 x_in = d_in / 2;  y_in = d_in / 2;
 
-// Feed stub (m2): continue -y from the outer terminal.
-y_feed_end = y_out - feed_len;             // flat end face of the feed
-v = newv; Box(v) = {x_out - w/2, y_feed_end, z2_bot, w, (y_out + w/2) - y_feed_end, t2};
-cond[] += {v};
+If (Fabs(Fmod(n_legs, 4) - 2) < 0.5)
+  // ---- half-integer turns: last leg heads -y, exit downward --------
+  // Feed stub (m2): continue -y from the outer terminal.
+  y_feed_end = y_out - feed_len;             // flat end face of the feed
+  v = newv; Box(v) = {x_out - w/2, y_feed_end, z2_bot, w, (y_out + w/2) - y_feed_end, t2};
+  cond[] += {v};
 
-// Port gap g below the feed end, then the m2 return stub.
-y_ret_end = y_feed_end - g;                // flat end face of the return stub
-y_via2    = y_ret_end - stub_len;          // via2 center
-v = newv; Box(v) = {x_out - w/2, y_via2 - w/2, z2_bot, w, (y_ret_end - y_via2) + w/2, t2};
-cond[] += {v};
+  // Port gap g below the feed end, then the m2 return stub.
+  y_ret_end = y_feed_end - g;                // flat end face of the return stub
+  y_via2    = y_ret_end - stub_len;          // via2 center
+  v = newv; Box(v) = {x_out - w/2, y_via2 - w/2, z2_bot, w, (y_ret_end - y_via2) + w/2, t2};
+  cond[] += {v};
+
+  // Port rectangle y-extent (gap span, low to high).
+  y_port_lo = y_ret_end;  y_port_hi = y_feed_end;
+Else
+  // ---- integer turns: last leg heads +y, exit upward ---------------
+  // Feed stub (m2): continue +y from the outer terminal.
+  y_feed_end = y_out + feed_len;             // flat end face of the feed
+  v = newv; Box(v) = {x_out - w/2, y_out - w/2, z2_bot, w, y_feed_end - (y_out - w/2), t2};
+  cond[] += {v};
+
+  // Port gap g above the feed end, then the m2 return stub.
+  y_ret_end = y_feed_end + g;                // flat end face of the return stub
+  y_via2    = y_ret_end + stub_len;          // via2 center
+  v = newv; Box(v) = {x_out - w/2, y_ret_end, z2_bot, w, (y_via2 + w/2) - y_ret_end, t2};
+  cond[] += {v};
+
+  y_port_lo = y_feed_end;  y_port_hi = y_ret_end;
+EndIf
 
 // Via2 (full m1-bottom to m2-top span; the union absorbs the overlaps).
 v = newv; Box(v) = {x_out - w/2, y_via2 - w/2, z1_bot, w, w, z2_top - z1_bot};
 cond[] += {v};
 
 // Underpass on m1: horizontal run at y = y_via2 from via2 to x_in, then
-// vertical run at x = x_in up to the inner terminal.
-v = newv; Box(v) = {x_out - w/2, y_via2 - w/2, z1_bot, (x_in + w/2) - (x_out - w/2), w, t1};
+// vertical run at x = x_in to the inner terminal. Boxes are written as
+// bounding boxes of the two endpoints (inflated by w/2) so they hold
+// for both exit directions.
+ux0 = (x_out + x_in) / 2 - Fabs(x_out - x_in) / 2 - w/2;
+ux1 = (x_out + x_in) / 2 + Fabs(x_out - x_in) / 2 + w/2;
+v = newv; Box(v) = {ux0, y_via2 - w/2, z1_bot, ux1 - ux0, w, t1};
 cond[] += {v};
-v = newv; Box(v) = {x_in - w/2, y_via2 - w/2, z1_bot, w, (y_in + w/2) - (y_via2 - w/2), t1};
+uy0 = (y_via2 + y_in) / 2 - Fabs(y_via2 - y_in) / 2 - w/2;
+uy1 = (y_via2 + y_in) / 2 + Fabs(y_via2 - y_in) / 2 + w/2;
+v = newv; Box(v) = {x_in - w/2, uy0, z1_bot, w, uy1 - uy0, t1};
 cond[] += {v};
 
 // Via1 at the inner terminal.
@@ -168,6 +205,7 @@ uni() = BooleanUnion{ Volume{cond[0]}; Delete; }{ Volume{cond[{1 : #cond[] - 1}]
 
 // Conductor footprint extents including stubs/underpass.
 fp_ymin = (fp_ymin + (y_via2 - w/2)) / 2 - Fabs(fp_ymin - (y_via2 - w/2)) / 2;
+fp_ymax = (fp_ymax + (y_via2 + w/2)) / 2 + Fabs(fp_ymax - (y_via2 + w/2)) / 2;
 
 // ---------------------------------------------------------------------------
 // Domain slabs.
@@ -187,7 +225,7 @@ oxc() = BooleanDifference{ Volume{ox_v}; Delete; }{ Volume{uni()}; Delete; };
 
 // Port rectangle at the m2 mid-height plane, spanning the gap.
 port_s = news;
-Rectangle(port_s) = {x_out - w/2, y_ret_end, z2_mid, w, g};
+Rectangle(port_s) = {x_out - w/2, y_port_lo, z2_mid, w, g};
 
 // Fragment everything for conformal interfaces (slab/slab, cavity walls,
 // embedded port surface).
@@ -215,8 +253,8 @@ Physical Volume("air",        3) = {vols_air()};
 Physical Volume("air_buffer", 4) = {vols_buf()};
 
 // Port: the only surface inside its own (thin) bounding box.
-surf_port() = Surface In BoundingBox{x_out - w/2 - eps, y_ret_end - eps, z2_mid - eps,
-                                     x_out + w/2 + eps, y_feed_end + eps, z2_mid + eps};
+surf_port() = Surface In BoundingBox{x_out - w/2 - eps, y_port_lo - eps, z2_mid - eps,
+                                     x_out + w/2 + eps, y_port_hi + eps, z2_mid + eps};
 Physical Surface("port", 11) = {surf_port()};
 
 // Conductor cavity walls: all surfaces inside the conductor z-band and

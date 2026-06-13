@@ -26,7 +26,9 @@ pub use sphere::{
 // collide with the sphere fixture's crate-root re-exports above.
 pub use spiral::{
     pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_fixture_from_bytes,
-    read_spiral_smoke_fixture, SpiralFixture, SpiralPort,
+    read_spiral_slcfet_3hp_fixture, read_spiral_slcfet_3hp_smoke_fixture,
+    read_spiral_smoke_fixture, SpiralFixture, SpiralMaterials, SpiralPort, GENERIC_MATERIALS,
+    SLCFET_3HP_MATERIALS,
 };
 
 /// CPU-side tetrahedral mesh produced by a `MeshReader`.

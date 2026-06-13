@@ -1,0 +1,78 @@
+# SLCFET 3HP (GaN-on-SiC) 3-turn square spiral inductor benchmark
+# fixture (Epic #193 Phase 3, issue #212). PDK-style schema mirroring
+# the canonical PDK (~/GitHub/sphere/pdk/slcfet/slcfet_3hp.pdk.yaml,
+# loaded by mom_geom::pdk::load_pdk("slcfet_3hp")).
+#
+# Geometry units: microns. Material values are recorded here as fixture
+# provenance and mirrored as the SLCFET_3HP_MATERIALS constants in
+# crates/geode-core/src/mesh/spiral.rs (the mesh itself carries only
+# region tags; materials are applied at solve time).
+#
+# Process mapping onto the generic spiral_inductor.geo stack:
+#   - substrate  = SiC, 100 um (eps_r 9.7, tan_delta 0.004)
+#   - m1         = PASSIV (Au, 3.0 um, z 0..3) — underpass layer
+#   - m2         = OVERLAY (Au, 2.25 um, z 5..7.25) — spiral layer
+#     (interlayer gap 2.0 um: PASSIV top at 3.0, OVERLAY bottom at 5.0)
+#   - "dielectric" region [0, h_ox]: in the 3HP process the metals sit
+#     in AIR above the SiC (no thick oxide) — the region keeps the geo's
+#     tag 2 but is assigned eps_r = 1.0 solver-side. The 0.16 um SiN
+#     passivation (eps_r 6.273) is omitted from the mesh (thin vs every
+#     other feature; documented stack delta).
+#   - conductor  = Au, sigma ~ 5.15e7 S/m (rho = 0.01943 ohm-um,
+#     back-calculated from the ADS Momentum R extraction; mom issue
+#     #358) — Leontovich surface model, interior excluded from the mesh.
+#
+# Spiral parameters match a DRC-legal point of the documented mom 3HP
+# LUT sweep (~/GitHub/sphere/eda/mom/jobs/slcfet_3hp_spiral_sweep.toml):
+# square, n = 3 (integer — exactly expressible by mom_geom::SpiralParams,
+# no turn-count bracket needed), w = 10, s = 5, d_in = 100, spiral on
+# OVERLAY with a PASSIV underpass. Crossover: via underpass on both
+# sides so the FEM and mom geometries are identical by construction.
+# NOTE: the physical 3HP process qualifies only AIR-BRIDGE crossovers
+# for spirals (via_underpass shorts the spiral per qualification — a fab
+# result, not a simulation limitation); the simulated via-underpass
+# topology is documented as a deliberate delta from the fab flow.
+
+name: spiral_slcfet_3hp
+
+spiral:
+  n_turns: 3.0       # integer turns (matches mom_geom u32 turn count)
+  w: 10.0            # trace width (OVERLAY min_width 4.0)
+  s: 5.0             # turn-to-turn spacing (OVERLAY min_space 4.0)
+  d_in: 100.0        # inner diameter (PDK SLCFET_SPIRAL_L L1/L2 >= 60)
+  g: 4.0             # port gap between feed and return stubs
+  feed_len: 20.0     # feed-stub extension beyond the spiral footprint
+  stub_len: 10.0     # return-stub length from port gap to via2
+
+stack:
+  h_sub: 100.0       # SiC substrate thickness (domain floor at -100;
+                     # the PEC floor is PHYSICAL — the backside ground
+                     # plane, matched by the mom baseline's ground_z)
+  h_ox: 10.0         # tag-2 region height (air in this process)
+  z1_bot: 0.0        # PASSIV (m1) bottom — directly on the SiC surface
+  t1: 3.0            # PASSIV thickness (ADS conductor table)
+  z2_bot: 5.0        # OVERLAY (m2) bottom = PASSIV top + 2.0 um gap
+  t2: 2.25           # OVERLAY thickness (ADS conductor table)
+  h_air: 110.0       # air core above the tag-2 region
+  h_buf: 40.0        # air buffer slab reserved for UPML
+  margin: 110.0      # lateral margin around the conductor footprint
+  # h_air/h_buf/margin put the ARTIFICIAL truncation walls (PEC ceiling
+  # + sides; mom is laterally open with an open top) ~150 um from the
+  # d_avg = 140 um spiral: with the tighter issue-#211-style box
+  # (margin 60, ceiling 54 um above the metal) the wall image currents
+  # depressed L by ~20% vs the open-domain mom/Mohan oracles.
+
+mesh:
+  lc_cond: 5.0       # target size on conductor surfaces (w = 10)
+  lc_port: 1.5       # target size on the port rectangle (g = 4)
+  lc_far: 55.0       # far-field size
+  dist_far: 110.0    # distance over which size grows to lc_far
+
+# Material parameters (per region tag; NOT consumed by gmsh — recorded
+# for the solver side; see SLCFET_3HP_MATERIALS in mesh/spiral.rs).
+materials:
+  substrate_eps_r: 9.7         # SiC
+  substrate_tan_delta: 0.004   # ADS Momentum LTD (Djordjevic model)
+  dielectric_eps_r: 1.0        # air — metals sit in air above the SiC
+  dielectric_tan_delta: 0.0
+  conductor_sigma_s_m: 5.1467e7  # Au metallization, 1/(0.01943 ohm-um)
