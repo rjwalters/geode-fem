@@ -62,11 +62,13 @@ pub use lumped_port::{
 #[allow(deprecated)]
 pub use mesh::PHYS_VACUUM_BUFFER;
 pub use mesh::{
-    cube_tet_mesh, pec_interior_mask_from_triangles, read_sphere_fine_fixture, read_sphere_fixture,
-    read_sphere_fixture_from_bytes, read_spiral_fixture, read_spiral_fixture_from_bytes,
-    read_spiral_slcfet_3hp_fixture, read_spiral_slcfet_3hp_smoke_fixture,
-    read_spiral_smoke_fixture, GmshReader, MeshError, MeshReader, SphereFixture, SpiralFixture,
-    SpiralMaterials, SpiralPort, TetMesh, GENERIC_MATERIALS, PHYS_OUTER_BOUNDARY,
+    cube_tet_mesh, pec_interior_mask_from_triangles, read_patch_fixture,
+    read_patch_fixture_from_bytes, read_patch_smoke_fixture, read_sphere_fine_fixture,
+    read_sphere_fixture, read_sphere_fixture_from_bytes, read_spiral_fixture,
+    read_spiral_fixture_from_bytes, read_spiral_slcfet_3hp_fixture,
+    read_spiral_slcfet_3hp_smoke_fixture, read_spiral_smoke_fixture, GmshReader, MeshError,
+    MeshReader, PatchFixture, PatchMaterials, PatchPort, SphereFixture, SpiralFixture,
+    SpiralMaterials, SpiralPort, TetMesh, FR4_MATERIALS, GENERIC_MATERIALS, PHYS_OUTER_BOUNDARY,
     PHYS_PML_INTERFACE, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR, PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP,
     R_BUFFER, R_PML_INNER, R_SPHERE, SLCFET_3HP_MATERIALS,
 };

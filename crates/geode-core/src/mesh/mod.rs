@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 
 use mshio::mshfile::ElementType;
 
+pub mod patch;
 pub mod sphere;
 pub mod spiral;
 
@@ -29,6 +30,13 @@ pub use spiral::{
     read_spiral_slcfet_3hp_fixture, read_spiral_slcfet_3hp_smoke_fixture,
     read_spiral_smoke_fixture, SpiralFixture, SpiralMaterials, SpiralPort, GENERIC_MATERIALS,
     SLCFET_3HP_MATERIALS,
+};
+// The patch fixture's PHYS_* tag constants stay namespaced under
+// `mesh::patch` — like the spiral, several names (e.g.
+// `PHYS_OUTER_BOUNDARY`) would collide with the sphere re-exports above.
+pub use patch::{
+    read_patch_fixture, read_patch_fixture_from_bytes, read_patch_smoke_fixture, PatchFixture,
+    PatchMaterials, PatchPort, FR4_MATERIALS,
 };
 
 /// CPU-side tetrahedral mesh produced by a `MeshReader`.

@@ -1,0 +1,34 @@
+# Coarse smoke-test variant of the 2.4 GHz patch antenna (issue #227).
+#
+# Same topology, materials, and physical-group convention as
+# patch_2g4_benchmark.yaml, but with a smaller footprint, a tighter air
+# margin, and coarser sizing so the end-to-end driven_frequency_sweep
+# smoke solve stays affordable in default CI (a few k edges). The full
+# benchmark fixture (patch_2g4_benchmark.yaml) is committed for the
+# Phase 2 S11 benchmark.
+
+name: patch_2g4_smoke
+
+patch:
+  patch_w: 16.0       # shrunk footprint (smoke only — not a 2.4 GHz patch)
+  patch_l: 12.0
+  h: 2.0              # slightly thicker slab to ease the aspect ratio
+  sub_pad: 4.0
+  probe_w: 2.0
+  probe_inset: 4.0
+
+domain:
+  air_margin: 12.0    # tighter air gap (smoke only — not lambda/2)
+  pml_thick: 8.0
+
+mesh:
+  lc_patch: 4.0       # near-uniform sizing keeps the thin slab well-shaped
+  lc_sub: 2.0         # in-slab size (~ substrate thickness, anti-sliver)
+  lc_port: 2.0        # at the probe gap
+  lc_far: 9.0         # far-field size
+  dist_far: 10.0
+
+materials:
+  substrate_eps_r: 4.4
+  substrate_tan_delta: 0.02
+  conductor_sigma_s_m: 5.8e7

@@ -1,0 +1,36 @@
+fixture:        patch_2g4_smoke.msh
+sha256:         e8f0920288922642178a9ee345a60207bb2932e089e2f8cf24e3888b524ce578
+generated:      2026-06-13T23:09:04+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/patch_antenna.geo
+wrapper:        reference/gmsh/generate_patch_fixture.py
+parameters:     patch_2g4_smoke.yaml
+
+parameter values:
+  patch:
+    patch_w: 16.0
+    patch_l: 12.0
+    h: 2.0
+    sub_pad: 4.0
+    probe_w: 2.0
+    probe_inset: 4.0
+  domain:
+    air_margin: 12.0
+    pml_thick: 8.0
+  mesh:
+    lc_patch: 4.0
+    lc_sub: 2.0
+    lc_port: 2.0
+    lc_far: 9.0
+    dist_far: 10.0
+  materials:
+    substrate_eps_r: 4.4
+    substrate_tan_delta: 0.02
+    conductor_sigma_s_m: 58000000.0
+
+quality report:
+  nodes: 997
+  tets: 4875
+  unique edges: 6173 (budget 150000)
+  inverted tets: 0
+  min dihedral angle: 7.76 deg
