@@ -274,9 +274,10 @@ impl SpiralFixture {
     /// the codebase's `exp(+jωt)` convention), `ε_r = 1` air/buffer.
     pub fn epsilon_r_for(&self, m: &SpiralMaterials) -> Vec<c64> {
         self.epsilon_r_by_tag(|tag| match tag {
-            PHYS_SUBSTRATE => {
-                c64::new(m.eps_r_substrate, -m.eps_r_substrate * m.tan_delta_substrate)
-            }
+            PHYS_SUBSTRATE => c64::new(
+                m.eps_r_substrate,
+                -m.eps_r_substrate * m.tan_delta_substrate,
+            ),
             PHYS_DIELECTRIC => c64::new(
                 m.eps_r_dielectric,
                 -m.eps_r_dielectric * m.tan_delta_dielectric,

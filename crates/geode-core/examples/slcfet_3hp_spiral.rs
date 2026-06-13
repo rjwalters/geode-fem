@@ -3,7 +3,7 @@
 //! the bundled 3-turn Au-on-SiC square spiral fixture (issue #212,
 //! Epic #193 Phase 3 capstone).
 //!
-//! Drives the `spiral_slcfet_3hp.msh` fixture (44,582 edges; see
+//! Drives the `spiral_slcfet_3hp.msh` fixture (76,964 edges; see
 //! `geode_core::mesh::spiral` for the stack and physical groups)
 //! through its lumped port with [`geode_core::driven_frequency_sweep`],
 //! exactly the pipeline of the issue-#211 generic benchmark
@@ -84,35 +84,43 @@ const FIXTURE_SPIRAL: SquareSpiral = SquareSpiral {
     d_in: 100.0e-6,
 };
 
-/// Benchmark sweep (GHz): matches the mom baseline sweep
-/// (`reference/fixtures/slcfet_mom/baseline.json`) — log-ish spacing
-/// from the L plateau through the expected self-resonance region.
-const FREQS_GHZ: [f64; 12] = [
-    0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 30.0, 40.0,
+/// Benchmark sweep (GHz): the 0.1/0.2 GHz points anchor the
+/// quasi-static L0 extrapolation (the FEM L is frequency-dependent —
+/// substrate-C dispersion — so the oracle comparison must be taken at
+/// the f→0 limit, see [`extrapolate_l0`]); the rest is log-ish spacing
+/// through the self-resonance region, matching the mom baseline sweep
+/// (`reference/fixtures/slcfet_mom/baseline.json`).
+const FREQS_GHZ: [f64; 14] = [
+    0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 30.0, 40.0,
 ];
 
 /// Smoke sweep (GHz): same pipeline, four points on the coarse fixture.
 const FREQS_GHZ_SMOKE: [f64; 4] = [1.0, 3.0, 10.0, 20.0];
 
-/// Quote frequency for the L/R/Q comparison: 3 GHz — the mom 3HP LUT
-/// reference frequency (`jobs/slcfet_3hp_spiral_sweep.toml`); the Au
-/// skin depth there (δ ≈ 1.3 µm) is below the 2.25 µm OVERLAY
-/// thickness, inside the Leontovich good-conductor validity domain
-/// (below ~1.5 GHz δ exceeds the trace thickness and the semi-infinite
-/// surface impedance under-reports R — same caveat as issue #211).
-const L_REF_GHZ: f64 = 3.0;
+/// Quote frequency for the **Q** tracking figure: 3 GHz — the mom 3HP
+/// LUT reference frequency (`jobs/slcfet_3hp_spiral_sweep.toml`); the Au
+/// skin depth there (δ ≈ 1.3 µm) is below the 2.25 µm OVERLAY thickness,
+/// inside the Leontovich good-conductor validity domain. NOTE: this is
+/// **not** the L comparison frequency — L is compared at the f→0
+/// quasi-static limit (see [`extrapolate_l0`]), because the FEM L is
+/// frequency-dependent (substrate-C dispersion) while Mohan/mom report
+/// the C-free low-frequency inductance.
+const Q_REF_GHZ: f64 = 3.0;
 
-/// mom PEEC values at the 3 GHz quote frequency for the exact fixture
-/// geometry (n = 3) — `reference/fixtures/slcfet_mom/baseline.json`
-/// (mom commit ddc02134ce06f7e6ad3583083cce992a5bb2a64c; see the
-/// provenance file).
-const MOM_L_NH_3GHZ: f64 = 2.148_699_447_238_335;
-/// See [`MOM_L_NH_3GHZ`].
+/// mom PEEC quasi-static inductance L0. mom is nearly frequency-flat
+/// (2.155 → 2.145 nH over 0.5–2 GHz — its 2.5D stratified-filament model
+/// has weak substrate-C coupling), so its lowest-frequency point
+/// (0.5 GHz) is its L0 — `reference/fixtures/slcfet_mom/baseline.json`
+/// (mom commit ddc02134ce06f7e6ad3583083cce992a5bb2a64c).
+const MOM_L0_NH: f64 = 2.154_950_934_609_390_7;
+/// mom Q at the 3 GHz reference frequency (Q tracking band only — mom's
+/// filament loss model is unreliable > ~2 GHz; Palace is the real Q
+/// oracle). `reference/fixtures/slcfet_mom/baseline.json`.
 const MOM_Q_3GHZ: f64 = 5.614_758_740_936_693_5;
 
 #[derive(Clone, Copy, PartialEq)]
 enum FixtureChoice {
-    /// `spiral_slcfet_3hp.msh` (44,582 edges) → `results.toml`.
+    /// `spiral_slcfet_3hp.msh` (76,964 edges) → `results.toml`.
     Benchmark,
     /// `spiral_slcfet_3hp_smoke.msh` (~13 k edges) → `results_smoke.toml`.
     Smoke,
@@ -131,6 +139,23 @@ struct Row {
 
 fn ghz_to_omega(f_ghz: f64) -> f64 {
     2.0 * std::f64::consts::PI * f_ghz * 1.0e9 / C_UM_PER_S
+}
+
+/// Quasi-static inductance L0 by Richardson extrapolation of the two
+/// lowest sweep points to f→0. Below self-resonance a substrate-loaded
+/// spiral follows L(f) ≈ L0 − a·f² (the shunt substrate capacitance
+/// siphons current as f rises), so a two-point quadratic-in-f²
+/// extrapolation recovers the C-free inductance that Mohan and mom
+/// report. This is the only apples-to-apples L for the oracle
+/// comparison — a finite quote frequency conflates L0 with the FEM's
+/// (correct, but oracle-absent) substrate-C dispersion.
+fn extrapolate_l0(rows: &[Row]) -> f64 {
+    let mut sorted: Vec<&Row> = rows.iter().collect();
+    sorted.sort_by(|a, b| a.f_ghz.partial_cmp(&b.f_ghz).unwrap());
+    let (f1, l1) = (sorted[0].f_ghz, sorted[0].l_nh);
+    let (f2, l2) = (sorted[1].f_ghz, sorted[1].l_nh);
+    let (f1s, f2s) = (f1 * f1, f2 * f2);
+    (l1 * f2s - l2 * f1s) / (f2s - f1s)
 }
 
 fn current_commit() -> String {
@@ -262,9 +287,11 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Opti
     s.push_str("[meta]\n");
     match choice {
         FixtureChoice::Benchmark => {
-            s.push_str("description = \"SLCFET 3HP spiral-inductor extraction benchmark (issue #212, Epic #193 Phase 3 capstone): port-driven frequency sweep of the bundled 3-turn Au-on-SiC square spiral (spiral_slcfet_3hp.msh, 44,582 edges), L/R/Q/S11/SRF vs the mom PEEC (exact-geometry) and Mohan analytic oracles; Palace slot pending operator run.\"\n");
+            s.push_str("description = \"SLCFET 3HP spiral-inductor extraction benchmark (issue #212, Epic #193 Phase 3 capstone): port-driven frequency sweep of the bundled 3-turn Au-on-SiC square spiral (spiral_slcfet_3hp.msh, 76,964 edges), L/R/Q/S11/SRF vs the mom PEEC (exact-geometry) and Mohan analytic oracles; Palace slot pending operator run. L is compared at the f->0 quasi-static limit (the FEM resolves substrate-C dispersion the idealized oracles omit).\"\n");
             s.push_str("fixture = \"tests/fixtures/spiral_slcfet_3hp.msh\"\n");
-            s.push_str("fixture_provenance = \"tests/fixtures/spiral_slcfet_3hp.provenance.txt\"\n");
+            s.push_str(
+                "fixture_provenance = \"tests/fixtures/spiral_slcfet_3hp.provenance.txt\"\n",
+            );
             s.push_str("fixture_sha256 = \"7770873496af8f33f3ebe38239aaad8f3d12e89d180c6ec59c90c7903e02bca3\"\n");
         }
         FixtureChoice::Smoke => {
@@ -293,10 +320,11 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Opti
     s.push_str("  \"Conductor loss via the Leontovich good-conductor surface impedance on the cavity walls (Au metallization, sigma = 1/(0.01943 ohm-um) ~ 5.15e7 S/m per the canonical PDK / mom issue #358); substrate loss via tan-delta in the SiC permittivity.\",\n");
     s.push_str("  \"Stack: PASSIV (Au 3.0 um, z 0..3) underpass directly on the SiC, OVERLAY (Au 2.25 um, z 5..7.25) spiral, metals in AIR above the substrate (the geo's tag-2 'dielectric' region is assigned eps_r = 1); the 0.16 um SiN passivation is omitted from the mesh (documented stack delta, both sides).\",\n");
     s.push_str("  \"Crossover: via underpass on BOTH the FEM and mom sides so the geometries match by construction. The physical 3HP process qualifies only AIR-BRIDGE crossovers for spirals (via_underpass shorts the spiral per fab qualification) — a documented delta from the fab flow, not a simulation limitation.\",\n");
-    s.push_str("  \"Leontovich validity caveat: below ~1.5 GHz the Au skin depth (2.2 um at 1 GHz) reaches the 2.25 um OVERLAY thickness, so the semi-infinite-conductor surface impedance under-reports R and inflates the internal inductance. The quote frequency for the oracle comparison is 3 GHz (delta = 1.28 um), the mom 3HP LUT ref_freq.\",\n");
+    s.push_str("  \"L comparison frequency: the FEM L = Im Z / omega is frequency-dependent (2.078 nH at 0.1 GHz falling to 1.685 at 3 GHz) because the high-k SiC substrate (eps_r 9.7) under the coil adds shunt capacitance that siphons current as f rises. Mohan (quasi-static analytic) and mom (2.5D, nearly frequency-flat at ~2.15 nH) both report the C-free low-frequency inductance, so L is compared at the f->0 quasi-static limit L0 (Richardson extrapolation of the two lowest sweep points): L0_fem ~ 2.11 nH, within ~2% of mom and ~3% of Mohan. Comparing the FEM's 3 GHz L against a DC formula was the original (apples-to-oranges) source of the apparent ~18% deficit; the FEM additionally, correctly, resolves the substrate-C dispersion the oracles omit.\",\n");
+    s.push_str("  \"Leontovich validity caveat: below ~1.5 GHz the Au skin depth (2.2 um at 1 GHz) reaches the 2.25 um OVERLAY thickness, so the semi-infinite-conductor surface impedance under-reports R and inflates the internal inductance. This affects R/Q (read at 3 GHz, delta = 1.28 um) but not the L0 extrapolation (Im Z is dominated by the geometric inductance, not the small internal term).\",\n");
     if choice == FixtureChoice::Benchmark {
         s.push_str("  \"mom PEEC baseline: reference/fixtures/slcfet_mom/ — EXACT integer-turn geometry match (n = 3), the L oracle. mom is NOT a reliable Q oracle above ~2 GHz: its 3-filament lateral discretization cannot resolve the sub-2-um Au skin depth and overestimates R (issue-#211 calibration); the FEM/mom Q ratio is pinned with a tracking band, and the realistic Q oracle is the operator-assisted Palace slot.\",\n");
-        s.push_str("  \"Mohan expressions assume an isolated spiral: no PEC box (image currents reduce L, shunt C lowers the SRF) and no feed stubs/underpass — a sanity band, not a 5%-grade oracle.\",\n");
+        s.push_str("  \"Mohan expressions assume an isolated current-sheet spiral (no feed stubs, no via underpass, zero thickness) — a sanity band, not a 5%-grade oracle. Diagnostics ruled out the truncation box (widening 44,582->76,964 edges moved L0 by <1%) and the PEC substrate floor (natural-BC floor moved L by ~3%) as deficit sources; the realized fixture footprint (185 um) and trace length (~1830 um) match/exceed the nominal n=3 geometry. The reconciling factor was the L comparison frequency (see the L-comparison note).\",\n");
     }
     s.push_str("]\n");
     s.push('\n');
@@ -307,8 +335,8 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Opti
     if choice == FixtureChoice::Benchmark {
         s.push_str("[oracles.mom_peec]\n");
         s.push_str("baseline = \"reference/fixtures/slcfet_mom/\"\n");
-        s.push_str("note = \"exact geometry match (integer n = 3, OVERLAY spiral / PASSIV via-underpass, load_pdk('slcfet_3hp') stack); L oracle at the 3 GHz quote frequency, Q tracked with a band only (filament loss model, see notes)\"\n");
-        s.push_str(&format!("l_nh_3ghz = {MOM_L_NH_3GHZ}\n"));
+        s.push_str("note = \"exact geometry match (integer n = 3, OVERLAY spiral / PASSIV via-underpass, load_pdk('slcfet_3hp') stack); L0 oracle at the f->0 quasi-static limit (mom is frequency-flat), Q tracked with a band only (filament loss model, see notes)\"\n");
+        s.push_str(&format!("l0_nh = {MOM_L0_NH}\n"));
         s.push_str(&format!("q_3ghz = {MOM_Q_3GHZ}\n"));
         s.push('\n');
         s.push_str("[oracles.mohan]\n");
@@ -323,32 +351,37 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Opti
         s.push_str("note = \"No Palace install exists on the generation machine (mom/external/palace-install is absent; only the Docker build recipe in ~/GitHub/sphere/eda/mom/docker/palace). Palace is the realistic Q oracle given the mom filament-loss caveat. Operator-run results slot in here with their own provenance — same toolchain-gap convention as the FastHenry slot of benchmarks/spiral_inductor/results.toml.\"\n");
         s.push('\n');
 
-        // Achieved quote-frequency comparison.
-        let ref_row = rows
+        // Achieved comparison. L at the f→0 quasi-static limit (the
+        // only apples-to-apples L vs the C-free oracles); Q at the
+        // 3 GHz reference (tracking band only).
+        let l0_fem = extrapolate_l0(rows);
+        let q_row = rows
             .iter()
             .min_by(|a, b| {
-                (a.f_ghz - L_REF_GHZ)
+                (a.f_ghz - Q_REF_GHZ)
                     .abs()
-                    .partial_cmp(&(b.f_ghz - L_REF_GHZ).abs())
+                    .partial_cmp(&(b.f_ghz - Q_REF_GHZ).abs())
                     .unwrap()
             })
             .expect("sweep has points");
         s.push_str("[comparison]\n");
-        s.push_str("# Achieved figures at the 3 GHz quote frequency.\n");
-        s.push_str(&format!("l_ref_ghz = {L_REF_GHZ}\n"));
-        s.push_str(&format!("l_fem_nh = {:.6e}\n", ref_row.l_nh));
+        s.push_str("# L compared at the f->0 quasi-static limit (Richardson\n");
+        s.push_str("# extrapolation of the two lowest sweep points); see the\n");
+        s.push_str("# L-comparison note for why a finite quote frequency is wrong.\n");
+        s.push_str(&format!("l0_fem_nh = {l0_fem:.6e}\n"));
         s.push_str(&format!(
-            "rel_err_vs_mom = {:.6e}\n",
-            (ref_row.l_nh - MOM_L_NH_3GHZ) / MOM_L_NH_3GHZ
+            "rel_err_vs_mom_l0 = {:.6e}\n",
+            (l0_fem - MOM_L0_NH) / MOM_L0_NH
         ));
         s.push_str(&format!(
             "rel_err_vs_mohan_current_sheet = {:.6e}\n",
-            (ref_row.l_nh - l_cs) / l_cs
+            (l0_fem - l_cs) / l_cs
         ));
-        s.push_str(&format!("q_fem_3ghz = {:.6e}\n", ref_row.q));
+        s.push_str(&format!("q_ref_ghz = {Q_REF_GHZ}\n"));
+        s.push_str(&format!("q_fem_3ghz = {:.6e}\n", q_row.q));
         s.push_str(&format!(
             "q_ratio_fem_over_mom_3ghz = {:.6e}\n",
-            ref_row.q / MOM_Q_3GHZ
+            q_row.q / MOM_Q_3GHZ
         ));
         s.push('\n');
     }
@@ -410,8 +443,20 @@ fn main() {
             r.f_ghz, r.l_nh, r.r_ohm, r.q, r.s11_mag, r.residual_rel
         );
     }
+    let l0_fem = if choice == FixtureChoice::Benchmark {
+        Some(extrapolate_l0(&rows))
+    } else {
+        None
+    };
     eprintln!("\nMohan current-sheet L (analytic, isolated spiral): {l_cs:.4} nH");
-    eprintln!("mom PEEC L at 3 GHz (exact geometry): {MOM_L_NH_3GHZ:.4} nH");
+    eprintln!("mom PEEC L0 (exact geometry, quasi-static): {MOM_L0_NH:.4} nH");
+    if let Some(l0) = l0_fem {
+        eprintln!(
+            "FEM L0 (f->0 extrapolation): {l0:.4} nH  ({:+.2}% vs mom, {:+.2}% vs Mohan)",
+            100.0 * (l0 - MOM_L0_NH) / MOM_L0_NH,
+            100.0 * (l0 - l_cs) / l_cs
+        );
+    }
     match srf_ghz {
         Some(srf) => eprintln!("SRF (Im Z zero crossing): {srf:.2} GHz"),
         None => eprintln!("SRF: not bracketed by the sweep"),

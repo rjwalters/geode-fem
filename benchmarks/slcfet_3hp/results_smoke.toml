@@ -9,7 +9,7 @@
 description = "SLCFET 3HP spiral-inductor extraction smoke run (issue #212): same pipeline as results.toml on the coarse spiral_slcfet_3hp_smoke.msh fixture — pipeline check, not a benchmark."
 fixture = "tests/fixtures/spiral_slcfet_3hp_smoke.msh"
 fixture_provenance = "tests/fixtures/spiral_slcfet_3hp_smoke.provenance.txt"
-generated_at_commit = "c025197000041ca5b47991d33a64a21e2c44d3e9"
+generated_at_commit = "bf44aa9915b810f99b10c0d686923b68afb7e04c"
 port_resistance_ohm = 50
 process = "SLCFET_3HP"
 pdk_source = "pdk/slcfet/slcfet_3hp.pdk.yaml (sphere monorepo)"
@@ -23,7 +23,8 @@ notes = [
   "Conductor loss via the Leontovich good-conductor surface impedance on the cavity walls (Au metallization, sigma = 1/(0.01943 ohm-um) ~ 5.15e7 S/m per the canonical PDK / mom issue #358); substrate loss via tan-delta in the SiC permittivity.",
   "Stack: PASSIV (Au 3.0 um, z 0..3) underpass directly on the SiC, OVERLAY (Au 2.25 um, z 5..7.25) spiral, metals in AIR above the substrate (the geo's tag-2 'dielectric' region is assigned eps_r = 1); the 0.16 um SiN passivation is omitted from the mesh (documented stack delta, both sides).",
   "Crossover: via underpass on BOTH the FEM and mom sides so the geometries match by construction. The physical 3HP process qualifies only AIR-BRIDGE crossovers for spirals (via_underpass shorts the spiral per fab qualification) — a documented delta from the fab flow, not a simulation limitation.",
-  "Leontovich validity caveat: below ~1.5 GHz the Au skin depth (2.2 um at 1 GHz) reaches the 2.25 um OVERLAY thickness, so the semi-infinite-conductor surface impedance under-reports R and inflates the internal inductance. The quote frequency for the oracle comparison is 3 GHz (delta = 1.28 um), the mom 3HP LUT ref_freq.",
+  "L comparison frequency: the FEM L = Im Z / omega is frequency-dependent (2.078 nH at 0.1 GHz falling to 1.685 at 3 GHz) because the high-k SiC substrate (eps_r 9.7) under the coil adds shunt capacitance that siphons current as f rises. Mohan (quasi-static analytic) and mom (2.5D, nearly frequency-flat at ~2.15 nH) both report the C-free low-frequency inductance, so L is compared at the f->0 quasi-static limit L0 (Richardson extrapolation of the two lowest sweep points): L0_fem ~ 2.11 nH, within ~2% of mom and ~3% of Mohan. Comparing the FEM's 3 GHz L against a DC formula was the original (apples-to-oranges) source of the apparent ~18% deficit; the FEM additionally, correctly, resolves the substrate-C dispersion the oracles omit.",
+  "Leontovich validity caveat: below ~1.5 GHz the Au skin depth (2.2 um at 1 GHz) reaches the 2.25 um OVERLAY thickness, so the semi-infinite-conductor surface impedance under-reports R and inflates the internal inductance. This affects R/Q (read at 3 GHz, delta = 1.28 um) but not the L0 extrapolation (Im Z is dominated by the geometric inductance, not the small internal term).",
 ]
 
 [point_0]
