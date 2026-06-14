@@ -111,8 +111,7 @@ fn committed_matched_results() -> Committed {
     let path = repo_root().join("benchmarks/patch_antenna/results_matched.toml");
     let raw = fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read committed matched results {}: {e}", path.display()));
-    let doc: toml::Value =
-        toml::from_str(&raw).expect("results_matched.toml is valid TOML");
+    let doc: toml::Value = toml::from_str(&raw).expect("results_matched.toml is valid TOML");
 
     let meta = doc.get("meta").expect("[meta] table");
     let getf = |k: &str| meta.get(k).and_then(|v| v.as_float());
@@ -213,9 +212,7 @@ fn committed_matched_results_meet_acceptance_criteria() {
         .bw_10db_hi_ghz
         .expect("acceptance: matched sweep must bracket the upper -10 dB crossing");
     let bw = c.bw_10db_ghz.expect("meta.bw_10db_ghz");
-    let bw_frac = c
-        .bw_10db_fractional
-        .expect("meta.bw_10db_fractional");
+    let bw_frac = c.bw_10db_fractional.expect("meta.bw_10db_fractional");
     eprintln!(
         "-10 dB BW: {bw_lo:.4} - {bw_hi:.4} GHz = {bw:.4} GHz (frac {:.4} %)",
         100.0 * bw_frac
@@ -360,10 +357,7 @@ fn bandwidth_interpolator_brackets_neg10db_on_a_v_dip() {
 
 /// Run the matched-fixture pipeline at the given frequencies, returning
 /// `(f_ghz, Z_ohm, |S11|, efficiency, residual_rel)` per point.
-fn sweep_matched(
-    fixture: &PatchFixture,
-    freqs_ghz: &[f64],
-) -> Vec<(f64, c64, f64, f64, f64)> {
+fn sweep_matched(fixture: &PatchFixture, freqs_ghz: &[f64]) -> Vec<(f64, c64, f64, f64, f64)> {
     use burn::tensor::backend::BackendTypes;
     type B = DefaultBackend;
     let device = <B as BackendTypes>::Device::default();

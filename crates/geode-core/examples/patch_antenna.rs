@@ -446,7 +446,9 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: f6
         FixtureChoice::Matched => {
             s.push_str("description = \"Patch-antenna impedance-matched return-loss benchmark (issue #237, Epic #226 follow-up): same pipeline as results.toml on the tuned patch_2g4_matched.msh fixture (coax-probe inset 8.0 -> 7.0 mm), with a refined 21-point sweep so the -10 dB return-loss bandwidth is bracketed by interior points.\"\n");
             s.push_str("fixture = \"tests/fixtures/patch_2g4_matched.msh\"\n");
-            s.push_str("fixture_provenance = \"tests/fixtures/patch_2g4_matched.provenance.txt\"\n");
+            s.push_str(
+                "fixture_provenance = \"tests/fixtures/patch_2g4_matched.provenance.txt\"\n",
+            );
         }
     }
     s.push_str(&format!(
