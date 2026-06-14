@@ -68,8 +68,9 @@ use geode_core::mesh::patch::FR4_MATERIALS;
 use geode_core::{
     broadside_directivity, directivity, driven_solve_with_ports, flux_power_box, gain,
     im_z_zero_crossings, ntff_far_field, pec_interior_mask_from_triangles, port_current,
-    port_voltage, principal_plane_cuts, read_patch_fixture, read_patch_smoke_fixture, s11, to_db,
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, PatchCavity, PatchFixture,
+    port_voltage, principal_plane_cuts, read_patch_fixture, read_patch_matched_fixture,
+    read_patch_smoke_fixture, s11, to_db, CurrentSource, DefaultBackend, DrivenBcs,
+    DrivenMaterials, PatchCavity, PatchFixture,
 };
 
 /// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.
@@ -123,12 +124,24 @@ const FREQS_GHZ: [f64; 13] = [
 /// check, not a benchmark (the smoke geometry differs).
 const FREQS_GHZ_SMOKE: [f64; 3] = [2.2, 2.4, 2.6];
 
+/// Matched-fixture sweep (GHz, issue #237): refined 21-point grid
+/// (2.15 → 2.35 GHz, 10 MHz step) around the empirically located TM010
+/// resonance so the deeper -10 dB S11 dip is well-resolved and the
+/// upper / lower -10 dB crossings of the bandwidth are bracketed by
+/// interior points (10 MHz ≪ the 2 % loss-limited fractional BW).
+const FREQS_GHZ_MATCHED: [f64; 21] = [
+    2.15, 2.16, 2.17, 2.18, 2.19, 2.20, 2.21, 2.22, 2.23, 2.24, 2.25, 2.26, 2.27, 2.28, 2.29, 2.30,
+    2.31, 2.32, 2.33, 2.34, 2.35,
+];
+
 #[derive(Clone, Copy, PartialEq)]
 enum FixtureChoice {
     /// `patch_2g4.msh` (~30.6 k edges) → `results.toml`.
     Benchmark,
     /// `patch_2g4_smoke.msh` (~6.2 k edges) → `results_smoke.toml`.
     Smoke,
+    /// `patch_2g4_matched.msh` (~31 k edges, issue #237) → `results_matched.toml`.
+    Matched,
 }
 
 struct Row {
@@ -148,7 +161,7 @@ fn ghz_to_omega(f_ghz: f64) -> f64 {
 
 fn pml_thick_for(choice: FixtureChoice) -> f64 {
     match choice {
-        FixtureChoice::Benchmark => PML_THICK_BENCH_MM,
+        FixtureChoice::Benchmark | FixtureChoice::Matched => PML_THICK_BENCH_MM,
         FixtureChoice::Smoke => PML_THICK_SMOKE_MM,
     }
 }
@@ -172,6 +185,7 @@ fn fixture_sha256(choice: FixtureChoice) -> String {
     let rel = match choice {
         FixtureChoice::Benchmark => "tests/fixtures/patch_2g4.msh",
         FixtureChoice::Smoke => "tests/fixtures/patch_2g4_smoke.msh",
+        FixtureChoice::Matched => "tests/fixtures/patch_2g4_matched.msh",
     };
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(rel);
     let bytes = match fs::read(&path) {
@@ -205,6 +219,7 @@ fn results_path(choice: FixtureChoice) -> PathBuf {
     let file = match choice {
         FixtureChoice::Benchmark => "results.toml",
         FixtureChoice::Smoke => "results_smoke.toml",
+        FixtureChoice::Matched => "results_matched.toml",
     };
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -409,6 +424,7 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: f6
     match choice {
         FixtureChoice::Benchmark => s.push_str("#   --example patch_antenna`.\n"),
         FixtureChoice::Smoke => s.push_str("#   --example patch_antenna -- smoke`.\n"),
+        FixtureChoice::Matched => s.push_str("#   --example patch_antenna -- matched`.\n"),
     }
     s.push_str("# Do NOT edit by hand — regenerate after any intentional change.\n");
     s.push_str("# Consumed by `tests/patch_antenna_benchmark.rs` and compared\n");
@@ -426,6 +442,11 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: f6
             s.push_str("description = \"Patch-antenna smoke run (issue #228): same pipeline as results.toml on the coarse patch_2g4_smoke.msh fixture — pipeline check, not a benchmark.\"\n");
             s.push_str("fixture = \"tests/fixtures/patch_2g4_smoke.msh\"\n");
             s.push_str("fixture_provenance = \"tests/fixtures/patch_2g4_smoke.provenance.txt\"\n");
+        }
+        FixtureChoice::Matched => {
+            s.push_str("description = \"Patch-antenna impedance-matched return-loss benchmark (issue #237, Epic #226 follow-up): same pipeline as results.toml on the tuned patch_2g4_matched.msh fixture (coax-probe inset 8.0 -> 7.0 mm), with a refined 21-point sweep so the -10 dB return-loss bandwidth is bracketed by interior points.\"\n");
+            s.push_str("fixture = \"tests/fixtures/patch_2g4_matched.msh\"\n");
+            s.push_str("fixture_provenance = \"tests/fixtures/patch_2g4_matched.provenance.txt\"\n");
         }
     }
     s.push_str(&format!(
@@ -666,6 +687,7 @@ fn write_pattern_toml(
     let file = match choice {
         FixtureChoice::Benchmark => "pattern.toml",
         FixtureChoice::Smoke => "pattern_smoke.toml",
+        FixtureChoice::Matched => "pattern_matched.toml",
     };
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -680,6 +702,7 @@ fn write_pattern_toml(
     match choice {
         FixtureChoice::Benchmark => s.push_str("#   --example patch_antenna -- pattern`.\n"),
         FixtureChoice::Smoke => s.push_str("#   --example patch_antenna -- pattern-smoke`.\n"),
+        FixtureChoice::Matched => s.push_str("#   --example patch_antenna -- pattern-matched`.\n"),
     }
     s.push_str("# Do NOT edit by hand — regenerate after any intentional change.\n");
     s.push_str("# Patch radiation pattern / directivity / gain (issue #229,\n");
@@ -695,6 +718,9 @@ fn write_pattern_toml(
         }
         FixtureChoice::Smoke => {
             s.push_str("fixture = \"tests/fixtures/patch_2g4_smoke.msh\"\n");
+        }
+        FixtureChoice::Matched => {
+            s.push_str("fixture = \"tests/fixtures/patch_2g4_matched.msh\"\n");
         }
     }
     s.push_str(&format!("generated_at_commit = \"{commit}\"\n"));
@@ -793,9 +819,10 @@ fn main() {
     let choice = match arg.as_deref() {
         None => FixtureChoice::Benchmark,
         Some("smoke") => FixtureChoice::Smoke,
+        Some("matched") => FixtureChoice::Matched,
         Some(other) => {
             eprintln!(
-                "unknown argument {other:?} — expected `smoke`, `pattern`, `pattern-smoke`, or no argument"
+                "unknown argument {other:?} — expected `smoke`, `matched`, `pattern`, `pattern-smoke`, or no argument"
             );
             std::process::exit(2);
         }
@@ -808,6 +835,10 @@ fn main() {
         FixtureChoice::Smoke => (
             read_patch_smoke_fixture().expect("bundled smoke patch fixture"),
             &FREQS_GHZ_SMOKE,
+        ),
+        FixtureChoice::Matched => (
+            read_patch_matched_fixture().expect("bundled matched patch fixture"),
+            &FREQS_GHZ_MATCHED,
         ),
     };
     let pml_thick = pml_thick_for(choice);

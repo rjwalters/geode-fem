@@ -1,13 +1,16 @@
 //! Patch-antenna mesh fixture + tag-adapter regressions (Epic #226
 //! Phase 1, issue #227).
 //!
-//! Two bundled fixtures share the physical-group convention of
+//! Three bundled fixtures share the physical-group convention of
 //! `reference/gmsh/patch_antenna.geo`:
 //!
 //! - **benchmark** (`patch_2g4.msh`, ~30 k edges) — the 2.4 GHz FR-4
-//!   patch antenna for the Phase 2 S11 benchmark;
+//!   patch antenna for the Phase 2 S11 benchmark (probe inset 8 mm);
 //! - **smoke** (`patch_2g4_smoke.msh`, ~6 k edges) — same topology,
-//!   shrunken + coarser, used for the fast end-to-end solve.
+//!   shrunken + coarser, used for the fast end-to-end solve;
+//! - **matched** (`patch_2g4_matched.msh`, ~31 k edges, issue #237) —
+//!   same as the benchmark fixture but with the coax probe inset
+//!   tuned (8.0 → 7.0 mm) for a real 50 Ω match.
 //!
 //! Coverage:
 //!
@@ -29,7 +32,9 @@ use std::collections::BTreeSet;
 use geode_core::mesh::patch::{
     PHYS_AIR, PHYS_GROUND, PHYS_OUTER_BOUNDARY, PHYS_PATCH, PHYS_PORT, PHYS_SUBSTRATE, PHYS_UPML,
 };
-use geode_core::{read_patch_fixture, read_patch_smoke_fixture, PatchFixture};
+use geode_core::{
+    read_patch_fixture, read_patch_matched_fixture, read_patch_smoke_fixture, PatchFixture,
+};
 
 /// All seven expected physical groups: `(dim, tag, name)`.
 const EXPECTED_GROUPS: &[(i32, i32, &str)] = &[
@@ -51,6 +56,10 @@ fn fixtures() -> Vec<(&'static str, PatchFixture)> {
         (
             "smoke",
             read_patch_smoke_fixture().expect("bundled smoke patch fixture"),
+        ),
+        (
+            "matched",
+            read_patch_matched_fixture().expect("bundled matched patch fixture"),
         ),
     ]
 }
