@@ -45,6 +45,18 @@
 //! ```sh
 //! cargo run -p geode-core --release --example patch_antenna -- smoke
 //! ```
+//!
+//! Passing `pattern` runs the near-to-far-field transform
+//! (`geode_core::ntff`, issue #229 Phase 3) on the driven near field at
+//! the Phase-2 resonant frequency and writes
+//! `benchmarks/patch_antenna/pattern.toml` — broadside directivity,
+//! gain `G = D·η`, and E-/H-plane principal-plane cuts cross-checked
+//! against the Balanis cavity-model two-slot directivity oracle.
+//! `pattern-smoke` does the same on the coarse fixture (pipeline check).
+//!
+//! ```sh
+//! cargo run -p geode-core --release --example patch_antenna -- pattern
+//! ```
 
 use std::fs;
 use std::path::PathBuf;
@@ -54,9 +66,10 @@ use faer::c64;
 
 use geode_core::mesh::patch::FR4_MATERIALS;
 use geode_core::{
-    driven_solve_with_ports, flux_power_box, im_z_zero_crossings, pec_interior_mask_from_triangles,
-    port_current, port_voltage, read_patch_fixture, read_patch_smoke_fixture, s11, CurrentSource,
-    DefaultBackend, DrivenBcs, DrivenMaterials, PatchCavity, PatchFixture,
+    broadside_directivity, directivity, driven_solve_with_ports, flux_power_box, gain,
+    im_z_zero_crossings, ntff_far_field, pec_interior_mask_from_triangles, port_current,
+    port_voltage, principal_plane_cuts, read_patch_fixture, read_patch_smoke_fixture, s11, to_db,
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, PatchCavity, PatchFixture,
 };
 
 /// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.
@@ -530,12 +543,260 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: f6
     eprintln!("wrote {}", path.display());
 }
 
+/// `(θ, φ)` grid for the patch far-field extraction. A 1° polar step
+/// resolves the main lobe and nulls; 5° in azimuth is ample for the
+/// principal-plane cuts.
+const PATTERN_N_THETA: usize = 91; // 0..π in 2° steps
+const PATTERN_N_PHI: usize = 72; // 0..2π in 5° steps
+
+/// Re-solve the patch at its resonant frequency and run the near-to-
+/// far-field transform (issue #229, Epic #226 Phase 3): far-field
+/// `E(θ,φ)` → broadside directivity, gain `G = D·η`, and E-/H-plane
+/// principal-plane cuts. Writes `benchmarks/patch_antenna/pattern.toml`.
+fn extract_pattern(fixture: &PatchFixture, f_res_ghz: f64, pml_thick: f64, choice: FixtureChoice) {
+    use burn::tensor::backend::BackendTypes;
+    type B = DefaultBackend;
+    let device = <B as BackendTypes>::Device::default();
+
+    let edges = fixture.mesh.edges();
+    let patch = fixture.patch_triangles();
+    let ground = fixture.ground_triangles();
+    let outer = fixture.outer_boundary_triangles();
+    let mask = pec_interior_mask_from_triangles(
+        &edges,
+        &[patch.as_slice(), ground.as_slice(), outer.as_slice()],
+    );
+
+    let port = fixture.port();
+    let r_nat = R_PORT_OHM / ETA_0;
+    let lp = port.lumped_port(r_nat, c64::new(1.0, 0.0));
+    let source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; fixture.mesh.n_tets()],
+    };
+
+    let (air_lo, air_hi) = fixture.air_box(pml_thick);
+    let center: [f64; 3] = std::array::from_fn(|k| 0.5 * (air_lo[k] + air_hi[k]));
+    let half: [f64; 3] = std::array::from_fn(|k| 0.5 * (air_hi[k] - air_lo[k]));
+    let flux_lo: [f64; 3] = std::array::from_fn(|k| center[k] - (1.0 - FLUX_SHRINK) * half[k]);
+    let flux_hi: [f64; 3] = std::array::from_fn(|k| center[k] + (1.0 - FLUX_SHRINK) * half[k]);
+
+    let omega = ghz_to_omega(f_res_ghz);
+    let (eps_t, nu_t) =
+        fixture.matched_upml_materials(&FR4_MATERIALS, air_lo, air_hi, pml_thick, SIGMA_0, omega);
+    eprintln!("NTFF extraction at f_res = {f_res_ghz:.4} GHz (omega = {omega:.5e} rad/mm)");
+    let sol = driven_solve_with_ports::<B>(
+        &fixture.mesh,
+        DrivenMaterials::MatchedUpml {
+            epsilon_tensor: &eps_t,
+            nu_tensor: &nu_t,
+        },
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        std::slice::from_ref(&lp),
+        omega,
+        &source,
+        &device,
+    )
+    .expect("patch driven solve for NTFF");
+
+    let v = port_voltage(&fixture.mesh, &lp, &edges, &sol.e_edges);
+    let i = port_current(&lp, v);
+    let p_in = 0.5 * (v * i.conj()).re;
+    let p_rad = flux_power_box(&fixture.mesh, omega, &sol.e_edges, flux_lo, flux_hi);
+    let eta = if p_in != 0.0 { p_rad / p_in } else { 0.0 };
+
+    let ff = ntff_far_field(
+        &fixture.mesh,
+        omega,
+        &sol.e_edges,
+        flux_lo,
+        flux_hi,
+        PATTERN_N_THETA,
+        PATTERN_N_PHI,
+    );
+    let (d_max, _d_grid) = directivity(&ff);
+    let d_broadside = broadside_directivity(&ff);
+    let g_broadside = gain(d_broadside, eta);
+    let (e_plane, h_plane) = principal_plane_cuts(&ff);
+
+    let cavity = FIXTURE_PATCH;
+    let d_cavity = cavity.broadside_directivity(cavity.resonant_wavelength());
+
+    eprintln!(
+        "  eta = {eta:.4}, D_max = {d_max:.3} ({:.2} dBi), D_broadside = {d_broadside:.3} ({:.2} dBi)",
+        to_db(d_max),
+        to_db(d_broadside),
+    );
+    eprintln!(
+        "  G_broadside = {g_broadside:.3} ({:.2} dBi); cavity-model D = {d_cavity:.3} ({:.2} dBi), delta = {:.2} dB",
+        to_db(g_broadside),
+        to_db(d_cavity),
+        to_db(d_broadside) - to_db(d_cavity),
+    );
+
+    write_pattern_toml(
+        choice,
+        f_res_ghz,
+        omega,
+        eta,
+        d_max,
+        d_broadside,
+        g_broadside,
+        d_cavity,
+        &e_plane,
+        &h_plane,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_pattern_toml(
+    choice: FixtureChoice,
+    f_res_ghz: f64,
+    omega: f64,
+    eta: f64,
+    d_max: f64,
+    d_broadside: f64,
+    g_broadside: f64,
+    d_cavity: f64,
+    e_plane: &geode_core::PatternCut,
+    h_plane: &geode_core::PatternCut,
+) {
+    let file = match choice {
+        FixtureChoice::Benchmark => "pattern.toml",
+        FixtureChoice::Smoke => "pattern_smoke.toml",
+    };
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("benchmarks")
+        .join("patch_antenna")
+        .join(file);
+
+    let commit = current_commit();
+    let mut s = String::new();
+    s.push_str("# Auto-generated by `cargo run -p geode-core --release \\\n");
+    match choice {
+        FixtureChoice::Benchmark => s.push_str("#   --example patch_antenna -- pattern`.\n"),
+        FixtureChoice::Smoke => s.push_str("#   --example patch_antenna -- pattern-smoke`.\n"),
+    }
+    s.push_str("# Do NOT edit by hand — regenerate after any intentional change.\n");
+    s.push_str("# Patch radiation pattern / directivity / gain (issue #229,\n");
+    s.push_str("# Epic #226 Phase 3) from the near-to-far-field transform\n");
+    s.push_str("# (geode_core::ntff) of the driven near field at resonance.\n");
+    s.push('\n');
+
+    s.push_str("[meta]\n");
+    s.push_str("description = \"Patch-antenna far-field radiation pattern, broadside directivity, and gain (issue #229, Epic #226 Phase 3): Love surface-equivalence NTFF (geode_core::ntff) of the driven near field on the Huygens box just inside the matched box-UPML, at the Phase-2 resonant frequency. Cross-checked against the Balanis cavity-model two-slot directivity (geode_core::patch_cavity).\"\n");
+    match choice {
+        FixtureChoice::Benchmark => {
+            s.push_str("fixture = \"tests/fixtures/patch_2g4.msh\"\n");
+        }
+        FixtureChoice::Smoke => {
+            s.push_str("fixture = \"tests/fixtures/patch_2g4_smoke.msh\"\n");
+        }
+    }
+    s.push_str(&format!("generated_at_commit = \"{commit}\"\n"));
+    s.push_str(&format!("f_res_ghz = {f_res_ghz:.6e}\n"));
+    s.push_str(&format!("omega_natural = {omega:.6e}\n"));
+    s.push_str(&format!("n_theta = {PATTERN_N_THETA}\n"));
+    s.push_str(&format!("n_phi = {PATTERN_N_PHI}\n"));
+    s.push_str("notes = [\n");
+    s.push_str("  \"E(theta,phi) from Love surface equivalence J_s = n x H, M_s = -n x E on the closed Huygens box (same surface as flux_power_box), radiation vectors N/L with e^{+jk r-hat . r'} (exp(+jwt) outgoing e^{-jkr} convention), E_theta = -(L_phi + N_theta), E_phi = (L_theta - N_phi), eta_0 = 1 natural units.\",\n");
+    s.push_str("  \"directivity D = 4 pi |E|^2_max / closed-surface integral of |E|^2 dOmega (trapezoid in theta with sin-theta weight, rectangle in phi). broadside = +z (theta = 0). gain G = D_broadside . eta_rad with eta from Phase 2.\",\n");
+    s.push_str("  \"NTFF transform validated independently on an analytic short dipole (geode_core::ntff unit tests: recovered D = 1.50, sin-theta pattern, translation/phase-sign invariance) before application to the patch.\",\n");
+    s.push_str("]\n");
+    s.push('\n');
+
+    s.push_str("[results]\n");
+    s.push_str(&format!("efficiency = {eta:.6e}\n"));
+    s.push_str(&format!("directivity_max = {d_max:.6e}\n"));
+    s.push_str(&format!("directivity_max_dbi = {:.6e}\n", to_db(d_max)));
+    s.push_str(&format!("directivity_broadside = {d_broadside:.6e}\n"));
+    s.push_str(&format!(
+        "directivity_broadside_dbi = {:.6e}\n",
+        to_db(d_broadside)
+    ));
+    s.push_str(&format!("gain_broadside = {g_broadside:.6e}\n"));
+    s.push_str(&format!(
+        "gain_broadside_dbi = {:.6e}\n",
+        to_db(g_broadside)
+    ));
+    s.push('\n');
+
+    s.push_str("[oracles.cavity_model]\n");
+    s.push_str("# geode_core::PatchCavity::broadside_directivity (Balanis 4e two-slot model).\n");
+    s.push_str(&format!("directivity_broadside = {d_cavity:.6e}\n"));
+    s.push_str(&format!(
+        "directivity_broadside_dbi = {:.6e}\n",
+        to_db(d_cavity)
+    ));
+    s.push_str(&format!(
+        "directivity_delta_db = {:.6e}\n",
+        to_db(d_broadside) - to_db(d_cavity)
+    ));
+    s.push('\n');
+
+    // Principal-plane cuts: theta (deg) vs normalized |E|.
+    let push_cut = |s: &mut String, name: &str, cut: &geode_core::PatternCut| {
+        s.push_str(&format!("[cut.{name}]\n"));
+        s.push_str("# theta in degrees (0 = broadside +z); e_norm = |E| normalized to lobe max.\n");
+        let theta_deg: Vec<String> = cut
+            .theta
+            .iter()
+            .map(|t| format!("{:.4e}", t.to_degrees()))
+            .collect();
+        let e_norm: Vec<String> = cut.e_norm.iter().map(|e| format!("{e:.4e}")).collect();
+        s.push_str(&format!("theta_deg = [{}]\n", theta_deg.join(", ")));
+        s.push_str(&format!("e_norm = [{}]\n", e_norm.join(", ")));
+        s.push('\n');
+    };
+    push_cut(&mut s, "e_plane", e_plane);
+    push_cut(&mut s, "h_plane", h_plane);
+
+    fs::create_dir_all(path.parent().expect("pattern parent")).expect("mkdir");
+    fs::write(&path, s).expect("write patch_antenna pattern TOML");
+    eprintln!("wrote {}", path.display());
+}
+
 fn main() {
-    let choice = match std::env::args().nth(1).as_deref() {
+    let arg = std::env::args().nth(1);
+    // `pattern` / `pattern-smoke` run the NTFF radiation-pattern
+    // extraction instead of the S11 sweep.
+    match arg.as_deref() {
+        Some("pattern") => {
+            let fixture = read_patch_fixture().expect("bundled benchmark patch fixture");
+            // The Phase-2 committed FEM resonance.
+            let f_res_ghz = 2.274530;
+            extract_pattern(
+                &fixture,
+                f_res_ghz,
+                pml_thick_for(FixtureChoice::Benchmark),
+                FixtureChoice::Benchmark,
+            );
+            return;
+        }
+        Some("pattern-smoke") => {
+            let fixture = read_patch_smoke_fixture().expect("bundled smoke patch fixture");
+            extract_pattern(
+                &fixture,
+                2.4,
+                pml_thick_for(FixtureChoice::Smoke),
+                FixtureChoice::Smoke,
+            );
+            return;
+        }
+        _ => {}
+    }
+
+    let choice = match arg.as_deref() {
         None => FixtureChoice::Benchmark,
         Some("smoke") => FixtureChoice::Smoke,
         Some(other) => {
-            eprintln!("unknown argument {other:?} — expected `smoke` or no argument");
+            eprintln!(
+                "unknown argument {other:?} — expected `smoke`, `pattern`, `pattern-smoke`, or no argument"
+            );
             std::process::exit(2);
         }
     };
