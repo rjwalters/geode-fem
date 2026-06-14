@@ -128,6 +128,13 @@ const PATCH_MSH: &[u8] = include_bytes!("../../tests/fixtures/patch_2g4.msh");
 /// Raw bytes of the bundled coarse smoke-test patch fixture.
 const PATCH_SMOKE_MSH: &[u8] = include_bytes!("../../tests/fixtures/patch_2g4_smoke.msh");
 
+/// Raw bytes of the **impedance-matched** patch fixture (issue #237):
+/// identical to `patch_2g4.msh` except the coax-probe inset is moved
+/// from 8 mm to 7 mm so the driven port reaches |S11| <= -10 dB at the
+/// TM010 resonance and the -10 dB return-loss fractional bandwidth is
+/// bracketable.
+const PATCH_MATCHED_MSH: &[u8] = include_bytes!("../../tests/fixtures/patch_2g4_matched.msh");
+
 /// Loaded patch-antenna mesh fixture: volume mesh plus per-element
 /// region/surface tags (same shape as [`super::SpiralFixture`]).
 #[derive(Clone, Debug)]
@@ -436,6 +443,22 @@ pub fn read_patch_fixture() -> Result<PatchFixture, MeshError> {
 /// in default CI.
 pub fn read_patch_smoke_fixture() -> Result<PatchFixture, MeshError> {
     read_patch_fixture_from_bytes(PATCH_SMOKE_MSH)
+}
+
+/// Load the bundled **impedance-matched** patch-antenna fixture
+/// (`patch_2g4_matched.msh`, ~31 k edges — generated from
+/// `reference/gmsh/patch_2g4_matched.yaml`, issue #237).
+///
+/// Identical topology, materials and physical-group convention as the
+/// Phase-2 benchmark fixture ([`read_patch_fixture`]); the only change
+/// is the coax-probe inset (8.0 mm → 7.0 mm), which moves the port
+/// reference up the patch input-resistance taper so the driven sweep
+/// reaches |S11| <= -10 dB at the TM010 resonance (the Phase-2 fixture
+/// stops at ~-6 dB). The Phase-2 fixture is retained because the
+/// Phase-3 NTFF / radiation-pattern artifact (`pattern.toml`) is keyed
+/// to it.
+pub fn read_patch_matched_fixture() -> Result<PatchFixture, MeshError> {
+    read_patch_fixture_from_bytes(PATCH_MATCHED_MSH)
 }
 
 /// Load a patch-antenna fixture from arbitrary MSH 4.1 ASCII bytes

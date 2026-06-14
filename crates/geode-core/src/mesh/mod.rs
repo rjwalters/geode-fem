@@ -35,8 +35,8 @@ pub use spiral::{
 // `mesh::patch` — like the spiral, several names (e.g.
 // `PHYS_OUTER_BOUNDARY`) would collide with the sphere re-exports above.
 pub use patch::{
-    read_patch_fixture, read_patch_fixture_from_bytes, read_patch_smoke_fixture, PatchFixture,
-    PatchMaterials, PatchPort, FR4_MATERIALS,
+    read_patch_fixture, read_patch_fixture_from_bytes, read_patch_matched_fixture,
+    read_patch_smoke_fixture, PatchFixture, PatchMaterials, PatchPort, FR4_MATERIALS,
 };
 
 /// CPU-side tetrahedral mesh produced by a `MeshReader`.

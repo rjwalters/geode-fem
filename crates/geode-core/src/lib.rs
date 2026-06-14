@@ -66,9 +66,9 @@ pub use lumped_port::{
 pub use mesh::PHYS_VACUUM_BUFFER;
 pub use mesh::{
     cube_tet_mesh, pec_interior_mask_from_triangles, read_patch_fixture,
-    read_patch_fixture_from_bytes, read_patch_smoke_fixture, read_sphere_fine_fixture,
-    read_sphere_fixture, read_sphere_fixture_from_bytes, read_spiral_fixture,
-    read_spiral_fixture_from_bytes, read_spiral_slcfet_3hp_fixture,
+    read_patch_fixture_from_bytes, read_patch_matched_fixture, read_patch_smoke_fixture,
+    read_sphere_fine_fixture, read_sphere_fixture, read_sphere_fixture_from_bytes,
+    read_spiral_fixture, read_spiral_fixture_from_bytes, read_spiral_slcfet_3hp_fixture,
     read_spiral_slcfet_3hp_smoke_fixture, read_spiral_smoke_fixture, GmshReader, MeshError,
     MeshReader, PatchFixture, PatchMaterials, PatchPort, SphereFixture, SpiralFixture,
     SpiralMaterials, SpiralPort, TetMesh, FR4_MATERIALS, GENERIC_MATERIALS, PHYS_OUTER_BOUNDARY,
