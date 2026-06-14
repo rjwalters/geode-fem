@@ -23,6 +23,7 @@ pub mod mohan;
 pub mod nedelec;
 pub mod nedelec_assembly;
 pub mod p1;
+pub mod patch_cavity;
 pub mod scattering;
 pub mod silvermuller;
 pub mod silvermuller_self_consistent;
@@ -109,9 +110,10 @@ pub use nedelec_assembly::{
     NedelecSparseComplexSystem, NedelecSparseFullTensorSystem, DERHAM_RANK_THRESHOLD_REL,
 };
 pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
+pub use patch_cavity::PatchCavity;
 pub use scattering::{
-    build_matched_upml_materials, extinction_power, mie_polarization_source, plane_wave_e_inc,
-    plane_wave_polarization_current, q_from_power, scattered_flux_power,
+    build_matched_upml_materials, extinction_power, flux_power_box, mie_polarization_source,
+    plane_wave_e_inc, plane_wave_polarization_current, q_from_power, scattered_flux_power,
     solve_scattered_field_matched_upml, upml_matched_tensors,
 };
 pub use silvermuller::{

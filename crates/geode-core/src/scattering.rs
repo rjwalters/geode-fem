@@ -427,6 +427,133 @@ pub fn scattered_flux_power(mesh: &TetMesh, omega: f64, e_edges: &[c64], r_obs: 
     p_flux
 }
 
+/// Radiated power via direct Poynting-flux integration of
+/// `½ Re(E × H*) · n̂` over the closed polyhedral surface bounding the
+/// union of tets whose **centroid lies inside the Cartesian box**
+/// `box_lo ≤ centroid ≤ box_hi`.
+///
+/// This is the box-surface sibling of [`scattered_flux_power`]: it
+/// reuses the identical `(1/2ω)·Im[(E × (∇×E)*) · n̂]` face quadrature
+/// (lowest-order Nédélec: `E` piecewise linear, `∇×E` piecewise
+/// constant, so face-centroid quadrature is exact), but selects the
+/// enclosed set by an **axis-aligned box** rather than a sphere of
+/// radius `r_obs`. The spherical selector
+/// ([`scattered_flux_power`]) is centered on the origin and cannot
+/// enclose an **offset Cartesian radiator** (a patch antenna with its
+/// ground plane at `z ≈ 0` and a box-shaped air domain) while staying
+/// inside the box-shaped UPML — hence this variant.
+///
+/// `box_lo` / `box_hi` should anchor the surface just **inside** the
+/// matched (box) UPML shell but **outside** the whole radiating
+/// structure — e.g. [`crate::mesh::patch::PatchFixture::air_box`]
+/// shrunk slightly inward, so the integration surface lies in the
+/// lossless air gap and encloses the entire patch + ground + feed.
+///
+/// Fields are taken from the *inside* tet of each surface face, with
+/// the outward normal oriented away from the enclosed region (same
+/// convention as [`scattered_flux_power`]).
+///
+/// # Panics
+///
+/// Panics if no tet centroid lies inside the box, if every centroid
+/// lies inside (empty surface), or if `e_edges.len()` does not match
+/// the mesh edge count.
+pub fn flux_power_box(
+    mesh: &TetMesh,
+    omega: f64,
+    e_edges: &[c64],
+    box_lo: [f64; 3],
+    box_hi: [f64; 3],
+) -> f64 {
+    use std::collections::HashMap;
+
+    let edges = mesh.edges();
+    assert_eq!(e_edges.len(), edges.len(), "one DOF per global edge");
+    let tet_edges = mesh.tet_edges();
+    let centroids = crate::nedelec_assembly::tet_centroids(mesh);
+
+    let in_box = |c: &[f64; 3]| (0..3).all(|k| c[k] >= box_lo[k] && c[k] <= box_hi[k]);
+    let inside: Vec<bool> = centroids.iter().map(in_box).collect();
+    assert!(
+        inside.iter().any(|&b| b),
+        "no tets with centroid inside the box [{box_lo:?}, {box_hi:?}]"
+    );
+    assert!(
+        inside.iter().any(|&b| !b),
+        "all tets inside the box [{box_lo:?}, {box_hi:?}]; surface is empty"
+    );
+
+    // Face key (sorted vertex triple) → (#inside adjacent, #total).
+    let mut face_count: HashMap<(u32, u32, u32), (u8, u8)> = HashMap::new();
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        for lf in &TET_LOCAL_FACES {
+            let mut tri = [tet[lf[0]], tet[lf[1]], tet[lf[2]]];
+            tri.sort_unstable();
+            let entry = face_count.entry((tri[0], tri[1], tri[2])).or_insert((0, 0));
+            if inside[t] {
+                entry.0 += 1;
+            }
+            entry.1 += 1;
+        }
+    }
+
+    let mut p_flux = 0.0_f64;
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        if !inside[t] {
+            continue;
+        }
+        let geom = tet_geometry(mesh, tet);
+        let dofs = local_dofs(&tet_edges[t], e_edges);
+        let curl = eval_curl(&geom, &dofs);
+
+        for (local_face, lf) in TET_LOCAL_FACES.iter().enumerate() {
+            let mut tri = [tet[lf[0]], tet[lf[1]], tet[lf[2]]];
+            tri.sort_unstable();
+            let &(n_inside_adj, _n_total) = face_count
+                .get(&(tri[0], tri[1], tri[2]))
+                .expect("face derived from tet must be counted");
+            // A surface face has exactly one inside-tet neighbor.
+            if n_inside_adj != 1 {
+                continue;
+            }
+
+            let p0 = mesh.nodes[tet[lf[0]] as usize];
+            let p1 = mesh.nodes[tet[lf[1]] as usize];
+            let p2 = mesh.nodes[tet[lf[2]] as usize];
+            let mut normal = cross(sub(p1, p0), sub(p2, p0));
+            let area = 0.5 * dot(normal, normal).sqrt();
+            // Orient outward: away from the opposite vertex.
+            let opposite = geom.verts[local_face];
+            let face_centroid: [f64; 3] = std::array::from_fn(|k| (p0[k] + p1[k] + p2[k]) / 3.0);
+            if dot(normal, sub(face_centroid, opposite)) < 0.0 {
+                normal = [-normal[0], -normal[1], -normal[2]];
+            }
+            let n_len = dot(normal, normal).sqrt();
+            let n_hat = [normal[0] / n_len, normal[1] / n_len, normal[2] / n_len];
+
+            let mut lambda = [0.0_f64; 4];
+            for &lv in lf {
+                lambda[lv] = 1.0 / 3.0;
+            }
+            let e = eval_field_at_bary(&geom, &dofs, lambda);
+
+            // (E × C*) · n̂ with C = ∇×E; ½ Re(E×H*) = (1/2ω) Im[(E×C*)·n̂].
+            let cc = [curl[0].conj(), curl[1].conj(), curl[2].conj()];
+            let exc = [
+                e[1] * cc[2] - e[2] * cc[1],
+                e[2] * cc[0] - e[0] * cc[2],
+                e[0] * cc[1] - e[1] * cc[0],
+            ];
+            let s_n = (exc[0] * c64::new(n_hat[0], 0.0)
+                + exc[1] * c64::new(n_hat[1], 0.0)
+                + exc[2] * c64::new(n_hat[2], 0.0))
+            .im / (2.0 * omega);
+            p_flux += area * s_n;
+        }
+    }
+    p_flux
+}
+
 /// Normalize a power to a Mie efficiency:
 /// `Q = P / (S_inc · π a²)` with incident irradiance
 /// `S_inc = ½ |E₀|² = ½` in natural units (`|E₀| = 1`, impedance 1).
