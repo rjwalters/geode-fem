@@ -29,6 +29,7 @@ pub mod scattering;
 pub mod silvermuller;
 pub mod silvermuller_self_consistent;
 pub mod sparse;
+pub mod waveguide_modes;
 pub(crate) mod whitney_face;
 
 #[cfg(feature = "arpack")]
@@ -128,6 +129,11 @@ pub use silvermuller_self_consistent::{
     self_consistent_k, self_consistent_k_vector_tracked, SelfConsistentResult,
 };
 pub use sparse::{global_system_to_sparse, SparseError, SparseSystem};
+pub use waveguide_modes::{
+    apply_pec_2d, assemble_2d_nedelec, rect_pec_interior_edges, rect_pec_interior_nodes,
+    rect_tri_mesh, rect_waveguide_cutoff, restrict_gradient_dense_2d, solve_rect_waveguide_modes,
+    spurious_dim_2d, tri_nedelec_local, TriMesh, WaveguideMode, TRI_LOCAL_EDGES,
+};
 
 #[cfg(feature = "arpack")]
 pub use arpack::ArpackEigensolver;
