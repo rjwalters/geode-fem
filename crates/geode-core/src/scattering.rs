@@ -167,16 +167,21 @@ pub fn mie_polarization_source(
 }
 
 /// Per-tet affine geometry: barycentric gradients and volume.
-struct TetGeometry {
+///
+/// Promoted to `pub(crate)` so the near-to-far-field transform
+/// ([`crate::ntff`]) reuses the verified Whitney evaluators
+/// ([`eval_field_at_bary`], [`eval_curl`]) instead of duplicating the
+/// per-tet geometry math.
+pub(crate) struct TetGeometry {
     /// Vertex coordinates.
-    verts: [[f64; 3]; 4],
+    pub(crate) verts: [[f64; 3]; 4],
     /// `∇λ_i`, constant over the tet.
-    grad: [[f64; 3]; 4],
+    pub(crate) grad: [[f64; 3]; 4],
     /// Unsigned volume.
-    volume: f64,
+    pub(crate) volume: f64,
 }
 
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+pub(crate) fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
@@ -184,15 +189,15 @@ fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     ]
 }
 
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+pub(crate) fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+pub(crate) fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
-fn tet_geometry(mesh: &TetMesh, tet: &[u32; 4]) -> TetGeometry {
+pub(crate) fn tet_geometry(mesh: &TetMesh, tet: &[u32; 4]) -> TetGeometry {
     let verts = [
         mesh.nodes[tet[0] as usize],
         mesh.nodes[tet[1] as usize],
@@ -226,7 +231,7 @@ fn tet_geometry(mesh: &TetMesh, tet: &[u32; 4]) -> TetGeometry {
 
 /// Sign-folded local edge DOFs `d_e = sign_e · e_edges[idx_e]` for one
 /// tet, in [`TET_LOCAL_EDGES`] order.
-fn local_dofs(tet_edge_row: &[(u32, i8); 6], e_edges: &[c64]) -> [c64; 6] {
+pub(crate) fn local_dofs(tet_edge_row: &[(u32, i8); 6], e_edges: &[c64]) -> [c64; 6] {
     std::array::from_fn(|e| {
         let (idx, sign) = tet_edge_row[e];
         e_edges[idx as usize] * c64::new(sign as f64, 0.0)
@@ -235,7 +240,11 @@ fn local_dofs(tet_edge_row: &[(u32, i8); 6], e_edges: &[c64]) -> [c64; 6] {
 
 /// Whitney 1-form interpolant `E(x) = Σ_e d_e (λ_a ∇λ_b − λ_b ∇λ_a)`
 /// at barycentric coordinates `lambda` inside the tet.
-fn eval_field_at_bary(geom: &TetGeometry, dofs: &[c64; 6], lambda: [f64; 4]) -> [c64; 3] {
+pub(crate) fn eval_field_at_bary(
+    geom: &TetGeometry,
+    dofs: &[c64; 6],
+    lambda: [f64; 4],
+) -> [c64; 3] {
     let mut e = [c64::new(0.0, 0.0); 3];
     for (slot, &(a, b)) in TET_LOCAL_EDGES.iter().enumerate() {
         let d = dofs[slot];
@@ -248,7 +257,7 @@ fn eval_field_at_bary(geom: &TetGeometry, dofs: &[c64; 6], lambda: [f64; 4]) -> 
 }
 
 /// Piecewise-constant curl `∇×E = Σ_e d_e · 2 (∇λ_a × ∇λ_b)`.
-fn eval_curl(geom: &TetGeometry, dofs: &[c64; 6]) -> [c64; 3] {
+pub(crate) fn eval_curl(geom: &TetGeometry, dofs: &[c64; 6]) -> [c64; 3] {
     let mut c = [c64::new(0.0, 0.0); 3];
     for (slot, &(a, b)) in TET_LOCAL_EDGES.iter().enumerate() {
         let d = dofs[slot];
@@ -552,6 +561,138 @@ pub fn flux_power_box(
         }
     }
     p_flux
+}
+
+/// One face of the closed Huygens box surface, with the fields the
+/// near-to-far-field transform needs: outward normal, area, centroid,
+/// and the tangential `E` / `H` evaluated from the *inside* tet (same
+/// face quadrature [`flux_power_box`] uses).
+///
+/// `H = (i/ω)·∇×E` (`exp(+jωt)`, `∇×E = −iωH`); the curl is constant
+/// per tet so the centroid value is the exact face value for
+/// lowest-order Nédélec.
+pub(crate) struct BoxFaceSample {
+    /// Outward unit normal `n̂`.
+    pub(crate) n_hat: [f64; 3],
+    /// Face area.
+    pub(crate) area: f64,
+    /// Face centroid `r'`.
+    pub(crate) centroid: [f64; 3],
+    /// Electric field `E(r')` (Whitney interpolant at the centroid).
+    pub(crate) e: [c64; 3],
+    /// Magnetic field `H(r') = (i/ω)·∇×E`.
+    pub(crate) h: [c64; 3],
+}
+
+/// Walk the closed polyhedral surface bounding the tets whose centroid
+/// lies inside the axis-aligned box `[box_lo, box_hi]` — the **identical
+/// surface selector** [`flux_power_box`] uses — and return per-face
+/// `(n̂, area, centroid, E, H)` samples for the near-to-far-field
+/// transform ([`crate::ntff`]).
+///
+/// Sharing this walk (rather than duplicating it) guarantees the NTFF
+/// integrates the Love equivalent currents over exactly the same
+/// Huygens box, with the same outward orientation and the same
+/// face-centroid Whitney field evaluation, as the Poynting-flux
+/// efficiency integrator.
+///
+/// # Panics
+///
+/// Same as [`flux_power_box`]: panics on an empty box, an all-inside
+/// box (empty surface), or an `e_edges` length mismatch.
+pub(crate) fn box_surface_samples(
+    mesh: &TetMesh,
+    omega: f64,
+    e_edges: &[c64],
+    box_lo: [f64; 3],
+    box_hi: [f64; 3],
+) -> Vec<BoxFaceSample> {
+    use std::collections::HashMap;
+
+    let edges = mesh.edges();
+    assert_eq!(e_edges.len(), edges.len(), "one DOF per global edge");
+    let tet_edges = mesh.tet_edges();
+    let centroids = crate::nedelec_assembly::tet_centroids(mesh);
+
+    let in_box = |c: &[f64; 3]| (0..3).all(|k| c[k] >= box_lo[k] && c[k] <= box_hi[k]);
+    let inside: Vec<bool> = centroids.iter().map(in_box).collect();
+    assert!(
+        inside.iter().any(|&b| b),
+        "no tets with centroid inside the box [{box_lo:?}, {box_hi:?}]"
+    );
+    assert!(
+        inside.iter().any(|&b| !b),
+        "all tets inside the box [{box_lo:?}, {box_hi:?}]; surface is empty"
+    );
+
+    let mut face_count: HashMap<(u32, u32, u32), (u8, u8)> = HashMap::new();
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        for lf in &TET_LOCAL_FACES {
+            let mut tri = [tet[lf[0]], tet[lf[1]], tet[lf[2]]];
+            tri.sort_unstable();
+            let entry = face_count.entry((tri[0], tri[1], tri[2])).or_insert((0, 0));
+            if inside[t] {
+                entry.0 += 1;
+            }
+            entry.1 += 1;
+        }
+    }
+
+    // H = (i/ω)·∇×E.
+    let i_over_omega = c64::new(0.0, 1.0 / omega);
+    let mut samples = Vec::new();
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        if !inside[t] {
+            continue;
+        }
+        let geom = tet_geometry(mesh, tet);
+        let dofs = local_dofs(&tet_edges[t], e_edges);
+        let curl = eval_curl(&geom, &dofs);
+        let h = [
+            i_over_omega * curl[0],
+            i_over_omega * curl[1],
+            i_over_omega * curl[2],
+        ];
+
+        for (local_face, lf) in TET_LOCAL_FACES.iter().enumerate() {
+            let mut tri = [tet[lf[0]], tet[lf[1]], tet[lf[2]]];
+            tri.sort_unstable();
+            let &(n_inside_adj, _n_total) = face_count
+                .get(&(tri[0], tri[1], tri[2]))
+                .expect("face derived from tet must be counted");
+            if n_inside_adj != 1 {
+                continue;
+            }
+
+            let p0 = mesh.nodes[tet[lf[0]] as usize];
+            let p1 = mesh.nodes[tet[lf[1]] as usize];
+            let p2 = mesh.nodes[tet[lf[2]] as usize];
+            let mut normal = cross(sub(p1, p0), sub(p2, p0));
+            let area = 0.5 * dot(normal, normal).sqrt();
+            let opposite = geom.verts[local_face];
+            let face_centroid: [f64; 3] = std::array::from_fn(|k| (p0[k] + p1[k] + p2[k]) / 3.0);
+            if dot(normal, sub(face_centroid, opposite)) < 0.0 {
+                normal = [-normal[0], -normal[1], -normal[2]];
+            }
+            let n_len = dot(normal, normal).sqrt();
+            let n_hat = [normal[0] / n_len, normal[1] / n_len, normal[2] / n_len];
+
+            let mut lambda = [0.0_f64; 4];
+            for &lv in lf {
+                lambda[lv] = 1.0 / 3.0;
+            }
+            let e = eval_field_at_bary(&geom, &dofs, lambda);
+
+            samples.push(BoxFaceSample {
+                n_hat,
+                area,
+                centroid: face_centroid,
+                e,
+                h,
+            });
+        }
+    }
+    samples
 }
 
 /// Normalize a power to a Mie efficiency:

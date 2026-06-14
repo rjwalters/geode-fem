@@ -22,6 +22,7 @@ pub mod mie_scattering;
 pub mod mohan;
 pub mod nedelec;
 pub mod nedelec_assembly;
+pub mod ntff;
 pub mod p1;
 pub mod patch_cavity;
 pub mod scattering;
@@ -108,6 +109,10 @@ pub use nedelec_assembly::{
     spurious_dim_from_derham, tet_centroid_radii, tet_centroids, NedelecComplexGlobalSystem,
     NedelecFullTensorGlobalSystem, NedelecGlobalSystem, NedelecScatterMap,
     NedelecSparseComplexSystem, NedelecSparseFullTensorSystem, DERHAM_RANK_THRESHOLD_REL,
+};
+pub use ntff::{
+    broadside_directivity, directivity, gain, ntff_far_field, principal_plane_cuts, to_db,
+    FarField, PatternCut,
 };
 pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
 pub use patch_cavity::PatchCavity;
