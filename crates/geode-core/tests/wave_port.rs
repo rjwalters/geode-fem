@@ -37,7 +37,7 @@ use faer::c64;
 use geode_core::{
     extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
     map_mode_profile_to_full_mesh, solve_rect_waveguide_modes, solve_wave_port_sweep,
-    DefaultBackend, DrivenBcs, DrivenMaterials, TetMesh, WavePort,
+    DefaultBackend, DrivenBcs, DrivenMaterials, PortMode, TetMesh, WavePort,
 };
 
 type B = DefaultBackend;
@@ -124,12 +124,7 @@ fn build_te10_port(
     let edges_3d = mesh.edges();
     let mode_3d = map_mode_profile_to_full_mesh(&edges_2d_relabeled, &mode_2d, &edges_3d);
 
-    WavePort {
-        faces: faces_3d.to_vec(),
-        mode: mode_3d,
-        k_c: m.k_c,
-        a_inc,
-    }
+    WavePort::single_mode(faces_3d.to_vec(), mode_3d, m.k_c, a_inc)
 }
 
 /// **Straight section acceptance**: an `a × b × L` rectangular waveguide
@@ -499,12 +494,7 @@ fn build_te10_port_step(
     let edges_3d = mesh.edges();
     let mode_3d = map_mode_profile_to_full_mesh(&edges_2d_relabeled, &mode_2d, &edges_3d);
 
-    WavePort {
-        faces: faces_3d.to_vec(),
-        mode: mode_3d,
-        k_c: m.k_c,
-        a_inc,
-    }
+    WavePort::single_mode(faces_3d.to_vec(), mode_3d, m.k_c, a_inc)
 }
 
 #[test]
@@ -648,6 +638,241 @@ fn height_step_true_mesh_discontinuity_self_consistent() {
     assert!(
         pt.residual_rel < 1e-6,
         "solver residual_rel = {:.3e} too large",
+        pt.residual_rel
+    );
+}
+
+// =====================================================================
+// Rank-N SMW machinery unit tests (issue #255 / parent #250).
+// =====================================================================
+//
+// These tests pin the multi-mode block-structured S-matrix machinery.
+// They are *unit* tests for the rank-N path itself (block layout,
+// reciprocity of the augmented operator); full physical validation
+// (mode-cross-coupling, analytic mode-matching) is C1/C2's job.
+
+/// Build a `K`-mode wave port on the `z = z_plane` face by running the
+/// 2-D multi-mode modal solver and stitching the lowest `K` profiles
+/// into the 3-D mesh.
+#[allow(clippy::too_many_arguments)]
+fn build_multimode_port(
+    mesh: &TetMesh,
+    faces_3d: &[[u32; 3]],
+    a: f64,
+    b: f64,
+    nx: usize,
+    ny: usize,
+    z_plane: f64,
+    n_modes: usize,
+    a_inc: c64,
+) -> WavePort {
+    use geode_core::rect_tri_mesh;
+    let port_mesh = rect_tri_mesh(nx, ny, a, b);
+
+    let tol = 1e-9 * a.max(b).max(1.0);
+    let three_d_idx_of = |x: f64, y: f64| -> u32 {
+        mesh.nodes
+            .iter()
+            .position(|p| {
+                (p[0] - x).abs() < tol && (p[1] - y).abs() < tol && (p[2] - z_plane).abs() < tol
+            })
+            .expect("port-face node not found in 3-D mesh") as u32
+    };
+    let n2d_to_n3d: Vec<u32> = port_mesh
+        .nodes
+        .iter()
+        .map(|p| three_d_idx_of(p[0], p[1]))
+        .collect();
+
+    let edges_2d = port_mesh.edges();
+    let edges_2d_relabeled: Vec<[u32; 2]> = edges_2d
+        .iter()
+        .map(|e| {
+            let (a3, b3) = (n2d_to_n3d[e[0] as usize], n2d_to_n3d[e[1] as usize]);
+            if a3 < b3 {
+                [a3, b3]
+            } else {
+                [b3, a3]
+            }
+        })
+        .collect();
+
+    let modes =
+        solve_rect_waveguide_modes(&port_mesh, a, b, n_modes).expect("multi-mode 2-D modal solve");
+    assert_eq!(modes.len(), n_modes);
+
+    let edges_3d = mesh.edges();
+    let port_modes: Vec<PortMode> = modes
+        .iter()
+        .map(|m| {
+            let mode_3d = map_mode_profile_to_full_mesh(&edges_2d_relabeled, &m.e_edges, &edges_3d);
+            PortMode {
+                mode: mode_3d,
+                k_c: m.k_c,
+                a_inc,
+            }
+        })
+        .collect();
+
+    WavePort {
+        faces: faces_3d.to_vec(),
+        modes: port_modes,
+    }
+}
+
+/// **Rank-N SMW machinery unit test** (issue #255): a 2-port × 2-mode
+/// straight section produces a **4 × 4 block-structured** S-matrix
+/// with reciprocity `|S_ij − S_ji|` near zero across all block
+/// entries.
+///
+/// Choose `a × b = 2 × 0.6` so that the analytic modal cutoffs are
+/// `TE₁₀ = π/a ≈ 1.57`, `TE₂₀ = 2π/a ≈ 3.14`, `TE₀₁ = π/b ≈ 5.24`.
+/// Pick `ω = 3.5` so that **both TE₁₀ and TE₂₀ propagate** (real β)
+/// and **TE₀₁ is evanescent** — the lowest K=2 modes are both
+/// propagating, and the multi-mode machinery exercises a 4 × 4
+/// capacitance matrix `M = Λ⁻¹ + Uᵀ A⁻¹ U`.
+///
+/// # What this pins
+///
+/// 1. **Block-structure layout**: per-port `K_p = 2`, total channels
+///    `N = 4`, `port_mode_counts = [2, 2]`, flat indices
+///    `(0,0)→0, (0,1)→1, (1,0)→2, (1,1)→3`.
+/// 2. **Reciprocity** `|S_ij − S_ji|` is small across **all 6**
+///    off-diagonal pairs of the 4×4 matrix (not just the historical
+///    (S21, S12) pair). The wave-port augmented operator is
+///    complex-symmetric by construction (`U = V` since modal Robin
+///    self-projects), so reciprocity falls out within numerical noise.
+/// 3. **Solver residual**: the SMW residual check from the rank-N
+///    path must stay near f64 precision (≤ 1e-10) so we know the
+///    capacitance-matrix inversion is well-conditioned at this
+///    fixture's `(ω, k_c)` set.
+///
+/// Full mode-cross-coupling validation (`|S_{(p, m₁), (p, m₂)}| ≈ 0`
+/// for `m₁ ≠ m₂` on a uniform straight section, by mode orthogonality)
+/// is C1's job, not B1's.
+#[test]
+#[ignore = "heavy: multi-mode K=2 modal eigensolve + 4-channel rank-N SMW; cargo test --release --features ndarray --no-default-features --test wave_port -- --ignored bimodal_block"]
+fn bimodal_block_s_matrix_is_reciprocal() {
+    // a × b chosen so TE₁₀ and TE₂₀ are well separated from TE₀₁:
+    // π/a = 1.5708, 2π/a = 3.1416, π/b = 5.236.
+    let (a, b, length) = (2.0_f64, 0.6_f64, 1.0_f64);
+    let (nx, ny, nz) = (10, 4, 4);
+
+    let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
+    let pec_mask = g.pec_interior_mask();
+    let eps = vacuum(&g.mesh);
+
+    // Pick ω between TE₂₀ cutoff (π ≈ 3.14) and TE₀₁ cutoff
+    // (π/b ≈ 5.24) so the two lowest modes propagate and TE₀₁ stays
+    // evanescent.
+    let omega = 3.5_f64;
+    let n_modes = 2;
+
+    let port1 = build_multimode_port(
+        &g.mesh,
+        &g.port1_faces,
+        a,
+        b,
+        nx,
+        ny,
+        0.0,
+        n_modes,
+        c64::new(1.0, 0.0),
+    );
+    let port2 = build_multimode_port(
+        &g.mesh,
+        &g.port2_faces,
+        a,
+        b,
+        nx,
+        ny,
+        length,
+        n_modes,
+        c64::new(1.0, 0.0),
+    );
+
+    assert_eq!(port1.n_modes(), 2);
+    assert_eq!(port2.n_modes(), 2);
+
+    let bcs = DrivenBcs {
+        pec_interior_mask: &pec_mask,
+    };
+    let sweep = solve_wave_port_sweep::<B>(
+        &g.mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &bcs,
+        &[port1, port2],
+        &[omega],
+        &device(),
+    )
+    .expect("bi-modal wave-port sweep");
+
+    assert_eq!(sweep.len(), 1);
+    let pt = &sweep[0];
+
+    // (1) Block-structure layout.
+    let n_total = pt.n_channels;
+    assert_eq!(n_total, 4, "expected 2 ports × 2 modes = 4 channels");
+    assert_eq!(pt.port_mode_counts, vec![2, 2]);
+    assert_eq!(pt.s.len(), 4 * 4);
+    assert_eq!(pt.beta.len(), 4);
+    assert_eq!(pt.channel_index(0, 0), 0);
+    assert_eq!(pt.channel_index(0, 1), 1);
+    assert_eq!(pt.channel_index(1, 0), 2);
+    assert_eq!(pt.channel_index(1, 1), 3);
+
+    eprintln!("Bi-modal straight section a={a}, b={b}, L={length}, ω={omega}:");
+    eprintln!("  port_mode_counts = {:?}", pt.port_mode_counts);
+    for (idx, beta) in pt.beta.iter().enumerate() {
+        eprintln!("  channel[{}] β = {:.4} + {:.4}i", idx, beta.re, beta.im);
+    }
+
+    // (2) Reciprocity across all 4×4 entries. Compute the worst
+    // off-diagonal pair |S_ij − S_ji| in absolute terms (these S
+    // values are unitless and of order 1, so an absolute tolerance is
+    // appropriate).
+    let mut worst_recip = 0.0_f64;
+    let mut worst_pair = (0usize, 0usize);
+    for i in 0..n_total {
+        for j in (i + 1)..n_total {
+            let d = (pt.s[i * n_total + j] - pt.s[j * n_total + i]).norm();
+            if d > worst_recip {
+                worst_recip = d;
+                worst_pair = (i, j);
+            }
+        }
+    }
+    eprintln!(
+        "  worst-reciprocity |S_ij − S_ji| = {:.3e} at (i, j) = {:?}",
+        worst_recip, worst_pair
+    );
+    eprintln!("  full S-matrix (row-major 4×4):");
+    for r in 0..n_total {
+        let mut row = String::new();
+        for c in 0..n_total {
+            let v = pt.s[r * n_total + c];
+            row.push_str(&format!("  ({:+.4},{:+.4})", v.re, v.im));
+        }
+        eprintln!("    [{r}]{}", row);
+    }
+
+    // The augmented operator is complex-symmetric (U = V in the SMW
+    // update), so reciprocity holds to solver precision. We allow
+    // 1e-10 for an LU-based dense capacitance inversion + sparse LU
+    // back-substitutions on a 4-channel system.
+    assert!(
+        worst_recip < 1e-10,
+        "rank-N block-S reciprocity violated: worst |S_ij − S_ji| = {:.3e} at {:?}",
+        worst_recip,
+        worst_pair
+    );
+
+    // (3) Solver residual tight.
+    eprintln!("  residual_rel = {:.3e}", pt.residual_rel);
+    assert!(
+        pt.residual_rel < 1e-10,
+        "rank-N SMW residual_rel = {:.3e} too large",
         pt.residual_rel
     );
 }

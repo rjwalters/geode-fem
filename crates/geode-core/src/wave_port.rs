@@ -1,62 +1,102 @@
 //! Wave (modal) port boundary condition + S-parameter extraction
-//! (Epic #234 wave-port, Phase 2, issue #236).
+//! (Epic #234 wave-port, Phase 2, issue #236; multi-mode rank-N
+//! generalization, issue #255 / parent #250).
 //!
 //! Where a *lumped* port ([`crate::lumped_port`]) imposes a uniform
 //! voltage/current relation across a gap (the Palace Thévenin
 //! formulation), a **wave port** projects onto a true waveguide modal
-//! field on a port plane:
+//! field on a port plane. Each port supports one **or more** transverse
+//! modes:
 //!
 //! 1. The 2-D transverse modal eigensolver
 //!    ([`crate::waveguide_modes::solve_rect_waveguide_modes`]) on the
-//!    port cross-section produces a modal field profile `e_t(x,y)` plus
-//!    its cutoff `k_c`. The propagation constant at angular frequency
-//!    `ω` is `β(ω) = +√(ω²/c² − k_c²)` (real positive, propagating) or
-//!    `β(ω) = −j·√(k_c² − ω²/c²)` (negative imaginary, evanescent — the
-//!    outgoing-wave branch under the `+jωt` time convention, issue
-//!    #254). See [`WavePort::beta`] and
-//!    [`crate::waveguide_modes::beta_outgoing`] for the canonical sign
-//!    convention.
+//!    port cross-section produces a set of K modal field profiles
+//!    `e_t^{(m)}(x,y)` with their cutoffs `k_c^{(m)}`. The propagation
+//!    constant at angular frequency `ω` is `β^{(m)}(ω) =
+//!    +√(ω²/c² − (k_c^{(m)})²)` (real positive, propagating) or
+//!    `β^{(m)}(ω) = −j·√((k_c^{(m)})² − ω²/c²)` (negative imaginary,
+//!    evanescent — the outgoing-wave branch under the `+jωt` time
+//!    convention, issue #254). See [`PortMode::beta`] and
+//!    [`crate::waveguide_modes::beta_outgoing`].
 //! 2. On the 3-D port face Γ_p the modal Robin / radiation BC adds a
-//!    rank-1 modal contribution to the curl-curl system:
+//!    rank-K modal contribution to the curl-curl system. Summed across
+//!    all (port, mode) pairs the total system update is rank
+//!    `N = Σ_p K_p`:
 //!
 //!    ```text
-//!    A(ω) += jβ * (f_m ⊗ f_m),       f_m = S_p · e_m   (full-edge vector)
-//!    b(ω) += 2jβ · a_inc · f_m       (only for the driven port)
+//!    A(ω) += Σ_{(p,m)}  jβ_{p,m} · (f_{p,m} ⊗ f_{p,m}),
+//!         f_{p,m} = S_p · e_{p,m}     (full-edge vector)
+//!    b(ω) += 2jβ_{p,m} · a_inc · f_{p,m}    (driven (p,m))
 //!    ```
 //!
 //!    where `S_p` is the port-face tangential surface mass (the same
 //!    real-symmetric matrix the Silver-Müller / lumped-port path uses,
 //!    [`crate::silvermuller::assemble_surface_mass_triplets`]) and the
-//!    modal eigenvector is **`S_p`-orthonormalized**:
-//!    `e_m^T S_p e_m = 1`.  Equivalently `f_m^T e_m = 1`.
+//!    per-port modal set is **set-wise `S_p`-orthonormalized**:
+//!    `e_iᵀ S_p e_j = δ_ij`. Equivalently `f_iᵀ e_j = δ_ij`.
 //!
-//!    `jβ * (f_m ⊗ f_m)` is the discrete analog of the modal admittance
-//!    surface term `(jω/Z_TE)` for a TE-mode wave port (`1/Z_TE = β/ωμ`,
-//!    so the `(jω) Y` factor reduces to `jβ` per mode). The matched
-//!    incident wave with amplitude `a_inc` drives the structure with
-//!    `2jβ a_inc` so that an ideal matched termination absorbs the wave
-//!    completely (the same `2·V_inc` doubling that the lumped-port
-//!    Thévenin formulation uses).
+//!    `jβ_{p,m} · (f_{p,m} ⊗ f_{p,m})` is the discrete analog of the
+//!    modal admittance surface term `(jω/Z_TE)` for a TE-mode wave port
+//!    (`1/Z_TE = β/ωμ`, so the `(jω) Y` factor reduces to `jβ` per
+//!    mode). The matched incident wave with amplitude `a_inc` drives the
+//!    structure with `2jβ a_inc` so that an ideal matched termination
+//!    absorbs the wave completely (the same `2·V_inc` doubling that the
+//!    lumped-port Thévenin formulation uses).
 //!
-//! 3. **Modal projection** (`waveguide_mode_reduce` of the L4 tracker
-//!    #5) reads each port's modal amplitude from a driven solution:
-//!
-//!    ```text
-//!    a_m = f_m^T · E    (since e_m^T S_p e_m = 1)
-//!    ```
-//!
-//! 4. **Wave-port S-parameters**: per excitation (port `j` driven at
-//!    `a_inc = 1`, all other ports terminated at their matched
-//!    admittance), read back each port's modal amplitude `a_k`. Subtract
-//!    the incident self-term on the diagonal:
+//! 3. **Multi-mode modal projection** ([`waveguide_mode_reduce`]) reads
+//!    each port's *per-mode* complex amplitude from a driven solution:
 //!
 //!    ```text
-//!    S_kj = (a_k − a_inc δ_kj) / a_inc.
+//!    a_{p,m} = f_{p,m}^T · E    (since e_iᵀ S_p e_j = δ_ij)
 //!    ```
 //!
-//!    Reuses the multi-RHS factor-once machinery (`FactoredDrivenOperator`)
-//!    so an N-port S-matrix at fixed ω costs one factorization + N
-//!    back-substitutions.
+//!    Returns `Vec<Vec<c64>>` — outer index by port, inner by mode
+//!    within the port (length = K_p).
+//!
+//! 4. **Block-structured power-normalized S-matrix**: per excitation
+//!    (port `p`, mode `m_p` driven at `a_inc = 1`, all other (port,
+//!    mode) pairs terminated at their matched admittance), read back
+//!    each (output port, output mode) (q, m_q) modal amplitude
+//!    `a_{q,m_q}`. The reported S-matrix is **power-normalized** so
+//!    that reciprocity `Sᵀ = S` holds at the augmented-operator
+//!    symmetry level for any combination of `β_{p,m}` values:
+//!
+//!    ```text
+//!    S[(q,m_q), (p,m_p)] =
+//!       sqrt(β_{q,m_q} / β_{p,m_p}) · (a_{q,m_q} − a_inc δ_{q,p} δ_{m_q,m_p}) / a_inc.
+//!    ```
+//!
+//!    The matrix is naturally block-structured by port; rows and columns
+//!    are indexed by `(port, mode)` flat indices `i = Σ_{q<p} K_q + m`.
+//!    Total dim = N. For evanescent channels (Im(β) < 0) the
+//!    sqrt is taken on the principal branch (`sqrt(β) = sqrt(|β|) ·
+//!    exp(j·arg(β)/2)`); since `β = −j|β|` for outgoing-decaying modes
+//!    this lands at `sqrt(β) = sqrt(|β|) · exp(−jπ/4)` (fourth-quadrant
+//!    root) — a consistent choice that keeps `Sᵀ = S` for the augmented
+//!    complex-symmetric operator regardless of how many channels sit
+//!    below cutoff.
+//!
+//!    When all β values are equal (e.g. all ports carry the same
+//!    dominant TE₁₀ mode, the rank-1 fixtures from PR #245), the
+//!    `sqrt(β_q / β_p)` factor reduces to 1 and the power-normalized
+//!    S-matrix is bit-identical to the historical rank-1 amplitude
+//!    S-matrix from PR #245.
+//!
+//! 5. **Rank-N Sherman-Morrison-Woodbury** solves
+//!    `(A + U Λ Vᵀ) x = b` with N = Σ_p K_p. Here `U = V = [f_{1,0} |
+//!    f_{1,1} | … | f_{P,K_P-1}]` and `Λ = diag(jβ_{p,m})`. The
+//!    formula is
+//!
+//!    ```text
+//!    x = A⁻¹b − A⁻¹U · M⁻¹ · Uᵀ A⁻¹b,
+//!    M = Λ⁻¹ + Uᵀ A⁻¹U      (N × N dense complex; LU-inverted)
+//!    ```
+//!
+//!    Reuses the multi-RHS factor-once machinery
+//!    (`FactoredDrivenOperator`) so an `N_exc`-excitation S-matrix at
+//!    fixed ω costs one factorization + N + N_exc back-substitutions.
+//!    When K_p = 1 for all ports this reduces bit-identically to the
+//!    rank-1 SMW path from PR #245.
 //!
 //! # Sign convention
 //!
@@ -72,43 +112,43 @@
 use faer::c64;
 
 use crate::driven::{
-    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, FactoredDrivenOperator,
-    SurfaceImpedanceBc,
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SurfaceImpedanceBc,
 };
 use crate::lumped_port::LumpedPort;
 use crate::silvermuller::assemble_surface_mass_triplets;
 use crate::TetMesh;
 
-/// One wave (modal) port: a 3-D port-face triangulation plus the
-/// pre-computed modal field profile on that face's Whitney edges, plus
-/// the cutoff `k_c` of the mode (the propagation constant
-/// `β(ω) = √(ω²/c² − k_c²)` is evaluated per frequency).
+/// One mode of a [`WavePort`]: the modal eigenvector over the 3-D mesh
+/// edge table, the cutoff wavenumber `k_c`, and the incident modal
+/// amplitude `a_inc` for this excitation channel.
 ///
-/// The mode's `e_edges` slot indexes into the **3-D mesh edge table**
-/// (`mesh.edges()`), with zeros off the port face. Callers that solved
-/// the modal eigenproblem on a stand-alone 2-D cross-section mesh build
-/// this profile by mapping the 2-D edge indices to their corresponding
-/// 3-D edge indices — the helper
-/// [`map_mode_profile_to_full_mesh`] does that mapping for a port-face
-/// triangle list.
+/// For a single-mode wave port this is the entire per-port content (so
+/// `port.modes.len() == 1`); for a multi-mode port the `Vec<PortMode>`
+/// contains `K_p ≥ 1` entries. Each `PortMode::mode` slot indexes into
+/// the **3-D mesh edge table** (`mesh.edges()`), with zeros off the port
+/// face.
+///
+/// The per-port mode set must be **set-wise `S_p`-orthonormalized** in
+/// the port-face tangential mass: `e_iᵀ S_p e_j = δ_ij` for `i, j ∈ [0,
+/// K_p)`. The 2-D modal eigensolver
+/// ([`crate::waveguide_modes::solve_rect_waveguide_modes`]) produces
+/// such a set for free (Lanczos in the M-inner product enforces both
+/// individual normalization and pairwise orthogonality; see issue #254).
 #[derive(Debug, Clone)]
-pub struct WavePort {
-    /// Port surface triangles (0-based node indices into `mesh.nodes`).
-    /// Each must be a boundary face of the volume mesh.
-    pub faces: Vec<[u32; 3]>,
+pub struct PortMode {
     /// Modal eigenvector over the **3-D mesh edge table**
-    /// (`mesh.edges()`), with `e_m^T S_p e_m = 1`. Off-port edges
-    /// carry exact zeros.
+    /// (`mesh.edges()`), with `e_iᵀ S_p e_j = δ_ij` set-wise. Off-port
+    /// edges carry exact zeros.
     pub mode: Vec<f64>,
-    /// Cutoff wavenumber `k_c` of the mode (rad / length).
+    /// Cutoff wavenumber `k_c` of this mode (rad / length).
     pub k_c: f64,
-    /// Incident modal amplitude `a_inc` for this excitation. Set to
-    /// `0` for a passive matched termination, non-zero for a driven
-    /// port.
+    /// Incident modal amplitude `a_inc` for this excitation channel.
+    /// Non-zero on every channel: each (port, mode) is a possible
+    /// excitation column in the block S-matrix.
     pub a_inc: c64,
 }
 
-impl WavePort {
+impl PortMode {
     /// Propagation constant at angular frequency `omega` (natural units,
     /// `c = 1`): `β² = ω² − k_c²`. Returns a complex β under the
     /// **outgoing-wave** branch convention (`exp(+jωt)` time convention):
@@ -117,11 +157,60 @@ impl WavePort {
     /// - Evanescent (`ω < k_c`): `β = −j·√(k_c² − ω²)`,
     ///   `Im(β) < 0` so that `exp(−jβz)` decays for `z > 0`.
     ///
-    /// The evanescent branch was fixed in issue #254 (latent bug
-    /// flagged in PR #245): the previous default complex `sqrt` branch
-    /// gave `Im(β) > 0`, a non-physical growing solution.
+    /// Implemented via [`crate::waveguide_modes::beta_outgoing`] so the
+    /// rank-N machinery, the 2-D modal solver, and the
+    /// per-`WaveguideModeProfile::beta_complex` path all share one
+    /// canonical sign-convention helper.
     pub fn beta(&self, omega: f64) -> c64 {
         crate::waveguide_modes::beta_outgoing(omega, 1.0, self.k_c)
+    }
+}
+
+/// One wave (modal) port: a 3-D port-face triangulation plus the
+/// per-mode profile set on that face's Whitney edges. Each
+/// [`PortMode`] supplies its modal eigenvector (mapped onto the 3-D
+/// edge table), cutoff `k_c`, and the incident modal amplitude
+/// `a_inc` for that channel.
+///
+/// For backward compatibility the K=1 (single-mode) case is the
+/// historical rank-1 wave-port path (PR #245); construct it via
+/// [`WavePort::single_mode`]. For K>1 (multi-mode) build the
+/// `modes` vector directly from a multi-mode 2-D modal solve
+/// (`solve_rect_waveguide_modes(.., K)` returning `K` profiles).
+///
+/// The mode eigenvectors index into the **3-D mesh edge table**
+/// (`mesh.edges()`), with zeros off the port face. Callers that solved
+/// the modal eigenproblem on a stand-alone 2-D cross-section mesh build
+/// each profile by mapping the 2-D edge indices to their corresponding
+/// 3-D edge indices — the helper
+/// [`map_mode_profile_to_full_mesh`] does that mapping for a port-face
+/// triangle list.
+#[derive(Debug, Clone)]
+pub struct WavePort {
+    /// Port surface triangles (0-based node indices into `mesh.nodes`).
+    /// Each must be a boundary face of the volume mesh.
+    pub faces: Vec<[u32; 3]>,
+    /// Per-mode entries: length `K_p ≥ 1`, set-wise
+    /// `S_p`-orthonormal.
+    pub modes: Vec<PortMode>,
+}
+
+impl WavePort {
+    /// Construct a single-mode wave port — the historical rank-1
+    /// wave-port API from PR #245. This is a thin shim around
+    /// `WavePort { faces, modes: vec![PortMode { mode, k_c, a_inc }] }`
+    /// kept for ergonomic single-mode call sites; multi-mode callers
+    /// build the `modes` vector directly.
+    pub fn single_mode(faces: Vec<[u32; 3]>, mode: Vec<f64>, k_c: f64, a_inc: c64) -> Self {
+        WavePort {
+            faces,
+            modes: vec![PortMode { mode, k_c, a_inc }],
+        }
+    }
+
+    /// Number of modes `K_p` on this port.
+    pub fn n_modes(&self) -> usize {
+        self.modes.len()
     }
 }
 
@@ -196,20 +285,25 @@ fn assemble_modal_flux(
     flux
 }
 
-/// Modal projection (`waveguide_mode_reduce`, L4 tracker #5): the
-/// per-mode complex amplitude `a_m = f_m^T · E`, where `E` is a driven
-/// solution's full-length edge vector and `f_m = S_p · e_m` the modal
-/// flux of port `p`.
+/// Multi-mode modal projection (`waveguide_mode_reduce`, L4 tracker
+/// #5; generalized to per-port mode sets in issue #255): the per-port
+/// per-mode complex amplitude `a_{p,m} = f_{p,m}^T · E`, where `E` is a
+/// driven solution's full-length edge vector and `f_{p,m} = S_p · e_{p,m}`
+/// the modal flux of mode `m` on port `p`.
 ///
-/// With `e_m^T S_p e_m = 1` (the wave-port modal solver's normalization),
-/// `a_m` is the pure modal coefficient: an incident wave of amplitude
-/// `a_inc` produces `a_m ≈ a_inc` on a matched termination.
+/// With `e_iᵀ S_p e_j = δ_ij` (the modal solver's set-wise
+/// normalization, issue #254), each `a_{p,m}` is the pure modal
+/// coefficient: an incident wave of amplitude `a_inc` on channel
+/// (p, m) produces `a_{p,m} ≈ a_inc` on a matched termination.
+///
+/// Returns `Vec<Vec<c64>>` — outer index by port, inner by mode within
+/// the port (inner length = `port.n_modes()`).
 pub fn waveguide_mode_reduce(
     mesh: &TetMesh,
-    port: &WavePort,
+    ports: &[WavePort],
     edges: &[[u32; 2]],
     e_edges: &[c64],
-) -> c64 {
+) -> Vec<Vec<c64>> {
     assert_eq!(
         e_edges.len(),
         edges.len(),
@@ -217,20 +311,45 @@ pub fn waveguide_mode_reduce(
         e_edges.len(),
         edges.len()
     );
-    let flux = assemble_modal_flux(mesh, &port.faces, &port.mode, edges);
-    let mut a = c64::new(0.0, 0.0);
-    for (f, e) in flux.iter().zip(e_edges.iter()) {
-        a += *e * *f;
-    }
-    a
+    ports
+        .iter()
+        .map(|port| {
+            port.modes
+                .iter()
+                .map(|m| {
+                    let flux = assemble_modal_flux(mesh, &port.faces, &m.mode, edges);
+                    let mut a = c64::new(0.0, 0.0);
+                    for (f, e) in flux.iter().zip(e_edges.iter()) {
+                        a += *e * *f;
+                    }
+                    a
+                })
+                .collect()
+        })
+        .collect()
 }
 
-/// One frequency point of an N-port **wave-port** S-parameter sweep
-/// ([`solve_wave_port_sweep`]).
+/// One frequency point of an N-port × K-mode **wave-port** S-parameter
+/// sweep ([`solve_wave_port_sweep`]).
 ///
 /// Mirrors [`crate::extraction::SParameterSweepPoint`] in shape but
 /// without the impedance matrix (wave ports don't have a Thévenin
-/// V/I — the modal amplitude is the natural circuit quantity).
+/// V/I — the modal amplitude is the natural circuit quantity). The
+/// S-matrix is **block-structured** by (port, mode): rows and columns
+/// are indexed by a flat `(port, mode) → idx` map (port-major,
+/// mode-minor), with total dim `N = Σ_p K_p`.
+///
+/// # Block layout
+///
+/// Flat index of (port `p`, mode `m`):
+///
+/// ```text
+/// idx(p, m) = (Σ_{q < p} K_q) + m
+/// ```
+///
+/// For the rank-1 case (`K_p = 1` everywhere), `idx(p, 0) = p` and the
+/// layout collapses to the historical PR #245 N-port S-matrix
+/// bit-identically.
 #[derive(Debug, Clone)]
 pub struct WavePortSweepPoint {
     /// Frequency `ω ≡ k₀` (natural units).
@@ -238,36 +357,75 @@ pub struct WavePortSweepPoint {
     /// Worst (largest) direct-solve relative residual over the N
     /// per-excitation solves at this frequency.
     pub residual_rel: f64,
-    /// Row-major `n × n` complex S-matrix:
-    /// `s[k*n + j] = (a_k − a_inc_j · δ_kj) / a_inc_j` where `a_k` is
-    /// the modal amplitude of port `k` read off the driven solution when
-    /// port `j` was excited at amplitude `a_inc_j`.
+    /// Row-major `N × N` **power-normalized** complex S-matrix
+    /// (block-structured by (port, mode)):
+    ///
+    /// ```text
+    /// s[k*N + j] = sqrt(β_k / β_j) · (a_{k_p,k_m} − a_inc δ_{kj}) / a_inc_{j_p,j_m}
+    /// ```
+    ///
+    /// where (k_p, k_m) = port-mode flat-index `k` decoded and likewise
+    /// for `j`. `δ_{kj} = 1` iff `(k_p, k_m) == (j_p, j_m)` (the
+    /// incident self-term subtraction is on the diagonal of the flat
+    /// index).
+    ///
+    /// The `sqrt(β_k / β_j)` factor is the standard waveguide
+    /// power-normalization (Pozar, *Microwave Engineering*, §4.6): it
+    /// makes the augmented-operator reciprocity `Sᵀ = S` hold for any
+    /// combination of per-channel β values. When all β values are
+    /// equal (the rank-1 fixtures from PR #245 — single TE₁₀ mode on
+    /// every port, same cross-section), the factor reduces to 1 and
+    /// this matrix is bit-identical to the historical amplitude
+    /// S-matrix.
     pub s: Vec<c64>,
-    /// Per-port modal `β(ω)` at this frequency (`(β_re, 0)` propagating,
-    /// `(0, β_im)` evanescent).
+    /// Per (port, mode) modal `β(ω)` at this frequency, flat-indexed
+    /// the same way as `s` (length `N = Σ_p K_p`). `(β_re, 0)`
+    /// propagating, `(0, β_im)` evanescent — `β_im < 0` under the
+    /// outgoing-wave branch (issue #254).
     pub beta: Vec<c64>,
+    /// Total number of channels `N = Σ_p K_p`.
+    pub n_channels: usize,
+    /// Per-port mode-count breakdown (`port_mode_counts[p] = K_p`).
+    /// Provided so callers can decode the flat index back to (port,
+    /// mode). `port_mode_counts.iter().sum::<usize>() == n_channels`.
+    pub port_mode_counts: Vec<usize>,
 }
 
-/// N-port **wave-port** S-parameter sweep (issue #236):
+impl WavePortSweepPoint {
+    /// Flat-index of channel `(port, mode)` in `s` and `beta`.
+    ///
+    /// # Panics
+    /// Panics if `port` ≥ `port_mode_counts.len()` or `mode` ≥
+    /// `port_mode_counts[port]`.
+    pub fn channel_index(&self, port: usize, mode: usize) -> usize {
+        assert!(port < self.port_mode_counts.len());
+        assert!(mode < self.port_mode_counts[port]);
+        self.port_mode_counts[..port].iter().sum::<usize>() + mode
+    }
+}
+
+/// N-port **wave-port** S-parameter sweep (issue #236; multi-mode
+/// rank-N generalization, issue #255):
 ///
 /// - Assemble the volume operator once (`DrivenOperator::assemble`)
 ///   with no lumped ports and no Leontovich surfaces; the wave-port
-///   modal terms `+jβ · f_m ⊗ f_m` and the per-excitation drive
-///   `+2jβ a_inc · f_m` are folded in per frequency, since β depends
-///   on ω. Per ω the `A(ω)` is built from the cached K/M/C plus a
-///   dense per-port rank-1 correction, factored once, and N
-///   excitations are back-substituted (one per driven port).
-/// - Each excitation: drive port `j` at its baked `a_inc`, treat all
-///   other ports as passive matched terminations (their rank-1
-///   admittance term stays in `A(ω)`, but their drive vanishes). Read
-///   each port's modal amplitude via [`waveguide_mode_reduce`]. The
-///   self-term is subtracted on the diagonal.
+///   modal terms `+jβ_{p,m} · f_{p,m} ⊗ f_{p,m}` and the per-channel
+///   drive `+2jβ_{p,m} a_inc · f_{p,m}` are folded in per frequency
+///   via rank-`N` Sherman-Morrison-Woodbury (N = Σ_p K_p), since β
+///   depends on ω. Per ω the base operator is factored once and a
+///   small dense N×N capacitance matrix is LU-inverted.
+/// - Each excitation: drive channel `(p, m)` at amplitude
+///   `a_inc_{p,m}`, treat all other channels as passive matched
+///   terminations (their modal admittance term stays in the SMW
+///   update, but their drive vanishes). Read each (output port,
+///   output mode) channel's modal amplitude via
+///   [`waveguide_mode_reduce`]. The incident self-term is subtracted
+///   on the diagonal of the flat (port, mode) S-matrix.
 ///
 /// Reciprocity (`Sᵀ = S`) holds for the complex-symmetric pencils this
-/// solver assembles. A single propagating port at `a_inc = 1` and a
-/// matched termination yields `|S₁₁| ≈ 0` (the wave is absorbed
-/// completely); a straight section terminated in matched wave ports
-/// yields `S₂₁ ≈ exp(−jβℓ)` (the phase advance through the section).
+/// solver assembles. A single propagating channel at `a_inc = 1` and a
+/// matched termination yields `|S_{ii}| ≈ 0` (the wave is absorbed
+/// completely).
 ///
 /// # Errors
 ///
@@ -290,34 +448,64 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
     }
     let edges = mesh.edges();
     let n_edges = edges.len();
-    let n = ports.len();
 
-    // --- Pre-compute the port-face modal flux f_m = S_p · e_m (real,
-    // full-length) and validate. These are ω-independent.
-    let fluxes: Vec<Vec<f64>> = ports
-        .iter()
-        .enumerate()
-        .map(|(p_idx, port)| {
-            if port.mode.len() != n_edges {
+    // --- Validate per-port mode sets and collect the flat (port, mode)
+    // channel list with cached full-length modal fluxes f_{p,m} = S_p ·
+    // e_{p,m}. These are ω-independent.
+    let port_mode_counts: Vec<usize> = ports.iter().map(|p| p.modes.len()).collect();
+    let n_channels: usize = port_mode_counts.iter().sum();
+    if n_channels == 0 {
+        return Err(DrivenError::InvalidPort {
+            index: 0,
+            reason: "wave-port S-parameter extraction needs at least one mode across all ports"
+                .to_string(),
+        });
+    }
+    // Channel descriptors: which (port, mode) each flat index points
+    // at, plus the cached full-length modal flux.
+    struct Channel {
+        port: usize,
+        mode: usize,
+        a_inc: c64,
+        flux: Vec<f64>,
+    }
+    let mut channels: Vec<Channel> = Vec::with_capacity(n_channels);
+    for (p_idx, port) in ports.iter().enumerate() {
+        if port.modes.is_empty() {
+            return Err(DrivenError::InvalidPort {
+                index: p_idx,
+                reason: "wave port must carry at least one mode".to_string(),
+            });
+        }
+        for (m_idx, m) in port.modes.iter().enumerate() {
+            if m.mode.len() != n_edges {
                 return Err(DrivenError::InvalidPort {
                     index: p_idx,
                     reason: format!(
-                        "wave-port mode profile length {} must match edge count {}",
-                        port.mode.len(),
+                        "wave-port mode[{m_idx}] profile length {} must match edge count {}",
+                        m.mode.len(),
                         n_edges
                     ),
                 });
             }
-            if port.a_inc == c64::new(0.0, 0.0) {
+            if m.a_inc == c64::new(0.0, 0.0) {
                 return Err(DrivenError::InvalidPort {
                     index: p_idx,
-                    reason: "every wave port needs a non-zero a_inc to serve as an excitation"
-                        .to_string(),
+                    reason: format!(
+                        "wave-port mode[{m_idx}] needs a non-zero a_inc to serve as an excitation"
+                    ),
                 });
             }
-            Ok(assemble_modal_flux(mesh, &port.faces, &port.mode, &edges))
-        })
-        .collect::<Result<_, _>>()?;
+            let flux = assemble_modal_flux(mesh, &port.faces, &m.mode, &edges);
+            channels.push(Channel {
+                port: p_idx,
+                mode: m_idx,
+                a_inc: m.a_inc,
+                flux,
+            });
+        }
+    }
+    debug_assert_eq!(channels.len(), n_channels);
 
     // --- Assemble the volume operator once (no lumped ports / surfaces).
     let zero_source = CurrentSource {
@@ -339,21 +527,20 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
     omegas
         .iter()
         .map(|&omega| {
-            // β per port at this ω.
-            let betas: Vec<c64> = ports.iter().map(|p| p.beta(omega)).collect();
-
-            // Per-port full-length drive vectors: f_full_p = jβ_p · f_m
-            // and modal-coupling vectors for the system rank-1 update.
-            // Interior-filter f_m to align with op.n_interior.
-            let n_int = op.n_interior();
-            let fluxes_int: Vec<Vec<c64>> = fluxes
+            // β per channel at this ω.
+            let betas: Vec<c64> = channels
                 .iter()
-                .map(|f| {
+                .map(|c| ports[c.port].modes[c.mode].beta(omega))
+                .collect();
+
+            // Per-channel interior-filtered modal flux vector (length
+            // n_interior, complex-valued for the SMW arithmetic).
+            let n_int = op.n_interior();
+            let fluxes_int: Vec<Vec<c64>> = channels
+                .iter()
+                .map(|c| {
                     let mut out = Vec::with_capacity(n_int);
-                    for (full_idx, &val) in f.iter().enumerate() {
-                        // The DrivenOperator does not expose its PEC mask
-                        // directly; we use the same mask we built it
-                        // with via bcs.
+                    for (full_idx, &val) in c.flux.iter().enumerate() {
                         if bcs.pec_interior_mask[full_idx] {
                             out.push(c64::new(val, 0.0));
                         }
@@ -362,112 +549,110 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
                 })
                 .collect();
 
-            // Wave-port rank-1 system contribution and per-excitation
-            // RHS drives are baked into a hand-built factor-once
-            // operator. We do this via the existing factor_at path with
-            // additional rank-1 modifications using
-            // Sherman-Morrison-Woodbury — but the simpler route is to
-            // build A_total(ω) = A_base(ω) + Σ_p jβ_p f_p f_pᵀ once per
-            // ω, factor it, and solve N RHS.
+            // Rank-N Sherman-Morrison-Woodbury. The wave-port BC adds
+            // U Λ Uᵀ to the base operator A_base(ω), with
+            //   U = [f_0 | f_1 | … | f_{N-1}]  (n_int × N),
+            //   Λ = diag(jβ_0, jβ_1, …, jβ_{N-1}).
             //
-            // We rely on DrivenOperator's factor_at to build A_base(ω);
-            // then we materialize the dense rank-N correction in a
-            // separate sparse triplet list and form A_total. Since the
-            // factor_at API returns a factored handle without exposing
-            // A_int, we open-code the assembly here using the same
-            // primitives.
+            // For any RHS b:
+            //   x = A_base⁻¹ b − A_base⁻¹U · M⁻¹ · Uᵀ A_base⁻¹ b,
+            //   M = Λ⁻¹ + Uᵀ A_base⁻¹U.
             //
-            // The cleanest path: use op.factor_at for A_base then apply
-            // SMW to back-substitute. This avoids exposing internal
-            // sparsity. With N ports and N excitations the SMW cost is
-            // negligible.
+            // Precompute A_base⁻¹ U as N columns (one back-substitution
+            // per channel) and build M (N × N dense complex).
             let factored = op.factor_at(omega)?;
-
-            // Per-port system contribution: jβ_p · f_p f_pᵀ.
-            // SMW: A_total = A_base + U Σ Vᵀ, with U = [u_1 ... u_n],
-            // V = [v_1 ... v_n], Σ = diag(jβ_p). Here u_p = v_p = f_p
-            // (real). Then for any RHS b: x = A_base⁻¹ b − A_base⁻¹ U
-            // (Σ⁻¹ + Vᵀ A_base⁻¹ U)⁻¹ Vᵀ A_base⁻¹ b.
-
-            // Precompute A_base⁻¹ U as N columns (interior).
-            let mut ainv_u: Vec<Vec<c64>> = Vec::with_capacity(n);
+            let mut ainv_u: Vec<Vec<c64>> = Vec::with_capacity(n_channels);
             for col in fluxes_int.iter() {
                 let mut x = vec![c64::new(0.0, 0.0); n_int];
-                // Solve A_base x = col.
-                crate::wave_port::factored_solve_into(&factored, col, &mut x)?;
+                factored.back_solve(col, &mut x)?;
                 ainv_u.push(x);
             }
-            // Capacitance matrix C = Σ⁻¹ + Vᵀ A_base⁻¹ U.
-            // Here V = U = fluxes_int. We invert C (n×n dense).
-            let mut cap = vec![c64::new(0.0, 0.0); n * n];
-            for i in 0..n {
-                for j in 0..n {
+            // M = Λ⁻¹ + Uᵀ A_base⁻¹U.   (row-major, N × N)
+            let mut cap = vec![c64::new(0.0, 0.0); n_channels * n_channels];
+            for i in 0..n_channels {
+                for j in 0..n_channels {
                     let mut acc = c64::new(0.0, 0.0);
                     for r in 0..n_int {
                         acc += fluxes_int[i][r] * ainv_u[j][r];
                     }
-                    cap[i * n + j] = acc;
+                    cap[i * n_channels + j] = acc;
                 }
-                // Add Σ⁻¹ = 1/(jβ_i) on diagonal (skip if β_i = 0:
-                // evanescent at exact cutoff — rank-1 term vanishes).
+                // Λ⁻¹: 1/(jβ_i) on the diagonal. β_i = 0 means the
+                // modal admittance term vanishes (e.g. exactly at
+                // cutoff); skip its rank-1 contribution by leaving
+                // Λ⁻¹ formally infinite — i.e. setting both column &
+                // row to zero in M and short-circuiting the SMW update
+                // for that channel. We implement this by simply
+                // zeroing the channel's contribution to A⁻¹U so the
+                // capacitance row/col is well-defined; the βᵢ = 0
+                // channel can never carry a drive (its 2jβᵢ a_inc
+                // coefficient is also zero), so the math degenerates
+                // benignly.
                 let beta_i = betas[i];
                 if beta_i.norm_sqr() > 0.0 {
                     let inv_jb = c64::new(0.0, -1.0) / beta_i;
-                    cap[i * n + i] += inv_jb;
+                    cap[i * n_channels + i] += inv_jb;
+                } else {
+                    // Zero out row i and column i except the diagonal
+                    // (set to 1 so the inversion is well-defined).
+                    for k in 0..n_channels {
+                        cap[i * n_channels + k] = c64::new(0.0, 0.0);
+                        cap[k * n_channels + i] = c64::new(0.0, 0.0);
+                    }
+                    cap[i * n_channels + i] = c64::new(1.0, 0.0);
                 }
             }
-            // Invert cap (n × n).
-            let cap_inv = invert_complex_dense(&cap, n).ok_or_else(|| {
+            // Invert M.
+            let cap_inv = invert_complex_dense(&cap, n_channels).ok_or_else(|| {
                 DrivenError::Solve(format!(
-                    "wave-port SMW capacitance matrix singular at ω = {omega}"
+                    "wave-port rank-N SMW capacitance matrix singular at ω = {omega}"
                 ))
             })?;
 
-            // Per-excitation: drive port `j` at a_inc=ports[j].a_inc,
-            // others at 0. The RHS is b_j(ω) = Σ_p 2jβ_p · a_inc_p · f_p,
-            // restricted to p = j. So b_j = 2jβ_j · a_inc_j · f_j.
-            //
-            // Solve A_total x = b_j, then read each port's modal amp.
-            let mut s = vec![c64::new(0.0, 0.0); n * n];
+            // Per-excitation: drive channel `j` at a_inc, others at 0.
+            //   b_j = 2jβ_j · a_inc_j · f_j  (interior).
+            // Solve A_total x = b_j via SMW, then read every channel's
+            // modal amplitude on the resulting full edge vector.
+            let mut s = vec![c64::new(0.0, 0.0); n_channels * n_channels];
             let mut residual_rel = 0.0_f64;
-            for j in 0..n {
-                let drive_coeff = c64::new(0.0, 2.0) * betas[j] * ports[j].a_inc;
+            for j in 0..n_channels {
+                let drive_coeff = c64::new(0.0, 2.0) * betas[j] * channels[j].a_inc;
                 // Build b = drive_coeff · f_j (interior).
                 let b: Vec<c64> = fluxes_int[j].iter().map(|&x| x * drive_coeff).collect();
 
-                // x = A_base⁻¹ b − (A_base⁻¹ U) C⁻¹ Uᵀ A_base⁻¹ b.
+                // x = A_base⁻¹ b − (A_base⁻¹ U) M⁻¹ Uᵀ A_base⁻¹ b.
                 let mut ainv_b = vec![c64::new(0.0, 0.0); n_int];
-                crate::wave_port::factored_solve_into(&factored, &b, &mut ainv_b)?;
-                // y = Uᵀ A_base⁻¹ b  (length n).
-                let mut y = vec![c64::new(0.0, 0.0); n];
-                for i in 0..n {
+                factored.back_solve(&b, &mut ainv_b)?;
+                // y = Uᵀ A_base⁻¹ b  (length n_channels).
+                let mut y = vec![c64::new(0.0, 0.0); n_channels];
+                for i in 0..n_channels {
                     let mut acc = c64::new(0.0, 0.0);
                     for r in 0..n_int {
                         acc += fluxes_int[i][r] * ainv_b[r];
                     }
                     y[i] = acc;
                 }
-                // z = C⁻¹ y.
-                let mut z = vec![c64::new(0.0, 0.0); n];
-                for i in 0..n {
+                // z = M⁻¹ y.
+                let mut z = vec![c64::new(0.0, 0.0); n_channels];
+                for i in 0..n_channels {
                     let mut acc = c64::new(0.0, 0.0);
-                    for k in 0..n {
-                        acc += cap_inv[i * n + k] * y[k];
+                    for k in 0..n_channels {
+                        acc += cap_inv[i * n_channels + k] * y[k];
                     }
                     z[i] = acc;
                 }
                 // x = ainv_b − Σ_i (A_base⁻¹ U)_i · z_i.
                 let mut x = ainv_b.clone();
-                for i in 0..n {
+                for i in 0..n_channels {
                     for r in 0..n_int {
                         x[r] -= ainv_u[i][r] * z[i];
                     }
                 }
-                // Residual check: ‖(A_base + Σ jβ f_pf_pᵀ) x − b‖ / ‖b‖.
-                // We use the explicit residual for the corrected system.
+
+                // Residual check: ‖(A_base + Σ jβ f_p f_pᵀ) x − b‖ / ‖b‖.
                 let mut ax = vec![c64::new(0.0, 0.0); n_int];
-                crate::wave_port::factored_spmv(&factored, &x, &mut ax);
-                for p in 0..n {
+                factored.spmv_a(&x, &mut ax);
+                for p in 0..n_channels {
                     let beta_p = betas[p];
                     if beta_p.norm_sqr() == 0.0 {
                         continue;
@@ -495,6 +680,7 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
                 if b_n2 > 0.0 {
                     residual_rel = residual_rel.max((res_n2 / b_n2).sqrt());
                 }
+
                 // Scatter to full edge vector.
                 let mut e_edges = vec![c64::new(0.0, 0.0); n_edges];
                 let mut interior_idx = 0;
@@ -504,16 +690,42 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
                         interior_idx += 1;
                     }
                 }
-                // Read each port's modal amplitude.
-                for k in 0..n {
-                    let a_k = waveguide_mode_reduce(mesh, &ports[k], &edges, &e_edges);
-                    // S_kj: subtract incident self-term on diagonal.
-                    let s_kj = if k == j {
-                        (a_k - ports[j].a_inc) / ports[j].a_inc
+
+                // Read each channel's modal amplitude. Reuse the cached
+                // full-length flux vectors (don't re-call
+                // waveguide_mode_reduce, since we already have f_k).
+                //
+                // S-matrix uses the standard waveguide power-normalized
+                // convention so reciprocity `Sᵀ = S` holds across all
+                // (port, mode) pairs (Pozar §4.6):
+                //
+                //   S_kj = sqrt(β_k / β_j) · (a_k − a_inc δ_kj) / a_inc_j
+                //
+                // When all β values are equal (the rank-1 fixtures from
+                // PR #245) the sqrt factor is 1 and this collapses to
+                // the amplitude S-matrix bit-identically.
+                //
+                // The sqrt branch is the principal complex sqrt; for
+                // evanescent channels β = −j|β| lies in the lower
+                // half-plane and `c64::sqrt` lands in the fourth
+                // quadrant, which keeps `Sᵀ = S` consistent across
+                // any mix of propagating and evanescent channels.
+                let sqrt_beta_j = betas[j].sqrt();
+                for (k, ch) in channels.iter().enumerate() {
+                    let mut a_k = c64::new(0.0, 0.0);
+                    for (f, e) in ch.flux.iter().zip(e_edges.iter()) {
+                        a_k += *e * *f;
+                    }
+                    // Amplitude S-parameter: subtract incident self-term
+                    // on diagonal.
+                    let s_amp = if k == j {
+                        (a_k - channels[j].a_inc) / channels[j].a_inc
                     } else {
-                        a_k / ports[j].a_inc
+                        a_k / channels[j].a_inc
                     };
-                    s[k * n + j] = s_kj;
+                    // Power-normalize.
+                    let sqrt_beta_k = betas[k].sqrt();
+                    s[k * n_channels + j] = (sqrt_beta_k / sqrt_beta_j) * s_amp;
                 }
             }
             Ok(WavePortSweepPoint {
@@ -521,34 +733,18 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
                 residual_rel,
                 s,
                 beta: betas,
+                n_channels,
+                port_mode_counts: port_mode_counts.clone(),
             })
         })
         .collect()
 }
 
-/// `factored.solve(b)` wrapper that puts the result into `out`. The
-/// `FactoredDrivenOperator` exposes a `solve()` that builds its own RHS;
-/// we need a back-substitution-only path here. Provided via a friend
-/// helper on `crate::driven`.
-pub(crate) fn factored_solve_into(
-    factored: &FactoredDrivenOperator<'_>,
-    b: &[c64],
-    out: &mut [c64],
-) -> Result<(), DrivenError> {
-    factored.back_solve(b, out)
-}
-
-/// Compute `out = A_base · x` using the factored operator's cached
-/// sparse matrix. Used for the residual check in [`solve_wave_port_sweep`].
-pub(crate) fn factored_spmv(factored: &FactoredDrivenOperator<'_>, x: &[c64], out: &mut [c64]) {
-    factored.spmv_a(x, out)
-}
-
 /// Dense Gauss-Jordan inversion of a row-major `n × n` complex matrix.
-/// Returns `None` on an exactly singular pivot. For the port-count
-/// matrices this serves (n = number of ports) a dense elimination is
-/// the right tool — mirrors the `invert_complex` helper in
-/// [`crate::extraction`].
+/// Returns `None` on an exactly singular pivot. For the channel-count
+/// matrices this serves (N = Σ_p K_p — single digits to low tens in
+/// practice) a dense elimination is the right tool — mirrors the
+/// `invert_complex` helper in [`crate::extraction`].
 fn invert_complex_dense(m: &[c64], n: usize) -> Option<Vec<c64>> {
     debug_assert_eq!(m.len(), n * n);
     let mut a = m.to_vec();
@@ -767,7 +963,7 @@ pub struct ExtrudedWaveguideMesh {
     pub mesh: TetMesh,
     /// Port-1 face triangles on `z = 0`.
     pub port1_faces: Vec<[u32; 3]>,
-    /// Port-2 face triangles on `z = length`.
+    /// Port-2 face triangles on `z = L`.
     pub port2_faces: Vec<[u32; 3]>,
     /// Sidewall PEC face triangles on `x ∈ {0, a}` and `y ∈ {0, b}`.
     pub sidewall_faces: Vec<[u32; 3]>,
@@ -1228,5 +1424,44 @@ mod tests {
                 pts
             );
         }
+    }
+
+    #[test]
+    fn channel_index_layout_collapses_to_port_index_for_rank1() {
+        // With K_p = 1 on every port, channel_index(p, 0) must equal p
+        // so the block S-matrix collapses to the historical N-port
+        // layout from PR #245 bit-identically.
+        let port_mode_counts = vec![1, 1, 1];
+        let pt = WavePortSweepPoint {
+            omega: 0.0,
+            residual_rel: 0.0,
+            s: Vec::new(),
+            beta: Vec::new(),
+            n_channels: 3,
+            port_mode_counts: port_mode_counts.clone(),
+        };
+        for p in 0..port_mode_counts.len() {
+            assert_eq!(pt.channel_index(p, 0), p);
+        }
+    }
+
+    #[test]
+    fn channel_index_layout_port_major_mode_minor() {
+        // K = [2, 3, 1]: total N = 6. Expected layout:
+        //   (0,0)→0, (0,1)→1, (1,0)→2, (1,1)→3, (1,2)→4, (2,0)→5.
+        let pt = WavePortSweepPoint {
+            omega: 0.0,
+            residual_rel: 0.0,
+            s: Vec::new(),
+            beta: Vec::new(),
+            n_channels: 6,
+            port_mode_counts: vec![2, 3, 1],
+        };
+        assert_eq!(pt.channel_index(0, 0), 0);
+        assert_eq!(pt.channel_index(0, 1), 1);
+        assert_eq!(pt.channel_index(1, 0), 2);
+        assert_eq!(pt.channel_index(1, 1), 3);
+        assert_eq!(pt.channel_index(1, 2), 4);
+        assert_eq!(pt.channel_index(2, 0), 5);
     }
 }

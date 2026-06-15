@@ -139,7 +139,7 @@ pub use sparse::{global_system_to_sparse, SparseError, SparseSystem};
 pub use wave_port::{
     extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
     map_mode_profile_to_full_mesh, solve_wave_port_sweep, waveguide_mode_reduce,
-    ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, WavePort, WavePortSweepPoint,
+    ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMode, WavePort, WavePortSweepPoint,
 };
 #[allow(deprecated)]
 pub use waveguide_modes::{

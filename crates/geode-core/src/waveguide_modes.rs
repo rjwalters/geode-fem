@@ -158,7 +158,7 @@ impl WaveguideModeProfile {
 
 /// Outgoing-wave complex `β(ω, c, k_c)`: the canonical sign convention
 /// used by both [`WaveguideModeProfile::beta_complex`] and
-/// [`crate::wave_port::WavePort::beta`] under the `exp(+jωt)` time
+/// [`crate::wave_port::PortMode::beta`] under the `exp(+jωt)` time
 /// convention.
 ///
 /// Returns `+√(ω²/c² − k_c²)` (real positive) for `ω/c ≥ k_c` and
