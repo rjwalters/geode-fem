@@ -876,3 +876,397 @@ fn bimodal_block_s_matrix_is_reciprocal() {
         pt.residual_rel
     );
 }
+
+// =====================================================================
+// C1 — Bi-modal straight-section validation: mode orthogonality
+// (issue #256 / parent #250).
+// =====================================================================
+//
+// On a uniform rectangular straight section operated above the TE₂₀
+// cutoff but below TE₃₀ (and below TE₀₁), TE₁₀ and TE₂₀ are orthogonal
+// eigenfunctions of the same cross-section, so:
+//
+//   - Self-coupling P1·TE_m → P2·TE_m has |S| ≈ 1 and phase ≈ exp(−jβ_m L).
+//   - Cross-coupling P·TE_m → P′·TE_{m′ ≠ m} ≈ 0 (the orthogonality pin).
+//   - Reflection P·TE_m → P·TE_m ≈ 0 (matched modal Robin BC absorbs
+//     the outgoing mode on a uniform section, no in-port reflection).
+//   - Reciprocity: |S − Sᵀ| at solver-noise level.
+//   - Energy conservation per excitation column: Σ_i |S_{i,j}|² ≈ 1
+//     (power-normalised S-matrix is unitary on a lossless propagating
+//     channel set).
+//
+// Fixture: same `a × b × L = 2 × 0.6 × 1.0` mesh and `ω = 3.5` as the B1
+// reciprocity unit test in this file (known-good — reciprocity 4.2e-14
+// on the 4×4 block). Cutoffs: TE₁₀ = π/2 ≈ 1.5708, TE₂₀ = π ≈ 3.1416,
+// TE₃₀ = 3π/2 ≈ 4.7124, TE₀₁ = π/b ≈ 5.236. Between TE₂₀ and TE₃₀:
+// exactly two propagating modes.
+
+/// **C1 — bi-modal straight-section orthogonality** (issue #256). All
+/// the explicit physical assertions on top of B1's reciprocity pin:
+/// self-coupling magnitudes ≈ 1, self-coupling phases ≈ exp(−jβ_m L),
+/// **cross-coupling magnitudes ≈ 0** (the orthogonality assertion),
+/// reflection ≈ 0 on a matched uniform section, energy conservation per
+/// excitation column.
+#[test]
+#[ignore = "heavy: bi-modal straight section, K=2 modes × 2 ports; cargo test --release --features ndarray --no-default-features --test wave_port -- --ignored bimodal_straight_section_orthogonality"]
+fn bimodal_straight_section_orthogonality() {
+    // Same mesh/operating point as the B1 reciprocity unit test in this
+    // file (known-good: reciprocity 4.2e-14 on this fixture), but with
+    // finer (nx, nz) resolution to suppress discretisation-induced
+    // inter-modal coupling. TE₂₀ has higher spatial frequency along x
+    // than TE₁₀, so the x-direction resolution determines the
+    // cross-coupling floor.
+    let (a, b, length) = (2.0_f64, 0.6_f64, 1.0_f64);
+    let (nx, ny, nz) = (24, 6, 12);
+
+    let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
+    let pec_mask = g.pec_interior_mask();
+    let eps = vacuum(&g.mesh);
+
+    // ω = 3.5 ∈ (π, 3π/2) so TE₁₀ + TE₂₀ propagate, TE₃₀ + TE₀₁
+    // evanescent.
+    let omega = 3.5_f64;
+    let n_modes = 2;
+
+    let port1 = build_multimode_port(
+        &g.mesh,
+        &g.port1_faces,
+        a,
+        b,
+        nx,
+        ny,
+        0.0,
+        n_modes,
+        c64::new(1.0, 0.0),
+    );
+    let port2 = build_multimode_port(
+        &g.mesh,
+        &g.port2_faces,
+        a,
+        b,
+        nx,
+        ny,
+        length,
+        n_modes,
+        c64::new(1.0, 0.0),
+    );
+    assert_eq!(port1.n_modes(), 2);
+    assert_eq!(port2.n_modes(), 2);
+
+    let bcs = DrivenBcs {
+        pec_interior_mask: &pec_mask,
+    };
+    let sweep = solve_wave_port_sweep::<B>(
+        &g.mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &bcs,
+        &[port1, port2],
+        &[omega],
+        &device(),
+    )
+    .expect("bi-modal C1 wave-port sweep");
+    assert_eq!(sweep.len(), 1);
+
+    let pt = &sweep[0];
+    let n = pt.n_channels;
+    assert_eq!(n, 4);
+    assert_eq!(pt.port_mode_counts, vec![2, 2]);
+
+    // Channel layout (port-major, mode-minor):
+    //   0 = (P1, TE₁₀), 1 = (P1, TE₂₀), 2 = (P2, TE₁₀), 3 = (P2, TE₂₀).
+    let c_p1_m1 = pt.channel_index(0, 0);
+    let c_p1_m2 = pt.channel_index(0, 1);
+    let c_p2_m1 = pt.channel_index(1, 0);
+    let c_p2_m2 = pt.channel_index(1, 1);
+    assert_eq!((c_p1_m1, c_p1_m2, c_p2_m1, c_p2_m2), (0, 1, 2, 3));
+
+    // Convenience: row-major s[k*N + j] = response on channel k when
+    // channel j is excited.
+    let sij = |k: usize, j: usize| pt.s[k * n + j];
+
+    // β per channel for analytic phase comparison.
+    let kc_m1 = std::f64::consts::PI / a; // TE₁₀
+    let kc_m2 = 2.0 * std::f64::consts::PI / a; // TE₂₀
+    let beta_m1_analytic = (omega * omega - kc_m1 * kc_m1).sqrt();
+    let beta_m2_analytic = (omega * omega - kc_m2 * kc_m2).sqrt();
+
+    eprintln!(
+        "Bi-modal C1 fixture: a={a}, b={b}, L={length}, ω={omega}; \
+         TE₁₀ kc≈{:.4}, TE₂₀ kc≈{:.4}",
+        kc_m1, kc_m2
+    );
+    eprintln!(
+        "  analytic β: TE₁₀ = {:.4} (βL = {:.4}), TE₂₀ = {:.4} (βL = {:.4})",
+        beta_m1_analytic,
+        beta_m1_analytic * length,
+        beta_m2_analytic,
+        beta_m2_analytic * length,
+    );
+    for k in 0..n {
+        eprintln!(
+            "  channel[{}] β = {:.4} + {:.4}i",
+            k, pt.beta[k].re, pt.beta[k].im
+        );
+    }
+    eprintln!("  residual_rel = {:.3e}", pt.residual_rel);
+    eprintln!("  S-matrix (row k = response, col j = excitation):");
+    for k in 0..n {
+        let mut row = String::new();
+        for j in 0..n {
+            let v = sij(k, j);
+            row.push_str(&format!("  ({:+.4},{:+.4})", v.re, v.im));
+        }
+        eprintln!("    [{k}]{}", row);
+    }
+
+    // β positive and real for both propagating modes; matched between
+    // the two ports (same cross-section).
+    for k in 0..n {
+        assert!(
+            pt.beta[k].re > 0.0 && pt.beta[k].im.abs() < 1e-9,
+            "channel[{k}] β must be real-positive (propagating); got {:?}",
+            pt.beta[k]
+        );
+    }
+    assert!((pt.beta[c_p1_m1].re - pt.beta[c_p2_m1].re).abs() < 1e-12);
+    assert!((pt.beta[c_p1_m2].re - pt.beta[c_p2_m2].re).abs() < 1e-12);
+
+    // ---- (1) Self-coupling magnitudes ≈ 1 ----
+    // P1·TE₁₀ → P2·TE₁₀ and P1·TE₂₀ → P2·TE₂₀ on a uniform section: the
+    // wave propagates undisturbed, so |S| ≈ 1. Equal between the two
+    // directions (P1→P2 and P2→P1) by reciprocity.
+    let self_m1_fwd = sij(c_p2_m1, c_p1_m1);
+    let self_m1_rev = sij(c_p1_m1, c_p2_m1);
+    let self_m2_fwd = sij(c_p2_m2, c_p1_m2);
+    let self_m2_rev = sij(c_p1_m2, c_p2_m2);
+    eprintln!(
+        "  self-coupling magnitudes: |S(P1·TE₁₀→P2·TE₁₀)| = {:.6},  \
+         |S(P2·TE₁₀→P1·TE₁₀)| = {:.6}",
+        self_m1_fwd.norm(),
+        self_m1_rev.norm()
+    );
+    eprintln!(
+        "                            |S(P1·TE₂₀→P2·TE₂₀)| = {:.6},  \
+         |S(P2·TE₂₀→P1·TE₂₀)| = {:.6}",
+        self_m2_fwd.norm(),
+        self_m2_rev.norm()
+    );
+    // Tolerance: observed self-coupling magnitudes deviate from 1 by
+    // ~5e-6 on this fixture (a finer mesh than the single-mode
+    // straight-section test, which uses a 0.1 envelope on (8,4,4)).
+    // 1e-3 leaves three orders of headroom for platform drift while
+    // catching gross regressions.
+    let self_mag_tol = 1e-3_f64;
+    for (label, v) in [
+        ("S(P1·TE₁₀→P2·TE₁₀)", self_m1_fwd),
+        ("S(P2·TE₁₀→P1·TE₁₀)", self_m1_rev),
+        ("S(P1·TE₂₀→P2·TE₂₀)", self_m2_fwd),
+        ("S(P2·TE₂₀→P1·TE₂₀)", self_m2_rev),
+    ] {
+        assert!(
+            (v.norm() - 1.0).abs() < self_mag_tol,
+            "self-coupling magnitude {label} = {:.4} too far from 1.0 (tol {self_mag_tol})",
+            v.norm()
+        );
+    }
+
+    // ---- (2) Self-coupling phases ≈ exp(−jβ_m L) ----
+    // Power-normalised S with sqrt(β_k/β_j) = 1 for self-coupling on a
+    // uniform section, so S(P1·TE_m → P2·TE_m) = a_{P2,m} − 0 in the
+    // matched case = exp(−jβ_m L) to leading order (mesh-induced β
+    // discretisation error contributes a few % phase rotation).
+    let phase_err_m1 = {
+        let expected = c64::new(
+            (-beta_m1_analytic * length).cos(),
+            (-beta_m1_analytic * length).sin(),
+        );
+        (self_m1_fwd - expected).norm()
+    };
+    let phase_err_m2 = {
+        let expected = c64::new(
+            (-beta_m2_analytic * length).cos(),
+            (-beta_m2_analytic * length).sin(),
+        );
+        (self_m2_fwd - expected).norm()
+    };
+    eprintln!(
+        "  self-coupling phase residual vs exp(−jβ_m L): TE₁₀ = {:.4e}, TE₂₀ = {:.4e}",
+        phase_err_m1, phase_err_m2
+    );
+    // Tolerance: dominant phase error is the β discretisation error,
+    // which on this mesh sits at ~5e-3 for TE₁₀ and ~1e-2 for TE₂₀
+    // (observed: TE₁₀ ≈ 5e-3, TE₂₀ ≈ 1e-2). Allow a 3× envelope for
+    // platform float-determinism drift on each.
+    assert!(
+        phase_err_m1 < 2e-2,
+        "TE₁₀ self-coupling phase residual {phase_err_m1:.3e} too large vs exp(−jβ₁ L)"
+    );
+    assert!(
+        phase_err_m2 < 4e-2,
+        "TE₂₀ self-coupling phase residual {phase_err_m2:.3e} too large vs exp(−jβ₂ L)"
+    );
+
+    // ---- (3) Cross-coupling magnitudes ≈ 0 (the orthogonality pin) ----
+    // Mode orthogonality: a TE_m excitation on either port produces ≈ 0
+    // amplitude on any TE_{m′ ≠ m} channel. Four cross terms per
+    // direction; we check all 8 off-block-diagonal entries.
+    let cross_pairs: [(usize, usize, &str); 8] = [
+        (c_p1_m2, c_p1_m1, "S(P1·TE₁₀ → P1·TE₂₀)"),
+        (c_p2_m2, c_p1_m1, "S(P1·TE₁₀ → P2·TE₂₀)"),
+        (c_p1_m1, c_p1_m2, "S(P1·TE₂₀ → P1·TE₁₀)"),
+        (c_p2_m1, c_p1_m2, "S(P1·TE₂₀ → P2·TE₁₀)"),
+        (c_p1_m2, c_p2_m1, "S(P2·TE₁₀ → P1·TE₂₀)"),
+        (c_p2_m2, c_p2_m1, "S(P2·TE₁₀ → P2·TE₂₀)"),
+        (c_p1_m1, c_p2_m2, "S(P2·TE₂₀ → P1·TE₁₀)"),
+        (c_p2_m1, c_p2_m2, "S(P2·TE₂₀ → P2·TE₁₀)"),
+    ];
+    let mut worst_cross = 0.0_f64;
+    let mut worst_cross_label = "";
+    for (k, j, label) in cross_pairs.iter() {
+        let v = sij(*k, *j);
+        eprintln!(
+            "  cross  {label} = ({:+.3e}, {:+.3e})  |.|={:.3e}",
+            v.re,
+            v.im,
+            v.norm()
+        );
+        if v.norm() > worst_cross {
+            worst_cross = v.norm();
+            worst_cross_label = label;
+        }
+    }
+    eprintln!(
+        "  worst cross-coupling magnitude = {:.3e} at {}",
+        worst_cross, worst_cross_label
+    );
+    // Mode orthogonality is exact at the continuous level; on a
+    // discrete FEM mesh the assembled modal flux `f_m = S_p · e_m`
+    // inherits the coarse-mesh edge-basis projection error of the
+    // 2-D modal eigenvector mapped onto the 3-D edge table. The B1
+    // reciprocity (4e-14) and the 2-D modal-solver M-orthonormality
+    // (1e-12, A1) are NOT the relevant floor here — cross-coupling
+    // sees the *projected flux* mismatch, not the algebraic operator
+    // symmetry.
+    //
+    // Convergence study on this fixture (a=2, b=0.6, L=1, ω=3.5):
+    //
+    //   (nx, ny, nz)   intra-port cross  cross-port cross   t(run)
+    //   ( 10, 4,  4)        2.1e-3            1.8e-2        0.02 s
+    //   ( 20, 4,  8)        5.9e-4            5.4e-3        0.10 s
+    //   ( 24, 6, 12)        3.3e-4            2.9e-3        0.69 s
+    //   ( 32, 6, 16)        2.0e-4            1.8e-3        1.81 s
+    //
+    // Roughly second-order in mesh density. The chosen (24, 6, 12)
+    // is a runtime/tolerance balance: under-1s heavy-test runtime
+    // with worst cross-coupling ≈ 3e-3, comfortably under the 1e-2
+    // red line and an order of magnitude tighter than the (10,4,4)
+    // mesh would deliver.
+    //
+    // The tolerance below (5e-3) is set above the observed worst
+    // cross-coupling at this mesh density with a small margin for
+    // platform float-determinism drift. Going tighter requires
+    // mesh refinement, not tolerance manipulation.
+    let cross_tol = 5e-3_f64;
+    assert!(
+        worst_cross < cross_tol,
+        "cross-coupling orthogonality violated: worst |S| = {:.3e} at {} (expected < {:.0e})",
+        worst_cross,
+        worst_cross_label,
+        cross_tol
+    );
+
+    // ---- (4) Reciprocity across the full 4×4 block ----
+    // The augmented operator is complex-symmetric; reciprocity holds
+    // to solver precision. B1's unit test pins this to 4.2e-14 on the
+    // same fixture; relax slightly to 1e-10 as an integration-test
+    // floor.
+    let mut worst_recip = 0.0_f64;
+    let mut worst_recip_pair = (0usize, 0usize);
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let d = (sij(i, j) - sij(j, i)).norm();
+            if d > worst_recip {
+                worst_recip = d;
+                worst_recip_pair = (i, j);
+            }
+        }
+    }
+    eprintln!(
+        "  worst-reciprocity |S_ij − S_ji| = {:.3e} at (i, j) = {:?}",
+        worst_recip, worst_recip_pair
+    );
+    assert!(
+        worst_recip < 1e-10,
+        "reciprocity violated: worst |S_ij − S_ji| = {:.3e} at {:?}",
+        worst_recip,
+        worst_recip_pair
+    );
+
+    // ---- (5) Energy conservation per excitation column ----
+    // For a lossless propagating-channel-only system, the power-
+    // normalised S-matrix is unitary, so each column has unit 2-norm.
+    // Observed |Σ_k |S_kj|² − 1| ≲ 3e-5 on this fixture — five orders
+    // of magnitude better than the single-mode 15% envelope, because
+    // the bi-modal channel set captures essentially all the energy in
+    // the propagating subspace.
+    let mut worst_energy_err = 0.0_f64;
+    let mut worst_energy_col = 0usize;
+    for j in 0..n {
+        let mut col_norm_sq = 0.0_f64;
+        for k in 0..n {
+            col_norm_sq += sij(k, j).norm().powi(2);
+        }
+        eprintln!("  energy col[{j}] Σ_k |S_kj|² = {:.6}", col_norm_sq);
+        let err = (col_norm_sq - 1.0).abs();
+        if err > worst_energy_err {
+            worst_energy_err = err;
+            worst_energy_col = j;
+        }
+    }
+    eprintln!(
+        "  worst energy-column residual |Σ_k |S_kj|² − 1| = {:.3e} (col {})",
+        worst_energy_err, worst_energy_col
+    );
+    assert!(
+        worst_energy_err < 1e-3,
+        "energy conservation violated on column {}: |Σ_k |S_kj|² − 1| = {:.4e}",
+        worst_energy_col,
+        worst_energy_err
+    );
+
+    // ---- (6) Reflection coefficients ≈ 0 ----
+    // The matched modal Robin BC absorbs the outgoing mode without
+    // reflection on a uniform section, so S_{(p,m),(p,m)} ≈ 0.
+    // Observed |reflection| ≤ 7e-4 on this fixture (TE₂₀ reflection
+    // dominated by intra-port modal-flux orthogonality residual; TE₁₀
+    // reflection ≈ machine zero). 5e-3 envelope leaves an order of
+    // magnitude headroom.
+    let reflections = [
+        (c_p1_m1, "S(P1·TE₁₀ → P1·TE₁₀)"),
+        (c_p1_m2, "S(P1·TE₂₀ → P1·TE₂₀)"),
+        (c_p2_m1, "S(P2·TE₁₀ → P2·TE₁₀)"),
+        (c_p2_m2, "S(P2·TE₂₀ → P2·TE₂₀)"),
+    ];
+    for (k, label) in reflections.iter() {
+        let v = sij(*k, *k);
+        eprintln!(
+            "  reflection {label} = ({:+.3e}, {:+.3e})  |.|={:.3e}",
+            v.re,
+            v.im,
+            v.norm()
+        );
+        assert!(
+            v.norm() < 5e-3,
+            "reflection {label} = {:.4e} too large (matched section, expected ≪ 1)",
+            v.norm()
+        );
+    }
+
+    // Final solver-residual sanity.
+    assert!(
+        pt.residual_rel < 1e-10,
+        "rank-N SMW residual_rel = {:.3e} too large",
+        pt.residual_rel
+    );
+}
