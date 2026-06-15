@@ -62,8 +62,8 @@ pub use extraction::{
 };
 pub use fe_assemble::{fe_assemble, DirichletBc, ElementType, FeAssembleResult};
 pub use ksp_solve::{
-    Cocg, IdentityPreconditioner, JacobiPreconditioner, KspError, KspReport, KspSolve,
-    Preconditioner,
+    Cocg, IdentityPreconditioner, IluPreconditioner, JacobiPreconditioner, KspError, KspReport,
+    KspSolve, Preconditioner,
 };
 pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 pub use lumped_port::{

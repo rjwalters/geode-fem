@@ -25,10 +25,13 @@
 //!   `(r, z) = r^H z` inner product with the bilinear `r^T z`. The
 //!   same complex-symmetric structure powers the bilinear-form
 //!   Lanczos in [`crate::complex_lanczos`].
-//! - A [`Preconditioner`] trait with two concrete preconditioners:
-//!   [`IdentityPreconditioner`] (the no-op) and [`JacobiPreconditioner`]
+//! - A [`Preconditioner`] trait with three concrete preconditioners:
+//!   [`IdentityPreconditioner`] (the no-op), [`JacobiPreconditioner`]
 //!   (diagonal scaling — `M = diag(A)`, the simplest and cheapest
-//!   left-preconditioner).
+//!   left-preconditioner), and [`IluPreconditioner`] (incomplete-LU
+//!   factorization on `A`'s sparsity pattern — heavier setup, much
+//!   lower iteration counts on ill-conditioned operators; see
+//!   issue #267).
 //!
 //! # Algorithm — preconditioned COCG
 //!
@@ -275,6 +278,329 @@ impl Preconditioner for JacobiPreconditioner {
     }
     fn dim(&self) -> usize {
         self.inv_diag.len()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// IluPreconditioner — incomplete LU(0) on the sparsity pattern of A
+// ---------------------------------------------------------------------------
+
+/// **Incomplete-LU(0) preconditioner** for the complex-symmetric driven
+/// pencil (issue #267).
+///
+/// Classical ILU(0): factor `A ≈ L · U` where the unit-lower-triangular
+/// `L` and upper-triangular `U` are constrained to the **original
+/// sparsity pattern of `A`**. Fill-in beyond that pattern is dropped
+/// (this is the "level 0" in "ILU(k)"). The factorization stores both
+/// triangles in a single CSC buffer of the same shape as `A` — `L` in
+/// the strict lower triangle, `U` (with diagonal) in the upper triangle.
+///
+/// # Math note (complex-symmetric / COCG compatibility)
+///
+/// COCG uses the **bilinear** form `r^T z` — no conjugation. The
+/// preconditioner application `z = M⁻¹ r = U⁻¹ L⁻¹ r` uses only standard
+/// complex `*` / `/` arithmetic (the `c64` operators), so the
+/// factorization is consistent with the bilinear form: `A` is treated
+/// as a complex matrix with `A^T = A`, the LU is the bilinear LU, and
+/// `M⁻¹` composes cleanly with the COCG inner product. The
+/// factorization does **not** conjugate anywhere — the same
+/// invariant the bilinear-form Lanczos in [`crate::complex_lanczos`]
+/// relies on.
+///
+/// # Setup vs application cost trade-off
+///
+/// ILU has a one-shot **factorization cost** (one pass over the
+/// sparsity pattern of `A`, sub-cubic but heavier than Jacobi's `O(n)`
+/// diagonal copy), amortized across many Krylov iterations. The
+/// per-application cost is two triangular solves on the same sparsity
+/// (each `O(nnz)`), versus Jacobi's `O(n)` element-wise multiply.
+/// ILU pays off whenever it shaves enough Krylov iterations to recoup
+/// its setup; for moderately ill-conditioned operators (high-Q
+/// resonant cavities, surface-impedance-loaded structures, fine
+/// meshes near cutoff) this break-even is comfortable.
+///
+/// # Errors at construction
+///
+/// Returns [`KspError::Breakdown`] (with `kind = "ILU diag"`) if a
+/// diagonal pivot is zero or non-finite during factorization — this
+/// happens when `A` is singular or extremely ill-conditioned at the
+/// drop-pattern level. Fall back to Jacobi or direct LU in that case.
+///
+/// # Fill level
+///
+/// Constructed via [`IluPreconditioner::new`] which is ILU(0) — no
+/// fill beyond `A`'s pattern. Higher fill levels (`ILU(k)` with
+/// `k ≥ 1`) are deliberately out of scope for issue #267; the
+/// constructor's signature reserves the `fill_level` parameter for a
+/// future extension but currently asserts `fill_level == 0`.
+#[derive(Debug, Clone)]
+pub struct IluPreconditioner {
+    /// System size.
+    n: usize,
+    /// Factor values: strict-lower-triangle entries hold `L_{ij}` with
+    /// `i > j`; the diagonal and strict-upper entries hold the `U`
+    /// values (so `U` has the explicit diagonal). The CSC layout is
+    /// implicit via [`Self::row_entries`] — we don't keep the original
+    /// `col_ptr` / `row_idx` because both the forward and the backward
+    /// triangular solves run off the row-indexed view.
+    vals: Vec<c64>,
+    /// For each column `j`, position in `vals` of the diagonal entry
+    /// `U_{jj}` (used for the per-column pivot and the back-solve
+    /// scaling).
+    diag_pos: Vec<usize>,
+    /// For each row `i`, the **sorted** list of `(col_j, csc_pos)`
+    /// pairs of entries in row `i`. Built once at construction; used
+    /// both during factorization (to look up `L_{ik}` for `k < j` on
+    /// the column-`j` update) and during the triangular solves.
+    row_entries: Vec<Vec<(usize, usize)>>,
+}
+
+impl IluPreconditioner {
+    /// Build the ILU(0) factorization of `a`. `a` must be a square
+    /// CSC matrix; the factorization shares its sparsity pattern.
+    ///
+    /// # Arguments
+    ///
+    /// - `a` — the matrix to factor (the assembled driven operator
+    ///   `A(ω)`).
+    /// - `fill_level` — must be `0` (ILU(0)). Higher fill levels are
+    ///   reserved for a future extension and currently rejected with
+    ///   a panic; see [`IluPreconditioner`] docs.
+    ///
+    /// # Errors
+    ///
+    /// [`KspError::Breakdown`] if a pivot vanishes during factorization
+    /// (the matrix is singular or ill-conditioned at the ILU(0)-drop
+    /// pattern). The construction never silently returns NaNs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `a` is non-square, if `fill_level != 0`, or if a column
+    /// of `a` does not have an explicit diagonal entry (ILU(0) requires
+    /// the diagonal to be in the sparsity pattern — assembled FEM
+    /// operators always have it).
+    pub fn new(a: SparseColMatRef<'_, usize, c64>, fill_level: usize) -> Result<Self, KspError> {
+        let n = a.nrows();
+        assert_eq!(a.ncols(), n, "IluPreconditioner requires square A");
+        assert_eq!(
+            fill_level, 0,
+            "IluPreconditioner currently supports ILU(0) only (issue #267 scope rails)"
+        );
+
+        let a_col_ptr = a.col_ptr();
+        let a_row_idx = a.row_idx();
+        let a_val = a.val();
+
+        // Copy A's values into the factorization buffer. The CSC
+        // pattern stays identical with A's; the values are overwritten
+        // in place by the ILU(0) elimination.
+        let mut vals: Vec<c64> = a_val.to_vec();
+
+        // Per-column diagonal position. Required: every column has
+        // an explicit diagonal entry.
+        let mut diag_pos = vec![usize::MAX; n];
+        for (j, diag_slot) in diag_pos.iter_mut().enumerate() {
+            let start = a_col_ptr[j];
+            let end = a_col_ptr[j + 1];
+            for (offset, &row) in a_row_idx[start..end].iter().enumerate() {
+                if row == j {
+                    *diag_slot = start + offset;
+                    break;
+                }
+            }
+            assert!(
+                *diag_slot != usize::MAX,
+                "IluPreconditioner: column {j} has no explicit diagonal entry"
+            );
+        }
+
+        // Build per-row entry index: for each row i, the sorted list
+        // of (col_j, csc_pos) pairs. CSC stores columns sorted by row
+        // already, so we walk columns left-to-right and append; the
+        // result is sorted by column for each row.
+        let mut row_entries: Vec<Vec<(usize, usize)>> = vec![Vec::new(); n];
+        for j in 0..n {
+            let start = a_col_ptr[j];
+            let end = a_col_ptr[j + 1];
+            for (offset, &i) in a_row_idx[start..end].iter().enumerate() {
+                row_entries[i].push((j, start + offset));
+            }
+        }
+        // row_entries[i] is already sorted by column because we walked
+        // j in increasing order.
+
+        // ILU(0) elimination. The "IKJ" form (Saad §10.3.2):
+        //
+        // for i = 1..n:
+        //     for k = 0..i with (i,k) in pattern:
+        //         a_ik /= a_kk
+        //         for j = k+1..n with (i,j) in pattern AND (k,j) in pattern:
+        //             a_ij -= a_ik * a_kj
+        //
+        // The "AND (k,j) in pattern" clause is the ILU(0) drop rule —
+        // any contribution that would land outside A's original
+        // pattern is discarded.
+        //
+        // We index by row using `row_entries[i]` (the row-wise list of
+        // CSC positions). For each row `i`, we walk through its
+        // entries in column-sorted order, accumulating L pivots and
+        // applying drops as we go.
+        for i in 1..n {
+            // Snapshot row i's entries — we'll walk through them in
+            // column-sorted order.
+            let row_i = row_entries[i].clone();
+
+            for (idx, &(k, pos_ik)) in row_i.iter().enumerate() {
+                if k >= i {
+                    break; // We've reached the diagonal or upper — stop.
+                }
+
+                // Divide a_ik by the pivot U_kk to form L_ik.
+                let u_kk = vals[diag_pos[k]];
+                let mag2 = u_kk.re * u_kk.re + u_kk.im * u_kk.im;
+                if !u_kk.re.is_finite() || !u_kk.im.is_finite() || mag2 == 0.0 {
+                    return Err(KspError::Breakdown {
+                        iter: 0,
+                        kind: "ILU diag",
+                        value_re: u_kk.re,
+                        value_im: u_kk.im,
+                    });
+                }
+                let l_ik = vals[pos_ik] / u_kk;
+                vals[pos_ik] = l_ik;
+
+                // Update a_ij for j > k where both (i,j) and (k,j) are
+                // in the pattern.
+                //
+                // (i,j) entries: walk forward in row_i starting at
+                // idx+1 (still column-sorted).
+                //
+                // (k,j) entries: walk forward in row_entries[k] from
+                // the first entry with col >= k+1 (the first entry
+                // after L_kk).
+
+                let row_k = &row_entries[k];
+                // Find the start in row_k where col > k.
+                let mut p_k = match row_k.binary_search_by_key(&k, |&(c, _)| c) {
+                    Ok(found) => found + 1,
+                    Err(insert) => insert,
+                };
+                let mut p_i = idx + 1;
+
+                while p_i < row_i.len() && p_k < row_k.len() {
+                    let (j_i, pos_ij) = row_i[p_i];
+                    let (j_k, pos_kj) = row_k[p_k];
+                    match j_i.cmp(&j_k) {
+                        std::cmp::Ordering::Equal => {
+                            // Both (i, j) and (k, j) are in the
+                            // pattern — apply the ILU(0) drop-free
+                            // update.
+                            let kj = vals[pos_kj];
+                            vals[pos_ij] -= l_ik * kj;
+                            p_i += 1;
+                            p_k += 1;
+                        }
+                        std::cmp::Ordering::Less => {
+                            // (i, j_i) has no matching (k, j_i) entry
+                            // — drop the implied fill at level 0.
+                            p_i += 1;
+                        }
+                        std::cmp::Ordering::Greater => {
+                            // (k, j_k) has no matching (i, j_k) entry
+                            // — same drop.
+                            p_k += 1;
+                        }
+                    }
+                }
+            }
+
+            // Final pivot check on the diagonal (caught now rather than
+            // on the next column's solve).
+            let u_ii = vals[diag_pos[i]];
+            let mag2 = u_ii.re * u_ii.re + u_ii.im * u_ii.im;
+            if !u_ii.re.is_finite() || !u_ii.im.is_finite() || mag2 == 0.0 {
+                return Err(KspError::Breakdown {
+                    iter: 0,
+                    kind: "ILU diag",
+                    value_re: u_ii.re,
+                    value_im: u_ii.im,
+                });
+            }
+        }
+        // Also check the very first column's pivot (the loop above
+        // skips i=0 since there's no row 0 lower-triangular update;
+        // a singular A[0,0] would otherwise slip through and explode
+        // only at apply time).
+        {
+            let u_00 = vals[diag_pos[0]];
+            let mag2 = u_00.re * u_00.re + u_00.im * u_00.im;
+            if !u_00.re.is_finite() || !u_00.im.is_finite() || mag2 == 0.0 {
+                return Err(KspError::Breakdown {
+                    iter: 0,
+                    kind: "ILU diag",
+                    value_re: u_00.re,
+                    value_im: u_00.im,
+                });
+            }
+        }
+
+        Ok(Self {
+            n,
+            vals,
+            diag_pos,
+            row_entries,
+        })
+    }
+}
+
+impl Preconditioner for IluPreconditioner {
+    /// Apply `z = M⁻¹ r = U⁻¹ L⁻¹ r` via two triangular solves.
+    ///
+    /// `L` is unit-lower-triangular (the strict-lower part of `vals`,
+    /// implicit unit diagonal). `U` is upper-triangular with explicit
+    /// diagonal at `diag_pos[j]`. Both solves use standard complex
+    /// arithmetic — no conjugation — keeping the application
+    /// consistent with the COCG bilinear inner product.
+    fn apply(&self, r: &[c64], z: &mut [c64]) {
+        debug_assert_eq!(r.len(), self.n);
+        debug_assert_eq!(z.len(), self.n);
+
+        // Forward solve: L y = r. We write y into z (in place).
+        //
+        // For i = 0..n: y_i = r_i - Σ_{k<i, (i,k) in pattern} L_ik · y_k.
+        // The "L" entries are the row-i entries with column < i (strict
+        // lower triangle); `row_entries[i]` lists them in sorted order.
+        for i in 0..self.n {
+            let mut acc = r[i];
+            for &(k, pos_ik) in &self.row_entries[i] {
+                if k >= i {
+                    break;
+                }
+                acc -= self.vals[pos_ik] * z[k];
+            }
+            z[i] = acc;
+        }
+
+        // Backward solve: U z = y (y was overwritten into z above).
+        //
+        // For i = n-1..=0:
+        //   z_i = (y_i - Σ_{j>i, (i,j) in pattern} U_ij · z_j) / U_ii.
+        // The "U" entries are the row-i entries with column ≥ i. The
+        // diagonal entry is U_ii (at diag_pos[i]); strict-upper entries
+        // are at columns > i in row_entries[i].
+        for i in (0..self.n).rev() {
+            let mut acc = z[i];
+            for &(j, pos_ij) in &self.row_entries[i] {
+                if j > i {
+                    acc -= self.vals[pos_ij] * z[j];
+                }
+            }
+            z[i] = acc / self.vals[self.diag_pos[i]];
+        }
+    }
+
+    fn dim(&self) -> usize {
+        self.n
     }
 }
 
@@ -702,5 +1028,170 @@ mod tests {
         let cocg = Cocg::new(1e-15, 1); // tight tol + 1-iter budget
         let err = cocg.solve(a.as_ref(), &b, &mut x, &pc).unwrap_err();
         assert!(matches!(err, KspError::NotConverged { .. }));
+    }
+
+    // -----------------------------------------------------------------
+    // ILU(0) preconditioner — unit tests (issue #267)
+    // -----------------------------------------------------------------
+
+    /// ILU(0) on a **tridiagonal** matrix is exact LU (no fill outside
+    /// the tridiagonal pattern is needed), so the preconditioned COCG
+    /// must converge in **one iteration**.
+    #[test]
+    fn ilu0_on_tridiagonal_is_exact_lu() {
+        // 4×4 real-symmetric tridiagonal SPD:
+        // [[4, 1, 0, 0],
+        //  [1, 4, 1, 0],
+        //  [0, 1, 4, 1],
+        //  [0, 0, 1, 4]]
+        let n = 4;
+        let mut trips = Vec::new();
+        for i in 0..n {
+            trips.push(Triplet::new(i, i, c64::new(4.0, 0.0)));
+            if i + 1 < n {
+                trips.push(Triplet::new(i, i + 1, c64::new(1.0, 0.0)));
+                trips.push(Triplet::new(i + 1, i, c64::new(1.0, 0.0)));
+            }
+        }
+        let a = SparseColMat::<usize, c64>::try_new_from_triplets(n, n, &trips).unwrap();
+        let b: Vec<c64> = (0..n).map(|i| c64::new(i as f64 + 1.0, 0.0)).collect();
+        let mut x = vec![c64::new(0.0, 0.0); n];
+
+        let pc = IluPreconditioner::new(a.as_ref(), 0).expect("ILU(0) factorization");
+        // Tridiagonal: no fill exists outside the pattern, so ILU(0)
+        // is an exact LU — preconditioned COCG terminates in one
+        // iteration with residual ≈ 0.
+        let cocg = Cocg::new(1e-12, 50);
+        let report = cocg
+            .solve(a.as_ref(), &b, &mut x, &pc)
+            .expect("COCG converges with ILU(0)");
+        assert!(report.converged);
+        assert!(
+            report.iters <= 2,
+            "tridiagonal ILU(0) should solve in ≤ 2 iters (no fill possible), got {}",
+            report.iters
+        );
+
+        // Cross-check the solution by multiplying back.
+        let mut ax = vec![c64::new(0.0, 0.0); n];
+        crate::complex_lanczos::spmv(a.as_ref(), &x, &mut ax);
+        for i in 0..n {
+            assert!((ax[i] - b[i]).norm() < 1e-10);
+        }
+    }
+
+    /// ILU(0) on a **complex-symmetric lossy** matrix must converge
+    /// COCG to round-off, exercising the "no conjugation" math note
+    /// from issue #267.
+    #[test]
+    fn ilu0_solves_complex_symmetric_lossy() {
+        // Same fixture as `cocg_solves_complex_symmetric_lossy_system`.
+        let n = 3;
+        let trips = vec![
+            Triplet::new(0_usize, 0, c64::new(4.0, 0.1)),
+            Triplet::new(0, 1, c64::new(1.0, 0.05)),
+            Triplet::new(1, 0, c64::new(1.0, 0.05)),
+            Triplet::new(1, 1, c64::new(3.0, 0.2)),
+            Triplet::new(1, 2, c64::new(1.0, 0.0)),
+            Triplet::new(2, 1, c64::new(1.0, 0.0)),
+            Triplet::new(2, 2, c64::new(2.0, 0.1)),
+        ];
+        let a = SparseColMat::<usize, c64>::try_new_from_triplets(n, n, &trips).unwrap();
+        let b: Vec<c64> = vec![c64::new(1.0, -0.2), c64::new(2.0, 0.1), c64::new(0.5, 0.3)];
+
+        let mut x = vec![c64::new(0.0, 0.0); n];
+        let pc = IluPreconditioner::new(a.as_ref(), 0).expect("ILU(0) factorization");
+        let cocg = Cocg::new(1e-12, 100);
+        let report = cocg
+            .solve(a.as_ref(), &b, &mut x, &pc)
+            .expect("COCG converges");
+        assert!(report.converged);
+        assert!(report.residual_rel < 1e-10, "{:?}", report);
+    }
+
+    /// ILU(0) factorization must reject a zero-pivot matrix instead of
+    /// silently producing NaNs.
+    #[test]
+    fn ilu0_rejects_zero_pivot() {
+        // Diagonal entry of column 0 is zero (Triplet zero is summed in
+        // — try_new_from_triplets accepts it).
+        let trips = vec![
+            Triplet::new(0_usize, 0, c64::new(0.0, 0.0)),
+            Triplet::new(1, 1, c64::new(1.0, 0.0)),
+        ];
+        let a = SparseColMat::<usize, c64>::try_new_from_triplets(2, 2, &trips).unwrap();
+        let err = IluPreconditioner::new(a.as_ref(), 0).unwrap_err();
+        assert!(matches!(err, KspError::Breakdown { .. }));
+    }
+
+    /// ILU(0) reduces or matches Jacobi iteration count on a denser
+    /// SPD-ish fixture — direct comparison of preconditioner quality
+    /// on the same Krylov core.
+    #[test]
+    fn ilu0_iterations_le_jacobi_on_spd_ish() {
+        // 5×5 dense-ish symmetric SPD. Jacobi (diagonal only) is far
+        // from the inverse here; ILU(0) is exact LU for this fully
+        // populated pattern.
+        let n = 5;
+        // Build a symmetric SPD matrix: A = G + 5I with G symmetric.
+        let g = [
+            [0.0, 0.5, 0.3, 0.2, 0.1],
+            [0.5, 0.0, 0.4, 0.3, 0.2],
+            [0.3, 0.4, 0.0, 0.5, 0.3],
+            [0.2, 0.3, 0.5, 0.0, 0.4],
+            [0.1, 0.2, 0.3, 0.4, 0.0],
+        ];
+        let mut trips = Vec::new();
+        for (i, row) in g.iter().enumerate() {
+            for (j, &v_g) in row.iter().enumerate() {
+                let v = if i == j { v_g + 5.0 } else { v_g };
+                trips.push(Triplet::new(i, j, c64::new(v, 0.0)));
+            }
+        }
+        let a = SparseColMat::<usize, c64>::try_new_from_triplets(n, n, &trips).unwrap();
+        let b: Vec<c64> = (0..n).map(|i| c64::new(i as f64 + 1.0, 0.0)).collect();
+
+        let cocg = Cocg::new(1e-12, 200);
+
+        let mut x_j = vec![c64::new(0.0, 0.0); n];
+        let jacobi = JacobiPreconditioner::new(a.as_ref()).unwrap();
+        let report_j = cocg.solve(a.as_ref(), &b, &mut x_j, &jacobi).unwrap();
+
+        let mut x_i = vec![c64::new(0.0, 0.0); n];
+        let ilu = IluPreconditioner::new(a.as_ref(), 0).unwrap();
+        let report_i = cocg.solve(a.as_ref(), &b, &mut x_i, &ilu).unwrap();
+
+        assert!(report_j.converged && report_i.converged);
+        // For a fully populated 5×5 pattern, ILU(0) is exact LU and
+        // hence solves in ≤ 2 COCG iterations; Jacobi typically needs
+        // more.
+        assert!(
+            report_i.iters <= report_j.iters,
+            "ILU(0) iters ({}) must not exceed Jacobi iters ({}) on this fixture",
+            report_i.iters,
+            report_j.iters,
+        );
+        // And the solutions must agree.
+        let diff: f64 = x_i
+            .iter()
+            .zip(x_j.iter())
+            .map(|(a, b)| (a - b).norm_sqr())
+            .sum::<f64>()
+            .sqrt();
+        let norm: f64 = x_j.iter().map(|x| x.norm_sqr()).sum::<f64>().sqrt();
+        assert!(diff / norm < 1e-8);
+    }
+
+    /// ILU(0) panics on `fill_level != 0` — scope rails for issue
+    /// #267 (no ILU(k≥1) yet).
+    #[test]
+    #[should_panic(expected = "ILU(0)")]
+    fn ilu_panics_on_nonzero_fill_level() {
+        let trips = vec![
+            Triplet::new(0_usize, 0, c64::new(2.0, 0.0)),
+            Triplet::new(1, 1, c64::new(3.0, 0.0)),
+        ];
+        let a = SparseColMat::<usize, c64>::try_new_from_triplets(2, 2, &trips).unwrap();
+        let _ = IluPreconditioner::new(a.as_ref(), 1);
     }
 }
