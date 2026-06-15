@@ -15,8 +15,16 @@
 //! constant of the corresponding mode is
 //!
 //! ```text
-//! β(ω) = √(ω²/c² − k_c²)    (real → propagating, imaginary → evanescent).
+//! β(ω) = +√(ω²/c² − k_c²)              (propagating, ω/c > k_c)
+//! β(ω) = −j · √(k_c² − ω²/c²)          (evanescent, ω/c < k_c)
 //! ```
+//!
+//! The evanescent branch is chosen so that an outgoing wave
+//! `exp(−jβz)` decays for `z > 0` under the `exp(+jωt)` time
+//! convention used throughout this codebase. See
+//! [`WaveguideModeProfile::beta_complex`] for the canonical
+//! implementation; this differs from the default complex `sqrt` branch
+//! (which would give `Im(β) > 0`, a non-physical growing mode).
 //!
 //! # Discretisation
 //!
@@ -62,6 +70,7 @@
 //! nodes after PEC reduction. This mirrors the 3-D path in
 //! `nedelec_assembly::spurious_dim_from_derham`.
 
+use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
 use faer::Mat;
 
@@ -71,7 +80,10 @@ use crate::lanczos::SparseShiftInvertLanczos;
 /// A single transverse mode of a waveguide cross-section with its modal
 /// field profile (Epic #234, Phase 2: the wave-port boundary condition
 /// requires the eigenvector so the 3D field can be projected onto each
-/// mode).
+/// mode). The unified entry point [`solve_rect_waveguide_modes`] returns
+/// `Vec<WaveguideModeProfile>` for any `K ≥ 1` — the K=1 case is the old
+/// single-mode path, K>1 is the multi-mode wave-port foundation (issue
+/// #254, parent #250).
 ///
 /// The eigenvector is stored in **full-edge ordering** of the 2D port
 /// mesh (length `mesh.edges().len()`), with exact zeros on PEC-eliminated
@@ -82,7 +94,10 @@ use crate::lanczos::SparseShiftInvertLanczos;
 /// The eigenvector is **M-orthonormalized**: `eᵀ M e = 1` over the
 /// interior edges; equivalently `∮_Γ e_t · e_t dS = 1` in the continuous
 /// sense. This convention makes the modal projection coefficient `<E, e>`
-/// a direct measure of the modal amplitude.
+/// a direct measure of the modal amplitude. For K > 1 returned modes, the
+/// set is **mutually** M-orthonormal: `e_iᵀ M e_j = δ_ij` (Lanczos in the
+/// M-inner product gives this for free; see
+/// [`solve_rect_waveguide_modes`]).
 #[derive(Debug, Clone)]
 pub struct WaveguideModeProfile {
     /// Cutoff wavenumber `k_c`.
@@ -95,14 +110,70 @@ pub struct WaveguideModeProfile {
 }
 
 impl WaveguideModeProfile {
-    /// Propagation constant `β` at angular frequency `ω` (with `c = ω/k`).
-    /// Same conventions as [`WaveguideMode::beta`].
+    /// Complex propagation constant `β(ω)` of this mode under the
+    /// **outgoing-wave** branch convention.
+    ///
+    /// # Time / sign convention
+    ///
+    /// We use the `exp(+jωt)` time convention throughout the codebase.
+    /// An outgoing wave at the +z end carries phase factor `exp(-jβz)`
+    /// (forward propagation, decay away from the structure). For the
+    /// continuous transverse pencil `β² = ω²/c² − k_c²` this gives:
+    ///
+    /// - **Propagating** (`ω/c > k_c`): `β = +√(ω²/c² − k_c²)`, real
+    ///   positive, so `exp(−jβz)` oscillates with z.
+    /// - **Evanescent** (`ω/c < k_c`): `β = −j·√(k_c² − ω²/c²)`,
+    ///   pure imaginary with `Im(β) < 0`, so `exp(−jβz) =
+    ///   exp(−z·√(k_c² − ω²/c²))` decays as z increases.
+    ///
+    /// The default principal branch of the complex square root would
+    /// pick the `Im(β) > 0` root and give a non-physical growing
+    /// solution for z > 0; this method explicitly selects the
+    /// outgoing-wave root. Latent bug fix flagged in PR #245, resolved
+    /// here with the multi-mode API refactor (issue #254).
+    pub fn beta_complex(&self, omega: f64, c: f64) -> c64 {
+        beta_outgoing(omega, c, self.k_c)
+    }
+
+    /// Legacy real-tuple form of [`Self::beta_complex`]: `(re, im)`
+    /// with `Im(β) ≥ 0` (default complex sqrt branch). Retained as a
+    /// thin shim for callers that haven't migrated to the c64 API —
+    /// **note the sign on `im` does NOT match the outgoing-wave
+    /// convention**; new code should use
+    /// [`Self::beta_complex`].
+    #[deprecated(
+        since = "0.1.0",
+        note = "use `beta_complex` for the outgoing-wave sign convention; this returns the absolute imaginary value (default sqrt branch)"
+    )]
     pub fn beta(&self, omega: f64, c: f64) -> (f64, f64) {
-        let m = WaveguideMode {
-            k_c: self.k_c,
-            lambda: self.lambda,
-        };
-        m.beta(omega, c)
+        let k0 = omega / c;
+        let arg = k0 * k0 - self.k_c * self.k_c;
+        if arg >= 0.0 {
+            (arg.sqrt(), 0.0)
+        } else {
+            (0.0, (-arg).sqrt())
+        }
+    }
+}
+
+/// Outgoing-wave complex `β(ω, c, k_c)`: the canonical sign convention
+/// used by both [`WaveguideModeProfile::beta_complex`] and
+/// [`crate::wave_port::WavePort::beta`] under the `exp(+jωt)` time
+/// convention.
+///
+/// Returns `+√(ω²/c² − k_c²)` (real positive) for `ω/c ≥ k_c` and
+/// `−j·√(k_c² − ω²/c²)` (negative imaginary) for `ω/c < k_c`. See
+/// [`WaveguideModeProfile::beta_complex`] for the full convention
+/// discussion.
+pub fn beta_outgoing(omega: f64, c: f64, k_c: f64) -> c64 {
+    let k0 = omega / c;
+    let arg = k0 * k0 - k_c * k_c;
+    if arg >= 0.0 {
+        c64::new(arg.sqrt(), 0.0)
+    } else {
+        // Outgoing branch: Im(β) < 0 so exp(−jβz) = exp(−z·√(k_c² − k²))
+        // decays for z > 0 under the +jωt time convention.
+        c64::new(0.0, -(-arg).sqrt())
     }
 }
 
@@ -516,7 +587,19 @@ fn rank_via_svd_2d(d0: &Mat<f64>, threshold_rel: f64) -> usize {
     sigmas.iter().filter(|&&s| s > threshold).count()
 }
 
-/// A single transverse mode of a waveguide cross-section.
+/// A single transverse mode of a waveguide cross-section (cutoff only,
+/// no eigenvector).
+///
+/// **Deprecated** (issue #254): the unified entry point
+/// [`solve_rect_waveguide_modes`] now returns
+/// `Vec<WaveguideModeProfile>` for any `K ≥ 1`. Use that type instead;
+/// `WaveguideModeProfile { k_c, lambda, .. }` exposes the same `k_c` and
+/// `lambda` fields. This struct is retained only as a thin legacy alias
+/// for downstream code that hasn't migrated yet.
+#[deprecated(
+    since = "0.1.0",
+    note = "use `WaveguideModeProfile` (now returned by `solve_rect_waveguide_modes` for any K ≥ 1, issue #254)"
+)]
 #[derive(Debug, Clone)]
 pub struct WaveguideMode {
     /// Cutoff wavenumber `k_c` (rad / length). Modes with `k_c = 0` are
@@ -529,12 +612,19 @@ pub struct WaveguideMode {
     pub lambda: f64,
 }
 
+#[allow(deprecated)]
 impl WaveguideMode {
-    /// Propagation constant `β` at angular frequency `ω` (with `c = ω/k`).
-    ///
-    /// Returns `β = √(ω²/c² − k_c²)` for `ω/c > k_c` (propagating) and
-    /// `β = i √(k_c² − ω²/c²)` for `ω/c < k_c` (evanescent); the latter
-    /// case is reported as `(0.0, β_im)`, the former as `(β_re, 0.0)`.
+    /// Propagation constant `β` at angular frequency `ω` (with `c = ω/k`),
+    /// returned as `(re, im)` with `im ≥ 0` (default complex sqrt
+    /// branch). **Note**: this is the **pre-#254** sign convention —
+    /// the outgoing-wave branch under `+jωt` time convention wants
+    /// `Im(β) < 0` for evanescent modes (use
+    /// [`WaveguideModeProfile::beta_complex`] for the corrected
+    /// branch).
+    #[deprecated(
+        since = "0.1.0",
+        note = "use `WaveguideModeProfile::beta_complex` for the outgoing-wave sign convention"
+    )]
     pub fn beta(&self, omega: f64, c: f64) -> (f64, f64) {
         let k0 = omega / c;
         let arg = k0 * k0 - self.k_c * self.k_c;
@@ -601,103 +691,42 @@ fn modal_spurious_threshold(width: f64) -> f64 {
     0.01 * kc * kc
 }
 
-/// Compute the lowest `n_modes` transverse modal cutoffs of the
-/// rectangular waveguide cross-section meshed by `mesh`, with PEC walls
-/// on the rectangle `[0,W] × [0,H]`.
+/// Compute the lowest `n_modes` transverse modes (cutoffs **and**
+/// field profiles) of the rectangular waveguide cross-section meshed by
+/// `mesh`, with PEC walls on the rectangle `[0,W] × [0,H]`. This is the
+/// **canonical multi-mode wave-port entry point** (issue #254, parent
+/// #250): returns `Vec<WaveguideModeProfile>` for any `K = n_modes ≥ 1`.
 ///
 /// Returns the modes ordered by increasing `k_c` (after dropping the
-/// gradient-nullspace cluster).
+/// gradient-nullspace cluster). Each eigenvector is M-orthonormalized
+/// over the 2D port-mesh interior edges (`e_iᵀ M e_i = 1`) and **set-
+/// wise mutually M-orthonormal**: for `i ≠ j`, `e_iᵀ M e_j ≈ 0` to f64
+/// noise (Lanczos in the M-inner product enforces both individual
+/// normalisation and pairwise orthogonality of the Ritz vectors). The
+/// eigenvector is scattered back to the **full** edge ordering with
+/// exact zeros on PEC edges, so callers can index it by the same edge
+/// indices as `mesh.edges()`.
 ///
 /// # Solver
 ///
 /// Uses [`crate::lanczos::SparseShiftInvertLanczos`] (real-symmetric
 /// sparse shift-and-invert Lanczos via faer's sparse LU). The 2-D
 /// modal pencil is real-symmetric SPD after PEC reduction, and the
-/// gradient null cluster sits at λ ≈ 0; a small positive shift
-/// (see [`modal_shift`]) targets the lowest physical modes while
-/// keeping the shifted pencil well-conditioned.
+/// gradient null cluster sits at λ ≈ 0; a small positive shift (see
+/// [`modal_shift`]) targets the lowest physical modes while keeping the
+/// shifted pencil well-conditioned. This replaces the previous dense
+/// `faer::generalized_eigen` path (issue #249) which tripped a wrap-
+/// around-overflow inside faer-0.24's `gevd::qz_real` under debug
+/// overflow checks (issue #244).
 ///
-/// This replaces the previous dense `faer::generalized_eigen` path
-/// (issue #249) which tripped a wrap-around-overflow inside faer-0.24's
-/// `gevd::qz_real` under debug overflow checks (issue #244).
+/// # History
+///
+/// PR #240 introduced the eigenvalue-only `solve_rect_waveguide_modes`
+/// returning `Vec<WaveguideMode>` (cutoff only). PR #245 added the
+/// eigenvector sibling `solve_rect_waveguide_modes_with_vectors`. Issue
+/// #254 unified the two: this function now returns full profiles for
+/// any K, and the two old wrappers became deprecated thin shims.
 pub fn solve_rect_waveguide_modes(
-    mesh: &TriMesh,
-    width: f64,
-    height: f64,
-    n_modes: usize,
-) -> Result<Vec<WaveguideMode>, EigenError> {
-    let (k_global, m_global) = assemble_2d_nedelec(mesh);
-    let (_edges, interior_edges) = rect_pec_interior_edges(mesh, width, height);
-    let (k_int, m_int) = apply_pec_2d(&k_global, &m_global, &interior_edges);
-    let dim = k_int.nrows();
-
-    let k_sparse = dense_to_sparse(&k_int)?;
-    let m_sparse = dense_to_sparse(&m_int)?;
-    let threshold = modal_spurious_threshold(width);
-
-    // Iteration budget: request a small batch each pass. With σ between
-    // the gradient cluster and the first physical mode, a budget of
-    // `n_modes + small_buffer` extracts the lowest physical modes plus
-    // a handful of spurious modes (which we filter out by λ threshold).
-    // Inflate on retry if the filtered-physical count came up short.
-    let mut n_request = (n_modes + 8).min(dim);
-    let modes: Vec<WaveguideMode> = loop {
-        let max_iters = (n_request + 8).min(dim).max(1);
-        let solver = SparseShiftInvertLanczos {
-            sigma: modal_shift(width),
-            max_iters,
-            tol: 1e-9,
-        };
-        use crate::lanczos::SparseEigenSolver as _;
-        let mut lambdas =
-            solver.smallest_eigenvalues(k_sparse.as_ref(), m_sparse.as_ref(), n_request)?;
-        // shift-invert returns eigenvalues sorted by |λ - σ|, not by λ
-        // alone. Sort by λ ascending to match the prior dense path's
-        // contract and make spurious/physical separation straightforward.
-        lambdas.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-        let physical: Vec<WaveguideMode> = lambdas
-            .into_iter()
-            .filter(|&lam| lam > threshold)
-            .take(n_modes)
-            .map(|lambda| {
-                let lam_pos = lambda.max(0.0);
-                WaveguideMode {
-                    k_c: lam_pos.sqrt(),
-                    lambda,
-                }
-            })
-            .collect();
-
-        if physical.len() == n_modes {
-            break physical;
-        }
-        if n_request >= dim {
-            return Err(EigenError::FaerGevd(format!(
-                "waveguide modal solve: only recovered {} of {} physical modes \
-                 (filtered out spurious cluster at λ ≤ {threshold:.3e})",
-                physical.len(),
-                n_modes
-            )));
-        }
-        n_request = (n_request * 2).min(dim);
-    };
-    Ok(modes)
-}
-
-/// Compute the lowest `n_modes` transverse modes (cutoffs **and** field
-/// profiles) of a rectangular waveguide cross-section, with PEC walls on
-/// the rectangle `[0,W] × [0,H]`. The eigenvector counterpart of
-/// [`solve_rect_waveguide_modes`] — required by the wave-port BC
-/// (Epic #234, Phase 2) which projects the 3D driven field onto each
-/// modal profile.
-///
-/// Returns the modes ordered by increasing `k_c` (after dropping the
-/// gradient-nullspace cluster). Each eigenvector is M-orthonormalized
-/// over the 2D port-mesh interior edges (`eᵀ M e = 1`) and scattered
-/// back to the **full** edge ordering with exact zeros on PEC edges, so
-/// callers can index it by the same edge indices as `mesh.edges()`.
-pub fn solve_rect_waveguide_modes_with_vectors(
     mesh: &TriMesh,
     width: f64,
     height: f64,
@@ -722,9 +751,11 @@ pub fn solve_rect_waveguide_modes_with_vectors(
     }
     let n_edges = edges.len();
 
-    // Same retry-on-undercount loop as the eigenvalues-only path. See
-    // [`solve_rect_waveguide_modes`] for the rationale on σ choice and
-    // the λ-threshold filter.
+    // Iteration budget: request a small batch each pass. With σ between
+    // the gradient cluster and the first physical mode, a budget of
+    // `n_modes + small_buffer` extracts the lowest physical modes plus
+    // a handful of spurious modes (which we filter out by λ threshold).
+    // Inflate on retry if the filtered-physical count came up short.
     let mut n_request = (n_modes + 8).min(dim);
     let modes: Vec<WaveguideModeProfile> = loop {
         let max_iters = (n_request + 8).min(dim).max(1);
@@ -764,8 +795,8 @@ pub fn solve_rect_waveguide_modes_with_vectors(
         }
         if n_request >= dim {
             return Err(EigenError::FaerGevd(format!(
-                "waveguide modal solve (with vectors): only recovered {} of {} \
-                 physical modes (filtered spurious cluster at λ ≤ {threshold:.3e})",
+                "waveguide modal solve: only recovered {} of {} physical modes \
+                 (filtered out spurious cluster at λ ≤ {threshold:.3e})",
                 physical.len(),
                 n_modes
             )));
@@ -773,6 +804,27 @@ pub fn solve_rect_waveguide_modes_with_vectors(
         n_request = (n_request * 2).min(dim);
     };
     Ok(modes)
+}
+
+/// Deprecated alias for [`solve_rect_waveguide_modes`]. The two pre-#254
+/// wrappers (eigenvalues-only `solve_rect_waveguide_modes` and the
+/// `_with_vectors` sibling that returned modal profiles) have been
+/// unified into a single canonical entry point that always returns
+/// `Vec<WaveguideModeProfile>`. Callers that only need `k_c` can simply
+/// ignore the `e_edges` field. This shim is kept temporarily for
+/// downstream callers; new code should use
+/// [`solve_rect_waveguide_modes`] directly.
+#[deprecated(
+    since = "0.1.0",
+    note = "use `solve_rect_waveguide_modes` directly — it returns full WaveguideModeProfile for any K ≥ 1 (issue #254)"
+)]
+pub fn solve_rect_waveguide_modes_with_vectors(
+    mesh: &TriMesh,
+    width: f64,
+    height: f64,
+    n_modes: usize,
+) -> Result<Vec<WaveguideModeProfile>, EigenError> {
+    solve_rect_waveguide_modes(mesh, width, height, n_modes)
 }
 
 /// Analytic TE/TM cutoff wavenumbers for a rectangular metallic
@@ -849,21 +901,158 @@ mod tests {
         assert_eq!(n_pec, 12);
     }
 
+    /// **Outgoing-wave β sign convention** (issue #254): under the
+    /// `+jωt` time convention, an outgoing wave is `exp(−jβz)` so a
+    /// below-cutoff (evanescent) β must have `Im(β) < 0` for `exp(−jβz)`
+    /// to **decay** for `z > 0`. The default complex `sqrt` branch
+    /// would give `Im(β) > 0` (a non-physical growing solution); this
+    /// test pins the corrected branch.
     #[test]
-    fn waveguide_mode_beta_branch() {
-        let m = WaveguideMode {
+    fn waveguide_mode_profile_beta_complex_outgoing_branch() {
+        let p = WaveguideModeProfile {
             k_c: 1.0,
             lambda: 1.0,
+            e_edges: Vec::new(),
         };
         let c = 1.0;
-        // Below cutoff (ω/c < k_c).
-        let (re, im) = m.beta(0.5, c);
-        assert!(re == 0.0);
-        assert!((im - (1.0 - 0.25_f64).sqrt()).abs() < 1e-15);
-        // Above cutoff.
-        let (re, im) = m.beta(2.0, c);
-        assert!(im == 0.0);
-        assert!((re - (4.0 - 1.0_f64).sqrt()).abs() < 1e-15);
+        // Below cutoff (ω/c < k_c): β = −j √(k_c² − k²), Im < 0.
+        let b = p.beta_complex(0.5, c);
+        let expected_im = -(1.0_f64 - 0.25).sqrt();
+        assert!(b.re == 0.0, "evanescent β must be pure imaginary");
+        assert!(
+            (b.im - expected_im).abs() < 1e-15,
+            "evanescent β: Im = {} expected {}",
+            b.im,
+            expected_im
+        );
+        assert!(
+            b.im < 0.0,
+            "evanescent β must have Im < 0 (outgoing branch)"
+        );
+        // Verify exp(−jβz) decays for z > 0: e^{−jβz} where β = jb.im,
+        // so −jβz = −j·(j·b.im)·z = b.im·z, exp() decays since b.im<0.
+        let z = 2.0_f64;
+        let exp_minus_jbz_magnitude = (b.im * z).exp();
+        assert!(
+            exp_minus_jbz_magnitude < 1.0,
+            "exp(−jβz) must decay (magnitude {} < 1) for z = {} > 0",
+            exp_minus_jbz_magnitude,
+            z
+        );
+
+        // Above cutoff (ω/c > k_c): β = +√(k² − k_c²), real positive.
+        let b = p.beta_complex(2.0, c);
+        let expected_re = (4.0_f64 - 1.0).sqrt();
+        assert!(b.im == 0.0, "propagating β must be pure real");
+        assert!(
+            (b.re - expected_re).abs() < 1e-15,
+            "propagating β: Re = {} expected {}",
+            b.re,
+            expected_re
+        );
+        assert!(b.re > 0.0, "propagating β must be positive (+z direction)");
+    }
+
+    /// **Evanescent β on a real waveguide cross-section** (issue #254):
+    /// pick a frequency between the TE₁₀ and TE₂₀ cutoffs of a × b =
+    /// 2 × 1 — TE₁₀ propagates and TE₂₀ is evanescent. Verify the
+    /// outgoing-wave sign convention holds on a genuine modal solve
+    /// (not just the analytic `beta_complex` formula).
+    #[test]
+    fn evanescent_beta_below_te20_cutoff_outgoing() {
+        let (a, b) = (2.0_f64, 1.0_f64);
+        let mesh = rect_tri_mesh(16, 8, a, b);
+        // TE₁₀ cutoff = π/a ≈ 1.5708; TE₂₀ cutoff = 2π/a ≈ 3.1416.
+        // Pick ω = 2.0 (with c = 1): TE₁₀ propagates, TE₂₀ evanescent.
+        let omega = 2.0_f64;
+        let c = 1.0_f64;
+        let modes = solve_rect_waveguide_modes(&mesh, a, b, 2).expect("multi-mode solve K=2");
+        assert_eq!(modes.len(), 2, "expected K=2 modes");
+
+        // mode[0] = TE₁₀ (lowest cutoff): propagating at ω = 2.
+        let m0 = &modes[0];
+        let beta0 = m0.beta_complex(omega, c);
+        eprintln!(
+            "TE₁₀-like: k_c = {:.4}, β(ω=2) = {} + {}j",
+            m0.k_c, beta0.re, beta0.im
+        );
+        assert!(
+            m0.k_c < omega,
+            "mode[0] k_c {} should be below ω = {} (propagating)",
+            m0.k_c,
+            omega
+        );
+        assert!(beta0.im == 0.0, "TE₁₀ β must be real (propagating)");
+        assert!(beta0.re > 0.0, "TE₁₀ β must be positive real");
+
+        // mode[1] = TE₂₀ (next cutoff): evanescent at ω = 2.
+        let m1 = &modes[1];
+        let beta1 = m1.beta_complex(omega, c);
+        eprintln!(
+            "TE₂₀-like: k_c = {:.4}, β(ω=2) = {} + {}j",
+            m1.k_c, beta1.re, beta1.im
+        );
+        assert!(
+            m1.k_c > omega,
+            "mode[1] k_c {} should be above ω = {} (evanescent)",
+            m1.k_c,
+            omega
+        );
+        assert!(
+            beta1.re == 0.0,
+            "TE₂₀ β must be pure imaginary (evanescent)"
+        );
+        assert!(
+            beta1.im < 0.0,
+            "TE₂₀ β must have Im < 0 (outgoing-wave branch); got Im = {}",
+            beta1.im
+        );
+    }
+
+    /// **Set-wise M-orthonormality** (issue #254): for `K = 2` returned
+    /// modes, verify `e_iᵀ M e_j = δ_ij` to f64 noise. Lanczos in the
+    /// M-inner product (with full reorthogonalization) gives this for
+    /// free; this test pins the property so a future solver change
+    /// can't silently regress.
+    #[test]
+    fn multi_mode_set_wise_m_orthonormal_k2() {
+        let (a, b) = (2.0_f64, 1.0_f64);
+        let mesh = rect_tri_mesh(16, 8, a, b);
+        let modes = solve_rect_waveguide_modes(&mesh, a, b, 2).expect("multi-mode solve K=2");
+        assert_eq!(modes.len(), 2);
+
+        // Reassemble the global mass matrix to test eᵀ M e in the
+        // **full-edge** representation (which is the convention
+        // WaveguideModeProfile uses).
+        let (_k, m_dense) = assemble_2d_nedelec(&mesh);
+        let n_edges = m_dense.nrows();
+        assert_eq!(modes[0].e_edges.len(), n_edges);
+
+        // Compute G_ij = e_iᵀ M e_j for i, j ∈ {0, 1}.
+        let dot_me = |i: usize, j: usize| -> f64 {
+            let mut acc = 0.0_f64;
+            for p in 0..n_edges {
+                for q in 0..n_edges {
+                    acc += modes[i].e_edges[p] * m_dense[(p, q)] * modes[j].e_edges[q];
+                }
+            }
+            acc
+        };
+
+        let g00 = dot_me(0, 0);
+        let g01 = dot_me(0, 1);
+        let g10 = dot_me(1, 0);
+        let g11 = dot_me(1, 1);
+        eprintln!(
+            "set-wise M-Gram: G00 = {:.3e}, G01 = {:.3e}, G10 = {:.3e}, G11 = {:.3e}",
+            g00, g01, g10, g11
+        );
+
+        let tol = 1e-12_f64;
+        assert!((g00 - 1.0).abs() < tol, "mode[0]ᵀ M mode[0] = {} ≠ 1", g00);
+        assert!((g11 - 1.0).abs() < tol, "mode[1]ᵀ M mode[1] = {} ≠ 1", g11);
+        assert!(g01.abs() < tol, "mode[0]ᵀ M mode[1] = {} ≠ 0", g01);
+        assert!(g10.abs() < tol, "mode[1]ᵀ M mode[0] = {} ≠ 0", g10);
     }
 
     #[test]
