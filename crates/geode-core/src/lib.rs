@@ -13,6 +13,7 @@ pub mod driven;
 pub mod eigen;
 pub mod extraction;
 pub mod fe_assemble;
+pub mod ksp_solve;
 pub mod lanczos;
 pub mod lumped_port;
 pub mod mesh;
@@ -42,10 +43,10 @@ pub use complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
 pub use complex_lanczos::{SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
 pub use derham::{apply_divergence, apply_gradient, curl_map, divergence_map, gradient_map};
 pub use driven::{
-    driven_solve, driven_solve_quad, driven_solve_with_ports, driven_solve_with_sigma,
-    driven_solve_with_sigma_quad, driven_solve_with_surface_impedance, CurrentSource, DrivenBcs,
-    DrivenError, DrivenMaterials, DrivenOperator, DrivenSolution, FactoredDrivenOperator,
-    QuadCurrentSource, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    driven_solve, driven_solve_iterative, driven_solve_quad, driven_solve_with_ports,
+    driven_solve_with_sigma, driven_solve_with_sigma_quad, driven_solve_with_surface_impedance,
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSolution,
+    FactoredDrivenOperator, QuadCurrentSource, SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
 pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
@@ -57,6 +58,10 @@ pub use extraction::{
     SweepPoint,
 };
 pub use fe_assemble::{fe_assemble, DirichletBc, ElementType, FeAssembleResult};
+pub use ksp_solve::{
+    Cocg, IdentityPreconditioner, JacobiPreconditioner, KspError, KspReport, KspSolve,
+    Preconditioner,
+};
 pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 pub use lumped_port::{
     assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
