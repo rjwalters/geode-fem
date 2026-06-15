@@ -71,7 +71,7 @@
 //! `nedelec_assembly::spurious_dim_from_derham`.
 
 use faer::c64;
-use faer::sparse::{SparseColMat, Triplet};
+use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 use faer::Mat;
 
 use crate::eigen::EigenError;
@@ -674,6 +674,11 @@ fn dense_to_sparse(a: &Mat<f64>) -> Result<SparseColMat<usize, f64>, EigenError>
 /// meshes: it sits between λ ≈ 0 and TE₁₀² = (π/W)², so a small
 /// Lanczos budget recovers a handful of spurious modes plus the lowest
 /// physical modes (which is what the post-filter expects).
+///
+/// **Note**: this is the **rectangular-cross-section** shift heuristic.
+/// For general cross-sections, see [`estimate_modal_shift`] /
+/// [`solve_waveguide_modes`] which estimate the lowest physical
+/// eigenvalue without knowing the cross-section shape (issue #265).
 fn modal_shift(width: f64) -> f64 {
     let pi = std::f64::consts::PI;
     let kc = pi / width.max(1e-15);
@@ -685,10 +690,141 @@ fn modal_shift(width: f64) -> f64 {
 /// `λ = k_c² ≥ (π/W)²`; the gradient cluster sits at `λ ≈ 0` to f64
 /// noise. A threshold at `0.01 · (π/W)²` gives two decades of slack on
 /// each side.
+///
+/// **Note**: this is the **rectangular-cross-section** spurious
+/// threshold. For general cross-sections, see [`solve_waveguide_modes`]
+/// which uses a σ-relative threshold (issue #265).
 fn modal_spurious_threshold(width: f64) -> f64 {
     let pi = std::f64::consts::PI;
     let kc = pi / width.max(1e-15);
     0.01 * kc * kc
+}
+
+/// **General-cross-section shift estimator** (issue #265): run a cheap
+/// initial Lanczos pass with shift `σ = 0` to probe the lowest spectrum
+/// of the curl-curl pencil. The returned shift sits halfway between the
+/// gradient-nullspace cluster (`λ ≈ 0`) and the smallest non-spurious
+/// eigenvalue (`λ_min_phys`), with a small safety factor.
+///
+/// # Strategy
+///
+/// The shift-invert Lanczos targets eigenvalues near `σ` first. The
+/// rectangular cross-section uses a closed-form `σ = 0.3 · (π/W)²`
+/// because the lowest physical eigenvalue is exactly `(π/W)²`. For
+/// general cross-sections (circular, ridged, microstrip, CPW), the
+/// lowest physical eigenvalue isn't known a priori and isn't even
+/// related to a single "characteristic width". This routine estimates
+/// it on the fly:
+///
+/// 1. Run a short Lanczos pass with `σ = 0` (targets smallest `|λ|`).
+///    The first many returned eigenvalues are the gradient-nullspace
+///    cluster (`λ ≈ 0` to f64 noise — typically `O(n_interior_nodes)`
+///    of them). The first non-spurious eigenvalue is the lowest
+///    physical `k_c²`.
+/// 2. Classify spurious modes by an **absolute** threshold tied to
+///    the largest returned eigenvalue's magnitude (`max(λ) · ε_rel`):
+///    spurious modes cluster at `λ ≈ 0` to roundoff, and the gap to
+///    the first physical mode is structurally large (often ≥10
+///    decades). `ε_rel = 1e-6 · max(|λ|)` is conservative.
+/// 3. Return `σ = 0.5 · λ_min_phys`. The choice of `0.5` (vs the
+///    rectangular `0.3 · k_c²`) is slightly more aggressive — placing
+///    σ closer to the first physical mode keeps the shift-invert
+///    Krylov subspace away from the spurious cluster and converges
+///    faster on the physical eigenpairs.
+///
+/// # Limitations
+///
+/// - The probe Lanczos pass with `σ = 0` shares the same convergence
+///   pathology as the production solve (lots of cluster modes), but
+///   only needs to find **one** non-spurious eigenvalue, so a small
+///   iteration budget suffices. We request `n_modes + spurious_dim`
+///   eigenvalues.
+/// - If the cross-section has a near-degenerate first physical mode
+///   (very-thin ridge waveguide, microstrip with strong field
+///   concentration), `λ_min_phys` may be small enough that `0.5 ·
+///   λ_min_phys` is also close to 0 and the production solve still
+///   spends iterations on cluster modes. The retry-on-undercount
+///   loop in [`solve_waveguide_modes`] handles this by doubling the
+///   Lanczos budget on undercount.
+///
+/// Returns `Err(EigenError)` if the probe fails to find any
+/// non-spurious eigenvalue within the iteration budget — that
+/// indicates the spurious cluster dominates the spectrum probe and the
+/// caller should fall back to an explicit shift.
+fn estimate_modal_shift(
+    k_sparse: SparseColMatRef<'_, usize, f64>,
+    m_sparse: SparseColMatRef<'_, usize, f64>,
+    n_modes: usize,
+    spurious_dim: usize,
+) -> Result<(f64, f64), EigenError> {
+    let dim = k_sparse.nrows();
+    // Probe budget: enough to clear the gradient cluster + a few
+    // physical modes. Note: σ=0 would make A = K singular (K has a
+    // huge gradient nullspace on the curl-curl pencil), so we use a
+    // tiny positive σ tied to the trace of M as a numerical hedge —
+    // small enough that the shift-invert preferentially targets the
+    // bottom of the spectrum, large enough that the LU factor is
+    // non-singular.
+    let probe_budget = (spurious_dim + n_modes + 8).min(dim).max(2);
+    // Mean diagonal of M (a proxy for the "natural scale" of the
+    // pencil). For 2-D Whitney/Nédélec on a unit-scale mesh this is
+    // O(1). We rescale to O(machine epsilon) for the probe shift so
+    // it sits inside the gradient cluster's machine-noise band but
+    // doesn't push σ above any plausible physical eigenvalue.
+    let n = m_sparse.nrows();
+    let mut m_trace = 0.0_f64;
+    let cp = m_sparse.col_ptr();
+    let ri = m_sparse.row_idx();
+    let v = m_sparse.val();
+    for j in 0..n {
+        for k in cp[j]..cp[j + 1] {
+            if ri[k] == j {
+                m_trace += v[k].abs();
+            }
+        }
+    }
+    let m_scale = (m_trace / (n as f64).max(1.0)).max(1.0);
+    // Probe shift: 1e-10 · m_scale. Sits ~10 orders of magnitude
+    // below any reasonable physical mode (modal eigenvalues are
+    // ≥ ~1e-2 on a unit-scale mesh, often O(1)). Large enough to
+    // make A = K - σM non-singular even when K has a 100+-dim
+    // gradient nullspace.
+    let probe_sigma = 1e-10_f64 * m_scale;
+    let probe = SparseShiftInvertLanczos {
+        sigma: probe_sigma,
+        max_iters: probe_budget,
+        tol: 1e-6,
+    };
+    let mut pairs = probe.smallest_eigenpairs(k_sparse, m_sparse, probe_budget)?;
+    pairs.sort_by(|a, b| {
+        a.lambda
+            .partial_cmp(&b.lambda)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    // Identify the gradient-cluster floor using a relative threshold
+    // tied to the largest probed eigenvalue. The cluster sits at
+    // machine-noise scale (|λ| ≤ 1e-10·||K|| typically); a threshold
+    // of `1e-6 · max(λ)` gives many decades of slack and still
+    // separates cleanly from any plausible first physical mode.
+    let max_lambda = pairs
+        .iter()
+        .map(|p| p.lambda.abs())
+        .fold(0.0_f64, f64::max);
+    let cluster_threshold = (1e-6_f64 * max_lambda).max(1e-12);
+    let first_phys = pairs
+        .iter()
+        .find(|p| p.lambda > cluster_threshold)
+        .ok_or_else(|| {
+            EigenError::FaerGevd(format!(
+                "general-waveguide shift estimator: probe Lanczos found no \
+                 non-spurious eigenvalue (cluster threshold {cluster_threshold:.3e}, \
+                 max probed λ = {max_lambda:.3e}); spurious_dim = {spurious_dim}, \
+                 probe_budget = {probe_budget}, probe_sigma = {probe_sigma:.3e}"
+            ))
+        })?
+        .lambda;
+    let sigma = 0.5 * first_phys;
+    Ok((sigma, first_phys))
 }
 
 /// Pin the sign of a real eigenvector to a deterministic, mesh-
@@ -808,24 +944,203 @@ pub fn solve_rect_waveguide_modes(
     height: f64,
     n_modes: usize,
 ) -> Result<Vec<WaveguideModeProfile>, EigenError> {
-    let (k_global, m_global) = assemble_2d_nedelec(mesh);
     let (edges, interior_edges) = rect_pec_interior_edges(mesh, width, height);
-    let (k_int, m_int) = apply_pec_2d(&k_global, &m_global, &interior_edges);
+    // Use the rectangular-cross-section hint to preserve bit-equivalent
+    // numerical behaviour with the pre-#265 code path: the explicit
+    // sigma `0.3 · (π/W)²` and absolute threshold `0.01 · (π/W)²` were
+    // tuned for the rectangular meshes already in the test suite. The
+    // generalized [`solve_waveguide_modes`] would compute its own shift
+    // via the probe-Lanczos estimator, which differs at f64 precision
+    // even on rectangular meshes (issue #265).
+    let opts = WaveguideSolveOpts {
+        sigma: Some(modal_shift(width)),
+        spurious_threshold: Some(modal_spurious_threshold(width)),
+        sigma_relative_threshold: 0.0,
+    };
+    solve_waveguide_modes_with_opts(mesh, &edges, &interior_edges, n_modes, &opts)
+}
+
+/// Shift / threshold options for the **general-cross-section** modal
+/// solver [`solve_waveguide_modes_with_opts`].
+///
+/// All fields are optional; the defaults trigger the probe-Lanczos
+/// shift estimator and the σ-relative spurious threshold described in
+/// [`solve_waveguide_modes`].
+#[derive(Debug, Clone, Default)]
+pub struct WaveguideSolveOpts {
+    /// Explicit positive shift `σ` for the shift-invert Lanczos. When
+    /// `None`, the solver runs a cheap probe Lanczos pass to estimate
+    /// the smallest non-spurious eigenvalue and places `σ` halfway
+    /// between zero and that estimate (see [`estimate_modal_shift`]).
+    pub sigma: Option<f64>,
+    /// Explicit absolute threshold below which an eigenvalue is
+    /// classified as gradient-spurious. When `None`, the solver uses
+    /// the σ-relative threshold `sigma_relative_threshold · sigma`.
+    pub spurious_threshold: Option<f64>,
+    /// Relative threshold tied to the (estimated or explicit) shift
+    /// `σ`. The spurious-mode classifier uses
+    /// `λ ≤ sigma_relative_threshold · σ`. Default (0.0) means "use
+    /// `spurious_threshold` if set, else error". Recommended default
+    /// for general cross-sections is `0.1` (one decade of slack below
+    /// the shift); the rectangular shim uses `0.0` together with an
+    /// explicit `spurious_threshold` to preserve bit-equivalent
+    /// behaviour with the pre-#265 code path.
+    pub sigma_relative_threshold: f64,
+}
+
+/// **General-cross-section** transverse modal eigensolver (issue #265):
+/// compute the lowest `n_modes` transverse modes of a 2-D PEC
+/// cross-section meshed by `mesh` with PEC walls identified by
+/// `interior_edge_mask`. Unlike [`solve_rect_waveguide_modes`], this
+/// entry point makes no assumptions about cross-section geometry — the
+/// shift `σ` is estimated on the fly via a cheap probe Lanczos pass
+/// (see [`estimate_modal_shift`]) and the spurious-mode threshold is
+/// chosen relative to that shift.
+///
+/// # Parameters
+///
+/// - `mesh`: the 2-D triangle mesh of the port cross-section.
+/// - `edges`: precomputed `mesh.edges()` (callers usually have these
+///   already from PEC-mask construction; pass them through to avoid
+///   recomputing).
+/// - `interior_edge_mask`: per-edge boolean, `true` for non-PEC
+///   interior edges. Built by `rect_pec_interior_edges` for
+///   rectangular cross-sections, or by analogous routines for other
+///   shapes (circular, ridged, microstrip).
+/// - `n_modes`: number of physical modes to extract (`K ≥ 1`).
+///
+/// # Algorithm
+///
+/// 1. Assemble and PEC-reduce the curl-curl pencil `(K_int, M_int)`.
+/// 2. Run a probe Lanczos pass with `σ = 0` to estimate the smallest
+///    non-spurious eigenvalue `λ_min_phys` (see
+///    [`estimate_modal_shift`]). Set `σ = 0.5 · λ_min_phys`.
+/// 3. Set the spurious-mode threshold to `0.1 · σ` (one decade of
+///    slack below the shift; the gradient cluster sits many decades
+///    below `σ`).
+/// 4. Run the production shift-invert Lanczos with the estimated `σ`
+///    and filter out cluster modes by threshold.
+/// 5. If the filtered count is short, double the Lanczos budget and
+///    retry (Approach B in issue #265).
+///
+/// # Sign / orthogonality conventions
+///
+/// Same as [`solve_rect_waveguide_modes`]:
+/// - Each eigenvector is **M-orthonormal**: `eᵀ M e = 1`.
+/// - For `K > 1`, the returned set is **mutually M-orthonormal**:
+///   `e_iᵀ M e_j = δ_ij` (Lanczos in the M-inner product).
+/// - Each eigenvector's sign is pinned so the largest-magnitude
+///   component is non-negative (issue #262).
+/// - Eigenvectors are returned in **full-edge ordering** of the 2-D
+///   port mesh with exact zeros on PEC-eliminated edges.
+///
+/// # Limitations
+///
+/// - The probe-Lanczos shift estimator assumes the gradient cluster
+///   sits at the machine-noise floor (it does, for the
+///   Whitney/Nédélec curl-curl pencil after PEC reduction). On
+///   exotic pencils where the cluster isn't tight, the estimator
+///   could mis-identify a near-zero physical mode as spurious.
+/// - The retry-on-undercount loop doubles the Lanczos budget but
+///   doesn't re-estimate `σ`; if the initial estimate is dramatically
+///   wrong (e.g. the probe pass found a near-spurious "physical"
+///   eigenvalue) the production solve may never converge on the true
+///   modes. Future work: re-probe `σ` on retry.
+/// - For cross-sections with a **TEM** mode (`k_c = 0` — multiply
+///   connected like a coaxial waveguide), the TEM mode itself lives
+///   in the gradient nullspace and will be filtered out by the
+///   spurious-mode threshold. TEM-supporting cross-sections need a
+///   separate code path (out of scope for issue #265).
+pub fn solve_waveguide_modes(
+    mesh: &TriMesh,
+    edges: &[[u32; 2]],
+    interior_edge_mask: &[bool],
+    n_modes: usize,
+) -> Result<Vec<WaveguideModeProfile>, EigenError> {
+    let opts = WaveguideSolveOpts {
+        sigma: None,
+        spurious_threshold: None,
+        sigma_relative_threshold: 0.1,
+    };
+    solve_waveguide_modes_with_opts(mesh, edges, interior_edge_mask, n_modes, &opts)
+}
+
+/// Full-options variant of [`solve_waveguide_modes`]; callers can
+/// override the shift estimator and/or the spurious threshold via the
+/// [`WaveguideSolveOpts`] struct.
+pub fn solve_waveguide_modes_with_opts(
+    mesh: &TriMesh,
+    edges: &[[u32; 2]],
+    interior_edge_mask: &[bool],
+    n_modes: usize,
+    opts: &WaveguideSolveOpts,
+) -> Result<Vec<WaveguideModeProfile>, EigenError> {
+    let (k_global, m_global) = assemble_2d_nedelec(mesh);
+    let (k_int, m_int) = apply_pec_2d(&k_global, &m_global, interior_edge_mask);
     let dim = k_int.nrows();
+    let n_edges = edges.len();
+    assert_eq!(
+        interior_edge_mask.len(),
+        n_edges,
+        "interior_edge_mask length must match edges count"
+    );
 
     let k_sparse = dense_to_sparse(&k_int)?;
     let m_sparse = dense_to_sparse(&m_int)?;
-    let threshold = modal_spurious_threshold(width);
+
+    // Determine the shift σ.
+    //
+    // - If the caller supplied an explicit σ, use it (rectangular shim
+    //   path or caller-tuned override).
+    // - Otherwise, run a probe Lanczos with σ=0 to estimate the
+    //   smallest non-spurious eigenvalue and place σ at half of it.
+    let (sigma, est_first_phys): (f64, Option<f64>) = match opts.sigma {
+        Some(s) => (s, None),
+        None => {
+            // For the probe pass we need a rough spurious_dim. We have
+            // it cheaply via the de-Rham identity when the caller
+            // provides node-mask info; lacking that, use a heuristic
+            // upper bound = interior-edge-count − n_modes (the gradient
+            // nullspace can be at most dim - n_modes wide).
+            let spurious_dim_hint = dim.saturating_sub(n_modes).min(dim);
+            let (s, first_phys) =
+                estimate_modal_shift(k_sparse.as_ref(), m_sparse.as_ref(), n_modes, spurious_dim_hint)?;
+            (s, Some(first_phys))
+        }
+    };
+
+    // Determine the spurious-mode threshold.
+    //
+    // - Explicit `spurious_threshold` wins (rectangular shim path).
+    // - Otherwise use `sigma_relative_threshold · sigma`. For the
+    //   general path, this is `0.1 · sigma` — one decade below the
+    //   shift, which puts it many decades above the machine-noise
+    //   gradient cluster and well below any physical mode (physical
+    //   modes are at ≥ `2 · sigma` by construction of the estimator).
+    let threshold = match opts.spurious_threshold {
+        Some(t) => t,
+        None => {
+            let t = opts.sigma_relative_threshold * sigma;
+            if t <= 0.0 {
+                return Err(EigenError::FaerGevd(format!(
+                    "waveguide modal solve: no spurious threshold (explicit None \
+                     and sigma_relative_threshold = {} ≤ 0); need explicit threshold or \
+                     positive sigma_relative_threshold",
+                    opts.sigma_relative_threshold
+                )));
+            }
+            t
+        }
+    };
 
     // Build the interior→full edge index map so we can scatter each
     // eigenvector back to length `edges.len()`.
     let mut interior_to_full: Vec<usize> = Vec::with_capacity(dim);
-    for (full_idx, &keep) in interior_edges.iter().enumerate() {
+    for (full_idx, &keep) in interior_edge_mask.iter().enumerate() {
         if keep {
             interior_to_full.push(full_idx);
         }
     }
-    let n_edges = edges.len();
 
     // Iteration budget: request a small batch each pass. With σ between
     // the gradient cluster and the first physical mode, a budget of
@@ -836,7 +1151,7 @@ pub fn solve_rect_waveguide_modes(
     let modes: Vec<WaveguideModeProfile> = loop {
         let max_iters = (n_request + 8).min(dim).max(1);
         let solver = SparseShiftInvertLanczos {
-            sigma: modal_shift(width),
+            sigma,
             max_iters,
             tol: 1e-9,
         };
@@ -877,9 +1192,13 @@ pub fn solve_rect_waveguide_modes(
             break physical;
         }
         if n_request >= dim {
+            let est_msg = est_first_phys
+                .map(|f| format!(" (probe estimated λ_min_phys = {f:.3e})"))
+                .unwrap_or_default();
             return Err(EigenError::FaerGevd(format!(
                 "waveguide modal solve: only recovered {} of {} physical modes \
-                 (filtered out spurious cluster at λ ≤ {threshold:.3e})",
+                 (filtered out spurious cluster at λ ≤ {threshold:.3e}, \
+                 σ = {sigma:.3e}{est_msg})",
                 physical.len(),
                 n_modes
             )));
