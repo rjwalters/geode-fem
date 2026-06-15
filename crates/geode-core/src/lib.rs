@@ -24,6 +24,7 @@ pub mod nedelec;
 pub mod nedelec_assembly;
 pub mod ntff;
 pub mod p1;
+pub mod palace;
 pub mod patch_cavity;
 pub mod scattering;
 pub mod silvermuller;

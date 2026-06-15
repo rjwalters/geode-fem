@@ -449,3 +449,145 @@ fn benchmark_fixture_reference_point_matches_committed_results() {
         "f_res {f_res_fem:.4} GHz vs cavity {f_res_cavity:.4} GHz outside the 8% band"
     );
 }
+
+/// Tier 4: **Palace 3D oracle wiring** (issue #239).
+///
+/// Loads the `[oracles.palace]` slot from
+/// `benchmarks/patch_antenna/results.toml` and, if it is populated with
+/// an operator-run Palace reference, compares the committed FEM sweep
+/// against it within a calibrated band. While the slot is still
+/// `pending_operator_run` (the default state — Palace is not installed
+/// on the geode-fem dev machine), the test **skips with a note** so a
+/// missing Palace oracle never silently passes.
+///
+/// The honest contract — same convention as the FastHenry / mom slots
+/// — is: committed FEM artifacts can be cross-checked against the
+/// cavity-model oracle (Balanis, 3-5 % band) plus *whatever
+/// operator-supplied references have been ingested with full
+/// provenance.* No fabricated Palace numbers ever live in the real
+/// `results.toml` slot.
+#[test]
+fn fem_vs_palace_oracle_within_band_or_skip_with_note() {
+    use geode_core::palace::PalaceOracleSlot;
+
+    let path = repo_root().join("benchmarks/patch_antenna/results.toml");
+    let raw = fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read committed results {}: {e}", path.display()));
+    let doc: toml::Value = toml::from_str(&raw).expect("results.toml is valid TOML");
+    let palace_block = doc
+        .get("oracles")
+        .and_then(|o| o.get("palace"))
+        .expect("results.toml has [oracles.palace] block");
+
+    let slot = PalaceOracleSlot::from_toml_table(palace_block)
+        .unwrap_or_else(|e| panic!("[oracles.palace] in {} did not parse: {e}", path.display()));
+
+    let Some(palace) = slot.as_results() else {
+        // Honest skip-with-note. Eprintln so the test runner surface
+        // shows it; the test passes (no comparison to do) but never
+        // silently — the operator workflow is documented in
+        // `reference/palace/geode_patch_baseline/` + `src/palace.rs`.
+        eprintln!(
+            "\nSKIP: [oracles.palace] in {} is `pending_operator_run` — \
+             no Palace reference ingested.\n  \
+             To populate: emit the config via `cd reference/palace/\
+             geode_patch_baseline && cargo run --release`, run Palace \
+             on it (`palace -np N reference/fixtures/patch_palace/\
+             palace_config.json`), then ingest the s-parameters.csv via \
+             `geode_core::palace::PalaceResults::from_palace_csv_file` \
+             and write the populated [oracles.palace] block in the \
+             benchmark TOML with full provenance.",
+            path.display()
+        );
+        return;
+    };
+
+    // --- Sanity provenance checks before the numeric comparison ---------
+    assert!(
+        !palace.palace_version.is_empty(),
+        "populated [oracles.palace] must record `palace_version` (provenance)"
+    );
+    assert!(
+        palace.config_sha256.len() == 64,
+        "populated [oracles.palace] must record a hex sha256 of the Palace config \
+         (provenance), got length {}",
+        palace.config_sha256.len()
+    );
+    // Cross-check: the Palace port-impedance should agree with the FEM
+    // benchmark drive (both are 50 ohm by construction).
+    assert!(
+        (palace.port_resistance_ohm - R_PORT_OHM).abs() < 0.5,
+        "Palace port R = {} ohm, FEM benchmark drives at {R_PORT_OHM} ohm — \
+         the two oracles must be on the same reference impedance",
+        palace.port_resistance_ohm
+    );
+
+    // --- Numeric band: S11 dip frequency agreement ----------------------
+    // The FEM and Palace dip frequencies should agree to within a
+    // **calibrated** band wide enough to absorb (a) the FEM matched-UPML
+    // vs Palace first-order absorbing-boundary mismatch and (b) sweep
+    // grid resolution on either side. 5 % is the headline band for the
+    // patch fixture (the cavity-model oracle uses 8 %; Palace solves the
+    // same wave equation as the FEM, so it should agree more tightly).
+    let palace_dip = palace
+        .s11_dip_db()
+        .expect("Palace sweep has a sample with finite |S11|");
+    let fem_committed = committed_results();
+    let fem_dip_f = fem_committed.s11_dip_f_ghz;
+    let dip_drift = (palace_dip.0 - fem_dip_f) / fem_dip_f;
+    eprintln!(
+        "FEM dip: {fem_dip_f:.4} GHz vs Palace dip: {:.4} GHz ({:+.2}%)",
+        palace_dip.0,
+        100.0 * dip_drift
+    );
+    assert!(
+        dip_drift.abs() < 0.05,
+        "S11 dip frequency Palace {:.4} GHz vs FEM {fem_dip_f:.4} GHz: \
+         {:+.2}% drift exceeds the 5 % band (Palace and FEM solve the \
+         same wave equation; if drift > 5 %, suspect the absorbing-\
+         boundary mismatch or a port-direction sign convention).",
+        palace_dip.0,
+        100.0 * dip_drift
+    );
+
+    // --- Numeric band: per-point S11 agreement at shared frequencies ----
+    let mut compared = 0_usize;
+    for fem_row in &fem_committed.rows {
+        let Some(palace_pt) = palace.points.iter().find(|p| {
+            (p.f_ghz - fem_row.f_ghz).abs() < 1e-6
+                || ((p.f_ghz - fem_row.f_ghz).abs() / fem_row.f_ghz) < 1e-4
+        }) else {
+            continue;
+        };
+        let fem_mag = fem_row.s11_mag;
+        let palace_mag = palace_pt.s11_mag();
+        // |S11| comparison band — 0.10 absolute. The two solvers should
+        // be very close on |S11| in the absence of absorber-driven
+        // disagreement; this is a tracking band, calibrate down as
+        // Palace data accumulates.
+        let abs_err = (palace_mag - fem_mag).abs();
+        eprintln!(
+            "  f = {:.3} GHz: FEM |S11| = {fem_mag:.4}, Palace |S11| = {palace_mag:.4} \
+             (|Δ| = {abs_err:.4})",
+            fem_row.f_ghz
+        );
+        assert!(
+            abs_err < 0.10,
+            "|S11| disagreement at {:.3} GHz: FEM {fem_mag:.4} vs Palace \
+             {palace_mag:.4} (|Δ| = {abs_err:.4}) exceeds the 0.10 tracking band",
+            fem_row.f_ghz
+        );
+        compared += 1;
+    }
+    assert!(
+        compared >= 1,
+        "Palace sweep shares no frequency points with the FEM benchmark sweep \
+         (Palace freqs: {:?}, FEM freqs: {:?})",
+        palace.points.iter().map(|p| p.f_ghz).collect::<Vec<_>>(),
+        fem_committed
+            .rows
+            .iter()
+            .map(|r| r.f_ghz)
+            .collect::<Vec<_>>(),
+    );
+}

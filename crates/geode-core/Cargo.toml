@@ -12,6 +12,11 @@ burn = { workspace = true }
 faer = { version = "0.24", default-features = false, features = ["std", "linalg", "sparse-linalg"] }
 mshio = "0.4"
 thiserror = "2"
+# Parses the [oracles.palace] block of the benchmark results TOMLs in
+# `src/palace.rs` (issue #239 — operator-assisted Palace 3D oracle
+# scaffolding). Same major as the existing dev-dep usage in the
+# benchmark tests.
+toml = "0.8"
 
 # Optional: link-time discovery of the system `libarpack` for the `arpack`
 # Cargo feature. Bindings to `dsaupd_c` / `dseupd_c` (the stable ARPACK

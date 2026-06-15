@@ -1,0 +1,75 @@
+{
+  "Problem": {
+    "Output": "postpro/patch_palace",
+    "Type": "Driven",
+    "Verbose": 2
+  },
+  "Model": {
+    "L0": 0.001,
+    "Mesh": "crates/geode-core/tests/fixtures/patch_2g4.msh",
+    "Refinement": {
+      "UniformLevels": 0
+    }
+  },
+  "Domains": {
+    "Materials": [
+      {
+        "Attributes": [
+          1
+        ],
+        "LossTan": 0.02,
+        "Permittivity": 4.4
+      },
+      {
+        "Attributes": [
+          2,
+          3
+        ],
+        "LossTan": 0.0,
+        "Permittivity": 1.0
+      }
+    ]
+  },
+  "Boundaries": {
+    "Absorbing": {
+      "Attributes": [
+        14
+      ],
+      "Order": 1
+    },
+    "LumpedPort": [
+      {
+        "Attributes": [
+          11
+        ],
+        "Direction": "+Z",
+        "Excitation": true,
+        "Index": 1,
+        "R": 50.0
+      }
+    ],
+    "PEC": {
+      "Attributes": [
+        12,
+        13,
+        14
+      ]
+    }
+  },
+  "Solver": {
+    "Driven": {
+      "FreqStep": 0.1,
+      "MaxFreq": 3.0,
+      "MinFreq": 2.0,
+      "Restart": 1,
+      "SaveStep": 0
+    },
+    "Linear": {
+      "KSPType": "GMRES",
+      "MaxIts": 200,
+      "Tol": 1e-8,
+      "Type": "Default"
+    },
+    "Order": 1
+  }
+}

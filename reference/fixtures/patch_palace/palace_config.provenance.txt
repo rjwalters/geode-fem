@@ -1,0 +1,34 @@
+fixture:        patch_2g4.msh
+mesh_sha256:    01c55cbd359b97d2fdceae9630a86d6fa2342f9a18317c01d61ad41a1df05f83
+generator:      reference/palace/geode_patch_baseline (cargo run --release)
+palace docs:    https://awslabs.github.io/palace/dev/config/
+palace recipe:  ~/GitHub/sphere/eda/mom/docker/palace (sister-repo Docker build)
+
+problem:        Driven (frequency-domain driven solver)
+port:           LumpedPort, R = 50 ohm, +Z direction,
+attribute 11 (matches reference/gmsh/patch_antenna.geo)
+materials:
+substrate:    FR-4, eps_r = 4.4, tan_delta = 0.02
+(attribute 1 — substrate volume)
+air + upml:   vacuum (attributes 2, 3)
+boundaries:
+PEC:          patch (attribute 12) + ground (attribute 13) + outer wall (attribute 14)
+Absorbing:    first-order Sommerfeld on the outer wall (attribute 14)
+— Palace analog of the geode-fem matched-UPML shell
+sweep:          2 GHz to 3 GHz, 0.1 GHz steps (matches the geode benchmark sweep)
+
+operator workflow:
+1. cd <geode-fem repo root>
+2. palace -np <N> reference/fixtures/patch_palace/palace_config.json
+(or via the sister-repo Docker image)
+3. The Palace run writes postpro/patch_palace/{s-parameters.csv,
+port-V.csv, ...}. Ingest these via
+`geode_core::palace::PalaceResults::from_palace_outputs(...)` and
+fill `benchmarks/patch_antenna/results.toml`'s [oracles.palace]
+slot with the parsed values + this provenance file's SHA.
+
+status:         pending_operator_run — Palace is NOT installed on the
+generation machine; the [oracles.palace] slot in
+benchmarks/patch_antenna/results.toml stays
+`pending_operator_run` until an operator-run reference
+is ingested (see crates/geode-core/src/palace.rs).
