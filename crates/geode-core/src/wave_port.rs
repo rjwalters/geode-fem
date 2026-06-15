@@ -781,6 +781,292 @@ impl ExtrudedWaveguideMesh {
     }
 }
 
+// =====================================================================
+// Programmatic 3-D height-step waveguide fixture (issue #248)
+// =====================================================================
+
+/// Generate a tetrahedralized **height-step** rectangular waveguide:
+/// section A `[0,a] × [0,b1] × [0,L1]` joined at `z = L1` to section B
+/// `[0,a] × [0,b2] × [L1, L1 + L2]`. The two sections share the bottom
+/// wall `y = 0` and the side walls `x ∈ {0, a}`; section B has
+/// `b2 < b1`, so at `z = L1` the annular strip `y ∈ [b2, b1]` becomes a
+/// new PEC backwall (the "step face"). Section A's top wall `y = b1`
+/// and section B's top wall `y = b2` are PEC. Wave ports live on the
+/// end faces `z = 0` (cross-section `a × b1`) and `z = L1 + L2`
+/// (cross-section `a × b2`).
+///
+/// To keep the two sub-meshes node-conforming at the interface
+/// `z = L1`, both halves share the **same horizontal discretization**:
+/// `nx` cells across `[0, a]` and a single `hy` chosen so that `b1` and
+/// `b2` are both integer multiples of `hy`. The caller passes
+/// `(nx, ny1, ny2)` with the implicit invariant `b1 * ny2 == b2 * ny1`
+/// (the same `hy = b1/ny1 = b2/ny2`); the function asserts this. The
+/// `(nz1, nz2)` cell counts control the z resolution of each half
+/// independently.
+///
+/// The cross-section of port 1 at `z = 0` is the 2-D mesh produced by
+/// `rect_tri_mesh(nx, ny1, a, b1)`; the cross-section of port 2 at
+/// `z = L1 + L2` is the 2-D mesh produced by
+/// `rect_tri_mesh(nx, ny2, a, b2)`. This matches the assumption in the
+/// wave-port BC machinery: per-port modal solves run independently on
+/// each port's own 2-D mesh (different `b` → different modal basis),
+/// and [`map_mode_profile_to_full_mesh`] stitches each profile into the
+/// 3-D edge table by node-tag matching against this fixture's nodes.
+///
+/// # Panics
+///
+/// - if `nx, ny1, ny2, nz1, nz2 < 1`,
+/// - if `b1 * ny2 != b2 * ny1` (the implicit `hy` invariant).
+#[allow(clippy::too_many_arguments)]
+pub fn extruded_height_step_waveguide_mesh(
+    nx: usize,
+    ny1: usize,
+    ny2: usize,
+    nz1: usize,
+    nz2: usize,
+    a: f64,
+    b1: f64,
+    b2: f64,
+    l1: f64,
+    l2: f64,
+) -> ExtrudedHeightStepMesh {
+    assert!(
+        nx >= 1 && ny1 >= 1 && ny2 >= 1 && nz1 >= 1 && nz2 >= 1,
+        "height-step waveguide requires nx, ny1, ny2, nz1, nz2 ≥ 1"
+    );
+    // Shared hy invariant.
+    let hy_a = b1 / ny1 as f64;
+    let hy_b = b2 / ny2 as f64;
+    assert!(
+        (hy_a - hy_b).abs() < 1e-12 * hy_a.max(hy_b).max(1.0),
+        "height-step waveguide needs b1/ny1 == b2/ny2 (b1={b1}, ny1={ny1}, b2={b2}, ny2={ny2})"
+    );
+    assert!(
+        ny2 <= ny1,
+        "height-step waveguide expects the smaller section B (ny2 ≤ ny1); got ny1={ny1}, ny2={ny2}"
+    );
+
+    use std::collections::BTreeMap;
+    let npx = nx + 1;
+    let npy_a = ny1 + 1;
+    let npy_b = ny2 + 1;
+    let npz_a = nz1 + 1;
+    let npz_b = nz2 + 1;
+    let hx = a / nx as f64;
+    let hy = hy_a;
+    let hz_a = l1 / nz1 as f64;
+    let hz_b = l2 / nz2 as f64;
+
+    // --- Section A nodes: full lattice [0..npx] × [0..npy_a] × [0..npz_a]
+    // indexed lex-order (i, j, k) → i + j*npx + k*npx*npy_a.
+    let n_a = npx * npy_a * npz_a;
+    let node_a = |i: usize, j: usize, k: usize| -> u32 { (i + j * npx + k * npx * npy_a) as u32 };
+
+    // --- Section B nodes live in a separate index range. Their k=0
+    // slice (z = L1) must reuse section A's k=nz1 nodes for j ∈ [0, ny2]
+    // — same (x, y) coordinates. We do this by *not allocating* new
+    // nodes for B's k=0 layer; we'll point B's k=0 indices at A's
+    // k=nz1, j∈[0,ny2] nodes through a translation table.
+    let b_layer_size = npx * npy_b;
+    let n_b_new = b_layer_size * nz2; // layers k = 1..=nz2 are new
+    let node_b = |i: usize, j: usize, k: usize| -> u32 {
+        // k = 0: alias into section A at k = nz1, j ∈ [0, ny2].
+        if k == 0 {
+            node_a(i, j, nz1)
+        } else {
+            (n_a + i + j * npx + (k - 1) * b_layer_size) as u32
+        }
+    };
+
+    let mut nodes = Vec::with_capacity(n_a + n_b_new);
+    for k in 0..npz_a {
+        for j in 0..npy_a {
+            for i in 0..npx {
+                nodes.push([i as f64 * hx, j as f64 * hy, k as f64 * hz_a]);
+            }
+        }
+    }
+    for k in 1..npz_b {
+        for j in 0..npy_b {
+            for i in 0..npx {
+                nodes.push([i as f64 * hx, j as f64 * hy, l1 + k as f64 * hz_b]);
+            }
+        }
+    }
+    debug_assert_eq!(nodes.len(), n_a + n_b_new);
+
+    // --- Section A tets (same 6-tet split as extruded_rect_waveguide_mesh).
+    let mut tets = Vec::with_capacity(6 * nx * ny1 * nz1 + 6 * nx * ny2 * nz2);
+    for k in 0..nz1 {
+        for j in 0..ny1 {
+            for i in 0..nx {
+                let c = [
+                    node_a(i, j, k),
+                    node_a(i + 1, j, k),
+                    node_a(i + 1, j + 1, k),
+                    node_a(i, j + 1, k),
+                    node_a(i, j, k + 1),
+                    node_a(i + 1, j, k + 1),
+                    node_a(i + 1, j + 1, k + 1),
+                    node_a(i, j + 1, k + 1),
+                ];
+                tets.push([c[0], c[1], c[2], c[6]]);
+                tets.push([c[0], c[2], c[3], c[6]]);
+                tets.push([c[0], c[3], c[7], c[6]]);
+                tets.push([c[0], c[7], c[4], c[6]]);
+                tets.push([c[0], c[4], c[5], c[6]]);
+                tets.push([c[0], c[5], c[1], c[6]]);
+            }
+        }
+    }
+    // --- Section B tets.
+    for k in 0..nz2 {
+        for j in 0..ny2 {
+            for i in 0..nx {
+                let c = [
+                    node_b(i, j, k),
+                    node_b(i + 1, j, k),
+                    node_b(i + 1, j + 1, k),
+                    node_b(i, j + 1, k),
+                    node_b(i, j, k + 1),
+                    node_b(i + 1, j, k + 1),
+                    node_b(i + 1, j + 1, k + 1),
+                    node_b(i, j + 1, k + 1),
+                ];
+                tets.push([c[0], c[1], c[2], c[6]]);
+                tets.push([c[0], c[2], c[3], c[6]]);
+                tets.push([c[0], c[3], c[7], c[6]]);
+                tets.push([c[0], c[7], c[4], c[6]]);
+                tets.push([c[0], c[4], c[5], c[6]]);
+                tets.push([c[0], c[5], c[1], c[6]]);
+            }
+        }
+    }
+
+    let mesh = TetMesh {
+        nodes,
+        tets,
+        physical_groups: BTreeMap::new(),
+    };
+
+    // --- Port 1 face triangles (z = 0, full section A cross-section).
+    let mut port1_faces: Vec<[u32; 3]> = Vec::with_capacity(2 * nx * ny1);
+    for j in 0..ny1 {
+        for i in 0..nx {
+            let c00 = node_a(i, j, 0);
+            let c10 = node_a(i + 1, j, 0);
+            let c11 = node_a(i + 1, j + 1, 0);
+            let c01 = node_a(i, j + 1, 0);
+            port1_faces.push([c00, c10, c11]);
+            port1_faces.push([c00, c11, c01]);
+        }
+    }
+    // --- Port 2 face triangles (z = L1 + L2, section B cross-section).
+    let mut port2_faces: Vec<[u32; 3]> = Vec::with_capacity(2 * nx * ny2);
+    for j in 0..ny2 {
+        for i in 0..nx {
+            let c00 = node_b(i, j, nz2);
+            let c10 = node_b(i + 1, j, nz2);
+            let c11 = node_b(i + 1, j + 1, nz2);
+            let c01 = node_b(i, j + 1, nz2);
+            port2_faces.push([c00, c10, c11]);
+            port2_faces.push([c00, c11, c01]);
+        }
+    }
+
+    // --- Sidewall PEC faces. Walk every tet face; a face is a PEC
+    // sidewall iff all three vertices share one of:
+    //   (1) `x = 0` plane,
+    //   (2) `x = a` plane,
+    //   (3) `y = 0` plane (shared floor),
+    //   (4) section A top: `y = b1` AND `z ∈ [0, L1]`,
+    //   (5) section B top: `y = b2` AND `z ∈ [L1, L1 + L2]`,
+    //   (6) **the step backwall**: `z = L1` AND `y ∈ [b2, b1]` (i.e.
+    //       the annular face that closes the volume where section B
+    //       narrowed).
+    // We exclude the two port planes (handled separately as wave ports).
+    let tol_xyz = 1e-9 * a.max(b1.max(b2)).max(l1.max(l2)).max(1.0);
+    let mut sidewall_faces: Vec<[u32; 3]> = Vec::new();
+    for tet in &mesh.tets {
+        let coords: [[f64; 3]; 4] = std::array::from_fn(|v| mesh.nodes[tet[v] as usize]);
+        for lf in &crate::mesh::TET_LOCAL_FACES {
+            let tri_pts = [coords[lf[0]], coords[lf[1]], coords[lf[2]]];
+            // Exclude port planes.
+            let on_port1 = tri_pts.iter().all(|p| p[2].abs() < tol_xyz);
+            let on_port2 = tri_pts.iter().all(|p| (p[2] - (l1 + l2)).abs() < tol_xyz);
+            if on_port1 || on_port2 {
+                continue;
+            }
+            let same_x0 = tri_pts.iter().all(|p| p[0].abs() < tol_xyz);
+            let same_xa = tri_pts.iter().all(|p| (p[0] - a).abs() < tol_xyz);
+            let same_y0 = tri_pts.iter().all(|p| p[1].abs() < tol_xyz);
+            // Section A top: y = b1 AND z ∈ [0, L1].
+            let on_a_top = tri_pts
+                .iter()
+                .all(|p| (p[1] - b1).abs() < tol_xyz && p[2] <= l1 + tol_xyz);
+            // Section B top: y = b2 AND z ∈ [L1, L1 + L2].
+            let on_b_top = tri_pts
+                .iter()
+                .all(|p| (p[1] - b2).abs() < tol_xyz && p[2] >= l1 - tol_xyz);
+            // Step backwall: z = L1 AND y ∈ [b2, b1].
+            let on_step = tri_pts.iter().all(|p| {
+                (p[2] - l1).abs() < tol_xyz && p[1] >= b2 - tol_xyz && p[1] <= b1 + tol_xyz
+            });
+            if same_x0 || same_xa || same_y0 || on_a_top || on_b_top || on_step {
+                let tri = [tet[lf[0]], tet[lf[1]], tet[lf[2]]];
+                sidewall_faces.push(tri);
+            }
+        }
+    }
+
+    ExtrudedHeightStepMesh {
+        mesh,
+        port1_faces,
+        port2_faces,
+        sidewall_faces,
+        a,
+        b1,
+        b2,
+        l1,
+        l2,
+    }
+}
+
+/// Output of [`extruded_height_step_waveguide_mesh`]: the volume mesh
+/// plus the boundary face lists needed to build the two wave-port BCs
+/// (different cross-sections) and the PEC elimination over the combined
+/// sidewall + step-backwall surface.
+#[derive(Debug, Clone)]
+pub struct ExtrudedHeightStepMesh {
+    pub mesh: TetMesh,
+    /// Port-1 face triangles on `z = 0`, section A cross-section
+    /// `a × b1`.
+    pub port1_faces: Vec<[u32; 3]>,
+    /// Port-2 face triangles on `z = L1 + L2`, section B cross-section
+    /// `a × b2`.
+    pub port2_faces: Vec<[u32; 3]>,
+    /// PEC face triangles on the four side walls + section A top
+    /// (`y = b1`, `z ∈ [0, L1]`) + section B top (`y = b2`,
+    /// `z ∈ [L1, L1 + L2]`) + step backwall (`z = L1`, `y ∈ [b2, b1]`).
+    pub sidewall_faces: Vec<[u32; 3]>,
+    pub a: f64,
+    pub b1: f64,
+    pub b2: f64,
+    pub l1: f64,
+    pub l2: f64,
+}
+
+impl ExtrudedHeightStepMesh {
+    /// PEC interior-edge mask: edges are kept (interior) unless they
+    /// lie on a sidewall / step backwall — port-face edges are kept
+    /// (the wave port substitutes for the PEC there). Same contract as
+    /// [`ExtrudedWaveguideMesh::pec_interior_mask`].
+    pub fn pec_interior_mask(&self) -> Vec<bool> {
+        let edges = self.mesh.edges();
+        crate::mesh::pec_interior_mask_from_triangles(&edges, &[self.sidewall_faces.as_slice()])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -868,5 +1154,74 @@ mod tests {
     fn trimesh_2d_smoke() {
         let m: TriMesh = rect_tri_mesh(2, 2, 1.0, 1.0);
         assert_eq!(m.n_tris(), 8);
+    }
+
+    #[test]
+    fn height_step_mesh_node_and_tet_counts() {
+        // a × b1 × L1 joined to a × b2 × L2, with shared hy.
+        // b1 = 1.0, ny1 = 4 → hy = 0.25; b2 = 0.5, ny2 = 2 → hy = 0.25.
+        let (nx, ny1, ny2, nz1, nz2) = (4, 4, 2, 3, 3);
+        let (a, b1, b2, l1, l2) = (2.0, 1.0, 0.5, 1.0, 1.0);
+        let g = extruded_height_step_waveguide_mesh(nx, ny1, ny2, nz1, nz2, a, b1, b2, l1, l2);
+        // Section A: (nx+1)(ny1+1)(nz1+1) nodes; section B contributes
+        // (nx+1)(ny2+1)(nz2) NEW nodes (k=0 layer is aliased).
+        let expected_nodes = (nx + 1) * (ny1 + 1) * (nz1 + 1) + (nx + 1) * (ny2 + 1) * nz2;
+        assert_eq!(g.mesh.n_nodes(), expected_nodes);
+        // Tets: 6 per hex × hex count per section.
+        let expected_tets = 6 * (nx * ny1 * nz1 + nx * ny2 * nz2);
+        assert_eq!(g.mesh.n_tets(), expected_tets);
+        assert_eq!(g.port1_faces.len(), 2 * nx * ny1);
+        assert_eq!(g.port2_faces.len(), 2 * nx * ny2);
+    }
+
+    #[test]
+    fn height_step_mesh_interface_is_node_conforming() {
+        // The shared interface at z = L1 should have section A's
+        // bottom-portion nodes (j ∈ [0, ny2]) re-used as section B's
+        // k = 0 nodes (same node index, same coords). We verify by
+        // checking that any face at z = L1 with y ∈ [0, b2] is referenced
+        // by both section A and section B tets and is NOT a sidewall.
+        let (nx, ny1, ny2, nz1, nz2) = (4, 4, 2, 2, 2);
+        let (a, b1, b2, l1, l2) = (2.0, 1.0, 0.5, 0.8, 0.6);
+        let g = extruded_height_step_waveguide_mesh(nx, ny1, ny2, nz1, nz2, a, b1, b2, l1, l2);
+        let tol = 1e-9;
+        // The step backwall (z = L1, y ∈ [b2, b1]) should be PEC.
+        // Count: it has nx cells across x and (ny1 - ny2) cells across
+        // y → 2 triangles per quad.
+        let expected_step_tris = 2 * nx * (ny1 - ny2);
+        let mut step_count = 0;
+        for tri in &g.sidewall_faces {
+            let pts = [
+                g.mesh.nodes[tri[0] as usize],
+                g.mesh.nodes[tri[1] as usize],
+                g.mesh.nodes[tri[2] as usize],
+            ];
+            let on_step = pts
+                .iter()
+                .all(|p| (p[2] - l1).abs() < tol && p[1] >= b2 - tol && p[1] <= b1 + tol);
+            if on_step {
+                step_count += 1;
+            }
+        }
+        assert_eq!(
+            step_count, expected_step_tris,
+            "step backwall: expected {expected_step_tris} triangles, got {step_count}"
+        );
+        // No sidewall face on the open interface z = L1, y ∈ [0, b2].
+        for tri in &g.sidewall_faces {
+            let pts = [
+                g.mesh.nodes[tri[0] as usize],
+                g.mesh.nodes[tri[1] as usize],
+                g.mesh.nodes[tri[2] as usize],
+            ];
+            let on_open = pts
+                .iter()
+                .all(|p| (p[2] - l1).abs() < tol && p[1] <= b2 - tol);
+            assert!(
+                !on_open,
+                "open interface face wrongly tagged as PEC: {:?}",
+                pts
+            );
+        }
     }
 }

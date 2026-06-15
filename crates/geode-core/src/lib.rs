@@ -137,8 +137,9 @@ pub use silvermuller_self_consistent::{
 };
 pub use sparse::{global_system_to_sparse, SparseError, SparseSystem};
 pub use wave_port::{
-    extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh, solve_wave_port_sweep,
-    waveguide_mode_reduce, ExtrudedWaveguideMesh, WavePort, WavePortSweepPoint,
+    extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
+    map_mode_profile_to_full_mesh, solve_wave_port_sweep, waveguide_mode_reduce,
+    ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, WavePort, WavePortSweepPoint,
 };
 pub use waveguide_modes::{
     apply_pec_2d, assemble_2d_nedelec, rect_pec_interior_edges, rect_pec_interior_nodes,
