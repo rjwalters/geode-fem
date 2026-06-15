@@ -1600,6 +1600,34 @@ impl FactoredDrivenOperator<'_> {
         self.solve_with_excitation(Some(excited))
     }
 
+    /// Back-substitute an arbitrary interior-length RHS `b` through the
+    /// cached LU factorization, writing into `out` (also interior
+    /// length). Both vectors must have length [`DrivenOperator::n_interior`].
+    ///
+    /// Bypasses the baked volume source and port drives — for callers
+    /// (wave-port BC, Epic #234 Phase 2) that build their own
+    /// excitations on top of the same factorization.
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::Solve`] on factorization back-substitution failure.
+    pub fn back_solve(&self, b: &[c64], out: &mut [c64]) -> Result<(), DrivenError> {
+        assert_eq!(b.len(), self.op.n_interior, "b length mismatch");
+        assert_eq!(out.len(), self.op.n_interior, "out length mismatch");
+        solve_with_lu(&self.lu, b, out).map_err(|e| DrivenError::Solve(format!("{e}")))
+    }
+
+    /// Compute `out = A(ω) · x` using the cached sparse `A(ω)` —
+    /// re-uses the factorization's interior `A_int` directly. Used by
+    /// the wave-port BC residual check (it builds an additional rank-1
+    /// modal correction on top of `A(ω)` and needs the base `A x` to
+    /// compute the corrected residual).
+    pub fn spmv_a(&self, x: &[c64], out: &mut [c64]) {
+        assert_eq!(x.len(), self.op.n_interior, "x length mismatch");
+        assert_eq!(out.len(), self.op.n_interior, "out length mismatch");
+        spmv(self.a_int.as_ref(), x, out);
+    }
+
     /// Build the RHS (volume source + port drives restricted to
     /// `excited` if given) and back-substitute through the cached LU.
     fn solve_with_excitation(&self, excited: Option<usize>) -> Result<DrivenSolution, DrivenError> {

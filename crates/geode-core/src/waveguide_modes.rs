@@ -66,6 +66,44 @@ use faer::Mat;
 
 use crate::eigen::{EigenError, EigenSolver, FaerDenseEigensolver};
 
+/// A single transverse mode of a waveguide cross-section with its modal
+/// field profile (Epic #234, Phase 2: the wave-port boundary condition
+/// requires the eigenvector so the 3D field can be projected onto each
+/// mode).
+///
+/// The eigenvector is stored in **full-edge ordering** of the 2D port
+/// mesh (length `mesh.edges().len()`), with exact zeros on PEC-eliminated
+/// edges. This is the natural shape for the wave-port projection (which
+/// integrates `N_i · e_t` over port-face triangles, indexed by edge
+/// number in the 2D port mesh).
+///
+/// The eigenvector is **M-orthonormalized**: `eᵀ M e = 1` over the
+/// interior edges; equivalently `∮_Γ e_t · e_t dS = 1` in the continuous
+/// sense. This convention makes the modal projection coefficient `<E, e>`
+/// a direct measure of the modal amplitude.
+#[derive(Debug, Clone)]
+pub struct WaveguideModeProfile {
+    /// Cutoff wavenumber `k_c`.
+    pub k_c: f64,
+    /// Corresponding eigenvalue `λ = k_c²` of the generalized pencil.
+    pub lambda: f64,
+    /// Full-length eigenvector over the 2D port mesh's `edges()`, in
+    /// edge-index order. PEC-eliminated edges carry exact zeros.
+    pub e_edges: Vec<f64>,
+}
+
+impl WaveguideModeProfile {
+    /// Propagation constant `β` at angular frequency `ω` (with `c = ω/k`).
+    /// Same conventions as [`WaveguideMode::beta`].
+    pub fn beta(&self, omega: f64, c: f64) -> (f64, f64) {
+        let m = WaveguideMode {
+            k_c: self.k_c,
+            lambda: self.lambda,
+        };
+        m.beta(omega, c)
+    }
+}
+
 /// Canonical local edge ordering on a triangle.
 ///
 /// For a triangle with local vertices `(v0, v1, v2)`, the three edges in
@@ -540,6 +578,64 @@ pub fn solve_rect_waveguide_modes(
             WaveguideMode {
                 k_c: lam_pos.sqrt(),
                 lambda,
+            }
+        })
+        .collect();
+    Ok(modes)
+}
+
+/// Compute the lowest `n_modes` transverse modes (cutoffs **and** field
+/// profiles) of a rectangular waveguide cross-section, with PEC walls on
+/// the rectangle `[0,W] × [0,H]`. The eigenvector counterpart of
+/// [`solve_rect_waveguide_modes`] — required by the wave-port BC
+/// (Epic #234, Phase 2) which projects the 3D driven field onto each
+/// modal profile.
+///
+/// Returns the modes ordered by increasing `k_c` (after dropping the
+/// gradient-nullspace cluster). Each eigenvector is M-orthonormalized
+/// over the 2D port-mesh interior edges (`eᵀ M e = 1`) and scattered
+/// back to the **full** edge ordering with exact zeros on PEC edges, so
+/// callers can index it by the same edge indices as `mesh.edges()`.
+pub fn solve_rect_waveguide_modes_with_vectors(
+    mesh: &TriMesh,
+    width: f64,
+    height: f64,
+    n_modes: usize,
+) -> Result<Vec<WaveguideModeProfile>, EigenError> {
+    let (k_global, m_global) = assemble_2d_nedelec(mesh);
+    let (edges, interior_edges) = rect_pec_interior_edges(mesh, width, height);
+    let interior_nodes = rect_pec_interior_nodes(mesh, width, height);
+    let (k_int, m_int) = apply_pec_2d(&k_global, &m_global, &interior_edges);
+
+    let spurious = spurious_dim_2d(mesh, &interior_edges, &interior_nodes);
+    let n_request = spurious + n_modes;
+    let pairs =
+        FaerDenseEigensolver.smallest_eigenpairs(k_int.as_ref(), m_int.as_ref(), n_request)?;
+
+    // Build the interior→full edge index map so we can scatter each
+    // eigenvector back to length `edges.len()`.
+    let mut interior_to_full: Vec<usize> = Vec::with_capacity(k_int.nrows());
+    for (full_idx, &keep) in interior_edges.iter().enumerate() {
+        if keep {
+            interior_to_full.push(full_idx);
+        }
+    }
+    let n_edges = edges.len();
+
+    let modes = pairs
+        .into_iter()
+        .skip(spurious)
+        .take(n_modes)
+        .map(|pair| {
+            let lam_pos = pair.lambda.max(0.0);
+            let mut e_edges = vec![0.0_f64; n_edges];
+            for (interior_idx, &full_idx) in interior_to_full.iter().enumerate() {
+                e_edges[full_idx] = pair.vector[interior_idx];
+            }
+            WaveguideModeProfile {
+                k_c: lam_pos.sqrt(),
+                lambda: pair.lambda,
+                e_edges,
             }
         })
         .collect();

@@ -31,6 +31,7 @@ pub mod scattering;
 pub mod silvermuller;
 pub mod silvermuller_self_consistent;
 pub mod sparse;
+pub mod wave_port;
 pub mod waveguide_modes;
 pub(crate) mod whitney_face;
 
@@ -50,8 +51,8 @@ pub use driven::{
     FactoredDrivenOperator, QuadCurrentSource, SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
 pub use eigen::{
-    apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenSolver,
-    FaerDenseEigensolver,
+    apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenPair,
+    EigenSolver, FaerDenseEigensolver,
 };
 pub use extraction::{
     detect_srf, driven_frequency_sweep, extract_port_circuit, im_z_zero_crossings, inductance,
@@ -135,10 +136,15 @@ pub use silvermuller_self_consistent::{
     self_consistent_k, self_consistent_k_vector_tracked, SelfConsistentResult,
 };
 pub use sparse::{global_system_to_sparse, SparseError, SparseSystem};
+pub use wave_port::{
+    extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh, solve_wave_port_sweep,
+    waveguide_mode_reduce, ExtrudedWaveguideMesh, WavePort, WavePortSweepPoint,
+};
 pub use waveguide_modes::{
     apply_pec_2d, assemble_2d_nedelec, rect_pec_interior_edges, rect_pec_interior_nodes,
     rect_tri_mesh, rect_waveguide_cutoff, restrict_gradient_dense_2d, solve_rect_waveguide_modes,
-    spurious_dim_2d, tri_nedelec_local, TriMesh, WaveguideMode, TRI_LOCAL_EDGES,
+    solve_rect_waveguide_modes_with_vectors, spurious_dim_2d, tri_nedelec_local, TriMesh,
+    WaveguideMode, WaveguideModeProfile, TRI_LOCAL_EDGES,
 };
 
 #[cfg(feature = "arpack")]

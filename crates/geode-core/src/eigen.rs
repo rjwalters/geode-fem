@@ -45,6 +45,21 @@ pub trait EigenSolver {
     ) -> Result<Vec<f64>, EigenError>;
 }
 
+/// One generalized-eigenpair `(λ, v)` of the real symmetric pencil
+/// `K v = λ M v` — the eigenvector counterpart to the eigenvalues-only
+/// API of [`EigenSolver`]. Used by callers that need the modal field
+/// profile too (Epic #234, wave-port Phase 2: the 2D modal solver must
+/// return the eigenvector so the wave-port BC can project the 3D field
+/// onto each mode).
+#[derive(Debug, Clone)]
+pub struct EigenPair {
+    /// Eigenvalue `λ` (real for the symmetric pencils this trait serves).
+    pub lambda: f64,
+    /// Eigenvector entries in the input ordering of `K` and `M`
+    /// (interior-DOF ordering after PEC reduction in the wave-port use).
+    pub vector: Vec<f64>,
+}
+
 /// Dense generalized-symmetric eigensolver backed by `faer`.
 ///
 /// For our use case (`K` symmetric positive semidefinite, `M` symmetric
@@ -56,6 +71,110 @@ pub trait EigenSolver {
 /// guard, not a real performance hit at the cube-warmup sizes.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FaerDenseEigensolver;
+
+impl FaerDenseEigensolver {
+    /// Compute the lowest `n` generalized eigenpairs of `K v = λ M v`,
+    /// including the eigenvectors. Same conventions as
+    /// [`EigenSolver::smallest_eigenvalues`] but returns the eigenvector
+    /// `v` alongside each `λ`. Eigenvectors are M-orthonormalized:
+    /// `vᵀ M v = 1`.
+    ///
+    /// Used by the wave-port modal solver
+    /// ([`crate::waveguide_modes::solve_rect_waveguide_modes_with_vectors`])
+    /// so the wave-port BC (Epic #234, Phase 2) can project the 3D field
+    /// onto each port mode.
+    pub fn smallest_eigenpairs(
+        &self,
+        k: MatRef<f64>,
+        m: MatRef<f64>,
+        n: usize,
+    ) -> Result<Vec<EigenPair>, EigenError> {
+        assert_eq!(k.nrows(), k.ncols(), "K must be square");
+        assert_eq!(m.nrows(), m.ncols(), "M must be square");
+        assert_eq!(k.nrows(), m.nrows(), "K and M must agree in size");
+
+        let evd = k
+            .generalized_eigen(&m)
+            .map_err(|e| EigenError::FaerGevd(format!("{e:?}")))?;
+
+        let s_a = evd.S_a().column_vector();
+        let s_b = evd.S_b().column_vector();
+        let u = evd.U();
+        let dim = s_a.nrows();
+
+        // For each column of U: compute the eigenvalue and grab the
+        // eigenvector. We defer the imaginary-tolerance sanity check
+        // until after sorting & truncating to the lowest `n` modes —
+        // high-frequency spurious modes on coarse meshes can carry
+        // non-trivial conjugate-pair imaginaries even when the lowest
+        // physical modes are real to f64 precision (same robustness
+        // move as `smallest_eigenvalues`).
+        let mut pairs: Vec<(f64, Vec<f64>, f64, f64)> = Vec::with_capacity(dim);
+        for i in 0..dim {
+            let a = s_a[i];
+            let b = s_b[i];
+            if b.norm_sqr() < 1e-30 {
+                return Err(EigenError::SingularPencil(i));
+            }
+            let denom = b.norm_sqr();
+            let re = (a.re * b.re + a.im * b.im) / denom;
+            let im = (a.im * b.re - a.re * b.im) / denom;
+            // Materialize column `i` of U as the eigenvector (real part)
+            // plus the max imag component for the per-mode check below.
+            let mut v: Vec<f64> = Vec::with_capacity(dim);
+            let mut max_im_vec = 0.0_f64;
+            for row in 0..dim {
+                let c = u[(row, i)];
+                v.push(c.re);
+                max_im_vec = max_im_vec.max(c.im.abs());
+            }
+            pairs.push((re, v, im, max_im_vec));
+        }
+        pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let take = n.min(pairs.len());
+        // Apply the eigenvalue imag tolerance check to only the kept
+        // lowest modes. We do **not** apply a tolerance check to the
+        // eigenvector's imag part: faer's `generalized_eigen` returns
+        // conjugate-pair columns even when the corresponding
+        // eigenvalues are mathematically real but happen to be paired
+        // by the QZ algorithm (gradient-nullspace clusters near zero
+        // routinely do this). Taking the real part is correct for the
+        // eigenvalues we deem real via the S_a/S_b imag test (which
+        // *is* the rigorous "is this eigenvalue real" check).
+        for (i, (re, _, im, _)) in pairs.iter().enumerate().take(take) {
+            if im.abs() > 1e-9 * re.abs().max(1.0) {
+                return Err(EigenError::ComplexEigenvalue(format!(
+                    "λ[{i}] = {re} + {im}i (rel im {})",
+                    im.abs() / re.abs().max(1.0)
+                )));
+            }
+        }
+
+        // M-orthonormalize the kept eigenvectors: divide each v by
+        // sqrt(vᵀ M v) so vᵀ M v = 1. This is the convention modal
+        // projection wants (the modal amplitude `<E, S v>` becomes the
+        // pure projection coefficient).
+        let mut out = Vec::with_capacity(take);
+        for (lambda, mut v, _, _) in pairs.into_iter().take(take) {
+            let mut norm2 = 0.0_f64;
+            for i in 0..dim {
+                let mut mv_i = 0.0_f64;
+                for j in 0..dim {
+                    mv_i += m[(i, j)] * v[j];
+                }
+                norm2 += v[i] * mv_i;
+            }
+            if norm2 > 0.0 {
+                let s = norm2.sqrt();
+                for x in v.iter_mut() {
+                    *x /= s;
+                }
+            }
+            out.push(EigenPair { lambda, vector: v });
+        }
+        Ok(out)
+    }
+}
 
 impl EigenSolver for FaerDenseEigensolver {
     fn smallest_eigenvalues(
