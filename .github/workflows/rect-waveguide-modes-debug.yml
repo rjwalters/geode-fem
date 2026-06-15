@@ -1,52 +1,55 @@
 name: rect-waveguide-modes (debug profile)
 
-# Issue #244 — debug-profile CI lane for the rectangular-waveguide
-# modal eigensolver tests.
+# Issues #244 / #249 — debug-profile CI lane for the rectangular-
+# waveguide modal eigensolver tests.
 #
 # Why this exists separately from the (release-only) `arpack.yml`:
 # faer 0.24's `gevd::qz_real` performs subtractions that legitimately
 # wrap during the QZ iteration. Under the default `cargo test` (debug
 # profile, overflow checks on) those wraps panic with
 # `attempt to subtract with overflow`, even though the release-build
-# math is correct. The workspace ships a `.cargo/config.toml` with
-# `rustflags = ["-C", "overflow-checks=off"]` to mask the panic, and
-# this CI lane is the regression guard: if anyone (a contributor, a
-# Doctor cycle, or a faer bump) breaks the workaround we want CI to
-# fail loudly on the next push instead of waiting for a workstation
-# `cargo test` run to trip.
+# math is correct. Originally (PR #246) the workspace shipped a
+# `.cargo/config.toml` with `rustflags = ["-C", "overflow-checks=off"]`
+# to mask the panic; PR #249's "proper fix" moved
+# `solve_rect_waveguide_modes` and the eigenvector sibling off the
+# dense `faer::generalized_eigen` (QZ) code path entirely, onto the
+# sparse real-symmetric shift-invert Lanczos already used elsewhere in
+# the crate. After that swap the rustflags workaround was removed and
+# this lane became a regression guard against any future change that
+# would re-introduce the faer QZ path on the modal pencil.
 #
 # The runner is headless ubuntu-latest, so we drop the default `wgpu`
 # backend (no Vulkan adapter on CI) and run the `ndarray` CPU backend
-# instead. The eigensolver only touches `faer::MatRef<f64>` data, so
-# the backend choice is irrelevant to the assertion we want to make.
-# No `--release` — that is the whole point: this lane exists to catch
-# the faer overflow regression in the default debug profile that
-# `arpack.yml` and the release-only workflows mask.
+# instead. The eigensolver only touches `faer` data, so the backend
+# choice is irrelevant to the assertion we want to make. No
+# `--release` — that is the whole point: this lane exists to catch a
+# debug-profile overflow regression that the release-only workflows
+# would silently mask.
 
 on:
   push:
     branches: [main]
     paths:
       - 'crates/geode-core/src/waveguide_modes.rs'
+      - 'crates/geode-core/src/lanczos.rs'
       - 'crates/geode-core/src/eigen.rs'
       - 'crates/geode-core/src/nedelec_assembly.rs'
       - 'crates/geode-core/src/mesh/**'
       - 'crates/geode-core/tests/rect_waveguide_modes.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - '.cargo/config.toml'
       - '.github/workflows/rect-waveguide-modes-debug.yml'
   pull_request:
     branches: [main]
     paths:
       - 'crates/geode-core/src/waveguide_modes.rs'
+      - 'crates/geode-core/src/lanczos.rs'
       - 'crates/geode-core/src/eigen.rs'
       - 'crates/geode-core/src/nedelec_assembly.rs'
       - 'crates/geode-core/src/mesh/**'
       - 'crates/geode-core/tests/rect_waveguide_modes.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - '.cargo/config.toml'
       - '.github/workflows/rect-waveguide-modes-debug.yml'
   workflow_dispatch: {}
 
@@ -77,14 +80,16 @@ jobs:
           uname -a
           rustc --version
           cargo --version
-          echo "Workspace .cargo/config.toml:"
-          cat .cargo/config.toml || echo "(no .cargo/config.toml)"
+          echo "Workspace .cargo/config.toml (expected absent after #249):"
+          cat .cargo/config.toml 2>/dev/null || echo "(no .cargo/config.toml — correct post-#249)"
 
-      # Default cargo test — debug profile, no --release. The
-      # `.cargo/config.toml` rustflags must keep this green; if it
-      # panics inside faer's `qz_real`, the workaround has regressed
-      # and either faer needs a new pin or the rustflags need to
-      # propagate to the GA runner the same way they do locally.
+      # Default cargo test — debug profile, no --release. After
+      # PR #249 the modal pencil is solved by the sparse
+      # `SparseShiftInvertLanczos` and never touches faer's QZ. If a
+      # future change drags `FaerDenseEigensolver` (or any other
+      # faer QZ path) back into `solve_rect_waveguide_modes[_with_vectors]`,
+      # this lane will fail with the `attempt to subtract with overflow`
+      # panic and surface the regression on the next push.
       - name: cargo test -p geode-core --test rect_waveguide_modes (debug)
         run: |
           cargo test --no-default-features --features geode-core/ndarray \
