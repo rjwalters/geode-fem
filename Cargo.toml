@@ -28,8 +28,12 @@ codegen-units = 1
 # `debug-assertions = false` + `overflow-checks = false` are required for
 # faer 0.24: its `gevd::qz_real` performs subtractions that legitimately
 # wrap under debug-assertions, producing `attempt to subtract with
-# overflow` panics even though the release math is correct. Caught by
-# the PR #19 judge round.
+# overflow` panics even though the release math is correct. The
+# `[profile.<n>.package."*"]` block alone is not enough to suppress the
+# overflow panic in faer under cargo 1.96 (cargo does not reliably emit
+# `-C overflow-checks=off` for the override pattern; see
+# `.cargo/config.toml` for the workspace-wide RUSTFLAGS fallback that
+# actually disables the check). Issue #244.
 [profile.dev.package."*"]
 opt-level = 3
 debug = false
