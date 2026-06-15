@@ -62,9 +62,11 @@
 //! nodes after PEC reduction. This mirrors the 3-D path in
 //! `nedelec_assembly::spurious_dim_from_derham`.
 
+use faer::sparse::{SparseColMat, Triplet};
 use faer::Mat;
 
-use crate::eigen::{EigenError, EigenSolver, FaerDenseEigensolver};
+use crate::eigen::EigenError;
+use crate::lanczos::SparseShiftInvertLanczos;
 
 /// A single transverse mode of a waveguide cross-section with its modal
 /// field profile (Epic #234, Phase 2: the wave-port boundary condition
@@ -544,12 +546,80 @@ impl WaveguideMode {
     }
 }
 
+/// Convert a small dense `Mat<f64>` into faer CSC sparse form for the
+/// shift-and-invert Lanczos path. Drops exact-zero entries (the
+/// curl-curl pencil is highly sparse — most off-diagonal entries are
+/// structural zeros), but keeps any nonzero entry verbatim.
+fn dense_to_sparse(a: &Mat<f64>) -> Result<SparseColMat<usize, f64>, EigenError> {
+    let n = a.nrows();
+    debug_assert_eq!(a.ncols(), n);
+    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::new();
+    for j in 0..n {
+        for i in 0..n {
+            let v = a[(i, j)];
+            if v != 0.0 {
+                trips.push(Triplet::new(i, j, v));
+            }
+        }
+    }
+    SparseColMat::<usize, f64>::try_new_from_triplets(n, n, &trips)
+        .map_err(|e| EigenError::FaerGevd(format!("waveguide_modes sparse build: {e:?}")))
+}
+
+/// Pick a positive shift `σ` for the modal pencil that lies **between**
+/// the gradient-nullspace cluster (at `λ ≈ 0`) and the first physical
+/// mode (the analytic TE₁₀ cutoff `(π/W)²`). The shift-invert Lanczos
+/// then converges on eigenvalues near `σ` first, balancing how many
+/// spurious cluster modes vs how many physical modes are recovered in
+/// the same iteration budget.
+///
+/// The 2-D curl-curl pencil's gradient nullspace is high-dimensional
+/// (one DOF per interior node — typically `O(n_interior_nodes) ≈ 100`
+/// for the meshes in our test suite). Putting σ at the cluster (or
+/// above it but below TE₁₀²) keeps the algorithm from having to
+/// resolve all 100+ degenerate-to-f64-precision spurious modes before
+/// reaching physical modes.
+///
+/// Empirically `σ = 0.3 · (π/W)²` works well on the 4×2…16×8 test
+/// meshes: it sits between λ ≈ 0 and TE₁₀² = (π/W)², so a small
+/// Lanczos budget recovers a handful of spurious modes plus the lowest
+/// physical modes (which is what the post-filter expects).
+fn modal_shift(width: f64) -> f64 {
+    let pi = std::f64::consts::PI;
+    let kc = pi / width.max(1e-15);
+    0.3 * kc * kc
+}
+
+/// Eigenvalue threshold below which a mode is classified as gradient
+/// (spurious) on the 2-D curl-curl pencil. Physical modes have
+/// `λ = k_c² ≥ (π/W)²`; the gradient cluster sits at `λ ≈ 0` to f64
+/// noise. A threshold at `0.01 · (π/W)²` gives two decades of slack on
+/// each side.
+fn modal_spurious_threshold(width: f64) -> f64 {
+    let pi = std::f64::consts::PI;
+    let kc = pi / width.max(1e-15);
+    0.01 * kc * kc
+}
+
 /// Compute the lowest `n_modes` transverse modal cutoffs of the
 /// rectangular waveguide cross-section meshed by `mesh`, with PEC walls
 /// on the rectangle `[0,W] × [0,H]`.
 ///
 /// Returns the modes ordered by increasing `k_c` (after dropping the
 /// gradient-nullspace cluster).
+///
+/// # Solver
+///
+/// Uses [`crate::lanczos::SparseShiftInvertLanczos`] (real-symmetric
+/// sparse shift-and-invert Lanczos via faer's sparse LU). The 2-D
+/// modal pencil is real-symmetric SPD after PEC reduction, and the
+/// gradient null cluster sits at λ ≈ 0; a small positive shift
+/// (see [`modal_shift`]) targets the lowest physical modes while
+/// keeping the shifted pencil well-conditioned.
+///
+/// This replaces the previous dense `faer::generalized_eigen` path
+/// (issue #249) which tripped a wrap-around-overflow inside faer-0.24's
+/// `gevd::qz_real` under debug overflow checks (issue #244).
 pub fn solve_rect_waveguide_modes(
     mesh: &TriMesh,
     width: f64,
@@ -558,29 +628,60 @@ pub fn solve_rect_waveguide_modes(
 ) -> Result<Vec<WaveguideMode>, EigenError> {
     let (k_global, m_global) = assemble_2d_nedelec(mesh);
     let (_edges, interior_edges) = rect_pec_interior_edges(mesh, width, height);
-    let interior_nodes = rect_pec_interior_nodes(mesh, width, height);
     let (k_int, m_int) = apply_pec_2d(&k_global, &m_global, &interior_edges);
+    let dim = k_int.nrows();
 
-    let spurious = spurious_dim_2d(mesh, &interior_edges, &interior_nodes);
-    let n_request = spurious + n_modes;
-    let lambdas =
-        FaerDenseEigensolver.smallest_eigenvalues(k_int.as_ref(), m_int.as_ref(), n_request)?;
+    let k_sparse = dense_to_sparse(&k_int)?;
+    let m_sparse = dense_to_sparse(&m_int)?;
+    let threshold = modal_spurious_threshold(width);
 
-    // Skip the gradient null-cluster (the lowest `spurious` eigenvalues).
-    // Remaining eigenvalues are the squared cutoff wavenumbers.
-    let modes = lambdas
-        .into_iter()
-        .skip(spurious)
-        .take(n_modes)
-        .map(|lambda| {
-            // Clamp tiny negatives (round-off) at zero before sqrt.
-            let lam_pos = lambda.max(0.0);
-            WaveguideMode {
-                k_c: lam_pos.sqrt(),
-                lambda,
-            }
-        })
-        .collect();
+    // Iteration budget: request a small batch each pass. With σ between
+    // the gradient cluster and the first physical mode, a budget of
+    // `n_modes + small_buffer` extracts the lowest physical modes plus
+    // a handful of spurious modes (which we filter out by λ threshold).
+    // Inflate on retry if the filtered-physical count came up short.
+    let mut n_request = (n_modes + 8).min(dim);
+    let modes: Vec<WaveguideMode> = loop {
+        let max_iters = (n_request + 8).min(dim).max(1);
+        let solver = SparseShiftInvertLanczos {
+            sigma: modal_shift(width),
+            max_iters,
+            tol: 1e-9,
+        };
+        use crate::lanczos::SparseEigenSolver as _;
+        let mut lambdas =
+            solver.smallest_eigenvalues(k_sparse.as_ref(), m_sparse.as_ref(), n_request)?;
+        // shift-invert returns eigenvalues sorted by |λ - σ|, not by λ
+        // alone. Sort by λ ascending to match the prior dense path's
+        // contract and make spurious/physical separation straightforward.
+        lambdas.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let physical: Vec<WaveguideMode> = lambdas
+            .into_iter()
+            .filter(|&lam| lam > threshold)
+            .take(n_modes)
+            .map(|lambda| {
+                let lam_pos = lambda.max(0.0);
+                WaveguideMode {
+                    k_c: lam_pos.sqrt(),
+                    lambda,
+                }
+            })
+            .collect();
+
+        if physical.len() == n_modes {
+            break physical;
+        }
+        if n_request >= dim {
+            return Err(EigenError::FaerGevd(format!(
+                "waveguide modal solve: only recovered {} of {} physical modes \
+                 (filtered out spurious cluster at λ ≤ {threshold:.3e})",
+                physical.len(),
+                n_modes
+            )));
+        }
+        n_request = (n_request * 2).min(dim);
+    };
     Ok(modes)
 }
 
@@ -604,17 +705,16 @@ pub fn solve_rect_waveguide_modes_with_vectors(
 ) -> Result<Vec<WaveguideModeProfile>, EigenError> {
     let (k_global, m_global) = assemble_2d_nedelec(mesh);
     let (edges, interior_edges) = rect_pec_interior_edges(mesh, width, height);
-    let interior_nodes = rect_pec_interior_nodes(mesh, width, height);
     let (k_int, m_int) = apply_pec_2d(&k_global, &m_global, &interior_edges);
+    let dim = k_int.nrows();
 
-    let spurious = spurious_dim_2d(mesh, &interior_edges, &interior_nodes);
-    let n_request = spurious + n_modes;
-    let pairs =
-        FaerDenseEigensolver.smallest_eigenpairs(k_int.as_ref(), m_int.as_ref(), n_request)?;
+    let k_sparse = dense_to_sparse(&k_int)?;
+    let m_sparse = dense_to_sparse(&m_int)?;
+    let threshold = modal_spurious_threshold(width);
 
     // Build the interior→full edge index map so we can scatter each
     // eigenvector back to length `edges.len()`.
-    let mut interior_to_full: Vec<usize> = Vec::with_capacity(k_int.nrows());
+    let mut interior_to_full: Vec<usize> = Vec::with_capacity(dim);
     for (full_idx, &keep) in interior_edges.iter().enumerate() {
         if keep {
             interior_to_full.push(full_idx);
@@ -622,23 +722,56 @@ pub fn solve_rect_waveguide_modes_with_vectors(
     }
     let n_edges = edges.len();
 
-    let modes = pairs
-        .into_iter()
-        .skip(spurious)
-        .take(n_modes)
-        .map(|pair| {
-            let lam_pos = pair.lambda.max(0.0);
-            let mut e_edges = vec![0.0_f64; n_edges];
-            for (interior_idx, &full_idx) in interior_to_full.iter().enumerate() {
-                e_edges[full_idx] = pair.vector[interior_idx];
-            }
-            WaveguideModeProfile {
-                k_c: lam_pos.sqrt(),
-                lambda: pair.lambda,
-                e_edges,
-            }
-        })
-        .collect();
+    // Same retry-on-undercount loop as the eigenvalues-only path. See
+    // [`solve_rect_waveguide_modes`] for the rationale on σ choice and
+    // the λ-threshold filter.
+    let mut n_request = (n_modes + 8).min(dim);
+    let modes: Vec<WaveguideModeProfile> = loop {
+        let max_iters = (n_request + 8).min(dim).max(1);
+        let solver = SparseShiftInvertLanczos {
+            sigma: modal_shift(width),
+            max_iters,
+            tol: 1e-9,
+        };
+        let mut pairs =
+            solver.smallest_eigenpairs(k_sparse.as_ref(), m_sparse.as_ref(), n_request)?;
+        pairs.sort_by(|a, b| {
+            a.lambda
+                .partial_cmp(&b.lambda)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let physical: Vec<WaveguideModeProfile> = pairs
+            .into_iter()
+            .filter(|p| p.lambda > threshold)
+            .take(n_modes)
+            .map(|pair| {
+                let lam_pos = pair.lambda.max(0.0);
+                let mut e_edges = vec![0.0_f64; n_edges];
+                for (interior_idx, &full_idx) in interior_to_full.iter().enumerate() {
+                    e_edges[full_idx] = pair.vector[interior_idx];
+                }
+                WaveguideModeProfile {
+                    k_c: lam_pos.sqrt(),
+                    lambda: pair.lambda,
+                    e_edges,
+                }
+            })
+            .collect();
+
+        if physical.len() == n_modes {
+            break physical;
+        }
+        if n_request >= dim {
+            return Err(EigenError::FaerGevd(format!(
+                "waveguide modal solve (with vectors): only recovered {} of {} \
+                 physical modes (filtered spurious cluster at λ ≤ {threshold:.3e})",
+                physical.len(),
+                n_modes
+            )));
+        }
+        n_request = (n_request * 2).min(dim);
+    };
     Ok(modes)
 }
 

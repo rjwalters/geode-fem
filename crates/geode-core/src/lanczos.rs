@@ -31,7 +31,7 @@ use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef};
 use faer::{Mat, MatMut};
 
-use crate::eigen::EigenError;
+use crate::eigen::{EigenError, EigenPair};
 
 /// Sparse generalized-symmetric eigensolver via shift-and-invert Lanczos.
 ///
@@ -186,6 +186,233 @@ fn tridiag_eigenvalues(alpha: &[f64], beta: &[f64]) -> Result<Vec<f64>, EigenErr
     t.as_ref()
         .self_adjoint_eigenvalues(Side::Lower)
         .map_err(|e| EigenError::FaerGevd(format!("tridiag evd: {e:?}")))
+}
+
+/// Solve the symmetric tridiagonal eigenproblem returning **eigenpairs**
+/// `(μ, s)` in ascending μ order. `s` is a unit-norm eigenvector in
+/// k-dimensional tridiagonal space; combine it with the Lanczos basis
+/// `V_k` to recover the corresponding Ritz vector `x = V_k s`.
+fn tridiag_eigenpairs(alpha: &[f64], beta: &[f64]) -> Result<(Vec<f64>, Mat<f64>), EigenError> {
+    use faer::Side;
+    let k = alpha.len();
+    if k == 0 {
+        return Ok((Vec::new(), Mat::<f64>::zeros(0, 0)));
+    }
+    let t = Mat::<f64>::from_fn(k, k, |i, j| {
+        if i == j {
+            alpha[i]
+        } else if i + 1 == j {
+            beta[i]
+        } else if j + 1 == i {
+            beta[j]
+        } else {
+            0.0
+        }
+    });
+    let evd = t
+        .as_ref()
+        .self_adjoint_eigen(Side::Lower)
+        .map_err(|e| EigenError::FaerGevd(format!("tridiag evd (pairs): {e:?}")))?;
+    let s_vec = evd.S().column_vector();
+    let u = evd.U();
+    let mut mus: Vec<f64> = (0..k).map(|i| s_vec[i]).collect();
+    // self_adjoint_eigen returns eigenvalues in ascending order already,
+    // but be explicit (and defensively sort the matching columns).
+    let mut order: Vec<usize> = (0..k).collect();
+    order.sort_by(|&a, &b| mus[a].partial_cmp(&mus[b]).unwrap_or(core::cmp::Ordering::Equal));
+    let mut sorted_mus = vec![0.0_f64; k];
+    let mut sorted_u = Mat::<f64>::zeros(k, k);
+    for (new_col, &old_col) in order.iter().enumerate() {
+        sorted_mus[new_col] = mus[old_col];
+        for row in 0..k {
+            sorted_u[(row, new_col)] = u[(row, old_col)];
+        }
+    }
+    mus.copy_from_slice(&sorted_mus);
+    Ok((mus, sorted_u))
+}
+
+impl SparseShiftInvertLanczos {
+    /// Compute the lowest `n_modes` generalized eigenpairs of
+    /// `K x = λ M x` closest to the configured shift `σ`, including
+    /// M-orthonormalized eigenvectors. The eigenvalue-only sibling
+    /// is [`SparseEigenSolver::smallest_eigenvalues`].
+    ///
+    /// Eigenvectors are recovered as Ritz vectors `x = V_k s` from the
+    /// Lanczos basis `V_k` and tridiagonal eigenvector `s`, then
+    /// rescaled so `xᵀ M x = 1` (the convention modal projection
+    /// wants — same convention as
+    /// [`crate::eigen::FaerDenseEigensolver::smallest_eigenpairs`]).
+    pub fn smallest_eigenpairs(
+        &self,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        n_modes: usize,
+    ) -> Result<Vec<EigenPair>, EigenError> {
+        let n = k.nrows();
+        assert_eq!(k.ncols(), n, "K must be square");
+        assert_eq!(m.nrows(), n, "M and K must agree in size");
+        assert_eq!(m.ncols(), n);
+        if n_modes == 0 {
+            return Ok(Vec::new());
+        }
+
+        // 1. Build A = K - σM and factor it once.
+        let a = shifted_pencil(k, m, self.sigma)?;
+        let lu = a
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| EigenError::FaerGevd(format!("sparse LU: {e:?}")))?;
+
+        // 2. Run Lanczos to convergence, retaining the full M-orthonormal
+        //    basis V_k. Unlike the eigenvalue-only path we always run to
+        //    the requested mode count; the Ritz-vector recovery needs the
+        //    final basis even if convergence formally lags.
+        let max_k = self.max_iters.min(n).max(n_modes + 2).min(n);
+        let mut basis: Vec<Vec<f64>> = Vec::with_capacity(max_k);
+        let mut alpha: Vec<f64> = Vec::with_capacity(max_k);
+        let mut beta: Vec<f64> = Vec::with_capacity(max_k);
+
+        let mut v: Vec<f64> = (0..n)
+            .map(|i| (((i as f64) + 1.0) * 0.5432).sin())
+            .collect();
+        let mut mv = vec![0.0_f64; n];
+        spmv(m, &v, &mut mv);
+        let mut nrm2 = v.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
+        if nrm2 <= 0.0 {
+            return Err(EigenError::FaerGevd(
+                "starting vector has non-positive M-norm; M not SPD?".into(),
+            ));
+        }
+        let mut nrm = nrm2.sqrt();
+        for x in v.iter_mut() {
+            *x /= nrm;
+        }
+
+        let mut w = vec![0.0_f64; n];
+        let mut work = vec![0.0_f64; n];
+
+        for j in 0..max_k {
+            spmv(m, &v, &mut mv);
+            solve_with_lu(&lu, &mv, &mut w)?;
+
+            let aj = w.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
+            alpha.push(aj);
+            for i in 0..n {
+                w[i] -= aj * v[i];
+            }
+            if let Some(bp) = beta.last().copied() {
+                let prev = &basis[j - 1];
+                for i in 0..n {
+                    w[i] -= bp * prev[i];
+                }
+            }
+
+            // Full reorthogonalization (M-inner product).
+            for vk in basis.iter() {
+                spmv(m, vk, &mut work);
+                let c = w.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
+                if c.abs() > 0.0 {
+                    for i in 0..n {
+                        w[i] -= c * vk[i];
+                    }
+                }
+            }
+            spmv(m, &v, &mut work);
+            let c = w.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
+            for i in 0..n {
+                w[i] -= c * v[i];
+            }
+
+            spmv(m, &w, &mut work);
+            nrm2 = w.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
+            let nrm2 = nrm2.max(0.0);
+            nrm = nrm2.sqrt();
+
+            basis.push(core::mem::take(&mut v));
+
+            // Convergence probe — same Kaniel–Saad bound as the
+            // eigenvalues-only path. Break early when the next
+            // Lanczos β has dropped below tolerance relative to the
+            // dominant Ritz value.
+            if alpha.len() >= n_modes && alpha.len() >= 2 {
+                let mus = tridiag_eigenvalues(&alpha, &beta)?;
+                let mu_max = mus.iter().fold(0.0_f64, |a, &b| a.max(b.abs()));
+                if nrm <= self.tol * mu_max.max(1.0) {
+                    break;
+                }
+            }
+
+            if nrm < 1e-14 {
+                break;
+            }
+
+            beta.push(nrm);
+            v = w.iter().map(|x| x / nrm).collect();
+        }
+
+        if alpha.is_empty() {
+            return Err(EigenError::FaerGevd(
+                "Lanczos produced no iterations; trivial problem?".into(),
+            ));
+        }
+
+        // 3. Solve the tridiagonal eigenproblem with eigenvectors.
+        let (mus, s_mat) = tridiag_eigenpairs(&alpha, &beta)?;
+        let k_eff = mus.len();
+
+        // 4. Build (λ, ritz_vector) pairs, filter out near-zero μ
+        //    (corresponds to infinite λ), and sort by |λ - σ| ascending.
+        let sigma = self.sigma;
+        let mut pairs: Vec<(f64, Vec<f64>)> = Vec::with_capacity(k_eff);
+        for col in 0..k_eff {
+            let mu = mus[col];
+            if mu.abs() == 0.0 {
+                continue;
+            }
+            let lambda = sigma + 1.0 / mu;
+            // Ritz vector x = V_k · s_col.
+            let mut x = vec![0.0_f64; n];
+            for row in 0..k_eff {
+                let s_rc = s_mat[(row, col)];
+                if s_rc == 0.0 {
+                    continue;
+                }
+                let basis_row = &basis[row];
+                for i in 0..n {
+                    x[i] += s_rc * basis_row[i];
+                }
+            }
+            pairs.push((lambda, x));
+        }
+        pairs.sort_by(|a, b| {
+            (a.0 - sigma)
+                .abs()
+                .partial_cmp(&(b.0 - sigma).abs())
+                .unwrap_or(core::cmp::Ordering::Equal)
+        });
+
+        let take = n_modes.min(pairs.len());
+        let mut picked: Vec<(f64, Vec<f64>)> = pairs.into_iter().take(take).collect();
+        // Re-sort by λ ascending — matches the dense path's eigenpair
+        // ordering and the eigenvalue-only sparse path.
+        picked.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(core::cmp::Ordering::Equal));
+
+        // 5. M-orthonormalize each Ritz vector: divide by sqrt(xᵀ M x).
+        let mut out = Vec::with_capacity(take);
+        for (lambda, mut x) in picked {
+            spmv(m, &x, &mut work);
+            let norm2 = x.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
+            if norm2 > 0.0 {
+                let s = norm2.sqrt();
+                for v in x.iter_mut() {
+                    *v /= s;
+                }
+            }
+            out.push(EigenPair { lambda, vector: x });
+        }
+        Ok(out)
+    }
 }
 
 impl SparseEigenSolver for SparseShiftInvertLanczos {
@@ -401,6 +628,50 @@ mod tests {
         assert_eq!(lambdas.len(), 3);
         for (got, want) in lambdas.iter().zip([1.0, 2.0, 3.0].iter()) {
             assert!((got - want).abs() < 1e-8, "lanczos λ={got}, want {want}");
+        }
+    }
+
+    /// Eigenpair path on a diagonal SPD pencil: each Ritz vector should
+    /// be (a sign of) the canonical basis vector corresponding to its
+    /// eigenvalue, M-orthonormalized.
+    #[test]
+    fn lanczos_diagonal_pencil_eigenpairs_recover_basis() {
+        // λ_i = k_i / m_i = {1, 2, 3, 4, 5} with M = I.
+        let (k, m) = diagonal_pencil(&[1.0, 2.0, 3.0, 4.0, 5.0], &[1.0; 5]);
+        let solver = SparseShiftInvertLanczos {
+            sigma: 0.0,
+            max_iters: 50,
+            tol: 1e-10,
+        };
+        let pairs = solver
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), 3)
+            .unwrap();
+        assert_eq!(pairs.len(), 3);
+        for (i, pair) in pairs.iter().enumerate() {
+            let want_lambda = (i + 1) as f64;
+            assert!(
+                (pair.lambda - want_lambda).abs() < 1e-8,
+                "λ[{i}] = {}, want {want_lambda}",
+                pair.lambda
+            );
+            // Eigenvector should be ±e_i with unit M-norm (M = I).
+            let norm2: f64 = pair.vector.iter().map(|x| x * x).sum();
+            assert!(
+                (norm2 - 1.0).abs() < 1e-9,
+                "eigenvector[{i}] not M-orthonormal: ‖v‖² = {norm2}"
+            );
+            // Largest entry is at position i, magnitude ≈ 1.
+            let (max_pos, max_val) = pair
+                .vector
+                .iter()
+                .enumerate()
+                .map(|(p, x)| (p, x.abs()))
+                .fold((0usize, 0.0_f64), |acc, x| if x.1 > acc.1 { x } else { acc });
+            assert_eq!(max_pos, i, "eigenvector[{i}] localized at wrong index");
+            assert!(
+                (max_val - 1.0).abs() < 1e-6,
+                "eigenvector[{i}] not localized: max = {max_val}"
+            );
         }
     }
 }

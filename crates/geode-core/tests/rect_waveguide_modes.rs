@@ -30,14 +30,15 @@
 //! cargo test -p geode-core --test rect_waveguide_modes
 //! ```
 //!
-//! Both the default debug profile and `--release` are supported. faer
-//! 0.24's `gevd::qz_real` performs subtractions that legitimately wrap
-//! during the QZ iteration and would panic with `attempt to subtract
-//! with overflow` under rustc's default overflow checks; the
-//! workspace `.cargo/config.toml` masks this with
-//! `rustflags = ["-C", "overflow-checks=off"]` so the default
-//! `cargo test` invocation works on both contributor workstations and
-//! CI. See issue #244 for details.
+//! Both the default debug profile and `--release` are supported.
+//! `solve_rect_waveguide_modes` (and its eigenvector sibling) is now
+//! backed by the sparse real-symmetric shift-invert Lanczos
+//! ([`SparseShiftInvertLanczos`](crate::lanczos::SparseShiftInvertLanczos))
+//! after PR #249. The previous dense `faer::generalized_eigen` (QZ)
+//! path tripped a wrap-around overflow inside `gevd::qz_real` under
+//! rustc's default debug overflow checks (issue #244); the sparse
+//! path avoids the QZ algorithm entirely, so the workspace no longer
+//! needs the `rustflags = ["-C", "overflow-checks=off"]` workaround.
 
 use geode_core::{
     apply_pec_2d, assemble_2d_nedelec, rect_pec_interior_edges, rect_pec_interior_nodes,
@@ -176,11 +177,12 @@ fn rect_waveguide_modal_spectrum_matches_analytic() {
 /// below 1 % at the finest level. Documents the achieved errors per
 /// the #235 acceptance criterion "document achieved errors".
 ///
-/// Mesh sizes are kept modest because the dense `faer::generalized_eigen`
-/// QZ pencil eigensolver scales `O(n³)`; on a 16×8 mesh the interior
-/// edge count is ~280, which is the upper end of "fast" for the dense
-/// path. (Switching to the sparse shift-invert Lanczos for larger
-/// meshes is a Phase-2-or-later enhancement.)
+/// Mesh sizes are kept modest because the test suite runs under the
+/// default debug profile too. After PR #249 the underlying solver is
+/// the sparse real-symmetric shift-invert Lanczos
+/// ([`crate::lanczos::SparseShiftInvertLanczos`]) which scales much
+/// better than the previous dense QZ path, but the test is still about
+/// h-refinement convergence, not raw size.
 #[test]
 fn te10_cutoff_convergence() {
     let (a, b) = (2.0_f64, 1.0_f64);
@@ -246,14 +248,16 @@ fn global_k_m_are_symmetric() {
 }
 
 /// Sanity: the PEC-reduced pencil yields the same TE₁₀ cutoff via the
-/// direct `EigenSolver` trait as via the convenience
-/// `solve_rect_waveguide_modes` wrapper. This locks the wrapper's
-/// "skip the spurious cluster" pre-filter so a future refactor cannot
-/// silently mis-classify the gradient nullspace.
+/// direct dense `EigenSolver` trait (`FaerDenseEigensolver`) as via the
+/// convenience `solve_rect_waveguide_modes` wrapper (now backed by the
+/// sparse `SparseShiftInvertLanczos` after PR #249). This locks the
+/// wrapper's spurious-cluster filter and acts as a dense-vs-sparse
+/// cross-check: any deviation flags either a solver swap regression or
+/// a filtering bug.
 ///
-/// Uses a small 6×3 mesh because the dense `faer::generalized_eigen`
-/// pencil eigensolver scales `O(n³)` and we only want a smoke-level
-/// check here (the accuracy regression lives in
+/// Uses a small 6×3 mesh both to keep the dense oracle's O(n³) cost
+/// manageable and because we only want a smoke-level check here (the
+/// accuracy regression lives in
 /// `rect_waveguide_modal_spectrum_matches_analytic` above).
 #[test]
 fn raw_eigensolver_matches_wrapper() {
