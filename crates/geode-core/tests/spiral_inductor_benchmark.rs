@@ -549,10 +549,9 @@ fn fem_vs_palace_oracle_within_band_or_skip_with_note() {
 
     // --- Numeric band: low-frequency L at the 1 GHz reference point ----
     let (_, l_fem, _, _) = row_at(&fem_rows, L_REF_GHZ);
-    let palace_l_at_ref = palace
-        .points
-        .iter()
-        .find(|p| (p.f_ghz - L_REF_GHZ).abs() < 1e-6 || ((p.f_ghz - L_REF_GHZ).abs() / L_REF_GHZ) < 1e-4);
+    let palace_l_at_ref = palace.points.iter().find(|p| {
+        (p.f_ghz - L_REF_GHZ).abs() < 1e-6 || ((p.f_ghz - L_REF_GHZ).abs() / L_REF_GHZ) < 1e-4
+    });
     if let Some(palace_pt) = palace_l_at_ref {
         let (_, z_im) = palace_pt.z_from_s11(palace.port_resistance_ohm);
         // L (nH) = Im(Z, Ω) / (2π f_GHz)  (Ω = nH · 2π GHz at GHz freqs).
@@ -581,16 +580,17 @@ fn fem_vs_palace_oracle_within_band_or_skip_with_note() {
     // --- Numeric band: Q at 4 GHz mid-band tracking band ---------------
     const Q_REF_GHZ: f64 = 4.0;
     let (_, _, _, q_fem_4) = row_at(&fem_rows, Q_REF_GHZ);
-    let palace_q_at_ref = palace
-        .points
-        .iter()
-        .find(|p| (p.f_ghz - Q_REF_GHZ).abs() < 1e-6 || ((p.f_ghz - Q_REF_GHZ).abs() / Q_REF_GHZ) < 1e-4);
+    let palace_q_at_ref = palace.points.iter().find(|p| {
+        (p.f_ghz - Q_REF_GHZ).abs() < 1e-6 || ((p.f_ghz - Q_REF_GHZ).abs() / Q_REF_GHZ) < 1e-4
+    });
     if let Some(palace_pt) = palace_q_at_ref {
         let (z_re, z_im) = palace_pt.z_from_s11(palace.port_resistance_ohm);
         let q_palace = if z_re > 0.0 { z_im / z_re } else { f64::NAN };
         let rel = (q_palace - q_fem_4) / q_fem_4;
-        eprintln!("Q at {Q_REF_GHZ} GHz: FEM {q_fem_4:.2} vs Palace {q_palace:.2} ({:+.2}%)",
-                  100.0 * rel);
+        eprintln!(
+            "Q at {Q_REF_GHZ} GHz: FEM {q_fem_4:.2} vs Palace {q_palace:.2} ({:+.2}%)",
+            100.0 * rel
+        );
         assert!(
             rel.abs() < 0.10,
             "Q at {Q_REF_GHZ} GHz: FEM {q_fem_4:.2} vs Palace {q_palace:.2} ({:+.2}%) \
