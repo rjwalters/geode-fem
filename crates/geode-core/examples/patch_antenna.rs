@@ -53,9 +53,19 @@
 //! gain `G = D·η`, and E-/H-plane principal-plane cuts cross-checked
 //! against the Balanis cavity-model two-slot directivity oracle.
 //! `pattern-smoke` does the same on the coarse fixture (pipeline check).
+//! `pattern-matched` (issue #247) runs the NTFF on the impedance-matched
+//! `patch_2g4_matched.msh` fixture (issue #237, probe inset 8.0 → 7.0 mm)
+//! at the matched S11-dip frequency and writes
+//! `benchmarks/patch_antenna/pattern_matched.toml` — `G = D·η` with the
+//! matched-port radiation efficiency from the tuned fixture. D is
+//! essentially unchanged from the untuned `pattern.toml` (tuning the
+//! probe shifts the *match*, not the radiation pattern shape); the
+//! reported gain is the physically meaningful number for the tuned
+//! antenna.
 //!
 //! ```sh
 //! cargo run -p geode-core --release --example patch_antenna -- pattern
+//! cargo run -p geode-core --release --example patch_antenna -- pattern-matched
 //! ```
 
 use std::fs;
@@ -713,7 +723,14 @@ fn write_pattern_toml(
     s.push('\n');
 
     s.push_str("[meta]\n");
-    s.push_str("description = \"Patch-antenna far-field radiation pattern, broadside directivity, and gain (issue #229, Epic #226 Phase 3): Love surface-equivalence NTFF (geode_core::ntff) of the driven near field on the Huygens box just inside the matched box-UPML, at the Phase-2 resonant frequency. Cross-checked against the Balanis cavity-model two-slot directivity (geode_core::patch_cavity).\"\n");
+    match choice {
+        FixtureChoice::Benchmark | FixtureChoice::Smoke => {
+            s.push_str("description = \"Patch-antenna far-field radiation pattern, broadside directivity, and gain (issue #229, Epic #226 Phase 3): Love surface-equivalence NTFF (geode_core::ntff) of the driven near field on the Huygens box just inside the matched box-UPML, at the Phase-2 resonant frequency. Cross-checked against the Balanis cavity-model two-slot directivity (geode_core::patch_cavity).\"\n");
+        }
+        FixtureChoice::Matched => {
+            s.push_str("description = \"Patch-antenna far-field radiation pattern, broadside directivity, and gain on the impedance-matched fixture (issue #247, Epic #226 Phase 3 follow-up): Love surface-equivalence NTFF (geode_core::ntff) of the driven near field on the Huygens box just inside the matched box-UPML, at the matched-fixture S11-dip frequency (issue #237, probe inset 8.0 -> 7.0 mm). D is essentially unchanged from the untuned pattern.toml (tuning the feed shifts the *match*, not the radiation pattern shape); G = D . eta_matched uses the tuned radiation efficiency from results_matched.toml. Cross-checked against the Balanis cavity-model two-slot directivity (geode_core::patch_cavity).\"\n");
+        }
+    }
     match choice {
         FixtureChoice::Benchmark => {
             s.push_str("fixture = \"tests/fixtures/patch_2g4.msh\"\n");
@@ -723,6 +740,13 @@ fn write_pattern_toml(
         }
         FixtureChoice::Matched => {
             s.push_str("fixture = \"tests/fixtures/patch_2g4_matched.msh\"\n");
+            s.push_str(
+                "fixture_provenance = \"tests/fixtures/patch_2g4_matched.provenance.txt\"\n",
+            );
+            s.push_str(&format!(
+                "fixture_sha256 = \"{}\"\n",
+                fixture_sha256(choice)
+            ));
         }
     }
     s.push_str(&format!("generated_at_commit = \"{commit}\"\n"));
@@ -815,6 +839,21 @@ fn main() {
             );
             return;
         }
+        Some("pattern-matched") => {
+            let fixture = read_patch_matched_fixture().expect("bundled matched patch fixture");
+            // Matched-fixture S11 dip (`results_matched.toml::meta.s11_dip_f_ghz`,
+            // issue #237) — the physically meaningful operating point of the
+            // tuned antenna. Im(Z)=0 sits 2.5 MHz lower (2.2675 GHz) but the
+            // matched-port radiation efficiency is reported at the dip.
+            let f_res_ghz = 2.270;
+            extract_pattern(
+                &fixture,
+                f_res_ghz,
+                pml_thick_for(FixtureChoice::Matched),
+                FixtureChoice::Matched,
+            );
+            return;
+        }
         _ => {}
     }
 
@@ -824,7 +863,7 @@ fn main() {
         Some("matched") => FixtureChoice::Matched,
         Some(other) => {
             eprintln!(
-                "unknown argument {other:?} — expected `smoke`, `matched`, `pattern`, `pattern-smoke`, or no argument"
+                "unknown argument {other:?} — expected `smoke`, `matched`, `pattern`, `pattern-smoke`, `pattern-matched`, or no argument"
             );
             std::process::exit(2);
         }
