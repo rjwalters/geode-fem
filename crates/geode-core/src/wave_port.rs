@@ -112,7 +112,8 @@
 use faer::c64;
 
 use crate::driven::{
-    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SurfaceImpedanceBc,
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
+    SurfaceImpedanceBc,
 };
 use crate::lumped_port::LumpedPort;
 use crate::silvermuller::assemble_surface_mass_triplets;
@@ -389,6 +390,17 @@ pub struct WavePortSweepPoint {
     /// Provided so callers can decode the flat index back to (port,
     /// mode). `port_mode_counts.iter().sum::<usize>() == n_channels`.
     pub port_mode_counts: Vec<usize>,
+    /// Per-RHS Krylov iteration counts at this ω (issue #264).
+    ///
+    /// On the iterative path the wave-port SMW assembly performs
+    /// `n_channels` back-solves to build the `A_base⁻¹ U` columns plus
+    /// `n_channels` per-excitation back-solves for the right-hand
+    /// sides, giving `2 · n_channels` entries; the first `n_channels`
+    /// are the `U`-column back-solves (in flat-channel order), the
+    /// remaining `n_channels` are the per-excitation back-solves (in
+    /// excitation order). On the direct path every entry is `0` (LU
+    /// back-substitution carries no Krylov iteration).
+    pub iters_per_rhs: Vec<usize>,
 }
 
 impl WavePortSweepPoint {
@@ -438,6 +450,49 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
     bcs: &DrivenBcs<'_>,
     ports: &[WavePort],
     omegas: &[f64],
+    device: &B::Device,
+) -> Result<Vec<WavePortSweepPoint>, DrivenError> {
+    solve_wave_port_sweep_with_mode::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        ports,
+        omegas,
+        SolverMode::Direct,
+        device,
+    )
+}
+
+/// [`solve_wave_port_sweep`] with an explicit
+/// [`crate::driven::SolverMode`] knob (issue #264).
+///
+/// The rank-N SMW machinery (issue #255) composes with both backends as
+/// a **post-step**: solve `A_base⁻¹ U` and `A_base⁻¹ b` through the
+/// uniform [`crate::driven::DrivenLinearSolver::back_solve`] API, then
+/// assemble the small `N × N` capacitance dense matrix and the SMW
+/// correction in host code. The matrix-vector pieces never change —
+/// only the back-solve does.
+///
+/// On the iterative path the Jacobi preconditioner is built once per ω
+/// inside [`DrivenOperator::prepare_at`] and reused across every RHS at
+/// that frequency (issue #264's "preconditioner can be assembled once
+/// and reused" — the post-step composition lets that work without
+/// re-touching the SMW arithmetic). The per-RHS COCG iteration counts
+/// land in [`WavePortSweepPoint::iters_per_rhs`] (`2·n_channels`
+/// entries per ω: the first `n_channels` from the U-column solves,
+/// the remaining `n_channels` from the per-excitation solves).
+///
+/// See [`crate::driven::SolverMode`] for the documented trade-off.
+#[allow(clippy::too_many_arguments)]
+pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    ports: &[WavePort],
+    omegas: &[f64],
+    solver_mode: SolverMode,
     device: &B::Device,
 ) -> Result<Vec<WavePortSweepPoint>, DrivenError> {
     if ports.is_empty() {
@@ -559,12 +614,18 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
             //   M = Λ⁻¹ + Uᵀ A_base⁻¹U.
             //
             // Precompute A_base⁻¹ U as N columns (one back-substitution
-            // per channel) and build M (N × N dense complex).
-            let factored = op.factor_at(omega)?;
+            // per channel) and build M (N × N dense complex). The
+            // back-solves go through the unified
+            // `DrivenLinearSolver::back_solve` (issue #264) so the
+            // SMW arithmetic composes with both direct LU and
+            // iterative COCG without touching the post-step pieces.
+            let solver = op.prepare_at(omega, solver_mode)?;
+            let mut iters_per_rhs: Vec<usize> = Vec::with_capacity(2 * n_channels);
             let mut ainv_u: Vec<Vec<c64>> = Vec::with_capacity(n_channels);
             for col in fluxes_int.iter() {
                 let mut x = vec![c64::new(0.0, 0.0); n_int];
-                factored.back_solve(col, &mut x)?;
+                let report = solver.back_solve(col, &mut x)?;
+                iters_per_rhs.push(report.iters);
                 ainv_u.push(x);
             }
             // M = Λ⁻¹ + Uᵀ A_base⁻¹U.   (row-major, N × N)
@@ -622,7 +683,8 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
 
                 // x = A_base⁻¹ b − (A_base⁻¹ U) M⁻¹ Uᵀ A_base⁻¹ b.
                 let mut ainv_b = vec![c64::new(0.0, 0.0); n_int];
-                factored.back_solve(&b, &mut ainv_b)?;
+                let report = solver.back_solve(&b, &mut ainv_b)?;
+                iters_per_rhs.push(report.iters);
                 // y = Uᵀ A_base⁻¹ b  (length n_channels).
                 let mut y = vec![c64::new(0.0, 0.0); n_channels];
                 for i in 0..n_channels {
@@ -651,7 +713,7 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
 
                 // Residual check: ‖(A_base + Σ jβ f_p f_pᵀ) x − b‖ / ‖b‖.
                 let mut ax = vec![c64::new(0.0, 0.0); n_int];
-                factored.spmv_a(&x, &mut ax);
+                solver.spmv_a(&x, &mut ax);
                 for p in 0..n_channels {
                     let beta_p = betas[p];
                     if beta_p.norm_sqr() == 0.0 {
@@ -735,6 +797,7 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
                 beta: betas,
                 n_channels,
                 port_mode_counts: port_mode_counts.clone(),
+                iters_per_rhs,
             })
         })
         .collect()
@@ -1439,6 +1502,7 @@ mod tests {
             beta: Vec::new(),
             n_channels: 3,
             port_mode_counts: port_mode_counts.clone(),
+            iters_per_rhs: Vec::new(),
         };
         for p in 0..port_mode_counts.len() {
             assert_eq!(pt.channel_index(p, 0), p);
@@ -1456,6 +1520,7 @@ mod tests {
             beta: Vec::new(),
             n_channels: 6,
             port_mode_counts: vec![2, 3, 1],
+            iters_per_rhs: Vec::new(),
         };
         assert_eq!(pt.channel_index(0, 0), 0);
         assert_eq!(pt.channel_index(0, 1), 1);
