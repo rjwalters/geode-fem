@@ -1,0 +1,9 @@
+# Faer 0.24's `gevd::qz_real` performs intentional wrap-around
+# subtractions; with rustc's default behavior they panic under
+# overflow checks. Cargo's `[profile.<n>.package."*"]` override does
+# not reliably emit `-C overflow-checks=off` (verified on cargo 1.96)
+# so we set RUSTFLAGS for every build instead. Release already
+# disables overflow checks by default; this makes `cargo test`
+# (default debug profile) work without an explicit `--release`.
+[build]
+rustflags = ["-C", "overflow-checks=off"]

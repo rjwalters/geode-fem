@@ -27,13 +27,17 @@
 //! Running:
 //!
 //! ```sh
-//! cargo test -p geode-core --release --test rect_waveguide_modes
+//! cargo test -p geode-core --test rect_waveguide_modes
 //! ```
 //!
-//! (Same `--release` recipe as the sphere PEC eigenmode test — faer
-//! 0.24's `gevd::qz_real` panics under `debug-assertions`, so the
-//! workspace `[profile.test.package.faer]` override + release profile is
-//! the supported invocation.)
+//! Both the default debug profile and `--release` are supported. faer
+//! 0.24's `gevd::qz_real` performs subtractions that legitimately wrap
+//! during the QZ iteration and would panic with `attempt to subtract
+//! with overflow` under rustc's default overflow checks; the
+//! workspace `.cargo/config.toml` masks this with
+//! `rustflags = ["-C", "overflow-checks=off"]` so the default
+//! `cargo test` invocation works on both contributor workstations and
+//! CI. See issue #244 for details.
 
 use geode_core::{
     apply_pec_2d, assemble_2d_nedelec, rect_pec_interior_edges, rect_pec_interior_nodes,
