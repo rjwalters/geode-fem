@@ -25,25 +25,18 @@ codegen-units = 1
 # unusably slow without optimization. Keep them optimized even in debug
 # builds; only our own crates compile with no-opt for fast iteration.
 #
-# `debug-assertions = false` + `overflow-checks = false` on third-party
-# crates (the `package."*"` selector) cover faer 0.24's `gevd::qz_real`
-# wrap-around-subtract pattern: under default debug overflow checks the
-# QZ iteration panics with `attempt to subtract with overflow`, even
-# though the release math is correct. Issue #244 documented this; PR
-# #249 moved the rectangular-waveguide modal pencil off the QZ path to
-# the sparse real-symmetric shift-invert Lanczos, so the modal solver
-# itself no longer trips the bug. These profile overrides remain as a
-# defensive guard for any other faer QZ call site (e.g.
-# `raw_eigensolver_matches_wrapper`'s small dense oracle) and to keep
-# dependency builds fast.
+# PR #249 moved the rectangular-waveguide modal pencil off faer 0.24's
+# QZ path (which tripped `attempt to subtract with overflow` under
+# default debug overflow checks — see issue #244) onto the sparse
+# real-symmetric shift-invert Lanczos, so the modal solver itself no
+# longer trips the bug. PR #246's diagnostic established that the
+# `[profile.*.package."*"] overflow-checks = false` overrides do not
+# propagate to dependencies on cargo 1.96, so they were dead code and
+# have been removed.
 [profile.dev.package."*"]
 opt-level = 3
 debug = false
-debug-assertions = false
-overflow-checks = false
 
 [profile.test.package."*"]
 opt-level = 3
 debug = false
-debug-assertions = false
-overflow-checks = false

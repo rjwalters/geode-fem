@@ -219,7 +219,11 @@ fn tridiag_eigenpairs(alpha: &[f64], beta: &[f64]) -> Result<(Vec<f64>, Mat<f64>
     // self_adjoint_eigen returns eigenvalues in ascending order already,
     // but be explicit (and defensively sort the matching columns).
     let mut order: Vec<usize> = (0..k).collect();
-    order.sort_by(|&a, &b| mus[a].partial_cmp(&mus[b]).unwrap_or(core::cmp::Ordering::Equal));
+    order.sort_by(|&a, &b| {
+        mus[a]
+            .partial_cmp(&mus[b])
+            .unwrap_or(core::cmp::Ordering::Equal)
+    });
     let mut sorted_mus = vec![0.0_f64; k];
     let mut sorted_u = Mat::<f64>::zeros(k, k);
     for (new_col, &old_col) in order.iter().enumerate() {
@@ -666,7 +670,10 @@ mod tests {
                 .iter()
                 .enumerate()
                 .map(|(p, x)| (p, x.abs()))
-                .fold((0usize, 0.0_f64), |acc, x| if x.1 > acc.1 { x } else { acc });
+                .fold(
+                    (0usize, 0.0_f64),
+                    |acc, x| if x.1 > acc.1 { x } else { acc },
+                );
             assert_eq!(max_pos, i, "eigenvector[{i}] localized at wrong index");
             assert!(
                 (max_val - 1.0).abs() < 1e-6,
