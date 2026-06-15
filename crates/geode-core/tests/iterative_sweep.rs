@@ -28,10 +28,9 @@ use faer::c64;
 use geode_core::{
     cube_tet_mesh, driven_frequency_sweep, driven_frequency_sweep_with_mode,
     extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh, rect_tri_mesh,
-    s_parameter_frequency_sweep, s_parameter_frequency_sweep_with_mode,
-    solve_rect_waveguide_modes, solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, IterativeSettings, LumpedPort,
-    SolverMode, TetMesh, WavePort,
+    s_parameter_frequency_sweep, s_parameter_frequency_sweep_with_mode, solve_rect_waveguide_modes,
+    solve_wave_port_sweep, solve_wave_port_sweep_with_mode, CurrentSource, DefaultBackend,
+    DrivenBcs, DrivenMaterials, IterativeSettings, LumpedPort, SolverMode, TetMesh, WavePort,
 };
 
 type B = DefaultBackend;
@@ -429,11 +428,7 @@ fn wave_port_sweep_iterative_matches_direct() {
             "[issue #264 / solve_wave_port_sweep] ω = {:.3}: n_channels = {n}, \
              max |ΔS|/|S| = {:.3e}, residual_rel(direct) = {:.3e}, \
              residual_rel(iterative) = {:.3e}, COCG iters per RHS = {:?}",
-            pt_d.omega,
-            max_rel_diff,
-            pt_d.residual_rel,
-            pt_i.residual_rel,
-            pt_i.iters_per_rhs,
+            pt_d.omega, max_rel_diff, pt_d.residual_rel, pt_i.residual_rel, pt_i.iters_per_rhs,
         );
         assert!(
             max_rel_diff < 1e-4,

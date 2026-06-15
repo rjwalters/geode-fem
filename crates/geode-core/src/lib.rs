@@ -48,8 +48,8 @@ pub use driven::{
     driven_solve, driven_solve_iterative, driven_solve_quad, driven_solve_with_ports,
     driven_solve_with_sigma, driven_solve_with_sigma_quad, driven_solve_with_surface_impedance,
     BackSolveReport, CurrentSource, DrivenBcs, DrivenError, DrivenLinearSolver, DrivenMaterials,
-    DrivenOperator, DrivenSolution, FactoredDrivenOperator, IterativeSettings,
-    QuadCurrentSource, SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    DrivenOperator, DrivenSolution, FactoredDrivenOperator, IterativeSettings, QuadCurrentSource,
+    SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
 pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenPair,

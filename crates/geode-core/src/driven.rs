@@ -2015,7 +2015,11 @@ impl DrivenOperator {
     /// failures, the LU-factorization failure on the direct path, or
     /// [`DrivenError::Solve`] wrapping a Jacobi-preconditioner setup
     /// error (a zero / non-finite diagonal) on the iterative path.
-    pub fn prepare_at(&self, omega: f64, mode: SolverMode) -> Result<DrivenLinearSolver<'_>, DrivenError> {
+    pub fn prepare_at(
+        &self,
+        omega: f64,
+        mode: SolverMode,
+    ) -> Result<DrivenLinearSolver<'_>, DrivenError> {
         let a_int = self.assemble_a_at(omega)?;
         let backend = match mode {
             SolverMode::Direct => {
@@ -2027,9 +2031,7 @@ impl DrivenOperator {
             }
             SolverMode::Iterative(settings) => {
                 let precond = crate::ksp_solve::JacobiPreconditioner::new(a_int.as_ref())
-                    .map_err(|e| {
-                        DrivenError::Solve(format!("Jacobi preconditioner setup: {e}"))
-                    })?;
+                    .map_err(|e| DrivenError::Solve(format!("Jacobi preconditioner setup: {e}")))?;
                 let ksp = crate::ksp_solve::Cocg::new(settings.tol, settings.max_iters);
                 SolverBackend::Iterative { precond, ksp }
             }
