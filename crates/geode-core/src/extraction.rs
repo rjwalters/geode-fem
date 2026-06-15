@@ -62,7 +62,8 @@ use burn::tensor::backend::Backend;
 use faer::c64;
 
 use crate::driven::{
-    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SurfaceImpedanceBc,
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
+    SurfaceImpedanceBc,
 };
 use crate::lumped_port::{port_current, port_voltage, LumpedPort};
 use crate::TetMesh;
@@ -324,11 +325,17 @@ fn right_divide(a: &[c64], b: &[c64], n: usize) -> Option<Vec<c64>> {
 pub struct SweepPoint {
     /// Frequency `ω ≡ k₀` (natural units, as in [`crate::driven`]).
     pub omega: f64,
-    /// Direct-solve relative residual at this frequency.
+    /// Post-solve relative residual at this frequency.
     pub residual_rel: f64,
     /// Per-port circuit quantities, in the order the ports were passed
     /// to the sweep.
     pub ports: Vec<PortCircuit>,
+    /// Krylov iterations per RHS at this ω (issue #264). One entry per
+    /// back-solve performed at this frequency. `0` on the direct path
+    /// (no Krylov iteration); the per-RHS COCG count on the iterative
+    /// path. For [`driven_frequency_sweep`] / [`driven_frequency_sweep_with_mode`]
+    /// the sweep performs one back-solve per ω so this vector has length 1.
+    pub iters_per_rhs: Vec<usize>,
 }
 
 /// Frequency-sweep driver over a port-driven structure: assemble the
@@ -365,13 +372,61 @@ pub fn driven_frequency_sweep<B: Backend>(
     source: &CurrentSource,
     device: &B::Device,
 ) -> Result<Vec<SweepPoint>, DrivenError> {
+    driven_frequency_sweep_with_mode::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        ports,
+        surfaces,
+        omegas,
+        source,
+        SolverMode::Direct,
+        device,
+    )
+}
+
+/// [`driven_frequency_sweep`] with an explicit [`SolverMode`] knob
+/// (issue #264).
+///
+/// `SolverMode::Direct` is the historical path — factor `A(ω)` once per
+/// ω with sparse LU and back-substitute the single port-driven RHS, so
+/// `driven_frequency_sweep` is exactly this entry point with
+/// `SolverMode::Direct`.
+///
+/// `SolverMode::Iterative(settings)` instead builds the Jacobi
+/// preconditioner from `A(ω)` once per ω and runs a fresh
+/// [`crate::ksp_solve::Cocg`] iteration for the single RHS — no
+/// factorization, no fill-in. The per-RHS COCG iteration count is
+/// surfaced in [`SweepPoint::iters_per_rhs`] so the regression test
+/// (and downstream callers) can detect convergence degradation across
+/// frequencies. See [`SolverMode`] for the documented trade-off.
+///
+/// The iterative path returns the same [`DrivenError`] variants as the
+/// direct path, with [`DrivenError::Solve`] wrapping any
+/// [`crate::ksp_solve::KspError`] (Krylov breakdown / non-convergence /
+/// preconditioner setup failure).
+#[allow(clippy::too_many_arguments)]
+pub fn driven_frequency_sweep_with_mode<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    omegas: &[f64],
+    source: &CurrentSource,
+    solver_mode: SolverMode,
+    device: &B::Device,
+) -> Result<Vec<SweepPoint>, DrivenError> {
     let op = DrivenOperator::assemble::<B>(
         mesh, materials, sigma_tet, bcs, ports, surfaces, source, device,
     )?;
     omegas
         .iter()
         .map(|&omega| {
-            let sol = op.solve_at(omega)?;
+            let solver = op.prepare_at(omega, solver_mode)?;
+            let (sol, report) = solver.solve()?;
             let ports = (0..op.n_ports())
                 .map(|p| {
                     let v = op.port_voltage(p, &sol.e_edges);
@@ -383,6 +438,7 @@ pub fn driven_frequency_sweep<B: Backend>(
                 omega,
                 residual_rel: sol.residual_rel,
                 ports,
+                iters_per_rhs: vec![report.iters],
             })
         })
         .collect()
@@ -394,7 +450,7 @@ pub fn driven_frequency_sweep<B: Backend>(
 pub struct SParameterSweepPoint {
     /// Frequency `ω ≡ k₀` (natural units, as in [`crate::driven`]).
     pub omega: f64,
-    /// Worst (largest) direct-solve relative residual over the N
+    /// Worst (largest) per-RHS relative residual over the N
     /// per-excitation solves at this frequency.
     pub residual_rel: f64,
     /// Row-major `n × n` impedance matrix `Z(ω) = V·I⁻¹` assembled from
@@ -404,6 +460,10 @@ pub struct SParameterSweepPoint {
     /// S-matrix `S = F(Z − Z₀)(Z + Z₀)⁻¹F⁻¹` vs the per-port reference
     /// impedances `Z₀ₖ = Rₖ` (each port's own termination resistance).
     pub s: SMatrix,
+    /// Krylov iterations per RHS at this ω (issue #264). One entry per
+    /// excited port, in excitation order. `0` on the direct path; the
+    /// per-RHS COCG iteration count on the iterative path.
+    pub iters_per_rhs: Vec<usize>,
 }
 
 /// N-port S-parameter sweep driver (issue #214): assemble the
@@ -443,6 +503,40 @@ pub fn s_parameter_frequency_sweep<B: Backend>(
     omegas: &[f64],
     device: &B::Device,
 ) -> Result<Vec<SParameterSweepPoint>, DrivenError> {
+    s_parameter_frequency_sweep_with_mode::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        ports,
+        surfaces,
+        omegas,
+        SolverMode::Direct,
+        device,
+    )
+}
+
+/// [`s_parameter_frequency_sweep`] with an explicit [`SolverMode`] knob
+/// (issue #264).
+///
+/// At each ω the sweep runs `n_ports` back-solves through one
+/// [`crate::driven::DrivenLinearSolver`] handle (one LU factorization
+/// on the direct path, one Jacobi preconditioner on the iterative path)
+/// — see [`SolverMode`] for the trade-off. Per-RHS iteration counts
+/// land in [`SParameterSweepPoint::iters_per_rhs`] for the regression
+/// channel.
+#[allow(clippy::too_many_arguments)]
+pub fn s_parameter_frequency_sweep_with_mode<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    omegas: &[f64],
+    solver_mode: SolverMode,
+    device: &B::Device,
+) -> Result<Vec<SParameterSweepPoint>, DrivenError> {
     if ports.is_empty() {
         return Err(DrivenError::InvalidPort {
             index: 0,
@@ -479,15 +573,19 @@ pub fn s_parameter_frequency_sweep<B: Backend>(
     omegas
         .iter()
         .map(|&omega| {
-            // One factorization, N back-substitutions (issue #214).
-            let factored = op.factor_at(omega)?;
+            // One solver-handle prep (LU factor on direct, Jacobi build
+            // on iterative), N back-substitutions per excitation
+            // (issue #214 multi-RHS pattern; issue #264 solver-mode knob).
+            let solver = op.prepare_at(omega, solver_mode)?;
             let mut residual_rel = 0.0_f64;
+            let mut iters_per_rhs: Vec<usize> = Vec::with_capacity(n);
             // v_mat[k][j] / i_mat[k][j]: port-k readback under excitation j.
             let mut v_mat = vec![c64::new(0.0, 0.0); n * n];
             let mut i_mat = vec![c64::new(0.0, 0.0); n * n];
             for j in 0..n {
-                let sol = factored.solve_excited(j)?;
+                let (sol, report) = solver.solve_excited(j)?;
                 residual_rel = residual_rel.max(sol.residual_rel);
+                iters_per_rhs.push(report.iters);
                 for k in 0..n {
                     let v = op.port_voltage(k, &sol.e_edges);
                     // Port k is driven only in its own excitation solve;
@@ -519,6 +617,7 @@ pub fn s_parameter_frequency_sweep<B: Backend>(
                 residual_rel,
                 z,
                 s,
+                iters_per_rhs,
             })
         })
         .collect()

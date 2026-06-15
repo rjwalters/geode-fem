@@ -47,17 +47,18 @@ pub use derham::{apply_divergence, apply_gradient, curl_map, divergence_map, gra
 pub use driven::{
     driven_solve, driven_solve_iterative, driven_solve_quad, driven_solve_with_ports,
     driven_solve_with_sigma, driven_solve_with_sigma_quad, driven_solve_with_surface_impedance,
-    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSolution,
-    FactoredDrivenOperator, QuadCurrentSource, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    BackSolveReport, CurrentSource, DrivenBcs, DrivenError, DrivenLinearSolver, DrivenMaterials,
+    DrivenOperator, DrivenSolution, FactoredDrivenOperator, IterativeSettings, QuadCurrentSource,
+    SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
 pub use eigen::{
     apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenPair,
     EigenSolver, FaerDenseEigensolver,
 };
 pub use extraction::{
-    detect_srf, driven_frequency_sweep, extract_port_circuit, im_z_zero_crossings, inductance,
-    quality_factor, s11, s_parameter_frequency_sweep, PortCircuit, SMatrix, SParameterSweepPoint,
-    SweepPoint,
+    detect_srf, driven_frequency_sweep, driven_frequency_sweep_with_mode, extract_port_circuit,
+    im_z_zero_crossings, inductance, quality_factor, s11, s_parameter_frequency_sweep,
+    s_parameter_frequency_sweep_with_mode, PortCircuit, SMatrix, SParameterSweepPoint, SweepPoint,
 };
 pub use fe_assemble::{fe_assemble, DirichletBc, ElementType, FeAssembleResult};
 pub use ksp_solve::{
@@ -138,8 +139,9 @@ pub use silvermuller_self_consistent::{
 pub use sparse::{global_system_to_sparse, SparseError, SparseSystem};
 pub use wave_port::{
     extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
-    map_mode_profile_to_full_mesh, solve_wave_port_sweep, waveguide_mode_reduce,
-    ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMode, WavePort, WavePortSweepPoint,
+    map_mode_profile_to_full_mesh, solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
+    waveguide_mode_reduce, ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMode, WavePort,
+    WavePortSweepPoint,
 };
 #[allow(deprecated)]
 pub use waveguide_modes::{

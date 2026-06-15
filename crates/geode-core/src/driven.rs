@@ -147,6 +147,93 @@ pub enum DrivenError {
     Solve(String),
 }
 
+/// Linear-solver selection for the per-ω back-solves used by the
+/// driven frequency-sweep pipelines (issue #264).
+///
+/// The direct path factors `A(ω)` once per frequency and back-substitutes
+/// cheaply across multi-RHS (the historical default — the N-port
+/// S-matrix path of issue #214 and the rank-N wave-port SMW of issue
+/// #255 both lean on this). The iterative path
+/// ([`crate::ksp_solve::Cocg`] + [`crate::ksp_solve::JacobiPreconditioner`],
+/// landed in PR #243) avoids the factorization entirely — each RHS at a
+/// fixed ω runs a fresh COCG iteration against the cached sparse
+/// `A(ω)`. The preconditioner is built once per ω from the assembled
+/// `A(ω)` and reused for every RHS at that ω, so the per-ω setup cost
+/// of the iterative path is one diagonal extraction.
+///
+/// # Trade-off (documented for issue #264)
+///
+/// **Direct (LU)** — one factorization per ω, every back-solve is the
+/// triangular machinery. Memory grows with sparse LU fill-in, so the
+/// 46k-edge benchmark of issue #218 is the practical ceiling on the
+/// fixtures the test suite carries today.
+///
+/// **Iterative (COCG)** — no factor, no fill-in: memory tracks the
+/// assembled `A(ω)` itself, lifting the issue-#218 cap. The price is
+/// the per-RHS factor-once amortization: every RHS at a fixed ω pays
+/// the full COCG iteration count. For multi-RHS workloads
+/// (`s_parameter_frequency_sweep` and `solve_wave_port_sweep`, both
+/// N-RHS-per-ω), this is the dominant cost; a single-RHS sweep at the
+/// same ω makes both paths roughly equivalent at small-mesh sizes.
+/// Iteration counts depend on conditioning — high frequencies,
+/// ill-conditioned matrix-loaded structures, or evanescent-mode-rich
+/// wave-port problems can blow iteration counts up (the
+/// [`DrivenSweepReport::iters_per_rhs`] per-ω log surfaces this in the
+/// regression).
+///
+/// # Default
+///
+/// [`SolverMode::Direct`] preserves the historical entry points'
+/// behavior bit-for-bit — `driven_frequency_sweep` and
+/// `solve_wave_port_sweep` delegate to the `_with_mode` variants with
+/// `SolverMode::Direct`.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum SolverMode {
+    /// Sparse-LU direct path (the default). Factor `A(ω)` once at each
+    /// ω, back-substitute cheaply per RHS.
+    #[default]
+    Direct,
+    /// COCG iterative path (issue #238 / PR #243). No factor — each RHS
+    /// at a fixed ω is solved by a fresh COCG iteration against the
+    /// cached sparse `A(ω)`, with the Jacobi preconditioner built once
+    /// per ω and reused across RHS.
+    Iterative(IterativeSettings),
+}
+
+/// Tunable knobs for [`SolverMode::Iterative`].
+///
+/// Mirrors [`crate::ksp_solve::Cocg`]'s tolerance / iteration budget,
+/// but lives in the driven layer because the iterative back-solve is a
+/// per-ω internal — callers parameterize the sweep with these, not a
+/// constructed [`crate::ksp_solve::Cocg`] (the breakdown threshold uses
+/// the COCG default).
+#[derive(Debug, Clone, Copy)]
+pub struct IterativeSettings {
+    /// Relative-residual stopping criterion `‖A x − b‖₂ ≤ tol · ‖b‖₂`
+    /// for each per-RHS COCG iteration. Default `1e-10`.
+    pub tol: f64,
+    /// Maximum COCG iterations per RHS. Default `5000`.
+    pub max_iters: usize,
+}
+
+impl Default for IterativeSettings {
+    fn default() -> Self {
+        // Match Cocg::default() for tol; 5000 iters is the practical
+        // ceiling on the fixtures the test suite covers.
+        Self {
+            tol: 1e-10,
+            max_iters: 5000,
+        }
+    }
+}
+
+impl IterativeSettings {
+    /// Convenience constructor — `tol` and `max_iters` only.
+    pub fn new(tol: f64, max_iters: usize) -> Self {
+        Self { tol, max_iters }
+    }
+}
+
 /// Per-tet material description for the driven solve.
 ///
 /// Mirrors the material inputs the eigenpencil path accepts: a complex
@@ -1698,6 +1785,262 @@ impl FactoredDrivenOperator<'_> {
             e_edges,
             n_interior: op.n_interior,
             residual_rel,
+        })
+    }
+}
+
+/// Per-RHS back-solve report — issue #264's "iteration counts reported
+/// per ω + per RHS" channel for the iterative path.
+///
+/// Returned by [`DrivenLinearSolver::back_solve_report`] alongside the
+/// solution. For [`SolverMode::Direct`] the count is always `0` (the
+/// triangular back-substitution has no Krylov iterations) and
+/// `residual_rel` is the LU back-substitution's own residual on this
+/// RHS; for [`SolverMode::Iterative`] both fields come from the COCG
+/// [`crate::ksp_solve::KspReport`].
+#[derive(Debug, Clone, Copy)]
+pub struct BackSolveReport {
+    /// Krylov iterations executed for this RHS (0 on the direct path).
+    pub iters: usize,
+    /// `‖A x − b‖₂ / ‖b‖₂` after the back-solve (same definition on
+    /// both paths).
+    pub residual_rel: f64,
+}
+
+/// Per-ω back-solve handle that abstracts the direct (LU) and iterative
+/// (COCG) paths behind one API (issue #264). Built by
+/// [`DrivenOperator::prepare_at`].
+///
+/// The handle owns:
+/// - the cached complex sparse `A(ω)` (shared by both backends, so
+///   [`DrivenLinearSolver::spmv_a`] and the residual checks are
+///   identical),
+/// - either an LU factorization (direct) **or** the Jacobi
+///   preconditioner + COCG knobs (iterative).
+///
+/// Multi-RHS callers at the same ω
+/// ([`crate::extraction::s_parameter_frequency_sweep`],
+/// [`crate::wave_port::solve_wave_port_sweep`]) reuse one handle across
+/// every RHS; on the iterative path the Jacobi preconditioner is built
+/// once at construction and reused across every [`back_solve`] call
+/// (`DrivenLinearSolver::back_solve`).
+pub struct DrivenLinearSolver<'a> {
+    op: &'a DrivenOperator,
+    omega: f64,
+    a_int: SparseColMat<usize, c64>,
+    backend: SolverBackend,
+}
+
+enum SolverBackend {
+    Direct {
+        // Boxed because the faer `Lu` factorization is large (~300 B);
+        // boxing keeps the `SolverBackend` enum compact so the
+        // iterative variant doesn't pay the direct variant's memory
+        // footprint (clippy: large_enum_variant).
+        lu: Box<Lu<usize, c64>>,
+    },
+    Iterative {
+        precond: crate::ksp_solve::JacobiPreconditioner,
+        ksp: crate::ksp_solve::Cocg,
+    },
+}
+
+impl<'a> DrivenLinearSolver<'a> {
+    /// The frequency `ω` this handle was prepared at.
+    pub fn omega(&self) -> f64 {
+        self.omega
+    }
+
+    /// `true` if this handle uses the iterative (COCG) back-solve path,
+    /// `false` for the direct LU path.
+    pub fn is_iterative(&self) -> bool {
+        matches!(self.backend, SolverBackend::Iterative { .. })
+    }
+
+    /// Solve with **all** baked excitations active (volume current
+    /// source plus every port's `v_inc` drive) — the per-ω analog of
+    /// [`DrivenOperator::solve_at`] / [`FactoredDrivenOperator::solve`].
+    ///
+    /// On the iterative path the per-RHS iteration count is the second
+    /// tuple slot (`0` on the direct path, where the back-solve is a
+    /// single triangular sweep).
+    pub fn solve(&self) -> Result<(DrivenSolution, BackSolveReport), DrivenError> {
+        self.solve_with_excitation(None)
+    }
+
+    /// Solve with **only port `excited` driven** — the per-ω analog of
+    /// [`FactoredDrivenOperator::solve_excited`], including the
+    /// matched-source convention (issue #214).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `excited ≥ n_ports` or port `excited` has a zero baked
+    /// `v_inc`.
+    pub fn solve_excited(
+        &self,
+        excited: usize,
+    ) -> Result<(DrivenSolution, BackSolveReport), DrivenError> {
+        assert!(
+            excited < self.op.ports.len(),
+            "excited port index {excited} out of range ({} ports)",
+            self.op.ports.len()
+        );
+        assert!(
+            self.op.ports[excited].v_inc != c64::new(0.0, 0.0),
+            "excited port {excited} has v_inc = 0 (no drive)"
+        );
+        self.solve_with_excitation(Some(excited))
+    }
+
+    /// Back-substitute an interior-length RHS `b` through the cached
+    /// solver, writing into `out` (also interior length). The iterative
+    /// analog of [`FactoredDrivenOperator::back_solve`]; both vectors
+    /// must have length [`DrivenOperator::n_interior`].
+    ///
+    /// Bypasses the baked volume source / port drives — for callers
+    /// (wave-port SMW, see [`crate::wave_port::solve_wave_port_sweep`])
+    /// that build their own RHS on top of the same operator.
+    pub fn back_solve(&self, b: &[c64], out: &mut [c64]) -> Result<BackSolveReport, DrivenError> {
+        assert_eq!(b.len(), self.op.n_interior, "b length mismatch");
+        assert_eq!(out.len(), self.op.n_interior, "out length mismatch");
+
+        match &self.backend {
+            SolverBackend::Direct { lu } => {
+                solve_with_lu(lu, b, out).map_err(|e| DrivenError::Solve(format!("{e}")))?;
+                // Direct back-substitution: compute the per-RHS residual
+                // for symmetry with the iterative path's BackSolveReport.
+                let mut ax = vec![c64::new(0.0, 0.0); self.op.n_interior];
+                spmv(self.a_int.as_ref(), out, &mut ax);
+                let mut res2 = 0.0_f64;
+                let mut b2 = 0.0_f64;
+                for i in 0..self.op.n_interior {
+                    let r = ax[i] - b[i];
+                    res2 += r.re * r.re + r.im * r.im;
+                    b2 += b[i].re * b[i].re + b[i].im * b[i].im;
+                }
+                let residual_rel = if b2 > 0.0 {
+                    (res2 / b2).sqrt()
+                } else {
+                    res2.sqrt()
+                };
+                Ok(BackSolveReport {
+                    iters: 0,
+                    residual_rel,
+                })
+            }
+            SolverBackend::Iterative { precond, ksp } => {
+                use crate::ksp_solve::KspSolve;
+                // Zero RHS: the direct path silently produces x = 0 via
+                // the triangular sweep; mirror that on the iterative
+                // path so the two are interchangeable in callers that
+                // sometimes have all-zero excitations (e.g. an
+                // S-parameter excitation column with no drive).
+                let b_norm2: f64 = b.iter().map(|c| c.re * c.re + c.im * c.im).sum();
+                if b_norm2 == 0.0 {
+                    for o in out.iter_mut() {
+                        *o = c64::new(0.0, 0.0);
+                    }
+                    return Ok(BackSolveReport {
+                        iters: 0,
+                        residual_rel: 0.0,
+                    });
+                }
+                // Start each RHS from a zero guess — COCG's standard
+                // entry condition (r_0 = b).
+                for o in out.iter_mut() {
+                    *o = c64::new(0.0, 0.0);
+                }
+                let report = ksp
+                    .solve(self.a_int.as_ref(), b, out, precond)
+                    .map_err(|e| DrivenError::Solve(format!("Krylov solve: {e}")))?;
+                Ok(BackSolveReport {
+                    iters: report.iters,
+                    residual_rel: report.residual_rel,
+                })
+            }
+        }
+    }
+
+    /// Compute `out = A(ω) · x` using the cached sparse `A(ω)` — the
+    /// iterative analog of [`FactoredDrivenOperator::spmv_a`], shared
+    /// across both backends (the matrix is the same).
+    pub fn spmv_a(&self, x: &[c64], out: &mut [c64]) {
+        assert_eq!(x.len(), self.op.n_interior, "x length mismatch");
+        assert_eq!(out.len(), self.op.n_interior, "out length mismatch");
+        spmv(self.a_int.as_ref(), x, out);
+    }
+
+    /// Build the RHS and dispatch to [`Self::back_solve`].
+    fn solve_with_excitation(
+        &self,
+        excited: Option<usize>,
+    ) -> Result<(DrivenSolution, BackSolveReport), DrivenError> {
+        let op = self.op;
+        let b_int = op.assemble_b_at(self.omega, excited);
+
+        let mut x_int = vec![c64::new(0.0, 0.0); op.n_interior];
+        let report = self.back_solve(&b_int, &mut x_int)?;
+
+        let e_edges = op.scatter_to_full(&x_int);
+        Ok((
+            DrivenSolution {
+                e_edges,
+                n_interior: op.n_interior,
+                residual_rel: report.residual_rel,
+            },
+            report,
+        ))
+    }
+}
+
+impl DrivenOperator {
+    /// Re-form `A(ω)` and prepare a per-ω solver handle in the requested
+    /// [`SolverMode`] — the unified entry point for issue #264's
+    /// direct/iterative knob.
+    ///
+    /// - [`SolverMode::Direct`]: factor `A(ω)` once with sparse LU; the
+    ///   resulting handle's [`DrivenLinearSolver::back_solve`] is a
+    ///   triangular back-substitution per RHS.
+    /// - [`SolverMode::Iterative`]: build the Jacobi preconditioner from
+    ///   `A(ω)`; the handle's `back_solve` runs a fresh
+    ///   [`crate::ksp_solve::Cocg`] iteration per RHS.
+    ///
+    /// In both cases the cached sparse `A(ω)` is held by the handle, so
+    /// [`DrivenLinearSolver::spmv_a`] is identical across modes (and
+    /// the same as [`FactoredDrivenOperator::spmv_a`]).
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::SurfaceImpedanceSingular`], the sparse assembly
+    /// failures, the LU-factorization failure on the direct path, or
+    /// [`DrivenError::Solve`] wrapping a Jacobi-preconditioner setup
+    /// error (a zero / non-finite diagonal) on the iterative path.
+    pub fn prepare_at(
+        &self,
+        omega: f64,
+        mode: SolverMode,
+    ) -> Result<DrivenLinearSolver<'_>, DrivenError> {
+        let a_int = self.assemble_a_at(omega)?;
+        let backend = match mode {
+            SolverMode::Direct => {
+                let lu = a_int
+                    .as_ref()
+                    .sp_lu()
+                    .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+                SolverBackend::Direct { lu: Box::new(lu) }
+            }
+            SolverMode::Iterative(settings) => {
+                let precond = crate::ksp_solve::JacobiPreconditioner::new(a_int.as_ref())
+                    .map_err(|e| DrivenError::Solve(format!("Jacobi preconditioner setup: {e}")))?;
+                let ksp = crate::ksp_solve::Cocg::new(settings.tol, settings.max_iters);
+                SolverBackend::Iterative { precond, ksp }
+            }
+        };
+        Ok(DrivenLinearSolver {
+            op: self,
+            omega,
+            a_int,
+            backend,
         })
     }
 }
