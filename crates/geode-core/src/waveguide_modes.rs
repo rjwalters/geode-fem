@@ -806,10 +806,7 @@ fn estimate_modal_shift(
     // machine-noise scale (|λ| ≤ 1e-10·||K|| typically); a threshold
     // of `1e-6 · max(λ)` gives many decades of slack and still
     // separates cleanly from any plausible first physical mode.
-    let max_lambda = pairs
-        .iter()
-        .map(|p| p.lambda.abs())
-        .fold(0.0_f64, f64::max);
+    let max_lambda = pairs.iter().map(|p| p.lambda.abs()).fold(0.0_f64, f64::max);
     let cluster_threshold = (1e-6_f64 * max_lambda).max(1e-12);
     let first_phys = pairs
         .iter()
@@ -1103,8 +1100,12 @@ pub fn solve_waveguide_modes_with_opts(
             // upper bound = interior-edge-count − n_modes (the gradient
             // nullspace can be at most dim - n_modes wide).
             let spurious_dim_hint = dim.saturating_sub(n_modes).min(dim);
-            let (s, first_phys) =
-                estimate_modal_shift(k_sparse.as_ref(), m_sparse.as_ref(), n_modes, spurious_dim_hint)?;
+            let (s, first_phys) = estimate_modal_shift(
+                k_sparse.as_ref(),
+                m_sparse.as_ref(),
+                n_modes,
+                spurious_dim_hint,
+            )?;
             (s, Some(first_phys))
         }
     };

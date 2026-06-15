@@ -227,7 +227,12 @@ fn circular_te11_matches_analytic() {
     for (i, m) in modes.iter().enumerate() {
         let closest = catalog
             .iter()
-            .min_by(|a, b| (a.3 - m.k_c).abs().partial_cmp(&(b.3 - m.k_c).abs()).unwrap())
+            .min_by(|a, b| {
+                (a.3 - m.k_c)
+                    .abs()
+                    .partial_cmp(&(b.3 - m.k_c).abs())
+                    .unwrap()
+            })
             .unwrap();
         let rel_err = (m.k_c - closest.3).abs() / closest.3;
         eprintln!(
@@ -275,8 +280,7 @@ fn circular_multi_mode_set_wise_m_orthonormal() {
     let r = 1.0;
     let mesh = disk_tri_mesh(r, 6, 18);
     let (edges, mask) = disk_pec_interior_edges(&mesh, r);
-    let modes =
-        solve_waveguide_modes(&mesh, &edges, &mask, 2).expect("multi-mode circular solve");
+    let modes = solve_waveguide_modes(&mesh, &edges, &mask, 2).expect("multi-mode circular solve");
     assert_eq!(modes.len(), 2);
 
     let (k_dense, m_dense) = assemble_2d_nedelec(&mesh);
