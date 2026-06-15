@@ -36,7 +36,7 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::{
     extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
-    map_mode_profile_to_full_mesh, solve_rect_waveguide_modes_with_vectors, solve_wave_port_sweep,
+    map_mode_profile_to_full_mesh, solve_rect_waveguide_modes, solve_wave_port_sweep,
     DefaultBackend, DrivenBcs, DrivenMaterials, TetMesh, WavePort,
 };
 
@@ -108,9 +108,9 @@ fn build_te10_port(
         })
         .collect();
 
-    // 2-D modal solve → TE₁₀ profile.
-    let modes =
-        solve_rect_waveguide_modes_with_vectors(&port_mesh, a, b, 1).expect("2-D modal solve");
+    // 2-D modal solve → TE₁₀ profile. Take the first (lowest-cutoff)
+    // mode from the unified multi-mode entry point (issue #254).
+    let modes = solve_rect_waveguide_modes(&port_mesh, a, b, 1).expect("2-D modal solve");
     let m = &modes[0];
     let mode_2d = m.e_edges.clone();
 
@@ -491,8 +491,8 @@ fn build_te10_port_step(
     // 2-D modal solve for this port's cross-section. Different `b`
     // → different modal basis (different k_c — but only the b-dependent
     // family; the dominant TE₁₀ has k_c = π/a for both ports).
-    let modes = solve_rect_waveguide_modes_with_vectors(&port_mesh, a, b_port, 1)
-        .expect("2-D modal solve (port)");
+    let modes =
+        solve_rect_waveguide_modes(&port_mesh, a, b_port, 1).expect("2-D modal solve (port)");
     let m = &modes[0];
     let mode_2d = m.e_edges.clone();
 

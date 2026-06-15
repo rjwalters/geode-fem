@@ -80,9 +80,9 @@ impl FaerDenseEigensolver {
     /// `vᵀ M v = 1`.
     ///
     /// Used by the wave-port modal solver
-    /// ([`crate::waveguide_modes::solve_rect_waveguide_modes_with_vectors`])
-    /// so the wave-port BC (Epic #234, Phase 2) can project the 3D field
-    /// onto each port mode.
+    /// ([`crate::waveguide_modes::solve_rect_waveguide_modes`]) so the
+    /// wave-port BC (Epic #234, Phase 2) can project the 3D field onto
+    /// each port mode.
     pub fn smallest_eigenpairs(
         &self,
         k: MatRef<f64>,

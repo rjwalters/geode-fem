@@ -7,11 +7,15 @@
 //! field on a port plane:
 //!
 //! 1. The 2-D transverse modal eigensolver
-//!    ([`crate::waveguide_modes::solve_rect_waveguide_modes_with_vectors`])
-//!    on the port cross-section produces a modal field profile
-//!    `e_t(x,y)` plus its cutoff `k_c`. The propagation constant at
-//!    angular frequency `ω` is `β(ω) = √(ω²/c² − k_c²)` (real →
-//!    propagating, imaginary → evanescent).
+//!    ([`crate::waveguide_modes::solve_rect_waveguide_modes`]) on the
+//!    port cross-section produces a modal field profile `e_t(x,y)` plus
+//!    its cutoff `k_c`. The propagation constant at angular frequency
+//!    `ω` is `β(ω) = +√(ω²/c² − k_c²)` (real positive, propagating) or
+//!    `β(ω) = −j·√(k_c² − ω²/c²)` (negative imaginary, evanescent — the
+//!    outgoing-wave branch under the `+jωt` time convention, issue
+//!    #254). See [`WavePort::beta`] and
+//!    [`crate::waveguide_modes::beta_outgoing`] for the canonical sign
+//!    convention.
 //! 2. On the 3-D port face Γ_p the modal Robin / radiation BC adds a
 //!    rank-1 modal contribution to the curl-curl system:
 //!
@@ -106,16 +110,18 @@ pub struct WavePort {
 
 impl WavePort {
     /// Propagation constant at angular frequency `omega` (natural units,
-    /// `c = 1`): `β² = ω² − k_c²`. Returns a complex β:
-    /// `(β_re, 0)` for a propagating mode and `(0, β_im)` for an
-    /// evanescent one.
+    /// `c = 1`): `β² = ω² − k_c²`. Returns a complex β under the
+    /// **outgoing-wave** branch convention (`exp(+jωt)` time convention):
+    ///
+    /// - Propagating (`ω > k_c`): `β = +√(ω² − k_c²)`, real positive.
+    /// - Evanescent (`ω < k_c`): `β = −j·√(k_c² − ω²)`,
+    ///   `Im(β) < 0` so that `exp(−jβz)` decays for `z > 0`.
+    ///
+    /// The evanescent branch was fixed in issue #254 (latent bug
+    /// flagged in PR #245): the previous default complex `sqrt` branch
+    /// gave `Im(β) > 0`, a non-physical growing solution.
     pub fn beta(&self, omega: f64) -> c64 {
-        let arg = omega * omega - self.k_c * self.k_c;
-        if arg >= 0.0 {
-            c64::new(arg.sqrt(), 0.0)
-        } else {
-            c64::new(0.0, (-arg).sqrt())
-        }
+        crate::waveguide_modes::beta_outgoing(omega, 1.0, self.k_c)
     }
 }
 
@@ -1070,7 +1076,7 @@ impl ExtrudedHeightStepMesh {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::waveguide_modes::{rect_tri_mesh, solve_rect_waveguide_modes_with_vectors, TriMesh};
+    use crate::waveguide_modes::{rect_tri_mesh, solve_rect_waveguide_modes, TriMesh};
 
     #[test]
     fn extruded_waveguide_mesh_shapes_are_consistent() {
@@ -1135,8 +1141,7 @@ mod tests {
         // non-trivial.
         let (a, b) = (2.0, 1.0);
         let mesh = rect_tri_mesh(8, 4, a, b);
-        let modes =
-            solve_rect_waveguide_modes_with_vectors(&mesh, a, b, 1).expect("2-D modal solve");
+        let modes = solve_rect_waveguide_modes(&mesh, a, b, 1).expect("2-D modal solve");
         assert_eq!(modes.len(), 1);
         let m = &modes[0];
         let nonzero = m.e_edges.iter().filter(|&&v| v != 0.0).count();
