@@ -26,14 +26,18 @@ unit-tested against synthetic fixtures under
 ```
 reference/palace/
 ├── README.md                            — this file
-└── geode_patch_baseline/
+├── geode_patch_baseline/
+│   ├── Cargo.toml                       — offline-driver workspace
+│   └── src/main.rs                      — Palace JSON config emitter for
+│                                          the FR-4 patch fixture (#228)
+└── geode_spiral_baseline/
     ├── Cargo.toml                       — offline-driver workspace
     └── src/main.rs                      — Palace JSON config emitter for
-                                          the FR-4 patch fixture (#228)
+                                          the 3.5-turn spiral inductor
+                                          fixture (#211 / #266)
 ```
 
-The committed config output lives at
-`reference/fixtures/patch_palace/`:
+The committed config outputs live under `reference/fixtures/`:
 
 ```
 reference/fixtures/patch_palace/
@@ -41,19 +45,30 @@ reference/fixtures/patch_palace/
 └── palace_config.provenance.txt         — generator provenance (mesh
                                           sha256, sweep / boundary
                                           mapping, operator workflow)
+
+reference/fixtures/spiral_palace/
+├── palace_config.json                   — Palace 0.13 driven-port config
+└── palace_config.provenance.txt         — generator provenance
 ```
 
 ## Generating the config
 
 ```sh
+# Patch antenna
 cd reference/palace/geode_patch_baseline
 cargo run --release
 # → reference/fixtures/patch_palace/palace_config.json
 #   reference/fixtures/patch_palace/palace_config.provenance.txt
+
+# Spiral inductor (parity, issue #266)
+cd reference/palace/geode_spiral_baseline
+cargo run --release
+# → reference/fixtures/spiral_palace/palace_config.json
+#   reference/fixtures/spiral_palace/palace_config.provenance.txt
 ```
 
-The generator is **offline** — it does *not* link against Palace; it
-only writes JSON. The sister-repo Docker image
+The generators are **offline** — they do *not* link against Palace; they
+only write JSON. The sister-repo Docker image
 (`~/GitHub/sphere/eda/mom/docker/palace`) is the suggested runtime.
 
 ## Running Palace (operator-assisted)
@@ -61,14 +76,21 @@ only writes JSON. The sister-repo Docker image
 From the geode-fem repo root, with a working Palace install:
 
 ```sh
+# Patch antenna
 palace -np 4 reference/fixtures/patch_palace/palace_config.json
 # Or via the sister-repo Docker image (paths mounted at /work):
 #   docker run --rm -v $(pwd):/work palace:latest \
 #     -np 4 /work/reference/fixtures/patch_palace/palace_config.json
+
+# Spiral inductor
+palace -np 4 reference/fixtures/spiral_palace/palace_config.json
 ```
 
 Palace writes the standard driven-solve artifacts (`s-parameters.csv`,
-`port-V.csv`, `port-I.csv`, ...) under `postpro/patch_palace/`.
+`port-V.csv`, `port-I.csv`, ...) under `postpro/patch_palace/` or
+`postpro/spiral_palace/` respectively. The spiral fixture has roughly
+2× the unique edges of the patch (~54k vs ~30k); plan for a
+proportionally longer Palace run per frequency.
 
 ## Ingesting results
 
@@ -89,16 +111,26 @@ let r = PalaceResults::from_palace_csv_file(
 // `PalaceOracleSlot` in `crates/geode-core/src/palace.rs`).
 ```
 
-The benchmark test
+The benchmark tests
 (`crates/geode-core/tests/patch_antenna_extraction.rs::
-fem_vs_palace_oracle_within_band_or_skip_with_note`) then compares the
-committed FEM sweep against the populated Palace block within a 5 %
-S11-dip-frequency band and a 0.10 absolute `|S11|` tracking band.
+fem_vs_palace_oracle_within_band_or_skip_with_note` for the patch and
+`crates/geode-core/tests/spiral_inductor_benchmark.rs::
+fem_vs_palace_oracle_within_band_or_skip_with_note` for the spiral) then
+compare the committed FEM sweep against the populated Palace block:
 
-**Until** an operator populates the slot, that test prints a clear
-"SKIP" note (with the operator workflow inlined) and passes — the slot
-in `benchmarks/patch_antenna/results.toml` stays
-`status = "pending_operator_run"`. The test **never silently passes**
+- **Patch antenna**: 5 % S11-dip-frequency band and a 0.10 absolute
+  `|S11|` tracking band.
+- **Spiral inductor**: 5 % L band at the 1 GHz reference point and a
+  10 % Q tracking band at 4 GHz mid-band. (Note: the spiral Palace
+  config currently emits PEC conductors — the lossless limit — while
+  the FEM benchmark uses Leontovich surface impedance for skin-depth
+  loss; expect a Q ratio > 1 in the lossless direction until matched
+  conductor loss is configured. See the test's calibrated-band docs.)
+
+**Until** an operator populates the slot, those tests print a clear
+"SKIP" note (with the operator workflow inlined) and pass — the slot
+in `benchmarks/{patch_antenna,spiral_inductor}/results.toml` stays
+`status = "pending_operator_run"`. The tests **never silently pass**
 on a missing oracle.
 
 ## Why "offline driver" and not a built-in test?
@@ -119,7 +151,9 @@ Same reason as `reference/mom/geode_*_baseline/`:
 
 - **#226** — patch antenna benchmark (Phase 2 #228, matched feed #237)
 - **#193** — spiral inductor benchmark (Phase 3 #211)
-- **#239** — this scaffolding (config generator + ingester + one
-  wired benchmark test)
+- **#239** — Palace scaffolding (config generator + ingester + patch
+  benchmark test)
+- **#266** — spiral parity (mirrors the patch wiring under the
+  spiral benchmark)
 - **#5** — operator-only tracker (catches the "the operator has to
   run X" steps so they don't get lost)

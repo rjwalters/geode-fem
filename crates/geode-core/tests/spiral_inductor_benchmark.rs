@@ -440,3 +440,190 @@ fn benchmark_fixture_reference_point_matches_committed_results() {
         "L = {l:.4} nH vs Mohan {l_mohan:.4} nH outside the 10% oracle band"
     );
 }
+
+/// Tier 4: **Palace 3D oracle wiring** (issue #266, parity with the
+/// patch-antenna wiring from issue #239 / PR #242).
+///
+/// Loads the `[oracles.palace]` slot from
+/// `benchmarks/spiral_inductor/results.toml` and, if it is populated
+/// with an operator-run Palace reference, compares the committed FEM
+/// sweep against it within calibrated bands. While the slot is still
+/// `pending_operator_run` (the default state — Palace is not installed
+/// on the geode-fem dev machine), the test **skips with a note** so a
+/// missing Palace oracle never silently passes.
+///
+/// The honest contract — same convention as the FastHenry / mom slots
+/// in the same TOML — is: committed FEM artifacts can be cross-checked
+/// against the in-repo Mohan analytic oracle (10 % band), the mom PEEC
+/// baseline (12 % band on the L bracket mean), plus *whatever
+/// operator-supplied references have been ingested with full
+/// provenance.* No fabricated Palace numbers ever live in the real
+/// `[oracles.palace]` slot.
+///
+/// # Tolerance bands (when populated)
+///
+/// - **L at 1 GHz: 5 % relative**. Palace and FEM solve the same wave
+///   equation on the same fixture mesh (same lumped-port shape,
+///   permittivities, geometry); they should agree closely on the
+///   low-frequency L plateau. The dominant residual is the conductor
+///   model: the FEM benchmark uses Leontovich surface impedance for
+///   skin-depth loss, while the Palace config generator emits PEC on
+///   the conductor walls (the lossless limit). Below ~1 GHz the copper
+///   skin depth exceeds the trace thickness, so Leontovich
+///   underestimates internal inductance — the FEM L sits *above* the
+///   PEC value at low frequency. 5 % absorbs that delta plus mesh
+///   discretization differences.
+/// - **Q at 4 GHz: 10 % relative**. Q is dominated by R = Re Z, where
+///   the conductor loss model matters most. With PEC conductors Palace
+///   sees no skin loss at all, so the Palace Q will be much *higher*
+///   than the FEM Q (which carries the Leontovich loss). The 10 % band
+///   is a tracking band that will fail until the operator either:
+///   (a) configures Palace with a conductor-loss model that matches
+///   Leontovich, or (b) the spiral results.toml notes are updated to
+///   document the wider-band lossless-Palace-vs-Leontovich-FEM
+///   comparison. Either way, the test surfaces the model delta.
+/// - **Sample-point comparison: at least one shared frequency**. The
+///   FEM and Palace sweeps share the same nominal sample grid (0.1 -
+///   40 GHz, irregular log-ish) — see
+///   `reference/palace/geode_spiral_baseline/src/main.rs` `FREQS_GHZ`.
+///   If they fully diverge, the test fails loud rather than vacuously
+///   pass.
+#[test]
+fn fem_vs_palace_oracle_within_band_or_skip_with_note() {
+    use geode_core::palace::PalaceOracleSlot;
+
+    let path = repo_root().join("benchmarks/spiral_inductor/results.toml");
+    let raw = fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read committed results {}: {e}", path.display()));
+    let doc: toml::Value = toml::from_str(&raw).expect("results.toml is valid TOML");
+    let palace_block = doc
+        .get("oracles")
+        .and_then(|o| o.get("palace"))
+        .expect("results.toml has [oracles.palace] block");
+
+    let slot = PalaceOracleSlot::from_toml_table(palace_block)
+        .unwrap_or_else(|e| panic!("[oracles.palace] in {} did not parse: {e}", path.display()));
+
+    let Some(palace) = slot.as_results() else {
+        // Honest skip-with-note. Eprintln so the test runner surface
+        // shows it; the test passes (no comparison to do) but never
+        // silently — the operator workflow is documented in
+        // `reference/palace/geode_spiral_baseline/` + `src/palace.rs`.
+        eprintln!(
+            "\nSKIP: [oracles.palace] in {} is `pending_operator_run` — \
+             no Palace reference ingested.\n  \
+             To populate: emit the config via `cd reference/palace/\
+             geode_spiral_baseline && cargo run --release`, run Palace \
+             on it (`palace -np N reference/fixtures/spiral_palace/\
+             palace_config.json`), then ingest the s-parameters.csv via \
+             `geode_core::palace::PalaceResults::from_palace_csv_file` \
+             and write the populated [oracles.palace] block in the \
+             benchmark TOML with full provenance.",
+            path.display()
+        );
+        return;
+    };
+
+    // --- Sanity provenance checks before the numeric comparison ---------
+    assert!(
+        !palace.palace_version.is_empty(),
+        "populated [oracles.palace] must record `palace_version` (provenance)"
+    );
+    assert!(
+        palace.config_sha256.len() == 64,
+        "populated [oracles.palace] must record a hex sha256 of the Palace config \
+         (provenance), got length {}",
+        palace.config_sha256.len()
+    );
+    // Cross-check: the Palace port-impedance should agree with the FEM
+    // benchmark drive (both are 50 ohm by construction).
+    const R_PORT_OHM: f64 = 50.0;
+    assert!(
+        (palace.port_resistance_ohm - R_PORT_OHM).abs() < 0.5,
+        "Palace port R = {} ohm, FEM benchmark drives at {R_PORT_OHM} ohm — \
+         the two oracles must be on the same reference impedance",
+        palace.port_resistance_ohm
+    );
+
+    let (fem_rows, _) = committed_results();
+
+    // --- Numeric band: low-frequency L at the 1 GHz reference point ----
+    let (_, l_fem, _, _) = row_at(&fem_rows, L_REF_GHZ);
+    let palace_l_at_ref = palace
+        .points
+        .iter()
+        .find(|p| (p.f_ghz - L_REF_GHZ).abs() < 1e-6 || ((p.f_ghz - L_REF_GHZ).abs() / L_REF_GHZ) < 1e-4);
+    if let Some(palace_pt) = palace_l_at_ref {
+        let (_, z_im) = palace_pt.z_from_s11(palace.port_resistance_ohm);
+        // L (nH) = Im(Z, Ω) / (2π f_GHz)  (Ω = nH · 2π GHz at GHz freqs).
+        let l_palace = z_im / (2.0 * std::f64::consts::PI * L_REF_GHZ);
+        let rel = (l_palace - l_fem) / l_fem;
+        eprintln!(
+            "L at {L_REF_GHZ} GHz: FEM {l_fem:.4} nH vs Palace {l_palace:.4} nH ({:+.2}%)",
+            100.0 * rel
+        );
+        assert!(
+            rel.abs() < 0.05,
+            "L at {L_REF_GHZ} GHz: FEM {l_fem:.4} nH vs Palace {l_palace:.4} nH ({:+.2}%) \
+             exceeds the 5 % band. Palace solves the same wave equation as the FEM; \
+             if drift > 5 %, suspect the conductor-loss model (FEM Leontovich vs \
+             Palace PEC — see issue #266) or a port-direction sign convention.",
+            100.0 * rel
+        );
+    } else {
+        panic!(
+            "Palace sweep has no sample near {L_REF_GHZ} GHz (the L reference point); \
+             Palace freqs: {:?}",
+            palace.points.iter().map(|p| p.f_ghz).collect::<Vec<_>>()
+        );
+    }
+
+    // --- Numeric band: Q at 4 GHz mid-band tracking band ---------------
+    const Q_REF_GHZ: f64 = 4.0;
+    let (_, _, _, q_fem_4) = row_at(&fem_rows, Q_REF_GHZ);
+    let palace_q_at_ref = palace
+        .points
+        .iter()
+        .find(|p| (p.f_ghz - Q_REF_GHZ).abs() < 1e-6 || ((p.f_ghz - Q_REF_GHZ).abs() / Q_REF_GHZ) < 1e-4);
+    if let Some(palace_pt) = palace_q_at_ref {
+        let (z_re, z_im) = palace_pt.z_from_s11(palace.port_resistance_ohm);
+        let q_palace = if z_re > 0.0 { z_im / z_re } else { f64::NAN };
+        let rel = (q_palace - q_fem_4) / q_fem_4;
+        eprintln!("Q at {Q_REF_GHZ} GHz: FEM {q_fem_4:.2} vs Palace {q_palace:.2} ({:+.2}%)",
+                  100.0 * rel);
+        assert!(
+            rel.abs() < 0.10,
+            "Q at {Q_REF_GHZ} GHz: FEM {q_fem_4:.2} vs Palace {q_palace:.2} ({:+.2}%) \
+             exceeds the 10 % tracking band. NOTE: the spiral Palace config currently \
+             uses PEC on the conductor (lossless limit), while the FEM benchmark uses \
+             Leontovich surface impedance — expect a Q ratio > 1 in the lossless \
+             direction until the operator configures matched conductor loss. Update \
+             the band / TOML notes if the model mismatch widens.",
+            100.0 * rel
+        );
+    } else {
+        panic!(
+            "Palace sweep has no sample near {Q_REF_GHZ} GHz (the Q reference point); \
+             Palace freqs: {:?}",
+            palace.points.iter().map(|p| p.f_ghz).collect::<Vec<_>>()
+        );
+    }
+
+    // --- At least one shared-frequency sample, in case the band asserts
+    //     above run out of samples but the slot was somehow still populated.
+    let mut shared = 0_usize;
+    for fem_row in &fem_rows {
+        if palace.points.iter().any(|p| {
+            (p.f_ghz - fem_row.0).abs() < 1e-6 || ((p.f_ghz - fem_row.0).abs() / fem_row.0) < 1e-4
+        }) {
+            shared += 1;
+        }
+    }
+    assert!(
+        shared >= 1,
+        "Palace sweep shares no frequency points with the FEM benchmark sweep \
+         (Palace freqs: {:?}, FEM freqs: {:?})",
+        palace.points.iter().map(|p| p.f_ghz).collect::<Vec<_>>(),
+        fem_rows.iter().map(|r| r.0).collect::<Vec<_>>(),
+    );
+}

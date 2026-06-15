@@ -1,0 +1,55 @@
+fixture:        spiral_3p5.msh
+mesh_sha256:    c9707fb9bd5f3f484b845e96b90cf53f0b196794c5793f7e4f682bf97e101589
+generator:      reference/palace/geode_spiral_baseline (cargo run --release)
+palace docs:    https://awslabs.github.io/palace/dev/config/
+palace recipe:  ~/GitHub/sphere/eda/mom/docker/palace (sister-repo Docker build)
+
+problem:        Driven (frequency-domain driven solver)
+port:           LumpedPort, R = 50 ohm, +Y direction,
+attribute 11 (matches reference/gmsh/spiral_inductor.geo)
+materials:
+substrate:    silicon, eps_r = 11.9, tan_delta = 0.005
+(attribute 1 — substrate slab)
+dielectric:   SiO2, eps_r = 4, tan_delta = 0.001
+(attribute 2 — oxide slab minus conductor cavity)
+air + buffer: vacuum (attributes 3, 4)
+boundaries:
+PEC:          conductor cavity walls (attribute 12) + outer walls (attribute 13)
+— geode-fem uses Leontovich surface impedance on the
+conductor for skin-depth loss; Palace's PEC is the
+lossless limit (documented oracle delta)
+(no absorber: the spiral fixture is fully PEC-enclosed; the
+geode-fem benchmark also runs without a UPML, so this is the
+apples-to-apples shape)
+sweep:          0.1 GHz to 40 GHz, irregular grid bracketing the
+1 GHz L plateau and the ~21 GHz SRF (matches the
+geode benchmark sweep).
+Recorded both as a Samples array (newer Palace)
+and a MinFreq/MaxFreq/FreqStep linear form
+(older Palace) so the operator can use whichever
+their build supports.
+
+expected run time:
+The spiral mesh is ~54k unique edges (vs the
+patch fixture's ~30k), so the Palace run will
+be ~2-3x longer per frequency. With 13 sweep
+points, plan for ~30-60 minutes on 4 ranks for
+a Palace 0.13 GMRES driven solve at order 1
+(heavily dependent on the local Palace build /
+partitioning — measure on your hardware).
+
+operator workflow:
+1. cd <geode-fem repo root>
+2. palace -np <N> reference/fixtures/spiral_palace/palace_config.json
+(or via the sister-repo Docker image)
+3. The Palace run writes postpro/spiral_palace/{s-parameters.csv,
+port-V.csv, ...}. Ingest these via
+`geode_core::palace::PalaceResults::from_palace_csv_file(...)` and
+fill `benchmarks/spiral_inductor/results.toml`'s [oracles.palace]
+slot with the parsed values + this provenance file's SHA.
+
+status:         pending_operator_run — Palace is NOT installed on the
+generation machine; the [oracles.palace] slot in
+benchmarks/spiral_inductor/results.toml stays
+`pending_operator_run` until an operator-run reference
+is ingested (see crates/geode-core/src/palace.rs).
