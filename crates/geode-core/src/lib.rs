@@ -143,13 +143,12 @@ pub use wave_port::{
     waveguide_mode_reduce, ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMode, WavePort,
     WavePortSweepPoint,
 };
-#[allow(deprecated)]
 pub use waveguide_modes::{
     apply_pec_2d, assemble_2d_nedelec, beta_outgoing, rect_pec_interior_edges,
     rect_pec_interior_nodes, rect_tri_mesh, rect_waveguide_cutoff, restrict_gradient_dense_2d,
-    solve_rect_waveguide_modes, solve_rect_waveguide_modes_with_vectors, solve_waveguide_modes,
-    solve_waveguide_modes_with_opts, spurious_dim_2d, tri_nedelec_local, TriMesh, WaveguideMode,
-    WaveguideModeProfile, WaveguideSolveOpts, TRI_LOCAL_EDGES,
+    solve_rect_waveguide_modes, solve_waveguide_modes, solve_waveguide_modes_with_opts,
+    spurious_dim_2d, tri_nedelec_local, TriMesh, WaveguideModeProfile, WaveguideSolveOpts,
+    TRI_LOCAL_EDGES,
 };
 
 #[cfg(feature = "arpack")]

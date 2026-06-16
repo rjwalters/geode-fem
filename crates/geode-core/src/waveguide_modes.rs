@@ -134,26 +134,6 @@ impl WaveguideModeProfile {
     pub fn beta_complex(&self, omega: f64, c: f64) -> c64 {
         beta_outgoing(omega, c, self.k_c)
     }
-
-    /// Legacy real-tuple form of [`Self::beta_complex`]: `(re, im)`
-    /// with `Im(β) ≥ 0` (default complex sqrt branch). Retained as a
-    /// thin shim for callers that haven't migrated to the c64 API —
-    /// **note the sign on `im` does NOT match the outgoing-wave
-    /// convention**; new code should use
-    /// [`Self::beta_complex`].
-    #[deprecated(
-        since = "0.1.0",
-        note = "use `beta_complex` for the outgoing-wave sign convention; this returns the absolute imaginary value (default sqrt branch)"
-    )]
-    pub fn beta(&self, omega: f64, c: f64) -> (f64, f64) {
-        let k0 = omega / c;
-        let arg = k0 * k0 - self.k_c * self.k_c;
-        if arg >= 0.0 {
-            (arg.sqrt(), 0.0)
-        } else {
-            (0.0, (-arg).sqrt())
-        }
-    }
 }
 
 /// Outgoing-wave complex `β(ω, c, k_c)`: the canonical sign convention
@@ -587,55 +567,6 @@ fn rank_via_svd_2d(d0: &Mat<f64>, threshold_rel: f64) -> usize {
     sigmas.iter().filter(|&&s| s > threshold).count()
 }
 
-/// A single transverse mode of a waveguide cross-section (cutoff only,
-/// no eigenvector).
-///
-/// **Deprecated** (issue #254): the unified entry point
-/// [`solve_rect_waveguide_modes`] now returns
-/// `Vec<WaveguideModeProfile>` for any `K ≥ 1`. Use that type instead;
-/// `WaveguideModeProfile { k_c, lambda, .. }` exposes the same `k_c` and
-/// `lambda` fields. This struct is retained only as a thin legacy alias
-/// for downstream code that hasn't migrated yet.
-#[deprecated(
-    since = "0.1.0",
-    note = "use `WaveguideModeProfile` (now returned by `solve_rect_waveguide_modes` for any K ≥ 1, issue #254)"
-)]
-#[derive(Debug, Clone)]
-pub struct WaveguideMode {
-    /// Cutoff wavenumber `k_c` (rad / length). Modes with `k_c = 0` are
-    /// TEM (a guided constant field, only present in multiply-connected
-    /// cross-sections — not the simply-connected rectangular case here).
-    pub k_c: f64,
-    /// The corresponding generalized eigenvalue `λ = k_c²`. Returned
-    /// alongside `k_c` because the eigensolver yields `λ` directly and
-    /// callers sometimes want both.
-    pub lambda: f64,
-}
-
-#[allow(deprecated)]
-impl WaveguideMode {
-    /// Propagation constant `β` at angular frequency `ω` (with `c = ω/k`),
-    /// returned as `(re, im)` with `im ≥ 0` (default complex sqrt
-    /// branch). **Note**: this is the **pre-#254** sign convention —
-    /// the outgoing-wave branch under `+jωt` time convention wants
-    /// `Im(β) < 0` for evanescent modes (use
-    /// [`WaveguideModeProfile::beta_complex`] for the corrected
-    /// branch).
-    #[deprecated(
-        since = "0.1.0",
-        note = "use `WaveguideModeProfile::beta_complex` for the outgoing-wave sign convention"
-    )]
-    pub fn beta(&self, omega: f64, c: f64) -> (f64, f64) {
-        let k0 = omega / c;
-        let arg = k0 * k0 - self.k_c * self.k_c;
-        if arg >= 0.0 {
-            (arg.sqrt(), 0.0)
-        } else {
-            (0.0, (-arg).sqrt())
-        }
-    }
-}
-
 /// Convert a small dense `Mat<f64>` into faer CSC sparse form for the
 /// shift-and-invert Lanczos path. Drops exact-zero entries (the
 /// curl-curl pencil is highly sparse — most off-diagonal entries are
@@ -929,12 +860,11 @@ fn pin_eigenvector_sign(v: &mut [f64]) {
 /// # History
 ///
 /// PR #240 introduced the eigenvalue-only `solve_rect_waveguide_modes`
-/// returning `Vec<WaveguideMode>` (cutoff only). PR #245 added the
-/// eigenvector sibling `solve_rect_waveguide_modes_with_vectors`. Issue
-/// #254 unified the two: this function now returns full profiles for
-/// any K, and the two old wrappers became deprecated thin shims.
-/// Issue #262 / PR #263 added the deterministic largest-magnitude sign
-/// pin documented above.
+/// returning a cutoff-only mode struct. PR #245 added an eigenvector
+/// sibling. Issue #254 unified the two: this function now returns full
+/// profiles for any K, and the two old wrappers became deprecated thin
+/// shims that were finally removed in issue #268. Issue #262 / PR #263
+/// added the deterministic largest-magnitude sign pin documented above.
 pub fn solve_rect_waveguide_modes(
     mesh: &TriMesh,
     width: f64,
@@ -1207,27 +1137,6 @@ pub fn solve_waveguide_modes_with_opts(
         n_request = (n_request * 2).min(dim);
     };
     Ok(modes)
-}
-
-/// Deprecated alias for [`solve_rect_waveguide_modes`]. The two pre-#254
-/// wrappers (eigenvalues-only `solve_rect_waveguide_modes` and the
-/// `_with_vectors` sibling that returned modal profiles) have been
-/// unified into a single canonical entry point that always returns
-/// `Vec<WaveguideModeProfile>`. Callers that only need `k_c` can simply
-/// ignore the `e_edges` field. This shim is kept temporarily for
-/// downstream callers; new code should use
-/// [`solve_rect_waveguide_modes`] directly.
-#[deprecated(
-    since = "0.1.0",
-    note = "use `solve_rect_waveguide_modes` directly — it returns full WaveguideModeProfile for any K ≥ 1 (issue #254)"
-)]
-pub fn solve_rect_waveguide_modes_with_vectors(
-    mesh: &TriMesh,
-    width: f64,
-    height: f64,
-    n_modes: usize,
-) -> Result<Vec<WaveguideModeProfile>, EigenError> {
-    solve_rect_waveguide_modes(mesh, width, height, n_modes)
 }
 
 /// Analytic TE/TM cutoff wavenumbers for a rectangular metallic
