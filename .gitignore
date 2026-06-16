@@ -65,3 +65,4 @@ venv/
 **/.classpath
 **/.project
 **/.settings/
+.loom/spawn-loop-state.json
