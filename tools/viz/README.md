@@ -6,11 +6,12 @@ package is foundation-only — it exposes a shared loader, a matplotlib
 style, and an artifacts-path resolver. The headline line plots that
 consume the scaffold land in the following Phase 1 issues:
 
-| Issue | Plot family                                              |
-| ----- | -------------------------------------------------------- |
-| #278  | Spiral inductor: L / R / Q / |S11| vs frequency          |
-| #279  | Patch antenna: |S11| sweep + far-field pattern polar     |
-| #280  | Mie sphere: open / driven mode catalog                   |
+| Issue | Plot family                                                |
+| ----- | ---------------------------------------------------------- |
+| #278  | Spiral / patch: |S11| dB + polar Smith                     |
+| #279  | Spiral: L / Q / R vs f (Mohan + mom PEEC + SRF) and        |
+|       | Mie: Q_ext / Q_sca / Q_abs vs ka with analytic overlay     |
+| #280  | Mie sphere: open / driven mode catalog                     |
 
 ## Install
 
@@ -139,13 +140,13 @@ The CLI entry point lives at `geode_viz.scripts.plot_benchmark` (and
 also as a script wrapper at `tools/viz/scripts/plot_benchmark.py`).
 
 ```bash
-# Spiral inductor: writes s11_db.png + smith.png
+# Spiral inductor: writes s11_db.png + smith.png + lqr_vs_f.png
 python -m geode_viz.scripts.plot_benchmark spiral_inductor
 
 # Patch antenna (matched): overlays the unmatched sweep automatically
 python -m geode_viz.scripts.plot_benchmark patch_antenna --variant matched
 
-# Restrict to one of the two plots
+# Restrict to one of the plot families
 python -m geode_viz.scripts.plot_benchmark spiral_inductor --smith-only
 python -m geode_viz.scripts.plot_benchmark patch_antenna --s11-only
 ```
@@ -155,6 +156,41 @@ dependency. For the spiral the complex S11 is reconstructed from
 `z_re_ohm` / `z_im_ohm` via Γ = (Z − Z₀) / (Z + Z₀); for the patch the
 recorded `s11_re` / `s11_im` fields are consumed directly. The dB axis
 floor defaults to −30 dB and tightens when the data dips deeper.
+
+## Phase 1C: L/Q/R vs f + Q vs ka with oracle overlays (#279)
+
+Phase 1C adds two more plot families to the same CLI:
+
+- `geode_viz.plots.spiral.plot_lqr_vs_f` — three-panel L_eq / Q / R vs
+  frequency for the spiral inductor. Overlays the Mohan L₀ band
+  (current-sheet / modified-Wheeler / monomial-fit) and the mom PEEC
+  n=3 / n=4 shaded bracket on the L panel; drops a dotted SRF
+  guideline on every panel from `meta.srf_ghz`. R uses a log y-axis
+  with a hatched "≤ 0 post-SRF" overlay so the parallel anti-resonance
+  isn't silently dropped.
+- `geode_viz.plots.mie.plot_efficiency_vs_ka` — Q_ext / Q_sca / Q_abs
+  vs ka for the driven Mie sphere. Analytic series (B&H) drawn as a
+  solid line, FEM samples as scatter markers. Lower thin panel shows
+  the per-point relative error in % on a log axis (with a 5 % guide).
+
+```bash
+# Spiral: writes s11_db.png + smith.png + lqr_vs_f.png in one shot
+python -m geode_viz.scripts.plot_benchmark spiral_inductor
+
+# Just the L/Q/R panel
+python -m geode_viz.scripts.plot_benchmark spiral_inductor --lqr-only
+
+# Mie sphere (coarse fixture, default)
+python -m geode_viz.scripts.plot_benchmark mie_sphere
+
+# Mie sphere on the fine fixture (driven_results_fine.toml, issue #215)
+python -m geode_viz.scripts.plot_benchmark mie_sphere --fine
+```
+
+Both plot families echo the first caveat from the TOML's
+`meta.notes = [...]` array as a small italic subtitle so the figure
+self-documents its known limits (Leontovich validity floor on the
+spiral; matched-Sacks UPML choice on the Mie sphere).
 
 ## Adding a new plot module
 

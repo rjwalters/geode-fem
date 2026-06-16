@@ -1,12 +1,17 @@
 """Plot modules for geode_viz.
 
 Each submodule builds a specific family of figures from the benchmark
-TOMLs loaded via :func:`geode_viz.io.load_results`. The Phase 1B
-landing (#278) ships :mod:`geode_viz.plots.s_params` — |S11| in dB and
-Smith-chart plots for the two driven benchmarks that already have an
-N-port result table on disk (spiral inductor + patch antenna).
+TOMLs loaded via :func:`geode_viz.io.load_results`.
+
+- Phase 1B (#278): :mod:`geode_viz.plots.s_params` — |S11| dB +
+  polar Smith-chart views for the driven benchmarks (spiral inductor
+  + patch antenna).
+- Phase 1C (#279): :mod:`geode_viz.plots.spiral` (L / Q / R vs f with
+  Mohan band + mom PEEC bracket) and :mod:`geode_viz.plots.mie`
+  (Q_ext / Q_sca / Q_abs vs ka with analytic-series overlay and a
+  per-point relative-error secondary axis).
 """
 
 from __future__ import annotations
 
-__all__ = ["s_params"]
+__all__ = ["s_params", "spiral", "mie"]
