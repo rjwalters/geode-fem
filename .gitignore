@@ -61,6 +61,16 @@ venv/
 **/.classpath
 **/.project
 **/.settings/
+
+# Visualization artifacts (geode_viz outputs — issue #277, Epic #276)
+# Generated PNG / SVG plots from tools/viz/ never land in version control;
+# regenerate locally with `python -m geode_viz.plots.<benchmark>`.
+artifacts/
+
+# Python build artifacts (geode_viz package)
+*.egg-info/
+build/
+dist/
 .loom/spawn-loop-state.json
 .loom/worktrees/
 .loom/state.json
