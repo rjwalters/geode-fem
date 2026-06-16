@@ -11,7 +11,6 @@ Cargo.lock.bak
 *~
 
 # Loom local config (created if/when Loom is installed)
-.loom/worktrees/
 .loom/loom-source-path
 
 # Build artifacts
@@ -30,7 +29,6 @@ Cargo.lock.bak
 .loom/issue-failures.json
 .loom/health-metrics.json
 .loom/interventions/
-.loom/state.json
 .loom/mcp-command.json
 .loom/activity.db
 .loom/claims/
@@ -46,8 +44,6 @@ Cargo.lock.bak
 .loom/metrics/
 .loom/usage-cache.json
 .loom/claude-config/
-.loom/*.log
-.loom/*.sock
 .loom/logs/
 
 # Python (reference/ implementations)
@@ -66,3 +62,7 @@ venv/
 **/.project
 **/.settings/
 .loom/spawn-loop-state.json
+.loom/worktrees/
+.loom/state.json
+.loom/*.log
+.loom/*.sock
