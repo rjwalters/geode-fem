@@ -2,10 +2,14 @@
 
 **GPU-accelerated Electromagnetic Open Differentiable Engine — FEM/DG**
 
-> Status: v0 milestone hit. End-to-end FEM stack (mesh I/O → P1 + Nédélec
-> kernels → autodiff-preserving assembly → dense and sparse complex eigensolvers
-> → PEC / Silver-Müller / PML absorbing BCs) is on `main`, validated against
-> the analytic PEC-cavity Mie spectrum. See **Highlights** below.
+> Status: driven + eigenmode FEM with multi-mode wave ports landed. End-to-end
+> stack (mesh I/O → P1 + Nédélec kernels → autodiff-preserving sparse `[nnz]`
+> assembly → direct LU and Krylov COCG + ILU(0) solvers → PEC / Silver-Müller /
+> matched UPML / Leontovich / lumped + multi-mode wave ports → S-parameter and
+> NTFF extraction) is on `main`, validated across five benchmarks: Mie sphere
+> (eigenmode + driven scattering), patch antenna (S11 / bandwidth / NTFF /
+> efficiency), spiral inductor (L/Q), and the SLCFET 3HP capstone. See
+> **Highlights** below.
 
 GEODE-FEM is a [Burn](https://burn.dev)-based Rust implementation of a high-order
 finite-element / discontinuous-Galerkin electromagnetic solver. It targets the
@@ -34,7 +38,7 @@ GEODE-FEM is one of three complementary projects:
 | Project | Role | Discretization | Status |
 |---|---|---|---|
 | [crutcher/palace_whiteroom](https://github.com/crutcher/palace_whiteroom) | Clean-room dissection of Palace into a layered specification (L1–L4) | FEM/DG (target) | Active analysis |
-| [rjwalters/geode-fem](https://github.com/rjwalters/geode-fem) | Burn-based realization of the whiteroom L4 specification | FEM/DG | v0 complete; Mie eigenmodes validated |
+| [rjwalters/geode-fem](https://github.com/rjwalters/geode-fem) | Burn-based realization of the whiteroom L4 specification | FEM/DG | Driven + eigenmode; 5-benchmark suite; multi-mode wave ports |
 | [rjwalters/strata-fdtd](https://github.com/rjwalters/strata-fdtd) | FDTD time-domain solver (acoustic today, EM in progress) | FDTD | Active |
 
 Strata and GEODE-FEM are sister codebases that use **different discretizations**
@@ -45,31 +49,48 @@ benchmark — analytical Mie series ↔ strata FDTD ↔ GEODE-FEM eigenmode.
 
 | | |
 |---|---|
-| **Mie comparison** | Lowest TM_1,1 mode (n=1.5 dielectric sphere, R/R_buffer=1/2, PEC outer + anisotropic UPML buffer): FEM Re(k) ≈ 1.229 vs analytic 1.30343, **~5.7% rel err / Q ≈ 27** on the bundled 774-node fixture. PR #60's anisotropic UPML (issue #54) broke the 16% scalar-PML reflection ceiling diagnosed in #52 — the legacy scalar path is retained as `--scalar-pml` for cross-check. |
-| **Performance** | Sparse complex-symmetric Lanczos (Bai *Templates* §7.13) brings the Mie eigensolve from **126 s → 4 s** on the 774-node fixture (31× speedup; 107× on the original 313-node fixture). The Mie example uses the sparse path by default; pass `--dense` for the correctness oracle. |
-| **Math correctness** | M_{ij} = ∫ N_i · N_j ε(x) dV is **complex-symmetric** (M^T = M), not Hermitian (M^H ≠ M) — the Mie inner product is bilinear, not sesquilinear. Caught by a builder during PR #55, validated by both empirical check (`Im(v^H M v) ≈ −58`) and by-hand derivation. |
-| **Validated chain** | 28 PRs merged. Scalar Helmholtz cube modes (4.1% rel err at n=10), batched P1 + Nédélec local kernels with autodiff through assembly, dense (`faer::generalized_eigen`) and sparse (shift-and-invert Lanczos, complex-symmetric variant for the Mie pencil) eigensolvers, PEC cube + PEC sphere + Silver-Müller + scalar-isotropic PML + **anisotropic UPML** absorbing BCs, all with regression tests. |
+| **Mie eigenmode** | Lowest TM_1,1 mode (n=1.5 dielectric sphere, R/R_buffer=1/2, PEC outer + anisotropic UPML buffer): FEM Re(k) ≈ 1.229 vs analytic 1.30343, **~5.7% rel err / Q ≈ 27** on the bundled 774-node fixture. PR #60's anisotropic UPML (#54) broke the 16% scalar-PML reflection ceiling diagnosed in #52. |
+| **Mie driven scattering** | Plane-wave scattered-field driven solve with matched (full Sacks) UPML; `Q_ext` via the volume optical theorem, `Q_sca` via Poynting flux, both vs the analytic Mie series. **Below 5% rel err** on the fine on-resonance fixture (#224); the coarse 774-node fixture is mesh-dominated at high ka. See [`benchmarks/mie_sphere/driven_results.toml`](benchmarks/mie_sphere/driven_results.toml). |
+| **Patch antenna** | Probe-fed FR-4 patch (W/L/h = 38/29/1.6 mm, ε_r=4.4) with matched box-UPML and a Palace-style lumped probe port: f_res ≈ 2.27 GHz, **S11 dip −15.2 dB, −10 dB BW 38.7 MHz (1.71%)**, η ≈ 29 % on the impedance-matched fixture (#237). NTFF via Love-equivalence yields directivity / gain (#229). vs Balanis cavity-model oracle (`geode_core::patch_cavity`). See [`benchmarks/patch_antenna/results_matched.toml`](benchmarks/patch_antenna/results_matched.toml). |
+| **Spiral inductor** | 3.5-turn generic square spiral (54,428 edges) with Leontovich surface-impedance conductors: L extracted from `Im(Z)/ω` across a frequency sweep, **within −4.9 % of Mohan analytic and −6.8 % of MoM PEEC** at 1 GHz. See [`benchmarks/spiral_inductor/results.toml`](benchmarks/spiral_inductor/results.toml). |
+| **SLCFET 3HP capstone** | 3-turn Au-on-SiC square spiral (76,964 edges) on the high-ε_r SiC substrate: f→0 quasi-static L₀ via Richardson extrapolation, **−2.1 % vs MoM PEEC, +2.8 % vs Mohan** — meeting the 5 % bar (#212). FEM correctly resolves substrate-C dispersion the analytic oracles omit. |
+| **Wave ports** | Multi-mode wave-port BC with rank-N SMW augmentation and block S-matrix (A1+B1+C1+C2, #254/#255/#256/#257). 2D transverse modal eigensolver (#240, generalized to non-rectangular cross-sections in #265), bi-modal straight-section and height-step mode-matching cross-checks. |
+| **Iterative solver** | Krylov COCG with Jacobi (#238) and ILU(0) (#267) preconditioners, wired through `driven_frequency_sweep` and `solve_wave_port_sweep` (#264). Sparse `[nnz]` Nédélec assembly (#218) lifted the prior 46k-edge dense-scatter cap. ILU(0) cuts iterations 2.4× on the σ-damped stress fixture vs Jacobi. |
+| **Math correctness** | M_{ij} = ∫ N_i · N_j ε(x) dV is **complex-symmetric** (M^T = M), not Hermitian (M^H ≠ M) — the Mie inner product is bilinear, not sesquilinear. Caught during PR #55, validated by empirical check (`Im(v^H M v) ≈ −58`) and by-hand derivation. ILU(0) for COCG preserves the bilinear form (#267). |
+| **Validated chain** | 200+ PRs merged. Scalar Helmholtz cube modes, batched P1 + Nédélec local kernels with autodiff through assembly, dense (`faer::generalized_eigen`) and sparse (shift-and-invert Lanczos, complex-symmetric variant for the Mie pencil) eigensolvers, ARPACK fallback driver (`--features arpack`), all four absorbing-BC families above, Palace 3D oracle slots for patch (#239) and spiral (#266). |
 
-See [`benchmarks/mie_sphere/results.toml`](benchmarks/mie_sphere/results.toml) for
-the current Mie comparison table and
-[`benchmarks/perf/baseline.toml`](benchmarks/perf/baseline.toml) for wall-clock
-baselines.
+## Roadmap
 
-## Roadmap (v0)
+### v0 (closed)
 
 - [x] Cargo workspace skeleton with Burn dependency
-- [x] Scalar Helmholtz on a tetrahedral mesh (warmup before vector Maxwell)
-- [x] Vector curl-conforming (Nédélec) elements
-- [x] First eigenmode solver for a dielectric sphere
-- [x] Mie scattering benchmark vs. analytic series and strata-fdtd
-- [ ] Map whiteroom L4 specification → GEODE-FEM operators (tracker, ongoing)
+- [x] Scalar Helmholtz on a tetrahedral mesh, vector Nédélec elements
+- [x] Dense + sparse complex-symmetric eigensolvers, PEC + Silver-Müller + scalar PML
+- [x] Mie sphere eigenmode benchmark vs analytic PEC-cavity catalog
 
-### v1 (active)
+### v1 (closed)
 
-- [x] **Anisotropic UPML** (issue #54) — canonical fix for the 16% PML accuracy ceiling; default in `examples/mie_sphere.rs` per issue #61
-- [x] **Vector-tracking k₀** (issue #48) — replace frozen-index Newton for self-consistent resonance tracking on the Silver-Müller pencil
-- [x] **Driven scattering** (Q_ext, Q_sca vs. ka) — v1 of the Mie benchmark (issue #195): plane-wave scattered-field driven solve with a matched (full Sacks) UPML, `Q_ext` via the volume optical theorem, `Q_sca` via Poynting flux, vs. the analytic Mie series (`cargo run -p geode-core --release --example mie_driven_scattering`; results in [`benchmarks/mie_sphere/driven_results.toml`](benchmarks/mie_sphere/driven_results.toml))
-- [ ] **Whiteroom L4 mapping** (issue #5) — once upstream slices stabilize
+- [x] **Anisotropic UPML** (#54) — broke the 16 % scalar-PML reflection ceiling
+- [x] **Vector-tracking k₀** (#48) — self-consistent Newton on the Silver-Müller pencil
+- [x] **Matched (full Sacks) UPML** lifted into Burn assembly + driven solve (#205, #223)
+- [x] **Deterministic driven solve** `A(ω)x = b` with volumetric current source (#194/#197)
+- [x] **Frequency sweep + extraction** Z(ω) → L/R/Q/S11 (#209), N-port S-matrix (#219)
+- [x] **Lumped ports + Leontovich BC** for driven simulation (#206, #207)
+- [x] **Driven Mie scattering benchmark** Q_ext / Q_sca vs analytic series (#195/#200)
+
+### v2 (recent)
+
+- [x] **Sparse `[nnz]` Nédélec assembly** for driven path — lifts the 46k-edge dense-scatter cap (#220)
+- [x] **Patch antenna benchmark** S11 / bandwidth / NTFF / efficiency (#231–#237)
+- [x] **Spiral inductor benchmark** L/Q vs Mohan + MoM PEEC (#211/#225)
+- [x] **SLCFET 3HP capstone** Au-on-SiC spiral, quasi-static L₀ vs MoM within 5 % (#212/#230)
+- [x] **Wave-port BC** with rank-N SMW augmentation + block S-matrix (#234/#245)
+- [x] **Multi-mode wave ports** (A1 + B1 + C1 + C2) + analytic mode-matching (#254/#255/#256/#257)
+- [x] **2D transverse modal eigensolver** for general cross-sections (#240/#265)
+- [x] **Krylov COCG iterative solver** + Jacobi (#238) and ILU(0) (#267) preconditioners
+- [x] **Iterative path wired through sweep pipelines** with `solver_mode` knob (#264)
+- [x] **Palace 3D oracle integration** for patch antenna (#239) and spiral inductor (#266)
+- [ ] **Whiteroom L4 mapping** (#5) — operator-only tracker, ongoing
 
 ## Build
 
@@ -157,9 +178,18 @@ one level too deep) is documented in `crates/geode-core/src/arpack.rs`.
 
 ```
 crates/
-  geode-core/   # solver primitives, Backend type alias, FEM trait sketches
-  geode-cli/    # `geode` binary — prints device info and runs the smoke op
+  geode-core/        # FEM kernels, assembly, eigensolvers, driven solve,
+                     # ports / BCs, S-parameter + NTFF extraction,
+                     # benchmark examples and integration tests
+  geode-cli/         # `geode` binary — prints device info and runs the smoke op
+  geode-validation/  # cross-backend reference tests (NumPy / JAX / Julia /
+                     # ONNX / TF-Java) and analytic-oracle gates
 ```
+
+Benchmarks under [`benchmarks/`](benchmarks/) (one subdirectory per fixture)
+carry auto-generated `results*.toml` files paired with `tests/` cases that
+either compare within a documented tolerance band or skip-with-note when an
+external oracle (e.g. Palace) is `pending_operator_run`.
 
 ## Regression fixtures
 
@@ -226,7 +256,7 @@ overwrites `benchmarks/perf/baseline.toml`. The extractor is **not**
 wired into `cargo bench` itself — re-running the analysis is then a
 side-effect-free second step.
 
-**Per-stage cost (n=10 cube):**
+**Per-stage cost (n=10 cube; May 2026 baseline, pre-sparse-`[nnz]`):**
 
 | stage                              | median   |
 | ---------------------------------- | -------- |
@@ -249,12 +279,21 @@ eigensolve down to roughly the same order as the Burn-side assembly.
 
 **31× speedup at this scale; 107× on the original 313-node fixture.**
 The sparse path is now the default in `examples/mie_sphere.rs`; pass
-`--dense` for the correctness-oracle cross-check. The dense path is
-retained because its math is straightforward, the sparse path's
-bilinear Lanczos (Bai §7.13) has slightly weaker orthogonality
-guarantees on tight clusters, and the dense numbers serve as the
-ground truth that the sparse path is currently within ~5e-4 relative
-error of on the lowest two physical modes.
+`--dense` for the correctness-oracle cross-check.
+
+**Scaling beyond the dense-scatter cap.** The numbers above are from
+the original dense Nédélec scatter path. Sparse `[nnz]` pattern-slot
+assembly (#220) lifted the ~46 k-edge ceiling that pipeline hit, so
+the driven path (`driven_solve`, `driven_frequency_sweep`,
+`solve_wave_port_sweep`) now exercises fixtures into the 10⁵-edge
+range — the spiral inductor (54 k edges) and SLCFET 3HP (77 k edges)
+benchmarks run on it directly. The Krylov COCG iterative solver
+(#243) and ILU(0) preconditioner (#267) provide a memory-frugal
+alternative for fixtures the direct LU can't factor; both are
+wired through the sweep pipelines under a `solver_mode` knob (#264).
+The per-stage cost table above will be regenerated as part of the
+next perf-baseline refresh; for now it stands as a known-stale but
+documented reference point.
 
 ### Mie sphere (issue #4)
 
