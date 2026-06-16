@@ -130,6 +130,32 @@ commit 14659c1d | fixture c9707fb9 | benchmarks/spiral_inductor/results.toml
 Pulled from the `[meta]` block (`generated_at_commit`,
 `fixture_sha256`) so every plot carries its reproducibility receipts.
 
+## Phase 1B: S-parameter + Smith-chart plots (#278)
+
+The `geode_viz.plots.s_params` module renders the |S11| dB sweep and
+the polar Smith-chart view for the two driven benchmarks that already
+carry an N-port result table on disk (spiral inductor + patch antenna).
+The CLI entry point lives at `geode_viz.scripts.plot_benchmark` (and
+also as a script wrapper at `tools/viz/scripts/plot_benchmark.py`).
+
+```bash
+# Spiral inductor: writes s11_db.png + smith.png
+python -m geode_viz.scripts.plot_benchmark spiral_inductor
+
+# Patch antenna (matched): overlays the unmatched sweep automatically
+python -m geode_viz.scripts.plot_benchmark patch_antenna --variant matched
+
+# Restrict to one of the two plots
+python -m geode_viz.scripts.plot_benchmark spiral_inductor --smith-only
+python -m geode_viz.scripts.plot_benchmark patch_antenna --s11-only
+```
+
+The Smith chart uses matplotlib's polar projection — no `scikit-rf`
+dependency. For the spiral the complex S11 is reconstructed from
+`z_re_ohm` / `z_im_ohm` via Γ = (Z − Z₀) / (Z + Z₀); for the patch the
+recorded `s11_re` / `s11_im` fields are consumed directly. The dB axis
+floor defaults to −30 dB and tightens when the data dips deeper.
+
 ## Adding a new plot module
 
 Phase 1B/1C/1D land plot scripts under
