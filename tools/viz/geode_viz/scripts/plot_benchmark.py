@@ -2,16 +2,17 @@
 
 Renders the headline figures for a port-driven / driven-scattering
 benchmark in a single invocation. Wires together the Phase 1B
-S-parameter / Smith-chart plots (#278) and the Phase 1C L / Q / R +
-Q vs ka plots (#279) so an operator can refresh the artifact tree
-with one command per benchmark.
+S-parameter / Smith-chart plots (#278), the Phase 1C L / Q / R +
+Q vs ka plots (#279), and the Phase 1D radiation-pattern polar
+cuts (#280) so an operator can refresh the artifact tree with one
+command per benchmark.
 
 Usage::
 
     # Spiral: writes s11_db.png + smith.png + lqr_vs_f.png
     python -m geode_viz.scripts.plot_benchmark spiral_inductor
 
-    # Patch: writes s11_db.png + smith.png (matched variant + overlay)
+    # Patch: writes s11_db.png + smith.png + pattern_cuts.png
     python -m geode_viz.scripts.plot_benchmark patch_antenna --variant matched
 
     # Mie: writes q_vs_ka.png (coarse fixture by default)
@@ -20,7 +21,8 @@ Usage::
 
 By default every plot wired up for the chosen benchmark is rendered.
 Restrict to a single family with the ``--<plot>-only`` flags
-(``--s11-only`` / ``--smith-only`` / ``--lqr-only`` / ``--mie-only``).
+(``--s11-only`` / ``--smith-only`` / ``--lqr-only`` / ``--mie-only`` /
+``--pattern-only``).
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from geode_viz.plots.mie import plot_efficiency_vs_ka
+from geode_viz.plots.pattern import plot_pattern_cut
 from geode_viz.plots.s_params import plot_s11_magnitude, plot_smith
 from geode_viz.plots.spiral import plot_lqr_vs_f
 
@@ -40,7 +43,7 @@ from geode_viz.plots.spiral import plot_lqr_vs_f
 # apply (e.g. ``--variant`` for ``mie_sphere``).
 _BENCHMARK_PLOTS: dict[str, tuple[str, ...]] = {
     "spiral_inductor": ("s11", "smith", "lqr"),
-    "patch_antenna": ("s11", "smith"),
+    "patch_antenna": ("s11", "smith", "pattern"),
     "mie_sphere": ("mie",),
 }
 _BENCHMARKS: tuple[str, ...] = tuple(_BENCHMARK_PLOTS)
@@ -54,8 +57,9 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="python -m geode_viz.scripts.plot_benchmark",
         description=(
             "Render the headline figures for a geode-fem benchmark. "
-            "Phase 1B (|S11| dB + Smith) and Phase 1C (L/Q/R, Q vs ka) "
-            "plots are dispatched per-benchmark."
+            "Phase 1B (|S11| dB + Smith), Phase 1C (L/Q/R, Q vs ka), "
+            "and Phase 1D (radiation-pattern polar cuts) plots are "
+            "dispatched per-benchmark."
         ),
     )
     parser.add_argument(
@@ -103,6 +107,14 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Mie sphere: only render the Q vs ka panel (Phase 1C).",
     )
+    plot_filter.add_argument(
+        "--pattern-only",
+        action="store_true",
+        help=(
+            "Patch antenna: only render the radiation-pattern polar "
+            "cuts (Phase 1D)."
+        ),
+    )
 
     parser.add_argument(
         "--s11-out",
@@ -140,13 +152,26 @@ def _build_parser() -> argparse.ArgumentParser:
             "artifacts/viz/mie_sphere/q_vs_ka.png."
         ),
     )
+    parser.add_argument(
+        "--pattern-out",
+        type=Path,
+        default=None,
+        help=(
+            "Override the radiation-pattern PNG output path. "
+            "Defaults to artifacts/viz/patch_antenna/pattern_cuts.png."
+        ),
+    )
     return parser
 
 
 def _plot_filter(args: argparse.Namespace) -> set[str]:
     """Resolve the set of plot families to run for this invocation."""
     any_only = (
-        args.s11_only or args.smith_only or args.lqr_only or args.mie_only
+        args.s11_only
+        or args.smith_only
+        or args.lqr_only
+        or args.mie_only
+        or args.pattern_only
     )
     if not any_only:
         # Render every plot family the benchmark exposes.
@@ -160,6 +185,8 @@ def _plot_filter(args: argparse.Namespace) -> set[str]:
         selected.add("lqr")
     if args.mie_only:
         selected.add("mie")
+    if args.pattern_only:
+        selected.add("pattern")
     return selected
 
 
@@ -207,6 +234,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if "mie" in selected:
         written.append(
             plot_efficiency_vs_ka(out=args.mie_out, fine=args.fine)
+        )
+    if "pattern" in selected:
+        written.append(
+            plot_pattern_cut(
+                args.benchmark,
+                variant=args.variant,
+                out=args.pattern_out,
+            )
         )
 
     for path in written:

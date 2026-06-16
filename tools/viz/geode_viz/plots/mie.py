@@ -28,30 +28,18 @@ Single public entry point:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from geode_viz.io import load_results
-from geode_viz.paths import artifacts_dir
+from geode_viz.plots._common import (
+    iter_points as _iter_points,
+    resolve_out as _resolve_out,
+    subtitle_from_notes as _subtitle_from_notes,
+)
 from geode_viz.style import apply_style, footer
-
-
-def _iter_points(results: dict[str, Any]) -> Iterable[dict[str, Any]]:
-    """Yield ``point_<N>`` tables from a benchmark TOML in N order."""
-    indexed: list[tuple[int, dict[str, Any]]] = []
-    for key, val in results.items():
-        if not (isinstance(key, str) and key.startswith("point_")):
-            continue
-        try:
-            idx = int(key.split("_", 1)[1])
-        except ValueError:
-            continue
-        if isinstance(val, dict):
-            indexed.append((idx, val))
-    indexed.sort(key=lambda kv: kv[0])
-    return (val for _, val in indexed)
 
 
 def _sweep_arrays(
@@ -82,43 +70,6 @@ def _sweep_arrays(
         "rel_err_q_ext": np.asarray(err_ext, dtype=float),
         "rel_err_q_sca": np.asarray(err_sca, dtype=float),
     }
-
-
-def _resolve_out(
-    benchmark: str, out: Path | None, default_name: str
-) -> Path:
-    """Resolve the on-disk output path, creating parent dirs."""
-    if out is not None:
-        out = Path(out)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        return out
-    return artifacts_dir(benchmark) / default_name
-
-
-def _subtitle_from_notes(
-    results: dict[str, Any], *, max_chars: int = 120
-) -> str | None:
-    """Echo the first caveat from ``meta.notes`` as a one-line subtitle.
-
-    Truncates to ``max_chars`` (with an ellipsis) so a long sentence
-    doesn't overflow the figure width on the default 7.5-inch panel.
-    """
-    notes = results.get("meta", {}).get("notes")
-    if not isinstance(notes, list) or not notes:
-        return None
-    first = str(notes[0]).strip()
-    if not first:
-        return None
-    for sep in (". ", "; "):
-        head, sep_found, _ = first.partition(sep)
-        if sep_found:
-            first = head.strip()
-            break
-    if len(first) > max_chars:
-        first = first[: max_chars - 1].rstrip() + "…"
-    elif not first.endswith((".", "!", "?", "…")):
-        first = first + "."
-    return first
 
 
 def plot_efficiency_vs_ka(
