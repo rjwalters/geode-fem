@@ -72,42 +72,19 @@ def _sweep_arrays(
     }
 
 
-def plot_efficiency_vs_ka(
-    out: Path | None = None,
-    *,
-    fine: bool = False,
-) -> Path:
-    """Plot Q_ext / Q_sca / Q_abs vs ka for the driven-Mie benchmark.
+def _draw_efficiency(
+    ax_q: "plt.Axes",
+    ax_e: "plt.Axes",
+    results: dict[str, Any],
+) -> None:
+    """Draw the Q-vs-ka + relative-error panels onto two axes.
 
-    Two-panel figure:
-
-    - Upper (taller): Q_ext (FEM scatter + analytic line) and Q_sca
-      (FEM scatter + analytic line), plus Q_abs ≡ Q_ext − Q_sca for
-      the FEM and analytic series so the non-absorbing dielectric
-      sphere check is visible.
-    - Lower (thin): per-point relative error (|err| in percent) on a
-      log-scale y-axis so the 0.4 %–19 % spread on the coarse mesh
-      stays legible.
-
-    Parameters
-    ----------
-    out
-        Optional output PNG path. Defaults to
-        ``artifacts/viz/mie_sphere/q_vs_ka.png``.
-    fine
-        When ``True``, load ``driven_results_fine.toml`` (the ~5.9k
-        node fine fixture from issue #215). Default ``False`` loads
-        ``driven_results.toml`` (the 774-node coarse fixture).
-
-    Returns
-    -------
-    Path
-        The resolved PNG path (already written to disk).
+    The axis-only core shared by the standalone
+    :func:`plot_efficiency_vs_ka` and the tearsheet composer. ``ax_q``
+    is the (taller) efficiency panel; ``ax_e`` the (thinner) relative
+    error strip — they are expected to share the ka x-axis. No
+    figure-level scaffolding (suptitle / footer / savefig) is touched.
     """
-    apply_style("light")
-
-    filename = "driven_results_fine.toml" if fine else "driven_results.toml"
-    results = load_results("mie_sphere", filename=filename)
     arrays = _sweep_arrays(results)
 
     ka = arrays["ka"]
@@ -121,16 +98,6 @@ def plot_efficiency_vs_ka(
 
     err_ext = arrays["rel_err_q_ext"]
     err_sca = arrays["rel_err_q_sca"]
-
-    # Two panels: efficiency above, error below. ``height_ratios`` keeps
-    # the headline efficiency panel ~3x the relative-error strip.
-    fig, (ax_q, ax_e) = plt.subplots(
-        nrows=2,
-        ncols=1,
-        sharex=True,
-        figsize=(7.5, 6.5),
-        gridspec_kw={"height_ratios": [3.0, 1.2]},
-    )
 
     # --- Q panel: analytic lines + FEM scatter ----------------------------
     # Dense analytic curve via the recorded points only (the analytic
@@ -198,7 +165,6 @@ def plot_efficiency_vs_ka(
         label="Q_abs FEM (Q_ext − Q_sca)",
     )
 
-    fixture_tag = "fine" if fine else "coarse"
     ax_q.set_ylabel("Efficiency Q (dimensionless)")
     ax_q.legend(loc="best", fontsize=8)
 
@@ -234,6 +200,79 @@ def plot_efficiency_vs_ka(
     ax_e.legend(loc="best", fontsize=8)
     # A faint 5 % guide — the project's mid-band tolerance band.
     ax_e.axhline(5.0, color="#d62728", linewidth=0.7, linestyle=":", alpha=0.6)
+
+
+def plot_efficiency_vs_ka(
+    out: Path | None = None,
+    *,
+    fine: bool = False,
+    ax: "plt.Axes | None" = None,
+) -> Path | tuple["plt.Axes", "plt.Axes"]:
+    """Plot Q_ext / Q_sca / Q_abs vs ka for the driven-Mie benchmark.
+
+    Two-panel figure:
+
+    - Upper (taller): Q_ext (FEM scatter + analytic line) and Q_sca
+      (FEM scatter + analytic line), plus Q_abs ≡ Q_ext − Q_sca for
+      the FEM and analytic series so the non-absorbing dielectric
+      sphere check is visible.
+    - Lower (thin): per-point relative error (|err| in percent) on a
+      log-scale y-axis so the 0.4 %–19 % spread on the coarse mesh
+      stays legible.
+
+    Parameters
+    ----------
+    out
+        Optional output PNG path. Defaults to
+        ``artifacts/viz/mie_sphere/q_vs_ka.png``. Ignored when ``ax``
+        is supplied.
+    fine
+        When ``True``, load ``driven_results_fine.toml`` (the ~5.9k
+        node fine fixture from issue #215). Default ``False`` loads
+        ``driven_results.toml`` (the 774-node coarse fixture).
+    ax
+        Optional pre-existing axes whose grid slot is subdivided into
+        the efficiency + relative-error rows (used by the tearsheet
+        composer). When supplied the panels are drawn into a 2-row
+        subgridspec carved from ``ax`` and the two new axes returned
+        without creating a standalone figure or writing a PNG. When
+        ``None`` the standalone two-panel figure is built exactly as
+        before.
+
+    Returns
+    -------
+    Path or tuple of matplotlib.axes.Axes
+        The resolved PNG path when ``ax is None``; otherwise the
+        ``(ax_q, ax_e)`` panel axes drawn into.
+    """
+    filename = "driven_results_fine.toml" if fine else "driven_results.toml"
+    results = load_results("mie_sphere", filename=filename)
+    fixture_tag = "fine" if fine else "coarse"
+
+    if ax is not None:
+        fig = ax.get_figure()
+        # Carve a 2-row sub-grid (3:1.2 height ratio) from the supplied
+        # slot; drop the placeholder axes so only the panels remain.
+        gridspec = ax.get_subplotspec().subgridspec(
+            2, 1, height_ratios=[3.0, 1.2], hspace=0.08
+        )
+        ax.remove()
+        ax_q = fig.add_subplot(gridspec[0])
+        ax_e = fig.add_subplot(gridspec[1], sharex=ax_q)
+        _draw_efficiency(ax_q, ax_e, results)
+        return ax_q, ax_e
+
+    apply_style("light")
+    # Two panels: efficiency above, error below. ``height_ratios`` keeps
+    # the headline efficiency panel ~3x the relative-error strip.
+    fig, (ax_q, ax_e) = plt.subplots(
+        nrows=2,
+        ncols=1,
+        sharex=True,
+        figsize=(7.5, 6.5),
+        gridspec_kw={"height_ratios": [3.0, 1.2]},
+    )
+    _draw_efficiency(ax_q, ax_e, results)
 
     # Figure-level title + italic subtitle from the first TOML note.
     subtitle = _subtitle_from_notes(results)

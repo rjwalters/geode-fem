@@ -191,45 +191,24 @@ def _set_db_ylim(ax: "plt.Axes", s11_db_arrays: Iterable[np.ndarray]) -> None:
     ax.set_ylim(lo, hi)
 
 
-def plot_s11_magnitude(
-    benchmark: str,
+def _draw_s11_magnitude(
+    ax: "plt.Axes",
     *,
-    out: Path | None = None,
-    variant: str = "matched",
-) -> Path:
-    """Plot |S11| in dB vs frequency for a port-driven benchmark.
+    primary: dict[str, Any],
+    secondary: dict[str, Any] | None,
+    primary_label: str,
+    benchmark: str,
+) -> None:
+    """Draw the |S11| dB trace(s) onto ``ax``.
 
-    Parameters
-    ----------
-    benchmark
-        Benchmark name — directory under ``benchmarks/``. Currently
-        wired for ``"spiral_inductor"`` and ``"patch_antenna"``.
-    out
-        Optional output PNG path. Defaults to
-        ``artifacts/viz/<benchmark>/s11_db.png``.
-    variant
-        Patch-antenna variant (``"matched"`` or ``"unmatched"``);
-        ignored for benchmarks with a single result file. When the
-        opposite variant exists on disk it is overlaid for comparison.
-
-    Returns
-    -------
-    Path
-        The resolved PNG path (already written to disk).
+    The axis-only core shared by the standalone
+    :func:`plot_s11_magnitude` and the composed tearsheet panel — all
+    the figure scaffolding (sizing, footer, savefig) stays in the
+    public entry point so standalone output is byte-stable.
     """
-    apply_style("light")
-
-    if benchmark == "patch_antenna":
-        primary, secondary, primary_label = _load_patch_pair(variant)
-    else:
-        primary = load_results(benchmark)
-        secondary = None
-        primary_label = benchmark.replace("_", " ")
-
     z0_primary = _resolve_z0(primary)
     f_p, db_p, _ = _sweep_arrays(primary, z0_ohm=z0_primary)
 
-    fig, ax = plt.subplots(figsize=(7.0, 4.5))
     ax.plot(f_p, db_p, marker="o", label=primary_label)
 
     db_arrays: list[np.ndarray] = [db_p]
@@ -278,6 +257,71 @@ def plot_s11_magnitude(
     ax.axhline(0.0, color="#888888", linewidth=0.6, alpha=0.5)
     if secondary is not None or srf is not None:
         ax.legend(loc="best")
+
+
+def plot_s11_magnitude(
+    benchmark: str,
+    *,
+    out: Path | None = None,
+    variant: str = "matched",
+    ax: "plt.Axes | None" = None,
+) -> Path | "plt.Axes":
+    """Plot |S11| in dB vs frequency for a port-driven benchmark.
+
+    Parameters
+    ----------
+    benchmark
+        Benchmark name — directory under ``benchmarks/``. Currently
+        wired for ``"spiral_inductor"`` and ``"patch_antenna"``.
+    out
+        Optional output PNG path. Defaults to
+        ``artifacts/viz/<benchmark>/s11_db.png``. Ignored when ``ax``
+        is supplied.
+    variant
+        Patch-antenna variant (``"matched"`` or ``"unmatched"``);
+        ignored for benchmarks with a single result file. When the
+        opposite variant exists on disk it is overlaid for comparison.
+    ax
+        Optional pre-existing axes to draw into (used by the
+        tearsheet composer). When supplied, the trace is drawn into
+        ``ax`` and the axes is returned without creating a standalone
+        figure or writing a PNG. When ``None`` (the default) a
+        standalone figure is created, written to ``out``, and the
+        resolved path returned — byte-compatible with the pre-``ax``
+        behaviour.
+
+    Returns
+    -------
+    Path or matplotlib.axes.Axes
+        The resolved PNG path when ``ax is None``; otherwise the
+        ``ax`` that was drawn into.
+    """
+    if benchmark == "patch_antenna":
+        primary, secondary, primary_label = _load_patch_pair(variant)
+    else:
+        primary = load_results(benchmark)
+        secondary = None
+        primary_label = benchmark.replace("_", " ")
+
+    if ax is not None:
+        _draw_s11_magnitude(
+            ax,
+            primary=primary,
+            secondary=secondary,
+            primary_label=primary_label,
+            benchmark=benchmark,
+        )
+        return ax
+
+    apply_style("light")
+    fig, ax = plt.subplots(figsize=(7.0, 4.5))
+    _draw_s11_magnitude(
+        ax,
+        primary=primary,
+        secondary=secondary,
+        primary_label=primary_label,
+        benchmark=benchmark,
+    )
     footer(fig, primary)
 
     out_path = _resolve_out(benchmark, out, "s11_db.png")
@@ -367,50 +411,23 @@ def _add_smith_trace(
         )
 
 
-def plot_smith(
-    benchmark: str,
+def _draw_smith(
+    ax: "plt.Axes",
     *,
-    out: Path | None = None,
-    variant: str = "matched",
-) -> Path:
-    """Plot the S11 sweep on a polar Smith chart.
+    primary: dict[str, Any],
+    secondary: dict[str, Any] | None,
+    primary_label: str,
+    benchmark: str,
+) -> None:
+    """Draw the polar Smith chart trace(s) onto a polar ``ax``.
 
-    Uses matplotlib's polar projection — no ``scikit-rf`` dependency.
-    The Smith backdrop is a minimal constant-|Γ| ring overlay (0.25,
-    0.5, 0.75, 1.0). Markers are placed at the frequency where |S11|
-    is minimum (the "match" point) for each trace.
-
-    Parameters
-    ----------
-    benchmark
-        Benchmark name. ``"spiral_inductor"`` or ``"patch_antenna"``.
-    out
-        Optional output PNG path. Defaults to
-        ``artifacts/viz/<benchmark>/smith.png``.
-    variant
-        Patch-antenna variant (``"matched"`` or ``"unmatched"``);
-        ignored for single-result benchmarks. When the opposite
-        variant exists on disk, it is overlaid for comparison.
-
-    Returns
-    -------
-    Path
-        The resolved PNG path (already written to disk).
+    The supplied ``ax`` must be a polar projection axes (the
+    standalone entry point and the tearsheet composer both create
+    one via ``projection="polar"``).
     """
-    apply_style("light")
-
-    if benchmark == "patch_antenna":
-        primary, secondary, primary_label = _load_patch_pair(variant)
-    else:
-        primary = load_results(benchmark)
-        secondary = None
-        primary_label = benchmark.replace("_", " ")
-
     z0_primary = _resolve_z0(primary)
     f_p, _, s11_p = _sweep_arrays(primary, z0_ohm=z0_primary)
 
-    fig = plt.figure(figsize=(6.0, 6.0))
-    ax = fig.add_subplot(111, projection="polar")
     _draw_smith_grid(ax)
 
     _add_smith_trace(
@@ -440,8 +457,78 @@ def plot_smith(
     title_label = benchmark.replace("_", " ")
     if benchmark == "patch_antenna":
         title_label = f"{title_label} ({primary_label})"
-    ax.set_title(f"{title_label}: Smith chart (Z0 = {z0_primary:.0f} Ω)", pad=18.0)
+    ax.set_title(
+        f"{title_label}: Smith chart (Z0 = {z0_primary:.0f} Ω)", pad=18.0
+    )
     ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.12), fontsize=8)
+
+
+def plot_smith(
+    benchmark: str,
+    *,
+    out: Path | None = None,
+    variant: str = "matched",
+    ax: "plt.Axes | None" = None,
+) -> Path | "plt.Axes":
+    """Plot the S11 sweep on a polar Smith chart.
+
+    Uses matplotlib's polar projection — no ``scikit-rf`` dependency.
+    The Smith backdrop is a minimal constant-|Γ| ring overlay (0.25,
+    0.5, 0.75, 1.0). Markers are placed at the frequency where |S11|
+    is minimum (the "match" point) for each trace.
+
+    Parameters
+    ----------
+    benchmark
+        Benchmark name. ``"spiral_inductor"`` or ``"patch_antenna"``.
+    out
+        Optional output PNG path. Defaults to
+        ``artifacts/viz/<benchmark>/smith.png``. Ignored when ``ax``
+        is supplied.
+    variant
+        Patch-antenna variant (``"matched"`` or ``"unmatched"``);
+        ignored for single-result benchmarks. When the opposite
+        variant exists on disk, it is overlaid for comparison.
+    ax
+        Optional pre-existing *polar* axes to draw into (used by the
+        tearsheet composer). When supplied the trace is drawn into
+        ``ax`` and the axes returned without creating a standalone
+        figure or writing a PNG. When ``None`` a standalone figure is
+        created exactly as before.
+
+    Returns
+    -------
+    Path or matplotlib.axes.Axes
+        The resolved PNG path when ``ax is None``; otherwise the
+        ``ax`` that was drawn into.
+    """
+    if benchmark == "patch_antenna":
+        primary, secondary, primary_label = _load_patch_pair(variant)
+    else:
+        primary = load_results(benchmark)
+        secondary = None
+        primary_label = benchmark.replace("_", " ")
+
+    if ax is not None:
+        _draw_smith(
+            ax,
+            primary=primary,
+            secondary=secondary,
+            primary_label=primary_label,
+            benchmark=benchmark,
+        )
+        return ax
+
+    apply_style("light")
+    fig = plt.figure(figsize=(6.0, 6.0))
+    ax = fig.add_subplot(111, projection="polar")
+    _draw_smith(
+        ax,
+        primary=primary,
+        secondary=secondary,
+        primary_label=primary_label,
+        benchmark=benchmark,
+    )
     footer(fig, primary)
 
     out_path = _resolve_out(benchmark, out, "smith.png")

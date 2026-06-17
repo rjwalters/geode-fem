@@ -242,55 +242,21 @@ def _plot_cut(
     )
 
 
-def plot_pattern_cut(
-    benchmark: str = "patch_antenna",
+def _draw_pattern_cut(
+    ax: "plt.Axes",
+    results: dict[str, Any],
     *,
-    variant: str = "matched",
-    out: Path | None = None,
-) -> Path:
-    """Plot the E-plane + H-plane radiation pattern on a polar axes.
+    label: str,
+) -> None:
+    """Draw the E-/H-plane cuts + cavity-model ring onto a polar ``ax``.
 
-    Loads ``pattern_matched.toml`` (default) or ``pattern.toml`` and
-    renders the two principal cuts on a single polar axes:
-
-    - E-plane (solid).
-    - H-plane (dashed).
-    - Balanis cavity-model oracle as a thin reference circle at
-      ``directivity_broadside_dbi`` relative to the FEM lobe peak (the
-      cavity model is a scalar oracle; the trace is a constant-D ring
-      annotated with the cavity D value).
-
-    The radial axis is dB (``20·log10|E|``) with a fixed −30 dB floor.
-    A corner annotation surfaces the FEM ``D_broadside`` /
-    ``G_broadside`` and the cavity-model ``D_broadside`` scalars.
-
-    Parameters
-    ----------
-    benchmark
-        Benchmark name (currently only ``"patch_antenna"`` is wired).
-        Kept as a parameter for symmetry with the other plot helpers.
-    variant
-        ``"matched"`` (default — the tuned-feed pattern) or
-        ``"unmatched"`` (the untuned ``pattern.toml``).
-    out
-        Optional output PNG path. Defaults to
-        ``artifacts/viz/<benchmark>/pattern_cuts.png``.
-
-    Returns
-    -------
-    Path
-        The resolved PNG path (already written to disk).
+    The axis-only core shared by the standalone
+    :func:`plot_pattern_cut` and the tearsheet composer. Sets the
+    antenna-convention orientation, radial dB ticks, angular grid and
+    the per-axes legend; the figure-level annotation block,
+    suptitle, axes repositioning and footer remain in the standalone
+    entry point so its output stays byte-stable.
     """
-    if benchmark != "patch_antenna":
-        raise ValueError(
-            f"plot_pattern_cut is only wired for patch_antenna; "
-            f"got benchmark {benchmark!r}"
-        )
-
-    apply_style("light")
-
-    results, label = _load_pattern_variant(variant)
-
     cuts = results.get("cut", {})
     if "e_plane" not in cuts or "h_plane" not in cuts:
         raise KeyError(
@@ -303,13 +269,6 @@ def plot_pattern_cut(
     e_db_e = _to_db(e_norm_e, floor_db=floor_db)
     e_db_h = _to_db(e_norm_h, floor_db=floor_db)
 
-    # Constrained-layout (enabled by ``apply_style``) does not always
-    # interact well with polar subplots; turn it off here so we can
-    # hand-tune the suptitle / annotation positions without the
-    # legend bouncing around.
-    fig = plt.figure(figsize=(8.0, 7.5))
-    fig.set_constrained_layout(False)
-    ax = fig.add_subplot(111, projection="polar")
     # Antenna-engineering convention: broadside (θ = 0) up, θ
     # increases clockwise.
     ax.set_theta_zero_location("N")
@@ -373,6 +332,81 @@ def plot_pattern_cut(
     # Constrain the angular grid to the standard antenna-convention
     # ticks (every 30°) so the polar backdrop matches Balanis Figs.
     ax.set_thetagrids(np.arange(0, 360, 30))
+    ax.legend(
+        loc="lower center", bbox_to_anchor=(0.5, -0.18), fontsize=8
+    )
+
+
+def plot_pattern_cut(
+    benchmark: str = "patch_antenna",
+    *,
+    variant: str = "matched",
+    out: Path | None = None,
+    ax: "plt.Axes | None" = None,
+) -> Path | "plt.Axes":
+    """Plot the E-plane + H-plane radiation pattern on a polar axes.
+
+    Loads ``pattern_matched.toml`` (default) or ``pattern.toml`` and
+    renders the two principal cuts on a single polar axes:
+
+    - E-plane (solid).
+    - H-plane (dashed).
+    - Balanis cavity-model oracle as a thin reference circle at
+      ``directivity_broadside_dbi`` relative to the FEM lobe peak (the
+      cavity model is a scalar oracle; the trace is a constant-D ring
+      annotated with the cavity D value).
+
+    The radial axis is dB (``20·log10|E|``) with a fixed −30 dB floor.
+    A corner annotation surfaces the FEM ``D_broadside`` /
+    ``G_broadside`` and the cavity-model ``D_broadside`` scalars.
+
+    Parameters
+    ----------
+    benchmark
+        Benchmark name (currently only ``"patch_antenna"`` is wired).
+        Kept as a parameter for symmetry with the other plot helpers.
+    variant
+        ``"matched"`` (default — the tuned-feed pattern) or
+        ``"unmatched"`` (the untuned ``pattern.toml``).
+    out
+        Optional output PNG path. Defaults to
+        ``artifacts/viz/<benchmark>/pattern_cuts.png``. Ignored when
+        ``ax`` is supplied.
+    ax
+        Optional pre-existing *polar* axes to draw into (used by the
+        tearsheet composer). When supplied the cuts are drawn into
+        ``ax`` and the axes returned without creating a standalone
+        figure, the corner annotation block, or writing a PNG. When
+        ``None`` the standalone figure is built exactly as before.
+
+    Returns
+    -------
+    Path or matplotlib.axes.Axes
+        The resolved PNG path when ``ax is None``; otherwise the
+        ``ax`` that was drawn into.
+    """
+    if benchmark != "patch_antenna":
+        raise ValueError(
+            f"plot_pattern_cut is only wired for patch_antenna; "
+            f"got benchmark {benchmark!r}"
+        )
+
+    results, label = _load_pattern_variant(variant)
+
+    if ax is not None:
+        _draw_pattern_cut(ax, results, label=label)
+        return ax
+
+    apply_style("light")
+
+    # Constrained-layout (enabled by ``apply_style``) does not always
+    # interact well with polar subplots; turn it off here so we can
+    # hand-tune the suptitle / annotation positions without the
+    # legend bouncing around.
+    fig = plt.figure(figsize=(8.0, 7.5))
+    fig.set_constrained_layout(False)
+    ax = fig.add_subplot(111, projection="polar")
+    _draw_pattern_cut(ax, results, label=label)
 
     # --- Annotation block --------------------------------------------------
     # Anchored to the lower-left so the suptitle has the whole top
