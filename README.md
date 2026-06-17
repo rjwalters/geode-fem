@@ -89,6 +89,28 @@ cavity-model directivity oracle.
 
 ![Patch antenna tearsheet](docs/images/patch_antenna_tearsheet.png)
 
+### 3D field & radiation pattern (via ParaView)
+
+The driven solver can export its volumetric `E(r)` and the NTFF radiation
+lobe as VTK `.vtu` files, rendered headlessly with ParaView's `pvbatch`:
+
+```sh
+# Near-field |E| on the patch resonance, then a z-slice render
+cargo run -p geode-core --release --example patch_antenna -- --export-field artifacts/viz/E_patch.vtu
+pvbatch tools/viz/geode_viz/scripts/pvbatch_render.py artifacts/viz/E_patch.vtu --out E_patch_slice.png
+
+# 3D directivity lobe (open in ParaView, colour by D_dB)
+cargo run -p geode-core --release --example patch_antenna -- pattern-3d --out artifacts/viz/patch_lobe.vtu
+```
+
+| Near-field `\|E\|` slice | 3D radiation lobe |
+|---|---|
+| ![Patch near-field slice](docs/images/patch_field_slice.png) | ![Patch radiation lobe](docs/images/patch_radiation_lobe.png) |
+
+The slice resolves the TM₀₁ cavity mode — field maxima at the patch's two
+radiating edges — while the lobe shows the broadside main beam peaking at
+≈ 5.6 dBi.
+
 ## Roadmap
 
 ### v0 (closed)

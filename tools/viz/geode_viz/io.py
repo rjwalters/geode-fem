@@ -22,18 +22,24 @@ the benchmark-specific tables on the returned dict
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any, Iterable
 
 from geode_viz.paths import repo_root
 
 # Python 3.11+ has stdlib tomllib; tomli is the back-compat dep declared
-# in pyproject.toml. Both expose the same load/loads surface.
-if sys.version_info >= (3, 11):
-    import tomllib as _toml
-else:  # pragma: no cover — exercised only on 3.10 and below
-    import tomli as _toml
+# in pyproject.toml. Both expose the same load/loads surface. Some
+# interpreters ship a trimmed stdlib without tomllib (notably ParaView's
+# bundled Python, under which the VTK render scripts in geode_viz.scripts
+# import this package but never call load_results) — defer the failure to
+# the actual TOML read instead of breaking module import there.
+try:
+    import tomllib as _toml  # Python 3.11+ stdlib
+except ModuleNotFoundError:  # <3.11, or a trimmed stdlib (e.g. pvbatch)
+    try:
+        import tomli as _toml
+    except ModuleNotFoundError:  # pragma: no cover — no TOML parser at all
+        _toml = None
 
 
 class BenchmarkNotFound(FileNotFoundError):
@@ -95,6 +101,13 @@ def load_results(benchmark: str, filename: str | None = None) -> dict[str, Any]:
     BenchmarkNotFound
         If no candidate TOML exists for the request.
     """
+    if _toml is None:  # pragma: no cover — trimmed interpreter w/o a parser
+        raise ModuleNotFoundError(
+            "no TOML parser available: this interpreter lacks stdlib "
+            "'tomllib' (Python <3.11 or a trimmed build such as ParaView's "
+            "bundled Python) and 'tomli' is not installed. Install 'tomli', "
+            "or run benchmark-TOML plotting under a standard Python 3.11+."
+        )
     for path in _candidate_paths(benchmark, filename):
         if path.is_file():
             with path.open("rb") as f:
