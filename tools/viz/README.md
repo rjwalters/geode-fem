@@ -192,6 +192,63 @@ Both plot families echo the first caveat from the TOML's
 self-documents its known limits (Leontovich validity floor on the
 spiral; matched-Sacks UPML choice on the Mie sphere).
 
+## Phase 2C: headless ParaView render (#288)
+
+Phase 2 of Epic #276 is a field-export pipeline rather than a TOML line
+plot. Phase 2A (#286) added a `.vtu` writer in `geode_core::viz_vtu`;
+Phase 2B exports a solved field to a `.vtu` `UnstructuredGrid`; Phase 2C
+(this script) renders that file to a PNG **headlessly** via ParaView's
+`pvbatch`, so a developer gets a recognisable field-slice image without
+opening the GUI.
+
+The renderer lives at `tools/viz/geode_viz/scripts/pvbatch_render.py`. It
+is a thin wrapper over the `paraview.simple` API
+(`OpenDataFile` / `Slice` / `GetColorTransferFunction` / `SaveScreenshot`).
+
+> **ParaView is not a CI/pip dependency.** This is a local developer
+> debugging tool — install ParaView 5.x yourself
+> (<https://www.paraview.org/download/>) and run it under `pvbatch`, not
+> plain `python`. Importing the module under plain `python` fails with an
+> actionable error rather than a raw `ImportError` traceback.
+
+End-to-end (2B export → 2C render):
+
+```bash
+# 2B: export a solved field to a .vtu (producer; see the 2B issue).
+#     Writes e.g. artifacts/viz/E_patch.vtu under the gitignored tree.
+cargo run -p geode-core --example patch_antenna -- --export-field artifacts/viz/E_patch.vtu
+
+# 2C: render a z-slice coloured by |E| to a PNG (run under pvbatch).
+# Direct-path form (no PYTHONPATH needed):
+pvbatch tools/viz/geode_viz/scripts/pvbatch_render.py \
+    artifacts/viz/E_patch.vtu --slice z=0.5 --out artifacts/viz/E_patch.png
+
+# Module form, if pvbatch's interpreter can see the editable-installed
+# geode_viz package (point it at tools/viz if not):
+PYTHONPATH=tools/viz pvbatch -m geode_viz.scripts.pvbatch_render \
+    artifacts/viz/E_patch.vtu --slice z=0.5 --out artifacts/viz/E_patch.png
+```
+
+CLI flags:
+
+- `input` (positional, required): input `.vtu` `UnstructuredGrid`.
+- `--out`: output PNG. Default `artifacts/viz/renders/<stem>.png` via
+  `geode_viz.paths`, falling back to a sibling `<stem>.png` if that
+  package is not importable under `pvbatch`.
+- `--slice <axis>=<value>`: axis-aligned plane, e.g. `z=0.5`. Default: a
+  slice through the mesh bounding-box centre on the z axis.
+- `--field <name>`: `PointData` array to colour by. Default `|E|` (the
+  scalar magnitude array emitted by the Phase 2A writer).
+- `--colormap <name>`: ParaView colormap preset. Default
+  `"Viridis (matplotlib)"` (perceptually uniform).
+- `--size W H`: output image size in pixels. Default `1200 900`.
+
+`pvbatch`'s bundled Python often cannot see the `pip install -e tools/viz`
+package; prefix the command with `PYTHONPATH=tools/viz` (as above) if the
+module form or the `artifacts/viz/` default-path resolution fails. The
+output goes to the gitignored `artifacts/viz/` tree — never commit a
+rendered PNG.
+
 ## Adding a new plot module
 
 Phase 1B/1C/1D land plot scripts under
