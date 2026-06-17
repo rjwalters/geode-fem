@@ -66,6 +66,29 @@
 //!
 //! Writes `benchmarks/mie_sphere/results.toml` relative to the
 //! workspace root (located via `CARGO_MANIFEST_DIR`).
+//!
+//! # Field export (Epic #276 Phase 2B, issue #287)
+//!
+//! Passing `--export-field <path.vtu>` is an opt-in side channel that
+//! does **not** touch the eigenmode benchmark above (the `results.toml`
+//! is byte-identical with or without it). When present, the bundled
+//! sphere is solved once as a *driven scattering* problem — a plane
+//! wave `E_inc = x̂·exp(−iωz)` illuminating the `n = 1.5` dielectric
+//! sphere via the matched (full Sacks) UPML scattered-field solve
+//! (`geode_core::solve_scattered_field_matched_upml`, the same machinery
+//! as the `mie_driven_scattering` example) — and the scattered near
+//! field `E_sca(r)` is dumped to `<path.vtu>` for ParaView inspection:
+//!
+//! ```sh
+//! cargo run -p geode-core --release --example mie_sphere -- --export-field artifacts/viz/E_mie.vtu
+//! ```
+//!
+//! The default frequency is the **mid-`ka` point** of the driven
+//! benchmark sweep (`ka = 1.9`, between the TE_1,1 and TM_1,1 Mie
+//! resonances; `ω = ka / R_SPHERE`). The exported per-node `E` is the
+//! crude per-tet-vertex average of the Whitney interpolant (see
+//! `examples/viz_export_helper.rs`); a per-node `eps_r` map (n² inside
+//! the sphere, 1 outside) accompanies it.
 
 use std::fs;
 use std::path::PathBuf;
@@ -78,11 +101,15 @@ use geode_core::{
     apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
     assemble_global_nedelec_with_complex_epsilon, build_anisotropic_pml_tensor_diag,
     build_complex_epsilon_r_pml, burn_complex_mass_to_faer, burn_matrix_to_faer, mie_roots_catalog,
-    open_space_wgm_roots_n15, read_sphere_fixture, sphere_n_interior_nodes,
-    sphere_pec_interior_edges, tet_centroid_radii, tet_centroids, upload_mesh, ComplexEigenSolver,
-    DefaultBackend, FaerComplexEigensolver, MiePolarisation, MieRoot, SparseComplexEigenSolver,
-    SparseComplexShiftInvertLanczos, R_BUFFER, R_SPHERE,
+    open_space_wgm_roots_n15, plane_wave_polarization_current, read_sphere_fixture,
+    solve_scattered_field_matched_upml, sphere_n_interior_nodes, sphere_pec_interior_edges,
+    tet_centroid_radii, tet_centroids, upload_mesh, ComplexEigenSolver, DefaultBackend,
+    FaerComplexEigensolver, MiePolarisation, MieRoot, SparseComplexEigenSolver,
+    SparseComplexShiftInvertLanczos, PHYS_SPHERE_INTERIOR, R_BUFFER, R_SPHERE,
 };
+
+#[path = "common/viz_export_helper.rs"]
+mod viz_export_helper;
 
 type B = DefaultBackend;
 
@@ -635,8 +662,106 @@ fn write_toml(rows: &[Row], path: &PathBuf, scalar_pml: bool, n_modes: usize) {
     eprintln!("wrote {}", path.display());
 }
 
+/// Mid-`ka` operating point of the driven benchmark sweep
+/// (`mie_driven_scattering`'s `KA_VALUES = [1.0, 1.5, 1.9, 2.4, 3.0]`),
+/// used as the default frequency for `--export-field`. `ω = ka / R_SPHERE`.
+const EXPORT_KA: f64 = 1.9;
+
+/// Matched-UPML strength for the `--export-field` driven solve — same
+/// value as `mie_driven_scattering` (continuum round-trip attenuation
+/// `exp(−2σ₀d/3) ≈ 2e-4`).
+const EXPORT_SIGMA_0: f64 = 25.0;
+
+/// Opt-in `--export-field` path (Epic #276 Phase 2B, issue #287):
+/// solve the bundled sphere once as a driven scattering problem at the
+/// mid-`ka` point and dump the scattered near field to a `.vtu`.
+///
+/// Independent of the eigenmode benchmark — does not write
+/// `results.toml`.
+fn export_field(path: &str) {
+    use burn::tensor::backend::BackendTypes;
+    let _device = <B as BackendTypes>::Device::default();
+
+    let f = read_sphere_fixture().expect("sphere fixture load for --export-field");
+    let omega = EXPORT_KA / R_SPHERE;
+    eprintln!(
+        "=== --export-field: driven scattered-field solve at ka = {EXPORT_KA} \
+         (omega = {omega:.5}), matched UPML sigma_0 = {EXPORT_SIGMA_0} ==="
+    );
+
+    let (_mask_edges, interior) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);
+    let j_at = plane_wave_polarization_current(
+        &f.tet_physical_tags,
+        PHYS_SPHERE_INTERIOR,
+        N_INSIDE,
+        omega,
+    );
+    let sol = solve_scattered_field_matched_upml(
+        &f.mesh,
+        &f.tet_physical_tags,
+        PHYS_SPHERE_INTERIOR,
+        &interior,
+        N_INSIDE,
+        EXPORT_SIGMA_0,
+        omega,
+        j_at,
+    )
+    .expect("matched-UPML scattered-field solve for --export-field");
+    eprintln!(
+        "  solve residual_rel = {:.3e}; reconstructing per-node E (Whitney average)",
+        sol.residual_rel
+    );
+
+    let (e_re, e_im) = viz_export_helper::edge_field_to_nodes(&f.mesh, &sol.e_edges);
+
+    // Per-node eps_r: n² inside the sphere, 1 outside. Average the
+    // per-tet relative permittivity over the tets incident to each node.
+    let eps_inside = N_INSIDE * N_INSIDE;
+    let mut eps_sum = vec![0.0_f64; f.mesh.n_nodes()];
+    let mut eps_cnt = vec![0_u32; f.mesh.n_nodes()];
+    for (t, tet) in f.mesh.tets.iter().enumerate() {
+        let eps = if f.tet_physical_tags[t] == PHYS_SPHERE_INTERIOR {
+            eps_inside
+        } else {
+            1.0
+        };
+        for &v in tet.iter() {
+            eps_sum[v as usize] += eps;
+            eps_cnt[v as usize] += 1;
+        }
+    }
+    let eps_r: Vec<f64> = eps_sum
+        .iter()
+        .zip(eps_cnt.iter())
+        .map(|(&s, &c)| if c > 0 { s / c as f64 } else { 1.0 })
+        .collect();
+
+    let out = std::path::Path::new(path);
+    if let Some(parent) = out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).expect("create --export-field parent dir");
+        }
+    }
+    geode_core::viz_vtu::write_vtu(out, &f.mesh, &e_re, Some(&e_im), Some(&eps_r))
+        .expect("write --export-field .vtu");
+    eprintln!(
+        "  wrote {} ({} nodes, {} tets)",
+        out.display(),
+        f.mesh.n_nodes(),
+        f.mesh.n_tets()
+    );
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+
+    // Opt-in field export (issue #287). Short-circuits the eigenmode
+    // benchmark so a normal run is byte-identical.
+    if let Some(path) = viz_export_helper::parse_export_field(&args) {
+        export_field(&path);
+        return;
+    }
+
     let use_dense = args.iter().any(|a| a == "--dense");
     let scalar_pml = args.iter().any(|a| a == "--scalar-pml");
 

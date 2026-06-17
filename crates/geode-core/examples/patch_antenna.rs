@@ -67,6 +67,25 @@
 //! cargo run -p geode-core --release --example patch_antenna -- pattern
 //! cargo run -p geode-core --release --example patch_antenna -- pattern-matched
 //! ```
+//!
+//! # Field export (Epic #276 Phase 2B, issue #287)
+//!
+//! Passing `--export-field <path.vtu>` is an opt-in side channel that
+//! does **not** touch the S11 sweep / NTFF above (the `results.toml` is
+//! byte-identical with or without it). When present, the benchmark
+//! fixture is solved once at the **committed FEM resonant frequency**
+//! (`2.274530` GHz, the same `f_res` the `pattern` subcommand uses — the
+//! S11-dip / matched operating point of the antenna) and the driven near
+//! field `E(r)` is dumped to `<path.vtu>` for ParaView inspection:
+//!
+//! ```sh
+//! cargo run -p geode-core --release --example patch_antenna -- --export-field artifacts/viz/E_patch.vtu
+//! ```
+//!
+//! The exported per-node `E` is the crude per-tet-vertex average of the
+//! Whitney interpolant (see `examples/viz_export_helper.rs`), with a
+//! per-node `eps_r` map (FR-4 ε_r in the substrate, 1 in air/UPML)
+//! averaged from the fixture's material regions.
 
 use std::fs;
 use std::path::PathBuf;
@@ -82,6 +101,9 @@ use geode_core::{
     read_patch_smoke_fixture, s11, to_db, CurrentSource, DefaultBackend, DrivenBcs,
     DrivenMaterials, PatchCavity, PatchFixture,
 };
+
+#[path = "common/viz_export_helper.rs"]
+mod viz_export_helper;
 
 /// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.
 const ETA_0: f64 = 376.730_313_668;
@@ -812,7 +834,115 @@ fn write_pattern_toml(
     eprintln!("wrote {}", path.display());
 }
 
+/// Committed FEM resonant frequency (GHz) of the benchmark fixture —
+/// the same `f_res` the `pattern` subcommand uses, the S11-dip operating
+/// point. Default frequency for `--export-field` (issue #287).
+const EXPORT_F_RES_GHZ: f64 = 2.274530;
+
+/// Opt-in `--export-field` (Epic #276 Phase 2B, issue #287): solve the
+/// benchmark fixture once at the committed resonant frequency and dump
+/// the driven near field to `<path>` as `.vtu`.
+///
+/// Independent of the S11 sweep / NTFF — does not write `results.toml`.
+fn export_field(path: &str) {
+    use burn::tensor::backend::BackendTypes;
+    type B = DefaultBackend;
+    let device = <B as BackendTypes>::Device::default();
+
+    let fixture = read_patch_fixture().expect("bundled benchmark patch fixture for --export-field");
+    let pml_thick = pml_thick_for(FixtureChoice::Benchmark);
+    let omega = ghz_to_omega(EXPORT_F_RES_GHZ);
+    eprintln!(
+        "=== --export-field: driven solve at f_res = {EXPORT_F_RES_GHZ} GHz (omega = {omega:.5e} rad/mm) ==="
+    );
+
+    let edges = fixture.mesh.edges();
+    let patch = fixture.patch_triangles();
+    let ground = fixture.ground_triangles();
+    let outer = fixture.outer_boundary_triangles();
+    let mask = pec_interior_mask_from_triangles(
+        &edges,
+        &[patch.as_slice(), ground.as_slice(), outer.as_slice()],
+    );
+
+    let port = fixture.port();
+    let r_nat = R_PORT_OHM / ETA_0;
+    let lp = port.lumped_port(r_nat, c64::new(1.0, 0.0));
+    let source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; fixture.mesh.n_tets()],
+    };
+
+    let (air_lo, air_hi) = fixture.air_box(pml_thick);
+    let (eps_t, nu_t) =
+        fixture.matched_upml_materials(&FR4_MATERIALS, air_lo, air_hi, pml_thick, SIGMA_0, omega);
+    let sol = driven_solve_with_ports::<B>(
+        &fixture.mesh,
+        DrivenMaterials::MatchedUpml {
+            epsilon_tensor: &eps_t,
+            nu_tensor: &nu_t,
+        },
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        std::slice::from_ref(&lp),
+        omega,
+        &source,
+        &device,
+    )
+    .expect("patch driven solve for --export-field");
+    eprintln!(
+        "  solve residual_rel = {:.3e}; reconstructing per-node E (Whitney average)",
+        sol.residual_rel
+    );
+
+    let (e_re, e_im) = viz_export_helper::edge_field_to_nodes(&fixture.mesh, &sol.e_edges);
+
+    // Per-node eps_r: real part of the per-tet FR-4/air permittivity
+    // (substrate eps_r in the slab, 1 in air/UPML), averaged over the
+    // tets incident to each node.
+    let eps_tet = fixture.epsilon_r_default();
+    let mut eps_sum = vec![0.0_f64; fixture.mesh.n_nodes()];
+    let mut eps_cnt = vec![0_u32; fixture.mesh.n_nodes()];
+    for (t, tet) in fixture.mesh.tets.iter().enumerate() {
+        let eps = eps_tet[t].re;
+        for &v in tet.iter() {
+            eps_sum[v as usize] += eps;
+            eps_cnt[v as usize] += 1;
+        }
+    }
+    let eps_r: Vec<f64> = eps_sum
+        .iter()
+        .zip(eps_cnt.iter())
+        .map(|(&s, &c)| if c > 0 { s / c as f64 } else { 1.0 })
+        .collect();
+
+    let out = std::path::Path::new(path);
+    if let Some(parent) = out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).expect("create --export-field parent dir");
+        }
+    }
+    geode_core::viz_vtu::write_vtu(out, &fixture.mesh, &e_re, Some(&e_im), Some(&eps_r))
+        .expect("write --export-field .vtu");
+    eprintln!(
+        "  wrote {} ({} nodes, {} tets)",
+        out.display(),
+        fixture.mesh.n_nodes(),
+        fixture.mesh.n_tets()
+    );
+}
+
 fn main() {
+    let argv: Vec<String> = std::env::args().collect();
+
+    // Opt-in field export (issue #287). Short-circuits the S11 sweep so
+    // a normal run is byte-identical.
+    if let Some(path) = viz_export_helper::parse_export_field(&argv) {
+        export_field(&path);
+        return;
+    }
+
     let arg = std::env::args().nth(1);
     // `pattern` / `pattern-smoke` run the NTFF radiation-pattern
     // extraction instead of the S11 sweep.

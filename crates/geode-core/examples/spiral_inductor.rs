@@ -53,6 +53,26 @@
 //! ```sh
 //! cargo run -p geode-core --release --example spiral_inductor -- smoke
 //! ```
+//!
+//! # Field export (Epic #276 Phase 2B, issue #287)
+//!
+//! Passing `--export-field <path.vtu>` is an opt-in side channel that
+//! does **not** touch the extraction sweep above (the `results.toml` is
+//! byte-identical with or without it). When present, the benchmark
+//! fixture is solved once at the **low-frequency reference operating
+//! point** already used for the oracle comparison
+//! (`L_REF_GHZ = 1.0` GHz) and the driven near field `E(r)` is dumped to
+//! `<path.vtu>` for ParaView inspection:
+//!
+//! ```sh
+//! cargo run -p geode-core --release --example spiral_inductor -- --export-field artifacts/viz/E_spiral.vtu
+//! ```
+//!
+//! The exported per-node `E` is the crude per-tet-vertex average of the
+//! Whitney interpolant (see `examples/viz_export_helper.rs`). No
+//! per-node `eps_r` is exported for the spiral (the stack uses a
+//! per-region scalar permittivity that is not as cleanly nodal as the
+//! sphere/patch case) — `None` is passed.
 
 use std::fs;
 use std::path::PathBuf;
@@ -62,11 +82,14 @@ use faer::c64;
 
 use geode_core::mesh::spiral::CONDUCTOR_SIGMA_NATURAL;
 use geode_core::{
-    detect_srf, driven_frequency_sweep, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
-    pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_smoke_fixture,
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, SpiralFixture, SquareSpiral,
-    SurfaceImpedanceBc, SurfaceImpedanceModel,
+    detect_srf, driven_frequency_sweep, driven_solve_with_ports, modified_wheeler_l,
+    mohan_current_sheet_l, monomial_fit_l, pec_interior_mask_from_triangles, read_spiral_fixture,
+    read_spiral_smoke_fixture, CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials,
+    SpiralFixture, SquareSpiral, SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
+
+#[path = "common/viz_export_helper.rs"]
+mod viz_export_helper;
 
 /// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.
 const ETA_0: f64 = 376.730_313_668;
@@ -384,12 +407,90 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Opti
     eprintln!("wrote {}", path.display());
 }
 
+/// Opt-in `--export-field` (Epic #276 Phase 2B, issue #287): solve the
+/// benchmark fixture once at the low-frequency reference operating point
+/// (`L_REF_GHZ`) and dump the driven near field to `<path>` as `.vtu`.
+///
+/// Independent of the extraction sweep — does not write `results.toml`.
+fn export_field(path: &str) {
+    use burn::tensor::backend::BackendTypes;
+    type B = DefaultBackend;
+    let device = <B as BackendTypes>::Device::default();
+
+    let fixture =
+        read_spiral_fixture().expect("bundled benchmark spiral fixture for --export-field");
+    let omega = ghz_to_omega(L_REF_GHZ);
+    eprintln!(
+        "=== --export-field: driven solve at {L_REF_GHZ} GHz (omega = {omega:.6e} rad/um) ==="
+    );
+
+    let edges = fixture.mesh.edges();
+    let eps = fixture.epsilon_r_default();
+    let outer = fixture.outer_boundary_triangles();
+    let mask = pec_interior_mask_from_triangles(&edges, &[outer.as_slice()]);
+    let port = fixture.port();
+    let r_nat = R_PORT_OHM / ETA_0;
+    let lp = port.lumped_port(r_nat, c64::new(1.0, 0.0));
+    let source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; fixture.mesh.n_tets()],
+    };
+
+    // The extraction sweep adds a Leontovich conductor-surface-impedance
+    // loss term; the public single-frequency `driven_solve_with_ports`
+    // does not take surface BCs, so the visualisation field is the
+    // PEC-walls + scalar-eps near field (a debugging visual, not the
+    // loss-loaded extraction operator — see issue #287 scope).
+    let sol = driven_solve_with_ports::<B>(
+        &fixture.mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        std::slice::from_ref(&lp),
+        omega,
+        &source,
+        &device,
+    )
+    .expect("port-driven solve for --export-field");
+    eprintln!(
+        "  solve residual_rel = {:.3e}; reconstructing per-node E (Whitney average)",
+        sol.residual_rel
+    );
+
+    let (e_re, e_im) = viz_export_helper::edge_field_to_nodes(&fixture.mesh, &sol.e_edges);
+
+    let out = std::path::Path::new(path);
+    if let Some(parent) = out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).expect("create --export-field parent dir");
+        }
+    }
+    geode_core::viz_vtu::write_vtu(out, &fixture.mesh, &e_re, Some(&e_im), None)
+        .expect("write --export-field .vtu");
+    eprintln!(
+        "  wrote {} ({} nodes, {} tets)",
+        out.display(),
+        fixture.mesh.n_nodes(),
+        fixture.mesh.n_tets()
+    );
+}
+
 fn main() {
-    let choice = match std::env::args().nth(1).as_deref() {
+    let args: Vec<String> = std::env::args().collect();
+
+    // Opt-in field export (issue #287). Short-circuits the extraction
+    // sweep so a normal run is byte-identical.
+    if let Some(path) = viz_export_helper::parse_export_field(&args) {
+        export_field(&path);
+        return;
+    }
+
+    let choice = match args.get(1).map(String::as_str) {
         None => FixtureChoice::Benchmark,
         Some("smoke") => FixtureChoice::Smoke,
         Some(other) => {
-            eprintln!("unknown argument {other:?} — expected `smoke` or no argument");
+            eprintln!("unknown argument {other:?} — expected `smoke`, `--export-field <path>`, or no argument");
             std::process::exit(2);
         }
     };
