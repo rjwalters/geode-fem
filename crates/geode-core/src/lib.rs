@@ -31,6 +31,7 @@ pub mod scattering;
 pub mod silvermuller;
 pub mod silvermuller_self_consistent;
 pub mod sparse;
+pub mod viz_vtu;
 pub mod wave_port;
 pub mod waveguide_modes;
 pub(crate) mod whitney_face;
