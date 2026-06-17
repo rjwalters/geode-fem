@@ -59,6 +59,36 @@ benchmark — analytical Mie series ↔ strata FDTD ↔ GEODE-FEM eigenmode.
 | **Math correctness** | M_{ij} = ∫ N_i · N_j ε(x) dV is **complex-symmetric** (M^T = M), not Hermitian (M^H ≠ M) — the Mie inner product is bilinear, not sesquilinear. Caught during PR #55, validated by empirical check (`Im(v^H M v) ≈ −58`) and by-hand derivation. ILU(0) for COCG preserves the bilinear form (#267). |
 | **Validated chain** | 200+ PRs merged. Scalar Helmholtz cube modes, batched P1 + Nédélec local kernels with autodiff through assembly, dense (`faer::generalized_eigen`) and sparse (shift-and-invert Lanczos, complex-symmetric variant for the Mie pencil) eigensolvers, ARPACK fallback driver (`--features arpack`), all four absorbing-BC families above, Palace 3D oracle slots for patch (#239) and spiral (#266). |
 
+## Visualizations
+
+Each benchmark family ships a one-command **tearsheet** that overlays the FEM
+result on its analytic / empirical oracle. Regenerate any of them with:
+
+```sh
+python -m geode_viz.scripts.plot_benchmark <mie_sphere|spiral_inductor|patch_antenna> --tearsheet
+```
+
+(See [`tools/viz/`](tools/viz/) for the full plotting + VTK/ParaView export
+pipeline — Epic #276.)
+
+**Mie sphere** — scattering efficiencies `Q_ext` / `Q_sca` vs size parameter
+`ka`, against the Bohren & Huffman analytic series, with a per-point
+relative-error strip.
+
+![Mie sphere tearsheet](docs/images/mie_sphere_tearsheet.png)
+
+**Spiral inductor** — `|S11|` plus extracted `L` / `Q` / `R` vs frequency,
+bracketed by the Mohan analytic band and the MoM PEEC range, with the
+self-resonant frequency marked.
+
+![Spiral inductor tearsheet](docs/images/spiral_inductor_tearsheet.png)
+
+**Patch antenna** — the `|S11|` resonance dip, the input-impedance Smith
+chart, and the E-/H-plane radiation-pattern cuts (dB) against the Balanis
+cavity-model directivity oracle.
+
+![Patch antenna tearsheet](docs/images/patch_antenna_tearsheet.png)
+
 ## Roadmap
 
 ### v0 (closed)
@@ -90,6 +120,7 @@ benchmark — analytical Mie series ↔ strata FDTD ↔ GEODE-FEM eigenmode.
 - [x] **Krylov COCG iterative solver** + Jacobi (#238) and ILU(0) (#267) preconditioners
 - [x] **Iterative path wired through sweep pipelines** with `solver_mode` knob (#264)
 - [x] **Palace 3D oracle integration** for patch antenna (#239) and spiral inductor (#266)
+- [x] **Visualization tooling** — benchmark tearsheets + VTK `.vtu` field export + headless ParaView render (Epic #276)
 - [ ] **Whiteroom L4 mapping** (#5) — operator-only tracker, ongoing
 
 ## Build
