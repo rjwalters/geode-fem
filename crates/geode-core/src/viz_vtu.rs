@@ -233,6 +233,130 @@ pub fn write_vtu(
     std::fs::write(path, s)
 }
 
+/// Serialise a triangulated surface (points + `VTK_TRIANGLE` cells) plus
+/// one or more named scalar `PointData` arrays to an ASCII XML
+/// `UnstructuredGrid` (`.vtu`) file at `path`.
+///
+/// This is the sibling of [`write_vtu`] for *surface* geometry: instead of
+/// `VTK_TETRA` (type 10) volume cells it emits `VTK_TRIANGLE` (type 5)
+/// cells, each contributing three 0-based connectivity entries and a
+/// contiguous `offsets` entry equal to `3 * (cell_index + 1)`. The XML
+/// scaffolding (header, `Points`, `Cells`, `PointData`, `{:?}` f64
+/// formatting for bit-exact round-tripping) is identical to [`write_vtu`]
+/// so all `.vtu` writing stays in this one module — no `vtkio`, no new
+/// dependency.
+///
+/// It is the Phase 3A foundation of Epic #276: the patch-antenna
+/// `pattern-3d` directive uses it to write a 3D radiation-lobe surface
+/// whose vertex radius encodes normalised directivity, with `D` / `D_dB`
+/// carried as `PointData` so ParaView can colour the lobe.
+///
+/// * `points` — surface vertex coordinates, one `[x, y, z]` per point.
+/// * `tris` — triangle connectivity as 0-based indices into `points`.
+/// * `named_scalar_data` — `(name, values)` scalar `PointData` arrays; each
+///   `values` slice must have length `points.len()`. Written in order.
+///
+/// # Panics
+///
+/// Panics if any triangle index is out of range for `points`, or if any
+/// scalar array length does not equal `points.len()`. These are programmer
+/// errors (malformed surface / mismatched scalar), not I/O failures.
+pub fn write_vtu_surface(
+    path: &Path,
+    points: &[[f64; 3]],
+    tris: &[[usize; 3]],
+    named_scalar_data: &[(&str, &[f64])],
+) -> std::io::Result<()> {
+    let n_points = points.len();
+    let n_tris = tris.len();
+
+    for (ti, t) in tris.iter().enumerate() {
+        for &idx in t {
+            assert!(
+                idx < n_points,
+                "triangle {ti} references point {idx} but only {n_points} points exist"
+            );
+        }
+    }
+    for (name, values) in named_scalar_data {
+        assert_eq!(
+            values.len(),
+            n_points,
+            "scalar array {name:?} length ({}) must equal points.len() ({})",
+            values.len(),
+            n_points
+        );
+    }
+
+    let mut s = String::with_capacity(512 + n_points * 96 + n_tris * 24);
+
+    s.push_str("<?xml version=\"1.0\"?>\n");
+    s.push_str("<VTKFile type=\"UnstructuredGrid\" version=\"1.0\" byte_order=\"LittleEndian\">\n");
+    s.push_str("  <UnstructuredGrid>\n");
+    let _ = writeln!(
+        s,
+        "    <Piece NumberOfPoints=\"{n_points}\" NumberOfCells=\"{n_tris}\">"
+    );
+
+    // --- Points -----------------------------------------------------------
+    s.push_str("      <Points>\n");
+    s.push_str("        <DataArray type=\"Float64\" NumberOfComponents=\"3\" format=\"ascii\">\n");
+    for [x, y, z] in points {
+        let _ = writeln!(
+            s,
+            "          {} {} {}",
+            fmt_f64(*x),
+            fmt_f64(*y),
+            fmt_f64(*z)
+        );
+    }
+    s.push_str("        </DataArray>\n");
+    s.push_str("      </Points>\n");
+
+    // --- Cells ------------------------------------------------------------
+    s.push_str("      <Cells>\n");
+    s.push_str("        <DataArray type=\"Int64\" Name=\"connectivity\" format=\"ascii\">\n");
+    for [a, b, c] in tris {
+        let _ = writeln!(s, "          {a} {b} {c}");
+    }
+    s.push_str("        </DataArray>\n");
+
+    s.push_str("        <DataArray type=\"Int64\" Name=\"offsets\" format=\"ascii\">\n");
+    for cell in 0..n_tris {
+        let _ = writeln!(s, "          {}", 3 * (cell + 1));
+    }
+    s.push_str("        </DataArray>\n");
+
+    s.push_str("        <DataArray type=\"UInt8\" Name=\"types\" format=\"ascii\">\n");
+    for _ in 0..n_tris {
+        // 5 == VTK_TRIANGLE
+        s.push_str("          5\n");
+    }
+    s.push_str("        </DataArray>\n");
+    s.push_str("      </Cells>\n");
+
+    // --- PointData --------------------------------------------------------
+    s.push_str("      <PointData>\n");
+    for (name, values) in named_scalar_data {
+        let _ = writeln!(
+            s,
+            "        <DataArray type=\"Float64\" Name=\"{name}\" NumberOfComponents=\"1\" format=\"ascii\">"
+        );
+        for v in *values {
+            let _ = writeln!(s, "          {}", fmt_f64(*v));
+        }
+        s.push_str("        </DataArray>\n");
+    }
+    s.push_str("      </PointData>\n");
+
+    // --- Close ------------------------------------------------------------
+    s.push_str("    </Piece>\n");
+    s.push_str("  </UnstructuredGrid>\n");
+    s.push_str("</VTKFile>\n");
+
+    std::fs::write(path, s)
+}
+
 /// Format an `f64` for the ASCII data arrays with enough precision to
 /// round-trip the IEEE-754 value bit-for-bit (`{:?}` on `f64` emits the
 /// shortest decimal that parses back to the exact same bits).

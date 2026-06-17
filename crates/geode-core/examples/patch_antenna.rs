@@ -63,9 +63,19 @@
 //! reported gain is the physically meaningful number for the tuned
 //! antenna.
 //!
+//! `pattern-3d` (issue #289, Epic #276 Phase 3A) runs the same driven
+//! solve + NTFF as `pattern` on the benchmark fixture, samples the
+//! directivity `D(θ, φ)` on a 37×72 sphere, and writes a triangulated
+//! 3D radiation-*lobe* surface `.vtu` (`geode_core::viz_vtu::write_vtu_surface`,
+//! `VTK_TRIANGLE` cells) whose vertex radius is the dB-floored normalised
+//! directivity (floor −20 dB) and which carries `D` / `D_dB` as `PointData`
+//! for ParaView colouring. Output path defaults to `artifacts/viz/patch_lobe.vtu`
+//! (gitignored) or is set with `--out <path>`.
+//!
 //! ```sh
 //! cargo run -p geode-core --release --example patch_antenna -- pattern
 //! cargo run -p geode-core --release --example patch_antenna -- pattern-matched
+//! cargo run -p geode-core --release --example patch_antenna -- pattern-3d --out /tmp/lobe.vtu
 //! ```
 
 use std::fs;
@@ -75,6 +85,7 @@ use std::process::Command;
 use faer::c64;
 
 use geode_core::mesh::patch::FR4_MATERIALS;
+use geode_core::viz_vtu::write_vtu_surface;
 use geode_core::{
     broadside_directivity, directivity, driven_solve_with_ports, flux_power_box, gain,
     im_z_zero_crossings, ntff_far_field, pec_interior_mask_from_triangles, port_current,
@@ -683,6 +694,220 @@ fn extract_pattern(fixture: &PatchFixture, f_res_ghz: f64, pml_thick: f64, choic
     );
 }
 
+/// 3D radiation-lobe `(θ, φ)` sampling resolution (issue #289).
+///
+/// `LOBE_N_THETA = 37` polar samples over `[0, π]` (5° steps, inclusive of
+/// both poles) and `LOBE_N_PHI = 72` azimuth samples over `[0, 2π)` (5°
+/// steps). This is the spec's suggested 37×72 grid: dense enough that the
+/// triangulated lobe reads smoothly in ParaView (5° facets) while keeping
+/// the driven NTFF cost modest (2664 observation directions). The 2D-cut
+/// `pattern` path uses a finer 91×72 grid because it only reports 1D cuts;
+/// the 3D surface trades a little polar resolution for a balanced sphere.
+const LOBE_N_THETA: usize = 37;
+const LOBE_N_PHI: usize = 72;
+
+/// dB floor (dBi-below-peak) for the radiation-lobe vertex radius (#289).
+///
+/// The lobe vertex radius encodes *normalised* directivity. We use a
+/// dB-floored normalisation: `r = clamp((D_dB - D_dB_max - FLOOR) / -FLOOR,
+/// 0, 1)` so the peak sits at radius 1 and everything `FLOOR` dB or more
+/// below the peak collapses to the origin. A dB floor (vs raw linear)
+/// reads better for antenna lobes — it opens up the sidelobe/null structure
+/// that a linear radius would crush against zero. −20 dB is the textbook
+/// default (Balanis): it shows the first sidelobes without drowning the
+/// plot in noise-floor fuzz.
+const LOBE_DB_FLOOR: f64 = -20.0;
+
+/// Parse an `--out <path>` flag from the CLI args (after the directive).
+/// Returns `None` if absent, so the caller can fall back to a default.
+fn parse_out_flag() -> Option<PathBuf> {
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        if a == "--out" {
+            return args.next().map(PathBuf::from);
+        }
+        if let Some(rest) = a.strip_prefix("--out=") {
+            return Some(PathBuf::from(rest));
+        }
+    }
+    None
+}
+
+/// Re-solve the patch at resonance, run the NTFF (reusing the exact same
+/// `ntff_far_field` / `directivity` machinery as [`extract_pattern`]),
+/// sample `D(θ, φ)` on the `LOBE_N_THETA × LOBE_N_PHI` sphere, build a
+/// triangulated lobe whose vertex radius is the dB-floored normalised
+/// directivity, and write it to `out` as a surface `.vtu` via
+/// [`write_vtu_surface`], carrying `D` and `D_dB` as `PointData` for
+/// ParaView colouring (issue #289, Epic #276 Phase 3A).
+fn extract_pattern_3d(
+    fixture: &PatchFixture,
+    f_res_ghz: f64,
+    pml_thick: f64,
+    out: &std::path::Path,
+) {
+    use burn::tensor::backend::BackendTypes;
+    type B = DefaultBackend;
+    let device = <B as BackendTypes>::Device::default();
+
+    let edges = fixture.mesh.edges();
+    let patch = fixture.patch_triangles();
+    let ground = fixture.ground_triangles();
+    let outer = fixture.outer_boundary_triangles();
+    let mask = pec_interior_mask_from_triangles(
+        &edges,
+        &[patch.as_slice(), ground.as_slice(), outer.as_slice()],
+    );
+
+    let port = fixture.port();
+    let r_nat = R_PORT_OHM / ETA_0;
+    let lp = port.lumped_port(r_nat, c64::new(1.0, 0.0));
+    let source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; fixture.mesh.n_tets()],
+    };
+
+    let (air_lo, air_hi) = fixture.air_box(pml_thick);
+    let center: [f64; 3] = std::array::from_fn(|k| 0.5 * (air_lo[k] + air_hi[k]));
+    let half: [f64; 3] = std::array::from_fn(|k| 0.5 * (air_hi[k] - air_lo[k]));
+    let flux_lo: [f64; 3] = std::array::from_fn(|k| center[k] - (1.0 - FLUX_SHRINK) * half[k]);
+    let flux_hi: [f64; 3] = std::array::from_fn(|k| center[k] + (1.0 - FLUX_SHRINK) * half[k]);
+
+    let omega = ghz_to_omega(f_res_ghz);
+    let (eps_t, nu_t) =
+        fixture.matched_upml_materials(&FR4_MATERIALS, air_lo, air_hi, pml_thick, SIGMA_0, omega);
+    eprintln!("3D-lobe NTFF at f_res = {f_res_ghz:.4} GHz (omega = {omega:.5e} rad/mm)");
+    let sol = driven_solve_with_ports::<B>(
+        &fixture.mesh,
+        DrivenMaterials::MatchedUpml {
+            epsilon_tensor: &eps_t,
+            nu_tensor: &nu_t,
+        },
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        std::slice::from_ref(&lp),
+        omega,
+        &source,
+        &device,
+    )
+    .expect("patch driven solve for 3D lobe NTFF");
+
+    // Reuse the NTFF transform + directivity exactly (do not reimplement).
+    let ff = ntff_far_field(
+        &fixture.mesh,
+        omega,
+        &sol.e_edges,
+        flux_lo,
+        flux_hi,
+        LOBE_N_THETA,
+        LOBE_N_PHI,
+    );
+    let (d_max, d_grid) = directivity(&ff);
+    eprintln!(
+        "  D_max = {d_max:.3} ({:.2} dBi) on the {LOBE_N_THETA}x{LOBE_N_PHI} sphere",
+        to_db(d_max)
+    );
+
+    let lobe = build_lobe_surface(&ff, &d_grid, d_max);
+
+    fs::create_dir_all(out.parent().expect("out path parent")).expect("mkdir artifacts/viz");
+    write_vtu_surface(
+        out,
+        &lobe.points,
+        &lobe.tris,
+        &[("D", &lobe.d), ("D_dB", &lobe.d_db)],
+    )
+    .expect("write 3D radiation-lobe surface .vtu");
+    eprintln!(
+        "  wrote {} ({} verts, {} tris)",
+        out.display(),
+        lobe.points.len(),
+        lobe.tris.len()
+    );
+}
+
+/// Triangulated 3D radiation-lobe surface produced by [`build_lobe_surface`].
+struct LobeSurface {
+    /// Vertex coordinates (radius = dB-floored normalised directivity).
+    points: Vec<[f64; 3]>,
+    /// Triangle connectivity (0-based indices into `points`).
+    tris: Vec<[usize; 3]>,
+    /// Per-vertex un-scaled linear directivity `D` (colour scalar).
+    d: Vec<f64>,
+    /// Per-vertex directivity in dBi (`D_dB`) (colour scalar).
+    d_db: Vec<f64>,
+}
+
+/// Turn a [`geode_core::FarField`] directivity grid into a triangulated
+/// radiation-lobe surface mesh.
+///
+/// * vertex `(θ_i, φ_j)` sits at radius `r = dB-floored normalised D` along
+///   the observation direction `r̂(θ, φ)` (same convention as the NTFF
+///   `sph_basis`: `x = sinθ cosφ`, `y = sinθ sinφ`, `z = cosθ`),
+/// * triangles wrap the `LOBE_N_THETA × (LOBE_N_PHI + 1)` lat/long grid
+///   (azimuth seam closed by reusing column 0 at φ = 2π), with degenerate
+///   pole triangles dropped,
+/// * `d` carries the *un-scaled* linear `D` and `d_db` the `D_dB` (dBi) at
+///   each vertex for ParaView colouring.
+fn build_lobe_surface(ff: &geode_core::FarField, d_grid: &[f64], d_max: f64) -> LobeSurface {
+    let n_theta = ff.n_theta();
+    let n_phi = ff.n_phi();
+    // Close the azimuth seam: append a duplicate column at φ = 2π so the
+    // surface wraps. Grid width is n_phi + 1.
+    let w = n_phi + 1;
+    let d_db_max = to_db(d_max);
+
+    let mut points = Vec::with_capacity(n_theta * w);
+    let mut d_pd = Vec::with_capacity(n_theta * w);
+    let mut d_db_pd = Vec::with_capacity(n_theta * w);
+
+    for it in 0..n_theta {
+        let th = ff.theta[it];
+        let (st, ct) = th.sin_cos();
+        for jp in 0..w {
+            let ip = jp % n_phi; // seam column reuses ip = 0
+            let phi = 2.0 * std::f64::consts::PI * jp as f64 / n_phi as f64;
+            let (sp, cp) = phi.sin_cos();
+            let d = d_grid[it * n_phi + ip];
+            let d_db = to_db(d);
+            // dB-floored normalised radius in [0, 1].
+            let r = ((d_db - d_db_max - LOBE_DB_FLOOR) / -LOBE_DB_FLOOR).clamp(0.0, 1.0);
+            let r_hat = [st * cp, st * sp, ct];
+            points.push([r * r_hat[0], r * r_hat[1], r * r_hat[2]]);
+            d_pd.push(d);
+            d_db_pd.push(d_db);
+        }
+    }
+
+    let mut tris = Vec::with_capacity(2 * (n_theta - 1) * n_phi);
+    let vid = |it: usize, jp: usize| it * w + jp;
+    for it in 0..n_theta - 1 {
+        for jp in 0..n_phi {
+            // Quad (it,jp)-(it,jp+1)-(it+1,jp+1)-(it+1,jp) → two triangles.
+            let a = vid(it, jp);
+            let b = vid(it, jp + 1);
+            let c = vid(it + 1, jp + 1);
+            let d = vid(it + 1, jp);
+            // Drop degenerate triangles at the poles (θ = 0 or θ = π rows
+            // collapse to a single point, so one tri of each quad is null).
+            if it != 0 {
+                tris.push([a, b, d]);
+            }
+            if it != n_theta - 2 {
+                tris.push([b, c, d]);
+            }
+        }
+    }
+
+    LobeSurface {
+        points,
+        tris,
+        d: d_pd,
+        d_db: d_db_pd,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn write_pattern_toml(
     choice: FixtureChoice,
@@ -854,6 +1079,28 @@ fn main() {
             );
             return;
         }
+        Some("pattern-3d") => {
+            // 3D radiation-lobe surface `.vtu` export (issue #289, Epic #276
+            // Phase 3A). Same driven solve + NTFF as the `pattern` path on the
+            // benchmark fixture at the Phase-2 committed FEM resonance.
+            let out = parse_out_flag().unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join("..")
+                    .join("artifacts")
+                    .join("viz")
+                    .join("patch_lobe.vtu")
+            });
+            let fixture = read_patch_fixture().expect("bundled benchmark patch fixture");
+            let f_res_ghz = 2.274530;
+            extract_pattern_3d(
+                &fixture,
+                f_res_ghz,
+                pml_thick_for(FixtureChoice::Benchmark),
+                &out,
+            );
+            return;
+        }
         _ => {}
     }
 
@@ -863,7 +1110,7 @@ fn main() {
         Some("matched") => FixtureChoice::Matched,
         Some(other) => {
             eprintln!(
-                "unknown argument {other:?} — expected `smoke`, `matched`, `pattern`, `pattern-smoke`, `pattern-matched`, or no argument"
+                "unknown argument {other:?} — expected `smoke`, `matched`, `pattern`, `pattern-smoke`, `pattern-matched`, `pattern-3d`, or no argument"
             );
             std::process::exit(2);
         }

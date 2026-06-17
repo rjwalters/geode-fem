@@ -17,7 +17,7 @@
 
 use std::path::PathBuf;
 
-use geode_core::{cube_tet_mesh, viz_vtu::write_vtu};
+use geode_core::{cube_tet_mesh, viz_vtu::write_vtu, viz_vtu::write_vtu_surface};
 
 /// Unique tempfile path under the OS temp dir (no `tempfile` dev-dep).
 fn temp_vtu(tag: &str) -> PathBuf {
@@ -215,5 +215,117 @@ fn with_eps_r_overlay() {
     for (i, want) in eps_r.iter().enumerate() {
         let got: f64 = eps[i].parse().unwrap();
         assert_eq!(got.to_bits(), want.to_bits(), "eps_r node {i}");
+    }
+}
+
+/// Build a small known UV-sphere (lat/long grid) surface: `n_theta` polar
+/// rings × `n_phi` azimuth columns, unit radius. Returns
+/// `(points, tris, theta_scalar)` where `theta_scalar` is the polar angle
+/// at each vertex (a deterministic per-vertex scalar to round-trip).
+fn unit_sphere(n_theta: usize, n_phi: usize) -> (Vec<[f64; 3]>, Vec<[usize; 3]>, Vec<f64>) {
+    use std::f64::consts::PI;
+    let mut points = Vec::new();
+    let mut theta_scalar = Vec::new();
+    for it in 0..n_theta {
+        let th = PI * it as f64 / (n_theta - 1) as f64;
+        let (st, ct) = th.sin_cos();
+        for jp in 0..n_phi {
+            let ph = 2.0 * PI * jp as f64 / n_phi as f64;
+            let (sp, cp) = ph.sin_cos();
+            points.push([st * cp, st * sp, ct]);
+            theta_scalar.push(th);
+        }
+    }
+    let mut tris = Vec::new();
+    let vid = |it: usize, jp: usize| it * n_phi + (jp % n_phi);
+    for it in 0..n_theta - 1 {
+        for jp in 0..n_phi {
+            let a = vid(it, jp);
+            let b = vid(it, jp + 1);
+            let c = vid(it + 1, jp + 1);
+            let d = vid(it + 1, jp);
+            tris.push([a, b, d]);
+            tris.push([b, c, d]);
+        }
+    }
+    (points, tris, theta_scalar)
+}
+
+#[test]
+fn surface_writer_roundtrip() {
+    let (points, tris, theta_scalar) = unit_sphere(7, 8);
+    // A second scalar to confirm multiple PointData arrays round-trip.
+    let radius_scalar: Vec<f64> = points
+        .iter()
+        .map(|[x, y, z]| (x * x + y * y + z * z).sqrt())
+        .collect();
+
+    let path = temp_vtu("surface");
+    write_vtu_surface(
+        &path,
+        &points,
+        &tris,
+        &[("theta", &theta_scalar), ("radius", &radius_scalar)],
+    )
+    .expect("write_vtu_surface");
+    let xml = std::fs::read_to_string(&path).expect("read back");
+    let _ = std::fs::remove_file(&path);
+
+    // Header counts.
+    assert!(xml.contains(&format!("NumberOfPoints=\"{}\"", points.len())));
+    assert!(xml.contains(&format!("NumberOfCells=\"{}\"", tris.len())));
+
+    // Structural arrays present; named scalars present.
+    assert!(xml.contains("<Points>"));
+    assert!(xml.contains("Name=\"connectivity\""));
+    assert!(xml.contains("Name=\"offsets\""));
+    assert!(xml.contains("Name=\"types\""));
+    assert!(xml.contains("Name=\"theta\""));
+    assert!(xml.contains("Name=\"radius\""));
+
+    // Points round-trip bit-for-bit, 3 components per vertex.
+    let pts = extract_points(&xml);
+    assert_eq!(pts.len(), points.len() * 3);
+    for (i, node) in points.iter().enumerate() {
+        for c in 0..3 {
+            let got: f64 = pts[i * 3 + c].parse().unwrap();
+            assert_eq!(got.to_bits(), node[c].to_bits(), "point {i} comp {c}");
+        }
+    }
+
+    // Connectivity: 3 indices per triangle, all in range.
+    let conn = extract_array(&xml, "connectivity");
+    assert_eq!(conn.len(), tris.len() * 3);
+    for (i, t) in tris.iter().enumerate() {
+        for c in 0..3 {
+            let got: usize = conn[i * 3 + c].parse().unwrap();
+            assert_eq!(got, t[c], "tri {i} vertex {c}");
+            assert!(got < points.len());
+        }
+    }
+
+    // Offsets contiguous (3 per cell); all cell types == 5 (VTK_TRIANGLE).
+    let offsets = extract_array(&xml, "offsets");
+    assert_eq!(offsets.len(), tris.len());
+    for (i, off) in offsets.iter().enumerate() {
+        let got: usize = off.parse().unwrap();
+        assert_eq!(got, 3 * (i + 1), "offset {i}");
+    }
+    let types = extract_array(&xml, "types");
+    assert_eq!(types.len(), tris.len());
+    assert!(types.iter().all(|t| t == "5"), "all cells VTK_TRIANGLE");
+
+    // Scalars round-trip bit-for-bit.
+    let theta = extract_array(&xml, "theta");
+    assert_eq!(theta.len(), points.len());
+    for (i, want) in theta_scalar.iter().enumerate() {
+        let got: f64 = theta[i].parse().unwrap();
+        assert_eq!(got.to_bits(), want.to_bits(), "theta vertex {i}");
+    }
+    let radius = extract_array(&xml, "radius");
+    assert_eq!(radius.len(), points.len());
+    for (i, want) in radius_scalar.iter().enumerate() {
+        let got: f64 = radius[i].parse().unwrap();
+        assert_eq!(got.to_bits(), want.to_bits(), "radius vertex {i}");
     }
 }
