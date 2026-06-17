@@ -112,32 +112,20 @@ def _annotate_srf(ax: "plt.Axes", srf_ghz: float, *, label: bool) -> None:
     )
 
 
-def plot_lqr_vs_f(out: Path | None = None) -> Path:
-    """Plot the spiral inductor L / Q / R sweep vs frequency.
+def _draw_lqr(
+    ax_l: "plt.Axes",
+    ax_q: "plt.Axes",
+    ax_r: "plt.Axes",
+    results: dict[str, Any],
+) -> None:
+    """Draw the L / Q / R panels onto three pre-existing axes.
 
-    Three-panel figure (rows: L_eq, Q, R) sharing the frequency axis.
-    Overlays:
-
-    - Mohan L₀ horizontal band on the L panel.
-    - mom PEEC n=3 / n=4 shaded bracket on the L panel.
-    - SRF vertical guideline on every panel (from ``meta.srf_ghz``).
-    - Subtitle: first caveat from ``meta.notes``.
-    - Provenance footer: commit / fixture SHA / source TOML.
-
-    Parameters
-    ----------
-    out
-        Optional output PNG path. Defaults to
-        ``artifacts/viz/spiral_inductor/lqr_vs_f.png``.
-
-    Returns
-    -------
-    Path
-        The resolved PNG path (already written to disk).
+    The axis-only core shared by the standalone
+    :func:`plot_lqr_vs_f` and the tearsheet composer. The three axes
+    are expected to share the frequency x-axis (created with
+    ``sharex=True`` or an equivalent subgridspec). No figure-level
+    scaffolding (suptitle / footer / savefig) is touched here.
     """
-    apply_style("light")
-
-    results = load_results("spiral_inductor")
     f_ghz, l_nh, q_vals, r_ohm = _sweep_arrays(results)
 
     oracles = results.get("oracles", {})
@@ -145,10 +133,6 @@ def plot_lqr_vs_f(out: Path | None = None) -> Path:
     mom = _mom_peec_bracket(oracles)
     srf_ghz_raw = results.get("meta", {}).get("srf_ghz")
     srf_ghz = float(srf_ghz_raw) if srf_ghz_raw is not None else None
-
-    fig, (ax_l, ax_q, ax_r) = plt.subplots(
-        nrows=3, ncols=1, sharex=True, figsize=(7.5, 8.5)
-    )
 
     # --- L panel -----------------------------------------------------------
     # Split the FEM L into pre-SRF (physically meaningful inductance) and
@@ -293,6 +277,63 @@ def plot_lqr_vs_f(out: Path | None = None) -> Path:
     ax_r.set_xlabel("Frequency (GHz)")
     if use_log:
         ax_r.legend(loc="best", fontsize=8)
+
+
+def plot_lqr_vs_f(
+    out: Path | None = None,
+    *,
+    ax: "plt.Axes | None" = None,
+) -> Path | tuple["plt.Axes", "plt.Axes", "plt.Axes"]:
+    """Plot the spiral inductor L / Q / R sweep vs frequency.
+
+    Three-panel figure (rows: L_eq, Q, R) sharing the frequency axis.
+    Overlays:
+
+    - Mohan L₀ horizontal band on the L panel.
+    - mom PEEC n=3 / n=4 shaded bracket on the L panel.
+    - SRF vertical guideline on every panel (from ``meta.srf_ghz``).
+    - Subtitle: first caveat from ``meta.notes``.
+    - Provenance footer: commit / fixture SHA / source TOML.
+
+    Parameters
+    ----------
+    out
+        Optional output PNG path. Defaults to
+        ``artifacts/viz/spiral_inductor/lqr_vs_f.png``. Ignored when
+        ``ax`` is supplied.
+    ax
+        Optional pre-existing axes whose grid slot is subdivided into
+        the three L / Q / R rows (used by the tearsheet composer).
+        When supplied the panels are drawn into a 3-row subgridspec
+        carved from ``ax`` and the three new axes returned without
+        creating a standalone figure or writing a PNG. When ``None``
+        the standalone three-panel figure is built exactly as before.
+
+    Returns
+    -------
+    Path or tuple of matplotlib.axes.Axes
+        The resolved PNG path when ``ax is None``; otherwise the
+        ``(ax_l, ax_q, ax_r)`` panel axes drawn into.
+    """
+    results = load_results("spiral_inductor")
+
+    if ax is not None:
+        fig = ax.get_figure()
+        # Carve a 3-row sub-grid from the supplied slot; drop the
+        # placeholder axes so only the panels remain.
+        gridspec = ax.get_subplotspec().subgridspec(3, 1, hspace=0.08)
+        ax.remove()
+        ax_l = fig.add_subplot(gridspec[0])
+        ax_q = fig.add_subplot(gridspec[1], sharex=ax_l)
+        ax_r = fig.add_subplot(gridspec[2], sharex=ax_l)
+        _draw_lqr(ax_l, ax_q, ax_r, results)
+        return ax_l, ax_q, ax_r
+
+    apply_style("light")
+    fig, (ax_l, ax_q, ax_r) = plt.subplots(
+        nrows=3, ncols=1, sharex=True, figsize=(7.5, 8.5)
+    )
+    _draw_lqr(ax_l, ax_q, ax_r, results)
 
     # Figure-level title + italic subtitle from the first TOML note,
     # placed above the constrained-layout L panel so they don't collide

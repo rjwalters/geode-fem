@@ -23,6 +23,14 @@ By default every plot wired up for the chosen benchmark is rendered.
 Restrict to a single family with the ``--<plot>-only`` flags
 (``--s11-only`` / ``--smith-only`` / ``--lqr-only`` / ``--mie-only`` /
 ``--pattern-only``).
+
+Pass ``--tearsheet`` to instead compose the benchmark-appropriate
+panels into a single multi-panel ``tearsheet.png`` (Phase 3B, #290)::
+
+    python -m geode_viz.scripts.plot_benchmark spiral_inductor --tearsheet
+
+An optional pre-rendered field-slice / 3D-lobe PNG is embedded as an
+extra panel via ``--field-png <path>`` when the file exists.
 """
 
 from __future__ import annotations
@@ -36,6 +44,7 @@ from geode_viz.plots.mie import plot_efficiency_vs_ka
 from geode_viz.plots.pattern import plot_pattern_cut
 from geode_viz.plots.s_params import plot_s11_magnitude, plot_smith
 from geode_viz.plots.spiral import plot_lqr_vs_f
+from geode_viz.plots.tearsheet import plot_tearsheet
 
 # Benchmarks understood by the CLI. The mapping spells out which
 # plot families a benchmark exposes — used both by argparse
@@ -83,6 +92,35 @@ def _build_parser() -> argparse.ArgumentParser:
             "Mie sphere: load the fine-mesh fixture "
             "(driven_results_fine.toml, issue #215). "
             "Ignored for other benchmarks."
+        ),
+    )
+
+    parser.add_argument(
+        "--tearsheet",
+        action="store_true",
+        help=(
+            "Compose the benchmark-appropriate panels into a single "
+            "multi-panel tearsheet.png (Phase 3B). Overrides the "
+            "per-family --<plot>-only flags."
+        ),
+    )
+    parser.add_argument(
+        "--field-png",
+        type=Path,
+        default=None,
+        help=(
+            "Tearsheet only: path to a pre-rendered field-slice / 3D "
+            "lobe PNG to embed as an extra panel. Silently omitted when "
+            "the file does not exist."
+        ),
+    )
+    parser.add_argument(
+        "--tearsheet-out",
+        type=Path,
+        default=None,
+        help=(
+            "Override the tearsheet PNG output path. Defaults to "
+            "artifacts/viz/<benchmark>/tearsheet.png."
         ),
     )
 
@@ -194,6 +232,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI. Returns a POSIX-style exit code."""
     parser = _build_parser()
     args = parser.parse_args(argv)
+
+    if args.tearsheet:
+        # Tearsheet mode composes the per-benchmark panels into a single
+        # figure; the per-family --<plot>-only filters do not apply.
+        path = plot_tearsheet(
+            args.benchmark,
+            out=args.tearsheet_out,
+            variant=args.variant,
+            fine=args.fine,
+            field_png=args.field_png,
+        )
+        print(f"wrote {path}")
+        return 0
 
     available = set(_BENCHMARK_PLOTS[args.benchmark])
     requested = _plot_filter(args)
