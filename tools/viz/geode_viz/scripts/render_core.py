@@ -91,9 +91,26 @@ AXIS_NORMAL: dict[str, tuple[float, float, float]] = {
 AXIS_INDEX: dict[str, int] = {"x": 0, "y": 1, "z": 2}
 
 DEFAULT_FIELD = "|E|"
-# A perceptually-uniform default. ParaView ships "Viridis (matplotlib)"
-# as a built-in preset name.
-DEFAULT_COLORMAP = "Viridis (matplotlib)"
+# A perceptually-uniform default. ParaView renamed the matplotlib presets
+# between 5.x ("Viridis (matplotlib)") and 6.x ("Viridis"); resolve across
+# both spellings (see _preset_candidates) so the default works regardless
+# of the installed ParaView version.
+DEFAULT_COLORMAP = "Viridis"
+
+# Known preset-name aliases across ParaView versions. The requested name is
+# always tried first, then any alias, until one applies.
+_PRESET_ALIASES: dict[str, tuple[str, ...]] = {
+    "Viridis": ("Viridis (matplotlib)",),
+    "Viridis (matplotlib)": ("Viridis",),
+    "Plasma": ("Plasma (matplotlib)",),
+    "Inferno": ("Inferno (matplotlib)",),
+    "Magma": ("Magma (matplotlib)",),
+}
+
+
+def _preset_candidates(colormap: str) -> tuple[str, ...]:
+    """The requested colormap followed by any cross-version aliases."""
+    return (colormap, *_PRESET_ALIASES.get(colormap, ()))
 
 
 def parse_slice(spec: str) -> tuple[str, float]:
@@ -212,12 +229,20 @@ def render_slice(
     # the perceptually-uniform preset.
     display.RescaleTransferFunctionToDataRange(True, False)
     lut = pvsimple.GetColorTransferFunction(field)
-    try:
-        lut.ApplyPreset(colormap, True)
-    except Exception as exc:  # pragma: no cover - depends on PV preset table
+    applied = False
+    for name in _preset_candidates(colormap):
+        try:
+            # ApplyPreset returns True on success; on some builds it raises
+            # instead for an unknown name. Treat both as "not applied".
+            if lut.ApplyPreset(name, True):
+                applied = True
+                break
+        except Exception:  # pragma: no cover - depends on PV preset table
+            continue
+    if not applied:  # pragma: no cover - depends on PV preset table
         print(
-            f"warning: could not apply colormap preset {colormap!r} ({exc}); "
-            "falling back to ParaView default.",
+            f"warning: could not apply colormap preset {colormap!r} "
+            "(or any known alias); falling back to ParaView default.",
             file=sys.stderr,
         )
     display.SetScalarBarVisibility(view, True)
