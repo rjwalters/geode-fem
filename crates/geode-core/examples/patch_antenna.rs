@@ -96,6 +96,24 @@
 //! Whitney interpolant (see `examples/viz_export_helper.rs`), with a
 //! per-node `eps_r` map (FR-4 ε_r in the substrate, 1 in air/UPML)
 //! averaged from the fixture's material regions.
+//!
+//! # Frequency-sweep export (Epic #276 Phase 3C, issue #291)
+//!
+//! Passing `--export-sweep <dir>` (optionally `--f-start`/`--f-stop` in
+//! GHz and `--n <count>`, defaulting to 2.0–3.0 GHz over 11 points) is
+//! the **frequency-domain** sibling of `--export-field`: it solves the
+//! benchmark fixture once per swept source frequency `ω` and dumps one
+//! `E_<index>.vtu` per frequency into `<dir>`, plus a ParaView `.pvd`
+//! collection (`sweep.pvd`) mapping each frame to a `timestep` = the
+//! swept frequency (GHz). Each frame is byte-for-byte the
+//! `--export-field` output at that frequency; the `.pvd` lets
+//! `tools/viz/geode_viz/scripts/sweep_animate.py` render the band to an
+//! MP4 (watch the resonance build and decay across the S11 band).
+//!
+//! ```sh
+//! cargo run -p geode-core --release --example patch_antenna -- \
+//!     --export-sweep artifacts/viz/patch_sweep --f-start 2.0 --f-stop 3.0 --n 11
+//! ```
 
 use std::fs;
 use std::path::PathBuf;
@@ -1158,8 +1176,137 @@ fn export_field(path: &str) {
     );
 }
 
+/// Opt-in `--export-sweep <dir>` (Epic #276 Phase 3C, issue #291): solve
+/// the benchmark fixture across the requested frequency band and dump one
+/// `E_<index>.vtu` per swept frequency `ω` into `<dir>`, plus a ParaView
+/// `.pvd` collection (`sweep.pvd`) mapping each frame to a `timestep` =
+/// the swept frequency (GHz). `sweep_animate.py` renders the collection
+/// to an MP4.
+///
+/// This is the **frequency-domain** sibling of [`export_field`] — one
+/// driven solve per source frequency, not a time-domain `E(r, t)`. It
+/// reuses the exact same per-node field-eval ([`viz_export_helper`]) and
+/// the same fixture / mask / port / box-UPML setup as the S11 sweep, so a
+/// frame is byte-for-byte the `--export-field` output at that frequency.
+///
+/// Independent of the S11 sweep / NTFF — does not write `results.toml`.
+fn export_sweep(spec: &viz_export_helper::SweepSpec) {
+    use burn::tensor::backend::BackendTypes;
+    type B = DefaultBackend;
+    let device = <B as BackendTypes>::Device::default();
+
+    let fixture = read_patch_fixture().expect("bundled benchmark patch fixture for --export-sweep");
+    let pml_thick = pml_thick_for(FixtureChoice::Benchmark);
+    let freqs = spec.freqs_ghz();
+    eprintln!(
+        "=== --export-sweep: {} frame(s) over {:.4}–{:.4} GHz into {} ===",
+        freqs.len(),
+        spec.f_start_ghz,
+        spec.f_stop_ghz,
+        spec.dir,
+    );
+
+    let edges = fixture.mesh.edges();
+    let patch = fixture.patch_triangles();
+    let ground = fixture.ground_triangles();
+    let outer = fixture.outer_boundary_triangles();
+    let mask = pec_interior_mask_from_triangles(
+        &edges,
+        &[patch.as_slice(), ground.as_slice(), outer.as_slice()],
+    );
+
+    let port = fixture.port();
+    let r_nat = R_PORT_OHM / ETA_0;
+    let lp = port.lumped_port(r_nat, c64::new(1.0, 0.0));
+    let source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; fixture.mesh.n_tets()],
+    };
+    let (air_lo, air_hi) = fixture.air_box(pml_thick);
+
+    // Per-node eps_r map (FR-4 in the slab, 1 in air/UPML) — ω-independent,
+    // so build it once and reuse for every frame.
+    let eps_tet = fixture.epsilon_r_default();
+    let mut eps_sum = vec![0.0_f64; fixture.mesh.n_nodes()];
+    let mut eps_cnt = vec![0_u32; fixture.mesh.n_nodes()];
+    for (t, tet) in fixture.mesh.tets.iter().enumerate() {
+        let eps = eps_tet[t].re;
+        for &v in tet.iter() {
+            eps_sum[v as usize] += eps;
+            eps_cnt[v as usize] += 1;
+        }
+    }
+    let eps_r: Vec<f64> = eps_sum
+        .iter()
+        .zip(eps_cnt.iter())
+        .map(|(&s, &c)| if c > 0 { s / c as f64 } else { 1.0 })
+        .collect();
+
+    let dir = std::path::Path::new(&spec.dir);
+    std::fs::create_dir_all(dir).expect("create --export-sweep output dir");
+
+    let mut frames: Vec<(f64, String)> = Vec::with_capacity(freqs.len());
+    for (i, &f_ghz) in freqs.iter().enumerate() {
+        let omega = ghz_to_omega(f_ghz);
+        // Box-UPML tensors are ω-dependent → rebuild per frequency.
+        let (eps_t, nu_t) = fixture.matched_upml_materials(
+            &FR4_MATERIALS,
+            air_lo,
+            air_hi,
+            pml_thick,
+            SIGMA_0,
+            omega,
+        );
+        let sol = driven_solve_with_ports::<B>(
+            &fixture.mesh,
+            DrivenMaterials::MatchedUpml {
+                epsilon_tensor: &eps_t,
+                nu_tensor: &nu_t,
+            },
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &mask,
+            },
+            std::slice::from_ref(&lp),
+            omega,
+            &source,
+            &device,
+        )
+        .unwrap_or_else(|e| panic!("driven solve at {f_ghz} GHz for --export-sweep: {e}"));
+
+        let (e_re, e_im) = viz_export_helper::edge_field_to_nodes(&fixture.mesh, &sol.e_edges);
+        let file = format!("E_{i:04}.vtu");
+        let out = dir.join(&file);
+        geode_core::viz_vtu::write_vtu(&out, &fixture.mesh, &e_re, Some(&e_im), Some(&eps_r))
+            .expect("write --export-sweep frame .vtu");
+        eprintln!(
+            "  frame {i:>3}/{}: f = {f_ghz:6.4} GHz (res = {:.1e}) → {}",
+            freqs.len(),
+            sol.residual_rel,
+            file,
+        );
+        // `.pvd` DataSet paths are relative to the collection file.
+        frames.push((f_ghz, file));
+    }
+
+    let pvd = dir.join("sweep.pvd");
+    viz_export_helper::write_pvd(&pvd, &frames).expect("write --export-sweep .pvd collection");
+    eprintln!(
+        "  wrote {} ({} frames; render with tools/viz/geode_viz/scripts/sweep_animate.py)",
+        pvd.display(),
+        frames.len(),
+    );
+}
+
 fn main() {
     let argv: Vec<String> = std::env::args().collect();
+
+    // Opt-in frequency-sweep field export (issue #291). Short-circuits the
+    // S11 sweep so a normal run is byte-identical. Checked before
+    // `--export-field` so the more specific `--export-sweep` directive wins.
+    if let Some(spec) = viz_export_helper::parse_export_sweep(&argv) {
+        export_sweep(&spec);
+        return;
+    }
 
     // Opt-in field export (issue #287). Short-circuits the S11 sweep so
     // a normal run is byte-identical.

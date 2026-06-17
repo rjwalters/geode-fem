@@ -249,6 +249,86 @@ module form or the `artifacts/viz/` default-path resolution fails. The
 output goes to the gitignored `artifacts/viz/` tree — never commit a
 rendered PNG.
 
+## Phase 3C: frequency-sweep animation (.pvd → ffmpeg → MP4) (#291)
+
+Phase 3C is the last item of Epic #276. It turns a frequency sweep of
+exported `.vtu` fields into an MP4 so a developer can watch a resonance
+build and decay as the source frequency steps across a band — the key
+debugging artifact for resonant structures (the patch antenna).
+
+> **Frequency-domain, not time-domain.** GEODE-FEM is a frequency-domain
+> solver: this is **not** an `E(r, t)` movie. "Animation" means one
+> rendered frame per *source frequency* `ω`, stitched into a video.
+
+The pipeline composes the 2B field export and the 2C render core (it does
+not introduce new field/render logic):
+
+1. **Sweep export (Rust).** `patch_antenna -- --export-sweep <dir>` solves
+   the benchmark fixture once per swept frequency and writes one
+   `E_<index>.vtu` per frequency into `<dir>`, plus a ParaView `.pvd`
+   collection (`sweep.pvd`) mapping each frame to a `timestep` = the swept
+   frequency (GHz). Each frame is byte-for-byte the `--export-field`
+   output at that frequency (same 2B per-node field eval). The `.pvd` is
+   hand-rolled XML (no deps), consistent with the Phase 2A `.vtu` writer.
+2. **Render + stitch (Python).**
+   `tools/viz/geode_viz/scripts/sweep_animate.py` reads the `.pvd`, renders
+   each frame with the **same** slice/colormap core as `pvbatch_render.py`
+   (refactored into the shared `geode_viz.scripts.render_core` so 2C and 3C
+   cannot diverge), then shells out to `ffmpeg` to stitch
+   `frame_%04d.png` → an MP4 (configurable fps, default 10).
+
+> **Neither ParaView nor ffmpeg is a CI/pip dependency.** Both are
+> local-only developer tools. The render step runs under ParaView's
+> bundled Python (`pvbatch`); a plain-`python` invocation fails with an
+> actionable "run under pvbatch" message. A missing `ffmpeg` binary fails
+> with a clear, actionable error too (and `--frames-only` lets you get the
+> PNG frames without it).
+
+End-to-end (3C):
+
+```bash
+# (1) Rust: export one .vtu per swept frequency + sweep.pvd.
+#     --f-start / --f-stop are GHz; --n is the frame count
+#     (defaults: 2.0–3.0 GHz over 11 points).
+cargo run -p geode-core --release --example patch_antenna -- \
+    --export-sweep artifacts/viz/patch_sweep --f-start 2.0 --f-stop 3.0 --n 11
+
+# (2) Python: render frames + stitch to MP4, under pvbatch (ParaView 5.x).
+#     Direct-path form (no PYTHONPATH needed):
+pvbatch tools/viz/geode_viz/scripts/sweep_animate.py \
+    artifacts/viz/patch_sweep/sweep.pvd \
+    --out artifacts/viz/patch_sweep.mp4 --fps 10
+
+# Module form, if pvbatch can see the editable-installed package:
+PYTHONPATH=tools/viz pvbatch -m geode_viz.scripts.sweep_animate \
+    artifacts/viz/patch_sweep/sweep.pvd --out artifacts/viz/patch_sweep.mp4
+
+# Render the PNG frames only (skip the ffmpeg stitch):
+pvbatch tools/viz/geode_viz/scripts/sweep_animate.py \
+    artifacts/viz/patch_sweep/sweep.pvd --frames-only
+```
+
+`sweep_animate.py` CLI flags:
+
+- `pvd` (positional, required): the `.pvd` collection from the sweep
+  export.
+- `--out`: output MP4. Default `artifacts/viz/animations/<name>.mp4` (name
+  from the `.pvd`'s parent dir) via `geode_viz.paths`, falling back to a
+  sibling `<dir>.mp4`.
+- `--frames-dir`: directory for the `frame_%04d.png` images. Default: a
+  `frames/` subdirectory next to the `.pvd`.
+- `--fps`: frames per second for the MP4 (default `10`).
+- `--frames-only`: render the PNG frames but skip the ffmpeg stitch.
+- `--ffmpeg`: ffmpeg binary name or path (default `ffmpeg` on `PATH`).
+- `--slice` / `--field` / `--colormap` / `--size`: identical to
+  `pvbatch_render.py` (shared `render_core`) — axis-aligned slice plane,
+  `PointData` array to colour by (default `|E|`), colormap preset (default
+  `"Viridis (matplotlib)"`), and frame size in pixels (default `1200 900`).
+
+The camera is reset once on the first frame and then frozen so the sweep
+doesn't jitter as the per-frame field range shifts. Output goes to the
+gitignored `artifacts/viz/` tree — never commit frames or MP4s.
+
 ## Adding a new plot module
 
 Phase 1B/1C/1D land plot scripts under

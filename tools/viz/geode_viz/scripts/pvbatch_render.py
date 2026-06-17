@@ -7,6 +7,13 @@ by ``geode_core::viz_vtu`` (Phase 2A/2B), applies a single axis-aligned
 with a perceptually-uniform colormap, and writes a PNG — all without
 opening the ParaView GUI.
 
+The slice/colormap render core is shared with the Phase 3C
+frequency-sweep animator (``sweep_animate.py``) via
+``geode_viz.scripts.render_core`` — a single change there updates both
+render paths so 2C and 3C cannot diverge (refactor for #291). This
+script is the single-frame entry point; the sweep animator drives the
+same core once per swept frequency.
+
 It is a thin, well-commented wrapper over the ``paraview.simple`` API
 (``OpenDataFile`` / ``Slice`` / ``GetColorTransferFunction`` /
 ``SaveScreenshot``) intended as a developer debugging tool. **ParaView
@@ -46,97 +53,19 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-# --- ParaView import guard ------------------------------------------------
-#
-# ``paraview.simple`` only exists inside ParaView's bundled Python, which
-# you reach via ``pvbatch`` (or ``pvpython``). Plain ``python3 -m ...`` will
-# not find it. Rather than let an opaque ``ModuleNotFoundError`` traceback
-# escape, we catch it and surface an actionable message. We keep the import
-# lazy-ish here (module scope, but guarded) so that ``main`` can still parse
-# args and so importing the module for a smoke test produces the friendly
-# error, not a stack trace.
-_PARAVIEW_IMPORT_ERROR: ModuleNotFoundError | None = None
-try:  # pragma: no cover - depends on the runtime interpreter
-    from paraview import simple as pvsimple
-except ModuleNotFoundError as exc:  # pragma: no cover - exercised under plain python
-    pvsimple = None  # type: ignore[assignment]
-    _PARAVIEW_IMPORT_ERROR = exc
+# Shared render core (slice/colormap + ParaView import guard). Prefer the
+# package import; fall back to a sys.path insertion for the direct-path
+# pvbatch form (``pvbatch .../pvbatch_render.py``) where the editable
+# install is not on pvbatch's bundled-Python PYTHONPATH.
+try:
+    from geode_viz.scripts import render_core
+except ModuleNotFoundError:  # pragma: no cover - direct-path pvbatch form
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from geode_viz.scripts import render_core
 
-
-class ParaViewUnavailableError(RuntimeError):
-    """Raised when ``paraview.simple`` is not importable.
-
-    The message points the developer at ``pvbatch`` so a plain-``python``
-    invocation fails loudly and usefully instead of with a raw
-    ``ImportError`` traceback (acceptance criterion for #288).
-    """
-
-
-def _require_paraview() -> None:
-    """Fail with an actionable message if ``paraview.simple`` is missing."""
-    if pvsimple is None:
-        raise ParaViewUnavailableError(
-            "Could not import 'paraview.simple'. This renderer must run "
-            "under ParaView's bundled Python — use 'pvbatch', not plain "
-            "'python'/'python3'. Example:\n"
-            "    pvbatch tools/viz/geode_viz/scripts/pvbatch_render.py "
-            "artifacts/viz/E_patch.vtu --out artifacts/viz/E_patch.png\n"
-            "Install ParaView 5.x locally (https://www.paraview.org/download/). "
-            "ParaView is intentionally NOT a CI/pip dependency of geode_viz; "
-            "this is a local developer debugging tool.\n"
-            f"(underlying import error: {_PARAVIEW_IMPORT_ERROR})"
-        )
-
-
-# --- CLI helpers ----------------------------------------------------------
-
-_AXES: tuple[str, ...] = ("x", "y", "z")
-# Map each slice axis to its plane normal (axis-aligned cut).
-_AXIS_NORMAL: dict[str, tuple[float, float, float]] = {
-    "x": (1.0, 0.0, 0.0),
-    "y": (0.0, 1.0, 0.0),
-    "z": (0.0, 0.0, 1.0),
-}
-_AXIS_INDEX: dict[str, int] = {"x": 0, "y": 1, "z": 2}
-
-_DEFAULT_FIELD = "|E|"
-# A perceptually-uniform default. ParaView ships "Viridis (matplotlib)"
-# as a built-in preset name.
-_DEFAULT_COLORMAP = "Viridis (matplotlib)"
-
-
-def _parse_slice(spec: str) -> tuple[str, float]:
-    """Parse a ``--slice`` spec of the form ``<axis>=<value>``.
-
-    Returns ``(axis, value)`` where ``axis`` is one of ``x``/``y``/``z``.
-    Raises :class:`ValueError` on malformed input so argparse can surface
-    a clean error.
-    """
-    if "=" not in spec:
-        raise ValueError(
-            f"--slice must be '<axis>=<value>' (e.g. 'z=0.5'), got {spec!r}"
-        )
-    axis_raw, _, value_raw = spec.partition("=")
-    axis = axis_raw.strip().lower()
-    if axis not in _AXES:
-        raise ValueError(
-            f"--slice axis must be one of {_AXES}, got {axis_raw!r}"
-        )
-    try:
-        value = float(value_raw.strip())
-    except ValueError as exc:
-        raise ValueError(
-            f"--slice value must be a number, got {value_raw!r}"
-        ) from exc
-    return axis, value
-
-
-def _slice_arg(spec: str) -> tuple[str, float]:
-    """argparse ``type=`` adapter that re-raises as ``ArgumentTypeError``."""
-    try:
-        return _parse_slice(spec)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
+ParaViewUnavailableError = render_core.ParaViewUnavailableError
+_DEFAULT_FIELD = render_core.DEFAULT_FIELD
+_DEFAULT_COLORMAP = render_core.DEFAULT_COLORMAP
 
 
 def _default_out(input_vtu: Path) -> Path:
@@ -185,7 +114,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--slice",
         dest="slice_spec",
-        type=_slice_arg,
+        type=render_core.slice_arg,
         default=None,
         metavar="AXIS=VALUE",
         help=(
@@ -217,86 +146,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-# --- Render ---------------------------------------------------------------
-
-
-def render(
-    input_vtu: Path,
-    out_png: Path,
-    *,
-    slice_spec: tuple[str, float] | None,
-    field: str,
-    colormap: str,
-    size: tuple[int, int],
-) -> Path:
-    """Render a single axis-aligned slice of ``input_vtu`` to ``out_png``.
-
-    Requires ``paraview.simple`` (run under ``pvbatch``). Returns the
-    written PNG path.
-    """
-    _require_paraview()
-
-    if not input_vtu.is_file():
-        raise FileNotFoundError(f"input .vtu not found: {input_vtu}")
-
-    # OpenDataFile auto-selects the XML UnstructuredGrid reader for .vtu.
-    reader = pvsimple.OpenDataFile(str(input_vtu))
-    if reader is None:
-        raise RuntimeError(f"ParaView could not open {input_vtu}")
-    pvsimple.UpdatePipeline(proxy=reader)
-
-    # Resolve the slice plane. The default cuts through the bbox centre on
-    # z; an explicit --slice overrides the chosen axis offset.
-    bounds = reader.GetDataInformation().GetBounds()  # (xmin,xmax,ymin,...)
-    centre = (
-        0.5 * (bounds[0] + bounds[1]),
-        0.5 * (bounds[2] + bounds[3]),
-        0.5 * (bounds[4] + bounds[5]),
-    )
-    if slice_spec is None:
-        axis, value = "z", centre[_AXIS_INDEX["z"]]
-    else:
-        axis, value = slice_spec
-
-    origin = list(centre)
-    origin[_AXIS_INDEX[axis]] = value
-
-    slice_filter = pvsimple.Slice(Input=reader)
-    slice_filter.SliceType = "Plane"
-    slice_filter.SliceType.Origin = origin
-    slice_filter.SliceType.Normal = list(_AXIS_NORMAL[axis])
-    pvsimple.UpdatePipeline(proxy=slice_filter)
-
-    # Display the slice and colour it by the requested PointData scalar.
-    view = pvsimple.GetActiveViewOrCreate("RenderView")
-    view.ViewSize = list(size)
-    view.OrientationAxesVisibility = 0
-
-    display = pvsimple.Show(slice_filter, view)
-    pvsimple.ColorBy(display, ("POINTS", field))
-
-    # Rescale the lookup table to the field range on the slice and apply
-    # the perceptually-uniform preset.
-    display.RescaleTransferFunctionToDataRange(True, False)
-    lut = pvsimple.GetColorTransferFunction(field)
-    try:
-        lut.ApplyPreset(colormap, True)
-    except Exception as exc:  # pragma: no cover - depends on PV preset table
-        print(
-            f"warning: could not apply colormap preset {colormap!r} ({exc}); "
-            "falling back to ParaView default.",
-            file=sys.stderr,
-        )
-    display.SetScalarBarVisibility(view, True)
-
-    pvsimple.ResetCamera(view)
-    pvsimple.Render(view)
-
-    out_png.parent.mkdir(parents=True, exist_ok=True)
-    pvsimple.SaveScreenshot(str(out_png), view, ImageResolution=list(size))
-    return out_png
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI. Returns a POSIX-style exit code."""
     parser = _build_parser()
@@ -305,7 +154,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Fail fast with the actionable message before doing any work — this is
     # the path hit when someone runs the script under plain python.
     try:
-        _require_paraview()
+        render_core.require_paraview()
     except ParaViewUnavailableError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -313,7 +162,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     out_png = args.out if args.out is not None else _default_out(args.input)
 
     try:
-        written = render(
+        written = render_core.render_slice(
             args.input,
             out_png,
             slice_spec=args.slice_spec,

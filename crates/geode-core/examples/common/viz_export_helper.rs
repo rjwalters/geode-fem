@@ -40,6 +40,15 @@
 //! averaging) if the crude per-tet-vertex average proves too noisy for
 //! the intended ParaView inspection.
 
+// This module is `#[path]`-included by three examples, but not every
+// example exercises every item: `parse_export_field` / `edge_field_to_nodes`
+// are used by all three, while the Phase 3C sweep helpers (`SweepSpec`,
+// `parse_export_sweep`, `write_pvd`) are only used by `patch_antenna`. The
+// unused-in-this-binary items would otherwise trip `-D warnings` dead-code
+// in the mie/spiral binaries, so allow it module-wide for this shared
+// example helper.
+#![allow(dead_code)]
+
 use faer::c64;
 
 use geode_core::TetMesh;
@@ -71,6 +80,125 @@ pub fn parse_export_field(args: &[String]) -> Option<String> {
         }
     }
     None
+}
+
+/// A frequency-sweep field-export request parsed from the example argv
+/// (Epic #276 Phase 3C, issue #291).
+///
+/// The sweep writes one `E_<index>.vtu` per swept frequency into
+/// [`dir`] plus a ParaView `.pvd` collection ([`write_pvd`]) so
+/// `sweep_animate.py` can render the band as an MP4. It is the
+/// frequency-domain sibling of [`parse_export_field`]: one driven solve
+/// per source frequency `ω`, not a time-domain `E(r, t)`.
+pub struct SweepSpec {
+    /// Output directory for the `E_<index>.vtu` frames and the `.pvd`.
+    pub dir: String,
+    /// Sweep start frequency (GHz, inclusive).
+    pub f_start_ghz: f64,
+    /// Sweep stop frequency (GHz, inclusive).
+    pub f_stop_ghz: f64,
+    /// Number of swept frequencies (frames). Must be `>= 1`.
+    pub n: usize,
+}
+
+impl SweepSpec {
+    /// The swept frequencies (GHz), evenly spaced over
+    /// `[f_start_ghz, f_stop_ghz]` inclusive. A single-point sweep
+    /// (`n == 1`) returns just `f_start_ghz`.
+    pub fn freqs_ghz(&self) -> Vec<f64> {
+        if self.n <= 1 {
+            return vec![self.f_start_ghz];
+        }
+        let step = (self.f_stop_ghz - self.f_start_ghz) / (self.n - 1) as f64;
+        (0..self.n)
+            .map(|i| self.f_start_ghz + step * i as f64)
+            .collect()
+    }
+}
+
+/// Scan `args` (the full process argv) for the opt-in
+/// `--export-sweep <dir>` directive and its companion flags and return
+/// the parsed [`SweepSpec`] when present.
+///
+/// Spellings (matching the by-hand positional style the examples use):
+///
+/// * `--export-sweep <dir>` (flag + following token), or
+/// * `--export-sweep=<dir>`.
+///
+/// The band/count flags are `--f-start <ghz>`, `--f-stop <ghz>`, and
+/// `--n <count>` (each also accepts the `--flag=value` spelling).
+/// `--f-start` / `--f-stop` default to the patch S11-band 2.0 / 3.0 GHz
+/// and `--n` defaults to 11 when omitted, so `--export-sweep <dir>`
+/// alone is a usable invocation.
+///
+/// Returns `None` when `--export-sweep` is absent, leaving the example's
+/// default benchmark behaviour byte-for-byte unchanged.
+pub fn parse_export_sweep(args: &[String]) -> Option<SweepSpec> {
+    fn flag_value(args: &[String], name: &str) -> Option<String> {
+        let mut it = args.iter();
+        let eq = format!("{name}=");
+        while let Some(a) = it.next() {
+            if a == name {
+                return it.next().cloned();
+            }
+            if let Some(rest) = a.strip_prefix(&eq) {
+                return Some(rest.to_string());
+            }
+        }
+        None
+    }
+
+    let dir = flag_value(args, "--export-sweep")?;
+    let f_start_ghz = flag_value(args, "--f-start")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2.0);
+    let f_stop_ghz = flag_value(args, "--f-stop")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3.0);
+    let n = flag_value(args, "--n")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(11usize)
+        .max(1);
+    Some(SweepSpec {
+        dir,
+        f_start_ghz,
+        f_stop_ghz,
+        n,
+    })
+}
+
+/// Write a ParaView `.pvd` collection mapping each `E_<index>.vtu` frame
+/// to a `timestep` (the swept frequency in GHz), so ParaView (and
+/// `sweep_animate.py`) treats the frequency sweep as a time-series.
+///
+/// `frames` is `(timestep, file_name)` pairs where `file_name` is the
+/// frame's path **relative to the `.pvd`** (e.g. `E_0000.vtu`) — keeping
+/// it relative lets the collection move with its directory. The `.pvd`
+/// format is a tiny hand-rolled XML, consistent with the Phase 2A `.vtu`
+/// writer (no XML dependency):
+///
+/// ```xml
+/// <?xml version="1.0"?>
+/// <VTKFile type="Collection" version="0.1" byte_order="LittleEndian">
+///   <Collection>
+///     <DataSet timestep="2.0" group="" part="0" file="E_0000.vtu"/>
+///     ...
+///   </Collection>
+/// </VTKFile>
+/// ```
+pub fn write_pvd(path: &std::path::Path, frames: &[(f64, String)]) -> std::io::Result<()> {
+    let mut s = String::new();
+    s.push_str("<?xml version=\"1.0\"?>\n");
+    s.push_str("<VTKFile type=\"Collection\" version=\"0.1\" byte_order=\"LittleEndian\">\n");
+    s.push_str("  <Collection>\n");
+    for (timestep, file) in frames {
+        s.push_str(&format!(
+            "    <DataSet timestep=\"{timestep}\" group=\"\" part=\"0\" file=\"{file}\"/>\n"
+        ));
+    }
+    s.push_str("  </Collection>\n");
+    s.push_str("</VTKFile>\n");
+    std::fs::write(path, s)
 }
 
 /// Cross product of two 3-vectors.
