@@ -1421,8 +1421,10 @@ pub struct DielectricMode {
 /// "fundamental" (seen at `ny=60`). The genuine guided band, by contrast,
 /// floors at `r ≈ 8.5×10⁻²`, leaving a clean ~5× gap above the
 /// weakly-resolved spurious ceiling (`≈ 1.7×10⁻²`). We therefore reject
-/// eigenpairs below a floor centred in that gap (`3×10⁻²`, with adaptive
-/// widening into any clean ≥10× gap above it); see [`physical_curl_floor`].
+/// eigenpairs below a fixed floor centred in that gap (`3×10⁻²`); see
+/// [`physical_curl_floor`] for why a fixed floor is used rather than any
+/// adaptive gap-widening (an out-of-window spike can drive widening above
+/// the genuine band and return zero modes).
 ///
 /// Eigenpairs with `β² ≥ n_core² k₀²` are the above-core cluster;
 /// eigenpairs with `β² ≤ n_clad² k₀²` are radiation/substrate modes;
@@ -1492,7 +1494,7 @@ pub fn solve_dielectric_modes(
     // gap in the sorted curl-energy ratios and keep only candidates on the
     // high-r side of that gap. The threshold then adapts to the actual
     // spectrum at each resolution rather than being pinned to one mesh.
-    let curl_floor = physical_curl_floor(&cands);
+    let curl_floor = physical_curl_floor();
 
     // ----- Classify -------------------------------------------------
     let mut interior_to_full: Vec<usize> = Vec::with_capacity(n_edges);
@@ -1708,49 +1710,27 @@ pub(crate) fn dielectric_raw_candidates(
 /// comfortable margin on both sides. This is the recalibrated, principled
 /// replacement for the too-low `1e-3`.
 ///
-/// # Adaptive widening
+/// # Why a fixed floor (no adaptive widening)
 ///
-/// To avoid pinning the answer to one calibration constant, we also detect
-/// the largest multiplicative gap in the sorted curl ratios; if a clean
-/// `≥ 10×` gap exists *above* the base floor, we raise the floor into that
-/// gap (its geometric mean). The floor is never lowered below the base
-/// constant, so a weakly-resolved gradient mode is always rejected.
-fn physical_curl_floor(cands: &[RawDielectricCandidate]) -> f64 {
+/// A data-driven floor that widens into the largest multiplicative gap in
+/// the *full* candidate spectrum is fragile: an **out-of-window** high-curl
+/// eigenpair *above* the `n_core` ceiling (e.g. a radiation/continuum spike
+/// at `n_eff ≈ 3.52`, `r ≈ 35`, far above the genuine band ceiling
+/// `r ≈ 0.19`) creates an enormous (`~180×`) gap, and a widening rule raises
+/// the floor into it — rejecting *every* genuine in-window mode and
+/// returning zero bound modes. That regression was observed at
+/// `ny=100/nx=5`. Because the calibrated gap `(1.7×10⁻², 8.5×10⁻²)` holds at
+/// every resolution swept (40/50/60/70/80/90/100/120), the fixed `3×10⁻²`
+/// floor alone is the robust choice: it rejects the pure gradient nullspace
+/// (`r ≈ 10⁻¹⁶`) and the weakly-resolved spurious band (`r ≤ 1.7×10⁻²`)
+/// while keeping the genuine guided band (`r ≥ 8.5×10⁻²`), and can never be
+/// pushed above the genuine band by an out-of-window spike. A pure gradient
+/// mode at `r ≈ 0` is therefore always rejected.
+fn physical_curl_floor() -> f64 {
     // Calibrated base floor: centred in the measured gap between the
     // weakly-resolved spurious band (≤ ~1.7e-2) and the genuine guided
     // band (≥ ~8.5e-2). See the function docs for the refinement sweep.
-    const BASE_FLOOR: f64 = 3e-2;
-    const MIN_GAP_DECADES: f64 = 1.0; // require ≥ 10× separation to widen
-
-    let mut rs: Vec<f64> = cands
-        .iter()
-        .map(|c| c.curl_ratio)
-        .filter(|r| r.is_finite() && *r > 0.0)
-        .collect();
-    if rs.len() < 2 {
-        return BASE_FLOOR;
-    }
-    rs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    // Largest multiplicative gap between adjacent sorted ratios whose
-    // geometric mean sits at or above the base floor (so we only ever
-    // *widen* into a clean physical gap — never use the huge
-    // nullspace-to-physical gap to lower the floor).
-    let mut best_gap = 1.0_f64;
-    let mut floor_in_gap = BASE_FLOOR;
-    for w in rs.windows(2) {
-        let (lo, hi) = (w[0], w[1]);
-        let geom_mean = (lo * hi).sqrt();
-        let gap = hi / lo;
-        if gap > best_gap && geom_mean >= BASE_FLOOR {
-            best_gap = gap;
-            floor_in_gap = geom_mean;
-        }
-    }
-    if best_gap.log10() >= MIN_GAP_DECADES {
-        floor_in_gap.max(BASE_FLOOR)
-    } else {
-        BASE_FLOOR
-    }
+    3e-2
 }
 
 /// Analytic effective index of the **fundamental TE mode** of a symmetric
@@ -2635,6 +2615,79 @@ mod tests {
         }
     }
 
+    /// **Off-grid regression: production solver returns the genuine
+    /// fundamental at an un-pinned mesh** (Epic #303 Phase 1B, issue #305 —
+    /// Judge feedback on PR #308).
+    ///
+    /// The multi-resolution sweep above pins ny ∈ {40,60,80,120}. None of
+    /// those happens to surface a dominant *out-of-window* high-curl spike,
+    /// so a data-driven gap-widening floor stayed inert there. At the
+    /// off-grid refinement point **ny=100/nx=5** the raw spectrum contains
+    /// an out-of-window eigenpair at `n_eff ≈ 3.52`, `r ≈ 35` (above the
+    /// `n_core` ceiling), which a widening rule would fold into the floor,
+    /// driving it to `≈ 9.4` — above the genuine band ceiling `r ≈ 0.19` —
+    /// so `solve_dielectric_modes` returned **zero** modes. This test pins
+    /// the *production* path (`solve_dielectric_modes`, not the raw-candidate
+    /// harness) at that exact mesh and asserts a non-empty bound set whose
+    /// fundamental is the genuine guided mode (`n_clad < n_eff < n_core`,
+    /// `n_eff < 3.0`, and within 2.5 % of the slab oracle — the same coarse-
+    /// mesh tolerance as the multi-resolution sweep).
+    #[test]
+    fn dielectric_fundamental_off_grid_ny100() {
+        let n_core = 3.45_f64;
+        let n_clad = 1.45_f64;
+        let eps_core = n_core * n_core;
+        let eps_clad = n_clad * n_clad;
+        let lambda = 1.55_f64;
+        let k0 = 2.0 * std::f64::consts::PI / lambda;
+        let d = 0.22_f64;
+        let w = 0.20_f64;
+        let h = 4.0_f64;
+        let n_eff_oracle = slab_te0_neff(n_core, n_clad, d, k0);
+
+        // Off-grid mesh the Judge used: ny=100/nx=5 (a natural refinement
+        // point between the pinned ny=80 and ny=120). Previously the
+        // gap-widening floor swallowed the genuine band here and the solver
+        // returned zero modes.
+        let (nx, ny) = (5usize, 100usize);
+        let (mesh, eps_r, interior) = slab_fixture(nx, ny, w, h, d, eps_core, eps_clad);
+        let modes =
+            solve_dielectric_modes(&mesh, &eps_r, &interior, k0, 3).expect("dielectric solve");
+        assert!(
+            !modes.is_empty(),
+            "off-grid ny={ny}/nx={nx}: production solver returned ZERO bound \
+             modes (the gap-widening regression); expected ≥1"
+        );
+        // Every returned mode must lie strictly inside the bound window.
+        for m in &modes {
+            assert!(m.guided, "returned mode must be guided");
+            assert!(
+                m.n_eff > n_clad && m.n_eff < n_core,
+                "ny={ny}: n_eff {} outside (n_clad, n_core)",
+                m.n_eff
+            );
+        }
+        let n_eff_fem = modes[0].n_eff;
+        let rel_err = (n_eff_fem - n_eff_oracle).abs() / n_eff_oracle;
+        eprintln!(
+            "off-grid ny={ny} nx={nx}: n_eff_fem={n_eff_fem:.6}, \
+             oracle={n_eff_oracle:.6}, rel={:.3}%",
+            100.0 * rel_err
+        );
+        // Genuine guided fundamental, not a near-ceiling spurious mode.
+        assert!(
+            n_eff_fem < 3.0,
+            "ny={ny}: returned a near-ceiling spurious mode (n_eff={n_eff_fem:.4})"
+        );
+        // Coarse-mesh accuracy: same 2.5 % tolerance as the resolution sweep.
+        assert!(
+            rel_err < 0.025,
+            "ny={ny}: fundamental n_eff {n_eff_fem:.6} vs oracle \
+             {n_eff_oracle:.6} ({:.3}% > 2.5%)",
+            100.0 * rel_err
+        );
+    }
+
     /// **Uniform-ε reduction to the metallic dispersion** — the *solver*,
     /// not a hand-computed scalar, is what is pinned (issue #305, Judge
     /// feedback on PR #308).
@@ -2681,7 +2734,7 @@ mod tests {
 
         // Dominant curl-carrying mode = largest β² with non-negligible curl
         // energy (rejecting the gradient cluster at the ceiling).
-        let floor = physical_curl_floor(&cands);
+        let floor = physical_curl_floor();
         let dominant = cands
             .iter()
             .filter(|c| c.curl_ratio > floor)
