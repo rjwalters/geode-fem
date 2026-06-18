@@ -472,6 +472,130 @@ pub fn assemble_2d_nedelec(mesh: &TriMesh) -> (Mat<f64>, Mat<f64>) {
     (k, m)
 }
 
+/// Assemble dense global Whitney/Nédélec stiffness `K` (curl-curl) and
+/// **ε-weighted** mass `M` for a 2-D triangle mesh with a per-triangle
+/// relative permittivity `eps_r`.
+///
+/// This is the inhomogeneous-medium generalization of
+/// [`assemble_2d_nedelec`]: it lets a dielectric cross-section
+/// (silicon core / SiO₂ cladding / air, etc.) be assembled by tagging
+/// each triangle with its `ε_r`. It is the Phase-1A foundation of the
+/// dielectric-waveguide eigenproblem (Epic #303); the `n_eff` solve
+/// that consumes this operator is a follow-on.
+///
+/// ## Where ε enters, and why `K` is unweighted
+///
+/// For the standard non-magnetic case (`μ_r = 1`) the 2-D transverse
+/// vector-Nédélec weak form of the curl-curl operator is
+///
+/// ```text
+///   ∫ (1/μ_r) (∇×N_i)(∇×N_j) dA  =  ε_r-independent stiffness  K
+///   ∫  ε_r    (N_i · N_j)     dA  =  ε_r-weighted   mass        M
+/// ```
+///
+/// The relative permittivity multiplies only the **mass** term
+/// `∫ ε_r N_i·N_j` — it is the material coefficient of the electric
+/// field's "metric". The curl-curl **stiffness** `K` carries the
+/// inverse permeability `1/μ_r`, which is `1` here, so `K` stays exactly
+/// the homogeneous-medium matrix produced by [`assemble_2d_nedelec`].
+/// On each triangle the closed-form local mass block from
+/// [`tri_nedelec_local`] is therefore scaled by that triangle's scalar
+/// `ε_r` before the signed scatter — directly mirroring the 3-D
+/// per-tet convention in
+/// [`crate::nedelec_assembly::assemble_global_nedelec_with_epsilon`]
+/// (`M_e ← ε_r[e] · M_e`).
+///
+/// ## Non-regression
+///
+/// With a uniform `eps_r = 1.0` on every triangle this reproduces
+/// [`assemble_2d_nedelec`] **bit-for-bit**: the only added arithmetic is
+/// `1.0 * m_local[i][j]`, which is the exact IEEE-754 identity for the
+/// `f64` mass entries.
+///
+/// Returns `(K, M)` of size `[n_edges, n_edges]`.
+///
+/// # Panics
+///
+/// Panics if `eps_r.len() != mesh.n_tris()`.
+pub fn assemble_2d_nedelec_with_epsilon(mesh: &TriMesh, eps_r: &[f64]) -> (Mat<f64>, Mat<f64>) {
+    assert_eq!(
+        eps_r.len(),
+        mesh.n_tris(),
+        "eps_r length ({}) must equal the triangle count ({})",
+        eps_r.len(),
+        mesh.n_tris()
+    );
+
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+    let tri_edges = mesh.tri_edges();
+
+    let mut k = Mat::<f64>::zeros(n_edges, n_edges);
+    let mut m = Mat::<f64>::zeros(n_edges, n_edges);
+
+    for ((tri, row), &eps) in mesh.tris.iter().zip(tri_edges.iter()).zip(eps_r.iter()) {
+        let coords = [
+            mesh.nodes[tri[0] as usize],
+            mesh.nodes[tri[1] as usize],
+            mesh.nodes[tri[2] as usize],
+        ];
+        let (k_local, m_local, signed_area) = tri_nedelec_local(&coords);
+        assert!(
+            signed_area > 0.0,
+            "rect_tri_mesh / TriMesh must produce CCW triangles; got signed area {signed_area}"
+        );
+        for i in 0..3 {
+            let (gi, si) = row[i];
+            for j in 0..3 {
+                let (gj, sj) = row[j];
+                let s = (si as f64) * (sj as f64);
+                // K (curl-curl) is ε-independent for μ_r = 1.
+                k[(gi as usize, gj as usize)] += s * k_local[i][j];
+                // ε weights the mass term ∫ ε N_i·N_j per element.
+                m[(gi as usize, gj as usize)] += s * eps * m_local[i][j];
+            }
+        }
+    }
+
+    (k, m)
+}
+
+/// Build a per-triangle relative-permittivity vector from a per-triangle
+/// **region tag** and a `region_tag → ε_r` lookup.
+///
+/// This is the 2-D cross-section analogue of
+/// [`crate::nedelec_assembly::build_epsilon_r`]: a fixture labels each
+/// triangle with a region id (e.g. `0 = cladding`, `1 = core`,
+/// `2 = substrate`) and supplies the scalar `ε_r` for each region; this
+/// expands the labels into the per-triangle `Vec<f64>` consumed by
+/// [`assemble_2d_nedelec_with_epsilon`].
+///
+/// `lookup(tag)` returns the relative permittivity for a region tag.
+/// Using a closure keeps the helper agnostic to how regions are encoded
+/// (dense `Vec`, `HashMap`, hard-coded match, …).
+///
+/// # Panics
+///
+/// Panics if `lookup` returns a non-finite or non-positive `ε_r` (a real
+/// lossless dielectric must have `ε_r > 0`), which surfaces fixture
+/// mistakes early rather than producing a silently ill-posed pencil.
+pub fn epsilon_r_from_region_tags<F>(region_tags: &[i32], lookup: F) -> Vec<f64>
+where
+    F: Fn(i32) -> f64,
+{
+    region_tags
+        .iter()
+        .map(|&tag| {
+            let eps = lookup(tag);
+            assert!(
+                eps.is_finite() && eps > 0.0,
+                "region tag {tag} mapped to invalid ε_r = {eps}; expected finite ε_r > 0"
+            );
+            eps
+        })
+        .collect()
+}
+
 /// Restrict `K` and `M` to interior edges (PEC reduction).
 pub fn apply_pec_2d(
     k: &Mat<f64>,
@@ -1536,5 +1660,161 @@ mod tests {
                 mode.k_c
             );
         }
+    }
+
+    // --- Phase-1A: per-element ε(x,y) in the 2-D Nédélec assembly ---
+
+    #[test]
+    fn epsilon_assembly_uniform_one_matches_homogeneous_bit_for_bit() {
+        // Non-regression guard: uniform ε_r = 1 must reproduce the
+        // homogeneous assembly exactly (IEEE-754 bit-for-bit), since the
+        // only added arithmetic is the identity `1.0 * m_local[i][j]`.
+        let mesh = rect_tri_mesh(5, 3, 2.0, 1.0);
+        let (k_ref, m_ref) = assemble_2d_nedelec(&mesh);
+
+        let eps_ones = vec![1.0_f64; mesh.n_tris()];
+        let (k_eps, m_eps) = assemble_2d_nedelec_with_epsilon(&mesh, &eps_ones);
+
+        assert_eq!(k_eps.nrows(), k_ref.nrows());
+        assert_eq!(m_eps.nrows(), m_ref.nrows());
+        for i in 0..k_ref.nrows() {
+            for j in 0..k_ref.ncols() {
+                // Bit-for-bit equality via the raw f64 bit patterns.
+                assert_eq!(
+                    k_eps[(i, j)].to_bits(),
+                    k_ref[(i, j)].to_bits(),
+                    "K differs at ({i},{j})"
+                );
+                assert_eq!(
+                    m_eps[(i, j)].to_bits(),
+                    m_ref[(i, j)].to_bits(),
+                    "M differs at ({i},{j}) for uniform ε_r = 1"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn epsilon_assembly_two_region_mass_scales_high_eps_region_exactly() {
+        // Two horizontal regions: bottom half (y < H/2) is "core" with
+        // ε_r = EPS_HI, the top half is "cladding" with ε_r = 1. The
+        // curl-curl K must be identical to the homogeneous case, and the
+        // mass M must equal the homogeneous M scaled element-wise — so
+        // the assembled M entries that receive *only* high-ε triangles
+        // are exactly EPS_HI× their homogeneous values, while entries
+        // touched only by the ε = 1 region are unchanged.
+        const EPS_HI: f64 = 12.0;
+        let (nx, ny) = (4, 4);
+        let (w, h) = (1.0, 1.0);
+        let mesh = rect_tri_mesh(nx, ny, w, h);
+
+        let (k_ref, m_ref) = assemble_2d_nedelec(&mesh);
+
+        // Region tag per triangle from its centroid: 1 = core, 0 = clad.
+        let region_tags: Vec<i32> = mesh
+            .tris
+            .iter()
+            .map(|t| {
+                let yc = (mesh.nodes[t[0] as usize][1]
+                    + mesh.nodes[t[1] as usize][1]
+                    + mesh.nodes[t[2] as usize][1])
+                    / 3.0;
+                if yc < h / 2.0 {
+                    1
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let eps_r =
+            epsilon_r_from_region_tags(&region_tags, |tag| if tag == 1 { EPS_HI } else { 1.0 });
+
+        let (k_eps, m_eps) = assemble_2d_nedelec_with_epsilon(&mesh, &eps_r);
+
+        // 1. K is ε-independent: identical bit-for-bit to homogeneous.
+        for i in 0..k_ref.nrows() {
+            for j in 0..k_ref.ncols() {
+                assert_eq!(
+                    k_eps[(i, j)].to_bits(),
+                    k_ref[(i, j)].to_bits(),
+                    "curl-curl K must not depend on ε at ({i},{j})"
+                );
+            }
+        }
+
+        // 2. The two regions actually contribute (sanity: the tags split
+        //    the mesh into nonempty halves).
+        let n_core = region_tags.iter().filter(|&&t| t == 1).count();
+        assert!(
+            n_core > 0 && n_core < mesh.n_tris(),
+            "two-region split is degenerate"
+        );
+
+        // 3. Independently reassemble M with the local mass scaled by the
+        //    triangle's ε, and confirm it matches the ε-aware path
+        //    bit-for-bit (i.e. ε weights exactly the per-element mass).
+        let edges = mesh.edges();
+        let tri_edges = mesh.tri_edges();
+        let mut m_expected = Mat::<f64>::zeros(edges.len(), edges.len());
+        for ((tri, row), &eps) in mesh.tris.iter().zip(tri_edges.iter()).zip(eps_r.iter()) {
+            let coords = [
+                mesh.nodes[tri[0] as usize],
+                mesh.nodes[tri[1] as usize],
+                mesh.nodes[tri[2] as usize],
+            ];
+            let (_, m_local, _) = tri_nedelec_local(&coords);
+            for i in 0..3 {
+                let (gi, si) = row[i];
+                for j in 0..3 {
+                    let (gj, sj) = row[j];
+                    let s = (si as f64) * (sj as f64);
+                    m_expected[(gi as usize, gj as usize)] += s * eps * m_local[i][j];
+                }
+            }
+        }
+        for i in 0..m_ref.nrows() {
+            for j in 0..m_ref.ncols() {
+                assert_eq!(
+                    m_eps[(i, j)].to_bits(),
+                    m_expected[(i, j)].to_bits(),
+                    "ε-weighted M mismatch at ({i},{j})"
+                );
+            }
+        }
+
+        // 4. The high-ε region strictly increases the mass: the total
+        //    mass-matrix trace grows, and at least one diagonal entry is
+        //    exactly EPS_HI× its homogeneous value (an edge interior to
+        //    the core, touched only by core triangles).
+        let trace_ref: f64 = (0..m_ref.nrows()).map(|i| m_ref[(i, i)]).sum();
+        let trace_eps: f64 = (0..m_eps.nrows()).map(|i| m_eps[(i, i)]).sum();
+        assert!(
+            trace_eps > trace_ref,
+            "high-ε region must increase total mass: {trace_eps} !> {trace_ref}"
+        );
+
+        let scaled_exactly = (0..m_ref.nrows()).any(|i| {
+            let r = m_ref[(i, i)];
+            r != 0.0 && (m_eps[(i, i)] - EPS_HI * r).abs() <= 1e-12 * (EPS_HI * r).abs()
+        });
+        assert!(
+            scaled_exactly,
+            "expected at least one core-interior edge scaled exactly by EPS_HI"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "must equal the triangle count")]
+    fn epsilon_assembly_rejects_length_mismatch() {
+        let mesh = rect_tri_mesh(2, 2, 1.0, 1.0);
+        let eps_r = vec![1.0; mesh.n_tris() + 1];
+        let _ = assemble_2d_nedelec_with_epsilon(&mesh, &eps_r);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid ε_r")]
+    fn region_tag_helper_rejects_nonpositive_epsilon() {
+        let tags = [0, 1, 0];
+        let _ = epsilon_r_from_region_tags(&tags, |t| if t == 1 { -1.0 } else { 1.0 });
     }
 }

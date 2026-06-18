@@ -145,11 +145,11 @@ pub use wave_port::{
     WavePortSweepPoint,
 };
 pub use waveguide_modes::{
-    apply_pec_2d, assemble_2d_nedelec, beta_outgoing, rect_pec_interior_edges,
-    rect_pec_interior_nodes, rect_tri_mesh, rect_waveguide_cutoff, restrict_gradient_dense_2d,
-    solve_rect_waveguide_modes, solve_waveguide_modes, solve_waveguide_modes_with_opts,
-    spurious_dim_2d, tri_nedelec_local, TriMesh, WaveguideModeProfile, WaveguideSolveOpts,
-    TRI_LOCAL_EDGES,
+    apply_pec_2d, assemble_2d_nedelec, assemble_2d_nedelec_with_epsilon, beta_outgoing,
+    epsilon_r_from_region_tags, rect_pec_interior_edges, rect_pec_interior_nodes, rect_tri_mesh,
+    rect_waveguide_cutoff, restrict_gradient_dense_2d, solve_rect_waveguide_modes,
+    solve_waveguide_modes, solve_waveguide_modes_with_opts, spurious_dim_2d, tri_nedelec_local,
+    TriMesh, WaveguideModeProfile, WaveguideSolveOpts, TRI_LOCAL_EDGES,
 };
 
 #[cfg(feature = "arpack")]
