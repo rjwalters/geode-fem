@@ -659,6 +659,176 @@ pub fn tri_nedelec_local(coords: &[[f64; 2]; 3]) -> ([[f64; 3]; 3], [[f64; 3]; 3
     (k_local, m_local, area)
 }
 
+/// 6-point degree-4 symmetric Gauss quadrature on the reference triangle,
+/// as `(λ₀, λ₁, λ₂, weight)` rows in **barycentric** coordinates.
+///
+/// The weights are normalised to sum to `1` (they integrate against the
+/// element area, i.e. `∫_T f dA ≈ |T| · Σ w_q f(λ_q)`). This is the
+/// classic Strang–Fix / Dunavant degree-4 rule with two orbits of three
+/// permutation points:
+///
+/// ```text
+///   orbit A:  (α, β, β) and perms,   α = 0.108_103_018_168_070,
+///                                    β = 0.445_948_490_915_965,
+///             weight = 0.223_381_589_678_011   (×3)
+///   orbit B:  (γ, δ, δ) and perms,   γ = 0.816_847_572_980_459,
+///                                    δ = 0.091_576_213_509_771,
+///             weight = 0.109_951_743_655_322   (×3)
+/// ```
+///
+/// It integrates any bivariate polynomial of total degree ≤ 4 exactly,
+/// which covers both the curl-curl integrand (degree ≤ 2) and the
+/// `N_i·N_j` mass integrand (degree ≤ 4) of the p=2 element on an affine
+/// (constant-Jacobian) triangle.
+pub const TRI_QUAD_DEG4: [[f64; 4]; 6] = {
+    const A: f64 = 0.108_103_018_168_070;
+    const B: f64 = 0.445_948_490_915_965;
+    const WA: f64 = 0.223_381_589_678_011;
+    const G: f64 = 0.816_847_572_980_459;
+    const D: f64 = 0.091_576_213_509_771;
+    const WB: f64 = 0.109_951_743_655_322;
+    [
+        [A, B, B, WA],
+        [B, A, B, WA],
+        [B, B, A, WA],
+        [G, D, D, WB],
+        [D, G, D, WB],
+        [D, D, G, WB],
+    ]
+};
+
+/// Local p=2 Nédélec-first-kind (curl-conforming) element kernel for an
+/// affine triangle, built as a **hierarchical extension** of the
+/// first-order Whitney basis ([`tri_nedelec_local`]).
+///
+/// Returns `(K, M, signed_area)` where `K` (8×8) is the curl-curl
+/// stiffness `∫ (∇×N_i)(∇×N_j) dA`, `M` (8×8) is the mass
+/// `∫ N_i·N_j dA`, and the signed area matches `tri_nedelec_local`.
+///
+/// # DOF layout (8 = 6 edge + 2 interior)
+///
+/// Edges follow [`TRI_LOCAL_EDGES`] order `e₀=(0,1), e₁=(0,2), e₂=(1,2)`.
+/// For each edge `(a, b)` there are two hierarchical functions:
+///
+/// ```text
+///   DOF 2k    Whitney (odd):     W = λ_a ∇λ_b − λ_b ∇λ_a
+///   DOF 2k+1  gradient (even):   Q = λ_a ∇λ_b + λ_b ∇λ_a = ∇(λ_a λ_b)
+/// ```
+///
+/// so the local DOFs are `[W₀, Q₀, W₁, Q₁, W₂, Q₂, I₀, I₁]`.
+///
+/// The **first edge DOF per edge is exactly the Whitney function** of
+/// `tri_nedelec_local`, so the 3×3 sub-block of `K`/`M` over indices
+/// `{0, 2, 4}` is bit-for-bit the first-order kernel (a strict,
+/// test-verified subset). The Whitney function flips sign with global
+/// edge orientation; the gradient function `Q = ∇(λ_a λ_b)` is symmetric
+/// under `a ↔ b` and so is orientation-independent. Curl `∇×Q = 0`.
+///
+/// The two **interior (face) bubbles** are orientation-independent
+/// (defined per-triangle by vertex index):
+///
+/// ```text
+///   I₀ = λ₂ (λ₀ ∇λ₁ − λ₁ ∇λ₀) = λ₂ W₀
+///   I₁ = λ₀ (λ₁ ∇λ₂ − λ₂ ∇λ₁) = λ₀ W₂
+/// ```
+///
+/// These two complete the Nédélec-1st-kind order-2 space (dimension 8).
+///
+/// # Curls
+///
+/// Every basis function is a sum of terms `f · ∇λ_p` with `f` a
+/// barycentric polynomial and `∇λ_p` constant. The scalar curl of such a
+/// term is `(∇f × ∇λ_p)_z`, and `∇(λ_q) = ∇λ_q` is constant, so
+/// `∇(λ_q λ_r) = λ_q ∇λ_r + λ_r ∇λ_q` and every curl is an exact linear
+/// (degree ≤ 1) field evaluated at the quadrature points.
+pub fn tri_nedelec2_local(coords: &[[f64; 2]; 3]) -> ([[f64; 8]; 8], [[f64; 8]; 8], f64) {
+    // Affine Jacobian setup — identical to tri_nedelec_local.
+    let e1 = [coords[1][0] - coords[0][0], coords[1][1] - coords[0][1]];
+    let e2 = [coords[2][0] - coords[0][0], coords[2][1] - coords[0][1]];
+    let det = e1[0] * e2[1] - e1[1] * e2[0];
+    let area = 0.5 * det;
+    let abs_det = det.abs();
+    let area_abs = 0.5 * abs_det;
+
+    // Constant barycentric gradients g_p = ∇λ_p.
+    let g = [
+        [
+            (coords[1][1] - coords[2][1]) / det,
+            (coords[2][0] - coords[1][0]) / det,
+        ],
+        [
+            (coords[2][1] - coords[0][1]) / det,
+            (coords[0][0] - coords[2][0]) / det,
+        ],
+        [
+            (coords[0][1] - coords[1][1]) / det,
+            (coords[1][0] - coords[0][0]) / det,
+        ],
+    ];
+
+    // 2-D scalar cross product (z-component): used for curls of f·∇λ_p.
+    let cross = |u: [f64; 2], v: [f64; 2]| -> f64 { u[0] * v[1] - u[1] * v[0] };
+
+    // Evaluate the 8 vector basis functions and their scalar curls at a
+    // barycentric point `lam = (λ₀, λ₁, λ₂)`. Returns (values[8], curls[8]).
+    let eval = |lam: [f64; 3]| -> ([[f64; 2]; 8], [f64; 8]) {
+        let (l0, l1, l2) = (lam[0], lam[1], lam[2]);
+
+        // Whitney edge functions W_(a,b) = λ_a g_b − λ_b g_a (constant curl
+        // = 2 (g_a × g_b)_z), in TRI_LOCAL_EDGES order.
+        let whitney = |a: usize, b: usize, la: f64, lb: f64| -> ([f64; 2], f64) {
+            let val = [la * g[b][0] - lb * g[a][0], la * g[b][1] - lb * g[a][1]];
+            let curl = 2.0 * cross(g[a], g[b]);
+            (val, curl)
+        };
+        let (w0, cw0) = whitney(0, 1, l0, l1);
+        let (w1, cw1) = whitney(0, 2, l0, l2);
+        let (w2, cw2) = whitney(1, 2, l1, l2);
+
+        // Gradient edge functions Q_(a,b) = λ_a g_b + λ_b g_a = ∇(λ_a λ_b),
+        // curl ≡ 0.
+        let qgrad = |a: usize, b: usize, la: f64, lb: f64| -> [f64; 2] {
+            [la * g[b][0] + lb * g[a][0], la * g[b][1] + lb * g[a][1]]
+        };
+        let q0 = qgrad(0, 1, l0, l1);
+        let q1 = qgrad(0, 2, l0, l2);
+        let q2 = qgrad(1, 2, l1, l2);
+
+        // Interior bubbles I = λ_c · W_(a,b).
+        //   curl(λ_c W) = (∇λ_c × W)_z + λ_c (∇×W)
+        // with ∇×W constant = 2(g_a × g_b)_z.
+        let bubble = |w: [f64; 2], cw: f64, c: usize, lc: f64| -> ([f64; 2], f64) {
+            let val = [lc * w[0], lc * w[1]];
+            let curl = cross(g[c], w) + lc * cw;
+            (val, curl)
+        };
+        // I₀ = λ₂ W₀, I₁ = λ₀ W₂.
+        let (i0, ci0) = bubble(w0, cw0, 2, l2);
+        let (i1, ci1) = bubble(w2, cw2, 0, l0);
+
+        let vals = [w0, q0, w1, q1, w2, q2, i0, i1];
+        let curls = [cw0, 0.0, cw1, 0.0, cw2, 0.0, ci0, ci1];
+        (vals, curls)
+    };
+
+    let mut k_local = [[0.0_f64; 8]; 8];
+    let mut m_local = [[0.0_f64; 8]; 8];
+
+    for row in TRI_QUAD_DEG4.iter() {
+        let lam = [row[0], row[1], row[2]];
+        let w = row[3] * area_abs; // physical-area quadrature weight
+        let (vals, curls) = eval(lam);
+        for i in 0..8 {
+            for j in 0..8 {
+                k_local[i][j] += w * curls[i] * curls[j];
+                m_local[i][j] += w * (vals[i][0] * vals[j][0] + vals[i][1] * vals[j][1]);
+            }
+        }
+    }
+
+    (k_local, m_local, area)
+}
+
 /// Assemble dense global Whitney/Nédélec stiffness `K` (curl-curl) and
 /// mass `M` for a 2-D triangle mesh.
 ///
@@ -2211,6 +2381,171 @@ fn physical_index_ceiling(mesh: &TriMesh, eps_r: &[f64], k0: f64) -> Option<f64>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The 6-point degree-4 rule integrates every barycentric monomial of
+    /// total degree ≤ 4 exactly against the closed form on the reference
+    /// triangle `∫_T λ₀^a λ₁^b λ₂^c dA = a! b! c! / (a+b+c+2)! · 2|T|`
+    /// (with `|T| = 1/2` for the unit reference triangle, so the factor is
+    /// `a! b! c! / (a+b+c+2)!`).
+    #[test]
+    fn tri_quad_deg4_integrates_polynomials_exactly() {
+        // weights sum to 1 (normalised to element area).
+        let wsum: f64 = TRI_QUAD_DEG4.iter().map(|r| r[3]).sum();
+        assert!((wsum - 1.0).abs() < 1e-12, "weights must sum to 1: {wsum}");
+
+        fn fact(n: u32) -> f64 {
+            (1..=n).map(|k| k as f64).product::<f64>().max(1.0)
+        }
+        // closed form of ∫_T λ₀^a λ₁^b λ₂^c dA over the *reference* triangle
+        // (area 1/2): a!b!c!/(a+b+c+2)! .
+        let exact =
+            |a: u32, b: u32, c: u32| -> f64 { fact(a) * fact(b) * fact(c) / fact(a + b + c + 2) };
+
+        let ref_area = 0.5_f64;
+        for a in 0..=4u32 {
+            for b in 0..=(4 - a) {
+                for c in 0..=(4 - a - b) {
+                    if a + b + c > 4 {
+                        continue;
+                    }
+                    let num: f64 = TRI_QUAD_DEG4
+                        .iter()
+                        .map(|r| {
+                            r[3] * r[0].powi(a as i32) * r[1].powi(b as i32) * r[2].powi(c as i32)
+                        })
+                        .sum::<f64>()
+                        * ref_area;
+                    let want = exact(a, b, c);
+                    assert!(
+                        (num - want).abs() < 1e-13,
+                        "deg-4 quad wrong for λ0^{a} λ1^{b} λ2^{c}: got {num}, want {want}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A degree-5 monomial is NOT integrated exactly (guards against an
+    /// accidentally-too-strong rule masking a basis-degree mistake).
+    #[test]
+    fn tri_quad_deg4_misses_degree5() {
+        let ref_area = 0.5_f64;
+        // ∫ λ0^5 dA = 5!*0!*0!/7! = 1/42 over the reference triangle.
+        let num: f64 = TRI_QUAD_DEG4
+            .iter()
+            .map(|r| r[3] * r[0].powi(5))
+            .sum::<f64>()
+            * ref_area;
+        let want = 1.0 / 42.0;
+        assert!(
+            (num - want).abs() > 1e-6,
+            "degree-4 rule should not be exact at degree 5"
+        );
+    }
+
+    /// **p=1 subset (load-bearing):** the 3×3 sub-block of the p=2 `K`/`M`
+    /// over the three Whitney (first-edge) DOFs `{0, 2, 4}` must equal the
+    /// closed-form first-order `tri_nedelec_local` kernel.
+    #[test]
+    fn p2_whitney_subblock_matches_p1() {
+        // A deliberately non-degenerate, non-reference triangle.
+        let coords = [[0.3, -0.2], [1.7, 0.1], [0.6, 1.4]];
+        let (k1, m1, a1) = tri_nedelec_local(&coords);
+        let (k2, m2, a2) = tri_nedelec2_local(&coords);
+        assert!((a1 - a2).abs() < 1e-14, "areas must match: {a1} vs {a2}");
+
+        let whitney = [0usize, 2, 4];
+        for (i, &gi) in whitney.iter().enumerate() {
+            for (j, &gj) in whitney.iter().enumerate() {
+                assert!(
+                    (k2[gi][gj] - k1[i][j]).abs() < 1e-10,
+                    "K subblock mismatch at ({i},{j}): {} vs {}",
+                    k2[gi][gj],
+                    k1[i][j]
+                );
+                assert!(
+                    (m2[gi][gj] - m1[i][j]).abs() < 1e-10,
+                    "M subblock mismatch at ({i},{j}): {} vs {}",
+                    m2[gi][gj],
+                    m1[i][j]
+                );
+            }
+        }
+    }
+
+    /// `K` and `M` are symmetric to tight tolerance.
+    #[test]
+    fn p2_local_matrices_symmetric() {
+        let coords = [[0.0, 0.0], [2.1, 0.3], [0.4, 1.9]];
+        let (k, m, _) = tri_nedelec2_local(&coords);
+        for i in 0..8 {
+            for j in 0..8 {
+                assert!(
+                    (k[i][j] - k[j][i]).abs() < 1e-12,
+                    "K not symmetric at ({i},{j})"
+                );
+                assert!(
+                    (m[i][j] - m[j][i]).abs() < 1e-12,
+                    "M not symmetric at ({i},{j})"
+                );
+            }
+        }
+    }
+
+    /// Single-element sanity checks.
+    ///
+    /// 1. The gradient edge functions `Q = ∇(λ_a λ_b)` carry zero curl, so
+    ///    their `K` diagonal entries (and any coefficient vector supported
+    ///    only on the curl-free DOFs `{1, 3, 5}`) yield zero curl energy.
+    /// 2. A constant-curl field is integrated correctly: the curl-energy
+    ///    of a unit Whitney DOF equals `(∇×W)² · |T|`.
+    #[test]
+    fn p2_local_sanity_checks() {
+        let coords = [[0.1, 0.0], [1.2, -0.1], [0.5, 1.3]];
+        let (k, _m, area) = tri_nedelec2_local(&coords);
+        let area_abs = area.abs();
+
+        // (1) curl-free gradient DOFs → zero curl energy.
+        for &q in &[1usize, 3, 5] {
+            assert!(
+                k[q][q].abs() < 1e-12,
+                "gradient DOF {q} should have zero curl energy, got {}",
+                k[q][q]
+            );
+        }
+        // A mixed gradient-only coefficient vector also gives zero energy.
+        let mut e = 0.0;
+        let coeff = [0.0, 1.3, 0.0, -0.7, 0.0, 2.1, 0.0, 0.0];
+        for i in 0..8 {
+            for j in 0..8 {
+                e += coeff[i] * k[i][j] * coeff[j];
+            }
+        }
+        assert!(
+            e.abs() < 1e-11,
+            "gradient-only curl energy must vanish: {e}"
+        );
+
+        // (2) constant-curl check: ∇×W₀ = 2 (g0 × g1)_z is constant, so
+        // ∫ (∇×W₀)² dA = (∇×W₀)² |T| = K[0][0].
+        let det = (coords[1][0] - coords[0][0]) * (coords[2][1] - coords[0][1])
+            - (coords[1][1] - coords[0][1]) * (coords[2][0] - coords[0][0]);
+        let g0 = [
+            (coords[1][1] - coords[2][1]) / det,
+            (coords[2][0] - coords[1][0]) / det,
+        ];
+        let g1 = [
+            (coords[2][1] - coords[0][1]) / det,
+            (coords[0][0] - coords[2][0]) / det,
+        ];
+        let curl_w0 = 2.0 * (g0[0] * g1[1] - g0[1] * g1[0]);
+        let want = curl_w0 * curl_w0 * area_abs;
+        assert!(
+            (k[0][0] - want).abs() < 1e-12,
+            "constant-curl integration wrong: K[0][0]={} want {want}",
+            k[0][0]
+        );
+    }
 
     #[test]
     fn rect_tri_mesh_smoke() {
