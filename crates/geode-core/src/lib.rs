@@ -13,6 +13,7 @@ pub mod driven;
 pub mod eigen;
 pub mod extraction;
 pub mod fe_assemble;
+pub mod fiber_lp;
 pub mod ksp_solve;
 pub mod lanczos;
 pub mod lumped_port;
@@ -62,6 +63,10 @@ pub use extraction::{
     s_parameter_frequency_sweep_with_mode, PortCircuit, SMatrix, SParameterSweepPoint, SweepPoint,
 };
 pub use fe_assemble::{fe_assemble, DirichletBc, ElementType, FeAssembleResult};
+pub use fiber_lp::{
+    bessel_j, bessel_j0, bessel_j1, bessel_k, bessel_k0, bessel_k1, fiber_lp_neff, normalized_b,
+    v_number,
+};
 pub use ksp_solve::{
     Cocg, IdentityPreconditioner, IluPreconditioner, JacobiPreconditioner, KspError, KspReport,
     KspSolve, Preconditioner,
