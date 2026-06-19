@@ -1744,7 +1744,7 @@ pub fn solve_dielectric_modes(
     // gap in the sorted curl-energy ratios and keep only candidates on the
     // high-r side of that gap. The threshold then adapts to the actual
     // spectrum at each resolution rather than being pinned to one mesh.
-    let curl_floor = physical_curl_floor();
+    let curl_floor = physical_curl_floor(eps_r);
 
     // ----- Classify -------------------------------------------------
     let mut interior_to_full: Vec<usize> = Vec::with_capacity(n_edges);
@@ -1985,7 +1985,7 @@ pub(crate) fn dielectric_raw_candidates_with_target(
 /// comfortable margin on both sides. This is the recalibrated, principled
 /// replacement for the too-low `1e-3`.
 ///
-/// # Why a fixed floor (no adaptive widening)
+/// # Why a fixed (per-contrast) floor, not adaptive gap-widening
 ///
 /// A data-driven floor that widens into the largest multiplicative gap in
 /// the *full* candidate spectrum is fragile: an **out-of-window** high-curl
@@ -1995,17 +1995,62 @@ pub(crate) fn dielectric_raw_candidates_with_target(
 /// the floor into it — rejecting *every* genuine in-window mode and
 /// returning zero bound modes. That regression was observed at
 /// `ny=100/nx=5`. Because the calibrated gap `(1.7×10⁻², 8.5×10⁻²)` holds at
-/// every resolution swept (40/50/60/70/80/90/100/120), the fixed `3×10⁻²`
-/// floor alone is the robust choice: it rejects the pure gradient nullspace
-/// (`r ≈ 10⁻¹⁶`) and the weakly-resolved spurious band (`r ≤ 1.7×10⁻²`)
-/// while keeping the genuine guided band (`r ≥ 8.5×10⁻²`), and can never be
-/// pushed above the genuine band by an out-of-window spike. A pure gradient
-/// mode at `r ≈ 0` is therefore always rejected.
-fn physical_curl_floor() -> f64 {
-    // Calibrated base floor: centred in the measured gap between the
+/// every resolution swept (40/50/60/70/80/90/100/120) for the SOI contrast,
+/// a *fixed* floor (per contrast level) is the robust choice: it rejects the
+/// pure gradient nullspace (`r ≈ 10⁻¹⁶`) and the weakly-resolved spurious
+/// band while keeping the genuine guided band, and can never be pushed above
+/// the genuine band by an out-of-window spike. A pure gradient mode at
+/// `r ≈ 0` is therefore always rejected.
+///
+/// # Contrast scaling (Epic #303 Phase 2C)
+///
+/// The genuine band's curl-energy level scales with the index contrast — a
+/// weakly-guiding mode (β ≈ n·k₀, n nearly uniform) bends the transverse
+/// field little, so its `r` is physically small. The `3×10⁻²` base floor is
+/// therefore the *high-contrast* calibration (SOI), and is scaled linearly
+/// down with the fractional contrast `κ = (ε_max − ε_min)/ε_max` below the
+/// SOI reference. This tracks the genuine band into the weak-guidance regime
+/// (e.g. SMF-28 fiber, `κ ≈ 0.008`, genuine LP₀₁ at `r ≈ 5×10⁻⁴`) while
+/// leaving the validated high-contrast behaviour (`κ ≥ 0.8`) untouched.
+fn physical_curl_floor(eps_r: &[f64]) -> f64 {
+    // High-contrast base floor: centred in the measured gap between the
     // weakly-resolved spurious band (≤ ~1.7e-2) and the genuine guided
-    // band (≥ ~8.5e-2). See the function docs for the refinement sweep.
-    3e-2
+    // band (≥ ~8.5e-2) for the high-contrast SOI calibration sweep. See the
+    // function docs for the refinement sweep.
+    const BASE_FLOOR: f64 = 3e-2;
+
+    // --- Weak-guidance (low index-contrast) correction (Epic #303 Phase 2C) ---
+    //
+    // The base floor was calibrated on the high-contrast SOI strip
+    // (ε 12.1 core / 2.09 clad). The relative curl energy `r` of a *genuine*
+    // guided mode scales with the index contrast: a near-TEM weakly-guiding
+    // mode (β ≈ n·k₀ with n nearly uniform) bends the transverse field very
+    // little, so xᵀKx — and hence `r` — is small *physically*, not because
+    // the mode is spurious. On a step-index telecom fiber (SMF-28: NA ≈ 0.12,
+    // ε 2.104 / 2.087, contrast ~100× weaker than SOI) the genuine LP₀₁
+    // lands at `r ≈ 5e-4`, two decades below the fixed 3e-2 floor, which
+    // would reject *every* guided mode and return zero bound modes.
+    //
+    // Scale the floor with the material contrast so it tracks the genuine
+    // band in both regimes. The fractional contrast
+    //   κ = (ε_max − ε_min) / ε_max
+    // is ≈ 0.83 for SOI and ≈ 0.008 for SMF-28. We keep the calibrated 3e-2
+    // floor at (and above) the SOI contrast and scale it down linearly with
+    // κ below it — placing the floor a fixed factor below the genuine band
+    // and above both the pure gradient nullspace (`r ≈ 1e-16`) and the
+    // weakly-resolved spurious band in either regime. A hard lower clamp at
+    // 1e-7 keeps the pure-noise gradient modes rejected even at vanishing
+    // contrast.
+    let eps_max = eps_r.iter().cloned().fold(f64::MIN, f64::max);
+    let eps_min = eps_r.iter().cloned().fold(f64::MAX, f64::min);
+    if !(eps_max.is_finite() && eps_min.is_finite()) || eps_max <= 0.0 {
+        return BASE_FLOOR;
+    }
+    let kappa = ((eps_max - eps_min) / eps_max).clamp(0.0, 1.0);
+    // SOI reference contrast at which the base floor is calibrated.
+    const KAPPA_SOI: f64 = 0.8;
+    let scale = (kappa / KAPPA_SOI).min(1.0);
+    (BASE_FLOOR * scale).max(1e-7)
 }
 
 /// Analytic effective index of the **fundamental TE mode** of a symmetric
@@ -3331,7 +3376,7 @@ mod tests {
 
         // Dominant curl-carrying mode = largest β² with non-negligible curl
         // energy (rejecting the gradient cluster at the ceiling).
-        let floor = physical_curl_floor();
+        let floor = physical_curl_floor(&eps_r);
         let dominant = cands
             .iter()
             .filter(|c| c.curl_ratio > floor)
