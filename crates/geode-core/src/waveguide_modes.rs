@@ -354,6 +354,232 @@ pub fn rect_pec_interior_nodes(mesh: &TriMesh, width: f64, height: f64) -> Vec<b
         .collect()
 }
 
+/// Programmatic **circular cross-section** triangulation for an optical
+/// fiber (or any cylindrically-symmetric dielectric waveguide), with
+/// per-triangle core/cladding region tags — the geometric input for the
+/// Epic #303 Phase 2C circular-fiber benchmark.
+///
+/// # Scope: programmatic, not gmsh
+///
+/// The Phase-2 epic sketch said "mesh the fiber via gmsh," but a circular
+/// cross-section is trivially meshable in-process by a concentric polar
+/// triangulation, and the codebase has **no 2-D `.msh` → `TriMesh`
+/// loader** (the `.msh` readers in `mesh/{sphere,patch,spiral}.rs` are all
+/// 3-D tetrahedral). So this mirrors the Phase-1C precedent
+/// ([`rect_tri_mesh`] for the SOI strip): a self-contained programmatic
+/// generator. A 2-D gmsh loader is deferred to a separate follow-on if a
+/// non-trivial cross-section ever needs one.
+///
+/// # Geometry
+///
+/// Triangulates the disk of radius `outer_radius` (the cladding boundary /
+/// computational domain). The mesh **conforms to the core circle** of
+/// radius `core_radius`: one ring boundary lands exactly on `core_radius`,
+/// so no triangle straddles the core/cladding dielectric discontinuity and
+/// the centroid-radius region test is unambiguous.
+///
+/// The triangulation is a standard concentric-ring × angular-sector
+/// polar mesh:
+///
+/// - `n_angular` angular sectors (the same `n_angular` rays at every ring
+///   so rings are quad-conforming), `n_angular ≥ 3`.
+/// - `n_radial` rings **inside the core** and `n_radial` rings in the
+///   cladding annulus (so the radial cell size is comparable on both sides
+///   of the interface and a ring boundary lands exactly on `core_radius`),
+///   `n_radial ≥ 1`.
+/// - The **innermost** core ring is a central fan of `n_angular` triangles
+///   meeting at the origin (one center node), avoiding a degenerate hub.
+/// - Every outer ring (core or cladding) is an annulus of `n_angular`
+///   quads, each split into two CCW triangles.
+///
+/// # Resolution knobs
+///
+/// - `n_radial`: rings per region (core gets `n_radial`, cladding gets
+///   `n_radial`). Larger ⇒ finer radial resolution. Node and triangle
+///   counts scale ~linearly in `n_radial`.
+/// - `n_angular`: angular sectors. Larger ⇒ finer azimuthal resolution and
+///   a rounder core circle. Node and triangle counts scale ~linearly in
+///   `n_angular`. Keep `n_angular` large enough (≥ ~12) that the wedge
+///   angle `2π/n_angular` stays small — the triangle aspect ratio degrades
+///   as the wedges get fat, and the dielectric solver is sensitive to
+///   sliver anisotropy (cf. #305/#309).
+///
+/// # Mesh quality
+///
+/// The radial step is uniform within each region and the central fan uses
+/// one node at the origin (no degenerate hub). Every emitted triangle has
+/// strictly positive signed area (CCW) — see the `disk_tri_mesh_*` unit
+/// tests, which also assert a bounded aspect ratio.
+///
+/// The standard quality caveat of a concentric-polar mesh applies: the
+/// **innermost rings are radially elongated** (the inner arc at radius
+/// `core_radius/n_radial` is short while the radial step stays
+/// `core_radius/n_radial`), so the worst aspect ratio occurs near the hub
+/// and grows roughly with `n_radial`. These near-hub cells carry
+/// negligible area, but because the dielectric solver is sensitive to
+/// sliver anisotropy (cf. #305/#309), keep the knobs balanced — a wedge
+/// angle `2π/n_angular` comparable to the radial step (i.e.
+/// `n_angular ≈ 2π·n_radial`) and a modest `n_radial` (≤ ~8) holds the
+/// worst aspect ratio under ~7. The generator does not refine adaptively.
+///
+/// # Returns
+///
+/// `(mesh, region_tags)` where `region_tags[t]` is `1` if triangle `t`'s
+/// centroid radius is `< core_radius` (core) and `0` otherwise (cladding),
+/// matching the [`epsilon_r_from_region_tags`] convention from Phase 1A.
+/// Feed `region_tags` straight into that helper to get the per-triangle
+/// `ε_r` vector for [`assemble_2d_nedelec_with_epsilon`].
+///
+/// The outer (far-wall) boundary node and edge sets are recovered with
+/// [`disk_boundary_nodes`] / [`disk_pec_interior_edges`] for the PEC/PMC
+/// far-wall mask the dielectric solver uses (the circular analogue of
+/// [`rect_pec_interior_edges`]).
+///
+/// # Panics
+///
+/// Panics unless `0 < core_radius < outer_radius`, `n_radial ≥ 1`, and
+/// `n_angular ≥ 3`.
+pub fn disk_tri_mesh(
+    core_radius: f64,
+    outer_radius: f64,
+    n_radial: usize,
+    n_angular: usize,
+) -> (TriMesh, Vec<i32>) {
+    assert!(
+        core_radius.is_finite() && outer_radius.is_finite(),
+        "disk_tri_mesh radii must be finite"
+    );
+    assert!(
+        0.0 < core_radius && core_radius < outer_radius,
+        "disk_tri_mesh requires 0 < core_radius ({core_radius}) < outer_radius ({outer_radius})"
+    );
+    assert!(n_radial >= 1, "disk_tri_mesh requires n_radial ≥ 1");
+    assert!(n_angular >= 3, "disk_tri_mesh requires n_angular ≥ 3");
+
+    // Ring radii: r[0] = 0 (center), a ring boundary lands exactly on
+    // `core_radius` at index `n_radial`, and r[2*n_radial] = outer_radius.
+    // Uniform radial step within each region keeps cells well-shaped.
+    let n_rings = 2 * n_radial; // number of annular layers (rings of cells)
+    let mut ring_r = Vec::with_capacity(n_rings + 1);
+    for k in 0..=n_radial {
+        ring_r.push(core_radius * k as f64 / n_radial as f64);
+    }
+    for k in 1..=n_radial {
+        let t = k as f64 / n_radial as f64;
+        ring_r.push(core_radius + (outer_radius - core_radius) * t);
+    }
+    debug_assert_eq!(ring_r.len(), n_rings + 1);
+
+    // Nodes: one center node, then `n_angular` nodes on each ring 1..=n_rings.
+    // Node layout index: center = 0; ring `g` (1-based) sector `s` →
+    //   1 + (g - 1) * n_angular + s.
+    let mut nodes: Vec<[f64; 2]> = Vec::with_capacity(1 + n_rings * n_angular);
+    nodes.push([0.0, 0.0]); // center
+    let dtheta = std::f64::consts::TAU / n_angular as f64;
+    for &r in ring_r.iter().skip(1) {
+        for s in 0..n_angular {
+            let theta = s as f64 * dtheta;
+            nodes.push([r * theta.cos(), r * theta.sin()]);
+        }
+    }
+
+    let ring_node = |g: usize, s: usize| -> u32 {
+        // g is 1-based; s taken mod n_angular for wrap-around.
+        (1 + (g - 1) * n_angular + (s % n_angular)) as u32
+    };
+
+    let mut tris: Vec<[u32; 3]> = Vec::new();
+    // Central fan: center → ring-1 sector s → ring-1 sector s+1 (CCW).
+    for s in 0..n_angular {
+        tris.push([0, ring_node(1, s), ring_node(1, s + 1)]);
+    }
+    // Annular rings g = 1..n_rings: quad between ring g and ring g+1,
+    // sectors s and s+1, split into two CCW triangles.
+    for g in 1..n_rings {
+        for s in 0..n_angular {
+            let a = ring_node(g, s); // inner, sector s
+            let b = ring_node(g, s + 1); // inner, sector s+1
+            let c = ring_node(g + 1, s + 1); // outer, sector s+1
+            let d = ring_node(g + 1, s); // outer, sector s
+                                         // Cell corners: a = inner sector s, b = inner sector s+1,
+                                         // c = outer sector s+1, d = outer sector s. Traversed
+                                         // a → d → c → b (out a radial spoke, CCW along the outer arc,
+                                         // back in, CW along the inner arc) the quad is CCW; split on
+                                         // the a→c diagonal into two CCW triangles.
+            tris.push([a, d, c]);
+            tris.push([a, c, b]);
+        }
+    }
+
+    // Per-triangle region tags by centroid radius. Because a ring boundary
+    // sits exactly on `core_radius`, every triangle is wholly inside or
+    // wholly outside the core and the centroid test is unambiguous.
+    let region_tags: Vec<i32> = tris
+        .iter()
+        .map(|t| {
+            let xc =
+                (nodes[t[0] as usize][0] + nodes[t[1] as usize][0] + nodes[t[2] as usize][0]) / 3.0;
+            let yc =
+                (nodes[t[0] as usize][1] + nodes[t[1] as usize][1] + nodes[t[2] as usize][1]) / 3.0;
+            if (xc * xc + yc * yc).sqrt() < core_radius {
+                1
+            } else {
+                0
+            }
+        })
+        .collect();
+
+    (TriMesh { nodes, tris }, region_tags)
+}
+
+/// Boundary-node mask for a [`disk_tri_mesh`] of outer radius
+/// `outer_radius`: `true` for nodes lying on the outer (far-wall) circle,
+/// `false` otherwise.
+///
+/// This identifies the PEC/PMC far-wall node set the dielectric solver
+/// needs. In the concentric-ring layout the outer-boundary nodes are
+/// exactly the last `n_angular` nodes (the outermost ring), but this
+/// helper recovers them geometrically (radius ≈ `outer_radius`) so it is
+/// robust to any consumer that reorders nodes.
+pub fn disk_boundary_nodes(mesh: &TriMesh, outer_radius: f64) -> Vec<bool> {
+    let tol = 1e-9 * outer_radius.max(1.0);
+    mesh.nodes
+        .iter()
+        .map(|p| ((p[0] * p[0] + p[1] * p[1]).sqrt() - outer_radius).abs() < tol)
+        .collect()
+}
+
+/// Build the PEC interior-edge mask for a [`disk_tri_mesh`] of outer radius
+/// `outer_radius`: an edge is **interior** (mask `true`) unless **both** of
+/// its endpoints lie on the outer (far-wall) circle — i.e. the edge runs
+/// along the boundary, where the Whitney DOF is the tangential line
+/// integral that the PEC condition `n × E = 0` forces to zero.
+///
+/// This is the circular analogue of [`rect_pec_interior_edges`] and
+/// matches the boundary-mask approach the SOI example uses (build the
+/// boundary-node set, then gate edges whose endpoints are both on it).
+///
+/// Returns `(edges, interior_edge_mask)` aligned with [`TriMesh::edges`].
+pub fn disk_pec_interior_edges(mesh: &TriMesh, outer_radius: f64) -> (Vec<[u32; 2]>, Vec<bool>) {
+    let on_boundary = disk_boundary_nodes(mesh, outer_radius);
+    let edges = mesh.edges();
+    let mask = edges
+        .iter()
+        .map(|e| !(on_boundary[e[0] as usize] && on_boundary[e[1] as usize]))
+        .collect();
+    (edges, mask)
+}
+
+/// PEC interior-node mask for a [`disk_tri_mesh`]: `true` for nodes
+/// strictly inside the disk, `false` for nodes on the outer (far-wall)
+/// circle. The circular analogue of [`rect_pec_interior_nodes`].
+pub fn disk_pec_interior_nodes(mesh: &TriMesh, outer_radius: f64) -> Vec<bool> {
+    disk_boundary_nodes(mesh, outer_radius)
+        .into_iter()
+        .map(|on_boundary| !on_boundary)
+        .collect()
+}
+
 /// Closed-form local 3×3 Whitney/Nédélec stiffness (curl-curl) and mass
 /// matrices for an affine triangle.
 ///
@@ -1994,6 +2220,213 @@ mod tests {
         // Edge count = (nx+1)*ny + nx*(ny+1) + nx*ny  (horizontal +
         // vertical + diagonals) = 3*2 + 2*3 + 2*2 = 16.
         assert_eq!(mesh.edges().len(), 16);
+    }
+
+    /// Triangle signed area helper for the disk-mesh quality checks.
+    fn signed_area(mesh: &TriMesh, t: &[u32; 3]) -> f64 {
+        let p0 = mesh.nodes[t[0] as usize];
+        let p1 = mesh.nodes[t[1] as usize];
+        let p2 = mesh.nodes[t[2] as usize];
+        let e1 = [p1[0] - p0[0], p1[1] - p0[1]];
+        let e2 = [p2[0] - p0[0], p2[1] - p0[1]];
+        0.5 * (e1[0] * e2[1] - e1[1] * e2[0])
+    }
+
+    /// Triangle aspect ratio = longest edge / shortest altitude
+    /// (= longest_edge² · √3 / (4·area) for the inradius-free form we use
+    /// here: ratio of the longest edge to twice the inradius). A value
+    /// near 1 is equilateral; large values flag slivers.
+    fn aspect_ratio(mesh: &TriMesh, t: &[u32; 3]) -> f64 {
+        let p = [
+            mesh.nodes[t[0] as usize],
+            mesh.nodes[t[1] as usize],
+            mesh.nodes[t[2] as usize],
+        ];
+        let len = |a: [f64; 2], b: [f64; 2]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+        let l01 = len(p[0], p[1]);
+        let l12 = len(p[1], p[2]);
+        let l20 = len(p[2], p[0]);
+        let longest = l01.max(l12).max(l20);
+        let area = signed_area(mesh, t).abs();
+        // inradius r = area / s, s = semiperimeter. ratio = longest / (2r).
+        let s = 0.5 * (l01 + l12 + l20);
+        let inradius = area / s;
+        longest / (2.0 * inradius)
+    }
+
+    #[test]
+    fn disk_tri_mesh_counts_scale_with_resolution() {
+        // n_rings = 2*n_radial annular layers; central fan = n_angular
+        // triangles; each outer ring = 2*n_angular triangles.
+        // tris = n_angular + (n_rings-1)*2*n_angular = n_angular*(4*n_radial-1).
+        // nodes = 1 + n_rings*n_angular = 1 + 2*n_radial*n_angular.
+        for &(nr, na) in &[(2usize, 8usize), (3, 12), (4, 24)] {
+            let (mesh, tags) = disk_tri_mesh(1.0, 3.0, nr, na);
+            assert_eq!(mesh.n_nodes(), 1 + 2 * nr * na);
+            assert_eq!(mesh.n_tris(), na * (4 * nr - 1));
+            assert_eq!(tags.len(), mesh.n_tris());
+        }
+        // Counts grow with each knob.
+        let (m_small, _) = disk_tri_mesh(1.0, 3.0, 2, 8);
+        let (m_more_r, _) = disk_tri_mesh(1.0, 3.0, 4, 8);
+        let (m_more_a, _) = disk_tri_mesh(1.0, 3.0, 2, 16);
+        assert!(m_more_r.n_tris() > m_small.n_tris());
+        assert!(m_more_a.n_tris() > m_small.n_tris());
+    }
+
+    #[test]
+    fn disk_tri_mesh_triangles_ccw_and_non_degenerate() {
+        // Balanced knobs (n_angular ≈ 2π·n_radial): the documented regime
+        // that keeps the near-hub radial elongation under control.
+        let (mesh, _) = disk_tri_mesh(1.0, 3.0, 4, 25);
+        let mut min_area = f64::INFINITY;
+        let mut max_aspect = 0.0_f64;
+        for t in &mesh.tris {
+            let a = signed_area(&mesh, t);
+            assert!(
+                a > 0.0,
+                "triangle {t:?} not CCW / has non-positive area {a}"
+            );
+            min_area = min_area.min(a);
+            max_aspect = max_aspect.max(aspect_ratio(&mesh, t));
+        }
+        assert!(min_area > 1e-12, "degenerate (near-zero-area) triangle");
+        // Bounded aspect ratio (longest edge / 2·inradius). The worst
+        // cells are the radially-elongated innermost ring; for balanced
+        // knobs (≤ ~8 radial rings) this stays well under the documented
+        // ~7 bound. The solver is sensitive to sliver anisotropy
+        // (#305/#309), so this is a hard guard, not a soft sanity check.
+        assert!(
+            max_aspect < 7.0,
+            "aspect ratio {max_aspect} exceeds sliver bound"
+        );
+    }
+
+    #[test]
+    fn disk_tri_mesh_mesh_is_connected() {
+        // Every node must be referenced by at least one triangle (no
+        // orphan nodes), and the triangle graph (sharing nodes) must be a
+        // single connected component.
+        let (mesh, _) = disk_tri_mesh(1.0, 2.0, 3, 12);
+        let mut used = vec![false; mesh.n_nodes()];
+        for t in &mesh.tris {
+            for &v in t {
+                used[v as usize] = true;
+            }
+        }
+        assert!(used.iter().all(|&u| u), "orphan node not used by any tri");
+
+        // Union-find over nodes connected through shared triangles.
+        let mut parent: Vec<usize> = (0..mesh.n_nodes()).collect();
+        fn find(parent: &mut [usize], x: usize) -> usize {
+            let mut r = x;
+            while parent[r] != r {
+                r = parent[r];
+            }
+            let mut c = x;
+            while parent[c] != c {
+                let n = parent[c];
+                parent[c] = r;
+                c = n;
+            }
+            r
+        }
+        for t in &mesh.tris {
+            let a = find(&mut parent, t[0] as usize);
+            let b = find(&mut parent, t[1] as usize);
+            let c = find(&mut parent, t[2] as usize);
+            parent[b] = a;
+            parent[c] = a;
+        }
+        let root = find(&mut parent, 0);
+        for v in 0..mesh.n_nodes() {
+            assert_eq!(find(&mut parent, v), root, "mesh is disconnected");
+        }
+    }
+
+    #[test]
+    fn disk_tri_mesh_region_tags_conform_to_core_circle() {
+        let core_r = 1.0;
+        let outer_r = 3.0;
+        let (mesh, tags) = disk_tri_mesh(core_r, outer_r, 6, 48);
+        // Tags are exactly {0, 1}.
+        assert!(tags.iter().all(|&t| t == 0 || t == 1));
+        // No triangle straddles the interface: for a core-tagged tri all
+        // vertices have radius ≤ core_r (+tol); for cladding all vertices
+        // have radius ≥ core_r (−tol). (Conforming ring boundary.)
+        let tol = 1e-9 * outer_r;
+        for (t, &tag) in mesh.tris.iter().zip(tags.iter()) {
+            for &v in t {
+                let p = mesh.nodes[v as usize];
+                let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
+                if tag == 1 {
+                    assert!(r <= core_r + tol, "core tri vertex outside core: r={r}");
+                } else {
+                    assert!(r >= core_r - tol, "cladding tri vertex inside core: r={r}");
+                }
+            }
+        }
+        // Area-fraction check: Σ core-triangle areas / total area ≈
+        // π·core_r² / (π·outer_r²) = (core_r/outer_r)².
+        let mut core_area = 0.0;
+        let mut total_area = 0.0;
+        for (t, &tag) in mesh.tris.iter().zip(tags.iter()) {
+            let a = signed_area(&mesh, t);
+            total_area += a;
+            if tag == 1 {
+                core_area += a;
+            }
+        }
+        let expected = (core_r / outer_r).powi(2);
+        let frac = core_area / total_area;
+        // The core polygon and the outer polygon are both inscribed at the
+        // SAME angular sampling, so the ratio of their areas is
+        // (core_r/outer_r)² *exactly* — independent of n_angular — once the
+        // core ring conforms. The only error is f64 round-off. A 1e-3 band
+        // is generous for the polygon-area accumulation.
+        assert!(
+            (frac - expected).abs() < 1e-3,
+            "core area fraction {frac} vs expected {expected}"
+        );
+    }
+
+    #[test]
+    fn disk_tri_mesh_region_tags_feed_epsilon_helper() {
+        // The tags must be consumable by the Phase-1A ε helper.
+        let (_mesh, tags) = disk_tri_mesh(1.0, 2.0, 3, 16);
+        let eps = epsilon_r_from_region_tags(&tags, |t| if t == 1 { 2.1 } else { 1.0 });
+        assert_eq!(eps.len(), tags.len());
+        assert!(eps.iter().all(|&e| e == 2.1 || e == 1.0));
+        assert!(eps.contains(&2.1), "no core ε present");
+        assert!(eps.contains(&1.0), "no cladding ε present");
+    }
+
+    #[test]
+    fn disk_boundary_set_is_identifiable() {
+        let outer_r = 2.0;
+        let n_angular = 16;
+        let (mesh, _) = disk_tri_mesh(1.0, outer_r, 3, n_angular);
+        let on_boundary = disk_boundary_nodes(&mesh, outer_r);
+        // Exactly the outermost ring (n_angular nodes) is on the far wall.
+        let n_boundary = on_boundary.iter().filter(|&&b| b).count();
+        assert_eq!(n_boundary, n_angular);
+        // The center node is interior.
+        assert!(!on_boundary[0]);
+        // PEC interior-edge mask: every gated (PEC) edge connects two
+        // boundary nodes; at least one edge is interior and at least one
+        // is PEC.
+        let (edges, mask) = disk_pec_interior_edges(&mesh, outer_r);
+        assert_eq!(edges.len(), mask.len());
+        let n_interior = mask.iter().filter(|&&b| b).count();
+        let n_pec = mask.len() - n_interior;
+        assert!(n_interior > 0 && n_pec > 0);
+        // The PEC edges are exactly the n_angular boundary-circle arcs.
+        assert_eq!(n_pec, n_angular);
+        // Interior-node mask is the complement of the boundary set.
+        let interior_nodes = disk_pec_interior_nodes(&mesh, outer_r);
+        for (i, (&on, &inside)) in on_boundary.iter().zip(interior_nodes.iter()).enumerate() {
+            assert_eq!(on, !inside, "node {i} boundary/interior mismatch");
+        }
     }
 
     #[test]
