@@ -146,6 +146,7 @@ pub use wave_port::{
 };
 pub use waveguide_modes::{
     apply_pec_2d, assemble_2d_nedelec, assemble_2d_nedelec_with_epsilon, beta_outgoing,
+    disk_boundary_nodes, disk_pec_interior_edges, disk_pec_interior_nodes, disk_tri_mesh,
     epsilon_r_from_region_tags, rect_pec_interior_edges, rect_pec_interior_nodes, rect_tri_mesh,
     rect_waveguide_cutoff, restrict_gradient_dense_2d, slab_te0_neff, solve_dielectric_modes,
     solve_rect_waveguide_modes, solve_waveguide_modes, solve_waveguide_modes_with_opts,
