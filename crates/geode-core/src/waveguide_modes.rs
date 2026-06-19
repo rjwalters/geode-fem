@@ -1465,15 +1465,39 @@ pub fn solve_dielectric_modes(
     let eps_min = eps_r.iter().cloned().fold(f64::MAX, f64::min);
     let n_core = eps_max.sqrt();
     let n_clad = eps_min.sqrt();
-    let beta_sq_ceiling = n_core * n_core * k0 * k0;
+
+    // Physical guided-index ceiling for a 2-D-confined cross-section,
+    // derived from the geometry/materials (NOT fitted): a mode confined in
+    // both transverse directions has n_eff below the 1-D-slab limit of the
+    // corresponding reduced problem in either direction, and strictly below
+    // n_core. For a slab-like (one-axis-invariant) or uniform geometry this
+    // returns None and the classifier keeps the n_core ceiling unchanged —
+    // preserving the existing 1-D-slab behaviour. See
+    // [`physical_index_ceiling`].
+    let index_ceiling = physical_index_ceiling(mesh, eps_r, k0);
+    let n_eff_ceiling = index_ceiling.unwrap_or(n_core);
+    let beta_sq_ceiling = n_eff_ceiling * n_eff_ceiling * k0 * k0;
     let beta_sq_floor = n_clad * n_clad * k0 * k0;
 
-    // Recover raw eigenpairs (β², relative curl energy, eigenvector) near
-    // the top of the guided band — request a generous batch so the
-    // physical band and the gradient-nullspace band are both sampled and
-    // the gap between them can be detected.
+    // Recover raw eigenpairs (β², relative curl energy, eigenvector). When
+    // a physical 2-D ceiling is known and lies well below n_core, target
+    // the shift at the genuine guided band (just below the ceiling) so the
+    // fundamental converges among the first few modes — otherwise the
+    // shift-invert Lanczos locks onto the near-n_core spurious cluster and
+    // the fundamental is only reachable by requesting tens of modes
+    // (multi-minute solves). For slab-like geometry (no 2-D ceiling) we
+    // keep the original n_core-targeted shift, preserving 1-D behaviour.
+    // Request a generous batch so the physical band and the
+    // gradient-nullspace band are both sampled and the gap can be detected.
     let n_request = (n_modes + 8).max(16);
-    let cands = dielectric_raw_candidates(mesh, eps_r, interior_edge_mask, k0, n_request)?;
+    let cands = dielectric_raw_candidates_with_target(
+        mesh,
+        eps_r,
+        interior_edge_mask,
+        k0,
+        n_request,
+        index_ceiling,
+    )?;
     if cands.is_empty() {
         return Ok(Vec::new());
     }
@@ -1537,12 +1561,17 @@ pub fn solve_dielectric_modes(
     });
     let have = bound.len();
     bound.truncate(n_modes);
+    let ceiling_kind = if index_ceiling.is_some() {
+        "physical-2D-slab"
+    } else {
+        "n_core"
+    };
     eprintln!(
         "solve_dielectric_modes: k0={k0:.4}, n_core={n_core:.4}, \
-         n_clad={n_clad:.4}, β² window=({beta_sq_floor:.4e}, \
-         {beta_sq_ceiling:.4e}); curl-energy floor={curl_floor:.4e}; \
-         recovered {have} bound mode(s), dropped {n_dropped} \
-         radiation/spurious eigenpair(s) (requested {n_modes})"
+         n_clad={n_clad:.4}, n_eff_ceiling={n_eff_ceiling:.4} ({ceiling_kind}); \
+         β² window=({beta_sq_floor:.4e}, {beta_sq_ceiling:.4e}); \
+         curl-energy floor={curl_floor:.4e}; recovered {have} bound mode(s), \
+         dropped {n_dropped} radiation/spurious eigenpair(s) (requested {n_modes})"
     );
     Ok(bound)
 }
@@ -1564,17 +1593,27 @@ pub(crate) struct RawDielectricCandidate {
 }
 
 /// Assemble the dielectric pencil `A = k₀² M_ε − K`, `M₁`, PEC-reduce, and
-/// recover up to `n_request` eigenpairs nearest the top of the guided
-/// band, returning each as a [`RawDielectricCandidate`] (β², relative curl
-/// energy, eigenvector) **sorted by decreasing β²**. No bound-window or
-/// curl-energy filtering is applied — this is the unfiltered solver core
-/// that [`solve_dielectric_modes`] classifies.
-pub(crate) fn dielectric_raw_candidates(
+/// recover up to `n_request` eigenpairs, returning each as a
+/// [`RawDielectricCandidate`] (β², relative curl energy, eigenvector)
+/// **sorted by decreasing β²**. No bound-window or curl-energy filtering is
+/// applied — this is the unfiltered solver core that
+/// [`solve_dielectric_modes`] classifies.
+///
+/// Takes an optional **guided-band shift target**. When `n_eff_target` is
+/// `Some(ceiling)` and the ceiling lies below `n_core`, the shift-invert σ
+/// is placed just below the physical guided-index ceiling (rather than just
+/// below the `n_core` index ceiling) so the genuine fundamental converges
+/// among the first few recovered eigenpairs on a high-contrast 2-D mesh —
+/// avoiding the near-`n_core` spurious cluster that otherwise dominates the
+/// top of the window. When `None` (slab/uniform), σ is placed just below
+/// `n_core²k₀²` exactly as before, preserving the validated 1-D behaviour.
+pub(crate) fn dielectric_raw_candidates_with_target(
     mesh: &TriMesh,
     eps_r: &[f64],
     interior_edge_mask: &[bool],
     k0: f64,
     n_request: usize,
+    n_eff_target: Option<f64>,
 ) -> Result<Vec<RawDielectricCandidate>, EigenError> {
     assert!(k0 > 0.0, "k0 must be positive; got {k0}");
     assert_eq!(
@@ -1625,10 +1664,20 @@ pub(crate) fn dielectric_raw_candidates(
     let a_sparse = dense_to_sparse(&a_int)?;
     let m1_sparse = dense_to_sparse(&m1_int)?;
 
-    // Shift just below the core ceiling so shift-invert Lanczos targets
-    // the top of the physical band (the guided modes). Back off by a
-    // small relative margin so σ sits inside the window.
-    let sigma = beta_sq_ceiling * (1.0 - 1e-3);
+    // Shift placement. Without a 2-D ceiling, σ sits just below the
+    // `n_core²k₀²` index ceiling — the original behaviour that targets the
+    // top of the physical band (correct for slab/uniform geometry where the
+    // genuine fundamental IS near the top). With a 2-D physical ceiling, the
+    // genuine guided band sits a finite distance below n_core (a near-n_core
+    // spurious cluster occupies the very top), so target σ just below the
+    // physical ceiling instead, placing the genuine fundamental among the
+    // first recovered eigenpairs. Back off by a small relative margin so σ
+    // sits inside the window.
+    let sigma_target_beta_sq = match n_eff_target {
+        Some(ceiling) if ceiling < n_core => ceiling * ceiling * k0 * k0,
+        _ => beta_sq_ceiling,
+    };
+    let sigma = sigma_target_beta_sq * (1.0 - 1e-3);
 
     // r = (xᵀ K x) / (k₀² xᵀ M_ε x).
     let curl_ratio = |x_interior: &[f64]| -> f64 {
@@ -1816,6 +1865,121 @@ pub fn slab_te0_neff(n_core: f64, n_clad: f64, d: f64, k0: f64) -> f64 {
         }
     }
     0.5 * (lo + hi)
+}
+
+/// Achievable **guided-index ceiling** for a 2-D-confined cross-section,
+/// derived from the geometry and materials alone (NOT fitted to any target
+/// effective index).
+///
+/// # The physics
+///
+/// A guided mode confined in *both* transverse directions cannot have an
+/// effective index larger than the mode of the corresponding 1-D **slab**
+/// problem in *either* direction. Adding confinement in a second transverse
+/// direction can only *lower* the effective index relative to the 1-D slab
+/// (the field must additionally decay laterally, costing transverse
+/// wavenumber). Hence for a strip core of full vertical thickness `d_y` and
+/// full lateral width `d_x` buried in cladding,
+///
+/// ```text
+///   n_eff < min( slab_te0_neff(n_core, n_clad, d_y, k0),
+///                slab_te0_neff(n_core, n_clad, d_x, k0) )  <  n_core.
+/// ```
+///
+/// Any recovered eigenpair with `n_eff` *above* this ceiling is provably
+/// not a guided mode of the 2-D strip — it is a gradient-contaminated /
+/// near-`n_core`-ceiling spurious eigenpair (these can slip past the
+/// curl-energy floor on a high-contrast 2-D mesh). Rejecting them is the
+/// load-bearing high-contrast filter.
+///
+/// # Deriving the geometry from `(mesh, eps_r)`
+///
+/// The solver is handed only `eps_r` (per-triangle) and the mesh, not the
+/// core dimensions. We recover them: the **core** is the set of triangles
+/// at the maximum permittivity `ε_max`; its node-coordinate bounding box
+/// gives the core extent `(d_x, d_y)` along each axis, and the full-mesh
+/// bounding box gives the domain extent `(L_x, L_y)`.
+///
+/// An axis is treated as **confined** only when the core extent along it is
+/// strictly smaller than the domain extent (cladding on both sides).
+///
+/// The ceiling is applied **only for genuinely 2-D-confined cross-sections**
+/// (core confined in *both* transverse directions). For a 1-D **slab** (one
+/// axis invariant — the core spans the full domain along it) this returns
+/// `None`: the genuine slab fundamental *is* the 1-D-slab limit itself, so a
+/// ceiling derived from a (discretization-rounded) core extent would clip the
+/// very mode we want to keep. Slabs are already handled correctly by the
+/// curl-energy floor that 1-B validated, so we leave their `n_core` ceiling
+/// untouched. The 2-D ceiling is purely the high-contrast-strip fix.
+///
+/// Returns `Some(ceiling)` as the `min` of the two per-axis 1-D slab limits
+/// when **both** axes are confined, or `None` otherwise (slab / uniform ε /
+/// fully-spanning core) — in which case the caller keeps the existing
+/// `n_core` ceiling. The returned ceiling is always strictly below
+/// `n_core`.
+fn physical_index_ceiling(mesh: &TriMesh, eps_r: &[f64], k0: f64) -> Option<f64> {
+    let eps_max = eps_r.iter().cloned().fold(f64::MIN, f64::max);
+    let eps_min = eps_r.iter().cloned().fold(f64::MAX, f64::min);
+    let n_core = eps_max.sqrt();
+    let n_clad = eps_min.sqrt();
+    // No contrast ⇒ no guiding structure ⇒ no meaningful slab ceiling.
+    if n_core <= n_clad {
+        return None;
+    }
+
+    // Full-mesh bounding box (domain extent).
+    let (mut dom_xmin, mut dom_xmax) = (f64::MAX, f64::MIN);
+    let (mut dom_ymin, mut dom_ymax) = (f64::MAX, f64::MIN);
+    for p in &mesh.nodes {
+        dom_xmin = dom_xmin.min(p[0]);
+        dom_xmax = dom_xmax.max(p[0]);
+        dom_ymin = dom_ymin.min(p[1]);
+        dom_ymax = dom_ymax.max(p[1]);
+    }
+    let dom_lx = dom_xmax - dom_xmin;
+    let dom_ly = dom_ymax - dom_ymin;
+
+    // Core bounding box = union of node coordinates of the max-ε triangles.
+    let eps_tol = 1e-9 * eps_max.abs().max(1.0);
+    let (mut core_xmin, mut core_xmax) = (f64::MAX, f64::MIN);
+    let (mut core_ymin, mut core_ymax) = (f64::MAX, f64::MIN);
+    for (ti, t) in mesh.tris.iter().enumerate() {
+        if (eps_r[ti] - eps_max).abs() > eps_tol {
+            continue;
+        }
+        for &node in t {
+            let p = mesh.nodes[node as usize];
+            core_xmin = core_xmin.min(p[0]);
+            core_xmax = core_xmax.max(p[0]);
+            core_ymin = core_ymin.min(p[1]);
+            core_ymax = core_ymax.max(p[1]);
+        }
+    }
+    let core_dx = core_xmax - core_xmin;
+    let core_dy = core_ymax - core_ymin;
+
+    // An axis is confined iff the core is strictly inside the domain along
+    // it (cladding on both sides). Use a relative tolerance against the
+    // domain extent so a core spanning the full width is treated as
+    // invariant (slab-like), not confined.
+    let span_tol_x = 1e-6 * dom_lx.max(1.0);
+    let span_tol_y = 1e-6 * dom_ly.max(1.0);
+    let confined_x = core_dx > 0.0 && core_dx < dom_lx - span_tol_x;
+    let confined_y = core_dy > 0.0 && core_dy < dom_ly - span_tol_y;
+
+    // Only a genuinely 2-D-confined core (both axes) gets a sub-n_core
+    // ceiling. A slab (one axis invariant) keeps the n_core ceiling — its
+    // genuine fundamental sits at the 1-D-slab limit, which a discretized
+    // ceiling could clip.
+    if !(confined_x && confined_y) {
+        return None;
+    }
+
+    let ceiling =
+        slab_te0_neff(n_core, n_clad, core_dx, k0).min(slab_te0_neff(n_core, n_clad, core_dy, k0));
+    // The 1-D slab root is strictly below n_core by construction; keep the
+    // ceiling strictly inside the open window for safe comparison.
+    Some(ceiling.min(n_core))
 }
 
 #[cfg(test)]
@@ -2698,7 +2862,7 @@ mod tests {
     /// every metallic cutoff eigenpair `K x = k_c² M₁ x` reappears in the
     /// dielectric pencil with `β² = ε k₀² − k_c²`. We verify this
     /// **end-to-end**: we recover the dielectric pencil's eigenpairs via
-    /// [`dielectric_raw_candidates`] (the same solver core
+    /// [`dielectric_raw_candidates_with_target`] (the same solver core
     /// `solve_dielectric_modes` uses — the bound-window classifier is
     /// bypassed only because a homogeneous medium has the empty window
     /// `(√ε, √ε)`), take the dominant curl-carrying mode, and check its
@@ -2728,8 +2892,8 @@ mod tests {
         // r ≈ 0, and is excluded by the curl-energy floor.)
         let (_edges, interior) = rect_pec_interior_edges(&mesh, a, b);
         let eps_r = vec![eps; mesh.n_tris()];
-        let cands =
-            dielectric_raw_candidates(&mesh, &eps_r, &interior, k0, 16).expect("dielectric core");
+        let cands = dielectric_raw_candidates_with_target(&mesh, &eps_r, &interior, k0, 16, None)
+            .expect("dielectric core");
         assert!(!cands.is_empty(), "solver returned no eigenpairs");
 
         // Dominant curl-carrying mode = largest β² with non-negligible curl
@@ -2769,6 +2933,229 @@ mod tests {
             (n_eff_fem * n_eff_fem - rhs).abs() < 1e-5 * rhs.abs().max(1.0),
             "n_eff² {} ≠ ε − (kc/k0)² {rhs}",
             n_eff_fem * n_eff_fem
+        );
+    }
+
+    /// Build a high-contrast **2-D strip** fixture: a rectangle
+    /// `[0,W]×[0,H]` with a finite-extent high-index **core rectangle** of
+    /// full lateral width `w_core` and full vertical thickness `d_core`,
+    /// centred at `(W/2, H/2)` and clad on *all four sides*. Triangles are
+    /// tagged by centroid: tag 1 (core) when the centroid is inside the
+    /// core rectangle, else tag 0 (clad). This is the SOI-strip analogue of
+    /// `slab_fixture` (which is invariant in x).
+    fn strip_fixture(
+        (nx, ny): (usize, usize),
+        (w, h): (f64, f64),
+        (w_core, d_core): (f64, f64),
+        (eps_core, eps_clad): (f64, f64),
+    ) -> (TriMesh, Vec<f64>, Vec<bool>) {
+        let mesh = rect_tri_mesh(nx, ny, w, h);
+        let region_tags: Vec<i32> = mesh
+            .tris
+            .iter()
+            .map(|t| {
+                let xc = (mesh.nodes[t[0] as usize][0]
+                    + mesh.nodes[t[1] as usize][0]
+                    + mesh.nodes[t[2] as usize][0])
+                    / 3.0;
+                let yc = (mesh.nodes[t[0] as usize][1]
+                    + mesh.nodes[t[1] as usize][1]
+                    + mesh.nodes[t[2] as usize][1])
+                    / 3.0;
+                if (xc - 0.5 * w).abs() < 0.5 * w_core && (yc - 0.5 * h).abs() < 0.5 * d_core {
+                    1
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let eps_r =
+            epsilon_r_from_region_tags(
+                &region_tags,
+                |tag| {
+                    if tag == 1 {
+                        eps_core
+                    } else {
+                        eps_clad
+                    }
+                },
+            );
+        let (_edges, interior) = rect_pec_interior_edges(&mesh, w, h);
+        (mesh, eps_r, interior)
+    }
+
+    /// **Physical-index-ceiling derivation** (Epic #303, issue #309).
+    ///
+    /// The ceiling is derived from the geometry/materials, NOT fitted to a
+    /// target n_eff. This pins the two regimes:
+    ///
+    /// 1. **2-D strip** (core confined in BOTH directions): the ceiling is
+    ///    the `min` of the per-axis 1-D-slab limits — for the SOI strip the
+    ///    vertical 220-nm slab (≈2.85) is the binding one (below the lateral
+    ///    450-nm slab ≈3.24), and the ceiling is strictly below `n_core`.
+    /// 2. **Slab** (core spans the full width — x-invariant): no axis is
+    ///    laterally confined, so `physical_index_ceiling` returns `None` and
+    ///    the classifier keeps the `n_core` ceiling, preserving the
+    ///    validated 1-D behaviour.
+    #[test]
+    fn physical_index_ceiling_derives_from_geometry() {
+        let n_core = 3.48_f64;
+        let n_clad = 1.444_f64;
+        let eps_core = n_core * n_core;
+        let eps_clad = n_clad * n_clad;
+        let lambda = 1.55_f64;
+        let k0 = 2.0 * std::f64::consts::PI / lambda;
+
+        // --- 2-D strip: ceiling = min(vertical, lateral) slab limit. ---
+        let (w, h) = (2.0_f64, 2.0_f64);
+        let (w_core, d_core) = (0.45_f64, 0.22_f64);
+        let (mesh, eps_r, _interior) =
+            strip_fixture((40, 40), (w, h), (w_core, d_core), (eps_core, eps_clad));
+        let ceiling = physical_index_ceiling(&mesh, &eps_r, k0)
+            .expect("a 2-D-confined strip must yield a finite ceiling");
+
+        // Independent per-axis 1-D slab limits (the EIM building blocks).
+        let vslab = slab_te0_neff(n_core, n_clad, d_core, k0); // ≈ 2.85
+        let lslab = slab_te0_neff(n_core, n_clad, w_core, k0); // ≈ 3.24
+        let expected = vslab.min(lslab);
+        eprintln!(
+            "ceiling derivation: vertical-slab(d={d_core})={vslab:.4}, \
+             lateral-slab(w={w_core})={lslab:.4}, ceiling={ceiling:.4}, n_core={n_core}"
+        );
+        // The ceiling is the smaller (binding) slab limit, derived from the
+        // core extents the fixture tagged — and strictly below n_core. The
+        // core extent recovered from the mesh is within one cell of the
+        // requested core size, so allow a small mesh-discretization slack.
+        assert!(
+            ceiling < n_core,
+            "ceiling {ceiling} must be strictly below n_core {n_core}"
+        );
+        // The binding limit is the vertical (220-nm) slab, not the lateral
+        // (450-nm) one; the ceiling is within ~one cell of resolving the
+        // requested 220-nm thickness (centroid tagging recovers the core
+        // extent to within a cell ⇒ slab limit slack ≲ 0.1).
+        assert!(
+            (ceiling - expected).abs() < 0.1,
+            "ceiling {ceiling} should match min-slab (vertical) limit {expected}"
+        );
+        assert!(
+            ceiling < lslab,
+            "ceiling {ceiling} must be below the lateral slab limit {lslab} (vertical binds)"
+        );
+
+        // --- Slab (x-invariant): no lateral confinement ⇒ None. ---
+        let (sw, sh, sd) = (0.20_f64, 4.0_f64, 0.22_f64);
+        let (smesh, seps_r, _si) = slab_fixture(4, 80, sw, sh, sd, eps_core, eps_clad);
+        assert!(
+            physical_index_ceiling(&smesh, &seps_r, k0).is_none(),
+            "an x-invariant slab must yield no 2-D ceiling (keep n_core)"
+        );
+
+        // --- Uniform ε: no contrast ⇒ None. ---
+        let umesh = rect_tri_mesh(8, 8, 1.0, 1.0);
+        let ueps = vec![eps_core; umesh.n_tris()];
+        assert!(
+            physical_index_ceiling(&umesh, &ueps, k0).is_none(),
+            "uniform ε has no guiding structure ⇒ no ceiling"
+        );
+    }
+
+    /// **High-contrast 2-D SOI strip: genuine fundamental is returned
+    /// FIRST** (Epic #303, issue #309 — the load-bearing hardening).
+    ///
+    /// Geometry: a silicon strip (n_Si = 3.48) of 220 nm × 450 nm buried in
+    /// SiO₂ (n = 1.444) at λ = 1550 nm — confined in *both* transverse
+    /// directions. Before this fix the solver returned a dense ladder of
+    /// unphysical near-`n_core` modes (n_eff ≈ 3.0–3.37) that passed the
+    /// slab-calibrated curl floor and outranked the genuine fundamental
+    /// (n_eff ≈ 2.6, matching an effective-index-method / min-slab estimate
+    /// to a few %). The physical-index-ceiling rejection (derived from the
+    /// core geometry, NOT fitted) removes them, and the guided-band shift
+    /// makes the fundamental converge among the first few modes — so we can
+    /// request just a handful of modes (CI-fast).
+    ///
+    /// Assertions:
+    /// - the returned fundamental n_eff is in-window `(n_SiO2, n_Si)`,
+    /// - it is below the derived physical 1-D-slab ceiling,
+    /// - it agrees with an independent EIM/min-slab estimate within a stated
+    ///   tolerance,
+    /// - and NO returned mode exceeds the physical ceiling.
+    #[test]
+    fn high_contrast_soi_strip_fundamental_first() {
+        let n_si = 3.48_f64;
+        let n_sio2 = 1.444_f64;
+        let eps_si = n_si * n_si; // ≈ 12.11
+        let eps_sio2 = n_sio2 * n_sio2; // ≈ 2.085
+        let lambda = 1.55_f64;
+        let k0 = 2.0 * std::f64::consts::PI / lambda;
+
+        // SOI strip: 450 nm wide × 220 nm tall Si core, buried in SiO₂.
+        // Use a compact window (≈ a quarter-µm of cladding each side — the
+        // ε≈12.1/2.085 contrast confines the mode tightly so the PEC walls
+        // are immaterial) with the core resolved by several cells in each
+        // direction. The mesh is kept small enough for a CI-fast solve: the
+        // dielectric pencil is assembled densely, so cost scales steeply
+        // with the edge count. Cells are roughly isotropic to keep the
+        // spectrum clean.
+        let w_core = 0.45_f64;
+        let d_core = 0.22_f64;
+        let (w, h) = (1.0_f64, 1.0_f64);
+        let (nx, ny) = (32usize, 32usize);
+        let (mesh, eps_r, interior) =
+            strip_fixture((nx, ny), (w, h), (w_core, d_core), (eps_si, eps_sio2));
+
+        // Physical ceiling derived purely from geometry/materials.
+        let ceiling = physical_index_ceiling(&mesh, &eps_r, k0)
+            .expect("2-D strip must yield a finite physical ceiling");
+
+        // Independent EIM / min-slab estimate (NOT used to select the mode —
+        // only to validate the answer). The genuine 2-D n_eff sits below
+        // both 1-D slab limits; a standard effective-index-method estimate
+        // for this SOI strip is ≈2.6.
+        let eim_estimate = 2.6_f64;
+
+        // CI-fast: request only a few modes — the guided-band shift puts the
+        // fundamental among the first recovered eigenpairs.
+        let modes =
+            solve_dielectric_modes(&mesh, &eps_r, &interior, k0, 4).expect("dielectric solve");
+        assert!(
+            !modes.is_empty(),
+            "expected at least the genuine fundamental of the SOI strip"
+        );
+
+        let n_eff_fem = modes[0].n_eff;
+        eprintln!(
+            "SOI strip fundamental: n_eff_fem={n_eff_fem:.6}, ceiling={ceiling:.6}, \
+             EIM≈{eim_estimate}, window=({n_sio2}, {n_si})"
+        );
+
+        // In-window.
+        assert!(
+            n_eff_fem > n_sio2 && n_eff_fem < n_si,
+            "fundamental n_eff {n_eff_fem} outside (n_SiO2, n_Si)"
+        );
+        // Below the derived physical ceiling — and NO returned mode exceeds
+        // it (the load-bearing claim: spurious near-n_core modes removed).
+        for m in &modes {
+            assert!(
+                m.n_eff <= ceiling + 1e-9,
+                "returned mode n_eff {} exceeds physical ceiling {ceiling}",
+                m.n_eff
+            );
+        }
+        // Genuine fundamental, not a near-ceiling spurious mode.
+        assert!(
+            n_eff_fem < 3.0,
+            "returned a near-ceiling spurious mode (n_eff={n_eff_fem:.4})"
+        );
+        // Agreement with the independent EIM estimate.
+        let rel = (n_eff_fem - eim_estimate).abs() / eim_estimate;
+        eprintln!("SOI strip EIM agreement: {:.2}%", 100.0 * rel);
+        assert!(
+            rel < 0.06,
+            "SOI fundamental n_eff {n_eff_fem:.4} vs EIM {eim_estimate} \
+             ({:.2}% > 6%)",
+            100.0 * rel
         );
     }
 }
