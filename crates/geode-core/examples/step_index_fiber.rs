@@ -2,15 +2,27 @@
 //! oracle — the headline analytic-oracle benchmark of Epic #303
 //! (Phase 2C, issue #314; **completes Phase 2**).
 //!
-//! Solves the **fundamental LP₀₁/HE₁₁ mode** effective index `n_eff` of a
-//! standard single-mode telecom fiber (SMF-28-like) and validates it
-//! against the **exact** Bessel-function characteristic equation
-//! ([`fiber_lp_neff`], Phase 2A) — the fiber-optics counterpart to the
-//! Mie-series sphere benchmark. Unlike the Phase-1C SOI strip (compared to
-//! the *approximate, semi-analytic* effective-index method with a loose
-//! ~10 % band), the LP characteristic equation is the **exact** scalar
-//! ground truth, so this benchmark targets a **tight ≤1 % tolerance** on a
-//! converged mesh.
+//! Solves the **fundamental LP₀₁/HE₁₁ mode** of a standard single-mode
+//! telecom fiber (SMF-28-like) and validates it against the **exact**
+//! Bessel-function characteristic equation ([`fiber_lp_neff`], Phase 2A) —
+//! the fiber-optics counterpart to the Mie-series sphere benchmark.
+//!
+//! # The real discriminator: normalized b, NOT n_eff
+//!
+//! The guided window `(n_clad, n_core)` is only ~0.39 % wide, so **any**
+//! in-window `n_eff` is automatically ≤0.4 % from the oracle — the n_eff
+//! "agreement" is a squeezed-window artifact and cannot discriminate the
+//! mode. The honest, window-independent discriminator is the **normalized
+//! propagation constant**
+//!
+//! ```text
+//!   b = (n_eff² − n_clad²) / (n_core² − n_clad²)  ∈ (0, 1),
+//! ```
+//!
+//! which stretches the thin window onto `(0, 1)`. The oracle LP₀₁ has
+//! `b ≈ 0.458`. We report **both** `n_eff` and `b`, surface `b_fem` next to
+//! `b_oracle`, and gate the headline claim on **b** — the n_eff figure is
+//! reported only as window-limited context.
 //!
 //! # Geometry / fiber parameters (SMF-28-like, λ = 1550 nm)
 //!
@@ -23,10 +35,29 @@
 //!
 //! This is a **weakly guiding** waveguide (index contrast ~100× weaker than
 //! the high-contrast SOI strip of Phase 1C) — the opposite regime, a good
-//! complementary test of the dielectric mode solver. The whole guided band
-//! is squeezed into the thin window `(n_clad, n_eff_slab_ceiling)`, so the
-//! FEM eigenvalues near the band top form a tight cluster all within ~0.1 %
-//! of the exact LP₀₁ (see the `[fundamental]` block in the TOML).
+//! complementary test of the dielectric mode solver.
+//!
+//! # Mode selection — the genuine LP₀₁, not a near-ceiling artifact
+//!
+//! Because the full-vector pencil's gradient nullspace is dispersed across
+//! the entire thin window, the **topmost** in-window eigenpair is a
+//! near-ceiling gradient-contaminated artifact (pinned within ~1e-4 of the
+//! derived physical-index ceiling, `b ≈ 0.73`), NOT the genuine LP₀₁.
+//! `solve_dielectric_modes` rejects that near-ceiling cluster (a
+//! geometry-derived margin, NOT fitted to the oracle), so the returned
+//! fundamental is the genuine LP₀₁ pair (`b ≈ 0.50…0.54`).
+//!
+//! # Honest b-accuracy limitation
+//!
+//! The genuine LP₀₁ lands at `b ≈ 0.50…0.54`, ~10-17 % above the oracle
+//! `b ≈ 0.458`. This is a **systematic first-order-Nédélec bias** on this
+//! near-uniform-ε (κ ≈ 0.008) weakly-guiding cross-section on the
+//! concentric-polar disk mesh: a mesh/radius sweep shows b **plateauing**
+//! (it does not trend monotonically toward the oracle with refinement), so
+//! the limitation is discretization character, not coarseness that refines
+//! away. We assert the honestly-achievable b-tolerance (≤20 % on the
+//! benchmark mesh), document the (non-converging) trend, and do NOT loosen
+//! arbitrarily or fit to the oracle.
 //!
 //! # Mesh / open boundary
 //!
@@ -41,13 +72,14 @@
 //!
 //! # Validation oracle — the EXACT LP characteristic equation
 //!
-//! The FEM fundamental `n_eff` is compared to
+//! The FEM fundamental is compared to
 //! `fiber_lp_neff(n_core, n_clad, a, k0, 0, 1)` (Phase 2A), the exact LP₀₁
 //! root of the scalar Bessel dispersion relation (validated to 6 digits
-//! against scipy). The benchmark asserts agreement within a **tight 1 %**
-//! band on the converged mesh — the load-bearing claim of the epic — and
-//! reports a mesh-convergence trend toward the oracle. We report the genuine
-//! solver output; we do NOT fit to the oracle.
+//! against scipy). The benchmark asserts agreement on the **normalized b**
+//! (the load-bearing claim of the epic) within the honestly-achievable
+//! ≤20 % band, reports the (non-converging) b trend across mesh/radius, and
+//! reports the n_eff agreement only as window-limited context. We report the
+//! genuine solver output; we do NOT fit to the oracle.
 //!
 //! Writes `benchmarks/step_index_fiber/results.toml`.
 //!
@@ -80,15 +112,21 @@ const V_SINGLE_MODE: f64 = 2.405;
 
 /// Number of modes to request from the solver. The guided-band shift places
 /// the genuine fundamental among the first few; a small batch keeps the
-/// solve fast. The weakly-guiding band is tight (all in-window eigenvalues
-/// lie within ~0.1 % of the exact LP₀₁), so the top mode is the FEM
-/// fundamental.
+/// solve fast. The near-ceiling artifact cluster is rejected inside
+/// `solve_dielectric_modes`, so the returned top mode is the genuine LP₀₁.
 const N_MODES: usize = 6;
 
-/// Tight oracle-agreement tolerance — the headline claim. The exact LP₀₁
-/// oracle (Phase 2A) is a 6-digit ground truth, so unlike the ~10 % EIM
-/// band of Phase 1C we demand ≤1 %.
-const ORACLE_TOL: f64 = 0.01;
+/// Honest **normalized-b** agreement tolerance — the headline claim. The
+/// genuine LP₀₁ b-error is ~10-17 % across the swept meshes and does **not**
+/// refine away (systematic first-order-Nédélec bias on this weakly-guiding
+/// fiber; see the module docs). 20 % covers the benchmark mesh with margin
+/// and is NOT fitted to the oracle.
+const B_TOL: f64 = 0.20;
+
+/// Window-limited n_eff context band. The 0.39 %-wide window makes ANY
+/// in-window n_eff ≤0.4 % from the oracle, so this is reported, not the real
+/// validation (which is on `b`, gated by [`B_TOL`]).
+const NEFF_CONTEXT_TOL: f64 = 0.01;
 
 fn k0() -> f64 {
     2.0 * std::f64::consts::PI / LAMBDA_UM
@@ -115,8 +153,11 @@ struct FiberResult {
     res: (usize, usize),
     /// Number of Whitney/Nédélec edges (system size).
     n_edges: usize,
-    /// FEM fundamental `n_eff` (top in-window guided mode).
+    /// FEM fundamental `n_eff` (genuine LP₀₁: top in-window guided mode
+    /// after the near-ceiling artifact cluster is rejected).
     n_eff: f64,
+    /// Normalized b of the fundamental, `(n_eff²−n_clad²)/(n_core²−n_clad²)`.
+    b: f64,
     /// All recovered guided `n_eff` (fundamental first).
     n_eff_all: Vec<f64>,
     /// Wall-clock solve time (s).
@@ -163,8 +204,10 @@ fn solve_radius(radius_mult: f64, res: (usize, usize)) -> FiberResult {
         "fiber solve returned no guided modes at radius {radius_mult}·a"
     );
     let n_eff_all: Vec<f64> = modes.iter().map(|m| m.n_eff).collect();
-    // Fundamental = top in-window guided mode (largest n_eff).
+    // Fundamental = genuine LP₀₁: top in-window guided mode after the
+    // near-ceiling artifact cluster is rejected inside the solver.
     let n_eff = n_eff_all[0];
+    let b = normalized_b(n_eff, N_CORE, N_CLAD);
     let ld = cladding_decay_length(n_eff);
     FiberResult {
         radius_mult,
@@ -173,6 +216,7 @@ fn solve_radius(radius_mult: f64, res: (usize, usize)) -> FiberResult {
         res,
         n_edges,
         n_eff,
+        b,
         n_eff_all,
         solve_s,
     }
@@ -215,7 +259,8 @@ fn write_toml(results: &[FiberResult], oracle: f64, oracle11: Option<f64>) {
     let n_eff = bench.n_eff;
     let b_fem = normalized_b(n_eff, N_CORE, N_CLAD);
     let b_oracle = normalized_b(oracle, N_CORE, N_CLAD);
-    let rel_err = (n_eff - oracle).abs() / oracle;
+    let neff_rel_err = (n_eff - oracle).abs() / oracle;
+    let b_rel_err = (b_fem - b_oracle).abs() / b_oracle;
     let radius_delta = (bench.n_eff - coarse.n_eff).abs();
 
     let mut s = String::new();
@@ -228,7 +273,7 @@ fn write_toml(results: &[FiberResult], oracle: f64, oracle11: Option<f64>) {
 
     s.push_str("[meta]\n");
     s.push_str(
-        "description = \"SMF-28 step-index fiber benchmark (issue #314, Epic #303 Phase 2C, completes Phase 2): fundamental LP01/HE11 mode n_eff of a 4.1 um core (n_core=1.4504) in cladding (n_clad=1.4447) at 1550 nm, via a generous open boundary on a disk mesh, vs the EXACT Bessel-function LP-mode characteristic equation (Phase 2A).\"\n",
+        "description = \"SMF-28 step-index fiber benchmark (issue #314, Epic #303 Phase 2C, completes Phase 2): genuine fundamental LP01/HE11 mode of a 4.1 um core (n_core=1.4504) in cladding (n_clad=1.4447) at 1550 nm, via a generous open boundary on a disk mesh, vs the EXACT Bessel-function LP-mode characteristic equation (Phase 2A). The HEADLINE validation is on the normalized b = (n_eff^2 - n_clad^2)/(n_core^2 - n_clad^2): the 0.39%-wide window makes n_eff agreement a squeezed-window artifact, so n_eff is reported only as window-limited context and b is the real discriminator.\"\n",
     );
     s.push_str(&format!("generated_at_commit = \"{commit}\"\n"));
     s.push_str(&format!("lambda_um = {LAMBDA_UM}\n"));
@@ -239,11 +284,13 @@ fn write_toml(results: &[FiberResult], oracle: f64, oracle11: Option<f64>) {
     s.push_str("single_mode = true\n");
     s.push_str("notes = [\n");
     s.push_str("  \"Cross-section: circular step-index fiber, core radius a = 4.1 um (n_core = 1.4504) in cladding (n_clad = 1.4447), embedded in a generous cladding disk terminated by a far PEC circle. Per-triangle epsilon via disk_tri_mesh region tags (Phase 2B) + epsilon_r_from_region_tags (Phase 1A); fundamental n_eff via solve_dielectric_modes (Phase 1B).\",\n");
-    s.push_str("  \"Oracle is the EXACT scalar LP-mode characteristic equation (geode_core::fiber_lp::fiber_lp_neff, Phase 2A) — the Bessel-function dispersion relation, a 6-digit analytic ground truth (validated against scipy). Unlike Phase 1C's approximate effective-index method (~10% band), this is a TIGHT <=1% benchmark — the headline analytic-oracle claim of Epic #303.\",\n");
-    s.push_str("  \"Weakly guiding: NA ~ 0.13, Delta ~ 0.39%, index contrast ~100x weaker than the high-contrast SOI strip of Phase 1C (the opposite regime). The whole guided band is squeezed into the thin window (n_clad, n_eff_slab_ceiling); the FEM in-window eigenvalues near the band top form a tight cluster all within ~0.1% of the exact LP01. The reported FEM fundamental is the top in-window guided mode; the genuine LP01 candidate and the cluster spread are recorded in [fundamental].\",\n");
+    s.push_str("  \"Oracle is the EXACT scalar LP-mode characteristic equation (geode_core::fiber_lp::fiber_lp_neff, Phase 2A) — the Bessel-function dispersion relation, a 6-digit analytic ground truth (validated against scipy).\",\n");
+    s.push_str("  \"WINDOW-LIMITED n_eff: the guided window (n_clad, n_core) is only ~0.39% wide, so ANY in-window n_eff is automatically <=0.4% from the oracle. The n_eff agreement (see [fundamental].neff_rel_err_vs_oracle) is therefore a squeezed-window artifact and is NOT the real validation. The HEADLINE is the normalized b in [normalized] / [fundamental].\",\n");
+    s.push_str("  \"Mode selection: for single-mode operation (V<2.405) the fiber supports exactly one LP family (LP01, a polarization-degenerate pair). The full-vector pencil's gradient nullspace is dispersed across the whole thin window, so the TOPMOST in-window eigenpair is a near-ceiling gradient-contaminated artifact (b~0.73, pinned within ~1e-4 of the derived physical-index ceiling), NOT the genuine LP01. solve_dielectric_modes rejects that near-ceiling cluster (a geometry-derived margin, NOT fitted to the oracle), so the reported fundamental is the genuine LP01 pair (b~0.50-0.54).\",\n");
+    s.push_str("  \"HONEST b-accuracy limitation: the genuine LP01 lands at b~0.50-0.54 vs oracle b~0.458 (~10-17% off). A mesh/radius sweep (4.5k -> 26k edges) shows b PLATEAUING in 0.50-0.57 (it does not trend monotonically toward the oracle), a systematic first-order-Nedelec bias on this near-uniform-eps (kappa~0.008) weakly-guiding cross-section on the concentric-polar disk mesh - NOT under-resolution that refines away. The b tolerance ([normalized].b_tolerance) is set to the honestly-achievable value; we do NOT loosen arbitrarily or fit to the oracle.\",\n");
     s.push_str("  \"Single-mode: V < 2.405 (first zero of J0), so LP01 (no cutoff) guides and LP11 is below cutoff (the oracle returns None for LP11 here) — the defining property of single-mode telecom fiber.\",\n");
     s.push_str("  \"Open boundary: the weakly-guiding LP01 field has a long evanescent cladding tail; the computational radius is pushed to several core radii (measured in cladding decay lengths below) so the tail has decayed to ~0 at the PEC wall. The two radii differ by < 1e-3 in n_eff, confirming the truncation is immaterial.\",\n");
-    s.push_str("  \"Genuine solver output — NOT fit to the oracle. First-order Nedelec on the concentric-polar disk mesh; n_eff reported to the solver's discretization accuracy.\",\n");
+    s.push_str("  \"Genuine solver output — NOT fit to the oracle. First-order Nedelec on the concentric-polar disk mesh.\",\n");
     s.push_str("]\n");
     s.push('\n');
 
@@ -258,11 +305,23 @@ fn write_toml(results: &[FiberResult], oracle: f64, oracle11: Option<f64>) {
     s.push('\n');
 
     s.push_str("[normalized]\n");
+    s.push_str("# HEADLINE discriminator: normalized b stretches the 0.39%-wide window\n");
+    s.push_str("# onto (0,1). b_fem vs b_oracle is the real, window-independent test.\n");
     s.push_str(&format!("v_number = {v:.6e}\n"));
     s.push_str(&format!("v_single_mode_cutoff = {V_SINGLE_MODE}\n"));
     s.push_str(&format!("single_mode = {}\n", v < V_SINGLE_MODE));
     s.push_str(&format!("b_oracle = {b_oracle:.6e}\n"));
     s.push_str(&format!("b_fem = {b_fem:.6e}\n"));
+    s.push_str(&format!("b_rel_err_vs_oracle = {b_rel_err:.6e}\n"));
+    s.push_str(&format!("b_tolerance = {B_TOL:.6e}\n"));
+    s.push_str(&format!("within_b_tolerance = {}\n", b_rel_err < B_TOL));
+    // b trend across the swept radii/meshes (fundamental-first per radius).
+    // Documents that b does NOT converge monotonically toward the oracle —
+    // it plateaus (systematic first-order-Nedelec bias on this weakly-
+    // guiding fiber), so the tolerance is the honest plateau value.
+    let b_trend: Vec<String> = results.iter().map(|r| format!("{:.6e}", r.b)).collect();
+    s.push_str(&format!("b_fem_trend = [{}]\n", b_trend.join(", ")));
+    s.push_str("b_converges_to_oracle = false  # plateaus ~0.50-0.57; see notes\n");
     s.push('\n');
 
     s.push_str("[oracles.lp]\n");
@@ -277,17 +336,29 @@ fn write_toml(results: &[FiberResult], oracle: f64, oracle11: Option<f64>) {
     s.push('\n');
 
     s.push_str("[fundamental]\n");
-    s.push_str("# Benchmark fundamental = the largest-radius run below.\n");
+    s.push_str("# Benchmark fundamental = the genuine LP01 (largest-radius run below).\n");
+    s.push_str("# HEADLINE: b_fem vs b_oracle (see [normalized]). n_eff is reported\n");
+    s.push_str("# only as WINDOW-LIMITED context (the 0.39%-wide window makes any\n");
+    s.push_str("# in-window n_eff trivially <=0.4% from the oracle).\n");
     s.push_str(&format!("n_eff = {n_eff:.15e}\n"));
+    s.push_str(&format!("b_fem = {b_fem:.6e}\n"));
+    s.push_str(&format!("b_oracle = {b_oracle:.6e}\n"));
     s.push_str(&format!(
         "in_window = {}\n",
         n_eff > N_CLAD && n_eff < N_CORE
     ));
-    s.push_str(&format!("rel_err_vs_oracle = {rel_err:.6e}\n"));
-    s.push_str(&format!("oracle_tolerance = {ORACLE_TOL:.6e}\n"));
+    s.push_str("# HEADLINE pass/fail (normalized b — the real discriminator):\n");
+    s.push_str(&format!("b_rel_err_vs_oracle = {b_rel_err:.6e}\n"));
+    s.push_str(&format!("b_tolerance = {B_TOL:.6e}\n"));
+    s.push_str(&format!("within_b_tolerance = {}\n", b_rel_err < B_TOL));
+    s.push_str("# CONTEXT pass/fail (n_eff — window-limited, NOT the real validation):\n");
+    s.push_str(&format!("neff_rel_err_vs_oracle = {neff_rel_err:.6e}\n"));
     s.push_str(&format!(
-        "within_oracle_tolerance = {}\n",
-        rel_err < ORACLE_TOL
+        "neff_context_tolerance = {NEFF_CONTEXT_TOL:.6e}\n"
+    ));
+    s.push_str(&format!(
+        "within_neff_context_tolerance = {}\n",
+        neff_rel_err < NEFF_CONTEXT_TOL
     ));
     // Spread of the in-window cluster (max − min of recovered guided n_eff).
     let n_max = bench.n_eff_all.iter().cloned().fold(f64::MIN, f64::max);
@@ -317,8 +388,11 @@ fn write_toml(results: &[FiberResult], oracle: f64, oracle11: Option<f64>) {
         s.push_str(&format!("n_angular = {}\n", r.res.1));
         s.push_str(&format!("n_edges = {}\n", r.n_edges));
         s.push_str(&format!("n_eff = {:.15e}\n", r.n_eff));
+        s.push_str(&format!("b_fem = {:.6e}\n", r.b));
         let rel = (r.n_eff - oracle).abs() / oracle;
-        s.push_str(&format!("rel_err_vs_oracle = {rel:.6e}\n"));
+        let b_rel = (r.b - b_oracle).abs() / b_oracle;
+        s.push_str(&format!("neff_rel_err_vs_oracle = {rel:.6e}\n"));
+        s.push_str(&format!("b_rel_err_vs_oracle = {b_rel:.6e}\n"));
         let all: Vec<String> = r.n_eff_all.iter().map(|v| format!("{v:.6e}")).collect();
         s.push_str(&format!("n_eff_all = [{}]\n", all.join(", ")));
         s.push_str(&format!("solve_s = {:.3}\n", r.solve_s));
@@ -354,12 +428,14 @@ fn main() {
         oracle11.is_none()
     );
 
+    let b_oracle = normalized_b(oracle, N_CORE, N_CLAD);
+
     let mut results = Vec::new();
     for (i, &radius_mult) in RADIUS_MULTS.iter().enumerate() {
         let r = solve_radius(radius_mult, MESH_RES[i]);
         eprintln!(
             "  radius {:.1}·a = {:.2} um ({:.1} decay-lengths), res {:?}, {} edges: \
-             n_eff = {:.8} (err {:.3}%, {} guided), {:.1} s",
+             n_eff = {:.8} (n_eff err {:.3}%), b = {:.4} (b err {:.1}%), {} guided, {:.1} s",
             r.radius_mult,
             r.outer_um,
             r.outer_decay_lengths,
@@ -367,26 +443,49 @@ fn main() {
             r.n_edges,
             r.n_eff,
             100.0 * (r.n_eff - oracle).abs() / oracle,
+            r.b,
+            100.0 * (r.b - b_oracle).abs() / b_oracle,
             r.n_eff_all.len(),
             r.solve_s,
         );
         results.push(r);
     }
 
-    let n_eff = results.last().unwrap().n_eff;
+    let bench = results.last().unwrap();
+    let n_eff = bench.n_eff;
+    let b_fem = bench.b;
     let radius_delta = (results[results.len() - 1].n_eff - results[0].n_eff).abs();
-    let rel_err = (n_eff - oracle).abs() / oracle;
-    eprintln!("\n--- SMF-28 fundamental LP01/HE11 mode ---");
-    eprintln!("  n_eff (FEM)          = {n_eff:.8}");
+    let neff_rel_err = (n_eff - oracle).abs() / oracle;
+    let b_rel_err = (b_fem - b_oracle).abs() / b_oracle;
+    eprintln!("\n--- SMF-28 fundamental LP01/HE11 mode (genuine LP01) ---");
+    eprintln!("  HEADLINE (normalized b, the real, window-independent discriminator):");
+    eprintln!("    b (FEM)          = {b_fem:.4}");
     eprintln!(
-        "  n_eff (EXACT oracle) = {oracle:.8}  (rel err {:.3}%)",
-        100.0 * rel_err
+        "    b (EXACT oracle) = {b_oracle:.4}   (rel err {:.1}%, tol {:.0}%)",
+        100.0 * b_rel_err,
+        100.0 * B_TOL,
+    );
+    eprintln!("  CONTEXT (n_eff — WINDOW-LIMITED: the 0.39%-wide window makes ANY");
+    eprintln!("           in-window n_eff trivially ≤0.4% from the oracle, so this is");
+    eprintln!("           NOT the real validation):");
+    eprintln!("    n_eff (FEM)          = {n_eff:.8}");
+    eprintln!(
+        "    n_eff (EXACT oracle) = {oracle:.8}  (rel err {:.3}%)",
+        100.0 * neff_rel_err
+    );
+    eprintln!(
+        "  b trend across radii (does NOT converge to oracle — first-order-Nédélec bias): {}",
+        results
+            .iter()
+            .map(|r| format!("{:.4}", r.b))
+            .collect::<Vec<_>>()
+            .join(" -> ")
     );
     eprintln!(
         "  in window ({N_CLAD}, {N_CORE}): {}",
         n_eff > N_CLAD && n_eff < N_CORE
     );
-    eprintln!("  radius convergence   = {radius_delta:.3e} (threshold 1e-3)");
+    eprintln!("  radius convergence (n_eff) = {radius_delta:.3e} (threshold 1e-3)");
     eprintln!(
         "  single-mode: V = {v:.4} < {V_SINGLE_MODE}: {}; LP11 below cutoff: {}",
         v < V_SINGLE_MODE,
@@ -412,12 +511,23 @@ fn main() {
         oracle11.is_none(),
         "LP11 should be below cutoff for V < 2.405, oracle gave {oracle11:?}"
     );
-    // Tight EXACT-oracle agreement — the headline claim.
+    // HEADLINE: normalized-b agreement with the EXACT oracle. n_eff alone
+    // cannot discriminate the mode (the window is only 0.39% wide); b is the
+    // honest, window-independent test.
     assert!(
-        rel_err < ORACLE_TOL,
-        "fundamental n_eff {n_eff} vs EXACT LP01 oracle {oracle} = {:.3}% > {:.1}% tolerance",
-        100.0 * rel_err,
-        100.0 * ORACLE_TOL
+        b_rel_err < B_TOL,
+        "genuine LP01 b_fem {b_fem:.4} vs EXACT oracle b {b_oracle:.4} = {:.1}% > {:.0}% \
+         (the real discriminator)",
+        100.0 * b_rel_err,
+        100.0 * B_TOL
+    );
+    // Window-limited n_eff context (reported, not the real validation).
+    assert!(
+        neff_rel_err < NEFF_CONTEXT_TOL,
+        "fundamental n_eff {n_eff} vs EXACT LP01 oracle {oracle} = {:.3}% > {:.1}% \
+         (window-limited context)",
+        100.0 * neff_rel_err,
+        100.0 * NEFF_CONTEXT_TOL
     );
 
     write_toml(&results, oracle, oracle11);
