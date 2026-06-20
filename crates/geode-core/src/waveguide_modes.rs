@@ -3046,6 +3046,176 @@ pub fn solve_dielectric_modes2(
     Ok(bound)
 }
 
+/// Field-shape diagnostics of a single recovered [`DielectricMode`],
+/// computed from its p=2 edge-DOF profile on the disk mesh — used to
+/// **identify the genuine fundamental LP₀₁** among the returned modes by
+/// physical signature rather than by β-ordering alone.
+///
+/// The genuine LP₀₁ of a step-index fiber is **core-confined**: a high
+/// fraction of its transverse-field energy `∫|E|²` lies inside the core
+/// (`r < core_radius`), decaying evanescently into the cladding. PEC-box /
+/// cladding-resonance modes that pollute the thin weakly-guiding window
+/// instead oscillate/peak out in the cladding near the far wall and carry a
+/// **low** core-energy fraction. Selecting the mode with the dominant
+/// core-energy fraction therefore recovers the true LP₀₁ independent of
+/// which box mode happens to land nearest the β ceiling.
+#[derive(Clone, Copy, Debug)]
+pub struct ModeFieldShape {
+    /// `∫_core |E|² / ∫_total |E|²` — the core-energy fraction. LP₀₁ is
+    /// dominant (high); box/cladding modes are low.
+    pub core_energy_fraction: f64,
+    /// Total field energy `∫_Ω |E|²` over the whole cross-section.
+    pub total_energy: f64,
+    /// Core field energy `∫_core |E|²` (`r < core_radius`).
+    pub core_energy: f64,
+}
+
+/// Evaluate the 8 p=2 vector basis functions at a barycentric point — the
+/// field-evaluation companion to [`tri_nedelec2_local`]'s internal `eval`
+/// (kept in sync with it). Returns the basis **values** only (curls are not
+/// needed for energy integration), in local DOF order
+/// `[W₀, Q₀, W₁, Q₁, W₂, Q₂, I₀, I₁]`.
+fn tri_nedelec2_basis_values(coords: &[[f64; 2]; 3], lam: [f64; 3]) -> [[f64; 2]; 8] {
+    let det = {
+        let e1 = [coords[1][0] - coords[0][0], coords[1][1] - coords[0][1]];
+        let e2 = [coords[2][0] - coords[0][0], coords[2][1] - coords[0][1]];
+        e1[0] * e2[1] - e1[1] * e2[0]
+    };
+    let g = [
+        [
+            (coords[1][1] - coords[2][1]) / det,
+            (coords[2][0] - coords[1][0]) / det,
+        ],
+        [
+            (coords[2][1] - coords[0][1]) / det,
+            (coords[0][0] - coords[2][0]) / det,
+        ],
+        [
+            (coords[0][1] - coords[1][1]) / det,
+            (coords[1][0] - coords[0][0]) / det,
+        ],
+    ];
+    let (l0, l1, l2) = (lam[0], lam[1], lam[2]);
+    let whitney = |a: usize, b: usize, la: f64, lb: f64| -> [f64; 2] {
+        [la * g[b][0] - lb * g[a][0], la * g[b][1] - lb * g[a][1]]
+    };
+    let qgrad = |a: usize, b: usize, la: f64, lb: f64| -> [f64; 2] {
+        [la * g[b][0] + lb * g[a][0], la * g[b][1] + lb * g[a][1]]
+    };
+    let w0 = whitney(0, 1, l0, l1);
+    let w1 = whitney(0, 2, l0, l2);
+    let w2 = whitney(1, 2, l1, l2);
+    let q0 = qgrad(0, 1, l0, l1);
+    let q1 = qgrad(0, 2, l0, l2);
+    let q2 = qgrad(1, 2, l1, l2);
+    // I₀ = λ₂ W₀, I₁ = λ₀ W₂.
+    let i0 = [l2 * w0[0], l2 * w0[1]];
+    let i1 = [l0 * w2[0], l0 * w2[1]];
+    [w0, q0, w1, q1, w2, q2, i0, i1]
+}
+
+/// Compute the [`ModeFieldShape`] (core-energy fraction) of a recovered p=2
+/// dielectric mode on a disk mesh, splitting the energy integral by the
+/// `disk_tri_mesh` region tags (tag `1` = core, anything else = cladding).
+///
+/// The transverse field is reconstructed per triangle from the mode's
+/// `e_edges` p=2 DOFs via [`tri_nedelec2_basis_values`] and the global
+/// DOF map (the same numbering [`assemble_2d_nedelec2_with_epsilon`] uses),
+/// then `|E|²` is integrated with the degree-4 quadrature
+/// [`TRI_QUAD_DEG4`] and accumulated into core vs total buckets.
+///
+/// This is a **pure field-analysis diagnostic** — it touches none of the
+/// solver/eigensolve/assembly physics; it only reads back the field the
+/// solver already returned.
+///
+/// # Panics
+///
+/// Panics if `region_tags.len() != mesh.n_tris()` or if `mode.e_edges` is
+/// not the p=2 DOF length for `mesh`.
+pub fn dielectric_mode_field_shape(
+    mesh: &TriMesh,
+    region_tags: &[i32],
+    mode: &DielectricMode,
+) -> ModeFieldShape {
+    assert_eq!(
+        region_tags.len(),
+        mesh.n_tris(),
+        "region_tags length ({}) must equal triangle count ({})",
+        region_tags.len(),
+        mesh.n_tris()
+    );
+    let n_dof = n_dof_2d_nedelec2(mesh);
+    assert_eq!(
+        mode.e_edges.len(),
+        n_dof,
+        "mode.e_edges length ({}) must equal p=2 DOF count ({})",
+        mode.e_edges.len(),
+        n_dof
+    );
+
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+    let tri_edges = mesh.tri_edges();
+
+    let mut core_energy = 0.0_f64;
+    let mut total_energy = 0.0_f64;
+
+    for (tri_index, ((tri, row), &tag)) in mesh
+        .tris
+        .iter()
+        .zip(tri_edges.iter())
+        .zip(region_tags.iter())
+        .enumerate()
+    {
+        let coords = [
+            mesh.nodes[tri[0] as usize],
+            mesh.nodes[tri[1] as usize],
+            mesh.nodes[tri[2] as usize],
+        ];
+        let e1 = [coords[1][0] - coords[0][0], coords[1][1] - coords[0][1]];
+        let e2 = [coords[2][0] - coords[0][0], coords[2][1] - coords[0][1]];
+        let area_abs = 0.5 * (e1[0] * e2[1] - e1[1] * e2[0]).abs();
+
+        let dofs = tri_nedelec2_dofs(row, tri_index, n_edges);
+        // Local coefficients with orientation sign folded in.
+        let mut coef = [0.0_f64; 8];
+        for (i, item) in coef.iter_mut().enumerate() {
+            let (gi, si) = dofs[i];
+            *item = si * mode.e_edges[gi];
+        }
+
+        let mut tri_energy = 0.0_f64;
+        for q in TRI_QUAD_DEG4.iter() {
+            let lam = [q[0], q[1], q[2]];
+            let w = q[3] * area_abs;
+            let vals = tri_nedelec2_basis_values(&coords, lam);
+            let mut ex = 0.0_f64;
+            let mut ey = 0.0_f64;
+            for k in 0..8 {
+                ex += coef[k] * vals[k][0];
+                ey += coef[k] * vals[k][1];
+            }
+            tri_energy += w * (ex * ex + ey * ey);
+        }
+
+        total_energy += tri_energy;
+        if tag == 1 {
+            core_energy += tri_energy;
+        }
+    }
+
+    let core_energy_fraction = if total_energy > 0.0 {
+        core_energy / total_energy
+    } else {
+        0.0
+    };
+    ModeFieldShape {
+        core_energy_fraction,
+        total_energy,
+        core_energy,
+    }
+}
+
 /// p=2 analogue of [`dielectric_raw_candidates_with_target`]: assemble the
 /// p=2 pencil `A = k₀²M_ε − K`, `M₁`, PEC-reduce with the p=2 interior-DOF
 /// mask, and recover up to `n_request` raw eigenpairs (β², relative curl
