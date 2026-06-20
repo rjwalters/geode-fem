@@ -1124,6 +1124,264 @@ pub fn assemble_2d_nedelec2_with_epsilon(mesh: &TriMesh, eps_r: &[f64]) -> (Mat<
     (k, m)
 }
 
+/// Interior-restricted sparse Nédélec operators for the dielectric / modal
+/// eigenproblem, assembled **directly** as `faer` `SparseColMat` from the
+/// per-element local blocks — never materializing the dense `N×N` `Mat`.
+///
+/// This is the sparse analogue of building
+/// [`assemble_2d_nedelec_with_epsilon`] /
+/// [`assemble_2d_nedelec2_with_epsilon`] and then [`apply_pec_2d`]-restricting
+/// to interior DOFs, but it folds assembly + interior restriction + the dense
+/// → sparse round-trip into one pass.
+///
+/// The returned matrices are **interior-restricted** (size `dim × dim` where
+/// `dim` is the number of `true` entries in `interior_mask`), exactly what the
+/// shift-invert Lanczos eigensolve consumes. Their nonzeros equal, entry for
+/// entry, the dense path's `apply_pec_2d(&assemble_2d_nedelec*…)` output:
+/// `faer`'s `try_new_from_triplets` sums duplicate `(row, col)` triplets, which
+/// is precisely the scatter-add the dense assembler performs with `+=`.
+pub(crate) struct SparseModalOperators {
+    /// PEC-reduced curl-curl stiffness `K_int` (ε-independent for μ_r = 1).
+    pub k: SparseColMat<usize, f64>,
+    /// PEC-reduced ε-weighted mass `M_ε,int`.
+    pub m_eps: SparseColMat<usize, f64>,
+    /// PEC-reduced unweighted (uniform ε ≡ 1) mass `M₁,int`.
+    pub m1: SparseColMat<usize, f64>,
+    /// Interior DOF count (`dim`), the order of every returned matrix.
+    pub dim: usize,
+}
+
+/// Build the interior-DOF renumbering: for each global DOF, `Some(interior_idx)`
+/// if it survives the PEC restriction, else `None`. Also returns `dim`.
+fn interior_renumber(interior_mask: &[bool]) -> (Vec<Option<usize>>, usize) {
+    let mut map = Vec::with_capacity(interior_mask.len());
+    let mut dim = 0usize;
+    for &keep in interior_mask {
+        if keep {
+            map.push(Some(dim));
+            dim += 1;
+        } else {
+            map.push(None);
+        }
+    }
+    (map, dim)
+}
+
+/// Assemble the interior-restricted sparse `(K, M_ε, M₁)` for the **p=1**
+/// Whitney/Nédélec modal pencil, directly from per-element 3×3 local blocks.
+///
+/// Equivalent (entry-for-entry) to
+/// `apply_pec_2d(&assemble_2d_nedelec_with_epsilon(mesh, eps_r), …)` for `K`
+/// and `M_ε`, and the same with uniform `ε ≡ 1` for `M₁` — but without the
+/// dense intermediate. `interior_edge_mask` is aligned with [`TriMesh::edges`].
+pub(crate) fn assemble_2d_nedelec_sparse_interior(
+    mesh: &TriMesh,
+    eps_r: &[f64],
+    interior_edge_mask: &[bool],
+) -> Result<SparseModalOperators, EigenError> {
+    assert_eq!(
+        eps_r.len(),
+        mesh.n_tris(),
+        "eps_r length ({}) must equal the triangle count ({})",
+        eps_r.len(),
+        mesh.n_tris()
+    );
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+    assert_eq!(
+        interior_edge_mask.len(),
+        n_edges,
+        "interior_edge_mask length must match edges count"
+    );
+    let tri_edges = mesh.tri_edges();
+    let (renumber, dim) = interior_renumber(interior_edge_mask);
+
+    // Reserve ~9 triplets per triangle for each matrix.
+    let cap = 9 * mesh.n_tris();
+    let mut k_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(cap);
+    let mut m_eps_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(cap);
+    let mut m1_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(cap);
+
+    for ((tri, row), &eps) in mesh.tris.iter().zip(tri_edges.iter()).zip(eps_r.iter()) {
+        let coords = [
+            mesh.nodes[tri[0] as usize],
+            mesh.nodes[tri[1] as usize],
+            mesh.nodes[tri[2] as usize],
+        ];
+        let (k_local, m_local, signed_area) = tri_nedelec_local(&coords);
+        assert!(
+            signed_area > 0.0,
+            "rect_tri_mesh / TriMesh must produce CCW triangles; got signed area {signed_area}"
+        );
+        for i in 0..3 {
+            let (gi, si) = row[i];
+            let Some(ri) = renumber[gi as usize] else {
+                continue;
+            };
+            for j in 0..3 {
+                let (gj, sj) = row[j];
+                let Some(rj) = renumber[gj as usize] else {
+                    continue;
+                };
+                let s = (si as f64) * (sj as f64);
+                // K (curl-curl) is ε-independent for μ_r = 1.
+                k_trips.push(Triplet::new(ri, rj, s * k_local[i][j]));
+                // ε weights the mass term ∫ ε N_i·N_j per element.
+                m_eps_trips.push(Triplet::new(ri, rj, s * eps * m_local[i][j]));
+                // M₁ is the uniform-ε ≡ 1 mass.
+                m1_trips.push(Triplet::new(ri, rj, s * m_local[i][j]));
+            }
+        }
+    }
+
+    Ok(SparseModalOperators {
+        k: triplets_to_sparse(dim, &k_trips)?,
+        m_eps: triplets_to_sparse(dim, &m_eps_trips)?,
+        m1: triplets_to_sparse(dim, &m1_trips)?,
+        dim,
+    })
+}
+
+/// Assemble the interior-restricted sparse `(K, M_ε, M₁)` for the **p=2**
+/// Nédélec modal pencil, directly from per-element 8×8 local blocks.
+///
+/// Equivalent (entry-for-entry) to
+/// `apply_pec_2d(&assemble_2d_nedelec2_with_epsilon(mesh, eps_r), …)` for `K`
+/// and `M_ε` (and uniform `ε ≡ 1` for `M₁`), without the dense intermediate.
+/// `interior_dof_mask` is aligned with the p=2 DOF numbering
+/// ([`n_dof_2d_nedelec2`]); per-DOF orientation signs come from
+/// [`tri_nedelec2_dofs`] / [`TRI_NEDELEC2_DOF_FLIPS`].
+pub(crate) fn assemble_2d_nedelec2_sparse_interior(
+    mesh: &TriMesh,
+    eps_r: &[f64],
+    interior_dof_mask: &[bool],
+) -> Result<SparseModalOperators, EigenError> {
+    assert_eq!(
+        eps_r.len(),
+        mesh.n_tris(),
+        "eps_r length ({}) must equal the triangle count ({})",
+        eps_r.len(),
+        mesh.n_tris()
+    );
+    let n_edges = mesh.edges().len();
+    let n_dof = 2 * n_edges + 2 * mesh.n_tris();
+    assert_eq!(
+        interior_dof_mask.len(),
+        n_dof,
+        "interior_dof_mask length ({}) must match p=2 DOF count ({})",
+        interior_dof_mask.len(),
+        n_dof
+    );
+    let tri_edges = mesh.tri_edges();
+    let (renumber, dim) = interior_renumber(interior_dof_mask);
+
+    let cap = 64 * mesh.n_tris();
+    let mut k_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(cap);
+    let mut m_eps_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(cap);
+    let mut m1_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(cap);
+
+    for (tri_index, ((tri, row), &eps)) in mesh
+        .tris
+        .iter()
+        .zip(tri_edges.iter())
+        .zip(eps_r.iter())
+        .enumerate()
+    {
+        let coords = [
+            mesh.nodes[tri[0] as usize],
+            mesh.nodes[tri[1] as usize],
+            mesh.nodes[tri[2] as usize],
+        ];
+        let (k_local, m_local, signed_area) = tri_nedelec2_local(&coords);
+        assert!(
+            signed_area > 0.0,
+            "rect_tri_mesh / TriMesh must produce CCW triangles; got signed area {signed_area}"
+        );
+
+        let dofs = tri_nedelec2_dofs(row, tri_index, n_edges);
+        for i in 0..8 {
+            let (gi, si) = dofs[i];
+            let Some(ri) = renumber[gi] else {
+                continue;
+            };
+            for j in 0..8 {
+                let (gj, sj) = dofs[j];
+                let Some(rj) = renumber[gj] else {
+                    continue;
+                };
+                let s = si * sj;
+                k_trips.push(Triplet::new(ri, rj, s * k_local[i][j]));
+                m_eps_trips.push(Triplet::new(ri, rj, s * eps * m_local[i][j]));
+                m1_trips.push(Triplet::new(ri, rj, s * m_local[i][j]));
+            }
+        }
+    }
+
+    Ok(SparseModalOperators {
+        k: triplets_to_sparse(dim, &k_trips)?,
+        m_eps: triplets_to_sparse(dim, &m_eps_trips)?,
+        m1: triplets_to_sparse(dim, &m1_trips)?,
+        dim,
+    })
+}
+
+/// Build a square `dim × dim` `SparseColMat` from COO triplets, summing
+/// duplicate `(row, col)` entries (the scatter-add the dense assembler does).
+fn triplets_to_sparse(
+    dim: usize,
+    trips: &[Triplet<usize, usize, f64>],
+) -> Result<SparseColMat<usize, f64>, EigenError> {
+    SparseColMat::<usize, f64>::try_new_from_triplets(dim, dim, trips)
+        .map_err(|e| EigenError::FaerGevd(format!("waveguide_modes sparse assembly: {e:?}")))
+}
+
+/// The standard-form pencil operator `A = k₀² M_ε − K`, assembled as a fresh
+/// sparse matrix from two interior-restricted sparse operators sharing the
+/// same sparsity pattern. Mirrors the dense `a_global = k0²·M_ε − K` step,
+/// then `try_new_from_triplets` sums the (identically-located) contributions.
+fn sparse_pencil_a(
+    k: SparseColMatRef<'_, usize, f64>,
+    m_eps: SparseColMatRef<'_, usize, f64>,
+    k0_sq: f64,
+) -> Result<SparseColMat<usize, f64>, EigenError> {
+    let n = k.nrows();
+    let nnz = k.col_ptr()[n] + m_eps.col_ptr()[n];
+    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(nnz);
+    let push = |trips: &mut Vec<Triplet<usize, usize, f64>>,
+                a: SparseColMatRef<'_, usize, f64>,
+                scale: f64| {
+        let cp = a.col_ptr();
+        let ri = a.row_idx();
+        let v = a.val();
+        for j in 0..a.ncols() {
+            for kk in cp[j]..cp[j + 1] {
+                trips.push(Triplet::new(ri[kk], j, scale * v[kk]));
+            }
+        }
+    };
+    push(&mut trips, m_eps, k0_sq);
+    push(&mut trips, k, -1.0);
+    triplets_to_sparse(n, &trips)
+}
+
+/// Compute the quadratic form `xᵀ A x` for a sparse `A` and dense vector `x`.
+fn sparse_quadratic_form(a: SparseColMatRef<'_, usize, f64>, x: &[f64]) -> f64 {
+    let cp = a.col_ptr();
+    let ri = a.row_idx();
+    let v = a.val();
+    let mut acc = 0.0_f64;
+    for j in 0..a.ncols() {
+        let xj = x[j];
+        if xj == 0.0 {
+            continue;
+        }
+        for k in cp[j]..cp[j + 1] {
+            acc += x[ri[k]] * v[k] * xj;
+        }
+    }
+    acc
+}
+
 /// Build the p=2 PEC/Dirichlet interior-DOF mask for a rectangle
 /// `[0,W] × [0,H]`, extending [`rect_pec_interior_edges`] to the p=2 DOF
 /// layout of [`assemble_2d_nedelec2_with_epsilon`].
@@ -1590,26 +1848,6 @@ pub fn spurious_dim_2d_p2(
     rank_via_svd_2d(&d0, 1e-12)
 }
 
-/// Convert a small dense `Mat<f64>` into faer CSC sparse form for the
-/// shift-and-invert Lanczos path. Drops exact-zero entries (the
-/// curl-curl pencil is highly sparse — most off-diagonal entries are
-/// structural zeros), but keeps any nonzero entry verbatim.
-fn dense_to_sparse(a: &Mat<f64>) -> Result<SparseColMat<usize, f64>, EigenError> {
-    let n = a.nrows();
-    debug_assert_eq!(a.ncols(), n);
-    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::new();
-    for j in 0..n {
-        for i in 0..n {
-            let v = a[(i, j)];
-            if v != 0.0 {
-                trips.push(Triplet::new(i, j, v));
-            }
-        }
-    }
-    SparseColMat::<usize, f64>::try_new_from_triplets(n, n, &trips)
-        .map_err(|e| EigenError::FaerGevd(format!("waveguide_modes sparse build: {e:?}")))
-}
-
 /// Pick a positive shift `σ` for the modal pencil that lies **between**
 /// the gradient-nullspace cluster (at `λ ≈ 0`) and the first physical
 /// mode (the analytic TE₁₀ cutoff `(π/W)²`). The shift-invert Lanczos
@@ -2025,9 +2263,6 @@ pub fn solve_waveguide_modes_with_opts(
     n_modes: usize,
     opts: &WaveguideSolveOpts,
 ) -> Result<Vec<WaveguideModeProfile>, EigenError> {
-    let (k_global, m_global) = assemble_2d_nedelec(mesh);
-    let (k_int, m_int) = apply_pec_2d(&k_global, &m_global, interior_edge_mask);
-    let dim = k_int.nrows();
     let n_edges = edges.len();
     assert_eq!(
         interior_edge_mask.len(),
@@ -2035,8 +2270,13 @@ pub fn solve_waveguide_modes_with_opts(
         "interior_edge_mask length must match edges count"
     );
 
-    let k_sparse = dense_to_sparse(&k_int)?;
-    let m_sparse = dense_to_sparse(&m_int)?;
+    // Interior-restricted sparse K and M (uniform ε ≡ 1, which equals the
+    // ε-free `assemble_2d_nedelec` bit-for-bit), assembled directly.
+    let eps_ones = vec![1.0_f64; mesh.n_tris()];
+    let ops = assemble_2d_nedelec_sparse_interior(mesh, &eps_ones, interior_edge_mask)?;
+    let dim = ops.dim;
+    let k_sparse = ops.k;
+    let m_sparse = ops.m1;
 
     // Determine the shift σ.
     //
@@ -2533,35 +2773,24 @@ pub(crate) fn dielectric_raw_candidates_with_target(
     let n_core = eps_max.sqrt();
     let beta_sq_ceiling = n_core * n_core * k0 * k0;
 
-    // Assemble K and the ε-weighted mass M_ε, plus the unweighted mass
-    // M₁ (uniform ε ≡ 1) — both via the Phase-1A entry point.
-    let (k_global, m_eps_global) = assemble_2d_nedelec_with_epsilon(mesh, eps_r);
-    let eps_ones = vec![1.0_f64; mesh.n_tris()];
-    let (_k1, m1_global) = assemble_2d_nedelec_with_epsilon(mesh, &eps_ones);
-
-    // Standard-form pencil operator A = k₀² M_ε − K.
-    let n_edges = edges.len();
-    let mut a_global = Mat::<f64>::zeros(n_edges, n_edges);
+    // Assemble the interior-restricted sparse operators directly (no dense
+    // N×N round-trip): K (curl-curl), M_ε (ε-weighted mass) and M₁ (uniform
+    // ε ≡ 1 mass), each already PEC-reduced to the interior edge DOFs. The
+    // sparse nonzeros equal the previous dense
+    // `apply_pec_2d(&assemble_2d_nedelec_with_epsilon …)` output entry for
+    // entry.
     let k0_sq = k0 * k0;
-    for i in 0..n_edges {
-        for j in 0..n_edges {
-            a_global[(i, j)] = k0_sq * m_eps_global[(i, j)] - k_global[(i, j)];
-        }
-    }
-
-    // PEC reduction of the pencil (A, M₁).
-    let (a_int, m1_int) = apply_pec_2d(&a_global, &m1_global, interior_edge_mask);
-    let dim = a_int.nrows();
+    let ops = assemble_2d_nedelec_sparse_interior(mesh, eps_r, interior_edge_mask)?;
+    let dim = ops.dim;
     if dim == 0 {
         return Ok(Vec::new());
     }
+    let k_int = ops.k;
+    let m_eps_int = ops.m_eps;
 
-    // PEC-reduced curl-curl K and ε-mass M_ε for the per-eigenpair curl
-    // energy ratio (the gradient/physical discriminator).
-    let (k_int, m_eps_int) = apply_pec_2d(&k_global, &m_eps_global, interior_edge_mask);
-
-    let a_sparse = dense_to_sparse(&a_int)?;
-    let m1_sparse = dense_to_sparse(&m1_int)?;
+    // Standard-form pencil operator A = k₀² M_ε − K, assembled sparsely.
+    let a_sparse = sparse_pencil_a(k_int.as_ref(), m_eps_int.as_ref(), k0_sq)?;
+    let m1_sparse = ops.m1;
 
     // Shift placement. Without a 2-D ceiling, σ sits just below the
     // `n_core²k₀²` index ceiling — the original behaviour that targets the
@@ -2578,20 +2807,10 @@ pub(crate) fn dielectric_raw_candidates_with_target(
     };
     let sigma = sigma_target_beta_sq * (1.0 - 1e-3);
 
-    // r = (xᵀ K x) / (k₀² xᵀ M_ε x).
+    // r = (xᵀ K x) / (k₀² xᵀ M_ε x), computed via sparse quadratic forms.
     let curl_ratio = |x_interior: &[f64]| -> f64 {
-        let mut xkx = 0.0_f64;
-        let mut xmx = 0.0_f64;
-        for i in 0..dim {
-            let mut kx_i = 0.0_f64;
-            let mut mx_i = 0.0_f64;
-            for j in 0..dim {
-                kx_i += k_int[(i, j)] * x_interior[j];
-                mx_i += m_eps_int[(i, j)] * x_interior[j];
-            }
-            xkx += x_interior[i] * kx_i;
-            xmx += x_interior[i] * mx_i;
-        }
+        let xkx = sparse_quadratic_form(k_int.as_ref(), x_interior);
+        let xmx = sparse_quadratic_form(m_eps_int.as_ref(), x_interior);
         let denom = (k0_sq * xmx).abs().max(1e-300);
         xkx.abs() / denom
     };
@@ -2862,27 +3081,21 @@ fn dielectric_raw_candidates_p2(
     let n_core = eps_max.sqrt();
     let beta_sq_ceiling = n_core * n_core * k0 * k0;
 
-    let (k_global, m_eps_global) = assemble_2d_nedelec2_with_epsilon(mesh, eps_r);
-    let eps_ones = vec![1.0_f64; mesh.n_tris()];
-    let (_k1, m1_global) = assemble_2d_nedelec2_with_epsilon(mesh, &eps_ones);
-
-    let mut a_global = Mat::<f64>::zeros(n_dof, n_dof);
+    // Interior-restricted sparse p=2 operators, assembled directly from the
+    // 8×8 local blocks (no dense N×N round-trip). Nonzeros equal the previous
+    // dense `apply_pec_2d(&assemble_2d_nedelec2_with_epsilon …)` output entry
+    // for entry.
     let k0_sq = k0 * k0;
-    for i in 0..n_dof {
-        for j in 0..n_dof {
-            a_global[(i, j)] = k0_sq * m_eps_global[(i, j)] - k_global[(i, j)];
-        }
-    }
-
-    let (a_int, m1_int) = apply_pec_2d(&a_global, &m1_global, interior_dof_mask);
-    let dim = a_int.nrows();
+    let ops = assemble_2d_nedelec2_sparse_interior(mesh, eps_r, interior_dof_mask)?;
+    let dim = ops.dim;
     if dim == 0 {
         return Ok(Vec::new());
     }
-    let (k_int, m_eps_int) = apply_pec_2d(&k_global, &m_eps_global, interior_dof_mask);
+    let k_int = ops.k;
+    let m_eps_int = ops.m_eps;
 
-    let a_sparse = dense_to_sparse(&a_int)?;
-    let m1_sparse = dense_to_sparse(&m1_int)?;
+    let a_sparse = sparse_pencil_a(k_int.as_ref(), m_eps_int.as_ref(), k0_sq)?;
+    let m1_sparse = ops.m1;
 
     let sigma_target_beta_sq = match n_eff_target {
         Some(ceiling) if ceiling < n_core => ceiling * ceiling * k0 * k0,
@@ -2891,18 +3104,8 @@ fn dielectric_raw_candidates_p2(
     let sigma = sigma_target_beta_sq * (1.0 - 1e-3);
 
     let curl_ratio = |x_interior: &[f64]| -> f64 {
-        let mut xkx = 0.0_f64;
-        let mut xmx = 0.0_f64;
-        for i in 0..dim {
-            let mut kx_i = 0.0_f64;
-            let mut mx_i = 0.0_f64;
-            for j in 0..dim {
-                kx_i += k_int[(i, j)] * x_interior[j];
-                mx_i += m_eps_int[(i, j)] * x_interior[j];
-            }
-            xkx += x_interior[i] * kx_i;
-            xmx += x_interior[i] * mx_i;
-        }
+        let xkx = sparse_quadratic_form(k_int.as_ref(), x_interior);
+        let xmx = sparse_quadratic_form(m_eps_int.as_ref(), x_interior);
         let denom = (k0_sq * xmx).abs().max(1e-300);
         xkx.abs() / denom
     };
@@ -2950,14 +3153,14 @@ pub fn solve_rect_waveguide_modes2_cutoffs(
     n_modes: usize,
 ) -> Result<Vec<f64>, EigenError> {
     let eps_ones = vec![1.0_f64; mesh.n_tris()];
-    let (k_global, m_global) = assemble_2d_nedelec2_with_epsilon(mesh, &eps_ones);
-    let (k_int, m_int) = apply_pec_2d(&k_global, &m_global, interior_dof_mask);
-    let dim = k_int.nrows();
+    // Interior-restricted sparse K and M (uniform ε ≡ 1), assembled directly.
+    let ops = assemble_2d_nedelec2_sparse_interior(mesh, &eps_ones, interior_dof_mask)?;
+    let dim = ops.dim;
     if dim == 0 {
         return Ok(Vec::new());
     }
-    let k_sparse = dense_to_sparse(&k_int)?;
-    let m_sparse = dense_to_sparse(&m_int)?;
+    let k_sparse = ops.k;
+    let m_sparse = ops.m1;
 
     let spurious_dim_hint = dim.saturating_sub(n_modes).min(dim);
     let (sigma, _first_phys) = estimate_modal_shift(
@@ -4891,6 +5094,154 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Materialize a sparse `SparseColMat` into a dense `Mat<f64>` for an
+    /// entry-for-entry comparison against the dense assembler's output.
+    fn sparse_to_dense(a: SparseColMatRef<'_, usize, f64>) -> Mat<f64> {
+        let mut out = Mat::<f64>::zeros(a.nrows(), a.ncols());
+        let cp = a.col_ptr();
+        let ri = a.row_idx();
+        let v = a.val();
+        for j in 0..a.ncols() {
+            for k in cp[j]..cp[j + 1] {
+                out[(ri[k], j)] += v[k];
+            }
+        }
+        out
+    }
+
+    /// Assert two dense matrices are equal entry-for-entry to `tol`.
+    fn assert_dense_eq(a: &Mat<f64>, b: &Mat<f64>, tol: f64, what: &str) {
+        assert_eq!(a.nrows(), b.nrows(), "{what}: row count mismatch");
+        assert_eq!(a.ncols(), b.ncols(), "{what}: col count mismatch");
+        for i in 0..a.nrows() {
+            for j in 0..a.ncols() {
+                let d = (a[(i, j)] - b[(i, j)]).abs();
+                assert!(
+                    d < tol,
+                    "{what}: entry ({i},{j}) mismatch {} vs {} (Δ={d:.3e})",
+                    a[(i, j)],
+                    b[(i, j)]
+                );
+            }
+        }
+    }
+
+    /// **Issue #327 headline correctness gate:** the direct sparse
+    /// interior-restricted assembly (`assemble_2d_nedelec_sparse_interior`,
+    /// p=1) must equal the previous dense path
+    /// `apply_pec_2d(&assemble_2d_nedelec_with_epsilon(…))` **entry for
+    /// entry** for K, M_ε and M₁, on a small mesh with NON-uniform ε.
+    #[test]
+    fn sparse_interior_p1_matches_dense_nonuniform_eps() {
+        let mesh = rect_tri_mesh(5, 4, 1.3, 0.9);
+        // Non-uniform ε: three distinct values cycled across triangles.
+        let eps: Vec<f64> = (0..mesh.n_tris())
+            .map(|t| 1.0 + 0.37 * (t % 3) as f64 + 0.11 * (t % 5) as f64)
+            .collect();
+        let (_edges, interior) = rect_pec_interior_edges(&mesh, 1.3, 0.9);
+
+        // Dense reference path.
+        let (k_dense, m_eps_dense) = assemble_2d_nedelec_with_epsilon(&mesh, &eps);
+        let eps_ones = vec![1.0_f64; mesh.n_tris()];
+        let (_k1, m1_dense_full) = assemble_2d_nedelec_with_epsilon(&mesh, &eps_ones);
+        let (k_int_dense, m_eps_int_dense) = apply_pec_2d(&k_dense, &m_eps_dense, &interior);
+        let (_k1_int, m1_int_dense) = apply_pec_2d(&k_dense, &m1_dense_full, &interior);
+
+        // Sparse-direct path.
+        let ops = assemble_2d_nedelec_sparse_interior(&mesh, &eps, &interior).unwrap();
+        assert_eq!(ops.dim, k_int_dense.nrows(), "interior dim mismatch (p=1)");
+
+        assert_dense_eq(
+            &sparse_to_dense(ops.k.as_ref()),
+            &k_int_dense,
+            1e-12,
+            "K p1",
+        );
+        assert_dense_eq(
+            &sparse_to_dense(ops.m_eps.as_ref()),
+            &m_eps_int_dense,
+            1e-12,
+            "M_eps p1",
+        );
+        assert_dense_eq(
+            &sparse_to_dense(ops.m1.as_ref()),
+            &m1_int_dense,
+            1e-12,
+            "M1 p1",
+        );
+    }
+
+    /// **Issue #327 headline correctness gate (p=2):** the direct sparse
+    /// interior-restricted assembly (`assemble_2d_nedelec2_sparse_interior`)
+    /// must equal `apply_pec_2d(&assemble_2d_nedelec2_with_epsilon(…))` entry
+    /// for entry for K, M_ε and M₁, with NON-uniform ε and the p=2
+    /// interior-DOF mask. This exercises the per-DOF Whitney orientation
+    /// signs through the sparse scatter-add.
+    #[test]
+    fn sparse_interior_p2_matches_dense_nonuniform_eps() {
+        let mesh = rect_tri_mesh(4, 3, 1.1, 0.8);
+        let eps: Vec<f64> = (0..mesh.n_tris())
+            .map(|t| 1.0 + 0.29 * (t % 4) as f64 + 0.13 * (t % 3) as f64)
+            .collect();
+        let interior = rect_pec_interior_dofs2(&mesh, 1.1, 0.8);
+
+        let (k_dense, m_eps_dense) = assemble_2d_nedelec2_with_epsilon(&mesh, &eps);
+        let eps_ones = vec![1.0_f64; mesh.n_tris()];
+        let (_k1, m1_dense_full) = assemble_2d_nedelec2_with_epsilon(&mesh, &eps_ones);
+        let (k_int_dense, m_eps_int_dense) = apply_pec_2d(&k_dense, &m_eps_dense, &interior);
+        let (_k1_int, m1_int_dense) = apply_pec_2d(&k_dense, &m1_dense_full, &interior);
+
+        let ops = assemble_2d_nedelec2_sparse_interior(&mesh, &eps, &interior).unwrap();
+        assert_eq!(ops.dim, k_int_dense.nrows(), "interior dim mismatch (p=2)");
+
+        assert_dense_eq(
+            &sparse_to_dense(ops.k.as_ref()),
+            &k_int_dense,
+            1e-12,
+            "K p2",
+        );
+        assert_dense_eq(
+            &sparse_to_dense(ops.m_eps.as_ref()),
+            &m_eps_int_dense,
+            1e-12,
+            "M_eps p2",
+        );
+        assert_dense_eq(
+            &sparse_to_dense(ops.m1.as_ref()),
+            &m1_int_dense,
+            1e-12,
+            "M1 p2",
+        );
+    }
+
+    /// The sparse pencil `A = k₀² M_ε − K` must equal the dense
+    /// `k₀² M_ε,int − K_int` entry for entry (the operator the eigensolve
+    /// actually consumes), p=2, non-uniform ε.
+    #[test]
+    fn sparse_pencil_a_matches_dense_p2() {
+        let mesh = rect_tri_mesh(4, 3, 1.1, 0.8);
+        let eps: Vec<f64> = (0..mesh.n_tris())
+            .map(|t| 1.0 + 0.4 * (t % 3) as f64)
+            .collect();
+        let interior = rect_pec_interior_dofs2(&mesh, 1.1, 0.8);
+        let k0 = 2.7_f64;
+        let k0_sq = k0 * k0;
+
+        let (k_dense, m_eps_dense) = assemble_2d_nedelec2_with_epsilon(&mesh, &eps);
+        let (k_int_dense, m_eps_int_dense) = apply_pec_2d(&k_dense, &m_eps_dense, &interior);
+        let dim = k_int_dense.nrows();
+        let mut a_dense = Mat::<f64>::zeros(dim, dim);
+        for i in 0..dim {
+            for j in 0..dim {
+                a_dense[(i, j)] = k0_sq * m_eps_int_dense[(i, j)] - k_int_dense[(i, j)];
+            }
+        }
+
+        let ops = assemble_2d_nedelec2_sparse_interior(&mesh, &eps, &interior).unwrap();
+        let a_sparse = sparse_pencil_a(ops.k.as_ref(), ops.m_eps.as_ref(), k0_sq).unwrap();
+        assert_dense_eq(&sparse_to_dense(a_sparse.as_ref()), &a_dense, 1e-12, "A p2");
     }
 
     /// **Shared-edge sign consistency (the key orientation guard):** two
