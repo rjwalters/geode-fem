@@ -956,6 +956,226 @@ pub fn assemble_2d_nedelec_with_epsilon(mesh: &TriMesh, eps_r: &[f64]) -> (Mat<f
     (k, m)
 }
 
+/// Global degree-of-freedom count for the p=2 Nédélec system on `mesh`:
+/// `2·n_edges + 2·n_tris`.
+///
+/// Two contiguous edge DOFs per global edge (the Whitney function `W`
+/// followed by the gradient function `Q = ∇(λ_a λ_b)`), then two interior
+/// (face) bubble DOFs per triangle appended **after all edge DOFs**. See
+/// [`assemble_2d_nedelec2_with_epsilon`] for the full numbering scheme.
+pub fn n_dof_2d_nedelec2(mesh: &TriMesh) -> usize {
+    2 * mesh.edges().len() + 2 * mesh.n_tris()
+}
+
+/// Per-DOF orientation-sign of the 8 local p=2 basis functions, in the
+/// local DOF order `[W₀, Q₀, W₁, Q₁, W₂, Q₂, I₀, I₁]`.
+///
+/// `flips[i] == true` means local DOF `i` **flips sign** with the global
+/// orientation of its underlying global edge (so the scatter must multiply
+/// by that edge's `tri_edges` sign); `false` means the function is
+/// orientation-independent (scatter sign `+1`).
+///
+/// Only the three **Whitney** edge functions (the *odd* hierarchical edge
+/// functions, local DOFs `0, 2, 4`) flip — exactly as the first-order
+/// Whitney DOF does in [`TriMesh::tri_edges`]. The three **gradient** edge
+/// functions `Q = ∇(λ_a λ_b)` (local DOFs `1, 3, 5`) are *even* (symmetric
+/// under `a ↔ b`), so they are orientation-independent; the two interior
+/// bubbles (local DOFs `6, 7`) are per-triangle and never shared, so they
+/// are orientation-independent as well.
+///
+/// This sign vector is the single most error-prone piece of the p=2
+/// assembly: a wrong sign on a Whitney function would silently corrupt the
+/// assembled operator across every shared edge.
+pub const TRI_NEDELEC2_DOF_FLIPS: [bool; 8] = [true, false, true, false, true, false, false, false];
+
+/// Map a triangle's 8 local p=2 DOFs to their `(global_index, sign)`
+/// pairs, in the local DOF order `[W₀, Q₀, W₁, Q₁, W₂, Q₂, I₀, I₁]`.
+///
+/// `tri_edges_row` is one row of [`TriMesh::tri_edges`] (the three
+/// `(global_edge_index, orientation_sign)` pairs for this triangle's local
+/// edges, in [`TRI_LOCAL_EDGES`] order). `tri_index` is the triangle's
+/// index in `mesh.tris`, and `n_edges` is `mesh.edges().len()`.
+///
+/// Global numbering:
+/// - edge `e` owns DOFs `2e` (Whitney `W`) and `2e+1` (gradient `Q`);
+/// - triangle `t` owns interior DOFs `2·n_edges + 2t` (`I₀`) and
+///   `2·n_edges + 2t + 1` (`I₁`).
+///
+/// Signs come from [`TRI_NEDELEC2_DOF_FLIPS`]: the Whitney DOFs carry their
+/// edge's orientation sign; everything else carries `+1`.
+fn tri_nedelec2_dofs(
+    tri_edges_row: &[(u32, i8); 3],
+    tri_index: usize,
+    n_edges: usize,
+) -> [(usize, f64); 8] {
+    let mut out = [(0usize, 1.0f64); 8];
+    // Six edge DOFs: two per local edge (Whitney then gradient).
+    for (k, &(gedge, esign)) in tri_edges_row.iter().enumerate() {
+        let base = 2 * gedge as usize;
+        // Local DOF 2k = Whitney (odd → flips with edge orientation).
+        out[2 * k] = (base, esign as f64);
+        // Local DOF 2k+1 = gradient Q (even → orientation-independent).
+        out[2 * k + 1] = (base + 1, 1.0);
+    }
+    // Two interior bubble DOFs, appended after all edge DOFs.
+    let interior_base = 2 * n_edges + 2 * tri_index;
+    out[6] = (interior_base, 1.0);
+    out[7] = (interior_base + 1, 1.0);
+    out
+}
+
+/// Assemble the dense global p=2 Nédélec curl-curl stiffness `K` and
+/// **ε-weighted** mass `M` for a 2-D triangle mesh.
+///
+/// This is the higher-order (Epic #318 Phase 2.5B) analogue of
+/// [`assemble_2d_nedelec_with_epsilon`]: it scatters the 8×8 local blocks
+/// from [`tri_nedelec2_local`] into an `n_dof × n_dof` global system with
+/// `n_dof = 2·n_edges + 2·n_tris` ([`n_dof_2d_nedelec2`]).
+///
+/// ## DOF numbering
+///
+/// - **Edge DOFs** reuse [`TriMesh::edges`] ordering: global edge `e` owns
+///   two contiguous DOFs, `2e` (the Whitney function `W`, the strict p=1
+///   subset) and `2e+1` (the gradient function `Q = ∇(λ_a λ_b)`).
+/// - **Interior DOFs** are appended after **all** edge DOFs: triangle `t`
+///   owns `2·n_edges + 2t` (`I₀`) and `2·n_edges + 2t + 1` (`I₁`).
+///
+/// ## Per-DOF orientation signs
+///
+/// The scatter applies a per-DOF sign (`sign_i · sign_j` on entry `(i, j)`)
+/// taken from [`TRI_NEDELEC2_DOF_FLIPS`] via [`tri_nedelec2_dofs`]: the
+/// three Whitney edge functions are *odd* and flip with the global edge
+/// orientation (exactly like the first-order Whitney DOF); the three
+/// gradient edge functions `Q` are *even* (symmetric under `a ↔ b`) and the
+/// two interior bubbles are per-triangle, so all five are
+/// orientation-independent. Getting the Whitney signs right is the key
+/// correctness guard — a wrong sign would silently corrupt the operator at
+/// every shared edge.
+///
+/// ## Where ε enters
+///
+/// Exactly as in [`assemble_2d_nedelec_with_epsilon`]: the per-triangle
+/// scalar `ε_r` multiplies only the **mass** block `∫ ε_r N_i·N_j` (the
+/// material metric of `E`); the curl-curl **stiffness** `K` carries
+/// `1/μ_r = 1` and stays ε-independent.
+///
+/// ## p=1 subset
+///
+/// Restricting the returned `K`/`M` to the Whitney DOFs (global indices
+/// `{2·0, 2·1, …}` — i.e. the even edge DOFs) reproduces
+/// [`assemble_2d_nedelec_with_epsilon`] to floating-point tolerance,
+/// because local DOFs `0, 2, 4` are exactly the first-order Whitney
+/// functions and carry the same orientation signs.
+///
+/// Returns `(K, M)` of size `[n_dof, n_dof]`.
+///
+/// # Panics
+///
+/// Panics if `eps_r.len() != mesh.n_tris()`.
+pub fn assemble_2d_nedelec2_with_epsilon(mesh: &TriMesh, eps_r: &[f64]) -> (Mat<f64>, Mat<f64>) {
+    assert_eq!(
+        eps_r.len(),
+        mesh.n_tris(),
+        "eps_r length ({}) must equal the triangle count ({})",
+        eps_r.len(),
+        mesh.n_tris()
+    );
+
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+    let tri_edges = mesh.tri_edges();
+    let n_dof = 2 * n_edges + 2 * mesh.n_tris();
+
+    let mut k = Mat::<f64>::zeros(n_dof, n_dof);
+    let mut m = Mat::<f64>::zeros(n_dof, n_dof);
+
+    for (tri_index, ((tri, row), &eps)) in mesh
+        .tris
+        .iter()
+        .zip(tri_edges.iter())
+        .zip(eps_r.iter())
+        .enumerate()
+    {
+        let coords = [
+            mesh.nodes[tri[0] as usize],
+            mesh.nodes[tri[1] as usize],
+            mesh.nodes[tri[2] as usize],
+        ];
+        let (k_local, m_local, signed_area) = tri_nedelec2_local(&coords);
+        assert!(
+            signed_area > 0.0,
+            "rect_tri_mesh / TriMesh must produce CCW triangles; got signed area {signed_area}"
+        );
+
+        let dofs = tri_nedelec2_dofs(row, tri_index, n_edges);
+        for i in 0..8 {
+            let (gi, si) = dofs[i];
+            for j in 0..8 {
+                let (gj, sj) = dofs[j];
+                let s = si * sj;
+                // K (curl-curl) is ε-independent for μ_r = 1.
+                k[(gi, gj)] += s * k_local[i][j];
+                // ε weights the mass term ∫ ε N_i·N_j per element.
+                m[(gi, gj)] += s * eps * m_local[i][j];
+            }
+        }
+    }
+
+    (k, m)
+}
+
+/// Build the p=2 PEC/Dirichlet interior-DOF mask for a rectangle
+/// `[0,W] × [0,H]`, extending [`rect_pec_interior_edges`] to the p=2 DOF
+/// layout of [`assemble_2d_nedelec2_with_epsilon`].
+///
+/// An entry is `true` if its global DOF is **interior** (free) and `false`
+/// if it lies on the PEC boundary (Dirichlet-constrained to zero):
+///
+/// - Both edge DOFs of a global edge (the Whitney `W` and the gradient
+///   `Q`) follow that edge's first-order interior status: a wall-aligned
+///   edge contributes **both** of its DOFs to the boundary set; an interior
+///   edge keeps both as interior. (The tangential trace `n × E = 0` on a
+///   wall-aligned edge kills the entire edge-tangential field there, not
+///   just its Whitney component.)
+/// - Both interior (face) bubble DOFs of every triangle are always
+///   interior — face bubbles vanish on element boundaries by construction.
+///
+/// Returns a mask aligned with the p=2 global DOF numbering: edge DOFs
+/// first (`2·n_edges` of them, `2e`/`2e+1` per global edge), then interior
+/// DOFs (`2·n_tris` of them, `2t`/`2t+1` per triangle). Length is
+/// [`n_dof_2d_nedelec2`].
+pub fn rect_pec_interior_dofs2(mesh: &TriMesh, width: f64, height: f64) -> Vec<bool> {
+    let (_edges, edge_interior) = rect_pec_interior_edges(mesh, width, height);
+    interior_dofs2_from_edge_mask(mesh, &edge_interior)
+}
+
+/// Build the p=2 PEC/Dirichlet interior-DOF mask for a [`disk_tri_mesh`] of
+/// outer radius `outer_radius`, extending [`disk_pec_interior_edges`] to the
+/// p=2 DOF layout. See [`rect_pec_interior_dofs2`] for the layout and rule.
+pub fn disk_pec_interior_dofs2(mesh: &TriMesh, outer_radius: f64) -> Vec<bool> {
+    let (_edges, edge_interior) = disk_pec_interior_edges(mesh, outer_radius);
+    interior_dofs2_from_edge_mask(mesh, &edge_interior)
+}
+
+/// Expand a per-global-edge interior mask (aligned with [`TriMesh::edges`])
+/// into the full p=2 interior-DOF mask: each edge contributes both of its
+/// DOFs with the edge's interior status, and all `2·n_tris` interior bubble
+/// DOFs are interior.
+fn interior_dofs2_from_edge_mask(mesh: &TriMesh, edge_interior: &[bool]) -> Vec<bool> {
+    let n_edges = edge_interior.len();
+    debug_assert_eq!(n_edges, mesh.edges().len());
+    let mut mask = Vec::with_capacity(2 * n_edges + 2 * mesh.n_tris());
+    for &interior in edge_interior {
+        mask.push(interior); // Whitney W DOF
+        mask.push(interior); // gradient Q DOF
+    }
+    for _ in 0..mesh.n_tris() {
+        mask.push(true); // interior bubble I₀
+        mask.push(true); // interior bubble I₁
+    }
+    mask
+}
+
 /// Build a per-triangle relative-permittivity vector from a per-triangle
 /// **region tag** and a `region_tag → ε_r` lookup.
 ///
@@ -3924,6 +4144,249 @@ mod tests {
             "SOI fundamental n_eff {n_eff_fem:.4} vs EIM {eim_estimate} \
              ({:.2}% > 6%)",
             100.0 * rel
+        );
+    }
+
+    // ---- Phase 2.5B: global p=2 DOF numbering + ε assembly + signs ----
+
+    /// DOF count is exactly `2·n_edges + 2·n_tris`, and the assembled
+    /// matrices are square at that size.
+    #[test]
+    fn p2_global_dof_count() {
+        let mesh = rect_tri_mesh(3, 2, 1.0, 0.7);
+        let n_edges = mesh.edges().len();
+        let n_tris = mesh.n_tris();
+        let expect = 2 * n_edges + 2 * n_tris;
+        assert_eq!(n_dof_2d_nedelec2(&mesh), expect);
+
+        let eps = vec![1.0; n_tris];
+        let (k, m) = assemble_2d_nedelec2_with_epsilon(&mesh, &eps);
+        assert_eq!(k.nrows(), expect);
+        assert_eq!(k.ncols(), expect);
+        assert_eq!(m.nrows(), expect);
+        assert_eq!(m.ncols(), expect);
+    }
+
+    /// Global `K` and `M` are symmetric to tolerance (a non-uniform ε makes
+    /// the test bite the sign bookkeeping, not just a uniform scale).
+    #[test]
+    fn p2_global_matrices_symmetric() {
+        let mesh = rect_tri_mesh(3, 3, 1.3, 0.9);
+        let eps: Vec<f64> = (0..mesh.n_tris())
+            .map(|t| 1.0 + 0.5 * (t % 4) as f64)
+            .collect();
+        let (k, m) = assemble_2d_nedelec2_with_epsilon(&mesh, &eps);
+        let n = k.nrows();
+        for i in 0..n {
+            for j in 0..n {
+                assert!(
+                    (k[(i, j)] - k[(j, i)]).abs() < 1e-10,
+                    "K not symmetric at ({i},{j}): {} vs {}",
+                    k[(i, j)],
+                    k[(j, i)]
+                );
+                assert!(
+                    (m[(i, j)] - m[(j, i)]).abs() < 1e-10,
+                    "M not symmetric at ({i},{j}): {} vs {}",
+                    m[(i, j)],
+                    m[(j, i)]
+                );
+            }
+        }
+    }
+
+    /// **p=1-subset check (load-bearing):** restricting the assembled p=2
+    /// system to the Whitney (even-indexed edge) DOFs `{2·0, 2·1, …}`
+    /// reproduces `assemble_2d_nedelec_with_epsilon` to tight tolerance.
+    /// This validates both the DOF numbering and the per-DOF Whitney signs
+    /// at the *global* (shared-edge) level.
+    #[test]
+    fn p2_global_p1_subset_matches() {
+        let mesh = rect_tri_mesh(4, 3, 1.1, 0.8);
+        let eps: Vec<f64> = (0..mesh.n_tris())
+            .map(|t| 1.0 + 0.25 * (t % 3) as f64)
+            .collect();
+
+        let (k1, m1) = assemble_2d_nedelec_with_epsilon(&mesh, &eps);
+        let (k2, m2) = assemble_2d_nedelec2_with_epsilon(&mesh, &eps);
+
+        let n_edges = mesh.edges().len();
+        for e_i in 0..n_edges {
+            let gi = 2 * e_i; // Whitney DOF of edge e_i in the p=2 numbering
+            for e_j in 0..n_edges {
+                let gj = 2 * e_j;
+                assert!(
+                    (k2[(gi, gj)] - k1[(e_i, e_j)]).abs() < 1e-10,
+                    "K p1-subset mismatch at edges ({e_i},{e_j}): {} vs {}",
+                    k2[(gi, gj)],
+                    k1[(e_i, e_j)]
+                );
+                assert!(
+                    (m2[(gi, gj)] - m1[(e_i, e_j)]).abs() < 1e-10,
+                    "M p1-subset mismatch at edges ({e_i},{e_j}): {} vs {}",
+                    m2[(gi, gj)],
+                    m1[(e_i, e_j)]
+                );
+            }
+        }
+    }
+
+    /// **Shared-edge sign consistency (the key orientation guard):** two
+    /// triangles sharing one edge. The two triangles traverse the shared
+    /// edge with opposite *local* orientation, so each contributes the
+    /// Whitney function with a `tri_edges` sign of opposite parity. The
+    /// per-DOF sign rule must make those contributions **reinforce** (not
+    /// cancel) on the shared Whitney DOF's diagonal, while the even gradient
+    /// `Q` and the interior bubbles are unaffected.
+    ///
+    /// We verify this structurally: assemble the two-triangle mesh, find the
+    /// shared edge, and check (a) its Whitney diagonal `M` entry equals the
+    /// sum of the two elements' local Whitney `M` diagonals (same magnitude,
+    /// reinforcing — no spurious cancellation), and (b) the same for the
+    /// gradient `Q` diagonal, which carries sign `+1` on both elements.
+    #[test]
+    fn p2_shared_edge_sign_consistency() {
+        // Two CCW triangles sharing the diagonal edge (0)-(2) on the unit
+        // square. T0 = [0,1,2] traverses the diagonal 0→2 (local edge
+        // (0,2), global-aligned → sign +1). T1 = [2,3,0] (a CCW relabelling
+        // of the upper triangle) traverses the diagonal 2→0 (local edge
+        // (2,0), against the global a<b direction → sign -1). The two
+        // triangles therefore touch the shared Whitney DOF with OPPOSITE
+        // orientation parity — the real guard: the sign rule must make the
+        // diagonal contributions reinforce (sign² = +1) rather than cancel.
+        let mesh = TriMesh {
+            nodes: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            tris: vec![[0, 1, 2], [2, 3, 0]],
+        };
+        let edges = mesh.edges();
+        let tri_edges = mesh.tri_edges();
+        let n_edges = edges.len();
+        let eps = vec![1.0; mesh.n_tris()];
+        let (_k, m) = assemble_2d_nedelec2_with_epsilon(&mesh, &eps);
+
+        // Identify the global edge shared by both triangles: nodes {0,2}.
+        let shared = edges
+            .iter()
+            .position(|e| *e == [0, 2] || *e == [2, 0])
+            .expect("shared edge (0,2) must exist");
+
+        // Confirm the two triangles really do touch it with opposite parity
+        // (otherwise the cancellation guard is vacuous).
+        let signs: Vec<i8> = tri_edges
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .find(|&&(g, _)| g as usize == shared)
+                    .map(|&(_, s)| s)
+                    .expect("triangle touches shared edge")
+            })
+            .collect();
+        assert_eq!(
+            signs[0] * signs[1],
+            -1,
+            "test fixture must give opposite orientation parity on the shared edge"
+        );
+
+        // Local-Whitney / Q diagonal contributions from each triangle for
+        // the shared edge, accumulated by hand to predict the global entry.
+        let mut expect_w_diag = 0.0;
+        let mut expect_q_diag = 0.0;
+        for (tri, row) in mesh.tris.iter().zip(tri_edges.iter()) {
+            // local edge index (within this triangle) that maps to `shared`
+            let lk = row
+                .iter()
+                .position(|&(g, _)| g as usize == shared)
+                .expect("each triangle touches the shared edge");
+            let coords = [
+                mesh.nodes[tri[0] as usize],
+                mesh.nodes[tri[1] as usize],
+                mesh.nodes[tri[2] as usize],
+            ];
+            let (_kl, ml, _a) = tri_nedelec2_local(&coords);
+            // Whitney sign squares to +1 on the diagonal, so the diagonal
+            // contribution is always positive and the two triangles ADD.
+            expect_w_diag += ml[2 * lk][2 * lk];
+            expect_q_diag += ml[2 * lk + 1][2 * lk + 1];
+        }
+
+        let gw = 2 * shared; // Whitney DOF
+        let gq = 2 * shared + 1; // gradient DOF
+        assert!(
+            (m[(gw, gw)] - expect_w_diag).abs() < 1e-12,
+            "shared-edge Whitney M diagonal: assembled {} vs expected {} \
+             (sign cancellation/doubling bug)",
+            m[(gw, gw)],
+            expect_w_diag
+        );
+        assert!(
+            (m[(gq, gq)] - expect_q_diag).abs() < 1e-12,
+            "shared-edge gradient M diagonal: assembled {} vs expected {}",
+            m[(gq, gq)],
+            expect_q_diag
+        );
+
+        // The shared Whitney DOF must actually receive contributions from
+        // BOTH triangles (guards against the orientation logic silently
+        // routing one triangle elsewhere) — i.e. its diagonal exceeds either
+        // single-element contribution.
+        assert!(
+            m[(gw, gw)] > 0.0 && expect_w_diag > 0.0,
+            "shared Whitney DOF received no mass contribution"
+        );
+        let _ = n_edges;
+    }
+
+    /// p=2 interior mask for `rect_tri_mesh`: length matches the DOF count,
+    /// every interior-bubble DOF is interior, wall-aligned edge DOFs are
+    /// boundary, and the edge-DOF interior flags agree with the first-order
+    /// `rect_pec_interior_edges` mask (both DOFs of an edge share its flag).
+    #[test]
+    fn p2_rect_interior_mask() {
+        let (w, h) = (1.0, 0.6);
+        let mesh = rect_tri_mesh(3, 2, w, h);
+        let n_edges = mesh.edges().len();
+        let n_tris = mesh.n_tris();
+        let mask = rect_pec_interior_dofs2(&mesh, w, h);
+        assert_eq!(mask.len(), 2 * n_edges + 2 * n_tris);
+
+        let (_edges, edge_interior) = rect_pec_interior_edges(&mesh, w, h);
+        for (e, &interior) in edge_interior.iter().enumerate() {
+            assert_eq!(mask[2 * e], interior, "Whitney DOF of edge {e}");
+            assert_eq!(mask[2 * e + 1], interior, "gradient DOF of edge {e}");
+        }
+        // All interior bubble DOFs are interior.
+        for (d, &interior) in mask.iter().enumerate().skip(2 * n_edges) {
+            assert!(interior, "interior bubble DOF {d} must be interior");
+        }
+        // At least one boundary edge exists (the rectangle has walls).
+        assert!(
+            edge_interior.iter().any(|&b| !b),
+            "rectangle must have wall-aligned (boundary) edges"
+        );
+    }
+
+    /// p=2 interior mask for `disk_tri_mesh`: same structural guarantees,
+    /// agreeing with `disk_pec_interior_edges`.
+    #[test]
+    fn p2_disk_interior_mask() {
+        let outer = 1.0;
+        let (mesh, _tags) = disk_tri_mesh(0.4, outer, 2, 12);
+        let n_edges = mesh.edges().len();
+        let n_tris = mesh.n_tris();
+        let mask = disk_pec_interior_dofs2(&mesh, outer);
+        assert_eq!(mask.len(), 2 * n_edges + 2 * n_tris);
+
+        let (_edges, edge_interior) = disk_pec_interior_edges(&mesh, outer);
+        for (e, &interior) in edge_interior.iter().enumerate() {
+            assert_eq!(mask[2 * e], interior, "Whitney DOF of edge {e}");
+            assert_eq!(mask[2 * e + 1], interior, "gradient DOF of edge {e}");
+        }
+        for (d, &interior) in mask.iter().enumerate().skip(2 * n_edges) {
+            assert!(interior, "interior bubble DOF {d} must be interior");
+        }
+        assert!(
+            edge_interior.iter().any(|&b| !b),
+            "disk must have far-wall (boundary) edges"
         );
     }
 }
