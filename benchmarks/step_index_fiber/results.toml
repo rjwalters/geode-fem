@@ -5,22 +5,22 @@
 # against the EXACT LP-mode oracle (geode_core::fiber_lp, Phase 2A).
 
 [meta]
-description = "SMF-28 step-index fiber benchmark (issue #322, Epic #318 Phase 2.5D; supersedes PR #317, closes #314): fundamental LP01/HE11 mode of a 4.1 um core (n_core=1.4504) in cladding (n_clad=1.4447) at 1550 nm on the SECOND-ORDER (p=2) Nedelec dielectric solver (solve_dielectric_modes2), on a disk mesh terminated by a far PEC wall, vs the EXACT Bessel-function LP-mode characteristic equation (Phase 2A). HONEST FINDING: p=2 is a clear improvement over first order (which plateaued at ~10-17% and did not refine away), reaching sub-2% b-error at FAVORABLE meshes - but the result is NOT a converged <=2% floor: under refinement the b-error swings erratically (4-26%) because the far PEC wall manufactures box/cladding-resonance modes that pollute the thin guided window. A field-shape (core-energy-fraction) classifier does NOT cleanly separate LP01 from the box cluster (best core fraction only ~0.34-0.49 vs >0.8 for a genuine confined fundamental). We report the FULL UNBIASED SWEEP and do NOT claim b_converges_to_oracle. A 2D PML/absorbing boundary is the follow-on needed for a robust <=1% story. n_eff is reported only as window-limited context."
-generated_at_commit = "a10472e2f893e5fa5722414c3a0885d1a9fa0c81"
-solver = "solve_dielectric_modes2 (p=2 second-order Nedelec)"
+description = "SMF-28 step-index fiber benchmark (Epic #303 PML-C, issue #333; closes design tracker #330; supersedes the far-PEC-wall p=2 path of #329): fundamental transverse mode of a 4.1 um core (n_core=1.4504) in cladding (n_clad=1.4447) at 1550 nm on the PML-TERMINATED complex-pencil solver (solve_dielectric_modes2_pml) over a 3-region core/cladding/UPML disk (disk_tri_mesh_pml), vs the EXACT Bessel-function scalar LP characteristic equation (Phase 2A). HONEST FINDING (two distinct results): (1) ISOLATION RESOLVED - the 2D UPML removed the far-PEC-wall box-mode pollution that made the #329 sweep erratic; the solver now cleanly isolates a genuinely core-confined (core-energy fraction ~0.86-0.88, vs PEC-era 0.34-0.49), genuinely bound (|Im(b2)|/Re(b2) ~1e-16) fundamental, robust to sigma_0, with a MONOTONE b-vs-mesh trend (no more 4-26% hopping). (2) ORACLE MATCH NOT ACHIEVED - that cleanly-isolated, monotone-converging fundamental converges to b~0.77 (Re(n_eff)~1.4491), a ~69% error vs the scalar oracle b~0.458. With the full (n_clad^2, n_core^2) window the in-window bound cluster is a LADDER of low-leakage modes from b~0.77 (most confined, selected) down through b~0.46 (matches oracle but only ~0.5 core-confined) to b~0.33; the smallest-leakage/largest-Re(b2) rule picks the TOP of the ladder, not the scalar-LP mode in the middle. The mode whose b matches the oracle is a weakly-confined cladding-tail mode, NOT the fundamental. We report the FULL UNBIASED SWEEP, do NOT cherry-pick the closest-to-oracle mode (the #329 anti-pattern), and set converged=false. The remaining gap is a modal-formulation/near-n_core-ceiling selection problem, DISTINCT from the PEC box-mode pollution PML-A/B/C fixed. n_eff is reported only as window-limited context."
+generated_at_commit = "a7424d2b64439f424c59a0db15a68f57c593d508"
+solver = "solve_dielectric_modes2_pml (PML-terminated complex-pencil p=2 Nedelec)"
 lambda_um = 1.55
 k0_per_um = 4.053667940115862e0
 mode = "LP01 (HE11), fundamental"
-outer_boundary = "pec (far cladding circle)"
+outer_boundary = "pml (radial UPML annulus + thin PEC backing)"
 single_mode = true
 notes = [
-  "Cross-section: circular step-index fiber, core radius a = 4.1 um (n_core = 1.4504) in cladding (n_clad = 1.4447), embedded in a generous cladding disk terminated by a far PEC circle. Per-triangle epsilon via disk_tri_mesh region tags (Phase 2B) + epsilon_r_from_region_tags (Phase 1A); n_eff via the SECOND-ORDER solve_dielectric_modes2 (Epic #318 Phase 2.5C).",
-  "Oracle is the EXACT scalar LP-mode characteristic equation (geode_core::fiber_lp::fiber_lp_neff, Phase 2A) - the Bessel-function dispersion relation, a 6-digit analytic ground truth (validated against scipy).",
-  "HONEST FINDING (reframed after Judge review of PR #329): p=2 reaches sub-2% b-error at FAVORABLE meshes - a clear improvement over first order's non-converging ~10-17% plateau - but it is NOT a converged <=2% floor. Across the SAME 14a domain the b-error swings erratically with n_radial (~4.2% -> 1.9% -> 0.74% -> 4.1% -> 0.14% -> 26%) and some configs return NO in-window mode. The earlier 'converges to <=2%' claim was a lucky-mesh artifact of an outcome-filtering gate, now removed.",
-  "ROOT CAUSE - far-PEC-wall box-mode pollution: the weakly-guiding LP01 (V=2.135) has a long evanescent tail, and the hard PEC truncation manufactures a dense cluster of box/cladding-resonance modes occupying the same ~0.39%-wide guided window. The largest-beta in-window mode hops between the genuine LP01 and a box mode as the mesh changes. This is a boundary-truncation / mode-SELECTION problem, NOT a p=2 element-accuracy floor.",
-  "FIELD-SHAPE CLASSIFIER (attempted, reported as core_energy_fraction): the genuine LP01 should be strongly core-confined (>0.8 of integral|E|^2 inside r<a); box modes peak near the wall. On this PEC-truncated domain the MOST core-confined returned mode is only ~0.34-0.49 confined, and it coincides with the largest-beta mode - so field-shape selection does NOT cleanly separate LP01 from the box cluster and adds no robustness. The genuine LP01 is genuinely mixed into the cluster, not merely mis-ordered.",
-  "WINDOW-LIMITED n_eff: the guided window (n_clad, n_core) is only ~0.39% wide, so ANY in-window n_eff is automatically <=0.4% from the oracle. The n_eff agreement is therefore a squeezed-window artifact and is NOT the validation. The discriminator is the normalized b.",
-  "FOLLOW-ON for a robust <=1% story: replace the far PEC wall with a 2D PML / absorbing (transparent) boundary to remove the box-mode cluster. Tracked as a follow-on; out of scope for p=2 element validation.",
+  "Cross-section: circular step-index fiber, core radius a = 4.1 um (n_core = 1.4504) in cladding (n_clad = 1.4447), on a 3-region disk_tri_mesh_pml: core (r<a), cladding (a<r<8a), UPML annulus (8a<r<11a) with a thin PEC backing. Per-triangle epsilon via region tags + epsilon_r_from_region_tags; complex n_eff via the PML-terminated complex-pencil solve_dielectric_modes2_pml (Epic #303 PML-B).",
+  "Oracle is the EXACT scalar LP-mode characteristic equation (geode_core::fiber_lp::fiber_lp_neff, Phase 2A) - the Bessel-function dispersion relation, a 6-digit analytic ground truth (validated against scipy). b_oracle ~ 0.458.",
+  "RESULT 1 (isolation, RESOLVED by the PML): the 2D UPML absorbs the cladding instead of truncating it with a far PEC wall, so the box/cladding-resonance cluster that polluted the #329 PEC window is gone. The smallest-leakage/lowest-order selection now returns a genuinely core-confined fundamental: core-energy fraction ~0.86-0.88 (PEC-era best was only 0.34-0.49) and relative leakage |Im(b2)|/Re(b2) ~ 1e-16 (a truly trapped mode; the PML adds no spurious loss). The selection is robust to sigma_0 (see [sigma_robustness]) and the b-vs-mesh trend is MONOTONE - no more 4-26% PEC hopping.",
+  "RESULT 2 (oracle match, NOT achieved): the cleanly-isolated, monotone-converging fundamental converges to b ~ 0.77 (Re(n_eff) ~ 1.4491), a ~69% error vs the scalar oracle b ~ 0.458. This is NOT box-mode hopping (the trend is smooth and monotone under refinement). With the full (n_clad^2, n_core^2) window (the PML path drops the PEC-era slab ceiling), the in-window bound cluster is a LADDER of low-leakage core-ish modes from b~0.77 (highest Re(b2), most confined) down through b~0.46 (matching the oracle but only ~0.5 core-confined) to b~0.33. The largest-Re(b2) rule selects the TOP of that ladder, not the scalar-LP mode in the middle.",
+  "HONESTY: the in-window mode whose b matches the oracle is a weakly-confined cladding-tail mode (core fraction ~0.5), NOT the most-confined fundamental - so we CANNOT honor both 'core-confined >=0.8' and 'b <= 1%' with the same mode. We report b_fem_closest_oracle and its core fraction per series purely as context, and do NOT select it (that would be the outcome-filtering anti-pattern the #329 Judge review caught). converged=false; b_converges_to_oracle=false.",
+  "WINDOW-LIMITED n_eff: the guided window (n_clad, n_core) is only ~0.39% wide, so ANY in-window Re(n_eff) is automatically <=0.4% from the oracle. The n_eff agreement is a squeezed-window artifact and is NOT the validation. The discriminator is the normalized b.",
+  "FOLLOW-ON for a robust <=1% story: a modal-formulation / near-n_core-ceiling fix (a physical near-n_core cutoff, a vector HE11 radial-profile classifier, or determining whether the top-of-ladder mode is a spurious near-n_core eigenvector). This is a DISTINCT problem from the far-PEC-wall box-mode pollution that PML-A/B/C set out to (and did) resolve.",
   "Single-mode: V < 2.405 (first zero of J0), so LP01 (no cutoff) guides and LP11 is below cutoff (the oracle returns None for LP11 here) - the defining property of single-mode telecom fiber.",
   "Genuine solver output - NOT fit to the oracle, NOT cherry-picked. The FULL unbiased sweep is reported below.",
 ]
@@ -34,6 +34,13 @@ eps_clad = 2.087158e0
 numerical_aperture = 1.284604e-1
 relative_index_difference = 3.922228e-3
 
+[pml]
+# PML parameters (reused from the PML-B headline test, #332).
+r_pml_inner_um = 3.280000e1  # cladding outer = 8*a
+r_outer_um = 4.510000e1  # PEC-backed termination = 11*a
+pml_thickness_um = 1.230000e1  # 3*a
+sigma_0 = 6
+
 [normalized]
 # Discriminator: normalized b stretches the 0.39%-wide window onto
 # (0,1). b_fem vs b_oracle is the real, window-independent test.
@@ -41,13 +48,29 @@ v_number = 2.135017e0
 v_single_mode_cutoff = 2.405
 single_mode = true
 b_oracle = 4.580943e-1
-b_fem_trend = [4.772573e-1, 4.667618e-1, 4.547210e-1, 4.394076e-1, 4.587215e-1, 3.378002e-1]
-b_rel_err_trend = [4.183193e-2, 1.892074e-2, 7.363782e-3, 4.079222e-2, 1.369096e-3, 2.625969e-1]
-best_case_b_rel_err = 1.369096e-3
-best_case_within_2pct = true  # best-case ONLY, NOT converged
-b_converges_to_oracle = false  # NOT a converged <=2% floor; erratic 4-26% under refinement (far-PEC-wall box-mode pollution)
+b_fem_trend = [7.593174e-1, 7.654005e-1, 7.687949e-1, 7.720051e-1, 7.732897e-1, 7.738734e-1]  # SELECTED (most-confined) fundamental
+b_rel_err_trend = [6.575570e-1, 6.708362e-1, 6.782459e-1, 6.852536e-1, 6.880579e-1, 6.893320e-1]
+core_energy_fraction_trend = [8.655457e-1, 8.709121e-1, 8.742168e-1, 8.776197e-1, 8.790846e-1, 8.797778e-1]  # selected mode; ~0.86-0.88 (clean LP01 isolation)
+rel_im_beta_sq_trend = [2.976431e-17, 1.163969e-17, 8.157679e-18, 1.028989e-17, 1.690805e-17, 2.982769e-18]  # |Im(b2)|/Re(b2); ~1e-16 (genuinely bound)
+b_trend_monotone = true  # PML killed the erratic PEC hopping (#329)
+b_converges_to_oracle = false  # converges MONOTONICALLY but to b~0.77 (~69% err), NOT the oracle 0.458
 converged = false
-limitation = "far-PEC-wall box-mode pollution; field-shape classifier does not separate LP01 from box cluster (best core fraction ~0.34-0.49); 2D PML/ABC is the follow-on"
+limitation = "PML resolved box-mode pollution (clean core-confined LP01, |Im(b2)|~1e-16, monotone) but b converges to ~0.77 not the oracle 0.458: the largest-Re(b2) selection picks the top of a near-n_core bound ladder; a modal-formulation/near-n_core-ceiling fix is the follow-on (distinct from the PEC box-mode problem)"
+
+# CONTEXT ONLY: the in-window mode whose b is CLOSEST to the oracle
+# at each mesh, with its core-energy fraction. It is a weakly-
+# confined cladding-tail mode (NOT the fundamental); we do NOT
+# select it (that is the #329 outcome-filtering anti-pattern).
+[closest_to_oracle]
+b_fem_closest_oracle = [4.873655e-1, 4.564386e-1, 4.407900e-1, 4.484682e-1, 4.532332e-1, 4.565118e-1]
+core_energy_fraction_closest_oracle = [5.448246e-1, 4.909772e-1, 4.632819e-1, 4.639319e-1, 4.645318e-1, 4.318559e-1]  # ~0.5: NOT core-confined
+
+[sigma_robustness]
+# Selected fundamental b at several PML strengths sigma_0 (fixed mesh).
+# The absorbed bound mode is insensitive to sigma_0 - the matched
+# layer is absorbing, not fitting.
+sigma_0 = [2.0, 4.0, 6.0, 10.0]
+b_fem = [7.687949e-1, 7.687949e-1, 7.687949e-1, 7.687949e-1]
 
 [oracles.lp]
 # Exact LP-mode characteristic equation (geode_core::fiber_lp, Phase 2A).
@@ -56,105 +79,114 @@ n_eff_lp01 = 1.447313923904518e0
 n_eff_lp11 = "none (below cutoff, V < 2.405)"
 lp11_below_cutoff = true
 
+# PEC reference (issue #329): the far-PEC-wall sweep this PML path
+# supersedes. Erratic b-error (box-mode pollution); best core
+# fraction only 0.34-0.49. Retained for before/after legibility.
+[pec_reference]
+solver = "solve_dielectric_modes2 (far-PEC-wall p=2)"
+b_rel_err_trend = [4.183193e-2, 1.892074e-2, 7.363782e-3, 4.079222e-2, 1.369096e-3, 2.625969e-1]
+erratic_under_refinement = true  # 4.2% -> 1.9% -> 0.74% -> 4.1% -> 0.14% -> 26%
+best_core_energy_fraction = 4.897955e-1  # box-mode pollution; never core-confined
+
 [series_0]
-radius_mult = 14.000
-outer_um = 5.740000e1
-n_radial = 26
-n_angular = 232
-n_dof = 119712
-n_eff = 1.447423166509370e0
-b_fem = 4.772573e-1
-neff_rel_err_vs_oracle = 7.547955e-5
-b_rel_err_vs_oracle = 4.183193e-2
-core_energy_fraction_top = 4.897955e-1
-core_energy_fraction_best = 4.897955e-1
-b_fem_most_core_confined = 4.772573e-1
-b_rel_err_most_core_confined = 4.183193e-2
-n_eff_all = [1.447423e0, 1.446637e0, 1.446225e0]
-solve_s = 1.582
+n_radial = 4
+n_angular = 48
+n_dof = 5568
+re_n_eff = 1.449030158254947e0
+im_n_eff = 0.000000e0
+b_fem = 7.593174e-1
+re_neff_rel_err_vs_oracle = 1.185807e-3
+b_rel_err_vs_oracle = 6.575570e-1
+core_energy_fraction = 8.655457e-1
+rel_im_beta_sq = 2.976431e-17
+b_fem_closest_oracle = 4.873655e-1
+b_rel_err_closest_oracle = 6.389784e-2
+core_energy_fraction_closest_oracle = 5.448246e-1
+re_n_eff_all = [1.449030e0, 1.449030e0, 1.448032e0, 1.448032e0, 1.447481e0, 1.447481e0, 1.447132e0, 1.446872e0, 1.446664e0, 1.446492e0, 1.446348e0, 1.444700e0]
+solve_s = 0.185
 
 [series_1]
-radius_mult = 14.000
-outer_um = 5.740000e1
-n_radial = 28
-n_angular = 240
-n_dof = 133440
-n_eff = 1.447363335784480e0
-b_fem = 4.667618e-1
-neff_rel_err_vs_oracle = 3.414040e-5
-b_rel_err_vs_oracle = 1.892074e-2
-core_energy_fraction_top = 4.724556e-1
-core_energy_fraction_best = 4.724556e-1
-b_fem_most_core_confined = 4.667618e-1
-b_rel_err_most_core_confined = 1.892074e-2
-n_eff_all = [1.447363e0, 1.447291e0, 1.447183e0, 1.447031e0]
-solve_s = 1.713
+n_radial = 5
+n_angular = 60
+n_dof = 8760
+re_n_eff = 1.449064796075384e0
+im_n_eff = 0.000000e0
+b_fem = 7.654005e-1
+re_neff_rel_err_vs_oracle = 1.209739e-3
+b_rel_err_vs_oracle = 6.708362e-1
+core_energy_fraction = 8.709121e-1
+rel_im_beta_sq = 1.163969e-17
+b_fem_closest_oracle = 4.564386e-1
+b_rel_err_closest_oracle = 3.614262e-3
+core_energy_fraction_closest_oracle = 4.909772e-1
+re_n_eff_all = [1.449065e0, 1.449065e0, 1.448117e0, 1.448117e0, 1.447615e0, 1.447615e0, 1.447304e0, 1.447071e0, 1.446878e0, 1.446713e0, 1.446569e0, 1.446445e0]
+solve_s = 0.305
 
 [series_2]
-radius_mult = 14.000
-outer_um = 5.740000e1
-n_radial = 30
-n_angular = 252
-n_dof = 150192
-n_eff = 1.447294692793184e0
-b_fem = 4.547210e-1
-neff_rel_err_vs_oracle = 1.328745e-5
-b_rel_err_vs_oracle = 7.363782e-3
-core_energy_fraction_top = 4.578473e-1
-core_energy_fraction_best = 4.578473e-1
-b_fem_most_core_confined = 4.547210e-1
-b_rel_err_most_core_confined = 7.363782e-3
-n_eff_all = [1.447295e0, 1.447178e0, 1.447018e0, 1.446798e0]
-solve_s = 2.126
+n_radial = 6
+n_angular = 72
+n_dof = 12672
+re_n_eff = 1.449084123470138e0
+im_n_eff = 0.000000e0
+b_fem = 7.687949e-1
+re_neff_rel_err_vs_oracle = 1.223093e-3
+b_rel_err_vs_oracle = 6.782459e-1
+core_energy_fraction = 8.742168e-1
+rel_im_beta_sq = 8.157679e-18
+b_fem_closest_oracle = 4.407900e-1
+b_rel_err_closest_oracle = 3.777466e-2
+core_energy_fraction_closest_oracle = 4.632819e-1
+re_n_eff_all = [1.449084e0, 1.449084e0, 1.448168e0, 1.448168e0, 1.447703e0, 1.447424e0, 1.447215e0, 1.447040e0, 1.446886e0, 1.446749e0, 1.446626e0, 1.447702e0]
+solve_s = 0.446
 
 [series_3]
-radius_mult = 14.000
-outer_um = 5.740000e1
-n_radial = 32
-n_angular = 264
-n_dof = 167904
-n_eff = 1.447207388504533e0
-b_fem = 4.394076e-1
-neff_rel_err_vs_oracle = 7.360905e-5
-b_rel_err_vs_oracle = 4.079222e-2
-core_energy_fraction_top = 4.412461e-1
-core_energy_fraction_best = 4.412461e-1
-b_fem_most_core_confined = 4.394076e-1
-b_rel_err_most_core_confined = 4.079222e-2
-n_eff_all = [1.447207e0, 1.447049e0, 1.446826e0, 1.446501e0]
-solve_s = 2.376
+n_radial = 8
+n_angular = 96
+n_dof = 22656
+re_n_eff = 1.449102402051902e0
+im_n_eff = 0.000000e0
+b_fem = 7.720051e-1
+re_neff_rel_err_vs_oracle = 1.235722e-3
+b_rel_err_vs_oracle = 6.852536e-1
+core_energy_fraction = 8.776197e-1
+rel_im_beta_sq = 1.028989e-17
+b_fem_closest_oracle = 4.484682e-1
+b_rel_err_closest_oracle = 2.101330e-2
+core_energy_fraction_closest_oracle = 4.639319e-1
+re_n_eff_all = [1.449102e0, 1.449102e0, 1.448221e0, 1.448221e0, 1.447801e0, 1.447568e0, 1.447401e0, 1.447259e0, 1.447131e0, 1.447012e0, 1.446902e0, 1.446801e0]
+solve_s = 0.845
 
 [series_4]
-radius_mult = 14.000
-outer_um = 5.740000e1
-n_radial = 34
-n_angular = 276
-n_dof = 186576
-n_eff = 1.447317499380780e0
-b_fem = 4.587215e-1
-neff_rel_err_vs_oracle = 2.470422e-6
-b_rel_err_vs_oracle = 1.369096e-3
-core_energy_fraction_top = 4.614352e-1
-core_energy_fraction_best = 4.614352e-1
-b_fem_most_core_confined = 4.587215e-1
-b_rel_err_most_core_confined = 1.369096e-3
-n_eff_all = [1.447317e0, 1.447182e0, 1.446994e0, 1.446728e0]
-solve_s = 2.557
+n_radial = 10
+n_angular = 120
+n_dof = 35520
+re_n_eff = 1.449109716793205e0
+im_n_eff = 0.000000e0
+b_fem = 7.732897e-1
+re_neff_rel_err_vs_oracle = 1.240776e-3
+b_rel_err_vs_oracle = 6.880579e-1
+core_energy_fraction = 8.790846e-1
+rel_im_beta_sq = 1.690805e-17
+b_fem_closest_oracle = 4.532332e-1
+b_rel_err_closest_oracle = 1.061156e-2
+core_energy_fraction_closest_oracle = 4.645318e-1
+re_n_eff_all = [1.449110e0, 1.449110e0, 1.448245e0, 1.448245e0, 1.447849e0, 1.447645e0, 1.447506e0, 1.447391e0, 1.447286e0, 1.447187e0, 1.447092e0, 1.447002e0]
+solve_s = 1.470
 
 [series_5]
-radius_mult = 14.000
-outer_um = 5.740000e1
-n_radial = 36
-n_angular = 288
-n_dof = 206208
-n_eff = 1.446627972816210e0
-b_fem = 3.378002e-1
-neff_rel_err_vs_oracle = 4.739477e-4
-b_rel_err_vs_oracle = 2.625969e-1
-core_energy_fraction_top = 3.417282e-1
-core_energy_fraction_best = 3.417282e-1
-b_fem_most_core_confined = 3.378002e-1
-b_rel_err_most_core_confined = 2.625969e-1
-n_eff_all = [1.446628e0, 1.446241e0]
-solve_s = 3.357
+n_radial = 12
+n_angular = 144
+n_dof = 51264
+re_n_eff = 1.449113040005120e0
+im_n_eff = -0.000000e0
+b_fem = 7.738734e-1
+re_neff_rel_err_vs_oracle = 1.243072e-3
+b_rel_err_vs_oracle = 6.893320e-1
+core_energy_fraction = 8.797778e-1
+rel_im_beta_sq = 2.982769e-18
+b_fem_closest_oracle = 4.565118e-1
+b_rel_err_closest_oracle = 3.454518e-3
+core_energy_fraction_closest_oracle = 4.318559e-1
+re_n_eff_all = [1.449113e0, 1.449113e0, 1.448256e0, 1.448256e0, 1.447874e0, 1.447687e0, 1.447568e0, 1.447473e0, 1.447387e0, 1.447305e0, 1.447225e0, 1.447147e0]
+solve_s = 2.271
 
