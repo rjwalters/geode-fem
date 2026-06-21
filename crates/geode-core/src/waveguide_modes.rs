@@ -532,6 +532,152 @@ pub fn disk_tri_mesh(
     (TriMesh { nodes, tris }, region_tags)
 }
 
+/// Per-triangle region tag for a core triangle in [`disk_tri_mesh`] /
+/// [`disk_tri_mesh_pml`] (centroid radius `< core_radius`).
+pub const REGION_CORE: i32 = 1;
+/// Per-triangle region tag for a cladding triangle (`core_radius ≤ r`,
+/// and `r < R_pml_inner` for the PML variant).
+pub const REGION_CLADDING: i32 = 0;
+/// Per-triangle region tag for a PML-annulus triangle in
+/// [`disk_tri_mesh_pml`] (centroid radius `≥ R_pml_inner`).
+pub const REGION_PML: i32 = 2;
+
+/// Concentric-ring disk mesh with a **three-region** tagging — core,
+/// cladding, and an outermost **PML annulus** — for the 2D UPML modal
+/// solver (Epic #303 PML-A, issue #331).
+///
+/// This is the PML-tagged sibling of [`disk_tri_mesh`]. The radial layout
+/// reuses the same conforming concentric-ring construction, but adds a
+/// third radial band so that **ring boundaries land exactly on both**
+/// `core_radius` **and** `r_pml_inner` (= `cladding_outer`). Every triangle
+/// is therefore wholly inside one region by the unambiguous centroid test
+/// (the same robustness guarantee [`disk_tri_mesh`] gives for the
+/// core/cladding split):
+///
+/// ```text
+///   centroid r < core_radius          → REGION_CORE     (tag 1)
+///   core_radius ≤ centroid r < r_pml  → REGION_CLADDING (tag 0)
+///   r_pml ≤ centroid r                → REGION_PML       (tag 2)
+/// ```
+///
+/// where `r_pml_inner = cladding_outer` and the PML annulus occupies
+/// `cladding_outer ≤ r ≤ outer_radius` (thickness `outer_radius −
+/// cladding_outer`). Each region gets `n_radial` radial subdivisions, so a
+/// ring boundary sits exactly on `core_radius`, on `cladding_outer`, and on
+/// `outer_radius`.
+///
+/// # Outer boundary condition
+///
+/// The very outer edge (`r = outer_radius`) keeps a **thin PEC backing**:
+/// the existing [`disk_pec_interior_dofs2`] / [`disk_pec_interior_edges`]
+/// masks (which key on `outer_radius`) are reused unchanged as the PML
+/// termination. This is the standard UPML setup — the absorbing layer
+/// attenuates the field before it reaches the PEC wall, so the wall sees a
+/// negligible round-trip reflection and no box / cladding-resonance modes
+/// form in the guided window. With `sigma_0 = 0` the layer is transparent
+/// and the mesh degenerates (physically) to a plain PEC-walled disk.
+///
+/// # Returns
+///
+/// `(mesh, region_tags)` where `region_tags[t] ∈ {REGION_CORE,
+/// REGION_CLADDING, REGION_PML}`. Feed the core/cladding tags into
+/// [`epsilon_r_from_region_tags`] for the per-triangle `ε_r`; feed the full
+/// tag vector into [`assemble_2d_nedelec2_pml_sparse_interior`] to flag the
+/// PML-stretched triangles.
+///
+/// # Panics
+///
+/// Panics unless `0 < core_radius < cladding_outer < outer_radius`,
+/// `n_radial ≥ 1`, and `n_angular ≥ 3`.
+pub fn disk_tri_mesh_pml(
+    core_radius: f64,
+    cladding_outer: f64,
+    outer_radius: f64,
+    n_radial: usize,
+    n_angular: usize,
+) -> (TriMesh, Vec<i32>) {
+    assert!(
+        core_radius.is_finite() && cladding_outer.is_finite() && outer_radius.is_finite(),
+        "disk_tri_mesh_pml radii must be finite"
+    );
+    assert!(
+        0.0 < core_radius && core_radius < cladding_outer && cladding_outer < outer_radius,
+        "disk_tri_mesh_pml requires 0 < core_radius ({core_radius}) < cladding_outer \
+         ({cladding_outer}) < outer_radius ({outer_radius})"
+    );
+    assert!(n_radial >= 1, "disk_tri_mesh_pml requires n_radial ≥ 1");
+    assert!(n_angular >= 3, "disk_tri_mesh_pml requires n_angular ≥ 3");
+
+    // Three radial bands, each with `n_radial` subdivisions; ring boundaries
+    // land exactly on core_radius, cladding_outer (= r_pml_inner), and
+    // outer_radius. Total rings of cells = 3·n_radial.
+    let n_rings = 3 * n_radial;
+    let mut ring_r = Vec::with_capacity(n_rings + 1);
+    for k in 0..=n_radial {
+        ring_r.push(core_radius * k as f64 / n_radial as f64);
+    }
+    for k in 1..=n_radial {
+        let t = k as f64 / n_radial as f64;
+        ring_r.push(core_radius + (cladding_outer - core_radius) * t);
+    }
+    for k in 1..=n_radial {
+        let t = k as f64 / n_radial as f64;
+        ring_r.push(cladding_outer + (outer_radius - cladding_outer) * t);
+    }
+    debug_assert_eq!(ring_r.len(), n_rings + 1);
+
+    let mut nodes: Vec<[f64; 2]> = Vec::with_capacity(1 + n_rings * n_angular);
+    nodes.push([0.0, 0.0]); // center
+    let dtheta = std::f64::consts::TAU / n_angular as f64;
+    for &r in ring_r.iter().skip(1) {
+        for s in 0..n_angular {
+            let theta = s as f64 * dtheta;
+            nodes.push([r * theta.cos(), r * theta.sin()]);
+        }
+    }
+
+    let ring_node =
+        |g: usize, s: usize| -> u32 { (1 + (g - 1) * n_angular + (s % n_angular)) as u32 };
+
+    let mut tris: Vec<[u32; 3]> = Vec::new();
+    // Central fan (same as disk_tri_mesh).
+    for s in 0..n_angular {
+        tris.push([0, ring_node(1, s), ring_node(1, s + 1)]);
+    }
+    for g in 1..n_rings {
+        for s in 0..n_angular {
+            let a = ring_node(g, s);
+            let b = ring_node(g, s + 1);
+            let c = ring_node(g + 1, s + 1);
+            let d = ring_node(g + 1, s);
+            tris.push([a, d, c]);
+            tris.push([a, c, b]);
+        }
+    }
+
+    // Three-region tags by centroid radius. Ring boundaries sit exactly on
+    // core_radius and cladding_outer, so the centroid test is unambiguous.
+    let region_tags: Vec<i32> = tris
+        .iter()
+        .map(|t| {
+            let xc =
+                (nodes[t[0] as usize][0] + nodes[t[1] as usize][0] + nodes[t[2] as usize][0]) / 3.0;
+            let yc =
+                (nodes[t[0] as usize][1] + nodes[t[1] as usize][1] + nodes[t[2] as usize][1]) / 3.0;
+            let r = (xc * xc + yc * yc).sqrt();
+            if r < core_radius {
+                REGION_CORE
+            } else if r < cladding_outer {
+                REGION_CLADDING
+            } else {
+                REGION_PML
+            }
+        })
+        .collect();
+
+    (TriMesh { nodes, tris }, region_tags)
+}
+
 /// Boundary-node mask for a [`disk_tri_mesh`] of outer radius
 /// `outer_radius`: `true` for nodes lying on the outer (far-wall) circle,
 /// `false` otherwise.
@@ -1322,6 +1468,417 @@ pub(crate) fn assemble_2d_nedelec2_sparse_interior(
         m_eps: triplets_to_sparse(dim, &m_eps_trips)?,
         m1: triplets_to_sparse(dim, &m1_trips)?,
         dim,
+    })
+}
+
+/// 2D radial coordinate-stretch (UPML) constitutive data at a Cartesian
+/// point, the 2D reduction of [`crate::scattering::upml_matched_tensors`]
+/// (Epic #303 PML-A, issue #331).
+///
+/// In the absorbing annulus `r_pml_inner ≤ r ≤ r_outer` the radial stretch
+/// is
+///
+/// ```text
+///   s(r) = 1 − j·σ₀·((r − r_pml_inner)/d)²,   d = r_outer − r_pml_inner
+/// ```
+///
+/// (the same quadratic-σ profile family as the 3D matched UPML; the `exp(+jωt)`
+/// convention puts the loss in the **−j** imaginary part). The in-plane stretch
+/// tensor in the radial / transverse eigenbasis is `Λ = diag(1/s, s)` — radial
+/// eigenvalue `1/s`, transverse eigenvalue `s` — exactly the in-plane block of
+/// the 3D `Λ = s·I + (1/s − s)·r̂r̂ᵀ` (the out-of-plane / `ẑ` eigenvalue of that
+/// 3D tensor is `s`). Rotated into Cartesian (x, y),
+///
+/// ```text
+///   Λ_t = s·I₂ + (1/s − s)·r̂r̂ᵀ        (2×2, in-plane)
+/// ```
+///
+/// # What this returns
+///
+/// `(lambda_t, curl_weight)` where
+/// - `lambda_t` is the 2×2 in-plane Cartesian `Λ_t` used to **sandwich** the
+///   transverse mass term (`ε = ε_r·Λ_t`), and
+/// - `curl_weight = 1/s = (Λ⁻¹)_zz` is the **scalar** stiffness weight on the
+///   out-of-plane curl `(∇_t × N)·ẑ`. This is the `zz` component of the 3D
+///   `Λ⁻¹` (the curl-curl `ν`-weight) restricted to the transverse problem,
+///   where every basis curl is `ẑ`-directed, so the 3D `c_iᵀ Λ⁻¹ c_j` collapses
+///   to `(Λ⁻¹)_zz · c_i c_j`.
+///
+/// Inside `r ≤ r_pml_inner` (or for `σ₀ = 0`) `s = 1`, so `Λ_t = I₂` and
+/// `curl_weight = 1`: the assembly reduces bit-for-bit to the real path
+/// embedded in `c64` with zero imaginary part.
+pub fn pml_stretch_tensor_2d(
+    centroid: [f64; 2],
+    r_pml_inner: f64,
+    r_outer: f64,
+    sigma_0: f64,
+) -> ([[c64; 2]; 2], c64) {
+    let one = c64::new(1.0, 0.0);
+    let r = (centroid[0] * centroid[0] + centroid[1] * centroid[1]).sqrt();
+    let identity = [[one, c64::new(0.0, 0.0)], [c64::new(0.0, 0.0), one]];
+    if sigma_0 == 0.0 || r <= r_pml_inner {
+        return (identity, one);
+    }
+    let d = (r_outer - r_pml_inner).max(1e-30);
+    let u = ((r - r_pml_inner) / d).clamp(0.0, 1.0);
+    let sigma = sigma_0 * u * u;
+    let s = c64::new(1.0, -sigma);
+    let s_inv = one / s;
+    // r̂ in Cartesian; r > r_pml_inner > 0 here so r ≠ 0.
+    let rx = centroid[0] / r;
+    let ry = centroid[1] / r;
+    // Λ_t = s·I + (1/s − s)·r̂r̂ᵀ.
+    let coeff = s_inv - s;
+    let lambda_t = [
+        [
+            s + coeff * c64::new(rx * rx, 0.0),
+            coeff * c64::new(rx * ry, 0.0),
+        ],
+        [
+            coeff * c64::new(ry * rx, 0.0),
+            s + coeff * c64::new(ry * ry, 0.0),
+        ],
+    ];
+    // Curl (stiffness) weight = (Λ⁻¹)_zz = 1/s.
+    (lambda_t, s_inv)
+}
+
+/// Interior-restricted **complex** sparse Nédélec operators for the 2D
+/// UPML modal pencil (Epic #303 PML-A, issue #331). The `c64` analogue of
+/// [`SparseModalOperators`].
+///
+/// With `sigma_0 = 0` (or no PML-tagged triangles) the entries equal the
+/// real [`SparseModalOperators`] embedded in `c64` with zero imaginary part,
+/// entry for entry — see [`assemble_2d_nedelec2_pml_sparse_interior`].
+// Consumed by the PML-B complex eigensolve (#332); constructed/used only by
+// the PML-A unit tests until then.
+#[allow(dead_code)]
+pub(crate) struct SparseModalOperatorsComplex {
+    /// PEC-reduced complex curl-curl stiffness `K_int` (UPML `1/s`-weighted
+    /// on PML triangles, real elsewhere).
+    pub k: SparseColMat<usize, c64>,
+    /// PEC-reduced complex `ε_r·Λ_t`-weighted mass `M_ε,int`.
+    pub m_eps: SparseColMat<usize, c64>,
+    /// PEC-reduced complex `Λ_t`-weighted (uniform `ε ≡ 1`) mass `M₁,int`.
+    pub m1: SparseColMat<usize, c64>,
+    /// Interior DOF count (`dim`), the order of every returned matrix.
+    pub dim: usize,
+}
+
+/// Assemble the interior-restricted **complex** p=2 Nédélec UPML operators
+/// `(K, M_ε, M₁)` directly from per-element 8×8 local blocks (Epic #303
+/// PML-A, issue #331).
+///
+/// This is the UPML-weighted, `c64` counterpart of
+/// [`assemble_2d_nedelec2_sparse_interior`]. The scatter structure — DOF
+/// numbering, per-DOF orientation signs ([`tri_nedelec2_dofs`] /
+/// [`TRI_NEDELEC2_DOF_FLIPS`]), interior restriction, ε-weights-M rule — is
+/// **identical**; the only addition is that on PML-tagged triangles the
+/// local 8×8 `K`/`M` blocks are built with the per-element constant stretch
+/// tensor from [`pml_stretch_tensor_2d`] (evaluated at the triangle
+/// centroid, exactly as the 3D [`crate::scattering::build_matched_upml_materials`]
+/// does per tet):
+///
+/// - the curl-curl stiffness scalar curl product is weighted by
+///   `curl_weight = 1/s = (Λ⁻¹)_zz`, and
+/// - the mass integrand `N_iᵀ N_j` is sandwiched as `N_iᵀ (ε_r·Λ_t) N_j`.
+///
+/// Non-PML triangles use the identity tensor (`Λ_t = I`, `curl_weight = 1`),
+/// so they reproduce the real assembly's numbers exactly.
+///
+/// # Arguments
+///
+/// - `mesh` / `eps_r` / `interior_dof_mask` — as in
+///   [`assemble_2d_nedelec2_sparse_interior`].
+/// - `region_tags` — per-triangle region tag (length `mesh.n_tris()`); only
+///   triangles tagged [`REGION_PML`] carry the stretch.
+/// - `r_pml_inner` / `r_outer` — the PML annulus radii (the stretch ramps
+///   quadratically from `r_pml_inner` to `r_outer`).
+/// - `sigma_0` — UPML strength. `sigma_0 = 0` makes the layer transparent and
+///   the operators reduce bit-for-bit to the real path.
+///
+/// # σ₀ = 0 reduction (load-bearing)
+///
+/// With `sigma_0 = 0` **or** no `REGION_PML` triangles, every local tensor is
+/// the identity, every entry is real, and the returned `K`/`M_ε`/`M₁` equal
+/// [`assemble_2d_nedelec2_sparse_interior`]'s output embedded in `c64` with
+/// zero imaginary part — entry for entry. This proves the complex path does
+/// not corrupt the validated real assembly. Asserted in a unit test.
+///
+/// The operators are **complex-symmetric** (`K = Kᵀ`, `M = Mᵀ` as complex
+/// matrices — the bilinear-form convention, **not** Hermitian), matching the
+/// Mie complex pencil.
+///
+/// Returns a [`SparseModalOperatorsComplex`].
+///
+/// # Panics
+///
+/// Panics if `eps_r.len()` or `region_tags.len()` ≠ `mesh.n_tris()`, or if
+/// `interior_dof_mask.len()` ≠ [`n_dof_2d_nedelec2`].
+// Consumed by the PML-B complex eigensolve (#332); exercised by the PML-A
+// unit tests until then.
+#[allow(clippy::too_many_arguments, dead_code)]
+pub(crate) fn assemble_2d_nedelec2_pml_sparse_interior(
+    mesh: &TriMesh,
+    eps_r: &[f64],
+    region_tags: &[i32],
+    interior_dof_mask: &[bool],
+    r_pml_inner: f64,
+    r_outer: f64,
+    sigma_0: f64,
+) -> Result<SparseModalOperatorsComplex, EigenError> {
+    assert_eq!(
+        eps_r.len(),
+        mesh.n_tris(),
+        "eps_r length ({}) must equal the triangle count ({})",
+        eps_r.len(),
+        mesh.n_tris()
+    );
+    assert_eq!(
+        region_tags.len(),
+        mesh.n_tris(),
+        "region_tags length ({}) must equal the triangle count ({})",
+        region_tags.len(),
+        mesh.n_tris()
+    );
+    let n_edges = mesh.edges().len();
+    let n_dof = 2 * n_edges + 2 * mesh.n_tris();
+    assert_eq!(
+        interior_dof_mask.len(),
+        n_dof,
+        "interior_dof_mask length ({}) must match p=2 DOF count ({})",
+        interior_dof_mask.len(),
+        n_dof
+    );
+    let tri_edges = mesh.tri_edges();
+    let (renumber, dim) = interior_renumber(interior_dof_mask);
+
+    let cap = 64 * mesh.n_tris();
+    let mut k_trips: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(cap);
+    let mut m_eps_trips: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(cap);
+    let mut m1_trips: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(cap);
+
+    for (tri_index, ((tri, row), &eps)) in mesh
+        .tris
+        .iter()
+        .zip(tri_edges.iter())
+        .zip(eps_r.iter())
+        .enumerate()
+    {
+        let coords = [
+            mesh.nodes[tri[0] as usize],
+            mesh.nodes[tri[1] as usize],
+            mesh.nodes[tri[2] as usize],
+        ];
+
+        // Per-element constant stretch tensor, evaluated at the centroid (the
+        // 2D analogue of build_matched_upml_materials' per-tet evaluation).
+        // Non-PML triangles get the identity → real numbers embedded in c64.
+        let (lambda_t, curl_weight) = if region_tags[tri_index] == REGION_PML {
+            let cx = (coords[0][0] + coords[1][0] + coords[2][0]) / 3.0;
+            let cy = (coords[0][1] + coords[1][1] + coords[2][1]) / 3.0;
+            pml_stretch_tensor_2d([cx, cy], r_pml_inner, r_outer, sigma_0)
+        } else {
+            let one = c64::new(1.0, 0.0);
+            let zero = c64::new(0.0, 0.0);
+            ([[one, zero], [zero, one]], one)
+        };
+
+        let (k_local, m_local, signed_area) =
+            tri_nedelec2_local_upml(&coords, &lambda_t, curl_weight);
+        assert!(
+            signed_area > 0.0,
+            "disk_tri_mesh_pml / TriMesh must produce CCW triangles; got signed area {signed_area}"
+        );
+
+        let dofs = tri_nedelec2_dofs(row, tri_index, n_edges);
+        let eps_c = c64::new(eps, 0.0);
+        for i in 0..8 {
+            let (gi, si) = dofs[i];
+            let Some(ri) = renumber[gi] else {
+                continue;
+            };
+            for j in 0..8 {
+                let (gj, sj) = dofs[j];
+                let Some(rj) = renumber[gj] else {
+                    continue;
+                };
+                let s = c64::new(si * sj, 0.0);
+                k_trips.push(Triplet::new(ri, rj, s * k_local[i][j]));
+                m_eps_trips.push(Triplet::new(ri, rj, s * eps_c * m_local[i][j]));
+                m1_trips.push(Triplet::new(ri, rj, s * m_local[i][j]));
+            }
+        }
+    }
+
+    Ok(SparseModalOperatorsComplex {
+        k: triplets_to_sparse_c64(dim, &k_trips)?,
+        m_eps: triplets_to_sparse_c64(dim, &m_eps_trips)?,
+        m1: triplets_to_sparse_c64(dim, &m1_trips)?,
+        dim,
+    })
+}
+
+/// UPML-weighted complex p=2 local element kernel: the `c64`, tensor-weighted
+/// analogue of [`tri_nedelec2_local`] (Epic #303 PML-A, issue #331).
+///
+/// Reuses the *exact* same affine geometry, hierarchical basis (`eval`), and
+/// [`TRI_QUAD_DEG4`] quadrature as [`tri_nedelec2_local`], but
+/// - the stiffness integrand is `curl_weight · (∇×N_i)(∇×N_j)` (the scalar
+///   out-of-plane curl product, weighted by `(Λ⁻¹)_zz = 1/s`), and
+/// - the mass integrand is `N_iᵀ Λ_t N_j` (the 2×2 in-plane stretch tensor
+///   sandwiched between the vector basis values).
+///
+/// With `lambda_t = I₂` and `curl_weight = 1` this returns exactly the real
+/// `tri_nedelec2_local` blocks promoted to `c64` (zero imaginary part): the
+/// quadrature, weights, and basis evaluation are byte-identical, and the only
+/// added arithmetic is multiplication by the literal `1.0 + 0j`.
+#[allow(dead_code)] // reached via assemble_2d_nedelec2_pml_sparse_interior (PML-B #332)
+fn tri_nedelec2_local_upml(
+    coords: &[[f64; 2]; 3],
+    lambda_t: &[[c64; 2]; 2],
+    curl_weight: c64,
+) -> ([[c64; 8]; 8], [[c64; 8]; 8], f64) {
+    let e1 = [coords[1][0] - coords[0][0], coords[1][1] - coords[0][1]];
+    let e2 = [coords[2][0] - coords[0][0], coords[2][1] - coords[0][1]];
+    let det = e1[0] * e2[1] - e1[1] * e2[0];
+    let area = 0.5 * det;
+    let abs_det = det.abs();
+    let area_abs = 0.5 * abs_det;
+
+    let g = [
+        [
+            (coords[1][1] - coords[2][1]) / det,
+            (coords[2][0] - coords[1][0]) / det,
+        ],
+        [
+            (coords[2][1] - coords[0][1]) / det,
+            (coords[0][0] - coords[2][0]) / det,
+        ],
+        [
+            (coords[0][1] - coords[1][1]) / det,
+            (coords[1][0] - coords[0][0]) / det,
+        ],
+    ];
+
+    let cross = |u: [f64; 2], v: [f64; 2]| -> f64 { u[0] * v[1] - u[1] * v[0] };
+
+    // Identical hierarchical basis evaluation to tri_nedelec2_local.
+    let eval = |lam: [f64; 3]| -> ([[f64; 2]; 8], [f64; 8]) {
+        let (l0, l1, l2) = (lam[0], lam[1], lam[2]);
+        let whitney = |a: usize, b: usize, la: f64, lb: f64| -> ([f64; 2], f64) {
+            let val = [la * g[b][0] - lb * g[a][0], la * g[b][1] - lb * g[a][1]];
+            let curl = 2.0 * cross(g[a], g[b]);
+            (val, curl)
+        };
+        let (w0, cw0) = whitney(0, 1, l0, l1);
+        let (w1, cw1) = whitney(0, 2, l0, l2);
+        let (w2, cw2) = whitney(1, 2, l1, l2);
+        let qgrad = |a: usize, b: usize, la: f64, lb: f64| -> [f64; 2] {
+            [la * g[b][0] + lb * g[a][0], la * g[b][1] + lb * g[a][1]]
+        };
+        let q0 = qgrad(0, 1, l0, l1);
+        let q1 = qgrad(0, 2, l0, l2);
+        let q2 = qgrad(1, 2, l1, l2);
+        let bubble = |w: [f64; 2], cw: f64, c: usize, lc: f64| -> ([f64; 2], f64) {
+            let val = [lc * w[0], lc * w[1]];
+            let curl = cross(g[c], w) + lc * cw;
+            (val, curl)
+        };
+        let (i0, ci0) = bubble(w0, cw0, 2, l2);
+        let (i1, ci1) = bubble(w2, cw2, 0, l0);
+        let vals = [w0, q0, w1, q1, w2, q2, i0, i1];
+        let curls = [cw0, 0.0, cw1, 0.0, cw2, 0.0, ci0, ci1];
+        (vals, curls)
+    };
+
+    // Detect the identity tensor (no PML, or σ₀ = 0). In that case run the
+    // **exact** real arithmetic of tri_nedelec2_local and promote to c64 with
+    // a single trailing `1 + 0j` multiply, so the non-PML path is bit-for-bit
+    // equal to the validated real assembly.
+    let one = c64::new(1.0, 0.0);
+    let zero = c64::new(0.0, 0.0);
+    let is_identity = curl_weight == one
+        && lambda_t[0][0] == one
+        && lambda_t[1][1] == one
+        && lambda_t[0][1] == zero
+        && lambda_t[1][0] == zero;
+
+    let mut k_local = [[zero; 8]; 8];
+    let mut m_local = [[zero; 8]; 8];
+
+    if is_identity {
+        // Bit-for-bit mirror of tri_nedelec2_local's accumulation.
+        let mut k_real = [[0.0_f64; 8]; 8];
+        let mut m_real = [[0.0_f64; 8]; 8];
+        for row in TRI_QUAD_DEG4.iter() {
+            let lam = [row[0], row[1], row[2]];
+            let w = row[3] * area_abs;
+            let (vals, curls) = eval(lam);
+            for i in 0..8 {
+                for j in 0..8 {
+                    k_real[i][j] += w * curls[i] * curls[j];
+                    m_real[i][j] += w * (vals[i][0] * vals[j][0] + vals[i][1] * vals[j][1]);
+                }
+            }
+        }
+        for i in 0..8 {
+            for j in 0..8 {
+                k_local[i][j] = curl_weight * c64::new(k_real[i][j], 0.0);
+                m_local[i][j] = c64::new(m_real[i][j], 0.0);
+            }
+        }
+        return (k_local, m_local, area);
+    }
+
+    // PML path: accumulate the per-Cartesian-component mass and the scalar
+    // curl product in f64, then apply the constant per-element tensor weight
+    // (the 2D analogue of the 3D `sandwich` against the summed constant
+    // curls/grads). With M^{ab}_ij = ∫ N_i,a N_j,b, the Λ_t-sandwiched mass is
+    //   M_ij = Σ_{a,b} Λ_t[a][b] · M^{ab}_ij,
+    // and the stiffness is `(Λ⁻¹)_zz · ∫ (∇×N_i)(∇×N_j)`.
+    let mut k_real = [[0.0_f64; 8]; 8];
+    let mut m_xx = [[0.0_f64; 8]; 8];
+    let mut m_xy = [[0.0_f64; 8]; 8];
+    let mut m_yx = [[0.0_f64; 8]; 8];
+    let mut m_yy = [[0.0_f64; 8]; 8];
+    for row in TRI_QUAD_DEG4.iter() {
+        let lam = [row[0], row[1], row[2]];
+        let w = row[3] * area_abs;
+        let (vals, curls) = eval(lam);
+        for i in 0..8 {
+            for j in 0..8 {
+                k_real[i][j] += w * curls[i] * curls[j];
+                m_xx[i][j] += w * vals[i][0] * vals[j][0];
+                m_xy[i][j] += w * vals[i][0] * vals[j][1];
+                m_yx[i][j] += w * vals[i][1] * vals[j][0];
+                m_yy[i][j] += w * vals[i][1] * vals[j][1];
+            }
+        }
+    }
+    for i in 0..8 {
+        for j in 0..8 {
+            k_local[i][j] = curl_weight * c64::new(k_real[i][j], 0.0);
+            m_local[i][j] = lambda_t[0][0] * c64::new(m_xx[i][j], 0.0)
+                + lambda_t[0][1] * c64::new(m_xy[i][j], 0.0)
+                + lambda_t[1][0] * c64::new(m_yx[i][j], 0.0)
+                + lambda_t[1][1] * c64::new(m_yy[i][j], 0.0);
+        }
+    }
+
+    (k_local, m_local, area)
+}
+
+/// Build a square `dim × dim` complex `SparseColMat` from `c64` COO triplets,
+/// summing duplicate `(row, col)` entries (the `c64` analogue of
+/// [`triplets_to_sparse`]).
+#[allow(dead_code)] // reached via assemble_2d_nedelec2_pml_sparse_interior (PML-B #332)
+fn triplets_to_sparse_c64(
+    dim: usize,
+    trips: &[Triplet<usize, usize, c64>],
+) -> Result<SparseColMat<usize, c64>, EigenError> {
+    SparseColMat::<usize, c64>::try_new_from_triplets(dim, dim, trips).map_err(|e| {
+        EigenError::FaerGevd(format!("waveguide_modes complex sparse assembly: {e:?}"))
     })
 }
 
@@ -5700,6 +6257,272 @@ mod tests {
         assert!(
             p2_dim > p1_dim,
             "p=2 nullspace ({p2_dim}) must exceed p=1 ({p1_dim})"
+        );
+    }
+
+    // ----- Epic #303 PML-A (issue #331): UPML stretch tensor + PML mesh + complex p=2 assembly -----
+
+    /// Read a `c64` entry `(r, c)` from a `SparseColMat<usize, c64>`.
+    fn c64_entry(a: &SparseColMat<usize, c64>, r: usize, c: usize) -> c64 {
+        let cp = a.col_ptr();
+        let ri = a.row_idx();
+        let v = a.val();
+        let mut acc = c64::new(0.0, 0.0);
+        for k in cp[c]..cp[c + 1] {
+            if ri[k] == r {
+                acc += v[k];
+            }
+        }
+        acc
+    }
+
+    /// Read an `f64` entry `(r, c)` from a `SparseColMat<usize, f64>`.
+    fn f64_entry(a: &SparseColMat<usize, f64>, r: usize, c: usize) -> f64 {
+        let cp = a.col_ptr();
+        let ri = a.row_idx();
+        let v = a.val();
+        let mut acc = 0.0_f64;
+        for k in cp[c]..cp[c + 1] {
+            if ri[k] == r {
+                acc += v[k];
+            }
+        }
+        acc
+    }
+
+    /// PML-tagged disk mesh: valid CCW mesh, three-region tags correct by
+    /// centroid radius, PML annulus is the outer band, sane area fractions.
+    #[test]
+    fn disk_tri_mesh_pml_three_region_tags() {
+        let core_r = 1.0;
+        let clad_r = 2.0; // = r_pml_inner
+        let outer_r = 3.0;
+        let (mesh, tags) = disk_tri_mesh_pml(core_r, clad_r, outer_r, 4, 24);
+        assert_eq!(tags.len(), mesh.n_tris());
+
+        // Every triangle CCW (positive signed area).
+        for tri in &mesh.tris {
+            let c = [
+                mesh.nodes[tri[0] as usize],
+                mesh.nodes[tri[1] as usize],
+                mesh.nodes[tri[2] as usize],
+            ];
+            let (_, _, sa) = tri_nedelec2_local(&c);
+            assert!(sa > 0.0, "triangle must be CCW; got area {sa}");
+        }
+
+        // Region tag matches centroid-radius band exactly.
+        let mut a_core = 0.0;
+        let mut a_clad = 0.0;
+        let mut a_pml = 0.0;
+        for (tri, &tag) in mesh.tris.iter().zip(tags.iter()) {
+            let p = [
+                mesh.nodes[tri[0] as usize],
+                mesh.nodes[tri[1] as usize],
+                mesh.nodes[tri[2] as usize],
+            ];
+            let cx = (p[0][0] + p[1][0] + p[2][0]) / 3.0;
+            let cy = (p[0][1] + p[1][1] + p[2][1]) / 3.0;
+            let r = (cx * cx + cy * cy).sqrt();
+            let expect = if r < core_r {
+                REGION_CORE
+            } else if r < clad_r {
+                REGION_CLADDING
+            } else {
+                REGION_PML
+            };
+            assert_eq!(tag, expect, "tag mismatch at r={r}");
+            // area
+            let e1 = [p[1][0] - p[0][0], p[1][1] - p[0][1]];
+            let e2 = [p[2][0] - p[0][0], p[2][1] - p[0][1]];
+            let area = 0.5 * (e1[0] * e2[1] - e1[1] * e2[0]).abs();
+            match tag {
+                REGION_CORE => a_core += area,
+                REGION_CLADDING => a_clad += area,
+                REGION_PML => a_pml += area,
+                _ => unreachable!(),
+            }
+        }
+        // All three regions present.
+        assert!(a_core > 0.0 && a_clad > 0.0 && a_pml > 0.0);
+        // PML is the OUTER band: every PML centroid radius ≥ clad_r, and the
+        // PML area is close to the exact annulus area π(outer² − clad²) (the
+        // polygonal mesh slightly under-fills the circle).
+        let exact_pml = std::f64::consts::PI * (outer_r * outer_r - clad_r * clad_r);
+        let frac = a_pml / exact_pml;
+        assert!(
+            (0.90..=1.0).contains(&frac),
+            "PML area fraction of exact annulus = {frac} (expected ~1)"
+        );
+    }
+
+    /// Stretch tensor: identity for r ≤ r_pml_inner; in the annulus Λ_t and
+    /// Λ_t⁻¹ are mutual inverses; the radial eigenvalue is 1/s and transverse
+    /// is s; complex entries appear only in the PML.
+    #[test]
+    fn pml_stretch_tensor_2d_inverse_and_identity() {
+        let r_in = 2.0;
+        let r_out = 3.0;
+        let sigma_0 = 5.0;
+
+        // Interior point: identity, real, curl_weight = 1.
+        let (lam, cw) = pml_stretch_tensor_2d([1.0, 0.5], r_in, r_out, sigma_0);
+        assert_eq!(cw, c64::new(1.0, 0.0));
+        assert_eq!(lam[0][0], c64::new(1.0, 0.0));
+        assert_eq!(lam[1][1], c64::new(1.0, 0.0));
+        assert_eq!(lam[0][1], c64::new(0.0, 0.0));
+        assert_eq!(lam[1][0], c64::new(0.0, 0.0));
+
+        // sigma_0 = 0 → identity even in the annulus.
+        let (lam0, cw0) = pml_stretch_tensor_2d([2.5, 0.0], r_in, r_out, 0.0);
+        assert_eq!(cw0, c64::new(1.0, 0.0));
+        assert_eq!(lam0[0][0], c64::new(1.0, 0.0));
+        assert_eq!(lam0[0][1], c64::new(0.0, 0.0));
+
+        // Annulus point on +x axis (r̂ = x̂): Λ_t = diag(1/s, s); complex.
+        let r = 2.5;
+        let (lam_a, cw_a) = pml_stretch_tensor_2d([r, 0.0], r_in, r_out, sigma_0);
+        let u = (r - r_in) / (r_out - r_in);
+        let s = c64::new(1.0, -sigma_0 * u * u);
+        let s_inv = c64::new(1.0, 0.0) / s;
+        // radial (xx) eigenvalue = 1/s, transverse (yy) = s.
+        let close = |a: c64, b: c64| (a - b).norm() < 1e-12;
+        assert!(close(lam_a[0][0], s_inv), "Λ_xx should be 1/s");
+        assert!(close(lam_a[1][1], s), "Λ_yy should be s");
+        assert!(close(lam_a[0][1], c64::new(0.0, 0.0)));
+        assert!(close(cw_a, s_inv), "curl weight should be 1/s");
+        assert!(lam_a[0][0].im != 0.0, "complex in PML");
+
+        // Inverse consistency at an off-axis annulus point: Λ_t · Λ_t⁻¹ = I.
+        let (lam_b, _) = pml_stretch_tensor_2d([1.8, 1.8], r_in, r_out, sigma_0);
+        // Build Λ_t⁻¹ analytically: same construction with s↔1/s.
+        let rr = (1.8_f64 * 1.8 + 1.8 * 1.8).sqrt();
+        let ub = ((rr - r_in) / (r_out - r_in)).clamp(0.0, 1.0);
+        let sb = c64::new(1.0, -sigma_0 * ub * ub);
+        let sb_inv = c64::new(1.0, 0.0) / sb;
+        let rx = 1.8 / rr;
+        let ry = 1.8 / rr;
+        let coeff_inv = sb - sb_inv; // (s − 1/s) for the inverse tensor
+        let lam_inv = [
+            [
+                sb_inv + coeff_inv * c64::new(rx * rx, 0.0),
+                coeff_inv * c64::new(rx * ry, 0.0),
+            ],
+            [
+                coeff_inv * c64::new(ry * rx, 0.0),
+                sb_inv + coeff_inv * c64::new(ry * ry, 0.0),
+            ],
+        ];
+        // product = Λ_t · Λ_inv
+        #[allow(clippy::needless_range_loop)] // explicit i,j,k matrix-product indices
+        for a in 0..2 {
+            for b in 0..2 {
+                let mut acc = c64::new(0.0, 0.0);
+                for kk in 0..2 {
+                    acc += lam_b[a][kk] * lam_inv[kk][b];
+                }
+                let want = if a == b {
+                    c64::new(1.0, 0.0)
+                } else {
+                    c64::new(0.0, 0.0)
+                };
+                assert!(
+                    (acc - want).norm() < 1e-10,
+                    "Λ·Λ⁻¹ entry ({a},{b}) = {acc}, want {want}"
+                );
+            }
+        }
+    }
+
+    /// LOAD-BEARING: with sigma_0 = 0 (and even with PML-tagged triangles
+    /// present), the complex UPML assembly equals the real
+    /// `assemble_2d_nedelec2_sparse_interior` output embedded in c64 with zero
+    /// imaginary part — entry for entry. Proves the complex path does not
+    /// corrupt the validated real assembly.
+    #[test]
+    fn pml_assembly_sigma0_reduces_to_real_bit_for_bit() {
+        let core_r = 1.0;
+        let clad_r = 2.0;
+        let outer_r = 3.0;
+        let (mesh, tags) = disk_tri_mesh_pml(core_r, clad_r, outer_r, 3, 18);
+        // Dielectric ε_r: core 2.1, cladding 1.0; PML carries cladding ε_r.
+        let eps_r: Vec<f64> = tags
+            .iter()
+            .map(|&t| if t == REGION_CORE { 2.1 } else { 1.0 })
+            .collect();
+        let mask = disk_pec_interior_dofs2(&mesh, outer_r);
+
+        let real = assemble_2d_nedelec2_sparse_interior(&mesh, &eps_r, &mask).unwrap();
+        // sigma_0 = 0 with PML tags PRESENT (so the PML branch executes but
+        // produces identity tensors).
+        let cplx = assemble_2d_nedelec2_pml_sparse_interior(
+            &mesh, &eps_r, &tags, &mask, clad_r, outer_r, 0.0,
+        )
+        .unwrap();
+
+        assert_eq!(cplx.dim, real.dim);
+        let n = real.dim;
+        for c in 0..n {
+            for r in 0..n {
+                for (cm, rm, name) in [
+                    (&cplx.k, &real.k, "K"),
+                    (&cplx.m_eps, &real.m_eps, "M_eps"),
+                    (&cplx.m1, &real.m1, "M1"),
+                ] {
+                    let cv = c64_entry(cm, r, c);
+                    let rv = f64_entry(rm, r, c);
+                    assert_eq!(cv.im, 0.0, "{name}({r},{c}) imag must be 0, got {cv}");
+                    assert_eq!(
+                        cv.re, rv,
+                        "{name}({r},{c}) real mismatch: complex {} vs real {rv}",
+                        cv.re
+                    );
+                }
+            }
+        }
+    }
+
+    /// With sigma_0 > 0 the PML annulus carries complex entries; the
+    /// non-PML (core/cladding) block stays real; and K, M_eps, M1 are all
+    /// complex-SYMMETRIC (bilinear, not Hermitian) — A == Aᵀ.
+    #[test]
+    fn pml_assembly_complex_symmetric_and_localized() {
+        let core_r = 1.0;
+        let clad_r = 2.0;
+        let outer_r = 3.0;
+        let (mesh, tags) = disk_tri_mesh_pml(core_r, clad_r, outer_r, 3, 18);
+        let eps_r: Vec<f64> = tags
+            .iter()
+            .map(|&t| if t == REGION_CORE { 2.1 } else { 1.0 })
+            .collect();
+        let mask = disk_pec_interior_dofs2(&mesh, outer_r);
+
+        let cplx = assemble_2d_nedelec2_pml_sparse_interior(
+            &mesh, &eps_r, &tags, &mask, clad_r, outer_r, 8.0,
+        )
+        .unwrap();
+        let n = cplx.dim;
+
+        // Complex-symmetric: A(r,c) == A(c,r) for K, M_eps, M1.
+        let mut any_complex = false;
+        for c in 0..n {
+            for r in 0..n {
+                for a in [&cplx.k, &cplx.m_eps, &cplx.m1] {
+                    let v = c64_entry(a, r, c);
+                    let vt = c64_entry(a, c, r);
+                    assert!(
+                        (v - vt).norm() < 1e-12,
+                        "complex-symmetry: ({r},{c})={v} vs ({c},{r})={vt}"
+                    );
+                    if v.im.abs() > 1e-14 {
+                        any_complex = true;
+                    }
+                }
+            }
+        }
+        assert!(
+            any_complex,
+            "sigma_0 > 0 must introduce complex entries from the PML annulus"
         );
     }
 }
