@@ -44,7 +44,9 @@ pub use assembly::{
     assemble_global_p1, gather_tet_coords, upload_mesh, GlobalSystem, SparsityPattern,
 };
 pub use complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
-pub use complex_lanczos::{SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
+pub use complex_lanczos::{
+    ComplexEigenPair, SparseComplexEigenSolver, SparseComplexShiftInvertLanczos,
+};
 pub use derham::{apply_divergence, apply_gradient, curl_map, divergence_map, gradient_map};
 pub use driven::{
     driven_solve, driven_solve_iterative, driven_solve_quad, driven_solve_with_ports,
@@ -152,14 +154,16 @@ pub use wave_port::{
 pub use waveguide_modes::{
     apply_pec_2d, assemble_2d_nedelec, assemble_2d_nedelec2_with_epsilon,
     assemble_2d_nedelec_with_epsilon, beta_outgoing, dielectric_mode_field_shape,
-    disk_boundary_nodes, disk_pec_interior_dofs2, disk_pec_interior_edges, disk_pec_interior_nodes,
-    disk_tri_mesh, epsilon_r_from_region_tags, n_dof_2d_nedelec2, rect_pec_interior_dofs2,
+    dielectric_mode_field_shape_pml, disk_boundary_nodes, disk_pec_interior_dofs2,
+    disk_pec_interior_edges, disk_pec_interior_nodes, disk_tri_mesh, disk_tri_mesh_pml,
+    epsilon_r_from_region_tags, n_dof_2d_nedelec2, pml_stretch_tensor_2d, rect_pec_interior_dofs2,
     rect_pec_interior_edges, rect_pec_interior_nodes, rect_tri_mesh, rect_waveguide_cutoff,
     restrict_gradient_dense_2d, slab_te0_neff, solve_dielectric_modes, solve_dielectric_modes2,
-    solve_rect_waveguide_modes, solve_rect_waveguide_modes2_cutoffs, solve_waveguide_modes,
-    solve_waveguide_modes_with_opts, spurious_dim_2d, spurious_dim_2d_p2, tri_nedelec2_local,
-    tri_nedelec_local, DielectricMode, ModeFieldShape, TriMesh, WaveguideModeProfile,
-    WaveguideSolveOpts, TRI_LOCAL_EDGES,
+    solve_dielectric_modes2_pml, solve_rect_waveguide_modes, solve_rect_waveguide_modes2_cutoffs,
+    solve_waveguide_modes, solve_waveguide_modes_with_opts, spurious_dim_2d, spurious_dim_2d_p2,
+    tri_nedelec2_local, tri_nedelec_local, DielectricMode, DielectricModePml, ModeFieldShape,
+    TriMesh, WaveguideModeProfile, WaveguideSolveOpts, REGION_CLADDING, REGION_CORE, REGION_PML,
+    TRI_LOCAL_EDGES,
 };
 
 #[cfg(feature = "arpack")]

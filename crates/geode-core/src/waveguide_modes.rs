@@ -74,6 +74,7 @@ use faer::c64;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 use faer::Mat;
 
+use crate::complex_lanczos::SparseComplexShiftInvertLanczos;
 use crate::eigen::EigenError;
 use crate::lanczos::SparseShiftInvertLanczos;
 
@@ -1550,9 +1551,9 @@ pub fn pml_stretch_tensor_2d(
 /// With `sigma_0 = 0` (or no PML-tagged triangles) the entries equal the
 /// real [`SparseModalOperators`] embedded in `c64` with zero imaginary part,
 /// entry for entry — see [`assemble_2d_nedelec2_pml_sparse_interior`].
-// Consumed by the PML-B complex eigensolve (#332); constructed/used only by
-// the PML-A unit tests until then.
-#[allow(dead_code)]
+//
+// Consumed by the PML-B complex eigensolve (#332) via
+// `dielectric_raw_candidates_p2_pml`.
 pub(crate) struct SparseModalOperatorsComplex {
     /// PEC-reduced complex curl-curl stiffness `K_int` (UPML `1/s`-weighted
     /// on PML triangles, real elsewhere).
@@ -1615,9 +1616,9 @@ pub(crate) struct SparseModalOperatorsComplex {
 ///
 /// Panics if `eps_r.len()` or `region_tags.len()` ≠ `mesh.n_tris()`, or if
 /// `interior_dof_mask.len()` ≠ [`n_dof_2d_nedelec2`].
-// Consumed by the PML-B complex eigensolve (#332); exercised by the PML-A
-// unit tests until then.
-#[allow(clippy::too_many_arguments, dead_code)]
+// Consumed by the PML-B complex eigensolve (#332) via
+// `dielectric_raw_candidates_p2_pml`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn assemble_2d_nedelec2_pml_sparse_interior(
     mesh: &TriMesh,
     eps_r: &[f64],
@@ -1733,7 +1734,6 @@ pub(crate) fn assemble_2d_nedelec2_pml_sparse_interior(
 /// `tri_nedelec2_local` blocks promoted to `c64` (zero imaginary part): the
 /// quadrature, weights, and basis evaluation are byte-identical, and the only
 /// added arithmetic is multiplication by the literal `1.0 + 0j`.
-#[allow(dead_code)] // reached via assemble_2d_nedelec2_pml_sparse_interior (PML-B #332)
 fn tri_nedelec2_local_upml(
     coords: &[[f64; 2]; 3],
     lambda_t: &[[c64; 2]; 2],
@@ -1872,7 +1872,6 @@ fn tri_nedelec2_local_upml(
 /// Build a square `dim × dim` complex `SparseColMat` from `c64` COO triplets,
 /// summing duplicate `(row, col)` entries (the `c64` analogue of
 /// [`triplets_to_sparse`]).
-#[allow(dead_code)] // reached via assemble_2d_nedelec2_pml_sparse_interior (PML-B #332)
 fn triplets_to_sparse_c64(
     dim: usize,
     trips: &[Triplet<usize, usize, c64>],
@@ -3601,6 +3600,531 @@ pub fn solve_dielectric_modes2(
          dropped {n_dropped} radiation/spurious eigenpair(s) (requested {n_modes})"
     );
     Ok(bound)
+}
+
+// ===========================================================================
+// Epic #303 PML-B (#332): complex-pencil PML dielectric modal solve
+// ===========================================================================
+
+/// A single guided / leaky transverse mode of a **PML-terminated**
+/// dielectric waveguide cross-section, the complex-pencil analogue of
+/// [`DielectricMode`] (Epic #303 PML-B, issue #332).
+///
+/// With the cladding absorbed by a 2D UPML (instead of truncated by a far
+/// PEC wall), the modal pencil `A = k₀² M_ε − K`, `A x = β² M₁ x` is
+/// **complex-symmetric**: the eigenvalue `β²` acquires a small imaginary
+/// part. A genuinely bound, low-loss mode sits near the real axis
+/// (`|Im(β²)|` small); a radiating/leaky one has large `|Im(β²)|`. The
+/// effective index `n_eff = √(β²)/k₀` is therefore complex —
+/// `Re(n_eff)` is the propagating effective index and `Im(n_eff)` the
+/// modal loss / leakage rate (negative imaginary part ⇒ decaying mode).
+#[derive(Debug, Clone)]
+pub struct DielectricModePml {
+    /// Complex effective index `n_eff = √(β²)/k₀` (principal branch,
+    /// `Re ≥ 0`). `Re` is the propagating effective index; `Im` is the
+    /// modal loss/leakage figure.
+    pub n_eff: c64,
+    /// Complex propagation constant `β = n_eff · k₀ = √(β²)`.
+    pub beta: c64,
+    /// Generalized-pencil eigenvalue `β²` (complex). The selection figure
+    /// of merit is `|Im(β²)|` (smallest ⇒ genuinely bound / lowest-loss).
+    pub beta_sq: c64,
+    /// `true` if this mode is **guided**: `Re(β²)` lies in the index
+    /// window `(n_clad² k₀², n_eff_ceiling² k₀²)`, it carries curl energy
+    /// above the floor, and it is the smallest-`|Im(β²)|` such candidate.
+    pub guided: bool,
+    /// Full-length **complex** transverse field over the 2-D mesh p=2 DOFs
+    /// (length [`n_dof_2d_nedelec2`]). PEC-eliminated DOFs carry exact
+    /// zeros. Bilinear-M-normalized.
+    pub e_edges: Vec<c64>,
+}
+
+/// A raw recovered eigenpair of the **complex** PML dielectric pencil
+/// `A x = β² M₁ x` before window / curl-energy classification (the
+/// complex analogue of [`RawDielectricCandidate`]).
+struct RawDielectricCandidateComplex {
+    beta_sq: c64,
+    /// Relative curl energy `r = |xᴴ K x| / (k₀² |xᴴ M_ε x|)` of the
+    /// eigenvector (≈ 0 for a gradient-nullspace mode, O(1) for a genuine
+    /// guided/physical mode). Magnitudes are used so the figure is real
+    /// and comparable to the real-path curl floor.
+    curl_ratio: f64,
+    /// Interior-DOF complex eigenvector (length = interior DOF count).
+    vector: Vec<c64>,
+}
+
+/// The complex standard-form pencil `A = k₀² M_ε − K`, assembled from the
+/// two interior-restricted complex operators (the `c64` analogue of
+/// [`sparse_pencil_a`]).
+fn sparse_pencil_a_c64(
+    k: SparseColMatRef<'_, usize, c64>,
+    m_eps: SparseColMatRef<'_, usize, c64>,
+    k0_sq: f64,
+) -> Result<SparseColMat<usize, c64>, EigenError> {
+    let n = k.nrows();
+    let nnz = k.col_ptr()[n] + m_eps.col_ptr()[n];
+    let mut trips: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(nnz);
+    let push = |trips: &mut Vec<Triplet<usize, usize, c64>>,
+                a: SparseColMatRef<'_, usize, c64>,
+                scale: c64| {
+        let cp = a.col_ptr();
+        let ri = a.row_idx();
+        let v = a.val();
+        for j in 0..a.ncols() {
+            for kk in cp[j]..cp[j + 1] {
+                trips.push(Triplet::new(ri[kk], j, scale * v[kk]));
+            }
+        }
+    };
+    push(&mut trips, m_eps, c64::new(k0_sq, 0.0));
+    push(&mut trips, k, c64::new(-1.0, 0.0));
+    triplets_to_sparse_c64(n, &trips)
+}
+
+/// Hermitian quadratic form `xᴴ A x = Σ conj(x_i) (A x)_i` for a complex
+/// sparse `A` and complex dense `x`. Used for the (real-valued) curl-energy
+/// ratio of a complex mode — taking magnitudes keeps the figure comparable
+/// to the real-path curl floor.
+fn sparse_quadratic_form_c64_herm(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> c64 {
+    let cp = a.col_ptr();
+    let ri = a.row_idx();
+    let v = a.val();
+    let mut acc = c64::new(0.0, 0.0);
+    for j in 0..a.ncols() {
+        let xj = x[j];
+        if xj.re == 0.0 && xj.im == 0.0 {
+            continue;
+        }
+        for kk in cp[j]..cp[j + 1] {
+            let i = ri[kk];
+            // conj(x_i) * A[i,j] * x_j
+            acc += x[i].conj() * v[kk] * xj;
+        }
+    }
+    acc
+}
+
+/// Principal complex square root with `Re(√z) ≥ 0` — the `n_eff`/`β`
+/// recovery branch for the complex PML pencil. (A local copy of the
+/// branch used by the complex Lanczos, kept self-contained here.)
+fn principal_sqrt_c64(z: c64) -> c64 {
+    if z.re == 0.0 && z.im == 0.0 {
+        return c64::new(0.0, 0.0);
+    }
+    let r = (z.re * z.re + z.im * z.im).sqrt();
+    let re = ((r + z.re) * 0.5).sqrt();
+    let im_mag = ((r - z.re) * 0.5).sqrt();
+    let im = if z.im >= 0.0 { im_mag } else { -im_mag };
+    c64::new(re, im)
+}
+
+/// Complex p=2 PML analogue of [`dielectric_raw_candidates_p2`]: assemble
+/// the complex UPML pencil `A = k₀² M_ε − K`, `M₁` from
+/// [`assemble_2d_nedelec2_pml_sparse_interior`], and recover up to
+/// `n_request` raw eigenpairs (`β²`, relative curl energy, complex
+/// eigenvector) via [`SparseComplexShiftInvertLanczos`] — the **same
+/// complex bilinear-Lanczos path the Mie pencil uses**. The real shift `σ`
+/// is placed just below the guided-band ceiling (in-window `β²`), since the
+/// guided/low-loss eigenvalues sit near the real axis.
+#[allow(clippy::too_many_arguments)]
+fn dielectric_raw_candidates_p2_pml(
+    mesh: &TriMesh,
+    eps_r: &[f64],
+    region_tags: &[i32],
+    interior_dof_mask: &[bool],
+    r_pml_inner: f64,
+    r_outer: f64,
+    sigma_0: f64,
+    k0: f64,
+    n_request: usize,
+    n_eff_target: Option<f64>,
+) -> Result<Vec<RawDielectricCandidateComplex>, EigenError> {
+    assert!(k0 > 0.0, "k0 must be positive; got {k0}");
+
+    let eps_max = eps_r.iter().cloned().fold(f64::MIN, f64::max);
+    let n_core = eps_max.sqrt();
+    let beta_sq_ceiling = n_core * n_core * k0 * k0;
+
+    let k0_sq = k0 * k0;
+    let ops = assemble_2d_nedelec2_pml_sparse_interior(
+        mesh,
+        eps_r,
+        region_tags,
+        interior_dof_mask,
+        r_pml_inner,
+        r_outer,
+        sigma_0,
+    )?;
+    let dim = ops.dim;
+    if dim == 0 {
+        return Ok(Vec::new());
+    }
+    let k_int = ops.k;
+    let m_eps_int = ops.m_eps;
+    let m1_sparse = ops.m1;
+
+    let a_sparse = sparse_pencil_a_c64(k_int.as_ref(), m_eps_int.as_ref(), k0_sq)?;
+
+    let sigma_target_beta_sq = match n_eff_target {
+        Some(ceiling) if ceiling < n_core => ceiling * ceiling * k0 * k0,
+        _ => beta_sq_ceiling,
+    };
+    // Real shift just under the guided-band ceiling — guided eigenvalues
+    // sit near the real axis, so a real σ keeps the K − σM LU cheap and
+    // still targets the band (see complex_lanczos.rs σ discussion).
+    let sigma = sigma_target_beta_sq * (1.0 - 1e-3);
+
+    let curl_ratio = |x: &[c64]| -> f64 {
+        let xkx = sparse_quadratic_form_c64_herm(k_int.as_ref(), x).norm();
+        let xmx = sparse_quadratic_form_c64_herm(m_eps_int.as_ref(), x).norm();
+        let denom = (k0_sq * xmx).max(1e-300);
+        xkx / denom
+    };
+
+    let n_req = n_request.min(dim).max(1);
+    let max_iters = (n_req + 8).min(dim).max(1);
+    let solver = SparseComplexShiftInvertLanczos {
+        sigma,
+        max_iters,
+        tol: 1e-9,
+    };
+    let pairs = solver.smallest_eigenpairs(a_sparse.as_ref(), m1_sparse.as_ref(), n_req)?;
+
+    let mut cands: Vec<RawDielectricCandidateComplex> = pairs
+        .iter()
+        .map(|pair| RawDielectricCandidateComplex {
+            beta_sq: pair.lambda,
+            curl_ratio: curl_ratio(&pair.vector),
+            vector: pair.vector.clone(),
+        })
+        .collect();
+    // Sort by decreasing Re(β²) (highest-index first) for stable logging.
+    cands.sort_by(|a, b| {
+        b.beta_sq
+            .re
+            .partial_cmp(&a.beta_sq.re)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(cands)
+}
+
+/// Curl-energy floor for the **PML** dielectric path (Epic #303 PML-B,
+/// issue #332).
+///
+/// This is deliberately much smaller than the PEC-path
+/// [`physical_curl_floor_p2`] (`3e-2`). That floor was calibrated for a
+/// **high-contrast** strip on a PEC-walled domain, where the genuine
+/// guided band floors at `r ≈ 8.5×10⁻²`. A **weakly-guiding** fiber
+/// (SMF-28, Δ ≈ 0.4 %, V = 2.135) has an almost-TEM fundamental whose
+/// relative curl energy `r = |xᴴ K x|/(k₀²|xᴴ M_ε x|)` is intrinsically
+/// **tiny** — empirically `r ≈ 10⁻⁴…10⁻²` for the genuine guided modes,
+/// while the curl-free gradient-nullspace cluster sits at `r ≈ 10⁻¹³` (to
+/// f64 noise). The two populations are separated by ~9 orders of
+/// magnitude, so a floor placed in the gap (`10⁻⁶`) cleanly rejects the
+/// gradient nullspace while keeping every physical guided/leaky mode. The
+/// smallest-`|Im(β²)|`-in-window rule then selects the genuine LP₀₁ among
+/// the survivors (confirmed by core-energy fraction ≳0.8).
+fn physical_curl_floor_pml() -> f64 {
+    1e-6
+}
+
+/// PML / complex-pencil sibling of [`solve_dielectric_modes2`] (Epic #303
+/// PML-B, issue #332). Solve the dielectric full-vector transverse-mode
+/// eigenproblem on a **PML-terminated** cross-section (a
+/// [`disk_tri_mesh_pml`] mesh with the cladding absorbed by a 2D UPML),
+/// returning up to `n_modes` [`DielectricModePml`] guided modes.
+///
+/// # The complex pencil and the clean selection
+///
+/// With the UPML weights the modal pencil
+///
+/// ```text
+///   A x = β² M₁ x,   A = k₀² M_ε − K   (all complex c64),
+/// ```
+///
+/// is **complex-symmetric** (bilinear, not Hermitian), so it is solved by
+/// [`SparseComplexShiftInvertLanczos`] — the exact path the Mie open-cavity
+/// pencil uses. A real shift `σ` just below the guided-band ceiling targets
+/// the band (guided eigenvalues sit near the real axis).
+///
+/// Because the PML absorbs the cladding, the box / cladding-resonance modes
+/// that polluted the PEC-walled guided window (issue #329) are gone — they
+/// are pushed to large `|Im(β²)|` (lossy/radiating). The genuine guided
+/// LP₀₁ is therefore the eigenpair with the **smallest `|Im(β²)|`**
+/// (genuinely bound, lowest loss) whose `Re(β²)` lies inside the index
+/// window `(n_clad² k₀², n_eff_ceiling² k₀²)` and which carries curl energy
+/// above [`physical_curl_floor_p2`]. The core-energy fraction
+/// ([`dielectric_mode_field_shape_pml`]) then **confirms** the selection
+/// (≳0.8 for a genuine LP₀₁) rather than driving it.
+///
+/// # σ₀ reduction
+///
+/// With `sigma_0 = 0` the complex assembly reduces bit-for-bit to the real
+/// path embedded in `c64`, so this returns the same guided mode as the real
+/// [`solve_dielectric_modes2`] (now with `Im(β²) ≈ 0`).
+///
+/// # Arguments
+///
+/// - `mesh` / `region_tags` — from [`disk_tri_mesh_pml`].
+/// - `eps_r` — per-triangle ε_r (length `mesh.n_tris()`).
+/// - `interior_dof_mask` — p=2 PEC mask (e.g. [`disk_pec_interior_dofs2`]).
+/// - `r_pml_inner` / `r_outer` — PML annulus radii (`cladding_outer` and
+///   `outer_radius` of the mesh).
+/// - `sigma_0` — UPML strength (> 0 turns on absorption).
+/// - `k0` — optical free-space wavenumber `2π/λ` (> 0).
+/// - `n_modes` — maximum guided modes to return (fundamental first).
+///
+/// # Errors
+///
+/// Returns [`EigenError`] if the complex eigensolve fails. Returns an empty
+/// `Vec` (not an error) if no guided mode exists in the window.
+#[allow(clippy::too_many_arguments)]
+pub fn solve_dielectric_modes2_pml(
+    mesh: &TriMesh,
+    eps_r: &[f64],
+    region_tags: &[i32],
+    interior_dof_mask: &[bool],
+    r_pml_inner: f64,
+    r_outer: f64,
+    sigma_0: f64,
+    k0: f64,
+    n_modes: usize,
+) -> Result<Vec<DielectricModePml>, EigenError> {
+    assert_eq!(
+        region_tags.len(),
+        mesh.n_tris(),
+        "region_tags length ({}) must equal triangle count ({})",
+        region_tags.len(),
+        mesh.n_tris()
+    );
+    let eps_max = eps_r.iter().cloned().fold(f64::MIN, f64::max);
+    let eps_min = eps_r.iter().cloned().fold(f64::MAX, f64::min);
+    let n_core = eps_max.sqrt();
+    let n_clad = eps_min.sqrt();
+
+    // Use the **n_core** ceiling for the PML path — NOT the slab-strip
+    // ceiling [`physical_index_ceiling`]. That strip ceiling was a PEC-era
+    // crutch for high-contrast rectangular cores: it treats the core as a
+    // 1-D slab and clips the near-`n_core` spurious cluster the PEC wall
+    // manufactured. For a circular weakly-guiding fiber it *over*-clips —
+    // the genuine LP₀₁ sits just above the slab-derived ceiling — and the
+    // PML doesn't need it: boundness (`|Im(β²)| ≈ 0`) plus core
+    // confinement already isolate the fundamental cleanly. So we keep the
+    // full `(n_clad², n_core²) k₀²` window and let the smallest-|Im| /
+    // lowest-order selection (confirmed by core-energy fraction) do the
+    // work.
+    let n_eff_ceiling = n_core;
+    let beta_sq_ceiling = n_eff_ceiling * n_eff_ceiling * k0 * k0;
+    let beta_sq_floor = n_clad * n_clad * k0 * k0;
+
+    // Request a generous batch: the in-window band is densely populated
+    // (gradient nullspace + bound + leaky), and the genuine bound cluster
+    // sits a little below the ceiling, so a small request can miss the
+    // fundamental. 40 comfortably samples the whole guided window for the
+    // SMF-28-scale meshes this targets.
+    let n_request = (n_modes + 36).max(40);
+    let cands = dielectric_raw_candidates_p2_pml(
+        mesh,
+        eps_r,
+        region_tags,
+        interior_dof_mask,
+        r_pml_inner,
+        r_outer,
+        sigma_0,
+        k0,
+        n_request,
+        None,
+    )?;
+    if cands.is_empty() {
+        return Ok(Vec::new());
+    }
+    let n_dof = n_dof_2d_nedelec2(mesh);
+    let curl_floor = physical_curl_floor_pml();
+
+    let mut interior_to_full: Vec<usize> = Vec::with_capacity(n_dof);
+    for (full_idx, &keep) in interior_dof_mask.iter().enumerate() {
+        if keep {
+            interior_to_full.push(full_idx);
+        }
+    }
+
+    // Keep only in-window, curl-bearing candidates; select by SMALLEST
+    // |Im(β²)| (genuinely bound / lowest leakage) — the clean PML selection.
+    let mut guided: Vec<DielectricModePml> = Vec::new();
+    let mut n_dropped = 0usize;
+    for c in &cands {
+        let in_window = c.beta_sq.re > beta_sq_floor && c.beta_sq.re < beta_sq_ceiling;
+        let has_curl = c.curl_ratio > curl_floor;
+        if !(in_window && has_curl) {
+            n_dropped += 1;
+            continue;
+        }
+        let beta = principal_sqrt_c64(c.beta_sq);
+        let n_eff = beta / c64::new(k0, 0.0);
+        let mut e_edges = vec![c64::new(0.0, 0.0); n_dof];
+        for (interior_idx, &full_idx) in interior_to_full.iter().enumerate() {
+            e_edges[full_idx] = c.vector[interior_idx];
+        }
+        guided.push(DielectricModePml {
+            n_eff,
+            beta,
+            beta_sq: c.beta_sq,
+            guided: true,
+            e_edges,
+        });
+    }
+
+    // Clean PML selection — smallest |Im(β²)| (genuinely bound), then
+    // lowest order (largest Re(β²)).
+    //
+    // With the cladding absorbed, the in-window curl-bearing survivors
+    // split cleanly into two populations by **relative** leakage
+    // `|Im(β²)| / Re(β²)`:
+    //   - genuinely **bound** modes — leakage at f64 noise
+    //     (`≈ 10⁻¹⁷…10⁻¹⁴`), the PML adds no spurious loss to a truly
+    //     trapped mode; and
+    //   - **leaky/radiating** modes — leakage `≈ 10⁻⁵…10⁻¹` (the
+    //     box/cladding-resonance content the PML pushed off the real
+    //     axis).
+    // The gap spans ~7+ orders of magnitude, so a relative cut at `10⁻⁸`
+    // partitions them robustly. Among the **bound** cluster, leakage is
+    // all at noise — so |Im| alone can't order them; the genuine
+    // fundamental LP₀₁ is the **lowest-order** bound mode, i.e. the
+    // largest `Re(β²)` (highest n_eff, most confined). We therefore sort
+    // bound-before-leaky, then by descending `Re(β²)` within the bound
+    // cluster (and by ascending |Im| within the leaky tail). The
+    // core-energy fraction then **confirms** the pick is a genuine LP₀₁.
+    const BOUND_REL_IM: f64 = 1e-8;
+    let is_bound = |m: &DielectricModePml| -> bool {
+        m.beta_sq.im.abs() <= BOUND_REL_IM * m.beta_sq.re.abs().max(1.0)
+    };
+    guided.sort_by(|a, b| {
+        let (ba, bb) = (is_bound(a), is_bound(b));
+        // Bound modes first.
+        match (ba, bb) {
+            (true, false) => return std::cmp::Ordering::Less,
+            (false, true) => return std::cmp::Ordering::Greater,
+            _ => {}
+        }
+        if ba {
+            // Both bound: lowest-order = largest Re(β²).
+            b.beta_sq
+                .re
+                .partial_cmp(&a.beta_sq.re)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        } else {
+            // Both leaky: smallest |Im(β²)| (least lossy) first.
+            a.beta_sq
+                .im
+                .abs()
+                .partial_cmp(&b.beta_sq.im.abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }
+    });
+    guided.truncate(n_modes);
+    let have = guided.len();
+    eprintln!(
+        "solve_dielectric_modes2_pml (p=2, σ₀={sigma_0:.3}): k0={k0:.4}, n_core={n_core:.4}, \
+         n_clad={n_clad:.4}, n_eff_ceiling={n_eff_ceiling:.4} (n_core); \
+         β² window=({beta_sq_floor:.4e}, {beta_sq_ceiling:.4e}); \
+         curl-energy floor={curl_floor:.4e}; recovered {have} guided mode(s), \
+         dropped {n_dropped} radiation/spurious eigenpair(s) (requested {n_modes})"
+    );
+    Ok(guided)
+}
+
+/// Core-energy-fraction field-shape diagnostic of a [`DielectricModePml`]
+/// (the complex-field analogue of [`dielectric_mode_field_shape`]). The
+/// energy integrand is `|E|² = |Eₓ|² + |E_y|²` (complex squared
+/// magnitudes), split into core (`tag == REGION_CORE`) and total buckets.
+/// Used to **confirm** the PML-selected mode is a genuine LP₀₁ (core
+/// fraction ≳0.8).
+///
+/// # Panics
+///
+/// Panics if `region_tags.len() != mesh.n_tris()` or if `mode.e_edges` is
+/// not the p=2 DOF length for `mesh`.
+pub fn dielectric_mode_field_shape_pml(
+    mesh: &TriMesh,
+    region_tags: &[i32],
+    mode: &DielectricModePml,
+) -> ModeFieldShape {
+    assert_eq!(
+        region_tags.len(),
+        mesh.n_tris(),
+        "region_tags length ({}) must equal triangle count ({})",
+        region_tags.len(),
+        mesh.n_tris()
+    );
+    let n_dof = n_dof_2d_nedelec2(mesh);
+    assert_eq!(
+        mode.e_edges.len(),
+        n_dof,
+        "mode.e_edges length ({}) must equal p=2 DOF count ({})",
+        mode.e_edges.len(),
+        n_dof
+    );
+
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+    let tri_edges = mesh.tri_edges();
+
+    let mut core_energy = 0.0_f64;
+    let mut total_energy = 0.0_f64;
+
+    for (tri_index, ((tri, row), &tag)) in mesh
+        .tris
+        .iter()
+        .zip(tri_edges.iter())
+        .zip(region_tags.iter())
+        .enumerate()
+    {
+        let coords = [
+            mesh.nodes[tri[0] as usize],
+            mesh.nodes[tri[1] as usize],
+            mesh.nodes[tri[2] as usize],
+        ];
+        let e1 = [coords[1][0] - coords[0][0], coords[1][1] - coords[0][1]];
+        let e2 = [coords[2][0] - coords[0][0], coords[2][1] - coords[0][1]];
+        let area_abs = 0.5 * (e1[0] * e2[1] - e1[1] * e2[0]).abs();
+
+        let dofs = tri_nedelec2_dofs(row, tri_index, n_edges);
+        let mut coef = [c64::new(0.0, 0.0); 8];
+        for (i, item) in coef.iter_mut().enumerate() {
+            let (gi, si) = dofs[i];
+            *item = c64::new(si, 0.0) * mode.e_edges[gi];
+        }
+
+        let mut tri_energy = 0.0_f64;
+        for q in TRI_QUAD_DEG4.iter() {
+            let lam = [q[0], q[1], q[2]];
+            let w = q[3] * area_abs;
+            let vals = tri_nedelec2_basis_values(&coords, lam);
+            let mut ex = c64::new(0.0, 0.0);
+            let mut ey = c64::new(0.0, 0.0);
+            for k in 0..8 {
+                ex += coef[k] * c64::new(vals[k][0], 0.0);
+                ey += coef[k] * c64::new(vals[k][1], 0.0);
+            }
+            tri_energy += w * (ex.norm() * ex.norm() + ey.norm() * ey.norm());
+        }
+
+        total_energy += tri_energy;
+        if tag == REGION_CORE {
+            core_energy += tri_energy;
+        }
+    }
+
+    let core_energy_fraction = if total_energy > 0.0 {
+        core_energy / total_energy
+    } else {
+        0.0
+    };
+    ModeFieldShape {
+        core_energy_fraction,
+        total_energy,
+        core_energy,
+    }
 }
 
 /// Field-shape diagnostics of a single recovered [`DielectricMode`],
@@ -6523,6 +7047,157 @@ mod tests {
         assert!(
             any_complex,
             "sigma_0 > 0 must introduce complex entries from the PML annulus"
+        );
+    }
+
+    // ---- PML-B (#332): complex-pencil modal solve + clean LP01 ----------
+
+    /// Build the SMF-28-like PML problem: per-triangle ε_r (core n_core²,
+    /// cladding+PML n_clad²), the PEC mask, and the geometry.
+    #[allow(clippy::type_complexity)]
+    fn smf28_pml_problem(
+        clad_mult: f64,
+        pml_mult: f64,
+        n_radial: usize,
+        n_angular: usize,
+    ) -> (TriMesh, Vec<i32>, Vec<f64>, Vec<bool>, f64, f64, f64) {
+        const N_CORE: f64 = 1.4504;
+        const N_CLAD: f64 = 1.4447;
+        const A_UM: f64 = 4.1;
+        const LAMBDA_UM: f64 = 1.55;
+        let clad_r = clad_mult * A_UM;
+        let outer_r = pml_mult * A_UM;
+        let (mesh, tags) = disk_tri_mesh_pml(A_UM, clad_r, outer_r, n_radial, n_angular);
+        let eps_r = epsilon_r_from_region_tags(&tags, |t| {
+            if t == REGION_CORE {
+                N_CORE * N_CORE
+            } else {
+                N_CLAD * N_CLAD
+            }
+        });
+        let mask = disk_pec_interior_dofs2(&mesh, outer_r);
+        let k0 = 2.0 * std::f64::consts::PI / LAMBDA_UM;
+        (mesh, tags, eps_r, mask, clad_r, outer_r, k0)
+    }
+
+    /// **The headline PML-B test (#332).** With the cladding absorbed by a
+    /// 2D UPML, the genuine weakly-guiding LP₀₁ of the SMF-28 fiber
+    /// isolates cleanly — the thing the far PEC wall could not do (#329,
+    /// best core-energy fraction only 0.34–0.49). We assert the selected
+    /// fundamental is genuinely core-confined (core-energy fraction ≳0.8),
+    /// has `Re(n_eff)` inside the index window `(n_clad, n_core)`, and is
+    /// genuinely bound (`|Im(β²)|` tiny). We do **not** yet assert ≤1% b
+    /// convergence — that is PML-C's convergence study; here we only show
+    /// the mode is cleanly isolated.
+    #[test]
+    fn pml_smf28_isolates_clean_lp01() {
+        const N_CORE: f64 = 1.4504;
+        const N_CLAD: f64 = 1.4447;
+        let (mesh, tags, eps_r, mask, clad_r, outer_r, k0) = smf28_pml_problem(8.0, 11.0, 5, 60);
+        let sigma_0 = 6.0;
+
+        let modes = solve_dielectric_modes2_pml(
+            &mesh, &eps_r, &tags, &mask, clad_r, outer_r, sigma_0, k0, 1,
+        )
+        .expect("PML modal solve must succeed");
+        assert!(
+            !modes.is_empty(),
+            "PML solve must return a guided LP01 (got none)"
+        );
+        let m = &modes[0];
+
+        // Re(n_eff) strictly inside the weakly-guiding window.
+        assert!(
+            m.n_eff.re > N_CLAD && m.n_eff.re < N_CORE,
+            "Re(n_eff)={} must lie in ({N_CLAD}, {N_CORE})",
+            m.n_eff.re
+        );
+
+        // Genuinely bound: |Im(β²)| negligible (the PML adds no spurious
+        // loss to a truly trapped mode).
+        let rel_im = m.beta_sq.im.abs() / m.beta_sq.re.abs().max(1.0);
+        assert!(
+            rel_im < 1e-6,
+            "guided LP01 must be genuinely bound: |Im(β²)|/Re(β²)={rel_im:.3e} (β²={})",
+            m.beta_sq
+        );
+
+        // The payoff: core-energy fraction confirms genuine LP01, NOT a box
+        // mode. PEC-era best was 0.34–0.49; a clean fundamental is ≳0.8.
+        let shape = dielectric_mode_field_shape_pml(&mesh, &tags, m);
+        assert!(
+            shape.core_energy_fraction >= 0.8,
+            "core-energy fraction {:.4} must be ≳0.8 (clean LP01); PEC-era best was 0.34–0.49",
+            shape.core_energy_fraction
+        );
+
+        eprintln!(
+            "pml_smf28_isolates_clean_lp01: Re(n_eff)={:.6}, Im(n_eff)={:.3e}, \
+             |Im(β²)|={:.3e}, core_energy_fraction={:.4}",
+            m.n_eff.re,
+            m.n_eff.im,
+            m.beta_sq.im.abs(),
+            shape.core_energy_fraction
+        );
+    }
+
+    /// With `sigma_0 = 0` the complex PML assembly reduces bit-for-bit to
+    /// the real path (proven in
+    /// `pml_assembly_sigma0_reduces_to_real_bit_for_bit`), so the complex
+    /// pencil eigensolve must reproduce the **real** dielectric spectrum
+    /// embedded in `c64`: every recovered β² is real (`Im ≈ 0`), and the
+    /// σ₀=0 PML-selected mode's β² must coincide with one of the real-path
+    /// `dielectric_raw_candidates_p2` eigenvalues on the same mesh.
+    ///
+    /// (We compare against the *raw* real spectrum rather than the filtered
+    /// `solve_dielectric_modes2` output: the two entry points apply
+    /// different ceilings and selection rules — the real PEC path uses the
+    /// strip-slab ceiling + largest-β, the PML path the n_core ceiling +
+    /// lowest-order-bound — so their *selected* modes legitimately differ.
+    /// The load-bearing claim is the spectral equivalence, which this
+    /// checks directly.)
+    #[test]
+    fn pml_sigma0_matches_real_solve() {
+        // A modest higher-contrast disk (uniform region map: core ε=2.1,
+        // else 1.0).
+        let core_r = 1.0;
+        let clad_r = 2.0;
+        let outer_r = 3.0;
+        let (mesh, tags) = disk_tri_mesh_pml(core_r, clad_r, outer_r, 4, 24);
+        let eps_r: Vec<f64> = tags
+            .iter()
+            .map(|&t| if t == REGION_CORE { 2.1 } else { 1.0 })
+            .collect();
+        let mask = disk_pec_interior_dofs2(&mesh, outer_r);
+        let k0 = 2.0;
+
+        // Complex PML solve with sigma_0 = 0 (transparent layer).
+        let pml_modes =
+            solve_dielectric_modes2_pml(&mesh, &eps_r, &tags, &mask, clad_r, outer_r, 0.0, k0, 1)
+                .expect("σ₀=0 PML solve must succeed");
+        assert!(!pml_modes.is_empty(), "σ₀=0 PML solve must return a mode");
+        let pm = &pml_modes[0];
+
+        // (a) σ₀=0 ⇒ real β² (PML off ⇒ real spectrum embedded in c64).
+        assert!(
+            pm.beta_sq.im.abs() < 1e-6 * pm.beta_sq.re.abs().max(1.0),
+            "σ₀=0 must give a real β²: Im={:.3e}",
+            pm.beta_sq.im
+        );
+
+        // (b) The PML β² must coincide with a REAL-path eigenvalue — the
+        // complex path reproduces the validated real spectrum.
+        let real_cands = dielectric_raw_candidates_p2(&mesh, &eps_r, &mask, k0, 32, None)
+            .expect("real raw candidates must succeed");
+        let best = real_cands
+            .iter()
+            .map(|c| (c.beta_sq - pm.beta_sq.re).abs())
+            .fold(f64::INFINITY, f64::min);
+        let rel = best / pm.beta_sq.re.abs().max(1e-12);
+        assert!(
+            rel < 1e-6,
+            "σ₀=0 PML β²={:.8} must match a real-path eigenvalue (closest abs err {best:.3e}, rel {rel:.3e})",
+            pm.beta_sq.re
         );
     }
 }

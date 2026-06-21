@@ -236,6 +236,59 @@ fn tridiag_complex_eigenvalues(alpha: &[c64], beta: &[c64]) -> Result<Vec<c64>, 
         .map_err(|e| EigenError::FaerGevd(format!("tridiag complex evd: {e:?}")))
 }
 
+/// A single complex generalized eigenpair `(λ, x)` of a complex-symmetric
+/// pencil `K x = λ M x`, with `x` recovered as a Ritz vector and rescaled
+/// to unit **bilinear** M-norm (`xᵀ M x = 1`, no conjugation). The
+/// eigenvalue `λ` is complex (its imaginary part carries the leaky/loss
+/// content of the mode); `x` is a `Vec<c64>` of length `n`.
+#[derive(Clone, Debug)]
+pub struct ComplexEigenPair {
+    /// Generalized eigenvalue `λ` (complex).
+    pub lambda: c64,
+    /// Eigenvector `x` (length `n`), bilinear-M-normalized and complex.
+    pub vector: Vec<c64>,
+}
+
+/// Solve the complex-symmetric tridiagonal eigenproblem returning
+/// **eigenpairs** `(μ, s)`. `s` is a column eigenvector in `k`-dimensional
+/// tridiagonal space; combine it with the Lanczos basis `V_k` to recover
+/// the corresponding Ritz vector `x = V_k s`. Uses faer's complex
+/// non-symmetric `Eigen` decomposition (the tridiagonal is complex
+/// symmetric but **not** Hermitian, so the self-adjoint path is wrong).
+fn tridiag_complex_eigenpairs(
+    alpha: &[c64],
+    beta: &[c64],
+) -> Result<(Vec<c64>, Mat<c64>), EigenError> {
+    use faer::linalg::solvers::Eigen;
+    let k = alpha.len();
+    if k == 0 {
+        return Ok((Vec::new(), Mat::<c64>::zeros(0, 0)));
+    }
+    let t = Mat::<c64>::from_fn(k, k, |i, j| {
+        if i == j {
+            alpha[i]
+        } else if i + 1 == j {
+            beta[i]
+        } else if j + 1 == i {
+            beta[j]
+        } else {
+            c64::new(0.0, 0.0)
+        }
+    });
+    let evd = Eigen::new(t.as_ref())
+        .map_err(|e| EigenError::FaerGevd(format!("tridiag complex evd (pairs): {e:?}")))?;
+    let s_diag = evd.S().column_vector();
+    let u = evd.U();
+    let mus: Vec<c64> = (0..k).map(|i| s_diag[i]).collect();
+    let mut u_owned = Mat::<c64>::zeros(k, k);
+    for c in 0..k {
+        for r in 0..k {
+            u_owned[(r, c)] = u[(r, c)];
+        }
+    }
+    Ok((mus, u_owned))
+}
+
 impl SparseComplexEigenSolver for SparseComplexShiftInvertLanczos {
     fn smallest_complex_pencil_eigenvalues(
         &self,
@@ -411,6 +464,209 @@ impl SparseComplexEigenSolver for SparseComplexShiftInvertLanczos {
     }
 }
 
+impl SparseComplexShiftInvertLanczos {
+    /// Compute the `n_modes` complex generalized eigenpairs of the
+    /// complex-symmetric pencil `K x = λ M x` closest to the configured
+    /// real shift `σ`, including bilinear-M-normalized eigenvectors. The
+    /// eigenvalue-only sibling is
+    /// [`SparseComplexEigenSolver::smallest_complex_pencil_eigenvalues`].
+    ///
+    /// This is the complex analogue of
+    /// [`crate::lanczos::SparseShiftInvertLanczos::smallest_eigenpairs`]:
+    /// it runs the same bilinear-form Lanczos (full reorthogonalization,
+    /// the tridiagonal `T_k` complex symmetric), retains the full basis
+    /// `V_k`, then recovers Ritz vectors `x = V_k s` from the complex
+    /// tridiagonal eigenvectors `s`, maps `μ → σ + 1/μ`, sorts by
+    /// `|λ − σ|`, and bilinear-M-normalizes each kept vector.
+    ///
+    /// Used by the PML dielectric modal solve (Epic #303 PML-B, issue
+    /// #332): the eigenvectors are needed for the curl-energy filter and
+    /// the core-energy-fraction field-shape confirmation.
+    pub fn smallest_eigenpairs(
+        &self,
+        k: SparseColMatRef<'_, usize, c64>,
+        m: SparseColMatRef<'_, usize, c64>,
+        n_modes: usize,
+    ) -> Result<Vec<ComplexEigenPair>, EigenError> {
+        let n = k.nrows();
+        assert_eq!(k.ncols(), n, "K must be square");
+        assert_eq!(m.nrows(), n, "M and K must agree in size");
+        assert_eq!(m.ncols(), n);
+        if n_modes == 0 {
+            return Ok(Vec::new());
+        }
+
+        // 1. Build A = K - σM and factor it once.
+        let a = shifted_pencil_complex(k, m, self.sigma)?;
+        let lu = a
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| EigenError::FaerGevd(format!("complex sparse LU: {e:?}")))?;
+
+        // 2. Lanczos in the bilinear M-inner product, retaining the full
+        //    basis V_k for Ritz-vector recovery. Always run to the
+        //    requested mode count (the recovery needs the basis even if
+        //    convergence formally lags).
+        let max_k = self.max_iters.min(n).max(n_modes + 2).min(n);
+        let mut basis: Vec<Vec<c64>> = Vec::with_capacity(max_k);
+        let mut alpha: Vec<c64> = Vec::with_capacity(max_k);
+        let mut beta: Vec<c64> = Vec::with_capacity(max_k);
+
+        let mut v: Vec<c64> = (0..n)
+            .map(|i| c64::new((((i as f64) + 1.0) * 0.5432).sin(), 0.0))
+            .collect();
+        let mut mv = vec![c64::new(0.0, 0.0); n];
+        spmv(m, &v, &mut mv);
+        let v_t_m_v = bilinear(&v, &mv);
+        if v_t_m_v.re.abs() + v_t_m_v.im.abs() < 1e-30 {
+            return Err(EigenError::FaerGevd(
+                "starting vector is M-bilinear-isotropic (v^T M v ≈ 0); pick a different start"
+                    .into(),
+            ));
+        }
+        let mut nrm = principal_sqrt(v_t_m_v);
+        let inv = c64::new(1.0, 0.0) / nrm;
+        for x in v.iter_mut() {
+            *x *= inv;
+        }
+
+        let mut w = vec![c64::new(0.0, 0.0); n];
+        let mut work = vec![c64::new(0.0, 0.0); n];
+
+        for j in 0..max_k {
+            spmv(m, &v, &mut mv);
+            solve_with_lu(&lu, &mv, &mut w)?;
+
+            let mut aj = c64::new(0.0, 0.0);
+            for i in 0..n {
+                aj += mv[i] * w[i];
+            }
+            alpha.push(aj);
+
+            for i in 0..n {
+                w[i] -= aj * v[i];
+            }
+            if let Some(bp) = beta.last().copied() {
+                let prev = &basis[j - 1];
+                for i in 0..n {
+                    w[i] -= bp * prev[i];
+                }
+            }
+
+            // Full reorthogonalization in the bilinear M-inner product.
+            for vk in basis.iter() {
+                spmv(m, vk, &mut work);
+                let mut c = c64::new(0.0, 0.0);
+                for i in 0..n {
+                    c += work[i] * w[i];
+                }
+                if c.re != 0.0 || c.im != 0.0 {
+                    for i in 0..n {
+                        w[i] -= c * vk[i];
+                    }
+                }
+            }
+            spmv(m, &v, &mut work);
+            let mut c = c64::new(0.0, 0.0);
+            for i in 0..n {
+                c += work[i] * w[i];
+            }
+            for i in 0..n {
+                w[i] -= c * v[i];
+            }
+
+            spmv(m, &w, &mut work);
+            let w_t_m_w = bilinear(&w, &work);
+            nrm = principal_sqrt(w_t_m_w);
+
+            basis.push(core::mem::take(&mut v));
+
+            // Convergence probe — same Kaniel–Saad-flavored bound as the
+            // eigenvalue-only path.
+            if alpha.len() >= n_modes && alpha.len() >= 2 {
+                let mus = tridiag_complex_eigenvalues(&alpha, &beta)?;
+                let mu_max = mus.iter().fold(0.0_f64, |a, mu| a.max(mu.re.hypot(mu.im)));
+                let beta_mag = nrm.re.hypot(nrm.im);
+                if beta_mag <= self.tol * mu_max.max(1.0) {
+                    break;
+                }
+            }
+
+            if nrm.re.hypot(nrm.im) < 1e-14 {
+                break;
+            }
+
+            beta.push(nrm);
+            let inv = c64::new(1.0, 0.0) / nrm;
+            v = w.iter().map(|x| *x * inv).collect();
+        }
+
+        if alpha.is_empty() {
+            return Err(EigenError::FaerGevd(
+                "complex Lanczos produced no iterations; trivial problem?".into(),
+            ));
+        }
+
+        // 3. Tridiagonal eigenpairs.
+        let (mus, s_mat) = tridiag_complex_eigenpairs(&alpha, &beta)?;
+        let k_eff = mus.len();
+
+        // 4. Build (λ, ritz_vector) pairs, filter near-zero μ, sort by
+        //    |λ − σ| ascending.
+        let sigma_c = c64::new(self.sigma, 0.0);
+        let mut pairs: Vec<(c64, Vec<c64>)> = Vec::with_capacity(k_eff);
+        for col in 0..k_eff {
+            let mu = mus[col];
+            if mu.re.hypot(mu.im) == 0.0 {
+                continue;
+            }
+            let lambda = sigma_c + c64::new(1.0, 0.0) / mu;
+            let mut x = vec![c64::new(0.0, 0.0); n];
+            for row in 0..k_eff {
+                let s_rc = s_mat[(row, col)];
+                if s_rc.re == 0.0 && s_rc.im == 0.0 {
+                    continue;
+                }
+                let basis_row = &basis[row];
+                for i in 0..n {
+                    x[i] += s_rc * basis_row[i];
+                }
+            }
+            pairs.push((lambda, x));
+        }
+        pairs.sort_by(|a, b| {
+            let da = (a.0.re - self.sigma).hypot(a.0.im);
+            let db = (b.0.re - self.sigma).hypot(b.0.im);
+            da.partial_cmp(&db).unwrap_or(core::cmp::Ordering::Equal)
+        });
+
+        let take = n_modes.min(pairs.len());
+        let mut picked: Vec<(c64, Vec<c64>)> = pairs.into_iter().take(take).collect();
+        // Re-sort by ascending Re(λ) — matches the eigenvalue-only convention.
+        picked.sort_by(|a, b| {
+            a.0.re
+                .partial_cmp(&b.0.re)
+                .unwrap_or(core::cmp::Ordering::Equal)
+        });
+
+        // 5. Bilinear-M-normalize each Ritz vector: divide by sqrt(xᵀ M x).
+        let mut out = Vec::with_capacity(take);
+        for (lambda, mut x) in picked {
+            spmv(m, &x, &mut work);
+            let norm2 = bilinear(&x, &work);
+            if norm2.re.abs() + norm2.im.abs() > 0.0 {
+                let s = principal_sqrt(norm2);
+                let inv = c64::new(1.0, 0.0) / s;
+                for v in x.iter_mut() {
+                    *v *= inv;
+                }
+            }
+            out.push(ComplexEigenPair { lambda, vector: x });
+        }
+        Ok(out)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -550,5 +806,77 @@ mod tests {
             w_hi,
             err1
         );
+    }
+
+    /// Eigenpair recovery (#332): the eigenvectors of a diagonal complex
+    /// pencil are the canonical basis vectors. We assert the recovered
+    /// eigenvalues match the eigenvalue-only path, the eigenvectors are
+    /// bilinear-M-normalized (`xᵀ M x = 1`), and each `(λ, x)` satisfies
+    /// the residual `K x − λ M x ≈ 0`.
+    #[test]
+    fn complex_lanczos_eigenpairs_diagonal() {
+        // Distinct complex ratios λ_i = k_i / m_i over a 6×6 diagonal.
+        let diag_k: Vec<c64> = [
+            c64::new(1.0, 0.0),
+            c64::new(3.0, 0.0),
+            c64::new(6.0, 0.0),
+            c64::new(10.0, 0.0),
+            c64::new(15.0, 0.0),
+            c64::new(21.0, 0.0),
+        ]
+        .to_vec();
+        let diag_m: Vec<c64> = [
+            c64::new(1.0, 0.05),
+            c64::new(2.0, 0.10),
+            c64::new(3.0, 0.15),
+            c64::new(4.0, 0.20),
+            c64::new(5.0, 0.25),
+            c64::new(6.0, 0.30),
+        ]
+        .to_vec();
+        let (k, m) = diagonal_complex_pencil(&diag_k, &diag_m);
+        let n = diag_k.len();
+
+        let solver = SparseComplexShiftInvertLanczos {
+            sigma: 0.0,
+            max_iters: 50,
+            tol: 1e-12,
+        };
+        let n_modes = 3;
+        let pairs = solver
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), n_modes)
+            .unwrap();
+        let lambdas = solver
+            .smallest_complex_pencil_eigenvalues(k.as_ref(), m.as_ref(), n_modes)
+            .unwrap();
+        assert_eq!(pairs.len(), n_modes);
+
+        for (idx, p) in pairs.iter().enumerate() {
+            // Eigenvalue agrees with the eigenvalue-only path.
+            let de = (p.lambda - lambdas[idx]).norm();
+            assert!(
+                de < 1e-8,
+                "pair λ {} disagrees with eigenvalue-only λ {} (err {de:.3e})",
+                p.lambda,
+                lambdas[idx]
+            );
+
+            // Bilinear M-norm = 1: xᵀ M x = Σ m_i x_i².
+            let xmx: c64 = (0..n).map(|i| diag_m[i] * p.vector[i] * p.vector[i]).sum();
+            assert!(
+                (xmx - c64::new(1.0, 0.0)).norm() < 1e-8,
+                "eigenvector must be bilinear-M-normalized: xᵀMx = {xmx}"
+            );
+
+            // Residual K x − λ M x ≈ 0 (diagonal: per-component).
+            for i in 0..n {
+                let res = (diag_k[i] - p.lambda * diag_m[i]) * p.vector[i];
+                assert!(
+                    res.norm() < 1e-7,
+                    "residual at row {i} too large: {res} (λ={})",
+                    p.lambda
+                );
+            }
+        }
     }
 }
