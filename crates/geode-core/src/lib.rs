@@ -14,6 +14,7 @@ pub mod eigen;
 pub mod extraction;
 pub mod fe_assemble;
 pub mod fiber_lp;
+pub mod iterate;
 pub mod ksp_solve;
 pub mod lanczos;
 pub mod lumped_port;
@@ -69,6 +70,7 @@ pub use fiber_lp::{
     bessel_j, bessel_j0, bessel_j1, bessel_k, bessel_k0, bessel_k1, fiber_lp_neff, normalized_b,
     v_number,
 };
+pub use iterate::{iterate_while, iterate_while_with_prev, IterOutcome, IterReport, Step};
 pub use ksp_solve::{
     Cocg, IdentityPreconditioner, IluPreconditioner, JacobiPreconditioner, KspError, KspReport,
     KspSolve, Preconditioner,
