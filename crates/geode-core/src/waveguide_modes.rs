@@ -282,6 +282,84 @@ pub fn rect_tri_mesh(nx: usize, ny: usize, width: f64, height: f64) -> TriMesh {
     TriMesh { nodes, tris }
 }
 
+/// Graded sibling of [`rect_tri_mesh`]: same `nx × ny` structured
+/// two-triangles-per-quad triangulation, but the grid lines along `x` and
+/// `y` are distributed per the supplied [`RadialGrading`] strategies instead
+/// of uniformly. (The grading enum is reused; "radial" reads as "axial"
+/// here — the same fraction generator applies to a 1-D span.)
+///
+/// `x_grading` distributes the `nx` columns across `[0, width]`;
+/// `y_grading` the `ny` rows across `[0, height]`. The domain-boundary grid
+/// lines (`0`, `width`, `height`) stay fixed, so the PEC wall masks
+/// ([`rect_pec_interior_edges`] / [`rect_pec_interior_nodes`]) — which key on
+/// geometry — work unchanged. [`RadialGrading::InterfaceClustered`] clusters
+/// toward the far edge (`x = width` / `y = height`).
+///
+/// With both gradings [`RadialGrading::Uniform`] this reproduces
+/// [`rect_tri_mesh`] **bit-for-bit**.
+///
+/// # Panics
+///
+/// Same `nx, ny ≥ 1` assertion as [`rect_tri_mesh`], plus the per-grading
+/// parameter validity checks (see [`RadialGrading`]).
+pub fn rect_tri_mesh_graded(
+    nx: usize,
+    ny: usize,
+    width: f64,
+    height: f64,
+    x_grading: RadialGrading,
+    y_grading: RadialGrading,
+) -> TriMesh {
+    assert!(nx >= 1 && ny >= 1, "rect_tri_mesh requires nx, ny ≥ 1");
+    let npx = nx + 1;
+    let npy = ny + 1;
+
+    // Grid-line coordinates: index 0 is the origin edge (0.0), then the `nx`
+    // (resp. `ny`) graded fractions scaled to the span. For Uniform we use
+    // the *exact* original arithmetic (`i·(span/n)`) so the graded mesher
+    // reproduces `rect_tri_mesh` bit-for-bit; graded axes scale the
+    // generated fractions by the span.
+    let axis = |n: usize, span: f64, grading: RadialGrading| -> Vec<f64> {
+        if grading == RadialGrading::Uniform {
+            let h = span / n as f64;
+            return (0..=n).map(|i| i as f64 * h).collect();
+        }
+        let mut v = Vec::with_capacity(n + 1);
+        v.push(0.0);
+        for t in region_fractions(n, grading, InterfaceEdge::Outer) {
+            v.push(span * t);
+        }
+        v
+    };
+    let xs = axis(nx, width, x_grading);
+    let ys = axis(ny, height, y_grading);
+
+    let node_idx = |i: usize, j: usize| -> u32 { (i + j * npx) as u32 };
+
+    let mut nodes = Vec::with_capacity(npx * npy);
+    for &y in &ys {
+        for &x in &xs {
+            nodes.push([x, y]);
+        }
+    }
+
+    let mut tris = Vec::with_capacity(2 * nx * ny);
+    for j in 0..ny {
+        for i in 0..nx {
+            let c = [
+                node_idx(i, j),
+                node_idx(i + 1, j),
+                node_idx(i + 1, j + 1),
+                node_idx(i, j + 1),
+            ];
+            tris.push([c[0], c[1], c[2]]);
+            tris.push([c[0], c[2], c[3]]);
+        }
+    }
+
+    TriMesh { nodes, tris }
+}
+
 /// Build the PEC interior-edge mask for a rectangle `[0,W] × [0,H]`:
 /// an edge is **interior** (mask `true`) unless its two endpoints lie on
 /// the **same wall** (i.e., the edge segment lies along the PEC
@@ -354,6 +432,269 @@ pub fn rect_pec_interior_nodes(mesh: &TriMesh, width: f64, height: f64) -> Vec<b
         })
         .collect()
 }
+
+/// Radial **grading strategy** for the concentric-ring disk meshers — how
+/// the `n` ring radii inside a single region `[r_inner, r_outer]` are
+/// distributed.
+///
+/// Grading redistributes the rings **within** a region; the region-boundary
+/// rings (`r_inner`, `r_outer`) always stay fixed, so the conforming-ring
+/// structure of [`disk_tri_mesh`] / [`disk_tri_mesh_pml`] is preserved (a
+/// ring boundary still lands exactly on `core_radius`, `cladding_outer`, and
+/// `outer_radius`) and the centroid-radius region tagging stays unambiguous
+/// under any grading.
+///
+/// # Strategies
+///
+/// Let `n` be the number of radial subdivisions and let the (open-ended)
+/// fractional positions `t_1 < t_2 < … < t_n = 1` map a region span onto
+/// `r_k = r_inner + (r_outer − r_inner)·t_k`.
+///
+/// - [`RadialGrading::Uniform`] — `t_k = k/n`. The original behavior; the
+///   meshers reproduce the un-graded output **bit-for-bit** with this.
+/// - [`RadialGrading::Geometric`] — adjacent **steps** scale by a constant
+///   `ratio`: `Δ_{k+1} = ratio·Δ_k`. `ratio > 1` clusters rings toward
+///   `r_inner` (the inner edge); `ratio < 1` clusters toward `r_outer`.
+/// - [`RadialGrading::Linear`] — step grows/shrinks **linearly**: the last
+///   step is `ratio×` the first (`ratio > 1` ⇒ coarsen outward / cluster
+///   inward; `ratio < 1` ⇒ cluster outward).
+/// - [`RadialGrading::InterfaceClustered`] — densify toward the region edge
+///   nearest the core–cladding interface `r = a`. `strength > 0`; larger ⇒
+///   tighter clustering at that interface edge. (For the core region the
+///   dense edge is `r_outer = a`; for the cladding/PML regions it is the
+///   inner edge `r_inner = a`.)
+///
+/// Stronger grading produces more anisotropic (sliver) cells; the graded
+/// meshers expose the worst triangle aspect ratio so callers can reject
+/// pathological configs (see [`disk_tri_mesh_graded`]).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum RadialGrading {
+    /// Uniform radial step (the original, default behavior).
+    #[default]
+    Uniform,
+    /// Geometric progression of the radial step by a constant `ratio`.
+    /// `ratio > 1` clusters rings toward the inner edge; `ratio < 1`
+    /// toward the outer edge. Must be finite and `> 0`; `1.0` ≡ uniform.
+    Geometric {
+        /// Multiplicative factor between adjacent radial steps.
+        ratio: f64,
+    },
+    /// Linearly varying radial step: the last step is `ratio×` the first.
+    /// `ratio > 1` clusters rings toward the inner edge; `ratio < 1`
+    /// toward the outer edge. Must be finite and `> 0`; `1.0` ≡ uniform.
+    Linear {
+        /// Ratio of the last radial step to the first.
+        ratio: f64,
+    },
+    /// Cluster rings toward the region edge nearest the core–cladding
+    /// interface (`r = a`). `strength > 0`; larger ⇒ tighter clustering.
+    /// `0.0` ≡ uniform.
+    InterfaceClustered {
+        /// Clustering strength toward the interface edge.
+        strength: f64,
+    },
+}
+
+/// Which edge of a region abuts the core–cladding interface (`r = a`), so
+/// [`RadialGrading::InterfaceClustered`] knows which way to densify.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum InterfaceEdge {
+    /// The region's outer edge (`r_outer`) is the interface (e.g. the core,
+    /// whose outer edge is `r = a`).
+    Outer,
+    /// The region's inner edge (`r_inner`) is the interface (e.g. the
+    /// cladding / PML annulus, whose inner edge is `r = a`).
+    Inner,
+}
+
+/// Compute the `n` fractional ring positions `t_1 < … < t_n = 1` in `(0, 1]`
+/// for one region under the given grading. `t_k` is then mapped to a radius
+/// by `r_inner + (r_outer − r_inner)·t_k`.
+///
+/// `edge` selects the interface-adjacent edge for
+/// [`RadialGrading::InterfaceClustered`] (ignored otherwise). The returned
+/// vector has length `n`, is strictly increasing, and ends exactly at `1.0`.
+///
+/// For [`RadialGrading::Uniform`] the result is exactly `k/n` for
+/// `k = 1..=n`, so the graded meshers reproduce the un-graded radii
+/// bit-for-bit.
+fn region_fractions(n: usize, grading: RadialGrading, edge: InterfaceEdge) -> Vec<f64> {
+    debug_assert!(n >= 1);
+    match grading {
+        RadialGrading::Uniform => (1..=n).map(|k| k as f64 / n as f64).collect(),
+        RadialGrading::Geometric { ratio } => {
+            assert!(
+                ratio.is_finite() && ratio > 0.0,
+                "RadialGrading::Geometric ratio must be finite and > 0 (got {ratio})"
+            );
+            if ratio == 1.0 {
+                return (1..=n).map(|k| k as f64 / n as f64).collect();
+            }
+            // Steps Δ_k = Δ_1·ratio^(k-1), k = 1..=n. Σ Δ_k = span = 1,
+            // so Δ_1 = (1 − ratio) / (1 − ratio^n). Cumulative sums give t_k.
+            let mut steps = Vec::with_capacity(n);
+            let mut s = 1.0_f64;
+            for _ in 0..n {
+                steps.push(s);
+                s *= ratio;
+            }
+            let total: f64 = steps.iter().sum();
+            let mut t = Vec::with_capacity(n);
+            let mut acc = 0.0;
+            for (i, st) in steps.iter().enumerate() {
+                acc += st / total;
+                // Pin the last fraction to exactly 1.0 (no FP drift on the
+                // region boundary, preserving conformity).
+                t.push(if i + 1 == n { 1.0 } else { acc });
+            }
+            t
+        }
+        RadialGrading::Linear { ratio } => {
+            assert!(
+                ratio.is_finite() && ratio > 0.0,
+                "RadialGrading::Linear ratio must be finite and > 0 (got {ratio})"
+            );
+            if ratio == 1.0 {
+                return (1..=n).map(|k| k as f64 / n as f64).collect();
+            }
+            // Step k (k = 0..n-1) interpolates linearly from 1 to `ratio`:
+            //   Δ_k = 1 + (ratio − 1)·k/(n−1)   (for n ≥ 2; n == 1 ⇒ single
+            // step). Normalize the cumulative sum to land on 1.0.
+            let mut steps = Vec::with_capacity(n);
+            for k in 0..n {
+                let frac = if n == 1 {
+                    0.0
+                } else {
+                    k as f64 / (n - 1) as f64
+                };
+                steps.push(1.0 + (ratio - 1.0) * frac);
+            }
+            let total: f64 = steps.iter().sum();
+            let mut t = Vec::with_capacity(n);
+            let mut acc = 0.0;
+            for (i, st) in steps.iter().enumerate() {
+                acc += st / total;
+                t.push(if i + 1 == n { 1.0 } else { acc });
+            }
+            t
+        }
+        RadialGrading::InterfaceClustered { strength } => {
+            assert!(
+                strength.is_finite() && strength >= 0.0,
+                "RadialGrading::InterfaceClustered strength must be finite and ≥ 0 (got {strength})"
+            );
+            if strength == 0.0 {
+                return (1..=n).map(|k| k as f64 / n as f64).collect();
+            }
+            // Map uniform fractions u_k = k/n through a stretching function
+            // that clusters samples toward one end. We use a power law on the
+            // *gap* from the dense edge: dense at u = 0 ⇒ x = u^(1+strength);
+            // dense at u = 1 ⇒ x = 1 − (1 − u)^(1+strength). The `edge`
+            // selects which physical end (r_inner / r_outer) is dense; since
+            // t maps r_inner→0 and r_outer→1, Outer-dense clusters near t = 1
+            // and Inner-dense clusters near t = 0.
+            let p = 1.0 + strength;
+            let mut t = Vec::with_capacity(n);
+            for k in 1..=n {
+                let u = k as f64 / n as f64;
+                let x = match edge {
+                    // Dense toward r_outer (t = 1).
+                    InterfaceEdge::Outer => 1.0 - (1.0 - u).powf(p),
+                    // Dense toward r_inner (t = 0).
+                    InterfaceEdge::Inner => u.powf(p),
+                };
+                t.push(if k == n { 1.0 } else { x });
+            }
+            t
+        }
+    }
+}
+
+/// Append the `n` ring radii for the **core band** `[0, core_radius]` to
+/// `ring_r`, graded per `grading`. The core band's interface-adjacent edge
+/// is its outer edge (`r = core_radius`).
+///
+/// For [`RadialGrading::Uniform`] this uses the **exact** original
+/// arithmetic `core_radius·k / n` (left-associative: `(core_radius·k)/n`) so
+/// the un-graded meshers reproduce bit-for-bit.
+fn push_core_band(ring_r: &mut Vec<f64>, core_radius: f64, n: usize, grading: RadialGrading) {
+    if grading == RadialGrading::Uniform {
+        for k in 1..=n {
+            ring_r.push(core_radius * k as f64 / n as f64);
+        }
+        return;
+    }
+    for t in region_fractions(n, grading, InterfaceEdge::Outer) {
+        ring_r.push(core_radius * t);
+    }
+}
+
+/// Append the `n` ring radii for an **outer band** `[r_inner, r_outer]` to
+/// `ring_r`, graded per `grading`. `edge` selects the interface-adjacent edge
+/// for [`RadialGrading::InterfaceClustered`].
+///
+/// For [`RadialGrading::Uniform`] this uses the **exact** original arithmetic
+/// `r_inner + (r_outer − r_inner)·(k/n)` so the un-graded meshers reproduce
+/// bit-for-bit.
+fn push_outer_band(
+    ring_r: &mut Vec<f64>,
+    r_inner: f64,
+    r_outer: f64,
+    n: usize,
+    grading: RadialGrading,
+    edge: InterfaceEdge,
+) {
+    if grading == RadialGrading::Uniform {
+        for k in 1..=n {
+            let t = k as f64 / n as f64;
+            ring_r.push(r_inner + (r_outer - r_inner) * t);
+        }
+        return;
+    }
+    for t in region_fractions(n, grading, edge) {
+        ring_r.push(r_inner + (r_outer - r_inner) * t);
+    }
+}
+
+/// Worst triangle **aspect ratio** in a mesh: `longest_edge / (2·inradius)`
+/// (≈ 1 for an equilateral triangle, large for slivers). This mirrors the
+/// quality metric the `disk_tri_mesh_*` unit tests assert, exposed so
+/// callers of the graded meshers can detect grading-induced slivers.
+pub fn worst_aspect_ratio(mesh: &TriMesh) -> f64 {
+    let mut worst = 0.0_f64;
+    for t in &mesh.tris {
+        let p = [
+            mesh.nodes[t[0] as usize],
+            mesh.nodes[t[1] as usize],
+            mesh.nodes[t[2] as usize],
+        ];
+        let len = |a: [f64; 2], b: [f64; 2]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+        let l01 = len(p[0], p[1]);
+        let l12 = len(p[1], p[2]);
+        let l20 = len(p[2], p[0]);
+        let longest = l01.max(l12).max(l20);
+        // Signed area via the shoelace formula (positive for CCW).
+        let area = 0.5
+            * ((p[1][0] - p[0][0]) * (p[2][1] - p[0][1])
+                - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1]))
+                .abs();
+        if area <= 0.0 {
+            return f64::INFINITY;
+        }
+        let s = 0.5 * (l01 + l12 + l20);
+        let inradius = area / s;
+        worst = worst.max(longest / (2.0 * inradius));
+    }
+    worst
+}
+
+/// Default upper bound on the worst triangle aspect ratio for the *checked*
+/// graded meshers ([`disk_tri_mesh_graded_checked`] /
+/// [`disk_tri_mesh_pml_graded_checked`]). Strong grading produces slivers;
+/// configs whose worst aspect ratio exceeds this are rejected. The value is
+/// generous (the un-graded balanced-knob meshes sit well under ~7) so only
+/// genuinely pathological grading trips it.
+pub const ASPECT_RATIO_SLIVER_BOUND: f64 = 25.0;
 
 /// Programmatic **circular cross-section** triangulation for an optical
 /// fiber (or any cylindrically-symmetric dielectric waveguide), with
@@ -446,6 +787,50 @@ pub fn disk_tri_mesh(
     n_radial: usize,
     n_angular: usize,
 ) -> (TriMesh, Vec<i32>) {
+    // Un-graded behavior is exactly the `Uniform` grading; delegate so there
+    // is one triangulation path. `region_fractions(Uniform)` returns `k/n`
+    // exactly, so the ring radii — and hence the whole mesh — are bit-for-bit
+    // identical to the original construction.
+    disk_tri_mesh_graded(
+        core_radius,
+        outer_radius,
+        n_radial,
+        n_angular,
+        RadialGrading::Uniform,
+        RadialGrading::Uniform,
+    )
+}
+
+/// Graded sibling of [`disk_tri_mesh`]: same conforming concentric-ring
+/// triangulation, but the `n_radial` rings within the **core** and within
+/// the **cladding** are distributed per the supplied [`RadialGrading`]
+/// strategies instead of uniformly.
+///
+/// `core_grading` controls the rings in `0 ≤ r ≤ core_radius`;
+/// `cladding_grading` controls `core_radius ≤ r ≤ outer_radius`. The
+/// region-boundary rings (`core_radius`, `outer_radius`) stay fixed, so the
+/// core circle is still conformed and the centroid-radius region tagging is
+/// still unambiguous.
+///
+/// With both gradings [`RadialGrading::Uniform`] this reproduces
+/// [`disk_tri_mesh`] **bit-for-bit** (same nodes, triangles, and tags).
+///
+/// Returns `(mesh, region_tags)` exactly as [`disk_tri_mesh`]. For a config
+/// that also rejects sliver-producing grading, see
+/// [`disk_tri_mesh_graded_checked`].
+///
+/// # Panics
+///
+/// Same radius / knob assertions as [`disk_tri_mesh`], plus the per-grading
+/// parameter validity checks (see [`RadialGrading`]).
+pub fn disk_tri_mesh_graded(
+    core_radius: f64,
+    outer_radius: f64,
+    n_radial: usize,
+    n_angular: usize,
+    core_grading: RadialGrading,
+    cladding_grading: RadialGrading,
+) -> (TriMesh, Vec<i32>) {
     assert!(
         core_radius.is_finite() && outer_radius.is_finite(),
         "disk_tri_mesh radii must be finite"
@@ -459,18 +844,77 @@ pub fn disk_tri_mesh(
 
     // Ring radii: r[0] = 0 (center), a ring boundary lands exactly on
     // `core_radius` at index `n_radial`, and r[2*n_radial] = outer_radius.
-    // Uniform radial step within each region keeps cells well-shaped.
+    // Grading redistributes the rings *within* each band; the band-boundary
+    // rings stay fixed. The core's interface-adjacent edge is its outer edge
+    // (r = core_radius); the cladding's is its inner edge (r = core_radius).
     let n_rings = 2 * n_radial; // number of annular layers (rings of cells)
     let mut ring_r = Vec::with_capacity(n_rings + 1);
-    for k in 0..=n_radial {
-        ring_r.push(core_radius * k as f64 / n_radial as f64);
-    }
-    for k in 1..=n_radial {
-        let t = k as f64 / n_radial as f64;
-        ring_r.push(core_radius + (outer_radius - core_radius) * t);
-    }
+    ring_r.push(0.0);
+    push_core_band(&mut ring_r, core_radius, n_radial, core_grading);
+    push_outer_band(
+        &mut ring_r,
+        core_radius,
+        outer_radius,
+        n_radial,
+        cladding_grading,
+        InterfaceEdge::Inner,
+    );
     debug_assert_eq!(ring_r.len(), n_rings + 1);
 
+    build_disk_mesh(&ring_r, n_angular, &|r| {
+        if r < core_radius {
+            REGION_CORE
+        } else {
+            REGION_CLADDING
+        }
+    })
+}
+
+/// [`disk_tri_mesh_graded`] with a **mesh-quality guard**: if the worst
+/// triangle aspect ratio exceeds `aspect_bound` (a sane default is
+/// [`ASPECT_RATIO_SLIVER_BOUND`]), the grading is rejected with an `Err`
+/// describing the offending aspect ratio, rather than silently returning a
+/// sliver-laden mesh. On success returns `Ok((mesh, region_tags))`.
+#[allow(clippy::too_many_arguments)]
+pub fn disk_tri_mesh_graded_checked(
+    core_radius: f64,
+    outer_radius: f64,
+    n_radial: usize,
+    n_angular: usize,
+    core_grading: RadialGrading,
+    cladding_grading: RadialGrading,
+    aspect_bound: f64,
+) -> Result<(TriMesh, Vec<i32>), String> {
+    let (mesh, tags) = disk_tri_mesh_graded(
+        core_radius,
+        outer_radius,
+        n_radial,
+        n_angular,
+        core_grading,
+        cladding_grading,
+    );
+    let worst = worst_aspect_ratio(&mesh);
+    if worst > aspect_bound {
+        return Err(format!(
+            "disk_tri_mesh_graded_checked: worst aspect ratio {worst:.3} exceeds bound \
+             {aspect_bound:.3} — grading too strong (core={core_grading:?}, \
+             cladding={cladding_grading:?})"
+        ));
+    }
+    Ok((mesh, tags))
+}
+
+/// Shared concentric-ring triangulation from a precomputed strictly
+/// increasing `ring_r` (with `ring_r[0] == 0` the center). Builds the central
+/// fan + annular quads exactly as the original meshers and tags each triangle
+/// by its centroid radius via `tag_of`. Used by every disk mesher so the
+/// triangulation lives in one place.
+fn build_disk_mesh(
+    ring_r: &[f64],
+    n_angular: usize,
+    tag_of: &dyn Fn(f64) -> i32,
+) -> (TriMesh, Vec<i32>) {
+    let n_rings = ring_r.len() - 1;
     // Nodes: one center node, then `n_angular` nodes on each ring 1..=n_rings.
     // Node layout index: center = 0; ring `g` (1-based) sector `s` →
     //   1 + (g - 1) * n_angular + s.
@@ -512,9 +956,9 @@ pub fn disk_tri_mesh(
         }
     }
 
-    // Per-triangle region tags by centroid radius. Because a ring boundary
-    // sits exactly on `core_radius`, every triangle is wholly inside or
-    // wholly outside the core and the centroid test is unambiguous.
+    // Per-triangle region tags by centroid radius. Because ring boundaries
+    // sit exactly on the region radii, every triangle is wholly inside one
+    // region and the centroid test is unambiguous.
     let region_tags: Vec<i32> = tris
         .iter()
         .map(|t| {
@@ -522,11 +966,7 @@ pub fn disk_tri_mesh(
                 (nodes[t[0] as usize][0] + nodes[t[1] as usize][0] + nodes[t[2] as usize][0]) / 3.0;
             let yc =
                 (nodes[t[0] as usize][1] + nodes[t[1] as usize][1] + nodes[t[2] as usize][1]) / 3.0;
-            if (xc * xc + yc * yc).sqrt() < core_radius {
-                1
-            } else {
-                0
-            }
+            tag_of((xc * xc + yc * yc).sqrt())
         })
         .collect();
 
@@ -597,6 +1037,56 @@ pub fn disk_tri_mesh_pml(
     n_radial: usize,
     n_angular: usize,
 ) -> (TriMesh, Vec<i32>) {
+    // Un-graded behavior is exactly `Uniform` grading in all three bands;
+    // delegate so the triangulation lives in one place. Bit-for-bit identical.
+    disk_tri_mesh_pml_graded(
+        core_radius,
+        cladding_outer,
+        outer_radius,
+        n_radial,
+        n_angular,
+        RadialGrading::Uniform,
+        RadialGrading::Uniform,
+        RadialGrading::Uniform,
+    )
+}
+
+/// Graded sibling of [`disk_tri_mesh_pml`]: same conforming three-band
+/// concentric-ring triangulation (core / cladding / PML annulus), but the
+/// `n_radial` rings within each band are distributed per the supplied
+/// [`RadialGrading`] strategies instead of uniformly.
+///
+/// `core_grading` controls `0 ≤ r ≤ core_radius`; `cladding_grading`
+/// controls `core_radius ≤ r ≤ cladding_outer`; `pml_grading` controls
+/// `cladding_outer ≤ r ≤ outer_radius`. The band-boundary rings
+/// (`core_radius`, `cladding_outer`, `outer_radius`) stay fixed, so all three
+/// region interfaces are still conformed and the centroid-radius region
+/// tagging is still unambiguous.
+///
+/// With all three gradings [`RadialGrading::Uniform`] this reproduces
+/// [`disk_tri_mesh_pml`] **bit-for-bit**.
+///
+/// This is the PML mesher a downstream graded-fiber experiment needs.
+///
+/// Returns `(mesh, region_tags)` exactly as [`disk_tri_mesh_pml`] (tags in
+/// `{REGION_CORE, REGION_CLADDING, REGION_PML}`). For a config that also
+/// rejects sliver-producing grading, see [`disk_tri_mesh_pml_graded_checked`].
+///
+/// # Panics
+///
+/// Same radius / knob assertions as [`disk_tri_mesh_pml`], plus the
+/// per-grading parameter validity checks (see [`RadialGrading`]).
+#[allow(clippy::too_many_arguments)]
+pub fn disk_tri_mesh_pml_graded(
+    core_radius: f64,
+    cladding_outer: f64,
+    outer_radius: f64,
+    n_radial: usize,
+    n_angular: usize,
+    core_grading: RadialGrading,
+    cladding_grading: RadialGrading,
+    pml_grading: RadialGrading,
+) -> (TriMesh, Vec<i32>) {
     assert!(
         core_radius.is_finite() && cladding_outer.is_finite() && outer_radius.is_finite(),
         "disk_tri_mesh_pml radii must be finite"
@@ -611,72 +1101,78 @@ pub fn disk_tri_mesh_pml(
 
     // Three radial bands, each with `n_radial` subdivisions; ring boundaries
     // land exactly on core_radius, cladding_outer (= r_pml_inner), and
-    // outer_radius. Total rings of cells = 3·n_radial.
+    // outer_radius. Total rings of cells = 3·n_radial. The core's
+    // interface-adjacent edge is its outer edge (r = a); the cladding's is
+    // its inner edge (r = a). The PML band's interface-clustering densifies
+    // toward its inner edge (the cladding boundary).
     let n_rings = 3 * n_radial;
     let mut ring_r = Vec::with_capacity(n_rings + 1);
-    for k in 0..=n_radial {
-        ring_r.push(core_radius * k as f64 / n_radial as f64);
-    }
-    for k in 1..=n_radial {
-        let t = k as f64 / n_radial as f64;
-        ring_r.push(core_radius + (cladding_outer - core_radius) * t);
-    }
-    for k in 1..=n_radial {
-        let t = k as f64 / n_radial as f64;
-        ring_r.push(cladding_outer + (outer_radius - cladding_outer) * t);
-    }
+    ring_r.push(0.0);
+    push_core_band(&mut ring_r, core_radius, n_radial, core_grading);
+    push_outer_band(
+        &mut ring_r,
+        core_radius,
+        cladding_outer,
+        n_radial,
+        cladding_grading,
+        InterfaceEdge::Inner,
+    );
+    push_outer_band(
+        &mut ring_r,
+        cladding_outer,
+        outer_radius,
+        n_radial,
+        pml_grading,
+        InterfaceEdge::Inner,
+    );
     debug_assert_eq!(ring_r.len(), n_rings + 1);
 
-    let mut nodes: Vec<[f64; 2]> = Vec::with_capacity(1 + n_rings * n_angular);
-    nodes.push([0.0, 0.0]); // center
-    let dtheta = std::f64::consts::TAU / n_angular as f64;
-    for &r in ring_r.iter().skip(1) {
-        for s in 0..n_angular {
-            let theta = s as f64 * dtheta;
-            nodes.push([r * theta.cos(), r * theta.sin()]);
+    build_disk_mesh(&ring_r, n_angular, &|r| {
+        if r < core_radius {
+            REGION_CORE
+        } else if r < cladding_outer {
+            REGION_CLADDING
+        } else {
+            REGION_PML
         }
+    })
+}
+
+/// [`disk_tri_mesh_pml_graded`] with a **mesh-quality guard**: if the worst
+/// triangle aspect ratio exceeds `aspect_bound` (a sane default is
+/// [`ASPECT_RATIO_SLIVER_BOUND`]), the grading is rejected with an `Err`
+/// rather than silently returning a sliver-laden mesh.
+#[allow(clippy::too_many_arguments)]
+pub fn disk_tri_mesh_pml_graded_checked(
+    core_radius: f64,
+    cladding_outer: f64,
+    outer_radius: f64,
+    n_radial: usize,
+    n_angular: usize,
+    core_grading: RadialGrading,
+    cladding_grading: RadialGrading,
+    pml_grading: RadialGrading,
+    aspect_bound: f64,
+) -> Result<(TriMesh, Vec<i32>), String> {
+    let (mesh, tags) = disk_tri_mesh_pml_graded(
+        core_radius,
+        cladding_outer,
+        outer_radius,
+        n_radial,
+        n_angular,
+        core_grading,
+        cladding_grading,
+        pml_grading,
+    );
+    let worst = worst_aspect_ratio(&mesh);
+    if worst > aspect_bound {
+        return Err(format!(
+            "disk_tri_mesh_pml_graded_checked: worst aspect ratio {worst:.3} exceeds bound \
+             {aspect_bound:.3} — grading too strong (core={core_grading:?}, \
+             cladding={cladding_grading:?}, pml={pml_grading:?})"
+        ));
     }
-
-    let ring_node =
-        |g: usize, s: usize| -> u32 { (1 + (g - 1) * n_angular + (s % n_angular)) as u32 };
-
-    let mut tris: Vec<[u32; 3]> = Vec::new();
-    // Central fan (same as disk_tri_mesh).
-    for s in 0..n_angular {
-        tris.push([0, ring_node(1, s), ring_node(1, s + 1)]);
-    }
-    for g in 1..n_rings {
-        for s in 0..n_angular {
-            let a = ring_node(g, s);
-            let b = ring_node(g, s + 1);
-            let c = ring_node(g + 1, s + 1);
-            let d = ring_node(g + 1, s);
-            tris.push([a, d, c]);
-            tris.push([a, c, b]);
-        }
-    }
-
-    // Three-region tags by centroid radius. Ring boundaries sit exactly on
-    // core_radius and cladding_outer, so the centroid test is unambiguous.
-    let region_tags: Vec<i32> = tris
-        .iter()
-        .map(|t| {
-            let xc =
-                (nodes[t[0] as usize][0] + nodes[t[1] as usize][0] + nodes[t[2] as usize][0]) / 3.0;
-            let yc =
-                (nodes[t[0] as usize][1] + nodes[t[1] as usize][1] + nodes[t[2] as usize][1]) / 3.0;
-            let r = (xc * xc + yc * yc).sqrt();
-            if r < core_radius {
-                REGION_CORE
-            } else if r < cladding_outer {
-                REGION_CLADDING
-            } else {
-                REGION_PML
-            }
-        })
-        .collect();
-
-    (TriMesh { nodes, tris }, region_tags)
+    Ok((mesh, tags))
 }
 
 /// Boundary-node mask for a [`disk_tri_mesh`] of outer radius
@@ -7199,5 +7695,396 @@ mod tests {
             "σ₀=0 PML β²={:.8} must match a real-path eigenvalue (closest abs err {best:.3e}, rel {rel:.3e})",
             pm.beta_sq.re
         );
+    }
+
+    // ===================================================================
+    // Graded / non-uniform mesh strategies (issue #337)
+    // ===================================================================
+
+    /// Sorted unique ring radii of a concentric disk mesh: every distinct
+    /// node radius, ascending (includes 0 for the center).
+    fn ring_radii(mesh: &TriMesh) -> Vec<f64> {
+        let mut rs: Vec<f64> = mesh
+            .nodes
+            .iter()
+            .map(|p| (p[0] * p[0] + p[1] * p[1]).sqrt())
+            .collect();
+        rs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        rs.dedup_by(|a, b| (*a - *b).abs() < 1e-12 * (a.abs() + 1.0));
+        rs
+    }
+
+    #[test]
+    fn graded_uniform_reproduces_disk_tri_mesh_bit_for_bit() {
+        // The load-bearing guarantee: Uniform grading == the original mesher,
+        // node-for-node, tri-for-tri, tag-for-tag (exact f64 equality).
+        for &(cr, or, nr, na) in &[
+            (1.0, 3.0, 2, 8),
+            (0.6, 2.5, 4, 24),
+            (1.0, 10.0, 5, 31),
+            (2.0, 7.0, 1, 5),
+        ] {
+            let (m0, t0) = disk_tri_mesh(cr, or, nr, na);
+            let (m1, t1) = disk_tri_mesh_graded(
+                cr,
+                or,
+                nr,
+                na,
+                RadialGrading::Uniform,
+                RadialGrading::Uniform,
+            );
+            assert_eq!(m0.nodes, m1.nodes, "node coords must match bit-for-bit");
+            assert_eq!(m0.tris, m1.tris, "triangles must match bit-for-bit");
+            assert_eq!(t0, t1, "region tags must match bit-for-bit");
+        }
+    }
+
+    #[test]
+    fn graded_uniform_reproduces_disk_tri_mesh_pml_bit_for_bit() {
+        for &(cr, cl, or, nr, na) in &[
+            (1.0, 2.0, 3.0, 4, 24),
+            (0.5, 1.7, 4.0, 3, 18),
+            (1.0, 5.0, 10.0, 6, 37),
+        ] {
+            let (m0, t0) = disk_tri_mesh_pml(cr, cl, or, nr, na);
+            let (m1, t1) = disk_tri_mesh_pml_graded(
+                cr,
+                cl,
+                or,
+                nr,
+                na,
+                RadialGrading::Uniform,
+                RadialGrading::Uniform,
+                RadialGrading::Uniform,
+            );
+            assert_eq!(m0.nodes, m1.nodes);
+            assert_eq!(m0.tris, m1.tris);
+            assert_eq!(t0, t1);
+        }
+    }
+
+    #[test]
+    fn graded_uniform_reproduces_rect_tri_mesh_bit_for_bit() {
+        for &(nx, ny, w, h) in &[
+            (3usize, 2usize, 1.0, 1.0),
+            (5, 7, 2.0, 0.5),
+            (1, 1, 3.0, 4.0),
+        ] {
+            let m0 = rect_tri_mesh(nx, ny, w, h);
+            let m1 =
+                rect_tri_mesh_graded(nx, ny, w, h, RadialGrading::Uniform, RadialGrading::Uniform);
+            assert_eq!(m0.nodes, m1.nodes);
+            assert_eq!(m0.tris, m1.tris);
+        }
+    }
+
+    #[test]
+    fn graded_meshes_are_valid_ccw_and_nondegenerate() {
+        // Each strategy must yield a connected mesh of strictly-positive-area
+        // CCW triangles. Reuse the existing connectivity/CCW machinery.
+        let gradings = [
+            RadialGrading::Uniform,
+            RadialGrading::Geometric { ratio: 1.4 },
+            RadialGrading::Geometric { ratio: 0.7 },
+            RadialGrading::Linear { ratio: 2.5 },
+            RadialGrading::InterfaceClustered { strength: 1.5 },
+        ];
+        for g in gradings {
+            let (mesh, tags) = disk_tri_mesh_graded(1.0, 3.0, 5, 31, g, g);
+            assert_eq!(tags.len(), mesh.n_tris());
+            let mut min_area = f64::INFINITY;
+            for t in &mesh.tris {
+                let a = signed_area(&mesh, t);
+                assert!(a > 0.0, "non-CCW triangle {t:?} (area {a}) under {g:?}");
+                min_area = min_area.min(a);
+            }
+            assert!(min_area > 1e-12, "degenerate triangle under {g:?}");
+            // Ring radii strictly increasing (no collapsed / out-of-order ring).
+            let rs = ring_radii(&mesh);
+            for w in rs.windows(2) {
+                assert!(w[1] > w[0], "non-monotonic ring radii under {g:?}");
+            }
+            // A ring boundary still lands exactly on the core radius.
+            assert!(
+                rs.iter().any(|&r| (r - 1.0).abs() < 1e-9),
+                "core-radius ring missing under {g:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn graded_region_tags_and_area_fraction_correct_under_grading() {
+        // The core area fraction must still match π·a²/π·R² = (a/R)²
+        // regardless of how rings are distributed within a region.
+        let cr = 1.0_f64;
+        let or = 3.0_f64;
+        let expected = (cr / or).powi(2);
+        for g in [
+            RadialGrading::Geometric { ratio: 1.5 },
+            RadialGrading::Linear { ratio: 0.5 },
+            RadialGrading::InterfaceClustered { strength: 2.0 },
+        ] {
+            let (mesh, tags) = disk_tri_mesh_graded(cr, or, 8, 64, g, g);
+            let mut a_core = 0.0;
+            let mut a_tot = 0.0;
+            for (t, &tag) in mesh.tris.iter().zip(tags.iter()) {
+                let area = signed_area(&mesh, t).abs();
+                a_tot += area;
+                if tag == REGION_CORE {
+                    a_core += area;
+                }
+                // Tag must agree with the centroid-radius band.
+                let p = [
+                    mesh.nodes[t[0] as usize],
+                    mesh.nodes[t[1] as usize],
+                    mesh.nodes[t[2] as usize],
+                ];
+                let cx = (p[0][0] + p[1][0] + p[2][0]) / 3.0;
+                let cy = (p[0][1] + p[1][1] + p[2][1]) / 3.0;
+                let r = (cx * cx + cy * cy).sqrt();
+                let expect = if r < cr { REGION_CORE } else { REGION_CLADDING };
+                assert_eq!(tag, expect, "tag/centroid mismatch under {g:?}");
+            }
+            let frac = a_core / a_tot;
+            // Polygonal approximation to the circle ⇒ a few-% tolerance.
+            assert!(
+                (frac - expected).abs() < 0.02,
+                "core area fraction {frac:.4} vs expected {expected:.4} under {g:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn graded_boundary_node_set_unchanged_under_grading() {
+        // The outer boundary node set keys on geometry (r ≈ outer_radius),
+        // so grading must not change it: still exactly the outer ring.
+        let or = 3.0;
+        for g in [
+            RadialGrading::Geometric { ratio: 1.6 },
+            RadialGrading::InterfaceClustered { strength: 1.0 },
+        ] {
+            let (mesh, _) = disk_tri_mesh_graded(1.0, or, 5, 24, g, g);
+            let bnd = disk_boundary_nodes(&mesh, or);
+            let n_bnd = bnd.iter().filter(|&&b| b).count();
+            assert_eq!(
+                n_bnd, 24,
+                "boundary node count must be n_angular under {g:?}"
+            );
+            // p=2 interior-DOF mask still builds (same edge topology).
+            let mask = disk_pec_interior_dofs2(&mesh, or);
+            assert_eq!(mask.len(), 2 * mesh.edges().len() + 2 * mesh.n_tris());
+        }
+    }
+
+    #[test]
+    fn geometric_grading_step_ratio_matches_configured_factor() {
+        // Adjacent radial steps inside a region must scale by `ratio`.
+        let ratio = 1.5;
+        // Single region (set core tiny so the cladding band dominates the
+        // ring count we measure); inspect the cladding band's steps.
+        let (mesh, _) = disk_tri_mesh_graded(
+            1.0,
+            5.0,
+            8,
+            48,
+            RadialGrading::Uniform,
+            RadialGrading::Geometric { ratio },
+        );
+        let rs = ring_radii(&mesh);
+        // Cladding rings are the radii strictly greater than 1.0 (core edge).
+        let clad: Vec<f64> = rs.into_iter().filter(|&r| r > 1.0 + 1e-9).collect();
+        let steps: Vec<f64> = std::iter::once(clad[0] - 1.0)
+            .chain(clad.windows(2).map(|w| w[1] - w[0]))
+            .collect();
+        for w in steps.windows(2) {
+            let got = w[1] / w[0];
+            assert!(
+                (got - ratio).abs() < 1e-9,
+                "geometric step ratio {got} ≠ configured {ratio}"
+            );
+        }
+    }
+
+    #[test]
+    fn linear_grading_last_step_is_ratio_times_first() {
+        let ratio = 3.0;
+        let (mesh, _) = disk_tri_mesh_graded(
+            1.0,
+            5.0,
+            8,
+            48,
+            RadialGrading::Uniform,
+            RadialGrading::Linear { ratio },
+        );
+        let rs = ring_radii(&mesh);
+        let clad: Vec<f64> = rs.into_iter().filter(|&r| r > 1.0 + 1e-9).collect();
+        let steps: Vec<f64> = std::iter::once(clad[0] - 1.0)
+            .chain(clad.windows(2).map(|w| w[1] - w[0]))
+            .collect();
+        let got = steps[steps.len() - 1] / steps[0];
+        assert!(
+            (got - ratio).abs() < 1e-9,
+            "linear last/first step ratio {got} ≠ configured {ratio}"
+        );
+        // And the steps grow monotonically (ratio > 1).
+        for w in steps.windows(2) {
+            assert!(w[1] > w[0], "linear steps must increase for ratio > 1");
+        }
+    }
+
+    #[test]
+    fn interface_clustered_min_step_is_adjacent_to_interface() {
+        // Cladding clustered toward its inner edge (r = a): the smallest
+        // cladding step must be the first one (adjacent to r = a).
+        let (mesh, _) = disk_tri_mesh_graded(
+            1.0,
+            5.0,
+            8,
+            48,
+            RadialGrading::Uniform,
+            RadialGrading::InterfaceClustered { strength: 3.0 },
+        );
+        let rs = ring_radii(&mesh);
+        let clad: Vec<f64> = rs.into_iter().filter(|&r| r > 1.0 + 1e-9).collect();
+        let steps: Vec<f64> = std::iter::once(clad[0] - 1.0)
+            .chain(clad.windows(2).map(|w| w[1] - w[0]))
+            .collect();
+        let min_idx = steps
+            .iter()
+            .enumerate()
+            .min_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .unwrap()
+            .0;
+        assert_eq!(
+            min_idx, 0,
+            "interface-clustered min step must be adjacent to r=a; steps={steps:?}"
+        );
+
+        // Core clustered toward its outer edge (r = a): the smallest core
+        // step must be the *last* one (adjacent to r = a).
+        let (mesh2, _) = disk_tri_mesh_graded(
+            1.0,
+            5.0,
+            8,
+            48,
+            RadialGrading::InterfaceClustered { strength: 3.0 },
+            RadialGrading::Uniform,
+        );
+        let rs2 = ring_radii(&mesh2);
+        let core: Vec<f64> = rs2.into_iter().filter(|&r| r <= 1.0 + 1e-9).collect();
+        // core includes 0.0 (center) then the core rings up to 1.0.
+        let csteps: Vec<f64> = core.windows(2).map(|w| w[1] - w[0]).collect();
+        let cmin_idx = csteps
+            .iter()
+            .enumerate()
+            .min_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .unwrap()
+            .0;
+        assert_eq!(
+            cmin_idx,
+            csteps.len() - 1,
+            "core interface-clustered min step must be the outermost (at r=a); steps={csteps:?}"
+        );
+    }
+
+    #[test]
+    fn pml_graded_supports_per_band_grading_and_conforms() {
+        // The downstream graded-fiber experiment needs the PML mesher with
+        // independent per-band grading; all three band boundaries stay fixed.
+        let (mesh, tags) = disk_tri_mesh_pml_graded(
+            1.0,
+            2.0,
+            3.0,
+            6,
+            36,
+            RadialGrading::InterfaceClustered { strength: 2.0 },
+            RadialGrading::Geometric { ratio: 1.3 },
+            RadialGrading::Linear { ratio: 0.5 },
+        );
+        assert_eq!(tags.len(), mesh.n_tris());
+        for t in &mesh.tris {
+            assert!(signed_area(&mesh, t) > 0.0, "non-CCW PML graded triangle");
+        }
+        let rs = ring_radii(&mesh);
+        for &b in &[1.0, 2.0, 3.0] {
+            assert!(
+                rs.iter().any(|&r| (r - b).abs() < 1e-9),
+                "band boundary {b} not conformed under graded PML"
+            );
+        }
+        // Tags present for all three regions.
+        assert!(tags.contains(&REGION_CORE));
+        assert!(tags.contains(&REGION_CLADDING));
+        assert!(tags.contains(&REGION_PML));
+    }
+
+    #[test]
+    fn worst_aspect_ratio_matches_uniform_disk_quality() {
+        // Sanity: on the documented balanced-knob uniform mesh the exposed
+        // worst aspect ratio agrees with the test helper / stays < 7.
+        let (mesh, _) = disk_tri_mesh(1.0, 3.0, 4, 25);
+        let exposed = worst_aspect_ratio(&mesh);
+        let mut by_helper = 0.0_f64;
+        for t in &mesh.tris {
+            by_helper = by_helper.max(aspect_ratio(&mesh, t));
+        }
+        assert!((exposed - by_helper).abs() < 1e-9);
+        assert!(exposed < 7.0, "uniform worst aspect {exposed} exceeded 7");
+    }
+
+    #[test]
+    fn aspect_ratio_guard_accepts_mild_and_rejects_sliver_grading() {
+        // Mild grading passes the checked constructor.
+        let ok = disk_tri_mesh_graded_checked(
+            1.0,
+            3.0,
+            5,
+            31,
+            RadialGrading::Geometric { ratio: 1.2 },
+            RadialGrading::Geometric { ratio: 1.2 },
+            ASPECT_RATIO_SLIVER_BOUND,
+        );
+        assert!(ok.is_ok(), "mild grading must pass the aspect guard");
+
+        // Deliberately pathological grading (extreme geometric ratio with few
+        // angular sectors) manufactures slivers and must be rejected.
+        let sliver = disk_tri_mesh_graded_checked(
+            1.0,
+            3.0,
+            12,
+            6,
+            RadialGrading::Geometric { ratio: 3.0 },
+            RadialGrading::Geometric { ratio: 3.0 },
+            ASPECT_RATIO_SLIVER_BOUND,
+        );
+        assert!(
+            sliver.is_err(),
+            "strong grading must be rejected by the aspect guard; worst aspect was {}",
+            worst_aspect_ratio(
+                &disk_tri_mesh_graded(
+                    1.0,
+                    3.0,
+                    12,
+                    6,
+                    RadialGrading::Geometric { ratio: 3.0 },
+                    RadialGrading::Geometric { ratio: 3.0 },
+                )
+                .0
+            )
+        );
+
+        // PML checked constructor likewise guards.
+        let pml_ok = disk_tri_mesh_pml_graded_checked(
+            1.0,
+            2.0,
+            3.0,
+            5,
+            31,
+            RadialGrading::Uniform,
+            RadialGrading::Geometric { ratio: 1.2 },
+            RadialGrading::Uniform,
+            ASPECT_RATIO_SLIVER_BOUND,
+        );
+        assert!(pml_ok.is_ok());
     }
 }
