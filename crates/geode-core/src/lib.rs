@@ -72,8 +72,8 @@ pub use fiber_lp::{
 };
 pub use iterate::{iterate_while, iterate_while_with_prev, IterOutcome, IterReport, Step};
 pub use ksp_solve::{
-    Cocg, IdentityPreconditioner, IluPreconditioner, JacobiPreconditioner, KspError, KspReport,
-    KspSolve, Preconditioner,
+    ChebyshevConfig, ChebyshevKind, ChebyshevPreconditioner, Cocg, IdentityPreconditioner,
+    IluPreconditioner, JacobiPreconditioner, KspError, KspReport, KspSolve, Preconditioner,
 };
 pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 pub use lumped_port::{
