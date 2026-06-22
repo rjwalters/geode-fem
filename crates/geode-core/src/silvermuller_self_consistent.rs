@@ -65,6 +65,7 @@ use faer::mat::MatRef;
 
 use crate::complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
 use crate::eigen::EigenError;
+use crate::iterate::{iterate_while_with_prev, IterOutcome, Step};
 
 /// Outcome of [`self_consistent_k`].
 #[derive(Debug, Clone)]
@@ -161,66 +162,110 @@ pub fn self_consistent_k(
     assert!(max_iter > 0, "max_iter must be positive");
 
     let solver = FaerComplexEigensolver;
-    let mut k0 = initial_k0;
-    let mut last_k: Option<c64> = None;
-    let mut prev_dk_rel: Option<f64> = None;
 
-    for it in 1..=max_iter {
-        let lambdas = solver.smallest_complex_eigenvalues(k_mat, s_mat, m_mat, k0, n_eigs)?;
-        if lambdas.len() <= target_idx {
-            // Solver returned fewer eigenvalues than requested (e.g.
-            // mass-pencil singularities skipped). Treat as divergence
-            // at the last stable point.
-            return Ok(SelfConsistentResult::Diverged {
-                last_k: last_k.unwrap_or(c64::new(k0, 0.0)),
-                iterations: it,
-            });
-        }
+    // The carried state is the fixed-point's loop-invariant slot
+    // (contract restriction 1): the current seed `k₀`, the last stable
+    // `k_target` (`None` until the first successful solve), and this
+    // step's relative residual `|Δk₀| / k₀` (`None` on entry, used by
+    // the divergence guard via the combinator's `prev`). All scalars —
+    // the shape never changes across iterations.
+    //
+    // We use `iterate_while_with_prev` rather than `iterate_while` so the
+    // divergence guard reads the *previous* iteration's `dk_rel` from the
+    // combinator's one-step history instead of threading it by hand. The
+    // continue/stop decision inside the step is a single scalar predicate
+    // (`abs_dk < tol`, plus the guard / fewer-eigs branches), satisfying
+    // contract restriction 2; the loop yields exactly one terminal
+    // `SelfConsistentResult` (restriction 3).
+    let (outcome, report) = iterate_while_with_prev(
+        SelfConsistentState {
+            k0: initial_k0,
+            last_k: None,
+            dk_rel: None,
+        },
+        max_iter,
+        |it, prev, state| {
+            let SelfConsistentState { k0, last_k, .. } = state;
 
-        let lambda = lambdas[target_idx];
-        let k_target = principal_sqrt(lambda);
-        let re_k = k_target.re;
+            let lambdas = match solver.smallest_complex_eigenvalues(k_mat, s_mat, m_mat, k0, n_eigs)
+            {
+                Ok(l) => l,
+                Err(e) => return Step::Done(Err(e)),
+            };
+            if lambdas.len() <= target_idx {
+                // Solver returned fewer eigenvalues than requested (e.g.
+                // mass-pencil singularities skipped). Treat as divergence
+                // at the last stable point.
+                return Step::Done(Ok(SelfConsistentResult::Diverged {
+                    last_k: last_k.unwrap_or(c64::new(k0, 0.0)),
+                    iterations: it,
+                }));
+            }
 
-        let dk = re_k - k0;
-        let abs_dk = dk.abs();
-        let k0_mag = k0.abs().max(f64::EPSILON);
+            let lambda = lambdas[target_idx];
+            let k_target = principal_sqrt(lambda);
+            let re_k = k_target.re;
 
-        // Convergence check — measured against the **undamped** step,
-        // since `|Re(k) - k₀|` is the fixed-point residual.
-        if abs_dk < tol {
-            let q = q_factor(k_target);
-            return Ok(SelfConsistentResult::Converged {
-                k: k_target,
-                q,
-                iterations: it,
-            });
-        }
+            let dk = re_k - k0;
+            let abs_dk = dk.abs();
+            let k0_mag = k0.abs().max(f64::EPSILON);
 
-        // Divergence guard — only active *after* the damped phase, and
-        // we need at least one prior step to compare against.
-        let dk_rel = abs_dk / k0_mag;
-        if it > DAMPED_ITERATIONS {
-            if let Some(prev) = prev_dk_rel {
-                if dk_rel > prev {
-                    return Ok(SelfConsistentResult::Diverged {
-                        last_k: last_k.unwrap_or(k_target),
-                        iterations: it,
-                    });
+            // Convergence check — measured against the **undamped** step,
+            // since `|Re(k) - k₀|` is the fixed-point residual.
+            if abs_dk < tol {
+                let q = q_factor(k_target);
+                return Step::Done(Ok(SelfConsistentResult::Converged {
+                    k: k_target,
+                    q,
+                    iterations: it,
+                }));
+            }
+
+            // Divergence guard — only active *after* the damped phase, and
+            // we need at least one prior step to compare against.
+            let dk_rel = abs_dk / k0_mag;
+            if it > DAMPED_ITERATIONS {
+                if let Some(prev_dk_rel) = prev.and_then(|p| p.dk_rel) {
+                    if dk_rel > prev_dk_rel {
+                        return Step::Done(Ok(SelfConsistentResult::Diverged {
+                            last_k: last_k.unwrap_or(k_target),
+                            iterations: it,
+                        }));
+                    }
                 }
             }
-        }
-        prev_dk_rel = Some(dk_rel);
 
-        // Damped update.
-        let alpha = if it <= DAMPED_ITERATIONS { 0.5 } else { 1.0 };
-        k0 += alpha * dk;
-        last_k = Some(k_target);
+            // Damped update.
+            let alpha = if it <= DAMPED_ITERATIONS { 0.5 } else { 1.0 };
+            Step::Continue(SelfConsistentState {
+                k0: k0 + alpha * dk,
+                last_k: Some(k_target),
+                dk_rel: Some(dk_rel),
+            })
+        },
+    );
+
+    match outcome {
+        IterOutcome::Done(result) => result,
+        IterOutcome::MaxIters(state) => Ok(SelfConsistentResult::MaxIterations {
+            last_k: state.last_k.unwrap_or(c64::new(state.k0, 0.0)),
+            iterations: report.iterations,
+        }),
     }
+}
 
-    Ok(SelfConsistentResult::MaxIterations {
-        last_k: last_k.unwrap_or(c64::new(k0, 0.0)),
-        iterations: max_iter,
-    })
+/// Loop-invariant carried state for the self-consistent `k₀` fixed
+/// point (issue #301). All slots are scalars, so the shape is constant
+/// across iterations — the graph-only contract restriction 1.
+#[derive(Debug, Clone, Copy)]
+struct SelfConsistentState {
+    /// Current seed wavenumber for the next solve.
+    k0: f64,
+    /// Last stable `k = sqrt(λ_target)` (`None` before the first solve).
+    last_k: Option<c64>,
+    /// This step's relative residual `|Δk₀| / k₀` (`None` on entry).
+    /// Read from the combinator's `prev` by the divergence guard.
+    dk_rel: Option<f64>,
 }
 
 /// Minimum acceptable bilinear M-overlap between successive iterations'
@@ -677,6 +722,47 @@ mod tests {
                 assert!((1..=10).contains(&iterations));
             }
             other => panic!("expected Converged from a trivially diagonal pencil, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn self_consistent_k_bit_identical_regression_diagonal_pencil() {
+        // Issue #301: regression-lock the self-consistent k₀ Newton
+        // driver after refactoring it onto `iterate_while_with_prev`.
+        //
+        // A diagonal pencil K = diag(1, 4), M = I, S = 0 has exact
+        // eigenvalues {1, 4}; faer returns λ₀ = 1 + 0i bit-exactly, so
+        // `k_target = sqrt(1) = 1.0` on every solve and the damped
+        // fixed point is fully deterministic:
+        //   k₀: 0.5 →(α=.5) .75 →(α=.5) .875 →(α=.5) .9375 →(α=1) 1.0
+        //   →(Δ=0 < tol) Converged at k = 1.0 on iteration 5.
+        // Any drift in the iteration arithmetic (damping schedule,
+        // residual test, divergence-guard threading via `with_prev`)
+        // would move `k.re` off 1.0 or change the iteration count, so
+        // this asserts both to full precision.
+        let k = faer::Mat::<f64>::from_fn(2, 2, |i, j| {
+            if i == 0 && j == 0 {
+                1.0
+            } else if i == 1 && j == 1 {
+                4.0
+            } else {
+                0.0
+            }
+        });
+        let s = faer::Mat::<f64>::from_fn(2, 2, |_, _| 0.0);
+        let m = faer::Mat::<f64>::from_fn(2, 2, |i, j| if i == j { 1.0 } else { 0.0 });
+
+        let r = self_consistent_k(k.as_ref(), s.as_ref(), m.as_ref(), 0.5, 0, 2, 1e-6, 20)
+            .expect("diagonal-pencil self-consistent solve");
+
+        match r {
+            SelfConsistentResult::Converged { k, q, iterations } => {
+                assert_eq!(k.re, 1.0, "converged k.re must be bit-exact 1.0");
+                assert_eq!(k.im, 0.0, "converged k.im must be bit-exact 0.0");
+                assert!(q.is_infinite(), "lossless real pencil → Q = inf");
+                assert_eq!(iterations, 5, "deterministic damped path → 5 solves");
+            }
+            other => panic!("expected Converged from diagonal pencil, got {other:?}"),
         }
     }
 
