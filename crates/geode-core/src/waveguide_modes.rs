@@ -3132,6 +3132,184 @@ fn pin_eigenvector_sign(v: &mut [f64]) {
     }
 }
 
+/// Mesh-independent **reference-integral gauge** for a transverse modal
+/// eigenvector (issue #300, the downstream half of friction artifact
+/// #18). Replaces the [`pin_eigenvector_sign`] argmax convention at the
+/// modal-wrapper layer.
+///
+/// # Why the argmax pin is not enough across meshes
+///
+/// [`pin_eigenvector_sign`] (issue #262) is deterministic *per call*,
+/// but its pivot — the single largest-magnitude edge DOF — is a property
+/// of the *discretization*, not the *continuous mode*. When the mesh is
+/// refined, the argmax DOF can jump to a different edge (e.g. for higher
+/// modes whose dominant edge sits near a face the two meshes resolve
+/// differently), flipping the pinned sign and therefore the *complex*
+/// S-matrix entries downstream — even though both runs are individually
+/// deterministic and the gauge-invariant magnitudes are stable. PR #261
+/// surfaced exactly this (`nx = 10 → nx = 16` flipped raw S entries),
+/// forcing the C2 mode-matching test to compare magnitudes only.
+///
+/// # The reference-integral convention
+///
+/// Instead of pivoting on a single DOF, fix the gauge by **integrating
+/// the eigenvector against a fixed continuous reference profile** and
+/// rotating it so that projection is real-positive:
+///
+/// ```text
+/// p = ⟨e, r⟩ = Σ_i e_i · r_i,    where  r_i ≈ ∫_{edge i} F · t̂ dl
+/// ```
+///
+/// `F(x, y)` is a smooth reference vector field evaluated at each edge
+/// midpoint and dotted with the (global-oriented) edge tangent, so `r_i`
+/// is the Whitney/Nédélec DOF the analytic field `F` would produce on
+/// edge `i`. The projection `p` is a **continuous functional of the
+/// mode** (a quadrature of `∫ e · F dS`), so it converges as the mesh is
+/// refined and does *not* hinge on which discrete DOF happens to be
+/// largest. We flip `e → −e` iff `p < 0`, pinning the sign consistently
+/// regardless of mesh.
+///
+/// For a **complex** eigenvector (the dielectric / complex-pencil paths)
+/// the same construction pins the full phase: rotate by the unit-modulus
+/// scalar `e^{−i·arg(p)}` so `p` becomes real-positive. The real
+/// transverse pencil here only needs the `±1` specialization, but the
+/// convention is stated complex so the two paths share one contract.
+///
+/// # Robustness: a small reference basis
+///
+/// A single fixed `F` can be (near-)orthogonal to some modes — e.g. a
+/// uniform x-directed field has zero net projection onto a mode that is
+/// x-antisymmetric (TE₂₀-like). To stay well-defined for every mode we
+/// try an ordered list of reference fields and use the **first** whose
+/// projection magnitude clears a relative floor. The list is fixed and
+/// mesh-independent, so two meshes resolving the same physical mode
+/// select the same reference and therefore the same sign. If *every*
+/// reference projection is negligible (degenerate / pathological case)
+/// we fall back to [`pin_eigenvector_sign`] so the gauge is always
+/// defined.
+///
+/// # Invariants
+///
+/// The rotation is a unit-modulus scalar (here `±1`), so it is
+/// **norm-preserving**: `eᵀ M e` and the set-wise `e_iᵀ M e_j` Gram
+/// entries are unchanged. M-orthonormality of the returned set is
+/// therefore preserved exactly (see the unit test
+/// `reference_gauge_preserves_orthonormality`).
+fn gauge_fix_eigenvector(mesh: &TriMesh, edges: &[[u32; 2]], e_edges: &mut [f64]) {
+    debug_assert_eq!(
+        edges.len(),
+        e_edges.len(),
+        "edge count must match eigenvector length"
+    );
+
+    // Smooth reference vector fields F(x, y), tried in order. Each entry
+    // maps an edge midpoint (x, y) to a 2-D field vector. The list is
+    // deliberately simple, fixed, and ordered low-frequency-first so the
+    // dominant (fundamental) mode locks onto the first field and higher
+    // modes — orthogonal to it — fall through to a field they overlap.
+    //
+    // The mesh extent only sets a length scale for the trig references;
+    // it does not affect the *sign* of the projection (a positive
+    // overall rescaling of F leaves sign(p) intact), so cross-mesh
+    // sign consistency is preserved even if the bounding box is read off
+    // a slightly different node set.
+    let (mut xmin, mut ymin) = (f64::INFINITY, f64::INFINITY);
+    let (mut xmax, mut ymax) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for p in &mesh.nodes {
+        xmin = xmin.min(p[0]);
+        ymin = ymin.min(p[1]);
+        xmax = xmax.max(p[0]);
+        ymax = ymax.max(p[1]);
+    }
+    let lx = (xmax - xmin).max(f64::EPSILON);
+    let ly = (ymax - ymin).max(f64::EPSILON);
+    // sx, sy ∈ [0, 1] are the normalized in-box coordinates of a point.
+    //
+    // The reference fields are chosen to mirror the transverse-E shapes
+    // of the lowest rectangular-guide modes so that each mode locks onto
+    // a *physically matched* reference (a strong, mesh-stable overlap)
+    // rather than a near-zero accidental one. For a `[0, a] × [0, b]`
+    // metallic guide the lowest TE/TM modes have, up to normalization:
+    //
+    //   TE_{m,0}:  E_y ∝ sin(m π x / a),     E_x = 0
+    //   TE_{0,n}:  E_x ∝ sin(n π y / b),     E_y = 0
+    //
+    // A y-directed field `∝ sin(m π sx)` therefore overlaps TE_{m,0}
+    // strongly while integrating to ≈ 0 against every other listed mode
+    // (`sin` orthogonality in x), and symmetrically for the x-directed
+    // `∝ sin(n π sy)` references and TE_{0,n}. Crucially a *uniform*
+    // field has zero net overlap with TE_{m,0} for any m (the sin
+    // integrates to 0 over the full span), which is why the earlier
+    // uniform/`cos` references left TE₂₀ ungauged and falling through to
+    // the mesh-unstable argmax fallback — the bug this set fixes.
+    type RefField = fn(f64, f64) -> [f64; 2];
+    let refs: [RefField; 6] = [
+        // 1. y-field × sin(π sx): matches TE₁₀ (fundamental).
+        |sx, _sy| [0.0, (std::f64::consts::PI * sx).sin()],
+        // 2. y-field × sin(2π sx): matches TE₂₀ (x-antisymmetric;
+        //    orthogonal to ref 1).
+        |sx, _sy| [0.0, (2.0 * std::f64::consts::PI * sx).sin()],
+        // 3. x-field × sin(π sy): matches TE₀₁.
+        |_sx, sy| [(std::f64::consts::PI * sy).sin(), 0.0],
+        // 4. x-field × sin(2π sy): matches TE₀₂.
+        |_sx, sy| [(2.0 * std::f64::consts::PI * sy).sin(), 0.0],
+        // 5/6. Uniform x and y catch-alls (for any residual mode with a
+        //    net directed component, e.g. mixed TM profiles).
+        |_sx, _sy| [1.0, 0.0],
+        |_sx, _sy| [0.0, 1.0],
+    ];
+
+    // Energy scale of the eigenvector (so the projection floor is
+    // relative to the vector, not an absolute magnitude that depends on
+    // the M-normalization length scale).
+    let e_scale = e_edges
+        .iter()
+        .fold(0.0_f64, |acc, &x| acc + x * x)
+        .sqrt()
+        .max(f64::EPSILON);
+
+    for f in &refs {
+        let mut proj = 0.0_f64;
+        let mut ref_scale = 0.0_f64;
+        for (i, &ei) in e_edges.iter().enumerate() {
+            if ei == 0.0 {
+                continue; // PEC-eliminated edge carries an exact zero.
+            }
+            let [a, b] = edges[i];
+            let pa = mesh.nodes[a as usize];
+            let pb = mesh.nodes[b as usize];
+            // Global-oriented tangent (a → b; a < b by edge convention).
+            let t = [pb[0] - pa[0], pb[1] - pa[1]];
+            let mx = 0.5 * (pa[0] + pb[0]);
+            let my = 0.5 * (pa[1] + pb[1]);
+            let sx = (mx - xmin) / lx;
+            let sy = (my - ymin) / ly;
+            let fv = f(sx, sy);
+            // r_i ≈ ∫_edge F · t̂ dl  (midpoint rule).
+            let ri = fv[0] * t[0] + fv[1] * t[1];
+            proj += ei * ri;
+            ref_scale += ri * ri;
+        }
+        let ref_scale = ref_scale.sqrt();
+        // Relative floor: require the projection to be a non-trivial
+        // fraction of the Cauchy–Schwarz ceiling |e|·|r|. A field that is
+        // orthogonal to this mode produces proj ≈ 0 and is skipped.
+        let floor = 1e-6 * e_scale * ref_scale;
+        if proj.abs() > floor {
+            if proj < 0.0 {
+                for x in e_edges.iter_mut() {
+                    *x = -*x;
+                }
+            }
+            return;
+        }
+    }
+
+    // Degenerate fallback: no reference overlapped. Use the argmax pin so
+    // the gauge is always defined (still deterministic per call).
+    pin_eigenvector_sign(e_edges);
+}
+
 /// Compute the lowest `n_modes` transverse modes (cutoffs **and**
 /// field profiles) of the rectangular waveguide cross-section meshed by
 /// `mesh`, with PEC walls on the rectangle `[0,W] × [0,H]`. This is the
@@ -3148,31 +3326,42 @@ fn pin_eigenvector_sign(v: &mut [f64]) {
 /// exact zeros on PEC edges, so callers can index it by the same edge
 /// indices as `mesh.edges()`.
 ///
-/// # Sign / gauge convention (issue #262)
+/// # Sign / gauge convention (issue #300, superseding the #262 pin)
 ///
-/// Each returned eigenvector's sign is pinned so that **the component
-/// with the largest absolute value is non-negative**. This gives a
-/// deterministic, mesh-independent gauge: refining the cross-section
-/// mesh leaves the complex S-matrix entries downstream of the modal
-/// projection reproducible (up to ordinary mesh-resolution
-/// convergence), not phase-flipping. Without the pin, the underlying
-/// Lanczos returns whichever sign its starting-vector randomness lands
-/// on, which mesh refinement can flip. See [`pin_eigenvector_sign`]
-/// for the convention's rationale and PR #261 for the surfacing
-/// context (a bi-modal mode-matching test originally had to compare
-/// gauge-invariant magnitudes because the raw complex entries flipped
-/// between `nx = 10` and `nx = 16`).
+/// Each returned eigenvector's sign is pinned by a **reference-integral
+/// gauge** ([`gauge_fix_eigenvector`]): the eigenvector is rotated so its
+/// projection onto a fixed continuous reference profile is real-positive.
+/// Concretely, a smooth reference vector field `F(x, y)` is sampled at
+/// each edge midpoint to form the Whitney DOF it would produce, and the
+/// eigenvector is negated iff its inner product with that reference is
+/// negative.
+///
+/// This gives a gauge that is reproducible **across mesh refinements at
+/// the level of the raw complex S-matrix entries**, not merely
+/// deterministic per call. The earlier convention (issue #262,
+/// [`pin_eigenvector_sign`]) pinned on the single largest-magnitude DOF;
+/// because that pivot DOF is a property of the discretization, it could
+/// jump to a different edge between meshes and flip the sign — so the C2
+/// mode-matching test had to compare gauge-invariant *magnitudes* (PR
+/// #261 documented the `nx = 10 → nx = 16` flip). The reference-integral
+/// projection is a quadrature of the *continuous* functional `∫ e · F dS`,
+/// so it converges with the mesh instead of jumping, pinning both sign
+/// and (in the complex generalization) phase consistently regardless of
+/// mesh. See [`gauge_fix_eigenvector`] for the convention's rationale and
+/// the robustness handling for modes orthogonal to a given reference.
 ///
 /// All gauge-invariant observables — eigenvalues `λ = k_c²`, modal
 /// energies `‖e‖²_M = 1`, set-wise M-orthonormality `e_iᵀ M e_j`,
 /// reciprocity, power-conservation column sums of the rank-N S-matrix
-/// — are unaffected by the sign convention.
+/// — are unaffected: the rotation is a unit-modulus (here `±1`) scalar
+/// and therefore norm-preserving.
 ///
-/// **Note**: the convention is real-valued only; the complex
-/// eigenvector path (`complex_eigen.rs` / `complex_lanczos.rs`) is not
-/// currently exercised here and would need an analogous phase-pinning
-/// scheme (rotate so the largest-magnitude entry is real positive).
-/// Out of scope for issue #262.
+/// **Note**: this metallic path is real-valued, so the gauge reduces to
+/// a sign. The complex eigenvector paths (`complex_eigen.rs` /
+/// `complex_lanczos.rs`, and the [`DielectricMode`] solver) still use the
+/// [`pin_eigenvector_sign`] argmax pin; extending the reference-integral
+/// phase gauge to them is the documented complex generalization in
+/// [`gauge_fix_eigenvector`] but is out of scope for issue #300.
 ///
 /// # Solver
 ///
@@ -3193,7 +3382,10 @@ fn pin_eigenvector_sign(v: &mut [f64]) {
 /// sibling. Issue #254 unified the two: this function now returns full
 /// profiles for any K, and the two old wrappers became deprecated thin
 /// shims that were finally removed in issue #268. Issue #262 / PR #263
-/// added the deterministic largest-magnitude sign pin documented above.
+/// added the deterministic largest-magnitude sign pin; issue #300
+/// replaced it (at this wrapper layer) with the reference-integral gauge
+/// documented above so the raw complex S-matrix is cross-mesh
+/// reproducible, not just gauge-invariant in magnitude.
 pub fn solve_rect_waveguide_modes(
     mesh: &TriMesh,
     width: f64,
@@ -3435,13 +3627,18 @@ pub fn solve_waveguide_modes_with_opts(
                 for (interior_idx, &full_idx) in interior_to_full.iter().enumerate() {
                     e_edges[full_idx] = pair.vector[interior_idx];
                 }
-                // Sign-pin convention (issue #262): the
-                // largest-magnitude component is non-negative. Pins
-                // the gauge so downstream complex S-matrices are
-                // reproducible across mesh refinements. The flip is
-                // M-orthonormality-preserving (it scales the vector
-                // by -1, which preserves eᵀ M e and e_iᵀ M e_j).
-                pin_eigenvector_sign(&mut e_edges);
+                // Reference-integral gauge (issue #300, replacing the
+                // issue-#262 argmax pin at the wrapper layer): rotate the
+                // eigenvector so its projection onto a fixed continuous
+                // reference profile is real-positive. Unlike the argmax
+                // pin (whose pivot DOF can jump between meshes and flip
+                // the sign), this projects onto a mesh-independent
+                // functional of the *continuous* mode, so the pinned sign
+                // — and the downstream complex S-matrix entries — are
+                // reproducible across mesh refinements. The flip is a
+                // unit-modulus (±1) rotation, so it preserves eᵀ M e and
+                // the set-wise e_iᵀ M e_j Gram (M-orthonormality intact).
+                gauge_fix_eigenvector(mesh, edges, &mut e_edges);
                 WaveguideModeProfile {
                     k_c: lam_pos.sqrt(),
                     lambda: pair.lambda,
@@ -5749,58 +5946,213 @@ mod tests {
         assert!(g10.abs() < tol, "mode[1]ᵀ M mode[0] = {} ≠ 0", g10);
     }
 
-    /// **Sign convention pin** (issue #262): every returned eigenvector
-    /// must have its largest-magnitude component non-negative. This is
-    /// the deterministic gauge fix that replaces the
-    /// Lanczos-starting-vector sign randomness; downstream complex
-    /// S-matrices become reproducible across mesh refinements.
+    /// **Reference-integral gauge convention holds across refinements**
+    /// (issue #300, replacing the issue-#262 argmax assertion).
     ///
-    /// Verified across two mesh resolutions (`nx = 10` and `nx = 16`)
-    /// on the canonical `2 × 1` cross-section to demonstrate that the
-    /// convention holds independent of mesh size — the historical
-    /// observation in PR #261 was that `nx = 10 → nx = 16` flipped the
-    /// raw Lanczos sign on the TE₂₀ eigenvector. With the pin, both
-    /// resolutions emit vectors whose largest entry is positive.
+    /// Every returned eigenvector is rotated so its projection onto the
+    /// fixed reference field it selects is non-negative. Verified across
+    /// two mesh resolutions (`nx = 10` and `nx = 16`) on a `2 × 0.8`
+    /// cross-section: for **each** mode the *same* reference (lowest index
+    /// clearing the relative floor) is selected at both resolutions and
+    /// the resulting projection is positive at both — i.e. the gauge sign
+    /// is reproducible across meshes. PR #261's historical failure was
+    /// that `nx = 10 → nx = 16` flipped the raw Lanczos sign on the
+    /// x-antisymmetric TE₂₀ eigenvector (whose largest-magnitude DOF is
+    /// not mesh-stable); the reference-integral gauge fixes exactly that
+    /// case because TE₂₀ locks onto the `sin(2πx/a)` reference instead of
+    /// a single DOF.
+    ///
+    /// The cross-section is deliberately **non-degenerate**: a `2 × 1`
+    /// guide makes TE₂₀ (`k_c = 2π/a`) and TE₀₁ (`k_c = π/b`) degenerate,
+    /// so the second eigenvector would be an arbitrary, genuinely
+    /// mesh-dependent mixture of the two — a case with no well-defined
+    /// per-mode gauge. `b = 0.8` separates them (`k_c` ≈ π vs 3.93).
     #[test]
-    fn largest_norm_component_sign_pin_holds_across_refinements() {
-        let (a, b) = (2.0_f64, 1.0_f64);
+    fn reference_gauge_convention_holds_across_refinements() {
+        let (a, b) = (2.0_f64, 0.8_f64);
+        // Reference fields mirroring those in `gauge_fix_eigenvector`.
+        let refs: [fn(f64, f64) -> [f64; 2]; 6] = [
+            |sx, _sy| [0.0, (std::f64::consts::PI * sx).sin()],
+            |sx, _sy| [0.0, (2.0 * std::f64::consts::PI * sx).sin()],
+            |_sx, sy| [(std::f64::consts::PI * sy).sin(), 0.0],
+            |_sx, sy| [(2.0 * std::f64::consts::PI * sy).sin(), 0.0],
+            |_sx, _sy| [1.0, 0.0],
+            |_sx, _sy| [0.0, 1.0],
+        ];
+        // Returns (selected_reference_index, projection) for a mode.
+        let select_ref = |mesh: &TriMesh, e: &[f64]| -> (usize, f64) {
+            let edges = mesh.edges();
+            let (mut xmin, mut ymin) = (f64::INFINITY, f64::INFINITY);
+            let (mut xmax, mut ymax) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+            for p in &mesh.nodes {
+                xmin = xmin.min(p[0]);
+                ymin = ymin.min(p[1]);
+                xmax = xmax.max(p[0]);
+                ymax = ymax.max(p[1]);
+            }
+            let lx = (xmax - xmin).max(f64::EPSILON);
+            let ly = (ymax - ymin).max(f64::EPSILON);
+            let e_scale = e
+                .iter()
+                .fold(0.0, |a, &x| a + x * x)
+                .sqrt()
+                .max(f64::EPSILON);
+            for (ri, f) in refs.iter().enumerate() {
+                let mut proj = 0.0;
+                let mut rscale = 0.0;
+                for (i, &ei) in e.iter().enumerate() {
+                    if ei == 0.0 {
+                        continue;
+                    }
+                    let [ea, eb] = edges[i];
+                    let pa = mesh.nodes[ea as usize];
+                    let pb = mesh.nodes[eb as usize];
+                    let t = [pb[0] - pa[0], pb[1] - pa[1]];
+                    let sx = (0.5 * (pa[0] + pb[0]) - xmin) / lx;
+                    let sy = (0.5 * (pa[1] + pb[1]) - ymin) / ly;
+                    let fv = f(sx, sy);
+                    let r = fv[0] * t[0] + fv[1] * t[1];
+                    proj += ei * r;
+                    rscale += r * r;
+                }
+                let floor = 1e-6 * e_scale * rscale.sqrt();
+                if proj.abs() > floor {
+                    return (ri, proj);
+                }
+            }
+            (usize::MAX, 0.0) // fell through to argmax fallback
+        };
+
+        let mut selected_by_mesh: Vec<Vec<usize>> = Vec::new();
         for &nx in &[10usize, 16usize] {
             let ny = nx / 2;
             let mesh = rect_tri_mesh(nx, ny, a, b);
             let modes = solve_rect_waveguide_modes(&mesh, a, b, 2).expect("multi-mode solve K=2");
             assert_eq!(modes.len(), 2);
+            let mut sel = Vec::new();
             for (i, mode) in modes.iter().enumerate() {
-                // Find the largest-magnitude component (the convention
-                // pivot). PEC-eliminated edges hold exact zeros so the
-                // argmax is always an interior DOF.
-                let (idx, val) = mode
-                    .e_edges
-                    .iter()
-                    .copied()
-                    .enumerate()
-                    .max_by(|(_, x), (_, y)| {
-                        x.abs()
-                            .partial_cmp(&y.abs())
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    })
-                    .expect("non-empty eigenvector");
-                eprintln!(
-                    "nx={nx}: mode[{i}] argmax = edge {idx}, value = {val:+.6e}, \
-                     |val| = {:.6e}",
-                    val.abs()
+                let (ri, proj) = select_ref(&mesh, &mode.e_edges);
+                eprintln!("nx={nx}: mode[{i}] selected reference {ri}, projection = {proj:+.6e}");
+                assert_ne!(
+                    ri,
+                    usize::MAX,
+                    "nx={nx} mode[{i}] matched no reference (fell through to argmax \
+                     fallback) — gauge is not mesh-stable for this mode"
                 );
                 assert!(
-                    val >= 0.0,
-                    "sign-pin violated: nx={nx}, mode[{i}] argmax edge {idx} \
-                     has value {val:+.6e} (largest-magnitude component must be ≥ 0)"
+                    proj > 0.0,
+                    "reference-gauge violated: nx={nx} mode[{i}] projection onto its \
+                     selected reference {ri} is {proj:+.6e}, must be > 0"
                 );
+                sel.push(ri);
+            }
+            selected_by_mesh.push(sel);
+        }
+        // The same reference must be selected for each mode at both
+        // resolutions (this is what makes the gauge sign cross-mesh
+        // reproducible).
+        assert_eq!(
+            selected_by_mesh[0], selected_by_mesh[1],
+            "reference selection differed across meshes ({:?} vs {:?}); gauge sign \
+             would not be cross-mesh reproducible",
+            selected_by_mesh[0], selected_by_mesh[1]
+        );
+    }
+
+    /// **Reference-integral gauge — M-orthonormality preserved** (issue
+    /// #300). The gauge rotation is a unit-modulus (±1) scalar per mode,
+    /// so it must leave the set-wise Gram `e_iᵀ M e_j = δ_ij` exactly
+    /// intact. This is the norm/orthogonality invariant the issue
+    /// requires unit-testing.
+    #[test]
+    fn reference_gauge_preserves_orthonormality() {
+        let (a, b) = (2.0_f64, 1.0_f64);
+        let mesh = rect_tri_mesh(16, 8, a, b);
+        let modes = solve_rect_waveguide_modes(&mesh, a, b, 3).expect("multi-mode solve K=3");
+        assert_eq!(modes.len(), 3);
+
+        let (_k, m_dense) = assemble_2d_nedelec(&mesh);
+        let n_edges = m_dense.nrows();
+
+        let dot_me = |i: usize, j: usize| -> f64 {
+            let mut acc = 0.0_f64;
+            for p in 0..n_edges {
+                for q in 0..n_edges {
+                    acc += modes[i].e_edges[p] * m_dense[(p, q)] * modes[j].e_edges[q];
+                }
+            }
+            acc
+        };
+
+        let tol = 1e-12_f64;
+        for i in 0..modes.len() {
+            for j in 0..modes.len() {
+                let g = dot_me(i, j);
+                let expect = if i == j { 1.0 } else { 0.0 };
                 assert!(
-                    val > 0.0,
-                    "sign-pin: argmax must be strictly positive (else the eigenvector \
-                     is identically zero); nx={nx}, mode[{i}], val = {val}"
+                    (g - expect).abs() < tol,
+                    "gauge broke M-orthonormality: G[{i}][{j}] = {g} ≠ {expect}"
                 );
             }
         }
+    }
+
+    /// **Reference-integral gauge helper unit test** (issue #300):
+    /// verifies the in-place behaviour of [`gauge_fix_eigenvector`] on a
+    /// tiny explicit mesh.
+    ///
+    /// 1. A vector with positive reference projection is left unchanged.
+    /// 2. Its negation is flipped back (the gauge pins proj ≥ 0).
+    /// 3. The flip is norm-preserving (Σ eᵢ² unchanged).
+    /// 4. An all-zero vector falls through to the fallback without panic.
+    #[test]
+    fn gauge_fix_eigenvector_unit() {
+        // 1×1 single-quad mesh → 5 edges (4 boundary + 1 diagonal).
+        let mesh = rect_tri_mesh(1, 1, 1.0, 1.0);
+        let edges = mesh.edges();
+        let n = edges.len();
+
+        // Construct a synthetic field whose uniform-x projection is
+        // positive: put a positive weight on the horizontal bottom edge
+        // (nodes 0→1, tangent +x).
+        let mut v = vec![0.0_f64; n];
+        // Find the bottom horizontal edge (y=0 on both endpoints).
+        let bottom = edges
+            .iter()
+            .position(|e| {
+                mesh.nodes[e[0] as usize][1] == 0.0 && mesh.nodes[e[1] as usize][1] == 0.0
+            })
+            .expect("a horizontal bottom edge exists");
+        v[bottom] = 1.0;
+        let norm0 = v.iter().map(|x| x * x).sum::<f64>();
+
+        // Already-positive projection → unchanged.
+        let mut v_pos = v.clone();
+        gauge_fix_eigenvector(&mesh, &edges, &mut v_pos);
+        assert_eq!(
+            v_pos, v,
+            "positive-projection vector must be left unchanged"
+        );
+
+        // Negated → flipped back to positive projection.
+        let mut v_neg: Vec<f64> = v.iter().map(|x| -x).collect();
+        gauge_fix_eigenvector(&mesh, &edges, &mut v_neg);
+        assert_eq!(
+            v_neg, v,
+            "negative-projection vector must be flipped to match"
+        );
+
+        // Norm preserved through the flip.
+        let norm_after = v_neg.iter().map(|x| x * x).sum::<f64>();
+        assert!(
+            (norm_after - norm0).abs() < 1e-15,
+            "gauge flip must preserve the eigenvector norm: {norm_after} ≠ {norm0}"
+        );
+
+        // All-zero vector → fallback, no panic, stays zero.
+        let mut z = vec![0.0_f64; n];
+        gauge_fix_eigenvector(&mesh, &edges, &mut z);
+        assert!(z.iter().all(|&x| x == 0.0));
     }
 
     /// **Sign pin helper unit test**: verifies the in-place flip

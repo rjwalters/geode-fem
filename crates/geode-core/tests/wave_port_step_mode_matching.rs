@@ -763,9 +763,10 @@ fn bimodal_height_step_matches_analytic_mode_matching() {
     //     cost of test runtime.
     //
     // The cross-mesh reproducibility check below (run at two
-    // mesh resolutions) is where the **sign-pin's effect** is
-    // directly tested — the FEM complex entries become stable
-    // across refinements within mesh-convergence tolerance,
+    // mesh resolutions) is where the **reference-integral gauge's
+    // effect** (issue #300) is directly tested — the raw FEM complex
+    // entries become stable across refinements within mesh-convergence
+    // tolerance (a full complex-entry compare, not magnitude only),
     // independent of the (looser) FEM-vs-analytic compare.
 
     // m=1 block (dominant entries).
@@ -1043,41 +1044,40 @@ fn bimodal_height_step_matches_analytic_mode_matching() {
     );
 
     // ----------------------------------------------------------------
-    // Cross-mesh reproducibility under the sign pin (issue #262)
+    // Cross-mesh reproducibility under the reference-integral gauge
+    // (issue #300, superseding the #262 magnitude-only check)
     // ----------------------------------------------------------------
     //
     // Re-solve the same structure at a different cross-section mesh
-    // resolution and verify the sign pin's two cross-mesh guarantees:
+    // resolution and verify the gauge's cross-mesh guarantees:
     //
     //   1. **Diagonal phase agreement**: `Re(S^12[i,i] · conj(S^10[i,i]))`
-    //      > 0 for every i. This is the per-mode-sign-invariant
-    //      diagonal phase-quadrant test (the gauge factor on diagonals
-    //      is `s_i² = 1`, so the diagonals are gauge-invariant; mesh
-    //      changes that don't flip the phase by more than 90° still
-    //      pass this check).
-    //   2. **Magnitude reproducibility**: `||S^12| - |S^10||` is
-    //      bounded by the mesh-convergence budget on the gauge-
-    //      invariant magnitudes, 0.05 absolute (calibrated against
-    //      the observed nx=12 vs nx=10 magnitudes).
+    //      > 0 for every i (a gauge-invariant sanity — diagonals carry
+    //      `s_i² = 1`, so they are sign-invariant regardless of gauge).
+    //   2. **Full complex-entry reproducibility**: `|S^12[i,j] −
+    //      S^10[i,j]|` ≤ 0.1 absolute for **every** entry — not just the
+    //      magnitudes. This is the load-bearing tightening from #300.
+    //   3. **Magnitude reproducibility**: `||S^12| − |S^10||` ≤ 0.05
+    //      (subset of (2); kept as a finer FEM-convergence sanity).
     //
-    // Note on the **complex-entry** cross-mesh reproducibility: the
-    // largest-magnitude sign pin is deterministic per-call but does
-    // NOT guarantee that the per-mode sign is identical between
-    // meshes. The argmax DOF can shift location across meshes (e.g.
-    // for higher modes whose dominant edge is near a face the mesh
-    // resolves differently), causing the per-mode pinned sign to
-    // flip even though both runs are individually deterministic.
-    // The issue #262 spec anticipates this: "Asserts the signs are
-    // consistent across the two resolutions for the same physical
-    // mode — but this is harder to verify deterministically because
-    // the eigenvector profiles differ slightly between meshes; the
-    // simpler 'convention holds per call' test is sufficient." So
-    // we verify the gauge-invariant observables here, not raw
-    // complex S-matrix entries.
+    // Why the complex compare now holds where #262 could not: the old
+    // largest-magnitude argmax pin (issue #262) was deterministic
+    // per-call but its pivot DOF could jump to a different edge between
+    // meshes — flipping a mode's sign and therefore its raw complex
+    // S-matrix entries (PR #261's `nx=10 → nx=16` flip). Concretely, the
+    // x-antisymmetric TE₂₀ mode has no single mesh-stable dominant DOF,
+    // so its transmission entry `S[A·TE20, B·TE20]` flipped sign between
+    // nx=12 and nx=10 under the argmax pin, forcing this test to compare
+    // magnitudes only. The reference-integral gauge (issue #300) instead
+    // pins each mode's sign by the projection onto a fixed continuous
+    // reference field (TE₂₀ locks onto the `sin(2πx/a)` y-reference),
+    // which converges with the mesh rather than jumping — so the raw
+    // complex entries are now reproducible across refinements.
     let nx_alt = 10_usize;
     eprintln!(
         "Cross-mesh reproducibility check: rerunning sweep at nx={nx_alt} \
-         to verify sign-pin's gauge-invariant cross-mesh agreement."
+         to verify the reference-integral gauge's full complex-entry cross-mesh \
+         agreement (issue #300)."
     );
     let g2 = extruded_height_step_waveguide_mesh(nx_alt, ny1, ny2, nz1, nz2, a, b1, b2, l1, l2);
     let pec_mask2 = g2.pec_interior_mask();
@@ -1153,7 +1153,45 @@ fn bimodal_height_step_matches_analytic_mode_matching() {
         gauge_align_min_dot
     );
 
-    // (2) Magnitude reproducibility (gauge-invariant).
+    // (2) Full complex-entry reproducibility (issue #300). With the
+    // reference-integral gauge pinning each mode's sign mesh-stably, the
+    // raw complex S-matrix entries — not just magnitudes — agree between
+    // resolutions within the mesh-convergence budget. Tolerance 0.1
+    // absolute per entry (issue #300 / #263 target); the observed worst
+    // complex |Δ| is ~0.02, dominated by the ~5% β-discretization
+    // difference between nx=12 and nx=10 on the dominant transmission.
+    let tol_complex_repro = 0.1_f64;
+    let mut worst_complex_repro = 0.0_f64;
+    let mut worst_complex_at = (0usize, 0usize);
+    for r in 0..n_total {
+        for c in 0..n_total {
+            let diff = (pt.s[r * n_total + c] - pt2.s[r * n_total + c]).norm();
+            if diff > worst_complex_repro {
+                worst_complex_repro = diff;
+                worst_complex_at = (r, c);
+            }
+        }
+    }
+    eprintln!(
+        "Cross-mesh: worst |S^12[i,j] − S^10[i,j]| (full complex) = {:.4e} at \
+         [{},{}] (tol {tol_complex_repro})",
+        worst_complex_repro, worst_complex_at.0, worst_complex_at.1
+    );
+    assert!(
+        worst_complex_repro < tol_complex_repro,
+        "S-matrix COMPLEX cross-mesh reproducibility violated: worst |Δ| = {:.4e} \
+         at [{},{}] ≥ {tol_complex_repro} between nx=12 and nx=10. With the \
+         reference-integral gauge (issue #300) the raw complex entries — not just \
+         magnitudes — must agree; a failure here means a mode's gauge sign flipped \
+         across meshes (the #262 argmax-pin regression this gauge fixes) or a \
+         genuine FEM convergence regression.",
+        worst_complex_repro,
+        worst_complex_at.0,
+        worst_complex_at.1
+    );
+
+    // (3) Magnitude reproducibility (gauge-invariant, finer FEM-
+    // convergence sanity; a strict subset of the complex check above).
     let tol_mag_repro = 0.05_f64;
     let mut worst_mag_repro = 0.0_f64;
     for r in 0..n_total {
@@ -1177,7 +1215,8 @@ fn bimodal_height_step_matches_analytic_mode_matching() {
     );
 
     eprintln!(
-        "ALL CHECKS PASSED. Truncation M_A=M_B={m_a_trunc}, residual={:.3e}.",
+        "ALL CHECKS PASSED (incl. full complex cross-mesh reproducibility, issue \
+         #300). Truncation M_A=M_B={m_a_trunc}, residual={:.3e}.",
         trunc_residual
     );
 }
