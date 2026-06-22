@@ -26,6 +26,19 @@
 //!
 //! Convergence is declared when the residual norm
 //! `‖K x - λ M x‖_2 / ‖λ M x‖_2 < tol` for **every** requested mode.
+//!
+//! # Why this loop is not ported onto [`crate::iterate`]
+//!
+//! Full reorthogonalization keeps the **entire** basis history, so the
+//! Krylov basis `V_k` gains one column per Lanczos iteration — the
+//! carried state grows by one vector each step. That violates
+//! [`crate::iterate`] **contract restriction 1** (loop-invariant
+//! carried-state shapes): a trace-once graph backend traces the loop body
+//! once and cannot express a state slot whose tensor shape changes
+//! between iterations. This is exactly the "do not grow a `Vec` inside
+//! the carried state" anti-pattern. The restart loop is therefore
+//! intentionally **not** expressed via `iterate_while` /
+//! `iterate_while_with_prev`; it stays as a hand-rolled loop.
 
 use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef};
