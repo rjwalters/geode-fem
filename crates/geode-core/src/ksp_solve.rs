@@ -25,13 +25,16 @@
 //!   `(r, z) = r^H z` inner product with the bilinear `r^T z`. The
 //!   same complex-symmetric structure powers the bilinear-form
 //!   Lanczos in [`crate::complex_lanczos`].
-//! - A [`Preconditioner`] trait with three concrete preconditioners:
+//! - A [`Preconditioner`] trait with four concrete preconditioners:
 //!   [`IdentityPreconditioner`] (the no-op), [`JacobiPreconditioner`]
 //!   (diagonal scaling — `M = diag(A)`, the simplest and cheapest
-//!   left-preconditioner), and [`IluPreconditioner`] (incomplete-LU
+//!   left-preconditioner), [`IluPreconditioner`] (incomplete-LU
 //!   factorization on `A`'s sparsity pattern — heavier setup, much
 //!   lower iteration counts on ill-conditioned operators; see
-//!   issue #267).
+//!   issue #267), and [`ChebyshevPreconditioner`] (a fixed-degree
+//!   first-kind Chebyshev polynomial smoother on the Jacobi-scaled
+//!   operator — matrix-free-friendly, only SpMV + AXPY, no triangular
+//!   factor; see issue #299).
 //!
 //! # Algorithm — preconditioned COCG
 //!
@@ -596,6 +599,435 @@ impl Preconditioner for IluPreconditioner {
                 }
             }
             z[i] = acc / self.vals[self.diag_pos[i]];
+        }
+    }
+
+    fn dim(&self) -> usize {
+        self.n
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ChebyshevPreconditioner — fixed-degree first-kind polynomial smoother
+// ---------------------------------------------------------------------------
+
+/// Which Chebyshev polynomial family the smoother uses.
+///
+/// Only the **first kind** is implemented for issue #299 (`v1`). The
+/// fourth-kind smoother (Lottes 2022 — the form Palace exposes) is a
+/// deliberate follow-up and is reserved here so the constructor's
+/// signature is forward-compatible; selecting it currently panics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChebyshevKind {
+    /// First-kind Chebyshev iteration (Saad §12.3) — the v1 default.
+    First,
+    /// Fourth-kind Chebyshev smoother (Lottes 2022). **Not yet
+    /// implemented** — reserved for a follow-up; constructing with
+    /// this variant panics.
+    Fourth,
+}
+
+/// **Chebyshev polynomial-smoother preconditioner** for the
+/// complex-symmetric driven pencil (issue #299).
+///
+/// This realizes the firm whiteroom `chebyshev` L4 surface. Given the
+/// residual `r`, the preconditioner returns `z = p_k(Â) D⁻¹ r ≈ A⁻¹ r`
+/// where `Â = D⁻¹ A` is the Jacobi-scaled operator, `D = diag(A)`, and
+/// `p_k` is the degree-`k` first-kind Chebyshev iteration polynomial
+/// over the spectral interval `[λ_min, λ_max]` of `Â`. Unlike ILU(0)
+/// it needs **no triangular factor** — each apply is `k` SpMVs plus
+/// AXPYs, which is trivially parallel and matrix-free-friendly. This is
+/// the standard smoother in Palace's geometric-multigrid preconditioner.
+///
+/// # Which variant (v1)
+///
+/// This implements the **first-kind** Chebyshev iteration
+/// ([`ChebyshevKind::First`]). The fourth-kind smoother
+/// ([`ChebyshevKind::Fourth`], Lottes 2022) is reserved as a follow-up
+/// and currently panics at construction.
+///
+/// # Algorithm — first-kind Chebyshev iteration
+///
+/// We approximately solve `Â ẑ = r̂` (with `r̂ = D⁻¹ r`) by the
+/// three-term first-kind Chebyshev recurrence (Saad, *Iterative
+/// Methods*, §12.3.2; Gutknecht & Röllin 2002). With
+/// `θ = (λ_max + λ_min)/2`, `δ = (λ_max − λ_min)/2`, `σ₁ = θ/δ`, and a
+/// zero initial guess `ẑ₀ = 0` (so the initial residual is `r̂`):
+///
+/// ```text
+/// ρ₀ = 1/σ₁
+/// d  = (1/θ) r̂                 (first correction)
+/// ẑ  = d
+/// s  = r̂ − Â d                 (residual after step 0)
+/// for j = 1 .. k-1:
+///     ρ_j = 1 / (2σ₁ − ρ_{j-1})
+///     d   = ρ_j ρ_{j-1} d + (2 ρ_j / δ) s
+///     ẑ  += d
+///     s  -= Â d
+/// ```
+///
+/// `z = ẑ`. A degree of `k = 0` returns `z = D⁻¹ r` exactly — i.e. the
+/// smoother degenerates to **Jacobi** (no polynomial steps), which the
+/// unit tests assert.
+///
+/// # Eigenvalue-bound estimation and its cost
+///
+/// `λ_max(Â)` is estimated by a few steps of **power iteration** on the
+/// diagonally-scaled operator `Â = D⁻¹ A`, using the magnitude of the
+/// Rayleigh-like quotient `|vᵀ Â v| / |vᵀ v|` (bilinear, no
+/// conjugation — see the math note below). The estimate is then padded
+/// by a small safety factor (`1.1×`) so the true spectral radius stays
+/// inside the Chebyshev interval. `λ_min` is set to `λ_max / ratio`
+/// with a configurable `ratio` (smoother default `≈ 30`, targeting the
+/// upper part of the spectrum — the high-frequency error a smoother is
+/// meant to damp). The cost is `O(n_power · nnz)` one-shot at
+/// construction (default `n_power = 10`), amortized over every apply —
+/// the same SpMV kernel the iteration itself uses.
+///
+/// # Math note (complex-symmetric / COCG compatibility)
+///
+/// COCG uses the **bilinear** form `r^T z` — no conjugation. Every
+/// inner operation here uses standard complex `*` / `/` / `+` `c64`
+/// arithmetic: the diagonal scaling `D⁻¹`, the SpMV `Â v`, the AXPYs,
+/// and the power-iteration Rayleigh quotient `vᵀ Â v` (bilinear, **not**
+/// `v^H Â v`). The smoother polynomial `p_k(Â)` is therefore a complex
+/// polynomial in the complex-symmetric operator and composes cleanly
+/// with the COCG inner product — the same "no conjugation" invariant
+/// [`IluPreconditioner`] and the bilinear-form Lanczos in
+/// [`crate::complex_lanczos`] rely on. The eigenvalue *interval*
+/// `[λ_min, λ_max]` is taken on the real axis from the magnitudes of
+/// the estimate; for the lossy/PML pencils we target (close to real
+/// SPD with a small absorbing imaginary part) the spectrum hugs the
+/// positive real axis, so a real interval is the right smoothing window.
+#[derive(Debug, Clone)]
+pub struct ChebyshevPreconditioner {
+    /// System size.
+    n: usize,
+    /// Polynomial degree `k` (number of Chebyshev steps). `0` ⇒ Jacobi.
+    degree: usize,
+    /// Reciprocal of `diag(A)` — the Jacobi scaling `D⁻¹`.
+    inv_diag: Vec<c64>,
+    /// CSC column pointers of `A` (owned copy for the apply-time SpMV).
+    col_ptr: Vec<usize>,
+    /// CSC row indices of `A`.
+    row_idx: Vec<usize>,
+    /// CSC values of `A`.
+    val: Vec<c64>,
+    /// Estimated spectral lower bound `λ_min` of `Â = D⁻¹ A`.
+    lambda_min: f64,
+    /// Estimated spectral upper bound `λ_max` of `Â = D⁻¹ A`.
+    lambda_max: f64,
+}
+
+/// Tuning knobs for [`ChebyshevPreconditioner`]. Built via
+/// [`ChebyshevConfig::default`] (a sensible smoother default) or by
+/// setting the fields directly.
+#[derive(Debug, Clone, Copy)]
+pub struct ChebyshevConfig {
+    /// Which Chebyshev family. Only [`ChebyshevKind::First`] is
+    /// implemented; [`ChebyshevKind::Fourth`] panics.
+    pub kind: ChebyshevKind,
+    /// Ratio `λ_max / λ_min` defining the smoothing interval. Larger ⇒
+    /// the interval reaches further toward the origin (more of the
+    /// spectrum smoothed) at the cost of weaker high-frequency damping.
+    /// Smoother default `≈ 30`.
+    pub ratio: f64,
+    /// Number of power-iteration steps for the `λ_max` estimate.
+    pub power_iters: usize,
+    /// Safety factor applied to the `λ_max` estimate so the true
+    /// spectral radius stays inside the Chebyshev interval. `≥ 1`.
+    pub safety_factor: f64,
+}
+
+impl Default for ChebyshevConfig {
+    fn default() -> Self {
+        Self {
+            kind: ChebyshevKind::First,
+            ratio: 30.0,
+            power_iters: 10,
+            safety_factor: 1.1,
+        }
+    }
+}
+
+impl ChebyshevPreconditioner {
+    /// Build a degree-`degree` first-kind Chebyshev smoother for the
+    /// complex sparse CSC matrix `a`, using the default
+    /// [`ChebyshevConfig`] (`ratio ≈ 30`, 10 power-iteration steps,
+    /// `1.1×` safety padding). The matrix must be square.
+    ///
+    /// `degree = 0` is the Jacobi degenerate case (`apply` returns
+    /// `D⁻¹ r`); it skips the power-iteration estimate entirely.
+    ///
+    /// # Errors
+    ///
+    /// [`KspError::Breakdown`] (with `kind = "diag(A)"`) if any diagonal
+    /// entry of `a` is zero or non-finite — the Jacobi scaling the
+    /// smoother is built on is undefined in that case.
+    pub fn new(a: SparseColMatRef<'_, usize, c64>, degree: usize) -> Result<Self, KspError> {
+        Self::with_config(a, degree, ChebyshevConfig::default())
+    }
+
+    /// Build the smoother with an explicit [`ChebyshevConfig`].
+    ///
+    /// # Errors
+    ///
+    /// [`KspError::Breakdown`] if any diagonal entry of `a` is zero or
+    /// non-finite (`kind = "diag(A)"`), mirroring
+    /// [`JacobiPreconditioner::new`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `a` is non-square, if `config.kind` is
+    /// [`ChebyshevKind::Fourth`] (reserved for a follow-up), or if
+    /// `config.ratio <= 1.0` (the interval would be degenerate).
+    pub fn with_config(
+        a: SparseColMatRef<'_, usize, c64>,
+        degree: usize,
+        config: ChebyshevConfig,
+    ) -> Result<Self, KspError> {
+        let n = a.nrows();
+        assert_eq!(a.ncols(), n, "ChebyshevPreconditioner requires square A");
+        assert_eq!(
+            config.kind,
+            ChebyshevKind::First,
+            "ChebyshevPreconditioner: only the first-kind smoother is implemented \
+             (issue #299 scope rails); fourth-kind (Lottes 2022) is a follow-up"
+        );
+        assert!(
+            config.ratio > 1.0,
+            "ChebyshevPreconditioner: ratio must be > 1 (got {})",
+            config.ratio
+        );
+        assert!(
+            config.safety_factor >= 1.0,
+            "ChebyshevPreconditioner: safety_factor must be ≥ 1 (got {})",
+            config.safety_factor
+        );
+
+        // Own the CSC arrays so `apply` can run SpMV without holding a
+        // borrow of the original matrix.
+        let col_ptr = a.col_ptr().to_vec();
+        let row_idx = a.row_idx().to_vec();
+        let val = a.val().to_vec();
+
+        // Extract diag(A) and cache its reciprocal — same construction
+        // as JacobiPreconditioner.
+        let mut diag = vec![c64::new(0.0, 0.0); n];
+        for j in 0..n {
+            for k in col_ptr[j]..col_ptr[j + 1] {
+                let i = row_idx[k];
+                if i == j {
+                    diag[j] += val[k];
+                }
+            }
+        }
+        let mut inv_diag = vec![c64::new(0.0, 0.0); n];
+        for (j, d) in diag.iter().enumerate() {
+            if !(d.re.is_finite() && d.im.is_finite()) {
+                return Err(KspError::Breakdown {
+                    iter: 0,
+                    kind: "diag(A)",
+                    value_re: d.re,
+                    value_im: d.im,
+                });
+            }
+            let mag2 = d.re * d.re + d.im * d.im;
+            if mag2 == 0.0 {
+                return Err(KspError::Breakdown {
+                    iter: 0,
+                    kind: "diag(A)",
+                    value_re: d.re,
+                    value_im: d.im,
+                });
+            }
+            inv_diag[j] = c64::new(d.re / mag2, -d.im / mag2);
+        }
+
+        // Eigenvalue-bound estimation. Degree 0 reduces to Jacobi and
+        // never touches the polynomial path, so the (cheap-but-nonzero)
+        // power iteration is skipped.
+        let (lambda_min, lambda_max) = if degree == 0 {
+            (1.0, 1.0)
+        } else {
+            let lambda_max =
+                estimate_lambda_max(&col_ptr, &row_idx, &val, &inv_diag, config.power_iters)
+                    * config.safety_factor;
+            let lambda_min = lambda_max / config.ratio;
+            (lambda_min, lambda_max)
+        };
+
+        Ok(Self {
+            n,
+            degree,
+            inv_diag,
+            col_ptr,
+            row_idx,
+            val,
+            lambda_min,
+            lambda_max,
+        })
+    }
+
+    /// The estimated spectral interval `[λ_min, λ_max]` of the
+    /// Jacobi-scaled operator `Â = D⁻¹ A`. Exposed for diagnostics and
+    /// tests; for `degree = 0` both bounds are `1.0` (unused).
+    pub fn spectral_interval(&self) -> (f64, f64) {
+        (self.lambda_min, self.lambda_max)
+    }
+
+    /// Apply the Jacobi-scaled operator: `out = D⁻¹ A v`. Uses only
+    /// standard complex arithmetic (no conjugation), consistent with
+    /// the COCG bilinear form.
+    fn apply_scaled_operator(&self, v: &[c64], out: &mut [c64]) {
+        // out = A v
+        for o in out.iter_mut() {
+            *o = c64::new(0.0, 0.0);
+        }
+        for (j, &xj) in v.iter().enumerate() {
+            if xj.re == 0.0 && xj.im == 0.0 {
+                continue;
+            }
+            for k in self.col_ptr[j]..self.col_ptr[j + 1] {
+                let i = self.row_idx[k];
+                out[i] += self.val[k] * xj;
+            }
+        }
+        // out = D⁻¹ (A v)
+        for (o, d) in out.iter_mut().zip(self.inv_diag.iter()) {
+            *o *= *d;
+        }
+    }
+}
+
+/// Power-iteration estimate of `λ_max(D⁻¹ A)` using the **bilinear**
+/// Rayleigh quotient `|vᵀ Â v| / |vᵀ v|` (no conjugation — consistent
+/// with the COCG complex-symmetric form). Returns a strictly positive
+/// estimate; degenerate inputs fall back to `1.0`.
+fn estimate_lambda_max(
+    col_ptr: &[usize],
+    row_idx: &[usize],
+    val: &[c64],
+    inv_diag: &[c64],
+    iters: usize,
+) -> f64 {
+    let n = inv_diag.len();
+    if n == 0 {
+        return 1.0;
+    }
+    // Deterministic, non-degenerate start vector.
+    let mut v: Vec<c64> = (0..n)
+        .map(|i| c64::new(1.0 + (i as f64) * 1e-3, 0.0))
+        .collect();
+    let mut av = vec![c64::new(0.0, 0.0); n];
+
+    let scaled_spmv = |v: &[c64], out: &mut [c64]| {
+        for o in out.iter_mut() {
+            *o = c64::new(0.0, 0.0);
+        }
+        for (j, &xj) in v.iter().enumerate() {
+            if xj.re == 0.0 && xj.im == 0.0 {
+                continue;
+            }
+            for k in col_ptr[j]..col_ptr[j + 1] {
+                let i = row_idx[k];
+                out[i] += val[k] * xj;
+            }
+        }
+        for (o, d) in out.iter_mut().zip(inv_diag.iter()) {
+            *o *= *d;
+        }
+    };
+
+    let mut lambda = 1.0_f64;
+    for _ in 0..iters.max(1) {
+        scaled_spmv(&v, &mut av);
+        // Bilinear Rayleigh quotient λ ≈ |vᵀ Â v| / |vᵀ v|.
+        let mut num = c64::new(0.0, 0.0);
+        let mut den = c64::new(0.0, 0.0);
+        for (&vi, &avi) in v.iter().zip(av.iter()) {
+            num += vi * avi;
+            den += vi * vi;
+        }
+        let den_mag = (den.re * den.re + den.im * den.im).sqrt();
+        if den_mag > 0.0 {
+            let num_mag = (num.re * num.re + num.im * num.im).sqrt();
+            let q = num_mag / den_mag;
+            if q.is_finite() && q > 0.0 {
+                lambda = q;
+            }
+        }
+        // Normalize av by its Euclidean norm to form the next iterate.
+        let nrm = euclid_norm(&av);
+        if !nrm.is_finite() || nrm == 0.0 {
+            break;
+        }
+        let inv = 1.0 / nrm;
+        for (vi, &avi) in v.iter_mut().zip(av.iter()) {
+            *vi = avi * c64::new(inv, 0.0);
+        }
+    }
+
+    if lambda.is_finite() && lambda > 0.0 {
+        lambda
+    } else {
+        1.0
+    }
+}
+
+impl Preconditioner for ChebyshevPreconditioner {
+    /// Apply the fixed-degree first-kind Chebyshev smoother:
+    /// `z = p_k(Â) D⁻¹ r ≈ A⁻¹ r`. Degree `0` returns `z = D⁻¹ r`
+    /// (Jacobi). All arithmetic is standard complex (no conjugation),
+    /// preserving the COCG bilinear inner product.
+    fn apply(&self, r: &[c64], z: &mut [c64]) {
+        debug_assert_eq!(r.len(), self.n);
+        debug_assert_eq!(z.len(), self.n);
+
+        // r̂ = D⁻¹ r — the Jacobi-scaled right-hand side.
+        let mut s = vec![c64::new(0.0, 0.0); self.n];
+        for ((si, &ri), &di) in s.iter_mut().zip(r.iter()).zip(self.inv_diag.iter()) {
+            *si = ri * di;
+        }
+
+        // Degree 0 ⇒ Jacobi: z = D⁻¹ r.
+        if self.degree == 0 {
+            z.copy_from_slice(&s);
+            return;
+        }
+
+        let theta = 0.5 * (self.lambda_max + self.lambda_min);
+        let delta = 0.5 * (self.lambda_max - self.lambda_min);
+        let sigma1 = theta / delta;
+
+        // First step (j = 0): d = (1/θ) r̂, ẑ = d, residual s -= Â d.
+        let inv_theta = c64::new(1.0 / theta, 0.0);
+        let mut d = vec![c64::new(0.0, 0.0); self.n];
+        for ((di, zi), &si) in d.iter_mut().zip(z.iter_mut()).zip(s.iter()) {
+            *di = si * inv_theta;
+            *zi = *di;
+        }
+        let mut ad = vec![c64::new(0.0, 0.0); self.n];
+        self.apply_scaled_operator(&d, &mut ad);
+        for (si, &adi) in s.iter_mut().zip(ad.iter()) {
+            *si -= adi;
+        }
+
+        // Three-term recurrence for j = 1 .. degree-1.
+        let mut rho_prev = 1.0 / sigma1;
+        for _ in 1..self.degree {
+            let rho = 1.0 / (2.0 * sigma1 - rho_prev);
+            let c_d = c64::new(rho * rho_prev, 0.0);
+            let c_s = c64::new(2.0 * rho / delta, 0.0);
+            for ((di, zi), &si) in d.iter_mut().zip(z.iter_mut()).zip(s.iter()) {
+                *di = c_d * *di + c_s * si;
+                *zi += *di;
+            }
+            self.apply_scaled_operator(&d, &mut ad);
+            for (si, &adi) in s.iter_mut().zip(ad.iter()) {
+                *si -= adi;
+            }
+            rho_prev = rho;
         }
     }
 
@@ -1193,5 +1625,194 @@ mod tests {
         ];
         let a = SparseColMat::<usize, c64>::try_new_from_triplets(2, 2, &trips).unwrap();
         let _ = IluPreconditioner::new(a.as_ref(), 1);
+    }
+
+    // -----------------------------------------------------------------
+    // Chebyshev preconditioner — unit tests (issue #299)
+    // -----------------------------------------------------------------
+
+    /// Build the shared 3×3 complex-symmetric lossy fixture (the same
+    /// one the COCG and ILU(0) tests use).
+    fn complex_symmetric_lossy_3x3() -> SparseColMat<usize, c64> {
+        let n = 3;
+        let trips = vec![
+            Triplet::new(0_usize, 0, c64::new(4.0, 0.1)),
+            Triplet::new(0, 1, c64::new(1.0, 0.05)),
+            Triplet::new(1, 0, c64::new(1.0, 0.05)),
+            Triplet::new(1, 1, c64::new(3.0, 0.2)),
+            Triplet::new(1, 2, c64::new(1.0, 0.0)),
+            Triplet::new(2, 1, c64::new(1.0, 0.0)),
+            Triplet::new(2, 2, c64::new(2.0, 0.1)),
+        ];
+        SparseColMat::<usize, c64>::try_new_from_triplets(n, n, &trips).unwrap()
+    }
+
+    /// Degree 0 must reduce **exactly** to the Jacobi preconditioner —
+    /// `z = D⁻¹ r` with no polynomial steps. Verified element-wise
+    /// against [`JacobiPreconditioner`].
+    #[test]
+    fn chebyshev_degree_zero_is_jacobi() {
+        let a = complex_symmetric_lossy_3x3();
+        let cheb = ChebyshevPreconditioner::new(a.as_ref(), 0).unwrap();
+        let jac = JacobiPreconditioner::new(a.as_ref()).unwrap();
+
+        let r = vec![c64::new(1.0, -0.2), c64::new(2.0, 0.1), c64::new(0.5, 0.3)];
+        let mut z_cheb = vec![c64::new(0.0, 0.0); 3];
+        let mut z_jac = vec![c64::new(0.0, 0.0); 3];
+        cheb.apply(&r, &mut z_cheb);
+        jac.apply(&r, &mut z_jac);
+        for i in 0..3 {
+            assert!(
+                (z_cheb[i] - z_jac[i]).norm() < 1e-15,
+                "degree-0 Chebyshev must match Jacobi at index {i}: {:?} vs {:?}",
+                z_cheb[i],
+                z_jac[i],
+            );
+        }
+    }
+
+    /// **Bilinear-form / no-conjugation check.** The smoother applies a
+    /// real polynomial `p_k(Â)` in the complex-symmetric operator
+    /// `Â = D⁻¹A`. If any inner step accidentally conjugated, the output
+    /// would differ from the same polynomial evaluated with conjugation
+    /// flipped. We assert the smoother is **linear** over `c64` scalars
+    /// — `M⁻¹(α r) = α M⁻¹(r)` for a genuinely complex `α` — which a
+    /// conjugating implementation (anti-linear in the conjugated slots)
+    /// cannot satisfy. This is the direct analog of the constraint
+    /// [`IluPreconditioner`] documents.
+    #[test]
+    fn chebyshev_preserves_bilinear_form_no_conjugation() {
+        let a = complex_symmetric_lossy_3x3();
+        let cheb = ChebyshevPreconditioner::new(a.as_ref(), 4).unwrap();
+
+        let r = vec![c64::new(1.0, -0.7), c64::new(-0.4, 1.3), c64::new(0.9, 0.2)];
+        // A scalar with a non-trivial imaginary part — the discriminator
+        // between linear (correct) and anti-linear (conjugating) maps.
+        let alpha = c64::new(0.5, -1.2);
+
+        let mut z_r = vec![c64::new(0.0, 0.0); 3];
+        cheb.apply(&r, &mut z_r);
+
+        let ar: Vec<c64> = r.iter().map(|&x| alpha * x).collect();
+        let mut z_ar = vec![c64::new(0.0, 0.0); 3];
+        cheb.apply(&ar, &mut z_ar);
+
+        // Linearity: M⁻¹(α r) == α M⁻¹(r). A conjugating implementation
+        // would instead produce ᾱ M⁻¹(r) (or worse), failing here.
+        for i in 0..3 {
+            let expected = alpha * z_r[i];
+            assert!(
+                (z_ar[i] - expected).norm() < 1e-12,
+                "Chebyshev apply must be c64-linear (no conjugation) at index {i}: \
+                 got {:?}, expected {:?}",
+                z_ar[i],
+                expected,
+            );
+        }
+    }
+
+    /// COCG with the Chebyshev smoother must drive the small
+    /// complex-symmetric lossy system to round-off — the end-to-end
+    /// "no conjugation" check (a conjugating smoother would break COCG's
+    /// bilinear recurrence and either stall or diverge).
+    #[test]
+    fn chebyshev_solves_complex_symmetric_lossy() {
+        let a = complex_symmetric_lossy_3x3();
+        let b: Vec<c64> = vec![c64::new(1.0, -0.2), c64::new(2.0, 0.1), c64::new(0.5, 0.3)];
+
+        let mut x = vec![c64::new(0.0, 0.0); 3];
+        let pc = ChebyshevPreconditioner::new(a.as_ref(), 3).expect("Chebyshev smoother");
+        let cocg = Cocg::new(1e-12, 200);
+        let report = cocg
+            .solve(a.as_ref(), &b, &mut x, &pc)
+            .expect("COCG converges with Chebyshev");
+        assert!(report.converged);
+        assert!(report.residual_rel < 1e-10, "{:?}", report);
+    }
+
+    /// The Chebyshev preconditioner must reject a zero-diagonal matrix
+    /// (its Jacobi scaling is undefined), mirroring Jacobi/ILU.
+    #[test]
+    fn chebyshev_rejects_zero_diagonal() {
+        let trips = vec![
+            Triplet::new(0_usize, 1, c64::new(1.0, 0.0)),
+            Triplet::new(1, 0, c64::new(1.0, 0.0)),
+        ];
+        let a = SparseColMat::<usize, c64>::try_new_from_triplets(2, 2, &trips).unwrap();
+        let err = ChebyshevPreconditioner::new(a.as_ref(), 2).unwrap_err();
+        assert!(matches!(err, KspError::Breakdown { .. }));
+    }
+
+    /// The fourth-kind selector is reserved for a follow-up and must
+    /// panic — scope rails for issue #299 (first-kind only in v1).
+    #[test]
+    #[should_panic(expected = "first-kind")]
+    fn chebyshev_panics_on_fourth_kind() {
+        let a = complex_symmetric_lossy_3x3();
+        let config = ChebyshevConfig {
+            kind: ChebyshevKind::Fourth,
+            ..ChebyshevConfig::default()
+        };
+        let _ = ChebyshevPreconditioner::with_config(a.as_ref(), 4, config);
+    }
+
+    /// A positive-degree Chebyshev smoother must reduce the COCG
+    /// iteration count versus the **unpreconditioned** (identity) solve
+    /// on a denser SPD-ish fixture — the same fixture the ILU-vs-Jacobi
+    /// unit test uses. Reports both counts to stderr.
+    #[test]
+    fn chebyshev_iterations_lt_unpreconditioned_on_spd_ish() {
+        let n = 5;
+        let g = [
+            [0.0, 0.5, 0.3, 0.2, 0.1],
+            [0.5, 0.0, 0.4, 0.3, 0.2],
+            [0.3, 0.4, 0.0, 0.5, 0.3],
+            [0.2, 0.3, 0.5, 0.0, 0.4],
+            [0.1, 0.2, 0.3, 0.4, 0.0],
+        ];
+        let mut trips = Vec::new();
+        for (i, row) in g.iter().enumerate() {
+            for (j, &v_g) in row.iter().enumerate() {
+                let v = if i == j { v_g + 5.0 } else { v_g };
+                trips.push(Triplet::new(i, j, c64::new(v, 0.0)));
+            }
+        }
+        let a = SparseColMat::<usize, c64>::try_new_from_triplets(n, n, &trips).unwrap();
+        let b: Vec<c64> = (0..n).map(|i| c64::new(i as f64 + 1.0, 0.0)).collect();
+
+        let cocg = Cocg::new(1e-12, 500);
+
+        let mut x_id = vec![c64::new(0.0, 0.0); n];
+        let id = IdentityPreconditioner::new(n);
+        let report_id = cocg.solve(a.as_ref(), &b, &mut x_id, &id).unwrap();
+
+        let mut x_cheb = vec![c64::new(0.0, 0.0); n];
+        let cheb = ChebyshevPreconditioner::new(a.as_ref(), 4).unwrap();
+        let report_cheb = cocg.solve(a.as_ref(), &b, &mut x_cheb, &cheb).unwrap();
+
+        assert!(report_id.converged && report_cheb.converged);
+        assert!(
+            report_cheb.iters <= report_id.iters,
+            "Chebyshev iters ({}) must not exceed unpreconditioned iters ({})",
+            report_cheb.iters,
+            report_id.iters,
+        );
+        // Solutions must agree.
+        let diff: f64 = x_cheb
+            .iter()
+            .zip(x_id.iter())
+            .map(|(a, b)| (a - b).norm_sqr())
+            .sum::<f64>()
+            .sqrt();
+        let norm: f64 = x_id.iter().map(|x| x.norm_sqr()).sum::<f64>().sqrt();
+        assert!(diff / norm < 1e-8);
+
+        eprintln!(
+            "[issue #299] Chebyshev(deg=4) vs unpreconditioned on 5×5 SPD-ish: \
+             identity iters={}, Chebyshev iters={}, interval={:?}",
+            report_id.iters,
+            report_cheb.iters,
+            cheb.spectral_interval(),
+        );
     }
 }

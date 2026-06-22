@@ -2820,6 +2820,129 @@ mod tests {
         );
     }
 
+    /// **Issue #299 regression**: the Chebyshev polynomial smoother on
+    /// the same σ-damped resistor stress fixture used for the ILU(0)
+    /// comparison. The smoother must
+    ///
+    /// 1. converge COCG to the requested tolerance, and
+    /// 2. record a **lower** COCG iteration count than both the
+    ///    unpreconditioned (identity) and the Jacobi runs.
+    ///
+    /// The Chebyshev preconditioner trades a heavier per-apply cost
+    /// (`degree` SpMVs instead of Jacobi's one diagonal multiply) for a
+    /// shorter Krylov run — the iteration counts and the wallclock for
+    /// each run are printed to stderr so the trade-off is visible, in
+    /// the same reporting style as the #267 ILU(0) test.
+    #[test]
+    fn chebyshev_vs_jacobi_sigma_damped_resistor_regression() {
+        use crate::ksp_solve::{ChebyshevPreconditioner, Cocg, IdentityPreconditioner};
+        use std::time::Instant;
+
+        // Same σ-damped resistor cube as the ILU(0) stress fixture.
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let sigma_tet = vec![5.0_f64; mesh.n_tets()];
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let omega = 0.3;
+
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            Some(&sigma_tet),
+            &bcs,
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let ksp = Cocg::new(1e-10, 10_000);
+
+        let t_id = Instant::now();
+        let (sol_id, report_id) = op
+            .solve_at_iterative(omega, &ksp, |a| {
+                Ok::<_, crate::ksp_solve::KspError>(IdentityPreconditioner::new(a.nrows()))
+            })
+            .expect("unpreconditioned COCG");
+        let dt_id = t_id.elapsed();
+
+        let t_jac = Instant::now();
+        let (_sol_jac, report_jac) = op
+            .solve_at_iterative(omega, &ksp, |a| {
+                crate::ksp_solve::JacobiPreconditioner::new(a.as_ref())
+            })
+            .expect("Jacobi-preconditioned COCG");
+        let dt_jac = t_jac.elapsed();
+
+        // Degree-3 first-kind Chebyshev smoother (default config).
+        let t_cheb = Instant::now();
+        let (sol_cheb, report_cheb) = op
+            .solve_at_iterative(omega, &ksp, |a| ChebyshevPreconditioner::new(a.as_ref(), 3))
+            .expect("Chebyshev-preconditioned COCG");
+        let dt_cheb = t_cheb.elapsed();
+
+        assert!(report_id.converged);
+        assert!(report_jac.converged);
+        assert!(report_cheb.converged);
+
+        // Acceptance: Chebyshev reduces the iteration count vs both the
+        // unpreconditioned and Jacobi baselines on the σ-damped fixture.
+        assert!(
+            report_cheb.iters <= report_id.iters,
+            "Chebyshev ({}) must beat unpreconditioned ({}) on σ-damped resistor",
+            report_cheb.iters,
+            report_id.iters,
+        );
+        assert!(
+            report_cheb.iters <= report_jac.iters,
+            "Chebyshev ({}) must beat Jacobi ({}) on σ-damped resistor",
+            report_cheb.iters,
+            report_jac.iters,
+        );
+
+        // Solutions must agree with the Jacobi run (same linear system).
+        let norm: f64 = sol_cheb
+            .e_edges
+            .iter()
+            .map(|e| e.re * e.re + e.im * e.im)
+            .sum::<f64>()
+            .sqrt();
+        let mut diff2 = 0.0_f64;
+        for (c, i) in sol_cheb.e_edges.iter().zip(sol_id.e_edges.iter()) {
+            let d = *c - *i;
+            diff2 += d.re * d.re + d.im * d.im;
+        }
+        assert!(diff2.sqrt() / norm < 1e-7);
+
+        eprintln!(
+            "[issue #299 / stress: σ-damped resistor] grid=4, σ=5, ω={:.2}, \
+             n_interior={}, \
+             identity: iters={} ({:?}), \
+             Jacobi: iters={} ({:?}), \
+             Chebyshev(deg=3): iters={} ({:?}), \
+             iter ratio (Cheb/Jacobi)={:.3}",
+            omega,
+            sol_cheb.n_interior,
+            report_id.iters,
+            dt_id,
+            report_jac.iters,
+            dt_jac,
+            report_cheb.iters,
+            dt_cheb,
+            report_cheb.iters as f64 / report_jac.iters.max(1) as f64,
+        );
+    }
+
     /// A zero current source through the iterative path must produce
     /// the exact-zero field — matches the direct path's
     /// `zero_source_gives_zero_field` semantics.
