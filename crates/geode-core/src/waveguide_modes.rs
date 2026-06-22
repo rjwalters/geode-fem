@@ -1652,15 +1652,31 @@ fn tri_nedelec2_dofs(
     n_edges: usize,
 ) -> [(usize, f64); 8] {
     let mut out = [(0usize, 1.0f64); 8];
-    // Six edge DOFs: two per local edge (Whitney then gradient).
+    // Six edge DOFs: two per local edge (Whitney then gradient). The per-DOF
+    // orientation rule is read from [`TRI_NEDELEC2_DOF_FLIPS`] (the single
+    // source of truth): a DOF whose `flips` entry is `true` carries its
+    // edge's orientation sign; otherwise it carries `+1`.
     for (k, &(gedge, esign)) in tri_edges_row.iter().enumerate() {
         let base = 2 * gedge as usize;
         // Local DOF 2k = Whitney (odd → flips with edge orientation).
-        out[2 * k] = (base, esign as f64);
+        let w_sign = if TRI_NEDELEC2_DOF_FLIPS[2 * k] {
+            esign as f64
+        } else {
+            1.0
+        };
+        out[2 * k] = (base, w_sign);
         // Local DOF 2k+1 = gradient Q (even → orientation-independent).
-        out[2 * k + 1] = (base + 1, 1.0);
+        let q_sign = if TRI_NEDELEC2_DOF_FLIPS[2 * k + 1] {
+            esign as f64
+        } else {
+            1.0
+        };
+        out[2 * k + 1] = (base + 1, q_sign);
     }
-    // Two interior bubble DOFs, appended after all edge DOFs.
+    // Two interior bubble DOFs, appended after all edge DOFs. The interior
+    // bubbles (local DOFs 6, 7) are per-triangle and never shared, so
+    // [`TRI_NEDELEC2_DOF_FLIPS`] marks them orientation-independent (`+1`).
+    debug_assert!(!TRI_NEDELEC2_DOF_FLIPS[6] && !TRI_NEDELEC2_DOF_FLIPS[7]);
     let interior_base = 2 * n_edges + 2 * tri_index;
     out[6] = (interior_base, 1.0);
     out[7] = (interior_base + 1, 1.0);
@@ -7094,6 +7110,123 @@ mod tests {
             "shared Whitney DOF received no mass contribution"
         );
         let _ = n_edges;
+    }
+
+    /// **Gradient-`Q` orientation guard (issue #325):** the gradient edge
+    /// functions `Q = ∇(λ_a λ_b)` are *even* (symmetric under `a ↔ b`), so
+    /// they must scatter with sign `+1` regardless of the global edge
+    /// orientation — they do NOT flip the way the Whitney functions do.
+    ///
+    /// The diagonal `Q–Q` checks in `p2_shared_edge_sign_consistency` cannot
+    /// catch a wrong `Q` sign, because `sign² = +1` squares any sign bug away.
+    /// The discriminating signal is a `Q–Q` **off-diagonal** entry across a
+    /// shared edge, where the cross sign `sign_i · sign_j` does NOT square
+    /// out. This test hand-accumulates every global `M` `Q–Q` entry with the
+    /// gradient sign forced to `+1` (the orientation-independent rule) and
+    /// asserts the assembler agrees. If the edge `esign` were wrongly applied
+    /// to the `Q` DOFs, the two triangles meeting at the shared diagonal —
+    /// which touch it with OPPOSITE orientation parity — would corrupt the
+    /// shared `Q`'s off-diagonal couplings to the other edges' `Q` DOFs, and
+    /// the hand reference (which uses `+1`) would disagree.
+    ///
+    /// Concretely guards against the mutation "apply `esign` to local DOFs
+    /// `1, 3, 5`", which the full suite otherwise passed silently.
+    #[test]
+    fn p2_shared_edge_q_offdiagonal_orientation_invariant() {
+        // Same two-triangle fixture as p2_shared_edge_sign_consistency: the
+        // shared diagonal edge is traversed with opposite local orientation
+        // by the two triangles, so a wrong Q sign rule WILL surface on a
+        // Q–Q off-diagonal (cross sign does not square to +1).
+        let mesh = TriMesh {
+            nodes: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            tris: vec![[0, 1, 2], [2, 3, 0]],
+        };
+        let edges = mesh.edges();
+        let tri_edges = mesh.tri_edges();
+        let n_edges = edges.len();
+        let eps = vec![1.0; mesh.n_tris()];
+        let (_k, m) = assemble_2d_nedelec2_with_epsilon(&mesh, &eps);
+
+        // Hand-accumulate the global Q–Q block with the orientation-INDEPENDENT
+        // rule (gradient sign ≡ +1), exactly as the correct assembler should.
+        let mut q_ref = Mat::<f64>::zeros(n_edges, n_edges);
+        for (tri, row) in mesh.tris.iter().zip(tri_edges.iter()) {
+            let coords = [
+                mesh.nodes[tri[0] as usize],
+                mesh.nodes[tri[1] as usize],
+                mesh.nodes[tri[2] as usize],
+            ];
+            let (_kl, ml, _a) = tri_nedelec2_local(&coords);
+            // Local gradient DOFs are the odd local indices 1, 3, 5, mapping
+            // to global edges row[0..3]. Q carries sign +1 (no esign).
+            for (ka, &(ga, _sa)) in row.iter().enumerate() {
+                for (kb, &(gb, _sb)) in row.iter().enumerate() {
+                    q_ref[(ga as usize, gb as usize)] += ml[2 * ka + 1][2 * kb + 1];
+                }
+            }
+        }
+
+        // The assembler's Q DOF for global edge e is global index 2e+1.
+        // Every entry — diagonal AND off-diagonal — must match the +1 rule.
+        // The off-diagonal entries are the load-bearing ones: they FAIL if
+        // esign is wrongly applied to Q (cross sign ≠ +1 across the shared
+        // edge), while the diagonal would pass either way.
+        let mut checked_offdiag = 0usize;
+        for e_i in 0..n_edges {
+            for e_j in 0..n_edges {
+                let gi = 2 * e_i + 1;
+                let gj = 2 * e_j + 1;
+                assert!(
+                    (m[(gi, gj)] - q_ref[(e_i, e_j)]).abs() < 1e-12,
+                    "Q–Q M entry (edges {e_i},{e_j}) is orientation-dependent: \
+                     assembled {} vs +1-rule reference {} — gradient esign bug",
+                    m[(gi, gj)],
+                    q_ref[(e_i, e_j)]
+                );
+                if e_i != e_j && q_ref[(e_i, e_j)].abs() > 1e-12 {
+                    checked_offdiag += 1;
+                }
+            }
+        }
+
+        // The guard is only meaningful if at least one nonzero Q–Q
+        // off-diagonal was actually exercised (otherwise the assertion above
+        // is vacuous and a Q-flip mutation could still slip through).
+        assert!(
+            checked_offdiag > 0,
+            "fixture produced no nonzero Q–Q off-diagonal entries; \
+             the orientation guard would be vacuous"
+        );
+
+        // Sharpen the guard at the shared edge specifically: its Q DOF must
+        // couple (off-diagonal) to at least one other edge's Q DOF, and that
+        // coupling must match the +1-rule reference. This is the exact entry
+        // the Q-flip mutation corrupts.
+        let shared = edges
+            .iter()
+            .position(|e| *e == [0, 2] || *e == [2, 0])
+            .expect("shared edge (0,2) must exist");
+        let gq_shared = 2 * shared + 1;
+        let mut shared_offdiag_nonzero = false;
+        for e_j in 0..n_edges {
+            if e_j == shared {
+                continue;
+            }
+            let gj = 2 * e_j + 1;
+            if q_ref[(shared, e_j)].abs() > 1e-12 {
+                shared_offdiag_nonzero = true;
+                assert!(
+                    (m[(gq_shared, gj)] - q_ref[(shared, e_j)]).abs() < 1e-12,
+                    "shared-edge Q off-diagonal to edge {e_j} is \
+                     orientation-dependent (gradient esign bug)"
+                );
+            }
+        }
+        assert!(
+            shared_offdiag_nonzero,
+            "shared-edge Q DOF has no nonzero off-diagonal coupling; \
+             cannot discriminate a Q-flip mutation"
+        );
     }
 
     /// p=2 interior mask for `rect_tri_mesh`: length matches the DOF count,
