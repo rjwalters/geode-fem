@@ -3175,7 +3175,7 @@ fn pin_eigenvector_sign(v: &mut [f64]) {
 /// transverse pencil here only needs the `±1` specialization, but the
 /// convention is stated complex so the two paths share one contract.
 ///
-/// # Robustness: a small reference basis
+/// # Robustness: a small reference basis, and a loud guard
 ///
 /// A single fixed `F` can be (near-)orthogonal to some modes — e.g. a
 /// uniform x-directed field has zero net projection onto a mode that is
@@ -3183,10 +3183,26 @@ fn pin_eigenvector_sign(v: &mut [f64]) {
 /// try an ordered list of reference fields and use the **first** whose
 /// projection magnitude clears a relative floor. The list is fixed and
 /// mesh-independent, so two meshes resolving the same physical mode
-/// select the same reference and therefore the same sign. If *every*
-/// reference projection is negligible (degenerate / pathological case)
-/// we fall back to [`pin_eigenvector_sign`] so the gauge is always
-/// defined.
+/// select the same reference and therefore the same sign.
+///
+/// The reference basis only spans the lowest rectangular-guide modes
+/// (up to ~TE₀₂ plus uniform catch-alls). For a mode it does **not**
+/// span — a higher-order mode, or any mode on a non-rectangular cross-
+/// section that is orthogonal to all listed fields — *every* projection
+/// is negligible. Previously the helper fell back to
+/// [`pin_eigenvector_sign`] in that case, which is deterministic per call
+/// but cross-mesh-**unstable** (its argmax pivot DOF can jump between
+/// meshes, flipping the sign — the exact bug #300 fixed). That silent
+/// fall-through reintroduced the hazard for any mode outside the basis.
+///
+/// This helper therefore makes the fall-through **loud** (issue #349): if
+/// no reference clears the floor it returns
+/// [`EigenError::UngaugableMode`] instead of silently using the unstable
+/// argmax pin. A caller hitting this error knows the reference basis must
+/// be extended (or a general functional adopted) before that mode can be
+/// gauged cross-mesh-stably — there is no silent-but-wrong path. An
+/// all-zero eigenvector (e.g. a fully PEC-eliminated profile) has no sign
+/// to pin and is returned as a benign `Ok(())` no-op.
 ///
 /// # Invariants
 ///
@@ -3195,7 +3211,18 @@ fn pin_eigenvector_sign(v: &mut [f64]) {
 /// entries are unchanged. M-orthonormality of the returned set is
 /// therefore preserved exactly (see the unit test
 /// `reference_gauge_preserves_orthonormality`).
-fn gauge_fix_eigenvector(mesh: &TriMesh, edges: &[[u32; 2]], e_edges: &mut [f64]) {
+///
+/// # Errors
+///
+/// Returns [`EigenError::UngaugableMode`] when the fixed reference basis
+/// does not span the mode (every projection below the relative floor),
+/// carrying the largest relative projection observed for diagnosis.
+fn gauge_fix_eigenvector(
+    mesh: &TriMesh,
+    edges: &[[u32; 2]],
+    e_edges: &mut [f64],
+    mode: usize,
+) -> Result<(), EigenError> {
     debug_assert_eq!(
         edges.len(),
         e_edges.len(),
@@ -3262,11 +3289,19 @@ fn gauge_fix_eigenvector(mesh: &TriMesh, edges: &[[u32; 2]], e_edges: &mut [f64]
     // Energy scale of the eigenvector (so the projection floor is
     // relative to the vector, not an absolute magnitude that depends on
     // the M-normalization length scale).
-    let e_scale = e_edges
-        .iter()
-        .fold(0.0_f64, |acc, &x| acc + x * x)
-        .sqrt()
-        .max(f64::EPSILON);
+    let e_scale = e_edges.iter().fold(0.0_f64, |acc, &x| acc + x * x).sqrt();
+
+    // An all-zero eigenvector (e.g. a fully PEC-eliminated profile) has no
+    // sign to pin: there is no cross-mesh-unstable argmax to guard against,
+    // so this is a benign no-op rather than an ungaugable-mode error.
+    if e_scale <= f64::EPSILON {
+        return Ok(());
+    }
+
+    // Track the largest *relative* projection seen across all references,
+    // so a loud failure can report how far below the floor the best
+    // reference fell (purely diagnostic).
+    let mut best_rel_proj = 0.0_f64;
 
     for f in &refs {
         let mut proj = 0.0_f64;
@@ -3291,23 +3326,37 @@ fn gauge_fix_eigenvector(mesh: &TriMesh, edges: &[[u32; 2]], e_edges: &mut [f64]
             ref_scale += ri * ri;
         }
         let ref_scale = ref_scale.sqrt();
+        // Relative projection: |p| as a fraction of the Cauchy–Schwarz
+        // ceiling |e|·|r|. A field orthogonal to this mode produces ≈ 0.
+        let ceiling = e_scale * ref_scale;
+        if ceiling > 0.0 {
+            best_rel_proj = best_rel_proj.max(proj.abs() / ceiling);
+        }
         // Relative floor: require the projection to be a non-trivial
-        // fraction of the Cauchy–Schwarz ceiling |e|·|r|. A field that is
-        // orthogonal to this mode produces proj ≈ 0 and is skipped.
-        let floor = 1e-6 * e_scale * ref_scale;
+        // fraction of the ceiling. A field that is orthogonal to this mode
+        // produces proj ≈ 0 and is skipped.
+        let floor = 1e-6 * ceiling;
         if proj.abs() > floor {
             if proj < 0.0 {
                 for x in e_edges.iter_mut() {
                     *x = -*x;
                 }
             }
-            return;
+            return Ok(());
         }
     }
 
-    // Degenerate fallback: no reference overlapped. Use the argmax pin so
-    // the gauge is always defined (still deterministic per call).
-    pin_eigenvector_sign(e_edges);
+    // Loud guard (issue #349): no reference overlapped this mode. Rather
+    // than silently falling through to `pin_eigenvector_sign` — whose
+    // argmax pivot is cross-mesh-unstable and would reintroduce the #300
+    // sign-flip — refuse to gauge it. The fixed reference basis only spans
+    // the lowest rectangular-guide modes; a caller hitting this must
+    // extend the basis (or adopt a general functional) before this mode
+    // can be pinned cross-mesh-stably.
+    Err(EigenError::UngaugableMode {
+        mode,
+        best_rel_proj,
+    })
 }
 
 /// Compute the lowest `n_modes` transverse modes (cutoffs **and**
@@ -3347,8 +3396,16 @@ fn gauge_fix_eigenvector(mesh: &TriMesh, edges: &[[u32; 2]], e_edges: &mut [f64]
 /// projection is a quadrature of the *continuous* functional `∫ e · F dS`,
 /// so it converges with the mesh instead of jumping, pinning both sign
 /// and (in the complex generalization) phase consistently regardless of
-/// mesh. See `gauge_fix_eigenvector` for the convention's rationale and
-/// the robustness handling for modes orthogonal to a given reference.
+/// mesh. See `gauge_fix_eigenvector` for the convention's rationale.
+///
+/// The fixed reference basis only spans the lowest rectangular-guide
+/// modes (up to ~TE₀₂ plus uniform catch-alls). For a mode it does not
+/// span — a higher-order or non-rectangular case — the gauge no longer
+/// falls through silently to the cross-mesh-unstable argmax pin; instead
+/// this solver returns [`EigenError::UngaugableMode`] (issue #349), so
+/// the limitation is loud rather than a silent sign-flip hazard. In
+/// scope (the metallic rectangular guide, lowest few modes) every mode
+/// is spanned and this error never fires.
 ///
 /// All gauge-invariant observables — eigenvalues `λ = k_c²`, modal
 /// energies `‖e‖²_M = 1`, set-wise M-orthonormality `e_iᵀ M e_j`,
@@ -3621,7 +3678,8 @@ pub fn solve_waveguide_modes_with_opts(
             .into_iter()
             .filter(|p| p.lambda > threshold)
             .take(n_modes)
-            .map(|pair| {
+            .enumerate()
+            .map(|(mode_idx, pair)| {
                 let lam_pos = pair.lambda.max(0.0);
                 let mut e_edges = vec![0.0_f64; n_edges];
                 for (interior_idx, &full_idx) in interior_to_full.iter().enumerate() {
@@ -3638,14 +3696,19 @@ pub fn solve_waveguide_modes_with_opts(
                 // reproducible across mesh refinements. The flip is a
                 // unit-modulus (±1) rotation, so it preserves eᵀ M e and
                 // the set-wise e_iᵀ M e_j Gram (M-orthonormality intact).
-                gauge_fix_eigenvector(mesh, edges, &mut e_edges);
-                WaveguideModeProfile {
+                //
+                // If the fixed reference basis does not span this mode
+                // (issue #349) the gauge returns `UngaugableMode` rather
+                // than silently falling through to the cross-mesh-unstable
+                // argmax pin; propagate it so the failure is loud.
+                gauge_fix_eigenvector(mesh, edges, &mut e_edges, mode_idx)?;
+                Ok(WaveguideModeProfile {
                     k_c: lam_pos.sqrt(),
                     lambda: pair.lambda,
                     e_edges,
-                }
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, EigenError>>()?;
 
         if physical.len() == n_modes {
             break physical;
@@ -6104,7 +6167,8 @@ mod tests {
     /// 1. A vector with positive reference projection is left unchanged.
     /// 2. Its negation is flipped back (the gauge pins proj ≥ 0).
     /// 3. The flip is norm-preserving (Σ eᵢ² unchanged).
-    /// 4. An all-zero vector falls through to the fallback without panic.
+    /// 4. An all-zero vector is a benign `Ok(())` no-op (no sign to pin,
+    ///    so no cross-mesh-unstable argmax to guard against — issue #349).
     #[test]
     fn gauge_fix_eigenvector_unit() {
         // 1×1 single-quad mesh → 5 edges (4 boundary + 1 diagonal).
@@ -6128,7 +6192,7 @@ mod tests {
 
         // Already-positive projection → unchanged.
         let mut v_pos = v.clone();
-        gauge_fix_eigenvector(&mesh, &edges, &mut v_pos);
+        gauge_fix_eigenvector(&mesh, &edges, &mut v_pos, 0).expect("positive proj is gaugable");
         assert_eq!(
             v_pos, v,
             "positive-projection vector must be left unchanged"
@@ -6136,7 +6200,7 @@ mod tests {
 
         // Negated → flipped back to positive projection.
         let mut v_neg: Vec<f64> = v.iter().map(|x| -x).collect();
-        gauge_fix_eigenvector(&mesh, &edges, &mut v_neg);
+        gauge_fix_eigenvector(&mesh, &edges, &mut v_neg, 0).expect("negated proj is gaugable");
         assert_eq!(
             v_neg, v,
             "negative-projection vector must be flipped to match"
@@ -6149,10 +6213,82 @@ mod tests {
             "gauge flip must preserve the eigenvector norm: {norm_after} ≠ {norm0}"
         );
 
-        // All-zero vector → fallback, no panic, stays zero.
+        // All-zero vector → benign no-op (no sign to pin), stays zero.
         let mut z = vec![0.0_f64; n];
-        gauge_fix_eigenvector(&mesh, &edges, &mut z);
+        gauge_fix_eigenvector(&mesh, &edges, &mut z, 0).expect("all-zero vector is a no-op");
         assert!(z.iter().all(|&x| x == 0.0));
+    }
+
+    /// **Loud guard for ungaugable modes** (issue #349): a non-zero
+    /// eigenvector that is orthogonal to *every* reference field in the
+    /// fixed basis must produce [`EigenError::UngaugableMode`], NOT a
+    /// silent fall-through to the cross-mesh-unstable argmax pin.
+    ///
+    /// We construct the orthogonal vector directly on a tiny synthetic
+    /// edge set so the orthogonality is exact and analytic rather than
+    /// mesh-dependent. Two horizontal edges of equal length, both sitting
+    /// on the box's bottom rail (`sy = 0`), carry equal-and-opposite
+    /// weights `[+1, −1]`. Then for that vector:
+    ///
+    /// - the y-directed `sin(mπsx)` references (1, 2) dot a horizontal
+    ///   tangent to exactly 0 edge-by-edge;
+    /// - the x-directed `sin(nπsy)` references (3, 4) carry `sin(nπ·0)=0`
+    ///   at both midpoints, so they vanish edge-by-edge;
+    /// - the uniform-x catch-all (5) gives `+|t| − |t| = 0` by the
+    ///   equal-and-opposite cancellation (both edges same length);
+    /// - the uniform-y catch-all (6) dots a horizontal tangent to 0.
+    ///
+    /// So every projection is exactly zero and the gauge must refuse to
+    /// pin the sign, returning the loud error with the offending mode
+    /// index. This is the test that proves the #300 silent-argmax hazard
+    /// can no longer be hit in production.
+    #[test]
+    fn gauge_fix_eigenvector_loud_on_ungaugable_mode() {
+        // Bounding box [0,1]×[0,1]: nodes 2,3 force the box height so the
+        // two weighted edges (0→1 and 4→5) sit at sy = 0 within it.
+        let mesh = TriMesh {
+            nodes: vec![
+                [0.0, 0.0], // 0  ┐ first horizontal edge (0→1)
+                [0.4, 0.0], // 1  ┘
+                [0.0, 1.0], // 2  box-height anchor (top-left)
+                [1.0, 1.0], // 3  box-width / height anchor (top-right)
+                [0.6, 0.0], // 4  ┐ second horizontal edge (4→5)
+                [1.0, 0.0], // 5  ┘  same length 0.4 as the first
+            ],
+            tris: vec![],
+        };
+        // Hand-built edge table (a < b by convention). Only the two
+        // horizontal bottom edges carry weight; the rest are zeros so they
+        // do not contribute to any projection.
+        let edges = vec![[0u32, 1], [2, 3], [4, 5]];
+        // Equal-and-opposite weights on the two equal-length horizontal
+        // edges; zero on the spacer edge.
+        let mut v = vec![1.0_f64, 0.0, -1.0];
+
+        let err = gauge_fix_eigenvector(&mesh, &edges, &mut v, 7)
+            .expect_err("a mode orthogonal to every reference must be loudly ungaugable");
+        match err {
+            EigenError::UngaugableMode {
+                mode,
+                best_rel_proj,
+            } => {
+                assert_eq!(mode, 7, "error must carry the offending mode index");
+                assert!(
+                    best_rel_proj < 1e-6,
+                    "best relative projection {best_rel_proj:.3e} must be below the \
+                     gauge floor for a genuinely orthogonal mode"
+                );
+            }
+            other => panic!("expected UngaugableMode, got {other:?}"),
+        }
+
+        // The vector must be left untouched on the loud path (no partial
+        // mutation): the caller is responsible for handling the error.
+        assert_eq!(
+            v,
+            vec![1.0, 0.0, -1.0],
+            "ungaugable vector must not be mutated on the error path"
+        );
     }
 
     /// **Sign pin helper unit test**: verifies the in-place flip
