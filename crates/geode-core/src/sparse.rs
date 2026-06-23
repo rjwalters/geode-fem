@@ -3,7 +3,7 @@
 //!
 //! The dense `K` and `M` that come off [`crate::assembly::assemble_global_p1`]
 //! are full `[n_dof, n_dof]` Burn tensors but the underlying P1 stencil is
-//! sparse — every entry not in the assembled [`SparsityPattern`] is exactly
+//! sparse — every entry not in the assembled [`crate::assembly::SparsityPattern`] is exactly
 //! zero. We:
 //!
 //! 1. Pull the dense matrices to host f64 once (`burn_matrix_to_faer`).

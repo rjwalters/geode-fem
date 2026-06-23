@@ -84,7 +84,7 @@ pub trait ComplexEigenSolver {
     ///
     /// The eigenvector storage is `Vec<c64>` of length `n_dofs` per
     /// returned pair. Pairs are sorted by `|Re(λ)|` ascending to match
-    /// [`smallest_complex_eigenvalues`].
+    /// [`ComplexEigenSolver::smallest_complex_eigenvalues`].
     ///
     /// Eigenvectors are **not** normalized — callers performing
     /// mode-tracking under the M-bilinear form should normalize via

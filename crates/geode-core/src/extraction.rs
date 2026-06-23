@@ -19,7 +19,7 @@
 //! plus self-resonance detection from the `Im Z(ω)` zero crossing when
 //! a sweep brackets it.
 //!
-//! Everything here is **post-processing over [`DrivenSolution`]** — no
+//! Everything here is **post-processing over [`crate::driven::DrivenSolution`]** — no
 //! new assembly physics. The field-to-circuit reduction reuses the
 //! lumped-port flux functional `f_i = ∮ N_i · ê dS` (the same discrete
 //! functional that drives the port, so the drive/measure pair is

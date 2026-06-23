@@ -267,7 +267,7 @@ impl PatchFixture {
     /// air domain, for [`crate::DrivenMaterials::MatchedUpml`].
     ///
     /// The interior (substrate + air) carries the identity stretch with
-    /// the per-tet scalar permittivity from [`epsilon_r_for`]
+    /// the per-tet scalar permittivity from [`PatchFixture::epsilon_r_for`]
     /// (`ε = ε_r·I`, `ν = I`). Tets tagged [`PHYS_UPML`] get the
     /// Cartesian (box) UPML stretch [`box_upml_tensors`]: each axis is
     /// independently stretched by the quadratic σ ramp once the tet
@@ -468,8 +468,8 @@ pub fn read_patch_matched_fixture() -> Result<PatchFixture, MeshError> {
 ///
 /// Reuses the surface-tag-retaining `$Entities` / `$Elements`
 /// hand-scanners shared with the sphere/spiral loaders
-/// ([`parse_entities_physical_tags`] /
-/// [`parse_elements_with_entity_tags`]) — the base [`GmshReader`] drops
+/// (`parse_entities_physical_tags` /
+/// `parse_elements_with_entity_tags`) — the base [`crate::mesh::GmshReader`] drops
 /// triangle blocks, so without these the port/patch/ground/outer
 /// surface tags would be lost.
 pub fn read_patch_fixture_from_bytes(source: &[u8]) -> Result<PatchFixture, MeshError> {

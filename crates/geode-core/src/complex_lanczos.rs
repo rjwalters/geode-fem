@@ -94,7 +94,7 @@ impl Default for SparseComplexShiftInvertLanczos {
     }
 }
 
-/// Parallel of [`crate::eigen::ComplexEigenSolver`] for sparse
+/// Parallel of [`crate::complex_eigen::ComplexEigenSolver`] for sparse
 /// complex-symmetric pencils. The dense `ComplexEigenSolver` runs full
 /// non-symmetric QZ; this trait exploits bilinear-symmetry of the
 /// pencil to run shift-and-invert Lanczos at a small constant factor

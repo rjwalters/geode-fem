@@ -178,7 +178,7 @@ pub enum DrivenError {
 /// Iteration counts depend on conditioning — high frequencies,
 /// ill-conditioned matrix-loaded structures, or evanescent-mode-rich
 /// wave-port problems can blow iteration counts up (the
-/// [`DrivenSweepReport::iters_per_rhs`] per-ω log surfaces this in the
+/// per-ω `iters_per_rhs` log surfaces this in the
 /// regression).
 ///
 /// # Default
@@ -732,8 +732,8 @@ fn driven_solve_impl<B: Backend>(
 ///
 /// Assembles the driven operator exactly as [`driven_solve`] does and
 /// dispatches to [`DrivenOperator::solve_at_iterative`] with the
-/// supplied [`KspSolve`] solver and Jacobi preconditioner. Returns
-/// both the solution and the Krylov [`KspReport`] (iteration count,
+/// supplied [`crate::ksp_solve::KspSolve`] solver and Jacobi preconditioner. Returns
+/// both the solution and the Krylov [`crate::ksp_solve::KspReport`] (iteration count,
 /// final relative residual) — the report is what issue #238's
 /// acceptance criteria call out as "iteration counts reported".
 ///
@@ -1524,8 +1524,8 @@ impl DrivenOperator {
     /// (issue #238). The iterative analog of
     /// [`DrivenOperator::solve_at`]: assembles the same interior
     /// `A(ω)` and `b(ω)` as the direct path (sharing
-    /// [`DrivenOperator::assemble_a_at`] and
-    /// [`DrivenOperator::assemble_b_at`]) and hands the pair off to
+    /// `DrivenOperator::assemble_a_at` and
+    /// `DrivenOperator::assemble_b_at`) and hands the pair off to
     /// `ksp` with `precond` as a left-preconditioner.
     ///
     /// The returned [`DrivenSolution`] has the same shape and
@@ -1546,7 +1546,7 @@ impl DrivenOperator {
     /// iteration breakdown or non-convergence. A zero RHS is treated
     /// as a trivial all-zero solution (one iteration recorded) rather
     /// than an error — to match the direct path's
-    /// [`zero_source_gives_zero_field`] semantics.
+    /// `zero_source_gives_zero_field` semantics.
     pub fn solve_at_iterative<K, P>(
         &self,
         omega: f64,
@@ -1792,7 +1792,7 @@ impl FactoredDrivenOperator<'_> {
 /// Per-RHS back-solve report — issue #264's "iteration counts reported
 /// per ω + per RHS" channel for the iterative path.
 ///
-/// Returned by [`DrivenLinearSolver::back_solve_report`] alongside the
+/// Returned by [`DrivenLinearSolver::back_solve`] alongside the
 /// solution. For [`SolverMode::Direct`] the count is always `0` (the
 /// triangular back-substitution has no Krylov iterations) and
 /// `residual_rel` is the LU back-substitution's own residual on this
@@ -1822,8 +1822,8 @@ pub struct BackSolveReport {
 /// ([`crate::extraction::s_parameter_frequency_sweep`],
 /// [`crate::wave_port::solve_wave_port_sweep`]) reuse one handle across
 /// every RHS; on the iterative path the Jacobi preconditioner is built
-/// once at construction and reused across every [`back_solve`] call
-/// (`DrivenLinearSolver::back_solve`).
+/// once at construction and reused across every
+/// [`DrivenLinearSolver::back_solve`] call.
 pub struct DrivenLinearSolver<'a> {
     op: &'a DrivenOperator,
     omega: f64,
