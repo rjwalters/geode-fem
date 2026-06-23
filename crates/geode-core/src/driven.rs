@@ -2835,7 +2835,9 @@ mod tests {
     /// the same reporting style as the #267 ILU(0) test.
     #[test]
     fn chebyshev_vs_jacobi_sigma_damped_resistor_regression() {
-        use crate::ksp_solve::{ChebyshevPreconditioner, Cocg, IdentityPreconditioner};
+        use crate::ksp_solve::{
+            ChebyshevConfig, ChebyshevKind, ChebyshevPreconditioner, Cocg, IdentityPreconditioner,
+        };
         use std::time::Instant;
 
         // Same σ-damped resistor cube as the ILU(0) stress fixture.
@@ -2891,9 +2893,24 @@ mod tests {
             .expect("Chebyshev-preconditioned COCG");
         let dt_cheb = t_cheb.elapsed();
 
+        // Degree-3 fourth-kind Chebyshev smoother (Lottes 2022, issue
+        // #348) — same degree, only λ_max (no ratio/λ_min).
+        let t_cheb4 = Instant::now();
+        let (sol_cheb4, report_cheb4) = op
+            .solve_at_iterative(omega, &ksp, |a| {
+                let cfg = ChebyshevConfig {
+                    kind: ChebyshevKind::Fourth,
+                    ..ChebyshevConfig::default()
+                };
+                ChebyshevPreconditioner::with_config(a.as_ref(), 3, cfg)
+            })
+            .expect("fourth-kind Chebyshev-preconditioned COCG");
+        let dt_cheb4 = t_cheb4.elapsed();
+
         assert!(report_id.converged);
         assert!(report_jac.converged);
         assert!(report_cheb.converged);
+        assert!(report_cheb4.converged);
 
         // Acceptance: Chebyshev reduces the iteration count vs both the
         // unpreconditioned and Jacobi baselines on the σ-damped fixture.
@@ -2909,6 +2926,14 @@ mod tests {
             report_cheb.iters,
             report_jac.iters,
         );
+        // Fourth-kind: must converge and beat the unpreconditioned
+        // baseline on the σ-damped fixture (issue #348).
+        assert!(
+            report_cheb4.iters <= report_id.iters,
+            "fourth-kind Chebyshev ({}) must beat unpreconditioned ({}) on σ-damped resistor",
+            report_cheb4.iters,
+            report_id.iters,
+        );
 
         // Solutions must agree with the Jacobi run (same linear system).
         let norm: f64 = sol_cheb
@@ -2923,14 +2948,22 @@ mod tests {
             diff2 += d.re * d.re + d.im * d.im;
         }
         assert!(diff2.sqrt() / norm < 1e-7);
+        // Fourth-kind solution must also agree with the unpreconditioned run.
+        let mut diff2_c4 = 0.0_f64;
+        for (c, i) in sol_cheb4.e_edges.iter().zip(sol_id.e_edges.iter()) {
+            let d = *c - *i;
+            diff2_c4 += d.re * d.re + d.im * d.im;
+        }
+        assert!(diff2_c4.sqrt() / norm < 1e-7);
 
         eprintln!(
-            "[issue #299 / stress: σ-damped resistor] grid=4, σ=5, ω={:.2}, \
+            "[issue #348 / stress: σ-damped resistor] grid=4, σ=5, ω={:.2}, \
              n_interior={}, \
              identity: iters={} ({:?}), \
              Jacobi: iters={} ({:?}), \
-             Chebyshev(deg=3): iters={} ({:?}), \
-             iter ratio (Cheb/Jacobi)={:.3}",
+             Chebyshev-1st(deg=3): iters={} ({:?}), \
+             Chebyshev-4th(deg=3): iters={} ({:?}), \
+             iter ratio (1st/Jacobi)={:.3}, iter ratio (4th/Jacobi)={:.3}",
             omega,
             sol_cheb.n_interior,
             report_id.iters,
@@ -2939,7 +2972,10 @@ mod tests {
             dt_jac,
             report_cheb.iters,
             dt_cheb,
+            report_cheb4.iters,
+            dt_cheb4,
             report_cheb.iters as f64 / report_jac.iters.max(1) as f64,
+            report_cheb4.iters as f64 / report_jac.iters.max(1) as f64,
         );
     }
 
