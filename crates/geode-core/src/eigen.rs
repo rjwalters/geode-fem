@@ -28,6 +28,21 @@ pub enum EigenError {
     SingularPencil(usize),
     #[error("interior mask shape {got} disagrees with matrix dim {want}")]
     MaskDimMismatch { got: usize, want: usize },
+    /// The reference-integral eigenvector gauge could not pin a mode's
+    /// sign/phase: *every* reference field in the fixed basis projected to
+    /// below the relative floor, so no mesh-stable reference overlaps the
+    /// mode. Raised by `crate::waveguide_modes::gauge_fix_eigenvector`
+    /// instead of silently falling through to the cross-mesh-unstable
+    /// largest-magnitude argmax pin (issue #349, #300 follow-up). The
+    /// payload is the mode index and the largest relative projection
+    /// observed, for diagnosis.
+    #[error(
+        "reference-integral gauge could not pin mode {mode}: no reference field \
+         overlapped it (best relative projection {best_rel_proj:.3e} ≤ floor); \
+         refusing to fall through to the cross-mesh-unstable argmax pin — the \
+         hardcoded reference basis does not span this mode (issue #349)"
+    )]
+    UngaugableMode { mode: usize, best_rel_proj: f64 },
 }
 
 /// Interface for "compute the lowest `n` eigenvalues of `K x = λ M x`".
