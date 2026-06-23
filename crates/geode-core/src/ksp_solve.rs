@@ -613,17 +613,22 @@ impl Preconditioner for IluPreconditioner {
 
 /// Which Chebyshev polynomial family the smoother uses.
 ///
-/// Only the **first kind** is implemented for issue #299 (`v1`). The
-/// fourth-kind smoother (Lottes 2022 — the form Palace exposes) is a
-/// deliberate follow-up and is reserved here so the constructor's
-/// signature is forward-compatible; selecting it currently panics.
+/// Both kinds are implemented. The **first kind** (issue #299) is the
+/// classic Saad §12.3 iteration over `[λ_min, λ_max]`. The **fourth
+/// kind** (Lottes 2022, the form Palace/MFEM expose) targets the upper
+/// spectrum using only `λ_max` (issue #348).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChebyshevKind {
     /// First-kind Chebyshev iteration (Saad §12.3) — the v1 default.
+    /// Uses the spectral interval `[λ_min, λ_max]` (hence the `ratio`
+    /// heuristic for `λ_min`).
     First,
-    /// Fourth-kind Chebyshev smoother (Lottes 2022). **Not yet
-    /// implemented** — reserved for a follow-up; constructing with
-    /// this variant panics.
+    /// Fourth-kind Chebyshev smoother (Lottes 2022, *Optimal polynomial
+    /// smoothers for multigrid*) — the **unweighted** variant
+    /// (Lottes Algorithm 3 / MFEM `OperatorChebyshevSmoother`). Needs
+    /// only `λ_max` (no `λ_min`/`ratio`); the smoothing window is
+    /// `[0, λ_max]`, which is exactly the high-frequency band a
+    /// multigrid smoother is meant to damp.
     Fourth,
 }
 
@@ -639,12 +644,13 @@ pub enum ChebyshevKind {
 /// AXPYs, which is trivially parallel and matrix-free-friendly. This is
 /// the standard smoother in Palace's geometric-multigrid preconditioner.
 ///
-/// # Which variant (v1)
+/// # Which variant
 ///
-/// This implements the **first-kind** Chebyshev iteration
-/// ([`ChebyshevKind::First`]). The fourth-kind smoother
-/// ([`ChebyshevKind::Fourth`], Lottes 2022) is reserved as a follow-up
-/// and currently panics at construction.
+/// The default is the **first-kind** Chebyshev iteration
+/// ([`ChebyshevKind::First`], `[λ_min, λ_max]`). The **fourth-kind**
+/// smoother ([`ChebyshevKind::Fourth`], Lottes 2022) is also available;
+/// it needs only `λ_max` (the `ratio`/`λ_min` heuristic is unused) and
+/// smooths over `[0, λ_max]`. See [`ChebyshevKind`] for the trade-off.
 ///
 /// # Algorithm — first-kind Chebyshev iteration
 ///
@@ -669,6 +675,30 @@ pub enum ChebyshevKind {
 /// `z = ẑ`. A degree of `k = 0` returns `z = D⁻¹ r` exactly — i.e. the
 /// smoother degenerates to **Jacobi** (no polynomial steps), which the
 /// unit tests assert.
+///
+/// # Algorithm — fourth-kind Chebyshev smoother (Lottes 2022)
+///
+/// The **unweighted** fourth-kind smoother (Lottes 2022, Algorithm 3;
+/// the form MFEM's `OperatorChebyshevSmoother` and Palace expose) needs
+/// only `λ_max` — there is no `λ_min`, so the `ratio` knob is ignored.
+/// It smooths over `[0, λ_max]`, the high-frequency band. With
+/// `r̂ = D⁻¹ r` (the residual of the scaled system at the zero initial
+/// guess `ẑ₀ = 0`), `s ← r̂`, `d ← 0`, `ẑ ← 0`:
+///
+/// ```text
+/// for i = 1 .. k:
+///     β_i  = (2i − 3) / (2i + 1)        (0 at i = 1, since d = 0)
+///     γ_i  = (8i − 4) / ((2i + 1) λ_max)
+///     d    = β_i d + γ_i s
+///     ẑ   += d
+///     s   -= Â d
+/// ```
+///
+/// `z = ẑ`. As with the first-kind path, `k = 0` returns `z = D⁻¹ r`
+/// (Jacobi). The coefficients are the standard unweighted fourth-kind
+/// recurrence; the optional optimized/weighted "Opt4" variant
+/// (Lottes Table 1) is *not* implemented here — the unweighted form is
+/// the documented choice.
 ///
 /// # Eigenvalue-bound estimation and its cost
 ///
@@ -703,6 +733,9 @@ pub enum ChebyshevKind {
 pub struct ChebyshevPreconditioner {
     /// System size.
     n: usize,
+    /// Which Chebyshev family the [`apply`](Preconditioner::apply) path
+    /// runs (first- or fourth-kind).
+    kind: ChebyshevKind,
     /// Polynomial degree `k` (number of Chebyshev steps). `0` ⇒ Jacobi.
     degree: usize,
     /// Reciprocal of `diag(A)` — the Jacobi scaling `D⁻¹`.
@@ -724,8 +757,9 @@ pub struct ChebyshevPreconditioner {
 /// setting the fields directly.
 #[derive(Debug, Clone, Copy)]
 pub struct ChebyshevConfig {
-    /// Which Chebyshev family. Only [`ChebyshevKind::First`] is
-    /// implemented; [`ChebyshevKind::Fourth`] panics.
+    /// Which Chebyshev family ([`ChebyshevKind::First`] or
+    /// [`ChebyshevKind::Fourth`]). The fourth-kind path ignores `ratio`
+    /// (it uses only `λ_max`).
     pub kind: ChebyshevKind,
     /// Ratio `λ_max / λ_min` defining the smoothing interval. Larger ⇒
     /// the interval reaches further toward the origin (more of the
@@ -753,8 +787,10 @@ impl Default for ChebyshevConfig {
 impl ChebyshevPreconditioner {
     /// Build a degree-`degree` first-kind Chebyshev smoother for the
     /// complex sparse CSC matrix `a`, using the default
-    /// [`ChebyshevConfig`] (`ratio ≈ 30`, 10 power-iteration steps,
-    /// `1.1×` safety padding). The matrix must be square.
+    /// [`ChebyshevConfig`] (first-kind, `ratio ≈ 30`, 10 power-iteration
+    /// steps, `1.1×` safety padding). For the fourth-kind smoother
+    /// (Lottes 2022) set [`ChebyshevConfig::kind`] and use
+    /// [`with_config`](Self::with_config). The matrix must be square.
     ///
     /// `degree = 0` is the Jacobi degenerate case (`apply` returns
     /// `D⁻¹ r`); it skips the power-iteration estimate entirely.
@@ -778,9 +814,10 @@ impl ChebyshevPreconditioner {
     ///
     /// # Panics
     ///
-    /// Panics if `a` is non-square, if `config.kind` is
-    /// [`ChebyshevKind::Fourth`] (reserved for a follow-up), or if
-    /// `config.ratio <= 1.0` (the interval would be degenerate).
+    /// Panics if `a` is non-square, or if `config.ratio <= 1.0` (the
+    /// first-kind interval would be degenerate). The `ratio` check is
+    /// enforced for both kinds for a uniform contract even though the
+    /// fourth-kind path does not use `λ_min`.
     pub fn with_config(
         a: SparseColMatRef<'_, usize, c64>,
         degree: usize,
@@ -788,12 +825,6 @@ impl ChebyshevPreconditioner {
     ) -> Result<Self, KspError> {
         let n = a.nrows();
         assert_eq!(a.ncols(), n, "ChebyshevPreconditioner requires square A");
-        assert_eq!(
-            config.kind,
-            ChebyshevKind::First,
-            "ChebyshevPreconditioner: only the first-kind smoother is implemented \
-             (issue #299 scope rails); fourth-kind (Lottes 2022) is a follow-up"
-        );
         assert!(
             config.ratio > 1.0,
             "ChebyshevPreconditioner: ratio must be > 1 (got {})",
@@ -859,6 +890,7 @@ impl ChebyshevPreconditioner {
 
         Ok(Self {
             n,
+            kind: config.kind,
             degree,
             inv_diag,
             col_ptr,
@@ -975,27 +1007,12 @@ fn estimate_lambda_max(
     }
 }
 
-impl Preconditioner for ChebyshevPreconditioner {
-    /// Apply the fixed-degree first-kind Chebyshev smoother:
-    /// `z = p_k(Â) D⁻¹ r ≈ A⁻¹ r`. Degree `0` returns `z = D⁻¹ r`
-    /// (Jacobi). All arithmetic is standard complex (no conjugation),
-    /// preserving the COCG bilinear inner product.
-    fn apply(&self, r: &[c64], z: &mut [c64]) {
-        debug_assert_eq!(r.len(), self.n);
-        debug_assert_eq!(z.len(), self.n);
-
-        // r̂ = D⁻¹ r — the Jacobi-scaled right-hand side.
-        let mut s = vec![c64::new(0.0, 0.0); self.n];
-        for ((si, &ri), &di) in s.iter_mut().zip(r.iter()).zip(self.inv_diag.iter()) {
-            *si = ri * di;
-        }
-
-        // Degree 0 ⇒ Jacobi: z = D⁻¹ r.
-        if self.degree == 0 {
-            z.copy_from_slice(&s);
-            return;
-        }
-
+impl ChebyshevPreconditioner {
+    /// First-kind three-term recurrence (Saad §12.3.2) over the interval
+    /// `[λ_min, λ_max]`. `s` enters as the scaled residual `r̂ = D⁻¹ r`
+    /// and `z` holds the accumulating solution. All arithmetic is
+    /// standard complex (no conjugation).
+    fn apply_first_kind(&self, s: &mut [c64], z: &mut [c64]) {
         let theta = 0.5 * (self.lambda_max + self.lambda_min);
         let delta = 0.5 * (self.lambda_max - self.lambda_min);
         let sigma1 = theta / delta;
@@ -1028,6 +1045,73 @@ impl Preconditioner for ChebyshevPreconditioner {
                 *si -= adi;
             }
             rho_prev = rho;
+        }
+    }
+
+    /// Unweighted fourth-kind Chebyshev smoother (Lottes 2022,
+    /// Algorithm 3 / MFEM `OperatorChebyshevSmoother`) over `[0, λ_max]`.
+    /// `s` enters as the scaled residual `r̂ = D⁻¹ r` and `z` holds the
+    /// accumulating solution. Uses only `λ_max` (no `λ_min`/`ratio`).
+    /// All arithmetic is standard complex (no conjugation).
+    fn apply_fourth_kind(&self, s: &mut [c64], z: &mut [c64]) {
+        let lambda_max = self.lambda_max;
+        let mut d = vec![c64::new(0.0, 0.0); self.n];
+        let mut ad = vec![c64::new(0.0, 0.0); self.n];
+
+        // i = 1 .. degree:
+        //   d  = β_i d + γ_i s,  β_i = (2i−3)/(2i+1), γ_i = (8i−4)/((2i+1)λ_max)
+        //   z += d
+        //   s -= Â d
+        for i in 1..=self.degree {
+            let fi = i as f64;
+            let beta = (2.0 * fi - 3.0) / (2.0 * fi + 1.0);
+            let gamma = (8.0 * fi - 4.0) / ((2.0 * fi + 1.0) * lambda_max);
+            let c_beta = c64::new(beta, 0.0);
+            let c_gamma = c64::new(gamma, 0.0);
+            for ((di, zi), &si) in d.iter_mut().zip(z.iter_mut()).zip(s.iter()) {
+                *di = c_beta * *di + c_gamma * si;
+                *zi += *di;
+            }
+            self.apply_scaled_operator(&d, &mut ad);
+            for (si, &adi) in s.iter_mut().zip(ad.iter()) {
+                *si -= adi;
+            }
+        }
+    }
+}
+
+impl Preconditioner for ChebyshevPreconditioner {
+    /// Apply the fixed-degree Chebyshev smoother:
+    /// `z = p_k(Â) D⁻¹ r ≈ A⁻¹ r`. Degree `0` returns `z = D⁻¹ r`
+    /// (Jacobi) for either kind. Dispatches to the first- or fourth-kind
+    /// recurrence per [`ChebyshevKind`]. All arithmetic is standard
+    /// complex (no conjugation), preserving the COCG bilinear inner
+    /// product.
+    fn apply(&self, r: &[c64], z: &mut [c64]) {
+        debug_assert_eq!(r.len(), self.n);
+        debug_assert_eq!(z.len(), self.n);
+
+        // r̂ = D⁻¹ r — the Jacobi-scaled right-hand side / initial
+        // residual (zero initial guess ẑ₀ = 0).
+        let mut s = vec![c64::new(0.0, 0.0); self.n];
+        for ((si, &ri), &di) in s.iter_mut().zip(r.iter()).zip(self.inv_diag.iter()) {
+            *si = ri * di;
+        }
+
+        // Degree 0 ⇒ Jacobi: z = D⁻¹ r (both kinds).
+        if self.degree == 0 {
+            z.copy_from_slice(&s);
+            return;
+        }
+
+        // z starts at the zero solution; the recurrences accumulate into it.
+        for zi in z.iter_mut() {
+            *zi = c64::new(0.0, 0.0);
+        }
+
+        match self.kind {
+            ChebyshevKind::First => self.apply_first_kind(&mut s, z),
+            ChebyshevKind::Fourth => self.apply_fourth_kind(&mut s, z),
         }
     }
 
@@ -1743,17 +1827,179 @@ mod tests {
         assert!(matches!(err, KspError::Breakdown { .. }));
     }
 
-    /// The fourth-kind selector is reserved for a follow-up and must
-    /// panic — scope rails for issue #299 (first-kind only in v1).
-    #[test]
-    #[should_panic(expected = "first-kind")]
-    fn chebyshev_panics_on_fourth_kind() {
-        let a = complex_symmetric_lossy_3x3();
+    /// Build a fourth-kind (Lottes 2022) smoother of the given degree on
+    /// the shared 3×3 lossy fixture.
+    fn chebyshev_fourth(a: &SparseColMat<usize, c64>, degree: usize) -> ChebyshevPreconditioner {
         let config = ChebyshevConfig {
             kind: ChebyshevKind::Fourth,
             ..ChebyshevConfig::default()
         };
-        let _ = ChebyshevPreconditioner::with_config(a.as_ref(), 4, config);
+        ChebyshevPreconditioner::with_config(a.as_ref(), degree, config)
+            .expect("fourth-kind smoother")
+    }
+
+    /// **Issue #348**: the fourth-kind selector must construct and run a
+    /// degree-`k` smoother with **no panic** (the old #299 scope rail is
+    /// gone). Both kinds must produce finite output of the right shape.
+    #[test]
+    fn chebyshev_fourth_kind_runs_without_panic() {
+        let a = complex_symmetric_lossy_3x3();
+        let cheb = chebyshev_fourth(&a, 4);
+        assert_eq!(cheb.dim(), 3);
+
+        let r = vec![c64::new(1.0, -0.2), c64::new(2.0, 0.1), c64::new(0.5, 0.3)];
+        let mut z = vec![c64::new(0.0, 0.0); 3];
+        cheb.apply(&r, &mut z);
+        for zi in &z {
+            assert!(zi.re.is_finite() && zi.im.is_finite(), "{zi:?}");
+        }
+        // A nonzero RHS must produce a nonzero correction.
+        let mag: f64 = z.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt();
+        assert!(mag > 0.0);
+    }
+
+    /// **Issue #348**: degree-0 fourth-kind must reduce **exactly** to
+    /// Jacobi (`z = D⁻¹ r`), the same degenerate contract as first-kind.
+    #[test]
+    fn chebyshev_fourth_kind_degree_zero_is_jacobi() {
+        let a = complex_symmetric_lossy_3x3();
+        let cheb = chebyshev_fourth(&a, 0);
+        let jac = JacobiPreconditioner::new(a.as_ref()).unwrap();
+
+        let r = vec![c64::new(1.0, -0.2), c64::new(2.0, 0.1), c64::new(0.5, 0.3)];
+        let mut z_cheb = vec![c64::new(0.0, 0.0); 3];
+        let mut z_jac = vec![c64::new(0.0, 0.0); 3];
+        cheb.apply(&r, &mut z_cheb);
+        jac.apply(&r, &mut z_jac);
+        for i in 0..3 {
+            assert!(
+                (z_cheb[i] - z_jac[i]).norm() < 1e-15,
+                "degree-0 fourth-kind Chebyshev must match Jacobi at index {i}: \
+                 {:?} vs {:?}",
+                z_cheb[i],
+                z_jac[i],
+            );
+        }
+    }
+
+    /// **Issue #348 — bilinear-form / no-conjugation check** for the
+    /// fourth-kind smoother. Identical discriminator to the first-kind
+    /// test: a genuinely complex scalar `α` must commute through the
+    /// apply (`M⁻¹(α r) = α M⁻¹(r)`). A conjugating (anti-linear)
+    /// implementation would instead yield `ᾱ M⁻¹(r)` and fail — this is
+    /// the load-bearing invariant for COCG's bilinear recurrence.
+    #[test]
+    fn chebyshev_fourth_kind_preserves_bilinear_form_no_conjugation() {
+        let a = complex_symmetric_lossy_3x3();
+        let cheb = chebyshev_fourth(&a, 4);
+
+        let r = vec![c64::new(1.0, -0.7), c64::new(-0.4, 1.3), c64::new(0.9, 0.2)];
+        let alpha = c64::new(0.5, -1.2);
+
+        let mut z_r = vec![c64::new(0.0, 0.0); 3];
+        cheb.apply(&r, &mut z_r);
+
+        let ar: Vec<c64> = r.iter().map(|&x| alpha * x).collect();
+        let mut z_ar = vec![c64::new(0.0, 0.0); 3];
+        cheb.apply(&ar, &mut z_ar);
+
+        for i in 0..3 {
+            let expected = alpha * z_r[i];
+            assert!(
+                (z_ar[i] - expected).norm() < 1e-12,
+                "fourth-kind apply must be c64-linear (no conjugation) at index \
+                 {i}: got {:?}, expected {:?}",
+                z_ar[i],
+                expected,
+            );
+        }
+    }
+
+    /// **Issue #348**: COCG with the fourth-kind smoother must drive the
+    /// small complex-symmetric lossy system to round-off — the
+    /// end-to-end "no conjugation" check (a conjugating smoother would
+    /// break COCG's bilinear recurrence and stall or diverge).
+    #[test]
+    fn chebyshev_fourth_kind_solves_complex_symmetric_lossy() {
+        let a = complex_symmetric_lossy_3x3();
+        let b: Vec<c64> = vec![c64::new(1.0, -0.2), c64::new(2.0, 0.1), c64::new(0.5, 0.3)];
+
+        let mut x = vec![c64::new(0.0, 0.0); 3];
+        let pc = chebyshev_fourth(&a, 3);
+        let cocg = Cocg::new(1e-12, 200);
+        let report = cocg
+            .solve(a.as_ref(), &b, &mut x, &pc)
+            .expect("COCG converges with fourth-kind Chebyshev");
+        assert!(report.converged);
+        assert!(report.residual_rel < 1e-10, "{:?}", report);
+    }
+
+    /// **Issue #348**: a positive-degree fourth-kind smoother must not
+    /// increase the COCG iteration count versus the unpreconditioned
+    /// (identity) solve on the denser SPD-ish fixture, and must agree on
+    /// the solution. Reports both counts (and the first-kind count) to
+    /// stderr, mirroring the #299 reporting style.
+    #[test]
+    fn chebyshev_fourth_kind_iterations_lt_unpreconditioned_on_spd_ish() {
+        let n = 5;
+        let g = [
+            [0.0, 0.5, 0.3, 0.2, 0.1],
+            [0.5, 0.0, 0.4, 0.3, 0.2],
+            [0.3, 0.4, 0.0, 0.5, 0.3],
+            [0.2, 0.3, 0.5, 0.0, 0.4],
+            [0.1, 0.2, 0.3, 0.4, 0.0],
+        ];
+        let mut trips = Vec::new();
+        for (i, row) in g.iter().enumerate() {
+            for (j, &v_g) in row.iter().enumerate() {
+                let v = if i == j { v_g + 5.0 } else { v_g };
+                trips.push(Triplet::new(i, j, c64::new(v, 0.0)));
+            }
+        }
+        let a = SparseColMat::<usize, c64>::try_new_from_triplets(n, n, &trips).unwrap();
+        let b: Vec<c64> = (0..n).map(|i| c64::new(i as f64 + 1.0, 0.0)).collect();
+
+        let cocg = Cocg::new(1e-12, 500);
+
+        let mut x_id = vec![c64::new(0.0, 0.0); n];
+        let id = IdentityPreconditioner::new(n);
+        let report_id = cocg.solve(a.as_ref(), &b, &mut x_id, &id).unwrap();
+
+        let mut x_c1 = vec![c64::new(0.0, 0.0); n];
+        let c1 = ChebyshevPreconditioner::new(a.as_ref(), 4).unwrap();
+        let report_c1 = cocg.solve(a.as_ref(), &b, &mut x_c1, &c1).unwrap();
+
+        let mut x_c4 = vec![c64::new(0.0, 0.0); n];
+        let c4 = chebyshev_fourth(&a, 4);
+        let report_c4 = cocg.solve(a.as_ref(), &b, &mut x_c4, &c4).unwrap();
+
+        assert!(report_id.converged && report_c1.converged && report_c4.converged);
+        assert!(
+            report_c4.iters <= report_id.iters,
+            "fourth-kind iters ({}) must not exceed unpreconditioned iters ({})",
+            report_c4.iters,
+            report_id.iters,
+        );
+
+        // Solution must agree with the unpreconditioned run.
+        let diff: f64 = x_c4
+            .iter()
+            .zip(x_id.iter())
+            .map(|(a, b)| (a - b).norm_sqr())
+            .sum::<f64>()
+            .sqrt();
+        let norm: f64 = x_id.iter().map(|x| x.norm_sqr()).sum::<f64>().sqrt();
+        assert!(diff / norm < 1e-8);
+
+        eprintln!(
+            "[issue #348] Chebyshev kinds vs unpreconditioned on 5×5 SPD-ish: \
+             identity iters={}, first-kind(deg=4) iters={}, \
+             fourth-kind(deg=4) iters={}, interval={:?}",
+            report_id.iters,
+            report_c1.iters,
+            report_c4.iters,
+            c4.spectral_interval(),
+        );
     }
 
     /// A positive-degree Chebyshev smoother must reduce the COCG
