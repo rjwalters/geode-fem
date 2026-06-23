@@ -27,7 +27,7 @@
 //! The new fixture promotes this region to two layered groups; the
 //! `PHYS_VACUUM_BUFFER` alias is kept as a deprecated synonym for
 //! `PHYS_VACUUM_GAP` so older callers (e.g. the `vacuum_buffer` symbol
-//! in [`build_complex_epsilon_r_pml`]) continue to compile, but new
+//! in [`crate::nedelec_assembly::build_complex_epsilon_r_pml`]) continue to compile, but new
 //! code should branch on `PHYS_VACUUM_GAP` and `PHYS_PML_SHELL`.
 //!
 //! The fixture is shipped as bytes via `include_bytes!`, so callers don't

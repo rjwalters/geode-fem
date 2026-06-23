@@ -1023,7 +1023,7 @@ pub const REGION_PML: i32 = 2;
 /// `(mesh, region_tags)` where `region_tags[t] ∈ {REGION_CORE,
 /// REGION_CLADDING, REGION_PML}`. Feed the core/cladding tags into
 /// [`epsilon_r_from_region_tags`] for the per-triangle `ε_r`; feed the full
-/// tag vector into [`assemble_2d_nedelec2_pml_sparse_interior`] to flag the
+/// tag vector into `assemble_2d_nedelec2_pml_sparse_interior` to flag the
 /// PML-stretched triangles.
 ///
 /// # Panics
@@ -1702,7 +1702,7 @@ fn tri_nedelec2_dofs(
 /// ## Per-DOF orientation signs
 ///
 /// The scatter applies a per-DOF sign (`sign_i · sign_j` on entry `(i, j)`)
-/// taken from [`TRI_NEDELEC2_DOF_FLIPS`] via [`tri_nedelec2_dofs`]: the
+/// taken from `TRI_NEDELEC2_DOF_FLIPS` via `tri_nedelec2_dofs`: the
 /// three Whitney edge functions are *odd* and flip with the global edge
 /// orientation (exactly like the first-order Whitney DOF); the three
 /// gradient edge functions `Q` are *even* (symmetric under `a ↔ b`) and the
@@ -3329,7 +3329,7 @@ fn gauge_fix_eigenvector(mesh: &TriMesh, edges: &[[u32; 2]], e_edges: &mut [f64]
 /// # Sign / gauge convention (issue #300, superseding the #262 pin)
 ///
 /// Each returned eigenvector's sign is pinned by a **reference-integral
-/// gauge** ([`gauge_fix_eigenvector`]): the eigenvector is rotated so its
+/// gauge** (`gauge_fix_eigenvector`): the eigenvector is rotated so its
 /// projection onto a fixed continuous reference profile is real-positive.
 /// Concretely, a smooth reference vector field `F(x, y)` is sampled at
 /// each edge midpoint to form the Whitney DOF it would produce, and the
@@ -3339,7 +3339,7 @@ fn gauge_fix_eigenvector(mesh: &TriMesh, edges: &[[u32; 2]], e_edges: &mut [f64]
 /// This gives a gauge that is reproducible **across mesh refinements at
 /// the level of the raw complex S-matrix entries**, not merely
 /// deterministic per call. The earlier convention (issue #262,
-/// [`pin_eigenvector_sign`]) pinned on the single largest-magnitude DOF;
+/// `pin_eigenvector_sign`) pinned on the single largest-magnitude DOF;
 /// because that pivot DOF is a property of the discretization, it could
 /// jump to a different edge between meshes and flip the sign — so the C2
 /// mode-matching test had to compare gauge-invariant *magnitudes* (PR
@@ -3347,7 +3347,7 @@ fn gauge_fix_eigenvector(mesh: &TriMesh, edges: &[[u32; 2]], e_edges: &mut [f64]
 /// projection is a quadrature of the *continuous* functional `∫ e · F dS`,
 /// so it converges with the mesh instead of jumping, pinning both sign
 /// and (in the complex generalization) phase consistently regardless of
-/// mesh. See [`gauge_fix_eigenvector`] for the convention's rationale and
+/// mesh. See `gauge_fix_eigenvector` for the convention's rationale and
 /// the robustness handling for modes orthogonal to a given reference.
 ///
 /// All gauge-invariant observables — eigenvalues `λ = k_c²`, modal
@@ -3359,9 +3359,9 @@ fn gauge_fix_eigenvector(mesh: &TriMesh, edges: &[[u32; 2]], e_edges: &mut [f64]
 /// **Note**: this metallic path is real-valued, so the gauge reduces to
 /// a sign. The complex eigenvector paths (`complex_eigen.rs` /
 /// `complex_lanczos.rs`, and the [`DielectricMode`] solver) still use the
-/// [`pin_eigenvector_sign`] argmax pin; extending the reference-integral
+/// `pin_eigenvector_sign` argmax pin; extending the reference-integral
 /// phase gauge to them is the documented complex generalization in
-/// [`gauge_fix_eigenvector`] but is out of scope for issue #300.
+/// `gauge_fix_eigenvector` but is out of scope for issue #300.
 ///
 /// # Solver
 ///
@@ -3369,7 +3369,7 @@ fn gauge_fix_eigenvector(mesh: &TriMesh, edges: &[[u32; 2]], e_edges: &mut [f64]
 /// sparse shift-and-invert Lanczos via faer's sparse LU). The 2-D
 /// modal pencil is real-symmetric SPD after PEC reduction, and the
 /// gradient null cluster sits at λ ≈ 0; a small positive shift (see
-/// [`modal_shift`]) targets the lowest physical modes while keeping the
+/// `modal_shift`) targets the lowest physical modes while keeping the
 /// shifted pencil well-conditioned. This replaces the previous dense
 /// `faer::generalized_eigen` path (issue #249) which tripped a wrap-
 /// around-overflow inside faer-0.24's `gevd::qz_real` under debug
@@ -3419,7 +3419,7 @@ pub struct WaveguideSolveOpts {
     /// Explicit positive shift `σ` for the shift-invert Lanczos. When
     /// `None`, the solver runs a cheap probe Lanczos pass to estimate
     /// the smallest non-spurious eigenvalue and places `σ` halfway
-    /// between zero and that estimate (see [`estimate_modal_shift`]).
+    /// between zero and that estimate (see `estimate_modal_shift`).
     pub sigma: Option<f64>,
     /// Explicit absolute threshold below which an eigenvalue is
     /// classified as gradient-spurious. When `None`, the solver uses
@@ -3442,7 +3442,7 @@ pub struct WaveguideSolveOpts {
 /// `interior_edge_mask`. Unlike [`solve_rect_waveguide_modes`], this
 /// entry point makes no assumptions about cross-section geometry — the
 /// shift `σ` is estimated on the fly via a cheap probe Lanczos pass
-/// (see [`estimate_modal_shift`]) and the spurious-mode threshold is
+/// (see `estimate_modal_shift`) and the spurious-mode threshold is
 /// chosen relative to that shift.
 ///
 /// # Parameters
@@ -3462,7 +3462,7 @@ pub struct WaveguideSolveOpts {
 /// 1. Assemble and PEC-reduce the curl-curl pencil `(K_int, M_int)`.
 /// 2. Run a probe Lanczos pass with `σ = 0` to estimate the smallest
 ///    non-spurious eigenvalue `λ_min_phys` (see
-///    [`estimate_modal_shift`]). Set `σ = 0.5 · λ_min_phys`.
+///    `estimate_modal_shift`). Set `σ = 0.5 · λ_min_phys`.
 /// 3. Set the spurious-mode threshold to `0.1 · σ` (one decade of
 ///    slack below the shift; the gradient cluster sits many decades
 ///    below `σ`).
@@ -3707,7 +3707,7 @@ pub fn rect_waveguide_cutoff(m: u32, n: u32, a: f64, b: f64) -> f64 {
 /// `mesh.edges().len()`), with exact zeros on PEC-eliminated boundary
 /// edges. It is **M-orthonormalized** in the *unweighted* transverse
 /// mass `M₁` (`eᵀ M₁ e = 1`) and **sign-pinned** so the
-/// largest-magnitude component is non-negative ([`pin_eigenvector_sign`],
+/// largest-magnitude component is non-negative (`pin_eigenvector_sign`,
 /// issue #262), matching the metallic-mode gauge convention.
 #[derive(Debug, Clone)]
 pub struct DielectricMode {
@@ -3798,7 +3798,7 @@ pub struct DielectricMode {
 /// `n_core² k₀²` **that also carry curl energy**. We target the band by
 /// placing the shift-invert Lanczos shift `σ` just under the ceiling
 /// (`σ = (n_core² − δ) k₀²` with a small relative back-off `δ`; see
-/// [`estimate_modal_shift`] for the analogous metallic shift-placement
+/// `estimate_modal_shift` for the analogous metallic shift-placement
 /// strategy — here the band location is known a priori from `n_core`, so
 /// we use it directly).
 ///
@@ -3826,7 +3826,7 @@ pub struct DielectricMode {
 /// floors at `r ≈ 8.5×10⁻²`, leaving a clean ~5× gap above the
 /// weakly-resolved spurious ceiling (`≈ 1.7×10⁻²`). We therefore reject
 /// eigenpairs below a fixed floor centred in that gap (`3×10⁻²`); see
-/// [`physical_curl_floor`] for why a fixed floor is used rather than any
+/// `physical_curl_floor` for why a fixed floor is used rather than any
 /// adaptive gap-widening (an out-of-window spike can drive widening above
 /// the genuine band and return zero modes).
 ///
@@ -4218,10 +4218,10 @@ fn physical_curl_floor_p2() -> f64 {
 ///
 /// The eigenpencil `A = k₀²M_ε − K`, `A x = β² M₁ x`, the sparse
 /// shift-invert Lanczos path, the guided-band shift target, the
-/// bound-window classifier, the [`physical_index_ceiling`] geometry ceiling,
-/// and the [`pin_eigenvector_sign`] gauge are all **order-agnostic** and
+/// bound-window classifier, the `physical_index_ceiling` geometry ceiling,
+/// and the `pin_eigenvector_sign` gauge are all **order-agnostic** and
 /// reused verbatim; only the assembly order and the curl-energy floor
-/// ([`physical_curl_floor_p2`]) differ. Returns up to `n_modes` guided
+/// (`physical_curl_floor_p2`) differ. Returns up to `n_modes` guided
 /// [`DielectricMode`]s ordered fundamental-first (largest `n_eff`), with
 /// `e_edges` in the **p=2 DOF ordering** (length [`n_dof_2d_nedelec2`]).
 ///
@@ -4562,7 +4562,7 @@ fn physical_curl_floor_pml() -> f64 {
 /// LP₀₁ is therefore the eigenpair with the **smallest `|Im(β²)|`**
 /// (genuinely bound, lowest loss) whose `Re(β²)` lies inside the index
 /// window `(n_clad² k₀², n_eff_ceiling² k₀²)` and which carries curl energy
-/// above [`physical_curl_floor_p2`]. The core-energy fraction
+/// above `physical_curl_floor_p2`. The core-energy fraction
 /// ([`dielectric_mode_field_shape_pml`]) then **confirms** the selection
 /// (≳0.8 for a genuine LP₀₁) rather than driving it.
 ///
@@ -4909,7 +4909,7 @@ fn tri_nedelec2_basis_values(coords: &[[f64; 2]; 3], lam: [f64; 3]) -> [[f64; 2]
 /// `disk_tri_mesh` region tags (tag `1` = core, anything else = cladding).
 ///
 /// The transverse field is reconstructed per triangle from the mode's
-/// `e_edges` p=2 DOFs via [`tri_nedelec2_basis_values`] and the global
+/// `e_edges` p=2 DOFs via `tri_nedelec2_basis_values` and the global
 /// DOF map (the same numbering [`assemble_2d_nedelec2_with_epsilon`] uses),
 /// then `|E|²` is integrated with the degree-4 quadrature
 /// [`TRI_QUAD_DEG4`] and accumulated into core vs total buckets.
@@ -5101,7 +5101,7 @@ fn dielectric_raw_candidates_p2(
 /// regression and the manufactured order-of-convergence gate (Epic #318
 /// 2.5C). Assembles with [`assemble_2d_nedelec2_with_epsilon`] (uniform
 /// ε ≡ 1), PEC-reduces with the p=2 interior-DOF mask, estimates the shift
-/// via [`estimate_modal_shift`], and returns the lowest `n_modes` physical
+/// via `estimate_modal_shift`, and returns the lowest `n_modes` physical
 /// (`λ = k_c² > threshold`) eigenvalues, smallest first.
 ///
 /// Returns the bare eigenvalues `λ = k_c²` (the field profile is not needed

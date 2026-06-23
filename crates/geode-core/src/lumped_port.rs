@@ -130,7 +130,7 @@ impl LumpedPort<'_> {
 ///
 /// Same kernel as
 /// [`crate::silvermuller::assemble_surface_mass_triplets`] — both are
-/// thin delegates to the shared [`crate::whitney_face`] module (3-point
+/// thin delegates to the shared `whitney_face` module (3-point
 /// edge-midpoint quadrature, degree-2 exact; issue #208), so the two
 /// entry points produce bit-identical triplet streams. The unit tests
 /// cross-validate this path against the dense Silver-Müller assembly as

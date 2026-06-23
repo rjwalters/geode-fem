@@ -1,0 +1,65 @@
+name: doc-lint
+
+# Issue #346 — enforce warning-free rustdoc so broken intra-doc links
+# can't accumulate.
+#
+# Before this gate existed, geode-core had drifted to ~40 broken
+# intra-doc-link warnings (mostly private-item links in
+# waveguide_modes.rs) that only surfaced under
+# `RUSTDOCFLAGS="-D warnings"`. Because docs were never built with
+# `-D warnings` in CI, the backlog grew silently. This gate builds the
+# crate docs with warnings-as-errors so any regression fails the PR.
+#
+# Like rustfmt.yml, this is a repo-wide lint gate (no path filter).
+#
+# Backend note (mirrors arpack.yml): the runner is headless
+# `ubuntu-latest` with no Vulkan/CUDA adapter, so we build against the
+# CPU `ndarray` backend (`--no-default-features --features ndarray`)
+# rather than the GPU-only `wgpu` default. The intra-doc links being
+# guarded are backend-independent doc comments, so the CPU backend
+# exercises the identical rustdoc surface. The `arpack,ndarray` combo
+# additionally needs libarpack2-dev.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  RUSTDOCFLAGS: "-D warnings"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  doc:
+    name: cargo doc -p geode-core (-D warnings)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libarpack2-dev and pkg-config
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarpack2-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-doc-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build docs (--features ndarray, CPU backend)
+        run: |
+          cargo doc -p geode-core --no-deps \
+              --no-default-features --features ndarray
+
+      - name: Build docs (--features arpack,ndarray, CPU backend)
+        run: |
+          cargo doc -p geode-core --no-deps \
+              --no-default-features --features arpack,ndarray

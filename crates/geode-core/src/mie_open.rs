@@ -49,7 +49,7 @@
 //! It seeds complex Newton iteration from PEC-cavity real roots at
 //! several outer-wall radii (and a coarse complex-plane grid) and keeps
 //! the unique converged roots with `Im(k) < 0`. Each catalog entry is
-//! re-verified at runtime via [`tests::catalog_residuals_are_small`].
+//! re-verified at runtime via `tests::catalog_residuals_are_small`.
 //!
 //! Reproducing the table:
 //!
