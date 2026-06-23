@@ -20,6 +20,10 @@ jobs:
   fmt:
     name: cargo fmt --all -- --check
     runs-on: ubuntu-latest
+    # rustfmt only parses (no build, no dependency resolution), so this
+    # is the cheapest gate in the repo. A tight 5-min cap bounds queue
+    # starvation without ever clipping a legitimate run (issue #354).
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 

@@ -57,6 +57,10 @@ jobs:
   rect-waveguide-modes-debug:
     name: cargo test rect_waveguide_modes (debug, ndarray)
     runs-on: ubuntu-latest
+    # Debug-profile build + modal eigensolver test. A 30-min cap bounds
+    # queue-wait while leaving room for a cold dependency build (issue
+    # #354).
+    timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short

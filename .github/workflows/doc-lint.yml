@@ -34,6 +34,10 @@ jobs:
   doc:
     name: cargo doc -p geode-core (-D warnings)
     runs-on: ubuntu-latest
+    # Doc build of a single crate (twice, with/without arpack). A 10-min
+    # cap bounds queue-wait while leaving room for a cold dependency
+    # build (issue #354).
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 

@@ -63,6 +63,10 @@ jobs:
   build-and-drift-check:
     name: JAX sphere-PML pipeline + strict snapshot drift gate
     runs-on: ubuntu-latest
+    # Bound queue-wait + execution so this cross-check can never orphan
+    # for the 24h GitHub ceiling (issue #354). The pipeline + drift gate
+    # runs in a few minutes; 30 leaves headroom for a cold Python env.
+    timeout-minutes: 30
     env:
       # `sigma0` is derived once here so manual-dispatch overrides flow
       # into every step. Default matches the committed fixture: σ₀=5.0.
