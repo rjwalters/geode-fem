@@ -41,6 +41,8 @@
 //! recurrence for `y_l`) for higher `l`. Roots are extracted by dense
 //! sampling + sign-change bracketing + bisection refinement.
 
+use crate::iterate::{iterate_while, IterOutcome, Step};
+
 /// Polarisation of an electromagnetic resonance in the spherical
 /// cavity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,28 +381,65 @@ fn find_roots<F: Fn(f64) -> f64>(f: F, k_min: f64, k_max: f64, n_samples: usize)
             continue;
         }
 
-        let mut lo = a;
-        let mut hi = b;
-        let mut f_lo = fa;
-        for _ in 0..60 {
-            let mid = 0.5 * (lo + hi);
-            let f_mid = f(mid);
-            if !f_mid.is_finite() {
-                break;
-            }
-            if f_mid == 0.0 || (hi - lo) < 1e-12 * mid.abs().max(1.0) {
-                lo = mid;
-                hi = mid;
-                break;
-            }
-            if f_lo * f_mid < 0.0 {
-                hi = mid;
-            } else {
-                lo = mid;
-                f_lo = f_mid;
-            }
+        // Bisection refinement (≤ 60 trips) driven by the shared
+        // `iterate_while` combinator (issue #347, follow-up to #301).
+        //
+        // This is a textbook fit for the combinator's graph-only L4
+        // contract: the carried state `Bracket { lo, hi, f_lo }` has a
+        // loop-invariant scalar shape (restriction 1), the continue/stop
+        // choice is a single scalar predicate evaluated inside the step
+        // — interval collapse, an exact zero, or a non-finite sample
+        // (restriction 2), and each bracket yields exactly one root so
+        // there is no data-dependent output count (restriction 3). The
+        // terminal value `T = f64` is the refined root `0.5·(lo + hi)`;
+        // hitting the 60-trip cap falls through to `IterOutcome::MaxIters`
+        // and reads the same midpoint off the final carried state, so the
+        // result is bit-identical to the prior hand-rolled loop.
+        struct Bracket {
+            lo: f64,
+            hi: f64,
+            f_lo: f64,
         }
-        roots.push(0.5 * (lo + hi));
+
+        let (outcome, _report) = iterate_while(
+            Bracket {
+                lo: a,
+                hi: b,
+                f_lo: fa,
+            },
+            60,
+            |_it, br| {
+                let Bracket { lo, hi, f_lo } = br;
+                let mid = 0.5 * (lo + hi);
+                let f_mid = f(mid);
+                if !f_mid.is_finite() {
+                    // Original `break` keeps the current `(lo, hi)`.
+                    return Step::Done(0.5 * (lo + hi));
+                }
+                if f_mid == 0.0 || (hi - lo) < 1e-12 * mid.abs().max(1.0) {
+                    // Original collapses `lo = hi = mid`, so the midpoint
+                    // of the collapsed interval is exactly `mid`.
+                    return Step::Done(mid);
+                }
+                if f_lo * f_mid < 0.0 {
+                    Step::Continue(Bracket { lo, hi: mid, f_lo })
+                } else {
+                    Step::Continue(Bracket {
+                        lo: mid,
+                        hi,
+                        f_lo: f_mid,
+                    })
+                }
+            },
+        );
+
+        let root = match outcome {
+            IterOutcome::Done(k) => k,
+            // Cap reached with every step still bracketing: original
+            // pushes the midpoint of the final `(lo, hi)`.
+            IterOutcome::MaxIters(Bracket { lo, hi, .. }) => 0.5 * (lo + hi),
+        };
+        roots.push(root);
     }
     roots
 }
@@ -646,6 +685,120 @@ mod tests {
         }
         for r in &roots {
             assert!(r.k > 0.0 && r.k.is_finite());
+        }
+    }
+
+    /// Verbatim copy of the pre-#347 hand-rolled bracketing/bisection
+    /// `find_roots`, kept as a regression oracle. The production
+    /// `find_roots` now drives the shared `iterate_while` combinator; this
+    /// reference pins the *exact* prior arithmetic so the refactor can be
+    /// asserted bit-identical, not merely close.
+    fn find_roots_reference<F: Fn(f64) -> f64>(
+        f: F,
+        k_min: f64,
+        k_max: f64,
+        n_samples: usize,
+    ) -> Vec<f64> {
+        assert!(k_max > k_min);
+        assert!(n_samples >= 3);
+
+        let dk = (k_max - k_min) / (n_samples as f64);
+        let ks: Vec<f64> = (0..=n_samples).map(|i| k_min + (i as f64) * dk).collect();
+        let fs: Vec<f64> = ks.iter().map(|&k| f(k)).collect();
+
+        let mut roots = Vec::new();
+        for i in 0..n_samples {
+            let (a, b) = (ks[i], ks[i + 1]);
+            let (fa, fb) = (fs[i], fs[i + 1]);
+            if !fa.is_finite() || !fb.is_finite() {
+                continue;
+            }
+            if fa == 0.0 && fb == 0.0 {
+                continue;
+            }
+            if fa * fb > 0.0 {
+                continue;
+            }
+            let scale = fa.abs().min(fb.abs());
+            if scale > 1e8 {
+                continue;
+            }
+
+            let mut lo = a;
+            let mut hi = b;
+            let mut f_lo = fa;
+            for _ in 0..60 {
+                let mid = 0.5 * (lo + hi);
+                let f_mid = f(mid);
+                if !f_mid.is_finite() {
+                    break;
+                }
+                if f_mid == 0.0 || (hi - lo) < 1e-12 * mid.abs().max(1.0) {
+                    lo = mid;
+                    hi = mid;
+                    break;
+                }
+                if f_lo * f_mid < 0.0 {
+                    hi = mid;
+                } else {
+                    lo = mid;
+                    f_lo = f_mid;
+                }
+            }
+            roots.push(0.5 * (lo + hi));
+        }
+        roots
+    }
+
+    #[test]
+    fn find_roots_iterate_while_is_bit_identical_to_prior_impl() {
+        // Drive the *same* characteristic functions `resonance_roots`
+        // uses (the dense 30k-sample sweep over k ∈ [0.1, 20]) and assert
+        // the combinator-driven `find_roots` recovers every root to the
+        // last bit vs the pre-refactor reference. Cover both
+        // polarisations and a spread of (n, l, R_s, R_b) so the test
+        // exercises the exact-zero, interval-collapse, and 60-trip-cap
+        // termination branches.
+        let k_min = 0.1;
+        let k_max = 20.0;
+        let n_samples = 30_000;
+
+        for pol in [MiePolarisation::TE, MiePolarisation::TM] {
+            for &n in &[1.0_f64, 1.5, 2.5, 4.0] {
+                for l in 1..=5_usize {
+                    for &(r_s, r_b) in &[(0.5, 1.0), (1.0, 2.0), (0.3, 3.0)] {
+                        let f = |k: f64| -> f64 {
+                            match pol {
+                                MiePolarisation::TE => characteristic_te(n, l, r_s, r_b, k),
+                                MiePolarisation::TM => characteristic_tm(n, l, r_s, r_b, k),
+                            }
+                        };
+
+                        // `f` captures only `Copy` scalars, so it is
+                        // itself `Copy` and can be handed to both paths.
+                        let got = find_roots(f, k_min, k_max, n_samples);
+                        let expected = find_roots_reference(f, k_min, k_max, n_samples);
+
+                        assert_eq!(
+                            got.len(),
+                            expected.len(),
+                            "root count differs for pol={pol:?} n={n} l={l} \
+                             (r_s={r_s}, r_b={r_b}): got {}, expected {}",
+                            got.len(),
+                            expected.len()
+                        );
+                        for (idx, (g, e)) in got.iter().zip(expected.iter()).enumerate() {
+                            // Bit-identical, not approximate.
+                            assert_eq!(
+                                g.to_bits(),
+                                e.to_bits(),
+                                "root #{idx} differs for pol={pol:?} n={n} l={l} \
+                                 (r_s={r_s}, r_b={r_b}): got {g}, expected {e}"
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 }
