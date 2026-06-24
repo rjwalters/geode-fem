@@ -45,14 +45,26 @@
 //!
 //! # Running
 //!
-//! This test is now exercised in release mode without `#[ignore]`d.
-//! faer 0.24's `gevd::qz_real` panics under `debug-assertions`, so the
-//! workspace `[profile.test.package.faer]` override + the release-
-//! profile invocation below remain the recipe.
+//! This test runs under the **default (debug) `cargo test` profile**
+//! without `#[ignore]`. faer 0.24's `gevd::qz_real` performs `usize`
+//! subtractions that wrap during the QZ iteration and would panic with
+//! `attempt to subtract with overflow` if integer overflow checks were
+//! enabled (release math is correct). The workspace `Cargo.toml`
+//! suppresses those checks via a top-level `overflow-checks = false` on
+//! the `[profile.dev]` and `[profile.test]` profiles — a profile-level
+//! override is required because cargo 1.96 cannot disable the check for
+//! `faer` via a per-package override (see the comment block in
+//! `Cargo.toml` for the full rationale, and
+//! `tests/faer_qz_debug_overflow_guard.rs` for the always-on regression
+//! guard). With that suppression in place this test is debug-safe:
 //!
 //! ```sh
-//! cargo test -p geode-core --release --test sphere_pec_eigenmode
+//! cargo test -p geode-core --test sphere_pec_eigenmode
 //! ```
+//!
+//! Note: the dense generalized eigensolve here is O(n³) over ~376
+//! requested eigenvalues on the 774-node fixture and can take several
+//! minutes even at `opt-level = 3`; it is debug-*safe*, not debug-fast.
 
 use burn::tensor::backend::BackendTypes;
 

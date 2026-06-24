@@ -21,6 +21,10 @@ jobs:
   build-and-test:
     name: cargo test --features arpack (linux)
     runs-on: ubuntu-latest
+    # Cap queue-wait + run time. This is a single Linux build + one gated
+    # test; ~10 min is typical, 15 leaves headroom without letting a
+    # starved runner orphan for the 24h GitHub ceiling (issue #354).
+    timeout-minutes: 15
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short

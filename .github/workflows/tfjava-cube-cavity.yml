@@ -117,6 +117,11 @@ jobs:
   build-and-cross-check:
     name: TF-Java assembly + SciPy eigensolve + cross-IR agreement (TF-Java vs JAX vs NumPy)
     runs-on: ubuntu-latest
+    # Bound queue-wait + execution so this cross-check can never orphan
+    # for the 24h GitHub ceiling (issue #354). JDK 17 + Maven + native
+    # TF-Java libs make this heavy; 30 min leaves headroom for a cold
+    # Maven cache.
+    timeout-minutes: 30
     env:
       MAVEN_OPTS: "-Xmx2g"
       # `n` and `rtol` are derived once here so manual-dispatch overrides
@@ -239,6 +244,11 @@ jobs:
   sphere-pec-tfjava:
     name: TF-Java sphere-PEC Nédélec assembly + SciPy eigensolve + NumPy agreement
     runs-on: ubuntu-latest
+    # Bound queue-wait + execution so this cross-check can never orphan
+    # for the 24h GitHub ceiling (issue #354). JDK 17 + Maven + native
+    # TF-Java libs make this heavy; 30 min leaves headroom for a cold
+    # Maven cache.
+    timeout-minutes: 30
     env:
       MAVEN_OPTS: "-Xmx2g"
       # Relative tolerance for the physical-eigenvalue cross-backend gate.
@@ -334,6 +344,11 @@ jobs:
   sphere-pml-tfjava:
     name: TF-Java sphere-PML complex-Nédélec assembly + SciPy ZGGEV + NumPy agreement
     runs-on: ubuntu-latest
+    # Bound queue-wait + execution so this cross-check can never orphan
+    # for the 24h GitHub ceiling (issue #354). JDK 17 + Maven + native
+    # TF-Java libs make this heavy; 30 min leaves headroom for a cold
+    # Maven cache.
+    timeout-minutes: 30
     env:
       MAVEN_OPTS: "-Xmx2g"
       # Absolute tolerance for the cross-backend physical-eigenvalue gate.
@@ -461,6 +476,11 @@ jobs:
   sphere-mie-tfjava:
     name: TF-Java sphere-Mie tensor-ε Nédélec assembly + SciPy ZGGEV + NumPy agreement
     runs-on: ubuntu-latest
+    # Bound queue-wait + execution so this cross-check can never orphan
+    # for the 24h GitHub ceiling (issue #354). JDK 17 + Maven + native
+    # TF-Java libs make this heavy; 30 min leaves headroom for a cold
+    # Maven cache.
+    timeout-minutes: 30
     env:
       MAVEN_OPTS: "-Xmx2g"
       # Absolute tolerance for the per-position physical-eigenvalue gate

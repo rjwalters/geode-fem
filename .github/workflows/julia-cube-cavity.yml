@@ -96,6 +96,11 @@ jobs:
   build-and-cross-check:
     name: Julia assembly + Arpack.jl eigensolve + cross-IR agreement (Julia vs JAX vs NumPy)
     runs-on: ubuntu-latest
+    # Bound queue-wait + execution so this cross-check can never orphan
+    # for the 24h GitHub ceiling (issue #354). Julia precompile + the
+    # multi-pipeline run is the heaviest cross-check; 30 min leaves
+    # headroom for a cold Julia depot + Python env.
+    timeout-minutes: 30
     env:
       # `n` and `rtol` are derived once here so manual-dispatch overrides
       # flow into every step. Defaults match the AC: n=10, rtol=1e-5.

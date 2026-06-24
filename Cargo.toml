@@ -43,14 +43,50 @@ codegen-units = 1
 # unusably slow without optimization. Keep them optimized even in debug
 # builds; only our own crates compile with no-opt for fast iteration.
 #
-# PR #249 moved the rectangular-waveguide modal pencil off faer 0.24's
-# QZ path (which tripped `attempt to subtract with overflow` under
-# default debug overflow checks — see issue #244) onto the sparse
-# real-symmetric shift-invert Lanczos, so the modal solver itself no
-# longer trips the bug. PR #246's diagnostic established that the
-# `[profile.*.package."*"] overflow-checks = false` overrides do not
-# propagate to dependencies on cargo 1.96, so they were dead code and
-# have been removed.
+# ── faer 0.24 QZ overflow-panic suppression (issues #244 / #354) ──────
+#
+# A handful of tests legitimately exercise faer 0.24's dense QZ
+# generalized eigensolver (`linalg::gevd::qz_real`), most notably
+# `sphere_pec_eigenmode::sphere_pec_eigenmode_spectrum`, which is
+# intended to run under the *default* (debug) `cargo test` profile.
+# `qz_real::aggressive_early_deflation` (faer-0.24.0 .../qz_real/mod.rs)
+# performs `usize` subtractions that wrap during the QZ iteration; with
+# overflow checks enabled those wraps panic with `attempt to subtract
+# with overflow` even though the release math is correct. PR #249 moved
+# the *rectangular-waveguide* modal pencil off the QZ path onto the
+# sparse Lanczos solver, but the sphere PEC eigenmode test (and the
+# `--ignored`/`--release` dense eigensolver tests) still go through it.
+#
+# Why the suppression lives at the PROFILE (not package) level:
+# cargo 1.96 cannot disable overflow checks for `faer` via a per-package
+# override. `[profile.*.package."*"]` globs do not propagate to
+# dependencies (PR #246's finding); and even a *named* override such as
+# `[profile.test.package.faer] overflow-checks = false` does NOT take
+# effect — the panic at `qz_real/mod.rs` survives it. The reason is that
+# cargo will emit `-C debug-assertions=on` for a package override but
+# *never* emits `-C debug-assertions=off`, and a live `debug-assertions`
+# re-enables the arithmetic overflow check regardless of a package-level
+# `overflow-checks=false`. (Verified empirically against cargo 1.96:
+# `cargo test --no-run -v` shows the faer rustc line with
+# `overflow-checks=off` yet the panic persists.)
+#
+# A *profile-level* `overflow-checks = false` IS emitted as an explicit
+# `-C overflow-checks=off` for every crate in the graph, and an explicit
+# `overflow-checks=off` DOES win over `debug-assertions=on`. So the
+# working mechanism is a top-level `overflow-checks = false` on the dev
+# and test profiles. The blast radius (our own crates also skip integer
+# overflow checks in debug/test) is acceptable: no test in the workspace
+# relies on an arithmetic-overflow panic (every `#[should_panic]` targets
+# an explicit `assert!`/`panic!` message), and release/CI builds are
+# unaffected. `tests/faer_qz_debug_overflow_guard.rs` is an always-on
+# (non-`#[ignore]`d) regression guard that fails fast with the original
+# overflow panic if this suppression is ever removed or stops working.
+[profile.dev]
+overflow-checks = false
+
+[profile.test]
+overflow-checks = false
+
 [profile.dev.package."*"]
 opt-level = 3
 debug = false

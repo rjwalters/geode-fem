@@ -106,6 +106,10 @@ jobs:
   build-and-cross-check:
     name: ONNX assembly + SciPy eigensolve + cross-IR agreement (ONNX vs JAX vs NumPy)
     runs-on: ubuntu-latest
+    # Bound queue-wait + execution so this cross-check can never orphan
+    # for the 24h GitHub ceiling (issue #354). Runs in a few minutes; 30
+    # leaves headroom for a cold Python env.
+    timeout-minutes: 30
     env:
       # `n` and `rtol` are derived once here so manual-dispatch overrides
       # flow into every step. Defaults match the AC: n=10, rtol=1e-5.
@@ -267,6 +271,10 @@ jobs:
   build-and-cross-check-sphere-pec:
     name: ONNX sphere-PEC Nédélec assembly + SciPy eigensolve (Phase G.7)
     runs-on: ubuntu-latest
+    # Bound queue-wait + execution so this cross-check can never orphan
+    # for the 24h GitHub ceiling (issue #354). Runs in a few minutes; 30
+    # leaves headroom for a cold Python env.
+    timeout-minutes: 30
     env:
       # Phase G.7 (issue #140) AC: physical eigenvalue agreement against
       # baseline.json within 2e-5 relative (provisional, per issue body).
