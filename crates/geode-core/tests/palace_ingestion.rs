@@ -15,7 +15,7 @@
 
 use std::path::PathBuf;
 
-use geode_core::palace::{PalaceOracleSlot, PalaceResults, PALACE_DEFAULT_PORT_OHM};
+use geode_core::palace::{PALACE_DEFAULT_PORT_OHM, PalaceOracleSlot, PalaceResults};
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/palace")

@@ -47,7 +47,7 @@
 //! cargo test -p geode-core --test circular_waveguide_modes
 //! ```
 
-use geode_core::{solve_waveguide_modes, TriMesh};
+use geode_core::{TriMesh, solve_waveguide_modes};
 
 /// Hard-coded Bessel-zero table for the analytic oracle. Values from
 /// Abramowitz & Stegun Table 9.5 (J_m zeros) and 9.6 (J'_m zeros),

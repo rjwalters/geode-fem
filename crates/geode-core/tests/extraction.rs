@@ -43,11 +43,10 @@ use std::collections::BTreeMap;
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::{
-    detect_srf, driven_frequency_sweep, driven_solve_with_ports,
-    driven_solve_with_surface_impedance, extract_port_circuit, port_input_impedance, s11,
-    s_parameter_frequency_sweep, CurrentSource, DefaultBackend, DrivenBcs, DrivenError,
-    DrivenMaterials, DrivenOperator, LumpedPort, SurfaceImpedanceBc, SurfaceImpedanceModel,
-    TetMesh,
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator,
+    LumpedPort, SurfaceImpedanceBc, SurfaceImpedanceModel, TetMesh, detect_srf,
+    driven_frequency_sweep, driven_solve_with_ports, driven_solve_with_surface_impedance,
+    extract_port_circuit, port_input_impedance, s_parameter_frequency_sweep, s11,
 };
 
 type B = DefaultBackend;

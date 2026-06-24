@@ -79,11 +79,11 @@ use burn::tensor::backend::BackendTypes;
 use num_complex::Complex64;
 
 use geode_core::{
+    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, R_BUFFER, SphereFixture,
     apply_dirichlet_bc, assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
     burn_complex_mass_to_faer, burn_matrix_to_faer, read_sphere_fixture,
     read_sphere_fixture_from_bytes, sphere_n_interior_nodes, sphere_pec_interior_edges,
-    tet_centroid_radii, upload_mesh, ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver,
-    SphereFixture, R_BUFFER,
+    tet_centroid_radii, upload_mesh,
 };
 use geode_validation::{Fixture, FixtureFormat};
 

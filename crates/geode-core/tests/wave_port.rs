@@ -35,9 +35,9 @@
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::{
+    DefaultBackend, DrivenBcs, DrivenMaterials, PortMode, TetMesh, WavePort,
     extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
     map_mode_profile_to_full_mesh, solve_rect_waveguide_modes, solve_wave_port_sweep,
-    DefaultBackend, DrivenBcs, DrivenMaterials, PortMode, TetMesh, WavePort,
 };
 
 type B = DefaultBackend;
@@ -100,11 +100,7 @@ fn build_te10_port(
         .iter()
         .map(|e| {
             let (a3, b3) = (n2d_to_n3d[e[0] as usize], n2d_to_n3d[e[1] as usize]);
-            if a3 < b3 {
-                [a3, b3]
-            } else {
-                [b3, a3]
-            }
+            if a3 < b3 { [a3, b3] } else { [b3, a3] }
         })
         .collect();
 
@@ -475,11 +471,7 @@ fn build_te10_port_step(
         .iter()
         .map(|e| {
             let (a3, b3) = (n2d_to_n3d[e[0] as usize], n2d_to_n3d[e[1] as usize]);
-            if a3 < b3 {
-                [a3, b3]
-            } else {
-                [b3, a3]
-            }
+            if a3 < b3 { [a3, b3] } else { [b3, a3] }
         })
         .collect();
 
@@ -689,11 +681,7 @@ fn build_multimode_port(
         .iter()
         .map(|e| {
             let (a3, b3) = (n2d_to_n3d[e[0] as usize], n2d_to_n3d[e[1] as usize]);
-            if a3 < b3 {
-                [a3, b3]
-            } else {
-                [b3, a3]
-            }
+            if a3 < b3 { [a3, b3] } else { [b3, a3] }
         })
         .collect();
 

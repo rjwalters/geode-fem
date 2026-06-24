@@ -12,10 +12,10 @@
 //! intentional and matches the curator's #3 plan ("dense for v0 as a
 //! correctness oracle").
 
-use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
-use faer::mat::MatRef;
+use burn::tensor::backend::Backend;
 use faer::Mat;
+use faer::mat::MatRef;
 
 /// Errors produced by the eigensolver layer.
 #[derive(Debug, thiserror::Error)]

@@ -19,18 +19,18 @@
 
 use std::collections::BTreeSet;
 
-use burn::tensor::backend::Backend;
 use burn::tensor::ElementConversion;
 use burn::tensor::Tensor;
+use burn::tensor::backend::Backend;
 use burn::tensor::{IndexingUpdateOp, Int, TensorData};
 use faer::Mat;
 
-use crate::assembly::{gather_tet_coords, SparsityPattern};
+use crate::TetMesh;
+use crate::assembly::{SparsityPattern, gather_tet_coords};
 use crate::nedelec::{
     batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_mass_anisotropic_full,
     batched_nedelec_local_matrices, batched_nedelec_local_stiffness_weighted,
 };
-use crate::TetMesh;
 
 /// Assembled global Nédélec linear system in dense Burn-tensor form.
 #[derive(Debug, Clone)]

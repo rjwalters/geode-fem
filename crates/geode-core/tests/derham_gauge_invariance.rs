@@ -97,12 +97,12 @@
 //! ```
 
 use burn::tensor::backend::BackendTypes;
-use faer::linalg::solvers::Solve;
 use faer::Mat;
+use faer::linalg::solvers::Solve;
 
 use geode_core::{
-    apply_dirichlet_bc, apply_gradient, assemble_global_nedelec, burn_matrix_to_faer,
-    cube_interior_mask, cube_pec_interior_edges, cube_tet_mesh, upload_mesh, DefaultBackend,
+    DefaultBackend, apply_dirichlet_bc, apply_gradient, assemble_global_nedelec,
+    burn_matrix_to_faer, cube_interior_mask, cube_pec_interior_edges, cube_tet_mesh, upload_mesh,
 };
 
 type B = DefaultBackend;

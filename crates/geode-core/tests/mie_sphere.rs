@@ -42,11 +42,11 @@
 use burn::tensor::backend::BackendTypes;
 
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
+    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, R_BUFFER,
+    R_SPHERE, apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
     build_anisotropic_pml_tensor_diag, burn_complex_mass_to_faer, burn_matrix_to_faer,
     merged_roots, open_space_wgm_roots_n15, read_sphere_fixture, sphere_n_interior_nodes,
-    sphere_pec_interior_edges, tet_centroids, upload_mesh, ComplexEigenSolver, DefaultBackend,
-    FaerComplexEigensolver, MiePolarisation, R_BUFFER, R_SPHERE,
+    sphere_pec_interior_edges, tet_centroids, upload_mesh,
 };
 
 /// Q-factor band lower bound for the lowest TM_1,1 triplet (issue #40).

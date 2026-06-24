@@ -27,7 +27,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use geode_core::{apply_divergence, cube_tet_mesh, curl_map, divergence_map, TetMesh};
+use geode_core::{TetMesh, apply_divergence, cube_tet_mesh, curl_map, divergence_map};
 
 /// A single tet on nodes 0..4. Connectivity is all that matters for
 /// `d²`; the coordinates below form a unit reference tet for good

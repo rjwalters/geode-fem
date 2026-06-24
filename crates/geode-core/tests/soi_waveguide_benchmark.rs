@@ -23,8 +23,8 @@
 //!    a tight reference. We do NOT fit to it.
 
 use geode_core::{
-    epsilon_r_from_region_tags, rect_pec_interior_edges, rect_tri_mesh, slab_te0_neff,
-    solve_dielectric_modes, TriMesh,
+    TriMesh, epsilon_r_from_region_tags, rect_pec_interior_edges, rect_tri_mesh, slab_te0_neff,
+    solve_dielectric_modes,
 };
 
 const N_SI: f64 = 3.48;

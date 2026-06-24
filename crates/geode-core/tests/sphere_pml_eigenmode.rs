@@ -58,10 +58,10 @@
 use burn::tensor::backend::BackendTypes;
 
 use geode_core::{
+    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, R_BUFFER, R_PML_INNER, R_SPHERE,
     apply_dirichlet_bc, assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
     burn_complex_mass_to_faer, burn_matrix_to_faer, read_sphere_fixture, sphere_n_interior_nodes,
-    sphere_pec_interior_edges, tet_centroid_radii, upload_mesh, ComplexEigenSolver, DefaultBackend,
-    FaerComplexEigensolver, R_BUFFER, R_PML_INNER, R_SPHERE,
+    sphere_pec_interior_edges, tet_centroid_radii, upload_mesh,
 };
 
 type B = DefaultBackend;
@@ -84,7 +84,7 @@ fn pml_profile_is_real_inside_imag_in_buffer() {
     let n_interior_real_only = eps
         .iter()
         .zip(f.tet_physical_tags.iter())
-        .filter(|(c, &t)| {
+        .filter(|&(c, &t)| {
             t == geode_core::PHYS_SPHERE_INTERIOR
                 && c.im.abs() < 1e-12
                 && (c.re - 2.25).abs() < 1e-9
@@ -100,7 +100,7 @@ fn pml_profile_is_real_inside_imag_in_buffer() {
     let n_gap_real_one = eps
         .iter()
         .zip(f.tet_physical_tags.iter())
-        .filter(|(c, &t)| {
+        .filter(|&(c, &t)| {
             t == geode_core::PHYS_VACUUM_GAP && c.im.abs() < 1e-12 && (c.re - 1.0).abs() < 1e-12
         })
         .count();
@@ -114,7 +114,7 @@ fn pml_profile_is_real_inside_imag_in_buffer() {
     let n_pml_lossy = eps
         .iter()
         .zip(f.tet_physical_tags.iter())
-        .filter(|(c, &t)| t == geode_core::PHYS_PML_SHELL && c.im < 0.0)
+        .filter(|&(c, &t)| t == geode_core::PHYS_PML_SHELL && c.im < 0.0)
         .count();
     assert_eq!(
         n_pml_lossy,

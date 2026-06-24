@@ -106,9 +106,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use geode_core::{
-    dielectric_mode_field_shape_pml, disk_pec_interior_dofs2, disk_tri_mesh_pml,
-    epsilon_r_from_region_tags, fiber_lp_neff, n_dof_2d_nedelec2, normalized_b,
-    solve_dielectric_modes2_pml, v_number, TriMesh, REGION_CORE,
+    REGION_CORE, TriMesh, dielectric_mode_field_shape_pml, disk_pec_interior_dofs2,
+    disk_tri_mesh_pml, epsilon_r_from_region_tags, fiber_lp_neff, n_dof_2d_nedelec2, normalized_b,
+    solve_dielectric_modes2_pml, v_number,
 };
 
 /// Core refractive index (SMF-28-like, λ = 1550 nm).
@@ -196,11 +196,7 @@ fn build_fiber(res: (usize, usize)) -> (TriMesh, Vec<i32>, Vec<f64>, Vec<bool>, 
     let eps_core = N_CORE * N_CORE;
     let eps_clad = N_CLAD * N_CLAD;
     let eps_r = epsilon_r_from_region_tags(&region_tags, |t| {
-        if t == REGION_CORE {
-            eps_core
-        } else {
-            eps_clad
-        }
+        if t == REGION_CORE { eps_core } else { eps_clad }
     });
     let interior = disk_pec_interior_dofs2(&mesh, outer_r);
     (mesh, region_tags, eps_r, interior, clad_r, outer_r)

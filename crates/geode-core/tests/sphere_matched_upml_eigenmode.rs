@@ -53,12 +53,12 @@ use faer::c64;
 
 use faer::sparse::{SparseColMat, Triplet};
 use geode_core::{
+    DefaultBackend, MiePolarisation, MieRootComplex, PHYS_SPHERE_INTERIOR, R_BUFFER,
+    SparseComplexEigenSolver, SparseComplexShiftInvertLanczos, TetMesh,
     assemble_global_nedelec_with_complex_epsilon, assemble_global_nedelec_with_full_tensors,
     build_complex_epsilon_r_pml, build_matched_upml_materials, burn_complex_mass_to_faer,
     burn_matrix_to_faer, open_space_wgm_roots_n15, read_sphere_fixture, sphere_pec_interior_edges,
-    tet_centroid_radii, upload_mesh, DefaultBackend, MiePolarisation, MieRootComplex,
-    SparseComplexEigenSolver, SparseComplexShiftInvertLanczos, TetMesh, PHYS_SPHERE_INTERIOR,
-    R_BUFFER,
+    tet_centroid_radii, upload_mesh,
 };
 
 type B = DefaultBackend;

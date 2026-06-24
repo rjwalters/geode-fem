@@ -46,10 +46,10 @@ use geode_core::mesh::spiral::{
     PHYS_OUTER_BOUNDARY, PHYS_PORT, PHYS_SUBSTRATE, PORT_E_HAT,
 };
 use geode_core::{
-    driven_solve_with_ports, pec_interior_mask_from_triangles, port_current, port_input_impedance,
-    port_voltage, read_spiral_fixture, read_spiral_smoke_fixture, CurrentSource, DefaultBackend,
-    DrivenBcs, DrivenMaterials, DrivenOperator, SpiralFixture, SurfaceImpedanceBc,
-    SurfaceImpedanceModel,
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, DrivenOperator, SpiralFixture,
+    SurfaceImpedanceBc, SurfaceImpedanceModel, driven_solve_with_ports,
+    pec_interior_mask_from_triangles, port_current, port_input_impedance, port_voltage,
+    read_spiral_fixture, read_spiral_smoke_fixture,
 };
 use std::collections::BTreeSet;
 
@@ -387,10 +387,11 @@ fn driven_operator_assembles_and_solves_benchmark_fixture() {
         "direct-solve residual {} not at round-off floor",
         sol.residual_rel
     );
-    assert!(sol
-        .e_edges
-        .iter()
-        .all(|e| e.re.is_finite() && e.im.is_finite()));
+    assert!(
+        sol.e_edges
+            .iter()
+            .all(|e| e.re.is_finite() && e.im.is_finite())
+    );
 
     let v = op.port_voltage(0, &sol.e_edges);
     let i = op.port_current(0, v);

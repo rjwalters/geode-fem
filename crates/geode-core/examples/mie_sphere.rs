@@ -98,14 +98,15 @@ use burn::tensor::backend::BackendTypes;
 use faer::sparse::{SparseColMat, Triplet};
 
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
-    assemble_global_nedelec_with_complex_epsilon, build_anisotropic_pml_tensor_diag,
-    build_complex_epsilon_r_pml, burn_complex_mass_to_faer, burn_matrix_to_faer, mie_roots_catalog,
-    open_space_wgm_roots_n15, plane_wave_polarization_current, read_sphere_fixture,
-    solve_scattered_field_matched_upml, sphere_n_interior_nodes, sphere_pec_interior_edges,
-    tet_centroid_radii, tet_centroids, upload_mesh, ComplexEigenSolver, DefaultBackend,
-    FaerComplexEigensolver, MiePolarisation, MieRoot, SparseComplexEigenSolver,
-    SparseComplexShiftInvertLanczos, PHYS_SPHERE_INTERIOR, R_BUFFER, R_SPHERE,
+    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, MieRoot,
+    PHYS_SPHERE_INTERIOR, R_BUFFER, R_SPHERE, SparseComplexEigenSolver,
+    SparseComplexShiftInvertLanczos, apply_dirichlet_bc,
+    assemble_global_nedelec_with_anisotropic_epsilon, assemble_global_nedelec_with_complex_epsilon,
+    build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml, burn_complex_mass_to_faer,
+    burn_matrix_to_faer, mie_roots_catalog, open_space_wgm_roots_n15,
+    plane_wave_polarization_current, read_sphere_fixture, solve_scattered_field_matched_upml,
+    sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii, tet_centroids,
+    upload_mesh,
 };
 
 #[path = "common/viz_export_helper.rs"]
@@ -737,10 +738,10 @@ fn export_field(path: &str) {
         .collect();
 
     let out = std::path::Path::new(path);
-    if let Some(parent) = out.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent).expect("create --export-field parent dir");
-        }
+    if let Some(parent) = out.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).expect("create --export-field parent dir");
     }
     geode_core::viz_vtu::write_vtu(out, &f.mesh, &e_re, Some(&e_im), Some(&eps_r))
         .expect("write --export-field .vtu");

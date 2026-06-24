@@ -8,9 +8,9 @@ use burn::tensor::backend::BackendTypes;
 
 use geode_core::fe_assemble::fe_assemble;
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_nedelec_with_epsilon, assemble_global_p1, build_epsilon_r,
-    burn_matrix_to_faer, cube_interior_mask, cube_tet_mesh, read_sphere_fixture,
-    sphere_pec_interior_edges, upload_mesh, DefaultBackend, DirichletBc, ElementType, R_BUFFER,
+    DefaultBackend, DirichletBc, ElementType, R_BUFFER, apply_dirichlet_bc,
+    assemble_global_nedelec_with_epsilon, assemble_global_p1, build_epsilon_r, burn_matrix_to_faer,
+    cube_interior_mask, cube_tet_mesh, read_sphere_fixture, sphere_pec_interior_edges, upload_mesh,
 };
 
 type B = DefaultBackend;

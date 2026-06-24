@@ -51,8 +51,8 @@
 //! standard) would lift this restriction (deferred to v2).
 
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_p1, burn_matrix_to_faer, cube_interior_mask, cube_tet_mesh,
-    upload_mesh, DefaultBackend, EigenSolver, FaerDenseEigensolver,
+    DefaultBackend, EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, assemble_global_p1,
+    burn_matrix_to_faer, cube_interior_mask, cube_tet_mesh, upload_mesh,
 };
 
 use burn::tensor::backend::BackendTypes;

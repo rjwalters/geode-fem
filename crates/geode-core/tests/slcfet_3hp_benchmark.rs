@@ -51,10 +51,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use geode_core::{
-    driven_frequency_sweep, mohan_current_sheet_l, pec_interior_mask_from_triangles,
-    read_spiral_slcfet_3hp_fixture, read_spiral_slcfet_3hp_smoke_fixture, CurrentSource,
-    DefaultBackend, DrivenBcs, DrivenMaterials, SpiralFixture, SquareSpiral, SurfaceImpedanceBc,
-    SurfaceImpedanceModel, SweepPoint, SLCFET_3HP_MATERIALS,
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, SLCFET_3HP_MATERIALS, SpiralFixture,
+    SquareSpiral, SurfaceImpedanceBc, SurfaceImpedanceModel, SweepPoint, driven_frequency_sweep,
+    mohan_current_sheet_l, pec_interior_mask_from_triangles, read_spiral_slcfet_3hp_fixture,
+    read_spiral_slcfet_3hp_smoke_fixture,
 };
 
 /// Free-space impedance η₀ (Ω).

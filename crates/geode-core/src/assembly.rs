@@ -28,13 +28,13 @@
 
 use std::collections::BTreeSet;
 
-use burn::tensor::backend::Backend;
 use burn::tensor::ElementConversion;
 use burn::tensor::Tensor;
+use burn::tensor::backend::Backend;
 use burn::tensor::{IndexingUpdateOp, Int, TensorData};
 
-use crate::p1::batched_p1_local_matrices;
 use crate::TetMesh;
+use crate::p1::batched_p1_local_matrices;
 
 /// Assembled global linear system in dense Burn-tensor form.
 #[derive(Debug, Clone)]

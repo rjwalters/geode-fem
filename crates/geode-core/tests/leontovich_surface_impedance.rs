@@ -40,19 +40,19 @@
 //! conductor thickness (2δ → `e^{−4}` ≈ 2% residual reflection off the
 //! backing PEC wall).
 
-use burn::tensor::backend::BackendTypes;
 use burn::tensor::Tensor;
+use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use std::collections::BTreeMap;
 use std::f64::consts::PI;
 
 use geode_core::mesh::TET_LOCAL_EDGES;
 use geode_core::{
-    assemble_global_nedelec_with_complex_epsilon, assemble_nedelec_current_rhs,
-    assemble_nedelec_sigma_damping, assemble_silver_muller_surface, assemble_surface_mass,
-    cube_pec_interior_edges, cube_tet_mesh, driven_solve, driven_solve_with_sigma,
-    driven_solve_with_surface_impedance, upload_mesh, CurrentSource, DefaultBackend, DrivenBcs,
-    DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel, TetMesh,
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc,
+    SurfaceImpedanceModel, TetMesh, assemble_global_nedelec_with_complex_epsilon,
+    assemble_nedelec_current_rhs, assemble_nedelec_sigma_damping, assemble_silver_muller_surface,
+    assemble_surface_mass, cube_pec_interior_edges, cube_tet_mesh, driven_solve,
+    driven_solve_with_sigma, driven_solve_with_surface_impedance, upload_mesh,
 };
 
 type B = DefaultBackend;

@@ -42,7 +42,7 @@ use std::path::{Path, PathBuf};
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Tensor, TensorData};
 
-use geode_core::{batched_p1_local_matrices, DefaultBackend};
+use geode_core::{DefaultBackend, batched_p1_local_matrices};
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = DefaultBackend;

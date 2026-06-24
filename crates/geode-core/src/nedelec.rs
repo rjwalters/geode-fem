@@ -94,8 +94,8 @@
 //! against a CPU reference, (c) rigid-motion / dilation invariants,
 //! and (d) symmetry / sign-flip behavior on a two-tet shared-edge mesh.
 
-use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
+use burn::tensor::backend::Backend;
 
 /// Canonical local edge → (local vertex pair) ordering on a tet.
 ///

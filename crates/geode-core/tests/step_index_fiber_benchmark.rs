@@ -69,9 +69,9 @@
 //!   ```
 
 use geode_core::{
-    dielectric_mode_field_shape_pml, disk_pec_interior_dofs2, disk_tri_mesh_pml,
-    epsilon_r_from_region_tags, fiber_lp_neff, normalized_b, solve_dielectric_modes2_pml, v_number,
-    TriMesh, REGION_CORE,
+    REGION_CORE, TriMesh, dielectric_mode_field_shape_pml, disk_pec_interior_dofs2,
+    disk_tri_mesh_pml, epsilon_r_from_region_tags, fiber_lp_neff, normalized_b,
+    solve_dielectric_modes2_pml, v_number,
 };
 
 const N_CORE: f64 = 1.4504;

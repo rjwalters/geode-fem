@@ -55,10 +55,10 @@ use std::path::PathBuf;
 
 use geode_core::mesh::spiral::CONDUCTOR_SIGMA_NATURAL;
 use geode_core::{
-    driven_frequency_sweep, mohan_current_sheet_l, pec_interior_mask_from_triangles,
-    read_spiral_fixture, read_spiral_smoke_fixture, CurrentSource, DefaultBackend, DrivenBcs,
-    DrivenMaterials, SpiralFixture, SquareSpiral, SurfaceImpedanceBc, SurfaceImpedanceModel,
-    SweepPoint,
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, SpiralFixture, SquareSpiral,
+    SurfaceImpedanceBc, SurfaceImpedanceModel, SweepPoint, driven_frequency_sweep,
+    mohan_current_sheet_l, pec_interior_mask_from_triangles, read_spiral_fixture,
+    read_spiral_smoke_fixture,
 };
 
 /// Free-space impedance η₀ (Ω).

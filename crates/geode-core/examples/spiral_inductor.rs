@@ -82,10 +82,10 @@ use faer::c64;
 
 use geode_core::mesh::spiral::CONDUCTOR_SIGMA_NATURAL;
 use geode_core::{
-    detect_srf, driven_frequency_sweep, driven_solve_with_ports, modified_wheeler_l,
-    mohan_current_sheet_l, monomial_fit_l, pec_interior_mask_from_triangles, read_spiral_fixture,
-    read_spiral_smoke_fixture, CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials,
-    SpiralFixture, SquareSpiral, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, SpiralFixture, SquareSpiral,
+    SurfaceImpedanceBc, SurfaceImpedanceModel, detect_srf, driven_frequency_sweep,
+    driven_solve_with_ports, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
+    pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_smoke_fixture,
 };
 
 #[path = "common/viz_export_helper.rs"]
@@ -461,10 +461,10 @@ fn export_field(path: &str) {
     let (e_re, e_im) = viz_export_helper::edge_field_to_nodes(&fixture.mesh, &sol.e_edges);
 
     let out = std::path::Path::new(path);
-    if let Some(parent) = out.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent).expect("create --export-field parent dir");
-        }
+    if let Some(parent) = out.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).expect("create --export-field parent dir");
     }
     geode_core::viz_vtu::write_vtu(out, &fixture.mesh, &e_re, Some(&e_im), None)
         .expect("write --export-field .vtu");
@@ -490,7 +490,9 @@ fn main() {
         None => FixtureChoice::Benchmark,
         Some("smoke") => FixtureChoice::Smoke,
         Some(other) => {
-            eprintln!("unknown argument {other:?} — expected `smoke`, `--export-field <path>`, or no argument");
+            eprintln!(
+                "unknown argument {other:?} — expected `smoke`, `--export-field <path>`, or no argument"
+            );
             std::process::exit(2);
         }
     };

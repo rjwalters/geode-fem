@@ -48,9 +48,9 @@ use faer::c64;
 use std::f64::consts::PI;
 
 use geode_core::{
-    assemble_global_nedelec, batched_nedelec_local_rhs, burn_matrix_to_faer,
-    cube_pec_interior_edges, cube_tet_mesh, driven_solve, upload_mesh, CurrentSource,
-    DefaultBackend, DrivenBcs, DrivenMaterials,
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, assemble_global_nedelec,
+    batched_nedelec_local_rhs, burn_matrix_to_faer, cube_pec_interior_edges, cube_tet_mesh,
+    driven_solve, upload_mesh,
 };
 
 type B = DefaultBackend;

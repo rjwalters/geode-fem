@@ -54,8 +54,8 @@ use std::f64::consts::PI;
 
 use faer::c64;
 
-use crate::scattering::{box_surface_samples, BoxFaceSample};
 use crate::TetMesh;
+use crate::scattering::{BoxFaceSample, box_surface_samples};
 
 /// Free-space impedance in the codebase's natural units (`η₀ = 1`).
 const ETA_0_NATURAL: f64 = 1.0;
@@ -419,7 +419,7 @@ mod tests {
         let ct = p[2] / r; // cosθ
         let rho = (p[0] * p[0] + p[1] * p[1]).sqrt();
         let st = rho / r; // sinθ
-                          // Azimuth basis.
+        // Azimuth basis.
         let (cp, sp) = if rho > 1e-14 {
             (p[0] / rho, p[1] / rho)
         } else {

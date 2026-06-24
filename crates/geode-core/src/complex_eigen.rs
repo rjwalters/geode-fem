@@ -26,7 +26,7 @@
 //!   method on [`ComplexEigenSolver`] without changing this one.
 
 use faer::mat::MatRef;
-use faer::{c64, Mat};
+use faer::{Mat, c64};
 
 use crate::eigen::EigenError;
 

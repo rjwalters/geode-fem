@@ -54,13 +54,13 @@
 use std::path::PathBuf;
 
 use burn::tensor::backend::BackendTypes;
-use faer::mat::MatRef;
 use faer::Mat;
+use faer::mat::MatRef;
 
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_nedelec_with_epsilon, build_epsilon_r, burn_matrix_to_faer,
-    read_sphere_fixture, sphere_pec_interior_edges, sphere_pec_node_interior_mask,
-    spurious_dim_from_derham, upload_mesh, DefaultBackend, R_BUFFER,
+    DefaultBackend, R_BUFFER, apply_dirichlet_bc, assemble_global_nedelec_with_epsilon,
+    build_epsilon_r, burn_matrix_to_faer, read_sphere_fixture, sphere_pec_interior_edges,
+    sphere_pec_node_interior_mask, spurious_dim_from_derham, upload_mesh,
 };
 use geode_validation::{Fixture, FixtureFormat};
 

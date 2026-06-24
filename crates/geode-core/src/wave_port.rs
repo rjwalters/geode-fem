@@ -111,13 +111,13 @@
 
 use faer::c64;
 
+use crate::TetMesh;
 use crate::driven::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
     SurfaceImpedanceBc,
 };
 use crate::lumped_port::LumpedPort;
 use crate::silvermuller::assemble_surface_mass_triplets;
-use crate::TetMesh;
 
 /// One mode of a [`WavePort`]: the modal eigenvector over the 3-D mesh
 /// edge table, the cutoff wavenumber `k_c`, and the incident modal
@@ -1335,7 +1335,7 @@ impl ExtrudedHeightStepMesh {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::waveguide_modes::{rect_tri_mesh, solve_rect_waveguide_modes, TriMesh};
+    use crate::waveguide_modes::{TriMesh, rect_tri_mesh, solve_rect_waveguide_modes};
 
     #[test]
     fn extruded_waveguide_mesh_shapes_are_consistent() {

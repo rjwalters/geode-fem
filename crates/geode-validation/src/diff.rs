@@ -33,10 +33,10 @@ impl ComparisonReport {
     /// Write this report to disk as JSON. Always pretty-printed —
     /// these are friction artifacts intended for human review.
     pub fn write_diff_artifact(&self, path: &Path) -> Result<(), std::io::Error> {
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
         }
         let json = serde_json::to_string_pretty(self).expect("ComparisonReport serializes");
         std::fs::write(path, json)

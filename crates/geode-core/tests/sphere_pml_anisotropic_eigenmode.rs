@@ -34,12 +34,12 @@
 use burn::tensor::backend::BackendTypes;
 
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
+    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, R_BUFFER,
+    R_SPHERE, apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
     assemble_global_nedelec_with_complex_epsilon, build_anisotropic_pml_tensor_diag,
     build_complex_epsilon_r_pml, burn_complex_mass_to_faer, burn_matrix_to_faer, merged_roots,
     read_sphere_fixture, sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii,
-    tet_centroids, upload_mesh, ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver,
-    MiePolarisation, R_BUFFER, R_SPHERE,
+    tet_centroids, upload_mesh,
 };
 
 type B = DefaultBackend;

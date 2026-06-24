@@ -115,9 +115,9 @@
 use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
 
+use crate::TetMesh;
 use crate::driven::{CurrentSource, DrivenError, DrivenSolution};
 use crate::mesh::{TET_LOCAL_EDGES, TET_LOCAL_FACES};
-use crate::TetMesh;
 
 /// Incident plane wave `E_inc(x) = x̂ · exp(−i ω z)` (unit amplitude,
 /// `x̂`-polarized, propagating along `+z` under `exp(+jωt)`).

@@ -28,7 +28,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use geode_core::{mie_efficiencies, R_SPHERE};
+use geode_core::{R_SPHERE, mie_efficiencies};
 use geode_validation::{Fixture, FixtureFormat};
 
 const N_INSIDE: f64 = 1.5;

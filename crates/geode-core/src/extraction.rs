@@ -61,12 +61,12 @@
 use burn::tensor::backend::Backend;
 use faer::c64;
 
+use crate::TetMesh;
 use crate::driven::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
     SurfaceImpedanceBc,
 };
-use crate::lumped_port::{port_current, port_voltage, LumpedPort};
-use crate::TetMesh;
+use crate::lumped_port::{LumpedPort, port_current, port_voltage};
 
 /// Circuit quantities of one port at one frequency, read off a driven
 /// solution.
@@ -653,11 +653,12 @@ pub fn im_z_zero_crossings(omegas: &[f64], zs: &[c64]) -> Vec<f64> {
             prev = Some((omega, z.im));
             continue;
         }
-        if let Some((w1, im1)) = prev {
-            if im1 != 0.0 && im1.signum() != z.im.signum() {
-                // Linear interpolation of the bracketed zero.
-                crossings.push(w1 + (omega - w1) * im1 / (im1 - z.im));
-            }
+        if let Some((w1, im1)) = prev
+            && im1 != 0.0
+            && im1.signum() != z.im.signum()
+        {
+            // Linear interpolation of the bracketed zero.
+            crossings.push(w1 + (omega - w1) * im1 / (im1 - z.im));
         }
         prev = Some((omega, z.im));
     }

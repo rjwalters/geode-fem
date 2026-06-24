@@ -65,7 +65,7 @@ use faer::mat::MatRef;
 
 use crate::complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
 use crate::eigen::EigenError;
-use crate::iterate::{iterate_while_with_prev, IterOutcome, Step};
+use crate::iterate::{IterOutcome, Step, iterate_while_with_prev};
 
 /// Outcome of [`self_consistent_k`].
 #[derive(Debug, Clone)]
@@ -224,15 +224,14 @@ pub fn self_consistent_k(
             // Divergence guard — only active *after* the damped phase, and
             // we need at least one prior step to compare against.
             let dk_rel = abs_dk / k0_mag;
-            if it > DAMPED_ITERATIONS {
-                if let Some(prev_dk_rel) = prev.and_then(|p| p.dk_rel) {
-                    if dk_rel > prev_dk_rel {
-                        return Step::Done(Ok(SelfConsistentResult::Diverged {
-                            last_k: last_k.unwrap_or(k_target),
-                            iterations: it,
-                        }));
-                    }
-                }
+            if it > DAMPED_ITERATIONS
+                && let Some(prev_dk_rel) = prev.and_then(|p| p.dk_rel)
+                && dk_rel > prev_dk_rel
+            {
+                return Step::Done(Ok(SelfConsistentResult::Diverged {
+                    last_k: last_k.unwrap_or(k_target),
+                    iterations: it,
+                }));
             }
 
             // Damped update.
@@ -494,15 +493,14 @@ pub fn self_consistent_k_vector_tracked(
         }
 
         let dk_rel = abs_dk / k0_mag;
-        if it > DAMPED_ITERATIONS {
-            if let Some(prev) = prev_dk_rel {
-                if dk_rel > prev {
-                    return Ok(SelfConsistentResult::Diverged {
-                        last_k: last_k.unwrap_or(k_target),
-                        iterations: it,
-                    });
-                }
-            }
+        if it > DAMPED_ITERATIONS
+            && let Some(prev) = prev_dk_rel
+            && dk_rel > prev
+        {
+            return Ok(SelfConsistentResult::Diverged {
+                last_k: last_k.unwrap_or(k_target),
+                iterations: it,
+            });
         }
         prev_dk_rel = Some(dk_rel);
 

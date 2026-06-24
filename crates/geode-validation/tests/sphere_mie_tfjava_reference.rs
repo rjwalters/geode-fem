@@ -48,11 +48,11 @@ use burn::tensor::backend::BackendTypes;
 use num_complex::Complex64;
 
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
+    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, R_BUFFER,
+    R_SPHERE, SphereFixture, apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
     build_anisotropic_pml_tensor_diag, burn_complex_mass_to_faer, burn_matrix_to_faer,
     merged_roots, read_sphere_fixture_from_bytes, sphere_n_interior_nodes,
-    sphere_pec_interior_edges, tet_centroids, upload_mesh, ComplexEigenSolver, DefaultBackend,
-    FaerComplexEigensolver, MiePolarisation, SphereFixture, R_BUFFER, R_SPHERE,
+    sphere_pec_interior_edges, tet_centroids, upload_mesh,
 };
 use geode_validation::{Fixture, FixtureFormat};
 

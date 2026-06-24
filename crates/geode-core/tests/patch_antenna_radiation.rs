@@ -62,10 +62,10 @@ use faer::c64;
 
 use geode_core::mesh::patch::FR4_MATERIALS;
 use geode_core::{
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, PatchCavity, PatchFixture,
     broadside_directivity, directivity, driven_solve_with_ports, flux_power_box, gain,
     ntff_far_field, pec_interior_mask_from_triangles, port_current, port_voltage,
-    read_patch_smoke_fixture, CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials,
-    PatchCavity, PatchFixture,
+    read_patch_smoke_fixture,
 };
 
 const ETA_0: f64 = 376.730_313_668;

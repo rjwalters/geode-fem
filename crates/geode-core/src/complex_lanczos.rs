@@ -65,7 +65,7 @@
 
 use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef};
-use faer::{c64, Mat, MatMut};
+use faer::{Mat, MatMut, c64};
 
 use crate::eigen::EigenError;
 

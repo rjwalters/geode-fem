@@ -12,7 +12,7 @@
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Tensor, TensorData};
 
-use geode_core::{batched_p1_local_matrices, DefaultBackend, GmshReader, MeshReader};
+use geode_core::{DefaultBackend, GmshReader, MeshReader, batched_p1_local_matrices};
 
 mod common;
 use common::readback_f64;

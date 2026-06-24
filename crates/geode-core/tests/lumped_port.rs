@@ -21,10 +21,10 @@
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::{
-    assemble_nedelec_current_rhs, cube_tet_mesh, driven_solve, driven_solve_with_ports,
-    port_current, port_input_impedance, port_voltage, s_parameter_frequency_sweep, upload_mesh,
     CurrentSource, DefaultBackend, DrivenBcs, DrivenError, DrivenMaterials, LumpedPort,
-    SParameterSweepPoint, TetMesh,
+    SParameterSweepPoint, TetMesh, assemble_nedelec_current_rhs, cube_tet_mesh, driven_solve,
+    driven_solve_with_ports, port_current, port_input_impedance, port_voltage,
+    s_parameter_frequency_sweep, upload_mesh,
 };
 
 type B = DefaultBackend;
@@ -511,10 +511,11 @@ fn pec_backed_cavity_with_port_composes() {
             );
         }
     }
-    assert!(sol
-        .e_edges
-        .iter()
-        .all(|e| e.re.is_finite() && e.im.is_finite()));
+    assert!(
+        sol.e_edges
+            .iter()
+            .all(|e| e.re.is_finite() && e.im.is_finite())
+    );
 
     let v = port_voltage(&mesh, &port, &edges, &sol.e_edges);
     let i = port_current(&port, v);

@@ -71,12 +71,11 @@ use burn::tensor::backend::BackendTypes;
 use faer::sparse::{SparseColMat, Triplet};
 
 use geode_core::{
-    assemble_global_nedelec_with_full_tensors, build_matched_upml_materials,
+    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, MieRootComplex,
+    PHYS_SPHERE_INTERIOR, R_BUFFER, SparseComplexEigenSolver, SparseComplexShiftInvertLanczos,
+    SphereFixture, assemble_global_nedelec_with_full_tensors, build_matched_upml_materials,
     burn_complex_mass_to_faer, open_space_wgm_roots_n15, read_sphere_fixture,
-    sphere_n_interior_nodes, sphere_pec_interior_edges, upload_mesh, ComplexEigenSolver,
-    DefaultBackend, FaerComplexEigensolver, MiePolarisation, MieRootComplex,
-    SparseComplexEigenSolver, SparseComplexShiftInvertLanczos, SphereFixture, PHYS_SPHERE_INTERIOR,
-    R_BUFFER,
+    sphere_n_interior_nodes, sphere_pec_interior_edges, upload_mesh,
 };
 
 type B = DefaultBackend;
