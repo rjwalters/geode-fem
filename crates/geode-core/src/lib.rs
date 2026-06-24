@@ -194,14 +194,22 @@ compile_error!(
 // to `i32` (NdArray's default is `i64`) to match the GPU backends:
 // `assembly::tets_to_cpu` reads connectivity back as `i32`, and Burn's
 // typed readback rejects a width mismatch.
-#[cfg(feature = "ndarray")]
-pub type DefaultBackend = burn::backend::NdArray<f64, i32>;
-
-#[cfg(all(feature = "cuda", not(feature = "ndarray")))]
-pub type DefaultBackend = burn::backend::Cuda;
-
-#[cfg(all(feature = "wgpu", not(feature = "ndarray"), not(feature = "cuda")))]
-pub type DefaultBackend = burn::backend::Wgpu;
+//
+// `cfg_select!` is first-match-wins, so arm order encodes the
+// `ndarray > cuda > wgpu` precedence and the previous `not(...)` guards
+// are no longer needed. The two `compile_error!` guards above still own
+// the "exactly one / no conflicting GPU backend" assertions.
+std::cfg_select! {
+    feature = "ndarray" => {
+        pub type DefaultBackend = burn::backend::NdArray<f64, i32>;
+    }
+    feature = "cuda" => {
+        pub type DefaultBackend = burn::backend::Cuda;
+    }
+    feature = "wgpu" => {
+        pub type DefaultBackend = burn::backend::Wgpu;
+    }
+}
 
 /// A geometric mesh: element connectivity and node coordinates.
 ///
@@ -246,15 +254,19 @@ pub fn device_info() -> DeviceInfo {
     }
 }
 
-// Same precedence as `DefaultBackend`: ndarray > cuda > wgpu.
-#[cfg(feature = "ndarray")]
-const BACKEND_NAME: &str = "ndarray";
-
-#[cfg(all(feature = "cuda", not(feature = "ndarray")))]
-const BACKEND_NAME: &str = "cuda";
-
-#[cfg(all(feature = "wgpu", not(feature = "ndarray"), not(feature = "cuda")))]
-const BACKEND_NAME: &str = "wgpu";
+// Same precedence as `DefaultBackend`: ndarray > cuda > wgpu. Arm order
+// in `cfg_select!` (first-match-wins) encodes that precedence.
+std::cfg_select! {
+    feature = "ndarray" => {
+        const BACKEND_NAME: &str = "ndarray";
+    }
+    feature = "cuda" => {
+        const BACKEND_NAME: &str = "cuda";
+    }
+    feature = "wgpu" => {
+        const BACKEND_NAME: &str = "wgpu";
+    }
+}
 
 fn default_device_label() -> String {
     let device = <DefaultBackend as BackendTypes>::Device::default();
