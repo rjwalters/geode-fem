@@ -12,6 +12,7 @@ name = "geode"
 path = "src/main.rs"
 
 [dependencies]
+clap = { workspace = true }
 geode-core = { workspace = true }
 
 [lints.rust]

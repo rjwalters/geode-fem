@@ -15,6 +15,7 @@ rust-version = "1.92"
 
 [workspace.dependencies]
 burn = { version = "0.21", default-features = false, features = ["std"] }
+clap = { version = "4", features = ["derive"] }
 geode-core = { path = "crates/geode-core" }
 
 [profile.release]
