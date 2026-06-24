@@ -68,10 +68,10 @@
 //!   ```
 
 use geode_core::{
+    Lp01RadialTemplate, REGION_CORE, ScoredDielectricModePml, TriMesh,
     dielectric_mode_field_shape_pml, disk_pec_interior_dofs2, disk_tri_mesh_pml,
     epsilon_r_from_region_tags, fiber_lp_neff, normalized_b,
-    solve_dielectric_modes2_pml_profile_selected, v_number, Lp01RadialTemplate,
-    ScoredDielectricModePml, TriMesh, REGION_CORE,
+    solve_dielectric_modes2_pml_profile_selected, v_number,
 };
 
 const N_CORE: f64 = 1.4504;
@@ -408,7 +408,9 @@ fn smf28_profile_selector_unbiased_sweep_honest_negative() {
     }
     let sigma_spread = sigma_bs.iter().cloned().fold(f64::MIN, f64::max)
         - sigma_bs.iter().cloned().fold(f64::MAX, f64::min);
-    eprintln!("  σ₀-robustness selected-b spread = {sigma_spread:.2e} (b at σ₀∈{{2,6,10}} = {sigma_bs:?})");
+    eprintln!(
+        "  σ₀-robustness selected-b spread = {sigma_spread:.2e} (b at σ₀∈{{2,6,10}} = {sigma_bs:?})"
+    );
 
     // --- Structural invariants across the sweep (UNRELAXED) ---
     assert!(
