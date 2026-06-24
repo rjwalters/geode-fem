@@ -5096,17 +5096,10 @@ impl ModeRadialProfile {
     }
 
     /// `true` if the magnitude profile is **core-peaked**: its global maximum
-    /// lies in the innermost third of the populated radius (the LP₀₁
-    /// fundamental peaks at `r = 0`). A ring/donut mode peaks at `r ≈ a` or
-    /// further out and fails this — the structural discriminant the scalar
-    /// core-energy fraction misses.
+    /// lies inside half a core radius (the LP₀₁ fundamental peaks at `r = 0`).
+    /// A ring/donut mode peaks at `r ≈ a` or further out and fails this — the
+    /// structural discriminant the scalar core-energy fraction misses.
     pub fn is_core_peaked(&self, core_radius: f64) -> bool {
-        let peak = self
-            .e_mag
-            .iter()
-            .cloned()
-            .fold(0.0_f64, f64::max)
-            .max(1e-300);
         let arg = self
             .e_mag
             .iter()
@@ -5114,7 +5107,6 @@ impl ModeRadialProfile {
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(i, _)| i)
             .unwrap_or(0);
-        let _ = peak;
         // Peak radius must be inside half a core radius — a genuine LP₀₁ peaks
         // at the axis; a ring mode peaks near or beyond r = a.
         self.r
