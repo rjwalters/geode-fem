@@ -5349,7 +5349,7 @@ pub struct ScoredDielectricModePml {
 ///
 /// This is purely additive: [`solve_dielectric_modes2_pml`] and every existing
 /// caller are untouched. The selector reuses the proven p=2 / PML / complex-
-/// Lanczos stack bit-for-bit ([`dielectric_raw_candidates_p2_pml`]); it only
+/// Lanczos stack bit-for-bit (`dielectric_raw_candidates_p2_pml`); it only
 /// changes **selection/scoring** over the already-recovered Ritz vectors.
 ///
 /// The first returned element is the profile-selected fundamental: the
