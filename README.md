@@ -147,7 +147,7 @@ radiating edges — while the lobe shows the broadside main beam peaking at
 
 ## Build
 
-Requires Rust stable (1.92+, set in `rust-toolchain.toml`).
+Requires Rust stable (1.95+, set in `rust-toolchain.toml`).
 
 ```sh
 cargo build              # builds workspace with default `wgpu` backend
