@@ -9,14 +9,16 @@ description = "GEODE-FEM solver primitives: tensor ops over Burn."
 
 [dependencies]
 burn = { workspace = true }
-faer = { version = "0.24", default-features = false, features = ["std", "linalg", "sparse-linalg"] }
-mshio = "0.4"
-thiserror = "2"
+# `sparse-linalg` is added on top of the workspace base feature set
+# (`std`, `linalg`) for the sparse shift-invert Lanczos eigensolver.
+faer = { workspace = true, features = ["sparse-linalg"] }
+mshio = { workspace = true }
+thiserror = { workspace = true }
 # Parses the [oracles.palace] block of the benchmark results TOMLs in
 # `src/palace.rs` (issue #239 — operator-assisted Palace 3D oracle
 # scaffolding). Same major as the existing dev-dep usage in the
 # benchmark tests.
-toml = "0.8"
+toml = { workspace = true }
 
 # Optional: link-time discovery of the system `libarpack` for the `arpack`
 # Cargo feature. Bindings to `dsaupd_c` / `dseupd_c` (the stable ARPACK
@@ -26,7 +28,7 @@ toml = "0.8"
 # `## System dependencies` in the README for the platform install
 # one-liners.
 [build-dependencies]
-pkg-config = { version = "0.3", optional = true }
+pkg-config = { workspace = true, optional = true }
 
 [features]
 default = ["wgpu"]
@@ -59,18 +61,18 @@ arpack = ["dep:pkg-config"]
 # feature selection (wgpu by default, or ndarray on CI).
 geode-core = { path = ".", default-features = false, features = ["autodiff"] }
 # Read regression-fixture TOML in `tests/cube_convergence_regression.rs`.
-toml = "0.8"
+toml = { workspace = true }
 # Performance benchmark harness (issue #50). Each `[[bench]]` below opts
 # out of the libtest harness and lets criterion own the entrypoint.
-criterion = "0.5"
+criterion = { workspace = true }
 # Benches/examples need direct faer access (the trait surface we're
-# benching takes `MatRef<f64>` and `SparseColMatRef`). Pinned to the
-# same minor as the regular dependency line above.
-faer = { version = "0.24", default-features = false, features = ["std", "linalg", "sparse-linalg"] }
+# benching takes `MatRef<f64>` and `SparseColMatRef`). Same feature set as
+# the regular dependency line above (workspace base + `sparse-linalg`).
+faer = { workspace = true, features = ["sparse-linalg"] }
 # Read criterion's JSON `estimates.json` outputs in
 # `examples/extract_baseline.rs` to produce `benchmarks/perf/baseline.toml`.
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [[bench]]
 name = "assembly_p1"

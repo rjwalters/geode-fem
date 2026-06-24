@@ -8,14 +8,14 @@ rust-version.workspace = true
 description = "Cross-backend reference comparison harness for GEODE-FEM (Epic #88, Phase A)."
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
 # Complex scalar type for c128 fixture fields (Phase H scaffolding,
 # issue #145). Already a transitive dep via faer + ndarray; pinned here
 # directly so the comparator API surface doesn't depend on which feature
 # combo pulls it in.
-num-complex = { version = "0.4", default-features = false, features = ["std"] }
+num-complex = { workspace = true }
 
 [dev-dependencies]
 # The cube-cavity cross-backend integration test (#92) runs the full Burn
@@ -31,9 +31,9 @@ burn = { workspace = true }
 # M_int interior matrices via `burn_matrix_to_faer`, then call
 # `generalized_eigen` directly to recover both eigenvalues AND
 # eigenvectors (the existing `EigenSolver` trait surface only returns
-# eigenvalues — extending it is tracked as a follow-up). Pinned to the
-# same minor as geode-core's dep above.
-faer = { version = "0.24", default-features = false, features = ["std", "linalg"] }
+# eigenvalues — extending it is tracked as a follow-up). Uses the
+# workspace base faer feature set (`std`, `linalg`); no `sparse-linalg`.
+faer = { workspace = true }
 
 [lints.rust]
 unsafe_code = "forbid"
