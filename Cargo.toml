@@ -11,7 +11,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/rjwalters/geode-fem"
-rust-version = "1.95.0"
+rust-version = "1.96.0"
 
 [workspace.dependencies]
 # Third-party dependencies — all versions are defined here and referenced
