@@ -14,20 +14,27 @@
 //! with `--release` to dodge this — **except**
 //! `sphere_pec_eigenmode::sphere_pec_eigenmode_spectrum`, which is meant to
 //! run under the default profile. For that to be safe, the workspace must
-//! disable `debug-assertions` and `overflow-checks` for the `faer`
-//! dependency itself. The mechanism is a *named-package* profile override
-//! in the workspace `Cargo.toml`:
+//! disable `overflow-checks` for every crate in the graph (including
+//! `faer`). The mechanism is a *profile-level* `overflow-checks = false`
+//! on the dev and test profiles in the workspace `Cargo.toml`:
 //!
 //! ```toml
-//! [profile.test.package.faer]
-//! debug-assertions = false
-//! overflow-checks  = false
+//! [profile.dev]
+//! overflow-checks = false
+//!
+//! [profile.test]
+//! overflow-checks = false
 //! ```
 //!
-//! Named-package overrides DO apply to that dependency even though the
-//! `[profile.test.package."*"]` glob does not propagate to dependencies on
-//! current cargo (the reason the old `"*"` suppression was dead code — see
-//! the comment block in `Cargo.toml`).
+//! A profile-level override is required because cargo 1.96 cannot disable
+//! the overflow check for `faer` via a per-package override: neither the
+//! `[profile.test.package."*"]` glob nor a *named* `[profile.test.package.faer]`
+//! override takes effect (the package override never emits
+//! `-C debug-assertions=off`, and a live `debug-assertions` re-enables the
+//! arithmetic overflow check regardless of a package-level
+//! `overflow-checks=false`). Only a top-level `overflow-checks = false`
+//! emits an explicit `-C overflow-checks=off` for every crate and wins —
+//! see the comment block in `Cargo.toml` for the full rationale.
 //!
 //! # What this test asserts
 //!
@@ -37,9 +44,9 @@
 //! overflow-panics) in milliseconds rather than the many-minute dense
 //! O(n³) sphere solve. It is **NOT `#[ignore]`d**: it runs under the
 //! default debug profile and will panic with `attempt to subtract with
-//! overflow` if the `faer` named-package override is ever removed or stops
-//! taking effect. That makes it a fast, always-on guard against silently
-//! regressing the profile wiring.
+//! overflow` if the profile-level `overflow-checks = false` is ever
+//! removed or stops taking effect. That makes it a fast, always-on guard
+//! against silently regressing the profile wiring.
 
 use faer::Mat;
 use geode_core::{EigenSolver, FaerDenseEigensolver};
@@ -70,11 +77,11 @@ fn laplacian_pencil(n: usize) -> (Mat<f64>, Mat<f64>) {
 
 #[test]
 fn faer_qz_does_not_overflow_under_debug() {
-    // If the `[profile.test.package.faer]` override in Cargo.toml is
-    // missing or ineffective, this call panics under the default debug
-    // profile with `attempt to subtract with overflow` from
-    // `faer::linalg::gevd::qz_real`. With the override in place it returns
-    // the eigenvalues cleanly.
+    // If the top-level `overflow-checks = false` on the `[profile.dev]` /
+    // `[profile.test]` profiles in Cargo.toml is missing or ineffective,
+    // this call panics under the default debug profile with `attempt to
+    // subtract with overflow` from `faer::linalg::gevd::qz_real`. With the
+    // suppression in place it returns the eigenvalues cleanly.
     let (k, m) = laplacian_pencil(120);
     let lambdas = FaerDenseEigensolver
         .smallest_eigenvalues(k.as_ref(), m.as_ref(), 5)
