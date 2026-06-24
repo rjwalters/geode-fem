@@ -28,9 +28,9 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::{
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, R_BUFFER, R_PML_INNER, R_SPHERE,
     build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml, driven_solve,
     read_sphere_fixture, sphere_pec_interior_edges, tet_centroid_radii, tet_centroids,
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, R_BUFFER, R_PML_INNER, R_SPHERE,
 };
 
 type B = DefaultBackend;

@@ -30,8 +30,8 @@
 //! M_{ij} = (V / 20) (1 + δ_{ij})    (consistent mass).
 //! ```
 
-use burn::tensor::backend::Backend;
 use burn::tensor::Tensor;
+use burn::tensor::backend::Backend;
 
 /// Batched P1 element-local matrices.
 #[derive(Debug, Clone)]

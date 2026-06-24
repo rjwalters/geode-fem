@@ -146,7 +146,7 @@ pub fn assemble_silver_muller_surface(
     let selected: Vec<[u32; 3]> = boundary_triangles
         .iter()
         .zip(boundary_tags.iter())
-        .filter(|(_, &tag)| tag == outer_tag)
+        .filter(|&(_, &tag)| tag == outer_tag)
         .map(|(tri, _)| *tri)
         .collect();
     assemble_surface_mass(mesh, &selected, edges)

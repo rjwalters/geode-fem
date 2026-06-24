@@ -17,10 +17,10 @@
 use burn::tensor::backend::BackendTypes;
 
 use geode_core::{
-    assemble_global_nedelec_with_epsilon, assemble_silver_muller_surface, build_epsilon_r,
-    burn_matrix_to_faer, read_sphere_fixture, self_consistent_k, sphere_n_interior_nodes,
-    upload_mesh, ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, SelfConsistentResult,
-    PHYS_OUTER_BOUNDARY,
+    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, PHYS_OUTER_BOUNDARY,
+    SelfConsistentResult, assemble_global_nedelec_with_epsilon, assemble_silver_muller_surface,
+    build_epsilon_r, burn_matrix_to_faer, read_sphere_fixture, self_consistent_k,
+    sphere_n_interior_nodes, upload_mesh,
 };
 
 type B = DefaultBackend;
@@ -295,7 +295,9 @@ fn frozen_target_idx_prevents_mode_hop() {
             assert!(
                 k.re >= mid - 1e-6 || k.re >= k_target - 0.5 * (k_target - k_first).abs(),
                 "frozen target_idx hopped: converged at {:.4} but expected ≈ {:.4} (neighbour {:.4})",
-                k.re, k_target, k_first
+                k.re,
+                k_target,
+                k_first
             );
             // Q-of-target sanity: positive and finite.
             assert!(q.is_finite() && q > 0.0, "Q invalid: {q}");

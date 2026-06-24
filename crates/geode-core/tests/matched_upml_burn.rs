@@ -28,12 +28,12 @@ use burn::tensor::{Int, Tensor, TensorData};
 use faer::c64;
 
 use geode_core::{
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenError, DrivenMaterials, PHYS_PML_SHELL,
+    PHYS_SPHERE_INTERIOR, PHYS_VACUUM_GAP, R_PML_INNER, R_SPHERE, TetMesh,
     assemble_global_nedelec_with_anisotropic_epsilon, assemble_global_nedelec_with_complex_epsilon,
     assemble_global_nedelec_with_full_tensors, assemble_nedelec_sigma_damping,
     build_matched_upml_materials, cube_pec_interior_edges, cube_tet_mesh, driven_solve,
-    tet_centroids, upload_mesh, CurrentSource, DefaultBackend, DrivenBcs, DrivenError,
-    DrivenMaterials, TetMesh, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR, PHYS_VACUUM_GAP, R_PML_INNER,
-    R_SPHERE,
+    tet_centroids, upload_mesh,
 };
 
 type B = DefaultBackend;
@@ -413,7 +413,7 @@ fn full_tensor_assembly_preserves_autodiff() {
 /// (`A + 3B = 1`).
 #[test]
 fn quad_source_reduces_to_constant_source_for_constant_j() {
-    use geode_core::{driven_solve_quad, QuadCurrentSource};
+    use geode_core::{QuadCurrentSource, driven_solve_quad};
 
     let mesh = cube_tet_mesh(2, 1.0);
     let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);

@@ -44,7 +44,7 @@
 
 use faer::sparse::SparseColMat;
 use geode_core::{
-    cube_tet_mesh, curl_map, divergence_map, gradient_map, read_sphere_fixture, TetMesh,
+    TetMesh, cube_tet_mesh, curl_map, divergence_map, gradient_map, read_sphere_fixture,
 };
 
 /// Assert that `&a * &b` is bit-exactly the zero matrix of shape

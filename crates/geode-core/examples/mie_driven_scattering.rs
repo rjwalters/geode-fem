@@ -56,10 +56,10 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use geode_core::{
-    extinction_power, mie_efficiencies, plane_wave_polarization_current, q_from_power,
-    read_sphere_fine_fixture, read_sphere_fixture, scattered_flux_power,
-    solve_scattered_field_matched_upml, sphere_pec_interior_edges, SphereFixture,
-    PHYS_SPHERE_INTERIOR, R_BUFFER, R_PML_INNER, R_SPHERE,
+    PHYS_SPHERE_INTERIOR, R_BUFFER, R_PML_INNER, R_SPHERE, SphereFixture, extinction_power,
+    mie_efficiencies, plane_wave_polarization_current, q_from_power, read_sphere_fine_fixture,
+    read_sphere_fixture, scattered_flux_power, solve_scattered_field_matched_upml,
+    sphere_pec_interior_edges,
 };
 
 /// Which bundled fixture the sweep runs on (selected by the optional

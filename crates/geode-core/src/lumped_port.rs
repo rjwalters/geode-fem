@@ -77,8 +77,8 @@
 
 use faer::c64;
 
-use crate::whitney_face::{self, dot3, edge_lookup, face_geometry, scale3, sub3, TRI_LOCAL_EDGES};
 use crate::TetMesh;
+use crate::whitney_face::{self, TRI_LOCAL_EDGES, dot3, edge_lookup, face_geometry, scale3, sub3};
 
 /// Palace-style uniform lumped port specification.
 ///
@@ -266,7 +266,7 @@ pub fn port_input_impedance(
 mod tests {
     use super::*;
     use crate::silvermuller::assemble_silver_muller_surface;
-    use crate::{cube_tet_mesh, TetMesh};
+    use crate::{TetMesh, cube_tet_mesh};
     use std::collections::BTreeMap;
 
     fn unit_triangle_mesh() -> (TetMesh, Vec<[u32; 3]>) {

@@ -55,12 +55,12 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use burn::tensor::backend::BackendTypes;
-use faer::mat::MatRef;
 use faer::Mat;
+use faer::mat::MatRef;
 
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_p1, burn_matrix_to_faer, cube_interior_mask, upload_mesh,
-    DefaultBackend, GmshReader, MeshReader,
+    DefaultBackend, GmshReader, MeshReader, apply_dirichlet_bc, assemble_global_p1,
+    burn_matrix_to_faer, cube_interior_mask, upload_mesh,
 };
 use geode_validation::{Fixture, FixtureFormat};
 

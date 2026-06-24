@@ -34,9 +34,9 @@
 //! ```
 
 use geode_core::{
+    DefaultBackend, EigenSolver, FaerDenseEigensolver, SparseEigenSolver, SparseShiftInvertLanczos,
     apply_dirichlet_bc, assemble_global_p1, burn_matrix_to_faer, cube_interior_mask, cube_tet_mesh,
-    global_system_to_sparse, upload_mesh, DefaultBackend, EigenSolver, FaerDenseEigensolver,
-    SparseEigenSolver, SparseShiftInvertLanczos,
+    global_system_to_sparse, upload_mesh,
 };
 
 use burn::tensor::backend::BackendTypes;

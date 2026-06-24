@@ -107,16 +107,15 @@ use faer::c64;
 use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, Triplet};
 
+use crate::TetMesh;
 use crate::complex_lanczos::{solve_with_lu, spmv};
-use crate::lumped_port::{assemble_port_flux, assemble_port_surface_mass, LumpedPort};
+use crate::lumped_port::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
 use crate::nedelec_assembly::{
-    assemble_global_nedelec_with_anisotropic_epsilon_sparse,
+    NedelecScatterMap, assemble_global_nedelec_with_anisotropic_epsilon_sparse,
     assemble_global_nedelec_with_complex_epsilon_sparse,
     assemble_global_nedelec_with_full_tensors_sparse, assemble_nedelec_current_rhs,
     assemble_nedelec_current_rhs_quad4, assemble_nedelec_sigma_damping_sparse, tet_centroids,
-    NedelecScatterMap,
 };
-use crate::TetMesh;
 
 /// Errors produced by the driven-solve layer.
 #[derive(Debug, thiserror::Error)]
@@ -964,13 +963,13 @@ impl DrivenOperator {
                 want: n_tets,
             });
         }
-        if let Some(sigma) = sigma_tet {
-            if sigma.len() != n_tets {
-                return Err(DrivenError::SigmaDimMismatch {
-                    got: sigma.len(),
-                    want: n_tets,
-                });
-            }
+        if let Some(sigma) = sigma_tet
+            && sigma.len() != n_tets
+        {
+            return Err(DrivenError::SigmaDimMismatch {
+                got: sigma.len(),
+                want: n_tets,
+            });
         }
         for (index, port) in ports.iter().enumerate() {
             let invalid = |reason: &str| DrivenError::InvalidPort {
@@ -2049,7 +2048,7 @@ impl DrivenOperator {
 mod tests {
     use super::*;
     use crate::nedelec_assembly::cube_pec_interior_edges;
-    use crate::{cube_tet_mesh, DefaultBackend};
+    use crate::{DefaultBackend, cube_tet_mesh};
     use burn::tensor::backend::BackendTypes;
 
     type B = DefaultBackend;
@@ -2171,10 +2170,11 @@ mod tests {
                 assert_eq!(sol.e_edges[i], c64::new(0.0, 0.0));
             }
         }
-        assert!(sol
-            .e_edges
-            .iter()
-            .all(|e| e.re.is_finite() && e.im.is_finite()));
+        assert!(
+            sol.e_edges
+                .iter()
+                .all(|e| e.re.is_finite() && e.im.is_finite())
+        );
     }
 
     /// An isotropic DiagTensor material must agree with the Scalar
@@ -2529,10 +2529,7 @@ mod tests {
         // criteria. Printed at INFO level (cargo test --nocapture).
         eprintln!(
             "[issue #238] cube cavity grid=3, n_interior={}, COCG iters={}, residual_rel={:.3e}, rel_diff_vs_LU={:.3e}",
-            sol_ksp.n_interior,
-            report.iters,
-            report.residual_rel,
-            rel_diff,
+            sol_ksp.n_interior, report.iters, report.residual_rel, rel_diff,
         );
     }
 

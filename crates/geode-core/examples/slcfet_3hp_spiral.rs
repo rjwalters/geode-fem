@@ -58,11 +58,10 @@ use std::process::Command;
 use faer::c64;
 
 use geode_core::{
-    detect_srf, driven_frequency_sweep, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
-    pec_interior_mask_from_triangles, read_spiral_slcfet_3hp_fixture,
-    read_spiral_slcfet_3hp_smoke_fixture, CurrentSource, DefaultBackend, DrivenBcs,
-    DrivenMaterials, SpiralFixture, SquareSpiral, SurfaceImpedanceBc, SurfaceImpedanceModel,
-    SLCFET_3HP_MATERIALS,
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, SLCFET_3HP_MATERIALS, SpiralFixture,
+    SquareSpiral, SurfaceImpedanceBc, SurfaceImpedanceModel, detect_srf, driven_frequency_sweep,
+    modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l, pec_interior_mask_from_triangles,
+    read_spiral_slcfet_3hp_fixture, read_spiral_slcfet_3hp_smoke_fixture,
 };
 
 /// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.

@@ -78,9 +78,8 @@
 use burn::tensor::backend::BackendTypes;
 
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_nedelec, burn_matrix_to_faer, cube_interior_mask,
-    cube_pec_interior_edges, cube_tet_mesh, upload_mesh, DefaultBackend, EigenSolver,
-    FaerDenseEigensolver,
+    DefaultBackend, EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, assemble_global_nedelec,
+    burn_matrix_to_faer, cube_interior_mask, cube_pec_interior_edges, cube_tet_mesh, upload_mesh,
 };
 
 type B = DefaultBackend;

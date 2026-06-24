@@ -8,11 +8,11 @@
 use std::time::Duration;
 
 use burn::tensor::backend::BackendTypes;
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use geode_core::{
-    assemble_global_p1, cube_interior_mask, cube_tet_mesh, global_system_to_sparse, upload_mesh,
-    DefaultBackend, SparseEigenSolver, SparseShiftInvertLanczos,
+    DefaultBackend, SparseEigenSolver, SparseShiftInvertLanczos, assemble_global_p1,
+    cube_interior_mask, cube_tet_mesh, global_system_to_sparse, upload_mesh,
 };
 
 type B = DefaultBackend;

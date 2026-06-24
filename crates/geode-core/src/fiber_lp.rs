@@ -147,11 +147,7 @@ pub fn bessel_j1(x: f64) -> f64 {
                 + y * (0.844_919_987_6e-5 + y * (-0.882_898_967_0e-6 + y * 0.105_787_412_0e-6)));
         let ans = (std::f64::consts::FRAC_2_PI / ax).sqrt() * (xx.cos() * p1 - z * xx.sin() * p2);
         // J₁ is odd; the asymptotic form above is for ax = |x|.
-        if x < 0.0 {
-            -ans
-        } else {
-            ans
-        }
+        if x < 0.0 { -ans } else { ans }
     }
 }
 
@@ -355,11 +351,7 @@ fn bessel_i1(x: f64) -> f64 {
                 + y * (-0.362_018e-2 + y * (0.163_801e-2 + y * (-0.103_155_55e-1 + y * ans))));
         ans * (ax.exp() / ax.sqrt())
     };
-    if x < 0.0 {
-        -ans
-    } else {
-        ans
-    }
+    if x < 0.0 { -ans } else { ans }
 }
 
 /// Normalized frequency (V-number) of a step-index fiber,

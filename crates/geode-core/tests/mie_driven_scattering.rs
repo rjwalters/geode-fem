@@ -50,11 +50,11 @@
 use faer::c64;
 
 use geode_core::{
-    build_matched_upml_materials, driven_solve, driven_solve_quad, extinction_power,
-    mie_efficiencies, mie_polarization_source, plane_wave_polarization_current, q_from_power,
-    scattered_flux_power, solve_scattered_field_matched_upml, sphere_pec_interior_edges,
-    DefaultBackend, DrivenBcs, DrivenMaterials, QuadCurrentSource, PHYS_SPHERE_INTERIOR, R_BUFFER,
-    R_PML_INNER, R_SPHERE,
+    DefaultBackend, DrivenBcs, DrivenMaterials, PHYS_SPHERE_INTERIOR, QuadCurrentSource, R_BUFFER,
+    R_PML_INNER, R_SPHERE, build_matched_upml_materials, driven_solve, driven_solve_quad,
+    extinction_power, mie_efficiencies, mie_polarization_source, plane_wave_polarization_current,
+    q_from_power, scattered_flux_power, solve_scattered_field_matched_upml,
+    sphere_pec_interior_edges,
 };
 
 const N_INSIDE: f64 = 1.5;

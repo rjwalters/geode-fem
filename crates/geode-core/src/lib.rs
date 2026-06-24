@@ -42,7 +42,7 @@ pub(crate) mod whitney_face;
 pub mod arpack;
 
 pub use assembly::{
-    assemble_global_p1, gather_tet_coords, upload_mesh, GlobalSystem, SparsityPattern,
+    GlobalSystem, SparsityPattern, assemble_global_p1, gather_tet_coords, upload_mesh,
 };
 pub use complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
 pub use complex_lanczos::{
@@ -50,71 +50,74 @@ pub use complex_lanczos::{
 };
 pub use derham::{apply_divergence, apply_gradient, curl_map, divergence_map, gradient_map};
 pub use driven::{
-    driven_solve, driven_solve_iterative, driven_solve_quad, driven_solve_with_ports,
-    driven_solve_with_sigma, driven_solve_with_sigma_quad, driven_solve_with_surface_impedance,
     BackSolveReport, CurrentSource, DrivenBcs, DrivenError, DrivenLinearSolver, DrivenMaterials,
     DrivenOperator, DrivenSolution, FactoredDrivenOperator, IterativeSettings, QuadCurrentSource,
-    SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel, driven_solve, driven_solve_iterative,
+    driven_solve_quad, driven_solve_with_ports, driven_solve_with_sigma,
+    driven_solve_with_sigma_quad, driven_solve_with_surface_impedance,
 };
 pub use eigen::{
-    apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask, EigenError, EigenPair,
-    EigenSolver, FaerDenseEigensolver,
+    EigenError, EigenPair, EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc,
+    burn_matrix_to_faer, cube_interior_mask,
 };
 pub use extraction::{
-    detect_srf, driven_frequency_sweep, driven_frequency_sweep_with_mode, extract_port_circuit,
-    im_z_zero_crossings, inductance, quality_factor, s11, s_parameter_frequency_sweep,
-    s_parameter_frequency_sweep_with_mode, PortCircuit, SMatrix, SParameterSweepPoint, SweepPoint,
+    PortCircuit, SMatrix, SParameterSweepPoint, SweepPoint, detect_srf, driven_frequency_sweep,
+    driven_frequency_sweep_with_mode, extract_port_circuit, im_z_zero_crossings, inductance,
+    quality_factor, s_parameter_frequency_sweep, s_parameter_frequency_sweep_with_mode, s11,
 };
-pub use fe_assemble::{fe_assemble, DirichletBc, ElementType, FeAssembleResult};
+pub use fe_assemble::{DirichletBc, ElementType, FeAssembleResult, fe_assemble};
 pub use fiber_lp::{
     bessel_j, bessel_j0, bessel_j1, bessel_k, bessel_k0, bessel_k1, fiber_lp_neff, normalized_b,
     v_number,
 };
-pub use iterate::{iterate_while, iterate_while_with_prev, IterOutcome, IterReport, Step};
+pub use iterate::{IterOutcome, IterReport, Step, iterate_while, iterate_while_with_prev};
 pub use ksp_solve::{
     ChebyshevConfig, ChebyshevKind, ChebyshevPreconditioner, Cocg, IdentityPreconditioner,
     IluPreconditioner, JacobiPreconditioner, KspError, KspReport, KspSolve, Preconditioner,
 };
 pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 pub use lumped_port::{
-    assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
-    port_voltage, LumpedPort,
+    LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
+    port_voltage,
 };
 #[allow(deprecated)]
 pub use mesh::PHYS_VACUUM_BUFFER;
 pub use mesh::{
-    cube_tet_mesh, pec_interior_mask_from_triangles, read_patch_fixture,
-    read_patch_fixture_from_bytes, read_patch_matched_fixture, read_patch_smoke_fixture,
-    read_sphere_fine_fixture, read_sphere_fixture, read_sphere_fixture_from_bytes,
-    read_spiral_fixture, read_spiral_fixture_from_bytes, read_spiral_slcfet_3hp_fixture,
-    read_spiral_slcfet_3hp_smoke_fixture, read_spiral_smoke_fixture, GmshReader, MeshError,
-    MeshReader, PatchFixture, PatchMaterials, PatchPort, SphereFixture, SpiralFixture,
-    SpiralMaterials, SpiralPort, TetMesh, FR4_MATERIALS, GENERIC_MATERIALS, PHYS_OUTER_BOUNDARY,
+    FR4_MATERIALS, GENERIC_MATERIALS, GmshReader, MeshError, MeshReader, PHYS_OUTER_BOUNDARY,
     PHYS_PML_INTERFACE, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR, PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP,
-    R_BUFFER, R_PML_INNER, R_SPHERE, SLCFET_3HP_MATERIALS,
+    PatchFixture, PatchMaterials, PatchPort, R_BUFFER, R_PML_INNER, R_SPHERE, SLCFET_3HP_MATERIALS,
+    SphereFixture, SpiralFixture, SpiralMaterials, SpiralPort, TetMesh, cube_tet_mesh,
+    pec_interior_mask_from_triangles, read_patch_fixture, read_patch_fixture_from_bytes,
+    read_patch_matched_fixture, read_patch_smoke_fixture, read_sphere_fine_fixture,
+    read_sphere_fixture, read_sphere_fixture_from_bytes, read_spiral_fixture,
+    read_spiral_fixture_from_bytes, read_spiral_slcfet_3hp_fixture,
+    read_spiral_slcfet_3hp_smoke_fixture, read_spiral_smoke_fixture,
 };
 pub use mie::{
-    characteristic_te, characteristic_tm, chi, chi_prime, merged_roots, mie_roots_catalog, psi,
-    psi_prime, resonance_roots, spherical_j, spherical_j_pair, spherical_j_prime, spherical_y,
-    spherical_y_prime, MiePolarisation, MieRoot,
+    MiePolarisation, MieRoot, characteristic_te, characteristic_tm, chi, chi_prime, merged_roots,
+    mie_roots_catalog, psi, psi_prime, resonance_roots, spherical_j, spherical_j_pair,
+    spherical_j_prime, spherical_y, spherical_y_prime,
 };
 pub use mie_open::{
+    MieRootComplex, OPEN_SPACE_WGM_N, OPEN_SPACE_WGM_R_S, OPEN_SPACE_WGM_TABLE_N15,
     characteristic_te_open, characteristic_tm_open, open_space_wgm_roots_n15, spherical_h1_c,
-    spherical_j_c, spherical_y_c, MieRootComplex, OPEN_SPACE_WGM_N, OPEN_SPACE_WGM_R_S,
-    OPEN_SPACE_WGM_TABLE_N15,
+    spherical_j_c, spherical_y_c,
 };
 pub use mie_scattering::{
-    mie_a_b, mie_coefficients, mie_efficiencies, mie_series_order, MieCoefficients, MieEfficiencies,
+    MieCoefficients, MieEfficiencies, mie_a_b, mie_coefficients, mie_efficiencies, mie_series_order,
 };
-pub use mohan::{modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l, SquareSpiral};
+pub use mohan::{SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l};
 pub use nedelec::{
-    batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_mass_anisotropic_full,
-    batched_nedelec_local_matrices, batched_nedelec_local_rhs, batched_nedelec_local_rhs_quad4,
-    batched_nedelec_local_stiffness_weighted, tet_edges, NedelecLocalMatrices, TET_QUAD4_A,
-    TET_QUAD4_B,
+    NedelecLocalMatrices, TET_QUAD4_A, TET_QUAD4_B, batched_nedelec_local_mass_anisotropic_diag,
+    batched_nedelec_local_mass_anisotropic_full, batched_nedelec_local_matrices,
+    batched_nedelec_local_rhs, batched_nedelec_local_rhs_quad4,
+    batched_nedelec_local_stiffness_weighted, tet_edges,
 };
 pub use nedelec_assembly::{
-    assemble_global_nedelec, assemble_global_nedelec_with_anisotropic_epsilon,
+    DERHAM_RANK_THRESHOLD_REL, NedelecComplexGlobalSystem, NedelecFullTensorGlobalSystem,
+    NedelecGlobalSystem, NedelecScatterMap, NedelecSparseComplexSystem,
+    NedelecSparseFullTensorSystem, assemble_global_nedelec,
+    assemble_global_nedelec_with_anisotropic_epsilon,
     assemble_global_nedelec_with_anisotropic_epsilon_sparse,
     assemble_global_nedelec_with_complex_epsilon,
     assemble_global_nedelec_with_complex_epsilon_sparse, assemble_global_nedelec_with_epsilon,
@@ -125,15 +128,13 @@ pub use nedelec_assembly::{
     build_epsilon_r, burn_complex_mass_to_faer, cube_pec_interior_edges, pec_interior_edge_mask,
     rank_via_svd, restrict_gradient_dense, sparsity_pattern_from_tet_edges,
     sphere_n_interior_nodes, sphere_pec_interior_edges, sphere_pec_node_interior_mask,
-    spurious_dim_from_derham, tet_centroid_radii, tet_centroids, NedelecComplexGlobalSystem,
-    NedelecFullTensorGlobalSystem, NedelecGlobalSystem, NedelecScatterMap,
-    NedelecSparseComplexSystem, NedelecSparseFullTensorSystem, DERHAM_RANK_THRESHOLD_REL,
+    spurious_dim_from_derham, tet_centroid_radii, tet_centroids,
 };
 pub use ntff::{
-    broadside_directivity, directivity, gain, ntff_far_field, principal_plane_cuts, to_db,
-    FarField, PatternCut,
+    FarField, PatternCut, broadside_directivity, directivity, gain, ntff_far_field,
+    principal_plane_cuts, to_db,
 };
-pub use p1::{batched_p1_local_matrices, P1LocalMatrices};
+pub use p1::{P1LocalMatrices, batched_p1_local_matrices};
 pub use patch_cavity::PatchCavity;
 pub use scattering::{
     build_matched_upml_materials, extinction_power, flux_power_box, mie_polarization_source,
@@ -144,40 +145,40 @@ pub use silvermuller::{
     assemble_silver_muller_surface, assemble_surface_mass, assemble_surface_mass_triplets,
 };
 pub use silvermuller_self_consistent::{
-    self_consistent_k, self_consistent_k_vector_tracked, SelfConsistentResult,
+    SelfConsistentResult, self_consistent_k, self_consistent_k_vector_tracked,
 };
-pub use sparse::{global_system_to_sparse, SparseError, SparseSystem};
+pub use sparse::{SparseError, SparseSystem, global_system_to_sparse};
 pub use wave_port::{
+    ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMode, WavePort, WavePortSweepPoint,
     extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
     map_mode_profile_to_full_mesh, solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
-    waveguide_mode_reduce, ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMode, WavePort,
-    WavePortSweepPoint,
+    waveguide_mode_reduce,
 };
 pub use waveguide_modes::{
-    apply_pec_2d, assemble_2d_nedelec, assemble_2d_nedelec2_with_epsilon,
-    assemble_2d_nedelec_with_epsilon, beta_outgoing, dielectric_mode_field_shape,
-    dielectric_mode_field_shape_pml, dielectric_mode_radial_profile_pml, disk_boundary_nodes,
-    disk_pec_interior_dofs2, disk_pec_interior_edges, disk_pec_interior_nodes, disk_tri_mesh,
-    disk_tri_mesh_graded, disk_tri_mesh_graded_checked, disk_tri_mesh_pml,
-    disk_tri_mesh_pml_graded, disk_tri_mesh_pml_graded_checked, epsilon_r_from_region_tags,
-    lp01_template_correlation, n_dof_2d_nedelec2, pml_stretch_tensor_2d, rect_pec_interior_dofs2,
-    rect_pec_interior_edges, rect_pec_interior_nodes, rect_tri_mesh, rect_tri_mesh_graded,
-    rect_waveguide_cutoff, restrict_gradient_dense_2d, slab_te0_neff, solve_dielectric_modes,
-    solve_dielectric_modes2, solve_dielectric_modes2_pml,
-    solve_dielectric_modes2_pml_profile_selected, solve_rect_waveguide_modes,
-    solve_rect_waveguide_modes2_cutoffs, solve_waveguide_modes, solve_waveguide_modes_with_opts,
-    spurious_dim_2d, spurious_dim_2d_p2, tri_nedelec2_local, tri_nedelec_local, worst_aspect_ratio,
-    DielectricMode, DielectricModePml, Lp01ProfileScore, Lp01RadialTemplate, ModeFieldShape,
-    ModeRadialProfile, RadialGrading, ScoredDielectricModePml, TriMesh, WaveguideModeProfile,
-    WaveguideSolveOpts, ASPECT_RATIO_SLIVER_BOUND, REGION_CLADDING, REGION_CORE, REGION_PML,
-    TRI_LOCAL_EDGES,
+    ASPECT_RATIO_SLIVER_BOUND, DielectricMode, DielectricModePml, Lp01ProfileScore,
+    Lp01RadialTemplate, ModeFieldShape, ModeRadialProfile, REGION_CLADDING, REGION_CORE,
+    REGION_PML, RadialGrading, ScoredDielectricModePml, TRI_LOCAL_EDGES, TriMesh,
+    WaveguideModeProfile, WaveguideSolveOpts, apply_pec_2d, assemble_2d_nedelec,
+    assemble_2d_nedelec_with_epsilon, assemble_2d_nedelec2_with_epsilon, beta_outgoing,
+    dielectric_mode_field_shape, dielectric_mode_field_shape_pml,
+    dielectric_mode_radial_profile_pml, disk_boundary_nodes, disk_pec_interior_dofs2,
+    disk_pec_interior_edges, disk_pec_interior_nodes, disk_tri_mesh, disk_tri_mesh_graded,
+    disk_tri_mesh_graded_checked, disk_tri_mesh_pml, disk_tri_mesh_pml_graded,
+    disk_tri_mesh_pml_graded_checked, epsilon_r_from_region_tags, lp01_template_correlation,
+    n_dof_2d_nedelec2, pml_stretch_tensor_2d, rect_pec_interior_dofs2, rect_pec_interior_edges,
+    rect_pec_interior_nodes, rect_tri_mesh, rect_tri_mesh_graded, rect_waveguide_cutoff,
+    restrict_gradient_dense_2d, slab_te0_neff, solve_dielectric_modes, solve_dielectric_modes2,
+    solve_dielectric_modes2_pml, solve_dielectric_modes2_pml_profile_selected,
+    solve_rect_waveguide_modes, solve_rect_waveguide_modes2_cutoffs, solve_waveguide_modes,
+    solve_waveguide_modes_with_opts, spurious_dim_2d, spurious_dim_2d_p2, tri_nedelec_local,
+    tri_nedelec2_local, worst_aspect_ratio,
 };
 
 #[cfg(feature = "arpack")]
 pub use arpack::ArpackEigensolver;
 
-use burn::tensor::backend::{Backend, BackendTypes};
 use burn::tensor::Tensor;
+use burn::tensor::backend::{Backend, BackendTypes};
 
 // Backend selection is feature-driven, with a precedence policy:
 // `ndarray` > `cuda` > `wgpu`. The native GPU backends `wgpu` and

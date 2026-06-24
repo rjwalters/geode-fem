@@ -19,10 +19,10 @@
 use burn::tensor::backend::BackendTypes;
 
 use geode_core::{
-    assemble_global_nedelec_with_epsilon, assemble_silver_muller_surface, build_epsilon_r,
-    burn_matrix_to_faer, read_sphere_fixture, self_consistent_k, self_consistent_k_vector_tracked,
-    sphere_n_interior_nodes, upload_mesh, ComplexEigenSolver, DefaultBackend,
-    FaerComplexEigensolver, SelfConsistentResult, PHYS_OUTER_BOUNDARY,
+    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, PHYS_OUTER_BOUNDARY,
+    SelfConsistentResult, assemble_global_nedelec_with_epsilon, assemble_silver_muller_surface,
+    build_epsilon_r, burn_matrix_to_faer, read_sphere_fixture, self_consistent_k,
+    self_consistent_k_vector_tracked, sphere_n_interior_nodes, upload_mesh,
 };
 
 type B = DefaultBackend;

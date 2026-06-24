@@ -11,7 +11,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use geode_core::{apply_gradient, cube_tet_mesh, gradient_map, TetMesh};
+use geode_core::{TetMesh, apply_gradient, cube_tet_mesh, gradient_map};
 
 /// A single tet on nodes 0..4. Connectivity is all that matters for `d⁰`;
 /// the coordinates below form a unit reference tet for good measure.

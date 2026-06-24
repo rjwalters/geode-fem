@@ -124,11 +124,11 @@ use faer::c64;
 use geode_core::mesh::patch::FR4_MATERIALS;
 use geode_core::viz_vtu::write_vtu_surface;
 use geode_core::{
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, PatchCavity, PatchFixture,
     broadside_directivity, directivity, driven_solve_with_ports, flux_power_box, gain,
     im_z_zero_crossings, ntff_far_field, pec_interior_mask_from_triangles, port_current,
     port_voltage, principal_plane_cuts, read_patch_fixture, read_patch_matched_fixture,
-    read_patch_smoke_fixture, s11, to_db, CurrentSource, DefaultBackend, DrivenBcs,
-    DrivenMaterials, PatchCavity, PatchFixture,
+    read_patch_smoke_fixture, s11, to_db,
 };
 
 #[path = "common/viz_export_helper.rs"]
@@ -261,15 +261,13 @@ fn fixture_sha256(choice: FixtureChoice) -> String {
             cmd.args(["-a", "256"]);
         }
         cmd.arg(&path);
-        if let Ok(out) = cmd.output() {
-            if out.status.success() {
-                if let Some(hash) = String::from_utf8_lossy(&out.stdout)
-                    .split_whitespace()
-                    .next()
-                {
-                    return hash.to_string();
-                }
-            }
+        if let Ok(out) = cmd.output()
+            && out.status.success()
+            && let Some(hash) = String::from_utf8_lossy(&out.stdout)
+                .split_whitespace()
+                .next()
+        {
+            return hash.to_string();
         }
     }
     let _ = bytes;
@@ -419,7 +417,7 @@ fn run_sweep(fixture: &PatchFixture, freqs_ghz: &[f64], pml_thick: f64) -> Vec<R
 #[allow(clippy::needless_range_loop)]
 fn bandwidth_10db(rows: &[Row]) -> Option<(f64, f64)> {
     let thresh = (0.1_f64).sqrt(); // |S11| at −10 dB return loss
-                                   // Index of the |S11| minimum.
+    // Index of the |S11| minimum.
     let i_min = rows
         .iter()
         .enumerate()
@@ -1161,10 +1159,10 @@ fn export_field(path: &str) {
         .collect();
 
     let out = std::path::Path::new(path);
-    if let Some(parent) = out.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent).expect("create --export-field parent dir");
-        }
+    if let Some(parent) = out.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).expect("create --export-field parent dir");
     }
     geode_core::viz_vtu::write_vtu(out, &fixture.mesh, &e_re, Some(&e_im), Some(&eps_r))
         .expect("write --export-field .vtu");

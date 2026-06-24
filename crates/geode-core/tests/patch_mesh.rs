@@ -33,7 +33,7 @@ use geode_core::mesh::patch::{
     PHYS_AIR, PHYS_GROUND, PHYS_OUTER_BOUNDARY, PHYS_PATCH, PHYS_PORT, PHYS_SUBSTRATE, PHYS_UPML,
 };
 use geode_core::{
-    read_patch_fixture, read_patch_matched_fixture, read_patch_smoke_fixture, PatchFixture,
+    PatchFixture, read_patch_fixture, read_patch_matched_fixture, read_patch_smoke_fixture,
 };
 
 /// All seven expected physical groups: `(dim, tag, name)`.

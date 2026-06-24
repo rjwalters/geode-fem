@@ -41,9 +41,9 @@
 //! needs the `rustflags = ["-C", "overflow-checks=off"]` workaround.
 
 use geode_core::{
-    apply_pec_2d, assemble_2d_nedelec, rect_pec_interior_edges, rect_pec_interior_nodes,
-    rect_tri_mesh, rect_waveguide_cutoff, solve_rect_waveguide_modes, spurious_dim_2d, EigenSolver,
-    FaerDenseEigensolver,
+    EigenSolver, FaerDenseEigensolver, apply_pec_2d, assemble_2d_nedelec, rect_pec_interior_edges,
+    rect_pec_interior_nodes, rect_tri_mesh, rect_waveguide_cutoff, solve_rect_waveguide_modes,
+    spurious_dim_2d,
 };
 
 /// Two-step sanity: PEC reduction and de-Rham nullspace dimension agree

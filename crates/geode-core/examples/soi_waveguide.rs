@@ -61,8 +61,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use geode_core::{
-    epsilon_r_from_region_tags, rect_pec_interior_edges, rect_tri_mesh, slab_te0_neff,
-    solve_dielectric_modes, TriMesh,
+    TriMesh, epsilon_r_from_region_tags, rect_pec_interior_edges, rect_tri_mesh, slab_te0_neff,
+    solve_dielectric_modes,
 };
 
 /// Silicon core refractive index at λ = 1550 nm.

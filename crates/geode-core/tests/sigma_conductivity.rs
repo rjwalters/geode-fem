@@ -26,10 +26,10 @@ use std::collections::HashMap;
 use std::f64::consts::PI;
 
 use geode_core::{
+    CurrentSource, DefaultBackend, DrivenBcs, DrivenError, DrivenMaterials, TetMesh,
     assemble_global_nedelec_with_complex_epsilon, assemble_nedelec_sigma_damping,
     build_complex_epsilon_eff, cube_pec_interior_edges, cube_tet_mesh, driven_solve,
-    driven_solve_with_sigma, tet_centroids, upload_mesh, CurrentSource, DefaultBackend, DrivenBcs,
-    DrivenError, DrivenMaterials, TetMesh,
+    driven_solve_with_sigma, tet_centroids, upload_mesh,
 };
 
 type B = DefaultBackend;

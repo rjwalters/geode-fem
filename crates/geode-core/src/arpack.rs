@@ -422,7 +422,7 @@ impl SparseEigenSolver for ArpackEigensolver {
         let select: Vec<c_int> = vec![0; ncv];
         let howmny = b"A\0";
         let rvec: c_int = 0; // 0 = eigenvalues only
-                             // z and ldz are unused when rvec=0; pass a valid but trivial buffer.
+        // z and ldz are unused when rvec=0; pass a valid but trivial buffer.
         let mut z_dummy = vec![0.0_f64; n.max(1)];
         let ldz: c_int = n_c.max(1);
         let mut info_eup: c_int = 0;

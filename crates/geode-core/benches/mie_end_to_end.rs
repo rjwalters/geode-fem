@@ -19,14 +19,15 @@
 use std::time::Duration;
 
 use burn::tensor::backend::BackendTypes;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 use faer::sparse::{SparseColMat, Triplet};
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
+    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, R_BUFFER, SparseComplexEigenSolver,
+    SparseComplexShiftInvertLanczos, apply_dirichlet_bc,
+    assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
     burn_complex_mass_to_faer, burn_matrix_to_faer, read_sphere_fixture, sphere_n_interior_nodes,
-    sphere_pec_interior_edges, tet_centroid_radii, upload_mesh, ComplexEigenSolver, DefaultBackend,
-    FaerComplexEigensolver, SparseComplexEigenSolver, SparseComplexShiftInvertLanczos, R_BUFFER,
+    sphere_pec_interior_edges, tet_centroid_radii, upload_mesh,
 };
 
 type B = DefaultBackend;

@@ -24,8 +24,8 @@ use faer::c64;
 
 use geode_core::mesh::patch::FR4_MATERIALS;
 use geode_core::{
-    driven_frequency_sweep, pec_interior_mask_from_triangles, read_patch_smoke_fixture,
-    DefaultBackend, DrivenBcs, DrivenMaterials, PatchFixture, SweepPoint,
+    DefaultBackend, DrivenBcs, DrivenMaterials, PatchFixture, SweepPoint, driven_frequency_sweep,
+    pec_interior_mask_from_triangles, read_patch_smoke_fixture,
 };
 
 /// Free-space impedance η₀ (Ω).

@@ -14,11 +14,11 @@
 //!      probe at a single picked node within a coarse tolerance.
 
 use burn::backend::Autodiff;
-use burn::tensor::backend::BackendTypes;
 use burn::tensor::ElementConversion;
+use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
 
-use geode_core::{assemble_global_p1, cube_tet_mesh, upload_mesh, DefaultBackend};
+use geode_core::{DefaultBackend, assemble_global_p1, cube_tet_mesh, upload_mesh};
 
 mod common;
 use common::readback_f64;

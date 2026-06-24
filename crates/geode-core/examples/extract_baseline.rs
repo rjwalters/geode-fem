@@ -123,10 +123,10 @@ fn collect_rows(criterion_dir: &Path) -> Vec<Row> {
                 continue;
             }
             let est = input_path.join("new").join("estimates.json");
-            if est.is_file() {
-                if let Some(row) = parse_estimates(&est, &group_name, Some(input_name)) {
-                    rows.push(row);
-                }
+            if est.is_file()
+                && let Some(row) = parse_estimates(&est, &group_name, Some(input_name))
+            {
+                rows.push(row);
             }
         }
     }

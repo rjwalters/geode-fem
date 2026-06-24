@@ -14,11 +14,11 @@
 use std::time::Duration;
 
 use burn::tensor::backend::BackendTypes;
-use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use geode_core::{
-    assemble_global_nedelec, assemble_global_nedelec_with_complex_epsilon, burn_matrix_to_faer,
-    cube_tet_mesh, upload_mesh, DefaultBackend,
+    DefaultBackend, assemble_global_nedelec, assemble_global_nedelec_with_complex_epsilon,
+    burn_matrix_to_faer, cube_tet_mesh, upload_mesh,
 };
 
 type B = DefaultBackend;

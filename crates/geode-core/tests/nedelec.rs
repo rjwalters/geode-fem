@@ -14,8 +14,8 @@ use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
 
 use geode_core::{
-    assemble_global_nedelec, batched_nedelec_local_matrices, cube_pec_interior_edges,
-    cube_tet_mesh, tet_edges, upload_mesh, DefaultBackend, TetMesh,
+    DefaultBackend, TetMesh, assemble_global_nedelec, batched_nedelec_local_matrices,
+    cube_pec_interior_edges, cube_tet_mesh, tet_edges, upload_mesh,
 };
 
 mod common;

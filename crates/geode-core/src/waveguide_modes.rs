@@ -70,9 +70,9 @@
 //! nodes after PEC reduction. This mirrors the 3-D path in
 //! `nedelec_assembly::spurious_dim_from_derham`.
 
+use faer::Mat;
 use faer::c64;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
-use faer::Mat;
 
 use crate::complex_lanczos::SparseComplexShiftInvertLanczos;
 use crate::eigen::EigenError;
@@ -946,11 +946,11 @@ fn build_disk_mesh(
             let b = ring_node(g, s + 1); // inner, sector s+1
             let c = ring_node(g + 1, s + 1); // outer, sector s+1
             let d = ring_node(g + 1, s); // outer, sector s
-                                         // Cell corners: a = inner sector s, b = inner sector s+1,
-                                         // c = outer sector s+1, d = outer sector s. Traversed
-                                         // a → d → c → b (out a radial spoke, CCW along the outer arc,
-                                         // back in, CW along the inner arc) the quad is CCW; split on
-                                         // the a→c diagonal into two CCW triangles.
+            // Cell corners: a = inner sector s, b = inner sector s+1,
+            // c = outer sector s+1, d = outer sector s. Traversed
+            // a → d → c → b (out a radial spoke, CCW along the outer arc,
+            // back in, CW along the inner arc) the quad is CCW; split on
+            // the a→c diagonal into two CCW triangles.
             tris.push([a, d, c]);
             tris.push([a, c, b]);
         }
@@ -7093,11 +7093,7 @@ mod tests {
                     + mesh.nodes[t[1] as usize][1]
                     + mesh.nodes[t[2] as usize][1])
                     / 3.0;
-                if yc < h / 2.0 {
-                    1
-                } else {
-                    0
-                }
+                if yc < h / 2.0 { 1 } else { 0 }
             })
             .collect();
         let eps_r =
@@ -7243,22 +7239,14 @@ mod tests {
                     + mesh.nodes[t[1] as usize][1]
                     + mesh.nodes[t[2] as usize][1])
                     / 3.0;
-                if (yc - 0.5 * h).abs() < 0.5 * d {
-                    1
-                } else {
-                    0
-                }
+                if (yc - 0.5 * h).abs() < 0.5 * d { 1 } else { 0 }
             })
             .collect();
         let eps_r =
             epsilon_r_from_region_tags(
                 &region_tags,
                 |tag| {
-                    if tag == 1 {
-                        eps_core
-                    } else {
-                        eps_clad
-                    }
+                    if tag == 1 { eps_core } else { eps_clad }
                 },
             );
         let (_edges, interior) = rect_pec_interior_edges(&mesh, w, h);
@@ -7289,9 +7277,9 @@ mod tests {
         // bound mode. W small (invariant direction); H tall.
         let w = 0.20_f64;
         let h = 4.0_f64; // many µm of cladding each side
-                         // Keep elements near-isotropic to suppress spurious edge-element
-                         // modes (anisotropic slivers from a tall thin domain pollute the
-                         // spectrum). Element size ≈ w/nx ≈ h/ny.
+        // Keep elements near-isotropic to suppress spurious edge-element
+        // modes (anisotropic slivers from a tall thin domain pollute the
+        // spectrum). Element size ≈ w/nx ≈ h/ny.
         let nx = 4;
         let ny = 80;
         let (mesh, eps_r, interior) = slab_fixture(nx, ny, w, h, d, eps_core, eps_clad);
@@ -7705,11 +7693,7 @@ mod tests {
             epsilon_r_from_region_tags(
                 &region_tags,
                 |tag| {
-                    if tag == 1 {
-                        eps_core
-                    } else {
-                        eps_clad
-                    }
+                    if tag == 1 { eps_core } else { eps_clad }
                 },
             );
         let (_edges, interior) = rect_pec_interior_edges(&mesh, w, h);

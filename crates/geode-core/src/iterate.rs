@@ -319,10 +319,10 @@ mod tests {
         let residuals = [8.0_f64, 4.0, 6.0, 1.0];
         let (outcome, report) = iterate_while_with_prev(0usize, 10, |_it, prev, idx| {
             let r = residuals[idx];
-            if let Some(&prev_idx) = prev {
-                if r > residuals[prev_idx] {
-                    return Step::Done(format!("diverged at idx {idx}"));
-                }
+            if let Some(&prev_idx) = prev
+                && r > residuals[prev_idx]
+            {
+                return Step::Done(format!("diverged at idx {idx}"));
             }
             Step::Continue(idx + 1)
         });

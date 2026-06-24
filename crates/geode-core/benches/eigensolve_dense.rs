@@ -14,11 +14,11 @@
 use std::time::Duration;
 
 use burn::tensor::backend::BackendTypes;
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use geode_core::{
-    apply_dirichlet_bc, assemble_global_p1, burn_matrix_to_faer, cube_interior_mask, cube_tet_mesh,
-    upload_mesh, DefaultBackend, EigenSolver, FaerDenseEigensolver,
+    DefaultBackend, EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, assemble_global_p1,
+    burn_matrix_to_faer, cube_interior_mask, cube_tet_mesh, upload_mesh,
 };
 
 type B = DefaultBackend;

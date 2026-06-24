@@ -18,25 +18,25 @@ pub mod spiral;
 #[allow(deprecated)]
 pub use sphere::PHYS_VACUUM_BUFFER;
 pub use sphere::{
-    read_sphere_fine_fixture, read_sphere_fixture, read_sphere_fixture_from_bytes, SphereFixture,
     PHYS_OUTER_BOUNDARY, PHYS_PML_INTERFACE, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR,
-    PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP, R_BUFFER, R_PML_INNER, R_SPHERE,
+    PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP, R_BUFFER, R_PML_INNER, R_SPHERE, SphereFixture,
+    read_sphere_fine_fixture, read_sphere_fixture, read_sphere_fixture_from_bytes,
 };
 // The spiral fixture's PHYS_* tag constants stay namespaced under
 // `mesh::spiral` — several names (e.g. `PHYS_OUTER_BOUNDARY`) would
 // collide with the sphere fixture's crate-root re-exports above.
 pub use spiral::{
+    GENERIC_MATERIALS, SLCFET_3HP_MATERIALS, SpiralFixture, SpiralMaterials, SpiralPort,
     pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_fixture_from_bytes,
     read_spiral_slcfet_3hp_fixture, read_spiral_slcfet_3hp_smoke_fixture,
-    read_spiral_smoke_fixture, SpiralFixture, SpiralMaterials, SpiralPort, GENERIC_MATERIALS,
-    SLCFET_3HP_MATERIALS,
+    read_spiral_smoke_fixture,
 };
 // The patch fixture's PHYS_* tag constants stay namespaced under
 // `mesh::patch` — like the spiral, several names (e.g.
 // `PHYS_OUTER_BOUNDARY`) would collide with the sphere re-exports above.
 pub use patch::{
-    read_patch_fixture, read_patch_fixture_from_bytes, read_patch_matched_fixture,
-    read_patch_smoke_fixture, PatchFixture, PatchMaterials, PatchPort, FR4_MATERIALS,
+    FR4_MATERIALS, PatchFixture, PatchMaterials, PatchPort, read_patch_fixture,
+    read_patch_fixture_from_bytes, read_patch_matched_fixture, read_patch_smoke_fixture,
 };
 
 /// CPU-side tetrahedral mesh produced by a `MeshReader`.
@@ -290,11 +290,7 @@ fn triple_permutation_sign(local: &[u32; 3]) -> i8 {
     if local[1] > local[2] {
         inv += 1;
     }
-    if inv.is_multiple_of(2) {
-        1
-    } else {
-        -1
-    }
+    if inv.is_multiple_of(2) { 1 } else { -1 }
 }
 
 /// Generate a tetrahedralized cube `[0, side]^3` with `n` hexes per side,

@@ -35,7 +35,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use geode_core::{
-    mie_roots_catalog, resonance_roots, MiePolarisation, MieRoot, R_BUFFER, R_SPHERE,
+    MiePolarisation, MieRoot, R_BUFFER, R_SPHERE, mie_roots_catalog, resonance_roots,
 };
 use geode_validation::{Fixture, FixtureFormat};
 

@@ -25,13 +25,13 @@ use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
 use faer::c64;
 use geode_core::{
+    DefaultBackend, NedelecScatterMap, SparsityPattern, TetMesh,
     assemble_global_nedelec_with_anisotropic_epsilon,
     assemble_global_nedelec_with_anisotropic_epsilon_sparse,
     assemble_global_nedelec_with_complex_epsilon,
     assemble_global_nedelec_with_complex_epsilon_sparse, assemble_global_nedelec_with_full_tensors,
     assemble_global_nedelec_with_full_tensors_sparse, assemble_nedelec_sigma_damping,
-    assemble_nedelec_sigma_damping_sparse, cube_tet_mesh, upload_mesh, DefaultBackend,
-    NedelecScatterMap, SparsityPattern, TetMesh,
+    assemble_nedelec_sigma_damping_sparse, cube_tet_mesh, upload_mesh,
 };
 
 type B = DefaultBackend;
@@ -311,7 +311,7 @@ fn scatter_map_slot_lookup_is_consistent() {
         .rows
         .iter()
         .zip(pattern.cols.iter())
-        .filter(|(&r, _)| r == 0)
+        .filter(|&(&r, _)| r == 0)
         .map(|(_, &c)| c)
         .collect();
     let absent = (0..n_edges)
