@@ -127,9 +127,8 @@ pub fn global_system_to_sparse<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        DefaultBackend, assemble_global_p1, cube_interior_mask, cube_tet_mesh, upload_mesh,
-    };
+    use crate::backend::DefaultBackend;
+    use crate::{assemble_global_p1, cube_interior_mask, cube_tet_mesh, upload_mesh};
     use burn::tensor::backend::BackendTypes;
 
     type B = DefaultBackend;

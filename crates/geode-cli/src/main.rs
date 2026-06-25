@@ -34,7 +34,7 @@ fn main() -> ExitCode {
 fn run_smoke() -> ExitCode {
     println!("geode-fem {}", env!("CARGO_PKG_VERSION"));
 
-    match geode_core::smoke_add() {
+    match geode_core::backend::smoke_add() {
         Ok(info) => {
             println!("  backend: {}", info.backend);
             println!("  device:  {}", info.device_label);

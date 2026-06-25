@@ -2047,8 +2047,9 @@ impl DrivenOperator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::DefaultBackend;
+    use crate::cube_tet_mesh;
     use crate::nedelec_assembly::cube_pec_interior_edges;
-    use crate::{DefaultBackend, cube_tet_mesh};
     use burn::tensor::backend::BackendTypes;
 
     type B = DefaultBackend;
