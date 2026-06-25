@@ -31,7 +31,7 @@
 //!
 //!    where `S_p` is the port-face tangential surface mass (the same
 //!    real-symmetric matrix the Silver-Müller / lumped-port path uses,
-//!    [`crate::silvermuller::assemble_surface_mass_triplets`]) and the
+//!    [`crate::assembly::surface::assemble_surface_mass_triplets`]) and the
 //!    per-port modal set is **set-wise `S_p`-orthonormalized**:
 //!    `e_iᵀ S_p e_j = δ_ij`. Equivalently `f_iᵀ e_j = δ_ij`.
 //!
@@ -112,12 +112,12 @@
 use faer::c64;
 
 use crate::TetMesh;
+use crate::assembly::surface::assemble_surface_mass_triplets;
 use crate::driven::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
     SurfaceImpedanceBc,
 };
 use crate::lumped_port::LumpedPort;
-use crate::silvermuller::assemble_surface_mass_triplets;
 
 /// One mode of a [`WavePort`]: the modal eigenvector over the 3-D mesh
 /// edge table, the cutoff wavenumber `k_c`, and the incident modal

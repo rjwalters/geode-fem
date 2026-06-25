@@ -71,7 +71,7 @@
 //! the lower-tag-first global convention of `nedelec_assembly`.
 //!
 //! Assembly here is host-side `f64` (like
-//! [`crate::silvermuller::assemble_silver_muller_surface`]); the port
+//! [`crate::assembly::surface::assemble_silver_muller_surface`]); the port
 //! terms are frequency-independent real matrices/vectors scaled by
 //! `jω/Z_s` at solve time inside [`crate::driven`].
 
@@ -131,7 +131,7 @@ impl LumpedPort<'_> {
 /// `A(ω)ᵀ = A(ω)`.
 ///
 /// Same kernel as
-/// [`crate::silvermuller::assemble_surface_mass_triplets`] — both are
+/// [`crate::assembly::surface::assemble_surface_mass_triplets`] — both are
 /// thin delegates to the shared `whitney` module (3-point
 /// edge-midpoint quadrature, degree-2 exact; issue #208), so the two
 /// entry points produce bit-identical triplet streams. The unit tests
@@ -267,7 +267,7 @@ pub fn port_input_impedance(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::silvermuller::assemble_silver_muller_surface;
+    use crate::assembly::surface::assemble_silver_muller_surface;
     use crate::{TetMesh, cube_tet_mesh};
     use std::collections::BTreeMap;
 
@@ -340,7 +340,7 @@ mod tests {
         assert!(!faces.is_empty());
 
         let port = assemble_port_surface_mass(&mesh, &faces, &edges);
-        let sm = crate::silvermuller::assemble_surface_mass_triplets(&mesh, &faces, &edges);
+        let sm = crate::assembly::surface::assemble_surface_mass_triplets(&mesh, &faces, &edges);
         assert_eq!(port.len(), sm.len());
         for (a, b) in port.iter().zip(sm.iter()) {
             assert_eq!(a.0, b.0);

@@ -1,7 +1,7 @@
 //! Shared Whitney 1-form triangle-face kernel (issue #208).
 //!
 //! Both the Silver-Müller / Leontovich impedance boundary conditions
-//! ([`crate::silvermuller`]) and the uniform lumped port
+//! ([`crate::assembly::surface`]) and the uniform lumped port
 //! ([`crate::lumped_port`]) integrate first-order (Whitney) Nédélec
 //! edge-element traces over flat boundary triangles. Before this module
 //! existed the per-face geometry (area, in-plane barycentric gradients,
@@ -29,7 +29,7 @@
 //! # Sign convention
 //!
 //! Edge DOFs use the same lower-tag-first global orientation as
-//! [`crate::nedelec_assembly`]: for a global edge `(va, vb)` with
+//! [`crate::assembly::nedelec`]: for a global edge `(va, vb)` with
 //! `va < vb` the basis direction is `va → vb` (sign +1); a local face
 //! edge contributes with sign `+1` if its local direction produces
 //! global tags in ascending order and `-1` otherwise. Face entry
@@ -184,7 +184,7 @@ pub(crate) fn face_mass_block(geo: &FaceGeometry) -> [[f64; 3]; 3] {
 /// them reproduces the dense accumulation order exactly.
 ///
 /// This is the single kernel behind both
-/// [`crate::silvermuller::assemble_surface_mass_triplets`] and
+/// [`crate::assembly::surface::assemble_surface_mass_triplets`] and
 /// [`crate::lumped_port::assemble_port_surface_mass`] (issue #208).
 ///
 /// # Panics

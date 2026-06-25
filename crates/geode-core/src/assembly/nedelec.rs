@@ -26,7 +26,7 @@ use burn::tensor::{IndexingUpdateOp, Int, TensorData};
 use faer::Mat;
 
 use crate::TetMesh;
-use crate::assembly::{SparsityPattern, gather_tet_coords};
+use crate::assembly::p1::{SparsityPattern, gather_tet_coords};
 use crate::elements::nedelec::{
     batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_mass_anisotropic_full,
     batched_nedelec_local_matrices, batched_nedelec_local_stiffness_weighted,
@@ -1447,7 +1447,7 @@ pub fn assemble_global_nedelec_with_anisotropic_epsilon_sparse<B: Backend>(
 /// tensor field as a `[n_elem, 3, 3]` Burn tensor at the backend's
 /// full float precision (`B::FloatElem` — f64 on the ndarray CPU
 /// backend, f32 on the GPU backends; same idiom as
-/// [`crate::assembly::upload_mesh`]).
+/// [`crate::assembly::p1::upload_mesh`]).
 fn upload_tensor33_component<B: Backend>(
     field: &[[[faer::c64; 3]; 3]],
     pick: impl Fn(&faer::c64) -> f64,

@@ -7,7 +7,7 @@
 //! **Why complex-symmetric (not Hermitian).** The Mie pipeline's mass
 //! matrix is built from `∫ N_i · N_j ε dV` where ε is a per-tetrahedron
 //! complex scalar (1 for vacuum, 1 + j σ in the scalar PML region, see
-//! [`crate::nedelec_assembly::build_complex_epsilon_r_pml`] and issue
+//! [`crate::assembly::nedelec::build_complex_epsilon_r_pml`] and issue
 //! #28). The bilinear form is symmetric in `(i, j)` — so the assembled
 //! matrix satisfies `M[i,j] = M[j,i] ∈ ℂ`, which is **bilinear-symmetric**
 //! (`M^T = M`) but **not Hermitian** (`M^H = M̄ ≠ M`). Empirically, the

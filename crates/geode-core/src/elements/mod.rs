@@ -2,7 +2,7 @@
 //!
 //! This module groups the per-element reference bases and their batched
 //! local-matrix kernels — the building blocks that the global assemblers
-//! (`crate::assembly`, `crate::nedelec_assembly`) stamp into the system
+//! (`crate::assembly::p1`, `crate::assembly::nedelec`) stamp into the system
 //! matrices. Each submodule owns one basis family:
 //!
 //! - [`p1`] — P1 (linear Lagrange) nodal elements: closed-form local
