@@ -110,7 +110,7 @@
 //! times the incident irradiance: `Q = P / (½ |E₀|² π a²)` with
 //! `|E₀| = 1` and impedance 1 in natural units ([`q_from_power`]).
 //!
-//! The analytic oracle is [`crate::mie_scattering::mie_efficiencies`].
+//! The analytic oracle is [`crate::analytic::mie::mie_efficiencies`].
 
 use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};

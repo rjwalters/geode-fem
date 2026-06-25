@@ -1,11 +1,20 @@
 //! Common imports for geode-core: `use geode_core::prelude::*;`.
 //!
-//! Re-exports from the canonical module paths (`crate::assembly`,
-//! `crate::backend`, `crate::derham`, `crate::driven`, `crate::eigen`,
-//! `crate::elements`, `crate::solver`, `crate::traits`) — never the
-//! deprecated root shims — so glob-importing the prelude stays warning-free
-//! under `-D warnings`.
+//! Re-exports from the canonical module paths (`crate::analytic`,
+//! `crate::assembly`, `crate::backend`, `crate::derham`, `crate::driven`,
+//! `crate::eigen`, `crate::elements`, `crate::solver`, `crate::traits`) —
+//! never the deprecated root shims — so glob-importing the prelude stays
+//! warning-free under `-D warnings`.
 //! Later children of the namespace reorg add their own groups here.
+pub use crate::analytic::fiber::fiber_lp_neff;
+pub use crate::analytic::mie::{
+    MieEfficiencies, mie_efficiencies, mie_roots_catalog, resonance_roots,
+};
+pub use crate::analytic::patch::PatchCavity;
+pub use crate::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
+pub use crate::analytic::waveguide::{
+    TriMesh, disk_tri_mesh, rect_tri_mesh, solve_dielectric_modes2, solve_rect_waveguide_modes,
+};
 pub use crate::assembly::fe::{DirichletBc, ElementType, FeAssembleResult, fe_assemble};
 pub use crate::assembly::nedelec::assemble_global_nedelec;
 pub use crate::assembly::p1::{GlobalSystem, assemble_global_p1};

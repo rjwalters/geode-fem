@@ -1,7 +1,7 @@
 //! Open-space Mie whispering-gallery-mode (WGM) resonance positions for
 //! a homogeneous dielectric sphere in vacuum (issue #33).
 //!
-//! The companion module [`crate::mie`] tabulates the **PEC-cavity** TE/TM
+//! The companion module [`super::closed`] tabulates the **PEC-cavity** TE/TM
 //! roots — i.e. the closed-shell limit (`σ₀ → 0`) of the bundled FEM
 //! fixture, where the outer wall at `R_b` reflects perfectly. This
 //! module extends to the genuinely radiative case: a sphere of
@@ -26,7 +26,7 @@
 //!
 //! where `ψ_l(z) = z·j_l(z)` and `ξ_l(z) = z·h_l^(1)(z)`.
 //!
-//! These are the same matching equations as in [`crate::mie`] with the
+//! These are the same matching equations as in [`super::closed`] with the
 //! outer-wall PEC condition replaced by an outgoing-wave Sommerfeld BC.
 //!
 //! # Sign convention
@@ -67,10 +67,10 @@
 //! Lossy or dispersive `n(ω)`, magnetic spheres, and stratified
 //! geometries are out of scope for v0; tracked separately.
 
-use crate::mie::MiePolarisation;
+use super::closed::MiePolarisation;
 
 /// A single analytic resonance root of the open-space dielectric-sphere
-/// (Mie) problem. Distinct from [`crate::mie::MieRoot`], which records
+/// (Mie) problem. Distinct from [`super::closed::MieRoot`], which records
 /// real PEC-cavity positions; this one carries a full complex `k`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MieRootComplex {
@@ -88,7 +88,7 @@ pub struct MieRootComplex {
     /// linewidth and `Q = Re(k) / (2 |Im(k)|)` is the quality factor.
     pub im_k: f64,
     /// `2 l + 1`, the magnetic-quantum-number degeneracy (same as for
-    /// `crate::mie::MieRoot`).
+    /// `super::closed::MieRoot`).
     pub multiplicity: usize,
 }
 
@@ -517,13 +517,13 @@ mod tests {
     }
 
     /// Complex `j_l` upward recurrence matches the real-arg
-    /// [`crate::mie::spherical_j`] when `z` is purely real.
+    /// [`super::super::closed::spherical_j`] when `z` is purely real.
     #[test]
     fn complex_j_matches_real_j() {
         for &x in &[0.5_f64, 1.0, 2.5, 4.7, 6.3] {
             for l in 0..=5 {
                 let got = spherical_j_c(l, faer::c64::new(x, 0.0));
-                let want = crate::mie::spherical_j(l, x);
+                let want = super::super::closed::spherical_j(l, x);
                 assert!(
                     (got.re - want).abs() < 1e-10 && got.im.abs() < 1e-12,
                     "j_{l}({x}): real={want}, complex={got:?}"

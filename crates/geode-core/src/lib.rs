@@ -5,25 +5,60 @@
 //! shape of the API; concrete implementations arrive with scalar
 //! Helmholtz (#3) and the eigenmode solver work that follows.
 
+pub mod analytic;
 pub mod assembly;
 pub mod derham;
 pub mod driven;
 pub mod eigen;
 pub mod elements;
-pub mod fiber_lp;
 pub mod mesh;
-pub mod mie;
-pub mod mie_open;
-pub mod mie_scattering;
-pub mod mohan;
 pub mod ntff;
 pub mod palace;
-pub mod patch_cavity;
 pub mod silvermuller_self_consistent;
 pub mod solver;
 pub mod viz_vtu;
-pub mod waveguide_modes;
 
+#[deprecated(note = "use geode_core::analytic::waveguide::<item> instead")]
+pub use crate::analytic::waveguide::{
+    ASPECT_RATIO_SLIVER_BOUND, DielectricMode, DielectricModePml, Lp01ProfileScore,
+    Lp01RadialTemplate, ModeFieldShape, ModeRadialProfile, REGION_CLADDING, REGION_CORE,
+    REGION_PML, RadialGrading, ScoredDielectricModePml, TRI_LOCAL_EDGES, TRI_NEDELEC2_DOF_FLIPS,
+    TRI_QUAD_DEG4, TriMesh, WaveguideModeProfile, WaveguideSolveOpts, apply_pec_2d,
+    assemble_2d_nedelec, assemble_2d_nedelec_with_epsilon, assemble_2d_nedelec2_with_epsilon,
+    beta_outgoing, dielectric_mode_field_shape, dielectric_mode_field_shape_pml,
+    dielectric_mode_radial_profile_pml, disk_boundary_nodes, disk_pec_interior_dofs2,
+    disk_pec_interior_edges, disk_pec_interior_nodes, disk_tri_mesh, disk_tri_mesh_graded,
+    disk_tri_mesh_graded_checked, disk_tri_mesh_pml, disk_tri_mesh_pml_graded,
+    disk_tri_mesh_pml_graded_checked, epsilon_r_from_region_tags, lp01_template_correlation,
+    n_dof_2d_nedelec2, pml_stretch_tensor_2d, rect_pec_interior_dofs2, rect_pec_interior_edges,
+    rect_pec_interior_nodes, rect_tri_mesh, rect_tri_mesh_graded, rect_waveguide_cutoff,
+    restrict_gradient_dense_2d, slab_te0_neff, solve_dielectric_modes, solve_dielectric_modes2,
+    solve_dielectric_modes2_pml, solve_dielectric_modes2_pml_profile_selected,
+    solve_rect_waveguide_modes, solve_rect_waveguide_modes2_cutoffs, solve_waveguide_modes,
+    solve_waveguide_modes_with_opts, spurious_dim_2d, spurious_dim_2d_p2, tri_nedelec_local,
+    tri_nedelec2_local, worst_aspect_ratio,
+};
+#[deprecated(note = "use geode_core::analytic::fiber instead")]
+pub use analytic::fiber::{
+    bessel_j, bessel_j0, bessel_j1, bessel_k, bessel_k0, bessel_k1, fiber_lp_neff, normalized_b,
+    v_number,
+};
+#[deprecated(note = "use geode_core::analytic::mie instead")]
+pub use analytic::mie::{
+    MieCoefficients, MieEfficiencies, MiePolarisation, MieRoot, MieRootComplex, OPEN_SPACE_WGM_N,
+    OPEN_SPACE_WGM_R_S, OPEN_SPACE_WGM_TABLE_N15, characteristic_te, characteristic_te_open,
+    characteristic_tm, characteristic_tm_open, chi, chi_prime, merged_roots, mie_a_b,
+    mie_coefficients, mie_efficiencies, mie_roots_catalog, mie_series_order,
+    open_space_wgm_roots_n15, psi, psi_prime, resonance_roots, spherical_h1_c, spherical_j,
+    spherical_j_c, spherical_j_pair, spherical_j_prime, spherical_y, spherical_y_c,
+    spherical_y_prime,
+};
+#[deprecated(note = "use geode_core::analytic::patch instead")]
+pub use analytic::patch::PatchCavity;
+#[deprecated(note = "use geode_core::analytic::spiral instead")]
+pub use analytic::spiral::{
+    SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
+};
 #[deprecated(note = "use geode_core::assembly::fe instead")]
 pub use assembly::fe::{DirichletBc, ElementType, FeAssembleResult, fe_assemble};
 #[deprecated(note = "use geode_core::assembly::nedelec instead")]
@@ -113,10 +148,6 @@ pub use elements::nedelec::{
 };
 #[deprecated(note = "use geode_core::elements::p1 instead")]
 pub use elements::p1::{P1LocalMatrices, batched_p1_local_matrices};
-pub use fiber_lp::{
-    bessel_j, bessel_j0, bessel_j1, bessel_k, bessel_k0, bessel_k1, fiber_lp_neff, normalized_b,
-    v_number,
-};
 #[allow(deprecated)]
 pub use mesh::PHYS_VACUUM_BUFFER;
 pub use mesh::{
@@ -130,25 +161,10 @@ pub use mesh::{
     read_spiral_fixture_from_bytes, read_spiral_slcfet_3hp_fixture,
     read_spiral_slcfet_3hp_smoke_fixture, read_spiral_smoke_fixture,
 };
-pub use mie::{
-    MiePolarisation, MieRoot, characteristic_te, characteristic_tm, chi, chi_prime, merged_roots,
-    mie_roots_catalog, psi, psi_prime, resonance_roots, spherical_j, spherical_j_pair,
-    spherical_j_prime, spherical_y, spherical_y_prime,
-};
-pub use mie_open::{
-    MieRootComplex, OPEN_SPACE_WGM_N, OPEN_SPACE_WGM_R_S, OPEN_SPACE_WGM_TABLE_N15,
-    characteristic_te_open, characteristic_tm_open, open_space_wgm_roots_n15, spherical_h1_c,
-    spherical_j_c, spherical_y_c,
-};
-pub use mie_scattering::{
-    MieCoefficients, MieEfficiencies, mie_a_b, mie_coefficients, mie_efficiencies, mie_series_order,
-};
-pub use mohan::{SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l};
 pub use ntff::{
     FarField, PatternCut, broadside_directivity, directivity, gain, ntff_far_field,
     principal_plane_cuts, to_db,
 };
-pub use patch_cavity::PatchCavity;
 pub use silvermuller_self_consistent::{
     SelfConsistentResult, self_consistent_k, self_consistent_k_vector_tracked,
 };
@@ -159,7 +175,6 @@ pub use solver::ksp::{
     ChebyshevConfig, ChebyshevKind, ChebyshevPreconditioner, Cocg, IdentityPreconditioner,
     IluPreconditioner, JacobiPreconditioner, KspError, KspReport, KspSolve, Preconditioner,
 };
-pub use waveguide_modes::*;
 
 #[cfg(feature = "arpack")]
 #[deprecated(note = "use geode_core::eigen::arpack instead")]

@@ -3,8 +3,8 @@
 //!
 //! The in-repo **analytic ground truth** for the circular step-index
 //! fiber FEM benchmark (Epic #303 Phase 2C), playing the role
-//! [`crate::mie`] plays for the dielectric sphere and
-//! [`crate::patch_cavity`] plays for the patch antenna: a closed-form
+//! [`crate::analytic::mie`] plays for the dielectric sphere and
+//! [`crate::analytic::patch`] plays for the patch antenna: a closed-form
 //! eigenvalue equation the field solver's effective index `n_eff` is
 //! cross-checked against. Unlike the Phase-1C effective-index
 //! approximation for the rectangular strip, this is the *exact*
@@ -64,8 +64,8 @@
 //! # Method
 //!
 //! The cylindrical Bessel `J_l` and modified Bessel `K_l` are
-//! hand-rolled (no new crate deps), mirroring [`crate::patch_cavity`]'s
-//! `J₀` polynomial fit and [`crate::mie`]'s spherical-Bessel recurrence:
+//! hand-rolled (no new crate deps), mirroring [`crate::analytic::patch`]'s
+//! `J₀` polynomial fit and [`crate::analytic::mie`]'s spherical-Bessel recurrence:
 //!
 //! - `J₀`, `J₁` from Abramowitz & Stegun 9.4 rational/asymptotic fits,
 //!   then `J_{l+1} = (2l/x)·J_l − J_{l-1}` upward when stable, Miller
@@ -76,7 +76,7 @@
 //!
 //! [`fiber_lp_neff`] root-finds the characteristic residual on the
 //! `b ∈ (0, 1)` interval by sign-change bracketing + bisection, the same
-//! spirit as [`crate::waveguide_modes::slab_te0_neff`] and the Mie root
+//! spirit as [`crate::analytic::waveguide::slab_te0_neff`] and the Mie root
 //! scan.
 //!
 //! # References

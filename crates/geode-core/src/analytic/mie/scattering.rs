@@ -1,8 +1,8 @@
 //! Analytic Mie scattering efficiencies `Q_ext` / `Q_sca` for a
 //! homogeneous dielectric sphere in vacuum (issue #195, Epic #193).
 //!
-//! Where [`crate::mie`] tabulates PEC-cavity resonance *positions* and
-//! [`crate::mie_open`] the open-space resonance *poles*, this module
+//! Where [`super::closed`] tabulates PEC-cavity resonance *positions* and
+//! [`super::open`] the open-space resonance *poles*, this module
 //! evaluates the full Mie scattering **series** for a plane wave
 //! incident on a sphere of (real) refractive index `m` and size
 //! parameter `x = k·a`:
@@ -29,7 +29,7 @@
 //! # Relation to the open-space WGM catalogue
 //!
 //! The denominators above are exactly the open-space TE/TM
-//! characteristic functions of [`crate::mie_open`] (up to the constant
+//! characteristic functions of [`super::open`] (up to the constant
 //! factor `m` on the `a_l` denominator): the scattering coefficients'
 //! complex poles **are** the open-space Mie resonances. A unit test
 //! below pins this identity on a real-axis grid so the scattering
@@ -37,8 +37,8 @@
 //!
 //! # Numerical notes
 //!
-//! All special functions come from [`crate::mie`]'s real-argument
-//! ladders ([`crate::mie::spherical_j`] is Miller-stabilized for
+//! All special functions come from [`super::closed`]'s real-argument
+//! ladders ([`super::closed::spherical_j`] is Miller-stabilized for
 //! `l > x + 1`, `y_l` is upward-stable), so the series is accurate to
 //! ~1e-12 relative over the benchmark range `x ∈ (0, 10]`. The series
 //! is truncated at the Wiscombe criterion
@@ -55,7 +55,7 @@
 
 use faer::c64;
 
-use crate::mie::{chi, chi_prime, psi, psi_prime};
+use super::closed::{chi, chi_prime, psi, psi_prime};
 
 /// A single pair of Mie scattering coefficients `(a_l, b_l)`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -168,8 +168,8 @@ pub fn mie_efficiencies(m: f64, x: f64) -> MieEfficiencies {
 
 #[cfg(test)]
 mod tests {
+    use super::super::open::{characteristic_te_open, characteristic_tm_open};
     use super::*;
-    use crate::mie_open::{characteristic_te_open, characteristic_tm_open};
 
     /// Rayleigh limit: `Q_sca → (8/3) x⁴ |(m²−1)/(m²+2)|²` as `x → 0`.
     #[test]

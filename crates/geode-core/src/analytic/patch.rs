@@ -3,7 +3,7 @@
 //!
 //! The in-repo analytic oracle for the patch-antenna FEM benchmark
 //! (`benchmarks/patch_antenna/`), playing the role
-//! [`crate::mohan`] plays for the spiral inductor: closed-form
+//! [`crate::analytic::spiral`] plays for the spiral inductor: closed-form
 //! transmission-line / cavity-model expressions to sanity-check the
 //! field-solver resonance, bandwidth, and input resistance.
 //!

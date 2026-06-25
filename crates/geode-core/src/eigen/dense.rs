@@ -31,7 +31,7 @@ pub enum EigenError {
     /// The reference-integral eigenvector gauge could not pin a mode's
     /// sign/phase: *every* reference field in the fixed basis projected to
     /// below the relative floor, so no mesh-stable reference overlaps the
-    /// mode. Raised by `crate::waveguide_modes::gauge_fix_eigenvector`
+    /// mode. Raised by `crate::analytic::waveguide::gauge_fix_eigenvector`
     /// instead of silently falling through to the cross-mesh-unstable
     /// largest-magnitude argmax pin (issue #349, #300 follow-up). The
     /// payload is the mode index and the largest relative projection
@@ -95,7 +95,7 @@ impl FaerDenseEigensolver {
     /// `vᵀ M v = 1`.
     ///
     /// Used by the wave-port modal solver
-    /// ([`crate::waveguide_modes::solve_rect_waveguide_modes`]) so the
+    /// ([`crate::analytic::waveguide::solve_rect_waveguide_modes`]) so the
     /// wave-port BC (Epic #234, Phase 2) can project the 3D field onto
     /// each port mode.
     pub fn smallest_eigenpairs(

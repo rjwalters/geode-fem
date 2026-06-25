@@ -12,7 +12,7 @@
 
 use std::time::Instant;
 
-use geode_core::waveguide_modes::{
+use geode_core::analytic::waveguide::{
     disk_pec_interior_dofs2, disk_tri_mesh, epsilon_r_from_region_tags, n_dof_2d_nedelec2,
     solve_dielectric_modes2,
 };

@@ -1477,7 +1477,7 @@ pub fn tri_nedelec2_local(coords: &[[f64; 2]; 3]) -> ([[f64; 8]; 8], [[f64; 8]; 
 ///
 /// Returns `(K, M)` of size `[n_edges, n_edges]`. Triangle-local 3×3
 /// blocks are scattered with the per-DOF sign that records the local-vs-
-/// global edge orientation (`crate::waveguide_modes::TriMesh::tri_edges`).
+/// global edge orientation (`crate::analytic::waveguide::TriMesh::tri_edges`).
 pub fn assemble_2d_nedelec(mesh: &TriMesh) -> (Mat<f64>, Mat<f64>) {
     let edges = mesh.edges();
     let n_edges = edges.len();
@@ -4986,9 +4986,9 @@ impl Lp01RadialTemplate {
         assert!(b > 0.0 && b < 1.0, "oracle b must be in (0, 1); got {b}");
         let u = v * (1.0 - b).sqrt();
         let w = v * b.sqrt();
-        let k0w = crate::fiber_lp::bessel_k0(w);
+        let k0w = crate::analytic::fiber::bessel_k0(w);
         // J₀(u)/K₀(w): continuity of the envelope at r = a. K₀ > 0 for w > 0.
-        let clad_coeff = crate::fiber_lp::bessel_j0(u) / k0w;
+        let clad_coeff = crate::analytic::fiber::bessel_j0(u) / k0w;
         Self {
             core_radius,
             v,
@@ -5003,9 +5003,9 @@ impl Lp01RadialTemplate {
     pub fn eval(&self, r: f64) -> f64 {
         let a = self.core_radius;
         if r < a {
-            crate::fiber_lp::bessel_j0(self.u * r / a)
+            crate::analytic::fiber::bessel_j0(self.u * r / a)
         } else {
-            self.clad_coeff * crate::fiber_lp::bessel_k0(self.w * r / a)
+            self.clad_coeff * crate::analytic::fiber::bessel_k0(self.w * r / a)
         }
     }
 }

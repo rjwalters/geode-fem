@@ -4,7 +4,7 @@
 //! self-consistent `k₀` Newton iteration
 //! ([`crate::silvermuller_self_consistent`]), the Lanczos restart loops
 //! ([`crate::eigen::lanczos`] / [`crate::eigen::complex`]), and the
-//! bracketing/bisection root finder ([`crate::mie`]). This module
+//! bracketing/bisection root finder ([`crate::analytic::mie`]). This module
 //! provides two small combinators that capture the *shape* shared by the
 //! state-carry loops so the duplication collapses onto one tested
 //! primitive:

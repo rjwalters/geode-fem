@@ -9,7 +9,7 @@
 //! modes:
 //!
 //! 1. The 2-D transverse modal eigensolver
-//!    ([`crate::waveguide_modes::solve_rect_waveguide_modes`]) on the
+//!    ([`crate::analytic::waveguide::solve_rect_waveguide_modes`]) on the
 //!    port cross-section produces a set of K modal field profiles
 //!    `e_t^{(m)}(x,y)` with their cutoffs `k_c^{(m)}`. The propagation
 //!    constant at angular frequency `ω` is `β^{(m)}(ω) =
@@ -17,7 +17,7 @@
 //!    `β^{(m)}(ω) = −j·√((k_c^{(m)})² − ω²/c²)` (negative imaginary,
 //!    evanescent — the outgoing-wave branch under the `+jωt` time
 //!    convention, issue #254). See [`PortMode::beta`] and
-//!    [`crate::waveguide_modes::beta_outgoing`].
+//!    [`crate::analytic::waveguide::beta_outgoing`].
 //! 2. On the 3-D port face Γ_p the modal Robin / radiation BC adds a
 //!    rank-K modal contribution to the curl-curl system. Summed across
 //!    all (port, mode) pairs the total system update is rank
@@ -132,7 +132,7 @@ use crate::driven::solve::{
 /// The per-port mode set must be **set-wise `S_p`-orthonormalized** in
 /// the port-face tangential mass: `e_iᵀ S_p e_j = δ_ij` for `i, j ∈ [0,
 /// K_p)`. The 2-D modal eigensolver
-/// ([`crate::waveguide_modes::solve_rect_waveguide_modes`]) produces
+/// ([`crate::analytic::waveguide::solve_rect_waveguide_modes`]) produces
 /// such a set for free (Lanczos in the M-inner product enforces both
 /// individual normalization and pairwise orthogonality; see issue #254).
 #[derive(Debug, Clone)]
@@ -158,12 +158,12 @@ impl PortMode {
     /// - Evanescent (`ω < k_c`): `β = −j·√(k_c² − ω²)`,
     ///   `Im(β) < 0` so that `exp(−jβz)` decays for `z > 0`.
     ///
-    /// Implemented via [`crate::waveguide_modes::beta_outgoing`] so the
+    /// Implemented via [`crate::analytic::waveguide::beta_outgoing`] so the
     /// rank-N machinery, the 2-D modal solver, and the
     /// per-`WaveguideModeProfile::beta_complex` path all share one
     /// canonical sign-convention helper.
     pub fn beta(&self, omega: f64) -> c64 {
-        crate::waveguide_modes::beta_outgoing(omega, 1.0, self.k_c)
+        crate::analytic::waveguide::beta_outgoing(omega, 1.0, self.k_c)
     }
 }
 
@@ -872,7 +872,7 @@ fn invert_complex_dense(m: &[c64], n: usize) -> Option<Vec<c64>> {
 /// hex split into 6 tets sharing the long body diagonal — the 3-D
 /// extension of [`crate::cube_tet_mesh`]. The cross-section at any
 /// `z = const` plane is exactly the 2-D mesh produced by
-/// [`crate::rect_tri_mesh`] with the same `(nx, ny)`.
+/// [`crate::analytic::waveguide::rect_tri_mesh`] with the same `(nx, ny)`.
 ///
 /// Returns the mesh plus three helper outputs:
 /// - the port-1 face triangle list (`z = 0` plane),
@@ -1335,7 +1335,7 @@ impl ExtrudedHeightStepMesh {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::waveguide_modes::{TriMesh, rect_tri_mesh, solve_rect_waveguide_modes};
+    use crate::analytic::waveguide::{TriMesh, rect_tri_mesh, solve_rect_waveguide_modes};
 
     #[test]
     fn extruded_waveguide_mesh_shapes_are_consistent() {
