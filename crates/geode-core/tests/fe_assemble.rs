@@ -6,7 +6,7 @@
 
 use burn::tensor::backend::BackendTypes;
 
-use geode_core::fe_assemble::fe_assemble;
+use geode_core::assembly::fe::fe_assemble;
 use geode_core::{
     DefaultBackend, DirichletBc, ElementType, R_BUFFER, apply_dirichlet_bc,
     assemble_global_nedelec_with_epsilon, assemble_global_p1, build_epsilon_r, burn_matrix_to_faer,
