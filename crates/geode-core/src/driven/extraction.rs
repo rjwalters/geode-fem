@@ -61,12 +61,12 @@
 use burn::tensor::backend::Backend;
 use faer::c64;
 
-use crate::TetMesh;
 use crate::driven::ports::{LumpedPort, port_current, port_voltage};
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
     SurfaceImpedanceBc,
 };
+use crate::mesh::TetMesh;
 
 /// Circuit quantities of one port at one frequency, read off a driven
 /// solution.

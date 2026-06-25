@@ -54,8 +54,8 @@ use std::f64::consts::PI;
 
 use faer::c64;
 
-use crate::TetMesh;
 use crate::driven::scattering::{BoxFaceSample, box_surface_samples};
+use crate::mesh::TetMesh;
 
 /// Free-space impedance in the codebase's natural units (`η₀ = 1`).
 const ETA_0_NATURAL: f64 = 1.0;

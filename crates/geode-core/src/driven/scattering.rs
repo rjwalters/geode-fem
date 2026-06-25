@@ -115,8 +115,8 @@
 use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
 
-use crate::TetMesh;
 use crate::driven::solve::{CurrentSource, DrivenError, DrivenSolution};
+use crate::mesh::TetMesh;
 use crate::mesh::{TET_LOCAL_EDGES, TET_LOCAL_FACES};
 
 /// Incident plane wave `E_inc(x) = x̂ · exp(−i ω z)` (unit amplitude,
@@ -1060,7 +1060,7 @@ pub fn plane_wave_polarization_current<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cube_tet_mesh;
+    use crate::mesh::cube_tet_mesh;
 
     /// A constant vector field is exactly representable in the Whitney
     /// space: `d_e = E₀ · (p_b − p_a)` along the canonical (global)

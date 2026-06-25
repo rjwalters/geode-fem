@@ -147,8 +147,10 @@ pub use elements::nedelec::{
 };
 #[deprecated(note = "use geode_core::elements::p1 instead")]
 pub use elements::p1::{P1LocalMatrices, batched_p1_local_matrices};
+#[deprecated(note = "use geode_core::mesh::PHYS_VACUUM_BUFFER instead")]
 #[allow(deprecated)]
 pub use mesh::PHYS_VACUUM_BUFFER;
+#[deprecated(note = "use geode_core::mesh::<item> instead")]
 pub use mesh::{
     FR4_MATERIALS, GENERIC_MATERIALS, GmshReader, MeshError, MeshReader, PHYS_OUTER_BOUNDARY,
     PHYS_PML_INTERFACE, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR, PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP,

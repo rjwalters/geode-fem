@@ -38,10 +38,10 @@
 use burn::tensor::backend::Backend;
 use faer::Mat;
 
-use crate::TetMesh;
 use crate::assembly::nedelec::assemble_global_nedelec_with_epsilon;
 use crate::assembly::p1::{assemble_global_p1, upload_mesh};
 use crate::eigen::dense::{EigenError, apply_dirichlet_bc, burn_matrix_to_faer};
+use crate::mesh::TetMesh;
 
 /// Selector for the finite element type passed to [`fe_assemble`].
 ///

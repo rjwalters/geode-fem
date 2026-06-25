@@ -25,12 +25,12 @@ use burn::tensor::backend::Backend;
 use burn::tensor::{IndexingUpdateOp, Int, TensorData};
 use faer::Mat;
 
-use crate::TetMesh;
 use crate::assembly::p1::{SparsityPattern, gather_tet_coords};
 use crate::elements::nedelec::{
     batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_mass_anisotropic_full,
     batched_nedelec_local_matrices, batched_nedelec_local_stiffness_weighted,
 };
+use crate::mesh::TetMesh;
 
 /// Assembled global Nédélec linear system in dense Burn-tensor form.
 #[derive(Debug, Clone)]

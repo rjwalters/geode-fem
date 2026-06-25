@@ -57,7 +57,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::TetMesh;
+use crate::mesh::TetMesh;
 
 /// Serialise `mesh` plus the node-sampled field data to an ASCII XML
 /// `UnstructuredGrid` (`.vtu`) file at `path`.

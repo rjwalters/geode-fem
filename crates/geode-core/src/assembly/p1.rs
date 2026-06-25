@@ -33,8 +33,8 @@ use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
 use burn::tensor::{IndexingUpdateOp, Int, TensorData};
 
-use crate::TetMesh;
 use crate::elements::p1::batched_p1_local_matrices;
+use crate::mesh::TetMesh;
 
 /// Assembled global linear system in dense Burn-tensor form.
 #[derive(Debug, Clone)]

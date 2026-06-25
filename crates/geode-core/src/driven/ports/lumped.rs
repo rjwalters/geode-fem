@@ -77,10 +77,10 @@
 
 use faer::c64;
 
-use crate::TetMesh;
 use crate::elements::whitney::{
     self, TRI_LOCAL_EDGES, dot3, edge_lookup, face_geometry, scale3, sub3,
 };
+use crate::mesh::TetMesh;
 
 /// Palace-style uniform lumped port specification.
 ///

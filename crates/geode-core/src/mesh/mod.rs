@@ -1,4 +1,10 @@
-//! Mesh I/O — Gmsh MSH 4.1 ASCII reader.
+//! Canonical home for mesh I/O, fixtures, materials, and `PHYS_*` tags.
+//!
+//! `geode_core::mesh` is the entry point for everything mesh-related:
+//! the [`TetMesh`] CPU representation, the [`MeshReader`] trait and its
+//! concrete [`GmshReader`] (Gmsh MSH 4.1 ASCII), the per-geometry test
+//! fixtures and material tables ([`sphere`], [`spiral`], [`patch`]), and
+//! the physical-group tag constants (`PHYS_*`, `R_*`).
 //!
 //! Provides a `MeshReader` trait so the parser is swappable, and a
 //! concrete `GmshReader` backed by the `mshio` crate.

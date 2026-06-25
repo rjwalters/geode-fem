@@ -107,7 +107,6 @@ use faer::c64;
 use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, Triplet};
 
-use crate::TetMesh;
 use crate::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_anisotropic_epsilon_sparse,
     assemble_global_nedelec_with_complex_epsilon_sparse,
@@ -116,6 +115,7 @@ use crate::assembly::nedelec::{
 };
 use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
 use crate::eigen::complex::{solve_with_lu, spmv};
+use crate::mesh::TetMesh;
 
 /// Errors produced by the driven-solve layer.
 #[derive(Debug, thiserror::Error)]
@@ -2053,7 +2053,7 @@ mod tests {
     use super::*;
     use crate::assembly::nedelec::cube_pec_interior_edges;
     use crate::backend::DefaultBackend;
-    use crate::cube_tet_mesh;
+    use crate::mesh::cube_tet_mesh;
     use burn::tensor::backend::BackendTypes;
 
     type B = DefaultBackend;

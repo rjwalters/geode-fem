@@ -246,7 +246,7 @@ impl TriMesh {
 /// Produces `(nx+1)(ny+1)` nodes and `2 * nx * ny` triangles. All
 /// triangles are listed counter-clockwise (positive signed area).
 ///
-/// This is the 2-D analogue of [`crate::cube_tet_mesh`] — a programmatic
+/// This is the 2-D analogue of [`crate::mesh::cube_tet_mesh`] — a programmatic
 /// rectangular waveguide cross-section that doubles as our fixture for
 /// the Phase-1 modal eigensolver acceptance test (analytic TE/TM oracle).
 pub fn rect_tri_mesh(nx: usize, ny: usize, width: f64, height: f64) -> TriMesh {

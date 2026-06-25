@@ -112,12 +112,12 @@
 use faer::c64;
 
 use super::lumped::LumpedPort;
-use crate::TetMesh;
 use crate::assembly::surface::assemble_surface_mass_triplets;
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
     SurfaceImpedanceBc,
 };
+use crate::mesh::TetMesh;
 
 /// One mode of a [`WavePort`]: the modal eigenvector over the 3-D mesh
 /// edge table, the cutoff wavenumber `k_c`, and the incident modal
@@ -870,7 +870,7 @@ fn invert_complex_dense(m: &[c64], n: usize) -> Option<Vec<c64>> {
 /// Generate a tetrahedralized rectangular waveguide section
 /// `[0,a] × [0,b] × [0,L]` with `(nx, ny, nz)` hex cells per side, each
 /// hex split into 6 tets sharing the long body diagonal — the 3-D
-/// extension of [`crate::cube_tet_mesh`]. The cross-section at any
+/// extension of [`crate::mesh::cube_tet_mesh`]. The cross-section at any
 /// `z = const` plane is exactly the 2-D mesh produced by
 /// [`crate::analytic::waveguide::rect_tri_mesh`] with the same `(nx, ny)`.
 ///
