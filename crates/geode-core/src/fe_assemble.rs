@@ -120,7 +120,8 @@ pub struct FeAssembleResult {
 /// # Example (P1 on a 3×3×3 cube)
 ///
 /// ```rust,no_run
-/// use geode_core::{cube_tet_mesh, cube_interior_mask, DefaultBackend};
+/// use geode_core::{cube_tet_mesh, cube_interior_mask};
+/// use geode_core::backend::DefaultBackend;
 /// use geode_core::fe_assemble::{fe_assemble, DirichletBc, ElementType};
 /// use burn::tensor::backend::BackendTypes;
 ///
