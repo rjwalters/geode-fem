@@ -78,7 +78,7 @@
 //! # Sign convention
 //!
 //! Edge DOFs use the same lower-tag-first global orientation as
-//! [`crate::nedelec_assembly`]: for a global edge `(va, vb)` with
+//! [`crate::assembly::nedelec`]: for a global edge `(va, vb)` with
 //! `va < vb` the basis direction is `va → vb` (sign +1); the
 //! triangle's local edge contributes with sign `+1` if its local
 //! direction `(la, lb)` produces global tags in ascending order and

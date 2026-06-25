@@ -41,7 +41,7 @@ pub trait ComplexEigenSolver {
     ///
     /// * `k` — real curl-curl stiffness `[n_dofs, n_dofs]`.
     /// * `s` — real Silver-Müller surface matrix `[n_dofs, n_dofs]`,
-    ///   typically from [`crate::assemble_silver_muller_surface`].
+    ///   typically from [`crate::assembly::surface::assemble_silver_muller_surface`].
     /// * `m` — real ε-scaled mass `[n_dofs, n_dofs]`.
     /// * `k0` — real scalar wavenumber prefactor for the surface term.
     /// * `n` — number of lowest-real-part eigenvalues to return.

@@ -1541,7 +1541,7 @@ pub fn assemble_2d_nedelec(mesh: &TriMesh) -> (Mat<f64>, Mat<f64>) {
 /// [`tri_nedelec_local`] is therefore scaled by that triangle's scalar
 /// `ε_r` before the signed scatter — directly mirroring the 3-D
 /// per-tet convention in
-/// [`crate::nedelec_assembly::assemble_global_nedelec_with_epsilon`]
+/// [`crate::assembly::nedelec::assemble_global_nedelec_with_epsilon`]
 /// (`M_e ← ε_r[e] · M_e`).
 ///
 /// ## Non-regression
@@ -2506,7 +2506,7 @@ fn interior_dofs2_from_edge_mask(mesh: &TriMesh, edge_interior: &[bool]) -> Vec<
 /// **region tag** and a `region_tag → ε_r` lookup.
 ///
 /// This is the 2-D cross-section analogue of
-/// [`crate::nedelec_assembly::build_epsilon_r`]: a fixture labels each
+/// [`crate::assembly::nedelec::build_epsilon_r`]: a fixture labels each
 /// triangle with a region id (e.g. `0 = cladding`, `1 = core`,
 /// `2 = substrate`) and supplies the scalar `ε_r` for each region; this
 /// expands the labels into the per-triangle `Vec<f64>` consumed by

@@ -13,7 +13,6 @@ pub mod driven;
 pub mod eigen;
 pub mod elements;
 pub mod extraction;
-pub mod fe_assemble;
 pub mod fiber_lp;
 pub mod iterate;
 pub mod ksp_solve;
@@ -24,14 +23,11 @@ pub mod mie;
 pub mod mie_open;
 pub mod mie_scattering;
 pub mod mohan;
-pub mod nedelec_assembly;
 pub mod ntff;
 pub mod palace;
 pub mod patch_cavity;
 pub mod scattering;
-pub mod silvermuller;
 pub mod silvermuller_self_consistent;
-pub mod sparse;
 pub mod viz_vtu;
 pub mod wave_port;
 pub mod waveguide_modes;
@@ -39,8 +35,35 @@ pub mod waveguide_modes;
 #[cfg(feature = "arpack")]
 pub mod arpack;
 
-pub use assembly::{
+#[deprecated(note = "use geode_core::assembly::fe instead")]
+pub use assembly::fe::{DirichletBc, ElementType, FeAssembleResult, fe_assemble};
+#[deprecated(note = "use geode_core::assembly::nedelec instead")]
+pub use assembly::nedelec::{
+    DERHAM_RANK_THRESHOLD_REL, NedelecComplexGlobalSystem, NedelecFullTensorGlobalSystem,
+    NedelecGlobalSystem, NedelecScatterMap, NedelecSparseComplexSystem,
+    NedelecSparseFullTensorSystem, assemble_global_nedelec,
+    assemble_global_nedelec_with_anisotropic_epsilon,
+    assemble_global_nedelec_with_anisotropic_epsilon_sparse,
+    assemble_global_nedelec_with_complex_epsilon,
+    assemble_global_nedelec_with_complex_epsilon_sparse, assemble_global_nedelec_with_epsilon,
+    assemble_global_nedelec_with_full_tensors, assemble_global_nedelec_with_full_tensors_sparse,
+    assemble_nedelec_current_rhs, assemble_nedelec_current_rhs_quad4,
+    assemble_nedelec_sigma_damping, assemble_nedelec_sigma_damping_sparse,
+    build_anisotropic_pml_tensor_diag, build_complex_epsilon_eff, build_complex_epsilon_r_pml,
+    build_epsilon_r, burn_complex_mass_to_faer, cube_pec_interior_edges, pec_interior_edge_mask,
+    rank_via_svd, restrict_gradient_dense, sparsity_pattern_from_tet_edges,
+    sphere_n_interior_nodes, sphere_pec_interior_edges, sphere_pec_node_interior_mask,
+    spurious_dim_from_derham, tet_centroid_radii, tet_centroids,
+};
+#[deprecated(note = "use geode_core::assembly::p1 instead")]
+pub use assembly::p1::{
     GlobalSystem, SparsityPattern, assemble_global_p1, gather_tet_coords, upload_mesh,
+};
+#[deprecated(note = "use geode_core::assembly::sparse instead")]
+pub use assembly::sparse::{SparseError, SparseSystem, global_system_to_sparse};
+#[deprecated(note = "use geode_core::assembly::surface instead")]
+pub use assembly::surface::{
+    assemble_silver_muller_surface, assemble_surface_mass, assemble_surface_mass_triplets,
 };
 pub use complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
 pub use complex_lanczos::{
@@ -77,7 +100,6 @@ pub use extraction::{
     driven_frequency_sweep_with_mode, extract_port_circuit, im_z_zero_crossings, inductance,
     quality_factor, s_parameter_frequency_sweep, s_parameter_frequency_sweep_with_mode, s11,
 };
-pub use fe_assemble::{DirichletBc, ElementType, FeAssembleResult, fe_assemble};
 pub use fiber_lp::{
     bessel_j, bessel_j0, bessel_j1, bessel_k, bessel_k0, bessel_k1, fiber_lp_neff, normalized_b,
     v_number,
@@ -119,23 +141,6 @@ pub use mie_scattering::{
     MieCoefficients, MieEfficiencies, mie_a_b, mie_coefficients, mie_efficiencies, mie_series_order,
 };
 pub use mohan::{SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l};
-pub use nedelec_assembly::{
-    DERHAM_RANK_THRESHOLD_REL, NedelecComplexGlobalSystem, NedelecFullTensorGlobalSystem,
-    NedelecGlobalSystem, NedelecScatterMap, NedelecSparseComplexSystem,
-    NedelecSparseFullTensorSystem, assemble_global_nedelec,
-    assemble_global_nedelec_with_anisotropic_epsilon,
-    assemble_global_nedelec_with_anisotropic_epsilon_sparse,
-    assemble_global_nedelec_with_complex_epsilon,
-    assemble_global_nedelec_with_complex_epsilon_sparse, assemble_global_nedelec_with_epsilon,
-    assemble_global_nedelec_with_full_tensors, assemble_global_nedelec_with_full_tensors_sparse,
-    assemble_nedelec_current_rhs, assemble_nedelec_current_rhs_quad4,
-    assemble_nedelec_sigma_damping, assemble_nedelec_sigma_damping_sparse,
-    build_anisotropic_pml_tensor_diag, build_complex_epsilon_eff, build_complex_epsilon_r_pml,
-    build_epsilon_r, burn_complex_mass_to_faer, cube_pec_interior_edges, pec_interior_edge_mask,
-    rank_via_svd, restrict_gradient_dense, sparsity_pattern_from_tet_edges,
-    sphere_n_interior_nodes, sphere_pec_interior_edges, sphere_pec_node_interior_mask,
-    spurious_dim_from_derham, tet_centroid_radii, tet_centroids,
-};
 pub use ntff::{
     FarField, PatternCut, broadside_directivity, directivity, gain, ntff_far_field,
     principal_plane_cuts, to_db,
@@ -146,13 +151,9 @@ pub use scattering::{
     plane_wave_e_inc, plane_wave_polarization_current, q_from_power, scattered_flux_power,
     solve_scattered_field_matched_upml, upml_matched_tensors,
 };
-pub use silvermuller::{
-    assemble_silver_muller_surface, assemble_surface_mass, assemble_surface_mass_triplets,
-};
 pub use silvermuller_self_consistent::{
     SelfConsistentResult, self_consistent_k, self_consistent_k_vector_tracked,
 };
-pub use sparse::{SparseError, SparseSystem, global_system_to_sparse};
 pub use wave_port::{
     ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMode, WavePort, WavePortSweepPoint,
     extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,

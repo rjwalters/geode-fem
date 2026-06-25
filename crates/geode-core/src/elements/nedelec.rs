@@ -84,7 +84,7 @@
 //! # Status (issue #7)
 //!
 //! This module provides the per-element kernel (`batched_nedelec_local_matrices`)
-//! and `crate::nedelec_assembly` handles global assembly with sign
+//! and `crate::assembly::nedelec` handles global assembly with sign
 //! flips. The PEC rectangular-cavity eigenvalue acceptance test is
 //! deferred until the dense generalized eigensolver (`crate::eigen`,
 //! issue #12 / PR #19) lands on `main` — that test is the natural

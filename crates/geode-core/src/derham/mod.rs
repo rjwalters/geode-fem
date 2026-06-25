@@ -151,7 +151,7 @@
 //! directly; for the small integers involved the products stay exact
 //! in `f64` (bit-exact integer sums hold below `2^{53}`). It also
 //! matches the value type of the rest of the sparse pipeline
-//! ([`crate::sparse::SparseSystem`]).
+//! ([`crate::assembly::sparse::SparseSystem`]).
 
 use faer::sparse::{SparseColMat, Triplet};
 

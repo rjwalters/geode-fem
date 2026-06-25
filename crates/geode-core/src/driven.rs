@@ -13,7 +13,7 @@
 //! eigenvalues of the pencil are `k²`). `K` is the Nédélec curl-curl
 //! stiffness, `M(ε)` the (possibly complex / anisotropic-diagonal) mass,
 //! `C(σ)` the σ-weighted conductivity damping matrix (issue #196 — see
-//! [`crate::nedelec_assembly::assemble_nedelec_sigma_damping`] for the
+//! [`crate::assembly::nedelec::assemble_nedelec_sigma_damping`] for the
 //! form choice: `K`, `M`, `C` are all ω-independent so frequency sweeps
 //! re-form `A(ω)` by linear combination; equivalently
 //! `A(ω) = K − ω² M(ε − iσ/ω)`), and `J` a per-tet piecewise-constant
@@ -27,14 +27,14 @@
 //!
 //! - **PEC** — row/column elimination via a per-edge interior mask
 //!   (same mask helpers as the eigen path:
-//!   [`crate::nedelec_assembly::pec_interior_edge_mask`],
-//!   [`crate::nedelec_assembly::cube_pec_interior_edges`],
-//!   [`crate::nedelec_assembly::sphere_pec_interior_edges`]). Eliminated
+//!   [`crate::assembly::nedelec::pec_interior_edge_mask`],
+//!   [`crate::assembly::nedelec::cube_pec_interior_edges`],
+//!   [`crate::assembly::nedelec::sphere_pec_interior_edges`]). Eliminated
 //!   edge DOFs are returned as exact zeros in the full-length solution.
 //! - **UPML / scalar PML** — enters through the *material*: a complex
-//!   scalar ε ([`crate::nedelec_assembly::build_complex_epsilon_r_pml`])
+//!   scalar ε ([`crate::assembly::nedelec::build_complex_epsilon_r_pml`])
 //!   or a diagonal anisotropic tensor ε
-//!   ([`crate::nedelec_assembly::build_anisotropic_pml_tensor_diag`])
+//!   ([`crate::assembly::nedelec::build_anisotropic_pml_tensor_diag`])
 //!   makes `M` complex, which makes `A(ω)` invertible for real ω and
 //!   absorbs outgoing radiation.
 //! - **Matched (full Sacks) UPML** — also a material
@@ -74,7 +74,7 @@
 //! Reuses the existing sparse complex factorization machinery from the
 //! shift-and-invert Lanczos path ([`crate::complex_lanczos`]): the
 //! interior-reduced `A(ω)` is built as a `faer` sparse CSC matrix from
-//! the assembly [`crate::assembly::SparsityPattern`], factored once with
+//! the assembly [`crate::assembly::p1::SparsityPattern`], factored once with
 //! `sp_lu`, and solved directly. A direct sparse solve is sufficient at
 //! the mesh sizes this crate targets; iterative solvers are out of scope
 //! (issue #194).
@@ -108,14 +108,14 @@ use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, Triplet};
 
 use crate::TetMesh;
-use crate::complex_lanczos::{solve_with_lu, spmv};
-use crate::lumped_port::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
-use crate::nedelec_assembly::{
+use crate::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_anisotropic_epsilon_sparse,
     assemble_global_nedelec_with_complex_epsilon_sparse,
     assemble_global_nedelec_with_full_tensors_sparse, assemble_nedelec_current_rhs,
     assemble_nedelec_current_rhs_quad4, assemble_nedelec_sigma_damping_sparse, tet_centroids,
 };
+use crate::complex_lanczos::{solve_with_lu, spmv};
+use crate::lumped_port::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
 
 /// Errors produced by the driven-solve layer.
 #[derive(Debug, thiserror::Error)]
@@ -243,12 +243,12 @@ impl IterativeSettings {
 pub enum DrivenMaterials<'a> {
     /// Scalar complex relative permittivity per tet (`ε_r ∈ ℂ`). Use
     /// real values for plain dielectrics / PEC cavities and
-    /// [`crate::nedelec_assembly::build_complex_epsilon_r_pml`] for the
+    /// [`crate::assembly::nedelec::build_complex_epsilon_r_pml`] for the
     /// scalar-PML profile.
     Scalar(&'a [c64]),
     /// Diagonal anisotropic complex permittivity per tet in the global
     /// Cartesian basis (`[ε_x, ε_y, ε_z]`), as produced by
-    /// [`crate::nedelec_assembly::build_anisotropic_pml_tensor_diag`]
+    /// [`crate::assembly::nedelec::build_anisotropic_pml_tensor_diag`]
     /// for the UPML shell.
     DiagTensor(&'a [[c64; 3]]),
     /// Matched (full Sacks) UPML materials (issue #199): full 3×3
@@ -509,7 +509,7 @@ pub fn driven_solve<B: Backend>(
 /// When `sigma_tet` is `Some`, the σ-weighted damping matrix
 /// `C_ij = ∫ N_i · N_j σ dV` is assembled through the same autodiff-
 /// preserving Burn scatter path as `M`
-/// ([`crate::nedelec_assembly::assemble_nedelec_sigma_damping`]) and
+/// ([`crate::assembly::nedelec::assemble_nedelec_sigma_damping`]) and
 /// the interior system becomes
 ///
 /// ```text
@@ -608,7 +608,7 @@ pub fn driven_solve_with_ports<B: Backend>(
 /// ```
 ///
 /// with `S_Γ` the real-symmetric tangential surface mass
-/// ([`crate::silvermuller::assemble_surface_mass_triplets`]) over the surface's
+/// ([`crate::assembly::surface::assemble_surface_mass_triplets`]) over the surface's
 /// triangles. The complex weight is a *scalar* per surface, so the
 /// complex-symmetry invariant `A(ω)ᵀ = A(ω)` is preserved.
 ///
@@ -1035,9 +1035,11 @@ impl DrivenOperator {
             .iter()
             .map(|bc| {
                 let mut vals = vec![0.0_f64; nnz];
-                for (r, c, v) in
-                    crate::silvermuller::assemble_surface_mass_triplets(mesh, bc.triangles, &edges)
-                {
+                for (r, c, v) in crate::assembly::surface::assemble_surface_mass_triplets(
+                    mesh,
+                    bc.triangles,
+                    &edges,
+                ) {
                     let slot = scatter
                         .slot_of(r as u32, c as u32)
                         .expect("surface-mass entry must lie within the volume sparsity pattern");
@@ -1052,7 +1054,7 @@ impl DrivenOperator {
         // models (K is real there); the matched UPML stretches μ too, so
         // its `K(Λ⁻¹)` carries an imaginary part. Everything lands in flat
         // [nnz] pattern-aligned value tensors.
-        let (nodes_t, tets_t) = crate::assembly::upload_mesh::<B>(mesh, device);
+        let (nodes_t, tets_t) = crate::assembly::p1::upload_mesh::<B>(mesh, device);
         let (k_re_t, k_im_t, m_re_t, m_im_t) = match materials {
             DrivenMaterials::Scalar(eps) => {
                 let sys = assemble_global_nedelec_with_complex_epsilon_sparse(
@@ -2047,9 +2049,9 @@ impl DrivenOperator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assembly::nedelec::cube_pec_interior_edges;
     use crate::backend::DefaultBackend;
     use crate::cube_tet_mesh;
-    use crate::nedelec_assembly::cube_pec_interior_edges;
     use burn::tensor::backend::BackendTypes;
 
     type B = DefaultBackend;

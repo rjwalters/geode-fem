@@ -27,7 +27,7 @@
 //! # Matched UPML — host oracle vs Burn path
 //!
 //! The eigenmode benchmarks' anisotropic UPML
-//! ([`crate::nedelec_assembly::build_anisotropic_pml_tensor_diag`])
+//! ([`crate::assembly::nedelec::build_anisotropic_pml_tensor_diag`])
 //! transforms **ε only** — the curl-curl stiffness keeps `μ = 1`. An
 //! ε-only absorber is *not* impedance-matched: its interface
 //! reflection is tolerable for locating eigenmode positions (the
@@ -61,7 +61,7 @@
 //! [`crate::driven::DrivenMaterials::MatchedUpml`] feeds it to
 //! [`crate::driven::driven_solve`], which assembles `K(Λ⁻¹)` and
 //! `M(ε_rΛ)` through the autodiff-preserving scatter path
-//! ([`crate::nedelec_assembly::assemble_global_nedelec_with_full_tensors`]).
+//! ([`crate::assembly::nedelec::assemble_global_nedelec_with_full_tensors`]).
 //! The Burn path and this host path agree at assembly precision for
 //! the same `(σ₀, ω)` and the same per-tet-constant source
 //! (`tests/mie_driven_scattering.rs`).
@@ -148,7 +148,7 @@ pub fn mie_polarization_source(
         "one physical tag per tet"
     );
     let contrast = n_inside * n_inside - 1.0;
-    let centroids = crate::nedelec_assembly::tet_centroids(mesh);
+    let centroids = crate::assembly::nedelec::tet_centroids(mesh);
     let j_tet = centroids
         .iter()
         .zip(tet_physical_tags.iter())
@@ -344,7 +344,7 @@ pub fn scattered_flux_power(mesh: &TetMesh, omega: f64, e_edges: &[c64], r_obs: 
     let edges = mesh.edges();
     assert_eq!(e_edges.len(), edges.len(), "one DOF per global edge");
     let tet_edges = mesh.tet_edges();
-    let centroids = crate::nedelec_assembly::tet_centroids(mesh);
+    let centroids = crate::assembly::nedelec::tet_centroids(mesh);
 
     let inside: Vec<bool> = centroids
         .iter()
@@ -479,7 +479,7 @@ pub fn flux_power_box(
     let edges = mesh.edges();
     assert_eq!(e_edges.len(), edges.len(), "one DOF per global edge");
     let tet_edges = mesh.tet_edges();
-    let centroids = crate::nedelec_assembly::tet_centroids(mesh);
+    let centroids = crate::assembly::nedelec::tet_centroids(mesh);
 
     let in_box = |c: &[f64; 3]| (0..3).all(|k| c[k] >= box_lo[k] && c[k] <= box_hi[k]);
     let inside: Vec<bool> = centroids.iter().map(in_box).collect();
@@ -612,7 +612,7 @@ pub(crate) fn box_surface_samples(
     let edges = mesh.edges();
     assert_eq!(e_edges.len(), edges.len(), "one DOF per global edge");
     let tet_edges = mesh.tet_edges();
-    let centroids = crate::nedelec_assembly::tet_centroids(mesh);
+    let centroids = crate::assembly::nedelec::tet_centroids(mesh);
 
     let in_box = |c: &[f64; 3]| (0..3).all(|k| c[k] >= box_lo[k] && c[k] <= box_hi[k]);
     let inside: Vec<bool> = centroids.iter().map(in_box).collect();
@@ -705,7 +705,7 @@ pub fn q_from_power(power: f64, sphere_radius: f64) -> f64 {
 /// Full Sacks UPML constitutive tensors `(Λ, Λ⁻¹)` at a point, for the
 /// bundled fixture's radial shell geometry (`R_PML_INNER` → `R_BUFFER`,
 /// quadratic σ ramp — the same profile family as
-/// [`crate::nedelec_assembly::build_anisotropic_pml_tensor_diag`]).
+/// [`crate::assembly::nedelec::build_anisotropic_pml_tensor_diag`]).
 ///
 /// ```text
 /// Λ   = s·I + (1/s − s)·r̂ r̂ᵀ        (radial eigenvalue 1/s, transverse s)
@@ -779,7 +779,7 @@ pub fn build_matched_upml_materials(
         mesh.n_tets(),
         "one physical tag per tet"
     );
-    let centroids = crate::nedelec_assembly::tet_centroids(mesh);
+    let centroids = crate::assembly::nedelec::tet_centroids(mesh);
     let identity = {
         let mut w = [[c64::new(0.0, 0.0); 3]; 3];
         for (k, row) in w.iter_mut().enumerate() {
@@ -829,7 +829,7 @@ fn sandwich(w: &[[c64; 3]; 3], a: [f64; 3], b: [f64; 3]) -> c64 {
 ///
 /// - `pec_interior_mask` — per-edge keep mask over `mesh.edges()`
 ///   order (e.g. from
-///   [`crate::nedelec_assembly::sphere_pec_interior_edges`]).
+///   [`crate::assembly::nedelec::sphere_pec_interior_edges`]).
 /// - `n_inside` — sphere refractive index; `ε_r = n_inside²` on tets
 ///   tagged `interior_tag`, 1 elsewhere (the PML stretch multiplies
 ///   on top).
@@ -879,7 +879,7 @@ pub fn solve_scattered_field_matched_upml(
         });
     }
     let tet_edges = mesh.tet_edges();
-    let centroids = crate::nedelec_assembly::tet_centroids(mesh);
+    let centroids = crate::assembly::nedelec::tet_centroids(mesh);
 
     // Remap full edge indices → contiguous interior indices.
     let mut remap = vec![-1_i64; n_edges];

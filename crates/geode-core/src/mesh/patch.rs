@@ -290,7 +290,7 @@ impl PatchFixture {
         sigma_0: f64,
         omega: f64,
     ) -> (Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>) {
-        let centroids = crate::nedelec_assembly::tet_centroids(&self.mesh);
+        let centroids = crate::assembly::nedelec::tet_centroids(&self.mesh);
         let eps_scalar = self.epsilon_r_for(materials);
         let identity = diag_tensor([c64::new(1.0, 0.0); 3]);
 

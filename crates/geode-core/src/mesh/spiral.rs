@@ -370,7 +370,7 @@ impl SpiralPort {
 /// given tagged triangle lists.
 ///
 /// Edge-exact (unlike the node-based
-/// [`crate::nedelec_assembly::pec_interior_edge_mask`]): an edge is
+/// [`crate::assembly::nedelec::pec_interior_edge_mask`]): an edge is
 /// eliminated iff it is an edge of one of the listed triangles. The
 /// node-based rule would falsely eliminate gap-spanning edges whose two
 /// endpoints lie on *different* conductors — e.g. across the spiral's
@@ -400,7 +400,7 @@ pub fn pec_interior_mask_from_triangles(
 ///
 /// This is the Phase 3 benchmark mesh (issue #211). Note that the
 /// current dense Burn scatter assembly
-/// ([`crate::nedelec_assembly`], flat `[n_edges²]` tensor with i32
+/// ([`crate::assembly::nedelec`], flat `[n_edges²]` tensor with i32
 /// linear indices) cannot yet assemble a system this large — solves on
 /// it need the sparse assembly follow-up; mesh-level consumers (edge
 /// tables, adapters, surface extraction) work fine.
