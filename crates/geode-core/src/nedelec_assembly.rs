@@ -15,7 +15,7 @@
 //!    entry `(i, j)` into the global system, the value is multiplied
 //!    by `s_i * s_j`.
 //!
-//! See `crate::nedelec` for the math and orientation convention.
+//! See `crate::elements::nedelec` for the math and orientation convention.
 
 use std::collections::BTreeSet;
 
@@ -27,7 +27,7 @@ use faer::Mat;
 
 use crate::TetMesh;
 use crate::assembly::{SparsityPattern, gather_tet_coords};
-use crate::nedelec::{
+use crate::elements::nedelec::{
     batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_mass_anisotropic_full,
     batched_nedelec_local_matrices, batched_nedelec_local_stiffness_weighted,
 };
@@ -1645,7 +1645,7 @@ pub fn assemble_global_nedelec_with_full_tensors_sparse<B: Backend>(
 /// [`crate::driven::driven_solve`]). Follows the same batched-local-
 /// kernel + autodiff-preserving 1-D `scatter(0, …, Add)` pattern as
 /// [`assemble_global_nedelec`]: the per-element `[n_elem, 6]` local RHS
-/// from [`crate::nedelec::batched_nedelec_local_rhs`] is multiplied by
+/// from [`crate::elements::nedelec::batched_nedelec_local_rhs`] is multiplied by
 /// the per-DOF orientation sign `s_i` (a single factor — the RHS is
 /// linear in the basis, unlike the `s_i s_j` outer product of the
 /// matrix path) and scatter-added into a `[n_edges]` zero tensor.
@@ -1681,7 +1681,7 @@ pub fn assemble_nedelec_current_rhs<B: Backend>(
         .flat_map(|row| row.iter().map(|&x| x as f32))
         .collect();
     let j_tensor = Tensor::<B, 2>::from_data(TensorData::new(j_flat, [n_elem, 3]), &device);
-    let local = crate::nedelec::batched_nedelec_local_rhs(coords, j_tensor); // [n_elem, 6]
+    let local = crate::elements::nedelec::batched_nedelec_local_rhs(coords, j_tensor); // [n_elem, 6]
 
     // 2. Apply per-DOF orientation signs (single factor for a vector).
     let sign_flat: Vec<f32> = tet_edge_sign
@@ -1714,7 +1714,7 @@ pub fn assemble_nedelec_current_rhs<B: Backend>(
 /// (issue #199): `b_i = Σ_T Σ_q (V/4) N_i(x_q) · J(x_q)`.
 ///
 /// Same batched-local-kernel
-/// ([`crate::nedelec::batched_nedelec_local_rhs_quad4`]) + sign +
+/// ([`crate::elements::nedelec::batched_nedelec_local_rhs_quad4`]) + sign +
 /// autodiff-preserving 1-D `scatter(0, …, Add)` structure as the
 /// constant-`J` assembler; reduces to it exactly when the four samples
 /// of a tet are equal. The samples are uploaded at the backend's full
@@ -1722,7 +1722,7 @@ pub fn assemble_nedelec_current_rhs<B: Backend>(
 ///
 /// * `j_quad` — `[n_elem][4][3]` per-tet current density at the four
 ///   degree-2 quadrature points (see
-///   [`crate::nedelec::TET_QUAD4_A`] for the point convention; use
+///   [`crate::elements::nedelec::TET_QUAD4_A`] for the point convention; use
 ///   [`crate::driven::QuadCurrentSource`] to sample a continuous
 ///   `J(x)`).
 pub fn assemble_nedelec_current_rhs_quad4<B: Backend>(
@@ -1746,7 +1746,7 @@ pub fn assemble_nedelec_current_rhs_quad4<B: Backend>(
         .flat_map(|t| t.iter().flat_map(|q| q.iter().map(|&x| x.elem())))
         .collect();
     let j_tensor = Tensor::<B, 3>::from_data(TensorData::new(j_flat, [n_elem, 4, 3]), &device);
-    let local = crate::nedelec::batched_nedelec_local_rhs_quad4(coords, j_tensor); // [n_elem, 6]
+    let local = crate::elements::nedelec::batched_nedelec_local_rhs_quad4(coords, j_tensor); // [n_elem, 6]
 
     // 2. Apply per-DOF orientation signs (single factor for a vector).
     let sign_flat: Vec<f32> = tet_edge_sign

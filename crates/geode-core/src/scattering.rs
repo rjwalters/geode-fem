@@ -271,10 +271,10 @@ pub(crate) fn eval_curl(geom: &TetGeometry, dofs: &[c64; 6]) -> [c64; 3] {
 
 /// Degree-2 4-point tet quadrature (barycentric points, equal weights
 /// `V/4`). Shared with the Burn-side quadrature RHS kernel
-/// ([`crate::nedelec::batched_nedelec_local_rhs_quad4`]) so the host
+/// ([`crate::elements::nedelec::batched_nedelec_local_rhs_quad4`]) so the host
 /// and Burn paths integrate spatially varying sources identically.
-const QUAD_A: f64 = crate::nedelec::TET_QUAD4_A;
-const QUAD_B: f64 = crate::nedelec::TET_QUAD4_B;
+const QUAD_A: f64 = crate::elements::nedelec::TET_QUAD4_A;
+const QUAD_B: f64 = crate::elements::nedelec::TET_QUAD4_B;
 
 /// Extinction power via the volume optical theorem,
 ///

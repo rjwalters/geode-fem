@@ -78,7 +78,9 @@
 use faer::c64;
 
 use crate::TetMesh;
-use crate::whitney_face::{self, TRI_LOCAL_EDGES, dot3, edge_lookup, face_geometry, scale3, sub3};
+use crate::elements::whitney::{
+    self, TRI_LOCAL_EDGES, dot3, edge_lookup, face_geometry, scale3, sub3,
+};
 
 /// Palace-style uniform lumped port specification.
 ///
@@ -130,7 +132,7 @@ impl LumpedPort<'_> {
 ///
 /// Same kernel as
 /// [`crate::silvermuller::assemble_surface_mass_triplets`] — both are
-/// thin delegates to the shared `whitney_face` module (3-point
+/// thin delegates to the shared `whitney` module (3-point
 /// edge-midpoint quadrature, degree-2 exact; issue #208), so the two
 /// entry points produce bit-identical triplet streams. The unit tests
 /// cross-validate this path against the dense Silver-Müller assembly as
@@ -145,7 +147,7 @@ pub fn assemble_port_surface_mass(
     faces: &[[u32; 3]],
     edges: &[[u32; 2]],
 ) -> Vec<(usize, usize, f64)> {
-    whitney_face::assemble_surface_mass_triplets(mesh, faces, edges)
+    whitney::assemble_surface_mass_triplets(mesh, faces, edges)
 }
 
 /// Assemble the **port flux vector**
@@ -325,7 +327,7 @@ mod tests {
     /// The two public triplet entry points must produce **bit-identical**
     /// triplet streams (same face order, same duplicate-unsummed
     /// convention) — issue #208 acceptance criterion: both delegate to
-    /// the single kernel in `whitney_face`.
+    /// the single kernel in `whitney`.
     #[test]
     fn port_mass_triplets_bit_identical_to_silver_muller_triplets() {
         let mesh = cube_tet_mesh(2, 1.0);
