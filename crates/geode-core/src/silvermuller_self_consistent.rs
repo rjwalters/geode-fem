@@ -63,8 +63,8 @@
 use faer::c64;
 use faer::mat::MatRef;
 
-use crate::complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
-use crate::eigen::EigenError;
+use crate::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
+use crate::eigen::dense::EigenError;
 use crate::solver::iterate::{IterOutcome, Step, iterate_while_with_prev};
 
 /// Outcome of [`self_consistent_k`].

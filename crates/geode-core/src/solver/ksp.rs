@@ -4,7 +4,7 @@
 //! All driven and eigen solves currently exit to a direct sparse LU
 //! ([`faer::sparse::linalg::solvers::Lu`]) at the solve boundary
 //! ([`crate::driven::FactoredDrivenOperator`],
-//! [`crate::complex_lanczos`]). Direct factorization caps the problem
+//! [`crate::eigen::complex`]). Direct factorization caps the problem
 //! size at what fill-in can afford; for larger structures (the
 //! ~30k-edge patch fixture, future 3-D stacks) the next ceiling is the
 //! solve itself.
@@ -24,7 +24,7 @@
 //!   Real-CG carries over verbatim by replacing the Hermitian
 //!   `(r, z) = r^H z` inner product with the bilinear `r^T z`. The
 //!   same complex-symmetric structure powers the bilinear-form
-//!   Lanczos in [`crate::complex_lanczos`].
+//!   Lanczos in [`crate::eigen::complex`].
 //! - A [`Preconditioner`] trait with four concrete preconditioners:
 //!   [`IdentityPreconditioner`] (the no-op), [`JacobiPreconditioner`]
 //!   (diagonal scaling — `M = diag(A)`, the simplest and cheapest
@@ -78,7 +78,7 @@
 use faer::c64;
 use faer::sparse::SparseColMatRef;
 
-use crate::complex_lanczos::spmv;
+use crate::eigen::complex::spmv;
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -307,7 +307,7 @@ impl Preconditioner for JacobiPreconditioner {
 /// as a complex matrix with `A^T = A`, the LU is the bilinear LU, and
 /// `M⁻¹` composes cleanly with the COCG inner product. The
 /// factorization does **not** conjugate anywhere — the same
-/// invariant the bilinear-form Lanczos in [`crate::complex_lanczos`]
+/// invariant the bilinear-form Lanczos in [`crate::eigen::complex`]
 /// relies on.
 ///
 /// # Setup vs application cost trade-off
@@ -724,7 +724,7 @@ pub enum ChebyshevKind {
 /// polynomial in the complex-symmetric operator and composes cleanly
 /// with the COCG inner product — the same "no conjugation" invariant
 /// [`IluPreconditioner`] and the bilinear-form Lanczos in
-/// [`crate::complex_lanczos`] rely on. The eigenvalue *interval*
+/// [`crate::eigen::complex`] rely on. The eigenvalue *interval*
 /// `[λ_min, λ_max]` is taken on the real axis from the magnitudes of
 /// the estimate; for the lossy/PML pencils we target (close to real
 /// SPD with a small absorbing imaginary part) the spectrum hugs the
@@ -1167,7 +1167,7 @@ pub trait KspSolve {
 /// invariant, see PR #55). Real-CG carries over verbatim with the
 /// Hermitian inner product replaced by the bilinear `u^T v` — same
 /// substitution the complex-symmetric Lanczos in
-/// [`crate::complex_lanczos`] uses.
+/// [`crate::eigen::complex`] uses.
 ///
 /// # Configuration
 ///
@@ -1215,7 +1215,7 @@ impl Cocg {
 
 /// `acc = u^T v` (**bilinear**, no conjugation) — the complex-symmetric
 /// Krylov inner product. Mirrors the bilinear form
-/// [`crate::complex_lanczos`] uses for the Lanczos pencil.
+/// [`crate::eigen::complex`] uses for the Lanczos pencil.
 fn bilinear_dot(u: &[c64], v: &[c64]) -> c64 {
     debug_assert_eq!(u.len(), v.len());
     let mut acc = c64::new(0.0, 0.0);
@@ -1590,7 +1590,7 @@ mod tests {
 
         // Cross-check the solution by multiplying back.
         let mut ax = vec![c64::new(0.0, 0.0); n];
-        crate::complex_lanczos::spmv(a.as_ref(), &x, &mut ax);
+        crate::eigen::complex::spmv(a.as_ref(), &x, &mut ax);
         for i in 0..n {
             assert!((ax[i] - b[i]).norm() < 1e-10);
         }

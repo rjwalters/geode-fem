@@ -1775,7 +1775,7 @@ pub fn assemble_nedelec_current_rhs_quad4<B: Backend>(
 /// Combine the real and imaginary parts of a Burn-resident complex
 /// mass matrix into an owned `faer::Mat<faer::c64>`.
 ///
-/// Mirrors [`crate::eigen::burn_matrix_to_faer`] for complex inputs.
+/// Mirrors [`crate::eigen::dense::burn_matrix_to_faer`] for complex inputs.
 /// Pulls both halves off the device once and zips them into the
 /// complex output. `TensorData::iter::<f64>` reads the values as f64
 /// regardless of the backend's stored float dtype (f32 on the wgpu/cuda

@@ -72,7 +72,7 @@
 //! # Solver
 //!
 //! Reuses the existing sparse complex factorization machinery from the
-//! shift-and-invert Lanczos path ([`crate::complex_lanczos`]): the
+//! shift-and-invert Lanczos path ([`crate::eigen::complex`]): the
 //! interior-reduced `A(ω)` is built as a `faer` sparse CSC matrix from
 //! the assembly [`crate::assembly::p1::SparsityPattern`], factored once with
 //! `sp_lu`, and solved directly. A direct sparse solve is sufficient at
@@ -100,7 +100,7 @@
 //! kernel + `scatter(Add)` Burn path and preserves autodiff up to the
 //! host transfer. The sparse factorization itself is faer (CPU) and
 //! breaks the tape — same trade-off as the eigensolver layer
-//! ([`crate::eigen`]).
+//! ([`crate::eigen::dense`]).
 
 use burn::tensor::backend::Backend;
 use faer::c64;
@@ -114,7 +114,7 @@ use crate::assembly::nedelec::{
     assemble_global_nedelec_with_full_tensors_sparse, assemble_nedelec_current_rhs,
     assemble_nedelec_current_rhs_quad4, assemble_nedelec_sigma_damping_sparse, tet_centroids,
 };
-use crate::complex_lanczos::{solve_with_lu, spmv};
+use crate::eigen::complex::{solve_with_lu, spmv};
 use crate::lumped_port::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
 
 /// Errors produced by the driven-solve layer.
@@ -1560,7 +1560,7 @@ impl DrivenOperator {
         K: crate::solver::ksp::KspSolve,
         P: crate::solver::ksp::Preconditioner,
     {
-        use crate::complex_lanczos::spmv;
+        use crate::eigen::complex::spmv;
 
         let a_int = self.assemble_a_at(omega)?;
         let b_int = self.assemble_b_at(omega, None);

@@ -3,7 +3,7 @@
 //! GEODE-FEM has several hand-rolled convergence loops — the
 //! self-consistent `k₀` Newton iteration
 //! ([`crate::silvermuller_self_consistent`]), the Lanczos restart loops
-//! ([`crate::lanczos`] / [`crate::complex_lanczos`]), and the
+//! ([`crate::eigen::lanczos`] / [`crate::eigen::complex`]), and the
 //! bracketing/bisection root finder ([`crate::mie`]). This module
 //! provides two small combinators that capture the *shape* shared by the
 //! state-carry loops so the duplication collapses onto one tested
@@ -33,7 +33,7 @@
 //!    changes between iterations cannot be expressed. (Concretely: do
 //!    not grow a `Vec` inside the carried state — that is what disqualifies
 //!    the Lanczos Krylov-basis loops; see the module-level note in
-//!    [`crate::lanczos`].)
+//!    [`crate::eigen::lanczos`].)
 //! 2. **Scalar continue-condition.** The decision to continue or stop is
 //!    a single scalar predicate evaluated inside the step, not an
 //!    element-wise mask with a data-dependent reduction. There is no

@@ -3,7 +3,7 @@
 //!
 //! The introduction of the Silver-Müller surface term makes the
 //! discrete operator non-Hermitian: eigenvalues `k²` are complex and
-//! the real-only path in [`crate::eigen`] no longer applies. This
+//! the real-only path in [`crate::eigen::dense`] no longer applies. This
 //! module wraps `faer`'s complex generalized eigendecomposition and
 //! returns the eigenvalues sorted by the magnitude of their real part.
 //!
@@ -28,7 +28,7 @@
 use faer::mat::MatRef;
 use faer::{Mat, c64};
 
-use crate::eigen::EigenError;
+use crate::eigen::dense::EigenError;
 
 /// Generalized eigensolver for the Silver-Müller pencil
 /// `(K + j k₀ S) E = k² M E`, returning the lowest-`n` eigenvalues
