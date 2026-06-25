@@ -2,9 +2,9 @@
 //!
 //! Re-exports from the canonical module paths (`crate::analytic`,
 //! `crate::assembly`, `crate::backend`, `crate::derham`, `crate::driven`,
-//! `crate::eigen`, `crate::elements`, `crate::solver`, `crate::traits`) —
-//! never the deprecated root shims — so glob-importing the prelude stays
-//! warning-free under `-D warnings`.
+//! `crate::eigen`, `crate::elements`, `crate::interop`, `crate::postproc`,
+//! `crate::solver`, `crate::traits`) — never the deprecated root shims —
+//! so glob-importing the prelude stays warning-free under `-D warnings`.
 //! Later children of the namespace reorg add their own groups here.
 pub use crate::analytic::fiber::fiber_lp_neff;
 pub use crate::analytic::mie::{
@@ -39,6 +39,9 @@ pub use crate::elements::nedelec::{
     NedelecLocalMatrices, batched_nedelec_local_matrices, tet_edges,
 };
 pub use crate::elements::p1::{P1LocalMatrices, batched_p1_local_matrices};
+pub use crate::interop::palace::{PalaceOracleSlot, PalaceResults};
+pub use crate::postproc::ntff::{FarField, PatternCut, directivity, ntff_far_field, to_db};
+pub use crate::postproc::viz::write_vtu;
 pub use crate::solver::iterate::{IterOutcome, Step, iterate_while, iterate_while_with_prev};
 pub use crate::solver::ksp::{Cocg, JacobiPreconditioner, KspReport, KspSolve};
 pub use crate::traits::{Element, Mesh, Operator};

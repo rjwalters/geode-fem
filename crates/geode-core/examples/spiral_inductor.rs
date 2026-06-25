@@ -466,7 +466,7 @@ fn export_field(path: &str) {
     {
         std::fs::create_dir_all(parent).expect("create --export-field parent dir");
     }
-    geode_core::viz_vtu::write_vtu(out, &fixture.mesh, &e_re, Some(&e_im), None)
+    geode_core::postproc::viz::write_vtu(out, &fixture.mesh, &e_re, Some(&e_im), None)
         .expect("write --export-field .vtu");
     eprintln!(
         "  wrote {} ({} nodes, {} tets)",

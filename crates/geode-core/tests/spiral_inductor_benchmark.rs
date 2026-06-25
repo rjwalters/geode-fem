@@ -490,7 +490,7 @@ fn benchmark_fixture_reference_point_matches_committed_results() {
 ///   pass.
 #[test]
 fn fem_vs_palace_oracle_within_band_or_skip_with_note() {
-    use geode_core::palace::PalaceOracleSlot;
+    use geode_core::interop::palace::PalaceOracleSlot;
 
     let path = repo_root().join("benchmarks/spiral_inductor/results.toml");
     let raw = fs::read_to_string(&path)

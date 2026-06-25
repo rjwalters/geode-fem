@@ -11,12 +11,11 @@ pub mod derham;
 pub mod driven;
 pub mod eigen;
 pub mod elements;
+pub mod interop;
 pub mod mesh;
-pub mod ntff;
-pub mod palace;
+pub mod postproc;
 pub mod silvermuller_self_consistent;
 pub mod solver;
-pub mod viz_vtu;
 
 #[deprecated(note = "use geode_core::analytic::waveguide::<item> instead")]
 pub use crate::analytic::waveguide::{
@@ -161,7 +160,8 @@ pub use mesh::{
     read_spiral_fixture_from_bytes, read_spiral_slcfet_3hp_fixture,
     read_spiral_slcfet_3hp_smoke_fixture, read_spiral_smoke_fixture,
 };
-pub use ntff::{
+#[deprecated(note = "use geode_core::postproc::ntff::<item> instead")]
+pub use postproc::ntff::{
     FarField, PatternCut, broadside_directivity, directivity, gain, ntff_far_field,
     principal_plane_cuts, to_db,
 };
