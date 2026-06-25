@@ -2,7 +2,7 @@
 //!
 //! Gated behind the `arpack` Cargo feature. When the feature is off this
 //! module is not compiled and the default sparse path remains the
-//! pure-Rust [`crate::lanczos::SparseShiftInvertLanczos`].
+//! pure-Rust [`crate::eigen::lanczos::SparseShiftInvertLanczos`].
 //!
 //! # Why ARPACK at all?
 //!
@@ -59,8 +59,8 @@ use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef};
 use faer::{Mat, MatMut};
 
-use crate::eigen::EigenError;
-use crate::lanczos::SparseEigenSolver;
+use crate::eigen::dense::EigenError;
+use crate::eigen::lanczos::SparseEigenSolver;
 
 // ---------------------------------------------------------------------------
 // ARPACK ICB C wrapper FFI.

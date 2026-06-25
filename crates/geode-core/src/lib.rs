@@ -6,15 +6,12 @@
 //! Helmholtz (#3) and the eigenmode solver work that follows.
 
 pub mod assembly;
-pub mod complex_eigen;
-pub mod complex_lanczos;
 pub mod derham;
 pub mod driven;
 pub mod eigen;
 pub mod elements;
 pub mod extraction;
 pub mod fiber_lp;
-pub mod lanczos;
 pub mod lumped_port;
 pub mod mesh;
 pub mod mie;
@@ -30,9 +27,6 @@ pub mod solver;
 pub mod viz_vtu;
 pub mod wave_port;
 pub mod waveguide_modes;
-
-#[cfg(feature = "arpack")]
-pub mod arpack;
 
 #[deprecated(note = "use geode_core::assembly::fe instead")]
 pub use assembly::fe::{DirichletBc, ElementType, FeAssembleResult, fe_assemble};
@@ -64,9 +58,10 @@ pub use assembly::sparse::{SparseError, SparseSystem, global_system_to_sparse};
 pub use assembly::surface::{
     assemble_silver_muller_surface, assemble_surface_mass, assemble_surface_mass_triplets,
 };
-pub use complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
-pub use complex_lanczos::{
-    ComplexEigenPair, SparseComplexEigenSolver, SparseComplexShiftInvertLanczos,
+#[deprecated(note = "use geode_core::eigen::complex instead")]
+pub use eigen::complex::{
+    ComplexEigenPair, ComplexEigenSolver, FaerComplexEigensolver, SparseComplexEigenSolver,
+    SparseComplexShiftInvertLanczos,
 };
 // `derham` stays top-level (epic #377 open-question 4): the de Rham
 // operators bridge element spaces rather than belonging to any single
@@ -81,10 +76,13 @@ pub use driven::{
     driven_solve_quad, driven_solve_with_ports, driven_solve_with_sigma,
     driven_solve_with_sigma_quad, driven_solve_with_surface_impedance,
 };
-pub use eigen::{
+#[deprecated(note = "use geode_core::eigen::dense instead")]
+pub use eigen::dense::{
     EigenError, EigenPair, EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc,
     burn_matrix_to_faer, cube_interior_mask,
 };
+#[deprecated(note = "use geode_core::eigen::lanczos instead")]
+pub use eigen::lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 #[deprecated(note = "use geode_core::elements::nedelec instead")]
 pub use elements::nedelec::{
     NedelecLocalMatrices, TET_QUAD4_A, TET_QUAD4_B, batched_nedelec_local_mass_anisotropic_diag,
@@ -103,7 +101,6 @@ pub use fiber_lp::{
     bessel_j, bessel_j0, bessel_j1, bessel_k, bessel_k0, bessel_k1, fiber_lp_neff, normalized_b,
     v_number,
 };
-pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 pub use lumped_port::{
     LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
     port_voltage,
@@ -164,7 +161,8 @@ pub use wave_port::{
 pub use waveguide_modes::*;
 
 #[cfg(feature = "arpack")]
-pub use arpack::ArpackEigensolver;
+#[deprecated(note = "use geode_core::eigen::arpack instead")]
+pub use eigen::arpack::ArpackEigensolver;
 
 // `backend` is declared UNCONDITIONALLY (never `#[cfg]`-gated): it owns the
 // two `compile_error!` guards and both `std::cfg_select!` cascades, so the

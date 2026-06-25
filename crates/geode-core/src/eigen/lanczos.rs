@@ -44,7 +44,7 @@ use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef};
 use faer::{Mat, MatMut};
 
-use crate::eigen::{EigenError, EigenPair};
+use crate::eigen::dense::{EigenError, EigenPair};
 
 /// Sparse generalized-symmetric eigensolver via shift-and-invert Lanczos.
 ///
@@ -75,7 +75,7 @@ impl Default for SparseShiftInvertLanczos {
     }
 }
 
-/// Parallel of [`crate::eigen::EigenSolver`] for sparse matrices.
+/// Parallel of [`crate::eigen::dense::EigenSolver`] for sparse matrices.
 ///
 /// The dense trait takes `MatRef<f64>`; sparse routines need column-major
 /// CSC, so a second trait is the cleanest path — no surface change to the
@@ -259,7 +259,7 @@ impl SparseShiftInvertLanczos {
     /// Lanczos basis `V_k` and tridiagonal eigenvector `s`, then
     /// rescaled so `xᵀ M x = 1` (the convention modal projection
     /// wants — same convention as
-    /// [`crate::eigen::FaerDenseEigensolver::smallest_eigenpairs`]).
+    /// [`crate::eigen::dense::FaerDenseEigensolver::smallest_eigenpairs`]).
     pub fn smallest_eigenpairs(
         &self,
         k: SparseColMatRef<'_, usize, f64>,

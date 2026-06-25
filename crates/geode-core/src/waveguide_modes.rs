@@ -74,9 +74,9 @@ use faer::Mat;
 use faer::c64;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
-use crate::complex_lanczos::SparseComplexShiftInvertLanczos;
-use crate::eigen::EigenError;
-use crate::lanczos::SparseShiftInvertLanczos;
+use crate::eigen::complex::SparseComplexShiftInvertLanczos;
+use crate::eigen::dense::EigenError;
+use crate::eigen::lanczos::SparseShiftInvertLanczos;
 
 /// A single transverse mode of a waveguide cross-section with its modal
 /// field profile (Epic #234, Phase 2: the wave-port boundary condition
@@ -3422,7 +3422,7 @@ fn gauge_fix_eigenvector(
 ///
 /// # Solver
 ///
-/// Uses [`crate::lanczos::SparseShiftInvertLanczos`] (real-symmetric
+/// Uses [`crate::eigen::lanczos::SparseShiftInvertLanczos`] (real-symmetric
 /// sparse shift-and-invert Lanczos via faer's sparse LU). The 2-D
 /// modal pencil is real-symmetric SPD after PEC reduction, and the
 /// gradient null cluster sits at λ ≈ 0; a small positive shift (see

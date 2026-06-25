@@ -38,7 +38,7 @@
 //! convention; `|Im(k)|` is the linewidth (radiative decay rate in `k`)
 //! and `Q = Re(k) / (2 |Im(k)|)` is the quality factor.
 //!
-//! The FEM eigensolver in [`crate::complex_eigen`] picks up modes with
+//! The FEM eigensolver in [`crate::eigen::complex`] picks up modes with
 //! `Im(k) > 0` (sign comes from the PML profile and the principal
 //! sqrt branch). FEM-vs-analytic pairing should match on
 //! `(Re(k), |Im(k)|)`.

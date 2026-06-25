@@ -2,7 +2,7 @@
 //! eigenproblems `K x = λ M x` where `K` and `M` are complex sparse
 //! matrices and the pencil is complex-symmetric (`K^T = K`, `M^T = M`,
 //! both *without* conjugation). This is the complex analog of
-//! [`crate::lanczos::SparseShiftInvertLanczos`] (issue #53).
+//! [`crate::eigen::lanczos::SparseShiftInvertLanczos`] (issue #53).
 //!
 //! **Why complex-symmetric (not Hermitian).** The Mie pipeline's mass
 //! matrix is built from `∫ N_i · N_j ε dV` where ε is a per-tetrahedron
@@ -55,24 +55,24 @@
 //!
 //! # Why this loop is not ported onto [`crate::solver::iterate`]
 //!
-//! Like the real path ([`crate::lanczos`]), this complex-symmetric
+//! Like the real path ([`crate::eigen::lanczos`]), this complex-symmetric
 //! variant shares the growing-basis structure: full reorthogonalization
 //! keeps the whole history, so the Krylov basis gains one column per
 //! iteration. That violates [`crate::solver::iterate`] **contract restriction 1**
 //! (loop-invariant carried-state shapes), so the loop is intentionally
-//! left off the `iterate_while` combinator. See [`crate::lanczos`] for the
+//! left off the `iterate_while` combinator. See [`crate::eigen::lanczos`] for the
 //! full rationale.
 
 use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef};
 use faer::{Mat, MatMut, c64};
 
-use crate::eigen::EigenError;
+use crate::eigen::dense::EigenError;
 
 /// Sparse generalized complex-symmetric eigensolver via shift-and-invert
 /// Lanczos.
 ///
-/// Mirrors [`crate::lanczos::SparseShiftInvertLanczos`] for complex
+/// Mirrors [`crate::eigen::lanczos::SparseShiftInvertLanczos`] for complex
 /// matrices. `sigma` is a **real** shift — for the Mie path we want
 /// the lowest physical `k²` eigenvalues, which are positive real
 /// (with small imaginary parts from the PML). A real shift keeps the
@@ -94,7 +94,7 @@ impl Default for SparseComplexShiftInvertLanczos {
     }
 }
 
-/// Parallel of [`crate::complex_eigen::ComplexEigenSolver`] for sparse
+/// Parallel of [`crate::eigen::complex::ComplexEigenSolver`] for sparse
 /// complex-symmetric pencils. The dense `ComplexEigenSolver` runs full
 /// non-symmetric QZ; this trait exploits bilinear-symmetry of the
 /// pencil to run shift-and-invert Lanczos at a small constant factor
@@ -168,7 +168,7 @@ fn principal_sqrt(z: c64) -> c64 {
 }
 
 /// Build `K - σ M` as a fresh complex sparse matrix. Mirrors
-/// `shifted_pencil` in [`crate::lanczos`].
+/// `shifted_pencil` in [`crate::eigen::lanczos`].
 fn shifted_pencil_complex(
     k: SparseColMatRef<'_, usize, c64>,
     m: SparseColMatRef<'_, usize, c64>,
@@ -482,7 +482,7 @@ impl SparseComplexShiftInvertLanczos {
     /// [`SparseComplexEigenSolver::smallest_complex_pencil_eigenvalues`].
     ///
     /// This is the complex analogue of
-    /// [`crate::lanczos::SparseShiftInvertLanczos::smallest_eigenpairs`]:
+    /// [`crate::eigen::lanczos::SparseShiftInvertLanczos::smallest_eigenpairs`]:
     /// it runs the same bilinear-form Lanczos (full reorthogonalization,
     /// the tridiagonal `T_k` complex symmetric), retains the full basis
     /// `V_k`, then recovers Ritz vectors `x = V_k s` from the complex

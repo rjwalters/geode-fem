@@ -26,7 +26,7 @@ use burn::tensor::backend::Backend;
 use faer::sparse::{SparseColMat, Triplet};
 
 use crate::assembly::p1::GlobalSystem;
-use crate::eigen::burn_matrix_to_faer;
+use crate::eigen::dense::burn_matrix_to_faer;
 
 /// Errors produced by the dense → sparse projection.
 #[derive(Debug, thiserror::Error)]

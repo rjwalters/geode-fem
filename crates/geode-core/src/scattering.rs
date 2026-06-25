@@ -861,7 +861,7 @@ pub fn solve_scattered_field_matched_upml(
     omega: f64,
     j_at: impl Fn(usize, [f64; 3]) -> [c64; 3],
 ) -> Result<DrivenSolution, DrivenError> {
-    use crate::complex_lanczos::{solve_with_lu, spmv};
+    use crate::eigen::complex::{solve_with_lu, spmv};
 
     let n_tets = mesh.n_tets();
     if tet_physical_tags.len() != n_tets {
