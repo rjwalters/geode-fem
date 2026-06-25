@@ -34,6 +34,12 @@ pkg-config = { workspace = true, optional = true }
 default = ["wgpu"]
 wgpu = ["burn/wgpu"]
 cuda = ["burn/cuda"]
+# Apple-GPU backend — opt-in, local-only (Apple platforms). `burn::backend::Metal`
+# is `Wgpu<f32, i32, u8>` pinned to the Metal graphics API / MSL (`cubecl-msl`)
+# shader pipeline; it shares the f32 GPU posture of `wgpu`/`cuda`. Mutually
+# exclusive with `wgpu` and `cuda`. Not exercised on CI (no Apple runner); verify
+# locally with `cargo run --bin geode --no-default-features --features metal`.
+metal = ["burn/metal"]
 # CPU (ndarray) backend — opt-in, headless. Used by CI (no Vulkan/CUDA
 # adapter on the runner) to exercise the `arpack` acceptance test against
 # a real backend. Locally the `wgpu` default still wins. `DefaultBackend`

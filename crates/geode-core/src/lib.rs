@@ -163,30 +163,42 @@ use burn::tensor::Tensor;
 use burn::tensor::backend::{Backend, BackendTypes};
 
 // Backend selection is feature-driven, with a precedence policy:
-// `ndarray` > `cuda` > `wgpu`. The native GPU backends `wgpu` and
-// `cuda` remain mutually exclusive (both pull native GPU stacks that
-// cannot coexist), but `ndarray` is allowed to coexist with either
-// because Cargo feature unification across workspace targets can
-// re-activate the default `wgpu` feature even when the user passes
-// `--no-default-features --features ndarray`. The headless CPU
-// backend takes precedence in that case so that CI / local clippy
-// runs against `--features ndarray` compile cleanly.
-#[cfg(all(feature = "wgpu", feature = "cuda"))]
+// `ndarray` > `cuda` > `metal` > `wgpu`. The native GPU backends `wgpu`,
+// `cuda`, and `metal` remain mutually exclusive (each pins a native GPU
+// stack / shader pipeline that cannot coexist — `metal` is `wgpu` pinned
+// to the Metal/MSL path with a different `B` element width, so an
+// ambiguous `DefaultBackend` must be ruled out). `ndarray` is allowed to
+// coexist with any GPU backend because Cargo feature unification across
+// workspace targets can re-activate the default `wgpu` feature even when
+// the user passes `--no-default-features --features ndarray`. The
+// headless CPU backend takes precedence in that case so that CI / local
+// clippy runs against `--features ndarray` compile cleanly.
+#[cfg(any(
+    all(feature = "wgpu", feature = "cuda"),
+    all(feature = "wgpu", feature = "metal"),
+    all(feature = "cuda", feature = "metal"),
+))]
 compile_error!(
-    "geode-core: backends `wgpu` and `cuda` are mutually exclusive — \
-     both pull native GPU stacks. To switch backends, build with \
-     `--no-default-features --features cuda` (NVIDIA) or \
+    "geode-core: backends `wgpu`, `cuda`, and `metal` are mutually \
+     exclusive — each pins a native GPU stack. To switch backends, build \
+     with `--no-default-features --features cuda` (NVIDIA), \
+     `--no-default-features --features metal` (Apple), or \
      `--no-default-features --features ndarray` (CPU)."
 );
 
-#[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "ndarray")))]
+#[cfg(not(any(
+    feature = "wgpu",
+    feature = "cuda",
+    feature = "metal",
+    feature = "ndarray"
+)))]
 compile_error!(
     "geode-core: enable exactly one backend feature: `wgpu` (default), \
-     `cuda`, or `ndarray` (CPU)."
+     `cuda`, `metal` (Apple), or `ndarray` (CPU)."
 );
 
-// Precedence: ndarray > cuda > wgpu. `ndarray` wins so CI / headless
-// `--features ndarray` builds compile even when Cargo feature
+// Precedence: ndarray > cuda > metal > wgpu. `ndarray` wins so CI /
+// headless `--features ndarray` builds compile even when Cargo feature
 // unification across workspace dev-targets silently re-activates the
 // default `wgpu` feature. The CPU backend with f64 floats keeps the
 // double-precision ARPACK driver (`dsaupd_c`/`dseupd_c`) in full
@@ -195,16 +207,23 @@ compile_error!(
 // `assembly::tets_to_cpu` reads connectivity back as `i32`, and Burn's
 // typed readback rejects a width mismatch.
 //
+// `burn::backend::Metal` is `Wgpu<f32, i32, u8>` pinned to the Metal/MSL
+// shader pipeline (Apple-only); it carries the same f32/i32 element
+// posture as the other GPU arms.
+//
 // `cfg_select!` is first-match-wins, so arm order encodes the
-// `ndarray > cuda > wgpu` precedence and the previous `not(...)` guards
-// are no longer needed. The two `compile_error!` guards above still own
-// the "exactly one / no conflicting GPU backend" assertions.
+// `ndarray > cuda > metal > wgpu` precedence and the previous `not(...)`
+// guards are no longer needed. The two `compile_error!` guards above
+// still own the "exactly one / no conflicting GPU backend" assertions.
 std::cfg_select! {
     feature = "ndarray" => {
         pub type DefaultBackend = burn::backend::NdArray<f64, i32>;
     }
     feature = "cuda" => {
         pub type DefaultBackend = burn::backend::Cuda;
+    }
+    feature = "metal" => {
+        pub type DefaultBackend = burn::backend::Metal;
     }
     feature = "wgpu" => {
         pub type DefaultBackend = burn::backend::Wgpu;
@@ -254,14 +273,17 @@ pub fn device_info() -> DeviceInfo {
     }
 }
 
-// Same precedence as `DefaultBackend`: ndarray > cuda > wgpu. Arm order
-// in `cfg_select!` (first-match-wins) encodes that precedence.
+// Same precedence as `DefaultBackend`: ndarray > cuda > metal > wgpu.
+// Arm order in `cfg_select!` (first-match-wins) encodes that precedence.
 std::cfg_select! {
     feature = "ndarray" => {
         const BACKEND_NAME: &str = "ndarray";
     }
     feature = "cuda" => {
         const BACKEND_NAME: &str = "cuda";
+    }
+    feature = "metal" => {
+        const BACKEND_NAME: &str = "metal";
     }
     feature = "wgpu" => {
         const BACKEND_NAME: &str = "wgpu";
@@ -349,7 +371,16 @@ mod tests {
         #[cfg(feature = "ndarray")]
         assert_eq!(
             info.backend, "ndarray",
-            "ndarray must take precedence over wgpu/cuda when enabled"
+            "ndarray must take precedence over wgpu/cuda/metal when enabled"
+        );
+
+        // When `metal` is the selected backend (Apple-only, no `ndarray`),
+        // it must win over the default `wgpu` arm, mirroring the precedence
+        // `ndarray > cuda > metal > wgpu`.
+        #[cfg(all(feature = "metal", not(feature = "ndarray")))]
+        assert_eq!(
+            info.backend, "metal",
+            "metal must take precedence over wgpu when enabled"
         );
     }
 }

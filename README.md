@@ -166,10 +166,23 @@ cargo build
 
 # CUDA (requires a CUDA toolkit and an NVIDIA GPU)
 cargo build -p geode-core --no-default-features --features cuda
+
+# Metal (Apple platforms only; local-only — no Apple CI runner)
+cargo build -p geode-core --no-default-features --features metal
 ```
 
-Enabling both `wgpu` and `cuda`, or neither, is a hard compile error — see
-`compile_error!` guards in `crates/geode-core/src/lib.rs`.
+Enabling more than one of `wgpu` / `cuda` / `metal`, or none of the four
+backends, is a hard compile error — see the `compile_error!` guards in
+`crates/geode-core/src/lib.rs`.
+
+Note the macOS nuance: the default `wgpu` backend **already runs on Metal at
+runtime** on macOS (wgpu selects the Metal graphics API there). The opt-in
+`metal` feature is different — it pins the Metal graphics API and the MSL
+(`cubecl-msl`) shader-compilation pipeline at compile time (`burn::backend::Metal`
+= `Wgpu<f32, i32, u8>`), rather than going through wgpu's runtime adapter
+selection. It is Apple-only and not exercised on CI (all runners are headless
+Linux, which use the `ndarray` CPU backend); verify it locally on Apple hardware
+with `cargo run --bin geode --no-default-features --features metal`.
 
 ## System dependencies
 
