@@ -541,7 +541,7 @@ pub fn batched_nedelec_local_mass_anisotropic_diag<B: Backend>(
 /// Barycentric weight of the "own" vertex in the symmetric degree-2
 /// 4-point tet quadrature rule: point `q` has `λ_q = TET_QUAD4_A` and
 /// `λ_p = TET_QUAD4_B` for `p ≠ q`, with equal weights `V/4`. Shared
-/// with the host-side reference assembly in [`crate::scattering`] so
+/// with the host-side reference assembly in [`crate::driven::scattering`] so
 /// the two paths integrate spatially varying sources identically.
 pub const TET_QUAD4_A: f64 = 0.585_410_196_624_968_5;
 /// Barycentric weight of the three "other" vertices in the degree-2
@@ -682,7 +682,7 @@ pub fn batched_nedelec_local_stiffness_weighted<B: Backend>(
 ///
 /// Note `G^W` is asymmetric for asymmetric `W`; the index order above
 /// (first basis index contracts the **left** slot of `W`) matches the
-/// host-path reference in [`crate::scattering`]. Complex weights run as
+/// host-path reference in [`crate::driven::scattering`]. Complex weights run as
 /// two passes (`Re(W)`, `Im(W)`).
 ///
 /// # Arguments
@@ -755,7 +755,7 @@ pub fn batched_nedelec_local_mass_anisotropic_full<B: Backend>(
 /// with the symmetric rule `λ_p(x_q) = TET_QUAD4_A` if `p = q` else
 /// `TET_QUAD4_B` ([`TET_QUAD4_A`]/[`TET_QUAD4_B`] — the same rule the
 /// host-side reference assembly in
-/// [`crate::scattering::solve_scattered_field_matched_upml`] uses, so
+/// [`crate::driven::scattering::solve_scattered_field_matched_upml`] uses, so
 /// the two RHS paths agree to round-off for the same samples).
 ///
 /// # Closed form used

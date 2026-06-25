@@ -3,7 +3,7 @@
 //!
 //! The project's first **far-field** capability. Phases 1/2 deliver the
 //! driven near-field solution (`e_edges`) on the patch fixture plus a
-//! scalar radiated-power integrator ([`crate::scattering::flux_power_box`]);
+//! scalar radiated-power integrator ([`crate::driven::scattering::flux_power_box`]);
 //! this module turns the tangential `(E, H)` on the closed Huygens box
 //! into the angular far field `E(θ, φ)`, the directivity `D(θ, φ)`, and
 //! (with the Phase-2 efficiency) the gain `G = D · η`.
@@ -37,7 +37,7 @@
 //! # Convention
 //!
 //! The codebase uses `exp(+jωt)`: the incident plane wave
-//! ([`crate::scattering::plane_wave_e_inc`]) is `x̂·e^{−jωz}`, so an
+//! ([`crate::driven::scattering::plane_wave_e_inc`]) is `x̂·e^{−jωz}`, so an
 //! **outgoing** spherical wave carries `e^{−jkr}`. Consistency then
 //! forces the radiation-integral phase to be `e^{+j k r̂·r'}` (the
 //! retarded path-length difference `k(r − r̂·r')` enters the total
@@ -47,7 +47,7 @@
 //!
 //! `H = (i/ω) ∇×E` (`∇×E = −iωH`) is recovered per box face from the
 //! piecewise-constant Whitney curl
-//! ([`crate::scattering`] reuses the same evaluators), so no new field
+//! ([`crate::driven::scattering`] reuses the same evaluators), so no new field
 //! machinery is introduced — only the Love integral.
 
 use std::f64::consts::PI;
@@ -55,7 +55,7 @@ use std::f64::consts::PI;
 use faer::c64;
 
 use crate::TetMesh;
-use crate::scattering::{BoxFaceSample, box_surface_samples};
+use crate::driven::scattering::{BoxFaceSample, box_surface_samples};
 
 /// Free-space impedance in the codebase's natural units (`η₀ = 1`).
 const ETA_0_NATURAL: f64 = 1.0;
@@ -235,7 +235,7 @@ fn far_field_from_currents(
 ///
 /// Samples the tangential `(E, H)` on the closed Huygens box
 /// `[box_lo, box_hi]` (the same surface as
-/// [`crate::scattering::flux_power_box`]) from the per-edge complex
+/// [`crate::driven::scattering::flux_power_box`]) from the per-edge complex
 /// field `e_edges`, applies Love equivalence, and integrates the
 /// radiation vectors over a `(θ, φ)` grid.
 ///
@@ -244,7 +244,7 @@ fn far_field_from_currents(
 ///
 /// # Panics
 ///
-/// Same as [`crate::scattering::flux_power_box`] (empty / all-inside
+/// Same as [`crate::driven::scattering::flux_power_box`] (empty / all-inside
 /// box, `e_edges` length mismatch) and on degenerate grids
 /// (`n_theta < 2` or `n_phi < 1`).
 pub fn ntff_far_field(
@@ -398,8 +398,8 @@ fn ang_dist(a: f64, b: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::driven::scattering::{box_surface_samples, cross};
     use crate::mesh::cube_tet_mesh;
-    use crate::scattering::{box_surface_samples, cross};
 
     /// Analytic far-field components for a short z-directed dipole,
     /// built directly as box face samples (bypasses the FEM), so the

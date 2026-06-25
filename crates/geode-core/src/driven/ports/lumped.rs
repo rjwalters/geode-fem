@@ -216,7 +216,7 @@ pub fn assemble_port_flux(
 /// every line, up to discretization).
 ///
 /// `e_edges` is the full-length edge-DOF vector in `mesh.edges()`
-/// order, e.g. [`crate::driven::DrivenSolution::e_edges`]; `edges` is
+/// order, e.g. [`crate::driven::solve::DrivenSolution::e_edges`]; `edges` is
 /// that same edge table.
 pub fn port_voltage(
     mesh: &TetMesh,
@@ -252,7 +252,7 @@ pub fn port_current(port: &LumpedPort<'_>, v_port: c64) -> c64 {
 /// resistance `R` (the source impedance) — the quantity the
 /// transmission-line oracle compares against `j Z₀ tan(ωd)`. The
 /// full `Z(ω) → L/R/Q/S` extraction API and the assembly-reusing
-/// frequency-sweep driver live in [`crate::extraction`] (issue #203).
+/// frequency-sweep driver live in [`crate::driven::extraction`] (issue #203).
 pub fn port_input_impedance(
     mesh: &TetMesh,
     port: &LumpedPort<'_>,

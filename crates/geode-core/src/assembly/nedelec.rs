@@ -1471,12 +1471,12 @@ fn upload_tensor33_component<B: Backend>(
 ///
 /// with `ν = Λ⁻¹` (the `μ = Λ` stretch lands on the curl term) and
 /// `ε = ε_r·Λ` for the matched UPML
-/// ([`crate::scattering::upml_matched_tensors`] /
-/// [`crate::scattering::build_matched_upml_materials`]). Off-diagonal
+/// ([`crate::driven::scattering::upml_matched_tensors`] /
+/// [`crate::driven::scattering::build_matched_upml_materials`]). Off-diagonal
 /// tensor entries are kept — unlike the diagonal-restriction
 /// approximation of [`build_anisotropic_pml_tensor_diag`] — so the
 /// result agrees with the host-assembled oracle
-/// ([`crate::scattering::solve_scattered_field_matched_upml`]) at
+/// ([`crate::driven::scattering::solve_scattered_field_matched_upml`]) at
 /// assembly precision.
 ///
 /// # Implementation / autodiff
@@ -1642,7 +1642,7 @@ pub fn assemble_global_nedelec_with_full_tensors_sparse<B: Backend>(
 ///
 /// Computes `b_i = ∫_Ω N_i · J dV` over the global edge basis (no `iωμ₀`
 /// prefactor — that is applied by the caller, see
-/// [`crate::driven::driven_solve`]). Follows the same batched-local-
+/// [`crate::driven::solve::driven_solve`]). Follows the same batched-local-
 /// kernel + autodiff-preserving 1-D `scatter(0, …, Add)` pattern as
 /// [`assemble_global_nedelec`]: the per-element `[n_elem, 6]` local RHS
 /// from [`crate::elements::nedelec::batched_nedelec_local_rhs`] is multiplied by
@@ -1723,7 +1723,7 @@ pub fn assemble_nedelec_current_rhs<B: Backend>(
 /// * `j_quad` — `[n_elem][4][3]` per-tet current density at the four
 ///   degree-2 quadrature points (see
 ///   [`crate::elements::nedelec::TET_QUAD4_A`] for the point convention; use
-///   [`crate::driven::QuadCurrentSource`] to sample a continuous
+///   [`crate::driven::solve::QuadCurrentSource`] to sample a continuous
 ///   `J(x)`).
 pub fn assemble_nedelec_current_rhs_quad4<B: Backend>(
     nodes: Tensor<B, 2>,

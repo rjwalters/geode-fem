@@ -22,7 +22,7 @@
 //! subtracted cavity): per the issue-#210 design decision, skin-depth
 //! meshing is avoided entirely — the cavity walls carry either the
 //! Leontovich surface-impedance BC
-//! ([`crate::driven::SurfaceImpedanceBc`], issue #204) or a PEC edge
+//! ([`crate::driven::solve::SurfaceImpedanceBc`], issue #204) or a PEC edge
 //! mask.
 //!
 //! Generation is **offline** (gmsh is not a CI dependency): the fixture
@@ -79,7 +79,7 @@ use faer::c64;
 
 use super::sphere::{parse_elements_with_entity_tags, parse_entities_physical_tags};
 use super::{GmshReader, MeshError, MeshReader, TetMesh};
-use crate::lumped_port::LumpedPort;
+use crate::driven::ports::LumpedPort;
 
 /// Physical-group tag for the silicon substrate (3D).
 pub const PHYS_SUBSTRATE: i32 = 1;
@@ -137,7 +137,7 @@ impl SpiralMaterials {
     /// with the fixture's micron length unit:
     /// `σ_nat = σ_SI · Z₀ · L_unit` with `L_unit = 1e-6 m` (same
     /// normalization as
-    /// [`crate::driven::SurfaceImpedanceModel::GoodConductor`]).
+    /// [`crate::driven::solve::SurfaceImpedanceModel::GoodConductor`]).
     pub fn conductor_sigma_natural(&self) -> f64 {
         self.conductor_sigma_s_m * Z0_OHM * 1e-6
     }
@@ -186,7 +186,7 @@ pub const CONDUCTOR_SIGMA_S_M: f64 = 5.8e7;
 /// with the fixture's micron length unit:
 /// `σ_nat = σ_SI · Z₀ · L_unit = 5.8e7 · 376.730 · 1e-6 ≈ 2.185e4 /µm`
 /// (same normalization as
-/// [`crate::driven::SurfaceImpedanceModel::GoodConductor`]).
+/// [`crate::driven::solve::SurfaceImpedanceModel::GoodConductor`]).
 pub const CONDUCTOR_SIGMA_NATURAL: f64 = CONDUCTOR_SIGMA_S_M * 376.730_313_668 * 1e-6;
 
 /// Raw bytes of the bundled benchmark spiral fixture (MSH 4.1 ASCII).
@@ -414,7 +414,7 @@ pub fn read_spiral_fixture() -> Result<SpiralFixture, MeshError> {
 ///
 /// Same topology, layer stack, and physical-group convention as the
 /// benchmark fixture, but with a smaller footprint and coarser sizing
-/// so an end-to-end [`crate::driven::driven_solve_with_ports`] solve
+/// so an end-to-end [`crate::driven::solve::driven_solve_with_ports`] solve
 /// stays affordable for the current dense assembly path.
 pub fn read_spiral_smoke_fixture() -> Result<SpiralFixture, MeshError> {
     read_spiral_fixture_from_bytes(SPIRAL_SMOKE_MSH)
@@ -437,7 +437,7 @@ pub fn read_spiral_slcfet_3hp_fixture() -> Result<SpiralFixture, MeshError> {
 /// Same topology, layer stack, and physical-group convention as the
 /// 3HP benchmark fixture, but with a smaller footprint and coarser
 /// sizing so an end-to-end
-/// [`crate::driven::driven_solve_with_ports`] solve stays affordable in
+/// [`crate::driven::solve::driven_solve_with_ports`] solve stays affordable in
 /// default CI.
 pub fn read_spiral_slcfet_3hp_smoke_fixture() -> Result<SpiralFixture, MeshError> {
     read_spiral_fixture_from_bytes(SPIRAL_SLCFET_SMOKE_MSH)

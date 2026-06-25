@@ -2,7 +2,7 @@
 //!
 //! Both the Silver-Müller / Leontovich impedance boundary conditions
 //! ([`crate::assembly::surface`]) and the uniform lumped port
-//! ([`crate::lumped_port`]) integrate first-order (Whitney) Nédélec
+//! ([`crate::driven::ports`]) integrate first-order (Whitney) Nédélec
 //! edge-element traces over flat boundary triangles. Before this module
 //! existed the per-face geometry (area, in-plane barycentric gradients,
 //! lower-tag-first edge orientation signs) and the tangential
@@ -185,7 +185,7 @@ pub(crate) fn face_mass_block(geo: &FaceGeometry) -> [[f64; 3]; 3] {
 ///
 /// This is the single kernel behind both
 /// [`crate::assembly::surface::assemble_surface_mass_triplets`] and
-/// [`crate::lumped_port::assemble_port_surface_mass`] (issue #208).
+/// [`crate::driven::ports::assemble_port_surface_mass`] (issue #208).
 ///
 /// # Panics
 ///

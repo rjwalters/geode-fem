@@ -2,7 +2,7 @@
 //! S-parameters` over port-driven solves (Epic #193, issue #203).
 //!
 //! Given a driven solve excited through a lumped port
-//! ([`crate::lumped_port::LumpedPort`], issue #202), this module
+//! ([`crate::driven::ports::LumpedPort`], issue #202), this module
 //! reduces the field solution to the circuit quantities that are the
 //! epic's actual deliverable:
 //!
@@ -19,7 +19,7 @@
 //! plus self-resonance detection from the `Im Z(ω)` zero crossing when
 //! a sweep brackets it.
 //!
-//! Everything here is **post-processing over [`crate::driven::DrivenSolution`]** — no
+//! Everything here is **post-processing over [`crate::driven::solve::DrivenSolution`]** — no
 //! new assembly physics. The field-to-circuit reduction reuses the
 //! lumped-port flux functional `f_i = ∮ N_i · ê dS` (the same discrete
 //! functional that drives the port, so the drive/measure pair is
@@ -42,7 +42,7 @@
 //! every other port passively terminated in its own reference `R`. At
 //! a fixed ω all N excitations share one LU factorization
 //! ([`DrivenOperator::factor_at`] +
-//! [`crate::driven::FactoredDrivenOperator::solve_excited`]), so an
+//! [`crate::driven::solve::FactoredDrivenOperator::solve_excited`]), so an
 //! N-port S-matrix costs one factorization + N back-substitutions per
 //! frequency. The per-excitation port V/I readbacks assemble the
 //! impedance matrix `Z = V·I⁻¹` and then
@@ -62,11 +62,11 @@ use burn::tensor::backend::Backend;
 use faer::c64;
 
 use crate::TetMesh;
-use crate::driven::{
+use crate::driven::ports::{LumpedPort, port_current, port_voltage};
+use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
     SurfaceImpedanceBc,
 };
-use crate::lumped_port::{LumpedPort, port_current, port_voltage};
 
 /// Circuit quantities of one port at one frequency, read off a driven
 /// solution.
@@ -105,10 +105,10 @@ impl PortCircuit {
 
 /// Extract the port circuit quantities `V`, `I`, `Z` from a single
 /// driven solution (`e_edges` in `mesh.edges()` order, e.g.
-/// [`crate::driven::DrivenSolution::e_edges`]).
+/// [`crate::driven::solve::DrivenSolution::e_edges`]).
 ///
-/// Thin composition of [`crate::lumped_port::port_voltage`] and
-/// [`crate::lumped_port::port_current`]; sweeps should prefer
+/// Thin composition of [`crate::driven::ports::port_voltage`] and
+/// [`crate::driven::ports::port_current`]; sweeps should prefer
 /// [`driven_frequency_sweep`], which reuses the assembled operator and
 /// the cached port flux across frequencies.
 pub fn extract_port_circuit(
@@ -347,8 +347,8 @@ pub struct SweepPoint {
 /// source moments runs once for the whole sweep; per frequency only
 /// scalar recombination, the sparse LU, and the port readouts remain.
 /// One sweep point reproduces the corresponding single-ω
-/// [`crate::driven::driven_solve_with_ports`] /
-/// [`crate::driven::driven_solve_with_surface_impedance`] call exactly
+/// [`crate::driven::solve::driven_solve_with_ports`] /
+/// [`crate::driven::solve::driven_solve_with_surface_impedance`] call exactly
 /// (same arithmetic, same triplet stream).
 ///
 /// `surfaces` composes Leontovich impedance walls (issue #204) into the
@@ -520,7 +520,7 @@ pub fn s_parameter_frequency_sweep<B: Backend>(
 /// (issue #264).
 ///
 /// At each ω the sweep runs `n_ports` back-solves through one
-/// [`crate::driven::DrivenLinearSolver`] handle (one LU factorization
+/// [`crate::driven::solve::DrivenLinearSolver`] handle (one LU factorization
 /// on the direct path, one Jacobi preconditioner on the iterative path)
 /// — see [`SolverMode`] for the trade-off. Per-RHS iteration counts
 /// land in [`SParameterSweepPoint::iters_per_rhs`] for the regression

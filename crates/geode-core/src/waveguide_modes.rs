@@ -139,7 +139,7 @@ impl WaveguideModeProfile {
 
 /// Outgoing-wave complex `β(ω, c, k_c)`: the canonical sign convention
 /// used by both [`WaveguideModeProfile::beta_complex`] and
-/// [`crate::wave_port::PortMode::beta`] under the `exp(+jωt)` time
+/// [`crate::driven::ports::PortMode::beta`] under the `exp(+jωt)` time
 /// convention.
 ///
 /// Returns `+√(ω²/c² − k_c²)` (real positive) for `ω/c ≥ k_c` and
@@ -1985,7 +1985,7 @@ pub(crate) fn assemble_2d_nedelec2_sparse_interior(
 }
 
 /// 2D radial coordinate-stretch (UPML) constitutive data at a Cartesian
-/// point, the 2D reduction of [`crate::scattering::upml_matched_tensors`]
+/// point, the 2D reduction of [`crate::driven::scattering::upml_matched_tensors`]
 /// (Epic #303 PML-A, issue #331).
 ///
 /// In the absorbing annulus `r_pml_inner ≤ r ≤ r_outer` the radial stretch
@@ -2089,7 +2089,7 @@ pub(crate) struct SparseModalOperatorsComplex {
 /// **identical**; the only addition is that on PML-tagged triangles the
 /// local 8×8 `K`/`M` blocks are built with the per-element constant stretch
 /// tensor from [`pml_stretch_tensor_2d`] (evaluated at the triangle
-/// centroid, exactly as the 3D [`crate::scattering::build_matched_upml_materials`]
+/// centroid, exactly as the 3D [`crate::driven::scattering::build_matched_upml_materials`]
 /// does per tet):
 ///
 /// - the curl-curl stiffness scalar curl product is weighted by

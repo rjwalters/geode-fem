@@ -2,7 +2,7 @@
 //! (Epic #234 wave-port, Phase 2, issue #236; multi-mode rank-N
 //! generalization, issue #255 / parent #250).
 //!
-//! Where a *lumped* port ([`crate::lumped_port`]) imposes a uniform
+//! Where a *lumped* port ([`crate::driven::ports`]) imposes a uniform
 //! voltage/current relation across a gap (the Palace Thévenin
 //! formulation), a **wave port** projects onto a true waveguide modal
 //! field on a port plane. Each port supports one **or more** transverse
@@ -111,13 +111,13 @@
 
 use faer::c64;
 
+use super::lumped::LumpedPort;
 use crate::TetMesh;
 use crate::assembly::surface::assemble_surface_mass_triplets;
-use crate::driven::{
+use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
     SurfaceImpedanceBc,
 };
-use crate::lumped_port::LumpedPort;
 
 /// One mode of a [`WavePort`]: the modal eigenvector over the 3-D mesh
 /// edge table, the cutoff wavenumber `k_c`, and the incident modal
@@ -333,7 +333,7 @@ pub fn waveguide_mode_reduce(
 /// One frequency point of an N-port × K-mode **wave-port** S-parameter
 /// sweep ([`solve_wave_port_sweep`]).
 ///
-/// Mirrors [`crate::extraction::SParameterSweepPoint`] in shape but
+/// Mirrors [`crate::driven::extraction::SParameterSweepPoint`] in shape but
 /// without the impedance matrix (wave ports don't have a Thévenin
 /// V/I — the modal amplitude is the natural circuit quantity). The
 /// S-matrix is **block-structured** by (port, mode): rows and columns
@@ -465,11 +465,11 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
 }
 
 /// [`solve_wave_port_sweep`] with an explicit
-/// [`crate::driven::SolverMode`] knob (issue #264).
+/// [`crate::driven::solve::SolverMode`] knob (issue #264).
 ///
 /// The rank-N SMW machinery (issue #255) composes with both backends as
 /// a **post-step**: solve `A_base⁻¹ U` and `A_base⁻¹ b` through the
-/// uniform [`crate::driven::DrivenLinearSolver::back_solve`] API, then
+/// uniform [`crate::driven::solve::DrivenLinearSolver::back_solve`] API, then
 /// assemble the small `N × N` capacitance dense matrix and the SMW
 /// correction in host code. The matrix-vector pieces never change —
 /// only the back-solve does.
@@ -483,7 +483,7 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
 /// entries per ω: the first `n_channels` from the U-column solves,
 /// the remaining `n_channels` from the per-excitation solves).
 ///
-/// See [`crate::driven::SolverMode`] for the documented trade-off.
+/// See [`crate::driven::solve::SolverMode`] for the documented trade-off.
 #[allow(clippy::too_many_arguments)]
 pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
     mesh: &TetMesh,
@@ -807,7 +807,7 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
 /// Returns `None` on an exactly singular pivot. For the channel-count
 /// matrices this serves (N = Σ_p K_p — single digits to low tens in
 /// practice) a dense elimination is the right tool — mirrors the
-/// `invert_complex` helper in [`crate::extraction`].
+/// `invert_complex` helper in [`crate::driven::extraction`].
 fn invert_complex_dense(m: &[c64], n: usize) -> Option<Vec<c64>> {
     debug_assert_eq!(m.len(), n * n);
     let mut a = m.to_vec();

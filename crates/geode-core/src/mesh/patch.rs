@@ -69,7 +69,7 @@ use faer::c64;
 
 use super::sphere::{parse_elements_with_entity_tags, parse_entities_physical_tags};
 use super::{GmshReader, MeshError, MeshReader, TetMesh};
-use crate::lumped_port::LumpedPort;
+use crate::driven::ports::LumpedPort;
 
 /// Physical-group tag for the FR-4 substrate slab (3D).
 pub const PHYS_SUBSTRATE: i32 = 1;

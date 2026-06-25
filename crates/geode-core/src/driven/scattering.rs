@@ -1,6 +1,6 @@
 //! Driven Mie scattering benchmark machinery (issue #195, Epic #193):
 //! scattered-field plane-wave source and `Q_ext` / `Q_sca` extraction
-//! from a [`crate::driven::driven_solve`] solution.
+//! from a [`crate::driven::solve::driven_solve`] solution.
 //!
 //! # Scattered-field formulation
 //!
@@ -58,8 +58,8 @@
 //! The matched UPML is also expressible through the Burn batched-
 //! kernel layer: [`build_matched_upml_materials`] evaluates the per-tet
 //! `(ε_r·Λ, Λ⁻¹)` pair at tet centroids and
-//! [`crate::driven::DrivenMaterials::MatchedUpml`] feeds it to
-//! [`crate::driven::driven_solve`], which assembles `K(Λ⁻¹)` and
+//! [`crate::driven::solve::DrivenMaterials::MatchedUpml`] feeds it to
+//! [`crate::driven::solve::driven_solve`], which assembles `K(Λ⁻¹)` and
 //! `M(ε_rΛ)` through the autodiff-preserving scatter path
 //! ([`crate::assembly::nedelec::assemble_global_nedelec_with_full_tensors`]).
 //! The Burn path and this host path agree at assembly precision for
@@ -116,7 +116,7 @@ use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
 
 use crate::TetMesh;
-use crate::driven::{CurrentSource, DrivenError, DrivenSolution};
+use crate::driven::solve::{CurrentSource, DrivenError, DrivenSolution};
 use crate::mesh::{TET_LOCAL_EDGES, TET_LOCAL_FACES};
 
 /// Incident plane wave `E_inc(x) = x̂ · exp(−i ω z)` (unit amplitude,
@@ -283,7 +283,7 @@ const QUAD_B: f64 = crate::elements::nedelec::TET_QUAD4_B;
 /// ```
 ///
 /// evaluated with the Whitney interpolant of `e_edges` (full-length
-/// edge-DOF vector from [`crate::driven::driven_solve`]) and a
+/// edge-DOF vector from [`crate::driven::solve::driven_solve`]) and a
 /// degree-2 four-point tet quadrature for the `E_inc` phase variation.
 pub fn extinction_power(
     mesh: &TetMesh,
@@ -754,8 +754,8 @@ pub fn upml_matched_tensors(
 /// centroid and returns `(ε, ν)` with `ε = ε_r·Λ` (mass weight) and
 /// `ν = Λ⁻¹` (curl-curl weight) — exactly the per-tet inputs the host
 /// path [`solve_scattered_field_matched_upml`] uses internally, so a
-/// [`crate::driven::driven_solve`] call with
-/// [`crate::driven::DrivenMaterials::MatchedUpml`] is a pure
+/// [`crate::driven::solve::driven_solve`] call with
+/// [`crate::driven::solve::DrivenMaterials::MatchedUpml`] is a pure
 /// assembly-equivalence counterpart of the host solve.
 ///
 /// - `ε_r = n_inside²` on tets tagged `interior_tag`, 1 elsewhere
@@ -823,7 +823,7 @@ fn sandwich(w: &[[c64; 3]; 3], a: [f64; 3], b: [f64; 3]) -> c64 {
 /// UPML: `A(ω) x = b` with `A(ω) = K(Λ⁻¹) − ω² M(ε_r Λ)` assembled
 /// exactly on the host. Kept as the **independent oracle** for the
 /// Burn-path matched UPML
-/// ([`crate::driven::DrivenMaterials::MatchedUpml`] +
+/// ([`crate::driven::solve::DrivenMaterials::MatchedUpml`] +
 /// [`build_matched_upml_materials`]) — see the module docs for the
 /// recorded retire-vs-keep decision.
 ///
@@ -839,7 +839,7 @@ fn sandwich(w: &[[c64; 3]; 3], a: [f64; 3], b: [f64; 3]) -> c64 {
 /// - `j_at(tet, x)` — current density at quadrature point `x` inside
 ///   tet `tet`. The RHS `b_i = iω ∫ N_i · J dV` is integrated with a
 ///   degree-2 four-point rule, which is exact for per-tet-constant `J`
-///   (matching [`crate::driven::driven_solve`]'s RHS bit-for-bit in
+///   (matching [`crate::driven::solve::driven_solve`]'s RHS bit-for-bit in
 ///   that case) and captures the plane-wave phase variation of the
 ///   scattered-field source.
 ///

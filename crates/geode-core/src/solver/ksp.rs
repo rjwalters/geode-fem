@@ -3,7 +3,7 @@
 //!
 //! All driven and eigen solves currently exit to a direct sparse LU
 //! ([`faer::sparse::linalg::solvers::Lu`]) at the solve boundary
-//! ([`crate::driven::FactoredDrivenOperator`],
+//! ([`crate::driven::solve::FactoredDrivenOperator`],
 //! [`crate::eigen::complex`]). Direct factorization caps the problem
 //! size at what fill-in can afford; for larger structures (the
 //! ~30k-edge patch fixture, future 3-D stacks) the next ceiling is the
@@ -142,7 +142,7 @@ pub enum KspError {
 /// Returned by every [`KspSolve::solve`] call. The relative residual
 /// is `‖A x − b‖₂ / ‖b‖₂`, computed with an explicit spmv on the
 /// final iterate — the **same** residual definition the direct path
-/// reports in [`crate::driven::DrivenSolution::residual_rel`], so the
+/// reports in [`crate::driven::solve::DrivenSolution::residual_rel`], so the
 /// two are directly comparable.
 #[derive(Debug, Clone, Copy)]
 pub struct KspReport {
@@ -1127,7 +1127,7 @@ impl Preconditioner for ChebyshevPreconditioner {
 /// Krylov-solver boundary — the iterative analog of the direct LU
 /// factor+solve path. Mirrors the role of
 /// [`faer::sparse::linalg::solvers::Lu`] in
-/// [`crate::driven::FactoredDrivenOperator`]: takes the assembled
+/// [`crate::driven::solve::FactoredDrivenOperator`]: takes the assembled
 /// sparse `A` and RHS `b` and produces the solution + a convergence
 /// report.
 ///

@@ -43,11 +43,11 @@
 //!   stiffness gains a complex full-3×3 weight `ν = Λ⁻¹` and the system
 //!   is `A(ω) = K(ν) + iωC(σ) − ω²M(ε)`. `Λ` is symmetric, so
 //!   `A(ω)ᵀ = A(ω)` still holds. Per-tet tensors come from
-//!   [`crate::scattering::build_matched_upml_materials`]; the
+//!   [`crate::driven::scattering::build_matched_upml_materials`]; the
 //!   host-assembled oracle is
-//!   [`crate::scattering::solve_scattered_field_matched_upml`].
+//!   [`crate::driven::scattering::solve_scattered_field_matched_upml`].
 //! - **Lumped port** (issue #202) — a Palace-style uniform port on a
-//!   boundary surface Γ_p ([`crate::lumped_port::LumpedPort`], passed
+//!   boundary surface Γ_p ([`crate::driven::ports::LumpedPort`], passed
 //!   to [`driven_solve_with_ports`]): a resistive termination adds the
 //!   iω-scaled tangential surface mass `(jω/Z_s) S_p` to `A(ω)`
 //!   (`Z_s = R·w/l`; real symmetric `S_p`, so `A(ω)ᵀ = A(ω)` is
@@ -114,8 +114,8 @@ use crate::assembly::nedelec::{
     assemble_global_nedelec_with_full_tensors_sparse, assemble_nedelec_current_rhs,
     assemble_nedelec_current_rhs_quad4, assemble_nedelec_sigma_damping_sparse, tet_centroids,
 };
+use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
 use crate::eigen::complex::{solve_with_lu, spmv};
-use crate::lumped_port::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
 
 /// Errors produced by the driven-solve layer.
 #[derive(Debug, thiserror::Error)]
@@ -253,7 +253,7 @@ pub enum DrivenMaterials<'a> {
     DiagTensor(&'a [[c64; 3]]),
     /// Matched (full Sacks) UPML materials (issue #199): full 3×3
     /// complex per-tet tensors for **both** constitutive weights, as
-    /// produced by [`crate::scattering::build_matched_upml_materials`].
+    /// produced by [`crate::driven::scattering::build_matched_upml_materials`].
     /// The system becomes `A(ω) = K(ν) + iωC(σ) − ω²M(ε)` with
     /// `ε = ε_r·Λ` and `ν = Λ⁻¹` — the stiffness is complex too, but
     /// `Λ` is symmetric so the complex-symmetry invariant
@@ -397,7 +397,7 @@ impl CurrentSource {
 /// per-tet variation matters (e.g. the plane-wave phase of the Mie
 /// scattered-field polarization current). The RHS is integrated with
 /// the same rule the host-side matched-UPML oracle uses
-/// ([`crate::scattering::solve_scattered_field_matched_upml`]), so the
+/// ([`crate::driven::scattering::solve_scattered_field_matched_upml`]), so the
 /// two paths agree to round-off for the same `J`.
 ///
 /// For a per-tet-constant `J` this reduces exactly to
@@ -416,9 +416,9 @@ pub struct QuadCurrentSource {
 impl QuadCurrentSource {
     /// Sample `J(tet, x)` at every degree-2 quadrature point of every
     /// tet. The closure signature matches the `j_at` argument of
-    /// [`crate::scattering::solve_scattered_field_matched_upml`], so a
+    /// [`crate::driven::scattering::solve_scattered_field_matched_upml`], so a
     /// host-oracle source closure (e.g.
-    /// [`crate::scattering::plane_wave_polarization_current`]) can be
+    /// [`crate::driven::scattering::plane_wave_polarization_current`]) can be
     /// passed directly.
     pub fn from_fn(mesh: &TetMesh, f: impl Fn(usize, [f64; 3]) -> [c64; 3]) -> Self {
         use crate::elements::nedelec::{TET_QUAD4_A, TET_QUAD4_B};
@@ -565,9 +565,9 @@ pub fn driven_solve_with_sigma<B: Backend>(
 /// from both the port matrix rows/columns and the port RHS.
 ///
 /// Port voltage / current / input impedance are read off the solution
-/// with [`crate::lumped_port::port_voltage`],
-/// [`crate::lumped_port::port_current`] and
-/// [`crate::lumped_port::port_input_impedance`].
+/// with [`crate::driven::ports::port_voltage`],
+/// [`crate::driven::ports::port_current`] and
+/// [`crate::driven::ports::port_input_impedance`].
 ///
 /// An empty `ports` slice reproduces [`driven_solve_with_sigma`]
 /// exactly.
@@ -1296,7 +1296,7 @@ impl DrivenOperator {
 
     /// Port voltage `V = (1/w) ∮ E · ê dS` of port `port` read off a
     /// solution's full-length edge vector, using the cached flux
-    /// functional — identical to [`crate::lumped_port::port_voltage`].
+    /// functional — identical to [`crate::driven::ports::port_voltage`].
     ///
     /// # Panics
     ///
@@ -1314,7 +1314,7 @@ impl DrivenOperator {
 
     /// Port current from the Thevenin admittance relation
     /// `I = (2 V_inc − V) / R` of port `port` — identical to
-    /// [`crate::lumped_port::port_current`], using the port's **baked**
+    /// [`crate::driven::ports::port_current`], using the port's **baked**
     /// `V_inc`. For per-excitation bookkeeping (where a port may be
     /// driven in one solve and passively terminated in another), use
     /// [`DrivenOperator::port_current_with_v_inc`].
@@ -1632,7 +1632,7 @@ impl DrivenOperator {
 /// the cached factorization, so N excitations at a fixed ω cost one
 /// factorization + N triangular solves — the multi-RHS structure the
 /// N-port S-matrix extraction needs (one solve per excited port; see
-/// [`crate::extraction::s_parameter_frequency_sweep`]).
+/// [`crate::driven::extraction::s_parameter_frequency_sweep`]).
 pub struct FactoredDrivenOperator<'a> {
     op: &'a DrivenOperator,
     omega: f64,
@@ -1822,8 +1822,8 @@ pub struct BackSolveReport {
 ///   preconditioner + COCG knobs (iterative).
 ///
 /// Multi-RHS callers at the same ω
-/// ([`crate::extraction::s_parameter_frequency_sweep`],
-/// [`crate::wave_port::solve_wave_port_sweep`]) reuse one handle across
+/// ([`crate::driven::extraction::s_parameter_frequency_sweep`],
+/// [`crate::driven::ports::solve_wave_port_sweep`]) reuse one handle across
 /// every RHS; on the iterative path the Jacobi preconditioner is built
 /// once at construction and reused across every
 /// [`DrivenLinearSolver::back_solve`] call.
@@ -1901,7 +1901,7 @@ impl<'a> DrivenLinearSolver<'a> {
     /// must have length [`DrivenOperator::n_interior`].
     ///
     /// Bypasses the baked volume source / port drives — for callers
-    /// (wave-port SMW, see [`crate::wave_port::solve_wave_port_sweep`])
+    /// (wave-port SMW, see [`crate::driven::ports::solve_wave_port_sweep`])
     /// that build their own RHS on top of the same operator.
     pub fn back_solve(&self, b: &[c64], out: &mut [c64]) -> Result<BackSolveReport, DrivenError> {
         assert_eq!(b.len(), self.op.n_interior, "b length mismatch");

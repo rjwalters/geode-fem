@@ -62,7 +62,7 @@
 //!
 //! The per-face geometry and quadrature kernel live in the shared
 //! `whitney` module (issue #208), which this module and
-//! [`crate::lumped_port`] both delegate to.
+//! [`crate::driven::ports`] both delegate to.
 //!
 //! # Why the BAC-CAB rank reduction is valid here
 //!
@@ -164,7 +164,7 @@ pub fn assemble_silver_muller_surface(
 ///   units `η₀ = 1`, so `+j k₀ S`).
 /// - **Leontovich surface impedance** (Epic #193, issue #204):
 ///   coefficient `+j ω / Z_s(ω)` — see
-///   [`crate::driven::driven_solve_with_surface_impedance`].
+///   [`crate::driven::solve::driven_solve_with_surface_impedance`].
 ///
 /// Returns a real, symmetric `[n_edges, n_edges]` dense matrix whose
 /// only non-zero rows/columns are the edges of the listed triangles.
@@ -198,10 +198,10 @@ pub fn assemble_surface_mass(
 /// Duplicate `(row, col)` entries (edges shared by adjacent faces) are
 /// **not** summed — the caller accumulates them (e.g. faer's
 /// `try_new_from_triplets`, or a pattern-slot scatter as in
-/// [`crate::driven::DrivenOperator`]). Triplets appear in face order,
+/// [`crate::driven::solve::DrivenOperator`]). Triplets appear in face order,
 /// so summing them reproduces the dense accumulation order exactly.
 /// Same convention as
-/// [`crate::lumped_port::assemble_port_surface_mass`], which is the
+/// [`crate::driven::ports::assemble_port_surface_mass`], which is the
 /// **same kernel** — both delegate to the shared
 /// `whitney` module (issue #208), so the two entry points
 /// produce bit-identical triplet streams.

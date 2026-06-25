@@ -10,9 +10,7 @@ pub mod derham;
 pub mod driven;
 pub mod eigen;
 pub mod elements;
-pub mod extraction;
 pub mod fiber_lp;
-pub mod lumped_port;
 pub mod mesh;
 pub mod mie;
 pub mod mie_open;
@@ -21,11 +19,9 @@ pub mod mohan;
 pub mod ntff;
 pub mod palace;
 pub mod patch_cavity;
-pub mod scattering;
 pub mod silvermuller_self_consistent;
 pub mod solver;
 pub mod viz_vtu;
-pub mod wave_port;
 pub mod waveguide_modes;
 
 #[deprecated(note = "use geode_core::assembly::fe instead")]
@@ -69,7 +65,32 @@ pub use eigen::complex::{
 // these flat-root item re-exports become deprecated shims.
 #[deprecated(note = "use geode_core::derham instead")]
 pub use derham::{apply_divergence, apply_gradient, curl_map, divergence_map, gradient_map};
-pub use driven::{
+#[deprecated(note = "use geode_core::driven::extraction instead")]
+pub use driven::extraction::{
+    PortCircuit, SMatrix, SParameterSweepPoint, SweepPoint, detect_srf, driven_frequency_sweep,
+    driven_frequency_sweep_with_mode, extract_port_circuit, im_z_zero_crossings, inductance,
+    quality_factor, s_parameter_frequency_sweep, s_parameter_frequency_sweep_with_mode, s11,
+};
+#[deprecated(note = "use geode_core::driven::ports instead")]
+pub use driven::ports::{
+    ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMode, WavePort, WavePortSweepPoint,
+    extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
+    map_mode_profile_to_full_mesh, solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
+    waveguide_mode_reduce,
+};
+#[deprecated(note = "use geode_core::driven::ports instead")]
+pub use driven::ports::{
+    LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
+    port_voltage,
+};
+#[deprecated(note = "use geode_core::driven::scattering instead")]
+pub use driven::scattering::{
+    build_matched_upml_materials, extinction_power, flux_power_box, mie_polarization_source,
+    plane_wave_e_inc, plane_wave_polarization_current, q_from_power, scattered_flux_power,
+    solve_scattered_field_matched_upml, upml_matched_tensors,
+};
+#[deprecated(note = "use geode_core::driven::solve instead")]
+pub use driven::solve::{
     BackSolveReport, CurrentSource, DrivenBcs, DrivenError, DrivenLinearSolver, DrivenMaterials,
     DrivenOperator, DrivenSolution, FactoredDrivenOperator, IterativeSettings, QuadCurrentSource,
     SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel, driven_solve, driven_solve_iterative,
@@ -92,18 +113,9 @@ pub use elements::nedelec::{
 };
 #[deprecated(note = "use geode_core::elements::p1 instead")]
 pub use elements::p1::{P1LocalMatrices, batched_p1_local_matrices};
-pub use extraction::{
-    PortCircuit, SMatrix, SParameterSweepPoint, SweepPoint, detect_srf, driven_frequency_sweep,
-    driven_frequency_sweep_with_mode, extract_port_circuit, im_z_zero_crossings, inductance,
-    quality_factor, s_parameter_frequency_sweep, s_parameter_frequency_sweep_with_mode, s11,
-};
 pub use fiber_lp::{
     bessel_j, bessel_j0, bessel_j1, bessel_k, bessel_k0, bessel_k1, fiber_lp_neff, normalized_b,
     v_number,
-};
-pub use lumped_port::{
-    LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
-    port_voltage,
 };
 #[allow(deprecated)]
 pub use mesh::PHYS_VACUUM_BUFFER;
@@ -137,11 +149,6 @@ pub use ntff::{
     principal_plane_cuts, to_db,
 };
 pub use patch_cavity::PatchCavity;
-pub use scattering::{
-    build_matched_upml_materials, extinction_power, flux_power_box, mie_polarization_source,
-    plane_wave_e_inc, plane_wave_polarization_current, q_from_power, scattered_flux_power,
-    solve_scattered_field_matched_upml, upml_matched_tensors,
-};
 pub use silvermuller_self_consistent::{
     SelfConsistentResult, self_consistent_k, self_consistent_k_vector_tracked,
 };
@@ -151,12 +158,6 @@ pub use solver::iterate::{IterOutcome, IterReport, Step, iterate_while, iterate_
 pub use solver::ksp::{
     ChebyshevConfig, ChebyshevKind, ChebyshevPreconditioner, Cocg, IdentityPreconditioner,
     IluPreconditioner, JacobiPreconditioner, KspError, KspReport, KspSolve, Preconditioner,
-};
-pub use wave_port::{
-    ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMode, WavePort, WavePortSweepPoint,
-    extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
-    map_mode_profile_to_full_mesh, solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
-    waveguide_mode_reduce,
 };
 pub use waveguide_modes::*;
 
