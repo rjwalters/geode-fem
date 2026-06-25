@@ -11,6 +11,7 @@ pub mod complex_lanczos;
 pub mod derham;
 pub mod driven;
 pub mod eigen;
+pub mod elements;
 pub mod extraction;
 pub mod fe_assemble;
 pub mod fiber_lp;
@@ -23,10 +24,8 @@ pub mod mie;
 pub mod mie_open;
 pub mod mie_scattering;
 pub mod mohan;
-pub mod nedelec;
 pub mod nedelec_assembly;
 pub mod ntff;
-pub mod p1;
 pub mod palace;
 pub mod patch_cavity;
 pub mod scattering;
@@ -36,7 +35,6 @@ pub mod sparse;
 pub mod viz_vtu;
 pub mod wave_port;
 pub mod waveguide_modes;
-pub(crate) mod whitney_face;
 
 #[cfg(feature = "arpack")]
 pub mod arpack;
@@ -48,6 +46,11 @@ pub use complex_eigen::{ComplexEigenSolver, FaerComplexEigensolver};
 pub use complex_lanczos::{
     ComplexEigenPair, SparseComplexEigenSolver, SparseComplexShiftInvertLanczos,
 };
+// `derham` stays top-level (epic #377 open-question 4): the de Rham
+// operators bridge element spaces rather than belonging to any single
+// basis. The canonical module path `geode_core::derham::*` is unchanged;
+// these flat-root item re-exports become deprecated shims.
+#[deprecated(note = "use geode_core::derham instead")]
 pub use derham::{apply_divergence, apply_gradient, curl_map, divergence_map, gradient_map};
 pub use driven::{
     BackSolveReport, CurrentSource, DrivenBcs, DrivenError, DrivenLinearSolver, DrivenMaterials,
@@ -60,6 +63,15 @@ pub use eigen::{
     EigenError, EigenPair, EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc,
     burn_matrix_to_faer, cube_interior_mask,
 };
+#[deprecated(note = "use geode_core::elements::nedelec instead")]
+pub use elements::nedelec::{
+    NedelecLocalMatrices, TET_QUAD4_A, TET_QUAD4_B, batched_nedelec_local_mass_anisotropic_diag,
+    batched_nedelec_local_mass_anisotropic_full, batched_nedelec_local_matrices,
+    batched_nedelec_local_rhs, batched_nedelec_local_rhs_quad4,
+    batched_nedelec_local_stiffness_weighted, tet_edges,
+};
+#[deprecated(note = "use geode_core::elements::p1 instead")]
+pub use elements::p1::{P1LocalMatrices, batched_p1_local_matrices};
 pub use extraction::{
     PortCircuit, SMatrix, SParameterSweepPoint, SweepPoint, detect_srf, driven_frequency_sweep,
     driven_frequency_sweep_with_mode, extract_port_circuit, im_z_zero_crossings, inductance,
@@ -107,12 +119,6 @@ pub use mie_scattering::{
     MieCoefficients, MieEfficiencies, mie_a_b, mie_coefficients, mie_efficiencies, mie_series_order,
 };
 pub use mohan::{SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l};
-pub use nedelec::{
-    NedelecLocalMatrices, TET_QUAD4_A, TET_QUAD4_B, batched_nedelec_local_mass_anisotropic_diag,
-    batched_nedelec_local_mass_anisotropic_full, batched_nedelec_local_matrices,
-    batched_nedelec_local_rhs, batched_nedelec_local_rhs_quad4,
-    batched_nedelec_local_stiffness_weighted, tet_edges,
-};
 pub use nedelec_assembly::{
     DERHAM_RANK_THRESHOLD_REL, NedelecComplexGlobalSystem, NedelecFullTensorGlobalSystem,
     NedelecGlobalSystem, NedelecScatterMap, NedelecSparseComplexSystem,
@@ -134,7 +140,6 @@ pub use ntff::{
     FarField, PatternCut, broadside_directivity, directivity, gain, ntff_far_field,
     principal_plane_cuts, to_db,
 };
-pub use p1::{P1LocalMatrices, batched_p1_local_matrices};
 pub use patch_cavity::PatchCavity;
 pub use scattering::{
     build_matched_upml_materials, extinction_power, flux_power_box, mie_polarization_source,

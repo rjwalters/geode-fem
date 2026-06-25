@@ -140,7 +140,7 @@ pub struct NedelecLocalMatrices<B: Backend> {
 ///
 /// * `coords` — `[n_elem, 4, 3]`. Vertex 0 (`coords[:, 0, :]`) is the
 ///   base used to form the edge vectors `e_k = v_k - v_0`. Matches the
-///   convention in [`crate::p1::batched_p1_local_matrices`].
+///   convention in [`crate::elements::p1::batched_p1_local_matrices`].
 ///
 /// # Returns
 ///

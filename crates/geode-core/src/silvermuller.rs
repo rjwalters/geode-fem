@@ -61,7 +61,7 @@
 //! unit test below.
 //!
 //! The per-face geometry and quadrature kernel live in the shared
-//! `whitney_face` module (issue #208), which this module and
+//! `whitney` module (issue #208), which this module and
 //! [`crate::lumped_port`] both delegate to.
 //!
 //! # Why the BAC-CAB rank reduction is valid here
@@ -88,8 +88,8 @@
 
 use faer::Mat;
 
+use crate::elements::whitney;
 use crate::mesh::TetMesh;
-use crate::whitney_face;
 
 /// Assemble the dense Silver-Müller surface matrix `S` on the outer
 /// boundary triangles.
@@ -203,7 +203,7 @@ pub fn assemble_surface_mass(
 /// Same convention as
 /// [`crate::lumped_port::assemble_port_surface_mass`], which is the
 /// **same kernel** — both delegate to the shared
-/// `whitney_face` module (issue #208), so the two entry points
+/// `whitney` module (issue #208), so the two entry points
 /// produce bit-identical triplet streams.
 ///
 /// # Panics
@@ -215,7 +215,7 @@ pub fn assemble_surface_mass_triplets(
     triangles: &[[u32; 3]],
     edges: &[[u32; 2]],
 ) -> Vec<(usize, usize, f64)> {
-    whitney_face::assemble_surface_mass_triplets(mesh, triangles, edges)
+    whitney::assemble_surface_mass_triplets(mesh, triangles, edges)
 }
 
 #[cfg(test)]

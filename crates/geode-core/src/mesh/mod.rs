@@ -204,7 +204,7 @@ impl TetMesh {
 ///
 /// Used by both the host-side edge-table builder ([`TetMesh::edges`])
 /// and the batched Nédélec local-matrix kernel. The order is fixed
-/// across the codebase and re-exported from `crate::nedelec` for
+/// across the codebase and re-exported from `crate::elements::nedelec` for
 /// callers working in the FEM module.
 pub const TET_LOCAL_EDGES: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
 
@@ -298,7 +298,7 @@ fn triple_permutation_sign(local: &[u32; 3]) -> i8 {
 ///
 /// Produces `(n+1)^3` nodes and `6 * n^3` tets. All tets have positive
 /// signed volume by construction. Vertex ordering matches what
-/// [`crate::p1::batched_p1_local_matrices`] expects (vertex 0 is the
+/// [`crate::elements::p1::batched_p1_local_matrices`] expects (vertex 0 is the
 /// edge base).
 ///
 /// Useful as a programmatic alternative to a Gmsh-generated fixture for

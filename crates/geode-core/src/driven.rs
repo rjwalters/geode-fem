@@ -408,8 +408,8 @@ pub struct QuadCurrentSource {
     /// `[n_tets][4][3]` complex current density at the four degree-2
     /// quadrature points of each tet, in `mesh.tets` order. Point `q`
     /// of a tet has barycentric weight
-    /// [`crate::nedelec::TET_QUAD4_A`] on vertex `q` and
-    /// [`crate::nedelec::TET_QUAD4_B`] on the other three.
+    /// [`crate::elements::nedelec::TET_QUAD4_A`] on vertex `q` and
+    /// [`crate::elements::nedelec::TET_QUAD4_B`] on the other three.
     pub j_quad: Vec<[[c64; 3]; 4]>,
 }
 
@@ -421,7 +421,7 @@ impl QuadCurrentSource {
     /// [`crate::scattering::plane_wave_polarization_current`]) can be
     /// passed directly.
     pub fn from_fn(mesh: &TetMesh, f: impl Fn(usize, [f64; 3]) -> [c64; 3]) -> Self {
-        use crate::nedelec::{TET_QUAD4_A, TET_QUAD4_B};
+        use crate::elements::nedelec::{TET_QUAD4_A, TET_QUAD4_B};
         let j_quad = mesh
             .tets
             .iter()

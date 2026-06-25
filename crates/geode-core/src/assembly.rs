@@ -1,7 +1,7 @@
 //! Global assembly of P1 element-local stiffness and mass matrices.
 //!
 //! Builds the global `K` and `M` matrices by scattering per-element
-//! `[n_elem, 4, 4]` local tensors (from [`crate::p1::batched_p1_local_matrices`])
+//! `[n_elem, 4, 4]` local tensors (from [`crate::elements::p1::batched_p1_local_matrices`])
 //! into a flat `[n_dof * n_dof]` Burn tensor using 1-D
 //! [`Tensor::scatter`](burn::tensor::Tensor::scatter) with
 //! `IndexingUpdateOp::Add`, then reshaping to `[n_dof, n_dof]`.
@@ -34,7 +34,7 @@ use burn::tensor::backend::Backend;
 use burn::tensor::{IndexingUpdateOp, Int, TensorData};
 
 use crate::TetMesh;
-use crate::p1::batched_p1_local_matrices;
+use crate::elements::p1::batched_p1_local_matrices;
 
 /// Assembled global linear system in dense Burn-tensor form.
 #[derive(Debug, Clone)]

@@ -48,7 +48,7 @@
 //!              − (1+δ_bc) G_ad + (1+δ_bd) G_ac ]
 //! ```
 //!
-//! (the 2-D analogue of the 3-D tet formulas in `crate::nedelec`).
+//! (the 2-D analogue of the 3-D tet formulas in `crate::elements::nedelec`).
 //!
 //! # Edge / sign convention
 //!
