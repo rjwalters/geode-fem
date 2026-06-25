@@ -53,12 +53,12 @@
 //! basis storage is < 6 MB and the orthogonalization cost is negligible
 //! next to the sparse triangular solves.
 //!
-//! # Why this loop is not ported onto [`crate::iterate`]
+//! # Why this loop is not ported onto [`crate::solver::iterate`]
 //!
 //! Like the real path ([`crate::lanczos`]), this complex-symmetric
 //! variant shares the growing-basis structure: full reorthogonalization
 //! keeps the whole history, so the Krylov basis gains one column per
-//! iteration. That violates [`crate::iterate`] **contract restriction 1**
+//! iteration. That violates [`crate::solver::iterate`] **contract restriction 1**
 //! (loop-invariant carried-state shapes), so the loop is intentionally
 //! left off the `iterate_while` combinator. See [`crate::lanczos`] for the
 //! full rationale.

@@ -153,7 +153,7 @@ pub enum DrivenError {
 /// cheaply across multi-RHS (the historical default — the N-port
 /// S-matrix path of issue #214 and the rank-N wave-port SMW of issue
 /// #255 both lean on this). The iterative path
-/// ([`crate::ksp_solve::Cocg`] + [`crate::ksp_solve::JacobiPreconditioner`],
+/// ([`crate::solver::ksp::Cocg`] + [`crate::solver::ksp::JacobiPreconditioner`],
 /// landed in PR #243) avoids the factorization entirely — each RHS at a
 /// fixed ω runs a fresh COCG iteration against the cached sparse
 /// `A(ω)`. The preconditioner is built once per ω from the assembled
@@ -201,10 +201,10 @@ pub enum SolverMode {
 
 /// Tunable knobs for [`SolverMode::Iterative`].
 ///
-/// Mirrors [`crate::ksp_solve::Cocg`]'s tolerance / iteration budget,
+/// Mirrors [`crate::solver::ksp::Cocg`]'s tolerance / iteration budget,
 /// but lives in the driven layer because the iterative back-solve is a
 /// per-ω internal — callers parameterize the sweep with these, not a
-/// constructed [`crate::ksp_solve::Cocg`] (the breakdown threshold uses
+/// constructed [`crate::solver::ksp::Cocg`] (the breakdown threshold uses
 /// the COCG default).
 #[derive(Debug, Clone, Copy)]
 pub struct IterativeSettings {
@@ -731,8 +731,8 @@ fn driven_solve_impl<B: Backend>(
 ///
 /// Assembles the driven operator exactly as [`driven_solve`] does and
 /// dispatches to [`DrivenOperator::solve_at_iterative`] with the
-/// supplied [`crate::ksp_solve::KspSolve`] solver and Jacobi preconditioner. Returns
-/// both the solution and the Krylov [`crate::ksp_solve::KspReport`] (iteration count,
+/// supplied [`crate::solver::ksp::KspSolve`] solver and Jacobi preconditioner. Returns
+/// both the solution and the Krylov [`crate::solver::ksp::KspReport`] (iteration count,
 /// final relative residual) — the report is what issue #238's
 /// acceptance criteria call out as "iteration counts reported".
 ///
@@ -746,20 +746,20 @@ fn driven_solve_impl<B: Backend>(
 /// # Solver / preconditioner choice
 ///
 /// The default `KspSolve` for the complex-symmetric driven pencil is
-/// [`crate::ksp_solve::Cocg`] (conjugate orthogonal CG, the natural
+/// [`crate::solver::ksp::Cocg`] (conjugate orthogonal CG, the natural
 /// choice for `A^T = A` without conjugation; see the module docs).
 /// The default preconditioner is
-/// [`crate::ksp_solve::JacobiPreconditioner`] — diagonal scaling,
+/// [`crate::solver::ksp::JacobiPreconditioner`] — diagonal scaling,
 /// cheap, and sufficient for the driven curl-curl pencil at the
 /// frequencies the patch / parallel-plate fixtures exercise. Pass
-/// [`crate::ksp_solve::IdentityPreconditioner::new`] via
+/// [`crate::solver::ksp::IdentityPreconditioner::new`] via
 /// [`DrivenOperator::solve_at_iterative`] directly for the
 /// unpreconditioned baseline.
 ///
 /// # Errors
 ///
 /// Returns the assembly errors of [`driven_solve`] plus
-/// [`DrivenError::Solve`] wrapping any [`crate::ksp_solve::KspError`]
+/// [`DrivenError::Solve`] wrapping any [`crate::solver::ksp::KspError`]
 /// (breakdown, non-convergence, dimension mismatch).
 pub fn driven_solve_iterative<B: Backend, K>(
     mesh: &TetMesh,
@@ -769,9 +769,9 @@ pub fn driven_solve_iterative<B: Backend, K>(
     source: &CurrentSource,
     ksp: &K,
     device: &B::Device,
-) -> Result<(DrivenSolution, crate::ksp_solve::KspReport), DrivenError>
+) -> Result<(DrivenSolution, crate::solver::ksp::KspReport), DrivenError>
 where
-    K: crate::ksp_solve::KspSolve,
+    K: crate::solver::ksp::KspSolve,
 {
     let op = DrivenOperator::assemble_impl::<B>(
         mesh,
@@ -784,7 +784,7 @@ where
         device,
     )?;
     op.solve_at_iterative(omega, ksp, |a| {
-        crate::ksp_solve::JacobiPreconditioner::new(a.as_ref())
+        crate::solver::ksp::JacobiPreconditioner::new(a.as_ref())
     })
 }
 
@@ -1552,11 +1552,13 @@ impl DrivenOperator {
         &self,
         omega: f64,
         ksp: &K,
-        precond_factory: impl FnOnce(&SparseColMat<usize, c64>) -> Result<P, crate::ksp_solve::KspError>,
-    ) -> Result<(DrivenSolution, crate::ksp_solve::KspReport), DrivenError>
+        precond_factory: impl FnOnce(
+            &SparseColMat<usize, c64>,
+        ) -> Result<P, crate::solver::ksp::KspError>,
+    ) -> Result<(DrivenSolution, crate::solver::ksp::KspReport), DrivenError>
     where
-        K: crate::ksp_solve::KspSolve,
-        P: crate::ksp_solve::Preconditioner,
+        K: crate::solver::ksp::KspSolve,
+        P: crate::solver::ksp::Preconditioner,
     {
         use crate::complex_lanczos::spmv;
 
@@ -1579,7 +1581,7 @@ impl DrivenOperator {
                     n_interior: self.n_interior,
                     residual_rel: 0.0,
                 },
-                crate::ksp_solve::KspReport {
+                crate::solver::ksp::KspReport {
                     iters: 0,
                     residual_rel: 0.0,
                     converged: true,
@@ -1798,7 +1800,7 @@ impl FactoredDrivenOperator<'_> {
 /// triangular back-substitution has no Krylov iterations) and
 /// `residual_rel` is the LU back-substitution's own residual on this
 /// RHS; for [`SolverMode::Iterative`] both fields come from the COCG
-/// [`crate::ksp_solve::KspReport`].
+/// [`crate::solver::ksp::KspReport`].
 #[derive(Debug, Clone, Copy)]
 pub struct BackSolveReport {
     /// Krylov iterations executed for this RHS (0 on the direct path).
@@ -1841,8 +1843,8 @@ enum SolverBackend {
         lu: Box<Lu<usize, c64>>,
     },
     Iterative {
-        precond: crate::ksp_solve::JacobiPreconditioner,
-        ksp: crate::ksp_solve::Cocg,
+        precond: crate::solver::ksp::JacobiPreconditioner,
+        ksp: crate::solver::ksp::Cocg,
     },
 }
 
@@ -1930,7 +1932,7 @@ impl<'a> DrivenLinearSolver<'a> {
                 })
             }
             SolverBackend::Iterative { precond, ksp } => {
-                use crate::ksp_solve::KspSolve;
+                use crate::solver::ksp::KspSolve;
                 // Zero RHS: the direct path silently produces x = 0 via
                 // the triangular sweep; mirror that on the iterative
                 // path so the two are interchangeable in callers that
@@ -2004,7 +2006,7 @@ impl DrivenOperator {
     ///   triangular back-substitution per RHS.
     /// - [`SolverMode::Iterative`]: build the Jacobi preconditioner from
     ///   `A(ω)`; the handle's `back_solve` runs a fresh
-    ///   [`crate::ksp_solve::Cocg`] iteration per RHS.
+    ///   [`crate::solver::ksp::Cocg`] iteration per RHS.
     ///
     /// In both cases the cached sparse `A(ω)` is held by the handle, so
     /// [`DrivenLinearSolver::spmv_a`] is identical across modes (and
@@ -2031,9 +2033,9 @@ impl DrivenOperator {
                 SolverBackend::Direct { lu: Box::new(lu) }
             }
             SolverMode::Iterative(settings) => {
-                let precond = crate::ksp_solve::JacobiPreconditioner::new(a_int.as_ref())
+                let precond = crate::solver::ksp::JacobiPreconditioner::new(a_int.as_ref())
                     .map_err(|e| DrivenError::Solve(format!("Jacobi preconditioner setup: {e}")))?;
-                let ksp = crate::ksp_solve::Cocg::new(settings.tol, settings.max_iters);
+                let ksp = crate::solver::ksp::Cocg::new(settings.tol, settings.max_iters);
                 SolverBackend::Iterative { precond, ksp }
             }
         };
@@ -2430,7 +2432,7 @@ mod tests {
     /// counts are reported through [`KspReport`].
     #[test]
     fn iterative_matches_direct_lu() {
-        use crate::ksp_solve::Cocg;
+        use crate::solver::ksp::Cocg;
 
         // Small cube cavity (same fixture the residual / linearity
         // tests use). PEC walls, vacuum interior, smooth real source.
@@ -2543,7 +2545,7 @@ mod tests {
     /// genuinely a separate concern from the Krylov core.
     #[test]
     fn identity_preconditioner_also_converges() {
-        use crate::ksp_solve::{Cocg, IdentityPreconditioner};
+        use crate::solver::ksp::{Cocg, IdentityPreconditioner};
 
         let mesh = cube_tet_mesh(2, 1.0);
         let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
@@ -2587,7 +2589,7 @@ mod tests {
         let ksp = Cocg::new(1e-12, 5000);
         let (sol_ksp, report) = op
             .solve_at_iterative(omega, &ksp, |a| {
-                Ok::<_, crate::ksp_solve::KspError>(IdentityPreconditioner::new(a.nrows()))
+                Ok::<_, crate::solver::ksp::KspError>(IdentityPreconditioner::new(a.nrows()))
             })
             .expect("identity-preconditioned COCG");
         assert!(report.converged);
@@ -2631,7 +2633,7 @@ mod tests {
     /// to stderr so future runs surface any preconditioner regression.
     #[test]
     fn ilu_vs_jacobi_cube_cavity_regression() {
-        use crate::ksp_solve::{Cocg, IluPreconditioner, JacobiPreconditioner};
+        use crate::solver::ksp::{Cocg, IluPreconditioner, JacobiPreconditioner};
 
         let mesh = cube_tet_mesh(3, 1.0);
         let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
@@ -2748,7 +2750,7 @@ mod tests {
     /// the ratio for future regression awareness.
     #[test]
     fn ilu_vs_jacobi_sigma_damped_resistor_regression() {
-        use crate::ksp_solve::{Cocg, IluPreconditioner, JacobiPreconditioner};
+        use crate::solver::ksp::{Cocg, IluPreconditioner, JacobiPreconditioner};
 
         // σ-filled resistor cube — same family as the regression
         // fixture in `extraction.rs`, but assembled directly here so
@@ -2835,7 +2837,7 @@ mod tests {
     /// the same reporting style as the #267 ILU(0) test.
     #[test]
     fn chebyshev_vs_jacobi_sigma_damped_resistor_regression() {
-        use crate::ksp_solve::{
+        use crate::solver::ksp::{
             ChebyshevConfig, ChebyshevKind, ChebyshevPreconditioner, Cocg, IdentityPreconditioner,
         };
         use std::time::Instant;
@@ -2873,7 +2875,7 @@ mod tests {
         let t_id = Instant::now();
         let (sol_id, report_id) = op
             .solve_at_iterative(omega, &ksp, |a| {
-                Ok::<_, crate::ksp_solve::KspError>(IdentityPreconditioner::new(a.nrows()))
+                Ok::<_, crate::solver::ksp::KspError>(IdentityPreconditioner::new(a.nrows()))
             })
             .expect("unpreconditioned COCG");
         let dt_id = t_id.elapsed();
@@ -2881,7 +2883,7 @@ mod tests {
         let t_jac = Instant::now();
         let (_sol_jac, report_jac) = op
             .solve_at_iterative(omega, &ksp, |a| {
-                crate::ksp_solve::JacobiPreconditioner::new(a.as_ref())
+                crate::solver::ksp::JacobiPreconditioner::new(a.as_ref())
             })
             .expect("Jacobi-preconditioned COCG");
         let dt_jac = t_jac.elapsed();
@@ -2984,7 +2986,7 @@ mod tests {
     /// `zero_source_gives_zero_field` semantics.
     #[test]
     fn iterative_zero_source_gives_zero_field() {
-        use crate::ksp_solve::Cocg;
+        use crate::solver::ksp::Cocg;
 
         let mesh = cube_tet_mesh(2, 1.0);
         let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
@@ -3018,8 +3020,8 @@ mod tests {
     #[test]
     #[ignore = "heavy fixture; opt-in with `cargo test --release -- --ignored iterative_patch_benchmark`"]
     fn iterative_patch_benchmark() {
-        use crate::ksp_solve::Cocg;
         use crate::mesh::{pec_interior_mask_from_triangles, read_patch_smoke_fixture};
+        use crate::solver::ksp::Cocg;
 
         let fixture = read_patch_smoke_fixture().expect("patch fixture");
         let patch_tris = fixture.patch_triangles();
@@ -3124,8 +3126,8 @@ mod tests {
     #[test]
     #[ignore = "heavy fixture; opt-in with `cargo test --release -- --ignored ilu_patch_benchmark`"]
     fn ilu_patch_benchmark() {
-        use crate::ksp_solve::{Cocg, IluPreconditioner, JacobiPreconditioner};
         use crate::mesh::{pec_interior_mask_from_triangles, read_patch_smoke_fixture};
+        use crate::solver::ksp::{Cocg, IluPreconditioner, JacobiPreconditioner};
 
         let fixture = read_patch_smoke_fixture().expect("patch fixture");
         let patch_tris = fixture.patch_triangles();
