@@ -396,7 +396,7 @@ pub fn driven_frequency_sweep<B: Backend>(
 ///
 /// `SolverMode::Iterative(settings)` instead builds the Jacobi
 /// preconditioner from `A(ω)` once per ω and runs a fresh
-/// [`crate::ksp_solve::Cocg`] iteration for the single RHS — no
+/// [`crate::solver::ksp::Cocg`] iteration for the single RHS — no
 /// factorization, no fill-in. The per-RHS COCG iteration count is
 /// surfaced in [`SweepPoint::iters_per_rhs`] so the regression test
 /// (and downstream callers) can detect convergence degradation across
@@ -404,7 +404,7 @@ pub fn driven_frequency_sweep<B: Backend>(
 ///
 /// The iterative path returns the same [`DrivenError`] variants as the
 /// direct path, with [`DrivenError::Solve`] wrapping any
-/// [`crate::ksp_solve::KspError`] (Krylov breakdown / non-convergence /
+/// [`crate::solver::ksp::KspError`] (Krylov breakdown / non-convergence /
 /// preconditioner setup failure).
 #[allow(clippy::too_many_arguments)]
 pub fn driven_frequency_sweep_with_mode<B: Backend>(

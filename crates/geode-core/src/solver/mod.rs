@@ -1,0 +1,23 @@
+//! Linear-solve and iteration machinery.
+//!
+//! This group gathers the routines that drive a system to a solution —
+//! whether that means solving a single linear system or running a generic
+//! convergence loop to a fixed point or root:
+//!
+//! - [`ksp`]: Krylov iterative linear solvers for the complex-symmetric
+//!   driven system `A(ω) x = b` — the [`KspSolve`](ksp::KspSolve) trait,
+//!   the complex-symmetric COCG solver ([`Cocg`](ksp::Cocg)), and the
+//!   [`Preconditioner`](ksp::Preconditioner) framework (identity, Jacobi,
+//!   ILU, and Chebyshev preconditioners).
+//! - [`iterate`]: generic convergence-loop combinators
+//!   ([`iterate_while`](iterate::iterate_while) and
+//!   [`iterate_while_with_prev`](iterate::iterate_while_with_prev)) that
+//!   capture the shape shared by the crate's hand-rolled state-carry loops.
+//!
+//! The two complement each other: `ksp` is the inner linear-solve corner
+//! invoked at each frequency / shift, while `iterate` provides the outer
+//! convergence scaffolding (self-consistent Newton, Lanczos restarts,
+//! bracketing root finders) that wraps repeated solves.
+
+pub mod iterate;
+pub mod ksp;

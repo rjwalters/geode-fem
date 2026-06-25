@@ -41,7 +41,7 @@
 //! recurrence for `y_l`) for higher `l`. Roots are extracted by dense
 //! sampling + sign-change bracketing + bisection refinement.
 
-use crate::iterate::{IterOutcome, Step, iterate_while};
+use crate::solver::iterate::{IterOutcome, Step, iterate_while};
 
 /// Polarisation of an electromagnetic resonance in the spherical
 /// cavity.

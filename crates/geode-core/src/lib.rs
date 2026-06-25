@@ -14,8 +14,6 @@ pub mod eigen;
 pub mod elements;
 pub mod extraction;
 pub mod fiber_lp;
-pub mod iterate;
-pub mod ksp_solve;
 pub mod lanczos;
 pub mod lumped_port;
 pub mod mesh;
@@ -28,6 +26,7 @@ pub mod palace;
 pub mod patch_cavity;
 pub mod scattering;
 pub mod silvermuller_self_consistent;
+pub mod solver;
 pub mod viz_vtu;
 pub mod wave_port;
 pub mod waveguide_modes;
@@ -104,11 +103,6 @@ pub use fiber_lp::{
     bessel_j, bessel_j0, bessel_j1, bessel_k, bessel_k0, bessel_k1, fiber_lp_neff, normalized_b,
     v_number,
 };
-pub use iterate::{IterOutcome, IterReport, Step, iterate_while, iterate_while_with_prev};
-pub use ksp_solve::{
-    ChebyshevConfig, ChebyshevKind, ChebyshevPreconditioner, Cocg, IdentityPreconditioner,
-    IluPreconditioner, JacobiPreconditioner, KspError, KspReport, KspSolve, Preconditioner,
-};
 pub use lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 pub use lumped_port::{
     LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
@@ -153,6 +147,13 @@ pub use scattering::{
 };
 pub use silvermuller_self_consistent::{
     SelfConsistentResult, self_consistent_k, self_consistent_k_vector_tracked,
+};
+#[deprecated(note = "use geode_core::solver::iterate instead")]
+pub use solver::iterate::{IterOutcome, IterReport, Step, iterate_while, iterate_while_with_prev};
+#[deprecated(note = "use geode_core::solver::ksp instead")]
+pub use solver::ksp::{
+    ChebyshevConfig, ChebyshevKind, ChebyshevPreconditioner, Cocg, IdentityPreconditioner,
+    IluPreconditioner, JacobiPreconditioner, KspError, KspReport, KspSolve, Preconditioner,
 };
 pub use wave_port::{
     ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMode, WavePort, WavePortSweepPoint,
