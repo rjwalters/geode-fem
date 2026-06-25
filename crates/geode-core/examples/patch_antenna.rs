@@ -122,7 +122,7 @@ use std::process::Command;
 use faer::c64;
 
 use geode_core::mesh::patch::FR4_MATERIALS;
-use geode_core::viz_vtu::write_vtu_surface;
+use geode_core::postproc::viz::write_vtu_surface;
 use geode_core::{
     CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, PatchCavity, PatchFixture,
     broadside_directivity, directivity, driven_solve_with_ports, flux_power_box, gain,
@@ -1164,7 +1164,7 @@ fn export_field(path: &str) {
     {
         std::fs::create_dir_all(parent).expect("create --export-field parent dir");
     }
-    geode_core::viz_vtu::write_vtu(out, &fixture.mesh, &e_re, Some(&e_im), Some(&eps_r))
+    geode_core::postproc::viz::write_vtu(out, &fixture.mesh, &e_re, Some(&e_im), Some(&eps_r))
         .expect("write --export-field .vtu");
     eprintln!(
         "  wrote {} ({} nodes, {} tets)",
@@ -1274,7 +1274,7 @@ fn export_sweep(spec: &viz_export_helper::SweepSpec) {
         let (e_re, e_im) = viz_export_helper::edge_field_to_nodes(&fixture.mesh, &sol.e_edges);
         let file = format!("E_{i:04}.vtu");
         let out = dir.join(&file);
-        geode_core::viz_vtu::write_vtu(&out, &fixture.mesh, &e_re, Some(&e_im), Some(&eps_r))
+        geode_core::postproc::viz::write_vtu(&out, &fixture.mesh, &e_re, Some(&e_im), Some(&eps_r))
             .expect("write --export-sweep frame .vtu");
         eprintln!(
             "  frame {i:>3}/{}: f = {f_ghz:6.4} GHz (res = {:.1e}) → {}",

@@ -17,7 +17,8 @@
 
 use std::path::PathBuf;
 
-use geode_core::{cube_tet_mesh, viz_vtu::write_vtu, viz_vtu::write_vtu_surface};
+use geode_core::cube_tet_mesh;
+use geode_core::postproc::viz::{write_vtu, write_vtu_surface};
 
 /// Unique tempfile path under the OS temp dir (no `tempfile` dev-dep).
 fn temp_vtu(tag: &str) -> PathBuf {

@@ -169,7 +169,7 @@ pub fn mie_polarization_source(
 /// Per-tet affine geometry: barycentric gradients and volume.
 ///
 /// Promoted to `pub(crate)` so the near-to-far-field transform
-/// ([`crate::ntff`]) reuses the verified Whitney evaluators
+/// ([`crate::postproc::ntff`]) reuses the verified Whitney evaluators
 /// ([`eval_field_at_bary`], [`eval_curl`]) instead of duplicating the
 /// per-tet geometry math.
 pub(crate) struct TetGeometry {
@@ -588,7 +588,7 @@ pub(crate) struct BoxFaceSample {
 /// lies inside the axis-aligned box `[box_lo, box_hi]` — the **identical
 /// surface selector** [`flux_power_box`] uses — and return per-face
 /// `(n̂, area, centroid, E, H)` samples for the near-to-far-field
-/// transform ([`crate::ntff`]).
+/// transform ([`crate::postproc::ntff`]).
 ///
 /// Sharing this walk (rather than duplicating it) guarantees the NTFF
 /// integrates the Love equivalent currents over exactly the same
