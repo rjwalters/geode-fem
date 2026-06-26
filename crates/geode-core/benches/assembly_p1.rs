@@ -13,7 +13,7 @@
 //!
 //! Extract a TOML summary of the resulting medians via:
 //! ```sh
-//! cargo run -p geode-core --example extract_baseline
+//! cargo run -p extract_baseline
 //! ```
 
 use std::time::Duration;

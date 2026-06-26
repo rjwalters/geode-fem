@@ -216,7 +216,7 @@ End-to-end (2B export → 2C render):
 ```bash
 # 2B: export a solved field to a .vtu (producer; see the 2B issue).
 #     Writes e.g. artifacts/viz/E_patch.vtu under the gitignored tree.
-cargo run -p geode-core --example patch_antenna -- --export-field artifacts/viz/E_patch.vtu
+cargo run -p patch_antenna --release -- --export-field --out-dir artifacts/viz
 
 # 2C: render a z-slice coloured by |E| to a PNG (run under pvbatch).
 # Direct-path form (no PYTHONPATH needed):
@@ -290,8 +290,8 @@ End-to-end (3C):
 # (1) Rust: export one .vtu per swept frequency + sweep.pvd.
 #     --f-start / --f-stop are GHz; --n is the frame count
 #     (defaults: 2.0–3.0 GHz over 11 points).
-cargo run -p geode-core --release --example patch_antenna -- \
-    --export-sweep artifacts/viz/patch_sweep --f-start 2.0 --f-stop 3.0 --n 11
+cargo run -p patch_antenna --release -- \
+    --export-sweep --out-dir artifacts/viz/patch_sweep --f-start 2.0 --f-stop 3.0 --n 11
 
 # (2) Python: render frames + stitch to MP4, under pvbatch (ParaView 5.x).
 #     Direct-path form (no PYTHONPATH needed):
