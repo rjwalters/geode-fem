@@ -4,6 +4,7 @@ members = [
     "crates/geode-core",
     "crates/geode-cli",
     "crates/geode-validation",
+    "crates/geode-app",
 ]
 
 [workspace.package]
