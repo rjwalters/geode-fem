@@ -78,12 +78,16 @@
 use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 
-use geode_core::{
-    DefaultBackend, R_BUFFER, TetMesh, apply_dirichlet_bc, apply_gradient, assemble_global_nedelec,
-    assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml, burn_matrix_to_faer,
-    cube_interior_mask, cube_pec_interior_edges, cube_tet_mesh, read_sphere_fixture,
-    sphere_pec_interior_edges, tet_centroid_radii, upload_mesh,
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec, assemble_global_nedelec_with_complex_epsilon,
+    build_complex_epsilon_r_pml, cube_pec_interior_edges, sphere_pec_interior_edges,
+    tet_centroid_radii,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::derham::apply_gradient;
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
+use geode_core::mesh::{R_BUFFER, TetMesh, cube_tet_mesh, read_sphere_fixture};
 
 type B = DefaultBackend;
 

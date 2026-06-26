@@ -4,7 +4,7 @@
 //!
 //! Drives the `spiral_3p5.msh` fixture (54,428 edges; see
 //! `geode_core::mesh::spiral` for the stack and physical groups)
-//! through its lumped port with [`geode_core::driven_frequency_sweep`]:
+//! through its lumped port with [`geode_core::driven::extraction::driven_frequency_sweep`]:
 //! the ω-independent operator assembles **once** (sparse `[nnz]` path,
 //! issue #218), then per frequency only the complex recombination +
 //! sparse LU + port readback run. Setup mirrors the issue-#218
@@ -20,12 +20,12 @@
 //!
 //! Per frequency the port impedance `Z = V/I` reduces to the circuit
 //! quantities `L = Im Z/ω`, `R = Re Z`, `Q = Im Z/Re Z`, `S₁₁` vs 50 Ω
-//! (`geode_core::extraction`), and the sweep is scanned for the
+//! (`geode_core::driven::extraction`), and the sweep is scanned for the
 //! self-resonant `Im Z = 0` crossing (`detect_srf`).
 //!
 //! # Oracles (recorded in the output TOML)
 //!
-//! - **Mohan analytic** (`geode_core::mohan`, in-repo): the three
+//! - **Mohan analytic** (`geode_core::analytic::spiral`, in-repo): the three
 //!   closed-form square-spiral expressions on the fixture
 //!   parameterization — a ±5–10 % low-frequency sanity band (no ground
 //!   plane, no feed stubs).
@@ -80,12 +80,18 @@ use std::process::Command;
 
 use faer::c64;
 
+use geode_core::analytic::spiral::{
+    SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
+};
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::extraction::{detect_srf, driven_frequency_sweep};
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    driven_solve_with_ports,
+};
 use geode_core::mesh::spiral::CONDUCTOR_SIGMA_NATURAL;
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, SpiralFixture, SquareSpiral,
-    SurfaceImpedanceBc, SurfaceImpedanceModel, detect_srf, driven_frequency_sweep,
-    driven_solve_with_ports, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
-    pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_smoke_fixture,
+use geode_core::mesh::{
+    SpiralFixture, pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_smoke_fixture,
 };
 
 #[path = "common/viz_export_helper.rs"]
@@ -328,7 +334,7 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Opti
     // (d_in = 40 µm), so the Mohan/mom values would not apply.
     if choice == FixtureChoice::Benchmark {
         s.push_str("[oracles.mohan]\n");
-        s.push_str("# geode_core::mohan on the fixture parameterization (n = 3.5,\n");
+        s.push_str("# geode_core::analytic::spiral on the fixture parameterization (n = 3.5,\n");
         s.push_str("# w = 6 um, s = 4 um, d_in = 60 um), nH.\n");
         s.push_str(&format!("current_sheet_l_nh = {l_cs:.6e}\n"));
         s.push_str(&format!("modified_wheeler_l_nh = {l_mw:.6e}\n"));

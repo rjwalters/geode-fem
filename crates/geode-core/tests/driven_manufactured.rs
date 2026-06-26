@@ -47,11 +47,13 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use std::f64::consts::PI;
 
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, assemble_global_nedelec,
-    batched_nedelec_local_rhs, burn_matrix_to_faer, cube_pec_interior_edges, cube_tet_mesh,
-    driven_solve, upload_mesh,
-};
+use geode_core::assembly::nedelec::{assemble_global_nedelec, cube_pec_interior_edges};
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::solve::{CurrentSource, DrivenBcs, DrivenMaterials, driven_solve};
+use geode_core::eigen::dense::burn_matrix_to_faer;
+use geode_core::elements::nedelec::batched_nedelec_local_rhs;
+use geode_core::mesh::cube_tet_mesh;
 
 type B = DefaultBackend;
 

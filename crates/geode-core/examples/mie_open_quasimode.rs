@@ -7,7 +7,7 @@
 //! cavity, which inflates the apparent quality factor of the
 //! open-structure quasi-modes — the recorded TM₁,₁ Q ≈ 27 in
 //! `benchmarks/mie_sphere/results.toml` vs. the analytic open-space
-//! Q ≈ 1.95 from `geode_core::OPEN_SPACE_WGM_TABLE_N15`.
+//! Q ≈ 1.95 from `geode_core::analytic::mie::OPEN_SPACE_WGM_TABLE_N15`.
 //!
 //! This benchmark assembles the eigenpencil with the **matched** (full
 //! Sacks) UPML lifted into Burn assembly by PR #205 for the driven
@@ -70,13 +70,19 @@ use std::process::Command;
 use burn::tensor::backend::BackendTypes;
 use faer::sparse::{SparseColMat, Triplet};
 
-use geode_core::{
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, MieRootComplex,
-    PHYS_SPHERE_INTERIOR, R_BUFFER, SparseComplexEigenSolver, SparseComplexShiftInvertLanczos,
-    SphereFixture, assemble_global_nedelec_with_full_tensors, build_matched_upml_materials,
-    burn_complex_mass_to_faer, open_space_wgm_roots_n15, read_sphere_fixture,
-    sphere_n_interior_nodes, sphere_pec_interior_edges, upload_mesh,
+use geode_core::analytic::mie::{MiePolarisation, MieRootComplex, open_space_wgm_roots_n15};
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_full_tensors, burn_complex_mass_to_faer, sphere_n_interior_nodes,
+    sphere_pec_interior_edges,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::scattering::build_matched_upml_materials;
+use geode_core::eigen::complex::{
+    ComplexEigenSolver, FaerComplexEigensolver, SparseComplexEigenSolver,
+    SparseComplexShiftInvertLanczos,
+};
+use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, SphereFixture, read_sphere_fixture};
 
 type B = DefaultBackend;
 

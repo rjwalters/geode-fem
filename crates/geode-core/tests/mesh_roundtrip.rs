@@ -4,7 +4,7 @@
 //! group "domain") and asserts that every value parsed back matches
 //! what was written into the fixture.
 
-use geode_core::{GmshReader, MeshReader};
+use geode_core::mesh::{GmshReader, MeshReader};
 
 const UNIT_CUBE_MSH: &[u8] = include_bytes!("fixtures/unit_cube.msh");
 

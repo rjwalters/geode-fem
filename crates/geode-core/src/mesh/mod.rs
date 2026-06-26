@@ -50,7 +50,7 @@ pub use patch::{
 /// Node indices in `tets` are 0-based linear indices into `nodes`,
 /// independent of the (possibly sparse, 1-based) tags in the source file.
 ///
-/// Not to be confused with the [`Mesh`](crate::Mesh) trait in the crate
+/// Not to be confused with the [`Mesh`](crate::traits::Mesh) trait in the crate
 /// root — that one is a placeholder for in-pipeline (potentially GPU-resident)
 /// mesh objects parameterized by a Burn backend. `TetMesh` is the raw CPU
 /// output of mesh I/O; a `Mesh`-implementing struct would typically wrap

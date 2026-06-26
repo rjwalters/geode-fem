@@ -16,16 +16,19 @@ use std::time::Duration;
 use burn::tensor::backend::BackendTypes;
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 
-use geode_core::{
-    DefaultBackend, assemble_global_nedelec, assemble_global_nedelec_with_complex_epsilon,
-    burn_matrix_to_faer, cube_tet_mesh, upload_mesh,
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec, assemble_global_nedelec_with_complex_epsilon,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::dense::burn_matrix_to_faer;
+use geode_core::mesh::cube_tet_mesh;
 
 type B = DefaultBackend;
 
 /// Build the host-side `tet_edge_idx` / `tet_edge_sign` tables from a
 /// `TetMesh`. Mirrors the conversion in `examples/mie_sphere.rs`.
-fn split_tet_edges(mesh: &geode_core::TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
+fn split_tet_edges(mesh: &geode_core::mesh::TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
     let tet_edges = mesh.tet_edges();
     let idx: Vec<[u32; 6]> = tet_edges
         .iter()

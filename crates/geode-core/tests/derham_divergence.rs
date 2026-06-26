@@ -27,7 +27,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use geode_core::{TetMesh, apply_divergence, cube_tet_mesh, curl_map, divergence_map};
+use geode_core::derham::{apply_divergence, curl_map, divergence_map};
+use geode_core::mesh::{TetMesh, cube_tet_mesh};
 
 /// A single tet on nodes 0..4. Connectivity is all that matters for
 /// `d²`; the coordinates below form a unit reference tet for good
@@ -328,7 +329,7 @@ fn apply_divergence_of_apply_gradient_via_curl_chain_is_zero() {
     let phi: Vec<f64> = (0..n_nodes).map(|i| (i as f64) * 0.5 - 1.0).collect();
 
     // edge field = gradient(φ)
-    let edge_field = geode_core::apply_gradient(&mesh, &phi);
+    let edge_field = geode_core::derham::apply_gradient(&mesh, &phi);
     assert_eq!(edge_field.len(), n_edges);
 
     // face field = d¹ · edge_field (via dense expansion; same matvec

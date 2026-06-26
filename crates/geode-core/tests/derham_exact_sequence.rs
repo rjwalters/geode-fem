@@ -43,9 +43,8 @@
 //!   `divergence_map`.
 
 use faer::sparse::SparseColMat;
-use geode_core::{
-    TetMesh, cube_tet_mesh, curl_map, divergence_map, gradient_map, read_sphere_fixture,
-};
+use geode_core::derham::{curl_map, divergence_map, gradient_map};
+use geode_core::mesh::{TetMesh, cube_tet_mesh, read_sphere_fixture};
 
 /// Assert that `&a * &b` is bit-exactly the zero matrix of shape
 /// `expected_shape = (a.n_rows, b.n_cols)`. Walks both the stored CSC

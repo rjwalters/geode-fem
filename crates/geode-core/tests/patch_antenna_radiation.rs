@@ -4,7 +4,7 @@
 //! directivity, and gain.
 //!
 //! The NTFF transform itself is validated independently of the patch by
-//! the analytic short-dipole unit tests in `geode_core::ntff` (recovered
+//! the analytic short-dipole unit tests in `geode_core::postproc::ntff` (recovered
 //! directivity D = 1.50, sinθ pattern, phase-sign / translation
 //! invariance) — that is the linchpin. These tests then exercise the
 //! patch application in the same three-tier structure as
@@ -60,13 +60,16 @@ use std::path::PathBuf;
 
 use faer::c64;
 
-use geode_core::mesh::patch::FR4_MATERIALS;
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, PatchCavity, PatchFixture,
-    broadside_directivity, directivity, driven_solve_with_ports, flux_power_box, gain,
-    ntff_far_field, pec_interior_mask_from_triangles, port_current, port_voltage,
-    read_patch_smoke_fixture,
+use geode_core::analytic::patch::PatchCavity;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::ports::{port_current, port_voltage};
+use geode_core::driven::scattering::flux_power_box;
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenMaterials, driven_solve_with_ports,
 };
+use geode_core::mesh::patch::FR4_MATERIALS;
+use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_smoke_fixture};
+use geode_core::postproc::ntff::{broadside_directivity, directivity, gain, ntff_far_field};
 
 const ETA_0: f64 = 376.730_313_668;
 const C_MM_PER_S: f64 = 2.997_924_58e11;
@@ -511,7 +514,7 @@ fn smoke_ntff_is_physical() {
 #[ignore = "heavy: 30.6k-edge matched-UPML driven solve + NTFF (~30 s release); run with --release -- --ignored"]
 fn benchmark_fixture_pattern_matches_committed() {
     let committed = committed_pattern();
-    let fixture = geode_core::read_patch_fixture().expect("bundled benchmark patch fixture");
+    let fixture = geode_core::mesh::read_patch_fixture().expect("bundled benchmark patch fixture");
     let (eta, d_max, d_bs, g_bs) = solve_and_ntff(&fixture, F_RES_FEM_GHZ, PML_THICK_BENCH_MM);
 
     eprintln!(
@@ -579,7 +582,8 @@ fn benchmark_fixture_pattern_matches_committed() {
 #[ignore = "heavy: 31k-edge matched-UPML driven solve + NTFF (~30 s release); run with --release -- --ignored"]
 fn matched_fixture_pattern_matches_committed() {
     let committed = committed_matched_pattern();
-    let fixture = geode_core::read_patch_matched_fixture().expect("bundled matched patch fixture");
+    let fixture =
+        geode_core::mesh::read_patch_matched_fixture().expect("bundled matched patch fixture");
     let (eta, d_max, d_bs, g_bs) = solve_and_ntff(&fixture, F_RES_MATCHED_GHZ, PML_THICK_BENCH_MM);
 
     eprintln!(

@@ -9,7 +9,7 @@
 //!      `n_interior_edges`, `spurious_dim`. Default `cargo test`.
 //!   3. Complex constitutive cross-check — the input field
 //!      `epsilon_r_complex` from the fixture should match the value
-//!      `geode_core::build_complex_epsilon_r_pml` produces in Rust.
+//!      `geode_core::assembly::nedelec::build_complex_epsilon_r_pml` produces in Rust.
 //!      This is the cheap c128 input-side round-trip — exercises the
 //!      `Fixture::input_c128` path end-to-end against a real
 //!      Burn-computed value.
@@ -36,7 +36,8 @@
 
 use std::path::PathBuf;
 
-use geode_core::{build_complex_epsilon_r_pml, read_sphere_fixture, tet_centroid_radii};
+use geode_core::assembly::nedelec::{build_complex_epsilon_r_pml, tet_centroid_radii};
+use geode_core::mesh::read_sphere_fixture;
 use geode_validation::{Complex64, Fixture, FixtureFormat};
 
 // ---------------------------------------------------------------------------

@@ -83,14 +83,19 @@
 use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 
-use geode_core::{
-    ComplexEigenSolver, DefaultBackend, EigenSolver, FaerComplexEigensolver, FaerDenseEigensolver,
-    R_BUFFER, TetMesh, apply_dirichlet_bc, assemble_global_nedelec,
-    assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
-    burn_complex_mass_to_faer, burn_matrix_to_faer, cube_interior_mask, cube_pec_interior_edges,
-    cube_tet_mesh, gradient_map, read_sphere_fixture, restrict_gradient_dense,
-    sphere_pec_interior_edges, tet_centroid_radii, upload_mesh,
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec, assemble_global_nedelec_with_complex_epsilon,
+    build_complex_epsilon_r_pml, burn_complex_mass_to_faer, cube_pec_interior_edges,
+    restrict_gradient_dense, sphere_pec_interior_edges, tet_centroid_radii,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::derham::gradient_map;
+use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
+use geode_core::eigen::dense::{
+    EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
+};
+use geode_core::mesh::{R_BUFFER, TetMesh, cube_tet_mesh, read_sphere_fixture};
 
 type B = DefaultBackend;
 
@@ -136,7 +141,7 @@ fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
 }
 
-// `restrict_gradient_dense` was lifted into `geode_core::nedelec_assembly`
+// `restrict_gradient_dense` was lifted into `geode_core::assembly::nedelec`
 // for reuse from the sphere PEC eigenmode test, the geode-validation
 // comparator, and any future PEC cavity fixture (Issue #124). The
 // dense materialisation logic and the sign / mask conventions are

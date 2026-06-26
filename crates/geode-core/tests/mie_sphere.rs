@@ -41,13 +41,16 @@
 
 use burn::tensor::backend::BackendTypes;
 
-use geode_core::{
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, R_BUFFER,
-    R_SPHERE, apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
-    build_anisotropic_pml_tensor_diag, burn_complex_mass_to_faer, burn_matrix_to_faer,
-    merged_roots, open_space_wgm_roots_n15, read_sphere_fixture, sphere_n_interior_nodes,
-    sphere_pec_interior_edges, tet_centroids, upload_mesh,
+use geode_core::analytic::mie::{MiePolarisation, merged_roots, open_space_wgm_roots_n15};
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_anisotropic_epsilon, build_anisotropic_pml_tensor_diag,
+    burn_complex_mass_to_faer, sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroids,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
+use geode_core::mesh::{R_BUFFER, R_SPHERE, read_sphere_fixture};
 
 /// Q-factor band lower bound for the lowest TM_1,1 triplet (issue #40).
 ///
@@ -375,7 +378,7 @@ fn mie_sphere_tm11_triplet_q_above_band() {
 /// open-space sphere (radiation BC at infinity, complex `k`) are the
 /// physical reference target. This test pairs the FEM ground-state
 /// triplet against the open-space TM_1,1 root in
-/// [`geode_core::OPEN_SPACE_WGM_TABLE_N15`] and asserts agreement on
+/// [`geode_core::analytic::mie::OPEN_SPACE_WGM_TABLE_N15`] and asserts agreement on
 /// both `Re(k)` and `|Im(k)|`.
 ///
 /// **Tolerances — initial targets per the issue spec**:

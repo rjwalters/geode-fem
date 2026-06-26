@@ -47,7 +47,7 @@
 //! cargo test -p geode-core --test circular_waveguide_modes
 //! ```
 
-use geode_core::{TriMesh, solve_waveguide_modes};
+use geode_core::analytic::waveguide::{TriMesh, solve_waveguide_modes};
 
 /// Hard-coded Bessel-zero table for the analytic oracle. Values from
 /// Abramowitz & Stegun Table 9.5 (J_m zeros) and 9.6 (J'_m zeros),
@@ -276,7 +276,7 @@ fn circular_te11_matches_analytic() {
 /// general/rectangular paths don't diverge silently.
 #[test]
 fn circular_multi_mode_set_wise_m_orthonormal() {
-    use geode_core::{apply_pec_2d, assemble_2d_nedelec};
+    use geode_core::analytic::waveguide::{apply_pec_2d, assemble_2d_nedelec};
     let r = 1.0;
     let mesh = disk_tri_mesh(r, 6, 18);
     let (edges, mask) = disk_pec_interior_edges(&mesh, r);
@@ -326,7 +326,7 @@ fn circular_multi_mode_set_wise_m_orthonormal() {
 /// stretched cross-section.
 #[test]
 fn general_path_on_wide_rectangle_recovers_te10() {
-    use geode_core::{rect_pec_interior_edges, rect_tri_mesh};
+    use geode_core::analytic::waveguide::{rect_pec_interior_edges, rect_tri_mesh};
     let (a, b) = (10.0_f64, 1.0_f64);
     let nx = 20;
     let ny = 4;
@@ -370,7 +370,7 @@ fn general_path_on_wide_rectangle_recovers_te10() {
 /// rectangular shim but the **accuracy band** is the same).
 #[test]
 fn general_path_on_rectangular_mesh_matches_te10() {
-    use geode_core::{rect_pec_interior_edges, rect_tri_mesh};
+    use geode_core::analytic::waveguide::{rect_pec_interior_edges, rect_tri_mesh};
     let (a, b) = (2.0_f64, 1.0_f64);
     let mesh = rect_tri_mesh(16, 8, a, b);
     let (edges, mask) = rect_pec_interior_edges(&mesh, a, b);

@@ -13,7 +13,7 @@
 //!    fields (`autodiff_jit_ok` / `autodiff_grad_ok` /
 //!    `autodiff_grad_finite`) recorded in the fixture.
 //! 2. Constitutive: per-tet diagonal UPML tensor vs
-//!    `geode_core::build_anisotropic_pml_tensor_diag` at `1e-14` on |Δ|.
+//!    `geode_core::assembly::nedelec::build_anisotropic_pml_tensor_diag` at `1e-14` on |Δ|.
 //! 3. Spectrum: Burn `FaerComplexEigensolver` vs the JAX-side LAPACK
 //!    ZGGEV on the identical complex-symmetric tensor-ε pencil; strict
 //!    cross-IR window = the mesh-split TM_1,1 triplet (#160
@@ -40,13 +40,16 @@ use std::path::PathBuf;
 use burn::tensor::backend::BackendTypes;
 use num_complex::Complex64;
 
-use geode_core::{
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, R_BUFFER,
-    R_SPHERE, SphereFixture, apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
-    build_anisotropic_pml_tensor_diag, burn_complex_mass_to_faer, burn_matrix_to_faer,
-    merged_roots, read_sphere_fixture_from_bytes, sphere_n_interior_nodes,
-    sphere_pec_interior_edges, tet_centroids, upload_mesh,
+use geode_core::analytic::mie::{MiePolarisation, merged_roots};
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_anisotropic_epsilon, build_anisotropic_pml_tensor_diag,
+    burn_complex_mass_to_faer, sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroids,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
+use geode_core::mesh::{R_BUFFER, R_SPHERE, SphereFixture, read_sphere_fixture_from_bytes};
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = DefaultBackend;

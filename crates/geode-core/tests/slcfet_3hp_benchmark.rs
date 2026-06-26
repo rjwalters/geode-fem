@@ -9,7 +9,7 @@
 //!    committed oracles — the mom PEEC baseline
 //!    (`reference/fixtures/slcfet_mom/baseline.json`, **exact** n = 3
 //!    geometry match) and the in-repo Mohan analytic expressions
-//!    (`geode_core::mohan`) — with **calibrated** bands (see below).
+//!    (`geode_core::analytic::spiral`) — with **calibrated** bands (see below).
 //! 2. **Smoke solve** (default profile): one end-to-end port-driven
 //!    extraction on the coarse `spiral_slcfet_3hp_smoke.msh` fixture
 //!    through the same sweep API the benchmark uses.
@@ -50,11 +50,15 @@ use faer::c64;
 use std::fs;
 use std::path::PathBuf;
 
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, SLCFET_3HP_MATERIALS, SpiralFixture,
-    SquareSpiral, SurfaceImpedanceBc, SurfaceImpedanceModel, SweepPoint, driven_frequency_sweep,
-    mohan_current_sheet_l, pec_interior_mask_from_triangles, read_spiral_slcfet_3hp_fixture,
-    read_spiral_slcfet_3hp_smoke_fixture,
+use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::extraction::{SweepPoint, driven_frequency_sweep};
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
+};
+use geode_core::mesh::{
+    SLCFET_3HP_MATERIALS, SpiralFixture, pec_interior_mask_from_triangles,
+    read_spiral_slcfet_3hp_fixture, read_spiral_slcfet_3hp_smoke_fixture,
 };
 
 /// Free-space impedance η₀ (Ω).

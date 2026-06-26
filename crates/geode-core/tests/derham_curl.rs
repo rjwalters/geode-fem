@@ -15,7 +15,8 @@
 use std::collections::BTreeMap;
 
 use faer::sparse::SparseColMat;
-use geode_core::{TetMesh, cube_tet_mesh, curl_map, gradient_map};
+use geode_core::derham::{curl_map, gradient_map};
+use geode_core::mesh::{TetMesh, cube_tet_mesh};
 
 /// A single tet on nodes 0..4. Connectivity is all that matters for
 /// `d¹`; the coordinates below form a unit reference tet for good

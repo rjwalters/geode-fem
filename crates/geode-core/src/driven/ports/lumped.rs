@@ -268,7 +268,7 @@ pub fn port_input_impedance(
 mod tests {
     use super::*;
     use crate::assembly::surface::assemble_silver_muller_surface;
-    use crate::{TetMesh, cube_tet_mesh};
+    use crate::mesh::{TetMesh, cube_tet_mesh};
     use std::collections::BTreeMap;
 
     fn unit_triangle_mesh() -> (TetMesh, Vec<[u32; 3]>) {

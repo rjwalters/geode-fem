@@ -5,13 +5,13 @@
 //!
 //! Drives the `spiral_slcfet_3hp.msh` fixture (76,964 edges; see
 //! `geode_core::mesh::spiral` for the stack and physical groups)
-//! through its lumped port with [`geode_core::driven_frequency_sweep`],
+//! through its lumped port with [`geode_core::driven::extraction::driven_frequency_sweep`],
 //! exactly the pipeline of the issue-#211 generic benchmark
 //! (`examples/spiral_inductor.rs`) with the SLCFET 3HP materials:
 //!
 //! - SiC substrate ε_r = 9.7 / tan δ = 0.004 and an air "dielectric"
 //!   region — the 3HP metals sit in air above the SiC
-//!   ([`geode_core::SLCFET_3HP_MATERIALS`], from the canonical PDK
+//!   ([`geode_core::mesh::SLCFET_3HP_MATERIALS`], from the canonical PDK
 //!   `pdk/slcfet/slcfet_3hp.pdk.yaml` in the sphere monorepo);
 //! - PEC outer walls (edge-exact mask);
 //! - the conductor cavity walls carry the Leontovich good-conductor
@@ -27,7 +27,7 @@
 //!   unlike issue #211). The **L oracle**; NOT a reliable Q oracle
 //!   above ~2 GHz (3-filament lateral discretization vs the 1.3 µm Au
 //!   skin depth at 3 GHz — documented in the issue-#211 calibration).
-//! - **Mohan analytic** (`geode_core::mohan`, in-repo): closed-form
+//! - **Mohan analytic** (`geode_core::analytic::spiral`, in-repo): closed-form
 //!   square-spiral L on the fixture parameterization — a low-frequency
 //!   sanity band (no ground plane, no feed stubs).
 //! - **Palace**: no install exists on the generation machine
@@ -57,10 +57,16 @@ use std::process::Command;
 
 use faer::c64;
 
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, SLCFET_3HP_MATERIALS, SpiralFixture,
-    SquareSpiral, SurfaceImpedanceBc, SurfaceImpedanceModel, detect_srf, driven_frequency_sweep,
-    modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l, pec_interior_mask_from_triangles,
+use geode_core::analytic::spiral::{
+    SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
+};
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::extraction::{detect_srf, driven_frequency_sweep};
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
+};
+use geode_core::mesh::{
+    SLCFET_3HP_MATERIALS, SpiralFixture, pec_interior_mask_from_triangles,
     read_spiral_slcfet_3hp_fixture, read_spiral_slcfet_3hp_smoke_fixture,
 };
 
@@ -339,7 +345,7 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Opti
         s.push_str(&format!("q_3ghz = {MOM_Q_3GHZ}\n"));
         s.push('\n');
         s.push_str("[oracles.mohan]\n");
-        s.push_str("# geode_core::mohan on the fixture parameterization (n = 3,\n");
+        s.push_str("# geode_core::analytic::spiral on the fixture parameterization (n = 3,\n");
         s.push_str("# w = 10 um, s = 5 um, d_in = 100 um), nH.\n");
         s.push_str(&format!("current_sheet_l_nh = {l_cs:.6e}\n"));
         s.push_str(&format!("modified_wheeler_l_nh = {l_mw:.6e}\n"));

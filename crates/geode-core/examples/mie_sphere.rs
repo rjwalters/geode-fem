@@ -24,7 +24,7 @@
 //! - **Analytic side**: real-only PEC-cavity roots are the primary
 //!   pairing target (multiplicity-claim logic below). The open-space
 //!   Mie WGM positions (complex `k`, outgoing-wave BC) are also
-//!   tabulated in `geode_core::OPEN_SPACE_WGM_TABLE_N15` (issue #33)
+//!   tabulated in `geode_core::analytic::mie::OPEN_SPACE_WGM_TABLE_N15` (issue #33)
 //!   and printed as a side-by-side cross-check at the bottom of the
 //!   run — they are the physically correct ground truth, but the
 //!   PML-truncated FEM does not yet reach them tightly (~30–40 % rel
@@ -75,7 +75,7 @@
 //! sphere is solved once as a *driven scattering* problem — a plane
 //! wave `E_inc = x̂·exp(−iωz)` illuminating the `n = 1.5` dielectric
 //! sphere via the matched (full Sacks) UPML scattered-field solve
-//! (`geode_core::solve_scattered_field_matched_upml`, the same machinery
+//! (`geode_core::driven::scattering::solve_scattered_field_matched_upml`, the same machinery
 //! as the `mie_driven_scattering` example) — and the scattered near
 //! field `E_sca(r)` is dumped to `<path.vtu>` for ParaView inspection:
 //!
@@ -97,17 +97,25 @@ use std::process::Command;
 use burn::tensor::backend::BackendTypes;
 use faer::sparse::{SparseColMat, Triplet};
 
-use geode_core::{
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, MieRoot,
-    PHYS_SPHERE_INTERIOR, R_BUFFER, R_SPHERE, SparseComplexEigenSolver,
-    SparseComplexShiftInvertLanczos, apply_dirichlet_bc,
+use geode_core::analytic::mie::{
+    MiePolarisation, MieRoot, mie_roots_catalog, open_space_wgm_roots_n15,
+};
+use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_anisotropic_epsilon, assemble_global_nedelec_with_complex_epsilon,
     build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml, burn_complex_mass_to_faer,
-    burn_matrix_to_faer, mie_roots_catalog, open_space_wgm_roots_n15,
-    plane_wave_polarization_current, read_sphere_fixture, solve_scattered_field_matched_upml,
     sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii, tet_centroids,
-    upload_mesh,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::scattering::{
+    plane_wave_polarization_current, solve_scattered_field_matched_upml,
+};
+use geode_core::eigen::complex::{
+    ComplexEigenSolver, FaerComplexEigensolver, SparseComplexEigenSolver,
+    SparseComplexShiftInvertLanczos,
+};
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
+use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, R_SPHERE, read_sphere_fixture};
 
 #[path = "common/viz_export_helper.rs"]
 mod viz_export_helper;

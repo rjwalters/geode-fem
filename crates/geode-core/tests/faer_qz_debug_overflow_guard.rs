@@ -49,7 +49,7 @@
 //! against silently regressing the profile wiring.
 
 use faer::Mat;
-use geode_core::{EigenSolver, FaerDenseEigensolver};
+use geode_core::eigen::dense::{EigenSolver, FaerDenseEigensolver};
 
 /// A small, non-trivial symmetric-positive-definite generalized pencil
 /// `(K, M)` that drives faer's QZ iteration hard enough to historically

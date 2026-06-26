@@ -22,7 +22,7 @@
 //!    slab solves, neglects the corner field); this is a sanity band, not
 //!    a tight reference. We do NOT fit to it.
 
-use geode_core::{
+use geode_core::analytic::waveguide::{
     TriMesh, epsilon_r_from_region_tags, rect_pec_interior_edges, rect_tri_mesh, slab_te0_neff,
     solve_dielectric_modes,
 };

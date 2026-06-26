@@ -22,13 +22,19 @@ use burn::tensor::backend::BackendTypes;
 use criterion::{Criterion, criterion_group, criterion_main};
 
 use faer::sparse::{SparseColMat, Triplet};
-use geode_core::{
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, R_BUFFER, SparseComplexEigenSolver,
-    SparseComplexShiftInvertLanczos, apply_dirichlet_bc,
+use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
-    burn_complex_mass_to_faer, burn_matrix_to_faer, read_sphere_fixture, sphere_n_interior_nodes,
-    sphere_pec_interior_edges, tet_centroid_radii, upload_mesh,
+    burn_complex_mass_to_faer, sphere_n_interior_nodes, sphere_pec_interior_edges,
+    tet_centroid_radii,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::complex::{
+    ComplexEigenSolver, FaerComplexEigensolver, SparseComplexEigenSolver,
+    SparseComplexShiftInvertLanczos,
+};
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
+use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
 
 type B = DefaultBackend;
 

@@ -24,15 +24,17 @@
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
 use faer::c64;
-use geode_core::{
-    DefaultBackend, NedelecScatterMap, SparsityPattern, TetMesh,
-    assemble_global_nedelec_with_anisotropic_epsilon,
+use geode_core::assembly::nedelec::{
+    NedelecScatterMap, assemble_global_nedelec_with_anisotropic_epsilon,
     assemble_global_nedelec_with_anisotropic_epsilon_sparse,
     assemble_global_nedelec_with_complex_epsilon,
     assemble_global_nedelec_with_complex_epsilon_sparse, assemble_global_nedelec_with_full_tensors,
     assemble_global_nedelec_with_full_tensors_sparse, assemble_nedelec_sigma_damping,
-    assemble_nedelec_sigma_damping_sparse, cube_tet_mesh, upload_mesh,
+    assemble_nedelec_sigma_damping_sparse,
 };
+use geode_core::assembly::p1::{SparsityPattern, upload_mesh};
+use geode_core::backend::DefaultBackend;
+use geode_core::mesh::{TetMesh, cube_tet_mesh};
 
 type B = DefaultBackend;
 

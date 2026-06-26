@@ -2,7 +2,7 @@
 //!
 //! GEODE-FEM has several hand-rolled convergence loops — the
 //! self-consistent `k₀` Newton iteration
-//! ([`crate::silvermuller_self_consistent`]), the Lanczos restart loops
+//! ([`crate::eigen::self_consistent`]), the Lanczos restart loops
 //! ([`crate::eigen::lanczos`] / [`crate::eigen::complex`]), and the
 //! bracketing/bisection root finder ([`crate::analytic::mie`]). This module
 //! provides two small combinators that capture the *shape* shared by the

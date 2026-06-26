@@ -20,12 +20,15 @@
 
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenError, DrivenMaterials, LumpedPort,
-    SParameterSweepPoint, TetMesh, assemble_nedelec_current_rhs, cube_tet_mesh, driven_solve,
-    driven_solve_with_ports, port_current, port_input_impedance, port_voltage,
-    s_parameter_frequency_sweep, upload_mesh,
+use geode_core::assembly::nedelec::assemble_nedelec_current_rhs;
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::extraction::{SParameterSweepPoint, s_parameter_frequency_sweep};
+use geode_core::driven::ports::{LumpedPort, port_current, port_input_impedance, port_voltage};
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, driven_solve, driven_solve_with_ports,
 };
+use geode_core::mesh::{TetMesh, cube_tet_mesh};
 
 type B = DefaultBackend;
 

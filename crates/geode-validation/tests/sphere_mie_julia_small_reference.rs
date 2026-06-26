@@ -29,7 +29,7 @@
 //!    (measured ~1e-13 — LAPACK-vs-LAPACK on the identical pencil), and
 //!    the σ₀ = 0 PEC anchors agree at 5e-5.
 //! 5. **J.1 analytic anchor + Q tripwire**: the re-exported
-//!    `analytic_tm11_k` matches `geode_core::merged_roots` at 1e-9, the
+//!    `analytic_tm11_k` matches `geode_core::analytic::mie::merged_roots` at 1e-9, the
 //!    lowest mode sits inside the documented 8 % coarse-mesh band, and
 //!    Q stays above the `Q_LOWER_BAND_TM11 = 1.5` tripwire.
 //!
@@ -45,13 +45,16 @@ use std::path::PathBuf;
 use burn::tensor::backend::BackendTypes;
 use num_complex::Complex64;
 
-use geode_core::{
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, R_BUFFER,
-    R_SPHERE, SphereFixture, apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
-    build_anisotropic_pml_tensor_diag, burn_complex_mass_to_faer, burn_matrix_to_faer,
-    merged_roots, read_sphere_fixture_from_bytes, sphere_n_interior_nodes,
-    sphere_pec_interior_edges, tet_centroids, upload_mesh,
+use geode_core::analytic::mie::{MiePolarisation, merged_roots};
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_anisotropic_epsilon, build_anisotropic_pml_tensor_diag,
+    burn_complex_mass_to_faer, sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroids,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
+use geode_core::mesh::{R_BUFFER, R_SPHERE, SphereFixture, read_sphere_fixture_from_bytes};
 use geode_validation::diff::FieldStatus;
 use geode_validation::{Fixture, FixtureFormat};
 

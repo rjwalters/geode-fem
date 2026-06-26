@@ -1,5 +1,5 @@
 //! Round-trip integration test for the VTK `.vtu` writer
-//! ([`geode_core::viz_vtu::write_vtu`]).
+//! ([`geode_core::postproc::viz::write_vtu`]).
 //!
 //! Builds a `cube_tet_mesh(2, 1.0)`, assigns a synthetic linear field
 //! `E(r) = [x, y, z]` at each node, writes it to a tempfile, then re-parses
@@ -17,7 +17,7 @@
 
 use std::path::PathBuf;
 
-use geode_core::cube_tet_mesh;
+use geode_core::mesh::cube_tet_mesh;
 use geode_core::postproc::viz::{write_vtu, write_vtu_surface};
 
 /// Unique tempfile path under the OS temp dir (no `tempfile` dev-dep).
@@ -64,7 +64,7 @@ fn extract_points(xml: &str) -> Vec<String> {
         .collect()
 }
 
-fn linear_field(mesh: &geode_core::TetMesh) -> Vec<[f64; 3]> {
+fn linear_field(mesh: &geode_core::mesh::TetMesh) -> Vec<[f64; 3]> {
     mesh.nodes.iter().map(|&[x, y, z]| [x, y, z]).collect()
 }
 

@@ -33,14 +33,17 @@
 
 use burn::tensor::backend::BackendTypes;
 
-use geode_core::{
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, R_BUFFER,
-    R_SPHERE, apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
-    assemble_global_nedelec_with_complex_epsilon, build_anisotropic_pml_tensor_diag,
-    build_complex_epsilon_r_pml, burn_complex_mass_to_faer, burn_matrix_to_faer, merged_roots,
-    read_sphere_fixture, sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii,
-    tet_centroids, upload_mesh,
+use geode_core::analytic::mie::{MiePolarisation, merged_roots};
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_anisotropic_epsilon, assemble_global_nedelec_with_complex_epsilon,
+    build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml, burn_complex_mass_to_faer,
+    sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii, tet_centroids,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
+use geode_core::mesh::{R_BUFFER, R_SPHERE, read_sphere_fixture};
 
 type B = DefaultBackend;
 
@@ -58,7 +61,7 @@ fn anisotropic_pml_tensor_sigma_zero_is_isotropic() {
     assert_eq!(eps.len(), f.mesh.n_tets());
 
     for (i, diag) in eps.iter().enumerate() {
-        let expected = if f.tet_physical_tags[i] == geode_core::PHYS_SPHERE_INTERIOR {
+        let expected = if f.tet_physical_tags[i] == geode_core::mesh::PHYS_SPHERE_INTERIOR {
             2.25
         } else {
             1.0
@@ -90,7 +93,7 @@ fn anisotropic_pml_pml_shell_is_lossy() {
     let mut lossy_pml = 0usize;
     for (diag, &tag) in eps.iter().zip(f.tet_physical_tags.iter()) {
         let max_im = diag.iter().map(|c| c.im.abs()).fold(0.0_f64, f64::max);
-        if tag == geode_core::PHYS_PML_SHELL {
+        if tag == geode_core::mesh::PHYS_PML_SHELL {
             if max_im > 1e-12 {
                 lossy_pml += 1;
             }

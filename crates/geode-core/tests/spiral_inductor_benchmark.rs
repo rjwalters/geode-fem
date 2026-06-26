@@ -7,7 +7,7 @@
 //!    `benchmarks/spiral_inductor/results.toml` (written by
 //!    `examples/spiral_inductor.rs`) cross-checked against the two
 //!    committed oracles — the in-repo Mohan analytic expressions
-//!    (`geode_core::mohan`) and the mom PEEC baseline
+//!    (`geode_core::analytic::spiral`) and the mom PEEC baseline
 //!    (`reference/fixtures/spiral_mom/baseline.json`) — with
 //!    **calibrated** bands (see below).
 //! 2. **Smoke solve** (default profile): one end-to-end port-driven
@@ -53,12 +53,15 @@ use faer::c64;
 use std::fs;
 use std::path::PathBuf;
 
+use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::extraction::{SweepPoint, driven_frequency_sweep};
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
+};
 use geode_core::mesh::spiral::CONDUCTOR_SIGMA_NATURAL;
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, SpiralFixture, SquareSpiral,
-    SurfaceImpedanceBc, SurfaceImpedanceModel, SweepPoint, driven_frequency_sweep,
-    mohan_current_sheet_l, pec_interior_mask_from_triangles, read_spiral_fixture,
-    read_spiral_smoke_fixture,
+use geode_core::mesh::{
+    SpiralFixture, pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_smoke_fixture,
 };
 
 /// Free-space impedance η₀ (Ω).
@@ -516,7 +519,7 @@ fn fem_vs_palace_oracle_within_band_or_skip_with_note() {
              geode_spiral_baseline && cargo run --release`, run Palace \
              on it (`palace -np N reference/fixtures/spiral_palace/\
              palace_config.json`), then ingest the s-parameters.csv via \
-             `geode_core::palace::PalaceResults::from_palace_csv_file` \
+             `geode_core::interop::palace::PalaceResults::from_palace_csv_file` \
              and write the populated [oracles.palace] block in the \
              benchmark TOML with full provenance.",
             path.display()

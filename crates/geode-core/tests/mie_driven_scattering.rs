@@ -8,7 +8,7 @@
 //! (Poynting flux at `r_obs` in the vacuum gap) at five `ka` values
 //! spanning the open-space TE_1,1 (`ka ≈ 1.26`) and TM_1,1
 //! (`ka ≈ 1.88`) Mie resonances, against the analytic Mie series
-//! (`geode_core::mie_scattering`).
+//! (`geode_core::analytic::mie`).
 //!
 //! # Tolerances — calibrated, not aspirational
 //!
@@ -49,13 +49,18 @@
 
 use faer::c64;
 
-use geode_core::{
-    DefaultBackend, DrivenBcs, DrivenMaterials, PHYS_SPHERE_INTERIOR, QuadCurrentSource, R_BUFFER,
-    R_PML_INNER, R_SPHERE, build_matched_upml_materials, driven_solve, driven_solve_quad,
-    extinction_power, mie_efficiencies, mie_polarization_source, plane_wave_polarization_current,
-    q_from_power, scattered_flux_power, solve_scattered_field_matched_upml,
-    sphere_pec_interior_edges,
+use geode_core::analytic::mie::mie_efficiencies;
+use geode_core::assembly::nedelec::sphere_pec_interior_edges;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::scattering::{
+    build_matched_upml_materials, extinction_power, mie_polarization_source,
+    plane_wave_polarization_current, q_from_power, scattered_flux_power,
+    solve_scattered_field_matched_upml,
 };
+use geode_core::driven::solve::{
+    DrivenBcs, DrivenMaterials, QuadCurrentSource, driven_solve, driven_solve_quad,
+};
+use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, R_PML_INNER, R_SPHERE};
 
 const N_INSIDE: f64 = 1.5;
 const SIGMA_0: f64 = 25.0;
@@ -76,7 +81,7 @@ const KA_BANDS: [(f64, f64); 5] = [
 /// extractions (observed ≤ 5.2 %).
 const EXTRACTION_CONSISTENCY_BAND: f64 = 0.10;
 
-fn solve_and_extract(fixture: &geode_core::SphereFixture, ka: f64) -> (f64, f64, f64) {
+fn solve_and_extract(fixture: &geode_core::mesh::SphereFixture, ka: f64) -> (f64, f64, f64) {
     let omega = ka / R_SPHERE;
     let (_, interior) = sphere_pec_interior_edges(&fixture.mesh, R_BUFFER);
     let j_at = plane_wave_polarization_current(
@@ -123,7 +128,7 @@ fn solve_and_extract(fixture: &geode_core::SphereFixture, ka: f64) -> (f64, f64,
 /// consistent.
 #[test]
 fn driven_mie_efficiencies_match_analytic_series() {
-    let fixture = geode_core::read_sphere_fixture().expect("bundled sphere fixture");
+    let fixture = geode_core::mesh::read_sphere_fixture().expect("bundled sphere fixture");
     let mut max_ext = 0.0_f64;
     let mut max_sca = 0.0_f64;
     for &(ka, band) in &KA_BANDS {
@@ -194,7 +199,7 @@ fn matched_upml_sigma_zero_reduces_to_driven_solve() {
     use burn::tensor::backend::BackendTypes;
     type B = DefaultBackend;
 
-    let fixture = geode_core::read_sphere_fixture().expect("bundled sphere fixture");
+    let fixture = geode_core::mesh::read_sphere_fixture().expect("bundled sphere fixture");
     let mesh = &fixture.mesh;
     // Off any PEC-cavity resonance (lowest analytic root k ≈ 1.30).
     let omega = 1.15_f64;
@@ -284,7 +289,7 @@ fn matched_upml_burn_path_matches_host_oracle() {
     use burn::tensor::backend::BackendTypes;
     type B = DefaultBackend;
 
-    let fixture = geode_core::read_sphere_fixture().expect("bundled sphere fixture");
+    let fixture = geode_core::mesh::read_sphere_fixture().expect("bundled sphere fixture");
     let mesh = &fixture.mesh;
     // ka = 1.9 sits on the TM_1,1 resonance feature — the operating
     // point where the matched UPML matters most.
@@ -383,7 +388,7 @@ fn burn_matched_upml_reproduces_benchmark_accuracy() {
     // not flagging backend round-off as a regression.
     const ASSEMBLY_PRECISION_HEADROOM: f64 = 1.0 + 1e-3;
 
-    let fixture = geode_core::read_sphere_fixture().expect("bundled sphere fixture");
+    let fixture = geode_core::mesh::read_sphere_fixture().expect("bundled sphere fixture");
     let mesh = &fixture.mesh;
     let (_, interior) = sphere_pec_interior_edges(mesh, R_BUFFER);
     let device = <B as BackendTypes>::Device::default();
@@ -489,7 +494,8 @@ fn burn_matched_upml_reproduces_benchmark_accuracy() {
 /// provenance (`sphere_fine.provenance.txt`) without solving.
 #[test]
 fn fine_fixture_loads_with_recorded_stats() {
-    let fixture = geode_core::read_sphere_fine_fixture().expect("bundled fine sphere fixture");
+    let fixture =
+        geode_core::mesh::read_sphere_fine_fixture().expect("bundled fine sphere fixture");
     assert_eq!(fixture.mesh.n_nodes(), 5934, "fine fixture node count");
     assert_eq!(fixture.mesh.n_tets(), 30740, "fine fixture tet count");
     assert_eq!(
@@ -512,7 +518,8 @@ fn fine_fixture_loads_with_recorded_stats() {
 #[test]
 #[ignore = "heavy: 38.6k-edge driven solve; run with --release"]
 fn fine_fixture_on_resonance_below_five_percent() {
-    let fixture = geode_core::read_sphere_fine_fixture().expect("bundled fine sphere fixture");
+    let fixture =
+        geode_core::mesh::read_sphere_fine_fixture().expect("bundled fine sphere fixture");
     let ka = 1.9;
     let (q_ext, q_sca, _res) = solve_and_extract(&fixture, ka);
     let analytic = mie_efficiencies(N_INSIDE, ka);

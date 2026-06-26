@@ -7,13 +7,13 @@
 //! formulation**: the driven system is fed the volumetric polarization
 //! current `J = −iω(ε_r − 1)E_inc` over the sphere interior, the
 //! **matched** (full Sacks) UPML shell absorbs the outgoing scattered
-//! field (`geode_core::solve_scattered_field_matched_upml` — see the
-//! `geode_core::scattering` module docs for why the eigenmode
+//! field (`geode_core::driven::scattering::solve_scattered_field_matched_upml` — see the
+//! `geode_core::driven::scattering` module docs for why the eigenmode
 //! benchmarks' ε-only UPML is insufficient here), and the PEC outer
 //! wall closes the system.
 //!
 //! Per solve, two **independent** efficiency extractions (choice
-//! recorded in `geode_core::scattering` module docs):
+//! recorded in `geode_core::driven::scattering` module docs):
 //!
 //! - `Q_ext` — volume form of the optical theorem (work done by the
 //!   incident field on the polarization current).
@@ -21,13 +21,13 @@
 //!   tet-boundary surface at `r_obs` in the vacuum gap.
 //!
 //! Both are compared against the analytic Mie series
-//! (`geode_core::mie_scattering::mie_efficiencies`; independent NumPy
+//! (`geode_core::analytic::mie::mie_efficiencies`; independent NumPy
 //! sidecar in `reference/numpy/mie_efficiencies.py`). For the lossless
 //! sphere `Q_ext = Q_sca` analytically.
 //!
 //! The `ka` sweep {1.0, 1.5, 1.9, 2.4, 3.0} spans the two lowest
 //! open-space Mie resonances of the `n = 1.5` sphere
-//! (`geode_core::mie_open`: TE_1,1 at `ka ≈ 1.26`, TM_1,1 at
+//! (`geode_core::analytic::mie`: TE_1,1 at `ka ≈ 1.26`, TM_1,1 at
 //! `ka ≈ 1.88`) and stays inside the mesh-resolution band validated by
 //! the eigenmode benchmark (`k ≲ 3` on the 774-node fixture).
 //!
@@ -55,11 +55,15 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use geode_core::{
-    PHYS_SPHERE_INTERIOR, R_BUFFER, R_PML_INNER, R_SPHERE, SphereFixture, extinction_power,
-    mie_efficiencies, plane_wave_polarization_current, q_from_power, read_sphere_fine_fixture,
-    read_sphere_fixture, scattered_flux_power, solve_scattered_field_matched_upml,
-    sphere_pec_interior_edges,
+use geode_core::analytic::mie::mie_efficiencies;
+use geode_core::assembly::nedelec::sphere_pec_interior_edges;
+use geode_core::driven::scattering::{
+    extinction_power, plane_wave_polarization_current, q_from_power, scattered_flux_power,
+    solve_scattered_field_matched_upml,
+};
+use geode_core::mesh::{
+    PHYS_SPHERE_INTERIOR, R_BUFFER, R_PML_INNER, R_SPHERE, SphereFixture, read_sphere_fine_fixture,
+    read_sphere_fixture,
 };
 
 /// Which bundled fixture the sweep runs on (selected by the optional
@@ -227,7 +231,7 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice) {
     }
     s.push_str("  \"Q_ext via volume optical theorem; Q_sca via Poynting flux through the tet-boundary surface at r_obs (recorded choice, issue #195).\",\n");
     s.push_str("  \"ka sweep spans the open-space TE_1,1 (ka ~ 1.26) and TM_1,1 (ka ~ 1.88) Mie resonances of the n = 1.5 sphere.\",\n");
-    s.push_str("  \"Analytic oracle: geode_core::mie_scattering (B&H series); independent NumPy sidecar under reference/numpy/mie_efficiencies.py.\",\n");
+    s.push_str("  \"Analytic oracle: geode_core::analytic::mie (B&H series); independent NumPy sidecar under reference/numpy/mie_efficiencies.py.\",\n");
     s.push_str("]\n");
     s.push('\n');
 

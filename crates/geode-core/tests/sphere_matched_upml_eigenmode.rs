@@ -5,7 +5,7 @@
 //! the driven path. This test wires the same materials into the
 //! eigenpencil `K(Λ⁻¹) x = k² M(ε_r·Λ) x` and compares the resulting
 //! open-space **quasi-mode** complex eigenvalues against the analytic
-//! Mie roots in `geode_core::OPEN_SPACE_WGM_TABLE_N15`.
+//! Mie roots in `geode_core::analytic::mie::OPEN_SPACE_WGM_TABLE_N15`.
 //!
 //! The pre-existing ε-only UPML is impedance-mismatched (μ stays 1):
 //! the interface reflection traps radiation and inflates the apparent
@@ -52,14 +52,18 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use faer::sparse::{SparseColMat, Triplet};
-use geode_core::{
-    DefaultBackend, MiePolarisation, MieRootComplex, PHYS_SPHERE_INTERIOR, R_BUFFER,
-    SparseComplexEigenSolver, SparseComplexShiftInvertLanczos, TetMesh,
+use geode_core::analytic::mie::{MiePolarisation, MieRootComplex, open_space_wgm_roots_n15};
+use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_complex_epsilon, assemble_global_nedelec_with_full_tensors,
-    build_complex_epsilon_r_pml, build_matched_upml_materials, burn_complex_mass_to_faer,
-    burn_matrix_to_faer, open_space_wgm_roots_n15, read_sphere_fixture, sphere_pec_interior_edges,
-    tet_centroid_radii, upload_mesh,
+    build_complex_epsilon_r_pml, burn_complex_mass_to_faer, sphere_pec_interior_edges,
+    tet_centroid_radii,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::scattering::build_matched_upml_materials;
+use geode_core::eigen::complex::{SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
+use geode_core::eigen::dense::burn_matrix_to_faer;
+use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, TetMesh, read_sphere_fixture};
 
 type B = DefaultBackend;
 

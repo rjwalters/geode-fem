@@ -26,7 +26,7 @@
 //! This is **less effective** than a fully anisotropic split-field PML
 //! (the tangential field components do not see the absorption) but it
 //! requires no constitutive-tensor refactor and is a defensible
-//! starting point. See [`geode_core::build_complex_epsilon_r_pml`] for
+//! starting point. See [`geode_core::assembly::nedelec::build_complex_epsilon_r_pml`] for
 //! the profile and sign-convention discussion.
 //!
 //! # Acceptance (soft)
@@ -57,12 +57,16 @@
 
 use burn::tensor::backend::BackendTypes;
 
-use geode_core::{
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, R_BUFFER, R_PML_INNER, R_SPHERE,
-    apply_dirichlet_bc, assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
-    burn_complex_mass_to_faer, burn_matrix_to_faer, read_sphere_fixture, sphere_n_interior_nodes,
-    sphere_pec_interior_edges, tet_centroid_radii, upload_mesh,
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
+    burn_complex_mass_to_faer, sphere_n_interior_nodes, sphere_pec_interior_edges,
+    tet_centroid_radii,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
+use geode_core::mesh::{R_BUFFER, R_PML_INNER, R_SPHERE, read_sphere_fixture};
 
 type B = DefaultBackend;
 
@@ -85,7 +89,7 @@ fn pml_profile_is_real_inside_imag_in_buffer() {
         .iter()
         .zip(f.tet_physical_tags.iter())
         .filter(|&(c, &t)| {
-            t == geode_core::PHYS_SPHERE_INTERIOR
+            t == geode_core::mesh::PHYS_SPHERE_INTERIOR
                 && c.im.abs() < 1e-12
                 && (c.re - 2.25).abs() < 1e-9
         })
@@ -101,7 +105,9 @@ fn pml_profile_is_real_inside_imag_in_buffer() {
         .iter()
         .zip(f.tet_physical_tags.iter())
         .filter(|&(c, &t)| {
-            t == geode_core::PHYS_VACUUM_GAP && c.im.abs() < 1e-12 && (c.re - 1.0).abs() < 1e-12
+            t == geode_core::mesh::PHYS_VACUUM_GAP
+                && c.im.abs() < 1e-12
+                && (c.re - 1.0).abs() < 1e-12
         })
         .count();
     assert_eq!(
@@ -114,7 +120,7 @@ fn pml_profile_is_real_inside_imag_in_buffer() {
     let n_pml_lossy = eps
         .iter()
         .zip(f.tet_physical_tags.iter())
-        .filter(|&(c, &t)| t == geode_core::PHYS_PML_SHELL && c.im < 0.0)
+        .filter(|&(c, &t)| t == geode_core::mesh::PHYS_PML_SHELL && c.im < 0.0)
         .count();
     assert_eq!(
         n_pml_lossy,
@@ -122,7 +128,7 @@ fn pml_profile_is_real_inside_imag_in_buffer() {
         "every PML-shell tet must carry strictly-negative Im(ε)"
     );
     for (c, &t) in eps.iter().zip(f.tet_physical_tags.iter()) {
-        if t == geode_core::PHYS_PML_SHELL {
+        if t == geode_core::mesh::PHYS_PML_SHELL {
             assert!(
                 (c.re - 1.0).abs() < 1e-12,
                 "PML-shell tet has Re(ε) = {} (expected 1)",
@@ -164,7 +170,7 @@ fn pml_profile_sigma_zero_is_real_everywhere() {
     // Spot-check the real part: dielectric tets at 2.25, everything
     // else at 1.0.
     for (i, c) in eps.iter().enumerate() {
-        let expected_re = if f.tet_physical_tags[i] == geode_core::PHYS_SPHERE_INTERIOR {
+        let expected_re = if f.tet_physical_tags[i] == geode_core::mesh::PHYS_SPHERE_INTERIOR {
             2.25
         } else {
             1.0

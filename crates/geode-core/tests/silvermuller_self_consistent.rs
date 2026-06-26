@@ -16,12 +16,16 @@
 
 use burn::tensor::backend::BackendTypes;
 
-use geode_core::{
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, PHYS_OUTER_BOUNDARY,
-    SelfConsistentResult, assemble_global_nedelec_with_epsilon, assemble_silver_muller_surface,
-    build_epsilon_r, burn_matrix_to_faer, read_sphere_fixture, self_consistent_k,
-    sphere_n_interior_nodes, upload_mesh,
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_epsilon, build_epsilon_r, sphere_n_interior_nodes,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::assembly::surface::assemble_silver_muller_surface;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
+use geode_core::eigen::dense::burn_matrix_to_faer;
+use geode_core::eigen::self_consistent::{SelfConsistentResult, self_consistent_k};
+use geode_core::mesh::{PHYS_OUTER_BOUNDARY, read_sphere_fixture};
 
 type B = DefaultBackend;
 
@@ -67,7 +71,7 @@ fn build_sphere_system(
     let k_full = burn_matrix_to_faer(sys.k);
     let m_full = burn_matrix_to_faer(sys.m);
 
-    let spurious_lower_bound = sphere_n_interior_nodes(&f.mesh, geode_core::R_BUFFER);
+    let spurious_lower_bound = sphere_n_interior_nodes(&f.mesh, geode_core::mesh::R_BUFFER);
     let n_eigs = (spurious_lower_bound * 2).max(20);
 
     // Find the index of the lowest physical mode at the seed solve.

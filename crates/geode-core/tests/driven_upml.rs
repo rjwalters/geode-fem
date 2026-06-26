@@ -5,7 +5,7 @@
 //! vacuum gap → UPML shell → outer PEC wall) and drives it with a
 //! ẑ-polarized volumetric current confined to the dielectric core.
 //! The UPML enters as the diagonal-anisotropic complex permittivity
-//! from [`geode_core::build_anisotropic_pml_tensor_diag`] — the same
+//! from [`geode_core::assembly::nedelec::build_anisotropic_pml_tensor_diag`] — the same
 //! material path the eigenpencil tests use — composed with the PEC
 //! elimination on the outer wall, exercising the full
 //! "PEC + UPML compose with the driven system" contract.
@@ -27,11 +27,13 @@
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, R_BUFFER, R_PML_INNER, R_SPHERE,
-    build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml, driven_solve,
-    read_sphere_fixture, sphere_pec_interior_edges, tet_centroid_radii, tet_centroids,
+use geode_core::assembly::nedelec::{
+    build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml, sphere_pec_interior_edges,
+    tet_centroid_radii, tet_centroids,
 };
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::solve::{CurrentSource, DrivenBcs, DrivenMaterials, driven_solve};
+use geode_core::mesh::{R_BUFFER, R_PML_INNER, R_SPHERE, read_sphere_fixture};
 
 type B = DefaultBackend;
 
@@ -40,7 +42,7 @@ fn device() -> <B as BackendTypes>::Device {
 }
 
 /// ẑ-polarized current confined to the dielectric core (r < 0.5).
-fn core_dipole_source(mesh: &geode_core::TetMesh) -> CurrentSource {
+fn core_dipole_source(mesh: &geode_core::mesh::TetMesh) -> CurrentSource {
     CurrentSource::from_centroids(mesh, |c| {
         let r = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt();
         let jz = if r < 0.5 * R_SPHERE { 1.0 } else { 0.0 };
@@ -53,7 +55,7 @@ fn core_dipole_source(mesh: &geode_core::TetMesh) -> CurrentSource {
 /// length gives a field-strength proxy that is comparable across the
 /// fixture's differently-sized mesh regions.
 fn mean_field_in_shell(
-    mesh: &geode_core::TetMesh,
+    mesh: &geode_core::mesh::TetMesh,
     edges: &[[u32; 2]],
     e_edges: &[c64],
     r_lo: f64,
