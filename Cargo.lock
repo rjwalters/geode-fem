@@ -3560,6 +3560,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "mie_driven_scattering"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "geode-app",
+ "geode-core",
+]
+
+[[package]]
+name = "mie_open_quasimode"
+version = "0.2.0"
+dependencies = [
+ "burn",
+ "clap",
+ "faer",
+ "geode-app",
+ "geode-core",
+]
+
+[[package]]
 name = "mie_sphere"
 version = "0.2.0"
 dependencies = [

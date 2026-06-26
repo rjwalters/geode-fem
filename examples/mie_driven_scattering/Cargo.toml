@@ -1,0 +1,25 @@
+[package]
+name = "mie_driven_scattering"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Driven Mie scattering benchmark: Q_ext / Q_sca vs. ka against the analytic Mie series (issue #195, Epic #193)."
+
+[[bin]]
+name = "mie_driven_scattering"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+geode-app = { workspace = true }
+geode-core = { workspace = true }
+
+# NOTE: this crate deliberately defines NO backend features. The Burn
+# backend (`wgpu` by default, or `ndarray` on headless CI) is selected by
+# geode-core's default features / the workspace `--features` flags at build
+# time, exactly like `geode-cli` and `geode-validation`.
+
+[lints.rust]
+unsafe_code = "forbid"
