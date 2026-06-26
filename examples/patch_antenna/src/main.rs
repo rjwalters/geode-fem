@@ -1323,8 +1323,7 @@ fn sweep_freqs(f_start_ghz: f64, f_stop_ghz: f64, n: usize) -> Vec<f64> {
 ///
 /// `frames` is `(timestep, file_name)` pairs where `file_name` is the
 /// frame's path **relative to the `.pvd`** (e.g. `E_0000.vtu`). The `.pvd`
-/// is a tiny hand-rolled XML (no XML dependency), formerly in the
-/// `#[path]`-included `common/viz_export_helper.rs`.
+/// is a tiny hand-rolled XML (no XML dependency).
 fn write_pvd(path: &Path, frames: &[(f64, String)]) -> std::io::Result<()> {
     let mut s = String::new();
     s.push_str("<?xml version=\"1.0\"?>\n");

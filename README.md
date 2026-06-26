@@ -96,11 +96,11 @@ lobe as VTK `.vtu` files, rendered headlessly with ParaView's `pvbatch`:
 
 ```sh
 # Near-field |E| on the patch resonance, then a z-slice render
-cargo run -p geode-core --release --example patch_antenna -- --export-field artifacts/viz/E_patch.vtu
+cargo run -p patch_antenna --release -- --export-field --out-dir artifacts/viz
 pvbatch tools/viz/geode_viz/scripts/pvbatch_render.py artifacts/viz/E_patch.vtu --out E_patch_slice.png
 
 # 3D directivity lobe (open in ParaView, colour by D_dB)
-cargo run -p geode-core --release --example patch_antenna -- pattern-3d --out artifacts/viz/patch_lobe.vtu
+cargo run -p patch_antenna --release -- pattern-3d --out-dir artifacts/viz
 ```
 
 | Near-field `\|E\|` slice | 3D radiation lobe |
@@ -285,8 +285,7 @@ the per-level eigenvalues beyond the `1e-4` relative tolerance,
 regenerate the fixture and commit it alongside the code change:
 
 ```sh
-cargo run -p geode-core --release \
-    --example regen_cube_convergence_fixture
+cargo run -p regen_cube_convergence_fixture --release
 ```
 
 Call out the regeneration in the PR description so reviewers know the
@@ -314,7 +313,7 @@ Criterion writes per-bench HTML reports under `target/criterion/`
 deviation as an IQR proxy) with:
 
 ```sh
-cargo run -p geode-core --example extract_baseline
+cargo run -p extract_baseline
 ```
 
 This walks `target/criterion/<bench>/<input>/new/estimates.json` and
@@ -373,9 +372,9 @@ cross-check.
 Run the benchmark:
 
 ```sh
-cargo run -p geode-core --release --example mie_sphere                # anisotropic UPML, sparse (defaults)
-cargo run -p geode-core --release --example mie_sphere -- --dense     # anisotropic UPML, dense oracle
-cargo run -p geode-core --release --example mie_sphere -- --scalar-pml # legacy 16% baseline cross-check
+cargo run -p mie_sphere --release                # anisotropic UPML, sparse (defaults)
+cargo run -p mie_sphere --release -- --dense     # anisotropic UPML, dense oracle
+cargo run -p mie_sphere --release -- --scalar-pml # legacy 16% baseline cross-check
 ```
 
 This prints a comparison table and writes

@@ -2,19 +2,17 @@
 //! crates (Epic #398 Phase 2, issue #401).
 //!
 //! This crate is the relocated home of the FEM-viz *reconstruction*
-//! concern that used to live in
-//! `crates/geode-core/examples/common/viz_export_helper.rs` (a
-//! `#[path]`-included module). It exposes [`edge_field_to_nodes`] as a
-//! normal `pub` API so the standalone example crates can depend on it
-//! like any other dependency instead of `#[path]`-including a sibling
-//! file.
+//! concern that used to live in a `#[path]`-included `common/` module
+//! inside `geode-core`'s old in-crate example tree (removed in Epic
+//! #398 Phase 4). It exposes [`edge_field_to_nodes`] as a normal `pub`
+//! API so the standalone example crates can depend on it like any other
+//! dependency instead of `#[path]`-including a sibling file.
 //!
-//! Only the reconstruction moves here. The `--export-field <path>` CLI
-//! directive (`parse_export_field`) and the frequency-sweep helpers
-//! (`SweepSpec`, `parse_export_sweep`, `write_pvd`) stay in the old
-//! `common/` module for the still-unmigrated examples (`spiral_inductor`,
-//! `patch_antenna`); the output-path concern is now covered by
-//! [`geode_app::OutputDir`] for migrated examples.
+//! Only the reconstruction lives here. The frequency-sweep / `.pvd`
+//! collection helpers (`SweepSpec`, `parse_export_sweep`, `write_pvd`)
+//! are inlined directly in the example crates that still need them
+//! (`spiral_inductor`, `patch_antenna`); the output-path concern is now
+//! covered by [`geode_app::OutputDir`].
 //!
 //! # Sampling choice (intentionally crude)
 //!

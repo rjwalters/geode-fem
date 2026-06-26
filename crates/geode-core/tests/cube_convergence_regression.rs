@@ -15,8 +15,7 @@
 //! regenerate the fixture with:
 //!
 //! ```sh
-//! cargo run -p geode-core --release \
-//!     --example regen_cube_convergence_fixture
+//! cargo run -p regen_cube_convergence_fixture --release
 //! ```
 //!
 //! and commit the new TOML alongside the code change.
@@ -111,8 +110,8 @@ fn cube_convergence_matches_fixture() {
             rel < REL_TOL,
             "n = {n}: eigenvalue drift {rel:.3e} exceeds tol {REL_TOL:.0e}; \
              fixture = {expected}, got = {got}. \
-             Regenerate with `cargo run -p geode-core --release \
-             --example regen_cube_convergence_fixture` if intentional."
+             Regenerate with \
+             `cargo run -p regen_cube_convergence_fixture --release` if intentional."
         );
     }
 }

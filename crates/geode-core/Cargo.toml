@@ -71,13 +71,15 @@ toml = { workspace = true }
 # Performance benchmark harness (issue #50). Each `[[bench]]` below opts
 # out of the libtest harness and lets criterion own the entrypoint.
 criterion = { workspace = true }
-# Benches/examples need direct faer access (the trait surface we're
+# Benches/tests need direct faer access (the trait surface we're
 # benching takes `MatRef<f64>` and `SparseColMatRef`). Same feature set as
 # the regular dependency line above (workspace base + `sparse-linalg`).
 faer = { workspace = true, features = ["sparse-linalg"] }
-# Read criterion's JSON `estimates.json` outputs in
-# `examples/extract_baseline.rs` to produce `benchmarks/perf/baseline.toml`.
-serde = { workspace = true }
+# Parse the committed `benchmarks/*/baseline.json` perf baselines in the
+# `tests/spiral_inductor_benchmark.rs` and `tests/slcfet_3hp_benchmark.rs`
+# regression tests (`serde_json::Value`). The criterion → baseline.toml
+# extractor itself now lives in the standalone `examples/extract_baseline`
+# crate (Epic #398), which carries its own serde/serde_json dev-deps.
 serde_json = { workspace = true }
 
 [[bench]]
