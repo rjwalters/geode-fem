@@ -1,6 +1,14 @@
 //! Mie-sphere benchmark — FEM eigenmodes vs. analytic PEC-cavity
 //! dielectric-sphere resonance roots (issue #4, north-star deliverable).
 //!
+//! This is the Epic #398 **pilot example crate**: a standalone binary
+//! (`examples/mie_sphere/`) built on the `geode-app` harness, migrated
+//! from the old `crates/geode-core/examples/mie_sphere.rs`. The physics,
+//! report output, and `results.toml`/`.vtu` artifacts are preserved
+//! exactly; only the entry point (hand-rolled argv → `clap` derive +
+//! `geode_app::App`) and the viz-reconstruction import
+//! (`#[path]` include → `geode_examples_support`) changed.
+//!
 //! **v1** (issue #40 hardening of the v0 in PR #39):
 //!
 //! - **Extended analytic catalog**: roots for `l ∈ [1, L_MAX]`, both TE
@@ -44,7 +52,7 @@
 //! # Running
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example mie_sphere
+//! cargo run -p mie_sphere --release
 //! ```
 //!
 //! By default the **sparse complex shift-and-invert Lanczos**
@@ -55,8 +63,8 @@
 //! the cross-check baseline:
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example mie_sphere -- --dense
-//! cargo run -p geode-core --release --example mie_sphere -- --scalar-pml
+//! cargo run -p mie_sphere --release -- --dense
+//! cargo run -p mie_sphere --release -- --scalar-pml
 //! ```
 //!
 //! `--release` is required because faer 0.24's `gevd` path panics
@@ -69,34 +77,38 @@
 //!
 //! # Field export (Epic #276 Phase 2B, issue #287)
 //!
-//! Passing `--export-field <path.vtu>` is an opt-in side channel that
-//! does **not** touch the eigenmode benchmark above (the `results.toml`
-//! is byte-identical with or without it). When present, the bundled
+//! Passing `--export-field` is an opt-in side channel that does **not**
+//! touch the eigenmode benchmark above (the `results.toml` is
+//! byte-identical with or without it). When present, the bundled
 //! sphere is solved once as a *driven scattering* problem — a plane
 //! wave `E_inc = x̂·exp(−iωz)` illuminating the `n = 1.5` dielectric
 //! sphere via the matched (full Sacks) UPML scattered-field solve
 //! (`geode_core::driven::scattering::solve_scattered_field_matched_upml`, the same machinery
 //! as the `mie_driven_scattering` example) — and the scattered near
-//! field `E_sca(r)` is dumped to `<path.vtu>` for ParaView inspection:
+//! field `E_sca(r)` is dumped to `<out-dir>/E_mie.vtu` (the `--out-dir`
+//! group from `geode-app`, default `artifacts/`) for ParaView inspection:
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example mie_sphere -- --export-field artifacts/viz/E_mie.vtu
+//! cargo run -p mie_sphere --release -- --export-field
+//! cargo run -p mie_sphere --release -- --export-field --out-dir artifacts/viz
 //! ```
 //!
 //! The default frequency is the **mid-`ka` point** of the driven
 //! benchmark sweep (`ka = 1.9`, between the TE_1,1 and TM_1,1 Mie
 //! resonances; `ω = ka / R_SPHERE`). The exported per-node `E` is the
 //! crude per-tet-vertex average of the Whitney interpolant (see
-//! `examples/viz_export_helper.rs`); a per-node `eps_r` map (n² inside
-//! the sphere, 1 outside) accompanies it.
+//! `geode_examples_support::edge_field_to_nodes`); a per-node `eps_r`
+//! map (n² inside the sphere, 1 outside) accompanies it.
 
 use std::fs;
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode};
 
 use burn::tensor::backend::BackendTypes;
+use clap::Parser;
 use faer::sparse::{SparseColMat, Triplet};
 
+use geode_app::{App, OutputDir, Verbosity};
 use geode_core::analytic::mie::{
     MiePolarisation, MieRoot, mie_roots_catalog, open_space_wgm_roots_n15,
 };
@@ -116,9 +128,7 @@ use geode_core::eigen::complex::{
 };
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, R_SPHERE, read_sphere_fixture};
-
-#[path = "common/viz_export_helper.rs"]
-mod viz_export_helper;
+use geode_examples_support::edge_field_to_nodes;
 
 type B = DefaultBackend;
 
@@ -230,8 +240,10 @@ fn current_commit() -> String {
 }
 
 fn results_path() -> PathBuf {
-    // `crates/geode-core/examples/mie_sphere.rs` → walk up 3 levels to
-    // the workspace root, then into `benchmarks/mie_sphere/`.
+    // `examples/mie_sphere/src/main.rs` → `CARGO_MANIFEST_DIR` is
+    // `examples/mie_sphere`; walk up 2 levels to the workspace root, then
+    // into `benchmarks/mie_sphere/` (same level count as the old
+    // `crates/geode-core` manifest dir).
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
@@ -683,11 +695,12 @@ const EXPORT_SIGMA_0: f64 = 25.0;
 
 /// Opt-in `--export-field` path (Epic #276 Phase 2B, issue #287):
 /// solve the bundled sphere once as a driven scattering problem at the
-/// mid-`ka` point and dump the scattered near field to a `.vtu`.
+/// mid-`ka` point and dump the scattered near field to `<out_dir>/E_mie.vtu`.
 ///
-/// Independent of the eigenmode benchmark — does not write
-/// `results.toml`.
-fn export_field(path: &str) {
+/// `out_dir` is the resolved (already-created) artifact directory from
+/// [`geode_app::OutputDir`]. Independent of the eigenmode benchmark —
+/// does not write `results.toml`.
+fn export_field(out_dir: &Path) {
     use burn::tensor::backend::BackendTypes;
     let _device = <B as BackendTypes>::Device::default();
 
@@ -721,7 +734,7 @@ fn export_field(path: &str) {
         sol.residual_rel
     );
 
-    let (e_re, e_im) = viz_export_helper::edge_field_to_nodes(&f.mesh, &sol.e_edges);
+    let (e_re, e_im) = edge_field_to_nodes(&f.mesh, &sol.e_edges);
 
     // Per-node eps_r: n² inside the sphere, 1 outside. Average the
     // per-tet relative permittivity over the tets incident to each node.
@@ -745,13 +758,10 @@ fn export_field(path: &str) {
         .map(|(&s, &c)| if c > 0 { s / c as f64 } else { 1.0 })
         .collect();
 
-    let out = std::path::Path::new(path);
-    if let Some(parent) = out.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        std::fs::create_dir_all(parent).expect("create --export-field parent dir");
-    }
-    geode_core::postproc::viz::write_vtu(out, &f.mesh, &e_re, Some(&e_im), Some(&eps_r))
+    // `out_dir` is already created by `OutputDir::resolve`; the exported
+    // file lives at `<out_dir>/E_mie.vtu` (fixed filename).
+    let out = out_dir.join("E_mie.vtu");
+    geode_core::postproc::viz::write_vtu(&out, &f.mesh, &e_re, Some(&e_im), Some(&eps_r))
         .expect("write --export-field .vtu");
     eprintln!(
         "  wrote {} ({} nodes, {} tets)",
@@ -761,153 +771,193 @@ fn export_field(path: &str) {
     );
 }
 
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
+/// Mie-sphere benchmark CLI.
+///
+/// Flattens the shared `geode-app` `--out-dir` / `-v`/`-q` groups and
+/// keeps the three example-local toggles (`--dense`, `--scalar-pml`,
+/// `--export-field`) the original hand-rolled argv recognised.
+#[derive(Parser)]
+#[command(about = "Mie sphere benchmark: FEM eigenmodes vs. analytic PEC-cavity roots (issue #4).")]
+struct Args {
+    /// Use the dense `FaerComplexEigensolver` correctness oracle instead
+    /// of the default sparse shift-invert Lanczos path.
+    #[arg(long)]
+    dense: bool,
 
-    // Opt-in field export (issue #287). Short-circuits the eigenmode
-    // benchmark so a normal run is byte-identical.
-    if let Some(path) = viz_export_helper::parse_export_field(&args) {
-        export_field(&path);
-        return;
-    }
+    /// Use the legacy scalar-isotropic complex-ε PML (~16% TM_1,1 rel
+    /// err ceiling) instead of the default anisotropic UPML.
+    #[arg(long = "scalar-pml")]
+    scalar_pml: bool,
 
-    let use_dense = args.iter().any(|a| a == "--dense");
-    let scalar_pml = args.iter().any(|a| a == "--scalar-pml");
+    /// Export the driven scattered near field to `<out-dir>/E_mie.vtu`
+    /// (mid-`ka` point) instead of running the eigenmode benchmark.
+    #[arg(long = "export-field")]
+    export_field: bool,
 
-    eprintln!("=== Mie sphere benchmark (issue #4 v1, issue #40, issue #54) ===");
-    if use_dense {
-        eprintln!("  eigensolver: DENSE (correctness oracle, --dense flag)");
-    } else {
-        eprintln!("  eigensolver: SPARSE Lanczos (default, pass --dense to switch)");
-    }
-    if scalar_pml {
-        eprintln!("  PML kernel: SCALAR isotropic (--scalar-pml, legacy 16% ceiling)");
-    } else {
-        eprintln!(
-            "  PML kernel: ANISOTROPIC UPML diagonal (default, issue #54; \
-             pass --scalar-pml for the legacy cross-check)"
-        );
-    }
-    eprintln!();
-    eprintln!(
-        "Fixture geometry: R_sphere = {R_SPHERE}, R_buffer = {R_BUFFER}, n_inside = {N_INSIDE}",
-    );
-    eprintln!("PML absorption: σ₀ = {SIGMA_0}");
-    if !scalar_pml {
-        eprintln!("PML reference wavenumber: k₀_ref = {K0_REF}");
-    }
-    eprintln!();
+    #[command(flatten)]
+    out: OutputDir,
 
-    // Analytic ground truth: extended catalog with l ∈ [1, L_MAX],
-    // both TE and TM polarisations, lowest N_MAX radial overtones each.
-    // Each MieRoot carries its (l, n, pol, multiplicity = 2l+1) label.
-    let analytic = mie_roots_catalog(N_INSIDE, L_MAX, N_MAX);
-    let n_modes = n_modes_from_catalog(&analytic);
-    eprintln!(
-        "Analytic catalog: {} roots over l ∈ [1, {}], TE+TM, n ∈ [1, {}]",
-        analytic.len(),
-        L_MAX,
-        N_MAX
-    );
-    eprintln!(
-        "Catalog-derived N_MODES = {} (sum of multiplicities of first {} groups, issue #43)",
-        n_modes, N_ANALYTIC_GROUPS,
-    );
-    eprintln!("Lowest 12 analytic roots (PEC-cavity dielectric resonator):");
-    for r in analytic.iter().take(12) {
-        eprintln!(
-            "  {}_{},{}  k = {:.5}  k² = {:.5}  mult = {}",
-            pol_str(r.pol),
-            r.l,
-            r.n,
-            r.k,
-            r.k * r.k,
-            r.multiplicity,
-        );
-    }
+    #[command(flatten)]
+    verbose: Verbosity,
+}
 
-    // FEM eigensolve.
-    eprintln!();
-    eprintln!("=== FEM eigensolve ===");
-    let fem_k = fem_complex_k(use_dense, scalar_pml, n_modes);
-    eprintln!("Lowest {} physical FEM modes (k = sqrt(λ)):", fem_k.len());
-    for (i, k) in fem_k.iter().enumerate() {
-        eprintln!("  mode[{i}]  k = {:.5} + {:.5e}i", k.re, k.im);
-    }
+impl App for Args {
+    fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        // Opt-in field export (issue #287). Short-circuits the eigenmode
+        // benchmark so a normal run produces an unchanged `results.toml`.
+        if self.export_field {
+            let dir = self.out.resolve()?;
+            export_field(&dir);
+            return Ok(());
+        }
 
-    // Pair and report.
-    let rows = pair_modes(&analytic, &fem_k);
-    print_table(&rows);
+        let use_dense = self.dense;
+        let scalar_pml = self.scalar_pml;
 
-    // Persist.
-    write_toml(&rows, &results_path(), scalar_pml, n_modes);
-
-    // Issue #33 — open-space Mie WGM cross-check.
-    //
-    // The PEC-cavity table above is the σ₀ → 0 closed-shell limit. The
-    // open-space catalog `OPEN_SPACE_WGM_TABLE_N15` is the genuinely
-    // radiative target: complex `k`, outgoing Hankel waves, no PEC
-    // outer wall. We print a side-by-side for the lowest few FEM modes
-    // so the reviewer can see the magnitude of the residual gap that
-    // tighter PML profiles (issue #35) and finer meshes need to close.
-    let open_space = open_space_wgm_roots_n15();
-    eprintln!();
-    eprintln!("=== Open-space Mie WGM cross-check (issue #33) ===");
-    eprintln!("Lowest 8 open-space WGM roots (n = 1.5, R_s = 1.0; sign convention Im(k) < 0):");
-    for r in open_space.iter().take(8) {
-        eprintln!(
-            "  {}_{},{}  k = {:.5} + {:.5e}i  Q = {:.3}",
-            pol_str(r.pol),
-            r.l,
-            r.n,
-            r.re_k,
-            r.im_k,
-            r.q()
-        );
-    }
-    eprintln!();
-    eprintln!("Closest open-space WGM for each FEM mode (by |Δk|):");
-    eprintln!(
-        "{:>3}  {:>12}  {:>11}  {:>11}  {:>12}  {:>12}",
-        "i", "mode", "FEM Re(k)", "WGM Re(k)", "rel err Re(k)", "Q ratio"
-    );
-    eprintln!("{}", "-".repeat(70));
-    for (i, fk) in fem_k.iter().enumerate() {
-        // Closest in (Re(k), |Im(k)|) Euclidean metric.
-        let best = open_space
-            .iter()
-            .min_by(|a, b| {
-                let da = (a.re_k - fk.re).hypot(a.im_k.abs() - fk.im.abs());
-                let db = (b.re_k - fk.re).hypot(b.im_k.abs() - fk.im.abs());
-                da.partial_cmp(&db).unwrap()
-            })
-            .expect("non-empty open-space catalog");
-        let fem_q = if fk.im.abs() > 1e-12 {
-            fk.re / (2.0 * fk.im.abs())
+        eprintln!("=== Mie sphere benchmark (issue #4 v1, issue #40, issue #54) ===");
+        if use_dense {
+            eprintln!("  eigensolver: DENSE (correctness oracle, --dense flag)");
         } else {
-            f64::INFINITY
-        };
-        let rel_err = (fk.re - best.re_k).abs() / best.re_k;
-        let q_ratio = fem_q / best.q();
+            eprintln!("  eigensolver: SPARSE Lanczos (default, pass --dense to switch)");
+        }
+        if scalar_pml {
+            eprintln!("  PML kernel: SCALAR isotropic (--scalar-pml, legacy 16% ceiling)");
+        } else {
+            eprintln!(
+                "  PML kernel: ANISOTROPIC UPML diagonal (default, issue #54; \
+                 pass --scalar-pml for the legacy cross-check)"
+            );
+        }
+        eprintln!();
         eprintln!(
-            "{:>3}  {:>9}_{},{}  {:>11.5}  {:>11.5}  {:>11.3}%  {:>12.3}",
-            i,
-            pol_str(best.pol),
-            best.l,
-            best.n,
-            fk.re,
-            best.re_k,
-            rel_err * 100.0,
-            q_ratio
+            "Fixture geometry: R_sphere = {R_SPHERE}, R_buffer = {R_BUFFER}, n_inside = {N_INSIDE}",
         );
-    }
-    eprintln!();
-    eprintln!("Note: 30–40 % rel err Re(k) and large Q ratios are expected on the");
-    eprintln!("bundled fixture — the PML-truncated FEM sits between PEC cavity and");
-    eprintln!("true open space. Tightening the gap is the target of #35.");
-    eprintln!();
+        eprintln!("PML absorption: σ₀ = {SIGMA_0}");
+        if !scalar_pml {
+            eprintln!("PML reference wavenumber: k₀_ref = {K0_REF}");
+        }
+        eprintln!();
 
-    eprintln!("=== Done ===");
+        // Analytic ground truth: extended catalog with l ∈ [1, L_MAX],
+        // both TE and TM polarisations, lowest N_MAX radial overtones each.
+        // Each MieRoot carries its (l, n, pol, multiplicity = 2l+1) label.
+        let analytic = mie_roots_catalog(N_INSIDE, L_MAX, N_MAX);
+        let n_modes = n_modes_from_catalog(&analytic);
+        eprintln!(
+            "Analytic catalog: {} roots over l ∈ [1, {}], TE+TM, n ∈ [1, {}]",
+            analytic.len(),
+            L_MAX,
+            N_MAX
+        );
+        eprintln!(
+            "Catalog-derived N_MODES = {} (sum of multiplicities of first {} groups, issue #43)",
+            n_modes, N_ANALYTIC_GROUPS,
+        );
+        eprintln!("Lowest 12 analytic roots (PEC-cavity dielectric resonator):");
+        for r in analytic.iter().take(12) {
+            eprintln!(
+                "  {}_{},{}  k = {:.5}  k² = {:.5}  mult = {}",
+                pol_str(r.pol),
+                r.l,
+                r.n,
+                r.k,
+                r.k * r.k,
+                r.multiplicity,
+            );
+        }
+
+        // FEM eigensolve.
+        eprintln!();
+        eprintln!("=== FEM eigensolve ===");
+        let fem_k = fem_complex_k(use_dense, scalar_pml, n_modes);
+        eprintln!("Lowest {} physical FEM modes (k = sqrt(λ)):", fem_k.len());
+        for (i, k) in fem_k.iter().enumerate() {
+            eprintln!("  mode[{i}]  k = {:.5} + {:.5e}i", k.re, k.im);
+        }
+
+        // Pair and report.
+        let rows = pair_modes(&analytic, &fem_k);
+        print_table(&rows);
+
+        // Persist.
+        write_toml(&rows, &results_path(), scalar_pml, n_modes);
+
+        // Issue #33 — open-space Mie WGM cross-check.
+        //
+        // The PEC-cavity table above is the σ₀ → 0 closed-shell limit. The
+        // open-space catalog `OPEN_SPACE_WGM_TABLE_N15` is the genuinely
+        // radiative target: complex `k`, outgoing Hankel waves, no PEC
+        // outer wall. We print a side-by-side for the lowest few FEM modes
+        // so the reviewer can see the magnitude of the residual gap that
+        // tighter PML profiles (issue #35) and finer meshes need to close.
+        let open_space = open_space_wgm_roots_n15();
+        eprintln!();
+        eprintln!("=== Open-space Mie WGM cross-check (issue #33) ===");
+        eprintln!("Lowest 8 open-space WGM roots (n = 1.5, R_s = 1.0; sign convention Im(k) < 0):");
+        for r in open_space.iter().take(8) {
+            eprintln!(
+                "  {}_{},{}  k = {:.5} + {:.5e}i  Q = {:.3}",
+                pol_str(r.pol),
+                r.l,
+                r.n,
+                r.re_k,
+                r.im_k,
+                r.q()
+            );
+        }
+        eprintln!();
+        eprintln!("Closest open-space WGM for each FEM mode (by |Δk|):");
+        eprintln!(
+            "{:>3}  {:>12}  {:>11}  {:>11}  {:>12}  {:>12}",
+            "i", "mode", "FEM Re(k)", "WGM Re(k)", "rel err Re(k)", "Q ratio"
+        );
+        eprintln!("{}", "-".repeat(70));
+        for (i, fk) in fem_k.iter().enumerate() {
+            // Closest in (Re(k), |Im(k)|) Euclidean metric.
+            let best = open_space
+                .iter()
+                .min_by(|a, b| {
+                    let da = (a.re_k - fk.re).hypot(a.im_k.abs() - fk.im.abs());
+                    let db = (b.re_k - fk.re).hypot(b.im_k.abs() - fk.im.abs());
+                    da.partial_cmp(&db).unwrap()
+                })
+                .expect("non-empty open-space catalog");
+            let fem_q = if fk.im.abs() > 1e-12 {
+                fk.re / (2.0 * fk.im.abs())
+            } else {
+                f64::INFINITY
+            };
+            let rel_err = (fk.re - best.re_k).abs() / best.re_k;
+            let q_ratio = fem_q / best.q();
+            eprintln!(
+                "{:>3}  {:>9}_{},{}  {:>11.5}  {:>11.5}  {:>11.3}%  {:>12.3}",
+                i,
+                pol_str(best.pol),
+                best.l,
+                best.n,
+                fk.re,
+                best.re_k,
+                rel_err * 100.0,
+                q_ratio
+            );
+        }
+        eprintln!();
+        eprintln!("Note: 30–40 % rel err Re(k) and large Q ratios are expected on the");
+        eprintln!("bundled fixture — the PML-truncated FEM sits between PEC cavity and");
+        eprintln!("true open space. Tightening the gap is the target of #35.");
+        eprintln!();
+
+        eprintln!("=== Done ===");
+        Ok(())
+    }
+
+    fn verbosity(&self) -> Verbosity {
+        self.verbose
+    }
+}
+
+fn main() -> ExitCode {
+    geode_app::main::<Args>()
 }
 
 #[cfg(test)]

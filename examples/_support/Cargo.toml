@@ -1,0 +1,17 @@
+[package]
+name = "geode-examples-support"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Shared, example-only viz glue for the GEODE-FEM standalone example crates."
+
+[dependencies]
+geode-core = { workspace = true }
+# `c64` for the complex edge-DOF reconstruction; the workspace base faer
+# feature set (`std`, `linalg`) is sufficient — no `sparse-linalg` here.
+faer = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
