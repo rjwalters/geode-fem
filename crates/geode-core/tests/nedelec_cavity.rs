@@ -77,10 +77,13 @@
 
 use burn::tensor::backend::BackendTypes;
 
-use geode_core::{
-    DefaultBackend, EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, assemble_global_nedelec,
-    burn_matrix_to_faer, cube_interior_mask, cube_pec_interior_edges, cube_tet_mesh, upload_mesh,
+use geode_core::assembly::nedelec::{assemble_global_nedelec, cube_pec_interior_edges};
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::dense::{
+    EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
+use geode_core::mesh::cube_tet_mesh;
 
 type B = DefaultBackend;
 

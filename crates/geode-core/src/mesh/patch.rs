@@ -50,7 +50,7 @@
 //! [`PatchFixture`] maps the physical groups onto the driven-solve
 //! inputs:
 //!
-//! - **Lumped port** ([`crate::LumpedPort`]): [`PatchFixture::port`]
+//! - **Lumped port** ([`crate::driven::ports::LumpedPort`]): [`PatchFixture::port`]
 //!   returns the tagged port faces with the gap direction `ê = +z` and
 //!   the width/length derived from the tagged triangles themselves;
 //!   [`PatchPort::lumped_port`] builds the `LumpedPort`.
@@ -60,7 +60,7 @@
 //! - **Matched-UPML region**: [`PatchFixture::upml_tets`] are the tets
 //!   of the absorbing shell; [`PatchFixture::matched_upml_materials`]
 //!   builds the per-tet `(ε, ν)` tensors for
-//!   [`crate::DrivenMaterials::MatchedUpml`] with a Cartesian
+//!   [`crate::driven::solve::DrivenMaterials::MatchedUpml`] with a Cartesian
 //!   (box-shaped) stretch.
 //! - **Outer boundary**: [`PatchFixture::outer_boundary_triangles`] is
 //!   the PEC truncation wall behind the UPML.
@@ -264,7 +264,7 @@ impl PatchFixture {
     }
 
     /// Per-tet matched-UPML constitutive tensors `(ε, ν)` for the box
-    /// air domain, for [`crate::DrivenMaterials::MatchedUpml`].
+    /// air domain, for [`crate::driven::solve::DrivenMaterials::MatchedUpml`].
     ///
     /// The interior (substrate + air) carries the identity stretch with
     /// the per-tet scalar permittivity from [`PatchFixture::epsilon_r_for`]
@@ -394,7 +394,7 @@ pub fn box_upml_tensors(
 
 /// Lumped-port geometry recovered from the fixture's port tags: owned
 /// face list plus the uniform-port parameters
-/// ([`crate::LumpedPort`] borrows the faces).
+/// ([`crate::driven::ports::LumpedPort`] borrows the faces).
 #[derive(Clone, Debug)]
 pub struct PatchPort {
     /// Port faces (0-based node triples into the fixture mesh).
@@ -439,7 +439,7 @@ pub fn read_patch_fixture() -> Result<PatchFixture, MeshError> {
 ///
 /// Same physical-group convention as the benchmark fixture, but with a
 /// shrunken footprint, a tighter air margin, and coarser sizing so an
-/// end-to-end [`crate::driven_frequency_sweep`] solve stays affordable
+/// end-to-end [`crate::driven::extraction::driven_frequency_sweep`] solve stays affordable
 /// in default CI.
 pub fn read_patch_smoke_fixture() -> Result<PatchFixture, MeshError> {
     read_patch_fixture_from_bytes(PATCH_SMOKE_MSH)

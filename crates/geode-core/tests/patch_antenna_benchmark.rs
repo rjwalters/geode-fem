@@ -6,7 +6,7 @@
 //! onto the driven-solve inputs, and runs **one**
 //! [`driven_frequency_sweep`] solve end-to-end:
 //!
-//! - the coax probe → a [`geode_core::LumpedPort`] from
+//! - the coax probe → a [`geode_core::driven::ports::LumpedPort`] from
 //!   [`PatchFixture::port`] (gap across the substrate, 50 Ω drive);
 //! - the PEC patch + ground → an edge-exact PEC mask via
 //!   [`pec_interior_mask_from_triangles`], composed with the PEC outer
@@ -22,11 +22,11 @@
 
 use faer::c64;
 
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::extraction::{SweepPoint, driven_frequency_sweep};
+use geode_core::driven::solve::{DrivenBcs, DrivenMaterials};
 use geode_core::mesh::patch::FR4_MATERIALS;
-use geode_core::{
-    DefaultBackend, DrivenBcs, DrivenMaterials, PatchFixture, SweepPoint, driven_frequency_sweep,
-    pec_interior_mask_from_triangles, read_patch_smoke_fixture,
-};
+use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_smoke_fixture};
 
 /// Free-space impedance η₀ (Ω).
 const ETA_0: f64 = 376.730_313_668;
@@ -82,7 +82,7 @@ fn solve(fixture: &PatchFixture, f_ghz: f64) -> SweepPoint {
     let port = fixture.port();
     let lp = port.lumped_port(50.0 / ETA_0, c64::new(1.0, 0.0));
 
-    let source = geode_core::CurrentSource {
+    let source = geode_core::driven::solve::CurrentSource {
         j_tet: vec![[c64::new(0.0, 0.0); 3]; fixture.mesh.n_tets()],
     };
 

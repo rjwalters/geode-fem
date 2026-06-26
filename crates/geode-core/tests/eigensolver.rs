@@ -50,10 +50,12 @@
 //! reliable path. A pure-Rust symmetric eigensolver (Cholesky →
 //! standard) would lift this restriction (deferred to v2).
 
-use geode_core::{
-    DefaultBackend, EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, assemble_global_p1,
-    burn_matrix_to_faer, cube_interior_mask, cube_tet_mesh, upload_mesh,
+use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::dense::{
+    EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
+use geode_core::mesh::cube_tet_mesh;
 
 use burn::tensor::backend::BackendTypes;
 

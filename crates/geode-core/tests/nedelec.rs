@@ -13,10 +13,11 @@
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
 
-use geode_core::{
-    DefaultBackend, TetMesh, assemble_global_nedelec, batched_nedelec_local_matrices,
-    cube_pec_interior_edges, cube_tet_mesh, tet_edges, upload_mesh,
-};
+use geode_core::assembly::nedelec::{assemble_global_nedelec, cube_pec_interior_edges};
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::elements::nedelec::{batched_nedelec_local_matrices, tet_edges};
+use geode_core::mesh::{TetMesh, cube_tet_mesh};
 
 mod common;
 use common::readback_f64;

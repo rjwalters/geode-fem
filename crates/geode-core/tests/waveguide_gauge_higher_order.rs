@@ -20,7 +20,7 @@
 //! rectangular guide never hits that path (every physical mode overlaps a
 //! reference), as this test confirms by solving 6 modes without error.
 
-use geode_core::{TriMesh, rect_tri_mesh, solve_rect_waveguide_modes};
+use geode_core::analytic::waveguide::{TriMesh, rect_tri_mesh, solve_rect_waveguide_modes};
 use std::f64::consts::PI;
 
 /// Signed projection of a transverse-E eigenvector onto the analytic

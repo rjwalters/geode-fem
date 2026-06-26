@@ -23,10 +23,12 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use burn::tensor::backend::BackendTypes;
-use geode_core::{
-    DefaultBackend, EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, assemble_global_p1,
-    burn_matrix_to_faer, cube_interior_mask, cube_tet_mesh, upload_mesh,
+use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::dense::{
+    EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
+use geode_core::mesh::cube_tet_mesh;
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = DefaultBackend;
@@ -75,7 +77,7 @@ const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
 };
 
 fn active_tolerances() -> BackendTolerances {
-    let info = geode_core::device_info();
+    let info = geode_core::backend::device_info();
     if info.backend == "ndarray" {
         NDARRAY_F64_TOLERANCES
     } else {
@@ -264,7 +266,7 @@ fn burn_cube_cavity_agrees_with_onnx_baseline() {
     let tol = active_tolerances();
     eprintln!(
         "backend = {}, eigvals_abs_tol = {:.0e}, trace_abs_tol = {:.0e}",
-        geode_core::device_info().backend,
+        geode_core::backend::device_info().backend,
         tol.eigvals_abs,
         tol.trace_abs
     );

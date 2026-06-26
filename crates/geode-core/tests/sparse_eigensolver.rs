@@ -33,11 +33,14 @@
 //!     --test sparse_eigensolver -- --ignored
 //! ```
 
-use geode_core::{
-    DefaultBackend, EigenSolver, FaerDenseEigensolver, SparseEigenSolver, SparseShiftInvertLanczos,
-    apply_dirichlet_bc, assemble_global_p1, burn_matrix_to_faer, cube_interior_mask, cube_tet_mesh,
-    global_system_to_sparse, upload_mesh,
+use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
+use geode_core::assembly::sparse::global_system_to_sparse;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::dense::{
+    EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
+use geode_core::eigen::lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
+use geode_core::mesh::cube_tet_mesh;
 
 use burn::tensor::backend::BackendTypes;
 
@@ -156,7 +159,7 @@ fn sparse_convergence_slope() {
 #[cfg(feature = "arpack")]
 mod arpack_oracle {
     use super::*;
-    use geode_core::ArpackEigensolver;
+    use geode_core::eigen::arpack::ArpackEigensolver;
 
     fn arpack_eigs(n: usize, n_modes: usize) -> Vec<f64> {
         let mesh = cube_tet_mesh(n, 1.0);

@@ -2,7 +2,7 @@
 //! drives the bundled probe-fed FR-4 rectangular microstrip patch
 //! (`geode_core::mesh::patch`, Epic #226) through a frequency sweep and
 //! extracts the antenna figures of merit against the in-repo cavity-model
-//! analytic oracle (`geode_core::patch_cavity`, issue #228 Phase 2).
+//! analytic oracle (`geode_core::analytic::patch`, issue #228 Phase 2).
 //!
 //! For each frequency the structure is solved as an **open radiator**:
 //! a 50 Ω lumped port across the coax-probe gap, PEC patch + ground +
@@ -25,7 +25,7 @@
 //!
 //! # Oracle
 //!
-//! `geode_core::patch_cavity` (Balanis cavity model): ε_eff, ΔL, the
+//! `geode_core::analytic::patch` (Balanis cavity model): ε_eff, ΔL, the
 //! TM₀₁₀ resonant frequency `f_res = c/(2 L_eff √ε_eff)`, the two-slot
 //! edge/inset input resistance, and a loss-limited fractional bandwidth.
 //! For FR-4 (ε_r = 4.4, tan δ = 0.02) the fixture cavity model places
@@ -47,7 +47,7 @@
 //! ```
 //!
 //! Passing `pattern` runs the near-to-far-field transform
-//! (`geode_core::ntff`, issue #229 Phase 3) on the driven near field at
+//! (`geode_core::postproc::ntff`, issue #229 Phase 3) on the driven near field at
 //! the Phase-2 resonant frequency and writes
 //! `benchmarks/patch_antenna/pattern.toml` — broadside directivity,
 //! gain `G = D·η`, and E-/H-plane principal-plane cuts cross-checked
@@ -66,7 +66,7 @@
 //! `pattern-3d` (issue #289, Epic #276 Phase 3A) runs the same driven
 //! solve + NTFF as `pattern` on the benchmark fixture, samples the
 //! directivity `D(θ, φ)` on a 37×72 sphere, and writes a triangulated
-//! 3D radiation-*lobe* surface `.vtu` (`geode_core::viz_vtu::write_vtu_surface`,
+//! 3D radiation-*lobe* surface `.vtu` (`geode_core::postproc::viz::write_vtu_surface`,
 //! `VTK_TRIANGLE` cells) whose vertex radius is the dB-floored normalised
 //! directivity (floor −20 dB) and which carries `D` / `D_dB` as `PointData`
 //! for ParaView colouring. Output path defaults to `artifacts/viz/patch_lobe.vtu`
@@ -121,15 +121,23 @@ use std::process::Command;
 
 use faer::c64;
 
-use geode_core::mesh::patch::FR4_MATERIALS;
-use geode_core::postproc::viz::write_vtu_surface;
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, PatchCavity, PatchFixture,
-    broadside_directivity, directivity, driven_solve_with_ports, flux_power_box, gain,
-    im_z_zero_crossings, ntff_far_field, pec_interior_mask_from_triangles, port_current,
-    port_voltage, principal_plane_cuts, read_patch_fixture, read_patch_matched_fixture,
-    read_patch_smoke_fixture, s11, to_db,
+use geode_core::analytic::patch::PatchCavity;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::extraction::{im_z_zero_crossings, s11};
+use geode_core::driven::ports::{port_current, port_voltage};
+use geode_core::driven::scattering::flux_power_box;
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenMaterials, driven_solve_with_ports,
 };
+use geode_core::mesh::patch::FR4_MATERIALS;
+use geode_core::mesh::{
+    PatchFixture, pec_interior_mask_from_triangles, read_patch_fixture, read_patch_matched_fixture,
+    read_patch_smoke_fixture,
+};
+use geode_core::postproc::ntff::{
+    broadside_directivity, directivity, gain, ntff_far_field, principal_plane_cuts, to_db,
+};
+use geode_core::postproc::viz::write_vtu_surface;
 
 #[path = "common/viz_export_helper.rs"]
 mod viz_export_helper;
@@ -487,7 +495,7 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: f6
     }
     s.push_str("# Do NOT edit by hand — regenerate after any intentional change.\n");
     s.push_str("# Consumed by `tests/patch_antenna_benchmark.rs` and compared\n");
-    s.push_str("# against the in-repo cavity-model oracle (geode_core::patch_cavity).\n");
+    s.push_str("# against the in-repo cavity-model oracle (geode_core::analytic::patch).\n");
     s.push('\n');
 
     s.push_str("[meta]\n");
@@ -545,12 +553,12 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: f6
     s.push_str("  \"Z_in = V/I at the lumped probe port (Palace-style uniform port, V_inc = 1, R = 50 ohm); S11 vs 50 ohm; f_res = first Im Z = 0 crossing (im_z_zero_crossings).\",\n");
     s.push_str("  \"Radiation efficiency eta = P_rad / P_in, P_in = 0.5 Re(V I*) at the port, P_rad = box-surface Poynting flux (scattering::flux_power_box) over a surface shrunk 10% inside the matched box-UPML inner wall, enclosing the whole radiator.\",\n");
     s.push_str("  \"Conductors (patch, ground, outer wall) are PEC; substrate loss enters via FR-4 tan delta in the permittivity. With PEC metal the only loss channels are dielectric + radiation, so eta is loss-limited by the FR-4 tan delta (0.02).\",\n");
-    s.push_str("  \"Cavity-model oracle (Balanis Antenna Theory 4e, geode_core::patch_cavity): a ~3-5% sanity band on f_res, not a tight reference — FR-4 eps_r tolerance (+-0.2) and the fringing curve-fit dominate the residual.\",\n");
+    s.push_str("  \"Cavity-model oracle (Balanis Antenna Theory 4e, geode_core::analytic::patch): a ~3-5% sanity band on f_res, not a tight reference — FR-4 eps_r tolerance (+-0.2) and the fringing curve-fit dominate the residual.\",\n");
     s.push_str("]\n");
     s.push('\n');
 
     s.push_str("[oracles.cavity_model]\n");
-    s.push_str("# geode_core::patch_cavity (Balanis 4e) on the fixture geometry\n");
+    s.push_str("# geode_core::analytic::patch (Balanis 4e) on the fixture geometry\n");
     s.push_str("# (W = 38, L = 29, h = 1.6 mm, FR-4 eps_r = 4.4).\n");
     s.push_str(&format!("epsilon_eff = {:.6e}\n", cavity.epsilon_eff()));
     s.push_str(&format!("delta_l_mm = {:.6e}\n", cavity.delta_l() * 1000.0));
@@ -575,7 +583,7 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: f6
 
     s.push_str("[oracles.palace]\n");
     s.push_str("status = \"pending_operator_run\"\n");
-    s.push_str("note = \"Palace is not installed on the generation machine (only a Docker build recipe under ~/GitHub/sphere/eda/mom/docker/palace). The geode-fem-side config generator + result ingester (issue #239) live in reference/palace/geode_patch_baseline/ (emits palace_config.json) and crates/geode-core/src/palace.rs (parses Palace's s-parameters.csv into a populated [oracles.palace] block). Operator workflow: (1) emit the config, (2) run Palace, (3) populate this slot via geode_core::palace::PalaceResults with full provenance (palace_version, config_sha256). Same toolchain-gap convention as the FastHenry slot of benchmarks/spiral_inductor/results.toml.\"\n");
+    s.push_str("note = \"Palace is not installed on the generation machine (only a Docker build recipe under ~/GitHub/sphere/eda/mom/docker/palace). The geode-fem-side config generator + result ingester (issue #239) live in reference/palace/geode_patch_baseline/ (emits palace_config.json) and crates/geode-core/src/palace.rs (parses Palace's s-parameters.csv into a populated [oracles.palace] block). Operator workflow: (1) emit the config, (2) run Palace, (3) populate this slot via geode_core::interop::palace::PalaceResults with full provenance (palace_version, config_sha256). Same toolchain-gap convention as the FastHenry slot of benchmarks/spiral_inductor/results.toml.\"\n");
     s.push('\n');
 
     // Achieved comparison at resonance.
@@ -877,7 +885,7 @@ struct LobeSurface {
     d_db: Vec<f64>,
 }
 
-/// Turn a [`geode_core::FarField`] directivity grid into a triangulated
+/// Turn a [`geode_core::postproc::ntff::FarField`] directivity grid into a triangulated
 /// radiation-lobe surface mesh.
 ///
 /// * vertex `(θ_i, φ_j)` sits at radius `r = dB-floored normalised D` along
@@ -888,7 +896,11 @@ struct LobeSurface {
 ///   pole triangles dropped,
 /// * `d` carries the *un-scaled* linear `D` and `d_db` the `D_dB` (dBi) at
 ///   each vertex for ParaView colouring.
-fn build_lobe_surface(ff: &geode_core::FarField, d_grid: &[f64], d_max: f64) -> LobeSurface {
+fn build_lobe_surface(
+    ff: &geode_core::postproc::ntff::FarField,
+    d_grid: &[f64],
+    d_max: f64,
+) -> LobeSurface {
     let n_theta = ff.n_theta();
     let n_phi = ff.n_phi();
     // Close the azimuth seam: append a duplicate column at φ = 2π so the
@@ -956,8 +968,8 @@ fn write_pattern_toml(
     d_broadside: f64,
     g_broadside: f64,
     d_cavity: f64,
-    e_plane: &geode_core::PatternCut,
-    h_plane: &geode_core::PatternCut,
+    e_plane: &geode_core::postproc::ntff::PatternCut,
+    h_plane: &geode_core::postproc::ntff::PatternCut,
 ) {
     let file = match choice {
         FixtureChoice::Benchmark => "pattern.toml",
@@ -982,16 +994,16 @@ fn write_pattern_toml(
     s.push_str("# Do NOT edit by hand — regenerate after any intentional change.\n");
     s.push_str("# Patch radiation pattern / directivity / gain (issue #229,\n");
     s.push_str("# Epic #226 Phase 3) from the near-to-far-field transform\n");
-    s.push_str("# (geode_core::ntff) of the driven near field at resonance.\n");
+    s.push_str("# (geode_core::postproc::ntff) of the driven near field at resonance.\n");
     s.push('\n');
 
     s.push_str("[meta]\n");
     match choice {
         FixtureChoice::Benchmark | FixtureChoice::Smoke => {
-            s.push_str("description = \"Patch-antenna far-field radiation pattern, broadside directivity, and gain (issue #229, Epic #226 Phase 3): Love surface-equivalence NTFF (geode_core::ntff) of the driven near field on the Huygens box just inside the matched box-UPML, at the Phase-2 resonant frequency. Cross-checked against the Balanis cavity-model two-slot directivity (geode_core::patch_cavity).\"\n");
+            s.push_str("description = \"Patch-antenna far-field radiation pattern, broadside directivity, and gain (issue #229, Epic #226 Phase 3): Love surface-equivalence NTFF (geode_core::postproc::ntff) of the driven near field on the Huygens box just inside the matched box-UPML, at the Phase-2 resonant frequency. Cross-checked against the Balanis cavity-model two-slot directivity (geode_core::analytic::patch).\"\n");
         }
         FixtureChoice::Matched => {
-            s.push_str("description = \"Patch-antenna far-field radiation pattern, broadside directivity, and gain on the impedance-matched fixture (issue #247, Epic #226 Phase 3 follow-up): Love surface-equivalence NTFF (geode_core::ntff) of the driven near field on the Huygens box just inside the matched box-UPML, at the matched-fixture S11-dip frequency (issue #237, probe inset 8.0 -> 7.0 mm). D is essentially unchanged from the untuned pattern.toml (tuning the feed shifts the *match*, not the radiation pattern shape); G = D . eta_matched uses the tuned radiation efficiency from results_matched.toml. Cross-checked against the Balanis cavity-model two-slot directivity (geode_core::patch_cavity).\"\n");
+            s.push_str("description = \"Patch-antenna far-field radiation pattern, broadside directivity, and gain on the impedance-matched fixture (issue #247, Epic #226 Phase 3 follow-up): Love surface-equivalence NTFF (geode_core::postproc::ntff) of the driven near field on the Huygens box just inside the matched box-UPML, at the matched-fixture S11-dip frequency (issue #237, probe inset 8.0 -> 7.0 mm). D is essentially unchanged from the untuned pattern.toml (tuning the feed shifts the *match*, not the radiation pattern shape); G = D . eta_matched uses the tuned radiation efficiency from results_matched.toml. Cross-checked against the Balanis cavity-model two-slot directivity (geode_core::analytic::patch).\"\n");
         }
     }
     match choice {
@@ -1020,7 +1032,7 @@ fn write_pattern_toml(
     s.push_str("notes = [\n");
     s.push_str("  \"E(theta,phi) from Love surface equivalence J_s = n x H, M_s = -n x E on the closed Huygens box (same surface as flux_power_box), radiation vectors N/L with e^{+jk r-hat . r'} (exp(+jwt) outgoing e^{-jkr} convention), E_theta = -(L_phi + N_theta), E_phi = (L_theta - N_phi), eta_0 = 1 natural units.\",\n");
     s.push_str("  \"directivity D = 4 pi |E|^2_max / closed-surface integral of |E|^2 dOmega (trapezoid in theta with sin-theta weight, rectangle in phi). broadside = +z (theta = 0). gain G = D_broadside . eta_rad with eta from Phase 2.\",\n");
-    s.push_str("  \"NTFF transform validated independently on an analytic short dipole (geode_core::ntff unit tests: recovered D = 1.50, sin-theta pattern, translation/phase-sign invariance) before application to the patch.\",\n");
+    s.push_str("  \"NTFF transform validated independently on an analytic short dipole (geode_core::postproc::ntff unit tests: recovered D = 1.50, sin-theta pattern, translation/phase-sign invariance) before application to the patch.\",\n");
     s.push_str("]\n");
     s.push('\n');
 
@@ -1041,7 +1053,7 @@ fn write_pattern_toml(
     s.push('\n');
 
     s.push_str("[oracles.cavity_model]\n");
-    s.push_str("# geode_core::PatchCavity::broadside_directivity (Balanis 4e two-slot model).\n");
+    s.push_str("# geode_core::analytic::patch::PatchCavity::broadside_directivity (Balanis 4e two-slot model).\n");
     s.push_str(&format!("directivity_broadside = {d_cavity:.6e}\n"));
     s.push_str(&format!(
         "directivity_broadside_dbi = {:.6e}\n",
@@ -1054,7 +1066,7 @@ fn write_pattern_toml(
     s.push('\n');
 
     // Principal-plane cuts: theta (deg) vs normalized |E|.
-    let push_cut = |s: &mut String, name: &str, cut: &geode_core::PatternCut| {
+    let push_cut = |s: &mut String, name: &str, cut: &geode_core::postproc::ntff::PatternCut| {
         s.push_str(&format!("[cut.{name}]\n"));
         s.push_str("# theta in degrees (0 = broadside +z); e_norm = |E| normalized to lobe max.\n");
         let theta_deg: Vec<String> = cut

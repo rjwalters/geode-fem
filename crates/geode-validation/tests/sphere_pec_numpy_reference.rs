@@ -4,7 +4,7 @@
 //! for the vector-Nédélec sphere-PEC eigenmode pipeline at the bundled
 //! 774-node fixture) and asserts Burn agreement at every sub-stage:
 //!
-//! 1. Mesh I/O — bundled `.msh` parsed by `geode_core::read_sphere_fixture`;
+//! 1. Mesh I/O — bundled `.msh` parsed by `geode_core::mesh::read_sphere_fixture`;
 //!    `n_nodes` and `n_tets` checked.
 //! 2. ε_r assignment — per-tet permittivity from `build_epsilon_r`
 //!    compared bit-exactly (f64 ULP × max value).
@@ -65,11 +65,14 @@ use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::mat::MatRef;
 
-use geode_core::{
-    DefaultBackend, R_BUFFER, apply_dirichlet_bc, assemble_global_nedelec_with_epsilon,
-    build_epsilon_r, burn_matrix_to_faer, read_sphere_fixture, sphere_pec_interior_edges,
-    sphere_pec_node_interior_mask, spurious_dim_from_derham, upload_mesh,
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_epsilon, build_epsilon_r, sphere_pec_interior_edges,
+    sphere_pec_node_interior_mask, spurious_dim_from_derham,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
+use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = DefaultBackend;
@@ -118,7 +121,7 @@ const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
 };
 
 fn active_backend_tolerances() -> BackendTolerances {
-    let info = geode_core::device_info();
+    let info = geode_core::backend::device_info();
     if info.backend == "ndarray" {
         NDARRAY_F64_TOLERANCES
     } else {
@@ -485,7 +488,7 @@ fn sphere_pec_assembly_substages_agree_with_numpy() {
     eprintln!(
         "sphere_pec assembly test: backend = {}, frobenius_rel = {:.0e}, \
          diagonal_abs = {:.0e}",
-        geode_core::device_info().backend,
+        geode_core::backend::device_info().backend,
         tol.frobenius_rel,
         tol.diagonal_abs,
     );
@@ -618,7 +621,7 @@ fn sphere_pec_spectrum_agrees_with_numpy() {
     eprintln!(
         "sphere_pec spectrum test: backend = {}, eigenvalue_rel = {:.0e}, \
          spectrum_abs = {:.0e}",
-        geode_core::device_info().backend,
+        geode_core::backend::device_info().backend,
         tol.eigenvalue_rel,
         tol.spectrum_abs,
     );

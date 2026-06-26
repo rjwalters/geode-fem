@@ -18,7 +18,7 @@
 //!   volumes.
 //! - All tets have positive signed volume (right-handed).
 
-use geode_core::{
+use geode_core::mesh::{
     PHYS_OUTER_BOUNDARY, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR, PHYS_SPHERE_SURFACE,
     PHYS_VACUUM_GAP, R_BUFFER, R_PML_INNER, R_SPHERE, read_sphere_fixture,
 };

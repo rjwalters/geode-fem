@@ -8,7 +8,7 @@
 //!    full-tensor assembler agree with the established complex-ε
 //!    scalar assembler entrywise (independent kernels, same integral).
 //! 2. **Reduction to the diag kernel** — a diagonal ε tensor agrees
-//!    with [`geode_core::assemble_global_nedelec_with_anisotropic_epsilon`].
+//!    with [`geode_core::assembly::nedelec::assemble_global_nedelec_with_anisotropic_epsilon`].
 //! 3. **Λ-weighted complex symmetry** (acceptance criterion (c)) —
 //!    `K(Λ⁻¹)ᵀ = K(Λ⁻¹)`, `M(ε_rΛ)ᵀ = M(ε_rΛ)`, and the full pencil
 //!    `A(ω) = K(Λ⁻¹) + iωC(σ) − ω²M(ε_rΛ)` satisfies `A(ω)ᵀ = A(ω)`
@@ -20,20 +20,27 @@
 //!    panics.
 //!
 //! The Burn-vs-host assembly-equivalence tests (σ₀ ∈ {0, 25} against
-//! [`geode_core::solve_scattered_field_matched_upml`]) live next to
+//! [`geode_core::driven::scattering::solve_scattered_field_matched_upml`]) live next to
 //! the benchmark in `tests/mie_driven_scattering.rs`.
 
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
 use faer::c64;
 
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenError, DrivenMaterials, PHYS_PML_SHELL,
-    PHYS_SPHERE_INTERIOR, PHYS_VACUUM_GAP, R_PML_INNER, R_SPHERE, TetMesh,
+use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_anisotropic_epsilon, assemble_global_nedelec_with_complex_epsilon,
     assemble_global_nedelec_with_full_tensors, assemble_nedelec_sigma_damping,
-    build_matched_upml_materials, cube_pec_interior_edges, cube_tet_mesh, driven_solve,
-    tet_centroids, upload_mesh,
+    cube_pec_interior_edges, tet_centroids,
+};
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::scattering::build_matched_upml_materials;
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, driven_solve,
+};
+use geode_core::mesh::{
+    PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR, PHYS_VACUUM_GAP, R_PML_INNER, R_SPHERE, TetMesh,
+    cube_tet_mesh,
 };
 
 type B = DefaultBackend;
@@ -406,14 +413,14 @@ fn full_tensor_assembly_preserves_autodiff() {
     );
 }
 
-/// The degree-2 quadrature RHS ([`geode_core::QuadCurrentSource`] /
+/// The degree-2 quadrature RHS ([`geode_core::driven::solve::QuadCurrentSource`] /
 /// `driven_solve_quad`) must reduce to the per-tet-constant RHS path
 /// for a constant-per-tet `J` — the rule integrates the Whitney basis
 /// times a constant exactly, and the kernel collapses algebraically
 /// (`A + 3B = 1`).
 #[test]
 fn quad_source_reduces_to_constant_source_for_constant_j() {
-    use geode_core::{QuadCurrentSource, driven_solve_quad};
+    use geode_core::driven::solve::{QuadCurrentSource, driven_solve_quad};
 
     let mesh = cube_tet_mesh(2, 1.0);
     let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);

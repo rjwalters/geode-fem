@@ -2617,7 +2617,7 @@ dependencies = [
 
 [[package]]
 name = "geode-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "geode-core",
@@ -2625,7 +2625,7 @@ dependencies = [
 
 [[package]]
 name = "geode-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "burn",
  "criterion",
@@ -2641,7 +2641,7 @@ dependencies = [
 
 [[package]]
 name = "geode-validation"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "burn",
  "faer",

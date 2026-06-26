@@ -309,7 +309,7 @@ fn main() {
               (or via the sister-repo Docker image)\n\
            3. The Palace run writes postpro/spiral_palace/{{s-parameters.csv,\n\
               port-V.csv, ...}}. Ingest these via\n\
-              `geode_core::palace::PalaceResults::from_palace_csv_file(...)` and\n\
+              `geode_core::interop::palace::PalaceResults::from_palace_csv_file(...)` and\n\
               fill `benchmarks/spiral_inductor/results.toml`'s [oracles.palace]\n\
               slot with the parsed values + this provenance file's SHA.\n\
          \n\

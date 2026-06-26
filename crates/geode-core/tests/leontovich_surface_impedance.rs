@@ -46,14 +46,19 @@ use faer::c64;
 use std::collections::BTreeMap;
 use std::f64::consts::PI;
 
-use geode_core::mesh::TET_LOCAL_EDGES;
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc,
-    SurfaceImpedanceModel, TetMesh, assemble_global_nedelec_with_complex_epsilon,
-    assemble_nedelec_current_rhs, assemble_nedelec_sigma_damping, assemble_silver_muller_surface,
-    assemble_surface_mass, cube_pec_interior_edges, cube_tet_mesh, driven_solve,
-    driven_solve_with_sigma, driven_solve_with_surface_impedance, upload_mesh,
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_complex_epsilon, assemble_nedelec_current_rhs,
+    assemble_nedelec_sigma_damping, cube_pec_interior_edges,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::assembly::surface::{assemble_silver_muller_surface, assemble_surface_mass};
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    driven_solve, driven_solve_with_sigma, driven_solve_with_surface_impedance,
+};
+use geode_core::mesh::TET_LOCAL_EDGES;
+use geode_core::mesh::{TetMesh, cube_tet_mesh};
 
 type B = DefaultBackend;
 
@@ -623,7 +628,7 @@ fn leontovich_loss_matches_volumetric_sigma_oracle() {
     let full = cube_tet_mesh(n, 1.0);
     let (_, full_interior) = cube_pec_interior_edges(&full, 1.0);
     let eps_full = vacuum(&full);
-    let sigma_tet: Vec<f64> = geode_core::tet_centroids(&full)
+    let sigma_tet: Vec<f64> = geode_core::assembly::nedelec::tet_centroids(&full)
         .iter()
         .map(|c| if c[0] > 0.5 { sigma } else { 0.0 })
         .collect();

@@ -10,15 +10,17 @@ use std::time::Duration;
 use burn::tensor::backend::BackendTypes;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
-use geode_core::{
-    DefaultBackend, SparseEigenSolver, SparseShiftInvertLanczos, assemble_global_p1,
-    cube_interior_mask, cube_tet_mesh, global_system_to_sparse, upload_mesh,
-};
+use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
+use geode_core::assembly::sparse::global_system_to_sparse;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::dense::cube_interior_mask;
+use geode_core::eigen::lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
+use geode_core::mesh::cube_tet_mesh;
 
 type B = DefaultBackend;
 
 struct SparsePencil {
-    sys: geode_core::SparseSystem,
+    sys: geode_core::assembly::sparse::SparseSystem,
 }
 
 fn build_sparse_pencil(n: usize) -> SparsePencil {

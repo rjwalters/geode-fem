@@ -60,7 +60,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use geode_core::{
+use geode_core::analytic::waveguide::{
     TriMesh, epsilon_r_from_region_tags, rect_pec_interior_edges, rect_tri_mesh, slab_te0_neff,
     solve_dielectric_modes,
 };
@@ -316,7 +316,7 @@ fn write_toml(results: &[BufferResult]) {
     s.push('\n');
 
     s.push_str("[oracles.eim]\n");
-    s.push_str("# Effective-index method: composed 1-D slab solves (geode_core::slab_te0_neff).\n");
+    s.push_str("# Effective-index method: composed 1-D slab solves (geode_core::analytic::waveguide::slab_te0_neff).\n");
     s.push_str(&format!("slab_limit_lateral_450nm = {lateral:.6e}\n"));
     s.push_str(&format!("slab_limit_vertical_220nm = {vertical:.6e}\n"));
     s.push_str(&format!("index_ceiling = {ceiling:.6e}\n"));

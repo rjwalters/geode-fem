@@ -5,7 +5,7 @@
 //! Loads `reference/fixtures/mie_roots/julia_baseline.json` (generated
 //! by `reference/julia/gen_mie_roots_julia_baseline.jl` from
 //! `reference/julia/mie_roots.jl`) and joins the Burn-side
-//! `geode_core::mie::{resonance_roots, mie_roots_catalog}` output
+//! `geode_core::analytic::mie::{resonance_roots, mie_roots_catalog}` output
 //! against it on the exact integer key `(pol, l, n)`.
 //!
 //! # Why a third catalogue matters
@@ -34,9 +34,8 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use geode_core::{
-    MiePolarisation, MieRoot, R_BUFFER, R_SPHERE, mie_roots_catalog, resonance_roots,
-};
+use geode_core::analytic::mie::{MiePolarisation, MieRoot, mie_roots_catalog, resonance_roots};
+use geode_core::mesh::{R_BUFFER, R_SPHERE};
 use geode_validation::{Fixture, FixtureFormat};
 
 // ---------------------------------------------------------------------------

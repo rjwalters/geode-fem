@@ -11,7 +11,7 @@
 //!    `c128` dtype on `epsilon_tensor_diag` /
 //!    `eigenvalues_lowest_complex` / `physical_eigenvalues_complex`.
 //! 2. Constitutive: the full per-tet diagonal UPML tensor
-//!    (`geode_core::build_anisotropic_pml_tensor_diag`) at `1e-14`
+//!    (`geode_core::assembly::nedelec::build_anisotropic_pml_tensor_diag`) at `1e-14`
 //!    absolute on `|Δ|` (bit-exact f64 round-trip).
 //! 3. Spectrum: Burn `FaerComplexEigensolver` vs NumPy LAPACK ZGGEV on
 //!    the identical complex-symmetric tensor-ε pencil. The **strict
@@ -27,7 +27,7 @@
 //!    within the documented 8 % coarse-mesh band of the analytic
 //!    TM_1,1 root (`k ≈ 1.30343` from
 //!    `reference/fixtures/mie_roots/baseline.json`), and the fixture's
-//!    re-exported anchor agrees with `geode_core::merged_roots` at
+//!    re-exported anchor agrees with `geode_core::analytic::mie::merged_roots` at
 //!    `1e-9`.
 //! 5. Q tripwire: Q of the lowest mode and the TM_1,1-triplet median Q
 //!    above `Q_LOWER_BAND_TM11 = 1.5` on both sides — the
@@ -77,12 +77,17 @@ use std::path::PathBuf;
 use burn::tensor::backend::BackendTypes;
 use num_complex::Complex64;
 
-use geode_core::{
-    ComplexEigenSolver, DefaultBackend, FaerComplexEigensolver, MiePolarisation, R_BUFFER,
-    R_SPHERE, SphereFixture, apply_dirichlet_bc, assemble_global_nedelec_with_anisotropic_epsilon,
-    build_anisotropic_pml_tensor_diag, burn_complex_mass_to_faer, burn_matrix_to_faer,
-    merged_roots, read_sphere_fixture, read_sphere_fixture_from_bytes, sphere_n_interior_nodes,
-    sphere_pec_interior_edges, tet_centroids, upload_mesh,
+use geode_core::analytic::mie::{MiePolarisation, merged_roots};
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_anisotropic_epsilon, build_anisotropic_pml_tensor_diag,
+    burn_complex_mass_to_faer, sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroids,
+};
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
+use geode_core::mesh::{
+    R_BUFFER, R_SPHERE, SphereFixture, read_sphere_fixture, read_sphere_fixture_from_bytes,
 };
 use geode_validation::{Fixture, FixtureFormat};
 

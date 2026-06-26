@@ -44,11 +44,14 @@ use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::mat::MatRef;
 
-use geode_core::{
-    DefaultBackend, R_BUFFER, apply_dirichlet_bc, assemble_global_nedelec_with_epsilon,
-    build_epsilon_r, burn_matrix_to_faer, read_sphere_fixture, sphere_pec_interior_edges,
-    sphere_pec_node_interior_mask, spurious_dim_from_derham, upload_mesh,
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_epsilon, build_epsilon_r, sphere_pec_interior_edges,
+    sphere_pec_node_interior_mask, spurious_dim_from_derham,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
+use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = DefaultBackend;
@@ -90,7 +93,7 @@ const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
 };
 
 fn active_backend_tolerances() -> BackendTolerances {
-    let info = geode_core::device_info();
+    let info = geode_core::backend::device_info();
     if info.backend == "ndarray" {
         NDARRAY_F64_TOLERANCES
     } else {
@@ -339,7 +342,7 @@ fn sphere_pec_julia_assembly_substages_agree() {
 
     eprintln!(
         "sphere_pec_julia assembly: backend={}, frobenius_rel={:.0e}, diagonal_abs={:.0e}",
-        geode_core::device_info().backend,
+        geode_core::backend::device_info().backend,
         tol.frobenius_rel,
         tol.diagonal_abs,
     );
@@ -452,7 +455,7 @@ fn sphere_pec_julia_spectrum_agrees() {
 
     eprintln!(
         "sphere_pec_julia spectrum: backend={}, eigenvalue_rel={:.0e}",
-        geode_core::device_info().backend,
+        geode_core::backend::device_info().backend,
         tol.eigenvalue_rel,
     );
 

@@ -41,15 +41,18 @@
 
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::ports::{port_current, port_input_impedance, port_voltage};
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, SurfaceImpedanceBc,
+    SurfaceImpedanceModel, driven_solve_with_ports,
+};
 use geode_core::mesh::spiral::{
     CONDUCTOR_SIGMA_NATURAL, PHYS_AIR, PHYS_AIR_BUFFER, PHYS_CONDUCTOR_SURFACE, PHYS_DIELECTRIC,
     PHYS_OUTER_BOUNDARY, PHYS_PORT, PHYS_SUBSTRATE, PORT_E_HAT,
 };
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, DrivenOperator, SpiralFixture,
-    SurfaceImpedanceBc, SurfaceImpedanceModel, driven_solve_with_ports,
-    pec_interior_mask_from_triangles, port_current, port_input_impedance, port_voltage,
-    read_spiral_fixture, read_spiral_smoke_fixture,
+use geode_core::mesh::{
+    SpiralFixture, pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_smoke_fixture,
 };
 use std::collections::BTreeSet;
 

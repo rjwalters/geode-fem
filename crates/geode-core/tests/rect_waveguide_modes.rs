@@ -40,11 +40,11 @@
 //! path avoids the QZ algorithm entirely, so the workspace no longer
 //! needs the `rustflags = ["-C", "overflow-checks=off"]` workaround.
 
-use geode_core::{
-    EigenSolver, FaerDenseEigensolver, apply_pec_2d, assemble_2d_nedelec, rect_pec_interior_edges,
-    rect_pec_interior_nodes, rect_tri_mesh, rect_waveguide_cutoff, solve_rect_waveguide_modes,
-    spurious_dim_2d,
+use geode_core::analytic::waveguide::{
+    apply_pec_2d, assemble_2d_nedelec, rect_pec_interior_edges, rect_pec_interior_nodes,
+    rect_tri_mesh, rect_waveguide_cutoff, solve_rect_waveguide_modes, spurious_dim_2d,
 };
+use geode_core::eigen::dense::{EigenSolver, FaerDenseEigensolver};
 
 /// Two-step sanity: PEC reduction and de-Rham nullspace dimension agree
 /// with the structured-mesh counts (one degree of freedom per interior

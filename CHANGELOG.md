@@ -5,6 +5,36 @@ All notable changes to GEODE-FEM are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-06-25
+
+### Changed
+
+#### geode-core public API reorganized into a hierarchical module tree (Epic #377 — BREAKING)
+
+- The crate's public surface, previously a flat set of root re-exports
+  (`geode_core::<item>`), is now organized into directory-backed module
+  groups: `backend`, `traits`, `mesh`, `elements`, `derham`, `assembly`,
+  `solver`, `eigen`, `driven`, `analytic`, `postproc`, `interop`, and
+  `prelude`. Every public item now lives at its canonical path
+  `geode_core::<module>::<item>` (children #378–#386).
+- **All deprecated flat-root re-export shims have been removed.** Code that
+  imported items via `geode_core::<item>` must migrate to the canonical
+  module path or `use geode_core::prelude::*;`. The only re-exports that
+  remain at the crate root are the core traits
+  `geode_core::{Element, Mesh, Operator}` (also available via
+  `geode_core::traits::*` and the prelude).
+- `silvermuller_self_consistent` has moved to `eigen::self_consistent`
+  (canonical path `geode_core::eigen::self_consistent::*`), with no compat
+  shim — it is a quasimode-`k` eigenpencil finder and now lives alongside
+  the other eigensolvers.
+- `geode_core::prelude` is finalized as the recommended ergonomic surface:
+  glob-import it (`use geode_core::prelude::*;`) to pull in the high-traffic
+  entry points (mesh constructors/readers, assembly/eigen/driven/analytic
+  types, core traits) from their canonical paths.
+
+This is a breaking change for downstream callers; the workspace minor
+version is bumped accordingly. See epic #377 and children #378–#387.
+
 ## [0.1.0] - 2026-06-15
 
 ### Summary

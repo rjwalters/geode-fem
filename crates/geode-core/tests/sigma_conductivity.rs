@@ -25,12 +25,16 @@ use faer::c64;
 use std::collections::HashMap;
 use std::f64::consts::PI;
 
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenError, DrivenMaterials, TetMesh,
+use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_complex_epsilon, assemble_nedelec_sigma_damping,
-    build_complex_epsilon_eff, cube_pec_interior_edges, cube_tet_mesh, driven_solve,
-    driven_solve_with_sigma, tet_centroids, upload_mesh,
+    build_complex_epsilon_eff, cube_pec_interior_edges, tet_centroids,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, driven_solve, driven_solve_with_sigma,
+};
+use geode_core::mesh::{TetMesh, cube_tet_mesh};
 
 type B = DefaultBackend;
 

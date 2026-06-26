@@ -68,12 +68,17 @@
 
 use burn::tensor::backend::BackendTypes;
 
-use geode_core::{
-    DefaultBackend, EigenSolver, FaerDenseEigensolver, R_BUFFER, R_SPHERE, apply_dirichlet_bc,
-    assemble_global_nedelec_with_epsilon, build_epsilon_r, burn_matrix_to_faer, merged_roots,
-    read_sphere_fixture, sphere_pec_interior_edges, sphere_pec_node_interior_mask,
-    spurious_dim_from_derham, upload_mesh,
+use geode_core::analytic::mie::merged_roots;
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_epsilon, build_epsilon_r, sphere_pec_interior_edges,
+    sphere_pec_node_interior_mask, spurious_dim_from_derham,
 };
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::dense::{
+    EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer,
+};
+use geode_core::mesh::{R_BUFFER, R_SPHERE, read_sphere_fixture};
 
 type B = DefaultBackend;
 

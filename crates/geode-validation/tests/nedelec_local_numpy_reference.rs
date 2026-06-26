@@ -50,7 +50,8 @@ use std::path::{Path, PathBuf};
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Tensor, TensorData};
 
-use geode_core::{DefaultBackend, batched_nedelec_local_matrices};
+use geode_core::backend::DefaultBackend;
+use geode_core::elements::nedelec::batched_nedelec_local_matrices;
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = DefaultBackend;
@@ -69,7 +70,7 @@ struct MixedTol {
 /// rather than `cfg(feature = …)` so the geode-validation crate doesn't
 /// need to mirror geode-core's feature flags.
 fn active_tolerances() -> MixedTol {
-    let info = geode_core::device_info();
+    let info = geode_core::backend::device_info();
     if info.backend == "ndarray" {
         // f64 path — issue #117 acceptance criterion.
         MixedTol {
@@ -167,7 +168,7 @@ fn device() -> <B as BackendTypes>::Device {
 /// single tet's vertex array (flat `Vec<f64>` of length 12, row-major).
 fn coords_tensor(vertices_flat: &[f64]) -> Tensor<B, 3> {
     assert_eq!(vertices_flat.len(), 12, "expected 12 f64 entries (1 tet)");
-    let info = geode_core::device_info();
+    let info = geode_core::backend::device_info();
     if info.backend == "ndarray" {
         let data = TensorData::new(vertices_flat.to_vec(), [1, 4, 3]);
         Tensor::<B, 3>::from_data(data, &device())
@@ -181,7 +182,7 @@ fn coords_tensor(vertices_flat: &[f64]) -> Tensor<B, 3> {
 /// Read a tensor of arbitrary rank back into a flat `Vec<f64>`, upcasting
 /// the f32 path at readback so comparisons happen in f64 space.
 fn tensor_to_vec_f64<const D: usize>(t: Tensor<B, D>) -> Vec<f64> {
-    let info = geode_core::device_info();
+    let info = geode_core::backend::device_info();
     let data = t.into_data();
     if info.backend == "ndarray" {
         data.to_vec::<f64>().expect("readback f64")
@@ -345,7 +346,7 @@ fn case_skipped_on_f32(case: &str) -> bool {
 #[test]
 fn burn_agrees_with_numpy_baseline_on_all_nedelec_local_cases() {
     let tol = active_tolerances();
-    let backend = geode_core::device_info().backend;
+    let backend = geode_core::backend::device_info().backend;
     let is_f64_path = backend == "ndarray";
     eprintln!(
         "nedelec_local test: backend = {backend}, rel_tol = {:.0e}, abs_tol = {:.0e}",

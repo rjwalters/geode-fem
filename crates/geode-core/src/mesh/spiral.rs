@@ -52,14 +52,14 @@
 //! [`SpiralFixture`] maps the physical groups onto the driven-solve
 //! inputs:
 //!
-//! - **Lumped port** ([`crate::LumpedPort`], issue #202):
+//! - **Lumped port** ([`crate::driven::ports::LumpedPort`], issue #202):
 //!   [`SpiralFixture::port`] returns the tagged port faces with the
 //!   gap direction `ê` and the width/length derived from the tagged
 //!   triangles themselves; [`SpiralPort::lumped_port`] builds the
 //!   `LumpedPort` for a chosen resistance and drive.
-//! - **Leontovich surfaces** ([`crate::SurfaceImpedanceBc`], issue
+//! - **Leontovich surfaces** ([`crate::driven::solve::SurfaceImpedanceBc`], issue
 //!   #204): [`SpiralFixture::conductor_triangles`] is the face list;
-//!   pair it with a [`crate::SurfaceImpedanceModel`] (the fixture's
+//!   pair it with a [`crate::driven::solve::SurfaceImpedanceModel`] (the fixture's
 //!   copper conductivity in natural units is
 //!   [`CONDUCTOR_SIGMA_NATURAL`]).
 //! - **UPML region inputs**: [`SpiralFixture::air_buffer_tets`] are
@@ -234,7 +234,7 @@ impl SpiralFixture {
     }
 
     /// Conductor cavity walls (tag [`PHYS_CONDUCTOR_SURFACE`]) — the
-    /// face list for a [`crate::SurfaceImpedanceBc`] (Leontovich) or a
+    /// face list for a [`crate::driven::solve::SurfaceImpedanceBc`] (Leontovich) or a
     /// PEC edge mask ([`pec_interior_mask_from_triangles`]).
     pub fn conductor_triangles(&self) -> Vec<[u32; 3]> {
         self.triangles_with_tag(PHYS_CONDUCTOR_SURFACE)
@@ -258,7 +258,7 @@ impl SpiralFixture {
 
     /// Tets of the UPML-reserved top air slab (tag
     /// [`PHYS_AIR_BUFFER`]) — the volume-region input for a UPML
-    /// material ([`crate::DrivenMaterials`]); without a UPML it is
+    /// material ([`crate::driven::solve::DrivenMaterials`]); without a UPML it is
     /// plain air (`ε_r = 1`).
     pub fn air_buffer_tets(&self) -> Vec<u32> {
         self.tets_with_tag(PHYS_AIR_BUFFER)
@@ -335,7 +335,7 @@ impl SpiralFixture {
 
 /// Lumped-port geometry recovered from the fixture's port tags: owned
 /// face list plus the uniform-port parameters
-/// ([`crate::LumpedPort`] borrows the faces, so the owning adapter is a
+/// ([`crate::driven::ports::LumpedPort`] borrows the faces, so the owning adapter is a
 /// separate type).
 #[derive(Clone, Debug)]
 pub struct SpiralPort {
@@ -377,7 +377,7 @@ impl SpiralPort {
 /// port gap, exactly where the port drive lives.
 ///
 /// Returns the per-edge mask over `edges` (`true` = kept interior DOF),
-/// the format [`crate::DrivenBcs::pec_interior_mask`] expects.
+/// the format [`crate::driven::solve::DrivenBcs::pec_interior_mask`] expects.
 pub fn pec_interior_mask_from_triangles(
     edges: &[[u32; 2]],
     triangle_lists: &[&[[u32; 3]]],

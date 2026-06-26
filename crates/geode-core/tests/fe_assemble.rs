@@ -7,11 +7,14 @@
 use burn::tensor::backend::BackendTypes;
 
 use geode_core::assembly::fe::fe_assemble;
-use geode_core::{
-    DefaultBackend, DirichletBc, ElementType, R_BUFFER, apply_dirichlet_bc,
-    assemble_global_nedelec_with_epsilon, assemble_global_p1, build_epsilon_r, burn_matrix_to_faer,
-    cube_interior_mask, cube_tet_mesh, read_sphere_fixture, sphere_pec_interior_edges, upload_mesh,
+use geode_core::assembly::fe::{DirichletBc, ElementType};
+use geode_core::assembly::nedelec::{
+    assemble_global_nedelec_with_epsilon, build_epsilon_r, sphere_pec_interior_edges,
 };
+use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
+use geode_core::mesh::{R_BUFFER, cube_tet_mesh, read_sphere_fixture};
 
 type B = DefaultBackend;
 
@@ -246,7 +249,7 @@ fn fe_assemble_p1_wrong_mask_length_returns_error() {
         "fe_assemble with wrong-length mask should return Err"
     );
     match result.unwrap_err() {
-        geode_core::EigenError::MaskDimMismatch { got, want } => {
+        geode_core::eigen::dense::EigenError::MaskDimMismatch { got, want } => {
             assert_eq!(got, mesh.n_nodes() - 1);
             assert_eq!(want, mesh.n_nodes());
         }

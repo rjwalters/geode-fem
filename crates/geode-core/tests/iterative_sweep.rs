@@ -25,13 +25,20 @@
 
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, IterativeSettings, LumpedPort,
-    SolverMode, TetMesh, WavePort, cube_tet_mesh, driven_frequency_sweep,
-    driven_frequency_sweep_with_mode, extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh,
-    rect_tri_mesh, s_parameter_frequency_sweep, s_parameter_frequency_sweep_with_mode,
-    solve_rect_waveguide_modes, solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
+use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::extraction::{
+    driven_frequency_sweep, driven_frequency_sweep_with_mode, s_parameter_frequency_sweep,
+    s_parameter_frequency_sweep_with_mode,
 };
+use geode_core::driven::ports::{
+    LumpedPort, WavePort, extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh,
+    solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
+};
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenMaterials, IterativeSettings, SolverMode,
+};
+use geode_core::mesh::{TetMesh, cube_tet_mesh};
 
 type B = DefaultBackend;
 

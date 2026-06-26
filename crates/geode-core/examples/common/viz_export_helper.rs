@@ -14,7 +14,7 @@
 //!    edge-DOF solution (`e_edges`, one complex DOF per global edge in
 //!    `mesh.edges()` order) into the per-node `E` vectors
 //!    (`[[f64; 3]]`, length `mesh.n_nodes()`) that
-//!    [`geode_core::viz_vtu::write_vtu`] consumes.
+//!    [`geode_core::postproc::viz::write_vtu`] consumes.
 //!
 //! # Sampling choice (v1, intentionally crude)
 //!
@@ -29,7 +29,7 @@
 //! per-tet discontinuity into a single nodal value.
 //!
 //! The geometry / DOF-folding / Whitney evaluation mirror the verified
-//! `pub(crate)` evaluators in `geode_core::scattering`
+//! `pub(crate)` evaluators in `geode_core::driven::scattering`
 //! (`tet_geometry`, `local_dofs`, `eval_field_at_bary`), re-implemented
 //! here against the public mesh API because those crate-internal
 //! helpers are not visible from an example (a separate crate). Keeping
@@ -51,7 +51,7 @@
 
 use faer::c64;
 
-use geode_core::TetMesh;
+use geode_core::mesh::TetMesh;
 
 /// Local edge → (local vertex a, local vertex b), the canonical
 /// lowest-order Nédélec edge ordering (`geode_core::mesh::TET_LOCAL_EDGES`).
@@ -223,7 +223,7 @@ fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 /// Barycentric gradients `∇λ_i` (constant over the tet) for the tet
 /// with the given 0-based vertex indices.
 ///
-/// Mirrors `geode_core::scattering::tet_geometry`.
+/// Mirrors `geode_core::driven::scattering::tet_geometry`.
 fn tet_grads(mesh: &TetMesh, tet: &[u32; 4]) -> [[f64; 3]; 4] {
     let v = [
         mesh.nodes[tet[0] as usize],
@@ -253,7 +253,7 @@ fn tet_grads(mesh: &TetMesh, tet: &[u32; 4]) -> [[f64; 3]; 4] {
 /// global edge in `mesh.edges()` order, e.g.
 /// `geode_core::driven::DrivenSolution::e_edges`). Returns the per-node
 /// real and imaginary `E` vectors, each of length `mesh.n_nodes()`,
-/// ready to hand to `geode_core::viz_vtu::write_vtu`.
+/// ready to hand to `geode_core::postproc::viz::write_vtu`.
 ///
 /// See the module docs for the (crude, averaging) sampling choice.
 pub fn edge_field_to_nodes(mesh: &TetMesh, e_edges: &[c64]) -> (Vec<[f64; 3]>, Vec<[f64; 3]>) {

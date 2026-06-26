@@ -566,7 +566,7 @@ f (Hz), Re(S[1][1]), Im(S[1][1])
         let toml_text = r#"
 [oracles.palace]
 status = "pending_operator_run"
-note = "Palace is operator-assisted; ingest via geode_core::palace."
+note = "Palace is operator-assisted; ingest via geode_core::interop::palace."
 "#;
         let doc: toml::Value = toml::from_str(toml_text).unwrap();
         let block = &doc["oracles"]["palace"];

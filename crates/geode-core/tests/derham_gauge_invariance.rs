@@ -100,10 +100,12 @@ use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::linalg::solvers::Solve;
 
-use geode_core::{
-    DefaultBackend, apply_dirichlet_bc, apply_gradient, assemble_global_nedelec,
-    burn_matrix_to_faer, cube_interior_mask, cube_pec_interior_edges, cube_tet_mesh, upload_mesh,
-};
+use geode_core::assembly::nedelec::{assemble_global_nedelec, cube_pec_interior_edges};
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::backend::DefaultBackend;
+use geode_core::derham::apply_gradient;
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
+use geode_core::mesh::cube_tet_mesh;
 
 type B = DefaultBackend;
 
@@ -173,7 +175,7 @@ fn cube_pec_cavity_system_with_meta() -> (
     Mat<f64>,
     Vec<bool>,
     Vec<bool>,
-    geode_core::TetMesh,
+    geode_core::mesh::TetMesh,
 ) {
     let mesh = cube_tet_mesh(N_CUBE, 1.0);
     let (nodes_t, tets_t) = upload_mesh::<B>(&mesh, &device());

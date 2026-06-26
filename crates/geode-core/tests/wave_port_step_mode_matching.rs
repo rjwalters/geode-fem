@@ -55,11 +55,14 @@
 
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
-use geode_core::{
-    DefaultBackend, DrivenBcs, DrivenMaterials, PortMode, TetMesh, WavePort,
-    extruded_height_step_waveguide_mesh, map_mode_profile_to_full_mesh, rect_tri_mesh,
-    solve_rect_waveguide_modes, solve_wave_port_sweep,
+use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::ports::{
+    PortMode, WavePort, extruded_height_step_waveguide_mesh, map_mode_profile_to_full_mesh,
+    solve_wave_port_sweep,
 };
+use geode_core::driven::solve::{DrivenBcs, DrivenMaterials};
+use geode_core::mesh::TetMesh;
 
 type B = DefaultBackend;
 
@@ -234,10 +237,10 @@ fn mode_match_m_subproblem(
     let nb = m_b + 1;
     // Per-mode β under the outgoing-wave convention.
     let beta_a: Vec<c64> = (0..na)
-        .map(|n| geode_core::beta_outgoing(omega, 1.0, k_c_te(a, b1, m, n)))
+        .map(|n| geode_core::analytic::waveguide::beta_outgoing(omega, 1.0, k_c_te(a, b1, m, n)))
         .collect();
     let beta_b: Vec<c64> = (0..nb)
-        .map(|n| geode_core::beta_outgoing(omega, 1.0, k_c_te(a, b2, m, n)))
+        .map(|n| geode_core::analytic::waveguide::beta_outgoing(omega, 1.0, k_c_te(a, b2, m, n)))
         .collect();
     // Y_n = β_n / ω (TE, μ = 1).
     let y_a: Vec<c64> = beta_a.iter().map(|b| b / omega).collect();
@@ -485,7 +488,7 @@ fn bimodal_height_step_matches_analytic_mode_matching() {
     );
 
     // Evanescent-β sign regression for TE01^B (the A1 latent bug fix).
-    let beta_te01_b = geode_core::beta_outgoing(omega, 1.0, k_te01_b);
+    let beta_te01_b = geode_core::analytic::waveguide::beta_outgoing(omega, 1.0, k_te01_b);
     eprintln!(
         "  TE01^B β = {:.4} + {:.4}i (outgoing-wave: Im<0 expected)",
         beta_te01_b.re, beta_te01_b.im
@@ -1413,10 +1416,10 @@ fn mode_match_m_subproblem_reverse(
     let na = m_a + 1;
     let nb = m_b + 1;
     let beta_a: Vec<c64> = (0..na)
-        .map(|n| geode_core::beta_outgoing(omega, 1.0, k_c_te(a, b1, m, n)))
+        .map(|n| geode_core::analytic::waveguide::beta_outgoing(omega, 1.0, k_c_te(a, b1, m, n)))
         .collect();
     let beta_b: Vec<c64> = (0..nb)
-        .map(|n| geode_core::beta_outgoing(omega, 1.0, k_c_te(a, b2, m, n)))
+        .map(|n| geode_core::analytic::waveguide::beta_outgoing(omega, 1.0, k_c_te(a, b2, m, n)))
         .collect();
     let y_a: Vec<c64> = beta_a.iter().map(|b| b / omega).collect();
     let y_b: Vec<c64> = beta_b.iter().map(|b| b / omega).collect();

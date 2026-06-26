@@ -23,7 +23,7 @@
 //!    regression at `mesh/mod.rs:422`) and conform to the volume mesh:
 //!    every tagged-triangle edge appears in the global edge table.
 //! 3. **Tag adapter** (both) — port faces map to a sane
-//!    [`geode_core::LumpedPort`] (gap along +z, length ≈ substrate
+//!    [`geode_core::driven::ports::LumpedPort`] (gap along +z, length ≈ substrate
 //!    thickness); patch/ground triangle counts are non-zero so the PEC
 //!    mask is non-empty.
 
@@ -32,7 +32,7 @@ use std::collections::BTreeSet;
 use geode_core::mesh::patch::{
     PHYS_AIR, PHYS_GROUND, PHYS_OUTER_BOUNDARY, PHYS_PATCH, PHYS_PORT, PHYS_SUBSTRATE, PHYS_UPML,
 };
-use geode_core::{
+use geode_core::mesh::{
     PatchFixture, read_patch_fixture, read_patch_matched_fixture, read_patch_smoke_fixture,
 };
 

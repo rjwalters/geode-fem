@@ -4,7 +4,7 @@
 //! for the scalar Helmholtz Dirichlet cube cavity at `n=10`) and asserts
 //! Burn agreement at every sub-stage of the pipeline:
 //!
-//! 1. Mesh I/O — the bundled `.msh` is read by `geode_core::GmshReader`;
+//! 1. Mesh I/O — the bundled `.msh` is read by `geode_core::mesh::GmshReader`;
 //!    we sanity-check `n_nodes` and `n_tets`.
 //! 2. Global assembly — Burn-side `assemble_global_p1` then
 //!    `apply_dirichlet_bc`; we compare `K_int` and `M_int` at the
@@ -58,10 +58,10 @@ use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::mat::MatRef;
 
-use geode_core::{
-    DefaultBackend, GmshReader, MeshReader, apply_dirichlet_bc, assemble_global_p1,
-    burn_matrix_to_faer, cube_interior_mask, upload_mesh,
-};
+use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
+use geode_core::backend::DefaultBackend;
+use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
+use geode_core::mesh::{GmshReader, MeshReader};
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = DefaultBackend;
@@ -78,7 +78,7 @@ type B = DefaultBackend;
 // `geode-validation` is a workspace dependency-only crate (no feature
 // flags of its own — see Cargo.toml), so we cannot gate on
 // `cfg(feature = "ndarray")` here. Instead, we read the active backend
-// name at runtime via `geode_core::device_info()` and pick the tighter
+// name at runtime via `geode_core::backend::device_info()` and pick the tighter
 // (f64) or looser (f32) bound accordingly. Tolerance values match the
 // #90 cross-check table in `reference/README.md`.
 //
@@ -148,7 +148,7 @@ const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
 };
 
 fn active_backend_tolerances() -> BackendTolerances {
-    let info = geode_core::device_info();
+    let info = geode_core::backend::device_info();
     if info.backend == "ndarray" {
         NDARRAY_F64_TOLERANCES
     } else {
@@ -503,7 +503,7 @@ fn cube_cavity_burn_matches_numpy_reference_at_all_substages() {
     eprintln!(
         "cube_cavity test: backend = {}, eigenvalue_rel_tol = {:.0e}, \
          frobenius_rel_tol = {:.0e}, diagonal_abs_tol = {:.0e}",
-        geode_core::device_info().backend,
+        geode_core::backend::device_info().backend,
         tol.eigenvalue_rel,
         tol.frobenius_rel,
         tol.diagonal_abs
@@ -668,7 +668,7 @@ fn cube_cavity_eigenvector_subspaces_agree_per_cluster() {
     let tol = active_backend_tolerances();
     eprintln!(
         "cube_cavity subspace test: backend = {}, subspace_overlap_abs_tol = {:.0e}",
-        geode_core::device_info().backend,
+        geode_core::backend::device_info().backend,
         tol.subspace_overlap_abs
     );
     for &(start, dim) in clusters {

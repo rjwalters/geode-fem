@@ -67,11 +67,11 @@
 //!   cargo test -p geode-core --release --test lp01_profile_selector_benchmark -- --ignored
 //!   ```
 
-use geode_core::{
+use geode_core::analytic::fiber::{fiber_lp_neff, normalized_b, v_number};
+use geode_core::analytic::waveguide::{
     Lp01RadialTemplate, REGION_CORE, ScoredDielectricModePml, TriMesh,
     dielectric_mode_field_shape_pml, disk_pec_interior_dofs2, disk_tri_mesh_pml,
-    epsilon_r_from_region_tags, fiber_lp_neff, normalized_b,
-    solve_dielectric_modes2_pml_profile_selected, v_number,
+    epsilon_r_from_region_tags, solve_dielectric_modes2_pml_profile_selected,
 };
 
 const N_CORE: f64 = 1.4504;

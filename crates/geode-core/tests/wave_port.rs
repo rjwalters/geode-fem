@@ -34,11 +34,14 @@
 
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
-use geode_core::{
-    DefaultBackend, DrivenBcs, DrivenMaterials, PortMode, TetMesh, WavePort,
-    extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
-    map_mode_profile_to_full_mesh, solve_rect_waveguide_modes, solve_wave_port_sweep,
+use geode_core::analytic::waveguide::solve_rect_waveguide_modes;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::ports::{
+    PortMode, WavePort, extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
+    map_mode_profile_to_full_mesh, solve_wave_port_sweep,
 };
+use geode_core::driven::solve::{DrivenBcs, DrivenMaterials};
+use geode_core::mesh::TetMesh;
 
 type B = DefaultBackend;
 
@@ -71,7 +74,7 @@ fn build_te10_port(
     z_plane: f64,
     a_inc: c64,
 ) -> WavePort {
-    use geode_core::rect_tri_mesh;
+    use geode_core::analytic::waveguide::rect_tri_mesh;
     let port_mesh = rect_tri_mesh(nx, ny, a, b);
 
     // 2-D node tag → 3-D node tag. The 3-D mesh from
@@ -448,7 +451,7 @@ fn build_te10_port_step(
     z_plane: f64,
     a_inc: c64,
 ) -> WavePort {
-    use geode_core::rect_tri_mesh;
+    use geode_core::analytic::waveguide::rect_tri_mesh;
     let port_mesh = rect_tri_mesh(nx, ny_port, a, b_port);
 
     let tol = 1e-9 * a.max(b_port).max(1.0);
@@ -658,7 +661,7 @@ fn build_multimode_port(
     n_modes: usize,
     a_inc: c64,
 ) -> WavePort {
-    use geode_core::rect_tri_mesh;
+    use geode_core::analytic::waveguide::rect_tri_mesh;
     let port_mesh = rect_tri_mesh(nx, ny, a, b);
 
     let tol = 1e-9 * a.max(b).max(1.0);

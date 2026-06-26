@@ -10,7 +10,7 @@
 //! 1. **Committed-results consistency** (default profile, no solve):
 //!    `benchmarks/patch_antenna/results.toml` (written by
 //!    `examples/patch_antenna.rs`) cross-checked against the in-repo
-//!    Balanis cavity-model oracle (`geode_core::patch_cavity`) with
+//!    Balanis cavity-model oracle (`geode_core::analytic::patch`) with
 //!    **calibrated** bands (see below). Also enforces passivity
 //!    (`|S11| ≤ 1` everywhere) and a physical efficiency range.
 //! 2. **Smoke solve** (default profile): one short end-to-end
@@ -57,12 +57,16 @@ use std::path::PathBuf;
 
 use faer::c64;
 
-use geode_core::mesh::patch::FR4_MATERIALS;
-use geode_core::{
-    CurrentSource, DefaultBackend, DrivenBcs, DrivenMaterials, PatchCavity, PatchFixture,
-    driven_solve_with_ports, flux_power_box, pec_interior_mask_from_triangles, port_current,
-    port_voltage, read_patch_smoke_fixture, s11,
+use geode_core::analytic::patch::PatchCavity;
+use geode_core::backend::DefaultBackend;
+use geode_core::driven::extraction::s11;
+use geode_core::driven::ports::{port_current, port_voltage};
+use geode_core::driven::scattering::flux_power_box;
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenMaterials, driven_solve_with_ports,
 };
+use geode_core::mesh::patch::FR4_MATERIALS;
+use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_smoke_fixture};
 
 /// Free-space impedance η₀ (Ω).
 const ETA_0: f64 = 376.730_313_668;
@@ -407,7 +411,7 @@ fn benchmark_fixture_reference_point_matches_committed_results() {
     // Reproduce the two samples that bracket the Im Z = 0 crossing
     // (2.20 / 2.30 GHz in the committed sweep).
     let ref_freqs = [2.2_f64, 2.3];
-    let fixture = geode_core::read_patch_fixture().expect("bundled benchmark patch fixture");
+    let fixture = geode_core::mesh::read_patch_fixture().expect("bundled benchmark patch fixture");
     let pts = sweep(&fixture, &ref_freqs, PML_THICK_BENCH_MM);
 
     for (f_ghz, z, s11_mag, eta, res) in &pts {
@@ -494,7 +498,7 @@ fn fem_vs_palace_oracle_within_band_or_skip_with_note() {
              geode_patch_baseline && cargo run --release`, run Palace \
              on it (`palace -np N reference/fixtures/patch_palace/\
              palace_config.json`), then ingest the s-parameters.csv via \
-             `geode_core::palace::PalaceResults::from_palace_csv_file` \
+             `geode_core::interop::palace::PalaceResults::from_palace_csv_file` \
              and write the populated [oracles.palace] block in the \
              benchmark TOML with full provenance.",
             path.display()

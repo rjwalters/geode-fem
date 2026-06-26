@@ -105,10 +105,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use geode_core::{
+use geode_core::analytic::fiber::{fiber_lp_neff, normalized_b, v_number};
+use geode_core::analytic::waveguide::{
     REGION_CORE, TriMesh, dielectric_mode_field_shape_pml, disk_pec_interior_dofs2,
-    disk_tri_mesh_pml, epsilon_r_from_region_tags, fiber_lp_neff, n_dof_2d_nedelec2, normalized_b,
-    solve_dielectric_modes2_pml, v_number,
+    disk_tri_mesh_pml, epsilon_r_from_region_tags, n_dof_2d_nedelec2, solve_dielectric_modes2_pml,
 };
 
 /// Core refractive index (SMF-28-like, λ = 1550 nm).
@@ -348,7 +348,7 @@ fn write_toml(
     s.push_str("#   --example step_index_fiber`.\n");
     s.push_str("# Do NOT edit by hand — regenerate after any intentional change.\n");
     s.push_str("# Consumed by `tests/step_index_fiber_benchmark.rs` and compared\n");
-    s.push_str("# against the EXACT LP-mode oracle (geode_core::fiber_lp, Phase 2A).\n");
+    s.push_str("# against the EXACT LP-mode oracle (geode_core::analytic::fiber, Phase 2A).\n");
     s.push('\n');
 
     s.push_str("[meta]\n");
@@ -366,7 +366,7 @@ fn write_toml(
     s.push_str("single_mode = true\n");
     s.push_str("notes = [\n");
     s.push_str("  \"Cross-section: circular step-index fiber, core radius a = 4.1 um (n_core = 1.4504) in cladding (n_clad = 1.4447), on a 3-region disk_tri_mesh_pml: core (r<a), cladding (a<r<8a), UPML annulus (8a<r<11a) with a thin PEC backing. Per-triangle epsilon via region tags + epsilon_r_from_region_tags; complex n_eff via the PML-terminated complex-pencil solve_dielectric_modes2_pml (Epic #303 PML-B).\",\n");
-    s.push_str("  \"Oracle is the EXACT scalar LP-mode characteristic equation (geode_core::fiber_lp::fiber_lp_neff, Phase 2A) - the Bessel-function dispersion relation, a 6-digit analytic ground truth (validated against scipy). b_oracle ~ 0.458.\",\n");
+    s.push_str("  \"Oracle is the EXACT scalar LP-mode characteristic equation (geode_core::analytic::fiber::fiber_lp_neff, Phase 2A) - the Bessel-function dispersion relation, a 6-digit analytic ground truth (validated against scipy). b_oracle ~ 0.458.\",\n");
     s.push_str("  \"RESULT 1 (isolation, RESOLVED by the PML): the 2D UPML absorbs the cladding instead of truncating it with a far PEC wall, so the box/cladding-resonance cluster that polluted the #329 PEC window is gone. The smallest-leakage/lowest-order selection now returns a genuinely core-confined fundamental: core-energy fraction ~0.86-0.88 (PEC-era best was only 0.34-0.49) and relative leakage |Im(b2)|/Re(b2) ~ 1e-16 (a truly trapped mode; the PML adds no spurious loss). The selection is robust to sigma_0 (see [sigma_robustness]) and the b-vs-mesh trend is MONOTONE - no more 4-26% PEC hopping.\",\n");
     s.push_str("  \"RESULT 2 (oracle match, NOT achieved): the cleanly-isolated, monotone-converging fundamental converges to b ~ 0.77 (Re(n_eff) ~ 1.4491), a ~69% error vs the scalar oracle b ~ 0.458. This is NOT box-mode hopping (the trend is smooth and monotone under refinement). With the full (n_clad^2, n_core^2) window (the PML path drops the PEC-era slab ceiling), the in-window bound cluster is a LADDER of low-leakage core-ish modes from b~0.77 (highest Re(b2), most confined) down through b~0.46 (matching the oracle but only ~0.5 core-confined) to b~0.33. The largest-Re(b2) rule selects the TOP of that ladder, not the scalar-LP mode in the middle.\",\n");
     s.push_str("  \"HONESTY: the in-window mode whose b matches the oracle is a weakly-confined cladding-tail mode (core fraction ~0.5), NOT the most-confined fundamental - so we CANNOT honor both 'core-confined >=0.8' and 'b <= 1%' with the same mode. We report b_fem_closest_oracle and its core fraction per series purely as context, and do NOT select it (that would be the outcome-filtering anti-pattern the #329 Judge review caught). converged=false; b_converges_to_oracle=false.\",\n");
@@ -498,7 +498,9 @@ fn write_toml(
     s.push('\n');
 
     s.push_str("[oracles.lp]\n");
-    s.push_str("# Exact LP-mode characteristic equation (geode_core::fiber_lp, Phase 2A).\n");
+    s.push_str(
+        "# Exact LP-mode characteristic equation (geode_core::analytic::fiber, Phase 2A).\n",
+    );
     s.push_str("exact = true\n");
     s.push_str(&format!("n_eff_lp01 = {oracle:.15e}\n"));
     match oracle11 {

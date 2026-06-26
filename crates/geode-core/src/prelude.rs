@@ -2,10 +2,12 @@
 //!
 //! Re-exports from the canonical module paths (`crate::analytic`,
 //! `crate::assembly`, `crate::backend`, `crate::derham`, `crate::driven`,
-//! `crate::eigen`, `crate::elements`, `crate::interop`, `crate::postproc`,
-//! `crate::solver`, `crate::traits`) — never the deprecated root shims —
-//! so glob-importing the prelude stays warning-free under `-D warnings`.
-//! Later children of the namespace reorg add their own groups here.
+//! `crate::eigen` (including `eigen::self_consistent`), `crate::elements`,
+//! `crate::interop`, `crate::mesh`, `crate::postproc`, `crate::solver`,
+//! `crate::traits`) — never a flat-root path — so glob-importing the
+//! prelude stays warning-free under `-D warnings`. This is the finalized
+//! ergonomic surface for the crate (epic #377): high-traffic entry points
+//! only, not an exhaustive dump of every public item.
 pub use crate::analytic::fiber::fiber_lp_neff;
 pub use crate::analytic::mie::{
     MieEfficiencies, mie_efficiencies, mie_roots_catalog, resonance_roots,
@@ -32,14 +34,17 @@ pub use crate::eigen::complex::{
     SparseComplexShiftInvertLanczos,
 };
 pub use crate::eigen::dense::{
-    EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
+    EigenError, EigenPair, EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc,
+    burn_matrix_to_faer, cube_interior_mask,
 };
 pub use crate::eigen::lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
+pub use crate::eigen::self_consistent::{SelfConsistentResult, self_consistent_k};
 pub use crate::elements::nedelec::{
     NedelecLocalMatrices, batched_nedelec_local_matrices, tet_edges,
 };
 pub use crate::elements::p1::{P1LocalMatrices, batched_p1_local_matrices};
 pub use crate::interop::palace::{PalaceOracleSlot, PalaceResults};
+pub use crate::mesh::{GmshReader, MeshReader, TetMesh, cube_tet_mesh, read_sphere_fixture};
 pub use crate::postproc::ntff::{FarField, PatternCut, directivity, ntff_far_field, to_db};
 pub use crate::postproc::viz::write_vtu;
 pub use crate::solver::iterate::{IterOutcome, Step, iterate_while, iterate_while_with_prev};

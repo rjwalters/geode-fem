@@ -141,7 +141,7 @@ fn pending_status_block_round_trips() {
     let toml_text = r#"
 [oracles.palace]
 status = "pending_operator_run"
-note = "Palace operator-assisted; ingest via geode_core::palace."
+note = "Palace operator-assisted; ingest via geode_core::interop::palace."
 "#;
     let doc: toml::Value = toml::from_str(toml_text).unwrap();
     let slot = PalaceOracleSlot::from_toml_table(&doc["oracles"]["palace"]).unwrap();

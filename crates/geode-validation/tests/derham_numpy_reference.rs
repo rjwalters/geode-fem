@@ -39,7 +39,8 @@
 use std::path::PathBuf;
 
 use faer::sparse::SparseColMat;
-use geode_core::{curl_map, divergence_map, gradient_map, read_sphere_fixture};
+use geode_core::derham::{curl_map, divergence_map, gradient_map};
+use geode_core::mesh::read_sphere_fixture;
 use geode_validation::{Fixture, FixtureFormat};
 
 // ---------------------------------------------------------------------------

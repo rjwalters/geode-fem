@@ -21,7 +21,7 @@
 //! cargo test -p geode-core --test nedelec2_convergence
 //! ```
 
-use geode_core::{
+use geode_core::analytic::waveguide::{
     rect_pec_interior_dofs2, rect_pec_interior_edges, rect_tri_mesh, rect_waveguide_cutoff,
     solve_rect_waveguide_modes, solve_rect_waveguide_modes2_cutoffs,
 };

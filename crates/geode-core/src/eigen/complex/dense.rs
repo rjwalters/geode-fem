@@ -10,7 +10,7 @@
 //! # API choice — separate trait vs extension
 //!
 //! We add a **new** [`ComplexEigenSolver`] trait rather than extend the
-//! existing [`crate::EigenSolver`]:
+//! existing [`crate::eigen::dense::EigenSolver`]:
 //!
 //! - **Trait segregation.** The real path returns `Vec<f64>` and
 //!   guarantees mathematically real eigenvalues; promoting it to
