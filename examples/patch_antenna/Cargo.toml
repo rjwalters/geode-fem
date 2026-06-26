@@ -1,0 +1,32 @@
+[package]
+name = "patch_antenna"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Patch-antenna S11/resonance/bandwidth/efficiency/radiation benchmark vs the Balanis cavity-model oracle (issue #228, Epic #226)."
+
+[[bin]]
+name = "patch_antenna"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+geode-app = { workspace = true }
+geode-core = { workspace = true }
+# `edge_field_to_nodes` for the `--export-field` / `--export-sweep`
+# Whitney edge-DOF → nodal E reconstruction.
+geode-examples-support = { workspace = true }
+# `BackendTypes` device handle for the driven solves.
+burn = { workspace = true }
+# `faer::c64` for the port impedance / S11 complex arithmetic.
+faer = { workspace = true }
+
+# NOTE: this crate deliberately defines NO backend features. The Burn
+# backend (`wgpu` by default, or `ndarray` on headless CI) is selected by
+# geode-core's default features / the workspace `--features` flags at build
+# time, exactly like `geode-cli` and `geode-validation`.
+
+[lints.rust]
+unsafe_code = "forbid"

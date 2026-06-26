@@ -1,0 +1,29 @@
+[package]
+name = "slcfet_3hp_spiral"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "SLCFET 3HP (GaN-on-SiC) spiral-inductor extraction benchmark: L/R/Q/S11/SRF vs mom PEEC + Mohan oracles (issue #212, Epic #193)."
+
+[[bin]]
+name = "slcfet_3hp_spiral"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+geode-app = { workspace = true }
+geode-core = { workspace = true }
+# `BackendTypes` device handle for the driven frequency sweep.
+burn = { workspace = true }
+# `faer::c64` for the per-port complex impedance arithmetic.
+faer = { workspace = true }
+
+# NOTE: this crate deliberately defines NO backend features. The Burn
+# backend (`wgpu` by default, or `ndarray` on headless CI) is selected by
+# geode-core's default features / the workspace `--features` flags at build
+# time, exactly like `geode-cli` and `geode-validation`.
+
+[lints.rust]
+unsafe_code = "forbid"

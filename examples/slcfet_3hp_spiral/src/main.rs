@@ -38,25 +38,35 @@
 //!
 //! Writes `benchmarks/slcfet_3hp/results.toml`.
 //!
+//! This is a standalone example crate (Epic #398): a binary built on the
+//! `geode-app` harness, migrated from the old
+//! `crates/geode-core/examples/slcfet_3hp_spiral.rs`. The physics, report
+//! output, and `results.toml` artifacts are preserved exactly; only the
+//! entry point (hand-rolled argv → `clap` derive + `geode_app::App`)
+//! changed. `--release` is required (faer's dense `gevd` path panics under
+//! `debug-assertions`).
+//!
 //! Run with:
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example slcfet_3hp_spiral
+//! cargo run -p slcfet_3hp_spiral --release
 //! ```
 //!
 //! Passing `smoke` selects the coarse `spiral_slcfet_3hp_smoke.msh`
 //! fixture (~13 k edges) and writes `results_smoke.toml` instead:
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example slcfet_3hp_spiral -- smoke
+//! cargo run -p slcfet_3hp_spiral --release -- smoke
 //! ```
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, ExitCode};
 
+use clap::Parser;
 use faer::c64;
 
+use geode_app::{App, Verbosity};
 use geode_core::analytic::spiral::{
     SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
 };
@@ -410,15 +420,55 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Opti
     eprintln!("wrote {}", path.display());
 }
 
-fn main() {
-    let choice = match std::env::args().nth(1).as_deref() {
-        None => FixtureChoice::Benchmark,
-        Some("smoke") => FixtureChoice::Smoke,
-        Some(other) => {
-            eprintln!("unknown argument {other:?} — expected `smoke` or no argument");
-            std::process::exit(2);
-        }
-    };
+/// Fixture selector (positional, preserving the original `smoke` directive).
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum Mode {
+    /// The full `spiral_slcfet_3hp.msh` benchmark fixture → `results.toml`.
+    #[value(name = "benchmark")]
+    Benchmark,
+    /// The coarse `spiral_slcfet_3hp_smoke.msh` fixture → `results_smoke.toml`.
+    #[value(name = "smoke")]
+    Smoke,
+}
+
+/// SLCFET 3HP spiral-inductor extraction benchmark CLI.
+///
+/// Flattens the shared `geode-app` `-v`/`-q` verbosity group and keeps the
+/// example-local fixture selector (positional `smoke`) the original
+/// hand-rolled argv recognised.
+#[derive(Parser)]
+#[command(
+    about = "SLCFET 3HP spiral-inductor extraction benchmark: L/R/Q/S11/SRF vs mom PEEC + Mohan oracles (issue #212)."
+)]
+struct Args {
+    /// Fixture to sweep (`benchmark` default, or `smoke` for the coarse run).
+    #[arg(value_enum, default_value_t = Mode::Benchmark)]
+    mode: Mode,
+
+    #[command(flatten)]
+    verbose: Verbosity,
+}
+
+impl App for Args {
+    fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        let choice = match self.mode {
+            Mode::Benchmark => FixtureChoice::Benchmark,
+            Mode::Smoke => FixtureChoice::Smoke,
+        };
+        run(choice);
+        Ok(())
+    }
+
+    fn verbosity(&self) -> Verbosity {
+        self.verbose
+    }
+}
+
+fn main() -> ExitCode {
+    geode_app::main::<Args>()
+}
+
+fn run(choice: FixtureChoice) {
     let (fixture, freqs): (SpiralFixture, &[f64]) = match choice {
         FixtureChoice::Benchmark => (
             read_spiral_slcfet_3hp_fixture().expect("bundled SLCFET 3HP benchmark fixture"),

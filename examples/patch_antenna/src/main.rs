@@ -32,10 +32,19 @@
 //! f_res ≈ 2.435 GHz, so the sweep brackets 2.0–3.0 GHz to *find* the
 //! S₁₁ dip (lesson from issue #212: locate the dip, do not extrapolate).
 //!
+//! This is a standalone example crate (Epic #398): a binary built on the
+//! `geode-app` harness, migrated from the old
+//! `crates/geode-core/examples/patch_antenna.rs`. The physics, report
+//! output, and `results.toml`/`.vtu` artifacts are preserved exactly; only
+//! the entry point (hand-rolled argv → `clap` derive + `geode_app::App`)
+//! and the viz-reconstruction import (`#[path]` include →
+//! `geode_examples_support`) changed. `--release` is required (faer's dense
+//! `gevd` path panics under `debug-assertions`).
+//!
 //! Writes `benchmarks/patch_antenna/results.toml`. Run with:
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example patch_antenna
+//! cargo run -p patch_antenna --release
 //! ```
 //!
 //! Passing `smoke` selects the coarse `patch_2g4_smoke.msh` fixture and
@@ -43,7 +52,7 @@
 //! pipeline:
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example patch_antenna -- smoke
+//! cargo run -p patch_antenna --release -- smoke
 //! ```
 //!
 //! Passing `pattern` runs the near-to-far-field transform
@@ -69,41 +78,42 @@
 //! 3D radiation-*lobe* surface `.vtu` (`geode_core::postproc::viz::write_vtu_surface`,
 //! `VTK_TRIANGLE` cells) whose vertex radius is the dB-floored normalised
 //! directivity (floor −20 dB) and which carries `D` / `D_dB` as `PointData`
-//! for ParaView colouring. Output path defaults to `artifacts/viz/patch_lobe.vtu`
-//! (gitignored) or is set with `--out <path>`.
+//! for ParaView colouring. Output path is `<out-dir>/patch_lobe.vtu` (the
+//! `--out-dir` group from `geode-app`, default `artifacts/`).
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example patch_antenna -- pattern
-//! cargo run -p geode-core --release --example patch_antenna -- pattern-matched
-//! cargo run -p geode-core --release --example patch_antenna -- pattern-3d --out /tmp/lobe.vtu
+//! cargo run -p patch_antenna --release -- pattern
+//! cargo run -p patch_antenna --release -- pattern-matched
+//! cargo run -p patch_antenna --release -- pattern-3d --out-dir artifacts/viz
 //! ```
 //!
 //! # Field export (Epic #276 Phase 2B, issue #287)
 //!
-//! Passing `--export-field <path.vtu>` is an opt-in side channel that
-//! does **not** touch the S11 sweep / NTFF above (the `results.toml` is
-//! byte-identical with or without it). When present, the benchmark
-//! fixture is solved once at the **committed FEM resonant frequency**
-//! (`2.274530` GHz, the same `f_res` the `pattern` subcommand uses — the
-//! S11-dip / matched operating point of the antenna) and the driven near
-//! field `E(r)` is dumped to `<path.vtu>` for ParaView inspection:
+//! Passing `--export-field` is an opt-in side channel that does **not**
+//! touch the S11 sweep / NTFF above (the `results.toml` is byte-identical
+//! with or without it). When present, the benchmark fixture is solved once
+//! at the **committed FEM resonant frequency** (`2.274530` GHz, the same
+//! `f_res` the `pattern` subcommand uses — the S11-dip / matched operating
+//! point of the antenna) and the driven near field `E(r)` is dumped to
+//! `<out-dir>/E_patch.vtu` for ParaView inspection:
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example patch_antenna -- --export-field artifacts/viz/E_patch.vtu
+//! cargo run -p patch_antenna --release -- --export-field
+//! cargo run -p patch_antenna --release -- --export-field --out-dir artifacts/viz
 //! ```
 //!
 //! The exported per-node `E` is the crude per-tet-vertex average of the
-//! Whitney interpolant (see `examples/viz_export_helper.rs`), with a
-//! per-node `eps_r` map (FR-4 ε_r in the substrate, 1 in air/UPML)
+//! Whitney interpolant (see `geode_examples_support::edge_field_to_nodes`),
+//! with a per-node `eps_r` map (FR-4 ε_r in the substrate, 1 in air/UPML)
 //! averaged from the fixture's material regions.
 //!
 //! # Frequency-sweep export (Epic #276 Phase 3C, issue #291)
 //!
-//! Passing `--export-sweep <dir>` (optionally `--f-start`/`--f-stop` in
-//! GHz and `--n <count>`, defaulting to 2.0–3.0 GHz over 11 points) is
-//! the **frequency-domain** sibling of `--export-field`: it solves the
+//! Passing `--export-sweep` (optionally `--f-start`/`--f-stop` in GHz and
+//! `--n <count>`, defaulting to 2.0–3.0 GHz over 11 points) is the
+//! **frequency-domain** sibling of `--export-field`: it solves the
 //! benchmark fixture once per swept source frequency `ω` and dumps one
-//! `E_<index>.vtu` per frequency into `<dir>`, plus a ParaView `.pvd`
+//! `E_<index>.vtu` per frequency into `<out-dir>`, plus a ParaView `.pvd`
 //! collection (`sweep.pvd`) mapping each frame to a `timestep` = the
 //! swept frequency (GHz). Each frame is byte-for-byte the
 //! `--export-field` output at that frequency; the `.pvd` lets
@@ -111,16 +121,18 @@
 //! MP4 (watch the resonance build and decay across the S11 band).
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example patch_antenna -- \
-//!     --export-sweep artifacts/viz/patch_sweep --f-start 2.0 --f-stop 3.0 --n 11
+//! cargo run -p patch_antenna --release -- \
+//!     --export-sweep --out-dir artifacts/viz/patch_sweep --f-start 2.0 --f-stop 3.0 --n 11
 //! ```
 
 use std::fs;
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode};
 
+use clap::Parser;
 use faer::c64;
 
+use geode_app::{App, OutputDir, Verbosity};
 use geode_core::analytic::patch::PatchCavity;
 use geode_core::backend::DefaultBackend;
 use geode_core::driven::extraction::{im_z_zero_crossings, s11};
@@ -138,9 +150,7 @@ use geode_core::postproc::ntff::{
     broadside_directivity, directivity, gain, ntff_far_field, principal_plane_cuts, to_db,
 };
 use geode_core::postproc::viz::write_vtu_surface;
-
-#[path = "common/viz_export_helper.rs"]
-mod viz_export_helper;
+use geode_examples_support::edge_field_to_nodes;
 
 /// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.
 const ETA_0: f64 = 376.730_313_668;
@@ -764,21 +774,6 @@ const LOBE_N_PHI: usize = 72;
 /// plot in noise-floor fuzz.
 const LOBE_DB_FLOOR: f64 = -20.0;
 
-/// Parse an `--out <path>` flag from the CLI args (after the directive).
-/// Returns `None` if absent, so the caller can fall back to a default.
-fn parse_out_flag() -> Option<PathBuf> {
-    let mut args = std::env::args().skip(1);
-    while let Some(a) = args.next() {
-        if a == "--out" {
-            return args.next().map(PathBuf::from);
-        }
-        if let Some(rest) = a.strip_prefix("--out=") {
-            return Some(PathBuf::from(rest));
-        }
-    }
-    None
-}
-
 /// Re-solve the patch at resonance, run the NTFF (reusing the exact same
 /// `ntff_far_field` / `directivity` machinery as [`extract_pattern`]),
 /// sample `D(θ, φ)` on the `LOBE_N_THETA × LOBE_N_PHI` sphere, build a
@@ -1094,10 +1089,12 @@ const EXPORT_F_RES_GHZ: f64 = 2.274530;
 
 /// Opt-in `--export-field` (Epic #276 Phase 2B, issue #287): solve the
 /// benchmark fixture once at the committed resonant frequency and dump
-/// the driven near field to `<path>` as `.vtu`.
+/// the driven near field to `<out_dir>/E_patch.vtu` as `.vtu`.
 ///
-/// Independent of the S11 sweep / NTFF — does not write `results.toml`.
-fn export_field(path: &str) {
+/// `out_dir` is the resolved (already-created) artifact directory from
+/// [`geode_app::OutputDir`]. Independent of the S11 sweep / NTFF — does
+/// not write `results.toml`.
+fn export_field(out_dir: &Path) {
     use burn::tensor::backend::BackendTypes;
     type B = DefaultBackend;
     let device = <B as BackendTypes>::Device::default();
@@ -1149,7 +1146,7 @@ fn export_field(path: &str) {
         sol.residual_rel
     );
 
-    let (e_re, e_im) = viz_export_helper::edge_field_to_nodes(&fixture.mesh, &sol.e_edges);
+    let (e_re, e_im) = edge_field_to_nodes(&fixture.mesh, &sol.e_edges);
 
     // Per-node eps_r: real part of the per-tet FR-4/air permittivity
     // (substrate eps_r in the slab, 1 in air/UPML), averaged over the
@@ -1170,13 +1167,10 @@ fn export_field(path: &str) {
         .map(|(&s, &c)| if c > 0 { s / c as f64 } else { 1.0 })
         .collect();
 
-    let out = std::path::Path::new(path);
-    if let Some(parent) = out.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        std::fs::create_dir_all(parent).expect("create --export-field parent dir");
-    }
-    geode_core::postproc::viz::write_vtu(out, &fixture.mesh, &e_re, Some(&e_im), Some(&eps_r))
+    // `out_dir` is already created by `OutputDir::resolve`; the exported
+    // file lives at `<out_dir>/E_patch.vtu` (fixed filename).
+    let out = out_dir.join("E_patch.vtu");
+    geode_core::postproc::viz::write_vtu(&out, &fixture.mesh, &e_re, Some(&e_im), Some(&eps_r))
         .expect("write --export-field .vtu");
     eprintln!(
         "  wrote {} ({} nodes, {} tets)",
@@ -1195,25 +1189,29 @@ fn export_field(path: &str) {
 ///
 /// This is the **frequency-domain** sibling of [`export_field`] — one
 /// driven solve per source frequency, not a time-domain `E(r, t)`. It
-/// reuses the exact same per-node field-eval ([`viz_export_helper`]) and
-/// the same fixture / mask / port / box-UPML setup as the S11 sweep, so a
-/// frame is byte-for-byte the `--export-field` output at that frequency.
+/// reuses the exact same per-node field-eval
+/// ([`geode_examples_support::edge_field_to_nodes`]) and the same fixture /
+/// mask / port / box-UPML setup as the S11 sweep, so a frame is
+/// byte-for-byte the `--export-field` output at that frequency.
 ///
-/// Independent of the S11 sweep / NTFF — does not write `results.toml`.
-fn export_sweep(spec: &viz_export_helper::SweepSpec) {
+/// `out_dir` is the resolved (already-created) artifact directory from
+/// [`geode_app::OutputDir`]; the `E_<index>.vtu` frames and the `sweep.pvd`
+/// collection are written into it. Independent of the S11 sweep / NTFF —
+/// does not write `results.toml`.
+fn export_sweep(out_dir: &Path, f_start_ghz: f64, f_stop_ghz: f64, n: usize) {
     use burn::tensor::backend::BackendTypes;
     type B = DefaultBackend;
     let device = <B as BackendTypes>::Device::default();
 
     let fixture = read_patch_fixture().expect("bundled benchmark patch fixture for --export-sweep");
     let pml_thick = pml_thick_for(FixtureChoice::Benchmark);
-    let freqs = spec.freqs_ghz();
+    let freqs = sweep_freqs(f_start_ghz, f_stop_ghz, n);
     eprintln!(
         "=== --export-sweep: {} frame(s) over {:.4}–{:.4} GHz into {} ===",
         freqs.len(),
-        spec.f_start_ghz,
-        spec.f_stop_ghz,
-        spec.dir,
+        f_start_ghz,
+        f_stop_ghz,
+        out_dir.display(),
     );
 
     let edges = fixture.mesh.edges();
@@ -1251,8 +1249,8 @@ fn export_sweep(spec: &viz_export_helper::SweepSpec) {
         .map(|(&s, &c)| if c > 0 { s / c as f64 } else { 1.0 })
         .collect();
 
-    let dir = std::path::Path::new(&spec.dir);
-    std::fs::create_dir_all(dir).expect("create --export-sweep output dir");
+    // `out_dir` is already created by `OutputDir::resolve`.
+    let dir = out_dir;
 
     let mut frames: Vec<(f64, String)> = Vec::with_capacity(freqs.len());
     for (i, &f_ghz) in freqs.iter().enumerate() {
@@ -1283,7 +1281,7 @@ fn export_sweep(spec: &viz_export_helper::SweepSpec) {
         )
         .unwrap_or_else(|e| panic!("driven solve at {f_ghz} GHz for --export-sweep: {e}"));
 
-        let (e_re, e_im) = viz_export_helper::edge_field_to_nodes(&fixture.mesh, &sol.e_edges);
+        let (e_re, e_im) = edge_field_to_nodes(&fixture.mesh, &sol.e_edges);
         let file = format!("E_{i:04}.vtu");
         let out = dir.join(&file);
         geode_core::postproc::viz::write_vtu(&out, &fixture.mesh, &e_re, Some(&e_im), Some(&eps_r))
@@ -1299,7 +1297,7 @@ fn export_sweep(spec: &viz_export_helper::SweepSpec) {
     }
 
     let pvd = dir.join("sweep.pvd");
-    viz_export_helper::write_pvd(&pvd, &frames).expect("write --export-sweep .pvd collection");
+    write_pvd(&pvd, &frames).expect("write --export-sweep .pvd collection");
     eprintln!(
         "  wrote {} ({} frames; render with tools/viz/geode_viz/scripts/sweep_animate.py)",
         pvd.display(),
@@ -1307,101 +1305,212 @@ fn export_sweep(spec: &viz_export_helper::SweepSpec) {
     );
 }
 
-fn main() {
-    let argv: Vec<String> = std::env::args().collect();
+/// Evenly-spaced sweep frequencies (GHz) over `[f_start, f_stop]`
+/// inclusive, matching the old `SweepSpec::freqs_ghz`. A single-point
+/// sweep (`n <= 1`) returns just `f_start`.
+fn sweep_freqs(f_start_ghz: f64, f_stop_ghz: f64, n: usize) -> Vec<f64> {
+    let n = n.max(1);
+    if n == 1 {
+        return vec![f_start_ghz];
+    }
+    let step = (f_stop_ghz - f_start_ghz) / (n - 1) as f64;
+    (0..n).map(|i| f_start_ghz + step * i as f64).collect()
+}
 
-    // Opt-in frequency-sweep field export (issue #291). Short-circuits the
-    // S11 sweep so a normal run is byte-identical. Checked before
-    // `--export-field` so the more specific `--export-sweep` directive wins.
-    if let Some(spec) = viz_export_helper::parse_export_sweep(&argv) {
-        export_sweep(&spec);
-        return;
+/// Write a ParaView `.pvd` collection mapping each `E_<index>.vtu` frame
+/// to a `timestep` (the swept frequency in GHz), so ParaView (and
+/// `sweep_animate.py`) treats the frequency sweep as a time-series.
+///
+/// `frames` is `(timestep, file_name)` pairs where `file_name` is the
+/// frame's path **relative to the `.pvd`** (e.g. `E_0000.vtu`). The `.pvd`
+/// is a tiny hand-rolled XML (no XML dependency), formerly in the
+/// `#[path]`-included `common/viz_export_helper.rs`.
+fn write_pvd(path: &Path, frames: &[(f64, String)]) -> std::io::Result<()> {
+    let mut s = String::new();
+    s.push_str("<?xml version=\"1.0\"?>\n");
+    s.push_str("<VTKFile type=\"Collection\" version=\"0.1\" byte_order=\"LittleEndian\">\n");
+    s.push_str("  <Collection>\n");
+    for (timestep, file) in frames {
+        s.push_str(&format!(
+            "    <DataSet timestep=\"{timestep}\" group=\"\" part=\"0\" file=\"{file}\"/>\n"
+        ));
+    }
+    s.push_str("  </Collection>\n");
+    s.push_str("</VTKFile>\n");
+    std::fs::write(path, s)
+}
+
+/// Run mode (positional), preserving the original directive set.
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum Mode {
+    /// S11 sweep on the benchmark fixture → `results.toml`.
+    #[value(name = "benchmark")]
+    Benchmark,
+    /// S11 sweep on the coarse fixture → `results_smoke.toml`.
+    #[value(name = "smoke")]
+    Smoke,
+    /// S11 sweep on the impedance-matched fixture → `results_matched.toml`.
+    #[value(name = "matched")]
+    Matched,
+    /// NTFF radiation pattern on the benchmark fixture → `pattern.toml`.
+    #[value(name = "pattern")]
+    Pattern,
+    /// NTFF radiation pattern on the coarse fixture → `pattern_smoke.toml`.
+    #[value(name = "pattern-smoke")]
+    PatternSmoke,
+    /// NTFF radiation pattern on the matched fixture → `pattern_matched.toml`.
+    #[value(name = "pattern-matched")]
+    PatternMatched,
+    /// 3D radiation-lobe surface `.vtu` → `<out-dir>/patch_lobe.vtu`.
+    #[value(name = "pattern-3d")]
+    Pattern3d,
+}
+
+/// Patch-antenna benchmark CLI.
+///
+/// Flattens the shared `geode-app` `--out-dir` / `-v`/`-q` groups, keeps
+/// the example-local run mode (positional, e.g. `smoke`, `pattern`,
+/// `pattern-3d`), and the two field-export toggles (`--export-field`,
+/// `--export-sweep` with `--f-start`/`--f-stop`/`--n`) the original
+/// hand-rolled argv recognised.
+#[derive(Parser)]
+#[command(
+    about = "Patch-antenna S11/resonance/bandwidth/efficiency/radiation benchmark vs the Balanis cavity-model oracle (issue #228)."
+)]
+struct Args {
+    /// What to run (default `benchmark`; see the variants for the others).
+    #[arg(value_enum, default_value_t = Mode::Benchmark)]
+    mode: Mode,
+
+    /// Export the driven near field to `<out-dir>/E_patch.vtu` (at the
+    /// committed FEM resonance) instead of running the selected mode.
+    #[arg(long = "export-field")]
+    export_field: bool,
+
+    /// Export one `E_<index>.vtu` frame per swept frequency plus a
+    /// `sweep.pvd` collection into `<out-dir>` instead of running the
+    /// selected mode (frequency-domain sibling of `--export-field`).
+    #[arg(long = "export-sweep")]
+    export_sweep: bool,
+
+    /// `--export-sweep` band start (GHz, inclusive).
+    #[arg(long = "f-start", default_value_t = 2.0)]
+    f_start: f64,
+
+    /// `--export-sweep` band stop (GHz, inclusive).
+    #[arg(long = "f-stop", default_value_t = 3.0)]
+    f_stop: f64,
+
+    /// `--export-sweep` frame count.
+    #[arg(long = "n", default_value_t = 11)]
+    n: usize,
+
+    #[command(flatten)]
+    out: OutputDir,
+
+    #[command(flatten)]
+    verbose: Verbosity,
+}
+
+impl App for Args {
+    fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        // Opt-in frequency-sweep field export (issue #291). Short-circuits
+        // the selected mode so a normal run is byte-identical. Checked
+        // before `--export-field` so the more specific `--export-sweep`
+        // directive wins.
+        if self.export_sweep {
+            let dir = self.out.resolve()?;
+            export_sweep(&dir, self.f_start, self.f_stop, self.n);
+            return Ok(());
+        }
+
+        // Opt-in field export (issue #287). Short-circuits the selected
+        // mode so a normal run is byte-identical.
+        if self.export_field {
+            let dir = self.out.resolve()?;
+            export_field(&dir);
+            return Ok(());
+        }
+
+        // `pattern*` modes run the NTFF radiation-pattern extraction
+        // instead of the S11 sweep.
+        match self.mode {
+            Mode::Pattern => {
+                let fixture = read_patch_fixture().expect("bundled benchmark patch fixture");
+                // The Phase-2 committed FEM resonance.
+                let f_res_ghz = 2.274530;
+                extract_pattern(
+                    &fixture,
+                    f_res_ghz,
+                    pml_thick_for(FixtureChoice::Benchmark),
+                    FixtureChoice::Benchmark,
+                );
+                return Ok(());
+            }
+            Mode::PatternSmoke => {
+                let fixture = read_patch_smoke_fixture().expect("bundled smoke patch fixture");
+                extract_pattern(
+                    &fixture,
+                    2.4,
+                    pml_thick_for(FixtureChoice::Smoke),
+                    FixtureChoice::Smoke,
+                );
+                return Ok(());
+            }
+            Mode::PatternMatched => {
+                let fixture = read_patch_matched_fixture().expect("bundled matched patch fixture");
+                // Matched-fixture S11 dip (`results_matched.toml::meta.s11_dip_f_ghz`,
+                // issue #237) — the physically meaningful operating point of the
+                // tuned antenna. Im(Z)=0 sits 2.5 MHz lower (2.2675 GHz) but the
+                // matched-port radiation efficiency is reported at the dip.
+                let f_res_ghz = 2.270;
+                extract_pattern(
+                    &fixture,
+                    f_res_ghz,
+                    pml_thick_for(FixtureChoice::Matched),
+                    FixtureChoice::Matched,
+                );
+                return Ok(());
+            }
+            Mode::Pattern3d => {
+                // 3D radiation-lobe surface `.vtu` export (issue #289, Epic #276
+                // Phase 3A). Same driven solve + NTFF as the `pattern` path on the
+                // benchmark fixture at the Phase-2 committed FEM resonance.
+                let dir = self.out.resolve()?;
+                let out = dir.join("patch_lobe.vtu");
+                let fixture = read_patch_fixture().expect("bundled benchmark patch fixture");
+                let f_res_ghz = 2.274530;
+                extract_pattern_3d(
+                    &fixture,
+                    f_res_ghz,
+                    pml_thick_for(FixtureChoice::Benchmark),
+                    &out,
+                );
+                return Ok(());
+            }
+            Mode::Benchmark | Mode::Smoke | Mode::Matched => {}
+        }
+
+        let choice = match self.mode {
+            Mode::Smoke => FixtureChoice::Smoke,
+            Mode::Matched => FixtureChoice::Matched,
+            // Benchmark is the only remaining variant here.
+            _ => FixtureChoice::Benchmark,
+        };
+        run_benchmark(choice);
+        Ok(())
     }
 
-    // Opt-in field export (issue #287). Short-circuits the S11 sweep so
-    // a normal run is byte-identical.
-    if let Some(path) = viz_export_helper::parse_export_field(&argv) {
-        export_field(&path);
-        return;
+    fn verbosity(&self) -> Verbosity {
+        self.verbose
     }
+}
 
-    let arg = std::env::args().nth(1);
-    // `pattern` / `pattern-smoke` run the NTFF radiation-pattern
-    // extraction instead of the S11 sweep.
-    match arg.as_deref() {
-        Some("pattern") => {
-            let fixture = read_patch_fixture().expect("bundled benchmark patch fixture");
-            // The Phase-2 committed FEM resonance.
-            let f_res_ghz = 2.274530;
-            extract_pattern(
-                &fixture,
-                f_res_ghz,
-                pml_thick_for(FixtureChoice::Benchmark),
-                FixtureChoice::Benchmark,
-            );
-            return;
-        }
-        Some("pattern-smoke") => {
-            let fixture = read_patch_smoke_fixture().expect("bundled smoke patch fixture");
-            extract_pattern(
-                &fixture,
-                2.4,
-                pml_thick_for(FixtureChoice::Smoke),
-                FixtureChoice::Smoke,
-            );
-            return;
-        }
-        Some("pattern-matched") => {
-            let fixture = read_patch_matched_fixture().expect("bundled matched patch fixture");
-            // Matched-fixture S11 dip (`results_matched.toml::meta.s11_dip_f_ghz`,
-            // issue #237) — the physically meaningful operating point of the
-            // tuned antenna. Im(Z)=0 sits 2.5 MHz lower (2.2675 GHz) but the
-            // matched-port radiation efficiency is reported at the dip.
-            let f_res_ghz = 2.270;
-            extract_pattern(
-                &fixture,
-                f_res_ghz,
-                pml_thick_for(FixtureChoice::Matched),
-                FixtureChoice::Matched,
-            );
-            return;
-        }
-        Some("pattern-3d") => {
-            // 3D radiation-lobe surface `.vtu` export (issue #289, Epic #276
-            // Phase 3A). Same driven solve + NTFF as the `pattern` path on the
-            // benchmark fixture at the Phase-2 committed FEM resonance.
-            let out = parse_out_flag().unwrap_or_else(|| {
-                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("..")
-                    .join("..")
-                    .join("artifacts")
-                    .join("viz")
-                    .join("patch_lobe.vtu")
-            });
-            let fixture = read_patch_fixture().expect("bundled benchmark patch fixture");
-            let f_res_ghz = 2.274530;
-            extract_pattern_3d(
-                &fixture,
-                f_res_ghz,
-                pml_thick_for(FixtureChoice::Benchmark),
-                &out,
-            );
-            return;
-        }
-        _ => {}
-    }
+fn main() -> ExitCode {
+    geode_app::main::<Args>()
+}
 
-    let choice = match arg.as_deref() {
-        None => FixtureChoice::Benchmark,
-        Some("smoke") => FixtureChoice::Smoke,
-        Some("matched") => FixtureChoice::Matched,
-        Some(other) => {
-            eprintln!(
-                "unknown argument {other:?} — expected `smoke`, `matched`, `pattern`, `pattern-smoke`, `pattern-matched`, `pattern-3d`, or no argument"
-            );
-            std::process::exit(2);
-        }
-    };
+fn run_benchmark(choice: FixtureChoice) {
     let (fixture, freqs): (PatchFixture, &[f64]) = match choice {
         FixtureChoice::Benchmark => (
             read_patch_fixture().expect("bundled benchmark patch fixture"),

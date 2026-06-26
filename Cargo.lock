@@ -4242,6 +4242,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
 
 [[package]]
+name = "patch_antenna"
+version = "0.2.0"
+dependencies = [
+ "burn",
+ "clap",
+ "faer",
+ "geode-app",
+ "geode-core",
+ "geode-examples-support",
+]
+
+[[package]]
 name = "pbkdf2"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5189,6 +5201,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
+name = "slcfet_3hp_spiral"
+version = "0.2.0"
+dependencies = [
+ "burn",
+ "clap",
+ "faer",
+ "geode-app",
+ "geode-core",
+]
+
+[[package]]
 name = "slotmap"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5243,6 +5266,18 @@ checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
 dependencies = [
  "lock_api",
  "portable-atomic",
+]
+
+[[package]]
+name = "spiral_inductor"
+version = "0.2.0"
+dependencies = [
+ "burn",
+ "clap",
+ "faer",
+ "geode-app",
+ "geode-core",
+ "geode-examples-support",
 ]
 
 [[package]]

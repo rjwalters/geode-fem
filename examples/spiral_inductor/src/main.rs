@@ -40,10 +40,19 @@
 //! Writes `benchmarks/spiral_inductor/results.toml` (the spiral sibling
 //! of `benchmarks/mie_sphere/driven_results.toml`).
 //!
+//! This is a standalone example crate (Epic #398): a binary built on the
+//! `geode-app` harness, migrated from the old
+//! `crates/geode-core/examples/spiral_inductor.rs`. The physics, report
+//! output, and `results.toml` artifacts are preserved exactly; only the
+//! entry point (hand-rolled argv → `clap` derive + `geode_app::App`) and
+//! the viz-reconstruction import (`#[path]` include →
+//! `geode_examples_support`) changed. `--release` is required (faer's
+//! dense `gevd` path panics under `debug-assertions`).
+//!
 //! Run with:
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example spiral_inductor
+//! cargo run -p spiral_inductor --release
 //! ```
 //!
 //! Passing `smoke` selects the coarse `spiral_3p5_smoke.msh` fixture
@@ -51,35 +60,38 @@
 //! end-to-end check of the same pipeline:
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example spiral_inductor -- smoke
+//! cargo run -p spiral_inductor --release -- smoke
 //! ```
 //!
 //! # Field export (Epic #276 Phase 2B, issue #287)
 //!
-//! Passing `--export-field <path.vtu>` is an opt-in side channel that
-//! does **not** touch the extraction sweep above (the `results.toml` is
-//! byte-identical with or without it). When present, the benchmark
-//! fixture is solved once at the **low-frequency reference operating
-//! point** already used for the oracle comparison
-//! (`L_REF_GHZ = 1.0` GHz) and the driven near field `E(r)` is dumped to
-//! `<path.vtu>` for ParaView inspection:
+//! Passing `--export-field` is an opt-in side channel that does **not**
+//! touch the extraction sweep above (the `results.toml` is byte-identical
+//! with or without it). When present, the benchmark fixture is solved once
+//! at the **low-frequency reference operating point** already used for the
+//! oracle comparison (`L_REF_GHZ = 1.0` GHz) and the driven near field
+//! `E(r)` is dumped to `<out-dir>/E_spiral.vtu` (the `--out-dir` group
+//! from `geode-app`, default `artifacts/`) for ParaView inspection:
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example spiral_inductor -- --export-field artifacts/viz/E_spiral.vtu
+//! cargo run -p spiral_inductor --release -- --export-field
+//! cargo run -p spiral_inductor --release -- --export-field --out-dir artifacts/viz
 //! ```
 //!
 //! The exported per-node `E` is the crude per-tet-vertex average of the
-//! Whitney interpolant (see `examples/viz_export_helper.rs`). No
-//! per-node `eps_r` is exported for the spiral (the stack uses a
+//! Whitney interpolant (see `geode_examples_support::edge_field_to_nodes`).
+//! No per-node `eps_r` is exported for the spiral (the stack uses a
 //! per-region scalar permittivity that is not as cleanly nodal as the
 //! sphere/patch case) — `None` is passed.
 
 use std::fs;
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode};
 
+use clap::Parser;
 use faer::c64;
 
+use geode_app::{App, OutputDir, Verbosity};
 use geode_core::analytic::spiral::{
     SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
 };
@@ -93,9 +105,7 @@ use geode_core::mesh::spiral::CONDUCTOR_SIGMA_NATURAL;
 use geode_core::mesh::{
     SpiralFixture, pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_smoke_fixture,
 };
-
-#[path = "common/viz_export_helper.rs"]
-mod viz_export_helper;
+use geode_examples_support::edge_field_to_nodes;
 
 /// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.
 const ETA_0: f64 = 376.730_313_668;
@@ -415,10 +425,13 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Opti
 
 /// Opt-in `--export-field` (Epic #276 Phase 2B, issue #287): solve the
 /// benchmark fixture once at the low-frequency reference operating point
-/// (`L_REF_GHZ`) and dump the driven near field to `<path>` as `.vtu`.
+/// (`L_REF_GHZ`) and dump the driven near field to `<out_dir>/E_spiral.vtu`
+/// as `.vtu`.
 ///
-/// Independent of the extraction sweep — does not write `results.toml`.
-fn export_field(path: &str) {
+/// `out_dir` is the resolved (already-created) artifact directory from
+/// [`geode_app::OutputDir`]. Independent of the extraction sweep — does
+/// not write `results.toml`.
+fn export_field(out_dir: &Path) {
     use burn::tensor::backend::BackendTypes;
     type B = DefaultBackend;
     let device = <B as BackendTypes>::Device::default();
@@ -464,15 +477,12 @@ fn export_field(path: &str) {
         sol.residual_rel
     );
 
-    let (e_re, e_im) = viz_export_helper::edge_field_to_nodes(&fixture.mesh, &sol.e_edges);
+    let (e_re, e_im) = edge_field_to_nodes(&fixture.mesh, &sol.e_edges);
 
-    let out = std::path::Path::new(path);
-    if let Some(parent) = out.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        std::fs::create_dir_all(parent).expect("create --export-field parent dir");
-    }
-    geode_core::postproc::viz::write_vtu(out, &fixture.mesh, &e_re, Some(&e_im), None)
+    // `out_dir` is already created by `OutputDir::resolve`; the exported
+    // file lives at `<out_dir>/E_spiral.vtu` (fixed filename).
+    let out = out_dir.join("E_spiral.vtu");
+    geode_core::postproc::viz::write_vtu(&out, &fixture.mesh, &e_re, Some(&e_im), None)
         .expect("write --export-field .vtu");
     eprintln!(
         "  wrote {} ({} nodes, {} tets)",
@@ -482,26 +492,71 @@ fn export_field(path: &str) {
     );
 }
 
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
+/// Fixture selector (positional, preserving the original `smoke` directive).
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum Mode {
+    /// The full `spiral_3p5.msh` benchmark fixture → `results.toml`.
+    #[value(name = "benchmark")]
+    Benchmark,
+    /// The coarse `spiral_3p5_smoke.msh` fixture → `results_smoke.toml`.
+    #[value(name = "smoke")]
+    Smoke,
+}
 
-    // Opt-in field export (issue #287). Short-circuits the extraction
-    // sweep so a normal run is byte-identical.
-    if let Some(path) = viz_export_helper::parse_export_field(&args) {
-        export_field(&path);
-        return;
+/// Spiral-inductor extraction benchmark CLI.
+///
+/// Flattens the shared `geode-app` `--out-dir` / `-v`/`-q` groups and
+/// keeps the example-local fixture selector (positional `smoke`) and the
+/// `--export-field` toggle the original hand-rolled argv recognised.
+#[derive(Parser)]
+#[command(
+    about = "Spiral-inductor extraction benchmark: L/R/Q/S11/SRF vs Mohan + mom PEEC oracles (issue #211)."
+)]
+struct Args {
+    /// Fixture to sweep (`benchmark` default, or `smoke` for the coarse run).
+    #[arg(value_enum, default_value_t = Mode::Benchmark)]
+    mode: Mode,
+
+    /// Export the driven near field to `<out-dir>/E_spiral.vtu` (at
+    /// `L_REF_GHZ`) instead of running the extraction sweep.
+    #[arg(long = "export-field")]
+    export_field: bool,
+
+    #[command(flatten)]
+    out: OutputDir,
+
+    #[command(flatten)]
+    verbose: Verbosity,
+}
+
+impl App for Args {
+    fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        // Opt-in field export (issue #287). Short-circuits the extraction
+        // sweep so a normal run produces an unchanged `results.toml`.
+        if self.export_field {
+            let dir = self.out.resolve()?;
+            export_field(&dir);
+            return Ok(());
+        }
+
+        let choice = match self.mode {
+            Mode::Benchmark => FixtureChoice::Benchmark,
+            Mode::Smoke => FixtureChoice::Smoke,
+        };
+        run(choice);
+        Ok(())
     }
 
-    let choice = match args.get(1).map(String::as_str) {
-        None => FixtureChoice::Benchmark,
-        Some("smoke") => FixtureChoice::Smoke,
-        Some(other) => {
-            eprintln!(
-                "unknown argument {other:?} — expected `smoke`, `--export-field <path>`, or no argument"
-            );
-            std::process::exit(2);
-        }
-    };
+    fn verbosity(&self) -> Verbosity {
+        self.verbose
+    }
+}
+
+fn main() -> ExitCode {
+    geode_app::main::<Args>()
+}
+
+fn run(choice: FixtureChoice) {
     let (fixture, freqs): (SpiralFixture, &[f64]) = match choice {
         FixtureChoice::Benchmark => (
             read_spiral_fixture().expect("bundled benchmark spiral fixture"),
