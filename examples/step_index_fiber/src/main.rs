@@ -98,13 +98,21 @@
 //! Run with:
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example step_index_fiber
+//! cargo run -p step_index_fiber --release
 //! ```
+//!
+//! This is an Epic #398 standalone example crate (`examples/step_index_fiber/`),
+//! migrated from the old `crates/geode-core/examples/step_index_fiber.rs`. The
+//! physics, report output, and `results.toml` artifact are preserved exactly;
+//! only the entry point changed (hand-rolled `fn main` → `clap` derive +
+//! `geode_app::App`).
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, ExitCode};
 
+use clap::Parser;
+use geode_app::{App, Verbosity};
 use geode_core::analytic::fiber::{fiber_lp_neff, normalized_b, v_number};
 use geode_core::analytic::waveguide::{
     REGION_CORE, TriMesh, dielectric_mode_field_shape_pml, disk_pec_interior_dofs2,
@@ -574,117 +582,146 @@ fn write_toml(
     eprintln!("wrote {}", path.display());
 }
 
-fn main() {
-    let k0 = k0();
-    let v = v_number(N_CORE, N_CLAD, A_UM, k0);
-    let oracle = fiber_lp_neff(N_CORE, N_CLAD, A_UM, k0, 0, 1).expect("LP01 always guides");
-    let oracle11 = fiber_lp_neff(N_CORE, N_CLAD, A_UM, k0, 1, 1);
-    let b_oracle = normalized_b(oracle, N_CORE, N_CLAD);
+/// SMF-28 step-index fiber benchmark CLI.
+///
+/// The original example took no arguments; this flattens the shared
+/// `geode-app` `-v`/`-q` verbosity group and keeps the benchmark body
+/// otherwise identical (same report, same `results.toml` artifact).
+#[derive(Parser)]
+#[command(
+    about = "SMF-28 step-index fiber benchmark vs the exact LP-mode oracle on the PML-terminated solver (issue #333)."
+)]
+struct Args {
+    #[command(flatten)]
+    verbose: Verbosity,
+}
 
-    println!("SMF-28 step-index fiber benchmark (PML-terminated, Epic #303 PML-C)");
-    println!("  λ = {LAMBDA_UM} µm, a = {A_UM} µm, n_core = {N_CORE}, n_clad = {N_CLAD}");
-    println!(
-        "  PML: r_pml_inner = {}·a, r_outer = {}·a (thickness {}·a), σ₀ = {SIGMA_0}",
-        CLAD_MULT,
-        PML_MULT,
-        PML_MULT - CLAD_MULT
-    );
-    println!(
-        "  V = {v:.4}  (single-mode: {}, cutoff {V_SINGLE_MODE}); LP11 = {}",
-        v < V_SINGLE_MODE,
-        match oracle11 {
-            Some(n) => format!("{n:.6} (guided?!)"),
-            None => "None (below cutoff -> single-mode)".to_string(),
-        }
-    );
-    println!("  EXACT oracle: n_eff_LP01 = {oracle:.8}, b_oracle = {b_oracle:.6}");
-    println!();
-    println!("  UNBIASED PML refinement sweep (selected = smallest-leakage / lowest-order):");
-    println!(
-        "  (b = SELECTED mode's b; cf = its core-energy fraction; closest = in-window mode whose b is nearest the oracle + its cf)"
-    );
+impl App for Args {
+    fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        let k0 = k0();
+        let v = v_number(N_CORE, N_CLAD, A_UM, k0);
+        let oracle = fiber_lp_neff(N_CORE, N_CLAD, A_UM, k0, 0, 1).expect("LP01 always guides");
+        let oracle11 = fiber_lp_neff(N_CORE, N_CLAD, A_UM, k0, 1, 1);
+        let b_oracle = normalized_b(oracle, N_CORE, N_CLAD);
 
-    let mut results = Vec::new();
-    for &(nr, na) in SERIES {
-        let r = solve_config((nr, na), b_oracle);
-        match (r.re_n_eff, r.b) {
-            (Some(re_n_eff), Some(b)) => {
-                let b_err = 100.0 * (b - b_oracle).abs() / b_oracle;
-                let cf = r.core_frac.unwrap_or(f64::NAN);
-                let im = r.im_n_eff.unwrap_or(f64::NAN);
-                let bco = r.b_closest_oracle.unwrap_or(f64::NAN);
-                let cfco = r.core_frac_closest_oracle.unwrap_or(f64::NAN);
-                println!(
-                    "    ({nr:>2},{na:>3})  dof={:>6}  Re(n_eff)={re_n_eff:.7}  Im(n_eff)={im:.2e}  b={b:.5}  b_err={b_err:>6.2}%  cf={cf:.3}  | closest-oracle b={bco:.4} (cf={cfco:.3})  ({:.2}s)",
-                    r.n_dof, r.solve_s
-                );
+        println!("SMF-28 step-index fiber benchmark (PML-terminated, Epic #303 PML-C)");
+        println!("  λ = {LAMBDA_UM} µm, a = {A_UM} µm, n_core = {N_CORE}, n_clad = {N_CLAD}");
+        println!(
+            "  PML: r_pml_inner = {}·a, r_outer = {}·a (thickness {}·a), σ₀ = {SIGMA_0}",
+            CLAD_MULT,
+            PML_MULT,
+            PML_MULT - CLAD_MULT
+        );
+        println!(
+            "  V = {v:.4}  (single-mode: {}, cutoff {V_SINGLE_MODE}); LP11 = {}",
+            v < V_SINGLE_MODE,
+            match oracle11 {
+                Some(n) => format!("{n:.6} (guided?!)"),
+                None => "None (below cutoff -> single-mode)".to_string(),
             }
-            _ => println!(
-                "    ({nr:>2},{na:>3})  dof={:>6}  (no in-window guided mode)  ({:.2}s)",
-                r.n_dof, r.solve_s
-            ),
+        );
+        println!("  EXACT oracle: n_eff_LP01 = {oracle:.8}, b_oracle = {b_oracle:.6}");
+        println!();
+        println!("  UNBIASED PML refinement sweep (selected = smallest-leakage / lowest-order):");
+        println!(
+            "  (b = SELECTED mode's b; cf = its core-energy fraction; closest = in-window mode whose b is nearest the oracle + its cf)"
+        );
+
+        let mut results = Vec::new();
+        for &(nr, na) in SERIES {
+            let r = solve_config((nr, na), b_oracle);
+            match (r.re_n_eff, r.b) {
+                (Some(re_n_eff), Some(b)) => {
+                    let b_err = 100.0 * (b - b_oracle).abs() / b_oracle;
+                    let cf = r.core_frac.unwrap_or(f64::NAN);
+                    let im = r.im_n_eff.unwrap_or(f64::NAN);
+                    let bco = r.b_closest_oracle.unwrap_or(f64::NAN);
+                    let cfco = r.core_frac_closest_oracle.unwrap_or(f64::NAN);
+                    println!(
+                        "    ({nr:>2},{na:>3})  dof={:>6}  Re(n_eff)={re_n_eff:.7}  Im(n_eff)={im:.2e}  b={b:.5}  b_err={b_err:>6.2}%  cf={cf:.3}  | closest-oracle b={bco:.4} (cf={cfco:.3})  ({:.2}s)",
+                        r.n_dof, r.solve_s
+                    );
+                }
+                _ => println!(
+                    "    ({nr:>2},{na:>3})  dof={:>6}  (no in-window guided mode)  ({:.2}s)",
+                    r.n_dof, r.solve_s
+                ),
+            }
+            results.push(r);
         }
-        results.push(r);
-    }
 
-    println!();
-    println!("  σ₀-robustness (fixed mesh): selected fundamental b vs σ₀");
-    let sigma_rob = sigma_robustness((6, 72));
-    for (s0, b) in &sigma_rob {
-        println!("    σ₀ = {s0:>4.1}  b = {b:.5}");
-    }
+        println!();
+        println!("  σ₀-robustness (fixed mesh): selected fundamental b vs σ₀");
+        let sigma_rob = sigma_robustness((6, 72));
+        for (s0, b) in &sigma_rob {
+            println!("    σ₀ = {s0:>4.1}  b = {b:.5}");
+        }
 
-    let monotone = is_monotone(&results);
-    println!();
-    println!("  HONEST FINDING (two distinct results):");
-    println!("    (1) ISOLATION RESOLVED: the PML removed the far-PEC-wall box-mode pollution.");
-    println!(
-        "        The fundamental is now genuinely core-confined (cf ~0.86-0.88, vs PEC 0.34-0.49),"
-    );
-    println!(
-        "        genuinely bound (|Im(β²)|/Re(β²) ~1e-16), σ₀-insensitive, and the b-trend is"
-    );
-    println!("        MONOTONE (monotone={monotone}) — no more 4-26% PEC hopping.");
-    println!(
-        "    (2) ORACLE MATCH NOT ACHIEVED: that clean fundamental converges to b ~0.77 (~69%"
-    );
-    println!(
-        "        error vs oracle 0.458). The largest-Re(β²) selection picks the TOP of a near-"
-    );
-    println!(
-        "        n_core bound ladder; the b that MATCHES the oracle belongs to a weakly-confined"
-    );
-    println!(
-        "        (~0.5) cladding-tail mode — NOT the fundamental. We do NOT select it (that is"
-    );
-    println!("        the #329 outcome-filtering anti-pattern). converged=false; ≤1% NOT reached.");
+        let monotone = is_monotone(&results);
+        println!();
+        println!("  HONEST FINDING (two distinct results):");
+        println!(
+            "    (1) ISOLATION RESOLVED: the PML removed the far-PEC-wall box-mode pollution."
+        );
+        println!(
+            "        The fundamental is now genuinely core-confined (cf ~0.86-0.88, vs PEC 0.34-0.49),"
+        );
+        println!(
+            "        genuinely bound (|Im(β²)|/Re(β²) ~1e-16), σ₀-insensitive, and the b-trend is"
+        );
+        println!("        MONOTONE (monotone={monotone}) — no more 4-26% PEC hopping.");
+        println!(
+            "    (2) ORACLE MATCH NOT ACHIEVED: that clean fundamental converges to b ~0.77 (~69%"
+        );
+        println!(
+            "        error vs oracle 0.458). The largest-Re(β²) selection picks the TOP of a near-"
+        );
+        println!(
+            "        n_core bound ladder; the b that MATCHES the oracle belongs to a weakly-confined"
+        );
+        println!(
+            "        (~0.5) cladding-tail mode — NOT the fundamental. We do NOT select it (that is"
+        );
+        println!(
+            "        the #329 outcome-filtering anti-pattern). converged=false; ≤1% NOT reached."
+        );
 
-    write_toml(&results, oracle, oracle11, &sigma_rob);
+        write_toml(&results, oracle, oracle11, &sigma_rob);
 
-    // Structural single-mode facts (always true, cheap).
-    assert!(v < V_SINGLE_MODE, "fiber must be single-mode (V < 2.405)");
-    assert!(
-        oracle11.is_none(),
-        "LP11 must be below cutoff (single-mode)"
-    );
-    // ROBUST gate (the genuine PML win): the selected fundamental is cleanly
-    // isolated — genuinely core-confined and genuinely bound — at every mesh.
-    for r in &results {
-        let cf = r.core_frac.expect("selected fundamental must exist");
+        // Structural single-mode facts (always true, cheap).
+        assert!(v < V_SINGLE_MODE, "fiber must be single-mode (V < 2.405)");
         assert!(
-            cf >= CORE_FRAC_FLOOR,
-            "selected fundamental core fraction {cf:.3} must be ≳{CORE_FRAC_FLOOR} (clean PML \
+            oracle11.is_none(),
+            "LP11 must be below cutoff (single-mode)"
+        );
+        // ROBUST gate (the genuine PML win): the selected fundamental is cleanly
+        // isolated — genuinely core-confined and genuinely bound — at every mesh.
+        for r in &results {
+            let cf = r.core_frac.expect("selected fundamental must exist");
+            assert!(
+                cf >= CORE_FRAC_FLOOR,
+                "selected fundamental core fraction {cf:.3} must be ≳{CORE_FRAC_FLOOR} (clean PML \
              isolation; PEC-era best was 0.34-0.49)"
-        );
-        let ri = r.rel_im_beta_sq.expect("selected fundamental must exist");
+            );
+            let ri = r.rel_im_beta_sq.expect("selected fundamental must exist");
+            assert!(
+                ri < 1e-6,
+                "selected fundamental must be genuinely bound: |Im(β²)|/Re(β²) = {ri:.3e}"
+            );
+        }
         assert!(
-            ri < 1e-6,
-            "selected fundamental must be genuinely bound: |Im(β²)|/Re(β²) = {ri:.3e}"
-        );
-    }
-    assert!(
-        monotone,
-        "the PML b-trend must be MONOTONE (the PEC sweep was erratic); honest finding: it \
+            monotone,
+            "the PML b-trend must be MONOTONE (the PEC sweep was erratic); honest finding: it \
          converges monotonically to b~0.77, NOT the oracle"
-    );
+        );
+        Ok(())
+    }
+
+    fn verbosity(&self) -> Verbosity {
+        self.verbose
+    }
+}
+
+fn main() -> ExitCode {
+    geode_app::main::<Args>()
 }

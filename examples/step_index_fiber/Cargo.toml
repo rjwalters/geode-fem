@@ -1,0 +1,25 @@
+[package]
+name = "step_index_fiber"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "SMF-28 step-index circular-fiber benchmark vs the exact LP-mode oracle on the PML-terminated complex-pencil solver (Epic #303 PML-C, issue #333)."
+
+[[bin]]
+name = "step_index_fiber"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+geode-app = { workspace = true }
+geode-core = { workspace = true }
+
+# NOTE: this crate deliberately defines NO backend features. The Burn
+# backend (`wgpu` by default, or `ndarray` on headless CI) is selected by
+# geode-core's default features / the workspace `--features` flags at build
+# time, exactly like `geode-cli` and `geode-validation`.
+
+[lints.rust]
+unsafe_code = "forbid"

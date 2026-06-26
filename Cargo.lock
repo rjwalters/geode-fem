@@ -2336,6 +2336,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fiber_smf28_solve_timing"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "geode-app",
+ "geode-core",
+]
+
+[[package]]
 name = "filetime"
 version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5218,6 +5227,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "soi_waveguide"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "geode-app",
+ "geode-core",
+]
+
+[[package]]
 name = "spin"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5265,6 +5283,15 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "step_index_fiber"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "geode-app",
+ "geode-core",
+]
 
 [[package]]
 name = "strsim"

@@ -53,13 +53,21 @@
 //! Run with:
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example soi_waveguide
+//! cargo run -p soi_waveguide --release
 //! ```
+//!
+//! This is an Epic #398 standalone example crate (`examples/soi_waveguide/`),
+//! migrated from the old `crates/geode-core/examples/soi_waveguide.rs`. The
+//! physics, report output, and `results.toml` artifact are preserved exactly;
+//! only the entry point changed (hand-rolled `fn main` → `clap` derive +
+//! `geode_app::App`).
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, ExitCode};
 
+use clap::Parser;
+use geode_app::{App, Verbosity};
 use geode_core::analytic::waveguide::{
     TriMesh, epsilon_r_from_region_tags, rect_pec_interior_edges, rect_tri_mesh, slab_te0_neff,
     solve_dielectric_modes,
@@ -379,76 +387,101 @@ fn write_toml(results: &[BufferResult]) {
     eprintln!("wrote {}", path.display());
 }
 
-fn main() {
-    let eim = eim_neff();
-    let ceiling = index_ceiling();
-    eprintln!(
-        "SOI strip benchmark: lambda = {LAMBDA_UM} um, core {W_CORE_UM}x{H_CORE_UM} um \
-         (n_Si = {N_SI}), SiO2 clad (n = {N_SIO2})"
-    );
-    eprintln!(
-        "  EIM oracle n_eff = {eim:.6}, geometry index ceiling = {ceiling:.6} \
-         (approximate; semi-analytic)"
-    );
+/// SOI strip-waveguide benchmark CLI.
+///
+/// The original example took no arguments; this flattens the shared
+/// `geode-app` `-v`/`-q` verbosity group and keeps the benchmark body
+/// otherwise identical (same report, same `results.toml` artifact).
+#[derive(Parser)]
+#[command(
+    about = "SOI strip-waveguide benchmark: fundamental quasi-TE n_eff vs the effective-index-method oracle (issue #306)."
+)]
+struct Args {
+    #[command(flatten)]
+    verbose: Verbosity,
+}
 
-    let mut results = Vec::new();
-    for &nbuf in &BUFFERS {
-        let r = solve_buffer(nbuf);
+impl App for Args {
+    fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        let eim = eim_neff();
+        let ceiling = index_ceiling();
         eprintln!(
-            "  buffer {:?} ({:.3},{:.3} um = {:.1},{:.1} decay-lengths), {}x{} mesh, \
-             {} edges: n_eff = {:.6} ({} guided), {:.1} s",
-            r.nbuf,
-            r.buf_um.0,
-            r.buf_um.1,
-            r.buf_decay_lengths.0,
-            r.buf_decay_lengths.1,
-            r.mesh_nxny.0,
-            r.mesh_nxny.1,
-            r.n_edges,
-            r.n_eff,
-            r.n_eff_all.len(),
-            r.solve_s,
+            "SOI strip benchmark: lambda = {LAMBDA_UM} um, core {W_CORE_UM}x{H_CORE_UM} um \
+         (n_Si = {N_SI}), SiO2 clad (n = {N_SIO2})"
         );
-        results.push(r);
+        eprintln!(
+            "  EIM oracle n_eff = {eim:.6}, geometry index ceiling = {ceiling:.6} \
+         (approximate; semi-analytic)"
+        );
+
+        let mut results = Vec::new();
+        for &nbuf in &BUFFERS {
+            let r = solve_buffer(nbuf);
+            eprintln!(
+                "  buffer {:?} ({:.3},{:.3} um = {:.1},{:.1} decay-lengths), {}x{} mesh, \
+             {} edges: n_eff = {:.6} ({} guided), {:.1} s",
+                r.nbuf,
+                r.buf_um.0,
+                r.buf_um.1,
+                r.buf_decay_lengths.0,
+                r.buf_decay_lengths.1,
+                r.mesh_nxny.0,
+                r.mesh_nxny.1,
+                r.n_edges,
+                r.n_eff,
+                r.n_eff_all.len(),
+                r.solve_s,
+            );
+            results.push(r);
+        }
+
+        let n_eff = results.last().unwrap().n_eff;
+        let buf_delta = (results[results.len() - 1].n_eff - results[0].n_eff).abs();
+        let rel_err = (n_eff - eim).abs() / eim;
+        eprintln!("\n--- SOI fundamental quasi-TE mode ---");
+        eprintln!("  n_eff (FEM)          = {n_eff:.6}");
+        eprintln!(
+            "  n_eff (EIM oracle)   = {eim:.6}  (rel err {:.2}%)",
+            100.0 * rel_err
+        );
+        eprintln!(
+            "  index ceiling        = {ceiling:.6}  (n_eff below: {})",
+            n_eff < ceiling
+        );
+        eprintln!(
+            "  in window ({N_SIO2}, {N_SI}): {}",
+            n_eff > N_SIO2 && n_eff < N_SI
+        );
+        eprintln!("  buffer convergence   = {buf_delta:.3e} (threshold 1e-3)");
+
+        assert!(
+            n_eff > N_SIO2 && n_eff < N_SI,
+            "fundamental n_eff {n_eff} not in physical window ({N_SIO2}, {N_SI})"
+        );
+        assert!(
+            n_eff < ceiling,
+            "fundamental n_eff {n_eff} above geometry-derived index ceiling {ceiling}"
+        );
+        assert!(
+            buf_delta < 1e-3,
+            "open-boundary not converged: n_eff changed {buf_delta:.3e} across buffers (> 1e-3)"
+        );
+        assert!(
+            rel_err < EIM_TOL,
+            "fundamental n_eff {n_eff} vs EIM {eim} = {:.2}% > {:.0}% tolerance",
+            100.0 * rel_err,
+            100.0 * EIM_TOL
+        );
+
+        write_toml(&results);
+        Ok(())
     }
 
-    let n_eff = results.last().unwrap().n_eff;
-    let buf_delta = (results[results.len() - 1].n_eff - results[0].n_eff).abs();
-    let rel_err = (n_eff - eim).abs() / eim;
-    eprintln!("\n--- SOI fundamental quasi-TE mode ---");
-    eprintln!("  n_eff (FEM)          = {n_eff:.6}");
-    eprintln!(
-        "  n_eff (EIM oracle)   = {eim:.6}  (rel err {:.2}%)",
-        100.0 * rel_err
-    );
-    eprintln!(
-        "  index ceiling        = {ceiling:.6}  (n_eff below: {})",
-        n_eff < ceiling
-    );
-    eprintln!(
-        "  in window ({N_SIO2}, {N_SI}): {}",
-        n_eff > N_SIO2 && n_eff < N_SI
-    );
-    eprintln!("  buffer convergence   = {buf_delta:.3e} (threshold 1e-3)");
+    fn verbosity(&self) -> Verbosity {
+        self.verbose
+    }
+}
 
-    assert!(
-        n_eff > N_SIO2 && n_eff < N_SI,
-        "fundamental n_eff {n_eff} not in physical window ({N_SIO2}, {N_SI})"
-    );
-    assert!(
-        n_eff < ceiling,
-        "fundamental n_eff {n_eff} above geometry-derived index ceiling {ceiling}"
-    );
-    assert!(
-        buf_delta < 1e-3,
-        "open-boundary not converged: n_eff changed {buf_delta:.3e} across buffers (> 1e-3)"
-    );
-    assert!(
-        rel_err < EIM_TOL,
-        "fundamental n_eff {n_eff} vs EIM {eim} = {:.2}% > {:.0}% tolerance",
-        100.0 * rel_err,
-        100.0 * EIM_TOL
-    );
-
-    write_toml(&results);
+fn main() -> ExitCode {
+    geode_app::main::<Args>()
 }
