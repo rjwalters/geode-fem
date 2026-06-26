@@ -1,0 +1,32 @@
+[package]
+name = "mie_sphere"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Mie-sphere FEM-eigenmode-vs-analytic benchmark (Epic #398 pilot example crate)."
+
+[[bin]]
+name = "mie_sphere"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+geode-app = { workspace = true }
+geode-core = { workspace = true }
+geode-examples-support = { workspace = true }
+# `BackendTypes` device handle + complex mass tensors.
+burn = { workspace = true }
+# `sparse-linalg` is added on top of the workspace base feature set
+# (`std`, `linalg`) for the sparse shift-invert Lanczos eigensolver path
+# (`SparseColMat` / `Triplet`), matching geode-core's own faer reference.
+faer = { workspace = true, features = ["sparse-linalg"] }
+
+# NOTE: this crate deliberately defines NO backend features. The Burn
+# backend (`wgpu` by default, or `ndarray` on headless CI) is selected by
+# geode-core's default features / the workspace `--features` flags at build
+# time, exactly like `geode-cli` and `geode-validation`.
+
+[lints.rust]
+unsafe_code = "forbid"
