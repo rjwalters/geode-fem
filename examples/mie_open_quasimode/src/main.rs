@@ -1,6 +1,6 @@
 //! Matched-UPML open-space quasi-mode benchmark (issue #213).
 //!
-//! The eigenmode benchmark in `examples/mie_sphere.rs` uses the
+//! The eigenmode benchmark in `examples/mie_sphere/` uses the
 //! **ε-only** anisotropic UPML (issue #54): the permittivity is
 //! stretched but μ stays 1, so the PML interface is impedance
 //! mismatched. The mismatch reflects outgoing radiation back into the
@@ -52,7 +52,7 @@
 //! # Running
 //!
 //! ```sh
-//! cargo run -p geode-core --release --example mie_open_quasimode
+//! cargo run -p mie_open_quasimode --release
 //! ```
 //!
 //! `--release` is required (faer 0.24 `gevd` panics under
@@ -62,14 +62,23 @@
 //!
 //! Writes `benchmarks/mie_sphere/open_results.toml` (sibling of the
 //! ε-only `results.toml`, which is left untouched).
+//!
+//! This is a standalone example crate (`examples/mie_open_quasimode/`)
+//! built on the `geode-app` harness, migrated from the old
+//! `crates/geode-core/examples/mie_open_quasimode.rs` (Epic #398
+//! Phase 3a). The physics, report output, and `open_results.toml`
+//! artifact are preserved exactly; only the entry point (hand-rolled
+//! `--dense` argv scan → `clap` derive + `geode_app::App`) changed.
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, ExitCode};
 
 use burn::tensor::backend::BackendTypes;
+use clap::Parser;
 use faer::sparse::{SparseColMat, Triplet};
 
+use geode_app::{App, Verbosity};
 use geode_core::analytic::mie::{MiePolarisation, MieRootComplex, open_space_wgm_roots_n15};
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_full_tensors, burn_complex_mass_to_faer, sphere_n_interior_nodes,
@@ -392,126 +401,157 @@ fn write_results(rows: &[QuasiModeRow]) {
     eprintln!("wrote {}", path.display());
 }
 
-fn main() {
-    let use_dense = std::env::args().any(|a| a == "--dense");
-    let f = read_sphere_fixture().expect("fixture load");
-    eprintln!(
-        "sphere fixture: {} nodes, {} tets",
-        f.mesh.n_nodes(),
-        f.mesh.n_tets()
-    );
+/// Matched-UPML open-space quasi-mode benchmark CLI.
+///
+/// Flattens the shared `geode-app` `-v`/`-q` verbosity group and keeps
+/// the example-local `--dense` toggle the original hand-rolled argv scan
+/// recognised.
+#[derive(Parser)]
+#[command(
+    about = "Matched (full Sacks) UPML open-space quasi-mode benchmark vs. Mie WGM complex roots (issue #213)."
+)]
+struct Args {
+    /// Use the dense `FaerComplexEigensolver` QZ oracle (tens of minutes
+    /// per solve) instead of the default sparse shift-invert Lanczos.
+    #[arg(long)]
+    dense: bool,
 
-    let catalog = open_space_wgm_roots_n15();
-    // Primary acceptance target TM₁,₁ first, then best-effort TE₁,₁.
-    let targets: Vec<&MieRootComplex> = [
-        (MiePolarisation::TM, 1usize, 1usize),
-        (MiePolarisation::TE, 1, 1),
-    ]
-    .iter()
-    .map(|&(pol, l, n)| {
-        catalog
-            .iter()
-            .find(|r| r.pol == pol && r.l == l && r.n == n)
-            .expect("target root in catalog")
-    })
-    .collect();
+    #[command(flatten)]
+    verbose: Verbosity,
+}
 
-    let mut rows = Vec::new();
-    for &sigma_0 in SIGMA_VALUES {
-        for root in &targets {
-            let omega0 = root.re_k;
-            eprintln!(
-                "=== σ₀ = {sigma_0}, target {}_{},{} (analytic k = {:.4} {:+.4}j, Q = {:.3}) ===",
-                pol_str(root.pol),
-                root.l,
-                root.n,
-                root.re_k,
-                root.im_k,
-                root.q()
-            );
-            let physical = solve_frozen_omega(&f, sigma_0, omega0, use_dense);
-            eprintln!("  {} oscillatory physical modes", physical.len());
-            let Some((lam, ambiguous)) = match_root(&physical, root) else {
-                eprintln!("  no physical mode matched — skipping row");
-                continue;
-            };
-            let (re_k, im_k) = k_from_lambda(lam);
-            let q = if im_k.abs() > 1e-12 {
-                re_k / (2.0 * im_k.abs())
-            } else {
-                f64::INFINITY
-            };
-            eprintln!(
-                "  matched quasi-mode: k = {re_k:.4} {im_k:+.4}j, Q = {q:.3} \
-                 (rel err Re(k) = {:.2}%, Q ratio = {:.3}{})",
-                (re_k - root.re_k).abs() / root.re_k * 100.0,
-                q / root.q(),
-                if ambiguous { ", AMBIGUOUS" } else { "" }
-            );
-
-            // One Picard refresh for the primary TM target: re-freeze Λ
-            // at the recovered Re(k) and re-solve.
-            let picard = if root.pol == MiePolarisation::TM {
-                let omega1 = re_k;
-                eprintln!("  Picard refresh at ω₁ = {omega1:.4} …");
-                let physical1 = solve_frozen_omega(&f, sigma_0, omega1, use_dense);
-                match_root(&physical1, root).map(|(lam1, _)| {
-                    let (re1, im1) = k_from_lambda(lam1);
-                    let q1 = if im1.abs() > 1e-12 {
-                        re1 / (2.0 * im1.abs())
-                    } else {
-                        f64::INFINITY
-                    };
-                    eprintln!(
-                        "  Picard: k = {re1:.4} {im1:+.4}j, Q = {q1:.3} \
-                         (ΔRe(k) = {:+.2e}, ΔQ = {:+.3})",
-                        re1 - re_k,
-                        q1 - q
-                    );
-                    (omega1, re1, im1, q1)
-                })
-            } else {
-                None
-            };
-
-            rows.push(QuasiModeRow {
-                sigma_0,
-                pol: root.pol,
-                l: root.l,
-                n: root.n,
-                omega_freeze: omega0,
-                analytic_re_k: root.re_k,
-                analytic_im_k: root.im_k,
-                analytic_q: root.q(),
-                fem_re_k: re_k,
-                fem_im_k: im_k,
-                fem_q: q,
-                rel_err_re_k: (re_k - root.re_k).abs() / root.re_k,
-                q_ratio: q / root.q(),
-                ambiguous,
-                picard,
-            });
-        }
-    }
-
-    write_results(&rows);
-
-    eprintln!("\nSummary (vs. open-space analytic roots):");
-    for r in &rows {
+impl App for Args {
+    fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        let use_dense = self.dense;
+        let f = read_sphere_fixture()?;
         eprintln!(
-            "  σ₀ = {:>4}: {}_{},{}  Re(k) {:.4} vs {:.4} ({:.1}% err), \
-             Q {:.3} vs {:.3} (ratio {:.3}){}",
-            r.sigma_0,
-            pol_str(r.pol),
-            r.l,
-            r.n,
-            r.fem_re_k,
-            r.analytic_re_k,
-            r.rel_err_re_k * 100.0,
-            r.fem_q,
-            r.analytic_q,
-            r.q_ratio,
-            if r.ambiguous { " [ambiguous]" } else { "" }
+            "sphere fixture: {} nodes, {} tets",
+            f.mesh.n_nodes(),
+            f.mesh.n_tets()
         );
+
+        let catalog = open_space_wgm_roots_n15();
+        // Primary acceptance target TM₁,₁ first, then best-effort TE₁,₁.
+        let targets: Vec<&MieRootComplex> = [
+            (MiePolarisation::TM, 1usize, 1usize),
+            (MiePolarisation::TE, 1, 1),
+        ]
+        .iter()
+        .map(|&(pol, l, n)| {
+            catalog
+                .iter()
+                .find(|r| r.pol == pol && r.l == l && r.n == n)
+                .expect("target root in catalog")
+        })
+        .collect();
+
+        let mut rows = Vec::new();
+        for &sigma_0 in SIGMA_VALUES {
+            for root in &targets {
+                let omega0 = root.re_k;
+                eprintln!(
+                    "=== σ₀ = {sigma_0}, target {}_{},{} (analytic k = {:.4} {:+.4}j, Q = {:.3}) ===",
+                    pol_str(root.pol),
+                    root.l,
+                    root.n,
+                    root.re_k,
+                    root.im_k,
+                    root.q()
+                );
+                let physical = solve_frozen_omega(&f, sigma_0, omega0, use_dense);
+                eprintln!("  {} oscillatory physical modes", physical.len());
+                let Some((lam, ambiguous)) = match_root(&physical, root) else {
+                    eprintln!("  no physical mode matched — skipping row");
+                    continue;
+                };
+                let (re_k, im_k) = k_from_lambda(lam);
+                let q = if im_k.abs() > 1e-12 {
+                    re_k / (2.0 * im_k.abs())
+                } else {
+                    f64::INFINITY
+                };
+                eprintln!(
+                    "  matched quasi-mode: k = {re_k:.4} {im_k:+.4}j, Q = {q:.3} \
+                 (rel err Re(k) = {:.2}%, Q ratio = {:.3}{})",
+                    (re_k - root.re_k).abs() / root.re_k * 100.0,
+                    q / root.q(),
+                    if ambiguous { ", AMBIGUOUS" } else { "" }
+                );
+
+                // One Picard refresh for the primary TM target: re-freeze Λ
+                // at the recovered Re(k) and re-solve.
+                let picard = if root.pol == MiePolarisation::TM {
+                    let omega1 = re_k;
+                    eprintln!("  Picard refresh at ω₁ = {omega1:.4} …");
+                    let physical1 = solve_frozen_omega(&f, sigma_0, omega1, use_dense);
+                    match_root(&physical1, root).map(|(lam1, _)| {
+                        let (re1, im1) = k_from_lambda(lam1);
+                        let q1 = if im1.abs() > 1e-12 {
+                            re1 / (2.0 * im1.abs())
+                        } else {
+                            f64::INFINITY
+                        };
+                        eprintln!(
+                            "  Picard: k = {re1:.4} {im1:+.4}j, Q = {q1:.3} \
+                         (ΔRe(k) = {:+.2e}, ΔQ = {:+.3})",
+                            re1 - re_k,
+                            q1 - q
+                        );
+                        (omega1, re1, im1, q1)
+                    })
+                } else {
+                    None
+                };
+
+                rows.push(QuasiModeRow {
+                    sigma_0,
+                    pol: root.pol,
+                    l: root.l,
+                    n: root.n,
+                    omega_freeze: omega0,
+                    analytic_re_k: root.re_k,
+                    analytic_im_k: root.im_k,
+                    analytic_q: root.q(),
+                    fem_re_k: re_k,
+                    fem_im_k: im_k,
+                    fem_q: q,
+                    rel_err_re_k: (re_k - root.re_k).abs() / root.re_k,
+                    q_ratio: q / root.q(),
+                    ambiguous,
+                    picard,
+                });
+            }
+        }
+
+        write_results(&rows);
+
+        eprintln!("\nSummary (vs. open-space analytic roots):");
+        for r in &rows {
+            eprintln!(
+                "  σ₀ = {:>4}: {}_{},{}  Re(k) {:.4} vs {:.4} ({:.1}% err), \
+             Q {:.3} vs {:.3} (ratio {:.3}){}",
+                r.sigma_0,
+                pol_str(r.pol),
+                r.l,
+                r.n,
+                r.fem_re_k,
+                r.analytic_re_k,
+                r.rel_err_re_k * 100.0,
+                r.fem_q,
+                r.analytic_q,
+                r.q_ratio,
+                if r.ambiguous { " [ambiguous]" } else { "" }
+            );
+        }
+
+        Ok(())
     }
+
+    fn verbosity(&self) -> Verbosity {
+        self.verbose
+    }
+}
+
+fn main() -> ExitCode {
+    geode_app::main::<Args>()
 }
