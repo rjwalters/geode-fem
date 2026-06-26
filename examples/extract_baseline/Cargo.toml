@@ -1,0 +1,22 @@
+[package]
+name = "extract_baseline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Walk target/criterion and write a clean TOML perf baseline (medians + IQR) to benchmarks/perf/baseline.toml (issue #50)."
+
+[[bin]]
+name = "extract_baseline"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+geode-app = { workspace = true }
+# Deserialize criterion's `estimates.json`.
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"

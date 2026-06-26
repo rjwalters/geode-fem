@@ -1,0 +1,27 @@
+[package]
+name = "eigen_convergence"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Quick convergence probe: prints the (1,1,1) ground-mode eigenvalue of the unit-cube Dirichlet Laplacian across mesh refinements to show the O(h²) rate."
+
+[[bin]]
+name = "eigen_convergence"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+geode-app = { workspace = true }
+geode-core = { workspace = true }
+# `BackendTypes` device handle for the P1 assembly upload.
+burn = { workspace = true }
+
+# NOTE: this crate deliberately defines NO backend features. The Burn
+# backend (`wgpu` by default, or `ndarray` on headless CI) is selected by
+# geode-core's default features / the workspace `--features` flags at build
+# time, exactly like `geode-cli` and `geode-validation`.
+
+[lints.rust]
+unsafe_code = "forbid"
