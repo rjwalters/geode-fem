@@ -263,4 +263,3 @@ Benchmark artifacts that live at a **fixed committed repo path** (e.g.
 through `OutputDir`; keep the `env!("CARGO_MANIFEST_DIR")`-relative
 walk-up. From an example crate root `examples/<name>/`, the workspace root
 is two levels up (`../../`).
-</content>
