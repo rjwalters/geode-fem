@@ -42,11 +42,11 @@ use std::path::{Path, PathBuf};
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Tensor, TensorData};
 
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::elements::p1::batched_p1_local_matrices;
 use geode_validation::{Fixture, FixtureFormat};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 // ---------------------------------------------------------------------------
 // Tolerances (backend-aware, mirrors the original p1_local test)

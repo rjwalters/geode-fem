@@ -22,7 +22,7 @@
 
 use faer::c64;
 
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::driven::extraction::{SweepPoint, driven_frequency_sweep};
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials};
 use geode_core::mesh::patch::FR4_MATERIALS;
@@ -50,8 +50,8 @@ fn ghz_to_omega(f_ghz: f64) -> f64 {
 /// fixture at the given frequency.
 fn solve(fixture: &PatchFixture, f_ghz: f64) -> SweepPoint {
     use burn::tensor::backend::BackendTypes;
-    type B = DefaultBackend;
-    let device = <B as BackendTypes>::Device::default();
+    type B = TestBackend;
+    let device = Default::default();
 
     let omega = ghz_to_omega(f_ghz);
 

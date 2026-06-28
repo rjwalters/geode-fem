@@ -35,7 +35,7 @@
 //! ```
 
 use std::path::PathBuf;
-
+use burn::prelude::Backend;
 use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::mat::MatRef;
@@ -45,53 +45,13 @@ use geode_core::assembly::nedelec::{
     sphere_pec_node_interior_mask, spurious_dim_from_derham,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::{device_tolerances, TestBackend};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
 use geode_validation::{Fixture, FixtureFormat};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
-// ---------------------------------------------------------------------------
-// Tolerances (same structure as sphere_pec_numpy_reference.rs)
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy)]
-struct BackendTolerances {
-    /// Absolute tolerance on the full lowest-spectrum slice.
-    spectrum_abs: f64,
-    /// Relative tolerance on the 5 physical eigenvalues.
-    eigenvalue_rel: f64,
-    /// Relative tolerance on K_int / M_int Frobenius norms.
-    frobenius_rel: f64,
-    /// Absolute tolerance on per-DOF K_int / M_int diagonals.
-    diagonal_abs: f64,
-}
-
-const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
-    // JAX and Burn (ndarray f64) agree at near-ULP precision for assembly.
-    // Eigensolve divergence is at ARPACK vs faer QZ convergence noise level.
-    spectrum_abs: 1.0e-6,
-    eigenvalue_rel: 1.0e-6,
-    frobenius_rel: 1.0e-8,
-    diagonal_abs: 5.0e-9,
-};
-
-const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
-    spectrum_abs: 1.0e-3,
-    eigenvalue_rel: 5.0e-4,
-    frobenius_rel: 5.0e-5,
-    diagonal_abs: 5.0e-5,
-};
-
-fn active_backend_tolerances() -> BackendTolerances {
-    let info = geode_core::backend::device_info();
-    if info.backend == "ndarray" {
-        NDARRAY_F64_TOLERANCES
-    } else {
-        GPU_F32_TOLERANCES
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Fixture path
@@ -306,12 +266,14 @@ fn sphere_pec_jax_assembly_substages_agree() {
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("jax_baseline.json should load");
     let burn = run_burn_pipeline();
-    let tol = active_backend_tolerances();
+
+    let device = Default::default();
+    let tol = device_tolerances::<B>(&device);
 
     eprintln!(
         "sphere_pec JAX assembly test: backend = {}, frobenius_rel = {:.0e}, \
          diagonal_abs = {:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.frobenius_rel,
         tol.diagonal_abs,
     );
@@ -387,12 +349,14 @@ fn sphere_pec_jax_spectrum_agrees() {
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("jax_baseline.json should load");
     let burn = run_burn_pipeline();
-    let tol = active_backend_tolerances();
+
+    let device = Default::default();
+    let tol = device_tolerances::<B>(&device);
 
     eprintln!(
         "sphere_pec JAX spectrum test: backend = {}, spectrum_abs = {:.0e}, \
          eigenvalue_rel = {:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.spectrum_abs,
         tol.eigenvalue_rel,
     );

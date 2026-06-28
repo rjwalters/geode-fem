@@ -59,62 +59,12 @@ use geode_core::assembly::nedelec::{
     sphere_pec_node_interior_mask, spurious_dim_from_derham,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
 use geode_validation::{Fixture, FixtureFormat};
 
-type B = DefaultBackend;
-
-// ---------------------------------------------------------------------------
-// Tolerances
-// ---------------------------------------------------------------------------
-
-/// TF-Java uses f64 static-graph assembly; numerical properties are the same
-/// as NumPy (both are f64 CPU paths). The main uncertainty is that scatterNd
-/// in TF-Java may accumulate floating-point additions in a different order
-/// than scipy's COO->CSR path, giving ~1e-10 absolute Frobenius norm drift.
-/// We set frobenius_rel = 1e-4 (matching the Julia tolerance) as a
-/// conservative bound.
-#[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
-struct BackendTolerances {
-    /// Relative tolerance on K_int / M_int Frobenius norms.
-    frobenius_rel: f64,
-    /// Per-entry absolute tolerance on K_int / M_int diagonals.
-    diagonal_abs: f64,
-    /// Absolute tolerance on the full lowest-spectrum slice.
-    spectrum_abs: f64,
-    /// Relative tolerance on the lowest 5 physical eigenvalues (Epic #88 AC).
-    eigenvalue_rel: f64,
-    /// Per-entry absolute on symmetry residuals.
-    symmetry_abs: f64,
-}
-
-const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
-    frobenius_rel: 1e-4,
-    diagonal_abs: 1e-5,
-    spectrum_abs: 1e-3,
-    eigenvalue_rel: 1e-5,
-    symmetry_abs: 1e-10,
-};
-
-const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
-    frobenius_rel: 5e-4,
-    diagonal_abs: 5e-5,
-    spectrum_abs: 1e-2,
-    eigenvalue_rel: 5e-4,
-    symmetry_abs: 1e-6,
-};
-
-fn active_backend_tolerances() -> BackendTolerances {
-    let info = geode_core::backend::device_info();
-    if info.backend == "ndarray" {
-        NDARRAY_F64_TOLERANCES
-    } else {
-        GPU_F32_TOLERANCES
-    }
-}
+type B = TestBackend;
 
 // ---------------------------------------------------------------------------
 // Fixture paths

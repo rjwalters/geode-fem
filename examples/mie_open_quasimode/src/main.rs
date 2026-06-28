@@ -85,7 +85,7 @@ use geode_core::assembly::nedelec::{
     sphere_pec_interior_edges,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::driven::scattering::build_matched_upml_materials;
 use geode_core::eigen::complex::{
     ComplexEigenSolver, FaerComplexEigensolver, SparseComplexEigenSolver,
@@ -93,7 +93,7 @@ use geode_core::eigen::complex::{
 };
 use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, SphereFixture, read_sphere_fixture};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 /// Refractive index inside the sphere (matches the analytic catalog).
 const N_INSIDE: f64 = 1.5;

@@ -39,8 +39,10 @@
 //! ```
 
 use std::path::PathBuf;
-
+use burn::prelude::Backend;
+use burn::Tensor;
 use burn::tensor::backend::BackendTypes;
+use burn::tensor::DType;
 use faer::Mat;
 use faer::mat::MatRef;
 
@@ -49,12 +51,12 @@ use geode_core::assembly::nedelec::{
     sphere_pec_node_interior_mask, spurious_dim_from_derham,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
 use geode_validation::{Fixture, FixtureFormat};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 // ---------------------------------------------------------------------------
 // Tolerances
@@ -76,7 +78,7 @@ struct BackendTolerances {
     symmetry_abs: f64,
 }
 
-const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
+const F64_TOLERANCES: BackendTolerances = BackendTolerances {
     frobenius_rel: 1e-4,  // Julia ↔ Burn ndarray, relaxed vs Julia↔NumPy (1e-8)
     diagonal_abs: 1e-5,   // per-DOF absolute
     spectrum_abs: 1e-3,   // near-zero spurious cluster is solver-dependent
@@ -84,7 +86,7 @@ const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
     symmetry_abs: 1e-10,
 };
 
-const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
+const F32_TOLERANCES: BackendTolerances = BackendTolerances {
     frobenius_rel: 5e-4,
     diagonal_abs: 5e-5,
     spectrum_abs: 1e-2,
@@ -92,12 +94,12 @@ const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
     symmetry_abs: 1e-6,
 };
 
-fn active_backend_tolerances() -> BackendTolerances {
-    let info = geode_core::backend::device_info();
-    if info.backend == "ndarray" {
-        NDARRAY_F64_TOLERANCES
-    } else {
-        GPU_F32_TOLERANCES
+fn device_tolerances<B: Backend>(device: &B::Device) -> BackendTolerances {
+    let dtype = Tensor::<B, 1>::zeros([0], device).dtype();
+    match dtype {
+        DType::F64 => F64_TOLERANCES,
+        DType::F32 => F32_TOLERANCES,
+        _ => panic!("unexpected dtype: {:?}", dtype),
     }
 }
 
@@ -338,11 +340,13 @@ fn sphere_pec_julia_assembly_substages_agree() {
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("julia_baseline.json should load");
     let burn = run_burn_pipeline();
-    let tol = active_backend_tolerances();
+
+    let device = Default::default();
+    let tol = device_tolerances::<B>(&device);
 
     eprintln!(
         "sphere_pec_julia assembly: backend={}, frobenius_rel={:.0e}, diagonal_abs={:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.frobenius_rel,
         tol.diagonal_abs,
     );

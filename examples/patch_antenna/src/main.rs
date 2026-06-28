@@ -134,7 +134,7 @@ use faer::c64;
 
 use geode_app::{App, OutputDir, Verbosity};
 use geode_core::analytic::patch::PatchCavity;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::driven::extraction::{im_z_zero_crossings, s11};
 use geode_core::driven::ports::{port_current, port_voltage};
 use geode_core::driven::scattering::flux_power_box;

@@ -12,11 +12,11 @@ use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_epsilon, build_epsilon_r, sphere_pec_interior_edges,
 };
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
 use geode_core::mesh::{R_BUFFER, cube_tet_mesh, read_sphere_fixture};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()

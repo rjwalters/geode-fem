@@ -59,102 +59,12 @@ use faer::Mat;
 use faer::mat::MatRef;
 
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
 use geode_core::mesh::{GmshReader, MeshReader};
 use geode_validation::{Fixture, FixtureFormat};
 
-type B = DefaultBackend;
-
-// ---------------------------------------------------------------------------
-// Tolerances
-// ---------------------------------------------------------------------------
-//
-// Backend-aware tolerances mirror the pattern in
-// `crates/geode-validation/tests/p1_local_numpy_reference.rs`: the ndarray
-// backend stores f64 and produces near-bit-exact assembly; wgpu/cuda
-// store f32 internally and accumulate roundoff at the scatter-add step.
-//
-// `geode-validation` is a workspace dependency-only crate (no feature
-// flags of its own — see Cargo.toml), so we cannot gate on
-// `cfg(feature = "ndarray")` here. Instead, we read the active backend
-// name at runtime via `geode_core::backend::device_info()` and pick the tighter
-// (f64) or looser (f32) bound accordingly. Tolerance values match the
-// #90 cross-check table in `reference/README.md`.
-//
-// All these are absolute tolerances applied to per-DOF / per-eigenvalue
-// quantities of order 1 to 100 (the cube cavity eigenvalues sit near
-// 3π² ≈ 30); they are tight enough to catch real regressions but loose
-// enough not to flap on cross-platform f32 accumulation differences.
-
-#[derive(Debug, Clone, Copy)]
-struct BackendTolerances {
-    /// Acceptance criterion #2 from issue #92: `1e-6` relative under
-    /// f64; loosened to `5e-4` under f32 GPU backends.
-    eigenvalue_rel: f64,
-    /// Frobenius of K_int / M_int.
-    frobenius_rel: f64,
-    /// Per-entry absolute on the K_int / M_int diagonals.
-    diagonal_abs: f64,
-    /// `|‖Q_numpy^T M Q_burn‖_F (block) - √d|` per degenerate cluster.
-    subspace_overlap_abs: f64,
-}
-
-// Under `--features geode-core/ndarray`, `B::FloatElem = f64` and
-// `assembly::upload_mesh` carries node coordinates through at f64
-// (issue #99 fixed the previous force-cast to f32). With f64 on both
-// sides of the Burn-vs-NumPy comparison, K_int / M_int agree to
-// floating-point roundoff of the assembly arithmetic.
-//
-// Issue #110 characterized the multi-platform sub-stage floor:
-// PR #106's single-host calibration (Linux x86_64) tightened
-// `m_int_diag` to `1e-14`, and PR #108 then observed ~5e-10 drift on
-// macOS arm64 — a 50000x miss. The root cause is LLVM FMA
-// contraction + SIMD reduction-order differences across
-// `target_arch` / runner generations / rustc versions; without a
-// SIMD-deterministic reduction this is the floor.
-//
-// Observed sub-stage maxima from CI runs + local hosts (the
-// `print_substage_diff` helper below emits `CUBE_CAVITY_SUBSTAGE_DIFF`
-// lines that feed the table in baseline.schema.md):
-//
-//   field            worst known abs err   tolerance set to
-//   k_int_frobenius        ~3e-13                  1e-9
-//   m_int_frobenius        ~6e-16                  1e-8
-//   k_int_diag             ~1e-14                  1e-9
-//   m_int_diag             ~5e-10  (PR #108)       5e-9
-//
-// Each tolerance is ~10x looser than the worst known observation —
-// wide enough to absorb the cross-runner SIMD spread, tight enough
-// to still catch the original f32 truncation regression (`m_int_diag`
-// ~1.1e-10 pre-#99 is 20x over the new floor; `k_int_diag` ~5.4e-8
-// pre-#99 is 50x over). The `cube-cavity-tolerance.yml` workflow
-// re-runs this test across ubuntu-latest / macos-latest /
-// macos-13 on every PR that touches assembly or the fixture, so the
-// floor is policed by ongoing measurement rather than by a one-shot
-// calibration.
-const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
-    eigenvalue_rel: 1e-6, // 1e-6 relative, acceptance criterion #2
-    frobenius_rel: 1e-8,
-    diagonal_abs: 5e-9,
-    subspace_overlap_abs: 1e-5,
-};
-
-const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
-    eigenvalue_rel: 5e-4,
-    frobenius_rel: 5e-5,
-    diagonal_abs: 5e-5,
-    subspace_overlap_abs: 1e-3,
-};
-
-fn active_backend_tolerances() -> BackendTolerances {
-    let info = geode_core::backend::device_info();
-    if info.backend == "ndarray" {
-        NDARRAY_F64_TOLERANCES
-    } else {
-        GPU_F32_TOLERANCES
-    }
-}
+type B = TestBackend;
 
 // ---------------------------------------------------------------------------
 // Fixture / mesh paths

@@ -70,7 +70,7 @@ use geode_app::{App, Verbosity};
 use geode_core::analytic::spiral::{
     SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
 };
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::driven::extraction::{detect_srf, driven_frequency_sweep};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
@@ -203,7 +203,7 @@ fn results_path(choice: FixtureChoice) -> PathBuf {
 
 fn run_sweep(fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<Row> {
     use burn::tensor::backend::BackendTypes;
-    type B = DefaultBackend;
+    type B = TestBackend;
     let device = <B as BackendTypes>::Device::default();
 
     let edges = fixture.mesh.edges();

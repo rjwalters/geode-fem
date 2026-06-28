@@ -1,16 +1,8 @@
 [workspace]
 resolver = "2"
+
 members = [
-    "crates/geode-core",
-    "crates/geode-cli",
-    "crates/geode-validation",
-    "crates/geode-app",
-    # Top-level standalone example crates (Epic #398 Phase 2+). The glob
-    # auto-includes the shared `examples/_support` support crate and every
-    # per-example crate added by later phases, so Phase 3 batches never need
-    # to touch this `members` list (avoids the merge contention of #377).
-    # Non-package entries like `examples/README.md` are ignored (a member
-    # glob only expands to directories containing a `Cargo.toml`).
+    "crates/*",
     "examples/*",
 ]
 

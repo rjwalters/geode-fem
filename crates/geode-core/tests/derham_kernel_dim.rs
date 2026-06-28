@@ -89,7 +89,7 @@ use geode_core::assembly::nedelec::{
     restrict_gradient_dense, sphere_pec_interior_edges, tet_centroid_radii,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::derham::gradient_map;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::{
@@ -97,7 +97,7 @@ use geode_core::eigen::dense::{
 };
 use geode_core::mesh::{R_BUFFER, TetMesh, cube_tet_mesh, read_sphere_fixture};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 /// Cube refinement — matches `nedelec_cavity.rs` so the interior-node /
 /// interior-edge counts line up with the eigenmode story this test

@@ -9,13 +9,14 @@ use burn::tensor::backend::BackendTypes;
 use clap::Parser;
 use geode_app::{App, Verbosity};
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
 use geode_core::mesh::cube_tet_mesh;
+use geode_core::testing;
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 /// Ground-mode convergence probe for the unit-cube Dirichlet Laplacian.
 #[derive(Parser)]

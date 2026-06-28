@@ -25,7 +25,7 @@ num-complex = { workspace = true }
 # `cargo test -p geode-validation --features geode-core/ndarray` for the
 # f64 cross-check, and the default `cargo test` falls back to geode-core's
 # default `wgpu` (or `ndarray` if it wins precedence under unification).
-geode-core = { workspace = true }
+geode-core = { workspace = true, features = ["testing"] }
 burn = { workspace = true }
 # Direct faer access in the cube-cavity test: we materialize the K_int /
 # M_int interior matrices via `burn_matrix_to_faer`, then call

@@ -26,67 +26,14 @@ use std::path::{Path, PathBuf};
 
 use burn::tensor::backend::BackendTypes;
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
 use geode_core::mesh::cube_tet_mesh;
 use geode_validation::{Fixture, FixtureFormat};
 
-type B = DefaultBackend;
-
-// ---------------------------------------------------------------------------
-// Backend-aware tolerance overrides
-// ---------------------------------------------------------------------------
-//
-// The fixture itself carries `tolerance_abs = 1e-12` on `k_diag_sum` /
-// `m_diag_sum` (trace readbacks — should agree to f64 round-off when the
-// upload path honors B::FloatElem) and `1e-8` on `eigenvalues` (the
-// JAX/NumPy in-tree cross-check is 7.8e-15 relative at fixture-gen
-// time). Those tolerances are too tight for the f32 wgpu/cuda default
-// path; under `--features ndarray` they are too tight for Burn's
-// upload-truncates-to-f32 friction (whiteroom #5). We override per
-// backend below and apply the override as a relaxed `tolerance_abs`
-// before running `Fixture::compare_against` so the diff artifact reflects
-// what the test actually enforces.
-
-#[derive(Debug, Clone, Copy)]
-struct BackendTolerances {
-    /// Absolute tolerance on lowest-5 eigenvalues. Cube-cavity n=4 eigvals
-    /// are O(10²); 5e-3 absolute is ~5e-5 relative — comfortably above
-    /// f32 accumulation through 6·4³ element contributions, tight enough
-    /// to catch a real regression.
-    eigvals_abs: f64,
-    /// Absolute tolerance on trace(K_int) / trace(M_int) — pure assembly
-    /// readbacks. Looser than the fixture's f64 ideal because Burn's
-    /// upload_mesh truncates to f32 (whiteroom #5).
-    trace_abs: f64,
-}
-
-const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
-    // Even under --features ndarray, upload_mesh truncates coordinates
-    // to f32 at the tensor boundary (assembly.rs:83), so the in-tree
-    // f64 path still inherits ~f32-roughly-1e-7 precision on assembled
-    // matrices. Trace tolerances reflect Burn's actual delivered
-    // precision; once #5 lands the upload fix, tighten these back to
-    // ~1e-12 to match the fixture's intrinsic tolerance.
-    eigvals_abs: 5.0e-5,
-    trace_abs: 1.0e-5,
-};
-
-const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
-    eigvals_abs: 5.0e-3,
-    trace_abs: 1.0e-3,
-};
-
-fn active_tolerances() -> BackendTolerances {
-    let info = geode_core::backend::device_info();
-    if info.backend == "ndarray" {
-        NDARRAY_F64_TOLERANCES
-    } else {
-        GPU_F32_TOLERANCES
-    }
-}
+type B = TestBackend;
 
 // ---------------------------------------------------------------------------
 // Fixture path

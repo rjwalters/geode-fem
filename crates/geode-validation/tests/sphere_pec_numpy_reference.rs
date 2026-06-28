@@ -60,8 +60,9 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-
+use burn::prelude::Backend;
 use burn::tensor::backend::BackendTypes;
+use burn::tensor::Device;
 use faer::Mat;
 use faer::mat::MatRef;
 
@@ -70,64 +71,12 @@ use geode_core::assembly::nedelec::{
     sphere_pec_node_interior_mask, spurious_dim_from_derham,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::{device_tolerances, TestBackend};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
 use geode_validation::{Fixture, FixtureFormat};
 
-type B = DefaultBackend;
-
-// ---------------------------------------------------------------------------
-// Tolerances
-// ---------------------------------------------------------------------------
-//
-// Backend-aware mixed abs/rel envelope, same pattern as
-// `cube_cavity_numpy_reference.rs` and the G.1 #117 / PR #105 precedent.
-
-#[derive(Debug, Clone, Copy)]
-struct BackendTolerances {
-    /// `1e-6` relative on physical eigenvalues under f64; `5e-4` under f32 GPU.
-    eigenvalue_rel: f64,
-    /// Frobenius rel-tol on K_int / M_int.
-    frobenius_rel: f64,
-    /// Per-entry absolute on K_int / M_int diagonals.
-    diagonal_abs: f64,
-    /// Per-entry absolute on the full lowest-spectrum eigenvalue sequence
-    /// (includes near-zero spurious cluster — looser than `eigenvalue_rel`).
-    spectrum_abs: f64,
-    /// Per-entry absolute on `max(|K - K^T|)` / `max(|M - M^T|)`. The
-    /// Nédélec curl-curl / mass pair is exactly symmetric in exact
-    /// arithmetic; the residual is floating-point roundoff in the
-    /// `scatter_add` COO->CSR collapse, ~f64 ULP × max entry under
-    /// ndarray (≈1e-15) and proportionally larger (≈1e-7) under f32
-    /// GPU backends.
-    symmetry_abs: f64,
-}
-
-const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
-    eigenvalue_rel: 1e-6,
-    frobenius_rel: 1e-8,
-    diagonal_abs: 5e-9,
-    spectrum_abs: 1e-6,
-    symmetry_abs: 1e-10,
-};
-
-const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
-    eigenvalue_rel: 5e-4,
-    frobenius_rel: 5e-5,
-    diagonal_abs: 5e-5,
-    spectrum_abs: 1e-3,
-    symmetry_abs: 1e-6,
-};
-
-fn active_backend_tolerances() -> BackendTolerances {
-    let info = geode_core::backend::device_info();
-    if info.backend == "ndarray" {
-        NDARRAY_F64_TOLERANCES
-    } else {
-        GPU_F32_TOLERANCES
-    }
-}
+type B = TestBackend;
 
 // ---------------------------------------------------------------------------
 // Fixture path
@@ -483,12 +432,14 @@ fn sphere_pec_assembly_substages_agree_with_numpy() {
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("baseline.json should load");
     let burn = run_burn_pipeline();
-    let tol = active_backend_tolerances();
+
+    let device = Default::default();
+    let tol = device_tolerances::<B>(&device);
 
     eprintln!(
         "sphere_pec assembly test: backend = {}, frobenius_rel = {:.0e}, \
          diagonal_abs = {:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.frobenius_rel,
         tol.diagonal_abs,
     );
@@ -616,12 +567,14 @@ fn sphere_pec_spectrum_agrees_with_numpy() {
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("baseline.json should load");
     let burn = run_burn_pipeline();
-    let tol = active_backend_tolerances();
+
+    let device = Default::default();
+    let tol = device_tolerances::<B>(&device);
 
     eprintln!(
         "sphere_pec spectrum test: backend = {}, eigenvalue_rel = {:.0e}, \
          spectrum_abs = {:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.eigenvalue_rel,
         tol.spectrum_abs,
     );
