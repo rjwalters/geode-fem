@@ -24,6 +24,12 @@ faer = { workspace = true }
 # so the `faer` → `num_complex` hand-off these helpers centralize is
 # zero-cost. Workspace base feature set (`std`) only.
 num-complex = { workspace = true }
+# JSON fixture support for the `fixture` staging module: backs the
+# `serde_json::Value`-based numeric primitives (`flatten_numeric`,
+# `value_f64`, `value_i64`) shared by the validation reference tests.
+# Both are existing workspace deps (also used by geode-validation).
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [lints.rust]
 unsafe_code = "forbid"

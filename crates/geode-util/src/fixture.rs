@@ -95,6 +95,80 @@ pub fn sweep_freqs(f_start_ghz: f64, f_stop_ghz: f64, n: usize) -> Vec<f64> {
     (0..n).map(|i| f_start_ghz + step * i as f64).collect()
 }
 
+// ---------------------------------------------------------------------------
+// JSON (`serde_json::Value`) numeric primitives
+//
+// Shared home for the recursive numeric-flatten + scalar-extract helpers the
+// validation reference tests previously copy-pasted. These operate purely on
+// `serde_json::Value`; the `&Fixture`-typed loader helpers are a separate
+// (later) staging concern.
+// ---------------------------------------------------------------------------
+
+/// Recursively flatten a (possibly nested) JSON array of numbers into a
+/// flat, row-major [`Vec<f64>`].
+///
+/// - [`Number`](serde_json::Value::Number) nodes are appended as `f64`,
+///   preferring [`as_f64`](serde_json::Number::as_f64) and falling back to
+///   `as_i64` / `as_u64` for integers outside the lossless-float range.
+/// - [`Array`](serde_json::Value::Array) nodes recurse, depth-first, so a
+///   nested array matching some shape and an already-flat array both yield
+///   the same row-major sequence.
+/// - All other node kinds (null, bool, string, object) are silently
+///   skipped.
+///
+/// A scalar number flattens to a single-element vector; an empty array (or
+/// a non-numeric node) flattens to an empty vector.
+pub fn flatten_numeric(v: &serde_json::Value) -> Vec<f64> {
+    let mut out = Vec::new();
+    push_numeric(v, &mut out);
+    out
+}
+
+fn push_numeric(v: &serde_json::Value, out: &mut Vec<f64>) {
+    match v {
+        serde_json::Value::Number(n) => {
+            if let Some(x) = n.as_f64() {
+                out.push(x);
+            } else if let Some(x) = n.as_i64() {
+                out.push(x as f64);
+            } else if let Some(x) = n.as_u64() {
+                out.push(x as f64);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                push_numeric(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Extract a scalar [`f64`] from a JSON [`Number`](serde_json::Value::Number)
+/// node, returning [`None`] for any other node kind.
+///
+/// Integer numbers convert via `as_i64` / `as_u64` when they fall outside
+/// the lossless-float range, mirroring [`flatten_numeric`].
+pub fn value_f64(v: &serde_json::Value) -> Option<f64> {
+    match v {
+        serde_json::Value::Number(n) => n
+            .as_f64()
+            .or_else(|| n.as_i64().map(|x| x as f64))
+            .or_else(|| n.as_u64().map(|x| x as f64)),
+        _ => None,
+    }
+}
+
+/// Extract a scalar [`i64`] from a JSON [`Number`](serde_json::Value::Number)
+/// node, returning [`None`] for any other node kind or for numbers that are
+/// not representable as an `i64` (e.g. fractional or out-of-range values).
+pub fn value_i64(v: &serde_json::Value) -> Option<i64> {
+    match v {
+        serde_json::Value::Number(n) => n.as_i64(),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +262,85 @@ q = 2.000e1
         );
         assert!(xml.trim_end().ends_with("</VTKFile>"));
         let _ = fs::remove_file(&path);
+    }
+
+    use serde_json::json;
+
+    #[test]
+    fn flatten_numeric_empty_array() {
+        assert_eq!(flatten_numeric(&json!([])), Vec::<f64>::new());
+    }
+
+    #[test]
+    fn flatten_numeric_flat_array() {
+        assert_eq!(
+            flatten_numeric(&json!([1.0, 2.5, -3.0])),
+            vec![1.0, 2.5, -3.0]
+        );
+    }
+
+    #[test]
+    fn flatten_numeric_nested_arrays_row_major() {
+        // 2x3 nested array flattens row-major.
+        let v = json!([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+        assert_eq!(flatten_numeric(&v), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        // Deeper / ragged nesting flattens depth-first as well.
+        let v = json!([[[1.0], [2.0, 3.0]], [4.0]]);
+        assert_eq!(flatten_numeric(&v), vec![1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn flatten_numeric_mixed_int_and_float() {
+        let v = json!([1, 2.5, 3, -4]);
+        assert_eq!(flatten_numeric(&v), vec![1.0, 2.5, 3.0, -4.0]);
+    }
+
+    #[test]
+    fn flatten_numeric_scalar() {
+        assert_eq!(flatten_numeric(&json!(42)), vec![42.0]);
+        assert_eq!(flatten_numeric(&json!(2.5)), vec![2.5]);
+    }
+
+    #[test]
+    fn flatten_numeric_skips_non_numeric_nodes() {
+        // null / bool / string / object nodes are silently skipped, while
+        // numeric siblings are still collected in order.
+        let v = json!([1.0, null, "x", true, [2.0, {"k": 9.0}], 3.0]);
+        assert_eq!(flatten_numeric(&v), vec![1.0, 2.0, 3.0]);
+        // A bare non-numeric node flattens to empty.
+        assert_eq!(flatten_numeric(&json!("nope")), Vec::<f64>::new());
+        assert_eq!(flatten_numeric(&json!(null)), Vec::<f64>::new());
+    }
+
+    #[test]
+    fn flatten_numeric_large_u64() {
+        // Integer beyond the lossless-f64 range still flattens via the
+        // u64 fallback (lossy, but non-panicking).
+        let big = u64::MAX;
+        let v = json!([big]);
+        assert_eq!(flatten_numeric(&v), vec![big as f64]);
+    }
+
+    #[test]
+    fn value_f64_extracts_numbers_only() {
+        assert_eq!(value_f64(&json!(2.5)), Some(2.5));
+        assert_eq!(value_f64(&json!(7)), Some(7.0));
+        assert_eq!(value_f64(&json!(-3)), Some(-3.0));
+        assert_eq!(value_f64(&json!("2.5")), None);
+        assert_eq!(value_f64(&json!(true)), None);
+        assert_eq!(value_f64(&json!([1.0])), None);
+        assert_eq!(value_f64(&json!(null)), None);
+    }
+
+    #[test]
+    fn value_i64_extracts_integers_only() {
+        assert_eq!(value_i64(&json!(7)), Some(7));
+        assert_eq!(value_i64(&json!(-3)), Some(-3));
+        // Fractional values are not i64-representable.
+        assert_eq!(value_i64(&json!(2.5)), None);
+        // u64 beyond i64::MAX is not representable as i64.
+        assert_eq!(value_i64(&json!(u64::MAX)), None);
+        assert_eq!(value_i64(&json!("7")), None);
+        assert_eq!(value_i64(&json!(null)), None);
     }
 }
