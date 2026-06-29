@@ -236,24 +236,44 @@ struct Row {
     residual_rel: f64,
 }
 
-impl geode_util::fixture::TomlRow for Row {
-    const TABLE_PREFIX: &'static str = "point";
-    fn write_fields(&self, out: &mut String) {
-        out.push_str(&format!("f_ghz = {:.15e}\n", self.f_ghz));
-        out.push_str(&format!("omega_natural = {:.15e}\n", self.omega));
-        out.push_str(&format!("z_re_ohm = {:.15e}\n", self.z_ohm.re));
-        out.push_str(&format!("z_im_ohm = {:.15e}\n", self.z_ohm.im));
-        out.push_str(&format!("s11_re = {:.15e}\n", self.s11.re));
-        out.push_str(&format!("s11_im = {:.15e}\n", self.s11.im));
-        out.push_str(&format!("s11_mag = {:.15e}\n", self.s11.norm()));
-        out.push_str(&format!(
-            "s11_db = {:.15e}\n",
-            20.0 * self.s11.norm().log10()
-        ));
-        out.push_str(&format!("p_in = {:.15e}\n", self.p_in));
-        out.push_str(&format!("p_rad = {:.15e}\n", self.p_rad));
-        out.push_str(&format!("efficiency = {:.15e}\n", self.efficiency));
-        out.push_str(&format!("solve_residual_rel = {:.3e}\n", self.residual_rel));
+/// Serde view of a [`Row`] matching the emitted `[point_<i>]` TOML
+/// columns: the `c64` impedance and `c64` reflection coefficient are
+/// split into real/imaginary parts, with the `|S11|` magnitude and dB
+/// return loss derived here. Serialized through the shared
+/// `geode_util::fixture::push_rows` seam.
+#[derive(serde::Serialize)]
+struct PointRow {
+    f_ghz: f64,
+    omega_natural: f64,
+    z_re_ohm: f64,
+    z_im_ohm: f64,
+    s11_re: f64,
+    s11_im: f64,
+    s11_mag: f64,
+    s11_db: f64,
+    p_in: f64,
+    p_rad: f64,
+    efficiency: f64,
+    solve_residual_rel: f64,
+}
+
+impl From<&Row> for PointRow {
+    fn from(r: &Row) -> Self {
+        let s11_mag = r.s11.norm();
+        PointRow {
+            f_ghz: r.f_ghz,
+            omega_natural: r.omega,
+            z_re_ohm: r.z_ohm.re,
+            z_im_ohm: r.z_ohm.im,
+            s11_re: r.s11.re,
+            s11_im: r.s11.im,
+            s11_mag,
+            s11_db: 20.0 * s11_mag.log10(),
+            p_in: r.p_in,
+            p_rad: r.p_rad,
+            efficiency: r.efficiency,
+            solve_residual_rel: r.residual_rel,
+        }
     }
 }
 
@@ -630,7 +650,8 @@ fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: 
         s.push('\n');
     }
 
-    geode_util::fixture::push_rows(&mut s, rows);
+    let point_rows: Vec<PointRow> = rows.iter().map(PointRow::from).collect();
+    geode_util::fixture::push_rows(&mut s, "point", &point_rows);
 
     geode_util::fixture::write_toml(path, &s).expect("write patch_antenna results TOML");
 }

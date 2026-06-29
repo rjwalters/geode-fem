@@ -20,6 +20,9 @@ geode-util = { workspace = true }
 burn = { workspace = true }
 # `faer::c64` for the per-port complex impedance arithmetic.
 faer = { workspace = true }
+# `#[derive(Serialize)]` on the results row DTO for the serde+toml row seam
+# (geode_util::fixture::push_rows, Epic #429 Phase 3).
+serde = { workspace = true }
 
 # NOTE: this crate deliberately defines NO backend features. The Burn
 # backend (`wgpu` by default, or `ndarray` on headless CI) is selected by

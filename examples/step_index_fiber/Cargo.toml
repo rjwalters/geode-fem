@@ -16,6 +16,9 @@ clap = { workspace = true }
 geode-app = { workspace = true }
 geode-core = { workspace = true }
 geode-util = { workspace = true }
+# `#[derive(Serialize)]` on the `[series_<i>]` row for the serde+toml row
+# seam (geode_util::fixture::push_rows, Epic #429 Phase 3).
+serde = { workspace = true }
 
 # NOTE: this crate deliberately defines NO backend features. The Burn
 # backend (`wgpu` by default, or `ndarray` on headless CI) is selected by

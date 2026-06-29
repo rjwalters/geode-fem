@@ -190,6 +190,89 @@ struct FiberResult {
     solve_s: f64,
 }
 
+/// A `[series_<i>]` column that is either a float (a mode was found) or a
+/// descriptive string fallback (e.g. `"none (...)"`) when the config
+/// returned no in-window guided mode.
+#[derive(serde::Serialize)]
+#[serde(untagged)]
+enum SeriesScalar {
+    Float(f64),
+    Text(&'static str),
+}
+
+/// Serde view of a [`FiberResult`] matching the emitted `[series_<i>]`
+/// TOML columns. Optional diagnostic columns are omitted when absent
+/// (`Option` + `skip_serializing_if`); `re_n_eff` / `b_fem` fall back to a
+/// string when the config found no in-window guided mode. The field order
+/// reproduces the previous hand-rolled emission order. Serialized through
+/// the shared `geode_util::fixture::push_rows` seam.
+#[derive(serde::Serialize)]
+struct SeriesRow {
+    n_radial: usize,
+    n_angular: usize,
+    n_dof: usize,
+    re_n_eff: SeriesScalar,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    im_n_eff: Option<f64>,
+    b_fem: SeriesScalar,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    re_neff_rel_err_vs_oracle: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    b_rel_err_vs_oracle: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    core_energy_fraction: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rel_im_beta_sq: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    b_fem_closest_oracle: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    b_rel_err_closest_oracle: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    core_energy_fraction_closest_oracle: Option<f64>,
+    re_n_eff_all: Vec<f64>,
+    solve_s: f64,
+}
+
+impl SeriesRow {
+    /// Build a row from a solved config, deriving the oracle-relative
+    /// errors. The no-mode branch leaves the string fallbacks and skips
+    /// every diagnostic column, matching the previous emission.
+    fn new(r: &FiberResult, oracle: f64, b_oracle: f64) -> Self {
+        let mut row = SeriesRow {
+            n_radial: r.res.0,
+            n_angular: r.res.1,
+            n_dof: r.n_dof,
+            re_n_eff: SeriesScalar::Text("none (no in-window guided mode at this config)"),
+            im_n_eff: None,
+            b_fem: SeriesScalar::Text("none"),
+            re_neff_rel_err_vs_oracle: None,
+            b_rel_err_vs_oracle: None,
+            core_energy_fraction: None,
+            rel_im_beta_sq: None,
+            b_fem_closest_oracle: None,
+            b_rel_err_closest_oracle: None,
+            core_energy_fraction_closest_oracle: None,
+            re_n_eff_all: r.re_n_eff_all.clone(),
+            solve_s: r.solve_s,
+        };
+        if let (Some(re_n_eff), Some(b)) = (r.re_n_eff, r.b) {
+            row.re_n_eff = SeriesScalar::Float(re_n_eff);
+            row.im_n_eff = r.im_n_eff;
+            row.b_fem = SeriesScalar::Float(b);
+            row.re_neff_rel_err_vs_oracle = Some((re_n_eff - oracle).abs() / oracle);
+            row.b_rel_err_vs_oracle = Some((b - b_oracle).abs() / b_oracle);
+            row.core_energy_fraction = r.core_frac;
+            row.rel_im_beta_sq = r.rel_im_beta_sq;
+            if let (Some(bc), Some(cfc)) = (r.b_closest_oracle, r.core_frac_closest_oracle) {
+                row.b_fem_closest_oracle = Some(bc);
+                row.b_rel_err_closest_oracle = Some((bc - b_oracle).abs() / b_oracle);
+                row.core_energy_fraction_closest_oracle = Some(cfc);
+            }
+        }
+        row
+    }
+}
+
 /// Build the PML-terminated step-index fiber cross-section.
 ///
 /// Returns `(mesh, region_tags, eps_r, p=2 interior-DOF mask, r_pml_inner,
@@ -514,47 +597,11 @@ fn emit_results(
     );
     s.push('\n');
 
-    for (i, r) in results.iter().enumerate() {
-        s.push_str(&format!("[series_{i}]\n"));
-        s.push_str(&format!("n_radial = {}\n", r.res.0));
-        s.push_str(&format!("n_angular = {}\n", r.res.1));
-        s.push_str(&format!("n_dof = {}\n", r.n_dof));
-        match (r.re_n_eff, r.b) {
-            (Some(re_n_eff), Some(b)) => {
-                let rel = (re_n_eff - oracle).abs() / oracle;
-                let b_rel = (b - b_oracle).abs() / b_oracle;
-                s.push_str(&format!("re_n_eff = {re_n_eff:.15e}\n"));
-                if let Some(im) = r.im_n_eff {
-                    s.push_str(&format!("im_n_eff = {im:.6e}\n"));
-                }
-                s.push_str(&format!("b_fem = {b:.6e}\n"));
-                s.push_str(&format!("re_neff_rel_err_vs_oracle = {rel:.6e}\n"));
-                s.push_str(&format!("b_rel_err_vs_oracle = {b_rel:.6e}\n"));
-                if let Some(cf) = r.core_frac {
-                    s.push_str(&format!("core_energy_fraction = {cf:.6e}\n"));
-                }
-                if let Some(ri) = r.rel_im_beta_sq {
-                    s.push_str(&format!("rel_im_beta_sq = {ri:.6e}\n"));
-                }
-                if let (Some(bc), Some(cfc)) = (r.b_closest_oracle, r.core_frac_closest_oracle) {
-                    let bc_rel = (bc - b_oracle).abs() / b_oracle;
-                    s.push_str(&format!("b_fem_closest_oracle = {bc:.6e}\n"));
-                    s.push_str(&format!("b_rel_err_closest_oracle = {bc_rel:.6e}\n"));
-                    s.push_str(&format!(
-                        "core_energy_fraction_closest_oracle = {cfc:.6e}\n"
-                    ));
-                }
-            }
-            _ => {
-                s.push_str("re_n_eff = \"none (no in-window guided mode at this config)\"\n");
-                s.push_str("b_fem = \"none\"\n");
-            }
-        }
-        let all: Vec<String> = r.re_n_eff_all.iter().map(|v| format!("{v:.6e}")).collect();
-        s.push_str(&format!("re_n_eff_all = [{}]\n", all.join(", ")));
-        s.push_str(&format!("solve_s = {:.3}\n", r.solve_s));
-        s.push('\n');
-    }
+    let series_rows: Vec<SeriesRow> = results
+        .iter()
+        .map(|r| SeriesRow::new(r, oracle, b_oracle))
+        .collect();
+    geode_util::fixture::push_rows(&mut s, "series", &series_rows);
 
     let path = results_path();
     geode_util::fixture::write_toml(&path, &s).expect("write step_index_fiber results.toml");

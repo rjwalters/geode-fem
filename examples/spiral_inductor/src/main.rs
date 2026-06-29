@@ -173,18 +173,36 @@ struct Row {
     residual_rel: f64,
 }
 
-impl geode_util::fixture::TomlRow for Row {
-    const TABLE_PREFIX: &'static str = "point";
-    fn write_fields(&self, out: &mut String) {
-        out.push_str(&format!("f_ghz = {:.15e}\n", self.f_ghz));
-        out.push_str(&format!("omega_natural = {:.15e}\n", self.omega));
-        out.push_str(&format!("z_re_ohm = {:.15e}\n", self.z_ohm.re));
-        out.push_str(&format!("z_im_ohm = {:.15e}\n", self.z_ohm.im));
-        out.push_str(&format!("l_nh = {:.15e}\n", self.l_nh));
-        out.push_str(&format!("r_ohm = {:.15e}\n", self.r_ohm));
-        out.push_str(&format!("q = {:.15e}\n", self.q));
-        out.push_str(&format!("s11_mag = {:.15e}\n", self.s11_mag));
-        out.push_str(&format!("solve_residual_rel = {:.3e}\n", self.residual_rel));
+/// Serde view of a [`Row`] matching the emitted `[point_<i>]` TOML
+/// columns: the `c64` impedance is split into its real/imaginary parts
+/// and the natural-frequency / residual columns are renamed. Serialized
+/// through the shared `geode_util::fixture::push_rows` seam.
+#[derive(serde::Serialize)]
+struct PointRow {
+    f_ghz: f64,
+    omega_natural: f64,
+    z_re_ohm: f64,
+    z_im_ohm: f64,
+    l_nh: f64,
+    r_ohm: f64,
+    q: f64,
+    s11_mag: f64,
+    solve_residual_rel: f64,
+}
+
+impl From<&Row> for PointRow {
+    fn from(r: &Row) -> Self {
+        PointRow {
+            f_ghz: r.f_ghz,
+            omega_natural: r.omega,
+            z_re_ohm: r.z_ohm.re,
+            z_im_ohm: r.z_ohm.im,
+            l_nh: r.l_nh,
+            r_ohm: r.r_ohm,
+            q: r.q,
+            s11_mag: r.s11_mag,
+            solve_residual_rel: r.residual_rel,
+        }
     }
 }
 
@@ -402,7 +420,8 @@ fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Op
         s.push('\n');
     }
 
-    geode_util::fixture::push_rows(&mut s, rows);
+    let point_rows: Vec<PointRow> = rows.iter().map(PointRow::from).collect();
+    geode_util::fixture::push_rows(&mut s, "point", &point_rows);
 
     geode_util::fixture::write_toml(path, &s).expect("write spiral_inductor results TOML");
 }

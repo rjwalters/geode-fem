@@ -129,6 +129,49 @@ struct BufferResult {
     solve_s: f64,
 }
 
+/// Serde view of a [`BufferResult`] matching the emitted `[buffer_<i>]`
+/// TOML columns: the `(x, y)` tuple fields are flattened into the
+/// `*_x` / `*_y` scalar columns. Serialized through the shared
+/// `geode_util::fixture::push_rows` seam.
+#[derive(serde::Serialize)]
+struct BufferRow {
+    buffer_cells_x: usize,
+    buffer_cells_y: usize,
+    buffer_um_x: f64,
+    buffer_um_y: f64,
+    buffer_decay_lengths_x: f64,
+    buffer_decay_lengths_y: f64,
+    mesh_nx: usize,
+    mesh_ny: usize,
+    cell_um_x: f64,
+    cell_um_y: f64,
+    n_edges: usize,
+    n_eff: f64,
+    n_eff_all: Vec<f64>,
+    solve_s: f64,
+}
+
+impl From<&BufferResult> for BufferRow {
+    fn from(r: &BufferResult) -> Self {
+        BufferRow {
+            buffer_cells_x: r.nbuf.0,
+            buffer_cells_y: r.nbuf.1,
+            buffer_um_x: r.buf_um.0,
+            buffer_um_y: r.buf_um.1,
+            buffer_decay_lengths_x: r.buf_decay_lengths.0,
+            buffer_decay_lengths_y: r.buf_decay_lengths.1,
+            mesh_nx: r.mesh_nxny.0,
+            mesh_ny: r.mesh_nxny.1,
+            cell_um_x: r.cell_um.0,
+            cell_um_y: r.cell_um.1,
+            n_edges: r.n_edges,
+            n_eff: r.n_eff,
+            n_eff_all: r.n_eff_all.clone(),
+            solve_s: r.solve_s,
+        }
+    }
+}
+
 /// Build a grid-aligned SOI cross-section: the silicon core occupies
 /// exactly `NX_CORE × NY_CORE` cells, with `nbuf` cells of SiO₂ cladding
 /// on each side. The core boundaries land on grid lines (no centroid
@@ -337,31 +380,8 @@ fn emit_results(results: &[BufferResult]) {
     s.push_str(&format!("converged = {}\n", buf_delta < 1e-3));
     s.push('\n');
 
-    for (i, r) in results.iter().enumerate() {
-        s.push_str(&format!("[buffer_{i}]\n"));
-        s.push_str(&format!("buffer_cells_x = {}\n", r.nbuf.0));
-        s.push_str(&format!("buffer_cells_y = {}\n", r.nbuf.1));
-        s.push_str(&format!("buffer_um_x = {:.6e}\n", r.buf_um.0));
-        s.push_str(&format!("buffer_um_y = {:.6e}\n", r.buf_um.1));
-        s.push_str(&format!(
-            "buffer_decay_lengths_x = {:.6e}\n",
-            r.buf_decay_lengths.0
-        ));
-        s.push_str(&format!(
-            "buffer_decay_lengths_y = {:.6e}\n",
-            r.buf_decay_lengths.1
-        ));
-        s.push_str(&format!("mesh_nx = {}\n", r.mesh_nxny.0));
-        s.push_str(&format!("mesh_ny = {}\n", r.mesh_nxny.1));
-        s.push_str(&format!("cell_um_x = {:.6e}\n", r.cell_um.0));
-        s.push_str(&format!("cell_um_y = {:.6e}\n", r.cell_um.1));
-        s.push_str(&format!("n_edges = {}\n", r.n_edges));
-        s.push_str(&format!("n_eff = {:.15e}\n", r.n_eff));
-        let all: Vec<String> = r.n_eff_all.iter().map(|v| format!("{v:.6e}")).collect();
-        s.push_str(&format!("n_eff_all = [{}]\n", all.join(", ")));
-        s.push_str(&format!("solve_s = {:.3}\n", r.solve_s));
-        s.push('\n');
-    }
+    let buffer_rows: Vec<BufferRow> = results.iter().map(BufferRow::from).collect();
+    geode_util::fixture::push_rows(&mut s, "buffer", &buffer_rows);
 
     let path = results_path();
     geode_util::fixture::write_toml(&path, &s).expect("write soi_waveguide results TOML");
