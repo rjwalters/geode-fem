@@ -428,7 +428,7 @@ fn julia_pml_small_complex_comparator_self_round_trip() {
             complex_actual.insert(name.to_string(), g.data.clone());
         }
     }
-    let report = fixture.compare_complex_against(&complex_actual);
+    let report = geode_validation::compare_complex_against(&fixture, &complex_actual);
     assert!(
         report.passed,
         "self-round-trip on c128 outputs should pass; report = {report:#?}"

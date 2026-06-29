@@ -76,7 +76,7 @@ fn smoke_fixture_loads_and_compares_within_1e_minus_12() {
     assert!(fixture.outputs.contains_key("signed_volume"));
 
     let actual = p1_reference_tet_actual();
-    let report = fixture.compare_against(&actual);
+    let report = geode_validation::compare_against(&fixture, &actual);
     assert!(
         report.passed,
         "Rust hand-coded baseline should match fixture within tolerance; report = {:#?}",
@@ -111,7 +111,7 @@ fn deliberate_corruption_produces_structured_diff_artifact() {
         k[0] += 1e-3; // way past the 1e-12 tolerance
     }
 
-    let report = fixture.compare_against(&actual);
+    let report = geode_validation::compare_against(&fixture, &actual);
     assert!(!report.passed, "corrupted baseline should fail comparison");
     assert_eq!(report.n_failures(), 1, "exactly one field should fail");
 
@@ -172,7 +172,7 @@ fn missing_field_in_actual_is_reported_as_distinct_failure_mode() {
     let mut actual = p1_reference_tet_actual();
     actual.remove("m_local");
 
-    let report = fixture.compare_against(&actual);
+    let report = geode_validation::compare_against(&fixture, &actual);
     assert!(!report.passed);
     let m_diff = report
         .fields
@@ -190,7 +190,7 @@ fn shape_mismatch_in_actual_is_reported_as_distinct_failure_mode() {
     // Truncate k_local so its length no longer matches the golden shape.
     actual.get_mut("k_local").unwrap().truncate(10);
 
-    let report = fixture.compare_against(&actual);
+    let report = geode_validation::compare_against(&fixture, &actual);
     assert!(!report.passed);
     let k_diff = report
         .fields

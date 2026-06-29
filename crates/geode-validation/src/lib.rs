@@ -46,7 +46,7 @@
 //! let mut actual = std::collections::BTreeMap::new();
 //! actual.insert("k_local".to_string(), vec![0.5, -1.0 / 6.0 /* ... */]);
 //!
-//! let report = fixture.compare_against(&actual);
+//! let report = geode_validation::compare_against(&fixture, &actual);
 //! if !report.passed {
 //!     report.write_diff_artifact(std::path::Path::new("diff.json")).unwrap();
 //! }
@@ -58,8 +58,15 @@ pub mod diff;
 pub mod fixture;
 
 pub use diff::{ComparisonReport, FieldDiff};
+// The JSON `Fixture` loader + schema + golden accessors now live in
+// `geode_util::fixture` (Epic #429, Phase 2); `fixture` re-exports them so
+// these crate-root paths (`geode_validation::Fixture`, etc.) are unchanged.
+// `compare_against` / `compare_complex_against` are the validation-side
+// comparison free functions (orphan rule forbids them as inherent methods
+// on the now-foreign `Fixture`).
 pub use fixture::{
     Field, Fixture, FixtureError, FixtureFormat, GoldenC128, GoldenF64, OutputField, Provenance,
+    compare_against, compare_complex_against,
 };
 // The repo/provenance helpers now live in `geode-util` (Epic #414, Phase 2).
 // Re-export them at the crate root so the existing reference-test suite keeps

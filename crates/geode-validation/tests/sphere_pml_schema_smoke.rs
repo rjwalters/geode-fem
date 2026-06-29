@@ -187,7 +187,7 @@ fn complex_comparator_passes_on_exact_match() {
         golden_phys.data.clone(),
     );
 
-    let report = fixture.compare_complex_against(&actual);
+    let report = geode_validation::compare_complex_against(&fixture, &actual);
     assert!(
         report.passed,
         "exact-match actual should pass complex comparator; report = {report:#?}"
@@ -239,7 +239,7 @@ fn complex_comparator_fails_on_imag_perturbation_with_correct_tolerance() {
     let mut actual: BTreeMap<String, Vec<Complex64>> = BTreeMap::new();
     actual.insert("eigenvalues_lowest_complex".to_string(), perturbed);
 
-    let report = fixture.compare_complex_against(&actual);
+    let report = geode_validation::compare_complex_against(&fixture, &actual);
     assert!(
         !report.passed,
         "imag-perturbed actual should fail complex comparator; report = {report:#?}"
@@ -281,7 +281,7 @@ fn complex_comparator_reports_missing_field_when_actual_omitted() {
         .expect("sphere_pml fixture should load");
 
     let actual: BTreeMap<String, Vec<Complex64>> = BTreeMap::new();
-    let report = fixture.compare_complex_against(&actual);
+    let report = geode_validation::compare_complex_against(&fixture, &actual);
     assert!(!report.passed);
 
     let lam_diff = report
@@ -309,7 +309,7 @@ fn complex_comparator_reports_shape_mismatch() {
         vec![Complex64::new(1.42, -0.1)],
     );
 
-    let report = fixture.compare_complex_against(&actual);
+    let report = geode_validation::compare_complex_against(&fixture, &actual);
     assert!(!report.passed);
     let lam_diff = report
         .fields
@@ -354,7 +354,7 @@ fn real_comparator_skips_c128_fields_in_mixed_dtype_fixture() {
     // Deliberately do NOT supply the c128 outputs — the real
     // comparator should skip them entirely.
 
-    let report = fixture.compare_against(&actual);
+    let report = geode_validation::compare_against(&fixture, &actual);
     assert!(
         report.passed,
         "real comparator should pass on f64 outputs while skipping c128; report = {report:#?}"

@@ -239,7 +239,7 @@ fn burn_cube_cavity_agrees_with_onnx_baseline() {
         field.tolerance_abs = tol.trace_abs;
     }
 
-    let report = relaxed.compare_against(&actual);
+    let report = geode_validation::compare_against(&relaxed, &actual);
 
     // Always write the diff artifact (pass or fail) so the
     // friction-mining loop has the artifact even on green runs.

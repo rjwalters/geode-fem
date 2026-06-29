@@ -30,6 +30,9 @@ num-complex = { workspace = true }
 # Both are existing workspace deps (also used by geode-validation).
 serde = { workspace = true }
 serde_json = { workspace = true }
+# Error-derive for the JSON fixture loader's `FixtureError` (Epic #429,
+# Phase 2; migrated from geode-validation along with the `Fixture` schema).
+thiserror = { workspace = true }
 
 [lints.rust]
 unsafe_code = "forbid"

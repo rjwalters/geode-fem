@@ -355,7 +355,7 @@ fn burn_agrees_with_numpy_baseline_on_all_nedelec_local_cases() {
         // the discrepancy is bigger than even the f32 GPU envelope
         // expects. Always write the diff artifact (pass or fail) so the
         // friction-mining loop has the artifact even on green runs.
-        let report = fixture.compare_against(&actual);
+        let report = geode_validation::compare_against(&fixture, &actual);
         let artifact_path = artifact_dir.join(format!("nedelec_local_{case}_diff.json"));
         let _ = report.write_diff_artifact(&artifact_path);
 

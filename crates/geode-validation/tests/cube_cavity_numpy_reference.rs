@@ -414,7 +414,7 @@ fn cube_cavity_burn_matches_numpy_reference_at_all_substages() {
     // on the eigenvalues to honor issue #92's acceptance criterion #2
     // (`1e-6` relative). The Fixture's absolute tolerances are the
     // sub-stage tripwires; the relative check below is the headline.
-    let report = fixture.compare_against(&actual);
+    let report = geode_validation::compare_against(&fixture, &actual);
 
     // Always write the diff artifact (success or failure) so the
     // friction-mining loop has the artifact even on green runs.
