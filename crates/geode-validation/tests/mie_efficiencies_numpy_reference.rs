@@ -51,16 +51,6 @@ fn fixture_path() -> PathBuf {
     );
 }
 
-fn input_vec(fixture: &Fixture, name: &str) -> Vec<f64> {
-    fixture.inputs[name]
-        .data
-        .as_array()
-        .unwrap_or_else(|| panic!("input `{name}` should be an array"))
-        .iter()
-        .map(|v| v.as_f64().unwrap())
-        .collect()
-}
-
 #[test]
 fn fixture_loads_with_expected_schema() {
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
@@ -87,9 +77,9 @@ fn fixture_loads_with_expected_schema() {
     }
 
     // Geometry / material constants must match the Burn side exactly.
-    let n = input_vec(&fixture, "n_inside");
+    let n = fixture.input_vec("n_inside");
     assert_eq!(n, vec![N_INSIDE]);
-    let r = input_vec(&fixture, "r_sphere");
+    let r = fixture.input_vec("r_sphere");
     assert_eq!(r, vec![R_SPHERE]);
 }
 
@@ -103,7 +93,7 @@ fn efficiencies_agree_with_numpy_on_both_grids() {
         ("ka_benchmark", "q_ext_benchmark", "q_sca_benchmark"),
         ("ka_curve", "q_ext_curve", "q_sca_curve"),
     ] {
-        let ka = input_vec(&fixture, ka_field);
+        let ka = fixture.input_vec(ka_field);
         let effs: Vec<_> = ka.iter().map(|&x| mie_efficiencies(N_INSIDE, x)).collect();
         actual.insert(
             ext_field.to_string(),
@@ -147,7 +137,7 @@ fn efficiencies_agree_with_numpy_on_both_grids() {
 fn benchmark_grid_matches_driven_benchmark_sweep() {
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("mie_efficiencies baseline.json should load");
-    let ka = input_vec(&fixture, "ka_benchmark");
+    let ka = fixture.input_vec("ka_benchmark");
     // Mirror of examples/mie_driven_scattering.rs KA_VALUES and
     // tests/mie_driven_scattering.rs KA_BANDS.
     assert_eq!(ka, vec![1.0, 1.5, 1.9, 2.4, 3.0]);

@@ -211,20 +211,6 @@ fn q_factor_from_lambda(lambda: Complex64) -> f64 {
     }
 }
 
-fn input_scalar(fixture: &Fixture, name: &str) -> f64 {
-    fixture.inputs[name].data.as_array().unwrap()[0]
-        .as_f64()
-        .unwrap()
-}
-
-fn output_scalar(fixture: &Fixture, name: &str) -> f64 {
-    let f = fixture
-        .output_f64(name)
-        .unwrap_or_else(|e| panic!("fixture missing scalar output `{name}`: {e}"));
-    assert_eq!(f.data.len(), 1, "scalar `{name}` should be length 1");
-    f.data[0]
-}
-
 // ---------------------------------------------------------------------------
 // Schema-level tests (no eigensolve)
 // ---------------------------------------------------------------------------
@@ -294,12 +280,12 @@ fn julia_mie_small_fixture_loads_with_expected_schema() {
 #[test]
 fn julia_mie_small_mesh_counts_match_small_mesh() {
     let fixture = load_julia_fixture();
-    assert_eq!(output_scalar(&fixture, "n_nodes") as usize, 48);
-    assert_eq!(output_scalar(&fixture, "n_tets") as usize, 197);
-    assert_eq!(output_scalar(&fixture, "n_edges") as usize, 259);
-    assert_eq!(output_scalar(&fixture, "n_interior_edges") as usize, 214);
-    assert_eq!(output_scalar(&fixture, "spurious_dim") as usize, 31);
-    assert_eq!(output_scalar(&fixture, "n_spurious_observed") as usize, 31);
+    assert_eq!(fixture.output_scalar("n_nodes") as usize, 48);
+    assert_eq!(fixture.output_scalar("n_tets") as usize, 197);
+    assert_eq!(fixture.output_scalar("n_edges") as usize, 259);
+    assert_eq!(fixture.output_scalar("n_interior_edges") as usize, 214);
+    assert_eq!(fixture.output_scalar("spurious_dim") as usize, 31);
+    assert_eq!(fixture.output_scalar("n_spurious_observed") as usize, 31);
 }
 
 #[test]
@@ -307,9 +293,9 @@ fn julia_mie_small_analytic_anchor_matches_burn_and_j1() {
     // The fixture re-exports the J.1 catalogue's TM_1,1 root; pin it
     // against the live Burn computation and the J.1 fixture.
     let fixture = load_julia_fixture();
-    let anchor = output_scalar(&fixture, "analytic_tm11_k");
+    let anchor = fixture.output_scalar("analytic_tm11_k");
 
-    let n_index = input_scalar(&fixture, "n_index");
+    let n_index = fixture.input_f64("n_index");
     let analytic = merged_roots(n_index, &[1, 2, 3], R_SPHERE, R_BUFFER, 3);
     let ground = analytic
         .iter()
@@ -356,9 +342,9 @@ fn julia_mie_small_epsilon_tensor_matches_burn() {
         .input_c128("epsilon_tensor_diag")
         .expect("c128 input decodes");
 
-    let sigma_0 = input_scalar(&fixture, "sigma_0");
-    let n_index = input_scalar(&fixture, "n_index");
-    let k0_ref = input_scalar(&fixture, "k0_ref");
+    let sigma_0 = fixture.input_f64("sigma_0");
+    let n_index = fixture.input_f64("n_index");
+    let k0_ref = fixture.input_f64("k0_ref");
 
     let sphere = load_small_sphere_fixture();
     let burn = run_burn_mie_pipeline(&sphere, sigma_0, n_index, k0_ref);
@@ -434,8 +420,8 @@ fn julia_mie_small_agrees_with_numpy_at_full_scope() {
 
     // σ₀ = 0 PEC anchors agree (same floor as the NumPy fixture's own
     // tolerance on this field).
-    let julia_pec = output_scalar(&julia_fixture, "sigma_zero_lowest_physical_re");
-    let numpy_pec = output_scalar(&numpy_fixture, "sigma_zero_lowest_physical_re");
+    let julia_pec = julia_fixture.output_scalar("sigma_zero_lowest_physical_re");
+    let numpy_pec = numpy_fixture.output_scalar("sigma_zero_lowest_physical_re");
     let pec_delta = (julia_pec - numpy_pec).abs();
     assert!(
         pec_delta < 5e-5,
@@ -445,8 +431,8 @@ fn julia_mie_small_agrees_with_numpy_at_full_scope() {
 
     // Strict-window bookkeeping must agree too.
     assert_eq!(
-        output_scalar(&julia_fixture, "strict_mode_window_len") as usize,
-        output_scalar(&numpy_fixture, "strict_mode_window_len") as usize,
+        julia_fixture.output_scalar("strict_mode_window_len") as usize,
+        numpy_fixture.output_scalar("strict_mode_window_len") as usize,
         "strict_mode_window_len drifted between the Julia and NumPy fixtures"
     );
 
@@ -465,24 +451,24 @@ fn julia_mie_small_agrees_with_numpy_at_full_scope() {
 fn julia_mie_small_spectrum_agrees_with_burn() {
     let fixture = load_julia_fixture();
 
-    let sigma_0 = input_scalar(&fixture, "sigma_0");
-    let n_index = input_scalar(&fixture, "n_index");
-    let k0_ref = input_scalar(&fixture, "k0_ref");
+    let sigma_0 = fixture.input_f64("sigma_0");
+    let n_index = fixture.input_f64("n_index");
+    let k0_ref = fixture.input_f64("k0_ref");
 
     let sphere = load_small_sphere_fixture();
     let burn = run_burn_mie_pipeline(&sphere, sigma_0, n_index, k0_ref);
 
     // Mesh-shape integer cross-checks.
-    assert_eq!(burn.n_nodes, output_scalar(&fixture, "n_nodes") as usize);
-    assert_eq!(burn.n_tets, output_scalar(&fixture, "n_tets") as usize);
-    assert_eq!(burn.n_edges, output_scalar(&fixture, "n_edges") as usize);
+    assert_eq!(burn.n_nodes, fixture.output_scalar("n_nodes") as usize);
+    assert_eq!(burn.n_tets, fixture.output_scalar("n_tets") as usize);
+    assert_eq!(burn.n_edges, fixture.output_scalar("n_edges") as usize);
     assert_eq!(
         burn.n_interior_edges,
-        output_scalar(&fixture, "n_interior_edges") as usize
+        fixture.output_scalar("n_interior_edges") as usize
     );
     assert_eq!(
         burn.spurious_dim,
-        output_scalar(&fixture, "spurious_dim") as usize
+        fixture.output_scalar("spurious_dim") as usize
     );
 
     // Solve the complex generalized tensor-ε pencil on the Burn side.
@@ -509,7 +495,7 @@ fn julia_mie_small_spectrum_agrees_with_burn() {
         golden_full.data.len()
     );
 
-    let n_spurious_ref = output_scalar(&fixture, "n_spurious_observed") as usize;
+    let n_spurious_ref = fixture.output_scalar("n_spurious_observed") as usize;
     assert_eq!(n_spurious_ref, burn.spurious_dim);
     let golden_physical = fixture
         .output_c128("physical_eigenvalues_complex")
@@ -537,7 +523,7 @@ fn julia_mie_small_spectrum_agrees_with_burn() {
 
     // Strict cross-IR window (#160 cluster closure): the TM_1,1
     // triplet, closed at a spectral gap on the Burn side too.
-    let window_len = output_scalar(&fixture, "strict_mode_window_len") as usize;
+    let window_len = fixture.output_scalar("strict_mode_window_len") as usize;
     assert!(window_len <= physical_take);
     let mut window_max = 0.0_f64;
     for (got, want) in burn_physical
@@ -578,9 +564,9 @@ fn julia_mie_small_spectrum_agrees_with_burn() {
 
     // J.1 analytic anchor: lowest mode within the documented 8 % band
     // on both sides, and Burn-vs-Julia Re(k) within the fixture floor.
-    let analytic_tm11_k = output_scalar(&fixture, "analytic_tm11_k");
+    let analytic_tm11_k = fixture.output_scalar("analytic_tm11_k");
     let burn_re_k = re_k_from_lambda(burn_physical[0]);
-    let julia_re_k = output_scalar(&fixture, "lowest_physical_re_k");
+    let julia_re_k = fixture.output_scalar("lowest_physical_re_k");
     let burn_rel_err = (burn_re_k - analytic_tm11_k).abs() / analytic_tm11_k;
     let julia_rel_err = (julia_re_k - analytic_tm11_k).abs() / analytic_tm11_k;
     assert!(
