@@ -529,7 +529,7 @@ fn julia_mie_small_spectrum_agrees_with_burn() {
         "physical_eigenvalues_complex".to_string(),
         burn_physical.clone(),
     );
-    let report = fixture.compare_complex_against(&actual);
+    let report = geode_validation::compare_complex_against(&fixture, &actual);
     if !report.passed {
         eprintln!("sphere_mie_small Julia comparator report: {:#?}", report);
         panic!("Burn complex spectrum disagreed with the Julia small-mesh baseline");
@@ -652,7 +652,7 @@ fn julia_mie_small_complex_comparator_self_round_trip() {
             complex_actual.insert(name.to_string(), g.data.clone());
         }
     }
-    let report = fixture.compare_complex_against(&complex_actual);
+    let report = geode_validation::compare_complex_against(&fixture, &complex_actual);
     assert!(
         report.passed,
         "self-round-trip on c128 outputs should pass; report = {report:#?}"

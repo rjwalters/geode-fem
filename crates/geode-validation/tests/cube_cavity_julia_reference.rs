@@ -300,7 +300,7 @@ fn burn_substage_agrees_with_julia_baseline() {
         )
     });
 
-    let report = relaxed.compare_against(&actual);
+    let report = geode_validation::compare_against(&relaxed, &actual);
 
     let artifact_path =
         Path::new(env!("CARGO_TARGET_TMPDIR")).join("cube_cavity_julia_substage_diff.json");
@@ -368,7 +368,7 @@ fn burn_cube_cavity_agrees_with_julia_baseline() {
     }
     relaxed.outputs.retain(|k, _| k == "eigenvalues");
 
-    let report = relaxed.compare_against(&actual);
+    let report = geode_validation::compare_against(&relaxed, &actual);
 
     let artifact_path =
         Path::new(env!("CARGO_TARGET_TMPDIR")).join("cube_cavity_julia_eigvals_diff.json");

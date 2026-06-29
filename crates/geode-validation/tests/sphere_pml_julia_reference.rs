@@ -444,7 +444,7 @@ fn julia_pml_complex_comparator_self_round_trip() {
             complex_actual.insert(name.to_string(), g.data.clone());
         }
     }
-    let report = fixture.compare_complex_against(&complex_actual);
+    let report = geode_validation::compare_complex_against(&fixture, &complex_actual);
     assert!(
         report.passed,
         "self-round-trip on c128 outputs should pass; report = {report:#?}"
@@ -482,7 +482,7 @@ fn julia_pml_real_comparator_skips_c128_outputs() {
             real_actual.insert(name.to_string(), g.data.clone());
         }
     }
-    let report = fixture.compare_against(&real_actual);
+    let report = geode_validation::compare_against(&fixture, &real_actual);
     assert!(
         report.passed,
         "real comparator self-round-trip on f64 outputs should pass; report = {report:#?}"

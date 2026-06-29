@@ -566,7 +566,7 @@ fn tfjava_mie_small_spectrum_agrees_with_burn() {
         burn_physical.clone(),
     );
 
-    let report = fixture.compare_complex_against(&actual);
+    let report = geode_validation::compare_complex_against(&fixture, &actual);
     if !report.passed {
         eprintln!(
             "sphere_mie_small (TF-Java) complex-comparator report: {:#?}",

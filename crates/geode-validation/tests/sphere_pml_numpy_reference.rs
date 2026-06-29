@@ -416,7 +416,7 @@ fn sphere_pml_spectrum_agrees_with_numpy() {
         burn_physical.clone(),
     );
 
-    let report = fixture.compare_complex_against(&actual);
+    let report = geode_validation::compare_complex_against(&fixture, &actual);
     if !report.passed {
         eprintln!("sphere_pml complex-comparator report (full): {:#?}", report);
         for f in &report.fields {
@@ -841,7 +841,7 @@ fn sphere_pml_small_spectrum_agrees_with_numpy() {
         burn_physical.clone(),
     );
 
-    let report = fixture.compare_complex_against(&actual);
+    let report = geode_validation::compare_complex_against(&fixture, &actual);
     if !report.passed {
         eprintln!(
             "sphere_pml_small complex-comparator report (full): {:#?}",

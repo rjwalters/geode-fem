@@ -115,7 +115,7 @@ fn efficiencies_agree_with_numpy_on_both_grids() {
         );
     }
 
-    let report = fixture.compare_against(&actual);
+    let report = geode_validation::compare_against(&fixture, &actual);
     if !report.passed {
         for f in &report.fields {
             eprintln!(

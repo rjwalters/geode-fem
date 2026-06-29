@@ -513,7 +513,7 @@ fn sphere_mie_small_spectrum_agrees_with_numpy() {
         burn_physical.clone(),
     );
 
-    let report = fixture.compare_complex_against(&actual);
+    let report = geode_validation::compare_complex_against(&fixture, &actual);
     if !report.passed {
         eprintln!("sphere_mie_small complex-comparator report: {:#?}", report);
         for f in &report.fields {
@@ -836,7 +836,7 @@ fn sphere_mie_spectrum_agrees_with_numpy() {
         "physical_eigenvalues_complex".to_string(),
         burn_physical.clone(),
     );
-    let report = fixture.compare_complex_against(&actual);
+    let report = geode_validation::compare_complex_against(&fixture, &actual);
     if !report.passed {
         eprintln!("sphere_mie complex-comparator report: {:#?}", report);
         panic!("sphere_mie full-mesh complex spectrum disagreed with NumPy baseline");
