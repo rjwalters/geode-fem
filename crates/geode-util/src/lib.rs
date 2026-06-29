@@ -26,6 +26,5 @@
 pub mod convert;
 pub mod fixture;
 pub mod interop;
-pub mod math;
 pub mod repo;
 pub mod viz;
