@@ -58,12 +58,12 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-doc-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build docs (--features ndarray, CPU backend)
+      - name: Build docs (CPU backend)
         run: |
           cargo doc -p geode-core --no-deps \
               --no-default-features --features ndarray
 
-      - name: Build docs (--features arpack,ndarray, CPU backend)
+      - name: Build docs (--features arpack, CPU backend)
         run: |
           cargo doc -p geode-core --no-deps \
-              --no-default-features --features arpack,ndarray
+              --no-default-features --features arpack

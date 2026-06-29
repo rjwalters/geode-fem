@@ -56,20 +56,20 @@ jobs:
       # graphics deps) off the runner entirely. `ndarray` resolves
       # `DefaultBackend` to `NdArray<f64>`, preserving the f64 precision the
       # ARPACK oracle test relies on.
-      - name: Build geode-core with --features arpack,ndarray (CPU backend)
+      - name: Build geode-core with --features arpack (CPU backend)
         run: |
           cargo build -p geode-core --no-default-features \
-              --features arpack,ndarray --release
+              --features arpack --release
 
       - name: Clippy (arpack + ndarray, CPU backend)
         run: |
           cargo clippy --tests -p geode-core --no-default-features \
-              --features arpack,ndarray -- -D warnings
+              --features arpack -- -D warnings
 
       - name: Run the gated sparse-eigensolver acceptance test
         # Issue #24 acceptance: matches dense oracle to 1e-6 at n=5 with
         # the same fixture as the Lanczos check. Runs on the CPU backend so
         # it works headless.
         run: |
-          cargo test --no-default-features --features arpack,ndarray \
+          cargo test --no-default-features --features arpack \
               -p geode-core --release --test sparse_eigensolver -- --ignored

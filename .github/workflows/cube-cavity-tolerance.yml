@@ -145,7 +145,7 @@ jobs:
       # eigensolve test path is exercised.
       - name: Run cube_cavity substage test (--ignored --nocapture, ndarray, release)
         run: |
-          cargo test --no-default-features --features geode-core/ndarray \
+          cargo test --no-default-features \
             --release -p geode-validation \
             --test cube_cavity_numpy_reference \
             -- --ignored --nocapture \
