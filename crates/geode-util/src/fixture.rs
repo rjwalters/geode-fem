@@ -465,12 +465,13 @@ impl Fixture {
         let expected = f.shape.iter().product::<usize>();
         // Real-imag interleave reassembly lives in `crate::interop`
         // (Epic #414, Phase 2); the schema-level length error stays here.
-        let data = crate::interop::decode_real_imag_interleave_exact(&flat, expected)
-            .ok_or_else(|| FixtureError::InvalidComplexLength {
+        let data = crate::interop::decode_real_imag_interleave_exact(&flat, expected).ok_or_else(
+            || FixtureError::InvalidComplexLength {
                 name: name.to_string(),
                 got: flat.len(),
                 expected: 2 * expected,
-            })?;
+            },
+        )?;
         Ok(GoldenC128 {
             name: key.as_str(),
             shape: &f.shape,
