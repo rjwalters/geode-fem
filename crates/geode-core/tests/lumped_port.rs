@@ -22,7 +22,7 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::assembly::nedelec::assemble_nedelec_current_rhs;
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::driven::extraction::{SParameterSweepPoint, s_parameter_frequency_sweep};
 use geode_core::driven::ports::{LumpedPort, port_current, port_input_impedance, port_voltage};
 use geode_core::driven::solve::{
@@ -30,7 +30,7 @@ use geode_core::driven::solve::{
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()

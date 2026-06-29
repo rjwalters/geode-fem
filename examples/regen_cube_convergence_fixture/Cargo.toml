@@ -14,7 +14,8 @@ path = "src/main.rs"
 [dependencies]
 clap = { workspace = true }
 geode-app = { workspace = true }
-geode-core = { workspace = true }
+geode-core = { workspace = true, features = ["testing"] }
+geode-validation = { workspace = true }
 # `BackendTypes` device handle for the P1 assembly upload.
 burn = { workspace = true }
 

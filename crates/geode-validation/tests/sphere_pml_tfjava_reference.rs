@@ -61,21 +61,8 @@ use geode_validation::{Complex64, Fixture, FixtureFormat};
 // Fixture path
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find a `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pml/tfjava_baseline.json")
+    geode_validation::fixture_path("sphere_pml/tfjava_baseline.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -274,7 +261,7 @@ fn tfjava_pml_physical_eigenvalues_agree_with_numpy_canonical() {
     // (no Burn eigensolve), so it's fast and always-on.
     let tfjava_fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("sphere_pml/tfjava_baseline.json should load");
-    let numpy_path = repo_root().join("reference/fixtures/sphere_pml/baseline.json");
+    let numpy_path = geode_validation::fixture_path("sphere_pml/baseline.json");
     let numpy_fixture = Fixture::load_from(&numpy_path, FixtureFormat::Json)
         .expect("sphere_pml/baseline.json (NumPy canonical) should load");
 

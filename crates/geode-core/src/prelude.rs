@@ -1,7 +1,7 @@
 //! Common imports for geode-core: `use geode_core::prelude::*;`.
 //!
 //! Re-exports from the canonical module paths (`crate::analytic`,
-//! `crate::assembly`, `crate::backend`, `crate::derham`, `crate::driven`,
+//! `crate::assembly`, `crate::derham`, `crate::driven`,
 //! `crate::eigen` (including `eigen::self_consistent`), `crate::elements`,
 //! `crate::interop`, `crate::mesh`, `crate::postproc`, `crate::solver`,
 //! `crate::traits`) — never a flat-root path — so glob-importing the

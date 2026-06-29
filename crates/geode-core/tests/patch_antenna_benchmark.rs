@@ -49,7 +49,6 @@ fn ghz_to_omega(f_ghz: f64) -> f64 {
 /// Run one matched-UPML, PEC-conductor, port-driven solve on the smoke
 /// fixture at the given frequency.
 fn solve(fixture: &PatchFixture, f_ghz: f64) -> SweepPoint {
-    use burn::tensor::backend::BackendTypes;
     type B = TestBackend;
     let device = Default::default();
 

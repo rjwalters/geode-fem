@@ -59,21 +59,8 @@ use geode_validation::diff::FieldStatus;
 use geode_validation::{Complex64, Fixture, FixtureFormat};
 
 /// Walk up from `CARGO_MANIFEST_DIR` to find the repo root.
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pml/julia_baseline.json")
+    geode_validation::fixture_path("sphere_pml/julia_baseline.json")
 }
 
 /// Phase G.4 NumPy PEC physical eigenvalues (from
@@ -365,7 +352,7 @@ fn julia_pml_sigma0_five_agrees_with_numpy_baseline() {
     // sufficient cross-IR anchoring for the canonical lossy band.
     let julia_fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("julia_baseline.json should load");
-    let numpy_path = repo_root().join("reference/fixtures/sphere_pml/baseline.json");
+    let numpy_path = geode_validation::fixture_path("sphere_pml/baseline.json");
     let numpy_fixture = Fixture::load_from(&numpy_path, FixtureFormat::Json)
         .expect("NumPy PR #155 baseline.json should load");
 

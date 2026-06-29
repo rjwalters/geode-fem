@@ -78,30 +78,17 @@ const JULIA_NUMPY_ABS_TOL: f64 = 5.0e-3;
 // Fixture paths
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find a `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn julia_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_mie_small/julia_baseline.json")
+    geode_validation::fixture_path("sphere_mie_small/julia_baseline.json")
 }
 
 fn numpy_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_mie_small/baseline.json")
+    geode_validation::fixture_path("sphere_mie_small/baseline.json")
 }
 
 /// The small mesh is shared with the #158 sphere_pml_small fixture.
 fn small_mesh_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pml_small/sphere.msh")
+    geode_validation::fixture_path("sphere_pml_small/sphere.msh")
 }
 
 fn load_julia_fixture() -> Fixture {
@@ -341,7 +328,7 @@ fn julia_mie_small_analytic_anchor_matches_burn_and_j1() {
     );
 
     let j1 = Fixture::load_from(
-        &repo_root().join("reference/fixtures/mie_roots/baseline.json"),
+        &geode_validation::fixture_path("mie_roots/baseline.json"),
         FixtureFormat::Json,
     )
     .expect("mie_roots baseline.json should load");

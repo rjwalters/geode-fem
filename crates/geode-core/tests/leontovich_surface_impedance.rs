@@ -52,7 +52,7 @@ use geode_core::assembly::nedelec::{
 };
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::assembly::surface::{assemble_silver_muller_surface, assemble_surface_mass};
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
     driven_solve, driven_solve_with_sigma, driven_solve_with_surface_impedance,
@@ -60,7 +60,7 @@ use geode_core::driven::solve::{
 use geode_core::mesh::TET_LOCAL_EDGES;
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()

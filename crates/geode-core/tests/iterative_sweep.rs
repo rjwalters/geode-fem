@@ -26,7 +26,7 @@
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::driven::extraction::{
     driven_frequency_sweep, driven_frequency_sweep_with_mode, s_parameter_frequency_sweep,
     s_parameter_frequency_sweep_with_mode,
@@ -40,7 +40,7 @@ use geode_core::driven::solve::{
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()

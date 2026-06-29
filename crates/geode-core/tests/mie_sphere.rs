@@ -47,7 +47,7 @@ use geode_core::assembly::nedelec::{
     burn_complex_mass_to_faer, sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroids,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, R_SPHERE, read_sphere_fixture};
@@ -81,7 +81,7 @@ const Q_LOWER_BAND_TM11: f64 = 1.5;
 /// profiles, kept in sync with `examples/mie_sphere.rs`.
 const K0_REF: f64 = 2.0;
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 #[test]
 #[ignore = "faer 0.24 gevd panics under debug-assertions; run with --release"]

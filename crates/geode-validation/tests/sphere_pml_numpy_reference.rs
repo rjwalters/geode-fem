@@ -98,29 +98,16 @@ type B = TestBackend;
 // Fixture path
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find a `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pml/baseline.json")
+    geode_validation::fixture_path("sphere_pml/baseline.json")
 }
 
 fn small_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pml_small/baseline.json")
+    geode_validation::fixture_path("sphere_pml_small/baseline.json")
 }
 
 fn small_mesh_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pml_small/sphere.msh")
+    geode_validation::fixture_path("sphere_pml_small/sphere.msh")
 }
 
 // ---------------------------------------------------------------------------
@@ -553,7 +540,7 @@ fn pml_sigma_zero_reduces_to_real_pec() {
     //     baseline directly so the σ₀ = 0 regression is anchored to
     //     the existing canonical reference, not to a separate stored
     //     constant in this file.
-    let pec_path = repo_root().join("reference/fixtures/sphere_pec/baseline.json");
+    let pec_path = geode_validation::fixture_path("sphere_pec/baseline.json");
     let pec_fixture = Fixture::load_from(&pec_path, FixtureFormat::Json)
         .expect("sphere_pec baseline.json should load");
     let pec_physical = pec_fixture

@@ -102,12 +102,12 @@ use faer::linalg::solvers::Solve;
 
 use geode_core::assembly::nedelec::{assemble_global_nedelec, cube_pec_interior_edges};
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::derham::apply_gradient;
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
 use geode_core::mesh::cube_tet_mesh;
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 /// Cube refinement — matches `nedelec_cavity.rs` so the lowest TM_{1,1}
 /// mode lands at `~2π² ≈ 19.74` (15% mesh tolerance, see #20).

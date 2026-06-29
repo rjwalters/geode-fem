@@ -68,12 +68,7 @@ struct Row {
 /// `target/criterion` and `benchmarks/perf/baseline.toml` resolve to the
 /// identical repo paths as before the Epic #398 migration.
 fn workspace_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("crate parent")
-        .parent()
-        .expect("workspace parent")
-        .to_path_buf()
+    geode_validation::repo_root()
 }
 
 /// Walk `target/criterion` and collect every `new/estimates.json`.

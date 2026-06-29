@@ -128,12 +128,12 @@ pub fn global_system_to_sparse<B: Backend>(
 mod tests {
     use super::*;
     use crate::assembly::p1::{assemble_global_p1, upload_mesh};
-    use crate::backend::DefaultBackend;
     use crate::eigen::dense::cube_interior_mask;
     use crate::mesh::cube_tet_mesh;
+    use crate::testing::TestBackend;
     use burn::tensor::backend::BackendTypes;
 
-    type B = DefaultBackend;
+    type B = TestBackend;
 
     fn device() -> <B as BackendTypes>::Device {
         <B as BackendTypes>::Device::default()

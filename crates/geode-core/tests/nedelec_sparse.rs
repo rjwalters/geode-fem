@@ -33,10 +33,10 @@ use geode_core::assembly::nedelec::{
     assemble_nedelec_sigma_damping_sparse,
 };
 use geode_core::assembly::p1::{SparsityPattern, upload_mesh};
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()

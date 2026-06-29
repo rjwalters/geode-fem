@@ -14,7 +14,8 @@ path = "src/main.rs"
 [dependencies]
 clap = { workspace = true }
 geode-app = { workspace = true }
-geode-core = { workspace = true }
+geode-core = { workspace = true, features = ["testing"] }
+geode-validation = { workspace = true }
 # `edge_field_to_nodes` for the `--export-field` / `--export-sweep`
 # Whitney edge-DOF → nodal E reconstruction.
 geode-examples-support = { workspace = true }

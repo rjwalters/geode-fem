@@ -36,6 +36,7 @@
 
 use std::path::PathBuf;
 use burn::prelude::Backend;
+use burn::tensor::DType;
 use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::mat::MatRef;
@@ -54,24 +55,61 @@ type B = TestBackend;
 
 
 // ---------------------------------------------------------------------------
+// Tolerances
+// ---------------------------------------------------------------------------
+//
+// The tolerance cases live here in the test; geode-core supplies only the
+// `device_tolerances` selector. Cases are keyed by the device's float
+// dtype: tight f64 numbers on any f64 backend, looser f32 numbers else.
+
+#[derive(Debug, Clone, Copy)]
+struct BackendTolerances {
+    /// Absolute tolerance on the full lowest-spectrum slice.
+    spectrum_abs: f64,
+    /// Relative tolerance on the 5 physical eigenvalues.
+    eigenvalue_rel: f64,
+    /// Relative tolerance on K_int / M_int Frobenius norms.
+    frobenius_rel: f64,
+    /// Absolute tolerance on per-DOF K_int / M_int diagonals.
+    diagonal_abs: f64,
+}
+
+const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
+    spectrum_abs: 1.0e-6,
+    eigenvalue_rel: 1.0e-6,
+    frobenius_rel: 1.0e-8,
+    diagonal_abs: 5.0e-9,
+};
+
+const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
+    spectrum_abs: 1.0e-3,
+    eigenvalue_rel: 5.0e-4,
+    frobenius_rel: 5.0e-5,
+    diagonal_abs: 5.0e-5,
+};
+
+impl BackendTolerances {
+    /// Tolerance envelope for the active backend device, selected by the
+    /// device's float dtype (tight f64 on ndarray/wgpu<f64>/metal<f64>,
+    /// looser f32 otherwise).
+    fn for_device<B: Backend>(device: &B::Device) -> Self {
+        device_tolerances::<B, BackendTolerances>(
+            device,
+            &[
+                ("", DType::F64, NDARRAY_F64_TOLERANCES),
+                ("", DType::F32, GPU_F32_TOLERANCES),
+            ],
+        )
+        .expect("a tolerance case must match the active backend dtype")
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Fixture path
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find a `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pec/jax_baseline.json")
+    geode_validation::fixture_path("sphere_pec/jax_baseline.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +306,7 @@ fn sphere_pec_jax_assembly_substages_agree() {
     let burn = run_burn_pipeline();
 
     let device = Default::default();
-    let tol = device_tolerances::<B>(&device);
+    let tol = BackendTolerances::for_device::<B>(&device);
 
     eprintln!(
         "sphere_pec JAX assembly test: backend = {}, frobenius_rel = {:.0e}, \
@@ -351,7 +389,7 @@ fn sphere_pec_jax_spectrum_agrees() {
     let burn = run_burn_pipeline();
 
     let device = Default::default();
-    let tol = device_tolerances::<B>(&device);
+    let tol = BackendTolerances::for_device::<B>(&device);
 
     eprintln!(
         "sphere_pec JAX spectrum test: backend = {}, spectrum_abs = {:.0e}, \

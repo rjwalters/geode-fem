@@ -442,7 +442,6 @@ dependencies = [
  "burn-cuda",
  "burn-dispatch",
  "burn-flex",
- "burn-ir",
  "burn-ndarray",
  "burn-nn",
  "burn-optim",
@@ -542,7 +541,6 @@ checksum = "681478c5438ab6c753a55b85f5b42e5bd4c1f69a8564f2afa2f698ac396ba556"
 dependencies = [
  "burn-backend",
  "burn-cubecl",
- "burn-fusion",
  "cubecl",
 ]
 
@@ -592,7 +590,6 @@ checksum = "a6c66b49136fc11f59773054358f401fbec7fa0d69615f55ef22c29cf241c9b7"
 dependencies = [
  "burn-backend",
  "burn-cubecl",
- "burn-fusion",
  "cubecl",
 ]
 
@@ -726,7 +723,6 @@ checksum = "66af82fdaaf2ad0fa4b0dae90119aa94f333105d76d520e0eb48917717c06fde"
 dependencies = [
  "burn-backend",
  "burn-cubecl",
- "burn-fusion",
  "cubecl",
 ]
 
@@ -817,7 +813,6 @@ dependencies = [
  "aligned-vec",
  "bon",
  "burn-cubecl",
- "burn-fusion",
  "burn-ir",
  "burn-tensor",
  "bytemuck",
@@ -840,7 +835,6 @@ checksum = "6eb009254af15922cb37814f3b3b61043046193ba2fde97c3879a25fbd51a92e"
 dependencies = [
  "burn-backend",
  "burn-cubecl",
- "burn-fusion",
  "cubecl",
 ]
 
@@ -2298,6 +2292,7 @@ version = "0.2.0"
 dependencies = [
  "clap",
  "geode-app",
+ "geode-validation",
  "serde",
  "serde_json",
 ]
@@ -2668,6 +2663,7 @@ dependencies = [
  "geode-core",
  "mshio",
  "pkg-config",
+ "regex",
  "serde_json",
  "thiserror 2.0.18",
  "toml 0.8.23",
@@ -3592,6 +3588,7 @@ dependencies = [
  "clap",
  "geode-app",
  "geode-core",
+ "geode-validation",
 ]
 
 [[package]]
@@ -3603,6 +3600,7 @@ dependencies = [
  "faer",
  "geode-app",
  "geode-core",
+ "geode-validation",
 ]
 
 [[package]]
@@ -3615,6 +3613,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-examples-support",
+ "geode-validation",
 ]
 
 [[package]]
@@ -4268,6 +4267,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-examples-support",
+ "geode-validation",
 ]
 
 [[package]]
@@ -4833,6 +4833,7 @@ dependencies = [
  "clap",
  "geode-app",
  "geode-core",
+ "geode-validation",
 ]
 
 [[package]]
@@ -5236,6 +5237,7 @@ dependencies = [
  "faer",
  "geode-app",
  "geode-core",
+ "geode-validation",
 ]
 
 [[package]]
@@ -5283,6 +5285,7 @@ dependencies = [
  "clap",
  "geode-app",
  "geode-core",
+ "geode-validation",
 ]
 
 [[package]]
@@ -5305,6 +5308,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-examples-support",
+ "geode-validation",
 ]
 
 [[package]]
@@ -5353,6 +5357,7 @@ dependencies = [
  "clap",
  "geode-app",
  "geode-core",
+ "geode-validation",
 ]
 
 [[package]]

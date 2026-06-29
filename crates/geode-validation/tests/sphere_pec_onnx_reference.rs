@@ -53,6 +53,7 @@
 
 use std::path::PathBuf;
 use burn::prelude::Backend;
+use burn::tensor::DType;
 use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::mat::MatRef;
@@ -70,28 +71,70 @@ use geode_validation::{Fixture, FixtureFormat};
 type B = TestBackend;
 
 // ---------------------------------------------------------------------------
+// Tolerances
+// ---------------------------------------------------------------------------
+//
+// Cases live in the test; geode-core supplies only the selector. Keyed by
+// the device float dtype: tight f64 on f64 backends, looser f32 otherwise.
+
+#[derive(Debug, Clone, Copy)]
+struct BackendTolerances {
+    /// Relative tolerance on K_int / M_int Frobenius norms.
+    frobenius_rel: f64,
+    /// Per-entry absolute tolerance on K_int / M_int diagonals.
+    diagonal_abs: f64,
+    /// Absolute tolerance on the full lowest-spectrum slice. Retained for
+    /// parity with the f64/f32 case tables; the spectrum gate currently
+    /// asserts via `eigenvalue_rel`, so this field is not read directly.
+    #[allow(dead_code)]
+    spectrum_abs: f64,
+    /// Relative tolerance on the lowest 5 physical eigenvalues (Epic #88 AC).
+    eigenvalue_rel: f64,
+    /// Per-entry absolute on symmetry residuals.
+    symmetry_abs: f64,
+}
+
+const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
+    frobenius_rel: 1e-4,
+    diagonal_abs: 1e-5,
+    spectrum_abs: 1e-3,
+    eigenvalue_rel: 1e-5,
+    symmetry_abs: 1e-10,
+};
+
+const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
+    frobenius_rel: 5e-4,
+    diagonal_abs: 5e-5,
+    spectrum_abs: 1e-2,
+    eigenvalue_rel: 5e-4,
+    symmetry_abs: 1e-6,
+};
+
+impl BackendTolerances {
+    /// Tolerance envelope for the active backend device, selected by the
+    /// device's float dtype.
+    fn for_device<B: Backend>(device: &B::Device) -> Self {
+        device_tolerances::<B, BackendTolerances>(
+            device,
+            &[
+                ("", DType::F64, NDARRAY_F64_TOLERANCES),
+                ("", DType::F32, GPU_F32_TOLERANCES),
+            ],
+        )
+        .expect("a tolerance case must match the active backend dtype")
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Fixture paths
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn onnx_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pec/onnx_sidecar.json")
+    geode_validation::fixture_path("sphere_pec/onnx_sidecar.json")
 }
 
 fn numpy_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pec/baseline.json")
+    geode_validation::fixture_path("sphere_pec/baseline.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -288,7 +331,7 @@ fn sphere_pec_onnx_assembly_agrees_with_numpy_baseline() {
     let burn = run_burn_pipeline();
 
     let device = Default::default();
-    let tol = device_tolerances::<B>(&device);
+    let tol = BackendTolerances::for_device::<B>(&device);
 
     eprintln!(
         "sphere_pec_onnx assembly: backend={}, frobenius_rel={:.0e}, diagonal_abs={:.0e}",
@@ -404,7 +447,7 @@ fn sphere_pec_onnx_spectrum_agrees() {
     let burn = run_burn_pipeline();
 
     let device = Default::default();
-    let tol = device_tolerances::<B>(&device);
+    let tol = BackendTolerances::for_device::<B>(&device);
 
     eprintln!(
         "sphere_pec_onnx spectrum: backend={}, eigenvalue_rel={:.0e}",

@@ -14,7 +14,8 @@ path = "src/main.rs"
 [dependencies]
 clap = { workspace = true }
 geode-app = { workspace = true }
-geode-core = { workspace = true }
+geode-core = { workspace = true, features = ["testing"] }
+geode-validation = { workspace = true }
 geode-examples-support = { workspace = true }
 # `BackendTypes` device handle + complex mass tensors.
 burn = { workspace = true }

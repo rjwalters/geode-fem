@@ -34,9 +34,11 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use burn::prelude::Backend;
+use burn::tensor::DType;
 use burn::tensor::backend::BackendTypes;
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{device_tolerances, TestBackend};
 use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
@@ -102,12 +104,19 @@ const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
     diag_m_abs: 1.0e-7,
 };
 
-fn active_tolerances() -> BackendTolerances {
-    let info = geode_core::backend::device_info();
-    if info.backend == "ndarray" {
-        NDARRAY_F64_TOLERANCES
-    } else {
-        GPU_F32_TOLERANCES
+impl BackendTolerances {
+    /// Tolerance envelope for the active backend device, selected by the
+    /// device's float dtype (tight f64 on ndarray/wgpu<f64>/metal<f64>,
+    /// looser f32 otherwise).
+    fn for_device<B: Backend>(device: &B::Device) -> Self {
+        device_tolerances::<B, BackendTolerances>(
+            device,
+            &[
+                ("", DType::F64, NDARRAY_F64_TOLERANCES),
+                ("", DType::F32, GPU_F32_TOLERANCES),
+            ],
+        )
+        .expect("a tolerance case must match the active backend dtype")
     }
 }
 
@@ -115,25 +124,12 @@ fn active_tolerances() -> BackendTolerances {
 // Repo / fixture paths
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find a `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/cube_cavity/julia_baseline.json")
+    geode_validation::fixture_path("cube_cavity/julia_baseline.json")
 }
 
 fn mesh_path() -> PathBuf {
-    repo_root().join("reference/fixtures/cube_cavity/unit_cube.msh")
+    geode_validation::fixture_path("cube_cavity/unit_cube.msh")
 }
 
 // ---------------------------------------------------------------------------
@@ -286,10 +282,11 @@ fn burn_substage_agrees_with_julia_baseline() {
         burn.n_int, fix_n_int
     );
 
-    let tol = active_tolerances();
+    let device = <B as BackendTypes>::Device::default();
+    let tol = BackendTolerances::for_device::<B>(&device);
     eprintln!(
         "backend = {}, frobenius_k_abs = {:.0e}, frobenius_m_abs = {:.0e}, diag_k_abs = {:.0e}, diag_m_abs = {:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.frobenius_k_abs,
         tol.frobenius_m_abs,
         tol.diag_k_abs,
@@ -377,10 +374,11 @@ fn burn_cube_cavity_agrees_with_julia_baseline() {
     let mut actual = BTreeMap::new();
     actual.insert("eigenvalues".to_string(), burn.eigenvalues.clone());
 
-    let tol = active_tolerances();
+    let device = <B as BackendTypes>::Device::default();
+    let tol = BackendTolerances::for_device::<B>(&device);
     eprintln!(
         "backend = {}, eigvals_abs_tol = {:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.eigvals_abs,
     );
 

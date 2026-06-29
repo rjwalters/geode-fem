@@ -20,11 +20,11 @@ use geode_core::assembly::nedelec::{
     assemble_global_nedelec, assemble_global_nedelec_with_complex_epsilon,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::eigen::dense::burn_matrix_to_faer;
 use geode_core::mesh::cube_tet_mesh;
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 /// Build the host-side `tet_edge_idx` / `tet_edge_sign` tables from a
 /// `TetMesh`. Mirrors the conversion in `examples/mie_sphere.rs`.

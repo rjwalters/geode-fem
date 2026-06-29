@@ -64,7 +64,7 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
 use clap::Parser;
 use geode_app::{App, Verbosity};
@@ -246,32 +246,15 @@ fn solve_buffer(nbuf: (usize, usize)) -> BufferResult {
     }
 }
 
-fn current_commit() -> String {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
 fn results_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
+    geode_validation::repo_root()
         .join("benchmarks")
         .join("soi_waveguide")
         .join("results.toml")
 }
 
 fn write_toml(results: &[BufferResult]) {
-    let commit = current_commit();
+    let commit = geode_validation::current_commit();
     let eim = eim_neff();
     let ceiling = index_ceiling();
     let k0 = k0();

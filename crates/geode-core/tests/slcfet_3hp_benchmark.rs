@@ -51,7 +51,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::driven::extraction::{SweepPoint, driven_frequency_sweep};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
@@ -107,7 +107,7 @@ fn ghz_to_omega(f_ghz: f64) -> f64 {
 /// given frequencies.
 fn sweep(fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<SweepPoint> {
     use burn::tensor::backend::BackendTypes;
-    type B = DefaultBackend;
+    type B = TestBackend;
     let device = <B as BackendTypes>::Device::default();
 
     let edges = fixture.mesh.edges();

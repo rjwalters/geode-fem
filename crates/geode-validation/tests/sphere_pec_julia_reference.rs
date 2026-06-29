@@ -40,7 +40,6 @@
 
 use std::path::PathBuf;
 use burn::prelude::Backend;
-use burn::Tensor;
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::DType;
 use faer::Mat;
@@ -51,7 +50,7 @@ use geode_core::assembly::nedelec::{
     sphere_pec_node_interior_mask, spurious_dim_from_derham,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{device_tolerances, TestBackend};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
 use geode_validation::{Fixture, FixtureFormat};
@@ -94,12 +93,19 @@ const F32_TOLERANCES: BackendTolerances = BackendTolerances {
     symmetry_abs: 1e-6,
 };
 
-fn device_tolerances<B: Backend>(device: &B::Device) -> BackendTolerances {
-    let dtype = Tensor::<B, 1>::zeros([0], device).dtype();
-    match dtype {
-        DType::F64 => F64_TOLERANCES,
-        DType::F32 => F32_TOLERANCES,
-        _ => panic!("unexpected dtype: {:?}", dtype),
+impl BackendTolerances {
+    /// Tolerance envelope for the active backend device, selected by the
+    /// device's float dtype (tight f64 on ndarray/wgpu<f64>/metal<f64>,
+    /// looser f32 otherwise).
+    fn for_device<B: Backend>(device: &B::Device) -> Self {
+        device_tolerances::<B, BackendTolerances>(
+            device,
+            &[
+                ("", DType::F64, F64_TOLERANCES),
+                ("", DType::F32, F32_TOLERANCES),
+            ],
+        )
+        .expect("a tolerance case must match the active backend dtype")
     }
 }
 
@@ -107,21 +113,8 @@ fn device_tolerances<B: Backend>(device: &B::Device) -> BackendTolerances {
 // Fixture path
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pec/julia_baseline.json")
+    geode_validation::fixture_path("sphere_pec/julia_baseline.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -342,7 +335,7 @@ fn sphere_pec_julia_assembly_substages_agree() {
     let burn = run_burn_pipeline();
 
     let device = Default::default();
-    let tol = device_tolerances::<B>(&device);
+    let tol = BackendTolerances::for_device::<B>(&device);
 
     eprintln!(
         "sphere_pec_julia assembly: backend={}, frobenius_rel={:.0e}, diagonal_abs={:.0e}",
@@ -455,11 +448,12 @@ fn sphere_pec_julia_spectrum_agrees() {
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("julia_baseline.json should load");
     let burn = run_burn_pipeline();
-    let tol = active_backend_tolerances();
+    let device = <B as BackendTypes>::Device::default();
+    let tol = BackendTolerances::for_device::<B>(&device);
 
     eprintln!(
         "sphere_pec_julia spectrum: backend={}, eigenvalue_rel={:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.eigenvalue_rel,
     );
 

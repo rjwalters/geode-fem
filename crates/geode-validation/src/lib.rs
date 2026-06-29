@@ -56,8 +56,10 @@
 
 pub mod diff;
 pub mod fixture;
+pub mod repo;
 
 pub use diff::{ComparisonReport, FieldDiff};
+pub use repo::{current_commit, fixture_path, repo_root};
 pub use fixture::{
     Field, Fixture, FixtureError, FixtureFormat, GoldenC128, GoldenF64, OutputField, Provenance,
 };

@@ -54,41 +54,72 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use burn::prelude::Backend;
+use burn::tensor::DType;
 use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::mat::MatRef;
 
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{device_tolerances, TestBackend};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
 use geode_core::mesh::{GmshReader, MeshReader};
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = TestBackend;
 
+#[derive(Debug, Clone, Copy)]
+struct BackendTolerances {
+    /// `1e-6` relative under f64; loosened to `5e-4` under f32 GPU backends.
+    eigenvalue_rel: f64,
+    /// Frobenius of K_int / M_int.
+    frobenius_rel: f64,
+    /// Per-entry absolute on the K_int / M_int diagonals.
+    diagonal_abs: f64,
+    /// `|‖Q_numpy^T M Q_burn‖_F (block) - √d|` per degenerate cluster.
+    subspace_overlap_abs: f64,
+}
+
+const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
+    eigenvalue_rel: 1e-6,
+    frobenius_rel: 1e-8,
+    diagonal_abs: 5e-9,
+    subspace_overlap_abs: 1e-5,
+};
+
+const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
+    eigenvalue_rel: 5e-4,
+    frobenius_rel: 5e-5,
+    diagonal_abs: 5e-5,
+    subspace_overlap_abs: 1e-3,
+};
+
+impl BackendTolerances {
+    /// Tolerance envelope for the active backend device, selected by the
+    /// device's float dtype (tight f64 on ndarray/wgpu<f64>/metal<f64>,
+    /// looser f32 otherwise).
+    fn for_device<B: Backend>(device: &B::Device) -> Self {
+        device_tolerances::<B, BackendTolerances>(
+            device,
+            &[
+                ("", DType::F64, NDARRAY_F64_TOLERANCES),
+                ("", DType::F32, GPU_F32_TOLERANCES),
+            ],
+        )
+        .expect("a tolerance case must match the active backend dtype")
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Fixture / mesh paths
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find a `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/cube_cavity/baseline.json")
+    geode_validation::fixture_path("cube_cavity/baseline.json")
 }
 
 fn mesh_path() -> PathBuf {
-    repo_root().join("reference/fixtures/cube_cavity/unit_cube.msh")
+    geode_validation::fixture_path("cube_cavity/unit_cube.msh")
 }
 
 // ---------------------------------------------------------------------------
@@ -409,11 +440,12 @@ fn cube_cavity_burn_matches_numpy_reference_at_all_substages() {
         );
     }
 
-    let tol = active_backend_tolerances();
+    let device = <B as BackendTypes>::Device::default();
+    let tol = BackendTolerances::for_device::<B>(&device);
     eprintln!(
         "cube_cavity test: backend = {}, eigenvalue_rel_tol = {:.0e}, \
          frobenius_rel_tol = {:.0e}, diagonal_abs_tol = {:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.eigenvalue_rel,
         tol.frobenius_rel,
         tol.diagonal_abs
@@ -575,10 +607,11 @@ fn cube_cavity_eigenvector_subspaces_agree_per_cluster() {
         (4, 2), // 9.946π² (dim 2, P1-numerical lifting of analytic 9π²)
     ];
 
-    let tol = active_backend_tolerances();
+    let device = <B as BackendTypes>::Device::default();
+    let tol = BackendTolerances::for_device::<B>(&device);
     eprintln!(
         "cube_cavity subspace test: backend = {}, subspace_overlap_abs_tol = {:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.subspace_overlap_abs
     );
     for &(start, dim) in clusters {

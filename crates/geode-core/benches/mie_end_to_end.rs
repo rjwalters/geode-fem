@@ -28,7 +28,7 @@ use geode_core::assembly::nedelec::{
     tet_centroid_radii,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::eigen::complex::{
     ComplexEigenSolver, FaerComplexEigensolver, SparseComplexEigenSolver,
     SparseComplexShiftInvertLanczos,
@@ -36,7 +36,7 @@ use geode_core::eigen::complex::{
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 /// Refractive index inside the sphere. Matches `examples/mie_sphere.rs`.
 const N_INSIDE: f64 = 1.5;

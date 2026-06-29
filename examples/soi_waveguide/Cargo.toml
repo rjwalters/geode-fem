@@ -15,6 +15,7 @@ path = "src/main.rs"
 clap = { workspace = true }
 geode-app = { workspace = true }
 geode-core = { workspace = true }
+geode-validation = { workspace = true }
 
 # NOTE: this crate deliberately defines NO backend features. The Burn
 # backend (`wgpu` by default, or `ndarray` on headless CI) is selected by

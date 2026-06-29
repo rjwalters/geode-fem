@@ -58,7 +58,7 @@ use std::path::PathBuf;
 use faer::c64;
 
 use geode_core::analytic::patch::PatchCavity;
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::driven::extraction::s11;
 use geode_core::driven::ports::{port_current, port_voltage};
 use geode_core::driven::scattering::flux_power_box;
@@ -184,7 +184,7 @@ fn sweep(
     pml_thick: f64,
 ) -> Vec<(f64, c64, f64, f64, f64)> {
     use burn::tensor::backend::BackendTypes;
-    type B = DefaultBackend;
+    type B = TestBackend;
     let device = <B as BackendTypes>::Device::default();
 
     let edges = fixture.mesh.edges();

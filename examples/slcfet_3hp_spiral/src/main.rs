@@ -61,8 +61,10 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
+use burn::prelude::Backend;
+use burn::tensor::backend::BackendTypes;
 use clap::Parser;
 use faer::c64;
 
@@ -173,39 +175,18 @@ fn extrapolate_l0(rows: &[Row]) -> f64 {
     (l1 * f2s - l2 * f1s) / (f2s - f1s)
 }
 
-fn current_commit() -> String {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
 fn results_path(choice: FixtureChoice) -> PathBuf {
     let file = match choice {
         FixtureChoice::Benchmark => "results.toml",
         FixtureChoice::Smoke => "results_smoke.toml",
     };
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
+    geode_validation::repo_root()
         .join("benchmarks")
         .join("slcfet_3hp")
         .join(file)
 }
 
-fn run_sweep(fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<Row> {
-    use burn::tensor::backend::BackendTypes;
-    type B = TestBackend;
-    let device = <B as BackendTypes>::Device::default();
-
+fn run_sweep<B: Backend>(device: &B::Device, fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<Row> {
     let edges = fixture.mesh.edges();
     let eps = fixture.epsilon_r_for(&SLCFET_3HP_MATERIALS);
 
@@ -250,7 +231,7 @@ fn run_sweep(fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<Row> {
         std::slice::from_ref(&surface),
         &omegas,
         &source,
-        &device,
+        device,
     )
     .expect("port-driven frequency sweep on the SLCFET 3HP spiral fixture");
     eprintln!(
@@ -283,7 +264,7 @@ fn run_sweep(fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<Row> {
 }
 
 fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Option<f64>) {
-    let commit = current_commit();
+    let commit = geode_validation::current_commit();
     let l_cs = mohan_current_sheet_l(&FIXTURE_SPIRAL) * 1.0e9;
     let l_mw = modified_wheeler_l(&FIXTURE_SPIRAL) * 1.0e9;
     let l_mono = monomial_fit_l(&FIXTURE_SPIRAL) * 1.0e9;
@@ -455,7 +436,9 @@ impl App for Args {
             Mode::Benchmark => FixtureChoice::Benchmark,
             Mode::Smoke => FixtureChoice::Smoke,
         };
-        run(choice);
+        type B = TestBackend;
+        let device = <B as BackendTypes>::Device::default();
+        run::<B>(choice, &device);
         Ok(())
     }
 
@@ -468,7 +451,7 @@ fn main() -> ExitCode {
     geode_app::main::<Args>()
 }
 
-fn run(choice: FixtureChoice) {
+fn run<B: Backend>(choice: FixtureChoice, device: &B::Device) {
     let (fixture, freqs): (SpiralFixture, &[f64]) = match choice {
         FixtureChoice::Benchmark => (
             read_spiral_slcfet_3hp_fixture().expect("bundled SLCFET 3HP benchmark fixture"),
@@ -480,7 +463,7 @@ fn run(choice: FixtureChoice) {
         ),
     };
 
-    let rows = run_sweep(&fixture, freqs);
+    let rows = run_sweep::<B>(device, &fixture, freqs);
 
     let omegas: Vec<f64> = rows.iter().map(|r| r.omega).collect();
     let zs: Vec<c64> = rows.iter().map(|r| r.z_ohm).collect();

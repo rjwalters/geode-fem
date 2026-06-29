@@ -53,25 +53,12 @@ const REL_TOL: f64 = 1e-10;
 // Fixture path resolution (same pattern as mie_roots_numpy_reference.rs).
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find a `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn julia_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/mie_roots/julia_baseline.json")
+    geode_validation::fixture_path("mie_roots/julia_baseline.json")
 }
 
 fn numpy_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/mie_roots/baseline.json")
+    geode_validation::fixture_path("mie_roots/baseline.json")
 }
 
 fn load_julia_fixture() -> Fixture {

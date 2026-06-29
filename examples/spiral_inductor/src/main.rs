@@ -86,8 +86,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
+use burn::tensor::backend::{Backend, BackendTypes};
 use clap::Parser;
 use faer::c64;
 
@@ -95,7 +96,7 @@ use geode_app::{App, OutputDir, Verbosity};
 use geode_core::analytic::spiral::{
     SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
 };
-use geode_core::backend::DefaultBackend;
+use geode_core::testing::TestBackend;
 use geode_core::driven::extraction::{detect_srf, driven_frequency_sweep};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
@@ -177,39 +178,18 @@ fn ghz_to_omega(f_ghz: f64) -> f64 {
     2.0 * std::f64::consts::PI * f_ghz * 1.0e9 / C_UM_PER_S
 }
 
-fn current_commit() -> String {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
 fn results_path(choice: FixtureChoice) -> PathBuf {
     let file = match choice {
         FixtureChoice::Benchmark => "results.toml",
         FixtureChoice::Smoke => "results_smoke.toml",
     };
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
+    geode_validation::repo_root()
         .join("benchmarks")
         .join("spiral_inductor")
         .join(file)
 }
 
-fn run_sweep(fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<Row> {
-    use burn::tensor::backend::BackendTypes;
-    type B = DefaultBackend;
-    let device = <B as BackendTypes>::Device::default();
-
+fn run_sweep<B: Backend>(device: &B::Device, fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<Row> {
     let edges = fixture.mesh.edges();
     let eps = fixture.epsilon_r_default();
 
@@ -254,7 +234,7 @@ fn run_sweep(fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<Row> {
         std::slice::from_ref(&surface),
         &omegas,
         &source,
-        &device,
+        device,
     )
     .expect("port-driven frequency sweep on the spiral fixture");
     eprintln!(
@@ -287,7 +267,7 @@ fn run_sweep(fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<Row> {
 }
 
 fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Option<f64>) {
-    let commit = current_commit();
+    let commit = geode_validation::current_commit();
     let l_cs = mohan_current_sheet_l(&FIXTURE_SPIRAL) * 1.0e9;
     let l_mw = modified_wheeler_l(&FIXTURE_SPIRAL) * 1.0e9;
     let l_mono = monomial_fit_l(&FIXTURE_SPIRAL) * 1.0e9;
@@ -431,11 +411,7 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Opti
 /// `out_dir` is the resolved (already-created) artifact directory from
 /// [`geode_app::OutputDir`]. Independent of the extraction sweep — does
 /// not write `results.toml`.
-fn export_field(out_dir: &Path) {
-    use burn::tensor::backend::BackendTypes;
-    type B = DefaultBackend;
-    let device = <B as BackendTypes>::Device::default();
-
+fn export_field<B: Backend>(device: &B::Device, out_dir: &Path) {
     let fixture =
         read_spiral_fixture().expect("bundled benchmark spiral fixture for --export-field");
     let omega = ghz_to_omega(L_REF_GHZ);
@@ -469,7 +445,7 @@ fn export_field(out_dir: &Path) {
         std::slice::from_ref(&lp),
         omega,
         &source,
-        &device,
+        device,
     )
     .expect("port-driven solve for --export-field");
     eprintln!(
@@ -531,11 +507,14 @@ struct Args {
 
 impl App for Args {
     fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        type B = TestBackend;
+        let device = <B as BackendTypes>::Device::default();
+
         // Opt-in field export (issue #287). Short-circuits the extraction
         // sweep so a normal run produces an unchanged `results.toml`.
         if self.export_field {
             let dir = self.out.resolve()?;
-            export_field(&dir);
+            export_field::<B>(&device, &dir);
             return Ok(());
         }
 
@@ -543,7 +522,7 @@ impl App for Args {
             Mode::Benchmark => FixtureChoice::Benchmark,
             Mode::Smoke => FixtureChoice::Smoke,
         };
-        run(choice);
+        run::<B>(&device, choice);
         Ok(())
     }
 
@@ -556,7 +535,7 @@ fn main() -> ExitCode {
     geode_app::main::<Args>()
 }
 
-fn run(choice: FixtureChoice) {
+fn run<B: Backend>(device: &B::Device, choice: FixtureChoice) {
     let (fixture, freqs): (SpiralFixture, &[f64]) = match choice {
         FixtureChoice::Benchmark => (
             read_spiral_fixture().expect("bundled benchmark spiral fixture"),
@@ -568,7 +547,7 @@ fn run(choice: FixtureChoice) {
         ),
     };
 
-    let rows = run_sweep(&fixture, freqs);
+    let rows = run_sweep::<B>(device, &fixture, freqs);
 
     let omegas: Vec<f64> = rows.iter().map(|r| r.omega).collect();
     let zs: Vec<c64> = rows.iter().map(|r| r.z_ohm).collect();

@@ -2052,11 +2052,11 @@ impl DrivenOperator {
 mod tests {
     use super::*;
     use crate::assembly::nedelec::cube_pec_interior_edges;
-    use crate::backend::DefaultBackend;
     use crate::mesh::cube_tet_mesh;
+    use crate::testing::TestBackend;
     use burn::tensor::backend::BackendTypes;
 
-    type B = DefaultBackend;
+    type B = TestBackend;
 
     fn device() -> <B as BackendTypes>::Device {
         <B as BackendTypes>::Device::default()
