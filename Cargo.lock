@@ -2677,6 +2677,8 @@ dependencies = [
  "faer",
  "geode-core",
  "num-complex 0.4.6",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

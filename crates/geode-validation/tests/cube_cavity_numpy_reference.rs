@@ -690,33 +690,8 @@ fn print_substage_diff(fixture: &Fixture, actual: &BTreeMap<String, Vec<f64>>) {
     }
 }
 
-/// Recursively flatten a nested-or-flat `serde_json::Value` of numbers
-/// into a row-major `Vec<f64>`. Mirrors
-/// `geode_validation::fixture::flatten_to_f64` but is duplicated here
-/// because that helper is `pub(crate)`-scoped.
-fn flatten_numeric(v: &serde_json::Value) -> Vec<f64> {
-    let mut out = Vec::new();
-    push(v, &mut out);
-    return out;
-
-    fn push(v: &serde_json::Value, out: &mut Vec<f64>) {
-        match v {
-            serde_json::Value::Number(n) => {
-                if let Some(x) = n.as_f64() {
-                    out.push(x);
-                } else if let Some(x) = n.as_i64() {
-                    out.push(x as f64);
-                }
-            }
-            serde_json::Value::Array(arr) => {
-                for item in arr {
-                    push(item, out);
-                }
-            }
-            _ => {}
-        }
-    }
-}
+// Recursive JSON numeric flatten lives in the shared staging crate.
+use geode_util::fixture::flatten_numeric;
 
 /// Dense matrix product `A · B` returning an owned `Mat<f64>`.
 fn mat_mul(a: MatRef<f64>, b: MatRef<f64>) -> Mat<f64> {
