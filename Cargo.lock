@@ -2670,13 +2670,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "geode-examples-support"
-version = "0.2.0"
-dependencies = [
- "geode-util",
-]
-
-[[package]]
 name = "geode-util"
 version = "0.2.0"
 dependencies = [

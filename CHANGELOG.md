@@ -5,6 +5,36 @@ All notable changes to GEODE-FEM are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### New `geode-util` pre-core staging crate (Epic #414)
+
+- Introduced `geode-util`, a pre-core staging layer that sits above
+  `geode-core` and collects shared, reusable helpers previously scattered
+  across `geode-validation` and the standalone example crates. Its module
+  map is `repo` / `convert` / `interop` / `fixture` / `viz` (plus `math`).
+- Migrated the fixture-repository helpers (#417), interop decoders (#418),
+  edge-DOF → nodal field reconstruction (`viz::edge_field_to_nodes`, #419),
+  conversion glue, and the shared fixture TOML/pvd/sweep harness (#423) out
+  of `geode-validation` and the examples and into `geode-util`.
+  `geode-validation` now re-exports/consumes these helpers and retains only
+  genuine validation-harness code.
+
+### Changed
+
+- Broke the standalone example crates' dependency on `geode-validation`;
+  examples now depend on `geode-util` (and `geode-core` / `geode-app`) for
+  shared utility code.
+
+### Removed
+
+- Deleted the orphaned `examples/_support` (`geode-examples-support`) crate.
+  After #419 it was a thin re-export of `geode_util::viz::edge_field_to_nodes`
+  with no remaining consumers; its `[workspace.dependencies]` entry has been
+  removed (Epic #414 Phase 3, #426).
+
 ## [0.2.0] - 2026-06-25
 
 ### Changed

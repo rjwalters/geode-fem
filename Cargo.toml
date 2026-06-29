@@ -38,7 +38,6 @@ geode-core = { path = "crates/geode-core" }
 geode-util = { path = "crates/geode-util" }
 geode-app = { path = "crates/geode-app" }
 geode-validation = { path = "crates/geode-validation" }
-geode-examples-support = { path = "examples/_support" }
 
 [profile.release]
 lto = "thin"

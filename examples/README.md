@@ -147,7 +147,7 @@ Verify the wiring with:
 
 ```sh
 cargo metadata --no-deps --format-version 1 | grep -o '"name":"[^"]*"'
-# … should list all 12 example crates and geode-examples-support …
+# … should list all 12 example crates …
 cargo build --workspace            # builds every example crate
 cargo build --workspace --all-targets
 ```
@@ -180,8 +180,9 @@ path = "src/main.rs"
 clap = { workspace = true }
 geode-app = { workspace = true }
 geode-core = { workspace = true }
-# Only if the example reconstructs Nédélec edge fields for a `.vtu` dump:
-geode-examples-support = { workspace = true }
+# Only if the example reconstructs Nédélec edge fields for a `.vtu` dump
+# (call `geode_util::viz::edge_field_to_nodes`):
+geode-util = { workspace = true }
 # Only if the example touches faer directly. Add `sparse-linalg` only if it
 # uses the sparse solvers (SparseColMat / Triplet); the workspace base set
 # (std, linalg) is otherwise enough:
