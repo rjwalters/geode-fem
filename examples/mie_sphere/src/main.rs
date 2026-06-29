@@ -7,7 +7,7 @@
 //! report output, and `results.toml`/`.vtu` artifacts are preserved
 //! exactly; only the entry point (hand-rolled argv → `clap` derive +
 //! `geode_app::App`) and the viz-reconstruction import
-//! (`#[path]` include → `geode_examples_support`) changed.
+//! (`#[path]` include → `geode_util::viz`) changed.
 //!
 //! **v1** (issue #40 hardening of the v0 in PR #39):
 //!
@@ -97,7 +97,7 @@
 //! benchmark sweep (`ka = 1.9`, between the TE_1,1 and TM_1,1 Mie
 //! resonances; `ω = ka / R_SPHERE`). The exported per-node `E` is the
 //! crude per-tet-vertex average of the Whitney interpolant (see
-//! `geode_examples_support::edge_field_to_nodes`); a per-node `eps_r`
+//! `geode_util::viz::edge_field_to_nodes`); a per-node `eps_r`
 //! map (n² inside the sphere, 1 outside) accompanies it.
 
 use std::fs;
@@ -129,7 +129,7 @@ use geode_core::eigen::complex::{
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, R_SPHERE, read_sphere_fixture};
 use geode_core::testing::TestBackend;
-use geode_examples_support::edge_field_to_nodes;
+use geode_util::viz::edge_field_to_nodes;
 
 /// Refractive index inside the sphere. n=1.5 is the textbook
 /// B&H dielectric test case.

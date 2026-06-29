@@ -46,7 +46,7 @@
 //! output, and `results.toml` artifacts are preserved exactly; only the
 //! entry point (hand-rolled argv → `clap` derive + `geode_app::App`) and
 //! the viz-reconstruction import (`#[path]` include →
-//! `geode_examples_support`) changed. `--release` is required (faer's
+//! `geode_util::viz`) changed. `--release` is required (faer's
 //! dense `gevd` path panics under `debug-assertions`).
 //!
 //! Run with:
@@ -79,7 +79,7 @@
 //! ```
 //!
 //! The exported per-node `E` is the crude per-tet-vertex average of the
-//! Whitney interpolant (see `geode_examples_support::edge_field_to_nodes`).
+//! Whitney interpolant (see `geode_util::viz::edge_field_to_nodes`).
 //! No per-node `eps_r` is exported for the spiral (the stack uses a
 //! per-region scalar permittivity that is not as cleanly nodal as the
 //! sphere/patch case) — `None` is passed.
@@ -106,7 +106,7 @@ use geode_core::mesh::{
     SpiralFixture, pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_smoke_fixture,
 };
 use geode_core::testing::TestBackend;
-use geode_examples_support::edge_field_to_nodes;
+use geode_util::viz::edge_field_to_nodes;
 
 /// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.
 const ETA_0: f64 = 376.730_313_668;

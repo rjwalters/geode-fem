@@ -15,8 +15,8 @@ path = "src/main.rs"
 clap = { workspace = true }
 geode-app = { workspace = true }
 geode-core = { workspace = true, features = ["testing"] }
+# `viz::edge_field_to_nodes` for the `--export-field` Whitney edge-DOF → nodal E reconstruction.
 geode-util = { workspace = true }
-geode-examples-support = { workspace = true }
 # `BackendTypes` device handle + complex mass tensors.
 burn = { workspace = true }
 # `sparse-linalg` is added on top of the workspace base feature set

@@ -38,7 +38,7 @@
 //! output, and `results.toml`/`.vtu` artifacts are preserved exactly; only
 //! the entry point (hand-rolled argv → `clap` derive + `geode_app::App`)
 //! and the viz-reconstruction import (`#[path]` include →
-//! `geode_examples_support`) changed. `--release` is required (faer's dense
+//! `geode_util::viz`) changed. `--release` is required (faer's dense
 //! `gevd` path panics under `debug-assertions`).
 //!
 //! Writes `benchmarks/patch_antenna/results.toml`. Run with:
@@ -103,7 +103,7 @@
 //! ```
 //!
 //! The exported per-node `E` is the crude per-tet-vertex average of the
-//! Whitney interpolant (see `geode_examples_support::edge_field_to_nodes`),
+//! Whitney interpolant (see `geode_util::viz::edge_field_to_nodes`),
 //! with a per-node `eps_r` map (FR-4 ε_r in the substrate, 1 in air/UPML)
 //! averaged from the fixture's material regions.
 //!
@@ -152,7 +152,7 @@ use geode_core::postproc::ntff::{
 };
 use geode_core::postproc::viz::write_vtu_surface;
 use geode_core::testing::TestBackend;
-use geode_examples_support::edge_field_to_nodes;
+use geode_util::viz::edge_field_to_nodes;
 
 /// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.
 const ETA_0: f64 = 376.730_313_668;
@@ -1173,7 +1173,7 @@ fn export_field<B: Backend>(device: &B::Device, out_dir: &Path) {
 /// This is the **frequency-domain** sibling of [`export_field`] — one
 /// driven solve per source frequency, not a time-domain `E(r, t)`. It
 /// reuses the exact same per-node field-eval
-/// ([`geode_examples_support::edge_field_to_nodes`]) and the same fixture /
+/// ([`geode_util::viz::edge_field_to_nodes`]) and the same fixture /
 /// mask / port / box-UPML setup as the S11 sweep, so a frame is
 /// byte-for-byte the `--export-field` output at that frequency.
 ///

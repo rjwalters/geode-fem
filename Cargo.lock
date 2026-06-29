@@ -2673,8 +2673,7 @@ dependencies = [
 name = "geode-examples-support"
 version = "0.2.0"
 dependencies = [
- "faer",
- "geode-core",
+ "geode-util",
 ]
 
 [[package]]
@@ -3622,7 +3621,6 @@ dependencies = [
  "faer",
  "geode-app",
  "geode-core",
- "geode-examples-support",
  "geode-util",
 ]
 
@@ -4276,7 +4274,6 @@ dependencies = [
  "faer",
  "geode-app",
  "geode-core",
- "geode-examples-support",
  "geode-util",
 ]
 
@@ -5317,7 +5314,6 @@ dependencies = [
  "faer",
  "geode-app",
  "geode-core",
- "geode-examples-support",
  "geode-util",
 ]
 

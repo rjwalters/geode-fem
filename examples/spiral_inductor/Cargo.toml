@@ -15,9 +15,8 @@ path = "src/main.rs"
 clap = { workspace = true }
 geode-app = { workspace = true }
 geode-core = { workspace = true, features = ["testing"] }
+# `viz::edge_field_to_nodes` for the `--export-field` Whitney edge-DOF → nodal E reconstruction.
 geode-util = { workspace = true }
-# `edge_field_to_nodes` for the `--export-field` Whitney edge-DOF → nodal E reconstruction.
-geode-examples-support = { workspace = true }
 # `BackendTypes` device handle for the driven frequency sweep + `--export-field` solve.
 burn = { workspace = true }
 # `faer::c64` for the per-port complex impedance arithmetic.
