@@ -15,9 +15,9 @@ use burn::tensor::{Int, Tensor, TensorData};
 
 use geode_core::assembly::nedelec::{assemble_global_nedelec, cube_pec_interior_edges};
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::testing::TestBackend;
 use geode_core::elements::nedelec::{batched_nedelec_local_matrices, tet_edges};
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
+use geode_core::testing::TestBackend;
 
 mod common;
 use common::readback_f64;

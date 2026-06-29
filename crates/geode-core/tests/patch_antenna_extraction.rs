@@ -58,7 +58,6 @@ use std::path::PathBuf;
 use faer::c64;
 
 use geode_core::analytic::patch::PatchCavity;
-use geode_core::testing::TestBackend;
 use geode_core::driven::extraction::s11;
 use geode_core::driven::ports::{port_current, port_voltage};
 use geode_core::driven::scattering::flux_power_box;
@@ -67,6 +66,7 @@ use geode_core::driven::solve::{
 };
 use geode_core::mesh::patch::FR4_MATERIALS;
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_smoke_fixture};
+use geode_core::testing::TestBackend;
 
 /// Free-space impedance η₀ (Ω).
 const ETA_0: f64 = 376.730_313_668;

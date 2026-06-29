@@ -41,7 +41,6 @@
 
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
-use geode_core::testing::TestBackend;
 use geode_core::driven::ports::{port_current, port_input_impedance, port_voltage};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, SurfaceImpedanceBc,
@@ -54,6 +53,7 @@ use geode_core::mesh::spiral::{
 use geode_core::mesh::{
     SpiralFixture, pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_smoke_fixture,
 };
+use geode_core::testing::TestBackend;
 use std::collections::BTreeSet;
 
 type B = TestBackend;

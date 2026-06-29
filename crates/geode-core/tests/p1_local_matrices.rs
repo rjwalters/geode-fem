@@ -12,9 +12,9 @@
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Tensor, TensorData};
 
-use geode_core::testing::TestBackend;
 use geode_core::elements::p1::batched_p1_local_matrices;
 use geode_core::mesh::{GmshReader, MeshReader};
+use geode_core::testing::TestBackend;
 
 mod common;
 use common::readback_f64;

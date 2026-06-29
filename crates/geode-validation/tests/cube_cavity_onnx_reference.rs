@@ -19,18 +19,18 @@
 //!     --test cube_cavity_onnx_reference -- --ignored
 //! ```
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 use burn::prelude::Backend;
 use burn::tensor::DType;
 use burn::tensor::backend::BackendTypes;
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::testing::{device_tolerances, TestBackend};
 use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
 use geode_core::mesh::cube_tet_mesh;
+use geode_core::testing::{TestBackend, device_tolerances};
 use geode_validation::{Fixture, FixtureFormat};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 type B = TestBackend;
 
@@ -245,7 +245,7 @@ fn burn_cube_cavity_agrees_with_onnx_baseline() {
 
     let device = Default::default();
     let tol = BackendTolerances::for_device::<B>(&device);
-    
+
     eprintln!(
         "backend = {}, eigvals_abs_tol = {:.0e}, trace_abs_tol = {:.0e}",
         B::name(&device),

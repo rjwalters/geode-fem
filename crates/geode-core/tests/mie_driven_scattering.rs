@@ -51,7 +51,6 @@ use faer::c64;
 
 use geode_core::analytic::mie::mie_efficiencies;
 use geode_core::assembly::nedelec::sphere_pec_interior_edges;
-use geode_core::testing::TestBackend;
 use geode_core::driven::scattering::{
     build_matched_upml_materials, extinction_power, mie_polarization_source,
     plane_wave_polarization_current, q_from_power, scattered_flux_power,
@@ -61,6 +60,7 @@ use geode_core::driven::solve::{
     DrivenBcs, DrivenMaterials, QuadCurrentSource, driven_solve, driven_solve_quad,
 };
 use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, R_PML_INNER, R_SPHERE};
+use geode_core::testing::TestBackend;
 
 const N_INSIDE: f64 = 1.5;
 const SIGMA_0: f64 = 25.0;

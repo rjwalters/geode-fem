@@ -83,12 +83,12 @@ use geode_core::assembly::nedelec::{
     burn_complex_mass_to_faer, sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroids,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::testing::TestBackend;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{
     R_BUFFER, R_SPHERE, SphereFixture, read_sphere_fixture, read_sphere_fixture_from_bytes,
 };
+use geode_core::testing::TestBackend;
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = TestBackend;

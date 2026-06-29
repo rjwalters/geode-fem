@@ -34,25 +34,24 @@
 //!     --test sphere_pec_jax_reference -- --ignored --nocapture
 //! ```
 
-use std::path::PathBuf;
 use burn::prelude::Backend;
 use burn::tensor::DType;
 use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::mat::MatRef;
+use std::path::PathBuf;
 
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_epsilon, build_epsilon_r, sphere_pec_interior_edges,
     sphere_pec_node_interior_mask, spurious_dim_from_derham,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::testing::{device_tolerances, TestBackend};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
+use geode_core::testing::{TestBackend, device_tolerances};
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = TestBackend;
-
 
 // ---------------------------------------------------------------------------
 // Tolerances

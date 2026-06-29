@@ -86,13 +86,13 @@ use geode_core::assembly::nedelec::{
     sphere_pec_interior_edges,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::testing::TestBackend;
 use geode_core::driven::scattering::build_matched_upml_materials;
 use geode_core::eigen::complex::{
     ComplexEigenSolver, FaerComplexEigensolver, SparseComplexEigenSolver,
     SparseComplexShiftInvertLanczos,
 };
 use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, SphereFixture, read_sphere_fixture};
+use geode_core::testing::TestBackend;
 
 /// Refractive index inside the sphere (matches the analytic catalog).
 const N_INSIDE: f64 = 1.5;
@@ -326,7 +326,10 @@ fn write_results(rows: &[QuasiModeRow]) {
          frozen-ω complex eigenpencil vs. open-space Mie WGM complex roots \
          (OPEN_SPACE_WGM_TABLE_N15).\"\n",
     );
-    s.push_str(&format!("generated_at_commit = \"{}\"\n", geode_validation::current_commit()));
+    s.push_str(&format!(
+        "generated_at_commit = \"{}\"\n",
+        geode_validation::current_commit()
+    ));
     s.push_str("pml_kernel = \"matched_full_sacks\"\n");
     s.push_str(&format!("n_inside = {N_INSIDE}\n"));
     s.push_str(&format!("sigma_values = {SIGMA_VALUES:?}\n"));
@@ -467,7 +470,8 @@ impl App for Args {
                 let picard = if root.pol == MiePolarisation::TM {
                     let omega1 = re_k;
                     eprintln!("  Picard refresh at ω₁ = {omega1:.4} …");
-                    let physical1 = solve_frozen_omega::<B>(&device, &f, sigma_0, omega1, use_dense);
+                    let physical1 =
+                        solve_frozen_omega::<B>(&device, &f, sigma_0, omega1, use_dense);
                     match_root(&physical1, root).map(|(lam1, _)| {
                         let (re1, im1) = k_from_lambda(lam1);
                         let q1 = if im1.abs() > 1e-12 {

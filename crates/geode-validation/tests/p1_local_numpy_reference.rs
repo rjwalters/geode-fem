@@ -43,8 +43,8 @@ use burn::prelude::Backend;
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{DType, Tensor, TensorData};
 
-use geode_core::testing::{device_tolerances, TestBackend};
 use geode_core::elements::p1::batched_p1_local_matrices;
+use geode_core::testing::{TestBackend, device_tolerances};
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = TestBackend;
@@ -65,9 +65,23 @@ fn active_tolerances() -> MixedTol {
         &device(),
         &[
             // f64 path — issue #90 acceptance criterion.
-            ("", DType::F64, MixedTol { rel: 1.0e-10, abs: 1.0e-12 }),
+            (
+                "",
+                DType::F64,
+                MixedTol {
+                    rel: 1.0e-10,
+                    abs: 1.0e-12,
+                },
+            ),
             // f32 GPU path — looser bound per #88 dtype-honesty friction.
-            ("", DType::F32, MixedTol { rel: 5.0e-5, abs: 1.0e-6 }),
+            (
+                "",
+                DType::F32,
+                MixedTol {
+                    rel: 5.0e-5,
+                    abs: 1.0e-6,
+                },
+            ),
         ],
     )
     .expect("a tolerance case must match the active backend dtype")

@@ -102,10 +102,10 @@ use faer::linalg::solvers::Solve;
 
 use geode_core::assembly::nedelec::{assemble_global_nedelec, cube_pec_interior_edges};
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::testing::TestBackend;
 use geode_core::derham::apply_gradient;
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
 use geode_core::mesh::cube_tet_mesh;
+use geode_core::testing::TestBackend;
 
 type B = TestBackend;
 

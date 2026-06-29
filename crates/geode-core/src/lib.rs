@@ -14,10 +14,9 @@ pub mod elements;
 pub mod interop;
 pub mod mesh;
 pub mod postproc;
-pub mod solver;
 pub mod prelude;
+pub mod solver;
 pub mod traits;
-
 
 #[cfg(feature = "testing")]
 pub mod testing;

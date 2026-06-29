@@ -19,8 +19,8 @@ use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
 
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::testing::TestBackend;
 use geode_core::mesh::cube_tet_mesh;
+use geode_core::testing::TestBackend;
 
 mod common;
 use common::readback_f64;

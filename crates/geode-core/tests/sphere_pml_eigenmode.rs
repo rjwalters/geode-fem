@@ -63,10 +63,10 @@ use geode_core::assembly::nedelec::{
     tet_centroid_radii,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::testing::TestBackend;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, R_PML_INNER, R_SPHERE, read_sphere_fixture};
+use geode_core::testing::TestBackend;
 
 type B = TestBackend;
 

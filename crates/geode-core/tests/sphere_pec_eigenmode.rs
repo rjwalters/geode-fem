@@ -74,11 +74,11 @@ use geode_core::assembly::nedelec::{
     sphere_pec_node_interior_mask, spurious_dim_from_derham,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::testing::TestBackend;
 use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer,
 };
 use geode_core::mesh::{R_BUFFER, R_SPHERE, read_sphere_fixture};
+use geode_core::testing::TestBackend;
 
 type B = TestBackend;
 

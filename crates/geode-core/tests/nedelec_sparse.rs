@@ -33,8 +33,8 @@ use geode_core::assembly::nedelec::{
     assemble_nedelec_sigma_damping_sparse,
 };
 use geode_core::assembly::p1::{SparsityPattern, upload_mesh};
-use geode_core::testing::TestBackend;
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
+use geode_core::testing::TestBackend;
 
 type B = TestBackend;
 

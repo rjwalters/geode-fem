@@ -136,7 +136,6 @@ use faer::c64;
 
 use geode_app::{App, OutputDir, Verbosity};
 use geode_core::analytic::patch::PatchCavity;
-use geode_core::testing::TestBackend;
 use geode_core::driven::extraction::{im_z_zero_crossings, s11};
 use geode_core::driven::ports::{port_current, port_voltage};
 use geode_core::driven::scattering::flux_power_box;
@@ -152,6 +151,7 @@ use geode_core::postproc::ntff::{
     broadside_directivity, directivity, gain, ntff_far_field, principal_plane_cuts, to_db,
 };
 use geode_core::postproc::viz::write_vtu_surface;
+use geode_core::testing::TestBackend;
 use geode_examples_support::edge_field_to_nodes;
 
 /// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.
@@ -293,7 +293,12 @@ fn results_path(choice: FixtureChoice) -> PathBuf {
         .join(file)
 }
 
-fn run_sweep<B: Backend>(device: &B::Device, fixture: &PatchFixture, freqs_ghz: &[f64], pml_thick: f64) -> Vec<Row> {
+fn run_sweep<B: Backend>(
+    device: &B::Device,
+    fixture: &PatchFixture,
+    freqs_ghz: &[f64],
+    pml_thick: f64,
+) -> Vec<Row> {
     let edges = fixture.mesh.edges();
 
     // PEC: patch + ground conductor faces + outer truncation walls.

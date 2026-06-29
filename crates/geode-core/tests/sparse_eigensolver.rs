@@ -35,12 +35,12 @@
 
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
 use geode_core::assembly::sparse::global_system_to_sparse;
-use geode_core::testing::TestBackend;
 use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
 use geode_core::eigen::lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 use geode_core::mesh::cube_tet_mesh;
+use geode_core::testing::TestBackend;
 
 use burn::tensor::backend::BackendTypes;
 

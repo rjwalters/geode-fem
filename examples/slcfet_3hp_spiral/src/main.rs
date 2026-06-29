@@ -72,7 +72,6 @@ use geode_app::{App, Verbosity};
 use geode_core::analytic::spiral::{
     SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
 };
-use geode_core::testing::TestBackend;
 use geode_core::driven::extraction::{detect_srf, driven_frequency_sweep};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
@@ -81,6 +80,7 @@ use geode_core::mesh::{
     SLCFET_3HP_MATERIALS, SpiralFixture, pec_interior_mask_from_triangles,
     read_spiral_slcfet_3hp_fixture, read_spiral_slcfet_3hp_smoke_fixture,
 };
+use geode_core::testing::TestBackend;
 
 /// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.
 const ETA_0: f64 = 376.730_313_668;
@@ -186,7 +186,11 @@ fn results_path(choice: FixtureChoice) -> PathBuf {
         .join(file)
 }
 
-fn run_sweep<B: Backend>(device: &B::Device, fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<Row> {
+fn run_sweep<B: Backend>(
+    device: &B::Device,
+    fixture: &SpiralFixture,
+    freqs_ghz: &[f64],
+) -> Vec<Row> {
     let edges = fixture.mesh.edges();
     let eps = fixture.epsilon_r_for(&SLCFET_3HP_MATERIALS);
 

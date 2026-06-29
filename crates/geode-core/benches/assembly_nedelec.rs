@@ -20,9 +20,9 @@ use geode_core::assembly::nedelec::{
     assemble_global_nedelec, assemble_global_nedelec_with_complex_epsilon,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::testing::TestBackend;
 use geode_core::eigen::dense::burn_matrix_to_faer;
 use geode_core::mesh::cube_tet_mesh;
+use geode_core::testing::TestBackend;
 
 type B = TestBackend;
 

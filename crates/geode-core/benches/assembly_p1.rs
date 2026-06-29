@@ -22,9 +22,9 @@ use burn::tensor::backend::BackendTypes;
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::testing::TestBackend;
 use geode_core::eigen::dense::burn_matrix_to_faer;
 use geode_core::mesh::cube_tet_mesh;
+use geode_core::testing::TestBackend;
 
 type B = TestBackend;
 

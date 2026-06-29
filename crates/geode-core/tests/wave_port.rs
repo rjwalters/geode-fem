@@ -35,13 +35,13 @@
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::waveguide::solve_rect_waveguide_modes;
-use geode_core::testing::TestBackend;
 use geode_core::driven::ports::{
     PortMode, WavePort, extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
     map_mode_profile_to_full_mesh, solve_wave_port_sweep,
 };
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials};
 use geode_core::mesh::TetMesh;
+use geode_core::testing::TestBackend;
 
 type B = TestBackend;
 

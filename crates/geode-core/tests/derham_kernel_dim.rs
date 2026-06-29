@@ -89,13 +89,13 @@ use geode_core::assembly::nedelec::{
     restrict_gradient_dense, sphere_pec_interior_edges, tet_centroid_radii,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::testing::TestBackend;
 use geode_core::derham::gradient_map;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
 use geode_core::mesh::{R_BUFFER, TetMesh, cube_tet_mesh, read_sphere_fixture};
+use geode_core::testing::TestBackend;
 
 type B = TestBackend;
 

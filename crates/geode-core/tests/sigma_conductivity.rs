@@ -30,11 +30,11 @@ use geode_core::assembly::nedelec::{
     build_complex_epsilon_eff, cube_pec_interior_edges, tet_centroids,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::testing::TestBackend;
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, driven_solve, driven_solve_with_sigma,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
+use geode_core::testing::TestBackend;
 
 type B = TestBackend;
 

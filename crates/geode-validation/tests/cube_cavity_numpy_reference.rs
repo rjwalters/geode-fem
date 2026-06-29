@@ -61,9 +61,9 @@ use faer::Mat;
 use faer::mat::MatRef;
 
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::testing::{device_tolerances, TestBackend};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
 use geode_core::mesh::{GmshReader, MeshReader};
+use geode_core::testing::{TestBackend, device_tolerances};
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = TestBackend;
