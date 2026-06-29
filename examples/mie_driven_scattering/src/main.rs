@@ -62,7 +62,6 @@
 //! cargo run -p mie_driven_scattering --release -- --fine
 //! ```
 
-use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -116,6 +115,20 @@ struct Row {
     rel_err_q_ext: f64,
     rel_err_q_sca: f64,
     residual_rel: f64,
+}
+
+impl geode_util::fixture::TomlRow for Row {
+    const TABLE_PREFIX: &'static str = "point";
+    fn write_fields(&self, out: &mut String) {
+        out.push_str(&format!("ka = {:.15e}\n", self.ka));
+        out.push_str(&format!("q_ext_analytic = {:.15e}\n", self.q_ext_analytic));
+        out.push_str(&format!("q_sca_analytic = {:.15e}\n", self.q_sca_analytic));
+        out.push_str(&format!("q_ext_fem = {:.15e}\n", self.q_ext_fem));
+        out.push_str(&format!("q_sca_fem = {:.15e}\n", self.q_sca_fem));
+        out.push_str(&format!("rel_err_q_ext = {:.15e}\n", self.rel_err_q_ext));
+        out.push_str(&format!("rel_err_q_sca = {:.15e}\n", self.rel_err_q_sca));
+        out.push_str(&format!("solve_residual_rel = {:.3e}\n", self.residual_rel));
+    }
 }
 
 fn run_one(fixture: &SphereFixture, ka: f64) -> Row {
@@ -179,7 +192,7 @@ fn results_path(choice: FixtureChoice) -> PathBuf {
         .join(file)
 }
 
-fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice) {
+fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice) {
     let commit = geode_util::repo::current_commit();
     let max_ext = rows.iter().map(|r| r.rel_err_q_ext).fold(0.0_f64, f64::max);
     let max_sca = rows.iter().map(|r| r.rel_err_q_sca).fold(0.0_f64, f64::max);
@@ -231,22 +244,10 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice) {
     s.push_str("]\n");
     s.push('\n');
 
-    for (i, r) in rows.iter().enumerate() {
-        s.push_str(&format!("[point_{i}]\n"));
-        s.push_str(&format!("ka = {:.15e}\n", r.ka));
-        s.push_str(&format!("q_ext_analytic = {:.15e}\n", r.q_ext_analytic));
-        s.push_str(&format!("q_sca_analytic = {:.15e}\n", r.q_sca_analytic));
-        s.push_str(&format!("q_ext_fem = {:.15e}\n", r.q_ext_fem));
-        s.push_str(&format!("q_sca_fem = {:.15e}\n", r.q_sca_fem));
-        s.push_str(&format!("rel_err_q_ext = {:.15e}\n", r.rel_err_q_ext));
-        s.push_str(&format!("rel_err_q_sca = {:.15e}\n", r.rel_err_q_sca));
-        s.push_str(&format!("solve_residual_rel = {:.3e}\n", r.residual_rel));
-        s.push('\n');
-    }
+    geode_util::fixture::push_rows(&mut s, rows);
 
-    fs::create_dir_all(path.parent().expect("results parent")).expect("mkdir");
-    fs::write(path, s).expect("write driven_results.toml");
-    eprintln!("wrote {}", path.display());
+    geode_util::fixture::write_toml(path, &s)
+        .expect("write mie_driven_scattering driven_results.toml");
 }
 
 /// Driven Mie scattering benchmark CLI.
@@ -313,7 +314,7 @@ impl App for Args {
             rows.push(row);
         }
 
-        write_toml(&rows, &results_path(choice), choice);
+        emit_results(&rows, &results_path(choice), choice);
         Ok(())
     }
 

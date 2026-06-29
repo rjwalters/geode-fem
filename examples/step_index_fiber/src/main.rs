@@ -107,7 +107,6 @@
 //! only the entry point changed (hand-rolled `fn main` → `clap` derive +
 //! `geode_app::App`).
 
-use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -320,7 +319,7 @@ fn is_monotone(results: &[FiberResult]) -> bool {
     inc || dec
 }
 
-fn write_toml(
+fn emit_results(
     results: &[FiberResult],
     oracle: f64,
     oracle11: Option<f64>,
@@ -558,11 +557,7 @@ fn write_toml(
     }
 
     let path = results_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("create benchmarks/step_index_fiber dir");
-    }
-    fs::write(&path, s).expect("write results.toml");
-    eprintln!("wrote {}", path.display());
+    geode_util::fixture::write_toml(&path, &s).expect("write step_index_fiber results.toml");
 }
 
 /// SMF-28 step-index fiber benchmark CLI.
@@ -669,7 +664,7 @@ impl App for Args {
             "        the #329 outcome-filtering anti-pattern). converged=false; ≤1% NOT reached."
         );
 
-        write_toml(&results, oracle, oracle11, &sigma_rob);
+        emit_results(&results, oracle, oracle11, &sigma_rob);
 
         // Structural single-mode facts (always true, cheap).
         assert!(v < V_SINGLE_MODE, "fiber must be single-mode (V < 2.405)");

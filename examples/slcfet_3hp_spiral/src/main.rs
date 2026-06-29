@@ -59,7 +59,6 @@
 //! cargo run -p slcfet_3hp_spiral --release -- smoke
 //! ```
 
-use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -152,6 +151,21 @@ struct Row {
     q: f64,
     s11_mag: f64,
     residual_rel: f64,
+}
+
+impl geode_util::fixture::TomlRow for Row {
+    const TABLE_PREFIX: &'static str = "point";
+    fn write_fields(&self, out: &mut String) {
+        out.push_str(&format!("f_ghz = {:.15e}\n", self.f_ghz));
+        out.push_str(&format!("omega_natural = {:.15e}\n", self.omega));
+        out.push_str(&format!("z_re_ohm = {:.15e}\n", self.z_ohm.re));
+        out.push_str(&format!("z_im_ohm = {:.15e}\n", self.z_ohm.im));
+        out.push_str(&format!("l_nh = {:.15e}\n", self.l_nh));
+        out.push_str(&format!("r_ohm = {:.15e}\n", self.r_ohm));
+        out.push_str(&format!("q = {:.15e}\n", self.q));
+        out.push_str(&format!("s11_mag = {:.15e}\n", self.s11_mag));
+        out.push_str(&format!("solve_residual_rel = {:.3e}\n", self.residual_rel));
+    }
 }
 
 fn ghz_to_omega(f_ghz: f64) -> f64 {
@@ -267,7 +281,7 @@ fn run_sweep<B: Backend>(
         .collect()
 }
 
-fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Option<f64>) {
+fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Option<f64>) {
     let commit = geode_util::repo::current_commit();
     let l_cs = mohan_current_sheet_l(&FIXTURE_SPIRAL) * 1.0e9;
     let l_mw = modified_wheeler_l(&FIXTURE_SPIRAL) * 1.0e9;
@@ -386,23 +400,9 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Opti
         s.push('\n');
     }
 
-    for (i, r) in rows.iter().enumerate() {
-        s.push_str(&format!("[point_{i}]\n"));
-        s.push_str(&format!("f_ghz = {:.15e}\n", r.f_ghz));
-        s.push_str(&format!("omega_natural = {:.15e}\n", r.omega));
-        s.push_str(&format!("z_re_ohm = {:.15e}\n", r.z_ohm.re));
-        s.push_str(&format!("z_im_ohm = {:.15e}\n", r.z_ohm.im));
-        s.push_str(&format!("l_nh = {:.15e}\n", r.l_nh));
-        s.push_str(&format!("r_ohm = {:.15e}\n", r.r_ohm));
-        s.push_str(&format!("q = {:.15e}\n", r.q));
-        s.push_str(&format!("s11_mag = {:.15e}\n", r.s11_mag));
-        s.push_str(&format!("solve_residual_rel = {:.3e}\n", r.residual_rel));
-        s.push('\n');
-    }
+    geode_util::fixture::push_rows(&mut s, rows);
 
-    fs::create_dir_all(path.parent().expect("results parent")).expect("mkdir");
-    fs::write(path, s).expect("write slcfet_3hp results TOML");
-    eprintln!("wrote {}", path.display());
+    geode_util::fixture::write_toml(path, &s).expect("write slcfet_3hp results TOML");
 }
 
 /// Fixture selector (positional, preserving the original `smoke` directive).
@@ -504,5 +504,5 @@ fn run<B: Backend>(choice: FixtureChoice, device: &B::Device) {
         None => eprintln!("SRF: not bracketed by the sweep"),
     }
 
-    write_toml(&rows, &results_path(choice), choice, srf_ghz);
+    emit_results(&rows, &results_path(choice), choice, srf_ghz);
 }

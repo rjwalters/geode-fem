@@ -236,6 +236,27 @@ struct Row {
     residual_rel: f64,
 }
 
+impl geode_util::fixture::TomlRow for Row {
+    const TABLE_PREFIX: &'static str = "point";
+    fn write_fields(&self, out: &mut String) {
+        out.push_str(&format!("f_ghz = {:.15e}\n", self.f_ghz));
+        out.push_str(&format!("omega_natural = {:.15e}\n", self.omega));
+        out.push_str(&format!("z_re_ohm = {:.15e}\n", self.z_ohm.re));
+        out.push_str(&format!("z_im_ohm = {:.15e}\n", self.z_ohm.im));
+        out.push_str(&format!("s11_re = {:.15e}\n", self.s11.re));
+        out.push_str(&format!("s11_im = {:.15e}\n", self.s11.im));
+        out.push_str(&format!("s11_mag = {:.15e}\n", self.s11.norm()));
+        out.push_str(&format!(
+            "s11_db = {:.15e}\n",
+            20.0 * self.s11.norm().log10()
+        ));
+        out.push_str(&format!("p_in = {:.15e}\n", self.p_in));
+        out.push_str(&format!("p_rad = {:.15e}\n", self.p_rad));
+        out.push_str(&format!("efficiency = {:.15e}\n", self.efficiency));
+        out.push_str(&format!("solve_residual_rel = {:.3e}\n", self.residual_rel));
+    }
+}
+
 fn ghz_to_omega(f_ghz: f64) -> f64 {
     2.0 * std::f64::consts::PI * f_ghz * 1.0e9 / C_MM_PER_S
 }
@@ -459,7 +480,7 @@ fn bandwidth_10db(rows: &[Row]) -> Option<(f64, f64)> {
 }
 
 #[allow(clippy::too_many_lines)]
-fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: f64) {
+fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: f64) {
     let commit = geode_util::repo::current_commit();
     let cavity = FIXTURE_PATCH;
     let f_res_cavity_ghz = cavity.resonant_frequency() / 1e9;
@@ -609,26 +630,9 @@ fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: f6
         s.push('\n');
     }
 
-    for (i, r) in rows.iter().enumerate() {
-        s.push_str(&format!("[point_{i}]\n"));
-        s.push_str(&format!("f_ghz = {:.15e}\n", r.f_ghz));
-        s.push_str(&format!("omega_natural = {:.15e}\n", r.omega));
-        s.push_str(&format!("z_re_ohm = {:.15e}\n", r.z_ohm.re));
-        s.push_str(&format!("z_im_ohm = {:.15e}\n", r.z_ohm.im));
-        s.push_str(&format!("s11_re = {:.15e}\n", r.s11.re));
-        s.push_str(&format!("s11_im = {:.15e}\n", r.s11.im));
-        s.push_str(&format!("s11_mag = {:.15e}\n", r.s11.norm()));
-        s.push_str(&format!("s11_db = {:.15e}\n", 20.0 * r.s11.norm().log10()));
-        s.push_str(&format!("p_in = {:.15e}\n", r.p_in));
-        s.push_str(&format!("p_rad = {:.15e}\n", r.p_rad));
-        s.push_str(&format!("efficiency = {:.15e}\n", r.efficiency));
-        s.push_str(&format!("solve_residual_rel = {:.3e}\n", r.residual_rel));
-        s.push('\n');
-    }
+    geode_util::fixture::push_rows(&mut s, rows);
 
-    fs::create_dir_all(path.parent().expect("results parent")).expect("mkdir");
-    fs::write(path, s).expect("write patch_antenna results TOML");
-    eprintln!("wrote {}", path.display());
+    geode_util::fixture::write_toml(path, &s).expect("write patch_antenna results TOML");
 }
 
 /// `(θ, φ)` grid for the patch far-field extraction. A 1° polar step
@@ -1190,7 +1194,7 @@ fn export_sweep<B: Backend>(
 ) {
     let fixture = read_patch_fixture().expect("bundled benchmark patch fixture for --export-sweep");
     let pml_thick = pml_thick_for(FixtureChoice::Benchmark);
-    let freqs = sweep_freqs(f_start_ghz, f_stop_ghz, n);
+    let freqs = geode_util::fixture::sweep_freqs(f_start_ghz, f_stop_ghz, n);
     eprintln!(
         "=== --export-sweep: {} frame(s) over {:.4}–{:.4} GHz into {} ===",
         freqs.len(),
@@ -1282,46 +1286,12 @@ fn export_sweep<B: Backend>(
     }
 
     let pvd = dir.join("sweep.pvd");
-    write_pvd(&pvd, &frames).expect("write --export-sweep .pvd collection");
+    geode_util::fixture::write_pvd(&pvd, &frames).expect("write --export-sweep .pvd collection");
     eprintln!(
         "  wrote {} ({} frames; render with tools/viz/geode_viz/scripts/sweep_animate.py)",
         pvd.display(),
         frames.len(),
     );
-}
-
-/// Evenly-spaced sweep frequencies (GHz) over `[f_start, f_stop]`
-/// inclusive, matching the old `SweepSpec::freqs_ghz`. A single-point
-/// sweep (`n <= 1`) returns just `f_start`.
-fn sweep_freqs(f_start_ghz: f64, f_stop_ghz: f64, n: usize) -> Vec<f64> {
-    let n = n.max(1);
-    if n == 1 {
-        return vec![f_start_ghz];
-    }
-    let step = (f_stop_ghz - f_start_ghz) / (n - 1) as f64;
-    (0..n).map(|i| f_start_ghz + step * i as f64).collect()
-}
-
-/// Write a ParaView `.pvd` collection mapping each `E_<index>.vtu` frame
-/// to a `timestep` (the swept frequency in GHz), so ParaView (and
-/// `sweep_animate.py`) treats the frequency sweep as a time-series.
-///
-/// `frames` is `(timestep, file_name)` pairs where `file_name` is the
-/// frame's path **relative to the `.pvd`** (e.g. `E_0000.vtu`). The `.pvd`
-/// is a tiny hand-rolled XML (no XML dependency).
-fn write_pvd(path: &Path, frames: &[(f64, String)]) -> std::io::Result<()> {
-    let mut s = String::new();
-    s.push_str("<?xml version=\"1.0\"?>\n");
-    s.push_str("<VTKFile type=\"Collection\" version=\"0.1\" byte_order=\"LittleEndian\">\n");
-    s.push_str("  <Collection>\n");
-    for (timestep, file) in frames {
-        s.push_str(&format!(
-            "    <DataSet timestep=\"{timestep}\" group=\"\" part=\"0\" file=\"{file}\"/>\n"
-        ));
-    }
-    s.push_str("  </Collection>\n");
-    s.push_str("</VTKFile>\n");
-    std::fs::write(path, s)
 }
 
 /// Run mode (positional), preserving the original directive set.
@@ -1542,5 +1512,5 @@ fn run_benchmark<B: Backend>(device: &B::Device, choice: FixtureChoice) {
         eprintln!("-10 dB bandwidth: not bracketed by the sweep");
     }
 
-    write_toml(&rows, &results_path(choice), choice, pml_thick);
+    emit_results(&rows, &results_path(choice), choice, pml_thick);
 }

@@ -100,7 +100,6 @@
 //! `geode_examples_support::edge_field_to_nodes`); a per-node `eps_r`
 //! map (n² inside the sphere, 1 outside) accompanies it.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -214,6 +213,23 @@ struct Row {
     fem_im_k: f64,
     rel_err_re_k: f64,
     q: f64,
+}
+
+impl geode_util::fixture::TomlRow for Row {
+    const TABLE_PREFIX: &'static str = "mode";
+    fn write_fields(&self, out: &mut String) {
+        out.push_str(&format!("polarisation = \"{}\"\n", self.pol));
+        out.push_str(&format!("l = {}\n", self.l));
+        out.push_str(&format!("n = {}\n", self.n));
+        out.push_str(&format!("m_idx = {}\n", self.m_idx));
+        out.push_str(&format!("incomplete = {}\n", self.incomplete));
+        out.push_str(&format!("ambiguous = {}\n", self.ambiguous));
+        out.push_str(&format!("analytic_k = {:.15e}\n", self.analytic_k));
+        out.push_str(&format!("fem_re_k = {:.15e}\n", self.fem_re_k));
+        out.push_str(&format!("fem_im_k = {:.15e}\n", self.fem_im_k));
+        out.push_str(&format!("rel_err_re_k = {:.15e}\n", self.rel_err_re_k));
+        out.push_str(&format!("q = {:.15e}\n", self.q));
+    }
 }
 
 fn pol_str(pol: MiePolarisation) -> &'static str {
@@ -600,7 +616,7 @@ fn print_table(rows: &[Row]) {
     eprintln!();
 }
 
-fn write_toml(rows: &[Row], path: &PathBuf, scalar_pml: bool, n_modes: usize) {
+fn emit_results(rows: &[Row], path: &PathBuf, scalar_pml: bool, n_modes: usize) {
     let commit = geode_util::repo::current_commit();
     let pml_kind = if scalar_pml { "scalar" } else { "anisotropic" };
 
@@ -647,25 +663,9 @@ fn write_toml(rows: &[Row], path: &PathBuf, scalar_pml: bool, n_modes: usize) {
     s.push_str("]\n");
     s.push('\n');
 
-    for (i, r) in rows.iter().enumerate() {
-        s.push_str(&format!("[mode_{i}]\n"));
-        s.push_str(&format!("polarisation = \"{}\"\n", r.pol));
-        s.push_str(&format!("l = {}\n", r.l));
-        s.push_str(&format!("n = {}\n", r.n));
-        s.push_str(&format!("m_idx = {}\n", r.m_idx));
-        s.push_str(&format!("incomplete = {}\n", r.incomplete));
-        s.push_str(&format!("ambiguous = {}\n", r.ambiguous));
-        s.push_str(&format!("analytic_k = {:.15e}\n", r.analytic_k));
-        s.push_str(&format!("fem_re_k = {:.15e}\n", r.fem_re_k));
-        s.push_str(&format!("fem_im_k = {:.15e}\n", r.fem_im_k));
-        s.push_str(&format!("rel_err_re_k = {:.15e}\n", r.rel_err_re_k));
-        s.push_str(&format!("q = {:.15e}\n", r.q));
-        s.push('\n');
-    }
+    geode_util::fixture::push_rows(&mut s, rows);
 
-    fs::create_dir_all(path.parent().expect("results parent")).expect("mkdir");
-    fs::write(path, s).expect("write results.toml");
-    eprintln!("wrote {}", path.display());
+    geode_util::fixture::write_toml(path, &s).expect("write mie_sphere results.toml");
 }
 
 /// Mid-`ka` operating point of the driven benchmark sweep
@@ -865,7 +865,7 @@ impl App for Args {
         print_table(&rows);
 
         // Persist.
-        write_toml(&rows, &results_path(), scalar_pml, n_modes);
+        emit_results(&rows, &results_path(), scalar_pml, n_modes);
 
         // Issue #33 — open-space Mie WGM cross-check.
         //

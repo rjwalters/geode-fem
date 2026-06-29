@@ -62,7 +62,6 @@
 //! only the entry point changed (hand-rolled `fn main` → `clap` derive +
 //! `geode_app::App`).
 
-use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -253,7 +252,7 @@ fn results_path() -> PathBuf {
         .join("results.toml")
 }
 
-fn write_toml(results: &[BufferResult]) {
+fn emit_results(results: &[BufferResult]) {
     let commit = geode_util::repo::current_commit();
     let eim = eim_neff();
     let ceiling = index_ceiling();
@@ -365,9 +364,7 @@ fn write_toml(results: &[BufferResult]) {
     }
 
     let path = results_path();
-    fs::create_dir_all(path.parent().expect("results parent")).expect("mkdir");
-    fs::write(&path, s).expect("write soi_waveguide results TOML");
-    eprintln!("wrote {}", path.display());
+    geode_util::fixture::write_toml(&path, &s).expect("write soi_waveguide results TOML");
 }
 
 /// SOI strip-waveguide benchmark CLI.
@@ -456,7 +453,7 @@ impl App for Args {
             100.0 * EIM_TOL
         );
 
-        write_toml(&results);
+        emit_results(&results);
         Ok(())
     }
 
