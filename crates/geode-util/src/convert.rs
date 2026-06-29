@@ -90,9 +90,11 @@ mod tests {
     /// and feed these helpers without any element-wise conversion.
     #[test]
     fn faer_c64_is_complex64() {
-        let faer_vals: Vec<faer::c64> =
-            vec![faer::c64::new(1.0, -1.0), faer::c64::new(2.0, -2.0)];
+        let faer_vals: Vec<faer::c64> = vec![faer::c64::new(1.0, -1.0), faer::c64::new(2.0, -2.0)];
         let out = complex_slice_to_vec(&faer_vals);
-        assert_eq!(out, vec![Complex64::new(1.0, -1.0), Complex64::new(2.0, -2.0)]);
+        assert_eq!(
+            out,
+            vec![Complex64::new(1.0, -1.0), Complex64::new(2.0, -2.0)]
+        );
     }
 }

@@ -369,7 +369,8 @@ fn sphere_pml_spectrum_agrees_with_numpy() {
             n_request,
         )
         .expect("Burn complex eigensolve");
-    let burn_eigvals: Vec<Complex64> = geode_util::convert::complex_slice_to_vec(&burn_eigvals_faer);
+    let burn_eigvals: Vec<Complex64> =
+        geode_util::convert::complex_slice_to_vec(&burn_eigvals_faer);
 
     // Compare against the NumPy baseline via the c128 comparator.
     let golden_full = fixture
@@ -777,7 +778,8 @@ fn sphere_pml_small_spectrum_agrees_with_numpy() {
         gevd_wall.as_secs_f64()
     );
 
-    let burn_eigvals: Vec<Complex64> = geode_util::convert::complex_slice_to_vec(&burn_eigvals_faer);
+    let burn_eigvals: Vec<Complex64> =
+        geode_util::convert::complex_slice_to_vec(&burn_eigvals_faer);
 
     // Compare against the NumPy baseline via the c128 comparator.
     let golden_full = fixture

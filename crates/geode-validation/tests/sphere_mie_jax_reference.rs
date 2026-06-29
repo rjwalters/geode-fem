@@ -451,7 +451,8 @@ fn jax_mie_small_spectrum_agrees_with_burn() {
             n_request,
         )
         .expect("Burn complex eigensolve on small Mie fixture");
-    let burn_eigvals: Vec<Complex64> = geode_util::convert::complex_slice_to_vec(&burn_eigvals_faer);
+    let burn_eigvals: Vec<Complex64> =
+        geode_util::convert::complex_slice_to_vec(&burn_eigvals_faer);
 
     let golden_full = fixture
         .output_c128("eigenvalues_lowest_complex")
