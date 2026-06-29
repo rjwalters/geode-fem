@@ -2678,6 +2678,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "geode-util"
+version = "0.2.0"
+dependencies = [
+ "burn",
+ "faer",
+ "geode-core",
+]
+
+[[package]]
 name = "geode-validation"
 version = "0.2.0"
 dependencies = [

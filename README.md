@@ -247,6 +247,9 @@ crates/
   geode-core/        # FEM kernels, assembly, eigensolvers, driven solve,
                      # ports / BCs, S-parameter + NTFF extraction,
                      # benchmark examples and integration tests
+  geode-util/        # pre-core staging layer above geode-core: shared
+                     # math / convert / interop / fixture / viz helpers
+                     # (Epic #414)
   geode-cli/         # `geode` binary — prints device info and runs the smoke op
   geode-validation/  # cross-backend reference tests (NumPy / JAX / Julia /
                      # ONNX / TF-Java) and analytic-oracle gates
