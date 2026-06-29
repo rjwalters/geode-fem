@@ -23,15 +23,15 @@ use geode_core::assembly::nedelec::{
 };
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::assembly::surface::assemble_silver_muller_surface;
-use geode_core::backend::DefaultBackend;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::burn_matrix_to_faer;
 use geode_core::eigen::self_consistent::{
     SelfConsistentResult, self_consistent_k, self_consistent_k_vector_tracked,
 };
 use geode_core::mesh::{PHYS_OUTER_BOUNDARY, read_sphere_fixture};
+use geode_core::testing::TestBackend;
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()

@@ -24,52 +24,31 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use burn::prelude::Backend;
+use burn::tensor::DType;
 use burn::tensor::backend::BackendTypes;
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::backend::DefaultBackend;
 use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
 use geode_core::mesh::cube_tet_mesh;
+use geode_core::testing::{TestBackend, device_tolerances};
 use geode_validation::{Fixture, FixtureFormat};
 
-type B = DefaultBackend;
-
-// ---------------------------------------------------------------------------
-// Backend-aware tolerance overrides
-// ---------------------------------------------------------------------------
-//
-// The fixture itself carries `tolerance_abs = 1e-12` on `k_diag_sum` /
-// `m_diag_sum` (trace readbacks — should agree to f64 round-off when the
-// upload path honors B::FloatElem) and `1e-8` on `eigenvalues` (the
-// JAX/NumPy in-tree cross-check is 7.8e-15 relative at fixture-gen
-// time). Those tolerances are too tight for the f32 wgpu/cuda default
-// path; under `--features ndarray` they are too tight for Burn's
-// upload-truncates-to-f32 friction (whiteroom #5). We override per
-// backend below and apply the override as a relaxed `tolerance_abs`
-// before running `Fixture::compare_against` so the diff artifact reflects
-// what the test actually enforces.
+type B = TestBackend;
 
 #[derive(Debug, Clone, Copy)]
 struct BackendTolerances {
-    /// Absolute tolerance on lowest-5 eigenvalues. Cube-cavity n=4 eigvals
-    /// are O(10²); 5e-3 absolute is ~5e-5 relative — comfortably above
-    /// f32 accumulation through 6·4³ element contributions, tight enough
-    /// to catch a real regression.
+    /// Absolute tolerance on lowest-5 eigenvalues (~5e-5 relative at the
+    /// lowest mode), above f32 accumulation, tight enough to catch a real
+    /// regression.
     eigvals_abs: f64,
     /// Absolute tolerance on trace(K_int) / trace(M_int) — pure assembly
-    /// readbacks. Looser than the fixture's f64 ideal because Burn's
-    /// upload_mesh truncates to f32 (whiteroom #5).
+    /// readbacks (Burn upload_mesh f32-truncation, whiteroom #5).
     trace_abs: f64,
 }
 
 const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
-    // Even under --features ndarray, upload_mesh truncates coordinates
-    // to f32 at the tensor boundary (assembly.rs:83), so the in-tree
-    // f64 path still inherits ~f32-roughly-1e-7 precision on assembled
-    // matrices. Trace tolerances reflect Burn's actual delivered
-    // precision; once #5 lands the upload fix, tighten these back to
-    // ~1e-12 to match the fixture's intrinsic tolerance.
     eigvals_abs: 5.0e-5,
     trace_abs: 1.0e-5,
 };
@@ -79,12 +58,18 @@ const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
     trace_abs: 1.0e-3,
 };
 
-fn active_tolerances() -> BackendTolerances {
-    let info = geode_core::backend::device_info();
-    if info.backend == "ndarray" {
-        NDARRAY_F64_TOLERANCES
-    } else {
-        GPU_F32_TOLERANCES
+impl BackendTolerances {
+    /// Tolerance envelope for the active backend device, selected by the
+    /// device's float dtype.
+    fn for_device<B: Backend>(device: &B::Device) -> Self {
+        device_tolerances::<B, BackendTolerances>(
+            device,
+            &[
+                ("", DType::F64, NDARRAY_F64_TOLERANCES),
+                ("", DType::F32, GPU_F32_TOLERANCES),
+            ],
+        )
+        .expect("a tolerance case must match the active backend dtype")
     }
 }
 
@@ -92,21 +77,8 @@ fn active_tolerances() -> BackendTolerances {
 // Fixture path
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find a `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/cube_cavity/jax_baseline.json")
+    geode_validation::fixture_path("cube_cavity/jax_baseline.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -266,10 +238,11 @@ fn burn_cube_cavity_agrees_with_jax_baseline() {
     actual.insert("k_diag_sum".to_string(), vec![trk]);
     actual.insert("m_diag_sum".to_string(), vec![trm]);
 
-    let tol = active_tolerances();
+    let device = <B as BackendTypes>::Device::default();
+    let tol = BackendTolerances::for_device::<B>(&device);
     eprintln!(
         "backend = {}, eigvals_abs_tol = {:.0e}, trace_abs_tol = {:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.eigvals_abs,
         tol.trace_abs
     );

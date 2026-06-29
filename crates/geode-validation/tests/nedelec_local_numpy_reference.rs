@@ -47,14 +47,15 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use burn::prelude::Backend;
 use burn::tensor::backend::BackendTypes;
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{DType, Tensor, TensorData};
 
-use geode_core::backend::DefaultBackend;
 use geode_core::elements::nedelec::batched_nedelec_local_matrices;
+use geode_core::testing::{TestBackend, device_tolerances};
 use geode_validation::{Fixture, FixtureFormat};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 // ---------------------------------------------------------------------------
 // Tolerances (backend-aware, mirrors p1_local_numpy_reference.rs)
@@ -66,24 +67,32 @@ struct MixedTol {
     abs: f64,
 }
 
-/// Backend-aware tolerances — read the active Burn backend at runtime
-/// rather than `cfg(feature = …)` so the geode-validation crate doesn't
-/// need to mirror geode-core's feature flags.
+/// Backend-aware tolerances, selected by the device's float dtype.
 fn active_tolerances() -> MixedTol {
-    let info = geode_core::backend::device_info();
-    if info.backend == "ndarray" {
-        // f64 path — issue #117 acceptance criterion.
-        MixedTol {
-            rel: 1.0e-10,
-            abs: 1.0e-12,
-        }
-    } else {
-        // f32 GPU path — looser bound per #88 dtype-honesty friction.
-        MixedTol {
-            rel: 5.0e-5,
-            abs: 1.0e-6,
-        }
-    }
+    device_tolerances::<B, MixedTol>(
+        &device(),
+        &[
+            // f64 path — issue #117 acceptance criterion.
+            (
+                "",
+                DType::F64,
+                MixedTol {
+                    rel: 1.0e-10,
+                    abs: 1.0e-12,
+                },
+            ),
+            // f32 GPU path — looser bound per #88 dtype-honesty friction.
+            (
+                "",
+                DType::F32,
+                MixedTol {
+                    rel: 5.0e-5,
+                    abs: 1.0e-6,
+                },
+            ),
+        ],
+    )
+    .expect("a tolerance case must match the active backend dtype")
 }
 
 /// Mixed absolute/relative tolerance check with an optional per-field
@@ -125,21 +134,8 @@ fn check_close(
 // Fixture discovery + path helpers
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find a `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn fixture_dir() -> PathBuf {
-    repo_root().join("reference/fixtures/nedelec_local")
+    geode_validation::fixture_path("nedelec_local")
 }
 
 fn fixture_path(case: &str) -> PathBuf {
@@ -164,12 +160,19 @@ fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
 }
 
+/// True when the active backend stores floats as f64 (ndarray / wgpu<f64>
+/// / metal<f64>); false for f32 backends (e.g. cuda). Replaces the former
+/// `device_info().backend == "ndarray"` name check, which is wrong now
+/// that the default test backend is f64 regardless of vendor.
+fn device_is_f64() -> bool {
+    Tensor::<B, 1>::zeros([0], &device()).dtype() == DType::F64
+}
+
 /// Build a `[1, 4, 3]` Burn tensor of the backend's float type from a
 /// single tet's vertex array (flat `Vec<f64>` of length 12, row-major).
 fn coords_tensor(vertices_flat: &[f64]) -> Tensor<B, 3> {
     assert_eq!(vertices_flat.len(), 12, "expected 12 f64 entries (1 tet)");
-    let info = geode_core::backend::device_info();
-    if info.backend == "ndarray" {
+    if device_is_f64() {
         let data = TensorData::new(vertices_flat.to_vec(), [1, 4, 3]);
         Tensor::<B, 3>::from_data(data, &device())
     } else {
@@ -182,9 +185,8 @@ fn coords_tensor(vertices_flat: &[f64]) -> Tensor<B, 3> {
 /// Read a tensor of arbitrary rank back into a flat `Vec<f64>`, upcasting
 /// the f32 path at readback so comparisons happen in f64 space.
 fn tensor_to_vec_f64<const D: usize>(t: Tensor<B, D>) -> Vec<f64> {
-    let info = geode_core::backend::device_info();
     let data = t.into_data();
-    if info.backend == "ndarray" {
+    if device_is_f64() {
         data.to_vec::<f64>().expect("readback f64")
     } else {
         data.to_vec::<f32>()
@@ -346,8 +348,8 @@ fn case_skipped_on_f32(case: &str) -> bool {
 #[test]
 fn burn_agrees_with_numpy_baseline_on_all_nedelec_local_cases() {
     let tol = active_tolerances();
-    let backend = geode_core::backend::device_info().backend;
-    let is_f64_path = backend == "ndarray";
+    let backend = B::name(&device());
+    let is_f64_path = device_is_f64();
     eprintln!(
         "nedelec_local test: backend = {backend}, rel_tol = {:.0e}, abs_tol = {:.0e}",
         tol.rel, tol.abs

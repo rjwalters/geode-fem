@@ -31,21 +31,8 @@ use geode_validation::{Complex64, Fixture, FixtureFormat};
 /// Walk up from `CARGO_MANIFEST_DIR` to find the repo root (the
 /// directory that contains `reference/`). Mirrors the helper in
 /// `tests/smoke.rs`.
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find a `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn sphere_pml_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pml/baseline.json")
+    geode_validation::fixture_path("sphere_pml/baseline.json")
 }
 
 #[test]

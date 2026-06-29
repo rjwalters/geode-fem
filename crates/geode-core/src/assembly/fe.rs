@@ -122,16 +122,16 @@ pub struct FeAssembleResult {
 /// ```rust,no_run
 /// use geode_core::mesh::cube_tet_mesh;
 /// use geode_core::eigen::dense::cube_interior_mask;
-/// use geode_core::backend::DefaultBackend;
+/// use geode_core::testing::TestBackend;
 /// use geode_core::assembly::fe::{fe_assemble, DirichletBc, ElementType};
 /// use burn::tensor::backend::BackendTypes;
 ///
 /// let mesh = cube_tet_mesh(3, 1.0);
 /// let mask = cube_interior_mask(&mesh.nodes, 1.0);
 /// let bc   = DirichletBc { interior_mask: mask };
-/// let dev  = <DefaultBackend as BackendTypes>::Device::default();
+/// let dev  = <TestBackend as BackendTypes>::Device::default();
 ///
-/// let result = fe_assemble::<DefaultBackend>(ElementType::P1, &mesh, &bc, &dev)
+/// let result = fe_assemble::<TestBackend>(ElementType::P1, &mesh, &bc, &dev)
 ///     .expect("assembly failed");
 ///
 /// assert!(result.k_int.nrows() > 0, "interior system must be non-empty");

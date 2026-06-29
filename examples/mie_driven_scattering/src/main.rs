@@ -64,7 +64,7 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
 use clap::Parser;
 use geode_app::{App, Verbosity};
@@ -168,36 +168,19 @@ fn run_one(fixture: &SphereFixture, ka: f64) -> Row {
     }
 }
 
-fn current_commit() -> String {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
 fn results_path(choice: FixtureChoice) -> PathBuf {
     let file = match choice {
         FixtureChoice::Coarse => "driven_results.toml",
         FixtureChoice::Fine => "driven_results_fine.toml",
     };
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
+    geode_validation::repo_root()
         .join("benchmarks")
         .join("mie_sphere")
         .join(file)
 }
 
 fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice) {
-    let commit = current_commit();
+    let commit = geode_validation::current_commit();
     let max_ext = rows.iter().map(|r| r.rel_err_q_ext).fold(0.0_f64, f64::max);
     let max_sca = rows.iter().map(|r| r.rel_err_q_sca).fold(0.0_f64, f64::max);
 

@@ -8,12 +8,17 @@ rust-version.workspace = true
 description = "GEODE-FEM solver primitives: tensor ops over Burn."
 
 [dependencies]
-burn = { workspace = true }
+burn = { workspace = true, features = ["ndarray"] }
+
 # `sparse-linalg` is added on top of the workspace base feature set
 # (`std`, `linalg`) for the sparse shift-invert Lanczos eigensolver.
 faer = { workspace = true, features = ["sparse-linalg"] }
 mshio = { workspace = true }
 thiserror = { workspace = true }
+# Backend-name matching for `testing::device_tolerances` (find/`is_match`
+# semantics over `Backend::name`). Only pulled in under the `testing`
+# feature; not part of the default solver build.
+regex = { workspace = true, optional = true }
 # Parses the [oracles.palace] block of the benchmark results TOMLs in
 # `src/palace.rs` (issue #239 — operator-assisted Palace 3D oracle
 # scaffolding). Same major as the existing dev-dep usage in the
@@ -32,6 +37,7 @@ pkg-config = { workspace = true, optional = true }
 
 [features]
 default = ["wgpu"]
+
 wgpu = ["burn/wgpu"]
 cuda = ["burn/cuda"]
 # Apple-GPU backend — opt-in, local-only (Apple platforms). `burn::backend::Metal`
@@ -40,12 +46,6 @@ cuda = ["burn/cuda"]
 # exclusive with `wgpu` and `cuda`. Not exercised on CI (no Apple runner); verify
 # locally with `cargo run --bin geode --no-default-features --features metal`.
 metal = ["burn/metal"]
-# CPU (ndarray) backend — opt-in, headless. Used by CI (no Vulkan/CUDA
-# adapter on the runner) to exercise the `arpack` acceptance test against
-# a real backend. Locally the `wgpu` default still wins. `DefaultBackend`
-# resolves to `NdArray<f64>` so the f64 ARPACK driver keeps full
-# double-precision parity with the dense oracle (1e-6 bound).
-ndarray = ["burn/ndarray"]
 # Autodiff backend wrapper — opt-in (gradient tests / inverse design).
 autodiff = ["burn/autodiff"]
 # Enable the ARPACK-backed sparse eigensolver. Off by default — the
@@ -57,6 +57,8 @@ autodiff = ["burn/autodiff"]
 # README §System dependencies.
 arpack = ["dep:pkg-config"]
 
+testing = ["dep:regex"]
+
 [dev-dependencies]
 # Self-reference to enable the `autodiff` feature for the gradient tests
 # (tests/assembly.rs, tests/nedelec.rs, benches/assembly_p1.rs).
@@ -65,7 +67,7 @@ arpack = ["dep:pkg-config"]
 # build, defeating `--no-default-features` and pulling wgpu onto the
 # headless CI runner. The backend now comes solely from the top-level
 # feature selection (wgpu by default, or ndarray on CI).
-geode-core = { path = ".", default-features = false, features = ["autodiff"] }
+geode-core = { path = ".", default-features = false, features = ["testing", "autodiff"] }
 # Read regression-fixture TOML in `tests/cube_convergence_regression.rs`.
 toml = { workspace = true }
 # Performance benchmark harness (issue #50). Each `[[bench]]` below opts

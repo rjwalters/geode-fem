@@ -51,7 +51,6 @@ use faer::c64;
 
 use geode_core::analytic::mie::mie_efficiencies;
 use geode_core::assembly::nedelec::sphere_pec_interior_edges;
-use geode_core::backend::DefaultBackend;
 use geode_core::driven::scattering::{
     build_matched_upml_materials, extinction_power, mie_polarization_source,
     plane_wave_polarization_current, q_from_power, scattered_flux_power,
@@ -61,6 +60,7 @@ use geode_core::driven::solve::{
     DrivenBcs, DrivenMaterials, QuadCurrentSource, driven_solve, driven_solve_quad,
 };
 use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, R_PML_INNER, R_SPHERE};
+use geode_core::testing::TestBackend;
 
 const N_INSIDE: f64 = 1.5;
 const SIGMA_0: f64 = 25.0;
@@ -197,7 +197,7 @@ fn driven_mie_efficiencies_match_analytic_series() {
 #[test]
 fn matched_upml_sigma_zero_reduces_to_driven_solve() {
     use burn::tensor::backend::BackendTypes;
-    type B = DefaultBackend;
+    type B = TestBackend;
 
     let fixture = geode_core::mesh::read_sphere_fixture().expect("bundled sphere fixture");
     let mesh = &fixture.mesh;
@@ -287,7 +287,7 @@ fn matched_upml_sigma_zero_reduces_to_driven_solve() {
 #[test]
 fn matched_upml_burn_path_matches_host_oracle() {
     use burn::tensor::backend::BackendTypes;
-    type B = DefaultBackend;
+    type B = TestBackend;
 
     let fixture = geode_core::mesh::read_sphere_fixture().expect("bundled sphere fixture");
     let mesh = &fixture.mesh;
@@ -375,7 +375,7 @@ fn matched_upml_burn_path_matches_host_oracle() {
 #[test]
 fn burn_matched_upml_reproduces_benchmark_accuracy() {
     use burn::tensor::backend::BackendTypes;
-    type B = DefaultBackend;
+    type B = TestBackend;
 
     // Pinned maxima from benchmarks/mie_sphere/driven_results.toml
     // (host matched-UPML path, σ₀ = 25).

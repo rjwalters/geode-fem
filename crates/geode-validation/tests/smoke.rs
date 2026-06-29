@@ -24,21 +24,8 @@ use geode_validation::{Fixture, FixtureFormat};
 /// directory that contains `reference/`). Worktrees place the crate
 /// at `.loom/worktrees/issue-N/crates/geode-validation/`, so the
 /// number of `..` hops isn't fixed.
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find a `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn smoke_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/p1_reference_tet/local_stiffness.json")
+    geode_validation::fixture_path("p1_reference_tet/local_stiffness.json")
 }
 
 /// Hand-coded "Rust implementation" of the P1 reference-tet local

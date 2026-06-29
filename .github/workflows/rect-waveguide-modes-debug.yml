@@ -55,7 +55,7 @@ on:
 
 jobs:
   rect-waveguide-modes-debug:
-    name: cargo test rect_waveguide_modes (debug, ndarray)
+    name: cargo test rect_waveguide_modes (debug)
     runs-on: ubuntu-latest
     # Debug-profile build + modal eigensolver test. A 30-min cap bounds
     # queue-wait while leaving room for a cold dependency build (issue
@@ -96,6 +96,6 @@ jobs:
       # panic and surface the regression on the next push.
       - name: cargo test -p geode-core --test rect_waveguide_modes (debug)
         run: |
-          cargo test --no-default-features --features geode-core/ndarray \
+          cargo test --no-default-features \
             -p geode-core --test rect_waveguide_modes \
             -- --nocapture

@@ -40,12 +40,12 @@ use geode_core::assembly::nedelec::{
     sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii, tet_centroids,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, R_SPHERE, read_sphere_fixture};
+use geode_core::testing::TestBackend;
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()

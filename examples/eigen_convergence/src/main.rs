@@ -9,13 +9,11 @@ use burn::tensor::backend::BackendTypes;
 use clap::Parser;
 use geode_app::{App, Verbosity};
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::backend::DefaultBackend;
 use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
 use geode_core::mesh::cube_tet_mesh;
-
-type B = DefaultBackend;
+use geode_core::testing::TestBackend;
 
 /// Ground-mode convergence probe for the unit-cube Dirichlet Laplacian.
 #[derive(Parser)]
@@ -30,6 +28,9 @@ struct Args {
 
 impl App for Args {
     fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        // Pin the backend here, at the entry point; everything below is
+        // expressed against `B` so the choice stays a top-level injection.
+        type B = TestBackend;
         let device = <B as BackendTypes>::Device::default();
         let analytic = 3.0 * std::f64::consts::PI.powi(2);
 

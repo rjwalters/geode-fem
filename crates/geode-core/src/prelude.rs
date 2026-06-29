@@ -1,7 +1,7 @@
 //! Common imports for geode-core: `use geode_core::prelude::*;`.
 //!
 //! Re-exports from the canonical module paths (`crate::analytic`,
-//! `crate::assembly`, `crate::backend`, `crate::derham`, `crate::driven`,
+//! `crate::assembly`, `crate::derham`, `crate::driven`,
 //! `crate::eigen` (including `eigen::self_consistent`), `crate::elements`,
 //! `crate::interop`, `crate::mesh`, `crate::postproc`, `crate::solver`,
 //! `crate::traits`) — never a flat-root path — so glob-importing the
@@ -21,7 +21,6 @@ pub use crate::assembly::fe::{DirichletBc, ElementType, FeAssembleResult, fe_ass
 pub use crate::assembly::nedelec::assemble_global_nedelec;
 pub use crate::assembly::p1::{GlobalSystem, assemble_global_p1};
 pub use crate::assembly::sparse::{SparseSystem, global_system_to_sparse};
-pub use crate::backend::{DefaultBackend, DeviceInfo, device_info, smoke_add};
 pub use crate::derham::{curl_map, divergence_map, gradient_map};
 pub use crate::driven::extraction::{SMatrix, s_parameter_frequency_sweep};
 pub use crate::driven::ports::{LumpedPort, PortMode, WavePort};

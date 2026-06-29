@@ -14,16 +14,12 @@ pub mod elements;
 pub mod interop;
 pub mod mesh;
 pub mod postproc;
-pub mod solver;
-
-// `backend` is declared UNCONDITIONALLY (never `#[cfg]`-gated): it owns the
-// two `compile_error!` guards and both `std::cfg_select!` cascades, so the
-// compiler must always evaluate it for the "no backend selected" guard to
-// fire. The `#[cfg(feature = ...)]` predicates inside resolve identically
-// from a submodule, so the guards fire exactly as before.
-pub mod backend;
 pub mod prelude;
+pub mod solver;
 pub mod traits;
+
+#[cfg(feature = "testing")]
+pub mod testing;
 
 // Core traits stay reachable at the crate root WITHOUT deprecation (epic
 // #377 open-question 1): they are the crate's conceptual entry point and

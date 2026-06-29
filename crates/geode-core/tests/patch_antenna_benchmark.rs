@@ -22,11 +22,11 @@
 
 use faer::c64;
 
-use geode_core::backend::DefaultBackend;
 use geode_core::driven::extraction::{SweepPoint, driven_frequency_sweep};
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials};
 use geode_core::mesh::patch::FR4_MATERIALS;
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_smoke_fixture};
+use geode_core::testing::TestBackend;
 
 /// Free-space impedance η₀ (Ω).
 const ETA_0: f64 = 376.730_313_668;
@@ -49,9 +49,8 @@ fn ghz_to_omega(f_ghz: f64) -> f64 {
 /// Run one matched-UPML, PEC-conductor, port-driven solve on the smoke
 /// fixture at the given frequency.
 fn solve(fixture: &PatchFixture, f_ghz: f64) -> SweepPoint {
-    use burn::tensor::backend::BackendTypes;
-    type B = DefaultBackend;
-    let device = <B as BackendTypes>::Device::default();
+    type B = TestBackend;
+    let device = Default::default();
 
     let omega = ghz_to_omega(f_ghz);
 

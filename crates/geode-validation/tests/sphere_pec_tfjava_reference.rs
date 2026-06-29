@@ -50,6 +50,8 @@
 
 use std::path::PathBuf;
 
+use burn::prelude::Backend;
+use burn::tensor::DType;
 use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::mat::MatRef;
@@ -59,31 +61,23 @@ use geode_core::assembly::nedelec::{
     sphere_pec_node_interior_mask, spurious_dim_from_derham,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
+use geode_core::testing::{TestBackend, device_tolerances};
 use geode_validation::{Fixture, FixtureFormat};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
-// ---------------------------------------------------------------------------
-// Tolerances
-// ---------------------------------------------------------------------------
-
-/// TF-Java uses f64 static-graph assembly; numerical properties are the same
-/// as NumPy (both are f64 CPU paths). The main uncertainty is that scatterNd
-/// in TF-Java may accumulate floating-point additions in a different order
-/// than scipy's COO->CSR path, giving ~1e-10 absolute Frobenius norm drift.
-/// We set frobenius_rel = 1e-4 (matching the Julia tolerance) as a
-/// conservative bound.
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 struct BackendTolerances {
     /// Relative tolerance on K_int / M_int Frobenius norms.
     frobenius_rel: f64,
     /// Per-entry absolute tolerance on K_int / M_int diagonals.
     diagonal_abs: f64,
-    /// Absolute tolerance on the full lowest-spectrum slice.
+    /// Absolute tolerance on the full lowest-spectrum slice. Retained for
+    /// parity with the f64/f32 case tables; the spectrum gate currently
+    /// asserts via `eigenvalue_rel`, so this field is not read directly.
+    #[allow(dead_code)]
     spectrum_abs: f64,
     /// Relative tolerance on the lowest 5 physical eigenvalues (Epic #88 AC).
     eigenvalue_rel: f64,
@@ -107,12 +101,18 @@ const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
     symmetry_abs: 1e-6,
 };
 
-fn active_backend_tolerances() -> BackendTolerances {
-    let info = geode_core::backend::device_info();
-    if info.backend == "ndarray" {
-        NDARRAY_F64_TOLERANCES
-    } else {
-        GPU_F32_TOLERANCES
+impl BackendTolerances {
+    /// Tolerance envelope for the active backend device, selected by the
+    /// device's float dtype.
+    fn for_device<B: Backend>(device: &B::Device) -> Self {
+        device_tolerances::<B, BackendTolerances>(
+            device,
+            &[
+                ("", DType::F64, NDARRAY_F64_TOLERANCES),
+                ("", DType::F32, GPU_F32_TOLERANCES),
+            ],
+        )
+        .expect("a tolerance case must match the active backend dtype")
     }
 }
 
@@ -120,25 +120,12 @@ fn active_backend_tolerances() -> BackendTolerances {
 // Fixture paths
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn tfjava_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pec/tfjava_sidecar.json")
+    geode_validation::fixture_path("sphere_pec/tfjava_sidecar.json")
 }
 
 fn numpy_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pec/baseline.json")
+    geode_validation::fixture_path("sphere_pec/baseline.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -333,11 +320,12 @@ fn sphere_pec_tfjava_assembly_agrees_with_numpy_baseline() {
     let numpy_fixture = Fixture::load_from(&numpy_fixture_path(), FixtureFormat::Json)
         .expect("baseline.json should load");
     let burn = run_burn_pipeline();
-    let tol = active_backend_tolerances();
+    let device = <B as BackendTypes>::Device::default();
+    let tol = BackendTolerances::for_device::<B>(&device);
 
     eprintln!(
         "sphere_pec_tfjava assembly: backend={}, frobenius_rel={:.0e}, diagonal_abs={:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.frobenius_rel,
         tol.diagonal_abs,
     );
@@ -447,11 +435,12 @@ fn sphere_pec_tfjava_spectrum_agrees() {
     let numpy_fixture = Fixture::load_from(&numpy_fixture_path(), FixtureFormat::Json)
         .expect("baseline.json should load");
     let burn = run_burn_pipeline();
-    let tol = active_backend_tolerances();
+    let device = <B as BackendTypes>::Device::default();
+    let tol = BackendTolerances::for_device::<B>(&device);
 
     eprintln!(
         "sphere_pec_tfjava spectrum: backend={}, eigenvalue_rel={:.0e}",
-        geode_core::backend::device_info().backend,
+        B::name(&device),
         tol.eigenvalue_rel,
     );
 

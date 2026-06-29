@@ -102,8 +102,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
+use burn::prelude::Backend;
 use burn::tensor::backend::BackendTypes;
 use clap::Parser;
 use faer::sparse::{SparseColMat, Triplet};
@@ -118,7 +119,6 @@ use geode_core::assembly::nedelec::{
     sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroid_radii, tet_centroids,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
 use geode_core::driven::scattering::{
     plane_wave_polarization_current, solve_scattered_field_matched_upml,
 };
@@ -128,9 +128,8 @@ use geode_core::eigen::complex::{
 };
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, R_SPHERE, read_sphere_fixture};
+use geode_core::testing::TestBackend;
 use geode_examples_support::edge_field_to_nodes;
-
-type B = DefaultBackend;
 
 /// Refractive index inside the sphere. n=1.5 is the textbook
 /// B&H dielectric test case.
@@ -224,29 +223,12 @@ fn pol_str(pol: MiePolarisation) -> &'static str {
     }
 }
 
-fn current_commit() -> String {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
 fn results_path() -> PathBuf {
     // `examples/mie_sphere/src/main.rs` → `CARGO_MANIFEST_DIR` is
     // `examples/mie_sphere`; walk up 2 levels to the workspace root, then
     // into `benchmarks/mie_sphere/` (same level count as the old
     // `crates/geode-core` manifest dir).
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
+    geode_validation::repo_root()
         .join("benchmarks")
         .join("mie_sphere")
         .join("results.toml")
@@ -263,9 +245,12 @@ fn results_path() -> PathBuf {
 /// scalar-isotropic complex ε (16% rel err ceiling, issue #52),
 /// `false` (default) uses the anisotropic-UPML diagonal complex
 /// tensor (~6% rel err on TM_1,1, issue #54).
-fn fem_complex_k(use_dense: bool, scalar_pml: bool, n_modes: usize) -> Vec<faer::c64> {
-    let device = <B as BackendTypes>::Device::default();
-
+fn fem_complex_k<B: Backend>(
+    device: &B::Device,
+    use_dense: bool,
+    scalar_pml: bool,
+    n_modes: usize,
+) -> Vec<faer::c64> {
     let f = read_sphere_fixture().expect("fixture load");
     eprintln!(
         "sphere fixture: {} nodes, {} tets, {} boundary triangles",
@@ -286,7 +271,7 @@ fn fem_complex_k(use_dense: bool, scalar_pml: bool, n_modes: usize) -> Vec<faer:
         .map(|row| std::array::from_fn(|i| row[i].1))
         .collect();
 
-    let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device);
+    let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, device);
     let sys = if scalar_pml {
         let radii = tet_centroid_radii(&f.mesh);
         let eps_complex =
@@ -616,7 +601,7 @@ fn print_table(rows: &[Row]) {
 }
 
 fn write_toml(rows: &[Row], path: &PathBuf, scalar_pml: bool, n_modes: usize) {
-    let commit = current_commit();
+    let commit = geode_validation::current_commit();
     let pml_kind = if scalar_pml { "scalar" } else { "anisotropic" };
 
     let mut s = String::new();
@@ -700,10 +685,7 @@ const EXPORT_SIGMA_0: f64 = 25.0;
 /// `out_dir` is the resolved (already-created) artifact directory from
 /// [`geode_app::OutputDir`]. Independent of the eigenmode benchmark —
 /// does not write `results.toml`.
-fn export_field(out_dir: &Path) {
-    use burn::tensor::backend::BackendTypes;
-    let _device = <B as BackendTypes>::Device::default();
-
+fn export_field<B: Backend>(_device: &B::Device, out_dir: &Path) {
     let f = read_sphere_fixture().expect("sphere fixture load for --export-field");
     let omega = EXPORT_KA / R_SPHERE;
     eprintln!(
@@ -803,11 +785,14 @@ struct Args {
 
 impl App for Args {
     fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        type B = TestBackend;
+        let device = <B as BackendTypes>::Device::default();
+
         // Opt-in field export (issue #287). Short-circuits the eigenmode
         // benchmark so a normal run produces an unchanged `results.toml`.
         if self.export_field {
             let dir = self.out.resolve()?;
-            export_field(&dir);
+            export_field::<B>(&device, &dir);
             return Ok(());
         }
 
@@ -869,7 +854,7 @@ impl App for Args {
         // FEM eigensolve.
         eprintln!();
         eprintln!("=== FEM eigensolve ===");
-        let fem_k = fem_complex_k(use_dense, scalar_pml, n_modes);
+        let fem_k = fem_complex_k::<B>(&device, use_dense, scalar_pml, n_modes);
         eprintln!("Lowest {} physical FEM modes (k = sqrt(λ)):", fem_k.len());
         for (i, k) in fem_k.iter().enumerate() {
             eprintln!("  mode[{i}]  k = {:.5} + {:.5e}i", k.re, k.im);

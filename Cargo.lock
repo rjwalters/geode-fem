@@ -2292,6 +2292,7 @@ version = "0.2.0"
 dependencies = [
  "clap",
  "geode-app",
+ "geode-validation",
  "serde",
  "serde_json",
 ]
@@ -2653,14 +2654,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "geode-cli"
-version = "0.2.0"
-dependencies = [
- "clap",
- "geode-core",
-]
-
-[[package]]
 name = "geode-core"
 version = "0.2.0"
 dependencies = [
@@ -2670,6 +2663,7 @@ dependencies = [
  "geode-core",
  "mshio",
  "pkg-config",
+ "regex",
  "serde_json",
  "thiserror 2.0.18",
  "toml 0.8.23",
@@ -3594,6 +3588,7 @@ dependencies = [
  "clap",
  "geode-app",
  "geode-core",
+ "geode-validation",
 ]
 
 [[package]]
@@ -3605,6 +3600,7 @@ dependencies = [
  "faer",
  "geode-app",
  "geode-core",
+ "geode-validation",
 ]
 
 [[package]]
@@ -3617,6 +3613,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-examples-support",
+ "geode-validation",
 ]
 
 [[package]]
@@ -4270,6 +4267,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-examples-support",
+ "geode-validation",
 ]
 
 [[package]]
@@ -4835,6 +4833,7 @@ dependencies = [
  "clap",
  "geode-app",
  "geode-core",
+ "geode-validation",
 ]
 
 [[package]]
@@ -5238,6 +5237,7 @@ dependencies = [
  "faer",
  "geode-app",
  "geode-core",
+ "geode-validation",
 ]
 
 [[package]]
@@ -5285,6 +5285,7 @@ dependencies = [
  "clap",
  "geode-app",
  "geode-core",
+ "geode-validation",
 ]
 
 [[package]]
@@ -5307,6 +5308,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-examples-support",
+ "geode-validation",
 ]
 
 [[package]]
@@ -5355,6 +5357,7 @@ dependencies = [
  "clap",
  "geode-app",
  "geode-core",
+ "geode-validation",
 ]
 
 [[package]]

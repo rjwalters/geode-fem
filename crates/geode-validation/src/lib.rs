@@ -56,11 +56,13 @@
 
 pub mod diff;
 pub mod fixture;
+pub mod repo;
 
 pub use diff::{ComparisonReport, FieldDiff};
 pub use fixture::{
     Field, Fixture, FixtureError, FixtureFormat, GoldenC128, GoldenF64, OutputField, Provenance,
 };
+pub use repo::{current_commit, fixture_path, repo_root};
 
 // Re-export the complex scalar type so downstream tests don't need to
 // pin the `num-complex` major version independently.

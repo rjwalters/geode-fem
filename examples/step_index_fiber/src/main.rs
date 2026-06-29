@@ -109,7 +109,7 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
 use clap::Parser;
 use geode_app::{App, Verbosity};
@@ -300,25 +300,8 @@ fn sigma_robustness(res: (usize, usize)) -> Vec<(f64, f64)> {
     out
 }
 
-fn current_commit() -> String {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
 fn results_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
+    geode_validation::repo_root()
         .join("benchmarks")
         .join("step_index_fiber")
         .join("results.toml")
@@ -343,7 +326,7 @@ fn write_toml(
     oracle11: Option<f64>,
     sigma_rob: &[(f64, f64)],
 ) {
-    let commit = current_commit();
+    let commit = geode_validation::current_commit();
     let k0 = k0();
     let v = v_number(N_CORE, N_CLAD, A_UM, k0);
     let na_aperture = (N_CORE * N_CORE - N_CLAD * N_CLAD).sqrt();

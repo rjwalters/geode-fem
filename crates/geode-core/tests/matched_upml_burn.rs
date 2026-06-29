@@ -33,7 +33,6 @@ use geode_core::assembly::nedelec::{
     cube_pec_interior_edges, tet_centroids,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
 use geode_core::driven::scattering::build_matched_upml_materials;
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, driven_solve,
@@ -42,8 +41,9 @@ use geode_core::mesh::{
     PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR, PHYS_VACUUM_GAP, R_PML_INNER, R_SPHERE, TetMesh,
     cube_tet_mesh,
 };
+use geode_core::testing::TestBackend;
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()

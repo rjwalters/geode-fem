@@ -83,15 +83,15 @@ use geode_core::assembly::nedelec::{
     burn_complex_mass_to_faer, sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroids,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::backend::DefaultBackend;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{
     R_BUFFER, R_SPHERE, SphereFixture, read_sphere_fixture, read_sphere_fixture_from_bytes,
 };
+use geode_core::testing::TestBackend;
 use geode_validation::{Fixture, FixtureFormat};
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 /// Q-factor lower band for the TM_1,1 triplet — mirror of
 /// `Q_LOWER_BAND_TM11` in `crates/geode-core/tests/mie_sphere.rs`.
@@ -106,31 +106,18 @@ const TM11_REL_TOL: f64 = 0.08;
 // Fixture paths
 // ---------------------------------------------------------------------------
 
-fn repo_root() -> PathBuf {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest.ancestors() {
-        if ancestor.join("reference").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-    panic!(
-        "could not find a `reference/` directory walking up from {}",
-        manifest.display()
-    );
-}
-
 fn full_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_mie/baseline.json")
+    geode_validation::fixture_path("sphere_mie/baseline.json")
 }
 
 fn small_fixture_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_mie_small/baseline.json")
+    geode_validation::fixture_path("sphere_mie_small/baseline.json")
 }
 
 /// The small mesh is shared with the #158 sphere_pml_small fixture —
 /// not duplicated under sphere_mie_small/.
 fn small_mesh_path() -> PathBuf {
-    repo_root().join("reference/fixtures/sphere_pml_small/sphere.msh")
+    geode_validation::fixture_path("sphere_pml_small/sphere.msh")
 }
 
 fn load_small_sphere_fixture() -> SphereFixture {
@@ -368,7 +355,7 @@ fn sphere_mie_small_analytic_anchor_matches_mie_roots() {
 
     // And against the J.1 fixture directly.
     let j1 = Fixture::load_from(
-        &repo_root().join("reference/fixtures/mie_roots/baseline.json"),
+        &geode_validation::fixture_path("mie_roots/baseline.json"),
         FixtureFormat::Json,
     )
     .expect("mie_roots baseline.json should load");

@@ -31,11 +31,11 @@ use geode_core::assembly::nedelec::{
     build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml, sphere_pec_interior_edges,
     tet_centroid_radii, tet_centroids,
 };
-use geode_core::backend::DefaultBackend;
 use geode_core::driven::solve::{CurrentSource, DrivenBcs, DrivenMaterials, driven_solve};
 use geode_core::mesh::{R_BUFFER, R_PML_INNER, R_SPHERE, read_sphere_fixture};
+use geode_core::testing::TestBackend;
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()

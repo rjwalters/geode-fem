@@ -12,12 +12,12 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
 use geode_core::assembly::sparse::global_system_to_sparse;
-use geode_core::backend::DefaultBackend;
 use geode_core::eigen::dense::cube_interior_mask;
 use geode_core::eigen::lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 use geode_core::mesh::cube_tet_mesh;
+use geode_core::testing::TestBackend;
 
-type B = DefaultBackend;
+type B = TestBackend;
 
 struct SparsePencil {
     sys: geode_core::assembly::sparse::SparseSystem,
