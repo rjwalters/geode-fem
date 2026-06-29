@@ -117,10 +117,8 @@ fn run_burn_mie_pipeline(
         sigma_0,
         k0_ref,
     );
-    let epsilon_tensor_diag_flat: Vec<Complex64> = eps_aniso
-        .iter()
-        .flat_map(|row| row.iter().map(|c| Complex64::new(c.re, c.im)))
-        .collect();
+    let epsilon_tensor_diag_flat: Vec<Complex64> =
+        geode_util::convert::flatten_complex_rows(&eps_aniso);
 
     let edges = fixture.mesh.edges();
     let n_edges = edges.len();
@@ -453,10 +451,8 @@ fn jax_mie_small_spectrum_agrees_with_burn() {
             n_request,
         )
         .expect("Burn complex eigensolve on small Mie fixture");
-    let burn_eigvals: Vec<Complex64> = burn_eigvals_faer
-        .iter()
-        .map(|c| Complex64::new(c.re, c.im))
-        .collect();
+    let burn_eigvals: Vec<Complex64> =
+        geode_util::convert::complex_slice_to_vec(&burn_eigvals_faer);
 
     let golden_full = fixture
         .output_c128("eigenvalues_lowest_complex")

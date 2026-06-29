@@ -2684,6 +2684,7 @@ dependencies = [
  "burn",
  "faer",
  "geode-core",
+ "num-complex 0.4.6",
 ]
 
 [[package]]

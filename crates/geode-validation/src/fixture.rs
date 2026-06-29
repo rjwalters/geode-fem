@@ -278,18 +278,15 @@ impl Fixture {
             });
         }
         let flat = flatten_to_f64(&f.data);
-        let expected_re_im = 2 * f.shape.iter().product::<usize>();
-        if flat.len() != expected_re_im {
-            return Err(FixtureError::InvalidComplexLength {
+        let expected = f.shape.iter().product::<usize>();
+        // Real-imag interleave reassembly lives in `geode_util::interop`
+        // (Epic #414, Phase 2); the schema-level length error stays here.
+        let data = geode_util::interop::decode_real_imag_interleave_exact(&flat, expected)
+            .ok_or_else(|| FixtureError::InvalidComplexLength {
                 name: name.to_string(),
                 got: flat.len(),
-                expected: expected_re_im,
-            });
-        }
-        let data = flat
-            .chunks_exact(2)
-            .map(|c| Complex64::new(c[0], c[1]))
-            .collect();
+                expected: 2 * expected,
+            })?;
         Ok(GoldenC128 {
             name: key.as_str(),
             shape: &f.shape,
@@ -315,18 +312,15 @@ impl Fixture {
             });
         }
         let flat = flatten_to_f64(&f.data);
-        let expected_re_im = 2 * f.shape.iter().product::<usize>();
-        if flat.len() != expected_re_im {
-            return Err(FixtureError::InvalidComplexLength {
+        let expected = f.shape.iter().product::<usize>();
+        // Same interleave decode as `output_c128`, reading from `inputs`.
+        geode_util::interop::decode_real_imag_interleave_exact(&flat, expected).ok_or_else(|| {
+            FixtureError::InvalidComplexLength {
                 name: name.to_string(),
                 got: flat.len(),
-                expected: expected_re_im,
-            });
-        }
-        Ok(flat
-            .chunks_exact(2)
-            .map(|c| Complex64::new(c[0], c[1]))
-            .collect())
+                expected: 2 * expected,
+            }
+        })
     }
 }
 

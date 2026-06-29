@@ -19,6 +19,11 @@ burn = { workspace = true }
 # (that lives on geode-core's own reference). Used by the `convert` /
 # `math` / `viz` staging modules in later epic phases.
 faer = { workspace = true }
+# Complex scalar type for the `interop` / `convert` decoders. In faer 0.24
+# `faer::c64` is a re-export of `num_complex::Complex<f64>` (== `Complex64`),
+# so the `faer` → `num_complex` hand-off these helpers centralize is
+# zero-cost. Workspace base feature set (`std`) only.
+num-complex = { workspace = true }
 
 [lints.rust]
 unsafe_code = "forbid"
