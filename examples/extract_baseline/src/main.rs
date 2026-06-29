@@ -68,7 +68,7 @@ struct Row {
 /// `target/criterion` and `benchmarks/perf/baseline.toml` resolve to the
 /// identical repo paths as before the Epic #398 migration.
 fn workspace_root() -> PathBuf {
-    geode_validation::repo_root()
+    geode_util::repo::repo_root()
 }
 
 /// Walk `target/criterion` and collect every `new/estimates.json`.

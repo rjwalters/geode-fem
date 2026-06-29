@@ -2292,7 +2292,7 @@ version = "0.2.0"
 dependencies = [
  "clap",
  "geode-app",
- "geode-validation",
+ "geode-util",
  "serde",
  "serde_json",
 ]
@@ -2693,6 +2693,7 @@ dependencies = [
  "burn",
  "faer",
  "geode-core",
+ "geode-util",
  "num-complex 0.4.6",
  "serde",
  "serde_json",
@@ -3597,7 +3598,7 @@ dependencies = [
  "clap",
  "geode-app",
  "geode-core",
- "geode-validation",
+ "geode-util",
 ]
 
 [[package]]
@@ -3609,7 +3610,7 @@ dependencies = [
  "faer",
  "geode-app",
  "geode-core",
- "geode-validation",
+ "geode-util",
 ]
 
 [[package]]
@@ -3622,7 +3623,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-examples-support",
- "geode-validation",
+ "geode-util",
 ]
 
 [[package]]
@@ -4276,7 +4277,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-examples-support",
- "geode-validation",
+ "geode-util",
 ]
 
 [[package]]
@@ -4842,7 +4843,7 @@ dependencies = [
  "clap",
  "geode-app",
  "geode-core",
- "geode-validation",
+ "geode-util",
 ]
 
 [[package]]
@@ -5246,7 +5247,7 @@ dependencies = [
  "faer",
  "geode-app",
  "geode-core",
- "geode-validation",
+ "geode-util",
 ]
 
 [[package]]
@@ -5294,7 +5295,7 @@ dependencies = [
  "clap",
  "geode-app",
  "geode-core",
- "geode-validation",
+ "geode-util",
 ]
 
 [[package]]
@@ -5317,7 +5318,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-examples-support",
- "geode-validation",
+ "geode-util",
 ]
 
 [[package]]
@@ -5366,7 +5367,7 @@ dependencies = [
  "clap",
  "geode-app",
  "geode-core",
- "geode-validation",
+ "geode-util",
 ]
 
 [[package]]

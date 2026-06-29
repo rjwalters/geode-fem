@@ -8,6 +8,10 @@ rust-version.workspace = true
 description = "Cross-backend reference comparison harness for GEODE-FEM (Epic #88, Phase A)."
 
 [dependencies]
+# Repo-relative paths + git provenance (`repo_root` / `current_commit` /
+# `fixture_path`) live in `geode-util`; re-exported at this crate's root so
+# the reference-test suite keeps its existing call sites (Epic #414, Phase 2).
+geode-util = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

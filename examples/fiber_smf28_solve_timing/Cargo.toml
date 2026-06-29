@@ -19,7 +19,7 @@ geode-core = { workspace = true }
 # NOTE: this crate deliberately defines NO backend features. The Burn
 # backend (`wgpu` by default, or `ndarray` on headless CI) is selected by
 # geode-core's default features / the workspace `--features` flags at build
-# time, exactly like `geode-cli` and `geode-validation`.
+# time, exactly like `geode-cli`.
 
 [lints.rust]
 unsafe_code = "forbid"

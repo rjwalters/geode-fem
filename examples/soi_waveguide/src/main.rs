@@ -247,14 +247,14 @@ fn solve_buffer(nbuf: (usize, usize)) -> BufferResult {
 }
 
 fn results_path() -> PathBuf {
-    geode_validation::repo_root()
+    geode_util::repo::repo_root()
         .join("benchmarks")
         .join("soi_waveguide")
         .join("results.toml")
 }
 
 fn write_toml(results: &[BufferResult]) {
-    let commit = geode_validation::current_commit();
+    let commit = geode_util::repo::current_commit();
     let eim = eim_neff();
     let ceiling = index_ceiling();
     let k0 = k0();

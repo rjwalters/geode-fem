@@ -15,7 +15,7 @@ path = "src/main.rs"
 clap = { workspace = true }
 geode-app = { workspace = true }
 geode-core = { workspace = true, features = ["testing"] }
-geode-validation = { workspace = true }
+geode-util = { workspace = true }
 # `edge_field_to_nodes` for the `--export-field` Whitney edge-DOF → nodal E reconstruction.
 geode-examples-support = { workspace = true }
 # `BackendTypes` device handle for the driven frequency sweep + `--export-field` solve.
@@ -26,7 +26,7 @@ faer = { workspace = true }
 # NOTE: this crate deliberately defines NO backend features. The Burn
 # backend (`wgpu` by default, or `ndarray` on headless CI) is selected by
 # geode-core's default features / the workspace `--features` flags at build
-# time, exactly like `geode-cli` and `geode-validation`.
+# time, exactly like `geode-cli`.
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -173,14 +173,14 @@ fn results_path(choice: FixtureChoice) -> PathBuf {
         FixtureChoice::Coarse => "driven_results.toml",
         FixtureChoice::Fine => "driven_results_fine.toml",
     };
-    geode_validation::repo_root()
+    geode_util::repo::repo_root()
         .join("benchmarks")
         .join("mie_sphere")
         .join(file)
 }
 
 fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice) {
-    let commit = geode_validation::current_commit();
+    let commit = geode_util::repo::current_commit();
     let max_ext = rows.iter().map(|r| r.rel_err_q_ext).fold(0.0_f64, f64::max);
     let max_sca = rows.iter().map(|r| r.rel_err_q_sca).fold(0.0_f64, f64::max);
 

@@ -56,13 +56,15 @@
 
 pub mod diff;
 pub mod fixture;
-pub mod repo;
 
 pub use diff::{ComparisonReport, FieldDiff};
 pub use fixture::{
     Field, Fixture, FixtureError, FixtureFormat, GoldenC128, GoldenF64, OutputField, Provenance,
 };
-pub use repo::{current_commit, fixture_path, repo_root};
+// The repo/provenance helpers now live in `geode-util` (Epic #414, Phase 2).
+// Re-export them at the crate root so the existing reference-test suite keeps
+// calling `geode_validation::{repo_root, current_commit, fixture_path}`.
+pub use geode_util::repo::{current_commit, fixture_path, repo_root};
 
 // Re-export the complex scalar type so downstream tests don't need to
 // pin the `num-complex` major version independently.

@@ -228,7 +228,7 @@ fn results_path() -> PathBuf {
     // `examples/mie_sphere`; walk up 2 levels to the workspace root, then
     // into `benchmarks/mie_sphere/` (same level count as the old
     // `crates/geode-core` manifest dir).
-    geode_validation::repo_root()
+    geode_util::repo::repo_root()
         .join("benchmarks")
         .join("mie_sphere")
         .join("results.toml")
@@ -601,7 +601,7 @@ fn print_table(rows: &[Row]) {
 }
 
 fn write_toml(rows: &[Row], path: &PathBuf, scalar_pml: bool, n_modes: usize) {
-    let commit = geode_validation::current_commit();
+    let commit = geode_util::repo::current_commit();
     let pml_kind = if scalar_pml { "scalar" } else { "anisotropic" };
 
     let mut s = String::new();

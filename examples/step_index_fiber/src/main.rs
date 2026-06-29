@@ -301,7 +301,7 @@ fn sigma_robustness(res: (usize, usize)) -> Vec<(f64, f64)> {
 }
 
 fn results_path() -> PathBuf {
-    geode_validation::repo_root()
+    geode_util::repo::repo_root()
         .join("benchmarks")
         .join("step_index_fiber")
         .join("results.toml")
@@ -326,7 +326,7 @@ fn write_toml(
     oracle11: Option<f64>,
     sigma_rob: &[(f64, f64)],
 ) {
-    let commit = geode_validation::current_commit();
+    let commit = geode_util::repo::current_commit();
     let k0 = k0();
     let v = v_number(N_CORE, N_CLAD, A_UM, k0);
     let na_aperture = (N_CORE * N_CORE - N_CLAD * N_CLAD).sqrt();

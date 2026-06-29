@@ -304,7 +304,7 @@ fn pol_str(pol: MiePolarisation) -> &'static str {
 }
 
 fn results_path() -> PathBuf {
-    geode_validation::repo_root()
+    geode_util::repo::repo_root()
         .join("benchmarks")
         .join("mie_sphere")
         .join("open_results.toml")
@@ -328,7 +328,7 @@ fn write_results(rows: &[QuasiModeRow]) {
     );
     s.push_str(&format!(
         "generated_at_commit = \"{}\"\n",
-        geode_validation::current_commit()
+        geode_util::repo::current_commit()
     ));
     s.push_str("pml_kernel = \"matched_full_sacks\"\n");
     s.push_str(&format!("n_inside = {N_INSIDE}\n"));

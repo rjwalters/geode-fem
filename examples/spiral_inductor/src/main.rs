@@ -183,7 +183,7 @@ fn results_path(choice: FixtureChoice) -> PathBuf {
         FixtureChoice::Benchmark => "results.toml",
         FixtureChoice::Smoke => "results_smoke.toml",
     };
-    geode_validation::repo_root()
+    geode_util::repo::repo_root()
         .join("benchmarks")
         .join("spiral_inductor")
         .join(file)
@@ -271,7 +271,7 @@ fn run_sweep<B: Backend>(
 }
 
 fn write_toml(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Option<f64>) {
-    let commit = geode_validation::current_commit();
+    let commit = geode_util::repo::current_commit();
     let l_cs = mohan_current_sheet_l(&FIXTURE_SPIRAL) * 1.0e9;
     let l_mw = modified_wheeler_l(&FIXTURE_SPIRAL) * 1.0e9;
     let l_mono = monomial_fit_l(&FIXTURE_SPIRAL) * 1.0e9;
