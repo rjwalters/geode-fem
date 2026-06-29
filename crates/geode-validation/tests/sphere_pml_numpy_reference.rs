@@ -150,10 +150,8 @@ fn run_burn_pml_pipeline_from_fixture(
     // Convert faer::c64 → num_complex::Complex64 once for the
     // comparator (the on-disk encoding round-trips through
     // `Vec<Complex64>` via `Fixture::input_c128`).
-    let epsilon_r_complex: Vec<Complex64> = eps_complex_faer
-        .iter()
-        .map(|c| Complex64::new(c.re, c.im))
-        .collect();
+    let epsilon_r_complex: Vec<Complex64> =
+        geode_util::convert::complex_slice_to_vec(&eps_complex_faer);
 
     let edges = fixture.mesh.edges();
     let n_edges = edges.len();
@@ -371,10 +369,7 @@ fn sphere_pml_spectrum_agrees_with_numpy() {
             n_request,
         )
         .expect("Burn complex eigensolve");
-    let burn_eigvals: Vec<Complex64> = burn_eigvals_faer
-        .iter()
-        .map(|c| Complex64::new(c.re, c.im))
-        .collect();
+    let burn_eigvals: Vec<Complex64> = geode_util::convert::complex_slice_to_vec(&burn_eigvals_faer);
 
     // Compare against the NumPy baseline via the c128 comparator.
     let golden_full = fixture
@@ -782,10 +777,7 @@ fn sphere_pml_small_spectrum_agrees_with_numpy() {
         gevd_wall.as_secs_f64()
     );
 
-    let burn_eigvals: Vec<Complex64> = burn_eigvals_faer
-        .iter()
-        .map(|c| Complex64::new(c.re, c.im))
-        .collect();
+    let burn_eigvals: Vec<Complex64> = geode_util::convert::complex_slice_to_vec(&burn_eigvals_faer);
 
     // Compare against the NumPy baseline via the c128 comparator.
     let golden_full = fixture
