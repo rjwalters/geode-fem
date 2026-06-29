@@ -507,6 +507,89 @@ impl Fixture {
             }
         })
     }
+
+    // -----------------------------------------------------------------------
+    // Scalar / vector convenience accessors for reference-test drivers
+    //
+    // These panic on missing or malformed fields — they are deliberately
+    // ergonomic helpers for the reference-test suite (call sites read like
+    // `fixture.input_f64("side")`), not fallible library entry points. Use
+    // the field maps (`inputs`/`outputs`) or the `*_f64`/`*_c128` accessors
+    // directly when a non-panicking path is needed.
+    // -----------------------------------------------------------------------
+
+    /// Pull a scalar `f64` from an **input** field.
+    ///
+    /// The field's `data` is flattened through [`flatten_numeric`] (so a
+    /// bare number, a `[x]` array, or a nested singleton all work) and
+    /// asserted to hold exactly one value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the input field is missing or does not flatten to exactly
+    /// one numeric element.
+    pub fn input_f64(&self, name: &str) -> f64 {
+        let field = self
+            .inputs
+            .get(name)
+            .unwrap_or_else(|| panic!("fixture missing input `{name}`"));
+        let v = flatten_numeric(&field.data);
+        assert_eq!(
+            v.len(),
+            1,
+            "expected scalar input `{name}`, got len {}",
+            v.len()
+        );
+        v[0]
+    }
+
+    /// Pull a scalar `i64` from an **input** field.
+    ///
+    /// Identical to [`input_f64`](Self::input_f64) but truncates the
+    /// (integer-valued) scalar to `i64`. The v1 schema has no typed integer
+    /// accessor, so this round-trips through `f64`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the input field is missing or is not a single value.
+    pub fn input_i64(&self, name: &str) -> i64 {
+        self.input_f64(name) as i64
+    }
+
+    /// Pull a full **input** field as a flat row-major `Vec<f64>`,
+    /// flattening nested arrays through [`flatten_numeric`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the input field is missing.
+    pub fn input_vec(&self, name: &str) -> Vec<f64> {
+        let field = self
+            .inputs
+            .get(name)
+            .unwrap_or_else(|| panic!("fixture missing input `{name}`"));
+        flatten_numeric(&field.data)
+    }
+
+    /// Pull a scalar `f64` from an **output** (golden) field.
+    ///
+    /// Mirrors [`input_f64`](Self::input_f64) but reads from `outputs` via
+    /// [`output_f64`](Self::output_f64), preserving the input-vs-output
+    /// distinction.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the output field is missing or is not a single value.
+    pub fn output_scalar(&self, name: &str) -> f64 {
+        let golden = self
+            .output_f64(name)
+            .unwrap_or_else(|e| panic!("fixture missing scalar output `{name}`: {e}"));
+        assert_eq!(
+            golden.data.len(),
+            1,
+            "scalar output `{name}` should be length 1"
+        );
+        golden.data[0]
+    }
 }
 
 /// A golden output field flattened into f64 row-major.
@@ -758,5 +841,98 @@ q = 2.000e1
         assert_eq!(value_i64(&json!(u64::MAX)), None);
         assert_eq!(value_i64(&json!("7")), None);
         assert_eq!(value_i64(&json!(null)), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Scalar / vector convenience accessors
+    // -----------------------------------------------------------------------
+
+    /// Build a minimal in-memory [`Fixture`] from the given input and output
+    /// `data` JSON nodes (each declared `f64`), bypassing disk I/O.
+    fn scalar_fixture(
+        inputs: &[(&str, serde_json::Value)],
+        outputs: &[(&str, serde_json::Value)],
+    ) -> Fixture {
+        let to_input = |(name, data): &(&str, serde_json::Value)| {
+            (
+                name.to_string(),
+                json!({"shape": [1], "dtype": "f64", "data": data}),
+            )
+        };
+        let to_output = |(name, data): &(&str, serde_json::Value)| {
+            (
+                name.to_string(),
+                json!({"shape": [1], "dtype": "f64", "tolerance_abs": 0.0, "data": data}),
+            )
+        };
+        let value = json!({
+            "schema_version": "1",
+            "fixture_id": "unit/scalar_accessors",
+            "description": "",
+            "units": "",
+            "inputs": inputs.iter().map(to_input).collect::<serde_json::Map<_, _>>(),
+            "outputs": outputs.iter().map(to_output).collect::<serde_json::Map<_, _>>(),
+            "provenance": {"source": "unit test"},
+        });
+        serde_json::from_value(value).expect("scalar_fixture should deserialize")
+    }
+
+    #[test]
+    fn input_f64_reads_scalar_from_inputs() {
+        let fx = scalar_fixture(&[("side", json!([0.25])), ("bare", json!(1.5))], &[]);
+        // Both array-wrapped and bare scalars flatten to a single value.
+        assert_eq!(fx.input_f64("side"), 0.25);
+        assert_eq!(fx.input_f64("bare"), 1.5);
+    }
+
+    #[test]
+    fn input_i64_truncates_scalar_from_inputs() {
+        let fx = scalar_fixture(&[("n", json!([4]))], &[]);
+        assert_eq!(fx.input_i64("n"), 4_i64);
+    }
+
+    #[test]
+    fn input_vec_reads_full_input_field() {
+        let fx = scalar_fixture(&[("ka_curve", json!([1.0, 2.0, 3.5]))], &[]);
+        assert_eq!(fx.input_vec("ka_curve"), vec![1.0, 2.0, 3.5]);
+        // Nested arrays flatten row-major.
+        let fx = scalar_fixture(&[("grid", json!([[1.0, 2.0], [3.0, 4.0]]))], &[]);
+        assert_eq!(fx.input_vec("grid"), vec![1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn output_scalar_reads_scalar_from_outputs() {
+        let fx = scalar_fixture(&[], &[("analytic_tm11_k", json!([2.74]))]);
+        assert_eq!(fx.output_scalar("analytic_tm11_k"), 2.74);
+    }
+
+    #[test]
+    fn input_and_output_accessors_respect_the_inputs_vs_outputs_split() {
+        // A name present only as an input is not visible to `output_scalar`,
+        // and vice-versa — the two accessors read disjoint maps.
+        let fx = scalar_fixture(&[("k", json!([1.0]))], &[("k", json!([9.0]))]);
+        assert_eq!(fx.input_f64("k"), 1.0);
+        assert_eq!(fx.output_scalar("k"), 9.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "fixture missing input `nope`")]
+    fn input_f64_panics_on_missing_input() {
+        let fx = scalar_fixture(&[("side", json!([0.25]))], &[]);
+        fx.input_f64("nope");
+    }
+
+    #[test]
+    #[should_panic(expected = "fixture missing scalar output `nope`")]
+    fn output_scalar_panics_on_missing_output() {
+        let fx = scalar_fixture(&[], &[("k", json!([1.0]))]);
+        fx.output_scalar("nope");
+    }
+
+    #[test]
+    #[should_panic(expected = "expected scalar input `vec`")]
+    fn input_f64_panics_on_non_scalar_input() {
+        let fx = scalar_fixture(&[("vec", json!([1.0, 2.0]))], &[]);
+        fx.input_f64("vec");
     }
 }

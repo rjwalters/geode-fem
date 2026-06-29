@@ -237,20 +237,6 @@ fn q_factor_from_lambda(lambda: Complex64) -> f64 {
     }
 }
 
-fn input_scalar(fixture: &Fixture, name: &str) -> f64 {
-    fixture.inputs[name].data.as_array().unwrap()[0]
-        .as_f64()
-        .unwrap()
-}
-
-fn output_scalar(fixture: &Fixture, name: &str) -> f64 {
-    let f = fixture
-        .output_f64(name)
-        .unwrap_or_else(|e| panic!("fixture missing scalar output `{name}`: {e}"));
-    assert_eq!(f.data.len(), 1, "scalar `{name}` should be length 1");
-    f.data[0]
-}
-
 // ---------------------------------------------------------------------------
 // Schema-level tests (no eigensolve; default `cargo test`)
 // ---------------------------------------------------------------------------
@@ -333,9 +319,9 @@ fn sphere_mie_small_analytic_anchor_matches_mie_roots() {
     // fixture so the two Phase J fixtures cannot silently drift apart.
     let fixture = Fixture::load_from(&small_fixture_path(), FixtureFormat::Json)
         .expect("sphere_mie_small baseline.json should load");
-    let anchor = output_scalar(&fixture, "analytic_tm11_k");
+    let anchor = fixture.output_scalar("analytic_tm11_k");
 
-    let n_index = input_scalar(&fixture, "n_index");
+    let n_index = fixture.input_f64("n_index");
     let analytic = merged_roots(n_index, &[1, 2, 3], R_SPHERE, R_BUFFER, 3);
     let ground = analytic
         .iter()
@@ -384,9 +370,9 @@ fn sphere_mie_small_epsilon_tensor_decodes() {
         .input_c128("epsilon_tensor_diag")
         .expect("c128 input decodes");
 
-    let sigma_0 = input_scalar(&fixture, "sigma_0");
-    let n_index = input_scalar(&fixture, "n_index");
-    let k0_ref = input_scalar(&fixture, "k0_ref");
+    let sigma_0 = fixture.input_f64("sigma_0");
+    let n_index = fixture.input_f64("n_index");
+    let k0_ref = fixture.input_f64("k0_ref");
 
     let sphere = load_small_sphere_fixture();
     let burn = run_burn_mie_pipeline(&sphere, sigma_0, n_index, k0_ref);
@@ -429,24 +415,24 @@ fn sphere_mie_small_spectrum_agrees_with_numpy() {
     let fixture = Fixture::load_from(&small_fixture_path(), FixtureFormat::Json)
         .expect("sphere_mie_small baseline.json should load");
 
-    let sigma_0 = input_scalar(&fixture, "sigma_0");
-    let n_index = input_scalar(&fixture, "n_index");
-    let k0_ref = input_scalar(&fixture, "k0_ref");
+    let sigma_0 = fixture.input_f64("sigma_0");
+    let n_index = fixture.input_f64("n_index");
+    let k0_ref = fixture.input_f64("k0_ref");
 
     let sphere = load_small_sphere_fixture();
     let burn = run_burn_mie_pipeline(&sphere, sigma_0, n_index, k0_ref);
 
     // Mesh-shape integer cross-checks.
-    assert_eq!(burn.n_nodes, output_scalar(&fixture, "n_nodes") as usize);
-    assert_eq!(burn.n_tets, output_scalar(&fixture, "n_tets") as usize);
-    assert_eq!(burn.n_edges, output_scalar(&fixture, "n_edges") as usize);
+    assert_eq!(burn.n_nodes, fixture.output_scalar("n_nodes") as usize);
+    assert_eq!(burn.n_tets, fixture.output_scalar("n_tets") as usize);
+    assert_eq!(burn.n_edges, fixture.output_scalar("n_edges") as usize);
     assert_eq!(
         burn.n_interior_edges,
-        output_scalar(&fixture, "n_interior_edges") as usize
+        fixture.output_scalar("n_interior_edges") as usize
     );
     assert_eq!(
         burn.spurious_dim,
-        output_scalar(&fixture, "spurious_dim") as usize
+        fixture.output_scalar("spurious_dim") as usize
     );
 
     // Solve the complex generalized tensor-ε pencil on the Burn side.
@@ -487,7 +473,7 @@ fn sphere_mie_small_spectrum_agrees_with_numpy() {
         golden_full.data.len()
     );
 
-    let n_spurious_ref = output_scalar(&fixture, "n_spurious_observed") as usize;
+    let n_spurious_ref = fixture.output_scalar("n_spurious_observed") as usize;
     assert_eq!(
         n_spurious_ref, burn.spurious_dim,
         "n_spurious_observed in fixture should match Burn's spurious_dim"
@@ -529,7 +515,7 @@ fn sphere_mie_small_spectrum_agrees_with_numpy() {
     // triplet, closed at a spectral gap. Report the measured residual
     // on the window separately — dense-vs-dense on the identical
     // pencil should be far inside the per-field tolerance.
-    let window_len = output_scalar(&fixture, "strict_mode_window_len") as usize;
+    let window_len = fixture.output_scalar("strict_mode_window_len") as usize;
     assert!(window_len <= physical_take);
     let mut window_max = 0.0_f64;
     for (got, want) in burn_physical
@@ -567,9 +553,9 @@ fn sphere_mie_small_spectrum_agrees_with_numpy() {
 
     // J.1 analytic anchor: lowest mode within the documented 8 % band
     // on both sides.
-    let analytic_tm11_k = output_scalar(&fixture, "analytic_tm11_k");
+    let analytic_tm11_k = fixture.output_scalar("analytic_tm11_k");
     let burn_re_k = re_k_from_lambda(burn_physical[0]);
-    let numpy_re_k = output_scalar(&fixture, "lowest_physical_re_k");
+    let numpy_re_k = fixture.output_scalar("lowest_physical_re_k");
     let burn_rel_err = (burn_re_k - analytic_tm11_k).abs() / analytic_tm11_k;
     let numpy_rel_err = (numpy_re_k - analytic_tm11_k).abs() / analytic_tm11_k;
     assert!(
@@ -658,8 +644,8 @@ fn sphere_mie_small_sigma_zero_collapses_to_real_isotropic() {
     // lowest physical Re(λ) must hit the in-fixture PEC anchor.
     let fixture = Fixture::load_from(&small_fixture_path(), FixtureFormat::Json)
         .expect("sphere_mie_small baseline.json should load");
-    let n_index = input_scalar(&fixture, "n_index");
-    let k0_ref = input_scalar(&fixture, "k0_ref");
+    let n_index = fixture.input_f64("n_index");
+    let k0_ref = fixture.input_f64("k0_ref");
 
     let sphere = load_small_sphere_fixture();
     let burn = run_burn_mie_pipeline(&sphere, 0.0, n_index, k0_ref);
@@ -763,23 +749,23 @@ fn sphere_mie_spectrum_agrees_with_numpy() {
     let fixture = Fixture::load_from(&full_fixture_path(), FixtureFormat::Json)
         .expect("sphere_mie baseline.json should load");
 
-    let sigma_0 = input_scalar(&fixture, "sigma_0");
-    let n_index = input_scalar(&fixture, "n_index");
-    let k0_ref = input_scalar(&fixture, "k0_ref");
+    let sigma_0 = fixture.input_f64("sigma_0");
+    let n_index = fixture.input_f64("n_index");
+    let k0_ref = fixture.input_f64("k0_ref");
 
     let sphere = read_sphere_fixture().expect("bundled sphere fixture load");
     let burn = run_burn_mie_pipeline(&sphere, sigma_0, n_index, k0_ref);
 
-    assert_eq!(burn.n_nodes, output_scalar(&fixture, "n_nodes") as usize);
-    assert_eq!(burn.n_tets, output_scalar(&fixture, "n_tets") as usize);
-    assert_eq!(burn.n_edges, output_scalar(&fixture, "n_edges") as usize);
+    assert_eq!(burn.n_nodes, fixture.output_scalar("n_nodes") as usize);
+    assert_eq!(burn.n_tets, fixture.output_scalar("n_tets") as usize);
+    assert_eq!(burn.n_edges, fixture.output_scalar("n_edges") as usize);
     assert_eq!(
         burn.n_interior_edges,
-        output_scalar(&fixture, "n_interior_edges") as usize
+        fixture.output_scalar("n_interior_edges") as usize
     );
     assert_eq!(
         burn.spurious_dim,
-        output_scalar(&fixture, "spurious_dim") as usize
+        fixture.output_scalar("spurious_dim") as usize
     );
 
     // Tensor cross-check at the f64 floor (the full-mesh sibling of
@@ -818,7 +804,7 @@ fn sphere_mie_spectrum_agrees_with_numpy() {
         .expect("c128 output decodes");
     assert_eq!(burn_eigvals.len(), golden_full.data.len());
 
-    let n_spurious_ref = output_scalar(&fixture, "n_spurious_observed") as usize;
+    let n_spurious_ref = fixture.output_scalar("n_spurious_observed") as usize;
     assert_eq!(n_spurious_ref, burn.spurious_dim);
     let golden_physical = fixture
         .output_c128("physical_eigenvalues_complex")
@@ -843,16 +829,16 @@ fn sphere_mie_spectrum_agrees_with_numpy() {
     }
 
     // 8 % TM_1,1 band + Q tripwire, both sides.
-    let analytic_tm11_k = output_scalar(&fixture, "analytic_tm11_k");
+    let analytic_tm11_k = fixture.output_scalar("analytic_tm11_k");
     let burn_re_k = re_k_from_lambda(burn_physical[0]);
-    let numpy_re_k = output_scalar(&fixture, "lowest_physical_re_k");
+    let numpy_re_k = fixture.output_scalar("lowest_physical_re_k");
     let burn_rel_err = (burn_re_k - analytic_tm11_k).abs() / analytic_tm11_k;
     let numpy_rel_err = (numpy_re_k - analytic_tm11_k).abs() / analytic_tm11_k;
     assert!(burn_rel_err < TM11_REL_TOL);
     assert!(numpy_rel_err < TM11_REL_TOL);
 
     let burn_q = q_factor_from_lambda(burn_physical[0]);
-    let numpy_q = output_scalar(&fixture, "q_factor_lowest_physical");
+    let numpy_q = fixture.output_scalar("q_factor_lowest_physical");
     assert!(burn_q > Q_LOWER_BAND_TM11);
     assert!(numpy_q > Q_LOWER_BAND_TM11);
 

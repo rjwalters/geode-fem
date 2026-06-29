@@ -114,45 +114,8 @@ fn burn_cube_cavity(n: usize, side: f64, k: usize) -> (Vec<f64>, f64, f64) {
     (eigvals, trk, trm)
 }
 
-// ---------------------------------------------------------------------------
-// Fixture input helpers
-// ---------------------------------------------------------------------------
-
-/// Pull an `i64` scalar input from the fixture (declared `dtype = i64`,
-/// shape `[1]`). Goes through the f64 flattener — the loader doesn't
-/// have a typed integer accessor at v1, so we round-trip via f64.
-fn input_i64(fixture: &Fixture, key: &str) -> i64 {
-    let field = fixture
-        .inputs
-        .get(key)
-        .unwrap_or_else(|| panic!("fixture missing input `{key}`"));
-    let v = flatten_numeric(&field.data);
-    assert_eq!(
-        v.len(),
-        1,
-        "expected scalar input `{key}`, got len {}",
-        v.len()
-    );
-    v[0] as i64
-}
-
-/// Pull an `f64` scalar input from the fixture.
-fn input_f64(fixture: &Fixture, key: &str) -> f64 {
-    let field = fixture
-        .inputs
-        .get(key)
-        .unwrap_or_else(|| panic!("fixture missing input `{key}`"));
-    let v = flatten_numeric(&field.data);
-    assert_eq!(
-        v.len(),
-        1,
-        "expected scalar input `{key}`, got len {}",
-        v.len()
-    );
-    v[0]
-}
-
-// Recursive JSON numeric flatten lives in the shared staging crate.
+// Scalar input accessors (`fixture.input_i64` / `fixture.input_f64`) and the
+// recursive JSON numeric flatten live in the shared staging crate.
 use geode_util::fixture::flatten_numeric;
 
 // ---------------------------------------------------------------------------
@@ -193,8 +156,8 @@ fn burn_cube_cavity_agrees_with_onnx_baseline() {
     let fixture =
         Fixture::load_from(&fixture_path(), FixtureFormat::Json).expect("load onnx_baseline.json");
 
-    let n = input_i64(&fixture, "n") as usize;
-    let side = input_f64(&fixture, "side");
+    let n = fixture.input_i64("n") as usize;
+    let side = fixture.input_f64("side");
     eprintln!(
         "ONNX baseline fixture id = {}, n = {n}, side = {side}",
         fixture.fixture_id
