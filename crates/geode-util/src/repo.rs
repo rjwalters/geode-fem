@@ -64,3 +64,99 @@ pub fn current_commit() -> String {
         })
         .unwrap_or_else(|| "unknown".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_root_is_absolute_and_contains_reference() {
+        let root = repo_root();
+        assert!(
+            root.is_absolute(),
+            "repo_root must be an absolute path, got {}",
+            root.display()
+        );
+        assert!(
+            root.join("reference").is_dir(),
+            "repo_root {} must contain a reference/ directory",
+            root.display()
+        );
+    }
+
+    #[test]
+    fn repo_root_is_stable_across_calls() {
+        // Resolved from a compile-time constant, so repeated calls must
+        // return byte-identical paths.
+        assert_eq!(repo_root(), repo_root());
+    }
+
+    #[test]
+    fn fixture_path_is_rooted_under_reference_fixtures() {
+        let p = fixture_path("sphere_pec/julia_baseline.json");
+        assert!(
+            p.starts_with(repo_root()),
+            "fixture path must live under the repo root"
+        );
+        assert!(
+            p.ends_with("reference/fixtures/sphere_pec/julia_baseline.json"),
+            "unexpected fixture path tail: {}",
+            p.display()
+        );
+    }
+
+    #[test]
+    fn fixture_path_joins_relative_input_onto_fixtures_dir() {
+        // A bare relative file name lands directly in reference/fixtures/.
+        let p = fixture_path("baseline.json");
+        assert_eq!(
+            p,
+            repo_root().join("reference/fixtures").join("baseline.json")
+        );
+        assert!(p.is_absolute());
+    }
+
+    #[test]
+    fn fixture_path_accepts_path_and_pathbuf_inputs() {
+        // `impl AsRef<Path>` must accept the common owned/borrowed forms,
+        // all yielding the same join.
+        let from_str = fixture_path("a/b.json");
+        let from_path = fixture_path(Path::new("a/b.json"));
+        let from_pathbuf = fixture_path(PathBuf::from("a/b.json"));
+        assert_eq!(from_str, from_path);
+        assert_eq!(from_str, from_pathbuf);
+    }
+
+    #[test]
+    fn fixture_path_with_empty_relative_is_the_fixtures_dir() {
+        // Joining an empty relative component is a no-op, so the result is
+        // exactly the fixtures directory itself.
+        assert_eq!(fixture_path(""), repo_root().join("reference/fixtures"));
+    }
+
+    #[test]
+    fn current_commit_is_nonempty_and_trimmed() {
+        let commit = current_commit();
+        assert!(!commit.is_empty(), "current_commit must never be empty");
+        assert_eq!(
+            commit,
+            commit.trim(),
+            "current_commit must be trimmed of surrounding whitespace"
+        );
+    }
+
+    #[test]
+    fn current_commit_is_either_a_sha_or_the_unknown_fallback() {
+        // Deterministic shape check that holds whether or not the test
+        // host has git / is inside a work tree: the result is either the
+        // literal "unknown" fallback or a 40-char lowercase-or-upper hex
+        // SHA-1. We never assert a specific commit.
+        let commit = current_commit();
+        let is_unknown = commit == "unknown";
+        let is_sha = commit.len() == 40 && commit.chars().all(|c| c.is_ascii_hexdigit());
+        assert!(
+            is_unknown || is_sha,
+            "current_commit must be \"unknown\" or a 40-char hex SHA, got {commit:?}"
+        );
+    }
+}

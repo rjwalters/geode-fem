@@ -222,4 +222,163 @@ mod tests {
             .any(|v| v.iter().any(|&c| c != 0.0));
         assert!(any_nonzero, "nonzero edge DOFs must reconstruct nonzero E");
     }
+
+    /// Two non-degenerate tets sharing the face `{1, 2, 3}`. Nodes 1, 2, 3
+    /// are incident to both tets (per-node count 2 → exercises the
+    /// averaging divide), while nodes 0 and 4 belong to a single tet.
+    fn two_tets() -> TetMesh {
+        TetMesh {
+            nodes: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 1.0, 1.0],
+            ],
+            tets: vec![[0, 1, 2, 3], [1, 2, 3, 4]],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn cross_dot_sub_match_hand_computed_values() {
+        // Right-handed basis: x × y = z.
+        assert_eq!(cross([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]), [0.0, 0.0, 1.0]);
+        // Parallel vectors have a zero cross product.
+        assert_eq!(cross([2.0, 0.0, 0.0], [3.0, 0.0, 0.0]), [0.0, 0.0, 0.0]);
+        assert_eq!(dot([1.0, 2.0, 3.0], [4.0, -5.0, 6.0]), 4.0 - 10.0 + 18.0);
+        // Orthogonal vectors dot to zero.
+        assert_eq!(dot([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]), 0.0);
+        assert_eq!(sub([1.0, 2.0, 3.0], [0.5, 1.0, 5.0]), [0.5, 1.0, -2.0]);
+    }
+
+    #[test]
+    fn tet_grads_on_reference_tet_are_the_canonical_basis_gradients() {
+        // For the corner tet at {origin, e_x, e_y, e_z} the barycentric
+        // gradients are exactly ∇λ_0 = (-1,-1,-1) and ∇λ_i = e_i.
+        let mesh = unit_tet();
+        let grads = tet_grads(&mesh, &mesh.tets[0]);
+        assert_eq!(grads[0], [-1.0, -1.0, -1.0]);
+        assert_eq!(grads[1], [1.0, 0.0, 0.0]);
+        assert_eq!(grads[2], [0.0, 1.0, 0.0]);
+        assert_eq!(grads[3], [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn tet_grads_of_degenerate_tet_fall_back_to_zero() {
+        // Four coplanar (z = 0) points give a zero Jacobian determinant;
+        // the `det != 0.0` guard must zero `inv` so every gradient is the
+        // zero vector rather than an inf/NaN from dividing by zero.
+        let mesh = TetMesh {
+            nodes: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0, 0.0],
+            ],
+            tets: vec![[0, 1, 2, 3]],
+            ..Default::default()
+        };
+        let grads = tet_grads(&mesh, &mesh.tets[0]);
+        for g in grads {
+            assert_eq!(g, [0.0, 0.0, 0.0]);
+            for c in g {
+                assert!(c.is_finite());
+            }
+        }
+    }
+
+    #[test]
+    fn degenerate_tet_reconstructs_to_finite_zero_field() {
+        // With zero gradients the whole interpolant collapses to zero, so
+        // even a nonzero edge excitation reconstructs to an all-zero (and
+        // finite, never NaN) nodal field.
+        let mesh = TetMesh {
+            nodes: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0, 0.0],
+            ],
+            tets: vec![[0, 1, 2, 3]],
+            ..Default::default()
+        };
+        let e_edges = vec![c64::new(2.0, -3.0); mesh.edges().len()];
+        let (re, im) = edge_field_to_nodes(&mesh, &e_edges);
+        for v in re.iter().chain(im.iter()) {
+            for &c in v {
+                assert_eq!(c, 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn isolated_node_with_no_incident_tet_stays_zero() {
+        // A node referenced by no tet keeps count 0, so the averaging
+        // divide is skipped and its slot stays the zero initializer.
+        let mesh = TetMesh {
+            nodes: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                // Unreferenced extra node.
+                [5.0, 5.0, 5.0],
+            ],
+            tets: vec![[0, 1, 2, 3]],
+            ..Default::default()
+        };
+        let e_edges = vec![c64::new(1.0, 1.0); mesh.edges().len()];
+        let (re, im) = edge_field_to_nodes(&mesh, &e_edges);
+        assert_eq!(re.len(), 5);
+        assert_eq!(re[4], [0.0, 0.0, 0.0]);
+        assert_eq!(im[4], [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn real_and_imaginary_channels_are_independent() {
+        // A purely real excitation must leave the imaginary nodal field
+        // exactly zero (and vice-versa): the accumulation treats re/im as
+        // independent linear channels.
+        let mesh = unit_tet();
+        let n_edges = mesh.edges().len();
+
+        let (re_only_re, re_only_im) =
+            edge_field_to_nodes(&mesh, &vec![c64::new(1.5, 0.0); n_edges]);
+        for v in &re_only_im {
+            assert_eq!(*v, [0.0, 0.0, 0.0]);
+        }
+        assert!(re_only_re.iter().any(|v| v.iter().any(|&c| c != 0.0)));
+
+        let (im_only_re, im_only_im) =
+            edge_field_to_nodes(&mesh, &vec![c64::new(0.0, -2.0); n_edges]);
+        for v in &im_only_re {
+            assert_eq!(*v, [0.0, 0.0, 0.0]);
+        }
+        assert!(im_only_im.iter().any(|v| v.iter().any(|&c| c != 0.0)));
+    }
+
+    #[test]
+    fn multi_tet_mesh_averages_shared_nodes_into_finite_values() {
+        // The two-tet mesh drives the count > 1 averaging path on the
+        // three shared-face nodes. Output stays correctly sized and finite.
+        let mesh = two_tets();
+        assert_eq!(mesh.n_tets(), 2);
+        let e_edges = vec![c64::new(0.7, 0.3); mesh.edges().len()];
+        let (re, im) = edge_field_to_nodes(&mesh, &e_edges);
+        assert_eq!(re.len(), mesh.n_nodes());
+        assert_eq!(im.len(), mesh.n_nodes());
+        for v in re.iter().chain(im.iter()) {
+            for &c in v {
+                assert!(c.is_finite());
+            }
+        }
+        // The excitation is nonzero on non-degenerate tets, so the
+        // reconstruction cannot be identically zero.
+        let any_nonzero = re
+            .iter()
+            .chain(im.iter())
+            .any(|v| v.iter().any(|&c| c != 0.0));
+        assert!(any_nonzero);
+    }
 }

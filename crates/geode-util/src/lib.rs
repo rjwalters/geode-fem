@@ -28,3 +28,41 @@ pub mod fixture;
 pub mod interop;
 pub mod repo;
 pub mod viz;
+
+#[cfg(test)]
+mod tests {
+    //! Crate-root public-surface smoke test.
+    //!
+    //! `lib.rs` is purely `pub mod` declarations, so the crate root's
+    //! observable "behavior" is the re-export surface itself. This test
+    //! reaches one public item per declared module *through its
+    //! crate-root path* and exercises the pure ones. An accidental
+    //! `pub mod` → `mod` downgrade — or removal/rename of one of these
+    //! re-exported helpers — fails to compile here rather than silently
+    //! shrinking the crate's public API.
+    //!
+    //! Deep per-module behavior is covered in each module's own `tests`
+    //! submodule; this guard only asserts reachability + a trivial sanity
+    //! result so the crate root is no longer at zero coverage.
+
+    #[test]
+    fn declared_modules_are_publicly_reachable() {
+        // repo: an absolute workspace root resolved from the crate root path.
+        assert!(crate::repo::repo_root().is_absolute());
+
+        // convert: empty input round-trips to an empty Vec.
+        assert!(crate::convert::complex_slice_to_vec(&[]).is_empty());
+
+        // interop: empty interleaved payload decodes to no complex values.
+        assert!(crate::interop::decode_real_imag_interleave(&[]).is_empty());
+
+        // fixture (deep tests owned by Phase 4.2): the type and a free
+        // helper must remain reachable from the crate root.
+        let _fixture_ty: Option<crate::fixture::Fixture> = None;
+        assert_eq!(crate::fixture::sweep_freqs(1.0, 2.0, 3).len(), 3);
+
+        // viz: bind the public entry point as a fn item to prove the path
+        // resolves (its numerics are exercised in viz::tests).
+        let _ = crate::viz::edge_field_to_nodes;
+    }
+}
