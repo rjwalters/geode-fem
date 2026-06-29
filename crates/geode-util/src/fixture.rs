@@ -1018,4 +1018,432 @@ median_ns = 6.0
         let fx = scalar_fixture(&[("vec", json!([1.0, 2.0]))], &[]);
         fx.input_f64("vec");
     }
+
+    // -----------------------------------------------------------------------
+    // JSON loader: round-trip + provenance/optional-field handling
+    // -----------------------------------------------------------------------
+
+    /// A complete, representative fixture JSON document exercising inputs,
+    /// outputs (with tolerance + per-field description), and full provenance.
+    fn representative_fixture_json() -> serde_json::Value {
+        json!({
+            "schema_version": "1",
+            "fixture_id": "p1_local/round_trip",
+            "description": "round-trip representative fixture",
+            "units": "dimensionless",
+            "inputs": {
+                "coords": {
+                    "shape": [2, 2],
+                    "dtype": "f64",
+                    "description": "vertex coords",
+                    "data": [[0.0, 1.0], [2.0, 3.0]]
+                }
+            },
+            "outputs": {
+                "k_local": {
+                    "shape": [2, 2],
+                    "dtype": "f64",
+                    "description": "stiffness",
+                    "tolerance_abs": 1e-9,
+                    "data": [[1.0, -1.0], [-1.0, 1.0]]
+                }
+            },
+            "provenance": {
+                "source": "hand-computed",
+                "verified_against": "numpy ref",
+                "issue": "439"
+            }
+        })
+    }
+
+    /// Write `value` as pretty JSON to a unique scratch file, returning its
+    /// path (caller removes it).
+    fn write_fixture_json(name: &str, value: &serde_json::Value) -> std::path::PathBuf {
+        let path = scratch(name);
+        fs::write(&path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
+        path
+    }
+
+    #[test]
+    fn load_from_round_trips_full_structure() {
+        let path = write_fixture_json("roundtrip.json", &representative_fixture_json());
+        let fx = Fixture::load_from(&path, FixtureFormat::Json).expect("load ok");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(fx.schema_version, "1");
+        assert_eq!(fx.fixture_id, "p1_local/round_trip");
+        assert_eq!(fx.description, "round-trip representative fixture");
+        assert_eq!(fx.units, "dimensionless");
+
+        // Input field round-trips shape / dtype / description / data.
+        let coords = fx.inputs.get("coords").expect("coords input present");
+        assert_eq!(coords.shape, vec![2, 2]);
+        assert_eq!(coords.dtype, "f64");
+        assert_eq!(coords.description, "vertex coords");
+        assert_eq!(flatten_to_f64(&coords.data), vec![0.0, 1.0, 2.0, 3.0]);
+
+        // Output field round-trips shape / dtype / description / tolerance.
+        let k = fx.outputs.get("k_local").expect("k_local output present");
+        assert_eq!(k.shape, vec![2, 2]);
+        assert_eq!(k.dtype, "f64");
+        assert_eq!(k.description, "stiffness");
+        assert_eq!(k.tolerance_abs, 1e-9);
+        assert_eq!(flatten_to_f64(&k.data), vec![1.0, -1.0, -1.0, 1.0]);
+
+        // Provenance round-trips all three fields.
+        assert_eq!(fx.provenance.source, "hand-computed");
+        assert_eq!(fx.provenance.verified_against, "numpy ref");
+        assert_eq!(fx.provenance.issue, "439");
+    }
+
+    #[test]
+    fn load_auto_detects_json_by_extension() {
+        let path = write_fixture_json("autodetect.json", &representative_fixture_json());
+        let fx = Fixture::load(&path).expect("auto-detect json load ok");
+        let _ = fs::remove_file(&path);
+        assert_eq!(fx.fixture_id, "p1_local/round_trip");
+    }
+
+    #[test]
+    fn load_provenance_optional_fields_and_inputs_default_to_empty() {
+        // `verified_against` / `issue` are `#[serde(default)]`, and `inputs`
+        // is also optional — omitting them yields empties, not a parse error.
+        let mut v = representative_fixture_json();
+        v["provenance"] = json!({"source": "only source"});
+        v.as_object_mut().unwrap().remove("inputs");
+        let path = write_fixture_json("defaults.json", &v);
+        let fx = Fixture::load_from(&path, FixtureFormat::Json).expect("load ok");
+        let _ = fs::remove_file(&path);
+        assert_eq!(fx.provenance.source, "only source");
+        assert_eq!(fx.provenance.verified_against, "");
+        assert_eq!(fx.provenance.issue, "");
+        assert!(fx.inputs.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // JSON loader: error paths (assert the SPECIFIC FixtureError variant)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn load_from_absent_file_is_io_error() {
+        let path = scratch("does-not-exist.json");
+        match Fixture::load_from(&path, FixtureFormat::Json).unwrap_err() {
+            FixtureError::Io { path: p, .. } => assert!(p.contains("does-not-exist")),
+            other => panic!("expected Io, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_from_malformed_json_is_json_error() {
+        let path = scratch("malformed.json");
+        fs::write(&path, b"{ this is : not json ]").unwrap();
+        let err = Fixture::load_from(&path, FixtureFormat::Json).unwrap_err();
+        let _ = fs::remove_file(&path);
+        assert!(matches!(err, FixtureError::Json(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn load_from_missing_required_field_is_json_error() {
+        // `outputs` has no `#[serde(default)]`; dropping it is a serde
+        // structural error surfaced as `FixtureError::Json`.
+        let mut v = representative_fixture_json();
+        v.as_object_mut().unwrap().remove("outputs");
+        let path = write_fixture_json("missing-outputs.json", &v);
+        let err = Fixture::load_from(&path, FixtureFormat::Json).unwrap_err();
+        let _ = fs::remove_file(&path);
+        assert!(matches!(err, FixtureError::Json(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn load_from_wrong_type_is_json_error() {
+        // `schema_version` is typed `String`; a numeric value is a type error.
+        let mut v = representative_fixture_json();
+        v["schema_version"] = json!(1);
+        let path = write_fixture_json("wrong-type.json", &v);
+        let err = Fixture::load_from(&path, FixtureFormat::Json).unwrap_err();
+        let _ = fs::remove_file(&path);
+        assert!(matches!(err, FixtureError::Json(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn load_from_unsupported_schema_version() {
+        let mut v = representative_fixture_json();
+        v["schema_version"] = json!("999");
+        let path = write_fixture_json("bad-version.json", &v);
+        let err = Fixture::load_from(&path, FixtureFormat::Json).unwrap_err();
+        let _ = fs::remove_file(&path);
+        match err {
+            FixtureError::UnsupportedSchemaVersion(got, supported) => {
+                assert_eq!(got, "999");
+                assert_eq!(supported, SUPPORTED_SCHEMA_VERSIONS);
+            }
+            other => panic!("expected UnsupportedSchemaVersion, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_from_hdf5_format_is_not_enabled() {
+        // HDF5 is a reserved-but-unwired variant; it errors before any I/O.
+        let path = write_fixture_json("hdf.json", &representative_fixture_json());
+        let err = Fixture::load_from(&path, FixtureFormat::Hdf5).unwrap_err();
+        let _ = fs::remove_file(&path);
+        assert!(matches!(err, FixtureError::HdfNotEnabled), "got {err:?}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Golden accessors: output_f64 / output_c128 / input_c128 / iter_outputs
+    // -----------------------------------------------------------------------
+
+    /// Build a fixture from raw `(name, field-json)` pairs, letting each
+    /// field carry an arbitrary shape / dtype / data / tolerance.
+    fn fixture_with(
+        inputs: &[(&str, serde_json::Value)],
+        outputs: &[(&str, serde_json::Value)],
+    ) -> Fixture {
+        let map = |pairs: &[(&str, serde_json::Value)]| {
+            pairs
+                .iter()
+                .map(|(n, f)| (n.to_string(), f.clone()))
+                .collect::<serde_json::Map<_, _>>()
+        };
+        let value = json!({
+            "schema_version": "1",
+            "fixture_id": "unit/golden_accessors",
+            "description": "",
+            "units": "",
+            "inputs": map(inputs),
+            "outputs": map(outputs),
+            "provenance": {"source": "unit test"},
+        });
+        serde_json::from_value(value).expect("fixture_with should deserialize")
+    }
+
+    /// An `f64` output-field JSON node with the given shape, tolerance, data.
+    fn f64_output(
+        shape: serde_json::Value,
+        tol: f64,
+        data: serde_json::Value,
+    ) -> serde_json::Value {
+        json!({"shape": shape, "dtype": "f64", "tolerance_abs": tol, "data": data})
+    }
+
+    /// A `c128` field JSON node (usable as input or output — the extra
+    /// `tolerance_abs` key is ignored when deserialized as an input `Field`).
+    fn c128_field(shape: serde_json::Value, data: serde_json::Value) -> serde_json::Value {
+        json!({"shape": shape, "dtype": "c128", "tolerance_abs": 0.0, "data": data})
+    }
+
+    #[test]
+    fn output_f64_happy_path_returns_shape_tol_and_data() {
+        let fx = fixture_with(
+            &[],
+            &[(
+                "k_local",
+                f64_output(json!([2, 2]), 1e-6, json!([[1.0, 2.0], [3.0, 4.0]])),
+            )],
+        );
+        let g = fx.output_f64("k_local").expect("present");
+        // `name` borrows the map key, not the caller-supplied argument.
+        assert_eq!(g.name, "k_local");
+        assert_eq!(g.shape, [2, 2]);
+        assert_eq!(g.tolerance_abs, 1e-6);
+        assert_eq!(g.data, vec![1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(g.numel(), 4);
+    }
+
+    #[test]
+    fn output_f64_missing_field_is_missing_field_error() {
+        let fx = fixture_with(&[], &[("k", f64_output(json!([1]), 0.0, json!([1.0])))]);
+        match fx.output_f64("nope").unwrap_err() {
+            FixtureError::MissingField(n) => assert_eq!(n, "nope"),
+            other => panic!("expected MissingField, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn iter_outputs_yields_sorted_order_and_backing_fields() {
+        let fx = fixture_with(
+            &[],
+            &[
+                ("zeta", f64_output(json!([1]), 0.5, json!([1.0]))),
+                ("alpha", f64_output(json!([1]), 0.25, json!([2.0]))),
+                ("mu", f64_output(json!([1]), 0.125, json!([3.0]))),
+            ],
+        );
+        // BTreeMap iteration is deterministic (sorted by key).
+        let names: Vec<&str> = fx.iter_outputs().map(|(n, _)| n).collect();
+        assert_eq!(names, vec!["alpha", "mu", "zeta"]);
+        assert_eq!(fx.iter_outputs().count(), 3);
+        // The yielded `OutputField` is the one stored in the map.
+        let tol_sum: f64 = fx.iter_outputs().map(|(_, f)| f.tolerance_abs).sum();
+        assert_eq!(tol_sum, 0.875);
+    }
+
+    #[test]
+    fn output_c128_happy_path_decodes_interleaved_pairs() {
+        // shape [2] → 2 complex → 4 interleaved real-imag values on disk.
+        let fx = fixture_with(
+            &[],
+            &[("evec", c128_field(json!([2]), json!([1.0, 2.0, 3.0, -4.0])))],
+        );
+        let g = fx.output_c128("evec").expect("present");
+        assert_eq!(g.name, "evec");
+        assert_eq!(g.shape, [2]);
+        assert_eq!(g.numel(), 2);
+        assert_eq!(
+            g.data,
+            vec![Complex64::new(1.0, 2.0), Complex64::new(3.0, -4.0)]
+        );
+    }
+
+    #[test]
+    fn output_c128_accepts_nested_interleave_data() {
+        // The interleaved payload may arrive nested; flatten precedes decode.
+        let fx = fixture_with(
+            &[],
+            &[(
+                "evec",
+                c128_field(json!([2]), json!([[1.0, 2.0], [3.0, -4.0]])),
+            )],
+        );
+        let g = fx.output_c128("evec").expect("present");
+        assert_eq!(
+            g.data,
+            vec![Complex64::new(1.0, 2.0), Complex64::new(3.0, -4.0)]
+        );
+    }
+
+    #[test]
+    fn output_c128_missing_field_is_missing_field_error() {
+        let fx = fixture_with(&[], &[("evec", c128_field(json!([1]), json!([1.0, 2.0])))]);
+        match fx.output_c128("absent").unwrap_err() {
+            FixtureError::MissingField(n) => assert_eq!(n, "absent"),
+            other => panic!("expected MissingField, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn output_c128_dtype_mismatch_when_declared_f64() {
+        let fx = fixture_with(&[], &[("k", f64_output(json!([1]), 0.0, json!([1.0])))]);
+        match fx.output_c128("k").unwrap_err() {
+            FixtureError::DtypeMismatch {
+                name,
+                declared,
+                requested,
+            } => {
+                assert_eq!(name, "k");
+                assert_eq!(declared, "f64");
+                assert_eq!(requested, "c128");
+            }
+            other => panic!("expected DtypeMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn output_c128_invalid_length_when_not_double_numel() {
+        // shape [2] needs 4 interleaved values; supplying 3 is malformed.
+        let fx = fixture_with(
+            &[],
+            &[("evec", c128_field(json!([2]), json!([1.0, 2.0, 3.0])))],
+        );
+        match fx.output_c128("evec").unwrap_err() {
+            FixtureError::InvalidComplexLength {
+                name,
+                got,
+                expected,
+            } => {
+                assert_eq!(name, "evec");
+                assert_eq!(got, 3);
+                assert_eq!(expected, 4);
+            }
+            other => panic!("expected InvalidComplexLength, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn input_c128_happy_path_decodes_from_inputs() {
+        let fx = fixture_with(
+            &[("eps", c128_field(json!([2]), json!([1.0, 0.0, 0.0, -1.0])))],
+            &[],
+        );
+        assert_eq!(
+            fx.input_c128("eps").expect("present"),
+            vec![Complex64::new(1.0, 0.0), Complex64::new(0.0, -1.0)]
+        );
+    }
+
+    #[test]
+    fn input_c128_missing_field_is_missing_field_error() {
+        let fx = fixture_with(&[], &[]);
+        match fx.input_c128("eps").unwrap_err() {
+            FixtureError::MissingField(n) => assert_eq!(n, "eps"),
+            other => panic!("expected MissingField, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn input_c128_dtype_mismatch_when_declared_f64() {
+        let fx = fixture_with(
+            &[("eps", json!({"shape": [1], "dtype": "f64", "data": [1.0]}))],
+            &[],
+        );
+        match fx.input_c128("eps").unwrap_err() {
+            FixtureError::DtypeMismatch {
+                name,
+                declared,
+                requested,
+            } => {
+                assert_eq!(name, "eps");
+                assert_eq!(declared, "f64");
+                assert_eq!(requested, "c128");
+            }
+            other => panic!("expected DtypeMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn input_c128_invalid_length_is_complex_length_error() {
+        let fx = fixture_with(
+            &[("eps", c128_field(json!([2]), json!([1.0, 2.0, 3.0])))],
+            &[],
+        );
+        match fx.input_c128("eps").unwrap_err() {
+            FixtureError::InvalidComplexLength {
+                name,
+                got,
+                expected,
+            } => {
+                assert_eq!(name, "eps");
+                assert_eq!(got, 3);
+                assert_eq!(expected, 4);
+            }
+            other => panic!("expected InvalidComplexLength, got {other:?}"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // flatten_to_f64 (loader-side flatten backing the golden accessors)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn flatten_to_f64_flattens_nested_row_major() {
+        let v = json!([[1.0, 2.0], [3.0, 4.0]]);
+        assert_eq!(flatten_to_f64(&v), vec![1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn flatten_to_f64_mixed_int_float_and_scalar() {
+        assert_eq!(flatten_to_f64(&json!([1, 2.5, 3])), vec![1.0, 2.5, 3.0]);
+        assert_eq!(flatten_to_f64(&json!(7)), vec![7.0]);
+        // u64 beyond the lossless-f64 range still flattens via the fallback.
+        assert_eq!(flatten_to_f64(&json!([u64::MAX])), vec![u64::MAX as f64]);
+    }
+
+    #[test]
+    fn flatten_to_f64_skips_non_numeric_nodes() {
+        let v = json!([1.0, "x", null, [2.0, {"k": 9.0}], true, 3.0]);
+        assert_eq!(flatten_to_f64(&v), vec![1.0, 2.0, 3.0]);
+        assert_eq!(flatten_to_f64(&json!({})), Vec::<f64>::new());
+        assert_eq!(flatten_to_f64(&json!(null)), Vec::<f64>::new());
+    }
 }
