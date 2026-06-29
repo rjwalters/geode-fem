@@ -1,0 +1,24 @@
+[package]
+name = "geode-util"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "GEODE-FEM pre-core staging layer: shared math/convert/interop/fixture/viz utilities above geode-core."
+
+[dependencies]
+geode-core = { workspace = true }
+# Workspace base feature set only (`std`). Do NOT add a backend default or
+# extra features here — `geode-util` must not perturb backend selection
+# (wgpu/ndarray unification). The active backend is chosen by the consuming
+# crate via `geode-core`'s mutually-exclusive backend features. See the
+# feature/dtype notes in the root `Cargo.toml`.
+burn = { workspace = true }
+# Workspace base faer feature set (`std`, `linalg`); no `sparse-linalg`
+# (that lives on geode-core's own reference). Used by the `convert` /
+# `math` / `viz` staging modules in later epic phases.
+faer = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
