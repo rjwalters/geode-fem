@@ -44,34 +44,49 @@ pub fn write_toml(path: &Path, contents: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// A single fixture-results row that can serialise its own `key = value`
-/// body into an indexed TOML table.
+/// Append a single `[<header>]` TOML table to `out`, serializing `row`'s
+/// `key = value` body through the [`toml`] crate (followed by a blank
+/// line).
 ///
-/// The shared [`push_rows`] driver emits one `[<TABLE_PREFIX>_<i>]` table
-/// per row (followed by a blank line), matching the hand-rolled per-row
-/// loop the RF-sweep / eigenmode example crates previously copy-pasted.
-pub trait TomlRow {
-    /// Table-name prefix; the emitted header for row `i` is
-    /// `[<TABLE_PREFIX>_<i>]` (e.g. `point`, `mode`).
-    const TABLE_PREFIX: &'static str;
-
-    /// Append this row's `key = value` lines into `out`.
-    ///
-    /// Implementations write the body only — no table header and no
-    /// trailing blank line; [`push_rows`] frames each row.
-    fn write_fields(&self, out: &mut String);
+/// `row` is any `#[derive(Serialize)]` value whose fields are TOML
+/// scalars (or inline arrays / `Option`s) — the serializer emits the body
+/// in struct-field declaration order. This is the serde-derive
+/// replacement (Epic #429, Phase 3) for the hand-rolled `{:.15e}` /
+/// `{:.3e}` per-field `write_fields` impls the example crates previously
+/// copy-pasted: the numeric values are identical (the `toml` crate emits
+/// the exact, shortest-round-tripping decimal for each `f64`), only the
+/// float *spelling* changes (decimal / shortest instead of fixed-width
+/// exponential).
+///
+/// `header` is interpolated verbatim into `[<header>]`, so callers that
+/// need a quoted/dotted table name (e.g. `"\"group.input\""`) pass the
+/// already-quoted string.
+///
+/// # Panics
+///
+/// Panics if `row` fails to serialize as a TOML table (e.g. a non-string
+/// map key, or a non-finite float — neither of which the example rows
+/// produce).
+pub fn push_table<T: Serialize>(out: &mut String, header: &str, row: &T) {
+    out.push_str(&format!("[{header}]\n"));
+    let body =
+        toml::to_string(row).unwrap_or_else(|e| panic!("serialize TOML row under [{header}]: {e}"));
+    out.push_str(&body);
+    out.push('\n');
 }
 
 /// Append `rows` to `out` as a sequence of indexed `[<prefix>_<i>]` TOML
-/// tables, each followed by a blank line.
+/// tables, each serialized via [`push_table`] and followed by a blank
+/// line.
 ///
 /// Replaces the `for (i, r) in rows.iter().enumerate() { ... }` table
-/// loop duplicated across the example fixture writers.
-pub fn push_rows<T: TomlRow>(out: &mut String, rows: &[T]) {
-    for (i, r) in rows.iter().enumerate() {
-        out.push_str(&format!("[{}_{i}]\n", T::TABLE_PREFIX));
-        r.write_fields(out);
-        out.push('\n');
+/// loop (and the hand-rolled `TomlRow::write_fields` formatting) that the
+/// example fixture writers duplicated. Each `row` is a
+/// `#[derive(Serialize)]` value; the row's column order is its
+/// struct-field declaration order.
+pub fn push_rows<T: Serialize>(out: &mut String, prefix: &str, rows: &[T]) {
+    for (i, row) in rows.iter().enumerate() {
+        push_table(out, &format!("{prefix}_{i}"), row);
     }
 }
 
@@ -685,17 +700,10 @@ mod tests {
         ))
     }
 
+    #[derive(Serialize)]
     struct Pt {
         f_ghz: f64,
         q: f64,
-    }
-
-    impl TomlRow for Pt {
-        const TABLE_PREFIX: &'static str = "point";
-        fn write_fields(&self, out: &mut String) {
-            out.push_str(&format!("f_ghz = {:.3e}\n", self.f_ghz));
-            out.push_str(&format!("q = {:.3e}\n", self.q));
-        }
     }
 
     #[test]
@@ -711,15 +719,90 @@ mod tests {
             },
         ];
         let mut s = String::new();
-        push_rows(&mut s, &rows);
+        push_rows(&mut s, "point", &rows);
+        // Float spelling is the `toml` crate's shortest-round-trip decimal
+        // (`1.0`, not the old `1.000e0`); the indexed-table framing and the
+        // struct-field column order are unchanged.
         let expected = "\
 [point_0]
-f_ghz = 1.000e0
-q = 1.000e1
+f_ghz = 1.0
+q = 10.0
 
 [point_1]
-f_ghz = 2.000e0
-q = 2.000e1
+f_ghz = 2.0
+q = 20.0
+
+";
+        assert_eq!(s, expected);
+    }
+
+    #[test]
+    fn push_rows_values_round_trip_numerically() {
+        // The serde+toml seam must preserve every f64 exactly (shortest
+        // round-trip), so a re-parse of the emitted TOML recovers the
+        // original values bit-for-bit — the property the old `{:.15e}`
+        // formatting only approximated (16 significant figures).
+        let rows = vec![
+            Pt {
+                f_ghz: 2.4000000001,
+                q: 1.234_567_890_123_456_7e3,
+            },
+            Pt {
+                f_ghz: -3.0e-12,
+                q: std::f64::consts::PI,
+            },
+        ];
+        let mut s = String::new();
+        push_rows(&mut s, "point", &rows);
+        let doc: toml::Value = toml::from_str(&s).expect("emitted rows are valid TOML");
+        for (i, r) in rows.iter().enumerate() {
+            let t = &doc[format!("point_{i}")];
+            assert_eq!(t["f_ghz"].as_float().unwrap(), r.f_ghz);
+            assert_eq!(t["q"].as_float().unwrap(), r.q);
+        }
+    }
+
+    #[test]
+    fn push_table_uses_verbatim_header_and_serde_body() {
+        // `push_table` interpolates the header verbatim (so a quoted/dotted
+        // table name is the caller's responsibility) and serializes the row
+        // body via serde+toml.
+        #[derive(Serialize)]
+        struct Baseline<'a> {
+            group: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            input: Option<&'a str>,
+            median_ns: f64,
+        }
+        let mut s = String::new();
+        push_table(
+            &mut s,
+            "\"assemble.10\"",
+            &Baseline {
+                group: "assemble",
+                input: Some("10"),
+                median_ns: 1234.5,
+            },
+        );
+        // No `input` key when it is `None`.
+        push_table(
+            &mut s,
+            "\"eigensolve\"",
+            &Baseline {
+                group: "eigensolve",
+                input: None,
+                median_ns: 6.0,
+            },
+        );
+        let expected = "\
+[\"assemble.10\"]
+group = \"assemble\"
+input = \"10\"
+median_ns = 1234.5
+
+[\"eigensolve\"]
+group = \"eigensolve\"
+median_ns = 6.0
 
 ";
         assert_eq!(s, expected);

@@ -2680,6 +2680,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "toml 0.8.23",
 ]
 
 [[package]]
@@ -3595,6 +3596,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-util",
+ "serde",
 ]
 
 [[package]]
@@ -3619,6 +3621,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-util",
+ "serde",
 ]
 
 [[package]]
@@ -4272,6 +4275,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-util",
+ "serde",
 ]
 
 [[package]]
@@ -5242,6 +5246,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-util",
+ "serde",
 ]
 
 [[package]]
@@ -5290,6 +5295,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-util",
+ "serde",
 ]
 
 [[package]]
@@ -5312,6 +5318,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-util",
+ "serde",
 ]
 
 [[package]]
@@ -5361,6 +5368,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-util",
+ "serde",
 ]
 
 [[package]]

@@ -33,6 +33,11 @@ serde_json = { workspace = true }
 # Error-derive for the JSON fixture loader's `FixtureError` (Epic #429,
 # Phase 2; migrated from geode-validation along with the `Fixture` schema).
 thiserror = { workspace = true }
+# TOML serialization for the example results-row writer (`push_table` /
+# `push_rows`, Epic #429 Phase 3). The shared row seam serializes each
+# `#[derive(Serialize)]` row through the `toml` crate instead of hand-rolled
+# `{:.15e}` formatting. Existing workspace dep (also used by geode-core).
+toml = { workspace = true }
 
 [lints.rust]
 unsafe_code = "forbid"

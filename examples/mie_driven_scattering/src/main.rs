@@ -106,6 +106,7 @@ const R_OBS: f64 = 0.5 * (R_SPHERE + R_PML_INNER);
 /// The benchmark `ka` sweep (see module docs).
 const KA_VALUES: [f64; 5] = [1.0, 1.5, 1.9, 2.4, 3.0];
 
+#[derive(serde::Serialize)]
 struct Row {
     ka: f64,
     q_ext_analytic: f64,
@@ -114,21 +115,8 @@ struct Row {
     q_sca_fem: f64,
     rel_err_q_ext: f64,
     rel_err_q_sca: f64,
+    #[serde(rename = "solve_residual_rel")]
     residual_rel: f64,
-}
-
-impl geode_util::fixture::TomlRow for Row {
-    const TABLE_PREFIX: &'static str = "point";
-    fn write_fields(&self, out: &mut String) {
-        out.push_str(&format!("ka = {:.15e}\n", self.ka));
-        out.push_str(&format!("q_ext_analytic = {:.15e}\n", self.q_ext_analytic));
-        out.push_str(&format!("q_sca_analytic = {:.15e}\n", self.q_sca_analytic));
-        out.push_str(&format!("q_ext_fem = {:.15e}\n", self.q_ext_fem));
-        out.push_str(&format!("q_sca_fem = {:.15e}\n", self.q_sca_fem));
-        out.push_str(&format!("rel_err_q_ext = {:.15e}\n", self.rel_err_q_ext));
-        out.push_str(&format!("rel_err_q_sca = {:.15e}\n", self.rel_err_q_sca));
-        out.push_str(&format!("solve_residual_rel = {:.3e}\n", self.residual_rel));
-    }
 }
 
 fn run_one(fixture: &SphereFixture, ka: f64) -> Row {
@@ -244,7 +232,7 @@ fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice) {
     s.push_str("]\n");
     s.push('\n');
 
-    geode_util::fixture::push_rows(&mut s, rows);
+    geode_util::fixture::push_rows(&mut s, "point", rows);
 
     geode_util::fixture::write_toml(path, &s)
         .expect("write mie_driven_scattering driven_results.toml");

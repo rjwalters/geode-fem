@@ -33,7 +33,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use geode_app::{App, Verbosity};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Criterion's per-statistic shape inside `estimates.json`.
 #[derive(Debug, Deserialize)]
@@ -58,6 +58,21 @@ struct Row {
     median_ns: f64,
     median_abs_dev_ns: f64,
     mean_ns: f64,
+}
+
+/// Serde view of a [`Row`] matching the emitted per-bench TOML table
+/// body (the `["<group>.<input>"]` table). The `input` key is omitted
+/// for ungrouped benches and `human` is the pretty-printed median.
+/// Serialized through the shared `geode_util::fixture::push_table` seam.
+#[derive(Serialize)]
+struct BaselineRow<'a> {
+    group: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input: Option<&'a str>,
+    median_ns: f64,
+    median_abs_dev_ns: f64,
+    mean_ns: f64,
+    human: String,
 }
 
 /// Workspace root, two parents above `examples/extract_baseline/`.
@@ -195,17 +210,20 @@ fn emit_results(rows: &[Row], out_path: &Path) -> Result<(), Box<dyn std::error:
                 None => group.to_string(),
             };
             // Quote the table header so dotted/numeric inputs (e.g. "10")
-            // do not collide with the dotted-table syntax.
-            s.push_str(&format!("[\"{}\"]\n", key));
-            s.push_str(&format!("group = \"{}\"\n", r.group));
-            if let Some(input) = &r.input {
-                s.push_str(&format!("input = \"{}\"\n", input));
-            }
-            s.push_str(&format!("median_ns = {:.3}\n", r.median_ns));
-            s.push_str(&format!("median_abs_dev_ns = {:.3}\n", r.median_abs_dev_ns));
-            s.push_str(&format!("mean_ns = {:.3}\n", r.mean_ns));
-            s.push_str(&format!("human = \"{}\"\n", fmt_ns(r.median_ns)));
-            s.push('\n');
+            // do not collide with the dotted-table syntax. The body is
+            // serialized through the shared serde+toml row seam.
+            geode_util::fixture::push_table(
+                &mut s,
+                &format!("\"{key}\""),
+                &BaselineRow {
+                    group: &r.group,
+                    input: r.input.as_deref(),
+                    median_ns: r.median_ns,
+                    median_abs_dev_ns: r.median_abs_dev_ns,
+                    mean_ns: r.mean_ns,
+                    human: fmt_ns(r.median_ns),
+                },
+            );
         }
     }
 

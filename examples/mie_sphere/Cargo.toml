@@ -23,6 +23,9 @@ burn = { workspace = true }
 # (`std`, `linalg`) for the sparse shift-invert Lanczos eigensolver path
 # (`SparseColMat` / `Triplet`), matching geode-core's own faer reference.
 faer = { workspace = true, features = ["sparse-linalg"] }
+# `#[derive(Serialize)]` on the results `Row` for the serde+toml row seam
+# (geode_util::fixture::push_rows, Epic #429 Phase 3).
+serde = { workspace = true }
 
 # NOTE: this crate deliberately defines NO backend features. The Burn
 # backend (`wgpu` by default, or `ndarray` on headless CI) is selected by

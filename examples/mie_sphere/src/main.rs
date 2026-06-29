@@ -190,8 +190,9 @@ fn n_modes_from_catalog(analytic: &[MieRoot]) -> usize {
 /// Each row records one FEM eigenmode together with the analytic
 /// `(l, n, polarisation)` group it was claimed into and which slot
 /// within the `2 l + 1` magnetic-degeneracy multiplet it occupies.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 struct Row {
+    #[serde(rename = "polarisation")]
     pol: &'static str,
     l: usize,
     n: usize,
@@ -213,23 +214,6 @@ struct Row {
     fem_im_k: f64,
     rel_err_re_k: f64,
     q: f64,
-}
-
-impl geode_util::fixture::TomlRow for Row {
-    const TABLE_PREFIX: &'static str = "mode";
-    fn write_fields(&self, out: &mut String) {
-        out.push_str(&format!("polarisation = \"{}\"\n", self.pol));
-        out.push_str(&format!("l = {}\n", self.l));
-        out.push_str(&format!("n = {}\n", self.n));
-        out.push_str(&format!("m_idx = {}\n", self.m_idx));
-        out.push_str(&format!("incomplete = {}\n", self.incomplete));
-        out.push_str(&format!("ambiguous = {}\n", self.ambiguous));
-        out.push_str(&format!("analytic_k = {:.15e}\n", self.analytic_k));
-        out.push_str(&format!("fem_re_k = {:.15e}\n", self.fem_re_k));
-        out.push_str(&format!("fem_im_k = {:.15e}\n", self.fem_im_k));
-        out.push_str(&format!("rel_err_re_k = {:.15e}\n", self.rel_err_re_k));
-        out.push_str(&format!("q = {:.15e}\n", self.q));
-    }
 }
 
 fn pol_str(pol: MiePolarisation) -> &'static str {
@@ -663,7 +647,7 @@ fn emit_results(rows: &[Row], path: &PathBuf, scalar_pml: bool, n_modes: usize) 
     s.push_str("]\n");
     s.push('\n');
 
-    geode_util::fixture::push_rows(&mut s, rows);
+    geode_util::fixture::push_rows(&mut s, "mode", rows);
 
     geode_util::fixture::write_toml(path, &s).expect("write mie_sphere results.toml");
 }
