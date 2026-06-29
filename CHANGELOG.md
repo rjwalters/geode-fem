@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Introduced `geode-util`, a pre-core staging layer that sits above
   `geode-core` and collects shared, reusable helpers previously scattered
   across `geode-validation` and the standalone example crates. Its module
-  map is `repo` / `convert` / `interop` / `fixture` / `viz` (plus `math`).
+  map is `repo` / `convert` / `interop` / `fixture` / `viz`.
 - Migrated the fixture-repository helpers (#417), interop decoders (#418),
   edge-DOF → nodal field reconstruction (`viz::edge_field_to_nodes`, #419),
   conversion glue, and the shared fixture TOML/pvd/sweep harness (#423) out
