@@ -61,7 +61,7 @@ jobs:
       - name: Build docs (CPU backend)
         run: |
           cargo doc -p geode-core --no-deps \
-              --no-default-features --features ndarray
+              --no-default-features 
 
       - name: Build docs (--features arpack, CPU backend)
         run: |
