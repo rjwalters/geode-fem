@@ -14,10 +14,9 @@ name: doc-lint
 #
 # Backend note (mirrors arpack.yml): the runner is headless
 # `ubuntu-latest` with no Vulkan/CUDA adapter, so we build against the
-# CPU `ndarray` backend (`--no-default-features --features ndarray`)
-# rather than the GPU-only `wgpu` default. The intra-doc links being
+# CPU `ndarray` backend. The intra-doc links being
 # guarded are backend-independent doc comments, so the CPU backend
-# exercises the identical rustdoc surface. The `arpack,ndarray` combo
+# exercises the identical rustdoc surface. The `arpack` combo
 # additionally needs libarpack2-dev.
 
 on:
@@ -60,10 +59,8 @@ jobs:
 
       - name: Build docs (CPU backend)
         run: |
-          cargo doc -p geode-core --no-deps \
-              --no-default-features 
+          cargo doc -p geode-core --no-deps
 
       - name: Build docs (--features arpack, CPU backend)
         run: |
-          cargo doc -p geode-core --no-deps \
-              --no-default-features --features arpack
+          cargo doc -p geode-core --no-deps --features arpack

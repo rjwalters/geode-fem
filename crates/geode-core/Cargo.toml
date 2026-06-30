@@ -36,7 +36,7 @@ toml = { workspace = true }
 pkg-config = { workspace = true, optional = true }
 
 [features]
-default = ["wgpu"]
+default = []
 
 wgpu = ["burn/wgpu"]
 cuda = ["burn/cuda"]

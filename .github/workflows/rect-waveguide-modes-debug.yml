@@ -96,6 +96,6 @@ jobs:
       # panic and surface the regression on the next push.
       - name: cargo test -p geode-core --test rect_waveguide_modes (debug)
         run: |
-          cargo test --no-default-features \
+          cargo test \
             -p geode-core --test rect_waveguide_modes \
             -- --nocapture
