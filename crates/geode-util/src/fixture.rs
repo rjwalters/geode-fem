@@ -1446,4 +1446,135 @@ median_ns = 6.0
         assert_eq!(flatten_to_f64(&json!({})), Vec::<f64>::new());
         assert_eq!(flatten_to_f64(&json!(null)), Vec::<f64>::new());
     }
+
+    #[test]
+    fn fixture_scalar_f64_reads_single_value() {
+        let fx = scalar_fixture(&[], &[("x", json!([2.5]))]);
+        assert_eq!(fixture_scalar_f64(&fx, "x"), 2.5);
+    }
+
+    #[test]
+    fn fixture_array_f64_returns_full_payload() {
+        let fx = scalar_fixture(&[], &[("v", json!([1.0, -2.0, 3.5]))]);
+        assert_eq!(fixture_array_f64(&fx, "v"), vec![1.0, -2.0, 3.5]);
+    }
+
+    #[test]
+    fn fixture_scalar_usize_rounds_to_index() {
+        let fx = scalar_fixture(&[], &[("n", json!([4.0]))]);
+        assert_eq!(fixture_scalar_usize(&fx, "n"), 4usize);
+    }
+
+    #[test]
+    fn fixture_array_usize_rounds_each_entry() {
+        let fx = scalar_fixture(&[], &[("ns", json!([0.0, 2.0, 5.0]))]);
+        assert_eq!(fixture_array_usize(&fx, "ns"), vec![0usize, 2, 5]);
+    }
+
+    #[test]
+    fn small_sphere_mesh_path_points_at_reference_asset() {
+        let p = small_sphere_mesh_path();
+        assert!(p.is_absolute());
+        assert!(p.ends_with("reference/fixtures/sphere_pml_small/sphere.msh"));
+    }
+
+    #[test]
+    fn load_small_sphere_fixture_parses_committed_mesh() {
+        let f = load_small_sphere_fixture();
+        assert!(f.mesh.n_nodes() > 0, "small sphere mesh should have nodes");
+        assert!(f.mesh.n_tets() > 0, "small sphere mesh should have tets");
+    }
+}
+
+pub fn fixture_scalar_i64(fixture: &Fixture, name: &str) -> i64 {
+    let f = fixture
+        .output_f64(name)
+        .unwrap_or_else(|e| panic!("fixture missing scalar output `{name}`: {e}"));
+    assert_eq!(
+        f.data.len(),
+        1,
+        "fixture scalar `{name}` should be length 1, got {}",
+        f.data.len()
+    );
+    f.data[0].round() as i64
+}
+
+pub fn fixture_shape(fixture: &Fixture, name: &str) -> (usize, usize) {
+    let f = fixture
+        .output_f64(name)
+        .unwrap_or_else(|e| panic!("fixture missing shape output `{name}`: {e}"));
+    assert_eq!(
+        f.data.len(),
+        2,
+        "fixture shape `{name}` should be length 2, got {}",
+        f.data.len()
+    );
+    (f.data[0].round() as usize, f.data[1].round() as usize)
+}
+
+pub fn fixture_array_i64(fixture: &Fixture, name: &str) -> Vec<i64> {
+    let f = fixture
+        .output_f64(name)
+        .unwrap_or_else(|e| panic!("fixture missing array output `{name}`: {e}"));
+    f.data.iter().map(|v| v.round() as i64).collect()
+}
+
+/// A required length-1 f64 scalar output. f64 sibling of
+/// [`fixture_scalar_i64`]; replaces the `fixture_scalar_f64` helper
+/// duplicated across the `mie_roots_*` reference tests.
+pub fn fixture_scalar_f64(fixture: &Fixture, name: &str) -> f64 {
+    let f = fixture
+        .output_f64(name)
+        .unwrap_or_else(|e| panic!("fixture missing scalar output `{name}`: {e}"));
+    assert_eq!(
+        f.data.len(),
+        1,
+        "fixture scalar `{name}` should be length 1, got {}",
+        f.data.len()
+    );
+    f.data[0]
+}
+
+/// A required f64 array output. f64 sibling of [`fixture_array_i64`];
+/// replaces the `fixture_array_f64` helper duplicated across the
+/// `mie_roots_*` reference tests.
+pub fn fixture_array_f64(fixture: &Fixture, name: &str) -> Vec<f64> {
+    fixture
+        .output_f64(name)
+        .unwrap_or_else(|e| panic!("fixture missing array output `{name}`: {e}"))
+        .data
+        .clone()
+}
+
+/// A required length-1 `usize` scalar output (rounded). `usize` sibling of
+/// [`fixture_scalar_i64`]; replaces the `fixture_scalar_usize` helper in
+/// the `mie_roots_*` reference tests.
+pub fn fixture_scalar_usize(fixture: &Fixture, name: &str) -> usize {
+    fixture_scalar_i64(fixture, name) as usize
+}
+
+/// A required `usize` array output (rounded). `usize` sibling of
+/// [`fixture_array_i64`]; replaces the `fixture_array_usize` helper in the
+/// `mie_roots_*` reference tests.
+pub fn fixture_array_usize(fixture: &Fixture, name: &str) -> Vec<usize> {
+    fixture_array_i64(fixture, name)
+        .into_iter()
+        .map(|v| v as usize)
+        .collect()
+}
+
+/// Path to the small-sphere reference mesh
+/// (`reference/fixtures/sphere_pml_small/sphere.msh`), shared by the
+/// `sphere_mie_*` / `sphere_pml_numpy` reference tests.
+pub fn small_sphere_mesh_path() -> std::path::PathBuf {
+    crate::repo::fixture_path("sphere_pml_small/sphere.msh")
+}
+
+/// Load the small-sphere reference fixture from its committed `.msh`.
+///
+/// Replaces the `load_small_sphere_fixture` helper duplicated across the
+/// `sphere_mie_*` / `sphere_pml_numpy` reference tests.
+pub fn load_small_sphere_fixture() -> geode_core::mesh::SphereFixture {
+    let bytes = std::fs::read(small_sphere_mesh_path()).expect("read small-mesh sphere.msh bytes");
+    geode_core::mesh::read_sphere_fixture_from_bytes(&bytes).expect("parse small-mesh sphere.msh")
 }

@@ -93,6 +93,7 @@ use geode_core::eigen::complex::{
 };
 use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, SphereFixture, read_sphere_fixture};
 use geode_core::testing::TestBackend;
+use geode_util::eigen::k_from_lambda;
 
 /// Refractive index inside the sphere (matches the analytic catalog).
 const N_INSIDE: f64 = 1.5;
@@ -110,15 +111,6 @@ const N_NEAR_SHIFT: usize = 60;
 /// Extra eigenvalues requested above the gradient-nullspace count on
 /// the `--dense` oracle path (which sorts ascending by |Re(λ)| from 0).
 const N_EXTRA_DENSE: usize = 80;
-
-/// Principal-branch `k = sqrt(λ)` with `Re(k) ≥ 0`.
-fn k_from_lambda(lam: faer::c64) -> (f64, f64) {
-    let r = (lam.re * lam.re + lam.im * lam.im).sqrt();
-    let re_k = ((r + lam.re) / 2.0).sqrt();
-    let im_mag = ((r - lam.re) / 2.0).sqrt();
-    let im_k = if lam.im >= 0.0 { im_mag } else { -im_mag };
-    (re_k, im_k)
-}
 
 /// One frozen-ω matched-UPML eigensolve: assemble
 /// `K(Λ⁻¹(ω)) x = λ M(ε_rΛ(ω)) x` on the bundled fixture, PEC-reduce,
@@ -296,13 +288,6 @@ struct QuasiModeRow {
     picard: Option<(f64, f64, f64, f64)>,
 }
 
-fn pol_str(pol: MiePolarisation) -> &'static str {
-    match pol {
-        MiePolarisation::TE => "TE",
-        MiePolarisation::TM => "TM",
-    }
-}
-
 fn results_path() -> PathBuf {
     geode_util::repo::repo_root()
         .join("benchmarks")
@@ -358,7 +343,7 @@ fn write_results(rows: &[QuasiModeRow]) {
     for (i, r) in rows.iter().enumerate() {
         s.push_str(&format!("[quasimode_{i}]\n"));
         s.push_str(&format!("sigma_0 = {}\n", r.sigma_0));
-        s.push_str(&format!("polarisation = \"{}\"\n", pol_str(r.pol)));
+        s.push_str(&format!("polarisation = \"{}\"\n", r.pol.as_str()));
         s.push_str(&format!("l = {}\n", r.l));
         s.push_str(&format!("n = {}\n", r.n));
         s.push_str(&format!("omega_freeze = {:.15e}\n", r.omega_freeze));
@@ -438,7 +423,7 @@ impl App for Args {
                 let omega0 = root.re_k;
                 eprintln!(
                     "=== σ₀ = {sigma_0}, target {}_{},{} (analytic k = {:.4} {:+.4}j, Q = {:.3}) ===",
-                    pol_str(root.pol),
+                    root.pol.as_str(),
                     root.l,
                     root.n,
                     root.re_k,
@@ -519,7 +504,7 @@ impl App for Args {
                 "  σ₀ = {:>4}: {}_{},{}  Re(k) {:.4} vs {:.4} ({:.1}% err), \
              Q {:.3} vs {:.3} (ratio {:.3}){}",
                 r.sigma_0,
-                pol_str(r.pol),
+                r.pol.as_str(),
                 r.l,
                 r.n,
                 r.fem_re_k,

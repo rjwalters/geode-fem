@@ -107,7 +107,7 @@ pub const PORT_E_HAT: [f64; 3] = [0.0, 1.0, 0.0];
 
 /// Free-space impedance η₀ (Ω) used by the natural-unit conversion of
 /// [`SpiralMaterials::conductor_sigma_natural`].
-const Z0_OHM: f64 = 376.730_313_668;
+const Z0_OHM: f64 = crate::constants::ETA_0_OHM;
 
 /// Per-fixture material set applied at solve time (issue #212): the
 /// mesh carries only region tags, so each fixture YAML's recorded
@@ -187,7 +187,7 @@ pub const CONDUCTOR_SIGMA_S_M: f64 = 5.8e7;
 /// `σ_nat = σ_SI · Z₀ · L_unit = 5.8e7 · 376.730 · 1e-6 ≈ 2.185e4 /µm`
 /// (same normalization as
 /// [`crate::driven::solve::SurfaceImpedanceModel::GoodConductor`]).
-pub const CONDUCTOR_SIGMA_NATURAL: f64 = CONDUCTOR_SIGMA_S_M * 376.730_313_668 * 1e-6;
+pub const CONDUCTOR_SIGMA_NATURAL: f64 = CONDUCTOR_SIGMA_S_M * crate::constants::ETA_0_OHM * 1e-6;
 
 /// Raw bytes of the bundled benchmark spiral fixture (MSH 4.1 ASCII).
 const SPIRAL_MSH: &[u8] = include_bytes!("../../tests/fixtures/spiral_3p5.msh");
@@ -515,7 +515,7 @@ mod tests {
         let omega_si = 2.0 * std::f64::consts::PI * f_hz;
         let delta_si_um = (2.0 / (omega_si * mu0 * sigma_si)).sqrt() * 1e6;
 
-        let c_um_per_s = 2.997_924_58e14;
+        let c_um_per_s = crate::constants::C_UM_PER_S;
         let omega_nat = omega_si / c_um_per_s; // rad/µm
         let delta_nat_um = (2.0 / (omega_nat * sigma_nat)).sqrt();
 

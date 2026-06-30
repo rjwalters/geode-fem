@@ -182,8 +182,14 @@ fn build_actual_outputs(
     actual.insert("eigenvalues".to_string(), eigvals.to_vec());
 
     // Frobenius norms.
-    actual.insert("k_int_frobenius".to_string(), vec![frobenius_norm(k_int)]);
-    actual.insert("m_int_frobenius".to_string(), vec![frobenius_norm(m_int)]);
+    actual.insert(
+        "k_int_frobenius".to_string(),
+        vec![math::frobenius_norm(k_int)],
+    );
+    actual.insert(
+        "m_int_frobenius".to_string(),
+        vec![math::frobenius_norm(m_int)],
+    );
 
     // Diagonals.
     let n = k_int.nrows();
@@ -210,111 +216,9 @@ fn build_actual_outputs(
     actual
 }
 
-fn frobenius_norm(m: MatRef<f64>) -> f64 {
-    let mut s = 0.0_f64;
-    for j in 0..m.ncols() {
-        for i in 0..m.nrows() {
-            let v = m[(i, j)];
-            s += v * v;
-        }
-    }
-    s.sqrt()
-}
-
 // ---------------------------------------------------------------------------
 // Dense generalized eigensolve with eigenvectors
 // ---------------------------------------------------------------------------
-
-/// Compute the lowest-`n` generalized eigenpairs of `K x = λ M x`
-/// using faer's dense `generalized_eigen`.
-///
-/// Returns `(eigvals, eigvecs)` with `eigvals` ascending and `eigvecs`
-/// as columns of an `(n_int, n)` matrix. Eigenvectors are
-/// M-orthonormalized post-hoc via modified Gram–Schmidt within each
-/// degenerate cluster, so the comparison against the NumPy reference
-/// (which is M-orthonormal by `eigsh` construction) is consistent.
-///
-/// The existing `FaerDenseEigensolver` trait only returns eigenvalues;
-/// extending it to return eigenpairs is tracked as a follow-up. For
-/// now, we inline the eigenvector path in this test.
-fn dense_lowest_eigenpairs(k: MatRef<f64>, m: MatRef<f64>, n_take: usize) -> (Vec<f64>, Mat<f64>) {
-    let dim = k.nrows();
-    let evd = k.generalized_eigen(&m).expect("faer generalized_eigen");
-    let s_a = evd.S_a().column_vector();
-    let s_b = evd.S_b().column_vector();
-    let u = evd.U();
-
-    // Build (real eigenvalue, eigenvector) tuples, filtering complex pairs.
-    let mut pairs: Vec<(f64, Vec<f64>)> = Vec::with_capacity(dim);
-    for i in 0..dim {
-        let a = s_a[i];
-        let b = s_b[i];
-        let denom = b.norm_sqr();
-        if denom < 1e-30 {
-            continue;
-        }
-        let re = (a.re * b.re + a.im * b.im) / denom;
-        let im = (a.im * b.re - a.re * b.im) / denom;
-        // Skip eigenvalues with non-trivial imaginary part (shouldn't
-        // happen for our SPD pencil but the API doesn't promise it).
-        if im.abs() > 1e-9 * re.abs().max(1.0) {
-            continue;
-        }
-        // Real eigenvector — for an SPD pencil U columns are real to
-        // f64 precision modulo a global phase. Take the real part.
-        let mut v = Vec::with_capacity(dim);
-        for row in 0..dim {
-            v.push(u[(row, i)].re);
-        }
-        pairs.push((re, v));
-    }
-
-    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    pairs.truncate(n_take);
-
-    let n = pairs.len();
-    let eigvals: Vec<f64> = pairs.iter().map(|(l, _)| *l).collect();
-    let mut q = Mat::<f64>::zeros(dim, n);
-    for (j, (_, v)) in pairs.iter().enumerate() {
-        for i in 0..dim {
-            q[(i, j)] = v[i];
-        }
-    }
-
-    // M-normalize each column so v^T M v = 1.
-    for j in 0..n {
-        let col = column_as_vec(q.as_ref(), j);
-        let norm_sq = quad_form(&col, m, &col);
-        let scale = 1.0 / norm_sq.max(1e-300).sqrt();
-        for i in 0..dim {
-            q[(i, j)] *= scale;
-        }
-    }
-
-    (eigvals, q)
-}
-
-fn column_as_vec(m: MatRef<f64>, j: usize) -> Vec<f64> {
-    (0..m.nrows()).map(|i| m[(i, j)]).collect()
-}
-
-/// `x^T A y` for dense `A` and slices `x, y`.
-fn quad_form(x: &[f64], a: MatRef<f64>, y: &[f64]) -> f64 {
-    let n = x.len();
-    debug_assert_eq!(n, a.nrows());
-    debug_assert_eq!(n, a.ncols());
-    debug_assert_eq!(n, y.len());
-    let mut s = 0.0_f64;
-    for i in 0..n {
-        let xi = x[i];
-        let mut row_dot = 0.0_f64;
-        for j in 0..n {
-            row_dot += a[(i, j)] * y[j];
-        }
-        s += xi * row_dot;
-    }
-    s
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -405,7 +309,8 @@ fn cube_cavity_burn_matches_numpy_reference_at_all_substages() {
         "Dirichlet-restricted K_int must be 9^3 = 729 (n=10)"
     );
 
-    let (eigvals_burn, _eigvecs_burn) = dense_lowest_eigenpairs(k_int.as_ref(), m_int.as_ref(), 5);
+    let (eigvals_burn, _eigvecs_burn) =
+        eigen::dense_lowest_eigenpairs(k_int.as_ref(), m_int.as_ref(), 5);
 
     let actual = build_actual_outputs(k_int.as_ref(), m_int.as_ref(), &eigvals_burn, k_int.nrows());
 
@@ -567,7 +472,7 @@ fn cube_cavity_eigenvector_subspaces_agree_per_cluster() {
     let (k_int, m_int, _interior) = burn_pipeline_to_interior();
     let k_modes = 6usize; // 5 for acceptance criterion + 1 to close cluster {4,5}
     let (_eigvals_burn, eigvecs_burn) =
-        dense_lowest_eigenpairs(k_int.as_ref(), m_int.as_ref(), k_modes);
+        eigen::dense_lowest_eigenpairs(k_int.as_ref(), m_int.as_ref(), k_modes);
 
     // Load Q_numpy from the fixture's INPUT field (eigenvectors are
     // stored as inputs because elementwise comparison is the wrong
@@ -692,6 +597,7 @@ fn print_substage_diff(fixture: &Fixture, actual: &BTreeMap<String, Vec<f64>>) {
 
 // Recursive JSON numeric flatten lives in the shared staging crate.
 use geode_util::fixture::flatten_numeric;
+use geode_util::{eigen, math};
 
 /// Dense matrix product `A · B` returning an owned `Mat<f64>`.
 fn mat_mul(a: MatRef<f64>, b: MatRef<f64>) -> Mat<f64> {

@@ -136,6 +136,7 @@ use faer::c64;
 
 use geode_app::{App, OutputDir, Verbosity};
 use geode_core::analytic::patch::PatchCavity;
+use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::{im_z_zero_crossings, s11};
 use geode_core::driven::ports::{port_current, port_voltage};
 use geode_core::driven::scattering::flux_power_box;
@@ -152,14 +153,8 @@ use geode_core::postproc::ntff::{
 };
 use geode_core::postproc::viz::write_vtu_surface;
 use geode_core::testing::TestBackend;
+use geode_util::units::{ghz_to_omega_mm as ghz_to_omega, omega_to_ghz_mm};
 use geode_util::viz::edge_field_to_nodes;
-
-/// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.
-const ETA_0: f64 = 376.730_313_668;
-
-/// Speed of light in mm/s — the fixture length unit is the millimeter,
-/// so `ω_natural ≡ k₀ = 2π f / C_MM_PER_S` (rad/mm).
-const C_MM_PER_S: f64 = 2.997_924_58e11;
 
 /// Port reference resistance (Ω).
 const R_PORT_OHM: f64 = 50.0;
@@ -275,10 +270,6 @@ impl From<&Row> for PointRow {
             solve_residual_rel: r.residual_rel,
         }
     }
-}
-
-fn ghz_to_omega(f_ghz: f64) -> f64 {
-    2.0 * std::f64::consts::PI * f_ghz * 1.0e9 / C_MM_PER_S
 }
 
 fn pml_thick_for(choice: FixtureChoice) -> f64 {
@@ -511,7 +502,7 @@ fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: 
     let zs: Vec<c64> = rows.iter().map(|r| r.z_ohm).collect();
     let f_res_fem_ghz = im_z_zero_crossings(&omegas, &zs)
         .first()
-        .map(|&w| w * C_MM_PER_S / (2.0 * std::f64::consts::PI * 1.0e9))
+        .map(|&w| omega_to_ghz_mm(w))
         .or_else(|| {
             rows.iter()
                 .min_by(|a, b| a.s11.norm().partial_cmp(&b.s11.norm()).unwrap())

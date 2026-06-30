@@ -109,9 +109,7 @@ use clap::Parser;
 use faer::sparse::{SparseColMat, Triplet};
 
 use geode_app::{App, OutputDir, Verbosity};
-use geode_core::analytic::mie::{
-    MiePolarisation, MieRoot, mie_roots_catalog, open_space_wgm_roots_n15,
-};
+use geode_core::analytic::mie::{MieRoot, mie_roots_catalog, open_space_wgm_roots_n15};
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_anisotropic_epsilon, assemble_global_nedelec_with_complex_epsilon,
     build_anisotropic_pml_tensor_diag, build_complex_epsilon_r_pml, burn_complex_mass_to_faer,
@@ -128,6 +126,7 @@ use geode_core::eigen::complex::{
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, R_SPHERE, read_sphere_fixture};
 use geode_core::testing::TestBackend;
+use geode_util::eigen;
 use geode_util::viz::edge_field_to_nodes;
 
 /// Refractive index inside the sphere. n=1.5 is the textbook
@@ -214,13 +213,6 @@ struct Row {
     fem_im_k: f64,
     rel_err_re_k: f64,
     q: f64,
-}
-
-fn pol_str(pol: MiePolarisation) -> &'static str {
-    match pol {
-        MiePolarisation::TE => "TE",
-        MiePolarisation::TM => "TM",
-    }
 }
 
 fn results_path() -> PathBuf {
@@ -424,15 +416,6 @@ fn fem_complex_k<B: Backend>(
         .collect()
 }
 
-/// Compute the Q factor of a complex `k`: `Q = Re(k) / (2 |Im(k)|)`.
-fn q_factor(k: faer::c64) -> f64 {
-    if k.im.abs() > 1e-12 {
-        k.re / (2.0 * k.im.abs())
-    } else {
-        f64::INFINITY
-    }
-}
-
 /// Multiplicity-aware mode-claim pairing with overlap gating
 /// (issues #40, #43).
 ///
@@ -490,7 +473,7 @@ fn pair_modes(analytic: &[MieRoot], fem: &[faer::c64]) -> Vec<Row> {
             if band > 0.10 {
                 eprintln!(
                     "  note: {}_{},{} multiplet Im(k) band = {:.1}% > 10% (mesh asymmetry)",
-                    pol_str(root.pol),
+                    root.pol.as_str(),
                     root.l,
                     root.n,
                     band * 100.0
@@ -521,11 +504,11 @@ fn pair_modes(analytic: &[MieRoot], fem: &[faer::c64]) -> Vec<Row> {
                         "  warn: close-pair gating — {}_{},{} (k = {:.5}) next root \
                          {}_{},{} (k = {:.5}, rel gap = {:.3}%) and within-multiplet \
                          FEM spread = {:.3e} > 0.5 * gap ({:.3e}); claim is ambiguous",
-                        pol_str(root.pol),
+                        root.pol.as_str(),
                         root.l,
                         root.n,
                         root.k,
-                        pol_str(next.pol),
+                        next.pol.as_str(),
                         next.l,
                         next.n,
                         next.k,
@@ -540,7 +523,7 @@ fn pair_modes(analytic: &[MieRoot], fem: &[faer::c64]) -> Vec<Row> {
         for (slot, fem_k) in group.iter().enumerate() {
             let rel_err = (fem_k.re - root.k).abs() / root.k;
             rows.push(Row {
-                pol: pol_str(root.pol),
+                pol: root.pol.as_str(),
                 l: root.l,
                 n: root.n,
                 m_idx: slot,
@@ -550,7 +533,7 @@ fn pair_modes(analytic: &[MieRoot], fem: &[faer::c64]) -> Vec<Row> {
                 fem_re_k: fem_k.re,
                 fem_im_k: fem_k.im,
                 rel_err_re_k: rel_err,
-                q: q_factor(*fem_k),
+                q: eigen::q_factor(*fem_k),
             });
         }
 
@@ -826,7 +809,7 @@ impl App for Args {
         for r in analytic.iter().take(12) {
             eprintln!(
                 "  {}_{},{}  k = {:.5}  k² = {:.5}  mult = {}",
-                pol_str(r.pol),
+                r.pol.as_str(),
                 r.l,
                 r.n,
                 r.k,
@@ -866,7 +849,7 @@ impl App for Args {
         for r in open_space.iter().take(8) {
             eprintln!(
                 "  {}_{},{}  k = {:.5} + {:.5e}i  Q = {:.3}",
-                pol_str(r.pol),
+                r.pol.as_str(),
                 r.l,
                 r.n,
                 r.re_k,
@@ -901,7 +884,7 @@ impl App for Args {
             eprintln!(
                 "{:>3}  {:>9}_{},{}  {:>11.5}  {:>11.5}  {:>11.3}%  {:>12.3}",
                 i,
-                pol_str(best.pol),
+                best.pol.as_str(),
                 best.l,
                 best.n,
                 fk.re,
@@ -932,6 +915,7 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use geode_core::analytic::mie::MiePolarisation;
 
     /// Build a synthetic FEM-mode vector that mimics a coarse-mesh
     /// split of an analytic root: three modes (multiplicity 2l+1 = 3)

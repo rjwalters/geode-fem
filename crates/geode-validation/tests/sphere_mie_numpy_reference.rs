@@ -85,10 +85,10 @@ use geode_core::assembly::nedelec::{
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
-use geode_core::mesh::{
-    R_BUFFER, R_SPHERE, SphereFixture, read_sphere_fixture, read_sphere_fixture_from_bytes,
-};
+use geode_core::mesh::{R_BUFFER, R_SPHERE, SphereFixture, read_sphere_fixture};
 use geode_core::testing::TestBackend;
+use geode_util::eigen::{q_factor_from_lambda, re_k_from_lambda};
+use geode_util::fixture::load_small_sphere_fixture;
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = TestBackend;
@@ -112,17 +112,6 @@ fn full_fixture_path() -> PathBuf {
 
 fn small_fixture_path() -> PathBuf {
     geode_validation::fixture_path("sphere_mie_small/baseline.json")
-}
-
-/// The small mesh is shared with the #158 sphere_pml_small fixture —
-/// not duplicated under sphere_mie_small/.
-fn small_mesh_path() -> PathBuf {
-    geode_validation::fixture_path("sphere_pml_small/sphere.msh")
-}
-
-fn load_small_sphere_fixture() -> SphereFixture {
-    let bytes = std::fs::read(small_mesh_path()).expect("read small-mesh sphere.msh bytes");
-    read_sphere_fixture_from_bytes(&bytes).expect("parse small-mesh sphere.msh")
 }
 
 // ---------------------------------------------------------------------------
@@ -213,27 +202,6 @@ fn run_burn_mie_pipeline(
         epsilon_tensor_diag_flat,
         k_int_complex,
         m_int_complex,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// λ → k and Q helpers (principal branch, sign-agnostic Q) — mirror of
-// `mie_sphere.rs` and `reference/numpy/sphere_mie.py`.
-// ---------------------------------------------------------------------------
-
-fn re_k_from_lambda(lambda: Complex64) -> f64 {
-    let r = (lambda.re * lambda.re + lambda.im * lambda.im).sqrt();
-    (0.5 * (r + lambda.re)).max(0.0).sqrt()
-}
-
-fn q_factor_from_lambda(lambda: Complex64) -> f64 {
-    let r = (lambda.re * lambda.re + lambda.im * lambda.im).sqrt();
-    let re_k = (0.5 * (r + lambda.re)).max(0.0).sqrt();
-    let im_k_mag = (0.5 * (r - lambda.re)).max(0.0).sqrt();
-    if im_k_mag > 1e-12 {
-        re_k / (2.0 * im_k_mag)
-    } else {
-        f64::INFINITY
     }
 }
 

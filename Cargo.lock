@@ -2661,6 +2661,7 @@ dependencies = [
  "criterion",
  "faer",
  "geode-core",
+ "geode-util",
  "mshio",
  "pkg-config",
  "regex",

@@ -39,6 +39,9 @@ use geode_core::analytic::mie::{
     MiePolarisation, MieRoot, merged_roots, mie_roots_catalog, resonance_roots,
 };
 use geode_core::mesh::{R_BUFFER, R_SPHERE};
+use geode_util::fixture::{
+    fixture_array_f64, fixture_array_usize, fixture_scalar_f64, fixture_scalar_usize,
+};
 use geode_validation::{Fixture, FixtureFormat};
 
 // ---------------------------------------------------------------------------
@@ -73,38 +76,6 @@ fn load_fixture() -> Fixture {
 // Fixture field accessors.
 // ---------------------------------------------------------------------------
 
-fn fixture_scalar_f64(fixture: &Fixture, name: &str) -> f64 {
-    let f = fixture
-        .output_f64(name)
-        .unwrap_or_else(|e| panic!("fixture missing scalar output `{name}`: {e}"));
-    assert_eq!(
-        f.data.len(),
-        1,
-        "fixture scalar `{name}` should be length 1, got {}",
-        f.data.len()
-    );
-    f.data[0]
-}
-
-fn fixture_scalar_usize(fixture: &Fixture, name: &str) -> usize {
-    fixture_scalar_f64(fixture, name).round() as usize
-}
-
-fn fixture_array_f64(fixture: &Fixture, name: &str) -> Vec<f64> {
-    fixture
-        .output_f64(name)
-        .unwrap_or_else(|e| panic!("fixture missing array output `{name}`: {e}"))
-        .data
-        .clone()
-}
-
-fn fixture_array_usize(fixture: &Fixture, name: &str) -> Vec<usize> {
-    fixture_array_f64(fixture, name)
-        .iter()
-        .map(|v| v.round() as usize)
-        .collect()
-}
-
 /// Canonical join key: `(pol_index, l, n)` with `pol_index` 0 = TE,
 /// 1 = TM — matching the fixture's `root_pol` encoding.
 type RootKey = (u8, usize, usize);
@@ -117,11 +88,7 @@ fn pol_index(pol: MiePolarisation) -> u8 {
 }
 
 fn pol_name(idx: u8) -> &'static str {
-    match idx {
-        0 => "TE",
-        1 => "TM",
-        _ => "??",
-    }
+    MiePolarisation::from_index(idx).map_or("??", |p| p.as_str())
 }
 
 /// Load the fixture's catalogue as a `(pol, l, n) → k` map, asserting

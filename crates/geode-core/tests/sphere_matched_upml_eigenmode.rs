@@ -64,6 +64,7 @@ use geode_core::eigen::complex::{SparseComplexEigenSolver, SparseComplexShiftInv
 use geode_core::eigen::dense::burn_matrix_to_faer;
 use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, TetMesh, read_sphere_fixture};
 use geode_core::testing::TestBackend;
+use geode_util::eigen::k_from_lambda;
 
 type B = TestBackend;
 
@@ -91,15 +92,6 @@ fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
         .map(|row| std::array::from_fn(|i| row[i].1))
         .collect();
     (idx, sign)
-}
-
-/// Principal-branch `k = sqrt(λ)` with `Re(k) ≥ 0`.
-fn k_from_lambda(lam: c64) -> (f64, f64) {
-    let r = (lam.re * lam.re + lam.im * lam.im).sqrt();
-    let re_k = ((r + lam.re) / 2.0).sqrt();
-    let im_mag = ((r - lam.re) / 2.0).sqrt();
-    let im_k = if lam.im >= 0.0 { im_mag } else { -im_mag };
-    (re_k, im_k)
 }
 
 fn tm11_root() -> MieRootComplex {

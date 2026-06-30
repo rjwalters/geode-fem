@@ -38,7 +38,6 @@ use burn::prelude::Backend;
 use burn::tensor::DType;
 use burn::tensor::backend::BackendTypes;
 use faer::Mat;
-use faer::mat::MatRef;
 use std::path::PathBuf;
 
 use geode_core::assembly::nedelec::{
@@ -49,6 +48,8 @@ use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
 use geode_core::testing::{TestBackend, device_tolerances};
+use geode_util::eigen::dense_lowest_eigenvalues;
+use geode_util::math::frobenius_norm;
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = TestBackend;
@@ -182,44 +183,6 @@ fn run_burn_pipeline() -> BurnPipeline {
 // ---------------------------------------------------------------------------
 // Matrix helpers (same as sphere_pec_numpy_reference.rs)
 // ---------------------------------------------------------------------------
-
-fn frobenius_norm(m: MatRef<f64>) -> f64 {
-    let mut s = 0.0_f64;
-    for j in 0..m.ncols() {
-        for i in 0..m.nrows() {
-            let v = m[(i, j)];
-            s += v * v;
-        }
-    }
-    s.sqrt()
-}
-
-/// Compute lowest-n real generalized eigenvalues of K x = λ M x.
-fn dense_lowest_eigenvalues(k: MatRef<f64>, m: MatRef<f64>, n_take: usize) -> Vec<f64> {
-    let dim = k.nrows();
-    let evd = k.generalized_eigen(&m).expect("faer generalized_eigen");
-    let s_a = evd.S_a().column_vector();
-    let s_b = evd.S_b().column_vector();
-
-    let mut eigs: Vec<f64> = Vec::with_capacity(dim);
-    for i in 0..dim {
-        let a = s_a[i];
-        let b = s_b[i];
-        let denom = b.norm_sqr();
-        if denom < 1e-30 {
-            continue;
-        }
-        let re = (a.re * b.re + a.im * b.im) / denom;
-        let im = (a.im * b.re - a.re * b.im) / denom;
-        if im.abs() > 1e-9 * re.abs().max(1.0) {
-            continue;
-        }
-        eigs.push(re);
-    }
-    eigs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    eigs.truncate(n_take);
-    eigs
-}
 
 // ---------------------------------------------------------------------------
 // Tests

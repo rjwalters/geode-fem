@@ -95,6 +95,7 @@ use geode_app::{App, OutputDir, Verbosity};
 use geode_core::analytic::spiral::{
     SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
 };
+use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::{detect_srf, driven_frequency_sweep};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
@@ -105,14 +106,8 @@ use geode_core::mesh::{
     SpiralFixture, pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_smoke_fixture,
 };
 use geode_core::testing::TestBackend;
+use geode_util::units::{ghz_to_omega_um as ghz_to_omega, omega_to_ghz_um};
 use geode_util::viz::edge_field_to_nodes;
-
-/// Free-space impedance η₀ (Ω) — the solver's natural impedance unit.
-const ETA_0: f64 = 376.730_313_668;
-
-/// Speed of light in µm/s — the fixture length unit is the micron, so
-/// `ω_natural = 2π f / C_UM_PER_S` (rad/µm).
-const C_UM_PER_S: f64 = 2.997_924_58e14;
 
 /// Port reference resistance (Ω).
 const R_PORT_OHM: f64 = 50.0;
@@ -204,10 +199,6 @@ impl From<&Row> for PointRow {
             solve_residual_rel: r.residual_rel,
         }
     }
-}
-
-fn ghz_to_omega(f_ghz: f64) -> f64 {
-    2.0 * std::f64::consts::PI * f_ghz * 1.0e9 / C_UM_PER_S
 }
 
 fn results_path(choice: FixtureChoice) -> PathBuf {
@@ -574,8 +565,7 @@ fn run<B: Backend>(device: &B::Device, choice: FixtureChoice) {
 
     let omegas: Vec<f64> = rows.iter().map(|r| r.omega).collect();
     let zs: Vec<c64> = rows.iter().map(|r| r.z_ohm).collect();
-    let srf_ghz =
-        detect_srf(&omegas, &zs).map(|w| w * C_UM_PER_S / (2.0 * std::f64::consts::PI * 1.0e9));
+    let srf_ghz = detect_srf(&omegas, &zs).map(omega_to_ghz_um);
 
     let l_cs = mohan_current_sheet_l(&FIXTURE_SPIRAL) * 1.0e9;
     eprintln!(

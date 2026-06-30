@@ -58,6 +58,7 @@ use std::path::PathBuf;
 use faer::c64;
 
 use geode_core::analytic::patch::PatchCavity;
+use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::s11;
 use geode_core::driven::ports::{port_current, port_voltage};
 use geode_core::driven::scattering::flux_power_box;
@@ -67,12 +68,7 @@ use geode_core::driven::solve::{
 use geode_core::mesh::patch::FR4_MATERIALS;
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_smoke_fixture};
 use geode_core::testing::TestBackend;
-
-/// Free-space impedance η₀ (Ω).
-const ETA_0: f64 = 376.730_313_668;
-
-/// Speed of light in mm/s (fixture lengths are millimeters).
-const C_MM_PER_S: f64 = 2.997_924_58e11;
+use geode_util::units::ghz_to_omega_mm as ghz_to_omega;
 
 /// Port reference resistance (Ω).
 const R_PORT_OHM: f64 = 50.0;
@@ -102,10 +98,6 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
-}
-
-fn ghz_to_omega(f_ghz: f64) -> f64 {
-    2.0 * std::f64::consts::PI * f_ghz * 1.0e9 / C_MM_PER_S
 }
 
 /// One parsed committed sweep row.

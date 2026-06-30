@@ -16,7 +16,80 @@
 //! duplicated across the `geode-validation` reference tests, and localizing
 //! the assumption so a future faer type split would surface in one place.
 
+use faer::sparse::SparseColMat;
 use num_complex::Complex64;
+
+/// A compressed-sparse-row integer matrix — the row-pointer / column-index
+/// / value triple for an operator whose entries are exact integers.
+///
+/// Mirrors the NumPy-side CSR layout of the de Rham ±1 incidence operators
+/// so the reference tests can cross-check them with bit-exact integer
+/// equality.
+#[derive(Debug, Clone)]
+pub struct CsrI64 {
+    pub n_rows: usize,
+    pub n_cols: usize,
+    pub indptr: Vec<i64>,
+    pub indices: Vec<i64>,
+    pub data: Vec<i64>,
+}
+
+impl CsrI64 {
+    /// Number of stored (structurally nonzero) entries.
+    #[must_use]
+    pub fn nnz(&self) -> usize {
+        self.data.len()
+    }
+}
+
+/// Convert a faer sparse `f64` matrix to [`CsrI64`], asserting every stored
+/// value is in the integer contract `{-1, 0, +1}`.
+///
+/// Panics if a nonzero entry is not exactly `±1`: the de Rham incidence
+/// operators are integer by construction, so a non-integer entry signals
+/// corruption of the Rust source of truth. Replaces the
+/// `faer_signed_csc_to_csr_i64` helper duplicated across the `derham_*`
+/// reference tests.
+pub fn faer_signed_csc_to_csr_i64(m: &SparseColMat<usize, f64>) -> CsrI64 {
+    let dense = m.to_dense();
+    let n_rows = dense.nrows();
+    let n_cols = dense.ncols();
+
+    let mut indptr: Vec<i64> = Vec::with_capacity(n_rows + 1);
+    let mut indices: Vec<i64> = Vec::new();
+    let mut data: Vec<i64> = Vec::new();
+    indptr.push(0);
+    for r in 0..n_rows {
+        for c in 0..n_cols {
+            let v = dense[(r, c)];
+            if v == 0.0 {
+                continue;
+            }
+            // The de Rham operators are integer ±1; assert no drift.
+            let iv: i64 = if v == 1.0 {
+                1
+            } else if v == -1.0 {
+                -1
+            } else {
+                panic!(
+                    "Burn-side de Rham operator entry ({r}, {c}) = {v} \
+                     is not in the integer contract {{-1, 0, +1}}; the \
+                     Rust source of truth has been corrupted somehow."
+                );
+            };
+            indices.push(c as i64);
+            data.push(iv);
+        }
+        indptr.push(data.len() as i64);
+    }
+    CsrI64 {
+        n_rows,
+        n_cols,
+        indptr,
+        indices,
+        data,
+    }
+}
 
 /// Copy a slice of complex scalars into an owned `Vec<Complex64>`.
 ///
@@ -96,5 +169,44 @@ mod tests {
             out,
             vec![Complex64::new(1.0, -1.0), Complex64::new(2.0, -2.0)]
         );
+    }
+
+    #[test]
+    fn csr_nnz_counts_stored_entries() {
+        let csr = CsrI64 {
+            n_rows: 2,
+            n_cols: 2,
+            indptr: vec![0, 1, 3],
+            indices: vec![0, 0, 1],
+            data: vec![1, -1, 1],
+        };
+        assert_eq!(csr.nnz(), 3);
+    }
+
+    #[test]
+    fn signed_csc_to_csr_is_row_major_pm1() {
+        use faer::sparse::{SparseColMat, Triplet};
+        // [[1, 0], [-1, 1]] — row-major CSR: indptr [0,1,3], cols [0,0,1], data [1,-1,1].
+        let trips = vec![
+            Triplet::new(0usize, 0usize, 1.0f64),
+            Triplet::new(1, 0, -1.0),
+            Triplet::new(1, 1, 1.0),
+        ];
+        let m = SparseColMat::<usize, f64>::try_new_from_triplets(2, 2, &trips).unwrap();
+        let csr = faer_signed_csc_to_csr_i64(&m);
+        assert_eq!((csr.n_rows, csr.n_cols), (2, 2));
+        assert_eq!(csr.indptr, vec![0, 1, 3]);
+        assert_eq!(csr.indices, vec![0, 0, 1]);
+        assert_eq!(csr.data, vec![1, -1, 1]);
+        assert_eq!(csr.nnz(), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "integer contract")]
+    fn signed_csc_to_csr_rejects_non_pm1_entry() {
+        use faer::sparse::{SparseColMat, Triplet};
+        let trips = vec![Triplet::new(0usize, 0usize, 2.0f64)];
+        let m = SparseColMat::<usize, f64>::try_new_from_triplets(1, 1, &trips).unwrap();
+        let _ = faer_signed_csc_to_csr_i64(&m);
     }
 }

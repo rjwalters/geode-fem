@@ -7,6 +7,7 @@
 
 pub mod analytic;
 pub mod assembly;
+pub mod constants;
 pub mod derham;
 pub mod driven;
 pub mod eigen;

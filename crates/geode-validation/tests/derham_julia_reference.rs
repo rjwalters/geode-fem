@@ -41,6 +41,10 @@ use std::path::PathBuf;
 use faer::sparse::SparseColMat;
 use geode_core::derham::{curl_map, divergence_map, gradient_map};
 use geode_core::mesh::read_sphere_fixture;
+use geode_util::compare::cross_check_operator;
+use geode_util::convert::faer_signed_csc_to_csr_i64;
+use geode_util::fixture;
+use geode_util::math::dense_nnz;
 use geode_validation::{Fixture, FixtureFormat};
 
 // ---------------------------------------------------------------------------
@@ -49,194 +53,6 @@ use geode_validation::{Fixture, FixtureFormat};
 
 fn fixture_path() -> PathBuf {
     geode_validation::fixture_path("derham/julia_baseline.json")
-}
-
-// ---------------------------------------------------------------------------
-// Row-sorted CSR projection of a faer SparseColMat<usize, f64>.
-//
-// faer stores `d⁰`/`d¹`/`d²` as CSC; we project to row-major CSR by
-// materializing to dense and re-encoding (same approach as
-// `derham_numpy_reference.rs` — the largest matrix on the bundled
-// fixture is d¹ at 7074 × 4512 ≈ 256 MiB dense peak).
-// ---------------------------------------------------------------------------
-
-/// CSR row-sorted projection of a signed-integer sparse matrix, with
-/// `data` stored as `i64` to match the Julia reference's `Int` payload.
-#[derive(Debug, Clone)]
-struct CsrI64 {
-    n_rows: usize,
-    n_cols: usize,
-    indptr: Vec<i64>,
-    indices: Vec<i64>,
-    data: Vec<i64>,
-}
-
-impl CsrI64 {
-    fn nnz(&self) -> usize {
-        self.data.len()
-    }
-}
-
-/// Materialize a faer `SparseColMat<usize, f64>` whose entries are all
-/// in `{-1.0, 0.0, +1.0}` into a row-sorted integer CSR.
-///
-/// Asserts each non-zero entry is exactly `±1.0` (any other f64 value
-/// indicates the Burn operator drifted from its integer contract). The
-/// resulting CSR has columns sorted ascending within each row —
-/// matching the Julia generator's canonicalization.
-fn faer_signed_csc_to_csr_i64(m: &SparseColMat<usize, f64>) -> CsrI64 {
-    let dense = m.to_dense();
-    let n_rows = dense.nrows();
-    let n_cols = dense.ncols();
-
-    let mut indptr: Vec<i64> = Vec::with_capacity(n_rows + 1);
-    let mut indices: Vec<i64> = Vec::new();
-    let mut data: Vec<i64> = Vec::new();
-    indptr.push(0);
-    for r in 0..n_rows {
-        for c in 0..n_cols {
-            let v = dense[(r, c)];
-            if v == 0.0 {
-                continue;
-            }
-            // The de Rham operators are integer ±1; assert no drift.
-            let iv: i64 = if v == 1.0 {
-                1
-            } else if v == -1.0 {
-                -1
-            } else {
-                panic!(
-                    "Burn-side de Rham operator entry ({r}, {c}) = {v} \
-                     is not in the integer contract {{-1, 0, +1}}; the \
-                     Rust source of truth has been corrupted somehow."
-                );
-            };
-            indices.push(c as i64);
-            data.push(iv);
-        }
-        indptr.push(data.len() as i64);
-    }
-    CsrI64 {
-        n_rows,
-        n_cols,
-        indptr,
-        indices,
-        data,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Fixture field accessors — strip `f64` payload back to `i64` for the
-// integer cross-check. The fixture stores everything as `f64` per
-// schema v1's lack of an `i32` loader path, with `tolerance_abs = 0.5`
-// to make sub-integer differences trigger an assertion.
-// ---------------------------------------------------------------------------
-
-fn fixture_scalar_i64(fixture: &Fixture, name: &str) -> i64 {
-    let f = fixture
-        .output_f64(name)
-        .unwrap_or_else(|e| panic!("fixture missing scalar output `{name}`: {e}"));
-    assert_eq!(
-        f.data.len(),
-        1,
-        "fixture scalar `{name}` should be length 1, got {}",
-        f.data.len()
-    );
-    f.data[0].round() as i64
-}
-
-fn fixture_shape(fixture: &Fixture, name: &str) -> (usize, usize) {
-    let f = fixture
-        .output_f64(name)
-        .unwrap_or_else(|e| panic!("fixture missing shape output `{name}`: {e}"));
-    assert_eq!(
-        f.data.len(),
-        2,
-        "fixture shape `{name}` should be length 2, got {}",
-        f.data.len()
-    );
-    (f.data[0].round() as usize, f.data[1].round() as usize)
-}
-
-fn fixture_array_i64(fixture: &Fixture, name: &str) -> Vec<i64> {
-    let f = fixture
-        .output_f64(name)
-        .unwrap_or_else(|e| panic!("fixture missing array output `{name}`: {e}"));
-    f.data.iter().map(|v| v.round() as i64).collect()
-}
-
-// ---------------------------------------------------------------------------
-// Assertion helpers.
-// ---------------------------------------------------------------------------
-
-/// Assert that two `i64` vectors are equal entrywise. Surfaces the
-/// first disagreement loudly — sign-convention drift between Burn and
-/// Julia is the load-bearing bug class this harness exists to catch.
-fn assert_i64_eq(name: &str, got: &[i64], want: &[i64]) {
-    assert_eq!(
-        got.len(),
-        want.len(),
-        "{name}: length mismatch (Burn {} vs Julia {})",
-        got.len(),
-        want.len()
-    );
-    for (i, (g, w)) in got.iter().zip(want.iter()).enumerate() {
-        if g != w {
-            // Print a small surrounding window for context.
-            let lo = i.saturating_sub(2);
-            let hi = (i + 3).min(got.len());
-            panic!(
-                "{name}: first disagreement at index {i}: Burn = {g}, Julia = {w}\n\
-                 surrounding window (Burn): {:?}\n\
-                 surrounding window (Julia): {:?}",
-                &got[lo..hi],
-                &want[lo..hi]
-            );
-        }
-    }
-}
-
-/// Cross-check one operator's full CSR payload (shape, nnz, indptr,
-/// indices, data) against the fixture under the `prefix` (e.g. `"d0"`,
-/// `"d1"`, `"d2"`).
-fn cross_check_operator(prefix: &str, csr: &CsrI64, fixture: &Fixture) {
-    // Shape.
-    let want_shape = fixture_shape(fixture, &format!("{prefix}_shape"));
-    assert_eq!(
-        (csr.n_rows, csr.n_cols),
-        want_shape,
-        "{prefix} shape: Burn = ({}, {}), Julia = ({}, {})",
-        csr.n_rows,
-        csr.n_cols,
-        want_shape.0,
-        want_shape.1
-    );
-
-    // nnz.
-    let want_nnz = fixture_scalar_i64(fixture, &format!("{prefix}_nnz")) as usize;
-    assert_eq!(
-        csr.nnz(),
-        want_nnz,
-        "{prefix} nnz: Burn = {}, Julia = {want_nnz}",
-        csr.nnz()
-    );
-
-    // indptr / indices / data — bit-exact integer equality.
-    assert_i64_eq(
-        &format!("{prefix}_indptr"),
-        &csr.indptr,
-        &fixture_array_i64(fixture, &format!("{prefix}_indptr")),
-    );
-    assert_i64_eq(
-        &format!("{prefix}_indices"),
-        &csr.indices,
-        &fixture_array_i64(fixture, &format!("{prefix}_indices")),
-    );
-    assert_i64_eq(
-        &format!("{prefix}_data"),
-        &csr.data,
-        &fixture_array_i64(fixture, &format!("{prefix}_data")),
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -297,11 +113,23 @@ fn cell_counts_agree_with_julia() {
     let n_faces = mesh.faces().len();
     let euler = n_nodes as i64 - n_edges as i64 + n_faces as i64 - n_tets as i64;
 
-    assert_eq!(n_nodes as i64, fixture_scalar_i64(&fixture, "n_nodes"));
-    assert_eq!(n_edges as i64, fixture_scalar_i64(&fixture, "n_edges"));
-    assert_eq!(n_faces as i64, fixture_scalar_i64(&fixture, "n_faces"));
-    assert_eq!(n_tets as i64, fixture_scalar_i64(&fixture, "n_tets"));
-    assert_eq!(euler, fixture_scalar_i64(&fixture, "euler_chi"));
+    assert_eq!(
+        n_nodes as i64,
+        fixture::fixture_scalar_i64(&fixture, "n_nodes")
+    );
+    assert_eq!(
+        n_edges as i64,
+        fixture::fixture_scalar_i64(&fixture, "n_edges")
+    );
+    assert_eq!(
+        n_faces as i64,
+        fixture::fixture_scalar_i64(&fixture, "n_faces")
+    );
+    assert_eq!(
+        n_tets as i64,
+        fixture::fixture_scalar_i64(&fixture, "n_tets")
+    );
+    assert_eq!(euler, fixture::fixture_scalar_i64(&fixture, "euler_chi"));
     assert_eq!(
         euler, 1,
         "Euler characteristic for the bundled sphere fixture should be 1 \
@@ -339,23 +167,6 @@ fn d2_csr_matches_julia_bit_exact() {
     cross_check_operator("d2", &csr, &fixture);
 }
 
-/// Count strict-nonzero entries in a faer `SparseColMat<usize, f64>`
-/// after dense expansion. Used to assert bit-exact zero on the de Rham
-/// compositional identities; the dense walk is invariant to whether
-/// `faer`'s sparse product strips structural zeros or not.
-fn dense_nnz(m: &SparseColMat<usize, f64>) -> usize {
-    let dense = m.to_dense();
-    let mut nnz = 0usize;
-    for j in 0..dense.ncols() {
-        for i in 0..dense.nrows() {
-            if dense[(i, j)] != 0.0 {
-                nnz += 1;
-            }
-        }
-    }
-    nnz
-}
-
 #[test]
 fn d1_d0_is_bit_exact_zero() {
     // Algebraic exactness identity d¹ ∘ d⁰ ≡ 0, anchored to the Julia
@@ -372,7 +183,7 @@ fn d1_d0_is_bit_exact_zero() {
     let prod: SparseColMat<usize, f64> = &d1 * &d0;
     let nnz = dense_nnz(&prod);
 
-    let want_nnz = fixture_scalar_i64(&fixture, "d1_d0_nnz") as usize;
+    let want_nnz = fixture::fixture_scalar_i64(&fixture, "d1_d0_nnz") as usize;
     assert_eq!(
         want_nnz, 0,
         "fixture's d1_d0_nnz should be 0 (algebraic exactness); got {want_nnz}"
@@ -397,7 +208,7 @@ fn d2_d1_is_bit_exact_zero() {
     let prod: SparseColMat<usize, f64> = &d2 * &d1;
     let nnz = dense_nnz(&prod);
 
-    let want_nnz = fixture_scalar_i64(&fixture, "d2_d1_nnz") as usize;
+    let want_nnz = fixture::fixture_scalar_i64(&fixture, "d2_d1_nnz") as usize;
     assert_eq!(
         want_nnz, 0,
         "fixture's d2_d1_nnz should be 0 (algebraic exactness); got {want_nnz}"
@@ -429,7 +240,7 @@ fn euler_rank_predictions_pinned() {
     let rank_d1 = n_edges - n_nodes + 1;
     let rank_d2 = n_faces - n_edges + n_nodes - 1;
 
-    assert_eq!(rank_d0, fixture_scalar_i64(&fixture, "rank_d0"));
-    assert_eq!(rank_d1, fixture_scalar_i64(&fixture, "rank_d1"));
-    assert_eq!(rank_d2, fixture_scalar_i64(&fixture, "rank_d2"));
+    assert_eq!(rank_d0, fixture::fixture_scalar_i64(&fixture, "rank_d0"));
+    assert_eq!(rank_d1, fixture::fixture_scalar_i64(&fixture, "rank_d1"));
+    assert_eq!(rank_d2, fixture::fixture_scalar_i64(&fixture, "rank_d2"));
 }

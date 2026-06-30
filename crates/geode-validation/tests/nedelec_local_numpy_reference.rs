@@ -53,6 +53,7 @@ use burn::tensor::{DType, Tensor, TensorData};
 
 use geode_core::elements::nedelec::batched_nedelec_local_matrices;
 use geode_core::testing::{TestBackend, device_tolerances};
+use geode_util::compare::{MixedTol, check_close};
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = TestBackend;
@@ -60,12 +61,6 @@ type B = TestBackend;
 // ---------------------------------------------------------------------------
 // Tolerances (backend-aware, mirrors p1_local_numpy_reference.rs)
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy)]
-struct MixedTol {
-    rel: f64,
-    abs: f64,
-}
 
 /// Backend-aware tolerances, selected by the device's float dtype.
 fn active_tolerances() -> MixedTol {
@@ -93,41 +88,6 @@ fn active_tolerances() -> MixedTol {
         ],
     )
     .expect("a tolerance case must match the active backend dtype")
-}
-
-/// Mixed absolute/relative tolerance check with an optional per-field
-/// absolute floor from the fixture's own declared `tolerance_abs`. The
-/// effective tolerance is the looser of (a) the backend-aware mixed
-/// abs/rel envelope and (b) the fixture-declared absolute floor.
-///
-/// This per-field floor matters for the `near_degenerate_sliver` case:
-/// the Nédélec curl-curl closed form has a ``gg_ac gg_bd - gg_ad gg_bc``
-/// catastrophic-cancellation step inside a ``1/|det|^3`` amplification,
-/// so even in pure-f64 the sliver's K entries lose ~6 decimal digits to
-/// roundoff regardless of impl. The fixture declares ``tolerance_abs =
-/// 1e2`` on K there, encoding that *intrinsic* loss; the tight
-/// ``1e-10 rel / 1e-12 abs`` check is meaningful for the four
-/// well-conditioned cases but unrealistic for the sliver.
-fn check_close(
-    got: f64,
-    want: f64,
-    tol: MixedTol,
-    fixture_floor: f64,
-    label: &str,
-) -> Result<(), String> {
-    let abs_err = (got - want).abs();
-    let mixed = tol.abs + tol.rel * want.abs();
-    let allowed = mixed.max(fixture_floor);
-    if abs_err <= allowed {
-        Ok(())
-    } else {
-        Err(format!(
-            "{label}: got {got:.17e}, want {want:.17e}, |err| = {abs_err:.3e} \
-             (allowed {allowed:.3e} = max(mixed {mixed:.3e}, fixture_floor {fixture_floor:.3e}); \
-             rel_tol={:.0e}, abs_tol={:.0e})",
-            tol.rel, tol.abs
-        ))
-    }
 }
 
 // ---------------------------------------------------------------------------

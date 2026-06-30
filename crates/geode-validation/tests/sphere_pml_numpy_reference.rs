@@ -86,10 +86,10 @@ use geode_core::assembly::nedelec::{
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
-use geode_core::mesh::{
-    R_BUFFER, SphereFixture, read_sphere_fixture, read_sphere_fixture_from_bytes,
-};
+use geode_core::mesh::{R_BUFFER, SphereFixture, read_sphere_fixture};
 use geode_core::testing::TestBackend;
+use geode_util::eigen::q_factor_from_lambda;
+use geode_util::fixture::load_small_sphere_fixture;
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = TestBackend;
@@ -104,10 +104,6 @@ fn fixture_path() -> PathBuf {
 
 fn small_fixture_path() -> PathBuf {
     geode_validation::fixture_path("sphere_pml_small/baseline.json")
-}
-
-fn small_mesh_path() -> PathBuf {
-    geode_validation::fixture_path("sphere_pml_small/sphere.msh")
 }
 
 // ---------------------------------------------------------------------------
@@ -210,23 +206,6 @@ fn run_burn_pml_pipeline_from_fixture(
         epsilon_r_complex,
         k_int_complex,
         m_int_complex,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Q-factor helper — k-space sign-agnostic form, mirror of the NumPy
-// reference (`sphere_pml.run_sphere_pml`) and the Burn integration test
-// print in `tests/sphere_pml_eigenmode.rs:362-372`.
-// ---------------------------------------------------------------------------
-
-fn q_factor_from_lambda(lambda: Complex64) -> f64 {
-    let r = (lambda.re * lambda.re + lambda.im * lambda.im).sqrt();
-    let re_k = (0.5 * (r + lambda.re)).max(0.0).sqrt();
-    let im_k_mag = (0.5 * (r - lambda.re)).max(0.0).sqrt();
-    if im_k_mag > 1e-12 {
-        re_k / (2.0 * im_k_mag)
-    } else {
-        f64::INFINITY
     }
 }
 
@@ -607,12 +586,6 @@ fn pml_sigma_zero_reduces_to_real_pec() {
 //     into Q-residual.
 //   - σ₀=0 PEC collapse: in-fixture anchor at 1e-5 absolute on the
 //     lowest physical Re(λ).
-
-fn load_small_sphere_fixture() -> SphereFixture {
-    let bytes = std::fs::read(small_mesh_path())
-        .expect("read small-mesh sphere.msh bytes (run reference/numpy/gen_sphere_pml_small_baseline.py if missing)");
-    read_sphere_fixture_from_bytes(&bytes).expect("parse small-mesh sphere.msh")
-}
 
 #[test]
 fn sphere_pml_small_fixture_loads_with_expected_schema() {

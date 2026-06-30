@@ -68,6 +68,7 @@ testing = ["dep:regex"]
 # headless CI runner. The backend now comes solely from the top-level
 # feature selection (wgpu by default, or ndarray on CI).
 geode-core = { path = ".", default-features = false, features = ["testing", "autodiff"] }
+geode-util = { workspace = true }
 # Read regression-fixture TOML in `tests/cube_convergence_regression.rs`.
 toml = { workspace = true }
 # Performance benchmark harness (issue #50). Each `[[bench]]` below opts

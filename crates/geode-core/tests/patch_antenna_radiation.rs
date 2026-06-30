@@ -61,6 +61,7 @@ use std::path::PathBuf;
 use faer::c64;
 
 use geode_core::analytic::patch::PatchCavity;
+use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::ports::{port_current, port_voltage};
 use geode_core::driven::scattering::flux_power_box;
 use geode_core::driven::solve::{
@@ -70,9 +71,8 @@ use geode_core::mesh::patch::FR4_MATERIALS;
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_smoke_fixture};
 use geode_core::postproc::ntff::{broadside_directivity, directivity, gain, ntff_far_field};
 use geode_core::testing::TestBackend;
+use geode_util::units::ghz_to_omega_mm as ghz_to_omega;
 
-const ETA_0: f64 = 376.730_313_668;
-const C_MM_PER_S: f64 = 2.997_924_58e11;
 const R_PORT_OHM: f64 = 50.0;
 const SIGMA_0: f64 = 25.0;
 const PML_THICK_BENCH_MM: f64 = 25.0;
@@ -100,10 +100,6 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
-}
-
-fn ghz_to_omega(f_ghz: f64) -> f64 {
-    2.0 * std::f64::consts::PI * f_ghz * 1.0e9 / C_MM_PER_S
 }
 
 /// A parsed `[cut.*]` principal-plane block.

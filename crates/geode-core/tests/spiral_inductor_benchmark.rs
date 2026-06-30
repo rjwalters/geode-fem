@@ -54,6 +54,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
+use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::{SweepPoint, driven_frequency_sweep};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
@@ -63,12 +64,7 @@ use geode_core::mesh::{
     SpiralFixture, pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_smoke_fixture,
 };
 use geode_core::testing::TestBackend;
-
-/// Free-space impedance η₀ (Ω).
-const ETA_0: f64 = 376.730_313_668;
-
-/// Speed of light in µm/s (fixture lengths are microns).
-const C_UM_PER_S: f64 = 2.997_924_58e14;
+use geode_util::units::ghz_to_omega_um as ghz_to_omega;
 
 /// Low-frequency reference point for the L comparison (see the
 /// benchmark example for why 1 GHz: on the L plateau, inside the
@@ -87,10 +83,6 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
-}
-
-fn ghz_to_omega(f_ghz: f64) -> f64 {
-    2.0 * std::f64::consts::PI * f_ghz * 1.0e9 / C_UM_PER_S
 }
 
 /// Run the benchmark pipeline (Leontovich conductor surface, PEC outer

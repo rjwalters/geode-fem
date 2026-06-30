@@ -45,6 +45,7 @@ use burn::tensor::{DType, Tensor, TensorData};
 
 use geode_core::elements::p1::batched_p1_local_matrices;
 use geode_core::testing::{TestBackend, device_tolerances};
+use geode_util::compare::{MixedTol, check_close};
 use geode_validation::{Fixture, FixtureFormat};
 
 type B = TestBackend;
@@ -52,12 +53,6 @@ type B = TestBackend;
 // ---------------------------------------------------------------------------
 // Tolerances (backend-aware, mirrors the original p1_local test)
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy)]
-struct MixedTol {
-    rel: f64,
-    abs: f64,
-}
 
 /// Backend-aware tolerances, selected by the device's float dtype.
 fn active_tolerances() -> MixedTol {
@@ -85,22 +80,6 @@ fn active_tolerances() -> MixedTol {
         ],
     )
     .expect("a tolerance case must match the active backend dtype")
-}
-
-/// Mixed absolute/relative tolerance check. Returns `Ok(())` on success,
-/// `Err(msg)` describing the disagreement on failure.
-fn check_close(got: f64, want: f64, tol: MixedTol, label: &str) -> Result<(), String> {
-    let abs_err = (got - want).abs();
-    let allowed = tol.abs + tol.rel * want.abs();
-    if abs_err <= allowed {
-        Ok(())
-    } else {
-        Err(format!(
-            "{label}: got {got:.17e}, want {want:.17e}, |err| = {abs_err:.3e} \
-             (allowed {allowed:.3e}; rel_tol={:.0e}, abs_tol={:.0e})",
-            tol.rel, tol.abs
-        ))
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -296,7 +275,7 @@ fn burn_agrees_with_numpy_baseline_on_all_p1_local_cases() {
             .expect("signed_volume present")
             .data[0];
         let got_v = actual["signed_volume"][0];
-        if let Err(msg) = check_close(got_v, want_v, tol, "signed_volume") {
+        if let Err(msg) = check_close(got_v, want_v, tol, 0.0, "signed_volume") {
             case_failures.push(msg);
         }
 
@@ -310,6 +289,7 @@ fn burn_agrees_with_numpy_baseline_on_all_p1_local_cases() {
                     got_k[idx],
                     want_k.data[idx],
                     tol,
+                    0.0,
                     &format!("k_local[{i}][{j}]"),
                 ) {
                     case_failures.push(msg);
@@ -327,6 +307,7 @@ fn burn_agrees_with_numpy_baseline_on_all_p1_local_cases() {
                     got_m[idx],
                     want_m.data[idx],
                     tol,
+                    0.0,
                     &format!("m_local[{i}][{j}]"),
                 ) {
                     case_failures.push(msg);

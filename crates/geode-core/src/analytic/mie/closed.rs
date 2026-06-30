@@ -56,6 +56,26 @@ pub enum MiePolarisation {
     TM,
 }
 
+impl MiePolarisation {
+    /// Short label: `"TE"` or `"TM"`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MiePolarisation::TE => "TE",
+            MiePolarisation::TM => "TM",
+        }
+    }
+
+    /// Map a polarisation index (`0 = TE`, `1 = TM`) back to the enum;
+    /// `None` for any other index.
+    pub fn from_index(idx: u8) -> Option<Self> {
+        match idx {
+            0 => Some(MiePolarisation::TE),
+            1 => Some(MiePolarisation::TM),
+            _ => None,
+        }
+    }
+}
+
 /// A single analytic resonance root of the PEC-cavity dielectric
 /// sphere problem.
 #[derive(Debug, Clone, Copy)]

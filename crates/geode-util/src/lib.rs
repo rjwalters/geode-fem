@@ -23,10 +23,14 @@
 //! crates into the modules declared below as pure code-moves. Each module's
 //! doc header records what lands there.
 
+pub mod compare;
 pub mod convert;
+pub mod eigen;
 pub mod fixture;
 pub mod interop;
+pub mod math;
 pub mod repo;
+pub mod units;
 pub mod viz;
 
 #[cfg(test)]

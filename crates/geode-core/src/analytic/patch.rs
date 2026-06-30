@@ -53,11 +53,10 @@
 
 use std::f64::consts::PI;
 
-/// Speed of light in vacuum (m/s).
-pub const C_M_PER_S: f64 = 2.997_924_58e8;
-
-/// Free-space impedance η₀ (Ω).
-pub const ETA_0_OHM: f64 = 376.730_313_668;
+/// Speed of light in vacuum (m/s) and free-space impedance η₀ (Ω),
+/// re-exported from [`crate::constants`] so existing
+/// `patch::{C_M_PER_S, ETA_0_OHM}` paths keep resolving.
+pub use crate::constants::{C_M_PER_S, ETA_0_OHM};
 
 /// Rectangular microstrip patch geometry + substrate (lengths in
 /// meters).
