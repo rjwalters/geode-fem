@@ -15,7 +15,9 @@ use burn::tensor::{Int, Tensor, TensorData};
 
 use geode_core::assembly::nedelec::{assemble_global_nedelec, cube_pec_interior_edges};
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::elements::nedelec::{batched_nedelec_local_matrices, tet_edges};
+use geode_core::elements::nedelec::{
+    batched_nedelec_local_matrices, batched_nedelec_local_rhs, tet_edges,
+};
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
 use geode_core::testing::TestBackend;
 
@@ -706,4 +708,34 @@ fn assemble_global_nedelec_wrong_arity_fires_contract() {
     let tet_edge_idx = vec![[0u32, 1, 2, 3, 4, 5]];
     let tet_edge_sign = vec![[1i8; 6]];
     let _ = assemble_global_nedelec::<B>(nodes, bad_tets, &tet_edge_idx, &tet_edge_sign, 6);
+}
+
+// --- Bunsen shape-contract firing tests (Epic #355, Phase 3) -----------------
+//
+// Prove the named contracts in `elements/nedelec.rs` are genuinely wired (not
+// no-ops): a mis-shaped coordinate stack, and a paired per-tet vector whose
+// element count disagrees with `coords`, must each trip a Bunsen `Shape Error`
+// rather than silently mis-slicing the kernel.
+
+/// `batched_nedelec_local_matrices` binds `coords`'s `nodes_per_tet` axis to 4
+/// via `NEDELEC_TET_COORDS_CONTRACT`. A `[n_elem, 3, 3]` stack (triangle arity)
+/// must fire the contract.
+#[test]
+#[should_panic(expected = "Shape Error")]
+fn batched_nedelec_local_matrices_wrong_arity_fires_contract() {
+    let bad = Tensor::<B, 3>::from_data(TensorData::new(vec![0.0f32; 9], [1, 3, 3]), &device());
+    let _ = batched_nedelec_local_matrices(bad);
+}
+
+/// `batched_nedelec_local_rhs` binds `n_elem` from `coords` and re-asserts it on
+/// `j_tet` via `NEDELEC_TET_VEC3_CONTRACT`. A `j_tet` with a different element
+/// count than the (valid) 1-element `coords` must fire the agreement contract.
+#[test]
+#[should_panic(expected = "Shape Error")]
+fn batched_nedelec_local_rhs_j_tet_count_mismatch_fires_contract() {
+    // Valid single-element coordinate stack [1, 4, 3].
+    let coords = Tensor::<B, 3>::from_data(TensorData::new(vec![0.0f32; 12], [1, 4, 3]), &device());
+    // Mismatched current: 2 elements' worth where coords has 1.
+    let bad_j = Tensor::<B, 2>::from_data(TensorData::new(vec![0.0f32; 6], [2, 3]), &device());
+    let _ = batched_nedelec_local_rhs(coords, bad_j);
 }

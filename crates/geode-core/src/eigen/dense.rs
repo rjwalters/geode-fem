@@ -12,10 +12,29 @@
 //! intentional and matches the curator's #3 plan ("dense for v0 as a
 //! correctness oracle").
 
+use bunsen::contracts::{define_shape_contract, unpack_shape_contract};
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
 use faer::Mat;
 use faer::mat::MatRef;
+
+// ---------------------------------------------------------------------------
+// Named static shape contract (Bunsen, Epic #355 Phase 3)
+// ---------------------------------------------------------------------------
+//
+// The one Burn-`Tensor` shape on the eigensolver surface: the 2-D matrix
+// bridged out to `faer` by `burn_matrix_to_faer`. The K/M pencil square/
+// agreement asserts elsewhere in this file operate on `faer::Mat`, which is
+// outside Bunsen's `Tensor<B, R, K>` surface, so they stay plain (see
+// `smallest_eigenpairs` / `smallest_eigenvalues`). Follows the Phase 2 template
+// from `crate::assembly` (PR #467).
+
+// Dense operator matrix `A \in \mathbb{R}^{rows × cols}` handed to the
+// Burn→faer bridge. Both axes are left free (any 2-D shape is a valid dense
+// matrix); the contract's role is to name the `[rows, cols]` read that drives
+// the row-major `from_fn` reconstruction, replacing the anonymous
+// `let dims = t.dims();` with a checked, self-documenting unpack.
+define_shape_contract!(BURN_MATRIX_BRIDGE_CONTRACT, ["rows", "cols"]);
 
 /// Errors produced by the eigensolver layer.
 #[derive(Debug, thiserror::Error)]
@@ -261,9 +280,13 @@ impl EigenSolver for FaerDenseEigensolver {
 /// so this is genuinely backend-agnostic — the f32 GPU path upcasts and
 /// the f64 CPU path is read losslessly.
 pub fn burn_matrix_to_faer<B: Backend>(t: Tensor<B, 2>) -> Mat<f64> {
-    let dims = t.dims();
+    // Dense operator `A \in \mathbb{R}^{rows × cols}` — name the `[rows, cols]`
+    // read via the shared contract so the row-major `from_fn` reconstruction
+    // below is driven by checked axis bindings rather than an anonymous
+    // `.dims()` destructure.
+    let [rows, cols] = unpack_shape_contract!(BURN_MATRIX_BRIDGE_CONTRACT, &t, &["rows", "cols"]);
     let data: Vec<f64> = t.into_data().iter::<f64>().collect();
-    Mat::<f64>::from_fn(dims[0], dims[1], |i, j| data[i * dims[1] + j])
+    Mat::<f64>::from_fn(rows, cols, |i, j| data[i * cols + j])
 }
 
 /// Apply homogeneous Dirichlet boundary conditions by extracting the
@@ -314,4 +337,31 @@ pub fn cube_interior_mask(nodes: &[[f64; 3]], side: f64) -> Vec<bool> {
                 || (n[2] - side).abs() < tol)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod contract_tests {
+    //! Bunsen shape-contract firing test (Epic #355, Phase 3).
+    //!
+    //! The one Burn-`Tensor` site on the eigensolver surface,
+    //! [`burn_matrix_to_faer`], takes a `Tensor<B, 2>` whose rank-2-ness is
+    //! type-enforced and whose two axes (`BURN_MATRIX_BRIDGE_CONTRACT`'s
+    //! `rows`/`cols`) are left free, so the *function path* can never receive a
+    //! mis-shaped input to reject. This test instead exercises the named static
+    //! contract directly with a wrong-rank shape, proving the contract that
+    //! drives `burn_matrix_to_faer`'s `[rows, cols]` unpack is genuinely
+    //! trip-able (a `Shape Error`) rather than a no-op — the crate-internal
+    //! analogue of the `should_panic` firing tests the assembly and element
+    //! modules carry in `tests/`.
+    use super::BURN_MATRIX_BRIDGE_CONTRACT;
+    use bunsen::contracts::assert_shape_contract;
+
+    #[test]
+    #[should_panic(expected = "Shape Error")]
+    fn burn_matrix_bridge_contract_wrong_rank_fires() {
+        // A rank-3 shape cannot satisfy the rank-2 `[rows, cols]` bridge
+        // contract; bunsen must reject it with a `Shape Error`.
+        let bad_rank: [usize; 3] = [4, 4, 4];
+        assert_shape_contract!(BURN_MATRIX_BRIDGE_CONTRACT, &bad_rank, &[]);
+    }
 }

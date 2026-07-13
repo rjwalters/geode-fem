@@ -293,3 +293,19 @@ fn unit_cube_fixture_invariants() {
         }
     }
 }
+
+// --- Bunsen shape-contract firing test (Epic #355, Phase 3) ------------------
+//
+// Proves the named `P1_TET_COORDS_CONTRACT` in `elements/p1.rs` is genuinely
+// wired: a coordinate stack with the wrong `nodes_per_tet` arity must trip the
+// contract and panic with a Bunsen `Shape Error` diagnostic, rather than
+// silently mis-slicing the per-vertex extraction (as the former bare
+// `assert_eq!(dims[1], 4, …)` guarded against, but without a named axis).
+#[test]
+#[should_panic(expected = "Shape Error")]
+fn batched_p1_local_matrices_wrong_arity_fires_contract() {
+    // Deliberately mis-shaped: 3 vertices per element (triangle arity) where
+    // the P1 tet contract demands `nodes_per_tet = 4`.
+    let bad = Tensor::<B, 3>::from_data(TensorData::new(vec![0.0f32; 9], [1, 3, 3]), &device());
+    let _ = batched_p1_local_matrices(bad);
+}
