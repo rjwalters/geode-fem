@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 
 use mshio::mshfile::ElementType;
 
+pub mod electrostatic_fixtures;
 pub mod patch;
 pub mod sphere;
 pub mod spiral;
