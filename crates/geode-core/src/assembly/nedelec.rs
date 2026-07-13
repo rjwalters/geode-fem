@@ -19,6 +19,10 @@
 
 use std::collections::BTreeSet;
 
+use bunsen::contracts::{
+    assert_shape_contract, assert_shape_contract_periodically, define_shape_contract,
+    unpack_shape_contract,
+};
 use burn::tensor::ElementConversion;
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
@@ -31,6 +35,51 @@ use crate::elements::nedelec::{
     batched_nedelec_local_matrices, batched_nedelec_local_stiffness_weighted,
 };
 use crate::mesh::TetMesh;
+
+/// Number of vertices per linear tetrahedron — the column count of the
+/// `[n_elem, 4]` connectivity table fed to every Nédélec assembler. Bound
+/// into [`NEDELEC_CONNECTIVITY_CONTRACT`] so the tet arity is machine-checked
+/// rather than left implicit in the ignored `_` of a `let [n_elem, _] =
+/// tets.dims();` destructure.
+const NODES_PER_TET: usize = 4;
+
+/// Number of local edge DOFs of a first-order Nédélec tetrahedron (its 6
+/// edges). Bound into [`NEDELEC_LOCAL_MATRIX_CONTRACT`] as `edges_per_tet`.
+const EDGES_PER_TET: usize = 6;
+
+// ---------------------------------------------------------------------------
+// Named static shape contracts (Bunsen, Epic #355 Phase 2)
+// ---------------------------------------------------------------------------
+//
+// The recurring FEM tensor shapes of the Nédélec assembly path, named once so
+// the same machine-checked invariant is reused across the dozen assemblers
+// below instead of being re-spelled as a bare `let [n_elem, _] = tets.dims();`
+// destructure at each entry point. Each carries the FEM math notation it
+// enforces. See PR #466's `gather_tet_coords` for the inline (ad-hoc) form.
+
+// Connectivity table `T \in \mathbb{Z}^{n_elem × 4}`: one row per tetrahedron,
+// each row the 4 global node indices of the element's vertices. `nodes_per_tet`
+// is bound to `NODES_PER_TET` (`= 4`) at the call site.
+define_shape_contract!(NEDELEC_CONNECTIVITY_CONTRACT, ["n_elem", "nodes_per_tet"]);
+
+// Signed element-local edge matrix stack
+// `\tilde{M}^{local} \in \mathbb{R}^{n_elem × 6 × 6}`: one `6×6` dense local
+// system per tet (first-order Nédélec has 6 edge DOFs), after the per-DOF
+// orientation-sign outer product `s_i s_j` has been folded in. The two
+// `edges_per_tet` axes are bound to `EDGES_PER_TET` (`= 6`). Checked
+// periodically in the per-element scatter hot path before the `[n_elem*36]`
+// flatten.
+define_shape_contract!(
+    NEDELEC_LOCAL_MATRIX_CONTRACT,
+    ["n_elem", "edges_per_tet", "edges_per_tet"]
+);
+
+// Global (or `[nnz]`-packed) square operator `A \in \mathbb{R}^{n × n}` — used
+// to check that the real and imaginary halves of a complex-split matrix
+// (`M = M_re + j\,M_im`) carry identical `[n, n]` shapes before they are zipped
+// into a `faer::c64` matrix. `n` is left free (any square shape agrees with
+// itself).
+define_shape_contract!(NEDELEC_SQUARE_OPERATOR_CONTRACT, ["n", "n"]);
 
 /// Assembled global Nédélec linear system in dense Burn-tensor form.
 #[derive(Debug, Clone)]
@@ -113,7 +162,16 @@ pub fn assemble_global_nedelec<B: Backend>(
     n_edges: usize,
 ) -> NedelecGlobalSystem<B> {
     let device = nodes.device();
-    let [n_elem, _] = tets.dims();
+    // Connectivity `T \in \mathbb{Z}^{n_elem × 4}` — extract `n_elem` and
+    // check the 4-vertex arity through the shared named contract (replaces the
+    // former bare `let [n_elem, _] = tets.dims();`, which ignored the column
+    // count).
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_CONNECTIVITY_CONTRACT,
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
     assert_eq!(tet_edge_idx.len(), n_elem, "tet_edge_idx length mismatch");
     assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
 
@@ -142,6 +200,15 @@ pub fn assemble_global_nedelec<B: Backend>(
     let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 36);
     let n_edges_i32 = n_edges as i32;
     for row in tet_edge_idx {
+        // Per-element hot loop: guard the signed local edge-matrix stack
+        // `[n_elem, 6, 6]` under exponential backoff so the O(n_elem)
+        // iteration pays a full contract check only on the first handful of
+        // elements, not every element.
+        assert_shape_contract_periodically!(
+            NEDELEC_LOCAL_MATRIX_CONTRACT,
+            &k_signed,
+            &[("edges_per_tet", EDGES_PER_TET)],
+        );
         for i in 0..6 {
             for j in 0..6 {
                 linear_idx.push(row[i] as i32 * n_edges_i32 + row[j] as i32);
@@ -332,7 +399,16 @@ fn scatter_to_pattern_vals<B: Backend>(
     nnz: usize,
     device: &B::Device,
 ) -> Tensor<B, 1> {
-    let [n_elem, _, _] = signed_local.dims();
+    // Signed local edge-matrix stack `\tilde{M}^{local} \in
+    // \mathbb{R}^{n_elem × 6 × 6}` — extract `n_elem` and check both
+    // `edges_per_tet = 6` axes through the shared named contract (replaces the
+    // former bare `let [n_elem, _, _] = signed_local.dims();`).
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_LOCAL_MATRIX_CONTRACT,
+        &signed_local,
+        &["n_elem"],
+        &[("edges_per_tet", EDGES_PER_TET)],
+    );
     Tensor::<B, 1>::zeros([nnz], device).scatter(
         0,
         slot_indices.clone(),
@@ -802,7 +878,16 @@ pub fn assemble_global_nedelec_with_epsilon<B: Backend>(
     epsilon_r: &[f64],
 ) -> NedelecGlobalSystem<B> {
     let device = nodes.device();
-    let [n_elem, _] = tets.dims();
+    // Connectivity `T \in \mathbb{Z}^{n_elem × 4}` — extract `n_elem` and
+    // check the 4-vertex arity through the shared named contract (replaces the
+    // former bare `let [n_elem, _] = tets.dims();`, which ignored the column
+    // count).
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_CONNECTIVITY_CONTRACT,
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
     assert_eq!(tet_edge_idx.len(), n_elem, "tet_edge_idx length mismatch");
     assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
     assert_eq!(epsilon_r.len(), n_elem, "epsilon_r length mismatch");
@@ -838,6 +923,14 @@ pub fn assemble_global_nedelec_with_epsilon<B: Backend>(
     let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 36);
     let n_edges_i32 = n_edges as i32;
     for row in tet_edge_idx {
+        // Per-element hot loop: guard the signed local edge-matrix stack
+        // `[n_elem, 6, 6]` under exponential backoff (see
+        // [`assemble_global_nedelec`]).
+        assert_shape_contract_periodically!(
+            NEDELEC_LOCAL_MATRIX_CONTRACT,
+            &k_signed,
+            &[("edges_per_tet", EDGES_PER_TET)],
+        );
         for i in 0..6 {
             for j in 0..6 {
                 linear_idx.push(row[i] as i32 * n_edges_i32 + row[j] as i32);
@@ -1052,7 +1145,16 @@ pub fn assemble_global_nedelec_with_complex_epsilon_sparse<B: Backend>(
     epsilon_r_complex: &[faer::c64],
 ) -> NedelecSparseComplexSystem<B> {
     let device = nodes.device();
-    let [n_elem, _] = tets.dims();
+    // Connectivity `T \in \mathbb{Z}^{n_elem × 4}` — extract `n_elem` and
+    // check the 4-vertex arity through the shared named contract (replaces the
+    // former bare `let [n_elem, _] = tets.dims();`, which ignored the column
+    // count).
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_CONNECTIVITY_CONTRACT,
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
     assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
     assert_eq!(
         scatter.n_elem(),
@@ -1113,7 +1215,16 @@ pub fn assemble_nedelec_sigma_damping_sparse<B: Backend>(
     sigma_tet: &[f64],
 ) -> Tensor<B, 1> {
     let device = nodes.device();
-    let [n_elem, _] = tets.dims();
+    // Connectivity `T \in \mathbb{Z}^{n_elem × 4}` — extract `n_elem` and
+    // check the 4-vertex arity through the shared named contract (replaces the
+    // former bare `let [n_elem, _] = tets.dims();`, which ignored the column
+    // count).
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_CONNECTIVITY_CONTRACT,
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
     assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
     assert_eq!(
         scatter.n_elem(),
@@ -1293,7 +1404,16 @@ pub fn assemble_global_nedelec_with_anisotropic_epsilon<B: Backend>(
     epsilon_tensor_diag: &[[faer::c64; 3]],
 ) -> NedelecComplexGlobalSystem<B> {
     let device = nodes.device();
-    let [n_elem, _] = tets.dims();
+    // Connectivity `T \in \mathbb{Z}^{n_elem × 4}` — extract `n_elem` and
+    // check the 4-vertex arity through the shared named contract (replaces the
+    // former bare `let [n_elem, _] = tets.dims();`, which ignored the column
+    // count).
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_CONNECTIVITY_CONTRACT,
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
     assert_eq!(tet_edge_idx.len(), n_elem, "tet_edge_idx length mismatch");
     assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
     assert_eq!(
@@ -1341,6 +1461,14 @@ pub fn assemble_global_nedelec_with_anisotropic_epsilon<B: Backend>(
     let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 36);
     let n_edges_i32 = n_edges as i32;
     for row in tet_edge_idx {
+        // Per-element hot loop: guard the signed local edge-matrix stack
+        // `[n_elem, 6, 6]` under exponential backoff (see
+        // [`assemble_global_nedelec`]).
+        assert_shape_contract_periodically!(
+            NEDELEC_LOCAL_MATRIX_CONTRACT,
+            &k_signed,
+            &[("edges_per_tet", EDGES_PER_TET)],
+        );
         for i in 0..6 {
             for j in 0..6 {
                 linear_idx.push(row[i] as i32 * n_edges_i32 + row[j] as i32);
@@ -1395,7 +1523,16 @@ pub fn assemble_global_nedelec_with_anisotropic_epsilon_sparse<B: Backend>(
     epsilon_tensor_diag: &[[faer::c64; 3]],
 ) -> NedelecSparseComplexSystem<B> {
     let device = nodes.device();
-    let [n_elem, _] = tets.dims();
+    // Connectivity `T \in \mathbb{Z}^{n_elem × 4}` — extract `n_elem` and
+    // check the 4-vertex arity through the shared named contract (replaces the
+    // former bare `let [n_elem, _] = tets.dims();`, which ignored the column
+    // count).
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_CONNECTIVITY_CONTRACT,
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
     assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
     assert_eq!(
         scatter.n_elem(),
@@ -1504,7 +1641,16 @@ pub fn assemble_global_nedelec_with_full_tensors<B: Backend>(
     nu_tensor: &[[[faer::c64; 3]; 3]],
 ) -> NedelecFullTensorGlobalSystem<B> {
     let device = nodes.device();
-    let [n_elem, _] = tets.dims();
+    // Connectivity `T \in \mathbb{Z}^{n_elem × 4}` — extract `n_elem` and
+    // check the 4-vertex arity through the shared named contract (replaces the
+    // former bare `let [n_elem, _] = tets.dims();`, which ignored the column
+    // count).
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_CONNECTIVITY_CONTRACT,
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
     assert_eq!(tet_edge_idx.len(), n_elem, "tet_edge_idx length mismatch");
     assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
     assert_eq!(
@@ -1540,6 +1686,14 @@ pub fn assemble_global_nedelec_with_full_tensors<B: Backend>(
     let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 36);
     let n_edges_i32 = n_edges as i32;
     for row in tet_edge_idx {
+        // Per-element hot loop: guard one representative local edge-matrix
+        // stack `[n_elem, 6, 6]` (the four weighted locals share this shape)
+        // under exponential backoff (see [`assemble_global_nedelec`]).
+        assert_shape_contract_periodically!(
+            NEDELEC_LOCAL_MATRIX_CONTRACT,
+            &k_local_re,
+            &[("edges_per_tet", EDGES_PER_TET)],
+        );
         for i in 0..6 {
             for j in 0..6 {
                 linear_idx.push(row[i] as i32 * n_edges_i32 + row[j] as i32);
@@ -1595,7 +1749,16 @@ pub fn assemble_global_nedelec_with_full_tensors_sparse<B: Backend>(
     nu_tensor: &[[[faer::c64; 3]; 3]],
 ) -> NedelecSparseFullTensorSystem<B> {
     let device = nodes.device();
-    let [n_elem, _] = tets.dims();
+    // Connectivity `T \in \mathbb{Z}^{n_elem × 4}` — extract `n_elem` and
+    // check the 4-vertex arity through the shared named contract (replaces the
+    // former bare `let [n_elem, _] = tets.dims();`, which ignored the column
+    // count).
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_CONNECTIVITY_CONTRACT,
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
     assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
     assert_eq!(
         scatter.n_elem(),
@@ -1669,7 +1832,16 @@ pub fn assemble_nedelec_current_rhs<B: Backend>(
     j_tet: &[[f64; 3]],
 ) -> Tensor<B, 1> {
     let device = nodes.device();
-    let [n_elem, _] = tets.dims();
+    // Connectivity `T \in \mathbb{Z}^{n_elem × 4}` — extract `n_elem` and
+    // check the 4-vertex arity through the shared named contract (replaces the
+    // former bare `let [n_elem, _] = tets.dims();`, which ignored the column
+    // count).
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_CONNECTIVITY_CONTRACT,
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
     assert_eq!(tet_edge_idx.len(), n_elem, "tet_edge_idx length mismatch");
     assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
     assert_eq!(j_tet.len(), n_elem, "j_tet length mismatch");
@@ -1734,7 +1906,16 @@ pub fn assemble_nedelec_current_rhs_quad4<B: Backend>(
     j_quad: &[[[f64; 3]; 4]],
 ) -> Tensor<B, 1> {
     let device = nodes.device();
-    let [n_elem, _] = tets.dims();
+    // Connectivity `T \in \mathbb{Z}^{n_elem × 4}` — extract `n_elem` and
+    // check the 4-vertex arity through the shared named contract (replaces the
+    // former bare `let [n_elem, _] = tets.dims();`, which ignored the column
+    // count).
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_CONNECTIVITY_CONTRACT,
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
     assert_eq!(tet_edge_idx.len(), n_elem, "tet_edge_idx length mismatch");
     assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
     assert_eq!(j_quad.len(), n_elem, "j_quad length mismatch");
@@ -1786,14 +1967,18 @@ pub fn burn_complex_mass_to_faer<B: Backend>(
     m_re: Tensor<B, 2>,
     m_im: Tensor<B, 2>,
 ) -> faer::Mat<faer::c64> {
-    let dims_re = m_re.dims();
-    let dims_im = m_im.dims();
-    assert_eq!(dims_re, dims_im, "M_re and M_im must have matching dims");
+    // Complex-split square operator `M = M_re + j\,M_im`, each
+    // `\in \mathbb{R}^{n × n}`. Bind `n` from `M_re` through the named
+    // square-operator contract, then re-assert the same contract on `M_im`
+    // with `n` already bound — this forces both halves to be square *and*
+    // mutually equal in one machine-checked step (replaces the bare
+    // `assert_eq!(dims_re, dims_im, ...)` plus two `.dims()` reads).
+    let [n] = unpack_shape_contract!(NEDELEC_SQUARE_OPERATOR_CONTRACT, &m_re, &["n"]);
+    assert_shape_contract!(NEDELEC_SQUARE_OPERATOR_CONTRACT, &m_im, &[("n", n)]);
     let data_re: Vec<f64> = m_re.into_data().iter::<f64>().collect();
     let data_im: Vec<f64> = m_im.into_data().iter::<f64>().collect();
-    let n = dims_re[0];
-    faer::Mat::<faer::c64>::from_fn(n, dims_re[1], |i, j| {
-        let idx = i * dims_re[1] + j;
+    faer::Mat::<faer::c64>::from_fn(n, n, |i, j| {
+        let idx = i * n + j;
         faer::c64::new(data_re[idx], data_im[idx])
     })
 }
