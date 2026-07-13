@@ -31,11 +31,12 @@ use geode_core::analytic::slotless_pm::{
     MU_0, SlotlessPm, current_sheet_exterior_coeff, self_validation_rel_error,
 };
 use geode_core::analytic::waveguide::{
-    RadialGrading, TriMesh, disk_boundary_nodes, disk_tri_mesh_bands,
+    RadialGrading, TriMesh, disk_boundary_nodes, disk_p2_boundary_dofs, disk_tri_mesh_bands,
 };
 use geode_core::assembly::magnetostatic::{
-    assemble_magnetostatic_pm, build_nu_r, radial_magnetization_source,
-    radial_magnetization_source_from_remanence, recover_b_field,
+    assemble_magnetostatic_pm, assemble_magnetostatic_pm_p2, build_nu_r,
+    radial_magnetization_source, radial_magnetization_source_from_remanence, recover_b_field,
+    sample_b_field_p2,
 };
 
 // Band indices for the four-band machine cross-section
@@ -105,6 +106,58 @@ fn solve_pm(
     let a_z = sys.solve().expect("PM solve");
     let b = recover_b_field(&mesh, &a_z);
     (mesh, tags, b)
+}
+
+/// Solve the pure-PM problem with the **P2** (quadratic) solver and return
+/// `(mesh, band_tags, u)` where `u` is the length-`(n_nodes + n_edges)`
+/// quadratic potential. Mirrors [`solve_pm`] on inputs; the field is
+/// recovered by point-sampling the P2 solution (see [`midgap_contour_l2_p2`]).
+fn solve_pm_p2(
+    g: &Geom,
+    n_ang: usize,
+    n_rad: [usize; 4],
+    m0: f64,
+    p: u32,
+) -> (TriMesh, Vec<i32>, Vec<f64>) {
+    let (mesh, tags) = build_mesh(g, n_ang, n_rad);
+    let n_tris = mesh.n_tris();
+    let nu = build_nu_r(&tags, &[1.0, 1.0, 1.0, 1.0]);
+    let j_z = vec![0.0; n_tris];
+    let m = radial_magnetization_source(&mesh, &tags, TAG_MAGNET, m0, p);
+    let bc = disk_p2_boundary_dofs(&mesh, g.rout);
+    let sys = assemble_magnetostatic_pm_p2(&mesh, &nu, &j_z, &m, &bc).expect("assemble PM P2");
+    let u = sys.solve().expect("PM P2 solve");
+    (mesh, tags, u)
+}
+
+/// L2 relative error of the **P2** FEM air-gap field vs the oracle, sampled
+/// on the mid-gap θ-contour. Unlike the P1 sampler (which reads the
+/// piecewise-constant per-triangle `B`), this evaluates the P2 field at the
+/// actual contour point via [`sample_b_field_p2`] — the linear-per-triangle
+/// `B` earns its second-order accuracy only when sampled at the point, not a
+/// centroid. `(B_r, B_θ)` compared component-wise.
+fn midgap_contour_l2_p2(
+    mesh: &TriMesh,
+    u: &[f64],
+    oracle: &SlotlessPm,
+    r_gap: f64,
+    n_contour: usize,
+) -> f64 {
+    let mut num = 0.0;
+    let mut den = 0.0;
+    for i in 0..n_contour {
+        let theta = std::f64::consts::TAU * i as f64 / n_contour as f64;
+        let (px, py) = (r_gap * theta.cos(), r_gap * theta.sin());
+        let bxy = sample_b_field_p2(mesh, u, px, py).expect("contour point inside mesh");
+        let (br_o, bth_o) = oracle.exterior_field(r_gap, theta);
+        let (c, s) = (theta.cos(), theta.sin());
+        let (bx, by) = (bxy[0], bxy[1]);
+        let br = bx * c + by * s;
+        let bth = -bx * s + by * c;
+        num += (br - br_o).powi(2) + (bth - bth_o).powi(2);
+        den += br_o.powi(2) + bth_o.powi(2);
+    }
+    (num / den).sqrt()
 }
 
 /// Locate the triangle containing point `(px, py)` by barycentric test.
@@ -322,6 +375,140 @@ fn airgap_field_p1_convergence() {
             finest * 100.0
         );
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 3b. Air-gap field oracle — P2 (quadratic) HEADLINE: ≤1% (issue #472,
+//     AC #1). Retires the honest P1 miss documented above.
+// ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn airgap_field_p2_within_one_percent() {
+    // THE HEADLINE (issue #472 AC #1): the P2 (quadratic-Lagrange) solver's
+    // mid-gap air-gap |B_r, B_θ| contour L2 vs the SlotlessPm exact oracle
+    // must clear the ≤1% bar on a *practical* mesh — the bar P1 could not
+    // reach.
+    //
+    // Apples-to-apples with the P1 convergence table in
+    // `airgap_field_p1_convergence` (same Geom::nominal geometry, same
+    // (n_ang, n_rad) refinement schedule, same 180-point mid-gap contour):
+    //
+    //   P1 (piecewise-constant B):  7.692 → 4.180 → 3.646 → 2.444%
+    //     at nodes 2593 → 7873 → 16705 → 29185 (n_ang 96/192/288/384).
+    //
+    // P1 never cleared 1%; first-order extrapolation put sub-1% at ~100k+
+    // nodes. P2's piecewise-linear B is second order, so it clears the bar
+    // well below the 384-angular / ~29k-node mesh where P1 sat at 2.44%.
+    let g = Geom::nominal();
+    let oracle = g.oracle();
+    println!("--- slotless-PM air-gap field: P2 mid-gap contour L2 (headline) ---");
+    let mut prev = f64::INFINITY;
+    let mut finest = f64::INFINITY;
+    let mut finest_nodes = 0usize;
+    for &(n_ang, n_rad) in &[
+        (96usize, [6usize, 8, 3, 10]),
+        (192, [10, 12, 5, 14]),
+        (288, [14, 16, 8, 20]),
+        (384, [18, 20, 12, 26]),
+    ] {
+        let (mesh, _tags, u) = solve_pm_p2(&g, n_ang, n_rad, g.m0, g.p);
+        let err = midgap_contour_l2_p2(&mesh, &u, &oracle, g.r_gap(), 180);
+        println!(
+            "  n_ang={n_ang:3} nodes={:6} mid-gap L2 = {:.3}%   (P1 was 7.69/4.18/3.65/2.44%)",
+            mesh.n_nodes(),
+            err * 100.0
+        );
+        // Monotone refinement (second-order convergence sanity).
+        assert!(
+            err < prev * 1.02,
+            "P2 refinement did not reduce error: {err} vs {prev}"
+        );
+        prev = err;
+        finest = err;
+        finest_nodes = mesh.n_nodes();
+    }
+    // AC #1: the finest practical mesh (≤ ~30k nodes, at/below the 384-angular
+    // mesh where P1 sat at 2.44%) clears the ≤1% bar.
+    assert!(
+        finest <= 0.01,
+        "finest P2 mid-gap L2 {:.3}% at {finest_nodes} nodes exceeds the 1% headline bar \
+         — the P2 field floor was not lifted below 1%",
+        finest * 100.0
+    );
+    assert!(
+        finest_nodes <= 30_000,
+        "finest mesh {finest_nodes} nodes exceeds the ~30k practical-mesh cap"
+    );
+    println!(
+        "HEADLINE PASS: P2 mid-gap L2 = {:.3}% at {finest_nodes} nodes (≤1% bar; \
+         P1 sat at 2.44% at 29185 nodes). Epic #448's only missed bar is retired.",
+        finest * 100.0
+    );
+}
+
+/// Per-triangle-centroid L2 error over the air-gap band for the **P2**
+/// solution (area-weighted continuous L2), an alternative to contour
+/// sampling used by the P2 tripwire. Uses centroid `B` from the P2 field.
+fn gap_band_l2_p2(mesh: &TriMesh, tags: &[i32], u: &[f64], oracle: &SlotlessPm) -> f64 {
+    let mut num = 0.0;
+    let mut den = 0.0;
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        if tags[t] != TAG_GAP {
+            continue;
+        }
+        let c0 = mesh.nodes[tri[0] as usize];
+        let c1 = mesh.nodes[tri[1] as usize];
+        let c2 = mesh.nodes[tri[2] as usize];
+        let cx = (c0[0] + c1[0] + c2[0]) / 3.0;
+        let cy = (c0[1] + c1[1] + c2[1]) / 3.0;
+        let r = (cx * cx + cy * cy).sqrt();
+        let theta = cy.atan2(cx);
+        let area =
+            0.5 * ((c1[0] - c0[0]) * (c2[1] - c0[1]) - (c1[1] - c0[1]) * (c2[0] - c0[0])).abs();
+        let bxy = sample_b_field_p2(mesh, u, cx, cy).expect("centroid inside mesh");
+        let (br_o, bth_o) = oracle.exterior_field(r, theta);
+        let (cc, ss) = (theta.cos(), theta.sin());
+        let br = bxy[0] * cc + bxy[1] * ss;
+        let bth = -bxy[0] * ss + bxy[1] * cc;
+        num += area * ((br - br_o).powi(2) + (bth - bth_o).powi(2));
+        den += area * (br_o.powi(2) + bth_o.powi(2));
+    }
+    (num / den).sqrt()
+}
+
+#[test]
+fn p2_wrong_sign_tripwire_fires() {
+    // Inverse tripwire (issue #472 AC #4): flip the magnetization sign and
+    // the P2 field error must blow far past the 1% pass bar — the ≤1%
+    // headline is not trivially satisfiable.
+    let g = Geom::nominal();
+    let oracle = g.oracle();
+    let (mesh, tags, u) = solve_pm_p2(&g, 192, [10, 12, 5, 14], -g.m0, g.p);
+    let err = gap_band_l2_p2(&mesh, &tags, &u, &oracle);
+    println!("P2 wrong-sign tripwire: gap L2 = {:.1}%", err * 100.0);
+    assert!(
+        err > 0.5,
+        "P2 wrong-sign error {:.2}% did not exceed the 50% floor — tripwire broken",
+        err * 100.0
+    );
+}
+
+#[test]
+fn p2_coarse_gap_tripwire_fires() {
+    // Correct magnetization but a very coarse gap: even P2's second-order
+    // recovery cannot resolve the rapidly-varying field, so the error stays
+    // well above the 1% bar — confirming the headline pass is earned by
+    // resolution, not by a solver that reports low error unconditionally.
+    let g = Geom::nominal();
+    let oracle = g.oracle();
+    let (mesh, _tags, u) = solve_pm_p2(&g, 24, [2, 2, 1, 3], g.m0, g.p);
+    let err = midgap_contour_l2_p2(&mesh, &u, &oracle, g.r_gap(), 60);
+    println!("P2 coarse-gap tripwire: mid-gap L2 = {:.1}%", err * 100.0);
+    assert!(
+        err > 0.05,
+        "P2 coarse-gap error {:.2}% did not exceed the 5% floor",
+        err * 100.0
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────
