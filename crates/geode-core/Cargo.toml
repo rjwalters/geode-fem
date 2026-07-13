@@ -10,6 +10,15 @@ description = "GEODE-FEM solver primitives: tensor ops over Burn."
 [dependencies]
 burn = { workspace = true, features = ["ndarray"] }
 
+# Bunsen standard library — machine-checked tensor shape contracts
+# (`shape_contract!` / `unpack_shape_contract!`) for the FEM assembly
+# pipeline (Epic #355). Non-optional: contracts are always-on shape guards on
+# the tensor surface, exercised on every backend/feature combo. Built
+# `std`-only (see the workspace `bunsen` line for the pinned rev + the two
+# upstream fixes it depends on); we deliberately do NOT enable `testing`
+# (pulls `burn/flex`) or default features (pull `reflection`/`train`/…).
+bunsen = { workspace = true }
+
 # `sparse-linalg` is added on top of the workspace base feature set
 # (`std`, `linalg`) for the sparse shift-invert Lanczos eigensolver.
 faer = { workspace = true, features = ["sparse-linalg"] }

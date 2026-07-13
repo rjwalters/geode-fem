@@ -28,6 +28,7 @@
 
 use std::collections::BTreeSet;
 
+use bunsen::contracts::{assert_shape_contract, unpack_shape_contract};
 use burn::tensor::ElementConversion;
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
@@ -35,6 +36,15 @@ use burn::tensor::{IndexingUpdateOp, Int, TensorData};
 
 use crate::elements::p1::batched_p1_local_matrices;
 use crate::mesh::TetMesh;
+
+/// Number of vertices per linear tetrahedral (P1) element.
+///
+/// A P1 tet has one node at each of its 4 geometric vertices, so the
+/// element-local system is `4 x 4` and the connectivity row length is 4.
+/// Bound into the shape contracts below as `nodes_per_tet` so the tet
+/// arity is checked machine-side rather than left implicit in a `4`
+/// literal scattered across reshapes.
+const NODES_PER_TET: usize = 4;
 
 /// Assembled global linear system in dense Burn-tensor form.
 #[derive(Debug, Clone)]
@@ -123,14 +133,44 @@ pub fn upload_mesh<B: Backend>(
 /// looking up each tet's four node indices in the global `nodes` tensor.
 ///
 /// This is the natural input shape for [`batched_p1_local_matrices`].
+///
+/// # Shape contracts (Bunsen)
+///
+/// The inputs are validated with Bunsen's `unpack_shape_contract!` /
+/// `assert_shape_contract!` DSL (Epic #355, Phase 1: proof-of-value
+/// template). The FEM shape notation encoded here:
+///
+/// - `nodes`: `[n_nodes, dim]` — the global vertex table, one row per mesh
+///   node, `dim = 3` spatial coordinates. Bound as `spatial = 3`.
+/// - `tets`: `[n_elem, nodes_per_tet]` — the connectivity, one row per
+///   element, `nodes_per_tet = 4` for a linear tet (bound as the
+///   `NODES_PER_TET` constant). The `select`+`reshape` below relies on this
+///   column count being exactly 4.
+/// - result: `[n_elem, nodes_per_tet, spatial]` — the batched per-element
+///   vertex-coordinate stack `X_e[i, :]` feeding the element Jacobian.
+///
+/// These replace the former bare `let [n_elem, _] = tets.dims();` destructure,
+/// which silently ignored the connectivity's column count and the `nodes`
+/// coordinate dimension. A mismatch now panics with a Bunsen shape-mismatch
+/// message naming the offending axis instead of producing a wrongly-shaped
+/// gather downstream.
 pub fn gather_tet_coords<B: Backend>(nodes: Tensor<B, 2>, tets: Tensor<B, 2, Int>) -> Tensor<B, 3> {
-    let [n_elem, _] = tets.dims();
+    // Validate the connectivity `[n_elem, nodes_per_tet=4]` and extract
+    // `n_elem`; validate the node table carries 3 spatial coordinates.
+    let [n_elem] = unpack_shape_contract!(
+        ["n_elem", "nodes_per_tet"],
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
+    assert_shape_contract!(["n_nodes", "spatial"], &nodes, &[("spatial", 3)]);
+
     // Flatten the [n_elem, 4] index tensor to [n_elem * 4] and use
     // `select(dim=0, ...)` to pull rows from `nodes`. The result is
     // [n_elem * 4, 3]; reshape to [n_elem, 4, 3].
-    let flat_idx = tets.reshape([n_elem * 4]);
+    let flat_idx = tets.reshape([n_elem * NODES_PER_TET]);
     let gathered = nodes.select(0, flat_idx);
-    gathered.reshape([n_elem, 4, 3])
+    gathered.reshape([n_elem, NODES_PER_TET, 3])
 }
 
 /// Assemble dense global stiffness and mass matrices from per-element
