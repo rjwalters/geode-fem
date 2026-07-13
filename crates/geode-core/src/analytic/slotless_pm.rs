@@ -188,6 +188,216 @@ pub fn self_validation_rel_error(pm: &SlotlessPm) -> f64 {
     ((c_scalar / d_sheet) - 1.0).abs()
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Driven interaction torque (Epic #448, Phase 3b — the capstone oracle)
+// ─────────────────────────────────────────────────────────────────────
+//
+// A pure-PM slotless machine has **zero** net torque by symmetry (the
+// exterior integrand `B_r B_θ ∝ cos(pθ) sin(pθ)` integrates to zero on any
+// coaxial contour), so it is a *degenerate* torque discriminator — a
+// mesh-symmetry artifact, not physics (#448 AC #4, #339 lesson). To obtain a
+// **non-trivial `T(θ_r)` with a clean closed form**, drive the same air gap
+// with a *stator winding current sheet* fixed in the stator frame and
+// compute the **PM-vs-stator interaction torque**, which has the classic
+// `T ∝ cos(p θ_r)` closed form.
+//
+// # Geometry / fields
+//
+// The rotor PM (band `R1 ≤ r ≤ R2`, magnetization `M0 cos(p(θ−θ_r)) r̂`,
+// mechanically rotated by `θ_r`) produces the **exterior** multipole in the
+// air gap (`r ≥ R2`):
+//
+// ```text
+//   B_r^M = C_M r^{-(p+1)} cos(p(θ−θ_r)) ,  B_θ^M = C_M r^{-(p+1)} sin(p(θ−θ_r)) ,
+//   C_M = μ₀ M0 p (R2^{p+1} − R1^{p+1}) / [2 (p+1)]   (= SlotlessPm::exterior_coeff).
+// ```
+//
+// The stator winding, an axial current density `J_z(r,θ) = J0 cos(p θ)`
+// distributed over an **outer** band `R_a ≤ r ≤ R_b` (with `R_b > R_a >`
+// the gap radius), produces a *regular* interior harmonic in the gap
+// (`r ≤ R_a`). A single sheet `dK = J0 dr'` at radius `r'` contributes
+// interior `B_θ = −(μ₀ dK/2)(r/r')^{p−1} cos(pθ)` (2-D Green's-function /
+// tangential-`H`-jump matching), so integrating the band:
+//
+// ```text
+//   B_r^S(r,θ) = −G_S r^{p−1} sin(p θ) ,  B_θ^S(r,θ) = −G_S r^{p−1} cos(p θ) ,
+//   G_S = (μ₀ J0 / 2) ∫_{R_a}^{R_b} r'^{−(p−1)} dr' .
+// ```
+//
+// # Torque
+//
+// The Maxwell-stress torque per axial length `L` on the rotor, on any gap
+// contour `r_g` inside both bands, is `T = (L r_g²/μ₀) ∮ B_r B_θ dθ` with
+// `B = B^M + B^S`. Both self-terms integrate to zero; the cross-term
+// integrand collapses (product-to-sum) to the **θ-independent** constant
+// `C_M r_g^{−(p+1)} · (−G_S r_g^{p−1}) · cos(p θ_r)`, whence
+//
+// ```text
+//   T(θ_r) = −(2π L / μ₀) · C_M · G_S · cos(p θ_r) .
+// ```
+//
+// The contour radius `r_g` **cancels** — the torque is a conserved flux
+// through any gap contour, a strong invariant this benchmark exploits.
+
+/// A slotless surface-PM rotor driven by a `θ`-distributed stator winding
+/// current sheet — the Epic #448 capstone torque oracle. Wraps a
+/// [`SlotlessPm`] rotor (rotated mechanically by `theta_r`) plus a stator
+/// axial-current band `R_a ≤ r ≤ R_b` carrying `J_z = J0 cos(p θ)`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SlotlessPmDriven {
+    /// The rotor permanent-magnet annulus (its `exterior_coeff` is `C_M`).
+    pub rotor: SlotlessPm,
+    /// Stator winding-band inner radius `R_a` (m), `R_a > R2` (outside the gap).
+    pub r_stator_inner: f64,
+    /// Stator winding-band outer radius `R_b` (m), `R_b > R_a`.
+    pub r_stator_outer: f64,
+    /// Stator peak axial current density `J0` (A/m²): `J_z = J0 cos(p θ)`
+    /// over the band, `0` elsewhere. The winding shares the rotor's pole-pair
+    /// count `p` (a synchronous machine).
+    pub j0: f64,
+    /// Axial (stack) length `L` (m) — the per-length torque scales linearly.
+    pub l_axial: f64,
+}
+
+impl SlotlessPmDriven {
+    /// Construct a validated driven configuration.
+    ///
+    /// # Panics
+    ///
+    /// Panics unless the stator band lies strictly outside the rotor
+    /// (`r_stator_inner > rotor.r_outer`), `r_stator_outer > r_stator_inner`,
+    /// and `j0`, `l_axial` are finite with `l_axial > 0`.
+    pub fn new(
+        rotor: SlotlessPm,
+        r_stator_inner: f64,
+        r_stator_outer: f64,
+        j0: f64,
+        l_axial: f64,
+    ) -> Self {
+        assert!(
+            r_stator_inner.is_finite()
+                && r_stator_outer.is_finite()
+                && r_stator_inner > rotor.r_outer
+                && r_stator_outer > r_stator_inner,
+            "SlotlessPmDriven requires rotor.r_outer ({}) < r_stator_inner ({r_stator_inner}) \
+             < r_stator_outer ({r_stator_outer})",
+            rotor.r_outer
+        );
+        assert!(
+            j0.is_finite() && l_axial.is_finite() && l_axial > 0.0,
+            "SlotlessPmDriven requires finite j0 ({j0}) and l_axial > 0 (got {l_axial})"
+        );
+        Self {
+            rotor,
+            r_stator_inner,
+            r_stator_outer,
+            j0,
+            l_axial,
+        }
+    }
+
+    /// Stator interior-field coefficient
+    /// `G_S = (μ₀ J0 / 2) ∫_{R_a}^{R_b} r'^{−(p−1)} dr'`, so that in the gap
+    /// (`r ≤ R_a`) the stator field is
+    /// `B_r^S = −G_S r^{p−1} sin(pθ)`, `B_θ^S = −G_S r^{p−1} cos(pθ)`.
+    ///
+    /// The radial integral is the `p = 2` logarithm `ln(R_b/R_a)` and the
+    /// general power law `(R_b^{2−p} − R_a^{2−p})/(2−p)` otherwise.
+    pub fn stator_interior_coeff(&self) -> f64 {
+        let p = self.rotor.pole_pairs as f64;
+        let (ra, rb) = (self.r_stator_inner, self.r_stator_outer);
+        let radial_integral = if (p - 2.0).abs() < 1e-12 {
+            (rb / ra).ln()
+        } else {
+            (rb.powf(2.0 - p) - ra.powf(2.0 - p)) / (2.0 - p)
+        };
+        0.5 * MU_0 * self.j0 * radial_integral
+    }
+
+    /// Interior stator flux density `(B_r^S, B_θ^S)` at polar `(r, θ)` for
+    /// `r ≤ r_stator_inner` (the gap region), from the distributed-winding
+    /// harmonic. Used by the numeric-quadrature self-check of [`Self::torque`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `r > r_stator_inner` (the interior branch is not valid
+    /// inside or beyond the winding band).
+    pub fn stator_interior_field(&self, r: f64, theta: f64) -> (f64, f64) {
+        assert!(
+            r <= self.r_stator_inner,
+            "stator_interior_field valid only for r ≤ r_stator_inner ({}), got r = {r}",
+            self.r_stator_inner
+        );
+        let p = self.rotor.pole_pairs as f64;
+        let g = self.stator_interior_coeff() * r.powf(p - 1.0);
+        let ang = p * theta;
+        (-g * ang.sin(), -g * ang.cos())
+    }
+
+    /// Total gap flux density `(B_r, B_θ)` = rotor exterior + stator interior
+    /// at polar `(r, θ)`, with the rotor mechanically rotated by `theta_r`.
+    /// Valid for `rotor.r_outer ≤ r ≤ r_stator_inner`.
+    pub fn total_gap_field(&self, r: f64, theta: f64, theta_r: f64) -> (f64, f64) {
+        // Rotor field with the magnet pattern rotated by θ_r: evaluate the
+        // (unrotated) exterior multipole at the de-rotated angle θ − θ_r,
+        // which shifts the cos/sin arguments to p(θ − θ_r).
+        let (brm, bthm) = self.rotor.exterior_field(r, theta - theta_r);
+        let (brs, bths) = self.stator_interior_field(r, theta);
+        (brm + brs, bthm + bths)
+    }
+
+    /// Closed-form driven interaction torque per axial length at rotor angle
+    /// `theta_r`:
+    ///
+    /// ```text
+    ///   T(θ_r) = −(2π L / μ₀) · C_M · G_S · cos(p θ_r) ,
+    /// ```
+    ///
+    /// with `C_M = rotor.exterior_coeff()` and `G_S =
+    /// stator_interior_coeff()`. This is the exact torque on the rotor from
+    /// the PM-vs-stator interaction; the self-torques are identically zero.
+    pub fn torque(&self, theta_r: f64) -> f64 {
+        let p = self.rotor.pole_pairs as f64;
+        let c_m = self.rotor.exterior_coeff();
+        let g_s = self.stator_interior_coeff();
+        -(std::f64::consts::TAU * self.l_axial / MU_0) * c_m * g_s * (p * theta_r).cos()
+    }
+
+    /// Peak torque amplitude `|T|_max = (2π L / μ₀) |C_M G_S|` (the `θ_r = 0`
+    /// value up to sign). A convenience for reporting / tearsheet scaling.
+    pub fn torque_amplitude(&self) -> f64 {
+        (std::f64::consts::TAU * self.l_axial / MU_0
+            * self.rotor.exterior_coeff()
+            * self.stator_interior_coeff())
+        .abs()
+    }
+
+    /// Numeric-quadrature cross-check of [`Self::torque`]: evaluate the Maxwell
+    /// stress line integral `(L r_g²/μ₀) ∮ B_r B_θ dθ` on a gap contour of
+    /// radius `r_g`, sampling the *analytic* total field at `n` equal-angle
+    /// points (periodic trapezoid rule). Must agree with [`Self::torque`] to
+    /// quadrature precision — the derivation's internal gate, run *before*
+    /// the FE solve is compared against it.
+    ///
+    /// # Panics
+    ///
+    /// Panics unless `rotor.r_outer ≤ r_g ≤ r_stator_inner` and `n ≥ 3`.
+    pub fn torque_by_quadrature(&self, theta_r: f64, r_g: f64, n: usize) -> f64 {
+        assert!(
+            r_g >= self.rotor.r_outer && r_g <= self.r_stator_inner && n >= 3,
+            "torque_by_quadrature: need rotor.r_outer ≤ r_g ≤ r_stator_inner and n ≥ 3"
+        );
+        let dtheta = std::f64::consts::TAU / n as f64;
+        let mut acc = 0.0;
+        for i in 0..n {
+            let theta = std::f64::consts::TAU * i as f64 / n as f64;
+            let (br, bth) = self.total_gap_field(r_g, theta, theta_r);
+            acc += br * bth;
+        }
+        self.l_axial * r_g * r_g / MU_0 * acc * dtheta
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,5 +468,76 @@ mod tests {
     fn interior_field_panics() {
         let pm = SlotlessPm::new(0.030, 0.040, 1.0, 2);
         let _ = pm.exterior_field(0.035, 0.0);
+    }
+
+    // ── Driven interaction torque ──────────────────────────────────────
+
+    fn nominal_driven() -> SlotlessPmDriven {
+        // Rotor: 2-pole-pair NdFeB band; stator winding in an outer band.
+        let rotor = SlotlessPm::new(0.030, 0.040, 1.2 / MU_0, 2);
+        SlotlessPmDriven::new(rotor, 0.050, 0.060, 5.0e6, 0.05)
+    }
+
+    #[test]
+    fn driven_torque_matches_quadrature() {
+        // The closed-form torque must equal the numeric Maxwell-stress
+        // contour integral of the analytic total field, to quadrature
+        // precision, at every rotor angle and independently of r_g.
+        let d = nominal_driven();
+        let p = d.rotor.pole_pairs;
+        for k in 0..24 {
+            let theta_r = std::f64::consts::TAU * k as f64 / (24.0 * p as f64);
+            let t_closed = d.torque(theta_r);
+            for &r_g in &[0.043_f64, 0.045, 0.048] {
+                let t_quad = d.torque_by_quadrature(theta_r, r_g, 256);
+                let scale = d.torque_amplitude().max(1e-30);
+                assert!(
+                    (t_closed - t_quad).abs() <= 1e-9 * scale,
+                    "closed-form {t_closed} vs quadrature {t_quad} at θ_r={theta_r}, r_g={r_g}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn driven_torque_is_theta_dependent_and_nonzero() {
+        // Discriminator-isolation: the analytic T(θ_r) must be a non-trivial
+        // (non-constant, non-zero) function of the rotor angle — otherwise
+        // the benchmark grades a mesh-symmetry artifact (#448 AC #4).
+        let d = nominal_driven();
+        let amp = d.torque_amplitude();
+        assert!(amp > 0.0, "driven torque amplitude must be non-zero");
+        // cos(p·θ_r): peak at θ_r = 0, zero at the quarter electrical period.
+        let p = d.rotor.pole_pairs as f64;
+        assert!((d.torque(0.0).abs() - amp).abs() <= 1e-9 * amp);
+        let quarter = std::f64::consts::FRAC_PI_2 / p; // p·θ_r = π/2
+        assert!(
+            d.torque(quarter).abs() <= 1e-9 * amp,
+            "torque should vanish at the quarter electrical period"
+        );
+    }
+
+    #[test]
+    fn driven_torque_scales_linearly_with_drive_and_length() {
+        // T ∝ J0 (through G_S) and ∝ L — sanity on the prefactors.
+        let d = nominal_driven();
+        let d2 = SlotlessPmDriven::new(d.rotor, 0.050, 0.060, 2.0 * d.j0, 3.0 * d.l_axial);
+        assert!((d2.torque(0.0) - 6.0 * d.torque(0.0)).abs() <= 1e-6 * d2.torque(0.0).abs());
+    }
+
+    #[test]
+    fn stator_p2_coeff_uses_log_integral() {
+        // For p = 2 the radial integral is ln(R_b/R_a); check G_S directly.
+        let d = nominal_driven();
+        let expect = 0.5 * MU_0 * d.j0 * (d.r_stator_outer / d.r_stator_inner).ln();
+        assert!((d.stator_interior_coeff() - expect).abs() <= 1e-12 * expect.abs());
+    }
+
+    #[test]
+    #[should_panic(expected = "r_stator_inner")]
+    fn driven_rejects_overlapping_stator() {
+        let rotor = SlotlessPm::new(0.030, 0.040, 1.0, 2);
+        // Stator inner radius inside the rotor → rejected.
+        let _ = SlotlessPmDriven::new(rotor, 0.035, 0.060, 1.0, 0.05);
     }
 }

@@ -65,7 +65,7 @@ Each benchmark family ships a one-command **tearsheet** that overlays the FEM
 result on its analytic / empirical oracle. Regenerate any of them with:
 
 ```sh
-python -m geode_viz.scripts.plot_benchmark <mie_sphere|spiral_inductor|patch_antenna> --tearsheet
+python -m geode_viz.scripts.plot_benchmark <mie_sphere|spiral_inductor|patch_antenna|motor> --tearsheet
 ```
 
 (See [`tools/viz/`](tools/viz/) for the full plotting + VTK/ParaView export
@@ -88,6 +88,37 @@ chart, and the E-/H-plane radiation-pattern cuts (dB) against the Balanis
 cavity-model directivity oracle.
 
 ![Patch antenna tearsheet](docs/images/patch_antenna_tearsheet.png)
+
+**Slotless-PM motor** — the locked-rotor torque-vs-angle capstone (Epic #448).
+A radially-magnetized surface-PM rotor is driven by a θ-distributed stator
+winding sheet `J_z = J0 cos(pθ)`; the resulting PM-vs-stator interaction torque
+`T(θ_r) = −(2π L/μ₀)·C_M·G_S·cos(p θ_r)` has an exact closed form, plotted here
+against the FEM Arkkio (volume-averaged, preferred) and Maxwell line-integral
+estimators over one electrical period. The Arkkio sweep tracks the analytic
+oracle to **0.71 % L2** (37.6k-node mesh, ≤ 2 % target met), the error strip
+staying under both the 2 % and 5 % guides — Arkkio's volume averaging cancels
+the pointwise P1 product noise so the interaction torque clears the target even
+though the raw mid-gap field sits at the documented ~2.4 % P1 floor. The
+self-torques (pure-PM and pure-stator) are ≈ 0 by symmetry, so the graded number
+is the genuine interaction torque, not a mesh-symmetry artifact.
+
+![Slotless-PM motor tearsheet](docs/images/motor_tearsheet.png)
+
+Regenerate the benchmark fixture and field export with:
+
+```sh
+cargo run -p geode-core --release --example motor_torque
+# → benchmarks/motor/results.toml (sweep) + artifacts/viz/motor/motor_field.vtu
+```
+
+The `motor_field.vtu` carries the nodal `A_z` scalar and the per-cell `B` glyph
+vector for the θ_r = 0 cross-section. Render the ParaView machine-slice visual
+(colour by `A_z`, add a Glyph filter on the cell vector `B`) with:
+
+```sh
+pvbatch tools/viz/geode_viz/scripts/pvbatch_render.py \
+  artifacts/viz/motor/motor_field.vtu --slice z=0 --field A_z --out motor_field_slice.png
+```
 
 ### 3D field & radiation pattern (via ParaView)
 

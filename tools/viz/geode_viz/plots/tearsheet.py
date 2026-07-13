@@ -20,6 +20,8 @@ Per-benchmark layouts:
   cuts (bottom).
 - ``mie_sphere`` — Q_ext / Q_sca / Q_abs vs ka (with the relative
   error strip).
+- ``motor`` — slotless-PM locked-rotor T(θ_r) FEM-vs-analytic overlay
+  (with the Arkkio relative-error strip).
 
 An optional pre-rendered field-slice (Phase 2C) or 3D-lobe (Phase 3A)
 PNG is embedded as an extra image panel when ``field_png`` points at a
@@ -46,6 +48,7 @@ from geode_viz.plots._common import (
     subtitle_from_notes as _subtitle_from_notes,
 )
 from geode_viz.plots.mie import plot_efficiency_vs_ka
+from geode_viz.plots.motor import plot_torque_vs_angle
 from geode_viz.plots.pattern import plot_pattern_cut
 from geode_viz.plots.s_params import plot_s11_magnitude, plot_smith
 from geode_viz.plots.spiral import plot_lqr_vs_f
@@ -58,6 +61,7 @@ _TEARSHEET_BENCHMARKS: tuple[str, ...] = (
     "spiral_inductor",
     "patch_antenna",
     "mie_sphere",
+    "motor",
 )
 
 
@@ -82,6 +86,8 @@ def _load_primary(
             "driven_results_fine.toml" if fine else "driven_results.toml"
         )
         return load_results("mie_sphere", filename=filename)
+    if benchmark == "motor":
+        return load_results("motor", filename="results.toml")
     return load_results(benchmark)
 
 
@@ -138,6 +144,17 @@ def _compose_mie(fig: "plt.Figure", *, fine: bool, has_field: bool) -> Any:
         gridspec = fig.add_gridspec(1, 1)
     ax_q = fig.add_subplot(gridspec[0, 0])
     plot_efficiency_vs_ka(fine=fine, ax=ax_q)
+    return gridspec
+
+
+def _compose_motor(fig: "plt.Figure", *, has_field: bool) -> Any:
+    """Lay out the slotless-PM motor T(θ_r) panel; return the gridspec."""
+    if has_field:
+        gridspec = fig.add_gridspec(1, 2, width_ratios=[1.4, 1.0])
+    else:
+        gridspec = fig.add_gridspec(1, 1)
+    ax_t = fig.add_subplot(gridspec[0, 0])
+    plot_torque_vs_angle(ax=ax_t)
     return gridspec
 
 
@@ -211,6 +228,8 @@ def plot_tearsheet(
             gridspec = _compose_patch(
                 fig, variant=variant, has_field=has_field
             )
+        elif benchmark == "motor":
+            gridspec = _compose_motor(fig, has_field=has_field)
         else:  # mie_sphere
             gridspec = _compose_mie(fig, fine=fine, has_field=has_field)
 
@@ -222,7 +241,7 @@ def plot_tearsheet(
                 ax_field = fig.add_subplot(gridspec[2, :])
             elif benchmark == "spiral_inductor":
                 ax_field = fig.add_subplot(gridspec[0, 2])
-            else:  # mie_sphere
+            else:  # mie_sphere / motor — right-column field slot
                 ax_field = fig.add_subplot(gridspec[0, 1])
             _embed_field_png(ax_field, field_path)
 
