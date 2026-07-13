@@ -40,6 +40,7 @@ pub mod electrostatic;
 pub mod fe;
 pub mod magnetostatic;
 pub mod nedelec;
+pub mod nedelec_matvec;
 pub mod p1;
 pub mod sparse;
 pub mod surface;
