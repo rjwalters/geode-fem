@@ -94,8 +94,65 @@
 //! against a CPU reference, (c) rigid-motion / dilation invariants,
 //! and (d) symmetry / sign-flip behavior on a two-tet shared-edge mesh.
 
+use bunsen::contracts::{assert_shape_contract, define_shape_contract, unpack_shape_contract};
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
+
+/// Number of vertices per linear tetrahedron. Bound into
+/// `NEDELEC_TET_COORDS_CONTRACT` as `nodes_per_tet`.
+const NODES_PER_TET: usize = 4;
+
+/// Spatial dimension of the vertex coordinates (3-D). Bound into the coordinate
+/// / per-tet-vector / weight-tensor contracts as `spatial`.
+const SPATIAL: usize = 3;
+
+// ---------------------------------------------------------------------------
+// Named static shape contracts (Bunsen, Epic #355 Phase 3)
+// ---------------------------------------------------------------------------
+//
+// The recurring FEM tensor shapes of the Nédélec basis-evaluation path, named
+// once so the same machine-checked invariant is reused across the six kernels
+// below instead of being re-spelled as a bare `let dims = coords.dims();
+// assert_eq!(dims[1], 4, …)` destructure at each entry point. Follows the
+// Phase 2 template established in `crate::assembly::nedelec` (PR #467).
+
+// Batched per-tet vertex-coordinate stack
+// `X^e \in \mathbb{R}^{n_elem × 4 × 3}`: one `4 × 3` block per element, row `i`
+// the 3-D coordinates of vertex `i`, feeding the affine element Jacobian. The
+// `nodes_per_tet` axis is bound to `NODES_PER_TET` (`= 4`) and `spatial` to
+// `SPATIAL` (`= 3`) at the call site.
+define_shape_contract!(
+    NEDELEC_TET_COORDS_CONTRACT,
+    ["n_elem", "nodes_per_tet", "spatial"]
+);
+
+// Per-tet 3-vector field paired with `coords`
+// `J^e \in \mathbb{R}^{n_elem × 3}`: one Cartesian 3-vector per element (e.g. a
+// per-tet-constant current density). The `n_elem` axis is bound to the value
+// extracted from the companion `coords` contract, so a length mismatch between
+// the coordinate stack and its derived per-tet vector fires a named-axis
+// `Shape Error` rather than the former paired `assert_eq!(j_dims, [n_elem, 3])`.
+define_shape_contract!(NEDELEC_TET_VEC3_CONTRACT, ["n_elem", "spatial"]);
+
+// Per-tet quadrature-point 3-vector stack paired with `coords`
+// `J^e_q \in \mathbb{R}^{n_elem × 4 × 3}`: one 3-vector per element per degree-2
+// quadrature point (4 points). Shares the `nodes_per_tet` / `spatial` axes with
+// the coordinate stack; `n_elem` is bound from the companion `coords` read.
+define_shape_contract!(
+    NEDELEC_TET_QUAD_VEC3_CONTRACT,
+    ["n_elem", "nodes_per_tet", "spatial"]
+);
+
+// Per-tet full 3×3 constitutive weight tensor paired with `coords`
+// `W^e \in \mathbb{R}^{n_elem × 3 × 3}`: one dense `3 × 3` Cartesian weight per
+// element (the real or imaginary part of a UPML constitutive tensor). Both
+// spatial axes are bound to `SPATIAL` (`= 3`); `n_elem` is bound from the
+// companion `coords` read, encoding the shape *agreement* between `coords` and
+// its derived weight tensor as a single named contract.
+define_shape_contract!(
+    NEDELEC_TET_WEIGHT3X3_CONTRACT,
+    ["n_elem", "spatial", "spatial"]
+);
 
 /// Canonical local edge → (local vertex pair) ordering on a tet.
 ///
@@ -152,12 +209,18 @@ pub struct NedelecLocalMatrices<B: Backend> {
 ///
 /// # Panics
 ///
-/// Panics if `coords` does not have shape `[*, 4, 3]`.
+/// Panics if `coords` does not have shape `[*, 4, 3]` — validated via Bunsen's
+/// `NEDELEC_TET_COORDS_CONTRACT` (a cold, one-shot check: one call per
+/// assembly, not per element).
 pub fn batched_nedelec_local_matrices<B: Backend>(coords: Tensor<B, 3>) -> NedelecLocalMatrices<B> {
-    let dims = coords.dims();
-    let n_elem = dims[0];
-    assert_eq!(dims[1], 4, "expected 4 vertices per tet, got {}", dims[1]);
-    assert_eq!(dims[2], 3, "expected 3-D coordinates, got {}", dims[2]);
+    // Vertex-coordinate stack `X^e \in \mathbb{R}^{n_elem × 4 × 3}` — extract
+    // `n_elem` and check the `nodes_per_tet = 4` / `spatial = 3` axes.
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_TET_COORDS_CONTRACT,
+        &coords,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET), ("spatial", SPATIAL)],
+    );
 
     // Extract per-vertex coordinate tensors of shape [n_elem, 3].
     let v0 = coords
@@ -321,16 +384,20 @@ pub fn batched_nedelec_local_rhs<B: Backend>(
     coords: Tensor<B, 3>,
     j_tet: Tensor<B, 2>,
 ) -> Tensor<B, 2> {
-    let dims = coords.dims();
-    let n_elem = dims[0];
-    assert_eq!(dims[1], 4, "expected 4 vertices per tet, got {}", dims[1]);
-    assert_eq!(dims[2], 3, "expected 3-D coordinates, got {}", dims[2]);
-    let j_dims = j_tet.dims();
-    assert_eq!(
-        j_dims,
-        [n_elem, 3],
-        "expected j_tet shape [n_elem, 3], got {:?}",
-        j_dims
+    // Vertex-coordinate stack `X^e \in \mathbb{R}^{n_elem × 4 × 3}` and the
+    // paired per-tet current 3-vector `J^e \in \mathbb{R}^{n_elem × 3}` — the
+    // `n_elem` axis is bound once from `coords` and re-asserted on `j_tet`, so a
+    // length disagreement fires a named-axis `Shape Error`.
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_TET_COORDS_CONTRACT,
+        &coords,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET), ("spatial", SPATIAL)],
+    );
+    assert_shape_contract!(
+        NEDELEC_TET_VEC3_CONTRACT,
+        &j_tet,
+        &[("n_elem", n_elem), ("spatial", SPATIAL)],
     );
 
     // Same per-vertex / edge / cofactor / det machinery as the matrix
@@ -421,16 +488,20 @@ pub fn batched_nedelec_local_mass_anisotropic_diag<B: Backend>(
     coords: Tensor<B, 3>,
     eps_diag: Tensor<B, 2>,
 ) -> Tensor<B, 3> {
-    let dims = coords.dims();
-    let n_elem = dims[0];
-    assert_eq!(dims[1], 4, "expected 4 vertices per tet, got {}", dims[1]);
-    assert_eq!(dims[2], 3, "expected 3-D coordinates, got {}", dims[2]);
-    let eps_dims = eps_diag.dims();
-    assert_eq!(
-        eps_dims,
-        [n_elem, 3],
-        "expected eps_diag shape [n_elem, 3], got {:?}",
-        eps_dims
+    // Vertex-coordinate stack `X^e \in \mathbb{R}^{n_elem × 4 × 3}` and the
+    // paired per-tet, per-axis permittivity `\varepsilon^e \in
+    // \mathbb{R}^{n_elem × 3}` — `n_elem` is bound once from `coords` and
+    // re-asserted on `eps_diag`.
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_TET_COORDS_CONTRACT,
+        &coords,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET), ("spatial", SPATIAL)],
+    );
+    assert_shape_contract!(
+        NEDELEC_TET_VEC3_CONTRACT,
+        &eps_diag,
+        &[("n_elem", n_elem), ("spatial", SPATIAL)],
     );
 
     // Reuse the same per-vertex / edge / cofactor / det machinery as
@@ -552,10 +623,14 @@ pub const TET_QUAD4_B: f64 = 0.138_196_601_125_010_5;
 /// and the per-element determinant `det(J)` (`[n_elem]`) shared by the
 /// tensor-weighted kernels below. `∇λ_p = g_p / det(J)`.
 fn cofactor_rows_and_det<B: Backend>(coords: Tensor<B, 3>) -> (Tensor<B, 3>, Tensor<B, 1>) {
-    let dims = coords.dims();
-    let n_elem = dims[0];
-    assert_eq!(dims[1], 4, "expected 4 vertices per tet, got {}", dims[1]);
-    assert_eq!(dims[2], 3, "expected 3-D coordinates, got {}", dims[2]);
+    // Vertex-coordinate stack `X^e \in \mathbb{R}^{n_elem × 4 × 3}` — extract
+    // `n_elem` and check the `nodes_per_tet = 4` / `spatial = 3` axes.
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_TET_COORDS_CONTRACT,
+        &coords,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET), ("spatial", SPATIAL)],
+    );
 
     let v0 = coords
         .clone()
@@ -618,13 +693,21 @@ pub fn batched_nedelec_local_stiffness_weighted<B: Backend>(
     coords: Tensor<B, 3>,
     weight: Tensor<B, 3>,
 ) -> Tensor<B, 3> {
-    let n_elem = coords.dims()[0];
-    let w_dims = weight.dims();
-    assert_eq!(
-        w_dims,
-        [n_elem, 3, 3],
-        "expected weight shape [n_elem, 3, 3], got {:?}",
-        w_dims
+    // Vertex-coordinate stack `X^e \in \mathbb{R}^{n_elem × 4 × 3}` and the
+    // paired full 3×3 curl weight `W^e \in \mathbb{R}^{n_elem × 3 × 3}` —
+    // `n_elem` is bound once from `coords` and re-asserted on `weight`, encoding
+    // the coords↔weight shape agreement as a single named contract. (`coords`'s
+    // interior axes are re-checked by `cofactor_rows_and_det` below.)
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_TET_COORDS_CONTRACT,
+        &coords,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET), ("spatial", SPATIAL)],
+    );
+    assert_shape_contract!(
+        NEDELEC_TET_WEIGHT3X3_CONTRACT,
+        &weight,
+        &[("n_elem", n_elem), ("spatial", SPATIAL)],
     );
 
     let (g_mat, det) = cofactor_rows_and_det(coords);
@@ -699,13 +782,20 @@ pub fn batched_nedelec_local_mass_anisotropic_full<B: Backend>(
     coords: Tensor<B, 3>,
     weight: Tensor<B, 3>,
 ) -> Tensor<B, 3> {
-    let n_elem = coords.dims()[0];
-    let w_dims = weight.dims();
-    assert_eq!(
-        w_dims,
-        [n_elem, 3, 3],
-        "expected weight shape [n_elem, 3, 3], got {:?}",
-        w_dims
+    // Vertex-coordinate stack `X^e \in \mathbb{R}^{n_elem × 4 × 3}` and the
+    // paired full 3×3 mass weight `W^e \in \mathbb{R}^{n_elem × 3 × 3}` —
+    // `n_elem` is bound once from `coords` and re-asserted on `weight`.
+    // (`coords`'s interior axes are re-checked by `cofactor_rows_and_det`.)
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_TET_COORDS_CONTRACT,
+        &coords,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET), ("spatial", SPATIAL)],
+    );
+    assert_shape_contract!(
+        NEDELEC_TET_WEIGHT3X3_CONTRACT,
+        &weight,
+        &[("n_elem", n_elem), ("spatial", SPATIAL)],
     );
 
     let (g_mat, det) = cofactor_rows_and_det(coords);
@@ -788,13 +878,25 @@ pub fn batched_nedelec_local_rhs_quad4<B: Backend>(
     coords: Tensor<B, 3>,
     j_quad: Tensor<B, 3>,
 ) -> Tensor<B, 2> {
-    let n_elem = coords.dims()[0];
-    let j_dims = j_quad.dims();
-    assert_eq!(
-        j_dims,
-        [n_elem, 4, 3],
-        "expected j_quad shape [n_elem, 4, 3], got {:?}",
-        j_dims
+    // Vertex-coordinate stack `X^e \in \mathbb{R}^{n_elem × 4 × 3}` and the
+    // paired per-quadrature-point current `J^e_q \in \mathbb{R}^{n_elem × 4 ×
+    // 3}` (4 degree-2 points × 3 Cartesian components) — `n_elem` is bound once
+    // from `coords` and re-asserted on `j_quad`. (`coords`'s interior axes are
+    // re-checked by `cofactor_rows_and_det`.)
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_TET_COORDS_CONTRACT,
+        &coords,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET), ("spatial", SPATIAL)],
+    );
+    assert_shape_contract!(
+        NEDELEC_TET_QUAD_VEC3_CONTRACT,
+        &j_quad,
+        &[
+            ("n_elem", n_elem),
+            ("nodes_per_tet", NODES_PER_TET),
+            ("spatial", SPATIAL),
+        ],
     );
 
     let (g_mat, det) = cofactor_rows_and_det(coords);
