@@ -679,3 +679,31 @@ fn assembly_preserves_autodiff_smoke() {
     assert_eq!(finite, dnodes_vec.len(), "all gradients must be finite");
     assert!(nonzero > 0, "gradient should be non-zero somewhere");
 }
+
+// --- Bunsen shape-contract firing test (Epic #355, Phase 2) ------------------
+//
+// Proves the named `NEDELEC_CONNECTIVITY_CONTRACT` in `assembly/nedelec.rs` is
+// genuinely wired: a mis-shaped connectivity tensor must trip the contract and
+// panic with a Bunsen diagnostic instead of silently ignoring the column count
+// (as the former bare `let [n_elem, _] = tets.dims();` did).
+#[test]
+#[should_panic(expected = "Shape Error")]
+fn assemble_global_nedelec_wrong_arity_fires_contract() {
+    let dev = device();
+    // Valid node table [n_nodes=4, spatial=3].
+    let nodes = Tensor::<B, 2>::from_data(
+        TensorData::new(
+            vec![
+                0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+            [4, 3],
+        ),
+        &dev,
+    );
+    // Deliberately mis-shaped connectivity: 3 columns where the Nédélec
+    // contract demands `nodes_per_tet = 4`.
+    let bad_tets = Tensor::<B, 2, Int>::from_data(TensorData::new(vec![0i32, 1, 2], [1, 3]), &dev);
+    let tet_edge_idx = vec![[0u32, 1, 2, 3, 4, 5]];
+    let tet_edge_sign = vec![[1i8; 6]];
+    let _ = assemble_global_nedelec::<B>(nodes, bad_tets, &tet_edge_idx, &tet_edge_sign, 6);
+}

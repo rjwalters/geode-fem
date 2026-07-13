@@ -18,7 +18,7 @@ use burn::tensor::ElementConversion;
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
 
-use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
+use geode_core::assembly::p1::{assemble_global_p1, gather_tet_coords, upload_mesh};
 use geode_core::mesh::cube_tet_mesh;
 use geode_core::testing::TestBackend;
 
@@ -309,4 +309,35 @@ fn assembly_preserves_autodiff() {
         rel_err < 0.05,
         "FD gradient {fd_grad} vs autodiff {analytic_grad}: rel err {rel_err}"
     );
+}
+
+// --- Bunsen shape-contract firing tests (Epic #355, Phase 2) -----------------
+//
+// These prove the named `shape_contract!`s introduced in `assembly/p1.rs` are
+// genuinely wired (not no-ops): a deliberately mis-shaped connectivity tensor
+// must trip the contract and panic with a Bunsen diagnostic, rather than
+// silently mis-reshaping the gather downstream.
+
+/// `gather_tet_coords` binds the connectivity's `nodes_per_tet` axis to 4 via
+/// `P1_CONNECTIVITY_CONTRACT`. A `[n_elem, 3]` tensor (triangle-arity
+/// connectivity) must fire the contract, not produce a wrongly-shaped gather.
+#[test]
+#[should_panic(expected = "Shape Error")]
+fn gather_tet_coords_wrong_arity_fires_contract() {
+    let dev = device();
+    // A valid node table [n_nodes=4, spatial=3] so the failure is unambiguously
+    // the connectivity arity, not the node coordinate dimension.
+    let nodes = Tensor::<B, 2>::from_data(
+        TensorData::new(
+            vec![
+                0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+            [4, 3],
+        ),
+        &dev,
+    );
+    // Deliberately mis-shaped connectivity: 3 columns (a triangle) where the P1
+    // contract demands `nodes_per_tet = 4`.
+    let bad_tets = Tensor::<B, 2, Int>::from_data(TensorData::new(vec![0i32, 1, 2], [1, 3]), &dev);
+    let _ = gather_tet_coords(nodes, bad_tets);
 }

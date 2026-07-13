@@ -28,7 +28,10 @@
 
 use std::collections::BTreeSet;
 
-use bunsen::contracts::{assert_shape_contract, unpack_shape_contract};
+use bunsen::contracts::{
+    assert_shape_contract, assert_shape_contract_periodically, define_shape_contract,
+    unpack_shape_contract,
+};
 use burn::tensor::ElementConversion;
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
@@ -45,6 +48,34 @@ use crate::mesh::TetMesh;
 /// arity is checked machine-side rather than left implicit in a `4`
 /// literal scattered across reshapes.
 const NODES_PER_TET: usize = 4;
+
+// ---------------------------------------------------------------------------
+// Named static shape contracts (Bunsen, Epic #355 Phase 2)
+// ---------------------------------------------------------------------------
+//
+// These `static` contracts encode the recurring FEM tensor shapes of the P1
+// assembly path once, so the same machine-checked invariant is reused at every
+// call site instead of being re-spelled as a bare `.dims()` destructure. Each
+// carries the FEM math notation it enforces. See PR #466's `gather_tet_coords`
+// for the inline (ad-hoc) form; this module is the first to name them.
+
+// P1 connectivity table `T \in \mathbb{Z}^{n_elem × 4}`: one row per
+// tetrahedron, each row the 4 global node indices of the element's vertices.
+// The `nodes_per_tet` axis is bound to `NODES_PER_TET` (`= 4`) at the call
+// site, so a mesh whose connectivity was built with the wrong arity panics
+// with a named-axis diagnostic instead of silently mis-reshaping downstream.
+define_shape_contract!(P1_CONNECTIVITY_CONTRACT, ["n_elem", "nodes_per_tet"]);
+
+// Batched P1 element-local matrix stack
+// `M^{local}, K^{local} \in \mathbb{R}^{n_elem × 4 × 4}`: one `4×4` dense
+// element system per tetrahedron (P1 has 4 nodal DOFs, so the local pencil is
+// `nodes_per_tet × nodes_per_tet`). Checked periodically in the assembly hot
+// path before the `[n_elem*16]` flatten, so a kernel that returned the wrong
+// local arity is caught with a named-axis diagnostic rather than a bad reshape.
+define_shape_contract!(
+    P1_LOCAL_MATRIX_CONTRACT,
+    ["n_elem", "nodes_per_tet", "nodes_per_tet"]
+);
 
 /// Assembled global linear system in dense Burn-tensor form.
 #[derive(Debug, Clone)]
@@ -156,9 +187,10 @@ pub fn upload_mesh<B: Backend>(
 /// gather downstream.
 pub fn gather_tet_coords<B: Backend>(nodes: Tensor<B, 2>, tets: Tensor<B, 2, Int>) -> Tensor<B, 3> {
     // Validate the connectivity `[n_elem, nodes_per_tet=4]` and extract
-    // `n_elem`; validate the node table carries 3 spatial coordinates.
+    // `n_elem` via the shared named contract; validate the node table carries
+    // 3 spatial coordinates.
     let [n_elem] = unpack_shape_contract!(
-        ["n_elem", "nodes_per_tet"],
+        P1_CONNECTIVITY_CONTRACT,
         &tets,
         &["n_elem"],
         &[("nodes_per_tet", NODES_PER_TET)],
@@ -194,7 +226,14 @@ pub fn assemble_global_p1<B: Backend>(
     n_dof: usize,
 ) -> GlobalSystem<B> {
     let device = nodes.device();
-    let [n_elem, _] = tets.dims();
+    // Connectivity `T \in \mathbb{Z}^{n_elem × 4}` — extract `n_elem` and
+    // check the 4-vertex arity through the shared named contract.
+    let [n_elem] = unpack_shape_contract!(
+        P1_CONNECTIVITY_CONTRACT,
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
 
     // 1. Pull the connectivity host-side once. We use it both to build
     //    the sparsity pattern and to construct the scatter indices. The
@@ -218,6 +257,15 @@ pub fn assemble_global_p1<B: Backend>(
     let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 16);
     let n_dof_i32 = n_dof as i32;
     for tet in &tets_host {
+        // Per-element hot loop: guard the local-matrix stack
+        // `[n_elem, 4, 4]` under exponential backoff (`assert_shape_contract_
+        // periodically!`) so the O(n_elem) iteration pays a full contract
+        // check only on the first handful of elements, not every element.
+        assert_shape_contract_periodically!(
+            P1_LOCAL_MATRIX_CONTRACT,
+            &p1.k_local,
+            &[("nodes_per_tet", NODES_PER_TET)],
+        );
         for i in 0..4 {
             for j in 0..4 {
                 linear_idx.push(tet[i] as i32 * n_dof_i32 + tet[j] as i32);
@@ -254,7 +302,15 @@ pub fn assemble_global_p1<B: Backend>(
 /// of `[u32; 4]` rows. Used both for index construction and for the
 /// sparsity pattern.
 fn tets_to_cpu<B: Backend>(tets: &Tensor<B, 2, Int>) -> Vec<[u32; 4]> {
-    let [n_elem, _] = tets.dims();
+    // Connectivity `T \in \mathbb{Z}^{n_elem × 4}` — reuse the shared named
+    // contract to extract `n_elem` and check the 4-vertex arity before the
+    // fixed-stride `raw[e*4 + k]` readback below relies on it.
+    let [n_elem] = unpack_shape_contract!(
+        P1_CONNECTIVITY_CONTRACT,
+        tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
     let raw: Vec<i32> = tets.clone().into_data().to_vec().expect("readback i32");
     (0..n_elem)
         .map(|e| {
