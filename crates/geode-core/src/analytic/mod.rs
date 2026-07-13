@@ -16,10 +16,13 @@
 //!   slotless surface-PM annulus (Zhu & Howe multipole; Epic #448 P2).
 //! - [`formulation_audit`] — read-only grad–div diagnostics quantifying the
 //!   ε-coupling term the reduced transverse-E_t modal pencil drops (Epic #339).
+//! - [`mixed_pencil`] — the full-vector mixed E_t–E_z Nédélec–Lagrange
+//!   dielectric modal pencil that restores that coupling (Epic #339, #473).
 
 pub mod fiber;
 pub mod formulation_audit;
 pub mod mie;
+pub mod mixed_pencil;
 pub mod patch;
 pub mod slotless_pm;
 pub mod spiral;
