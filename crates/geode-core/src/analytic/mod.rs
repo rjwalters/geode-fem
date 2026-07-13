@@ -12,6 +12,8 @@
 //!   and analytic cutoff references.
 //! - [`spiral`] — square-spiral inductance (Mohan / modified-Wheeler).
 //! - [`patch`] — rectangular patch-antenna cavity-model resonances.
+//! - [`slotless_pm`] — exact air-gap field of a radially-magnetized
+//!   slotless surface-PM annulus (Zhu & Howe multipole; Epic #448 P2).
 //! - [`formulation_audit`] — read-only grad–div diagnostics quantifying the
 //!   ε-coupling term the reduced transverse-E_t modal pencil drops (Epic #339).
 
@@ -19,5 +21,6 @@ pub mod fiber;
 pub mod formulation_audit;
 pub mod mie;
 pub mod patch;
+pub mod slotless_pm;
 pub mod spiral;
 pub mod waveguide;
