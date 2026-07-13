@@ -117,7 +117,7 @@ vector for the θ_r = 0 cross-section. Render the ParaView machine-slice visual
 
 ```sh
 pvbatch tools/viz/geode_viz/scripts/pvbatch_render.py \
-  artifacts/viz/motor/motor_field.vtu --slice z=0 --scalar A_z --out motor_field_slice.png
+  artifacts/viz/motor/motor_field.vtu --slice z=0 --field A_z --out motor_field_slice.png
 ```
 
 ### 3D field & radiation pattern (via ParaView)
