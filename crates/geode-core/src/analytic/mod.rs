@@ -8,6 +8,9 @@
 //!   dielectric sphere (PEC-cavity, open-space, and Bohren & Huffman).
 //! - [`fiber`] — LP-mode effective indices for a step-index optical
 //!   fiber (Bessel-function dispersion relation).
+//! - [`dispersion`] — Malitson fused-silica Sellmeier `n(λ)`, the Δ-shifted
+//!   Ge-doped core, and the FD dispersion `D(λ)` / ZDW machinery + analytic
+//!   oracle twin sweep (Epic #303 Phase 3, #479).
 //! - [`waveguide`] — vector and scalar waveguide mode solvers, meshes,
 //!   and analytic cutoff references.
 //! - [`spiral`] — square-spiral inductance (Mohan / modified-Wheeler).
@@ -19,6 +22,7 @@
 //! - [`mixed_pencil`] — the full-vector mixed E_t–E_z Nédélec–Lagrange
 //!   dielectric modal pencil that restores that coupling (Epic #339, #473).
 
+pub mod dispersion;
 pub mod fiber;
 pub mod formulation_audit;
 pub mod mie;
