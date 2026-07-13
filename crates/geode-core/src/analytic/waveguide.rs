@@ -904,6 +904,145 @@ pub fn disk_tri_mesh_graded_checked(
     Ok((mesh, tags))
 }
 
+/// Multi-band concentric-ring disk mesh: generalizes [`disk_tri_mesh`] /
+/// [`disk_tri_mesh_pml`] from two/three fixed material regions to an
+/// **arbitrary number of concentric annular bands** for a machine
+/// cross-section (Epic #448 Phase 2: back-iron / magnet / air-gap /
+/// stator-iron, `μ_r ≫ 1` iron abutting an `μ_r = 1` air gap).
+///
+/// # Geometry
+///
+/// `radii = [r₀, r₁, …, r_B]` with `r₀ == 0` (the center) and strictly
+/// increasing gives `B` bands, where band `k` occupies the annulus
+/// `[r_k, r_{k+1})` (band `0` is the central disk `[0, r₁)`). Every
+/// band boundary `r_k` is a fixed ring radius, so the mesh **conforms to
+/// every material interface** (no triangle straddles a band boundary) and
+/// the centroid-radius band test is unambiguous — exactly the conformity
+/// guarantee [`disk_tri_mesh`] gives for the single core/cladding split,
+/// extended to `B` bands.
+///
+/// `n_radial_per_band[k]` is the number of radial subdivisions inside band
+/// `k` (each `≥ 1`); a thin band (e.g. a ~1 %-radius air gap) can be given
+/// its own radial count independent of the thick bands. `gradings[k]`
+/// distributes those rings within band `k` per [`RadialGrading`]. The
+/// central band (`k = 0`) grades toward its outer edge; every outer band
+/// grades toward its **inner** edge, matching the two/three-region meshers.
+///
+/// # Returns
+///
+/// `(mesh, band_tags)` where `band_tags[t] == k` (the band index, `0..B`)
+/// for the band containing triangle `t`'s centroid. Feed `band_tags` into
+/// [`crate::assembly::magnetostatic::build_nu_r`] with a per-band `μ_r`
+/// table to get the per-triangle reluctivity `ν = 1/μ_r` the scalar
+/// magnetostatic assembler consumes.
+///
+/// # Panics
+///
+/// Panics unless `radii.len() ≥ 3` (i.e. `≥ 2` bands; the machine use case
+/// wants `≥ 4`), `radii[0] == 0`, `radii` is strictly increasing and finite,
+/// `n_radial_per_band.len() == radii.len() − 1`, every entry is `≥ 1`,
+/// `gradings.len() == radii.len() − 1`, and `n_angular ≥ 3`.
+pub fn disk_tri_mesh_bands(
+    radii: &[f64],
+    n_angular: usize,
+    n_radial_per_band: &[usize],
+    gradings: &[RadialGrading],
+) -> (TriMesh, Vec<i32>) {
+    let n_bands = radii.len().saturating_sub(1);
+    assert!(
+        radii.len() >= 3,
+        "disk_tri_mesh_bands requires ≥ 3 radii (≥ 2 bands); got {}",
+        radii.len()
+    );
+    assert!(
+        radii[0] == 0.0,
+        "disk_tri_mesh_bands requires radii[0] == 0 (center); got {}",
+        radii[0]
+    );
+    for w in radii.windows(2) {
+        assert!(
+            w[0].is_finite() && w[1].is_finite() && w[0] < w[1],
+            "disk_tri_mesh_bands requires strictly increasing finite radii; got {w:?}"
+        );
+    }
+    assert_eq!(
+        n_radial_per_band.len(),
+        n_bands,
+        "disk_tri_mesh_bands requires n_radial_per_band.len() ({}) == n_bands ({n_bands})",
+        n_radial_per_band.len()
+    );
+    assert!(
+        n_radial_per_band.iter().all(|&n| n >= 1),
+        "disk_tri_mesh_bands requires every n_radial_per_band entry ≥ 1"
+    );
+    assert_eq!(
+        gradings.len(),
+        n_bands,
+        "disk_tri_mesh_bands requires gradings.len() ({}) == n_bands ({n_bands})",
+        gradings.len()
+    );
+    assert!(n_angular >= 3, "disk_tri_mesh_bands requires n_angular ≥ 3");
+
+    // Assemble the ring radii band-by-band. The central band uses the core
+    // push (grades toward its outer edge); every outer band grades toward its
+    // inner edge, exactly like the two/three-region meshers.
+    let total_rings: usize = n_radial_per_band.iter().sum();
+    let mut ring_r = Vec::with_capacity(total_rings + 1);
+    ring_r.push(0.0);
+    push_core_band(&mut ring_r, radii[1], n_radial_per_band[0], gradings[0]);
+    for k in 1..n_bands {
+        push_outer_band(
+            &mut ring_r,
+            radii[k],
+            radii[k + 1],
+            n_radial_per_band[k],
+            gradings[k],
+            InterfaceEdge::Inner,
+        );
+    }
+    debug_assert_eq!(ring_r.len(), total_rings + 1);
+
+    // Tag each triangle by which [r_k, r_{k+1}) band its centroid falls in.
+    // The upper band caps at radii[n_bands] (== the outer radius); a centroid
+    // exactly on the outer radius (it never is — centroids sit strictly
+    // inside) would map to the last band by the `< r_{k+1}` fallthrough.
+    let radii_owned = radii.to_vec();
+    build_disk_mesh(&ring_r, n_angular, &move |r| {
+        for k in 0..n_bands {
+            if r < radii_owned[k + 1] {
+                return k as i32;
+            }
+        }
+        (n_bands - 1) as i32
+    })
+}
+
+/// [`disk_tri_mesh_bands`] with a **mesh-quality guard**: if the worst
+/// triangle aspect ratio exceeds `aspect_bound` (a sane default is
+/// [`ASPECT_RATIO_SLIVER_BOUND`]), the configuration is rejected with an
+/// `Err` describing the offending aspect ratio, rather than silently
+/// returning a sliver-laden mesh. A thin (~1 %-radius) air-gap band is the
+/// prime sliver risk, so this checked variant is the one the machine
+/// cross-section meshing should use.
+pub fn disk_tri_mesh_bands_checked(
+    radii: &[f64],
+    n_angular: usize,
+    n_radial_per_band: &[usize],
+    gradings: &[RadialGrading],
+    aspect_bound: f64,
+) -> Result<(TriMesh, Vec<i32>), String> {
+    let (mesh, tags) = disk_tri_mesh_bands(radii, n_angular, n_radial_per_band, gradings);
+    let worst = worst_aspect_ratio(&mesh);
+    if worst > aspect_bound {
+        return Err(format!(
+            "disk_tri_mesh_bands_checked: worst aspect ratio {worst:.3} exceeds bound \
+             {aspect_bound:.3} — thin band under-resolved or grading too strong \
+             (radii={radii:?}, n_radial_per_band={n_radial_per_band:?})"
+        ));
+    }
+    Ok((mesh, tags))
+}
+
 /// Shared concentric-ring triangulation from a precomputed strictly
 /// increasing `ring_r` (with `ring_r[0] == 0` the center). Builds the central
 /// fan + annular quads exactly as the original meshers and tags each triangle
