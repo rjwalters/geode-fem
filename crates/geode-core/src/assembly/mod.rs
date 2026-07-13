@@ -4,6 +4,11 @@
 //! the mesh connectivity into global linear systems ready for the
 //! eigen / driven solvers:
 //!
+//! - [`magnetostatic`]: 2-D **scalar** magnetostatic Poisson assembly on a
+//!   [`TriMesh`](crate::analytic::waveguide::TriMesh) — the node-indexed
+//!   ν-weighted stiffness, consistent-mass current RHS, symmetric Dirichlet
+//!   elimination, and piecewise-constant `B`-field recovery for the
+//!   straight-wire oracle (Epic #448 Phase 1).
 //! - [`p1`]: global P1 (nodal) stiffness/mass assembly, the
 //!   [`SparsityPattern`](p1::SparsityPattern) side-output, and the
 //!   mesh-upload helpers.
@@ -21,6 +26,7 @@
 //!   the mesh's exterior triangle faces.
 
 pub mod fe;
+pub mod magnetostatic;
 pub mod nedelec;
 pub mod p1;
 pub mod sparse;
