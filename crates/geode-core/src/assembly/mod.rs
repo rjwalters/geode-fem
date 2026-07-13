@@ -24,6 +24,10 @@
 //!   optional Dirichlet reduction.
 //! - [`surface`]: Silver–Müller and surface-mass boundary assembly on
 //!   the mesh's exterior triangle faces.
+//! - [`torque`]: electromagnetic torque extraction from a per-triangle
+//!   air-gap flux density — the Maxwell stress-tensor line integral and
+//!   Arkkio's volume-averaged variant (Epic #448 Phase 3), with the shared
+//!   contour/triangle-location sampler they build on.
 
 pub mod fe;
 pub mod magnetostatic;
@@ -31,3 +35,4 @@ pub mod nedelec;
 pub mod p1;
 pub mod sparse;
 pub mod surface;
+pub mod torque;
