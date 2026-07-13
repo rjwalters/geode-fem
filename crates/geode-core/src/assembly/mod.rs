@@ -4,6 +4,13 @@
 //! the mesh connectivity into global linear systems ready for the
 //! eigen / driven solvers:
 //!
+//! - [`electrostatic`]: 3-D **scalar** electrostatic Poisson assembly on a
+//!   [`TetMesh`](crate::mesh::TetMesh) — host-side `f64` per-element
+//!   ε-weighted stiffness, multi-conductor Dirichlet electrode BCs with the
+//!   full unconstrained `K` retained, the N×N Maxwell capacitance-matrix
+//!   extraction (energy method + surface-flux cross-check), `E = −∇φ`
+//!   recovery, and field-energy postprocessing (Epic #475, Palace
+//!   `Electrostatic` parity).
 //! - [`magnetostatic`]: 2-D **scalar** magnetostatic Poisson assembly on a
 //!   [`TriMesh`](crate::analytic::waveguide::TriMesh) — the node-indexed
 //!   ν-weighted stiffness, consistent-mass current RHS, symmetric Dirichlet
@@ -29,6 +36,7 @@
 //!   Arkkio's volume-averaged variant (Epic #448 Phase 3), with the shared
 //!   contour/triangle-location sampler they build on.
 
+pub mod electrostatic;
 pub mod fe;
 pub mod magnetostatic;
 pub mod nedelec;
