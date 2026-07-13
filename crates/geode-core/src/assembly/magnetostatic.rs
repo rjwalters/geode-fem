@@ -266,6 +266,201 @@ pub fn assemble_magnetostatic(
     })
 }
 
+/// Assemble the **permanent-magnet magnetization RHS**
+/// `b_p = ∫ (μ₀ M) · (∇φ_p)^⊥` for the scalar magnetostatic operator, where
+/// `(∇φ_p)^⊥ = (∂φ_p/∂y, −∂φ_p/∂x)`.
+///
+/// # Physics
+///
+/// A permanent magnet enters Ampère's law `∇×H = J_free` through its
+/// constitutive law `H = B/(μ₀ μ_r) − M` (`M` the magnetization, A/m). In
+/// the axial-`A` reduction this adds an **equivalent bound current**
+/// `(∇×M)_z` to the free current:
+///
+/// ```text
+///   −∇·( (1/(μ₀ μ_r)) ∇A_z ) = J_z + (∇×M)_z .
+/// ```
+///
+/// This module carries the dimensionless reluctivity `ν = 1/μ_r` on the
+/// stiffness and the `μ₀` factor on the RHS (matching
+/// [`assemble_magnetostatic`]'s `μ₀ J_z` convention), so multiplying
+/// through by `μ₀` the magnetization source is `μ₀ (∇×M)_z`. Integrating
+/// by parts (test function `φ_p` vanishing on the Dirichlet boundary)
+/// gives the weak-form source
+///
+/// ```text
+///   b_p = ∫ μ₀ (∇×M)_z φ_p dA = ∫ (μ₀ M) · (∂φ_p/∂y, −∂φ_p/∂x) dA ,
+/// ```
+///
+/// which **automatically subsumes both** the bulk bound current
+/// `(∇×M)_z` and the surface bound current `K = M × n̂` on the magnet
+/// faces — no separate sheet/line-current discretization, and no thin-band
+/// volumetric approximation. This is the exact P1 weak-form magnetization
+/// source (curator's option 1, expressed as a volumetric magnetization
+/// integral rather than an interface line integral). The recoil
+/// permeability `μ_rec` enters only through `ν = 1/μ_rec` on the magnet
+/// band's stiffness, **not** through this source.
+///
+/// # Arguments
+///
+/// * `mesh` — the cross-section mesh (CCW triangles).
+/// * `m` — per-triangle **physical magnetization** `M` in Cartesian
+///   components `[M_x, M_y]` (A/m), length `mesh.n_tris()`. Zero outside
+///   the magnet band. For a radially-magnetized band build it with
+///   [`radial_magnetization_source`].
+///
+/// The result is a full-length `[n_nodes]` nodal RHS to be **added** to
+/// any free-current RHS before Dirichlet reduction; see
+/// [`assemble_magnetostatic_pm`] for the assembled-system convenience.
+///
+/// # Errors
+///
+/// [`MagnetostaticError::ShapeMismatch`] if `m.len() != mesh.n_tris()`.
+pub fn assemble_magnetization_rhs(
+    mesh: &TriMesh,
+    m: &[[f64; 2]],
+) -> Result<Vec<f64>, MagnetostaticError> {
+    let n_tris = mesh.n_tris();
+    if m.len() != n_tris {
+        return Err(MagnetostaticError::ShapeMismatch(format!(
+            "m length {} != triangle count {n_tris}",
+            m.len()
+        )));
+    }
+    let mu0 = crate::analytic::slotless_pm::MU_0;
+    let mut b_full = vec![0.0_f64; mesh.n_nodes()];
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        let [mx, my] = m[t];
+        if mx == 0.0 && my == 0.0 {
+            continue;
+        }
+        let coords = [
+            mesh.nodes[tri[0] as usize],
+            mesh.nodes[tri[1] as usize],
+            mesh.nodes[tri[2] as usize],
+        ];
+        let (grad, _gram, signed_area, _abs) = tri_bary_grads(&coords);
+        let (mx0, my0) = (mu0 * mx, mu0 * my);
+        for p in 0..3 {
+            // ∇φ_p is constant on the element; ∫_T (∇φ_p)^⊥ dA = area·(g_y,−g_x).
+            let perp = [grad[p][1], -grad[p][0]];
+            b_full[tri[p] as usize] += signed_area * (mx0 * perp[0] + my0 * perp[1]);
+        }
+    }
+    Ok(b_full)
+}
+
+/// Build the per-triangle physical magnetization `M` for a
+/// **radially-magnetized surface-PM band** with sinusoidal amplitude
+/// `M_r(θ) = M0 cos(p θ)` (the slotless surface-PM magnetization matched by
+/// [`crate::analytic::slotless_pm::SlotlessPm`]).
+///
+/// `M` is evaluated at each triangle **centroid** and returned in Cartesian
+/// components `[M_x, M_y] = M_r (cos θ, sin θ)` for triangles whose
+/// `band_tags[t] == magnet_tag`, and `[0, 0]` elsewhere. Feed the result to
+/// [`assemble_magnetization_rhs`] (which applies the `μ₀` factor). The
+/// recoil permeability `μ_rec` does **not** scale this source — it enters
+/// only through the magnet band's reluctivity `ν = 1/μ_rec` in
+/// [`build_nu_r`].
+///
+/// The remanence-vs-magnetization duality: passing `M0 = B_rem / μ₀` (with
+/// `B_rem` the remanent flux density in Tesla) reproduces the same field —
+/// see [`radial_magnetization_source_from_remanence`], the `Hc`/remanence
+/// cross-check parameterization.
+///
+/// # Panics
+///
+/// Panics if `band_tags.len() != mesh.n_tris()`.
+pub fn radial_magnetization_source(
+    mesh: &TriMesh,
+    band_tags: &[i32],
+    magnet_tag: i32,
+    m0: f64,
+    pole_pairs: u32,
+) -> Vec<[f64; 2]> {
+    assert_eq!(
+        band_tags.len(),
+        mesh.n_tris(),
+        "band_tags length {} != triangle count {}",
+        band_tags.len(),
+        mesh.n_tris()
+    );
+    let p = pole_pairs as f64;
+    mesh.tris
+        .iter()
+        .enumerate()
+        .map(|(t, tri)| {
+            if band_tags[t] != magnet_tag {
+                return [0.0, 0.0];
+            }
+            let cx = (mesh.nodes[tri[0] as usize][0]
+                + mesh.nodes[tri[1] as usize][0]
+                + mesh.nodes[tri[2] as usize][0])
+                / 3.0;
+            let cy = (mesh.nodes[tri[0] as usize][1]
+                + mesh.nodes[tri[1] as usize][1]
+                + mesh.nodes[tri[2] as usize][1])
+                / 3.0;
+            let theta = cy.atan2(cx);
+            let m_r = m0 * (p * theta).cos();
+            [m_r * theta.cos(), m_r * theta.sin()]
+        })
+        .collect()
+}
+
+/// [`radial_magnetization_source`] parameterized by **remanent flux
+/// density** `B_rem` (Tesla) instead of magnetization `M0` (A/m) — the
+/// `Hc`/remanence dual formulation.
+///
+/// Physically `B_rem = μ₀ M0`, so this simply forwards `M0 = B_rem / μ₀`.
+/// It is **not** a second production path: it exists so a test can drive
+/// the identical solver two ways (magnetization-amplitude vs remanence)
+/// and confirm they agree to machine precision — the Epic #448 PM-pitfall
+/// cross-check that the two source parameterizations are the same operator.
+pub fn radial_magnetization_source_from_remanence(
+    mesh: &TriMesh,
+    band_tags: &[i32],
+    magnet_tag: i32,
+    b_rem: f64,
+    pole_pairs: u32,
+) -> Vec<[f64; 2]> {
+    let m0 = b_rem / crate::analytic::slotless_pm::MU_0;
+    radial_magnetization_source(mesh, band_tags, magnet_tag, m0, pole_pairs)
+}
+
+/// Assemble the scalar magnetostatic system driven by a **permanent-magnet
+/// magnetization source** (plus any free current `j_z`), with the boundary
+/// Dirichlet condition eliminated.
+///
+/// This is [`assemble_magnetostatic`] with the magnetization RHS
+/// `b_p += ∫ M_eff·(∇φ_p)^⊥` (from [`assemble_magnetization_rhs`]) folded
+/// into the free-current RHS before Dirichlet reduction. Pass
+/// `j_z = &[0.0; n_tris]` for a pure-PM problem.
+///
+/// # Errors
+///
+/// Propagates [`MagnetostaticError`] from either the stiffness assembly or
+/// the magnetization-RHS shape check.
+pub fn assemble_magnetostatic_pm(
+    mesh: &TriMesh,
+    nu: &[f64],
+    j_z: &[f64],
+    m_eff: &[[f64; 2]],
+    dirichlet: &[bool],
+) -> Result<MagnetostaticSystem, MagnetostaticError> {
+    // Assemble the current-driven system first (handles all shape checks and
+    // the Dirichlet reduction), then re-fold the magnetization RHS through the
+    // same free-node renumbering.
+    let mut sys = assemble_magnetostatic(mesh, nu, j_z, dirichlet)?;
+    let b_mag_full = assemble_magnetization_rhs(mesh, m_eff)?;
+    for (g, slot) in sys.free_of_global.iter().enumerate() {
+        if let Some(fi) = slot {
+            sys.b[*fi] += b_mag_full[g];
+        }
+    }
+    Ok(sys)
+}
+
 /// Build the per-triangle reluctivity vector `ν = 1/μ_r` from band tags and
 /// a per-band relative-permeability table, for a piecewise-`μ` cross-section.
 ///
