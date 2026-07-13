@@ -266,6 +266,47 @@ pub fn assemble_magnetostatic(
     })
 }
 
+/// Build the per-triangle reluctivity vector `ν = 1/μ_r` from band tags and
+/// a per-band relative-permeability table, for a piecewise-`μ` cross-section.
+///
+/// This is the magnetostatic dual of the modal solver's
+/// [`crate::assembly::nedelec::build_epsilon_r`] (which maps region tags to
+/// per-element `ε_r`): here `tags[t]` — the band index produced by
+/// [`crate::analytic::waveguide::disk_tri_mesh_bands`] — selects a relative
+/// permeability `μ_r = mu_r_per_tag[tags[t]]`, and the returned per-triangle
+/// weight is the reluctivity `ν = 1/μ_r` that
+/// [`assemble_magnetostatic`]'s `nu` argument expects. The output length
+/// equals `tags.len()` (= the triangle count), so it plugs straight into the
+/// assembler with no shape juggling.
+///
+/// Feeding `ν = 1/μ_r` (not `μ_r`) is deliberate: the scalar magnetostatic
+/// operator is `−∇·(ν∇A_z) = J_z`, so high-permeability iron (`μ_r ≫ 1`)
+/// contributes a *small* reluctivity `ν ≪ 1` and pulls flux, while air
+/// (`μ_r = 1`) contributes `ν = 1`.
+///
+/// # Panics
+///
+/// Panics if any tag is negative or indexes past `mu_r_per_tag`, or if any
+/// referenced `μ_r` is not finite and strictly positive (a non-positive or
+/// infinite `μ_r` yields a non-SPD / degenerate reluctivity).
+pub fn build_nu_r(tags: &[i32], mu_r_per_tag: &[f64]) -> Vec<f64> {
+    tags.iter()
+        .map(|&t| {
+            assert!(
+                t >= 0 && (t as usize) < mu_r_per_tag.len(),
+                "build_nu_r: tag {t} out of range for mu_r_per_tag of length {}",
+                mu_r_per_tag.len()
+            );
+            let mu_r = mu_r_per_tag[t as usize];
+            assert!(
+                mu_r.is_finite() && mu_r > 0.0,
+                "build_nu_r: mu_r_per_tag[{t}] = {mu_r} must be finite and > 0"
+            );
+            1.0 / mu_r
+        })
+        .collect()
+}
+
 /// Node-adjacency sparsity pattern: every `(node_i, node_j)` pair that
 /// shares a triangle, duplicates collapsed. Symmetric by construction.
 fn sparsity_from_tris(tris: &[[u32; 3]]) -> SparsityPattern {
