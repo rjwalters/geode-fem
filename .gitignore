@@ -73,6 +73,8 @@ build/
 dist/
 .loom/spawn-loop-state.json
 .loom/worktrees/
+# Claude Code agent-isolation worktrees (local session state, never committed)
+.claude/worktrees/
 .loom/state.json
 .loom/*.log
 .loom/*.sock
