@@ -4,8 +4,8 @@ name: cube-cavity-tolerance
 # Burn↔NumPy cube-cavity sub-stage comparison.
 #
 # This workflow runs the `--ignored` `cube_cavity_numpy_reference` test
-# across three runner platforms (`ubuntu-latest`, `macos-latest` arm64,
-# `macos-13` Intel x86_64) so the observed `m_int_diag` / `k_int_diag` /
+# across two runner platforms (`ubuntu-latest`, `macos-latest` arm64)
+# so the observed `m_int_diag` / `k_int_diag` /
 # Frobenius drift surfaces in the CI log under `--nocapture`. The
 # `print_substage_diff` helper in the test emits machine-readable
 # `CUBE_CAVITY_SUBSTAGE_DIFF` lines per field per platform, which the
@@ -28,20 +28,18 @@ name: cube-cavity-tolerance
 #     toolchain bump).
 #
 # Runner-starvation note (issue #354):
-#   The `macos-13` (Intel x86_64) leg used to starve in the GitHub
-#   runner queue for the full 24h Actions ceiling and then get
-#   force-cancelled (no job set `timeout-minutes`). Two mitigations are
-#   now in place, both in the job below:
-#     1. `timeout-minutes: 30` on the job — this cap covers QUEUE-WAIT as
-#        well as execution, so a starved leg fails in ~30 min instead of
-#        ~24h.
-#     2. `continue-on-error` for the `macos-13` leg only (via the matrix
-#        `experimental` flag) — the scarce/deprecating Intel runner is
-#        reported but no longer blocks the check or its healthy siblings.
-#   `fail-fast: false` is preserved so every platform that *does* get a
-#   runner still contributes its diff line. To stop measuring Intel
-#   entirely, delete `macos-13` from the matrix `os` list and its
-#   `include`/`exclude` entries.
+#   This workflow used to carry a third `macos-13` (Intel x86_64) leg.
+#   GitHub-hosted Intel macOS runners are deprecated and the leg never
+#   got a runner: it sat "waiting for a runner" for the full 24h Actions
+#   ceiling and was force-cancelled, marking every run of this workflow
+#   cancelled. The #356 mitigation (`timeout-minutes: 30` +
+#   `continue-on-error`) did NOT help, because `timeout-minutes` only
+#   starts counting once a job is assigned a runner — queue-wait is not
+#   covered (verified on runs 28423540386 / 28401340707, both 24h0m
+#   cancelled with the mitigation in place). The Intel leg was therefore
+#   removed entirely; its historical numbers remain in
+#   `baseline.schema.md`. If Intel coverage is ever needed again, use a
+#   self-hosted x86_64 runner rather than the retired GitHub pool.
 
 on:
   push:
@@ -75,37 +73,13 @@ jobs:
       # this workflow is to *see* the worst-case across the matrix.
       fail-fast: false
       matrix:
-        # `macos-13` is the only Intel (x86_64) leg. GitHub-hosted Intel
-        # macOS runners are scarce/deprecating and this leg chronically
-        # starved in the runner queue — runs 26903012345 / 26901540839
-        # both sat 24h0m0s "awaiting a runner" before being force-cancelled
-        # at the GitHub Actions ceiling (issue #354). Resolution: keep the
-        # Intel measurement available but make it non-blocking and
-        # bounded. It is `continue-on-error` (the `experimental` flag
-        # below) so a starved/slow Intel leg never fails the check or
-        # blocks its healthy siblings, and `timeout-minutes` (see below)
-        # now also covers queue-wait, so the worst case is a ~30-min
-        # bounded failure instead of a 24h orphan. Drop `macos-13` from
-        # this list entirely if Intel coverage is no longer wanted.
-        os: [ubuntu-latest, macos-latest, macos-13]
-        experimental: [false]
-        include:
-          - os: macos-13
-            experimental: true
-        exclude:
-          - os: macos-13
-            experimental: false
+        # Intel x86_64 (`macos-13`) is intentionally absent — see the
+        # runner-starvation note at the top of this file.
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    # `timeout-minutes` bounds BOTH queue-wait and execution. The two
-    # healthy platforms finish in ~4-5 min; 30 min leaves ample headroom
-    # for a cold cache while guaranteeing no leg can orphan for the 24h
-    # GitHub ceiling again (issue #354).
+    # Both platforms finish in ~4-5 min; 30 min leaves ample headroom
+    # for a cold cache.
     timeout-minutes: 30
-    # Non-blocking for the scarce Intel runner: a starved or timed-out
-    # `macos-13` leg is reported but does not fail the workflow. The two
-    # first-party platforms (ubuntu-latest, macos-latest arm64) remain
-    # hard-required.
-    continue-on-error: ${{ matrix.experimental }}
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
