@@ -1331,6 +1331,32 @@ pub fn disk_boundary_nodes(mesh: &TriMesh, outer_radius: f64) -> Vec<bool> {
         .collect()
 }
 
+/// Build the **P2 Dirichlet mask** for a [`disk_tri_mesh`] of outer radius
+/// `outer_radius`: the length-`n_nodes + n_edges` boolean mask over the
+/// quadratic-Lagrange DOFs (vertex DOFs first, then edge-midpoint DOFs in
+/// [`TriMesh::edges`] order) that pins every DOF on the outer boundary.
+///
+/// A vertex DOF is pinned when its node lies on the outer circle (exactly
+/// [`disk_boundary_nodes`]); an edge-midpoint DOF is pinned when **both**
+/// endpoints of the edge lie on the outer circle — i.e. the edge runs along
+/// the boundary, so its midpoint is on the boundary too. Getting the
+/// boundary-edge midpoints right is essential: leaving a boundary-edge
+/// midpoint free would under-constrain the P2 system (the outer ring would
+/// no longer be a closed Dirichlet contour). This is the P2 analogue of
+/// [`disk_pec_interior_edges`]'s both-endpoints-on-boundary edge test.
+pub fn disk_p2_boundary_dofs(mesh: &TriMesh, outer_radius: f64) -> Vec<bool> {
+    let on_boundary = disk_boundary_nodes(mesh, outer_radius);
+    let edges = mesh.edges();
+    let mut mask = Vec::with_capacity(mesh.n_nodes() + edges.len());
+    // Vertex DOFs: pinned iff the node is on the outer circle.
+    mask.extend_from_slice(&on_boundary);
+    // Edge-midpoint DOFs: pinned iff both endpoints are on the outer circle.
+    for e in &edges {
+        mask.push(on_boundary[e[0] as usize] && on_boundary[e[1] as usize]);
+    }
+    mask
+}
+
 /// Build the PEC interior-edge mask for a [`disk_tri_mesh`] of outer radius
 /// `outer_radius`: an edge is **interior** (mask `true`) unless **both** of
 /// its endpoints lie on the outer (far-wall) circle — i.e. the edge runs
@@ -1672,6 +1698,83 @@ pub fn tri_nedelec2_local(coords: &[[f64; 2]; 3]) -> ([[f64; 8]; 8], [[f64; 8]; 
     }
 
     (k_local, m_local, area)
+}
+
+/// Closed-form local **quadratic (P2) scalar Lagrange** stiffness and mass
+/// matrices for an affine triangle — the second-order element kernel of the
+/// 2-D scalar-Poisson operator `−∇·(ν∇u) = f`.
+///
+/// Second-order sibling of [`tri_p1_local`]. The six DOFs are the three
+/// vertices plus the three edge midpoints, in the order
+/// `[v0, v1, v2, e0, e1, e2]` where the edges follow [`TRI_LOCAL_EDGES`]
+/// (`e0 = (0,1)`, `e1 = (0,2)`, `e2 = (1,2)`). This matches the global
+/// DOF numbering the P2 magnetostatic assembler uses: vertex DOFs keep the
+/// node index; edge-midpoint DOFs are offset by `n_nodes` via
+/// [`TriMesh::edges`]/[`TriMesh::tri_edges`] (the edge *sign* is irrelevant
+/// for unsigned scalar Lagrange DOFs, unlike the signed Nédélec assembler).
+///
+/// The quadratic basis in barycentric coordinates is
+///
+/// ```text
+///   vertex p:   φ_p   = λ_p (2 λ_p − 1) ,   ∇φ_p  = (4 λ_p − 1) ∇λ_p
+///   edge (a,b): φ_ab  = 4 λ_a λ_b ,         ∇φ_ab = 4 (λ_a ∇λ_b + λ_b ∇λ_a)
+/// ```
+///
+/// so the basis gradients are **linear** in the barycentrics; the stiffness
+/// integrand `∇φ_i·∇φ_j` is degree-2 and the mass integrand `φ_i φ_j` is
+/// degree-4. Both are integrated exactly by the shared degree-4 rule
+/// [`TRI_QUAD_DEG4`] (the same rule [`tri_nedelec2_local`] uses), and the
+/// barycentric gradients / signed area come from the shared
+/// `tri_bary_grads` helper so the P1, P2, and Nédélec element geometry
+/// cannot drift apart.
+///
+/// Returns `(k_local, m_local, signed_area)` where `k_local` (6×6) is the
+/// Dirichlet-energy stiffness `∫ ∇φ_p·∇φ_q dA`, `m_local` (6×6) is the
+/// consistent mass `∫ φ_p φ_q dA`, and the signed area is positive for CCW
+/// vertex order. As with [`tri_p1_local`], the per-element reluctivity
+/// `ν = 1/μ_r` weights the stiffness at assembly time.
+pub fn tri_p2_local(coords: &[[f64; 2]; 3]) -> ([[f64; 6]; 6], [[f64; 6]; 6], f64) {
+    let (grad, _gram, signed_area, area_abs) = tri_bary_grads(coords);
+
+    // Evaluate the six P2 basis values and gradients at a barycentric point
+    // `lam = (λ0, λ1, λ2)`. Ordering: [v0, v1, v2, e0, e1, e2].
+    let eval = |lam: [f64; 3]| -> ([f64; 6], [[f64; 2]; 6]) {
+        let mut val = [0.0_f64; 6];
+        let mut gr = [[0.0_f64; 2]; 6];
+        // Vertex DOFs.
+        for p in 0..3 {
+            let lp = lam[p];
+            val[p] = lp * (2.0 * lp - 1.0);
+            let c = 4.0 * lp - 1.0;
+            gr[p] = [c * grad[p][0], c * grad[p][1]];
+        }
+        // Edge-midpoint DOFs, in TRI_LOCAL_EDGES order.
+        for (e, &(a, b)) in TRI_LOCAL_EDGES.iter().enumerate() {
+            let (la, lb) = (lam[a], lam[b]);
+            val[3 + e] = 4.0 * la * lb;
+            gr[3 + e] = [
+                4.0 * (la * grad[b][0] + lb * grad[a][0]),
+                4.0 * (la * grad[b][1] + lb * grad[a][1]),
+            ];
+        }
+        (val, gr)
+    };
+
+    let mut k_local = [[0.0_f64; 6]; 6];
+    let mut m_local = [[0.0_f64; 6]; 6];
+    for row in TRI_QUAD_DEG4.iter() {
+        let lam = [row[0], row[1], row[2]];
+        let w = row[3] * area_abs; // physical-area quadrature weight
+        let (val, gr) = eval(lam);
+        for i in 0..6 {
+            for j in 0..6 {
+                k_local[i][j] += w * (gr[i][0] * gr[j][0] + gr[i][1] * gr[j][1]);
+                m_local[i][j] += w * val[i] * val[j];
+            }
+        }
+    }
+
+    (k_local, m_local, signed_area)
 }
 
 /// Assemble dense global Whitney/Nédélec stiffness `K` (curl-curl) and

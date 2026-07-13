@@ -37,7 +37,9 @@
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
-use crate::analytic::waveguide::{TriMesh, tri_bary_grads, tri_p1_local};
+use crate::analytic::waveguide::{
+    TRI_LOCAL_EDGES, TRI_QUAD_DEG4, TriMesh, tri_bary_grads, tri_p1_local, tri_p2_local,
+};
 
 pub use crate::assembly::p1::SparsityPattern;
 
@@ -647,4 +649,467 @@ pub fn recover_b_field(mesh: &TriMesh, a_z: &[f64]) -> Vec<[f64; 2]> {
             [gy, -gx]
         })
         .collect()
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Quadratic (P2) scalar-Lagrange magnetostatic path (Epic #448 follow-on,
+// issue #472). Fully additive alongside the P1 path above — the P1 functions
+// are untouched so the merged torque benchmarks keep their bit-for-bit
+// fixtures. The P2 solve lifts the mid-gap air-gap |B| accuracy from P1's
+// first-order (piecewise-constant B) to second-order (piecewise-linear B),
+// retiring the honest ≤1% field miss documented in `tests/slotless_pm_field.rs`.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Global P2 DOF count for a mesh: `n_nodes + n_edges`. Vertex DOFs keep
+/// their node index; the edge-midpoint DOF of global edge `k` is at
+/// `n_nodes + k` (edge indices from [`TriMesh::edges`]). This is the size
+/// of the potential vector [`MagnetostaticP2System::solve`] returns and the
+/// [`crate::analytic::waveguide::disk_p2_boundary_dofs`] mask expects.
+#[inline]
+pub fn p2_dof_count(mesh: &TriMesh) -> usize {
+    mesh.n_nodes() + mesh.edges().len()
+}
+
+/// Assembled 2-D **quadratic (P2)** scalar magnetostatic system, indexed on
+/// the `n_nodes + n_edges` quadratic-Lagrange DOFs of a [`TriMesh`], with
+/// the boundary Dirichlet condition already eliminated.
+///
+/// Second-order sibling of [`MagnetostaticSystem`]. The solve returns the
+/// full-length `[n_dof]` quadratic potential (vertex values followed by
+/// edge-midpoint values); feed it to [`recover_b_field_p2`] for the
+/// piecewise-**linear** flux density.
+#[derive(Debug, Clone)]
+pub struct MagnetostaticP2System {
+    /// Reduced SPD stiffness `K` on the free (interior) DOFs.
+    pub k: SparseColMat<usize, f64>,
+    /// Reduced right-hand side `b` on the free DOFs.
+    pub b: Vec<f64>,
+    /// Global → free-DOF renumber: `Some(free_idx)` for interior DOFs,
+    /// `None` for pinned boundary DOFs. Length `n_dof`.
+    pub free_of_global: Vec<Option<usize>>,
+    /// Number of free (unpinned) DOFs = order of `k`.
+    pub n_free: usize,
+    /// Total P2 DOF count of the source mesh (`n_nodes + n_edges`).
+    pub n_dof: usize,
+    /// Node count of the source mesh (the vertex-DOF block size; edge DOFs
+    /// start at this offset).
+    pub n_nodes: usize,
+}
+
+impl MagnetostaticP2System {
+    /// Solve `K u = b` on the free DOFs via faer's sparse LU and scatter the
+    /// solution back to a full-length `[n_dof]` quadratic potential (pinned
+    /// boundary DOFs carry the Dirichlet value `0`). A successful
+    /// factorization is the SPD / solvability certificate.
+    pub fn solve(&self) -> Result<Vec<f64>, MagnetostaticError> {
+        use faer::linalg::solvers::Solve;
+
+        let lu = self
+            .k
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| MagnetostaticError::Factorization(format!("{e:?}")))?;
+
+        let mut rhs: Mat<f64> = Mat::from_fn(self.n_free, 1, |i, _| self.b[i]);
+        lu.solve_in_place(rhs.as_mut());
+
+        let mut u = vec![0.0_f64; self.n_dof];
+        for (g, slot) in self.free_of_global.iter().enumerate() {
+            if let Some(fi) = slot {
+                u[g] = rhs[(*fi, 0)];
+            }
+        }
+        Ok(u)
+    }
+}
+
+/// Assemble the reduced SPD **quadratic (P2)** scalar magnetostatic system
+/// for `−∇·(ν∇A_z) = J_z` with `A_z = 0` pinned on the masked boundary DOFs.
+///
+/// Second-order sibling of [`assemble_magnetostatic`]. DOF numbering is
+/// `n_nodes + n_edges`: vertex DOFs keep their node index, and the
+/// edge-midpoint DOF of global edge `k` (from [`TriMesh::edges`]) sits at
+/// `n_nodes + k`. The per-triangle edge indices come from
+/// [`TriMesh::tri_edges`] — the *sign* field is ignored (scalar Lagrange
+/// DOFs are unsigned, unlike the signed Nédélec assembler).
+///
+/// # Arguments
+///
+/// * `mesh` — triangular cross-section mesh (CCW triangles).
+/// * `nu` — per-triangle reluctivity `ν = 1/μ_r`, length `mesh.n_tris()`.
+/// * `j_z` — per-triangle axial current density `J_z`, length
+///   `mesh.n_tris()` (piecewise-constant source).
+/// * `dirichlet` — per-**DOF** mask, length `n_nodes + n_edges`: `true`
+///   pins the DOF to `A_z = 0`. Build it with
+///   [`crate::analytic::waveguide::disk_p2_boundary_dofs`], which pins both
+///   boundary vertex DOFs and boundary-edge midpoint DOFs.
+///
+/// The consistent element mass `M` weights the current RHS
+/// (`b_p += Σ_q M_pq · J_z = J_z · ∫ φ_p`), the physically-correct
+/// `∫ J_z φ_p` for a piecewise-constant source; `ν` weights the element
+/// stiffness before the scatter.
+///
+/// # Errors
+///
+/// [`MagnetostaticError::ShapeMismatch`] on any length mismatch;
+/// [`MagnetostaticError::Assembly`] if faer rejects the triplets.
+pub fn assemble_magnetostatic_p2(
+    mesh: &TriMesh,
+    nu: &[f64],
+    j_z: &[f64],
+    dirichlet: &[bool],
+) -> Result<MagnetostaticP2System, MagnetostaticError> {
+    let n_nodes = mesh.n_nodes();
+    let n_tris = mesh.n_tris();
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+    let n_dof = n_nodes + n_edges;
+    if nu.len() != n_tris {
+        return Err(MagnetostaticError::ShapeMismatch(format!(
+            "nu length {} != triangle count {n_tris}",
+            nu.len()
+        )));
+    }
+    if j_z.len() != n_tris {
+        return Err(MagnetostaticError::ShapeMismatch(format!(
+            "j_z length {} != triangle count {n_tris}",
+            j_z.len()
+        )));
+    }
+    if dirichlet.len() != n_dof {
+        return Err(MagnetostaticError::ShapeMismatch(format!(
+            "dirichlet mask length {} != P2 DOF count {n_dof} (= n_nodes {n_nodes} + n_edges {n_edges})",
+            dirichlet.len()
+        )));
+    }
+
+    let tri_edges = mesh.tri_edges();
+
+    // Map a triangle's local P2 DOF (0..6) to a global DOF index.
+    // Local order [v0, v1, v2, e0, e1, e2] matches `tri_p2_local`.
+    let global_dof = |tri: &[u32; 3], tri_edge: &[(u32, i8); 3], local: usize| -> usize {
+        if local < 3 {
+            tri[local] as usize
+        } else {
+            // Edge-midpoint DOF: offset the global edge index by n_nodes.
+            // The sign from tri_edges() is irrelevant for unsigned scalar
+            // Lagrange DOFs, so it is deliberately discarded here.
+            n_nodes + tri_edge[local - 3].0 as usize
+        }
+    };
+
+    let mut full_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(n_tris * 36);
+    let mut b_full = vec![0.0_f64; n_dof];
+
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        let coords = [
+            mesh.nodes[tri[0] as usize],
+            mesh.nodes[tri[1] as usize],
+            mesh.nodes[tri[2] as usize],
+        ];
+        let (k_local, m_local, signed_area) = tri_p2_local(&coords);
+        debug_assert!(
+            signed_area > 0.0,
+            "magnetostatic P2 assembler expects CCW triangles; got signed area {signed_area}"
+        );
+        let te = &tri_edges[t];
+        let nu_t = nu[t];
+        let jz_t = j_z[t];
+        for p in 0..6 {
+            let gp = global_dof(tri, te, p);
+            let mut bp = 0.0;
+            for q in 0..6 {
+                bp += m_local[p][q] * jz_t;
+                let gq = global_dof(tri, te, q);
+                full_trips.push(Triplet::new(gp, gq, nu_t * k_local[p][q]));
+            }
+            b_full[gp] += bp;
+        }
+    }
+
+    let sys = reduce_p2_system(n_dof, n_nodes, &full_trips, &b_full, dirichlet)?;
+    Ok(sys)
+}
+
+/// Symmetric Dirichlet elimination + faer sparse-matrix build shared by the
+/// P2 current-driven and PM-driven assemblers. Folds pinned columns into the
+/// RHS (pinned value 0, so the fold is a no-op, but the reduction is exact).
+fn reduce_p2_system(
+    n_dof: usize,
+    n_nodes: usize,
+    full_trips: &[Triplet<usize, usize, f64>],
+    b_full: &[f64],
+    dirichlet: &[bool],
+) -> Result<MagnetostaticP2System, MagnetostaticError> {
+    let k_full = SparseColMat::<usize, f64>::try_new_from_triplets(n_dof, n_dof, full_trips)
+        .map_err(|e| MagnetostaticError::Assembly(format!("{e:?}")))?;
+
+    let mut free_of_global = vec![None; n_dof];
+    let mut n_free = 0usize;
+    for (g, &pinned) in dirichlet.iter().enumerate() {
+        if !pinned {
+            free_of_global[g] = Some(n_free);
+            n_free += 1;
+        }
+    }
+
+    let mut b_free = vec![0.0_f64; n_free];
+    for (i, slot) in free_of_global.iter().enumerate() {
+        if let Some(fi) = slot {
+            b_free[*fi] = b_full[i];
+        }
+    }
+
+    let mut red_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(full_trips.len());
+    let k_ref = k_full.as_ref();
+    let cp = k_ref.col_ptr();
+    let row_idx = k_ref.row_idx();
+    let vals = k_ref.val();
+    for j in 0..n_dof {
+        for k in cp[j]..cp[j + 1] {
+            let i = row_idx[k];
+            let v = vals[k];
+            if let (Some(fi), Some(fj)) = (free_of_global[i], free_of_global[j]) {
+                red_trips.push(Triplet::new(fi, fj, v));
+            }
+            // (Some, None): pinned column with value 0 → no RHS fold needed.
+        }
+    }
+
+    let k = SparseColMat::<usize, f64>::try_new_from_triplets(n_free, n_free, &red_trips)
+        .map_err(|e| MagnetostaticError::Assembly(format!("{e:?}")))?;
+
+    Ok(MagnetostaticP2System {
+        k,
+        b: b_free,
+        free_of_global,
+        n_free,
+        n_dof,
+        n_nodes,
+    })
+}
+
+/// Assemble the **P2 permanent-magnet magnetization RHS**
+/// `b_p = ∫ (μ₀ M) · (∇φ_p)^⊥ dA` for the quadratic scalar operator, where
+/// `(∇φ_p)^⊥ = (∂φ_p/∂y, −∂φ_p/∂x)`.
+///
+/// Second-order sibling of [`assemble_magnetization_rhs`]. The physics is
+/// identical (the integration-by-parts weak form of the equivalent bound
+/// current `μ₀(∇×M)_z`, subsuming both the bulk and surface bound currents
+/// exactly). The one discretization difference matters: for P2 the test
+/// functions' gradients `∇φ_p` are **linear** per triangle (not constant as
+/// for P1), so the element integral `∫_T (∇φ_p)^⊥ dA` is evaluated with the
+/// degree-4 rule [`TRI_QUAD_DEG4`] rather than P1's constant-gradient
+/// `area · (∇φ_p)^⊥` shortcut. `M` is piecewise-constant per triangle.
+///
+/// Returns a full-length `[n_dof]` (`n_nodes + n_edges`) RHS to be **added**
+/// to any free-current RHS before Dirichlet reduction; see
+/// [`assemble_magnetostatic_pm_p2`] for the assembled-system convenience.
+///
+/// # Errors
+///
+/// [`MagnetostaticError::ShapeMismatch`] if `m.len() != mesh.n_tris()`.
+pub fn assemble_magnetization_rhs_p2(
+    mesh: &TriMesh,
+    m: &[[f64; 2]],
+) -> Result<Vec<f64>, MagnetostaticError> {
+    let n_tris = mesh.n_tris();
+    if m.len() != n_tris {
+        return Err(MagnetostaticError::ShapeMismatch(format!(
+            "m length {} != triangle count {n_tris}",
+            m.len()
+        )));
+    }
+    let mu0 = crate::analytic::slotless_pm::MU_0;
+    let n_nodes = mesh.n_nodes();
+    let edges = mesh.edges();
+    let n_dof = n_nodes + edges.len();
+    let tri_edges = mesh.tri_edges();
+
+    let mut b_full = vec![0.0_f64; n_dof];
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        let [mx, my] = m[t];
+        if mx == 0.0 && my == 0.0 {
+            continue;
+        }
+        let coords = [
+            mesh.nodes[tri[0] as usize],
+            mesh.nodes[tri[1] as usize],
+            mesh.nodes[tri[2] as usize],
+        ];
+        let (grad, _gram, _signed_area, area_abs) = tri_bary_grads(&coords);
+        let (mx0, my0) = (mu0 * mx, mu0 * my);
+        let te = &tri_edges[t];
+
+        // ∫_T ∇φ_p dA per DOF, accumulated at the degree-4 quadrature points
+        // (∇φ_p is linear in barycentrics for P2, so this is exact).
+        let mut int_grad = [[0.0_f64; 2]; 6];
+        for row in TRI_QUAD_DEG4.iter() {
+            let lam = [row[0], row[1], row[2]];
+            let w = row[3] * area_abs;
+            // Vertex gradients: ∇φ_p = (4λ_p − 1) ∇λ_p.
+            for p in 0..3 {
+                let c = 4.0 * lam[p] - 1.0;
+                int_grad[p][0] += w * c * grad[p][0];
+                int_grad[p][1] += w * c * grad[p][1];
+            }
+            // Edge gradients: ∇φ_ab = 4(λ_a ∇λ_b + λ_b ∇λ_a).
+            for (e, &(a, b)) in TRI_LOCAL_EDGES.iter().enumerate() {
+                let (la, lb) = (lam[a], lam[b]);
+                int_grad[3 + e][0] += w * 4.0 * (la * grad[b][0] + lb * grad[a][0]);
+                int_grad[3 + e][1] += w * 4.0 * (la * grad[b][1] + lb * grad[a][1]);
+            }
+        }
+
+        for p in 0..6 {
+            let gp = if p < 3 {
+                tri[p] as usize
+            } else {
+                n_nodes + te[p - 3].0 as usize
+            };
+            // (∇φ_p)^⊥ = (∂φ_p/∂y, −∂φ_p/∂x); integrated form uses int_grad.
+            let perp = [int_grad[p][1], -int_grad[p][0]];
+            b_full[gp] += mx0 * perp[0] + my0 * perp[1];
+        }
+    }
+    Ok(b_full)
+}
+
+/// Assemble the **P2** scalar magnetostatic system driven by a
+/// permanent-magnet magnetization source (plus any free current `j_z`),
+/// with the boundary Dirichlet condition eliminated.
+///
+/// Second-order sibling of [`assemble_magnetostatic_pm`]: it is
+/// [`assemble_magnetostatic_p2`] with the P2 magnetization RHS
+/// (from [`assemble_magnetization_rhs_p2`]) folded into the free-current RHS
+/// before Dirichlet reduction. Pass `j_z = &[0.0; n_tris]` for a pure-PM
+/// problem.
+///
+/// # Errors
+///
+/// Propagates [`MagnetostaticError`] from either the stiffness assembly or
+/// the magnetization-RHS shape check.
+pub fn assemble_magnetostatic_pm_p2(
+    mesh: &TriMesh,
+    nu: &[f64],
+    j_z: &[f64],
+    m_eff: &[[f64; 2]],
+    dirichlet: &[bool],
+) -> Result<MagnetostaticP2System, MagnetostaticError> {
+    let mut sys = assemble_magnetostatic_p2(mesh, nu, j_z, dirichlet)?;
+    let b_mag_full = assemble_magnetization_rhs_p2(mesh, m_eff)?;
+    for (g, slot) in sys.free_of_global.iter().enumerate() {
+        if let Some(fi) = slot {
+            sys.b[*fi] += b_mag_full[g];
+        }
+    }
+    Ok(sys)
+}
+
+/// Recover the **piecewise-linear** flux density `B = (∂A_z/∂y, −∂A_z/∂x)`
+/// per triangle from a P2 quadratic potential, evaluated at each triangle
+/// **centroid** — the P2-compatible analogue of [`recover_b_field`]'s
+/// per-triangle output (which the existing centroid-based samplers consume).
+///
+/// For P2 the potential `A_z = Σ_p u_p φ_p` is quadratic per triangle, so
+/// `∇A_z = Σ_p u_p ∇φ_p` is **linear** — first-order accurate field, a full
+/// order better than P1's piecewise-constant `B`. Returns `b[t] = [B_x, B_y]`
+/// at triangle `t`'s centroid `(λ = 1/3, 1/3, 1/3)`. For sampling at an
+/// arbitrary point (e.g. the mid-gap contour) use [`sample_b_field_p2`].
+pub fn recover_b_field_p2(mesh: &TriMesh, u: &[f64]) -> Vec<[f64; 2]> {
+    let n_nodes = mesh.n_nodes();
+    let edges = mesh.edges();
+    assert_eq!(
+        u.len(),
+        n_nodes + edges.len(),
+        "P2 potential length {} != n_dof {} (n_nodes {} + n_edges {})",
+        u.len(),
+        n_nodes + edges.len(),
+        n_nodes,
+        edges.len()
+    );
+    let tri_edges = mesh.tri_edges();
+    mesh.tris
+        .iter()
+        .enumerate()
+        .map(|(t, tri)| {
+            let coords = [
+                mesh.nodes[tri[0] as usize],
+                mesh.nodes[tri[1] as usize],
+                mesh.nodes[tri[2] as usize],
+            ];
+            let dofs = p2_tri_dofs(tri, &tri_edges[t], n_nodes, u);
+            eval_b_p2(&coords, &dofs, [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0])
+        })
+        .collect()
+}
+
+/// Sample the P2 flux density `B = (∂A_z/∂y, −∂A_z/∂x)` at an arbitrary
+/// point `(px, py)` by locating the containing triangle (barycentric test)
+/// and evaluating the linear per-triangle gradient there. Returns
+/// `Some([B_x, B_y])`, or `None` if the point lies outside the mesh.
+///
+/// This is the point-evaluation companion to [`recover_b_field_p2`] the
+/// mid-gap contour comparison against the `SlotlessPm` oracle needs (the P1
+/// path sampled the piecewise-constant per-triangle `B`; at P2 the field is
+/// linear, so sampling at the actual contour point — not the centroid — is
+/// what earns the second-order accuracy).
+pub fn sample_b_field_p2(mesh: &TriMesh, u: &[f64], px: f64, py: f64) -> Option<[f64; 2]> {
+    let n_nodes = mesh.n_nodes();
+    let tri_edges = mesh.tri_edges();
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        let c0 = mesh.nodes[tri[0] as usize];
+        let c1 = mesh.nodes[tri[1] as usize];
+        let c2 = mesh.nodes[tri[2] as usize];
+        let d = (c1[1] - c2[1]) * (c0[0] - c2[0]) + (c2[0] - c1[0]) * (c0[1] - c2[1]);
+        let l0 = ((c1[1] - c2[1]) * (px - c2[0]) + (c2[0] - c1[0]) * (py - c2[1])) / d;
+        let l1 = ((c2[1] - c0[1]) * (px - c2[0]) + (c0[0] - c2[0]) * (py - c2[1])) / d;
+        let l2 = 1.0 - l0 - l1;
+        let tol = -1e-9;
+        if l0 >= tol && l1 >= tol && l2 >= tol {
+            let coords = [c0, c1, c2];
+            let dofs = p2_tri_dofs(tri, &tri_edges[t], n_nodes, u);
+            return Some(eval_b_p2(&coords, &dofs, [l0, l1, l2]));
+        }
+    }
+    None
+}
+
+/// Gather the six local P2 DOF values `[v0, v1, v2, e0, e1, e2]` for a
+/// triangle from the global potential vector.
+#[inline]
+fn p2_tri_dofs(tri: &[u32; 3], tri_edge: &[(u32, i8); 3], n_nodes: usize, u: &[f64]) -> [f64; 6] {
+    let mut dofs = [0.0_f64; 6];
+    for p in 0..3 {
+        dofs[p] = u[tri[p] as usize];
+    }
+    for e in 0..3 {
+        dofs[3 + e] = u[n_nodes + tri_edge[e].0 as usize];
+    }
+    dofs
+}
+
+/// Evaluate `B = (∂A_z/∂y, −∂A_z/∂x)` for a P2 element at barycentric point
+/// `lam`, given the six local DOF values. `∇A_z = Σ_p u_p ∇φ_p` with the
+/// quadratic basis gradients (linear per triangle).
+#[inline]
+fn eval_b_p2(coords: &[[f64; 2]; 3], dofs: &[f64; 6], lam: [f64; 3]) -> [f64; 2] {
+    let (grad, _gram, _signed_area, _abs) = tri_bary_grads(coords);
+    let mut gx = 0.0;
+    let mut gy = 0.0;
+    // Vertex gradients: ∇φ_p = (4λ_p − 1) ∇λ_p.
+    for p in 0..3 {
+        let c = (4.0 * lam[p] - 1.0) * dofs[p];
+        gx += c * grad[p][0];
+        gy += c * grad[p][1];
+    }
+    // Edge gradients: ∇φ_ab = 4(λ_a ∇λ_b + λ_b ∇λ_a).
+    for (e, &(a, b)) in TRI_LOCAL_EDGES.iter().enumerate() {
+        let (la, lb) = (lam[a], lam[b]);
+        let d = dofs[3 + e];
+        gx += 4.0 * d * (la * grad[b][0] + lb * grad[a][0]);
+        gy += 4.0 * d * (la * grad[b][1] + lb * grad[a][1]);
+    }
+    // B = (∂A_z/∂y, −∂A_z/∂x).
+    [gy, -gx]
 }

@@ -17,9 +17,13 @@
 //!  4. Inverse tripwire: wrong-ν or coarse-mesh error > 5 %.
 
 use geode_core::analytic::waveguide::{
-    TriMesh, disk_boundary_nodes, disk_tri_mesh, tri_nedelec_local, tri_p1_local,
+    TriMesh, disk_boundary_nodes, disk_p2_boundary_dofs, disk_tri_mesh, tri_nedelec_local,
+    tri_p1_local, tri_p2_local,
 };
-use geode_core::assembly::magnetostatic::{assemble_magnetostatic, recover_b_field};
+use geode_core::assembly::magnetostatic::{
+    assemble_magnetostatic, assemble_magnetostatic_p2, p2_dof_count, recover_b_field,
+    recover_b_field_p2,
+};
 
 const MU_0: f64 = 4.0e-7 * std::f64::consts::PI;
 
@@ -409,6 +413,274 @@ fn coarse_mesh_tripwire_fires() {
         err > 0.05,
         "coarse-mesh error {:.2}% did not exceed the 5% tripwire floor",
         err * 100.0
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 5. tri_p2_local unit tests (issue #472)
+// ─────────────────────────────────────────────────────────────────────
+
+/// The six P2 basis values `[φ_v0, φ_v1, φ_v2, φ_e0, φ_e1, φ_e2]` at a
+/// barycentric point — used to probe partition of unity independently of
+/// the element kernel. Ordering matches `tri_p2_local`.
+fn p2_basis_values(lam: [f64; 3]) -> [f64; 6] {
+    const EDGES: [(usize, usize); 3] = [(0, 1), (0, 2), (1, 2)];
+    let mut v = [0.0_f64; 6];
+    for p in 0..3 {
+        v[p] = lam[p] * (2.0 * lam[p] - 1.0);
+    }
+    for (e, &(a, b)) in EDGES.iter().enumerate() {
+        v[3 + e] = 4.0 * lam[a] * lam[b];
+    }
+    v
+}
+
+#[test]
+fn tri_p2_local_row_sums_zero() {
+    // Constant potential ⇒ zero stiffness force: each row of the 6×6 K sums
+    // to 0 (Σ_q ∇φ_q = ∇(Σ φ_q) = ∇1 = 0 by partition of unity).
+    let (k, _m, _a) = tri_p2_local(&sample_triangle());
+    for p in 0..6 {
+        let row_sum: f64 = (0..6).map(|q| k[p][q]).sum();
+        assert!(
+            row_sum.abs() < 1e-11,
+            "P2 K row {p} sum {row_sum} not ≈ 0 (constant nullspace)"
+        );
+    }
+}
+
+#[test]
+fn tri_p2_local_symmetric_psd() {
+    let (k, _m, _a) = tri_p2_local(&sample_triangle());
+    for p in 0..6 {
+        for q in 0..6 {
+            assert!(
+                (k[p][q] - k[q][p]).abs() < 1e-12,
+                "P2 K not symmetric at ({p},{q})"
+            );
+        }
+    }
+    // PSD: xᵀKx ≥ 0 for a spread of probe vectors (K has a 1-D constant
+    // nullspace, so it is PSD, not PD).
+    let probes = [
+        [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        [1.0, -1.0, 0.0, 0.3, -0.2, 0.5],
+        [0.3, -0.7, 1.4, -1.1, 0.9, 0.2],
+        [-2.0, 1.1, 0.9, 0.4, -0.6, 1.3],
+    ];
+    for x in probes {
+        let mut q = 0.0;
+        for p in 0..6 {
+            for r in 0..6 {
+                q += x[p] * k[p][r] * x[r];
+            }
+        }
+        assert!(q >= -1e-11, "xᵀKx = {q} < 0 for x = {x:?} (P2 K not PSD)");
+    }
+}
+
+#[test]
+fn tri_p2_local_mass_sums_to_area() {
+    // Σ_pq M_pq = ∫ (Σ_p φ_p)(Σ_q φ_q) dA = ∫ 1·1 dA = area (partition of
+    // unity: the six P2 shape functions sum to 1 everywhere).
+    let tri = sample_triangle();
+    let (_k, m, area) = tri_p2_local(&tri);
+    let mass_sum: f64 = m.iter().flatten().sum();
+    assert!(
+        (mass_sum - area).abs() < 1e-12,
+        "sum(P2 M) = {mass_sum} != area {area}"
+    );
+}
+
+#[test]
+fn tri_p2_partition_of_unity_at_quadrature_points() {
+    // The six P2 shape functions sum to 1 at every point — check at the
+    // degree-4 quadrature nodes the kernel integrates over, plus centroid.
+    let sample_pts = [
+        [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0],
+        [
+            0.108_103_018_168_070,
+            0.445_948_490_915_965,
+            0.445_948_490_915_965,
+        ],
+        [
+            0.816_847_572_980_459,
+            0.091_576_213_509_771,
+            0.091_576_213_509_771,
+        ],
+        [0.6, 0.25, 0.15],
+    ];
+    for lam in sample_pts {
+        let s: f64 = p2_basis_values(lam).iter().sum();
+        assert!(
+            (s - 1.0).abs() < 1e-13,
+            "P2 partition of unity broken at {lam:?}: Σφ = {s}"
+        );
+    }
+}
+
+#[test]
+fn tri_p2_local_reduces_to_p1_on_vertex_subspace_stiffness() {
+    // A globally-linear potential A_z(x,y) is exactly representable by both
+    // P1 and P2. Its edge-midpoint DOF equals the average of the two vertex
+    // DOFs, so injecting a linear field into the P2 element and into the P1
+    // element must yield the identical Dirichlet energy xᵀKx.
+    let tri = sample_triangle();
+    let (kp1, _m1, _a1) = tri_p1_local(&tri);
+    let (kp2, _m2, _a2) = tri_p2_local(&tri);
+    // Linear field A(x,y) = 2 + 3x − 1.5y sampled at the six P2 nodes.
+    let field = |x: f64, y: f64| 2.0 + 3.0 * x - 1.5 * y;
+    let vx: [f64; 3] = [
+        field(tri[0][0], tri[0][1]),
+        field(tri[1][0], tri[1][1]),
+        field(tri[2][0], tri[2][1]),
+    ];
+    // Edge midpoints in TRI_LOCAL_EDGES order (0,1),(0,2),(1,2).
+    let mid =
+        |a: usize, b: usize| field(0.5 * (tri[a][0] + tri[b][0]), 0.5 * (tri[a][1] + tri[b][1]));
+    let vp2 = [vx[0], vx[1], vx[2], mid(0, 1), mid(0, 2), mid(1, 2)];
+
+    let energy_p1 = {
+        let mut e = 0.0;
+        for p in 0..3 {
+            for q in 0..3 {
+                e += vx[p] * kp1[p][q] * vx[q];
+            }
+        }
+        e
+    };
+    let energy_p2 = {
+        let mut e = 0.0;
+        for p in 0..6 {
+            for q in 0..6 {
+                e += vp2[p] * kp2[p][q] * vp2[q];
+            }
+        }
+        e
+    };
+    assert!(
+        (energy_p1 - energy_p2).abs() < 1e-12 * energy_p1.abs().max(1e-12),
+        "P2 Dirichlet energy {energy_p2} != P1 energy {energy_p1} on a linear field"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 6. Wire-oracle P2 O(h²) convergence proof (issue #472, AC #2)
+// ─────────────────────────────────────────────────────────────────────
+
+/// Solve the straight-wire problem with the **P2** solver and return
+/// `(mesh, u)` where `u` is the length-`(n_nodes + n_edges)` quadratic
+/// potential. Mirrors `solve_wire` (P1) exactly on inputs.
+fn solve_wire_p2(
+    core_radius: f64,
+    outer_radius: f64,
+    n_radial: usize,
+    n_angular: usize,
+    nu_value: f64,
+    current: f64,
+) -> (TriMesh, Vec<f64>) {
+    let (mesh, region_tags) = disk_tri_mesh(core_radius, outer_radius, n_radial, n_angular);
+    let n_tris = mesh.n_tris();
+    let nu = vec![nu_value; n_tris];
+    let core_area = std::f64::consts::PI * core_radius * core_radius;
+    let density = MU_0 * current / core_area;
+    let j_z: Vec<f64> = region_tags
+        .iter()
+        .map(|&tag| if tag == 1 { density } else { 0.0 })
+        .collect();
+    let bc = disk_p2_boundary_dofs(&mesh, outer_radius);
+    assert_eq!(bc.len(), p2_dof_count(&mesh));
+    let sys = assemble_magnetostatic_p2(&mesh, &nu, &j_z, &bc).expect("assemble P2");
+    let u = sys.solve().expect("wire P2 solve");
+    (mesh, u)
+}
+
+/// L2 relative error of the P2 `|B|` vs the annular closed form
+/// `B_θ = μ₀ I/(2π r)`, per-triangle centroid over the band r∈[r_lo,r_hi].
+fn wire_l2_error_p2(mesh: &TriMesh, u: &[f64], current: f64, r_lo: f64, r_hi: f64) -> f64 {
+    let b = recover_b_field_p2(mesh, u);
+    let mut num = 0.0;
+    let mut den = 0.0;
+    let mut count = 0usize;
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        let cx = (mesh.nodes[tri[0] as usize][0]
+            + mesh.nodes[tri[1] as usize][0]
+            + mesh.nodes[tri[2] as usize][0])
+            / 3.0;
+        let cy = (mesh.nodes[tri[0] as usize][1]
+            + mesh.nodes[tri[1] as usize][1]
+            + mesh.nodes[tri[2] as usize][1])
+            / 3.0;
+        let r = (cx * cx + cy * cy).sqrt();
+        if r < r_lo || r > r_hi {
+            continue;
+        }
+        let area = 0.5
+            * ((mesh.nodes[tri[1] as usize][0] - mesh.nodes[tri[0] as usize][0])
+                * (mesh.nodes[tri[2] as usize][1] - mesh.nodes[tri[0] as usize][1])
+                - (mesh.nodes[tri[1] as usize][1] - mesh.nodes[tri[0] as usize][1])
+                    * (mesh.nodes[tri[2] as usize][0] - mesh.nodes[tri[0] as usize][0]))
+                .abs();
+        let b_mag = (b[t][0] * b[t][0] + b[t][1] * b[t][1]).sqrt();
+        let exact = MU_0 * current / (2.0 * std::f64::consts::PI * r);
+        num += area * (b_mag - exact).powi(2);
+        den += area * exact.powi(2);
+        count += 1;
+    }
+    assert!(count > 0, "no triangles in the comparison band");
+    (num / den).sqrt()
+}
+
+#[test]
+fn wire_p2_second_order_convergence() {
+    // AC #2: P2 field converges at O(h²) on the wire oracle. Refine the mesh
+    // by ~2× in both radial and angular resolution and fit a log-log slope of
+    // error vs mean element size h ∝ 1/√(n_tris). Mirrors the #318 Phase 2.5C
+    // convergence-proof pattern; P1's slope on the same geometry is ≈1.
+    let outer = 1.0;
+    let current = 3.0;
+    let core = 0.05;
+    let schedule = [(12usize, 48usize), (24, 96), (48, 192)];
+
+    let mut hs = Vec::new();
+    let mut errs = Vec::new();
+    println!("--- wire oracle: P2 |B| L2 convergence (band r∈[0.3,0.7]R) ---");
+    for &(nr, na) in &schedule {
+        let (mesh, u) = solve_wire_p2(core, outer, nr, na, 1.0, current);
+        let err = wire_l2_error_p2(&mesh, &u, current, 0.3 * outer, 0.7 * outer);
+        // Mean element size h ∝ 1/√(n_tris).
+        let h = 1.0 / (mesh.n_tris() as f64).sqrt();
+        println!(
+            "  nr={nr:3} na={na:3} nodes={:6} n_tris={:6} h={h:.5} L2={:.4}%",
+            mesh.n_nodes(),
+            mesh.n_tris(),
+            err * 100.0
+        );
+        hs.push(h.ln());
+        errs.push(err.ln());
+    }
+
+    // Least-squares log-log slope of ln(err) vs ln(h).
+    let n = hs.len() as f64;
+    let sx: f64 = hs.iter().sum();
+    let sy: f64 = errs.iter().sum();
+    let sxx: f64 = hs.iter().map(|x| x * x).sum();
+    let sxy: f64 = hs.iter().zip(&errs).map(|(x, y)| x * y).sum();
+    let slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+    println!("  fitted log-log convergence slope = {slope:.3} (P2 target ≥ 1.8)");
+    assert!(
+        slope >= 1.8,
+        "P2 wire convergence slope {slope:.3} < 1.8 — not second order"
+    );
+
+    // Sanity: the finest P2 error should be well under P1's ~0.77% at a
+    // comparable mesh, confirming the order improvement is real.
+    let finest = errs.last().unwrap().exp();
+    assert!(
+        finest < 0.005,
+        "finest P2 wire L2 {:.4}% unexpectedly large",
+        finest * 100.0
     );
 }
 
