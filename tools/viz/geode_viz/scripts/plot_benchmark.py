@@ -41,6 +41,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from geode_viz.plots.mie import plot_efficiency_vs_ka
+from geode_viz.plots.motor import plot_torque_vs_angle
 from geode_viz.plots.pattern import plot_pattern_cut
 from geode_viz.plots.s_params import plot_s11_magnitude, plot_smith
 from geode_viz.plots.spiral import plot_lqr_vs_f
@@ -54,6 +55,7 @@ _BENCHMARK_PLOTS: dict[str, tuple[str, ...]] = {
     "spiral_inductor": ("s11", "smith", "lqr"),
     "patch_antenna": ("s11", "smith", "pattern"),
     "mie_sphere": ("mie",),
+    "motor": ("motor",),
 }
 _BENCHMARKS: tuple[str, ...] = tuple(_BENCHMARK_PLOTS)
 
@@ -153,6 +155,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "cuts (Phase 1D)."
         ),
     )
+    plot_filter.add_argument(
+        "--motor-only",
+        action="store_true",
+        help="Slotless-PM motor: only render the T(θ_r) panel (Epic #448).",
+    )
 
     parser.add_argument(
         "--s11-out",
@@ -199,6 +206,15 @@ def _build_parser() -> argparse.ArgumentParser:
             "Defaults to artifacts/viz/patch_antenna/pattern_cuts.png."
         ),
     )
+    parser.add_argument(
+        "--motor-out",
+        type=Path,
+        default=None,
+        help=(
+            "Override the T(θ_r) PNG output path. Defaults to "
+            "artifacts/viz/motor/torque_vs_angle.png."
+        ),
+    )
     return parser
 
 
@@ -210,6 +226,7 @@ def _plot_filter(args: argparse.Namespace) -> set[str]:
         or args.lqr_only
         or args.mie_only
         or args.pattern_only
+        or args.motor_only
     )
     if not any_only:
         # Render every plot family the benchmark exposes.
@@ -225,6 +242,8 @@ def _plot_filter(args: argparse.Namespace) -> set[str]:
         selected.add("mie")
     if args.pattern_only:
         selected.add("pattern")
+    if args.motor_only:
+        selected.add("motor")
     return selected
 
 
@@ -294,6 +313,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 out=args.pattern_out,
             )
         )
+    if "motor" in selected:
+        written.append(plot_torque_vs_angle(out=args.motor_out))
 
     for path in written:
         print(f"wrote {path}")

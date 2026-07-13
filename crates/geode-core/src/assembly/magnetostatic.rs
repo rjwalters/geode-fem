@@ -378,6 +378,34 @@ pub fn radial_magnetization_source(
     m0: f64,
     pole_pairs: u32,
 ) -> Vec<[f64; 2]> {
+    // The unrotated pattern is the θ_r = 0 special case of the rotated
+    // variant; forward to it so there is a single implementation.
+    radial_magnetization_source_rotated(mesh, band_tags, magnet_tag, m0, pole_pairs, 0.0)
+}
+
+/// [`radial_magnetization_source`] with a **rotor mechanical angle** `θ_r`:
+/// the radial magnetization amplitude becomes `M_r(θ) = M0 cos(p (θ − θ_r))`,
+/// rotating the whole magnet pattern rigidly by `θ_r` about the axis while
+/// the mesh stays fixed. This is the fixed-mesh magnetization-rotation used
+/// by the locked-rotor `T(θ_r)` sweep (Epic #448 P3b) — no re-meshing per
+/// angle.
+///
+/// The direction `r̂ = (cos θ, sin θ)` is still the *geometric* radial unit
+/// vector at the triangle centroid (the magnet is radially magnetized in the
+/// rotor frame); only the sinusoidal amplitude's phase shifts by `p θ_r`.
+/// At `θ_r = 0` this is exactly [`radial_magnetization_source`].
+///
+/// # Panics
+///
+/// Panics if `band_tags.len() != mesh.n_tris()`.
+pub fn radial_magnetization_source_rotated(
+    mesh: &TriMesh,
+    band_tags: &[i32],
+    magnet_tag: i32,
+    m0: f64,
+    pole_pairs: u32,
+    theta_r: f64,
+) -> Vec<[f64; 2]> {
     assert_eq!(
         band_tags.len(),
         mesh.n_tris(),
@@ -402,8 +430,65 @@ pub fn radial_magnetization_source(
                 + mesh.nodes[tri[2] as usize][1])
                 / 3.0;
             let theta = cy.atan2(cx);
-            let m_r = m0 * (p * theta).cos();
+            let m_r = m0 * (p * (theta - theta_r)).cos();
             [m_r * theta.cos(), m_r * theta.sin()]
+        })
+        .collect()
+}
+
+/// Build the per-triangle axial **stator-winding current density**
+/// `J_z(θ) = J0 cos(p θ)` over a winding band, for the driven interaction-
+/// torque benchmark (Epic #448 P3b). `j0` is the **physical** peak current
+/// density (A/m²); the returned per-triangle values carry the `μ₀` factor
+/// this module's assembler expects (matching the `μ₀ J_z` RHS convention of
+/// [`assemble_magnetostatic`] — see the wire benchmark, where the current
+/// enters as `μ₀ · density`). `J_z` is evaluated at each triangle centroid
+/// angle for triangles whose `band_tags[t] == winding_tag`, and `0`
+/// elsewhere. Feed the result straight into [`assemble_magnetostatic`] /
+/// [`assemble_magnetostatic_pm`] as the `j_z` argument.
+///
+/// The winding is *fixed in the stator frame* (no `θ_r`): the rotor turns via
+/// [`radial_magnetization_source_rotated`], so the PM-vs-winding relative
+/// angle — hence the torque — is `θ_r`. Matches the analytic
+/// [`crate::analytic::slotless_pm::SlotlessPmDriven`] stator field
+/// `B_θ^S = −G_S r^{p−1} cos(pθ)` with `G_S = (μ₀ J0/2) ∫ r'^{−(p−1)} dr'`.
+///
+/// # Panics
+///
+/// Panics if `band_tags.len() != mesh.n_tris()`.
+pub fn stator_winding_current(
+    mesh: &TriMesh,
+    band_tags: &[i32],
+    winding_tag: i32,
+    j0: f64,
+    pole_pairs: u32,
+) -> Vec<f64> {
+    assert_eq!(
+        band_tags.len(),
+        mesh.n_tris(),
+        "band_tags length {} != triangle count {}",
+        band_tags.len(),
+        mesh.n_tris()
+    );
+    let p = pole_pairs as f64;
+    let mu0 = crate::analytic::slotless_pm::MU_0;
+    mesh.tris
+        .iter()
+        .enumerate()
+        .map(|(t, tri)| {
+            if band_tags[t] != winding_tag {
+                return 0.0;
+            }
+            let cx = (mesh.nodes[tri[0] as usize][0]
+                + mesh.nodes[tri[1] as usize][0]
+                + mesh.nodes[tri[2] as usize][0])
+                / 3.0;
+            let cy = (mesh.nodes[tri[0] as usize][1]
+                + mesh.nodes[tri[1] as usize][1]
+                + mesh.nodes[tri[2] as usize][1])
+                / 3.0;
+            let theta = cy.atan2(cx);
+            mu0 * j0 * (p * theta).cos()
         })
         .collect()
 }
