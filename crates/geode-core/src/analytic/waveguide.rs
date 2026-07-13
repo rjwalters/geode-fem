@@ -1234,15 +1234,32 @@ pub fn disk_pec_interior_nodes(mesh: &TriMesh, outer_radius: f64) -> Vec<bool> {
 /// Rows/columns follow the canonical local-edge order
 /// ([`TRI_LOCAL_EDGES`]). Sign flips for the **global** orientation are
 /// the caller's responsibility (applied at assembly time).
-pub fn tri_nedelec_local(coords: &[[f64; 2]; 3]) -> ([[f64; 3]; 3], [[f64; 3]; 3], f64) {
+/// Shared affine-triangle geometry: barycentric gradients, their Gram
+/// matrix, the signed area, and the absolute area.
+///
+/// Every 2-D affine-triangle element kernel in this module (the
+/// Whitney/Nédélec curl-curl of [`tri_nedelec_local`] and the scalar-P1
+/// Poisson stiffness of [`tri_p1_local`]) needs the *same* barycentric
+/// gradients `∇λ_p`, their Gram matrix `G_pq = ∇λ_p·∇λ_q`, and the element
+/// area. Factoring the arithmetic here is a single source of truth so the
+/// nodal-Lagrange and edge-Whitney paths cannot drift apart (the gradient
+/// formula is written once, not copy-pasted).
+///
+/// `coords` are the three vertex coordinates `[v0, v1, v2]`, each `[x, y]`.
+/// Returns `(grad, gram, signed_area, abs_area)` where
+/// - `grad[p]  = ∇λ_p = ((y_{p+1}−y_{p+2}), (x_{p+2}−x_{p+1})) / det` (cyclic),
+/// - `gram[p][q] = ∇λ_p·∇λ_q`,
+/// - `signed_area = det/2` (positive for CCW vertex order),
+/// - `abs_area   = |det|/2`.
+pub(crate) fn tri_bary_grads(coords: &[[f64; 2]; 3]) -> ([[f64; 2]; 3], [[f64; 3]; 3], f64, f64) {
     // Edge vectors from v0.
     let e1 = [coords[1][0] - coords[0][0], coords[1][1] - coords[0][1]];
     let e2 = [coords[2][0] - coords[0][0], coords[2][1] - coords[0][1]];
 
     // Signed double area (det of [e1 | e2]).
     let det = e1[0] * e2[1] - e1[1] * e2[0];
-    let area = 0.5 * det;
-    let abs_det = det.abs();
+    let signed_area = 0.5 * det;
+    let abs_area = 0.5 * det.abs();
 
     // Gradients of the three barycentrics (rotate edge vectors 90° and
     // divide by det). For a 2-D affine triangle:
@@ -1272,7 +1289,53 @@ pub fn tri_nedelec_local(coords: &[[f64; 2]; 3]) -> ([[f64; 3]; 3], [[f64; 3]; 3
         }
     }
 
-    let area_abs = 0.5 * abs_det;
+    (grad, gram, signed_area, abs_area)
+}
+
+/// Closed-form local scalar-P1 (nodal Lagrange) stiffness and mass
+/// matrices for an affine triangle — the element kernel of the 2-D
+/// scalar-Poisson operator `−∇·(ν∇u) = f`.
+///
+/// `coords` are the three vertex coordinates `[v0, v1, v2]`, each `[x, y]`.
+/// Returns `(k_local, m_local, signed_area)` where rows/columns index the
+/// three **nodes** `(v0, v1, v2)` (nodal DOFs — unlike the edge-indexed
+/// [`tri_nedelec_local`]):
+///
+/// ```text
+///   K_pq = area · (∇λ_p·∇λ_q)          (Dirichlet-energy stiffness)
+///   M_pq = (area / 12) · (1 + δ_pq)     (2-D consistent-mass constant)
+/// ```
+///
+/// The barycentric gradients, their Gram matrix, and the area are computed
+/// by the shared `tri_bary_grads` helper — the *same* arithmetic
+/// [`tri_nedelec_local`] uses — so the P1 and Nédélec element geometry
+/// cannot diverge.
+///
+/// The unweighted `K` matches the material-independent stiffness; a
+/// per-element reluctivity `ν = 1/μ_r` is applied at assembly time (`ν`
+/// weights the *stiffness* here, the dual of the `ε`-weights-mass pattern
+/// of the Nédélec modal solver).
+pub fn tri_p1_local(coords: &[[f64; 2]; 3]) -> ([[f64; 3]; 3], [[f64; 3]; 3], f64) {
+    let (_grad, gram, signed_area, area_abs) = tri_bary_grads(coords);
+
+    let mut k_local = [[0.0_f64; 3]; 3];
+    let mut m_local = [[0.0_f64; 3]; 3];
+    for p in 0..3 {
+        for q in 0..3 {
+            // Stiffness: ∫ ∇λ_p·∇λ_q dA = area · G_pq (constant integrand).
+            k_local[p][q] = area_abs * gram[p][q];
+            // Consistent mass: ∫ λ_p λ_q dA = (area/12)(1 + δ_pq).
+            let delta = if p == q { 1.0 } else { 0.0 };
+            m_local[p][q] = (area_abs / 12.0) * (1.0 + delta);
+        }
+    }
+
+    (k_local, m_local, signed_area)
+}
+
+pub fn tri_nedelec_local(coords: &[[f64; 2]; 3]) -> ([[f64; 3]; 3], [[f64; 3]; 3], f64) {
+    let (_grad, gram, area, area_abs) = tri_bary_grads(coords);
+
     let mut k_local = [[0.0_f64; 3]; 3];
     let mut m_local = [[0.0_f64; 3]; 3];
 
