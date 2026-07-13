@@ -291,6 +291,19 @@ carry auto-generated `results*.toml` files paired with `tests/` cases that
 either compare within a documented tolerance band or skip-with-note when an
 external oracle (e.g. Palace) is `pending_operator_run`.
 
+### Bunsen conventions
+
+`geode-core` depends on [`bunsen`](https://github.com/zspacelabs/bunsen)
+(git-pinned, `default-features = false, features = ["std"]`) for
+machine-checked tensor **shape contracts**: the `define_shape_contract!` /
+`unpack_shape_contract!` / `assert_shape_contract!` family
+(`bunsen::contracts::*`) — see `crates/geode-core/src/assembly/p1.rs` for the
+template. New tensor-index / sequence code should prefer `bunsen::ops`
+(`float_arange`, `float_linspace`, tensor `ClampOp`, `repeat_interleave`) over
+hand-rolling the Burn-primitive equivalents. Note that `ClampOp` operates on
+`Tensor<B, D>` only; scalar (non-`Tensor`) math is out of scope for this
+convention.
+
 ## Regression fixtures
 
 Numerical baselines for the unit-cube Dirichlet Laplacian ground-mode
