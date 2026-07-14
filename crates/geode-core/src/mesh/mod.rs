@@ -51,8 +51,8 @@ pub use patch::{
 // `mesh::transmon` — several names (`PHYS_SUBSTRATE`, `PHYS_VACUUM`)
 // would collide with the spiral/patch re-exports.
 pub use transmon::{
-    GroupTags, TransmonFixture, TransmonPort, read_transmon_fixture_from_bytes,
-    read_transmon_smoke_fixture,
+    GroupTags, MetalComponent, MetalRole, TransmonFixture, TransmonPort,
+    read_transmon_fixture_from_bytes, read_transmon_smoke_fixture,
 };
 
 /// CPU-side tetrahedral mesh produced by a `MeshReader`.
