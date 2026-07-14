@@ -24,6 +24,30 @@
 //! restarted variant. The cost is O(k²·n) extra work; negligible next to
 //! the `k` sparse triangular solves.
 //!
+//! To make that O(k²) reorthogonalization cheap in practice we cache
+//! `M·v_j` alongside each basis vector `v_j` (`m_basis`), so the inner
+//! reorth loop is a stored-vector dot + axpy rather than a fresh SpMV per
+//! basis vector every outer iteration. This is an exact re-ordering of the
+//! same arithmetic (the spectrum is bit-for-bit identical), and on the
+//! 133k-DOF transmon eigensolve it collapses the reorth phase from ~9.7 s
+//! to ~0.8 s — a 1.64x end-to-end wall-time reduction on that test
+//! (34.9 s → 21.3 s). See issue #506 for the full profile.
+//!
+//! **Deferred (issue #506 Phase 0, faer-parallelism half):** the sparse LU
+//! factorization phase (`sp_lu`, ~33% of the solve) could be sped up ~1.75x
+//! by compiling faer with its `rayon` feature. That is *not* landed here.
+//! In faer 0.24 parallelism is a process-global `AtomicUsize`
+//! (`set_global_parallelism` / `get_global_parallelism`, no per-call `Par`
+//! argument), so "phase-scoped" factorization parallelism can only be a
+//! bare global toggle that (a) races other threads in the same test process
+//! — the driven/assembly paths also call `sp_lu`/`solve_in_place` — and
+//! (b) must be reverted to serial before the single-RHS triangular-solve
+//! loop, where rayon is measurably *slower* (latency-bound). The safe
+//! landing is an opt-in toggle defaulting to today's serial behavior; the
+//! M·V cache above is the dominant, risk-free win and ships alone. The
+//! parallelism knob (faer `rayon` feature + a panic-safe RAII guard around
+//! the factorization + an opt-in solver flag) is tracked for a follow-on.
+//!
 //! Convergence is declared when the residual norm
 //! `‖K x - λ M x‖_2 / ‖λ M x‖_2 < tol` for **every** requested mode.
 //!
@@ -287,6 +311,11 @@ impl SparseShiftInvertLanczos {
         //    final basis even if convergence formally lags.
         let max_k = self.max_iters.min(n).max(n_modes + 2).min(n);
         let mut basis: Vec<Vec<f64>> = Vec::with_capacity(max_k);
+        // Cache of `M·v_j` for each basis vector, filled in lockstep with
+        // `basis`. The reorth loop reuses these instead of recomputing an
+        // SpMV per basis vector every iteration (turns the O(k²) SpMV cost
+        // into O(k²) dot+axpy — see issue #506).
+        let mut m_basis: Vec<Vec<f64>> = Vec::with_capacity(max_k);
         let mut alpha: Vec<f64> = Vec::with_capacity(max_k);
         let mut beta: Vec<f64> = Vec::with_capacity(max_k);
 
@@ -325,18 +354,20 @@ impl SparseShiftInvertLanczos {
                 }
             }
 
-            // Full reorthogonalization (M-inner product).
-            for vk in basis.iter() {
-                spmv(m, vk, &mut work);
-                let c = w.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
+            // Full reorthogonalization (M-inner product). Reuse the cached
+            // `M·v_k` (`m_basis[idx]`) instead of recomputing an SpMV per
+            // basis vector (issue #506).
+            for (vk, m_vk) in basis.iter().zip(m_basis.iter()) {
+                let c = w.iter().zip(m_vk.iter()).map(|(a, b)| a * b).sum::<f64>();
                 if c.abs() > 0.0 {
                     for i in 0..n {
                         w[i] -= c * vk[i];
                     }
                 }
             }
-            spmv(m, &v, &mut work);
-            let c = w.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
+            // Re-project off v itself (the just-computed direction). `mv`
+            // still holds `M·v` from the top of this iteration.
+            let c = w.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
             for i in 0..n {
                 w[i] -= c * v[i];
             }
@@ -346,6 +377,9 @@ impl SparseShiftInvertLanczos {
             let nrm2 = nrm2.max(0.0);
             nrm = nrm2.sqrt();
 
+            // Cache `M·v` alongside the basis vector before consuming `v`.
+            m_basis.push(core::mem::take(&mut mv));
+            mv = vec![0.0_f64; n];
             basis.push(core::mem::take(&mut v));
 
             // Convergence probe — same Kaniel–Saad bound as the
@@ -463,6 +497,10 @@ impl SparseEigenSolver for SparseShiftInvertLanczos {
 
         // Allocate workspace.
         let mut basis: Vec<Vec<f64>> = Vec::with_capacity(max_k);
+        // Cache of `M·v_j` for each basis vector (see issue #506) — reused
+        // by the reorth loop instead of recomputing an SpMV per basis
+        // vector every iteration.
+        let mut m_basis: Vec<Vec<f64>> = Vec::with_capacity(max_k);
         let mut alpha: Vec<f64> = Vec::with_capacity(max_k);
         let mut beta: Vec<f64> = Vec::with_capacity(max_k);
 
@@ -514,19 +552,20 @@ impl SparseEigenSolver for SparseShiftInvertLanczos {
 
             // Full reorthogonalization against the whole basis in the
             // M-inner product. This is O(j·n) per step but keeps the
-            // basis numerically M-orthonormal even at large k.
-            for vk in basis.iter() {
-                spmv(m, vk, &mut work);
-                let c = w.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
+            // basis numerically M-orthonormal even at large k. Reuse the
+            // cached `M·v_k` (`m_basis[idx]`) instead of recomputing an
+            // SpMV per basis vector (issue #506).
+            for (vk, m_vk) in basis.iter().zip(m_basis.iter()) {
+                let c = w.iter().zip(m_vk.iter()).map(|(a, b)| a * b).sum::<f64>();
                 if c.abs() > 0.0 {
                     for i in 0..n {
                         w[i] -= c * vk[i];
                     }
                 }
             }
-            // Also re-project off v itself (the just-added direction).
-            spmv(m, &v, &mut work);
-            let c = w.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
+            // Also re-project off v itself (the just-added direction). `mv`
+            // still holds `M·v` from the top of this iteration.
+            let c = w.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
             for i in 0..n {
                 w[i] -= c * v[i];
             }
@@ -539,7 +578,10 @@ impl SparseEigenSolver for SparseShiftInvertLanczos {
             let nrm2 = nrm2.max(0.0);
             nrm = nrm2.sqrt();
 
-            // Push the *current* v as basis[j], then either iterate or stop.
+            // Push the *current* v as basis[j] (caching `M·v` alongside),
+            // then either iterate or stop.
+            m_basis.push(core::mem::take(&mut mv));
+            mv = vec![0.0_f64; n];
             basis.push(core::mem::take(&mut v));
 
             // Try to test convergence on the requested modes. We re-test

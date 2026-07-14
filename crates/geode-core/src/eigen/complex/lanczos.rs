@@ -328,6 +328,10 @@ impl SparseComplexEigenSolver for SparseComplexShiftInvertLanczos {
         let max_k = self.max_iters.min(n).max(n_modes + 2).min(n);
 
         let mut basis: Vec<Vec<c64>> = Vec::with_capacity(max_k);
+        // Cache of `M·v_j` for each basis vector (see issue #506) — reused
+        // by the reorth loop instead of recomputing an SpMV per basis
+        // vector every iteration.
+        let mut m_basis: Vec<Vec<c64>> = Vec::with_capacity(max_k);
         let mut alpha: Vec<c64> = Vec::with_capacity(max_k);
         let mut beta: Vec<c64> = Vec::with_capacity(max_k);
 
@@ -387,12 +391,13 @@ impl SparseComplexEigenSolver for SparseComplexShiftInvertLanczos {
             }
 
             // Full reorthogonalization in the bilinear M-inner product.
-            // For each basis vector v_k, c = v_k^T M w = (M v_k)^T w.
-            for vk in basis.iter() {
-                spmv(m, vk, &mut work);
+            // For each basis vector v_k, c = v_k^T M w = (M v_k)^T w. Reuse
+            // the cached `M·v_k` (`m_basis[idx]`) instead of recomputing an
+            // SpMV per basis vector (issue #506).
+            for (vk, m_vk) in basis.iter().zip(m_basis.iter()) {
                 let mut c = c64::new(0.0, 0.0);
                 for i in 0..n {
-                    c += work[i] * w[i];
+                    c += m_vk[i] * w[i];
                 }
                 if c.re != 0.0 || c.im != 0.0 {
                     for i in 0..n {
@@ -400,11 +405,11 @@ impl SparseComplexEigenSolver for SparseComplexShiftInvertLanczos {
                     }
                 }
             }
-            // Re-project off v itself (about to enter basis).
-            spmv(m, &v, &mut work);
+            // Re-project off v itself (about to enter basis). `mv` still
+            // holds `M·v` from the top of this iteration.
             let mut c = c64::new(0.0, 0.0);
             for i in 0..n {
-                c += work[i] * w[i];
+                c += mv[i] * w[i];
             }
             for i in 0..n {
                 w[i] -= c * v[i];
@@ -415,7 +420,9 @@ impl SparseComplexEigenSolver for SparseComplexShiftInvertLanczos {
             let w_t_m_w = bilinear(&w, &work);
             nrm = principal_sqrt(w_t_m_w);
 
-            // Push current v as basis[j].
+            // Push current v as basis[j] (caching `M·v` alongside).
+            m_basis.push(core::mem::take(&mut mv));
+            mv = vec![c64::new(0.0, 0.0); n];
             basis.push(core::mem::take(&mut v));
 
             // Convergence probe on the complex tridiagonal.
@@ -519,6 +526,10 @@ impl SparseComplexShiftInvertLanczos {
         //    convergence formally lags).
         let max_k = self.max_iters.min(n).max(n_modes + 2).min(n);
         let mut basis: Vec<Vec<c64>> = Vec::with_capacity(max_k);
+        // Cache of `M·v_j` for each basis vector (see issue #506) — reused
+        // by the reorth loop instead of recomputing an SpMV per basis
+        // vector every iteration.
+        let mut m_basis: Vec<Vec<c64>> = Vec::with_capacity(max_k);
         let mut alpha: Vec<c64> = Vec::with_capacity(max_k);
         let mut beta: Vec<c64> = Vec::with_capacity(max_k);
 
@@ -564,11 +575,12 @@ impl SparseComplexShiftInvertLanczos {
             }
 
             // Full reorthogonalization in the bilinear M-inner product.
-            for vk in basis.iter() {
-                spmv(m, vk, &mut work);
+            // Reuse the cached `M·v_k` (`m_basis[idx]`) instead of
+            // recomputing an SpMV per basis vector (issue #506).
+            for (vk, m_vk) in basis.iter().zip(m_basis.iter()) {
                 let mut c = c64::new(0.0, 0.0);
                 for i in 0..n {
-                    c += work[i] * w[i];
+                    c += m_vk[i] * w[i];
                 }
                 if c.re != 0.0 || c.im != 0.0 {
                     for i in 0..n {
@@ -576,10 +588,11 @@ impl SparseComplexShiftInvertLanczos {
                     }
                 }
             }
-            spmv(m, &v, &mut work);
+            // Re-project off v itself. `mv` still holds `M·v` from the top
+            // of this iteration.
             let mut c = c64::new(0.0, 0.0);
             for i in 0..n {
-                c += work[i] * w[i];
+                c += mv[i] * w[i];
             }
             for i in 0..n {
                 w[i] -= c * v[i];
@@ -589,6 +602,9 @@ impl SparseComplexShiftInvertLanczos {
             let w_t_m_w = bilinear(&w, &work);
             nrm = principal_sqrt(w_t_m_w);
 
+            // Cache `M·v` alongside the basis vector before consuming `v`.
+            m_basis.push(core::mem::take(&mut mv));
+            mv = vec![c64::new(0.0, 0.0); n];
             basis.push(core::mem::take(&mut v));
 
             // Convergence probe — same Kaniel–Saad-flavored bound as the
