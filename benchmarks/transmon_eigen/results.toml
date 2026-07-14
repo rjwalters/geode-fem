@@ -27,7 +27,7 @@ assembly = "sparse full-tensor Nédélec (Re parts; imag ≈ 0, lossless sapphir
 notes = [
   "Junction participation (geode-fem's stiffness-participation metric) p = (xᵀ K_port x) / (xᵀ (K + K_port) x): the junction LC mode has p ≈ 1, all cavity modes p ≈ 0. This is NOT the same quantity as Palace's field-based port-EPR (see [oracles.palace] note); the two are complementary, differently-normalized diagnostics that rank modes differently, so cross-solver mode-ID rests on frequency agreement, not participation agreement.",
   "The junction LC self-resonance f_LC = 1/(2π√(LC)) = 17.60 GHz; the p ≈ 1 mode at 17.49 GHz is that physical junction mode.",
-  "A spurious junction-surface-localized mode appears near 3.45 GHz below the physical band: geode-fem's Lanczos lacks the divergence-free projection Palace applies, so a gradient-nullspace-adjacent mode leaks in. It is NOT a physical mode (absent from Palace's spectrum) and is filtered by comparing against the committed oracle. Removing it is a follow-on (a div-free / tree-cotree gauge on the eigen path); it does not affect the physical-mode cross-validation.",
+  "A spurious junction-surface-localized mode appears near 3.45 GHz below the physical band: geode-fem's Lanczos lacks the divergence-free projection Palace applies, so a gradient-nullspace-adjacent mode leaks in. It is NOT a physical mode (absent from Palace's spectrum) and is filtered by comparing against the committed oracle. Removing it is a follow-on (a port-aware div-free projection on the eigen path — issue #514); it does not affect the physical-mode cross-validation.",
   "Readout ports port_1/port_2 left OPEN (lossless v1); their 50 Ω would make the pencil complex (lossy Q), which is out of scope v1.",
   "Blog sanity band [4.14, 5.591] GHz (non-gating): the resonator mode 5.15 GHz sits ~7.9% below the 5.591 GHz blog resonator; mesh/order/junction-geometry differ from the blog's exact runs. The GATE is Palace-same-mesh, met at ≤0.04%.",
 ]
@@ -115,10 +115,62 @@ excluded = true
 # tree-cotree DOF elimination; it is still filtered by frequency-matching
 # (the committed benchmark path is unchanged). The spectrum-preserving fix
 # is a divergence-free projection (Zᵀ K Z, Zᵀ M Z), for which the shipped
-# spanning tree supplies the cotree basis — filed as the #502 follow-on.
+# spanning tree supplies the cotree basis — the #502 follow-on landed as
+# issue #509 (this projection); its own port-aware follow-on is issue #514.
 gauged = false  # tree-cotree DOF elimination does not remove it (see note)
 tree_cotree_gradient_dofs = 13747  # == rank(d⁰_interior) on this mesh
 tree_cotree_resonator_drift_pct = 1.64  # gauged 5.2372 vs ungauged 5.1528 GHz
+# Divergence-free projection attempt (issue #509, measured 2026-07-14): the
+# spectrum-preserving M-orthogonal projector P = I − G(GᵀMG)⁻¹GᵀM with
+# G = d⁰_interior (the sparse interior-restricted discrete gradient) was
+# implemented (crate::eigen::projection) and factored once (GᵀMG is a
+# 13747²-node SPD sparse LU, an order below the 133108-DOF edge pencil).
+# UNLIKE tree-cotree DOF elimination, the projection PRESERVES the cavity
+# spectrum: the 5.1513 GHz Palace resonator reproduces at 5.1528 GHz
+# (0.029%, vs the DOF-elimination gauge's 1.64% shift) and every returned
+# Ritz vector is divergence-free to machine level (‖GᵀMx‖/‖x‖_M ≈ 1e-15).
+# The dense image(d⁰) near-zero cluster (13747 modes at λ≈0) collapses to at
+# most ONE near-zero survivor. HOWEVER, the bulk-d⁰ projection is
+# INCOMPATIBLE with the lumped-inductor eigenmode formulation on TWO counts,
+# both root-caused and pinned in
+# tests/transmon_eigenmode.rs::real_transmon_projection_deflates_junction_mode:
+#   1. The spurious 3.4528 GHz mode SURVIVES — its eigenvector is genuinely
+#      divergence-free (div-ratio ≈ 6e-15), so it is a port-localized
+#      near-nullspace mode of (K + K_port, M + M_port), NOT a bulk-gradient
+#      artifact, and is M-orthogonal to image(d⁰_interior) → untouched by P.
+#   2. The physical junction LC mode (17.4901 GHz, p = 1) is DEFLATED AWAY.
+#      A lumped inductor is a quasi-static, curl-free flux path, so the
+#      junction LC eigenmode is itself a (near-)gradient field living largely
+#      in image(d⁰_interior); the bulk projection cannot distinguish it from
+#      a spurious gradient mode and removes both. Targeting σ AT 17.49 GHz:
+#      ungauged resolves 17.4901 GHz (p = 1.0000), projected does not return
+#      it (nearest 18.6927 GHz, 6.88%).
+# The spectrum-preserving half is achieved (cavity modes, gradient cluster);
+# retaining the junction mode AND removing the solenoidal port-spurious mode
+# requires a PORT-AWARE projection (exclude the junction-surface gradient
+# directions from G, matching Palace's LumpedPort handling) — filed as the
+# follow-on, issue #514 ("Port-aware divergence-free projection — eigen-gauge
+# saga, chapter 3"). The committed benchmark path (ungauged +
+# frequency-filtering) is unchanged.
+#
+# DEFLATION MECHANISM (measured directly on the raw UNGAUGED junction
+# eigenvector, 2026-07-14): the ModeReport path drops EigenPair.vector, so the
+# ungauged junction eigenvector is obtained via
+# crate::eigen::projection::ungauged_mode_divergences and measured against the
+# SAME M-orthogonal projector P = I − G(GᵀMG)⁻¹GᵀM. It is a NEAR-GRADIENT
+# field — its divergence ratio ‖GᵀMx‖/‖x‖_M = 5.0173e1 (macroscopic, O(10)),
+# in stark contrast to the spurious mode's solenoidal 6.18e-15 — and P
+# deflates it: the projected M-norm ‖Px‖_M/‖x‖_M = 1.0638e-4 ≈ 0 (the mode
+# lives almost entirely in image(d⁰_interior)). This is the load-bearing
+# measurement behind the "junction LC mode is deflated" negative, pinned in
+# real_transmon_projection_deflates_junction_mode.
+projection_gauged = false  # bulk-d⁰ div-free projection does not remove it (see note)
+projection_survives_divergence_free = true  # spurious mode is solenoidal (div-ratio ≈ 6e-15)
+projection_cavity_resonator_pct = 0.029  # cavity spectrum PRESERVED (vs DOF-elim 1.64%)
+projection_junction_mode_deflated_pct = 6.88  # junction LC mode removed (ungauged 0.00%)
+projection_junction_divergence_ratio = 5.0173e1  # ‖GᵀMx‖/‖x‖_M of the UNGAUGED junction eigenvector (near-gradient; spurious mode = 6.18e-15)
+projection_junction_projected_norm_ratio = 1.0638e-4  # ‖Px‖_M/‖x‖_M ≈ 0 → P deflates the junction mode
+followon_issue = 514  # Port-aware divergence-free projection — eigen-gauge saga, chapter 3
 
 [oracles.palace]
 status = "populated"

@@ -430,6 +430,120 @@ fn gauge_removes_near_zero_cluster_synthetic() {
     );
 }
 
+/// As [`solve_synthetic`] but through the divergence-free **projected**
+/// entry point [`solve_transmon_eigenmodes_projected`] (issue #509). Returns
+/// the modes and the projection diagnostics (drift / re-projection counts).
+fn solve_synthetic_projected(
+    fx: &SyntheticFixture,
+    element: ReactiveElementNatural,
+    l_geom: f64,
+    w_geom: f64,
+    sigma: f64,
+    n_modes: usize,
+) -> (
+    Vec<ModeReport>,
+    geode_core::eigen::projection::ProjectionDiagnostics,
+) {
+    let scatter = NedelecScatterMap::new(&fx.tet_edge_idx);
+    let (k_vals, m_vals) =
+        assemble_real_pencil(&fx.mesh, &fx.tet_edge_sign, &scatter, &fx.epsilon_tensor);
+    let shunt = LumpedReactiveShunt {
+        faces: &fx.junction_faces,
+        length: l_geom,
+        width: w_geom,
+        element,
+    };
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &fx.edges,
+        mesh: &fx.mesh,
+        shunt,
+        interior_mask: &fx.interior_mask,
+    };
+    geode_core::eigen::projection::solve_transmon_eigenmodes_projected(
+        &pencil, sigma, n_modes, M_PER_UNIT,
+    )
+    .expect("synthetic projected eigensolve")
+}
+
+/// Structural (synthetic, CI-fast): the divergence-free projection removes
+/// the gradient near-zero-λ cluster **and** — unlike DOF elimination —
+/// leaves the physical spectrum in place. The ungauged solve near σ→0⁺
+/// exposes a near-zero gradient mode; the projected solve at the same tiny
+/// shift lifts its smallest λ far above the cluster (spurious gone), while
+/// the projected physical eigenvalues away from σ→0 match the ungauged
+/// physical eigenvalues (spectrum preserved). The projector's per-iteration
+/// divergence residual stays at machine level.
+#[test]
+fn projection_removes_cluster_and_preserves_spectrum_synthetic() {
+    let fx = synthetic_fixture(3);
+    let element = ReactiveElementNatural {
+        l_natural: 50.0,
+        c_natural: 5.0,
+    };
+
+    // (a) Near-zero shift: the projected path must lift the gradient cluster.
+    let sigma0 = 1e-6;
+    let ungauged0 = solve_synthetic(&fx, element, 1.0, 1.0, sigma0, 6);
+    let (projected0, diag0) = solve_synthetic_projected(&fx, element, 1.0, 1.0, sigma0, 6);
+    let min_ung = ungauged0
+        .iter()
+        .map(|m| m.lambda)
+        .fold(f64::INFINITY, f64::min);
+    let min_proj = projected0
+        .iter()
+        .map(|m| m.lambda)
+        .fold(f64::INFINITY, f64::min);
+    eprintln!(
+        "projection cluster: ungauged min λ={min_ung:.3e}, projected min λ={min_proj:.3e}; \
+         iters={}, reprojections={}, pre-div={:.2e}, post-div={:.2e}",
+        diag0.iterations,
+        diag0.reprojections,
+        diag0.max_pre_projection_divergence,
+        diag0.max_post_projection_divergence
+    );
+    assert!(
+        min_ung < 1e-6,
+        "ungauged path should expose a near-zero gradient mode, got min λ={min_ung:.3e}"
+    );
+    assert!(
+        min_proj > 1e-3,
+        "projected path still has a near-zero gradient cluster: min λ={min_proj:.3e}"
+    );
+    // The projector keeps every accepted Krylov vector divergence-free to
+    // machine level.
+    assert!(
+        diag0.max_post_projection_divergence < 1e-6,
+        "projected vectors drifted out of the divergence-free subspace: {:.3e}",
+        diag0.max_post_projection_divergence
+    );
+
+    // (b) Physical shift: the projected physical eigenvalues match the
+    //     ungauged physical eigenvalues (spectrum preserved — the property
+    //     DOF elimination fails). Compare the lowest physical mode with a
+    //     shift placed inside the physical band (away from the nullspace).
+    let sigma_phys = 3.0;
+    let ungauged = solve_synthetic(&fx, element, 1.0, 1.0, sigma_phys, 4);
+    let (projected, _) = solve_synthetic_projected(&fx, element, 1.0, 1.0, sigma_phys, 4);
+    let u0 = ungauged
+        .iter()
+        .map(|m| m.lambda)
+        .fold(f64::INFINITY, f64::min);
+    let p0 = projected
+        .iter()
+        .map(|m| m.lambda)
+        .fold(f64::INFINITY, f64::min);
+    eprintln!("projection spectrum: ungauged λ₀={u0:.6}, projected λ₀={p0:.6}");
+    assert!(
+        (u0 - p0).abs() / u0 < 1e-3,
+        "projection shifted the physical spectrum: ungauged λ₀={u0:.6}, projected λ₀={p0:.6} \
+         (rel {:.2e}) — a projection must preserve it (contrast DOF elimination)",
+        (u0 - p0).abs() / u0
+    );
+}
+
 /// Tripwire (synthetic): doubling `L̃` LOWERS the inductive stiffness
 /// `K_port ∝ 1/L̃`, so the mode with junction participation shifts DOWN
 /// in λ (ω ∝ √λ). We assert the direction on the highest-participation
@@ -875,6 +989,310 @@ fn tree_cotree_dof_elimination_shifts_eigen_spectrum() {
     );
 }
 
+/// HONEST NEGATIVE (issue #509, release-gated): the bulk divergence-free
+/// projection `P = I − G(GᵀMG)⁻¹GᵀM` with `G = d⁰_interior` is
+/// spectrum-preserving on the **cavity** modes — where the DOF-elimination
+/// gauge failed — but it is **incompatible with the lumped-inductor
+/// eigenmode formulation**: it deflates the physical junction LC mode along
+/// with the gradient nullspace, and it does NOT remove the port-localized
+/// spurious 3.4528 GHz mode (which is genuinely solenoidal). This test PINS
+/// that finding with measured data, keeping the (correct, reusable)
+/// projection machinery.
+///
+/// # What the projection DOES achieve (the positive half)
+///
+/// - **Bulk gradient nullspace removed.** The ungauged solve exposes a
+///   dense near-zero-λ cluster (`rank(d⁰_interior)` = 13,747 modes at λ≈0);
+///   the projected solve returns at most ONE near-zero survivor — the
+///   `image(d⁰)` cluster is gone.
+/// - **Cavity spectrum preserved (≤1%), unlike DOF elimination.** The
+///   5.1513 GHz Palace resonator reproduces at 5.1528 GHz (0.029%) and the
+///   15.4605 GHz mode at 15.4650 GHz (0.029%) — essentially the ungauged
+///   numbers, and in sharp contrast to the tree-cotree DOF-elimination
+///   gauge, which shifted the resonator 1.64% (see
+///   `tree_cotree_dof_elimination_shifts_eigen_spectrum`). Every returned
+///   Ritz vector is divergence-free to machine level (div-ratio ≈ 1e-15).
+///
+/// # What it does NOT achieve (the negative half, root-caused)
+///
+/// - **The spurious 3.4528 GHz mode survives.** Its eigenvector is
+///   divergence-free (`‖Gᵀ M x‖/‖x‖_M ≈ 6e-15`) — it is NOT a bulk-gradient
+///   artifact but a genuine port-localized near-nullspace mode of the
+///   `(K + K_port, M + M_port)` pencil (participation p ≈ 0.994). Being
+///   `M`-orthogonal to `image(d⁰_interior)`, it is untouched by the
+///   projection. (It remains filtered by frequency-matching against Palace,
+///   exactly as on the committed ungauged path.)
+/// - **The junction LC mode (17.4901 GHz, p = 1) is DEFLATED away.** A
+///   lumped inductor is a quasi-static, curl-free flux path, so the physical
+///   junction LC eigenmode is itself a (near-)gradient field — it lives
+///   largely in `image(d⁰_interior)`. The bulk `d⁰` projection cannot tell
+///   the physical junction gradient mode from a spurious one, so it removes
+///   both: targeting σ AT 17.49 GHz, the ungauged solve returns the junction
+///   mode at 17.4901 GHz (p = 1.0000) while the projected solve does not
+///   return it at all (its nearest mode is the 18.6927 GHz cavity mode, 6.9%
+///   off). Retaining the junction mode requires a **port-aware** projection
+///   that excludes the junction-surface gradient directions from `G` — a
+///   larger formulation change (matching Palace's LumpedPort handling) than
+///   this issue's bulk-`d⁰` scope. Filed as the follow-on, **issue #514**
+///   ("Port-aware divergence-free projection — eigen-gauge saga, chapter 3").
+///
+/// If the port-aware projection of issue #514 lands and both negatives flip
+/// (spurious gone AND junction mode retained ≤1%), promote this to the
+/// positive acceptance test and update
+/// `benchmarks/transmon_eigen/results.toml`.
+///
+/// ```sh
+/// cargo test -p geode-core --release --test transmon_eigenmode \
+///     -- --ignored real_transmon_projection_deflates_junction_mode --nocapture
+/// ```
+#[test]
+#[ignore = "two 133k-DOF sparse shift-invert eigensolves — release benchmark only"]
+fn real_transmon_projection_deflates_junction_mode() {
+    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
+    eprintln!(
+        "transmon fixture: {} nodes, {} tets",
+        f.mesh.n_nodes(),
+        f.mesh.n_tets()
+    );
+
+    // Solve the physical band both ways (ungauged committed path vs. the
+    // bulk divergence-free projection), same shift and mode budget.
+    let ungauged = solve_real_fixture(&f, 20.0e9, 12);
+    let t0 = std::time::Instant::now();
+    let (projected, diag) = solve_real_fixture_projected(&f, 20.0e9, 12);
+    let elapsed = t0.elapsed();
+
+    eprintln!(
+        "projected solve: {:.1}s, {} Lanczos iters, {} extra re-projections; \
+         pre-projection div ≤ {:.2e}, post-projection div ≤ {:.2e}",
+        elapsed.as_secs_f64(),
+        diag.iterations,
+        diag.reprojections,
+        diag.max_pre_projection_divergence,
+        diag.max_post_projection_divergence
+    );
+    eprintln!("projected modes (sorted by λ):");
+    for (i, m) in projected.iter().enumerate() {
+        let dr = diag.mode_divergence_ratios.get(i).copied().unwrap_or(-1.0);
+        eprintln!(
+            "  mode[{i}]: f = {:.4} GHz (λ = {:.4e}), p = {:.4}, div-ratio = {dr:.3e}",
+            m.frequency_ghz(),
+            m.lambda,
+            m.participation
+        );
+    }
+
+    // ---- POSITIVE 1: every returned Ritz vector is divergence-free. ----
+    assert!(
+        diag.max_post_projection_divergence < 1e-6,
+        "projected Krylov vectors drifted out of the divergence-free subspace: {:.3e}",
+        diag.max_post_projection_divergence
+    );
+    let max_mode_div = diag
+        .mode_divergence_ratios
+        .iter()
+        .cloned()
+        .fold(0.0_f64, f64::max);
+    assert!(
+        max_mode_div < 1e-6,
+        "returned Ritz vectors not divergence-free: max div-ratio {max_mode_div:.3e}"
+    );
+
+    // ---- POSITIVE 2: the bulk gradient cluster is gone (≤1 near-zero
+    //      survivor, not a dense λ≈0 cluster). ----
+    let near_zero = projected.iter().filter(|m| m.frequency_ghz() < 0.5).count();
+    eprintln!("near-zero (< 0.5 GHz) projected modes: {near_zero}");
+    assert!(
+        near_zero <= 1,
+        "projected path still shows a dense gradient cluster ({near_zero} near-zero modes) \
+         — the image(d⁰) nullspace was not removed"
+    );
+
+    // ---- POSITIVE 3: the CAVITY modes are preserved to ≤1% (contrast the
+    //      DOF-elimination gauge's 1.64% resonator shift). ----
+    const CAVITY_PALACE_GHZ: [f64; 2] = [5.151335830348, 15.46052107794];
+    for &pf in CAVITY_PALACE_GHZ.iter() {
+        let rel = projected
+            .iter()
+            .map(|m| (m.frequency_ghz() - pf).abs() / pf)
+            .fold(f64::INFINITY, f64::min);
+        eprintln!(
+            "  cavity Palace {pf:.4} GHz ↔ projected {:.4}%",
+            rel * 100.0
+        );
+        assert!(
+            rel * 100.0 <= PALACE_BAR_PCT,
+            "projection failed to preserve cavity mode {pf:.4} GHz (nearest {:.4}% > {PALACE_BAR_PCT}%)",
+            rel * 100.0
+        );
+    }
+
+    // ---- NEGATIVE 1: the spurious 3.4528 GHz mode SURVIVES and is
+    //      divergence-free (not a bulk-gradient artifact). ----
+    let spurious = projected
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| (3.0..4.0).contains(&m.frequency_ghz()))
+        .map(|(i, m)| {
+            (
+                m,
+                diag.mode_divergence_ratios.get(i).copied().unwrap_or(-1.0),
+            )
+        })
+        .next();
+    let (spur, spur_div) = spurious.expect(
+        "the port-localized 3.4528 GHz spurious mode is expected to SURVIVE the bulk \
+         divergence-free projection (it is solenoidal); its disappearance would be the \
+         SUCCESS signal — promote this test and update results.toml",
+    );
+    eprintln!(
+        "spurious mode: {:.4} GHz, p = {:.4}, div-ratio = {spur_div:.3e} (SURVIVES — solenoidal)",
+        spur.frequency_ghz(),
+        spur.participation
+    );
+    assert!(
+        spur.participation > 0.5,
+        "surviving below-band mode should carry the junction-surface participation signature"
+    );
+    assert!(
+        spur_div < 1e-6,
+        "the surviving spurious mode should be divergence-free (proving it is NOT a bulk \
+         gradient artifact the projection could remove): div-ratio {spur_div:.3e}"
+    );
+
+    // ---- NEGATIVE 2: the junction LC mode is DEFLATED. Targeting σ AT the
+    //      17.49 GHz junction mode, the ungauged path finds it (p = 1), the
+    //      projected path does NOT. ----
+    let ung_junction = ungauged
+        .iter()
+        .map(|m| (m.frequency_ghz() - PALACE_JUNCTION_MODE_GHZ).abs() / PALACE_JUNCTION_MODE_GHZ)
+        .fold(f64::INFINITY, f64::min);
+    let proj_junction = projected
+        .iter()
+        .map(|m| (m.frequency_ghz() - PALACE_JUNCTION_MODE_GHZ).abs() / PALACE_JUNCTION_MODE_GHZ)
+        .fold(f64::INFINITY, f64::min);
+    eprintln!(
+        "junction LC mode ({PALACE_JUNCTION_MODE_GHZ:.4} GHz): ungauged nearest {:.4}%, \
+         projected nearest {:.4}%",
+        ung_junction * 100.0,
+        proj_junction * 100.0
+    );
+    // The ungauged committed path DOES resolve the junction mode (≤1%).
+    assert!(
+        ung_junction * 100.0 <= PALACE_BAR_PCT,
+        "ungauged path should resolve the junction mode within {PALACE_BAR_PCT}% (got {:.4}%)",
+        ung_junction * 100.0
+    );
+    // The bulk-`d⁰` projection deflates it — the pinned negative. (Flip = success.)
+    assert!(
+        proj_junction * 100.0 > PALACE_BAR_PCT,
+        "the bulk divergence-free projection now RETAINS the junction LC mode \
+         (projected nearest {:.4}% ≤ {PALACE_BAR_PCT}%) — the negative no longer holds; \
+         promote this to the positive acceptance test and update results.toml",
+        proj_junction * 100.0
+    );
+
+    // ---- MECHANISM: MEASURE the deflation directly on the raw UNGAUGED
+    //      junction eigenvector (issue #509 review). Rather than infer the
+    //      deflation from the junction mode's disappearance in the projected
+    //      spectrum, obtain the UNGAUGED junction eigenvector (the ModeReport
+    //      path drops EigenPair.vector, so we call the ungauged-core +
+    //      projector measurement helper directly) and show its near-gradient
+    //      character with the two scalar diagnostics `P` acts on:
+    //        · divergence-ratio ‖GᵀMx‖/‖x‖_M  — O(1) for a near-gradient mode
+    //          (contrast the spurious mode's solenoidal 6.18e-15),
+    //        · projected-norm  ‖Px‖_M/‖x‖_M    — ≈ 0 (P deflates it away).
+    //      Targeting σ AT 17.49 GHz isolates the junction mode as the nearest
+    //      eigenpair. ------------------------------------------------------
+    let jsigma = lambda_shift_for_frequency_hz(PALACE_JUNCTION_MODE_GHZ * 1e9, M_PER_UNIT);
+    let ung_div = {
+        let edges = f.mesh.edges();
+        let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+        let metal = f.metal_triangles();
+        let exterior = f.exterior_boundary_triangles();
+        let interior_mask =
+            pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+        let epsilon_tensor = f.epsilon_tensor_r();
+        let scatter = NedelecScatterMap::new(&tet_edge_idx);
+        let (k_vals, m_vals) =
+            assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+        let jport = f.lumped_element_port();
+        let element = ReactiveElementNatural::from_si(JUNCTION_L_H, JUNCTION_C_F, M_PER_UNIT);
+        let shunt = LumpedReactiveShunt {
+            faces: &jport.faces,
+            length: jport.length,
+            width: jport.width,
+            element,
+        };
+        let pencil = TransmonPencil {
+            scatter: &scatter,
+            k_vals: &k_vals,
+            m_vals: &m_vals,
+            edges: &edges,
+            mesh: &f.mesh,
+            shunt,
+            interior_mask: &interior_mask,
+        };
+        geode_core::eigen::projection::ungauged_mode_divergences(&pencil, jsigma, 6, M_PER_UNIT)
+            .expect("ungauged junction-mode divergence measurement")
+    };
+
+    // The junction eigenvector is the one nearest 17.49 GHz.
+    let x_junction = ung_div
+        .iter()
+        .min_by(|a, b| {
+            (a.frequency_hz / 1e9 - PALACE_JUNCTION_MODE_GHZ)
+                .abs()
+                .partial_cmp(&(b.frequency_hz / 1e9 - PALACE_JUNCTION_MODE_GHZ).abs())
+                .unwrap()
+        })
+        .expect("no ungauged modes near the junction frequency");
+    eprintln!(
+        "DEFLATION MECHANISM (ungauged junction eigenvector): f = {:.4} GHz, p = {:.4}, \
+         divergence-ratio ‖GᵀMx‖/‖x‖_M = {:.4e}, projected-norm ‖Px‖_M/‖x‖_M = {:.4e}",
+        x_junction.frequency_hz / 1e9,
+        x_junction.participation,
+        x_junction.divergence_ratio,
+        x_junction.projected_norm_ratio,
+    );
+
+    // Sanity: we actually grabbed the junction mode (≤1% + p ≈ 1).
+    let j_rel =
+        (x_junction.frequency_hz / 1e9 - PALACE_JUNCTION_MODE_GHZ).abs() / PALACE_JUNCTION_MODE_GHZ;
+    assert!(
+        j_rel * 100.0 <= PALACE_BAR_PCT && x_junction.participation > 0.5,
+        "measured eigenvector is not the junction LC mode: f = {:.4} GHz ({:.4}%), p = {:.4}",
+        x_junction.frequency_hz / 1e9,
+        j_rel * 100.0,
+        x_junction.participation
+    );
+
+    // MEASURE 1: the junction eigenvector is a NEAR-GRADIENT field — its
+    // divergence ratio is macroscopic, measured 5.0173e1 on the real 133k-DOF
+    // fixture (2026-07-14), in stark contrast to the spurious mode's
+    // solenoidal 6.18e-15. Threshold pinned at 1e-2 (≈3500× margin below the
+    // measured value; a machine-zero here would mean the mode became
+    // solenoidal and the deflation story changed).
+    assert!(
+        x_junction.divergence_ratio > 1e-2,
+        "junction eigenvector should be near-gradient (macroscopic divergence ratio ~5e1), \
+         got {:.4e} — if this is now machine-zero the mode is solenoidal and the deflation \
+         story changed; re-measure and update results.toml",
+        x_junction.divergence_ratio
+    );
+    // MEASURE 2: `P` deflates it — the projected M-norm collapses toward zero
+    // (the mode lives almost entirely in image(d⁰_interior)). Measured
+    // 1.0638e-4 (2026-07-14); threshold pinned at 0.1 (≈940× margin above the
+    // measured value; ≈1 would mean P now leaves the mode in place).
+    assert!(
+        x_junction.projected_norm_ratio < 0.1,
+        "P should deflate the near-gradient junction mode (‖Px‖_M/‖x‖_M ≈ 0), got {:.4e} — \
+         if P now leaves it in place the deflation no longer holds; re-measure and update \
+         results.toml",
+        x_junction.projected_norm_ratio
+    );
+}
+
 /// The sorted mode frequencies (GHz) of a solve, for diagnostic printing.
 fn freqs(ms: &[ModeReport]) -> Vec<f64> {
     let mut v: Vec<f64> = ms
@@ -930,6 +1348,50 @@ fn solve_real_fixture_gauged(
         &pencil, sigma, n_modes, M_PER_UNIT,
     )
     .expect("real transmon gauged eigensolve")
+}
+
+/// As [`solve_real_fixture`] but through the divergence-free **projected**
+/// entry point [`solve_transmon_eigenmodes_projected`] (issue #509). Returns
+/// the modes and the projection diagnostics.
+fn solve_real_fixture_projected(
+    f: &TransmonFixture,
+    sigma_f_hz: f64,
+    n_modes: usize,
+) -> (
+    Vec<ModeReport>,
+    geode_core::eigen::projection::ProjectionDiagnostics,
+) {
+    let edges = f.mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+    let epsilon_tensor = f.epsilon_tensor_r();
+    let scatter = NedelecScatterMap::new(&tet_edge_idx);
+    let (k_vals, m_vals) = assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+    let jport = f.lumped_element_port();
+    let element = ReactiveElementNatural::from_si(JUNCTION_L_H, JUNCTION_C_F, M_PER_UNIT);
+    let shunt = LumpedReactiveShunt {
+        faces: &jport.faces,
+        length: jport.length,
+        width: jport.width,
+        element,
+    };
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &edges,
+        mesh: &f.mesh,
+        shunt,
+        interior_mask: &interior_mask,
+    };
+    let sigma = lambda_shift_for_frequency_hz(sigma_f_hz, M_PER_UNIT);
+    geode_core::eigen::projection::solve_transmon_eigenmodes_projected(
+        &pencil, sigma, n_modes, M_PER_UNIT,
+    )
+    .expect("real transmon projected eigensolve")
 }
 
 /// As [`solve_real_fixture`] but with an explicit junction inductance (for

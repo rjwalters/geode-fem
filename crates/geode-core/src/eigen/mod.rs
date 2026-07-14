@@ -19,11 +19,17 @@
 //! - [`gauge`] — tree-cotree spanning-tree gauge that eliminates the
 //!   Nédélec gradient nullspace from the reduced pencil before the solve,
 //!   removing the spurious gradient-adjacent mode (issue #502).
+//! - [`projection`] — spectrum-preserving divergence-free (discrete-
+//!   Helmholtz) projection `P = I − G(GᵀMG)⁻¹GᵀM` for the eigen path: the
+//!   `M`-orthogonal deflation of the gradient subspace that removes the
+//!   spurious mode *without* shifting the physical spectrum (issue #509,
+//!   the spectrum-preserving alternative to the DOF-elimination `gauge`).
 
 pub mod complex;
 pub mod dense;
 pub mod gauge;
 pub mod lanczos;
+pub mod projection;
 pub mod self_consistent;
 pub mod transmon;
 
