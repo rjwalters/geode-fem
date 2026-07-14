@@ -529,3 +529,119 @@ fn matrix_free_rejects_wave_port_sweep() {
         "expected UnsupportedMatrixFree for wave-port matrix-free, got {res:?}"
     );
 }
+
+// ===========================================================================
+// 6. CUDA f32 smoke test — rented-EC2-box only, NEVER runs in CI.
+// ===========================================================================
+//
+// `burn-cuda 0.21` disables f64 (cubecl asserts !supports_dtype(F64)), so the
+// tight f64 driven-equivalence gates above cannot run on CUDA. This f32 leg is
+// the fast *correctness* companion to the multi-size wall-clock scaling bench
+// in `gpu_driven_scaling.rs` (issue #501 / PR #516, `#[ignore]` release bench,
+// `n ∈ {6, 9, 12, 15}`): where that bench measures how the driven solve scales,
+// this smoke is a single-fixture / single-ω gate that runs in the same
+// few-seconds-to-15s ballpark as the sibling smokes `matrix_free_cuda_f32_smoke`
+// (#483, 15.0s) and `cocg_burn_cuda_f32_smoke` (#487, 3.3s).
+//
+// It (a) drives one σ-lossy cube lumped-port solve through
+// `SolverMode::IterativeMatrixFree` on the `Cuda` backend at f32 and asserts it
+// *converges* (records iterations), and (b) compares the port impedance `Z(ω)`
+// back to the f64 `Direct` (faer sparse-LU) reference computed on the ndarray
+// `TestBackend`. The tolerance is sized from the measured f32 reality on PR
+// #516's GPU run — at this small size the f32 matrix-free path lands ~1e-4 of
+// Direct — so the gate is `rel-Z < 1e-3` (a loose f32-appropriate band, NOT the
+// tight `1e-6` f64 gate in `driven_frequency_sweep_matrix_free_matches_direct`
+// above).
+//
+// Both `cuda`-feature-gated and `#[ignore]`d so `cargo test` (default features,
+// no ignored tests) skips it in CI; run explicitly on the box with
+// `cargo test -p geode-core --features cuda --test driven_matrix_free_equivalence \
+//    -- --ignored driven_matrix_free_cuda_f32_smoke`.
+#[cfg(feature = "cuda")]
+#[test]
+#[ignore = "CUDA f32 smoke — rented EC2 box only, not CI (burn-cuda 0.21 has no f64)"]
+fn driven_matrix_free_cuda_f32_smoke() {
+    use burn::backend::Cuda;
+
+    // Same σ-lossy parallel-plate cube lumped-port fixture as
+    // `driven_frequency_sweep_matrix_free_matches_direct`, kept small: grid=4,
+    // single lumped port, single ω (no sweep) — a fast correctness gate.
+    let mesh = cube_tet_mesh(4, 1.0);
+    let edges = mesh.edges();
+    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
+    let eps = vacuum(&mesh);
+    let sigma_tet = vec![2.0_f64; mesh.n_tets()];
+    let port = LumpedPort {
+        faces: &port_faces,
+        e_hat: [0.0, 1.0, 0.0],
+        resistance: 1.0,
+        width: 1.0,
+        length: 1.0,
+        v_inc: c64::new(1.0, 0.0),
+    };
+    let omegas = [0.10_f64];
+
+    // f64 Direct reference (faer sparse LU) on the ndarray `TestBackend`.
+    let direct = driven_frequency_sweep::<B>(
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
+        Some(&sigma_tet),
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        std::slice::from_ref(&port),
+        &[],
+        &omegas,
+        &zero_source(&mesh),
+        &device(),
+    )
+    .expect("direct sweep (f64 reference)");
+
+    // CUDA-f32 matrix-free driven solve. A loose f32 COCG stopping tolerance is
+    // appropriate — f32 cannot reach the 1e-10 the f64 gates request.
+    type Cu = Cuda;
+    let dev_cu = <Cu as BackendTypes>::Device::default();
+    let settings = IterativeSettings::new(1e-6, 5_000);
+    let matrix_free = driven_frequency_sweep_with_mode::<Cu>(
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
+        Some(&sigma_tet),
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        std::slice::from_ref(&port),
+        &[],
+        &omegas,
+        &zero_source(&mesh),
+        SolverMode::IterativeMatrixFree(settings),
+        &dev_cu,
+    )
+    .expect("matrix-free sweep (CUDA f32)");
+
+    assert_eq!(direct.len(), matrix_free.len());
+    let pt_d = &direct[0];
+    let pt_m = &matrix_free[0];
+
+    // (a) It converges — records a positive iteration count.
+    let iters = pt_m.iters_per_rhs[0];
+    assert!(
+        iters > 0,
+        "CUDA f32 smoke: matrix-free path must record iterations"
+    );
+
+    // (b) Port Z(ω) agrees with the f64 Direct reference at an f32-loose band.
+    let z_d = pt_d.ports[0].z;
+    let z_m = pt_m.ports[0].z;
+    let rel_diff = (z_d - z_m).norm() / z_d.norm().max(1e-30);
+    eprintln!(
+        "[#499 / driven CUDA f32 smoke] ω = {:.3}: Z_direct = {z_d}, \
+         Z_cuda_f32 = {z_m}, rel_diff = {:.3e}, BurnCOCG iters = {iters}, \
+         residual_rel = {:.3e}",
+        pt_d.omega, rel_diff, pt_m.residual_rel,
+    );
+    assert!(
+        rel_diff < 1e-3,
+        "CUDA f32 smoke: Z agreement |Z_d − Z_mf| / |Z_d| = {rel_diff} (f32 tol 1e-3)"
+    );
+}
