@@ -25,7 +25,7 @@ junction_capacitance_ff = 5.5
 solver = "SparseShiftInvertLanczos (real, faer sparse LU)"
 assembly = "sparse full-tensor Nédélec (Re parts; imag ≈ 0, lossless sapphire), K_port/M_port surface triplets added, interior reduction"
 notes = [
-  "Junction participation p = (xᵀ K_port x) / (xᵀ (K + K_port) x): the junction LC mode has p ≈ 1, all cavity modes p ≈ 0.",
+  "Junction participation (geode-fem's stiffness-participation metric) p = (xᵀ K_port x) / (xᵀ (K + K_port) x): the junction LC mode has p ≈ 1, all cavity modes p ≈ 0. This is NOT the same quantity as Palace's field-based port-EPR (see [oracles.palace] note); the two are complementary, differently-normalized diagnostics that rank modes differently, so cross-solver mode-ID rests on frequency agreement, not participation agreement.",
   "The junction LC self-resonance f_LC = 1/(2π√(LC)) = 17.60 GHz; the p ≈ 1 mode at 17.49 GHz is that physical junction mode.",
   "A spurious junction-surface-localized mode appears near 3.45 GHz below the physical band: geode-fem's Lanczos lacks the divergence-free projection Palace applies, so a gradient-nullspace-adjacent mode leaks in. It is NOT a physical mode (absent from Palace's spectrum) and is filtered by comparing against the committed oracle. Removing it is a follow-on (a div-free / tree-cotree gauge on the eigen path); it does not affect the physical-mode cross-validation.",
   "Readout ports port_1/port_2 left OPEN (lossless v1); their 50 Ω would make the pencil complex (lossy Q), which is out of scope v1.",
@@ -76,6 +76,31 @@ bar_pct = 1.0
 worst_case_rel_err_pct = 0.032
 all_physical_modes_within_bar = true
 
+# Measured values behind the paper's tripwire + spurious-mode claims
+# (Epic #476, measured 2026-07-14). Committed here so every paper number
+# traces to a committed artifact.
+[tripwires.junction_l_doubling]
+# tripwire_real_junction_l_doubling: doubling the junction inductance L
+# shifts the p ≈ 1 junction LC mode DOWN by the √L scaling (f ∝ 1/√(LC),
+# so 2L → 1/√2 ≈ 0.7071). Measured on the real 157k-DOF fixture.
+base_f_ghz = 17.4901
+doubled_f_ghz = 12.37
+ratio = 0.7071          # = 1/√2 (√L scaling), matches within slack
+prediction = 0.70710678 # 1/√2
+test = "crates/geode-core/tests/transmon_eigenmode.rs::tripwire_real_junction_l_doubling"
+
+[spurious_mode]
+# A junction-surface-localized mode below the physical band: geode-fem's
+# real Lanczos lacks the divergence-free projection Palace applies, so a
+# gradient-nullspace-adjacent mode leaks in. It has NO Palace counterpart
+# and is EXCLUDED from the physical set (and from the ≤1% gate). Its high
+# geode-fem stiffness-participation is exactly why participation alone
+# cannot identify physical modes — frequency-matching against the Palace
+# oracle is what filters it out.
+f_ghz = 3.4528
+participation = 0.9942  # geode-fem stiffness-participation (spurious, excluded)
+excluded = true
+
 [oracles.palace]
 status = "populated"
 palace_version = "fba6a5b"
@@ -87,6 +112,18 @@ config_provenance = "reference/fixtures/transmon_palace/palace_config.provenance
 results_dir = "reference/fixtures/transmon_palace/results_p1/ (eig.csv, port-EPR.csv, palace_run_v22.log)"
 # Palace eig.csv Re{f} (GHz), lowest 6 eigenmodes, Order 1, same mesh.
 palace_modes_ghz = [5.151335830348, 15.46052107794, 17.49010903536, 18.69165792915, 20.69755679425, 26.08089940472]
-# Palace port-EPR p[1] per mode: only the 17.49 GHz mode has appreciable
-# junction energy-participation ratio; matches geode-fem's p ≈ 1 there.
-note = "Palace eigenmode run on the IDENTICAL mesh (MSH 2.2 conversion, node-preserving), junction as reactive LumpedPort (L ∥ C, no R), PEC metal+exterior, readout ports open, Order 1 (matched to geode-fem first-order Nédélec). Every geode-fem physical mode agrees with Palace to ≤0.032% — the ≤1% same-mesh bar is met with 25× margin. A p=2 config (palace_config_p2.json) is committed for the non-gating Phase-D convergence preview."
+# Palace port-EPR p[1] per mode (committed results_p1/port-EPR.csv). NOTE:
+# geode-fem's participation and Palace's port-EPR are COMPLEMENTARY,
+# differently-normalized diagnostics that do NOT rank modes the same way,
+# and must not be read as a cross-solver mode-ID agreement. geode-fem's
+# metric is a stiffness-participation ratio p = xᵀ K_port x / xᵀ (K + K_port) x
+# (energy fraction stored in the junction inductor), which is ≈ 1 on the
+# 17.49 GHz junction LC mode and ≈ 0 on every cavity mode. Palace's
+# port-EPR.csv is a field-based, differently-normalized quantity: on this
+# committed run the 17.49 GHz junction mode (m=3) actually has the SMALLEST
+# |p[1]| of the six (+2.49e-08), and the LARGEST is the 5.15 GHz mode (m=1,
+# −4.71e-04) — the opposite ranking to geode-fem's stiffness participation.
+# The cross-solver mode identification therefore rests on FREQUENCY agreement
+# (the junction mode is 17.4901 GHz in BOTH solvers, matching f_LC ≈ 17.60 GHz),
+# NOT on participation agreement.
+note = "Palace eigenmode run on the IDENTICAL mesh (MSH 2.2 conversion, node-preserving), junction as reactive LumpedPort (L ∥ C, no R), PEC metal+exterior, readout ports open, Order 1 (matched to geode-fem first-order Nédélec). Every geode-fem physical mode agrees with Palace to ≤0.032% — the ≤1% same-mesh bar is met with 25× margin, and the cross-solver mode identification rests on this frequency agreement (17.4901 GHz junction mode in both solvers), NOT on participation agreement (geode-fem's stiffness-participation p and Palace's field port-EPR are complementary, differently-normalized diagnostics that rank the modes differently — see the port-EPR note above). A p=2 config (palace_config_p2.json) is committed for the non-gating Phase-D convergence preview."

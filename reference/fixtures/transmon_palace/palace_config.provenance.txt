@@ -24,9 +24,19 @@ Phase-D convergence preview).
 
 operator / agent workflow (EC2 box):
 1. scp the mesh + palace_config.json to the box
-2. /home/ubuntu/palace/build/bin/palace palace_config.json
-3. Palace writes postpro/transmon_p1/eig.csv (mode frequencies).
-4. Populate benchmarks/transmon_eigen/results.toml [oracles.palace]
+2. CONVERT the mesh to MSH 2.2 first — MFEM's MSH 4.1 reader REJECTS the
+committed DeviceLayout fixture with
+'Gmsh file: vertices indices are not unique'
+(the multi-entity-block MSH 4.1 file repeats vertex indices across
+entity blocks). Required prior step:
+gmsh <fixture>.msh -0 -save -format msh2 -o <mesh22>.msh
+This is physics-neutral: the node set is unchanged (22684 nodes,
+1..22684) and physical groups are preserved, so eig.csv reproduces
+bit-for-bit across the conversion. palace_config.json must point at
+the CONVERTED <mesh22>.msh.
+3. /home/ubuntu/palace/build/bin/palace palace_config.json
+4. Palace writes postpro/transmon_p1/eig.csv (mode frequencies).
+5. Populate benchmarks/transmon_eigen/results.toml [oracles.palace]
 with the per-mode f_ghz + this provenance SHA, then gate the
 <= 1% same-mesh comparison in tests/transmon_eigenmode.rs.
 
