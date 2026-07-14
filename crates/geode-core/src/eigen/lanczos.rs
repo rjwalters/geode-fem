@@ -116,7 +116,7 @@ use crate::eigen::parallel::{ParallelismGuard, resolve_num_threads};
 /// trying to reach. This keeps the shift-invert operator `A⁻¹M` accurate
 /// enough that the Lanczos recurrence is not polluted by inner-solve
 /// residual noise, while avoiding over-solving early iterations. See
-/// [`SparseShiftInvertLanczos::inner_tol`].
+/// the private `inner_tol` method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InnerSolver {
     /// Form `A = K − σM` and factor it once with faer's sparse LU. Fast to
