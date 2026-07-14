@@ -171,6 +171,62 @@ projection_junction_mode_deflated_pct = 6.88  # junction LC mode removed (ungaug
 projection_junction_divergence_ratio = 5.0173e1  # ‖GᵀMx‖/‖x‖_M of the UNGAUGED junction eigenvector (near-gradient; spurious mode = 6.18e-15)
 projection_junction_projected_norm_ratio = 1.0638e-4  # ‖Px‖_M/‖x‖_M ≈ 0 → P deflates the junction mode
 followon_issue = 514  # Port-aware divergence-free projection — eigen-gauge saga, chapter 3
+#
+# PORT-AWARE PROJECTION — issue #514 CLEAN POSITIVE (measured 2026-07-14):
+# construction (b2), deflate image(d⁰) ⊖ span{û}. The bulk projector deflates
+# the junction LC mode because that mode is 99.99% gradient (projected-norm
+# ratio 1.0638e-4 above); the port-aware projector re-admits exactly that one
+# direction with a rank-1 M-orthogonal update:
+#   P' = P + û ûᵀ M,   û = (I−P)x_junction / ‖(I−P)x_junction‖_M,
+# where x_junction is the ungauged junction eigenvector (extracted by a small
+# ungauged shift-invert solve near 17.49 GHz; participation-selected). P' is a
+# genuine M-orthogonal projector onto (divergence-free subspace) ⊕ span{û}:
+# identity on the cavity modes AND on the junction flux direction, annihilator
+# of the other 13,746 gradient directions (algebra unit-tested in
+# eigen::projection: port_aware_projector_readmits_one_gradient_direction,
+# port_aware_solve_retains_the_gradient_mode). This is a COMPOSITE solver (one
+# ungauged extract + one port-aware band solve), shipped via
+# crate::eigen::projection::solve_transmon_eigenmodes_port_aware. Pinned in
+# tests/transmon_eigenmode.rs::real_transmon_port_aware_retains_all_six_modes.
+#
+# RESULT — ALL SIX physical modes ≤1% INCLUDING the junction, gradient cluster
+# gone (1 near-zero survivor, down from 13,747), both prior-negative pin tests
+# (#502, #509) green and unmodified:
+port_aware_solver = "solve_transmon_eigenmodes_port_aware (composite: ungauged junction extract + port-aware band Lanczos with P' = P + û ûᵀ M)"
+port_aware_all_six_modes_within_bar = true
+port_aware_worst_case_rel_err_pct = 0.0289  # worst of the six (mode 5.15 GHz)
+port_aware_junction_retained_pct = 0.0000   # 17.4901 GHz, p = 1.000 — the #509 negative FLIPPED
+port_aware_gradient_cluster_near_zero_modes = 1  # 13,747-mode cluster removed
+port_aware_junction_divergence_ratio = 5.017e1  # the retained junction mode's div-ratio (O(1), re-admitted gradient flux — expected, NOT a defect)
+#
+# 3.4528 GHz SPURIOUS-MODE CHARACTERIZATION — issue #514 (measured 2026-07-14,
+# tests/transmon_eigenmode.rs::characterize_spurious_3p45_mode). Two
+# discriminating measurements settle its nature:
+#   1. L-SCALING (the port-artifact discriminator): applying the L-doubling
+#      harness (solve_real_fixture_with_l) to the SPURIOUS mode, doubling the
+#      junction inductance L shifts it 3.4528 → 2.4449 GHz, ratio 0.7081 —
+#      essentially the junction √L law 1/√2 = 0.7071 (a box/mesh mode would
+#      stay FIXED, ratio 1.0000). The mode is therefore L-SENSITIVE: it is
+#      driven by the reactive port term K_port = (ℓ/(w·L̃))·S_Γ, a genuine
+#      port/junction artifact, NOT a box mode.
+#   2. LOCALIZATION: stiffness-participation p = 0.9942 — ~99.4% of the mode's
+#      stiffness energy sits in the K_port surface term (near-total junction-
+#      patch localization).
+# MECHANISM (narrowed): the 3.4528 GHz mode is a SECOND LC-like resonance of
+# the S_Γ port surface operator — a K_port-driven, junction-localized eigenmode
+# obeying the same 1/√L law as the physical junction LC mode, with no
+# cavity/box counterpart. Palace's LumpedPort formulation represents the port
+# DOFs differently (eliminated port unknowns vs. our S_Γ surface term added to
+# the full-space K), so this surface-operator eigenmode has NO Palace analogue —
+# which is exactly why it is absent from Palace's spectrum. It is genuinely
+# solenoidal (div-ratio ≈ 6e-15), so NO divergence-free projection (bulk OR
+# port-aware) removes it; it remains filtered by frequency-matching against the
+# Palace oracle, unchanged.
+spurious_l_scaling_base_f_ghz = 3.4528
+spurious_l_scaling_doubled_f_ghz = 2.4449
+spurious_l_scaling_ratio = 0.7081        # ≈ 1/√2 = 0.7071 (junction √L law; box mode would be 1.0000)
+spurious_l_scaling_verdict = "L-sensitive port/junction artifact (K_port-driven surface-operator LC resonance), NOT a box/mesh mode"
+spurious_localization_participation = 0.9942  # ~99.4% stiffness energy in K_port surface term
 
 [oracles.palace]
 status = "populated"
