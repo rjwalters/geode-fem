@@ -877,6 +877,22 @@ pub struct DrivenOperator {
     rhs_im: Vec<f64>,
 }
 
+/// Borrowed view of one port's ω-independent data, handed to the
+/// transient time-domain solver ([`crate::driven::transient`]) via
+/// [`DrivenOperator::port_transient_data`].
+pub(crate) struct PortTransientData<'a> {
+    /// Interior-remapped tangential-surface-mass triplets `S_p`.
+    pub(crate) mass_triplets: &'a [(usize, usize, f64)],
+    /// Full-length port flux functional `f_i = ∮ N_i · ê dS`.
+    pub(crate) flux: &'a [f64],
+    /// Surface impedance `Z_s = R·w/ℓ`.
+    pub(crate) z_s: f64,
+    /// Gap length `ℓ`.
+    pub(crate) length: f64,
+    /// Lumped resistance `R`.
+    pub(crate) resistance: f64,
+}
+
 impl DrivenOperator {
     /// Assemble the ω-independent operator: Burn volume assembly of
     /// `K`, `M(ε)`, `C(σ)` and the source moments, host-side port /
@@ -1512,6 +1528,92 @@ impl DrivenOperator {
     /// eliminated edges).
     fn scatter_to_full(&self, x_int: &[c64]) -> Vec<c64> {
         let mut e_edges = vec![c64::new(0.0, 0.0); self.n_edges];
+        for (full_idx, &ri) in self.remap.iter().enumerate() {
+            if ri >= 0 {
+                e_edges[full_idx] = x_int[ri as usize];
+            }
+        }
+        e_edges
+    }
+
+    // ---- Crate-internal accessors for the transient time-domain solver ----
+    //
+    // The transient integrator ([`crate::driven::transient`]) reuses the
+    // ω-independent K / M / C(σ) value tensors and the per-port surface
+    // masses this operator caches, folding them into a real second-order
+    // ODE system `M ẍ + C_total ẋ + K x = f(t)`. These `pub(crate)`
+    // accessors expose exactly the ω-independent data that folding needs —
+    // no behaviour change to the driven path, and nothing leaks past the
+    // crate boundary. See the module-level docs of `transient.rs` for the
+    // mapping from `assemble_a_at`'s frequency-domain combination to the
+    // time-domain matrices.
+
+    /// Interior-remapped `(row, col)` indices of every kept sparsity
+    /// entry, aligned with [`DrivenOperator::k_vals`] /
+    /// [`DrivenOperator::m_vals`] / [`DrivenOperator::c_vals`].
+    pub(crate) fn rows(&self) -> &[usize] {
+        &self.rows
+    }
+
+    /// Column indices aligned with [`DrivenOperator::rows`].
+    pub(crate) fn cols(&self) -> &[usize] {
+        &self.cols
+    }
+
+    /// Complex stiffness values `K` aligned with the sparsity entries.
+    pub(crate) fn k_vals(&self) -> &[c64] {
+        &self.k_vals
+    }
+
+    /// Complex mass values `M(ε)` aligned with the sparsity entries.
+    pub(crate) fn m_vals(&self) -> &[c64] {
+        &self.m_vals
+    }
+
+    /// Real conductivity-damping values `C(σ)` aligned with the sparsity
+    /// entries, if a σ was supplied at assembly.
+    pub(crate) fn c_vals(&self) -> Option<&[f64]> {
+        self.c_vals.as_deref()
+    }
+
+    /// Whether any Leontovich impedance surface is present (its
+    /// ω-dependent coefficient makes the operator non-polynomial in iω,
+    /// so the transient constructor rejects it).
+    pub(crate) fn has_surfaces(&self) -> bool {
+        !self.surfaces.is_empty()
+    }
+
+    /// Per-port ω-independent transient data: the interior-remapped
+    /// tangential-surface-mass triplets `S_p`, the full-length flux
+    /// functional `f_i = ∮ N_i · ê dS`, the surface impedance
+    /// `Z_s = R·w/l`, the gap length `ℓ`, and the lumped resistance `R`.
+    /// Folded by the transient solver into `C_total += S_p / Z_p` and
+    /// the drive `f(t) = (2/(Z_p·ℓ)) f_i · dV_inc/dt`.
+    pub(crate) fn port_transient_data(&self, p: usize) -> PortTransientData<'_> {
+        let port = &self.ports[p];
+        PortTransientData {
+            mass_triplets: &port.mass_triplets,
+            flux: &port.flux,
+            z_s: port.z_s,
+            length: port.length,
+            resistance: port.resistance,
+        }
+    }
+
+    /// Interior-filter a full-length real vector through the PEC mask,
+    /// dropping the eliminated entries (same filtering the RHS uses).
+    pub(crate) fn filter_interior_real(&self, full: &[f64]) -> Vec<f64> {
+        self.pec_interior_mask
+            .iter()
+            .zip(full.iter())
+            .filter_map(|(&keep, &v)| if keep { Some(v) } else { None })
+            .collect()
+    }
+
+    /// Scatter an interior-DOF **real** solution back into the
+    /// full-length `[n_edges]` edge vector (zeros on PEC edges).
+    pub(crate) fn scatter_to_full_real(&self, x_int: &[f64]) -> Vec<f64> {
+        let mut e_edges = vec![0.0_f64; self.n_edges];
         for (full_idx, &ri) in self.remap.iter().enumerate() {
             if ri >= 0 {
                 e_edges[full_idx] = x_int[ri as usize];

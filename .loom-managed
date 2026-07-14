@@ -1,6 +1,6 @@
 # Loom-managed worktree marker
 # Created by .loom/scripts/worktree.sh
-# Issue: 478
-# Branch: feature/issue-478
+# Issue: 484
+# Branch: feature/issue-484
 # Removing this file makes Loom treat the worktree as user-owned and refuse
 # to clean it up automatically.
