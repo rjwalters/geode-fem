@@ -1,0 +1,8 @@
+# Anvil-owned .gitignore — suppresses the Python runtime artifacts the anvil
+# installer's own .anvil/ footprint generates (bytecode caches under the
+# .anvil/anvil/ mirror + the uv venv at .anvil/.venv/). Patterns are relative
+# to this directory. The installer writes this file once (skip-if-exists), so
+# any local additions you make here survive re-install.
+__pycache__/
+*.py[cod]
+.venv/
