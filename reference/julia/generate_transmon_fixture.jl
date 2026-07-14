@@ -21,8 +21,13 @@
 # refresh the per-group element-count assertions in
 # `crates/geode-core/tests/transmon_mesh.rs`.
 #
+# STATUS: the real mesh HAS been generated (DeviceLayout.jl v1.15.0, on the
+# EC2 box carrying issue #490's Julia+Cairo environment, 2026-07-14 UTC) and
+# is the committed `transmon_smoke.msh`. The historical toolchain gap (below)
+# is kept for context; the placeholder fixture it describes has been retired.
+#
 # ─────────────────────────────────────────────────────────────────────
-# TOOLCHAIN GAP (why a placeholder fixture ships first)
+# TOOLCHAIN GAP (historical — why a placeholder fixture shipped first)
 # ─────────────────────────────────────────────────────────────────────
 #
 # DeviceLayout.jl (v1.15.0, verified 2026-07-13) unconditionally
@@ -31,12 +36,12 @@
 # (`UndefVarError: libpango not defined` — a broken Pango_jll/Cairo_jll
 # artifact), so `import DeviceLayout` errors before any mesh can be
 # generated. This is the established "builders/Doctors cannot run Julia
-# locally" toolchain gap. Until an operator runs this script in a working
-# Julia+Cairo environment, the adapter is developed and CI-tested against
-# a gmsh-generated PLACEHOLDER carrying the identical group schema
-# (`reference/gmsh/transmon_placeholder.geo` /
-# `generate_transmon_placeholder.py`). The real DeviceLayout mesh is a
-# drop-in replacement — same group names, same adapter, updated counts.
+# locally" toolchain gap. It was resolved by generating the mesh on the
+# issue-#490 EC2 box (a working Julia+Cairo environment); the earlier
+# gmsh-generated PLACEHOLDER (`reference/gmsh/transmon_placeholder.geo` /
+# `generate_transmon_placeholder.py`) has been retired in favor of the real
+# DeviceLayout mesh — same group NAMES, same adapter (which resolves groups
+# by name), updated counts.
 #
 # ─────────────────────────────────────────────────────────────────────
 # PROVENANCE / UPSTREAM FACTS (cite-checked against the installed
@@ -123,8 +128,10 @@ function generate(out_path::AbstractString)
     SolidModels.gmsh.model.mesh.generate(3)
 
     # `DeviceLayout.save` wraps `gmsh.write(filename)`; a `.msh` extension
-    # (not `.msh2`) yields the most-recent (4.1) Gmsh format.
-    save(out_path, sm)
+    # (not `.msh2`) yields the most-recent (4.1) Gmsh format. Fully
+    # qualified — `save` is not exported by DeviceLayout, so a bare `save`
+    # call fails to resolve in a working Julia env.
+    DeviceLayout.save(out_path, sm)
 
     attrs = SolidModels.attributes(sm)
     println("\n--- physical groups (name → gmsh attribute/tag) ---")

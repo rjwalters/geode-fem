@@ -1,50 +1,62 @@
 fixture:        transmon_smoke.msh
-kind:           PLACEHOLDER (schema-faithful stand-in — NOT DeviceLayout.jl)
-sha256:         77c3d25ab8fe5b46a47af29afc550bed39b059c2ae484c8bcd68fca53c1858e2
-generated:      2026-07-14T03:23:45+00:00
-gmsh version:   4.15.2-git
-script:         reference/gmsh/transmon_placeholder.geo
-wrapper:        reference/gmsh/generate_transmon_placeholder.py
-parameters:     transmon_placeholder_smoke.yaml
-real-fixture:   reference/julia/generate_transmon_fixture.jl (operator-assisted)
-swap-note:      replace with the DeviceLayout mesh + update the
-                per-group counts in tests/transmon_mesh.rs when the
-                operator generates the real fixture.
+kind:           REAL — DeviceLayout.jl SingleTransmon mesh (MSH 4.1 ASCII, Tet4)
+sha256:         5b3ff4c357a4dc905e7a2e42abc8178778b626e47582c7bbe610f95d332b33dd
+generated:      2026-07-14T00:00:00+00:00 (UTC) on the issue-#490 EC2 box
+                (a working Julia + Cairo environment)
+package:        DeviceLayout.jl v1.15.0 (AWS aws-cqc/DeviceLayout.jl)
+julia driver:   reference/julia/generate_transmon_fixture.jl
+generator note: drives the upstream example's `single_transmon()` builder
+                (examples/SingleTransmon/SingleTransmon.jl) with
+                `wave_ports=false`, forces first-order Tet4 + MSH 4.1 ASCII
+                via `_force_first_order_msh41!()`, and writes with
+                `DeviceLayout.save(out_path, sm)`.
+one-line fix:   `save(out_path, sm)` → `DeviceLayout.save(out_path, sm)`
+                — `save` is not exported by DeviceLayout, so the bare call
+                fails to resolve; only manifested in a working Julia env.
+                This is the sole delta vs the script as previously committed.
 
-parameter values:
+parameter values (DeviceLayout `single_transmon()` defaults, blog
+optimization start [4.14, 5.591] GHz):
   geom:
-    chip_x: 900.0
-    chip_y: 600.0
-    h_sub: 120.0
-    h_vac: 300.0
-    margin: 120.0
-    pad_w: 160.0
-    pad_h: 120.0
-    pad_gap: 60.0
-    trace_w: 40.0
-    port_s: 40.0
-  mesh:
-    lc_metal: 45.0
-    lc_far: 130.0
+    cap_length:      620 um
+    cap_gap:         30 um
+    total_length:    5000 um
+    cpw_width:       10 um
+    cpw_gap:         6 um
+    readout_length:  2700 um   (wave_ports = false)
+    substrate:       4 mm x 3.7 mm
   materials:
-    substrate_eps_diag: 9.3, 9.3, 11.5
+    substrate_eps_diag: 9.3, 9.3, 11.5   (sapphire, anisotropic + rotated)
     substrate_material_axes: [0.8,0.6,0.0],[-0.6,0.8,0.0],[0.0,0.0,1.0]
-    substrate_mu_diag: 0.99999975, 0.99999975, 0.99999979
+                          (~36.87 deg in-plane rotation → xy coupling)
+    substrate_mu_diag: 0.99999975, 0.99999975, 0.99999979   (~1)
     substrate_loss_tan: 3.0e-5, 3.0e-5, 8.6e-5
     vacuum_eps: 1.0
+  ports:
+    port_1 / port_2:  R = 50 ohm, Direction +X
+    lumped_element:   L = 14.860 nH, C = 5.5 fF, Direction +Y
+
+physical-group schema (name → gmsh attribute/tag, from the generator log):
+  NOTE: DeviceLayout lets Gmsh assign the numeric tags; the geode-fem
+  adapter resolves each group by NAME, not by these numbers.
+    (3, 1) substrate
+    (3, 2) vacuum
+    (2, 3) exterior_boundary
+    (2, 4) lumped_element
+    (2, 5) metal
+    (2, 6) port_1
+    (2, 7) port_2
 
 physical-group element counts (adapter test assertions):
-  (3, 1) substrate             1079 tets
-  (3, 2) vacuum                2316 tets
-  (2,11) metal                   88 tris
-  (2,12) port_1                   4 tris
-  (2,13) port_2                   4 tris
-  (2,14) lumped_element           4 tris
-  (2,15) exterior_boundary      658 tris
+  (3, 1) substrate             64549 tets
+  (3, 2) vacuum                68765 tets
+  (2, 3) exterior_boundary      1732 tris
+  (2, 4) lumped_element            4 tris
+  (2, 5) metal                 13084 tris
+  (2, 6) port_1                    4 tris
+  (2, 7) port_2                    4 tris
 
-quality report:
-  nodes: 755
-  tets: 3395
-  unique edges: 4478 (budget 150000)
-  inverted tets: 0
-  min dihedral angle: 11.80 deg
+mesh totals:
+  nodes:          22684
+  tets:           133314   (64549 substrate + 68765 vacuum)
+  tagged tris:    14828    (all surface triangles are tagged; 0 untagged)
