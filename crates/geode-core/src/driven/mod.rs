@@ -12,6 +12,10 @@
 //!   self-resonance extraction built on the driven solver.
 //! - [`scattering`] — plane-wave scattering with a matched UPML, Mie
 //!   polarization sources, and radiated/extinction power integrals.
+//! - [`matrix_free`] — the GPU-resident matrix-free Krylov back-solve
+//!   ([`crate::driven::solve::SolverMode::IterativeMatrixFree`]): the Burn
+//!   volume pencil ([`crate::solver::ksp_burn`]) plus an on-device COO
+//!   correction for the small lumped-port / Leontovich surface terms.
 //! - [`transient`] — implicit second-order (generalized-α / Newmark-β)
 //!   time integration of the same `K`/`C`/`M` matrices the driven path
 //!   assembles, with a lumped-port time-domain drive and broadband
@@ -22,6 +26,7 @@
 //! a level, matching [`crate::eigen`].
 
 pub mod extraction;
+pub mod matrix_free;
 pub mod ports;
 pub mod scattering;
 pub mod solve;

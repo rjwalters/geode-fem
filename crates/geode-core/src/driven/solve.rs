@@ -144,6 +144,11 @@ pub enum DrivenError {
     Factorization(String),
     #[error("sparse solve failed: {0}")]
     Solve(String),
+    #[error(
+        "matrix-free solver (SolverMode::IterativeMatrixFree) does not support this \
+         configuration: {reason}"
+    )]
+    UnsupportedMatrixFree { reason: String },
 }
 
 /// Linear-solver selection for the per-ω back-solves used by the
@@ -197,6 +202,23 @@ pub enum SolverMode {
     /// cached sparse `A(ω)`, with the Jacobi preconditioner built once
     /// per ω and reused across RHS.
     Iterative(IterativeSettings),
+    /// **GPU-resident matrix-free** COCG path (issue #302 Phase 3 / PR
+    /// #487's [`crate::solver::ksp_burn::BurnCocg`]). Like
+    /// [`SolverMode::Iterative`] it never factors `A(ω)`, but it also
+    /// never *assembles* the volume pencil: the `K − ω²M(ε) + iωC(σ)`
+    /// matvec runs element-locally on Burn tensors
+    /// ([`crate::solver::ksp_burn::ComplexMatrixFreeOperator`]) with the
+    /// small port / Leontovich surface terms applied as an on-device COO
+    /// correction ([`crate::driven::matrix_free`]). The Krylov vectors
+    /// stay on-device; only O(1) scalars cross the host boundary per
+    /// iteration.
+    ///
+    /// **Opt-in and restricted (v1)**: only scalar **real** ε materials
+    /// are supported — [`DrivenMaterials::DiagTensor`] /
+    /// [`DrivenMaterials::MatchedUpml`] and wave-port sweeps are rejected
+    /// with a clean [`DrivenError`]; lumped ports and Leontovich surfaces
+    /// are handled. The default remains [`SolverMode::Direct`].
+    IterativeMatrixFree(IterativeSettings),
 }
 
 /// Tunable knobs for [`SolverMode::Iterative`].
@@ -875,6 +897,34 @@ pub struct DrivenOperator {
     /// parts), full edge length; `b(ω) = iω (rhs_re + i·rhs_im)`.
     rhs_re: Vec<f64>,
     rhs_im: Vec<f64>,
+    /// Which [`DrivenMaterials`] variant this operator was assembled
+    /// with. The matrix-free path ([`SolverMode::IterativeMatrixFree`])
+    /// only supports scalar-real ε; the guard reads this flag rather than
+    /// sniffing `k_vals` for a nonzero imaginary part (issue #493).
+    materials_kind: MaterialsKind,
+    /// Host-side ingredients for the matrix-free Krylov path, retained
+    /// only when the material is scalar-**real** (so the Burn
+    /// [`crate::solver::ksp_burn::ComplexMatrixFreeOperator`] — which
+    /// takes real per-tet ε/σ — can be rebuilt per ω without re-uploading
+    /// the mesh). `None` for tensor / matched-UPML materials, which the
+    /// matrix-free path rejects.
+    matrix_free: Option<crate::driven::matrix_free::MatrixFreeIngredients>,
+}
+
+/// Which [`DrivenMaterials`] variant a [`DrivenOperator`] was assembled
+/// with — a small stored flag so [`SolverMode::IterativeMatrixFree`] can
+/// reject anisotropic / matched-UPML materials at solver-prep time
+/// without inspecting the already-combined value tensors (issue #493).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MaterialsKind {
+    /// Scalar complex relative permittivity (may still be complex-valued;
+    /// the matrix-free path additionally requires it to be purely real,
+    /// tracked separately by whether `matrix_free` is populated).
+    Scalar,
+    /// Diagonal anisotropic ε tensor.
+    DiagTensor,
+    /// Matched (full Sacks) UPML materials.
+    MatchedUpml,
 }
 
 /// Borrowed view of one port's ω-independent data, handed to the
@@ -957,6 +1007,11 @@ impl DrivenOperator {
                 want: n_tets,
             });
         }
+        let materials_kind = match materials {
+            DrivenMaterials::Scalar(_) => MaterialsKind::Scalar,
+            DrivenMaterials::DiagTensor(_) => MaterialsKind::DiagTensor,
+            DrivenMaterials::MatchedUpml { .. } => MaterialsKind::MatchedUpml,
+        };
         let material_len = match materials {
             DrivenMaterials::Scalar(eps) => eps.len(),
             DrivenMaterials::DiagTensor(eps) => eps.len(),
@@ -1283,6 +1338,33 @@ impl DrivenOperator {
             })
             .collect();
 
+        // --- Matrix-free ingredients (issue #302 Phase 3) ---------------------
+        // Retain the host-side mesh + real per-tet ε/σ + interior mask needed
+        // to rebuild the Burn `ComplexMatrixFreeOperator` per ω, but only for
+        // scalar-**real** ε: the Burn operator takes real scalar ε/σ, so
+        // complex-ε (scalar PML), anisotropic, and matched-UPML materials are
+        // out of scope for the matrix-free path and leave `matrix_free = None`
+        // (the guard in `prepare_at` rejects them with a clean error).
+        let matrix_free = match materials {
+            DrivenMaterials::Scalar(eps) if eps.iter().all(|e| e.im == 0.0) => {
+                let epsilon_r: Vec<f64> = eps.iter().map(|e| e.re).collect();
+                let sigma = sigma_tet
+                    .map(|s| s.to_vec())
+                    .unwrap_or_else(|| vec![0.0_f64; n_tets]);
+                Some(crate::driven::matrix_free::MatrixFreeIngredients {
+                    nodes: mesh.nodes.clone(),
+                    tets: mesh.tets.clone(),
+                    tet_edge_idx: tet_idx.clone(),
+                    tet_edge_sign: tet_sign.clone(),
+                    n_edges,
+                    epsilon_r,
+                    sigma,
+                    interior_mask: bcs.pec_interior_mask.to_vec(),
+                })
+            }
+            _ => None,
+        };
+
         Ok(DrivenOperator {
             n_edges,
             n_interior,
@@ -1297,6 +1379,8 @@ impl DrivenOperator {
             ports: operator_ports,
             rhs_re,
             rhs_im,
+            materials_kind,
+            matrix_free,
         })
     }
 
@@ -1598,6 +1682,54 @@ impl DrivenOperator {
             length: port.length,
             resistance: port.resistance,
         }
+    }
+
+    /// Interior → full edge-index map: `interior_to_full()[i]` is the
+    /// full `[n_edges]` edge index of the `i`-th kept interior DOF, in
+    /// contiguous interior order (the inverse of the private `remap`
+    /// full→interior table on its non-eliminated entries).
+    ///
+    /// The matrix-free Krylov path ([`crate::driven::matrix_free`]) runs
+    /// in **full-edge** space (with an interior mask), while every stored
+    /// surface triplet (`port.mass_triplets`, [`OperatorSurface::s_vals`])
+    /// is **interior-remapped**; this map lifts those interior indices
+    /// back to full-edge space at setup time (issue #493 Gap 1).
+    pub(crate) fn interior_to_full(&self) -> Vec<usize> {
+        let mut inv = vec![0_usize; self.n_interior];
+        for (full_idx, &ri) in self.remap.iter().enumerate() {
+            if ri >= 0 {
+                inv[ri as usize] = full_idx;
+            }
+        }
+        inv
+    }
+
+    /// Number of Leontovich impedance surfaces.
+    pub(crate) fn n_surfaces(&self) -> usize {
+        self.surfaces.len()
+    }
+
+    /// Leontovich surface `i` as interior-remapped `(row, col, value)`
+    /// triplets of its real, ω-independent mass `S_Γ` (the nonzero subset
+    /// of the dense `s_vals` aligned with [`DrivenOperator::rows`] /
+    /// [`DrivenOperator::cols`]), together with its ω-dependent surface
+    /// model. The complex weak coefficient `iω/Z_s(ω)` is obtained from
+    /// the model via [`SurfaceImpedanceModel::weak_coefficient`] per ω, so
+    /// the matrix-free path re-applies it exactly as `assemble_a_at` does
+    /// (issue #493 Gap 2).
+    pub(crate) fn surface_mass_triplets(
+        &self,
+        i: usize,
+    ) -> (Vec<(usize, usize, f64)>, SurfaceImpedanceModel) {
+        let s = &self.surfaces[i];
+        let triplets = self
+            .rows
+            .iter()
+            .zip(self.cols.iter())
+            .zip(s.s_vals.iter())
+            .filter_map(|((&r, &c), &v)| if v != 0.0 { Some((r, c, v)) } else { None })
+            .collect();
+        (triplets, s.model)
     }
 
     /// Interior-filter a full-length real vector through the PEC mask,
@@ -1929,14 +2061,14 @@ pub struct BackSolveReport {
 /// every RHS; on the iterative path the Jacobi preconditioner is built
 /// once at construction and reused across every
 /// [`DrivenLinearSolver::back_solve`] call.
-pub struct DrivenLinearSolver<'a> {
+pub struct DrivenLinearSolver<'a, B: Backend> {
     op: &'a DrivenOperator,
     omega: f64,
     a_int: SparseColMat<usize, c64>,
-    backend: SolverBackend,
+    backend: SolverBackend<B>,
 }
 
-enum SolverBackend {
+enum SolverBackend<B: Backend> {
     Direct {
         // Boxed because the faer `Lu` factorization is large (~300 B);
         // boxing keeps the `SolverBackend` enum compact so the
@@ -1948,18 +2080,29 @@ enum SolverBackend {
         precond: crate::solver::ksp::JacobiPreconditioner,
         ksp: crate::solver::ksp::Cocg,
     },
+    /// GPU-resident matrix-free COCG (issue #302 Phase 3): the Burn
+    /// volume pencil plus the on-device COO surface correction, boxed to
+    /// keep the enum compact.
+    MatrixFree {
+        solver: Box<crate::driven::matrix_free::MatrixFreeSolver<B>>,
+    },
 }
 
-impl<'a> DrivenLinearSolver<'a> {
+impl<'a, B: Backend> DrivenLinearSolver<'a, B> {
     /// The frequency `ω` this handle was prepared at.
     pub fn omega(&self) -> f64 {
         self.omega
     }
 
-    /// `true` if this handle uses the iterative (COCG) back-solve path,
-    /// `false` for the direct LU path.
+    /// `true` if this handle uses an iterative (COCG) back-solve path —
+    /// either the assembled-CSR [`SolverMode::Iterative`] or the
+    /// matrix-free [`SolverMode::IterativeMatrixFree`] — `false` for the
+    /// direct LU path.
     pub fn is_iterative(&self) -> bool {
-        matches!(self.backend, SolverBackend::Iterative { .. })
+        matches!(
+            self.backend,
+            SolverBackend::Iterative { .. } | SolverBackend::MatrixFree { .. }
+        )
     }
 
     /// Solve with **all** baked excitations active (volume current
@@ -2063,6 +2206,15 @@ impl<'a> DrivenLinearSolver<'a> {
                     residual_rel: report.residual_rel,
                 })
             }
+            SolverBackend::MatrixFree { solver } => {
+                // The matrix-free solver handles the zero-RHS shortcut and
+                // the interior↔full lift internally (issue #302 Phase 3).
+                let report = solver.back_solve(b, out)?;
+                Ok(BackSolveReport {
+                    iters: report.iters,
+                    residual_rel: report.residual_rel,
+                })
+            }
         }
     }
 
@@ -2109,22 +2261,40 @@ impl DrivenOperator {
     /// - [`SolverMode::Iterative`]: build the Jacobi preconditioner from
     ///   `A(ω)`; the handle's `back_solve` runs a fresh
     ///   [`crate::solver::ksp::Cocg`] iteration per RHS.
+    /// - [`SolverMode::IterativeMatrixFree`]: build the Burn matrix-free
+    ///   volume pencil plus the on-device COO surface correction at ω
+    ///   ([`crate::driven::matrix_free`]); the handle's `back_solve` runs
+    ///   a [`crate::solver::ksp_burn::BurnCocg`] iteration per RHS with the
+    ///   Krylov vectors on-device.
     ///
-    /// In both cases the cached sparse `A(ω)` is held by the handle, so
-    /// [`DrivenLinearSolver::spmv_a`] is identical across modes (and
-    /// the same as [`FactoredDrivenOperator::spmv_a`]).
+    /// The cached sparse `A(ω)` is held by the handle in all three modes,
+    /// so [`DrivenLinearSolver::spmv_a`] is identical across modes. On the
+    /// matrix-free path the *solve* never touches `a_int` — it is retained
+    /// only so `spmv_a` (the wave-port residual check) keeps working; the
+    /// volume matvec runs element-locally on Burn tensors.
+    ///
+    /// # Matrix-free restrictions (v1)
+    ///
+    /// [`SolverMode::IterativeMatrixFree`] requires a scalar-**real** ε
+    /// material — [`DrivenMaterials::DiagTensor`] and
+    /// [`DrivenMaterials::MatchedUpml`] are rejected with
+    /// [`DrivenError::UnsupportedMatrixFree`]. Wave-port sweeps are guarded
+    /// at the `solve_wave_port_sweep_with_mode` call site, not here.
     ///
     /// # Errors
     ///
     /// [`DrivenError::SurfaceImpedanceSingular`], the sparse assembly
-    /// failures, the LU-factorization failure on the direct path, or
+    /// failures, the LU-factorization failure on the direct path,
     /// [`DrivenError::Solve`] wrapping a Jacobi-preconditioner setup
-    /// error (a zero / non-finite diagonal) on the iterative path.
-    pub fn prepare_at(
+    /// error (a zero / non-finite diagonal) on the iterative path, or
+    /// [`DrivenError::UnsupportedMatrixFree`] for an unsupported material
+    /// on the matrix-free path.
+    pub fn prepare_at<B: Backend>(
         &self,
         omega: f64,
         mode: SolverMode,
-    ) -> Result<DrivenLinearSolver<'_>, DrivenError> {
+        device: &B::Device,
+    ) -> Result<DrivenLinearSolver<'_, B>, DrivenError> {
         let a_int = self.assemble_a_at(omega)?;
         let backend = match mode {
             SolverMode::Direct => {
@@ -2139,6 +2309,38 @@ impl DrivenOperator {
                     .map_err(|e| DrivenError::Solve(format!("Jacobi preconditioner setup: {e}")))?;
                 let ksp = crate::solver::ksp::Cocg::new(settings.tol, settings.max_iters);
                 SolverBackend::Iterative { precond, ksp }
+            }
+            SolverMode::IterativeMatrixFree(settings) => {
+                let ing = self.matrix_free.as_ref().ok_or_else(|| {
+                    DrivenError::UnsupportedMatrixFree {
+                        reason: match self.materials_kind {
+                            MaterialsKind::Scalar => {
+                                "complex (lossy / PML) scalar ε is not supported by the \
+                                 matrix-free path (v1): it takes real per-tet ε only"
+                            }
+                            MaterialsKind::DiagTensor => {
+                                "anisotropic (DiagTensor) ε is not supported by the \
+                                 matrix-free path (v1)"
+                            }
+                            MaterialsKind::MatchedUpml => {
+                                "matched-UPML materials are not supported by the \
+                                 matrix-free path (v1)"
+                            }
+                        }
+                        .to_string(),
+                    }
+                })?;
+                let solver = crate::driven::matrix_free::MatrixFreeSolver::<B>::new(
+                    self,
+                    ing,
+                    omega,
+                    settings.tol,
+                    settings.max_iters,
+                    device,
+                )?;
+                SolverBackend::MatrixFree {
+                    solver: Box::new(solver),
+                }
             }
         };
         Ok(DrivenLinearSolver {

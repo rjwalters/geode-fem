@@ -320,6 +320,13 @@ pub struct ComplexMatrixFreeOperator<B: Backend> {
     op_sigma: MatrixFreeNedelecOperator<B>,
     /// Angular frequency ω.
     omega: f64,
+    /// Real part of the complex diagonal `d = diag(K) − ω²diag(M) + iω diag(C)`
+    /// (**before** inversion) — exposed via [`Self::complex_diagonal`] so the
+    /// surface-corrected composite operator ([`crate::driven::matrix_free`])
+    /// can add its surface-mass diagonal and form its own Jacobi inverse.
+    diag_re: Tensor<B, 1>,
+    /// Imag part of the complex diagonal (before inversion).
+    diag_im: Tensor<B, 1>,
     /// Real part of the complex inverse-diagonal (for Jacobi apply).
     inv_diag_re: Tensor<B, 1>,
     /// Imag part of the complex inverse-diagonal.
@@ -420,43 +427,23 @@ impl<B: Backend> ComplexMatrixFreeOperator<B> {
         let d_re = dk.sub(dm.mul_scalar(omega * omega));
         let d_im = dc.mul_scalar(omega);
 
-        // Masked (constrained) DOFs have a zero diagonal — set their
-        // inverse-diagonal to a safe (1 + 0i) so the Jacobi apply never divides
-        // by zero; the operator masking keeps those DOFs identically zero in
-        // every Krylov vector regardless.
         let mask_f: Vec<f64> = interior_mask
             .iter()
             .map(|&k| if k { 1.0 } else { 0.0 })
             .collect();
-        let mask = Tensor::<B, 1>::from_data(TensorData::new(mask_f.clone(), [n_edges]), &device);
-        let not_mask = Tensor::<B, 1>::from_data(
-            TensorData::new(
-                mask_f.iter().map(|&k| 1.0 - k).collect::<Vec<f64>>(),
-                [n_edges],
-            ),
-            &device,
-        );
+        let mask = Tensor::<B, 1>::from_data(TensorData::new(mask_f, [n_edges]), &device);
 
-        // On interior DOFs: inv = conj(d)/|d|². On constrained DOFs: inv = 1.
-        // Guard |d|² against underflow-to-zero on interior DOFs (a genuinely
-        // zero interior diagonal is a degenerate operator — fall back to 1 so
-        // the loop reports NotConverged rather than producing NaNs).
-        let mag2 = d_re.clone().powi_scalar(2).add(d_im.clone().powi_scalar(2));
-        // where mag2 == 0 within interior, replace with 1 to avoid NaN.
-        let mag2_safe = mag2.clone().add(not_mask.clone()); // constrained → +1 (nonzero)
-        let mag2_safe = mag2_safe
-            .clone()
-            .mask_fill(mag2_safe.clone().equal_elem(0.0), 1.0);
-        let inv_re_interior = d_re.div(mag2_safe.clone());
-        let inv_im_interior = d_im.neg().div(mag2_safe);
-        // Blend: interior keeps the reciprocal, constrained gets (1, 0).
-        let inv_diag_re = inv_re_interior.mul(mask.clone()).add(not_mask.clone());
-        let inv_diag_im = inv_im_interior.mul(mask.clone());
+        // Jacobi inverse-diagonal from the complex diagonal (safe on the
+        // masked DOFs). Shared with the surface-corrected composite operator.
+        let (inv_diag_re, inv_diag_im) =
+            safe_complex_inv_diag(d_re.clone(), d_im.clone(), mask.clone());
 
         Self {
             op_eps,
             op_sigma,
             omega,
+            diag_re: d_re,
+            diag_im: d_im,
             inv_diag_re,
             inv_diag_im,
             interior_mask: mask,
@@ -483,6 +470,27 @@ impl<B: Backend> ComplexMatrixFreeOperator<B> {
     /// Device the operator lives on.
     pub fn device(&self) -> &B::Device {
         &self.device
+    }
+
+    /// Angular frequency ω the pencil was built at.
+    pub fn omega(&self) -> f64 {
+        self.omega
+    }
+
+    /// The interior mask `[n_edges]` (`1.0` kept, `0.0` constrained).
+    pub fn interior_mask(&self) -> Tensor<B, 1> {
+        self.interior_mask.clone()
+    }
+
+    /// The complex diagonal `d = diag(K) − ω²diag(M) + iω diag(C)` of the
+    /// **volume** pencil (before inversion), as an on-device `(re, im)`
+    /// pair. The surface-corrected composite operator
+    /// ([`crate::driven::matrix_free`]) adds its surface-mass diagonal to
+    /// this before forming its own Jacobi inverse-diagonal (via
+    /// [`safe_complex_inv_diag`]), so the matrix-free Jacobi preconditioner
+    /// matches the assembled-`A(ω)` diagonal the CPU COCG path sees.
+    pub fn complex_diagonal(&self) -> (Tensor<B, 1>, Tensor<B, 1>) {
+        (self.diag_re.clone(), self.diag_im.clone())
     }
 
     /// Apply the complex pencil: `y = A(ω) · x`, four real block-applies.
@@ -584,6 +592,85 @@ fn scatter_elem_diag<B: Backend>(
     out
 }
 
+/// Form the safe complex Jacobi inverse-diagonal `inv = conj(d)/|d|²` from a
+/// complex diagonal `d = (d_re, d_im)` and an interior `mask` (`1.0` kept,
+/// `0.0` constrained).
+///
+/// Masked (constrained) DOFs have a zero diagonal, so their inverse is set to
+/// a safe `(1 + 0i)`; the operator masking keeps those DOFs identically zero
+/// in every Krylov vector regardless. A genuinely zero *interior* diagonal
+/// (a degenerate operator) also falls back to `1` so the loop reports
+/// non-convergence rather than producing NaNs. Shared between the volume
+/// [`ComplexMatrixFreeOperator`] and the surface-corrected composite operator
+/// ([`crate::driven::matrix_free`]) so both build their preconditioner the
+/// same way.
+pub fn safe_complex_inv_diag<B: Backend>(
+    d_re: Tensor<B, 1>,
+    d_im: Tensor<B, 1>,
+    mask: Tensor<B, 1>,
+) -> (Tensor<B, 1>, Tensor<B, 1>) {
+    // not_mask = 1 − mask (constrained DOFs).
+    let not_mask = mask.clone().neg().add_scalar(1.0);
+
+    let mag2 = d_re.clone().powi_scalar(2).add(d_im.clone().powi_scalar(2));
+    // Constrained → +1 (nonzero); then replace any remaining zeros with 1.
+    let mag2_safe = mag2.add(not_mask.clone());
+    let mag2_safe = mag2_safe
+        .clone()
+        .mask_fill(mag2_safe.clone().equal_elem(0.0), 1.0);
+
+    let inv_re_interior = d_re.div(mag2_safe.clone());
+    let inv_im_interior = d_im.neg().div(mag2_safe);
+    // Blend: interior keeps the reciprocal, constrained gets (1, 0).
+    let inv_diag_re = inv_re_interior.mul(mask.clone()).add(not_mask);
+    let inv_diag_im = inv_im_interior.mul(mask);
+    (inv_diag_re, inv_diag_im)
+}
+
+// ---------------------------------------------------------------------------
+// MatrixFreeComplexOperator — the operator seam BurnCocg iterates against
+// ---------------------------------------------------------------------------
+
+/// The on-device complex-symmetric operator interface [`BurnCocg`] drives.
+///
+/// [`ComplexMatrixFreeOperator`] is the volume-only implementation; the
+/// surface-corrected composite in [`crate::driven::matrix_free`] wraps a
+/// volume operator plus the small on-device COO port / Leontovich correction
+/// and implements the same trait, so `BurnCocg::solve` iterates against either
+/// without change (issue #302 Phase 3). The Jacobi apply and interior
+/// projection are part of the seam because the loop preconditions and
+/// sanitizes the RHS through them.
+pub trait MatrixFreeComplexOperator<B: Backend> {
+    /// Operator dimension (number of edge DOFs).
+    fn n_edges(&self) -> usize;
+    /// Device the operator tensors live on.
+    fn device(&self) -> &B::Device;
+    /// Project a split-complex vector onto the interior subspace.
+    fn project_interior(&self, v: &SplitComplex<B>) -> SplitComplex<B>;
+    /// Apply the complex operator `y = A(ω) · x`.
+    fn apply(&self, x: &SplitComplex<B>) -> SplitComplex<B>;
+    /// Jacobi preconditioner apply `z = M⁻¹ r`.
+    fn jacobi_apply(&self, r: &SplitComplex<B>) -> SplitComplex<B>;
+}
+
+impl<B: Backend> MatrixFreeComplexOperator<B> for ComplexMatrixFreeOperator<B> {
+    fn n_edges(&self) -> usize {
+        self.n_edges
+    }
+    fn device(&self) -> &B::Device {
+        &self.device
+    }
+    fn project_interior(&self, v: &SplitComplex<B>) -> SplitComplex<B> {
+        ComplexMatrixFreeOperator::project_interior(self, v)
+    }
+    fn apply(&self, x: &SplitComplex<B>) -> SplitComplex<B> {
+        ComplexMatrixFreeOperator::apply(self, x)
+    }
+    fn jacobi_apply(&self, r: &SplitComplex<B>) -> SplitComplex<B> {
+        ComplexMatrixFreeOperator::jacobi_apply(self, r)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // BurnCocg — the on-device COCG loop
 // ---------------------------------------------------------------------------
@@ -663,9 +750,9 @@ impl BurnCocg {
     /// Only O(1) scalars cross the host boundary per iteration; `b` is uploaded
     /// once by the caller and `x` downloaded once by the caller after this
     /// returns (see [`SplitComplex::upload`] / [`download`](SplitComplex::download)).
-    pub fn solve<B: Backend>(
+    pub fn solve<B: Backend, Op: MatrixFreeComplexOperator<B>>(
         &self,
-        op: &ComplexMatrixFreeOperator<B>,
+        op: &Op,
         b: &SplitComplex<B>,
     ) -> Result<(SplitComplex<B>, KspReport), KspError> {
         let n = op.n_edges();
@@ -766,8 +853,8 @@ impl BurnCocg {
 /// Recompute `‖A x − b‖₂ / ‖b‖₂` with an explicit on-device matvec (the same
 /// reliable figure the CPU path reports; the recursively-maintained `r` can
 /// drift on ill-conditioned systems).
-fn true_residual_rel<B: Backend>(
-    op: &ComplexMatrixFreeOperator<B>,
+fn true_residual_rel<B: Backend, Op: MatrixFreeComplexOperator<B>>(
+    op: &Op,
     x: &SplitComplex<B>,
     b: &SplitComplex<B>,
     b_norm: f64,

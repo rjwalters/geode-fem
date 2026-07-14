@@ -501,6 +501,18 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
             reason: "wave-port S-parameter extraction needs at least one port".to_string(),
         });
     }
+    // The rank-N SMW modal-Robin post-step composes over the assembled
+    // `A(ω)` via `DrivenLinearSolver::spmv_a` / `back_solve`; wiring it to the
+    // matrix-free `BurnCocg` is an explicit follow-on (issue #302 Phase 3).
+    // Guard here at the call site (not inside the shared `prepare_at`) so the
+    // lumped-port / Leontovich matrix-free path stays available.
+    if matches!(solver_mode, SolverMode::IterativeMatrixFree(_)) {
+        return Err(DrivenError::UnsupportedMatrixFree {
+            reason: "wave-port sweeps (rank-N SMW modal-Robin) are not yet wired to the \
+                     matrix-free path; use SolverMode::Direct or SolverMode::Iterative"
+                .to_string(),
+        });
+    }
     let edges = mesh.edges();
     let n_edges = edges.len();
 
@@ -619,7 +631,7 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
             // `DrivenLinearSolver::back_solve` (issue #264) so the
             // SMW arithmetic composes with both direct LU and
             // iterative COCG without touching the post-step pieces.
-            let solver = op.prepare_at(omega, solver_mode)?;
+            let solver = op.prepare_at::<B>(omega, solver_mode, device)?;
             let mut iters_per_rhs: Vec<usize> = Vec::with_capacity(2 * n_channels);
             let mut ainv_u: Vec<Vec<c64>> = Vec::with_capacity(n_channels);
             for col in fluxes_int.iter() {

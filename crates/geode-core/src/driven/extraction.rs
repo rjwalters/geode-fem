@@ -425,7 +425,7 @@ pub fn driven_frequency_sweep_with_mode<B: Backend>(
     omegas
         .iter()
         .map(|&omega| {
-            let solver = op.prepare_at(omega, solver_mode)?;
+            let solver = op.prepare_at::<B>(omega, solver_mode, device)?;
             let (sol, report) = solver.solve()?;
             let ports = (0..op.n_ports())
                 .map(|p| {
@@ -576,7 +576,7 @@ pub fn s_parameter_frequency_sweep_with_mode<B: Backend>(
             // One solver-handle prep (LU factor on direct, Jacobi build
             // on iterative), N back-substitutions per excitation
             // (issue #214 multi-RHS pattern; issue #264 solver-mode knob).
-            let solver = op.prepare_at(omega, solver_mode)?;
+            let solver = op.prepare_at::<B>(omega, solver_mode, device)?;
             let mut residual_rel = 0.0_f64;
             let mut iters_per_rhs: Vec<usize> = Vec::with_capacity(n);
             // v_mat[k][j] / i_mat[k][j]: port-k readback under excitation j.
