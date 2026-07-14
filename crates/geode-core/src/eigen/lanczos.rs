@@ -33,20 +33,22 @@
 //! to ~0.8 s — a 1.64x end-to-end wall-time reduction on that test
 //! (34.9 s → 21.3 s). See issue #506 for the full profile.
 //!
-//! **Deferred (issue #506 Phase 0, faer-parallelism half):** the sparse LU
-//! factorization phase (`sp_lu`, ~33% of the solve) could be sped up ~1.75x
-//! by compiling faer with its `rayon` feature. That is *not* landed here.
-//! In faer 0.24 parallelism is a process-global `AtomicUsize`
-//! (`set_global_parallelism` / `get_global_parallelism`, no per-call `Par`
-//! argument), so "phase-scoped" factorization parallelism can only be a
-//! bare global toggle that (a) races other threads in the same test process
-//! — the driven/assembly paths also call `sp_lu`/`solve_in_place` — and
-//! (b) must be reverted to serial before the single-RHS triangular-solve
-//! loop, where rayon is measurably *slower* (latency-bound). The safe
-//! landing is an opt-in toggle defaulting to today's serial behavior; the
-//! M·V cache above is the dominant, risk-free win and ships alone. The
-//! parallelism knob (faer `rayon` feature + a panic-safe RAII guard around
-//! the factorization + an opt-in solver flag) is tracked for a follow-on.
+//! **faer-parallelism (issue #518, was deferred from #506 Phase 0):** the
+//! sparse LU factorization phase (`sp_lu`, ~33% of the solve) is sped up by
+//! compiling faer with its `rayon` feature. faer 0.24 parallelism is a
+//! process-global `AtomicUsize` (`set_global_parallelism` /
+//! `get_global_parallelism`, no per-call `Par` argument), so it (a) races
+//! other threads in the same process — the driven/assembly paths also call
+//! `sp_lu`/`solve_in_place` — and (b) must be reverted to serial before the
+//! single-RHS triangular-solve loop, where rayon is measurably *slower*
+//! (latency-bound). Both concerns are handled by scoping the parallelism to
+//! exactly the `sp_lu` call via [`crate::eigen::parallel::ParallelismGuard`],
+//! a panic-safe RAII guard that sets `Par::rayon(n)` for the factorization
+//! and restores the prior global parallelism on drop (including on panic).
+//! The thread count comes from `GEODE_NUM_THREADS` (falling back to the
+//! physical core count). The factorization is deterministic, so eigenvalues
+//! are identical within tolerance across thread counts — see the
+//! `*_agree_across_thread_counts` regression tests below.
 //!
 //! Convergence is declared when the residual norm
 //! `‖K x - λ M x‖_2 / ‖λ M x‖_2 < tol` for **every** requested mode.
@@ -69,6 +71,7 @@ use faer::sparse::{SparseColMat, SparseColMatRef};
 use faer::{Mat, MatMut};
 
 use crate::eigen::dense::{EigenError, EigenPair};
+use crate::eigen::parallel::{ParallelismGuard, resolve_num_threads};
 
 /// Sparse generalized-symmetric eigensolver via shift-and-invert Lanczos.
 ///
@@ -290,6 +293,24 @@ impl SparseShiftInvertLanczos {
         m: SparseColMatRef<'_, usize, f64>,
         n_modes: usize,
     ) -> Result<Vec<EigenPair>, EigenError> {
+        self.smallest_eigenpairs_with_threads(k, m, n_modes, resolve_num_threads())
+    }
+
+    /// [`Self::smallest_eigenpairs`] with an explicit factorization thread
+    /// count, bypassing the `GEODE_NUM_THREADS` lookup.
+    ///
+    /// The public entry point resolves the thread count from the environment;
+    /// this variant takes it directly so the cross-thread agreement tests can
+    /// drive `n_threads = 1` vs `n_threads = N` without mutating a
+    /// process-global env var (this crate denies `unsafe_code`, and
+    /// edition-2024 `env::set_var` is `unsafe`).
+    pub fn smallest_eigenpairs_with_threads(
+        &self,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        n_modes: usize,
+        n_threads: usize,
+    ) -> Result<Vec<EigenPair>, EigenError> {
         let n = k.nrows();
         assert_eq!(k.ncols(), n, "K must be square");
         assert_eq!(m.nrows(), n, "M and K must agree in size");
@@ -298,12 +319,20 @@ impl SparseShiftInvertLanczos {
             return Ok(Vec::new());
         }
 
-        // 1. Build A = K - σM and factor it once.
+        // 1. Build A = K - σM and factor it once. Scope faer's global
+        //    parallelism to the factorization: rayon speeds up sparse LU but
+        //    is measurably slower on the latency-bound single-RHS triangular
+        //    solves below, so the guard restores serial parallelism the
+        //    moment `sp_lu` returns (issue #518). The eigenvalues are
+        //    independent of the thread count — the correctness gate is the
+        //    `eigenpairs_agree_across_thread_counts` test.
         let a = shifted_pencil(k, m, self.sigma)?;
-        let lu = a
-            .as_ref()
-            .sp_lu()
-            .map_err(|e| EigenError::FaerGevd(format!("sparse LU: {e:?}")))?;
+        let lu = {
+            let _par = ParallelismGuard::rayon(n_threads);
+            a.as_ref()
+                .sp_lu()
+                .map_err(|e| EigenError::FaerGevd(format!("sparse LU: {e:?}")))?
+        };
 
         // 2. Run Lanczos to convergence, retaining the full M-orthonormal
         //    basis V_k. Unlike the eigenvalue-only path we always run to
@@ -464,14 +493,18 @@ impl SparseShiftInvertLanczos {
         }
         Ok(out)
     }
-}
 
-impl SparseEigenSolver for SparseShiftInvertLanczos {
-    fn smallest_eigenvalues(
+    /// [`SparseEigenSolver::smallest_eigenvalues`] with an explicit
+    /// factorization thread count, bypassing the `GEODE_NUM_THREADS` lookup.
+    ///
+    /// See [`Self::smallest_eigenpairs_with_threads`] for why the tests use
+    /// an explicit count instead of mutating the environment.
+    pub fn smallest_eigenvalues_with_threads(
         &self,
         k: SparseColMatRef<'_, usize, f64>,
         m: SparseColMatRef<'_, usize, f64>,
         n_modes: usize,
+        n_threads: usize,
     ) -> Result<Vec<f64>, EigenError> {
         let n = k.nrows();
         assert_eq!(k.ncols(), n, "K must be square");
@@ -481,12 +514,17 @@ impl SparseEigenSolver for SparseShiftInvertLanczos {
             return Ok(Vec::new());
         }
 
-        // 1. Build A = K - σM and factor it once.
+        // 1. Build A = K - σM and factor it once. Parallelism is scoped to
+        //    the factorization only (rayon regresses the single-RHS
+        //    triangular solves that follow); see issue #518 and the
+        //    `smallest_eigenpairs` sibling above.
         let a = shifted_pencil(k, m, self.sigma)?;
-        let lu = a
-            .as_ref()
-            .sp_lu()
-            .map_err(|e| EigenError::FaerGevd(format!("sparse LU: {e:?}")))?;
+        let lu = {
+            let _par = ParallelismGuard::rayon(n_threads);
+            a.as_ref()
+                .sp_lu()
+                .map_err(|e| EigenError::FaerGevd(format!("sparse LU: {e:?}")))?
+        };
 
         // 2. Lanczos in the M-inner product.
         //
@@ -652,6 +690,17 @@ impl SparseEigenSolver for SparseShiftInvertLanczos {
     }
 }
 
+impl SparseEigenSolver for SparseShiftInvertLanczos {
+    fn smallest_eigenvalues(
+        &self,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        n_modes: usize,
+    ) -> Result<Vec<f64>, EigenError> {
+        self.smallest_eigenvalues_with_threads(k, m, n_modes, resolve_num_threads())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -734,6 +783,127 @@ mod tests {
                 (max_val - 1.0).abs() < 1e-6,
                 "eigenvector[{i}] not localized: max = {max_val}"
             );
+        }
+    }
+
+    /// Build a larger, non-diagonal SPD tridiagonal pencil so the faer
+    /// sparse LU has enough fill for the multi-threaded factorization path
+    /// to be meaningfully exercised (a diagonal pencil factors trivially).
+    ///
+    /// `K` is the 1-D Laplacian stencil `tridiag(-1, 2, -1)` (SPD after the
+    /// implicit Dirichlet ends) and `M` is the identity, so the eigenvalues
+    /// are the known `2 - 2 cos(π i / (n+1))`, a smoothly separated spectrum.
+    fn laplacian_pencil(n: usize) -> (SparseColMat<usize, f64>, SparseColMat<usize, f64>) {
+        let mut tk: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(3 * n);
+        let mut tm: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(n);
+        for i in 0..n {
+            tk.push(Triplet::new(i, i, 2.0));
+            if i + 1 < n {
+                tk.push(Triplet::new(i, i + 1, -1.0));
+                tk.push(Triplet::new(i + 1, i, -1.0));
+            }
+            tm.push(Triplet::new(i, i, 1.0));
+        }
+        let k = SparseColMat::try_new_from_triplets(n, n, &tk).unwrap();
+        let m = SparseColMat::try_new_from_triplets(n, n, &tm).unwrap();
+        (k, m)
+    }
+
+    /// CORRECTNESS GATE (issue #518): the computed spectrum must be identical
+    /// whether the faer sparse-LU factorization runs single-threaded or
+    /// multi-threaded. The factorization is deterministic, so we assert
+    /// *bit-for-bit* equality (not merely "within tolerance") across thread
+    /// counts — any drift would signal a nondeterministic parallel LU, which
+    /// would be a correctness bug rather than acceptable rounding.
+    ///
+    /// This test drives the thread count through the `_with_threads` entry
+    /// point (the same code path the `GEODE_NUM_THREADS` knob feeds), which
+    /// avoids mutating a process-global env var — this crate denies
+    /// `unsafe_code` and edition-2024 `env::set_var` is `unsafe`.
+    #[test]
+    fn eigenvalues_agree_across_thread_counts() {
+        // Hold the shared parallelism lock: the solves transiently set faer's
+        // process-global parallelism during factorization, which would
+        // otherwise race the guard RAII test in `eigen::parallel`.
+        let _lock = crate::eigen::parallel::PARALLELISM_TEST_LOCK
+            .lock()
+            .unwrap();
+
+        let (k, m) = laplacian_pencil(64);
+        let solver = SparseShiftInvertLanczos {
+            sigma: 0.0,
+            max_iters: 64,
+            tol: 1e-11,
+        };
+
+        let serial = solver
+            .smallest_eigenvalues_with_threads(k.as_ref(), m.as_ref(), 5, 1)
+            .unwrap();
+        let parallel = solver
+            .smallest_eigenvalues_with_threads(k.as_ref(), m.as_ref(), 5, 4)
+            .unwrap();
+
+        assert_eq!(
+            serial.len(),
+            parallel.len(),
+            "thread count changed the number of converged modes"
+        );
+        for (i, (s, p)) in serial.iter().zip(parallel.iter()).enumerate() {
+            assert_eq!(
+                s.to_bits(),
+                p.to_bits(),
+                "eigenvalue[{i}] differs across thread counts: serial={s}, parallel={p}"
+            );
+        }
+    }
+
+    /// Companion to the agreement test: confirm the eigenpair path (vectors,
+    /// not just eigenvalues) is also thread-count invariant within the
+    /// solver's tolerance. Vectors carry an arbitrary global sign, so compare
+    /// eigenvalues bit-for-bit and vectors up to sign.
+    #[test]
+    fn eigenpairs_agree_across_thread_counts() {
+        let _lock = crate::eigen::parallel::PARALLELISM_TEST_LOCK
+            .lock()
+            .unwrap();
+
+        let (k, m) = laplacian_pencil(48);
+        let solver = SparseShiftInvertLanczos {
+            sigma: 0.0,
+            max_iters: 64,
+            tol: 1e-11,
+        };
+
+        let serial = solver
+            .smallest_eigenpairs_with_threads(k.as_ref(), m.as_ref(), 4, 1)
+            .unwrap();
+        let parallel = solver
+            .smallest_eigenpairs_with_threads(k.as_ref(), m.as_ref(), 4, 4)
+            .unwrap();
+
+        assert_eq!(serial.len(), parallel.len());
+        for (i, (s, p)) in serial.iter().zip(parallel.iter()).enumerate() {
+            assert_eq!(
+                s.lambda.to_bits(),
+                p.lambda.to_bits(),
+                "eigenpair λ[{i}] differs across thread counts"
+            );
+            // Vectors may differ by a global sign; align on the dominant
+            // entry, then compare component-wise within tolerance.
+            let pivot = s
+                .vector
+                .iter()
+                .enumerate()
+                .max_by(|a, b| a.1.abs().partial_cmp(&b.1.abs()).unwrap())
+                .map(|(idx, _)| idx)
+                .unwrap();
+            let sign = (s.vector[pivot] * p.vector[pivot]).signum();
+            for (a, b) in s.vector.iter().zip(p.vector.iter()) {
+                assert!(
+                    (a - sign * b).abs() < 1e-9,
+                    "eigenvector[{i}] differs beyond tolerance across thread counts"
+                );
+            }
         }
     }
 }

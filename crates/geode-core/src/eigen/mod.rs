@@ -8,6 +8,9 @@
 //!   [`dense::EigenError`] / [`dense::EigenPair`] types and the
 //!   Burn→faer / Dirichlet-BC helpers.
 //! - [`lanczos`] — sparse real shift-and-invert Lanczos.
+//! - [`parallel`] — process-global faer parallelism control (a panic-safe
+//!   RAII guard + `GEODE_NUM_THREADS` knob) scoped to the sparse LU
+//!   factorization that fronts the shift-invert eigensolves (issue #518).
 //! - [`complex`] — complex (non-Hermitian) dense and sparse solvers for
 //!   the Silver-Müller and Mie pencils.
 //! - `arpack` — optional ARPACK-backed sparse solver (behind the
@@ -29,6 +32,7 @@ pub mod complex;
 pub mod dense;
 pub mod gauge;
 pub mod lanczos;
+pub mod parallel;
 pub mod projection;
 pub mod self_consistent;
 pub mod transmon;

@@ -68,6 +68,7 @@ use faer::sparse::{SparseColMat, SparseColMatRef};
 use faer::{Mat, MatMut, c64};
 
 use crate::eigen::dense::EigenError;
+use crate::eigen::parallel::{ParallelismGuard, resolve_num_threads};
 
 /// Sparse generalized complex-symmetric eigensolver via shift-and-invert
 /// Lanczos.
@@ -306,6 +307,26 @@ impl SparseComplexEigenSolver for SparseComplexShiftInvertLanczos {
         m: SparseColMatRef<'_, usize, c64>,
         n_modes: usize,
     ) -> Result<Vec<c64>, EigenError> {
+        self.smallest_complex_pencil_eigenvalues_with_threads(k, m, n_modes, resolve_num_threads())
+    }
+}
+
+impl SparseComplexShiftInvertLanczos {
+    /// [`SparseComplexEigenSolver::smallest_complex_pencil_eigenvalues`] with
+    /// an explicit factorization thread count, bypassing the
+    /// `GEODE_NUM_THREADS` lookup.
+    ///
+    /// See
+    /// [`crate::eigen::lanczos::SparseShiftInvertLanczos::smallest_eigenvalues_with_threads`]
+    /// for why the cross-thread tests use an explicit count rather than
+    /// mutating the process environment.
+    pub fn smallest_complex_pencil_eigenvalues_with_threads(
+        &self,
+        k: SparseColMatRef<'_, usize, c64>,
+        m: SparseColMatRef<'_, usize, c64>,
+        n_modes: usize,
+        n_threads: usize,
+    ) -> Result<Vec<c64>, EigenError> {
         let n = k.nrows();
         assert_eq!(k.ncols(), n, "K must be square");
         assert_eq!(m.nrows(), n, "M and K must agree in size");
@@ -314,12 +335,18 @@ impl SparseComplexEigenSolver for SparseComplexShiftInvertLanczos {
             return Ok(Vec::new());
         }
 
-        // 1. Build A = K - σM and factor it once.
+        // 1. Build A = K - σM and factor it once. Scope faer's global
+        //    parallelism to this factorization only (issue #518): rayon
+        //    speeds up the complex sparse LU but regresses the latency-bound
+        //    single-RHS triangular solves in the Lanczos loop, and the guard
+        //    restores serial parallelism on drop.
         let a = shifted_pencil_complex(k, m, self.sigma)?;
-        let lu = a
-            .as_ref()
-            .sp_lu()
-            .map_err(|e| EigenError::FaerGevd(format!("complex sparse LU: {e:?}")))?;
+        let lu = {
+            let _par = ParallelismGuard::rayon(n_threads);
+            a.as_ref()
+                .sp_lu()
+                .map_err(|e| EigenError::FaerGevd(format!("complex sparse LU: {e:?}")))?
+        };
 
         // 2. Lanczos in the bilinear M-inner product. The tridiagonal
         //    `T_k` is complex symmetric (not Hermitian) and its
@@ -513,12 +540,16 @@ impl SparseComplexShiftInvertLanczos {
             return Ok(Vec::new());
         }
 
-        // 1. Build A = K - σM and factor it once.
+        // 1. Build A = K - σM and factor it once. Parallelism scoped to the
+        //    factorization only (issue #518); see the eigenvalues-only
+        //    sibling above for the rayon-regresses-the-solves rationale.
         let a = shifted_pencil_complex(k, m, self.sigma)?;
-        let lu = a
-            .as_ref()
-            .sp_lu()
-            .map_err(|e| EigenError::FaerGevd(format!("complex sparse LU: {e:?}")))?;
+        let lu = {
+            let _par = ParallelismGuard::rayon(resolve_num_threads());
+            a.as_ref()
+                .sp_lu()
+                .map_err(|e| EigenError::FaerGevd(format!("complex sparse LU: {e:?}")))?
+        };
 
         // 2. Lanczos in the bilinear M-inner product, retaining the full
         //    basis V_k for Ritz-vector recovery. Always run to the
@@ -903,6 +934,71 @@ mod tests {
                     p.lambda
                 );
             }
+        }
+    }
+
+    /// CORRECTNESS GATE (issue #518), complex path: the computed spectrum
+    /// must be identical whether the complex sparse-LU factorization runs
+    /// single-threaded or multi-threaded. Uses a non-diagonal
+    /// complex-symmetric tridiagonal pencil so the LU has real fill.
+    ///
+    /// Drives the thread count through the `_with_threads` entry point (the
+    /// same path `GEODE_NUM_THREADS` feeds) to avoid mutating a
+    /// process-global env var (this crate denies `unsafe_code`). Holds the
+    /// shared parallelism lock so the transient global-parallelism change
+    /// during factorization does not race the guard RAII test in
+    /// `eigen::parallel`.
+    #[test]
+    fn complex_eigenvalues_agree_across_thread_counts() {
+        let _lock = crate::eigen::parallel::PARALLELISM_TEST_LOCK
+            .lock()
+            .unwrap();
+
+        // Complex-symmetric tridiagonal K = tridiag(-1, 2 + 0.1i, -1),
+        // M = identity. Off-diagonal fill exercises the multi-threaded LU.
+        let n = 40usize;
+        let mut tk: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(3 * n);
+        let mut tm: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(n);
+        for i in 0..n {
+            tk.push(Triplet::new(i, i, c64::new(2.0, 0.1)));
+            if i + 1 < n {
+                tk.push(Triplet::new(i, i + 1, c64::new(-1.0, 0.0)));
+                tk.push(Triplet::new(i + 1, i, c64::new(-1.0, 0.0)));
+            }
+            tm.push(Triplet::new(i, i, c64::new(1.0, 0.0)));
+        }
+        let k = SparseColMat::try_new_from_triplets(n, n, &tk).unwrap();
+        let m = SparseColMat::try_new_from_triplets(n, n, &tm).unwrap();
+
+        let solver = SparseComplexShiftInvertLanczos {
+            sigma: 0.0,
+            max_iters: 64,
+            tol: 1e-11,
+        };
+
+        let serial = solver
+            .smallest_complex_pencil_eigenvalues_with_threads(k.as_ref(), m.as_ref(), 4, 1)
+            .unwrap();
+        let parallel = solver
+            .smallest_complex_pencil_eigenvalues_with_threads(k.as_ref(), m.as_ref(), 4, 4)
+            .unwrap();
+
+        assert_eq!(
+            serial.len(),
+            parallel.len(),
+            "thread count changed the number of converged modes"
+        );
+        for (i, (s, p)) in serial.iter().zip(parallel.iter()).enumerate() {
+            assert_eq!(
+                s.re.to_bits(),
+                p.re.to_bits(),
+                "eigenvalue[{i}] Re differs across thread counts: {s} vs {p}"
+            );
+            assert_eq!(
+                s.im.to_bits(),
+                p.im.to_bits(),
+                "eigenvalue[{i}] Im differs across thread counts: {s} vs {p}"
+            );
         }
     }
 }

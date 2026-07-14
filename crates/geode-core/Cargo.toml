@@ -45,7 +45,16 @@ toml = { workspace = true }
 pkg-config = { workspace = true, optional = true }
 
 [features]
-default = []
+default = ["faer-parallel"]
+
+# Multi-threaded faer factorization for the sparse shift-invert Lanczos
+# eigensolve (issue #518). Enables faer's `rayon` feature (so `Par::rayon(n)`
+# / `Par::Rayon` exist) and gates the parallel arm of the RAII parallelism
+# guard in `src/eigen/parallel.rs`. On by default; disable with
+# `--no-default-features` to build a strictly single-threaded faer (the guard
+# then compiles to a no-op and the eigensolve runs serial regardless of
+# `GEODE_NUM_THREADS`).
+faer-parallel = ["faer/rayon"]
 
 wgpu = ["burn/wgpu"]
 cuda = ["burn/cuda"]
