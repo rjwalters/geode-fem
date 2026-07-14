@@ -1,0 +1,34 @@
+# Offline Palace config generator for the geode-fem transmon EIGENMODE
+# benchmark (Epic #476 Phase B, issue #492). NOT part of the geode
+# workspace and NOT built in CI — same offline-sidecar convention as
+# `reference/palace/geode_patch_baseline/`.
+#
+# Palace itself is NOT a build dependency of this generator: this binary
+# **only emits a Palace JSON configuration file** for the eigenmode
+# problem (junction as LumpedPort with L + C on the `lumped_element`
+# surface), which an operator (or an agent over SSH to the EC2 Palace
+# box at /home/ubuntu/palace/build/bin/palace) can feed to Palace
+# directly.
+#
+# Usage:
+#
+#   cd reference/palace/geode_transmon_baseline
+#   cargo run --release
+#
+# Writes:
+#   reference/fixtures/transmon_palace/palace_config.json          (Order 1, gating)
+#   reference/fixtures/transmon_palace/palace_config_p2.json       (Order 2, non-gating preview)
+#   reference/fixtures/transmon_palace/palace_config.provenance.txt
+
+[package]
+name = "geode-transmon-palace-baseline"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
