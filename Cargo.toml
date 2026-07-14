@@ -20,18 +20,18 @@ rust-version = "1.96.0"
 # reference and are unioned with the base settings declared here.
 burn = { version = "0.21", default-features = false, features = ["std"] }
 # Bunsen standard library — machine-checked shape contracts for the FEM
-# tensor pipeline (Epic #355, Phase 1: #358). Pinned to the zspacelabs/bunsen
-# main commit that carries both upstream fixes this integration depends on:
+# tensor pipeline (Epic #355, Phase 1: #358). Pinned to the crates.io release
+# that carries both upstream fixes this integration depends on:
 #   - #95 (hashbrown gated behind `train`, shipped in 0.25.0) — required so a
 #     `default-features = false, features = ["std"]` build compiles at all.
-#   - #112 (downloader + directories-next made optional behind `cache`, merged
-#     2026-07-13) — required so the no-drag gate holds (no network-download
-#     machinery in a deterministic solver's dep tree).
+#   - #112 (downloader + directories-next made optional behind `cache`, first
+#     released in 0.26.0) — required so the no-drag gate holds (no
+#     network-download machinery in a deterministic solver's dep tree).
 # Built `std`-only: NOT the `testing` feature (would pull `burn/flex`) and NOT
 # default features (would pull `reflection`/`train`/`xot`/`xee-xpath`/…).
-# FOLLOW-UP: swap this git pin for `version = "0.25.1"` once a 0.25.1+ patch
-# with the optional downloader lands on crates.io (mechanical one-line change).
-bunsen = { git = "https://github.com/zspacelabs/bunsen", rev = "1ff74cd9814d10953e79a995d19db468df4a43ed", default-features = false, features = ["std"] }
+# `burn` req stayed `^0.21.0` across the whole 0.21.0→0.28.0 range, so 0.28.0
+# (latest, superset of the 0.26.0 fix) keeps the burn 0.21 pin intact.
+bunsen = { version = "0.28.0", default-features = false, features = ["std"] }
 clap = { version = "4", features = ["derive"] }
 criterion = "0.5"
 # Base faer feature set shared by every consumer; geode-core additionally
