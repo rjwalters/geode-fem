@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 use mshio::mshfile::ElementType;
 
 pub mod electrostatic_fixtures;
+pub mod magnetostatic_fixtures;
 pub mod msh_tags;
 pub mod patch;
 pub mod sphere;
