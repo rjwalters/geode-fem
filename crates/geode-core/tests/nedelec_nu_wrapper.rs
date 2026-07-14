@@ -55,8 +55,7 @@ fn nu_wrapper_scales_stiffness_leaves_mass() {
         .iter()
         .flat_map(|t| t.iter().map(|&x| x as i32))
         .collect();
-    let tets =
-        Tensor::<B, 2, Int>::from_data(TensorData::new(tets_flat, [mesh.n_tets(), 4]), &dev);
+    let tets = Tensor::<B, 2, Int>::from_data(TensorData::new(tets_flat, [mesh.n_tets(), 4]), &dev);
 
     let base = assemble_global_nedelec::<B>(nodes.clone(), tets.clone(), &idx, &sign, n_edges);
     let nu = 3.5_f64;
