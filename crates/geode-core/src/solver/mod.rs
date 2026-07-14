@@ -9,6 +9,13 @@
 //!   the complex-symmetric COCG solver ([`Cocg`](ksp::Cocg)), and the
 //!   [`Preconditioner`](ksp::Preconditioner) framework (identity, Jacobi,
 //!   ILU, and Chebyshev preconditioners).
+//! - [`ksp_burn`]: a **GPU-resident** complex-symmetric COCG
+//!   ([`BurnCocg`](ksp_burn::BurnCocg)) whose Krylov vectors are on-device Burn
+//!   split-complex `(re, im)` tensor pairs and whose operator is the driven
+//!   pencil applied matrix-free through PR #483's Nédélec matvec
+//!   ([`ComplexMatrixFreeOperator`](ksp_burn::ComplexMatrixFreeOperator)), with
+//!   only O(1) scalar residual/inner-product readbacks crossing the host
+//!   boundary per iteration (#302 Phase 2).
 //! - [`iterate`]: generic convergence-loop combinators
 //!   ([`iterate_while`](iterate::iterate_while) and
 //!   [`iterate_while_with_prev`](iterate::iterate_while_with_prev)) that
@@ -21,3 +28,4 @@
 
 pub mod iterate;
 pub mod ksp;
+pub mod ksp_burn;
