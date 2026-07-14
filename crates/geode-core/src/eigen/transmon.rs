@@ -77,7 +77,7 @@ use crate::assembly::nedelec::NedelecScatterMap;
 use crate::driven::ports::assemble_port_surface_mass;
 use crate::eigen::dense::EigenError;
 use crate::eigen::gauge::TreeCotreeGauge;
-use crate::eigen::lanczos::SparseShiftInvertLanczos;
+use crate::eigen::lanczos::{InnerSolver, SparseShiftInvertLanczos};
 use crate::mesh::TetMesh;
 
 /// Vacuum permeability `μ₀` (H/m), SI.
@@ -329,6 +329,47 @@ pub fn solve_transmon_eigenmodes(
     n_modes: usize,
     m_per_unit: f64,
 ) -> Result<Vec<ModeReport>, EigenError> {
+    solve_transmon_eigenmodes_with_inner(pencil, sigma, n_modes, m_per_unit, InnerSolver::Direct)
+}
+
+/// [`solve_transmon_eigenmodes`] with an explicit inner-solve backend
+/// selection (issue #524).
+///
+/// [`InnerSolver::Direct`] (the default the plain entry point uses) factors
+/// `(K − σM)` with a sparse LU — fast but `O(N^{4/3})`-fill memory that
+/// OOM-kills past a few-hundred-k DOF. [`InnerSolver::MatrixFree`] replaces
+/// the inner factorization with matrix-free Jacobi-CG, keeping the working
+/// set `O(N)` so the eigensolve scales to the ~1M-DOF meshes that OOM the
+/// direct path. The matrix-free path requires `(K − σM)` SPD, so place
+/// `sigma` **below** the physical spectrum (e.g. the 4.5 GHz shift below
+/// the lowest ~5 GHz resonator mode); see [`InnerSolver`] for the full
+/// numerical rationale and the inner-tolerance coupling.
+///
+/// # Memory scaling (issue #524)
+///
+/// The direct path allocates the sparse `L`/`U` factors of `(K − σM)`,
+/// whose fill-in scales super-linearly (~`O(N^{4/3})` for 3-D H(curl)) and
+/// dominates the working set; on the transmon benchmark it reached 63.9 GB
+/// peak RSS at ~1M DOF and SIGKILLed. The matrix-free path allocates only a
+/// handful of length-`N` Krylov vectors plus the Jacobi diagonal — total
+/// working set is `O(N)` on top of the two input CSC operators — so it
+/// completes where the direct path OOMs. (The full 1M-DOF completion run is
+/// an operator/AWS follow-up; CI validates equivalence on the synthetic and
+/// 133k fixtures.)
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly or the Lanczos
+/// solve. For [`InnerSolver::MatrixFree`], a non-SPD `(K − σM)` (shift not
+/// below the spectrum) surfaces as an inner-CG non-convergence error rather
+/// than a wrong result.
+pub fn solve_transmon_eigenmodes_with_inner(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    inner: InnerSolver,
+) -> Result<Vec<ModeReport>, EigenError> {
     let n_edges = pencil.edges.len();
     assert_eq!(
         pencil.interior_mask.len(),
@@ -350,7 +391,15 @@ pub fn solve_transmon_eigenmodes(
             "no interior DOFs after PEC reduction".into(),
         ));
     }
-    solve_transmon_eigenmodes_reindexed(pencil, &interior_index, dim, sigma, n_modes, m_per_unit)
+    solve_transmon_eigenmodes_reindexed(
+        pencil,
+        &interior_index,
+        dim,
+        sigma,
+        n_modes,
+        m_per_unit,
+        inner,
+    )
 }
 
 /// Tree-cotree **gauged** transmon eigensolve (issue #502).
@@ -406,6 +455,7 @@ pub fn solve_transmon_eigenmodes_gauged(
         sigma,
         n_modes,
         m_per_unit,
+        InnerSolver::Direct,
     )
 }
 
@@ -415,6 +465,7 @@ pub fn solve_transmon_eigenmodes_gauged(
 /// ungauged path passes the plain PEC interior reindex; the gauged path
 /// passes the tree-cotree cotree reindex. Everything downstream (surface
 /// terms, reduced assembly, Lanczos, participation) is index-agnostic.
+#[allow(clippy::too_many_arguments)]
 fn solve_transmon_eigenmodes_reindexed(
     pencil: &TransmonPencil<'_>,
     reindex: &[Option<usize>],
@@ -422,6 +473,7 @@ fn solve_transmon_eigenmodes_reindexed(
     sigma: f64,
     n_modes: usize,
     m_per_unit: f64,
+    inner: InnerSolver,
 ) -> Result<Vec<ModeReport>, EigenError> {
     let pattern = pencil.scatter.pattern();
     assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
@@ -457,6 +509,7 @@ fn solve_transmon_eigenmodes_reindexed(
         sigma,
         max_iters: 96,
         tol: 1e-8,
+        inner,
     };
     let pairs = solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), n_modes)?;
 
