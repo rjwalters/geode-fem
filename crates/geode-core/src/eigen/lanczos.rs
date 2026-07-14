@@ -73,6 +73,64 @@ use faer::{Mat, MatMut};
 use crate::eigen::dense::{EigenError, EigenPair};
 use crate::eigen::parallel::{ParallelismGuard, resolve_num_threads};
 
+/// Backend for the shift-invert inner solve `(K − σM) y = b`.
+///
+/// The outer Lanczos recurrence is identical for both variants; only the
+/// way each `A⁻¹ M v` apply is realized differs.
+///
+/// # Why a matrix-free variant exists (issue #524)
+///
+/// The [`Direct`](InnerSolver::Direct) path forms `A = K − σM` explicitly
+/// and factors it once with faer's sparse LU (`sp_lu`). That factorization
+/// is fast to *re-apply* (k cheap triangular solves) but its **fill-in**
+/// scales roughly `O(N^{4/3})` for 3-D H(curl) pencils, so the `L`/`U`
+/// factors blow past commodity memory somewhere between ~10⁵ and ~10⁶
+/// interior DOFs. On the transmon benchmark the direct path OOM-kills at
+/// ~1M DOF (measured 63.9 GB peak RSS, SIGKILL) even though Palace solves
+/// the same mesh at ~4 GB/rank.
+///
+/// The [`MatrixFree`](InnerSolver::MatrixFree) path never forms or factors
+/// `A`. Instead each inner solve is an **iterative** Jacobi-preconditioned
+/// conjugate-gradient solve of `(K − σM) y = b`, applying `K` and `M`
+/// matrix-free via sparse mat-vecs (`spmv`). No `L`/`U` factors are ever
+/// allocated, so the working set stays `O(N)` (a handful of length-`N`
+/// Krylov vectors plus the two input CSC operators) and the eigensolve
+/// scales to meshes that OOM the direct path.
+///
+/// ## Numerical enabler: shift below the spectrum
+///
+/// CG requires the inner operator `(K − σM)` to be **SPD**. For the
+/// *lowest* physical modes this is arranged by placing the shift `σ`
+/// **below** the physical spectrum (the transmon resonator target sits
+/// near 4.5 GHz, below the lowest ~5 GHz physical mode). With `K` SPD (or
+/// PSD) and `M` SPD, `K − σM` is SPD whenever `σ` is below the smallest
+/// generalized eigenvalue, so plain CG converges without any
+/// indefinite-system machinery. Interior / indefinite shifts (which would
+/// need MINRES/GMRES) are explicitly out of Phase-1 scope.
+///
+/// ## Inner-tolerance coupling
+///
+/// The inner CG tolerance is tied to the outer Lanczos tolerance: it is
+/// set to a fixed fraction (`INNER_TOL_FACTOR`) of the outer `tol`, so the
+/// inner solve is always tighter than the accuracy the outer iteration is
+/// trying to reach. This keeps the shift-invert operator `A⁻¹M` accurate
+/// enough that the Lanczos recurrence is not polluted by inner-solve
+/// residual noise, while avoiding over-solving early iterations. See
+/// [`SparseShiftInvertLanczos::inner_tol`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InnerSolver {
+    /// Form `A = K − σM` and factor it once with faer's sparse LU. Fast to
+    /// re-apply, but the factorization fill-in is not `O(N)` memory — this
+    /// is the historical default and the small-problem path.
+    #[default]
+    Direct,
+    /// Never form or factor `A`; solve `(K − σM) y = b` iteratively with
+    /// matrix-free Jacobi-preconditioned CG. `O(N)` memory; the path that
+    /// scales past the direct factorization's memory wall (issue #524).
+    /// Requires `(K − σM)` SPD (place `σ` below the spectrum).
+    MatrixFree,
+}
+
 /// Sparse generalized-symmetric eigensolver via shift-and-invert Lanczos.
 ///
 /// Parameters:
@@ -85,11 +143,15 @@ use crate::eigen::parallel::{ParallelismGuard, resolve_num_threads};
 ///   requested mode.
 /// - `tol`: relative residual tolerance per mode. `1e-9` is comfortable
 ///   for f64 sparse LU.
+/// - `inner`: which inner-solve backend to use for `(K − σM)⁻¹`
+///   ([`InnerSolver::Direct`] by default — the matrix-free variant is
+///   additive and opt-in; see [`InnerSolver`]).
 #[derive(Debug, Clone, Copy)]
 pub struct SparseShiftInvertLanczos {
     pub sigma: f64,
     pub max_iters: usize,
     pub tol: f64,
+    pub inner: InnerSolver,
 }
 
 impl Default for SparseShiftInvertLanczos {
@@ -98,9 +160,28 @@ impl Default for SparseShiftInvertLanczos {
             sigma: 0.0,
             max_iters: 64,
             tol: 1e-9,
+            inner: InnerSolver::Direct,
         }
     }
 }
+
+/// Fraction of the outer Lanczos tolerance used for the inner CG solve.
+///
+/// The inner `(K − σM) y = b` solve is driven to `INNER_TOL_FACTOR · tol`
+/// (relative residual) so it is always tighter than the outer convergence
+/// target — the shift-invert operator must be more accurate than the
+/// accuracy the outer Lanczos is chasing, otherwise inner-solve residual
+/// noise corrupts the tridiagonalization. The value is a conservative
+/// margin; tightening it further only spends more inner iterations.
+const INNER_TOL_FACTOR: f64 = 1e-2;
+
+/// Hard cap on inner CG iterations, as a multiple of the operator dimension.
+///
+/// SPD CG converges in at most `N` iterations exactly, but with Jacobi
+/// preconditioning on a well-shifted pencil it should converge in far
+/// fewer. The cap is generous (`2·N`) purely as a non-convergence guard so
+/// a pathological pencil surfaces as an error rather than an infinite loop.
+const INNER_MAX_ITER_FACTOR: usize = 2;
 
 /// Parallel of [`crate::eigen::dense::EigenSolver`] for sparse matrices.
 ///
@@ -201,6 +282,160 @@ fn solve_with_lu(lu: &Lu<usize, f64>, rhs: &[f64], out: &mut [f64]) -> Result<()
     Ok(())
 }
 
+/// The matrix-free shifted-pencil operator `A = K − σM`, applied without
+/// ever assembling `A` or forming an LU factorization.
+///
+/// Holds only references to the two input CSC operators plus a cached
+/// inverse-diagonal for the Jacobi preconditioner. Memory is `O(N)` beyond
+/// the borrowed operators (the diagonal vector) — no fill-in, no factors.
+struct ShiftedMatrixFreeOp<'a> {
+    k: SparseColMatRef<'a, usize, f64>,
+    m: SparseColMatRef<'a, usize, f64>,
+    sigma: f64,
+    /// Jacobi inverse-diagonal `1 / (K_ii − σ M_ii)` (safe-guarded against
+    /// a zero pivot, which falls back to `1.0`).
+    inv_diag: Vec<f64>,
+}
+
+/// Extract the main diagonal of a CSC matrix into `out` (length `n`).
+fn csc_diagonal(a: SparseColMatRef<'_, usize, f64>, out: &mut [f64]) {
+    let col_ptr = a.col_ptr();
+    let row_idx = a.row_idx();
+    let val = a.val();
+    out.iter_mut().for_each(|v| *v = 0.0);
+    for j in 0..a.ncols() {
+        for kk in col_ptr[j]..col_ptr[j + 1] {
+            if row_idx[kk] == j {
+                out[j] += val[kk];
+            }
+        }
+    }
+}
+
+impl<'a> ShiftedMatrixFreeOp<'a> {
+    fn new(
+        k: SparseColMatRef<'a, usize, f64>,
+        m: SparseColMatRef<'a, usize, f64>,
+        sigma: f64,
+    ) -> Self {
+        let n = k.nrows();
+        let mut dk = vec![0.0_f64; n];
+        let mut dm = vec![0.0_f64; n];
+        csc_diagonal(k, &mut dk);
+        csc_diagonal(m, &mut dm);
+        let inv_diag: Vec<f64> = dk
+            .iter()
+            .zip(dm.iter())
+            .map(|(&kii, &mii)| {
+                let d = kii - sigma * mii;
+                if d.abs() > 0.0 { 1.0 / d } else { 1.0 }
+            })
+            .collect();
+        Self {
+            k,
+            m,
+            sigma,
+            inv_diag,
+        }
+    }
+
+    /// `y = (K − σM) · x`, matrix-free (two SpMVs, no assembled `A`).
+    fn apply(&self, x: &[f64], y: &mut [f64]) {
+        spmv(self.k, x, y);
+        if self.sigma != 0.0 {
+            spmv_add(self.m, x, y, -self.sigma);
+        }
+    }
+
+    /// Apply the Jacobi preconditioner `z = D⁻¹ r` (elementwise).
+    fn precond(&self, r: &[f64], z: &mut [f64]) {
+        for i in 0..r.len() {
+            z[i] = self.inv_diag[i] * r[i];
+        }
+    }
+}
+
+/// Matrix-free Jacobi-preconditioned CG solve of the SPD system
+/// `(K − σM) y = b` (issue #524).
+///
+/// Reuses the same conjugate-gradient recurrence and Jacobi (diagonal)
+/// preconditioning strategy as the driven matrix-free solver
+/// (`crate::driven::matrix_free` / `crate::solver::ksp::Cocg`), specialized
+/// to the **real SPD** shifted pencil so no complex arithmetic or
+/// indefinite-system handling is needed. The operator `A = K − σM` is
+/// applied through [`ShiftedMatrixFreeOp::apply`] (two sparse mat-vecs);
+/// `A` is never assembled and never factored — the working set is `O(N)`.
+///
+/// `out` is used as the initial guess (callers pass a warm start from the
+/// previous Lanczos iteration when available, which cuts inner iterations
+/// substantially). Returns the number of CG iterations executed. Errors if
+/// the relative residual has not dropped below `tol` within `max_iters`.
+fn cg_solve_matrix_free(
+    op: &ShiftedMatrixFreeOp<'_>,
+    b: &[f64],
+    out: &mut [f64],
+    tol: f64,
+    max_iters: usize,
+) -> Result<usize, EigenError> {
+    let n = b.len();
+    let bnorm = b.iter().map(|v| v * v).sum::<f64>().sqrt();
+    if bnorm == 0.0 {
+        out.iter_mut().for_each(|v| *v = 0.0);
+        return Ok(0);
+    }
+
+    let mut r = vec![0.0_f64; n];
+    let mut ap = vec![0.0_f64; n];
+    // r = b − A·out  (out is the warm-start guess).
+    op.apply(out, &mut ap);
+    for i in 0..n {
+        r[i] = b[i] - ap[i];
+    }
+
+    let mut z = vec![0.0_f64; n];
+    op.precond(&r, &mut z);
+    let mut p = z.clone();
+    let mut rz = r.iter().zip(z.iter()).map(|(a, b)| a * b).sum::<f64>();
+
+    let thresh = tol * bnorm;
+    let mut rnorm = r.iter().map(|v| v * v).sum::<f64>().sqrt();
+    if rnorm <= thresh {
+        return Ok(0);
+    }
+
+    for it in 1..=max_iters {
+        op.apply(&p, &mut ap);
+        let p_ap = p.iter().zip(ap.iter()).map(|(a, b)| a * b).sum::<f64>();
+        if p_ap.abs() <= 0.0 {
+            // Breakdown: pᵀAp ≈ 0. On an SPD operator this only happens at
+            // (near-)convergence; treat the current iterate as the answer.
+            return Ok(it - 1);
+        }
+        let alpha = rz / p_ap;
+        for i in 0..n {
+            out[i] += alpha * p[i];
+            r[i] -= alpha * ap[i];
+        }
+        rnorm = r.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if rnorm <= thresh {
+            return Ok(it);
+        }
+        op.precond(&r, &mut z);
+        let rz_next = r.iter().zip(z.iter()).map(|(a, b)| a * b).sum::<f64>();
+        let beta = rz_next / rz;
+        for i in 0..n {
+            p[i] = z[i] + beta * p[i];
+        }
+        rz = rz_next;
+    }
+
+    Err(EigenError::FaerGevd(format!(
+        "matrix-free inner CG failed to converge: ‖r‖/‖b‖ = {:.3e} > tol = {tol:.3e} \
+         after {max_iters} iters (is (K − σM) SPD? place σ below the spectrum)",
+        rnorm / bnorm
+    )))
+}
+
 /// Solve the symmetric tridiagonal eigenvalue problem for `(alpha, beta)`.
 ///
 /// `alpha` are the diagonal entries (length k); `beta` are the
@@ -276,7 +511,80 @@ fn tridiag_eigenpairs(alpha: &[f64], beta: &[f64]) -> Result<(Vec<f64>, Mat<f64>
     Ok((mus, sorted_u))
 }
 
+/// A prepared inner-solve backend for the shift-invert operator `A⁻¹M`.
+///
+/// Built once (before the Lanczos loop) and applied per iteration. Both
+/// variants expose the same `solve(mv, out)` semantics — `out = A⁻¹ · mv` —
+/// so the outer Lanczos recurrence is identical regardless of backend.
+enum InnerBackend<'a> {
+    /// Precomputed sparse LU of `A = K − σM` (direct path).
+    Lu(Lu<usize, f64>),
+    /// Matrix-free operator + inner CG knobs (issue #524).
+    MatrixFree {
+        op: ShiftedMatrixFreeOp<'a>,
+        tol: f64,
+        max_iters: usize,
+    },
+}
+
+impl InnerBackend<'_> {
+    /// `out = A⁻¹ · rhs`. For the matrix-free path `out` doubles as the CG
+    /// warm-start guess, so callers should retain it across iterations.
+    fn solve(&self, rhs: &[f64], out: &mut [f64]) -> Result<(), EigenError> {
+        match self {
+            InnerBackend::Lu(lu) => solve_with_lu(lu, rhs, out),
+            InnerBackend::MatrixFree { op, tol, max_iters } => {
+                cg_solve_matrix_free(op, rhs, out, *tol, *max_iters)?;
+                Ok(())
+            }
+        }
+    }
+}
+
 impl SparseShiftInvertLanczos {
+    /// Inner-CG relative-residual target, tied to the outer tolerance.
+    ///
+    /// See [`INNER_TOL_FACTOR`] and the [`InnerSolver`] docs for the
+    /// coupling rationale (the inner solve must out-accuracy the outer
+    /// Lanczos convergence target).
+    fn inner_tol(&self) -> f64 {
+        (self.tol * INNER_TOL_FACTOR).max(f64::EPSILON)
+    }
+
+    /// Build the inner-solve backend for the configured
+    /// [`InnerSolver`] variant. The direct variant factors `A = K − σM`
+    /// once (scoping faer's rayon parallelism to the factorization); the
+    /// matrix-free variant builds the borrowed operator + Jacobi diagonal
+    /// and never factors anything.
+    fn build_inner<'a>(
+        &self,
+        k: SparseColMatRef<'a, usize, f64>,
+        m: SparseColMatRef<'a, usize, f64>,
+        n_threads: usize,
+    ) -> Result<InnerBackend<'a>, EigenError> {
+        match self.inner {
+            InnerSolver::Direct => {
+                let a = shifted_pencil(k, m, self.sigma)?;
+                let lu = {
+                    let _par = ParallelismGuard::rayon(n_threads);
+                    a.as_ref()
+                        .sp_lu()
+                        .map_err(|e| EigenError::FaerGevd(format!("sparse LU: {e:?}")))?
+                };
+                Ok(InnerBackend::Lu(lu))
+            }
+            InnerSolver::MatrixFree => {
+                let op = ShiftedMatrixFreeOp::new(k, m, self.sigma);
+                let max_iters = (k.nrows() * INNER_MAX_ITER_FACTOR).max(64);
+                Ok(InnerBackend::MatrixFree {
+                    op,
+                    tol: self.inner_tol(),
+                    max_iters,
+                })
+            }
+        }
+    }
+
     /// Compute the lowest `n_modes` generalized eigenpairs of
     /// `K x = λ M x` closest to the configured shift `σ`, including
     /// M-orthonormalized eigenvectors. The eigenvalue-only sibling
@@ -319,20 +627,15 @@ impl SparseShiftInvertLanczos {
             return Ok(Vec::new());
         }
 
-        // 1. Build A = K - σM and factor it once. Scope faer's global
-        //    parallelism to the factorization: rayon speeds up sparse LU but
-        //    is measurably slower on the latency-bound single-RHS triangular
-        //    solves below, so the guard restores serial parallelism the
-        //    moment `sp_lu` returns (issue #518). The eigenvalues are
-        //    independent of the thread count — the correctness gate is the
-        //    `eigenpairs_agree_across_thread_counts` test.
-        let a = shifted_pencil(k, m, self.sigma)?;
-        let lu = {
-            let _par = ParallelismGuard::rayon(n_threads);
-            a.as_ref()
-                .sp_lu()
-                .map_err(|e| EigenError::FaerGevd(format!("sparse LU: {e:?}")))?
-        };
+        // 1. Prepare the inner-solve backend for A⁻¹M. The direct variant
+        //    builds A = K − σM and factors it once (scoping faer's rayon to
+        //    the factorization — rayon speeds up sparse LU but is slower on
+        //    the latency-bound single-RHS solves, issue #518); the
+        //    matrix-free variant (issue #524) builds a borrowed operator +
+        //    Jacobi diagonal and never factors. Eigenvalues are independent
+        //    of the thread count — the `eigenpairs_agree_across_thread_counts`
+        //    test is the gate.
+        let inner = self.build_inner(k, m, n_threads)?;
 
         // 2. Run Lanczos to convergence, retaining the full M-orthonormal
         //    basis V_k. Unlike the eigenvalue-only path we always run to
@@ -367,9 +670,17 @@ impl SparseShiftInvertLanczos {
         let mut w = vec![0.0_f64; n];
         let mut work = vec![0.0_f64; n];
 
+        // Warm-start buffer for the matrix-free inner CG: retains the
+        // previous iteration's solution `A⁻¹ M v_{j-1}` as the initial guess
+        // for `A⁻¹ M v_j` (the two RHSs are close, so this cuts inner
+        // iterations). Ignored by the direct LU backend.
+        let mut y_guess = vec![0.0_f64; n];
+
         for j in 0..max_k {
             spmv(m, &v, &mut mv);
-            solve_with_lu(&lu, &mv, &mut w)?;
+            w.copy_from_slice(&y_guess);
+            inner.solve(&mv, &mut w)?;
+            y_guess.copy_from_slice(&w);
 
             let aj = w.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
             alpha.push(aj);
@@ -514,17 +825,12 @@ impl SparseShiftInvertLanczos {
             return Ok(Vec::new());
         }
 
-        // 1. Build A = K - σM and factor it once. Parallelism is scoped to
-        //    the factorization only (rayon regresses the single-RHS
-        //    triangular solves that follow); see issue #518 and the
+        // 1. Prepare the inner-solve backend for A⁻¹M — direct sparse LU or
+        //    matrix-free Jacobi-CG (issue #524). Parallelism is scoped to the
+        //    factorization only in the direct path (rayon regresses the
+        //    single-RHS triangular solves that follow; issue #518). See the
         //    `smallest_eigenpairs` sibling above.
-        let a = shifted_pencil(k, m, self.sigma)?;
-        let lu = {
-            let _par = ParallelismGuard::rayon(n_threads);
-            a.as_ref()
-                .sp_lu()
-                .map_err(|e| EigenError::FaerGevd(format!("sparse LU: {e:?}")))?
-        };
+        let inner = self.build_inner(k, m, n_threads)?;
 
         // 2. Lanczos in the M-inner product.
         //
@@ -565,12 +871,17 @@ impl SparseShiftInvertLanczos {
         let mut converged: Option<Vec<f64>> = None;
         let mut w = vec![0.0_f64; n];
         let mut work = vec![0.0_f64; n];
+        // Warm-start buffer for the matrix-free inner CG (see the eigenpair
+        // sibling); ignored by the direct LU backend.
+        let mut y_guess = vec![0.0_f64; n];
 
         for j in 0..max_k {
             // M v
             spmv(m, &v, &mut mv);
             // w = A^{-1} (M v) = (K - σM)^{-1} M v
-            solve_with_lu(&lu, &mv, &mut w)?;
+            w.copy_from_slice(&y_guess);
+            inner.solve(&mv, &mut w)?;
+            y_guess.copy_from_slice(&w);
 
             // α_j = ⟨w, M v⟩ = ⟨w, mv⟩
             let aj = w.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
@@ -729,6 +1040,7 @@ mod tests {
             sigma: 0.0,
             max_iters: 50,
             tol: 1e-10,
+            inner: InnerSolver::Direct,
         };
         let lambdas = solver
             .smallest_eigenvalues(k.as_ref(), m.as_ref(), 3)
@@ -750,6 +1062,7 @@ mod tests {
             sigma: 0.0,
             max_iters: 50,
             tol: 1e-10,
+            inner: InnerSolver::Direct,
         };
         let pairs = solver
             .smallest_eigenpairs(k.as_ref(), m.as_ref(), 3)
@@ -834,6 +1147,7 @@ mod tests {
             sigma: 0.0,
             max_iters: 64,
             tol: 1e-11,
+            inner: InnerSolver::Direct,
         };
 
         let serial = solver
@@ -872,6 +1186,7 @@ mod tests {
             sigma: 0.0,
             max_iters: 64,
             tol: 1e-11,
+            inner: InnerSolver::Direct,
         };
 
         let serial = solver
@@ -905,5 +1220,151 @@ mod tests {
                 );
             }
         }
+    }
+
+    // -------------------------------------------------------------------
+    // Matrix-free shift-invert inner solve (issue #524).
+    // -------------------------------------------------------------------
+
+    /// CORRECTNESS GATE (issue #524): the matrix-free inner-solve variant
+    /// (`InnerSolver::MatrixFree`, Jacobi-CG on `(K − σM) y = b`, no LU)
+    /// reproduces the direct sparse-LU path's eigenvalues to tight
+    /// tolerance on an SPD pencil with the shift placed **below** the
+    /// spectrum (so `K − σM` is SPD, the Phase-1 lowest-mode case).
+    ///
+    /// The Laplacian pencil `tridiag(-1, 2, -1)` with `M = I` has all
+    /// eigenvalues in `(0, 4)`; `σ = -1.0` sits below the whole spectrum,
+    /// making `K − σM = K + I` SPD.
+    #[test]
+    fn matrix_free_matches_direct_eigenvalues() {
+        let (k, m) = laplacian_pencil(40);
+        let sigma = -1.0;
+        let direct = SparseShiftInvertLanczos {
+            sigma,
+            max_iters: 64,
+            tol: 1e-10,
+            inner: InnerSolver::Direct,
+        };
+        let mf = SparseShiftInvertLanczos {
+            sigma,
+            max_iters: 64,
+            tol: 1e-10,
+            inner: InnerSolver::MatrixFree,
+        };
+
+        let ld = direct
+            .smallest_eigenvalues(k.as_ref(), m.as_ref(), 5)
+            .unwrap();
+        let lm = mf.smallest_eigenvalues(k.as_ref(), m.as_ref(), 5).unwrap();
+
+        assert_eq!(ld.len(), lm.len(), "mode count differs direct vs mf");
+        for (i, (d, f)) in ld.iter().zip(lm.iter()).enumerate() {
+            // Both paths solve the SAME generalized pencil; the only
+            // difference is the inner solve. They must agree to a tolerance
+            // well inside the ≤1% physical bar.
+            let rel = (d - f).abs() / d.abs().max(1.0);
+            assert!(
+                rel < 1e-6,
+                "eigenvalue[{i}] direct={d} matrix-free={f} rel-diff={rel:.2e} > 1e-6"
+            );
+        }
+    }
+
+    /// Companion eigenpair cross-check: the matrix-free path recovers the
+    /// same eigenvectors (up to global sign) as the direct path on the SPD
+    /// below-spectrum-shifted Laplacian pencil.
+    #[test]
+    fn matrix_free_matches_direct_eigenpairs() {
+        let (k, m) = laplacian_pencil(32);
+        let sigma = -1.0;
+        let direct = SparseShiftInvertLanczos {
+            sigma,
+            max_iters: 64,
+            tol: 1e-10,
+            inner: InnerSolver::Direct,
+        };
+        let mf = SparseShiftInvertLanczos {
+            sigma,
+            max_iters: 64,
+            tol: 1e-10,
+            inner: InnerSolver::MatrixFree,
+        };
+
+        let pd = direct
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), 4)
+            .unwrap();
+        let pf = mf.smallest_eigenpairs(k.as_ref(), m.as_ref(), 4).unwrap();
+
+        assert_eq!(pd.len(), pf.len());
+        for (i, (d, f)) in pd.iter().zip(pf.iter()).enumerate() {
+            let rel = (d.lambda - f.lambda).abs() / d.lambda.abs().max(1.0);
+            assert!(
+                rel < 1e-6,
+                "eigenpair λ[{i}] direct={} matrix-free={} rel-diff={rel:.2e}",
+                d.lambda,
+                f.lambda
+            );
+            // Align sign on the dominant entry, then compare component-wise.
+            let pivot = d
+                .vector
+                .iter()
+                .enumerate()
+                .max_by(|a, b| a.1.abs().partial_cmp(&b.1.abs()).unwrap())
+                .map(|(idx, _)| idx)
+                .unwrap();
+            let sign = (d.vector[pivot] * f.vector[pivot]).signum();
+            for (a, b) in d.vector.iter().zip(f.vector.iter()) {
+                assert!(
+                    (a - sign * b).abs() < 1e-5,
+                    "eigenvector[{i}] direct vs matrix-free differ beyond tolerance"
+                );
+            }
+        }
+    }
+
+    /// The matrix-free inner CG solves `(K − σM) y = b` to the requested
+    /// residual on a well-shifted SPD pencil, and its Jacobi diagonal is
+    /// exactly `K_ii − σ M_ii`. This is a direct unit test of the inner
+    /// operator + solver in isolation (no outer Lanczos).
+    #[test]
+    fn matrix_free_inner_cg_solves_spd_system() {
+        let (k, m) = laplacian_pencil(50);
+        let sigma = -0.5;
+        let op = ShiftedMatrixFreeOp::new(k.as_ref(), m.as_ref(), sigma);
+
+        // Jacobi diagonal check: K_ii = 2, M_ii = 1 ⇒ 1/(2 - (-0.5)) = 1/2.5.
+        for (i, &d) in op.inv_diag.iter().enumerate() {
+            assert!(
+                (d - 1.0 / 2.5).abs() < 1e-12,
+                "inv_diag[{i}] = {d}, want {}",
+                1.0 / 2.5
+            );
+        }
+
+        // Solve (K − σM) y = b for a known b; verify the residual.
+        let n = k.nrows();
+        let b: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.31).cos()).collect();
+        let mut y = vec![0.0_f64; n];
+        let iters = cg_solve_matrix_free(&op, &b, &mut y, 1e-12, 4 * n).unwrap();
+        assert!(
+            iters > 0 && iters <= n,
+            "unexpected CG iteration count {iters}"
+        );
+
+        // Residual r = b − (K − σM) y should be tiny relative to ‖b‖.
+        let mut ay = vec![0.0_f64; n];
+        op.apply(&y, &mut ay);
+        let bnorm = b.iter().map(|v| v * v).sum::<f64>().sqrt();
+        let rnorm = b
+            .iter()
+            .zip(ay.iter())
+            .map(|(bi, ai)| (bi - ai) * (bi - ai))
+            .sum::<f64>()
+            .sqrt();
+        assert!(
+            rnorm / bnorm < 1e-10,
+            "matrix-free CG residual too large: {:.3e}",
+            rnorm / bnorm
+        );
     }
 }

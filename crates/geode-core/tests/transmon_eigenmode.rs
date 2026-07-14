@@ -47,6 +47,7 @@ use geode_core::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_full_tensors_sparse,
 };
 use geode_core::assembly::p1::upload_mesh;
+use geode_core::eigen::lanczos::InnerSolver;
 use geode_core::eigen::transmon::{
     LumpedReactiveShunt, ModeReport, ReactiveElementNatural, TransmonPencil,
     frequency_hz_from_lambda, lambda_shift_for_frequency_hz,
@@ -294,6 +295,109 @@ fn synthetic_reactive_shunt_end_to_end() {
         "expected positive junction participation, got {}",
         modes[0].participation
     );
+}
+
+/// As [`solve_synthetic`] but through the matrix-free inner-solve entry
+/// point [`solve_transmon_eigenmodes_with_inner`] with
+/// [`InnerSolver::MatrixFree`] (issue #524).
+fn solve_synthetic_matrix_free(
+    fx: &SyntheticFixture,
+    element: ReactiveElementNatural,
+    l_geom: f64,
+    w_geom: f64,
+    sigma: f64,
+    n_modes: usize,
+) -> Vec<ModeReport> {
+    let scatter = NedelecScatterMap::new(&fx.tet_edge_idx);
+    let (k_vals, m_vals) =
+        assemble_real_pencil(&fx.mesh, &fx.tet_edge_sign, &scatter, &fx.epsilon_tensor);
+    let shunt = LumpedReactiveShunt {
+        faces: &fx.junction_faces,
+        length: l_geom,
+        width: w_geom,
+        element,
+    };
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &fx.edges,
+        mesh: &fx.mesh,
+        shunt,
+        interior_mask: &fx.interior_mask,
+    };
+    geode_core::eigen::transmon::solve_transmon_eigenmodes_with_inner(
+        &pencil,
+        sigma,
+        n_modes,
+        M_PER_UNIT,
+        InnerSolver::MatrixFree,
+    )
+    .expect("synthetic matrix-free eigensolve")
+}
+
+/// CORRECTNESS GATE (issue #524, CI-fast): the matrix-free iterative
+/// shift-invert path
+/// ([`solve_transmon_eigenmodes_with_inner`] with
+/// [`InnerSolver::MatrixFree`]) reproduces the DIRECT sparse-LU path's
+/// physical eigenvalues on the synthetic transmon fixture — driving the
+/// same end-to-end `TransmonPencil` assembly, junction shunt, and Lanczos
+/// recurrence, differing only in the inner `(K − σM)⁻¹` apply (matrix-free
+/// Jacobi-CG vs. sparse LU). This is the small, fast, CI-able stand-in for
+/// the `#[ignore]` 133k / 1M real-mesh checks: it exercises the whole
+/// matrix-free code path (operator apply, Jacobi diagonal, inner-tolerance
+/// coupling, warm-started CG) and asserts eigenvalue agreement well inside
+/// the ≤1% Palace bar.
+///
+/// The shift `σ` is placed **below** the cavity spectrum so `(K − σM)` is
+/// SPD and plain CG converges (the Phase-1 lowest-mode case — see
+/// [`InnerSolver`]).
+#[test]
+fn synthetic_matrix_free_matches_direct() {
+    let fx = synthetic_fixture(3);
+    // Place σ below the cavity spectrum: the dielectric cube fundamental is
+    // O(1) > 0, so a small negative shift keeps (K − σM) strictly SPD
+    // (K is PSD with a gradient nullspace at λ = 0; σ < 0 lifts it SPD).
+    let sigma = -0.5;
+    let element = ReactiveElementNatural {
+        l_natural: 50.0,
+        c_natural: 5.0,
+    };
+    let n_modes = 4;
+
+    let direct = solve_synthetic(&fx, element, 1.0, 1.0, sigma, n_modes);
+    let mf = solve_synthetic_matrix_free(&fx, element, 1.0, 1.0, sigma, n_modes);
+
+    assert_eq!(
+        direct.len(),
+        mf.len(),
+        "matrix-free returned a different mode count than direct"
+    );
+    for (i, (d, f)) in direct.iter().zip(mf.iter()).enumerate() {
+        // Both solve the SAME pencil; the inner solve is the only
+        // difference. Agreement must be far tighter than the ≤1% Palace bar.
+        let rel = (d.lambda - f.lambda).abs() / d.lambda.abs().max(1.0);
+        assert!(
+            rel < 1e-5,
+            "mode[{i}] direct λ={} matrix-free λ={} rel-diff={rel:.2e} > 1e-5 \
+             (also: {:.4}% — must be ≪ 1% Palace bar)",
+            d.lambda,
+            f.lambda,
+            rel * 100.0
+        );
+        // Junction participation should also track. It is a ratio that is
+        // extremely sensitive to tiny eigenvector perturbations when its
+        // true value is ~0 (the direct LU gives an essentially exact
+        // eigenvector; the inner-CG one carries a small residual), so
+        // compare with a loose absolute floor — the eigenvalue agreement
+        // above is the physical correctness gate.
+        assert!(
+            (d.participation - f.participation).abs() < 1e-2,
+            "mode[{i}] participation direct={} matrix-free={}",
+            d.participation,
+            f.participation
+        );
+    }
 }
 
 /// As [`solve_synthetic`] but through the tree-cotree **gauged** entry
@@ -1741,6 +1845,107 @@ fn solve_real_fixture_with_l(
     eprintln!("shift σ = {sigma:.4e} (= k² at {} GHz)", sigma_f_hz / 1e9);
     geode_core::eigen::transmon::solve_transmon_eigenmodes(&pencil, sigma, n_modes, M_PER_UNIT)
         .expect("real transmon eigensolve")
+}
+
+/// As [`solve_real_fixture_with_l`] but through the matrix-free inner-solve
+/// entry point ([`InnerSolver::MatrixFree`], issue #524) — the O(N)-memory
+/// path that avoids the direct sparse-LU factorization.
+fn solve_real_fixture_matrix_free(
+    f: &TransmonFixture,
+    l_henry: f64,
+    sigma_f_hz: f64,
+    n_modes: usize,
+) -> Vec<ModeReport> {
+    let edges = f.mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+
+    let epsilon_tensor = f.epsilon_tensor_r();
+    let scatter = NedelecScatterMap::new(&tet_edge_idx);
+    let (k_vals, m_vals) = assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+
+    let jport = f.lumped_element_port();
+    let element = ReactiveElementNatural::from_si(l_henry, JUNCTION_C_F, M_PER_UNIT);
+    let shunt = LumpedReactiveShunt {
+        faces: &jport.faces,
+        length: jport.length,
+        width: jport.width,
+        element,
+    };
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &edges,
+        mesh: &f.mesh,
+        shunt,
+        interior_mask: &interior_mask,
+    };
+
+    let sigma = lambda_shift_for_frequency_hz(sigma_f_hz, M_PER_UNIT);
+    geode_core::eigen::transmon::solve_transmon_eigenmodes_with_inner(
+        &pencil,
+        sigma,
+        n_modes,
+        M_PER_UNIT,
+        InnerSolver::MatrixFree,
+    )
+    .expect("real transmon matrix-free eigensolve")
+}
+
+/// RELEASE cross-check (issue #524): on the committed 133k-DOF real transmon
+/// fixture, the matrix-free iterative shift-invert path reproduces the
+/// DIRECT sparse-LU path's physical eigenvalues within a tight tolerance
+/// (and thus within the ≤1% Palace bar). The shift is placed at 4.5 GHz,
+/// **below** the lowest ~5.15 GHz physical resonator, so `(K − σM)` is SPD
+/// and the inner Jacobi-CG converges (Phase-1 lowest-mode case).
+///
+/// This is the release-tier companion to the CI-fast synthetic
+/// `synthetic_matrix_free_matches_direct` gate — it exercises the O(N)
+/// matrix-free path at the real 133k scale. The full ~1M-DOF completion run
+/// (the headline scale gate) is an operator/AWS follow-up; here we validate
+/// the matrix-free path produces the SAME spectrum the direct path does at
+/// the scale that still fits the direct factorization.
+///
+/// ```sh
+/// cargo test -p geode-core --release --test transmon_eigenmode \
+///     -- --ignored real_transmon_matrix_free_matches_direct --nocapture
+/// ```
+#[test]
+#[ignore = "two 133k-DOF shift-invert eigensolves (direct + matrix-free) — release only"]
+fn real_transmon_matrix_free_matches_direct() {
+    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
+    // 4.5 GHz shift sits below the lowest ~5.15 GHz physical mode ⇒ SPD.
+    let sigma_f_hz = 4.5e9;
+    let n_modes = 6;
+
+    let direct = solve_real_fixture_with_l(&f, JUNCTION_L_H, sigma_f_hz, n_modes);
+    let mf = solve_real_fixture_matrix_free(&f, JUNCTION_L_H, sigma_f_hz, n_modes);
+
+    assert_eq!(direct.len(), mf.len(), "mode-count mismatch direct vs mf");
+    let mut worst = 0.0_f64;
+    for (i, (d, m)) in direct.iter().zip(mf.iter()).enumerate() {
+        let rel = (d.lambda - m.lambda).abs() / d.lambda.abs().max(f64::MIN_POSITIVE);
+        eprintln!(
+            "  mode[{i}]: direct {:.6} GHz ↔ matrix-free {:.6} GHz → {:.4e} rel",
+            d.frequency_ghz(),
+            m.frequency_ghz(),
+            rel
+        );
+        worst = worst.max(rel);
+        assert!(
+            rel < 1e-4,
+            "mode[{i}] direct λ={} vs matrix-free λ={} rel-diff {rel:.3e} > 1e-4 \
+             (must be ≪ 1% Palace bar)",
+            d.lambda,
+            m.lambda
+        );
+    }
+    eprintln!("matrix-free vs direct worst-case rel-diff = {worst:.3e} (< 1e-4)");
 }
 
 /// Sanity: the frequency↔λ conversion places the junction natural-unit

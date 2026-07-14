@@ -63,6 +63,7 @@ fn sparse_eigs(n: usize, n_modes: usize) -> Vec<f64> {
         sigma: 0.0,
         max_iters: 80,
         tol: 1e-10,
+        ..Default::default()
     }
     .smallest_eigenvalues(sparse.k.as_ref(), sparse.m.as_ref(), n_modes)
     .expect("sparse eigensolve")
