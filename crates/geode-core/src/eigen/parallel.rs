@@ -40,7 +40,7 @@
 //! whose result is independent of the thread count. The eigenvalues are
 //! therefore identical (within the existing tolerance) whether run at 1 or N
 //! threads; see the cross-thread agreement tests in [`crate::eigen::lanczos`]
-//! and [`crate::eigen::complex::lanczos`].
+//! and [`crate::eigen::complex::SparseComplexShiftInvertLanczos`].
 //!
 //! # When faer is built without `rayon`
 //!
