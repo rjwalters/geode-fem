@@ -100,6 +100,25 @@ test = "crates/geode-core/tests/transmon_eigenmode.rs::tripwire_real_junction_l_
 f_ghz = 3.4528
 participation = 0.9942  # geode-fem stiffness-participation (spurious, excluded)
 excluded = true
+# Tree-cotree gauge attempt (issue #502, measured 2026-07-14): a
+# spanning-tree DOF-elimination gauge (crate::eigen::gauge::TreeCotreeGauge)
+# was implemented and shown to remove exactly rank(d⁰_interior) = 13747
+# gradient DOFs from the 133108-DOF interior pencil (count == de-Rham
+# gradient dimension, proven on cube fixtures). HOWEVER, DOF elimination
+# (dropping tree rows/cols of BOTH K and M) is a *source*-problem gauge and
+# is NOT spectrum-preserving for the generalized eigenproblem K x = λ M x:
+# the physical eigenvectors have nonzero tree-edge components, so the
+# constraint x_tree = 0 SHIFTS the computed spectrum. Measured: the
+# resonator drifts to 5.2372 GHz (1.64%, OUTSIDE the ≤1% bar; a converged
+# eigenvalue, stable across k=4/12/24 Krylov vectors), and a dense low
+# cluster persists. The spurious mode is therefore NOT removed by
+# tree-cotree DOF elimination; it is still filtered by frequency-matching
+# (the committed benchmark path is unchanged). The spectrum-preserving fix
+# is a divergence-free projection (Zᵀ K Z, Zᵀ M Z), for which the shipped
+# spanning tree supplies the cotree basis — filed as the #502 follow-on.
+gauged = false  # tree-cotree DOF elimination does not remove it (see note)
+tree_cotree_gradient_dofs = 13747  # == rank(d⁰_interior) on this mesh
+tree_cotree_resonator_drift_pct = 1.64  # gauged 5.2372 vs ungauged 5.1528 GHz
 
 [oracles.palace]
 status = "populated"
