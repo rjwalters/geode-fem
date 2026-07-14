@@ -36,7 +36,15 @@ clap = { version = "4", features = ["derive"] }
 criterion = "0.5"
 # Base faer feature set shared by every consumer; geode-core additionally
 # enables `sparse-linalg` on its own reference.
-faer = { version = "0.24", default-features = false, features = ["std", "linalg"] }
+#
+# `rayon` enables faer's multi-threaded factorization path (issue #518). It is
+# required so `Par::rayon(n)` / `Par::Rayon` exist and so the sparse LU that
+# fronts the shift-invert Lanczos eigensolve can use more than one core. The
+# eigensolve scopes parallelism to the factorization via a panic-safe RAII
+# guard (`crate::eigen::parallel::ParallelismGuard`) and reverts to serial for
+# the latency-bound single-RHS triangular-solve loop, so enabling the feature
+# does not by itself parallelize any hot loop that regresses under rayon.
+faer = { version = "0.24", default-features = false, features = ["std", "linalg", "rayon"] }
 mshio = "0.4"
 num-complex = { version = "0.4", default-features = false, features = ["std"] }
 pkg-config = "0.3"
