@@ -223,9 +223,19 @@ fn main() {
          \n\
          operator / agent workflow (EC2 box):\n\
            1. scp the mesh + palace_config.json to the box\n\
-           2. /home/ubuntu/palace/build/bin/palace palace_config.json\n\
-           3. Palace writes postpro/transmon_p1/eig.csv (mode frequencies).\n\
-           4. Populate benchmarks/transmon_eigen/results.toml [oracles.palace]\n\
+           2. CONVERT the mesh to MSH 2.2 first — MFEM's MSH 4.1 reader\n\
+              REJECTS the committed DeviceLayout fixture with\n\
+              'Gmsh file: vertices indices are not unique' (the\n\
+              multi-entity-block MSH 4.1 file repeats vertex indices across\n\
+              entity blocks). Required prior step:\n\
+                gmsh <fixture>.msh -0 -save -format msh2 -o <mesh22>.msh\n\
+              This is physics-neutral: the node set is unchanged (22684\n\
+              nodes, 1..22684) and physical groups are preserved, so eig.csv\n\
+              reproduces bit-for-bit. palace_config.json must point at the\n\
+              CONVERTED <mesh22>.msh.\n\
+           3. /home/ubuntu/palace/build/bin/palace palace_config.json\n\
+           4. Palace writes postpro/transmon_p1/eig.csv (mode frequencies).\n\
+           5. Populate benchmarks/transmon_eigen/results.toml [oracles.palace]\n\
               with the per-mode f_ghz + this provenance SHA, then gate the\n\
               <= 1% same-mesh comparison in tests/transmon_eigenmode.rs.\n\
          \n\

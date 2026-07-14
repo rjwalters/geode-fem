@@ -411,8 +411,12 @@ const PALACE_MODES_GHZ: [f64; 6] = [
     26.08089940472,
 ];
 
-/// Palace's junction LC mode (the one with appreciable EPR): the physical
-/// Josephson-junction resonance `f_LC = 1/(2π√(LC)) ≈ 17.60 GHz`.
+/// Palace's junction LC mode: the physical Josephson-junction resonance
+/// `f_LC = 1/(2π√(LC)) ≈ 17.60 GHz`. Cross-solver identification is by
+/// FREQUENCY (17.4901 GHz in both solvers), not by participation — geode-fem's
+/// stiffness-participation p and Palace's field port-EPR are complementary,
+/// differently-normalized diagnostics that rank the modes differently (see
+/// `benchmarks/transmon_eigen/results.toml`).
 const PALACE_JUNCTION_MODE_GHZ: f64 = 17.49010903536;
 
 /// The ≤1% same-mesh cross-validation bar.
