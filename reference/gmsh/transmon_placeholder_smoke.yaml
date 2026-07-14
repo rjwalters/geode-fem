@@ -1,0 +1,38 @@
+# PLACEHOLDER transmon smoke-fixture parameters (Epic #476 Phase A,
+# issue #485). Drives reference/gmsh/transmon_placeholder.geo via
+# reference/gmsh/generate_transmon_placeholder.py.
+#
+# This is NOT the DeviceLayout.jl geometry — it is a schema-faithful
+# stand-in (two pads + junction + trace + two readout ports on a sapphire
+# slab in a vacuum box) carrying the exact physical-group names the
+# `mesh::transmon` adapter consumes. Swapped for the real fixture when an
+# operator runs reference/julia/generate_transmon_fixture.jl.
+#
+# Lengths in microns.
+
+geom:
+  chip_x: 900.0
+  chip_y: 600.0
+  h_sub: 120.0
+  h_vac: 300.0
+  margin: 120.0
+  pad_w: 160.0
+  pad_h: 120.0
+  pad_gap: 60.0
+  trace_w: 40.0
+  port_s: 40.0
+
+mesh:
+  lc_metal: 45.0
+  lc_far: 130.0
+
+# Sapphire material model mirrored for provenance (used by mesh::transmon
+# and Phase B; the mesh itself carries only region tags). The lab-frame
+# permittivity is the ROTATED tensor R·diag(eps)·Rᵀ with the MaterialAxes
+# rotation below (~36.87° in-plane). μ_r ≈ 1 and LossTan are Phase-B only.
+materials:
+  substrate_eps_diag: "9.3, 9.3, 11.5"
+  substrate_material_axes: "[0.8,0.6,0.0],[-0.6,0.8,0.0],[0.0,0.0,1.0]"
+  substrate_mu_diag: "0.99999975, 0.99999975, 0.99999979"
+  substrate_loss_tan: "3.0e-5, 3.0e-5, 8.6e-5"
+  vacuum_eps: 1.0

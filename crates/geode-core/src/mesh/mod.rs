@@ -18,9 +18,11 @@ use std::collections::BTreeMap;
 use mshio::mshfile::ElementType;
 
 pub mod electrostatic_fixtures;
+pub mod msh_tags;
 pub mod patch;
 pub mod sphere;
 pub mod spiral;
+pub mod transmon;
 
 #[allow(deprecated)]
 pub use sphere::PHYS_VACUUM_BUFFER;
@@ -44,6 +46,12 @@ pub use spiral::{
 pub use patch::{
     FR4_MATERIALS, PatchFixture, PatchMaterials, PatchPort, read_patch_fixture,
     read_patch_fixture_from_bytes, read_patch_matched_fixture, read_patch_smoke_fixture,
+};
+// The transmon fixture's PHYS_* tag constants stay namespaced under
+// `mesh::transmon` — several names (`PHYS_SUBSTRATE`, `PHYS_VACUUM`)
+// would collide with the spiral/patch re-exports.
+pub use transmon::{
+    TransmonFixture, TransmonPort, read_transmon_fixture_from_bytes, read_transmon_smoke_fixture,
 };
 
 /// CPU-side tetrahedral mesh produced by a `MeshReader`.
