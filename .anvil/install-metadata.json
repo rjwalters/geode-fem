@@ -1,0 +1,11 @@
+{
+  "anvil_version": "0.8.1",
+  "anvil_source": "/private/tmp/claude-501/-Users-rwalters-GitHub-geode-fem/e7a75221-1f29-437a-a14f-0fddb9c5f3bc/scratchpad/anvil",
+  "install_date": "2026-07-14",
+  "layout_version": 2,
+  "installed_skills": ["pub"],
+  "skipped_overrides": [],
+  "skill_hashes": {"pub": "d8dd71ba261cc2f28dfdea12f3650e49ed0e7ea79519fdbd479a7261718fa6f4"},
+  "skill_versions": {"pub": "0.8.1"},
+  "lib_hash": "2d7db6546b11d0d2287b1e82c7cb95e094e6cae979b47d0df8d156385499eb9d"
+}

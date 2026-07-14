@@ -1,0 +1,484 @@
+{
+  "$defs": {
+    "AggregatedReview": {
+      "additionalProperties": false,
+      "description": "Result of merging N per-critic ``Review`` objects.\n\nProduced by ``anvil/lib/critics.py::aggregate``. The aggregated review\nis what the orchestrator reads to decide ADVANCE / REVISE / BLOCK.",
+      "properties": {
+        "critic_ids": {
+          "description": "Stable IDs of every critic that contributed.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Critic Ids",
+          "type": "array"
+        },
+        "critical_flags": {
+          "description": "Deduplicated union of all critic critical flags.",
+          "items": {
+            "$ref": "#/$defs/CriticalFlag"
+          },
+          "title": "Critical Flags",
+          "type": "array"
+        },
+        "findings": {
+          "description": "Deduplicated union of all critic findings.",
+          "items": {
+            "$ref": "#/$defs/Finding"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "score_means": {
+          "additionalProperties": true,
+          "description": "Per-dimension float mean of non-null critic scores, indexed by dimension. Preserved for reporting so the rounded integer in scores[] does not lose precision.",
+          "title": "Score Means",
+          "type": "object"
+        },
+        "scores": {
+          "description": "Per-dimension aggregated scorecard. For each dim: score = mean of non-null per-critic scores (rounded to int via round-half-to-even for the total; the float mean is preserved on the AggregatedReview via score_means below); critical = logical OR across critics; fix = union of per-critic fixes joined with '; '. evidence_span retains the first non-null span.",
+          "items": {
+            "$ref": "#/$defs/Score"
+          },
+          "title": "Scores",
+          "type": "array"
+        },
+        "threshold": {
+          "description": "Threshold to advance for this rubric.",
+          "title": "Threshold",
+          "type": "integer"
+        },
+        "total": {
+          "description": "Sum of aggregated per-dimension scores (using the rounded integer in scores[]). Used to compute verdict against threshold.",
+          "title": "Total",
+          "type": "integer"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict",
+          "description": "Final verdict. BLOCK if any critical flag; else ADVANCE if total >= threshold; else REVISE. STALLED is reserved for #27."
+        },
+        "version_dir": {
+          "title": "Version Dir",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version_dir",
+        "critic_ids",
+        "scores",
+        "total",
+        "threshold",
+        "verdict"
+      ],
+      "title": "AggregatedReview",
+      "type": "object"
+    },
+    "CriticalFlag": {
+      "additionalProperties": false,
+      "description": "A top-level critical flag, short-circuiting the verdict.\n\nA critical flag indicates a defect severe enough that a sophisticated\nreader would stop reading. Any critical flag forces ``Verdict.BLOCK``\nregardless of total score.",
+      "properties": {
+        "evidence_span": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "See Score.evidence_span for format.",
+          "title": "Evidence Span"
+        },
+        "justification": {
+          "description": "One paragraph explaining why this is a critical flag.",
+          "title": "Justification",
+          "type": "string"
+        },
+        "type": {
+          "description": "Short tag, e.g. 'fabricated_traction', 'factual_error', 'conflict_of_interest'. Skill-defined; the lib does not enforce a vocabulary.",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "justification"
+      ],
+      "title": "CriticalFlag",
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "description": "One actionable critique item beyond the per-dimension scorecard.\n\nFindings are the granular work items the reviser consumes. Each finding\nSHOULD reference a specific evidence span; the reviser uses spans to\nlocate text to revise.",
+      "properties": {
+        "dimension": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dimension this finding contributes to. Optional \u2014 cross-cutting findings (e.g. 'fix all citations') need not name a dimension.",
+          "title": "Dimension"
+        },
+        "evidence_span": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "See Score.evidence_span for format.",
+          "title": "Evidence Span"
+        },
+        "rationale": {
+          "description": "1-2 sentences explaining the defect.",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "severity": {
+          "description": "Severity tier. 'blocker' implies critical.",
+          "enum": [
+            "blocker",
+            "major",
+            "minor",
+            "nit"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "suggested_fix": {
+          "description": "One sentence: what the reviser should do about it.",
+          "title": "Suggested Fix",
+          "type": "string"
+        },
+        "tool_calls": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ToolCall"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Required when the parent Review has kind='tool_evidence'. Reserved for #29; v1 leaves this None for judgment reviews.",
+          "title": "Tool Calls"
+        }
+      },
+      "required": [
+        "severity",
+        "rationale",
+        "suggested_fix"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "Kind": {
+      "description": "Critic output kind.\n\n- ``judgment``: standard rubric-scored review (v1 default).\n- ``tool_evidence``: reserved for #29 \u2014 review backed by tool calls.\n  When set, the schema requires a ``tool_calls`` array per finding.\n- ``vision``: reserved for #30 \u2014 vision-model review of a rendered\n  artifact. When set, the schema requires ``rendered_artifact``.\n\nOnly ``judgment`` is actively used in v1. The other values are accepted\nby the parser so #29 / #30 can populate the new required fields without\nbumping ``schema_version``.",
+      "enum": [
+        "judgment",
+        "tool_evidence",
+        "vision"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "Review": {
+      "additionalProperties": false,
+      "description": "The canonical ``_review.json`` payload from one critic.\n\nWritten by every critic sibling in a versioned thread. The reviser reads\nevery ``_review.json`` across sibling critics and aggregates per\n``anvil/lib/critics.py::aggregate``.",
+      "properties": {
+        "critic_id": {
+          "description": "Stable identifier for the critic that wrote this review, e.g. 'memo-review', 'deck-market', 'ip-uspto-s112'.",
+          "title": "Critic Id",
+          "type": "string"
+        },
+        "critical_flags": {
+          "description": "Top-level critical flags. Any non-empty list forces Verdict.BLOCK in the aggregated verdict, regardless of total.",
+          "items": {
+            "$ref": "#/$defs/CriticalFlag"
+          },
+          "title": "Critical Flags",
+          "type": "array"
+        },
+        "findings": {
+          "description": "Itemized critique entries beyond the scorecard. Empty list is valid (a clean review with no defects).",
+          "items": {
+            "$ref": "#/$defs/Finding"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind",
+          "default": "judgment",
+          "description": "Critic output kind. v1 ships only 'judgment'; 'tool_evidence' and 'vision' are reserved for #29 and #30 respectively."
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model identifier that produced this review. Optional but strongly recommended for reproducibility.",
+          "title": "Model"
+        },
+        "rendered_artifact": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Path (relative to version_dir) of the rendered artifact the critic reviewed. Required when kind='vision' (#30); optional otherwise.",
+          "title": "Rendered Artifact"
+        },
+        "rubric": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rubric identifier, e.g. 'anvil-memo-v1'. Optional; the reviser uses this only to surface mismatched-rubric warnings.",
+          "title": "Rubric"
+        },
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "description": "Pinned to '1' for the v1 contract. Bumped only on a breaking on-disk shape change; additive fields do not require a bump.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scores": {
+          "description": "Per-dimension scorecard. MUST contain one entry per rubric dimension (even when score is None for unowned dims). Aggregation expects every critic's scorecard to enumerate the full rubric so the aggregator can mean-of-non-null cleanly.",
+          "items": {
+            "$ref": "#/$defs/Score"
+          },
+          "title": "Scores",
+          "type": "array"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Threshold to advance, echoed from the rubric. Optional on a per-critic review; required on AggregatedReview.",
+          "title": "Threshold"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sum of this critic's non-null scores. Optional \u2014 most critics compute it; the aggregator recomputes it after merge so this field is informational on a per-critic basis.",
+          "title": "Total"
+        },
+        "unscored": {
+          "default": false,
+          "description": "True ONLY for honest unscored-foreign stubs produced by `anvil:project-migrate --adopt-review` (issue #454). A foreign critic sidecar's prose `review.md` was never scored on any anvil rubric, so the stub carries empty `scores` and null `total`/`threshold`/`verdict` rather than fabricated values. This flag is the ONLY condition under which `scores` may be empty; for every real (scored) review the validator still requires a full scorecard. Absent (the default `False`) is byte-identical to a pre-#454 Review.",
+          "title": "Unscored",
+          "type": "boolean"
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-critic verdict. Optional \u2014 most critics omit and let the aggregator compute verdict over the full scorecard. When present, the aggregator IGNORES per-critic verdict and recomputes from the aggregated total + critical flags."
+        },
+        "version_dir": {
+          "description": "Name of the version directory being reviewed, e.g. 'memo.3'. Lets a critic's _review.json travel out of its sibling dir and still be locatable.",
+          "title": "Version Dir",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version_dir",
+        "critic_id",
+        "scores"
+      ],
+      "title": "Review",
+      "type": "object"
+    },
+    "Score": {
+      "additionalProperties": false,
+      "description": "One rubric-dimension score from one critic.\n\n``score`` is ``None`` when this critic does not own the dimension.\nAggregation across critics uses mean-of-non-null per dimension (see\n``anvil/lib/critics.py::aggregate``). The reviser reads ``fix`` to\nconstruct the revision plan; ``evidence_span`` lets the reviser locate\nthe original text without re-reading the whole artifact.",
+      "properties": {
+        "critical": {
+          "default": false,
+          "description": "True when this dimension has a critical-flag-worthy defect. Aggregation is logical OR across critics for this dim.",
+          "title": "Critical",
+          "type": "boolean"
+        },
+        "dimension": {
+          "description": "Dimension identifier. Skills choose their own convention (memo uses bare names like 'evidence'; deck and ip-uspto use ordinal-prefixed names like '2_problem_clarity'). The schema does not enforce a format \u2014 it is opaque to the lib.",
+          "title": "Dimension",
+          "type": "string"
+        },
+        "evidence_span": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pointer to the source location supporting this score. Format: '<path_relative_to_version_dir>:L<start>-L<end>' for text artifacts; '<path>:slide=<N>' for deck/slides. Optional when score is None.",
+          "title": "Evidence Span"
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One-sentence actionable revision instruction. Optional when score is full-weight or score is None. The reviser reads this to assemble the revision plan, so terse and concrete wins.",
+          "title": "Fix"
+        },
+        "justification": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "1-3 sentence rationale for the score, citing specific evidence from the artifact. Optional but strongly recommended. When score is None, use this to point at the owning critic, e.g. 'n/a \u2014 see deck-market'.",
+          "title": "Justification"
+        },
+        "max": {
+          "description": "Per-dimension weight from the rubric. Constant per skill, echoed here so a stand-alone _review.json is self-contained.",
+          "minimum": 1,
+          "title": "Max",
+          "type": "integer"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Integer score in [0, max], or None if this critic does not own this dimension. Use None (not 0) for unowned dimensions; aggregation across critics computes mean of non-null only.",
+          "title": "Score"
+        }
+      },
+      "required": [
+        "dimension",
+        "score",
+        "max"
+      ],
+      "title": "Score",
+      "type": "object"
+    },
+    "ToolCall": {
+      "additionalProperties": false,
+      "description": "A single tool invocation supporting a tool-evidence review.\n\nReserved for #29. v1 ships the type so callers know the shape; the\n``tool_calls`` field on findings is unused in ``kind=judgment`` reviews.",
+      "properties": {
+        "args": {
+          "additionalProperties": true,
+          "description": "Arguments passed.",
+          "title": "Args",
+          "type": "object"
+        },
+        "result_summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One-line summary of the tool's response.",
+          "title": "Result Summary"
+        },
+        "tool": {
+          "description": "Tool name, e.g. 'web_search', 'grep'.",
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool"
+      ],
+      "title": "ToolCall",
+      "type": "object"
+    },
+    "Verdict": {
+      "description": "Per-review or aggregated verdict.\n\n- ``ADVANCE``: total >= threshold AND no critical flag.\n- ``REVISE``: total < threshold AND no critical flag.\n- ``BLOCK``: any critical flag is set (regardless of total).\n- ``STALLED``: reserved for #27 \u2014 stable-score termination when\n  successive revisions stop improving. v1 does not produce this value;\n  the value is reserved so #27 does not need a schema bump.",
+      "enum": [
+        "ADVANCE",
+        "REVISE",
+        "BLOCK",
+        "STALLED"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "$id": "https://anvil.dev/schemas/review_schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Canonical JSON contract written by Anvil critic siblings as _review.json, and produced by the aggregator. Generated from anvil/lib/review_schema.py; do not edit by hand.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Review"
+    },
+    {
+      "$ref": "#/$defs/AggregatedReview"
+    }
+  ],
+  "title": "Anvil critic output schema"
+}
