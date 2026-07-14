@@ -1,0 +1,419 @@
+# GPU-vs-CPU driven-solve wall-clock scaling benchmark (issue #501, Epic #476
+# Phase D). One physical problem — the σ-lossy parallel-plate cube with a
+# single lumped port (tests/iterative_sweep.rs fixture family) — solved at the
+# same ω by four solver configurations while the mesh is refined via
+# cube_tet_mesh(n), n ∈ {6, 9, 12, 15} (1 854 → 25 695 edges).
+#
+# Produced by `crates/geode-core/tests/gpu_driven_scaling.rs`
+# (`gpu_driven_scaling_benchmark`, #[ignore] release tier). CI runs only the
+# ndarray (CPU) leg; the CUDA leg requires `--features cuda` and a GPU host.
+#
+# ALL numbers in this file — CPU baselines AND the GPU cell — were produced on
+# the SAME rented host (see [meta.host]) so the GPU-vs-CPU comparison is
+# same-host. Development runs on other machines (Apple Silicon dev laptop,
+# m6i) are NOT in this file; note the host is a 4-vCPU g6e.xlarge, so these
+# CPU baselines are NOT comparable to the m6i CPU numbers elsewhere in
+# benchmarks/ and cross-box comparison is discouraged.
+#
+# THIS IS THE DRIVEN-SOLVE SCALING CELL ONLY. It must not be conflated with
+# the eigensolve headline of Epic #476: the eigensolver has no GPU code path
+# (issue #302-future) and no eigensolve number appears in this file.
+
+[meta]
+description = "Wall-clock scaling of the lumped-port driven solve A(ω)x = b across four solver configs on one physical fixture: (1) Direct faer sparse LU (CPU f64), (2) assembled-CSR COCG + Jacobi (CPU f64), (3) matrix-free BurnCocg on ndarray (CPU f64), (4) matrix-free BurnCocg on Cuda (GPU f32; same source path as (3), different Burn backend). Solve-only excludes assembly; end-to-end includes it. Accuracy column = full-field relative L2 of e_edges vs the Direct-f64 reference at the same size."
+fixture = "sigma-lossy parallel-plate cube, single LumpedPort (e_hat = y, R = 1), eps_r = 1 (real), sigma = 2.0, PEC on y-planes — the tests/iterative_sweep.rs / driven_matrix_free_equivalence.rs family"
+omega_single = 0.10
+omegas_sweep5 = [0.05, 0.075, 0.10, 0.15, 0.20]
+iter_tol_f64 = 1e-8
+iter_tol_f32 = 1e-6
+iter_max = 20000
+statistic = "median of 3 timed repetitions per cell (warm-up run excluded); 5-point sweep is a single timed pass after a full warm-up pass"
+
+[meta.host]
+instance = "AWS g6e.xlarge (rented benchmark box)"
+cpu = "AMD EPYC 7R13, 4 vCPU"
+ram_gb = 30
+gpu = "NVIDIA L40S, 46068 MiB, compute capability 8.9"
+gpu_driver = "595.71.05"
+cuda = "13.2 (nvcc V13.2.51)"
+os = "Ubuntu 22.04.5 LTS, kernel 6.8.0-1060-aws"
+rustc = "1.97.0 (2d8144b78 2026-07-07)"
+caveat = "4-vCPU host: the CPU baselines here are for same-host GPU comparison only, NOT comparable to m6i CPU numbers elsewhere in benchmarks/"
+
+[meta.provenance]
+branch = "feature/issue-501"
+base_main_commit = "ad2a3f8"
+generator_test = "crates/geode-core/tests/gpu_driven_scaling.rs"
+cpu_leg_cmd = "cargo test -p geode-core --release --test gpu_driven_scaling -- --ignored --nocapture"
+gpu_leg_cmd = "cargo test -p geode-core --release --features cuda --test gpu_driven_scaling -- --ignored --nocapture"
+notes = [
+  "Configs 1-3 below are from the box's ndarray-leg run; config 4 is from the box's cuda-leg run. The cuda-leg run re-measured configs 1-2 (they are backend-independent CPU paths) and agreed with the ndarray-leg values within ~3% — the duplicates are omitted.",
+  "The f32 GPU leg runs at tol = 1e-6, not the f64 legs' 1e-8: 1e-8 is below the f32 recurrence floor (requesting it stalls COCG at max_iters; observed stagnation at ~1e-2 relative residual at n=15). Iteration counts between the f32 and f64 iterative cells are therefore not exactly comparable (the f32 cells stop earlier).",
+  "Even at tol = 1e-6 the f32 recurrence estimate is optimistic: the TRUE (recomputed) relative residual of the GPU cells floors at 6.2e-4 (n=6) to 5.4e-3 (n=15) — orders of magnitude above the requested tolerance. The residual_rel column is always the recomputed true residual.",
+  "GPU-f32 convergence at n=15 is NONDETERMINISTIC (CUDA reduction order varies run-to-run at the f32 floor): in one run of the identical code an end-to-end repetition stagnated at 3.3e-2 while the other six attempts converged; in the committed run all seven single-omega attempts converged but the 5-point sweep did not (sweep5_converged = false, higher omegas are harder). The test records such outcomes as DNF/flaky cells instead of failing.",
+  "Sizes are the issue's specified n in {6, 9, 12, 15}. The issue header estimated ~15k-200k edges for this range; actual cube_tet_mesh edge counts are 1854/5859/13428/25695 — no size was shrunk; memory was never a constraint (peak well under both 30 GB host RAM and 46 GB GPU).",
+]
+
+# ---------------------------------------------------------------------------
+# HONEST READ (issue #501 acceptance: where the GPU wins/loses vs size)
+# ---------------------------------------------------------------------------
+# GPU-f32 matrix-free LOSES to every CPU configuration at every measured size
+# on this host. At the single omega = 0.1 (solve-only medians): the assembled
+# CSR COCG (CPU f64) is 136x faster at n=6 (0.032 s vs 4.39 s) and still 44x
+# faster at n=15 (1.86 s vs 81.8 s); even Direct LU is 13x faster at n=15
+# (6.04 s). The GPU's per-iteration cost is kernel-launch dominated at these
+# sizes (~28 ms/iter at n=15 vs ~0.63 ms/iter for assembled CSR on CPU) —
+# 25.7k edges is far too small to fill an L40S.
+#
+# The only crossover in the measured range is GPU-f32 vs the SAME matrix-free
+# algorithm on CPU (ndarray f64): the ratio falls monotonically from 2.7x
+# slower (n=6: 4.39 s vs 1.65 s) to parity at n=15 (81.8 s vs 82.1 s), i.e.
+# the GPU catches the CPU matrix-free path at ~26k edges and would pass it
+# beyond. But that crossover is moot in f32: n=15 already sits at the f32
+# convergence ceiling (nondeterministic stagnation, sweep DNF, true residual
+# 5.4e-3), so larger problems are not reachable at this precision. Scaling
+# the GPU path further requires f64 (or mixed-precision/iterative-refinement)
+# GPU support — note the L40S has 1/64-rate f64, so f64-on-L40S would trade
+# the convergence ceiling for raw-rate loss.
+#
+# Accuracy (full-field rel-L2 vs Direct-f64): both f64 iterative configs sit
+# at 6e-9..2e-8 (documented equivalence-class agreement). The f32 GPU cells
+# degrade with size: 1.26e-4 (n=6) -> 2.93e-4 (n=9) -> 4.60e-4 (n=12) ->
+# 1.20e-3 (n=15) — usable for ~0.1%-class field quantities at these sizes,
+# but the trend is the wrong direction for refinement studies.
+#
+# Practical conclusion for this size range: the assembled-CSR COCG (config 2)
+# is the best iterative option on CPU (beats Direct LU from n >= 9 and is
+# 3.2x faster than LU at n=15), and the GPU matrix-free path is not yet
+# competitive for driven solves. This does NOT contradict PR #495/#487's
+# motivation (keeping Krylov vectors device-resident for problems that fill
+# the GPU); it bounds where that pays off: well above 26k edges, and only
+# once the pencil can be iterated in f64 on device.
+
+# ---------------------------------------------------------------------------
+# Config 1: Direct (faer sparse LU), CPU f64 — accuracy reference
+# ---------------------------------------------------------------------------
+
+[[cell]]
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "1_direct"
+method = "faer_lu"
+device = "cpu"
+dtype = "f64"
+converged = true
+reps = 3
+solve_only_s = 0.024149
+end_to_end_s = 0.066047
+iterations = 0
+residual_rel = 1.854e-13
+accuracy_rel_l2_vs_direct = 0.0
+sweep5_solve_only_s = 0.123170
+sweep5_total_iters = 0
+
+[[cell]]
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "1_direct"
+method = "faer_lu"
+device = "cpu"
+dtype = "f64"
+converged = true
+reps = 3
+solve_only_s = 0.202736
+end_to_end_s = 0.339608
+iterations = 0
+residual_rel = 4.008e-13
+accuracy_rel_l2_vs_direct = 0.0
+sweep5_solve_only_s = 1.020275
+sweep5_total_iters = 0
+
+[[cell]]
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "1_direct"
+method = "faer_lu"
+device = "cpu"
+dtype = "f64"
+converged = true
+reps = 3
+solve_only_s = 1.540170
+end_to_end_s = 1.866322
+iterations = 0
+residual_rel = 6.510e-13
+accuracy_rel_l2_vs_direct = 0.0
+sweep5_solve_only_s = 8.009202
+sweep5_total_iters = 0
+
+[[cell]]
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "1_direct"
+method = "faer_lu"
+device = "cpu"
+dtype = "f64"
+converged = true
+reps = 3
+solve_only_s = 6.036479
+end_to_end_s = 6.695204
+iterations = 0
+residual_rel = 1.070e-12
+accuracy_rel_l2_vs_direct = 0.0
+sweep5_solve_only_s = 30.151195
+sweep5_total_iters = 0
+
+# ---------------------------------------------------------------------------
+# Config 2: Iterative assembled-CSR COCG + Jacobi, CPU f64 (tol 1e-8)
+# ---------------------------------------------------------------------------
+
+[[cell]]
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "2_iterative_csr"
+method = "cocg_jacobi"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+reps = 3
+solve_only_s = 0.032302
+end_to_end_s = 0.073604
+iterations = 800
+residual_rel = 8.233e-9
+accuracy_rel_l2_vs_direct = 1.433e-8
+sweep5_solve_only_s = 0.163188
+sweep5_total_iters = 4004
+
+[[cell]]
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "2_iterative_csr"
+method = "cocg_jacobi"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+reps = 3
+solve_only_s = 0.198008
+end_to_end_s = 0.334962
+iterations = 1463
+residual_rel = 9.202e-9
+accuracy_rel_l2_vs_direct = 1.070e-8
+sweep5_solve_only_s = 0.999570
+sweep5_total_iters = 7343
+
+[[cell]]
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "2_iterative_csr"
+method = "cocg_jacobi"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+reps = 3
+solve_only_s = 0.708840
+end_to_end_s = 1.033251
+iterations = 2187
+residual_rel = 8.843e-9
+accuracy_rel_l2_vs_direct = 1.482e-8
+sweep5_solve_only_s = 3.475408
+sweep5_total_iters = 10800
+
+[[cell]]
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "2_iterative_csr"
+method = "cocg_jacobi"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+reps = 3
+solve_only_s = 1.864723
+end_to_end_s = 2.520596
+iterations = 2940
+residual_rel = 9.922e-9
+accuracy_rel_l2_vs_direct = 1.635e-8
+sweep5_solve_only_s = 9.312205
+sweep5_total_iters = 14672
+
+# ---------------------------------------------------------------------------
+# Config 3: IterativeMatrixFree (BurnCocg), ndarray backend, CPU f64
+# (tol 1e-8) — same source path as config 4, CPU substrate
+# ---------------------------------------------------------------------------
+
+[[cell]]
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "3_matrix_free_ndarray"
+method = "burn_cocg"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+reps = 3
+solve_only_s = 1.652218
+end_to_end_s = 1.691032
+iterations = 800
+residual_rel = 9.875e-9
+accuracy_rel_l2_vs_direct = 1.438e-8
+sweep5_solve_only_s = 8.191763
+sweep5_total_iters = 3924
+
+[[cell]]
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "3_matrix_free_ndarray"
+method = "burn_cocg"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+reps = 3
+solve_only_s = 8.884869
+end_to_end_s = 9.017679
+iterations = 1454
+residual_rel = 9.924e-9
+accuracy_rel_l2_vs_direct = 1.067e-8
+sweep5_solve_only_s = 44.878891
+sweep5_total_iters = 7312
+
+[[cell]]
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "3_matrix_free_ndarray"
+method = "burn_cocg"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+reps = 3
+solve_only_s = 30.234288
+end_to_end_s = 31.305811
+iterations = 2185
+residual_rel = 8.891e-9
+accuracy_rel_l2_vs_direct = 1.475e-8
+sweep5_solve_only_s = 150.934120
+sweep5_total_iters = 10742
+
+[[cell]]
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "3_matrix_free_ndarray"
+method = "burn_cocg"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+reps = 3
+solve_only_s = 82.056014
+end_to_end_s = 82.485752
+iterations = 2975
+residual_rel = 7.842e-9
+accuracy_rel_l2_vs_direct = 6.419e-9
+sweep5_solve_only_s = 404.535934
+sweep5_total_iters = 14560
+
+# ---------------------------------------------------------------------------
+# Config 4: IterativeMatrixFree (BurnCocg), Cuda backend, GPU f32 (tol 1e-6)
+# — same source path as config 3, GPU substrate. residual_rel is the TRUE
+# recomputed residual (the f32 recurrence estimate is optimistic).
+# ---------------------------------------------------------------------------
+
+[[cell]]
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "4_matrix_free_cuda"
+method = "burn_cocg"
+device = "gpu"
+dtype = "f32"
+tol = 1e-6
+converged = true
+flaky = false
+reps = 3
+solve_only_s = 4.388126
+end_to_end_s = 4.484934
+iterations = 770
+residual_rel = 6.181e-4
+accuracy_rel_l2_vs_direct = 1.256e-4
+sweep5_converged = true
+sweep5_solve_only_s = 22.065634
+sweep5_total_iters = 3853
+
+[[cell]]
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "4_matrix_free_cuda"
+method = "burn_cocg"
+device = "gpu"
+dtype = "f32"
+tol = 1e-6
+converged = true
+flaky = false
+reps = 3
+solve_only_s = 13.350620
+end_to_end_s = 13.020092
+iterations = 1398
+residual_rel = 2.073e-3
+accuracy_rel_l2_vs_direct = 2.933e-4
+sweep5_converged = true
+sweep5_solve_only_s = 64.349191
+sweep5_total_iters = 6886
+
+[[cell]]
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "4_matrix_free_cuda"
+method = "burn_cocg"
+device = "gpu"
+dtype = "f32"
+tol = 1e-6
+converged = true
+flaky = false
+reps = 3
+solve_only_s = 34.380736
+end_to_end_s = 33.491142
+iterations = 2016
+residual_rel = 2.705e-3
+accuracy_rel_l2_vs_direct = 4.596e-4
+sweep5_converged = true
+sweep5_solve_only_s = 168.248858
+sweep5_total_iters = 10313
+
+[[cell]]
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "4_matrix_free_cuda"
+method = "burn_cocg"
+device = "gpu"
+dtype = "f32"
+tol = 1e-6
+converged = true
+flaky = false
+reps = 3
+solve_only_s = 81.763958
+end_to_end_s = 85.451962
+iterations = 2919
+residual_rel = 5.358e-3
+accuracy_rel_l2_vs_direct = 1.197e-3
+# The 5-point sweep did NOT converge at this size (higher omegas sit past
+# the f32 recurrence floor); single-omega convergence here is itself
+# marginal/nondeterministic across runs — see [meta.provenance] notes.
+sweep5_converged = false
