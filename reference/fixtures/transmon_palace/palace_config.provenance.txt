@@ -1,0 +1,33 @@
+fixture:        transmon_smoke.msh (REAL DeviceLayout.jl v1.15.0 SingleTransmon)
+mesh_sha256:    5b3ff4c357a4dc905e7a2e42abc8178778b626e47582c7bbe610f95d332b33dd
+generator:      reference/palace/geode_transmon_baseline (cargo run --release)
+palace docs:    https://awslabs.github.io/palace/dev/config/
+palace binary:  /home/ubuntu/palace/build/bin/palace (EC2 oracle box)
+
+problem:        Eigenmode (6 modes, target 4.5 GHz)
+junction:       LumpedPort index 1, L = 0.00000001486 H, C = 0.0000000000000055 F,
++Y direction, attribute 4 (lumped_element)
+— REACTIVE only (no R): purely reactive lumped elements
+participate in Palace's real eigenproblem, matching the
+geode-fem reactive-shunt surface term (issue #492).
+readout ports:  port_1 (attr 6), port_2 (attr 7) OMITTED — open boundaries,
+lossless v1 (their 50 ohm would make the pencil complex).
+materials:
+substrate:    rotated anisotropic sapphire, Permittivity [9.3, 9.3, 11.5],
+MaterialAxes [[0.8, 0.6, 0.0], [-0.6, 0.8, 0.0], [0.0, 0.0, 1.0]] (attribute 1)
+vacuum:       eps_r = 1 (attribute 2)
+boundaries:
+PEC:          metal (attribute 5) + exterior_boundary (attribute 3)
+order:          GATING config = Order 1 (matches geode-fem first-order
+Nedelec); palace_config_p2.json = Order 2 (non-gating
+Phase-D convergence preview).
+
+operator / agent workflow (EC2 box):
+1. scp the mesh + palace_config.json to the box
+2. /home/ubuntu/palace/build/bin/palace palace_config.json
+3. Palace writes postpro/transmon_p1/eig.csv (mode frequencies).
+4. Populate benchmarks/transmon_eigen/results.toml [oracles.palace]
+with the per-mode f_ghz + this provenance SHA, then gate the
+<= 1% same-mesh comparison in tests/transmon_eigenmode.rs.
+
+status:         see benchmarks/transmon_eigen/results.toml [oracles.palace].

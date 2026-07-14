@@ -14,11 +14,14 @@
 //!   `arpack` Cargo feature), a cross-check oracle for [`lanczos`].
 //! - [`self_consistent`] — self-consistent `k₀` Newton iteration for the
 //!   Silver-Müller quasimode pencil, layered on [`complex`].
+//! - [`transmon`] — transmon eigenmode solve with the Josephson junction
+//!   as a lumped reactive-shunt surface term (Epic #476 Phase B).
 
 pub mod complex;
 pub mod dense;
 pub mod lanczos;
 pub mod self_consistent;
+pub mod transmon;
 
 #[cfg(feature = "arpack")]
 pub mod arpack;

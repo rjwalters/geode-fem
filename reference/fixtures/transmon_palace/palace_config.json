@@ -1,0 +1,85 @@
+{
+  "Boundaries": {
+    "LumpedPort": [
+      {
+        "Attributes": [
+          4
+        ],
+        "C": 5.5e-15,
+        "Direction": "+Y",
+        "Index": 1,
+        "L": 1.486e-8
+      }
+    ],
+    "PEC": {
+      "Attributes": [
+        5,
+        3
+      ]
+    }
+  },
+  "Domains": {
+    "Materials": [
+      {
+        "Attributes": [
+          1
+        ],
+        "MaterialAxes": [
+          [
+            0.8,
+            0.6,
+            0.0
+          ],
+          [
+            -0.6,
+            0.8,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "Permittivity": [
+          9.3,
+          9.3,
+          11.5
+        ]
+      },
+      {
+        "Attributes": [
+          2
+        ],
+        "Permittivity": 1.0
+      }
+    ]
+  },
+  "Model": {
+    "L0": 1e-6,
+    "Mesh": "crates/geode-core/tests/fixtures/transmon_smoke.msh",
+    "Refinement": {
+      "UniformLevels": 0
+    }
+  },
+  "Problem": {
+    "Output": "postpro/transmon_p1",
+    "Type": "Eigenmode",
+    "Verbose": 2
+  },
+  "Solver": {
+    "Eigenmode": {
+      "MaxIts": 200,
+      "N": 6,
+      "Save": 6,
+      "Target": 4.5,
+      "Tol": 1e-8
+    },
+    "Linear": {
+      "MaxIts": 500,
+      "Tol": 1e-9,
+      "Type": "Default"
+    },
+    "Order": 1
+  }
+}
