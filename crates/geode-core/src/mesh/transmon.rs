@@ -362,6 +362,89 @@ impl TransmonFixture {
             .collect()
     }
 
+    /// Split the `"metal"` group into its **node-disjoint connected
+    /// components** (union-find over shared triangle nodes) and identify
+    /// each as ground, feedline, or transmon island.
+    ///
+    /// On the real DeviceLayout `SingleTransmon` fixture the metal surface
+    /// is ONE physical group but geometrically **three** separate
+    /// conductors (verified in issue #505: 12,096 / 849 / 139 triangles).
+    /// The multi-conductor capacitance extraction needs them separated;
+    /// this does so directly from the mesh connectivity — **no fixture
+    /// regeneration** — feeding the per-conductor node sets straight to the
+    /// [`crate::assembly::electrostatic::Electrode`] API.
+    ///
+    /// Identification (grounded-transmon topology):
+    /// - **ground** = the component the `lumped_element` (junction) sheet
+    ///   touches AND that has the most triangles (the ground plane, which
+    ///   also carries the shorted λ/4 resonator trace);
+    /// - **island** = the *other* component the junction sheet touches (the
+    ///   junction bridges island → ground);
+    /// - **feedline** = every remaining component (the readout CPW trace,
+    ///   which the junction does not touch).
+    ///
+    /// Returns the components sorted by descending triangle count with
+    /// their [`MetalRole`], so the largest (ground) is first.
+    pub fn split_metal_conductors(&self) -> Vec<MetalComponent> {
+        let tris = self.metal_triangles();
+        let junction: Vec<[u32; 3]> = self.lumped_element_triangles();
+
+        // Node set the junction sheet touches (for role identification).
+        let mut junction_nodes: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        for t in &junction {
+            for &n in t {
+                junction_nodes.insert(n);
+            }
+        }
+
+        // Union-find over the metal triangle *nodes*: two triangles are in
+        // the same conductor iff they share (transitively) a node.
+        let comps = connected_components_by_shared_nodes(&tris);
+
+        // Build per-component records + role identification.
+        let mut out: Vec<MetalComponent> = comps
+            .into_iter()
+            .map(|tri_idx| {
+                let mut nodes: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+                for &ti in &tri_idx {
+                    for &n in &tris[ti] {
+                        nodes.insert(n);
+                    }
+                }
+                let touches_junction = nodes.iter().any(|n| junction_nodes.contains(n));
+                let triangles: Vec<[u32; 3]> = tri_idx.iter().map(|&ti| tris[ti]).collect();
+                let bbox = bbox_of_nodes(&self.mesh, &nodes);
+                MetalComponent {
+                    triangles,
+                    nodes: nodes.into_iter().collect(),
+                    touches_junction,
+                    bbox,
+                    role: MetalRole::Feedline, // provisional; assigned below
+                }
+            })
+            .collect();
+
+        // Sort by descending triangle count (ground plane first).
+        out.sort_by_key(|c| std::cmp::Reverse(c.triangles.len()));
+
+        // Assign roles: among the junction-touching components, the largest
+        // is ground, the other is the island; everything else is feedline.
+        let mut ground_assigned = false;
+        for c in out.iter_mut() {
+            if c.touches_junction {
+                if !ground_assigned {
+                    c.role = MetalRole::Ground;
+                    ground_assigned = true;
+                } else {
+                    c.role = MetalRole::Island;
+                }
+            } else {
+                c.role = MetalRole::Feedline;
+            }
+        }
+        out
+    }
+
     /// Build a lumped-port adapter from a tagged port face set with a
     /// given direction `ê`. The gap `length` (extent along `ê`) and
     /// effective `width` (area / length) are derived from the tagged
@@ -416,6 +499,99 @@ impl TransmonFixture {
     pub fn lumped_element_port(&self) -> TransmonPort {
         self.port_from_tag(self.tags.lumped_element, JUNCTION_E_HAT)
     }
+}
+
+/// The identified role of a node-disjoint metal conductor component on the
+/// grounded-transmon fixture (see
+/// [`TransmonFixture::split_metal_conductors`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MetalRole {
+    /// The ground plane (+ shorted λ/4 resonator trace): the largest metal
+    /// component that the junction sheet touches, held at φ = 0.
+    Ground,
+    /// The transmon island: the *other* junction-touching component (the
+    /// junction bridges island → ground).
+    Island,
+    /// A readout feedline / CPW trace: a metal component the junction does
+    /// NOT touch.
+    Feedline,
+}
+
+/// One node-disjoint connected component of the `"metal"` surface group,
+/// with its identified [`MetalRole`] and geometric summary.
+#[derive(Clone, Debug)]
+pub struct MetalComponent {
+    /// The component's triangles (0-based node triples into `mesh.nodes`).
+    pub triangles: Vec<[u32; 3]>,
+    /// Sorted, de-duplicated node indices of this component — feeds
+    /// straight into [`crate::assembly::electrostatic::Electrode::nodes`].
+    pub nodes: Vec<u32>,
+    /// Whether the `lumped_element` (junction) sheet shares any node with
+    /// this component (the role-identification signal).
+    pub touches_junction: bool,
+    /// Axis-aligned bounding box `[[x_lo,y_lo,z_lo],[x_hi,y_hi,z_hi]]` in
+    /// mesh units — a sanity/identification aid.
+    pub bbox: [[f64; 3]; 2],
+    /// The identified conductor role.
+    pub role: MetalRole,
+}
+
+/// Connected components of a triangle set by **shared nodes** (union-find):
+/// two triangles join iff they share a node; components are node-disjoint.
+/// Returns, per component, the list of triangle indices into `tris`.
+fn connected_components_by_shared_nodes(tris: &[[u32; 3]]) -> Vec<Vec<usize>> {
+    // Map each node to the first triangle that referenced it; union the
+    // current triangle with that representative.
+    let n = tris.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]]; // path halving
+            x = parent[x];
+        }
+        x
+    }
+    fn union(parent: &mut [usize], a: usize, b: usize) {
+        let ra = find(parent, a);
+        let rb = find(parent, b);
+        if ra != rb {
+            parent[ra] = rb;
+        }
+    }
+
+    let mut node_owner: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    for (ti, tri) in tris.iter().enumerate() {
+        for &node in tri {
+            match node_owner.get(&node) {
+                Some(&other) => union(&mut parent, ti, other),
+                None => {
+                    node_owner.insert(node, ti);
+                }
+            }
+        }
+    }
+
+    let mut groups: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+    for ti in 0..n {
+        let r = find(&mut parent, ti);
+        groups.entry(r).or_default().push(ti);
+    }
+    groups.into_values().collect()
+}
+
+/// Axis-aligned bounding box of a node set over `mesh.nodes`.
+fn bbox_of_nodes(mesh: &TetMesh, nodes: &std::collections::BTreeSet<u32>) -> [[f64; 3]; 2] {
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for &nd in nodes {
+        let p = mesh.nodes[nd as usize];
+        for d in 0..3 {
+            lo[d] = lo[d].min(p[d]);
+            hi[d] = hi[d].max(p[d]);
+        }
+    }
+    [lo, hi]
 }
 
 /// Lumped-port geometry recovered from a transmon port tag: owned face
@@ -521,5 +697,71 @@ mod tests {
     #[test]
     fn sapphire_eps_scalar_is_trace_average() {
         assert!((sapphire_eps_scalar() - (9.3 + 9.3 + 11.5) / 3.0).abs() < 1e-12);
+    }
+
+    /// The union-find splitter separates two node-disjoint triangle groups
+    /// and joins triangles that share a node.
+    #[test]
+    fn connected_components_split_disjoint_groups() {
+        // Group A: two triangles sharing node 2. Group B: one triangle on
+        // nodes {10,11,12}, disjoint from A. Group C: shares node 12 with B.
+        let tris = [
+            [0, 1, 2],
+            [2, 3, 4], // shares node 2 with the first → same component
+            [10, 11, 12],
+            [12, 13, 14], // shares node 12 → same component as {10,11,12}
+        ];
+        let comps = connected_components_by_shared_nodes(&tris);
+        assert_eq!(comps.len(), 2, "expected two node-disjoint components");
+        let mut sizes: Vec<usize> = comps.iter().map(|c| c.len()).collect();
+        sizes.sort_unstable();
+        assert_eq!(sizes, vec![2, 2]);
+    }
+
+    /// Real DeviceLayout fixture: the metal group splits into EXACTLY three
+    /// node-disjoint components with the issue #505 tri/node counts, and
+    /// the junction identifies ground + island (not the feedline).
+    #[test]
+    fn real_fixture_metal_splits_into_three_conductors() {
+        let fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+        let comps = fx.split_metal_conductors();
+        assert_eq!(comps.len(), 3, "expected 3 node-disjoint metal conductors");
+
+        // Sorted by descending triangle count: ground, feedline, island.
+        let (ground, feedline, island) = (&comps[0], &comps[1], &comps[2]);
+
+        // Exact tri/node counts pinned by the curator's independent
+        // re-derivation (issue #505 comment).
+        assert_eq!(ground.triangles.len(), 12_096, "ground tri count");
+        assert_eq!(ground.nodes.len(), 7_373, "ground node count");
+        assert_eq!(feedline.triangles.len(), 849, "feedline tri count");
+        assert_eq!(feedline.nodes.len(), 653, "feedline node count");
+        assert_eq!(island.triangles.len(), 139, "island tri count");
+        assert_eq!(island.nodes.len(), 101, "island node count");
+
+        // Role identification: ground + island touch the junction; feedline
+        // does not.
+        assert_eq!(ground.role, MetalRole::Ground);
+        assert!(ground.touches_junction, "ground must touch junction");
+        assert_eq!(island.role, MetalRole::Island);
+        assert!(island.touches_junction, "island must touch junction");
+        assert_eq!(feedline.role, MetalRole::Feedline);
+        assert!(
+            !feedline.touches_junction,
+            "feedline must NOT touch junction"
+        );
+
+        // Bbox sanity: island is small and centered near the junction
+        // (x ≈ ±12 μm), ground spans the full chip (x ≈ ±2000 μm).
+        assert!(
+            island.bbox[1][0] - island.bbox[0][0] < 50.0,
+            "island x-extent too large: {:?}",
+            island.bbox
+        );
+        assert!(
+            ground.bbox[1][0] - ground.bbox[0][0] > 3000.0,
+            "ground x-extent too small: {:?}",
+            ground.bbox
+        );
     }
 }
