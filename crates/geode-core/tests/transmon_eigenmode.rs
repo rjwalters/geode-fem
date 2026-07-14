@@ -296,6 +296,140 @@ fn synthetic_reactive_shunt_end_to_end() {
     );
 }
 
+/// As [`solve_synthetic`] but through the tree-cotree **gauged** entry
+/// point [`solve_transmon_eigenmodes_gauged`].
+fn solve_synthetic_gauged(
+    fx: &SyntheticFixture,
+    element: ReactiveElementNatural,
+    l_geom: f64,
+    w_geom: f64,
+    sigma: f64,
+    n_modes: usize,
+) -> Vec<ModeReport> {
+    let scatter = NedelecScatterMap::new(&fx.tet_edge_idx);
+    let (k_vals, m_vals) =
+        assemble_real_pencil(&fx.mesh, &fx.tet_edge_sign, &scatter, &fx.epsilon_tensor);
+    let shunt = LumpedReactiveShunt {
+        faces: &fx.junction_faces,
+        length: l_geom,
+        width: w_geom,
+        element,
+    };
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &fx.edges,
+        mesh: &fx.mesh,
+        shunt,
+        interior_mask: &fx.interior_mask,
+    };
+    geode_core::eigen::transmon::solve_transmon_eigenmodes_gauged(
+        &pencil, sigma, n_modes, M_PER_UNIT,
+    )
+    .expect("synthetic gauged eigensolve")
+}
+
+/// Structural (synthetic, CI-fast): the tree-cotree gauge shrinks the
+/// pencil by exactly `rank(d⁰_interior)` DOFs, and that count equals the
+/// de-Rham gradient-nullspace dimension. Uses the same
+/// `TreeCotreeGauge`/`spurious_dim_from_derham` machinery the module unit
+/// tests exercise, but on the full synthetic transmon fixture (partial PEC
+/// plus a free junction face) so the boundary convention is checked on a
+/// non-trivial mixed boundary.
+#[test]
+fn gauge_dof_count_matches_derham_on_synthetic() {
+    use geode_core::assembly::nedelec::spurious_dim_from_derham;
+    use geode_core::eigen::gauge::TreeCotreeGauge;
+
+    let fx = synthetic_fixture(3);
+    let n_nodes = fx.mesh.n_nodes();
+    let gauge = TreeCotreeGauge::build(&fx.edges, &fx.interior_mask, n_nodes);
+
+    // Interior-node mask: a node is grounded iff it is an endpoint of a PEC
+    // (excluded) edge — the same convention the gauge uses internally.
+    let mut grounded = vec![false; n_nodes];
+    for (e, &keep) in fx.interior_mask.iter().enumerate() {
+        if !keep {
+            grounded[fx.edges[e][0] as usize] = true;
+            grounded[fx.edges[e][1] as usize] = true;
+        }
+    }
+    let node_mask: Vec<bool> = grounded.iter().map(|&g| !g).collect();
+
+    let rank = spurious_dim_from_derham(&fx.mesh, &fx.interior_mask, &node_mask);
+    eprintln!(
+        "synthetic gauge: interior_dim={}, tree_edges={}, gauged_dim={}, rank(d⁰)={rank}",
+        gauge.interior_dim(),
+        gauge.tree_edge_count(),
+        gauge.gauged_dim()
+    );
+    assert_eq!(
+        gauge.tree_edge_count(),
+        rank,
+        "eliminated tree edges must equal the de-Rham gradient dimension"
+    );
+    assert_eq!(
+        gauge.gauged_dim(),
+        gauge.interior_dim() - rank,
+        "gauged DOF count must be interior − gradient dimension"
+    );
+    assert!(gauge.gauged_dim() < gauge.interior_dim());
+}
+
+/// Structural (synthetic, CI-fast): the tree-cotree DOF elimination DOES
+/// remove the exact-zero gradient nullspace. The UNGAUGED solve near σ→0⁺
+/// surfaces the gradient near-zero-λ cluster (λ ≈ machine-ε · scale); the
+/// GAUGED solve at the same tiny shift has its smallest eigenvalue lifted
+/// many orders of magnitude above that cluster — the `kernel(K) = image(d⁰)`
+/// nullspace is gone.
+///
+/// NOTE: this proves the gauge kills the *exact-zero* gradient modes, which
+/// is necessary but NOT sufficient for the eigen acceptance bar. On the real
+/// generalized pencil the DOF-elimination gauge additionally SHIFTS the
+/// nonzero physical spectrum (it is not a spectrum-preserving projection) —
+/// see `tree_cotree_dof_elimination_shifts_eigen_spectrum` for that
+/// documented negative.
+#[test]
+fn gauge_removes_near_zero_cluster_synthetic() {
+    let fx = synthetic_fixture(3);
+    let element = ReactiveElementNatural {
+        l_natural: 50.0,
+        c_natural: 5.0,
+    };
+    // A tiny shift just above zero: shift-invert amplifies the gradient
+    // nullspace at λ≈0, so the ungauged solve returns near-zero λ's.
+    let sigma = 1e-6;
+    let ungauged = solve_synthetic(&fx, element, 1.0, 1.0, sigma, 6);
+    let gauged = solve_synthetic_gauged(&fx, element, 1.0, 1.0, sigma, 6);
+
+    let min_ung = ungauged
+        .iter()
+        .map(|m| m.lambda)
+        .fold(f64::INFINITY, f64::min);
+    let min_g = gauged
+        .iter()
+        .map(|m| m.lambda)
+        .fold(f64::INFINITY, f64::min);
+    eprintln!("near-zero-cluster: ungauged min λ={min_ung:.3e}, gauged min λ={min_g:.3e}");
+
+    // Ungauged: a gradient mode sits at (near-)zero λ.
+    assert!(
+        min_ung < 1e-6,
+        "ungauged path should expose a near-zero gradient mode, got min λ={min_ung:.3e}"
+    );
+    // Gauged: the smallest eigenvalue is a genuine physical mode, lifted far
+    // above the gradient cluster (many orders of magnitude).
+    assert!(
+        min_g > 1e-3,
+        "gauged path still has a near-zero gradient cluster: min λ={min_g:.3e}"
+    );
+    assert!(
+        min_g > 1e6 * min_ung.max(1e-300),
+        "gauge did not lift the gradient cluster: ungauged {min_ung:.3e} vs gauged {min_g:.3e}"
+    );
+}
+
 /// Tripwire (synthetic): doubling `L̃` LOWERS the inductive stiffness
 /// `K_port ∝ 1/L̃`, so the mode with junction participation shifts DOWN
 /// in λ (ω ∝ √λ). We assert the direction on the highest-participation
@@ -619,11 +753,183 @@ fn tripwire_real_junction_l_doubling() {
     );
 }
 
+/// HONEST-NEGATIVE regression (issue #502): the tree-cotree spanning-tree
+/// gauge, applied as **DOF elimination** (drop tree rows/cols from the
+/// reduced `(K, M)` pencil), is *structurally* correct — it removes exactly
+/// `rank(d⁰_interior)` gradient DOFs (the count matches the de-Rham
+/// gradient dimension bit-for-bit) — but it is **NOT spectrum-preserving
+/// for the generalized eigenproblem**, so it does NOT deliver the
+/// acceptance bar. This test PINS that finding with measured data so the
+/// negative is a committed, reproducible artifact.
+///
+/// # Why DOF-elimination tree-cotree fails on the *eigen* pencil
+///
+/// Tree-cotree DOF elimination (set tree-edge DOFs to zero) is the standard
+/// gauge for the curl-curl **source** problem `K x = b` with a solenoidal
+/// RHS: it removes the gradient nullspace of `K` and the cotree submatrix
+/// `K_cc` inherits the physical (nonzero) spectrum. But the generalized
+/// eigenproblem `K x = λ M x` also involves the **mass matrix** `M`, and the
+/// physical eigenvectors have *nonzero tree-edge components*. Deleting the
+/// tree rows/cols of BOTH `K` and `M` therefore imposes an artificial
+/// `x_tree = 0` constraint on the physical modes, shifting the computed
+/// spectrum. The correct spectrum-preserving construction is a **projection**
+/// `Zᵀ K Z, Zᵀ M Z` onto the divergence-free subspace (the issue's other
+/// option), not a naive row/col deletion — that is the filed follow-on.
+///
+/// # Measured (real 133k-DOF fixture, 2026-07-14)
+///
+/// - Gauge count: interior_dim 133108 → tree_edges 13747 → cotree 119361.
+///   `tree_edges == rank(d⁰_interior)` (proved on cube fixtures in the unit
+///   tests; the count arithmetic below re-checks the identity on the real
+///   mesh's interior/cotree bookkeeping).
+/// - Physical mode drift: targeting σ at the 5.1513 GHz Palace resonator,
+///   the ungauged solve reproduces 5.1528 GHz (0.03%), the gauged solve's
+///   nearest eigenvalue is a *converged* 5.2372 GHz (λ=1.2048e-8, stable
+///   across k=4/12/24 Krylov vectors — NOT a budget artifact) — a **1.64%
+///   shift, OUTSIDE the ≤1% bar.** The gauged pencil also retains a dense
+///   low cluster (0.0, 1.21, 2.02, 2.74, 3.11, 3.24, 4.18, 4.86 GHz at
+///   k=24), so the spurious mode is **not** removed by this construction.
+///
+/// ```sh
+/// cargo test -p geode-core --release --test transmon_eigenmode \
+///     -- --ignored tree_cotree_dof_elimination_shifts_eigen_spectrum --nocapture
+/// ```
+#[test]
+#[ignore = "133k-DOF sparse shift-invert eigensolves — release benchmark only"]
+fn tree_cotree_dof_elimination_shifts_eigen_spectrum() {
+    use geode_core::eigen::gauge::TreeCotreeGauge;
+
+    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
+    let edges = f.mesh.edges();
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+    let n_interior = interior_mask.iter().filter(|&&b| b).count();
+
+    // ---- Structural: the gauge count arithmetic holds on the real mesh. -
+    let gauge = TreeCotreeGauge::build(&edges, &interior_mask, f.mesh.n_nodes());
+    eprintln!(
+        "tree-cotree gauge: interior_dim={} (={}), tree_edges (eliminated)={}, \
+         gauged_dim (cotree)={}",
+        gauge.interior_dim(),
+        n_interior,
+        gauge.tree_edge_count(),
+        gauge.gauged_dim()
+    );
+    assert_eq!(gauge.interior_dim(), n_interior);
+    assert_eq!(
+        gauge.gauged_dim(),
+        gauge.interior_dim() - gauge.tree_edge_count(),
+        "gauged_dim = interior_dim − tree_edges"
+    );
+    assert!(
+        gauge.tree_edge_count() > 0 && gauge.gauged_dim() < gauge.interior_dim(),
+        "gauge must eliminate a nonzero gradient-DOF count"
+    );
+
+    // ---- Negative: the eigen spectrum is NOT preserved. Target σ AT the
+    //      Palace resonator; the ungauged nearest reproduces it (≤1%), the
+    //      gauged nearest is shifted OUTSIDE the bar. ---------------------
+    const RESONATOR_GHZ: f64 = 5.151335830348;
+    let ungauged = solve_real_fixture(&f, RESONATOR_GHZ * 1e9, 4);
+    let gauged = solve_real_fixture_gauged(&f, RESONATOR_GHZ * 1e9, 4);
+    let nearest = |ms: &[ModeReport]| -> ModeReport {
+        ms.iter()
+            .min_by(|a, b| {
+                (a.frequency_ghz() - RESONATOR_GHZ)
+                    .abs()
+                    .partial_cmp(&(b.frequency_ghz() - RESONATOR_GHZ).abs())
+                    .unwrap()
+            })
+            .unwrap()
+            .clone()
+    };
+    let u_best = nearest(&ungauged);
+    let g_best = nearest(&gauged);
+    let u_rel = (u_best.frequency_ghz() - RESONATOR_GHZ).abs() / RESONATOR_GHZ * 100.0;
+    let g_rel = (g_best.frequency_ghz() - RESONATOR_GHZ).abs() / RESONATOR_GHZ * 100.0;
+    eprintln!(
+        "resonator σ={RESONATOR_GHZ:.4} GHz: ungauged {:.4} GHz ({u_rel:.4}%), \
+         gauged {:.4} GHz ({g_rel:.4}%)",
+        u_best.frequency_ghz(),
+        g_best.frequency_ghz()
+    );
+    eprintln!("  ungauged modes: {:?}", freqs(&ungauged));
+    eprintln!("  gauged   modes: {:?}", freqs(&gauged));
+
+    // The ungauged path DOES reproduce the physical resonator (≤1%).
+    assert!(
+        u_rel <= PALACE_BAR_PCT,
+        "ungauged resonator drifted {u_rel:.4}% — expected ≤{PALACE_BAR_PCT}%"
+    );
+    // The gauged (DOF-elimination) path shifts it OUTSIDE the bar — the
+    // documented negative. (If a future spectrum-preserving projection lands
+    // and this flips, that is the SUCCESS signal and this test should be
+    // promoted, not deleted.)
+    assert!(
+        g_rel > PALACE_BAR_PCT,
+        "tree-cotree DOF elimination now preserves the eigen spectrum \
+         (gauged resonator {g_rel:.4}% ≤ {PALACE_BAR_PCT}%) — the negative no longer \
+         holds; promote this to the positive acceptance test and update results.toml"
+    );
+}
+
+/// The sorted mode frequencies (GHz) of a solve, for diagnostic printing.
+fn freqs(ms: &[ModeReport]) -> Vec<f64> {
+    let mut v: Vec<f64> = ms
+        .iter()
+        .map(|m| (m.frequency_ghz() * 1e4).round() / 1e4)
+        .collect();
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    v
+}
+
 /// Full-mesh solve helper (shared by the release test and any future
 /// operator harness), with the DeviceLayout junction values. `sigma_f_hz`
 /// places the shift; returns `n_modes` modes sorted by λ.
 fn solve_real_fixture(f: &TransmonFixture, sigma_f_hz: f64, n_modes: usize) -> Vec<ModeReport> {
     solve_real_fixture_with_l(f, JUNCTION_L_H, sigma_f_hz, n_modes)
+}
+
+/// As [`solve_real_fixture`] but through the tree-cotree **gauged** entry
+/// point. Same junction values / shift; returns `n_modes` modes.
+fn solve_real_fixture_gauged(
+    f: &TransmonFixture,
+    sigma_f_hz: f64,
+    n_modes: usize,
+) -> Vec<ModeReport> {
+    let edges = f.mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+    let epsilon_tensor = f.epsilon_tensor_r();
+    let scatter = NedelecScatterMap::new(&tet_edge_idx);
+    let (k_vals, m_vals) = assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+    let jport = f.lumped_element_port();
+    let element = ReactiveElementNatural::from_si(JUNCTION_L_H, JUNCTION_C_F, M_PER_UNIT);
+    let shunt = LumpedReactiveShunt {
+        faces: &jport.faces,
+        length: jport.length,
+        width: jport.width,
+        element,
+    };
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &edges,
+        mesh: &f.mesh,
+        shunt,
+        interior_mask: &interior_mask,
+    };
+    let sigma = lambda_shift_for_frequency_hz(sigma_f_hz, M_PER_UNIT);
+    geode_core::eigen::transmon::solve_transmon_eigenmodes_gauged(
+        &pencil, sigma, n_modes, M_PER_UNIT,
+    )
+    .expect("real transmon gauged eigensolve")
 }
 
 /// As [`solve_real_fixture`] but with an explicit junction inductance (for

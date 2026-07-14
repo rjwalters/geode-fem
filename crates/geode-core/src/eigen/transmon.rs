@@ -76,6 +76,7 @@ use faer::sparse::{SparseColMat, Triplet};
 use crate::assembly::nedelec::NedelecScatterMap;
 use crate::driven::ports::assemble_port_surface_mass;
 use crate::eigen::dense::EigenError;
+use crate::eigen::gauge::TreeCotreeGauge;
 use crate::eigen::lanczos::SparseShiftInvertLanczos;
 use crate::mesh::TetMesh;
 
@@ -328,17 +329,14 @@ pub fn solve_transmon_eigenmodes(
     n_modes: usize,
     m_per_unit: f64,
 ) -> Result<Vec<ModeReport>, EigenError> {
-    let pattern = pencil.scatter.pattern();
     let n_edges = pencil.edges.len();
     assert_eq!(
         pencil.interior_mask.len(),
         n_edges,
         "interior mask length must equal edge count"
     );
-    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
-    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
 
-    // Interior reindex: global edge → reduced interior index (or None).
+    // Ungauged path: reindex is the plain PEC interior reduction.
     let mut interior_index = vec![None; n_edges];
     let mut dim = 0usize;
     for (e, &keep) in pencil.interior_mask.iter().enumerate() {
@@ -352,6 +350,83 @@ pub fn solve_transmon_eigenmodes(
             "no interior DOFs after PEC reduction".into(),
         ));
     }
+    solve_transmon_eigenmodes_reindexed(pencil, &interior_index, dim, sigma, n_modes, m_per_unit)
+}
+
+/// Tree-cotree **gauged** transmon eigensolve (issue #502).
+///
+/// Identical to [`solve_transmon_eigenmodes`] except that the reduced
+/// pencil is additionally restricted to the **cotree** edges of a spanning
+/// tree of the mesh node graph ([`TreeCotreeGauge`]), eliminating exactly
+/// `rank(d⁰_interior)` gradient DOFs (`kernel(K) = image(d⁰)`). The gauged
+/// pencil is smaller (`interior_dim − tree_edges` DOFs), which speeds the
+/// sparse LU up.
+///
+/// # NOT spectrum-preserving for the eigenproblem
+///
+/// DOF elimination (drop tree rows/cols of BOTH `K` and `M`) is the correct
+/// gauge for the curl-curl *source* problem but **shifts** the generalized
+/// eigenproblem's physical spectrum, because the physical eigenvectors have
+/// nonzero tree-edge components (see [`TreeCotreeGauge`] docs and the
+/// measured 1.64% resonator drift in
+/// `tests/transmon_eigenmode.rs::tree_cotree_dof_elimination_shifts_eigen_spectrum`).
+/// This entry point exists to exercise and pin that finding; the
+/// spectrum-preserving fix is a divergence-free projection (issue #502
+/// follow-on). Do **not** use it as the physical transmon solver — the
+/// ungauged [`solve_transmon_eigenmodes`] remains the committed benchmark
+/// path.
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly or the Lanczos
+/// solve; errors if the gauge leaves no cotree DOFs.
+pub fn solve_transmon_eigenmodes_gauged(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+) -> Result<Vec<ModeReport>, EigenError> {
+    let n_edges = pencil.edges.len();
+    assert_eq!(
+        pencil.interior_mask.len(),
+        n_edges,
+        "interior mask length must equal edge count"
+    );
+    let gauge = TreeCotreeGauge::build(pencil.edges, pencil.interior_mask, pencil.mesh.n_nodes());
+    let dim = gauge.gauged_dim();
+    if dim == 0 {
+        return Err(EigenError::FaerGevd(
+            "no cotree DOFs after tree-cotree gauge".into(),
+        ));
+    }
+    solve_transmon_eigenmodes_reindexed(
+        pencil,
+        gauge.gauged_index_map(),
+        dim,
+        sigma,
+        n_modes,
+        m_per_unit,
+    )
+}
+
+/// Shared core: solve the reduced real pencil under an arbitrary
+/// global-edge → reduced-DOF `reindex` (`Some(r)` = kept DOF at reduced
+/// index `r`, `None` = eliminated), with reduced dimension `dim`. The
+/// ungauged path passes the plain PEC interior reindex; the gauged path
+/// passes the tree-cotree cotree reindex. Everything downstream (surface
+/// terms, reduced assembly, Lanczos, participation) is index-agnostic.
+fn solve_transmon_eigenmodes_reindexed(
+    pencil: &TransmonPencil<'_>,
+    reindex: &[Option<usize>],
+    dim: usize,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+) -> Result<Vec<ModeReport>, EigenError> {
+    let pattern = pencil.scatter.pattern();
+    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
+    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
+    let interior_index = reindex;
 
     // Junction surface terms over the full edge set.
     let k_port = pencil.shunt.k_port_triplets(pencil.mesh, pencil.edges);
@@ -363,7 +438,7 @@ pub fn solve_transmon_eigenmodes(
         &pattern.cols,
         pencil.k_vals,
         &k_port,
-        &interior_index,
+        interior_index,
         dim,
     )?;
     let m_red = assemble_reduced_real(
@@ -371,12 +446,12 @@ pub fn solve_transmon_eigenmodes(
         &pattern.cols,
         pencil.m_vals,
         &m_port,
-        &interior_index,
+        interior_index,
         dim,
     )?;
 
     // K_port alone (reduced) — needed for the participation numerator.
-    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, &interior_index, dim)?;
+    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, interior_index, dim)?;
 
     let solver = SparseShiftInvertLanczos {
         sigma,
