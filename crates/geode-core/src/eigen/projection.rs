@@ -326,6 +326,197 @@ impl<'m> MOrthogonalGradientProjector<'m> {
         let res2 = rhs.iter().map(|x| x * x).sum::<f64>();
         (res2 / m_norm2).sqrt()
     }
+
+    /// Edge dimension (rows of `G`, length of vectors `P` acts on).
+    #[inline]
+    pub fn edge_dim(&self) -> usize {
+        self.edge_dim
+    }
+
+    /// The reduced edge mass `M` this projector deflates against.
+    #[inline]
+    pub fn m(&self) -> SparseColMatRef<'m, usize, f64> {
+        self.m
+    }
+
+    /// `M`-inner product `xᵀ M y`.
+    fn m_inner(&self, x: &[f64], y: &[f64]) -> f64 {
+        let mut my = vec![0.0_f64; self.edge_dim];
+        spmv(self.m, y, &mut my);
+        x.iter().zip(my.iter()).map(|(a, b)| a * b).sum::<f64>()
+    }
+
+    /// The `M`-orthogonal projection of `x` **onto** `image(G)`:
+    /// `u = (I − P) x = G (Gᵀ M G)⁻¹ Gᵀ M x`.
+    ///
+    /// This is the *near-gradient part* of `x` — the complement of
+    /// [`Self::project_in_place`]. For the transmon junction eigenvector (99.99%
+    /// inside `image(d⁰)`, projected-norm ratio ≈ 1e-4) this recovers the
+    /// junction-flux gradient direction almost in its entirety. Because
+    /// `u ∈ image(G)`, `P u = 0` exactly — the property the port-aware
+    /// re-admission ([`PortAwareGradientProjector`]) relies on.
+    pub fn gradient_component(&self, x: &[f64]) -> Result<Vec<f64>, EigenError> {
+        use faer::linalg::solvers::Solve;
+        assert_eq!(x.len(), self.edge_dim, "vector length mismatch");
+        // mw = M · x
+        let mut mw = vec![0.0_f64; self.edge_dim];
+        spmv(self.m, x, &mut mw);
+        // rhs = Gᵀ · mw   (node-space)
+        let mut rhs = vec![0.0_f64; self.node_dim];
+        spmv_transpose(self.gradient.matrix(), &mw, &mut rhs);
+        // y = C⁻¹ rhs
+        let mut y_mat: Mat<f64> = Mat::from_fn(self.node_dim, 1, |r, _| rhs[r]);
+        self.c_lu.solve_in_place(y_mat.as_mut());
+        let y: Vec<f64> = (0..self.node_dim).map(|r| y_mat[(r, 0)]).collect();
+        // u = G · y   (edge-space, in image(G))
+        let mut u = vec![0.0_f64; self.edge_dim];
+        spmv(self.gradient.matrix(), &y, &mut u);
+        Ok(u)
+    }
+}
+
+/// A **port-aware** `M`-orthogonal projector that deflates the bulk gradient
+/// nullspace `image(d⁰_interior)` EXCEPT for one re-admitted direction — the
+/// near-gradient junction-flux mode.
+///
+/// # Why the bulk projector alone is not enough
+///
+/// The bulk projector `P = I − G(GᵀMG)⁻¹GᵀM`
+/// ([`MOrthogonalGradientProjector`]) annihilates *all* of `image(d⁰)`. That
+/// removes the 13,747-mode gradient cluster and preserves the cavity spectrum,
+/// but it also **deflates the physical junction LC mode**: a lumped inductor is
+/// a quasi-static, curl-free flux path, so the junction eigenvector lives
+/// almost entirely in `image(d⁰)` (measured projected-norm ratio ≈ 1e-4, i.e.
+/// 99.99% gradient). `P` cannot tell that one physical gradient direction from
+/// the 13,746 spurious ones and removes it with the rest (issue #509 negative).
+///
+/// # The construction: re-admit `span{û}`
+///
+/// Let `x_j` be the (ungauged) junction eigenvector and
+/// `u = (I − P) x_j ∈ image(G)` its near-gradient part
+/// ([`MOrthogonalGradientProjector::gradient_component`]), M-normalized to
+/// `û = u / ‖u‖_M`. The port-aware projector is
+///
+/// ```text
+/// P' = P + û ûᵀ M.
+/// ```
+///
+/// Because `u ∈ image(G)` we have `P û = 0`, and `û` is `M`-orthogonal to the
+/// solenoidal subspace (`ûᵀ M s = (Gy)ᵀ M s = yᵀ (Gᵀ M s) = 0` for
+/// divergence-free `s`). From these two facts `P'` is:
+///
+/// - **idempotent** (`P'² = P'`) and **`M`-self-adjoint** (`(M P')ᵀ = M P'`) —
+///   a genuine `M`-orthogonal projector;
+/// - the **identity on the divergence-free subspace** (`P' s = s`, since
+///   `P s = s` and `ûᵀ M s = 0`) — so the cavity spectrum is preserved exactly
+///   as under `P`;
+/// - the **identity on `span{û}`** (`P' û = P û + û(ûᵀ M û) = 0 + û`) — so the
+///   junction-flux direction is RE-ADMITTED to the Krylov space and the
+///   junction LC mode survives;
+/// - the **annihilator of `image(G) ⊖ span{û}`** (any gradient `g` with
+///   `ûᵀ M g = 0` maps to `P g + û(ûᵀ M g) = 0`) — so the bulk 13,747-mode
+///   cluster is still gone.
+///
+/// The net range of `P'` is `(divergence-free subspace) ⊕ span{û}`: everything
+/// physical, nothing spurious-gradient. This is construction (b2) of issue #514
+/// — a surgical, measurement-driven deflation that reuses the merged bulk
+/// projector unchanged and adds a single rank-1 `M`-orthogonal update.
+pub struct PortAwareGradientProjector<'m> {
+    /// The bulk `M`-orthogonal gradient projector `P` (borrowed).
+    bulk: &'m MOrthogonalGradientProjector<'m>,
+    /// The re-admitted junction-flux direction `û`, `M`-normalized
+    /// (`ûᵀ M û = 1`), living in `image(G)`.
+    u_hat: Vec<f64>,
+    /// `M · û`, cached for the rank-1 update `û (ûᵀ M w)`.
+    m_u_hat: Vec<f64>,
+    /// Edge dimension (length of vectors `P'` acts on).
+    edge_dim: usize,
+}
+
+impl<'m> PortAwareGradientProjector<'m> {
+    /// Build the port-aware projector from the bulk projector and the raw
+    /// (ungauged) junction eigenvector `x_junction`.
+    ///
+    /// Extracts `u = (I − P) x_junction ∈ image(G)`, the junction-flux gradient
+    /// direction, and `M`-normalizes it to `û`. The bulk projector is borrowed
+    /// unchanged; only the rank-1 re-admission term is added.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EigenError::FaerGevd`] if `x_junction`'s near-gradient part has
+    /// vanishing `M`-norm (i.e. `x_junction` is already divergence-free — not a
+    /// junction-flux mode, so there is nothing to re-admit).
+    pub fn build(
+        bulk: &'m MOrthogonalGradientProjector<'m>,
+        x_junction: &[f64],
+    ) -> Result<Self, EigenError> {
+        let edge_dim = bulk.edge_dim();
+        assert_eq!(
+            x_junction.len(),
+            edge_dim,
+            "junction eigenvector length must equal edge_dim"
+        );
+        let mut u = bulk.gradient_component(x_junction)?;
+        let m_norm2 = bulk.m_inner(&u, &u);
+        if m_norm2 <= 0.0 {
+            return Err(EigenError::FaerGevd(
+                "junction eigenvector has no image(G) component to re-admit \
+                 (already divergence-free)"
+                    .into(),
+            ));
+        }
+        let inv = 1.0 / m_norm2.sqrt();
+        for v in u.iter_mut() {
+            *v *= inv;
+        }
+        let mut m_u_hat = vec![0.0_f64; edge_dim];
+        spmv(bulk.m(), &u, &mut m_u_hat);
+        Ok(Self {
+            bulk,
+            u_hat: u,
+            m_u_hat,
+            edge_dim,
+        })
+    }
+
+    /// Edge dimension (length of vectors `P'` acts on).
+    #[inline]
+    pub fn edge_dim(&self) -> usize {
+        self.edge_dim
+    }
+
+    /// Apply `P' = P + û ûᵀ M` to `w` in place: `w ← P w + û (ûᵀ M w)`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`EigenError`] from the bulk projector's inner `C` solve.
+    pub fn project_in_place(&self, w: &mut [f64]) -> Result<(), EigenError> {
+        assert_eq!(w.len(), self.edge_dim, "projected vector length mismatch");
+        // c = ûᵀ M w  (computed BEFORE P w — û ∈ image(G), P w ⟂_M û, so the
+        // coefficient must be read off the ORIGINAL w, not the projected one).
+        let c = self
+            .m_u_hat
+            .iter()
+            .zip(w.iter())
+            .map(|(mu, wi)| mu * wi)
+            .sum::<f64>();
+        // w ← P w
+        self.bulk.project_in_place(w)?;
+        // w ← w + c û
+        for (wi, &ui) in w.iter_mut().zip(self.u_hat.iter()) {
+            *wi += c * ui;
+        }
+        Ok(())
+    }
+
+    /// Divergence residual `‖Gᵀ M w‖ / ‖w‖_M` via the bulk projector — a
+    /// diagnostic. A `P'`-projected vector is NOT divergence-free in general
+    /// (it carries the re-admitted `û` component, which is a gradient), so this
+    /// is expected to be `O(1)` on the junction mode and `≈ 0` on the cavity
+    /// modes.
+    pub fn divergence_ratio(&self, w: &[f64]) -> f64 {
+        self.bulk.divergence_ratio(w)
+    }
 }
 
 /// `y = A · x` for a CSC sparse matrix, returning a fresh vector.
@@ -472,6 +663,48 @@ pub struct ProjectionDiagnostics {
     pub mode_divergence_ratios: Vec<f64>,
 }
 
+/// A projector that can be applied in place to a Krylov vector and report a
+/// divergence ratio — the common interface the projected Lanczos core drives.
+///
+/// Implemented by both the bulk [`MOrthogonalGradientProjector`] (deflates all
+/// of `image(d⁰)`) and the [`PortAwareGradientProjector`] (deflates all of
+/// `image(d⁰)` except the re-admitted junction-flux direction). Making the
+/// Lanczos core generic over this trait lets the *same* recurrence, mandatory
+/// projection, and drift-reprojection logic serve both paths — the port-aware
+/// solve is not a fork of the eigensolver, only a different projector.
+pub trait KrylovProjector {
+    /// Apply the projector to `w` in place.
+    fn project_in_place(&self, w: &mut [f64]) -> Result<(), EigenError>;
+    /// Divergence residual `‖Gᵀ M w‖ / ‖w‖_M` (drift diagnostic).
+    fn divergence_ratio(&self, w: &[f64]) -> f64;
+    /// Edge dimension (length of the vectors the projector acts on).
+    fn edge_dim(&self) -> usize;
+}
+
+impl KrylovProjector for MOrthogonalGradientProjector<'_> {
+    fn project_in_place(&self, w: &mut [f64]) -> Result<(), EigenError> {
+        MOrthogonalGradientProjector::project_in_place(self, w)
+    }
+    fn divergence_ratio(&self, w: &[f64]) -> f64 {
+        MOrthogonalGradientProjector::divergence_ratio(self, w)
+    }
+    fn edge_dim(&self) -> usize {
+        self.edge_dim
+    }
+}
+
+impl KrylovProjector for PortAwareGradientProjector<'_> {
+    fn project_in_place(&self, w: &mut [f64]) -> Result<(), EigenError> {
+        PortAwareGradientProjector::project_in_place(self, w)
+    }
+    fn divergence_ratio(&self, w: &[f64]) -> f64 {
+        PortAwareGradientProjector::divergence_ratio(self, w)
+    }
+    fn edge_dim(&self) -> usize {
+        self.edge_dim
+    }
+}
+
 impl ProjectedShiftInvertLanczos {
     /// Projected shift-invert Lanczos: identical to the un-projected core
     /// ([`crate::eigen::lanczos::SparseShiftInvertLanczos::smallest_eigenpairs`])
@@ -490,11 +723,11 @@ impl ProjectedShiftInvertLanczos {
     ///
     /// Propagates [`EigenError`] from the shift-invert LU, the projector, or
     /// the tridiagonal solve.
-    pub fn smallest_eigenpairs(
+    pub fn smallest_eigenpairs<P: KrylovProjector>(
         &self,
         k: SparseColMatRef<'_, usize, f64>,
         m: SparseColMatRef<'_, usize, f64>,
-        projector: &MOrthogonalGradientProjector<'_>,
+        projector: &P,
         n_modes: usize,
     ) -> Result<(Vec<EigenPair>, ProjectionDiagnostics), EigenError> {
         let n = k.nrows();
@@ -502,7 +735,8 @@ impl ProjectedShiftInvertLanczos {
         assert_eq!(m.nrows(), n, "M and K must agree in size");
         assert_eq!(m.ncols(), n);
         assert_eq!(
-            projector.edge_dim, n,
+            projector.edge_dim(),
+            n,
             "projector edge_dim must equal pencil dimension"
         );
         let mut diag = ProjectionDiagnostics::default();
@@ -775,6 +1009,166 @@ pub fn solve_transmon_eigenmodes_projected(
     };
     let (pairs, diag) =
         solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), &projector, n_modes)?;
+
+    let modes = pairs
+        .iter()
+        .map(|pair| ModeReport {
+            lambda: pair.lambda,
+            frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
+            participation: junction_participation(&k_red, &k_port_red, &pair.vector),
+        })
+        .collect();
+    Ok((modes, diag))
+}
+
+/// Solve the transmon eigenmodes with the **PORT-AWARE divergence-free
+/// projection** (issue #514) — the composite solver that removes the bulk
+/// gradient nullspace AND retains the physical junction LC mode, which the
+/// bulk-`d⁰` projection of [`solve_transmon_eigenmodes_projected`] deflated
+/// away (issue #509 negative).
+///
+/// # Composite construction
+///
+/// 1. Assemble the reduced real pencil `(K + K_port, M + M_port)` and build the
+///    bulk `M`-orthogonal gradient projector `P` — exactly as the bulk
+///    projected path does.
+/// 2. Run one **ungauged** shift-invert Lanczos solve near the junction
+///    frequency (`junction_sigma`) and extract the eigenvector `x_j` with the
+///    largest junction participation — the physical junction LC mode.
+/// 3. Build the [`PortAwareGradientProjector`] `P' = P + û ûᵀ M`, re-admitting
+///    the junction-flux gradient direction `û = (I−P)x_j / ‖·‖_M`.
+/// 4. Run projected Lanczos near `sigma` with `P'`. `P'` deflates the whole
+///    13,747-mode gradient cluster except `span{û}`, so the cavity spectrum is
+///    preserved (as under `P`) AND the junction mode survives.
+///
+/// The port-localized 3.4528 GHz spurious mode is genuinely solenoidal
+/// (`M`-orthogonal to `image(d⁰)`), so it is untouched by BOTH `P` and the
+/// rank-1 re-admission — it survives the port-aware projection and remains
+/// filtered by frequency-matching against the Palace oracle (see the issue
+/// #514 characterization: it is a port-formulation artifact, not a
+/// bulk-gradient one).
+///
+/// Returns the modes (restored frequency + junction participation) and the
+/// [`ProjectionDiagnostics`] for the port-aware run. Note the diagnostics'
+/// divergence ratios are `O(1)` on the junction mode (its re-admitted flux
+/// direction is a gradient) and `≈ 0` on the cavity modes — a `P'`-projected
+/// vector is not globally divergence-free by construction.
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly, either projector build,
+/// or either Lanczos solve.
+pub fn solve_transmon_eigenmodes_port_aware(
+    pencil: &crate::eigen::transmon::TransmonPencil<'_>,
+    sigma: f64,
+    junction_sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+) -> Result<
+    (
+        Vec<crate::eigen::transmon::ModeReport>,
+        ProjectionDiagnostics,
+    ),
+    EigenError,
+> {
+    use crate::eigen::lanczos::SparseShiftInvertLanczos;
+    use crate::eigen::transmon::{ModeReport, frequency_hz_from_lambda};
+
+    let n_edges = pencil.edges.len();
+    assert_eq!(
+        pencil.interior_mask.len(),
+        n_edges,
+        "interior mask length must equal edge count"
+    );
+
+    // Plain PEC interior reindex (identical to the ungauged / bulk-projected
+    // paths — this is a projection, not a DOF elimination).
+    let mut interior_index = vec![None; n_edges];
+    let mut dim = 0usize;
+    for (e, &keep) in pencil.interior_mask.iter().enumerate() {
+        if keep {
+            interior_index[e] = Some(dim);
+            dim += 1;
+        }
+    }
+    if dim == 0 {
+        return Err(EigenError::FaerGevd(
+            "no interior DOFs after PEC reduction".into(),
+        ));
+    }
+
+    let pattern = pencil.scatter.pattern();
+    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
+    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
+
+    let k_port = pencil.shunt.k_port_triplets(pencil.mesh, pencil.edges);
+    let m_port = pencil.shunt.m_port_triplets(pencil.mesh, pencil.edges);
+
+    let k_red = assemble_reduced_real(
+        &pattern.rows,
+        &pattern.cols,
+        pencil.k_vals,
+        &k_port,
+        &interior_index,
+        dim,
+    )?;
+    let m_red = assemble_reduced_real(
+        &pattern.rows,
+        &pattern.cols,
+        pencil.m_vals,
+        &m_port,
+        &interior_index,
+        dim,
+    )?;
+    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, &interior_index, dim)?;
+
+    // G = d⁰_interior and the BULK M-orthogonal divergence-free projector.
+    let gradient = InteriorGradient::build(
+        pencil.edges,
+        pencil.interior_mask,
+        &interior_index,
+        pencil.mesh.n_nodes(),
+        dim,
+    );
+    let bulk = MOrthogonalGradientProjector::build(&gradient, m_red.as_ref())?;
+
+    // --- Step 1: extract the ungauged junction eigenvector near junction_sigma.
+    // Run a small ungauged shift-invert solve and pick the eigenvector with the
+    // largest junction participation — the physical junction LC mode whose
+    // (near-)gradient flux direction we re-admit.
+    let ung = SparseShiftInvertLanczos {
+        sigma: junction_sigma,
+        max_iters: 96,
+        tol: 1e-8,
+    };
+    let jpairs = ung.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), 6)?;
+    let x_junction = jpairs
+        .iter()
+        .max_by(|a, b| {
+            junction_participation(&k_red, &k_port_red, &a.vector)
+                .partial_cmp(&junction_participation(&k_red, &k_port_red, &b.vector))
+                .unwrap_or(core::cmp::Ordering::Equal)
+        })
+        .ok_or_else(|| {
+            EigenError::FaerGevd("ungauged junction solve returned no eigenpairs".into())
+        })?;
+
+    // --- Step 2: build the port-aware projector P' = P + û ûᵀ M. ---
+    let port_aware = PortAwareGradientProjector::build(&bulk, &x_junction.vector)?;
+
+    // --- Step 3: port-aware projected Lanczos over the physical band. ---
+    // The re-projection-cadence guard keys off the divergence ratio, which is
+    // O(1) here (the re-admitted junction direction is a gradient), so disable
+    // it (a huge threshold) — P' is idempotent, and its single mandatory pass
+    // per step already confines the Krylov space correctly.
+    let solver = ProjectedShiftInvertLanczos {
+        sigma,
+        max_iters: 96,
+        tol: 1e-8,
+        reproject_threshold: f64::INFINITY,
+    };
+    let (pairs, diag) =
+        solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), &port_aware, n_modes)?;
 
     let modes = pairs
         .iter()
@@ -1248,5 +1642,200 @@ mod tests {
             "post-projection divergence too large: {}",
             diag.max_post_projection_divergence
         );
+    }
+
+    /// The port-aware projector `P' = P + û ûᵀ M` is a genuine `M`-orthogonal
+    /// projector that (a) still annihilates gradients M-orthogonal to the
+    /// re-admitted direction, (b) is the identity on the divergence-free
+    /// subspace, (c) is the identity on the re-admitted direction `û`, and
+    /// (d) is idempotent — the algebra behind construction (b2) of issue #514,
+    /// verified on a small non-identity-`M` cube fixture.
+    #[test]
+    fn port_aware_projector_readmits_one_gradient_direction() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let edges = mesh.edges();
+        let n_nodes = mesh.n_nodes();
+        let interior_mask = full_outer_pec(&mesh);
+        let (edge_index, edge_dim) = pec_reindex(&interior_mask);
+        let g = InteriorGradient::build(&edges, &interior_mask, &edge_index, n_nodes, edge_dim);
+
+        // A non-trivial SPD M so the M-orthogonality is a real constraint (not
+        // the ℓ² special case): M = I + 0.25 · (deterministic banded SPD).
+        let mut m_trips: Vec<Triplet<usize, usize, f64>> = Vec::new();
+        for i in 0..edge_dim {
+            m_trips.push(Triplet::new(i, i, 1.0 + 0.5 * ((i % 5) as f64) / 5.0));
+            if i + 1 < edge_dim {
+                m_trips.push(Triplet::new(i, i + 1, 0.05));
+                m_trips.push(Triplet::new(i + 1, i, 0.05));
+            }
+        }
+        let m = SparseColMat::<usize, f64>::try_new_from_triplets(edge_dim, edge_dim, &m_trips)
+            .unwrap();
+        let bulk = MOrthogonalGradientProjector::build(&g, m.as_ref()).unwrap();
+
+        let m_inner = |x: &[f64], y: &[f64]| -> f64 {
+            let my = spmv_vec(m.as_ref(), y);
+            x.iter().zip(my.iter()).map(|(a, b)| a * b).sum::<f64>()
+        };
+        let m_norm = |x: &[f64]| m_inner(x, x).sqrt();
+
+        // Synthetic "junction eigenvector": mostly a gradient field G·a plus a
+        // tiny solenoidal remainder (mirrors the real junction mode's
+        // projected-norm ratio ≈ 1e-4).
+        let a: Vec<f64> = (0..g.node_dim())
+            .map(|i| (((i as f64) + 1.0) * 0.771).sin())
+            .collect();
+        let grad = spmv_vec(g.matrix(), &a);
+        let mut sol: Vec<f64> = (0..edge_dim)
+            .map(|i| (((i as f64) + 3.0) * 0.281).cos())
+            .collect();
+        bulk.project_in_place(&mut sol).unwrap(); // make it divergence-free
+        let eps = 1e-4 * m_norm(&grad) / m_norm(&sol);
+        let x_junction: Vec<f64> = grad
+            .iter()
+            .zip(sol.iter())
+            .map(|(a, b)| a + eps * b)
+            .collect();
+
+        let pa = PortAwareGradientProjector::build(&bulk, &x_junction).unwrap();
+        let uhat = pa.u_hat.clone();
+
+        // (c) P' is the identity on û.
+        {
+            let mut w = uhat.clone();
+            pa.project_in_place(&mut w).unwrap();
+            let diff = w
+                .iter()
+                .zip(uhat.iter())
+                .map(|(a, b)| a - b)
+                .collect::<Vec<_>>();
+            assert!(
+                m_norm(&diff) / m_norm(&uhat) < 1e-8,
+                "P' must retain the re-admitted direction û: {}",
+                m_norm(&diff) / m_norm(&uhat)
+            );
+        }
+
+        // (b) P' is the identity on the divergence-free subspace.
+        {
+            let mut s: Vec<f64> = (0..edge_dim)
+                .map(|i| (((i as f64) + 7.0) * 0.517).sin())
+                .collect();
+            bulk.project_in_place(&mut s).unwrap();
+            let mut w = s.clone();
+            pa.project_in_place(&mut w).unwrap();
+            let diff: Vec<f64> = w.iter().zip(s.iter()).map(|(a, b)| a - b).collect();
+            assert!(
+                m_norm(&diff) / m_norm(&s).max(1e-30) < 1e-8,
+                "P' must be the identity on divergence-free fields: {}",
+                m_norm(&diff) / m_norm(&s).max(1e-30)
+            );
+        }
+
+        // (a) P' annihilates a gradient M-orthogonal to û. Use a DIFFERENT
+        // gradient direction (independent `b`) so removing the û-component
+        // leaves a substantial residual gradient (not a near-zero vector).
+        {
+            let b: Vec<f64> = (0..g.node_dim())
+                .map(|i| (((i as f64) + 4.0) * 1.213).cos())
+                .collect();
+            let mut g_perp = spmv_vec(g.matrix(), &b);
+            // remove the û-component: g_perp ← g_perp − (ûᵀ M g_perp) û
+            let c = m_inner(&uhat, &g_perp);
+            for (gi, &ui) in g_perp.iter_mut().zip(uhat.iter()) {
+                *gi -= c * ui;
+            }
+            let g_norm = m_norm(&g_perp);
+            let mut w = g_perp.clone();
+            pa.project_in_place(&mut w).unwrap();
+            assert!(
+                m_norm(&w) / g_norm.max(1e-30) < 1e-7,
+                "P' must annihilate gradients M-orthogonal to û: {}",
+                m_norm(&w) / g_norm.max(1e-30)
+            );
+        }
+
+        // (d) P' is idempotent.
+        {
+            let mut w: Vec<f64> = (0..edge_dim)
+                .map(|i| (((i as f64) + 2.0) * 0.333).cos())
+                .collect();
+            pa.project_in_place(&mut w).unwrap();
+            let pw = w.clone();
+            pa.project_in_place(&mut w).unwrap();
+            let diff: Vec<f64> = w.iter().zip(pw.iter()).map(|(a, b)| a - b).collect();
+            assert!(
+                m_norm(&diff) / m_norm(&pw).max(1e-30) < 1e-8,
+                "P' not idempotent: {}",
+                m_norm(&diff) / m_norm(&pw).max(1e-30)
+            );
+        }
+
+        // The re-admitted direction retains almost the whole junction vector:
+        // ‖P' x_junction‖_M / ‖x_junction‖_M ≈ 1 (contrast the bulk projector,
+        // which deflates it to ≈ 0).
+        let mut px = x_junction.clone();
+        pa.project_in_place(&mut px).unwrap();
+        let retained = m_norm(&px) / m_norm(&x_junction);
+        assert!(
+            retained > 0.999,
+            "P' should retain the junction eigenvector, got ‖P'x‖/‖x‖ = {retained}"
+        );
+        let mut bx = x_junction.clone();
+        bulk.project_in_place(&mut bx).unwrap();
+        let bulk_retained = m_norm(&bx) / m_norm(&x_junction);
+        assert!(
+            bulk_retained < 1e-2,
+            "bulk P should deflate the junction eigenvector, got {bulk_retained}"
+        );
+    }
+
+    /// End-to-end: on a diagonal pencil whose λ=1 mode is a pure gradient
+    /// (`e₀ ∈ image(G)`), the bulk projected solve deflates it (returns
+    /// {2,3,4}), but the PORT-AWARE solve — handed `e₀` as the "junction"
+    /// eigenvector — RE-ADMITS it and returns {1,2,3}. This is the synthetic
+    /// analogue of retaining the transmon junction LC mode.
+    #[test]
+    fn port_aware_solve_retains_the_gradient_mode() {
+        let n = 5usize;
+        let tk: Vec<Triplet<usize, usize, f64>> =
+            (0..n).map(|i| Triplet::new(i, i, (i + 1) as f64)).collect();
+        let tm: Vec<Triplet<usize, usize, f64>> = (0..n).map(|i| Triplet::new(i, i, 1.0)).collect();
+        let k = SparseColMat::try_new_from_triplets(n, n, &tk).unwrap();
+        let m = SparseColMat::try_new_from_triplets(n, n, &tm).unwrap();
+
+        // G maps one free node to edge 0 (gradient direction e₀ ↔ λ=1 mode).
+        let g_trips = vec![Triplet::new(0usize, 0usize, 1.0)];
+        let g_mat = SparseColMat::<usize, f64>::try_new_from_triplets(n, 1, &g_trips).unwrap();
+        let gradient = InteriorGradient {
+            g: g_mat,
+            edge_dim: n,
+            node_dim: 1,
+        };
+        let bulk = MOrthogonalGradientProjector::build(&gradient, m.as_ref()).unwrap();
+
+        // The "junction" eigenvector is the λ=1 eigenvector e₀ (pure gradient).
+        let mut x_junction = vec![0.0_f64; n];
+        x_junction[0] = 1.0;
+        let pa = PortAwareGradientProjector::build(&bulk, &x_junction).unwrap();
+
+        let solver = ProjectedShiftInvertLanczos {
+            sigma: 0.0,
+            max_iters: 50,
+            tol: 1e-10,
+            reproject_threshold: f64::INFINITY,
+        };
+        let (pairs, _diag) = solver
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), &pa, 3)
+            .unwrap();
+        assert_eq!(pairs.len(), 3);
+        // The λ=1 gradient mode is RE-ADMITTED; smallest three are {1,2,3}.
+        for (got, want) in pairs.iter().zip([1.0, 2.0, 3.0].iter()) {
+            assert!(
+                (got.lambda - want).abs() < 1e-7,
+                "port-aware λ = {}, want {want} (the gradient mode must be re-admitted)",
+                got.lambda
+            );
+        }
     }
 }
