@@ -787,6 +787,166 @@ pub fn solve_transmon_eigenmodes_projected(
     Ok((modes, diag))
 }
 
+/// A single UNGAUGED eigenpair with its divergence diagnostics against the
+/// bulk-`d⁰` projector — the measurement vehicle that lets a caller inspect
+/// the near-gradient character of a raw (un-projected) eigenvector.
+///
+/// The [`ModeReport`](crate::eigen::transmon::ModeReport)-carrying entry
+/// points drop `EigenPair::vector`, so this struct exposes the two scalar
+/// diagnostics the deflation mechanism turns on — computed here against the
+/// exact same `M`-orthogonal projector the projected solve uses — without
+/// returning the (large) raw vector to the caller.
+#[derive(Debug, Clone)]
+pub struct UngaugedModeDivergence {
+    /// Restored physical frequency (Hz) of the eigenmode.
+    pub frequency_hz: f64,
+    /// Junction stiffness-participation `p = xᵀK_port x / xᵀ(K+K_port)x`.
+    pub participation: f64,
+    /// Divergence residual `‖Gᵀ M x‖ / ‖x‖_M` of the UNGAUGED eigenvector.
+    /// A near-gradient (junction-flux) mode is `O(1)` here; a genuinely
+    /// solenoidal (spurious port-localized) mode is `~1e-15`.
+    pub divergence_ratio: f64,
+    /// M-normalized norm of the projected eigenvector, `‖P x‖_M / ‖x‖_M`.
+    /// `≈ 0` for a mode that lives almost entirely in `image(d⁰)` (deflated
+    /// away by `P`); `≈ 1` for a divergence-free mode `P` leaves in place.
+    pub projected_norm_ratio: f64,
+}
+
+/// Solve the UNGAUGED transmon pencil and measure each returned eigenvector's
+/// near-gradient character against the bulk-`d⁰` `M`-orthogonal projector
+/// (issue #509 deflation-mechanism measurement).
+///
+/// This is the direct-measurement counterpart to
+/// [`solve_transmon_eigenmodes_projected`]: it runs the committed **ungauged**
+/// [`SparseShiftInvertLanczos`](crate::eigen::lanczos::SparseShiftInvertLanczos)
+/// core (which returns the full [`EigenPair::vector`] the `ModeReport` path
+/// discards), then — using the SAME `G = d⁰_interior` and `M`-orthogonal
+/// projector `P = I − G(GᵀMG)⁻¹GᵀM` the projected path builds — reports, per
+/// mode, the divergence ratio `‖GᵀMx‖/‖x‖_M` and the projected-norm ratio
+/// `‖Px‖_M/‖x‖_M`. This exposes *why* `P` deflates the junction LC mode: the
+/// junction eigenvector is a near-gradient (curl-free lumped-inductor flux
+/// path), so its divergence ratio is `O(1)` and its projected norm ≈ 0 —
+/// directly, on the raw eigenvector, rather than inferred from the mode's
+/// disappearance in the projected spectrum.
+///
+/// Returns one [`UngaugedModeDivergence`] per returned mode, in the same
+/// (ascending-λ) order as
+/// [`solve_transmon_eigenmodes`](crate::eigen::transmon::solve_transmon_eigenmodes).
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly, the projector build,
+/// or the ungauged Lanczos solve.
+pub fn ungauged_mode_divergences(
+    pencil: &crate::eigen::transmon::TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+) -> Result<Vec<UngaugedModeDivergence>, EigenError> {
+    use crate::eigen::lanczos::SparseShiftInvertLanczos;
+    use crate::eigen::transmon::frequency_hz_from_lambda;
+
+    let n_edges = pencil.edges.len();
+    assert_eq!(
+        pencil.interior_mask.len(),
+        n_edges,
+        "interior mask length must equal edge count"
+    );
+
+    // Plain PEC interior reindex — the exact reduction the ungauged committed
+    // path (`solve_transmon_eigenmodes`) uses.
+    let mut interior_index = vec![None; n_edges];
+    let mut dim = 0usize;
+    for (e, &keep) in pencil.interior_mask.iter().enumerate() {
+        if keep {
+            interior_index[e] = Some(dim);
+            dim += 1;
+        }
+    }
+    if dim == 0 {
+        return Err(EigenError::FaerGevd(
+            "no interior DOFs after PEC reduction".into(),
+        ));
+    }
+
+    let pattern = pencil.scatter.pattern();
+    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
+    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
+
+    let k_port = pencil.shunt.k_port_triplets(pencil.mesh, pencil.edges);
+    let m_port = pencil.shunt.m_port_triplets(pencil.mesh, pencil.edges);
+
+    let k_red = assemble_reduced_real(
+        &pattern.rows,
+        &pattern.cols,
+        pencil.k_vals,
+        &k_port,
+        &interior_index,
+        dim,
+    )?;
+    let m_red = assemble_reduced_real(
+        &pattern.rows,
+        &pattern.cols,
+        pencil.m_vals,
+        &m_port,
+        &interior_index,
+        dim,
+    )?;
+    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, &interior_index, dim)?;
+
+    // The SAME projector the projected solve builds (bulk d⁰).
+    let gradient = InteriorGradient::build(
+        pencil.edges,
+        pencil.interior_mask,
+        &interior_index,
+        pencil.mesh.n_nodes(),
+        dim,
+    );
+    let projector = MOrthogonalGradientProjector::build(&gradient, m_red.as_ref())?;
+
+    // Run the UNGAUGED core: it returns EigenPair.vector (which the
+    // ModeReport path drops) so we can measure the raw eigenvector directly.
+    let solver = SparseShiftInvertLanczos {
+        sigma,
+        max_iters: 96,
+        tol: 1e-8,
+    };
+    let pairs = solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), n_modes)?;
+
+    let mut out = Vec::with_capacity(pairs.len());
+    for pair in &pairs {
+        let x = &pair.vector;
+        // M-norm ‖x‖_M = √(xᵀ M x).
+        let mx = spmv_vec(m_red.as_ref(), x);
+        let m_norm = x
+            .iter()
+            .zip(mx.iter())
+            .map(|(a, b)| a * b)
+            .sum::<f64>()
+            .max(0.0)
+            .sqrt();
+        // ‖P x‖_M / ‖x‖_M.
+        let mut px = x.clone();
+        projector.project_in_place(&mut px)?;
+        let mpx = spmv_vec(m_red.as_ref(), &px);
+        let px_norm = px
+            .iter()
+            .zip(mpx.iter())
+            .map(|(a, b)| a * b)
+            .sum::<f64>()
+            .max(0.0)
+            .sqrt();
+        let projected_norm_ratio = if m_norm > 0.0 { px_norm / m_norm } else { 0.0 };
+        out.push(UngaugedModeDivergence {
+            frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
+            participation: junction_participation(&k_red, &k_port_red, x),
+            divergence_ratio: projector.divergence_ratio(x),
+            projected_norm_ratio,
+        });
+    }
+    Ok(out)
+}
+
 /// Build a real reduced sparse matrix from a `[nnz]` value slice aligned to
 /// the volume sparsity pattern, restricted to the interior DOFs, with extra
 /// surface triplets summed on top. Mirrors the private helper in

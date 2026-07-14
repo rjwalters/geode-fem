@@ -1033,11 +1033,13 @@ fn tree_cotree_dof_elimination_shifts_eigen_spectrum() {
 ///   off). Retaining the junction mode requires a **port-aware** projection
 ///   that excludes the junction-surface gradient directions from `G` — a
 ///   larger formulation change (matching Palace's LumpedPort handling) than
-///   this issue's bulk-`d⁰` scope. Filed as the follow-on.
+///   this issue's bulk-`d⁰` scope. Filed as the follow-on, **issue #514**
+///   ("Port-aware divergence-free projection — eigen-gauge saga, chapter 3").
 ///
-/// If a future port-aware projection lands and both negatives flip (spurious
-/// gone AND junction mode retained ≤1%), promote this to the positive
-/// acceptance test and update `benchmarks/transmon_eigen/results.toml`.
+/// If the port-aware projection of issue #514 lands and both negatives flip
+/// (spurious gone AND junction mode retained ≤1%), promote this to the
+/// positive acceptance test and update
+/// `benchmarks/transmon_eigen/results.toml`.
 ///
 /// ```sh
 /// cargo test -p geode-core --release --test transmon_eigenmode \
@@ -1188,6 +1190,106 @@ fn real_transmon_projection_deflates_junction_mode() {
          (projected nearest {:.4}% ≤ {PALACE_BAR_PCT}%) — the negative no longer holds; \
          promote this to the positive acceptance test and update results.toml",
         proj_junction * 100.0
+    );
+
+    // ---- MECHANISM: MEASURE the deflation directly on the raw UNGAUGED
+    //      junction eigenvector (issue #509 review). Rather than infer the
+    //      deflation from the junction mode's disappearance in the projected
+    //      spectrum, obtain the UNGAUGED junction eigenvector (the ModeReport
+    //      path drops EigenPair.vector, so we call the ungauged-core +
+    //      projector measurement helper directly) and show its near-gradient
+    //      character with the two scalar diagnostics `P` acts on:
+    //        · divergence-ratio ‖GᵀMx‖/‖x‖_M  — O(1) for a near-gradient mode
+    //          (contrast the spurious mode's solenoidal 6.18e-15),
+    //        · projected-norm  ‖Px‖_M/‖x‖_M    — ≈ 0 (P deflates it away).
+    //      Targeting σ AT 17.49 GHz isolates the junction mode as the nearest
+    //      eigenpair. ------------------------------------------------------
+    let jsigma = lambda_shift_for_frequency_hz(PALACE_JUNCTION_MODE_GHZ * 1e9, M_PER_UNIT);
+    let ung_div = {
+        let edges = f.mesh.edges();
+        let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+        let metal = f.metal_triangles();
+        let exterior = f.exterior_boundary_triangles();
+        let interior_mask =
+            pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+        let epsilon_tensor = f.epsilon_tensor_r();
+        let scatter = NedelecScatterMap::new(&tet_edge_idx);
+        let (k_vals, m_vals) =
+            assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+        let jport = f.lumped_element_port();
+        let element = ReactiveElementNatural::from_si(JUNCTION_L_H, JUNCTION_C_F, M_PER_UNIT);
+        let shunt = LumpedReactiveShunt {
+            faces: &jport.faces,
+            length: jport.length,
+            width: jport.width,
+            element,
+        };
+        let pencil = TransmonPencil {
+            scatter: &scatter,
+            k_vals: &k_vals,
+            m_vals: &m_vals,
+            edges: &edges,
+            mesh: &f.mesh,
+            shunt,
+            interior_mask: &interior_mask,
+        };
+        geode_core::eigen::projection::ungauged_mode_divergences(&pencil, jsigma, 6, M_PER_UNIT)
+            .expect("ungauged junction-mode divergence measurement")
+    };
+
+    // The junction eigenvector is the one nearest 17.49 GHz.
+    let x_junction = ung_div
+        .iter()
+        .min_by(|a, b| {
+            (a.frequency_hz / 1e9 - PALACE_JUNCTION_MODE_GHZ)
+                .abs()
+                .partial_cmp(&(b.frequency_hz / 1e9 - PALACE_JUNCTION_MODE_GHZ).abs())
+                .unwrap()
+        })
+        .expect("no ungauged modes near the junction frequency");
+    eprintln!(
+        "DEFLATION MECHANISM (ungauged junction eigenvector): f = {:.4} GHz, p = {:.4}, \
+         divergence-ratio ‖GᵀMx‖/‖x‖_M = {:.4e}, projected-norm ‖Px‖_M/‖x‖_M = {:.4e}",
+        x_junction.frequency_hz / 1e9,
+        x_junction.participation,
+        x_junction.divergence_ratio,
+        x_junction.projected_norm_ratio,
+    );
+
+    // Sanity: we actually grabbed the junction mode (≤1% + p ≈ 1).
+    let j_rel =
+        (x_junction.frequency_hz / 1e9 - PALACE_JUNCTION_MODE_GHZ).abs() / PALACE_JUNCTION_MODE_GHZ;
+    assert!(
+        j_rel * 100.0 <= PALACE_BAR_PCT && x_junction.participation > 0.5,
+        "measured eigenvector is not the junction LC mode: f = {:.4} GHz ({:.4}%), p = {:.4}",
+        x_junction.frequency_hz / 1e9,
+        j_rel * 100.0,
+        x_junction.participation
+    );
+
+    // MEASURE 1: the junction eigenvector is a NEAR-GRADIENT field — its
+    // divergence ratio is macroscopic, measured 5.0173e1 on the real 133k-DOF
+    // fixture (2026-07-14), in stark contrast to the spurious mode's
+    // solenoidal 6.18e-15. Threshold pinned at 1e-2 (≈3500× margin below the
+    // measured value; a machine-zero here would mean the mode became
+    // solenoidal and the deflation story changed).
+    assert!(
+        x_junction.divergence_ratio > 1e-2,
+        "junction eigenvector should be near-gradient (macroscopic divergence ratio ~5e1), \
+         got {:.4e} — if this is now machine-zero the mode is solenoidal and the deflation \
+         story changed; re-measure and update results.toml",
+        x_junction.divergence_ratio
+    );
+    // MEASURE 2: `P` deflates it — the projected M-norm collapses toward zero
+    // (the mode lives almost entirely in image(d⁰_interior)). Measured
+    // 1.0638e-4 (2026-07-14); threshold pinned at 0.1 (≈940× margin above the
+    // measured value; ≈1 would mean P now leaves the mode in place).
+    assert!(
+        x_junction.projected_norm_ratio < 0.1,
+        "P should deflate the near-gradient junction mode (‖Px‖_M/‖x‖_M ≈ 0), got {:.4e} — \
+         if P now leaves it in place the deflation no longer holds; re-measure and update \
+         results.toml",
+        x_junction.projected_norm_ratio
     );
 }
 
