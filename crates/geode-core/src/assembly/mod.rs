@@ -16,6 +16,14 @@
 //!   ν-weighted stiffness, consistent-mass current RHS, symmetric Dirichlet
 //!   elimination, and piecewise-constant `B`-field recovery for the
 //!   straight-wire oracle (Epic #448 Phase 1).
+//! - [`magnetostatic3d`]: 3-D **vector** magnetostatic assembly on a
+//!   [`TetMesh`](crate::mesh::TetMesh) with lowest-order Nédélec edge
+//!   elements — host-side `f64` ν-weighted curl-curl (retained full `K`),
+//!   edge-DOF current RHS with a discrete-solenoidality check, tree-cotree
+//!   gauged faer LU solve, `B = ∇×A` recovery, and the N×N Maxwell
+//!   inductance-matrix extraction (energy method + flux-linkage cross-check;
+//!   Epic #475, Palace `Magnetostatic` parity — the dual of
+//!   [`electrostatic`]).
 //! - [`p1`]: global P1 (nodal) stiffness/mass assembly, the
 //!   [`SparsityPattern`](p1::SparsityPattern) side-output, and the
 //!   mesh-upload helpers.
@@ -39,6 +47,7 @@
 pub mod electrostatic;
 pub mod fe;
 pub mod magnetostatic;
+pub mod magnetostatic3d;
 pub mod nedelec;
 pub mod nedelec_matvec;
 pub mod p1;

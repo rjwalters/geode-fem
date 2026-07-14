@@ -46,6 +46,13 @@
 //! projection** `Zᵀ K Z, Zᵀ M Z` (the issue's other option / the filed
 //! follow-on), for which this spanning tree supplies the cotree basis.
 //!
+//! The *source*-problem gauge, by contrast, **is** correct here and is
+//! consumed by [`crate::assembly::magnetostatic3d`] (issue #504): the 3-D
+//! vector magnetostatic inductance solve `∇×(ν∇×A) = J` uses this
+//! `TreeCotreeGauge` to eliminate the gradient nullspace before the faer LU
+//! back-substitutions, and `B = ∇×A` is gauge-invariant, so the tree-edge
+//! elimination does not perturb the extracted inductance.
+//!
 //! This module therefore ships the *structural* tree-cotree machinery (the
 //! spanning forest, the boundary convention, the count identity
 //! `tree_edges == rank(d⁰_interior)`), which is correct and reusable, while

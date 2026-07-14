@@ -959,6 +959,106 @@ pub fn assemble_global_nedelec_with_epsilon<B: Backend>(
     NedelecGlobalSystem { k, m, sparsity }
 }
 
+/// Variant of [`assemble_global_nedelec`] that takes a per-element real
+/// scalar **reluctivity** `nu_r: [n_elem]` and scales the **curl-curl
+/// stiffness** accordingly: `K_e ← nu_r[e] · K_e`. Mass is unchanged.
+///
+/// This is the dual of [`assemble_global_nedelec_with_epsilon`]
+/// (ε-weights-mass): the 3-D vector magnetostatic operator
+/// `∇×(ν ∇×A) = J` with `ν = 1/(μ₀ μ_r)` weights the **stiffness**, so a
+/// per-region relative reluctivity `ν_r = 1/μ_r` enters here. Scaling at the
+/// element level is equivalent to a piecewise-constant `ν(x)` on the
+/// curl-curl integrand `∫ (∇×N_i)·(∇×N_j) dV`.
+///
+/// **Consumed by** [`crate::assembly::magnetostatic3d`] callers that already
+/// live on the Burn tensor path (e.g. a driven `ω→0` limit). The host-side
+/// magnetostatic-inductance path assembles its ν-weighted `K` directly in
+/// `f64` (per the electrostatic reuse-path decision) and does not route
+/// through this wrapper; the wrapper exists so the tensor path has the exact
+/// dual of the ε-weighting entry point.
+///
+/// The mass returned is the **unweighted** vacuum mass (the static
+/// magnetostatic problem has no mass term; callers that need a ν-scaled
+/// stiffness alongside an unrelated mass — e.g. a preconditioner — get the
+/// vacuum mass here).
+pub fn assemble_global_nedelec_with_nu<B: Backend>(
+    nodes: Tensor<B, 2>,
+    tets: Tensor<B, 2, Int>,
+    tet_edge_idx: &[[u32; 6]],
+    tet_edge_sign: &[[i8; 6]],
+    n_edges: usize,
+    nu_r: &[f64],
+) -> NedelecGlobalSystem<B> {
+    let device = nodes.device();
+    let [n_elem] = unpack_shape_contract!(
+        NEDELEC_CONNECTIVITY_CONTRACT,
+        &tets,
+        &["n_elem"],
+        &[("nodes_per_tet", NODES_PER_TET)],
+    );
+    assert_eq!(tet_edge_idx.len(), n_elem, "tet_edge_idx length mismatch");
+    assert_eq!(tet_edge_sign.len(), n_elem, "tet_edge_sign length mismatch");
+    assert_eq!(nu_r.len(), n_elem, "nu_r length mismatch");
+
+    // 1. Element-local Nédélec stiffness and mass.
+    let coords = gather_tet_coords(nodes, tets);
+    let local = batched_nedelec_local_matrices(coords);
+
+    // 1b. Scale per-element stiffness by nu_r via broadcasting
+    //     ([n_elem] → [n_elem, 1, 1] over the 6×6 block). This is the dual
+    //     of the ε-weighting, which scales `m_local` instead.
+    let nu_flat: Vec<f32> = nu_r.iter().map(|&e| e as f32).collect();
+    let nu_1d = Tensor::<B, 1>::from_data(TensorData::new(nu_flat, [n_elem]), &device);
+    let nu_3d = nu_1d.unsqueeze_dim::<2>(1).unsqueeze_dim::<3>(2); // [n_elem, 1, 1]
+    let k_local_scaled = local.k_local.mul(nu_3d);
+
+    // 2. Orientation-sign outer product.
+    let sign_flat: Vec<f32> = tet_edge_sign
+        .iter()
+        .flat_map(|row| row.iter().map(|&s| s as f32))
+        .collect();
+    let sign_2d = Tensor::<B, 2>::from_data(TensorData::new(sign_flat, [n_elem, 6]), &device);
+    let sign_row = sign_2d.clone().unsqueeze_dim::<3>(2);
+    let sign_col = sign_2d.unsqueeze_dim::<3>(1);
+    let sign_outer = sign_row.mul(sign_col);
+
+    let k_signed = k_local_scaled.mul(sign_outer.clone());
+    let m_signed = local.m_local.mul(sign_outer);
+
+    // 3. Flat linear indices.
+    let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 36);
+    let n_edges_i32 = n_edges as i32;
+    for row in tet_edge_idx {
+        assert_shape_contract_periodically!(
+            NEDELEC_LOCAL_MATRIX_CONTRACT,
+            &k_signed,
+            &[("edges_per_tet", EDGES_PER_TET)],
+        );
+        for i in 0..6 {
+            for j in 0..6 {
+                linear_idx.push(row[i] as i32 * n_edges_i32 + row[j] as i32);
+            }
+        }
+    }
+    let flat_indices =
+        Tensor::<B, 1, Int>::from_data(TensorData::new(linear_idx, [n_elem * 36]), &device);
+
+    // 4. Scatter-add into flat zero tensors.
+    let k_flat = k_signed.reshape([n_elem * 36]);
+    let m_flat = m_signed.reshape([n_elem * 36]);
+    let zeros_flat = Tensor::<B, 1>::zeros([n_edges * n_edges], &device);
+    let k_flat_assembled =
+        zeros_flat
+            .clone()
+            .scatter(0, flat_indices.clone(), k_flat, IndexingUpdateOp::Add);
+    let m_flat_assembled = zeros_flat.scatter(0, flat_indices, m_flat, IndexingUpdateOp::Add);
+    let k = k_flat_assembled.reshape([n_edges, n_edges]);
+    let m = m_flat_assembled.reshape([n_edges, n_edges]);
+
+    let sparsity = sparsity_pattern_from_tet_edges(tet_edge_idx);
+    NedelecGlobalSystem { k, m, sparsity }
+}
+
 /// Assemble the global Nédélec **conductivity damping matrix**
 /// `C_ij = ∫ N_i · N_j σ(x) dV` for a piecewise-constant per-tet
 /// electrical conductivity `σ` (issue #196).
