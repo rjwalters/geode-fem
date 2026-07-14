@@ -218,6 +218,89 @@ pub fn apply_gradient(mesh: &TetMesh, nodal: &[f64]) -> Vec<f64> {
         .collect()
 }
 
+/// Build the **interior-restricted** discrete gradient
+/// `G = d⁰_interior` for the PEC-reduced eigen path (issue #509).
+///
+/// This is a restriction and reindex of [`gradient_map`] (the full
+/// node/edge-space `d⁰`) consistent with the interior reduction the
+/// transmon eigensolve applies: rows are the *reduced* interior edge DOFs
+/// (via `edge_index`, `Some(r)` = kept edge at reduced row `r`), columns
+/// are the **free** (non-grounded) interior nodes. A node is grounded iff
+/// it is an endpoint of any PEC (excluded, `interior_mask == false`) edge;
+/// grounded columns are dropped, exactly as the dense diagnostic
+/// [`crate::assembly::nedelec::restrict_gradient_dense`] drops boundary
+/// columns. The result is the sparse (`faer::SparseColMat`) analogue of
+/// that dense operator, scaled to the 133k-DOF transmon mesh.
+///
+/// Returns `(G, node_dim)` where `G` is `edge_dim × node_dim` and
+/// `node_dim` is the free-interior-node count (= `rank(d⁰_interior)` on a
+/// connected boundary-touching mesh — the gradient-nullspace dimension).
+///
+/// Consumed by [`crate::eigen::projection::InteriorGradient`] to form the
+/// `M`-orthogonal divergence-free projector `P = I − G(GᵀMG)⁻¹GᵀM`.
+///
+/// # Panics
+///
+/// Panics if `interior_mask.len() != edges.len()`,
+/// `edge_index.len() != edges.len()`, or any edge endpoint is out of range
+/// of `n_nodes`.
+pub fn interior_gradient_map(
+    edges: &[[u32; 2]],
+    interior_mask: &[bool],
+    edge_index: &[Option<usize>],
+    n_nodes: usize,
+    edge_dim: usize,
+) -> (SparseColMat<usize, f64>, usize) {
+    assert_eq!(
+        interior_mask.len(),
+        edges.len(),
+        "interior_mask must align with the global edge list"
+    );
+    assert_eq!(
+        edge_index.len(),
+        edges.len(),
+        "edge_index must align with the global edge list"
+    );
+
+    // Grounded nodes: any endpoint of a PEC (excluded) edge. Free nodes are
+    // the discrete-gradient columns.
+    let mut grounded = vec![false; n_nodes];
+    for (e, &keep) in interior_mask.iter().enumerate() {
+        if !keep {
+            let [a, b] = edges[e];
+            grounded[a as usize] = true;
+            grounded[b as usize] = true;
+        }
+    }
+    let mut node_col = vec![None; n_nodes];
+    let mut node_dim = 0usize;
+    for (n, &g) in grounded.iter().enumerate() {
+        if !g {
+            node_col[n] = Some(node_dim);
+            node_dim += 1;
+        }
+    }
+
+    // Stamp ±1 at the two surviving endpoint columns of each kept interior
+    // edge, reindexed onto the reduced edge row.
+    let mut triplets: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(2 * edge_dim);
+    for (e, &[a, b]) in edges.iter().enumerate() {
+        let Some(row) = edge_index[e] else {
+            continue;
+        };
+        if let Some(col) = node_col[a as usize] {
+            triplets.push(Triplet::new(row, col, -1.0));
+        }
+        if let Some(col) = node_col[b as usize] {
+            triplets.push(Triplet::new(row, col, 1.0));
+        }
+    }
+
+    let g = SparseColMat::<usize, f64>::try_new_from_triplets(edge_dim, node_dim, &triplets)
+        .expect("d⁰_interior triplets are well-formed: in-range indices, ≤1 per (edge,node)");
+    (g, node_dim)
+}
+
 /// Build the discrete curl operator `d¹` for `mesh`.
 ///
 /// Returns an `n_faces × n_edges` sparse matrix in `faer`'s column-major
