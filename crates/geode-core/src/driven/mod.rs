@@ -12,6 +12,10 @@
 //!   self-resonance extraction built on the driven solver.
 //! - [`scattering`] — plane-wave scattering with a matched UPML, Mie
 //!   polarization sources, and radiated/extinction power integrals.
+//! - [`transient`] — implicit second-order (generalized-α / Newmark-β)
+//!   time integration of the same `K`/`C`/`M` matrices the driven path
+//!   assembles, with a lumped-port time-domain drive and broadband
+//!   S-parameter extraction via a direct DFT.
 //!
 //! The submodules keep their items canonical (`driven::solve::Foo`,
 //! `driven::ports::Bar`, …); the group root does **not** re-export them up
@@ -21,3 +25,4 @@ pub mod extraction;
 pub mod ports;
 pub mod scattering;
 pub mod solve;
+pub mod transient;
