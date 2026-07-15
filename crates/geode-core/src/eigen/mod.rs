@@ -37,6 +37,11 @@ pub mod complex;
 pub mod dense;
 pub mod gauge;
 pub mod lanczos;
+// `pub(crate)`: the ordering primitives are for internal reuse by the eigen /
+// driven direct-LU paths, not a public API. Keeping the module crate-private
+// also keeps its doc comment out of the public-docs surface (its items are
+// `pub(crate)`), which `rustdoc::private_intra_doc_links` (-D warnings) requires.
+pub(crate) mod ordering;
 pub mod parallel;
 pub mod projection;
 pub mod self_consistent;
