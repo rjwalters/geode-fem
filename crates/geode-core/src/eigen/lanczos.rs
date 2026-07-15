@@ -121,7 +121,7 @@ use crate::eigen::parallel::{ParallelismGuard, resolve_num_threads};
 /// memory-growth term). MINRES needs an **SPD** preconditioner; plain
 /// Jacobi `1/(K_ii − σM_ii)` is sign-indefinite at an interior shift, so
 /// the indefinite path preconditions with **absolute-value Jacobi**
-/// `1/|K_ii − σM_ii|` (see [`ShiftedMatrixFreeOp::with_abs_diag`]). The
+/// `1/|K_ii − σM_ii|` (see `ShiftedMatrixFreeOp::with_abs_diag`). The
 /// selection is caller-driven: pick [`MatrixFreeIndefinite`](InnerSolver::MatrixFreeIndefinite)
 /// when placing an interior shift, and the default [`MatrixFree`](InnerSolver::MatrixFree)
 /// CG stays unchanged for the SPD lowest-mode case.
