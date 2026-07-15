@@ -3360,6 +3360,7 @@ fn estimate_modal_shift(
         max_iters: probe_budget,
         tol: 1e-6,
         inner: crate::eigen::lanczos::InnerSolver::Direct,
+        precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
     };
     let mut pairs = probe.smallest_eigenpairs(k_sparse, m_sparse, probe_budget)?;
     pairs.sort_by(|a, b| {
@@ -3972,6 +3973,7 @@ pub fn solve_waveguide_modes_with_opts(
             max_iters,
             tol: 1e-9,
             inner: crate::eigen::lanczos::InnerSolver::Direct,
+            precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
         };
         let mut pairs =
             solver.smallest_eigenpairs(k_sparse.as_ref(), m_sparse.as_ref(), n_request)?;
@@ -4457,6 +4459,7 @@ pub(crate) fn dielectric_raw_candidates_with_target(
         max_iters,
         tol: 1e-9,
         inner: crate::eigen::lanczos::InnerSolver::Direct,
+        precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
     };
     let pairs = solver.smallest_eigenpairs(a_sparse.as_ref(), m1_sparse.as_ref(), n_req)?;
 
@@ -6076,6 +6079,7 @@ fn dielectric_raw_candidates_p2(
         max_iters,
         tol: 1e-9,
         inner: crate::eigen::lanczos::InnerSolver::Direct,
+        precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
     };
     let pairs = solver.smallest_eigenpairs(a_sparse.as_ref(), m1_sparse.as_ref(), n_req)?;
 
@@ -6139,6 +6143,7 @@ pub fn solve_rect_waveguide_modes2_cutoffs(
             max_iters,
             tol: 1e-9,
             inner: crate::eigen::lanczos::InnerSolver::Direct,
+            precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
         };
         let mut pairs =
             solver.smallest_eigenpairs(k_sparse.as_ref(), m_sparse.as_ref(), n_request)?;

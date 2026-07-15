@@ -8,6 +8,10 @@
 //!   [`dense::EigenError`] / [`dense::EigenPair`] types and the
 //!   Burn→faer / Dirichlet-BC helpers.
 //! - [`lanczos`] — sparse real shift-and-invert Lanczos.
+//! - [`ams`] — AMS-lite (auxiliary-space Maxwell, Hiptmair–Xu) preconditioner
+//!   for the matrix-free inner CG of the shift-invert solve: an edge Jacobi
+//!   smoother plus a gradient-space nodal coarse correction that damps the
+//!   H(curl) curl-curl gradient near-kernel Jacobi is blind to (issue #526).
 //! - [`parallel`] — process-global faer parallelism control (a panic-safe
 //!   RAII guard + `GEODE_NUM_THREADS` knob) scoped to the sparse LU
 //!   factorization that fronts the shift-invert eigensolves (issue #518).
@@ -28,6 +32,7 @@
 //!   spurious mode *without* shifting the physical spectrum (issue #509,
 //!   the spectrum-preserving alternative to the DOF-elimination `gauge`).
 
+pub mod ams;
 pub mod complex;
 pub mod dense;
 pub mod gauge;
