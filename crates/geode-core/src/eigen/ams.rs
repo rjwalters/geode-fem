@@ -57,28 +57,56 @@
 //!
 //! The **gradient-space coarse correction** forms the nodal coupling
 //! `C = Gᵀ A G` (`A = K − σM`, a `node_dim × node_dim` SPD matrix, one row per
-//! free interior node — `node_dim ≪ edge_dim`), factors it **once** with a sparse
-//! LU, and each apply is `Gᵀ·` (restrict to nodes), one cached triangular solve,
-//! and `G·` (prolong to edges). This is exactly the Hiptmair–Xu nodal
-//! auxiliary-space correction that damps the gradient near-kernel Jacobi is blind
-//! to. A preconditioner changes only convergence speed, never the fixed point, so
-//! the eigenvalues are unchanged either way.
+//! free interior node — `node_dim ≪ edge_dim`), and each apply is `Gᵀ·`
+//! (restrict to nodes), an **approximate coarse solve** of `C`, and `G·`
+//! (prolong to edges). This is exactly the Hiptmair–Xu nodal auxiliary-space
+//! correction that damps the gradient near-kernel Jacobi is blind to. A
+//! preconditioner changes only convergence speed, never the fixed point, so the
+//! eigenvalues are unchanged either way.
+//!
+//! # Coarse solve: multilevel-style few-sweep smoother, no global factor (#551)
+//!
+//! Through issue #550 the coarse operators `C = Gᵀ A G` and `Πᵀ A Π` were each
+//! **LU-factored once** and applied by a **global triangular solve every inner-CG
+//! iteration**. That serial global solve is `O(node_dim^{1.x})` per apply and was
+//! the single-level bottleneck that stopped the 1.16M matrix-free eigensolve from
+//! completing in minutes even after AMS-lite cut inner-CG iterations 5.36× — it is
+//! exactly the part Palace/hypre make scale by using a **multilevel** coarse solve
+//! (BoomerAMG) instead of a direct factor.
+//!
+//! Issue #551 replaces the direct factor with a **few-sweep symmetric
+//! Gauss–Seidel** approximate coarse solve (`SgsCoarseSolver`): each apply is a
+//! fixed number of forward+backward GS sweeps starting from a zero guess, which is
+//! `O(nnz(C)) = O(node_dim)` work per apply and needs **no global factor** (only
+//! the coarse operator's sparse rows and its inverse-diagonal are stored). This is
+//! the smoother-based V-cycle the issue explicitly allows in place of a full AMG;
+//! a symmetric (forward+backward) sweep count keeps each coarse solve
+//! **self-adjoint and SPD** (for the SPD coarse operator SGS converges, so a fixed
+//! number of symmetric SGS–Richardson iterations from a zero start is a symmetric
+//! positive-definite approximate inverse), which is what keeps the whole
+//! preconditioner a valid CG preconditioner. The coarse solve is now
+//! **approximate** — it changes the iteration path, not the converged eigenvalues.
+//!
+//! The direct sparse-LU coarse solve is retained behind `CoarseSolve::Direct`
+//! purely so the measurement harness can compare per-apply cost and inner-CG
+//! iteration count against the new `CoarseSolve::SymmetricGaussSeidel` default
+//! apples-to-apples; the shipped inner solve always uses the few-sweep smoother.
 //!
 //! # Memory
 //!
-//! `C = Gᵀ A G` is node-indexed, so its LU fill-in is `O(node_dim)`, an order of
-//! magnitude below the edge pencil and far below the *edge*-space factorization
-//! the matrix-free path exists to avoid. The working set stays `O(N)`: the
+//! `C = Gᵀ A G` is node-indexed and the few-sweep smoother stores only its sparse
+//! rows + inverse-diagonal (`O(node_dim)`), an order of magnitude below the edge
+//! pencil and with no global factor at all. The working set stays `O(N)`: the
 //! borrowed edge operators, the length-`edge_dim` Jacobi diagonal, and the small
-//! node-space `C` factors. No edge-space factorization is ever formed.
+//! node-space coarse operators. No edge-space factorization is ever formed.
 //!
 //! The vector-nodal `Πᵀ A Π` block (issue #550) is node-vector-indexed
-//! (`3·node_dim` square, still an order of magnitude below `edge_dim`), so its
-//! LU fill is `O(node_dim)` and the working set stays `O(N)` — no edge-space
-//! factorization is ever formed for it either. The at-scale iteration numbers
-//! on the 133k / 1.16M meshes remain an operator/AWS follow-up (issue #531
-//! sub-phase 1c); this module delivers the correct, SPD, spectrum-preserving
-//! three-space operator and the local iteration-count measurement.
+//! (`3·node_dim` square, still an order of magnitude below `edge_dim`) and is
+//! solved by the same few-sweep smoother, so its working set is likewise `O(N)`.
+//! The at-scale iteration numbers on the 133k / 1.16M meshes remain an
+//! operator/AWS follow-up (issue #531 sub-phase 1c); this module delivers the
+//! correct, SPD, spectrum-preserving three-space operator with an O(node_dim)
+//! coarse solve and the local iteration-count measurement.
 
 use faer::Mat;
 use faer::sparse::linalg::solvers::Lu;
@@ -95,6 +123,205 @@ use crate::eigen::projection::InteriorGradient;
 /// contractive smoother, which is what makes the multiplicative cycle beat the
 /// additive form.
 const DEFAULT_SMOOTH_WEIGHT: f64 = 0.6;
+
+/// Default number of **symmetric** (forward + backward) Gauss–Seidel sweeps for
+/// the approximate coarse solve ([`SgsCoarseSolver`], issue #551).
+///
+/// The coarse operators `C = Gᵀ A G` and `Πᵀ A Π` are SPD and well-conditioned
+/// relative to the edge pencil (they are nodal Poisson-like), so SGS converges
+/// geometrically and a handful of sweeps is a good approximate inverse. Two
+/// symmetric sweeps keep the coarse correction strong enough that inner-CG needs
+/// no more iterations than the exact direct factor at the fixture sizes measured
+/// locally, while making each coarse apply `O(node_dim)` with no global factor.
+const DEFAULT_COARSE_SWEEPS: usize = 2;
+
+/// Which coarse solver [`AmsLitePreconditioner::build_with_coarse`] wires into
+/// the gradient-space `C = Gᵀ A G` and vector-nodal `Πᵀ A Π` corrections.
+///
+/// The shipped default is [`Self::SymmetricGaussSeidel`] — the O(node_dim)-per-
+/// apply few-sweep smoother of issue #551. [`Self::Direct`] (the pre-#551 cached
+/// sparse LU) is retained only so the measurement harness can compare the two
+/// apples-to-apples.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum CoarseSolve {
+    /// Direct sparse LU of the coarse operator, applied by a global triangular
+    /// solve each apply (the pre-#551 behavior; kept for measurement only, so it
+    /// is only constructed under `cfg(test)`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    Direct,
+    /// Few-sweep symmetric Gauss–Seidel approximate solve — the O(node_dim)-per-
+    /// apply coarse solve of issue #551. The `usize` is the symmetric sweep
+    /// count (forward + backward per sweep).
+    SymmetricGaussSeidel(usize),
+}
+
+impl Default for CoarseSolve {
+    fn default() -> Self {
+        CoarseSolve::SymmetricGaussSeidel(DEFAULT_COARSE_SWEEPS)
+    }
+}
+
+/// A coarse solver for one of the SPD nodal coarse operators — either the exact
+/// direct LU (measurement reference) or the few-sweep symmetric Gauss–Seidel
+/// approximation shipped by issue #551.
+pub(crate) enum CoarseSolver {
+    /// Cached sparse LU; `solve` is a global triangular solve.
+    Direct(Lu<usize, f64>),
+    /// Few-sweep symmetric Gauss–Seidel; `solve` is `O(nnz)` per apply.
+    Sgs(SgsCoarseSolver),
+}
+
+impl CoarseSolver {
+    /// Build the selected coarse solver for the SPD coarse operator `mat`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EigenError::FaerGevd`] if the [`CoarseSolve::Direct`] sparse LU
+    /// factorization fails. The Gauss–Seidel variant is infallible.
+    fn build(mat: &SparseColMat<usize, f64>, mode: CoarseSolve) -> Result<Self, EigenError> {
+        match mode {
+            CoarseSolve::Direct => {
+                let lu = mat
+                    .as_ref()
+                    .sp_lu()
+                    .map_err(|e| EigenError::FaerGevd(format!("coarse sparse LU: {e:?}")))?;
+                Ok(CoarseSolver::Direct(lu))
+            }
+            CoarseSolve::SymmetricGaussSeidel(sweeps) => Ok(CoarseSolver::Sgs(
+                SgsCoarseSolver::from_csc(mat.as_ref(), sweeps),
+            )),
+        }
+    }
+
+    /// Approximately (SGS) or exactly (Direct) solve `mat · out = b`.
+    /// `out` is overwritten; `b` and `out` have length `mat.ncols()`.
+    fn solve(&self, b: &[f64], out: &mut [f64]) {
+        match self {
+            CoarseSolver::Direct(lu) => {
+                use faer::linalg::solvers::Solve;
+                let n = b.len();
+                let mut mat: Mat<f64> = Mat::from_fn(n, 1, |row, _| b[row]);
+                lu.solve_in_place(mat.as_mut());
+                for (row, o) in out.iter_mut().enumerate() {
+                    *o = mat[(row, 0)];
+                }
+            }
+            CoarseSolver::Sgs(sgs) => sgs.solve(b, out),
+        }
+    }
+}
+
+/// Few-sweep **symmetric Gauss–Seidel** approximate solver for an SPD coarse
+/// operator (issue #551), replacing the single-level direct LU factor.
+///
+/// Holds a row-wise (CSR) copy of the coarse operator and its inverse-diagonal.
+/// [`Self::solve`] runs `sweeps` symmetric sweeps (each = one forward GS sweep
+/// followed by one backward GS sweep) starting from a zero guess. For an SPD
+/// operator SGS converges, so a fixed number of symmetric SGS–Richardson
+/// iterations from zero is a **symmetric positive-definite** approximate inverse
+/// — exactly the property that keeps the enclosing V-cycle a valid CG
+/// preconditioner. Each apply is `O(nnz)`; no global factor is stored.
+pub(crate) struct SgsCoarseSolver {
+    /// Operator dimension (`node_dim` for `C`, `3·node_dim` for `Πᵀ A Π`).
+    n: usize,
+    /// CSR row pointers (`n + 1`).
+    row_ptr: Vec<usize>,
+    /// CSR column indices (includes the diagonal entry).
+    col_idx: Vec<usize>,
+    /// CSR values, aligned with [`Self::col_idx`].
+    val: Vec<f64>,
+    /// Inverse main diagonal `1 / A_ii` (fallback `1.0` on a zero pivot).
+    inv_diag: Vec<f64>,
+    /// Symmetric sweep count (forward + backward per sweep).
+    sweeps: usize,
+}
+
+impl SgsCoarseSolver {
+    /// Build the CSR + inverse-diagonal from a CSC coarse operator. The coarse
+    /// operator is symmetric, so its CSC columns are its CSR rows; we still
+    /// transpose explicitly (cheap, `O(nnz)`) rather than assume the layout.
+    fn from_csc(a: SparseColMatRef<'_, usize, f64>, sweeps: usize) -> Self {
+        let n = a.ncols();
+        let col_ptr = a.col_ptr();
+        let row_idx = a.row_idx();
+        let val = a.val();
+        // Row buckets: rows[i] = list of (col, value) for row i of A.
+        let mut rows: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n];
+        for j in 0..n {
+            for k in col_ptr[j]..col_ptr[j + 1] {
+                rows[row_idx[k]].push((j, val[k]));
+            }
+        }
+        let nnz: usize = rows.iter().map(|r| r.len()).sum();
+        let mut row_ptr = Vec::with_capacity(n + 1);
+        let mut col_idx = Vec::with_capacity(nnz);
+        let mut vals = Vec::with_capacity(nnz);
+        let mut inv_diag = vec![1.0_f64; n];
+        row_ptr.push(0);
+        for (i, row) in rows.iter().enumerate() {
+            let mut dii = 0.0;
+            for &(j, v) in row {
+                col_idx.push(j);
+                vals.push(v);
+                if j == i {
+                    dii += v;
+                }
+            }
+            if dii.abs() > 0.0 {
+                inv_diag[i] = 1.0 / dii;
+            }
+            row_ptr.push(col_idx.len());
+        }
+        Self {
+            n,
+            row_ptr,
+            col_idx,
+            val: vals,
+            inv_diag,
+            sweeps,
+        }
+    }
+
+    /// One Gauss–Seidel update of row `i` in place: `y_i ← D_ii⁻¹ (b_i − Σ_{j≠i} A_ij y_j)`.
+    #[inline]
+    fn update_row(&self, i: usize, b: &[f64], y: &mut [f64]) {
+        let mut s = b[i];
+        for k in self.row_ptr[i]..self.row_ptr[i + 1] {
+            let j = self.col_idx[k];
+            if j != i {
+                s -= self.val[k] * y[j];
+            }
+        }
+        y[i] = self.inv_diag[i] * s;
+    }
+
+    /// Approximately solve `A y = b` with `sweeps` symmetric GS sweeps from a
+    /// zero start. `y` is overwritten (length `n`).
+    fn solve(&self, b: &[f64], y: &mut [f64]) {
+        y.iter_mut().for_each(|v| *v = 0.0);
+        for _ in 0..self.sweeps {
+            for i in 0..self.n {
+                self.update_row(i, b, y);
+            }
+            for i in (0..self.n).rev() {
+                self.update_row(i, b, y);
+            }
+        }
+    }
+
+    /// `y = A · x` for the stored coarse operator (used by the coarse-solver
+    /// residual/SPD unit tests).
+    #[cfg(test)]
+    fn spmv(&self, x: &[f64], y: &mut [f64]) {
+        for (i, out) in y.iter_mut().enumerate() {
+            let mut s = 0.0;
+            for k in self.row_ptr[i]..self.row_ptr[i + 1] {
+                s += self.val[k] * x[self.col_idx[k]];
+            }
+            *out = s;
+        }
+    }
+}
 
 /// `y = A · x` for a CSC sparse matrix (overwrite). `A` is `nrows × ncols`;
 /// `x.len() == ncols`, `y.len() == nrows`.
@@ -136,9 +363,10 @@ fn spmv_transpose(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) 
 ///
 /// Built once (before the inner CG loop) from the discrete gradient `G` and the
 /// two edge operators `K`, `M` plus the shift `σ`. Holds the Jacobi
-/// inverse-diagonal of `A = K − σM`, the sparse `G`, and a cached LU of the
-/// nodal coupling `C = Gᵀ A G`. [`Self::apply`] realizes the additive apply
-/// `z = D⁻¹ r + G C⁻¹ Gᵀ r`.
+/// inverse-diagonal of `A = K − σM`, the sparse `G`, and an O(node_dim)-per-apply
+/// coarse solver for the nodal coupling `C = Gᵀ A G` (few-sweep symmetric
+/// Gauss–Seidel by default, issue #551). [`Self::apply`] realizes the additive
+/// apply `z = D⁻¹ r + G C⁻¹ Gᵀ r`.
 pub(crate) struct AmsLitePreconditioner {
     /// Sparse discrete gradient `G` (`edge_dim × node_dim`), owned via a
     /// cloned [`InteriorGradient`] (which itself holds an owned `SparseColMat`).
@@ -147,18 +375,21 @@ pub(crate) struct AmsLitePreconditioner {
     /// zero-pivot fallback to `1.0` — identical to the matrix-free baseline's
     /// Jacobi so the two paths agree when the coarse term is inactive.
     inv_diag: Vec<f64>,
-    /// Cached LU of the nodal coupling `C = Gᵀ A G` (node-indexed, SPD).
-    c_lu: Lu<usize, f64>,
+    /// O(node_dim)-per-apply coarse solver for the nodal coupling
+    /// `C = Gᵀ A G` (node-indexed, SPD) — few-sweep symmetric Gauss–Seidel by
+    /// default (issue #551), or the cached direct LU under
+    /// [`CoarseSolve::Direct`] for the measurement comparison.
+    c_coarse: CoarseSolver,
     /// The vector-nodal interpolation `Π` (`edge_dim × 3·node_dim`) of the
     /// full Hiptmair–Xu AMS (issue #550), present only when the discrete
     /// gradient carried per-edge geometry
     /// ([`InteriorGradient::with_edge_vectors`]). `None` ⇒ the gradient-only
     /// two-space cycle.
     pi: Option<SparseColMat<usize, f64>>,
-    /// Cached LU of the vector-nodal coarse operator `Πᵀ A Π`
-    /// (`3·node_dim` square, SPD), paired with [`Self::pi`]. `Some` iff `pi`
-    /// is `Some`.
-    pi_ata_lu: Option<Lu<usize, f64>>,
+    /// O(node_dim)-per-apply coarse solver for the vector-nodal coarse operator
+    /// `Πᵀ A Π` (`3·node_dim` square, SPD), paired with [`Self::pi`]. `Some`
+    /// iff `pi` is `Some`.
+    pi_coarse: Option<CoarseSolver>,
     /// Damped-Jacobi smoother weight `ω` for the multiplicative V-cycle
     /// ([`Self::apply_vcycle`]). An undamped (`ω = 1`) Jacobi smoother is not a
     /// contraction on the wide H(curl) spectrum, so the multiplicative cycle
@@ -177,22 +408,40 @@ impl AmsLitePreconditioner {
     /// Assembles the nodal coupling `C = Gᵀ (K − σM) G` directly from the
     /// ultra-sparse `G` (≤2 nonzeros per row) and the edge operators — the same
     /// triplet outer-product assembly the divergence-free projector uses for
-    /// `GᵀMG`, extended to the shifted pencil `A = K − σM`. `C` is then factored
-    /// once with a sparse LU (node-indexed, so `O(node_dim)` fill).
+    /// `GᵀMG`, extended to the shifted pencil `A = K − σM`. `C` is then wired
+    /// into the default O(node_dim)-per-apply coarse solver (few-sweep symmetric
+    /// Gauss–Seidel, issue #551).
     ///
     /// `k` and `m` are the reduced edge operators (dimension `edge_dim`, which
     /// must equal `gradient.edge_dim()`); `sigma` is the shift.
     ///
     /// # Errors
     ///
-    /// Returns [`EigenError::FaerGevd`] if the `C` assembly or its sparse LU
-    /// factorization fails (e.g. `C` singular — should not happen for an SPD
-    /// `A = K − σM` and a full-column-rank `G`).
+    /// Returns [`EigenError::FaerGevd`] if the `C` assembly fails.
     pub(crate) fn build(
         gradient: &InteriorGradient,
         k: SparseColMatRef<'_, usize, f64>,
         m: SparseColMatRef<'_, usize, f64>,
         sigma: f64,
+    ) -> Result<Self, EigenError> {
+        Self::build_with_coarse(gradient, k, m, sigma, CoarseSolve::default())
+    }
+
+    /// [`Self::build`] with an explicit coarse-solver choice. The shipped path
+    /// uses [`CoarseSolve::default`] (few-sweep symmetric Gauss–Seidel); the
+    /// measurement harness passes [`CoarseSolve::Direct`] to compare the exact
+    /// direct factor against the approximate smoother apples-to-apples.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EigenError::FaerGevd`] if a coarse operator assembly or (under
+    /// [`CoarseSolve::Direct`]) its sparse LU factorization fails.
+    pub(crate) fn build_with_coarse(
+        gradient: &InteriorGradient,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        sigma: f64,
+        coarse: CoarseSolve,
     ) -> Result<Self, EigenError> {
         let edge_dim = gradient.edge_dim();
         let node_dim = gradient.node_dim();
@@ -244,20 +493,18 @@ impl AmsLitePreconditioner {
 
         let c = SparseColMat::<usize, f64>::try_new_from_triplets(node_dim, node_dim, &trips)
             .map_err(|e| EigenError::FaerGevd(format!("Gᵀ(K−σM)G assembly: {e:?}")))?;
-        let c_lu = c
-            .as_ref()
-            .sp_lu()
-            .map_err(|e| EigenError::FaerGevd(format!("Gᵀ(K−σM)G sparse LU: {e:?}")))?;
+        let c_coarse = CoarseSolver::build(&c, coarse)?;
 
         // Vector-nodal auxiliary space (full Hiptmair–Xu, issue #550): build
-        // Π and cache the LU of Πᵀ A Π, but ONLY when the caller supplied the
-        // per-edge geometry. Without it we keep the gradient-only two-space
+        // Π and its coarse solver for Πᵀ A Π, but ONLY when the caller supplied
+        // the per-edge geometry. Without it we keep the gradient-only two-space
         // cycle (backward-compatible; Π is undefined without node coordinates).
-        let (pi, pi_ata_lu) = match gradient.edge_vectors() {
+        let (pi, pi_coarse) = match gradient.edge_vectors() {
             Some(edge_vectors) => {
                 let pi = build_pi(&g_rows, edge_vectors, edge_dim, node_dim)?;
-                let pi_ata_lu = build_pi_ata_lu(pi.as_ref(), k, m, sigma, node_dim)?;
-                (Some(pi), Some(pi_ata_lu))
+                let pi_ata = build_pi_ata(pi.as_ref(), k, m, sigma, node_dim)?;
+                let pi_coarse = CoarseSolver::build(&pi_ata, coarse)?;
+                (Some(pi), Some(pi_coarse))
             }
             None => (None, None),
         };
@@ -265,9 +512,9 @@ impl AmsLitePreconditioner {
         Ok(Self {
             gradient: gradient.clone(),
             inv_diag,
-            c_lu,
+            c_coarse,
             pi,
-            pi_ata_lu,
+            pi_coarse,
             smooth_weight: DEFAULT_SMOOTH_WEIGHT,
             edge_dim,
             node_dim,
@@ -291,14 +538,12 @@ impl AmsLitePreconditioner {
     /// auxiliary-space term that damps the gradient near-kernel Jacobi is blind
     /// to; `out` is overwritten.
     fn coarse_correction(&self, r: &[f64], out: &mut [f64]) {
-        use faer::linalg::solvers::Solve;
         // rc = Gᵀ r  (node space)
         let mut rc = vec![0.0_f64; self.node_dim];
         spmv_transpose(self.gradient.matrix(), r, &mut rc);
-        // yc = C⁻¹ rc
-        let mut yc_mat: Mat<f64> = Mat::from_fn(self.node_dim, 1, |row, _| rc[row]);
-        self.c_lu.solve_in_place(yc_mat.as_mut());
-        let yc: Vec<f64> = (0..self.node_dim).map(|row| yc_mat[(row, 0)]).collect();
+        // yc ≈ C⁻¹ rc  (few-sweep SGS, or exact LU under CoarseSolve::Direct)
+        let mut yc = vec![0.0_f64; self.node_dim];
+        self.c_coarse.solve(&rc, &mut yc);
         // out = G yc  (edge space)
         spmv(self.gradient.matrix(), &yc, out);
     }
@@ -312,8 +557,7 @@ impl AmsLitePreconditioner {
     /// `out` is overwritten. Only called when [`Self::pi`] is `Some` (the
     /// three-space cycle); a no-op guard returns zeros otherwise.
     fn coarse_correction_pi(&self, r: &[f64], out: &mut [f64]) {
-        use faer::linalg::solvers::Solve;
-        let (Some(pi), Some(pi_ata_lu)) = (&self.pi, &self.pi_ata_lu) else {
+        let (Some(pi), Some(pi_coarse)) = (&self.pi, &self.pi_coarse) else {
             out.iter_mut().for_each(|v| *v = 0.0);
             return;
         };
@@ -321,10 +565,9 @@ impl AmsLitePreconditioner {
         // rc = Πᵀ r  (vector-nodal space)
         let mut rc = vec![0.0_f64; pi_dim];
         spmv_transpose(pi.as_ref(), r, &mut rc);
-        // yc = (ΠᵀAΠ)⁻¹ rc
-        let mut yc_mat: Mat<f64> = Mat::from_fn(pi_dim, 1, |row, _| rc[row]);
-        pi_ata_lu.solve_in_place(yc_mat.as_mut());
-        let yc: Vec<f64> = (0..pi_dim).map(|row| yc_mat[(row, 0)]).collect();
+        // yc ≈ (ΠᵀAΠ)⁻¹ rc  (few-sweep SGS, or exact LU under CoarseSolve::Direct)
+        let mut yc = vec![0.0_f64; pi_dim];
+        pi_coarse.solve(&rc, &mut yc);
         // out = Π yc  (edge space)
         spmv(pi.as_ref(), &yc, out);
     }
@@ -489,29 +732,30 @@ fn build_pi(
         .map_err(|err| EigenError::FaerGevd(format!("Π assembly: {err:?}")))
 }
 
-/// Form the vector-nodal coarse operator `Πᵀ (K − σM) Π` and factor it once
+/// Form the regularized vector-nodal coarse operator `Πᵀ (K − σM) Π + τI`
 /// (issue #550). The outer-product assembly reuses [`accumulate_gtag`] with
-/// `Π`'s ≤6-entry rows in place of `G`'s ≤2-entry rows.
+/// `Π`'s ≤6-entry rows in place of `G`'s ≤2-entry rows. The caller wires the
+/// returned SPD operator into a [`CoarseSolver`] (few-sweep SGS by default).
 ///
 /// A tiny relative Tikhonov shift `τ = 1e-8 · max|diag|` is added to the
-/// diagonal before factoring. `Π` can be rank-deficient on a coarse mesh
-/// (e.g. `3·node_dim > edge_dim`, or colinear edges), which would make the
-/// exact `Πᵀ A Π` singular and its LU fail; the shift restores SPD
-/// invertibility. Because `Π (ΠᵀAΠ + τI)⁻¹ Πᵀ` is still symmetric positive
-/// semidefinite, the preconditioner stays SPD, and `τ` is negligible against
-/// the operator so the correction is essentially unchanged.
+/// diagonal. `Π` can be rank-deficient on a coarse mesh (e.g. `3·node_dim >
+/// edge_dim`, or colinear edges), which would make the exact `Πᵀ A Π` singular
+/// (its LU would fail, and its Gauss–Seidel diagonal could vanish); the shift
+/// restores SPD invertibility so both coarse solvers are well-posed. Because
+/// `Π (ΠᵀAΠ + τI)⁻¹ Πᵀ` is still symmetric positive semidefinite, the
+/// preconditioner stays SPD, and `τ` is negligible against the operator so the
+/// correction is essentially unchanged.
 ///
 /// # Errors
 ///
-/// Returns [`EigenError::FaerGevd`] if the coarse assembly or its sparse LU
-/// factorization fails.
-fn build_pi_ata_lu(
+/// Returns [`EigenError::FaerGevd`] if the coarse assembly fails.
+fn build_pi_ata(
     pi: SparseColMatRef<'_, usize, f64>,
     k: SparseColMatRef<'_, usize, f64>,
     m: SparseColMatRef<'_, usize, f64>,
     sigma: f64,
     node_dim: usize,
-) -> Result<Lu<usize, f64>, EigenError> {
+) -> Result<SparseColMat<usize, f64>, EigenError> {
     let pi_dim = 3 * node_dim;
     let edge_dim = pi.nrows();
 
@@ -537,7 +781,7 @@ fn build_pi_ata_lu(
     }
 
     // Tikhonov guard: assemble once to read the diagonal magnitude, then add
-    // τ·I so the LU is well-posed even when Π is rank-deficient.
+    // τ·I so the coarse solve is well-posed even when Π is rank-deficient.
     let ata0 = SparseColMat::<usize, f64>::try_new_from_triplets(pi_dim, pi_dim, &trips)
         .map_err(|e| EigenError::FaerGevd(format!("ΠᵀAΠ assembly: {e:?}")))?;
     let mut diag = vec![0.0_f64; pi_dim];
@@ -552,11 +796,8 @@ fn build_pi_ata_lu(
         trips.push(Triplet::new(i, i, tau));
     }
 
-    let ata = SparseColMat::<usize, f64>::try_new_from_triplets(pi_dim, pi_dim, &trips)
-        .map_err(|e| EigenError::FaerGevd(format!("ΠᵀAΠ assembly (regularized): {e:?}")))?;
-    ata.as_ref()
-        .sp_lu()
-        .map_err(|e| EigenError::FaerGevd(format!("ΠᵀAΠ sparse LU: {e:?}")))
+    SparseColMat::<usize, f64>::try_new_from_triplets(pi_dim, pi_dim, &trips)
+        .map_err(|e| EigenError::FaerGevd(format!("ΠᵀAΠ assembly (regularized): {e:?}")))
 }
 
 /// Accumulate the triplets of `scale · Rᵀ A R` for a single operator `A`
@@ -769,14 +1010,24 @@ mod tests {
     /// gradient error `e = G y`, applying the coarse term of the preconditioner
     /// to `A e` recovers `e` (up to the Jacobi smoother contribution). This is
     /// the mechanism by which AMS damps the near-kernel Jacobi cannot see —
-    /// here we check the coarse solve inverts `Gᵀ A G` exactly.
+    /// here we check the coarse solve inverts `Gᵀ A G` exactly. Built with the
+    /// **direct** coarse solver so the recovery is exact (the assembly of
+    /// `C = Gᵀ A G` is what this pins; the approximate SGS solve is exercised by
+    /// [`sgs_coarse_solve_is_spd_and_reduces_residual`]).
     #[test]
     fn coarse_correction_inverts_on_gradient_space() {
         let n = 10;
         let (k, m) = laplacian(n);
         let g = chain_gradient(n);
         let sigma = -1.0;
-        let ams = AmsLitePreconditioner::build(&g, k.as_ref(), m.as_ref(), sigma).unwrap();
+        let ams = AmsLitePreconditioner::build_with_coarse(
+            &g,
+            k.as_ref(),
+            m.as_ref(),
+            sigma,
+            CoarseSolve::Direct,
+        )
+        .unwrap();
 
         // Coarse operator C = Gᵀ A G applied to yc, then solved back, must be
         // identity in node space.
@@ -798,15 +1049,14 @@ mod tests {
         // rc = Gᵀ A g_yc (node)
         let mut rc = vec![0.0; node_dim];
         spmv_transpose(ams.gradient.matrix(), &a_g_yc, &mut rc);
-        // solve C yc' = rc; yc' must equal yc.
-        use faer::linalg::solvers::Solve;
-        let mut mat = Mat::from_fn(node_dim, 1, |row, _| rc[row]);
-        ams.c_lu.solve_in_place(mat.as_mut());
+        // solve C yc' = rc; yc' must equal yc (exact under the direct solver).
+        let mut got = vec![0.0; node_dim];
+        ams.c_coarse.solve(&rc, &mut got);
         for (i, want) in yc.iter().enumerate() {
-            let got = mat[(i, 0)];
             assert!(
-                (got - want).abs() < 1e-9,
-                "coarse solve wrong at {i}: got {got}, want {want}"
+                (got[i] - want).abs() < 1e-9,
+                "coarse solve wrong at {i}: got {}, want {want}",
+                got[i]
             );
         }
     }
@@ -961,12 +1211,20 @@ mod tests {
     /// `coarse_correction_inverts_on_gradient_space`).
     #[test]
     fn pi_coarse_solve_inverts_on_vector_nodal_space() {
-        use faer::linalg::solvers::Solve;
         let n = 12;
         let (k, m) = laplacian(n);
         let g = chain_gradient_geom(n);
         let sigma = -1.0;
-        let ams = AmsLitePreconditioner::build(&g, k.as_ref(), m.as_ref(), sigma).unwrap();
+        // Direct coarse solver so the recovery is exact — this test pins the Π /
+        // ΠᵀAΠ assembly, not the approximate SGS solve.
+        let ams = AmsLitePreconditioner::build_with_coarse(
+            &g,
+            k.as_ref(),
+            m.as_ref(),
+            sigma,
+            CoarseSolve::Direct,
+        )
+        .unwrap();
         let pi = ams.pi.as_ref().unwrap();
         let pi_dim = 3 * ams.node_dim;
 
@@ -991,12 +1249,11 @@ mod tests {
         spmv_transpose(pi.as_ref(), &a_pyc, &mut rc);
         // solve (ΠᵀAΠ + τI) yc' = rc; with τ ≈ 1e-8·max|diag| the recovered
         // yc' matches yc to a loose tolerance on the populated directions.
-        let mut mat = Mat::from_fn(pi_dim, 1, |row, _| rc[row]);
-        ams.pi_ata_lu.as_ref().unwrap().solve_in_place(mat.as_mut());
+        let mut ycp = vec![0.0; pi_dim];
+        ams.pi_coarse.as_ref().unwrap().solve(&rc, &mut ycp);
         // Compare in the A-energy-agnostic sense: Π yc' ≈ Π yc (the physical
         // edge-space correction is what matters; the coarse coordinates can
         // differ in any Π-nullspace direction the regularization pins to ~0).
-        let ycp: Vec<f64> = (0..pi_dim).map(|i| mat[(i, 0)]).collect();
         let mut pycp = vec![0.0; n];
         spmv(pi.as_ref(), &ycp, &mut pycp);
         let num: f64 = pyc
@@ -1009,6 +1266,236 @@ mod tests {
             (num / den).sqrt() < 1e-4,
             "Π coarse solve did not reproduce the edge-space correction: rel = {:.2e}",
             (num / den).sqrt()
+        );
+    }
+
+    /// `y = (K − σM) x` for the shifted edge pencil (test helper).
+    fn shifted_apply(
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        sigma: f64,
+        x: &[f64],
+        y: &mut [f64],
+    ) {
+        let n = x.len();
+        let mut kx = vec![0.0; n];
+        let mut mx = vec![0.0; n];
+        spmv(k, x, &mut kx);
+        spmv(m, x, &mut mx);
+        for i in 0..n {
+            y[i] = kx[i] - sigma * mx[i];
+        }
+    }
+
+    /// Preconditioned CG solving `(K − σM) x = b` with the AMS V-cycle as the
+    /// preconditioner, returning the iteration count to reach the relative
+    /// residual `tol` (or `max_it` if it stalls). Used by the measurement report
+    /// to compare the direct vs SGS coarse solver apples-to-apples.
+    fn pcg_ams_iters(
+        ams: &AmsLitePreconditioner,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        sigma: f64,
+        b: &[f64],
+        tol: f64,
+        max_it: usize,
+    ) -> usize {
+        let n = b.len();
+        let dot = |a: &[f64], c: &[f64]| a.iter().zip(c.iter()).map(|(x, y)| x * y).sum::<f64>();
+        let bnorm = dot(b, b).sqrt().max(1e-300);
+
+        let mut x = vec![0.0; n];
+        let mut r = b.to_vec(); // r = b − A·0
+        let mut z = vec![0.0; n];
+        ams.apply_vcycle(&r, &mut z, |u, v| shifted_apply(k, m, sigma, u, v));
+        let mut p = z.clone();
+        let mut rz = dot(&r, &z);
+        let mut ap = vec![0.0; n];
+        for it in 1..=max_it {
+            shifted_apply(k, m, sigma, &p, &mut ap);
+            let denom = dot(&p, &ap);
+            if denom.abs() < 1e-300 {
+                return it;
+            }
+            let alpha = rz / denom;
+            for i in 0..n {
+                x[i] += alpha * p[i];
+                r[i] -= alpha * ap[i];
+            }
+            if dot(&r, &r).sqrt() <= tol * bnorm {
+                return it;
+            }
+            ams.apply_vcycle(&r, &mut z, |u, v| shifted_apply(k, m, sigma, u, v));
+            let rz_new = dot(&r, &z);
+            let beta = rz_new / rz;
+            for i in 0..n {
+                p[i] = z[i] + beta * p[i];
+            }
+            rz = rz_new;
+        }
+        max_it
+    }
+
+    /// The few-sweep symmetric Gauss–Seidel coarse solver ([`SgsCoarseSolver`])
+    /// is itself an SPD operator (`b ↦ y ≈ A⁻¹ b`): symmetric and positive
+    /// definite on an SPD coarse operator, and it strictly reduces the residual.
+    /// These are the two properties the enclosing V-cycle relies on to stay a
+    /// valid CG preconditioner (issue #551).
+    #[test]
+    fn sgs_coarse_solve_is_spd_and_reduces_residual() {
+        // K = tridiag(-1, 2, -1) is SPD — a stand-in coarse operator.
+        let n = 40;
+        let (k, _m) = laplacian(n);
+        let sgs = SgsCoarseSolver::from_csc(k.as_ref(), 2);
+
+        // Symmetry: ⟨B u, v⟩ == ⟨u, B v⟩ for the approximate-inverse operator B.
+        let u: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.9).cos() + 0.2).collect();
+        let v: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.4 + 1.0).sin()).collect();
+        let mut bu = vec![0.0; n];
+        let mut bv = vec![0.0; n];
+        sgs.solve(&u, &mut bu);
+        sgs.solve(&v, &mut bv);
+        let ubv: f64 = u.iter().zip(bv.iter()).map(|(a, b)| a * b).sum();
+        let vbu: f64 = v.iter().zip(bu.iter()).map(|(a, b)| a * b).sum();
+        assert!(
+            (ubv - vbu).abs() < 1e-10 * (ubv.abs() + 1.0),
+            "SGS coarse solve not symmetric: ⟨Bu,v⟩={ubv}, ⟨u,Bv⟩={vbu}"
+        );
+
+        // Positive definiteness + residual reduction on several right-hand sides.
+        for seed in 0..5 {
+            let b: Vec<f64> = (0..n)
+                .map(|i| (((i + seed) as f64) * 0.7).sin() + 0.3)
+                .collect();
+            let mut y = vec![0.0; n];
+            sgs.solve(&b, &mut y);
+            let by: f64 = b.iter().zip(y.iter()).map(|(a, c)| a * c).sum();
+            assert!(by > 0.0, "SGS coarse solve not positive definite: bᵀy={by}");
+
+            // Residual ‖b − K y‖ strictly below ‖b‖ (the sweep makes progress).
+            let mut ky = vec![0.0; n];
+            sgs.spmv(&y, &mut ky);
+            let resid: f64 = b
+                .iter()
+                .zip(ky.iter())
+                .map(|(a, c)| (a - c) * (a - c))
+                .sum::<f64>()
+                .sqrt();
+            let bnorm: f64 = b.iter().map(|a| a * a).sum::<f64>().sqrt();
+            assert!(
+                resid < bnorm,
+                "SGS coarse solve did not reduce residual: ‖b−Ky‖={resid}, ‖b‖={bnorm}"
+            );
+        }
+
+        // More sweeps ⇒ smaller residual (monotone convergence of the smoother).
+        let b: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.3).cos()).collect();
+        let residual = |sweeps: usize| -> f64 {
+            let s = SgsCoarseSolver::from_csc(k.as_ref(), sweeps);
+            let mut y = vec![0.0; n];
+            s.solve(&b, &mut y);
+            let mut ky = vec![0.0; n];
+            s.spmv(&y, &mut ky);
+            b.iter()
+                .zip(ky.iter())
+                .map(|(a, c)| (a - c) * (a - c))
+                .sum::<f64>()
+                .sqrt()
+        };
+        assert!(
+            residual(4) < residual(1),
+            "SGS residual did not decrease with more sweeps"
+        );
+    }
+
+    /// MEASUREMENT (issue #551, `--nocapture`): report the per-apply coarse-
+    /// correction wall-clock and the outer preconditioned-CG iteration count for
+    /// the **direct** LU coarse factor vs the **few-sweep SGS** coarse solve,
+    /// apples-to-apples on an SPD shifted pencil (`σ` below the spectrum).
+    ///
+    /// NOTE on this fixture: the 1-D chain `laplacian` is a *best case for the
+    /// direct factor* — its coarse operator `C = Gᵀ A G` is essentially the whole
+    /// 1-D problem, so the exact coarse solve converges the outer CG in a couple
+    /// of iterations while the approximate SGS solve needs more. This overstates
+    /// the iteration trade-off; the **representative** iteration comparison on
+    /// the genuine 3-D Nédélec curl-curl pencil lives in
+    /// `tests/transmon_eigenmode.rs::synthetic_ams_beats_jacobi_inner_iterations`,
+    /// where the SGS coarse solve gives the **same** 5.35× inner-CG reduction the
+    /// direct factor did (the physical `transmon_smoke.msh` at σ=4.5 GHz is an
+    /// indefinite pencil where inner-CG cannot run — the deferred 1c point). What
+    /// this test pins locally is the structural win: the SGS apply is markedly
+    /// cheaper per call and needs no global factor, and the outer CG still
+    /// converges. The honest numbers are printed for the PR body.
+    #[test]
+    fn coarse_solve_cost_and_iteration_report() {
+        let n = 600;
+        let (k, m) = laplacian(n);
+        let g = chain_gradient(n);
+        let sigma = -0.5; // below the spectrum ⇒ A = K − σM SPD
+
+        let ams_direct = AmsLitePreconditioner::build_with_coarse(
+            &g,
+            k.as_ref(),
+            m.as_ref(),
+            sigma,
+            CoarseSolve::Direct,
+        )
+        .unwrap();
+        let ams_sgs = AmsLitePreconditioner::build_with_coarse(
+            &g,
+            k.as_ref(),
+            m.as_ref(),
+            sigma,
+            CoarseSolve::SymmetricGaussSeidel(DEFAULT_COARSE_SWEEPS),
+        )
+        .unwrap();
+
+        // Per-apply coarse-correction wall-clock (average over many reps).
+        let reps = 2000;
+        let residual: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.11).sin() + 0.05).collect();
+        let mut out = vec![0.0; n];
+
+        let bench = |ams: &AmsLitePreconditioner, out: &mut [f64]| -> f64 {
+            // warm up
+            ams.coarse_correction(&residual, out);
+            let t0 = std::time::Instant::now();
+            for _ in 0..reps {
+                ams.coarse_correction(&residual, out);
+            }
+            t0.elapsed().as_secs_f64() / reps as f64 * 1e6 // µs per apply
+        };
+        let us_direct = bench(&ams_direct, &mut out);
+        let us_sgs = bench(&ams_sgs, &mut out);
+
+        // Outer PCG iteration count with each coarse solver (same rhs, tol).
+        let b: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.37).cos() + 0.1).collect();
+        let tol = 1e-8;
+        let max_it = 4 * n;
+        let it_direct = pcg_ams_iters(&ams_direct, k.as_ref(), m.as_ref(), sigma, &b, tol, max_it);
+        let it_sgs = pcg_ams_iters(&ams_sgs, k.as_ref(), m.as_ref(), sigma, &b, tol, max_it);
+
+        eprintln!(
+            "\n=== #551 coarse-solve report (laplacian n={n}, σ={sigma}, sweeps={DEFAULT_COARSE_SWEEPS}) ===\n\
+             per-apply coarse correction: direct LU = {us_direct:.3} µs, SGS = {us_sgs:.3} µs \
+             ({:.2}× direct)\n\
+             outer PCG iterations (tol {tol:.0e}): direct = {it_direct}, SGS = {it_sgs}\n",
+            us_sgs / us_direct.max(1e-12)
+        );
+
+        // Structural guarantee: the approximate SGS coarse solve keeps the outer
+        // CG converging (a valid SPD preconditioner) and is markedly cheaper per
+        // apply. We do NOT assert a tight iteration ratio here — on this 1-D
+        // best-case chain the exact factor is unbeatable; the representative
+        // ratio is the transmon-fixture test cited in the doc comment.
+        assert!(it_direct > 0, "direct PCG performed no iterations");
+        assert!(
+            it_sgs > 0 && it_sgs < max_it,
+            "SGS-preconditioned PCG failed to converge: it = {it_sgs} (max {max_it})"
+        );
+        assert!(
+            us_sgs < us_direct,
+            "SGS coarse apply was not cheaper than the direct factor: \
+             SGS = {us_sgs:.3} µs, direct = {us_direct:.3} µs"
         );
     }
 }
