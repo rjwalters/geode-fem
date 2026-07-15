@@ -923,21 +923,39 @@ Consequently the gap \emph{widens} off-target --- $6.7\times$ serial
 ($248.0/36.8$) and $2.4\times$ at 8-wide ($64.7/26.6$) --- rather than
 being a fixed multiplier.
 
-\paragraph{A memory-bound crossover.} The direct factorization trades
+\paragraph{A flop-and-fill crossover.} The direct factorization trades
 memory for this speed and robustness. It is faster on small-to-medium
-problems ($28.7$\,s / $3.1$\,GB at 133k DOFs), but its fill-in grows
-super-linearly and hits a hard memory wall: on the uniformly refined
-${\sim}1.16$M-DOF mesh it is OOM-killed (SIGKILL, exit 137, $63.9$\,GB peak
-RSS on the ${\sim}61$\,GB box, never completing), while Palace's iterative
-solver completes at low, roughly rank-flat memory ($423.12$\,s,
-$4.1$\,GB/rank). The geode-fem advantage is therefore scale-bounded, and
-the crossover is memory-bound rather than a flop deficit. The scale path
-that removes the memory wall (not a bid to beat Palace's large-scale wall
-time) is a matrix-free eigensolver (repository issue \#524) with an
-AMS-style $H(\mathrm{curl})$ preconditioner (\#526) --- an iterative inner
-solve that avoids the direct fill-in --- with wall-clock-competitive scale
-tracked separately (\#531); the f32 GPU route to that regime is reported
-as an honest negative below and in issue \#520.
+problems ($28.7$\,s / $3.1$\,GB at 133k DOFs), but its factorization
+flops and fill-in grow super-linearly. On the uniformly refined
+${\sim}1.16$M-DOF mesh, given adequate memory (a $128$\,GB box), the
+direct solve \emph{does complete} --- setup $35.78$\,s, solve
+$529.75$\,s, total $565.5$\,s, at $92.2$\,GB peak RSS --- but it now
+\emph{loses to Palace on both axes}, which completes the same mesh in
+$423.12$\,s at $4.1$\,GB/rank (${\sim}33$\,GB aggregate). The earlier
+``never completing'' figure ($63.9$\,GB peak on a ${\sim}61$\,GB box) was
+a small-box truncation artifact: that run was SIGKILL-ed mid-factorization
+at the memory ceiling before reaching its true $92.2$\,GB peak, not an
+intrinsic failure of the method. The corrected finding is that the
+crossover sits below $1$M DOFs and is a flop-and-fill deficit, not merely
+a memory wall: even with abundant memory the direct path is a
+small-to-medium win that loses at scale. The at-scale run log is committed
+at \path{benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log}. The scale path
+(a memory-competitive route, not yet a bid to beat Palace's large-scale
+wall time) is a matrix-free eigensolver (repository issue \#524) whose
+inner solve is now the full three-space Hiptmair--Xu
+$H(\mathrm{curl})$ preconditioner: vector-nodal $\Pi$
+($\Pi^{\mathsf{T}}\!A\,\Pi$) blocks (\#550) on top of the gradient-space
+and damped-Jacobi cycle, with an $O(N)$ symmetric Gauss--Seidel coarse
+solve (\#551) replacing the single-level direct factor so that no global
+triangular solve appears in the inner loop; a reproducible scale-benchmark
+harness is committed (\#548). This makes the path memory-competitive
+($O(N)$) and free of direct fill-in, but \emph{at-scale wall-clock remains
+an open goal, not a result}: whether it is wall-clock-competitive with
+Palace's $423$\,s at $1.16$M DOFs is \emph{unmeasured/pending}. Because the
+physical $\sigma = 4.5$\,GHz pencil is indefinite, it must run through the
+MINRES/indefinite path, tracked as the 1c gate in \#531 (epic \#547). The
+f32 GPU route to that regime is reported as an honest negative below and in
+issue \#520.
 
 This is an architecture trade-off, not a ranking: geode-fem wins
 small-to-medium on speed, per-core efficiency, and target robustness;
