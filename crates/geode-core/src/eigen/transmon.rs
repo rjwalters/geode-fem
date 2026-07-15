@@ -345,6 +345,13 @@ pub fn solve_transmon_eigenmodes(
 /// the lowest ~5 GHz resonator mode); see [`InnerSolver`] for the full
 /// numerical rationale and the inner-tolerance coupling.
 ///
+/// To target an **interior** band (a shift placed *between* two eigenvalues,
+/// e.g. bracketing the junction LC mode), pass
+/// [`InnerSolver::MatrixFreeIndefinite`]: there `(K − σM)` is
+/// symmetric-indefinite and CG breaks down, so the inner solve switches to
+/// matrix-free MINRES with an absolute-value Jacobi preconditioner while
+/// keeping the same `O(N)` memory (issue #535).
+///
 /// # Memory scaling (issue #524)
 ///
 /// The direct path allocates the sparse `L`/`U` factors of `(K − σM)`,
