@@ -588,6 +588,27 @@ fn solve_synthetic_matrix_free_inner_iters(
     n_modes: usize,
     precond: geode_core::eigen::lanczos::InnerPreconditioner,
 ) -> (Vec<ModeReport>, usize) {
+    solve_synthetic_matrix_free_inner_iters_ext(
+        fx, element, l_geom, w_geom, sigma, n_modes, precond, false,
+    )
+}
+
+/// [`solve_synthetic_matrix_free_inner_iters`] with an explicit `three_space`
+/// switch: when `true`, the AMS preconditioner runs the full Hiptmair–Xu
+/// three-space cycle (gradient space + vector-nodal `Π` block, issue #550);
+/// when `false`, the gradient-only two-space cycle. The `three_space` = `false`
+/// path is byte-identical to the two-argument helper above.
+#[allow(clippy::too_many_arguments)]
+fn solve_synthetic_matrix_free_inner_iters_ext(
+    fx: &SyntheticFixture,
+    element: ReactiveElementNatural,
+    l_geom: f64,
+    w_geom: f64,
+    sigma: f64,
+    n_modes: usize,
+    precond: geode_core::eigen::lanczos::InnerPreconditioner,
+    three_space: bool,
+) -> (Vec<ModeReport>, usize) {
     let scatter = NedelecScatterMap::new(&fx.tet_edge_idx);
     let (k_vals, m_vals) =
         assemble_real_pencil(&fx.mesh, &fx.tet_edge_sign, &scatter, &fx.epsilon_tensor);
@@ -606,10 +627,17 @@ fn solve_synthetic_matrix_free_inner_iters(
         shunt,
         interior_mask: &fx.interior_mask,
     };
-    geode_core::eigen::transmon::solve_transmon_eigenmodes_matrix_free_inner_iters(
-        &pencil, sigma, n_modes, M_PER_UNIT, precond,
-    )
-    .expect("synthetic matrix-free eigensolve (instrumented)")
+    if three_space {
+        geode_core::eigen::transmon::solve_transmon_eigenmodes_matrix_free_inner_iters_three_space(
+            &pencil, sigma, n_modes, M_PER_UNIT, precond,
+        )
+        .expect("synthetic matrix-free eigensolve (three-space, instrumented)")
+    } else {
+        geode_core::eigen::transmon::solve_transmon_eigenmodes_matrix_free_inner_iters(
+            &pencil, sigma, n_modes, M_PER_UNIT, precond,
+        )
+        .expect("synthetic matrix-free eigensolve (instrumented)")
+    }
 }
 
 /// ACCEPTANCE CRITERION (issue #526, CI-fast): the **AMS-lite** inner-CG
@@ -691,6 +719,94 @@ fn synthetic_ams_beats_jacobi_inner_iterations() {
              (a preconditioner must not change the eigenvalues)",
             j.lambda,
             a.lambda
+        );
+    }
+}
+
+/// ACCEPTANCE (issue #550): the **full three-space** Hiptmair–Xu AMS cycle
+/// (gradient space + vector-nodal `Π (ΠᵀAΠ)⁻¹ Πᵀ` block) vs the current
+/// **gradient-only** two-space AMS-lite, measured apples-to-apples through the
+/// SAME instrumented matrix-free path on the genuine synthetic Nédélec
+/// curl-curl fixture.
+///
+/// The shift `σ = −0.5` sits below the cavity spectrum, so `(K − σM)` is SPD
+/// and the inner CG converges under BOTH preconditioners (the required
+/// converging configuration — the embedded 133k `transmon_smoke.msh` fixture
+/// at the physical `σ = 4.5 GHz` is indefinite on the ungauged pencil, so no
+/// iteration count is readable there; that at-scale measurement is deferred to
+/// sub-phase 1c per the issue).
+///
+/// The three-space cycle must (a) not change the eigenvalues — a preconditioner
+/// only moves the iteration path — and (b) not converge *slower* than
+/// gradient-only. The near-kernel benefit of the vector-nodal block is
+/// fixture-size dependent and modest on this small cube; the honest iteration
+/// counts are printed (visible with `--nocapture`) and recorded in the PR body.
+#[test]
+fn synthetic_three_space_vs_gradient_only_inner_iterations() {
+    use geode_core::eigen::lanczos::InnerPreconditioner;
+
+    let fx = synthetic_fixture(6);
+    let sigma = -0.5;
+    let element = ReactiveElementNatural {
+        l_natural: 50.0,
+        c_natural: 5.0,
+    };
+    let n_modes = 4;
+
+    let (grad_modes, grad_iters) = solve_synthetic_matrix_free_inner_iters_ext(
+        &fx,
+        element,
+        1.0,
+        1.0,
+        sigma,
+        n_modes,
+        InnerPreconditioner::Ams,
+        false, // gradient-only two-space cycle
+    );
+    let (three_modes, three_iters) = solve_synthetic_matrix_free_inner_iters_ext(
+        &fx,
+        element,
+        1.0,
+        1.0,
+        sigma,
+        n_modes,
+        InnerPreconditioner::Ams,
+        true, // full three-space cycle (gradient + vector-nodal Π)
+    );
+
+    let ratio = grad_iters as f64 / three_iters.max(1) as f64;
+    println!(
+        "inner-CG iterations (synthetic n=6, σ=-0.5): gradient-only AMS = {grad_iters}, \
+         three-space AMS = {three_iters}, reduction = {ratio:.3}×"
+    );
+
+    assert!(
+        three_iters > 0,
+        "three-space run performed no inner CG iterations — instrumentation broken?"
+    );
+    // The vector-nodal block is an ADDITIONAL SPD auxiliary correction, so it
+    // must not make the cycle converge slower. Allow a tiny slack for the
+    // discrete iteration granularity.
+    assert!(
+        three_iters <= grad_iters + 1,
+        "three-space cycle converged slower than gradient-only: \
+         gradient-only = {grad_iters}, three-space = {three_iters}"
+    );
+
+    // Correctness: a preconditioner must NOT change the eigenvalues.
+    assert_eq!(
+        grad_modes.len(),
+        three_modes.len(),
+        "gradient-only and three-space returned different mode counts"
+    );
+    for (i, (g, t)) in grad_modes.iter().zip(three_modes.iter()).enumerate() {
+        let rel = (g.lambda - t.lambda).abs() / g.lambda.abs().max(1.0);
+        assert!(
+            rel < 1e-5,
+            "mode[{i}] gradient-only λ={} three-space λ={} rel-diff={rel:.2e} > 1e-5 \
+             (a preconditioner must not change the eigenvalues)",
+            g.lambda,
+            t.lambda
         );
     }
 }

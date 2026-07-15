@@ -76,6 +76,16 @@ pub struct InteriorGradient {
     /// Free interior-node count (cols of `G`, = `rank(d⁰_interior)` on a
     /// connected boundary-touching mesh).
     node_dim: usize,
+    /// Optional per-reduced-edge-row geometric edge vector
+    /// `d_e = p_b − p_a` (with `edges[e] = [a, b]`, the same `−1@a / +1@b`
+    /// orientation `G` encodes), length `edge_dim`. Supplied by the caller
+    /// when the mesh node coordinates are available; consumed by the
+    /// full-AMS vector-nodal interpolation `Π` (Hiptmair–Xu, issue #550) in
+    /// [`crate::eigen::ams::AmsLitePreconditioner`]. `None` on the pure
+    /// divergence-free-projection path (which never needs `Π`); its presence
+    /// is exactly what switches the AMS preconditioner from the gradient-only
+    /// two-space cycle to the full three-space cycle.
+    edge_vectors: Option<Vec<[f64; 3]>>,
 }
 
 impl InteriorGradient {
@@ -116,7 +126,42 @@ impl InteriorGradient {
             g,
             edge_dim,
             node_dim,
+            edge_vectors: None,
         }
+    }
+
+    /// Attach the per-reduced-edge-row geometric edge vectors
+    /// `d_e = p_b − p_a` (`edges[e] = [a, b]`), length `edge_dim`, enabling
+    /// the full-AMS vector-nodal interpolation `Π` (issue #550). Returns
+    /// `self` for builder-style chaining.
+    ///
+    /// The vectors are indexed by **reduced edge row** (the same reindex `G`'s
+    /// rows use), so `edge_vectors[row]` is the geometry of the interior edge
+    /// mapped to row `row`. The `Π` block reads the node-column *incidence*
+    /// (which free nodes an edge touches) from `G`'s own sparsity and the edge
+    /// *geometry* from these vectors, so no separate free-node → global-node
+    /// map is needed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `edge_vectors.len() != edge_dim`.
+    #[must_use]
+    pub fn with_edge_vectors(mut self, edge_vectors: Vec<[f64; 3]>) -> Self {
+        assert_eq!(
+            edge_vectors.len(),
+            self.edge_dim,
+            "edge_vectors length must equal edge_dim (one per reduced edge row)"
+        );
+        self.edge_vectors = Some(edge_vectors);
+        self
+    }
+
+    /// The per-reduced-edge-row edge vectors `d_e = p_b − p_a`, if attached
+    /// via [`Self::with_edge_vectors`]. `None` means no geometry was supplied,
+    /// so the AMS preconditioner runs the gradient-only (two-space) cycle.
+    #[inline]
+    pub fn edge_vectors(&self) -> Option<&[[f64; 3]]> {
+        self.edge_vectors.as_deref()
     }
 
     /// The sparse gradient operator `G` (`edge_dim × node_dim`).
@@ -1618,6 +1663,7 @@ mod tests {
             g: g_mat,
             edge_dim: n,
             node_dim: 1,
+            edge_vectors: None,
         };
         let proj = MOrthogonalGradientProjector::build(&gradient, m.as_ref()).unwrap();
 
@@ -1815,6 +1861,7 @@ mod tests {
             g: g_mat,
             edge_dim: n,
             node_dim: 1,
+            edge_vectors: None,
         };
         let bulk = MOrthogonalGradientProjector::build(&gradient, m.as_ref()).unwrap();
 
