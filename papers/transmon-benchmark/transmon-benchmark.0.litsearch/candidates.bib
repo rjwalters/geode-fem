@@ -1,0 +1,314 @@
+% candidates.bib — transmon-benchmark.0.litsearch (pre-draft litsearch sibling)
+% Generated 2026-07-14 by pub-litsearch (web_search: true).
+%
+% Two provenance classes, kept auditable via the notes.md provenance table:
+%   1. AUTHOR-SUPPLIED — re-formatted from papers/transmon-benchmark/refs.bib.
+%      These entries do NOT appear in the notes.md web-provenance table.
+%   2. WEB-VERIFIED — discovered via live search this session; every entry
+%      passed the resolver-verified-or-dropped chokepoint
+%      (anvil/lib/cite.py resolve(): Crossref for DOIs, arXiv API for arXiv
+%      IDs). Keys via bib_key(). Listed in the notes.md provenance table.
+% Unverifiable hits are leads in notes.md ("Web leads (unverified)"), not
+% entries here.
+
+% =====================================================================
+% AUTHOR-SUPPLIED (from thread refs.bib, seeded 2026-07-14)
+% =====================================================================
+
+% ---------- The systems under comparison ----------
+
+@misc{palace,
+  title        = {{Palace}: {PA}rallel {LA}rge-scale {C}omputational {E}lectromagnetics},
+  author       = {{Palace developers, AWS Center for Quantum Computing}},
+  year         = {2023},
+  howpublished = {\url{https://github.com/awslabs/palace}},
+  note         = {Open-source 3D finite-element solver; v0.13-class, git fba6a5b used in this work. No associated journal article exists as of 2026-07 (absence re-confirmed by litsearch, 2026-07-14 — see notes.md).}
+}
+
+@misc{palace-blog,
+  title        = {{AWS} releases open-source software {Palace} for cloud-based electromagnetics simulations of quantum computing hardware},
+  author       = {{AWS Quantum Technologies Blog}},
+  year         = {2023},
+  howpublished = {\url{https://aws.amazon.com/blogs/quantum-computing/aws-releases-open-source-software-palace-for-cloud-based-electromagnetics-simulations-of-quantum-computing-hardware/}}
+}
+
+@misc{devicelayout-blog,
+  title        = {Design quantum integrated circuits with open-source software {DeviceLayout.jl} from {AWS}},
+  author       = {Peairs, Greg and Carson, Hugh},
+  year         = {2025},
+  howpublished = {\url{https://aws.amazon.com/blogs/quantum-computing/design-quantum-integrated-circuits-with-open-source-software-devicelayout-jl-from-aws/}},
+  note         = {AWS Quantum Technologies Blog; source of the transmon+resonator geometry and the reference workflow reproduced here.}
+}
+
+@misc{devicelayout-juliacon,
+  title        = {Schematic-Driven Design of a Quantum Processor with {DeviceLayout.jl}},
+  author       = {Peairs, Greg},
+  year         = {2025},
+  howpublished = {JuliaCon Global 2025, \url{https://pretalx.com/juliacon-2025/talk/7EYFPN/}},
+  note         = {Recording: \url{https://www.youtube.com/watch?v=-LohBVtFdwU}}
+}
+
+@misc{devicelayout,
+  title        = {{DeviceLayout.jl}: computer-aided design of quantum integrated circuits},
+  author       = {{AWS Center for Quantum Computing}},
+  year         = {2025},
+  howpublished = {\url{https://github.com/aws-cqc/DeviceLayout.jl}},
+  note         = {v1.15.0 used for geometry/mesh generation in this work. No journal or arXiv artifact exists as of 2026-07-14 (litsearch absence check — see notes.md).}
+}
+
+% ---------- Foundations: FEM libraries and elements ----------
+
+@article{mfem,
+  title   = {{MFEM}: a modular finite element methods library},
+  author  = {Anderson, Robert and Andrej, Julian and Barker, Andrew and Bramwell, Jamie and Camier, Jean-Sylvain and Cerveny, Jakub and Dobrev, Veselin and Dudouit, Yohann and Fisher, Aaron and Kolev, Tzanio and Pazner, Will and Stowell, Mark and Tomov, Vladimir and Akkerman, Ido and Dahm, Johann and Medina, David and Zampini, Stefano},
+  journal = {Computers \& Mathematics with Applications},
+  volume  = {81},
+  pages   = {42--74},
+  year    = {2021},
+  doi     = {10.1016/j.camwa.2020.06.009}
+}
+
+@article{nedelec1980,
+  title   = {Mixed finite elements in {$\mathbb{R}^3$}},
+  author  = {N{\'e}d{\'e}lec, Jean-Claude},
+  journal = {Numerische Mathematik},
+  volume  = {35},
+  number  = {3},
+  pages   = {315--341},
+  year    = {1980},
+  doi     = {10.1007/BF01396415}
+}
+
+@article{gmsh,
+  title   = {Gmsh: a 3-{D} finite element mesh generator with built-in pre- and post-processing facilities},
+  author  = {Geuzaine, Christophe and Remacle, Jean-Fran{\c{c}}ois},
+  journal = {International Journal for Numerical Methods in Engineering},
+  volume  = {79},
+  number  = {11},
+  pages   = {1309--1331},
+  year    = {2009},
+  doi     = {10.1002/nme.2579}
+}
+
+% ---------- Solvers / numerics ----------
+
+@book{arpack,
+  title     = {{ARPACK} Users' Guide: Solution of Large-Scale Eigenvalue Problems with Implicitly Restarted {A}rnoldi Methods},
+  author    = {Lehoucq, Richard B. and Sorensen, Danny C. and Yang, Chao},
+  publisher = {SIAM},
+  year      = {1998},
+  doi       = {10.1137/1.9780898719628}
+}
+
+@article{slepc,
+  title   = {{SLEPc}: a scalable and flexible toolkit for the solution of eigenvalue problems},
+  author  = {Hernandez, Vicente and Roman, Jose E. and Vidal, Vicente},
+  journal = {ACM Transactions on Mathematical Software},
+  volume  = {31},
+  number  = {3},
+  pages   = {351--362},
+  year    = {2005},
+  doi     = {10.1145/1089014.1089019}
+}
+
+@article{hiptmair-xu,
+  title   = {Nodal auxiliary space preconditioning in {H(curl)} and {H(div)} spaces},
+  author  = {Hiptmair, Ralf and Xu, Jinchao},
+  journal = {SIAM Journal on Numerical Analysis},
+  volume  = {45},
+  number  = {6},
+  pages   = {2483--2509},
+  year    = {2007},
+  doi     = {10.1137/060660588}
+}
+
+% NOTE (litsearch 2026-07-14): the seed entry `faer` (TODO-VERIFY) is
+% superseded by the resolver-verified JOSS article `kazdadi2026faer` in the
+% WEB-VERIFIED section below. The drafter should cite kazdadi2026faer.
+
+@misc{burn,
+  title        = {Burn: a comprehensive deep-learning and tensor-computation framework in {Rust}},
+  author       = {{Tracel AI}},
+  howpublished = {\url{https://github.com/tracel-ai/burn}},
+  year         = {2024},
+  note         = {v0.21.0 used. TODO-VERIFY resolved by litsearch 2026-07-14: no journal/arXiv paper exists; the repo CITATION.cff (fetched 2026-07-14) lists authors Simard, Fortier-Dubois, Tadjibaev, Lagrange + Burn Framework Contributors, no DOI, no preferred-citation paper — cite as software.}
+}
+
+% ---------- Superconducting-qubit physics ----------
+
+@article{koch2007,
+  title   = {Charge-insensitive qubit design derived from the {Cooper} pair box},
+  author  = {Koch, Jens and Yu, Terri M. and Gambetta, Jay and Houck, A. A. and Schuster, D. I. and Majer, J. and Blais, Alexandre and Devoret, M. H. and Girvin, S. M. and Schoelkopf, R. J.},
+  journal = {Physical Review A},
+  volume  = {76},
+  pages   = {042319},
+  year    = {2007},
+  doi     = {10.1103/PhysRevA.76.042319}
+}
+
+@article{minev2021,
+  title   = {Energy-participation quantization of {Josephson} circuits},
+  author  = {Minev, Zlatko K. and Leghtas, Zaki and Mundhada, Shantanu O. and Christakis, Lysander and Pop, Ioan M. and Devoret, Michel H.},
+  journal = {npj Quantum Information},
+  volume  = {7},
+  pages   = {131},
+  year    = {2021},
+  doi     = {10.1038/s41534-021-00461-8}
+}
+
+@article{nigg2012,
+  title   = {Black-box superconducting circuit quantization},
+  author  = {Nigg, Simon E. and Paik, Hanhee and Vlastakis, Brian and Kirchmair, Gerhard and Shankar, S. and Frunzio, Luigi and Devoret, M. H. and Schoelkopf, R. J. and Girvin, S. M.},
+  journal = {Physical Review Letters},
+  volume  = {108},
+  pages   = {240502},
+  year    = {2012},
+  doi     = {10.1103/PhysRevLett.108.240502}
+}
+
+% =====================================================================
+% WEB-VERIFIED (discovered this session; resolver-verified via
+% anvil/lib/cite.py — provenance table in notes.md)
+% =====================================================================
+% NOTE on `tzaniovkolevpanayotsvassilevski2018parallel` below: the Crossref
+% record from Global Science Press carries the author list as one string and
+% the online-publication year (2018) rather than the print year (2009,
+% J. Comput. Math. 27(5):604-623). Entry kept exactly as resolver-emitted per
+% the verified-or-dropped contract; the drafter may prefer citing hiptmair-xu
+% for AMS and should fix the year/author cosmetics at draft time if cited.
+
+@misc{sommers2025open,
+  author = {Sommers, David and Degnan, Zach and Gautam, Divita and Chen, Yi-Hsun and Chiu, Chun-Ching and Fedorov, Arkady and Pakkiam, Prasanna},
+  title = {Open-Source Highly Parallel Electromagnetic Simulations for Superconducting Circuits},
+  year = {2025},
+  eprint = {2511.01220},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2511.01220},
+}
+
+@misc{ye2025electromagnetic,
+  author = {Ye, Jiale and Wang, Jiaheng and Liu, Yu-xi},
+  title = {Electromagnetic Feature Extraction in Superconducting Quantum Circuits: An Open-Source Finite-Element Workflow Using Palace},
+  year = {2025},
+  eprint = {2511.09041},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2511.09041},
+}
+
+@article{shanto2024squadds,
+  author = {Shanto, Sadman and Kuo, Andre and Miyamoto, Clark and Zhang, Haimeng and Maurya, Vivek and Vlachos, Evangelos and Hecht, Malida and Shum, Chung Wa and Levenson-Falk, Eli},
+  title = {SQuADDS: A validated design database and simulation workflow for superconducting qubit design},
+  journal = {Quantum},
+  year = {2024},
+  volume = {8},
+  pages = {1465},
+  doi = {10.22331/q-2024-09-09-1465},
+  url = {https://doi.org/10.22331/q-2024-09-09-1465},
+}
+
+@misc{minev2021circuit,
+  author = {Minev, Zlatko K. and McConkey, Thomas G. and Takita, Maika and Corcoles, Antonio D. and Gambetta, Jay M.},
+  title = {Circuit quantum electrodynamics (cQED) with modular quasi-lumped models},
+  year = {2021},
+  eprint = {2103.10344},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2103.10344},
+}
+
+@article{andrej2024high,
+  author = {Andrej, Julian and Atallah, Nabil and Bäcker, Jan-Phillip and Camier, Jean-Sylvain and Copeland, Dylan and Dobrev, Veselin and Dudouit, Yohann and Duswald, Tobias and Keith, Brendan and Kim, Dohyun and Kolev, Tzanio and Lazarov, Boyan and Mittal, Ketan and Pazner, Will and Petrides, Socratis and Shiraiwa, Syun’ichi and Stowell, Mark and Tomov, Vladimir},
+  title = {High-performance finite elements with MFEM},
+  journal = {The International Journal of High Performance Computing Applications},
+  year = {2024},
+  doi = {10.1177/10943420241261981},
+  url = {https://doi.org/10.1177/10943420241261981},
+}
+
+@article{oberkampf2010verification,
+  author = {Oberkampf, William L. and Roy, Christopher J.},
+  title = {Verification and Validation in Scientific Computing},
+  year = {2010},
+  doi = {10.1017/cbo9780511760396},
+  url = {https://doi.org/10.1017/cbo9780511760396},
+}
+
+@article{roache1997quantification,
+  author = {Roache, P. J.},
+  title = {QUANTIFICATION OF UNCERTAINTY IN COMPUTATIONAL FLUID DYNAMICS},
+  journal = {Annual Review of Fluid Mechanics},
+  year = {1997},
+  volume = {29},
+  number = {1},
+  pages = {123-160},
+  doi = {10.1146/annurev.fluid.29.1.123},
+  url = {https://doi.org/10.1146/annurev.fluid.29.1.123},
+}
+
+@misc{hoffmann2009comparison,
+  author = {Hoffmann, Johannes and Hafner, Christian and Leidenberger, Patrick and Hesselbarth, Jan and Burger, Sven},
+  title = {Comparison of electromagnetic field solvers for the 3D analysis of plasmonic nano antennas},
+  year = {2009},
+  eprint = {0907.3570},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/0907.3570},
+}
+
+@article{dular1998general,
+  author = {Dular, P. and Geuzaine, C. and Henrotte, F. and Legros, W.},
+  title = {A general environment for the treatment of discrete problems and its application to the finite element method},
+  journal = {IEEE Transactions on Magnetics},
+  year = {1998},
+  volume = {34},
+  number = {5},
+  pages = {3395-3398},
+  doi = {10.1109/20.717799},
+  url = {https://doi.org/10.1109/20.717799},
+}
+
+@article{logg2010dolfin,
+  author = {Logg, Anders and Wells, Garth N.},
+  title = {DOLFIN},
+  journal = {ACM Transactions on Mathematical Software},
+  year = {2010},
+  volume = {37},
+  number = {2},
+  pages = {1-28},
+  doi = {10.1145/1731022.1731030},
+  url = {https://doi.org/10.1145/1731022.1731030},
+}
+
+@article{arsenovic2022scikit,
+  author = {Arsenovic, Alexander and Hillairet, Julien and Anderson, Jackson and Forsten, Henrik and Ries, Vincent and Eller, Michael and Sauber, Noah and Weikle, Robert and Barnhart, William and Forstmayr, Franz},
+  title = {scikit-rf: An Open Source Python Package for Microwave Network Creation, Analysis, and Calibration [Speaker’s Corner]},
+  journal = {IEEE Microwave Magazine},
+  year = {2022},
+  volume = {23},
+  number = {1},
+  pages = {98-105},
+  doi = {10.1109/mmm.2021.3117139},
+  url = {https://doi.org/10.1109/mmm.2021.3117139},
+}
+
+@article{tzaniovkolevpanayotsvassilevski2018parallel,
+  author = {Tzanio V. Kolev  & Panayot S. Vassilevski},
+  title = {Parallel Auxiliary Space AMG for $\boldsymbol{H}$(Curl) Problems},
+  journal = {Journal of Computational Mathematics},
+  year = {2018},
+  volume = {27},
+  number = {5},
+  pages = {604-623},
+  doi = {10.4208/jcm.2009.27.5.013},
+  url = {https://doi.org/10.4208/jcm.2009.27.5.013},
+}
+
+@article{kazdadi2026faer,
+  author = {Kazdadi, Sarah Quiñones El},
+  title = {faer: A linear algebra library for the Rust programming language},
+  journal = {Journal of Open Source Software},
+  year = {2026},
+  volume = {11},
+  number = {123},
+  pages = {6099},
+  doi = {10.21105/joss.06099},
+  url = {https://doi.org/10.21105/joss.06099},
+}

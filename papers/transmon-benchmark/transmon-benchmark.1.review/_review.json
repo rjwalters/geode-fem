@@ -1,0 +1,161 @@
+{
+  "schema_version": "1",
+  "kind": "judgment",
+  "version_dir": "transmon-benchmark.1",
+  "critic_id": "pub-review",
+  "model": "claude-fable-5",
+  "rubric": "anvil-pub-v2",
+  "scores": [
+    {
+      "dimension": "1_rigor_of_method",
+      "score": 6,
+      "max": 6,
+      "critical": false,
+      "evidence_span": "main.tex:L306-L352",
+      "fix": null,
+      "justification": "Oracle-first protocol: same-mesh/same-physics control, two analytic tripwires, inverse tests that must fail, participation-based mode ID, bit-for-bit oracle determinism check."
+    },
+    {
+      "dimension": "2_evidence_sufficiency",
+      "score": 5,
+      "max": 6,
+      "critical": false,
+      "evidence_span": "main.tex:L667-L679",
+      "fix": "Add a second geometry or a mesh-refinement/higher-order point to support the methodology-generality claim beyond one instantiation.",
+      "justification": "Six-mode agreement plus a timed CPU cell is adequate for the scoped claims; single geometry/order and pending GPU cell limit generality (honestly acknowledged in Limitations)."
+    },
+    {
+      "dimension": "3_clarity_of_contribution",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L97-L120",
+      "fix": null,
+      "justification": "Four bolded one-sentence-extractable contribution bullets; abstract states claim, mechanism, and both caveats."
+    },
+    {
+      "dimension": "4_related_work_positioning",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L127-L192",
+      "fix": null,
+      "justification": "Substrate-backed per the litsearch sibling: closest prior work (sommers2025open, ye2025electromagnetic) engaged head-on with quantitative agreement levels and a precise one-sentence wedge; TEAM tradition handled honestly in prose."
+    },
+    {
+      "dimension": "5_reproducibility",
+      "score": 4,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L603-L639",
+      "fix": "Resolve the repo-URL/DOI TODO(operator) and add the BRIEF-mandated 3-decimal rounding disclosure to the Reproducibility section.",
+      "justification": "Commits, SHA-256 fixture, committed configs/oracles, hardware and versions disclosed; repo locator still TODO(operator) and the precision-rounding disclosure is missing."
+    },
+    {
+      "dimension": "6_figure_table_quality",
+      "score": 2,
+      "max": 4,
+      "critical": true,
+      "evidence_span": "main.tex:L361-L380",
+      "fix": "Rebuild Table 2 as six per-mode rows (mode | geode | Palace | rel_err) straight from results.toml.",
+      "justification": "Headline agreement table collapses four modes into one cell, drops per-mode Palace values/deltas, and carries values that disagree with the committed artifact; figures are unrendered placeholders pending pub-figures."
+    },
+    {
+      "dimension": "7_prose_structural_quality",
+      "score": 4,
+      "max": 4,
+      "critical": false,
+      "evidence_span": "main.tex:L43-L65",
+      "fix": null,
+      "justification": "Intact IMRaD-style flow, honest-science register per the brief voice rules, consistent tense/voice, all cross-references and cite keys resolve, PDF compiled."
+    },
+    {
+      "dimension": "8_citation_hygiene",
+      "score": 4,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L472-L475",
+      "fix": "Cite a canonical tree-cotree gauging reference (via pub-litsearch re-run); complete logg2010dolfin title; retype oberkampf2010verification as @book.",
+      "justification": "All 28 cite keys resolve (mechanically verified, zero orphans); tree-cotree future-work claim uncited (litsearch-named gap); two bib entries have field-completeness defects."
+    },
+    {
+      "dimension": "9_rhetorical_economy",
+      "score": 4,
+      "max": 4,
+      "critical": false,
+      "evidence_span": "main.tex:L43-L65",
+      "fix": null,
+      "justification": "Claims surfaced early, every section load-bearing, hedging proportional to genuine uncertainty, no restatement padding; within length target."
+    }
+  ],
+  "findings": [
+    {
+      "severity": "blocker",
+      "dimension": "6_figure_table_quality",
+      "evidence_span": "main.tex:L370-L380",
+      "rationale": "Table 2 values (5.1528; 15.4650/18.6927/20.6976/26.0809; 0.029%; 0.000%) disagree with committed results.toml; two geode-column values are actually rounded Palace values.",
+      "suggested_fix": "Rebuild Table 2 as six per-mode rows sourced verbatim from results.toml (geode at 3 decimals; per-mode rel_err_pct).",
+      "tool_calls": null
+    },
+    {
+      "severity": "blocker",
+      "dimension": "2_evidence_sufficiency",
+      "evidence_span": "main.tex:L52-L53",
+      "rationale": "Abstract claims 'within 0.03% ... junction agreeing to 0.000%'; committed worst is 0.032% and junction rel_err_pct is 0.001.",
+      "suggested_fix": "Restate headline as 'all six modes agree to <=0.033% (worst 0.032%)' and junction agreement as 0.001%; propagate to L101-102, L357-359, L404, L414, L648, L687-688.",
+      "tool_calls": null
+    },
+    {
+      "severity": "major",
+      "dimension": "5_reproducibility",
+      "evidence_span": "main.tex:L603-L639",
+      "rationale": "BRIEF-mandated precision disclosure (geode stored at 3 decimals; rel_err computed vs rounded values; full-precision agreement ~0.029% worst) is absent from the Reproducibility section.",
+      "suggested_fix": "Add the rounding-disclosure paragraph to Section 9.",
+      "tool_calls": null
+    },
+    {
+      "severity": "major",
+      "dimension": "6_figure_table_quality",
+      "evidence_span": "main.tex:L375-L376",
+      "rationale": "Collapsed 'box/cavity modes ... same to <=0.03%' cell discards per-mode Palace values and deltas, making the caption's committed-artifact claim unverifiable from the table.",
+      "suggested_fix": "Six per-mode rows with a rel_err column.",
+      "tool_calls": null
+    },
+    {
+      "severity": "minor",
+      "dimension": "8_citation_hygiene",
+      "evidence_span": "main.tex:L472-L475",
+      "rationale": "related-work: tree-cotree gauge projection future-work claim is uncited; the litsearch sibling's Identified-gaps list names the missing canonical citation (Albanese-Rubinacci-era, IEEE Trans. Magn. ~1988-1998).",
+      "suggested_fix": "Re-run pub-litsearch targeted at tree-cotree gauging; promote a resolver-verified anchor (reviewer writes no citations).",
+      "tool_calls": null
+    },
+    {
+      "severity": "minor",
+      "dimension": "8_citation_hygiene",
+      "evidence_span": "refs.bib:L252-L262",
+      "rationale": "logg2010dolfin title is truncated to 'DOLFIN'; oberkampf2010verification is @article with no journal (CUP monograph).",
+      "suggested_fix": "Complete the DOLFIN title; retype Oberkampf & Roy as @book with publisher.",
+      "tool_calls": null
+    },
+    {
+      "severity": "minor",
+      "dimension": "7_prose_structural_quality",
+      "evidence_span": "main.tex:L574-L580",
+      "rationale": "Literal 'TODO(operator).' strings render in two PDF footnotes (L578, L609); brief-mandated and unmistakable, but must be resolved before any submission artifact.",
+      "suggested_fix": "Track both operator TODOs (tracking-issue URL; repo URL + archival DOI) to resolution at revision/finalize.",
+      "tool_calls": null
+    }
+  ],
+  "critical_flags": [
+    {
+      "type": "numerical_inconsistency",
+      "justification": "Agreement numbers disagree with the committed source-of-truth artifact benchmarks/transmon_eigen/results.toml (named as the data source by the paper itself): draft claims <=0.03% worst-case (committed worst is 0.032%, headline should be <=0.033%), 0.000% junction agreement (committed rel_err_pct 0.001), resonator row 5.1528/0.029% (committed 5.153/0.032%), and box/cavity geode values 15.4650/18.6927/20.6976/26.0809 where 20.6976 and 26.0809 are rounded Palace values in the geode-fem column (committed geode: 15.465/18.693/20.703/26.088). Ten sites enumerated in comments.md.",
+      "evidence_span": "main.tex:L370-L380"
+    }
+  ],
+  "total": 39,
+  "threshold": 35,
+  "verdict": "BLOCK",
+  "rendered_artifact": null,
+  "unscored": false
+}

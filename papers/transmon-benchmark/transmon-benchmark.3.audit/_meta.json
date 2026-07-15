@@ -1,0 +1,16 @@
+{
+  "critic": "pub-audit",
+  "scorecard_kind": "human-verdict",
+  "started": "2026-07-14T21:10:00Z",
+  "finished": "2026-07-14T21:20:00Z",
+  "model": "claude-opus-4-8",
+  "schema_version": 1,
+  "task_specific_files": [
+    "citation-audit.md",
+    "numerical-audit.md",
+    "flags.md",
+    "compile-log.txt"
+  ],
+  "corpus_tier": "inactive (no corpus: key in BRIEF.md frontmatter; issue #612 conditional skipped)",
+  "artifact_source_of_truth": "origin/main @ 2226577 (PR #516); local working-tree main is 8 commits behind"
+}

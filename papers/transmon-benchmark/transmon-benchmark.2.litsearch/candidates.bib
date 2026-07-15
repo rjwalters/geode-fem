@@ -1,0 +1,309 @@
+% candidates.bib — transmon-benchmark.2.litsearch (post-v2 re-run sibling)
+% Generated 2026-07-14 by pub-litsearch (web_search: true).
+%
+% NEW entries only. This re-run EXTENDS transmon-benchmark.0.litsearch/
+% (whose 28 candidates were merged into transmon-benchmark.2/refs.bib and
+% remain valid); nothing from that run is duplicated here.
+%
+% Every entry below is WEB-VERIFIED: discovered via live search this
+% session, identifier extracted from the hit, and passed through the
+% resolver-verified-or-dropped chokepoint (anvil/lib/cite.py resolve():
+% Crossref for DOIs, arXiv API for arXiv IDs). Keys via bib_key().
+% Provenance table in notes.md. Unverifiable hits are leads in notes.md
+% and MUST NOT be cited.
+%
+% Known cosmetic dirt (kept exactly as resolver-emitted per contract;
+% fix at merge time if cited):
+%   - rathgeber2017firedrake: Crossref truncates the title to "Firedrake"
+%     (full title: "Firedrake: Automating the Finite Element Method by
+%     Composing Abstractions"); Crossref year is 2017 (online) for the
+%     TOMS 43(3) 2016 article.
+%   - ragankelley2013halide: Crossref truncates the title to "Halide"
+%     (full title: "Halide: a language and compiler for optimizing
+%     parallelism, locality, and recomputation in image processing
+%     pipelines"); typed @article with the PLDI proceedings as journal.
+%   - alnæs2014unified: bib_key emitted a non-ASCII key (æ); drafter
+%     should rename to alnaes2014unified when merging into refs.bib.
+%     Crossref also truncates the title to "Unified form language".
+%   - huantingmeng2014gpu: Crossref carries given-name-first author
+%     strings for the Chinese-name authors (Meng, Nie, Jin).
+%   - hu2019difftaichi: arXiv year 2019; the venue is ICLR 2020.
+
+% =====================================================================
+% MISSION 1 — the reframe axis: EM/FEM simulation on tensor-compiler
+% and ML-framework stacks
+% =====================================================================
+
+% ---------- 1a. Form compilers & code-generation FEM (the domain-
+% specific ancestor of the tensor-compiler thesis; Palace's own backend
+% libCEED closes the loop) ----------
+
+@article{kirby2006compiler,
+  author = {Kirby, Robert C. and Logg, Anders},
+  title = {A compiler for variational forms},
+  journal = {ACM Transactions on Mathematical Software},
+  year = {2006},
+  volume = {32},
+  number = {3},
+  pages = {417-444},
+  doi = {10.1145/1163641.1163644},
+  url = {https://doi.org/10.1145/1163641.1163644},
+}
+
+@article{alnæs2014unified,
+  author = {Alnæs, Martin S. and Logg, Anders and Ølgaard, Kristian B. and Rognes, Marie E. and Wells, Garth N.},
+  title = {Unified form language},
+  journal = {ACM Transactions on Mathematical Software},
+  year = {2014},
+  volume = {40},
+  number = {2},
+  pages = {1-37},
+  doi = {10.1145/2566630},
+  url = {https://doi.org/10.1145/2566630},
+}
+
+@article{rathgeber2017firedrake,
+  author = {Rathgeber, Florian and Ham, David A. and Mitchell, Lawrence and Lange, Michael and Luporini, Fabio and Mcrae, Andrew T. T. and Bercea, Gheorghe-Teodor and Markall, Graham R. and Kelly, Paul H. J.},
+  title = {Firedrake},
+  journal = {ACM Transactions on Mathematical Software},
+  year = {2017},
+  volume = {43},
+  number = {3},
+  pages = {1-27},
+  doi = {10.1145/2998441},
+  url = {https://doi.org/10.1145/2998441},
+}
+
+@article{homolya2018tsfc,
+  author = {Homolya, Miklós and Mitchell, Lawrence and Luporini, Fabio and Ham, David A.},
+  title = {TSFC: A Structure-Preserving Form Compiler},
+  journal = {SIAM Journal on Scientific Computing},
+  year = {2018},
+  volume = {40},
+  number = {3},
+  pages = {C401-C428},
+  doi = {10.1137/17m1130642},
+  url = {https://doi.org/10.1137/17m1130642},
+}
+
+@article{brown2021libceed,
+  author = {Brown, Jed and Abdelfattah, Ahmad and Barra, Valeria and Beams, Natalie and Camier, Jean-Sylvain and Dobrev, Veselin and Dudouit, Yohann and Ghaffari, Leila and Kolev, Tzanio and Medina, David and Pazner, Will and Ratnayaka, Thilina and Thompson, Jeremy and Tomov, Stan},
+  title = {libCEED: Fast algebra for high-order element-based discretizations},
+  journal = {Journal of Open Source Software},
+  year = {2021},
+  volume = {6},
+  number = {63},
+  pages = {2945},
+  doi = {10.21105/joss.02945},
+  url = {https://doi.org/10.21105/joss.02945},
+}
+
+% ---------- 1b. General-purpose tensor-compiler lineage (the compiler
+% tradition the ML stacks inherit; no peer-reviewed EM/FEM use of
+% Halide/TVM/Exo was found — see notes.md absence trail) ----------
+
+@article{ragankelley2013halide,
+  author = {Ragan-Kelley, Jonathan and Barnes, Connelly and Adams, Andrew and Paris, Sylvain and Durand, Frédo and Amarasinghe, Saman},
+  title = {Halide},
+  journal = {Proceedings of the 34th ACM SIGPLAN Conference on Programming Language Design and Implementation},
+  year = {2013},
+  pages = {519-530},
+  doi = {10.1145/2491956.2462176},
+  url = {https://doi.org/10.1145/2491956.2462176},
+}
+
+@misc{chen2018tvm,
+  author = {Chen, Tianqi and Moreau, Thierry and Jiang, Ziheng and Zheng, Lianmin and Yan, Eddie and Cowan, Meghan and Shen, Haichen and Wang, Leyuan and Hu, Yuwei and Ceze, Luis and Guestrin, Carlos and Krishnamurthy, Arvind},
+  title = {TVM: An Automated End-to-End Optimizing Compiler for Deep Learning},
+  year = {2018},
+  eprint = {1802.04799},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/1802.04799},
+}
+
+% ---------- 1c. FEM on general-purpose ML frameworks (the closest
+% genus to the paper's claim; NONE are H(curl)-conforming full-wave EM
+% — this is the wedge, see notes.md) ----------
+
+@article{xue2023jax,
+  author = {Xue, Tianju and Liao, Shuheng and Gan, Zhengtao and Park, Chanwook and Xie, Xiaoyu and Liu, Wing Kam and Cao, Jian},
+  title = {JAX-FEM: A differentiable GPU-accelerated 3D finite element solver for automatic inverse design and mechanistic data science},
+  journal = {Computer Physics Communications},
+  year = {2023},
+  volume = {291},
+  pages = {108802},
+  doi = {10.1016/j.cpc.2023.108802},
+  url = {https://doi.org/10.1016/j.cpc.2023.108802},
+}
+
+@misc{wen2026learning,
+  author = {Wen, Shizheng and Chi, Mingyuan and Yu, Tianwei and Moseley, Ben and Michelis, Mike Yan and Ren, Pu and Sun, Hao and Mishra, Siddhartha},
+  title = {Learning, Solving and Optimizing PDEs with TensorGalerkin: an efficient high-performance Galerkin assembly algorithm},
+  year = {2026},
+  eprint = {2602.05052},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2602.05052},
+}
+
+@misc{chi2026torch,
+  author = {Chi, Mingyuan and Wen, Shizheng},
+  title = {torch-sla: Differentiable Sparse Linear Algebra with Adjoint Solvers and Sparse Tensor Parallelism for PyTorch},
+  year = {2026},
+  eprint = {2601.13994},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2601.13994},
+}
+
+@article{liang2023pytorch,
+  author = {Liang, Liang and Liu, Minliang and Elefteriades, John and Sun, Wei},
+  title = {PyTorch-FEA: Autograd-enabled finite element analysis methods with applications for biomechanical analysis of human aorta},
+  journal = {Computer Methods and Programs in Biomedicine},
+  year = {2023},
+  volume = {238},
+  pages = {107616},
+  doi = {10.1016/j.cmpb.2023.107616},
+  url = {https://doi.org/10.1016/j.cmpb.2023.107616},
+}
+
+% ---------- 1d. Differentiable / ML-framework EM (all structured-grid
+% FDTD/FDFD/RCWA — none FEM, none H(curl)) ----------
+
+@article{hughes2019forward,
+  author = {Hughes, Tyler W. and Williamson, Ian A. D. and Minkov, Momchil and Fan, Shanhui},
+  title = {Forward-Mode Differentiation of Maxwell’s Equations},
+  journal = {ACS Photonics},
+  year = {2019},
+  volume = {6},
+  number = {11},
+  pages = {3010-3016},
+  doi = {10.1021/acsphotonics.9b01238},
+  url = {https://doi.org/10.1021/acsphotonics.9b01238},
+}
+
+@misc{schubert2022inverse,
+  author = {Schubert, Martin F. and Cheung, Alfred K. C. and Williamson, Ian A. D. and Spyra, Aleksandra and Alexander, David H.},
+  title = {Inverse design of photonic devices with strict foundry fabrication constraints},
+  year = {2022},
+  eprint = {2201.12965},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2201.12965},
+}
+
+@article{hammond2022high,
+  author = {Hammond, Alec M. and Oskooi, Ardavan and Chen, Mo and Lin, Zin and Johnson, Steven G. and Ralph, Stephen E.},
+  title = {High-performance hybrid time/frequency-domain topology optimization for large-scale photonics inverse design},
+  journal = {Optics Express},
+  year = {2022},
+  volume = {30},
+  number = {3},
+  pages = {4467},
+  doi = {10.1364/oe.442074},
+  url = {https://doi.org/10.1364/oe.442074},
+}
+
+@misc{mahlau2024flexible,
+  author = {Mahlau, Yannik and Schubert, Frederik and Bethmann, Konrad and Caspary, Reinhard and Lesina, Antonio Calà and Munderloh, Marco and Ostermann, Jörn and Rosenhahn, Bodo},
+  title = {A flexible framework for large-scale FDTD simulations: open-source inverse design for 3D nanostructures},
+  year = {2024},
+  eprint = {2412.12360},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2412.12360},
+}
+
+@article{mahlau2026fdtdx,
+  author = {Mahlau, Yannik and Schubert, Frederik and Berg, Lukas and Rosenhahn, Bodo},
+  title = {FDTDX: High-Performance Open-Source FDTD Simulation with Automatic Differentiation},
+  journal = {Journal of Open Source Software},
+  year = {2026},
+  volume = {11},
+  number = {117},
+  pages = {8912},
+  doi = {10.21105/joss.08912},
+  url = {https://doi.org/10.21105/joss.08912},
+}
+
+@misc{kim2024meent,
+  author = {Kim, Yongha and Jung, Anthony W. and Kim, Sanmun and Octavian, Kevin and Heo, Doyoung and Park, Chaejin and Shin, Jeongmin and Nam, Sunghyun and Park, Chanhyung and Park, Juho and Han, Sangjun and Lee, Jinmyoung and Kim, Seolho and Jang, Min Seok and Park, Chan Y.},
+  title = {Meent: Differentiable Electromagnetic Simulator for Machine Learning},
+  year = {2024},
+  eprint = {2406.12904},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2406.12904},
+}
+
+% ---------- 1e. Differentiable-simulation languages (adjacent genus:
+% purpose-built kernel DSLs, not ML tensor stacks) ----------
+
+@misc{hu2019difftaichi,
+  author = {Hu, Yuanming and Anderson, Luke and Li, Tzu-Mao and Sun, Qi and Carr, Nathan and Ragan-Kelley, Jonathan and Durand, Frédo},
+  title = {DiffTaichi: Differentiable Programming for Physical Simulation},
+  year = {2019},
+  eprint = {1910.00935},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/1910.00935},
+}
+
+@misc{holl2020learning,
+  author = {Holl, Philipp and Koltun, Vladlen and Thuerey, Nils},
+  title = {Learning to Control PDEs with Differentiable Physics},
+  year = {2020},
+  eprint = {2001.07457},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2001.07457},
+}
+
+% ---------- 1f. Neural-ansatz Maxwell eigensolvers (distinguish from
+% FEM-on-tensor-stack: the network replaces the discretization) --------
+
+@misc{jiang2024fieldtnn,
+  author = {Jiang, Jiantao and Wang, Yanli and Wang, Yifan and Xie, Hehu},
+  title = {FieldTNN-based machine learning method for Maxwell eigenvalue problems},
+  year = {2024},
+  eprint = {2411.15828},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2411.15828},
+}
+
+% ---------- 1g. GPU FEM for electromagnetics (hand-written-CUDA
+% tradition the tensor-compiler approach replaces) ----------
+
+@article{huantingmeng2014gpu,
+  author = {Huan-Ting Meng and Bao-Lin Nie and Wong, Steven and Macon, Charles and Jian-Ming Jin},
+  title = {GPU accelerated finite-element computation for electromagnetic analysis},
+  journal = {IEEE Antennas and Propagation Magazine},
+  year = {2014},
+  volume = {56},
+  number = {2},
+  pages = {39-62},
+  doi = {10.1109/map.2014.6837065},
+  url = {https://doi.org/10.1109/map.2014.6837065},
+}
+
+% =====================================================================
+% MISSION 2 — tree-cotree gauging (closes the v1 review dim-8 citation
+% gap at main.tex §8: "divergence-free or tree--cotree gauge projection")
+% =====================================================================
+
+@article{albanese1988solution,
+  author = {Albanese, R. and Rubinacci, G.},
+  title = {Solution of three dimensional eddy current problems by integral and differential methods},
+  journal = {IEEE Transactions on Magnetics},
+  year = {1988},
+  volume = {24},
+  number = {1},
+  pages = {98-101},
+  doi = {10.1109/20.43865},
+  url = {https://doi.org/10.1109/20.43865},
+}
+
+@article{manges1995generalized,
+  author = {Manges, J.B. and Cendes, Z.J.},
+  title = {A generalized tree-cotree gauge for magnetic field computation},
+  journal = {IEEE Transactions on Magnetics},
+  year = {1995},
+  volume = {31},
+  number = {3},
+  pages = {1342-1347},
+  doi = {10.1109/20.376275},
+  url = {https://doi.org/10.1109/20.376275},
+}
