@@ -75,7 +75,7 @@
 //! (BoomerAMG) instead of a direct factor.
 //!
 //! Issue #551 replaces the direct factor with a **few-sweep symmetric
-//! Gauss–Seidel** approximate coarse solve ([`SgsCoarseSolver`]): each apply is a
+//! Gauss–Seidel** approximate coarse solve (`SgsCoarseSolver`): each apply is a
 //! fixed number of forward+backward GS sweeps starting from a zero guess, which is
 //! `O(nnz(C)) = O(node_dim)` work per apply and needs **no global factor** (only
 //! the coarse operator's sparse rows and its inverse-diagonal are stored). This is
@@ -87,9 +87,9 @@
 //! preconditioner a valid CG preconditioner. The coarse solve is now
 //! **approximate** — it changes the iteration path, not the converged eigenvalues.
 //!
-//! The direct sparse-LU coarse solve is retained behind [`CoarseSolve::Direct`]
+//! The direct sparse-LU coarse solve is retained behind `CoarseSolve::Direct`
 //! purely so the measurement harness can compare per-apply cost and inner-CG
-//! iteration count against the new [`CoarseSolve::SymmetricGaussSeidel`] default
+//! iteration count against the new `CoarseSolve::SymmetricGaussSeidel` default
 //! apples-to-apples; the shipped inner solve always uses the few-sweep smoother.
 //!
 //! # Memory
@@ -313,12 +313,12 @@ impl SgsCoarseSolver {
     /// residual/SPD unit tests).
     #[cfg(test)]
     fn spmv(&self, x: &[f64], y: &mut [f64]) {
-        for i in 0..self.n {
+        for (i, out) in y.iter_mut().enumerate() {
             let mut s = 0.0;
             for k in self.row_ptr[i]..self.row_ptr[i + 1] {
                 s += self.val[k] * x[self.col_idx[k]];
             }
-            y[i] = s;
+            *out = s;
         }
     }
 }
