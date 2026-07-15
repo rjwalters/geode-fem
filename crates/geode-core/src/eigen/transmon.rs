@@ -568,7 +568,7 @@ pub fn solve_transmon_eigenmodes_matrix_free_inner_iters(
 /// Identical to the two-space entry point except that the per-edge geometry
 /// `d_e = p_b − p_a` (from the mesh node coordinates) is attached to the
 /// discrete gradient, which is exactly the switch
-/// [`crate::eigen::ams::AmsLitePreconditioner`] uses to build `Π`. Meaningful
+/// the `AmsLitePreconditioner` (`crate::eigen::ams`) uses to build `Π`. Meaningful
 /// only with `precond == InnerPreconditioner::Ams`; with `Jacobi` the geometry
 /// is ignored (Jacobi never touches `G` or `Π`), so the two entry points
 /// coincide there. Returns the modes and the total inner-CG iteration count,
