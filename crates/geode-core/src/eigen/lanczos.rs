@@ -151,7 +151,7 @@ pub enum InnerSolver {
     /// minimum-degree from the pattern alone. Both cut LU fill/memory versus
     /// COLAMD (~1.4–1.7× measured on the Nédélec pattern, growing with size)
     /// while leaving the computed spectrum unchanged — ordering changes memory,
-    /// not answers. See [`crate::eigen::ordering`].
+    /// not answers. See the crate-internal `eigen::ordering` module.
     DirectCustomOrder,
     /// Never form or factor `A`; solve `(K − σM) y = b` iteratively with
     /// matrix-free preconditioned CG. `O(N)` memory; the path that

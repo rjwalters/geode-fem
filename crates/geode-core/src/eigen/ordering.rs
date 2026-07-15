@@ -38,7 +38,7 @@
 //!   are available, and the measured best on the tested meshes.
 //! - [`column_ordering`]: the selector — coordinate ND when coordinates are
 //!   supplied, else AMD.
-//! - [`symmetric_factor_nnz`]: the true symmetric Cholesky fill `nnz(L)` under a
+//! - `symmetric_factor_nnz`: the true symmetric Cholesky fill `nnz(L)` under a
 //!   given ordering, used to compare orderings in tests (the metric matching the
 //!   issue #543 measurement).
 
