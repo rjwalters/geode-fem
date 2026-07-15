@@ -558,6 +558,51 @@ pub fn solve_transmon_eigenmodes_matrix_free_inner_iters(
     m_per_unit: f64,
     precond: crate::eigen::lanczos::InnerPreconditioner,
 ) -> Result<(Vec<ModeReport>, usize), EigenError> {
+    matrix_free_inner_iters_impl(pencil, sigma, n_modes, m_per_unit, precond, false)
+}
+
+/// [`solve_transmon_eigenmodes_matrix_free_inner_iters`] running the **full
+/// three-space** Hiptmair–Xu AMS cycle (issue #550): the gradient-space
+/// correction PLUS the vector-nodal `Π (ΠᵀAΠ)⁻¹ Πᵀ` block.
+///
+/// Identical to the two-space entry point except that the per-edge geometry
+/// `d_e = p_b − p_a` (from the mesh node coordinates) is attached to the
+/// discrete gradient, which is exactly the switch
+/// the `AmsLitePreconditioner` (`crate::eigen::ams`) uses to build `Π`. Meaningful
+/// only with `precond == InnerPreconditioner::Ams`; with `Jacobi` the geometry
+/// is ignored (Jacobi never touches `G` or `Π`), so the two entry points
+/// coincide there. Returns the modes and the total inner-CG iteration count,
+/// the apples-to-apples measurement vehicle for the three-space vs
+/// gradient-only comparison.
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly, the AMS build (the
+/// nodal `Gᵀ(K−σM)G` and vector-nodal `Πᵀ(K−σM)Π` LUs), or the matrix-free
+/// Lanczos solve.
+pub fn solve_transmon_eigenmodes_matrix_free_inner_iters_three_space(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    precond: crate::eigen::lanczos::InnerPreconditioner,
+) -> Result<(Vec<ModeReport>, usize), EigenError> {
+    matrix_free_inner_iters_impl(pencil, sigma, n_modes, m_per_unit, precond, true)
+}
+
+/// Shared body of the instrumented matrix-free transmon eigensolve. When
+/// `three_space` is set the discrete gradient additionally carries the
+/// per-reduced-edge-row geometry `d_e = p_b − p_a`, enabling the vector-nodal
+/// `Π` block of full AMS (issue #550); otherwise it is the gradient-only
+/// two-space cycle.
+fn matrix_free_inner_iters_impl(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    precond: crate::eigen::lanczos::InnerPreconditioner,
+    three_space: bool,
+) -> Result<(Vec<ModeReport>, usize), EigenError> {
     let n_edges = pencil.edges.len();
     assert_eq!(
         pencil.interior_mask.len(),
@@ -607,13 +652,28 @@ pub fn solve_transmon_eigenmodes_matrix_free_inner_iters(
 
     // G = d⁰_interior — the AMS auxiliary-space prolongation. Only consumed by
     // the AMS preconditioner; the Jacobi path ignores it.
-    let gradient = crate::eigen::projection::InteriorGradient::build(
+    let mut gradient = crate::eigen::projection::InteriorGradient::build(
         pencil.edges,
         pencil.interior_mask,
         &interior_index,
         pencil.mesh.n_nodes(),
         dim,
     );
+    if three_space {
+        // Per-reduced-edge-row edge vectors d_e = p_b − p_a (edges[e] = [a,b],
+        // the same −1@a/+1@b orientation G encodes) — the geometry the
+        // vector-nodal Π interpolation needs (issue #550).
+        let mut edge_vectors = vec![[0.0_f64; 3]; dim];
+        for (e, &row) in interior_index.iter().enumerate() {
+            if let Some(row) = row {
+                let [a, b] = pencil.edges[e];
+                let pa = pencil.mesh.nodes[a as usize];
+                let pb = pencil.mesh.nodes[b as usize];
+                edge_vectors[row] = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+            }
+        }
+        gradient = gradient.with_edge_vectors(edge_vectors);
+    }
 
     let solver = SparseShiftInvertLanczos {
         sigma,
