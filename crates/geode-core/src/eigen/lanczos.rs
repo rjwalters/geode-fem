@@ -656,6 +656,44 @@ impl SparseShiftInvertLanczos {
                 let a = shifted_pencil(k, m, self.sigma)?;
                 let lu = {
                     let _par = ParallelismGuard::rayon(n_threads);
+                    // Fill-reducing ordering (issue #527, Phase 1). faer 0.24's
+                    // `sp_lu` uses a **COLAMD** (column approximate minimum
+                    // degree) fill-reducing column permutation. It is hardcoded:
+                    // `SymbolicLu::try_new` → `factorize_symbolic_lu` calls
+                    // `colamd::order` unconditionally, and `LuSymbolicParams`
+                    // exposes only `colamd::Control` — there is NO `Ordering`
+                    // enum and NO hook to supply a precomputed permutation.
+                    // (Contrast faer's *Cholesky* path, whose
+                    // `SymmetricOrdering` DOES offer `Amd`/`Identity`/`Custom`;
+                    // but the shifted pencil `A = K − σM` is symmetric-INDEFINITE,
+                    // so this direct path must use unsymmetric LU, not Cholesky.)
+                    //
+                    // Phase 1 goal was to plumb a stronger ordering (METIS
+                    // nested dissection) into this symbolic step to cut LU
+                    // fill-in. Outcome: NEGATIVE. faer 0.24's public sparse-LU
+                    // API accepts no user/alternative ordering, and the
+                    // `SymbolicLu` permutation fields are private, so a METIS
+                    // permutation cannot be injected without patching faer.
+                    // Pre-permuting the input does not help either: COLAMD is
+                    // invariant under column relabeling and simply re-derives
+                    // its own ordering, discarding any nested-dissection
+                    // structure. Adding a `metis` crate (a C-toolchain
+                    // dependency) would be dead weight with no integration
+                    // point. A stronger ordering therefore requires either a
+                    // faer upstream change (add an LU `Custom`-ordering hook,
+                    // mirroring Cholesky) or the compressed-factorization track
+                    // captured as Phase 2 below.
+                    //
+                    // Phase 2 (OUT OF SCOPE here, follow-on): the memory win at
+                    // ~1M DOF is the O(N^{4/3}) LU fill itself, addressable by a
+                    // compressed/low-rank (BLR / HSS / H-matrix) factorization.
+                    // The practical route is an FFI to a mature solver
+                    // (STRUMPACK or MUMPS-BLR) versus a scoped Rust
+                    // implementation; BLR is approximate, so it must be gated
+                    // within the existing ≤1% Palace bar and a tight tolerance
+                    // vs this exact-LU path. The complementary asymptotic fix is
+                    // the matrix-free inner solve (`InnerSolver::MatrixFree`,
+                    // issues #524/#526) already wired above.
                     a.as_ref()
                         .sp_lu()
                         .map_err(|e| EigenError::FaerGevd(format!("sparse LU: {e:?}")))?
