@@ -37,6 +37,7 @@ pub mod complex;
 pub mod dense;
 pub mod gauge;
 pub mod lanczos;
+pub mod ordering;
 pub mod parallel;
 pub mod projection;
 pub mod self_consistent;
