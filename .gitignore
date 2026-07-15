@@ -78,3 +78,8 @@ dist/
 .loom/state.json
 .loom/*.log
 .loom/*.sock
+
+# Local credentials / secrets — never commit
+.env
+.env.*
+!.env.example
