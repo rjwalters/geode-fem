@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "for_version": 3,
+  "phases": {
+    "audit": {
+      "state": "done",
+      "started": "2026-07-14T21:10:00Z",
+      "completed": "2026-07-14T21:20:00Z"
+    }
+  },
+  "metadata": {
+    "audit_summary": {
+      "critical_flags": 0,
+      "unresolved_citations": 0,
+      "claim_support_failures": 0,
+      "numerical_inconsistencies": 0,
+      "unverified_citations": 50,
+      "stale_figures": 0,
+      "build_status": "ok",
+      "build_pages": 23,
+      "cite_keys_resolved": "50/50",
+      "gpu_table_cells_verified": "20/20",
+      "artifact_source": "origin/main @ 2226577 (local main 8 commits behind — stale-checkout note, not a fabrication)"
+    }
+  }
+}

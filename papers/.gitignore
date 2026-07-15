@@ -1,0 +1,14 @@
+# LaTeX build byproducts (regenerable from *.tex). Keep *.bbl (arXiv needs it),
+# *.pdf (compiled paper + figure assets), and all anvil source/state.
+*.aux
+*.log
+*.out
+*.blg
+*.bcf
+*.run.xml
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
+*.lof
+*.lot

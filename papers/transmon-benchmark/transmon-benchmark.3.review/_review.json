@@ -1,0 +1,26 @@
+{
+  "version_dir": "transmon-benchmark.3",
+  "critic_id": "pub-review",
+  "rubric": "anvil-pub-v2",
+  "scores": [
+    {"id": "1", "name": "Rigor of method / argument", "score": 6, "max": 6},
+    {"id": "2", "name": "Evidence sufficiency", "score": 5, "max": 6},
+    {"id": "3", "name": "Clarity of contribution", "score": 5, "max": 5},
+    {"id": "4", "name": "Related-work positioning", "score": 5, "max": 5},
+    {"id": "5", "name": "Reproducibility", "score": 5, "max": 5},
+    {"id": "6", "name": "Figure & table quality", "score": 4, "max": 4},
+    {"id": "7", "name": "Prose & structural quality", "score": 4, "max": 4},
+    {"id": "8", "name": "Citation hygiene", "score": 5, "max": 5},
+    {"id": "9", "name": "Rhetorical economy", "score": 3, "max": 4}
+  ],
+  "findings": [
+    {"severity": "minor", "dimension": "9", "message": "23 pages exceeds the BRIEF's 8-12 two-column (~15 single-column) target; the abstract restates the full three-step gauge arc that Section 9 re-derives, and two Discussion paragraphs re-state Section 7/12 conclusions. Trim 2-4 pages with no argument loss."},
+    {"severity": "minor", "dimension": "2", "message": "General tensor-compiler thesis rests on a single geometry; an optional committed-artifact-only breadth row/table (Mie, waveguide, motor-torque, fiber) would lift dim 2 to ceiling and answer the paper's own one-geometry limitation."},
+    {"severity": "nit", "dimension": "5", "message": "Operator-gated submission TODOs: affiliations, burn/cubecl f64 tracking-issue URL, geode-fem archival DOI, whiteroom cite-vs-acknowledge decision, acknowledgment wording. Correctly not scored down; hard blockers for arXiv submission."},
+    {"severity": "related-work", "dimension": "4", "message": "web_search:true is set but no live search was run this pass; dim 4 grounded in the transmon-benchmark.2.litsearch substrate + domain knowledge. No missing close prior work asserted. Recommend re-running pub-litsearch with web access if a fresh sweep is desired before submission."}
+  ],
+  "critical_flags": [],
+  "total": 42,
+  "threshold": 35,
+  "verdict": "advance"
+}

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "for_version": 2,
+  "phases": {
+    "litsearch": {
+      "state": "done",
+      "started": "2026-07-14T15:32:00Z",
+      "completed": "2026-07-14T15:40:15Z"
+    }
+  }
+}
