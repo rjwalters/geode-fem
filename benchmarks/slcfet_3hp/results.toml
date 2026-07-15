@@ -13,7 +13,7 @@ fixture_sha256 = "7770873496af8f33f3ebe38239aaad8f3d12e89d180c6ec59c90c7903e02bc
 generated_at_commit = "bf44aa9915b810f99b10c0d686923b68afb7e04c"
 port_resistance_ohm = 50
 process = "SLCFET_3HP"
-pdk_source = "pdk/slcfet/slcfet_3hp.pdk.yaml (sphere monorepo)"
+pdk_source = "external SLCFET 3HP PDK (proprietary)"
 conductor_model = "leontovich_good_conductor"
 conductor_sigma_s_m = 5.1467e7
 substrate = "SiC eps_r 9.7 tan_delta 0.004, 100 um, PEC floor"
@@ -45,7 +45,7 @@ monomial_fit_l_nh = 2.054231e0
 
 [oracles.palace]
 status = "pending_operator_run"
-note = "No Palace install exists on the generation machine (mom/external/palace-install is absent; only the Docker build recipe in ~/GitHub/sphere/eda/mom/docker/palace). Palace is the realistic Q oracle given the mom filament-loss caveat. Operator-run results slot in here with their own provenance — same toolchain-gap convention as the FastHenry slot of benchmarks/spiral_inductor/results.toml."
+note = "No Palace install exists on the generation machine (mom/external/palace-install is absent; only the Docker build recipe in reference/palace/docker/). Palace is the realistic Q oracle given the mom filament-loss caveat. Operator-run results slot in here with their own provenance — same toolchain-gap convention as the FastHenry slot of benchmarks/spiral_inductor/results.toml."
 
 [comparison]
 # L compared at the f->0 quasi-static limit (Richardson

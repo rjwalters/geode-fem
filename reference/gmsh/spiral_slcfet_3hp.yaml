@@ -1,6 +1,6 @@
 # SLCFET 3HP (GaN-on-SiC) 3-turn square spiral inductor benchmark
 # fixture (Epic #193 Phase 3, issue #212). PDK-style schema mirroring
-# the canonical PDK (~/GitHub/sphere/pdk/slcfet/slcfet_3hp.pdk.yaml,
+# the canonical SLCFET 3HP PDK (external, proprietary,
 # loaded by mom_geom::pdk::load_pdk("slcfet_3hp")).
 #
 # Geometry units: microns. Material values are recorded here as fixture
@@ -23,7 +23,7 @@
 #     #358) — Leontovich surface model, interior excluded from the mesh.
 #
 # Spiral parameters match a DRC-legal point of the documented mom 3HP
-# LUT sweep (~/GitHub/sphere/eda/mom/jobs/slcfet_3hp_spiral_sweep.toml):
+# LUT sweep (external MoM solver 3HP job):
 # square, n = 3 (integer — exactly expressible by mom_geom::SpiralParams,
 # no turn-count bracket needed), w = 10, s = 5, d_in = 100, spiral on
 # OVERLAY with a PASSIV underpass. Crossover: via underpass on both

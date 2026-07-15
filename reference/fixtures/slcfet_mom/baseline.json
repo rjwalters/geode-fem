@@ -1,7 +1,7 @@
 {
   "description": "mom MoM/PEEC impedance baseline for the geode-fem SLCFET 3HP spiral benchmark (issue #212): square spiral n = 3, w = 10 um, s = 5 um, d_in = 100 um on the canonical SLCFET 3HP stack (load_pdk(\"slcfet_3hp\"): SiC 9.7/0.004 100 um with PEC ground at -100 um, Au rho = 0.01943 ohm-um, OVERLAY 2.25 um spiral over PASSIV 3 um via-underpass). Exact integer-turn geometry match to the geode fixture (no bracket).",
   "fixture_id": "slcfet_mom/geode_slcfet_3hp_n3",
-  "generator": "reference/mom/geode_slcfet_baseline (offline; see baseline.provenance.txt for the mom commit)",
+  "generator": "external MoM PEEC solver (offline; generator crate removed — see baseline.provenance.txt)",
   "schema_version": "1",
   "solver": {
     "frequencies_ghz": [

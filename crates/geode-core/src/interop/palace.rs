@@ -5,16 +5,15 @@
 //! is not installed on the geode-fem dev machine — its run is
 //! **operator-assisted** — but the *configuration* + *result-ingestion*
 //! glue lives here so a Palace reference can be produced by anyone with
-//! a working Palace install (or the sister-repo Docker recipe at
-//! `~/GitHub/sphere/eda/mom/docker/palace`) and slotted into the
+//! a working Palace install (or the in-repo Docker recipe at
+//! `reference/palace/docker/`) and slotted into the
 //! benchmark TOMLs without ad-hoc parsing per benchmark.
 //!
 //! # Two sides of the oracle
 //!
 //! 1. **Config generation** lives in the offline driver
 //!    `reference/palace/geode_patch_baseline/` (cargo binary, outside
-//!    the geode workspace — mirrors the `reference/mom/` offline
-//!    pattern). It emits `reference/fixtures/patch_palace/palace_config.json`,
+//!    the geode workspace). It emits `reference/fixtures/patch_palace/palace_config.json`,
 //!    which an operator can feed directly to Palace.
 //!
 //! 2. **Result ingestion** — this module — parses Palace's CSV output

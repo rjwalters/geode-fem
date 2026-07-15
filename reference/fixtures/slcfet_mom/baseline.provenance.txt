@@ -1,7 +1,8 @@
 fixture:        slcfet_mom/baseline.json
 generated:      2026-06-12
-generator:      reference/mom/geode_slcfet_baseline (cargo run --release)
-mom repo:       ~/GitHub/sphere/eda/mom (sibling checkout; https://github.com/spheresemi/mom)
+generator:      external MoM PEEC solver (offline sidecar; generator crate
+                removed — not reproducible in-repo)
+mom oracle:     external MoM PEEC solver (proprietary; not vendored)
 mom commit:     ddc02134ce06f7e6ad3583083cce992a5bb2a64c
 solver:         multifilament PEEC (3 lateral filaments/segment),
                 stratified substrate Green's function, direct dense solve
@@ -28,8 +29,8 @@ baseline):
                 port gap; the mom 3HP VIA is the 60x60 um fab via while
                 the gmsh fixture uses a w x w (10x10 um) via column.
 
-stack (canonical PDK ~/GitHub/sphere/pdk/slcfet/slcfet_3hp.pdk.yaml via
-mom_geom::pdk::load_pdk("slcfet_3hp")):
+stack (canonical SLCFET 3HP PDK — external, proprietary — loaded by the
+MoM solver's PDK loader):
   substrate:    SiC, eps_r 9.7, tan_delta 0.004 (ADS Momentum LTD),
                 100 um thick, PEC ground plane at the substrate bottom
                 (-100 um) -- mirrors the geode fixture's PEC outer wall
@@ -45,8 +46,8 @@ mom_geom::pdk::load_pdk("slcfet_3hp")):
 frequencies:    0.5, 1, 2, 3, 5, 8, 10, 15, 20, 25, 30, 40 GHz
                 (the geode 3HP benchmark sweep,
                 examples/slcfet_3hp_spiral.rs; quote frequency 3 GHz =
-                the mom 3HP LUT ref_freq,
-                ~/GitHub/sphere/eda/mom/jobs/slcfet_3hp_spiral_sweep.toml)
+                the mom 3HP LUT ref_freq of the external MoM solver's
+                3HP sweep job)
 
 headline values (at the 3 GHz quote frequency):
   L = 2.1487 nH   R = 7.2135 ohm   Q = 5.615
@@ -61,10 +62,10 @@ mom OVERESTIMATES R / underestimates Q there. mom is the L oracle; the
 realistic Q oracle is Palace (operator-assisted, see
 benchmarks/slcfet_3hp/results.toml [oracles.palace]).
 
-regeneration:   cd reference/mom/geode_slcfet_baseline && cargo run --release
-                (requires the sphere monorepo checked out as a sibling of
-                this repository; the committed Cargo.toml uses the
-                relative path ../../../../sphere/eda/mom)
+regeneration:   NOT reproducible in-repo — the offline generator crate
+                depended on an external (proprietary) MoM solver and has
+                been removed. The committed baseline.json above is the
+                archived result.
 
 Palace:         NOT generated -- no Palace install exists on the
                 generation machine (mom/external/palace-install does not

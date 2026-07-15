@@ -1,12 +1,11 @@
 # Offline Palace config generator for the geode-fem patch-antenna
 # benchmark (issue #239). NOT part of the geode workspace and NOT built
-# in CI — same offline-sidecar convention as `reference/mom/` and
-# `reference/numpy/`.
+# in CI — same offline-sidecar convention as `reference/numpy/`.
 #
 # Palace itself is NOT a dependency of this generator: this binary
 # **only emits a Palace JSON configuration file** that an operator
 # (with a working Palace install or a Docker recipe such as the one
-# under `~/GitHub/sphere/eda/mom/docker/palace`) can feed to Palace
+# under `reference/palace/docker/`) can feed to Palace
 # directly. The run + result-ingestion step lives in
 # `reference/palace/README.md`.
 #

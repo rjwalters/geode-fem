@@ -2,7 +2,7 @@ fixture:        spiral_3p5.msh
 mesh_sha256:    c9707fb9bd5f3f484b845e96b90cf53f0b196794c5793f7e4f682bf97e101589
 generator:      reference/palace/geode_spiral_baseline (cargo run --release)
 palace docs:    https://awslabs.github.io/palace/dev/config/
-palace recipe:  ~/GitHub/sphere/eda/mom/docker/palace (sister-repo Docker build)
+palace recipe:  reference/palace/docker/Dockerfile (in-repo Docker build)
 
 problem:        Driven (frequency-domain driven solver)
 port:           LumpedPort, R = 50 ohm, +Y direction,

@@ -613,7 +613,7 @@ fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: 
 
     s.push_str("[oracles.palace]\n");
     s.push_str("status = \"pending_operator_run\"\n");
-    s.push_str("note = \"Palace is not installed on the generation machine (only a Docker build recipe under ~/GitHub/sphere/eda/mom/docker/palace). The geode-fem-side config generator + result ingester (issue #239) live in reference/palace/geode_patch_baseline/ (emits palace_config.json) and crates/geode-core/src/palace.rs (parses Palace's s-parameters.csv into a populated [oracles.palace] block). Operator workflow: (1) emit the config, (2) run Palace, (3) populate this slot via geode_core::interop::palace::PalaceResults with full provenance (palace_version, config_sha256). Same toolchain-gap convention as the FastHenry slot of benchmarks/spiral_inductor/results.toml.\"\n");
+    s.push_str("note = \"Palace is not installed on the generation machine (only a Docker build recipe under reference/palace/docker/). The geode-fem-side config generator + result ingester (issue #239) live in reference/palace/geode_patch_baseline/ (emits palace_config.json) and crates/geode-core/src/palace.rs (parses Palace's s-parameters.csv into a populated [oracles.palace] block). Operator workflow: (1) emit the config, (2) run Palace, (3) populate this slot via geode_core::interop::palace::PalaceResults with full provenance (palace_version, config_sha256). Same toolchain-gap convention as the FastHenry slot of benchmarks/spiral_inductor/results.toml.\"\n");
     s.push('\n');
 
     // Achieved comparison at resonance.

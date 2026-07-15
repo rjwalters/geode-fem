@@ -11,7 +11,7 @@
 //!
 //! Palace is a heavy MFEM-based 3D full-wave solver and is **not
 //! installed on the geode-fem dev machine** (only a Docker build recipe
-//! exists in the sister monorepo, `~/GitHub/sphere/eda/mom/docker/palace`).
+//! exists in-repo under `reference/palace/docker/`).
 //! This generator therefore only writes the *configuration file* and a
 //! provenance stub; the actual Palace run and the resulting
 //! `s-parameters.csv` / `port-V.csv` artifacts are operator-assisted
@@ -230,7 +230,7 @@ fn main() {
          mesh_sha256:    {mesh_sha}\n\
          generator:      reference/palace/geode_patch_baseline (cargo run --release)\n\
          palace docs:    https://awslabs.github.io/palace/dev/config/\n\
-         palace recipe:  ~/GitHub/sphere/eda/mom/docker/palace (sister-repo Docker build)\n\
+         palace recipe:  reference/palace/docker/Dockerfile (in-repo Docker build)\n\
          \n\
          problem:        Driven (frequency-domain driven solver)\n\
          port:           LumpedPort, R = {PORT_RESISTANCE_OHM} ohm, +Z direction,\n\
