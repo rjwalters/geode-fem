@@ -1,0 +1,73 @@
+===== DIRECT (COLAMD) @ 1.16M  Wed Jul 15 15:34:15 UTC 2026 =====
+loading external mesh: /home/ubuntu/transmon_refine1.msh (47354117 bytes)
+fixture: 179547 nodes, 1066512 tets
+inner solver = Direct, target = 4.5 GHz, n_modes = 6
+PEC reduction: 1249522 edges -> 1157564 interior DOFs
+assembling sparse real pencil (nnz = 20467522)...
+setup (mesh+assembly) done in 35.78 s; shift sigma = 8.8949e-9
+computed modes (sorted by lambda):
+  mode[0]: f = 0.6215 GHz (lambda = 1.6969e-10), participation p = 0.0000
+  mode[1]: f = 0.7479 GHz (lambda = 2.4570e-10), participation p = 0.0000
+  mode[2]: f = 0.8627 GHz (lambda = 3.2689e-10), participation p = 0.0000
+  mode[3]: f = 2.4890 GHz (lambda = 2.7213e-9), participation p = 0.0000
+  mode[4]: f = 3.8938 GHz (lambda = 6.6598e-9), participation p = 0.9637
+  mode[5]: f = 5.4136 GHz (lambda = 1.2873e-8), participation p = 0.0011
+---
+SETUP_S = 35.784
+SOLVE_S = 529.747
+TOTAL_S = 565.531  (inner=Direct, n_interior_dofs=1157564, n_modes=6, target=4.5GHz)
+	Command being timed: "./target/release/examples/transmon_bench /home/ubuntu/transmon_refine1.msh"
+	User time (seconds): 2807.74
+	System time (seconds): 315.44
+	Percent of CPU this job got: 551%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 9:26.65
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 92166884
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 28325319
+	Voluntary context switches: 21248769
+	Involuntary context switches: 1754434
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 16
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+===== AMD (DirectCustomOrder) @ 1.16M  Wed Jul 15 15:43:41 UTC 2026 =====
+loading external mesh: /home/ubuntu/transmon_refine1.msh (47354117 bytes)
+fixture: 179547 nodes, 1066512 tets
+inner solver = DirectCustomOrder, target = 4.5 GHz, n_modes = 6
+PEC reduction: 1249522 edges -> 1157564 interior DOFs
+assembling sparse real pencil (nnz = 20467522)...
+setup (mesh+assembly) done in 30.04 s; shift sigma = 8.8949e-9
+Command terminated by signal 9
+	Command being timed: "./target/release/examples/transmon_bench /home/ubuntu/transmon_refine1.msh"
+	User time (seconds): 649.97
+	System time (seconds): 76.54
+	Percent of CPU this job got: 290%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 4:10.49
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 128565428
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 1
+	Minor (reclaiming a frame) page faults: 39971896
+	Voluntary context switches: 1822941
+	Involuntary context switches: 51844
+	Swaps: 0
+	File system inputs: 256
+	File system outputs: 8
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+===== ALL_RUNS_DONE  Wed Jul 15 15:47:52 UTC 2026 =====
