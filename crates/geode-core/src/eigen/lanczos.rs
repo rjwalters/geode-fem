@@ -105,8 +105,26 @@ use crate::eigen::parallel::{ParallelismGuard, resolve_num_threads};
 /// near 4.5 GHz, below the lowest ~5 GHz physical mode). With `K` SPD (or
 /// PSD) and `M` SPD, `K − σM` is SPD whenever `σ` is below the smallest
 /// generalized eigenvalue, so plain CG converges without any
-/// indefinite-system machinery. Interior / indefinite shifts (which would
-/// need MINRES/GMRES) are explicitly out of Phase-1 scope.
+/// indefinite-system machinery.
+///
+/// ## Interior / indefinite shifts (issue #535)
+///
+/// Targeting an *interior* band (a shift `σ` placed **between** two
+/// generalized eigenvalues) makes `(K − σM)` **symmetric-indefinite**: it
+/// has generalized eigenvalues on both sides of `σ`, so the shifted pencil
+/// has both positive and negative eigenvalues and plain CG breaks down
+/// (`pᵀAp` changes sign). The [`MatrixFreeIndefinite`](InnerSolver::MatrixFreeIndefinite)
+/// variant swaps the inner CG for **MINRES**, which minimizes the residual
+/// over the same Krylov space using a short (3-term) recurrence — so it
+/// keeps the `O(N)` memory that is the whole point of the matrix-free
+/// track (unlike GMRES, whose full Krylov basis storage reintroduces a
+/// memory-growth term). MINRES needs an **SPD** preconditioner; plain
+/// Jacobi `1/(K_ii − σM_ii)` is sign-indefinite at an interior shift, so
+/// the indefinite path preconditions with **absolute-value Jacobi**
+/// `1/|K_ii − σM_ii|` (see `ShiftedMatrixFreeOp::with_abs_diag`). The
+/// selection is caller-driven: pick [`MatrixFreeIndefinite`](InnerSolver::MatrixFreeIndefinite)
+/// when placing an interior shift, and the default [`MatrixFree`](InnerSolver::MatrixFree)
+/// CG stays unchanged for the SPD lowest-mode case.
 ///
 /// ## Inner-tolerance coupling
 ///
@@ -131,6 +149,16 @@ pub enum InnerSolver {
     /// preconditioner is selected by [`InnerPreconditioner`] (Jacobi default;
     /// AMS-lite opt-in, issue #526).
     MatrixFree,
+    /// Never form or factor `A`; solve the **symmetric-indefinite**
+    /// `(K − σM) y = b` iteratively with matrix-free **MINRES** preconditioned
+    /// by absolute-value Jacobi `1/|K_ii − σM_ii|` (issue #535). Same `O(N)`
+    /// memory as [`MatrixFree`](InnerSolver::MatrixFree) (MINRES has a 3-term
+    /// recurrence, no growing Krylov basis), but valid when `σ` is placed
+    /// **interior** to the spectrum, where `(K − σM)` is indefinite and CG
+    /// breaks down. Select this variant explicitly when targeting an interior
+    /// band; the SPD lowest-mode [`MatrixFree`](InnerSolver::MatrixFree) CG
+    /// path stays the default.
+    MatrixFreeIndefinite,
 }
 
 /// Preconditioner for the matrix-free inner CG (issue #526).
@@ -407,6 +435,25 @@ impl<'a> ShiftedMatrixFreeOp<'a> {
         self
     }
 
+    /// Replace the signed Jacobi diagonal `1/(K_ii − σM_ii)` with its
+    /// **absolute value** `1/|K_ii − σM_ii|` (issue #535).
+    ///
+    /// For an *interior* shift `(K − σM)` is symmetric-indefinite, so its
+    /// diagonal has mixed sign and the signed Jacobi diagonal is **not** an
+    /// SPD preconditioner — which MINRES requires. Taking the absolute value
+    /// makes the diagonal preconditioner SPD (all entries strictly positive)
+    /// while leaving the operator [`apply`](Self::apply) untouched. Because
+    /// `inv_diag` already stores `1/(K_ii − σM_ii)`, the absolute-value
+    /// diagonal is exactly its element-wise `abs()` (`|1/d| = 1/|d|`). For an
+    /// SPD shift (all diagonal entries already positive) this is a no-op, so
+    /// the indefinite path degrades gracefully to Jacobi on SPD inputs.
+    fn with_abs_diag(mut self) -> Self {
+        for d in self.inv_diag.iter_mut() {
+            *d = d.abs();
+        }
+        self
+    }
+
     /// `y = (K − σM) · x`, matrix-free (two SpMVs, no assembled `A`).
     fn apply(&self, x: &[f64], y: &mut [f64]) {
         spmv(self.k, x, y);
@@ -517,6 +564,161 @@ fn cg_solve_matrix_free(
     )))
 }
 
+/// Matrix-free preconditioned **MINRES** solve of the symmetric-indefinite
+/// system `(K − σM) y = b` (issue #535).
+///
+/// This is the interior/indefinite-shift sibling of [`cg_solve_matrix_free`].
+/// When `σ` is placed **between** two generalized eigenvalues, `A = K − σM`
+/// has eigenvalues of both signs, so the CG recurrence breaks down
+/// (`pᵀAp` changes sign). MINRES minimizes `‖b − A y‖` over the same Krylov
+/// space `span{r₀, A r₀, …}` using a **short (3-term) Lanczos recurrence plus
+/// Givens rotations**, so — like CG — it carries only a fixed handful of
+/// length-`N` vectors and keeps the working set `O(N)`. (GMRES would store the
+/// full Krylov basis and reintroduce an `O(N·m)` memory term, defeating the
+/// matrix-free memory goal, which is why MINRES is used here.)
+///
+/// MINRES requires an **SPD** preconditioner. The operator is built with
+/// [`ShiftedMatrixFreeOp::with_abs_diag`] so [`ShiftedMatrixFreeOp::precond`]
+/// applies absolute-value Jacobi `1/|K_ii − σM_ii|`, which is SPD even when
+/// the shifted diagonal is sign-indefinite. Convergence is measured in the
+/// preconditioner-induced norm: the recurrence tracks `‖r_k‖_{M⁻¹}`
+/// (`phibar`) exactly, and we stop when it drops below `tol` relative to the
+/// initial `‖r₀‖_{M⁻¹}` (`beta1`) — the canonical MINRES stopping quantity.
+///
+/// `out` doubles as the initial guess / warm start (as in the CG sibling).
+/// Returns the number of MINRES iterations executed; errors if the residual
+/// has not dropped below `tol` within `max_iters`.
+///
+/// The recurrence is the standard Paige–Saunders preconditioned MINRES (as in
+/// Choi/Paige/Saunders and the reference SciPy `minres` port), specialized to
+/// the real symmetric pencil.
+fn minres_solve_matrix_free(
+    op: &ShiftedMatrixFreeOp<'_>,
+    b: &[f64],
+    out: &mut [f64],
+    tol: f64,
+    max_iters: usize,
+) -> Result<usize, EigenError> {
+    let n = b.len();
+    let bnorm = b.iter().map(|v| v * v).sum::<f64>().sqrt();
+    if bnorm == 0.0 {
+        out.iter_mut().for_each(|v| *v = 0.0);
+        return Ok(0);
+    }
+
+    // r1 = b − A·out  (out is the warm-start guess).
+    let mut r1 = vec![0.0_f64; n];
+    op.apply(out, &mut r1);
+    for i in 0..n {
+        r1[i] = b[i] - r1[i];
+    }
+
+    // y = M⁻¹ r1;  beta1 = √(r1ᵀ y)  ( > 0 since M_prec is SPD ).
+    let mut y = vec![0.0_f64; n];
+    op.precond(&r1, &mut y);
+    let mut beta1 = r1.iter().zip(y.iter()).map(|(a, b)| a * b).sum::<f64>();
+    if beta1 < 0.0 {
+        return Err(EigenError::FaerGevd(
+            "matrix-free MINRES: preconditioner not SPD (r₁ᵀM⁻¹r₁ < 0)".into(),
+        ));
+    }
+    if beta1 == 0.0 {
+        // Warm start already solves the system.
+        return Ok(0);
+    }
+    beta1 = beta1.sqrt();
+
+    // Scalar recurrence state (Paige–Saunders MINRES).
+    let mut oldb = 0.0_f64;
+    let mut beta = beta1;
+    let mut dbar = 0.0_f64;
+    let mut epsln = 0.0_f64;
+    let mut phibar = beta1;
+    let mut cs = -1.0_f64;
+    let mut sn = 0.0_f64;
+
+    // Length-N work vectors (all O(N): r1, r2, y, v, w, w1, w2, av).
+    let mut r2 = r1.clone();
+    let mut v = vec![0.0_f64; n];
+    let mut av = vec![0.0_f64; n];
+    let mut w = vec![0.0_f64; n];
+    let mut w1 = vec![0.0_f64; n];
+    let mut w2 = vec![0.0_f64; n];
+
+    let eps = f64::EPSILON;
+    let thresh = tol * beta1;
+
+    for itn in 1..=max_iters {
+        // Lanczos step: v = y / beta;  av = A·v.
+        let s = 1.0 / beta;
+        for i in 0..n {
+            v[i] = s * y[i];
+        }
+        op.apply(&v, &mut av);
+        if itn >= 2 {
+            let f = beta / oldb;
+            for i in 0..n {
+                av[i] -= f * r1[i];
+            }
+        }
+        let alfa = v.iter().zip(av.iter()).map(|(a, b)| a * b).sum::<f64>();
+        let f = alfa / beta;
+        for i in 0..n {
+            av[i] -= f * r2[i];
+        }
+        // Shift residual-space vectors: r1 ← r2, r2 ← av.
+        r1.copy_from_slice(&r2);
+        r2.copy_from_slice(&av);
+        // y = M⁻¹ r2;  beta_{k+1} = √(r2ᵀ y).
+        op.precond(&r2, &mut y);
+        oldb = beta;
+        beta = r2.iter().zip(y.iter()).map(|(a, b)| a * b).sum::<f64>();
+        if beta < 0.0 {
+            return Err(EigenError::FaerGevd(
+                "matrix-free MINRES: preconditioner not SPD (rᵀM⁻¹r < 0)".into(),
+            ));
+        }
+        beta = beta.sqrt();
+
+        // Apply previous Givens rotation Q_{k-1}.
+        let oldeps = epsln;
+        let delta = cs * dbar + sn * alfa;
+        let gbar = sn * dbar - cs * alfa;
+        epsln = sn * beta;
+        dbar = -cs * beta;
+
+        // Compute and apply the next plane rotation Q_k.
+        let gamma = (gbar * gbar + beta * beta).sqrt().max(eps);
+        cs = gbar / gamma;
+        sn = beta / gamma;
+        let phi = cs * phibar;
+        phibar *= sn;
+
+        // Update the solution: w = (v − oldeps·w1 − delta·w2)/gamma; x += phi·w.
+        let denom = 1.0 / gamma;
+        w1.copy_from_slice(&w2);
+        w2.copy_from_slice(&w);
+        for i in 0..n {
+            w[i] = (v[i] - oldeps * w1[i] - delta * w2[i]) * denom;
+            out[i] += phi * w[i];
+        }
+
+        // phibar tracks ‖r_k‖_{M⁻¹}; stop on the relative preconditioned
+        // residual. Also stop on a Lanczos breakdown (β ≈ 0 → invariant
+        // Krylov subspace, the iterate is exact on it).
+        if phibar <= thresh || beta <= eps {
+            return Ok(itn);
+        }
+    }
+
+    Err(EigenError::FaerGevd(format!(
+        "matrix-free inner MINRES failed to converge: ‖r‖_{{M⁻¹}}/‖r₀‖_{{M⁻¹}} = {:.3e} \
+         > tol = {tol:.3e} after {max_iters} iters (interior shift too ill-conditioned \
+         for abs-Jacobi MINRES? see issue #531 for a stronger preconditioner)",
+        phibar / beta1
+    )))
+}
+
 /// Solve the symmetric tridiagonal eigenvalue problem for `(alpha, beta)`.
 ///
 /// `alpha` are the diagonal entries (length k); `beta` are the
@@ -606,6 +808,14 @@ enum InnerBackend<'a> {
         tol: f64,
         max_iters: usize,
     },
+    /// Matrix-free operator + inner MINRES knobs for the symmetric-indefinite
+    /// (interior-shift) case (issue #535). The operator carries the
+    /// absolute-value Jacobi diagonal so its preconditioner apply is SPD.
+    MatrixFreeIndefinite {
+        op: ShiftedMatrixFreeOp<'a>,
+        tol: f64,
+        max_iters: usize,
+    },
 }
 
 impl InnerBackend<'_> {
@@ -624,6 +834,9 @@ impl InnerBackend<'_> {
             }
             InnerBackend::MatrixFree { op, tol, max_iters } => {
                 cg_solve_matrix_free(op, rhs, out, *tol, *max_iters)
+            }
+            InnerBackend::MatrixFreeIndefinite { op, tol, max_iters } => {
+                minres_solve_matrix_free(op, rhs, out, *tol, *max_iters)
             }
         }
     }
@@ -715,6 +928,20 @@ impl SparseShiftInvertLanczos {
                 }
                 let max_iters = (k.nrows() * INNER_MAX_ITER_FACTOR).max(64);
                 Ok(InnerBackend::MatrixFree {
+                    op,
+                    tol: self.inner_tol(),
+                    max_iters,
+                })
+            }
+            InnerSolver::MatrixFreeIndefinite => {
+                // Interior/indefinite shift (issue #535): MINRES with an
+                // absolute-value Jacobi preconditioner (SPD, as MINRES
+                // requires). AMS-lite is not wired here — for a deep-interior
+                // shift the SPD V-cycle would itself need an absolute-value
+                // variant (issue #531), so the first cut is abs-Jacobi only.
+                let op = ShiftedMatrixFreeOp::new(k, m, self.sigma).with_abs_diag();
+                let max_iters = (k.nrows() * INNER_MAX_ITER_FACTOR).max(64);
+                Ok(InnerBackend::MatrixFreeIndefinite {
                     op,
                     tol: self.inner_tol(),
                     max_iters,
@@ -1596,5 +1823,153 @@ mod tests {
             "matrix-free CG residual too large: {:.3e}",
             rnorm / bnorm
         );
+    }
+
+    // -------------------------------------------------------------------
+    // Interior / indefinite matrix-free inner solve — MINRES (issue #535).
+    // -------------------------------------------------------------------
+
+    /// Regression guard: the default inner-solve backend is the SPD direct LU
+    /// path — the indefinite MINRES variant must be purely additive/opt-in and
+    /// must NOT become the default.
+    #[test]
+    fn default_inner_is_direct() {
+        assert_eq!(
+            SparseShiftInvertLanczos::default().inner,
+            InnerSolver::Direct
+        );
+    }
+
+    /// Unit test of the indefinite inner solver in isolation (no outer
+    /// Lanczos): with an **interior** shift `(K − σM)` is genuinely
+    /// symmetric-indefinite (we assert its diagonal carries negative entries,
+    /// proving the SPD CG path would break down), yet matrix-free MINRES with
+    /// the absolute-value Jacobi preconditioner drives the residual to the
+    /// requested tolerance.
+    #[test]
+    fn minres_solves_indefinite_system() {
+        let (k, m) = laplacian_pencil(50);
+        // Laplacian eigenvalues lie in (0, 4). σ = 2.5 sits INSIDE the
+        // spectrum, so K − σM = tridiag(-1, 2 - 2.5, -1) has diagonal
+        // 2 - 2.5 = -0.5 < 0 everywhere ⇒ indefinite.
+        let sigma = 2.5;
+        let op = ShiftedMatrixFreeOp::new(k.as_ref(), m.as_ref(), sigma).with_abs_diag();
+
+        // Signed diagonal K_ii − σM_ii = -0.5 < 0 ⇒ the plain (signed) Jacobi
+        // diagonal would be negative; the abs-Jacobi diagonal is +1/0.5 = 2.
+        let signed = ShiftedMatrixFreeOp::new(k.as_ref(), m.as_ref(), sigma);
+        assert!(
+            signed.inv_diag.iter().any(|&d| d < 0.0),
+            "expected a negative signed Jacobi diagonal (indefinite operator)"
+        );
+        for (i, &d) in op.inv_diag.iter().enumerate() {
+            assert!(
+                d > 0.0 && (d - 2.0).abs() < 1e-12,
+                "abs-Jacobi inv_diag[{i}] = {d}, want +2.0 (SPD preconditioner)"
+            );
+        }
+
+        // Solve (K − σM) y = b and verify the true residual is tiny.
+        let n = k.nrows();
+        let b: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.37).sin() + 0.5).collect();
+        let mut y = vec![0.0_f64; n];
+        let iters = minres_solve_matrix_free(&op, &b, &mut y, 1e-12, 4 * n).unwrap();
+        assert!(
+            iters > 0 && iters <= 4 * n,
+            "unexpected MINRES iters {iters}"
+        );
+
+        let mut ay = vec![0.0_f64; n];
+        op.apply(&y, &mut ay);
+        let bnorm = b.iter().map(|v| v * v).sum::<f64>().sqrt();
+        let rnorm = b
+            .iter()
+            .zip(ay.iter())
+            .map(|(bi, ai)| (bi - ai) * (bi - ai))
+            .sum::<f64>()
+            .sqrt();
+        assert!(
+            rnorm / bnorm < 1e-8,
+            "matrix-free MINRES residual too large: {:.3e}",
+            rnorm / bnorm
+        );
+    }
+
+    /// CORRECTNESS GATE (issue #535): the indefinite matrix-free variant
+    /// (`InnerSolver::MatrixFreeIndefinite`, MINRES) reproduces the direct
+    /// sparse-LU path's eigenvalues at an **interior** shift, where `(K − σM)`
+    /// is symmetric-indefinite and the SPD CG path is invalid. σ = 2.5 sits
+    /// inside the Laplacian spectrum `(0, 4)`.
+    #[test]
+    fn minres_matches_direct_interior_shift() {
+        let (k, m) = laplacian_pencil(40);
+        let sigma = 2.5;
+        let direct = SparseShiftInvertLanczos {
+            sigma,
+            max_iters: 80,
+            tol: 1e-9,
+            inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
+        };
+        let mf = SparseShiftInvertLanczos {
+            sigma,
+            max_iters: 80,
+            tol: 1e-9,
+            inner: InnerSolver::MatrixFreeIndefinite,
+            precond: InnerPreconditioner::Jacobi,
+        };
+
+        let ld = direct
+            .smallest_eigenvalues(k.as_ref(), m.as_ref(), 5)
+            .unwrap();
+        let lm = mf.smallest_eigenvalues(k.as_ref(), m.as_ref(), 5).unwrap();
+
+        assert_eq!(ld.len(), lm.len(), "mode count differs direct vs MINRES");
+        for (i, (d, f)) in ld.iter().zip(lm.iter()).enumerate() {
+            let rel = (d - f).abs() / d.abs().max(1.0);
+            assert!(
+                rel < 1e-6,
+                "interior eigenvalue[{i}] direct={d} MINRES={f} rel-diff={rel:.2e} > 1e-6"
+            );
+        }
+    }
+
+    /// EDGE CASE (issue #535): MINRES is a superset of CG on SPD systems, so
+    /// selecting the indefinite variant on an SPD (below-spectrum) shift must
+    /// still converge to the direct result — a guard against the indefinite
+    /// solver regressing the SPD case if a caller picks it there.
+    #[test]
+    fn minres_matches_direct_spd_below_shift() {
+        let (k, m) = laplacian_pencil(40);
+        // σ = -1.0 is below the whole spectrum ⇒ K − σM = K + I is SPD.
+        let sigma = -1.0;
+        let direct = SparseShiftInvertLanczos {
+            sigma,
+            max_iters: 64,
+            tol: 1e-10,
+            inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
+        };
+        let mf = SparseShiftInvertLanczos {
+            sigma,
+            max_iters: 64,
+            tol: 1e-10,
+            inner: InnerSolver::MatrixFreeIndefinite,
+            precond: InnerPreconditioner::Jacobi,
+        };
+
+        let ld = direct
+            .smallest_eigenvalues(k.as_ref(), m.as_ref(), 5)
+            .unwrap();
+        let lm = mf.smallest_eigenvalues(k.as_ref(), m.as_ref(), 5).unwrap();
+
+        assert_eq!(ld.len(), lm.len());
+        for (i, (d, f)) in ld.iter().zip(lm.iter()).enumerate() {
+            let rel = (d - f).abs() / d.abs().max(1.0);
+            assert!(
+                rel < 1e-6,
+                "SPD eigenvalue[{i}] direct={d} MINRES={f} rel-diff={rel:.2e} > 1e-6"
+            );
+        }
     }
 }
