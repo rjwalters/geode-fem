@@ -7,12 +7,12 @@
 //! sites unchanged.
 //!
 //! What stays in `geode-validation` is the *diff artifact* — the
-//! [`ComparisonReport`](crate::ComparisonReport) producing comparison entry
+//! [`ComparisonReport`] producing comparison entry
 //! points. Because [`Fixture`] is now a foreign type, the orphan rule
 //! forbids keeping `compare_against` / `compare_complex_against` as inherent
 //! methods on it; they live here as free functions ([`compare_against`],
-//! [`compare_complex_against`]) wrapping [`crate::diff::compare`] /
-//! [`crate::diff::compare_complex`].
+//! [`compare_complex_against`]) wrapping the crate-internal `diff::compare` /
+//! `diff::compare_complex`.
 
 use std::collections::BTreeMap;
 
