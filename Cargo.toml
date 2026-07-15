@@ -46,6 +46,13 @@ criterion = "0.5"
 # does not by itself parallelize any hot loop that regresses under rayon.
 faer = { version = "0.24", default-features = false, features = ["std", "linalg", "rayon"] }
 mshio = "0.4"
+# Direct rayon dependency for host-side assembly parallelism (issue #522).
+# faer pulls rayon in transitively for its factorization, but the FEM
+# assembler's serial host loops (`NedelecScatterMap::new`,
+# `sparsity_pattern_from_tet_edges`) need to drive rayon themselves. Gated in
+# geode-core behind the `faer-parallel` feature so `--no-default-features`
+# stays strictly single-threaded.
+rayon = "1"
 num-complex = { version = "0.4", default-features = false, features = ["std"] }
 pkg-config = "0.3"
 regex = "1"

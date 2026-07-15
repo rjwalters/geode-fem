@@ -90,6 +90,53 @@ pub fn resolve_num_threads() -> usize {
     }
 }
 
+/// Run `f` on a scoped rayon thread pool of exactly `n_threads` workers,
+/// returning its result.
+///
+/// This is the host-side counterpart to [`ParallelismGuard`]: where the guard
+/// scopes faer's *process-global* parallelism around the sparse factorization,
+/// this scopes *rayon's* worker count around a block of data-parallel host
+/// work (the FEM assembler's index/pattern construction, issue #522). Building
+/// a dedicated pool — rather than relying on rayon's implicit global pool —
+/// means a single `GEODE_NUM_THREADS` knob (via [`resolve_num_threads`])
+/// controls the assembly thread count deterministically, independent of
+/// however many cores rayon's global pool would otherwise grab.
+///
+/// `f` is **always** run inside a freshly built pool of exactly
+/// `n_threads.max(1)` workers — including the `n_threads == 1` case, which
+/// yields a single-worker pool that runs the (rayon-based) closure serially.
+/// This is deliberate: any rayon parallel iterator inside `f` that is *not*
+/// wrapped in a pool would otherwise escape to rayon's implicit global pool
+/// (all machine cores), so a naive "n <= 1 ⇒ just call f()" shortcut would
+/// silently ignore the `GEODE_NUM_THREADS=1` cap and run fully parallel. A
+/// one-thread pool makes `n_threads` a hard cap at every count, which is what
+/// the strong-scaling measurement and the serial correctness baseline require.
+///
+/// The parallel work inside `f` must be *order-preserving* (rayon collect /
+/// `flat_map_iter`) so its result is bit-for-bit identical at any thread count
+/// — the assembler builds only integer index vectors, so there is no
+/// floating-point reduction whose order could change.
+///
+/// Only compiled when the `faer-parallel` feature is on (which also pulls in
+/// the `rayon` dependency); the serial build never references it.
+#[cfg(feature = "faer-parallel")]
+pub fn install_on_pool<R, F>(n_threads: usize, f: F) -> R
+where
+    R: Send,
+    F: FnOnce() -> R + Send,
+{
+    match rayon::ThreadPoolBuilder::new()
+        .num_threads(n_threads.max(1))
+        .build()
+    {
+        Ok(pool) => pool.install(f),
+        // A pool-construction failure is non-fatal: fall back to running the
+        // (order-preserving) closure on the ambient pool. The result is
+        // identical — only the thread-count cap is lost.
+        Err(_) => f(),
+    }
+}
+
 /// Pure parse of the `GEODE_NUM_THREADS` value, split out so it can be
 /// unit-tested without mutating the process environment (this crate denies
 /// `unsafe_code`, and edition-2024 `env::set_var` is `unsafe`).

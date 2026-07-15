@@ -297,6 +297,86 @@ fn synthetic_reactive_shunt_end_to_end() {
     );
 }
 
+/// Cross-thread **assembly** agreement (issue #522).
+///
+/// The host-side assembler (`NedelecScatterMap::new` — its sparsity pattern
+/// and per-`(e, i, j)` slot loop) is now parallelized with rayon. This is the
+/// assembly counterpart to the eigensolve's `eigenvalues_agree_across_thread_counts`
+/// gate: the parallel scatter map is emitted in a fixed `(element, i, j)`
+/// order and the pattern is the same sorted unique set at any thread count, so
+/// every integer index — and therefore every assembled `[nnz]` K/M value — must
+/// be **bit-for-bit identical** across thread counts. A parallel reduction that
+/// reordered anything would show up here as a mismatch. There is no
+/// floating-point reduction in the index path, so this is an exact equality
+/// gate, not a tolerance.
+#[test]
+fn assembly_agrees_across_thread_counts() {
+    let fx = synthetic_fixture(4);
+
+    // Build the scatter map serially (1 thread) and in parallel (4 threads).
+    let scatter_1 = NedelecScatterMap::new_with_threads(&fx.tet_edge_idx, 1);
+    let scatter_4 = NedelecScatterMap::new_with_threads(&fx.tet_edge_idx, 4);
+
+    // 1. The sparsity pattern must be identical (same sorted unique pairs).
+    assert_eq!(
+        scatter_1.pattern().rows,
+        scatter_4.pattern().rows,
+        "pattern rows differ across thread counts"
+    );
+    assert_eq!(
+        scatter_1.pattern().cols,
+        scatter_4.pattern().cols,
+        "pattern cols differ across thread counts"
+    );
+    assert_eq!(
+        scatter_1.nnz(),
+        scatter_4.nnz(),
+        "pattern nnz differs across thread counts"
+    );
+
+    // The standalone pattern entry point must agree with the map's, too.
+    let pat_serial = geode_core::assembly::nedelec::sparsity_pattern_from_tet_edges_with_threads(
+        &fx.tet_edge_idx,
+        1,
+    );
+    let pat_par = geode_core::assembly::nedelec::sparsity_pattern_from_tet_edges_with_threads(
+        &fx.tet_edge_idx,
+        4,
+    );
+    assert_eq!(
+        pat_serial.rows, pat_par.rows,
+        "standalone pattern rows differ"
+    );
+    assert_eq!(
+        pat_serial.cols, pat_par.cols,
+        "standalone pattern cols differ"
+    );
+    assert_eq!(pat_serial.rows, scatter_1.pattern().rows);
+
+    // 2. The assembled [nnz] K/M value vectors must be bit-for-bit identical.
+    let (k1, m1) =
+        assemble_real_pencil(&fx.mesh, &fx.tet_edge_sign, &scatter_1, &fx.epsilon_tensor);
+    let (k4, m4) =
+        assemble_real_pencil(&fx.mesh, &fx.tet_edge_sign, &scatter_4, &fx.epsilon_tensor);
+
+    assert_eq!(k1.len(), k4.len(), "K nnz mismatch across thread counts");
+    assert_eq!(m1.len(), m4.len(), "M nnz mismatch across thread counts");
+    for (i, (a, b)) in k1.iter().zip(k4.iter()).enumerate() {
+        assert_eq!(
+            a.to_bits(),
+            b.to_bits(),
+            "K value slot {i} differs across thread counts: {a} vs {b}"
+        );
+    }
+    for (i, (a, b)) in m1.iter().zip(m4.iter()).enumerate() {
+        assert_eq!(
+            a.to_bits(),
+            b.to_bits(),
+            "M value slot {i} differs across thread counts: {a} vs {b}"
+        );
+    }
+}
+
 /// As [`solve_synthetic`] but through the matrix-free inner-solve entry
 /// point [`solve_transmon_eigenmodes_with_inner`] with
 /// [`InnerSolver::MatrixFree`] (issue #524).

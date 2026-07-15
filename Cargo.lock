@@ -3190,6 +3190,7 @@ dependencies = [
  "geode-util",
  "mshio",
  "pkg-config",
+ "rayon",
  "regex",
  "serde_json",
  "thiserror 2.0.18",

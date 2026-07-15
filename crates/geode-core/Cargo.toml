@@ -24,6 +24,10 @@ bunsen = { workspace = true }
 faer = { workspace = true, features = ["sparse-linalg"] }
 mshio = { workspace = true }
 thiserror = { workspace = true }
+# Host-side assembly parallelism (issue #522). Optional and enabled by the
+# `faer-parallel` feature so `--no-default-features` builds a strictly
+# single-threaded assembler alongside the single-threaded faer factorization.
+rayon = { workspace = true, optional = true }
 # Backend-name matching for `testing::device_tolerances` (find/`is_match`
 # semantics over `Backend::name`). Only pulled in under the `testing`
 # feature; not part of the default solver build.
@@ -54,7 +58,13 @@ default = ["faer-parallel"]
 # `--no-default-features` to build a strictly single-threaded faer (the guard
 # then compiles to a no-op and the eigensolve runs serial regardless of
 # `GEODE_NUM_THREADS`).
-faer-parallel = ["faer/rayon"]
+#
+# Also pulls in the direct `rayon` dependency and gates the parallel arms of
+# the host-side FEM assembler (`NedelecScatterMap::new`,
+# `sparsity_pattern_from_tet_edges`; issue #522). With this feature off the
+# assembler compiles to its original serial loops, so `--no-default-features`
+# yields a strictly single-threaded build for the correctness-gate baseline.
+faer-parallel = ["faer/rayon", "dep:rayon"]
 
 wgpu = ["burn/wgpu"]
 cuda = ["burn/cuda"]
