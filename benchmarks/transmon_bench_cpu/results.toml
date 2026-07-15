@@ -9,31 +9,170 @@
 # described in [hardware]/[software]. Timing = /usr/bin/time wall clock over
 # the FULL pipeline (mesh load + assembly + solve + output). Memory = peak
 # resident set size (RSS) from /usr/bin/time (maximum resident set, kB).
+#
+# ---------------------------------------------------------------------------
+# AUTHORITATIVE SOURCE — READ THIS FIRST (issue #523):
+#   The [matched] tables below are the DEFENSIBLE numbers: a same-box,
+#   same-session, MATCHED-WORKLOAD head-to-head where BOTH solvers ran the
+#   identical mesh at the identical eigen-problem (same N modes, same target
+#   GHz), and BOTH were sampled at 1 and 8 cores/ranks. They supersede the
+#   legacy [geode_fem]/[palace_8ranks]/[palace_4ranks] blocks that follow,
+#   which paired geode-serial against Palace-multirank at an unstated mode
+#   count. The legacy blocks are RETAINED (not deleted) only because the
+#   arXiv paper (papers/transmon-benchmark/) currently cites them verbatim in
+#   Table 3 and fig4_cpu_wallclock.py; the paper's CPU cell will be migrated
+#   to the [matched] framing (per-core efficiency + target-robustness +
+#   memory crossover) in a separate anvil:pub-revise pass — do NOT re-derive
+#   the paper prose from the legacy blocks.
+# ---------------------------------------------------------------------------
 
 [meta]
-description = "CPU-cell head-to-head: geode-fem serial (faer sparse-LU shift-invert Lanczos) vs Palace distributed (MPI Krylov + AMS) on the identical sha-pinned transmon eigenmode fixture. Full-pipeline wall clock + peak RSS, measured on one EC2 instance 2026-07-14. Performance companion to benchmarks/transmon_eigen/results.toml (which carries the eigenvalue agreement)."
+description = "CPU-cell head-to-head: geode-fem (faer sparse-LU shift-invert Lanczos, direct) vs Palace (distributed MPI Krylov + AMS, iterative) on the identical sha-pinned transmon eigenmode fixture. Full-pipeline wall clock + peak RSS, measured on one EC2 instance 2026-07-14. AUTHORITATIVE data is the [matched.*] tables (same-box, same-session, matched-workload, both solvers at 1 and 8 cores). Legacy [geode_fem]/[palace_*ranks] blocks retained for the paper's current Table 3 citation only. Performance companion to benchmarks/transmon_eigen/results.toml (which carries the eigenvalue agreement)."
 measured_date = "2026-07-14"
 timing = "/usr/bin/time wall clock, full pipeline (mesh load + assembly + solve + output)"
 memory = "peak resident set size (RSS), maximum-resident-set from /usr/bin/time"
+authoritative = "matched"   # the [matched.*] tables are the defensible numbers; see header
 
 [hardware]
 instance = "m6i.4xlarge"
 physical_cores = 8
 vcpus = 16          # 16 vCPU = 8 physical cores + hyperthreads
-memory_gb = 64
+memory_gb = 61      # usable RAM on the box (~61 GB; the large-scale geode run OOM-killed at 63.9 GB peak)
 region = "us-west-2"
 os = "Ubuntu 22.04.5"
 
 [software]
-geode_commit = "3174015"        # release build
+geode_commit = "3174015"        # release build (cargo build --release)
 palace_commit = "fba6a5b"       # built from source
 palace_build = "cmake 3.30.5 (from source)"
+geode_num_threads_note = "geode 1-core runs set GEODE_NUM_THREADS=1; 8-core runs set GEODE_NUM_THREADS=8 (rayon worker cap for assembly + the faer factorization's internal parallelism)."
 mesh = "the sha-pinned transmon fixture (crates/geode-core/tests/fixtures/transmon_smoke.msh)"
 mesh_sha256 = "5b3ff4c357a4dc905e7a2e42abc8178778b626e47582c7bbe610f95d332b33dd"
-mesh_note = "Palace runs consume the MSH 2.2 conversion of this fixture (MFEM's MSH 4.1 reader rejects the committed file — see reference/fixtures/transmon_palace/palace_config.provenance.txt); the conversion is node-preserving and physics-neutral."
+mesh_note = "Palace runs consume the MSH 2.2 conversion of this fixture (MFEM's MSH 4.1 reader rejects the committed file — see reference/fixtures/transmon_palace/palace_config.provenance.txt); the conversion is node-preserving and physics-neutral (22684 nodes, 1..22684; eig.csv reproduces bit-for-bit)."
+palace_config = "reference/fixtures/transmon_palace/palace_config.json (Order 1, matches geode first-order Nedelec); Solver.Eigenmode = { Type = Eigenmode, Tol = 1e-8, MaxIts = 200 }; junction = LumpedPort idx 1 (L = 1.486e-8 H, C = 5.5e-15 F, +Y, attr 4, reactive-only); PEC = attrs 5,3."
+methodology = "/usr/bin/time -v over the full solver invocation; wall = elapsed (wall clock) time; peak RSS = maximum resident set size (kB). geode timed via /usr/bin/time on the release binary; Palace timed via /usr/bin/time on `mpirun -np <ranks> palace <config>` (RSS reported is the per-rank MAXIMUM single-process RSS, NOT an aggregate across ranks)."
+
+# ===========================================================================
+# AUTHORITATIVE — matched same-box, same-session, matched-workload tables.
+# Both solvers, both core counts, identical mesh + identical eigen-problem.
+# ===========================================================================
+
+# ---- PHYSICAL TARGET: 6 modes @ 4.5 GHz (the real transmon problem). --------
+# Palace config: Solver.Eigenmode.N = 6, Target = 4.5, Save = 6, Order = 1.
+[matched.physical_target]
+problem = "6 eigenmodes, target 4.5 GHz (the physical transmon operating point)"
+palace_eigen_n = 6
+palace_target_ghz = 4.5
+palace_save = 6
+n_interior_dofs = 133108
+n = 3   # each timing below is the mean of n=3 runs on the same box/session
+
+  [matched.physical_target.geode_1thread]
+  cores = 1
+  geode_num_threads = 1
+  mode = "serial faer sparse-LU shift-invert Lanczos (direct)"
+  wall_s = 28.7
+  peak_rss_gb = 3.1
+
+  [matched.physical_target.geode_8threads]
+  cores = 8
+  geode_num_threads = 8
+  mode = "faer sparse-LU shift-invert Lanczos (direct), 8-thread"
+  wall_s = 29.0   # ~no speedup over 1-thread at the physical target — see #518
+  peak_rss_gb = 3.1
+
+  [matched.physical_target.palace_np1]
+  ranks = 1
+  mode = "MPI Krylov + AMS (iterative), 1 rank"
+  wall_s = 130.9
+  peak_rss_gb_per_rank = 0.5
+
+  [matched.physical_target.palace_np8]
+  ranks = 8
+  mode = "distributed MPI Krylov + AMS (iterative), 8 ranks"
+  wall_s = 44.5
+  peak_rss_gb_per_rank = 0.5
+
+# ---- OFF-TARGET: 12 modes @ 20 GHz (broadband / high-freq window). ----------
+# Same solvers, target moved far off the physical operating point. Palace's
+# iterative Krylov+AMS degrades far from a well-chosen target; geode's direct
+# shift-invert is target-insensitive (see [notes.target_sensitivity]).
+[matched.off_target]
+problem = "12 eigenmodes, target 20 GHz (broadband / high-frequency window, far off the physical operating point)"
+palace_eigen_n = 12
+palace_target_ghz = 20.0
+n = 3
+
+  [matched.off_target.geode_1thread]
+  cores = 1
+  geode_num_threads = 1
+  mode = "serial faer sparse-LU shift-invert Lanczos (direct)"
+  wall_s = 36.8
+
+  [matched.off_target.geode_8threads]
+  cores = 8
+  geode_num_threads = 8
+  mode = "faer sparse-LU shift-invert Lanczos (direct), 8-thread"
+  wall_s = 26.6
+
+  [matched.off_target.palace_np1]
+  ranks = 1
+  mode = "MPI Krylov + AMS (iterative), 1 rank"
+  wall_s = 248.0
+
+  [matched.off_target.palace_np8]
+  ranks = 8
+  mode = "distributed MPI Krylov + AMS (iterative), 8 ranks"
+  wall_s = 64.7
+
+# ---- LARGE-SCALE CROSSOVER: ~1.16M interior DOF (uniformly refined). --------
+# gmsh -refine ×8 of the fixture (physics-neutral uniform refinement of the
+# element count). The IDENTICAL refined mesh ran through both solvers at the
+# physical target (6 modes @ 4.5 GHz). This is the measured memory/speed
+# CROSSOVER: geode's direct factorization fill-in hits a hard memory wall and
+# is OOM-killed on the 61 GB box; Palace's iterative solver completes with
+# ~4 GB/rank (just slower). See [notes.memory_speed_crossover].
+[matched.large_scale]
+problem = "6 eigenmodes, target 4.5 GHz, on the gmsh -refine ×8 (×8 element-count) uniform refinement of the fixture"
+mesh_refine = "gmsh -refine (uniform, physics-neutral element-count ×8 of the transmon fixture)"
+n_interior_dofs = 1157564   # 1,157,564 interior DOF
+n_nodes = 179000            # ~179k nodes
+n_tets = 1130000            # ~1.13M tetrahedra
+palace_eigen_n = 6
+palace_target_ghz = 4.5
+
+  [matched.large_scale.geode]
+  ranks = 1
+  mode = "direct faer sparse-LU shift-invert (Lanczos)"
+  outcome = "OOM-killed (SIGKILL, exit 137) at ~3.5 min — direct-factorization fill-in exceeded the 61 GB box"
+  exit_code = 137
+  peak_rss_kb = 63867824      # 63.9 GB peak RSS before SIGKILL (from geode_big_results.txt)
+  peak_rss_gb = 63.9
+  wall_note = "never completed (killed at ~3.5 min); no wall time recorded"
+
+  [matched.large_scale.palace]
+  ranks = 8
+  mode = "distributed MPI Krylov + AMS (iterative)"
+  outcome = "completed"
+  exit_code = 0
+  wall_s = 423.12             # 7:03.12 elapsed (from palace_big_results.txt)
+  peak_rss_kb = 4132104       # 4.1 GB/rank (per-rank max single-process RSS)
+  peak_rss_gb_per_rank = 4.1
+
+  [matched.large_scale.raw_logs]
+  geode = "geode_big_results.txt (exit=137, maximum resident set 63867824 kB)"
+  palace = "palace_big_results.txt (exit=0, elapsed 7:03.12, maximum resident set 4132104 kB)"
+
+# ===========================================================================
+# LEGACY blocks — retained ONLY for the paper's current Table 3 / fig4 citation
+# (unstated mode count; pre-matched-session). SUPERSEDED by [matched.*] above.
+# Do not re-derive paper prose from these; see header + [notes].
+# ===========================================================================
 
 # ---- geode-fem: single process, serial. -------------------------------------
 [geode_fem]
+legacy = true
+superseded_by = "matched.physical_target.geode_1thread"
 processes = 1
 mode = "serial faer sparse-LU shift-invert Lanczos"
 n_interior_dofs = 133108
@@ -46,6 +185,8 @@ peak_rss_gb = 3.1         # ≈ 3.1 GB peak RSS
 
 # ---- Palace: 8 MPI ranks (one rank per physical core). ----------------------
 [palace_8ranks]
+legacy = true
+superseded_by = "matched.physical_target.palace_np8"
 processes = 8
 mode = "distributed MPI Krylov + AMS"
 runs_s = [30.42, 30.61, 30.68]
@@ -58,6 +199,7 @@ max_single_process_rss_gb = 0.5   # ≈ 0.5 GB per-rank max (not aggregate)
 
 # ---- Palace: 4 MPI ranks (single sample). -----------------------------------
 [palace_4ranks]
+legacy = true
 processes = 4
 mode = "distributed MPI Krylov + AMS"
 wall_s = 50.84
@@ -71,22 +213,50 @@ excluded = true
 reason = "mpirun binding refused on 8 physical cores (16 ranks would oversubscribe hyperthreads); recorded as excluded, not measured."
 
 [notes]
-# Per-core efficiency reading (honest, not a headline claim):
-#   geode-fem serial (1 core):  51.2 s
-#   Palace 8 ranks (8 cores):   30.6 s  → 1.7× faster on the whole box,
-#     but 8× the cores, so geode-fem is ≈ 4× more efficient PER CORE
-#     (51.2 / (30.6 × 8) ≈ 4.4× core-seconds advantage; Palace 4-rank
-#     50.84 s ≈ geode-fem serial, i.e. Palace needs ~4 cores to match one
-#     geode-fem core on this problem).
-# Architecture trade-off (the honest framing, NOT a winner declaration):
-#   geode-fem uses a SERIAL DIRECT sparse factorization (faer LU shift-invert
-#   Lanczos) — no partitioning, no communication, high per-core throughput,
-#   but single-process memory (≈ 3.1 GB) and no strong scaling past one core.
-#   Palace uses a DISTRIBUTED Krylov + AMS iterative solve — it scales across
-#   ranks (lower per-rank memory ≈ 0.5 GB, faster whole-box wall time) at the
-#   cost of MPI communication and iterative-solver overhead. Neither is
-#   uniformly "better"; the numbers characterize a direct-vs-iterative,
-#   serial-vs-distributed trade-off on this 133k-DOF problem.
-per_core_efficiency = "geode-fem serial ≈ 4× more efficient per core; Palace ≈ 1.7× faster on the full box (8×  the cores)"
-architecture = "geode-fem: serial direct sparse-LU factorization (high per-core throughput, single-process ≈ 3.1 GB, no strong scaling). Palace: distributed MPI Krylov + AMS (scales across ranks, ≈ 0.5 GB per-rank, MPI + iterative overhead)."
+# --- Target-sensitivity finding (FIRST-CLASS RESULT, issue #523 scope 2) -----
+# geode's direct sparse-LU shift-invert is TARGET-INSENSITIVE: the cost of a
+# single sparse factorization at the shift does not depend on how far the
+# target sits from a "good" operating point, so moving 6@4.5GHz → 12@20GHz
+# barely changes geode's wall time (28.7 s → 36.8 s at 1 core; 29.0 s →
+# 26.6 s at 8 threads). Palace's iterative Krylov+AMS DEGRADES far off-target:
+# a poorly-placed shift slows convergence, so Palace's wall time balloons
+# (130.9 s → 248 s at np1; 44.5 s → 64.7 s at np8). This is why the geode
+# advantage WIDENS off-target (Palace/geode ≈ 6.7× serial and ≈ 2.4× at
+# 8-wide off-target, vs a more modest on-target gap) rather than being a
+# fixed multiplier.
+target_sensitivity = "geode direct sparse-LU shift-invert is target-insensitive (factorization cost independent of target placement); Palace iterative Krylov+AMS degrades far off-target (slower convergence at a poorly-placed shift). Hence the off-target gap (≈2.4-6.7×) exceeds the on-target gap."
+
+# --- Memory/speed crossover (FIRST-CLASS RESULT, issue #523 scope 3) ---------
+# geode's DIRECT factorization trades memory for speed + target-insensitivity:
+# it is faster wall-clock on small–medium problems (28.7 s on 1 core beats
+# Palace's 44.5 s on 8 ranks at 133k DOF), but its factorization fill-in grows
+# super-linearly and hits a HARD MEMORY WALL — at ~1.16M interior DOF it OOMs
+# on a 61 GB box (63.9 GB peak, exit 137). Palace's ITERATIVE solver scales
+# with low, roughly rank-flat memory (~4 GB/rank at 1.16M DOF) and completes
+# (423 s, np8), just slower on the small case. geode's advantage is therefore
+# SCALE-BOUNDED. The geode scale path (to remove the memory wall, NOT to beat
+# Palace's wall time) is the matrix-free eigensolver (#524) plus an AMS-style
+# H(curl) preconditioner (#526) — an iterative inner solve that avoids the
+# direct-factorization fill-in.
+memory_speed_crossover = "geode direct factorization is faster small–medium (28.7 s/3.1 GB @ 133k DOF beats Palace 44.5 s @ 8 ranks) but OOMs at ~1.16M DOF (63.9 GB peak, exit 137 on a 61 GB box); Palace iterative scales with low per-rank memory (~4 GB/rank) and completes (423 s). Crossover is memory-bound. geode scale path: matrix-free eigensolver (#524) + AMS H(curl) preconditioner (#526)."
+
+# --- Per-core efficiency reading (honest, not a headline claim) --------------
+#   At the physical target (6 modes @ 4.5 GHz), matched session:
+#     geode 1 thread   28.7 s  (28.7 core-s)
+#     geode 8 threads  29.0 s  (~no speedup — see #518)
+#     Palace np1      130.9 s
+#     Palace np8       44.5 s  (356.0 core-s)
+#   geode on ONE core (28.7 s) beats Palace on EIGHT ranks (44.5 s) in absolute
+#   wall clock, and consumes ~12× fewer core-seconds (28.7 vs 356) — expressed
+#   as a per-core-efficiency win, NOT a "we parallelized better" claim (geode's
+#   8-thread run gives ~no speedup at the physical target; see #518).
+per_core_efficiency = "At the physical target, geode serial (1 core, 28.7 s) beats Palace on 8 ranks (44.5 s) in absolute wall clock; geode consumes ~12× fewer core-seconds. This is a per-core-efficiency + direct-vs-iterative result, NOT a parallelization claim — geode 8-thread gives ~no speedup at the physical target (#518)."
+
+# --- Architecture trade-off (the honest framing, NOT a winner declaration) ---
+architecture = "geode-fem: DIRECT sparse-LU shift-invert Lanczos — high per-core throughput, target-insensitive, single-process memory that grows with factorization fill-in (3.1 GB @ 133k DOF → OOM @ ~1.16M DOF). Palace: DISTRIBUTED MPI Krylov + AMS iterative — scales across ranks with low per-rank memory (0.5 GB @ 133k → 4.1 GB/rank @ 1.16M), target-sensitive, but completes at large scale where the direct path OOMs. Neither is uniformly better: geode wins small–medium on speed/efficiency/robustness; Palace wins at scale on memory."
+
+# --- Correctness pointer (NOT measured here) ---------------------------------
 eigenvalue_agreement = "Correctness is NOT measured here — see benchmarks/transmon_eigen/results.toml: every geode-fem physical mode agrees with Palace to ≤0.032% on this identical mesh (≤1% bar met with 25× margin)."
+
+# --- Paper-prose migration note (do NOT edit paper prose in this data PR) -----
+paper_prose_note = "The paper's CPU-cell prose (papers/transmon-benchmark/) should be migrated to the [matched.*] framing — per-core efficiency + target-robustness + memory crossover — in a separate anvil:pub-revise pass. It must NOT claim 'we parallelized better' (#518 8-thread gave ~no speedup at the physical target). This data PR intentionally leaves paper prose and fig4_cpu_wallclock.py untouched; the legacy blocks above remain so the current citation stays valid until that revise pass lands."
