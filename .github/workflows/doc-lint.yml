@@ -31,11 +31,15 @@ env:
 
 jobs:
   doc:
-    name: cargo doc -p geode-core (-D warnings)
+    name: cargo doc --workspace (-D warnings)
     runs-on: ubuntu-latest
-    # Doc build of a single crate (twice, with/without arpack). A 10-min
-    # cap bounds queue-wait while leaving room for a cold dependency
-    # build (issue #354).
+    # Doc build of the whole workspace (default features), plus a second
+    # geode-core-only build with arpack. The workspace build was
+    # previously scoped to `-p geode-core`, which let geode-validation
+    # drift to broken intra-doc links unnoticed (the exact silent-drift
+    # this gate exists to prevent) — so the default build now covers all
+    # crates. A 10-min cap bounds queue-wait while leaving room for a
+    # cold dependency build (issue #354).
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -57,10 +61,10 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-doc-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build docs (CPU backend)
+      - name: Build docs (workspace, CPU backend)
         run: |
-          cargo doc -p geode-core --no-deps
+          cargo doc --workspace --no-deps
 
-      - name: Build docs (--features arpack, CPU backend)
+      - name: Build docs (geode-core --features arpack, CPU backend)
         run: |
           cargo doc -p geode-core --no-deps --features arpack
