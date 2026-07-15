@@ -510,6 +510,7 @@ fn solve_transmon_eigenmodes_reindexed(
         max_iters: 96,
         tol: 1e-8,
         inner,
+        precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
     };
     let pairs = solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), n_modes)?;
 
@@ -521,6 +522,115 @@ fn solve_transmon_eigenmodes_reindexed(
             participation: junction_participation(&k_red, &k_port_red, &pair.vector),
         })
         .collect())
+}
+
+/// Matrix-free transmon eigensolve with an explicit inner-CG preconditioner,
+/// returning the modes **and the total inner-CG iteration count** (issue #526).
+///
+/// Builds the plain PEC-interior reduced pencil `(K + K_port, M + M_port)` (the
+/// same ungauged reindex [`solve_transmon_eigenmodes_with_inner`] uses), the
+/// discrete gradient `G = d⁰_interior`, and runs the matrix-free shift-invert
+/// Lanczos with the requested [`crate::eigen::lanczos::InnerPreconditioner`].
+/// The returned iteration
+/// count is summed across every outer Lanczos step's inner
+/// `(K − σM)⁻¹` CG solve — the quantity the preconditioner controls, used to
+/// measure the AMS-lite vs Jacobi iteration reduction.
+///
+/// This is always the [`InnerSolver::MatrixFree`] path (the direct LU backend
+/// has no inner iteration). Place `sigma` **below** the spectrum so `(K − σM)`
+/// is SPD (see [`InnerSolver`]).
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly, the AMS build (nodal
+/// `Gᵀ(K−σM)G` LU), or the matrix-free Lanczos solve.
+pub fn solve_transmon_eigenmodes_matrix_free_inner_iters(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    precond: crate::eigen::lanczos::InnerPreconditioner,
+) -> Result<(Vec<ModeReport>, usize), EigenError> {
+    let n_edges = pencil.edges.len();
+    assert_eq!(
+        pencil.interior_mask.len(),
+        n_edges,
+        "interior mask length must equal edge count"
+    );
+
+    // Plain PEC interior reindex (identical to the ungauged path).
+    let mut interior_index = vec![None; n_edges];
+    let mut dim = 0usize;
+    for (e, &keep) in pencil.interior_mask.iter().enumerate() {
+        if keep {
+            interior_index[e] = Some(dim);
+            dim += 1;
+        }
+    }
+    if dim == 0 {
+        return Err(EigenError::FaerGevd(
+            "no interior DOFs after PEC reduction".into(),
+        ));
+    }
+
+    let pattern = pencil.scatter.pattern();
+    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
+    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
+
+    let k_port = pencil.shunt.k_port_triplets(pencil.mesh, pencil.edges);
+    let m_port = pencil.shunt.m_port_triplets(pencil.mesh, pencil.edges);
+
+    let k_red = assemble_reduced_real(
+        &pattern.rows,
+        &pattern.cols,
+        pencil.k_vals,
+        &k_port,
+        &interior_index,
+        dim,
+    )?;
+    let m_red = assemble_reduced_real(
+        &pattern.rows,
+        &pattern.cols,
+        pencil.m_vals,
+        &m_port,
+        &interior_index,
+        dim,
+    )?;
+    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, &interior_index, dim)?;
+
+    // G = d⁰_interior — the AMS auxiliary-space prolongation. Only consumed by
+    // the AMS preconditioner; the Jacobi path ignores it.
+    let gradient = crate::eigen::projection::InteriorGradient::build(
+        pencil.edges,
+        pencil.interior_mask,
+        &interior_index,
+        pencil.mesh.n_nodes(),
+        dim,
+    );
+
+    let solver = SparseShiftInvertLanczos {
+        sigma,
+        max_iters: 96,
+        tol: 1e-8,
+        inner: InnerSolver::MatrixFree,
+        precond,
+    };
+    let (pairs, inner_iters) = solver.smallest_eigenpairs_inner_iters(
+        k_red.as_ref(),
+        m_red.as_ref(),
+        n_modes,
+        Some(&gradient),
+    )?;
+
+    let modes = pairs
+        .iter()
+        .map(|pair| ModeReport {
+            lambda: pair.lambda,
+            frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
+            participation: junction_participation(&k_red, &k_port_red, &pair.vector),
+        })
+        .collect();
+    Ok((modes, inner_iters))
 }
 
 /// Junction participation `p = (xᵀ K_port x) / (xᵀ (K + K_port) x)`.

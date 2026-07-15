@@ -125,10 +125,49 @@ pub enum InnerSolver {
     #[default]
     Direct,
     /// Never form or factor `A`; solve `(K − σM) y = b` iteratively with
-    /// matrix-free Jacobi-preconditioned CG. `O(N)` memory; the path that
+    /// matrix-free preconditioned CG. `O(N)` memory; the path that
     /// scales past the direct factorization's memory wall (issue #524).
-    /// Requires `(K − σM)` SPD (place `σ` below the spectrum).
+    /// Requires `(K − σM)` SPD (place `σ` below the spectrum). The inner-CG
+    /// preconditioner is selected by [`InnerPreconditioner`] (Jacobi default;
+    /// AMS-lite opt-in, issue #526).
     MatrixFree,
+}
+
+/// Preconditioner for the matrix-free inner CG (issue #526).
+///
+/// Only meaningful when [`InnerSolver::MatrixFree`] is selected — the direct
+/// LU path ignores it. The two options trade build cost against inner-CG
+/// iteration count on the ill-conditioned H(curl) curl-curl shifted pencil.
+///
+/// # Why AMS
+///
+/// The Nédélec curl-curl stiffness `K` has a large near-kernel equal to the
+/// gradient subspace `image(d⁰)` (`kernel(K) = image(d⁰)`). [`Jacobi`] (a
+/// diagonal scaling) is blind to those low-energy gradient error components,
+/// so on a fine mesh the inner CG converges far too slowly — the 1.16M-DOF
+/// transmon solve did not finish in 28 minutes with Jacobi (issue #526). The
+/// [`Ams`] option adds a Hiptmair–Xu auxiliary-space (nodal) coarse correction
+/// through the discrete gradient `G`, damping exactly that near-kernel and
+/// cutting the inner-CG iteration count dramatically. It requires the caller to
+/// supply `G` (via the `*_with_gradient` entry points); a `None` gradient falls
+/// back to Jacobi.
+///
+/// [`Jacobi`]: InnerPreconditioner::Jacobi
+/// [`Ams`]: InnerPreconditioner::Ams
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InnerPreconditioner {
+    /// Diagonal (Jacobi) preconditioner `D⁻¹`, `D = diag(K − σM)`. The #524
+    /// baseline: cheap to build, but slow on the ill-conditioned curl-curl
+    /// pencil because it cannot damp the gradient near-kernel.
+    #[default]
+    Jacobi,
+    /// AMS-lite (auxiliary-space Maxwell, Hiptmair–Xu): a symmetric two-level
+    /// V-cycle of a damped edge Jacobi smoother around a gradient-space nodal
+    /// coarse correction `G (Gᵀ A G)⁻¹ Gᵀ` (issue #526). Requires the discrete
+    /// gradient `G`; falls back to Jacobi if none is supplied. `O(N)` memory
+    /// (the coarse solve is node-indexed, `node_dim ≪ edge_dim`). See
+    /// [`crate::eigen::ams`].
+    Ams,
 }
 
 /// Sparse generalized-symmetric eigensolver via shift-and-invert Lanczos.
@@ -152,6 +191,11 @@ pub struct SparseShiftInvertLanczos {
     pub max_iters: usize,
     pub tol: f64,
     pub inner: InnerSolver,
+    /// Inner-CG preconditioner for the matrix-free path (issue #526). Ignored
+    /// by [`InnerSolver::Direct`]. Defaults to [`InnerPreconditioner::Jacobi`]
+    /// (the #524 behavior); [`InnerPreconditioner::Ams`] is opt-in and needs
+    /// the discrete gradient supplied via a `*_with_gradient` entry point.
+    pub precond: InnerPreconditioner,
 }
 
 impl Default for SparseShiftInvertLanczos {
@@ -161,6 +205,7 @@ impl Default for SparseShiftInvertLanczos {
             max_iters: 64,
             tol: 1e-9,
             inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
         }
     }
 }
@@ -293,8 +338,20 @@ struct ShiftedMatrixFreeOp<'a> {
     m: SparseColMatRef<'a, usize, f64>,
     sigma: f64,
     /// Jacobi inverse-diagonal `1 / (K_ii − σ M_ii)` (safe-guarded against
-    /// a zero pivot, which falls back to `1.0`).
+    /// a zero pivot, which falls back to `1.0`). Used both as the standalone
+    /// Jacobi preconditioner and as the edge smoother inside AMS-lite.
     inv_diag: Vec<f64>,
+    /// Optional AMS-lite preconditioner (issue #526). When present, [`precond`]
+    /// applies the auxiliary-space (gradient) coarse correction on top of the
+    /// edge Jacobi smoother; when `None`, plain Jacobi is used (the #524
+    /// baseline). Kept behind an `Option` so the matrix-free path stays
+    /// Jacobi-by-default and AMS is purely additive/opt-in.
+    ///
+    /// [`precond`]: ShiftedMatrixFreeOp::precond
+    ///
+    /// Boxed so the enclosing `MatrixFree` inner-backend variant stays small
+    /// (the AMS preconditioner carries a node-space LU).
+    ams: Option<Box<crate::eigen::ams::AmsLitePreconditioner>>,
 }
 
 /// Extract the main diagonal of a CSC matrix into `out` (length `n`).
@@ -336,7 +393,18 @@ impl<'a> ShiftedMatrixFreeOp<'a> {
             m,
             sigma,
             inv_diag,
+            ams: None,
         }
+    }
+
+    /// Attach an AMS-lite preconditioner (issue #526), replacing the plain
+    /// Jacobi preconditioner apply with the auxiliary-space (gradient)
+    /// two-level form. The AMS preconditioner already carries its own edge
+    /// Jacobi smoother (built from the same `K`, `M`, `σ`), so this is a
+    /// drop-in swap of [`Self::precond`]'s behavior.
+    fn with_ams(mut self, ams: crate::eigen::ams::AmsLitePreconditioner) -> Self {
+        self.ams = Some(Box::new(ams));
+        self
     }
 
     /// `y = (K − σM) · x`, matrix-free (two SpMVs, no assembled `A`).
@@ -347,10 +415,23 @@ impl<'a> ShiftedMatrixFreeOp<'a> {
         }
     }
 
-    /// Apply the Jacobi preconditioner `z = D⁻¹ r` (elementwise).
+    /// Apply the preconditioner `z = M_prec⁻¹ r`.
+    ///
+    /// Without AMS this is the Jacobi preconditioner `z = D⁻¹ r` (the #524
+    /// baseline). With an AMS-lite preconditioner attached (issue #526) it is
+    /// the auxiliary-space two-level apply `z = D⁻¹ r + G (Gᵀ A G)⁻¹ Gᵀ r`,
+    /// which damps the gradient near-kernel Jacobi is blind to. Both forms are
+    /// SPD, so the outer CG stays valid.
     fn precond(&self, r: &[f64], z: &mut [f64]) {
-        for i in 0..r.len() {
-            z[i] = self.inv_diag[i] * r[i];
+        match &self.ams {
+            Some(ams) => {
+                ams.apply_vcycle(r, z, |x, y| self.apply(x, y));
+            }
+            None => {
+                for i in 0..r.len() {
+                    z[i] = self.inv_diag[i] * r[i];
+                }
+            }
         }
     }
 }
@@ -530,12 +611,19 @@ enum InnerBackend<'a> {
 impl InnerBackend<'_> {
     /// `out = A⁻¹ · rhs`. For the matrix-free path `out` doubles as the CG
     /// warm-start guess, so callers should retain it across iterations.
-    fn solve(&self, rhs: &[f64], out: &mut [f64]) -> Result<(), EigenError> {
+    ///
+    /// Returns the number of inner CG iterations performed (0 for the direct
+    /// LU backend, which has no inner iteration). Callers sum this across the
+    /// outer Lanczos loop to report the inner-CG iteration count that the
+    /// preconditioner (Jacobi vs AMS-lite) controls (issue #526).
+    fn solve(&self, rhs: &[f64], out: &mut [f64]) -> Result<usize, EigenError> {
         match self {
-            InnerBackend::Lu(lu) => solve_with_lu(lu, rhs, out),
+            InnerBackend::Lu(lu) => {
+                solve_with_lu(lu, rhs, out)?;
+                Ok(0)
+            }
             InnerBackend::MatrixFree { op, tol, max_iters } => {
-                cg_solve_matrix_free(op, rhs, out, *tol, *max_iters)?;
-                Ok(())
+                cg_solve_matrix_free(op, rhs, out, *tol, *max_iters)
             }
         }
     }
@@ -561,6 +649,7 @@ impl SparseShiftInvertLanczos {
         k: SparseColMatRef<'a, usize, f64>,
         m: SparseColMatRef<'a, usize, f64>,
         n_threads: usize,
+        gradient: Option<&crate::eigen::projection::InteriorGradient>,
     ) -> Result<InnerBackend<'a>, EigenError> {
         match self.inner {
             InnerSolver::Direct => {
@@ -574,7 +663,18 @@ impl SparseShiftInvertLanczos {
                 Ok(InnerBackend::Lu(lu))
             }
             InnerSolver::MatrixFree => {
-                let op = ShiftedMatrixFreeOp::new(k, m, self.sigma);
+                let mut op = ShiftedMatrixFreeOp::new(k, m, self.sigma);
+                // AMS-lite preconditioner (issue #526): opt-in via
+                // `precond == Ams` AND a supplied discrete gradient. Without a
+                // gradient we fall back to the Jacobi baseline (the AMS coarse
+                // correction is undefined without `G`). This keeps AMS purely
+                // additive: the default `precond == Jacobi` never touches `G`.
+                if self.precond == InnerPreconditioner::Ams
+                    && let Some(g) = gradient
+                {
+                    let ams = crate::eigen::ams::AmsLitePreconditioner::build(g, k, m, self.sigma)?;
+                    op = op.with_ams(ams);
+                }
                 let max_iters = (k.nrows() * INNER_MAX_ITER_FACTOR).max(64);
                 Ok(InnerBackend::MatrixFree {
                     op,
@@ -619,23 +719,81 @@ impl SparseShiftInvertLanczos {
         n_modes: usize,
         n_threads: usize,
     ) -> Result<Vec<EigenPair>, EigenError> {
+        Ok(self
+            .smallest_eigenpairs_impl(k, m, n_modes, n_threads, None)?
+            .0)
+    }
+
+    /// [`Self::smallest_eigenpairs`] supplying the discrete gradient `G` so the
+    /// matrix-free path can build the AMS-lite preconditioner (issue #526).
+    ///
+    /// Only consulted when `inner == InnerSolver::MatrixFree` and
+    /// `precond == InnerPreconditioner::Ams`; otherwise `gradient` is ignored
+    /// (the direct and Jacobi paths never touch `G`). The thread count is
+    /// resolved from `GEODE_NUM_THREADS` as in [`Self::smallest_eigenpairs`].
+    pub fn smallest_eigenpairs_with_gradient(
+        &self,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        n_modes: usize,
+        gradient: &crate::eigen::projection::InteriorGradient,
+    ) -> Result<Vec<EigenPair>, EigenError> {
+        Ok(self
+            .smallest_eigenpairs_impl(k, m, n_modes, resolve_num_threads(), Some(gradient))?
+            .0)
+    }
+
+    /// [`Self::smallest_eigenpairs_with_gradient`] returning the **total inner
+    /// CG iteration count** alongside the eigenpairs (issue #526).
+    ///
+    /// The total is summed across every outer Lanczos step's inner
+    /// `(K − σM)⁻¹` apply; it is the quantity the inner preconditioner (Jacobi
+    /// vs AMS-lite) controls, so it is the measurement the ≥5× iteration-
+    /// reduction acceptance criterion is checked against. For the direct LU
+    /// backend the count is 0 (no inner iteration). Pass `gradient = None` to
+    /// measure the Jacobi baseline through the same code path.
+    pub fn smallest_eigenpairs_inner_iters(
+        &self,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        n_modes: usize,
+        gradient: Option<&crate::eigen::projection::InteriorGradient>,
+    ) -> Result<(Vec<EigenPair>, usize), EigenError> {
+        self.smallest_eigenpairs_impl(k, m, n_modes, resolve_num_threads(), gradient)
+    }
+
+    fn smallest_eigenpairs_impl(
+        &self,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        n_modes: usize,
+        n_threads: usize,
+        gradient: Option<&crate::eigen::projection::InteriorGradient>,
+    ) -> Result<(Vec<EigenPair>, usize), EigenError> {
         let n = k.nrows();
         assert_eq!(k.ncols(), n, "K must be square");
         assert_eq!(m.nrows(), n, "M and K must agree in size");
         assert_eq!(m.ncols(), n);
         if n_modes == 0 {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), 0));
         }
+
+        // Running total of inner CG iterations across the outer Lanczos loop
+        // (issue #526): 0 for the direct LU backend, the Jacobi/AMS-lite CG
+        // iteration count for the matrix-free backend.
+        let mut total_inner_iters = 0usize;
 
         // 1. Prepare the inner-solve backend for A⁻¹M. The direct variant
         //    builds A = K − σM and factors it once (scoping faer's rayon to
         //    the factorization — rayon speeds up sparse LU but is slower on
         //    the latency-bound single-RHS solves, issue #518); the
         //    matrix-free variant (issue #524) builds a borrowed operator +
-        //    Jacobi diagonal and never factors. Eigenvalues are independent
-        //    of the thread count — the `eigenpairs_agree_across_thread_counts`
-        //    test is the gate.
-        let inner = self.build_inner(k, m, n_threads)?;
+        //    Jacobi diagonal (or, with `precond == Ams` and a supplied
+        //    gradient, the AMS-lite preconditioner, issue #526) and never
+        //    factors the edge pencil. Eigenvalues are independent of the
+        //    thread count and the preconditioner — the
+        //    `eigenpairs_agree_across_thread_counts` test is the gate.
+        let inner = self.build_inner(k, m, n_threads, gradient)?;
 
         // 2. Run Lanczos to convergence, retaining the full M-orthonormal
         //    basis V_k. Unlike the eigenvalue-only path we always run to
@@ -679,7 +837,7 @@ impl SparseShiftInvertLanczos {
         for j in 0..max_k {
             spmv(m, &v, &mut mv);
             w.copy_from_slice(&y_guess);
-            inner.solve(&mv, &mut w)?;
+            total_inner_iters += inner.solve(&mv, &mut w)?;
             y_guess.copy_from_slice(&w);
 
             let aj = w.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
@@ -802,7 +960,7 @@ impl SparseShiftInvertLanczos {
             }
             out.push(EigenPair { lambda, vector: x });
         }
-        Ok(out)
+        Ok((out, total_inner_iters))
     }
 
     /// [`SparseEigenSolver::smallest_eigenvalues`] with an explicit
@@ -817,6 +975,31 @@ impl SparseShiftInvertLanczos {
         n_modes: usize,
         n_threads: usize,
     ) -> Result<Vec<f64>, EigenError> {
+        self.smallest_eigenvalues_impl(k, m, n_modes, n_threads, None)
+    }
+
+    /// [`SparseEigenSolver::smallest_eigenvalues`] supplying the discrete
+    /// gradient `G` so the matrix-free path can build the AMS-lite
+    /// preconditioner (issue #526). Only consulted when
+    /// `inner == InnerSolver::MatrixFree` and `precond == InnerPreconditioner::Ams`.
+    pub fn smallest_eigenvalues_with_gradient(
+        &self,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        n_modes: usize,
+        gradient: &crate::eigen::projection::InteriorGradient,
+    ) -> Result<Vec<f64>, EigenError> {
+        self.smallest_eigenvalues_impl(k, m, n_modes, resolve_num_threads(), Some(gradient))
+    }
+
+    fn smallest_eigenvalues_impl(
+        &self,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        n_modes: usize,
+        n_threads: usize,
+        gradient: Option<&crate::eigen::projection::InteriorGradient>,
+    ) -> Result<Vec<f64>, EigenError> {
         let n = k.nrows();
         assert_eq!(k.ncols(), n, "K must be square");
         assert_eq!(m.nrows(), n, "M and K must agree in size");
@@ -826,11 +1009,12 @@ impl SparseShiftInvertLanczos {
         }
 
         // 1. Prepare the inner-solve backend for A⁻¹M — direct sparse LU or
-        //    matrix-free Jacobi-CG (issue #524). Parallelism is scoped to the
+        //    matrix-free CG (Jacobi baseline, issue #524; AMS-lite opt-in with
+        //    a supplied gradient, issue #526). Parallelism is scoped to the
         //    factorization only in the direct path (rayon regresses the
         //    single-RHS triangular solves that follow; issue #518). See the
         //    `smallest_eigenpairs` sibling above.
-        let inner = self.build_inner(k, m, n_threads)?;
+        let inner = self.build_inner(k, m, n_threads, gradient)?;
 
         // 2. Lanczos in the M-inner product.
         //
@@ -880,7 +1064,7 @@ impl SparseShiftInvertLanczos {
             spmv(m, &v, &mut mv);
             // w = A^{-1} (M v) = (K - σM)^{-1} M v
             w.copy_from_slice(&y_guess);
-            inner.solve(&mv, &mut w)?;
+            let _inner_iters = inner.solve(&mv, &mut w)?;
             y_guess.copy_from_slice(&w);
 
             // α_j = ⟨w, M v⟩ = ⟨w, mv⟩
@@ -1041,6 +1225,7 @@ mod tests {
             max_iters: 50,
             tol: 1e-10,
             inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
         };
         let lambdas = solver
             .smallest_eigenvalues(k.as_ref(), m.as_ref(), 3)
@@ -1063,6 +1248,7 @@ mod tests {
             max_iters: 50,
             tol: 1e-10,
             inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
         };
         let pairs = solver
             .smallest_eigenpairs(k.as_ref(), m.as_ref(), 3)
@@ -1148,6 +1334,7 @@ mod tests {
             max_iters: 64,
             tol: 1e-11,
             inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
         };
 
         let serial = solver
@@ -1187,6 +1374,7 @@ mod tests {
             max_iters: 64,
             tol: 1e-11,
             inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
         };
 
         let serial = solver
@@ -1244,12 +1432,14 @@ mod tests {
             max_iters: 64,
             tol: 1e-10,
             inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
         };
         let mf = SparseShiftInvertLanczos {
             sigma,
             max_iters: 64,
             tol: 1e-10,
             inner: InnerSolver::MatrixFree,
+            precond: InnerPreconditioner::Jacobi,
         };
 
         let ld = direct
@@ -1282,12 +1472,14 @@ mod tests {
             max_iters: 64,
             tol: 1e-10,
             inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
         };
         let mf = SparseShiftInvertLanczos {
             sigma,
             max_iters: 64,
             tol: 1e-10,
             inner: InnerSolver::MatrixFree,
+            precond: InnerPreconditioner::Jacobi,
         };
 
         let pd = direct

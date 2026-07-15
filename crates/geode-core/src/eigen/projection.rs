@@ -1141,6 +1141,7 @@ pub fn solve_transmon_eigenmodes_port_aware(
         max_iters: 96,
         tol: 1e-8,
         inner: crate::eigen::lanczos::InnerSolver::Direct,
+        precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
     };
     let jpairs = ung.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), 6)?;
     let x_junction = jpairs
@@ -1306,6 +1307,7 @@ pub fn ungauged_mode_divergences(
         max_iters: 96,
         tol: 1e-8,
         inner: crate::eigen::lanczos::InnerSolver::Direct,
+        precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
     };
     let pairs = solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), n_modes)?;
 
