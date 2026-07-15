@@ -17,6 +17,11 @@
 //!
 //! See `crate::elements::nedelec` for the math and orientation convention.
 
+// `BTreeSet` backs only the serial sparsity-pattern path, which is compiled
+// under `--no-default-features` (or in tests, for the cross-path agreement
+// check). The default `faer-parallel` build uses the rayon sort/dedup path and
+// never references it.
+#[cfg(any(not(feature = "faer-parallel"), test))]
 use std::collections::BTreeSet;
 
 use bunsen::contracts::{
@@ -247,6 +252,52 @@ pub fn assemble_global_nedelec<B: Backend>(
 /// (BTreeSet iteration order) — the invariant the slot binary search of
 /// [`NedelecScatterMap`] relies on.
 pub fn sparsity_pattern_from_tet_edges(tet_edge_idx: &[[u32; 6]]) -> SparsityPattern {
+    sparsity_pattern_from_tet_edges_with_threads(
+        tet_edge_idx,
+        crate::eigen::parallel::resolve_num_threads(),
+    )
+}
+
+/// Thread-count-parameterized [`sparsity_pattern_from_tet_edges`] (issue #522).
+///
+/// `n_threads` selects the width of the host-side parallelism the same way the
+/// eigensolve's `_with_threads` entry points do, so cross-thread agreement can
+/// be tested without mutating the process environment (this crate denies
+/// `unsafe_code`, so `env::set_var` is off-limits). Under `faer-parallel` the
+/// work runs on a scoped rayon pool of exactly `n_threads` workers —
+/// `n_threads == 1` is a single-worker pool (serial execution of the sort-based
+/// build); higher counts fan the pair-collection and sort across the pool.
+/// Under `--no-default-features` the serial `BTreeSet` path runs regardless of
+/// `n_threads`. All three produce identical output.
+///
+/// **Determinism:** the output `(rows, cols)` are the lexicographically sorted
+/// unique `(row, col)` pairs — identical to the serial `BTreeSet` iteration
+/// order at any thread count. The parallel path sorts + dedups the same pair
+/// multiset, so it is bit-for-bit identical to the serial path (no
+/// floating-point reduction is involved). The slot binary search of
+/// [`NedelecScatterMap`] relies on this ordering.
+pub fn sparsity_pattern_from_tet_edges_with_threads(
+    tet_edge_idx: &[[u32; 6]],
+    n_threads: usize,
+) -> SparsityPattern {
+    #[cfg(feature = "faer-parallel")]
+    {
+        crate::eigen::parallel::install_on_pool(n_threads, || {
+            sparsity_pattern_parallel(tet_edge_idx)
+        })
+    }
+    #[cfg(not(feature = "faer-parallel"))]
+    {
+        let _ = n_threads;
+        sparsity_pattern_serial(tet_edge_idx)
+    }
+}
+
+/// Serial sparsity-pattern construction via a `BTreeSet` of `(row, col)` pairs.
+/// The single-threaded baseline the correctness gate pins; also the only path
+/// compiled under `--no-default-features`.
+#[cfg(any(not(feature = "faer-parallel"), test))]
+fn sparsity_pattern_serial(tet_edge_idx: &[[u32; 6]]) -> SparsityPattern {
     let mut set: BTreeSet<(u32, u32)> = BTreeSet::new();
     for row in tet_edge_idx {
         for i in 0..6 {
@@ -258,6 +309,46 @@ pub fn sparsity_pattern_from_tet_edges(tet_edge_idx: &[[u32; 6]]) -> SparsityPat
     let mut rows = Vec::with_capacity(set.len());
     let mut cols = Vec::with_capacity(set.len());
     for (r, c) in set {
+        rows.push(r);
+        cols.push(c);
+    }
+    SparsityPattern { rows, cols }
+}
+
+/// Parallel sparsity-pattern construction (issue #522). Must be called from
+/// inside a rayon scope (see [`crate::eigen::parallel::install_on_pool`]).
+///
+/// Collects all `n_elem * 36` `(row, col)` pairs in parallel, then parallel
+/// unstable-sorts and dedups them. The result is the same sorted unique set the
+/// serial `BTreeSet` produces, so it is bit-for-bit identical at any thread
+/// count.
+#[cfg(feature = "faer-parallel")]
+fn sparsity_pattern_parallel(tet_edge_idx: &[[u32; 6]]) -> SparsityPattern {
+    use rayon::prelude::*;
+
+    // 1. Collect every local (row, col) pair. `flat_map_iter` keeps rayon's
+    //    per-element work order-independent (we sort next), and avoids the
+    //    per-element allocation of the general `flat_map`.
+    let mut pairs: Vec<(u32, u32)> = tet_edge_idx
+        .par_iter()
+        .flat_map_iter(|row| {
+            let mut local = Vec::with_capacity(36);
+            for i in 0..6 {
+                for j in 0..6 {
+                    local.push((row[i], row[j]));
+                }
+            }
+            local.into_iter()
+        })
+        .collect();
+
+    // 2. Sort + dedup → the sorted unique pair set (== BTreeSet iteration).
+    pairs.par_sort_unstable();
+    pairs.dedup();
+
+    let mut rows = Vec::with_capacity(pairs.len());
+    let mut cols = Vec::with_capacity(pairs.len());
+    for (r, c) in pairs {
         rows.push(r);
         cols.push(c);
     }
@@ -284,6 +375,51 @@ fn pattern_slot(pattern: &SparsityPattern, row: u32, col: u32) -> Option<usize> 
     } else {
         None
     }
+}
+
+/// Serial construction of the per-`(e, i, j)` pattern-slot index vector
+/// (`[n_elem * 36]`). The single-threaded baseline; also the only path
+/// compiled under `--no-default-features`.
+#[cfg(any(not(feature = "faer-parallel"), test))]
+fn build_slot_idx_serial(pattern: &SparsityPattern, tet_edge_idx: &[[u32; 6]]) -> Vec<i32> {
+    let mut slot_idx = Vec::with_capacity(tet_edge_idx.len() * 36);
+    for row in tet_edge_idx {
+        for i in 0..6 {
+            for j in 0..6 {
+                let slot = pattern_slot(pattern, row[i], row[j])
+                    .expect("every (e, i, j) entry is in the pattern by construction");
+                slot_idx.push(slot as i32);
+            }
+        }
+    }
+    slot_idx
+}
+
+/// Parallel construction of the per-`(e, i, j)` pattern-slot index vector
+/// (issue #522). Must be called from inside a rayon scope (see
+/// [`crate::eigen::parallel::install_on_pool`]).
+///
+/// Each element's 36 binary searches are independent, and rayon's
+/// `flat_map_iter`/`collect` preserves element order, so the resulting vector
+/// is bit-for-bit identical to [`build_slot_idx_serial`] at any thread count.
+#[cfg(feature = "faer-parallel")]
+fn build_slot_idx_parallel(pattern: &SparsityPattern, tet_edge_idx: &[[u32; 6]]) -> Vec<i32> {
+    use rayon::prelude::*;
+
+    tet_edge_idx
+        .par_iter()
+        .flat_map_iter(|row| {
+            let mut local = [0i32; 36];
+            for i in 0..6 {
+                for j in 0..6 {
+                    let slot = pattern_slot(pattern, row[i], row[j])
+                        .expect("every (e, i, j) entry is in the pattern by construction");
+                    local[i * 6 + j] = slot as i32;
+                }
+            }
+            local.into_iter()
+        })
+        .collect()
 }
 
 /// Host-side scatter map from per-element local 6×6 entries to slots of
@@ -320,23 +456,52 @@ impl NedelecScatterMap {
     /// Panics if the pattern's `nnz` exceeds `i32::MAX` (the Burn Int
     /// tensor index limit — ~2.1 B non-zeros).
     pub fn new(tet_edge_idx: &[[u32; 6]]) -> Self {
-        let pattern = sparsity_pattern_from_tet_edges(tet_edge_idx);
+        Self::new_with_threads(tet_edge_idx, crate::eigen::parallel::resolve_num_threads())
+    }
+
+    /// Thread-count-parameterized [`NedelecScatterMap::new`] (issue #522).
+    ///
+    /// Both the pattern construction and the O(n_elem·36) slot binary-search
+    /// loop are the serial host hotspots the transmon profile points at
+    /// (~0.4 s + ~0.35 s at 133k DOF); this fans both across a scoped rayon
+    /// pool of exactly `n_threads` workers — `n_threads == 1` is a single-worker
+    /// pool, i.e. genuinely serial execution.
+    ///
+    /// **Determinism:** `slot_idx` is emitted in `(element, i, j)` order via
+    /// rayon's order-preserving `flat_map_iter`/`collect`, and the pattern is
+    /// the same sorted unique set at any thread count, so the assembled `[nnz]`
+    /// value vectors — and therefore the eigenvalues — are bit-for-bit
+    /// identical across thread counts (the entries are pure integers; no
+    /// floating-point reduction order changes). See the cross-thread agreement
+    /// tests in `crates/geode-core/tests/transmon_eigenmode.rs`.
+    pub fn new_with_threads(tet_edge_idx: &[[u32; 6]], n_threads: usize) -> Self {
+        #[cfg(feature = "faer-parallel")]
+        {
+            // One pool scope covers both the pattern build and the slot loop.
+            crate::eigen::parallel::install_on_pool(n_threads, || {
+                let pattern = sparsity_pattern_parallel(tet_edge_idx);
+                Self::assert_nnz_in_range(&pattern);
+                let slot_idx = build_slot_idx_parallel(&pattern, tet_edge_idx);
+                Self { pattern, slot_idx }
+            })
+        }
+        #[cfg(not(feature = "faer-parallel"))]
+        {
+            let _ = n_threads;
+            let pattern = sparsity_pattern_serial(tet_edge_idx);
+            Self::assert_nnz_in_range(&pattern);
+            let slot_idx = build_slot_idx_serial(&pattern, tet_edge_idx);
+            Self { pattern, slot_idx }
+        }
+    }
+
+    /// Guard the Burn Int (i32) index range shared by both build paths.
+    fn assert_nnz_in_range(pattern: &SparsityPattern) {
         assert!(
             pattern.nnz() <= i32::MAX as usize,
             "sparsity pattern nnz {} exceeds the i32 Burn Int index range",
             pattern.nnz()
         );
-        let mut slot_idx = Vec::with_capacity(tet_edge_idx.len() * 36);
-        for row in tet_edge_idx {
-            for i in 0..6 {
-                for j in 0..6 {
-                    let slot = pattern_slot(&pattern, row[i], row[j])
-                        .expect("every (e, i, j) entry is in the pattern by construction");
-                    slot_idx.push(slot as i32);
-                }
-            }
-        }
-        Self { pattern, slot_idx }
     }
 
     /// The sorted sparsity pattern the slot indices point into.
@@ -2081,4 +2246,59 @@ pub fn burn_complex_mass_to_faer<B: Backend>(
         let idx = i * n + j;
         faer::c64::new(data_re[idx], data_im[idx])
     })
+}
+
+#[cfg(test)]
+mod scatter_parallel_tests {
+    use super::*;
+
+    /// A small deterministic `tet_edge_idx` table with overlapping edges
+    /// between elements (so the pattern actually collapses duplicates and the
+    /// slot binary search is nontrivial).
+    fn sample_tet_edge_idx() -> Vec<[u32; 6]> {
+        vec![
+            [0, 1, 2, 3, 4, 5],
+            [2, 3, 4, 5, 6, 7],
+            [1, 4, 6, 8, 9, 0],
+            [5, 5, 3, 2, 7, 1], // repeated + reordered edges
+            [9, 8, 7, 6, 5, 4],
+        ]
+    }
+
+    /// The rayon sparsity-pattern path produces exactly the serial `BTreeSet`
+    /// pattern (issue #522). Bit-for-bit equality of the sorted `(row, col)`
+    /// vectors — the invariant the slot binary search relies on.
+    #[test]
+    fn parallel_pattern_matches_serial() {
+        let tet = sample_tet_edge_idx();
+        let serial = sparsity_pattern_serial(&tet);
+        let parallel = sparsity_pattern_parallel(&tet);
+        assert_eq!(serial.rows, parallel.rows, "pattern rows differ");
+        assert_eq!(serial.cols, parallel.cols, "pattern cols differ");
+    }
+
+    /// The rayon slot-index path produces exactly the serial slot vector
+    /// (issue #522): same `(element, i, j)` emission order, same integer
+    /// pattern slots.
+    #[test]
+    fn parallel_slot_idx_matches_serial() {
+        let tet = sample_tet_edge_idx();
+        let pattern = sparsity_pattern_serial(&tet);
+        let serial = build_slot_idx_serial(&pattern, &tet);
+        let parallel = build_slot_idx_parallel(&pattern, &tet);
+        assert_eq!(serial, parallel, "slot index vectors differ");
+        assert_eq!(serial.len(), tet.len() * 36);
+    }
+
+    /// `NedelecScatterMap::new_with_threads` is thread-count invariant: the
+    /// pattern and slot indices are identical at 1 vs many threads.
+    #[test]
+    fn scatter_map_thread_count_invariant() {
+        let tet = sample_tet_edge_idx();
+        let one = NedelecScatterMap::new_with_threads(&tet, 1);
+        let many = NedelecScatterMap::new_with_threads(&tet, 4);
+        assert_eq!(one.pattern().rows, many.pattern().rows);
+        assert_eq!(one.pattern().cols, many.pattern().cols);
+        assert_eq!(one.slot_idx, many.slot_idx);
+    }
 }

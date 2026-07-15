@@ -212,6 +212,89 @@ max_single_process_rss_gb = 0.69  # ≈ 0.69 GB per-rank max (not aggregate)
 excluded = true
 reason = "mpirun binding refused on 8 physical cores (16 ranks would oversubscribe hyperthreads); recorded as excluded, not measured."
 
+# ===========================================================================
+# ASSEMBLY STRONG-SCALING (issue #522, follow-on to #518).
+# ===========================================================================
+# #518 landed rayon on the faer sparse-LU *factorization* but a same-box
+# head-to-head showed ~0 wall-clock speedup at the physical target: the
+# factorization is not the on-target bottleneck. Profiling the host side of
+# the 133k-DOF transmon pencil (identical fixture) located the two serial
+# assembler hotspots — `NedelecScatterMap::new`'s sparsity-pattern build and
+# its O(n_elem·36) pattern-slot binary-search loop (~0.4 s + ~0.35 s serial).
+# Issue #522 parallelizes BOTH with rayon (a sort/dedup pattern build + a
+# per-element `flat_map_iter` slot loop), driven through the SAME
+# `GEODE_NUM_THREADS` knob (`resolve_num_threads`) and a scoped per-call
+# thread pool so the thread count is a hard cap at every level.
+#
+# The numbers below are the assembler-phase build (`NedelecScatterMap::new`,
+# i.e. pattern + slot loop) in isolation, median of 5 release-build runs on
+# the identical sha-pinned transmon fixture. This is a DIFFERENT box from the
+# [matched.*] m6i.4xlarge tables above (a 28-core Apple M3 Ultra), so these
+# times are NOT directly comparable to the m6i wall-clock figures — they are a
+# self-consistent strong-scaling curve (speedup = t(1thread)/t(nthread)),
+# same box/session across all thread counts.
+[strong_scaling_522]
+phase = "host-side FEM assembly (NedelecScatterMap::new = sparsity pattern build + per-(e,i,j) slot binary-search loop)"
+measured_date = "2026-07-15"
+mesh = "the sha-pinned transmon fixture (crates/geode-core/tests/fixtures/transmon_smoke.msh)"
+n_tets = 133314
+n_interior_dofs = 133108
+pencil_nnz = 2561711
+runs = 5
+statistic = "median wall (std::time::Instant) of 5 release-build runs, same box/session"
+knob = "GEODE_NUM_THREADS via resolve_num_threads(); scoped rayon ThreadPool of exactly N workers per call (N=1 → single-worker pool, genuinely serial)"
+determinism = "the parallel pattern (sort+dedup) and slot loop (order-preserving flat_map_iter) emit bit-for-bit identical integer index vectors at any thread count — no floating-point reduction — so the assembled [nnz] K/M values and the eigenvalues are unchanged (gated by tests::assembly_agrees_across_thread_counts and the nedelec.rs serial-vs-parallel unit tests)."
+
+  [strong_scaling_522.hardware]
+  machine = "Apple M3 Ultra"
+  physical_cores = 28
+  memory_gb = 96
+  os = "macOS 26.5.1 (25F80)"
+
+  [strong_scaling_522.threads_1]
+  threads = 1
+  assembly_s = 0.494
+  speedup = 1.00
+
+  [strong_scaling_522.threads_2]
+  threads = 2
+  assembly_s = 0.277
+  speedup = 1.78
+
+  [strong_scaling_522.threads_4]
+  threads = 4
+  assembly_s = 0.157
+  speedup = 3.14
+
+  [strong_scaling_522.threads_8]
+  threads = 8
+  assembly_s = 0.082
+  speedup = 6.01
+
+# ---- Triangular-solve investigation → DOCUMENTED NEGATIVE (AC-sanctioned). --
+# The shift-invert inner loop applies (K−σM)^{-1} once per Krylov step via a
+# single-RHS forward/back substitution on the faer LU factors (`solve_with_lu`
+# in eigen/lanczos.rs). #518's design notes already flagged rayon as slower
+# there for a single RHS, and #518's guard deliberately reverts to serial for
+# this loop. Issue #522 MEASURES it directly: factor A = K + M (the exact
+# shifted-pencil structure at σ = −1, SPD/nonsingular so sp_lu is clean) from
+# the same 133k-DOF fixture, then time one `lu.solve_in_place` for a single
+# RHS under serial vs rayon(8) global parallelism (median of 50 solves).
+# Result: rayon REGRESSES the single-RHS solve ~1.85× (latency-bound; the
+# forward/back substitution is inherently sequential per column and the outer
+# full-reorthogonalization Lanczos recurrence — each v_{j+1} depends on w_j —
+# cannot be RHS-batched without restructuring, which is out of scope). This is
+# the honest documented negative the AC permits.
+[strong_scaling_522.triangular_solve]
+investigated = true
+outcome = "documented negative — rayon regresses the single-RHS triangular solve"
+matrix = "A = K + M from the sha-pinned transmon fixture (σ = −1 shifted-pencil structure), n = 156863, nnz = 2561711"
+statistic = "median of 50 single-RHS lu.solve_in_place calls, release build, same box/session"
+serial_ms = 102.0
+rayon8_ms = 188.8
+rayon_slowdown_x = 1.85
+reason = "single-RHS forward/back substitution is latency-bound; faer 0.24 exposes no per-call Par for the triangular solve; the sequential Lanczos recurrence forbids RHS-batching without restructuring (out of scope). The eigensolve keeps this loop serial (the #518 ParallelismGuard scopes rayon to sp_lu only)."
+
 [notes]
 # --- Target-sensitivity finding (FIRST-CLASS RESULT, issue #523 scope 2) -----
 # geode's direct sparse-LU shift-invert is TARGET-INSENSITIVE: the cost of a
