@@ -1,7 +1,8 @@
 fixture:        spiral_mom/baseline.json
 generated:      2026-06-12
-generator:      reference/mom/geode_spiral_baseline (cargo run --release)
-mom repo:       ~/GitHub/sphere/eda/mom (sibling checkout; https://github.com/spheresemi/mom)
+generator:      external MoM PEEC solver (offline sidecar; generator crate
+                removed — not reproducible in-repo)
+mom oracle:     external MoM PEEC solver (proprietary; not vendored)
 mom commit:     ddc02134ce06f7e6ad3583083cce992a5bb2a64c
 solver:         multifilament PEEC (3 lateral filaments/segment),
                 stratified substrate Green's function, direct dense solve
@@ -44,10 +45,10 @@ headline values (low-frequency L at 0.1 GHz):
   n = 4 SRF:    beyond 40 GHz (Im Z stays inductive over the sweep for
                 both brackets; the n = 4 upturn at 40 GHz approaches it)
 
-regeneration:   cd reference/mom/geode_spiral_baseline && cargo run --release
-                (requires the sphere monorepo checked out as a sibling of
-                this repository; the committed Cargo.toml uses the
-                relative path ../../../../sphere/eda/mom)
+regeneration:   NOT reproducible in-repo — the offline generator crate
+                depended on an external (proprietary) MoM solver and has
+                been removed. The committed baseline.json above is the
+                archived result.
 
 FastHenry:      NOT generated -- fasthenry is not installed on the
                 generation machine (toolchain gap, same convention as the

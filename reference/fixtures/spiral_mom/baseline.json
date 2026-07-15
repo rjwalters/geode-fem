@@ -1,7 +1,7 @@
 {
   "description": "mom MoM/PEEC impedance baseline for the geode-fem 3.5-turn generic spiral benchmark (issue #211): square spiral w = 6 um, s = 4 um, d_in = 60 um on the geode generic 2-metal stack (Si 11.9/0.005 with PEC ground at -50 um, SiO2 4.0/0.001 10 um, Cu 5.8e7 S/m, m1 z 1-3 um underpass, m2 z 5-8 um spiral). mom-geom takes integer turns only, so the baseline records the two brackets n = 3 and n = 4 around the fixture's n = 3.5.",
   "fixture_id": "spiral_mom/geode_generic_3p5_brackets",
-  "generator": "reference/mom/geode_spiral_baseline (offline; see baseline.provenance.txt for the mom commit)",
+  "generator": "external MoM PEEC solver (offline; generator crate removed — see baseline.provenance.txt)",
   "schema_version": "1",
   "solver": {
     "frequencies_ghz": [

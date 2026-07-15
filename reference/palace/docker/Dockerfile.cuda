@@ -1,0 +1,95 @@
+# Palace Electromagnetic Solver — CUDA (GPU) Docker build
+#
+# GPU variant of ./Dockerfile for the Palace-on-GPU head-to-head (issue #519,
+# epic #476). Differs from the CPU recipe in four load-bearing ways:
+#   1. nvidia/cuda *-devel-rockylinux9 base image (brings nvcc + CUDA libs).
+#   2. -DPALACE_WITH_CUDA=ON
+#   3. -DCMAKE_CUDA_ARCHITECTURES=89   (L40S / Ada Lovelace = sm_89; the g6e GPU)
+#   4. -DPALACE_WITH_MAGMA=ON          (Palace's GPU dense-LA path)
+# libCEED's /gpu/cuda/* backends are built automatically once CUDA is ON; the
+# backend is selected at RUN time via the Palace config ("Device": "GPU") and/or
+# the CEED_BACKEND env var — capture whichever string the run log prints into
+# the fixture provenance.
+#
+# Single-stage on purpose: the -devel image already carries the CUDA runtime +
+# math libs (cublas/cusparse) that Palace + MAGMA link, so we avoid a hand-picked
+# runtime stage silently dropping a needed .so. Reproducibility > image size for
+# a one-off oracle build.
+#
+# Build (on the g6e box):
+#   docker build -t palace:cuda -f Dockerfile.cuda .
+# Run (GPU exposed via nvidia-container-toolkit):
+#   docker run --rm --gpus all -v $(pwd):/work palace:cuda /work/config.json
+#
+# CUDA_TAG can be overridden if 12.6.3 is unavailable for rockylinux9:
+#   docker build --build-arg CUDA_TAG=12.4.1-devel-rockylinux9 ...
+
+ARG CUDA_TAG=12.6.3-devel-rockylinux9
+FROM nvidia/cuda:${CUDA_TAG}
+
+# sm_89 = L40S (Ada). Override at build time for a different GPU (e.g. 90 = H100).
+ARG CUDA_ARCH=89
+ARG MARCH=native
+ENV OPT_FLAGS="-O3 -ffp-contract=fast -funroll-loops"
+
+# NOTE: no blanket `dnf update -y` here — it can pull a newer CUDA minor from the
+# NVIDIA repo and desync the toolkit from the pinned base tag. Install only what
+# the Palace superbuild needs.
+RUN dnf install -y dnf-plugins-core && dnf config-manager --enable crb && \
+    dnf install -y epel-release && \
+    dnf groupinstall -y "Development Tools" && \
+    dnf install -y \
+        curl-minimal \
+        gcc-gfortran \
+        git \
+        libunwind-devel \
+        openblas-devel \
+        pkg-config \
+        python3 \
+        wget \
+        zlib \
+        mpich-devel && \
+    dnf clean all
+
+ARG CMAKE_VERSION=3.31.0
+RUN wget -q https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-$(uname -m).sh && \
+    /bin/bash cmake-${CMAKE_VERSION}-*.sh --skip-license --prefix=/usr && \
+    rm -rf cmake-*
+
+ENV LD_LIBRARY_PATH="/usr/lib64/mpich/lib:/usr/local/cuda/lib64"
+ENV PATH="/usr/lib64/mpich/bin:/usr/local/cuda/bin:${PATH}"
+
+WORKDIR /opt
+RUN git clone --depth 1 https://github.com/awslabs/palace.git palace-src
+
+WORKDIR /opt/palace-build
+RUN cmake /opt/palace-src \
+    -DCMAKE_INSTALL_PREFIX=/opt/palace \
+    -DCMAKE_CXX_COMPILER=g++ \
+    -DCMAKE_CXX_FLAGS="${OPT_FLAGS}" \
+    -DCMAKE_C_COMPILER=gcc \
+    -DCMAKE_C_FLAGS="${OPT_FLAGS}" \
+    -DCMAKE_Fortran_COMPILER=gfortran \
+    -DCMAKE_Fortran_FLAGS="${OPT_FLAGS}" \
+    -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+    -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH} \
+    -DBUILD_SHARED_LIBS=ON \
+    -DPALACE_WITH_64BIT_INT=OFF \
+    -DPALACE_WITH_OPENMP=ON \
+    -DPALACE_WITH_CUDA=ON \
+    -DPALACE_WITH_MAGMA=ON \
+    -DPALACE_WITH_HIP=OFF \
+    -DPALACE_WITH_SUPERLU=ON \
+    -DPALACE_WITH_STRUMPACK=ON \
+    -DPALACE_WITH_MUMPS=ON \
+    -DPALACE_WITH_SLEPC=ON \
+    -DPALACE_WITH_ARPACK=ON \
+    -DPALACE_WITH_LIBXSMM=OFF \
+    -DPALACE_WITH_GSLIB=ON && \
+    make -j$(nproc)
+
+ENV LD_LIBRARY_PATH="/opt/palace/lib:/opt/palace/lib64:/usr/lib64/mpich/lib:/usr/local/cuda/lib64"
+ENV PATH="/opt/palace/bin:/usr/lib64/mpich/bin:/usr/local/cuda/bin:${PATH}"
+
+WORKDIR /work
+ENTRYPOINT ["palace"]

@@ -1,6 +1,6 @@
 # Generic 3.5-turn square spiral inductor on a simple 2-metal process
 # stack (issue #210 benchmark fixture). PDK-style schema mirroring the
-# mom-geom parameterization (~/GitHub/sphere/eda/mom: SpiralParams +
+# mom-geom parameterization (external MoM solver: SpiralParams +
 # LayerStack/pdk_yaml).
 #
 # Geometry units: microns. Material values are recorded here as fixture

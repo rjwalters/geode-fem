@@ -11,8 +11,8 @@
 //!
 //! - SiC substrate ε_r = 9.7 / tan δ = 0.004 and an air "dielectric"
 //!   region — the 3HP metals sit in air above the SiC
-//!   ([`geode_core::mesh::SLCFET_3HP_MATERIALS`], from the canonical PDK
-//!   `pdk/slcfet/slcfet_3hp.pdk.yaml` in the sphere monorepo);
+//!   ([`geode_core::mesh::SLCFET_3HP_MATERIALS`], from the canonical (external, proprietary) SLCFET 3HP PDK
+//!   materials);
 //! - PEC outer walls (edge-exact mask);
 //! - the conductor cavity walls carry the Leontovich good-conductor
 //!   surface impedance with the Au metallization conductivity
@@ -328,7 +328,7 @@ fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Op
     s.push_str(&format!("generated_at_commit = \"{commit}\"\n"));
     s.push_str(&format!("port_resistance_ohm = {R_PORT_OHM}\n"));
     s.push_str("process = \"SLCFET_3HP\"\n");
-    s.push_str("pdk_source = \"pdk/slcfet/slcfet_3hp.pdk.yaml (sphere monorepo)\"\n");
+    s.push_str("pdk_source = \"external SLCFET 3HP PDK (proprietary)\"\n");
     s.push_str("conductor_model = \"leontovich_good_conductor\"\n");
     s.push_str("conductor_sigma_s_m = 5.1467e7\n");
     s.push_str("substrate = \"SiC eps_r 9.7 tan_delta 0.004, 100 um, PEC floor\"\n");
@@ -371,7 +371,7 @@ fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Op
         s.push('\n');
         s.push_str("[oracles.palace]\n");
         s.push_str("status = \"pending_operator_run\"\n");
-        s.push_str("note = \"No Palace install exists on the generation machine (mom/external/palace-install is absent; only the Docker build recipe in ~/GitHub/sphere/eda/mom/docker/palace). Palace is the realistic Q oracle given the mom filament-loss caveat. Operator-run results slot in here with their own provenance — same toolchain-gap convention as the FastHenry slot of benchmarks/spiral_inductor/results.toml.\"\n");
+        s.push_str("note = \"No Palace install exists on the generation machine (mom/external/palace-install is absent; only the Docker build recipe in reference/palace/docker/). Palace is the realistic Q oracle given the mom filament-loss caveat. Operator-run results slot in here with their own provenance — same toolchain-gap convention as the FastHenry slot of benchmarks/spiral_inductor/results.toml.\"\n");
         s.push('\n');
 
         // Achieved comparison. L at the f→0 quasi-static limit (the

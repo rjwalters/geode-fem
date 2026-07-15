@@ -8,8 +8,8 @@ gold-standard oracle** for the geode-fem driven-port benchmarks (Epic
 independent implementation, similar Nédélec discretization.
 
 **Status: scaffolded, not run.** Palace itself is *not* installed on
-the geode-fem dev machine — only a Docker build recipe exists in the
-sister monorepo at `~/GitHub/sphere/eda/mom/docker/palace`. This
+the geode-fem dev machine — only a Docker build recipe, now vendored
+in-repo at `reference/palace/docker/`. This
 directory holds the **glue around** Palace — the config generator and
 the operator workflow — so a Palace reference can be produced by
 anyone with a working install (or the Docker image) and slotted into
@@ -68,8 +68,8 @@ cargo run --release
 ```
 
 The generators are **offline** — they do *not* link against Palace; they
-only write JSON. The sister-repo Docker image
-(`~/GitHub/sphere/eda/mom/docker/palace`) is the suggested runtime.
+only write JSON. The in-repo Docker image
+(`reference/palace/docker/`, built from `Dockerfile`) is the suggested runtime.
 
 ## Running Palace (operator-assisted)
 
@@ -135,7 +135,7 @@ on a missing oracle.
 
 ## Why "offline driver" and not a built-in test?
 
-Same reason as `reference/mom/geode_*_baseline/`:
+Same reason as the other offline drivers (e.g. `reference/numpy/`):
 
 - Palace (and mom) are heavyweight third-party solvers that are not
   installed everywhere; making the geode workspace depend on either

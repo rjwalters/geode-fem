@@ -31,5 +31,5 @@ config SHA, command line, mesh SHA).
 The Palace config that an operator runs against the patch fixture is
 emitted by `reference/palace/geode_patch_baseline/` (a Rust offline
 driver outside the geode-fem workspace, mirroring the
-`reference/mom/geode_*_baseline/` pattern), and committed at
+`reference/numpy/` offline-driver pattern), and committed at
 `reference/fixtures/patch_palace/palace_config.json`.
