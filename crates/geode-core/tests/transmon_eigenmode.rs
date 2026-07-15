@@ -959,6 +959,16 @@ const PALACE_BAR_PCT: f64 = 1.0;
 /// cargo test -p geode-core --release --test transmon_eigenmode \
 ///     -- --ignored real_transmon_eigenmodes_release --nocapture
 /// ```
+///
+/// **Direct-path memory baseline (issue #527 Phase 1).** This same run,
+/// measured under `/usr/bin/time -l` (macOS, 133_108 interior DOFs, pencil
+/// nnz = 2_561_711, 12 modes), peaks at **maximum-resident-set ≈ 2.89 GiB**
+/// (3_101_294_592 bytes) — dominated by the COLAMD-ordered faer `sp_lu` L/U
+/// fill. faer 0.24's sparse LU offers no user/METIS ordering hook, so Phase 1
+/// is a documented negative (see the `sp_lu` comment in
+/// `crate::eigen::lanczos`); this figure is the fixed baseline the Phase-2
+/// compressed-factorization follow-on must beat. The 1M-DOF OOM retry is an
+/// operator/AWS task, not run in CI.
 #[test]
 #[ignore = "157k-DOF sparse shift-invert eigensolve — release benchmark only"]
 fn real_transmon_eigenmodes_release() {
