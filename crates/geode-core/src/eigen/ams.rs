@@ -594,10 +594,15 @@ impl AmsLitePreconditioner {
     /// correction overlap on the low modes. `r` and `z` are length `edge_dim`;
     /// `z` is overwritten.
     ///
-    /// Currently used only as the reference form in the SPD unit test (the
-    /// shipped inner solve uses [`Self::apply_vcycle`]), so it is `cfg(test)`;
-    /// promote it if a caller ever selects the additive form at runtime.
-    #[cfg(test)]
+    /// The SPD **CG** path uses the stronger multiplicative [`Self::apply_vcycle`];
+    /// the additive form is the preconditioner the **indefinite MINRES** path
+    /// selects (issues #531/#559). At an interior shift `(K − σM)` is indefinite,
+    /// so the multiplicative V-cycle — which wraps the true indefinite operator in
+    /// its residual updates — is no longer guaranteed SPD; the additive form needs
+    /// no operator matvec and is SPD **by construction** (a sum of SPD subspace
+    /// corrections) as long as each block is SPD, which the caller arranges by
+    /// building this preconditioner for the sign-flipped SPD operator `K + |σ|M`
+    /// (see the `MatrixFreeIndefinite` arm of `lanczos::build_inner`).
     pub(crate) fn apply(&self, r: &[f64], z: &mut [f64]) {
         debug_assert_eq!(r.len(), self.edge_dim);
         debug_assert_eq!(z.len(), self.edge_dim);

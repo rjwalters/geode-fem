@@ -512,14 +512,54 @@ fn solve_transmon_eigenmodes_reindexed(
     // K_port alone (reduced) — needed for the participation numerator.
     let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, interior_index, dim)?;
 
+    // The indefinite MINRES path preconditions with the three-space AMS built
+    // for the SPD operator `K + |σ|M` (issues #531/#559); abs-Jacobi alone is too
+    // weak to converge at the interior 4.5 GHz shift. Every other inner backend
+    // keeps the Jacobi default (the direct LU paths ignore the preconditioner;
+    // the SPD CG path selects AMS through its own `*_with_gradient` entry point).
+    let use_ams_minres = matches!(inner, InnerSolver::MatrixFreeIndefinite);
+    let precond = if use_ams_minres {
+        crate::eigen::lanczos::InnerPreconditioner::Ams
+    } else {
+        crate::eigen::lanczos::InnerPreconditioner::Jacobi
+    };
     let solver = SparseShiftInvertLanczos {
         sigma,
         max_iters: 96,
         tol: 1e-8,
         inner,
-        precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
+        precond,
     };
-    let pairs = solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), n_modes)?;
+    let pairs = if use_ams_minres {
+        // G = d⁰_interior plus the per-reduced-edge-row geometry `d_e = p_b − p_a`
+        // the vector-nodal `Π` block needs — the full three-space AMS auxiliary
+        // space (issue #550). Consumed only by the AMS MINRES preconditioner.
+        let mut gradient = crate::eigen::projection::InteriorGradient::build(
+            pencil.edges,
+            pencil.interior_mask,
+            interior_index,
+            pencil.mesh.n_nodes(),
+            dim,
+        );
+        let mut edge_vectors = vec![[0.0_f64; 3]; dim];
+        for (e, &row) in interior_index.iter().enumerate() {
+            if let Some(row) = row {
+                let [a, b] = pencil.edges[e];
+                let pa = pencil.mesh.nodes[a as usize];
+                let pb = pencil.mesh.nodes[b as usize];
+                edge_vectors[row] = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+            }
+        }
+        gradient = gradient.with_edge_vectors(edge_vectors);
+        solver.smallest_eigenpairs_with_gradient(
+            k_red.as_ref(),
+            m_red.as_ref(),
+            n_modes,
+            &gradient,
+        )?
+    } else {
+        solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), n_modes)?
+    };
 
     Ok(pairs
         .iter()
@@ -558,7 +598,15 @@ pub fn solve_transmon_eigenmodes_matrix_free_inner_iters(
     m_per_unit: f64,
     precond: crate::eigen::lanczos::InnerPreconditioner,
 ) -> Result<(Vec<ModeReport>, usize), EigenError> {
-    matrix_free_inner_iters_impl(pencil, sigma, n_modes, m_per_unit, precond, false)
+    matrix_free_inner_iters_impl(
+        pencil,
+        sigma,
+        n_modes,
+        m_per_unit,
+        precond,
+        false,
+        InnerSolver::MatrixFree,
+    )
 }
 
 /// [`solve_transmon_eigenmodes_matrix_free_inner_iters`] running the **full
@@ -587,7 +635,54 @@ pub fn solve_transmon_eigenmodes_matrix_free_inner_iters_three_space(
     m_per_unit: f64,
     precond: crate::eigen::lanczos::InnerPreconditioner,
 ) -> Result<(Vec<ModeReport>, usize), EigenError> {
-    matrix_free_inner_iters_impl(pencil, sigma, n_modes, m_per_unit, precond, true)
+    matrix_free_inner_iters_impl(
+        pencil,
+        sigma,
+        n_modes,
+        m_per_unit,
+        precond,
+        true,
+        InnerSolver::MatrixFree,
+    )
+}
+
+/// Instrumented **indefinite MINRES** transmon eigensolve returning the modes and
+/// the total inner-MINRES iteration count (issues #531/#559).
+///
+/// The interior/indefinite-shift sibling of
+/// [`solve_transmon_eigenmodes_matrix_free_inner_iters_three_space`]: it runs the
+/// [`InnerSolver::MatrixFreeIndefinite`] MINRES inner solve instead of SPD CG, so
+/// it is valid at a shift `σ` placed **interior** to the spectrum (e.g. the
+/// physical 4.5 GHz transmon operating point, where `(K − σM)` is
+/// symmetric-indefinite). With `precond == InnerPreconditioner::Ams` the inner
+/// solve is preconditioned by the three-space Hiptmair–Xu AMS built for the
+/// sign-flipped SPD operator `K + |σ|M` and applied additively (the SPD MINRES
+/// preconditioner of #559); with `precond == InnerPreconditioner::Jacobi` it is
+/// the absolute-value-Jacobi baseline. The returned count is the total inner
+/// MINRES iterations summed across the outer Lanczos loop — the apples-to-apples
+/// AMS-vs-abs-Jacobi measurement vehicle.
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly, the AMS build, or the
+/// matrix-free MINRES solve (including inner non-convergence, which the
+/// abs-Jacobi baseline hits at a deep-interior shift).
+pub fn solve_transmon_eigenmodes_indefinite_inner_iters_three_space(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    precond: crate::eigen::lanczos::InnerPreconditioner,
+) -> Result<(Vec<ModeReport>, usize), EigenError> {
+    matrix_free_inner_iters_impl(
+        pencil,
+        sigma,
+        n_modes,
+        m_per_unit,
+        precond,
+        true,
+        InnerSolver::MatrixFreeIndefinite,
+    )
 }
 
 /// Shared body of the instrumented matrix-free transmon eigensolve. When
@@ -602,6 +697,7 @@ fn matrix_free_inner_iters_impl(
     m_per_unit: f64,
     precond: crate::eigen::lanczos::InnerPreconditioner,
     three_space: bool,
+    inner: InnerSolver,
 ) -> Result<(Vec<ModeReport>, usize), EigenError> {
     let n_edges = pencil.edges.len();
     assert_eq!(
@@ -679,7 +775,7 @@ fn matrix_free_inner_iters_impl(
         sigma,
         max_iters: 96,
         tol: 1e-8,
-        inner: InnerSolver::MatrixFree,
+        inner,
         precond,
     };
     let (pairs, inner_iters) = solver.smallest_eigenpairs_inner_iters(

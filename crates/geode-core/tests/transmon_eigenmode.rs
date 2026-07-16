@@ -2560,6 +2560,171 @@ fn real_transmon_matrix_free_indefinite_matches_direct() {
     }
 }
 
+/// Instrumented **indefinite MINRES** solve of the real fixture, returning the
+/// modes and the total inner-MINRES iteration count under an explicit
+/// preconditioner (issues #531/#559). `precond == Ams` runs the three-space AMS
+/// (SPD proxy `K + |σ|M`, additive apply); `precond == Jacobi` runs the
+/// absolute-value-Jacobi baseline. Returns the raw `Result` so the caller can
+/// observe abs-Jacobi stagnation without aborting the test.
+fn solve_real_fixture_indefinite_inner_iters(
+    f: &TransmonFixture,
+    sigma_f_hz: f64,
+    n_modes: usize,
+    precond: geode_core::eigen::lanczos::InnerPreconditioner,
+) -> Result<(Vec<ModeReport>, usize), geode_core::eigen::dense::EigenError> {
+    let edges = f.mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+
+    let epsilon_tensor = f.epsilon_tensor_r();
+    let scatter = NedelecScatterMap::new(&tet_edge_idx);
+    let (k_vals, m_vals) = assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+
+    let jport = f.lumped_element_port();
+    let element = ReactiveElementNatural::from_si(JUNCTION_L_H, JUNCTION_C_F, M_PER_UNIT);
+    let shunt = LumpedReactiveShunt {
+        faces: &jport.faces,
+        length: jport.length,
+        width: jport.width,
+        element,
+    };
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &edges,
+        mesh: &f.mesh,
+        shunt,
+        interior_mask: &interior_mask,
+    };
+
+    let sigma = lambda_shift_for_frequency_hz(sigma_f_hz, M_PER_UNIT);
+    geode_core::eigen::transmon::solve_transmon_eigenmodes_indefinite_inner_iters_three_space(
+        &pencil, sigma, n_modes, M_PER_UNIT, precond,
+    )
+}
+
+/// RELEASE acceptance gate (issues #531/#559): on the committed 133k-DOF real
+/// transmon fixture at the **physical σ = 4.5 GHz** operating point — where
+/// `(K − σM)` is symmetric-**indefinite** (the ~3.45 GHz junction-participation
+/// mode and the `image(d⁰)` gradient near-kernel sit below the shift, the
+/// ~5.15 GHz resonator above) — the three-space AMS drives the **indefinite
+/// MINRES** inner solve to convergence, matching the direct sparse-LU spectrum
+/// within the ≤1% Palace bar. This is the load-bearing result of #559: it
+/// replaces the abs-Jacobi MINRES baseline, which is too weak to reach the tight
+/// inner tolerance at this interior shift (documented in
+/// [`real_transmon_matrix_free_indefinite_matches_direct`]).
+///
+/// The test also reports the total inner-MINRES iteration count for AMS vs the
+/// abs-Jacobi baseline (`--nocapture`) — the apples-to-apples measurement the
+/// issue asks for.
+///
+/// ```sh
+/// cargo test -p geode-core --release --test transmon_eigenmode \
+///     -- --ignored real_transmon_minres_ams_converges_at_sigma_4p5 --nocapture
+/// ```
+#[test]
+#[ignore = "two 133k-DOF indefinite-MINRES eigensolves + a direct reference — release only"]
+fn real_transmon_minres_ams_converges_at_sigma_4p5() {
+    use geode_core::eigen::lanczos::InnerPreconditioner;
+
+    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
+    let sigma_f_hz = 4.5e9;
+    let n_modes = 6;
+
+    // Direct sparse-LU reference at the same shift.
+    let direct = solve_real_fixture(&f, sigma_f_hz, n_modes);
+
+    // AMS-preconditioned indefinite MINRES — the load-bearing path.
+    let (ams_modes, ams_iters) = solve_real_fixture_indefinite_inner_iters(
+        &f,
+        sigma_f_hz,
+        n_modes,
+        InnerPreconditioner::Ams,
+    )
+    .expect("three-space AMS MINRES must converge at the interior σ = 4.5 GHz shift (issue #559)");
+
+    // Absolute-value-Jacobi MINRES baseline — may stagnate (the weak baseline
+    // #559 replaces); report whichever outcome it reaches.
+    let jacobi_outcome = solve_real_fixture_indefinite_inner_iters(
+        &f,
+        sigma_f_hz,
+        n_modes,
+        InnerPreconditioner::Jacobi,
+    );
+
+    eprintln!("\n=== #559 indefinite MINRES @ σ = 4.5 GHz, 133k DOF, {n_modes} modes ===");
+    match &jacobi_outcome {
+        Ok((_, jac_iters)) => eprintln!(
+            "inner-MINRES iterations: abs-Jacobi = {jac_iters}, three-space AMS = {ams_iters} \
+             ({:.2}× fewer with AMS)",
+            *jac_iters as f64 / ams_iters.max(1) as f64
+        ),
+        Err(e) => eprintln!(
+            "inner-MINRES iterations: abs-Jacobi = STALLED (did not reach inner tol), \
+             three-space AMS = {ams_iters}\n  abs-Jacobi error: {e}"
+        ),
+    }
+
+    // Cross-check every direct mode against the closest AMS mode in λ. The four
+    // `image(d⁰)` gradient near-kernel modes sit at λ ≈ 0 (numerically ~1e-16),
+    // where a relative test is meaningless, so gate those with an absolute λ
+    // floor and apply the ≤1% Palace bar to the physical modes (λ well above the
+    // floor: the ~3.45 GHz junction mode and the ~5.15 GHz resonator).
+    assert_eq!(
+        direct.len(),
+        ams_modes.len(),
+        "mode-count mismatch direct vs AMS MINRES"
+    );
+    let lambda_floor = 1e-12; // physical modes have λ ~ 5e-9; gradient modes ~1e-16.
+    let mut worst_phys = 0.0_f64;
+    for (i, d) in direct.iter().enumerate() {
+        // Closest AMS mode in λ (both lists are sorted, but match defensively).
+        let best = ams_modes
+            .iter()
+            .min_by(|a, b| {
+                (a.lambda - d.lambda)
+                    .abs()
+                    .partial_cmp(&(b.lambda - d.lambda).abs())
+                    .unwrap()
+            })
+            .unwrap();
+        if d.lambda.abs() <= lambda_floor {
+            // Gradient near-kernel: both must be ~0 (absolute test).
+            assert!(
+                best.lambda.abs() <= 1e3 * lambda_floor,
+                "direct near-kernel mode[{i}] λ={:.3e} has no AMS counterpart near 0 (got {:.3e})",
+                d.lambda,
+                best.lambda
+            );
+            continue;
+        }
+        let rel = (d.lambda - best.lambda).abs() / d.lambda.abs();
+        eprintln!(
+            "  physical mode[{i}]: direct {:.6} GHz ↔ AMS MINRES {:.6} GHz → {:.4e} rel",
+            d.frequency_ghz(),
+            best.frequency_ghz(),
+            rel
+        );
+        worst_phys = worst_phys.max(rel);
+        assert!(
+            rel * 100.0 < PALACE_BAR_PCT,
+            "physical mode[{i}] direct λ={} vs AMS MINRES λ={} rel {:.4}% > {PALACE_BAR_PCT}%",
+            d.lambda,
+            best.lambda,
+            rel * 100.0
+        );
+    }
+    eprintln!(
+        "physical-mode worst-case rel-diff (AMS MINRES vs direct) = {worst_phys:.3e} \
+         (within {PALACE_BAR_PCT}% Palace bar); AMS inner-MINRES iters = {ams_iters}\n"
+    );
+}
+
 /// As [`solve_real_fixture_matrix_free`] but through the instrumented entry
 /// point, returning the modes and the total inner-CG iteration count, with an
 /// explicit inner preconditioner (issue #526).
