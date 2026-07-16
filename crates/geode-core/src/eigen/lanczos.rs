@@ -410,6 +410,14 @@ struct ShiftedMatrixFreeOp<'a> {
     /// Boxed so the enclosing `MatrixFree` inner-backend variant stays small
     /// (the AMS preconditioner carries a node-space LU).
     ams: Option<Box<crate::eigen::ams::AmsLitePreconditioner>>,
+    /// Apply the attached AMS in its **additive** form
+    /// (`z = D⁻¹ r + G C⁻¹ Gᵀ r + Π (ΠᵀAΠ)⁻¹ Πᵀ r`) rather than the multiplicative
+    /// V-cycle (issues #531/#559). The additive form needs no operator matvec and
+    /// is SPD purely as a sum of SPD subspace corrections, so — unlike the
+    /// multiplicative V-cycle, whose SPD-ness relies on `A` being SPD — it stays a
+    /// valid **MINRES** preconditioner at an interior/indefinite shift. `false`
+    /// (the SPD CG path) uses the stronger multiplicative cycle.
+    ams_additive: bool,
 }
 
 /// Extract the main diagonal of a CSC matrix into `out` (length `n`).
@@ -452,6 +460,7 @@ impl<'a> ShiftedMatrixFreeOp<'a> {
             sigma,
             inv_diag,
             ams: None,
+            ams_additive: false,
         }
     }
 
@@ -462,6 +471,23 @@ impl<'a> ShiftedMatrixFreeOp<'a> {
     /// drop-in swap of [`Self::precond`]'s behavior.
     fn with_ams(mut self, ams: crate::eigen::ams::AmsLitePreconditioner) -> Self {
         self.ams = Some(Box::new(ams));
+        self.ams_additive = false;
+        self
+    }
+
+    /// Attach an AMS-lite preconditioner applied in its **additive** form for the
+    /// indefinite MINRES path (issues #531/#559).
+    ///
+    /// The SPD CG path uses [`Self::with_ams`] (the multiplicative V-cycle). For
+    /// an interior/indefinite shift the multiplicative cycle is no longer
+    /// guaranteed SPD (its residual updates apply the true indefinite `A`), so the
+    /// MINRES path instead applies the AMS **additively** — a sum of SPD subspace
+    /// corrections that is SPD by construction and needs no operator matvec. The
+    /// caller builds `ams` for the sign-flipped SPD operator `K + |σ|M` so every
+    /// block (edge Jacobi + `Gᵀ(K+|σ|M)G` + `Πᵀ(K+|σ|M)Π`) is SPD.
+    fn with_ams_additive(mut self, ams: crate::eigen::ams::AmsLitePreconditioner) -> Self {
+        self.ams = Some(Box::new(ams));
+        self.ams_additive = true;
         self
     }
 
@@ -501,6 +527,13 @@ impl<'a> ShiftedMatrixFreeOp<'a> {
     /// SPD, so the outer CG stays valid.
     fn precond(&self, r: &[f64], z: &mut [f64]) {
         match &self.ams {
+            Some(ams) if self.ams_additive => {
+                // Indefinite MINRES path (issues #531/#559): the additive apply is
+                // SPD by construction (a sum of SPD subspace corrections) and needs
+                // no matvec of the indefinite operator, so it is a valid MINRES
+                // preconditioner where the multiplicative V-cycle would not be.
+                ams.apply(r, z);
+            }
             Some(ams) => {
                 ams.apply_vcycle(r, z, |x, y| self.apply(x, y));
             }
@@ -1004,12 +1037,42 @@ impl SparseShiftInvertLanczos {
                 })
             }
             InnerSolver::MatrixFreeIndefinite => {
-                // Interior/indefinite shift (issue #535): MINRES with an
-                // absolute-value Jacobi preconditioner (SPD, as MINRES
-                // requires). AMS-lite is not wired here — for a deep-interior
-                // shift the SPD V-cycle would itself need an absolute-value
-                // variant (issue #531), so the first cut is abs-Jacobi only.
-                let op = ShiftedMatrixFreeOp::new(k, m, self.sigma).with_abs_diag();
+                // Interior/indefinite shift (issue #535): MINRES needs an SPD
+                // preconditioner. The default is absolute-value Jacobi
+                // `1/|K_ii − σM_ii|` (SPD even where the shifted diagonal is
+                // sign-indefinite).
+                let mut op = ShiftedMatrixFreeOp::new(k, m, self.sigma).with_abs_diag();
+                // AMS-lite for the indefinite path (issues #531/#559): opt-in via
+                // `precond == Ams` AND a supplied discrete gradient. Abs-Jacobi is
+                // too weak to drive MINRES to the tight inner tolerance at a
+                // deep-interior shift (it cannot damp the gradient near-kernel), so
+                // wire the three-space Hiptmair–Xu AMS as the SPD preconditioner
+                // MINRES needs.
+                //
+                // SPD construction. At an interior shift `A = K − σM` is
+                // indefinite, so the gradient-space coarse operator
+                // `Gᵀ A G ≈ −σ GᵀMG` is *negative* definite (KG ≈ 0 on the gradient
+                // near-kernel) and the plain AMS would be indefinite — invalid for
+                // MINRES. Building the AMS for the **sign-flipped SPD operator**
+                // `K + |σ|M` (pass shift `−|σ|`) makes every subspace block SPD
+                // (`diag(K+|σ|M) > 0`, `Gᵀ(K+|σ|M)G` and `Πᵀ(K+|σ|M)Π` SPD), and
+                // applying it **additively** (a sum of SPD corrections, no matvec
+                // of the indefinite `A`) yields a genuine SPD MINRES
+                // preconditioner. `K + |σ|M` matches `|K − σM|` on both the
+                // gradient near-kernel (both act like `|σ|M`) and the
+                // curl-dominated high modes (both act like `K`), so it is a
+                // principled SPD proxy for `|A|`.
+                if self.precond == InnerPreconditioner::Ams
+                    && let Some(g) = gradient
+                {
+                    let ams = crate::eigen::ams::AmsLitePreconditioner::build(
+                        g,
+                        k,
+                        m,
+                        -self.sigma.abs(),
+                    )?;
+                    op = op.with_ams_additive(ams);
+                }
                 let max_iters = (k.nrows() * INNER_MAX_ITER_FACTOR).max(64);
                 Ok(InnerBackend::MatrixFreeIndefinite {
                     op,

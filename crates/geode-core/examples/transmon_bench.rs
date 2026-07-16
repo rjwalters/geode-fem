@@ -101,10 +101,11 @@ use geode_core::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_full_tensors_sparse,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::eigen::lanczos::InnerSolver;
+use geode_core::eigen::lanczos::{InnerPreconditioner, InnerSolver};
 use geode_core::eigen::transmon::{
     LumpedReactiveShunt, ModeReport, ReactiveElementNatural, TransmonPencil,
-    lambda_shift_for_frequency_hz, solve_transmon_eigenmodes_with_inner,
+    lambda_shift_for_frequency_hz, solve_transmon_eigenmodes_indefinite_inner_iters_three_space,
+    solve_transmon_eigenmodes_with_inner,
 };
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::{
@@ -313,9 +314,41 @@ fn main() {
     // ---- Phase 3: shift-invert Lanczos solve (the timed benchmark). -------
     let sigma = lambda_shift_for_frequency_hz(sigma_ghz * 1e9, M_PER_UNIT);
     let t_solve = Instant::now();
-    let modes: Vec<ModeReport> =
-        solve_transmon_eigenmodes_with_inner(&pencil, sigma, n_modes, M_PER_UNIT, inner)
-            .expect("transmon eigensolve");
+    // For the indefinite MINRES path (issues #531/#559) drive the instrumented
+    // three-space entry point so we can (a) select the inner preconditioner via
+    // `GEODE_PRECOND` (`ams` default — the SPD abs-AMS of #559 — or `jacobi` for
+    // the absolute-value-Jacobi baseline) and (b) print the total inner-MINRES
+    // iteration count, which is the AMS-vs-abs-Jacobi measurement the acceptance
+    // criteria call for. Every other backend keeps the plain entry point.
+    let (modes, inner_iters): (Vec<ModeReport>, Option<usize>) =
+        if inner == InnerSolver::MatrixFreeIndefinite {
+            let precond_name = std::env::var("GEODE_PRECOND").unwrap_or_else(|_| "ams".to_string());
+            let precond = match precond_name.as_str() {
+                "ams" => InnerPreconditioner::Ams,
+                "jacobi" => InnerPreconditioner::Jacobi,
+                other => {
+                    eprintln!("error: unknown GEODE_PRECOND='{other}' (expected: ams | jacobi)");
+                    std::process::exit(2);
+                }
+            };
+            println!(
+                "inner preconditioner: {}",
+                match precond {
+                    InnerPreconditioner::Ams => "three-space AMS (SPD proxy K + |σ|M, #559)",
+                    InnerPreconditioner::Jacobi => "absolute-value Jacobi (baseline)",
+                }
+            );
+            let (modes, iters) = solve_transmon_eigenmodes_indefinite_inner_iters_three_space(
+                &pencil, sigma, n_modes, M_PER_UNIT, precond,
+            )
+            .expect("transmon indefinite MINRES eigensolve");
+            (modes, Some(iters))
+        } else {
+            let modes =
+                solve_transmon_eigenmodes_with_inner(&pencil, sigma, n_modes, M_PER_UNIT, inner)
+                    .expect("transmon eigensolve");
+            (modes, None)
+        };
     let solve_s = t_solve.elapsed().as_secs_f64();
 
     // ---- Results + wall-clock (the numbers an operator reads off stdout). -
@@ -327,6 +360,9 @@ fn main() {
             m.frequency_ghz(),
             m.participation
         );
+    }
+    if let Some(iters) = inner_iters {
+        println!("total inner-MINRES iterations (summed over outer Lanczos steps): {iters}");
     }
     println!("--- wall-clock ---");
     println!("  fixture-load : {load_s:.3} s");
