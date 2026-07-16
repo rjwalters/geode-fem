@@ -6,6 +6,9 @@
 //!
 //! - [`solve`] — the driven solver core: operators, materials, boundary
 //!   conditions, and the `driven_solve*` entry points.
+//! - [`adjoint`] — discrete-adjoint **material** design sensitivities
+//!   `∂(scalar EM observable)/∂ε` through the complex driven Nédélec solve
+//!   (one forward + one adjoint solve, FD-validated; Epic #569 / issue #576).
 //! - [`ports`] — lumped and waveguide port models (excitation, current /
 //!   voltage / impedance extraction, and waveguide mode reduction).
 //! - [`extraction`] — frequency sweeps, S-parameters, port-circuit and
@@ -25,6 +28,7 @@
 //! `driven::ports::Bar`, …); the group root does **not** re-export them up
 //! a level, matching [`crate::eigen`].
 
+pub mod adjoint;
 pub mod extraction;
 pub mod matrix_free;
 pub mod ports;
