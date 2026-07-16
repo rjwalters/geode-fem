@@ -9,6 +9,10 @@
 //! - [`adjoint`] — discrete-adjoint **material** design sensitivities
 //!   `∂(scalar EM observable)/∂ε` through the complex driven Nédélec solve
 //!   (one forward + one adjoint solve, FD-validated; Epic #569 / issue #576).
+//! - [`shape`] — discrete-adjoint **geometry / shape** design sensitivities
+//!   `∂(scalar EM observable)/∂(node coords)` through the same solve, with an
+//!   exact dual-number Nédélec geometry Jacobian (`∂A/∂X`, `∂b/∂X`) chained to
+//!   a node-motion map, FD-validated (Epic #569 / issue #577).
 //! - [`ports`] — lumped and waveguide port models (excitation, current /
 //!   voltage / impedance extraction, and waveguide mode reduction).
 //! - [`extraction`] — frequency sweeps, S-parameters, port-circuit and
@@ -33,5 +37,6 @@ pub mod extraction;
 pub mod matrix_free;
 pub mod ports;
 pub mod scattering;
+pub mod shape;
 pub mod solve;
 pub mod transient;
