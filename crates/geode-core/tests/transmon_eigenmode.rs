@@ -574,6 +574,134 @@ fn synthetic_interior_shift_minres_matches_direct() {
     }
 }
 
+/// Solve the synthetic fixture through the **three-space AMS-preconditioned
+/// indefinite MINRES** path
+/// ([`solve_transmon_eigenmodes_indefinite_inner_iters_three_space`] with
+/// [`InnerPreconditioner::Ams`] — the SPD MINRES preconditioner wired in
+/// #559/#560), returning the modes and the total inner-MINRES iteration count.
+/// This is the CI-fast synthetic sibling of the release-tier
+/// [`solve_real_fixture_indefinite_inner_iters`].
+fn solve_synthetic_indefinite_ams(
+    fx: &SyntheticFixture,
+    element: ReactiveElementNatural,
+    l_geom: f64,
+    w_geom: f64,
+    sigma: f64,
+    n_modes: usize,
+) -> (Vec<ModeReport>, usize) {
+    use geode_core::eigen::lanczos::InnerPreconditioner;
+    let scatter = NedelecScatterMap::new(&fx.tet_edge_idx);
+    let (k_vals, m_vals) =
+        assemble_real_pencil(&fx.mesh, &fx.tet_edge_sign, &scatter, &fx.epsilon_tensor);
+    let shunt = LumpedReactiveShunt {
+        faces: &fx.junction_faces,
+        length: l_geom,
+        width: w_geom,
+        element,
+    };
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &fx.edges,
+        mesh: &fx.mesh,
+        shunt,
+        interior_mask: &fx.interior_mask,
+    };
+    geode_core::eigen::transmon::solve_transmon_eigenmodes_indefinite_inner_iters_three_space(
+        &pencil,
+        sigma,
+        n_modes,
+        M_PER_UNIT,
+        InnerPreconditioner::Ams,
+    )
+    .expect("synthetic three-space AMS indefinite MINRES eigensolve")
+}
+
+/// CORRECTNESS GATE (issues #559/#560/#561, CI-fast): the **three-space
+/// AMS-additive MINRES** path — `InnerSolver::MatrixFreeIndefinite` +
+/// `InnerPreconditioner::Ams`, i.e. the SPD-`(K + |σ|M)` AMS preconditioner
+/// wired in #560 — reproduces the DIRECT sparse-LU spectrum on the synthetic
+/// transmon fixture at a genuinely-**indefinite** interior shift.
+///
+/// This pins the throwaway probe the #560 judge ran (σ = 3.0, synthetic
+/// Nédélec fixture, AMS reproduced Direct to ~1e-11 across all modes) as a
+/// permanent CI-fast regression guard — the merged tree otherwise had no
+/// non-`#[ignore]` end-to-end AMS-MINRES-vs-Direct test (the only such test,
+/// [`real_transmon_minres_ams_converges_at_sigma_4p5`], is release-tier and
+/// does not complete locally). This is the fast complement to that one.
+///
+/// **Indefiniteness is asserted, not assumed:** the Direct spectrum at σ = 3.0
+/// straddles the shift (modes both below and above σ). With `M` SPD that makes
+/// `(K − σM)` symmetric-indefinite, so this genuinely exercises the MINRES
+/// path — not the SPD-CG-below-spectrum path — which is exactly what the AMS
+/// SPD preconditioner (built for the sign-flipped `K + |σ|M` and applied
+/// additively) exists to precondition.
+///
+/// **Genuine regression guard:** the assertion compares the AMS eigenvalue
+/// array against Direct element-by-element, so it fails if the AMS-MINRES path
+/// returned *wrong eigenvalues*, not merely if the SPD guard tripped. The
+/// judge saw ~1e-11; the 1e-8 bar leaves ~3 orders of headroom while staying
+/// far inside the ≤1% Palace bar.
+#[test]
+fn synthetic_ams_minres_matches_direct_interior_shift() {
+    // Interior shift: the dielectric cube's lowest physical mode is O(1) and
+    // there is a gradient nullspace at λ = 0, so σ = 3.0 has generalized
+    // eigenvalues on both sides ⇒ (K − σM) is indefinite. This is the #560
+    // judge's known-good probe point.
+    let fx = synthetic_fixture(3);
+    let sigma = 3.0;
+    let element = ReactiveElementNatural {
+        l_natural: 50.0,
+        c_natural: 5.0,
+    };
+    let n_modes = 4;
+
+    let direct = solve_synthetic(&fx, element, 1.0, 1.0, sigma, n_modes);
+    let (ams, ams_iters) = solve_synthetic_indefinite_ams(&fx, element, 1.0, 1.0, sigma, n_modes);
+
+    // Sanity: the AMS-MINRES path actually iterated (guards against a
+    // degenerate "did nothing" pass).
+    assert!(
+        ams_iters > 0,
+        "AMS-MINRES performed no inner iterations — path not exercised?"
+    );
+
+    // Genuine-indefiniteness gate: the Direct spectrum near σ must straddle the
+    // shift. `M` is SPD, so generalized eigenvalues on both sides of σ ⇒
+    // `(K − σM)` is symmetric-indefinite (the SPD-CG-below-spectrum path would
+    // be invalid here — this is the regime MINRES + SPD-AMS is for).
+    assert!(
+        direct.iter().any(|m| m.lambda < sigma) && direct.iter().any(|m| m.lambda > sigma),
+        "Direct spectrum did not straddle σ = {sigma} — shift is not indefinite; \
+         modes = {:?}",
+        direct.iter().map(|m| m.lambda).collect::<Vec<_>>()
+    );
+
+    assert_eq!(
+        direct.len(),
+        ams.len(),
+        "three-space AMS MINRES returned a different mode count than Direct"
+    );
+    let mut worst = 0.0_f64;
+    for (i, (d, a)) in direct.iter().zip(ams.iter()).enumerate() {
+        let rel = (d.lambda - a.lambda).abs() / d.lambda.abs().max(1.0);
+        worst = worst.max(rel);
+        assert!(
+            rel < 1e-8,
+            "mode[{i}] direct λ={} AMS-MINRES λ={} rel-diff={rel:.2e} > 1e-8 \
+             (also {:.4}% — must be ≪ 1% Palace bar)",
+            d.lambda,
+            a.lambda,
+            rel * 100.0
+        );
+    }
+    println!(
+        "AMS-MINRES vs Direct @ σ={sigma}: {n_modes} modes, worst rel-diff = {worst:.2e}, \
+         inner-MINRES iters = {ams_iters}"
+    );
+}
+
 /// Solve the synthetic fixture through the **matrix-free** path with an
 /// explicit inner-CG preconditioner, returning the modes and the total inner-CG
 /// iteration count (issue #526). Used to measure the AMS-lite vs Jacobi
