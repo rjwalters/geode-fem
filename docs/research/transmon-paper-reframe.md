@@ -44,7 +44,7 @@ proven; the eigenmode/EPR branch is not differentiable yet** (§4). Do not blur 
 | `∂(observable)/∂(geometry)` — shape adjoint (scalar P1) | **PROVEN** | #571 / merged PR #575 → [`crate::shape`](../../crates/geode-core/src/shape.rs); Dual-kernel `∂K/∂X`, FD cross-check ~1e-9 |
 | `∂(driven EM observable)/∂ε` — H(curl) material adjoint | **PROVEN** | #576 / merged PR #579 → [`crate::driven::adjoint`](../../crates/geode-core/src/driven/adjoint.rs); worst-region rel-err ≈ 2.3e-5 vs central FD |
 | `∂(driven EM observable)/∂(node coords)` — H(curl) shape adjoint | **PROVEN** | #577 / merged PR #581 → [`crate::driven::shape`](../../crates/geode-core/src/driven/shape.rs) |
-| `∂(C, E_C)/∂geometry` — differentiable capacitance→E_C chain | **IN REVIEW** (not yet merged) | #583 / **open** PR #586 (branch `feature/issue-583`); FD-validated ~1e-9 on a parallel-plate fixture. The centerpiece composition — the final link, landing now. |
+| `∂(C, E_C)/∂geometry` — differentiable capacitance→E_C chain | **PROVEN** | #583 / merged PR #586 → [`shape::capacitance_shape_gradient`](../../crates/geode-core/src/shape.rs); FD + analytic validated ~1e-9 (parallel-plate `∂C/∂d=−ε₀ε_r`, `∂C/∂A=+2ε₀ε_r`). The centerpiece composition — the final link, now merged. |
 | Gradient-descent-to-target `E_C` optimization demo | **FORTHCOMING** | #584 (in progress) — the paper's centerpiece *figure*; depends on #583. **Not done.** |
 | Eigenmode / EPR differentiation (resonator freq, participation Kerr) | **ROADMAP** | Needs differentiating the interior eigensolve; blocked at σ=4.5 (#562/#565 coarse-solve-invariant plateau; #531). Path in §4. |
 
@@ -153,28 +153,29 @@ and H(curl) (RF/driven) operators:
    `∂(EM observable)/∂(node coords)` on the Nédélec solve — the geometry derivative of a real
    Maxwell observable, the hardest/highest-value gradient of the epic.
 
-### 3c. The centerpiece composition (IN REVIEW → forthcoming demo)
+### 3c. The centerpiece composition (MERGED chain → forthcoming demo)
 
 The paper's contribution figure is the **`∂E_C/∂geometry` chain** and a gradient-descent-to-
 target optimization on it. Two honesty tiers:
 
-- **`∂(C, E_C)/∂geometry` — differentiable capacitance→E_C chain (IN REVIEW, PR #586).** Issue
+- **`∂(C, E_C)/∂geometry` — differentiable capacitance→E_C chain (PROVEN, merged PR #586).** Issue
   #583 composes §3b's shape adjoint with §3a's `C = φᵀKφ` extraction to yield
-  `∂(C, E_C)/∂geometry`, FD-validated to **~1e-9** on a parallel-plate fixture. It carries an
+  `∂(C, E_C)/∂geometry`, FD + analytic validated to **~1e-9** on a parallel-plate fixture
+  (`∂C/∂d=−ε₀ε_r`, `∂C/∂A=+2ε₀ε_r`). It carries an
   elegant result: because `C = φᵀKφ` is *variationally stationary* in the electrostatic
   potential φ (φ solves `Kφ = b`), the implicit-solution term vanishes and the shape derivative
   collapses to a **pure explicit-geometry term** — no adjoint back-solve is needed for the
-  capacitance itself. **Status: open PR #586 on branch `feature/issue-583`, not yet merged to
-  `main`.** The paper should present it as *landing* — the final link built on four merged
-  adjoints — and cite the merged commit once it lands, not before.
+  capacitance itself. **Status: merged to `main` as [`shape::capacitance_shape_gradient`](../../crates/geode-core/src/shape.rs)
+  (#583 CLOSED / PR #586 MERGED).** The final link — built on four merged adjoints — is now
+  itself merged; the paper cites the landed commit.
 - **Gradient-descent-to-target `E_C` optimization demo (FORTHCOMING, #584).** The centerpiece
   *figure* — converge geometry to a target `E_C` via `∂E_C/∂geometry`. Issue #584 is **in
   progress**; reference it as forthcoming, **not** as a completed result.
 
-**Bottom line for §3:** the four adjoint building blocks are merged and FD-validated; the
-capacitance→E_C composition is one open PR from complete; the optimization demo is the
-forthcoming centerpiece. The LOM branch is a *real, proven* differentiable pipeline modulo the
-final composition landing — this is the achievable contribution the paper leads with.
+**Bottom line for §3:** the four adjoint building blocks *and* the capacitance→E_C composition
+are all merged and FD-validated; only the optimization demo (#584) remains forthcoming. The LOM
+branch is a *real, proven* differentiable pipeline end-to-end — this is the achievable
+contribution the paper leads with.
 
 ## 4. Roadmap / honest future work — eigenmode/EPR differentiation (gated, NOT yet built)
 
@@ -209,7 +210,7 @@ The explicit split the paper commits to:
 
 | branch | observable | differentiable? |
 |---|---|---|
-| **LOM (now)** | `E_C`, α ≈ −E_C, coupling capacitance (electrostatic) | **yes** — §3 (four merged adjoints; #583 composition landing) |
+| **LOM (now)** | `E_C`, α ≈ −E_C, coupling capacitance (electrostatic) | **yes** — §3 (four merged adjoints; #583 composition merged) |
 | **eigenmode/EPR (roadmap)** | resonator frequency, participation-ratio Kerr, EPR self/cross-Kerr | **not yet** — §4 blocker (σ=4.5 wall; JD + Helmholtz projection + Hellmann–Feynman) |
 
 ## 5. Positioning — a capability result, complementing Palace, aimed at outreach
@@ -254,8 +255,8 @@ operator, complement not rival.
 - Issues/PRs — **merged (PROVEN):** #570/PR #573 ([`crate::adjoint`](../../crates/geode-core/src/adjoint.rs)),
   #571/PR #575 ([`crate::shape`](../../crates/geode-core/src/shape.rs)),
   #576/PR #579 ([`crate::driven::adjoint`](../../crates/geode-core/src/driven/adjoint.rs)),
-  #577/PR #581 ([`crate::driven::shape`](../../crates/geode-core/src/driven/shape.rs)).
-  **In review:** #583 / open PR #586 (differentiable capacitance→E_C chain).
+  #577/PR #581 ([`crate::driven::shape`](../../crates/geode-core/src/driven/shape.rs)),
+  #583/PR #586 ([`shape::capacitance_shape_gradient`](../../crates/geode-core/src/shape.rs), differentiable capacitance→E_C chain).
   **Forthcoming:** #584 (optimization demo). **Roadmap blocker:** #562/#565/#531 (σ=4.5).
 
 ## Note on scope
