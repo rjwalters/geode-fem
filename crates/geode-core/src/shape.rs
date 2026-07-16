@@ -426,6 +426,125 @@ pub fn chain_node_motion(grad_node: &[[f64; 3]], dnode_dtheta: &[[f64; 3]]) -> f
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Analytic node-motion maps for shape optimization (issue #589).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Mean position (centroid) of a node subset — the fixed point of the
+/// in-plane scale map ([`in_plane_scale_velocity`] /
+/// [`apply_in_plane_scale`]).
+///
+/// # Panics
+///
+/// Panics if `subset` is empty or references a node outside the mesh.
+pub fn subset_centroid(mesh: &TetMesh, subset: &[u32]) -> [f64; 3] {
+    assert!(!subset.is_empty(), "subset_centroid: empty node subset");
+    let mut c = [0.0_f64; 3];
+    for &n in subset {
+        let p = mesh.nodes[n as usize];
+        c[0] += p[0];
+        c[1] += p[1];
+        c[2] += p[2];
+    }
+    let inv = 1.0 / subset.len() as f64;
+    [c[0] * inv, c[1] * inv, c[2] * inv]
+}
+
+/// Velocity field `∂X/∂θ` of the **in-plane subset scale** map
+///
+/// ```text
+///   X_n(θ) = c + (1 + θ)·(X⁰_n − c)   in x,y   (z unchanged),   n ∈ subset,
+///   X_n(θ) = X⁰_n                                               otherwise,
+/// ```
+///
+/// where `c` is the subset centroid ([`subset_centroid`]). The map is
+/// **linear** in `θ`, so the constant velocity `∂X_n/∂θ = (X⁰_n − c)`
+/// (in-plane components only, zero `z`) is exact at every `θ` — the same
+/// array feeds both [`chain_node_motion`] /
+/// [`CapacitanceShapeGradient::dc_dtheta`] and the finite-difference
+/// perturbation. Off-subset nodes carry zero velocity (fixed topology,
+/// fixed surroundings; adjacent tets deform).
+///
+/// This is the transmon **island-pad scale** parameterization of issue
+/// #589: `subset` = the island conductor's node set, `1 + θ` = the pad's
+/// in-plane linear scale factor.
+///
+/// # Panics
+///
+/// Panics if `subset` is empty or references a node outside the mesh.
+pub fn in_plane_scale_velocity(mesh: &TetMesh, subset: &[u32]) -> Vec<[f64; 3]> {
+    let c = subset_centroid(mesh, subset);
+    let mut vel = vec![[0.0_f64; 3]; mesh.n_nodes()];
+    for &n in subset {
+        let p = mesh.nodes[n as usize];
+        vel[n as usize] = [p[0] - c[0], p[1] - c[1], 0.0];
+    }
+    vel
+}
+
+/// Apply the in-plane subset scale map at parameter `θ` (see
+/// [`in_plane_scale_velocity`]): returns a clone of `mesh` with each subset
+/// node moved to `c + (1 + θ)(X⁰ − c)` in `x, y` (`z` and all off-subset
+/// nodes unchanged, topology fixed). `θ = 0` reproduces the input mesh
+/// exactly; `θ < 0` shrinks the subset about its centroid.
+///
+/// # Panics
+///
+/// Panics if `subset` is empty or references a node outside the mesh.
+pub fn apply_in_plane_scale(mesh: &TetMesh, subset: &[u32], theta: f64) -> TetMesh {
+    let c = subset_centroid(mesh, subset);
+    let mut moved = mesh.clone();
+    for &n in subset {
+        let p = &mut moved.nodes[n as usize];
+        p[0] = c[0] + (1.0 + theta) * (p[0] - c[0]);
+        p[1] = c[1] + (1.0 + theta) * (p[1] - c[1]);
+    }
+    moved
+}
+
+/// Signed 6-volume (`det[e₁ e₂ e₃]`) of tet `t` of `mesh`.
+fn tet_signed_6vol(mesh: &TetMesh, t: usize) -> f64 {
+    let tet = mesh.tets[t];
+    let v0 = mesh.nodes[tet[0] as usize];
+    let e = |k: usize| -> [f64; 3] {
+        let v = mesh.nodes[tet[k] as usize];
+        [v[0] - v0[0], v[1] - v0[1], v[2] - v0[2]]
+    };
+    let (e1, e2, e3) = (e(1), e(2), e(3));
+    e1[0] * (e2[1] * e3[2] - e2[2] * e3[1]) - e1[1] * (e2[0] * e3[2] - e2[2] * e3[0])
+        + e1[2] * (e2[0] * e3[1] - e2[1] * e3[0])
+}
+
+/// Mesh-distortion guard for node-motion maps: the minimum, over all tets,
+/// of the **signed**-volume ratio `vol(moved tet) / vol(base tet)`.
+///
+/// * `≈ 1` — the map barely deformed that worst tet;
+/// * `→ 0⁺` — a tet is nearly degenerate (discretization quality degrading);
+/// * `≤ 0` — a tet **inverted**: the moved mesh is no longer a valid
+///   discretization and any solve on it is meaningless. Callers doing real
+///   shape optimization must reject such a step (the honesty clause of
+///   issue #589: a large pad shrink may exceed the safe deformation of the
+///   adjacent tets).
+///
+/// # Panics
+///
+/// Panics if the meshes differ in tet count (the maps here are fixed-topology).
+pub fn min_tet_volume_ratio(base: &TetMesh, moved: &TetMesh) -> f64 {
+    assert_eq!(
+        base.n_tets(),
+        moved.n_tets(),
+        "min_tet_volume_ratio: tet counts differ (fixed-topology maps only)"
+    );
+    let mut worst = f64::INFINITY;
+    for t in 0..base.n_tets() {
+        let vb = tet_signed_6vol(base, t);
+        let vm = tet_signed_6vol(moved, t);
+        // vb ≠ 0 on any valid input mesh; the ratio keeps vb's orientation.
+        worst = worst.min(vm / vb);
+    }
+    worst
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Differentiable capacitance → E_C chain (Epic #476 / #569, issue #583).
 // ─────────────────────────────────────────────────────────────────────────
 //
@@ -1036,6 +1155,116 @@ mod tests {
                  total {total} — expected ~0; the explicit ∂K/∂X term must dominate"
             );
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // In-plane subset scale map (issue #589).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// The in-plane scale map moves ONLY the subset nodes, only in-plane,
+    /// exactly linearly in θ: `apply(θ) − base == θ · velocity` node-for-node,
+    /// in-plane pairwise subset distances scale by `(1 + θ)`, `z` and all
+    /// off-subset nodes are untouched, and θ = 0 is the identity.
+    #[test]
+    fn in_plane_scale_map_is_linear_and_subset_local() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        // Subset: the top-face nodes (z = 1) — a "pad" on a surface.
+        let subset: Vec<u32> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| (p[2] - 1.0).abs() < 1e-12)
+            .map(|(i, _)| i as u32)
+            .collect();
+        assert!(subset.len() >= 4, "fixture must have a multi-node subset");
+        let in_subset = |n: usize| subset.contains(&(n as u32));
+
+        let vel = in_plane_scale_velocity(&mesh, &subset);
+        // Velocity: zero off-subset, zero z everywhere, and (centroid
+        // property) it sums to zero over the subset.
+        let mut sum = [0.0_f64; 3];
+        for (n, v) in vel.iter().enumerate() {
+            assert_eq!(v[2], 0.0, "node {n}: velocity must be in-plane");
+            if !in_subset(n) {
+                assert_eq!(*v, [0.0; 3], "node {n}: off-subset velocity must be 0");
+            } else {
+                sum[0] += v[0];
+                sum[1] += v[1];
+            }
+        }
+        assert!(
+            sum[0].abs() < 1e-12 && sum[1].abs() < 1e-12,
+            "subset velocity must sum to zero about the centroid, got {sum:?}"
+        );
+
+        // θ = 0 is the identity.
+        let id = apply_in_plane_scale(&mesh, &subset, 0.0);
+        assert_eq!(id.nodes, mesh.nodes, "θ = 0 must reproduce the base mesh");
+        assert_eq!(id.tets, mesh.tets, "topology must be fixed");
+
+        // Linearity: apply(θ) − base == θ · velocity, exactly.
+        let theta = -0.3;
+        let moved = apply_in_plane_scale(&mesh, &subset, theta);
+        assert_eq!(moved.tets, mesh.tets, "topology must be fixed");
+        for (n, ((mv, bs), v)) in moved.nodes.iter().zip(&mesh.nodes).zip(&vel).enumerate() {
+            for d in 0..3 {
+                let expect = bs[d] + theta * v[d];
+                assert!(
+                    (mv[d] - expect).abs() < 1e-15,
+                    "node {n} axis {d}: map is not θ-linear with its velocity"
+                );
+            }
+        }
+
+        // In-plane pairwise distances between subset nodes scale by (1+θ).
+        let (a, b) = (subset[0] as usize, *subset.last().unwrap() as usize);
+        let d0 = ((mesh.nodes[a][0] - mesh.nodes[b][0]).powi(2)
+            + (mesh.nodes[a][1] - mesh.nodes[b][1]).powi(2))
+        .sqrt();
+        let d1 = ((moved.nodes[a][0] - moved.nodes[b][0]).powi(2)
+            + (moved.nodes[a][1] - moved.nodes[b][1]).powi(2))
+        .sqrt();
+        assert!(d0 > 0.0, "degenerate probe pair");
+        assert!(
+            (d1 / d0 - (1.0 + theta)).abs() < 1e-12,
+            "in-plane distance ratio {} != 1+θ = {}",
+            d1 / d0,
+            1.0 + theta
+        );
+    }
+
+    /// The volume-ratio guard is 1 for the identity, detects a genuine
+    /// (non-inverting) deformation, and flags an inverted tet with a
+    /// non-positive ratio.
+    #[test]
+    fn min_tet_volume_ratio_flags_inversion() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        assert!(
+            (min_tet_volume_ratio(&mesh, &mesh) - 1.0).abs() < 1e-15,
+            "identity map must give ratio 1"
+        );
+
+        // A gentle one-node interior move deforms but does not invert.
+        let interior = mesh
+            .nodes
+            .iter()
+            .position(|p| p.iter().all(|&c| c > 1e-12 && c < 1.0 - 1e-12))
+            .expect("interior node");
+        let mut gentle = mesh.clone();
+        gentle.nodes[interior][0] += 0.05;
+        let r = min_tet_volume_ratio(&mesh, &gentle);
+        assert!(
+            r > 0.0 && r < 1.0,
+            "gentle move: expected 0 < ratio < 1, got {r}"
+        );
+
+        // Dragging the same node far outside the cube inverts some tet.
+        let mut inverted = mesh.clone();
+        inverted.nodes[interior][0] += 2.0;
+        assert!(
+            min_tet_volume_ratio(&mesh, &inverted) <= 0.0,
+            "a node dragged through its opposite faces must invert a tet"
+        );
     }
 
     /// The composed `∂(E_C/h)/∂θ` — the capacitance shape gradient chained
