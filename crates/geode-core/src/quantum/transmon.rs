@@ -126,6 +126,54 @@ pub fn e_c_hz_from_capacitance(c_sigma_farad: f64) -> f64 {
     E_CHARGE * E_CHARGE / (2.0 * c_sigma_farad) / H_PLANCK
 }
 
+/// The analytic charging-energy sensitivity
+/// `∂(E_C/h)/∂C_Σ = −e²/(2 C_Σ² h)` (Hz/F) — the exact derivative of
+/// [`e_c_hz_from_capacitance`], and the scalar chain factor that composes a
+/// capacitance shape gradient `∂C_Σ/∂θ` into the charging-energy design
+/// gradient
+///
+/// ```text
+///   ∂(E_C/h)/∂θ = (∂E_C/∂C_Σ) · (∂C_Σ/∂θ).
+/// ```
+///
+/// It is strictly negative (raising the total capacitance lowers the
+/// charging energy), the leg that turns
+/// [`crate::shape::capacitance_shape_gradient`]'s `∂C/∂geometry` into the
+/// transmon Hamiltonian's `∂E_C/∂geometry`.
+///
+/// # Panics
+///
+/// Panics if `c_sigma_farad` is not strictly positive.
+pub fn d_e_c_hz_d_c_sigma(c_sigma_farad: f64) -> f64 {
+    assert!(
+        c_sigma_farad > 0.0,
+        "C_Σ must be positive, got {c_sigma_farad}"
+    );
+    -E_CHARGE * E_CHARGE / (2.0 * c_sigma_farad * c_sigma_farad * H_PLANCK)
+}
+
+/// The transmon `01`-frequency sensitivity to `E_C` from the asymptote
+/// `ω01 ≈ √(8 E_J E_C) − E_C`:
+///
+/// ```text
+///   ∂ω01/∂E_C = √(2 E_J / E_C) − 1.
+/// ```
+///
+/// This is the exact derivative of the **asymptotic** form
+/// ([`omega01_asymptotic_hz`]); the gate `ω01` is the Koch diagonalization
+/// ([`TransmonSpectrum::omega01_hz`]), so this is the sanity-level closed
+/// form (good to ~1–2 % at `E_J/E_C ≈ 51`, exactly as `ω01` itself is). The
+/// companion anharmonicity asymptote `α ≈ −E_C` gives `∂α/∂E_C ≈ −1` to the
+/// same order.
+///
+/// # Panics
+///
+/// Panics if `e_j_hz` or `e_c_hz` is not strictly positive.
+pub fn d_omega01_asymptotic_d_e_c(e_j_hz: f64, e_c_hz: f64) -> f64 {
+    assert!(e_j_hz > 0.0 && e_c_hz > 0.0, "E_J, E_C must be positive");
+    (2.0 * e_j_hz / e_c_hz).sqrt() - 1.0
+}
+
 /// The total capacitance `C_Σ` (farads) implied by a charging energy
 /// `E_C/h` (Hz) — the inverse of [`e_c_hz_from_capacitance`], for reporting
 /// the back-solved `C_Σ` against the 80–100 fF expectation.
@@ -441,6 +489,46 @@ mod tests {
             (c_anchor * 1e15 - 89.9).abs() < 0.5,
             "C_Σ = {} fF, want ≈ 89.9",
             c_anchor * 1e15
+        );
+    }
+
+    /// The analytic `∂(E_C/h)/∂C_Σ` matches a central finite difference of
+    /// [`e_c_hz_from_capacitance`] to tight tolerance (the scalar chain
+    /// factor is exact, not an approximation).
+    #[test]
+    fn d_e_c_d_c_sigma_matches_finite_difference() {
+        for &c in &[50e-15_f64, 89.9e-15, 136.7e-15, 200e-15] {
+            let ana = d_e_c_hz_d_c_sigma(c);
+            let h = c * 1e-6;
+            let fd = (e_c_hz_from_capacitance(c + h) - e_c_hz_from_capacitance(c - h)) / (2.0 * h);
+            let rel = (ana - fd).abs() / fd.abs();
+            assert!(
+                ana < 0.0,
+                "∂E_C/∂C_Σ must be negative (more capacitance ⇒ less E_C), got {ana}"
+            );
+            assert!(
+                rel < 1e-6,
+                "∂E_C/∂C_Σ at C_Σ={c}: analytic {ana} vs FD {fd}, rel {rel:.3e}"
+            );
+        }
+    }
+
+    /// `∂ω01/∂E_C` (asymptotic) is the exact derivative of
+    /// [`omega01_asymptotic_hz`] — matches a central finite difference of it,
+    /// and is positive in the transmon regime (`√(2E_J/E_C) ≫ 1`).
+    #[test]
+    fn d_omega01_asymptotic_matches_finite_difference() {
+        let e_j = 11.0e9;
+        let e_c = 11.0e9 / 51.0;
+        let ana = d_omega01_asymptotic_d_e_c(e_j, e_c);
+        let h = e_c * 1e-6;
+        let fd =
+            (omega01_asymptotic_hz(e_j, e_c + h) - omega01_asymptotic_hz(e_j, e_c - h)) / (2.0 * h);
+        let rel = (ana - fd).abs() / fd.abs();
+        assert!(ana > 0.0, "∂ω01/∂E_C should be positive in transmon regime");
+        assert!(
+            rel < 1e-6,
+            "∂ω01/∂E_C: analytic {ana} vs FD {fd}, rel {rel:.3e}"
         );
     }
 
