@@ -13,5 +13,12 @@
 //!   (`ω01`, anharmonicity `α`, charge dispersion), the EPR/BBQ
 //!   self-/cross-Kerr closed forms, and the classical-Duffing ↔ quantum-Kerr
 //!   correspondence-limit tripwire.
+//! - [`diffopt`]: gradient-based transmon-parameter optimization (Epic
+//!   #476 / #569) — a scale-free damped-Newton drive of a geometry
+//!   parameter `θ` to a target charging energy `E_C/h`, consuming the
+//!   analytic `∂(E_C/h)/∂θ` from the electrostatic-energy adjoint
+//!   ([`crate::shape::capacitance_shape_gradient`], issue #583). The
+//!   differentiable-design centerpiece figure of the reframed paper.
 
+pub mod diffopt;
 pub mod transmon;
