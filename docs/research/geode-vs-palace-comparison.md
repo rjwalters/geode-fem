@@ -175,16 +175,20 @@ points:
     dependence on **material ε** — assembly is differentiable.
   - **Just landed (done):** the missing **adjoint-through-solve** layer. The faer sparse
     factorization breaks the autodiff tape, so naïve reverse-mode yields *no* gradient of
-    a solved observable. Issue [#570](https://github.com/rjwalters/geode-fem/issues/570) /
-    PR [#573](https://github.com/rjwalters/geode-fem/pull/573) adds an explicit
-    discrete-adjoint layer and proves it end-to-end on the **real, SPD electrostatic**
+    a solved observable. Issue [#570](https://github.com/rjwalters/geode-fem/issues/570)
+    (closed) / PR [#573](https://github.com/rjwalters/geode-fem/pull/573) (merged) added an
+    explicit discrete-adjoint layer —
+    [`crates/geode-core/src/adjoint.rs`](../../crates/geode-core/src/adjoint.rs) on `main` —
+    and proves it end-to-end on the **real, SPD electrostatic**
     solve (itself validated to <1%, O(h²), in
     [`benchmarks/electrostatic/results.toml`](../../benchmarks/electrostatic/results.toml)):
     one forward + one adjoint solve (reusing the same LU factors) returns `∂g/∂ε_k` for
-    every material region, validated against a full central finite-difference of the whole
-    pipeline at **worst-case relative error 2.9e-8**. This is the first validated
-    solver-derived gradient in GEODE — a `∂observable/∂ε` that **Palace structurally
-    cannot produce**.
+    every material region. The committed test
+    `adjoint_gradient_matches_central_finite_difference` in that module **asserts** the
+    adjoint gradient matches a full central finite-difference of the whole pipeline to
+    **relative error ≤ 1e-4** (the reference run observes ~3e-8). This is the first
+    validated solver-derived gradient in GEODE — a `∂observable/∂ε` that **Palace
+    structurally cannot produce**.
   - **Roadmap (not done):** **geometry / shape sensitivities** — `∂observable/∂(geometry
     param)` via the adjoint plus a differentiable node-motion / design-param → mesh map —
     are issue [#571](https://github.com/rjwalters/geode-fem/issues/571), *in progress*.
@@ -205,8 +209,9 @@ one already-validated result (the ε-adjoint), not a claim of raw-speed superior
   efficiency edge that does not survive scaling. **No clearly-preferred GEODE raw-perf
   corner exists.**
 - **Complement:** GEODE's tensor-native, single-binary, differentiable-by-construction
-  substrate adds **solver-derived design sensitivities** (material-ε adjoint validated at
-  2.9e-8; geometry sensitivities forthcoming) that a factorization-based solver cannot
+  substrate adds **solver-derived design sensitivities** (material-ε adjoint validated to
+  ≤1e-4, test-asserted; ~3e-8 observed; geometry sensitivities forthcoming) that a
+  factorization-based solver cannot
   provide. That is the intended relationship: an independent cross-check that *adds* a
   capability, not a faster replacement.
 
@@ -221,4 +226,4 @@ one already-validated result (the ε-adjoint), not a claim of raw-speed superior
 - [`benchmarks/electrostatic/results.toml`](../../benchmarks/electrostatic/results.toml) — electrostatic solver validation (adjoint demo problem)
 - [`reference/CONFORMANCE.md`](../../reference/CONFORMANCE.md) — cross-backend / independent-solver agreement ledger
 - [`docs/research/2026-07-16-strategic-direction.md`](./2026-07-16-strategic-direction.md) — strategic framing
-- Issues/PRs: [#570](https://github.com/rjwalters/geode-fem/issues/570), [#573](https://github.com/rjwalters/geode-fem/pull/573) (ε-adjoint, done); [#571](https://github.com/rjwalters/geode-fem/issues/571) (shape sensitivities, in progress); [#562](https://github.com/rjwalters/geode-fem/issues/562), [#565](https://github.com/rjwalters/geode-fem/issues/565) (plateau); [#518](https://github.com/rjwalters/geode-fem/issues/518) (no 8-thread speedup)
+- Issues/PRs: [#570](https://github.com/rjwalters/geode-fem/issues/570) (closed), [#573](https://github.com/rjwalters/geode-fem/pull/573) (merged) — ε-adjoint, committed in [`crates/geode-core/src/adjoint.rs`](../../crates/geode-core/src/adjoint.rs); [#571](https://github.com/rjwalters/geode-fem/issues/571) (shape sensitivities, in progress); [#562](https://github.com/rjwalters/geode-fem/issues/562), [#565](https://github.com/rjwalters/geode-fem/issues/565) (plateau); [#518](https://github.com/rjwalters/geode-fem/issues/518) (no 8-thread speedup)
