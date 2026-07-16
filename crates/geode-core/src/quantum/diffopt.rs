@@ -68,6 +68,13 @@ pub struct DiffOptResult {
     pub trajectory: Vec<DiffOptStep>,
     /// True iff the final `|E_C − E_C_target|` fell within `tol_hz`.
     pub converged: bool,
+    /// True iff the iteration stopped because the box-projected update could
+    /// no longer move `θ` — it is pinned on a [`optimize_e_c_to_target_bounded`]
+    /// bound with the target still out of tolerance. The honest-partial
+    /// outcome of a constrained run (e.g. a mesh-distortion limit tighter
+    /// than the design target, issue #589). Always `false` for the
+    /// unbounded variants.
+    pub stalled_at_bound: bool,
     /// The converged parameter `θ` (the last trajectory point's `θ`).
     pub theta_final: f64,
     /// The converged `E_C/h` (Hz) — the last forward-solved value.
@@ -103,6 +110,88 @@ pub fn optimize_e_c_to_target<F>(
     alpha: f64,
     tol_hz: f64,
     max_steps: usize,
+    eval: F,
+) -> DiffOptResult
+where
+    F: FnMut(f64) -> (f64, f64, f64),
+{
+    optimize_e_c_to_target_clamped(
+        e_c_target_hz,
+        theta0,
+        alpha,
+        tol_hz,
+        max_steps,
+        f64::INFINITY,
+        eval,
+    )
+}
+
+/// [`optimize_e_c_to_target`] with a **trust-region-style step clamp**: each
+/// damped-Newton update is limited to `|Δθ| ≤ max_abs_dtheta`.
+///
+/// On a real (non-affine) geometry the first Newton steps extrapolate a
+/// local linearization far outside its validity — and, for **mesh-morphing**
+/// parameterizations, a too-large step can outright invert tets of the
+/// fixed-topology mesh (issue #589's island-pad scale). Clamping keeps every
+/// visited `θ` within a bounded, mesh-safe move per step while preserving
+/// the scale-free Newton behavior near the solution (once the unclamped step
+/// is smaller than the clamp, the iteration is plain damped Newton).
+///
+/// # Panics
+///
+/// Same as [`optimize_e_c_to_target`], plus `max_abs_dtheta` must be
+/// positive (it may be `f64::INFINITY` for no clamping).
+#[allow(clippy::too_many_arguments)]
+pub fn optimize_e_c_to_target_clamped<F>(
+    e_c_target_hz: f64,
+    theta0: f64,
+    alpha: f64,
+    tol_hz: f64,
+    max_steps: usize,
+    max_abs_dtheta: f64,
+    eval: F,
+) -> DiffOptResult
+where
+    F: FnMut(f64) -> (f64, f64, f64),
+{
+    optimize_e_c_to_target_bounded(
+        e_c_target_hz,
+        theta0,
+        alpha,
+        tol_hz,
+        max_steps,
+        max_abs_dtheta,
+        (f64::NEG_INFINITY, f64::INFINITY),
+        eval,
+    )
+}
+
+/// [`optimize_e_c_to_target_clamped`] with an additional **box constraint**
+/// `θ ∈ [theta_bounds.0, theta_bounds.1]`: every clamped Newton update is
+/// projected back into the box before evaluation.
+///
+/// This is the constrained-design driver for a parameter with a hard
+/// validity limit — issue #589's fixed-topology island-pad scale, where the
+/// mesh inverts beyond a bisected distortion boundary, is the motivating
+/// case. If the projected update can no longer move `θ` (it is pinned on a
+/// bound with the residual still above `tol_hz`), the run stops and reports
+/// [`DiffOptResult::stalled_at_bound`] — the honest-partial outcome
+/// ("converged to the constraint boundary"), never a fabricated
+/// convergence.
+///
+/// # Panics
+///
+/// Same as [`optimize_e_c_to_target_clamped`], plus the box must be
+/// non-empty and contain `theta0`.
+#[allow(clippy::too_many_arguments)]
+pub fn optimize_e_c_to_target_bounded<F>(
+    e_c_target_hz: f64,
+    theta0: f64,
+    alpha: f64,
+    tol_hz: f64,
+    max_steps: usize,
+    max_abs_dtheta: f64,
+    theta_bounds: (f64, f64),
     mut eval: F,
 ) -> DiffOptResult
 where
@@ -113,6 +202,15 @@ where
         "damping alpha must be in (0, 1], got {alpha}"
     );
     assert!(tol_hz >= 0.0, "tol_hz must be non-negative, got {tol_hz}");
+    assert!(
+        max_abs_dtheta > 0.0,
+        "max_abs_dtheta must be positive, got {max_abs_dtheta}"
+    );
+    let (theta_lo, theta_hi) = theta_bounds;
+    assert!(
+        theta_lo <= theta0 && theta0 <= theta_hi,
+        "theta bounds [{theta_lo}, {theta_hi}] must contain theta0 = {theta0}"
+    );
 
     let mut trajectory = Vec::with_capacity(max_steps + 1);
     let mut theta = theta0;
@@ -141,10 +239,21 @@ where
     trajectory.push(step);
 
     let mut converged = step.residual_hz.abs() <= tol_hz;
+    let mut stalled_at_bound = false;
     let mut iter = 0;
     while !converged && iter < max_steps {
-        // Damped-Newton update using the analytic derivative.
-        theta -= alpha * step.residual_hz / step.de_c_hz_dtheta;
+        // Damped-Newton update using the analytic derivative, clamped to
+        // the per-step trust region and projected into the θ box.
+        let dtheta = (-alpha * step.residual_hz / step.de_c_hz_dtheta)
+            .clamp(-max_abs_dtheta, max_abs_dtheta);
+        let theta_new = (theta + dtheta).clamp(theta_lo, theta_hi);
+        if theta_new == theta {
+            // Pinned on a bound with the target still out of tolerance:
+            // stop honestly rather than re-evaluating the same design.
+            stalled_at_bound = true;
+            break;
+        }
+        theta = theta_new;
         iter += 1;
         step = record(iter, theta, &mut eval);
         trajectory.push(step);
@@ -153,6 +262,7 @@ where
 
     DiffOptResult {
         converged,
+        stalled_at_bound,
         theta_final: step.theta,
         e_c_final_hz: step.e_c_hz,
         n_steps: trajectory.len() - 1,
@@ -250,5 +360,129 @@ mod tests {
     #[should_panic(expected = "damping alpha must be in")]
     fn rejects_bad_alpha() {
         optimize_e_c_to_target(1.0e9, 0.0, 1.5, 1.0, 10, analytic_eval(1.0e9, 100e-15));
+    }
+
+    /// The step clamp bounds every update to `|Δθ| ≤ max_abs_dtheta`, walks
+    /// monotonically toward the target while the unclamped Newton step
+    /// exceeds the clamp, and still converges to the same closed-form θ*.
+    #[test]
+    fn clamped_newton_bounds_every_step_and_converges() {
+        let e_c0 = 0.16143e9;
+        let c0 = 120e-15;
+        let target = 0.2156e9; // θ* = target/E_C0 − 1 ≈ 0.3357
+        let clamp = 0.1;
+        let res = optimize_e_c_to_target_clamped(
+            target,
+            0.0,
+            1.0,
+            1.0,
+            20,
+            clamp,
+            analytic_eval(e_c0, c0),
+        );
+        assert!(res.converged, "clamped Newton must converge");
+        // Every step honors the clamp; the early steps are exactly clamped
+        // (the affine unclamped step would be θ* ≈ 0.336 > 0.1 immediately).
+        for w in res.trajectory.windows(2) {
+            let dt = w[1].theta - w[0].theta;
+            assert!(
+                dt.abs() <= clamp + 1e-12,
+                "step {} → {}: |Δθ| = {} exceeds clamp {clamp}",
+                w[0].iter,
+                w[1].iter,
+                dt.abs()
+            );
+        }
+        let first = res.trajectory[1].theta - res.trajectory[0].theta;
+        assert!(
+            (first - clamp).abs() < 1e-12,
+            "first step must be exactly clamped, got Δθ = {first}"
+        );
+        // Clamping costs extra steps (θ*/clamp ≈ 4 clamped legs) but lands
+        // the same closed-form optimum.
+        let theta_star = target / e_c0 - 1.0;
+        assert!(res.n_steps >= 4, "expected ≥4 steps, got {}", res.n_steps);
+        assert!(
+            (res.theta_final - theta_star).abs() < 1e-9,
+            "θ_final {} vs closed-form θ* {theta_star}",
+            res.theta_final
+        );
+    }
+
+    /// A box bound TIGHTER than the optimum: the run walks to the bound,
+    /// reports `stalled_at_bound` (not a fabricated convergence), and its
+    /// final θ is exactly the bound. With the bound RELAXED past θ*, the
+    /// same run converges normally with `stalled_at_bound == false`.
+    #[test]
+    fn bounded_newton_stalls_honestly_at_a_tight_bound() {
+        let e_c0 = 0.16143e9;
+        let c0 = 120e-15;
+        let target = 0.2156e9; // θ* ≈ 0.3357, beyond the 0.2 bound below
+        let bound = 0.2;
+        let res = optimize_e_c_to_target_bounded(
+            target,
+            0.0,
+            1.0,
+            1.0,
+            20,
+            f64::INFINITY,
+            (0.0, bound),
+            analytic_eval(e_c0, c0),
+        );
+        assert!(!res.converged, "must NOT report convergence at the bound");
+        assert!(res.stalled_at_bound, "must report the bound stall");
+        assert_eq!(res.theta_final, bound, "final θ must sit on the bound");
+        // Every visited θ honors the box.
+        for s in &res.trajectory {
+            assert!((0.0..=bound).contains(&s.theta), "θ {} out of box", s.theta);
+        }
+        // The residual at the bound is the honest partial result: it moved
+        // toward the target but did not reach it.
+        let r0 = res.trajectory[0].residual_hz.abs();
+        let rf = res.trajectory.last().unwrap().residual_hz.abs();
+        assert!(rf < r0, "the bound-constrained run must still improve");
+        assert!(rf > 1.0, "residual at the bound must remain nonzero");
+
+        // Relaxing the bound past θ* recovers plain convergence.
+        let free = optimize_e_c_to_target_bounded(
+            target,
+            0.0,
+            1.0,
+            1.0,
+            20,
+            f64::INFINITY,
+            (0.0, 1.0),
+            analytic_eval(e_c0, c0),
+        );
+        assert!(free.converged && !free.stalled_at_bound);
+    }
+
+    #[test]
+    #[should_panic(expected = "must contain theta0")]
+    fn rejects_theta0_outside_bounds() {
+        optimize_e_c_to_target_bounded(
+            1.0e9,
+            0.5,
+            1.0,
+            1.0,
+            10,
+            1.0,
+            (-0.1, 0.1),
+            analytic_eval(1.0e9, 100e-15),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "max_abs_dtheta must be positive")]
+    fn rejects_bad_clamp() {
+        optimize_e_c_to_target_clamped(
+            1.0e9,
+            0.0,
+            1.0,
+            1.0,
+            10,
+            0.0,
+            analytic_eval(1.0e9, 100e-15),
+        );
     }
 }
