@@ -90,6 +90,25 @@
 //!   host-side assembler; honored **internally** by the library
 //!   (`geode_core::eigen::parallel::resolve_num_threads`), so no wiring is
 //!   needed here — it is echoed below for the record.
+//!
+//! # Cost-characterization knobs (issue #562, opt-in, matrix-free/`minres` only)
+//!
+//! These are read **internally** by the shift-invert Lanczos (like
+//! `GEODE_NUM_THREADS`), so no wiring is needed here. Each defaults to the exact
+//! prior behavior when unset — they exist only to decompose *where the σ=4.5
+//! deep-interior MINRES time goes* on the 133k fixture (outer steps vs inner
+//! iters vs inner tol) before committing to the 1.16M AWS run:
+//!
+//! - `GEODE_MINRES_LOG=<k>` — print the inner-MINRES relative preconditioned
+//!   residual every `k` iterations (the convergence *curve*; the primary
+//!   instrument, since inner-iters/step and inner-tol sensitivity are both read
+//!   off it even when the solve does not finish).
+//! - `GEODE_EIGEN_STEP_LOG=1` — print each outer Lanczos step's inner iteration
+//!   count and cumulative wall-clock (the outer-step count reached in a budget).
+//! - `GEODE_INNER_TOL=<x>` — override the absolute inner-MINRES tolerance
+//!   (shift-invert tolerates loose inner solves; default is `1e-2 · outer_tol`).
+//! - `GEODE_INNER_MAXITERS=<n>` — cap each inner solve so several outer steps
+//!   fit a bounded run instead of one solve consuming the whole budget.
 
 use std::time::Instant;
 

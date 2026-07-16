@@ -267,6 +267,53 @@ const INNER_TOL_FACTOR: f64 = 1e-2;
 /// a pathological pencil surfaces as an error rather than an infinite loop.
 const INNER_MAX_ITER_FACTOR: usize = 2;
 
+/// Opt-in diagnostic knobs for characterizing the shift-invert eigensolve cost
+/// (issue #562). Every knob below is read from the environment and defaults to
+/// the exact prior behavior when unset, so the default solver path is
+/// **unchanged** — these are inert unless an operator sets them for a
+/// characterization run.
+mod diag_env {
+    /// Absolute inner-solve tolerance override for the matrix-free / MINRES
+    /// backends (`GEODE_INNER_TOL`). When set it replaces the tolerance the
+    /// solver would otherwise derive from the outer tol (`inner_tol()`), letting
+    /// a characterization run sweep loose vs tight inner solves. Unset → no
+    /// change.
+    pub const INNER_TOL: &str = "GEODE_INNER_TOL";
+    /// Inner-solve iteration-cap override (`GEODE_INNER_MAXITERS`). Lets a
+    /// bounded run cap each inner MINRES/CG solve so several outer Lanczos steps
+    /// can be observed within a wall-clock budget instead of one solve
+    /// consuming it. Unset → the generous `2·N` non-convergence guard.
+    pub const INNER_MAXITERS: &str = "GEODE_INNER_MAXITERS";
+    /// Inner-MINRES progress-log interval in iterations (`GEODE_MINRES_LOG`).
+    /// When set to a positive integer the MINRES recurrence prints its relative
+    /// preconditioned residual `‖r‖_{M⁻¹}/‖r₀‖_{M⁻¹}` every that-many iterations
+    /// to stderr — the convergence *curve* from which inner-iters/step and
+    /// inner-tol sensitivity are both read, even when the solve does not finish.
+    /// Unset → silent.
+    pub const MINRES_LOG: &str = "GEODE_MINRES_LOG";
+    /// Per-outer-step Lanczos log toggle (`GEODE_EIGEN_STEP_LOG`). When set
+    /// (to any value) each outer shift-invert Lanczos step prints its inner
+    /// iteration count and cumulative wall-clock to stderr, so the outer step
+    /// count reached within a budget is directly observable. Unset → silent.
+    pub const STEP_LOG: &str = "GEODE_EIGEN_STEP_LOG";
+
+    /// Parse an env var as `f64`, returning `None` when unset or unparseable
+    /// (so a malformed value degrades to the default rather than erroring).
+    pub fn f64_opt(key: &str) -> Option<f64> {
+        std::env::var(key).ok().and_then(|v| v.parse().ok())
+    }
+
+    /// Parse an env var as `usize`, returning `None` when unset or unparseable.
+    pub fn usize_opt(key: &str) -> Option<usize> {
+        std::env::var(key).ok().and_then(|v| v.parse().ok())
+    }
+
+    /// True when the env var is set to any value (presence toggle).
+    pub fn is_set(key: &str) -> bool {
+        std::env::var(key).is_ok()
+    }
+}
+
 /// Parallel of [`crate::eigen::dense::EigenSolver`] for sparse matrices.
 ///
 /// The dense trait takes `MatRef<f64>`; sparse routines need column-major
@@ -711,6 +758,11 @@ fn minres_solve_matrix_free(
     let eps = f64::EPSILON;
     let thresh = tol * beta1;
 
+    // Opt-in inner-MINRES progress logging (issue #562): read the interval once
+    // so the hot loop only tests a cheap `Option`. Unset → no logging, no cost
+    // beyond a per-iteration branch.
+    let minres_log_every = diag_env::usize_opt(diag_env::MINRES_LOG).filter(|&e| e > 0);
+
     for itn in 1..=max_iters {
         // Lanczos step: v = y / beta;  av = A·v.
         let s = 1.0 / beta;
@@ -764,6 +816,17 @@ fn minres_solve_matrix_free(
         for i in 0..n {
             w[i] = (v[i] - oldeps * w1[i] - delta * w2[i]) * denom;
             out[i] += phi * w[i];
+        }
+
+        // Opt-in progress log (issue #562): the relative preconditioned residual
+        // curve. Also emit the final point when we are about to stop.
+        if let Some(every) = minres_log_every
+            && (itn % every == 0 || phibar <= thresh || beta <= eps)
+        {
+            eprintln!(
+                "[minres] itn={itn} rel_precond_resid={:.6e}",
+                phibar / beta1
+            );
         }
 
         // phibar tracks ‖r_k‖_{M⁻¹}; stop on the relative preconditioned
@@ -1029,12 +1092,13 @@ impl SparseShiftInvertLanczos {
                     let ams = crate::eigen::ams::AmsLitePreconditioner::build(g, k, m, self.sigma)?;
                     op = op.with_ams(ams);
                 }
-                let max_iters = (k.nrows() * INNER_MAX_ITER_FACTOR).max(64);
-                Ok(InnerBackend::MatrixFree {
-                    op,
-                    tol: self.inner_tol(),
-                    max_iters,
-                })
+                // Opt-in cost-characterization overrides (issue #562): both
+                // default to the exact prior behavior when unset.
+                let max_iters = diag_env::usize_opt(diag_env::INNER_MAXITERS)
+                    .unwrap_or((k.nrows() * INNER_MAX_ITER_FACTOR).max(64));
+                let tol =
+                    diag_env::f64_opt(diag_env::INNER_TOL).unwrap_or_else(|| self.inner_tol());
+                Ok(InnerBackend::MatrixFree { op, tol, max_iters })
             }
             InnerSolver::MatrixFreeIndefinite => {
                 // Interior/indefinite shift (issue #535): MINRES needs an SPD
@@ -1073,12 +1137,16 @@ impl SparseShiftInvertLanczos {
                     )?;
                     op = op.with_ams_additive(ams);
                 }
-                let max_iters = (k.nrows() * INNER_MAX_ITER_FACTOR).max(64);
-                Ok(InnerBackend::MatrixFreeIndefinite {
-                    op,
-                    tol: self.inner_tol(),
-                    max_iters,
-                })
+                // Opt-in cost-characterization overrides (issue #562):
+                // `GEODE_INNER_TOL` sweeps the inner MINRES tolerance (shift-invert
+                // tolerates loose inner solves) and `GEODE_INNER_MAXITERS` caps each
+                // inner solve so multiple outer steps fit a bounded run. Both
+                // default to the prior behavior when unset.
+                let max_iters = diag_env::usize_opt(diag_env::INNER_MAXITERS)
+                    .unwrap_or((k.nrows() * INNER_MAX_ITER_FACTOR).max(64));
+                let tol =
+                    diag_env::f64_opt(diag_env::INNER_TOL).unwrap_or_else(|| self.inner_tol());
+                Ok(InnerBackend::MatrixFreeIndefinite { op, tol, max_iters })
             }
         }
     }
@@ -1255,10 +1323,24 @@ impl SparseShiftInvertLanczos {
         // iterations). Ignored by the direct LU backend.
         let mut y_guess = vec![0.0_f64; n];
 
+        // Opt-in per-outer-step diagnostic (issue #562): observe how many outer
+        // shift-invert Lanczos steps complete within a wall-clock budget and how
+        // many inner iterations each step's `(K − σM)⁻¹` apply cost.
+        let step_log = diag_env::is_set(diag_env::STEP_LOG);
+        let t_loop = std::time::Instant::now();
+
         for j in 0..max_k {
             spmv(m, &v, &mut mv);
             w.copy_from_slice(&y_guess);
-            total_inner_iters += inner.solve(&mv, &mut w)?;
+            let step_iters = inner.solve(&mv, &mut w)?;
+            total_inner_iters += step_iters;
+            if step_log {
+                eprintln!(
+                    "[lanczos] outer_step={j} inner_iters={step_iters} \
+                     cumulative_inner={total_inner_iters} elapsed={:.1}s",
+                    t_loop.elapsed().as_secs_f64()
+                );
+            }
             y_guess.copy_from_slice(&w);
 
             let aj = w.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
