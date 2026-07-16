@@ -139,25 +139,91 @@ const DEFAULT_COARSE_SWEEPS: usize = 2;
 /// the gradient-space `C = Gᵀ A G` and vector-nodal `Πᵀ A Π` corrections.
 ///
 /// The shipped default is [`Self::SymmetricGaussSeidel`] — the O(node_dim)-per-
-/// apply few-sweep smoother of issue #551. [`Self::Direct`] (the pre-#551 cached
-/// sparse LU) is retained only so the measurement harness can compare the two
-/// apples-to-apples.
+/// apply few-sweep smoother of issue #551. [`Self::Amg`] (issue #565) is the
+/// genuinely-multilevel upgrade: a smoothed-aggregation AMG V-cycle that recurses
+/// to a direct coarse solve, which removes the low-frequency coarse-error tail a
+/// fixed number of SGS sweeps leaves behind (the ~1e-5 σ=4.5 plateau #562
+/// measured). [`Self::Direct`] (the pre-#551 cached sparse LU) is retained so the
+/// harness can compare all three apples-to-apples.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum CoarseSolve {
     /// Direct sparse LU of the coarse operator, applied by a global triangular
-    /// solve each apply (the pre-#551 behavior; kept for measurement only, so it
-    /// is only constructed under `cfg(test)`).
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// solve each apply (the pre-#551 behavior; kept for measurement / the
+    /// exact-recovery unit tests, and selectable via `GEODE_COARSE=direct`).
     Direct,
     /// Few-sweep symmetric Gauss–Seidel approximate solve — the O(node_dim)-per-
     /// apply coarse solve of issue #551. The `usize` is the symmetric sweep
-    /// count (forward + backward per sweep).
+    /// count (forward + backward per sweep). This is the shipped default.
     SymmetricGaussSeidel(usize),
+    /// Smoothed-aggregation **algebraic multigrid** V-cycle (issue #565): a
+    /// genuinely multilevel coarse solve (recursive aggregation + Galerkin
+    /// `PᵀAP` coarsening down to a direct solve on the coarsest level) that
+    /// breaks the fixed-sweep SGS plateau while staying `O(node_dim)` per apply.
+    /// Opt-in via `GEODE_COARSE=amg`.
+    Amg,
 }
 
 impl Default for CoarseSolve {
     fn default() -> Self {
         CoarseSolve::SymmetricGaussSeidel(DEFAULT_COARSE_SWEEPS)
+    }
+}
+
+impl CoarseSolve {
+    /// Resolve the coarse solver actually used by
+    /// [`AmsLitePreconditioner::build`] (and therefore by the wired inner MINRES
+    /// solve). Precedence: a `cfg(test)` **thread-local override** (so in-crate
+    /// tests can select AMG without the fragile, unsafe-in-edition-2024
+    /// `env::set_var`), then the `GEODE_COARSE` **environment** knob (the
+    /// characterization harness's selector), then the shipped [`Self::default`]
+    /// (few-sweep SGS). Unset in both ⇒ the exact prior default behavior.
+    pub(crate) fn resolve() -> CoarseSolve {
+        #[cfg(test)]
+        if let Some(c) = coarse_override::get() {
+            return c;
+        }
+        match std::env::var("GEODE_COARSE").ok().as_deref() {
+            Some("amg") => CoarseSolve::Amg,
+            Some("direct") => CoarseSolve::Direct,
+            Some("sgs") => CoarseSolve::default(),
+            _ => CoarseSolve::default(),
+        }
+    }
+}
+
+/// Thread-local override for [`CoarseSolve::resolve`], used only by in-crate unit
+/// tests to select a coarse solver for the real shift-invert Lanczos path without
+/// mutating a process-global env var (which is `unsafe` in edition 2024 and racy
+/// under parallel test threads). Each test runs on its own thread, so a
+/// thread-local override is isolated to that test.
+#[cfg(test)]
+mod coarse_override {
+    use super::CoarseSolve;
+    use std::cell::Cell;
+
+    thread_local! {
+        static OVERRIDE: Cell<Option<CoarseSolve>> = const { Cell::new(None) };
+    }
+
+    /// Read the current thread's override (if any).
+    pub(crate) fn get() -> Option<CoarseSolve> {
+        OVERRIDE.with(|c| c.get())
+    }
+
+    /// RAII guard: set the current thread's coarse-solve override, restoring the
+    /// previous value on drop.
+    pub(crate) struct Guard(Option<CoarseSolve>);
+
+    impl Guard {
+        pub(crate) fn set(c: CoarseSolve) -> Self {
+            Guard(OVERRIDE.with(|cell| cell.replace(Some(c))))
+        }
+    }
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            OVERRIDE.with(|cell| cell.set(self.0));
+        }
     }
 }
 
@@ -169,6 +235,9 @@ pub(crate) enum CoarseSolver {
     Direct(Lu<usize, f64>),
     /// Few-sweep symmetric Gauss–Seidel; `solve` is `O(nnz)` per apply.
     Sgs(SgsCoarseSolver),
+    /// Smoothed-aggregation algebraic multigrid V-cycle (issue #565); `solve`
+    /// is `O(nnz)` per apply and genuinely multilevel.
+    Amg(AmgCoarseSolver),
 }
 
 impl CoarseSolver {
@@ -177,7 +246,8 @@ impl CoarseSolver {
     /// # Errors
     ///
     /// Returns [`EigenError::FaerGevd`] if the [`CoarseSolve::Direct`] sparse LU
-    /// factorization fails. The Gauss–Seidel variant is infallible.
+    /// factorization fails, or if the [`CoarseSolve::Amg`] hierarchy's coarsest
+    /// direct factor fails. The Gauss–Seidel variant is infallible.
     fn build(mat: &SparseColMat<usize, f64>, mode: CoarseSolve) -> Result<Self, EigenError> {
         match mode {
             CoarseSolve::Direct => {
@@ -190,24 +260,32 @@ impl CoarseSolver {
             CoarseSolve::SymmetricGaussSeidel(sweeps) => Ok(CoarseSolver::Sgs(
                 SgsCoarseSolver::from_csc(mat.as_ref(), sweeps),
             )),
+            CoarseSolve::Amg => Ok(CoarseSolver::Amg(AmgCoarseSolver::from_csc(
+                mat.as_ref(),
+                AmgConfig::from_env(),
+            )?)),
         }
     }
 
-    /// Approximately (SGS) or exactly (Direct) solve `mat · out = b`.
+    /// Approximately (SGS / AMG) or exactly (Direct) solve `mat · out = b`.
     /// `out` is overwritten; `b` and `out` have length `mat.ncols()`.
     fn solve(&self, b: &[f64], out: &mut [f64]) {
         match self {
-            CoarseSolver::Direct(lu) => {
-                use faer::linalg::solvers::Solve;
-                let n = b.len();
-                let mut mat: Mat<f64> = Mat::from_fn(n, 1, |row, _| b[row]);
-                lu.solve_in_place(mat.as_mut());
-                for (row, o) in out.iter_mut().enumerate() {
-                    *o = mat[(row, 0)];
-                }
-            }
+            CoarseSolver::Direct(lu) => lu_solve(lu, b, out),
             CoarseSolver::Sgs(sgs) => sgs.solve(b, out),
+            CoarseSolver::Amg(amg) => amg.solve(b, out),
         }
+    }
+}
+
+/// Solve `A · out = b` in place from a cached sparse LU (`out` overwritten).
+fn lu_solve(lu: &Lu<usize, f64>, b: &[f64], out: &mut [f64]) {
+    use faer::linalg::solvers::Solve;
+    let n = b.len();
+    let mut mat: Mat<f64> = Mat::from_fn(n, 1, |row, _| b[row]);
+    lu.solve_in_place(mat.as_mut());
+    for (row, o) in out.iter_mut().enumerate() {
+        *o = mat[(row, 0)];
     }
 }
 
@@ -323,6 +401,572 @@ impl SgsCoarseSolver {
     }
 }
 
+/// Tuning for the smoothed-aggregation AMG coarse solver (issue #565).
+///
+/// Every knob has a conservative default suited to the SPD nodal-Laplacian-like
+/// coarse operators (`C = Gᵀ(K+|σ|M)G ≈ |σ|·GᵀMG`, a weighted graph Laplacian —
+/// the friendly case for SA-AMG). The `GEODE_AMG_*` env knobs let the σ=4.5
+/// characterization run tune the cycle without a recompile; unset ⇒ the defaults.
+#[derive(Clone, Copy, Debug)]
+struct AmgConfig {
+    /// Strength-of-connection threshold `θ` (Vaněk smoothed aggregation): node
+    /// `j` is strongly coupled to `i` when `A_ij² ≥ θ²·A_ii·A_jj`.
+    theta: f64,
+    /// Pre-smoothing symmetric-GS sweeps per level (each = forward + backward).
+    pre_sweeps: usize,
+    /// Post-smoothing symmetric-GS sweeps per level.
+    post_sweeps: usize,
+    /// Number of V-cycles per coarse solve (a fixed linear, SPD operator).
+    cycles: usize,
+    /// Coarsest level size: at or below this the level is solved by a direct LU.
+    max_coarse: usize,
+    /// Hard cap on the number of coarsening levels (a non-progress guard).
+    max_levels: usize,
+    /// Smooth the tentative (piecewise-constant) prolongator by one damped-Jacobi
+    /// pass `P = (I − ω D⁻¹A) P₀`. Smoothed aggregation converges far faster than
+    /// plain aggregation; disable only for debugging.
+    smooth_prolongator: bool,
+    /// Density cap (avg nonzeros per row) above which prolongator smoothing is
+    /// skipped for that level (falling back to plain, still-multilevel
+    /// aggregation). The smoothed Galerkin triple product `PᵀAP` costs
+    /// `O(nnz(A)·(rows-per-P)²)`; on a **dense** operator (the vector-nodal
+    /// `Πᵀ A Π` has ~150 nnz/row) smoothing would blow the coarse assembly up,
+    /// while on the **sparse** gradient operator `C = Gᵀ A G` (~7 nnz/row)
+    /// smoothing is cheap and worth it. Gating by density gives smoothed
+    /// aggregation on `C` and plain aggregation on `Π` automatically.
+    max_smooth_density: usize,
+}
+
+impl Default for AmgConfig {
+    fn default() -> Self {
+        Self {
+            theta: 0.08,
+            pre_sweeps: 1,
+            post_sweeps: 1,
+            cycles: 2,
+            max_coarse: 40,
+            max_levels: 25,
+            smooth_prolongator: true,
+            max_smooth_density: 40,
+        }
+    }
+}
+
+impl AmgConfig {
+    /// Defaults overlaid with the optional `GEODE_AMG_{CYCLES,SWEEPS,THETA}`
+    /// environment knobs (all inert unless set — the σ=4.5 run's tuning seam).
+    fn from_env() -> Self {
+        let mut c = Self::default();
+        if let Some(x) = std::env::var("GEODE_AMG_CYCLES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+        {
+            c.cycles = x;
+        }
+        if let Some(x) = std::env::var("GEODE_AMG_SWEEPS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+        {
+            c.pre_sweeps = x;
+            c.post_sweeps = x;
+        }
+        if let Some(x) = std::env::var("GEODE_AMG_THETA")
+            .ok()
+            .and_then(|v| v.parse().ok())
+        {
+            c.theta = x;
+        }
+        c
+    }
+}
+
+/// A single level's operator held in CSR (row-compressed) form with its
+/// inverse-diagonal, supporting the three multigrid primitives: sparse matvec,
+/// residual, and in-place **symmetric** Gauss–Seidel smoothing of an existing
+/// iterate (forward sweep then backward sweep per requested sweep).
+struct CsrOp {
+    n: usize,
+    row_ptr: Vec<usize>,
+    col_idx: Vec<usize>,
+    val: Vec<f64>,
+    /// Inverse main diagonal `1 / A_ii` (fallback `1.0` on a zero pivot).
+    inv_diag: Vec<f64>,
+    /// Main diagonal `A_ii` (kept for the strength-of-connection test).
+    diag: Vec<f64>,
+}
+
+impl CsrOp {
+    /// Transpose a CSC operator into CSR (the operator is symmetric here, so this
+    /// is just a layout copy) and cache its (inverse-)diagonal.
+    fn from_csc(a: SparseColMatRef<'_, usize, f64>) -> Self {
+        let n = a.ncols();
+        let col_ptr = a.col_ptr();
+        let row_idx = a.row_idx();
+        let val = a.val();
+        let mut rows: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n];
+        for j in 0..n {
+            for k in col_ptr[j]..col_ptr[j + 1] {
+                rows[row_idx[k]].push((j, val[k]));
+            }
+        }
+        let nnz: usize = rows.iter().map(|r| r.len()).sum();
+        let mut row_ptr = Vec::with_capacity(n + 1);
+        let mut col_idx = Vec::with_capacity(nnz);
+        let mut vals = Vec::with_capacity(nnz);
+        let mut inv_diag = vec![1.0_f64; n];
+        let mut diag = vec![0.0_f64; n];
+        row_ptr.push(0);
+        for (i, row) in rows.iter().enumerate() {
+            let mut dii = 0.0;
+            for &(j, v) in row {
+                col_idx.push(j);
+                vals.push(v);
+                if j == i {
+                    dii += v;
+                }
+            }
+            diag[i] = dii;
+            if dii.abs() > 0.0 {
+                inv_diag[i] = 1.0 / dii;
+            }
+            row_ptr.push(col_idx.len());
+        }
+        Self {
+            n,
+            row_ptr,
+            col_idx,
+            val: vals,
+            inv_diag,
+            diag,
+        }
+    }
+
+    /// `y = A · x` (overwrite).
+    fn spmv(&self, x: &[f64], y: &mut [f64]) {
+        for (i, yi) in y.iter_mut().enumerate() {
+            let mut s = 0.0;
+            for k in self.row_ptr[i]..self.row_ptr[i + 1] {
+                s += self.val[k] * x[self.col_idx[k]];
+            }
+            *yi = s;
+        }
+    }
+
+    /// `r = b − A · x` (overwrite).
+    fn residual(&self, b: &[f64], x: &[f64], r: &mut [f64]) {
+        for i in 0..self.n {
+            let mut s = b[i];
+            for k in self.row_ptr[i]..self.row_ptr[i + 1] {
+                s -= self.val[k] * x[self.col_idx[k]];
+            }
+            r[i] = s;
+        }
+    }
+
+    /// One Gauss–Seidel update of row `i` on the current iterate `x`:
+    /// `x_i ← D_ii⁻¹ (b_i − Σ_{j≠i} A_ij x_j)`.
+    #[inline]
+    fn gs_row(&self, i: usize, b: &[f64], x: &mut [f64]) {
+        let mut s = b[i];
+        for k in self.row_ptr[i]..self.row_ptr[i + 1] {
+            let j = self.col_idx[k];
+            if j != i {
+                s -= self.val[k] * x[j];
+            }
+        }
+        x[i] = self.inv_diag[i] * s;
+    }
+
+    /// `sweeps` symmetric Gauss–Seidel sweeps on the existing iterate `x` (each
+    /// sweep = one forward pass then one backward pass). Symmetric GS on an SPD
+    /// operator has a symmetric, convergent error-propagation operator, which is
+    /// what keeps the enclosing V-cycle SPD when the pre- and post-smoother match.
+    fn smooth(&self, b: &[f64], x: &mut [f64], sweeps: usize) {
+        for _ in 0..sweeps {
+            for i in 0..self.n {
+                self.gs_row(i, b, x);
+            }
+            for i in (0..self.n).rev() {
+                self.gs_row(i, b, x);
+            }
+        }
+    }
+}
+
+/// One level of the AMG hierarchy: the level operator plus the prolongation `P`
+/// (`n_fine × n_coarse`) to the next-coarser level. `P·x` (prolong) and `Pᵀ·r`
+/// (restrict) are the free CSC [`spmv`] / [`spmv_transpose`].
+struct AmgLevel {
+    a: CsrOp,
+    p: SparseColMat<usize, f64>,
+}
+
+/// A smoothed-aggregation **algebraic multigrid** coarse solver (issue #565).
+///
+/// Built once from an SPD coarse operator (the nodal `C = Gᵀ(K+|σ|M)G` or the
+/// vector-nodal `Πᵀ(K+|σ|M)Π`). Coarsening recurses — greedy aggregation forms
+/// coarse DOFs, a damped-Jacobi-smoothed piecewise-constant prolongator `P`
+/// spreads their support, and the Galerkin triple product `PᵀAP` builds the next
+/// level's operator — until the level is small enough for a direct LU. Each
+/// [`Self::solve`] runs a fixed number of **symmetric** V-cycles (pre-smooth,
+/// restrict, recurse, prolong, post-smooth) from a zero start, which is a fixed
+/// linear SPD operator (a valid MINRES/CG preconditioner) and `O(nnz(A))` — i.e.
+/// `O(node_dim)` — work per apply, with **no** global edge-space or even a global
+/// node-space factor beyond the tiny coarsest level.
+///
+/// Unlike the fixed-sweep [`SgsCoarseSolver`] (which a bounded sweep count leaves
+/// a low-frequency coarse-error tail — the ~1e-5 σ=4.5 plateau of #562), the
+/// recursion to a direct coarsest solve removes every error frequency, so the
+/// coarse correction is a genuine approximate inverse rather than a few relaxation
+/// steps.
+pub(crate) struct AmgCoarseSolver {
+    /// Finest → second-coarsest levels (each carries its prolongation `P`).
+    levels: Vec<AmgLevel>,
+    /// Direct LU of the coarsest-level operator.
+    coarsest: Lu<usize, f64>,
+    /// Finest operator dimension.
+    n: usize,
+    /// V-cycles per [`Self::solve`].
+    cycles: usize,
+    pre_sweeps: usize,
+    post_sweeps: usize,
+}
+
+impl AmgCoarseSolver {
+    /// Build the AMG hierarchy from an SPD coarse operator in CSC.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EigenError::FaerGevd`] if a Galerkin coarse assembly or the
+    /// coarsest-level sparse LU fails.
+    fn from_csc(a: SparseColMatRef<'_, usize, f64>, cfg: AmgConfig) -> Result<Self, EigenError> {
+        let n = a.ncols();
+        let mut levels: Vec<AmgLevel> = Vec::new();
+        let mut current: SparseColMat<usize, f64> = csc_owned(a);
+        loop {
+            let dim = current.ncols();
+            if levels.len() >= cfg.max_levels || dim <= cfg.max_coarse {
+                break;
+            }
+            let csr = CsrOp::from_csc(current.as_ref());
+            let (agg, n_c) = aggregate(&csr, cfg.theta);
+            // No coarsening progress (or degenerate) ⇒ stop and direct-solve here.
+            if n_c >= dim || n_c == 0 {
+                break;
+            }
+            let p = build_prolongator(&csr, &agg, n_c, &cfg)?;
+            let a_c = galerkin(p.as_ref(), current.as_ref(), n_c)?;
+            levels.push(AmgLevel { a: csr, p });
+            current = a_c;
+        }
+        let coarsest = current
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| EigenError::FaerGevd(format!("AMG coarsest sparse LU: {e:?}")))?;
+        Ok(Self {
+            levels,
+            coarsest,
+            n,
+            cycles: cfg.cycles.max(1),
+            pre_sweeps: cfg.pre_sweeps,
+            post_sweeps: cfg.post_sweeps,
+        })
+    }
+
+    /// Number of coarsening levels above the direct coarsest solve — `≥ 1` iff
+    /// the operator actually coarsened (used by the "genuinely multilevel" test).
+    #[cfg(test)]
+    fn num_levels(&self) -> usize {
+        self.levels.len()
+    }
+
+    /// Approximately solve `A · out = b` with `cycles` symmetric V-cycles from a
+    /// zero start (`out` overwritten, length `n`).
+    fn solve(&self, b: &[f64], out: &mut [f64]) {
+        out.iter_mut().for_each(|v| *v = 0.0);
+        if self.levels.is_empty() {
+            // Operator was already at/under the coarsest threshold ⇒ exact solve.
+            lu_solve(&self.coarsest, b, out);
+            return;
+        }
+        let mut r = b.to_vec();
+        let mut correction = vec![0.0_f64; self.n];
+        for cyc in 0..self.cycles {
+            correction.iter_mut().for_each(|v| *v = 0.0);
+            self.vcycle(0, &r, &mut correction);
+            for (o, &c) in out.iter_mut().zip(correction.iter()) {
+                *o += c;
+            }
+            if cyc + 1 < self.cycles {
+                self.levels[0].a.residual(b, out, &mut r);
+            }
+        }
+    }
+
+    /// One symmetric V-cycle on level `lvl`. `x` must be zeroed on entry (the
+    /// caller supplies a fresh coarse correction), so the pre-smooth starts from a
+    /// zero guess. Pre- and post-smoother match (symmetric GS), and the coarsest
+    /// level is a direct solve, so the cycle is symmetric and — for the SPD
+    /// operator — positive definite.
+    fn vcycle(&self, lvl: usize, b: &[f64], x: &mut [f64]) {
+        if lvl == self.levels.len() {
+            lu_solve(&self.coarsest, b, x);
+            return;
+        }
+        let lev = &self.levels[lvl];
+        // Pre-smooth.
+        lev.a.smooth(b, x, self.pre_sweeps);
+        // Restrict the residual to the coarse level.
+        let mut r = vec![0.0_f64; lev.a.n];
+        lev.a.residual(b, x, &mut r);
+        let nc = lev.p.ncols();
+        let mut rc = vec![0.0_f64; nc];
+        spmv_transpose(lev.p.as_ref(), &r, &mut rc);
+        // Recurse (coarse correction from a zero coarse guess).
+        let mut xc = vec![0.0_f64; nc];
+        self.vcycle(lvl + 1, &rc, &mut xc);
+        // Prolong and add.
+        let mut pxc = vec![0.0_f64; lev.a.n];
+        spmv(lev.p.as_ref(), &xc, &mut pxc);
+        for (xi, &pi) in x.iter_mut().zip(pxc.iter()) {
+            *xi += pi;
+        }
+        // Post-smooth.
+        lev.a.smooth(b, x, self.post_sweeps);
+    }
+}
+
+/// Copy a borrowed CSC operator into an owned [`SparseColMat`] (the AMG builder
+/// needs an owned finest level so the coarsening loop is uniform).
+fn csc_owned(a: SparseColMatRef<'_, usize, f64>) -> SparseColMat<usize, f64> {
+    let col_ptr = a.col_ptr();
+    let row_idx = a.row_idx();
+    let val = a.val();
+    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(val.len());
+    for j in 0..a.ncols() {
+        for k in col_ptr[j]..col_ptr[j + 1] {
+            trips.push(Triplet::new(row_idx[k], j, val[k]));
+        }
+    }
+    SparseColMat::try_new_from_triplets(a.nrows(), a.ncols(), &trips)
+        .expect("copy of a valid CSC operator cannot fail")
+}
+
+/// Greedy Vaněk aggregation on the strength graph of an SPD operator. Returns the
+/// aggregate index of every fine DOF and the aggregate count `n_c`.
+///
+/// Phase 1 seeds aggregates from fully-unaggregated neighborhoods; phase 2 sweeps
+/// leftover DOFs into their strongest already-seeded aggregate; phase 3 makes any
+/// remaining DOFs singleton aggregates. Every DOF ends in exactly one aggregate.
+fn aggregate(a: &CsrOp, theta: f64) -> (Vec<usize>, usize) {
+    let n = a.n;
+    let t2 = theta * theta;
+    // Strong-neighbor lists (with the coupling magnitude for phase-2 ranking).
+    let mut strong: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n];
+    for (i, si) in strong.iter_mut().enumerate() {
+        let dii = a.diag[i].abs();
+        if dii <= 0.0 {
+            continue;
+        }
+        for k in a.row_ptr[i]..a.row_ptr[i + 1] {
+            let j = a.col_idx[k];
+            if j == i {
+                continue;
+            }
+            let djj = a.diag[j].abs();
+            let aij = a.val[k];
+            if djj > 0.0 && aij * aij >= t2 * dii * djj {
+                si.push((j, aij.abs()));
+            }
+        }
+    }
+
+    // status: 0 = unassigned, 1 = seed-member, 2 = swept-in.
+    let mut status = vec![0u8; n];
+    let mut agg = vec![usize::MAX; n];
+    let mut n_agg = 0usize;
+
+    // Phase 1: seed aggregates from unaggregated neighborhoods.
+    for i in 0..n {
+        if status[i] != 0 {
+            continue;
+        }
+        if strong[i].iter().all(|&(j, _)| status[j] == 0) {
+            agg[i] = n_agg;
+            status[i] = 1;
+            for &(j, _) in &strong[i] {
+                agg[j] = n_agg;
+                status[j] = 1;
+            }
+            n_agg += 1;
+        }
+    }
+
+    // Phase 2: attach leftovers to their strongest seeded aggregate.
+    for i in 0..n {
+        if status[i] != 0 {
+            continue;
+        }
+        let mut best = 0.0_f64;
+        let mut best_agg = None;
+        for &(j, mag) in &strong[i] {
+            if status[j] == 1 && mag > best {
+                best = mag;
+                best_agg = Some(agg[j]);
+            }
+        }
+        if let Some(g) = best_agg {
+            agg[i] = g;
+            status[i] = 2;
+        }
+    }
+
+    // Phase 3: any still-unassigned DOF becomes its own aggregate.
+    for i in 0..n {
+        if status[i] == 0 {
+            agg[i] = n_agg;
+            status[i] = 1;
+            n_agg += 1;
+        }
+    }
+
+    (agg, n_agg)
+}
+
+/// Build the (optionally Jacobi-smoothed) prolongator `P` (`n × n_c`) from an
+/// aggregation. The tentative prolongator `P₀` is the piecewise-constant
+/// aggregate indicator, column-normalized (`1/√|aggregate|`) so the constant
+/// near-null-space is represented exactly. When `cfg.smooth_prolongator` is set,
+/// one damped-Jacobi pass `P = (I − ω D⁻¹A) P₀` (with `ω = 4/(3ρ)`, `ρ` the
+/// estimated spectral radius of `D⁻¹A`) spreads the support — smoothed
+/// aggregation, which converges much faster than plain aggregation.
+///
+/// # Errors
+///
+/// Returns [`EigenError::FaerGevd`] if faer rejects the `P` triplets.
+fn build_prolongator(
+    a: &CsrOp,
+    agg: &[usize],
+    n_c: usize,
+    cfg: &AmgConfig,
+) -> Result<SparseColMat<usize, f64>, EigenError> {
+    let n = a.n;
+    let mut size = vec![0usize; n_c];
+    for &g in agg {
+        size[g] += 1;
+    }
+    let w: Vec<f64> = size
+        .iter()
+        .map(|&s| if s > 0 { 1.0 / (s as f64).sqrt() } else { 1.0 })
+        .collect();
+
+    // Smooth only when requested AND the level is sparse enough that the
+    // Galerkin triple product stays cheap (dense levels — the Πᵀ A Π block —
+    // fall back to plain aggregation, which keeps `PᵀAP` at `O(nnz(A))`).
+    let avg_density = a.col_idx.len() / a.n.max(1);
+    let smooth = cfg.smooth_prolongator && avg_density <= cfg.max_smooth_density;
+
+    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::new();
+    if !smooth {
+        for i in 0..n {
+            trips.push(Triplet::new(i, agg[i], w[agg[i]]));
+        }
+    } else {
+        let rho = estimate_spectral_radius(a);
+        let omega = if rho > 0.0 { 4.0 / (3.0 * rho) } else { 0.0 };
+        // Row-wise P = P₀ − ω D⁻¹ (A P₀). For row i, accumulate (A P₀)[i, ·] over
+        // the coarse columns its stencil touches, then form the smoothed row.
+        let mut acc = vec![0.0_f64; n_c];
+        let mut marked = vec![false; n_c];
+        let mut touched: Vec<usize> = Vec::new();
+        for i in 0..n {
+            touched.clear();
+            for k in a.row_ptr[i]..a.row_ptr[i + 1] {
+                let col = a.col_idx[k];
+                let g = agg[col];
+                if !marked[g] {
+                    marked[g] = true;
+                    touched.push(g);
+                }
+                acc[g] += a.val[k] * w[g];
+            }
+            for &g in &touched {
+                let mut val = -omega * a.inv_diag[i] * acc[g];
+                if g == agg[i] {
+                    val += w[g];
+                }
+                if val != 0.0 {
+                    trips.push(Triplet::new(i, g, val));
+                }
+                acc[g] = 0.0;
+                marked[g] = false;
+            }
+        }
+    }
+
+    SparseColMat::try_new_from_triplets(n, n_c, &trips)
+        .map_err(|e| EigenError::FaerGevd(format!("AMG prolongator assembly: {e:?}")))
+}
+
+/// Galerkin coarse operator `A_c = Pᵀ A P` (`n_c × n_c`), reusing the same
+/// outer-product triplet accumulation as `Gᵀ A G` with `P`'s rows in place of
+/// `G`'s. `A` stays SPD under the triple product (P is full column rank).
+///
+/// # Errors
+///
+/// Returns [`EigenError::FaerGevd`] if faer rejects the coarse triplets.
+fn galerkin(
+    p: SparseColMatRef<'_, usize, f64>,
+    a: SparseColMatRef<'_, usize, f64>,
+    n_c: usize,
+) -> Result<SparseColMat<usize, f64>, EigenError> {
+    let edge_dim = p.nrows();
+    let mut p_rows: Vec<Vec<(usize, f64)>> = vec![Vec::new(); edge_dim];
+    let cp = p.col_ptr();
+    let ri = p.row_idx();
+    let vv = p.val();
+    for col in 0..p.ncols() {
+        for k in cp[col]..cp[col + 1] {
+            p_rows[ri[k]].push((col, vv[k]));
+        }
+    }
+    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::new();
+    accumulate_gtag(&p_rows, a, 1.0, &mut trips);
+    SparseColMat::try_new_from_triplets(n_c, n_c, &trips)
+        .map_err(|e| EigenError::FaerGevd(format!("AMG Galerkin PᵀAP: {e:?}")))
+}
+
+/// Estimate the spectral radius of `D⁻¹A` by a few power iterations (used to set
+/// the prolongator-smoothing weight `ω = 4/(3ρ)`). `D⁻¹A` is similar to the
+/// symmetric `D^{-1/2} A D^{-1/2}`, so the power method converges to its largest
+/// eigenvalue; a handful of iterations is enough for the weight.
+fn estimate_spectral_radius(a: &CsrOp) -> f64 {
+    let n = a.n;
+    if n == 0 {
+        return 1.0;
+    }
+    let mut x: Vec<f64> = (0..n).map(|i| 1.0 + ((i % 7) as f64) * 0.1).collect();
+    let mut ax = vec![0.0_f64; n];
+    let mut lambda = 1.0_f64;
+    for _ in 0..8 {
+        a.spmv(&x, &mut ax);
+        for (axi, &idi) in ax.iter_mut().zip(a.inv_diag.iter()) {
+            *axi *= idi;
+        }
+        let nrm = ax.iter().map(|v| v * v).sum::<f64>().sqrt();
+        let xnrm = x.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if nrm <= 0.0 || xnrm <= 0.0 {
+            return 1.0;
+        }
+        lambda = nrm / xnrm;
+        let inv = 1.0 / nrm;
+        for (xi, &axi) in x.iter_mut().zip(ax.iter()) {
+            *xi = axi * inv;
+        }
+    }
+    if lambda > 0.0 { lambda } else { 1.0 }
+}
+
 /// `y = A · x` for a CSC sparse matrix (overwrite). `A` is `nrows × ncols`;
 /// `x.len() == ncols`, `y.len() == nrows`.
 fn spmv(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) {
@@ -418,13 +1062,19 @@ impl AmsLitePreconditioner {
     /// # Errors
     ///
     /// Returns [`EigenError::FaerGevd`] if the `C` assembly fails.
+    ///
+    /// The coarse solver is chosen by [`CoarseSolve::resolve`] — the shipped
+    /// few-sweep SGS default unless `GEODE_COARSE` (or, in tests, the thread-local
+    /// override) selects `amg`/`direct`. This is the single opt-in seam through
+    /// which the AMG V-cycle (issue #565) reaches the wired inner MINRES solve,
+    /// so no solver-construction site needs to change.
     pub(crate) fn build(
         gradient: &InteriorGradient,
         k: SparseColMatRef<'_, usize, f64>,
         m: SparseColMatRef<'_, usize, f64>,
         sigma: f64,
     ) -> Result<Self, EigenError> {
-        Self::build_with_coarse(gradient, k, m, sigma, CoarseSolve::default())
+        Self::build_with_coarse(gradient, k, m, sigma, CoarseSolve::resolve())
     }
 
     /// [`Self::build`] with an explicit coarse-solver choice. The shipped path
@@ -881,6 +1531,32 @@ mod tests {
             SparseColMat::try_new_from_triplets(n, n, &tk).unwrap(),
             SparseColMat::try_new_from_triplets(n, n, &tm).unwrap(),
         )
+    }
+
+    /// A 2-D 5-point Laplacian on an `nx × ny` grid (Dirichlet interior), SPD.
+    /// Unlike the 1-D tridiagonal `laplacian` — a best case for Gauss–Seidel
+    /// (bidiagonal sweeps are nearly exact) — the 2-D grid leaves a genuine
+    /// low-frequency residual tail after a fixed number of SGS sweeps, so it is
+    /// the honest fixture for showing a multilevel cycle beats fixed-sweep SGS.
+    fn grid_laplacian_2d(nx: usize, ny: usize) -> SparseColMat<usize, f64> {
+        let n = nx * ny;
+        let idx = |i: usize, j: usize| j * nx + i;
+        let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(5 * n);
+        for j in 0..ny {
+            for i in 0..nx {
+                let r = idx(i, j);
+                trips.push(Triplet::new(r, r, 4.0));
+                if i + 1 < nx {
+                    trips.push(Triplet::new(r, idx(i + 1, j), -1.0));
+                    trips.push(Triplet::new(idx(i + 1, j), r, -1.0));
+                }
+                if j + 1 < ny {
+                    trips.push(Triplet::new(r, idx(i, j + 1), -1.0));
+                    trips.push(Triplet::new(idx(i, j + 1), r, -1.0));
+                }
+            }
+        }
+        SparseColMat::try_new_from_triplets(n, n, &trips).unwrap()
     }
 
     /// A synthetic discrete gradient `G` for an `edge_dim`-row pencil, with the
@@ -1502,5 +2178,203 @@ mod tests {
             "SGS coarse apply was not cheaper than the direct factor: \
              SGS = {us_sgs:.3} µs, direct = {us_direct:.3} µs"
         );
+    }
+
+    /// ACCEPTANCE (issue #565): the smoothed-aggregation AMG coarse solver is
+    /// (a) **genuinely multilevel** — the hierarchy actually coarsens, it is not
+    /// just more single-level sweeps; (b) an **SPD** approximate inverse (the
+    /// property the enclosing V-cycle needs to stay a valid MINRES/CG
+    /// preconditioner); and (c) a **materially better** approximate inverse than
+    /// the fixed 2-sweep SGS coarse solve — the mechanism by which it breaks the
+    /// σ=4.5 ~1e-5 plateau #562 measured (a fixed sweep count leaves a
+    /// low-frequency coarse-error tail; the recursion to a direct coarsest solve
+    /// removes it).
+    #[test]
+    fn amg_coarse_solve_is_spd_multilevel_and_beats_sgs() {
+        // A 2-D 5-point Laplacian is an SPD graph-Laplacian stand-in for the
+        // nodal coarse operator `C = Gᵀ(K+|σ|M)G`, and (unlike the 1-D chain)
+        // leaves the low-frequency tail after fixed SGS sweeps — the honest
+        // discriminator for a multilevel win.
+        let nx = 32;
+        let ny = 32;
+        let n = nx * ny;
+        let k = grid_laplacian_2d(nx, ny);
+        let cfg = AmgConfig {
+            max_coarse: 16,
+            ..AmgConfig::default()
+        };
+        let amg = AmgCoarseSolver::from_csc(k.as_ref(), cfg).unwrap();
+
+        // (a) Genuinely multilevel: ≥2 coarsening levels above the direct solve.
+        assert!(
+            amg.num_levels() >= 2,
+            "AMG is not multilevel: only {} level(s)",
+            amg.num_levels()
+        );
+
+        // (b1) Symmetry of the approximate-inverse operator B: ⟨Bu,v⟩==⟨u,Bv⟩.
+        let u: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.9).cos() + 0.2).collect();
+        let v: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.4 + 1.0).sin()).collect();
+        let mut bu = vec![0.0; n];
+        let mut bv = vec![0.0; n];
+        amg.solve(&u, &mut bu);
+        amg.solve(&v, &mut bv);
+        let ubv: f64 = u.iter().zip(bv.iter()).map(|(a, b)| a * b).sum();
+        let vbu: f64 = v.iter().zip(bu.iter()).map(|(a, b)| a * b).sum();
+        assert!(
+            (ubv - vbu).abs() < 1e-9 * (ubv.abs() + 1.0),
+            "AMG coarse solve not symmetric: ⟨Bu,v⟩={ubv}, ⟨u,Bv⟩={vbu}"
+        );
+
+        // Relative residual ‖b − A y‖/‖b‖ of an approximate solve `y ≈ A⁻¹ b`.
+        let relres = |y: &[f64], b: &[f64]| -> f64 {
+            let mut ky = vec![0.0; n];
+            spmv(k.as_ref(), y, &mut ky);
+            let num: f64 = b
+                .iter()
+                .zip(ky.iter())
+                .map(|(a, c)| (a - c) * (a - c))
+                .sum::<f64>()
+                .sqrt();
+            let den: f64 = b.iter().map(|a| a * a).sum::<f64>().sqrt().max(1e-300);
+            num / den
+        };
+        let sgs = SgsCoarseSolver::from_csc(k.as_ref(), DEFAULT_COARSE_SWEEPS);
+        for seed in 0..4 {
+            let b: Vec<f64> = (0..n)
+                .map(|i| (((i + seed) as f64) * 0.7).sin() + 0.3)
+                .collect();
+            // (b2) Positive definiteness: bᵀ(Bb) > 0.
+            let mut ya = vec![0.0; n];
+            amg.solve(&b, &mut ya);
+            let by: f64 = b.iter().zip(ya.iter()).map(|(a, c)| a * c).sum();
+            assert!(by > 0.0, "AMG coarse solve not positive definite: bᵀy={by}");
+            // (c) AMG strictly beats the fixed-sweep SGS approximate inverse.
+            let mut ys = vec![0.0; n];
+            sgs.solve(&b, &mut ys);
+            let ra = relres(&ya, &b);
+            let rs = relres(&ys, &b);
+            assert!(
+                ra < rs,
+                "AMG did not beat SGS(2): AMG rel-res={ra:.3e} vs SGS rel-res={rs:.3e}"
+            );
+        }
+    }
+
+    /// ACCEPTANCE (issue #565): the full **three-space** AMS apply stays SPD when
+    /// the AMG coarse solver is selected for BOTH the gradient `C = Gᵀ(K+|σ|M)G`
+    /// and the vector-nodal `Πᵀ(K+|σ|M)Π` blocks. The additive apply is the exact
+    /// operator the indefinite-MINRES path (#560) uses, so its positive-definite
+    /// symmetry is the gate for using AMG under MINRES at all.
+    #[test]
+    fn amg_three_space_ams_apply_is_spd() {
+        // Large enough that both coarse operators (node_dim and 3·node_dim) sit
+        // above the AMG coarsest threshold and therefore actually coarsen.
+        let n = 120;
+        let (k, m) = laplacian(n);
+        let g = chain_gradient_geom(n);
+        let sigma = -0.5; // below the spectrum ⇒ A = K − σM SPD (the proxy regime)
+
+        let _guard = coarse_override::Guard::set(CoarseSolve::Amg);
+        let ams = AmsLitePreconditioner::build(&g, k.as_ref(), m.as_ref(), sigma).unwrap();
+        assert!(ams.has_vector_nodal_space());
+        assert!(
+            matches!(ams.c_coarse, CoarseSolver::Amg(_)),
+            "gradient coarse solver is not AMG"
+        );
+        assert!(
+            matches!(ams.pi_coarse.as_ref().unwrap(), CoarseSolver::Amg(_)),
+            "vector-nodal coarse solver is not AMG"
+        );
+
+        for seed in 0..6 {
+            let r: Vec<f64> = (0..n)
+                .map(|i| (((i + seed) as f64) * 0.7).sin() + 0.3)
+                .collect();
+            let mut z = vec![0.0; n];
+            ams.apply(&r, &mut z);
+            let rz: f64 = r.iter().zip(z.iter()).map(|(a, b)| a * b).sum();
+            assert!(
+                rz > 0.0,
+                "AMG three-space additive apply not positive definite: rᵀz = {rz}"
+            );
+        }
+
+        let u: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.9).cos()).collect();
+        let v: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.4 + 1.0).sin()).collect();
+        let mut mu = vec![0.0; n];
+        let mut mv = vec![0.0; n];
+        ams.apply(&u, &mut mu);
+        ams.apply(&v, &mut mv);
+        let umv: f64 = u.iter().zip(mv.iter()).map(|(a, b)| a * b).sum();
+        let vmu: f64 = v.iter().zip(mu.iter()).map(|(a, b)| a * b).sum();
+        assert!(
+            (umv - vmu).abs() < 1e-9 * (umv.abs() + 1.0),
+            "AMG three-space additive apply not symmetric: {umv} vs {vmu}"
+        );
+    }
+
+    /// CORRECTNESS GATE (issue #565, mirrors #561): the AMG-coarse three-space
+    /// **AMS-MINRES** path reproduces the DIRECT sparse-LU spectrum at a genuinely
+    /// **indefinite** interior shift. A preconditioner changes only the iteration
+    /// path, never the fixed point, so swapping the SGS coarse solve for the AMG
+    /// V-cycle must leave the eigenvalues unchanged — this pins that the AMG cycle
+    /// is a valid (SPD, spectrum-preserving) preconditioner end-to-end, not merely
+    /// in the isolated unit tests. Selection is via the thread-local coarse
+    /// override (no unsafe `env::set_var`; the solve runs on this test's thread).
+    #[test]
+    fn amg_ams_minres_matches_direct_interior_shift() {
+        use crate::eigen::lanczos::{
+            InnerPreconditioner, InnerSolver, SparseEigenSolver, SparseShiftInvertLanczos,
+        };
+
+        let n = 24;
+        let (k, m) = laplacian(n);
+        let g = chain_gradient_geom(n);
+        let sigma = 1.0; // interior ⇒ (K − σM) indefinite ⇒ the MINRES path
+
+        let direct = SparseShiftInvertLanczos {
+            sigma,
+            max_iters: 80,
+            tol: 1e-9,
+            inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
+        };
+        let ld = direct
+            .smallest_eigenvalues(k.as_ref(), m.as_ref(), 4)
+            .unwrap();
+        // Genuine-indefiniteness gate: the spectrum near σ straddles the shift.
+        assert!(
+            ld.iter().any(|&l| l < sigma) && ld.iter().any(|&l| l > sigma),
+            "shift σ={sigma} is not indefinite for this pencil: {ld:?}"
+        );
+
+        let _guard = coarse_override::Guard::set(CoarseSolve::Amg);
+        let amg = SparseShiftInvertLanczos {
+            sigma,
+            max_iters: 80,
+            tol: 1e-9,
+            inner: InnerSolver::MatrixFreeIndefinite,
+            precond: InnerPreconditioner::Ams,
+        };
+        let la: Vec<f64> = amg
+            .smallest_eigenpairs_with_gradient(k.as_ref(), m.as_ref(), 4, &g)
+            .unwrap()
+            .iter()
+            .map(|p| p.lambda)
+            .collect();
+
+        assert_eq!(
+            ld.len(),
+            la.len(),
+            "AMG-AMS-MINRES returned a different mode count than Direct"
+        );
+        for (i, (d, a)) in ld.iter().zip(la.iter()).enumerate() {
+            let rel = (d - a).abs() / d.abs().max(1.0);
+            assert!(
+                rel < 1e-6,
+                "mode[{i}] direct λ={d} AMG-AMS-MINRES λ={a} rel-diff={rel:.2e} > 1e-6"
+            );
+        }
     }
 }
