@@ -63,7 +63,7 @@
 //! of `K_local = vol · (∇λ_p · ∇λ_q)` w.r.t. the twelve coordinates, we
 //! evaluate the **same closed-form kernel** as
 //! [`crate::assembly::electrostatic::tet_p1_local`] in dual-number
-//! arithmetic ([`Dual`]) and read off the directional derivative. This is
+//! arithmetic (`Dual`) and read off the directional derivative. This is
 //! **analytic** (exact forward-mode automatic differentiation — no
 //! finite-difference truncation), so the adjoint-vs-FD test isolates the
 //! correctness of the adjoint algebra + geometry chain, not the element
