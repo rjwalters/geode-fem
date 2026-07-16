@@ -18,6 +18,7 @@ pub mod mesh;
 pub mod postproc;
 pub mod prelude;
 pub mod quantum;
+pub mod shape;
 pub mod solver;
 pub mod traits;
 
