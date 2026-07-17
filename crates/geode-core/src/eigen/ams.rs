@@ -2106,9 +2106,15 @@ mod tests {
     /// indefinite pencil where inner-CG cannot run — the deferred 1c point). What
     /// this test pins locally is the structural win: the SGS apply is markedly
     /// cheaper per call and needs no global factor, and the outer CG still
-    /// converges. The honest numbers are printed for the PR body.
+    /// converges. The honest per-apply timings are printed for the PR body, but
+    /// they are **informational only** — the per-apply wall-clock is *not*
+    /// asserted, because which of the two comparably-`O(n)` kernels wins on this
+    /// near-tridiagonal chain is a constant-factor, architecture-dependent
+    /// outcome (on Apple Silicon the cached LU triangular solve is ~1.7× faster
+    /// than 2 SGS sweeps; on the Linux CI runner the reverse). The load-bearing
+    /// gate is the convergence assertion below. See issue #567.
     #[test]
-    fn coarse_solve_cost_and_iteration_report() {
+    fn coarse_solve_iteration_report() {
         let n = 600;
         let (k, m) = laplacian(n);
         let g = chain_gradient(n);
@@ -2172,11 +2178,6 @@ mod tests {
         assert!(
             it_sgs > 0 && it_sgs < max_it,
             "SGS-preconditioned PCG failed to converge: it = {it_sgs} (max {max_it})"
-        );
-        assert!(
-            us_sgs < us_direct,
-            "SGS coarse apply was not cheaper than the direct factor: \
-             SGS = {us_sgs:.3} µs, direct = {us_direct:.3} µs"
         );
     }
 
