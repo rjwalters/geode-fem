@@ -31,6 +31,10 @@
 //!   `M`-orthogonal deflation of the gradient subspace that removes the
 //!   spurious mode *without* shifting the physical spectrum (issue #509,
 //!   the spectrum-preserving alternative to the DOF-elimination `gauge`).
+//! - [`sensitivity`] — **Hellmann–Feynman eigenvalue sensitivities** `∂λ/∂p`
+//!   (material + geometry) on a converged simple eigenpair (issue #596,
+//!   Phase A of the differentiable-eigenmode roadmap; Nelson eigenvector
+//!   derivatives and the PHJD interior eigensolver are deferred follow-ons).
 
 pub mod ams;
 pub mod complex;
@@ -45,6 +49,7 @@ pub(crate) mod ordering;
 pub mod parallel;
 pub mod projection;
 pub mod self_consistent;
+pub mod sensitivity;
 pub mod transmon;
 
 #[cfg(feature = "arpack")]
