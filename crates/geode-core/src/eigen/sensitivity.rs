@@ -347,6 +347,66 @@ impl EigenSensitivity<'_> {
         Ok(grad)
     }
 
+    /// **London penetration-depth** sensitivity `∂λ/∂λ_L` (Epic #475,
+    /// issue #604) for a London wall `λ_L⁻¹ S_Γ` on the K side of the
+    /// pencil ([`crate::eigen::transmon::LondonSurface`],
+    /// [`crate::eigen::transmon::solve_transmon_eigenmodes_full_with_london`]).
+    ///
+    /// With `A(λ_L) = K + K_port + λ_L⁻¹ S_Γ` and an M-normalized
+    /// eigenvector `x` (`xᵀ(M + M_port)x = 1`), Hellmann–Feynman gives
+    ///
+    /// ```text
+    ///   ∂λ/∂λ_L = xᵀ (∂A/∂λ_L) x = −(xᵀ S_Γ x) / λ_L²,
+    /// ```
+    ///
+    /// a surface-mass inner product — always `≤ 0` (`S_Γ` is PSD): the
+    /// eigenfrequency drops as the penetration depth grows (kinetic
+    /// inductance). The same adjoint-free pattern as
+    /// [`deigenvalue_deps`](Self::deigenvalue_deps), contracted over the
+    /// wall's surface-mass triplets instead of the volume mass.
+    ///
+    /// `triangles` is the wall's triangle list and `lambda_l` the
+    /// penetration depth (mesh units) **at which the eigenpair was
+    /// solved** — the eigenvector must come from the pencil that includes
+    /// this wall's `λ_L⁻¹ S_Γ` term. For multiple walls with distinct
+    /// `λ_L`, call once per wall with that wall's triangles.
+    ///
+    /// # Errors
+    ///
+    /// [`EigenSensitivityError::DegenerateEigenvalue`] if the target
+    /// eigenvalue fails the simple-mode gap check;
+    /// [`EigenSensitivityError::DimMismatch`] on a length mismatch.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `lambda_l` is not strictly positive and finite (exact
+    /// `λ_L = 0` is the PEC limit, expressed through the PEC edge mask —
+    /// same convention as
+    /// [`crate::eigen::transmon::LondonSurface::k_triplets`]).
+    pub fn deigenvalue_dlambda_l(
+        &self,
+        triangles: &[[u32; 3]],
+        lambda_l: f64,
+    ) -> Result<f64, EigenSensitivityError> {
+        assert!(
+            lambda_l.is_finite() && lambda_l > 0.0,
+            "London lambda_l must be strictly positive and finite, got {lambda_l}; \
+             the λ_L = 0 PEC limit must be expressed through the PEC edge mask"
+        );
+        // Gap check only — λ itself does not enter the gradient (∂M/∂λ_L = 0).
+        let _lambda = self.checked_simple_lambda()?;
+        let xf = self.full_edge_vector()?;
+        // xᵀ S_Γ x over the wall's surface-mass triplets (PEC edges carry
+        // exact zeros in xf, so no reduction bookkeeping is needed).
+        let mut q = 0.0_f64;
+        for (r, c, v) in crate::assembly::surface::assemble_surface_mass_triplets(
+            self.mesh, triangles, self.edges,
+        ) {
+            q += xf[r] * v * xf[c];
+        }
+        Ok(-q / (lambda_l * lambda_l))
+    }
+
     /// The full **nodal-coordinate** geometry gradient `∂λ/∂X_{n,d}`, one
     /// `[x,y,z]` triple per node. Chain it through a node-motion map with
     /// [`deigenvalue_dtheta`](Self::deigenvalue_dtheta) /
