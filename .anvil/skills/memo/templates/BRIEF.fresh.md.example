@@ -1,0 +1,129 @@
+---
+# Fresh-thread memo brief — reference shape (case 1 of 2).
+#
+# Use this template when starting a brand-new memo thread: no prior version,
+# no migration from a previous pipeline, no carryover context. The drafter is
+# operating from an idea seed (e.g. a row in IDEAS.md / VENTURES.md) plus
+# general knowledge.
+#
+# Sibling template: `BRIEF.migration.md.example` (use that one when porting a
+# thread forward from a prior version / prior pipeline — its sections differ).
+#
+# All frontmatter keys are optional; the drafter falls back to template
+# defaults for any that are absent. `recommendation_target: undecided` is the
+# documented fresh-thread default — v1 is the analysis pass that resolves it.
+company: "Hearth & Crumb Provisions"
+sector: "consumer / specialty food — small-batch, DTC + select grocery"
+stage: "pre-seed (founder-led, no institutional capital yet)"
+check_size: "$250–500K SAFE, post-money cap TBD"
+recommendation_target: undecided
+---
+
+# Brief: Hearth & Crumb Provisions — fresh-thread thesis memo (v1)
+
+This is the v1 brief for a **fresh** memo thread: no prior version, no
+external dossier, no diligence pack. The drafter is producing the first
+defensible take on whether Hearth & Crumb is a plausible pre-seed bet,
+working from the originating idea seed plus general knowledge of the
+small-batch CPG category.
+
+The job of v1 is **to resolve the recommendation target**, not to defend a
+predetermined one. The default `recommendation_target: undecided` is
+load-bearing: by the end of v1 the memo should land on invest / pass /
+conditional with named conditions, and the path it took to get there should
+be auditable in the Evidence section.
+
+## What the memo must establish (load-bearing questions)
+
+The v1 reviewer should be able to check each of these off the memo body. If
+any is missing or hand-waved, dim 3 (Constraint satisfaction) and dim 4
+(Evidence quality) will score down.
+
+- [ ] **What category is this, really?** Specialty bakery, shelf-stable
+      pantry, frozen, or DTC subscription? The unit economics fork hard on
+      this — name the category before reasoning about it.
+- [ ] **Who is the customer, and how often do they buy?** Repeat rate is
+      the single most decision-relevant number for small-batch CPG at this
+      stage. State the assumed cohort and the assumed cadence explicitly.
+- [ ] **What is the unit margin at current batch size, and what does it
+      become at the next plausible batch size?** If the founder can't get to
+      ~40% gross at the next step-up, the venture is structurally hard.
+- [ ] **What is the distribution wedge?** DTC, farmer's market, regional
+      grocery, food-service — pick one as the v1 wedge and defend why it's
+      the *right* one to win first. ("All of the above" is not a wedge.)
+- [ ] **What kills it?** Name the single most likely failure mode (most
+      common for this category: capacity ceiling at the kitchen, COGS
+      shock from a key ingredient, or founder-burnout from production
+      labor). The Risks section should lead with this one.
+- [ ] **What would a pass look like?** Even if v1 ends on invest, the memo
+      should explicitly state what evidence would have flipped it to pass.
+      This is what makes the recommendation falsifiable.
+
+## Source material
+
+This is the **fresh** case, so source material is intentionally light. The
+drafter should NOT invent a "read order" section — there is no prior version
+to thread through. The available inputs are:
+
+- The originating row in `IDEAS.md` / `VENTURES.md` (the venture name, the
+  one-line thesis, the founder reference if any).
+- General knowledge of the specialty-food category: typical gross margins,
+  shelf-life economics, the DTC → wholesale transition pattern, the role of
+  copacking, the standard FDA labeling regime.
+- Any public material on the company (a Squarespace shop, an Instagram
+  presence, a single press mention) — cite these explicitly when used.
+
+No `refs/` directory is expected for v1. If diligence material lands later
+(a founder deck, a financial model, a tasting-panel result), it goes in
+`refs/` and gets cited in v2's brief, not retro-fitted here.
+
+## Hard rules for v1
+
+These are non-negotiable constraints the drafter MUST satisfy. Violations
+should be flagged as critical by the reviewer.
+
+- **No invented financials.** If the brief doesn't supply a number and the
+  drafter can't anchor it to a category benchmark (with citation), the
+  memo says so explicitly rather than fabricating. "Assume ~40% gross at
+  scale, typical for the category" is fine; a fictional P&L table is not.
+- **No invented customer evidence.** Don't write "100 repeat customers
+  surveyed" if no survey exists. State what would be needed to make the
+  thesis non-speculative, and put that in the Risks / Open questions
+  section.
+- **Recommendation must be falsifiable.** Whatever the recommendation
+  lands on, the memo must state the specific evidence that would have
+  flipped it. If v1 cannot construct a falsifiable thesis from the
+  available material, that itself is the recommendation: *pass for
+  now, revisit on these specific signals*.
+
+## Out of scope for v1
+
+These are deliberately deferred. The reviewer should NOT down-score the
+memo for omitting them — but if v1 silently expands into them, dim 7
+(Scope discipline) will score down.
+
+- Cap table / dilution modeling. There's no term sheet yet.
+- Detailed competitive teardown of every regional specialty bakery. A
+  three-actor framing (the closest direct comp, the closest adjacency,
+  the "if they nailed scale, what would they look like" lookalike) is
+  sufficient for v1.
+- Founder reference calls. Plan to gate v2 on at least one founder
+  reference if v1 lands on invest or conditional.
+- Detailed go-to-market plan. v1 picks the wedge; v2 details the play.
+
+## What v2 might tighten
+
+A forward-planning placeholder so the reader (and the next reviser) knows
+where the thread is heading. Items here are NOT promises — they're the
+most likely next-version edits.
+
+- If v1 lands on **invest** or **conditional**: add one founder reference,
+  one channel-economics deep-dive (whichever wedge v1 picked), and a
+  named-condition list (what specifically would need to be true at v3 to
+  release the check).
+- If v1 lands on **pass**: tighten the "what would flip this" section
+  into a watch-list with named triggers (e.g. "revisit if DTC repeat
+  rate clears 35% at $40 AOV").
+- Either way, expect v2 to compress: v1 is the exploratory pass, v2 is
+  the disciplined pass. Target length will narrow accordingly via the
+  document's `target_length_overrides` map on `<project>/BRIEF.md`.

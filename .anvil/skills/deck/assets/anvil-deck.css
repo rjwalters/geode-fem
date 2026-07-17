@@ -1,0 +1,338 @@
+/* anvil-deck.css — Default Marp theme for anvil:deck
+ *
+ * Design intent: clean, neutral, fundraising-appropriate. Large headings, generous
+ * whitespace, restrained palette. Designed to not call attention to itself — the
+ * deck content is what investors should remember, not the chrome.
+ *
+ * Consumers override via .anvil/skills/deck/templates/<their-theme>.css.
+ *
+ * Imports the Marp default theme as a base and overrides typography + spacing.
+ */
+
+/* @theme anvil-deck */
+
+@import "default";
+
+:root {
+  /* Restrained palette — dark on light, one accent. */
+  --anvil-text:      #1a1a1a;
+  --anvil-muted:     #6b6b6b;
+  --anvil-accent:    #1f4e7a;   /* deep navy — works for both fundraising and B2B */
+  --anvil-rule:      #d6d6d6;
+  --anvil-bg:        #ffffff;
+  --anvil-bg-section:#f5f5f5;
+  --anvil-bg-ask:    #1f4e7a;   /* full-bleed background for the ask slide */
+
+  /* Semantic figure tokens — consumed by the mermaid classDefs shipped via
+   * anvil/lib/figures/mermaid-theme.json (themeCSS) and mirrored as
+   * ANVIL_WARNING / ANVIL_SUCCESS in anvil/lib/figures/palette.py. They live
+   * in :root so the cross-format drift guard (tests/lib/test_figures.py) can
+   * keep CSS, Python, and mermaid in sync; the deck chrome itself does not
+   * consume them. */
+  --anvil-warning:   #b5651d;   /* warm sienna — needs-attention accent for figure diagrams */
+  --anvil-success:   #2d5f3f;   /* muted forest — success/complete accent for figure diagrams */
+}
+
+section {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 26px;
+  line-height: 1.45;
+  color: var(--anvil-text);
+  background: var(--anvil-bg);
+  padding: 56px 72px;
+}
+
+/* Headings — strong hierarchy, generous whitespace */
+section h1 {
+  font-size: 56px;
+  font-weight: 600;
+  color: var(--anvil-text);
+  margin: 0 0 24px 0;
+  line-height: 1.15;
+}
+
+section h2 {
+  font-size: 40px;
+  font-weight: 600;
+  color: var(--anvil-text);
+  margin: 0 0 28px 0;
+  line-height: 1.2;
+  border-bottom: 2px solid var(--anvil-accent);
+  padding-bottom: 12px;
+  display: inline-block;
+}
+
+section h3 {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--anvil-muted);
+  margin: 16px 0 8px 0;
+}
+
+/* Body */
+section p {
+  margin: 0 0 16px 0;
+}
+
+section strong {
+  color: var(--anvil-accent);
+  font-weight: 600;
+}
+
+section em {
+  color: var(--anvil-muted);
+  font-style: italic;
+}
+
+/* Lists — disciplined spacing */
+section ul, section ol {
+  margin: 16px 0;
+  padding-left: 28px;
+}
+
+section li {
+  margin: 8px 0;
+}
+
+/* Tables — clean, no shading on alternating rows (chartjunk) */
+section table {
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 22px;
+}
+
+section table th {
+  background: var(--anvil-bg-section);
+  color: var(--anvil-text);
+  font-weight: 600;
+  padding: 10px 16px;
+  border-bottom: 2px solid var(--anvil-accent);
+  text-align: left;
+}
+
+section table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--anvil-rule);
+  vertical-align: top;
+}
+
+/* Code (rarely used in pitch decks; styled minimally) */
+section code {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--anvil-bg-section);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* Images — fit slide; no shadow / border by default.
+ *
+ * max-height: 75vh (raised from 60vh in issue #545). The 60vh cap
+ * (~432px on a 1280x720 Marp slide) was tight enough that tall portrait
+ * PNGs (e.g., a 276x558 TB flowchart) overflowed into adjacent bullets.
+ * 75vh (~540px) lets a portrait-orientation diagram fit alongside one or
+ * two bullet lines without operator-supplied `h:` Marp keyword overrides.
+ * `object-fit: contain` ensures the image preserves aspect ratio when
+ * constrained by the cap (rather than stretching). */
+section img {
+  max-width: 100%;
+  max-height: 75vh;
+  object-fit: contain;
+  display: block;
+  margin: 16px auto;
+}
+
+/* Pagination — small, muted, lower-right */
+section::after {
+  font-size: 14px;
+  color: var(--anvil-muted);
+  font-weight: 400;
+}
+
+/* --- Slide-class overrides ----------------------------------------------- */
+
+/* Title slide (apply via `<!-- _class: title -->`) */
+section.title {
+  background: var(--anvil-bg);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 80px 100px;
+}
+
+section.title h1 {
+  font-size: 72px;
+  margin: 0 0 20px 0;
+  color: var(--anvil-accent);
+  line-height: 1.05;
+}
+
+section.title h2 {
+  font-size: 32px;
+  font-weight: 400;
+  border: none;
+  padding: 0;
+  margin: 0 0 60px 0;
+  color: var(--anvil-text);
+  display: block;
+}
+
+section.title em {
+  font-size: 22px;
+  color: var(--anvil-muted);
+}
+
+/* Ask slide — full-bleed accent background to emphasize the closing moment.
+ * Apply via `<!-- _class: ask -->`. */
+section.ask {
+  background: var(--anvil-bg-ask);
+  color: #ffffff;
+  padding: 80px 100px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+section.ask h1 {
+  color: #ffffff;
+  font-size: 60px;
+  margin: 0 0 32px 0;
+}
+
+section.ask h2 {
+  color: #ffffff;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.4);
+  font-size: 32px;
+  margin-bottom: 36px;
+}
+
+section.ask strong {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+section.ask em {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+section.ask ul {
+  margin: 24px 0;
+}
+
+section.ask li {
+  margin: 14px 0;
+  font-size: 28px;
+}
+
+/* Tables on the ask slide — defeat the imported Marp default theme's cell
+ * backgrounds so the dark accent slide background (--anvil-bg-ask) shows
+ * through, then re-color text white. Without this, data cells render
+ * white-on-white (#50). Borders mirror the section.ask h2 treatment. */
+section.ask table th,
+section.ask table td {
+  background: transparent;
+  background-color: transparent;
+  color: #ffffff;
+}
+
+section.ask table th {
+  border-bottom-color: rgba(255, 255, 255, 0.4); /* matches section.ask h2 */
+}
+
+section.ask table td {
+  border-bottom-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Defeat any zebra-striping the imported default theme applies via
+ * tbody tr:nth-child(...). Belt-and-suspenders across tr/tbody levels. */
+section.ask table tr,
+section.ask table tbody,
+section.ask table tbody tr:nth-child(odd),
+section.ask table tbody tr:nth-child(even) {
+  background: transparent;
+  background-color: transparent;
+}
+
+/* Appendix — visually distinct from main deck. Apply via `<!-- _class: appendix -->`. */
+section.appendix {
+  background: var(--anvil-bg-section);
+}
+
+section.appendix h2 {
+  color: var(--anvil-muted);
+  border-bottom: 2px solid var(--anvil-muted);
+}
+
+section.appendix::before {
+  content: "Appendix";
+  position: absolute;
+  top: 24px;
+  right: 32px;
+  font-size: 14px;
+  color: var(--anvil-muted);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+
+/* Section divider — for transitions between deck sections (e.g., product → team).
+ * Apply via `<!-- _class: section -->`. */
+section.section {
+  background: var(--anvil-accent);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+section.section h1 {
+  color: #ffffff;
+  font-size: 64px;
+  margin: 0;
+}
+
+/* --- Stock layout classes ----------------------------------------------- */
+
+/* Multi-column slide layouts shipped as theme baseline so consumers can write
+ * `<div class="row">` directly in deck.md without pasting a frontmatter
+ * `style: |` block into every deck.
+ *
+ * Both selectors are scoped to `section` (mirroring the section.title / section.ask
+ * pattern above) to keep the rules slide-local and prevent collision with any
+ * consumer who happens to use `.row` outside a deck context.
+ *
+ * The foreignObject SVG render path that Marp uses for `--pdf` output silently
+ * drops *inline* `display: grid` / `display: flex` styles (verified, issue #128).
+ * Class-based selectors applied via the global stylesheet — like the two below
+ * — DO survive the foreignObject path, which is why these ship as theme-level
+ * classes rather than as a documented inline-style pattern.
+ *
+ * For custom layouts beyond `.row` / `.split`, consumers should continue to
+ * use the frontmatter `style: |` block pattern documented in
+ * `slide-archetypes.md` "Figure layout idioms → Custom layouts beyond
+ * .row / .split". */
+
+/* `.row` — flex container, gap-aware. Children flex naturally; pour any number
+ * of columns and they distribute evenly. Covers the diptych (two-image) and
+ * triptych (three-image) cases without separate arity modifiers. */
+section .row {
+  display: flex;
+  gap: 2em;
+  align-items: center;
+}
+
+section .row > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* `.split` — explicit 50/50 grid. Use when the consumer wants a hard 50/50
+ * split (e.g. figure-left + bullet-right) and `.row`'s flex auto-distribution
+ * is undesirable. */
+section .split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2em;
+  align-items: center;
+}

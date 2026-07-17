@@ -1,0 +1,79 @@
+<!--
+  Plan-then-apply change-set preview — reference shape for `anvil:memo`.
+
+  This template documents the canonical shape of a `plan.md` artifact
+  produced by `memo-revise <thread> --plan` (and optionally
+  `memo-revise <thread> --polish "<reason>" --plan` when composing with
+  the polish-pass flag). The plan is a critic-sibling-shaped artifact
+  that lives at `<thread>.{N+1}.plan/plan.md` — i.e., the same
+  versioned-suffix convention as `<thread>.{N+1}.review/` and
+  `<thread>.{N+1}.audit/`, NOT inside a version dir. The plan sibling
+  does NOT contain `memo.md` — that file is written by the subsequent
+  `memo-revise --apply` invocation, which produces the actual
+  `<thread>.{N+1}/` version dir.
+
+  See `commands/memo-revise.md` §"Plan-then-apply mode (`--plan` /
+  `--apply`)" for the writer-side contract, and `SKILL.md`
+  §"Operator-confirmable change-set preview" for the user-facing shape.
+
+  OPERATOR USE:
+  The operator EDITS this file in place to reject or modify planned
+  items before invoking `memo-revise <thread> --apply`. Three accepted
+  rejection shapes — pick whichever fits the editor flow:
+
+  1. Comment out the row with `<!-- declined: <reason> -->` on the same
+     line as the table row. The reason is required.
+  2. Delete the row entirely. Resulting changelog row reads
+     `Resolution: declined — removed from plan` with no operator-supplied
+     reason.
+  3. Replace the `Priority` cell value with `declined` and add a
+     bracketed reason at end of `Summary` (e.g., `[declined: out of
+     scope for this pass]`).
+
+  Declined items become `Resolution: declined — <reason>` rows in
+  `<thread>.{N+1}/changelog.md` after `--apply` runs.
+-->
+
+# Revision plan — `<thread>.{N+1}`
+
+| Field | Value |
+|---|---|
+| Thread | `<thread-slug>` |
+| Source version | `<thread>.{N}/` |
+| Target version | `<thread>.{N+1}/` |
+| Source review verdict | `<advance: true|false>` — `<NN/44>` |
+| Plan written | `<ISO-8601-UTC>` |
+| Revision mode | `normal` \| `polish` (when invoked with `--polish "<reason>"`) |
+
+## Planned edits
+
+One row per planned edit. The operator edits this table in place to
+decline items before invoking `memo-revise <thread> --apply` (see
+operator-use comment at top of file).
+
+| ID | Source | Priority | Insertion site | Summary | Words Δ | Dim Δ |
+|---|---|---|---|---|---|---|
+| 1 | `<thread>.{N}.review (critical)` | critical | §3.2 ¶2 | Add Gartner 2025 cite for $38B TAM (corrects $40B) | +25 | +1 dim 3 |
+| 2 | `<thread>.{N}.review (major)` | major | §5 risks (new item #6) | Sphere exec/funding risk paragraph w/ 1-line mitigation | +90 | +1 dim 6 |
+| 3 | `<thread>.{N}.audit (major)` | major | §2.1 ¶3 | Recompute cash-burn from primary deck; correct exhibit | +10 | +1 dim 4 |
+| 4 | `<thread>.{N}.review (nit)` | nit | §1 lede | Insert "why now" line before paragraph 2 | +35 | +1 dim 2 |
+| 5 | `<thread>.{N}.review (nit)` | nit | §3↔§4 | Reorder Recommendation before Market (front-load disposition) | 0 | +1 dim 8 |
+
+## Aggregate
+
+| Metric | Value |
+|---|---|
+| Items planned | 5 |
+| Items by priority | 1 critical, 2 major, 2 nit |
+| Total expected words Δ | +160 |
+| Source word count | 2150 |
+| Projected new word count | 2310 |
+| Target length window | 2000–2800 words (source: `overrides.<N+1>`) |
+| Target-length flag | `within_target` |
+
+The `Target-length flag` MUST be one of:
+
+- `within_target` — projected count falls within `[min_words, max_words]` (inclusive).
+- `exceeds_max` — projected count > `max_words`. Operator SHOULD decline items to land within budget.
+- `under_min` — projected count < `min_words`. Operator SHOULD expand scope or accept under-budget delivery.
+- `no_target` — no `target_length` is resolved for `v{N+1}` (source `"none"`); flag is informational only.

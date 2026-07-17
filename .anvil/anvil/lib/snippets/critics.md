@@ -27,7 +27,7 @@ configured critic is missing or unfinished.
 | Skill | Default critic set | Optional siblings |
 |---|---|---|
 | memo | `review` | `audit`, `critic` (consumer-added) |
-| pub | `review`, `audit` | `litsearch` (pre-draft or re-run) |
+| paper | `review`, `audit` | `litsearch` (pre-draft or re-run) |
 | slides | `review`, `audit` (mandatory) | `outline` (pre-draft), `rehearse`, `handout` (terminal) |
 | deck | `review`, `narrative`, `market`, `design` | `audit` |
 | report | `review`, `audit` (both mandatory) | `promote` (terminal) |
@@ -197,7 +197,7 @@ the human-verdict narrative is the primary deliverable; the
 machine-summary layer lets future cross-skill machinery aggregate it
 alongside other machine-summary critics if needed.
 
-### pub (human-verdict reviewer + human-verdict auditor with task-specific files)
+### paper (human-verdict reviewer + human-verdict auditor with task-specific files)
 
 ```
 q3-method.2/
@@ -212,7 +212,7 @@ q3-method.2.audit/            # human-verdict + task-specific files
   _meta.json   { "scorecard_kind": "human-verdict" }
 ```
 
-Note: pub-audit currently emits `flags.md` rather than `verdict.md` +
+Note: paper-audit currently emits `flags.md` rather than `verdict.md` +
 `scoring.md`. This is an audit-critic convention; the aggregator
 treats `flags.md` as critical-flag input and consults `_meta.json` to
 determine the scorecard kind. The migration in the PR introducing
@@ -224,7 +224,7 @@ existing files.
 Skills that opt in to the citation-quality dimensions
 (`citation_recall`, `citation_precision`; see `rubric.md`) typically
 assign ownership of those two dimensions to a single critic — the
-citation auditor (commonly `pub-audit`, `report-audit`, or
+citation auditor (commonly `paper-audit`, `report-audit`, or
 `ip-uspto-priorart`). The auditor populates `citation_recall` and
 `citation_precision` in its own `Score` entries and leaves them
 `None` on the general reviewer's scorecard.
@@ -281,7 +281,7 @@ each skill's `## Output layout` section and passed to
 `anvil/lib/sidecar.py::staged_sidecar(final_dir=..., required_files=[...])`,
 so the atomic rename fails (and the review never lands) if any of them is not
 written. `findings.md` in particular is the hard-required review-manifest file
-for `pub`, `deck`, `slides`, `ip-uspto`, and `ip-uspto-provisional` (see
+for `paper`, `deck`, `slides`, `ip-uspto`, and `ip-uspto-provisional` (see
 `scorecard_kind.md`; note these skills split across both
 `scorecard_kind` values — see the paragraph below for which kind each emits
 `findings.md` under).
@@ -328,7 +328,7 @@ convention, *not* the `scorecard_kind` discriminator: `scorecard_kind.md`
 discriminates on the `_meta.json` `scorecard_kind` field
 (`human-verdict` vs `machine-summary`), and `findings.md` is actually
 emitted under **both** kinds depending on skill — `human-verdict` for
-`pub-review` (see `anvil/skills/pub/commands/pub-review.md` lines 45, 232),
+`paper-review` (see `anvil/skills/paper/commands/paper-review.md` lines 45, 232),
 `machine-summary` for the ip-uspto and deck specialists per
 `scorecard_kind.md` §`machine-summary`. That skill-dependent duality is
 exactly why a blanket rename would be wrong, and it is independent of the
@@ -345,7 +345,7 @@ writes into the critic sibling directories**:
 - Narrowest: allow the specific filenames named in each skill's
   `## Output layout` / `required_files=[...]` manifest (e.g. `verdict.md`,
   `scoring.md`, `comments.md`, `findings.md`, `_review.json`, `_summary.md`,
-  `_meta.json`, `_progress.json` for `pub-review`).
+  `_meta.json`, `_progress.json` for `paper-review`).
 
 If the guard cannot be relaxed, a Bash-heredoc write (or any non-intercepted
 file-write path) into the staging directory is a valid manual fallback — the

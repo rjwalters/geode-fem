@@ -1,6 +1,6 @@
 # Thread-state derivation from on-disk evidence
 
-Every skill's portfolio orchestrator (`memo`, `pub`, `slides`, `deck`,
+Every skill's portfolio orchestrator (`memo`, `paper`, `slides`, `deck`,
 `report`, `ip-uspto`) determines a thread's state by enumerating the
 filesystem under a thread's parent directory. State is **derived**, never
 stored — there is no `state.json` or similar flag file.
@@ -81,7 +81,7 @@ table = [
 Skill-specific extensions add extra states with their own predicates:
 
 - **slides**: `OUTLINED` predicate checks `<slug>.0.outline/` exists.
-- **pub**: `AUDITED` predicate checks `<slug>.{latest}.audit/_progress.json.audit == done`.
+- **paper**: `AUDITED` predicate checks `<slug>.{latest}.audit/_progress.json.audit == done`.
 - **report**: `CUSTOMER-READY` predicate checks `<slug>.{latest}.promote/receipt.md` exists.
 - **ip-uspto**: `FINALIZED` predicate checks `<slug>.final/_manifest.json` exists.
 - **deck**: `BRIEF_DONE` predicate checks `<thread>/BRIEF.md` exists with no versioned dirs.

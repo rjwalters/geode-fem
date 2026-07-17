@@ -1,0 +1,195 @@
+---
+# Worked-example project BRIEF demonstrating per-doc `rubric_overrides`
+# and `target_length_overrides` shapes (issue #296 — BRIEF.md absorbs all
+# project-level anvil config; the prior `<thread>/.anvil.json` carrier is
+# retired).
+#
+# This example shows TWO non-investment-memo shapes from the studio canary
+# (2026-06-02), each calibrated for its own subtype:
+#
+#   1. `synthesis-brief` — a decision-framework portfolio synthesis
+#      (~11K words) reading across a bundle of vertical briefs, market
+#      models, and framing companions. The reader (CEO) is expected to
+#      extract the framework and apply judgment; the memo is deliberately
+#      non-prescriptive on the portfolio-shape choice. (Modeled on the
+#      brasidas-synthesis canary thread.)
+#
+#   2. `feedback-memo` — a studio-side feedback memo TO a CEO on his draft
+#      roadmap thesis (~5K words). Validates parts, recommends sharpening,
+#      proposes a concrete pitch backbone. No "the company," no ask, no
+#      founder section — the recommendation target is positional. (Modeled
+#      on the raytheon-pitch-strategy canary thread.)
+#
+# To use: copy this file to `<project>/BRIEF.md`, drop the leading comments,
+# trim or extend the documents list to match your project, and tune the
+# calibration prose / target ranges to your threads. See
+# `anvil/skills/memo/SKILL.md` §"Rubric overrides and non-investment-memo
+# shapes" for the full contract.
+
+project: studio-2026-q2
+audience:
+  - Studio CEO (primary)
+  - Strategic partners (secondary)
+hard_rules:
+  - Cite every load-bearing claim with a defensible mechanism.
+  - Recommendations must be falsifiable; name the evidence that would flip them.
+
+documents:
+  - slug: brasidas-synthesis
+    artifact_type: descriptive-thesis
+    target_length: { words: [9000, 13000] }
+    # Per-version overrides on top of `target_length`. Each key is the
+    # version number (as a string); the value is `[min, max]` shaped
+    # the same way as `target_length`. The resolver applies
+    # `target_length_overrides["<N>"]` first, then `target_length`, then
+    # the implicit "reasonable for the decision" fallback.
+    target_length_overrides:
+      "1": { words: [10000, 14000] }   # v1 carries scaffolding; bigger budget
+      "2": { words: [9000, 13000] }    # v2 compresses; steady-state range
+    rubric_overrides:
+      memo_subtype: synthesis-brief
+      dim_1_calibration: >-
+        decision-framework — score on framework clarity + sub-recommendation
+        sharpness, not on single ranked recommendation. This brief is
+        intentionally non-prescriptive on the strategic shape choice; it
+        commits clearly to several sub-recommendations but explicitly defers
+        the portfolio-shape choice to the reader. Do not score down dim 1
+        for "no single recommendation" — score dim 1 on whether the decision
+        framework itself is clearly stated and whether the sub-recommendations
+        are sharp.
+      dim_5_calibration: >-
+        defers to underlying market models — score on integration quality
+        not on fresh sizing. This brief deliberately defers detailed market
+        sizing to the underlying per-vertical market models in the analytical
+        bundle. Score this dimension on whether the synthesis correctly
+        integrates the model outputs into the strategic framework, not on
+        whether the synthesis itself does original market sizing.
+      dim_6_calibration: >-
+        defers to underlying market models — score on whether financial
+        framing supports positioning, not on whether the synthesis itself
+        does original financial modeling. The per-vertical scenario math
+        lives in the bundle; the synthesis's job is to integrate the
+        outputs, not to re-derive them.
+      dim_7_calibration: >-
+        target length 9000-13000 words; score against declared target, not
+        against a 2000-3000 word investment-memo expectation. This brief is
+        materially longer than a typical investment memo because it
+        synthesizes ~75K words of source material; the declared range
+        reflects the synthesis-brief shape, not scope creep.
+      target_length: { words: [9000, 13000] }
+
+  - slug: raytheon-pitch-strategy
+    artifact_type: position-paper
+    target_length: { words: [4000, 6000] }
+    # Per-document iteration-cap paired override (issue #349). BOTH keys
+    # are required when overriding — setting `max_iterations` without a
+    # non-empty `iteration_cap_rationale` is a schema violation at parse
+    # time. The override may raise the cap but not lower it below the
+    # principled default (4); `< 4` is rejected.
+    #
+    # Sticky-raise semantics: setting `max_iterations: 5` raises the cap
+    # to 5 until the BRIEF is edited again. The required rationale —
+    # preserved in BRIEF git history — is the audit trail that documents
+    # why this thread deserves more revision passes than the principled
+    # default. See `anvil/skills/memo/SKILL.md` §"Per-document override
+    # contract" for the full validation contract.
+    max_iterations: 5
+    iteration_cap_rationale: |
+      Operator-extended to 5 on 2026-06-08. v4 verdict 34/44 vs floor
+      35; gap is positional-framing-side (Recommendation §3 conditional
+      terms could be sharpened, reviewer named dim 4 at 5/6 with
+      specific suggestion). One extra reviser pass to close the gap;
+      founder follow-ups for source-side lift tracked separately.
+    rubric_overrides:
+      memo_subtype: feedback-memo
+      dim_1_calibration: >-
+        feedback-to-third-party — score on position clarity (does the memo
+        take a clear position on the engaged document and propose a concrete
+        next move?), not on single ranked investment recommendation. This
+        memo has no "the company" and no check-size ask; the recommendation
+        target is positional, not financial. Do not score down dim 1 for
+        "no invest/pass/conditional recommendation" — score dim 1 on whether
+        the positional recommendation (validate / sharpen / replace / extend)
+        is unambiguous and whether the proposed pitch backbone (or equivalent
+        next-move artifact) is concrete.
+      dim_4_calibration: >-
+        feedback-memo — score dim 4 on whether the memo names the risks of
+        the position it is recommending the third party adopt, not on whether
+        it names the operating risks of a portfolio company. The relevant
+        risk surface is positional (where could the proposed sharpening /
+        pitch backbone fail to land?), not operational.
+      dim_5_calibration: >-
+        secondary for feedback-memo shape — score dim 5 on whether market
+        framing supports the positional recommendation, not on whether the
+        memo does original TAM/SAM/SOM sizing. Feedback memos engage a
+        third party's existing positioning; the load-bearing question is
+        whether the proposed sharpening matches the market the third party
+        is actually in, not whether the memo independently sizes that market.
+      dim_6_calibration: >-
+        secondary for feedback-memo shape — score dim 6 on whether the
+        financial framing supports the positional recommendation, not on
+        whether the memo does original unit-economics or scenario modeling.
+        Feedback memos do not carry an investment ask; financial reasoning
+        enters only insofar as it pressure-tests the positional recommendation.
+      dim_7_calibration: >-
+        target length 4000-6000 words; score against declared target.
+        Forceful brevity is load-bearing for this shape — every other
+        rubric dim rewards additions, so the dim 7 anchor must hold the
+        line on the declared range. A feedback memo that drifts long has
+        typically over-defended a position the operator wanted stated
+        forcefully and moved on from.
+      target_length: { words: [4000, 6000] }
+---
+
+# Project: studio-2026-q2 — worked-example BRIEF
+
+This BRIEF demonstrates the issue #296 consolidated config shape: every
+project-level and per-doc anvil knob lives in this file's YAML frontmatter,
+and the prior sibling `<thread>/.anvil.json` is retired. The two
+`documents:` entries above show:
+
+- **Per-doc `target_length`** — the document-level default range (words
+  or pages; the resolver converts pages to words at 600 wpp per the
+  SKILL.md convention).
+- **Per-doc `target_length_overrides`** — per-version overrides applied
+  on top of the default. Keys are version-number strings (`"1"`, `"2"`,
+  …); values are `{ words: [min, max] }` or `{ pages: [min, max] }`.
+- **Per-doc `rubric_overrides`** — the subtype-calibration block from PR
+  #265 (issue #233). Carries `memo_subtype`, per-dimension calibration
+  prose (`dim_N_calibration`), and an optional `target_length` override
+  scoped to the subtype.
+- **Per-doc `max_iterations` + `iteration_cap_rationale`** — the
+  paired iteration-cap override from issue #349 (demonstrated on the
+  `raytheon-pitch-strategy` entry above). BOTH keys are required when
+  overriding; the rationale text is the audit trail preserved in BRIEF
+  git history. The override may raise the cap above the principled
+  default of 4 but never lower it. See `anvil/skills/memo/SKILL.md`
+  §"Per-document override contract" for the full validation contract.
+
+Free prose below the frontmatter is shared project context — author voice,
+audience notes, hard-rule rationale. The reviewer reads this prose as
+"BRIEF context" during `memo-review`; the per-doc structured metadata
+above drives the mechanical wiring (overlay selection, target-length
+resolution, calibration-suffix attachment).
+
+For projects with only one document and no calibration needs, the
+frontmatter can be much shorter:
+
+```yaml
+---
+project: my-simple-project
+audience: [me]
+hard_rules: []
+documents:
+  - slug: thesis-memo
+    artifact_type: investment-memo
+    target_length: { words: [2000, 3000] }
+---
+```
+
+That minimal shape is byte-equivalent (in behavior) to a project with no
+calibration overrides — the reviewer applies the base /44 rubric and the
+investment-memo overlay (identity), the drafter / reviser honor the
+declared `target_length`, and no per-dimension suffix attaches in
+`scoring.md`. The non-trivial shape above only kicks in when at least one
+per-doc `rubric_overrides:` block is present.

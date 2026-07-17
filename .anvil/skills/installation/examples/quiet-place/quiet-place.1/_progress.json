@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "thread": "quiet-place",
+  "phases": {
+    "draft": {
+      "state": "done",
+      "started": "2026-06-04T00:00:00Z",
+      "completed": "2026-06-04T00:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 1,
+    "source": "Migrated from legacy flat proposal output/legacy/memos-flat/quiet-place.tex via anvil:installation 2026-06-04"
+  }
+}

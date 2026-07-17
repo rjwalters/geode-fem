@@ -1,0 +1,9 @@
+{
+  "_comment": "The target_length_exceeded fixture: projected new word count (2585) exceeds max_words (2400). The plan footer MUST flag this with target_length_flag = exceeds_max so the operator sees the budget violation at a glance and can decline items before --apply runs. --apply itself does NOT refuse on a flagged target — the flag is an advisory, the operator's edit decision is the gate.",
+  "target_length_flag": "exceeds_max",
+  "projected_words": 2585,
+  "max_words": 2400,
+  "operator_action_advisory": "decline items to land within target before --apply",
+  "apply_should_succeed": true,
+  "comment_on_apply_semantics": "exceeds_max is advisory; --apply still runs on an unedited plan, the resulting memo will exceed target_length and the next memo-review will deduct on dim 7 (Scope discipline) accordingly."
+}

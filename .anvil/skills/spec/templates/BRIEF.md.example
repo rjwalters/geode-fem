@@ -1,0 +1,64 @@
+---
+project: botho
+audience:
+  - Implementers building against the spec (primary — node/protocol developers)
+  - Auditors and reviewers checking the spec against the implementation (secondary)
+hard_rules:
+  - Every normative claim is true of the implementation, or is explicitly
+    marked target-state with the gap tracked in the ## Implementation status
+    register (SKILL.md §Implementation-status register).
+  - Never rewrite the spec to match a vestigial code path — a suspected
+    implementation mismatch is a human decision (spec-wrong / code-wrong /
+    intentional-gap), never a mechanical reconciliation toward the code.
+  - State every normative requirement unambiguously (RFC 2119 MUST/SHALL/MAY
+    discipline); define every term used in a normative predicate.
+  - The same quantity stated in multiple sections must agree with itself.
+documents:
+  - slug: botho-consensus-spec
+    artifact_type: spec
+    # Optional companion input (SKILL.md §Code-ref contract). The
+    # implementation this spec normatively describes — the mirror image of
+    # primer's spec_ref. Resolved project-root first, then consumer-root —
+    # the same walk report's prior_reports[] and primer's spec_ref use.
+    # Commonly a glob over a multi-file implementation. Absent → the
+    # spec↔implementation consistency tier is silent/off and both critics
+    # record a `major` finding recommending you declare it. Declared-but-
+    # missing (bad path) → the tier activates but degrades gracefully (a
+    # `major` finding, never a crash, never a false critical flag).
+    code_ref: ../../src/**/*.rs
+---
+
+# Botho consensus spec — project brief
+
+The normative specification for Botho's consensus and wire format. It lives in
+the same repository as its Rust implementation and must stay truthful to it:
+every constant, struct layout, formula, and block-validity predicate either
+matches the implementation, or is explicitly marked target-state with the gap
+tracked.
+
+## What this spec governs (and what it defers)
+
+- **Normative**: the constants, message/struct layouts, formulas, and validity
+  predicates an implementer must satisfy to be conformant.
+- **Marked target-state**: where the live implementation and the intended
+  design diverge (e.g. a feature specified but not yet shipped), the divergence
+  is recorded in the `## Implementation status` register (a live/target/status/
+  tracking row per component), not silently canonized to either side.
+  `spec-audit` suppresses a registered gap and flags an unregistered one.
+
+## Reference material
+
+- `refs/` — ADRs, design notes, and diagram sources (mermaid state machines,
+  message flows).
+- The `code_ref` implementation is the consistency oracle: `spec-audit` reads
+  it to flag any normative claim that appears to contradict the implementation
+  — surfacing the ambiguous fix direction to the operator rather than presuming
+  the code is authoritative (the near-miss this class exists to prevent).
+
+## Adopting the existing whitepaper
+
+This spec predates anvil adoption — it is already a multi-file LaTeX tree. See
+`anvil/skills/spec/SKILL.md` §"Adopting an existing spec" for the placement
+procedure: put the existing `<slug>.tex` + `sections/*.tex` into
+`botho-consensus-spec/botho-consensus-spec.1/`, register the thread here, and
+start the lifecycle at `spec-review` / `spec-audit`.

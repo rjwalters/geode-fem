@@ -1,0 +1,60 @@
+%%
+%% template-claims.tex.j2 — USPTO claims block skeleton (Jinja2 template)
+%%
+%% Consumed by ip-uspto-draft. Independent and dependent claims are filled
+%% in by the drafter. Numbering is automatic via the claims environment
+%% (provided by anvil-uspto.cls) which wraps an enumerate.
+%%
+%% Conventions:
+%%   - 3 independent claims maximum by default (USPTO charges fees beyond 3).
+%%   - 20 claims total maximum by default (USPTO charges fees beyond 20).
+%%   - No multiple-dependent-on-multiple-dependent claims (37 CFR 1.75(c)).
+%%   - Antecedent basis: every "the X" / "said X" must have a prior "a X" / "an X".
+%%
+\begin{claims}
+
+%% --- Independent claim 1 ---
+\begin{claim}
+%% TODO: drafter fills with claim 1 text. Example pattern:
+%%
+%%   A widget comprising:
+%%     a housing;
+%%     a processor disposed within the housing;
+%%     an input port coupled to the processor;
+%%     wherein the processor is configured to perform [inventive function].
+\end{claim}
+
+%% --- Dependent claims for claim 1 ---
+\begin{claim}
+%% TODO: drafter fills with claim 2 text (depends on claim 1).
+%% Example: The widget of claim 1, wherein the housing comprises aluminum.
+\end{claim}
+
+\begin{claim}
+%% TODO: drafter fills with claim 3 text (depends on claim 1 or 2).
+\end{claim}
+
+%% --- Independent claim N (method form) ---
+\begin{claim}
+%% TODO: drafter fills with the corresponding method claim. Example pattern:
+%%
+%%   A method comprising:
+%%     receiving an input at an input port of a widget;
+%%     processing the input with a processor disposed within a housing of the widget;
+%%     outputting a result.
+\end{claim}
+
+%% --- Dependent claims for method ---
+\begin{claim}
+%% TODO: drafter fills.
+\end{claim}
+
+%% --- Independent claim M (system form, if applicable) ---
+\begin{claim}
+%% TODO: drafter fills with system-level claim if the invention has one.
+%% (Omit this block if not applicable.)
+\end{claim}
+
+%% ... additional claims as the invention warrants, up to soft cap of 20 total.
+
+\end{claims}

@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "thread": "botho-bridge-spec",
+  "critic": "review",
+  "phases": {
+    "review": {
+      "state": "done",
+      "started": "2026-07-14T19:50:00Z",
+      "completed": "2026-07-14T19:58:00Z"
+    }
+  },
+  "metadata": {
+    "rubric_id": "anvil-spec-v1",
+    "rubric_total": 44,
+    "advance_threshold": 39,
+    "total_score": 44,
+    "advance": true,
+    "critical_flags": 0,
+    "code_ref_active": true,
+    "code_ref_missing": false,
+    "constant_gate": { "found": true, "declarations": 7, "violations": 0, "passed": true },
+    "figure_gate": { "referenced": 3, "rendered": 3, "missing": 0, "stale": 0, "dim_6_7_capped": false },
+    "consumed_prior_reviews": ["botho-bridge-spec.1.review"],
+    "score_history": [
+      { "iteration": 1, "total": 38, "threshold": 39, "rubric_id": "anvil-spec-v1" },
+      { "iteration": 2, "total": 44, "threshold": 39, "rubric_id": "anvil-spec-v1" }
+    ]
+  }
+}

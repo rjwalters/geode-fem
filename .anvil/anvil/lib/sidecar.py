@@ -121,7 +121,7 @@ The ``stage``/``commit`` pair maps to :func:`stage_enter` /
 the ``FileExistsError`` refuse-to-overwrite guard,
 :class:`SidecarIncompleteError`). When even ``python``/``uv`` is
 unavailable, consuming command docs document a last-resort manual
-``mv``-based fallback (see e.g. ``anvil/skills/pub/commands/pub-review.md``).
+``mv``-based fallback (see e.g. ``anvil/skills/paper/commands/paper-review.md``).
 
 Contract
 --------
@@ -704,7 +704,7 @@ def commit_staged(final_dir: Path, required_files: Sequence[str]) -> Path:
 # get the exact same atomicity guarantee — the manifest check + single
 # ``Path.rename`` — enforced by code rather than re-derived in prose. When
 # even ``python``/``uv`` is unavailable, the consuming command docs document a
-# last-resort manual ``mv``-based fallback (see e.g. pub-review.md).
+# last-resort manual ``mv``-based fallback (see e.g. paper-review.md).
 
 
 def _build_cli_parser():

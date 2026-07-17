@@ -25,7 +25,7 @@ EMPTY → DRAFTED → REVIEWED → REVISED → … → READY
 
 `READY` is terminal for skills that ship without a mandatory audit phase
 (memo, deck). `AUDITED` is terminal for skills where audit is mandatory
-(pub, slides, report, ip-uspto). Some skills add further terminal states
+(paper, slides, report, ip-uspto). Some skills add further terminal states
 past `AUDITED` (report → `CUSTOMER-READY`; ip-uspto → `FINALIZED`); see
 Extension Points below. `NO-GO` is the thesis-failure terminal sink
 shared across skills that opt in (memo is the first canary; other
@@ -148,7 +148,7 @@ terminal verdict (when one fires) is recorded in the top-level
 Any critical flag set by any sibling critic short-circuits regardless of
 score. A `READY` transition requires:
 
-1. `total_score >= threshold` (32 for memo/pub/slides, 35 for deck/report/ip-uspto).
+1. `total_score >= threshold` (32 for memo/paper/slides, 35 for deck/report/ip-uspto).
 2. `no unresolved critical flag` from any sibling critic.
 
 Both conditions must hold. Either falsy condition keeps the thread in
@@ -167,7 +167,7 @@ sibling lives at `<thread>.0.<tag>/`. Examples:
 | Skill | Pre-draft state | Sibling |
 |---|---|---|
 | slides | `OUTLINED` | `<thread>.0.outline/` |
-| pub | (no named state — litsearch is informational) | `<thread>.0.litsearch/` |
+| paper | (no named state — litsearch is informational) | `<thread>.0.litsearch/` |
 | deck | `BRIEF_DONE` | `<thread>/BRIEF.md` (not a sibling — lives in thread root) |
 | ip-uspto | `INTAKE_DONE` → `INVENTORSHIP_DONE` | `<thread>/BRIEF.md` + `<thread>/inventorship.md` |
 

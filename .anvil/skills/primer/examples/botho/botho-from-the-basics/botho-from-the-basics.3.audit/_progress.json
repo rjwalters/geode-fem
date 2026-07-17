@@ -1,0 +1,35 @@
+{
+  "version": 3,
+  "thread": "botho-from-the-basics",
+  "critic": "audit",
+  "phases": {
+    "audit": {
+      "state": "done",
+      "started": "2026-07-14T13:05:00Z",
+      "completed": "2026-07-14T13:26:00Z"
+    }
+  },
+  "metadata": {
+    "audited_version": "botho-from-the-basics.3",
+    "audit_clean": true,
+    "critical_flags": 0,
+    "factual_flags": 0,
+    "spec_contradiction_flags": 0,
+    "spec_ref_declared": "../sections/*.tex",
+    "spec_ref_active": true,
+    "spec_ref_missing": false,
+    "spec_ref_resolved_count": 18,
+    "delta_hunks_verified": 7,
+    "figure_claims_verified": 30,
+    "gloss_claims_verified": 2,
+    "prior_clean_verdict_carried": "botho-from-the-basics.2.audit",
+    "findings": { "critical": 0, "major": 0, "minor": 2, "observation": 2 },
+    "exhibits_inspected": [
+      "fig1-stealth-address-flow.png",
+      "fig2-hybrid-pq-envelope.png",
+      "fig3-scp-mining-decoupling.png",
+      "fig4-anti-hoarding-money-flow.png",
+      "fig5-capstone-payment-timeline.png"
+    ]
+  }
+}

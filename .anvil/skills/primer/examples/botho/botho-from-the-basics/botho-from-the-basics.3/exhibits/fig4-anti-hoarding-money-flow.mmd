@@ -1,0 +1,32 @@
+%% Figure 4 — The anti-hoarding money flow (primer §9).
+%% Teaches: intake (progressive fees + demurrage, keyed to coin ancestry)
+%% and outflow (burn + tilted per-block lottery) both anchor to the cluster
+%% factor — the one wealth signal restructuring cannot forge.
+flowchart TD
+  FACT["Cluster factor — from the lineage's wealth, not the holder:<br/>1x small/diffuse · 3.5x at ~100,000 BTH · past 5x toward<br/>the 6x ceiling for million-BTH lineages"]:::anvil-warning
+
+  subgraph INTAKE["Intake — priced by coin ancestry"]
+    FEE["Progressive fees:<br/>per-byte base rate x cluster factor.<br/>Factor-1 users pay nano-BTH"]
+    DEM["Demurrage when idle high-factor coins move:<br/>~2% of value after a year idle at factor 6;<br/>factor-1 coins exempt"]
+  end
+
+  FACT --> FEE
+  FACT --> DEM
+
+  FEES["Each block's collected fees<br/>(miners never receive fees — no MEV motive)"]
+  FEE --> FEES
+  DEM --> FEES
+
+  BURN["20% burned — supply shrinks,<br/>a rebate to every holder equally"]:::anvil-muted
+  POOL["Lottery pool"]
+  FEES -- "20%" --> BURN
+  FEES -- "80%" --> POOL
+
+  EMIT["Scheduled slice of the block reward itself<br/>(ramping to 50%) — reaches wealth that<br/>never transacts"]
+  EMIT --> POOL
+
+  LOT["Per-block lottery: 4 randomly selected UTXOs,<br/>seeded by the previous finalized block's hash.<br/>Odds = value x inverse-factor tilt"]
+  POOL --> LOT
+
+  OUT["Small-lineage holders: per BTH, a factor-1 coin<br/>gets 6x the winning weight of a factor-6 coin.<br/>Splitting into a million UTXOs changes nothing"]:::anvil-success
+  LOT --> OUT

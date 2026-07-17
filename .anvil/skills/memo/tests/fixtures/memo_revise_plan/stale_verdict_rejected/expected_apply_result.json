@@ -1,0 +1,8 @@
+{
+  "_comment": "The stale_verdict_rejected fixture: verdict.md mtime is later than plan.md mtime. --apply MUST refuse with plan-validity case 2 (stale review). Remediation message MUST point at re-running --plan to refresh.",
+  "apply_should_succeed": false,
+  "rejection_reason": "stale_review",
+  "remediation_hint_keyword": "re-run",
+  "version_dir_created": null,
+  "thread_left_untouched": true
+}

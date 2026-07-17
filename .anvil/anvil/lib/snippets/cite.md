@@ -54,6 +54,27 @@ ArXiv preprints emit as `@misc` with `eprint` + `eprinttype`:
 }
 ```
 
+Software / dataset DOIs (Zenodo and friends) are **DataCite**-registered,
+not Crossref-registered. `resolve()` tries Crossref first and, on a
+"not here" 404/406, falls back to DataCite. Those records also emit as
+`@misc` (per DataCite's own `types.bibtex` hint), carrying `doi` + `url`
+but no `journal` / `volume` — the software analog of an arXiv preprint:
+
+```
+@misc{mcconkey2021qiskit,
+  author = {McConkey, Thomas G and Minev, Zlatko and Qiskit Metal Development Team},
+  title = {Qiskit Metal: An Open-Source Framework for Quantum Device Design & Analysis},
+  year = {2021},
+  doi = {10.5281/zenodo.4618153},
+  url = {https://zenodo.org/record/4618153},
+}
+```
+
+Author rendering mirrors the Crossref path: DataCite `creators` with a
+`familyName`/`givenName` split render surname-first, while organizational
+or software authors that carry only `name` (e.g. a "…Development Team")
+pass through unchanged.
+
 The writer is **idempotent**: calling `cite(identifier, version_dir)`
 twice with the same identifier appends only one entry and returns the
 existing `@key` on the second call. Detection is by DOI or arXiv
@@ -124,7 +145,13 @@ Resolved bibliographic records cache to the user's home directory:
 ## Identifier kinds supported in v0
 
 - **DOI** — resolved via Crossref's public API. Polite-pool semantics
-  apply (the lib sends a descriptive `User-Agent`).
+  apply (the lib sends a descriptive `User-Agent`). DOIs Crossref does
+  not know (Zenodo / software / dataset DOIs return HTTP 404/406) fall
+  back to the **DataCite** REST API (`https://api.datacite.org/dois/…`,
+  plain unauthenticated GET, stdlib only) before failing. A DOI
+  registered with neither registry still raises
+  `CiteResolutionError` — the fallback widens the *verifiable* set
+  without loosening the verified-or-dropped contract.
 - **arXiv** — resolved via the arXiv public API (Atom XML).
 - **PubMed (PMID)** — *deferred*. `resolve()` raises
   `UnsupportedIdentifierError`. Track a follow-up issue when a
@@ -173,7 +200,7 @@ Consumer skills ship their own CSL when they want one — typically as
 an asset under `.anvil/skills/<skill>/assets/<style>.csl`, picked up
 by the skill's render command. The lib documents the convention but
 does **not** ship any CSL file. APA-7 is the conventional default
-for academic/markdown skills (`pub`, `report`, `memo`); USPTO
+for academic/markdown skills (`paper`, `report`, `memo`); USPTO
 formatting is bespoke and renders without CSL.
 
 ## BibTeX 0.99 field reference
@@ -189,7 +216,7 @@ The lib emits a small subset of BibTeX 0.99:
 | `volume` | `@article` | |
 | `number` | `@article` | (called "issue" in Crossref) |
 | `pages` | `@article` | |
-| `doi` | `@article` | Bare `10.xxxx/yyyy` form |
+| `doi` | `@article`, `@misc` | Bare `10.xxxx/yyyy` form (DataCite `@misc` software/dataset records carry one too) |
 | `eprint` | `@misc` | arXiv ID without version suffix |
 | `eprinttype` | `@misc` | always `arxiv` in v0 |
 | `url` | all | Canonical URL |

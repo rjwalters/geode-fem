@@ -329,7 +329,7 @@ like the author?" The **subject voice tier** points the same machinery
 at a *third party whose dialogue is rendered in the artifact*: a
 memoir reconstructing a grandmother's speech from interview
 transcripts, a `report` engagement narrative quoting a customer, a
-`pub` quoting a study participant, an oral-history project. The ground
+`paper` quoting a study participant, an oral-history project. The ground
 truth is a **spoken corpus** (recorded speech), not published prose,
 and the question is "does this reconstructed line sound like how *this
 speaker* would say it?"
@@ -499,9 +499,9 @@ sanded into model polish while chasing rubric points.
 
 ### Out of scope for #598
 
-Substance/provenance tracing (→ #597); pub and report skill adoption
+Substance/provenance tracing (→ #597); paper and report skill adoption
 (follow-on: same lib, same pattern — their voice-grounding steps
-already exist in `report-review.md` step 4d and `pub-draft.md`); audit
+already exist in `report-review.md` step 4d and `paper-draft.md`); audit
 hooks (essay has no audit command); rhetoric-lint integration for
 subject-dialogue lines (the lint's token-level rules apply to author
 prose; subject dialogue is a different register); a `vocab_reminder.py`

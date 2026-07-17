@@ -1,0 +1,404 @@
+% Gossamer LAN — Networking a Palazzo
+% Compile with: xelatex gossamer-lan.tex
+\documentclass[10pt, letterpaper]{article}
+
+% ─── Typography ───────────────────────────────────────────────────────────────
+\usepackage{fontspec}
+\setmainfont{Helvetica Neue}[
+  UprightFont = *,
+  BoldFont = * Bold,
+  ItalicFont = * Italic,
+  BoldItalicFont = * Bold Italic,
+]
+\setmonofont{Menlo}[Scale=0.85]
+
+% ─── Layout ───────────────────────────────────────────────────────────────────
+\usepackage[
+  top=0.7in,
+  bottom=0.8in,
+  left=0.95in,
+  right=0.95in,
+]{geometry}
+\usepackage{parskip}
+\setlength{\parskip}{0.4em}
+\usepackage{enumitem}
+\setlist{nosep, leftmargin=1.5em, itemsep=2pt}
+
+% ─── Colors ───────────────────────────────────────────────────────────────────
+\usepackage{xcolor}
+\definecolor{ink}{HTML}{1A1A1F}        % near-black for body
+\definecolor{accent}{HTML}{4A6FA5}     % steel blue — fiber optic glass
+\definecolor{muted}{HTML}{6B7280}      % gray for secondary text
+\definecolor{bg}{HTML}{F5F7FA}         % cool light fill for callouts
+\definecolor{rule}{HTML}{4A6FA5}
+
+\color{ink}
+
+% ─── Headings ─────────────────────────────────────────────────────────────────
+\usepackage{titlesec}
+\usepackage{needspace}
+
+\titleformat{\section}
+  {\needspace{6\baselineskip}\large\bfseries\color{accent}}
+  {}
+  {0em}
+  {}
+  [\vspace{-0.4em}{\color{rule}\rule{\textwidth}{1.0pt}}\vspace{0.1em}]
+
+\titleformat{\subsection}
+  {\normalsize\bfseries\color{ink}}
+  {}
+  {0em}
+  {}
+
+\titlespacing*{\section}{0pt}{1.0em}{0.3em}
+\titlespacing*{\subsection}{0pt}{0.6em}{0.15em}
+
+% ─── Tables ───────────────────────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\renewcommand{\arraystretch}{1.3}
+
+% ─── Callout Box ──────────────────────────────────────────────────────────────
+\usepackage{tcolorbox}
+\tcbuselibrary{skins, breakable}
+
+\newtcolorbox{callout}[1][]{%
+  enhanced,
+  breakable,
+  colback=bg,
+  colframe=bg,
+  boxrule=0pt,
+  borderline west={3pt}{0pt}{accent},
+  sharp corners,
+  left=12pt, right=12pt, top=8pt, bottom=8pt,
+  fonttitle=\bfseries\color{accent},
+  coltitle=accent,
+  attach boxed title to top left={yshift=-2mm, xshift=4mm},
+  boxed title style={colback=bg, colframe=bg, boxrule=0pt, sharp corners},
+  #1
+}
+
+\newtcolorbox{metricbox}{%
+  enhanced,
+  colback=bg,
+  colframe=bg,
+  boxrule=0pt,
+  sharp corners,
+  left=12pt, right=12pt, top=6pt, bottom=6pt,
+}
+
+% ─── Header / Footer ─────────────────────────────────────────────────────────
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[L]{\footnotesize\color{muted}Gossamer LAN --- Palazzo Networking Design}
+\fancyfoot[R]{\footnotesize\color{muted}\thepage\ / \pageref{LastPage}}
+
+% ─── Hyperlinks ───────────────────────────────────────────────────────────────
+\usepackage[hidelinks]{hyperref}
+\hypersetup{colorlinks=true, linkcolor=accent, urlcolor=accent}
+
+% ─── Misc ─────────────────────────────────────────────────────────────────────
+\usepackage{graphicx}
+\usepackage{microtype}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{document}
+\thispagestyle{empty}
+
+% ─── Title Block ──────────────────────────────────────────────────────────────
+\begin{flushleft}
+{\color{muted}\footnotesize\textsf{2AM LOGIC STUDIO}}\\[0.8em]
+{\fontsize{26}{30}\selectfont\bfseries\color{ink}Gossamer LAN}\\[0.3em]
+{\large\color{muted}\itshape A hair-thin fiber network for a palazzo}\\[0.7em]
+{\color{rule}\rule{\textwidth}{2pt}}\\[0.2em]
+{\footnotesize\color{muted}April 2026 \hfill NETWORKING DESIGN --- CONCEPT STAGE}
+\end{flushleft}
+
+\vspace{0.6em}
+
+% ─── Premise ──────────────────────────────────────────────────────────────────
+\begin{callout}[title=Premise]
+A single spool of bare single-mode fiber --- three kilometers of glass thinner than a human hair --- stretched along the ceilings of an Italian palazzo in a hub-and-spoke geometry, delivering 10\,Gbps to every wing. The fiber is nearly invisible against plaster and stone: no cable trays, no conduit, no plastic trunking defacing centuries-old surfaces. The network disappears into the architecture. What remains is connectivity so light it could be mistaken for a spider's thread catching the afternoon light.
+\end{callout}
+
+% ─── The Idea ────────────────────────────────────────────────────────────────
+\section{The Idea}
+
+Historic buildings resist networking. Every cable tray bolted to a cornice, every surface-mount raceway screwed into plaster, every hole drilled through a stone wall is a small act of vandalism against a structure that has survived centuries without Ethernet. The conventional answer is to accept the tradeoff or to run cable through the walls at enormous cost and risk.
+
+The gossamer approach sidesteps the problem. A bare single-mode optical fiber with its primary acrylate coating is approximately 250\,\textmu m in diameter --- a quarter of a millimeter, thinner than a strand of angel-hair pasta. It weighs almost nothing. It can be adhered to a ceiling with small dabs of optically-clear UV-cured adhesive, following the line of a cornice or the edge of a beam, and be effectively invisible from floor level. It carries no electrical current, generates no heat, creates no electromagnetic interference, and poses no fire risk. It is, in every meaningful sense, the least invasive way to move data through a building.
+
+A 3\,km spool of ITU-T G.652D fiber provides far more cable than a palazzo requires --- even a large one with runs of 50--80\,m per wing. The surplus is the margin: room for mistakes during termination, spare loops at each endpoint, and enough slack to re-route if a run needs to change.
+
+% ─── Topology ────────────────────────────────────────────────────────────────
+\section{Topology}
+
+The network is a pure hub-and-spoke star. A single Ubiquiti USW-Aggregation switch sits at the hub --- a central room, a closet, a cabinet behind a tapestry --- and individual fiber runs radiate outward to each wing or floor of the palazzo. Each spoke terminates at a Ubiquiti USW-Pro-Max-24-PoE switch, which provides 24 copper Ethernet ports with PoE++ power to its local zone. Access points, cameras, and wired devices connect to the Pro Max switch over standard copper.
+
+\begin{metricbox}
+\begin{tabularx}{\textwidth}{@{} >{\ttfamily\small}l @{\quad} l @{}}
+Internet & \\
+\quad$\downarrow$ & \\
+Gateway (UDM-Pro / UDM-SE) & SFP+ 10G uplink \\
+\quad$\downarrow$ & \\
+USW-Aggregation (8$\times$ SFP+) & The hub --- central location \\
+\quad$\mid$ & \\
+\quad$\mid$--- fiber spoke A --- SFP+ --- USW-Pro-Max-24-PoE & Wing / floor A \\
+\quad$\mid$--- fiber spoke B --- SFP+ --- USW-Pro-Max-24-PoE & Wing / floor B \\
+\quad$\mid$--- fiber spoke C --- SFP+ --- USW-Pro-Max-24-PoE & Wing / floor C \\
+\quad$\mid$--- fiber spoke D --- SFP+ --- USW-Pro-Max-24-PoE & Wing / floor D \\
+\quad$\mid$--- fiber spoke E --- SFP+ --- USW-Pro-Max-24-PoE & Wing / floor E \\
+\quad$\mid$--- fiber spoke F --- SFP+ --- USW-Pro-Max-24-PoE & Wing / floor F \\
+\quad$\mid$--- fiber spoke G --- SFP+ --- USW-Pro-Max-24-PoE & Wing / floor G \\
+\quad$\mid$ & \\
+\quad 1 port reserved for gateway uplink & \\
+\end{tabularx}
+\end{metricbox}
+
+The Aggregation switch has eight SFP+ ports. One connects to the gateway; the remaining seven are available for fiber spokes. Each spoke is a single fiber pair (transmit and receive) running from the hub to one endpoint switch. The Pro Max 24 PoE has two SFP+ uplink ports, so a spoke switch could also daisy-chain to a second switch if a zone outgrows 24 ports.
+
+Each Pro Max 24 PoE switch provides 400\,W of PoE++ budget, enough to power multiple UniFi access points, cameras, VoIP phones, and other PoE devices within its zone. The access points provide wireless coverage to the rooms served by that spoke --- critical in a palazzo where thick stone and plaster walls attenuate Wi-Fi signal aggressively, typically requiring one AP per major room rather than one per floor.
+
+% ─── The Fiber ───────────────────────────────────────────────────────────────
+\section{The Fiber}
+
+\subsection{Cable selection}
+
+The baseline choice is a 3\,km spool of G.652D single-mode fiber, sold as OTDR launch cable. This is standard telecom-grade glass: 9/125\,\textmu m core/cladding with a 250\,\textmu m acrylate primary coating. It is inexpensive (\$100--200 for a 3\,km spool), universally available, and carries any wavelength used by modern SFP+ transceivers.
+
+\begin{callout}[title=Bend radius consideration]
+G.652D has a minimum bend radius of approximately 30\,mm under no tension. In a palazzo with ornate cornices, right-angle room transitions, and decorative moldings, tight routing may be unavoidable. \textbf{G.657.A2} or \textbf{G.657.B3} bend-insensitive fiber reduces the minimum bend radius to 7.5\,mm or 5\,mm respectively, at the same price point. For a building where the routing follows architectural geometry rather than clean cable trays, bend-insensitive fiber is the better choice. It is fully compatible with G.652D optics and connectors.
+\end{callout}
+
+\subsection{Routing and attachment}
+
+The fiber follows the ceiling line, adhered with small dabs of UV-cured optical adhesive or held by micro cable clips (3\,mm profile). At 250\,\textmu m diameter the fiber is invisible from more than a few meters away. Routing should follow existing architectural lines --- cornices, beam edges, the junction of wall and ceiling --- so that even at close inspection the fiber reads as part of the building rather than an addition to it.
+
+At each transition between rooms, the fiber passes through the wall via the smallest possible penetration --- a 4--6\,mm hole is more than sufficient for a single fiber, and can be sealed with matching plaster filler. In many palazzi, existing gaps at door frames, window casements, or service penetrations eliminate the need for new holes entirely.
+
+Service loops of 1--2\,m should be left at each termination point, coiled neatly behind the endpoint switch. These allow re-termination if a connector is damaged, without re-pulling the entire run.
+
+\subsection{Termination}
+
+Each fiber run must be terminated with LC connectors to plug into SFP+ transceivers. With a fusion splicer on hand, the recommended approach is:
+
+\begin{enumerate}
+  \item \textbf{Strip} the acrylate coating back 30--40\,mm using a fiber stripping tool to expose bare cladding.
+  \item \textbf{Clean} the stripped glass with lint-free wipes and isopropyl alcohol.
+  \item \textbf{Cleave} the fiber end to a flat, mirror-finish face using a precision cleaver.
+  \item \textbf{Fusion splice} the bare fiber to a pre-made LC pigtail (a short length of fiber with a factory-polished LC connector already attached).
+  \item \textbf{Protect} the splice point with a heat-shrink splice sleeve.
+  \item \textbf{Test} the completed termination with an optical power meter or visual fault locator.
+\end{enumerate}
+
+This produces a near-lossless joint ($<$0.05\,dB typical) and a factory-quality connector face. Each spoke requires four splices total: two at the hub end (TX and RX) and two at the spoke end.
+
+\subsection{The fiber workshop}
+
+Owning the fiber infrastructure long-term --- repairs, re-routes, new spokes, degraded runs --- means owning the tools and the skills. The goal is a self-contained fiber termination capability that does not depend on calling a contractor every time a connector goes bad.
+
+\subsubsection*{Core tools}
+
+\begin{metricbox}
+\begin{tabularx}{\textwidth}{@{} >{\bfseries}p{3.8cm} X r @{}}
+Fusion splicer & Core-alignment splicer with built-in V-groove clamps, LCD screen, and heater for splice sleeves. Entry-level core-alignment models (e.g.\ Signalfire AI-9, Tumtec V9+) handle single-mode reliably. Avoid fixed V-groove-only models --- core alignment matters for single-mode loss. & \$300--600 \\
+Precision cleaver & Produces the flat end-face the splicer needs. A 16- or 24-position blade cleaver (e.g.\ Fujikura CT-08, or the cleavers bundled with the splicers above) is sufficient. A bad cleave is the most common cause of a bad splice. & \$50--150 \\
+Fiber stripping tools & CFS-3 three-hole stripper (strips 250\,\textmu m coating, 900\,\textmu m buffer, and 3\,mm jacket). Miller or Jonard brand. & \$25--40 \\
+Visual fault locator (VFL) & A red-laser pen that injects visible light into the fiber. Traces routing, confirms continuity, and reveals breaks or macro-bends as points of light leaking through the cladding. Indispensable for troubleshooting. & \$15--30 \\
+Optical power meter (OPM) & Measures optical signal level in dBm at the far end. Paired with the VFL or an SFP+ source, confirms splice loss and end-to-end link budget. & \$30--80 \\
+\end{tabularx}
+\end{metricbox}
+
+\subsubsection*{Consumables and supplies}
+
+\begin{metricbox}
+\begin{tabularx}{\textwidth}{@{} >{\bfseries}p{3.8cm} X r @{}}
+LC pigtails (SM, 1\,m) & Factory-polished LC/UPC connectors on one end, bare fiber on the other. Splice the bare end to the palazzo fiber. Buy in packs of 10--20. & \$2--4 ea. \\
+Splice protection sleeves & Heat-shrink tubes with a steel rod core. Protect and reinforce the splice point. Match diameter to fiber. & \$0.50--1 ea. \\
+Lint-free wipes & IPA-wetted or dry. Clean every fiber end and every connector face before every splice and every insertion. Contamination is the leading cause of loss. & \$10--15 / box \\
+IPA (99\%+) & Isopropyl alcohol for cleaning stripped fiber ends. & \$8--10 \\
+Connector cleaners & One-click LC cleaners (e.g.\ NTT-AT CLETOP) for cleaning SFP+ transceiver ports and patch-cable ends. & \$25--35 ea. \\
+\end{tabularx}
+\end{metricbox}
+
+\subsubsection*{Practice and training}
+
+The OTDR spool itself is the training ground. Three kilometers of fiber is enough for dozens of practice splices. The workflow:
+
+\begin{enumerate}
+  \item Cut a 2\,m length from the spool.
+  \item Strip, clean, and cleave both ends.
+  \item Splice an LC pigtail to one end.
+  \item Measure the splice loss on the splicer's screen (target: $<$0.05\,dB).
+  \item If the loss is high, examine the cleave angle and retry.
+  \item Once consistent, test end-to-end with the VFL and OPM.
+\end{enumerate}
+
+Expect the first 5--10 splices to be learning experiences. By splice 15--20, the process should be repeatable and fast (under 5 minutes per termination including strip, clean, cleave, splice, and sleeve). The spool has enough fiber for over a hundred practice cuts --- use it freely.
+
+\subsection{Fiber lifetime}
+
+Bare acrylate-coated fiber exposed to ambient conditions will degrade over time. UV exposure from windows accelerates yellowing and embrittlement of the coating. Mechanical stress from building movement or thermal cycling can introduce micro-cracks. A realistic service life for exposed bare fiber in an interior environment is 5--15 years, depending on UV exposure and humidity.
+
+This is acceptable. The fiber is inexpensive, the routing is documented, and re-pulling a run is a half-day task. The gossamer aesthetic is inherently impermanent --- like the building's plaster, it is maintained rather than permanent.
+
+% ─── The Optics ──────────────────────────────────────────────────────────────
+\section{The Optics}
+
+Both the USW-Aggregation and the USW-Pro-Max-24-PoE use SFP+ (10G) ports. The transceivers must be single-mode, matched at both ends of each fiber run.
+
+\begin{metricbox}
+\begin{tabularx}{\textwidth}{@{} >{\bfseries}l X @{}}
+Transceiver type & SFP+ LR (long-reach single-mode, 1310\,nm) \\
+Rated distance & 10\,km (vastly exceeds palazzo runs of $<$500\,m) \\
+Ubiquiti part & UACC-OM-SM-10G-S \\
+Unit cost & \$15--20 \\
+Quantity needed & 2 per spoke (one at each end) + 2 for gateway uplink \\
+\end{tabularx}
+\end{metricbox}
+
+All transceivers are Ubiquiti-branded. This eliminates compatibility concerns across firmware versions and keeps the entire network within a single vendor ecosystem, simplifying support and warranty.
+
+% ─── Wireless Coverage ───────────────────────────────────────────────────────
+\section{Wireless Coverage}
+
+The PoE switches at each spoke endpoint power UniFi access points directly over copper Ethernet. In a palazzo, wireless planning is dominated by a single fact: \textbf{thick masonry walls kill Wi-Fi}. Stone and old plaster walls 40--80\,cm thick attenuate signal by 15--25\,dB per wall --- enough to make a single access point useless beyond its own room.
+
+The design rule is simple: \textbf{one access point per major room}, or at minimum one per suite of rooms that share open doorways. The UniFi product line offers several suitable options:
+
+\begin{metricbox}
+\begin{tabularx}{\textwidth}{@{} >{\bfseries}l X r @{}}
+U6 Pro & Ceiling-mount, Wi-Fi 6, ideal for large rooms & $\sim$\$150 \\
+U6 In-Wall & Flush-mount in a wall plate, discreet & $\sim$\$100 \\
+U7 Pro & Wi-Fi 7, ceiling-mount, future-proof & $\sim$\$190 \\
+U7 Pro Max & Wi-Fi 7, highest capacity & $\sim$\$250 \\
+\end{tabularx}
+\end{metricbox}
+
+Each access point draws 12--25\,W via PoE, well within the Pro Max 24 PoE's per-port budget (up to 60\,W PoE++). A typical spoke switch serving one wing might power 4--8 access points, 1--2 cameras, and still have ports and power budget to spare.
+
+The access points are managed centrally via the UniFi Network controller running on the gateway (UDM-Pro/SE) or a separate Cloud Key. Despite the distributed physical topology --- APs scattered across wings, connected to different spoke switches --- the management plane treats the entire palazzo as a single site with seamless roaming.
+
+% ─── Bill of Materials ───────────────────────────────────────────────────────
+\section{Bill of Materials}
+
+The following assumes a palazzo with eight rooms served by individual fiber spokes, one access point per room, and a capable network technician at \$100/hr.
+
+\begin{metricbox}
+\begin{tabularx}{\textwidth}{@{} X c r r @{}}
+\toprule
+\textbf{Item} & \textbf{Qty} & \textbf{Unit} & \textbf{Total} \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{Core infrastructure}} \\
+\addlinespace[2pt]
+Gateway (UDM-Pro or UDM-SE) & 1 & \$380--500 & \$380--500 \\
+USW-Aggregation (8$\times$ SFP+) & 1 & \$269 & \$269 \\
+USW-Pro-Max-24-PoE (400\,W) & 7 & \$799 & \$5,593 \\
+\addlinespace[4pt]
+\multicolumn{4}{@{}l}{\textbf{Fiber and optics}} \\
+\addlinespace[2pt]
+G.657.A2 fiber spool (3\,km) & 1 & \$100--200 & \$100--200 \\
+SFP+ SM LR transceivers (Ubiquiti) & 16 & \$15--20 & \$240--320 \\
+LC pigtails (SM, 1\,m) & 32 & \$3 & \$96 \\
+Splice sleeves (heat-shrink) & 32 & \$1 & \$32 \\
+\addlinespace[4pt]
+\multicolumn{4}{@{}l}{\textbf{Wireless}} \\
+\addlinespace[2pt]
+UniFi access points (U6 Pro / U7 Pro mix) & 8 & \$150--250 & \$1,200--2,000 \\
+\addlinespace[4pt]
+\multicolumn{4}{@{}l}{\textbf{Fiber workshop --- tools}} \\
+\addlinespace[2pt]
+Fusion splicer (core-alignment) & 1 & \$300--600 & \$300--600 \\
+Precision cleaver (16-position) & 1 & \$50--150 & \$50--150 \\
+Fiber stripping tool (CFS-3) & 1 & \$25--40 & \$25--40 \\
+Visual fault locator (VFL) & 1 & \$15--30 & \$15--30 \\
+Optical power meter (OPM) & 1 & \$30--80 & \$30--80 \\
+\addlinespace[4pt]
+\multicolumn{4}{@{}l}{\textbf{Fiber workshop --- consumables}} \\
+\addlinespace[2pt]
+Splice protection sleeves (pack of 50) & 1 & \$25--40 & \$25--40 \\
+Lint-free wipes (box) & 2 & \$12 & \$24 \\
+Isopropyl alcohol 99\%+ & 1 & \$10 & \$10 \\
+One-click LC connector cleaners & 2 & \$30 & \$60 \\
+\addlinespace[4pt]
+\multicolumn{4}{@{}l}{\textbf{Routing consumables}} \\
+\addlinespace[2pt]
+UV-cured optical adhesive & 1 & \$25 & \$25 \\
+Micro cable clips (pack) & 2 & \$15 & \$30 \\
+\midrule
+\textbf{Materials subtotal} & & & \textbf{\$8,494--10,499} \\
+\bottomrule
+\end{tabularx}
+\end{metricbox}
+
+\subsection{Labor estimate}
+
+All labor at \$100/hr for a network technician proficient with fusion splicing tools.
+
+\begin{metricbox}
+\begin{tabularx}{\textwidth}{@{} X r r @{}}
+\toprule
+\textbf{Task} & \textbf{Hours} & \textbf{Cost} \\
+\midrule
+Site survey, routing plan, and wall-penetration mapping & 4--6 & \$400--600 \\
+Hub installation (gateway, aggregation switch, cabinet, power) & 3--4 & \$300--400 \\
+Fiber routing per room (ceiling adhesion, clips, wall penetrations, service loops) --- 8 rooms $\times$ 2--3\,hrs & 16--24 & \$1,600--2,400 \\
+Fiber termination (strip, cleave, splice, sleeve, test) --- 8 spokes $\times$ 4 splices $\times$ 15--20\,min & 8--11 & \$800--1,100 \\
+Spoke switch installation per room (mount, power, fiber uplink) --- 8 rooms $\times$ 1\,hr & 7--8 & \$700--800 \\
+Access point installation (mount, cable, connect) --- 8 APs $\times$ 30--45\,min & 4--6 & \$400--600 \\
+Network configuration (UniFi setup, VLANs, SSIDs, roaming, firewall rules) & 4--6 & \$400--600 \\
+End-to-end testing and verification (each fiber run, Wi-Fi coverage walk, PoE load test) & 4--6 & \$400--600 \\
+\midrule
+\textbf{Labor subtotal} & \textbf{50--71} & \textbf{\$5,000--7,100} \\
+\bottomrule
+\end{tabularx}
+\end{metricbox}
+
+\subsection{Project total}
+
+\begin{metricbox}
+\begin{tabularx}{\textwidth}{@{} X r @{}}
+\toprule
+Materials & \$8,494--10,499 \\
+Labor (50--71 hours at \$100/hr) & \$5,000--7,100 \\
+\midrule
+\textbf{Total project cost} & \textbf{\$13,494--17,599} \\
+\bottomrule
+\end{tabularx}
+\end{metricbox}
+
+Labor is roughly 40\% of the total project cost. The largest single labor line is fiber routing --- threading bare fiber along palazzo ceilings is careful, slow work, especially around ornate cornices and through century-old walls. The termination work itself is fast once the technician is proficient. The tools and splicer pay for themselves on the first re-termination or repair that would otherwise require a contractor callout.
+
+% ─── Installation Notes ──────────────────────────────────────────────────────
+\section{Installation Notes}
+
+\begin{description}[style=nextline, leftmargin=0.6em, itemsep=0.5em]
+  \item[Start from the hub outward.] Mount the Aggregation switch at the central location. Unspool fiber from the hub toward each wing, routing along the ceiling. Do not cut the fiber from the spool until the full run is laid out and the length is confirmed. Cut, then splice LC pigtails at both ends.
+  \item[Test each run before moving on.] A basic optical power meter (\$30--50) confirms continuity and splice quality. The OTDR spool itself can be used with a handheld OTDR to characterize each run if one is available, but a simple power test is sufficient for these distances.
+  \item[Label everything.] Each fiber run, each splice, each pigtail, each SFP+ port. When a fiber degrades in year eight, the person replacing it should not have to trace it by hand.
+  \item[Hide the switches.] The Pro Max 24 PoE is a 1U rack-mount switch, but in a palazzo it will live in a cabinet, a closet, or behind furniture. Ensure adequate ventilation --- 400\,W of PoE generates heat. A small cabinet with passive ventilation slots or a quiet fan is sufficient.
+  \item[Power considerations.] Each Pro Max 24 PoE draws up to 400\,W under full PoE load. Five switches plus a gateway and Aggregation switch can draw 2--2.5\,kW at peak. Ensure the palazzo's electrical system can support this, and consider a small UPS at the hub location for the gateway and Aggregation switch.
+  \item[UV exposure.] Route fiber away from direct sunlight where possible. Runs that cross window bays should be shielded by the cornice overhang or routed on the shadow side of the beam. If unavoidable, accept the shorter service life and plan for earlier replacement of that segment.
+\end{description}
+
+% ─── Open Decisions ──────────────────────────────────────────────────────────
+\section{Open Decisions}
+
+\begin{enumerate}
+  \item \textbf{Gateway selection.} The UDM-Pro (\$380) and UDM-SE (\$500) both have SFP+ ports for direct 10G fiber connection to the Aggregation switch. The UDM-SE adds a built-in PoE switch and larger storage for Protect recordings. The UCG-Ultra is cheaper but maxes out at 2.5G copper uplink, bottlenecking the 10G backbone.
+  \item \textbf{Number of zones.} How many wings and floors need independent spoke switches? A small palazzo might need three; a large one could use all seven available ports.
+  \item \textbf{Access point density.} The one-AP-per-room rule is conservative. Rooms that open onto each other through wide doorways might share an AP. A site survey with a Wi-Fi scanner will refine the count.
+  \item \textbf{Fiber type.} G.652D is adequate for straight runs. G.657.A2 is recommended if the routing requires tight bends around cornices and moldings. The cost difference is negligible.
+  \item \textbf{Outdoor coverage.} Courtyards, gardens, and terraces may need weatherproof APs (UniFi U6 Mesh or similar), adding to the access point count and potentially requiring an additional spoke switch near an exterior wall.
+\end{enumerate}
+
+\vfill
+{\color{rule}\rule{\textwidth}{1pt}}\\[0.2em]
+{\footnotesize\itshape\color{muted}A quarter-millimeter thread of glass, following lines that Palladio would recognize, carrying everything the modern world demands. The palazzo does not notice.}
+
+\end{document}

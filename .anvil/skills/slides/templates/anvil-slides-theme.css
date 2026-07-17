@@ -1,0 +1,177 @@
+/* @theme anvil-slides-theme */
+/*
+ * anvil-slides-theme — default Marp theme for the anvil:slides skill.
+ *
+ * Design constraints (from rubric.md Dimension 6 — Accessibility at distance):
+ *   - Body font ≥24pt; code font ≥18pt
+ *   - Okabe-Ito color-blind-safe palette
+ *   - No critical info conveyed by color alone (use icons/labels)
+ *   - High contrast (WCAG AA minimum on body text)
+ *
+ * Override path: consumers drop their own theme into
+ *   .anvil/skills/slides/templates/anvil-slides-theme.css
+ * and the drafter references it as `theme: anvil-slides-theme`. Marp resolves
+ * the override at render time when invoked with `--theme-set <path>`.
+ */
+
+@import 'default';
+
+:root {
+  /* Okabe-Ito color-blind-safe palette */
+  --okabe-orange:  #E69F00;
+  --okabe-skyblue: #56B4E9;
+  --okabe-green:   #009E73;
+  --okabe-yellow:  #F0E442;
+  --okabe-blue:    #0072B2;
+  --okabe-vermillion: #D55E00;
+  --okabe-purple:  #CC79A7;
+  --okabe-black:   #000000;
+
+  --bg:    #FDFDFD;
+  --fg:    #1A1A1A;
+  --muted: #555555;
+  --accent: var(--okabe-blue);
+  --code-bg: #F4F4F4;
+}
+
+section {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
+  /* Marp slide-relative font-size = 24pt-equivalent on a 720px-high slide */
+  font-size: 28px;
+  line-height: 1.4;
+  padding: 60px 80px;
+}
+
+section h1 {
+  font-size: 48px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 24px;
+  border-bottom: 3px solid var(--accent);
+  padding-bottom: 8px;
+}
+
+section h2 {
+  font-size: 36px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 18px;
+}
+
+section h3 {
+  font-size: 30px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+section ul, section ol {
+  margin-left: 1.2em;
+  font-size: 28px;
+}
+
+section li {
+  margin: 0.4em 0;
+}
+
+section code {
+  font-family: 'Menlo', 'Consolas', 'Monaco', monospace;
+  /* ≥18pt at 720px slide height */
+  font-size: 22px;
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+section pre {
+  background: var(--code-bg);
+  padding: 16px;
+  border-radius: 6px;
+  font-size: 22px;
+  line-height: 1.4;
+  overflow-x: auto;
+}
+
+section pre code {
+  background: transparent;
+  padding: 0;
+}
+
+section blockquote {
+  border-left: 4px solid var(--accent);
+  padding-left: 16px;
+  color: var(--muted);
+  font-style: italic;
+  font-size: 26px;
+}
+
+section table {
+  border-collapse: collapse;
+  font-size: 24px;
+  margin: 16px 0;
+}
+
+section th, section td {
+  border: 1px solid #CCCCCC;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+section th {
+  background: #F0F0F0;
+  font-weight: 600;
+}
+
+/* Section divider slides — invoke with `<!-- _class: divider -->` */
+section.divider {
+  background: var(--accent);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+section.divider h1 {
+  color: white;
+  border-bottom: none;
+  font-size: 56px;
+}
+
+section.divider h2 {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Title slide — invoke with `<!-- _class: title -->` */
+section.title {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  text-align: left;
+}
+
+section.title h1 {
+  font-size: 56px;
+  border-bottom: none;
+  margin-bottom: 16px;
+}
+
+section.title h2 {
+  font-size: 32px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* Page numbering footer */
+section::after {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* Math (KaTeX) — Marp renders via KaTeX automatically when `math: katex` is set
+   in the deck frontmatter (default in recent Marp versions). No overrides
+   needed here; KaTeX's default sizing inherits from the surrounding font-size. */

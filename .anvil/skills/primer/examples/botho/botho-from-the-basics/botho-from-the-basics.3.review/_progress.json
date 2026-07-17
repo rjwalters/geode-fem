@@ -1,0 +1,47 @@
+{
+  "version": 3,
+  "thread": "botho-from-the-basics",
+  "phases": {
+    "review": {
+      "state": "done",
+      "started": "2026-07-14T13:15:00Z",
+      "completed": "2026-07-14T13:32:00Z"
+    }
+  },
+  "metadata": {
+    "reviewed_version": "botho-from-the-basics.3",
+    "rubric_id": "anvil-primer-v1",
+    "total": 44,
+    "rubric_total": 44,
+    "advance_threshold": 35,
+    "advance": true,
+    "critical_flags": [],
+    "spec_ref_active": true,
+    "spec_ref_duplication_flags": 0,
+    "evidence_check": "pass",
+    "prior_review_consulted": "botho-from-the-basics.2.review",
+    "delta_scope": "seven hunks verified by diff: five figure captions (exhibits/fig1..fig5.png, pandoc implicit-figure form) + ASIC gloss (§8) + TEE gloss (§11); all other material byte-identical to AUDITED v2",
+    "v2_deductions_cured": [
+      "ASIC expansion at point of use (§8)",
+      "TEE gloss in the §11 map table"
+    ],
+    "insertion_integrity": {
+      "captions_match_diagrams": true,
+      "captions_match_prose_and_spec": true,
+      "placements_after_concepts_taught": true,
+      "captions_new_quantitative_material": 0
+    },
+    "v2_working_moves_preserved": [
+      "problems-first spine",
+      "recap-before-use",
+      "§9.6 design graveyard",
+      "honest caveats",
+      "teach-then-point blockquotes",
+      "eleven-step capstone",
+      "hedged demurrage anchor",
+      "611M prose bridge",
+      "complete capstone fee instance",
+      "fee-leakage honesty"
+    ]
+  }
+}

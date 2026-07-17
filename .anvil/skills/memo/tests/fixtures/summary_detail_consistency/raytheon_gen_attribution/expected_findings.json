@@ -1,0 +1,37 @@
+{
+  "summary_detail_consistency": {
+    "ran": true,
+    "summary_blocks_scanned": ["callout (page 1)", "§1 thesis paragraph 1"],
+    "claims_enumerated": 4,
+    "findings_count": 2,
+    "findings_by_severity": {
+      "critical": 1,
+      "important": 1,
+      "suggestion": 0
+    },
+    "findings": [
+      {
+        "claim_id": 1,
+        "claim_excerpt": "Gen 2: those workloads migrate.",
+        "summary_location": "callout bullet 1 (page 1)",
+        "detail_location": "§2.2 (Pericles.2)",
+        "verdict": "CONTRADICTED",
+        "severity": "critical",
+        "message": "Callout assigns Pericles.3's workload-migration behavior to Pericles.2 (Gen 2). §2.2 describes Pericles.2 as the 9HP analog FE respin family with mission-tuned variants — no DSP/workload migration. §2.3 describes the 12LP+ bridge die (Pericles.3) absorbing stable DSP blocks. The migration belongs to Gen 3, not Gen 2.",
+        "suggested_fix": "Either rewrite the callout bullet to say 'Gen 3: workloads migrate into 12LP+' (matching §2.3), or rewrite §2.2/§2.3 to put workload migration in Gen 2 (matching the callout). The detail-side framing is the load-bearing one — recommend correcting the callout.",
+        "load_bearing_justification": "The callout is the page-1 reader-anchor; the Gen-1/Gen-2/Gen-3 generation taxonomy IS the strategic thesis. A reader who stops after the callout has the wrong mental model of the platform. Critical."
+      },
+      {
+        "claim_id": 3,
+        "claim_excerpt": "the FPGA is the measurement instrument",
+        "summary_location": "callout bullet 1 (page 1)",
+        "detail_location": "(absent)",
+        "verdict": "ABSENT",
+        "severity": "important",
+        "message": "Callout asserts the FPGA's role as 'measurement instrument that tells us which compute should move into the 12LP+ chiplet ASIC' — no detailed section elaborates on the measurement methodology or what 'tells us' means operationally. §2.1 mentions the FPGA-as-measurement-instrument framing but does not elaborate the methodology. Reader has no way to evaluate the operational claim.",
+        "suggested_fix": "Either add a §2.x subsection elaborating the FPGA-as-measurement-instrument methodology (what telemetry is captured, what 'tells us' means operationally, how the decision to migrate a compute block is made), or soften the callout to remove the operational claim (e.g., 'Gen 1 platform' without the instrument framing)."
+      }
+    ],
+    "critical_flag_candidate": true
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "render_gate": {
+    "compiled": true,
+    "engine": "xelatex",
+    "pages": 7,
+    "overfull_boxes_over_5pt": 0,
+    "placeholders_found": 0
+  },
+  "pinmap_check": {
+    "found": true,
+    "package": "QFN48",
+    "declared_pins": 48,
+    "assigned_pins": 48,
+    "violations": []
+  },
+  "buswidth_check": {
+    "found": true,
+    "declarations": [
+      { "name": "roi_index", "width": 7, "claimed_max": 99, "capacity": 128, "ok": true }
+    ],
+    "violations": []
+  }
+}

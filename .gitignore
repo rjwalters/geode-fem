@@ -11,42 +11,17 @@ Cargo.lock.bak
 *~
 
 # Loom local config (created if/when Loom is installed)
-.loom/loom-source-path
 
 # Build artifacts
 *.log
 # Committed benchmark evidence log (recovered at-scale run; see issue #556)
 !benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log
-.loom-in-use
-.loom-checkpoint
-.loom/.daemon.pid
-.loom/.daemon.log
-.loom/daemon.sock
 .loom/daemon-state.json
-.loom/daemon-loop.pid
-.loom/daemon-metrics.json
 .loom/[0-9][0-9]-daemon-state.json
 .loom/stuck-history.json
 .loom/alerts.json
-.loom/issue-failures.json
 .loom/health-metrics.json
-.loom/interventions/
-.loom/mcp-command.json
-.loom/activity.db
-.loom/claims/
-.loom/signals/
-.loom/status/
 .loom/progress/
-.loom/retry-state/
-.loom/diagnostics/
-.loom/guide-docs-state.json
-.loom/metrics_state.json
-.loom/manifest.json
-.loom/stuck-config.json
-.loom/metrics/
-.loom/usage-cache.json
-.loom/claude-config/
-.loom/logs/
 
 # Python (reference/ implementations)
 __pycache__/
@@ -73,15 +48,42 @@ artifacts/
 *.egg-info/
 build/
 dist/
-.loom/spawn-loop-state.json
-.loom/worktrees/
 # Claude Code agent-isolation worktrees (local session state, never committed)
 .claude/worktrees/
-.loom/state.json
-.loom/*.log
-.loom/*.sock
 
 # Local credentials / secrets — never commit
 .env
 .env.*
 !.env.example
+.loom-in-use
+.loom-checkpoint
+.loom/.daemon.pid
+.loom/.daemon.log
+.loom/daemon.sock
+.loom/daemon-loop.pid
+.loom/daemon-metrics.json
+.loom/loom-source-path
+.loom/spawn-loop-state.json
+.loom/issue-failures.json
+.loom/interventions/
+.loom/worktrees/
+.loom/state.json
+.loom/mcp-command.json
+.loom/activity.db
+.loom/claims/
+.loom/signals/
+.loom/status/
+.loom/retry-state/
+.loom/diagnostics/
+.loom/guide-docs-state.json
+.loom/metrics_state.json
+.loom/manifest.json
+.loom/stuck-config.json
+.loom/metrics/
+.loom/usage-cache.json
+.loom/claude-config/
+.loom/*.log
+.loom/*.sock
+.loom/logs/
+*.local.md
+/.voice/

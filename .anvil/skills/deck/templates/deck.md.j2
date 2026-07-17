@@ -1,0 +1,201 @@
+{# Marp slide-source template for anvil:deck.
+   Slides are separated by `---` on its own line.
+   Speaker notes can be embedded inline as HTML comments matching `<!-- speaker: ... -->`
+   (Marp's native presenter-notes mechanism). A parallel speaker-notes.md is also produced
+   by deck-draft for ease of human editing.
+
+   Required Marp frontmatter:
+     marp: true             — enables Marp processing
+     theme: anvil-deck      — references the shipped theme in assets/anvil-deck.css
+     paginate: true         — page numbers on every slide except title
+     size: 16:9             — investor-standard aspect ratio
+     math: mathjax          — Marp v3 default math engine; covers more LaTeX than KaTeX
+     html: true             — passes raw HTML/<script> through (does NOT render inline ```mermaid as diagrams in the PDF — issue #65; render diagrams to PNG via mmdc)
+
+   The math + html pins are also set at the CLI level via
+   anvil/lib/marp/config.yml (consumed with `marp --config-file ...`); pinning
+   them here keeps deck.md self-describing so it renders correctly even when
+   that config file is not on the CLI line.
+#}
+---
+marp: true
+theme: anvil-deck
+paginate: true
+size: 16:9
+math: mathjax
+html: true
+---
+
+<!-- _class: title -->
+
+# {{ company_name }}
+## {{ one_line_tagline }}
+
+_{{ stage_label }} · {{ round_target }} · {{ founder_name }}_
+
+<!-- speaker: Open with the one-line description. Pause. The deck answers three questions in order: what we do, why now, and what we're asking for. -->
+
+---
+
+## The problem
+
+{{ problem_one_paragraph }}
+
+- {{ problem_bullet_1 }}
+- {{ problem_bullet_2 }}
+- {{ problem_bullet_3 }}
+
+<!-- speaker: Make the problem concrete and quantified within 30 seconds. -->
+
+---
+
+## Why now
+
+{{ why_now_one_paragraph }}
+
+<!-- speaker: Name the specific recent change — technology unlock, regulatory shift, behavior change — that opened this window. -->
+
+---
+
+## Our solution
+
+{{ solution_one_paragraph }}
+
+![Solution architecture]({{ solution_diagram_path | default("figures/solution.png") }})
+
+<!-- speaker: Plain language. Avoid the buzzwords investors have heard 200 times this month. -->
+
+---
+
+## Competition
+
+| | {{ competitor_1 }} | {{ competitor_2 }} | **{{ company_name }}** |
+|---|---|---|---|
+| {{ axis_1 }} | {{ c1_a1 }} | {{ c2_a1 }} | **{{ us_a1 }}** |
+| {{ axis_2 }} | {{ c1_a2 }} | {{ c2_a2 }} | **{{ us_a2 }}** |
+| {{ axis_3 }} | {{ c1_a3 }} | {{ c2_a3 }} | **{{ us_a3 }}** |
+
+<!-- speaker: Honest framing. No competitor-smearing. -->
+
+---
+
+## Product
+
+![Product screenshot]({{ product_screenshot_path | default("assets/product.png") }})
+
+{{ product_one_paragraph }}
+
+<!-- speaker: One screenshot, one paragraph. Detail belongs in the demo, not on the slide. -->
+
+---
+
+## Market
+
+![TAM / SAM / SOM]({{ market_chart_path | default("figures/market-sizing.png") }})
+
+_{{ market_one_line }}_
+
+{# Figure + one supporting line (the lint-safe idiom — see assets/slide-archetypes.md
+   "Figure layout idioms"). The chart carries TAM/SAM/SOM; this single italic line
+   states the bottom-up takeaway, e.g.
+   "$8.3B TAM → $30B SAM → $5–10M Yr-3 SOM (300 units × $20K) — Mordor 2024"
+   (16 words / 71 chars — safe).
+   Budget: ≤18 words / ≤108 chars (lint rule: figure-italic-supporting-line-too-long;
+   see assets/slide-archetypes.md). TAM/SAM/SOM lines grow in practice — tighten
+   aggressively if your numbers carry longer qualifiers.
+   Do NOT add a bullet list under the chart: figure + 3+ bullets overflows 16:9. -#}
+
+<!-- speaker: Bottom-up logic. Walk the multiplication; cite the input sources from the brief. -->
+
+---
+
+## Traction
+
+![Traction chart]({{ traction_chart_path | default("figures/traction.png") }})
+
+_{{ traction_one_line }}_
+
+{# Figure + one supporting line (lint-safe idiom). The chart carries the trend;
+   this single italic line folds the headline numbers (three would-be bullets) into
+   one terse sentence, e.g.
+   "$340K ARR Q4 (40% QoQ); 12 design partners (3 paying); 92% logo retention"
+   (13 words / 78 chars — safe).
+   Budget: ≤18 words / ≤108 chars (lint rule: figure-italic-supporting-line-too-long;
+   see assets/slide-archetypes.md). Three folded bullets are the HIGHEST-risk pattern
+   for this rule — keep each clause short and drop any qualifier that's already in the
+   speaker notes.
+   Real numbers only — projections labeled as projections in the speaker notes.
+   Do NOT add a bullet list under the chart (figure + 3+ bullets overflows 16:9). -#}
+
+<!-- speaker: Real numbers only. Projections labeled as projections. -->
+
+---
+
+## Business model
+
+{{ business_model_one_paragraph }}
+
+| Metric | Value |
+|---|---|
+| Pricing | {{ pricing }} |
+| ACV | {{ acv }} |
+| CAC | {{ cac }} |
+| Payback period | {{ payback_months }} months |
+
+<!-- speaker: Unit economics. Investor will compute LTV/CAC; show your work. -->
+
+---
+
+## Team
+
+| | | |
+|---|---|---|
+| ![{{ founder_1_name }}]({{ founder_1_photo | default("assets/founder-1.png") }}) | **{{ founder_1_name }}** | {{ founder_1_bio_one_line }} |
+| ![{{ founder_2_name }}]({{ founder_2_photo | default("assets/founder-2.png") }}) | **{{ founder_2_name }}** | {{ founder_2_bio_one_line }} |
+
+<!-- speaker: Founder–market fit explicit. Prior outcomes named. -->
+
+---
+
+## Financials
+
+![Financial projections]({{ financials_chart_path | default("figures/financials.png") }})
+
+_{{ financials_one_line }}_
+
+{# Figure + one supporting line (lint-safe idiom). Fold current ARR, the 12-month
+   plan, and burn/runway into one italic line — they are already terse, e.g.
+   "Current ARR $1.2M (real); 12-mo plan $4M; burn $200K/mo, 18 months runway"
+   (12 words / 73 chars — safe).
+   Budget: ≤18 words / ≤108 chars (lint rule: figure-italic-supporting-line-too-long;
+   see assets/slide-archetypes.md). The "projection" qualifier intentionally lives
+   in the adjacent speaker note rather than inline — that ~5-word parenthetical
+   ate the headroom in earlier drafts of this template.
+   Do NOT add a bullet list under the chart (figure + 3+ bullets overflows 16:9). -#}
+
+<!-- speaker: Hockey-stick projections without intermediate milestones get cut. Show the build. The 12-month ARR number is a projection — name it as such here so the inline italic line can stay terse. -->
+
+---
+
+<!-- _class: ask -->
+
+{# Single H2 heading on the ask slide. Do NOT add a `## The ask` tag or an H1 hero
+   above it: the dark `_class: ask` background + headline already signal the ask, and
+   an H2 tag + H1 hero + bullets overflows the tighter ask-slide capacity (and trips
+   the H1+H2 anti-pattern penalty). Use one H2, then a single inline use-of-funds line. #}
+## Raising **{{ round_size }}** to {{ runway_milestone }}
+
+{{ use_eng_pct }}% engineering · {{ use_gtm_pct }}% GTM · {{ use_hires_pct }}% hires · {{ use_reserve_pct }}% reserve — {{ runway_at_target }} months runway.
+
+_{{ founder_name }} · {{ contact_email }}_
+
+<!-- speaker: Specific ask. Don't end on "thank you" — end on the ask, then take questions. -->
+
+---
+
+{# Optional appendix slides go after the ask. #}
+<!-- _class: appendix -->
+
+## Appendix
+
+{# Drafter populates appendix slides as needed: detailed unit economics, technical architecture, market sizing deep-dive, FAQ slides. #}

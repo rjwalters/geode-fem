@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "thread": "acme-widget-prov",
+  "phases": {
+    "draft": {
+      "state": "done",
+      "started": "2026-06-13T17:00:00Z",
+      "completed": "2026-06-13T17:08:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 1,
+    "max_iterations": 5
+  }
+}

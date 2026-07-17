@@ -1,0 +1,22 @@
+{
+  "artifact_type": "vision-document",
+  "description": "Overlay for long-horizon technical or strategic vision documents. Vision documents argue for a future state and the path to it; they DO NOT name a single capital-allocation recommendation, name a complete risks-mitigations table, or carry unit-economics math. Dims 1, 4, 6 are reduced substantially. Dims 3 (Evidence grounding) and 9 (Rhetorical economy) are EMPHASIZED because the load-bearing failure modes for vision documents are (a) ungrounded speculation untethered from evidence and (b) sprawl that obscures the vision itself. A vision document that fails on evidence-grounding is just speculation; one that fails on rhetorical economy buries its own thesis. Per #283 sub-deliverable 3 seed analysis (originally from closed #278).",
+  "weight_adjustments": {
+    "dim_1": -3,
+    "dim_2": 0,
+    "dim_3": 2,
+    "dim_4": -3,
+    "dim_5": 0,
+    "dim_6": -4,
+    "dim_7": 0,
+    "dim_8": 0,
+    "dim_9": 2
+  },
+  "calibration_prose": {
+    "dim_1": "vision-document — score on whether the vision itself (the future state being argued for) is clearly stated and the path to it is sketched, not on whether the document names a single ranked recommendation with check size. A vision that says 'X will be true in 5 years, and these 3 capabilities are the bridge' scores at full (reduced) weight; vague aspiration scores down.",
+    "dim_3": "vision-document — EMPHASIZED. The dominant failure mode for vision documents is ungrounded speculation that pattern-matches as a vision without doing the evidentiary work. Every load-bearing claim about the trajectory (technology curve, market shift, capability emergence) needs an evidence anchor — primary source, named reference, or explicit hedge. Score harshly when claims are asserted without grounding; score at full weight when the vision is built on a substrate of named evidence the reader can audit.",
+    "dim_4": "vision-document — risk honesty re-scopes to 'risks to the vision' (counter-scenarios, alternative trajectories, conditions under which the vision fails to materialize), not 'risks to the investment.' Score on whether the document acknowledges the load-bearing ways the vision could be wrong, not on whether it enumerates venture-specific risks.",
+    "dim_6": "vision-document — financial reasoning is largely out of scope. A vision document does not need unit economics or scenario math. Score on whether financial framing supports the vision when invoked (e.g. capex curves anchoring a 'why now' argument), not on whether the document does original financial modeling.",
+    "dim_9": "vision-document — EMPHASIZED. Vision documents are particularly vulnerable to sprawl that obscures the vision itself. Every paragraph should either advance the vision or anchor a load-bearing claim about the trajectory. Score harshly on multi-paragraph hedges, restated subsections, and worked-example bloat that buries the vision under elaboration."
+  }
+}

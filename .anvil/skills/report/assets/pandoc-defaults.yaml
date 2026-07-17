@@ -1,0 +1,67 @@
+# pandoc defaults for anvil:report
+# Used by report-figures to render report.md → report.pdf
+# Override per-consumer by dropping a replacement at:
+#   .anvil/skills/report/assets/pandoc-defaults.yaml
+
+# Input format
+from: markdown+yaml_metadata_block+pipe_tables+grid_tables+raw_html
+
+# Output format
+to: pdf
+
+# Engine (pdf-engine: weasyprint is the default for the CSS path;
+# the LaTeX path overrides this when assets/report.tex is present)
+pdf-engine: weasyprint
+#
+# NOTE on schema: inline header content is threaded via `variables:
+# header-includes` (a list of raw strings), NOT a top-level
+# `include-in-header:` block. In a pandoc *defaults* file, `include-in-header`
+# expects a list of *file paths* — the inline-`text` metadata form only
+# parses in document YAML metadata blocks / `--metadata` contexts, not here.
+# `variables.header-includes` is the parse-valid inline path (verified
+# against pandoc 3.x). This applies regardless of engine: report's
+# header-includes content is CSS (weasyprint), primer's is LaTeX (xelatex) —
+# both go through the same variables.header-includes key.
+
+# Layout
+variables:
+  papersize: letter
+  margin-top: 1in
+  margin-bottom: 1in
+  margin-left: 1in
+  margin-right: 1in
+  fontsize: 11pt
+  mainfont: "Source Serif Pro"
+  sansfont: "Source Sans Pro"
+  monofont: "Source Code Pro"
+  # Page numbers
+  header-includes:
+    - |
+      <style>
+        @page {
+          @bottom-right {
+            content: "Page " counter(page) " of " counter(pages);
+            font-size: 9pt;
+            color: #666;
+          }
+        }
+      </style>
+
+# Table of contents (recommended for reports >5 pages)
+toc: true
+toc-depth: 2
+
+# Numbered sections (helps with cross-references to "§3.2")
+number-sections: true
+
+# Citation handling (consumers can extend with their own .csl)
+# citeproc: true
+# csl: assets/chicago-author-date.csl
+
+# Standalone HTML/PDF (don't embed in another doc)
+standalone: true
+
+# Metadata defaults (overridden by report.md frontmatter)
+metadata:
+  lang: en-US
+  documentclass: article

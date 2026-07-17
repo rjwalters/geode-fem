@@ -1,0 +1,118 @@
+% spec body template — the slug-echo body filename (<slug>.tex, per #295)
+% lives at <thread>.{N}/<slug>.tex. This is a normative specification: every
+% claim is true of the implementation (code_ref) or explicitly marked
+% target-state. A spec's body is LaTeX (SKILL.md §Output format) — multi-file
+% friendly via \input{sections/*.tex}. Delete these comments before authoring.
+% Replace bracketed placeholders.
+%
+% ADOPTION NOTE: if you are adopting an existing multi-file LaTeX spec, you do
+% NOT start from this template — place the existing tree per SKILL.md
+% §"Adopting an existing spec". This skeleton is only for the deferred
+% draft-from-scratch / stub-scaffold case (spec-draft step 4 "Scaffold").
+
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\title{[System] Specification}
+\author{[Maintainer / team]}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\section{Scope and conformance}
+% What this spec normatively governs. State the RFC 2119 keyword discipline
+% (MUST / SHALL / SHOULD / MAY) once here and use it consistently. Name the
+% implementation this spec describes (the code_ref companion) so a reader
+% knows the source of truth the normative claims are checked against.
+
+\section{Definitions and notation}
+% Define EVERY term used in a normative predicate below. An undefined term
+% used in a MUST/SHALL is the "Undefined normative term" critical flag.
+
+\section{[Component / message / structure]}
+% The normative content. For each constant, struct/field layout, formula, and
+% validity predicate: state it unambiguously and falsifiably (dim 3), and keep
+% it consistent with every other section that states the same quantity (dim 2).
+% Each claim either matches the implementation (code_ref) or is explicitly
+% marked target-state with the gap tracked.
+
+\subsection{Constants}
+% A grep-able constants table makes internal-consistency and (Phase 3)
+% deterministic constant-extraction checks cheap. State each constant once,
+% authoritatively; reference it elsewhere rather than restating a literal.
+%
+% Annotate the AUTHORITATIVE statement of each normative constant with an
+% "% anvil-const:" marker so spec-review's deterministic gate can catch the
+% same named constant stated with a different value in another section (the
+% block-time-floor 3s-vs-5s / ring-size-byte-count drift the gate exists to
+% prevent). The marker works on its own line OR as a trailing table-row
+% comment (everything before the "%" is ignored):
+%
+%   % anvil-const: name=block_time_floor value=3 unit=s
+%
+% Rules (see SKILL.md "Constant-consistency markers"): name= and value= are
+% required; unit= is optional; comparison is exact after minimal normalization
+% (no numeric tolerance); same name + different unit is a separate lower-
+% severity finding; a \newcommand duplicate/conflicting redefinition is caught
+% too. Prose-level (unmarked) drift is NOT caught by the gate — it is left to
+% review judgment and spec-audit.
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Name & Value & Notes \\
+\midrule
+[CONST\_A] & [value] & [what it governs] \\ % anvil-const: name=[CONST_A] value=[value] unit=[unit]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Validity predicates}
+% The formal block/message/state-validity predicates. Every symbol used here
+% must be defined in §Definitions. A predicate must be satisfiable (dim 5).
+
+\section{Implementation status}
+\label{sec:impl-status}
+% THE IMPLEMENTATION-STATUS REGISTER (SKILL.md §Implementation-status register).
+% Live vs. target per component. Where the implementation (code_ref) and this
+% spec deliberately diverge, record the gap HERE rather than silently rewriting
+% either side. This table is OPERATOR/DRAFTER-authored input, NOT
+% auditor-generated: you declare which components have an intentional live/target
+% gap; spec-audit checks that a target-state claim in the body has a matching row
+% (a code-vs-spec divergence with NO row is the "unregistered gap" critical flag,
+% Disposition intentional-gap). Only components with a REAL live/target
+% divergence need a row — a true-now claim needs none. Every target-state row
+% names the divergence explicitly (concrete Live + concrete Target, no vague
+% "TBD"); the Tracking column links the issue/ADR that owns the gap's resolution.
+% Delete the example row and add your own; delete the whole section only if the
+% spec claims no live/target gaps at all.
+\begin{center}
+\begin{tabular}{@{}p{2.2cm}p{2.8cm}p{2.8cm}ll@{}}
+\toprule
+Component & Live behavior & Target (this spec) & Status & Tracking \\
+\midrule
+[Output signatures] & [Ed25519 (classical)] & [ML-DSA-65 on all outputs] & target-state & [issue link / unscheduled] \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Revision history}
+% Versioning discipline (dim 7): a reader must know which version they hold and
+% what changed between versions.
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Version & Date & Summary of normative changes \\
+\midrule
+1 & \today & Initial draft \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}

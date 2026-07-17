@@ -24,7 +24,7 @@
     },
     "Rubric": {
       "additionalProperties": false,
-      "description": "A weighted-dimension rubric, generic or venue-pinned.\n\nLoaded from a YAML file via ``load_rubric``. The same model serves\nboth the framework-wide convergence-gate rubrics (when shipped as\nYAML \u2014 markdown rubrics like ``anvil/skills/pub/rubric.md`` are\nnot currently loaded by this module) and venue advisory overlays.\nThe ``advisory`` flag distinguishes them. The lib is total-agnostic\n\u2014 gate rubrics declare any positive integer ``total`` (``40`` and\n``44`` are the v0 observed shapes) and the validator enforces\nweight-sum-equals-``total`` only for non-advisory rubrics.",
+      "description": "A weighted-dimension rubric, generic or venue-pinned.\n\nLoaded from a YAML file via ``load_rubric``. The same model serves\nboth the framework-wide convergence-gate rubrics (when shipped as\nYAML \u2014 markdown rubrics like ``anvil/skills/paper/rubric.md`` are\nnot currently loaded by this module) and venue advisory overlays.\nThe ``advisory`` flag distinguishes them. The lib is total-agnostic\n\u2014 gate rubrics declare any positive integer ``total`` (``40`` and\n``44`` are the v0 observed shapes) and the validator enforces\nweight-sum-equals-``total`` only for non-advisory rubrics.",
       "properties": {
         "advisory": {
           "default": false,

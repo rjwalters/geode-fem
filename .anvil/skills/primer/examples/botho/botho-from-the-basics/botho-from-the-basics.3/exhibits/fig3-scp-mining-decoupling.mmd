@@ -1,0 +1,29 @@
+%% Figure 3 — Mining decoupled from consensus (primer §§7–8).
+%% Teaches: RandomX PoW meters out issuance and block proposals; SCP's
+%% operator-curated quorum slices decide finality. Hashpower buys zero
+%% consensus votes — "applying to speak" vs "the room entering it into
+%% the minutes."
+flowchart LR
+  subgraph POW["ISSUANCE and PROPOSAL — RandomX proof-of-work"]
+    direction TB
+    MIN["Miners (commodity CPUs)<br/>race to find a nonce below<br/>the difficulty target"]
+    WIN["Winner holds a lottery ticket<br/>weighted by computation —<br/>no ASIC edge, linear rewards"]
+    PROP["Proposes a candidate block and<br/>claims the block reward<br/>(founding a new cluster)"]
+    MIN --> WIN --> PROP
+  end
+
+  subgraph SCP["FINALITY — Stellar Consensus Protocol"]
+    direction TB
+    OPS["Each operator declares quorum slices:<br/>local, subjective trust choices"]
+    QUO["Overlapping slices form quorums;<br/>any two quorums share an honest node"]
+    VOTE["Nominate → ballot → externalize"]
+    OPS --> QUO --> VOTE
+  end
+
+  PROP -- "candidate block" --> VOTE
+  VOTE --> FINAL["FINAL, seconds after proposal.<br/>No reorgs of externalized blocks, ever"]:::anvil-success
+  VOTE --> HALT["No quorum? Halt, don't fork<br/>(safety over liveness)"]:::anvil-muted
+
+  X["The wall: hashpower buys ZERO consensus votes,<br/>and coin ownership buys zero too (not proof-of-stake).<br/>51% of hashrate cannot rewrite history"]:::anvil-warning
+  POW -.- X
+  X -.- SCP

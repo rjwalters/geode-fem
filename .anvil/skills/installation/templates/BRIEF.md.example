@@ -1,0 +1,75 @@
+---
+# Installation-art concept brief — reference shape.
+# All frontmatter keys are optional; the drafter fills template defaults for
+# any that are absent. Copy this to <thread>/BRIEF.md and fill it in.
+title: "Piece Title"
+subtitle: "A one-line gloss of the piece"
+studio: "Studio Name"
+date: "Month Year"
+stage: "ART INSTALLATION --- CONCEPT STAGE"
+signature_color: "B45309"   # hex, no leading '#'. Default amber if omitted.
+hero: ""                      # path under figures/ for the hero render; omit for none
+participatory: true           # false → Ritual Act / Consent / Safety sections are omitted
+---
+
+# Brief: <Piece Title>
+
+A short statement of what this brief is and what the drafter should produce: a
+concept proposal (`installation.tex`) compiling under XeLaTeX, following the
+11-section template, scoring against the 9-dimension rubric.
+
+## Premise (section 1)
+
+One paragraph: what the piece is, where the visitor stands, and the single
+argument it makes. This becomes the Premise callout — it must be legible
+without a wall text.
+
+## The Frame (section 2)
+
+The conceptual / cultural / legal anchor the piece is built around, and the
+tension it exposes. Name the anchor (a text, a doctrine, a phenomenon, a
+tradition).
+
+## The Visitor's Hour (section 3)
+
+The choreography of the encounter as a timeline: threshold → approach →
+encounter → exit, with rough durations.
+
+## Architecture (section 4)
+
+The principal form, its scale and geometry, where it sits, and the
+architectural lineage. Give dimensions where you can — the reviewer scores
+"described vs. designed" on this section.
+
+## The Light / Sensory Language (section 5)
+
+The sensory medium the piece speaks in (light, sound, material, scent,
+temperature) and the distinct sensory voices within it.
+
+## The Ritual Act / Participation Mechanic (section 6 — participatory only)
+
+The act the piece asks of the visitor: what they do, what they give up or take
+on, and why the act is the point.
+
+## The Consent Structure (section 7 — participatory only)
+
+How participation is chosen and how it is declined without penalty.
+
+## Safety Without Surveillance (section 8 — participatory only)
+
+The safety promise and the constraint the concept places on how safety may be
+achieved. Passive sensing, failsafe behavior, staffing.
+
+## References & Lineage (section 9)
+
+Art-historical / architectural precedents the work is in conversation with.
+
+## Budget & Operations (section 10)
+
+What dominates capital cost, what dominates operating cost, expected
+throughput, and the plausible commissioning paths. Planning ranges, not bids.
+
+## Open Decisions (section 11)
+
+The unresolved choices, tracked honestly — the choices a commissioning
+conversation would need to settle.

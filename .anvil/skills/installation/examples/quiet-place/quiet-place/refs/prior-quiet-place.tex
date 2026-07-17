@@ -1,0 +1,352 @@
+% Art Installation Proposal — Quiet Place
+% Compile with: xelatex quiet-place.tex
+\documentclass[10pt, letterpaper]{article}
+
+% ─── Typography ───────────────────────────────────────────────────────────────
+\usepackage{fontspec}
+\setmainfont{Helvetica Neue}[
+  UprightFont = *,
+  BoldFont = * Bold,
+  ItalicFont = * Italic,
+  BoldItalicFont = * Bold Italic,
+]
+\setmonofont{Menlo}[Scale=0.85]
+
+% ─── Layout ───────────────────────────────────────────────────────────────────
+\usepackage[
+  top=0.7in,
+  bottom=0.8in,
+  left=0.95in,
+  right=0.95in,
+]{geometry}
+\usepackage{parskip}
+\setlength{\parskip}{0.4em}
+\usepackage{enumitem}
+\setlist{nosep, leftmargin=1.5em, itemsep=2pt}
+
+% ─── Colors ───────────────────────────────────────────────────────────────────
+\usepackage{xcolor}
+\definecolor{ink}{HTML}{1A1A1F}        % near-black for body
+\definecolor{accent}{HTML}{B45309}     % warm amber — the piece's signature color
+\definecolor{muted}{HTML}{6B7280}      % gray for secondary text
+\definecolor{bg}{HTML}{F8F6F2}         % warm light fill for callouts
+\definecolor{rule}{HTML}{B45309}
+
+\color{ink}
+
+% ─── Headings ─────────────────────────────────────────────────────────────────
+\usepackage{titlesec}
+\usepackage{needspace}
+
+\titleformat{\section}
+  {\needspace{6\baselineskip}\large\bfseries\color{accent}}
+  {}
+  {0em}
+  {}
+  [\vspace{-0.4em}{\color{rule}\rule{\textwidth}{1.0pt}}\vspace{0.1em}]
+
+\titleformat{\subsection}
+  {\normalsize\bfseries\color{ink}}
+  {}
+  {0em}
+  {}
+
+\titlespacing*{\section}{0pt}{1.0em}{0.3em}
+\titlespacing*{\subsection}{0pt}{0.6em}{0.15em}
+
+% ─── Tables ───────────────────────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\renewcommand{\arraystretch}{1.3}
+
+% ─── Callout Box ──────────────────────────────────────────────────────────────
+\usepackage{tcolorbox}
+\tcbuselibrary{skins, breakable}
+
+\newtcolorbox{callout}[1][]{%
+  enhanced,
+  breakable,
+  colback=bg,
+  colframe=bg,
+  boxrule=0pt,
+  borderline west={3pt}{0pt}{accent},
+  sharp corners,
+  left=12pt, right=12pt, top=8pt, bottom=8pt,
+  fonttitle=\bfseries\color{accent},
+  coltitle=accent,
+  attach boxed title to top left={yshift=-2mm, xshift=4mm},
+  boxed title style={colback=bg, colframe=bg, boxrule=0pt, sharp corners},
+  #1
+}
+
+\newtcolorbox{metricbox}{%
+  enhanced,
+  colback=bg,
+  colframe=bg,
+  boxrule=0pt,
+  sharp corners,
+  left=12pt, right=12pt, top=6pt, bottom=6pt,
+}
+
+% ─── Header / Footer ─────────────────────────────────────────────────────────
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[L]{\footnotesize\color{muted}2AM Logic Studio --- Concept Proposal}
+\fancyfoot[R]{\footnotesize\color{muted}\thepage\ / \pageref{LastPage}}
+
+% ─── Hyperlinks ───────────────────────────────────────────────────────────────
+\usepackage[hidelinks]{hyperref}
+\hypersetup{colorlinks=true, linkcolor=accent, urlcolor=accent}
+
+% ─── Misc ─────────────────────────────────────────────────────────────────────
+\usepackage{graphicx}
+\usepackage{microtype}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{document}
+\thispagestyle{empty}
+
+% ─── Title Block ──────────────────────────────────────────────────────────────
+\begin{flushleft}
+{\color{muted}\footnotesize\textsf{2AM LOGIC STUDIO}}\\[0.8em]
+{\fontsize{26}{30}\selectfont\bfseries\color{ink}Quiet Place}\\[0.3em]
+{\large\color{muted}\itshape A spherical anechoic chamber for two strangers and one minute}\\[0.7em]
+{\color{rule}\rule{\textwidth}{2pt}}\\[0.2em]
+{\footnotesize\color{muted}April 2026 \hfill ART INSTALLATION --- CONCEPT STAGE}
+\end{flushleft}
+
+\vspace{0.4em}
+
+% ─── Hero image ──────────────────────────────────────────────────────────────
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.92\textwidth]{quiet-place-exterior.png}
+\end{figure}
+
+\vspace{-0.6em}
+
+% ─── Premise ──────────────────────────────────────────────────────────────────
+\begin{callout}[title=Premise]
+A walk-in spherical anechoic chamber, sunk into the floor of a museum pavilion, with a small meeting room at its geometric center. Two strangers ascend opposite spiral paths through an interior of inward-radiating foam wedges. They meet in the central chamber for exactly sixty seconds in a room that is acoustically dead and electromagnetically isolated --- a space that cannot be heard, recorded, or transmitted from. They leave by opposite spirals and never see each other again. The piece is a built rebuttal to a world in which the conditions that once made privacy possible no longer exist.
+\end{callout}
+
+% ─── The Frame ────────────────────────────────────────────────────────────────
+\section{The Frame}
+
+The constitutional anchor for the work is \textit{Katz v.\ United States} (1967), in which the Supreme Court ruled that the Fourth Amendment ``protects people, not places,'' and that what a person ``seeks to preserve as private, even in an area accessible to the public, may be constitutionally protected.'' The reasonable expectation of privacy, in the \textit{Katz} formulation, is created by the steps a person actively takes to construct it. Charles Katz closed the door of a public phone booth. The Court treated that act as sufficient.
+
+In 1967 the steps that supported the doctrine were available to anyone: closing a phone booth door, walking out into a field together, lowering a voice. In 2026 those steps are no match for parabolic microphones, laser windows, ambient phones, cell-site tracking, lip-reading from video, license-plate readers, drones, and the ambient instrumentation of public space. The expectation survives in case law; the practical conditions that supported it do not.
+
+\textit{Quiet Place} delivers, as a built object, what walking out into a field used to deliver for free. Inside the central chamber, no microphone reaches, no signal escapes, no record exists. The piece does not argue \textit{for} privacy --- the case law already does. It asks visitors to feel the cost of having to construct, with concrete and foam and a Faraday cage, what was once available for the price of a pair of shoes.
+
+% ─── The Visitor's Hour ───────────────────────────────────────────────────────
+\section{The Visitor's Hour}
+
+The visitor's path through the work takes roughly seven minutes from the threshold of the confirmation room to the moment they walk back out into the gallery. The descent and ascent dominate the clock; the encounter at the center is brief and inviolable.
+
+\begin{metricbox}
+\begin{tabularx}{\textwidth}{@{} >{\bfseries}l X r @{}}
+Shedding & Devices placed into a numbered airport-style bin at the entrance counter. The visitor receives a paper claim chit and walks on empty-handed. The bin is staged at the counter, awaiting consent. & $\sim$30 s \\
+Paired confirmation room & Two strangers seated facing each other across glass. Silent. Each consents or declines. & $\sim$30 s \\
+Spiral approach (in) & A single warm light ticks forward at walking pace; the visitor follows. & $\sim$3 min \\
+The encounter & Two chairs. One soft light. Sixty seconds in a room nothing reaches. & 60 s \\
+Spiral departure (out) & The visitor exits via the \emph{opposite} spiral --- the path their partner used to enter. Same warm tick, guiding them back. & $\sim$3 min \\
+Reclaim & At the matching counter on the opposite side of the pavilion. The bin has traveled by conveyor through the back of house and is waiting. The visitor walks back into signal. & $\sim$15 s \\
+\end{tabularx}
+\end{metricbox}
+
+The center of gravity of the piece is not the encounter --- it is the approach. The work asks visitors to use a contemplative form (a slow walk, a single light, a deliberate ascent) to enter a privacy that the rest of their lives do not contain. The minute at the center is so short that small talk cannot escape into it; visitors have to do something with the time. They will think about it for far longer than they spent in it.
+
+% ─── Architecture ─────────────────────────────────────────────────────────────
+\section{Architecture}
+
+The principal element is a thirty-foot matte black sphere, sunk approximately twenty percent into the floor of a museum pavilion so that roughly eighty percent of the form remains visible above the floor line. The sub-floor portion provides foundation, hidden mechanical plenum, and additional acoustic and electromagnetic volume. The visual lineage is Étienne-Louis Boullée's \textit{Cenotaph for Newton} (1784).
+
+\subsection{The interior}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{quiet-place-interior.png}
+\end{figure}
+
+The full interior of the sphere is lined with foam-molded absorbent ``spears'' --- inward-radiating wedges, all pointing toward the geometric center. The effect is a hedgehog or sea-urchin geometry pointed at the central chamber rather than at the viewer's face, which is the conventional anechoic configuration. Two spiral corridors thread through the spear field; the spears form the corridor walls.
+
+\begin{metricbox}
+\begin{tabularx}{\textwidth}{@{} >{\bfseries}l X @{}}
+Sphere outer diameter & $\sim$30 ft \\
+Sub-floor portion & $\sim$20\% (lower $\sim$6 ft beneath floor line) \\
+Spear field thickness & $\sim$2 ft inward from shell (sufficient for speech-band absorption) \\
+Spiral corridor width & 4 ft \\
+Spiral length per side & $\sim$180 ft, three full turns \\
+Spiral grade & $\sim$5\% (gentle ascent of $\sim$9 ft over the run; ADA-friendly) \\
+Central meeting chamber & $\sim$8 ft interior diameter \\
+Building wrap & $\sim$50 $\times$ 70 ft pavilion, $\sim$35--40 ft interior height \\
+\end{tabularx}
+\end{metricbox}
+
+The spirals enter at floor level on opposite sides of the sphere where it meets the foundation ring, and rise gently inward to the central meeting chamber suspended at the geometric center. The slight ascent --- five percent over a hundred and eighty feet --- is consistent with the contemplative-pilgrimage tradition in which sacred sites are reached by climbing. The spiral length doubles as a waveguide-below-cutoff penetration through the Faraday boundary, preserving electromagnetic isolation without a hard door joint. Each visitor enters via one spiral and exits via the other; the entrance and reclaim counters of the shedding system sit on opposite sides of the building, connected by a hidden conveyor path through the back of house, so the visitor never retraces their steps.
+
+\subsection{The chamber}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.62\textwidth]{quiet-place-chamber.png}
+\end{figure}
+
+A small enclosed meeting room at the geometric center of the sphere, approximately nine feet above the pavilion floor and reached only by the spirals. Eight feet of interior diameter --- enough for two simple chairs facing each other across five feet of dark felt floor, with shoulder room. A single soft warm light overhead. Acoustic and electromagnetic treatment continuous with the surrounding shell. Failsafe-open doors. No furniture beyond the chairs.
+
+% ─── The Light Language ───────────────────────────────────────────────────────
+\section{The Light Language}
+
+Inside a sealed, sound-isolated, signal-isolated structure, light is the entire communication layer the piece has. The work uses one voice for that language: a single quiet point of warm amber light, doing things to time. The visitor recognizes the language from the first moment of the descent and never has to learn a new vocabulary.
+
+\begin{description}[style=nextline, leftmargin=0.6em, itemsep=0.5em]
+  \item[Spiral spot guide.] One bright warm point moves along each spiral, ticking forward roughly every 1.5 seconds at a deliberate walking pace. The visitor follows it. The ticking decouples walking speed from anxiety; by the time the visitor arrives, their nervous system has been re-clocked. Both spirals tick in lockstep, so the two visitors arrive at the central chamber simultaneously --- they have already been moving in time together for three minutes before they meet. The last ten ticks shift slightly --- slower, warmer, brighter --- as a grace note at the threshold.
+  \item[Crossing the boundary.] The visitor surrendered their phone at the shedding counter. Partway down the spiral they cross the Faraday boundary --- the depth at which no signal penetrates the shell. There is no sensory marker. The visitor cannot feel it. But the piece has quietly completed its promise: from this point inward, even if a device had somehow survived the shedding, it could neither transmit nor receive. The visitor is now inside the condition the work was built to deliver, and they still have two minutes of walking left before they arrive. The architecture lets the privacy settle before the encounter begins.
+  \item[The chamber light.] Inside the meeting room, a single warm light source runs a sixty-second arc: soft entry $\rightarrow$ full presence $\rightarrow$ a gentle warning around fifty seconds $\rightarrow$ end. The visitor recognizes the language from the descent. The piece speaks in one voice from the threshold to the chair.
+  \item[Spear-tip pixels.] An addressable LED at the inner end of each foam spear turns the radial geometry into a low-resolution spherical display surrounding the chamber, used sparingly for state.
+  \item[The exterior shell.] A faint ring of warm light along the sphere's widest point broadcasts state to gallery observers: \textit{empty}, \textit{approaching}, \textit{occupied}, \textit{departing}. The piece is opaque about substance and transparent about phase. The shell tells the world \textit{that} something is happening, and never \textit{what}.
+\end{description}
+
+All lighting controllers live inside the Faraday boundary. Only filtered power penetrates the shell. There is no data entering or leaving the chamber.
+
+% ─── The Shedding ────────────────────────────────────────────────────────────
+\section{The Shedding}
+
+The Faraday cage at the core of the work prevents radio transmission in and out of the chamber. It does not prevent local capture. A modern phone with a microphone and a camera records perfectly well to its own storage inside any cage; the recording uploads the moment the visitor returns to signal. An installation that pretends electromagnetic isolation alone is sufficient to deliver the no-record promise is telling a lie about itself. The chamber must therefore be entered without devices.
+
+The shedding is the first act of the work, performed at a counter on the entrance side of the pavilion. The visitor places all recording-capable devices --- phone, smartwatch, smart glasses, body cameras --- into a numbered airport-style bin. They are handed a paper claim chit and walk on empty-handed. The bin is mundane on purpose: gray plastic, stackable, unsentimental. Nothing about it pretends to be artwork. It is a system component, and the visitor is meant to feel exactly the way they feel passing their bag through airport security --- unimportant logistics on the way to something that matters more. The shedding is weighty in effect even though it is light in ceremony: the visitor has just put down everything in their possession that could record what happens next. The empty hand is the gesture.
+
+Once sealed, the bin is staged at the entrance counter and waits. The conveyor does not begin until both visitors have given consent in the paired confirmation room. An opt-out at that stage simply returns the bin to its visitor right where it was sealed, with no detour and no walk around the building --- a graceful exit for anyone who declines. If both consent, the bins begin their journey at the same moment the visitors begin their spiral approach. Bag and human depart together.
+
+The conveyor carries the bin through the back of the pavilion to a matching counter on the \textbf{opposite side} of the building, paced to deliver it at roughly the same moment the visitor will arrive there, so that bag and human meet again on the far side, both having traversed the work. The opposite-side reclaim only ever happens for visitors who actually went through the encounter; bins moving on the conveyor are what consent looks like from the building's perspective.
+
+The visitor enters the sphere via the spiral on the shedding side and exits via the spiral on the opposite side --- the path their partner used to enter. They never retrace their own steps. They enter as one person and emerge as someone who has been somewhere. At the reclaim counter they present their chit, the bin is opened, and they walk back into signal carrying everything they brought in. The chairs in the meeting chamber have no armrests; the visitor's hand was in their lap, holding nothing, which is exactly the point.
+
+Universal compliance is essential: no exceptions for press, staff, or visitors holding any title. Non-recording medical devices (pacemakers, insulin pumps, continuous glucose monitors) are allowed; recording-capable devices are not. Hidden recording devices that the shedding cannot catch are a category the piece does not pretend to defeat --- the work asserts a social norm and trusts visitors to honor it, in the same way Yondr pouches do at comedy shows. The piece is asking about the conditions of possibility of privacy; it is not claiming a national-security perimeter.
+
+% ─── The Consent Structure ────────────────────────────────────────────────────
+\section{The Consent Structure}
+
+The decision to lock two strangers in a sealed room together is non-trivial. The work treats consent not as a regulatory afterthought but as the moral center of the piece.
+
+Pairing is walk-up: visitors are paired in arrival order, with simple anti-matching to avoid pairing groups who arrived together. There is no booking system, no curator-assigned matches, no algorithmic pairing. They are strangers by design --- the piece does not arrange encounters, it provides the conditions in which one can occur.
+
+Before either visitor enters the spiral, the two are summoned together from the queue and seated facing each other across a clear glass panel in a paired confirmation room. They are silent. They are not introduced. They look at each other for fifteen to thirty seconds. A small light at each seat invites them to stand and proceed --- or to remain seated and decline. Either may decline without explanation, for any reason or no reason. The system conveys no information about who declined or why; the other visitor is returned quietly to the queue. Nothing is said.
+
+This is the second of the work's volitional acts in the \textit{Katz} sense. The first was the shedding (\textit{I surrender what could record me}); this is the second (\textit{I choose to enter privacy with this specific person}); the descent is the third (\textit{I commit my body to the place}). Each act steps the visitor deeper into the privacy state. The held look across the glass is the visitor performing the \textit{Katz} consent on the partner in front of them. The interpretive layer for the work (the \textit{Katz} line, the framing on contemporary surveillance reach, the date of the most recent relevant ruling) lives here. There is a quiet additional reassurance built into the room: each visitor can see that the other is also empty-handed --- they passed through the same wall a moment ago --- and the piece's social contract is mutually visible without a word.
+
+A surprise version of this piece --- doors opening on a stranger the visitor has never seen --- would invert the conceptual anchor. Privacy in \textit{Katz} is volitional. An ambush is privacy inflicted, not privacy chosen. The work would shift in tone from meditative to theatrical, and from the contemplative tradition to the immersive-theater tradition. The held look at the glass keeps the work in the right register.
+
+The consent structure also establishes the speech sequence of the encounter: silence (the paired room) $\rightarrow$ silence (the descent) $\rightarrow$ speech (sixty seconds) $\rightarrow$ silence (the ascent) $\rightarrow$ speech (back in the world). The chamber is the only place where words exist between these two people. Everything before and after it is mute.
+
+% ─── Safety Without Surveillance ──────────────────────────────────────────────
+\section{Safety Without Surveillance}
+
+The promise of the piece is that nothing inside the central chamber is heard, recorded, or transmitted. Safety must be designed without violating that promise. The piece uses only signals that reveal trouble without capturing the encounter.
+
+\begin{tabularx}{\textwidth}{@{} >{\bfseries\raggedright\arraybackslash}p{2.4cm} X @{}}
+\toprule
+\textbf{System} & \textbf{Function} \\
+\midrule
+Panic light & Either visitor may trigger an unambiguous abort color on the chamber and shell. Doors release. Staff respond. Nothing about \textit{what happened} leaves the chamber, only that it ended. \\
+Passive sensing & Door state, chair occupancy, interior temperature, CO\textsubscript{2}, ambient light. None of these capture the encounter; all of them reveal trouble. CO\textsubscript{2} is critical: sealed acoustically-isolated rooms build up carbon dioxide fast, and occupants feel it as anxiety before they can identify the cause. \\
+Air & A baffled, acoustically-treated passive air exchange through the shell. No fan inside (must stay quiet). Tuned for breathable conditions over the encounter duration; at sixty seconds the air budget is trivially safe. \\
+Time enforcement & Sessions are exactly sixty seconds, enforced by the chamber's interior light arc. Doors auto-release at end of session. The piece solves \textit{how do they know when to leave} and \textit{what if they never leave} with the same mechanism. \\
+Failsafe doors & Power loss, panic light, end-of-session, smoke, CO\textsubscript{2} spike, or any sensor anomaly releases the doors. They never lock in. \\
+Two-person staffing & Whenever the piece is active, two trained staff are on duty with a clear view of all entrances and the shell-state display. They cannot see or hear inside. \\
+\bottomrule
+\end{tabularx}
+
+The work does not document its encounters. Architecture, exterior states, and the descent corridor may be photographed; the moments inside the chamber are not, even with the visitors' consent. Documenting the inside would turn the piece from \textit{surveillance is impossible here} into \textit{surveillance is suspended here} --- a substantively weaker statement.
+
+% ─── References & Lineage ────────────────────────────────────────────────────
+\section{References \& Lineage}
+
+\begin{tabularx}{\textwidth}{@{} >{\bfseries}l X @{}}
+\textit{Katz v.\ United States} (1967) & Constitutional anchor for the work's frame. Reasonable expectation of privacy as a volitional act. \\
+Étienne-Louis Boullée & \textit{Cenotaph for Newton} (1784) --- the canonical monumental sphere set into a base. \\
+James Turrell & Light as material; the ritual approach to perception. \\
+Doug Wheeler & Anechoic light environments; the felt absence of edge. \\
+Tadao Ando & Concrete monumentality; contemplative architecture. \\
+Peter Zumthor & Material honesty; the small intimate room (Bruder Klaus chapel). \\
+Orfield Laboratories & Engineering precedent for the world's quietest room. \\
+The medieval confessional & Two-person silence as architectural type. \\
+Classical garden labyrinths & Associated reference for the contemplative pace of the descent. \\
+\end{tabularx}
+
+% ─── Budget & Operations ────────────────────────────────────────────────────
+\section{Budget \& Operations}
+
+The work is sized as a major commissioned installation. Capital cost is dominated by the custom sphere fabrication (acoustic and electromagnetic isolation in one structure), the spiral corridors threading through the spear field, and the integrated lighting and control system that must live inside the Faraday boundary. Operating cost is dominated by the staffing requirement: the two-person-on-duty rule, the failsafe-open door system, and the responsibility of overseeing visitors who are sealed in a sound- and signal-isolated room together make this a continuously-staffed exhibit. All figures below are planning ranges, not bid estimates.
+
+\subsection{Capital --- artwork only, exclusive of pavilion shell}
+
+\begin{metricbox}
+\begin{tabularx}{\textwidth}{@{} X r @{}}
+Sphere structure, foundation, Faraday cage integration & \$400--700K \\
+Foam spear field (custom radial acoustic wedges) & \$200--300K \\
+Central meeting chamber (room-within-a-room, full isolation) & \$50--150K \\
+Spiral corridors (structural framework, flooring, ADA grade) & \$100--300K \\
+Lighting and control system (spear-tip LEDs, spiral spot guides, chamber light, exterior shell ring; all controllers inside Faraday boundary) & \$50--150K \\
+Paired confirmation room (glass, seating, interpretive layer) & \$25--75K \\
+Shedding and reclaim system (counters, bins, hidden conveyor) & \$75--200K \\
+Safety systems (failsafe doors, panic, passive sensing, baffled air exchange) & \$30--80K \\
+IT and state-machine control infrastructure (visitor flow, pacing, staff dashboard) & \$50--150K \\
+Architecture, structural, acoustic, RF/EMC, and code engineering & \$200--500K \\
+Project management and contingency (15--25\%) & \$200--400K \\
+\midrule
+\textbf{Subtotal --- artwork only} & \textbf{\$1.4--3.0M} \\
+\end{tabularx}
+\end{metricbox}
+
+If the host institution cannot accommodate the geometry within an existing pavilion (a 30 ft sphere set into a $\sim$3{,}500 sq ft footprint with 35--40 ft interior height is not a typical museum gallery), a custom pavilion shell adds approximately \$1.75--2.8M for museum-grade construction. Total commissioning cost in that case is roughly \$3--5.5M.
+
+\subsection{Annual operating cost}
+
+\begin{metricbox}
+\begin{tabularx}{\textwidth}{@{} X r @{}}
+Front-of-house staffing (two on duty whenever the piece is active; benefits, scheduling overhead) & \$200--280K \\
+Part-time technical specialist (lighting, controls, conveyor, sensors) & \$50--80K \\
+Maintenance and calibration (acoustic foam, LEDs, conveyor, door seals, controllers) & \$30--60K \\
+Cleaning (chamber, corridors, queue, confirmation room; the spear field is labour-intensive) & \$25--50K \\
+Utilities (lighting, climate, conveyor, control systems) & \$15--30K \\
+Insurance (liability for a sealed-room installation) & \$25--75K \\
+Software and firmware maintenance & \$10--30K \\
+Replacement reserve (LEDs, foam, conveyor parts) & \$20--50K \\
+\midrule
+\textbf{Subtotal --- annual operating} & \textbf{\$375--655K / year} \\
+\end{tabularx}
+\end{metricbox}
+
+\subsection{Throughput}
+
+At one pair every $\sim$6--7 minutes (3 min ascent + 1 min encounter + 3 min descent + reset), the piece can serve approximately 16 visitors per hour. Over an eight-hour day, six days a week, fifty weeks a year, the theoretical capacity is roughly 38{,}000 visitors per year. Realistic occupancy --- accounting for wait times, scheduling gaps, opt-outs in the confirmation room, and the impact of the two-person staff rule on continuous operation --- is approximately 20{,}000--30{,}000 visitors per year. The piece is intentionally low-throughput. A single major museum exhibit can move many more visitors than this in a year; the Quiet Place asks something of each visitor that other exhibits do not.
+
+\subsection{Funding model}
+
+Three plausible commissioning paths:
+
+\begin{description}[style=nextline, leftmargin=0.6em, itemsep=0.4em]
+  \item[Permanent museum commission, hosted in existing space.] Capital $\sim$\$1.5--2.5M for the artwork only; annual operating absorbed into the host museum's budget. The most operationally tractable but requires a museum with a 35--40 ft tall, $\sim$3{,}500 sq ft empty bay --- which most do not have.
+  \item[Biennale or international exhibition (6--12 months).] Capital $\sim$\$2.5--4M including a custom pavilion. Ticket revenue and host fees amortize a portion of capital. Demolished or relocated at the end of the run.
+  \item[Standalone institutional commission, permanent.] Capital $\sim$\$3--5.5M including a dedicated pavilion. Operating budget is part of the institution's recurring obligation. The most expensive and the most fully realized; the right path for a contemplation-oriented institution willing to make a long-term commitment.
+\end{description}
+
+% ─── Open Decisions ──────────────────────────────────────────────────────────
+\section{Open Decisions}
+
+\begin{enumerate}
+  \item \textbf{Site and commissioning path.} Which of the three funding models above. The choice determines whether a custom pavilion is in scope, whether the operating budget is institutional or amortized, and whether the work is permanent or finite.
+  \item \textbf{Open or enclosed spirals.} Whether the spiral corridors are open to the spear-field interior (the visitor sees the full hedgehog geometry as they descend, lit only by the spot guide) or enclosed within walls (the visitor senses scale and material but never sees the interior whole). Open spirals make the architectural spectacle part of the descent; enclosed spirals make the descent purely about anticipation and time. Each produces a different register of contemplation.
+\end{enumerate}
+
+\vfill
+{\color{rule}\rule{\textwidth}{1pt}}\\[0.2em]
+{\footnotesize\itshape\color{muted}Two chairs. Two strangers. One minute. The piece is the moment, and the moment cannot be carried out.}
+
+\end{document}

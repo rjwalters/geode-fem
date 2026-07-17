@@ -1,10 +1,10 @@
 r"""Recursive ``\input``/``\include`` resolver for multi-file LaTeX threads.
 
-Issue #643: ``pub`` is the one anvil skill explicitly designed for
+Issue #643: ``paper`` is the one anvil skill explicitly designed for
 genuinely multi-file LaTeX documents — a master ``main.tex`` that
 ``\input{sections/...}``s many section files is a normal, expected
 whitepaper shape. But the review/verify pipeline historically named only
-the master file (``pub-review.md`` step 4 "load ``main.tex``", the
+the master file (``paper-review.md`` step 4 "load ``main.tex``", the
 ``source_paths`` list at step 4b, and ``evidence_check.py``'s single-file
 body detection), so a reviewer that obeyed the literal instruction scored
 a near-empty ~90-line shell against the /44 rubric and silently missed the
@@ -14,7 +14,7 @@ There is (was) **no** ``\input``/``\include`` resolver anywhere in the
 codebase — ``render_gate.py``'s ``source_paths`` is a caller-supplied path
 list, not a walker (verified in the issue #643 curation). This module is
 the missing primitive. It ships lib-scoped (not skill-local) because three
-consumers exist on day one: (1) ``pub-review.md`` step 4's content read,
+consumers exist on day one: (1) ``paper-review.md`` step 4's content read,
 (2) step 4b's render-gate ``source_paths`` construction, and (3)
 ``evidence_check.py``'s quote-verification body (a reviewer that now reads
 the full body but whose quote-verifier only checks ``main.tex`` would

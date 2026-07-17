@@ -81,7 +81,7 @@ Public API
   ranges, percent, and percent ranges (including en-dash ranges; the
   draftwell canary specifically hit ``$25–33M`` with an en-dash).
 - ``DEFAULT_COMPANION_GLOBS`` — file globs the caller typically scans.
-  Includes ``*.tex`` for forward-compat with LaTeX skills (memo / pub /
+  Includes ``*.tex`` for forward-compat with LaTeX skills (memo / paper /
   report / installation / proposal / ip-uspto), which are expected to
   adopt the sweep as their own canaries surface. Deck-revise (the v1
   caller) only invokes against ``*.py``, ``*.csv``, ``*.mmd``, and
@@ -152,7 +152,7 @@ class TokenSet:
 DEFAULT_TOKEN_SET = TokenSet()
 
 # Default companion globs. Includes ``*.tex`` for forward-compat with the
-# 5 LaTeX skills (memo, pub, report, installation, proposal, ip-uspto)
+# 5 LaTeX skills (memo, paper, report, installation, proposal, ip-uspto)
 # that will adopt this sweep as their own canaries surface. The deck-
 # revise v1 caller only invokes against ``*.py``, ``*.csv``, ``*.mmd``,
 # and ``speaker-notes.md``; ``*.tex`` is dormant until a LaTeX skill

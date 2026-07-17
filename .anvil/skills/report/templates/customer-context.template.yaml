@@ -1,0 +1,45 @@
+# Customer context — HUMAN-OWNED. Agents read this file; they never
+# rewrite it. It lives at <customers_dir>/<slug>/context.yaml where
+# <customers_dir> defaults to <repo_root>/customers/ (override via the
+# .anvil/config.json key report.customers_dir). A project opts in by
+# declaring `customer: "<slug>"` in its _project.md frontmatter.
+#
+# The sibling file disclosures.jsonl is MACHINE-OWNED: report-promote
+# appends one delivery record per promoted report version (append-only;
+# idempotent on project/thread/version). Do not edit it by hand.
+#
+# Consulted by: report-draft (advisory — NDA scope and topics-to-avoid
+# inform drafting), report-review and report-audit (enforcing — a draft
+# passage discussing a topics_to_avoid entry is a CRITICAL flag:
+# audit_disclosure_topic_violation), report-promote (ledger writer).
+
+version: 1
+customer: acme            # must match the directory slug
+
+nda:
+  scope: "Mutual NDA covering engagement deliverables and interview content."
+  effective: "2026-01-15"
+
+# none | ear99 | itar | <free text>
+export_control: none
+
+# OPTIONAL — audience-class house-style default for every report to
+# this customer (issue #450). Closed vocabulary:
+#   commercial | defense | internal
+# A project's _project.md frontmatter `audience_class:` key overrides
+# this default. Omit (or leave commented) to keep the audience-class
+# machinery off — behavior is then byte-identical to pre-#450.
+# When set, report-figures passes `-M audience_class=<class>` to
+# pandoc, injects the consumer-supplied assets/audience/<class>.md
+# boilerplate (anvil ships no legal text), and for `defense` adds a
+# DRAFT watermark; report-review treats a defense-class report
+# missing its distribution-statement boilerplate as a CRITICAL flag.
+# Orthogonal to confidentiality_class and export_control above — it
+# is neither derived from nor merged with them.
+# audience_class: commercial
+
+topics_to_avoid:
+  - topic: "acquisition diligence findings"
+    reason: "mid-acquisition; counsel hold"
+  - topic: "unreleased roadmap items"
+    reason: "NDA scope excludes forward-looking product plans"

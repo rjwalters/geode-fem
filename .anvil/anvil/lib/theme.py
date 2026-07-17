@@ -34,7 +34,7 @@ Phase A scope
 
 Phase B (deferred to per-skill follow-up issues) lifts the resolver to
 ``anvil:proposal``, ``anvil:installation``, ``anvil:deck``,
-``anvil:slides``, ``anvil:report``, ``anvil:pub``, ``anvil:ip-uspto``.
+``anvil:slides``, ``anvil:report``, ``anvil:paper``, ``anvil:ip-uspto``.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ class Theme(BaseModel):
     The fields enumerated here are the **framework-level** knobs that
     multiple skills consume (accent color, studio name, fonts, render
     engine). Per-skill nested blocks (``memo:``, ``proposal:``,
-    ``installation:``, ``deck:``, ``slides:``, ``report:``, ``pub:``,
+    ``installation:``, ``deck:``, ``slides:``, ``report:``, ``paper:``,
     ``ip-uspto:``) ride under ``extra="allow"`` — Phase A does not
     enumerate them. Each Phase B follow-up issue will add a typed reader
     for the specific skill's nested block (e.g., adding

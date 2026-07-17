@@ -1,0 +1,121 @@
+{
+  "version": 2,
+  "thread": "botho-bridge-spec",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-07-14T19:30:00Z",
+      "completed": "2026-07-14T19:35:00Z",
+      "consumed_critics": [
+        "botho-bridge-spec.1.review",
+        "botho-bridge-spec.1.audit"
+      ]
+    },
+    "figures": {
+      "state": "done",
+      "started": "2026-07-14T19:45:00Z",
+      "completed": "2026-07-14T19:47:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 2,
+    "max_iterations": 4,
+    "artifact_type": "spec",
+    "rubric_id": "anvil-spec-v1",
+    "rubric_total": 44,
+    "advance_threshold": 39,
+    "revision_mode": "normal",
+    "revise_force_reason": null,
+    "code_wrong_overridden": false,
+    "code_wrong_override_reason": null,
+    "adoption_note": "Revision of the initial-authored normative LaTeX for whitepaper section 11. v2 consumes both critic siblings of v1 (review BLOCK 38/44 zero flags; audit CLEAN). Changes are prose/structure/LaTeX-mechanical (drop-in-input fixes, RFC-2119 discipline, stable register row IDs, base-layer CT rewording) plus one advisory audit finding declined as a tooling limitation; no normative live/target claim was weakened.",
+    "code_ref_resolved": [
+      "../../bridge/**/*.rs (35 files; scalar glob per BRIEF resolves the bridge Rust service)",
+      "bridge/service/src/mint/ethereum.rs",
+      "bridge/service/src/mint/solana.rs",
+      "bridge/service/src/release/bth.rs",
+      "bridge/service/src/bth_scan.rs",
+      "bridge/service/src/reserve.rs",
+      "bridge/core/src/attestation.rs",
+      "bridge/core/src/config.rs",
+      "cluster-tax/src/simulation/bridge_import_sweep.rs (import-factor mechanism lives here, not on the release path)",
+      "contracts/ethereum/contracts/WrappedBTH.sol (auditor consults manually per BRIEF note; M-1 anvil#718/#724)",
+      "contracts/solana/programs/wbth/src/lib.rs",
+      "transaction/clsag/src/lib.rs (DEFAULT_RING_SIZE = 20)"
+    ],
+    "constants_marked": [
+      { "name": "wbth_decimals", "value": "12", "unit": "decimals", "verified_against": "WrappedBTH.sol:90 DECIMALS=12 (1 base unit == 1 picocredit)" },
+      { "name": "bridge_threshold_floor", "value": "t_scp", "unit": "validators", "verified_against": "ADR 0002; release/bth.rs threshold_floor param; symbolic (no numeric t pinned in code)" },
+      { "name": "ring_size", "value": "20", "unit": "members", "verified_against": "transaction/clsag/src/lib.rs:571 DEFAULT_RING_SIZE = 20" },
+      { "name": "import_epoch_blocks", "value": "17280", "unit": "blocks", "verified_against": "ADR 0007 (K = 17,280 = 1 day @ 5s); bridge_import_sweep.rs:627 RECOMMENDED_EPOCH_BLOCKS=17280 (simulation only; target-state)" },
+      { "name": "import_factor_floor", "value": "1.5", "unit": "x", "verified_against": "ADR 0007 (F = 1.5x); bridge_import_sweep.rs:624 RECOMMENDED_FLOOR=1500 FACTOR_SCALE (simulation only; target-state)" }
+    ],
+    "figure_plan": [
+      {
+        "id": "fig1",
+        "caption": "Wrap / lock -> mint flow (BTH -> wBTH): factor-1 deposit locked, SCP-final, t-of-n attested, minted against orderId; non-factor-1 rejected.",
+        "path": "exhibits/fig1-wrap-mint-flow.png",
+        "source": "inline mermaid: sequenceDiagram user -> reserve (lock factor-1 BTH) -> BTH watcher (SCP final) -> federation (t-of-n attest) -> destination contract (bridgeMint orderId); side branch non-factor-1 -> reject"
+      },
+      {
+        "id": "fig2",
+        "caption": "Unwrap -> import-tagging flow (wBTH -> BTH): burn confirmed, attested, reserve BTH released to fresh stealth address tagged 100% to c_import(m) at import_factor(m) >= F. Target-state; live releases factor-1 (register row IMP-2).",
+        "path": "exhibits/fig2-unwrap-import-flow.png",
+        "source": "inline mermaid: sequenceDiagram user (burn wBTH) -> ETH/SOL watcher (confirm) -> federation (t-of-n release attest) -> reserve (release to fresh stealth, tag c_import(m) at import_factor>=F); annotate target-state vs live factor-1"
+      },
+      {
+        "id": "fig3",
+        "caption": "Federation custody / attestation topology: each validator holds Ed25519 (BTH release + Solana mint) + secp256k1 (Ethereum); threshold envelopes aggregated t-of-n; Ethereum three-Safe split (minter/admin/pauser).",
+        "path": "exhibits/fig3-federation-custody.png",
+        "source": "inline mermaid: flowchart validators (Ed25519 + secp256k1) -> attestation set (t-of-n) -> {BTH reserve release, Solana SPL/Squads mint, Ethereum minterSafe MINTER_ROLE}; show adminSafe + pauserSafe as separate role holders"
+      }
+    ],
+    "figures": {
+      "rendered": [
+        {
+          "id": "fig1",
+          "path": "exhibits/fig1-wrap-mint-flow.png",
+          "source": "refs/fig1-wrap-mint-flow.mmd",
+          "renderer": "mmdc (system-Chrome executablePath workaround, anvil#724)",
+          "shows": "wrap/lock -> mint sequence: factor-1 BTH locked in reserve, SCP finality, t-of-n federation attestation, bridgeMint(to,amount,orderId) on Ethereum/Solana; alt-branch non-factor-1 deposit rejected before any mint"
+        },
+        {
+          "id": "fig2",
+          "path": "exhibits/fig2-unwrap-import-flow.png",
+          "source": "refs/fig2-unwrap-import-flow.mmd",
+          "renderer": "mmdc (system-Chrome executablePath workaround, anvil#724)",
+          "shows": "unwrap -> import-tagging sequence: burn wBTH, confirm (depth window / Finalized), t-of-n release attestation, reserve release to fresh stealth address; target-state note tags 100% to c_import(m) at import_factor(m) >= F, live note cites register row IMP-2 (releases factor-1 output)"
+        },
+        {
+          "id": "fig3",
+          "path": "exhibits/fig3-federation-custody.png",
+          "source": "refs/fig3-federation-custody.mmd",
+          "renderer": "mmdc (system-Chrome executablePath workaround, anvil#724)",
+          "shows": "federation custody/attestation topology: SCP validators (Ed25519 + secp256k1) -> aggregated t-of-n attestation set -> BTH reserve release (Ed25519), Solana SPL/Squads mint (Ed25519), Ethereum minterSafe MINTER_ROLE (secp256k1); Ethereum three-Safe split (minterSafe/adminSafe/pauserSafe)"
+        }
+      ],
+      "pdf": null,
+      "pdf_note": "Body is a whitepaper section (\\input into botho-whitepaper.tex); no standalone section PDF is the deliverable. Section-level compile check PASSED: wrapped with whitepaper/preamble.tex + \\graphicspath at version dir, xelatex two-pass exit 0, 9pp, all three exhibits/figN PNGs resolved (no missing-image warnings); only expected cross-section \\ref warnings (sec:transactions/consensus/monetary/economics live in sibling sections).",
+      "skipped": [],
+      "unresolved": [],
+      "mmdc_status": "degraded-then-recovered: default mmdc launch failed (pinned puppeteer Chromium absent); system-Chrome executablePath workaround via puppeteer-config.json succeeded for all 3 renders (--scale 3, anvil mermaid-theme.json)"
+    },
+    "score_history": [
+      { "iteration": 1, "total": 38, "threshold": 39, "rubric_id": "anvil-spec-v1" }
+    ],
+    "revise_note": {
+      "consumed": {
+        "review": { "decision": "BLOCK", "total": 38, "threshold": 39, "critical_flags": 0 },
+        "audit": { "audit_clean": true, "critical_flags": 0, "code_wrong": 0, "unregistered_gaps": 0, "major_advisory": ["M-1 scalar code_ref glob (anvil#718/#724) — declined, tooling limitation"] }
+      },
+      "changes": [
+        "Removed 5x undefined \\addlinespace from register table (whitepaper preamble has no booktabs); verified drop-in \\input against real preamble (clean compile, 0 undefined control sequences).",
+        "Added stable register row IDs IMP-1..IMP-6; corrected fig2 caption IMP-1 -> IMP-2; wired demurrage-settlement -> IMP-3, mainnet-gate -> IMP-6, divergence note -> IMP-2.",
+        "Added RFC-2119 conformance-keywords clause + uppercased MUST/SHALL/SHOULD/MAY at normative points throughout.",
+        "Reworded base-layer confidential-amounts claim to cross-reference base-layer CT target (ADR 0006 / sections / botho#902) as target-state, explicitly out of register scope; live = public amounts.",
+        "Declined M-1 (tooling limitation, not a spec defect; auditor manually verified all counterparty-contract + simulation claims matched).",
+        "Preserved all six register rows and the import-tagging target-state framing verbatim; deferred figure rendering to spec-figures (figure_plan carried forward)."
+      ]
+    }
+  }
+}

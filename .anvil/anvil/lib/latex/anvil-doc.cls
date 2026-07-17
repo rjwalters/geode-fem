@@ -9,7 +9,7 @@
 %% ── Engine ──────────────────────────────────────────────────────────────────
 %% Compile with XeLaTeX (NOT pdflatex): the class uses fontspec for system fonts.
 %%   xelatex doc.tex
-%% This differs from anvil:pub (pdflatex). The render primitive in
+%% This differs from anvil:paper (pdflatex). The render primitive in
 %% anvil/lib/latex_render.py drives the two-pass xelatex invocation.
 %%
 %% ── Fonts ───────────────────────────────────────────────────────────────────

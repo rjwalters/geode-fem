@@ -29,7 +29,7 @@ directory kinds:
    `preflight`, `litsearch`, `outline`, `rehearse`, `handout`, `promote`.
 3. **Pre-draft phase tag**: special case — a sibling at `<thread>.0.<tag>/`
    may exist before any `<thread>.1/`. Reserved for outputs that feed
-   the first drafter (outline for slides, litsearch for pub, brief intake
+   the first drafter (outline for slides, litsearch for paper, brief intake
    for deck).
 4. **Final-package suffix**: `<thread>.final/` is reserved for skills
    that produce a separate assembled submission package (e.g.,
@@ -86,7 +86,7 @@ portfolio dir lives in the consumer repo. Two common organizations:
   output/
     <thread>/                     Project root (doubles as portfolio for every skill)
       <thread>/                   Anvil thread root (BRIEF.md, refs/, assets/)
-      <thread>.0/, <thread>.1/, <thread>.1.review/, …     Anvil deck/slides/pub
+      <thread>.0/, <thread>.1/, <thread>.1.review/, …     Anvil deck/slides/paper
       memo.1/, memo.1.review/, …                          Other skill (e.g., studio memo)
       research/                                            Non-anvil artifacts
   ```
@@ -129,7 +129,7 @@ preserving the "glob `<thread>.*` and parse" discovery pattern. Three
 skills currently use this:
 
 - `slides.0.outline/` — narrative outline before draft.
-- `pub.0.litsearch/` — pre-draft literature search.
+- `paper.0.litsearch/` — pre-draft literature search.
 - `deck.0/` (no tag) — brief-intake output (special case: bare `.0/`
   carries `BRIEF.md` itself).
 

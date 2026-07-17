@@ -1,0 +1,532 @@
+% ============================================================================
+% Section 11: The BTH <-> wBTH Bridge (normative)
+% Source of truth: bridge ADRs 0002-0005, 0007 (whitepaper/bridge-spec/refs/)
+% code_ref: bridge/**/*.rs (+ contracts/ethereum/*.sol, contracts/solana/*)
+% ============================================================================
+
+\section{The BTH \texorpdfstring{$\leftrightarrow$}{<->} wBTH Bridge}
+\label{sec:bridge}
+
+This section is the normative specification of the \Botho\ cross-chain bridge:
+the protocol by which native \BTH\ is locked and a wrapped representation,
+\textbf{wBTH}, is minted on Ethereum and Solana, and by which wBTH is burned to
+release the locked \BTH. It is authored against the ratified bridge
+decision records (ADR~0002--0005, 0007) and is maintained truthfully against the
+bridge implementation (\texttt{bridge/**/*.rs} and the two token contracts);
+every normative claim below either holds of that implementation today or is
+marked target-state in the implementation-status register
+(\S\ref{sec:bridge:status}). It builds on the transaction model
+(\S\ref{sec:transactions}), the hybrid PoW+SCP consensus
+(\S\ref{sec:consensus}), the monetary rules (\S\ref{sec:monetary}), and the
+cluster-factor anti-hoarding economics (\S\ref{sec:economics}).
+
+\paragraph{Conformance keywords.} The key words \textbf{MUST}, \textbf{MUST
+NOT}, \textbf{SHALL}, \textbf{SHALL NOT}, \textbf{SHOULD}, and \textbf{MAY} in
+this section are to be interpreted as described in RFC~2119: they denote
+absolute requirements, prohibitions, recommendations, and optional behavior
+respectively. A conformant bridge implementation MUST satisfy every \textbf{MUST}
+/ \textbf{SHALL} obligation stated below, except where a requirement is
+explicitly scoped \emph{target-state} in the implementation-status register
+(\S\ref{sec:bridge:status}), in which case the register's \emph{Live} column
+states the obligation the current implementation MUST meet and the \emph{Target}
+column states the obligation a future implementation MUST meet.
+
+\subsection{Motivation and Scope}
+\label{sec:bridge:motivation}
+
+\Botho\ is a privacy-preserving, anti-hoarding monetary network. Its native
+asset does not natively reach the deep liquidity of the Ethereum and Solana
+DeFi ecosystems. The bridge exists to give holders access to that liquidity: a
+holder locks native \BTH\ into a reserve and receives \textbf{wBTH}, a
+fully-transparent ERC-20 (Ethereum) or SPL (Solana) token redeemable
+one-for-one for the locked \BTH.
+
+\paragraph{v1 chain scope (ADR~0005).} Bridge v1 ships \emph{both} Ethereum and
+Solana. Every privileged operation---mint, release, watching, reserve
+accounting---is defined for both chains. The peg invariant is stated once and
+generalizes across chains:
+\begin{equation}
+\label{eq:bridge:peg}
+\underbrace{\sum \text{wBTH on Ethereum} + \sum \text{wBTH on Solana}}_{\text{outstanding wrapped supply}}
+\;=\; \underbrace{\text{locked \BTH\ reserve}}_{\text{custodied on \Botho}}.
+\end{equation}
+Solana is comparatively cheap on the custody axis because it uses Ed25519---the
+same key type as \Botho\ node keys---so the validator federation
+(\S\ref{sec:bridge:custody}) signs Solana authorizations natively; only the
+Ethereum side requires a secondary key type.
+
+\paragraph{What wBTH is.} wBTH is denominated in \textbf{picocredits} (12
+decimals): one wBTH base unit equals one picocredit equals one unit of native
+\BTH, so the peg carries no scaling factor.
+% anvil-const: name=wbth_decimals value=12 unit=decimals
+The token is transparent on its host chain; moving it is publicly linkable
+there. This is a deliberate privacy boundary, treated normatively in
+\S\ref{sec:bridge:privacy}.
+
+\paragraph{Why a bridge is the highest-value target.} Whoever controls the
+mint authority on a destination chain or the reserve-release authority on
+\Botho\ can print or drain funds. The bridge's entire security posture
+(\S\ref{sec:bridge:custody}, \S\ref{sec:bridge:security}) is organized around
+denying any single party that control. The custody, peg, privacy, and
+import-tagging designs in this section are the four load-bearing decisions that
+make a bridge safe to operate against a privacy-preserving, anti-hoarding base
+layer.
+
+\subsection{Custody and Trust Model}
+\label{sec:bridge:custody}
+
+\Botho\ has no EVM or SVM light client, so neither host chain can natively
+verify \Botho's state, and \Botho\ cannot natively verify a host chain's
+state. Every privileged cross-chain action MUST therefore be authorized by
+\emph{signatures from a trusted signer set}, and MUST NOT rely on on-chain proof
+of the counterparty chain (ADR~0002). The normative decision is:
+
+\begin{quote}
+\textbf{The bridge federation is the SCP validator set, operating as a
+$t$-of-$n$ threshold signer group.} The mechanism is threshold signing on both
+sides; the signer identity is the existing consensus validators.
+\end{quote}
+
+\subsubsection{Threshold authorization}
+
+No privileged action fires without a valid set of at least $t$ distinct
+federation signatures, domain-separated and bound to the exact order: a mint or
+release MUST NOT be authorized by fewer than $t$ distinct signatures. The
+threshold floor is normatively constrained:
+\begin{equation}
+\label{eq:bridge:threshold}
+t \;\geq\; t_{\mathrm{SCP}},
+\end{equation}
+where $t_{\mathrm{SCP}}$ is the SCP safety threshold: \emph{it MUST never be
+easier to move the reserve than to move consensus}.
+% anvil-const: name=bridge_threshold_floor value=t_scp unit=validators
+The distinct-signer requirement is exact---a repeated or equivocating signer
+MUST count once toward $t$
+(verified in \texttt{release/bth.rs::validate\_release\_attestation}).
+
+\subsubsection{Per-chain signature schemes}
+
+\begin{itemize}
+  \item \textbf{\BTH\ reserve release} MUST be authorized by a $t$-of-$n$
+    threshold of the validators' \textbf{Ed25519} node keys, reusing the
+    operator-signed action envelope machinery (domain-separated payloads,
+    reserve-then-apply nonce replay protection, audit log).
+  \item \textbf{Solana wBTH mint} MUST be authorized by the same validators'
+    \textbf{Ed25519} keys---Solana is Ed25519-native, so no new key type is
+    required.
+  \item \textbf{Ethereum wBTH mint} requires \textbf{secp256k1}, which SCP node
+    keys are not. Each validator therefore also operates a secp256k1 signer,
+    and the Ethereum mint authority MUST be a \textbf{Gnosis Safe} whose owners
+    are those secp256k1 keys and which holds \texttt{MINTER\_ROLE} on the wBTH
+    contract.
+\end{itemize}
+
+\subsubsection{Attestation envelopes and exactly-once semantics}
+
+Every authorization MUST be carried in a \emph{domain-separated, order-bound,
+single-use signed envelope}. The domain tags are pairwise-distinct and are
+proven distinct from the node's operator-action domain, so no signature made
+for one purpose can authorize another
+(\texttt{bridge/core/src/attestation.rs}):
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Purpose} & \textbf{Domain tag} \\
+\midrule
+Envelope (Ethereum / Solana / \BTH) & \texttt{botho-bridge-attest-\{eth,sol,bth\}-v1} \\
+Release payload & \texttt{botho-bridge-release-v1} \\
+Mint payload (Ethereum / Solana) & \texttt{botho-bridge-mint-\{eth,sol\}-v1} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The bridge holds two exactly-once invariants:
+\begin{enumerate}
+  \item \textbf{Exactly-once mint} --- one confirmed \BTH\ deposit MUST mint wBTH
+    at most once. Each order carries a deterministic 32-byte on-chain
+    \texttt{orderId}; the destination contract records it and MUST revert on a
+    duplicate.
+  \item \textbf{Exactly-once release} --- one confirmed wBTH burn MUST release
+    reserve \BTH\ at most once. The engine records the release claim and the
+    signed transaction before broadcast, so a crash or re-broadcast reuses the
+    recorded transaction rather than signing a second one.
+\end{enumerate}
+
+\subsubsection{The three-Safe structure on Ethereum}
+
+On Ethereum the contract's privileged roles MUST be split across \emph{three
+distinct Gnosis Safes}, so no single Safe both mints and configures the
+breaker:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Role} & \textbf{Held by} & \textbf{Capability} \\
+\midrule
+\texttt{MINTER\_ROLE} & Validator Safe ($t$-of-$n$ secp256k1) & the only mint authority \\
+\texttt{DEFAULT\_ADMIN\_ROLE} & Governance Safe & limits / breaker config, role admin \\
+\texttt{PAUSER\_ROLE} & Guardian Safe (may be lower-$t$) & pause / unpause \\
+\bottomrule
+\end{tabular}
+\end{center}
+The deployer MUST receive no roles. The $t$-of-$n$ enforcement lives \emph{in
+the validator Safe}, not in the token contract: the contract only checks that
+the caller holds \texttt{MINTER\_ROLE}. A single relayer EOA submits
+\texttt{Safe.execTransaction} carrying the collected threshold owner
+signatures over the EIP-712 \texttt{SafeTx} digest wrapping
+\texttt{bridgeMint(to, amount, orderId)}. On Solana the analogous authority is
+an SPL/Squads multisig of the validators' keys, and a startup custody guard
+MUST refuse to operate if the on-chain mint authority equals the local relayer
+key (a lone-hot-key configuration).
+
+Figure~\ref{fig:bridge:custody} depicts the federation custody and attestation
+topology across both chains.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.9\textwidth]{exhibits/fig3-federation-custody.png}
+\caption{Federation custody and attestation topology. Each SCP validator
+operates an Ed25519 node key (\BTH\ release + Solana mint) and a secp256k1
+signer (Ethereum). Threshold envelopes are aggregated to $t$-of-$n$ and consumed
+by the mint / release paths; the Ethereum authority is a three-Safe split.}
+\label{fig:bridge:custody}
+\end{figure}
+
+\subsection{The Peg}
+\label{sec:bridge:peg}
+
+The peg MUST hold \emph{over time}, not merely at the instant of locking. The
+complication is demurrage. \Botho\ charges a holding cost on wealthy-cluster
+coins at spend time (\S\ref{sec:economics}):
+\begin{equation}
+\label{eq:bridge:demurrage}
+\mathrm{charge} \;=\; \mathrm{value} \times \mathrm{rate}
+  \times \frac{\mathrm{factor} - 1}{\mathrm{max\_factor} - 1}
+  \times \frac{\mathrm{elapsed}}{\mathrm{blocks\_per\_year}},
+\end{equation}
+where $\mathrm{factor} \in [1\times, 6\times]$ is derived from the coin's
+cluster wealth. Reserve \BTH\ that demurred while wrapped would shrink the
+reserve below the outstanding supply and silently make the bridge fractionally
+reserved.
+
+\subsubsection{Factor-1-only wrapping (ADR~0003)}
+
+Because of the $(\mathrm{factor} - 1)$ term, a \textbf{factor-1}
+(background / commerce) coin pays exactly \emph{zero} demurrage, permanently and
+independently of $\mathrm{elapsed}$. The normative rule is therefore:
+
+\begin{quote}
+\textbf{Only factor-1 coins are wrappable.} The reserve holds only
+zero-demurrage coins, so \eqref{eq:bridge:peg} holds over time by construction,
+with no ``reserve class'' exemption and no rebasing.
+\end{quote}
+
+Wrap eligibility is checkable at deposit: an output carries its cluster-tag
+vector, so the bridge reads its factor directly and MUST mint only for factor-1
+deposits (a non-factor-1 deposit MUST be rejected with an audit event and MUST
+never mint). Reciprocally, releases MUST spend \emph{only} factor-1 / background
+reserve outputs, so a release can never launder cluster provenance and the
+reserve change stays zero-demurrage. Figure~\ref{fig:bridge:mint} shows the wrap
+flow.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.92\textwidth]{exhibits/fig1-wrap-mint-flow.png}
+\caption{Wrap / lock $\to$ mint flow (\BTH\ $\to$ wBTH). A factor-1 deposit is
+locked in the reserve, confirmed under SCP finality, attested by the federation
+to $t$-of-$n$, and minted on the destination chain against the deterministic
+\texttt{orderId}. A non-factor-1 deposit is rejected before any mint.}
+\label{fig:bridge:mint}
+\end{figure}
+
+\subsubsection{The demurrage-settlement on-ramp (target-state)}
+
+A holder of a wealthy-cluster coin cannot wrap it directly. A
+\textbf{demurrage-settlement operation} lets them pay a charge to reclassify the
+coin down to factor-1 / background, after which it is wrappable; the settlement
+fee is routed to the redistribution lottery pool---the same sink demurrage
+charges already feed. The sanctioned way to shed cluster provenance is thus to
+\emph{pay} for it, and that payment funds redistribution rather than escaping
+it. This is the one consensus-level piece of the bridge (new transaction
+semantics plus a validation carve-out in the cluster-tag inheritance bound). It
+is \textbf{target-state}, tracked in the register (\S\ref{sec:bridge:status},
+row \textbf{IMP-3});
+its charge formula and the shared lineage-reset horizon are pending
+ratification (\S\ref{sec:bridge:import}).
+
+\subsubsection{Post-wrap demurrage escape (accepted)}
+
+Once wrapped, coins sit in transparent wBTH and pay no further demurrage. This
+is treated as ``settled on the way in'': a holder MAY settle once, wrap, and
+remain in wBTH demurrage-free. This is a deliberate economic stance, accepted so
+that wBTH is a clean 1:1 DeFi asset.
+
+\subsection{Privacy at the Boundary}
+\label{sec:bridge:privacy}
+
+\Botho\ is privacy-by-default: senders are hidden in CLSAG rings of size
+$20$,
+% anvil-const: name=ring_size value=20 unit=members
+and recipients receive to one-time stealth addresses. Confidential amounts
+(amounts hidden in Pedersen commitments) are a \emph{base-layer} target, not a
+bridge component: the live chain records \emph{public} amounts, and the
+confidential-amounts transition is specified and tracked at the base layer
+(ADR~0006 / \S\ref{sec:transactions}, \S\ref{sec:economics}; botho\#902), out of
+scope for this section's register. wBTH is fully transparent regardless. The
+bridge is therefore a designed privacy boundary with explicit leakage semantics
+(ADR~0004).
+
+\begin{enumerate}
+  \item \textbf{Lock reveals the amount.} To mint the correct wBTH, the bridge
+    MUST learn the deposited amount. This is an unavoidable, deliberate privacy
+    exit; it leaks only the amount, not the source ring.
+  \item \textbf{The wrapped side is public.} Anyone holding or moving wBTH is
+    linkable on the host chain. Wallet UX SHOULD warn that \emph{wrapping exits
+    the anonymity set}.
+  \item \textbf{Unwrap re-shields the recipient.} A burn $\to$ release MUST pay
+    out to a \emph{fresh one-time stealth address}, never a reused address,
+    breaking the on-\Botho\ link to the destination-chain burn.
+  \item \textbf{Residual leakage is documented and accepted for v1.} Amount and
+    timing correlation across the bridge remain; an observer correlating a
+    distinctive wrap amount with a same-size unwrap shortly after can link the
+    two ends. Denomination-bucketing and randomized-delay unlinkability is a
+    later enhancement, not a v1 requirement.
+\end{enumerate}
+
+Because only factor-1 / background coins are wrappable
+(\S\ref{sec:bridge:peg}), the amount revealed at lock is already of the least
+sensitive wealth class. This public-at-the-boundary property is exactly what
+makes the import-tagging factor (\S\ref{sec:bridge:import}) computable with no
+zero-knowledge machinery.
+
+\subsection{Import Cluster Tagging}
+\label{sec:bridge:import}
+
+\Botho's anti-hoarding mechanism prices \emph{coin lineage}: the cluster-factor
+curve maps the wealth traceable to a coin's cluster origin(s) onto a
+demurrage / progressive-fee / lottery-tilt multiplier ($1\times$--$6\times$),
+and it is Sybil-resistant domestically because splitting a coin does not change
+the wealth traceable to its origin. The bridge introduces a vector the lineage
+mechanism cannot see (ADR~0007). If unwrapped \BTH\ returned at factor-1, two
+leaks would follow:
+
+\begin{enumerate}
+  \item \textbf{The entry leak.} External wealth of arbitrary size could buy
+    wBTH on a DEX and unwrap into \Botho\ at factor-1, having paid no lineage
+    premium. This is unavoidable in the general case---you cannot tax external
+    wealth entry without breaking the liquidity the bridge exists to provide.
+  \item \textbf{The round-trip laundromat.} A domestic holder who accumulated a
+    high-factor lineage could round-trip
+    ($\BTH \to \text{wBTH} \to \text{unwrap} \to$ factor-1 \BTH) and reset to
+    background for the price of a wrap. This is a real defect: if any lineage
+    reset door is cheap, the cluster-factor mechanism is trivially bypassable.
+\end{enumerate}
+
+\subsubsection{Epoch-keyed import cluster (target-state)}
+
+The normative rule (ADR~0007), which \emph{narrows} the entry leak and
+\emph{closes} the round-trip laundromat, is:
+
+\begin{quote}
+\textbf{Unwrapping MUST mint \BTH\ into a bridge-import cluster keyed to the
+block-height epoch of the unwrap, at an elevated factor derived from that epoch
+cluster's aggregate unwrap wealth, subject to a floor. Imported wealth
+normalizes toward background only by circulating.}
+\end{quote}
+
+Concretely, for an unwrap at block height $h$:
+\begin{align}
+m &= \left\lfloor h / K \right\rfloor, \label{eq:bridge:epoch}\\
+c_{\mathrm{import}}(m) &= \Hash\!\left(\text{``bridge-import''} \,\|\, m\right), \label{eq:bridge:cluster}\\
+\mathrm{import\_factor}(m) &= \max\!\Big(F,\; \mathrm{ClusterFactorCurve}\big(\textstyle\sum_{\text{unwraps in }m} \mathrm{amount}\big)\Big), \label{eq:bridge:importfactor}
+\end{align}
+where the epoch length and floor are:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Constant} & \textbf{Value} & \textbf{Meaning} \\
+\midrule
+$K$ & $17{,}280$ blocks ($1$ day) & epoch length \\ % anvil-const: name=import_epoch_blocks value=17280 unit=blocks
+$F$ & $1.5\times$ & import-factor floor \\ % anvil-const: name=import_factor_floor value=1.5 unit=x
+\bottomrule
+\end{tabular}
+\end{center}
+% anvil-const: name=import_epoch_blocks value=17280 unit=blocks
+% anvil-const: name=import_factor_floor value=1.5 unit=x
+
+The unwrapped output carries a 100\%-weight tag to $c_{\mathrm{import}}(m)$,
+exactly as a minting output carries 100\% attribution to its new mint
+cluster---a bridge-import cluster is simply a third way to create a cluster
+origin, requiring no new machinery beyond the tag. The curve is the identical
+production log-sigmoid curve ($W_{\mathrm{mid}} = 100\text{k}$, saturating
+$6\times$) that domestic clusters use.
+
+\subsubsection{Why the epoch key is load-bearing (Sybil-resistance)}
+
+A flat per-unwrap factor is Sybil-proof but over-taxes a small entrant
+identically to a whale. A size-based per-unwrap factor recovers size-sensitivity
+but is Sybil-able: a whale drip-splits into many dust unwraps, each a separate
+small origin at factor $\approx 1$, then reassembles domestically. The epoch key
+defeats the split because all unwraps in a window \emph{share one accumulating
+cluster}: intra-epoch splitting piles into the same pool and still hits the high
+factor. Diluting requires spreading across \emph{epochs}, which costs wall-clock
+time ($K$ blocks each)---\textbf{time-as-cost replaces provenance-as-cost}. The
+calibration confirms a 2M-\BTH\ whale needs 541 separate epochs (541 days at
+$K$) to drip-dilute to the floor.
+
+\subsubsection{Shared fate and decay by circulation}
+
+You cannot simultaneously have \{Sybil-resistant, no-shared-fate,
+no-external-identity\}. Forcing split pieces to aggregate into a shared pool is
+the only identity-free way to make splitting costly, which necessarily means an
+unwrapper's factor depends partly on strangers who unwrapped in the same epoch.
+This shared-fate coupling is judged a feature: bridge-inflow-\emph{rate} becomes
+a concentration signal---a sudden capital flood is treated as maximally
+concentrated, an organic trickle enters benignly. The floor $F$ plus a modest
+$K$ bound the collateral to innocent small co-entrants, whose small coins blend
+down quickly. Decay is \emph{only} by circulation: an imported coin's factor
+falls solely through value-weighted tag-blending on spends (a worst-case
+$6\times$ flood import blends to the $1.5\times$ floor in $\approx 9$
+domestic-mixing spends); sitting idle never normalizes imported wealth.
+
+\paragraph{Confidential-amounts-clean by construction.} The epoch cluster's
+wealth is the sum of unwrap amounts, which are \emph{public at the bridge
+boundary by necessity} (\S\ref{sec:bridge:privacy}). The import factor is
+therefore computable from already-public data with no zero-knowledge gadget---it
+sidesteps, for imported coins, the confidential-amounts problem that domestic
+cluster-wealth accounting faces.
+
+Figure~\ref{fig:bridge:unwrap} shows the unwrap flow with import tagging.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.92\textwidth]{exhibits/fig2-unwrap-import-flow.png}
+\caption{Unwrap $\to$ import-tagging flow (wBTH $\to$ \BTH). A confirmed burn is
+attested and releases reserve \BTH\ to a fresh stealth address, tagged
+$100\%$ to the epoch import cluster $c_{\mathrm{import}}(m)$ at
+$\mathrm{import\_factor}(m) \geq F$. \emph{Target-state}: the current
+implementation releases a factor-1 output (register row IMP-2).}
+\label{fig:bridge:unwrap}
+\end{figure}
+
+\subsection{Security}
+\label{sec:bridge:security}
+
+The bridge's security rests on five load-bearing invariants, each with a named
+adversarial-test surface (\texttt{bridge/service/src/adversarial\_tests.rs},
+\texttt{watchers/adversarial\_tests.rs}, \texttt{chaos\_tests.rs}, and the
+contract test suites). A conformant bridge MUST uphold every one of them:
+\begin{enumerate}
+  \item \textbf{Exactly-once mint} --- one confirmed deposit MUST mint at most
+    once (order-id idempotency, on-chain replay guard, crash-safe transitions).
+  \item \textbf{Exactly-once release} --- one confirmed burn MUST release at most
+    once (record-before-broadcast, idempotent re-broadcast).
+  \item \textbf{Threshold authorization} --- no mint or release fires without a
+    $t$-of-$n$ domain-separated, order-bound signature set; an equivocating
+    signer MUST count once and is additionally flagged by a dedicated audit
+    event.
+  \item \textbf{Peg solvency} --- \eqref{eq:bridge:peg} MUST hold within
+    tolerance (default $0$), and any drift MUST trip a fail-closed circuit
+    breaker.
+  \item \textbf{Finality safety} --- an action MUST fire only against a block
+    final on its chain (SCP finality on \BTH; a confirmation-depth window plus
+    canonical re-check on Ethereum; \texttt{Finalized} commitment on Solana).
+\end{enumerate}
+
+\paragraph{Proof-of-reserves.} A reconciler continuously checks
+$(\text{supply} - \text{locked})$ and $(\text{locked} - \text{supply})$ against
+in-flight tolerance. Because the reserve holds only zero-demurrage factor-1
+coins (\S\ref{sec:bridge:peg}), the invariant is \emph{exact} rather than
+approximate. Positive drift beyond tolerance (unbacked wrapped supply) or a
+reserve-balance shortfall (custody theft) MUST trip the breaker and emit a drift
+alert. A chain whose live supply / reserve-balance transport is unavailable MUST
+be reported \emph{unverified} and excluded from drift math---never silently
+counted as healthy.
+
+\paragraph{Fail-closed liveness trade.} The bridge trades liveness for safety
+everywhere: peg drift, backlog and global caps, the on-chain auto-pause, and the
+operator kill-switch all \emph{halt} rather than degrade. Every breaker trips on
+real, value-backed activity, so there is no free griefing vector; a halt leaves
+the invariants intact and is recovered by the documented operator procedure. The
+service-side global cap and the far looser on-chain auto-pause are deliberate
+two-layer defense (a tight cap that trips first, a last-resort on-chain breaker
+that halts even if the federation layer is compromised).
+
+\paragraph{Coupling to consensus safety (accepted).} Because the federation is
+the validator set, bridge safety is coupled to consensus safety: a
+validator-majority compromise also drains the reserve, and bridge-key operations
+MUST meet validator-grade opsec. Growing and hardening the validator set is a
+soft prerequisite to holding meaningful bridge value. This coupling is an
+accepted consequence of reusing a single trust root (ADR~0002).
+
+\paragraph{Mainnet gate.} No bridge value MUST move on mainnet until an external
+security audit of the Rust service, the Solidity token contract, and the Anchor
+program has cleared. This is a hard gate, tracked in the register
+(\S\ref{sec:bridge:status}, row \textbf{IMP-6}).
+
+\subsection{Implementation Status}
+\label{sec:bridge:status}
+
+The bridge is partially shipped. Per the spec discipline, every mechanism this
+section describes in the present tense is live in the implementation unless it
+appears as a target-state row below, in which case the \emph{live} behavior and
+the \emph{target} behavior are named explicitly with a tracking reference. A
+claim that reads as ``is'' when the code says ``will be'' without a row here is
+a defect. Rows carry stable IDs (\textbf{IMP-1}--\textbf{IMP-6}) so that figure
+captions and cross-references resolve to an exact row.
+
+\begin{center}
+\small
+\begin{tabular}{p{0.9cm}p{1.9cm}p{2.9cm}p{2.9cm}p{1.4cm}p{1.8cm}}
+\toprule
+\textbf{ID} & \textbf{Component} & \textbf{Live behavior} & \textbf{Target (this spec)} & \textbf{Status} & \textbf{Tracking} \\
+\midrule
+IMP-1 &
+  Ethereum wrap / unwrap path &
+  Deposit lock, $t$-of-$n$ attestation, Safe \texttt{bridgeMint}, burn watcher, release; exactly-once at ledger + contract; factor-1 peg &
+  (same) &
+  live &
+  PRs \#832--\#864 \\
+IMP-2 &
+  Import cluster tagging (ADR~0007) &
+  Unwrap releases a factor-1 / background output (\texttt{bth\_scan.rs} recipient output carries empty cluster tags) &
+  Unwrap tags the output $100\%$ to $c_{\mathrm{import}}(m)$ at $\mathrm{import\_factor}(m)\geq F$; \eqref{eq:bridge:epoch}--\eqref{eq:bridge:importfactor} &
+  target-state &
+  botho\#938 \\
+IMP-3 &
+  Demurrage-settlement operation &
+  No consensus settlement op; a wealthy coin cannot be reclassified to factor-1 &
+  Paid reclassification to factor-1, fee routed to the lottery pool; shared $\approx 1$-year lineage-reset horizon &
+  target-state &
+  botho\#831 (horizon \#833/\#925) \\
+IMP-4 &
+  Solana transports &
+  Mint assembly / sign / submit / confirm and burn watcher are code-complete against a raw JSON-RPC client and mock-tested; live-node integration is \texttt{\#[ignore]}d and unverified end-to-end &
+  Fully live, externally-audited Solana mint + release + reserve-balance transport &
+  target-state &
+  botho\#853/\#856/\#857/\#858 \\
+IMP-5 &
+  \BTH\ / Solana live supply + reserve-balance transport &
+  Chain reported \emph{unverified}, excluded from drift math (fail-safe) &
+  Live supply + reserve-balance feeds the exact peg reconciliation &
+  target-state &
+  botho\#853 \\
+IMP-6 &
+  External security audit &
+  Internal adversarial + chaos + fuzz suites pass; no external audit &
+  External audit of service + Solidity + Anchor cleared (mainnet gate) &
+  target-state &
+  botho\#616/\#830 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Divergence note (import tagging).} The import-factor machinery of
+\S\ref{sec:bridge:import} currently exists only in the cluster-tax
+\emph{simulation} (\texttt{cluster-tax/src/simulation/bridge\_import\_sweep.rs},
+which computes $c_{\mathrm{import}}(m)$ and $\mathrm{import\_factor}(m)$ for
+calibration). The production unwrap path
+(\texttt{bridge/service/src/bth\_scan.rs}) emits a recipient output with
+\emph{empty} cluster tags---i.e.\ factor-1---and even asserts this. Until
+\#938 (register row \textbf{IMP-2}) assigns the epoch import cluster on the
+release path, every present-tense statement in \S\ref{sec:bridge:import} is
+target-state as recorded above.

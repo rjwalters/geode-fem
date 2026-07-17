@@ -1,0 +1,18 @@
+{
+  "_comment": "The polish_plan_compose fixture exercises `--polish --plan` → `--apply` composition. The operator reason flows from the plan header (NOT re-passed on the --apply CLI) into the produced version dir's _progress.json.metadata.revise_force_reason verbatim. The composed revision_mode value is the new fourth value: polish_plan_then_apply.",
+  "apply_should_succeed": true,
+  "version_dir_created": "acme-seed.5/",
+  "memo_md_written": true,
+  "changelog_md_written": true,
+  "changelog_row_count": 3,
+  "addressed_count": 3,
+  "declined_count": 0,
+  "status_line_annotation": "(polish pass; addressed 3 notes, declined 0; via plan)",
+  "changelog_header_note_present": true,
+  "changelog_header_note_keyword": "Polish pass",
+  "progress_metadata": {
+    "revision_mode": "polish_plan_then_apply",
+    "revise_force_reason": "Sharpen the conditional terms in Recommendation; reviewer noted dim 4 at 5/6 with specific suggestion.",
+    "iteration": 5
+  }
+}

@@ -1,0 +1,177 @@
+{
+  "$defs": {
+    "ContributingFinding": {
+      "additionalProperties": false,
+      "description": "One critic-side finding that contributed to a clustered gap.\n\nThe ``ref`` field is a short pointer into the named sibling's\noutput. The vocabulary is conventional \u2014 proposal v0 uses dot-paths\nlike ``dim6.comment.3``, ``findings.12lp_line``,\n``candidates.cluster_foundry_pricing``. The schema does not parse\nor validate the ref shape; it is a human-readable breadcrumb for\nthe reviser to follow back to the original critic output.",
+      "properties": {
+        "ref": {
+          "description": "Pointer into the sibling's output identifying the specific finding. Format is conventional; v0 uses dot-paths like 'dim6.comment.3' or 'findings.12lp_line'. The reviser uses this to navigate back to the original critic note when rendering the changelog.",
+          "title": "Ref",
+          "type": "string"
+        },
+        "sibling": {
+          "description": "Short name of the critic sibling that produced the finding, e.g. 'review', 'audit', 'perspective'. Matches the sibling-directory tag (the part after the version number in <thread>.{N}.<tag>/).",
+          "title": "Sibling",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sibling",
+        "ref"
+      ],
+      "title": "ContributingFinding",
+      "type": "object"
+    },
+    "Gap": {
+      "additionalProperties": false,
+      "description": "One synthesized underlying gap.\n\nA gap consolidates two or more critic findings (across siblings)\nthat name the same root concern. The reviser addresses each gap\nwith a single coordinated response instead of layering three\nresponses to three findings.",
+      "properties": {
+        "contributing_findings": {
+          "description": "The findings (one per sibling, typically two or three) that the synthesizer clustered into this gap. MUST be non-empty \u2014 a gap with no contributing findings is a singleton and belongs in the ``singletons`` list.",
+          "items": {
+            "$ref": "#/$defs/ContributingFinding"
+          },
+          "minItems": 1,
+          "title": "Contributing Findings",
+          "type": "array"
+        },
+        "id": {
+          "description": "Stable, human-readable gap identifier. Convention: 'g-<kebab-case-short-name>', e.g. 'g-12lp-mask-cost'. Used by the reviser's changelog to cross-reference the synthesis decision.",
+          "title": "Id",
+          "type": "string"
+        },
+        "recommended_response": {
+          "description": "1-2 sentence guidance to the reviser: what single, concrete response addresses this gap without layering. Distinct from per-critic ``suggested_fix`` strings \u2014 the synthesizer's job is to give the reviser one response that satisfies all contributing findings at once.",
+          "title": "Recommended Response",
+          "type": "string"
+        },
+        "root_concern": {
+          "description": "1-2 sentence statement of the underlying gap the contributing findings collectively name. The synthesizer's core deliverable: what is the single thing the reviser needs to address.",
+          "title": "Root Concern",
+          "type": "string"
+        },
+        "rubric_dimensions": {
+          "description": "Optional list of rubric dimension numbers (1-9 for the proposal /44 rubric) the gap touches. Empty for cross-cutting gaps. Lets downstream tooling (rhetorical-economy gates, rubric pressure mechanisms, scope-control filters) cross-reference gaps against rubric pressure.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Rubric Dimensions",
+          "type": "array"
+        },
+        "severity": {
+          "description": "Gap-level severity. Mirrors the per-finding severity ladder: 'critical' short-circuits the reviser's triage (addressed first, regardless of position in the list); 'blocker' MUST be addressed before the next critic pass; 'should-fix' is expected to be addressed unless explicitly declined with rationale; 'nice-to-have' may be deferred. The synthesizer normalizes from the contributing findings' severities \u2014 typically the max across contributors.",
+          "enum": [
+            "critical",
+            "blocker",
+            "should-fix",
+            "nice-to-have"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "contributing_findings",
+        "root_concern",
+        "recommended_response",
+        "severity"
+      ],
+      "title": "Gap",
+      "type": "object"
+    },
+    "GapList": {
+      "additionalProperties": false,
+      "description": "The canonical ``gaps.json`` payload from the synthesis sibling.\n\nWritten by ``proposal-synthesize`` to\n``<thread>.{N}.synthesis/gaps.json``. The reviser\n(``proposal-revise``) reads this as its primary input when present;\nfalls back to per-sibling finding reading when ``gaps.json`` is\nabsent (backward-compatibility safety net).",
+      "properties": {
+        "for_version": {
+          "description": "The N of the version this synthesis covers, e.g. 2 for <thread>.2.synthesis/gaps.json. Mirrors the for_version field on critic-sibling _progress.json (see anvil/lib/snippets/progress.md).",
+          "minimum": 1,
+          "title": "For Version",
+          "type": "integer"
+        },
+        "gaps": {
+          "description": "Clustered gaps (two or more contributing findings each). Empty list is valid: a clean synthesis with only singletons. The reviser addresses each gap with a single coordinated response.",
+          "items": {
+            "$ref": "#/$defs/Gap"
+          },
+          "title": "Gaps",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "description": "Pinned to '1' for the v1 contract. Bumped only on a breaking on-disk shape change; additive fields do not require a bump.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "singletons": {
+          "description": "Findings that did NOT cluster. The reviser still sees them but with 'one finding, one response' framing. Empty list is valid: every finding clustered into a gap.",
+          "items": {
+            "$ref": "#/$defs/Singleton"
+          },
+          "title": "Singletons",
+          "type": "array"
+        },
+        "thread": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Thread slug. Optional but strongly recommended for out-of-context inspection (e.g., a gaps.json copied to a debug ticket).",
+          "title": "Thread"
+        }
+      },
+      "required": [
+        "for_version"
+      ],
+      "title": "GapList",
+      "type": "object"
+    },
+    "Singleton": {
+      "additionalProperties": false,
+      "description": "A critic finding that did NOT cluster with any sibling's finding.\n\nSingletons are still surfaced to the reviser \u2014 the synthesis layer\njust makes explicit that they stand alone, with \"one finding, one\nresponse\" framing. The reviser is expected to consult the named\nsibling's output for full context.",
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line synthesizer note explaining why this finding was not clustered, e.g. 'stylistic finding, no overlap' or 'unique to perspective; no review/audit counterpart'. Helps the reviser decide whether the singleton is load-bearing.",
+          "title": "Note"
+        },
+        "ref": {
+          "description": "See ContributingFinding.ref.",
+          "title": "Ref",
+          "type": "string"
+        },
+        "sibling": {
+          "description": "See ContributingFinding.sibling.",
+          "title": "Sibling",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sibling",
+        "ref"
+      ],
+      "title": "Singleton",
+      "type": "object"
+    }
+  },
+  "$id": "https://anvil.dev/schemas/proposal/synthesis_schema.json",
+  "$ref": "#/$defs/GapList",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Canonical JSON contract written by the proposal-synthesize sibling as gaps.json, consolidating cross-critic findings into clustered gaps + singletons. Generated from anvil/skills/proposal/lib/synthesis_schema.py; do not edit by hand. Skill-local for v0 per CLAUDE.md \"Skill-local first, lib promotion later\" discipline.",
+  "title": "Anvil proposal synthesis gaps.json schema"
+}

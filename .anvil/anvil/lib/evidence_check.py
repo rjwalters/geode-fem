@@ -140,7 +140,7 @@ routes to the machine-summary parser, a ``scoring.md`` to the table
 parser). The body file is auto-detected inside the version dir:
 ``<slug>.md`` (the #295 slug-echo shape — memo, essay) first, then the
 per-skill fixed names in :data:`FIXED_BODY_NAMES` order: ``main.tex``
-(pub), ``report.md`` (report), ``deck.md`` (deck, slides),
+(paper), ``report.md`` (report), ``deck.md`` (deck, slides),
 ``proposal.tex`` (proposal), ``installation.tex`` (installation),
 ``datasheet.tex`` (datasheet), ``spec.tex`` (ip-uspto,
 ip-uspto-provisional) — issue #475. (``numeric_consistency._body_path``
@@ -751,7 +751,7 @@ def check_summary_text(
 
 
 FIXED_BODY_NAMES: Tuple[str, ...] = (
-    "main.tex",       # pub
+    "main.tex",       # paper
     "report.md",      # report
     "deck.md",        # deck, slides
     "proposal.tex",   # proposal
@@ -945,10 +945,10 @@ def check_version_dir(
     body_file = _body_path(version_dir, body=body)
     body_text = body_file.read_text(encoding="utf-8")
 
-    # Multi-file LaTeX threads (issue #643): a pub ``main.tex`` that
+    # Multi-file LaTeX threads (issue #643): a paper ``main.tex`` that
     # ``\input``/``\include``s section files has its real content in the
     # children. Without this expansion a reviewer who (correctly, per
-    # pub-review.md step 4) reads the full resolved body and quotes a
+    # paper-review.md step 4) reads the full resolved body and quotes a
     # child section would trip a false ``fabricated_evidence`` finding —
     # the quote is verbatim from ``sections/intro.tex`` but absent from the
     # ~90-line ``main.tex`` shell. Expand ``.tex`` bodies to the resolved

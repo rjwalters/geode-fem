@@ -1,0 +1,156 @@
+{
+  "version": 3,
+  "thread": "botho-from-the-basics",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-07-14T06:10:00Z",
+      "completed": "2026-07-14T06:20:00Z"
+    },
+    "figures": {
+      "state": "done",
+      "started": "2026-07-14T13:10:00Z",
+      "completed": "2026-07-14T13:33:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 3,
+    "max_iterations": 4,
+    "revised_from": "botho-from-the-basics.2",
+    "consumed_critics": [
+      "botho-from-the-basics.2.review",
+      "botho-from-the-basics.2.audit"
+    ],
+    "operator_override": "v2 combined verdict was AUDITED-eligible (review 43/44 advance:true, audit_clean:true); operator waived the step-2 early exit for a single narrow purpose: integrate the five v2-rendered teaching figures into the body so the PDF deliverable embeds them (the v1 primer-figures contract cannot place image references — skill-design gap reported upstream), plus the v2 review's two one-clause acronym glosses. No other changes.",
+    "score_history": [
+      {
+        "iteration": 1,
+        "total": 41,
+        "threshold": 35,
+        "rubric_id": "anvil-primer-v1"
+      },
+      {
+        "iteration": 2,
+        "total": 43,
+        "threshold": 35,
+        "rubric_id": "anvil-primer-v1"
+      }
+    ],
+    "spec_ref_declared": "../sections/*.tex",
+    "spec_ref_resolved": [
+      "whitepaper/sections/01-introduction.tex",
+      "whitepaper/sections/02-related-work.tex",
+      "whitepaper/sections/03-preliminaries.tex",
+      "whitepaper/sections/04-cryptography.tex",
+      "whitepaper/sections/05-transactions.tex",
+      "whitepaper/sections/06-consensus.tex",
+      "whitepaper/sections/07-monetary.tex",
+      "whitepaper/sections/08-network.tex",
+      "whitepaper/sections/09-security.tex",
+      "whitepaper/sections/10-economics.tex",
+      "whitepaper/sections/11-implementation.tex",
+      "whitepaper/sections/12-governance.tex",
+      "whitepaper/sections/13-conclusion.tex",
+      "whitepaper/sections/appendix-audit.tex",
+      "whitepaper/sections/appendix-formal.tex",
+      "whitepaper/sections/appendix-notation.tex",
+      "whitepaper/sections/appendix-parameters.tex",
+      "whitepaper/sections/appendix-regulatory.tex"
+    ],
+    "self_check": {
+      "dependency_order_delta": [
+        "fig1 placed after §3 teaches the full derive/scan/match/spend flow (and after the §6 forward-pointer it annotates)",
+        "fig2 placed at the §6 design-rule paragraph; its ML-KEM/ML-DSA/CLSAG boxes are unpacked by the subsections that follow",
+        "fig3 placed at the end of §8's mining-weight-vs-consensus-weight subsection, where 'the wall' is taught — the §§7-8 boundary",
+        "fig4 placed at the end of §9.5, after all depicted machinery (factor, fees, demurrage, burn/pool split, emission slice, tilted lottery) is introduced",
+        "fig5 placed as a map-before-the-walk at the top of §10, after the framing paragraph",
+        "ASIC and TEE glossed at point of use (the v2 review's only remaining priorities)"
+      ],
+      "spec_ref_grounding_delta": [
+        "No new quantitative or normative material: all five captions restate audit-verified v2 body claims; diff v2->v3 is exactly 5 figure paragraphs + 2 acronym glosses (7 hunks)"
+      ],
+      "technical_accuracy_delta": [
+        "Caption numbers (ML-KEM-768, ML-DSA-65, 20%/80% split, 4 UTXOs/block, inverse-factor tilt, steps 1-11) are verbatim restatements of body text verified clean by the v2 audit"
+      ]
+    },
+    "word_count": 8616,
+    "word_count_delta": 278,
+    "figures_carried_forward": {
+      "from": "botho-from-the-basics.2/exhibits",
+      "note": "The five PNGs + .mmd sources rendered by the v2 figures phase are copied unchanged into this version's exhibits/ so the body's relative image references (exhibits/*.png) resolve for the PDF render; v2 remains untouched."
+    },
+    "figures": {
+      "rendered": [
+        {
+          "png": "exhibits/fig1-stealth-address-flow.png",
+          "source": "exhibits/fig1-stealth-address-flow.mmd",
+          "provenance": "byte-identical copy of botho-from-the-basics.2/exhibits (verified via cmp during this phase); not re-rendered — mmdc not required",
+          "embedded": "PDF page 5, ~2.9in x 7.65in (height-capped), caption below, no overflow"
+        },
+        {
+          "png": "exhibits/fig2-hybrid-pq-envelope.png",
+          "source": "exhibits/fig2-hybrid-pq-envelope.mmd",
+          "provenance": "byte-identical copy of botho-from-the-basics.2/exhibits (verified via cmp during this phase); not re-rendered — mmdc not required",
+          "embedded": "PDF page 9, full linewidth (6.5in x 7.3in), caption below, no overflow"
+        },
+        {
+          "png": "exhibits/fig3-scp-mining-decoupling.png",
+          "source": "exhibits/fig3-scp-mining-decoupling.mmd",
+          "provenance": "byte-identical copy of botho-from-the-basics.2/exhibits (verified via cmp during this phase); not re-rendered — mmdc not required",
+          "embedded": "PDF page 13, full linewidth (6.5in x 2.1in), inline with prose, no overflow"
+        },
+        {
+          "png": "exhibits/fig4-anti-hoarding-money-flow.png",
+          "source": "exhibits/fig4-anti-hoarding-money-flow.mmd",
+          "provenance": "byte-identical copy of botho-from-the-basics.2/exhibits (verified via cmp during this phase); not re-rendered — mmdc not required",
+          "embedded": "PDF page 17, ~4.0in x 7.65in (height-capped), 5-line caption fully visible, no overflow"
+        },
+        {
+          "png": "exhibits/fig5-capstone-payment-timeline.png",
+          "source": "exhibits/fig5-capstone-payment-timeline.mmd",
+          "provenance": "byte-identical copy of botho-from-the-basics.2/exhibits (verified via cmp during this phase); not re-rendered — mmdc not required",
+          "embedded": "PDF page 19, ~2.5in x 7.65in (height-capped), caption below, no overflow"
+        }
+      ],
+      "pdf": "botho-from-the-basics.pdf",
+      "pdf_renderer": "pandoc 3.10 (anvil/lib/render.py::render_pandoc_to_pdf, xelatex engine, STIX Two Text, letter, TOC; 21 pages)",
+      "skipped": [],
+      "render_gate": {
+        "placeholder_scan_hits": 0,
+        "compile": "pass (pandoc/xelatex exit 0)"
+      },
+      "verification": {
+        "pdfimages_count": 5,
+        "pdfimages_pages": [
+          5,
+          9,
+          13,
+          17,
+          19
+        ],
+        "implicit_figure_check": "all 5 image paragraphs isolated (blank lines both sides, image alone in paragraph) -> all 5 became LaTeX figure floats with rendered captions; 0 inline-not-figure",
+        "glyph_counts_match_source": {
+          "→": 2,
+          "⇒": 3,
+          "·": 2,
+          "×": 15,
+          "²": 1,
+          "≠": 1,
+          "−": 2,
+          "⁴": 1,
+          "⁶": 1,
+          "¹": 1
+        },
+        "visual_spot_check": "pages 5, 9, 13, 17, 19 rasterized via pdftoppm and inspected: all figures legible, captioned, inside the page box, page numbers unobstructed"
+      },
+      "notes": [
+        "v3 body embeds all five figures via pandoc implicit-figure paragraphs (![caption](exhibits/figN-*.png)); this phase's one job was the PDF render + embed verification. The v2 failure mode (pdfimages empty — body had no image refs) is fixed: pdfimages -list shows 5 images.",
+        "Same pandoc setup as v2 (xelatex, STIX Two Text, newunicodechar fallback of → / ⇒ to STIX Two Math via include-in-header, since defaults files reject header-includes) PLUS one v3 addition: pandoc 3.10's \\pandocbounded caps images at the full \\textheight, so the three tall exhibits' captions overflowed into the footer (fig1/fig5 caption over the page number; fig4's 5-line caption clipped at the page edge). Fixed render-side by a \\renewcommand of \\pandocbounded capping image height at 0.85\\textheight in the include-in-header file — body markdown untouched.",
+        "Render config archived at scratchpad primer-pandoc-defaults-v3.yaml + primer-header-v3.tex (session-scoped; contents summarized here for reproducibility: pdf-engine xelatex, mainfont STIX Two Text, 11pt, margin=1in, toc-depth 2, title/subtitle metadata, header = newunicodechar arrows + 0.85\\textheight pandocbounded cap).",
+        "Known cosmetic nit (body-owned, NOT fixed per the never-edit-the-body contract): caption text itself begins with 'Figure N —', so LaTeX's autogenerated label doubles it as 'Figure N: Figure N — ...' in all five captions.",
+        "Exhibits carried forward byte-identical from v2 (cmp-verified, all 10 files); diagrams intentionally NOT re-rendered, mmdc not invoked.",
+        "Operator re-render (same pandoc defaults + extended header): (a) suppressed LaTeX's autogenerated caption label via caption package labelformat=empty — captions already begin 'Figure N —', so the render showed 'Figure N: Figure N — …' on all five; now single-labeled (pdftotext doubled-caption hits: 0). (b) The re-render surfaced a silently-dropped glyph the original verification set missed: ≠ (§8 heading 'mining weight ≠ consensus weight') is absent from STIX Two Text; added newunicodechar fallbacks for ≠ − ⁴ ⁶ after a full non-ASCII sweep of the body. All 9 special glyphs now verified present in pdftotext output; pandoc warning-free; still 21 pages, 5 embedded images on pp. 5/9/13/17/19; fig4 page re-inspected visually (caption intact, footer clear)."
+      ]
+    }
+  }
+}

@@ -93,13 +93,13 @@ The v0 skills split as follows:
 | Skill | Has audit command? | Audit mandatory? | Notes |
 |---|---|---|---|
 | memo | no | n/a | Audit is documented in `critics.md` as an optional consumer-added sibling; the framework ships no `memo-audit` command. |
-| pub | yes (`pub-audit`) | mandatory | Citation resolution, claim-support spot-check, numerical audit, LaTeX compile verification. `READY` is not terminal — `AUDITED` is. |
+| paper | yes (`paper-audit`) | mandatory | Citation resolution, claim-support spot-check, numerical audit, LaTeX compile verification. `READY` is not terminal — `AUDITED` is. |
 | report | yes (`report-audit`) | mandatory | Customer-facing; ≥39/44 threshold + audit. Subsequently promoted to `CUSTOMER-READY` via `report-promote`. |
 | deck | yes (`deck-audit`) | optional | Audit is recommended for fundraising decks (fabricated traction / market-math claims) but not required to reach `READY`. |
 | slides | yes (`slides-audit`) | mandatory | Density / timing / asset checks; combined with the rehearse + handout terminal phases. |
 | ip-uspto | yes (`ip-uspto-audit`) | mandatory (post-convergence) | Inventor name consistency, reference-numeral coherence, prior-art-admission checks. Runs only when a version is `READY_FOR_AUDIT`. |
 
-Five audit commands ship in v0 (pub, report, deck, slides, ip-uspto);
+Five audit commands ship in v0 (paper, report, deck, slides, ip-uspto);
 memo's audit slot is reserved for consumer extension.
 
 ## Migration status (v0)
@@ -124,7 +124,7 @@ When a shipped skill migrates, the change is mechanical:
 
 ## Filename tolerance
 
-The five shipped audit commands (`pub`, `report`, `deck`, `slides`, `ip-uspto`)
+The five shipped audit commands (`paper`, `report`, `deck`, `slides`, `ip-uspto`)
 and the proposal auditor all write their per-claim findings file as
 `findings.md` by default. Some execution contexts — notably subagent
 harnesses that block specific filenames (see issue #135 for anvil's
@@ -147,7 +147,7 @@ the rename. The reviser does not parse the header note — it is
 human-readable bookkeeping for the next agent.
 
 **Scope is intentionally local to the proposal skill.** The other four
-shipped audit-bearing skills (`pub`, `report`, `deck`, `slides`,
+shipped audit-bearing skills (`paper`, `report`, `deck`, `slides`,
 `ip-uspto`) keep strict `findings.md` behavior. Per the "wait for the
 second consumer before generalizing" rule (CLAUDE.md §"Skill-local
 first, lib promotion later"), the alias-tolerance pattern is **not**

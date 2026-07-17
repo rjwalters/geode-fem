@@ -1,0 +1,37 @@
+---
+audience: ML researchers, PhD level, familiar with transformers but not diffusion models
+time_slot_minutes: 45
+venue: KDD 2026 — Research Track
+learning_goals:
+  - Understand the connection between score-based generative models and diffusion
+  - Be able to identify when diffusion is the right tool vs. transformers / VAEs
+  - Know the three most-cited papers that established the framework
+prior_knowledge:
+  - Calculus and probability through the level of a first-year ML PhD course
+  - Familiarity with neural network training (optimizers, regularization)
+  - Exposure to generative modeling (at least GANs and VAEs at a conceptual level)
+---
+
+# Talk brief: An Introduction to Diffusion Models
+
+## What this talk is
+
+A 45-minute survey talk introducing diffusion models to an ML research audience that has not worked with them before. The goal is to leave the audience with enough framework to read the field's papers, not to make them practitioners.
+
+## What this talk is not
+
+- A tutorial on training your own diffusion model (that's a half-day workshop, not a 45-minute talk).
+- A comprehensive survey of every method (focus on the three foundational papers; mention extensions briefly).
+- A comparison with every other generative model class (pick GANs and VAEs as the contrast; ignore flows for time).
+
+## Key references
+
+- `refs/sohl-dickstein-2015.pdf` — original DPM paper
+- `refs/ho-2020-ddpm.pdf` — DDPM that made it tractable
+- `refs/song-2021-score-based.pdf` — score-based SDE framework
+
+## Speaker notes
+
+- The talk is being recorded for the KDD virtual proceedings.
+- Audience size ~200; back rows ~25m from the screen.
+- Q&A is the final 5 minutes; the talk itself should run 40 minutes max to leave room.
