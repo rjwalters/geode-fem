@@ -24,6 +24,11 @@ bunsen = { workspace = true }
 faer = { workspace = true, features = ["sparse-linalg"] }
 mshio = { workspace = true }
 thiserror = { workspace = true }
+# Optional: in-process 2-D CDT + Ruppert/Chew refinement for arbitrary
+# wave-port cross-sections (issue #582). Gated behind the `spade-mesh` feature
+# so the default dependency graph is unchanged (mirrors the `arpack` opt-in
+# pattern). 2-D only — not a Gmsh 3-D-tet replacement.
+spade = { workspace = true, optional = true }
 # Host-side assembly parallelism (issue #522). Optional and enabled by the
 # `faer-parallel` feature so `--no-default-features` builds a strictly
 # single-threaded assembler alongside the single-threaded faer factorization.
@@ -92,6 +97,12 @@ autodiff = ["burn/autodiff"]
 # so no C headers or Fortran toolchain are needed at build time. See
 # README §System dependencies.
 arpack = ["dep:pkg-config"]
+
+# In-process 2-D constrained Delaunay meshing for arbitrary wave-port
+# cross-sections (issue #582). Off by default; pulls in the optional `spade`
+# dependency and compiles `analytic::spade_mesh`. Enable with
+# `--features spade-mesh`. 2-D only — does not affect 3-D tet meshing.
+spade-mesh = ["dep:spade"]
 
 testing = ["dep:regex"]
 

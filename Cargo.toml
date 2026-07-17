@@ -46,6 +46,13 @@ criterion = "0.5"
 # does not by itself parallelize any hot loop that regresses under rayon.
 faer = { version = "0.24", default-features = false, features = ["std", "linalg", "rayon"] }
 mshio = "0.4"
+# In-process 2-D constrained Delaunay triangulation + Ruppert/Chew quality
+# refinement for arbitrary wave-port cross-sections (issue #582). Optional,
+# pulled in by geode-core only under the `spade-mesh` feature. Dual
+# MIT/Apache-2.0 with a fully permissive transitive tree (hashbrown, num-traits,
+# robust, smallvec, allocator-api2, equivalent, foldhash, autocfg) — no GPL
+# exposure. 2-D only: this does NOT replace offline Gmsh for 3-D tet meshing.
+spade = "2.15"
 # Direct rayon dependency for host-side assembly parallelism (issue #522).
 # faer pulls rayon in transitively for its factorization, but the FEM
 # assembler's serial host loops (`NedelecScatterMap::new`,
