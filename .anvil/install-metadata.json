@@ -1,11 +1,11 @@
 {
-  "anvil_version": "0.8.1",
-  "anvil_source": "/private/tmp/claude-501/-Users-rwalters-GitHub-geode-fem/e7a75221-1f29-437a-a14f-0fddb9c5f3bc/scratchpad/anvil",
-  "install_date": "2026-07-14",
+  "anvil_version": "0.10.0",
+  "anvil_source": "/Users/rwalters/GitHub/anvil",
+  "install_date": "2026-07-16",
   "layout_version": 2,
-  "installed_skills": ["pub"],
+  "installed_skills": ["datasheet", "deck", "essay", "help", "installation", "ip-uspto", "ip-uspto-provisional", "memo", "paper", "primer", "project-book", "project-migrate", "project-photos", "project-scout", "project-share", "proposal", "report", "rubric-rebackport", "slides", "spec"],
   "skipped_overrides": [],
-  "skill_hashes": {"pub": "d8dd71ba261cc2f28dfdea12f3650e49ed0e7ea79519fdbd479a7261718fa6f4"},
-  "skill_versions": {"pub": "0.8.1"},
+  "skill_hashes": {"datasheet": "c8a4b6192efca1ca317ce45395409bb134194c2bd9cbb960f87617f2030e97b1", "deck": "05e29d2b59aad39f0c91dac51f7e443635532f8609eb5530d66e0904c26a8234", "essay": "7350c7a53013a722376910c61a7fb1c85975ec41c49fd45774880c42e7f08782", "help": "780538ebb86bfdfbef855cdc6a79a4f832505db7151948a3c116dd6dfceee0ff", "installation": "3f0960b57d6526081c5c056efc167438ce396318b2ff600cba03b656ae0a0e9c", "ip-uspto": "3dbb5861b0dc799b650ccc734a5de683f584c43a4f63f6a8bb7271be35f954f1", "ip-uspto-provisional": "8b0c0aebf8e94a77cfff06167a790f0b3132296e39be1f5493cc4d7c8a4fc3ac", "memo": "100201e5b9378727ea2fde7303d077c2df69b7a0063f641110462e54158dc3dc", "paper": "32fbb702de107d8de07de04c3629647837a7e19011ec0f5990d3eba2c5107e7e", "primer": "74208974ce14a87422b3e83a0f150d21951506b2a9ab369f58fd8d9068554e7d", "project-book": "7d75dff8cb7dee705ffb87e54d0b3e8599ac9ae1e38aea02d66cfd9d5444783f", "project-migrate": "03a65be7a39667018479c5ebd018ddedfc45689631c0ee95c41a7c5d0133e901", "project-photos": "585e47044012d180fe8ec4456884590830bb61ddb1fb6d3bf9c3b6bc0368e18a", "project-scout": "a58bbc2a45f7eb1112f399ee1ce1afeebb8309e4f8f6fd2fac927e680956076e", "project-share": "931945a230037a32450183ff5a9dcb0897d134eed4cd5d60d35b32d5a7b4fe7f", "proposal": "33cf1cf2edf97fce1e951d1f735f151bc53308774e9fb22a1519506ae9f45168", "report": "a605fbc85a40436bd1ac87c7bbad8374e7d2cf032e04b7c67e80dceda95656a6", "rubric-rebackport": "cfa152d9eb454127467269cb72157cd90273ba38f06fef1be4ff3d1afbef31ec", "slides": "5fb97472d7715a817111ce4e40239b7a6880474c16da7db574ccf31f307a533f", "spec": "9a662bf3e8ac3073b599322148c2e93ebe0b2f15be3563571b46c3ca54170215"},
+  "skill_versions": {"datasheet": "0.10.0", "deck": "0.10.0", "essay": "0.10.0", "help": "0.10.0", "installation": "0.10.0", "ip-uspto": "0.10.0", "ip-uspto-provisional": "0.10.0", "memo": "0.10.0", "paper": "0.10.0", "primer": "0.10.0", "project-book": "0.10.0", "project-migrate": "0.10.0", "project-photos": "0.10.0", "project-scout": "0.10.0", "project-share": "0.10.0", "proposal": "0.10.0", "report": "0.10.0", "rubric-rebackport": "0.10.0", "slides": "0.10.0", "spec": "0.10.0"},
   "lib_hash": "2d7db6546b11d0d2287b1e82c7cb95e094e6cae979b47d0df8d156385499eb9d"
 }

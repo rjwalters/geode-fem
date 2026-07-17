@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "for_version": 1,
+  "thread": "the-version-dir-is-the-unit",
+  "phases": {
+    "review": {
+      "state": "done",
+      "started": "2026-06-13T15:00:00Z",
+      "completed": "2026-06-13T15:18:00Z"
+    }
+  },
+  "metadata": {
+    "critic": "review",
+    "scorecard_kind": "human-verdict"
+  }
+}

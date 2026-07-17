@@ -1,0 +1,67 @@
+---
+# IC / component datasheet brief — reference shape.
+# All frontmatter keys are optional; the drafter fills template defaults for
+# any that are absent. Copy this to <thread>/BRIEF.md and fill it in.
+part_number: "AX101-OD"
+title: "Edge-AI Object Detection Processor"
+subtitle: "Single-chip camera-input inference at the edge"
+family: "AX101"              # siblings sharing this family value are the
+                             # SKU-coherence set (rubric dim 5; audit step 9)
+company: "Company Name"
+date: "Month Year"
+rev: "0.1"                   # spec-touching revisions MUST bump this AND add a
+                             # Revision History row — the READY-gate (critical flag 3)
+status: preliminary          # preliminary (default) | production. Drives the
+                             # title-block banner, the standing preliminary
+                             # notice, and the dim 4 / dim 8 calibration.
+signature_color: "1F4E7A"    # hex, no leading '#'. Default navy (ANVIL_NAVY).
+package: "QFN48"             # package name for the pin-map marker
+package_pins: 48             # pin count for the pin-map marker (pins=N)
+---
+
+# Brief: <part number> datasheet
+
+A short statement of what the drafter should produce: a customer-facing
+datasheet (`datasheet.tex`) compiling under XeLaTeX, following the shipped
+template's layout conventions (two-column first page, fresh-page major
+sections, consistent rev/footer), scoring against the 9-dimension /44 rubric
+(advance ≥39 — customer-facing tier), and passing the mandatory audit (spec
+source-of-truth cross-check + pin-map/bus-width integrity + revision-history
+gate + family coherence).
+
+**Put the spec bundle in `<thread>/refs/` before drafting.** Every numeric
+claim must trace to an authoritative source — design-model export, quant/config
+export, RTL parameter export, foundry quote, package drawing. Text-readable
+exports (`.md` / `.txt` / `.json`) are read as authoritative; the spec bundle
+outranks numbers stated in this brief.
+
+## Part identity
+
+What the part is, the base die it is built on, and (for multi-SKU families)
+which sibling SKUs exist and what differentiates them. Name the shared-die
+spec blocks explicitly (process, die, package, abs-max, DC) — the auditor
+checks them byte-for-byte against sibling sheets.
+
+## Key features / applications
+
+The first-page bullets (one line each). Numbers quoted here must match the
+spec tables — the canary's performance-header-vs-body drift is a dim 2 finding.
+
+## Interfaces and pinout
+
+The package, pin count, and interface set. The drafter emits the pinout table
+between `% anvil-pinmap-begin` / `% anvil-pinmap-end` markers so the pin-map
+checker can assert every pin is assigned exactly once.
+
+## Registers / fields with claimed ranges
+
+Any N-bit field whose value range the sheet will claim (index buses, register
+fields). The drafter emits an `% anvil-bus: name=<field> width=<W> max=<M>`
+marker per claim so the bus-width checker can verify 2^W covers it.
+
+## Performance posture
+
+Which network/configuration and input size the performance tables quote, at
+which operating point, and the provenance of each number (simulated /
+estimated / measured). On a `status: preliminary` sheet every pre-silicon
+value carries a label (`\est{}`, `\simval{}`, or a Notes-column entry).

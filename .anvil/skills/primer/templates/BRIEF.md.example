@@ -1,0 +1,51 @@
+---
+project: botho
+audience:
+  - Technically-curious non-cryptographers (primary — developers, prospective node operators, informed users)
+  - Cryptographers auditing the intuition against the formal spec (secondary)
+hard_rules:
+  - Teach from intuition first; defer formal rigor to the spec via cross-reference.
+  - Never duplicate a formal spec section — teach it, then point ("see §X of the spec").
+  - Never contradict the cited spec; a simplification may be lossy-but-true, never false.
+  - Introduce every piece of jargon before using it; standard primitives with
+    external literature may be cited out rather than re-taught.
+documents:
+  - slug: botho-from-the-basics
+    artifact_type: primer
+    # Optional companion input (SKILL.md §Spec-ref contract). Resolved
+    # project-root first, then consumer-root — the same walk report's
+    # prior_reports[] and the voice: docs use. Absent → the spec-consistency
+    # tier is silent/off and both critics record a `major` finding
+    # recommending you declare it. Declared-but-missing (bad path) → the tier
+    # activates but degrades gracefully (a `major` finding, never a crash,
+    # never a false critical flag).
+    spec_ref: ../whitepaper/whitepaper.5/whitepaper.md
+---
+
+# Botho from the Basics — project brief
+
+A ground-up teaching companion to the Botho whitepaper (authored via
+`anvil:paper`). The whitepaper is a terse, citable, spec-style document for
+cryptographers, auditors, and implementers. This companion teaches the same
+primitives — stealth addresses, ring signatures / CLSAG, Pedersen commitments +
+Bulletproofs, and the novel-to-Botho pieces (hybrid PQ stealth addresses, the
+SCP+PoW split, anti-hoarding demurrage) — to technically-curious
+non-cryptographers, building to an end-to-end transaction walkthrough as the
+capstone.
+
+## What this primer teaches (and what it defers)
+
+- **Teaches from intuition**: why each mechanism exists, why this design choice,
+  what breaks without it — in plain language, with load-bearing analogies,
+  before any notation.
+- **Defers to the spec**: formal derivations, security proofs, and normative
+  parameter tables live in the whitepaper. This companion cross-references them
+  ("for the formal treatment, see §X") — it does not restate them.
+
+## Reference material
+
+- `refs/` — diagram sources (mermaid message flows, the transaction walkthrough)
+  and any supporting notes.
+- The `spec_ref` whitepaper is the consistency oracle: `primer-audit` reads it to
+  flag any primer claim that contradicts it; `primer-review` reads it to flag any
+  formal section the primer duplicates instead of cross-referencing.

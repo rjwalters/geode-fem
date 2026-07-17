@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "thread": "botho-bridge-spec",
+  "critic": "audit",
+  "phases": {
+    "audit": {
+      "state": "done",
+      "started": "2026-07-15T02:35:51Z",
+      "completed": "2026-07-15T02:35:51Z",
+      "audited_version": "botho-bridge-spec.2",
+      "code_ref_active": true,
+      "code_ref_resolved_file_count": 35,
+      "claims_checked": 44,
+      "contradictions": 0,
+      "audit_clean": true,
+      "figures_audited": 3,
+      "re_audit_of": "botho-bridge-spec.1.audit (was CLEAN)"
+    }
+  },
+  "metadata": {
+    "scorecard_kind": "human-verdict",
+    "rubric_id": "anvil-spec-v1",
+    "rubric_total": 44,
+    "advance_threshold": 39,
+    "atomicity_fallback": "manual-mv",
+    "disposition_counts": {
+      "spec_wrong": 0,
+      "code_wrong": 0,
+      "intentional_gap": 4,
+      "unregistered": 0
+    }
+  }
+}

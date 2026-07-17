@@ -13,7 +13,7 @@ The canary is `nitas-mama` (a family memoir): every quote and every
 factual claim must trace to a local ground-truth corpus — seven
 interview transcripts and nine family letters. But the contract
 generalizes to any artifact grounded in a private evidence base:
-engagement notes for `report`, lab notebooks for `pub`, customer
+engagement notes for `report`, lab notebooks for `paper`, customer
 interviews for `proposal`.
 
 ## Scope boundary (vs. voice fidelity, #598)
@@ -266,9 +266,9 @@ specialist, not a replacement for the general audit pass.
 This contract is deliberately separate from two existing surfaces:
 
 - **`<thread>/refs/`** (issue #144) holds *per-thread* author-supplied
-  PDFs for `pub-audit`. The top-level `corpus:` is a **project-level**
+  PDFs for `paper-audit`. The top-level `corpus:` is a **project-level**
   read-only evidence base shared across all threads. The two coexist —
-  `pub` keeps its per-thread `refs/`; corpus-aware skills get the
+  `paper` keeps its per-thread `refs/`; corpus-aware skills get the
   project-level corpus.
 - **`anvil/lib/cite.py`** is strictly *external* identifier resolution
   (DOI/arXiv → BibTeX). It knows nothing about local files or line-level

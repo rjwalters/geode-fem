@@ -51,7 +51,7 @@ is the source of truth at runtime — the anchor is guidance only.
 |---|---|---|---|---|
 | memo | /44 | ≥35/44 | 9 | 4 examples + open-ended |
 | proposal | /44 | ≥35/44 | 9 | 4 hard rules + open-ended |
-| pub | /44 | ≥35/44 | 9 | 5 examples + open-ended |
+| paper | /44 | ≥35/44 | 9 | 5 examples + open-ended |
 | slides | /44 | ≥35/44 | 9 | 3 hard rules (audit / density / time) + open-ended |
 | deck | /44 | ≥39/44 | 9 | 4 hard rules (fabricated traction / fabricated team / market-math / absent ask) |
 | report | /44 | ≥39/44 | 9 | 4 hard rules + open-ended |
@@ -62,12 +62,12 @@ Two patterns recur: (a) customer-facing or legal-facing artifacts use
 the higher threshold band (`≥39`); internal or rough-draft-friendly
 artifacts use the lower band (`≥35`); (b) skills have migrated `/40 →
 /44` by adding **dim 9 *Rhetorical economy*** at weight 4 as
-countervailing bloat-pressure (memo, proposal, pub, slides, deck,
+countervailing bloat-pressure (memo, proposal, paper, slides, deck,
 report, installation), or — for `ip-uspto` — by adding a skill-
 appropriate **dim 9 *Claim-spec correspondence*** at weight 5 to
 preserve the flat-weight design (`/45`, every dim weight 5). The /44
 skills choose a new threshold near the 0.82 anchor (memo/proposal/
-pub/slides/installation at ≥35/44; deck/report at ≥39/44, the
+paper/slides/installation at ≥35/44; deck/report at ≥39/44, the
 customer-facing tier). The /45 ip-uspto threshold (≥39/45 ≈ 0.87) is
 proportionally bumped from its prior ≥35/40 customer-facing tier.
 
@@ -196,22 +196,22 @@ indifferent to which critic kind produced the score.
 
 The same dimension can therefore appear on both a review and an audit
 critic when the artifact warrants it. For example, a `methodology`
-dimension on a `pub-review` (judgment-kind) might score how clearly the
-method is *described*, while the same dimension on a `pub-audit`
+dimension on a `paper-review` (judgment-kind) might score how clearly the
+method is *described*, while the same dimension on a `paper-audit`
 (tool_evidence-kind) re-scores the same dim against a tool-verified
 check that the cited datasets/code actually exist and behave as
 described.
 
-### Worked example: `anvil:pub`
+### Worked example: `anvil:paper`
 
 | Dimension | Typically scored by | Kind | Why |
 |---|---|---|---|
-| `clarity` | `pub-review` | `judgment` | A reader can assess prose quality from the text alone. |
-| `argument_coherence` | `pub-review` | `judgment` | Argument flow is a subjective-quality check. |
-| `methodology` | `pub-review` + (optionally) `pub-audit` | `judgment` + `tool_evidence` | The reviewer scores method *clarity*; the auditor re-scores method *verifiability* (does the cited dataset exist, does the code compile). |
-| `citation_recall` | `pub-audit` | `tool_evidence` | Requires resolving every `\cite{}` against `refs.bib` plus an external lookup of the cited source. |
-| `citation_precision` | `pub-audit` | `tool_evidence` | Requires reading the cited source to verify claim support — a tool call (or human-in-the-loop on author-supplied PDFs in `<thread>/refs/`). |
-| `build_cleanliness` | `pub-audit` | `tool_evidence` | Runs `pdflatex` / `bibtex` and inspects exit codes plus the compile log. |
+| `clarity` | `paper-review` | `judgment` | A reader can assess prose quality from the text alone. |
+| `argument_coherence` | `paper-review` | `judgment` | Argument flow is a subjective-quality check. |
+| `methodology` | `paper-review` + (optionally) `paper-audit` | `judgment` + `tool_evidence` | The reviewer scores method *clarity*; the auditor re-scores method *verifiability* (does the cited dataset exist, does the code compile). |
+| `citation_recall` | `paper-audit` | `tool_evidence` | Requires resolving every `\cite{}` against `refs.bib` plus an external lookup of the cited source. |
+| `citation_precision` | `paper-audit` | `tool_evidence` | Requires reading the cited source to verify claim support — a tool call (or human-in-the-loop on author-supplied PDFs in `<thread>/refs/`). |
+| `build_cleanliness` | `paper-audit` | `tool_evidence` | Runs `pdflatex` / `bibtex` and inspects exit codes plus the compile log. |
 
 ### Worked example: `anvil:ip-uspto`
 
@@ -395,7 +395,7 @@ existing per-dim sub-rules like `§"Citation hooks (dim N)"` and
    deduction when a known-gap claim is made un-hooked.
 
 The v0 adopters are `anvil:deck` (dims 3 + 4 + 10), `anvil:memo` (dim 3),
-`anvil:proposal` (dim 6 with light dim 4 reference), and `anvil:pub`
+`anvil:proposal` (dim 6 with light dim 4 reference), and `anvil:paper`
 (dim 4 — codifies the implicit litsearch rule). Other skills (`slides`,
 `installation`, `ip-uspto`, `report`) do not currently consume
 perspective and SHOULD NOT add rubric language until they ship a
@@ -431,7 +431,7 @@ inverse.
 
 This is **opt-in**, not mandatory. Skills that don't produce sourced
 artifacts (`anvil:deck`, `anvil:slides`) leave them out entirely.
-Skills that do (`anvil:pub`, `anvil:report`, `anvil:memo`,
+Skills that do (`anvil:paper`, `anvil:report`, `anvil:memo`,
 `anvil:ip-uspto`) may name two of their nine dimensions accordingly.
 The lib does not enforce or detect this naming — it documents the
 convention so the eventual citation auditor critic can populate
@@ -447,7 +447,7 @@ outside that envelope. Worked examples (both shown for /40 skills; a
 
 | Skill | Before | After |
 |---|---|---|
-| `anvil:pub` | dim 8 "Citation hygiene", weight 5 | `citation_recall` + `citation_precision`, weights 2 + 3 (or any split summing to 5) |
+| `anvil:paper` | dim 8 "Citation hygiene", weight 5 | `citation_recall` + `citation_precision`, weights 2 + 3 (or any split summing to 5) |
 | `anvil:report` | dim 4 "Evidence trail / citation", weight 6 | `citation_recall` + `citation_precision`, weights 3 + 3 |
 
 The migration is per-skill and **not in scope** for the lib PR. Each
@@ -473,9 +473,9 @@ both during scoring.
 
 ## Advisory rubric overlays
 
-Some skills (currently `anvil:pub`) ship **advisory rubric overlays**
+Some skills (currently `anvil:paper`) ship **advisory rubric overlays**
 in addition to the generic gate rubric. These are venue-pinned YAMLs
-(e.g. `anvil/skills/pub/rubrics/neurips.yaml`) that produce
+(e.g. `anvil/skills/paper/rubrics/neurips.yaml`) that produce
 supplementary scoring for venue-specific signal — NeurIPS
 reproducibility checklist, Nature's broad-significance bar, arXiv's
 category-correctness norm — without breaking the framework-wide
@@ -509,7 +509,7 @@ reviser's existing N-critics-one-reviser aggregator treats the
 venue file as one more critic input and the convergence gate is
 computed from the generic file only (filtered by `rubric` id).
 
-See `anvil/skills/pub/SKILL.md` and `anvil/skills/pub/rubric.md` for
+See `anvil/skills/paper/SKILL.md` and `anvil/skills/paper/rubric.md` for
 the canonical example of an advisory overlay in use.
 
 ## See also

@@ -60,7 +60,7 @@
         },
         "verdict": {
           "$ref": "#/$defs/Verdict",
-          "description": "Final verdict. BLOCK if any critical flag; else ADVANCE if total >= threshold; else REVISE. STALLED is reserved for #27."
+          "description": "Final verdict. NO_GO if any critical flag of type 'no_go' is present (issue #559 \u2014 thesis-failure terminal sink, highest priority); else BLOCK if any other critical flag; else ADVANCE if total >= threshold; else REVISE. STALLED is reserved for #27 (convergence-time stable-score plateau, lowest priority)."
         },
         "version_dir": {
           "title": "Version Dir",
@@ -458,12 +458,13 @@
       "type": "object"
     },
     "Verdict": {
-      "description": "Per-review or aggregated verdict.\n\n- ``ADVANCE``: total >= threshold AND no critical flag.\n- ``REVISE``: total < threshold AND no critical flag.\n- ``BLOCK``: any critical flag is set (regardless of total).\n- ``STALLED``: reserved for #27 \u2014 stable-score termination when\n  successive revisions stop improving. v1 does not produce this value;\n  the value is reserved so #27 does not need a schema bump.",
+      "description": "Per-review or aggregated verdict.\n\n- ``ADVANCE``: total >= threshold AND no critical flag.\n- ``REVISE``: total < threshold AND no critical flag.\n- ``BLOCK``: any critical flag is set (regardless of total).\n- ``STALLED``: reserved for #27 \u2014 stable-score termination when\n  successive revisions stop improving. v1 does not produce this value;\n  the value is reserved so #27 does not need a schema bump.\n- ``NO_GO``: reserved for #559 \u2014 thesis-failure terminal sink. Set\n  when a critical flag of type ``\"no_go\"`` is present (typically\n  promoted from a load-bearing red-team ``SURVIVES`` / ``UNENGAGED``\n  finding, an unaddressed load-bearing strongman objection, or a\n  contradicted thesis-level claim). NO-GO is a *thesis-level*\n  verdict \u2014 the evaluation concludes the idea fails, not that the\n  prose has a defect. It short-circuits the revise loop (the loop's\n  job is no longer \"raise the score\") and requires an explicit\n  operator override to resurrect. Additive optional enum value;\n  legacy consumers tolerate via pydantic strict-mode and the\n  ``schema_version`` stays at ``\"1\"`` (additive optional enum values\n  do not require a bump per the module-top docstring \u00a76).",
       "enum": [
         "ADVANCE",
         "REVISE",
         "BLOCK",
-        "STALLED"
+        "STALLED",
+        "NO_GO"
       ],
       "title": "Verdict",
       "type": "string"

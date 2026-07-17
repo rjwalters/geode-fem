@@ -1,0 +1,179 @@
+{# Speaker-notes scaffold for anvil:deck.
+   Parallel structure to deck.md.j2: one ## section per slide, with the slide
+   heading echoed. Each section has the same four subsections so the operator
+   can read the notes top-to-bottom alongside the deck.
+#}
+# {{ company_name }} — Speaker notes
+
+_{{ stage_label }} · {{ round_target }} · {{ founder_name }}_
+
+This document is parallel to `deck.md`. One section per slide. The deck is what the investor sees; this is what the founder says.
+
+## Slide 1 — Title
+
+**Talk track**: Open with the one-line description. Make eye contact, then say the name slowly. Pause.
+
+**Anticipated questions**: (none on title slide; investor is orienting)
+
+**Backing data**: Company name, tagline, stage from BRIEF.md frontmatter.
+
+**Drafter notes**: Standard title slide. No projection, no traction tease.
+
+---
+
+## Slide 2 — The problem
+
+**Talk track**: {{ problem_talk_track_2_to_4_sentences }}
+
+**Anticipated questions**:
+- {{ problem_q_1 }}
+- {{ problem_q_2 }}
+- {{ problem_q_3 }}
+
+**Backing data**: {{ problem_backing_citations }}
+
+**Drafter notes**: {{ problem_drafter_notes_optional }}
+
+---
+
+## Slide 3 — Why now
+
+**Talk track**: {{ why_now_talk_track }}
+
+**Anticipated questions**:
+- "Why hasn't [incumbent] solved this already?"
+- "What's the underlying change that opened the window?"
+
+**Backing data**: {{ why_now_backing_citations }}
+
+---
+
+## Slide 4 — Our solution
+
+**Talk track**: {{ solution_talk_track }}
+
+**Anticipated questions**:
+- "How is this different from [obvious incumbent]?"
+- "How long has the product existed?"
+
+**Backing data**: BRIEF.md Solution section; product status from BRIEF.md Stage section.
+
+---
+
+## Slide 5 — Competition
+
+**Talk track**: {{ competition_talk_track }}
+
+**Anticipated questions**:
+- "Who else have you lost to?"
+- "What does [competitor] do that you don't?"
+
+**Backing data**: BRIEF.md Competition section.
+
+**Drafter notes**: 2x2 used; alternative is feature matrix. Drafter chose 2x2 because it surfaces the differentiation axes most cleanly for this stage.
+
+---
+
+## Slide 6 — Product
+
+**Talk track**: {{ product_talk_track }}
+
+**Anticipated questions**:
+- "Can we see a demo?"
+- "What does the customer have to do to integrate?"
+
+**Backing data**: Product screenshot from `assets/product.png` (founder-provided).
+
+---
+
+## Slide 7 — Market
+
+**Talk track**: {{ market_talk_track_with_explicit_bottom_up_walk }}
+
+**Anticipated questions**:
+- "How did you size the SAM?"
+- "What's your defensible Year-3 capture rate?"
+
+**Backing data**:
+- Plant count: NAM 2024 census (BRIEF.md Market; ref `refs/nam-census-2024.pdf`)
+- ACV: cohort summary (BRIEF.md Traction; ref `refs/cohort-summary.xlsx`)
+- TAM = plant count × ACV
+- SAM = TAM × addressable-segment-fraction (with source)
+- SOM = Year-3 capture × SAM (with logic for capture rate)
+
+**Drafter notes**: Bottom-up math shown on slide; the talk track walks the multiplication.
+
+---
+
+## Slide 8 — Traction
+
+**Talk track**: {{ traction_talk_track }}
+
+**Anticipated questions**:
+- "What's your net retention?"
+- "What's the MoM growth rate?"
+- "What's the customer profile? — ICP?"
+
+**Backing data**: Every number on this slide is from BRIEF.md Traction. (Per the no-fabrication contract, the drafter cannot put a number here that isn't in the brief.)
+
+**Drafter notes**: If retention is `TBD` in the brief, this slide must not assert a retention number. Leave a `[TODO: retention from cohort analysis]` stub for the founder follow-up.
+
+---
+
+## Slide 9 — Business model
+
+**Talk track**: {{ business_model_talk_track }}
+
+**Anticipated questions**:
+- "What's your LTV/CAC?"
+- "Is pricing per-seat, per-usage, or platform-fee?"
+
+**Backing data**: BRIEF.md Stage / Traction sections (pricing, ACV); brief or refs for CAC.
+
+---
+
+## Slide 10 — Team
+
+**Talk track**: {{ team_talk_track }}
+
+**Anticipated questions**:
+- "What's the founder–market fit story?"
+- "Who else are you hiring with this round?"
+
+**Backing data**: BRIEF.md Team section. Every bio claim on this slide must trace to the brief.
+
+**Drafter notes**: Advisors omitted from slide because brief notes "pending permission". Add when permission is confirmed.
+
+---
+
+## Slide 11 — Financials
+
+**Talk track**: {{ financials_talk_track }}
+
+**Anticipated questions**:
+- "What are the key assumptions in the projection?"
+- "What happens if you miss by 25%?"
+
+**Backing data**: Current ARR + burn + runway from BRIEF.md Traction. Projection is labeled as a projection; assumptions documented in this section of the notes:
+- Assumption 1: {{ proj_assumption_1 }}
+- Assumption 2: {{ proj_assumption_2 }}
+- Assumption 3: {{ proj_assumption_3 }}
+
+---
+
+## Slide 12 — The ask
+
+**Talk track**: {{ ask_talk_track }} End with: "$X to do Y by Z. Happy to take questions."
+
+**Anticipated questions**:
+- "What does the round get you to?"
+- "What's the valuation expectation?"
+- "Who else is on the syndicate?"
+
+**Backing data**: BRIEF.md Ask section. Use of funds, runway, milestones all from brief.
+
+**Drafter notes**: This is the slide that does the work. Avoid soft-pedaling; the ask is the point of the deck.
+
+---
+
+{# Optional appendix slide sections follow if appendix slides exist in deck.md. #}

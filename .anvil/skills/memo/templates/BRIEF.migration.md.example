@@ -1,0 +1,134 @@
+---
+# Migration-thread memo brief — reference shape (case 2 of 2).
+#
+# Use this template when porting a memo thread forward from a prior pipeline
+# (e.g. a LaTeX lifecycle that produced v1..v8 outside of anvil) or when
+# carrying forward extensive context from a prior version into a new major
+# revision. The drafter is NOT starting fresh: there is a prior-version body
+# to read, prior critic siblings to honor, and a delta to land.
+#
+# Sibling template: `BRIEF.fresh.md.example` (use that one for brand-new
+# threads with no prior version / no carryover context — its sections differ).
+#
+# `recommendation_target` typically inherits from the prior version's
+# verdict — `conditional` is the most common migration case (a prior pass
+# that needs new evidence to clear into invest).
+company: "Greenfield Logistics"
+sector: "B2B SaaS — last-mile routing for regional couriers"
+stage: "Series A bridge (extension on prior round, 18mo runway target)"
+check_size: "$2.0M of a $5M extension; pro-rata + 1x"
+recommendation_target: conditional
+prior_version: v8        # the last version produced under the prior pipeline
+this_version: v9         # the first version produced under anvil:memo
+---
+
+# Brief: Greenfield Logistics — migration from prior pipeline (v8 → v9)
+
+This is the **migration brief** for the Greenfield thread. v1 through v8
+were produced under a prior bespoke LaTeX lifecycle that is being retired.
+v9 is the first version produced under the `anvil:memo` skill. The job of
+the migration is **continuity**, not a fresh re-think: the prior thesis,
+prior risks, and prior open questions carry forward unless explicitly
+revisited.
+
+This brief is therefore structurally different from a fresh-thread brief.
+It leads with a **read order** so the drafter threads the prior context
+correctly, names the **specific new content** that v9 must land on top of
+v8, fixes the **hard rules** that carry forward from prior versions, and
+sketches the **forward plan** for v10.
+
+## Source material — read order (the drafter reads in this order)
+
+The order matters: each item assumes the prior item has been read.
+"Authority decreases as you go down the list" — when sources conflict, the
+earlier source wins unless explicitly noted in the New content section
+below.
+
+1. `refs/prior-pipeline/v8/memo.pdf` — the last version produced under the
+   retired pipeline. This is the *canonical prior body*; v9 is its
+   successor, not a re-statement. Cite into it by section heading.
+2. `refs/prior-pipeline/v8/critic-substantive.md` — substantive critic
+   pass against v8. The two unresolved items flagged there
+   (cohort-2 retention plateau; carrier-density assumption in the South-
+   region forecast) are explicit v9 work.
+3. `refs/prior-pipeline/v8/critic-audit.md` — audit pass against v8.
+   No critical flags raised; one factual correction (the headcount
+   number on page 4) is already incorporated below in Hard rules.
+4. `refs/q1-2026-board-update.pdf` — the operator's own Q1 update,
+   published after v8. Contains the cohort-2 retention number that
+   resolves one of the v8 critic flags. **Treat this as v9's single most
+   important new input.**
+5. `refs/extension-term-sheet-draft.pdf` — the draft term sheet for the
+   bridge round. v9's recommendation must explicitly reconcile against
+   these terms (cap, discount, MFN, pro-rata language).
+6. General sector knowledge of last-mile B2B SaaS (cohort-based ARR
+   accounting, the route-density flywheel, the standard regional-carrier
+   sales cycle). Cite explicitly when load-bearing.
+
+## New content to land in v9 (the delta from v8)
+
+These are the v9-specific additions. The drafter MUST address each one
+explicitly; the v9 reviewer will check the body against this list.
+
+- **Cohort-2 retention update.** v8 flagged the cohort-2 plateau as the
+  most decision-relevant open question. The Q1 board update resolves it
+  (retention recovered to 88% by month 9 after the pricing fix). v9 must
+  cite this directly in the Evidence section and explicitly state how it
+  updates the v8 thesis.
+- **South-region carrier-density revision.** v8 used a carrier-density
+  assumption that the substantive critic flagged as optimistic. v9 should
+  re-state the assumption with a cited range, and show the unit math at
+  both ends of the range (rather than a point estimate).
+- **Bridge-round terms reconciliation.** v8 predates the bridge.
+  v9 must add a section reconciling the recommendation against the
+  draft term sheet — specifically the cap, the pro-rata mechanics, and
+  the runway implication.
+- **18-month runway test.** The bridge sizing claims 18mo of runway.
+  v9 must independently sanity-check this against the operator's stated
+  burn (no fictional financials — use the numbers in the Q1 update, and
+  state assumptions when the update is silent).
+
+## Hard rules carrying forward from prior versions
+
+These rules were established in earlier versions (v3, v5, v7 — citations
+inline) and continue to apply. The drafter MUST honor them. The reviewer
+will flag violations as critical.
+
+- **Recommendation must reconcile against terms.** Established v5
+  (after the previous bridge). Any check-size recommendation must be
+  paired with the specific term-sheet mechanics that justify it (cap,
+  pro-rata, MFN).
+- **No fictional unit economics.** Established v3. If the operator
+  hasn't disclosed a number, the memo names it as undisclosed and reasons
+  from a stated range, not a fabricated point estimate.
+- **Cohort accounting is by signup quarter, not delivery quarter.**
+  Established v7 (after the audit catch). The drafter must keep this
+  convention so v8→v9 comparisons are apples-to-apples.
+- **Headcount number is 47 as of 2026-Q1**, not 52 (v8 audit
+  correction). Carry forward.
+- **Risks section leads with the route-density flywheel risk.**
+  Established v5; this is the structural risk for the business and the
+  Risks section ordering reflects that.
+
+## What v10 will tighten (forward-planning placeholder)
+
+A forward-planning hint so the reader (and the next reviser) knows where
+the thread is heading. Items here are NOT promises for v9 — they're the
+most likely v10 edits if the bridge closes on the projected timeline.
+
+- **Post-close cohort update.** Once the bridge closes, v10 will absorb
+  the post-close cohort-3 numbers (currently pre-disclosure). Expect this
+  to update the retention trend and possibly the unit-margin assumption.
+- **South-region progression.** v9 expresses the carrier-density
+  assumption as a range; v10 should narrow it as the first
+  South-region pilot reports.
+- **Recommendation crystallization.** v9 lands on `conditional`. v10 is
+  the version that should either release the conditions (move to
+  `invest`) or formalize the pass — `conditional` is not a stable
+  long-term resting state for a thread.
+- **Compression target.** v9 carries a lot of migration scaffolding (the
+  read-order section, the explicit v8 delta callouts). v10 should
+  compress these — once the migration is settled, the thread no longer
+  needs to defend the port. Expect a tighter `target_length` (or a
+  per-version override under `target_length_overrides`) on the
+  document's BRIEF entry for v10.

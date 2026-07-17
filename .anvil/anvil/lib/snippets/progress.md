@@ -43,7 +43,7 @@ top-level field naming the version they critique:
 ```
 
 Skill-specific extensions are allowed (e.g., `project: <slug>` for the
-report skill; `metadata.audit_summary` for pub-audit's rich nested
+report skill; `metadata.audit_summary` for paper-audit's rich nested
 metadata; `metadata.revision_mode` + `metadata.revise_force_reason` for
 the memo skill's operator-initiated polish-pass audit trail — see
 `anvil/skills/memo/commands/memo-revise.md` §"CLI flags" — where

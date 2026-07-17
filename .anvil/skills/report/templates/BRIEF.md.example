@@ -1,0 +1,45 @@
+---
+title: "Q2 Security Posture Findings"
+report_type: "findings"             # findings | assessment | advisory | final
+scope: "Production infrastructure assessment, 2026 Q1-Q2"
+due_date: "2026-06-15"
+---
+
+# Brief: Q2 Security Posture Findings
+
+This report summarizes findings from our Q1-Q2 2026 security posture assessment
+of Acme's production infrastructure. The assessment was commissioned to fulfill
+deliverable §4.2 of the master engagement contract.
+
+## What we assessed
+
+- Public-facing services: web tier, API gateway, CDN configuration
+- IAM posture: role definitions, least-privilege audit, service account lifecycle
+- Secrets management: rotation policies, deployment-time injection patterns
+- Logging and audit trail: SIEM coverage gaps, retention policy compliance
+
+## What we did not assess
+
+- Endpoint security (employee laptops) — out of scope per engagement contract
+- Application-layer vulnerabilities — separate engagement (#ACME-2026-Q3-APPSEC)
+- Physical security — out of scope
+
+## Method
+
+Reviewed configuration exports from production AWS account, conducted 6 interviews
+with Acme platform and security engineers, ran the standard CIS benchmarks against
+configuration snapshots from 2026-03-01 and 2026-05-01.
+
+## Known sensitivities
+
+- Acme is mid-acquisition; one finding (IAM #3) intersects with the diligence
+  process and should be flagged for separate handling in the receipt cover.
+- A prior interim report (`interim.2`, delivered 2026-05-01) discussed an early
+  version of IAM finding #3 — ensure consistency or explicitly note the change.
+
+## References available
+
+- `refs/aws-config-export-2026-05-01.json` — AWS config snapshot
+- `refs/cis-benchmark-results-2026-q1-q2.csv` — benchmark output
+- `refs/interviews/` — interview transcripts (6 files)
+- `refs/prior-reports/` — copies of interim.2 and findings.3 for cross-reference

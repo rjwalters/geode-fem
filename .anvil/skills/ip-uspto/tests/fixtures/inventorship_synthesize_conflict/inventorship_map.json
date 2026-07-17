@@ -1,0 +1,27 @@
+{
+  "thread": "acme-widget",
+  "basis": "B:acme-widget.3/claims.tex",
+  "seeded_at": "2026-06-12T00:00:00Z",
+  "vendored_prefixes": ["third_party/"],
+  "elements": {
+    "C1": {
+      "label": "Independent claim 1 — adaptive widget controller",
+      "paths": [
+        {"path": "src/controller.py", "role": "primary", "manually_seeded": true, "seeded_at": "2026-06-12T00:00:00Z"}
+      ]
+    },
+    "1(b)(iv-v)": {
+      "label": "Claim 1 limitations (iv)-(v) — threshold scheduler",
+      "paths": [
+        {"path": "src/scheduler.py", "role": "primary", "manually_seeded": true, "seeded_at": "2026-06-12T00:00:00Z"}
+      ]
+    },
+    "C2": {
+      "label": "Independent claim 2 — vendored signal codec",
+      "paths": [
+        {"path": "third_party/codec/decode.c", "role": "vendored-primary", "manually_seeded": true, "seeded_at": "2026-06-12T00:00:00Z"},
+        {"path": "src/codec_glue.py", "role": "supporting", "manually_seeded": true, "seeded_at": "2026-06-12T00:00:00Z"}
+      ]
+    }
+  }
+}

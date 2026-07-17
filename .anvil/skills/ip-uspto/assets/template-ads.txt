@@ -1,0 +1,55 @@
+APPLICATION DATA SHEET (PLACEHOLDER) — USPTO 37 CFR 1.76
+
+This template is consumed by ip-uspto-finalize to produce a per-thread ADS placeholder. The final ADS MUST be filed via USPTO Patent Center (https://patentcenter.uspto.gov), not via this placeholder.
+
+== Inventor information ==
+Inventor 1:
+  Name: [REQUIRED — from inventorship.md]
+  Residence: [ATTORNEY TO COMPLETE]
+  Mailing address: [ATTORNEY TO COMPLETE]
+  Citizenship: [ATTORNEY TO COMPLETE]
+
+Inventor 2:
+  Name: [REQUIRED — from inventorship.md]
+  Residence: [ATTORNEY TO COMPLETE]
+  Mailing address: [ATTORNEY TO COMPLETE]
+  Citizenship: [ATTORNEY TO COMPLETE]
+
+(Add additional inventor blocks as needed.)
+
+== Application information ==
+Title of invention: [REQUIRED — from spec.tex \title]
+Suggested classification: [ATTORNEY TO COMPLETE — USPTO USPC/CPC]
+Filing type: Non-provisional utility, AIA
+Total claims: [AUTOFILLED — from claims.tex count]
+Independent claims: [AUTOFILLED — from claims.tex count]
+Drawings count: [AUTOFILLED — from drawings/ count]
+
+== Correspondence address ==
+[ATTORNEY TO COMPLETE]
+
+== Application data ==
+Domestic priority benefit (35 U.S.C. 119(e), 120, 121, 365(c), or 386(c)):
+  [ATTORNEY TO COMPLETE — application number, filing date, status, relationship — if claiming]
+
+Foreign priority benefit (35 U.S.C. 119(a)-(d) or 365):
+  [ATTORNEY TO COMPLETE — if applicable]
+
+Government interest statement: [ATTORNEY TO COMPLETE — if developed under federal funding]
+
+== Assignment ==
+Assignee:
+  Name: [ATTORNEY TO COMPLETE]
+  Address: [ATTORNEY TO COMPLETE]
+  Country of incorporation: [ATTORNEY TO COMPLETE]
+
+== Entity status ==
+[ ] Large entity (default)
+[ ] Small entity (37 CFR 1.27)
+[ ] Micro entity (37 CFR 1.29)
+
+== Notes for the attorney ==
+- All [ATTORNEY TO COMPLETE] fields must be filled before submission.
+- Inventor declarations (37 CFR 1.63) are filed separately; this skill does not generate them.
+- Small-entity / micro-entity status must be elected on the ADS at filing.
+- Verify all inventor names exactly match the inventorship matrix (inventorship.md) and the spec.

@@ -1,0 +1,93 @@
+# pandoc defaults for anvil:primer
+# Used by primer-figures to render <thread>.md → <thread>.pdf (the optional PDF)
+# Override per-consumer by dropping a replacement at:
+#   .anvil/skills/primer/assets/pandoc-defaults.yaml
+#
+# Unlike anvil:report (whose default engine is weasyprint / the CSS path), the
+# primer PDF renders through the LaTeX/xelatex pandoc path by default: the
+# botho#881 canary (issue #692) hit pandoc's implicit-figure LaTeX emission,
+# which is a no-op under weasyprint. Pinning xelatex here makes primer's
+# de-facto LaTeX path explicit and lets the header-includes below take effect.
+#
+# NOTE on schema: LaTeX preamble is threaded via `variables: header-includes`
+# (a list of raw-LaTeX strings), NOT via a top-level `include-in-header:`
+# block. In a pandoc *defaults* file `include-in-header` expects a list of
+# *file paths*, so the inline-`text` metadata form does not parse there —
+# `variables.header-includes` is the parse-valid inline path (verified against
+# pandoc 3.x + xelatex).
+
+# Input format
+from: markdown+yaml_metadata_block+pipe_tables+grid_tables+raw_html
+
+# Output format
+to: pdf
+
+# Engine — xelatex (the LaTeX path). The header-includes below are LaTeX
+# macros and are only meaningful for a LaTeX-family engine; a consumer who
+# swaps to weasyprint should also drop the LaTeX-only header-includes below.
+pdf-engine: xelatex
+
+# Layout + fonts. mainfont/mathfont are xelatex OpenType fonts with broad
+# Unicode coverage; pairing STIX Two Text with STIX Two Math widens the glyph
+# repertoire the body can reach. NOTE: a font pin alone does NOT guarantee
+# every codepoint renders — some symbols (e.g. U+2260 ≠) live in the *math*
+# font and only surface when authored as math (`$\neq$`), not as a literal
+# text glyph. The glyph-verification render gate (issue #692) is the actual
+# safety net: it sweeps the source for every non-ASCII codepoint and asserts
+# each survives into pdftotext output, catching silent drops this font pin
+# cannot prevent. Consumers may override the fonts.
+variables:
+  papersize: letter
+  margin-top: 1in
+  margin-bottom: 1in
+  margin-left: 1in
+  margin-right: 1in
+  fontsize: 11pt
+  mainfont: "STIX Two Text"
+  mathfont: "STIX Two Math"
+  # ONE header-includes block — the single source of truth for both:
+  #   (a) the caption convention from PR #695 (issue #690): the author writes
+  #       "Figure N — caption" in the body's image alt text and pandoc must NOT
+  #       *also* prepend its own "Figure N:" label, so labelformat=empty.
+  #       Without this the render shows the doubled "Figure N: Figure N — …"
+  #       the canary reported.
+  #   (b) the \pandocbounded 0.85\textheight cap (issue #692): pandoc ≥3.10's
+  #       default \pandocbounded scales images to fill \linewidth × \textheight
+  #       with NO headroom for a caption below, so a tall figure + a multi-line
+  #       caption overflows the page (captions overlapped the page number / were
+  #       clipped at the page edge in the canary run). Capping the image box at
+  #       0.85\textheight reserves room for the caption on the same page.
+  # These MUST co-exist here — do not split them into two competing
+  # header-includes blocks that silently clobber each other.
+  header-includes:
+    - |
+      \usepackage{graphicx}
+      \usepackage{caption}
+      \captionsetup{labelformat=empty}
+      \makeatletter
+      \providecommand\pandocbounded[1]{#1}%
+      \renewcommand*\pandocbounded[1]{%
+        \sbox\pandoc@box{#1}%
+        \Gscale@div\@tempa{0.85\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+        \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+        \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi
+        \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}%
+        \else\usebox{\pandoc@box}%
+        \fi%
+      }
+      \makeatother
+
+# Table of contents (primers are long-form pedagogical explainers)
+toc: true
+toc-depth: 2
+
+# Numbered sections (helps with "see §3.2" cross-references)
+number-sections: true
+
+# Standalone PDF (don't embed in another doc)
+standalone: true
+
+# Metadata defaults (overridden by <thread>.md frontmatter)
+metadata:
+  lang: en-US
+  documentclass: article

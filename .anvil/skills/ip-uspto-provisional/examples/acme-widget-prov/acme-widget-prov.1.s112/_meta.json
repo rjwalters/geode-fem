@@ -1,0 +1,12 @@
+{
+  "critic": "s112",
+  "role": "ip-uspto-provisional-112.md",
+  "started": "2026-06-13T17:12:00Z",
+  "finished": "2026-06-13T17:19:00Z",
+  "model": "illustrative-example",
+  "schema_version": 1,
+  "scorecard_kind": "machine-summary",
+  "rubric_id": "anvil-ip-provisional-v1",
+  "rubric_total": 45,
+  "advance_threshold": 39
+}

@@ -1,0 +1,297 @@
+%% datasheet.tex — AX101-OD Edge-AI Object Detection Processor
+%%
+%% Vendored worked example for anvil:datasheet (issue #529). Compile with:
+%%   xelatex datasheet.tex   (NOT pdflatex — see anvil-datasheet.cls)
+%%
+%% Synthesized, NON-CONFIDENTIAL illustrative content — not a real part. Every
+%% numeric claim traces to ../refs/spec-bundle.md. The pin-map markers wrap a
+%% complete QFN48 pinout (every pin assigned exactly once); the bus-width marker
+%% covers the 7-bit ROI index. status: preliminary — every pre-silicon value
+%% carries a provenance label and the sheet ends with the preliminary notice.
+
+\documentclass{anvil-datasheet}
+
+%% Signature color override (default 1F4E7A navy lives in the class).
+\definecolor{accent}{HTML}{1F4E7A}
+\definecolor{rule}{HTML}{1F4E7A}
+
+\datasheetpart{AX101-OD}
+\datasheettitle{Edge-AI Object Detection Processor}
+\datasheetsubtitle{Single-chip camera-input inference at the edge}
+\datasheetcompany{Northgate Silicon}
+\datasheetdate{June 2026}
+\datasheetrev{0.1}
+\datasheetstatus{PRELIMINARY --- SPECIFICATIONS SUBJECT TO CHANGE}
+
+\begin{document}
+
+\maketitleblock
+
+%% ── 1. First page: Key Features | Applications (two-column) ─────────────────
+\begin{featurecolumns}
+\subsection*{Key Features}
+\begin{itemize}
+\item Single-shot object detector, 320\texttimes320 RGB input, fully on die
+\item \simval{30}\,fps inference at 800\,mV / 600\,MHz (system-model sim.)
+\item 2-lane MIPI CSI-2 camera receiver
+\item 4\,MB on-die weight SRAM --- no external DRAM required
+\item Quad-SPI boot, I\textsuperscript{2}C control, 4\texttimes\ GPIO
+\item QFN48, 7\texttimes7\,mm, --40 to +85\,°C
+\end{itemize}
+\columnbreak
+\subsection*{Applications}
+\begin{itemize}
+\item Smart cameras and video doorbells
+\item Retail people-counting and footfall analytics
+\item Industrial presence / occupancy detection
+\item Battery-powered always-on vision sensors
+\end{itemize}
+\end{featurecolumns}
+
+\subsection*{General Description}
+
+The AX101-OD is an edge-AI inference processor that runs a quantized single-shot
+object detector entirely on die, taking its input directly from a MIPI CSI-2
+camera and emitting a list of detected regions of interest with no host
+involvement in the inference loop. It is the object-detection SKU of the AX101
+family: a single 3.1\,mm² base die in a QFN48 package, configured here for
+320\texttimes320 RGB detection. The differentiating fact is the 4\,MB on-die
+weight SRAM, which holds the detector's quantized weights with no external DRAM,
+making the part a self-contained vision sensor that boots from a small QSPI
+flash and runs from a single 800\,mV core supply.
+
+%% ── 2. Device family / Ordering information ─────────────────────────────────
+\section{Device Family \& Ordering Information}
+
+\begin{specbox}
+\begin{tabularx}{\textwidth}{@{} l X l l l @{}}
+\toprule
+\textbf{Part number} & \textbf{Function} & \textbf{Package} & \textbf{Temp.\ grade} & \textbf{Status} \\
+\midrule
+AX101-OD & Object detection (single-shot, 320\texttimes320) & QFN48 & --40 to +85\,°C & Preliminary \\
+AX101-OCR & Text recognition (CRNN line OCR) & QFN48 & --40 to +85\,°C & Preliminary \\
+\bottomrule
+\end{tabularx}
+\end{specbox}
+
+The two AX101 SKUs share one base die. \textbf{Shared across the family}
+(identical on both sheets): the TSMC 22ULL process, the 3.1\,mm² die, the QFN48
+package, the Absolute Maximum Ratings, and the DC / Electrical Characteristics.
+\textbf{Per-SKU} (differentiated): the configured network (object detection vs.\
+text recognition) and the Performance Characteristics that network delivers. A
+customer mixing SKUs in one design can rely on the shared blocks being identical.
+
+%% ── 3. Functional description / block diagram ───────────────────────────────
+\section{Functional Description}
+
+The AX101-OD integrates a MIPI CSI-2 receiver, an image signal pre-processor, a
+quantized neural inference engine backed by 4\,MB of weight SRAM, and a control
+subsystem (QSPI boot, I\textsuperscript{2}C, GPIO) on one die. Camera frames
+enter through the 2-lane CSI-2 receiver, are normalized to the 320\texttimes320
+detector input, and are streamed into the inference engine; detected regions are
+written to an output FIFO the host reads over I\textsuperscript{2}C.
+
+\begin{callout}[title=Block diagram]
+A block diagram (CSI-2 RX $\rightarrow$ ISP $\rightarrow$ inference engine + 4\,MB
+weight SRAM $\rightarrow$ ROI FIFO; QSPI / I\textsuperscript{2}C / GPIO control)
+renders to \texttt{figures/block-diagram.pdf} after \texttt{datasheet-figures}.
+This vendored example ships the empty \texttt{figures/} dir; the figure is an
+author-supplied artifact stubbed by default.
+\end{callout}
+
+The inference engine holds the full detector network in the 4\,MB on-die weight
+SRAM (4\,MB; source: model-export), so no external DRAM is required. The CSI-2
+receiver is a 2-lane configuration (source: rtl-params).
+
+%% ── 4. Specifications ───────────────────────────────────────────────────────
+\section{Specifications}
+
+\subsection{Absolute Maximum Ratings}
+
+\begin{specbox}
+\begin{tabularx}{\textwidth}{@{} X l l l l @{}}
+\toprule
+\textbf{Parameter} & \textbf{Symbol} & \textbf{Min} & \textbf{Max} & \textbf{Unit} \\
+\midrule
+Supply voltage (core) & $V_{DD}$ & --0.3 & 1.2 & V \\
+Supply voltage (I/O) & $V_{DDIO}$ & --0.3 & 3.6 & V \\
+Storage temperature & $T_{STG}$ & --55 & 150 & °C \\
+\bottomrule
+\end{tabularx}
+\end{specbox}
+
+\subsection{Recommended Operating Conditions}
+
+\begin{specbox}
+\begin{tabularx}{\textwidth}{@{} X l l l l l @{}}
+\toprule
+\textbf{Parameter} & \textbf{Symbol} & \textbf{Min} & \textbf{Typ} & \textbf{Max} & \textbf{Unit} \\
+\midrule
+Core supply & $V_{DD}$ & 0.72 & 0.80 & 0.88 & V \\
+I/O supply & $V_{DDIO}$ & 1.71 & 1.80 & 1.89 & V \\
+Ambient temperature & $T_A$ & --40 & 25 & 85 & °C \\
+\bottomrule
+\end{tabularx}
+\end{specbox}
+
+\subsection{DC / Electrical Characteristics}
+
+\begin{specbox}
+\begin{tabularx}{\textwidth}{@{} X l l l l l X @{}}
+\toprule
+\textbf{Parameter} & \textbf{Symbol} & \textbf{Min} & \textbf{Typ} & \textbf{Max} & \textbf{Unit} & \textbf{Notes} \\
+\midrule
+Active power & $P_{ACT}$ & --- & \simval{120} & --- & mW & system-model simulation \\
+Standby current & $I_{STBY}$ & --- & \est{50} & --- & µA & characterization pending \\
+\bottomrule
+\end{tabularx}
+\end{specbox}
+
+%% ── 5. Performance Characteristics ──────────────────────────────────────────
+\clearpage
+\section{Performance Characteristics}
+
+Performance is quoted for the shipped single-shot detector network at
+320\texttimes320 RGB input, at the nominal 800\,mV / 600\,MHz operating point.
+Every value below is pre-silicon and carries its provenance label; the numbers
+trace to the system-model simulation in \texttt{refs/spec-bundle.md}.
+
+\begin{specbox}
+\begin{tabularx}{\textwidth}{@{} X l l X X @{}}
+\toprule
+\textbf{Parameter} & \textbf{Typ} & \textbf{Unit} & \textbf{Conditions} & \textbf{Notes} \\
+\midrule
+Inference rate & \simval{30} & fps & 320\texttimes320 input, 600\,MHz & system-model simulation \\
+Single-frame latency & \simval{18} & ms & single frame, cold FIFO & system-model simulation \\
+ROI records per frame & 100 & --- & 7-bit \texttt{roi\_index} & rtl-params \\
+\bottomrule
+\end{tabularx}
+\end{specbox}
+
+The detector emits up to 100 region-of-interest records per frame, indexed by a
+7-bit field (capacity 128).
+% anvil-bus: name=roi_index width=7 max=99
+
+%% ── 6. Pin Configuration and Functions ──────────────────────────────────────
+\clearpage
+\section{Pin Configuration and Functions}
+
+Pins are numbered 1--48 counter-clockwise from the package top-view fiducial
+(pin 1 mark). The QFN48 ballout below assigns every pin exactly once.
+
+\begin{specbox}
+\begin{tabularx}{\textwidth}{@{} l l l X @{}}
+\toprule
+\textbf{Pin} & \textbf{Name} & \textbf{Type} & \textbf{Description} \\
+\midrule
+% anvil-pinmap-begin package=QFN48 pins=48
+1 & VDD\_CORE & P & Core supply (0.80\,V nom.) \\
+2 & VSS & G & Ground \\
+3 & MIPI\_D0P & I & MIPI CSI-2 data lane 0, positive \\
+4 & MIPI\_D0N & I & MIPI CSI-2 data lane 0, negative \\
+5 & MIPI\_D1P & I & MIPI CSI-2 data lane 1, positive \\
+6 & MIPI\_D1N & I & MIPI CSI-2 data lane 1, negative \\
+7 & MIPI\_CKP & I & MIPI CSI-2 clock lane, positive \\
+8 & MIPI\_CKN & I & MIPI CSI-2 clock lane, negative \\
+9 & VDDIO & P & I/O supply (1.80\,V nom.) \\
+10 & VSS & G & Ground \\
+11 & QSPI\_CLK & O & Quad-SPI boot clock \\
+12 & QSPI\_CS & O & Quad-SPI chip select \\
+13 & QSPI\_IO0 & I/O & Quad-SPI data 0 \\
+14 & QSPI\_IO1 & I/O & Quad-SPI data 1 \\
+15 & QSPI\_IO2 & I/O & Quad-SPI data 2 \\
+16 & QSPI\_IO3 & I/O & Quad-SPI data 3 \\
+17 & VDD\_CORE & P & Core supply (0.80\,V nom.) \\
+18 & VSS & G & Ground \\
+19 & I2C\_SCL & I/O & I\textsuperscript{2}C control clock \\
+20 & I2C\_SDA & I/O & I\textsuperscript{2}C control data \\
+21 & GPIO0 & I/O & General-purpose I/O 0 \\
+22 & GPIO1 & I/O & General-purpose I/O 1 \\
+23 & GPIO2 & I/O & General-purpose I/O 2 \\
+24 & GPIO3 & I/O & General-purpose I/O 3 \\
+25 & VDDIO & P & I/O supply (1.80\,V nom.) \\
+26 & VSS & G & Ground \\
+27 & INT\_N & O & Frame-ready interrupt (active low) \\
+28 & RESET\_N & I & Chip reset (active low) \\
+29 & BOOT\_SEL & I & Boot source strap \\
+30 & CLK\_REF & I & Reference clock input \\
+31 & VDD\_CORE & P & Core supply (0.80\,V nom.) \\
+32 & VSS & G & Ground \\
+33 & VDD\_PLL & P & PLL analog supply \\
+34 & VSS\_PLL & G & PLL analog ground \\
+35 & TEST\_EN & I & Test-mode enable (tie low in application) \\
+36 & TDI & I & JTAG test data in \\
+37 & TDO & O & JTAG test data out \\
+38 & TCK & I & JTAG test clock \\
+39 & TMS & I & JTAG test mode select \\
+40 & TRST\_N & I & JTAG test reset (active low) \\
+41 & VDDIO & P & I/O supply (1.80\,V nom.) \\
+42 & VSS & G & Ground \\
+43 & VDD\_CORE & P & Core supply (0.80\,V nom.) \\
+44 & VSS & G & Ground \\
+45 & VDD\_SRAM & P & Weight-SRAM supply \\
+46 & VSS\_SRAM & G & Weight-SRAM ground \\
+47 & SPARE0 & --- & Reserved --- leave unconnected \\
+48 & SPARE1 & --- & Reserved --- leave unconnected \\
+% anvil-pinmap-end
+\bottomrule
+\end{tabularx}
+\end{specbox}
+
+%% ── 7. Typical Application ──────────────────────────────────────────────────
+\section{Typical Application}
+
+A reference integration drives a MIPI CSI-2 camera module into the 2-lane
+receiver, boots the AX101-OD from a small QSPI flash holding the detector
+weights, and reads ROI records over I\textsuperscript{2}C. The part runs from a
+single 800\,mV core supply and a 1.80\,V I/O supply; the weight SRAM supply
+(\texttt{VDD\_SRAM}) is decoupled separately. Hold \texttt{TEST\_EN} low and
+strap \texttt{BOOT\_SEL} for QSPI boot in the application.
+
+\begin{callout}[title=Reset and boot]
+On power-up, hold \texttt{RESET\_N} low until both supplies are stable, then
+release; the part fetches its weights from QSPI flash and asserts
+\texttt{INT\_N} on the first detected frame. The 320\texttimes320 input size
+quoted in Performance Characteristics is the size the host's camera pipeline
+must deliver --- it agrees with the inference-rate conditions above.
+\end{callout}
+
+%% ── 8. Package / Mechanical ─────────────────────────────────────────────────
+\section{Package \& Mechanical}
+
+QFN48, 7\texttimes7\,mm body, 0.5\,mm pitch, 0.40\,mm nominal terminal width,
+with an exposed center pad tied to \texttt{VSS}. The 48-pin ballout is consistent
+with the family / ordering table and the pinout above (the auditor cross-checks
+the three). The package outline traces to the OSAT drawing referenced in
+\texttt{refs/}.
+
+\begin{callout}[title=Package outline]
+A dimensioned package-outline drawing renders to
+\texttt{figures/package-outline.pdf}; it is an author-supplied artifact stubbed
+by default in this vendored example.
+\end{callout}
+
+%% ── 9. Revision History ─────────────────────────────────────────────────────
+\section{Revision History}
+
+\begin{specbox}
+\begin{tabularx}{\textwidth}{@{} l l X @{}}
+\toprule
+\textbf{Rev} & \textbf{Date} & \textbf{Changes} \\
+\midrule
+0.1 & June 2026 & Initial preliminary release. \\
+\bottomrule
+\end{tabularx}
+\end{specbox}
+
+%% ── 10. Legal / notices ─────────────────────────────────────────────────────
+\preliminarynotice
+
+{\footnotesize\color{muted} Information in this document is provided in
+connection with the named products. No license, express or implied, to any
+intellectual property rights is granted by this document. The vendor reserves
+the right to make changes to specifications and product descriptions at any
+time. This is a synthesized, NON-CONFIDENTIAL worked example --- not a real
+part.}
+
+\end{document}

@@ -327,7 +327,7 @@ regex — skills disagree on path prefixes.
 
 | Artifact type | Format | Example |
 |---|---|---|
-| Text (memo, pub, report, ip-uspto spec) | `<path>:L<start>-L<end>` | `"memo.3/memo.md:L42-L58"` |
+| Text (memo, paper, report, ip-uspto spec) | `<path>:L<start>-L<end>` | `"memo.3/memo.md:L42-L58"` |
 | Deck / slides | `<path>:slide=<N>` | `"deck.1/deck.md:slide=4"` |
 | Drawings / figures (ip-uspto) | `<path>:fig=<N>` (suggested) | `"acme-widget.2/drawings/fig-3.svg:fig=3"` |
 
@@ -337,12 +337,12 @@ regex — skills disagree on path prefixes.
 |---|---|---|
 | `judgment` | Standard rubric-scored review from text alone (review-class critics — `<skill>-review` and judgment specialists like `deck-narrative`, `ip-uspto-s101`). | Nothing extra. |
 | `tool_evidence` | Audit-class review backed by external tool calls (citation resolution, build verification, numeric audit). Each finding records the tool invocations that produced its evidence. | Non-empty `tool_calls` array on every entry in `findings[]`. Enforced by `Review._validate_kind_required_fields`. |
-| `vision` | Vision-model review of a rendered artifact (#30). Actively used by `anvil/lib/vision.py` and `anvil/skills/deck/commands/deck-vision.md`; reserved for slides/pub/report/ip-uspto vision critics tracked as per-skill follow-ups to #30. | `rendered_artifact`. |
+| `vision` | Vision-model review of a rendered artifact (#30). Actively used by `anvil/lib/vision.py` and `anvil/skills/deck/commands/deck-vision.md`; reserved for slides/paper/report/ip-uspto vision critics tracked as per-skill follow-ups to #30. | `rendered_artifact`. |
 
 The `judgment` / `tool_evidence` split codifies the `.review/` vs
 `.audit/` sibling-directory distinction documented in
 `snippets/audit.md`. New audit critics MUST set `kind: tool_evidence`;
-the five v0 audit commands (pub, report, deck, slides, ip-uspto) ship
+the five v0 audit commands (paper, report, deck, slides, ip-uspto) ship
 prose-only output today and migrate to the canonical contract via
 separate per-skill follow-up issues. The `vision` value is now actively
 used by `VisionCritic` (see `anvil/lib/vision.py` and the
@@ -511,7 +511,7 @@ The shipped rubric is six dimensions, each scored 0..5 (max_total = 30):
 
 Skills may compose their own rubric by constructing a `VisionRubric`
 with a custom dimension list. The six defaults are appropriate for any
-presentation-class artifact (deck, slides); pub/report/ip-uspto vision
+presentation-class artifact (deck, slides); paper/report/ip-uspto vision
 critics may extend or replace the list.
 
 ### Critical flags
@@ -572,7 +572,7 @@ subprocess shell-outs:
   the `pdf2image` Python wrapper, attempted only when `pdftoppm` is not
   on PATH.
 - `render_pandoc_to_pdf(source_md, out_pdf, defaults=None)` — prose
-  Markdown to PDF via pandoc. Reserved for future pub-vision and
+  Markdown to PDF via pandoc. Reserved for future paper-vision and
   report-vision critics.
 - `render_matplotlib_figures(figures_dir)` — enumerates already-rendered
   `figures/*.png`. No re-execution; the skill's `figures` command owns
@@ -589,7 +589,7 @@ The lib reads three on-disk shapes today:
 1. **Canonical** — `_review.json` (this contract). Preferred.
 2. **Memo prose triple** — `verdict.md` + `scoring.md` + `comments.md`.
    This is the `human-verdict` shape per `snippets/scorecard_kind.md`,
-   used by memo, report, pub.
+   used by memo, report, paper.
 3. **ip-uspto hybrid** — `_summary.md` + `findings.md` + `_meta.json`.
    This is the `machine-summary` shape per `snippets/scorecard_kind.md`,
    used by ip-uspto and the deck specialists.
@@ -741,7 +741,7 @@ existing citation-related dimension to preserve the skill's declared
 
 **`cite.py` produces BibTeX. CSL is per-skill.** The lib ships zero
 CSL files and zero CSL knowledge. Consumer skills that want
-CSL-rendered citations (e.g. `anvil:pub`, `anvil:report`) ship an
+CSL-rendered citations (e.g. `anvil:paper`, `anvil:report`) ship an
 `apa-7.csl` or similar under their own `assets/` directory and the
 skill's render command picks it up.
 
@@ -786,14 +786,14 @@ from anvil.lib.rubric import (
 )
 
 # 1. Load a YAML rubric.
-rubric = load_rubric(Path("anvil/skills/pub/rubrics/neurips.yaml"))
+rubric = load_rubric(Path("anvil/skills/paper/rubrics/neurips.yaml"))
 # rubric.id == "anvil-pub-neurips-v1"
 # rubric.advisory == True
 
 # 2. Discover the venue overlay for a thread (reads <thread>/.anvil.json).
 overlay = discover_venue_rubric(
     thread_dir=Path("portfolio/q3-method"),
-    skill_root=Path(".anvil/skills/pub"),  # or anvil/skills/pub in dev
+    skill_root=Path(".anvil/skills/paper"),  # or anvil/skills/paper in dev
 )
 # Returns the loaded Rubric, or None if .anvil.json has no venue field
 # (or the venue YAML cannot be found in any tier).
@@ -825,11 +825,11 @@ field. When set, it searches three tiers in order — first hit wins:
    For a single thread that wants a non-shipped venue overlay
    without modifying the consumer install.
 2. **Consumer-installed**:
-   `<consumer>/.anvil/skills/pub/rubrics/<venue>.yaml`
+   `<consumer>/.anvil/skills/paper/rubrics/<venue>.yaml`
    (where `<consumer>` defaults to `<thread>.parent`, i.e., the
    portfolio dir). For consumer-wide custom venues.
 3. **Skill-shipped**: `<skill_root>/rubrics/<venue>.yaml`
-   (`anvil/skills/pub/rubrics/` in source; `.anvil/skills/pub/rubrics/`
+   (`anvil/skills/paper/rubrics/` in source; `.anvil/skills/paper/rubrics/`
    in an installed consumer repo). The framework defaults
    (`neurips`, `nature`, `arxiv`).
 
@@ -840,8 +840,8 @@ still in force).
 
 ### Shipped venue overlays
 
-The `anvil:pub` skill ships three venue YAMLs at
-`anvil/skills/pub/rubrics/`:
+The `anvil:paper` skill ships three venue YAMLs at
+`anvil/skills/paper/rubrics/`:
 
 | Venue | Dimensions | Total | Critical flags |
 |---|---|---|---|
@@ -857,7 +857,7 @@ overlay can be updated when venue guidelines change.
 To ship a custom venue overlay (e.g., `iclr`), a consumer drops a
 `Rubric`-shaped YAML into one of:
 
-- `<portfolio>/.anvil/skills/pub/rubrics/iclr.yaml` (portfolio-wide), or
+- `<portfolio>/.anvil/skills/paper/rubrics/iclr.yaml` (portfolio-wide), or
 - `<thread>/.anvil/rubrics/iclr.yaml` (single thread).
 
 Set `venue: iclr` in `<thread>/.anvil.json` to activate. The
@@ -878,7 +878,7 @@ The following are explicitly out of scope and are tracked as separate
 follow-up issues:
 
 - **`citation_lint`** — deterministic count of unsourced numeric
-  claims. Skill-specific (memo/pub care; deck/slides much less).
+  claims. Skill-specific (memo/paper care; deck/slides much less).
 - **`voice_lint`** — ban LLM tics ("available on request",
   "reference TBD"). Skill-agnostic but better implemented per-skill
   first to establish the pattern.
@@ -887,7 +887,7 @@ follow-up issues:
   (ip-uspto) pattern is currently inline per-skill. Will be promoted
   to a first-class lib primitive when a third skill needs it.
 - **Per-skill audit-command migration to `kind: tool_evidence`** —
-  the five v0 audit commands (`pub-audit`, `report-audit`,
+  the five v0 audit commands (`paper-audit`, `report-audit`,
   `deck-audit`, `slides-audit`, `ip-uspto-audit`) currently emit prose
   output plus `scorecard_kind` metadata; migrating each to write
   `_review.json` with `kind: tool_evidence` and `tool_calls[]` per

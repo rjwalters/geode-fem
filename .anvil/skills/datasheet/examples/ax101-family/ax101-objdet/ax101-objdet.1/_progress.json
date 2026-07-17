@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "thread": "ax101-objdet",
+  "phases": {
+    "draft": {
+      "state": "done",
+      "started": "2026-06-13T00:00:00Z",
+      "completed": "2026-06-13T00:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 1,
+    "max_iterations": 4,
+    "source": "Synthesized NON-CONFIDENTIAL worked example for anvil:datasheet (issue #529); dual-SKU AX101 family, object-detection SKU."
+  }
+}

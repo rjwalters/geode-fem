@@ -1,0 +1,9 @@
+{
+  "constant_consistency": {
+    "found": true,
+    "declarations": 7,
+    "distinct_names": 5,
+    "violations": [],
+    "passed": true
+  }
+}

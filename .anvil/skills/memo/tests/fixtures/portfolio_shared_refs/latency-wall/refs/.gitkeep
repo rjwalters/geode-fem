@@ -1,0 +1,8 @@
+# Placeholder to keep this empty `refs/` directory under version control.
+#
+# The latency-wall thread exists in this fixture WITHOUT a per-thread
+# refs file — it relies entirely on the portfolio-level `research/`
+# pool. The resolver's `<thread>/refs/` entry still appears in the
+# returned list (the directory exists, even if it contains no
+# materials), so this fixture exercises the "thread refs/ present but
+# empty" shape.

@@ -1,0 +1,20 @@
+{
+  "artifact_type": "tactical-plan",
+  "description": "Overlay for tactical execution plans — prioritized actions with ownership, timeline, and concrete next steps. Unlike a position paper, the plan IS the recommendation: dim 1 (Recommendation clarity) is fully preserved because every action item in the plan is itself a recommendation. Financial reasoning is reduced — tactical plans typically scope cost in operational rather than unit-economics terms ('this initiative costs 2 FTE-quarters' is the natural shape, not '12% gross margin scenarios'). Risk honesty stays at full weight: a plan that omits known execution risks is a bad plan. Per #283 sub-deliverable 3 seed analysis (originally from closed #278).",
+  "weight_adjustments": {
+    "dim_1": 0,
+    "dim_2": 0,
+    "dim_3": 0,
+    "dim_4": 0,
+    "dim_5": -1,
+    "dim_6": -4,
+    "dim_7": 0,
+    "dim_8": 0,
+    "dim_9": 0
+  },
+  "calibration_prose": {
+    "dim_1": "tactical-plan — the plan IS the recommendation; every prioritized action item is itself a recommendation. Score on whether the top 3-5 actions are sharply stated with ownership and trigger conditions, not on whether the document names a single ranked recommendation.",
+    "dim_5": "tactical-plan — market & competitive framing is sized to the plan's scope. A team-level execution plan does not need a fresh TAM/SAM/SOM; a product-launch plan SHOULD reference the relevant competitive landscape. Score on whether the framing is sized appropriately to the plan, not against the full investment-memo expectation.",
+    "dim_6": "tactical-plan — financial reasoning is operational rather than unit-economics-focused. Score on whether costs and resource trade-offs are honestly named (FTE-quarters, budget envelope, opportunity cost), not on whether the plan does unit-economics or scenario math. Most tactical plans will score at the top of the reduced weight without doing any per-unit financial modeling."
+  }
+}

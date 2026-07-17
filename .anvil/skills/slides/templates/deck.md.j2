@@ -1,0 +1,82 @@
+---
+marp: true
+theme: anvil-slides-theme
+size: 16:9
+paginate: true
+math: mathjax
+html: true
+---
+
+<!--
+  math: mathjax  — Marp v3 default; covers a wider LaTeX subset than KaTeX.
+  html: true     — passes raw HTML/<script> through. NOTE (issue #65): it does
+                   NOT make inline fenced ```mermaid blocks render as diagrams
+                   in the PDF — they emit as raw code. Render diagrams to PNG
+                   via mmdc (figures/<name>.mmd → figures/<name>.png) and
+                   reference them as ![alt](figures/<name>.png). The CLI-side
+                   equivalent of these pins lives at anvil/lib/marp/config.yml;
+                   pinning here keeps deck.md self-describing.
+-->
+
+
+<!-- _class: title -->
+
+# {{ talk_title }}
+
+## {{ speaker_name }} · {{ venue }} · {{ date }}
+
+---
+
+# Hook
+
+<!-- A question, surprise, or vignette that lands the room. -->
+
+Replace this slide with your hook.
+
+---
+
+<!-- _class: divider -->
+
+# Beat 1: {{ beat_1_title }}
+
+---
+
+# {{ beat_1_slide_1_title }}
+
+- Point 1
+- Point 2
+- Point 3
+
+---
+
+<!-- _class: divider -->
+
+# Beat 2: {{ beat_2_title }}
+
+---
+
+# {{ beat_2_slide_1_title }}
+
+Math example: $\nabla \cdot E = \rho / \varepsilon_0$
+
+Diagram example (write the source to figures/pipeline.mmd, render to PNG via
+mmdc, and reference the PNG here — inline ```mermaid does NOT render in the PDF,
+issue #65):
+
+![Input → Process → Output pipeline](figures/pipeline.png)
+
+---
+
+# Takeaway
+
+The single sentence the audience should remember 24 hours from now.
+
+---
+
+<!-- _class: title -->
+
+# Thank you
+
+## Questions?
+
+{{ speaker_contact }}

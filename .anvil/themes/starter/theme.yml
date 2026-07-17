@@ -1,0 +1,39 @@
+# .anvil/themes/starter/theme.yml
+#
+# Starter theme scaffolded by scripts/install-anvil.sh (issue #471).
+#
+# This directory is CONSUMER-OWNED. The installer scaffolds it once
+# (skip-if-exists) and never writes under .anvil/themes/ again — edits
+# here survive every re-install and --force upgrade.
+#
+# Enable this theme per project by declaring it in the project BRIEF
+# frontmatter:
+#
+#     # <project>/BRIEF.md
+#     ---
+#     project: my-project
+#     theme: starter
+#     documents:
+#       - slug: my-memo
+#         artifact_type: investment-memo
+#     ---
+#
+# Asset resolution is per-asset: anything this theme does not provide
+# (e.g. template.html, template.tex) falls through to the framework
+# default. See .anvil/anvil/lib/memo/README.md "Override discipline".
+#
+# Schema (anvil/lib/theme.py::Theme) — unknown keys are ignored, so this
+# file is forward-compatible:
+
+# Accent color consumed by theme-aware tooling. Matches the navy accents
+# in memo/styles.css (anvil/lib/figures/palette.py::ANVIL_NAVY).
+accent_color: "#1f4e7a"
+
+# Studio / brand name. Uncomment and set to your own; the commented-out
+# footer-wordmark block in memo/styles.css is the visual counterpart.
+# studio: "Your Studio Name"
+
+# Advisory render-engine pin: one of weasyprint | wkhtmltopdf | xelatex.
+# When the named engine is not on PATH, the renderer falls through to
+# the default priority order rather than failing.
+# render_engine: weasyprint

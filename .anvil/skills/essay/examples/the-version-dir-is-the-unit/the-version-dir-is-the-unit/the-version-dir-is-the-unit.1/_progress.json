@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "thread": "the-version-dir-is-the-unit",
+  "phases": {
+    "draft": {
+      "state": "done",
+      "started": "2026-06-13T00:00:00Z",
+      "completed": "2026-06-13T00:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 1,
+    "max_iterations": 4,
+    "voice_exemplars": [
+      "corpus/exemplar-on-iteration.md",
+      "corpus/exemplar-on-critics.md"
+    ],
+    "source": "Synthesized worked example for anvil:essay (issue #531). Original prose; no rjwalters.info content reproduced."
+  }
+}

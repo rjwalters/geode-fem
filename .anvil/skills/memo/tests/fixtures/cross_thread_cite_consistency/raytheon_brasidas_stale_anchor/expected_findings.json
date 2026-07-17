@@ -1,0 +1,28 @@
+{
+  "cross_thread_cite_consistency": {
+    "ran": true,
+    "cites_enumerated": 2,
+    "findings_count": 2,
+    "findings": [
+      {
+        "cite_text": "brasidas-synthesis/memo.2 §3.1",
+        "summary_location": "§2 paragraph 2 (citing_memo.md)",
+        "resolved_path": "cited_thread/brasidas_synthesis.2/memo.md",
+        "section_anchor": "§3.1",
+        "verdict": "ANCHOR-MISSING-BUT-THREAD-PRESENT",
+        "severity": "important",
+        "justification": "Cited thread brasidas-synthesis resolves to brasidas_synthesis.2/ (latest version), but §3.1 anchor is not present in brasidas_synthesis.2/memo.md. The data-center disagreement framing this cite attributes to §3.1 now lives at §5.2 (the brasidas-synthesis memo.1 → memo.2 revision reorganized the substrate-divergence argument and moved the disagreement framing from §5.4 to §5.2). -1 dim 3 deduction; reviser should re-cite to §5.2."
+      },
+      {
+        "cite_text": "brasidas-synthesis/memo.2 §3.1",
+        "summary_location": "§4 paragraph 1 (citing_memo.md)",
+        "resolved_path": "cited_thread/brasidas_synthesis.2/memo.md",
+        "section_anchor": "§3.1",
+        "verdict": "ANCHOR-MISSING-BUT-THREAD-PRESENT",
+        "severity": "important",
+        "justification": "Second occurrence of the same stale cite in the risks section. Same resolution as the §2 occurrence: cite should be re-pointed to §5.2 on the next revision pass. -1 dim 3 deduction (per-instance)."
+      }
+    ],
+    "critical_flag_candidate": false
+  }
+}

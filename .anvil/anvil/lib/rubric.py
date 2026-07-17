@@ -18,7 +18,7 @@ Two kinds of rubric coexist in the ecosystem:
    documented in ``snippets/rubric.md`` §"Shape requirements".
 2. **Advisory venue-pinned overlays** — venue YAMLs (e.g. ``neurips.yaml``,
    ``nature.yaml``, ``arxiv.yaml``) under
-   ``anvil/skills/pub/rubrics/``. These produce supplementary scoring
+   ``anvil/skills/paper/rubrics/``. These produce supplementary scoring
    that the reviser consumes for venue-specific signal, but do NOT
    contribute to the convergence-gate decision. Their weights need not
    sum to the declared ``total``, and ``threshold`` may be omitted.
@@ -143,7 +143,7 @@ class Rubric(BaseModel):
 
     Loaded from a YAML file via ``load_rubric``. The same model serves
     both the framework-wide convergence-gate rubrics (when shipped as
-    YAML — markdown rubrics like ``anvil/skills/pub/rubric.md`` are
+    YAML — markdown rubrics like ``anvil/skills/paper/rubric.md`` are
     not currently loaded by this module) and venue advisory overlays.
     The ``advisory`` flag distinguishes them. The lib is total-agnostic
     — gate rubrics declare any positive integer ``total`` (``40`` and
@@ -354,13 +354,13 @@ def discover_venue_rubric(
     1. **Per-thread**: ``<thread_dir>/.anvil/rubrics/<venue>.yaml``.
        For a single thread that wants a non-shipped venue overlay
        without modifying the consumer install.
-    2. **Consumer-installed**: ``<consumer_root>/.anvil/skills/pub/rubrics/<venue>.yaml``.
+    2. **Consumer-installed**: ``<consumer_root>/.anvil/skills/paper/rubrics/<venue>.yaml``.
        For a consumer who wants to ship a custom venue across all their
        threads. ``consumer_root`` defaults to ``thread_dir.parent``
        (the portfolio directory) when not supplied.
     3. **Skill-shipped**: ``<skill_root>/rubrics/<venue>.yaml`` (where
-       ``skill_root`` is typically ``anvil/skills/pub`` in the source
-       tree or ``.anvil/skills/pub`` in an installed consumer repo).
+       ``skill_root`` is typically ``anvil/skills/paper`` in the source
+       tree or ``.anvil/skills/paper`` in an installed consumer repo).
        The framework defaults (``neurips``, ``nature``, ``arxiv``).
 
     Returns the loaded ``Rubric`` on hit, or ``None`` when ``venue``
@@ -375,13 +375,13 @@ def discover_venue_rubric(
 
     # Build the search order. `consumer_root` defaults to the portfolio
     # directory (the thread's parent), which is the natural home for a
-    # per-portfolio `.anvil/skills/pub/rubrics/<venue>.yaml` override.
+    # per-portfolio `.anvil/skills/paper/rubrics/<venue>.yaml` override.
     if consumer_root is None:
         consumer_root = thread_dir.parent
 
     candidates = [
         thread_dir / ".anvil" / "rubrics" / f"{venue}.yaml",
-        consumer_root / ".anvil" / "skills" / "pub" / "rubrics" / f"{venue}.yaml",
+        consumer_root / ".anvil" / "skills" / "paper" / "rubrics" / f"{venue}.yaml",
         Path(skill_root) / "rubrics" / f"{venue}.yaml",
     ]
 

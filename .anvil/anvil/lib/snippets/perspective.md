@@ -7,9 +7,9 @@ evidence) for the drafter to consume. Perspective is a **sibling
 critic**, not a phase that gates the state machine.
 
 Perspective generalizes the existing skill-local pattern in
-`anvil/skills/pub/commands/pub-litsearch.md` (see "Why this is a
+`anvil/skills/paper/commands/paper-litsearch.md` (see "Why this is a
 separate role" and "Critical constraint: do not invent citations" in
-that file). Litsearch is anvil:pub's perspective-shaped sibling for
+that file). Litsearch is anvil:paper's perspective-shaped sibling for
 academic literature; this snippet promotes the shape to a framework
 primitive so other skills (deck, memo, ip-uspto, …) can adopt it
 without reinventing the contract.
@@ -19,8 +19,8 @@ without reinventing the contract.
 The framework names this sibling **`perspective`** (NOT `research`). The
 rationale is disambiguation:
 
-- `research` collides with anvil:pub's "research papers" domain
-  (anvil:pub *is* the research-paper skill; calling its pre-draft
+- `research` collides with anvil:paper's "research papers" domain
+  (anvil:paper *is* the research-paper skill; calling its pre-draft
   sibling "research" would be incoherent).
 - `research` also collides with consumer-local research directories
   some adopters already maintain in their portfolio (see #117 for the
@@ -54,7 +54,7 @@ The directory carries the standard sibling shape:
 
 Per-skill commands MAY add additional files (e.g., a `market-map.md`,
 `prior-art-table.md`, `competitor-deck-index.md`) following the
-"additive task-specific" convention from `critics.md` (see pub-audit's
+"additive task-specific" convention from `critics.md` (see paper-audit's
 `citation-audit.md` / `numerical-audit.md` precedent). The two
 load-bearing files are `notes.md` (narrative) and a typed candidate
 list — naming the candidate file is at the skill's discretion.
@@ -99,7 +99,7 @@ perspective command surfaces the gap in `notes.md` for the operator
 to fill manually. The command does NOT invent a plausible-sounding
 entry to close the gap.
 
-This rule is verbatim from `pub-litsearch.md`'s "Critical constraint:
+This rule is verbatim from `paper-litsearch.md`'s "Critical constraint:
 do not invent citations" — promoted here so every skill adopting the
 perspective shape inherits the same no-fabrication discipline.
 
@@ -189,7 +189,7 @@ the reviser reads the latest set.
 A re-run perspective sibling SHOULD include a **delta paragraph** in
 `notes.md` naming what changed since the previous perspective:
 which review comments drove the re-run, which gaps were closed by new
-substrate, which remain open. This mirrors pub-litsearch's "re-run
+substrate, which remain open. This mirrors paper-litsearch's "re-run
 delta" convention.
 
 ## Idempotence and resumability
@@ -207,7 +207,7 @@ delta" convention.
 To adopt the perspective shape for a new skill:
 
 1. Create `commands/<skill>-perspective.md`. Pattern after
-   `anvil/skills/pub/commands/pub-litsearch.md` — it's the load-bearing
+   `anvil/skills/paper/commands/paper-litsearch.md` — it's the load-bearing
    precedent.
 2. Specify the skill-specific substrate scope (market signals for
    deck; prior art for ip-uspto; comparable memos for memo; etc.).
@@ -230,7 +230,7 @@ picks up the new sibling automatically.
 
 ## See also
 
-- `anvil/skills/pub/commands/pub-litsearch.md` — load-bearing existing
+- `anvil/skills/paper/commands/paper-litsearch.md` — load-bearing existing
   precedent. This snippet generalizes its shape.
 - `critics.md` — sibling discovery, aggregation, optional siblings,
   "Adding a new critic". Note that perspective is **non-gating** and
@@ -247,4 +247,4 @@ picks up the new sibling automatically.
   `scorecard_kind: human-verdict` in `_meta.json` (the drafter reads
   the narrative; there is no per-dimension partial scorecard).
 - `cite.md` — citation primitive for academic-substrate perspective
-  candidates (pub-litsearch's BibTeX path).
+  candidates (paper-litsearch's BibTeX path).

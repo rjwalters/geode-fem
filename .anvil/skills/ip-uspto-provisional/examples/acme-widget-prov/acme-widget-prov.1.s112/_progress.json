@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "thread": "acme-widget-prov",
+  "for_version": 1,
+  "phases": {
+    "s112": {
+      "state": "done",
+      "started": "2026-06-13T17:12:00Z",
+      "completed": "2026-06-13T17:19:00Z"
+    }
+  }
+}

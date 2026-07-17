@@ -1,0 +1,109 @@
+---
+# Buildable-system proposal brief — reference shape.
+# All frontmatter keys are optional; the drafter fills template defaults for
+# any that are absent. Copy this to <thread>/BRIEF.md and fill it in.
+title: "System / Project Name"
+subtitle: "A one-line gloss of what it delivers"
+studio: "Studio Name"
+date: "Month Year"
+# stage is optional; if omitted it defaults from customer_kind
+# (external -> "DESIGN PROPOSAL --- CONCEPT STAGE", internal -> "INTERNAL BUILD SPEC").
+stage: "DESIGN PROPOSAL --- CONCEPT STAGE"
+signature_color: "4A6FA5"   # hex, no leading '#'. Default steel blue if omitted.
+hero: ""                      # path under figures/ for a hero (topology diagram / render); omit for none
+customer_kind: external       # external (client) | internal (budget sponsor). Default external.
+                              # Tunes the title-block stage line and how the reviewer reads dim 7.
+orientation: portrait         # portrait (default) | landscape. Use landscape for table-dense
+                              # proposals (multi-section priced BOMs with 4+ column comparison
+                              # tables, multi-domain coverage matrices, multi-generation roadmap
+                              # tables) where the wider text block lets columns breathe.
+recommendation_target: undecided  # invest | pass | conditional | undecided (issue #356).
+                                  # Operator-declared posture for the proposal. `undecided`
+                                  # signals pre-decision / concept-stage — the job of v1 is to
+                                  # resolve the open architectural / scope / cost decisions,
+                                  # not to defend a pre-committed recommendation. When set to
+                                  # `undecided`, the reviewer calibrates dim 8 (Open decisions)
+                                  # on open-decision framing clarity per
+                                  # `rubric.md` §"Dim 8 — `recommendation_target: undecided`
+                                  # calibration". Other values (`invest` / `pass` /
+                                  # `conditional`) are byte-identical-inert: dim 8 scores
+                                  # against the standard "open decisions tracked honestly"
+                                  # calibration. Mirrors the memo-skill default in
+                                  # `templates/BRIEF.fresh.md.example` — the proposer-side
+                                  # default for a fresh thread is `undecided`.
+---
+
+# Brief: <System / Project Name>
+
+A short statement of what this brief is and what the drafter should produce: a
+buildable-system proposal (`proposal.tex`) compiling under XeLaTeX, following the
+10-section template, scoring against the 9-dimension rubric, and passing the
+mandatory audit (BOM arithmetic + spec/link-budget consistency + sourceability).
+
+State the **hard constraints** up front — the customer's non-negotiables (e.g.
+invisibility, no conduit, a bandwidth floor). The reviewer scores constraint
+satisfaction (dim 3) on whether the design visibly threads each one through
+every section.
+
+## Premise (section 1)
+
+One paragraph: what the system is, what it delivers, and the hard constraints it
+satisfies. This becomes the Premise callout — it must be legible without further
+reading.
+
+## The Idea (section 2)
+
+Why this approach, and what the conventional answer costs or fails to deliver.
+State the value proposition the approver is being asked to fund. (For
+`customer_kind: internal`, frame this as a budget justification.)
+
+## Topology (section 3)
+
+The system architecture: the principal structure (hub-and-spoke, mesh,
+pipeline) and how its elements connect. Note the capacity limits (port counts,
+power budgets, spoke counts) so the auditor can cross-check them against the BOM.
+
+## The Core Subsystem (section 4)
+
+The central engineered element the whole proposal turns on. Subsections for
+component selection, the install/method approach, the **delivery capability**
+(how the executor acquires the tools/skills/staff to build AND maintain it — the
+deliverability anchor), and lifetime/maintenance.
+
+## The Interfaces (section 5)
+
+The secondary engineered layer — how the core connects to the endpoints, with
+the part choices matched at both ends. State rated specs (distances, power) so
+the auditor can check them against the demand.
+
+## Coverage / Capacity (section 6)
+
+How the system covers its full required scope and the design rule that
+guarantees it (e.g. one access point per major room). State the dominant
+constraint that drives the rule.
+
+## Bill of Materials (section 7)
+
+The central artifact. State the assumptions the BOM is sized against (zone
+count, endpoint count, labor rate). Then enumerate:
+- A multi-section priced BOM (Item | Qty | Unit | Total), grouped by subsystem,
+  with a Materials subtotal. Every price needs a basis (planning range, vendor
+  list price, quote).
+- A labor estimate (Task | Hours | Cost) with a Labor subtotal.
+- A project total (Materials + Labor → Total).
+
+## Installation / Operating Notes (section 8)
+
+Sequenced execution and operating guidance (build order, per-stage testing,
+labeling, power/ventilation/access constraints).
+
+## References / Compliance (section 9 — optional)
+
+Standards and spec sheets cited (e.g. ITU-T G.652D, datasheets). Omit if the
+piece cites nothing.
+
+## Open Decisions (section 10)
+
+The unresolved engineering choices, tracked honestly — the choices a
+commissioning conversation would need to settle, and what each implies for
+cost / scope / deliverability.

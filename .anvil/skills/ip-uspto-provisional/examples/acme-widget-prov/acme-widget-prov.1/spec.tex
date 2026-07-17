@@ -1,0 +1,177 @@
+\documentclass{anvil-uspto}
+
+\title{Passive Thermal Compensation Network for a Piezoresistive Pressure Sensor}
+\author{Dana R. Okoye \and Priya N. Venkatesan}
+
+\begin{document}
+\maketitle
+
+%% ---------------------------------------------------------------------------
+%% FIELD OF THE INVENTION
+%% ---------------------------------------------------------------------------
+\fieldoftheinvention
+
+\anvilpara{The present disclosure relates to pressure sensors, and more
+particularly to passive thermal compensation networks for piezoresistive
+micro\-electro\-mechanical (MEMS) pressure sensors.}
+
+%% ---------------------------------------------------------------------------
+%% BACKGROUND OF THE INVENTION
+%% ---------------------------------------------------------------------------
+\background
+
+\anvilpara{Piezoresistive MEMS pressure sensors convert mechanical strain in a
+sensing diaphragm into a resistance change in a set of implanted piezoresistors,
+typically arranged as a four-element Wheatstone bridge. Such sensors are
+sensitive to temperature in two distinct ways. First, the temperature
+coefficient of resistance (TCR) of the piezoresistors shifts the zero-pressure
+operating point of the bridge, producing a zero-offset error. Second, the
+temperature coefficient of sensitivity (TCS) of the diaphragm causes the bridge
+span --- the output change per unit pressure --- to fall as temperature rises.}
+
+\anvilpara{One approach measures temperature with a separate sensor and corrects
+the pressure reading numerically in firmware using a stored calibration table.
+Another approach places a resistor having a chosen temperature coefficient in
+series with the bridge excitation supply to flatten the span-versus-temperature
+curve. A third approach drives the bridge from a constant-current source to
+reduce span drift to first order.}
+
+\anvilpara{Each of the foregoing approaches leaves at least one of the two error
+mechanisms uncorrected, or imposes a per-unit calibration over multiple
+temperatures during production test. A passive compensation network that
+corrects both span drift and offset drift, and that requires only a single
+room-temperature trim, is therefore desirable.}
+
+%% ---------------------------------------------------------------------------
+%% SUMMARY OF THE INVENTION
+%% ---------------------------------------------------------------------------
+\summary
+
+\anvilpara{Disclosed is a passive thermal compensation network for a
+piezoresistive pressure sensor. A split-path excitation network divides the
+bridge supply into a constant-current leg and a proportional-to-absolute-%
+temperature (PTAT) leg, the relative contribution of the two legs being set by
+a single ratio resistor \refnum{12}. The PTAT leg increases excitation with
+temperature so as to cancel the negative temperature coefficient of sensitivity
+of the bridge, while the constant-current leg fixes the low-temperature
+operating point.}
+
+\anvilpara{A self-referencing offset-cancellation node sums into the bridge
+output a compensation signal taken from the midpoint of a matched dummy
+half-bridge \refnum{20} fabricated adjacent to the sense bridge \refnum{10} and
+exposed to the same die temperature and process corner. Because the dummy
+half-bridge tracks the common-mode offset drift of the sense bridge, the
+offset drift is cancelled without a per-unit trim.}
+
+\anvilpara{A single span trim resistor \refnum{30} sets the overall gain at room
+temperature and is trimmed exactly once, at approximately 25\,$^{\circ}$C,
+during a single-point production test. Because the split-path excitation network
+has already flattened the span-versus-temperature characteristic, the
+room-temperature trim holds across the full operating range.}
+
+%% ---------------------------------------------------------------------------
+%% BRIEF DESCRIPTION OF THE DRAWINGS
+%% ---------------------------------------------------------------------------
+\briefdescriptionofdrawings
+
+\anvilpara{FIG. 1 is a block diagram of a piezoresistive pressure sensor having
+a passive thermal compensation network according to one embodiment.}
+
+\anvilpara{FIG. 2 is a schematic diagram of the split-path excitation network of
+FIG. 1.}
+
+\anvilpara{FIG. 3 is a plan view of a MEMS die showing the placement of the
+dummy half-bridge adjacent to the sense bridge.}
+
+%% ---------------------------------------------------------------------------
+%% DETAILED DESCRIPTION OF EMBODIMENTS
+%% ---------------------------------------------------------------------------
+\detaileddescription
+
+\anvilpara{FIG. 1 shows a piezoresistive pressure sensor including a sense
+bridge \refnum{10} formed of four implanted piezoresistors arranged as a
+Wheatstone bridge on a sensing diaphragm, a split-path excitation network
+\refnum{40}, a dummy half-bridge \refnum{20}, a summing node \refnum{50}, and a
+span trim resistor \refnum{30}. The split-path excitation network \refnum{40}
+supplies the bridge; the summing node \refnum{50} combines the bridge output
+with a compensation signal from the dummy half-bridge \refnum{20}; and the span
+trim resistor \refnum{30} sets the output gain.}
+
+\anvilpara{\emph{Split-path excitation network.} Referring to FIG. 2, the
+split-path excitation network \refnum{40} comprises a constant-current source
+\refnum{42} and a PTAT current source \refnum{44} whose outputs are summed into
+the high node of the sense bridge \refnum{10}. The constant-current source
+\refnum{42} may be implemented as a bandgap-referenced current mirror delivering
+a fixed current independent of temperature. The PTAT current source \refnum{44}
+may be implemented as a current mirror whose reference is the difference in
+base-emitter voltage between two bipolar junctions operated at unequal current
+densities, producing a current proportional to absolute temperature. The ratio
+of the PTAT current to the constant current is set by a single ratio resistor
+\refnum{12} placed in the PTAT reference leg: increasing the resistance of
+\refnum{12} reduces the PTAT slope. To build this network, a person of ordinary
+skill selects the constant-current magnitude to set the desired bridge
+operating point at the cold end of the range, then selects \refnum{12} so that
+the added PTAT current raises the excitation at the hot end of the range by the
+fraction needed to offset the measured negative temperature coefficient of
+sensitivity of the bridge.}
+
+\anvilpara{In one embodiment the PTAT-to-constant-current ratio is tunable from
+0.4 to 1.2 and is preferably 0.7 for a sense bridge whose temperature
+coefficient of sensitivity is approximately $-0.18\,\%/^{\circ}\mathrm{C}$. The
+bridge excitation current ranges from 0.1\,mA to 2\,mA and is preferably
+0.5\,mA. The ratio resistor \refnum{12} preferably has a tolerance of 0.05\,\%
+or better and is a thin-film resistor; tolerances looser than 0.1\,\% degrade
+the cancellation and are not preferred. The same network narrows cleanly to a
+$0\,^{\circ}\mathrm{C}$ to $+85\,^{\circ}\mathrm{C}$ commercial range, in which
+case the ratio-resistor tolerance may be relaxed.}
+
+\anvilpara{\emph{Self-referencing offset-cancellation node.} The dummy
+half-bridge \refnum{20} comprises two piezoresistors fabricated from the same
+implant as the sense bridge \refnum{10} but located on an unstrained region of
+the die, so that the dummy resistors experience the same temperature and the
+same process corner as the sense resistors but do not respond to pressure. The
+midpoint of the dummy half-bridge \refnum{20} therefore produces a voltage that
+tracks the common-mode, temperature-dependent offset of the sense bridge
+\refnum{10} while remaining insensitive to pressure. This voltage is scaled by a
+fixed divider \refnum{52} and summed into the bridge output at the summing node
+\refnum{50}, subtracting the offset drift. Because the cancellation is
+self-referencing --- both bridges drift together --- no per-unit offset trim and
+no temperature soak are required.}
+
+\anvilpara{\emph{Single trim-once span resistor.} The span trim resistor
+\refnum{30} sets the overall output gain. It is trimmed exactly once, at
+approximately 25\,$^{\circ}$C, during a single-point production test: the part is
+held at room temperature, a known reference pressure is applied, and \refnum{30}
+is adjusted until the output equals the target full-scale value. No second
+temperature point is needed, because the split-path excitation network
+\refnum{40} has already flattened the span-versus-temperature curve, so the gain
+chosen at room temperature holds across the operating range. The span trim
+resistor \refnum{30} is preferably a thin-film resistor with a tolerance of
+0.05\,\% and a temperature coefficient of resistance of 25\,ppm/$^{\circ}$C or
+less. As an alternative, the span trim may be realized as a laser-trimmed
+resistor network on the sensor printed circuit board.}
+
+\anvilpara{\emph{Discrete-resistor embodiment.} In one embodiment all
+compensation elements --- the ratio resistor \refnum{12}, the fixed divider
+\refnum{52}, and the span trim resistor \refnum{30} --- are discrete
+surface-mount thin-film resistors mounted on the sensor printed circuit board,
+and the dummy half-bridge \refnum{20} is a second, unpressurized MEMS die
+co-packaged with the sense die in a common cavity so that both dies share the
+package thermal environment.}
+
+\anvilpara{\emph{Integrated embodiment.} In another embodiment, shown in plan
+view in FIG. 3, the dummy half-bridge \refnum{20} and the compensation network
+are integrated on the same MEMS die as the sense bridge \refnum{10}, using the
+same piezoresistor implant step, so that the dummy resistors and the sense
+resistors share a process corner exactly. The dummy half-bridge \refnum{20} is
+placed immediately adjacent to the sense bridge \refnum{10}, outside the
+flexing region of the diaphragm, to maximize thermal and process tracking while
+remaining insensitive to applied pressure.}
+
+\anvilpara{The foregoing embodiments are illustrative. The split-path excitation
+network \refnum{40}, the self-referencing offset-cancellation node, and the
+single trim-once span resistor \refnum{30} may be used together, as described,
+or independently, and the disclosed ranges and alternatives may be combined in
+any operative manner.}
+
+\end{document}

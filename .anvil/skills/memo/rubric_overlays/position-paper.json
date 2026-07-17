@@ -1,0 +1,20 @@
+{
+  "artifact_type": "position-paper",
+  "description": "Overlay for argumentative position papers (e.g. the canary's 'latency wall' thesis). A position paper names a problem and argues a viewpoint; it does NOT recommend an investment or carry a check size. Financial reasoning is typically out of scope — the paper engages technical / strategic / market shape and leaves capital allocation to the reader. Risk honesty is preserved mostly intact: theoretical / strategic risks to the argument matter even when venture-specific risks (run-rate burn, dilution, deal terms) do not. Per #283 sub-deliverable 3 seed analysis (originally from closed #278).",
+  "weight_adjustments": {
+    "dim_1": -3,
+    "dim_2": 0,
+    "dim_3": 0,
+    "dim_4": -1,
+    "dim_5": 0,
+    "dim_6": -4,
+    "dim_7": 0,
+    "dim_8": 0,
+    "dim_9": 0
+  },
+  "calibration_prose": {
+    "dim_1": "position-paper — score on whether the position itself is sharply stated and defended, not on whether the paper names a single investment recommendation with check size. A position paper that clearly says 'X will happen because Y' at full force scores at full (reduced) weight; vague hedging on the position scores down.",
+    "dim_4": "position-paper — score on whether risks to the argument (counter-evidence, alternative interpretations, scenarios that would falsify the position) are honestly named, not on whether venture-specific risks (burn rate, deal terms, founder concentration) are enumerated. Theoretical / strategic risk discipline is the target.",
+    "dim_6": "position-paper — financial reasoning is largely out of scope. Score on whether financial framing supports the position when invoked (e.g. unit economics cited to anchor a 'why now' argument), not on whether the paper does original unit-economics or scenario modeling. Most position papers will score at the top of the reduced weight without doing any financial work."
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "critic": "audit",
+  "role": "datasheet-audit.md",
+  "schema_version": 1,
+  "scorecard_kind": "human-verdict",
+  "rubric_id": "anvil-datasheet-v1",
+  "rubric_total": 44,
+  "advance_threshold": 39
+}

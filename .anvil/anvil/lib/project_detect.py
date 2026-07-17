@@ -105,6 +105,9 @@ _SKILL_FIXED_BODY_FILENAMES = (
     "proposal.md",
     "report.md",
     "installation.md",
+    # Legacy pre-#295 body filename for the `pub` skill (renamed to
+    # `paper` under #694; the current skill body is `main.tex`). A
+    # pre-rename unmigrated thread may still carry `pub.md`.
     "pub.md",
 )
 
@@ -731,8 +734,10 @@ def inventory_project(project_dir: Path) -> ProjectInventory:
         # project_slug; otherwise use the stem itself (handles the
         # post-#283 layout where the operator already renamed memo.N
         # to <slug>.N but never moved them into <slug>/).
+        # `paper` (renamed from `pub` under #694) plus the legacy `pub`
+        # stem — an unmigrated pre-rename thread may still carry it.
         if stem in {"memo", "proposal", "report", "deck", "slides",
-                    "ip-uspto", "installation", "pub"}:
+                    "ip-uspto", "installation", "paper", "pub"}:
             slug = project_slug
         else:
             slug = stem

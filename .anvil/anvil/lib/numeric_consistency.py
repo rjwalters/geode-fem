@@ -84,7 +84,7 @@ additionally emits one ``CriticalFlag`` per finding-code cluster, which
 forces ``Verdict.BLOCK`` through ``critics.compute_verdict``. The essay
 skill (#460) is the shipped ``blocking=True`` consumer: ``essay-review``
 invokes the CLI with ``--blocking`` as its convergence-blocking
-numeric gate (memo/pub stay advisory).
+numeric gate (memo/paper stay advisory).
 
 Suppression
 -----------
@@ -128,7 +128,7 @@ CLI entry-point
 Writes a JSON summary to stdout. Exit codes: ``0`` clean (or
 suppressed-only findings), ``1`` active findings, ``2`` invocation
 error. The body file is auto-detected: ``<slug>.md`` (the #295
-slug-echo memo shape) first, then ``main.tex`` (the pub shape).
+slug-echo memo shape) first, then ``main.tex`` (the paper shape).
 ``--body PATH`` overrides discovery for adopted-in-place legacy
 threads whose entry point isn't ``<slug>.md``/``main.tex`` (e.g. a
 ``paper.tex``); with ``--write-review`` the resolved
@@ -1037,7 +1037,7 @@ def _body_path(version_dir: Path, *, body: Optional[Path] = None) -> Path:
     """Locate the body file inside a version directory.
 
     Detection order: ``<slug>.md`` (the #295 slug-echo memo shape —
-    the slug is the parent dir name), then ``main.tex`` (the pub
+    the slug is the parent dir name), then ``main.tex`` (the paper
     shape). Raises ``FileNotFoundError`` when neither exists.
 
     When ``body`` is supplied (the adopted-in-place legacy-thread
@@ -1198,7 +1198,7 @@ def _build_cli_parser():
         help=(
             "Emit CriticalFlags per finding cluster (forces Verdict.BLOCK "
             "through compute_verdict). Reserved for the essay skill "
-            "(#460); advisory consumers (memo/pub) MUST NOT set this."
+            "(#460); advisory consumers (memo/paper) MUST NOT set this."
         ),
     )
     p.add_argument(

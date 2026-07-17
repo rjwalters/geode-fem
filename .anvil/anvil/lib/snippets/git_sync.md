@@ -144,7 +144,7 @@ Stage **only** the paths the phase wrote — never `git add -A`, never
   version-dir path(s) it wrote — always **by explicit path, never
   `<thread>.{N}/` wholesale** — so an unrelated out-of-band operator
   edit elsewhere in the version dir is not swept into the commit. The
-  worked example is `pub-audit` (`anvil/skills/pub/commands/pub-audit.md`):
+  worked example is `paper-audit` (`anvil/skills/paper/commands/paper-audit.md`):
   its mandatory compile-verification step builds `<thread>.{N}/main.pdf`
   into the version dir while its findings land in the
   `<thread>.{N}.audit/` sidecar, so it stages both
@@ -230,7 +230,7 @@ A command file adopts the contract with one short final step:
 Complete. Pilot-on-memo first (issue #426, mirroring the #350 sidecar
 rollout): the 12 write-bearing memo commands adopted in the pilot.
 Issue #436 rolled the hook out to every remaining write-bearing
-command — 76 across the nine other artifact skills (`pub` 7, `report`
+command — 76 across the nine other artifact skills (`paper` 7, `report`
 9, `deck` 12, `slides` 9, `ip-uspto` 15, `ip-uspto-provisional` 5,
 `installation` 4, `proposal` 7, `datasheet` 5) and the three
 write-bearing bridge/utility tools (`project-migrate`,

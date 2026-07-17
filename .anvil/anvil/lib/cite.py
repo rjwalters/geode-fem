@@ -6,7 +6,11 @@ documented in ``anvil/lib/snippets/cite.md``. It owns:
 - **Identifier parsing.** DOI / arXiv / URL strings normalized to a typed
   ``Identifier``.
 - **Resolution.** Crossref (for DOIs) and arXiv (for arXiv IDs) queried
-  via ``urllib.request``. Network failures retry with exponential backoff.
+  via ``urllib.request``. DOIs that Crossref does not know (e.g.
+  Zenodo / software / dataset DOIs, which return HTTP 404/406) fall back
+  to the DataCite REST API before failing, so mechanically-verifiable
+  software citations resolve to ``@software`` / ``@misc`` records instead
+  of being dropped. Network failures retry with exponential backoff.
   ``UnsupportedIdentifierError`` for v0-deferred kinds (``pmid``, ``url``).
 - **Citation key generation.** Deterministic ``<lastname><year><word>``
   with stopword skipping, ASCII folding, and per-file collision suffixes.
@@ -145,9 +149,19 @@ class BibRecord(BaseModel):
 class CiteResolutionError(Exception):
     """Network or parse failure while resolving an identifier.
 
-    Raised after retries exhaust against Crossref or arXiv. The original
-    ``urllib`` error is chained via ``__cause__``.
+    Raised after retries exhaust against Crossref, DataCite, or arXiv. The
+    original ``urllib`` error is chained via ``__cause__``.
+
+    ``status_code`` carries the HTTP status when the failure was a
+    definitive 4xx (e.g. a Crossref 404 for a DOI not registered there),
+    and ``None`` for network / parse failures. The DataCite fallback in
+    :func:`_resolve_doi` inspects this to decide whether a Crossref miss
+    is worth a second registry lookup.
     """
+
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class UnsupportedIdentifierError(Exception):
@@ -329,10 +343,13 @@ def _http_get(url: str) -> bytes:
             with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
                 return resp.read()
         except urllib.error.HTTPError as e:
-            # 4xx is a definitive answer — do not retry.
+            # 4xx is a definitive answer — do not retry. Thread the status
+            # code through so callers (e.g. the DataCite fallback) can act
+            # on a specific code without parsing the message string.
             if 400 <= e.code < 500:
                 raise CiteResolutionError(
-                    f"HTTP {e.code} fetching {url}: {e.reason}"
+                    f"HTTP {e.code} fetching {url}: {e.reason}",
+                    status_code=e.code,
                 ) from e
             last_err = e
         except urllib.error.URLError as e:
@@ -385,9 +402,32 @@ def _crossref_year(message: dict) -> int:
     return 0
 
 
+# Crossref returns these codes for a DOI it does not have registered
+# (Zenodo / software / dataset DOIs live in DataCite, not Crossref).
+# Only these trigger the DataCite fallback; other 4xx (e.g. a
+# genuinely malformed request) surface as-is.
+_CROSSREF_MISS_CODES = frozenset({404, 406})
+
+
 def _resolve_doi(identifier: Identifier) -> BibRecord:
+    """Resolve a DOI, trying Crossref first then DataCite.
+
+    Crossref owns journal-article DOIs; DataCite owns Zenodo / software /
+    dataset DOIs. When Crossref returns a definitive miss (HTTP 404/406 —
+    "not registered here"), fall back to DataCite before giving up. A DOI
+    unknown to *both* registries still raises ``CiteResolutionError``,
+    preserving the verified-or-dropped invariant.
+    """
+
     url = f"https://api.crossref.org/works/{urllib.parse.quote(identifier.value, safe='/')}"
-    raw = _http_get(url)
+    try:
+        raw = _http_get(url)
+    except CiteResolutionError as e:
+        if e.status_code in _CROSSREF_MISS_CODES:
+            # Not in Crossref — try DataCite. A DataCite miss re-raises,
+            # so garbage DOIs unknown to both registries still fail.
+            return _resolve_datacite(identifier)
+        raise
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
@@ -416,6 +456,110 @@ def _resolve_doi(identifier: Identifier) -> BibRecord:
         pages=msg.get("page"),
         doi=msg.get("DOI"),
         url=msg.get("URL"),
+    )
+
+
+# DataCite's ``attributes.types.bibtex`` hint maps CSL/resource types to a
+# BibTeX entry type. Values outside the ``BibRecord.entry_type`` Literal
+# (e.g. ``phdthesis``, ``techreport``) collapse to ``misc`` — the safe
+# catch-all for software / dataset records, and the same type arXiv
+# preprints already use.
+_DATACITE_BIBTEX_TYPES = frozenset(
+    {"article", "misc", "inproceedings", "book"}
+)
+
+
+def _datacite_author(c: dict) -> str:
+    """Render a DataCite ``creators`` entry to surname-first BibTeX form.
+
+    DataCite splits some creators into ``familyName`` / ``givenName``;
+    organizational and software authors carry only ``name``. Mirror the
+    family/given-first fallback used for Crossref (:func:`_crossref_author`)
+    so both registries render author names the same way.
+    """
+
+    family = (c.get("familyName") or "").strip()
+    given = (c.get("givenName") or "").strip()
+    if family and given:
+        return f"{family}, {given}"
+    if family:
+        return family
+    name = (c.get("name") or "").strip()
+    return name
+
+
+def _datacite_entry_type(
+    attrs: dict,
+) -> Literal["article", "misc", "inproceedings", "book"]:
+    """Choose a BibTeX entry type from a DataCite ``attributes`` dict.
+
+    Honors DataCite's own ``types.bibtex`` hint when it names a type the
+    ``BibRecord`` Literal supports; otherwise falls back to ``misc``
+    (software, datasets, and anything unrecognized).
+    """
+
+    types = attrs.get("types")
+    if isinstance(types, dict):
+        hint = (types.get("bibtex") or "").strip().lower()
+        if hint in _DATACITE_BIBTEX_TYPES:
+            return hint  # type: ignore[return-value]
+    return "misc"
+
+
+def _resolve_datacite(identifier: Identifier) -> BibRecord:
+    """Resolve a DOI via the DataCite REST API.
+
+    Called only as a Crossref fallback (see :func:`_resolve_doi`). Uses a
+    plain unauthenticated ``urllib`` GET — stdlib only, same shape as the
+    Crossref path. A DataCite miss (HTTP 404/406) raises
+    ``CiteResolutionError`` like any other unresolvable identifier.
+    """
+
+    url = (
+        "https://api.datacite.org/dois/"
+        f"{urllib.parse.quote(identifier.value, safe='/')}"
+    )
+    raw = _http_get(url)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise CiteResolutionError(
+            f"non-JSON response from DataCite for {identifier.value}"
+        ) from e
+    attrs = (data.get("data") or {}).get("attributes")
+    if not isinstance(attrs, dict):
+        raise CiteResolutionError(
+            "DataCite response missing 'data.attributes' field for "
+            f"{identifier.value}"
+        )
+
+    authors = [_datacite_author(c) for c in attrs.get("creators") or []]
+    authors = [a for a in authors if a]
+
+    title_list = attrs.get("titles") or []
+    title = ""
+    if title_list and isinstance(title_list[0], dict):
+        title = (title_list[0].get("title") or "").strip()
+
+    year = 0
+    pub_year = attrs.get("publicationYear")
+    if isinstance(pub_year, int):
+        year = pub_year
+    elif isinstance(pub_year, str) and pub_year[:4].isdigit():
+        year = int(pub_year[:4])
+
+    # Prefer the registry's own canonical URL; fall back to the doi.org
+    # resolver form so the field is never empty for a resolved record.
+    doi_value = attrs.get("doi") or identifier.value
+    url_value = attrs.get("url") or f"https://doi.org/{doi_value}"
+
+    return BibRecord(
+        entry_type=_datacite_entry_type(attrs),
+        authors=authors,
+        title=title,
+        year=year,
+        doi=doi_value,
+        url=url_value,
     )
 
 
@@ -491,7 +635,12 @@ def resolve(identifier: Union[Identifier, str]) -> BibRecord:
     parsed via :func:`parse_identifier` first).
 
     Cache-first: a hit on ``~/.cache/anvil/cite/`` skips the network.
-    Cache misses populate the cache atomically.
+    Cache misses populate the cache atomically. The cache key is the DOI
+    itself, so DataCite-resolved records share the ``doi/`` namespace with
+    Crossref-resolved ones — no per-registry cache split.
+
+    DOI resolution tries Crossref first, then DataCite when Crossref
+    reports the DOI is not registered there (HTTP 404/406).
 
     Args:
         identifier: typed identifier or raw string.
@@ -502,7 +651,8 @@ def resolve(identifier: Union[Identifier, str]) -> BibRecord:
 
     Raises:
         UnsupportedIdentifierError: for ``PMID`` and ``URL`` kinds in v0.
-        CiteResolutionError: on persistent network or parse failures.
+        CiteResolutionError: on persistent network or parse failures, or
+            when a DOI is registered with neither Crossref nor DataCite.
     """
 
     if isinstance(identifier, str):

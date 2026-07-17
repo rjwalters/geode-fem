@@ -188,7 +188,7 @@ exposed: a late-revise overfull introduced after the last pre-flight
 pass would otherwise reach FILING-READY / COUNSEL-READY unchallenged.
 The ip-skill call sites tighten the threshold to
 ``overfull_threshold_pt=2.0`` (the framework default of 5.0pt is
-unchanged for ``installation`` / ``proposal`` / ``datasheet`` / ``pub``
+unchanged for ``installation`` / ``proposal`` / ``datasheet`` / ``paper``
 / ``report``). The sphere-canary regression fixture at
 ``tests/lib/fixtures/render_gate/overfull_sphere_canary.txt`` (13 hits,
 worst 83.6pt) is pinned in
@@ -202,6 +202,7 @@ import re
 import shutil
 import struct
 import subprocess
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
@@ -234,6 +235,17 @@ DIM_PAGE_FIT = "page_fit"
 DIM_OVERFULL = "overfull_boxes"
 DIM_COMPILE = "compile"
 DIM_PLACEHOLDERS = "placeholders"
+# Source-driven glyph verification (issue #692). Sweeps the source body for
+# every non-ASCII codepoint and asserts each survives into ``pdftotext``
+# output at >= its source count. Catches silent font glyph-drops (the STIX
+# Two Text ``≠`` U+2260 canary) that a hardcoded allow-list misses by
+# construction.
+DIM_GLYPH_VERIFICATION = "glyph_verification"
+# Embedded-image assertion (issue #692). Counts ``![...](path)`` references in
+# the source body and asserts ``pdfimages -list`` reports at least that many
+# embedded images. Catches the "zero embedded images, every other gate green"
+# failure (the botho v2 canary — the #690 contract gap).
+DIM_EMBEDDED_IMAGES = "embedded_images"
 
 # Compile status values. ``ok`` and ``failed`` are the LaTeX-invoked outcomes;
 # ``skipped`` means the caller did not run a compile (i.e. ``gate`` was given
@@ -354,6 +366,47 @@ _OVERFULL_RE = re.compile(
 # error context when compile fails.
 _LATEX_ERROR_RE = re.compile(r"^!.*$", re.MULTILINE)
 
+# Markdown inline-image reference: ``![alt](path)``. Used by the
+# embedded-image assertion (issue #692) to count how many images the body
+# claims. The ``!`` prefix distinguishes images from plain links; the alt
+# text and path are captured non-greedily. Reference-style images
+# (``![alt][id]``) are intentionally NOT matched — the primer/report bodies
+# use inline references exclusively (the ``exhibits/…png`` convention), and a
+# reference-style definition would double-count against its use.
+_MD_IMAGE_REF_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
+
+
+# Non-rendered source regions that the glyph-verification source sweep (issue
+# #692) must exclude before counting non-ASCII codepoints. Characters in these
+# regions live in the markdown source but never reach the rendered PDF body
+# text, so counting them source-side produces a false glyph-drop. Order of
+# stripping does not matter — each pattern is independently safe to blank out.
+#   * HTML comments: ``<!-- … -->`` (non-greedy, DOTALL to span newlines).
+#   * Inline-link / image URL targets: the ``(target)`` half of
+#     ``[text](target)`` and ``![alt](target)`` — the visible link *text* is
+#     kept (it renders); only the URL target is dropped. A non-ASCII path
+#     segment (``…/café-page``) never appears in the rendered body.
+#   * Autolinks: ``<https://…>`` angle-bracket URLs.
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_MD_LINK_TARGET_RE = re.compile(r"(!?\[[^\]]*\])\(([^)]*)\)")
+_AUTOLINK_RE = re.compile(r"<([a-zA-Z][a-zA-Z0-9+.-]*:[^>\s]*)>")
+
+
+def _strip_nonrendered_regions(text: str) -> str:
+    """Blank out markdown source regions that never reach the rendered body.
+
+    Removes HTML comments, inline link/image URL *targets* (keeping the
+    visible link text), and angle-bracket autolink URLs. Used by the
+    glyph-verification source sweep so non-ASCII inside a URL path
+    (``[x](https://ex.com/café-page)``) or a comment (``<!-- café -->``) is
+    not miscounted as a dropped body glyph (issue #692).
+    """
+    text = _HTML_COMMENT_RE.sub(" ", text)
+    # Keep the link text (group 1), drop the URL target (group 2).
+    text = _MD_LINK_TARGET_RE.sub(lambda m: m.group(1) + "( )", text)
+    text = _AUTOLINK_RE.sub(" ", text)
+    return text
+
 
 # -----------------------------------------------------------------------------
 # Result types
@@ -461,6 +514,8 @@ class GateResult:
             DIM_OVERFULL,
             DIM_COMPILE,
             DIM_PLACEHOLDERS,
+            DIM_GLYPH_VERIFICATION,
+            DIM_EMBEDDED_IMAGES,
             DIM_MEMO_COMPILE,
             DIM_MEMO_PAGE_FIT,
             DIM_MEMO_OVERFULL,
@@ -600,7 +655,7 @@ def _parse_overfull_boxes(log_text: str, threshold_pt: float) -> list[dict]:
 
     **Dedupe contract (issue #668).** Multi-pass LaTeX cycles
     (``pdflatex → bibtex → pdflatex → pdflatex``, as captured by
-    e.g. ``pub-audit``'s ``compile-log.txt``) re-emit the *same* overfull
+    e.g. ``paper-audit``'s ``compile-log.txt``) re-emit the *same* overfull
     warning on every ``pdflatex`` invocation, so a single real overfull box
     appears once per pass in the concatenated log. We deduplicate by
     ``(line, amount_pt, kind)`` — LaTeX line numbers are stable across
@@ -690,6 +745,216 @@ def _extract_engine_errors(log_text: str, max_lines: int = 10) -> list[str]:
 
 
 # -----------------------------------------------------------------------------
+# poppler-utils probes for the issue-#692 render checks (glyph + embedded-image)
+# -----------------------------------------------------------------------------
+#
+# ``pdftotext`` and ``pdfimages`` ship in the SAME poppler-utils package as the
+# already-consumed ``pdfinfo`` / ``pdftoppm`` (no new binary family for the
+# whole issue). Each has a ``_which_*`` resolver mirroring ``_which_pdfinfo``
+# and degrades gracefully (records a ``reasons`` breadcrumb, never raises,
+# never fails the gate) when the binary is absent — the same contract every
+# other external-tool check in this module honors.
+
+
+def _which_pdftotext(override: Optional[str]) -> Optional[str]:
+    """Resolve the ``pdftotext`` executable path, honoring the override."""
+    if override is not None:
+        return override
+    return shutil.which("pdftotext")
+
+
+def _which_pdfimages(override: Optional[str]) -> Optional[str]:
+    """Resolve the ``pdfimages`` executable path, honoring the override."""
+    if override is not None:
+        return override
+    return shutil.which("pdfimages")
+
+
+def _extract_pdf_text(
+    pdf_path: Path, *, pdftotext_path: Optional[str] = None
+) -> Optional[str]:
+    """Return the extracted text of ``pdf_path`` via ``pdftotext``, or ``None``.
+
+    Surfaces ``None`` (not raise) when ``pdftotext`` is unavailable, the PDF
+    is missing, or the subprocess fails — the graceful-degrade contract shared
+    with :func:`_count_pages_with_pdfinfo`. Extracts to stdout (``pdftotext
+    <pdf> -``) so no temp file is needed.
+    """
+    exe = _which_pdftotext(pdftotext_path)
+    if exe is None or not pdf_path.exists():
+        return None
+    try:
+        proc = subprocess.run(
+            [exe, str(pdf_path), "-"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+
+def _count_pdf_embedded_images(
+    pdf_path: Path, *, pdfimages_path: Optional[str] = None
+) -> Optional[int]:
+    """Return the count of embedded images via ``pdfimages -list``, or ``None``.
+
+    ``pdfimages -list`` prints a two-line header (column names + a dashed
+    rule) followed by one row per embedded image. The image count is the
+    number of data rows. Returns ``None`` when ``pdfimages`` is unavailable,
+    the PDF is missing, or the subprocess fails (graceful degrade — never
+    raises).
+    """
+    exe = _which_pdfimages(pdfimages_path)
+    if exe is None or not pdf_path.exists():
+        return None
+    try:
+        proc = subprocess.run(
+            [exe, "-list", str(pdf_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    # Header shape (poppler): a column-name line ("page   num  type ...")
+    # then a dashed separator ("--------------------"), then N data rows. A
+    # PDF with zero embedded images prints only the two header lines (or, in
+    # some poppler builds, nothing at all).
+    data_rows = 0
+    for ln in lines:
+        stripped = ln.strip()
+        # Skip the dashed separator rule.
+        if set(stripped) <= {"-"}:
+            continue
+        # Skip the column-name header (starts with "page").
+        first = stripped.split(None, 1)[0]
+        if first.lower() == "page":
+            continue
+        # A data row's first field is the (integer) page number.
+        if first.isdigit():
+            data_rows += 1
+    return data_rows
+
+
+def _sweep_nonascii_codepoints(text: str) -> "dict[str, int]":
+    """Return a count of every non-ASCII *non-whitespace* codepoint in ``text``.
+
+    Keyed by the character itself (``ord(ch) > 127``). This is the
+    source-driven sweep the issue-#692 glyph check is built on: it enumerates
+    the *actual* non-ASCII characters the body uses rather than testing a
+    hardcoded allow-list, so unknown-unknowns (the STIX ``≠`` drop) are caught
+    by construction.
+
+    Unicode-space codepoints (the ``Zs`` category — U+00A0 NBSP, U+2009 thin
+    space, U+202F narrow NBSP, …) are excluded: ``pdftotext`` normalizes them
+    to an ASCII space in its extraction, so a stray NBSP in the source would
+    otherwise short-count against the PDF and false-block the gate at error
+    severity. Whitespace normalization is not the glyph-drop failure mode this
+    sweep guards against (issue #692).
+    """
+    counts: dict[str, int] = {}
+    for ch in text:
+        if ord(ch) <= 127:
+            continue
+        # Skip Unicode separator-spaces: pdftotext collapses them to ASCII
+        # space, so they can never be a real glyph drop.
+        if unicodedata.category(ch) == "Zs":
+            continue
+        counts[ch] = counts.get(ch, 0) + 1
+    return counts
+
+
+def _verify_source_glyphs(
+    source_paths: Iterable[Path],
+    pdf_text: str,
+) -> list[dict]:
+    """Return the list of source non-ASCII codepoints dropped from the PDF.
+
+    For every non-ASCII codepoint in the concatenated source bodies, compare
+    its source count against its count in ``pdf_text`` (the ``pdftotext``
+    extraction). A codepoint whose PDF count is strictly LESS than its source
+    count is a glyph-drop finding.
+
+    The comparison is ``>=`` (not ``==``): pandoc/LaTeX text reflow, ligature
+    substitution, and whitespace collapse can legitimately inflate the
+    PDF-side count of some codepoints, but must NEVER make a glyph disappear.
+    A strict ``==`` would false-positive on that legitimate noise; a short
+    count is the only real failure mode.
+
+    Two classes of source non-ASCII are excluded before counting so the gate
+    does not false-block a valid document (issue #692): Unicode separator
+    spaces (``Zs`` — pdftotext normalizes them to ASCII space) and
+    non-rendered source regions (link/image URL targets, HTML comments,
+    autolinks — their glyphs never reach the rendered body). See
+    ``_sweep_nonascii_codepoints`` and ``_strip_nonrendered_regions``.
+
+    Each finding: ``{codepoint, name, source_count, pdf_count}`` where
+    ``codepoint`` is the ``U+XXXX`` hex form and ``name`` the character
+    itself. Only codepoints present in the source participate — extra
+    non-ASCII in the PDF (e.g. hyphenation or a template glyph) is ignored.
+    """
+    source_counts: dict[str, int] = {}
+    for path in source_paths:
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        # Exclude non-rendered source regions (link/image URL targets, HTML
+        # comments, autolinks) before the sweep — their non-ASCII never reaches
+        # the rendered body, so counting it would false-flag a glyph drop.
+        text = _strip_nonrendered_regions(text)
+        for ch, n in _sweep_nonascii_codepoints(text).items():
+            source_counts[ch] = source_counts.get(ch, 0) + n
+
+    if not source_counts:
+        return []
+
+    pdf_counts = _sweep_nonascii_codepoints(pdf_text)
+    dropped: list[dict] = []
+    for ch in sorted(source_counts, key=ord):
+        src_n = source_counts[ch]
+        pdf_n = pdf_counts.get(ch, 0)
+        if pdf_n < src_n:
+            dropped.append(
+                {
+                    "codepoint": f"U+{ord(ch):04X}",
+                    "name": ch,
+                    "source_count": src_n,
+                    "pdf_count": pdf_n,
+                }
+            )
+    return dropped
+
+
+def _count_body_image_refs(source_paths: Iterable[Path]) -> int:
+    """Return the number of ``![alt](path)`` inline-image refs across sources.
+
+    Reference-style images and HTML ``<img>`` tags are not counted — the
+    primer/report bodies use the inline ``![…](exhibits/…png)`` convention
+    exclusively (the drafter-placed reference contract from #690/#695).
+    """
+    total = 0
+    for path in source_paths:
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        total += len(_MD_IMAGE_REF_RE.findall(text))
+    return total
+
+
+# -----------------------------------------------------------------------------
 # Public API: gate()
 # -----------------------------------------------------------------------------
 
@@ -715,6 +980,8 @@ def gate(
     overfull_threshold_pt: float = 5.0,
     placeholder_patterns: Optional[tuple[str, ...]] = None,
     pdfinfo_path: Optional[str] = None,
+    pdftotext_path: Optional[str] = None,
+    pdfimages_path: Optional[str] = None,
     engine: Optional[str] = None,
     compile_status: Optional[str] = None,
     compile_exit_code: Optional[int] = None,
@@ -1042,6 +1309,93 @@ def gate(
                             f"{hit['match']!r}."
                         ),
                         location=f"{hit['path']}:L{hit['line']}",
+                    )
+                )
+
+    # --- Glyph verification (issue #692) ------------------------------------
+    # Source-driven: sweep the body for EVERY non-ASCII codepoint and assert
+    # each survives into the pdftotext extraction at >= its source count.
+    # Catches the silent font glyph-drop (STIX Two Text ``≠``) that a
+    # hardcoded allow-list misses by construction. Error severity — the ``≠``
+    # canary shipped a semantically-wrong PDF while every other gate was green.
+    if sources and pdf_path.exists():
+        if _which_pdftotext(pdftotext_path) is None:
+            reasons.append(
+                f"{DIM_GLYPH_VERIFICATION}: glyph check skipped: pdftotext "
+                "not on PATH (install poppler-utils: `brew install poppler` / "
+                "`apt-get install poppler-utils`)."
+            )
+        else:
+            pdf_text = _extract_pdf_text(pdf_path, pdftotext_path=pdftotext_path)
+            if pdf_text is None:
+                reasons.append(
+                    f"{DIM_GLYPH_VERIFICATION}: glyph check skipped: pdftotext "
+                    "returned non-zero or no output."
+                )
+            else:
+                dropped = _verify_source_glyphs(sources, pdf_text)
+                if dropped:
+                    failed.add(DIM_GLYPH_VERIFICATION)
+                    reasons.append(
+                        f"{DIM_GLYPH_VERIFICATION}: {len(dropped)} source "
+                        "codepoint(s) missing or under-counted in the rendered "
+                        "PDF (silent glyph drop)."
+                    )
+                    for d in dropped:
+                        findings.append(
+                            GateFinding(
+                                gate=DIM_GLYPH_VERIFICATION,
+                                severity="error",
+                                message=(
+                                    f"Codepoint {d['codepoint']} "
+                                    f"({d['name']!r}) appears {d['source_count']}× "
+                                    f"in source but {d['pdf_count']}× in the PDF "
+                                    "— the font likely dropped this glyph."
+                                ),
+                                location=f"{pdf_path}:{d['codepoint']}",
+                            )
+                        )
+
+    # --- Embedded-image assertion (issue #692) ------------------------------
+    # Count ``![…](path)`` refs in the body; assert pdfimages -list reports
+    # at least that many embedded images. Catches the "zero embedded images,
+    # every other gate green" failure (botho v2 canary). Error severity — it
+    # must block, not just warn (the whole point is that no other gate caught
+    # it). Only runs when the body actually references images.
+    ref_count = _count_body_image_refs(sources) if sources else 0
+    if ref_count > 0 and pdf_path.exists():
+        if _which_pdfimages(pdfimages_path) is None:
+            reasons.append(
+                f"{DIM_EMBEDDED_IMAGES}: embedded-image check skipped: "
+                "pdfimages not on PATH (install poppler-utils: "
+                "`brew install poppler` / `apt-get install poppler-utils`)."
+            )
+        else:
+            embedded = _count_pdf_embedded_images(
+                pdf_path, pdfimages_path=pdfimages_path
+            )
+            if embedded is None:
+                reasons.append(
+                    f"{DIM_EMBEDDED_IMAGES}: embedded-image check skipped: "
+                    "pdfimages returned non-zero or unparsable output."
+                )
+            elif embedded < ref_count:
+                failed.add(DIM_EMBEDDED_IMAGES)
+                msg = (
+                    f"body references {ref_count} image(s) but the PDF embeds "
+                    f"only {embedded}."
+                )
+                reasons.append(f"{DIM_EMBEDDED_IMAGES}: {msg}")
+                findings.append(
+                    GateFinding(
+                        gate=DIM_EMBEDDED_IMAGES,
+                        severity="error",
+                        message=(
+                            f"Embedded-image shortfall: {msg} Every referenced "
+                            "figure should render into the PDF as an embedded "
+                            "image."
+                        ),
+                        location=f"{pdf_path}:embedded={embedded}",
                     )
                 )
 
@@ -2915,6 +3269,8 @@ def compile_and_gate(
     extra_source_paths: Optional[list[Path]] = None,
     output_dir: Optional[Path] = None,
     pdfinfo_path: Optional[str] = None,
+    pdftotext_path: Optional[str] = None,
+    pdfimages_path: Optional[str] = None,
 ) -> GateResult:
     """Compile ``tex_path`` with ``engine``, capture the log, then run the
     gate over the produced PDF.
@@ -2923,7 +3279,7 @@ def compile_and_gate(
     proposal) and as a fallback for the others when the gate runs before
     audit/finalize. The compile is **single-pass** by default — enough to
     catch syntax errors and overfull boxes. Skills that need a full
-    multi-pass compile (e.g., ``pub`` needs ``pdflatex && bibtex &&
+    multi-pass compile (e.g., ``paper`` needs ``pdflatex && bibtex &&
     pdflatex && pdflatex`` for citations) should run that compile in their
     audit step and then call ``gate(...)`` against the produced PDF +
     log; this helper is the "first pass / no upstream compile" path.
@@ -2978,6 +3334,8 @@ def compile_and_gate(
             overfull_threshold_pt=overfull_threshold_pt,
             placeholder_patterns=placeholder_patterns,
             pdfinfo_path=pdfinfo_path,
+            pdftotext_path=pdftotext_path,
+            pdfimages_path=pdfimages_path,
             engine=engine,
             compile_status=COMPILE_UNAVAILABLE,
             compile_exit_code=None,
@@ -3024,6 +3382,8 @@ def compile_and_gate(
         overfull_threshold_pt=overfull_threshold_pt,
         placeholder_patterns=placeholder_patterns,
         pdfinfo_path=pdfinfo_path,
+        pdftotext_path=pdftotext_path,
+        pdfimages_path=pdfimages_path,
         engine=engine,
         compile_status=compile_status,
         compile_exit_code=exit_code,
@@ -3038,6 +3398,8 @@ __all__ = [
     "DIM_OVERFULL",
     "DIM_COMPILE",
     "DIM_PLACEHOLDERS",
+    "DIM_GLYPH_VERIFICATION",
+    "DIM_EMBEDDED_IMAGES",
     "DIM_MEMO_COMPILE",
     "DIM_MEMO_PAGE_FIT",
     "DIM_MEMO_OVERFULL",

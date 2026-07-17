@@ -1,0 +1,21 @@
+{
+  "artifact_type": "descriptive-thesis",
+  "description": "Overlay for descriptive theses — descriptive cases for a team / market / shape (e.g. the canary's 'team thesis' describing why a particular founding team is well-positioned in a particular market). Unlike an investment memo, a descriptive thesis does not name an invest / pass recommendation with check size — it builds the case the reader uses to make that decision elsewhere. Dim 3 (Evidence quality) is preserved at full weight: the entire load-bearing surface IS the evidence the thesis assembles. Dims 1 (Recommendation clarity) and 6 (Financial reasoning) are reduced because they don't apply to the descriptive shape. Per #283 sub-deliverable 3 seed analysis (originally from closed #278).",
+  "weight_adjustments": {
+    "dim_1": -3,
+    "dim_2": 0,
+    "dim_3": 0,
+    "dim_4": -1,
+    "dim_5": 0,
+    "dim_6": -3,
+    "dim_7": 0,
+    "dim_8": 0,
+    "dim_9": 0
+  },
+  "calibration_prose": {
+    "dim_1": "descriptive-thesis — score on whether the thesis itself (the descriptive claim about the team / market / shape) is sharply stated, not on whether the document names a single ranked recommendation. A thesis that says 'this team is well-positioned to do X because of A, B, C' at full force scores at full (reduced) weight; vague positive framing without a concrete thesis statement scores down.",
+    "dim_3": "descriptive-thesis — PRESERVED at full weight. The entire load-bearing surface of a descriptive thesis IS the evidence the document assembles to make its case. Every load-bearing claim about the team / market / shape needs a primary-source anchor, named reference, or explicit hedge. Score harshly when biographical or market claims are asserted without grounding; this is the core failure mode.",
+    "dim_4": "descriptive-thesis — risk honesty re-scopes to 'risks to the thesis' (alternative interpretations of the team's track record, counter-evidence on the market position, scenarios under which the thesis fails to hold). Score on whether the document honestly names the load-bearing ways the descriptive case could be wrong, not on whether it enumerates venture-specific risks.",
+    "dim_6": "descriptive-thesis — financial reasoning is reduced. A team thesis or market thesis does not need unit economics or scenario math. Score on whether financial framing supports the thesis when invoked (e.g. exit comps anchoring a team-track-record argument), not on whether the document does original financial modeling."
+  }
+}

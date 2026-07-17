@@ -1,0 +1,20 @@
+{
+  "artifact_type": "strategy-memo",
+  "description": "Overlay for internal strategy memos / playbooks — registered under issue #394 from the studio canary's 'fundraising-strategy' thread. A strategy memo lays out a play for the organization itself (sequencing, asks, anchors, trigger and fallback conditions) rather than evaluating an external investment. Dim 1 scores actionability of the play; dim 6 scores soundness of the anchors the play leans on (valuation comparables, dilution math, runway arithmetic, benchmark rates) rather than venture-style unit economics; dim 5 is calibrated away from the raise-playbook mis-fit (deducting for missing TAM/SAM/SOM on a document that is not a pitch). Seed calibration from issue #394's canary description — flagged for canary validation; file a follow-up if the seed mis-fits.",
+  "weight_adjustments": {
+    "dim_1": 0,
+    "dim_2": 0,
+    "dim_3": 0,
+    "dim_4": 0,
+    "dim_5": -1,
+    "dim_6": -1,
+    "dim_7": 0,
+    "dim_8": 0,
+    "dim_9": 0
+  },
+  "calibration_prose": {
+    "dim_1": "strategy-memo — score on actionability of the play: does the memo name the moves, their sequence, who owns each, and the trigger / fallback conditions sharply enough that the team could start executing next week? An invest / pass recommendation with check size is NOT the target; deduct only when the play itself is vague, non-committal, or missing its decision points.",
+    "dim_5": "strategy-memo — market and competitive framing is in scope only as it shapes the play (comparable raises, timing windows, who else is in market). Do NOT deduct for missing TAM/SAM/SOM boilerplate — a playbook is not a pitch. Score on whether the external facts the play depends on are named and honestly sized.",
+    "dim_6": "strategy-memo — score on soundness of the anchors the play leans on (valuation comparables, dilution math, runway arithmetic, benchmark rates), not on venture-style unit economics or scenario modeling of a target company. An anchor asserted without a source or a sanity check scores down; a playbook whose anchors are all sourced and stress-tested scores at the top of the reduced weight."
+  }
+}

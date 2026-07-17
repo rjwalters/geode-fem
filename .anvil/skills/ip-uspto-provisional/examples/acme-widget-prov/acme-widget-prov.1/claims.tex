@@ -1,0 +1,49 @@
+%% claims.tex — OPTIONAL claim-seed for the acme-widget-prov provisional.
+%%
+%% A provisional requires NO claims; this seed is included only to exercise
+%% rubric dimension 9 (Conversion readiness). Every seed limitation traces to
+%% enabling disclosure in spec.tex. Its absence would never be a finding.
+%%
+%% This file is a SEED, not a fee-bearing claim set: no 3-independent / 20-claim
+%% caps apply, and the conversion drafter will rewrite these.
+\documentclass{anvil-uspto}
+
+\title{Claim Seed --- Passive Thermal Compensation Network}
+\author{Dana R. Okoye \and Priya N. Venkatesan}
+
+\begin{document}
+
+\begin{claims}
+
+\begin{claim}
+A piezoresistive pressure sensor comprising:
+a sense bridge \refnum{10} of piezoresistors on a sensing diaphragm;
+a split-path excitation network \refnum{40} supplying the sense bridge and
+comprising a constant-current leg and a proportional-to-absolute-temperature
+leg whose relative contribution is set by a single ratio resistor \refnum{12},
+the proportional-to-absolute-temperature leg increasing bridge excitation with
+temperature so as to oppose a negative temperature coefficient of sensitivity of
+the sense bridge; and
+a dummy half-bridge \refnum{20} fabricated adjacent to the sense bridge and
+exposed to a common die temperature and process corner, a midpoint of the dummy
+half-bridge being summed into an output of the sense bridge so as to cancel a
+temperature-dependent offset of the sense bridge.
+\end{claim}
+
+\begin{claim}
+The sensor of claim 1, further comprising a span trim resistor \refnum{30}
+setting an output gain and trimmed at a single temperature, wherein the gain set
+at said single temperature holds across an operating temperature range by virtue
+of the split-path excitation network.
+\end{claim}
+
+\begin{claim}
+The sensor of claim 1, wherein the dummy half-bridge \refnum{20} and the sense
+bridge \refnum{10} are integrated on a common MEMS die using a common
+piezoresistor implant, the dummy half-bridge being located outside a flexing
+region of the sensing diaphragm.
+\end{claim}
+
+\end{claims}
+
+\end{document}

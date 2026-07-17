@@ -217,7 +217,7 @@ def load_review(critic_dir: Path) -> Review:
 
 # --- Memo legacy adapter ----------------------------------------------------
 
-# Match the markdown scoring table row format used by memo and pub:
+# Match the markdown scoring table row format used by memo and paper:
 # | # | Dimension | Weight | Score | Justification |
 _MEMO_SCORE_ROW = re.compile(
     r"^\s*\|\s*(?P<num>\d+)\s*\|"

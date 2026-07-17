@@ -1,0 +1,16 @@
+{
+  "artifact_type": "investment-memo",
+  "description": "Identity overlay for the default memo shape. The base /44 rubric in `anvil/skills/memo/rubric.md` is already calibrated for investment memos (ranked invest / pass / conditional recommendation with check size), so no per-dimension reweighting is applied. This file exists so the overlay registry is complete (one file per registered ArtifactType per the closed-ended enum in `anvil/skills/memo/lib/project_brief.py::REGISTERED_ARTIFACT_TYPES`) and the overlay-selection function in `rubric_overlays.py` can return a clean identity result rather than `None` when an investment-memo thread is the subject. The reviewer treats this overlay as a no-op: same dimension weights, no calibration suffix added. A thread with `artifact_type: investment-memo` in the project BRIEF behaves byte-identically to a thread with no project BRIEF at all (the v0 status quo). Adding a calibration suffix here would double-count with the per-thread `rubric_overrides` mechanism (issue #265), which is the surface for thread-specific dim_N_calibration prose.",
+  "weight_adjustments": {
+    "dim_1": 0,
+    "dim_2": 0,
+    "dim_3": 0,
+    "dim_4": 0,
+    "dim_5": 0,
+    "dim_6": 0,
+    "dim_7": 0,
+    "dim_8": 0,
+    "dim_9": 0
+  },
+  "calibration_prose": {}
+}

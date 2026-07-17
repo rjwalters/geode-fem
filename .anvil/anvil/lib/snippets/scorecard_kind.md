@@ -5,10 +5,10 @@ landscape without forcing every skill to converge on identical files.
 
 ## The problem
 
-Across the six v0 skills (memo, pub, slides, deck, report, ip-uspto),
+Across the six v0 skills (memo, paper, slides, deck, report, ip-uspto),
 critic siblings emit different files:
 
-- **memo, pub, slides, report reviewers** emit `verdict.md` +
+- **memo, paper, slides, report reviewers** emit `verdict.md` +
   `scoring.md` + `comments.md`. These are narrative documents a human
   reads end-to-end to understand the critique.
 - **ip-uspto critics + deck specialists** emit `_summary.md` +
@@ -17,7 +17,7 @@ critic siblings emit different files:
   rubric dimensions and leaves the rest `null`.
 - **deck-review** emits BOTH layered together — the union of the two
   patterns above.
-- **pub-audit, slides-audit, report-audit** add task-specific files
+- **paper-audit, slides-audit, report-audit** add task-specific files
   (citation logs, compile logs, claim tables) alongside one of the
   above scorecard shapes.
 
@@ -75,7 +75,7 @@ re-reading the skill's current `rubric.md`.
   threshold (the minimum aggregated total that yields `ADVANCE` when
   no critical flag is set). Observed values: `32` and `35` for the
   legacy /40 skills; `35` for the internal-tier /44 skills (memo,
-  proposal, pub, slides, installation); `39` for the customer-facing
+  proposal, paper, slides, installation); `39` for the customer-facing
   /44 skills (report; deck pre-#550); `39` for the /45 ip-uspto skill;
   `43` for the customer-facing /49 deck skill post-#550.
 
@@ -124,8 +124,8 @@ the reviser as a narrative). Files emitted:
   _progress.json
 ```
 
-Used by: memo-review, pub-review, slides-review, report-review,
-pub-audit, slides-audit, report-audit.
+Used by: memo-review, paper-review, slides-review, report-review,
+paper-audit, slides-audit, report-audit.
 
 The reviser consumes these by reading the markdown narratives; no
 programmatic aggregation is required because each critic produces a
@@ -192,7 +192,7 @@ LLM-side: an agent doing aggregation reads each critic sibling's
 
 A critic that does NOT ship `_meta.json` (or ships one without
 `scorecard_kind`) is treated as `human-verdict` for backward
-compatibility. This keeps memo/pub/slides/report reviewers working
+compatibility. This keeps memo/paper/slides/report reviewers working
 without any required changes — their existing `verdict.md` +
 `scoring.md` + `comments.md` is already the `human-verdict` shape.
 
@@ -221,11 +221,11 @@ downstream consumers; the discriminator carries the primary intent.
 
 ## Audit / fact-check critics
 
-Audit critics (pub-audit, slides-audit, report-audit, ip-uspto-audit)
+Audit critics (paper-audit, slides-audit, report-audit, ip-uspto-audit)
 may add task-specific files alongside whichever scorecard kind they
 ship:
 
-- pub-audit: `citation-audit.md`, `numerical-audit.md`, `compile-log.txt`
+- paper-audit: `citation-audit.md`, `numerical-audit.md`, `compile-log.txt`
 - slides-audit: `claims.md`
 - report-audit: `findings.md`, `evidence.md`
 - ip-uspto-audit: `findings.md` (machine-summary kind)

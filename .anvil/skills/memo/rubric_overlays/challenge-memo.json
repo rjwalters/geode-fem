@@ -1,0 +1,20 @@
+{
+  "artifact_type": "challenge-memo",
+  "description": "Overlay for challenge memos — registered under issue #394 from the studio canary's 'broadcom-thesis' and 'sensor-stack' threads. A challenge memo takes a NAMED positioning thesis (someone else's frame, or a prior internal one), stress-tests it against evidence, and delivers a verdict ON THE TEST (holds / breaks / holds-with-amendments) rather than an invest / pass / check-size decision. Dims 1/5/6 are recalibrated to verdict-on-the-test: dim 1 scores the sharpness of the verdict, dim 5 treats market framing as evidence for/against the tested claim rather than pitch stage-setting, and dim 6 scopes financial reasoning to the financial claims the tested thesis actually makes. Seed calibration lifted from the longhand operator instructions written for the broadcom-thesis.4.review precedent (per issue #394) — flagged for canary validation; file a follow-up if the seed mis-fits.",
+  "weight_adjustments": {
+    "dim_1": 0,
+    "dim_2": 0,
+    "dim_3": 0,
+    "dim_4": 0,
+    "dim_5": 0,
+    "dim_6": -2,
+    "dim_7": 0,
+    "dim_8": 0,
+    "dim_9": 0
+  },
+  "calibration_prose": {
+    "dim_1": "challenge-memo — score on whether the memo names the thesis under test up front and delivers an unambiguous verdict on the test (holds / breaks / holds-with-amendments, with the load-bearing reasons stated), NOT on whether it names an invest / pass recommendation with a check size. A memo that runs the test rigorously but hedges the verdict scores down exactly as an investment memo hedging its recommendation would.",
+    "dim_5": "challenge-memo — market and competitive framing is evidence FOR or AGAINST the thesis under test, not stage-setting. Score on whether the market facts invoked actually bear on the tested claim and are sized honestly; do NOT deduct for missing TAM/SAM/SOM boilerplate that the test does not need.",
+    "dim_6": "challenge-memo — financial reasoning is in scope only where the tested thesis makes a financial claim. Score on whether the numbers invoked to support or break the thesis are sound and sensitivity-checked, not on whether the memo carries standalone unit-economics or scenario modeling. A challenge memo whose tested thesis is non-financial will score at the top of the reduced weight without doing any financial work."
+  }
+}

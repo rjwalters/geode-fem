@@ -1,0 +1,30 @@
+%% Figure 2 — The hybrid post-quantum architecture (primer §6).
+%% Teaches: the design rule "permanent secrets get post-quantum protection;
+%% ephemeral secrets get efficient classical protection" — chosen, argued,
+%% and priced, not a compromise of convenience.
+flowchart TD
+  T["Threat: harvest now, decrypt later.<br/>The chain is a permanent public archive —<br/>its secrets must survive FUTURE cryptanalysis"]:::anvil-warning
+
+  T --> PERM
+  T --> EPH
+
+  subgraph PERM["Secrecy must last forever → post-quantum (lattice)"]
+    R["Recipient identity<br/>(who owns what — valuable indefinitely)"]
+    RK["ML-KEM-768 stealth handshake<br/>1,088-byte ciphertext per output —<br/>the biggest line item, priced in"]
+    M["Minting attribution<br/>(who minted each block — forever unforgeable)"]
+    MK["ML-DSA-65 signatures<br/>(~3.3 KB, but only once per block)"]
+    R --> RK
+    M --> MK
+  end
+
+  subgraph EPH["Secrecy decays with time → efficient classical (curve)"]
+    S["Sender anonymity<br/>(who sent — decades stale before a<br/>quantum computer could recover it)"]
+    SC["CLSAG ring signatures, ~700 B per input.<br/>Post-quantum rings are ~50x larger today —<br/>desktop and phone nodes would stop being realistic"]
+    S --> SC
+  end
+
+  RK:::anvil-success
+  MK:::anvil-success
+
+  MIG["Documented migration path: swap in post-quantum<br/>ring signatures when research shrinks them"]:::anvil-muted
+  SC --> MIG

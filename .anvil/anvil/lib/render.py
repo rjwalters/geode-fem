@@ -9,7 +9,7 @@ external tools as subprocess shell-outs:
   primary path; ``pdf2image`` (Python wrapper around the same library) is
   a documented fallback for environments where ``pdftoppm`` is not on
   PATH but the Python wheel is installed.
-- ``pandoc`` for prose Markdown (pub/report) → PDF.
+- ``pandoc`` for prose Markdown (paper/report) → PDF.
 - Nothing — for ``render_matplotlib_figures`` which just enumerates an
   already-rendered ``figures/`` directory.
 
@@ -200,8 +200,96 @@ def check_mmdc_available() -> bool:
     Kept binary-presence-only (no Chromium launch) so it is unit-testable
     with a stubbed/monkeypatched ``shutil.which`` and requires no real
     Chromium at test time.
+
+    NOTE: "binary present" is NOT the same as "renderer can launch." ``mmdc``
+    drives a pinned Puppeteer + headless Chromium; a canary run (issue #692)
+    hit a ``mmdc`` that was on PATH while its pinned Chromium (v148) was
+    absent from ``~/.cache/puppeteer``, so every diagram render would have
+    failed at launch. Callers that need launch confidence should chain this
+    fast PATH check with :func:`check_mmdc_launchable` (a real probe render).
     """
     return shutil.which("mmdc") is not None
+
+
+# Remediation surfaced when ``mmdc`` is on PATH but its Puppeteer/Chromium
+# launch fails (the issue-#692 canary signal). This is a *different* failure
+# from :data:`MMDC_REMEDIATION` (binary absent): here the binary exists but
+# the headless browser it drives cannot start. The working fallback the canary
+# used was a puppeteer-config ``executablePath`` override to system Chrome.
+MMDC_LAUNCH_REMEDIATION = (
+    "mmdc is on PATH but failed a launch probe — its pinned Puppeteer "
+    "Chromium is likely missing (not downloaded to ~/.cache/puppeteer) or "
+    "cannot start. Two fixes: (1) install the pinned browser with "
+    "`npx puppeteer browsers install chrome`; or (2) point mmdc at an "
+    "existing system Chrome via a puppeteer config file — "
+    "`mmdc --puppeteerConfigFile <file>` where <file> contains "
+    '{"executablePath":"/path/to/google-chrome","args":["--no-sandbox"]}. '
+    "In CI/containers the --no-sandbox arg is usually also required."
+)
+
+
+def check_mmdc_launchable(*, timeout: float = 30.0) -> bool:
+    """Return ``True`` if ``mmdc`` is on PATH AND passes a real launch probe.
+
+    Two-stage check, mirroring :func:`check_weasyprint_available` (#308):
+
+    1. :func:`check_mmdc_available` — fast ``shutil.which`` PATH test. Returns
+       ``False`` immediately if the binary is absent (no subprocess spawn).
+    2. A trivial probe render — write a one-node mermaid source to a temp file
+       and run ``mmdc --input <probe.mmd> --output <probe.png>``. This
+       exercises the full Puppeteer/Chromium launch path (unlike
+       ``mmdc --version``, which only prints the Node CLI version without
+       touching the browser). A non-zero exit, timeout, or ``OSError`` returns
+       ``False`` rather than raising, matching the graceful-degrade contract
+       of the ``check_*_available`` family.
+
+    This is the launchability guard for the issue-#692 canary failure: ``mmdc``
+    present on PATH but its pinned Chromium absent from ``~/.cache/puppeteer``,
+    so every real diagram render fails at browser launch even though
+    :func:`check_mmdc_available` reports the binary as available. Callers
+    should run :func:`check_mmdc_available` first (fast) and, before committing
+    to a batch of diagram renders, optionally call this probe; on ``False``
+    surface :data:`MMDC_LAUNCH_REMEDIATION`.
+
+    This function is deliberately kept SEPARATE from
+    :func:`check_mmdc_available` (rather than folding a probe into it) so the
+    existing binary-presence-only contract and its call sites/tests remain
+    unchanged and no real Chromium is required in the default unit suite. Tests
+    monkeypatch ``subprocess.run`` to exercise the probe outcomes without a
+    real browser.
+
+    Parameters
+    ----------
+    timeout:
+        Seconds to allow the probe render before treating it as a launch
+        failure. Chromium cold-start plus a trivial render is well under the
+        30 s default; a hang past it is itself a launch problem.
+    """
+    if not check_mmdc_available():
+        return False
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        probe_mmd = Path(td) / "probe.mmd"
+        probe_png = Path(td) / "probe.png"
+        # Minimal valid mermaid grammar — a single-node flowchart. Enough to
+        # force mmdc through the Puppeteer launch + SVG→PNG path.
+        probe_mmd.write_text("flowchart TD\n  A[probe]\n", encoding="utf-8")
+        try:
+            result = subprocess.run(
+                [
+                    "mmdc",
+                    "--input",
+                    str(probe_mmd),
+                    "--output",
+                    str(probe_png),
+                ],
+                capture_output=True,
+                timeout=timeout,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return result.returncode == 0 and probe_png.exists()
 
 
 # Default path to the shared Anvil mermaid theme (navy nodes, muted-grey
@@ -788,7 +876,7 @@ def _collect_page_pngs(out_dir: Path) -> List[Path]:
 
 
 # ---------------------------------------------------------------------------
-# Pandoc Markdown → PDF (for pub/report)
+# Pandoc Markdown → PDF (for paper/report)
 # ---------------------------------------------------------------------------
 
 
@@ -799,7 +887,7 @@ def render_pandoc_to_pdf(
 ) -> Path:
     """Render a prose Markdown document to PDF via pandoc.
 
-    Used by future ``pub-vision`` and ``report-vision`` critics where the
+    Used by future ``paper-vision`` and ``report-vision`` critics where the
     artifact is a research paper or technical report rather than a deck.
     The Marp path is appropriate for slide artifacts only.
 
@@ -887,6 +975,7 @@ __all__ = [
     "DEFAULT_MERMAID_THEME",
     "IMAGE_LINT_REMEDIATION",
     "MEMO_RENDERER_REMEDIATION",
+    "MMDC_LAUNCH_REMEDIATION",
     "MMDC_REMEDIATION",
     "PDFJAM_REMEDIATION",
     "XELATEX_REMEDIATION",
@@ -894,6 +983,7 @@ __all__ = [
     "check_auto_shrink_deps_available",
     "check_image_lint_deps_available",
     "check_mmdc_available",
+    "check_mmdc_launchable",
     "check_pandoc_available",
     "check_pdfjam_available",
     "check_weasyprint_available",

@@ -1,0 +1,15 @@
+{
+  "_comment": "Expected post-apply shape for the clean_plan_apply fixture. The reviser is LLM-driven; these fields are the deterministic contract surface --apply must produce regardless of the LLM's exact prose.",
+  "version_dir_created": "acme-seed.2/",
+  "memo_md_written": true,
+  "changelog_md_written": true,
+  "changelog_row_count": 3,
+  "declined_count": 0,
+  "addressed_count": 3,
+  "status_line_annotation": "(via plan)",
+  "progress_metadata": {
+    "revision_mode": "plan_then_apply",
+    "revise_force_reason": null,
+    "iteration": 2
+  }
+}

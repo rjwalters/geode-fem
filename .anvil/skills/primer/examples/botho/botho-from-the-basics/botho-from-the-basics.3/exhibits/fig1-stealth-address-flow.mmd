@@ -1,0 +1,38 @@
+%% Figure 1 — Stealth-address flow (primer §3, PQ handshake per §6).
+%% Teaches: the sender mints a fresh one-time address from the recipient's
+%% published keys; the recipient detects "mine" by redoing the handshake
+%% with the view key; everyone else sees an unlinkable random-looking key.
+flowchart TD
+  subgraph PUB["Ben publishes ONCE: his address = two public keys"]
+    VK["Public view key<br/>(for recognizing)"]
+    SK["Public spend key<br/>(for spending)"]
+  end
+
+  subgraph SEND["Amara's wallet — repeated fresh for EVERY payment"]
+    HS["One-way handshake against the view key<br/>(classical DH shape; Botho uses ML-KEM-768, §6)"]
+    SS["Shared secret<br/>+ sealed-envelope ciphertext attached to the output"]
+    OTK["Fresh one-time output key —<br/>never existed before, never recurs"]
+  end
+
+  OUT["Output on chain: one-time key,<br/>amount commitment, KEM ciphertext"]
+
+  subgraph SCAN["Ben's wallet — scanning every new output on the chain"]
+    RD["Redo the handshake from his side<br/>(private view key opens the envelope)"]
+    CMP{"Does the derived key<br/>match this output?"}
+    MINE["Mine. Decrypt the amount; derive the<br/>one-time private key needed to spend"]
+    SKIP["Not mine — and to every outside observer,<br/>just an unlinkable random-looking key"]
+  end
+
+  VK --> HS
+  HS --> SS
+  SS --> OTK
+  SK --> OTK
+  OTK --> OUT
+  SS -. "ciphertext rides along" .-> OUT
+  OUT --> RD
+  RD --> CMP
+  CMP -- "yes" --> MINE
+  CMP -- "no" --> SKIP
+
+  MINE:::anvil-success
+  SKIP:::anvil-muted

@@ -32,7 +32,7 @@ Design contract (settled at Epic #328 kickoff; do NOT re-litigate)
 - **External HTTP check off by default.** ``check_external=False``
   keeps the critic offline-safe and CI-reproducible; opt in with the
   ``--check-external`` CLI flag or ``check_external=True`` kwarg.
-- **Memo + essay.** Pub / report / etc. extensions land in follow-on
+- **Memo + essay.** Paper / report / etc. extensions land in follow-on
   issues when those skills surface the need.
 
 Four link classes

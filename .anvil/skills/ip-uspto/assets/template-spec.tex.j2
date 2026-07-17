@@ -1,0 +1,67 @@
+%%
+%% template-spec.tex.j2 — USPTO specification skeleton (Jinja2 template)
+%%
+%% Consumed by ip-uspto-draft. The drafter fills the {{ ... }} placeholders
+%% and replaces TODO blocks with content. The drafter does NOT regenerate
+%% this skeleton; it only fills it.
+%%
+%% Placeholders:
+%%   {{ title }}             — invention title (from BRIEF.md frontmatter)
+%%   {{ inventors }}         — list of inventor names (rendered as "Name1 \\and Name2")
+%%   {{ field_of_use }}      — one-line technical field
+%%
+%% Section content is filled by the drafter; the template provides the
+%% skeleton and the required heading commands.
+%%
+\documentclass{anvil-uspto}
+
+\title{ {{ title }} }
+\author{ {{ inventors | join(' \\and ') }} }
+
+\begin{document}
+
+\maketitle
+
+%% ----------------------------------------------------------------------
+\fieldoftheinvention
+%% One paragraph naming the technical field, sized for an examiner classifier.
+\anvilpara{The invention relates to {{ field_of_use }}. More particularly, the invention relates to %% TODO: drafter fills.
+}
+
+%% ----------------------------------------------------------------------
+\background
+%% Two to four paragraphs. Describe the problem and prior approaches.
+%% Do NOT admit any reference as prior art.
+%% Distinguishing language goes here (refined later by priorart critic).
+%% TODO: drafter fills.
+
+%% ----------------------------------------------------------------------
+\summary
+%% One to two paragraphs per inventive feature. Mirror the independent claims
+%% at a higher level. The summary should let a reader anticipate the claim scope.
+%% TODO: drafter fills.
+
+%% ----------------------------------------------------------------------
+\briefdescriptionofdrawings
+%% One line per figure: FIG. N. <one-line description>.
+%% TODO: drafter fills based on planned figures (drawings/drawing-descriptions.md).
+
+%% ----------------------------------------------------------------------
+\detaileddescription
+%% The bulk of the spec. Cover each inventive feature with at least one embodiment.
+%% Use \refnum{N} for every reference numeral. Use \anvilpara{} for every numbered
+%% paragraph (produces [0001], [0002], ... numbering).
+%% State ranges, alternatives, edge cases as described in BRIEF.md §§4–6.
+%% TODO: drafter fills.
+
+%% ----------------------------------------------------------------------
+%% Claims — included from claims.tex (separately drafted file)
+\input{claims}
+
+%% ----------------------------------------------------------------------
+%% Abstract — typically a separate file referenced via the ADS, but for
+%% PDF rendering we include it here.
+\abstract
+%% TODO: drafter pastes content of abstract.txt here verbatim (≤150 words).
+
+\end{document}

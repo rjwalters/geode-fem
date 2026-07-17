@@ -1,0 +1,36 @@
+%% Figure 5 — Capstone: Amara pays Ben 40 BTH, end to end (primer §10).
+%% Teaches: every mechanism in the primer touched exactly once, in order —
+%% build, propagate, mine + finalize, aftermath.
+flowchart TD
+  subgraph BUILD["BUILD — Amara's wallet (§§3–6, 9)"]
+    S1["1 · Select inputs: 30 + 25 BTH UTXOs"]
+    S2["2 · Price it: factor 1 → 20 nano-BTH fee,<br/>no demurrage"]
+    S3["3 · ML-KEM stealth outputs: 40 BTH to Ben<br/>+ ~15 BTH change (indistinguishable on chain)"]
+    S4["4 · Amounts: Pedersen commitments<br/>+ one aggregated Bulletproof"]
+    S5["5 · Senders: two CLSAG rings of 20<br/>with key images (no double spend)"]
+    S6["6 · Outputs inherit the value-weighted<br/>blend of input cluster tags"]
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6
+  end
+
+  subgraph NET["PROPAGATE (§10 step 7)"]
+    S7["7 · Dandelion++ stem → fluff;<br/>every node validates the ~5 KB tx"]
+  end
+
+  subgraph FIN["MINE + FINALIZE (§§7–8)"]
+    S8["8 · RandomX winner assembles the block<br/>+ ML-DSA-65 minting transaction"]
+    S9["9 · SCP nominates, ballots, externalizes:<br/>FINAL seconds after proposal"]
+    S8 --> S9
+  end
+
+  subgraph AFTER["AFTERMATH (§§9, 3, 6)"]
+    S10["10 · Fees split 20% burn / 80% pool;<br/>4 lottery winners drawn, tilted small"]
+    S11["11 · Ben's wallet decapsulates, matches:<br/>mine — 40 BTH, quantum-safe forever"]
+  end
+
+  S6 --> S7
+  S7 --> S8
+  S9 --> S10
+  S9 --> S11
+
+  S9:::anvil-success
+  S11:::anvil-success

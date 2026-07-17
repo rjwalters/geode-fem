@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "thread": "gossamer-lan",
+  "phases": {
+    "draft": {
+      "state": "done",
+      "started": "2026-06-04T00:00:00Z",
+      "completed": "2026-06-04T00:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 1,
+    "max_iterations": 4,
+    "source": "Migrated from legacy flat proposal output/legacy/memos-flat/gossamer-lan.tex via anvil:proposal-draft 2026-06-04"
+  }
+}

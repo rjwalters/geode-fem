@@ -135,7 +135,7 @@ first, lib promotion later" pattern and the precedent set by
 ``refs_resolver.py`` (PR #281) and ``rubric_overrides_suffix.py``
 (PR #265). Promotion to ``anvil/lib/`` is queued for the second-consumer
 trigger — likely ``anvil:proposal`` (which has its own portfolio shape)
-or ``anvil:pub``.
+or ``anvil:paper``.
 """
 
 from __future__ import annotations
@@ -359,7 +359,7 @@ def _is_version_dir(directory: Path) -> bool:
 
     A version dir's basename must match ``<parent.name>.<N>`` for some
     non-negative integer ``N``. This is the on-disk convention codified
-    across every memo / proposal / pub thread.
+    across every memo / proposal / paper thread.
     """
     match = _VERSION_DIR_RE.match(directory.name)
     if match is None:
