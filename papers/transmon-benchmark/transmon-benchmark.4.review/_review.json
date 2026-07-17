@@ -1,0 +1,147 @@
+{
+  "schema_version": "1",
+  "kind": "judgment",
+  "version_dir": "transmon-benchmark.4",
+  "critic_id": "pub-review",
+  "model": "claude-fable-5",
+  "rubric": "anvil-pub-v2",
+  "scores": [
+    {
+      "dimension": "1_rigor_of_method",
+      "score": 6,
+      "max": 6,
+      "critical": false,
+      "evidence_span": "main.tex:L111-L113",
+      "justification": "Same-mesh same-physics cross-validation with analytic tripwires, inverse tests that must fail, a matched same-session CPU cell, and a measured three-step gauge/projection arc; the v4 matched-cell migration strengthened rigor over v3."
+    },
+    {
+      "dimension": "2_evidence_sufficiency",
+      "score": 5,
+      "max": 6,
+      "critical": false,
+      "evidence_span": "main.tex:L1017-L1019",
+      "fix": "Extend evidence beyond the single geometry/mesh/order and bring GPU evidence onto the flagship problem class (or, under the v5 reframe, onto the diffopt demos).",
+      "justification": "GPU evidence is a cube-fixture driven-solve study, not the transmon eigenproblem, and the study is one geometry, one mesh, first order only."
+    },
+    {
+      "dimension": "3_clarity_of_contribution",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L153-L200",
+      "justification": "Five contributions bulleted one sentence per item, extractable from abstract and first page; superseded for v5 by the operator reframe but scored as v4 stands."
+    },
+    {
+      "dimension": "4_related_work_positioning",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L208-L341",
+      "justification": "Substrate-backed per the litsearch siblings; closest prior work (SQDMetal, Palace-workflow, TensorGalerkin, libCEED foil) engaged on the merits; no close prior work for v4's claims ignored. Reframe-axis leads recorded in comments.md for a litsearch re-run."
+    },
+    {
+      "dimension": "5_reproducibility",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L1099-L1166",
+      "justification": "SHA-pinned fixture, committed configs/oracles, bit-for-bit determinism check, per-cell hardware/commit provenance; repo URL/DOI is an operator-gated TODO (submission blocker, not scored down per thread convention)."
+    },
+    {
+      "dimension": "6_figure_table_quality",
+      "score": 3,
+      "max": 4,
+      "critical": true,
+      "evidence_span": "main.tex:L845-L886",
+      "fix": "Update Table 3's large-scale caption/rows to the corrected #557 finding and add (or point to) the 128 GB-box completion measurement (565.5 s / 92.2 GB).",
+      "justification": "Table 3's large-scale block still tells the superseded OOM/memory-wall story; the corrected completion measurement appears in no table."
+    },
+    {
+      "dimension": "7_prose_structural_quality",
+      "score": 3,
+      "max": 4,
+      "critical": false,
+      "evidence_span": "main.tex:L989-L1020",
+      "fix": "Break the long texttt/path tokens driving the two >5pt overfull hboxes in section 10, and sweep the abstract for the retracted causal clause during the v5 rewrite.",
+      "justification": "Two overfull hboxes above the 5 pt gate threshold (36.96 pt, 17.75 pt) persist in section 10, and the in-place #557 edit left a structural seam between the abstract and section 8.2."
+    },
+    {
+      "dimension": "8_citation_hygiene",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L1298-L1299",
+      "justification": "All 50 cite keys resolve (zero missing, zero unused), compile fixpoint shows zero undefined citations/references, entries complete; claim-support half deferred to pub-audit per contract."
+    },
+    {
+      "dimension": "9_rhetorical_economy",
+      "score": 3,
+      "max": 4,
+      "critical": false,
+      "evidence_span": "main.tex:L1186-L1215",
+      "fix": "Apply the v3-review trims (Discussion restatements, abstract compression) as part of the v5 reframe compression toward the 8-12 page target.",
+      "justification": "24 compiled pages against the 8-12 two-column target; the v3 trim recommendations were never applied (v4 was a number-migration revise) and the Discussion still restates results sections."
+    }
+  ],
+  "findings": [
+    {
+      "severity": "blocker",
+      "dimension": "6_figure_table_quality",
+      "evidence_span": "main.tex:L80-L83",
+      "rationale": "PR #557's scale correction was applied to section 8.2 only; abstract, contributions bullet, Table 3 caption/rows, trade-off paragraph, Discussion, and Limitations (iv) still assert the retracted OOM/memory-wall causal story that section 8.2 calls 'a small-box truncation artifact'.",
+      "suggested_fix": "Propagate the flop-and-fill correction (completes at 565.5 s / 92.2 GB, loses to Palace on both axes) to all six sites enumerated in comments.md."
+    },
+    {
+      "severity": "major",
+      "dimension": null,
+      "evidence_span": "main.pdf",
+      "rationale": "The shipped main.pdf (mtime 2026-07-14) predates the out-of-band #557 edit to main.tex (2026-07-16); the rendered artifact lacks the corrected section 8.2 paragraph.",
+      "suggested_fix": "Re-render main.pdf from the current source (pub-audit's compile) before any share or gate run."
+    },
+    {
+      "severity": "major",
+      "dimension": "7_prose_structural_quality",
+      "evidence_span": "main.tex:L991-L1020",
+      "rationale": "Two overfull hboxes above the 5 pt render-gate threshold (36.96 pt and 17.75 pt) from long texttt/path tokens in section 10.",
+      "suggested_fix": "Allow line breaks in the long identifiers or rephrase so the tokens start a line."
+    },
+    {
+      "severity": "minor",
+      "dimension": null,
+      "evidence_span": "main.tex:L43-L48",
+      "rationale": "Five TODO(operator) markers remain (title wording, affiliations, cubecl f64 tracking URL, repo URL/DOI, acknowledgments) — operator-gated, but all are hard arXiv-submission blockers.",
+      "suggested_fix": "Operator resolves before submission; the v5 reframe changes the title regardless."
+    },
+    {
+      "severity": "minor",
+      "dimension": "3_clarity_of_contribution",
+      "evidence_span": "main.tex:L54-L95",
+      "rationale": "The abstract is a single ~40-source-line paragraph.",
+      "suggested_fix": "Rewrite under ~250 words during the v5 reframe."
+    },
+    {
+      "severity": "nit",
+      "dimension": null,
+      "evidence_span": "main.tex:L1",
+      "rationale": "Stale header comment reads 'transmon-benchmark.3 (anvil:pub revision, iteration 3)' in the .4 version dir, and the provenance block omits the out-of-band #557 edit.",
+      "suggested_fix": "Update the header/provenance comment at v5."
+    },
+    {
+      "severity": "nit",
+      "dimension": null,
+      "evidence_span": "main.tex:L1057-L1061",
+      "rationale": "Derived ratios (136x, 13x, tripwire 0.7071) differ slightly from quotients of the table-rounded values (137.1, 13.5, 0.70726); presumably computed from unrounded committed toml values.",
+      "suggested_fix": "State the rounding convention or recompute from displayed values."
+    }
+  ],
+  "critical_flags": [
+    {
+      "type": "numerical_inconsistency_scale_story",
+      "justification": "The PR #557 scale-disclosure correction was applied to section 8.2 only. Section 8.2 states the 1.16M-DOF OOM figure 'was a small-box truncation artifact', that the direct solve completes at 565.5 s / 92.2 GB given a 128 GB box, and that it 'loses to Palace on both axes' — 'a flop-and-fill deficit, not merely a memory wall'. Six other sites (abstract, contributions bullet, Table 3 caption/rows, trade-off paragraph, Discussion, Limitations iv) still assert the retracted OOM-killed/memory-bound causal story, so the abstract and headline table disagree with the paper's own corrected results section — the 'text disagrees with the corresponding figure or table' flag class, compounded by the brief's rule that numbers in text must match the tables exactly.",
+      "evidence_span": "main.tex:L80-L83"
+    }
+  ],
+  "total": 40,
+  "threshold": 35,
+  "verdict": "BLOCK"
+}

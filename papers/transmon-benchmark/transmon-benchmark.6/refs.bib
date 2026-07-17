@@ -1,0 +1,598 @@
+% Merged bibliography for transmon-benchmark v5.
+% v4 refs.bib + transmon-benchmark.4.litsearch/candidates.bib (resolver-verified,
+% 7 of 8 entries merged; mahlau2024flexible omitted — the FDTDX JOSS citation
+% mahlau2026fdtdx suffices per the litsearch notes), deduped by key.
+% JAX-FEM venue note: xue2023jax stays Computer Physics Communications 2023
+% (Crossref-verified at .4.litsearch; the BRIEF's "Nature Comp. Sci." guess is wrong).
+% v2 refs.bib + transmon-benchmark.2.litsearch/candidates.bib (resolver-verified), deduped by key.
+
+@article{albanese1988solution,
+  author = {Albanese, R. and Rubinacci, G.},
+  title = {Solution of three dimensional eddy current problems by integral and differential methods},
+  journal = {IEEE Transactions on Magnetics},
+  year = {1988},
+  volume = {24},
+  number = {1},
+  pages = {98-101},
+  doi = {10.1109/20.43865},
+  url = {https://doi.org/10.1109/20.43865},
+}
+
+
+@article{andrej2024high,
+  author = {Andrej, Julian and Atallah, Nabil and B{\"a}cker, Jan-Phillip and Camier, Jean-Sylvain and Copeland, Dylan and Dobrev, Veselin and Dudouit, Yohann and Duswald, Tobias and Keith, Brendan and Kim, Dohyun and Kolev, Tzanio and Lazarov, Boyan and Mittal, Ketan and Pazner, Will and Petrides, Socratis and Shiraiwa, Syun'ichi and Stowell, Mark and Tomov, Vladimir},
+  title = {High-performance finite elements with MFEM},
+  journal = {The International Journal of High Performance Computing Applications},
+  year = {2024},
+  doi = {10.1177/10943420241261981},
+  url = {https://doi.org/10.1177/10943420241261981},
+}
+
+@book{arpack,
+  title     = {{ARPACK} Users' Guide: Solution of Large-Scale Eigenvalue Problems with Implicitly Restarted {A}rnoldi Methods},
+  author    = {Lehoucq, Richard B. and Sorensen, Danny C. and Yang, Chao},
+  publisher = {SIAM},
+  year      = {1998},
+  doi       = {10.1137/1.9780898719628}
+}
+
+@article{arsenovic2022scikit,
+  author = {Arsenovic, Alexander and Hillairet, Julien and Anderson, Jackson and Forsten, Henrik and Ries, Vincent and Eller, Michael and Sauber, Noah and Weikle, Robert and Barnhart, William and Forstmayr, Franz},
+  title = {scikit-rf: An Open Source Python Package for Microwave Network Creation, Analysis, and Calibration [Speaker's Corner]},
+  journal = {IEEE Microwave Magazine},
+  year = {2022},
+  volume = {23},
+  number = {1},
+  pages = {98--105},
+  doi = {10.1109/mmm.2021.3117139},
+  url = {https://doi.org/10.1109/mmm.2021.3117139},
+}
+
+@article{brown2021libceed,
+  author = {Brown, Jed and Abdelfattah, Ahmad and Barra, Valeria and Beams, Natalie and Camier, Jean-Sylvain and Dobrev, Veselin and Dudouit, Yohann and Ghaffari, Leila and Kolev, Tzanio and Medina, David and Pazner, Will and Ratnayaka, Thilina and Thompson, Jeremy and Tomov, Stan},
+  title = {libCEED: Fast algebra for high-order element-based discretizations},
+  journal = {Journal of Open Source Software},
+  year = {2021},
+  volume = {6},
+  number = {63},
+  pages = {2945},
+  doi = {10.21105/joss.02945},
+  url = {https://doi.org/10.21105/joss.02945},
+}
+
+@misc{burn,
+  title        = {Burn: a comprehensive deep-learning and tensor-computation framework in {Rust}},
+  author       = {{Tracel AI}},
+  howpublished = {\url{https://github.com/tracel-ai/burn}},
+  year         = {2024},
+  note         = {v0.21.0 used. No journal/arXiv paper exists (litsearch check 2026-07-14): the repo CITATION.cff lists authors Simard, Fortier-Dubois, Tadjibaev, Lagrange + Burn Framework Contributors, with no DOI and no preferred-citation paper --- cited as software.}
+}
+
+@misc{chen2018tvm,
+  author = {Chen, Tianqi and Moreau, Thierry and Jiang, Ziheng and Zheng, Lianmin and Yan, Eddie and Cowan, Meghan and Shen, Haichen and Wang, Leyuan and Hu, Yuwei and Ceze, Luis and Guestrin, Carlos and Krishnamurthy, Arvind},
+  title = {TVM: An Automated End-to-End Optimizing Compiler for Deep Learning},
+  year = {2018},
+  eprint = {1802.04799},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/1802.04799},
+}
+
+@misc{chi2026torch,
+  author = {Chi, Mingyuan and Wen, Shizheng},
+  title = {torch-sla: Differentiable Sparse Linear Algebra with Adjoint Solvers and Sparse Tensor Parallelism for PyTorch},
+  year = {2026},
+  eprint = {2601.13994},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2601.13994},
+}
+
+@misc{devicelayout,
+  title        = {{DeviceLayout.jl}: computer-aided design of quantum integrated circuits},
+  author       = {{AWS Center for Quantum Computing}},
+  year         = {2025},
+  howpublished = {\url{https://github.com/aws-cqc/DeviceLayout.jl}},
+  note         = {v1.15.0 used for geometry/mesh generation in this work. No journal or arXiv artifact exists as of 2026-07-14 (litsearch absence check).}
+}
+
+@misc{devicelayout-blog,
+  title        = {Design quantum integrated circuits with open-source software {DeviceLayout.jl} from {AWS}},
+  author       = {Peairs, Greg and Carson, Hugh},
+  year         = {2025},
+  howpublished = {\url{https://aws.amazon.com/blogs/quantum-computing/design-quantum-integrated-circuits-with-open-source-software-devicelayout-jl-from-aws/}},
+  note         = {AWS Quantum Technologies Blog; source of the transmon+resonator geometry and the reference workflow reproduced here.}
+}
+
+@misc{devicelayout-juliacon,
+  title        = {Schematic-Driven Design of a Quantum Processor with {DeviceLayout.jl}},
+  author       = {Peairs, Greg},
+  year         = {2025},
+  howpublished = {JuliaCon Global 2025, \url{https://pretalx.com/juliacon-2025/talk/7EYFPN/}},
+  note         = {Recording: \url{https://www.youtube.com/watch?v=-LohBVtFdwU}}
+}
+
+@article{dular1998general,
+  author = {Dular, P. and Geuzaine, C. and Henrotte, F. and Legros, W.},
+  title = {A general environment for the treatment of discrete problems and its application to the finite element method},
+  journal = {IEEE Transactions on Magnetics},
+  year = {1998},
+  volume = {34},
+  number = {5},
+  pages = {3395--3398},
+  doi = {10.1109/20.717799},
+  url = {https://doi.org/10.1109/20.717799},
+}
+
+@article{gmsh,
+  title   = {Gmsh: a 3-{D} finite element mesh generator with built-in pre- and post-processing facilities},
+  author  = {Geuzaine, Christophe and Remacle, Jean-Fran{\c{c}}ois},
+  journal = {International Journal for Numerical Methods in Engineering},
+  volume  = {79},
+  number  = {11},
+  pages   = {1309--1331},
+  year    = {2009},
+  doi     = {10.1002/nme.2579}
+}
+
+@article{hammond2022high,
+  author = {Hammond, Alec M. and Oskooi, Ardavan and Chen, Mo and Lin, Zin and Johnson, Steven G. and Ralph, Stephen E.},
+  title = {High-performance hybrid time/frequency-domain topology optimization for large-scale photonics inverse design},
+  journal = {Optics Express},
+  year = {2022},
+  volume = {30},
+  number = {3},
+  pages = {4467},
+  doi = {10.1364/oe.442074},
+  url = {https://doi.org/10.1364/oe.442074},
+}
+
+@article{hiptmair-xu,
+  title   = {Nodal auxiliary space preconditioning in {H(curl)} and {H(div)} spaces},
+  author  = {Hiptmair, Ralf and Xu, Jinchao},
+  journal = {SIAM Journal on Numerical Analysis},
+  volume  = {45},
+  number  = {6},
+  pages   = {2483--2509},
+  year    = {2007},
+  doi     = {10.1137/060660588}
+}
+
+@misc{hoffmann2009comparison,
+  author = {Hoffmann, Johannes and Hafner, Christian and Leidenberger, Patrick and Hesselbarth, Jan and Burger, Sven},
+  title = {Comparison of electromagnetic field solvers for the 3D analysis of plasmonic nano antennas},
+  year = {2009},
+  eprint = {0907.3570},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/0907.3570},
+}
+
+@misc{holl2020learning,
+  author = {Holl, Philipp and Koltun, Vladlen and Thuerey, Nils},
+  title = {Learning to Control PDEs with Differentiable Physics},
+  year = {2020},
+  eprint = {2001.07457},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2001.07457},
+}
+
+@article{homolya2018tsfc,
+  author = {Homolya, Miklós and Mitchell, Lawrence and Luporini, Fabio and Ham, David A.},
+  title = {TSFC: A Structure-Preserving Form Compiler},
+  journal = {SIAM Journal on Scientific Computing},
+  year = {2018},
+  volume = {40},
+  number = {3},
+  pages = {C401-C428},
+  doi = {10.1137/17m1130642},
+  url = {https://doi.org/10.1137/17m1130642},
+}
+
+@misc{hu2019difftaichi,
+  author = {Hu, Yuanming and Anderson, Luke and Li, Tzu-Mao and Sun, Qi and Carr, Nathan and Ragan-Kelley, Jonathan and Durand, Frédo},
+  title = {DiffTaichi: Differentiable Programming for Physical Simulation},
+  year = {2019},
+  eprint = {1910.00935},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/1910.00935},
+}
+
+@article{huantingmeng2014gpu,
+  author = {Huan-Ting Meng and Bao-Lin Nie and Wong, Steven and Macon, Charles and Jian-Ming Jin},
+  title = {GPU accelerated finite-element computation for electromagnetic analysis},
+  journal = {IEEE Antennas and Propagation Magazine},
+  year = {2014},
+  volume = {56},
+  number = {2},
+  pages = {39-62},
+  doi = {10.1109/map.2014.6837065},
+  url = {https://doi.org/10.1109/map.2014.6837065},
+}
+
+@article{hughes2019forward,
+  author = {Hughes, Tyler W. and Williamson, Ian A. D. and Minkov, Momchil and Fan, Shanhui},
+  title = {Forward-Mode Differentiation of Maxwell’s Equations},
+  journal = {ACS Photonics},
+  year = {2019},
+  volume = {6},
+  number = {11},
+  pages = {3010-3016},
+  doi = {10.1021/acsphotonics.9b01238},
+  url = {https://doi.org/10.1021/acsphotonics.9b01238},
+}
+
+@misc{jiang2024fieldtnn,
+  author = {Jiang, Jiantao and Wang, Yanli and Wang, Yifan and Xie, Hehu},
+  title = {FieldTNN-based machine learning method for Maxwell eigenvalue problems},
+  year = {2024},
+  eprint = {2411.15828},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2411.15828},
+}
+
+@article{kazdadi2026faer,
+  author = {Kazdadi, Sarah Qui{\~n}ones El},
+  title = {faer: A linear algebra library for the Rust programming language},
+  journal = {Journal of Open Source Software},
+  year = {2026},
+  volume = {11},
+  number = {123},
+  pages = {6099},
+  doi = {10.21105/joss.06099},
+  url = {https://doi.org/10.21105/joss.06099},
+}
+
+@misc{kim2024meent,
+  author = {Kim, Yongha and Jung, Anthony W. and Kim, Sanmun and Octavian, Kevin and Heo, Doyoung and Park, Chaejin and Shin, Jeongmin and Nam, Sunghyun and Park, Chanhyung and Park, Juho and Han, Sangjun and Lee, Jinmyoung and Kim, Seolho and Jang, Min Seok and Park, Chan Y.},
+  title = {Meent: Differentiable Electromagnetic Simulator for Machine Learning},
+  year = {2024},
+  eprint = {2406.12904},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2406.12904},
+}
+
+@article{kirby2006compiler,
+  author = {Kirby, Robert C. and Logg, Anders},
+  title = {A compiler for variational forms},
+  journal = {ACM Transactions on Mathematical Software},
+  year = {2006},
+  volume = {32},
+  number = {3},
+  pages = {417-444},
+  doi = {10.1145/1163641.1163644},
+  url = {https://doi.org/10.1145/1163641.1163644},
+}
+
+@article{koch2007,
+  title   = {Charge-insensitive qubit design derived from the {Cooper} pair box},
+  author  = {Koch, Jens and Yu, Terri M. and Gambetta, Jay and Houck, A. A. and Schuster, D. I. and Majer, J. and Blais, Alexandre and Devoret, M. H. and Girvin, S. M. and Schoelkopf, R. J.},
+  journal = {Physical Review A},
+  volume  = {76},
+  pages   = {042319},
+  year    = {2007},
+  doi     = {10.1103/PhysRevA.76.042319}
+}
+
+@article{liang2023pytorch,
+  author = {Liang, Liang and Liu, Minliang and Elefteriades, John and Sun, Wei},
+  title = {PyTorch-FEA: Autograd-enabled finite element analysis methods with applications for biomechanical analysis of human aorta},
+  journal = {Computer Methods and Programs in Biomedicine},
+  year = {2023},
+  volume = {238},
+  pages = {107616},
+  doi = {10.1016/j.cmpb.2023.107616},
+  url = {https://doi.org/10.1016/j.cmpb.2023.107616},
+}
+
+@article{logg2010dolfin,
+  author = {Logg, Anders and Wells, Garth N.},
+  title = {DOLFIN: Automated finite element computing},
+  journal = {ACM Transactions on Mathematical Software},
+  year = {2010},
+  volume = {37},
+  number = {2},
+  pages = {1--28},
+  doi = {10.1145/1731022.1731030},
+  url = {https://doi.org/10.1145/1731022.1731030},
+}
+
+
+@article{mahlau2026fdtdx,
+  author = {Mahlau, Yannik and Schubert, Frederik and Berg, Lukas and Rosenhahn, Bodo},
+  title = {FDTDX: High-Performance Open-Source FDTD Simulation with Automatic Differentiation},
+  journal = {Journal of Open Source Software},
+  year = {2026},
+  volume = {11},
+  number = {117},
+  pages = {8912},
+  doi = {10.21105/joss.08912},
+  url = {https://doi.org/10.21105/joss.08912},
+}
+
+@article{manges1995generalized,
+  author = {Manges, J.B. and Cendes, Z.J.},
+  title = {A generalized tree-cotree gauge for magnetic field computation},
+  journal = {IEEE Transactions on Magnetics},
+  year = {1995},
+  volume = {31},
+  number = {3},
+  pages = {1342-1347},
+  doi = {10.1109/20.376275},
+  url = {https://doi.org/10.1109/20.376275},
+}
+
+@article{mfem,
+  title   = {{MFEM}: a modular finite element methods library},
+  author  = {Anderson, Robert and Andrej, Julian and Barker, Andrew and Bramwell, Jamie and Camier, Jean-Sylvain and Cerveny, Jakub and Dobrev, Veselin and Dudouit, Yohann and Fisher, Aaron and Kolev, Tzanio and Pazner, Will and Stowell, Mark and Tomov, Vladimir and Akkerman, Ido and Dahm, Johann and Medina, David and Zampini, Stefano},
+  journal = {Computers \& Mathematics with Applications},
+  volume  = {81},
+  pages   = {42--74},
+  year    = {2021},
+  doi     = {10.1016/j.camwa.2020.06.009}
+}
+
+@article{minev2021,
+  title   = {Energy-participation quantization of {Josephson} circuits},
+  author  = {Minev, Zlatko K. and Leghtas, Zaki and Mundhada, Shantanu O. and Christakis, Lysander and Pop, Ioan M. and Devoret, Michel H.},
+  journal = {npj Quantum Information},
+  volume  = {7},
+  pages   = {131},
+  year    = {2021},
+  doi     = {10.1038/s41534-021-00461-8}
+}
+
+@misc{minev2021circuit,
+  author = {Minev, Zlatko K. and McConkey, Thomas G. and Takita, Maika and Corcoles, Antonio D. and Gambetta, Jay M.},
+  title = {Circuit quantum electrodynamics (cQED) with modular quasi-lumped models},
+  year = {2021},
+  eprint = {2103.10344},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2103.10344},
+}
+
+@article{nedelec1980,
+  title   = {Mixed finite elements in {$\mathbb{R}^3$}},
+  author  = {N{\'e}d{\'e}lec, Jean-Claude},
+  journal = {Numerische Mathematik},
+  volume  = {35},
+  number  = {3},
+  pages   = {315--341},
+  year    = {1980},
+  doi     = {10.1007/BF01396415}
+}
+
+@article{nigg2012,
+  title   = {Black-box superconducting circuit quantization},
+  author  = {Nigg, Simon E. and Paik, Hanhee and Vlastakis, Brian and Kirchmair, Gerhard and Shankar, S. and Frunzio, Luigi and Devoret, M. H. and Schoelkopf, R. J. and Girvin, S. M.},
+  journal = {Physical Review Letters},
+  volume  = {108},
+  pages   = {240502},
+  year    = {2012},
+  doi     = {10.1103/PhysRevLett.108.240502}
+}
+
+@book{oberkampf2010verification,
+  author = {Oberkampf, William L. and Roy, Christopher J.},
+  title = {Verification and Validation in Scientific Computing},
+  publisher = {Cambridge University Press},
+  year = {2010},
+  doi = {10.1017/cbo9780511760396},
+  url = {https://doi.org/10.1017/cbo9780511760396},
+}
+
+@misc{palace,
+  title        = {{Palace}: {PA}rallel {LA}rge-scale {C}omputational {E}lectromagnetics},
+  author       = {{Palace developers, AWS Center for Quantum Computing}},
+  year         = {2023},
+  howpublished = {\url{https://github.com/awslabs/palace}},
+  note         = {Open-source 3D finite-element solver; v0.13-class, git fba6a5b used in this work. No associated journal article exists as of 2026-07 (absence re-confirmed by litsearch, 2026-07-14).}
+}
+
+@misc{palace-blog,
+  title        = {{AWS} releases open-source software {Palace} for cloud-based electromagnetics simulations of quantum computing hardware},
+  author       = {{AWS Quantum Technologies Blog}},
+  year         = {2023},
+  howpublished = {\url{https://aws.amazon.com/blogs/quantum-computing/aws-releases-open-source-software-palace-for-cloud-based-electromagnetics-simulations-of-quantum-computing-hardware/}}
+}
+
+@article{ragankelley2013halide,
+  author = {Ragan-Kelley, Jonathan and Barnes, Connelly and Adams, Andrew and Paris, Sylvain and Durand, Frédo and Amarasinghe, Saman},
+  title = {Halide},
+  journal = {Proceedings of the 34th ACM SIGPLAN Conference on Programming Language Design and Implementation},
+  year = {2013},
+  pages = {519-530},
+  doi = {10.1145/2491956.2462176},
+  url = {https://doi.org/10.1145/2491956.2462176},
+}
+
+@article{rathgeber2017firedrake,
+  author = {Rathgeber, Florian and Ham, David A. and Mitchell, Lawrence and Lange, Michael and Luporini, Fabio and Mcrae, Andrew T. T. and Bercea, Gheorghe-Teodor and Markall, Graham R. and Kelly, Paul H. J.},
+  title = {Firedrake},
+  journal = {ACM Transactions on Mathematical Software},
+  year = {2017},
+  volume = {43},
+  number = {3},
+  pages = {1-27},
+  doi = {10.1145/2998441},
+  url = {https://doi.org/10.1145/2998441},
+}
+
+@article{roache1997quantification,
+  author = {Roache, P. J.},
+  title = {Quantification of uncertainty in computational fluid dynamics},
+  journal = {Annual Review of Fluid Mechanics},
+  year = {1997},
+  volume = {29},
+  number = {1},
+  pages = {123--160},
+  doi = {10.1146/annurev.fluid.29.1.123},
+  url = {https://doi.org/10.1146/annurev.fluid.29.1.123},
+}
+
+@misc{schubert2022inverse,
+  author = {Schubert, Martin F. and Cheung, Alfred K. C. and Williamson, Ian A. D. and Spyra, Aleksandra and Alexander, David H.},
+  title = {Inverse design of photonic devices with strict foundry fabrication constraints},
+  year = {2022},
+  eprint = {2201.12965},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2201.12965},
+}
+
+@article{shanto2024squadds,
+  author = {Shanto, Sadman and Kuo, Andre and Miyamoto, Clark and Zhang, Haimeng and Maurya, Vivek and Vlachos, Evangelos and Hecht, Malida and Shum, Chung Wa and Levenson-Falk, Eli},
+  title = {SQuADDS: A validated design database and simulation workflow for superconducting qubit design},
+  journal = {Quantum},
+  year = {2024},
+  volume = {8},
+  pages = {1465},
+  doi = {10.22331/q-2024-09-09-1465},
+  url = {https://doi.org/10.22331/q-2024-09-09-1465},
+}
+
+@article{slepc,
+  title   = {{SLEPc}: a scalable and flexible toolkit for the solution of eigenvalue problems},
+  author  = {Hernandez, Vicente and Roman, Jose E. and Vidal, Vicente},
+  journal = {ACM Transactions on Mathematical Software},
+  volume  = {31},
+  number  = {3},
+  pages   = {351--362},
+  year    = {2005},
+  doi     = {10.1145/1089014.1089019}
+}
+
+@misc{sommers2025open,
+  author = {Sommers, David and Degnan, Zach and Gautam, Divita and Chen, Yi-Hsun and Chiu, Chun-Ching and Fedorov, Arkady and Pakkiam, Prasanna},
+  title = {Open-Source Highly Parallel Electromagnetic Simulations for Superconducting Circuits},
+  year = {2025},
+  eprint = {2511.01220},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2511.01220},
+}
+
+@article{tzaniovkolevpanayotsvassilevski2018parallel,
+  author = {Kolev, Tzanio V. and Vassilevski, Panayot S.},
+  title = {Parallel Auxiliary Space {AMG} for {$H$(curl)} Problems},
+  journal = {Journal of Computational Mathematics},
+  year = {2009},
+  volume = {27},
+  number = {5},
+  pages = {604--623},
+  doi = {10.4208/jcm.2009.27.5.013},
+  url = {https://doi.org/10.4208/jcm.2009.27.5.013},
+  note = {Crossref records the online-publication year 2018; print year 2009 used here (litsearch cosmetic fix, see version-dir refs.bib header).}
+}
+
+@misc{wen2026learning,
+  author = {Wen, Shizheng and Chi, Mingyuan and Yu, Tianwei and Moseley, Ben and Michelis, Mike Yan and Ren, Pu and Sun, Hao and Mishra, Siddhartha},
+  title = {Learning, Solving and Optimizing PDEs with TensorGalerkin: an efficient high-performance Galerkin assembly algorithm},
+  year = {2026},
+  eprint = {2602.05052},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2602.05052},
+}
+
+@article{xue2023jax,
+  author = {Xue, Tianju and Liao, Shuheng and Gan, Zhengtao and Park, Chanwook and Xie, Xiaoyu and Liu, Wing Kam and Cao, Jian},
+  title = {JAX-FEM: A differentiable GPU-accelerated 3D finite element solver for automatic inverse design and mechanistic data science},
+  journal = {Computer Physics Communications},
+  year = {2023},
+  volume = {291},
+  pages = {108802},
+  doi = {10.1016/j.cpc.2023.108802},
+  url = {https://doi.org/10.1016/j.cpc.2023.108802},
+}
+
+@misc{ye2025electromagnetic,
+  author = {Ye, Jiale and Wang, Jiaheng and Liu, Yu-xi},
+  title = {Electromagnetic Feature Extraction in Superconducting Quantum Circuits: An Open-Source Finite-Element Workflow Using Palace},
+  year = {2025},
+  eprint = {2511.09041},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2511.09041},
+}
+
+
+% UFL entry re-keyed ASCII to match main.tex \cite{alnaes2014unified}
+@article{alnaes2014unified,
+  author = {Alnæs, Martin S. and Logg, Anders and Ølgaard, Kristian B. and Rognes, Marie E. and Wells, Garth N.},
+  title = {Unified form language},
+  journal = {ACM Transactions on Mathematical Software},
+  year = {2014},
+  volume = {40},
+  number = {2},
+  pages = {1-37},
+  doi = {10.1145/2566630},
+  url = {https://doi.org/10.1145/2566630},
+}
+
+
+% --- Merged from transmon-benchmark.4.litsearch/candidates.bib (2026-07-16) ---
+
+@misc{eriksson2025automated,
+  author = {Eriksson, Axel M. and Splitthoff, Lukas J. and Upadhyay, Harsh Vardhan and Campana, Pietro and Narendiran, Niranjan Pittan and Helambe, Kunal and Andersson, Linus and Gasparinetti, Simone},
+  title = {Automated, physics-guided, multi-parameter design optimization for superconducting quantum devices},
+  year = {2025},
+  eprint = {2508.18027},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2508.18027},
+}
+
+@misc{rajabzadeh2024general,
+  author = {Rajabzadeh, Taha and Boulton-McKeehan, Alex and Bonkowsky, Sam and Schuster, David I. and Safavi-Naeini, Amir H.},
+  title = {A General Framework for Gradient-Based Optimization of Superconducting Quantum Circuits using Qubit Discovery as a Case Study},
+  year = {2024},
+  eprint = {2408.12704},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2408.12704},
+}
+
+@article{rajabzadeh2023analysis,
+  author = {Rajabzadeh, Taha and Wang, Zhaoyou and Lee, Nathan and Makihara, Takuma and Guo, Yudan and Safavi-Naeini, Amir H.},
+  title = {Analysis of arbitrary superconducting quantum circuits accompanied by a Python package: SQcircuit},
+  journal = {Quantum},
+  year = {2023},
+  volume = {7},
+  pages = {1118},
+  doi = {10.22331/q-2023-09-25-1118},
+  url = {https://doi.org/10.22331/q-2023-09-25-1118},
+}
+
+@misc{ponomareva2025torchgdm,
+  author = {Ponomareva, Sofia and Patoux, Adelin and Majorel, Clément and Azéma, Antoine and Cuche, Aurélien and Girard, Christian and Arbouet, Arnaud and Wiecha, Peter R.},
+  title = {TorchGDM: A GPU-Accelerated Python Toolkit for Multi-Scale Electromagnetic Scattering with Automatic Differentiation},
+  year = {2025},
+  eprint = {2505.09545},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2505.09545},
+}
+
+@misc{liang2026adaptive,
+  author = {Liang, Qigang and Xu, Xuejun and Zhang, Qingquan},
+  title = {Adaptive Multilevel Methods for the Maxwell Eigenvalue Problem},
+  year = {2026},
+  eprint = {2603.29718},
+  eprinttype = {arxiv},
+  url = {https://arxiv.org/abs/2603.29718},
+}
+
+@article{molesky2018inverse,
+  author = {Molesky, Sean and Lin, Zin and Piggott, Alexander Y. and Jin, Weiliang and Vucković, Jelena and Rodriguez, Alejandro W.},
+  title = {Inverse design in nanophotonics},
+  journal = {Nature Photonics},
+  year = {2018},
+  volume = {12},
+  number = {11},
+  pages = {659-670},
+  doi = {10.1038/s41566-018-0246-9},
+  url = {https://doi.org/10.1038/s41566-018-0246-9},
+}
+
+@article{nelson1976simplified,
+  author = {Nelson, Richard B.},
+  title = {Simplified calculation of eigenvector derivatives},
+  journal = {AIAA Journal},
+  year = {1976},
+  volume = {14},
+  number = {9},
+  pages = {1201-1205},
+  doi = {10.2514/3.7211},
+  url = {https://doi.org/10.2514/3.7211},
+}

@@ -1,0 +1,118 @@
+{
+  "schema_version": "1",
+  "kind": "judgment",
+  "version_dir": "transmon-benchmark.6",
+  "critic_id": "pub-review",
+  "model": "claude-fable-5",
+  "rubric": "anvil-pub-v2",
+  "scores": [
+    {
+      "dimension": "1_rigor_of_method",
+      "score": 6,
+      "max": 6,
+      "critical": false,
+      "evidence_span": "main.tex:L705-L816",
+      "justification": "Untouched by the v6 surgical diff; carried from v5 on re-verification. Discrete-adjoint layer validated against central finite differences of the full pipeline with mutation tests (sign/conjugation/dropped-term rejection); variational-stationarity collapse confirmed numerically rather than assumed; oracle-first tripwire protocol and two-tier honesty structure intact."
+    },
+    {
+      "dimension": "2_evidence_sufficiency",
+      "score": 5,
+      "max": 6,
+      "critical": false,
+      "evidence_span": "main.tex:L1323-L1335",
+      "fix": "Add one multi-parameter or RF-observable (driven-column) optimization exercise, or a second geometry, before the capability claim scores at full weight.",
+      "justification": "Untouched by the v6 diff; carried from v5. Optimization demonstrations are single-parameter by design; real-device convergence is a within-budget 0.5%-move demonstration target; driven column validated at operator level only. Claims honestly bounded to match, but the design-capability evidence remains deliberately narrow."
+    },
+    {
+      "dimension": "3_clarity_of_contribution",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L80-L240",
+      "justification": "Untouched by the v6 diff; carried from v5. Five contributions bulleted one sentence per item; ~250-word abstract leads with the inverse-design gap and states capability, honest negatives, credential, and the LOM/eigenmode boundary — extractable on triage."
+    },
+    {
+      "dimension": "4_related_work_positioning",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L252-L350",
+      "justification": "Untouched by the v6 diff (the section 1 unquoting does not alter the positioning claim, which stays accurate against the QDO abstract); carried from v5. Substrate-backed per the .4.litsearch sibling (8 resolver-verified candidates): QDO, SQcircuit line, SQuADDS, photonics genus anchor, JAX-FEM at CPC 2023, TensorGalerkin, libCEED foil engaged on the merits; wedge hedged ('to our knowledge')."
+    },
+    {
+      "dimension": "5_reproducibility",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L1073-L1078",
+      "justification": "Carried from v5 and slightly strengthened: SHA-256-pinned mesh, committed TOMLs/logs for every cell, per-cell hardware+commit provenance; the new Table 3 footnote closes the audit's last traceability gap (off-target RSS cells disclosed as repeats of the same-session physical-target measurements — verified this pass against [matched.off_target.*], which records wall times only, exactly as stated). Repo URL/DOI remains an operator-gated TODO."
+    },
+    {
+      "dimension": "6_figure_table_quality",
+      "score": 4,
+      "max": 4,
+      "critical": false,
+      "evidence_span": "main.tex:L1049-L1078",
+      "justification": "Carried from v5; the one v6 table change is an improvement: Table 3's off-target Peak RSS cells now carry a ddag provenance footnote so the caption's artifact sourcing is no longer an overclaim. Both large-scale geode rows, Figure 5 from committed diffopt TOMLs, and the matched-cell fig4 inset are unchanged; captions re-verified against the freshly compiled PDF."
+    },
+    {
+      "dimension": "7_prose_structural_quality",
+      "score": 4,
+      "max": 4,
+      "critical": false,
+      "evidence_span": "main.tex:L916-L919",
+      "justification": "Structure and voice unchanged by the surgical diff; the reviewer compiled the v6 source to a clean fixpoint (4 pdflatex passes + bibtex): zero undefined citations/references, single 1.13 pt overfull hbox (below the 5 pt gate), 25 pages; shipped main.pdf current (pdftotext-identical to the fresh compile). The new section 9.2 clarifier parenthetical reads cleanly."
+    },
+    {
+      "dimension": "8_citation_hygiene",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L127-L128",
+      "justification": "The v5 deduction is repaired exactly as prescribed: section 1 now paraphrases the eriksson2025automated span without quotation marks, no longer asserting verbatim source words, with substance still supported by the cited abstract (per the v5 audit's live arXiv:2508.18027 verification); the remaining quote spans are the solver's name, a column name, and two scare quotes on the paper's own words. All 57 cite keys resolve to complete entries (zero missing, zero unused; clean bibtex pass this compile); the 0.2155/0.2156 anchor proximity now carries an artifact-faithful clarifier verified against both committed TOMLs."
+    },
+    {
+      "dimension": "9_rhetorical_economy",
+      "score": 3,
+      "max": 4,
+      "critical": false,
+      "evidence_span": "main.tex:L1358-L1393",
+      "fix": "Post-thread: compress the conclusion recap to 3-4 sentences, trim the Discussion's credential restatement, and consider the venue two-column layout toward the ~15 pp single-column-equivalent target.",
+      "justification": "Untouched by the v6 diff (the two added clarifiers are justified, ~10 lines); carried from v5. The paper remains 25 compiled single-column pages against the BRIEF's ~15-single-column-equivalent target and the conclusion still re-walks the abstract and contribution list nearly item for item. The changelog's declination of the compression levers for the final surgical pass is reasonable, but the deduction stands on the artifact as shipped."
+    }
+  ],
+  "findings": [
+    {
+      "severity": "minor",
+      "dimension": "5_reproducibility",
+      "evidence_span": "main.tex:L70-L1402",
+      "rationale": "Five TODO(operator) items (title wording, affiliations, cubecl f64 tracking URL, repo URL/DOI, acknowledgment/whiteroom) remain operator-gated by thread convention but are each a hard arXiv-submission blocker.",
+      "suggested_fix": "Operator resolves all five before submission."
+    },
+    {
+      "severity": "minor",
+      "dimension": "9_rhetorical_economy",
+      "evidence_span": "main.tex:L1358-L1393",
+      "rationale": "25 compiled single-column pages vs the BRIEF's 8-12 pp two-column (~15 single-column) target; residual restatement in the conclusion and Discussion. Declined for the iteration-6 surgical pass per changelog; still live for any post-thread polish.",
+      "suggested_fix": "Apply the documented compression levers (conclusion recap, Discussion credential paragraph, section 6.2 arc, two-column layout)."
+    },
+    {
+      "severity": "minor",
+      "dimension": "8_citation_hygiene",
+      "evidence_span": "refs.bib",
+      "rationale": "49 of 57 entries remain unverifiable on-disk (no source PDFs in refs/); carried from the v5 audit note — no reviser action available.",
+      "suggested_fix": "Author verifies the remaining citations off-disk before submission."
+    },
+    {
+      "severity": "nit",
+      "dimension": "6_figure_table_quality",
+      "evidence_span": "main.tex:L440-L1091",
+      "rationale": "fig4-cpu-wallclock.pdf renders as Figure 6 and fig6-participation.pdf as Figure 4; cosmetic filename/source-map skew only. Declined for the surgical pass (scripts hardcode output filenames; re-render risk).",
+      "suggested_fix": "Rename figure files/scripts at a convenient post-thread pass."
+    }
+  ],
+  "critical_flags": [],
+  "total": 42,
+  "threshold": 35,
+  "verdict": "ADVANCE"
+}
