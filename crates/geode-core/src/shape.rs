@@ -82,10 +82,10 @@
 
 use faer::Mat;
 use faer::linalg::solvers::Solve;
-use faer::sparse::SparseColMat;
+use faer::sparse::{SparseColMat, Triplet};
 
 use crate::assembly::electrostatic::{
-    EPS_0, Electrode, ElectrostaticError, assemble_electrostatic,
+    EPS_0, Electrode, ElectrostaticError, assemble_electrostatic, tet_p1_local,
 };
 use crate::mesh::TetMesh;
 
@@ -499,6 +499,210 @@ pub fn apply_in_plane_scale(mesh: &TetMesh, subset: &[u32], theta: f64) -> TetMe
         p[1] = c[1] + (1.0 + theta) * (p[1] - c[1]);
     }
     moved
+}
+
+/// Apply a **general** analytic node-motion map `X(θ) = X⁰ + θ·D` at
+/// parameter `θ`: returns a clone of `mesh` with **every** node `n` moved to
+/// `X⁰_n + θ·velocity[n]` (all three axes), topology fixed. The map is
+/// exactly linear in `θ`, so `velocity` is simultaneously the finite-
+/// difference perturbation and the analytic Jacobian `∂X/∂θ` consumed by
+/// [`chain_node_motion`] / [`CapacitanceShapeGradient::dc_dtheta`].
+///
+/// This is the mesh-morphing counterpart of the subset-local
+/// [`apply_in_plane_scale`]: where that map moves only the island nodes and
+/// leaves the surroundings fixed (concentrating all strain in the adjacent
+/// tets), `velocity` here is typically a **harmonic extension**
+/// ([`harmonic_extension_velocity`]) that spreads the prescribed island
+/// motion smoothly into the volume, so near-island tets deform proportionally
+/// and the mesh-validity budget widens.
+///
+/// # Panics
+///
+/// Panics if `velocity.len() != mesh.n_nodes()`.
+pub fn apply_node_motion(mesh: &TetMesh, velocity: &[[f64; 3]], theta: f64) -> TetMesh {
+    assert_eq!(
+        velocity.len(),
+        mesh.n_nodes(),
+        "apply_node_motion: velocity len {} != node count {}",
+        velocity.len(),
+        mesh.n_nodes()
+    );
+    let mut moved = mesh.clone();
+    for (node, d) in moved.nodes.iter_mut().zip(velocity) {
+        node[0] += theta * d[0];
+        node[1] += theta * d[1];
+        node[2] += theta * d[2];
+    }
+    moved
+}
+
+/// Assemble the full `n_nodes × n_nodes` P1 **Laplace** stiffness
+/// `L_ij = ∫ ∇λ_i·∇λ_j` (unit coefficient, `ε_r ≡ 1`) on `mesh`, reusing the
+/// same closed-form element kernel as the electrostatic assembly
+/// ([`tet_p1_local`]). Used as the smoothing operator for the harmonic
+/// mesh-morphing extension.
+fn assemble_p1_laplace(mesh: &TetMesh) -> Result<SparseColMat<usize, f64>, ElectrostaticError> {
+    let n = mesh.n_nodes();
+    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(mesh.n_tets() * 16);
+    for tet in &mesh.tets {
+        let coords = [
+            mesh.nodes[tet[0] as usize],
+            mesh.nodes[tet[1] as usize],
+            mesh.nodes[tet[2] as usize],
+            mesh.nodes[tet[3] as usize],
+        ];
+        let (k_local, _m, _v) = tet_p1_local(&coords);
+        for p in 0..4 {
+            let gp = tet[p] as usize;
+            for q in 0..4 {
+                trips.push(Triplet::new(gp, tet[q] as usize, k_local[p][q]));
+            }
+        }
+    }
+    SparseColMat::<usize, f64>::try_new_from_triplets(n, n, &trips)
+        .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))
+}
+
+/// **Harmonic (Laplace-smoothed) mesh-morphing** velocity field `D = ∂X/∂θ`
+/// that extends a prescribed island node-motion smoothly into the
+/// surrounding mesh volume — the mesh-deformation upgrade of the rigid
+/// island-only [`in_plane_scale_velocity`] (issue #594, building on #589).
+///
+/// # What it computes
+///
+/// The rigid map [`apply_in_plane_scale`] moves the island nodes by
+/// `X⁰ − c` (in-plane scale about the centroid `c`) and leaves **all** other
+/// nodes fixed, so the entire deformation strain is absorbed by the thin
+/// layer of tets touching the island boundary — on the real transmon that
+/// inverts the ~0.7 μm junction-region tets at a tiny shrink (`θ ≈ −0.0097`),
+/// 33× short of the design anchor (#589/PR#590).
+///
+/// This routine instead solves a **P1 Laplace** problem (one scalar solve per
+/// in-plane component, sharing a single factorization) for a smooth extension
+/// field `D`:
+///
+/// ```text
+///   ∇²D = 0              on the free volume,
+///   D_n = X⁰_n − c       (in-plane, z-component 0) on the island   (Dirichlet),
+///   D_n = 0              on `fixed_zero` (other conductors + far boundary).
+/// ```
+///
+/// The island nodes therefore move **exactly** as under the rigid map (same
+/// prescribed island shape change), but the surrounding free nodes now follow
+/// a harmonic interpolation that decays to zero at the other conductors and
+/// the outer domain boundary. Because the near-island free nodes move almost
+/// as much as the island itself, the relative displacement **across** the
+/// tiny junction-region tets is a fraction of the rigid map's, widening the
+/// mesh-validity budget.
+///
+/// The returned field is exactly linear in `θ` (`X(θ) = X⁰ + θ·D`), so it
+/// feeds both [`apply_node_motion`] (the finite-difference perturbation) and
+/// [`chain_node_motion`] / the [`CapacitanceShapeGradient`] helpers (the
+/// analytic `∂C/∂θ = ⟨grad_node, D⟩`) unchanged — the #589 gradient
+/// contraction carries over verbatim, only the velocity field changes.
+///
+/// # Arguments
+///
+/// * `mesh` — the base tetrahedral mesh (the field is w.r.t. its nodes).
+/// * `island` — the moving conductor's node set; each is Dirichlet-pinned to
+///   its rigid in-plane scale velocity `X⁰ − c` (`c = ` island centroid).
+/// * `fixed_zero` — nodes held at zero velocity: the **other** conductors
+///   (ground / feedline — they must not move) and the far/outer boundary
+///   (the domain edge stays put). Nodes in both `island` and `fixed_zero`
+///   resolve to the island (moving) value.
+///
+/// # Errors
+///
+/// Propagates [`ElectrostaticError::Assembly`] / [`ElectrostaticError::Factorization`]
+/// from the Laplace assembly and solve.
+///
+/// # Panics
+///
+/// Panics if `island` is empty or references a node outside the mesh (via
+/// [`subset_centroid`] / [`in_plane_scale_velocity`]).
+pub fn harmonic_extension_velocity(
+    mesh: &TetMesh,
+    island: &[u32],
+    fixed_zero: &[u32],
+) -> Result<Vec<[f64; 3]>, ElectrostaticError> {
+    let n = mesh.n_nodes();
+
+    // Prescribed island motion (rigid in-plane scale about the centroid):
+    // this is the Dirichlet data on the island nodes.
+    let rigid = in_plane_scale_velocity(mesh, island);
+
+    // Dirichlet mask + per-node in-plane (x, y) Dirichlet values.
+    let mut pinned = vec![false; n];
+    let mut dval = vec![[0.0_f64; 2]; n];
+    for &g in fixed_zero {
+        pinned[g as usize] = true; // value stays [0, 0]
+    }
+    for &g in island {
+        let gi = g as usize;
+        pinned[gi] = true;
+        dval[gi] = [rigid[gi][0], rigid[gi][1]];
+    }
+
+    // Free renumbering.
+    let mut free_of = vec![None; n];
+    let mut n_free = 0usize;
+    for (g, &p) in pinned.iter().enumerate() {
+        if !p {
+            free_of[g] = Some(n_free);
+            n_free += 1;
+        }
+    }
+
+    // Assemble the Laplace smoothing operator once and reduce out the
+    // Dirichlet rows/cols, folding the pinned values into the RHS. Both
+    // in-plane components share this single reduced factorization.
+    let l_full = assemble_p1_laplace(mesh)?;
+    let mut red_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(mesh.n_tets() * 16);
+    let mut b: Mat<f64> = Mat::zeros(n_free, 2);
+    {
+        let l_ref = l_full.as_ref();
+        let cp = l_ref.col_ptr();
+        let row_idx = l_ref.row_idx();
+        let vals = l_ref.val();
+        for j in 0..n {
+            for k in cp[j]..cp[j + 1] {
+                let i = row_idx[k];
+                let v = vals[k];
+                match (free_of[i], free_of[j]) {
+                    (Some(fi), Some(fj)) => red_trips.push(Triplet::new(fi, fj, v)),
+                    (Some(fi), None) => {
+                        // Column j pinned: move −K_fp·D_pinned to the RHS.
+                        b[(fi, 0)] -= v * dval[j][0];
+                        b[(fi, 1)] -= v * dval[j][1];
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let mut vel = vec![[0.0_f64; 3]; n];
+    if n_free > 0 {
+        let k = SparseColMat::<usize, f64>::try_new_from_triplets(n_free, n_free, &red_trips)
+            .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))?;
+        let lu = k
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
+        lu.solve_in_place(b.as_mut());
+        for (g, slot) in free_of.iter().enumerate() {
+            if let Some(fi) = slot {
+                vel[g] = [b[(*fi, 0)], b[(*fi, 1)], 0.0];
+            }
+        }
+    }
+    // Scatter the Dirichlet (island + fixed_zero) values.
+    for g in 0..n {
+        if pinned[g] {
+            vel[g] = [dval[g][0], dval[g][1], 0.0];
+        }
+    }
+    Ok(vel)
 }
 
 /// Signed 6-volume (`det[e₁ e₂ e₃]`) of tet `t` of `mesh`.
@@ -1308,5 +1512,188 @@ mod tests {
                 "map {name}: adjoint ∂E_C/∂θ {ana} Hz vs central-FD {fd} Hz, rel {rel:.3e} > 1e-3"
             );
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Harmonic mesh-morphing extension (issue #594).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// A cube fixture that mimics the transmon topology in miniature: a
+    /// "moving conductor" (the top face, `z = 1`), a "fixed boundary" (the
+    /// bottom face, `z = 0`), and free interior/side nodes in between.
+    fn face_subsets(mesh: &TetMesh) -> (Vec<u32>, Vec<u32>) {
+        let tol = 1e-12;
+        let top: Vec<u32> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| (p[2] - 1.0).abs() < tol)
+            .map(|(i, _)| i as u32)
+            .collect();
+        let bot: Vec<u32> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p[2].abs() < tol)
+            .map(|(i, _)| i as u32)
+            .collect();
+        (top, bot)
+    }
+
+    /// **The harmonic-extension unit test (CI-fast).** The Laplace-smoothed
+    /// morph field must (1) reproduce the prescribed rigid island motion
+    /// *exactly* on the island (Dirichlet), (2) vanish on the fixed boundary,
+    /// (3) be purely in-plane (`z`-velocity 0), (4) be genuinely *harmonic* —
+    /// the discrete Laplace residual vanishes on every free node — and (5)
+    /// obey the maximum principle (no free node moves more than the largest
+    /// prescribed island motion).
+    #[test]
+    fn harmonic_extension_is_dirichlet_exact_and_discretely_harmonic() {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (island, fixed) = face_subsets(&mesh);
+        assert!(island.len() >= 4 && fixed.len() >= 4, "degenerate fixture");
+        let in_island = |n: usize| island.contains(&(n as u32));
+        let in_fixed = |n: usize| fixed.contains(&(n as u32));
+
+        let rigid = in_plane_scale_velocity(&mesh, &island);
+        let vel = harmonic_extension_velocity(&mesh, &island, &fixed).unwrap();
+        assert_eq!(vel.len(), mesh.n_nodes());
+
+        // (1)+(2)+(3): Dirichlet exactness and in-plane-ness.
+        let mut island_max = 0.0_f64;
+        for (n, v) in vel.iter().enumerate() {
+            assert!(v[2].abs() < 1e-14, "node {n}: morph must be in-plane");
+            if in_island(n) {
+                for d in 0..2 {
+                    assert!(
+                        (v[d] - rigid[n][d]).abs() < 1e-12,
+                        "island node {n} axis {d}: morph {} != prescribed rigid {}",
+                        v[d],
+                        rigid[n][d]
+                    );
+                }
+                island_max = island_max.max((v[0] * v[0] + v[1] * v[1]).sqrt());
+            } else if in_fixed(n) {
+                assert!(
+                    v[0].abs() < 1e-12 && v[1].abs() < 1e-12,
+                    "fixed node {n}: morph velocity must be 0, got {v:?}"
+                );
+            }
+        }
+        assert!(
+            island_max > 0.0,
+            "island must carry a nonzero prescribed motion"
+        );
+
+        // (4): discrete-harmonic — L·D vanishes on every FREE row (the free
+        // nodes satisfy the Laplace equation; the pinned rows carry the
+        // reaction and are excluded).
+        let l = assemble_p1_laplace(&mesh).unwrap();
+        for comp in 0..2 {
+            let d: Vec<f64> = vel.iter().map(|v| v[comp]).collect();
+            let r = kfull_matvec(&l, &d);
+            let scale = l
+                .as_ref()
+                .val()
+                .iter()
+                .fold(0.0_f64, |m, &x| m.max(x.abs()))
+                * island_max;
+            for (n, &rn) in r.iter().enumerate() {
+                if !in_island(n) && !in_fixed(n) {
+                    assert!(
+                        rn.abs() < 1e-9 * scale.max(1.0),
+                        "component {comp} node {n}: free-row Laplace residual {rn:.3e} \
+                         not ~0 (field is not discretely harmonic)"
+                    );
+                }
+            }
+        }
+
+        // (5): maximum principle — no free node exceeds the largest island
+        // motion (a harmonic field attains its extrema on the boundary).
+        for (n, v) in vel.iter().enumerate() {
+            if !in_island(n) && !in_fixed(n) {
+                let mag = (v[0] * v[0] + v[1] * v[1]).sqrt();
+                assert!(
+                    mag <= island_max + 1e-12,
+                    "free node {n} magnitude {mag} exceeds island max {island_max}"
+                );
+            }
+        }
+    }
+
+    /// **The budget-widening property (CI-fast).** For the *same* prescribed
+    /// island motion, spreading it harmonically into the volume must not make
+    /// the worst tet worse than the rigid island-only map — the harmonic
+    /// morph moves the near-island free nodes *along with* the island, so the
+    /// relative displacement across the adjacent tets (hence the worst
+    /// signed-volume ratio) is no smaller. This is the mechanism by which the
+    /// real-mesh distortion budget extends. We also confirm the harmonic map
+    /// genuinely moves free interior nodes (a nonzero extension, not a no-op).
+    #[test]
+    fn harmonic_morph_widens_the_distortion_budget() {
+        let mesh = cube_tet_mesh(5, 1.0);
+        let (island, fixed) = face_subsets(&mesh);
+        let vel = harmonic_extension_velocity(&mesh, &island, &fixed).unwrap();
+
+        // The harmonic field must move some free interior node (else it is a
+        // trivial rigid map in disguise and the comparison is vacuous).
+        let in_island = |n: usize| island.contains(&(n as u32));
+        let in_fixed = |n: usize| fixed.contains(&(n as u32));
+        let moved_free = vel.iter().enumerate().any(|(n, v)| {
+            !in_island(n) && !in_fixed(n) && (v[0].abs() > 1e-9 || v[1].abs() > 1e-9)
+        });
+        assert!(moved_free, "harmonic extension left all free nodes fixed");
+
+        // At a substantial in-plane shrink, the harmonic morph's worst tet is
+        // at least as healthy as the rigid island-only map's.
+        let theta = -0.3;
+        let rigid_moved = apply_in_plane_scale(&mesh, &island, theta);
+        let harm_moved = apply_node_motion(&mesh, &vel, theta);
+        let rigid_ratio = min_tet_volume_ratio(&mesh, &rigid_moved);
+        let harm_ratio = min_tet_volume_ratio(&mesh, &harm_moved);
+        assert!(
+            harm_ratio >= rigid_ratio - 1e-12,
+            "harmonic worst-tet ratio {harm_ratio} worse than rigid {rigid_ratio}"
+        );
+    }
+
+    /// The composed capacitance shape gradient chains through the harmonic
+    /// velocity field just like any other node-motion map: `∂C/∂θ` under the
+    /// harmonic morph matches a full central finite difference of the entire
+    /// pipeline (perturb θ → move ALL nodes by θ·D → re-assemble → re-solve →
+    /// re-extract `C = φᵀKφ`) to tight tolerance. This is the small-mesh
+    /// proof of the chain the 133k-mesh example (and its release test)
+    /// FD-validate on the real device.
+    #[test]
+    fn harmonic_map_capacitance_gradient_matches_central_fd() {
+        let (mesh, eps_r, electrodes, ground) = capacitor_fixture(4);
+        // Island = the excited hi face; fixed = the grounded lo face. The
+        // harmonic morph scales the hi-face electrode in-plane and diffuses
+        // that motion through the dielectric toward the grounded face.
+        let island: Vec<u32> = electrodes[0].nodes.clone();
+        let vel = harmonic_extension_velocity(&mesh, &island, &ground).unwrap();
+
+        let grad = capacitance_shape_gradient(&mesh, &eps_r, &electrodes, &ground).unwrap();
+        let ana = grad.dc_dtheta(&vel);
+
+        let c_of_theta = |theta: f64| -> f64 {
+            let moved = apply_node_motion(&mesh, &vel, theta);
+            let rho = vec![0.0; moved.n_tets()];
+            let sys = assemble_electrostatic(&moved, &eps_r, &rho, &electrodes, &ground).unwrap();
+            let phi = sys.solve().unwrap();
+            2.0 * sys.field_energy(&phi)
+        };
+        let h = 1e-6;
+        let fd = (c_of_theta(h) - c_of_theta(-h)) / (2.0 * h);
+        let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            fd.abs() > 1e-14,
+            "FD ∂C/∂θ {fd} unexpectedly ~0 (degenerate harmonic morph?)"
+        );
+        assert!(
+            rel < 1e-3,
+            "harmonic-map adjoint ∂C/∂θ {ana} vs central-FD {fd}, rel {rel:.3e} > 1e-3"
+        );
     }
 }
