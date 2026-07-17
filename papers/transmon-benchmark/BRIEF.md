@@ -14,6 +14,110 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
+## ⭐ REFRAME 2026-07-16 (operator direction — SUPERSEDES the 2026-07-14 framing below where they conflict)
+
+**The paper's contribution is now DIFFERENTIABLE TRANSMON DESIGN — gradient-based
+optimization of the electrostatic (LOM) Hamiltonian parameters — with the
+cross-validation benchmark as the correctness credential, not the headline.**
+The full spine, PROVEN-vs-ROADMAP capability ledger, and section plan live at
+`docs/research/transmon-paper-reframe.md` (committed, reviewed via PR #587) —
+the reviser MUST read it and treat it as the section-level outline for v5.
+Supporting strategy docs: `docs/research/2026-07-16-strategic-direction.md`
+(the research-backed pivot), `docs/research/geode-vs-palace-comparison.md`
+(honest perf comparison), `docs/research/driven-first-performance-strategy.md`.
+
+### What resolved since v4
+- **The v4 FRAMING DECISION GATE below is RESOLVED — Branch A (measured), and
+  superseded**: `benchmarks/gpu_driven_scaling/results.toml` (#501) landed and
+  the GPU-f32 cell LOSES at the measured sizes (~44× slower than assembled-CSR
+  CPU at n=15; f32 residual floor 5.4e-3). Do NOT take Branch B. The honest
+  GPU story: correctness proven, performance aspirational/gated (#519/#520/#534).
+- **The scale story is now measured and honest** (already folded into v4's
+  main.tex by PR #557): at 1.16M DOF geode-direct completes (565.5 s / 92.2 GB)
+  but loses to Palace (423 s / ~33 GB) on both axes — a flop-and-fill
+  crossover below 1M, not merely a memory wall. Log committed at
+  `benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log`.
+- **The matrix-free interior eigensolve is retired as the scale story**
+  (`docs/research/driven-first-performance-strategy.md`): the σ=4.5 GHz
+  deep-shift inner solve plateaus coarse-solve-invariantly
+  (`benchmarks/transmon_bench_cpu/sigma4p5_deepshift_characterization.md`,
+  issues #562/#565) — the SPD-proxy preconditioner is the limiter; even an
+  exact coarse solve stalls. Keep as honest roadmap, not a result.
+
+### The NEW load-bearing content for v5 (all PROVEN, merged, committed)
+1. **The differentiable-sensitivity capability (the contribution).** GEODE's
+   Burn tape reaches assembly but the faer factorization breaks it; the
+   discrete-adjoint layer closes that gap. The full 2×2 matrix is merged and
+   FD-validated (each judge-verified with mutation tests):
+   - material ∂/∂ε, scalar electrostatic: `crate::adjoint` (#570/PR#573, ~3e-8)
+   - geometry ∂/∂X, scalar electrostatic: `crate::shape` (#571/PR#575, ~1e-9;
+     exact ∂K/∂node via forward-mode Dual through the P1 kernel)
+   - material ∂/∂ε, complex driven H(curl) Nédélec: `crate::driven::adjoint`
+     (#576/PR#579, 2.3e-5; complex-symmetric transpose-solve reuses the LU)
+   - geometry ∂/∂X, complex driven H(curl): `crate::driven::shape`
+     (#577/PR#581, 2.2e-9; the RHS b(X) geometry term is load-bearing —
+     dropping it fails FD at 0.58)
+2. **The capacitance→E_C chain** (#583/PR#586): `shape::capacitance_shape_gradient`
+   — ∂(C, E_C, anharmonicity)/∂θ. Elegant result worth a paragraph: C=φᵀKφ is
+   variationally stationary → the adjoint vanishes and the shape derivative is
+   a pure explicit-geometry (Hellmann–Feynman-like) term. Validated vs analytic
+   parallel-plate (∂C/∂d=−ε₀ε_r, ∂C/∂A=+2ε₀ε_r, ~1e-10) AND central FD (~1e-9).
+3. **The centerpiece figure — gradient-descent to a target E_C** (#584/PR#588):
+   `benchmarks/transmon_diffopt/results.toml`. Newton hits the 0.2156 GHz
+   target; an INDEPENDENT fresh forward solve confirms at rel-err 1.4e-15.
+   HONESTY RULE: the parallel-plate parametrization is affine, so 1-step Newton
+   is expected — frame as proving the loop end-to-end, NOT a hard optimization;
+   the damped-Newton 13-step curve is the descent illustration.
+4. **The real-device demo + honest negative** (#589/PR#590):
+   `benchmarks/transmon_diffopt/pad_results.toml`. ∂C_Σ/∂θ FD-validated ON THE
+   REAL 133k DeviceLayout mesh (rel-err 1.15e-4, clean O(h²) sweep); a genuine
+   non-affine 2-step Newton convergence to a within-budget target (fresh-solve
+   confirmed, 5.6e-6); AND the honest negative: the 89.9 fF anchor needs
+   θ≈−0.241 but fixed-topology pad scaling caps at θ=−0.0073 (33× short —
+   junction-attachment nodes crush ~0.7 μm tets). Closing the anchor gap is a
+   mesh-morphing problem, not a scale problem. This finding is publishable
+   content — present it as the mature-engineering result it is.
+5. **The motivation from the literature** (from the 2026-07-16 deep-research
+   pass). ⚠️ CITATION-HYGIENE WARNING (v4 reviewer, verified against the live
+   arXiv API): three of the originally-noted IDs are MISALIGNED — 2408.12704
+   is the Safavi-Naeini gradient-optimization/qubit-discovery paper, NOT
+   QDesignOptimizer; 2312.13483 is SQuADDS (already cited as
+   `shanto2024squadds`), NOT SQcircuit; 2407.10273 is a photonics
+   quantized-inverse-design paper, NOT FDTDx (already cited). The litsearch
+   re-run must resolver-verify every entry; the reviser cites ONLY verified
+   keys. The claims to support (paper names, not IDs): superconducting-qubit
+   design is guess-and-check because the EM solvers are not differentiable
+   (arXiv:2508.18027 — confirmed); the QDesignOptimizer workflow bolts
+   analytic-model gradients onto non-differentiable HFSS (find the correct
+   ID); SQcircuit differentiates at the lumped-circuit level via PyTorch and
+   notes sparse-eigenpair gradients as a gap (find the correct ID);
+   differentiable-EM is owned by photonics FDTD/integral methods (FDTDx —
+   already in refs; TorchGDM arXiv:2505.09545 — confirmed), leaving
+   frequency-domain FEM for RF/superconducting uncontested; JAX-FEM proves
+   full-autodiff FEM at scale in solid mechanics (Nature Comp. Sci. 2023,
+   resolvable by DOI). Also verify arXiv:2603.29718 actually carries the
+   Jacobi–Davidson + Helmholtz-projection method before anchoring the
+   eigenmode roadmap on it. Palace/HFSS structurally cannot produce
+   solver-derived design gradients — that claim rests on their documented
+   architecture, not on any single citation.
+
+### Scope discipline for v5 (from the reframe spine — do not violate)
+- **LOM now, eigenmode as roadmap**: the differentiable contribution is the
+  electrostatic/LOM branch (E_C, α≈−E_C, coupling C). Eigenmode/EPR
+  differentiation is ROADMAP, blocked on the σ=4.5 eigensolve wall — named
+  path: Jacobi–Davidson + Helmholtz projection (arXiv:2603.29718) +
+  Hellmann–Feynman adjoint-eigenpair formulas. NO overclaim.
+- **Do not over-index on qubits**: the sensitivity capability is general
+  (RF/photonic/shape optimization); the transmon is the demonstration vehicle.
+- The E_C anchor gap (C_Σ 136.7 fF vs ~90 fF anchor) stays an honest negative.
+- Everything measured in v4 (agreement table, CPU cell, GPU correctness,
+  honest physics notes) remains valid supporting material — the reframe
+  changes WHY the paper exists and what leads; it does not invalidate data.
+- Title class: "Differentiable transmon design via a tensor-native FEM
+  electromagnetics solver: gradient-based optimization of charging energy,
+  cross-validated against Palace" (final wording operator-approved; keep the
+  tensor-compiler substrate as the enabling architecture, one section).
+
 ## Thesis (one sentence) — REFRAMED 2026-07-14 (operator direction)
 
 Machine-learning tensor-compiler stacks are a viable foundation for

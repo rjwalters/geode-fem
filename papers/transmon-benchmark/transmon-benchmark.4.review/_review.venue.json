@@ -1,0 +1,56 @@
+{
+  "schema_version": "1",
+  "kind": "judgment",
+  "version_dir": "transmon-benchmark.4",
+  "critic_id": "pub-review-venue",
+  "model": "claude-fable-5",
+  "rubric": "anvil-pub-arxiv-v1",
+  "scores": [
+    {
+      "dimension": "citation_completeness",
+      "score": 3,
+      "max": 3,
+      "critical": false,
+      "evidence_span": "main.tex:L208-L341",
+      "justification": "The related-work section engages the prior art the area's experts would expect for v4's claims (form compilers, libCEED foil, differentiable/GPU EM, qubit-EM workflows, V&V tradition) on the merits, not as a citation list; 50 complete entries, zero unused. (The v5 reframe adds a differentiable-design axis requiring a litsearch re-run — see comments.md.)"
+    },
+    {
+      "dimension": "reproducibility",
+      "score": 2,
+      "max": 3,
+      "critical": false,
+      "evidence_span": "main.tex:L1102-L1105",
+      "fix": "Resolve the TODO(operator) repository URL and archival DOI so the committed artifacts are reachable by an arXiv reader.",
+      "justification": "Methods and per-cell provenance are detailed enough to replicate, and every number traces to a committed artifact — but the repository URL/DOI footnote is still a TODO(operator), so no stable public artifact reference exists yet from the preprint alone."
+    },
+    {
+      "dimension": "clarity_of_contribution",
+      "score": 2,
+      "max": 2,
+      "critical": false,
+      "evidence_span": "main.tex:L153-L200",
+      "justification": "Contributions are stated one sentence per item in the introduction and are extractable from the abstract; a triaging reader gets the claim, the evidence standard, and the honest negatives from the first page."
+    },
+    {
+      "dimension": "scope_classification",
+      "score": 2,
+      "max": 2,
+      "critical": false,
+      "evidence_span": "main.tex:L40-L42",
+      "justification": "physics.comp-ph (cross-list quant-ph) is correct for a solver/method/cross-validation paper as v4 stands; the abstract's framing matches comp-ph reader expectations. Under the v5 differentiable-design headline the quant-ph cross-list grows stronger; category stays valid."
+    }
+  ],
+  "findings": [
+    {
+      "severity": "minor",
+      "dimension": "reproducibility",
+      "evidence_span": "main.tex:L1103-L1105",
+      "rationale": "arXiv readers triage reproducibility on a working repository link; the footnote defers it to submission time.",
+      "suggested_fix": "Operator supplies the repository URL and archival DOI before submission."
+    }
+  ],
+  "critical_flags": [],
+  "total": 9,
+  "threshold": null,
+  "verdict": null
+}

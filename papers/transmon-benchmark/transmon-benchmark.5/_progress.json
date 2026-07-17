@@ -4,14 +4,14 @@
   "phases": {
     "revise": {
       "state": "done",
-      "started": "2026-07-15T05:00:00Z",
-      "completed": "2026-07-15T05:19:13Z"
+      "started": "2026-07-17T00:11:00Z",
+      "completed": "2026-07-17T00:32:00Z"
     }
   },
   "metadata": {
-    "iteration": 4,
+    "iteration": 5,
     "max_iterations": 6,
-    "revised_from": 3
+    "revised_from": 4
   },
   "score_history": [
     {
@@ -29,6 +29,12 @@
     {
       "iteration": 4,
       "total": 40,
+      "threshold": 35,
+      "rubric_id": "anvil-pub-v2"
+    },
+    {
+      "iteration": 5,
+      "total": 41,
       "threshold": 35,
       "rubric_id": "anvil-pub-v2"
     }

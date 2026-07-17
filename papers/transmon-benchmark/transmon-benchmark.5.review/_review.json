@@ -1,0 +1,126 @@
+{
+  "schema_version": "1",
+  "kind": "judgment",
+  "version_dir": "transmon-benchmark.5",
+  "critic_id": "pub-review",
+  "model": "claude-fable-5",
+  "rubric": "anvil-pub-v2",
+  "scores": [
+    {
+      "dimension": "1_rigor_of_method",
+      "score": 6,
+      "max": 6,
+      "critical": false,
+      "evidence_span": "main.tex:L691-L802",
+      "justification": "Discrete-adjoint layer validated against central finite differences of the full independent pipeline with mutation tests (sign/conjugation/dropped-term rejection); the variational-stationarity collapse is confirmed numerically rather than assumed; the credential's oracle-first tripwire protocol carries over; two-tier honesty structure is rigorous by design."
+    },
+    {
+      "dimension": "2_evidence_sufficiency",
+      "score": 5,
+      "max": 6,
+      "critical": false,
+      "evidence_span": "main.tex:L1300-L1312",
+      "fix": "Add one multi-parameter or RF-observable (driven-column) optimization exercise, or a second geometry, before the capability claim scores at full weight.",
+      "justification": "Optimization demonstrations are single-parameter by design; the real-device convergence is a within-budget 0.5%-move demonstration target; the driven column is validated at operator level only. Claims are honestly bounded to match, but the design-capability evidence is deliberately narrow."
+    },
+    {
+      "dimension": "3_clarity_of_contribution",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L67-L226",
+      "justification": "Five contributions bulleted one sentence per item; ~250-word abstract leads with the inverse-design gap and states capability, honest negatives, credential, and the LOM/eigenmode boundary — extractable on triage."
+    },
+    {
+      "dimension": "4_related_work_positioning",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L238-L336",
+      "justification": "Substrate-backed per the .4.litsearch sibling (8 resolver-verified candidates, all merged or explicitly declined): QDO, the SQcircuit line (credited with solving lumped-level eigenpair gradients), SQuADDS, photonics genus anchor, JAX-FEM at CPC 2023, TensorGalerkin concurrency, libCEED foil all engaged on the merits; the wedge is hedged ('to our knowledge'). No close prior work for the reframed claim ignored."
+    },
+    {
+      "dimension": "5_reproducibility",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L1180-L1264",
+      "justification": "SHA-256-pinned mesh, committed TOMLs/logs for every cell including the four new diffopt/quantum/roadmap artifacts, per-cell hardware+commit provenance including the 128 GB-box disclosure, pinning release tests named per artifact. Repo URL/DOI is an operator-gated TODO (submission blocker, not scored down per thread convention)."
+    },
+    {
+      "dimension": "6_figure_table_quality",
+      "score": 4,
+      "max": 4,
+      "critical": false,
+      "evidence_span": "main.tex:L1000-L1057",
+      "justification": "The v4 deduction is repaired: Table 3 carries both large-scale rows with a dagger protocol note and a completes-but-loses caption; new Figure 5 renders from the committed diffopt TOMLs with a self-contained caption carrying the affine disclosure and the 33x budget annotation; captions verified self-contained against the rendered PDF."
+    },
+    {
+      "dimension": "7_prose_structural_quality",
+      "score": 4,
+      "max": 4,
+      "critical": false,
+      "evidence_span": "main.tex:L975-L984",
+      "justification": "Structure follows the reframe spine cleanly; voice consistent; v4 overfull-hbox defects resolved (fresh compile: single 1.13 pt box, below the 5 pt gate); header/provenance updated; no broken cross-references or undefined citations at the compile fixpoint."
+    },
+    {
+      "dimension": "8_citation_hygiene",
+      "score": 4,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.tex:L112-L115",
+      "fix": "Quote eriksson2025automated verbatim ('time-consuming iterative electromagnetic simulations') or drop the quotation marks and paraphrase, as the abstract already does correctly.",
+      "justification": "All 57 cite keys resolve to complete entries (zero missing, zero unused) and the litsearch cautions are applied correctly, but section 1 presents an inexact quotation as verbatim: the quoted span drops 'iterative' from the cited abstract (verified against the live arXiv record for 2508.18027 this pass) — a one-word misquote of the closest prior work, which is also the outreach audience."
+    },
+    {
+      "dimension": "9_rhetorical_economy",
+      "score": 3,
+      "max": 4,
+      "critical": false,
+      "evidence_span": "main.tex:L1335-L1370",
+      "fix": "Compress the conclusion recap to 3-4 sentences, trim the Discussion's credential restatement, and compact the section 6.2 arc; the venue two-column layout is the remaining structural lever toward the ~15 pp single-column target.",
+      "justification": "Real compression happened (~35% on the old benchmark material while adding ~8 pp of contribution content; abstract now ~250 words), but the paper is 25 compiled single-column pages against the BRIEF's ~15-page-equivalent target and the conclusion re-walks the abstract and contribution list nearly item for item."
+    }
+  ],
+  "findings": [
+    {
+      "severity": "major",
+      "dimension": "8_citation_hygiene",
+      "evidence_span": "main.tex:L113-L115",
+      "rationale": "The quoted span 'time-consuming electromagnetic simulations' is not verbatim from the cited eriksson2025automated abstract, which reads 'time-consuming iterative electromagnetic simulations'; an inexact quotation presented as verbatim is a scholarly-precision defect the cited authors (the outreach audience) would catch.",
+      "suggested_fix": "Quote verbatim or unquote to paraphrase (the abstract's own phrasing at L70-72 is the correct model)."
+    },
+    {
+      "severity": "minor",
+      "dimension": "5_reproducibility",
+      "evidence_span": "main.tex:L56-L1379",
+      "rationale": "Five TODO(operator) markers (title wording, affiliations, cubecl f64 tracking URL, repo URL/DOI, acknowledgment/whiteroom) are operator-gated by thread convention but are each a hard arXiv-submission blocker.",
+      "suggested_fix": "Operator resolves all five before submission."
+    },
+    {
+      "severity": "minor",
+      "dimension": "9_rhetorical_economy",
+      "evidence_span": "main.tex:L1335-L1370",
+      "rationale": "25 compiled single-column pages vs the BRIEF's 8-12 pp two-column (~15 single-column) target; residual restatement in the conclusion and Discussion.",
+      "suggested_fix": "Apply the compression levers listed in comments.md (conclusion recap, Discussion credential paragraph, section 6.2 arc, two-column layout)."
+    },
+    {
+      "severity": "minor",
+      "dimension": "8_citation_hygiene",
+      "evidence_span": "main.tex:L827-L902",
+      "rationale": "Anchor E_C appears as 0.2156 GHz (plate target) and 0.2155 GHz (pad anchor); both artifact-faithful but the unexplained proximity can read as a typo.",
+      "suggested_fix": "Add a half-sentence noting the pad run targets the rounded 89.9 fF anchor, giving E_C = 0.2155 GHz."
+    },
+    {
+      "severity": "nit",
+      "dimension": "6_figure_table_quality",
+      "evidence_span": "main.tex:L426-L1069",
+      "rationale": "fig4-cpu-wallclock.pdf renders as Figure 6 and fig6-participation.pdf as Figure 4 after the reframe reordering; cosmetic filename/source-map skew only.",
+      "suggested_fix": "Rename figure files/scripts at a convenient pass."
+    }
+  ],
+  "critical_flags": [],
+  "total": 41,
+  "threshold": 35,
+  "verdict": "ADVANCE"
+}

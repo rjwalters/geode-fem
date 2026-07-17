@@ -1,0 +1,1408 @@
+%% main.tex — transmon-benchmark.6 (anvil:pub revision, iteration 6)
+%%
+%% Revised 2026-07-16 by pub-revise from transmon-benchmark.5 + the
+%% transmon-benchmark.5.review and transmon-benchmark.5.audit critic
+%% siblings. SURGICAL pass (iteration 6 of max 6; v5 scored 41/44,
+%% advance:true — the framing is settled): (1) resolves the audit's one
+%% critical flag by unquoting the eriksson2025automated span in §1 to a
+%% paraphrase (the v5 quotation dropped the source's word "iterative");
+%% (2) annotates the off-target Peak RSS cells in the CPU table with
+%% their provenance (the committed [matched.off_target.*] tables record
+%% wall times only); (3) aligns the §8.3 GPU-loss ratio to the
+%% artifact's own 136x; (4) adds the 0.2155-vs-0.2156 anchor clarifier
+%% in §9.2. No restructuring. See changelog.md for the note -> change
+%% map.
+%%
+%% ---- v5 provenance note (historical) --------------------------------
+%% Revised 2026-07-16 by pub-revise from transmon-benchmark.4 + the
+%% transmon-benchmark.4.review and transmon-benchmark.4.litsearch critic
+%% siblings, against the ⭐ 2026-07-16 REFRAME in
+%% papers/transmon-benchmark/BRIEF.md and the operator-approved spine at
+%% docs/research/transmon-paper-reframe.md (PR #587): the paper's
+%% contribution is now DIFFERENTIABLE TRANSMON DESIGN (the LOM branch),
+%% with the cross-validation benchmark as the correctness credential.
+%%
+%% Version-provenance note: transmon-benchmark.4/main.tex received an
+%% out-of-band in-place edit (PR #557, 2026-07-16) that corrected the
+%% 1.16M-DOF scale story in §8.2 only; the v4 review flagged six other
+%% sites still carrying the retracted OOM/memory-wall claim
+%% (critical flag `numerical_inconsistency_scale_story`). This revision
+%% propagates the corrected flop-and-fill finding everywhere.
+%%
+%% Every agreement number is quoted VERBATIM from the committed
+%% benchmarks/transmon_eigen/results.toml. CPU-cell numbers trace to
+%% benchmarks/transmon_bench_cpu/results.toml and the committed 1.16M-DOF
+%% run log benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log.
+%% GPU scaling numbers trace to benchmarks/gpu_driven_scaling/results.toml.
+%% Quantum/LOM numbers trace to benchmarks/transmon_quantum/results.toml.
+%% Differentiable-design numbers trace to
+%% benchmarks/transmon_diffopt/results.toml (PR #588) and
+%% benchmarks/transmon_diffopt/pad_results.toml (PR #590); adjoint-layer
+%% validation numbers trace to the merged test suites of
+%% crates/geode-core/src/{adjoint.rs, shape.rs, driven/adjoint.rs,
+%% driven/shape.rs} (PRs #573/#575/#579/#581/#586). Eigensolve-roadmap
+%% numbers trace to
+%% benchmarks/transmon_bench_cpu/sigma4p5_deepshift_characterization.md.
+%% See changelog.md in this version dir for the note -> change map.
+
+\documentclass{anvil-paper}
+
+%% --- URL line-breaking: the two AWS-blog references carry very long
+%% hyphenated URLs; allow breaks at hyphens and add stretch so the
+%% bibliography stays inside the measure (render-gate overfull check).
+\expandafter\def\expandafter\UrlBreaks\expandafter{\UrlBreaks\do\-}
+\Urlmuskip=0mu plus 1mu
+
+%% --- Draft-phase helper macros -------------------------------------------
+%% Figure placeholder: uses the rendered figure if pub-figures has produced
+%% it, otherwise a framed placeholder naming the source script.
+\newcommand{\anvilfig}[3][0.85]{%
+  \IfFileExists{figures/#2}%
+    {\includegraphics[width=#1\linewidth]{figures/#2}}%
+    {\fbox{\parbox{#1\linewidth}{\centering\vspace{5em}%
+      \texttt{figures/#2}\\[0.5em]%
+      {\small placeholder --- render via \texttt{figures/src/#3}}%
+      \vspace{5em}}}}}
+
+\title{Differentiable transmon design with a tensor-native finite-element
+electromagnetics solver: gradient-based optimization of charging energy,
+cross-validated against Palace}
+% TODO(operator): final title wording is operator-approved per BRIEF.md
+% ⭐ REFRAME (2026-07-16); this is the BRIEF's suggested title class.
+\author{Robb Walters\thanks{These authors contributed equally.}
+  \and Crutcher Dunnavant\thanks{These authors contributed equally.}}
+% TODO(operator): affiliations (author order and equal-contribution
+% footnote are operator-resolved per BRIEF.md, 2026-07-14).
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Superconducting-qubit electromagnetic design is an iterative
+guess-and-check loop: the workflow's production field solvers expose no
+derivatives of design figures-of-merit, so state-of-practice optimizers
+iterate time-consuming electromagnetic simulations and inject parameter
+updates from separate analytic physics models
+\citep{eriksson2025automated}. We demonstrate the missing capability ---
+\emph{solver-derived} design gradients from a 3D finite-element
+electromagnetics solve --- and use it for gradient-based optimization of a
+transmon's charging energy $E_C$. GEODE-FEM is a Rust solver built on the
+Burn tensor framework; a discrete-adjoint layer bridges the one stage its
+autodiff tape cannot reach (the sparse factorization), yielding a
+validated $2\times 2$ sensitivity matrix --- material ($\partial/\partial
+\varepsilon$) and geometry ($\partial/\partial X$) derivatives on both the
+electrostatic and the driven $H(\mathrm{curl})$ operators --- each
+finite-difference-validated with mutation tests (relative errors
+$10^{-9}$--$10^{-5}$). Because the capacitance $C = \phi^{\mathsf{T}}
+K\phi$ is variationally stationary, its shape derivative collapses to a
+Hellmann--Feynman-like explicit term; composing it with the
+capacitance-to-$E_C$ chain, Newton iteration drives a capacitor geometry
+to a $0.2156$\,GHz target $E_C$, confirmed by an independent fresh solve
+to $1.4\times 10^{-15}$, and on the real 133k-tetrahedron device mesh
+$\partial C_\Sigma/\partial\theta$ is FD-validated at $1.15\times 10^{-4}$
+with a genuine two-step convergence to a within-budget target. The honest
+negatives are stated, not buried: the fixed-topology pad parametrization
+falls $33\times$ short of the ${\sim}90$\,fF design anchor (a
+mesh-morphing problem, named as future work), and eigenmode/EPR
+derivatives remain roadmap, blocked on a characterized deep-shift
+eigensolve wall. The correctness credential: on the identical mesh,
+GEODE-FEM reproduces all six of Palace's transmon eigenmodes to
+$\leq 0.033\%$ (worst case $0.032\%$). The contribution is a capability,
+not a speed race --- on raw performance the measured record shows no
+corner where GEODE-FEM beats Palace at scale, and we report it honestly.
+Every number traces to a committed artifact.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+The hard problem in superconducting-qubit electromagnetic design is the
+\emph{inverse map}: given target Hamiltonian parameters --- a charging
+energy $E_C$, an anharmonicity $\alpha$, coupling capacitances --- produce
+a physical layout. Today that map is walked by hand: parameterize a
+geometry, run a 3D electromagnetic simulation, extract the parameters,
+compare, adjust, repeat. The state-of-practice automated workflow makes
+the loop's structure explicit: QDesignOptimizer
+\citep{eriksson2025automated} iterates time-consuming electromagnetic
+simulations of HFSS-class solvers and guides the parameter updates with
+\emph{separate}, user-defined analytic physics models --- precisely
+because the field solver at the center of the loop produces observables
+but no derivatives of those observables with respect to the design. The
+gradient the optimizer actually wants, $\partial(\text{figure of
+merit})/\partial(\text{geometry, materials})$ through the field solve
+itself, is structurally unavailable from the production solvers ---
+commercial (HFSS, COMSOL) and open-source (Palace \citep{palace}) alike:
+their assembly and factorization pipelines are hand-written kernels with
+no derivative path, and none exposes an adjoint of its solve.
+
+The surrounding literature brackets this gap without closing it. At the
+\emph{lumped-circuit} level, differentiation is a solved problem:
+SQcircuit \citep{rajabzadeh2023analysis} analyzes arbitrary
+superconducting circuits, and its gradient-based follow-up
+\citep{rajabzadeh2024general} computes eigenvalue and eigenvector
+gradients of the circuit Hamiltonian via PyTorch autodiff, optimizing
+qubit designs in circuit-parameter space. But the map from geometry and
+materials \emph{to} those lumped parameters still runs through
+non-differentiable 3D electromagnetic simulation. At the \emph{field}
+level, differentiable electromagnetics is owned by photonics: adjoint and
+autodiff methods on FDTD and integral-equation solvers are a mature
+inverse-design industry \citep{molesky2018inverse,hughes2019forward,
+hammond2022high,schubert2022inverse,mahlau2026fdtdx,ponomareva2025torchgdm},
+and differentiable FEM at scale has been proven outside electromagnetics
+by JAX-FEM in solid mechanics \citep{xue2023jax}. What none of these
+supplies is the regime superconducting-qubit (and, more broadly, RF)
+design lives in: \emph{frequency-domain finite elements on body-fitted
+tetrahedra with anisotropic materials} --- distributed, field-level EM
+gradients from the same FEM solve that produces the design observables.
+That wedge is, to our knowledge, uncontested; this paper occupies it.
+
+GEODE-FEM (``geode-fem'') is positioned to close the gap by construction
+rather than retrofit. It is a full-wave 3D $H(\mathrm{curl})$/N\'ed\'elec
+(plus scalar electrostatic) finite-element solver written in Rust on the
+Burn tensor framework \citep{burn}: element assembly is batched
+$[n_{\mathrm{elem}},6,6]$ tensor algebra on an autodiff-capable substrate,
+so the derivative of assembly with respect to materials and node
+coordinates is available where a classical solver has only hand-written
+kernels. One stage breaks the tape: the sparse direct factorization
+(faer \citep{kazdadi2026faer}) at the heart of every solve. A
+discrete-adjoint layer closes exactly that gap --- one extra
+(transpose-)solve, reusing the forward factorization, restores the full
+gradient (Section~\ref{sec:adjoint}). The resulting capability is
+general --- shape and material sensitivities for RF, photonic, and
+electrostatic device design --- and the transmon is our demonstration
+vehicle because its unmet need is the clearest documented in the
+literature, not because the method is qubit-specific.
+
+A design-gradient claim from a new solver is only as credible as the
+solver's forward answers, so the paper carries its correctness credential
+up front: on a real transmon-plus-readout-resonator geometry meshed once
+and consumed identically by both codes, geode-fem reproduces Palace ---
+the MFEM-based \citep{mfem,andrej2024high} reference solver for
+superconducting-qubit design --- to within $0.033\%$ across all six
+eigenmodes (worst case $0.032\%$; junction LC mode $0.001\%$), with exact
+analytic tripwires guarding against coincidental agreement
+(Section~\ref{sec:agreement}). This parity is \emph{a credential, not the
+contribution} --- matching Palace is the price of entry --- and it is,
+incidentally, the first independent third-party validation of the
+Palace/DeviceLayout.jl transmon stack, which has no publication of its
+own.
+
+Our contributions are:
+\begin{itemize}
+  \item \textbf{A validated $2\times 2$ discrete-adjoint sensitivity
+    matrix for FEM electromagnetics.} Material
+    ($\partial/\partial\varepsilon$) and geometry ($\partial/\partial X$,
+    exact $\partial K/\partial X$ via forward-mode duals through the
+    element kernels) derivatives, on both the scalar electrostatic and
+    the complex driven $H(\mathrm{curl})$ N\'ed\'elec operators --- each
+    one forward plus one adjoint solve sharing a single factorization,
+    each validated against full-pipeline central finite differences with
+    mutation tests that reject sign, conjugation, and dropped-term errors
+    (Section~\ref{sec:adjoint}).
+  \item \textbf{A differentiable capacitance$\to E_C$ chain with a
+    variational-stationarity simplification.} Because $C =
+    \phi^{\mathsf{T}} K\phi$ is stationary in the solved potential, the
+    implicit term vanishes and the shape derivative is a pure
+    explicit-geometry (Hellmann--Feynman-like) term; validated against
+    the analytic parallel-plate law and central finite differences
+    (Section~\ref{sec:chain}).
+  \item \textbf{Gradient-based optimization demonstrations, honest tiers
+    labeled.} An end-to-end Newton loop that hits a $0.2156$\,GHz target
+    $E_C$ and is confirmed by an independent fresh solve at
+    $1.4\times 10^{-15}$ (the parametrization is affine, so one-step
+    convergence proves the loop, not a hard optimization); a real-device
+    demonstration on the committed 133k-tet mesh with the gradient
+    FD-validated at $1.15\times 10^{-4}$ and a genuine two-step
+    convergence; and the honest negative --- the fixed-topology pad
+    parametrization falls $33\times$ short of the ${\sim}90$\,fF design
+    anchor, a mesh-morphing problem we name rather than hide
+    (Section~\ref{sec:optdemo}).
+  \item \textbf{The correctness credential.} Same-mesh, same-physics,
+    same-junction-model cross-validation against Palace at
+    $\leq 0.033\%$ across all six modes, with oracle-first methodology
+    and honest-physics reporting --- the by-construction absent qubit
+    mode and a disclosed, diagnosed spurious mode
+    (Sections~\ref{sec:agreement} and~\ref{sec:honest-physics}) ---
+    doubling as the first independent validation of the
+    Palace/DeviceLayout.jl stack.
+  \item \textbf{Honest performance and roadmap accounting.} A matched
+    CPU cell shows a per-core, small-to-medium-scale win for the direct
+    eigensolve that \emph{loses at scale on both axes} --- at
+    ${\sim}1.16$M DOFs it completes given adequate memory ($565.5$\,s,
+    $92.2$\,GB peak) but Palace is faster and far leaner ($423.12$\,s,
+    ${\sim}33$\,GB aggregate); a flop-and-fill crossover below 1M DOFs,
+    not merely a memory wall --- and the GPU cell is correctness-proven,
+    performance-negative at measured sizes (Section~\ref{sec:perf}).
+    Eigenmode/EPR derivatives are \emph{not yet differentiable} here;
+    the blocker and the named path are stated as roadmap, with no
+    overclaim (Section~\ref{sec:roadmap}).
+\end{itemize}
+
+Section~\ref{sec:related} positions the work; Section~\ref{sec:architecture}
+presents the substrate and where its tape breaks;
+Sections~\ref{sec:problem}--\ref{sec:honest-physics} establish the
+benchmark problem and the correctness credential;
+Sections~\ref{sec:lom}--\ref{sec:optdemo} are the contribution ---
+the forward LOM chain, the adjoint layer, and the optimization
+demonstrations; Section~\ref{sec:roadmap} is the eigenmode roadmap;
+Sections~\ref{sec:perf}--\ref{sec:discussion} report performance context,
+reproducibility, and discussion.
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Superconducting-qubit design optimization.}
+The design loop this paper attacks is documented across the qubit-design
+software stack. QDesignOptimizer \citep{eriksson2025automated} is the
+state of practice: physics-guided multi-parameter optimization that
+wraps non-differentiable EM simulation (HFSS with pyEPR/Qiskit-Metal-class
+post-processing) and steers it with analytic models, because no gradient
+is available from the solver. The SQcircuit line
+\citep{rajabzadeh2023analysis,rajabzadeh2024general} differentiates at
+the lumped-circuit level --- including eigenvalue/eigenvector gradients
+of the circuit Hamiltonian via PyTorch --- and optimizes in circuit-parameter
+space; the geometry-to-parameters map remains simulation-bound. The
+SQuADDS database \citep{shanto2024squadds} attacks the same loop by
+lookup: pre-simulated, experimentally-validated design points. Qiskit
+Metal's quasi-lumped methods \citep{minev2021circuit} and the
+EPR/black-box quantization physics
+\citep{koch2007,nigg2012,minev2021} frame the parameter-extraction layer
+this paper's LOM chain implements. None of these obtains gradients from
+the field solve itself; that is the gap Section~\ref{sec:adjoint} closes.
+
+\paragraph{Differentiable electromagnetics --- owned by photonics.}
+Adjoint/autodiff EM is a mature inverse-design discipline in
+nanophotonics \citep{molesky2018inverse}, expressed through structured
+grids and integral methods: autograd FDFD/FDTD in ceviche
+\citep{hughes2019forward}, foundry-constrained JAX inverse design
+\citep{schubert2022inverse}, the Meep adjoint pipeline
+\citep{hammond2022high}, the JAX-native FDTDX framework
+\citep{mahlau2026fdtdx}, GPU-accelerated autodiff integral-method
+scattering in TorchGDM \citep{ponomareva2025torchgdm}, and
+differentiable RCWA \citep{kim2024meent}. These codes accept rectilinear
+grids or Green's-function discretizations; the superconducting-qubit
+regime --- body-fitted tetrahedra, anisotropic sapphire,
+$H(\mathrm{curl})$ conformity, frequency domain --- is exactly where that
+literature stops. Differentiable FEM has been proven outside EM: JAX-FEM
+\citep{xue2023jax} (GPU-accelerated, autodiff-native continuum mechanics)
+and PyTorch-FEA \citep{liang2023pytorch} in biomechanics; concurrent work
+on general differentiable Galerkin assembly (TensorGalerkin
+\citep{wen2026learning}, with the torch-sla adjoint sparse-solver library
+\citep{chi2026torch}) independently confirms the substrate-level thesis
+while reporting nodal magnetostatics rather than full-wave
+$H(\mathrm{curl})$ EM. To our knowledge, no prior work delivers
+field-level design gradients from a frequency-domain 3D FEM
+electromagnetics solve of the class RF/superconducting design uses.
+
+\paragraph{FEM kernels by code generation, and tensor compilers.}
+Generating FEM kernels from high-level descriptions is a two-decade
+tradition --- FFC \citep{kirby2006compiler}, UFL
+\citep{alnaes2014unified}, Firedrake \citep{rathgeber2017firedrake}, TSFC
+\citep{homolya2018tsfc} --- whose modern GPU expression is libCEED
+\citep{brown2021libceed} and MFEM's partial-assembly path
+\citep{andrej2024high}. Palace itself runs on that domain-specific stack.
+geode-fem's substrate bet is categorically different: outsource kernels,
+scheduling, and backend portability to a \emph{general-purpose ML tensor
+stack} (the Halide/TVM compiler lineage
+\citep{ragankelley2013halide,chen2018tvm}, reaching scientific computing
+via ML frameworks), and phrase assembly and matrix-free application as
+batched tensor algebra. For this paper the decisive property of that
+choice is not portability but \emph{differentiability}: an
+autodiff-capable substrate makes the assembly derivative available by
+construction, which is what the adjoint layer of
+Section~\ref{sec:adjoint} composes with. Adjacent genera --- simulation
+DSLs \citep{hu2019difftaichi,holl2020learning}, neural-ansatz
+eigensolvers \citep{jiang2024fieldtnn}, hand-written CUDA FEM
+\citep{huantingmeng2014gpu} --- trade away either the general-purpose
+stack or the discretization itself.
+
+\paragraph{Validation and cross-solver benchmarking.}
+Code-to-code comparison on precisely specified problems is an established
+genre in computational electromagnetics (the TEAM workshop tradition
+since 1986\footnote{The TEAM founding documents are workshop reports
+without resolvable DOIs; we describe the tradition in prose.}; nano-optics
+solver comparisons \citep{hoffmann2009comparison}); in V\&V vocabulary
+\citep{roache1997quantification,oberkampf2010verification} our credential
+is verification-side, code-to-code evidence. On the qubit-EM axis the
+closest works are SQDMetal \citep{sommers2025open} (Palace cross-checked
+against COMSOL/HFSS at the $0.02$--$0.13\%$ level, independently
+constructed models) and the Palace-centered workflow of
+\citet{ye2025electromagnetic} (validated against cryogenic measurement at
+${\sim}0.3\%$). Both wrap and trust Palace; neither is a same-mesh
+comparison against an independently \emph{implemented} solver. Our
+protocol eliminates meshing and model entry as confounders --- identical
+MSH fixture, identical lumped-shunt junction, first-order N\'ed\'elec on
+both sides --- so residuals isolate formulation and solver correctness.
+Mature open EM tools normally carry a methods paper (GetDP
+\citep{dular1998general}, FEniCS/DOLFIN \citep{logg2010dolfin}, Gmsh
+\citep{gmsh}, scikit-rf \citep{arsenovic2022scikit}, MFEM
+\citep{mfem}); Palace and DeviceLayout.jl are unpublished outliers
+\citep{palace,palace-blog,devicelayout,devicelayout-blog,
+devicelayout-juliacon}, which is the gap the credential narrows from the
+outside. geode-fem's numerics: first-order N\'ed\'elec elements
+\citep{nedelec1980}, shift-invert Lanczos \citep{arpack} over a real
+symmetric pencil factorized with faer \citep{kazdadi2026faer}; Palace:
+SLEPc-class Krylov \citep{slepc} with divergence-free projection and AMS
+preconditioning \citep{hiptmair-xu,
+tzaniovkolevpanayotsvassilevski2018parallel}; the gauge-fixing literature
+behind Section~\ref{sec:honest-physics} is the tree--cotree tradition
+\citep{albanese1988solution,manges1995generalized}.
+
+\section{GEODE-FEM: A Tensor-Native Substrate, and Where the Tape Breaks}
+\label{sec:architecture}
+
+geode-fem is written in Rust on the Burn tensor framework \citep{burn},
+whose cubecl JIT compiles tensor kernels for CPU, CUDA, and WebGPU
+backends from one source. Every throughput-critical FEM stage is phrased
+as the batched dense algebra the stack already optimizes.
+
+\paragraph{Batched element-local assembly.}
+For first-order N\'ed\'elec tetrahedra the element curl--curl and mass
+contributions are $6\times 6$ matrices depending on per-element geometry
+factors and material tensors (including the rotated anisotropic sapphire
+permittivity of Section~\ref{sec:geometry}); the scalar electrostatic
+operator is the analogous P1 kernel. geode-fem computes them for all
+elements at once as batched $[n_{\mathrm{elem}},6,6]$ tensor operations
+--- one kernel launch per assembly stage rather than an element loop ---
+then either scatters into a global sparse matrix (the assembled f64 CPU
+path) or retains the batch for matrix-free application.
+
+\paragraph{Matrix-free application and on-device Krylov.}
+The matrix-free operator apply is a three-stage tensor pipeline ---
+gather global DOFs to element-local vectors, batched matmul against the
+stored element operators, scatter-add back --- and the driven
+frequency-sweep solve runs a conjugate orthogonal conjugate gradient
+(COCG) iteration entirely on the device with a constant number of scalar
+host--device synchronizations per iteration. The backend (ndarray on CPU,
+CUDA on GPU) is a type parameter, not a code path.
+Section~\ref{sec:perf} reports honestly how far below the
+GPU-amortization threshold the current benchmark sizes sit.
+
+\paragraph{Honest constraints.}
+Two boundaries are constraints, not footnotes. The CUDA backend
+(burn-cuda 0.21) is f32-only today --- the underlying cubecl runtime
+currently disables f64\footnote{Upstream constraint of the burn/cubecl
+stack at version 0.21 \citep{burn}; tracking-issue URL to be added at
+revision. TODO(operator).} --- so every GPU result is
+mixed-precision-qualified. And the eigensolve that produces the
+credential comparison is factorization-bound: its inner solves are faer
+sparse-LU factorizations \citep{kazdadi2026faer}, a classical serial CPU
+component outside the tensor-compiler story.
+
+\paragraph{Where the tape breaks --- and why an adjoint layer, not
+autodiff-through-the-solver.}
+The substrate choice has a consequence the rest of this paper builds on:
+Burn's automatic differentiation reaches everything \emph{up to} the
+linear solve --- material and node-coordinate dependence of the assembled
+operators is differentiable by construction --- but the sparse
+factorization is an external, opaque kernel that breaks the tape.
+Differentiating \emph{through} a factorization by unrolling is neither
+practical nor necessary: the classical discrete-adjoint identity turns
+the missing derivative into one additional linear solve against the
+\emph{same} factorization (Section~\ref{sec:adjoint}). The division of
+labor is deliberate --- autodiff where the substrate provides it (element
+kernels, via forward-mode duals), adjoint algebra where it does not (the
+solve) --- and it is what makes the gradients in this paper
+\emph{solver-derived} in the sense the design loop of
+Section~\ref{sec:intro} lacks: the same assembly and the same
+factorization that produce the observable produce its gradient.
+
+\section{Benchmark Problem: Geometry, Mesh, and Junction Model}
+\label{sec:problem}
+
+\subsection{Geometry and mesh provenance}
+\label{sec:geometry}
+
+The device is the \texttt{SingleTransmon} example shipped with
+DeviceLayout.jl v1.15.0 \citep{devicelayout}: a transmon with readout
+resonator on a sapphire substrate, enclosed in a vacuum box. The sapphire
+is anisotropic, with permittivity tensor
+$\varepsilon = R\,\mathrm{diag}(9.3,\, 9.3,\, 11.5)\,R^{\mathsf{T}}$
+rotated approximately $36.87^\circ$ in-plane. The DeviceLayout.jl
+workflow emits seven named physical groups (metal, substrate, vacuum,
+junction lumped-element surface, two readout ports, exterior boundary)
+and drives Gmsh \citep{gmsh} to produce a tetrahedral mesh, exported as
+an MSH~4.1 fixture and pinned by SHA-256 (Section~\ref{sec:repro}).
+
+The mesh has 22{,}684 nodes and 133{,}314 tetrahedra, yielding 156{,}863
+N\'ed\'elec edge unknowns, of which 133{,}108 interior degrees of freedom
+remain after eliminating perfect-electric-conductor (PEC) boundary edges.
+PEC is applied on all metal surfaces and the exterior box; the two
+readout ports are left open (lossless), so no resistive element enters
+and the eigenproblem pencil stays real symmetric.
+Figure~\ref{fig:geometry} shows the geometry with physical groups
+color-coded. Every measurement in this paper --- the eigenmode
+credential, the electrostatic LOM chain, and the real-device gradient
+demonstration --- runs on this one committed mesh (plus a uniformly
+refined variant for the scale study of Section~\ref{sec:perf}).
+
+\begin{figure}[t]
+  \centering
+  \anvilfig{fig1-geometry.pdf}{fig1\_geometry.py}
+  \caption{Benchmark geometry: top-down projection of the committed
+  surface mesh (the SHA-256-pinned MSH~4.1 fixture) for the
+  DeviceLayout.jl v1.15.0 \texttt{SingleTransmon} transmon and readout
+  resonator. Surface physical groups are color-coded --- the metal ground
+  plane (with the coplanar-waveguide feedline, meander resonator, and
+  transmon slot as etched gaps), the four-triangle junction
+  \texttt{lumped\_element} surface (enlarged in the inset, actual
+  triangulation shown), the two readout ports, and the exterior-boundary
+  outline; the \texttt{substrate} and \texttt{vacuum} volume groups fill
+  the enclosing box. Both solvers consume this identical mesh (22{,}684
+  nodes; 133{,}314 tetrahedra).}
+  \label{fig:geometry}
+\end{figure}
+
+\subsection{The junction model: a lumped reactive shunt}
+\label{sec:junction}
+
+The Josephson junction is modeled identically in both solvers as a lumped
+reactive shunt --- a parallel $L \parallel C$ element with
+$L = 14.860$\,nH and $C = 5.5$\,fF --- attached to the four-triangle
+\texttt{lumped\_element} surface group $\Gamma$. Following the uniform
+lumped-port construction, with port length $\ell$ and width $w$, the shunt
+contributes
+\begin{equation}
+  K_{\mathrm{port}} = \frac{\ell}{w\,L}\, S_\Gamma
+  \qquad\text{and}\qquad
+  M_{\mathrm{port}} = \frac{C\,\ell}{w}\, S_\Gamma ,
+  \label{eq:port}
+\end{equation}
+where $S_\Gamma$ is the port-surface matrix assembled on $\Gamma$. The
+eigenproblem is then the real symmetric generalized pencil
+\begin{equation}
+  \left(K + K_{\mathrm{port}}\right) x
+  \;=\; \omega^2 \left(M + M_{\mathrm{port}}\right) x .
+  \label{eq:pencil}
+\end{equation}
+In Palace, the same physics is entered as a reactive \texttt{LumpedPort}
+($L \parallel C$, no resistance) on the same surface group; the readout
+ports are configured open, so Palace's pencil is likewise real. This
+one-to-one correspondence is what makes the comparison same-physics as
+well as same-mesh.
+
+\section{The Correctness Credential: Same-Mesh Cross-Validation Against
+Palace}
+\label{sec:agreement}
+
+A solver claiming design gradients must first prove its forward answers;
+this section is that proof. Palace's own agreement with commercial tools
+is established \citep{sommers2025open}, so reproducing Palace is the bar
+a new implementation must clear before anything it computes \emph{about}
+its solutions (such as their derivatives) is worth discussing.
+
+\paragraph{Protocol.}
+The benchmark is oracle-first. The mesh is generated once, committed,
+pinned by SHA-256, and consumed by both solvers at matched (first) order
+with the identical junction model; residual disagreement is therefore
+attributable to formulation or implementation, not meshing. Two exact
+analytic tripwires guard against coincidental or
+self-consistent-but-wrong agreement: the isolated junction LC resonance
+$f_{LC} = 1/(2\pi\sqrt{LC}) = 17.60$\,GHz anchors the junction mode, and
+a Josephson $\sqrt{L}$-scaling test requires that doubling $L$ move the
+junction mode by exactly $1/\sqrt{2}$ --- measured: $17.4901 \to
+12.37$\,GHz, committed ratio $0.7071$ (computed from the unrounded
+values; Figure~\ref{fig:lscaling}). The suite also contains inverse tests
+that \emph{must fail} (perturbed configurations required to disagree with
+the oracle --- a pipeline that still passes under them is not measuring
+anything), and the Palace oracle is deterministic: a rerun from the
+committed configuration reproduced its committed \texttt{eig.csv}
+bit-for-bit.
+
+\paragraph{Mode identification.}
+Modes are identified, not eyeballed. Within geode-fem, the
+stiffness-participation ratio
+\begin{equation}
+  p \;=\; \frac{x^{\mathsf{T}} K_{\mathrm{port}}\, x}
+               {x^{\mathsf{T}} \left(K + K_{\mathrm{port}}\right) x}
+  \label{eq:participation}
+\end{equation}
+cleanly separates the junction LC mode ($p = 1.000$) from resonator and
+box modes ($p = 0.000$ at the artifact's three-decimal precision). Palace
+reports a field-based per-port energy participation, a differently
+normalized quantity that does \emph{not} rank the modes the same way on
+the committed run (all six of its port-EPR values are $\leq
+5\times10^{-4}$, with the junction mode's the smallest in magnitude); the
+two diagnostics are complementary, not a shared discriminant, and we do
+not compare them numerically. Cross-solver mode identification therefore
+rests on frequency agreement against the analytic anchor.
+
+\begin{table}[t]
+  \centering
+  \caption{Eigenmode agreement on the identical mesh (22{,}684 nodes /
+  133{,}314 tets / 156{,}863 N\'ed\'elec DOFs, 133{,}108 interior after
+  PEC), first order in both solvers, junction as a lumped reactive shunt
+  ($L = 14.860$\,nH, $C = 5.5$\,fF). geode-fem at commit
+  \texttt{3174015}; Palace at commit \texttt{fba6a5b}. All values are
+  quoted verbatim from the committed
+  \texttt{benchmarks/transmon\_eigen/results.toml}: geode-fem frequencies
+  at the committed three decimals, Palace at full precision, and the
+  committed per-mode \texttt{rel\_err\_pct}, computed against the rounded
+  geode-fem values (precision disclosure in Section~\ref{sec:repro}).}
+  \label{tab:agreement}
+  \small
+  \begin{tabular}{@{}llccc@{}}
+    \toprule
+    Mode & & geode-fem (GHz) & Palace (GHz) & $\Delta$ (\%) \\
+    \midrule
+    \texttt{resonator} & readout resonator & 5.153 & 5.151335830348 & 0.032 \\
+    \texttt{mode\_2} & box/cavity & 15.465 & 15.46052107794 & 0.029 \\
+    \texttt{junction\_lc} & junction LC & 17.490 & 17.49010903536 & 0.001 \\
+    \texttt{mode\_4} & box/cavity & 18.693 & 18.69165792915 & 0.007 \\
+    \texttt{mode\_5} & box/cavity & 20.703 & 20.69755679425 & 0.026 \\
+    \texttt{mode\_6} & box/cavity & 26.088 & 26.08089940472 & 0.027 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \anvilfig{fig2-agreement.pdf}{fig2\_agreement.py}
+  \caption{Mode-frequency agreement: geode-fem versus Palace on the
+  identical mesh, with per-mode relative deviations annotated. Data from
+  the committed benchmark artifacts
+  (\texttt{benchmarks/transmon\_eigen/results.toml} and Palace's
+  committed \texttt{eig.csv}).}
+  \label{fig:agreement}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \anvilfig{fig3-lscaling.pdf}{fig3\_l\_scaling.py}
+  \caption{Josephson inductance-scaling tripwire: junction-mode frequency
+  versus junction inductance $L$ on log-log axes. Doubling $L$ moves the
+  junction mode from $17.4901$ to $12.37$\,GHz --- committed ratio
+  $0.7071 = 1/\sqrt{2}$ --- exactly as $f \propto 1/\sqrt{L}$ requires.
+  Measured values from the committed
+  \texttt{benchmarks/transmon\_eigen/results.toml} tripwire block.}
+  \label{fig:lscaling}
+\end{figure}
+
+\paragraph{Result.}
+Table~\ref{tab:agreement}: all six modes agree to $\leq 0.033\%$ (worst
+case $0.032\%$), with the junction LC mode --- the mode the junction
+model exists to produce --- at $0.001\%$. The junction mode sits $0.6\%$
+below the isolated-circuit anchor $f_{LC} = 17.60$\,GHz in \emph{both}
+solvers (the small shift reflects its embedding in the field problem),
+and the agreement is between genuinely independent code paths --- a
+batched-tensor assembly feeding a direct-factorization Lanczos in Rust,
+and a projected, preconditioned Krylov method in C++ --- so a common
+implementation error is an unlikely explanation for the residual, and
+the tripwires exclude self-consistent-but-wrong junction physics.
+
+\section{Honest Physics: The Absent Qubit Mode and a Disclosed Spurious
+Mode}
+\label{sec:honest-physics}
+
+\subsection{No \texorpdfstring{${\sim}4$\,GHz}{\textasciitilde 4 GHz} qubit mode exists, by construction}
+\label{sec:absent-mode}
+
+The DeviceLayout.jl blog workflow \citep{devicelayout-blog} reports a
+spectrum running from $4.14$ to $5.591$\,GHz --- including a
+${\sim}4$\,GHz qubit mode --- while Table~\ref{tab:agreement} contains
+no mode below $5.15$\,GHz. This is a property of the model, stated plainly: the
+physical transmon frequency arises from the Josephson inductance
+resonating against the \emph{pad (shunt) capacitance} of roughly
+$80$--$100$\,fF \citep{koch2007}, and the lumped-shunt model of
+Section~\ref{sec:junction} gives the junction only its own $5.5$\,fF, so
+its resonance lands at $17.5$\,GHz. Both solvers agree on the absence:
+Palace's projected eigensolve, instructed to hunt at $\sigma =
+4.5$\,GHz, finds nothing below the $5.15$\,GHz resonator. The blog
+spectrum is not reproduced by this model, and no agreement with it is
+claimed. The route to qubit quantities from this geometry is the
+electrostatic LOM chain of Section~\ref{sec:lom} --- which is exactly the
+chain this paper makes differentiable.
+
+\subsection{One spurious mode: disclosed, diagnosed, characterized}
+\label{sec:spurious-mode}
+
+Honest cross-validation requires reporting where the solvers
+\emph{disagree}, and there is exactly one such place. geode-fem's
+headline Lanczos operates on the raw pencil of Eq.~\ref{eq:pencil}
+without a gauge projection, and on this problem it leaks one spurious
+mode at $3.4528$\,GHz, junction-localized ($p = 0.9942$), with no Palace
+counterpart. The artifact was run to ground through a measured
+three-step gauge/projection arc, every step committed
+(Section~\ref{sec:repro}): (1) classical tree--cotree elimination
+\citep{albanese1988solution,manges1995generalized} removes it but is not
+spectrum-preserving for the generalized eigenproblem --- the resonator
+shifts $1.64\%$ ($5.1528 \to 5.2372$\,GHz), outside our bar, pinned as a
+regression test; (2) the spectrum-preserving bulk divergence-free
+projector (structurally Palace's confinement) preserves the cavity
+spectrum ($0.029\%$) and collapses the 13{,}747-mode gradient cluster,
+but \emph{deflates the physical junction mode} --- a lumped inductor is a
+quasi-static, curl-free flux path (measured divergence ratio $50.2$;
+projected norm $1.06\times10^{-4}$) --- while the spurious mode, being
+genuinely solenoidal (divergence ratio ${\approx}6\times10^{-15}$),
+\emph{survives}; (3) a port-aware rank-1 re-admission of the junction
+flux direction yields a projector that retains all six physical modes at
+$\leq 0.029\%$ worst case versus Palace. What the artifact \emph{is}:
+under the L-doubling harness it moves $3.4528 \to 2.4449$\,GHz (ratio
+$0.7081$, the junction $1/\sqrt{L}$ law) with $99.4\%$ of its stiffness
+energy in the $K_{\mathrm{port}}$ surface term --- a second LC-like
+resonance of the port-surface operator $S_\Gamma$, which Palace's
+\texttt{LumpedPort} elimination represents differently and therefore
+never sees. The headline comparison deliberately remains the committed
+ungauged benchmark (the port-aware solver shipped after the headline
+measurement); the filter now excludes a \emph{characterized} artifact
+rather than an unexplained one. Figure~\ref{fig:participation} contrasts
+the spectra. The arc measures precisely what Palace's divergence-free
+projection buys in a production eigensolver, and what a lumped-element
+formulation demands beyond it.
+
+\begin{figure}[t]
+  \centering
+  \anvilfig{fig6-participation.pdf}{fig6\_participation.py}
+  \caption{geode-fem junction-participation spectrum on the identical
+  mesh, with Palace's mode locations (from the committed
+  \texttt{eig.csv}) overlaid. The physical junction LC mode appears at
+  $17.49$\,GHz in both solvers' spectra (geode-fem stiffness
+  participation $p = 1.000$); geode-fem's un-projected headline Lanczos
+  additionally leaks one spurious junction-localized mode at
+  $3.4528$\,GHz ($p = 0.9942$) with no Palace counterpart ---
+  characterized in Section~\ref{sec:spurious-mode} as a port-surface
+  artifact obeying the junction $1/\sqrt{L}$ law. Palace's field-based
+  port-EPR is a differently normalized diagnostic and is not plotted on
+  geode-fem's participation axis (Section~\ref{sec:agreement}).}
+  \label{fig:participation}
+\end{figure}
+
+\section{The Forward LOM Chain: From Fields to \texorpdfstring{$E_C$}{E\_C}}
+\label{sec:lom}
+
+The lumped-oscillator-model (LOM) branch computes the transmon's
+Hamiltonian parameters from the \emph{electrostatic} problem on the same
+committed mesh --- and it is the chain the remainder of this paper
+differentiates. The mesh's metal is split into three node-disjoint
+conductors (ground+resonator, feedline, island); a tensor-$\varepsilon$
+electrostatic solve yields the Maxwell capacitance matrix by the
+energy-reaction form $C_{ij} = \phi_i^{\mathsf{T}} K \phi_j$; the island
+self-capacitance is reduced for the floating feedline
+($C_\Sigma = C_{ii} - C_{if}^2/C_{ff}$); and the charging energy follows
+as $E_C/h = e^2/(2 C_\Sigma h)$, with the transmon spectrum evaluated
+charge-basis-exactly after \citet{koch2007}.
+
+Measured on the committed fixture
+(\path{benchmarks/transmon_quantum/results.toml}): $C_\Sigma =
+136.7$\,fF, hence $E_C = 0.142$\,GHz, $E_J/E_C = 77.6$ (with $E_J$ from
+the junction inductance), $\omega_{01} = 3.38$\,GHz, and anharmonicity
+$\alpha = -0.158$\,GHz --- a plausible transmon computed end-to-end from
+committed geometry, with the $\alpha \approx -E_C$ sanity holding.
+
+\paragraph{The honest negative that travels with this chain.}
+The extracted $C_\Sigma = 136.7$\,fF \emph{exceeds} the ${\sim}90$\,fF
+design-anchor value back-solved from the blog workflow's expected
+$E_C = 0.2156$\,GHz. The committed benchmark diagnoses this as a
+model-definition difference, not a truncation artifact (grounding the
+exterior wall moves $C_\Sigma$ by a relative $6\times10^{-5}$; the
+scalar-versus-tensor sapphire treatment shifts it $0.75\%$). We report
+the extracted numbers and the discrepancy; we do not retrofit to the
+anchor. Section~\ref{sec:optdemo} returns to this gap as an optimization
+target --- and reports honestly how far a fixed-topology parametrization
+gets toward closing it.
+
+\section{Differentiable Sensitivities: The Discrete-Adjoint Layer}
+\label{sec:adjoint}
+
+\subsection{The \texorpdfstring{$2\times 2$}{2x2} sensitivity matrix}
+\label{sec:adjoint-matrix}
+
+For a solve $A(\varepsilon, X)\,x = b(X)$ and a scalar observable
+$g(x)$, the discrete adjoint $A^{\mathsf{T}}\lambda = \partial g/\partial
+x$ turns the parameter gradient into explicit contractions:
+\begin{equation}
+  \frac{dg}{d\varepsilon_k}
+    = -\lambda^{\mathsf{T}}\frac{\partial A}{\partial \varepsilon_k}x,
+  \qquad
+  \frac{dg}{dX}
+    = \lambda^{\mathsf{T}}\frac{\partial b}{\partial X}
+      - \lambda^{\mathsf{T}}\frac{\partial A}{\partial X}x
+  \label{eq:adjoint}
+\end{equation}
+(real case; the complex driven case takes $2\,\mathrm{Re}[\cdot]$ of the
+same contractions with the \emph{transpose}, not conjugate-transpose,
+solve --- the pencil is complex-symmetric, so the adjoint solve reuses
+the forward LU factorization). Everything on the right-hand side is
+assembly-level and therefore differentiable on the tensor substrate: the
+element Jacobians $\partial A/\partial X$ and $\partial b/\partial X$ are
+\emph{exact}, computed by forward-mode dual numbers through the same
+closed-form element kernels the solver assembles --- no finite-difference
+truncation enters the gradient. Each gradient costs one forward plus one
+adjoint solve sharing a single factorization (asserted programmatically:
+\texttt{n\_factorizations} $= 1$).
+
+Four adjoint modules are merged and validated, spanning material and
+geometry sensitivities on both operators
+(Table~\ref{tab:adjoint-matrix}). Each carries a committed test that the
+analytic gradient match a central finite difference \emph{of the full
+independent pipeline} (perturb the parameter, re-assemble, re-solve
+through the public solver path, recompute $g$) --- and, load-bearingly,
+mutation tests proving the tolerances bite: the classic complex-adjoint
+conjugation error ($A^{\mathsf{H}}$ for $A^{\mathsf{T}}$) is rejected by
+the FD check, as is a dropped term. The driven-shape case surfaced a
+physics subtlety worth recording: the current-source right-hand side
+$b = \mathrm{i}\omega\mu_0\!\int\! N\cdot J$ is geometry-dependent, so
+the shape gradient carries a $\partial b/\partial X$ term absent from the
+material case --- omitting it fails the finite-difference cross-check
+outright.
+
+\begin{table}[t]
+  \centering
+  \caption{The merged $2\times 2$ discrete-adjoint sensitivity matrix.
+  Each cell: one forward + one adjoint solve sharing a single
+  factorization; element Jacobians exact (forward-mode duals through the
+  production kernels); validated against central finite differences of
+  the full pipeline, with mutation tests. ``FD rel-err'' is the observed
+  agreement of the analytic gradient with the FD reference in the merged
+  test suite (test acceptance bounds are looser; see the module sources).
+  Modules in \texttt{crates/geode-core/src/}.}
+  \label{tab:adjoint-matrix}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{@{}llll@{}}
+    \toprule
+    Operator & Parameter & Module (issue / PR) & FD rel-err \\
+    \midrule
+    scalar electrostatic (SPD) & material $\partial/\partial\varepsilon$ &
+      \texttt{adjoint} (\#570 / \#573) & ${\sim}3\times10^{-8}$ \\
+    scalar electrostatic (P1) & geometry $\partial/\partial X$ &
+      \texttt{shape} (\#571 / \#575) & ${\sim}1\times10^{-9}$ \\
+    driven $H(\mathrm{curl})$ & material $\partial/\partial\varepsilon$ &
+      \texttt{driven::adjoint} (\#576 / \#579) & $2.3\times10^{-5}$ (worst region) \\
+    driven $H(\mathrm{curl})$ & geometry $\partial/\partial X$ &
+      \texttt{driven::shape} (\#577 / \#581) & $2.2\times10^{-9}$, $1.2\times10^{-8}$ (two maps) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The matrix is deliberately $2\times 2$: material and geometry are the two
+design-parameter classes, and the scalar and driven operators are the
+electrostatic (LOM) and RF (S-parameter/EPR-workhorse) branches of the
+solver. The LOM optimization of Section~\ref{sec:optdemo} exercises the
+scalar column end-to-end; the driven column is merged and validated at
+the operator level and composes with the driven solve that geode-fem's
+GPU path accelerates --- RF shape optimization is the natural follow-on,
+not exercised here.
+
+\subsection{The \texorpdfstring{capacitance$\to E_C$}{capacitance-to-E\_C} chain, and a vanishing adjoint}
+\label{sec:chain}
+
+Composing the shape adjoint with the LOM chain of Section~\ref{sec:lom}
+gives $\partial(C, E_C, \alpha)/\partial(\text{geometry})$ (merged as
+\texttt{shape::capacitance\_shape\_gradient}, \#583 / PR \#586). The
+composition carries an elegant simplification. The capacitance observable
+is the stored field energy, $C = 2W = \phi^{\mathsf{T}}K(X)\phi$, and $W$
+is \emph{variationally stationary} in the solved potential $\phi$: at the
+forward solution the free rows of the cotangent $K\phi$ vanish
+(equilibrium), so the adjoint solution $\lambda \approx 0$ and the entire
+shape derivative collapses to the explicit-geometry term
+\begin{equation}
+  \frac{dC}{dX}
+  \;=\; \phi^{\mathsf{T}}\,\frac{\partial K}{\partial X}\,\phi
+  \qquad\text{(at the solution)},
+  \label{eq:hf}
+\end{equation}
+a Hellmann--Feynman-like result: no adjoint back-solve is needed for the
+capacitance itself. The implementation keeps the general adjoint form
+(the mutation test measures the implicit part at $<10^{-8}$ of the
+total, confirming the collapse numerically rather than assuming it), and
+chains through $\partial E_C/\partial C_\Sigma = -e^2/(2C_\Sigma^2 h)$
+exactly. Validation is double: against the analytic parallel-plate law
+($\partial C/\partial d = -\varepsilon_0\varepsilon_r$ per unit area
+under a gap scaling; $\partial C/\partial A = +2\varepsilon_0
+\varepsilon_r$ under an area scaling --- opposite signs, both matched)
+and against central finite differences of the full pipeline, with
+observed relative errors at the $10^{-9}$ level.
+
+\section{Gradient-Based Optimization: Demonstrations and an Honest
+Negative}
+\label{sec:optdemo}
+
+Two demonstrations, in deliberately labeled honesty tiers: a closed-loop
+proof on an analytic fixture, then the real device mesh. Both use damped
+Newton on $E_C(\theta) - E_C^{\mathrm{target}}$ (equivalently
+$C(\theta)$) with the analytic $dE_C/d\theta$ from
+Section~\ref{sec:chain}; each Newton step costs one forward plus one
+adjoint solve on a single factorization. The framing claim is
+capability and step-count, not wall clock: a derivative-free loop
+(the parameter sweeps of current practice) spends $N_{\mathrm{params}}$
+extra forward solves per step to estimate what the adjoint delivers
+exactly for one. No timing comparison against HFSS/Palace-based
+optimizers is measured or claimed.
+
+\subsection{Loop proof: Newton to a target \texorpdfstring{$E_C$}{E\_C} on a parallel-plate
+fixture}
+\label{sec:optdemo-plate}
+
+On a parallel-plate capacitor fixture ($\varepsilon_r = 3$; 343 nodes,
+1{,}296 tets; $\theta$ scales the gap, so $d = L(1+\theta)$), Newton
+iteration drives the design from $C_0 = 120.0$\,fF ($E_C =
+0.1614$\,GHz) to the design-anchor target $E_C = 0.2156$\,GHz. Full
+Newton converges in \emph{one} step --- and we state the reason rather
+than dress it up: $C \propto 1/(1+\theta)$ makes $E_C(\theta)$
+\emph{affine} in $\theta$, so one-step convergence is expected, and this
+tier proves the loop end-to-end (gradient, chain rule, update,
+convergence test), not a hard optimization. The converged $\theta =
+0.335657909$ matches the closed-form optimum to $3\times10^{-15}$. The
+honesty check that matters: a \emph{fresh, independent} forward solve at
+the converged geometry --- assemble, solve, extract, no adjoint machinery
+--- reproduces the target $E_C$ to a relative error of
+$1.4\times10^{-15}$. A damped run ($\alpha = 0.5$) converges in 13 steps
+and supplies the descent illustration
+(Figure~\ref{fig:diffopt}a). At the hit target, the Koch-exact spectrum
+gives $E_J/E_C = 51.0$, $\omega_{01} = 4.128$\,GHz, $\alpha =
+-0.247$\,GHz --- the ${\sim}4$\,GHz qubit regime the design anchor
+implies. All trajectory values are committed in
+\path{benchmarks/transmon_diffopt/results.toml}.
+
+\begin{figure}[t]
+  \centering
+  \anvilfig[0.98]{fig5-diffopt.pdf}{fig5\_diffopt.py}
+  \caption{Gradient-based optimization to a target $E_C$ via the
+  discrete-adjoint shape gradient. (a) Parallel-plate loop proof:
+  $|E_C - E_C^{\mathrm{target}}|$ versus Newton iteration; full Newton
+  converges in one step (the parametrization is affine --- expected, and
+  disclosed), the damped $\alpha = 0.5$ run supplies the 13-step descent
+  curve; the converged design is confirmed by an independent fresh
+  forward solve at relative error $1.4\times10^{-15}$
+  (\texttt{benchmarks/transmon\_diffopt/results.toml}). (b) The real
+  133k-tet DeviceLayout mesh under the fixed-topology island-scale
+  parameter $\theta$: a within-budget demonstration target
+  ($C_\Sigma = 137.0$\,fF) converges in two genuine (non-affine) Newton
+  steps, fresh-solve confirmed at $5.6\times10^{-6}$; the bounded run
+  toward the $89.9$\,fF design anchor stalls honestly at the mesh
+  validity budget $\theta_{\mathrm{safe}} = -0.0073$ (first tetrahedron
+  inversion at $\theta = -0.0097$), $33\times$ short of the
+  $\theta \approx -0.241$ the anchor requires
+  (\texttt{benchmarks/transmon\_diffopt/pad\_results.toml}).}
+  \label{fig:diffopt}
+\end{figure}
+
+\subsection{The real device: a validated gradient, a genuine
+convergence, and a \texorpdfstring{$33\times$}{33x} shortfall}
+\label{sec:optdemo-pad}
+
+The second tier runs on the committed 133k-tet SingleTransmon mesh
+itself, with a fixed-topology shape parameter $\theta$ that scales the
+island conductor in-plane about its centroid (101 island nodes move;
+the mesh connectivity is fixed). Three results, in descending order of
+comfort
+(\path{benchmarks/transmon_diffopt/pad_results.toml}):
+
+\paragraph{The gradient is real on the real mesh.} At $\theta = 0$ the
+adjoint gradient $\partial C_\Sigma/\partial\theta = 198.198$\,fF is
+validated against a central finite difference of the \emph{full
+independent pipeline} (move the island nodes, re-assemble, re-solve,
+re-extract): relative error $1.15\times10^{-4}$ at $h = 10^{-4}$, with a
+clean $O(h^2)$ truncation sweep ($1.2\times10^{-2} \to 1.0\times10^{-3}
+\to 1.15\times10^{-4} \to 1.0\times10^{-5}$ as $h$ falls
+$10^{-3} \to 3\times10^{-5}$). This is the paper's load-bearing
+real-geometry validation: the same machinery that passed at
+$10^{-9}$-level on analytic fixtures holds up on production geometry.
+
+\paragraph{The loop genuinely converges on the real mesh.} A
+demonstration target within the mesh's validity budget ($C_\Sigma =
+137.0$\,fF) converges in two Newton steps --- genuinely non-affine now
+(the gradient changes by ${\sim}21\%$ along the path) --- and the
+converged design
+is confirmed by a fresh, independent multi-conductor extraction at
+relative error $5.6\times10^{-6}$ (Figure~\ref{fig:diffopt}b). The
+entire real-device run (validation sweep plus both optimization runs)
+takes $10.7$\,s.
+
+\paragraph{The honest negative: the anchor is out of this
+parametrization's reach.} The natural target is the ${\sim}90$\,fF
+anchor of Section~\ref{sec:lom} ($89.9$\,fF; $E_C = 0.2155$\,GHz ---
+the last digit differs from the $0.2156$\,GHz quoted elsewhere because
+this run targets the rounded $89.9$\,fF rather than the back-solved
+$89.843$\,fF; both values are artifact-faithful). The
+$\theta = 0$ gradient puts it at $\theta \approx -0.241$ --- but the
+fixed-topology map inverts its first tetrahedron at $\theta = -0.0097$,
+and the run's conservative budget (minimum tet-volume ratio $0.25$) caps
+$\theta_{\mathrm{safe}} = -0.0073$, where the bounded Newton run stalls
+at $C_\Sigma = 136.5$\,fF: a $33\times$ shortfall. The diagnosis is
+geometric, not a gradient failure: the island's junction-attachment
+nodes sit ${\sim}225\,\mu$m from the island centroid, so the centroid
+scale drags them against ${\sim}0.7\,\mu$m junction-region tetrahedra.
+Closing the anchor gap is therefore a \emph{mesh-morphing and
+parametrization} problem --- a smoothed velocity field or per-step
+remeshing, multi-parameter pad/gap/lead controls that remove the
+junction lever arm, and a tensor-$\varepsilon$ extension of the shape
+chain (the committed run uses the scalar trace-averaged sapphire; the
+scalar-versus-tensor difference is quantified at $0.75\%$ in the
+artifact) --- all named follow-ons, none of which the present paper
+claims. We regard this shortfall as a result, not an embarrassment: it
+is precisely the boundary information a design-gradient capability must
+publish before anyone builds an optimizer on it.
+
+\section{Roadmap: Differentiating the Eigenmode Branch}
+\label{sec:roadmap}
+
+The LOM branch above differentiates an \emph{electrostatic} solve. The
+transmon's dynamical figures-of-merit --- resonator frequency,
+participation-ratio and EPR self/cross-Kerr \citep{minev2021,nigg2012}
+--- live in the \emph{eigenmode} problem, and that branch is \textbf{not
+differentiable yet} in geode-fem. The paper commits to the explicit
+split:
+
+\begin{table}[h]
+  \centering
+  \small
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    Branch & Observables & Differentiable? \\
+    \midrule
+    LOM (electrostatic) & $E_C$, $\alpha \approx -E_C$, coupling $C$ &
+      \textbf{yes} (Sections~\ref{sec:adjoint}--\ref{sec:optdemo}) \\
+    eigenmode / EPR & resonator $f$, participation, Kerr &
+      \textbf{not yet} (this section) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Differentiating an eigenpair needs the adjoint-eigenpair
+(Hellmann--Feynman / Nelson) formulas
+\citep{nelson1976simplified}, which require solving the interior
+eigenproblem robustly at the physical shift --- and geode-fem's
+matrix-free interior eigensolve is blocked at exactly that shift. The
+blocker is measured and committed
+(\path{benchmarks/transmon_bench_cpu/sigma4p5_deepshift_characterization.md}):
+at $\sigma = 4.5$\,GHz on the 133k-DOF fixture, a \emph{single} inner
+AMS-preconditioned MINRES solve (outer Lanczos step 0) never converges
+--- it plateaus on a nearly flat residual tail below ${\sim}10^{-5}$ and
+was still running at 14{,}300 inner iterations ($\lVert r\rVert \approx
+2.6\times10^{-6}$) when killed. The plateau is
+\emph{coarse-solve-invariant} --- an exact coarse solve stalls the same
+way --- so the limiter is the SPD-proxy preconditioner $K + |\sigma|M$
+itself, not the coarse solve. Nor is there a single inner tolerance that
+is both cheap and correct: at an inner tolerance of $10^{-2}$ the entire
+eigensolve completes in ${\sim}56$\,s but returns the non-physical
+$\lambda \approx 0$ gradient near-kernel cluster ($0.42$--$0.64$\,GHz),
+not the physical band. The named path --- not built, cited as method,
+not result --- is a preconditioned Helmholtz-projected Jacobi--Davidson
+iteration, applying the gradient-kernel projection inside the correction
+equation, for which \citet{liang2026adaptive} provide the current
+adaptive-multilevel treatment of exactly this singular Maxwell
+eigenproblem; combined with the Nelson/Hellmann--Feynman eigenpair
+derivatives, that is the route to differentiable eigenmode/EPR
+quantities. Until it lands, no claim in this paper extends to
+derivatives of the eigenmode spectrum.
+
+\section{Performance Context}
+\label{sec:perf}
+
+Performance is context here, not contribution: on the measured record
+there is no corner where geode-fem beats Palace at scale, and the
+capability claim of this paper does not depend on one. We report the
+matched CPU cell (with the corrected large-scale finding) and the GPU
+cell (correctness proven; scaling an honest negative) for completeness
+and because the honest accounting bounds what the differentiable solver
+costs to run.
+
+\subsection{CPU cell: a matched head-to-head, and a flop-and-fill
+crossover}
+\label{sec:perf-cpu}
+
+All CPU measurements ran on a single EC2 \texttt{m6i.4xlarge} (8
+physical cores / 16 vCPUs, ${\sim}61$\,GB usable) in
+\texttt{us-west-2}.\footnote{On-demand cost approximately \$0.77/hour at
+the time of the runs; the CPU cell is reproducible for a few dollars.}
+The cell is matched: same box, same session, identical mesh and
+eigenproblem, both solvers at 1 and 8 cores/ranks, three workloads
+(physical target: 6 modes at 4.5\,GHz; off-target: 12 modes at 20\,GHz;
+uniformly refined ${\sim}1.16$M-DOF mesh), full pipeline, mean of $n=3$
+runs (\path{benchmarks/transmon_bench_cpu/results.toml}).
+
+\begin{table}[t]
+  \centering
+  \caption{Matched CPU-cell wall-clock and memory, full pipeline,
+  \texttt{m6i.4xlarge}, same box and session (mean of $n=3$).
+  geode-fem \texttt{@3174015}: serial/threaded faer sparse-LU
+  shift-invert Lanczos (direct); Palace \texttt{@fba6a5b}: distributed
+  MPI Krylov + AMS (iterative). Palace memory is per-rank maximum RSS,
+  not an aggregate. At the physical target geode-fem on \emph{one} core
+  beats Palace on \emph{eight} ranks in absolute wall clock; at
+  ${\sim}1.16$M DOFs the direct solve \emph{completes given adequate
+  memory but loses to Palace on both wall clock and memory} --- the
+  crossover is a flop-and-fill deficit, not merely a memory wall. Values
+  from the committed
+  \texttt{benchmarks/transmon\_bench\_cpu/results.toml}
+  (\texttt{[matched.*]} tables) and, for the 128\,GB-box completion row,
+  the committed run log
+  \texttt{benchmarks/transmon\_bench\_cpu/geode\_runs\_1p16M\_2026-07-15.log}.}
+  \label{tab:cpu}
+  \small
+  \begin{tabular}{@{}llcc@{}}
+    \toprule
+    Workload & Solver (cores) & Wall (s) & Peak RSS \\
+    \midrule
+    \multicolumn{4}{@{}l}{\emph{Physical target: 6 modes @ 4.5\,GHz,
+      133{,}108 interior DOFs}} \\
+    & geode-fem (1) & 28.7 & 3.1\,GB \\
+    & geode-fem (8) & 29.0 & 3.1\,GB \\
+    & Palace (1)    & 130.9 & 0.5\,GB/rank \\
+    & Palace (8)    & 44.5 & 0.5\,GB/rank \\
+    \addlinespace
+    \multicolumn{4}{@{}l}{\emph{Off-target: 12 modes @ 20\,GHz,
+      133{,}108 interior DOFs}} \\
+    & geode-fem (1) & 36.8 & 3.1\,GB\textsuperscript{\ddag} \\
+    & geode-fem (8) & 26.6 & 3.1\,GB\textsuperscript{\ddag} \\
+    & Palace (1)    & 248.0 & 0.5\,GB/rank\textsuperscript{\ddag} \\
+    & Palace (8)    & 64.7 & 0.5\,GB/rank\textsuperscript{\ddag} \\
+    \addlinespace
+    \multicolumn{4}{@{}l}{\emph{Large scale: 6 modes @ 4.5\,GHz,
+      1{,}157{,}564 interior DOFs}} \\
+    & geode-fem (1), ${\sim}61$\,GB box\textsuperscript{\dag} &
+      killed at ceiling & 63.9\,GB (truncated) \\
+    & geode-fem (1), 128\,GB box\textsuperscript{\dag} & 565.5 & 92.2\,GB \\
+    & Palace (8)    & 423.12 & 4.1\,GB/rank (${\sim}33$\,GB aggr.) \\
+    \bottomrule
+  \end{tabular}
+
+  \medskip
+  \begin{minipage}{0.92\linewidth}
+  \footnotesize
+  \textsuperscript{\dag}The geode-fem large-scale rows depart from the
+  same-box protocol of the matched cell and are marked accordingly: the
+  ${\sim}61$\,GB-box run was SIGKILL-ed mid-factorization at the memory
+  ceiling (its 63.9\,GB ``peak'' is a truncation of the true footprint,
+  not a measurement of it), and the completion row was re-run on a
+  128\,GB \texttt{r6i}-class box (committed log above), where the true
+  peak is 92.2\,GB. Palace's row is from the original matched session.
+
+  \textsuperscript{\ddag}The committed \texttt{[matched.off\_target.*]}
+  tables record wall times only; the off-target Peak RSS cells repeat
+  the physical-target measurements of the same session and the same
+  133{,}108-DOF pencil, and are not independently recorded in the
+  artifact.
+  \end{minipage}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \anvilfig{fig4-cpu-wallclock.pdf}{fig4\_cpu\_wallclock.py}
+  \caption{Matched CPU-cell wall-clock comparison at the physical target
+  (6 modes, 4.5\,GHz, 133k DOFs): geode-fem at 1 and 8 threads versus
+  Palace at 1 and 8 MPI ranks. The inset reports per-core cost as
+  core-seconds --- geode-fem on one core consumes $28.7$ core-s against
+  Palace's $356.0$ at 8 ranks (${\sim}12\times$). Full-pipeline timings
+  from Table~\ref{tab:cpu}.}
+  \label{fig:cpu}
+\end{figure}
+
+Three readings, none of them a parallelization claim. \emph{Per-core
+efficiency:} at the physical target, geode-fem's serial direct
+factorization on one core ($28.7$\,s) beats Palace on eight ranks
+($44.5$\,s) in absolute wall clock at ${\sim}12\times$ fewer
+core-seconds ($28.7$ versus $356.0$); geode-fem's own 8-thread run gives
+essentially no speedup ($29.0$\,s; tracked as issue \#518), so the
+advantage is direct-versus-iterative throughput, not parallelism.
+\emph{Target robustness:} the direct shift-invert is target-insensitive
+while Palace's iterative solve degrades off-target, so the gap
+\emph{widens} at 20\,GHz --- $6.7\times$ serial ($248.0/36.8$),
+$2.4\times$ at 8-wide ($64.7/26.6$). \emph{The corrected large-scale
+finding:} the direct factorization trades memory and super-linear
+fill/flops for that speed and robustness, and the trade stops paying
+below 1M DOFs. On the ${\sim}1.16$M-DOF mesh, given adequate memory
+(a 128\,GB box), the direct solve \emph{does complete} --- setup
+$35.78$\,s, solve $529.75$\,s, total $565.5$\,s at $92.2$\,GB peak RSS
+--- but it \emph{loses to Palace on both axes}: Palace finishes the same
+mesh in $423.12$\,s at $4.1$\,GB/rank (${\sim}33$\,GB aggregate). An
+earlier ``never completes'' reading (the OOM kill at $63.9$\,GB on the
+${\sim}61$\,GB box) was a small-box truncation artifact and is retracted
+in favor of this measurement: the crossover is a \emph{flop-and-fill
+deficit, not merely a memory wall} --- even with abundant memory, the
+direct path is a small-to-medium-scale win that loses at scale. The
+architecture trade-off, stated symmetrically: geode-fem wins
+small-to-medium on speed, per-core efficiency, and target robustness;
+Palace wins at scale on both wall clock and memory. (Palace at 16 ranks
+on hyperthreaded vCPUs was refused by MPI process binding; we exclude it
+rather than report a degraded configuration.) The once-planned
+matrix-free interior eigensolve is no longer offered as the scale
+answer: its deep-shift inner solve is the measured wall of
+Section~\ref{sec:roadmap}, and the honest scale story for the direct
+path is the one in Table~\ref{tab:cpu}.
+
+\subsection{GPU cell: correctness proven, scaling an honest negative}
+\label{sec:perf-gpu}
+
+geode-fem's GPU path accelerates the \emph{driven} solve (matrix-free
+apply + on-device COCG), not the eigensolve of the credential, and all
+GPU execution is CUDA-f32 (Section~\ref{sec:architecture}). On
+2026-07-14, geode-fem code executed on a physical GPU for the first time
+(EC2 \texttt{g6e.xlarge}, 1$\times$ NVIDIA L40S 46\,GB, driver
+595.71.05, CUDA 13.2): the two CUDA-f32 correctness smokes --- the
+matrix-free N\'ed\'elec matvec and the on-device COCG --- pass against
+the f64 CPU reference within f32-appropriate tolerances ($15.0$ and
+$3.3$\,s wall, durations dominated by GPU init and kernel JIT ---
+correctness evidence, not performance).
+
+The scaling study (committed as
+\path{benchmarks/gpu_driven_scaling/results.toml}; a $\sigma$-lossy
+lumped-port cube fixture at fixed frequency, mesh-refined from $1{,}854$
+to $25{,}695$ edges, all sixteen cells on the same host) is an honest
+negative: \textbf{GPU-f32 matrix-free loses to every CPU configuration
+at every measured size} (Table~\ref{tab:gpu}). Computed from the
+artifact's unrounded medians, the assembled-CSR COCG on CPU is
+$136\times$ faster at $1{,}854$ edges (displayed: $0.032$ versus
+$4.39$\,s) and still $44\times$
+faster at $25{,}695$ ($1.86$ versus $81.8$\,s); even the direct LU is
+$13.5\times$ faster at the top size ($6.04$ versus $81.8$\,s). The
+mechanism is kernel-launch domination (${\sim}28$\,ms per iteration at
+the top size versus ${\sim}0.63$\,ms for assembled-CSR on CPU) ---
+$25.7$k edges is far too small to fill an L40S --- and f32 accuracy
+compounds the verdict (relative error degrading to $1.2\times10^{-3}$
+with refinement; nondeterministic convergence at the top size). One
+directional positive survives, and it is the one the architecture
+predicts: against the \emph{same matrix-free algorithm on CPU}, the
+GPU's deficit falls monotonically to parity at ${\sim}26$k edges
+($81.8$ versus $82.1$\,s). We state the GPU position as trajectory, not
+achievement, with tracked levers (kernel fusion; on-device
+f64/mixed-precision when cubecl ships it; preconditioning) --- and we
+prefer publishing the bound to implying the win. This cell is a cube
+fixture family, not the transmon eigenproblem, and its CPU baselines
+(4-vCPU host) are not comparable to the \texttt{m6i} numbers of
+Table~\ref{tab:cpu}.
+
+\begin{table}[t]
+  \centering
+  \caption{Driven-solve wall-clock scaling, solve-only medians of $n=3$
+  timed repetitions (warm-up excluded), same host (\texttt{g6e.xlarge}:
+  4 vCPU + 1$\times$ L40S). One fixture ($\sigma$-lossy lumped-port
+  cube) at fixed $\omega$, mesh-refined across the columns. f64
+  iterative configurations at tolerance $10^{-8}$; the f32 GPU
+  configuration at $10^{-6}$ (its recurrence floor sits above
+  $10^{-8}$). The accuracy row is the full-field relative $L_2$ error of
+  the GPU-f32 solution against the Direct-f64 reference. At 25{,}695
+  edges the GPU-f32 configuration converged in the committed
+  single-frequency runs but not in its five-point frequency sweep, and
+  run-to-run convergence is nondeterministic at that size (f32 floor).
+  Values verbatim from the committed
+  \texttt{benchmarks/gpu\_driven\_scaling/results.toml}.}
+  \label{tab:gpu}
+  \small
+  \setlength{\tabcolsep}{5pt}
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    & \multicolumn{4}{c}{Mesh size (N\'ed\'elec edges)} \\
+    \cmidrule(l){2-5}
+    Configuration & 1{,}854 & 5{,}859 & 13{,}428 & 25{,}695 \\
+    \midrule
+    Direct faer LU (CPU f64), s & 0.024 & 0.203 & 1.540 & 6.036 \\
+    Assembled-CSR COCG (CPU f64), s & 0.032 & 0.198 & 0.709 & 1.865 \\
+    Matrix-free COCG (CPU f64), s & 1.652 & 8.885 & 30.234 & 82.056 \\
+    Matrix-free COCG (GPU f32), s & 4.388 & 13.351 & 34.381 & 81.764 \\
+    \midrule
+    GPU-f32 accuracy vs.\ Direct-f64 (rel.\ $L_2$) &
+      $1.26\times10^{-4}$ & $2.93\times10^{-4}$ &
+      $4.60\times10^{-4}$ & $1.20\times10^{-3}$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Reproducibility}
+\label{sec:repro}
+
+Every artifact behind every number in this paper is committed and
+scripted.\footnote{Repository URL and archival DOI for the geode-fem
+source to be added at submission. TODO(operator).}
+
+\begin{itemize}
+  \item \textbf{Geometry and mesh.} Generated by DeviceLayout.jl
+    v1.15.0's \texttt{SingleTransmon} example \citep{devicelayout}; the
+    fixture generator is committed, and the MSH~4.1 fixture is pinned by
+    SHA-256 (\texttt{5b3ff4c3\ldots{}b33dd}; full hash and provenance in
+    the committed \texttt{transmon\_smoke.provenance.txt}).
+  \item \textbf{The MSH conversion gotcha.} MFEM's MSH~4.1 reader
+    rejects the DeviceLayout multi-entity-block file, so the Palace runs
+    consume an MSH~2.2 conversion (\texttt{gmsh -save -format msh2}).
+    The conversion is node-preserving (all 22{,}684 nodes unchanged,
+    physical groups preserved) and physics-neutral: eigenvalues
+    reproduce bit-for-bit across the conversion. Documented in the
+    committed \texttt{palace\_config.provenance.txt} because it is
+    exactly the kind of silent pipeline step a same-mesh claim must
+    disclose.
+  \item \textbf{Credential artifacts.} The Palace configuration and
+    provenance under \path{reference/fixtures/transmon_palace/};
+    geode-fem's benchmark definitions, the agreement numbers, the
+    L-doubling tripwire ($17.4901 \to 12.37$\,GHz, committed ratio
+    $0.7071$), the spurious-mode measurements ($3.4528$\,GHz,
+    $p = 0.9942$; L-doubling ratio $0.7081$), and the full
+    gauge/projection arc of Section~\ref{sec:spurious-mode}
+    (tree--cotree counts and the $1.64\%$ shift; bulk-projection
+    divergence ratio $50.2$ and projected norm $1.06\times10^{-4}$;
+    port-aware acceptance at $\leq 0.029\%$) in
+    \path{benchmarks/transmon_eigen/results.toml}, each pinned by a
+    release-tier regression test. Palace's raw outputs
+    (\texttt{eig.csv}, per-port participation, run log) are committed;
+    a rerun reproduced \texttt{eig.csv} bit-for-bit.
+  \item \textbf{Precision of the committed agreement numbers.}
+    \path{benchmarks/transmon_eigen/results.toml} stores geode-fem
+    frequencies at three decimals while the Palace column carries full
+    precision, so the committed per-mode \texttt{rel\_err\_pct} is
+    computed against the rounded geode-fem values; at full precision the
+    agreement is slightly better (approximately $0.029\%$ worst case).
+    We quote the committed-artifact numbers throughout and disclose the
+    rounding here. Derived ratios quoted in the text (core-second and
+    speedup multipliers) are computed from the displayed table values
+    unless marked as committed.
+  \item \textbf{LOM chain.} The three-conductor capacitance extraction
+    and Koch-exact spectrum ($C_\Sigma = 136.7$\,fF, $E_C =
+    0.142$\,GHz, and the anchor-gap diagnosis of
+    Section~\ref{sec:lom}) in
+    \path{benchmarks/transmon_quantum/results.toml}; pinned by the
+    release test \path{crates/geode-core/tests/transmon_quantum.rs}.
+  \item \textbf{Adjoint layer.} The four sensitivity modules with their
+    FD-and-mutation test suites:
+    \path{crates/geode-core/src/adjoint.rs} (PR \#573);
+    \path{crates/geode-core/src/shape.rs} (PRs \#575/\#586; this module
+    also carries \texttt{capacitance\_shape\_gradient});
+    \path{crates/geode-core/src/driven/adjoint.rs} (PR \#579); and
+    \path{crates/geode-core/src/driven/shape.rs} (PR \#581).
+  \item \textbf{Optimization demonstrations.} The parallel-plate loop
+    proof (full trajectories, closed-form check, fresh-solve
+    confirmation) in \path{benchmarks/transmon_diffopt/results.toml};
+    the real-device FD validation, demonstration convergence, and the
+    bounded anchor attempt with its mesh-safety budget in
+    \path{benchmarks/transmon_diffopt/pad_results.toml}; both consumed
+    by \path{crates/geode-core/tests/transmon_diffopt.rs}.
+  \item \textbf{Performance artifacts.} The matched CPU cell in
+    \path{benchmarks/transmon_bench_cpu/results.toml}; the 1.16M-DOF
+    completion run log at
+    \path{benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log};
+    the GPU scaling cell (all sixteen cells, iteration counts,
+    recomputed true residuals, DNF handling, same-host provenance) in
+    \path{benchmarks/gpu_driven_scaling/results.toml}; the deep-shift
+    eigensolve characterization at
+    \path{benchmarks/transmon_bench_cpu/sigma4p5_deepshift_characterization.md}.
+  \item \textbf{Hardware disclosure.} CPU cell: EC2 \texttt{m6i.4xlarge}
+    (8 physical cores / 16 vCPU, 64\,GB), \texttt{us-west-2}; the
+    1.16M-DOF completion row: a 128\,GB \texttt{r6i}-class box (see the
+    committed log). GPU cell: EC2 \texttt{g6e.xlarge} (4 vCPU, 30\,GB;
+    1$\times$ NVIDIA L40S 46\,GB; driver 595.71.05, CUDA 13.2).
+  \item \textbf{Versions.} geode-fem commit \texttt{3174015} (headline
+    credential and CPU cells; the adjoint/diffopt layers are merged
+    post-\texttt{3174015} and cited by PR number); Palace commit
+    \texttt{fba6a5b}; DeviceLayout.jl v1.15.0; Burn/burn-cuda 0.21.
+\end{itemize}
+
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{What the credential does and does not establish.}
+In V\&V terms \citep{roache1997quantification,oberkampf2010verification}
+the cross-validation is code verification and code-to-code comparison,
+not validation against nature: two independent implementations agreeing
+to $\leq 0.033\%$ on the identical discrete problem, with analytic
+tripwires pinning the junction physics. It does not certify that either
+solver matches a measured device --- that is what
+\citet{ye2025electromagnetic}-style experimental benchmarks address ---
+but it rules out the large error class living in formulation, assembly,
+boundary handling, and eigensolver machinery. For this paper's purpose
+it establishes the specific premise the gradients need: the forward
+solutions being differentiated are production-accurate.
+
+\paragraph{What the differentiable-design evidence supports.}
+The proven capability is bounded and we state its boundary. Proven: the
+$2\times 2$ adjoint matrix at operator level (FD-validated with mutation
+tests); the capacitance$\to E_C$ chain with its stationarity collapse;
+a closed Newton loop confirmed by independent fresh solves on both an
+analytic fixture and the real 133k-tet mesh; and a real-mesh gradient
+validated at $1.15\times10^{-4}$ against the full independent pipeline.
+Not proven, and not claimed: eigenmode/EPR derivatives (the
+Section~\ref{sec:roadmap} wall); anchor-reaching real-device
+optimization (the $33\times$ parametrization shortfall of
+Section~\ref{sec:optdemo-pad}); tensor-$\varepsilon$ shape chains;
+multi-parameter optimization at scale; and any wall-clock superiority
+over sweep-based workflows. The capability is also not qubit-specific
+--- shape and material sensitivities of electrostatic and driven-EM
+observables apply to RF and photonic device design generally; the
+transmon is the demonstration vehicle with the clearest documented
+unmet need.
+
+\paragraph{Threats to validity.}
+A common-mode error --- both solvers wrong the same way --- cannot be
+excluded by cross-comparison alone; the analytic anchors and disjoint
+implementations make it unlikely for the junction physics. The
+optimization demonstrations are single-parameter by design; nothing here
+demonstrates multi-parameter or constrained optimization behavior. The
+parallel-plate tier's one-step convergence is an affine-map property,
+disclosed as such. The real-device chain uses the scalar trace-averaged
+sapphire (tensor-$\varepsilon$ delta quantified at $0.75\%$).
+Performance numbers are $n=3$ measurements on one instance type per
+cell and support architecture-level readings, not microsecond claims;
+the large-scale completion row is a different (128\,GB) box, marked as
+such in Table~\ref{tab:cpu}.
+
+\paragraph{Limitations.}
+(i) One geometry, one mesh, first order only --- higher-order and
+mesh-refinement convergence is future work (a $p = 2$ Palace
+configuration is committed for that purpose). (ii) The lossless model
+leaves readout ports open; resistive terminations (hence
+complex-symmetric pencils and mode $Q$s) are out of scope. (iii) The
+credential eigenpath remains the ungauged committed benchmark; the
+port-aware projection retains all six modes at $\leq 0.029\%$ but is a
+composite solver, and the solenoidal port artifact is characterized and
+filtered rather than eliminated. (iv) The CPU per-core win is
+small-to-medium-scale only: at ${\sim}1.16$M DOFs the direct solve
+completes given memory but loses to the distributed iterative reference
+on both wall clock and memory --- a flop-and-fill crossover below 1M
+DOFs, per the committed 128\,GB-box measurement. (v) GPU evidence covers
+driven-solve correctness and an honest scaling negative in f32 on a
+cube fixture family; no GPU eigensolve path exists. (vi) The
+differentiable branch is electrostatic/LOM only (eigenmode/EPR is
+roadmap), currently scalar-$\varepsilon$ for the shape chain, and its
+real-device demonstration is bounded by the fixed-topology
+parametrization budget.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+Superconducting-qubit electromagnetic design iterates a solver that
+cannot say which way to move. This paper demonstrated the missing
+derivative: a discrete-adjoint layer over a tensor-native FEM solver
+that turns one extra solve per step into exact, solver-derived
+sensitivities --- a validated $2\times 2$ matrix of material and
+geometry gradients on the electrostatic and driven $H(\mathrm{curl})$
+operators --- composed into a differentiable capacitance$\to E_C$ chain
+whose shape derivative collapses, by variational stationarity, to a
+Hellmann--Feynman-like explicit term. The capability was exercised
+honestly at two tiers: a closed Newton loop that hits a $0.2156$\,GHz
+target $E_C$ and survives an independent fresh-solve check at
+$1.4\times10^{-15}$ (one-step convergence disclosed as the affine-map
+property it is), and the real 133k-tet device mesh, where the gradient
+is FD-validated at $1.15\times10^{-4}$, a within-budget target converges
+in two genuine Newton steps --- and the ${\sim}90$\,fF design anchor
+sits $33\times$ beyond the fixed-topology parametrization's mesh budget,
+a mesh-morphing problem we publish as the capability's current boundary.
+The claim is held to a cross-validation evidence standard: the same
+solver reproduces Palace to $\leq 0.033\%$ across all six eigenmodes of
+the identical mesh --- a credential, not the contribution, and
+incidentally the first independent validation of the reference stack.
+Around the capability we kept the honest ledger: no measured performance
+corner over Palace at scale (the direct eigensolve's advantage is
+small-to-medium-bounded, with a flop-and-fill crossover below 1M DOFs),
+a GPU path that is correctness-proven and performance-negative at
+benchmark sizes, and an eigenmode/EPR branch that is roadmap --- blocked
+at a characterized deep-shift eigensolve wall, with the
+Jacobi--Davidson-plus-Helmholtz-projection path and the adjoint-eigenpair
+formulas named. The position we defend is the one the evidence supports:
+gradient-based electromagnetic design of the transmon's electrostatic
+Hamiltonian parameters works today, from the field solve itself, on
+production geometry --- and the boundary of that capability is published
+alongside it.
+
+\paragraph{Acknowledgments.}
+geode-fem's development was AI-orchestrated (agent-driven implementation
+with human direction and review); this benchmark program and paper
+follow the same discipline, with every reported number traced to a
+committed, human-auditable artifact.
+% TODO(operator): finalize acknowledgment wording before submission.
+% TODO(operator): whiteroom L1-L4 operator specification — decide
+% public/citable (repo/DOI) vs acknowledged-not-cited (BRIEF coauthor note).
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}
