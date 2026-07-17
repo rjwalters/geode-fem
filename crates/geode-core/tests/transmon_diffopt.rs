@@ -31,7 +31,8 @@ use geode_core::mesh::{MetalRole, TetMesh, cube_tet_mesh, read_transmon_smoke_fi
 use geode_core::quantum::diffopt::{optimize_e_c_to_target, optimize_e_c_to_target_bounded};
 use geode_core::quantum::transmon::{capacitance_from_e_c_hz, e_c_hz_from_capacitance};
 use geode_core::shape::{
-    apply_in_plane_scale, capacitance_shape_gradient, in_plane_scale_velocity, min_tet_volume_ratio,
+    apply_in_plane_scale, apply_node_motion, capacitance_shape_gradient,
+    harmonic_extension_velocity, in_plane_scale_velocity, min_tet_volume_ratio,
 };
 
 const EPS_R: f64 = 3.0;
@@ -566,5 +567,365 @@ fn committed_pad_results_toml_pins_honest_outcome() {
             let vr = s["min_tet_volume_ratio"].as_float().unwrap();
             assert!(vr > 0.0, "{name}: a visited design inverted the mesh");
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Harmonic mesh-morphing island deformation (issue #594, extending #589).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Build the issue-#594 harmonic `fixed_zero` set on the scaled base mesh:
+/// the OTHER conductors (ground + feedline) plus the far/outer domain
+/// boundary (global bounding-box surface), with the island removed (it is the
+/// moving Dirichlet set). Mirrors the `transmon_pad_harmonic` example.
+fn harmonic_fixed_zero(
+    base: &TetMesh,
+    ground: &[u32],
+    feedline: &[u32],
+    island: &[u32],
+) -> Vec<u32> {
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for p in &base.nodes {
+        for d in 0..3 {
+            lo[d] = lo[d].min(p[d]);
+            hi[d] = hi[d].max(p[d]);
+        }
+    }
+    let btol = 1e-9;
+    let mut set: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    for &n in ground {
+        set.insert(n);
+    }
+    for &n in feedline {
+        set.insert(n);
+    }
+    for (i, p) in base.nodes.iter().enumerate() {
+        if (0..3).any(|d| (p[d] - lo[d]).abs() < btol || (p[d] - hi[d]).abs() < btol) {
+            set.insert(i as u32);
+        }
+    }
+    for &n in island {
+        set.remove(&n);
+    }
+    set.into_iter().collect()
+}
+
+/// The issue #594 harmonic-morph pipeline on the real 133k-tet DeviceLayout
+/// mesh, pinning the committed `harmonic_results.toml` numbers (regenerate
+/// with the `transmon_pad_harmonic` example):
+///
+/// 1. the harmonic morph reproduces the prescribed rigid island motion
+///    EXACTLY on the island (Dirichlet), and moves free interior nodes too;
+/// 2. the analytic `∂C_Σ/∂θ` under the harmonic map, FD-validated against an
+///    INDEPENDENT full-pipeline central difference to ≤ 1e-3 (committed:
+///    1.05e-4 at h = 1e-4; adjoint ≈ 209.09 fF/θ);
+/// 3. the budget EXTENSION: the harmonic safe boundary (≈ −0.0646) widens the
+///    rigid #589 boundary (≈ −0.00726) by ≈ 8.9×;
+/// 4. the HONEST anchor outcome: the bounded Newton run toward 89.9 fF still
+///    stalls at the (widened) safe boundary — the anchor needs θ ≈ −0.23,
+///    now only ≈ 3.5× the budget vs 33× rigid; C_Σ ≈ 128.79 fF (a materially
+///    smaller gap than the rigid 136.54 fF) — pinned as stalled, NOT
+///    converged.
+#[test]
+#[ignore = "release-tier: harmonic Laplace solve + ~10 electrostatic solves on the 133k-tet fixture (~10 s in release)"]
+fn harmonic_pad_diffopt_release() {
+    let fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+    let base = scaled_mesh(&fx.mesh, M_PER_UNIT);
+
+    let comps = fx.split_metal_conductors();
+    let ground = comps.iter().find(|c| c.role == MetalRole::Ground).unwrap();
+    let island = comps.iter().find(|c| c.role == MetalRole::Island).unwrap();
+    let feedline = comps
+        .iter()
+        .find(|c| c.role == MetalRole::Feedline)
+        .unwrap();
+    let conductors = vec![
+        Electrode {
+            name: "island".into(),
+            nodes: island.nodes.clone(),
+            voltage: 1.0,
+        },
+        Electrode {
+            name: "feedline".into(),
+            nodes: feedline.nodes.clone(),
+            voltage: 0.0,
+        },
+    ];
+    let eps_r = fx.epsilon_r_scalar();
+    let island_nodes = &island.nodes;
+    let rigid_velocity = in_plane_scale_velocity(&base, island_nodes);
+    let fixed_zero = harmonic_fixed_zero(&base, &ground.nodes, &feedline.nodes, island_nodes);
+
+    // --- 1. Harmonic morph: island Dirichlet-exact, free nodes moved. ---
+    let velocity = harmonic_extension_velocity(&base, island_nodes, &fixed_zero).unwrap();
+    let island_set: std::collections::BTreeSet<u32> = island_nodes.iter().copied().collect();
+    let fixed_set: std::collections::BTreeSet<u32> = fixed_zero.iter().copied().collect();
+    let dir_err = island_nodes
+        .iter()
+        .map(|&n| {
+            let v = velocity[n as usize];
+            let r = rigid_velocity[n as usize];
+            ((v[0] - r[0]).powi(2) + (v[1] - r[1]).powi(2)).sqrt()
+        })
+        .fold(0.0_f64, f64::max);
+    assert!(
+        dir_err < 1e-12,
+        "harmonic morph must reproduce the rigid island motion exactly (max err {dir_err:.3e})"
+    );
+    let free_moved = velocity.iter().enumerate().any(|(i, v)| {
+        !island_set.contains(&(i as u32))
+            && !fixed_set.contains(&(i as u32))
+            && (v[0].abs() > 1e-12 || v[1].abs() > 1e-12)
+    });
+    assert!(free_moved, "harmonic morph must move free interior nodes");
+
+    // --- Independent forward C_ii(θ) under the harmonic morph. ---
+    let forward_c_ii = |theta: f64| -> f64 {
+        let moved = apply_node_motion(&base, &velocity, theta);
+        let rho = vec![0.0; moved.n_tets()];
+        let sys = assemble_electrostatic(&moved, &eps_r, &rho, &conductors, &ground.nodes).unwrap();
+        let phi = sys.solve().unwrap();
+        2.0 * sys.field_energy(&phi)
+    };
+    let extract_c_sigma = |theta: f64| -> (f64, f64) {
+        let moved = apply_node_motion(&base, &velocity, theta);
+        let rho = vec![0.0; moved.n_tets()];
+        let sys = assemble_electrostatic(&moved, &eps_r, &rho, &conductors, &ground.nodes).unwrap();
+        let cm =
+            extract_capacitance(&sys, &moved, &eps_r, &conductors, &ground.nodes, &[]).unwrap();
+        let c_ii = cm.get("island", "island").unwrap();
+        let c_if = cm.get("island", "feedline").unwrap();
+        let c_ff = cm.get("feedline", "feedline").unwrap();
+        (c_ii, c_ii - c_if * c_if / c_ff)
+    };
+
+    // --- 2. θ = 0 gradient + FD validation (the load-bearing claim). ---
+    let grad0 = capacitance_shape_gradient(&base, &eps_r, &conductors, &ground.nodes).unwrap();
+    assert_eq!(grad0.n_factorizations, 1, "adjoint must reuse forward LU");
+    let c0 = grad0.c_self;
+    let dc0 = grad0.dc_dtheta(&velocity);
+    assert!(
+        (dc0 * 1e15 - 209.087).abs() / 209.087 < 1e-2,
+        "harmonic-map adjoint dC/dθ = {} fF/θ, committed ≈ 209.087",
+        dc0 * 1e15
+    );
+    let h = 1e-4;
+    let dc_fd = (forward_c_ii(h) - forward_c_ii(-h)) / (2.0 * h);
+    let fd_rel = (dc0 - dc_fd).abs() / dc_fd.abs();
+    assert!(
+        fd_rel <= 1e-3,
+        "FD validation: adjoint {dc0} vs central FD {dc_fd}, rel err {fd_rel:.3e} > 1e-3 \
+         (committed 1.05e-4)"
+    );
+
+    // --- 3. Budget extension: harmonic vs rigid safe boundary. ---
+    let bisect = |vel: &[[f64; 3]], ratio_floor: f64| -> f64 {
+        let ratio_at = |th: f64| -> f64 {
+            let m = apply_node_motion(&base, vel, th);
+            min_tet_volume_ratio(&base, &m)
+        };
+        // Expand the bracket until the floor is violated (harmonic budget is
+        // a priori unknown and wider than the rigid one).
+        let mut bad = -0.01_f64;
+        while ratio_at(bad) >= ratio_floor && bad > -5.0 {
+            bad *= 1.5;
+        }
+        let mut good = 0.0_f64;
+        for _ in 0..60 {
+            let mid = 0.5 * (good + bad);
+            if ratio_at(mid) >= ratio_floor {
+                good = mid;
+            } else {
+                bad = mid;
+            }
+        }
+        good
+    };
+    let rigid_safe = bisect(&rigid_velocity, 0.25);
+    let harm_safe = bisect(&velocity, 0.25);
+    assert!(
+        (rigid_safe - (-0.007258)).abs() < 2e-4,
+        "rigid safe boundary {rigid_safe}, committed ≈ −0.007258"
+    );
+    assert!(
+        (harm_safe - (-0.064609)).abs() < 5e-3,
+        "harmonic safe boundary {harm_safe}, committed ≈ −0.064609"
+    );
+    let extension = harm_safe / rigid_safe;
+    assert!(
+        extension > 5.0,
+        "harmonic budget extension {extension:.1}× should exceed 5× (committed ≈ 8.9×)"
+    );
+
+    // --- Shared bounded-Newton evaluator (one forward + one adjoint). ---
+    let eval = |theta: f64| -> (f64, f64, f64) {
+        let moved = apply_node_motion(&base, &velocity, theta);
+        let vr = min_tet_volume_ratio(&base, &moved);
+        assert!(vr > 0.0, "mesh inverted at θ = {theta} (ratio {vr})");
+        let grad = capacitance_shape_gradient(&moved, &eps_r, &conductors, &ground.nodes).unwrap();
+        let c = grad.c_self;
+        (
+            c,
+            e_c_hz_from_capacitance(c),
+            grad.de_c_hz_dtheta(&velocity),
+        )
+    };
+
+    // --- 4. Anchor attempt: MUST still stall honestly at the (widened)
+    //     boundary — the harmonic morph shrinks the shortfall but does not
+    //     close it. ---
+    let res = optimize_e_c_to_target_bounded(
+        e_c_hz_from_capacitance(89.9e-15),
+        0.0,
+        1.0,
+        1e4,
+        20,
+        0.30,
+        (harm_safe, 0.0),
+        eval,
+    );
+    assert!(
+        res.stalled_at_bound && !res.converged,
+        "the anchor attempt must stall at the widened distortion boundary (converged = {}, \
+         stalled = {}) — the committed honest outcome",
+        res.converged,
+        res.stalled_at_bound
+    );
+    let (c_ii_lim, c_sigma_lim) = extract_c_sigma(res.theta_final);
+    let c_lim_opt = res.trajectory.last().unwrap().c_self_farad;
+    assert!(
+        (c_ii_lim - c_lim_opt).abs() / c_ii_lim < 1e-9,
+        "fresh C_ii at limit {c_ii_lim} vs optimizer {c_lim_opt}"
+    );
+    assert!(
+        (c_sigma_lim * 1e15 - 128.793).abs() / 128.793 < 5e-3,
+        "C_Σ at the harmonic limit = {} fF, committed ≈ 128.793",
+        c_sigma_lim * 1e15
+    );
+    // The gap has SHRUNK vs the rigid #589 limit (136.54 fF) but the anchor
+    // is still unreached: the honest, materially-improved negative.
+    assert!(
+        c_sigma_lim * 1e15 < 136.0 && c_sigma_lim * 1e15 > 89.9,
+        "harmonic limit C_Σ {} fF should improve on the rigid 136.54 fF yet miss 89.9",
+        c_sigma_lim * 1e15
+    );
+    let theta_anchor_est = (89.9e-15 - c0) / dc0;
+    assert!(
+        (theta_anchor_est / harm_safe) < 10.0 && (theta_anchor_est / harm_safe) > 1.0,
+        "harmonic shortfall {:.1}× should be well under the rigid 33× yet still > 1×",
+        theta_anchor_est / harm_safe
+    );
+}
+
+/// Pin the committed `benchmarks/transmon_diffopt/harmonic_results.toml`: the
+/// FD validation meets its bar with an O(h²) sweep, the budget extension is
+/// recorded (harmonic safe boundary materially wider than the rigid one), and
+/// the anchor attempt is the HONEST stall (never silently flipped to
+/// "converged") with a shrunken-but-nonzero remaining gap. Guards the
+/// committed harmonic-morph artifact against silent regeneration drift.
+#[test]
+fn committed_harmonic_results_toml_pins_budget_extension() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/transmon_diffopt/harmonic_results.toml");
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let doc: toml::Value = toml::from_str(&text).expect("parse harmonic_results.toml");
+
+    // Harmonic field: island Dirichlet recovered exactly, free nodes moved.
+    let hf = &doc["harmonic_field"];
+    assert!(
+        hf["island_dirichlet_recovered_max_err_um_per_theta"]
+            .as_float()
+            .unwrap()
+            < 1e-6,
+        "island Dirichlet data must be recovered essentially exactly"
+    );
+    assert!(
+        hf["free_node_velocity_max_um_per_theta"]
+            .as_float()
+            .unwrap()
+            > 1.0,
+        "the morph must genuinely extend into the free volume"
+    );
+
+    // FD validation: the load-bearing gradient claim, with an O(h²) sweep.
+    let fd = &doc["fd_validation"];
+    let rel = fd["headline_rel_err"].as_float().unwrap();
+    assert!(rel <= 1e-3, "committed FD rel err {rel} exceeds 1e-3");
+    let sweep = fd["sweep"].as_array().unwrap();
+    assert!(sweep.len() >= 3, "FD sweep too short");
+    for w in sweep.windows(2) {
+        let (h0, r0) = (
+            w[0]["h"].as_float().unwrap(),
+            w[0]["rel_err"].as_float().unwrap(),
+        );
+        let (h1, r1) = (
+            w[1]["h"].as_float().unwrap(),
+            w[1]["rel_err"].as_float().unwrap(),
+        );
+        assert!(
+            h1 < h0 && r1 < r0,
+            "FD sweep must decay with h: ({h0}, {r0}) → ({h1}, {r1})"
+        );
+    }
+
+    // Budget extension: the headline result of the issue.
+    let ms = &doc["mesh_safety"];
+    let rigid_safe = ms["rigid_theta_safe"].as_float().unwrap();
+    let harm_safe = ms["harmonic_theta_safe"].as_float().unwrap();
+    let ext = ms["budget_extension_factor"].as_float().unwrap();
+    assert!(
+        harm_safe < rigid_safe,
+        "harmonic safe boundary {harm_safe} must be a larger shrink than rigid {rigid_safe}"
+    );
+    assert!(
+        (ext - harm_safe / rigid_safe).abs() < 0.1,
+        "budget_extension_factor {ext} inconsistent with the boundaries"
+    );
+    assert!(
+        ext > 5.0,
+        "the harmonic morph should widen the budget several-fold (committed ≈ 8.9×)"
+    );
+
+    // Anchor attempt: the honest, materially-improved negative.
+    let a = &doc["anchor_attempt"];
+    assert_eq!(
+        a["stalled_at_bound"].as_bool(),
+        Some(true),
+        "the anchor attempt must be recorded as stalled at the widened boundary"
+    );
+    assert_eq!(
+        a["converged"].as_bool(),
+        Some(false),
+        "the anchor attempt must NOT be recorded as converged (the honest finding)"
+    );
+    let c_fin = a["c_sigma_at_final_ff"].as_float().unwrap();
+    assert!(
+        (89.9..136.6).contains(&c_fin),
+        "harmonic limit C_Σ {c_fin} fF should improve on the rigid 136.54 fF yet miss 89.9"
+    );
+    let rigid_short = a["rigid_budget_shortfall_factor"].as_float().unwrap();
+    let harm_short = a["harmonic_budget_shortfall_factor"].as_float().unwrap();
+    assert!(
+        harm_short < rigid_short && harm_short > 1.0,
+        "harmonic shortfall {harm_short}× must be smaller than rigid {rigid_short}× yet > 1×"
+    );
+    let recovered = a["shortfall_fraction_recovered"].as_float().unwrap();
+    assert!(
+        (0.0..=1.0).contains(&recovered) && recovered > 0.5,
+        "recovered shortfall fraction {recovered} should be a large fraction of the rigid 33×"
+    );
+
+    // Trajectory: residual contracts and the mesh stays valid throughout.
+    let steps = a["step"].as_array().unwrap();
+    assert!(steps.len() >= 2, "anchor trajectory too short");
+    let mut prev = f64::INFINITY;
+    for s in steps {
+        let r = s["residual_hz"].as_float().unwrap().abs();
+        assert!(r < prev, "residual not contracting: {r} !< {prev}");
+        prev = r;
+        let vr = s["min_tet_volume_ratio"].as_float().unwrap();
+        assert!(vr > 0.0, "a visited design inverted the mesh");
     }
 }
