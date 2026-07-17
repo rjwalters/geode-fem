@@ -76,6 +76,8 @@ use faer::sparse::{SparseColMat, Triplet};
 use crate::assembly::nedelec::NedelecScatterMap;
 use crate::driven::ports::assemble_port_surface_mass;
 use crate::eigen::dense::EigenError;
+#[allow(unused_imports)] // referenced in doc links
+use crate::eigen::dense::EigenPair;
 use crate::eigen::gauge::TreeCotreeGauge;
 use crate::eigen::lanczos::{InnerSolver, SparseShiftInvertLanczos};
 use crate::mesh::TetMesh;
@@ -246,6 +248,24 @@ impl ModeReport {
     }
 }
 
+/// A converged transmon eigenmode: the [`ModeReport`] **plus** the reduced
+/// interior-DOF eigenvector.
+///
+/// The `vector` is the M-normalized ([`EigenPair`] convention, `xᵀ (M+M_port)
+/// x = 1`) eigenvector in the **same reduced DOF ordering** the pencil `K`/`M`
+/// use (the plain PEC-interior reduction of the ungauged path). It is what
+/// [`crate::eigen::sensitivity`] consumes for the Hellmann–Feynman `∂λ/∂p`
+/// gradient (issue #596) — the plain [`solve_transmon_eigenmodes`] entry point
+/// drops it, so [`solve_transmon_eigenmodes_full`] surfaces it.
+#[derive(Debug, Clone)]
+pub struct TransmonMode {
+    /// The mode's eigenvalue / frequency / junction participation.
+    pub report: ModeReport,
+    /// Reduced interior-DOF eigenvector, M-normalized (`xᵀ (M+M_port) x = 1`),
+    /// in the ungauged PEC-interior DOF ordering (length = interior dim).
+    pub vector: Vec<f64>,
+}
+
 /// Build a real faer [`SparseColMat`] from a `[nnz]` value slice aligned
 /// to the volume sparsity pattern of `scatter`, restricted to the
 /// interior DOFs, with **extra surface triplets** added on top.
@@ -377,14 +397,31 @@ pub fn solve_transmon_eigenmodes_with_inner(
     m_per_unit: f64,
     inner: InnerSolver,
 ) -> Result<Vec<ModeReport>, EigenError> {
+    Ok(
+        solve_transmon_eigenmodes_full(pencil, sigma, n_modes, m_per_unit, inner)?
+            .into_iter()
+            .map(|m| m.report)
+            .collect(),
+    )
+}
+
+/// Build the plain **ungauged** PEC-interior reindex (`Some(reduced) = kept
+/// interior edge`, `None = Dirichlet/PEC edge`) and the reduced dimension —
+/// the DOF ordering the ungauged transmon eigensolve and its eigenvectors use.
+///
+/// Shared by [`solve_transmon_eigenmodes_full`] and
+/// [`crate::eigen::sensitivity`] (which recomputes the identical map from the
+/// same `interior_mask` to scatter a reduced eigenvector back to full edge
+/// length for the per-tet Hellmann–Feynman contraction).
+fn ungauged_interior_reindex(
+    pencil: &TransmonPencil<'_>,
+) -> Result<(Vec<Option<usize>>, usize), EigenError> {
     let n_edges = pencil.edges.len();
     assert_eq!(
         pencil.interior_mask.len(),
         n_edges,
         "interior mask length must equal edge count"
     );
-
-    // Ungauged path: reindex is the plain PEC interior reduction.
     let mut interior_index = vec![None; n_edges];
     let mut dim = 0usize;
     for (e, &keep) in pencil.interior_mask.iter().enumerate() {
@@ -398,6 +435,30 @@ pub fn solve_transmon_eigenmodes_with_inner(
             "no interior DOFs after PEC reduction".into(),
         ));
     }
+    Ok((interior_index, dim))
+}
+
+/// [`solve_transmon_eigenmodes_with_inner`] returning the full
+/// [`TransmonMode`]s — the mode reports **and** the reduced M-normalized
+/// eigenvectors — through the ungauged PEC-interior reduction.
+///
+/// This is the entry point [`crate::eigen::sensitivity`] drives: it needs the
+/// converged eigenvector (in the reduced DOF ordering `K`/`M` use) for the
+/// Hellmann–Feynman `∂λ/∂p` gradient (issue #596), which the report-only
+/// [`solve_transmon_eigenmodes_with_inner`] discards. All numerics are
+/// identical to that function; only the eigenvector is additionally surfaced.
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly or the Lanczos solve.
+pub fn solve_transmon_eigenmodes_full(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    inner: InnerSolver,
+) -> Result<Vec<TransmonMode>, EigenError> {
+    let (interior_index, dim) = ungauged_interior_reindex(pencil)?;
     solve_transmon_eigenmodes_reindexed(
         pencil,
         &interior_index,
@@ -455,7 +516,7 @@ pub fn solve_transmon_eigenmodes_gauged(
             "no cotree DOFs after tree-cotree gauge".into(),
         ));
     }
-    solve_transmon_eigenmodes_reindexed(
+    Ok(solve_transmon_eigenmodes_reindexed(
         pencil,
         gauge.gauged_index_map(),
         dim,
@@ -463,7 +524,10 @@ pub fn solve_transmon_eigenmodes_gauged(
         n_modes,
         m_per_unit,
         InnerSolver::Direct,
-    )
+    )?
+    .into_iter()
+    .map(|m| m.report)
+    .collect())
 }
 
 /// Shared core: solve the reduced real pencil under an arbitrary
@@ -481,7 +545,7 @@ fn solve_transmon_eigenmodes_reindexed(
     n_modes: usize,
     m_per_unit: f64,
     inner: InnerSolver,
-) -> Result<Vec<ModeReport>, EigenError> {
+) -> Result<Vec<TransmonMode>, EigenError> {
     let pattern = pencil.scatter.pattern();
     assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
     assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
@@ -562,11 +626,14 @@ fn solve_transmon_eigenmodes_reindexed(
     };
 
     Ok(pairs
-        .iter()
-        .map(|pair| ModeReport {
-            lambda: pair.lambda,
-            frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
-            participation: junction_participation(&k_red, &k_port_red, &pair.vector),
+        .into_iter()
+        .map(|pair| TransmonMode {
+            report: ModeReport {
+                lambda: pair.lambda,
+                frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
+                participation: junction_participation(&k_red, &k_port_red, &pair.vector),
+            },
+            vector: pair.vector,
         })
         .collect())
 }

@@ -109,19 +109,25 @@ use crate::mesh::{TET_LOCAL_EDGES, TetMesh};
 /// evaluating [`nedelec_local_dual`] returns, in the `.du` fields of the
 /// resulting local matrices / RHS moments, the exact partial derivatives of
 /// those entries w.r.t. that coordinate.
+///
+/// `pub(crate)`: shared with [`crate::eigen::sensitivity`] (issue #596), which
+/// reuses the same exact element-kernel JVP for the Hellmann–Feynman
+/// eigenvalue-sensitivity contraction `xᵀ(∂K/∂X − λ ∂M/∂X)x`. Only the
+/// constructors [`Dual::cst`] / [`Dual::var`] and the `.re`/`.du` fields are
+/// needed there; the arithmetic methods remain private to this module.
 #[derive(Clone, Copy, Debug)]
-struct Dual {
-    re: f64,
-    du: f64,
+pub(crate) struct Dual {
+    pub(crate) re: f64,
+    pub(crate) du: f64,
 }
 
 impl Dual {
     #[inline]
-    fn cst(re: f64) -> Self {
+    pub(crate) fn cst(re: f64) -> Self {
         Self { re, du: 0.0 }
     }
     #[inline]
-    fn var(re: f64) -> Self {
+    pub(crate) fn var(re: f64) -> Self {
         Self { re, du: 1.0 }
     }
     #[inline]
@@ -213,8 +219,15 @@ fn ddot3(a: [Dual; 3], b: [Dual; 3]) -> Dual {
 ///          f_pq = 2 if p==q else 1
 ///   ∫N_i dV = sign(det)/24 · (g_b − g_a)
 /// ```
+///
+/// `pub(crate)`: reused by [`crate::eigen::sensitivity`] (issue #596) for the
+/// geometry half of the Hellmann–Feynman eigenvalue sensitivity — the same
+/// exact `∂K_local/∂X`, `∂M_local/∂X` element JVP, contracted `xᵀ(·)x` instead
+/// of the adjoint's `λᵀ(·)x`.
 #[allow(clippy::type_complexity)]
-fn nedelec_local_dual(coords: &[[Dual; 3]; 4]) -> ([[Dual; 6]; 6], [[Dual; 6]; 6], [[Dual; 3]; 6]) {
+pub(crate) fn nedelec_local_dual(
+    coords: &[[Dual; 3]; 4],
+) -> ([[Dual; 6]; 6], [[Dual; 6]; 6], [[Dual; 3]; 6]) {
     let v0 = coords[0];
     let e1 = dsub3(coords[1], v0);
     let e2 = dsub3(coords[2], v0);
