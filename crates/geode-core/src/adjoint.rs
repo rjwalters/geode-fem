@@ -71,10 +71,13 @@
 
 use faer::Mat;
 use faer::linalg::solvers::Solve;
+use faer::sparse::SparseColMat;
 
 use crate::assembly::electrostatic::{
-    EPS_0, Electrode, ElectrostaticError, assemble_electrostatic, tet_p1_local,
+    EPS_0, Electrode, ElectrostaticError, assemble_electrostatic, assemble_electrostatic_p2,
+    tet_p1_local,
 };
+use crate::elements::p2::{TET_P2_DOFS, tet_p2_local};
 use crate::mesh::TetMesh;
 
 /// Result of an electrostatic discrete-adjoint gradient evaluation.
@@ -251,6 +254,329 @@ where
         phi,
         n_factorizations,
     })
+}
+
+/// Compute `∂g/∂ε_k` for every region `k` of a **quadratic (P2)** scalar
+/// electrostatic solve via the discrete adjoint — the P2 twin of
+/// [`electrostatic_adjoint_gradient`] (issue #602: the FD-validated ∂/∂ε
+/// adjoint survives the order lift, it is not deferred).
+///
+/// Identical contract, with the P2 DOF layout: the objective receives (and
+/// returns a cotangent of) the full-length `[n_dof]` quadratic potential
+/// (`n_dof = n_nodes + n_edges`; vertex values then edge-midpoint values),
+/// and the returned [`AdjointGradient::phi`] has length `n_dof`. The
+/// element-level JVP reuses the P2 assembler's own kernel
+/// ([`tet_p2_local`]) — exact, as in the P1 path. A dedicated twin is
+/// deliberately chosen over generalizing the P1 signature (the P1 function
+/// hard-codes the `[n_nodes]` layout; keeping it untouched keeps the
+/// merged #570/#571 sensitivity results bit-for-bit).
+///
+/// # Errors
+///
+/// As [`electrostatic_adjoint_gradient`], with the cotangent length checked
+/// against `n_dof` instead of `n_nodes`.
+#[allow(clippy::too_many_arguments)]
+pub fn electrostatic_adjoint_gradient_p2<G>(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    rho: &[f64],
+    electrodes: &[Electrode],
+    ground: &[u32],
+    region_of_tet: &[usize],
+    n_regions: usize,
+    objective: G,
+) -> Result<AdjointGradient, ElectrostaticError>
+where
+    G: Fn(&[f64]) -> (f64, Vec<f64>),
+{
+    let n_tets = mesh.n_tets();
+    if region_of_tet.len() != n_tets {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "region_of_tet length {} != tet count {n_tets}",
+            region_of_tet.len()
+        )));
+    }
+    if let Some(&bad) = region_of_tet.iter().find(|&&r| r >= n_regions) {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "region label {bad} out of range for n_regions {n_regions}"
+        )));
+    }
+
+    // --- Assemble the SPD P2 system (full + reduced K, RHS). ---
+    let sys = assemble_electrostatic_p2(mesh, eps_r, rho, electrodes, ground)?;
+    let n_dof = sys.n_dof;
+
+    // --- Factor the reduced stiffness ONCE (forward + adjoint). ---
+    let lu = sys
+        .k
+        .as_ref()
+        .sp_lu()
+        .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
+    let n_factorizations = 1;
+
+    // --- Forward solve: K_ff u_free = b_free. ---
+    let mut fwd: Mat<f64> = Mat::from_fn(sys.n_free, 1, |i, _| sys.b[i]);
+    lu.solve_in_place(fwd.as_mut());
+
+    let mut u = sys.dirichlet_value.clone();
+    for (g, slot) in sys.free_of_global.iter().enumerate() {
+        if let Some(fi) = slot {
+            u[g] = fwd[(*fi, 0)];
+        }
+    }
+
+    // --- Objective and its cotangent ∂g/∂u. ---
+    let (objective_value, dg_du) = objective(&u);
+    if dg_du.len() != n_dof {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "objective cotangent length {} != P2 DOF count {n_dof}",
+            dg_du.len()
+        )));
+    }
+
+    // --- Adjoint solve: K_ffᵀ λ_free = (∂g/∂u)_free, reusing the LU. ---
+    let mut adj: Mat<f64> = Mat::from_fn(sys.n_free, 1, |_, _| 0.0);
+    for (g, slot) in sys.free_of_global.iter().enumerate() {
+        if let Some(fi) = slot {
+            adj[(*fi, 0)] = dg_du[g];
+        }
+    }
+    lu.solve_transpose_in_place(adj.as_mut());
+
+    let mut lambda_full = vec![0.0_f64; n_dof];
+    for (g, slot) in sys.free_of_global.iter().enumerate() {
+        if let Some(fi) = slot {
+            lambda_full[g] = adj[(*fi, 0)];
+        }
+    }
+
+    // --- Gradient: dg/dε_k = −λᵀ (∂A/∂ε_k) u, region-by-region, reusing
+    // the P2 element kernel (exact analytic JVP of the linear-in-ε
+    // assembly). Local→global DOF mapping matches the assembler (edge sign
+    // discarded — midpoint value DOFs are orientation-independent). ---
+    let tet_edges = mesh.tet_edges();
+    let n_nodes = mesh.n_nodes();
+    let mut grad = vec![0.0_f64; n_regions];
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        let coords = [
+            mesh.nodes[tet[0] as usize],
+            mesh.nodes[tet[1] as usize],
+            mesh.nodes[tet[2] as usize],
+            mesh.nodes[tet[3] as usize],
+        ];
+        let (k_local, _load, _vol) = tet_p2_local(&coords);
+        let te = &tet_edges[t];
+        let gdof = |l: usize| -> usize {
+            if l < 4 {
+                tet[l] as usize
+            } else {
+                n_nodes + te[l - 4].0 as usize
+            }
+        };
+        let r = region_of_tet[t];
+        let mut contrib = 0.0_f64;
+        for p in 0..TET_P2_DOFS {
+            let lp = lambda_full[gdof(p)];
+            if lp == 0.0 {
+                continue;
+            }
+            let mut ku_p = 0.0_f64;
+            for q in 0..TET_P2_DOFS {
+                ku_p += k_local[p][q] * u[gdof(q)];
+            }
+            contrib += lp * EPS_0 * ku_p;
+        }
+        grad[r] -= contrib;
+    }
+
+    Ok(AdjointGradient {
+        objective: objective_value,
+        grad,
+        phi: u,
+        n_factorizations,
+    })
+}
+
+/// Result of a P2 capacitance ε-sensitivity evaluation: the two-terminal
+/// capacitance and its exact discrete gradient with respect to the
+/// per-region relative permittivity.
+#[derive(Debug, Clone)]
+pub struct CapacitanceGradient {
+    /// The two-terminal capacitance `C = 2W/V²` (F) at the evaluated ε.
+    pub capacitance: f64,
+    /// `dC/dε_k`, one entry per region.
+    pub grad: Vec<f64>,
+    /// Number of sparse LU factorizations performed (always `1`; the
+    /// adjoint reuses the forward factorization).
+    pub n_factorizations: usize,
+}
+
+/// Two-terminal capacitance `C = 2W/V²` and its per-region `∂C/∂ε_k` at
+/// **P2**, via the discrete adjoint (issue #602's headline deliverable:
+/// higher-order capacitance **with the adjoint retained**).
+///
+/// Unlike [`electrostatic_adjoint_gradient_p2`]'s generic objective, the
+/// energy objective `C(ε) = u(ε)ᵀ K(ε) u(ε) / V²` depends on ε **both**
+/// explicitly (through `K`) and implicitly (through the solved `u`), so the
+/// total derivative carries two terms:
+///
+/// ```text
+///   dC/dε_k = (1/V²) uᵀ (∂K/∂ε_k) u  −  λᵀ (∂K/∂ε_k) u ,
+///   with  K_ffᵀ λ = (2/V²) (K u)|_free      (λ = 0 on pinned DOFs).
+/// ```
+///
+/// For a source-free voltage-driven solve the residual `(K u)|_free` is
+/// zero to solver precision (the classic stationarity of the energy at the
+/// solution), so the adjoint term is numerically negligible — but it is
+/// computed, not assumed, and the finite-difference validation covers the
+/// total. One factorization serves both solves.
+///
+/// # Arguments
+///
+/// `electrodes` must contain **exactly one** electrode (the driven
+/// terminal, at its `voltage` `V ≠ 0`); `ground` is the return conductor.
+/// Multi-conductor Maxwell-matrix sensitivities are out of scope here.
+///
+/// # Errors
+///
+/// [`ElectrostaticError::ShapeMismatch`] if `region_of_tet` is the wrong
+/// length, a region label is out of range, `electrodes.len() != 1`, or the
+/// electrode voltage is zero; otherwise propagates assembly/factorization
+/// errors.
+pub fn capacitance_adjoint_gradient_p2(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    electrodes: &[Electrode],
+    ground: &[u32],
+    region_of_tet: &[usize],
+    n_regions: usize,
+) -> Result<CapacitanceGradient, ElectrostaticError> {
+    let n_tets = mesh.n_tets();
+    if region_of_tet.len() != n_tets {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "region_of_tet length {} != tet count {n_tets}",
+            region_of_tet.len()
+        )));
+    }
+    if let Some(&bad) = region_of_tet.iter().find(|&&r| r >= n_regions) {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "region label {bad} out of range for n_regions {n_regions}"
+        )));
+    }
+    if electrodes.len() != 1 {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "capacitance gradient needs exactly one driven electrode, got {}",
+            electrodes.len()
+        )));
+    }
+    let v_drive = electrodes[0].voltage;
+    if v_drive == 0.0 {
+        return Err(ElectrostaticError::ShapeMismatch(
+            "driven electrode voltage must be non-zero".into(),
+        ));
+    }
+
+    let rho = vec![0.0_f64; n_tets];
+    let sys = assemble_electrostatic_p2(mesh, eps_r, &rho, electrodes, ground)?;
+    let n_dof = sys.n_dof;
+
+    // Factor ONCE; forward + adjoint share it.
+    let lu = sys
+        .k
+        .as_ref()
+        .sp_lu()
+        .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
+    let n_factorizations = 1;
+
+    // Forward solve.
+    let mut fwd: Mat<f64> = Mat::from_fn(sys.n_free, 1, |i, _| sys.b[i]);
+    lu.solve_in_place(fwd.as_mut());
+    let mut u = sys.dirichlet_value.clone();
+    for (g, slot) in sys.free_of_global.iter().enumerate() {
+        if let Some(fi) = slot {
+            u[g] = fwd[(*fi, 0)];
+        }
+    }
+
+    // C = uᵀ K u / V² (= 2W/V²).
+    let ku = sparse_matvec(&sys.k_full, &u);
+    let utku: f64 = u.iter().zip(ku.iter()).map(|(a, b)| a * b).sum();
+    let inv_v2 = 1.0 / (v_drive * v_drive);
+    let capacitance = utku * inv_v2;
+
+    // Adjoint solve: K_ffᵀ λ = (2/V²)(K u)|_free.
+    let mut adj: Mat<f64> = Mat::from_fn(sys.n_free, 1, |_, _| 0.0);
+    for (g, slot) in sys.free_of_global.iter().enumerate() {
+        if let Some(fi) = slot {
+            adj[(*fi, 0)] = 2.0 * inv_v2 * ku[g];
+        }
+    }
+    lu.solve_transpose_in_place(adj.as_mut());
+    let mut lambda_full = vec![0.0_f64; n_dof];
+    for (g, slot) in sys.free_of_global.iter().enumerate() {
+        if let Some(fi) = slot {
+            lambda_full[g] = adj[(*fi, 0)];
+        }
+    }
+
+    // Per-region accumulation of both terms in one tet pass.
+    let tet_edges = mesh.tet_edges();
+    let n_nodes = mesh.n_nodes();
+    let mut grad = vec![0.0_f64; n_regions];
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        let coords = [
+            mesh.nodes[tet[0] as usize],
+            mesh.nodes[tet[1] as usize],
+            mesh.nodes[tet[2] as usize],
+            mesh.nodes[tet[3] as usize],
+        ];
+        let (k_local, _load, _vol) = tet_p2_local(&coords);
+        let te = &tet_edges[t];
+        let gdof = |l: usize| -> usize {
+            if l < 4 {
+                tet[l] as usize
+            } else {
+                n_nodes + te[l - 4].0 as usize
+            }
+        };
+        let r = region_of_tet[t];
+        let mut explicit = 0.0_f64; // uᵀ (ε₀ K_local) u
+        let mut adjoint = 0.0_f64; //  λᵀ (ε₀ K_local) u
+        for (p, k_row) in k_local.iter().enumerate() {
+            let gp = gdof(p);
+            let mut ku_p = 0.0_f64;
+            for (q, &kpq) in k_row.iter().enumerate() {
+                ku_p += kpq * u[gdof(q)];
+            }
+            explicit += u[gp] * EPS_0 * ku_p;
+            adjoint += lambda_full[gp] * EPS_0 * ku_p;
+        }
+        grad[r] += explicit * inv_v2 - adjoint;
+    }
+
+    Ok(CapacitanceGradient {
+        capacitance,
+        grad,
+        n_factorizations,
+    })
+}
+
+/// Full-length sparse matrix-vector product `K · u` (column-walk).
+fn sparse_matvec(k: &SparseColMat<usize, f64>, u: &[f64]) -> Vec<f64> {
+    let k_ref = k.as_ref();
+    let cp = k_ref.col_ptr();
+    let row_idx = k_ref.row_idx();
+    let vals = k_ref.val();
+    let mut out = vec![0.0_f64; k_ref.nrows()];
+    for (j, &uj) in u.iter().enumerate().take(k_ref.ncols()) {
+        if uj == 0.0 {
+            continue;
+        }
+        for k in cp[j]..cp[j + 1] {
+            out[row_idx[k]] += vals[k] * uj;
+        }
+    }
+    out
 }
 
 /// Expand a per-region relative-permittivity table into the per-tet `ε_r`
@@ -474,6 +800,125 @@ mod tests {
                 rel < 1e-4,
                 "region {k}: adjoint {} vs FD {fd}, rel-err {rel:.3e}",
                 adj.grad[k]
+            );
+        }
+    }
+
+    /// **P2 twin of the load-bearing test** (issue #602): the P2
+    /// discrete-adjoint gradient must match a full central finite
+    /// difference of the entire P2 pipeline (perturb ε_k → re-assemble →
+    /// re-solve → recompute g) for every region, at the same rel < 1e-4
+    /// bar, with exactly one factorization.
+    #[test]
+    fn adjoint_gradient_p2_matches_central_finite_difference() {
+        use crate::assembly::electrostatic::assemble_electrostatic_p2;
+
+        let (mesh, region_of_tet, electrodes, ground) = layered_capacitor_fixture(4);
+        let n_regions = 3;
+        let eps_region = [2.0_f64, 5.0, 3.0];
+        let rho = vec![0.0; mesh.n_tets()];
+        let eps_r = build_region_eps(&region_of_tet, &eps_region);
+
+        let adj = electrostatic_adjoint_gradient_p2(
+            &mesh,
+            &eps_r,
+            &rho,
+            &electrodes,
+            &ground,
+            &region_of_tet,
+            n_regions,
+            quadratic_objective,
+        )
+        .unwrap();
+        assert_eq!(adj.n_factorizations, 1);
+
+        let g_of = |eps_region: &[f64]| -> f64 {
+            let er = build_region_eps(&region_of_tet, eps_region);
+            let sys = assemble_electrostatic_p2(&mesh, &er, &rho, &electrodes, &ground).unwrap();
+            let u = sys.solve().unwrap();
+            quadratic_objective(&u).0
+        };
+
+        let h = 1e-5;
+        for k in 0..n_regions {
+            let mut ep = eps_region;
+            let mut em = eps_region;
+            ep[k] += h;
+            em[k] -= h;
+            let fd = (g_of(&ep) - g_of(&em)) / (2.0 * h);
+            let a = adj.grad[k];
+            let rel = (a - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            assert!(
+                fd.abs() > 1e-6,
+                "region {k} FD gradient {fd} unexpectedly ~0 (fixture degenerate?)"
+            );
+            assert!(
+                rel < 1e-4,
+                "region {k}: P2 adjoint {a} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-4"
+            );
+        }
+    }
+
+    /// **∂C/∂ε FD-validated at P2** (issue #602 acceptance criterion). The
+    /// layered capacitor with slab-aligned elements (n divisible by 3) has
+    /// a piecewise-linear exact solution, so the P2 capacitance equals the
+    /// analytic series capacitance to rounding — checked as a bonus — and
+    /// the adjoint dC/dε_k must match the central FD of the full
+    /// (re-assemble → re-solve → C = 2W/V²) pipeline at rel < 1e-4.
+    #[test]
+    fn p2_capacitance_gradient_matches_central_finite_difference() {
+        use crate::assembly::electrostatic::assemble_electrostatic_p2;
+
+        // n = 6 aligns the region interfaces (x = 1/3, 2/3) with element
+        // faces, making the exact solution piecewise linear.
+        let (mesh, region_of_tet, electrodes, ground) = layered_capacitor_fixture(6);
+        let n_regions = 3;
+        let eps_region = [2.0_f64, 5.0, 3.0];
+        let eps_r = build_region_eps(&region_of_tet, &eps_region);
+
+        let res = capacitance_adjoint_gradient_p2(
+            &mesh,
+            &eps_r,
+            &electrodes,
+            &ground,
+            &region_of_tet,
+            n_regions,
+        )
+        .unwrap();
+        assert_eq!(res.n_factorizations, 1);
+
+        // Bonus exactness check: series capacitance of three equal slabs,
+        // C = ε₀ A / (Σ d_i/ε_i) with A = 1, d_i = 1/3.
+        let c_series = EPS_0 / ((1.0 / 3.0) * (1.0 / 2.0 + 1.0 / 5.0 + 1.0 / 3.0));
+        let rel_c = (res.capacitance - c_series).abs() / c_series;
+        assert!(
+            rel_c < 1e-9,
+            "P2 layered C {} vs series {c_series}, rel {rel_c}",
+            res.capacitance
+        );
+
+        let c_of = |eps_region: &[f64]| -> f64 {
+            let er = build_region_eps(&region_of_tet, eps_region);
+            let rho = vec![0.0; mesh.n_tets()];
+            let sys = assemble_electrostatic_p2(&mesh, &er, &rho, &electrodes, &ground).unwrap();
+            let u = sys.solve().unwrap();
+            let v = electrodes[0].voltage;
+            2.0 * sys.field_energy(&u) / (v * v)
+        };
+
+        let h = 1e-5;
+        for k in 0..n_regions {
+            let mut ep = eps_region;
+            let mut em = eps_region;
+            ep[k] += h;
+            em[k] -= h;
+            let fd = (c_of(&ep) - c_of(&em)) / (2.0 * h);
+            let a = res.grad[k];
+            let rel = (a - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            assert!(fd.abs() > 1e-20, "region {k} FD dC/dε {fd} unexpectedly ~0");
+            assert!(
+                rel < 1e-4,
+                "region {k}: adjoint dC/dε {a} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-4"
             );
         }
     }

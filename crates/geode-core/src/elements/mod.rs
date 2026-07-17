@@ -7,6 +7,9 @@
 //!
 //! - [`p1`] — P1 (linear Lagrange) nodal elements: closed-form local
 //!   stiffness and consistent-mass matrices for affine tets.
+//! - [`p2`] — P2 (quadratic Lagrange) nodal elements: 10-DOF (4 vertex +
+//!   6 edge-midpoint) shape functions, gradients, and the exactly-
+//!   integrated local stiffness on affine tets (issue #602).
 //! - [`nedelec`] — first-order Nédélec (Whitney 1-form) curl-conforming
 //!   edge elements: 6 edge DOFs per tet, with the batched curl-curl,
 //!   mass, RHS, and anisotropic/weighted kernels.
@@ -17,4 +20,5 @@
 //! crate top level in [`crate::derham`].
 pub mod nedelec;
 pub mod p1;
+pub mod p2;
 pub(crate) mod whitney;
