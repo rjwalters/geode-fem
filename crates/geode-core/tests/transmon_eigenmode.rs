@@ -2736,15 +2736,30 @@ fn solve_real_fixture_indefinite_inner_iters(
     )
 }
 
-/// RELEASE acceptance gate (issues #531/#559): on the committed 133k-DOF real
-/// transmon fixture at the **physical σ = 4.5 GHz** operating point — where
+/// RELEASE **aspirational** gate (issues #531/#559): on the committed 133k-DOF
+/// real transmon fixture at the **physical σ = 4.5 GHz** operating point — where
 /// `(K − σM)` is symmetric-**indefinite** (the ~3.45 GHz junction-participation
 /// mode and the `image(d⁰)` gradient near-kernel sit below the shift, the
-/// ~5.15 GHz resonator above) — the three-space AMS drives the **indefinite
-/// MINRES** inner solve to convergence, matching the direct sparse-LU spectrum
-/// within the ≤1% Palace bar. This is the load-bearing result of #559: it
-/// replaces the abs-Jacobi MINRES baseline, which is too weak to reach the tight
-/// inner tolerance at this interior shift (documented in
+/// ~5.15 GHz resonator above) — this test *targets* the three-space AMS driving
+/// the **indefinite MINRES** inner solve to convergence, matching the direct
+/// sparse-LU spectrum within the ≤1% Palace bar.
+///
+/// **MEASURED NEGATIVE (issue #531 Phase 1c, 2026-07-17 — do not read the target
+/// above as an achieved result).** As measured locally on this exact fixture,
+/// the three-space AMS-MINRES inner solve does **NOT** converge at σ = 4.5 GHz:
+/// the relative preconditioned residual **plateaus at ~1.09e-5**, ~4 orders of
+/// magnitude short of the 1e-8 inner tolerance, and stops decreasing (≈12%
+/// reduction over the last 1000 inner iters). The limiter is the SPD-proxy
+/// preconditioner `K + |σ|M` at a deep interior shift, **not** the coarse solve
+/// (issues #565/#566 proved an *exact* direct-LU coarse inverse plateaus
+/// identically). The full trajectory + peak-RSS is committed under
+/// `benchmarks/transmon_ams_minres_133k/results.toml`. Consequently this test,
+/// which `.expect(...)`s convergence, will **panic** if run today — it is
+/// retained `#[ignore]` as the executable statement of the *target* that a
+/// stronger preconditioner (gradient-near-kernel deflation / PHJD, per
+/// `docs/research/2026-07-16-strategic-direction.md`) must satisfy before the
+/// matrix-free interior eigensolve can be claimed. It replaces the abs-Jacobi
+/// MINRES baseline, which is weaker still (documented in
 /// [`real_transmon_matrix_free_indefinite_matches_direct`]).
 ///
 /// The test also reports the total inner-MINRES iteration count for AMS vs the
@@ -2756,7 +2771,7 @@ fn solve_real_fixture_indefinite_inner_iters(
 ///     -- --ignored real_transmon_minres_ams_converges_at_sigma_4p5 --nocapture
 /// ```
 #[test]
-#[ignore = "two 133k-DOF indefinite-MINRES eigensolves + a direct reference — release only"]
+#[ignore = "aspirational target — MEASURED NEGATIVE at σ=4.5 (AMS-MINRES plateaus ~1.09e-5, does not reach 1e-8; panics if run). See benchmarks/transmon_ams_minres_133k/results.toml and issue #531 Phase 1c."]
 fn real_transmon_minres_ams_converges_at_sigma_4p5() {
     use geode_core::eigen::lanczos::InnerPreconditioner;
 

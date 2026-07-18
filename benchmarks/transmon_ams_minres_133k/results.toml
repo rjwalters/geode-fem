@@ -1,0 +1,133 @@
+# Three-space AMS-MINRES composition at the physical σ = 4.5 GHz interior shift
+# (Epic #547 Phase 1c / issue #531). This artifact is the LOCAL 133k-DOF
+# verification the issue's Phase 1 asks for: does the three-space Hiptmair–Xu
+# AMS preconditioner, wired into the indefinite MINRES / MatrixFreeIndefinite
+# path (landed #559 → PR #560, AMG coarse solve #565 → PR #566), actually
+# COMPOSE and CONVERGE the inner solve at the real transmon operating point?
+#
+# ANSWER (measured 2026-07-17, on the Mac dev box): the AMS preconditioner
+# composes correctly with the MINRES path (setup builds, the SPD abs-AMS
+# `K + |σ|M` proxy applies, MINRES runs) — but the inner solve does NOT
+# converge. The relative preconditioned residual PLATEAUS at ~1.09e-5, four
+# orders of magnitude short of the 1e-8 inner tolerance the outer shift-invert
+# Lanczos needs, and essentially stops decreasing (11.8% reduction over the
+# last 1000 iterations). This reproduces exactly the #562/#565/#566 finding and
+# is the reason Phase 2 (the AWS 1.16M at-scale gate) was DELIBERATELY SKIPPED:
+# see [gate_decision] below.
+#
+# This is an HONEST NEGATIVE documented per the #547 rule (MEASURED, not a
+# proxy). The wiring is real and correct; the SPD-proxy preconditioner is the
+# limiter at a deep interior shift, and that limit is a spectral property of the
+# preconditioner — scale-INDEPENDENT — so spending cloud compute to reproduce it
+# at 1.16M would buy nothing the 133k measurement does not already prove.
+
+[meta]
+description = "Three-space AMS as the SPD preconditioner for the indefinite MINRES inner solve at the physical σ = 4.5 GHz transmon shift. LOCAL 133k-DOF composition check for Epic #547 Phase 1c (#531). Verdict: composes correctly, does NOT converge — inner-MINRES residual plateaus at ~1.09e-5 vs a 1e-8 target. Honest negative; the SPD-proxy K+|σ|M is the limiter, not the coarse solve (#565/#566 already ruled the coarse solve out with an EXACT direct-LU coarse inverse plateauing identically)."
+measured_date = "2026-07-17"
+issue = 531
+epic = 547
+status = "honest-negative"
+gate = "Phase 1 (local 133k composition) — FAILED to converge; Phase 2 (AWS 1.16M) skipped by design (see [gate_decision])"
+
+[hardware]
+box = "local dev Mac (Darwin 25.5.0, arm64)"
+note = "Phase 1 is a laptop-runnable composition check; no cloud box was launched (see [gate_decision])."
+
+[software]
+harness = "crates/geode-core/examples/transmon_bench.rs (Epic #547 scale-benchmark harness, #548 → PR #552)"
+build = "cargo build -p geode-core --release --example transmon_bench"
+rustc = "1.96.0 (ac68faa20 2026-05-25)"
+
+[fixture]
+mesh = "crates/geode-core/tests/fixtures/transmon_smoke.msh"
+mesh_sha256 = "5b3ff4c357a4dc905e7a2e42abc8178778b626e47582c7bbe610f95d332b33dd"
+n_nodes = 22684
+n_tets = 133314
+n_edges = 156863
+n_interior_dofs = 133108      # after PEC reduction (metal + exterior)
+real_pencil_nnz = 2561711
+mesh_length_unit = "micrometre"
+junction_inductance_nh = 14.860
+junction_capacitance_ff = 5.5
+
+[config]
+# Exactly the issue's Phase-1 invocation, single mode + bounded inner cap so
+# the plateau is exhibited cheaply (a single inner solve, not a 40-min
+# multi-mode run — see the #560 note that the uncapped solve did not complete
+# in ~40 min on the laptop).
+command = "GEODE_INNER=minres GEODE_PRECOND=ams GEODE_SIGMA_GHZ=4.5 GEODE_NMODES=1 GEODE_INNER_TOL=1e-8 GEODE_INNER_MAXITERS=2000 GEODE_MINRES_LOG=100 /usr/bin/time -l ./target/release/examples/transmon_bench crates/geode-core/tests/fixtures/transmon_smoke.msh"
+inner_solver = "minres (InnerSolver::MatrixFreeIndefinite, O(N) matrix-free)"
+inner_preconditioner = "three-space AMS, SPD proxy K + |σ|M, applied additively (#559)"
+sigma_ghz = 4.5
+inner_tol_target = 1e-8
+inner_maxiters_cap = 2000
+raw_log = "benchmarks/transmon_ams_minres_133k/run_133k_ams_bounded.log"
+
+# ---------------------------------------------------------------------------
+# The measured residual trajectory of the first outer-Lanczos inner MINRES
+# solve. `rel_precond_resid` = ‖r‖_{M⁻¹} / ‖r₀‖_{M⁻¹} (the preconditioned
+# relative residual MINRES minimizes). Note the plateau: the curve bends over
+# near ~1e-5 and thereafter decreases ~logarithmically toward a floor, never
+# approaching the 1e-8 the shift-invert needs.
+# ---------------------------------------------------------------------------
+[residual_trajectory]
+itn = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000]
+rel_precond_resid = [9.364163e-5, 4.788877e-5, 3.737406e-5, 2.633670e-5, 2.008184e-5, 1.731227e-5, 1.542574e-5, 1.398720e-5, 1.287650e-5, 1.233357e-5, 1.189578e-5, 1.155719e-5, 1.136951e-5, 1.121602e-5, 1.111087e-5, 1.103723e-5, 1.098787e-5, 1.095529e-5, 1.092170e-5, 1.087308e-5]
+
+[result]
+converged = false
+final_rel_precond_resid = 1.087308e-5   # after the 2000-iter cap
+inner_tol_target = 1e-8
+residual_gap_orders_of_magnitude = 3.94  # log10(1.087e-5 / 1e-8)
+# Plateau evidence: over the last 1000 inner iters (1000 → 2000) the residual
+# fell only 1.233e-5 → 1.087e-5 = 11.8% (≈0.012%/iter). The curve has bent
+# into a shallow ~logarithmic tail well above 1e-8 — this is a stall, not slow
+# convergence toward the target.
+plateau_last_1000_iters_reduction_pct = 11.8
+inner_solve_wall_s = 36.21              # /usr/bin/time real, one 2000-iter inner solve
+peak_rss_bytes = 4907122688             # 4.907 GB — O(N) matrix-free at 133k
+peak_rss_gb = 4.907
+error_message = "matrix-free inner MINRES failed to converge: ‖r‖_{M⁻¹}/‖r₀‖_{M⁻¹} = 1.087e-5 > tol = 1.000e-8 after 2000 iters"
+
+[memory_note]
+# The O(N) memory story is CONFIRMED and is NOT the problem: 4.9 GB peak RSS at
+# 133k for the matrix-free MINRES path, vs the direct sparse-LU path's 92 GB at
+# 1.16M (see crates/geode-core/tests/fixtures/transmon_refine1.provenance.txt
+# and the memory-abundance experiment). Memory scales as expected; it is the
+# CONVERGENCE of the deep-interior indefinite solve that fails, independent of
+# memory or scale.
+
+# ---------------------------------------------------------------------------
+# WHY PHASE 2 (the AWS 1.16M wall-clock gate) WAS SKIPPED — the honest-scope
+# decision, per the issue's explicit instruction ("if the 133k smoke
+# composition does not converge acceptably, STOP before any cloud spend").
+# ---------------------------------------------------------------------------
+[gate_decision]
+phase_2_ran = false
+reason = "The plateau is a spectral property of the SPD-proxy preconditioner K+|σ|M at a deep interior shift — it is SCALE-INDEPENDENT. #565/#566 proved it is even COARSE-SOLVE-invariant: an EXACT direct-LU coarse inverse plateaus at the identical ~1.1e-5 (SGS, AMG, and exact all coincide). A 1.16M run would therefore reproduce the SAME plateau at ~8× the per-iteration cost, converting cloud spend into a re-measurement of a known negative. Per the #547 honest-scope rule and the issue's Phase-1 gate, the run was stopped at 133k with zero cloud spend."
+bottleneck = "SPD-proxy preconditioner: the three-space AMS is built for the sign-flipped SPD operator K+|σ|M (required so the MINRES preconditioner is SPD, #560), which is a poor proxy for the true indefinite K−σM when the spectrum STRADDLES σ at a deep interior shift (the ~3.45 GHz junction-participation mode and the image(d⁰) gradient near-kernel sit below σ=4.5 GHz, the ~5.15 GHz resonator above)."
+
+[palace_context]
+# The strategic direction adopted 2026-07-16 (docs/research/2026-07-16-strategic-
+# direction.md) confirms this negative externally: Palace itself does NOT fight
+# the indefinite eigenproblem matrix-free — it applies AMS only to DEFINITE /
+# semi-definite curl-curl and uses a sparse DIRECT factorization for the
+# interior shift-invert. The matrix-free AMS-MINRES interior eigensolve is a
+# harder path than the incumbent even attempts. Palace's 133k/1.16M eigensolve
+# wall-clock reference (423 s at 1.16M) is therefore NOT beaten here; this run
+# does not produce a competitive wall-clock because the inner solve does not
+# converge at all.
+palace_1p16M_wall_s = 423
+geode_ams_minres_1p16M_wall_s = "N/A — inner solve does not converge (see [result])"
+
+[recommended_path_forward]
+# From docs/research/2026-07-16-strategic-direction.md (Direction 4) and the
+# #566 strategy redirect. NOT more coarse-solve work (ruled out) and NOT more
+# at-scale compute (scale-independent negative). The levers are:
+options = [
+  "Gradient-near-kernel DEFLATION: explicitly deflate the image(d⁰) gradient near-kernel (the AMS G columns) out of the MINRES iteration so the SPD proxy need not condition it.",
+  "Jacobi–Davidson + explicit Helmholtz/divergence-free projection (PHJD) — the academic SOTA for the singular curl-curl eigenproblem; mesh-independent convergence, purpose-built for the curl-kernel collapse (arXiv:2603.29718).",
+  "Shallower / harmonic / target-adjacent shift so K−σM is less deeply indefinite in the working window (harmonic Ritz extraction).",
+  "Or simply factorize the shift-invert like Palace does (direct interior solve) and reserve matrix-free for the DRIVEN linear solve, where it genuinely wins on GPU (216×, arXiv:2304.12387) — the strategic-direction Direction 2.",
+]
+follow_on_note = "The next buildable slice is a deflation / shift-strategy issue, not this at-scale gate. Filed as a follow-on per the strategic redirect."
