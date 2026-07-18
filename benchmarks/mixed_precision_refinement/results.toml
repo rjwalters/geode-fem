@@ -1,0 +1,157 @@
+# Mixed-precision iterative-refinement convergence prototype (issue #534,
+# Epic #476). The GPU-independent, capacity-proof deliverable: a CPU study of
+# whether an f64 iterative-refinement outer loop with an f32 (GPU-simulated)
+# inner matvec escapes the f32 residual floor that stalls the all-f32 GPU COCG.
+#
+# Produced by `crates/geode-core/tests/mixed_precision_refinement.rs`
+# (`mixed_precision_refinement_benchmark`, #[ignore] release tier):
+#   cargo test -p geode-core --release --test mixed_precision_refinement -- --ignored --nocapture
+#
+# NO GPU IS INVOLVED. The f32 GPU matvec is *simulated* on CPU by rounding the
+# matrix-free apply to f32 and back to f64 (`x as f32 as f64` per component) at
+# the matvec boundary — burn-cuda 0.21 is f32-only (cubecl disables f64), so
+# this is the only way to characterise the scheme without CUDA hardware, which
+# is capacity-unavailable this session (AWS g6e/L40S, #519). Every residual in
+# this file is the TRUE (f64-recomputed) relative residual ‖Ax−b‖/‖b‖ — never
+# the recurrence estimate, which is optimistic in f32 (exactly the GPU story).
+
+[meta]
+description = "CPU convergence study of mixed-precision iterative refinement for the driven matrix-free COCG: an f64 outer defect-correction loop (r = b − A x in f64) whose inner correction solve A δ ≈ r uses an f32-rounded matvec. Answers issue #534 AC2's convergence half — does f32-matvec + f64-refinement break the f32 floor toward f64-class accuracy, and in how many refinement iterations?"
+fixture = "sigma-lossy parallel-plate cube (the gpu_driven_scaling / cocg_burn_equivalence family): ComplexMatrixFreeOperator A(w) = K − w^2 M(eps) + i w C(sigma), eps_r = 1 (real), sigma = 2.0, omega = 0.1, PEC interior mask via cube_pec_interior_edges. Volume-only pencil (no port/surface term); the same operator the GPU cells in benchmarks/gpu_driven_scaling/results.toml exercise."
+figure_of_merit = "true (f64-recomputed) relative residual ||Ax − b|| / ||b||"
+generator_test = "crates/geode-core/tests/mixed_precision_refinement.rs"
+
+[meta.configs]
+# All four configs run the SAME matrix-free pencil on the ndarray-f64 backend;
+# only the arithmetic precision differs.
+f64        = "matvec f64, dots/axpys/precond f64 — the CPU reference (config 3 of #501)"
+f32all     = "matvec f32, dots/axpys/precond f32 — models the all-f32 GPU COCG (config 4 of #501, the stall). This is the FAITHFULNESS TRIPWIRE."
+f32matvec  = "matvec f32, host reductions f64, NO refinement — isolates the effect of keeping only the matvec in f32"
+refinement = "f64 outer defect correction (r = b − A x in f64), f32-matvec inner COCG to a loose 3e-3 tol, x <- x + delta — the proposed mixed-precision scheme (option 2)"
+
+[meta.provenance]
+branch = "feature/issue-534"
+base_main_commit = "0997c1b"
+run_host = "Apple Silicon dev laptop (development run; the absolute wall-clock is NOT reported here — this is a CONVERGENCE study, and wall-clock-vs-GPU is GPU-gated/deferred)"
+omega = 0.1
+sigma = 2.0
+eps_r = 1.0
+inner_tol = 3e-3
+outer_tol = 1e-9
+max_iters = 6000
+
+# ---------------------------------------------------------------------------
+# HONEST READ (issue #534 acceptance)
+# ---------------------------------------------------------------------------
+# RESULT: POSITIVE. Mixed-precision iterative refinement reaches f64-class
+# accuracy from an f32 (GPU-simulated) inner matvec, in ~5 outer iterations, on
+# both measured mesh sizes.
+#
+# 1. The all-f32 CPU COCG (f32all) floors at 4.4e-4 (grid=6) and 1.5e-3
+#    (grid=9) — the same order of magnitude as the committed GPU cells' TRUE
+#    residual floor (6.2e-4 at n=6, 2.1e-3 at n=9; see
+#    benchmarks/gpu_driven_scaling/results.toml). The CPU f32 simulation
+#    faithfully reproduces the GPU stall (the tripwire), and — unlike the
+#    nondeterministic CUDA reduction order at the f32 floor — it is
+#    bit-deterministic (asserted by re-running and comparing raw bits).
+#
+# 2. Keeping ONLY the matvec in f32 while doing the dot/axpy/precond reductions
+#    in f64 (f32matvec, no refinement) already drops the floor by ~3 orders to
+#    ~6.5e-7 (grid=6) / ~1.1e-6 (grid=9). So most of the all-f32 stall is the
+#    f32 RECURRENCE (accumulation) error, not the matvec rounding per se. This
+#    matters: a real mixed-precision GPU scheme that ships the O(1) scalar
+#    reductions back to an f64 host (which BurnCocg already does — the Krylov
+#    vectors stay on device, only scalars cross) inherits this ~1e-6 floor for
+#    free, well below the 5e-3 all-f32 ceiling. But 1e-6 is still ~2 orders
+#    short of the f64 path's 1e-8..1e-11; refinement closes that gap.
+#
+# 3. The f64 outer defect-correction loop drives the true residual geometrically
+#    below the f32 floor to full f64-class in 5 outer iterations, gaining ~3
+#    orders per outer step (grid=9: 1.0 -> 2.6e-3 -> 2.5e-6 -> 7.0e-9 ->
+#    1.2e-11). The total inner (f32-matvec) iteration count (744 at grid=6,
+#    1164 at grid=9) is within ~1.5x of the pure-f64 solve's iteration count
+#    (461 / 801) — the refinement overhead is modest, and every one of those
+#    inner matvecs is the cheap f32 apply the GPU would run.
+#
+# CONCLUSION: the precision blocker identified in #520/#501 is removable in
+# PRINCIPLE without an f64 GPU backend — an f32 GPU matvec inside an f64
+# iterative-refinement loop is numerically sufficient to reach f64-class
+# accuracy on this driven pencil. This answers the question that gates whether
+# a future GPU run is worth the capacity: YES, the scheme converges; the
+# remaining open question is purely wall-clock (does the f32 GPU matvec's
+# throughput advantage survive ~1.5x more inner iterations plus the f64 host
+# residual recompute?), which is GPU-gated and DEFERRED below.
+
+# ---------------------------------------------------------------------------
+# GPU-GATED / DEFERRED this session (NOT attempted — no fake numbers)
+# ---------------------------------------------------------------------------
+# The following #534 criteria require live CUDA hardware, which is
+# capacity-unavailable (AWS g6e/L40S, us-east-1, #519 — 40 rounds of
+# InsufficientInstanceCapacity), and/or an f64 GPU backend that does not exist
+# (burn-cuda 0.21 is f32-only; cubecl disables f64):
+#   - wall-clock of the f32 GPU matvec vs CPU (AC2 wall-clock half)
+#   - any measured f64 GPU crossover (AC1 measurement half)
+# These are left for a future GPU-available session. The convergence result
+# above is the standalone, landable deliverable.
+[deferred]
+gpu_wallclock_vs_cpu = "GPU-gated: needs the real f32 CUDA matvec timing (no capacity)"
+f64_gpu_crossover = "GPU-gated + backend-gated: burn-cuda 0.21 has no f64 (cubecl disables it)"
+
+# ---------------------------------------------------------------------------
+# Measured cells (from the release-tier run; see generator_test)
+# ---------------------------------------------------------------------------
+
+[[cell]]
+grid = 6
+n_edges = 1854
+n_interior = 1146
+f64_true_residual = 6.931e-11
+f64_iters = 461
+f64_converged = true
+f32all_true_residual = 4.390e-4       # tripwire: reproduces the GPU stall (GPU n=6: 6.2e-4)
+f32all_iters = 381
+f32all_floored = true
+f32all_deterministic = true
+f32matvec_true_residual = 6.503e-7    # f32 matvec + f64 reductions, no refinement
+f32matvec_iters = 501
+f32matvec_floored = true
+refine_true_residual = 1.042e-12      # f64-class reached
+refine_outer_iters = 5
+refine_total_inner_iters = 744
+refine_converged = true
+refine_reached_f64_class = true
+# outer-loop true-residual trajectory (outer, true_residual, cumulative_inner_iters):
+refine_trajectory = [
+  { outer = 0, true_residual = 1.000e0,  cum_inner_iters = 0 },
+  { outer = 1, true_residual = 1.525e-3, cum_inner_iters = 181 },
+  { outer = 2, true_residual = 4.143e-6, cum_inner_iters = 382 },
+  { outer = 3, true_residual = 7.322e-9, cum_inner_iters = 523 },
+  { outer = 4, true_residual = 1.042e-12, cum_inner_iters = 744 },
+]
+
+[[cell]]
+grid = 9
+n_edges = 5859
+n_interior = 4305
+f64_true_residual = 4.272e-11
+f64_iters = 801
+f64_converged = true
+f32all_true_residual = 1.505e-3       # tripwire: reproduces the GPU stall (GPU n=9: 2.1e-3)
+f32all_iters = 501
+f32all_floored = true
+f32all_deterministic = true
+f32matvec_true_residual = 1.117e-6    # f32 matvec + f64 reductions, no refinement
+f32matvec_iters = 761
+f32matvec_floored = true
+refine_true_residual = 1.177e-11      # f64-class reached
+refine_outer_iters = 5
+refine_total_inner_iters = 1164
+refine_converged = true
+refine_reached_f64_class = true
+refine_trajectory = [
+  { outer = 0, true_residual = 1.000e0,  cum_inner_iters = 0 },
+  { outer = 1, true_residual = 2.629e-3, cum_inner_iters = 241 },
+  { outer = 2, true_residual = 2.495e-6, cum_inner_iters = 622 },
+  { outer = 3, true_residual = 6.972e-9, cum_inner_iters = 903 },
+  { outer = 4, true_residual = 1.177e-11, cum_inner_iters = 1164 },
+]
