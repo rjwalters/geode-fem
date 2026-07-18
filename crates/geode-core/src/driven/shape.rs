@@ -842,7 +842,7 @@ pub struct P2DrivenShapeGradient {
 /// ```
 ///
 /// but the element factors `∂A/∂X = ∂K/∂X − ω²ε ∂M/∂X` and `∂b/∂X = iω ∂(∫N·J)`
-/// are read from the **20-DOF `p=2` Dual element twin** [`nedelec2_local_dual`]
+/// are read from the **20-DOF `p=2` Dual element twin** `nedelec2_local_dual`
 /// (exact forward-mode AD), and the 20 local DOFs gather with **unit sign** from
 /// the ascending-global-vertex sort (no `p=1` `gsign`). Seeding sorted-local
 /// vertex `a` corresponds to global node `tet[perm[a]]`, so the tangent
