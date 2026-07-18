@@ -36,6 +36,7 @@
 use std::f64::consts::PI;
 use std::path::PathBuf;
 
+use geode_core::adjoint::{build_region_nu, inductance_adjoint_sensitivity};
 use geode_core::assembly::magnetostatic3d::{
     CurrentTerminal, MU_0, Magnetostatic3dError, assemble_current_rhs, assemble_magnetostatic3d,
     axial_current_density, check_solenoidal, extract_inductance, loop_current_density,
@@ -516,5 +517,245 @@ fn committed_benchmark_records_oracle_bars() {
     assert!(
         get("loop_pair", "max_rel_asymmetry") < 1e-9,
         "committed L asymmetry too large"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 6. Inductance-matrix reluctivity sensitivity ∂L/∂ν (Epic #569 / #475).
+//    The differentiable row on top of the shipped forward path — validated
+//    against a central finite difference of the SAME discrete pipeline (so
+//    mesh coarseness only bounds runtime, not the gradient-correctness bar),
+//    at the electrostatic adjoint bar (h = 1e-5, rel < 1e-4).
+// ─────────────────────────────────────────────────────────────────────
+
+/// Per-tet region tag for the solid coax: inner conductor core (centroid
+/// r < a) is region 0, the vacuum annulus (r ≥ a) is region 1.
+fn coax_region_of_tet(mesh: &geode_core::mesh::TetMesh, a: f64) -> Vec<usize> {
+    mesh.tets
+        .iter()
+        .map(|tet| {
+            let mut c = [0.0_f64; 3];
+            for &v in tet {
+                for d in 0..3 {
+                    c[d] += mesh.nodes[v as usize][d] * 0.25;
+                }
+            }
+            let r = (c[0] * c[0] + c[1] * c[1]).sqrt();
+            if r < a { 0 } else { 1 }
+        })
+        .collect()
+}
+
+#[test]
+fn inductance_sensitivity_coax_matches_central_fd() {
+    // Single-terminal coax: validate ∂L_00/∂ν_k for the two regions (current
+    // core + vacuum annulus) against a full central FD of the shipped
+    // `extract_inductance`. Coarse mesh — the gradient check is mesh-agnostic.
+    let (a, b, length) = (1.0_f64, 3.0_f64, 1.0_f64);
+    let fx = solid_coax_mesh(a, b, length, 24, 8, 2);
+    let (_edges, mask) = cylinder_pec_interior_mask(&fx.mesh, b, length);
+    let region_of_tet = coax_region_of_tet(&fx.mesh, a);
+    let n_regions = 2;
+    // Heterogeneous base point (μ_core = 1/0.75, μ_annulus = 1).
+    let nu_region = [0.75_f64, 1.0];
+    let nu_r = build_region_nu(&region_of_tet, &nu_region);
+
+    let j = axial_current_density(&fx.mesh, a, 1.0);
+    let i_meas = measure_axial_current(&fx.mesh, &j, length);
+    let term = CurrentTerminal {
+        name: "coax".into(),
+        j,
+        current: i_meas,
+        exempt_nodes: cylinder_cap_nodes(&fx.mesh, length),
+    };
+
+    let sens = inductance_adjoint_sensitivity(
+        &fx.mesh,
+        &nu_r,
+        &mask,
+        std::slice::from_ref(&term),
+        &region_of_tet,
+        n_regions,
+        1e-6,
+    )
+    .unwrap();
+
+    // Single gauged factorization for the forward solves; the self-adjoint
+    // gradient adds none.
+    assert_eq!(
+        sens.n_factorizations, 1,
+        "inductance sensitivity must use exactly one factorization"
+    );
+
+    // The self-adjoint L must reproduce the shipped extractor's L bit-for-bit
+    // (up to solver round-off) — forward physics is byte-identical.
+    let mu_r: Vec<f64> = nu_r.iter().map(|&nu| 1.0 / nu).collect();
+    let sys = assemble_magnetostatic3d(&fx.mesh, &mu_r, &mask).unwrap();
+    let lm = extract_inductance(&sys, &fx.mesh, std::slice::from_ref(&term), 1e-6).unwrap();
+    assert!(
+        (sens.l[0][0] - lm.l[0][0]).abs() / lm.l[0][0].abs() < 1e-10,
+        "self-adjoint L {} disagrees with extract_inductance L {}",
+        sens.l[0][0],
+        lm.l[0][0]
+    );
+
+    // Central FD of the full re-assemble → re-solve → L pipeline per region.
+    let l_of = |nur: &[f64]| -> f64 {
+        let mu: Vec<f64> = nur.iter().map(|&nu| 1.0 / nu).collect();
+        let s = assemble_magnetostatic3d(&fx.mesh, &mu, &mask).unwrap();
+        extract_inductance(&s, &fx.mesh, std::slice::from_ref(&term), 1e-6)
+            .unwrap()
+            .l[0][0]
+    };
+
+    let h = 1e-5;
+    for k in 0..n_regions {
+        let mut nup = nu_region;
+        let mut num = nu_region;
+        nup[k] += h;
+        num[k] -= h;
+        let fd = (l_of(&build_region_nu(&region_of_tet, &nup))
+            - l_of(&build_region_nu(&region_of_tet, &num)))
+            / (2.0 * h);
+        let g = sens.dl_dnu[k][0][0];
+        let rel = (g - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            fd.abs() > 1e-20,
+            "coax region {k} FD ∂L/∂ν {fd} unexpectedly ~0 (fixture degenerate?)"
+        );
+        assert!(
+            rel < 1e-4,
+            "coax region {k}: adjoint ∂L/∂ν {g} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-4"
+        );
+    }
+}
+
+#[test]
+fn inductance_sensitivity_loop_pair_offdiag_symmetry_and_fd() {
+    // Two-terminal loop pair: validate the FULL ∂L_ij/∂ν_k tensor (both
+    // self- and mutual-inductance rows), its symmetry ∂L_ij/∂ν_k =
+    // ∂L_ji/∂ν_k, and one factorization. Regions split by z-half so both
+    // regions carry a nontrivial gradient.
+    let (r1, z1, r2, z2) = (1.0_f64, 2.0_f64, 1.0_f64, 3.0_f64);
+    let (rbox, length, rtube) = (5.0_f64, 5.0_f64, 0.25_f64);
+    // Coarse mesh: the gradient-correctness bar is mesh-agnostic (FD of the
+    // same discrete pipeline), and n_r/n_z = 10 put a radial ring at r_loop=1
+    // and z-stations at the loop heights so the current tube is still meshed.
+    let fx = loop_pair_mesh(r1, z1, r2, z2, rbox, length, 16, 10, 10);
+    let tolb = 1e-6 * rbox;
+    let tolz = 1e-6 * length;
+    let on_bdry: Vec<bool> = fx
+        .mesh
+        .nodes
+        .iter()
+        .map(|p| {
+            let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
+            (r - rbox).abs() < tolb || p[2].abs() < tolz || (p[2] - length).abs() < tolz
+        })
+        .collect();
+    let edges = fx.mesh.edges();
+    let mask = pec_interior_edge_mask(&edges, &on_bdry);
+
+    // Regions by tet-centroid z-half.
+    let zmid = 0.5 * length;
+    let region_of_tet: Vec<usize> = fx
+        .mesh
+        .tets
+        .iter()
+        .map(|tet| {
+            let zc = tet
+                .iter()
+                .map(|&v| fx.mesh.nodes[v as usize][2])
+                .sum::<f64>()
+                / 4.0;
+            if zc < zmid { 0 } else { 1 }
+        })
+        .collect();
+    let n_regions = 2;
+    let nu_region = [1.0_f64, 1.0];
+    let nu_r = build_region_nu(&region_of_tet, &nu_region);
+
+    let j1 = loop_current_density(&fx.mesh, r1, z1, rtube, 1.0);
+    let j2 = loop_current_density(&fx.mesh, r2, z2, rtube, 1.0);
+    let i1 = measure_loop_current(&fx.mesh, &j1);
+    let i2 = measure_loop_current(&fx.mesh, &j2);
+    let terms = vec![
+        CurrentTerminal {
+            name: "loop1".into(),
+            j: j1,
+            current: i1,
+            exempt_nodes: vec![],
+        },
+        CurrentTerminal {
+            name: "loop2".into(),
+            j: j2,
+            current: i2,
+            exempt_nodes: vec![],
+        },
+    ];
+
+    let sens = inductance_adjoint_sensitivity(
+        &fx.mesh,
+        &nu_r,
+        &mask,
+        &terms,
+        &region_of_tet,
+        n_regions,
+        5e-2,
+    )
+    .unwrap();
+    assert_eq!(sens.n_factorizations, 1);
+
+    // Symmetry of the sensitivity tensor (falls out of the self-adjoint form).
+    for k in 0..n_regions {
+        for i in 0..2 {
+            for j in 0..2 {
+                let a = sens.dl_dnu[k][i][j];
+                let b = sens.dl_dnu[k][j][i];
+                let denom = a.abs().max(b.abs()).max(f64::MIN_POSITIVE);
+                assert!(
+                    (a - b).abs() / denom < 1e-12,
+                    "∂L/∂ν not symmetric at region {k}, ({i},{j}): {a} vs {b}"
+                );
+            }
+        }
+    }
+
+    // Central FD of every L_ij entry per region.
+    let l_of = |nur: &[f64], i: usize, j: usize| -> f64 {
+        let mu: Vec<f64> = nur.iter().map(|&nu| 1.0 / nu).collect();
+        let s = assemble_magnetostatic3d(&fx.mesh, &mu, &mask).unwrap();
+        extract_inductance(&s, &fx.mesh, &terms, 5e-2).unwrap().l[i][j]
+    };
+
+    let h = 1e-5;
+    let mut worst = 0.0_f64;
+    for k in 0..n_regions {
+        let mut nup = nu_region;
+        let mut num = nu_region;
+        nup[k] += h;
+        num[k] -= h;
+        let nurp = build_region_nu(&region_of_tet, &nup);
+        let nurm = build_region_nu(&region_of_tet, &num);
+        for i in 0..2 {
+            for j in 0..2 {
+                let fd = (l_of(&nurp, i, j) - l_of(&nurm, i, j)) / (2.0 * h);
+                let g = sens.dl_dnu[k][i][j];
+                let rel = (g - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+                worst = worst.max(rel);
+                assert!(
+                    fd.abs() > 1e-20,
+                    "loop-pair region {k} L[{i}][{j}] FD {fd} unexpectedly ~0"
+                );
+                assert!(
+                    rel < 1e-4,
+                    "loop-pair region {k} L[{i}][{j}]: adjoint {g} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-4"
+                );
+            }
+        }
+    }
+    assert!(
+        worst < 1e-4,
+        "worst ∂L/∂ν-vs-FD rel-err {worst:.3e} exceeds 1e-4"
     );
 }

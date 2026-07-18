@@ -71,12 +71,17 @@
 
 use faer::Mat;
 use faer::linalg::solvers::Solve;
-use faer::sparse::SparseColMat;
+use faer::sparse::{SparseColMat, Triplet};
 
 use crate::assembly::electrostatic::{
     EPS_0, Electrode, ElectrostaticError, assemble_electrostatic, assemble_electrostatic_p2,
     tet_p1_local,
 };
+use crate::assembly::magnetostatic3d::{
+    CurrentTerminal, Magnetostatic3dError, NU_0, assemble_current_rhs, assemble_magnetostatic3d,
+    check_solenoidal, tet_nedelec_stiffness,
+};
+use crate::eigen::gauge::TreeCotreeGauge;
 use crate::elements::p2::{TET_P2_DOFS, tet_p2_local};
 use crate::mesh::TetMesh;
 
@@ -601,6 +606,290 @@ pub fn build_region_eps(region_of_tet: &[usize], eps_region: &[f64]) -> Vec<f64>
                 eps_region.len()
             );
             eps_region[r]
+        })
+        .collect()
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Magnetostatic inductance-matrix reluctivity sensitivity ∂L/∂ν (Epic #569
+// differentiable row, #475 Magnetostatic parity), built on the shipped
+// `magnetostatic3d` forward path.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Result of a magnetostatic **inductance-matrix reluctivity sensitivity**:
+/// the N×N Maxwell inductance matrix and its exact discrete gradient
+/// `∂L_ij/∂ν_k` with respect to each per-region relative reluctivity
+/// `ν_r = 1/μ_r`.
+///
+/// This is the magnetostatic dual of [`CapacitanceGradient`] — the `∂C/∂ε`
+/// electrostatic sensitivity — completing the #569 sensitivity matrix with
+/// the inductance row.
+#[derive(Debug, Clone)]
+pub struct InductanceSensitivity {
+    /// Terminal names in matrix row/column order.
+    pub names: Vec<String>,
+    /// The N×N Maxwell inductance matrix (H): `L_ij = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾/(I_i I_j)`,
+    /// on the **full** pre-gauge curl-curl `K` (mirrors
+    /// [`crate::assembly::magnetostatic3d::extract_inductance`]).
+    pub l: Vec<Vec<f64>>,
+    /// The sensitivity tensor: `dl_dnu[k]` is the N×N matrix `∂L/∂ν_k` of the
+    /// inductance matrix to the region-`k` relative reluctivity, so
+    /// `dl_dnu[k][i][j] = ∂L_ij/∂ν_k`. Symmetric in `(i, j)` by construction
+    /// (the self-adjoint energy form).
+    pub dl_dnu: Vec<Vec<Vec<f64>>>,
+    /// Number of sparse LU **factorizations** performed. Always `1`: a single
+    /// gauged cotree factorization serves all `N` unit-current forward solves,
+    /// and the **self-adjoint** gradient needs no additional factorization and
+    /// no adjoint solve (see below). Asserted by the FD-validation tests.
+    pub n_factorizations: usize,
+}
+
+/// Compute the Maxwell inductance matrix `L` and its exact per-region
+/// reluctivity gradient `∂L_ij/∂ν_k` via the **self-adjoint** energy form,
+/// on the already-shipped [`crate::assembly::magnetostatic3d`] forward solve.
+///
+/// # The self-adjoint collapse (no separate adjoint solve)
+///
+/// Unlike the electrostatic capacitance adjoint, the magnetostatic excitation
+/// is a **ν-independent current RHS** `b⁽ⁱ⁾ = ∫N·J` (see
+/// [`crate::assembly::magnetostatic3d::assemble_current_rhs`] — it carries no
+/// ν). With the gauged system `K A⁽ⁱ⁾ = b⁽ⁱ⁾` and `A` zero on the
+/// eliminated (tree / PEC) DOFs, the energy-method entry is
+///
+/// ```text
+///   L_ij (I_i I_j) = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾ = b⁽ⁱ⁾ᵀ K⁻¹ b⁽ʲ⁾ ,
+/// ```
+///
+/// whose derivative — since only `K⁻¹` depends on ν — is the **purely local**
+/// contraction
+///
+/// ```text
+///   ∂L_ij/∂ν_k = −A⁽ⁱ⁾ᵀ (∂K/∂ν_k) A⁽ʲ⁾ / (I_i I_j) ,
+///   ∂K/∂ν_k = ν₀ · Σ_{t ∈ region k} K_tⁿᵉᵈ   (linear in per-tet ν_r).
+/// ```
+///
+/// The "adjoint vector" `λ` **is** the forward solution `A⁽ⁱ⁾`; there is no
+/// distinct adjoint RHS and no transpose solve. The whole L-matrix gradient
+/// falls out of the `N` forward solves plus one element loop — cheaper than
+/// the general electrostatic adjoint. The contraction is done in the **full**
+/// `k_full` edge-DOF space (exactly mirroring `extract_inductance`), so the
+/// gauge nullspace never re-enters the arithmetic (`A` is zero on the
+/// eliminated DOFs, so the full-K and cotree contractions coincide).
+///
+/// # Arguments
+///
+/// * `mesh` — tetrahedral mesh.
+/// * `nu_r` — per-tet **relative reluctivity** `ν_r = 1/μ_r` (length
+///   `mesh.n_tets()`), the *evaluated* material at which the gradient is
+///   taken. Build it from per-region values with [`build_region_nu`] so
+///   `nu_r[t]` and the region parameter `ν_{region_of_tet[t]}` agree. (The
+///   forward assembler is parameterized by `μ_r`; this function maps
+///   `μ_r = 1/ν_r` internally so `K` is exactly linear in `ν_r`.)
+/// * `interior_mask` — per-edge PEC mask exactly as
+///   [`assemble_magnetostatic3d`] takes it.
+/// * `terminals` — the current terminals (their `j`, `current`, and
+///   `exempt_nodes`), exactly as
+///   [`crate::assembly::magnetostatic3d::extract_inductance`].
+/// * `region_of_tet` — per-tet region label in `0..n_regions`;
+///   `∂L/∂ν_k` sums the contribution of every tet with `region_of_tet[t]==k`.
+/// * `n_regions` — number of design regions.
+/// * `tol_solenoidal` — discrete-solenoidality tolerance for each terminal's
+///   `J` (passed straight to [`check_solenoidal`]).
+///
+/// # Errors
+///
+/// Propagates [`Magnetostatic3dError`] from assembly / factorization / the
+/// compatibility check, and [`Magnetostatic3dError::ShapeMismatch`] on any
+/// length mismatch or out-of-range region label.
+#[allow(clippy::too_many_arguments)]
+pub fn inductance_adjoint_sensitivity(
+    mesh: &TetMesh,
+    nu_r: &[f64],
+    interior_mask: &[bool],
+    terminals: &[CurrentTerminal],
+    region_of_tet: &[usize],
+    n_regions: usize,
+    tol_solenoidal: f64,
+) -> Result<InductanceSensitivity, Magnetostatic3dError> {
+    let n_tets = mesh.n_tets();
+    if nu_r.len() != n_tets {
+        return Err(Magnetostatic3dError::ShapeMismatch(format!(
+            "nu_r length {} != tet count {n_tets}",
+            nu_r.len()
+        )));
+    }
+    if region_of_tet.len() != n_tets {
+        return Err(Magnetostatic3dError::ShapeMismatch(format!(
+            "region_of_tet length {} != tet count {n_tets}",
+            region_of_tet.len()
+        )));
+    }
+    if let Some(&bad) = region_of_tet.iter().find(|&&r| r >= n_regions) {
+        return Err(Magnetostatic3dError::ShapeMismatch(format!(
+            "region label {bad} out of range for n_regions {n_regions}"
+        )));
+    }
+
+    // Map per-tet reluctivity ν_r → μ_r for the shipped assembler, which
+    // weights each element curl-curl by ν_t = ν₀/μ_r = ν₀·ν_r. K is then
+    // exactly linear in the design parameter ν_r.
+    let mu_r: Vec<f64> = nu_r.iter().map(|&nu| 1.0 / nu).collect();
+    let sys = assemble_magnetostatic3d(mesh, &mu_r, interior_mask)?;
+
+    // Build the tree-cotree gauge ONCE and factor the gauged cotree block
+    // ONCE; every unit-current forward solve reuses this single
+    // factorization (this hoists the per-solve factorization that
+    // `solve_with_gauge` would otherwise repeat, so `n_factorizations == 1`).
+    let gauge = TreeCotreeGauge::build(&sys.edges, &sys.interior_mask, sys.n_nodes);
+    let gdim = gauge.gauged_dim();
+    let gidx = gauge.gauged_index_map();
+
+    let mut red_trips: Vec<Triplet<usize, usize, f64>> = Vec::new();
+    {
+        let k_ref = sys.k_full.as_ref();
+        let cp = k_ref.col_ptr();
+        let row_idx = k_ref.row_idx();
+        let vals = k_ref.val();
+        for j in 0..sys.n_edges {
+            let Some(gj) = gidx[j] else { continue };
+            for k in cp[j]..cp[j + 1] {
+                let i = row_idx[k];
+                if let Some(gi) = gidx[i] {
+                    red_trips.push(Triplet::new(gi, gj, vals[k]));
+                }
+            }
+        }
+    }
+    let k_cc = SparseColMat::<usize, f64>::try_new_from_triplets(gdim, gdim, &red_trips)
+        .map_err(|e| Magnetostatic3dError::Assembly(format!("{e:?}")))?;
+    let lu = k_cc
+        .as_ref()
+        .sp_lu()
+        .map_err(|e| Magnetostatic3dError::Factorization(format!("{e:?}")))?;
+    let n_factorizations = 1;
+
+    // Forward unit-current solves, all reusing the single factorization.
+    let n = terminals.len();
+    let mut a_sols: Vec<Vec<f64>> = Vec::with_capacity(n);
+    for term in terminals {
+        if term.j.len() != n_tets {
+            return Err(Magnetostatic3dError::ShapeMismatch(format!(
+                "terminal {} j length {} != tet count {n_tets}",
+                term.name,
+                term.j.len()
+            )));
+        }
+        let b = assemble_current_rhs(&sys, mesh, &term.j)?;
+        check_solenoidal(&sys, &b, &term.exempt_nodes, tol_solenoidal)?;
+        // Fold b onto the cotree DOFs, solve, scatter A back to full length.
+        let mut rhs: Mat<f64> = Mat::zeros(gdim, 1);
+        for (e, slot) in gidx.iter().enumerate() {
+            if let Some(g) = slot {
+                rhs[(*g, 0)] = b[e];
+            }
+        }
+        lu.solve_in_place(rhs.as_mut());
+        let mut a_full = vec![0.0_f64; sys.n_edges];
+        for (e, slot) in gidx.iter().enumerate() {
+            if let Some(g) = slot {
+                a_full[e] = rhs[(*g, 0)];
+            }
+        }
+        a_sols.push(a_full);
+    }
+
+    // Inductance matrix L_ij = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾ / (I_i I_j) on the full K.
+    let ka: Vec<Vec<f64>> = a_sols
+        .iter()
+        .map(|a| sparse_matvec(&sys.k_full, a))
+        .collect();
+    let mut l = vec![vec![0.0_f64; n]; n];
+    for i in 0..n {
+        for j in i..n {
+            let e: f64 = a_sols[i].iter().zip(ka[j].iter()).map(|(a, b)| a * b).sum();
+            let v = e / (terminals[i].current * terminals[j].current);
+            l[i][j] = v;
+            l[j][i] = v;
+        }
+    }
+
+    // Self-adjoint gradient: ∂L_ij/∂ν_k = −ν₀ A⁽ⁱ⁾ᵀ(Σ_{t∈k} K_tⁿᵉᵈ)A⁽ʲ⁾/(I_i I_j).
+    // A pure local element contraction — no adjoint solve, no extra
+    // factorization. Uses the same element curl-curl kernel and orientation
+    // signs the assembler uses, so ∂K/∂ν_k is an exact analytic JVP.
+    let mut dl_dnu = vec![vec![vec![0.0_f64; n]; n]; n_regions];
+    // Per-terminal local signed edge value on the current tet (reused buffer).
+    let mut loc = vec![[0.0_f64; 6]; n];
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        let coords = [
+            mesh.nodes[tet[0] as usize],
+            mesh.nodes[tet[1] as usize],
+            mesh.nodes[tet[2] as usize],
+            mesh.nodes[tet[3] as usize],
+        ];
+        let k_local = tet_nedelec_stiffness(&coords);
+        let te = &sys.tet_edges[t];
+        for m in 0..n {
+            for p in 0..6 {
+                let (g, s) = te[p];
+                loc[m][p] = (s as f64) * a_sols[m][g as usize];
+            }
+        }
+        let r = region_of_tet[t];
+        for i in 0..n {
+            // K_local · loc[i] (depends only on i, reused across j ≥ i).
+            let mut kloci = [0.0_f64; 6];
+            for p in 0..6 {
+                let mut acc = 0.0_f64;
+                for q in 0..6 {
+                    acc += k_local[p][q] * loc[i][q];
+                }
+                kloci[p] = acc;
+            }
+            for j in i..n {
+                let mut c = 0.0_f64;
+                for p in 0..6 {
+                    c += loc[j][p] * kloci[p];
+                }
+                let contrib = -NU_0 * c / (terminals[i].current * terminals[j].current);
+                dl_dnu[r][i][j] += contrib;
+                if i != j {
+                    dl_dnu[r][j][i] += contrib;
+                }
+            }
+        }
+    }
+
+    Ok(InductanceSensitivity {
+        names: terminals.iter().map(|t| t.name.clone()).collect(),
+        l,
+        dl_dnu,
+        n_factorizations,
+    })
+}
+
+/// Expand a per-region **relative-reluctivity** table into the per-tet `ν_r`
+/// vector that [`inductance_adjoint_sensitivity`] consumes — the reluctivity
+/// twin of [`build_region_eps`].
+///
+/// `nu_region[region_of_tet[t]]` becomes `nu_r[t]`, keeping the design
+/// parameter (`nu_region[k]`) and the assembled material in exact
+/// correspondence so a finite-difference perturbation of `nu_region[k]`
+/// perturbs precisely the tets region `k` owns.
+///
+/// # Panics
+///
+/// Panics if any region label indexes past `nu_region`.
+pub fn build_region_nu(region_of_tet: &[usize], nu_region: &[f64]) -> Vec<f64> {
+    region_of_tet
+        .iter()
+        .map(|&r| {
+            assert!(
+                r < nu_region.len(),
+                "build_region_nu: region {r} out of range for nu_region of length {}",
+                nu_region.len()
+            );
+            nu_region[r]
         })
         .collect()
 }
