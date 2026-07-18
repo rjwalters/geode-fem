@@ -6,6 +6,26 @@
 
 ---
 
+> ## Update — 2026-07-18: the adjoint-through-solve layer shipped
+>
+> This document (2026-07-16) repeatedly frames solver-derived design sensitivities as a **roadmap item, not a current capability** — most pointedly the "Honest technical caveat" block below (the faer factorization "breaks the tape", gradients "not yet built"), Direction 1 ("but neither can we *yet*"), and the "Don't over-claim differentiability … pitch it as roadmap until that lands" bullet. **Those statements were true when written but are now stale.** The historical text below is preserved deliberately (this is the record); this note reconciles it with `main` @ `d794e26`.
+>
+> The explicit adjoint / implicit-differentiation layer around the solve — Direction 1, the "load-bearing experiment" — **has landed and is finite-difference-validated on `main`.** The full **{material, geometry} × {scalar, H(curl)} 2×2 sensitivity matrix** is now real:
+>
+> - **#570** — material-ε adjoint on the driven (linear) solve, `∂g/∂ε = −λᵀ(∂A/∂ε)x` with a custom backward for `Ax=b`, central-FD-validated. (CLOSED)
+> - **#571** — shape/geometry sensitivity via adjoint + node-motion map, FD-validated. (CLOSED)
+> - **#576** — H(curl) material adjoint on the Nédélec (real-Maxwell) solve, FD-validated. (CLOSED)
+> - **#577** — H(curl) geometry/shape adjoint on the Nédélec solve. (CLOSED)
+>
+> Implementation lives in `crates/geode-core/src/driven/adjoint.rs` and `driven/shape.rs` (H(curl) EM path) plus the scalar `adjoint.rs` / `shape.rs`. Two further gradients extend the matrix beyond the original 2×2:
+>
+> - **#604** — eigenmode `∂ω/∂λ_L` (London surface reactance) via Hellmann–Feynman (`crates/geode-core/src/eigen/sensitivity.rs`). (CLOSED)
+> - **#615** — inductance-matrix reluctivity sensitivity `∂L/∂ν` via the self-adjoint energy form (`adjoint.rs::inductance_adjoint_sensitivity`, `InductanceSensitivity`). (MERGED)
+>
+> **Net:** differentiability is no longer a "roadmap item until the adjoint-through-solve layer lands" — that layer landed. It is **demonstrated on `main` and FD-validated: the differentiator, not a roadmap item.** Read the caveats below as of-their-date historical framing, superseded by this note. (Reconciled per #614; epic bodies #475/#569 updated the same day.)
+
+---
+
 ## TL;DR
 
 Every measurement and every external source points the same way:
