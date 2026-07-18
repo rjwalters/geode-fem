@@ -50,6 +50,7 @@ pub mod magnetostatic;
 pub mod magnetostatic3d;
 pub mod nedelec;
 pub mod nedelec_matvec;
+pub mod nedelec_p2;
 pub mod p1;
 pub mod sparse;
 pub mod surface;

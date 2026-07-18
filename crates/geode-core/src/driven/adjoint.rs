@@ -773,6 +773,215 @@ where
     })
 }
 
+/// Result of a **second-order (`p=2`)** driven-Nédélec material
+/// discrete-adjoint gradient evaluation (issue #616, extends #576 to the
+/// 20-DOF element). Same algebra as the `p=1`
+/// [`driven_material_adjoint_gradient`], on the `edges×2 + faces×2` DOF
+/// numbering of [`crate::assembly::nedelec_p2`].
+#[derive(Debug, Clone)]
+pub struct P2DrivenAdjointGradient {
+    /// The scalar objective value `g(x)` at the forward solution.
+    pub objective: f64,
+    /// The gradient `dg/dε_k`, one entry per design region, from a single
+    /// forward + single adjoint solve sharing one factorization.
+    pub grad: Vec<f64>,
+    /// Full-length `[n_dofs]` complex forward `p=2` DOF field (PEC-eliminated
+    /// DOFs carry exact zeros).
+    pub x: Vec<c64>,
+    /// Relative residual `‖A x − b‖₂ / ‖b‖₂` of the interior forward solve.
+    pub residual_rel: f64,
+    /// Number of sparse LU factorizations performed (always `1`).
+    pub n_factorizations: usize,
+}
+
+/// Compute `∂g/∂ε_k` for every design region `k` of a **lossless, real-ε**
+/// **second-order (`p=2`)** driven Nédélec solve `A(ε, ω) x = b`,
+/// `A = K − ω² M(ε)`, via the discrete adjoint — one forward + one adjoint
+/// solve sharing a single complex sparse LU factorization (issue #616, Epic
+/// #569; the `p=2` retention of the #576 material sensitivity).
+///
+/// The adjoint algebra is **identical** to the `p=1`
+/// [`driven_material_adjoint_gradient`]: the mass is linear in the per-tet ε
+/// (`M(ε) = Σ_t ε_t M_local(t)`; see [`crate::assembly::nedelec_p2::assemble_p2_km`]),
+/// so `∂A/∂ε_k = −ω² M_k` is an **exact analytic JVP** and
+///
+/// ```text
+///   dg/dε_k = −2 Re[ λᵀ (∂A/∂ε_k) x ] = 2 ω² Re[ λᵀ M_k x ],   Aᵀ λ = ∂g/∂x,
+/// ```
+///
+/// with `M_k` the `p=2` mass restricted to region `k`
+/// ([`crate::assembly::nedelec_p2::p2_region_mass_action`]). `A` is
+/// complex-symmetric, so the adjoint reuses the forward factorization.
+///
+/// # Arguments
+///
+/// * `mesh` — tetrahedral mesh.
+/// * `eps_r` — per-tet real relative permittivity (length `mesh.n_tets()`).
+/// * `interior_dof_mask` — length `n_dofs` (`2·n_edges + 2·n_faces`) PEC mask.
+/// * `omega` — drive frequency `ω = k₀` (away from a resonance).
+/// * `rhs_full` — the ε-**independent** length-`n_dofs` complex RHS `b`.
+/// * `region_of_tet` / `n_regions` — per-tet region label and region count.
+/// * `objective` — `g(x) → (value, ∂g/∂x)` over the full-length `[n_dofs]`
+///   complex DOF vector; `∂g/∂x` is the un-conjugated Wirtinger cotangent
+///   (e.g. `x̄` for `g = Σ|x_i|²`). Its entries on PEC DOFs are ignored.
+///
+/// # Errors
+///
+/// [`DrivenError`] on shape mismatches, empty interior, or factorization
+/// failure.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_material_adjoint_gradient_p2<G>(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    interior_dof_mask: &[bool],
+    omega: f64,
+    rhs_full: &[c64],
+    region_of_tet: &[usize],
+    n_regions: usize,
+    objective: G,
+) -> Result<P2DrivenAdjointGradient, DrivenError>
+where
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    use crate::assembly::nedelec_p2::{P2DofMap, p2_interior_km, p2_region_mass_action};
+    use faer::Mat;
+    use faer::linalg::solvers::Solve;
+
+    let n_tets = mesh.n_tets();
+    if eps_r.len() != n_tets {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: eps_r.len(),
+            want: n_tets,
+        });
+    }
+    if region_of_tet.len() != n_tets {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: region_of_tet.len(),
+            want: n_tets,
+        });
+    }
+    if let Some(&bad) = region_of_tet.iter().find(|&&r| r >= n_regions) {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: bad,
+            want: n_regions,
+        });
+    }
+    let dofs = P2DofMap::build(mesh);
+    if interior_dof_mask.len() != dofs.n_dofs {
+        return Err(DrivenError::MaskDimMismatch {
+            got: interior_dof_mask.len(),
+            want: dofs.n_dofs,
+        });
+    }
+    if rhs_full.len() != dofs.n_dofs {
+        return Err(DrivenError::SourceDimMismatch {
+            got: rhs_full.len(),
+            want: dofs.n_dofs,
+        });
+    }
+
+    let (remap, n_interior, kept) = p2_interior_km(mesh, &dofs, eps_r, interior_dof_mask);
+    if n_interior == 0 {
+        return Err(DrivenError::EmptyInterior);
+    }
+
+    // Interior A(ω) = K − ω² M(ε) (duplicates summed).
+    let omega2 = omega * omega;
+    let triplets: Vec<Triplet<usize, usize, c64>> = kept
+        .iter()
+        .map(|&(r, c, k, m)| Triplet::new(r, c, c64::new(k - omega2 * m, 0.0)))
+        .collect();
+    let a_int =
+        SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
+            .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
+    let lu = a_int
+        .as_ref()
+        .sp_lu()
+        .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+    let n_factorizations = 1;
+
+    // Interior RHS.
+    let mut b_int = vec![c64::new(0.0, 0.0); n_interior];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            b_int[ri as usize] = rhs_full[g];
+        }
+    }
+
+    // Forward solve.
+    let mut fwd: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| b_int[i]);
+    lu.solve_in_place(fwd.as_mut());
+    let x_int: Vec<c64> = (0..n_interior).map(|i| fwd[(i, 0)]).collect();
+
+    // Residual health check.
+    let residual_rel = {
+        let mut ax = vec![c64::new(0.0, 0.0); n_interior];
+        for &(r, c, k, m) in &kept {
+            ax[r] += c64::new(k - omega2 * m, 0.0) * x_int[c];
+        }
+        let mut res2 = 0.0_f64;
+        let mut b2 = 0.0_f64;
+        for i in 0..n_interior {
+            let d = ax[i] - b_int[i];
+            res2 += d.re * d.re + d.im * d.im;
+            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
+        }
+        if b2 > 0.0 {
+            (res2 / b2).sqrt()
+        } else {
+            res2.sqrt()
+        }
+    };
+
+    // Scatter x to full length.
+    let mut x = vec![c64::new(0.0, 0.0); dofs.n_dofs];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            x[g] = x_int[ri as usize];
+        }
+    }
+
+    // Objective and its Wirtinger cotangent.
+    let (objective_value, dg_dx) = objective(&x);
+    if dg_dx.len() != dofs.n_dofs {
+        return Err(DrivenError::SparseAssembly(format!(
+            "objective cotangent length {} != DOF count {}",
+            dg_dx.len(),
+            dofs.n_dofs
+        )));
+    }
+    let mut g_x_int = vec![c64::new(0.0, 0.0); n_interior];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            g_x_int[ri as usize] = dg_dx[g];
+        }
+    }
+
+    // Adjoint solve Aᵀ λ = ∂g/∂x (A complex-symmetric → same factorization).
+    let mut adj: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| g_x_int[i]);
+    lu.solve_transpose_in_place(adj.as_mut());
+    let lambda_int: Vec<c64> = (0..n_interior).map(|i| adj[(i, 0)]).collect();
+
+    // Per-region gradient dg/dε_k = 2 ω² Re[ λᵀ M_k x ].
+    let mut grad = vec![0.0_f64; n_regions];
+    for (k, grad_k) in grad.iter_mut().enumerate() {
+        let mkx = p2_region_mass_action(mesh, &dofs, &remap, n_interior, region_of_tet, k, &x_int);
+        let mut contrib = c64::new(0.0, 0.0);
+        for i in 0..n_interior {
+            contrib += lambda_int[i] * mkx[i];
+        }
+        *grad_k = 2.0 * omega2 * contrib.re;
+    }
+
+    Ok(P2DrivenAdjointGradient {
+        objective: objective_value,
+        grad,
+        x,
+        residual_rel,
+        n_factorizations,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

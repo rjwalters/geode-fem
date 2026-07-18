@@ -782,6 +782,184 @@ pub fn driven_solve_with_sigma_quad<B: Backend>(
     )
 }
 
+/// Opt-in element order for the driven forward path (issue #616, Epic
+/// #475/#569).
+///
+/// [`ElementOrder::P1`] is the **default** and routes to the existing,
+/// byte-identical first-order pipeline ([`driven_solve`] and friends). No
+/// existing entry point changes behavior — the p=1 code path is untouched.
+///
+/// [`ElementOrder::P2`] selects the second-order (20-DOF) Nédélec forward path
+/// [`driven_solve_p2`], built on the shipped
+/// [`crate::elements::nedelec_p2`] element and the
+/// [`crate::assembly::nedelec_p2`] global assembly (`edges×2 + faces×2` DOF
+/// numbering, unit-sign scatter via the ascending-global-vertex convention).
+///
+/// # p=2 scope (this landing)
+///
+/// The p=2 forward path currently supports a **real, per-tet-constant scalar
+/// ε**, PEC elimination, and a volumetric current source (constant or
+/// quadrature-sampled). PML/complex-ε, anisotropic tensors, lumped ports,
+/// Leontovich surfaces, and the σ-damping term remain **p=1-only** for now —
+/// they compose through the Burn-tensor scatter machinery the p=2 assembler
+/// does not yet mirror. Selecting them at p=2 is a future extension.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ElementOrder {
+    /// First-order Whitney edge element (6 DOFs/tet) — the default; the
+    /// existing pipeline, byte-identical.
+    #[default]
+    P1,
+    /// Second-order (first-kind) Nédélec element (20 DOFs/tet).
+    P2,
+}
+
+/// Solution of the opt-in second-order (`p=2`) driven forward path
+/// ([`driven_solve_p2`]).
+///
+/// The DOF layout is the `edges×2 + faces×2` global numbering of
+/// [`crate::assembly::nedelec_p2::P2DofMap`] — distinct from the `p=1`
+/// [`DrivenSolution`] (which is `[n_edges]`), so the p=2 result has its own
+/// type rather than overloading the p=1 one.
+#[derive(Debug, Clone)]
+pub struct P2DrivenSolution {
+    /// Full-length `[n_dofs]` complex DOF vector in the `p=2` global numbering.
+    /// PEC-eliminated DOFs carry exact zeros.
+    pub x: Vec<c64>,
+    /// Total `p=2` DOF count (`2·n_edges + 2·n_faces`).
+    pub n_dofs: usize,
+    /// Number of interior (kept) DOFs after PEC elimination.
+    pub n_interior: usize,
+    /// Relative residual `‖A x − b‖₂ / ‖b‖₂` of the interior system.
+    pub residual_rel: f64,
+}
+
+/// Second-order (`p=2`) driven frequency-domain solve `A(ω) x = b`,
+/// `A(ω) = K − ω² M(ε)`, on the shipped 20-DOF Nédélec element (issue #616,
+/// Epic #475/#569) — the opt-in [`ElementOrder::P2`] forward path.
+///
+/// # Arguments
+///
+/// * `mesh` — tetrahedral mesh.
+/// * `eps_tet` — per-tet **real** relative permittivity (length
+///   `mesh.n_tets()`; per-tet constant, so the deg-4 element rule integrates
+///   the ε-weighted mass exactly).
+/// * `interior_dof_mask` — length `n_dofs` (`= 2·n_edges + 2·n_faces`): `true`
+///   keeps a DOF, `false` PEC-eliminates it. Build it for a cube cavity with
+///   [`crate::assembly::nedelec_p2::cube_pec_interior_p2_dofs`].
+/// * `omega` — drive frequency `ω = k₀` (natural units); away from a resonance
+///   so `A(ω)` is non-singular.
+/// * `rhs_full` — the length-`n_dofs` complex RHS moment vector `b`
+///   (e.g. `∫ N_i · f dV` from
+///   [`crate::assembly::nedelec_p2::assemble_p2_rhs_quad`], with any `iω`
+///   scaling folded in by the caller). PEC-eliminated entries are ignored.
+///
+/// The complex-symmetric pencil is factored once with faer's sparse LU and
+/// back-solved directly, mirroring the p=1 direct path.
+///
+/// # Errors
+///
+/// [`DrivenError`] on shape mismatches, an empty interior, or a sparse
+/// factorization/solve failure (e.g. `ω²` at a resonance of the lossless
+/// pencil).
+pub fn driven_solve_p2(
+    mesh: &TetMesh,
+    eps_tet: &[f64],
+    interior_dof_mask: &[bool],
+    omega: f64,
+    rhs_full: &[c64],
+) -> Result<P2DrivenSolution, DrivenError> {
+    use crate::assembly::nedelec_p2::{P2DofMap, p2_interior_km};
+
+    let n_tets = mesh.n_tets();
+    if eps_tet.len() != n_tets {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: eps_tet.len(),
+            want: n_tets,
+        });
+    }
+    let dofs = P2DofMap::build(mesh);
+    if interior_dof_mask.len() != dofs.n_dofs {
+        return Err(DrivenError::MaskDimMismatch {
+            got: interior_dof_mask.len(),
+            want: dofs.n_dofs,
+        });
+    }
+    if rhs_full.len() != dofs.n_dofs {
+        return Err(DrivenError::SourceDimMismatch {
+            got: rhs_full.len(),
+            want: dofs.n_dofs,
+        });
+    }
+
+    let (remap, n_interior, kept) = p2_interior_km(mesh, &dofs, eps_tet, interior_dof_mask);
+    if n_interior == 0 {
+        return Err(DrivenError::EmptyInterior);
+    }
+
+    // A(ω) = K − ω² M(ε), interior, as complex triplets (duplicates summed).
+    let omega2 = omega * omega;
+    let triplets: Vec<Triplet<usize, usize, c64>> = kept
+        .iter()
+        .map(|&(r, c, k, m)| Triplet::new(r, c, c64::new(k - omega2 * m, 0.0)))
+        .collect();
+    let a_int =
+        SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
+            .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
+    let lu = a_int
+        .as_ref()
+        .sp_lu()
+        .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+
+    // Interior-filtered RHS.
+    let mut b_int = vec![c64::new(0.0, 0.0); n_interior];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            b_int[ri as usize] = rhs_full[g];
+        }
+    }
+
+    // Forward solve A x = b.
+    let mut fwd: faer::Mat<c64> = faer::Mat::from_fn(n_interior, 1, |i, _| b_int[i]);
+    use faer::linalg::solvers::Solve;
+    lu.solve_in_place(fwd.as_mut());
+    let x_int: Vec<c64> = (0..n_interior).map(|i| fwd[(i, 0)]).collect();
+
+    // Residual ‖A x − b‖ / ‖b‖ via a triplet accumulation spmv (duplicates sum).
+    let residual_rel = {
+        let mut ax = vec![c64::new(0.0, 0.0); n_interior];
+        for &(r, c, k, m) in &kept {
+            ax[r] += c64::new(k - omega2 * m, 0.0) * x_int[c];
+        }
+        let mut res2 = 0.0_f64;
+        let mut b2 = 0.0_f64;
+        for i in 0..n_interior {
+            let d = ax[i] - b_int[i];
+            res2 += d.re * d.re + d.im * d.im;
+            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
+        }
+        if b2 > 0.0 {
+            (res2 / b2).sqrt()
+        } else {
+            res2.sqrt()
+        }
+    };
+
+    // Scatter to full length (PEC DOFs = 0).
+    let mut x = vec![c64::new(0.0, 0.0); dofs.n_dofs];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            x[g] = x_int[ri as usize];
+        }
+    }
+
+    Ok(P2DrivenSolution {
+        x,
+        n_dofs: dofs.n_dofs,
+        n_interior,
+        residual_rel,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn driven_solve_impl<B: Backend>(
     mesh: &TetMesh,
