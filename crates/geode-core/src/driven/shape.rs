@@ -94,7 +94,8 @@ use crate::assembly::nedelec::{
 };
 use crate::assembly::p1::upload_mesh;
 use crate::driven::solve::{CurrentSource, DrivenBcs, DrivenError};
-use crate::mesh::{TET_LOCAL_EDGES, TetMesh};
+use crate::elements::nedelec_p2::{TET_NEDELEC2_DOFS, TET_NEDELEC2_FACE_DOF_BASE, tet_quad_deg4};
+use crate::mesh::{TET_LOCAL_EDGES, TET_LOCAL_FACES, TetMesh};
 
 // ─────────────────────────────────────────────────────────────────────────
 // Minimal forward-mode dual number for exact differentiation of the closed-
@@ -199,6 +200,21 @@ fn dcross3(a: [Dual; 3], b: [Dual; 3]) -> [Dual; 3] {
 fn ddot3(a: [Dual; 3], b: [Dual; 3]) -> Dual {
     a[0].mul(b[0]).add(a[1].mul(b[1])).add(a[2].mul(b[2]))
 }
+/// Scale a dual 3-vector by an `f64` constant (a lifted scalar, zero tangent).
+#[inline]
+fn dscale3(s: f64, a: [Dual; 3]) -> [Dual; 3] {
+    [a[0].scale(s), a[1].scale(s), a[2].scale(s)]
+}
+/// The `f64`-scalar linear combination `s·a + t·b` of two dual 3-vectors
+/// (`s`, `t` are fixed reference barycentric weights with zero tangent).
+#[inline]
+fn dlc3(s: f64, a: [Dual; 3], t: f64, b: [Dual; 3]) -> [Dual; 3] {
+    [
+        a[0].scale(s).add(b[0].scale(t)),
+        a[1].scale(s).add(b[1].scale(t)),
+        a[2].scale(s).add(b[2].scale(t)),
+    ]
+}
 
 /// The first-order Nédélec element-local **curl-curl** `K`, **mass** `M`
 /// (both sign-unaware, `6×6`) and **current-RHS moments** `∫ N_i dV`
@@ -281,6 +297,154 @@ pub(crate) fn nedelec_local_dual(
     for (i, &(a, b)) in TET_LOCAL_EDGES.iter().enumerate() {
         for c in 0..3 {
             nint[i][c] = factor.mul(g[b][c].sub(g[a][c]));
+        }
+    }
+
+    (k, m, nint)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Dual twin of the SECOND-ORDER (p=2) 20-DOF Nédélec element (issue #619).
+//
+// Forward-mode-AD counterpart of the `f64` production kernels in
+// `crate::elements::nedelec_p2` (`tet_barycentric_gradients` /
+// `tet_nedelec2_shapes` / `tet_nedelec2_local` / `tet_nedelec2_local_rhs`),
+// mirroring them entry-for-entry but in `Dual` arithmetic so each `.du` is the
+// exact partial w.r.t. whichever tet coordinate was seeded with `Dual::var`.
+//
+// Deliberately a TWIN, not a genericization of the production kernel: the `f64`
+// `tet_nedelec2_local` sits on the hot forward-assembly path
+// (`assemble_p2_km` → `tet_p2_local_sorted`), so it is left byte-identical for
+// the p=1 AND p=2 forward paths (the AC's "documented equivalent" clause and
+// the house style established by `nedelec_local_dual` at p=1). The two element
+// self-checks (`p2_dual_local_matrices_reproduce_f64_kernel`,
+// `p2_dual_local_derivative_matches_finite_difference`) pin the twin's `.re`
+// against the `f64` kernel and its `.du` against a central FD of the same
+// kernel.
+//
+// The fixed reference-barycentric quadrature points `lam` from
+// `tet_quad_deg4()` are constants (`f64`): geometry enters the integral ONLY
+// through `bary = ∇λ` and the element volume, both differentiable outputs of
+// the Dual barycentric-gradient step. There is NO ∂lam/∂X term.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Dual twin of [`crate::elements::nedelec_p2::tet_barycentric_gradients`]:
+/// physical barycentric gradients `∇λ_p` and the **signed** volume `det/6`, in
+/// dual arithmetic (same cofactor construction as the `f64` kernel).
+fn tet_barycentric_gradients_dual(coords: &[[Dual; 3]; 4]) -> ([[Dual; 3]; 4], Dual) {
+    let v0 = coords[0];
+    let e1 = dsub3(coords[1], v0);
+    let e2 = dsub3(coords[2], v0);
+    let e3 = dsub3(coords[3], v0);
+    let g1 = dcross3(e2, e3);
+    let g2 = dcross3(e3, e1);
+    let g3 = dcross3(e1, e2);
+    let det = ddot3(e1, g1); // = 6V (signed)
+    let inv = Dual::cst(1.0).div(det);
+    let gl1 = [g1[0].mul(inv), g1[1].mul(inv), g1[2].mul(inv)];
+    let gl2 = [g2[0].mul(inv), g2[1].mul(inv), g2[2].mul(inv)];
+    let gl3 = [g3[0].mul(inv), g3[1].mul(inv), g3[2].mul(inv)];
+    let gl0 = [
+        gl1[0].add(gl2[0]).add(gl3[0]).neg(),
+        gl1[1].add(gl2[1]).add(gl3[1]).neg(),
+        gl1[2].add(gl2[2]).add(gl3[2]).neg(),
+    ];
+    ([gl0, gl1, gl2, gl3], det.scale(1.0 / 6.0))
+}
+
+/// Dual twin of [`crate::elements::nedelec_p2::tet_nedelec2_shapes`]: the 20
+/// basis vectors `N_i` and their curls at a **fixed** reference barycentric
+/// point `lam` (`f64` constants), given the (now-Dual) physical gradients
+/// `bary[p] = ∇λ_p`. Mirrors the `f64` construction entry-for-entry.
+#[allow(clippy::type_complexity)]
+fn tet_nedelec2_shapes_dual(
+    lam: &[f64; 4],
+    bary: &[[Dual; 3]; 4],
+) -> (
+    [[Dual; 3]; TET_NEDELEC2_DOFS],
+    [[Dual; 3]; TET_NEDELEC2_DOFS],
+) {
+    let zero = Dual::cst(0.0);
+    let mut n = [[zero; 3]; TET_NEDELEC2_DOFS];
+    let mut c = [[zero; 3]; TET_NEDELEC2_DOFS];
+
+    // Edge functions: W (Whitney) and Q (gradient) per edge.
+    for (e, &(a, b)) in TET_LOCAL_EDGES.iter().enumerate() {
+        // W_ab = λ_a ∇λ_b − λ_b ∇λ_a,  curl = 2 ∇λ_a × ∇λ_b.
+        n[2 * e] = dlc3(lam[a], bary[b], -lam[b], bary[a]);
+        c[2 * e] = dscale3(2.0, dcross3(bary[a], bary[b]));
+        // Q_ab = λ_a ∇λ_b + λ_b ∇λ_a = ∇(λ_a λ_b),  curl = 0.
+        n[2 * e + 1] = dlc3(lam[a], bary[b], lam[b], bary[a]);
+        c[2 * e + 1] = [zero; 3];
+    }
+
+    // Face functions: φ0 = λ_c W_ab, φ1 = λ_a W_bc, with (a,b,c) ascending.
+    for (f, tri) in TET_LOCAL_FACES.iter().enumerate() {
+        let (a, b, cc) = (tri[0], tri[1], tri[2]);
+        let base = TET_NEDELEC2_FACE_DOF_BASE + 2 * f;
+
+        // φ0 = λ_c (λ_a ∇λ_b − λ_b ∇λ_a)
+        let w_ab = dlc3(lam[a], bary[b], -lam[b], bary[a]);
+        n[base] = dscale3(lam[cc], w_ab);
+        // curl φ0 = (λ_c ∇λ_a + λ_a ∇λ_c) × ∇λ_b − (λ_c ∇λ_b + λ_b ∇λ_c) × ∇λ_a
+        {
+            let g_ca = dlc3(lam[cc], bary[a], lam[a], bary[cc]);
+            let g_cb = dlc3(lam[cc], bary[b], lam[b], bary[cc]);
+            c[base] = dsub3(dcross3(g_ca, bary[b]), dcross3(g_cb, bary[a]));
+        }
+
+        // φ1 = λ_a (λ_b ∇λ_c − λ_c ∇λ_b)
+        let w_bc = dlc3(lam[b], bary[cc], -lam[cc], bary[b]);
+        n[base + 1] = dscale3(lam[a], w_bc);
+        // curl φ1 = (λ_a ∇λ_b + λ_b ∇λ_a) × ∇λ_c − (λ_a ∇λ_c + λ_c ∇λ_a) × ∇λ_b
+        {
+            let g_ab = dlc3(lam[a], bary[b], lam[b], bary[a]);
+            let g_ac = dlc3(lam[a], bary[cc], lam[cc], bary[a]);
+            c[base + 1] = dsub3(dcross3(g_ab, bary[cc]), dcross3(g_ac, bary[b]));
+        }
+    }
+
+    (n, c)
+}
+
+/// Dual twin of the second-order Nédélec element: local curl-curl `K` (`20×20`),
+/// mass `M` (`20×20`, ε = 1), and current-RHS moments `∫ N_i dV` (`20×3`), all
+/// in dual arithmetic on dual-valued `coords` — so each `.du` is the exact
+/// directional derivative w.r.t. the seeded coordinate.
+///
+/// Mirrors [`crate::elements::nedelec_p2::tet_nedelec2_local`] and
+/// [`crate::elements::nedelec_p2::tet_nedelec2_local_rhs`]: it accumulates over
+/// the SAME fixed [`tet_quad_deg4`] rule with weight `|signed_vol| · frac`. The
+/// RHS moment is returned per-DOF as the `[20][3]` tensor `∫ N_i dV` (contract
+/// with a fixed `J` to recover the RHS entry `∫ N_i · J dV`), so the caller can
+/// use the same tangents for any held-fixed complex `J`.
+#[allow(clippy::type_complexity)]
+fn nedelec2_local_dual(
+    coords: &[[Dual; 3]; 4],
+) -> (
+    [[Dual; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS],
+    [[Dual; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS],
+    [[Dual; 3]; TET_NEDELEC2_DOFS],
+) {
+    let (bary, signed_vol) = tet_barycentric_gradients_dual(coords);
+    let vol_abs = signed_vol.abs();
+
+    let zero = Dual::cst(0.0);
+    let mut k = [[zero; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS];
+    let mut m = [[zero; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS];
+    let mut nint = [[zero; 3]; TET_NEDELEC2_DOFS];
+
+    for (lam, frac) in tet_quad_deg4() {
+        let w = vol_abs.scale(frac);
+        let (n, c) = tet_nedelec2_shapes_dual(&lam, &bary);
+        for i in 0..TET_NEDELEC2_DOFS {
+            for j in 0..TET_NEDELEC2_DOFS {
+                m[i][j] = m[i][j].add(ddot3(n[i], n[j]).mul(w));
+                k[i][j] = k[i][j].add(ddot3(c[i], c[j]).mul(w));
+            }
+            for d in 0..3 {
+                nint[i][d] = nint[i][d].add(n[i][d].mul(w));
+            }
         }
     }
 
@@ -632,6 +796,291 @@ where
         objective: objective_value,
         grad_node,
         e_edges,
+        residual_rel,
+        n_factorizations,
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SECOND-ORDER (p=2) shape-gradient driver (issue #619).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Result of a **second-order (`p=2`)** driven-Nédélec **geometry**
+/// discrete-adjoint gradient evaluation. Distinct from
+/// [`DrivenShapeGradient`] because the `p=2` forward field lives over the
+/// `edges×2 + faces×2` DOF numbering (length `n_dofs`), not the `p=1`
+/// per-edge field.
+#[derive(Debug, Clone)]
+pub struct P2DrivenShapeGradient {
+    /// The scalar objective value `g(x)` at the (unperturbed) forward solution.
+    pub objective: f64,
+    /// The full **nodal-coordinate** gradient `∂g/∂X_{n,d}`, one `[x,y,z]`
+    /// triple per node (length `mesh.n_nodes()`). Chain through a node-motion
+    /// map with [`crate::shape::chain_node_motion`] to obtain `∂g/∂θ`.
+    pub grad_node: Vec<[f64; 3]>,
+    /// Full-length `[n_dofs]` complex forward DOF field `x` (PEC-eliminated DOFs
+    /// carry exact zeros), returned for post-processing / cross-checks.
+    pub x: Vec<c64>,
+    /// Relative residual `‖A x − b‖₂ / ‖b‖₂` of the interior forward solve.
+    pub residual_rel: f64,
+    /// Number of sparse LU **factorizations** performed. Always `1`: the
+    /// forward and adjoint solves share a single factorization.
+    pub n_factorizations: usize,
+}
+
+/// Compute the full nodal-coordinate gradient `∂g/∂X_{n,d}` of a **second-order
+/// (`p=2`) driven Nédélec** EM observable via the discrete adjoint — **one
+/// forward + one adjoint solve** sharing a single complex sparse LU — then chain
+/// through any analytic node-motion map with [`crate::shape::chain_node_motion`]
+/// (issue #619, Epic #475/#569; the `p=2` retention of the #577 shape adjoint).
+///
+/// This is the `p=2` sibling of [`driven_shape_gradient`]. The adjoint identity
+/// is identical — with the geometry-dependent-RHS `∂b/∂X` term —
+///
+/// ```text
+///   dg/dX = 2 Re[ λᵀ ∂b/∂X ] − 2 Re[ λᵀ (∂A/∂X) x ],   Aᵀ λ = ∂g/∂x,
+/// ```
+///
+/// but the element factors `∂A/∂X = ∂K/∂X − ω²ε ∂M/∂X` and `∂b/∂X = iω ∂(∫N·J)`
+/// are read from the **20-DOF `p=2` Dual element twin** [`nedelec2_local_dual`]
+/// (exact forward-mode AD), and the 20 local DOFs gather with **unit sign** from
+/// the ascending-global-vertex sort (no `p=1` `gsign`). Seeding sorted-local
+/// vertex `a` corresponds to global node `tet[perm[a]]`, so the tangent
+/// accumulates into `grad_node[tet[perm[a]]]`.
+///
+/// # Arguments
+///
+/// * `mesh` — tetrahedral mesh (fixed topology; gradient w.r.t. node positions).
+/// * `eps_r` — per-tet **real** relative permittivity (length `mesh.n_tets()`).
+/// * `interior_dof_mask` — length `n_dofs` (`= 2·n_edges + 2·n_faces`) PEC mask;
+///   build it for a cube cavity with
+///   [`crate::assembly::nedelec_p2::cube_pec_interior_p2_dofs`].
+/// * `omega` — drive frequency `ω = k₀` (away from a resonance).
+/// * `source` — per-tet-constant complex volumetric current source, held
+///   **fixed per element** as the mesh morphs (so `∂b/∂X` is purely geometric).
+/// * `objective` — `g(x) → (value, ∂g/∂x)` over the full-length `[n_dofs]`
+///   complex DOF vector; `∂g/∂x` is the un-conjugated Wirtinger cotangent
+///   (e.g. `x̄` for `g = Σ|x_i|²`). Its entries on PEC DOFs are ignored.
+///
+/// # Errors
+///
+/// [`DrivenError`] on shape mismatches, empty interior, factorization failure,
+/// or an objective-cotangent length mismatch.
+pub fn driven_shape_gradient_p2<G>(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    interior_dof_mask: &[bool],
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+) -> Result<P2DrivenShapeGradient, DrivenError>
+where
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    use crate::assembly::nedelec_p2::{P2DofMap, assemble_p2_rhs_constant, p2_interior_km};
+    use faer::linalg::solvers::Solve;
+
+    let n_tets = mesh.n_tets();
+    let n_nodes = mesh.n_nodes();
+
+    // --- Input validation (mirrors driven_material_adjoint_gradient_p2). -----
+    if eps_r.len() != n_tets {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: eps_r.len(),
+            want: n_tets,
+        });
+    }
+    if source.j_tet.len() != n_tets {
+        return Err(DrivenError::SourceDimMismatch {
+            got: source.j_tet.len(),
+            want: n_tets,
+        });
+    }
+    let dofs = P2DofMap::build(mesh);
+    if interior_dof_mask.len() != dofs.n_dofs {
+        return Err(DrivenError::MaskDimMismatch {
+            got: interior_dof_mask.len(),
+            want: dofs.n_dofs,
+        });
+    }
+
+    // --- Current-source RHS: b = iωμ₀ ∫ N · J dV with μ₀ = 1. ----------------
+    // Assemble the real p=2 moments for Re[J] and Im[J] separately (the element
+    // RHS kernel is real-valued), then combine b = iω(re + i·im) = ω(−im + i·re).
+    let j_re: Vec<[f64; 3]> = source
+        .j_tet
+        .iter()
+        .map(|j| [j[0].re, j[1].re, j[2].re])
+        .collect();
+    let j_im: Vec<[f64; 3]> = source
+        .j_tet
+        .iter()
+        .map(|j| [j[0].im, j[1].im, j[2].im])
+        .collect();
+    let b_re = assemble_p2_rhs_constant(mesh, &dofs, &j_re);
+    let b_im = assemble_p2_rhs_constant(mesh, &dofs, &j_im);
+    let rhs_full: Vec<c64> = b_re
+        .iter()
+        .zip(b_im.iter())
+        .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+        .collect();
+
+    // --- Interior pencil A(ω) = K − ω² M(ε) via the shared substrate. --------
+    let (remap, n_interior, kept) = p2_interior_km(mesh, &dofs, eps_r, interior_dof_mask);
+    if n_interior == 0 {
+        return Err(DrivenError::EmptyInterior);
+    }
+    let omega2 = omega * omega;
+    let triplets: Vec<Triplet<usize, usize, c64>> = kept
+        .iter()
+        .map(|&(r, c, k, m)| Triplet::new(r, c, c64::new(k - omega2 * m, 0.0)))
+        .collect();
+    let a_int =
+        SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
+            .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
+
+    // --- Factor ONCE. Serves both the forward and adjoint solves. -----------
+    let lu = a_int
+        .as_ref()
+        .sp_lu()
+        .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+    let n_factorizations = 1;
+
+    // Interior-filtered RHS.
+    let mut b_int = vec![c64::new(0.0, 0.0); n_interior];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            b_int[ri as usize] = rhs_full[g];
+        }
+    }
+
+    // --- Forward solve A x = b. ---------------------------------------------
+    let mut fwd: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| b_int[i]);
+    lu.solve_in_place(fwd.as_mut());
+    let x_int: Vec<c64> = (0..n_interior).map(|i| fwd[(i, 0)]).collect();
+
+    // Post-solve residual health check ‖A x − b‖ / ‖b‖.
+    let residual_rel = {
+        let mut ax = vec![c64::new(0.0, 0.0); n_interior];
+        for &(r, c, k, m) in &kept {
+            ax[r] += c64::new(k - omega2 * m, 0.0) * x_int[c];
+        }
+        let mut res2 = 0.0_f64;
+        let mut b2 = 0.0_f64;
+        for i in 0..n_interior {
+            let d = ax[i] - b_int[i];
+            res2 += d.re * d.re + d.im * d.im;
+            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
+        }
+        if b2 > 0.0 {
+            (res2 / b2).sqrt()
+        } else {
+            res2.sqrt()
+        }
+    };
+
+    // Scatter x to full length for the objective + contraction (PEC DOFs = 0).
+    let mut x = vec![c64::new(0.0, 0.0); dofs.n_dofs];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            x[g] = x_int[ri as usize];
+        }
+    }
+
+    // --- Objective and its Wirtinger cotangent ∂g/∂x. -----------------------
+    let (objective_value, dg_dx) = objective(&x);
+    if dg_dx.len() != dofs.n_dofs {
+        return Err(DrivenError::SparseAssembly(format!(
+            "objective cotangent length {} != DOF count {}",
+            dg_dx.len(),
+            dofs.n_dofs
+        )));
+    }
+    let mut g_x_int = vec![c64::new(0.0, 0.0); n_interior];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            g_x_int[ri as usize] = dg_dx[g];
+        }
+    }
+
+    // --- Adjoint solve Aᵀ λ = ∂g/∂x, REUSING the forward factorization. -----
+    // A is complex-symmetric (Aᵀ = A), so the transpose solve equals the
+    // forward solve; written as the transpose to keep the pattern explicit and
+    // to fail loudly under a symmetry-breaking mutation. No refactorization.
+    let mut adj: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| g_x_int[i]);
+    lu.solve_transpose_in_place(adj.as_mut());
+    let lambda_int: Vec<c64> = (0..n_interior).map(|i| adj[(i, 0)]).collect();
+
+    // λ scattered to full DOF length, zero on PEC DOFs.
+    let mut lambda_full = vec![c64::new(0.0, 0.0); dofs.n_dofs];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            lambda_full[g] = lambda_int[ri as usize];
+        }
+    }
+
+    // --- Nodal-coordinate gradient (the 20-DOF geometry contraction). --------
+    // ∂g/∂X_{n,d} = 2 Re[ λᵀ ∂b/∂X ] − 2 Re[ λᵀ (∂A/∂X) x ], one local per-tet
+    // sweep. Local λ / x gather with UNIT sign from `tet_dofs[t]` (orientation
+    // absorbed by the ascending-vertex sort). Seed each of the 12 SORTED-local
+    // coordinates through the Dual p=2 element twin; sorted-local vertex `a`
+    // corresponds to global node `tet[perm[a]]`.
+    let mut grad_node = vec![[0.0_f64; 3]; n_nodes];
+    let iomega = c64::new(0.0, omega);
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        let gdofs = &dofs.tet_dofs[t];
+        let perm = &dofs.tet_perm[t];
+
+        // Unit-sign local adjoint λ and forward x over the 20 sorted DOFs.
+        let lam_loc: [c64; TET_NEDELEC2_DOFS] = std::array::from_fn(|i| lambda_full[gdofs[i]]);
+        // Skip a tet whose adjoint vanishes on all 20 local DOFs (its local
+        // A/b never couples into the objective).
+        if lam_loc.iter().all(|z| z.re == 0.0 && z.im == 0.0) {
+            continue;
+        }
+        let x_loc: [c64; TET_NEDELEC2_DOFS] = std::array::from_fn(|i| x[gdofs[i]]);
+
+        // Base coords in ASCENDING-VERTEX-SORTED order (matches the local DOF
+        // layout of the Dual twin, hence of lam_loc / x_loc).
+        let sorted = dofs.sorted_coords(mesh, t);
+        let eps_t = eps_r[t];
+        let jt = source.j_tet[t]; // [c64; 3], held fixed as the mesh morphs
+
+        for a in 0..4 {
+            let node = tet[perm[a]] as usize; // sorted-local a → global node
+            for c_axis in 0..3 {
+                let mut dc = sorted.map(|v| v.map(Dual::cst));
+                dc[a][c_axis] = Dual::var(sorted[a][c_axis]);
+                let (dk, dm, dnint) = nedelec2_local_dual(&dc);
+
+                // −λᵀ (∂A/∂X) x, ∂A_ij = ∂K_ij − ω² ε_t ∂M_ij.
+                let mut term_a = c64::new(0.0, 0.0);
+                for i in 0..TET_NEDELEC2_DOFS {
+                    for j in 0..TET_NEDELEC2_DOFS {
+                        let d_a = dk[i][j].du - omega2 * eps_t * dm[i][j].du;
+                        term_a += lam_loc[i] * x_loc[j] * d_a;
+                    }
+                }
+
+                // +λᵀ ∂b/∂X, ∂b_i = iω · (∂(∫N_i)·J), J = jt held fixed.
+                let mut term_b = c64::new(0.0, 0.0);
+                for i in 0..TET_NEDELEC2_DOFS {
+                    let mut dnj = c64::new(0.0, 0.0);
+                    for d in 0..3 {
+                        dnj += jt[d] * dnint[i][d].du;
+                    }
+                    term_b += lam_loc[i] * (iomega * dnj);
+                }
+
+                grad_node[node][c_axis] += 2.0 * (term_b - term_a).re;
+            }
+        }
+    }
+
+    Ok(P2DrivenShapeGradient {
+        objective: objective_value,
+        grad_node,
+        x,
         residual_rel,
         n_factorizations,
     })
@@ -1026,6 +1475,340 @@ mod tests {
         assert!(
             rel > 1e-2,
             "conjugation-error gradient {ana_wrong} matched the FD {fd} (rel {rel:.3e}) — \
+             the tolerance is not biting"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SECOND-ORDER (p=2) tests (issue #619).
+    // ─────────────────────────────────────────────────────────────────────
+
+    use crate::assembly::nedelec_p2::{
+        P2DofMap, assemble_p2_rhs_constant, cube_pec_interior_p2_dofs,
+    };
+    use crate::driven::solve::driven_solve_p2;
+    use crate::elements::nedelec_p2::{tet_nedelec2_local, tet_nedelec2_local_rhs};
+
+    /// A generic well-shaped (non-axis-aligned) tet for the element self-checks.
+    fn generic_tet() -> [[f64; 3]; 4] {
+        [
+            [0.10, 0.20, 0.05],
+            [1.05, 0.15, 0.20],
+            [0.25, 0.95, 0.10],
+            [0.20, 0.30, 1.10],
+        ]
+    }
+
+    /// Driven PEC cube cavity at `p=2`: uniform lossless ε_r, driven by a
+    /// genuinely COMPLEX per-tet current source. Returns
+    /// `(mesh, eps_r, interior_dof_mask, source)`.
+    fn cavity_fixture_p2(n: usize) -> (TetMesh, Vec<f64>, Vec<bool>, CurrentSource) {
+        let mesh = cube_tet_mesh(n, 1.0);
+        let eps_r = vec![2.0_f64; mesh.n_tets()];
+        let dofs = P2DofMap::build(&mesh);
+        let mask = cube_pec_interior_p2_dofs(&mesh, &dofs, 1.0);
+        let pi = std::f64::consts::PI;
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.3 * (pi * c[2]).sin()),
+                c64::new(0.5 * (pi * c[1]).sin(), 0.2),
+                c64::new((pi * c[0]).sin(), 0.4 * c[2]),
+            ]
+        });
+        (mesh, eps_r, mask, source)
+    }
+
+    /// **The p=2 dual `.re` faithfully lifts the f64 element kernel.** The `.re`
+    /// fields of the Dual local K/M must reproduce
+    /// [`tet_nedelec2_local`] entry-for-entry, and the Dual RHS-moment tensor
+    /// contracted with a fixed `J` must reproduce
+    /// [`tet_nedelec2_local_rhs`] — proving the Dual twin differentiates *the
+    /// same* closed form the `p=2` solver assembles (mirrors the p=1
+    /// `dual_local_matrices_reproduce_burn_kernel`).
+    #[test]
+    fn p2_dual_local_matrices_reproduce_f64_kernel() {
+        let base = generic_tet();
+        let dc = base.map(|v| v.map(Dual::cst));
+        let (dk, dm, dnint) = nedelec2_local_dual(&dc);
+        let (fk, fm, _vol) = tet_nedelec2_local(&base);
+        let j = [0.7_f64, -0.3, 1.1];
+        let frhs = tet_nedelec2_local_rhs(&base, j);
+
+        let mut worst = 0.0_f64;
+        for i in 0..TET_NEDELEC2_DOFS {
+            for jj in 0..TET_NEDELEC2_DOFS {
+                let rk = (dk[i][jj].re - fk[i][jj]).abs() / fk[i][jj].abs().max(1e-12);
+                let rm = (dm[i][jj].re - fm[i][jj]).abs() / fm[i][jj].abs().max(1e-12);
+                worst = worst.max(rk).max(rm);
+            }
+            // ∫ N_i · J = Σ_c (∫ N_i,c) · J_c.
+            let rhs_i = (0..3).map(|c| dnint[i][c].re * j[c]).sum::<f64>();
+            let rr = (rhs_i - frhs[i]).abs() / frhs[i].abs().max(1e-12);
+            worst = worst.max(rr);
+        }
+        assert!(
+            worst < 1e-10,
+            "p2 dual .re vs f64 kernel worst rel-err {worst:.3e}"
+        );
+    }
+
+    /// **The p=2 element-kernel derivative is exact.** The Dual tangents of the
+    /// local K, M and RHS moments must match a central finite difference of the
+    /// same `f64` kernel for every one of the twelve node coordinates
+    /// (scale-normalized, mirroring the p=1
+    /// `dual_local_derivative_matches_finite_difference`) — proving `∂A/∂X` and
+    /// `∂b/∂X` at p=2 are analytic forward-mode AD, not FD approximations.
+    #[test]
+    fn p2_dual_local_derivative_matches_finite_difference() {
+        let base = generic_tet();
+        let j = [0.7_f64, -0.3, 1.1];
+        let h = 1e-6;
+
+        let mut diff_k = 0.0_f64;
+        let mut scale_k = 0.0_f64;
+        let mut diff_m = 0.0_f64;
+        let mut scale_m = 0.0_f64;
+        let mut diff_n = 0.0_f64;
+        let mut scale_n = 0.0_f64;
+
+        for a in 0..4 {
+            for c in 0..3 {
+                let mut dc = base.map(|v| v.map(Dual::cst));
+                dc[a][c] = Dual::var(base[a][c]);
+                let (dk, dm, dnint) = nedelec2_local_dual(&dc);
+
+                let mut cp = base;
+                let mut cm = base;
+                cp[a][c] += h;
+                cm[a][c] -= h;
+                let (kp, mp, _) = tet_nedelec2_local(&cp);
+                let (km, mm, _) = tet_nedelec2_local(&cm);
+                let rp = tet_nedelec2_local_rhs(&cp, j);
+                let rm = tet_nedelec2_local_rhs(&cm, j);
+
+                for i in 0..TET_NEDELEC2_DOFS {
+                    for jj in 0..TET_NEDELEC2_DOFS {
+                        let fdk = (kp[i][jj] - km[i][jj]) / (2.0 * h);
+                        let fdm = (mp[i][jj] - mm[i][jj]) / (2.0 * h);
+                        diff_k = diff_k.max((dk[i][jj].du - fdk).abs());
+                        scale_k = scale_k.max(fdk.abs());
+                        diff_m = diff_m.max((dm[i][jj].du - fdm).abs());
+                        scale_m = scale_m.max(fdm.abs());
+                    }
+                    // RHS moment derivative: Σ_c (∂∫N_i,c) J_c vs FD of ∫N_i·J.
+                    let dual_rhs = (0..3).map(|c2| dnint[i][c2].du * j[c2]).sum::<f64>();
+                    let fdn = (rp[i] - rm[i]) / (2.0 * h);
+                    diff_n = diff_n.max((dual_rhs - fdn).abs());
+                    scale_n = scale_n.max(fdn.abs());
+                }
+            }
+        }
+
+        assert!(
+            scale_k > 1e-3 && scale_m > 1e-3 && scale_n > 1e-3,
+            "p2 kernel derivative scales too small (K {scale_k:.3e}, M {scale_m:.3e}, N {scale_n:.3e})"
+        );
+        let rel_k = diff_k / scale_k;
+        let rel_m = diff_m / scale_m;
+        let rel_n = diff_n / scale_n;
+        let worst = rel_k.max(rel_m).max(rel_n);
+        assert!(
+            worst < 1e-6,
+            "p2 dual-vs-FD scale-normalized rel-err too large \
+             (K {rel_k:.3e}, M {rel_m:.3e}, N {rel_n:.3e})"
+        );
+    }
+
+    /// **The load-bearing p=2 test.** The `p=2` driven-Nédélec discrete-adjoint
+    /// **shape** gradient must match a full central finite difference of the
+    /// entire `p=2` driven pipeline (move nodes → reassemble the `p=2` `A` and
+    /// current RHS `b` → resolve via the public [`driven_solve_p2`] → recompute
+    /// g), for two distinct node-motion maps. A wrong sign, a wrong `∂A/∂X` /
+    /// `∂b/∂X`, a dropped RHS term, the wrong sorted-vertex node mapping, or a
+    /// conjugation error fails it.
+    #[test]
+    fn driven_shape_gradient_p2_matches_central_finite_difference() {
+        let (mesh, eps_r, mask, source) = cavity_fixture_p2(2);
+        let omega = 1.5;
+        let dofs = P2DofMap::build(&mesh);
+
+        // ONE forward + ONE adjoint solve → full nodal-coordinate gradient.
+        let sg = driven_shape_gradient_p2(&mesh, &eps_r, &mask, omega, &source, l2_objective)
+            .expect("p2 shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "p2 shape adjoint must reuse the forward factorization"
+        );
+        assert!(
+            sg.residual_rel < 1e-9,
+            "p2 forward solve unhealthy (residual {:.3e}); pick ω off resonance",
+            sg.residual_rel
+        );
+
+        // Full-pipeline objective as a function of θ under a node-velocity field
+        // D: move nodes to X⁰ + θD, rebuild the p=2 RHS (same drive factor and
+        // fixed per-tet source), re-solve via the public path, recompute g. The
+        // PEC mask is topology-derived, so it is held fixed under node motion.
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let j_re: Vec<[f64; 3]> = source
+                .j_tet
+                .iter()
+                .map(|jj| [jj[0].re, jj[1].re, jj[2].re])
+                .collect();
+            let j_im: Vec<[f64; 3]> = source
+                .j_tet
+                .iter()
+                .map(|jj| [jj[0].im, jj[1].im, jj[2].im])
+                .collect();
+            let b_re = assemble_p2_rhs_constant(&moved, &dofs, &j_re);
+            let b_im = assemble_p2_rhs_constant(&moved, &dofs, &j_im);
+            let rhs: Vec<c64> = b_re
+                .iter()
+                .zip(b_im.iter())
+                .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+                .collect();
+            let sol = driven_solve_p2(&moved, &eps_r, &mask, omega, &rhs).expect("driven_solve_p2");
+            l2_objective(&sol.x).0
+        };
+
+        // Objective must agree between the two forward paths (sanity).
+        let g0_pub = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0_pub - sg.objective).abs() <= 1e-9 * g0_pub.abs().max(1.0),
+            "objective mismatch: shape adjoint {} vs public driven_solve_p2 {g0_pub}",
+            sg.objective
+        );
+
+        // Two analytic node-motion maps, LINEAR in θ.
+        let tol = 1e-9;
+        let d_face: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[0] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let ctr = [0.5, 0.5, 0.5];
+        let ctrl = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.iter().all(|&c| c > tol && c < 1.0 - tol))
+            .min_by(|(_, a), (_, b)| {
+                let da =
+                    (a[0] - ctr[0]).powi(2) + (a[1] - ctr[1]).powi(2) + (a[2] - ctr[2]).powi(2);
+                let db =
+                    (b[0] - ctr[0]).powi(2) + (b[1] - ctr[1]).powi(2) + (b[2] - ctr[2]).powi(2);
+                da.partial_cmp(&db).unwrap()
+            })
+            .map(|(i, _)| i)
+            .expect("mesh has an interior node");
+        let mut d_node = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d_node[ctrl] = [1.0, 0.0, 0.0];
+
+        let h = 1e-6;
+        for (name, d) in [
+            ("hi-face-translate", &d_face),
+            ("interior-control-node", &d_node),
+        ] {
+            let ana = chain_node_motion(&sg.grad_node, d);
+            let fd = (g_of_theta(h, d) - g_of_theta(-h, d)) / (2.0 * h);
+            assert!(
+                fd.abs() > 1e-6,
+                "map {name}: FD gradient {fd} unexpectedly ~0 (fixture degenerate?)"
+            );
+            let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            assert!(
+                rel < 1e-3,
+                "map {name}: p2 adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-3"
+            );
+        }
+
+        // The two maps must give DISTINCT gradients.
+        let g_face = chain_node_motion(&sg.grad_node, &d_face);
+        let g_node = chain_node_motion(&sg.grad_node, &d_node);
+        assert!(
+            (g_face - g_node).abs() > 1e-6,
+            "the two node-motion maps must yield distinct gradients ({g_face} vs {g_node})"
+        );
+    }
+
+    /// Mutation tripwire (p=2): the finite-difference check must **reject** a
+    /// shape gradient built with the classic complex-adjoint conjugation error
+    /// (feeding `∂g/∂x̄` instead of `∂g/∂x`) on the genuinely complex cavity
+    /// field — proving the load-bearing p=2 test's tolerance is biting.
+    #[test]
+    fn p2_conjugation_error_is_detected_by_fd() {
+        let (mesh, eps_r, mask, source) = cavity_fixture_p2(2);
+        let omega = 1.5;
+        let dofs = P2DofMap::build(&mesh);
+
+        // Wrong cotangent: +i·Im instead of −i·Im (∂g/∂x̄ rather than ∂g/∂x).
+        let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
+            let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+            let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
+            (g, cot)
+        };
+        let wrong = driven_shape_gradient_p2(&mesh, &eps_r, &mask, omega, &source, wrong_objective)
+            .expect("wrong-conjugation p2 shape gradient");
+
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let j_re: Vec<[f64; 3]> = source
+                .j_tet
+                .iter()
+                .map(|jj| [jj[0].re, jj[1].re, jj[2].re])
+                .collect();
+            let j_im: Vec<[f64; 3]> = source
+                .j_tet
+                .iter()
+                .map(|jj| [jj[0].im, jj[1].im, jj[2].im])
+                .collect();
+            let b_re = assemble_p2_rhs_constant(&moved, &dofs, &j_re);
+            let b_im = assemble_p2_rhs_constant(&moved, &dofs, &j_im);
+            let rhs: Vec<c64> = b_re
+                .iter()
+                .zip(b_im.iter())
+                .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+                .collect();
+            let sol = driven_solve_p2(&moved, &eps_r, &mask, omega, &rhs).expect("driven_solve_p2");
+            l2_objective(&sol.x).0
+        };
+
+        let tol = 1e-9;
+        let d_face: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[0] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let h = 1e-6;
+        let fd = (g_of_theta(h, &d_face) - g_of_theta(-h, &d_face)) / (2.0 * h);
+        let ana_wrong = chain_node_motion(&wrong.grad_node, &d_face);
+        let rel = (ana_wrong - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel > 1e-2,
+            "p2 conjugation-error gradient {ana_wrong} matched the FD {fd} (rel {rel:.3e}) — \
              the tolerance is not biting"
         );
     }
