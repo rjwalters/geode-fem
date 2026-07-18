@@ -21,6 +21,11 @@
 //!   `arpack` Cargo feature), a cross-check oracle for [`lanczos`].
 //! - [`self_consistent`] — self-consistent `k₀` Newton iteration for the
 //!   Silver-Müller quasimode pencil, layered on [`complex`].
+//! - [`cavity`] — order-selectable ([`cavity::ElementOrder`]) lossless
+//!   PEC-cube cavity generalized eigenproblem: dispatches the `p=1` Whitney
+//!   path vs the #621 second-order Nédélec assembly onto the shared sparse
+//!   shift-invert Lanczos, for the `p=2` frequency-convergence gate against
+//!   the analytic `2π²` spectrum (issue #620).
 //! - [`transmon`] — transmon eigenmode solve with the Josephson junction
 //!   as a lumped reactive-shunt surface term (Epic #476 Phase B).
 //! - [`gauge`] — tree-cotree spanning-tree gauge that eliminates the
@@ -37,6 +42,7 @@
 //!   derivatives and the PHJD interior eigensolver are deferred follow-ons).
 
 pub mod ams;
+pub mod cavity;
 pub mod complex;
 pub mod dense;
 pub mod gauge;
