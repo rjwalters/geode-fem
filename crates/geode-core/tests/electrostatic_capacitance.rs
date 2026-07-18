@@ -21,11 +21,282 @@ use std::path::PathBuf;
 
 use geode_core::assembly::electrostatic::{
     CapacitanceMatrix, ConductorSurface, EPS_0, Electrode, assemble_electrostatic,
-    extract_capacitance,
+    assemble_electrostatic_p2, extract_capacitance, extract_capacitance_p2,
 };
 use geode_core::mesh::electrostatic_fixtures::{
     coax_shell_mesh, sphere_shell_mesh, two_sphere_box_mesh,
 };
+
+/// P2 sibling of [`coax_capacitance_per_length`]: same fixture, quadratic
+/// solve, energy-method extraction (no flux cross-check at P2).
+fn coax_capacitance_per_length_p2(
+    a: f64,
+    b: f64,
+    length: f64,
+    n_theta: usize,
+    n_r: usize,
+    n_z: usize,
+    eps_r_val: f64,
+) -> f64 {
+    let fx = coax_shell_mesh(a, b, length, n_theta, n_r, n_z);
+    let mesh = &fx.mesh;
+    let eps_r = vec![eps_r_val; mesh.n_tets()];
+    let rho = vec![0.0; mesh.n_tets()];
+    let inner = Electrode {
+        name: "inner".into(),
+        nodes: fx.inner.clone(),
+        voltage: 1.0,
+    };
+    let conductors = [inner];
+    let sys = assemble_electrostatic_p2(mesh, &eps_r, &rho, &conductors, &fx.outer).unwrap();
+    let cm = extract_capacitance_p2(&sys, &conductors, &fx.outer).unwrap();
+    cm.c[0][0] / length
+}
+
+/// P2 sibling of [`sphere_capacitance`].
+fn sphere_capacitance_p2(a: f64, b: f64, subdiv: usize, n_r: usize, eps_r_val: f64) -> f64 {
+    let fx = sphere_shell_mesh(a, b, subdiv, n_r);
+    let mesh = &fx.mesh;
+    let eps_r = vec![eps_r_val; mesh.n_tets()];
+    let rho = vec![0.0; mesh.n_tets()];
+    let inner = Electrode {
+        name: "inner".into(),
+        nodes: fx.inner.clone(),
+        voltage: 1.0,
+    };
+    let conductors = [inner];
+    let sys = assemble_electrostatic_p2(mesh, &eps_r, &rho, &conductors, &fx.outer).unwrap();
+    let cm = extract_capacitance_p2(&sys, &conductors, &fx.outer).unwrap();
+    cm.c[0][0]
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// P2 (quadratic) oracles — issue #602. Observed-slope context, measured on
+// this exact code (macOS arm64, 2026-07-17) and reported honestly:
+//
+// The fixtures approximate CURVED conductors with straight-edged tets, so
+// every family's error has two parts: the FIELD discretization error (what
+// the element order controls) and a GEOMETRY error from the polygonal /
+// faceted conductor surfaces (O(h²) in the angular resolution, untouched
+// by element order — that is epic gap #4, curved elements). P2 collapses
+// the field error so fast that on the sphere family it saturates the
+// faceting floor almost immediately; the coax polygon error is far
+// smaller, so the coax family shows the clean uniform-refinement win.
+//
+//   coax uniform family (n_theta, n_r) ∈ (16,1)…(128,8), vs analytic:
+//     P1: 8.296% → 2.309% → 0.601% → 0.152%   (slope ≈ 1.92)
+//     P2: 1.072% → 0.117% → 0.0131% → 0.00154% (slope ≈ 3.15)
+//   sphere, fixed sd=2 geometry, n_r ∈ 1,2,4 vs converged same-geometry
+//   P2 reference (n_r = 16) — isolates the field order:
+//     P1: 17.41% → 5.28% → 1.84%  (slope ≈ 1.62, saturating toward the
+//                                   fixed angular error of sd=2)
+//     P2: 1.45% → 0.274% → 0.0736% (slope ≈ 2.15)
+//   sphere vs ANALYTIC on deeper uniform families: P2 saturates at the
+//   faceting floor (e.g. −0.064% at sd=4) so its analytic-referenced
+//   slope decays even though its absolute error stays 20–50× below P1 —
+//   asserted as the absolute-error criterion, not a slope.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Coax uniform-refinement family (angular and radial resolution refined
+/// together, halving h at each level): the P2 convergence slope must be
+/// strictly better than P1's on the same meshes, and the P2 error must be
+/// well below the P1 error at every level.
+#[test]
+fn p2_oracle_coax_slope_beats_p1_on_uniform_family() {
+    let (a, b, length): (f64, f64, f64) = (1.0, 2.5, 1.0);
+    let c_exact = 2.0 * PI * EPS_0 / (b / a).ln();
+    let family = [(16usize, 1usize), (32, 2), (64, 4), (128, 8)];
+
+    let mut e1 = Vec::new();
+    let mut e2 = Vec::new();
+    for &(nt, nr) in &family {
+        let (c1, _) = coax_capacitance_per_length(a, b, length, nt, nr, 1, 1.0);
+        let c2 = coax_capacitance_per_length_p2(a, b, length, nt, nr, 1, 1.0);
+        e1.push((c1 - c_exact).abs() / c_exact);
+        e2.push((c2 - c_exact).abs() / c_exact);
+        eprintln!(
+            "coax (n_theta={nt}, n_r={nr}): P1 rel {:.5}%, P2 rel {:.5}%",
+            e1.last().unwrap() * 100.0,
+            e2.last().unwrap() * 100.0
+        );
+    }
+
+    // Per-level absolute superiority (measured ratios 7.7×–99×).
+    for i in 0..family.len() {
+        assert!(
+            e2[i] < e1[i] / 5.0,
+            "level {i}: P2 error {} must be ≤ P1 error {} / 5",
+            e2[i],
+            e1[i]
+        );
+    }
+    // Pairwise and overall observed slopes (h halves per level).
+    for i in 0..family.len() - 1 {
+        let s1 = (e1[i] / e1[i + 1]).log2();
+        let s2 = (e2[i] / e2[i + 1]).log2();
+        eprintln!("coax slope level {i}→{}: P1 {s1:.3}, P2 {s2:.3}", i + 1);
+        assert!(
+            s2 > s1 + 0.5,
+            "pairwise P2 slope {s2:.3} must beat P1 {s1:.3} by > 0.5"
+        );
+    }
+    let n = (family.len() - 1) as f64;
+    let s1 = (e1[0] / e1[family.len() - 1]).log2() / n;
+    let s2 = (e2[0] / e2[family.len() - 1]).log2() / n;
+    eprintln!("coax overall slopes: P1 {s1:.3}, P2 {s2:.3} (measured ≈1.92 vs ≈3.15)");
+    assert!(
+        s2 > s1 + 0.8,
+        "overall P2 slope {s2:.3} must beat P1 {s1:.3} by > 0.8"
+    );
+    // Finest-level P2 error is deep below the 1% oracle bar (measured
+    // 0.00154%).
+    assert!(e2[family.len() - 1] < 5e-5);
+}
+
+/// Shared-coarsest-mesh criterion on the P1 sphere oracle family
+/// (subdiv 4, n_r = 3, the coarse member of
+/// `oracle_concentric_spheres_within_one_percent_and_converges`): the P2
+/// absolute capacitance error must be below the P1 error — measured
+/// 0.038% vs 2.083%, a ~55× reduction, already below the 1% bar on the
+/// mesh where P1 sits at 2%.
+#[test]
+fn p2_oracle_spheres_beats_p1_at_shared_coarsest() {
+    let (a, b) = (1.0, 2.0);
+    let c_exact = 4.0 * PI * EPS_0 * a * b / (b - a);
+    let (c1, _, _) = sphere_capacitance(a, b, 4, 3, 1.0);
+    let c2 = sphere_capacitance_p2(a, b, 4, 3, 1.0);
+    let e1 = (c1 - c_exact).abs() / c_exact;
+    let e2 = (c2 - c_exact).abs() / c_exact;
+    eprintln!(
+        "sphere shared coarsest (sd=4, n_r=3): P1 rel {:.4}%, P2 rel {:.4}% ({}× smaller)",
+        e1 * 100.0,
+        e2 * 100.0,
+        (e1 / e2).round()
+    );
+    assert!(
+        e2 < e1 / 10.0,
+        "P2 coarsest-mesh error {e2} must be ≤ P1 error {e1} / 10"
+    );
+    // P2 meets the 1% oracle bar on the mesh where P1 fails it.
+    assert!(e2 < 0.01, "P2 rel err {e2} exceeds the 1% oracle bar");
+    assert!(
+        e1 > 0.01,
+        "P1 coarse error unexpectedly under 1% — fixture drifted"
+    );
+}
+
+/// Sphere-family field-convergence order: fixed faceted geometry (sd=2),
+/// radial refinement n_r ∈ {1, 2, 4}, errors measured against a converged
+/// **same-geometry** P2 reference (n_r = 16). This isolates the element's
+/// field order from the O(h²_angular) faceting error that an
+/// analytic-referenced slope saturates on (P2 reaches the faceting floor
+/// almost immediately — see the module-level measurement notes). The P2
+/// field slope must be strictly better than P1's on the same meshes.
+#[test]
+fn p2_oracle_spheres_field_order_beats_p1_on_same_geometry() {
+    let (a, b) = (1.0, 2.0);
+    let c_exact = 4.0 * PI * EPS_0 * a * b / (b - a);
+    let c_ref = sphere_capacitance_p2(a, b, 2, 16, 1.0);
+    // The reference itself sits at the sd=2 faceting floor vs analytic
+    // (measured −0.987%): the polyhedral conductor is slightly smaller
+    // than the sphere it approximates.
+    let ref_vs_analytic = (c_ref - c_exact) / c_exact;
+    eprintln!(
+        "sd=2 P2 reference vs analytic: {:+.4}%",
+        ref_vs_analytic * 100.0
+    );
+    assert!(ref_vs_analytic.abs() < 0.015);
+
+    let mut e1 = Vec::new();
+    let mut e2 = Vec::new();
+    for n_r in [1usize, 2, 4] {
+        let (c1, _, _) = sphere_capacitance(a, b, 2, n_r, 1.0);
+        let c2 = sphere_capacitance_p2(a, b, 2, n_r, 1.0);
+        e1.push((c1 - c_ref).abs() / c_ref);
+        e2.push((c2 - c_ref).abs() / c_ref);
+        eprintln!(
+            "sphere sd=2 n_r={n_r} vs same-geometry ref: P1 field rel {:.5}%, P2 field rel {:.5}%",
+            e1.last().unwrap() * 100.0,
+            e2.last().unwrap() * 100.0
+        );
+    }
+
+    for i in 0..3 {
+        assert!(
+            e2[i] < e1[i] / 5.0,
+            "level {i}: P2 field error {} must be ≤ P1 field error {} / 5",
+            e2[i],
+            e1[i]
+        );
+    }
+    for i in 0..2 {
+        let s1 = (e1[i] / e1[i + 1]).log2();
+        let s2 = (e2[i] / e2[i + 1]).log2();
+        eprintln!(
+            "sphere field slope level {i}→{}: P1 {s1:.3}, P2 {s2:.3}",
+            i + 1
+        );
+        assert!(
+            s2 > s1,
+            "pairwise P2 field slope {s2:.3} must be strictly better than P1 {s1:.3}"
+        );
+    }
+    let s1 = (e1[0] / e1[2]).log2() / 2.0;
+    let s2 = (e2[0] / e2[2]).log2() / 2.0;
+    eprintln!("sphere overall field slopes: P1 {s1:.3}, P2 {s2:.3} (measured ≈1.62 vs ≈2.15)");
+    assert!(
+        s2 > s1 + 0.4,
+        "overall P2 field slope {s2:.3} must beat P1 {s1:.3} by > 0.4"
+    );
+}
+
+/// Maxwell C-matrix invariants at P2 on a genuine two-conductor system
+/// (two staircase spheres in a grounded box, deliberately small — the
+/// invariants are structural, not accuracy-bound): symmetry to solver
+/// tolerance and the Maxwell sign structure.
+#[test]
+fn p2_maxwell_invariants_two_conductor_box() {
+    let fx = two_sphere_box_mesh(0.5, 1.5, 2.5, 12);
+    let mesh = &fx.mesh;
+    assert!(!fx.sphere_a.is_empty() && !fx.sphere_b.is_empty());
+    let eps_r = vec![1.0; mesh.n_tets()];
+    let rho = vec![0.0; mesh.n_tets()];
+    let conductors = vec![
+        Electrode {
+            name: "A".into(),
+            nodes: fx.sphere_a.clone(),
+            voltage: 1.0,
+        },
+        Electrode {
+            name: "B".into(),
+            nodes: fx.sphere_b.clone(),
+            voltage: 0.0,
+        },
+    ];
+    let sys = assemble_electrostatic_p2(mesh, &eps_r, &rho, &conductors, &fx.ground).unwrap();
+    let cm = extract_capacitance_p2(&sys, &conductors, &fx.ground).unwrap();
+    eprintln!(
+        "P2 two-conductor Maxwell matrix (F):\n [{:.4e}, {:.4e}]\n [{:.4e}, {:.4e}]",
+        cm.c[0][0], cm.c[0][1], cm.c[1][0], cm.c[1][1]
+    );
+    let asym = cm.max_rel_asymmetry();
+    eprintln!("P2 max rel asymmetry = {asym:.2e}");
+    assert!(
+        asym < 1e-9,
+        "P2 Maxwell matrix must be symmetric (rel asym {asym})"
+    );
+    assert!(
+        cm.has_maxwell_sign_structure(1e-6),
+        "P2 Maxwell sign structure violated"
+    );
+    // Mirror-symmetric conductors: the two diagonals agree closely.
+    let d_rel = (cm.c[0][0] - cm.c[1][1]).abs() / cm.c[0][0];
+    assert!(
+        d_rel < 1e-6,
+        "mirror symmetry broken: diagonals differ by {d_rel}"
+    );
+    assert!(cm.c_sigma(0) > 0.0);
+}
 
 /// Coax per-unit-length capacitance from a shell fixture with the given
 /// mesh resolution, uniform `eps_r`.

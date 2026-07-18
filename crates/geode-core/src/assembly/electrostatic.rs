@@ -1,5 +1,8 @@
 //! Host-side **scalar electrostatic** assembly and multi-conductor
-//! capacitance-matrix extraction on a 3-D tetrahedral mesh (P1).
+//! capacitance-matrix extraction on a 3-D tetrahedral mesh (P1 by
+//! default; an opt-in quadratic P2 path — [`assemble_electrostatic_p2`] /
+//! [`extract_capacitance_p2`] — was added by issue #602 and leaves the P1
+//! path untouched).
 //!
 //! Palace's `Electrostatic` problem type solves
 //!
@@ -71,6 +74,7 @@ use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
 pub use crate::assembly::p1::SparsityPattern;
+use crate::elements::p2::{TET_P2_DOFS, tet_p2_local};
 use crate::mesh::TetMesh;
 
 /// Vacuum permittivity `ε₀` (F/m, CODATA). The electrostatic operator is
@@ -907,6 +911,434 @@ fn sparsity_from_tets(tets: &[[u32; 4]]) -> SparsityPattern {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Quadratic (P2) electrostatic path (Epic #475, issue #602). Fully additive
+// alongside the P1 path above — the P1 functions are untouched, and P2 is
+// opt-in via these `_p2` entry points. DOF numbering follows the 2-D P2
+// magnetostatic precedent (#472): vertex DOFs keep their node index, and
+// the edge-midpoint DOF of global edge `k` (from `TetMesh::edges`) sits at
+// `n_nodes + k`. The element kernel lives in `crate::elements::p2`.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Global P2 DOF count for a tet mesh: `n_nodes + n_edges` (see
+/// [`TetMesh::edges`]). The size of the potential vector
+/// [`ElectrostaticP2System::solve`] returns.
+#[inline]
+pub fn p2_dof_count(mesh: &TetMesh) -> usize {
+    mesh.n_nodes() + mesh.edges().len()
+}
+
+/// P2 DOF bookkeeping for a tet mesh: the global edge table plus the
+/// **boundary-face** table needed to pin edge-midpoint DOFs on electrodes.
+///
+/// # Electrode edge-DOF classification (the issue-#602 pitfall)
+///
+/// [`Electrode`] carries only **node** indices. A P2 edge-midpoint DOF is
+/// pinned to electrode *k* iff its edge lies on a **boundary face** (a tet
+/// face owned by exactly one tet) whose three vertices are all in
+/// electrode *k*'s node set. The tempting "both endpoints on the
+/// electrode" vertex-AND shortcut is wrong in general: it mis-tags edges
+/// that span **between two electrodes** or cut through the dielectric
+/// between two points of the same conductor surface — such edges' midpoint
+/// potentials are unknowns, not boundary data. See
+/// `p2_pitfall_cross_plate_edges_stay_free` for the concrete failure the
+/// facet rule prevents.
+#[derive(Debug, Clone)]
+pub struct P2DofMap {
+    /// Node count of the source mesh (edge DOFs start at this offset).
+    pub n_nodes: usize,
+    /// The sorted-unique global edge table ([`TetMesh::edges`]).
+    pub edges: Vec<[u32; 2]>,
+    /// Canonical `(lo, hi)` node pair → global edge index.
+    edge_index: std::collections::HashMap<(u32, u32), u32>,
+    /// Boundary faces (sorted node triples owned by exactly one tet).
+    boundary_faces: Vec<[u32; 3]>,
+}
+
+impl P2DofMap {
+    /// Build the P2 DOF map (edge table + boundary-face table) for a mesh.
+    pub fn new(mesh: &TetMesh) -> Self {
+        use std::collections::HashMap;
+        let edges = mesh.edges();
+        let mut edge_index: HashMap<(u32, u32), u32> = HashMap::with_capacity(edges.len());
+        for (i, e) in edges.iter().enumerate() {
+            edge_index.insert((e[0], e[1]), i as u32);
+        }
+        // Boundary faces: sorted triples that appear in exactly one tet.
+        const FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
+        let mut count: HashMap<[u32; 3], u32> = HashMap::new();
+        for tet in &mesh.tets {
+            for f in FACES.iter() {
+                let key = sorted3([tet[f[0]], tet[f[1]], tet[f[2]]]);
+                *count.entry(key).or_insert(0) += 1;
+            }
+        }
+        let boundary_faces: Vec<[u32; 3]> = count
+            .into_iter()
+            .filter(|&(_, c)| c == 1)
+            .map(|(k, _)| k)
+            .collect();
+        Self {
+            n_nodes: mesh.n_nodes(),
+            edges,
+            edge_index,
+            boundary_faces,
+        }
+    }
+
+    /// Total P2 DOF count (`n_nodes + n_edges`).
+    #[inline]
+    pub fn n_dof(&self) -> usize {
+        self.n_nodes + self.edges.len()
+    }
+
+    /// The full pinned P2 DOF set of an electrode given its node set:
+    /// the vertex DOFs (the nodes themselves) plus the edge-midpoint DOFs
+    /// of every edge of a **boundary face fully contained in the node set**
+    /// (the facet rule — see the type-level docs). Sorted, deduplicated.
+    pub fn electrode_dofs(&self, nodes: &[u32]) -> Vec<usize> {
+        use std::collections::HashSet;
+        let set: HashSet<u32> = nodes.iter().copied().collect();
+        let mut dofs: Vec<usize> = nodes.iter().map(|&n| n as usize).collect();
+        for f in &self.boundary_faces {
+            if f.iter().all(|v| set.contains(v)) {
+                // Face triples are sorted, so each pair is canonical (lo, hi).
+                for &(a, b) in &[(f[0], f[1]), (f[0], f[2]), (f[1], f[2])] {
+                    let idx = *self
+                        .edge_index
+                        .get(&(a, b))
+                        .expect("boundary-face edge must be in the edge table");
+                    dofs.push(self.n_nodes + idx as usize);
+                }
+            }
+        }
+        dofs.sort_unstable();
+        dofs.dedup();
+        dofs
+    }
+}
+
+/// Assembled 3-D **quadratic (P2)** scalar electrostatic system, indexed on
+/// the `n_nodes + n_edges` P2 DOFs of a [`TetMesh`], with the Dirichlet
+/// electrode/ground DOFs eliminated but the **full pre-elimination
+/// stiffness retained** for the energy method.
+///
+/// Second-order sibling of [`ElectrostaticSystem`]; see
+/// [`assemble_electrostatic_p2`].
+#[derive(Debug, Clone)]
+pub struct ElectrostaticP2System {
+    /// Reduced SPD stiffness `K` restricted to the free DOFs.
+    pub k: SparseColMat<usize, f64>,
+    /// Full, unconstrained stiffness `K` on all `n_dof` DOFs (the energy
+    /// method's operator, as in the P1 system).
+    pub k_full: SparseColMat<usize, f64>,
+    /// Reduced RHS on the free DOFs (Dirichlet columns folded in).
+    pub b: Vec<f64>,
+    /// Prescribed Dirichlet value per DOF (`0.0` for free DOFs). Length
+    /// `n_dof`.
+    pub dirichlet_value: Vec<f64>,
+    /// Global → free-DOF renumber (`None` = pinned). Length `n_dof`.
+    pub free_of_global: Vec<Option<usize>>,
+    /// Number of free (unpinned) DOFs = order of `k`.
+    pub n_free: usize,
+    /// Total P2 DOF count (`n_nodes + n_edges`).
+    pub n_dof: usize,
+    /// Node count of the source mesh (edge DOFs start at this offset).
+    pub n_nodes: usize,
+    /// The P2 DOF bookkeeping (edge table + boundary faces), retained so
+    /// [`extract_capacitance_p2`] can re-derive per-conductor pinned DOF
+    /// sets with the same facet rule the assembly used.
+    pub dof_map: P2DofMap,
+}
+
+impl ElectrostaticP2System {
+    /// Solve `K u = b` on the free DOFs and scatter back to a full-length
+    /// `[n_dof]` quadratic potential (vertex values, then edge-midpoint
+    /// values; pinned DOFs carry their Dirichlet value).
+    pub fn solve(&self) -> Result<Vec<f64>, ElectrostaticError> {
+        use faer::linalg::solvers::Solve;
+
+        let lu = self
+            .k
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
+
+        let mut rhs: Mat<f64> = Mat::from_fn(self.n_free, 1, |i, _| self.b[i]);
+        lu.solve_in_place(rhs.as_mut());
+
+        let mut u = self.dirichlet_value.clone();
+        for (g, slot) in self.free_of_global.iter().enumerate() {
+            if let Some(fi) = slot {
+                u[g] = rhs[(*fi, 0)];
+            }
+        }
+        Ok(u)
+    }
+
+    /// Solve with re-folded pinned potentials (the per-excitation solve of
+    /// the capacitance extraction) — P2 twin of
+    /// [`ElectrostaticSystem::solve_with_pinned`]. `pinned_value[g]`
+    /// supplies the Dirichlet potential for pinned DOF `g` (ignored for
+    /// free DOFs); the charge RHS is zero (capacitance runs are
+    /// source-free).
+    fn solve_with_pinned(&self, pinned_value: &[f64]) -> Result<Vec<f64>, ElectrostaticError> {
+        use faer::linalg::solvers::Solve;
+
+        let mut b_free = vec![0.0_f64; self.n_free];
+        let k_ref = self.k_full.as_ref();
+        let cp = k_ref.col_ptr();
+        let row_idx = k_ref.row_idx();
+        let vals = k_ref.val();
+        for j in 0..self.n_dof {
+            if self.free_of_global[j].is_some() {
+                continue;
+            }
+            let vj = pinned_value[j];
+            if vj == 0.0 {
+                continue;
+            }
+            for k in cp[j]..cp[j + 1] {
+                let i = row_idx[k];
+                if let Some(fi) = self.free_of_global[i] {
+                    b_free[fi] -= vals[k] * vj;
+                }
+            }
+        }
+
+        let lu = self
+            .k
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
+        let mut rhs: Mat<f64> = Mat::from_fn(self.n_free, 1, |i, _| b_free[i]);
+        lu.solve_in_place(rhs.as_mut());
+
+        let mut u = vec![0.0_f64; self.n_dof];
+        for (g, slot) in self.free_of_global.iter().enumerate() {
+            match slot {
+                Some(fi) => u[g] = rhs[(*fi, 0)],
+                None => u[g] = pinned_value[g],
+            }
+        }
+        Ok(u)
+    }
+
+    /// Total field energy `W = ½ uᵀ K u` using the **full** stiffness, for
+    /// a full-length `[n_dof]` quadratic potential.
+    pub fn field_energy(&self, u: &[f64]) -> f64 {
+        0.5 * quad_form(&self.k_full, u, u)
+    }
+}
+
+/// Assemble the reduced SPD **quadratic (P2)** electrostatic system for
+/// `−∇·(ε₀ ε_r ∇φ) = ρ` — second-order, opt-in sibling of
+/// [`assemble_electrostatic`] (whose behavior is unchanged).
+///
+/// Arguments are identical to [`assemble_electrostatic`]. Dirichlet
+/// handling differs only in the edge-midpoint DOFs: an electrode pins its
+/// node set's vertex DOFs plus the edge DOFs selected by the
+/// boundary-facet rule ([`P2DofMap::electrode_dofs`]) — **not** every edge
+/// whose two endpoints happen to lie on electrodes.
+///
+/// # Errors
+///
+/// As [`assemble_electrostatic`].
+pub fn assemble_electrostatic_p2(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    rho: &[f64],
+    electrodes: &[Electrode],
+    ground: &[u32],
+) -> Result<ElectrostaticP2System, ElectrostaticError> {
+    let n_nodes = mesh.n_nodes();
+    let n_tets = mesh.n_tets();
+    if eps_r.len() != n_tets {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "eps_r length {} != tet count {n_tets}",
+            eps_r.len()
+        )));
+    }
+    if rho.len() != n_tets {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "rho length {} != tet count {n_tets}",
+            rho.len()
+        )));
+    }
+    for e in electrodes {
+        if e.nodes.is_empty() {
+            return Err(ElectrostaticError::EmptyElectrode(e.name.clone()));
+        }
+    }
+
+    let dof_map = P2DofMap::new(mesh);
+    let n_dof = dof_map.n_dof();
+    let tet_edges = mesh.tet_edges();
+
+    // Element stiffness/load scatter over the full P2 DOF system.
+    let mut full_trips: Vec<Triplet<usize, usize, f64>> =
+        Vec::with_capacity(n_tets * TET_P2_DOFS * TET_P2_DOFS);
+    let mut b_full = vec![0.0_f64; n_dof];
+
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        let coords = [
+            mesh.nodes[tet[0] as usize],
+            mesh.nodes[tet[1] as usize],
+            mesh.nodes[tet[2] as usize],
+            mesh.nodes[tet[3] as usize],
+        ];
+        let (k_local, load, _vol) = tet_p2_local(&coords);
+        let eps_t = EPS_0 * eps_r[t];
+        let rho_t = rho[t];
+        let te = &tet_edges[t];
+        // Local P2 DOF (0..10) → global DOF. The edge sign is deliberately
+        // discarded: midpoint value DOFs are orientation-independent.
+        let gdof = |l: usize| -> usize {
+            if l < 4 {
+                tet[l] as usize
+            } else {
+                n_nodes + te[l - 4].0 as usize
+            }
+        };
+        for (p, k_row) in k_local.iter().enumerate() {
+            let gp = gdof(p);
+            b_full[gp] += load[p] * rho_t;
+            for (q, &kpq) in k_row.iter().enumerate() {
+                full_trips.push(Triplet::new(gp, gdof(q), eps_t * kpq));
+            }
+        }
+    }
+
+    let k_full = SparseColMat::<usize, f64>::try_new_from_triplets(n_dof, n_dof, &full_trips)
+        .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))?;
+
+    // Dirichlet pinning: ground first, then electrodes (later wins),
+    // matching the P1 path's ordering. Edge DOFs come from the facet rule.
+    let mut dirichlet_value = vec![0.0_f64; n_dof];
+    let mut pinned = vec![false; n_dof];
+    for d in dof_map.electrode_dofs(ground) {
+        pinned[d] = true;
+        dirichlet_value[d] = 0.0;
+    }
+    for e in electrodes {
+        for d in dof_map.electrode_dofs(&e.nodes) {
+            pinned[d] = true;
+            dirichlet_value[d] = e.voltage;
+        }
+    }
+
+    let mut free_of_global = vec![None; n_dof];
+    let mut n_free = 0usize;
+    for (g, &p) in pinned.iter().enumerate() {
+        if !p {
+            free_of_global[g] = Some(n_free);
+            n_free += 1;
+        }
+    }
+
+    let mut red_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(full_trips.len());
+    let mut b_free = vec![0.0_f64; n_free];
+    for (i, slot) in free_of_global.iter().enumerate() {
+        if let Some(fi) = slot {
+            b_free[*fi] = b_full[i];
+        }
+    }
+    let k_ref = k_full.as_ref();
+    let cp = k_ref.col_ptr();
+    let row_idx = k_ref.row_idx();
+    let vals = k_ref.val();
+    for j in 0..n_dof {
+        for k in cp[j]..cp[j + 1] {
+            let i = row_idx[k];
+            let v = vals[k];
+            match (free_of_global[i], free_of_global[j]) {
+                (Some(fi), Some(fj)) => red_trips.push(Triplet::new(fi, fj, v)),
+                (Some(fi), None) => {
+                    b_free[fi] -= v * dirichlet_value[j];
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let k = SparseColMat::<usize, f64>::try_new_from_triplets(n_free, n_free, &red_trips)
+        .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))?;
+
+    Ok(ElectrostaticP2System {
+        k,
+        k_full,
+        b: b_free,
+        dirichlet_value,
+        free_of_global,
+        n_free,
+        n_dof,
+        n_nodes,
+        dof_map,
+    })
+}
+
+/// Extract the N×N Maxwell capacitance matrix by the **energy method** at
+/// P2 — second-order sibling of [`extract_capacitance`], structurally
+/// identical: `N` unit-voltage solves reusing the assembled system, then
+/// `C_ij = u⁽ⁱ⁾ᵀ K u⁽ʲ⁾` with the full P2 stiffness. Per-conductor pinned
+/// DOF sets are re-derived with the same boundary-facet rule the assembly
+/// used ([`P2DofMap::electrode_dofs`]).
+///
+/// The P1 path's optional surface-flux diagonal cross-check is **not**
+/// offered at P2 (it consumes a piecewise-constant per-tet `E`, a
+/// P1-specific recovery); `c_flux_diag` is all-`None`. The
+/// [`CapacitanceMatrix`] invariants (`max_rel_asymmetry`,
+/// `has_maxwell_sign_structure`) apply unchanged.
+///
+/// # Errors
+///
+/// Propagates [`ElectrostaticError`] from the per-excitation solves.
+pub fn extract_capacitance_p2(
+    sys: &ElectrostaticP2System,
+    conductors: &[Electrode],
+    ground: &[u32],
+) -> Result<CapacitanceMatrix, ElectrostaticError> {
+    let n = conductors.len();
+
+    let ground_dofs = sys.dof_map.electrode_dofs(ground);
+    let cond_dofs: Vec<Vec<usize>> = conductors
+        .iter()
+        .map(|c| sys.dof_map.electrode_dofs(&c.nodes))
+        .collect();
+
+    // One unit-voltage solve per conductor.
+    let mut us: Vec<Vec<f64>> = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut pinned_value = vec![0.0_f64; sys.n_dof];
+        for &d in &ground_dofs {
+            pinned_value[d] = 0.0;
+        }
+        for (k, dofs) in cond_dofs.iter().enumerate() {
+            let v = if k == i { 1.0 } else { 0.0 };
+            for &d in dofs {
+                pinned_value[d] = v;
+            }
+        }
+        us.push(sys.solve_with_pinned(&pinned_value)?);
+    }
+
+    // Energy-method matrix: C_ij = u⁽ⁱ⁾ᵀ K u⁽ʲ⁾ (full K).
+    let mut c = vec![vec![0.0_f64; n]; n];
+    for i in 0..n {
+        for j in i..n {
+            let v = quad_form(&sys.k_full, &us[i], &us[j]);
+            c[i][j] = v;
+            c[j][i] = v;
+        }
+    }
+
+    Ok(CapacitanceMatrix {
+        names: conductors.iter().map(|c| c.name.clone()).collect(),
+        c,
+        c_flux_diag: vec![None; n],
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Host-side P1 tet element geometry (f64), mirroring the closed form of
 // `crate::elements::p1::batched_p1_local_matrices` without the Burn backend.
 // ─────────────────────────────────────────────────────────────────────────
@@ -1298,6 +1730,129 @@ mod tests {
         // And the isotropic anisotropic run recovers ε₀·ε_r·A/d.
         let c_analytic = EPS_0 * eps_scalar;
         assert!((cm_t.c[0][0] - c_analytic).abs() / c_analytic < 1e-6);
+    }
+
+    /// P2 reproduces the parallel-plate ramp `φ = x` **exactly** (linear
+    /// solutions are in the P2 space), so `C = ε₀ A/d` to solver rounding,
+    /// and the edge-midpoint DOFs carry the exact midpoint values.
+    #[test]
+    fn p2_parallel_plate_capacitor_exact() {
+        let n = 4;
+        let mesh = cube_tet_mesh(n, 1.0);
+        let eps_r = vec![1.0; mesh.n_tets()];
+        let rho = vec![0.0; mesh.n_tets()];
+        let tol = 1e-9;
+        let plate_hi: Vec<u32> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| (p[0] - 1.0).abs() < tol)
+            .map(|(i, _)| i as u32)
+            .collect();
+        let plate_lo: Vec<u32> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p[0].abs() < tol)
+            .map(|(i, _)| i as u32)
+            .collect();
+        let electrodes = vec![Electrode {
+            name: "hi".into(),
+            nodes: plate_hi,
+            voltage: 1.0,
+        }];
+        let sys = assemble_electrostatic_p2(&mesh, &eps_r, &rho, &electrodes, &plate_lo).unwrap();
+        assert_eq!(sys.n_dof, p2_dof_count(&mesh));
+        let u = sys.solve().unwrap();
+        // Vertex DOFs carry φ = x; edge DOFs carry the midpoint x value.
+        for (i, p) in mesh.nodes.iter().enumerate() {
+            assert!((u[i] - p[0]).abs() < 1e-9, "u[{i}] {} != {}", u[i], p[0]);
+        }
+        for (k, e) in sys.dof_map.edges.iter().enumerate() {
+            let xm = 0.5 * (mesh.nodes[e[0] as usize][0] + mesh.nodes[e[1] as usize][0]);
+            let um = u[sys.n_nodes + k];
+            assert!(
+                (um - xm).abs() < 1e-9,
+                "edge DOF {k} value {um} != midpoint x {xm}"
+            );
+        }
+        let c = 2.0 * sys.field_energy(&u); // at V = 1
+        let rel = (c - EPS_0).abs() / EPS_0;
+        assert!(rel < 1e-9, "P2 parallel-plate C {c} vs {EPS_0}, rel {rel}");
+        // extract_capacitance_p2 agrees and the invariants hold.
+        let cm = extract_capacitance_p2(&sys, &electrodes, &plate_lo).unwrap();
+        assert!((cm.c[0][0] - EPS_0).abs() / EPS_0 < 1e-9);
+        assert!(cm.has_maxwell_sign_structure(1e-9));
+        assert_eq!(cm.c_flux_diag[0], None);
+    }
+
+    /// **The issue-#602 pitfall test.** On a 1-cell-thick parallel-plate
+    /// mesh, every mesh node lies on one of the two plates, so a naive
+    /// "both endpoints on an electrode" vertex-AND rule would pin EVERY
+    /// edge-midpoint DOF — including the plate-crossing edges whose
+    /// midpoints must be free unknowns at φ = ½. The boundary-facet rule
+    /// leaves them free, and the exact ramp solution certifies it: the
+    /// crossing midpoints solve to 0.5, and C = ε₀ exactly.
+    #[test]
+    fn p2_pitfall_cross_plate_edges_stay_free() {
+        let mesh = cube_tet_mesh(1, 1.0);
+        let eps_r = vec![1.0; mesh.n_tets()];
+        let rho = vec![0.0; mesh.n_tets()];
+        let tol = 1e-9;
+        let hi: Vec<u32> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| (p[0] - 1.0).abs() < tol)
+            .map(|(i, _)| i as u32)
+            .collect();
+        let lo: Vec<u32> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p[0].abs() < tol)
+            .map(|(i, _)| i as u32)
+            .collect();
+        // Every node is on a plate…
+        assert_eq!(hi.len() + lo.len(), mesh.n_nodes());
+        let electrodes = vec![Electrode {
+            name: "hi".into(),
+            nodes: hi,
+            voltage: 1.0,
+        }];
+        let sys = assemble_electrostatic_p2(&mesh, &eps_r, &rho, &electrodes, &lo).unwrap();
+        // …yet the plate-crossing edge midpoints remain FREE unknowns: the
+        // vertex-AND rule would give n_free = 0 here.
+        let n_crossing = sys
+            .dof_map
+            .edges
+            .iter()
+            .filter(|e| {
+                let x0 = mesh.nodes[e[0] as usize][0];
+                let x1 = mesh.nodes[e[1] as usize][0];
+                (x0 - x1).abs() > 0.5
+            })
+            .count();
+        assert!(n_crossing > 0, "fixture must contain plate-crossing edges");
+        assert_eq!(
+            sys.n_free, n_crossing,
+            "exactly the crossing-edge midpoint DOFs must be free \
+             (vertex-AND mis-pinning would leave 0 free)"
+        );
+        let u = sys.solve().unwrap();
+        for (k, e) in sys.dof_map.edges.iter().enumerate() {
+            let x0 = mesh.nodes[e[0] as usize][0];
+            let x1 = mesh.nodes[e[1] as usize][0];
+            if (x0 - x1).abs() > 0.5 {
+                let um = u[sys.n_nodes + k];
+                assert!(
+                    (um - 0.5).abs() < 1e-12,
+                    "crossing-edge midpoint DOF {k} = {um}, want 0.5"
+                );
+            }
+        }
+        let c = 2.0 * sys.field_energy(&u);
+        assert!((c - EPS_0).abs() / EPS_0 < 1e-12);
     }
 
     /// An anisotropic tensor with a LARGER through-thickness (x) component
