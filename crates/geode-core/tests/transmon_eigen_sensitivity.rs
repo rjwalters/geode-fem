@@ -26,8 +26,8 @@ use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::lanczos::InnerSolver;
 use geode_core::eigen::sensitivity::{EigenSensitivity, EigenSensitivityError};
 use geode_core::eigen::transmon::{
-    LumpedReactiveShunt, ReactiveElementNatural, TransmonMode, TransmonPencil,
-    solve_transmon_eigenmodes_full,
+    LondonSurface, LumpedReactiveShunt, ReactiveElementNatural, TransmonMode, TransmonPencil,
+    solve_transmon_eigenmodes_full, solve_transmon_eigenmodes_full_with_london,
 };
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::{TetMesh, TransmonFixture, cube_tet_mesh, read_transmon_smoke_fixture};
@@ -522,6 +522,193 @@ fn geometry_sensitivity_matches_fd() {
     assert!(
         rel < 5e-3,
         "∂λ/∂θ analytic {analytic:.6e} vs FD {fd:.6e} (rel {rel:.2e})"
+    );
+}
+
+// -------------------------------------------------------------------------
+// CI-fast: London penetration-depth sensitivity ∂λ/∂λ_L (issue #604).
+// -------------------------------------------------------------------------
+
+/// A cavity with a **London wall** on `z = 0` (edges kept) and PEC on the
+/// other five walls: mesh, DOF bookkeeping, and the wall triangle list.
+struct LondonCavityFixture {
+    mesh: TetMesh,
+    tet_edge_idx: Vec<[u32; 6]>,
+    tet_edge_sign: Vec<[i8; 6]>,
+    edges: Vec<[u32; 2]>,
+    /// PEC on the five non-London walls; `z = 0` wall edges KEPT.
+    interior_mask: Vec<bool>,
+    /// The London wall triangles (`z = 0`).
+    z0_tris: Vec<[u32; 3]>,
+}
+
+fn london_cavity_fixture(n: usize) -> LondonCavityFixture {
+    let mesh = cube_tet_mesh(n, 1.0);
+    let edges = mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&mesh);
+
+    let on = |f: &[u32; 3], c: usize, val: f64| {
+        f.iter()
+            .all(|&v| (mesh.nodes[v as usize][c] - val).abs() < 1e-12)
+    };
+    // PEC on five walls; the z = 0 wall carries the London term instead.
+    let metal: Vec<[u32; 3]> = mesh
+        .faces()
+        .into_iter()
+        .filter(|f| {
+            on(f, 0, 0.0) || on(f, 0, 1.0) || on(f, 1, 0.0) || on(f, 1, 1.0) || on(f, 2, 1.0)
+        })
+        .collect();
+    let z0_tris: Vec<[u32; 3]> = mesh.faces().into_iter().filter(|f| on(f, 2, 0.0)).collect();
+    assert!(!z0_tris.is_empty());
+    let interior_mask = pec_interior_mask_from_triangles(&edges, &[metal.as_slice()]);
+
+    LondonCavityFixture {
+        mesh,
+        tet_edge_idx,
+        tet_edge_sign,
+        edges,
+        interior_mask,
+        z0_tris,
+    }
+}
+
+/// Solve the London-wall cavity with per-tet isotropic `eps_r` at the
+/// given `lambda_l`, returning the full modes.
+fn solve_london_cavity(
+    fx: &LondonCavityFixture,
+    eps_r: &[f64],
+    lambda_l: f64,
+    sigma: f64,
+    n_modes: usize,
+) -> Vec<TransmonMode> {
+    let scatter = NedelecScatterMap::new(&fx.tet_edge_idx);
+    let (k_vals, m_vals) = assemble_iso_pencil(&fx.mesh, &fx.tet_edge_sign, &scatter, eps_r);
+    let no_faces: Vec<[u32; 3]> = Vec::new();
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &fx.edges,
+        mesh: &fx.mesh,
+        shunt: bare_shunt(&no_faces),
+        interior_mask: &fx.interior_mask,
+    };
+    let walls = [LondonSurface {
+        triangles: &fx.z0_tris,
+        lambda_l,
+    }];
+    solve_transmon_eigenmodes_full_with_london(
+        &pencil,
+        &walls,
+        sigma,
+        n_modes,
+        M_PER_UNIT,
+        InnerSolver::Direct,
+    )
+    .expect("London cavity eigensolve")
+}
+
+/// `∂λ/∂λ_L` (London penetration depth) FD-validated: the analytic
+/// Hellmann–Feynman surface-mass contraction `−(xᵀS_Γx)/λ_L²` matches a
+/// central finite difference of the re-solved eigenvalue under a λ_L
+/// perturbation, at the bar the material test uses; the gradient is
+/// strictly negative (kinetic inductance lowers the frequency).
+#[test]
+fn london_lambda_l_sensitivity_matches_fd() {
+    let fx = london_cavity_fixture(3);
+    let eps0 = 4.0_f64;
+    let n_tets = fx.mesh.n_tets();
+    let eps_r = vec![eps0; n_tets];
+    let sigma = 5.0;
+    let n_modes = 8;
+    let lambda_l = 0.05_f64;
+
+    let modes = solve_london_cavity(&fx, &eps_r, lambda_l, sigma, n_modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes);
+    let lambda = mode.report.lambda;
+    assert!(lambda > 1e-3, "picked λ = {lambda} too close to nullspace");
+
+    let sens = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e-2,
+    };
+    let analytic = sens
+        .deigenvalue_dlambda_l(&fx.z0_tris, lambda_l)
+        .expect("London grad");
+    assert!(
+        analytic < 0.0,
+        "∂λ/∂λ_L must be negative (kinetic inductance lowers ω): {analytic:.6e}"
+    );
+
+    // Central FD of the re-solved eigenvalue under a λ_L perturbation,
+    // tracking the mode by nearest eigenvalue.
+    let h = 1e-3 * lambda_l;
+    let fd_at = |ll: f64| -> f64 {
+        let modes = solve_london_cavity(&fx, &eps_r, ll, sigma, n_modes);
+        modes
+            .iter()
+            .map(|m| m.report.lambda)
+            .min_by(|a, b| (a - lambda).abs().partial_cmp(&(b - lambda).abs()).unwrap())
+            .expect("no FD modes")
+    };
+    let fd = (fd_at(lambda_l + h) - fd_at(lambda_l - h)) / (2.0 * h);
+    let rel = (analytic - fd).abs() / fd.abs().max(1e-30);
+    eprintln!("London ∂λ/∂λ_L: analytic {analytic:.6e}, FD {fd:.6e} (rel {rel:.2e})");
+    assert!(
+        rel < 1e-4,
+        "∂λ/∂λ_L analytic {analytic:.6e} vs FD {fd:.6e} (rel {rel:.2e})"
+    );
+}
+
+/// The λ_L sensitivity honors the shared entry-point contracts: the
+/// simple-eigenvalue gap guard trips with an unreachable `min_rel_gap`,
+/// and an invalid `λ_L = 0` panics (the PEC limit goes through the PEC
+/// edge mask, matching the driven-path convention).
+#[test]
+fn london_sensitivity_guard_and_invalid_lambda_l() {
+    let fx = london_cavity_fixture(3);
+    let eps0 = 4.0_f64;
+    let eps_r = vec![eps0; fx.mesh.n_tets()];
+    let lambda_l = 0.05_f64;
+
+    let modes = solve_london_cavity(&fx, &eps_r, lambda_l, 5.0, 8);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes);
+
+    let strict = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e9,
+    };
+    assert!(matches!(
+        strict.deigenvalue_dlambda_l(&fx.z0_tris, lambda_l),
+        Err(EigenSensitivityError::DegenerateEigenvalue { .. })
+    ));
+
+    let ok = EigenSensitivity {
+        min_rel_gap: 1e-2,
+        ..strict
+    };
+    assert!(ok.deigenvalue_dlambda_l(&fx.z0_tris, lambda_l).is_ok());
+
+    // λ_L = 0 is invalid (PEC limit must use the PEC edge mask).
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = ok.deigenvalue_dlambda_l(&fx.z0_tris, 0.0);
+    }));
+    assert!(
+        panic.is_err(),
+        "λ_L = 0 must panic in deigenvalue_dlambda_l"
     );
 }
 

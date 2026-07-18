@@ -336,6 +336,39 @@ pub enum SurfaceImpedanceModel {
         /// Conductivity σ in natural units (`1/length`). Must be `> 0`.
         sigma: f64,
     },
+    /// Built-in **London superconductor** model (Epic #475, issue #604)
+    ///
+    /// ```text
+    /// Z_s(ω) = iωμλ_L,   μ = 1 natural units,
+    /// ```
+    ///
+    /// the purely reactive (kinetic-inductance) surface impedance of a
+    /// superconductor in the local London limit, with `λ_L` the London
+    /// penetration depth. Unlike the good-conductor `√ω (1+i)` dispersion,
+    /// the London impedance is **frequency-linear and lossless**.
+    ///
+    /// `lambda_l` is a **length** in natural (mesh) units, the same
+    /// normalization as the mesh coordinates: `λ_L_nat = λ_L_SI / L_unit`
+    /// (e.g. λ_L = 90 nm on a micrometre-unit mesh is `lambda_l = 0.09`)
+    /// — the length-based sibling of the `GoodConductor` σ normalization
+    /// `σ_nat = σ_SI · Z₀ · L_unit` above.
+    ///
+    /// The weak-form coefficient is special: `iω/Z_s = iω/(iωλ_L) = 1/λ_L`
+    /// — **real, positive and frequency-independent** (the iω cancels
+    /// exactly), so [`Self::weak_coefficient`] returns `1/λ_L` directly
+    /// instead of evaluating the `iω/Z_s` quotient numerically (which
+    /// would degrade to 0/0 as ω → 0 and trip the `|Z_s| = 0` singular
+    /// guard).
+    ///
+    /// `lambda_l` must be strictly positive and finite: the `λ_L → 0` PEC
+    /// limit must be expressed through the PEC edge mask (exactly like
+    /// `Z_s → 0` for the other models), not through a vanishing
+    /// penetration depth.
+    London {
+        /// London penetration depth λ_L in natural units (mesh length
+        /// unit): `λ_L_nat = λ_L_SI / L_unit`. Must be `> 0` and finite.
+        lambda_l: f64,
+    },
 }
 
 impl SurfaceImpedanceModel {
@@ -348,6 +381,8 @@ impl SurfaceImpedanceModel {
                 let a = (omega / (2.0 * sigma)).sqrt();
                 c64::new(a, a)
             }
+            // iωμλ_L, μ = 1 natural units: purely reactive.
+            SurfaceImpedanceModel::London { lambda_l } => c64::new(0.0, omega * lambda_l),
         }
     }
 
@@ -355,15 +390,32 @@ impl SurfaceImpedanceModel {
     /// real surface mass `S_Γ`. For [`SurfaceImpedanceModel::Fixed`]
     /// with `Z_s = η₀ = 1` this is `i k₀` — exactly the Silver-Müller
     /// factor; for the good-conductor model it is
-    /// `(1+i)√(ωσ/2) = (1+i)/δ`.
+    /// `(1+i)√(ωσ/2) = (1+i)/δ`; for the London model it is the real,
+    /// frequency-independent `1/λ_L` (evaluated **directly**, not as the
+    /// `iω/(iωλ_L)` quotient, so it stays finite and exact at any ω,
+    /// including ω = 0).
     ///
     /// # Errors
     ///
     /// Returns [`DrivenError::SurfaceImpedanceSingular`] when `Z_s(ω)`
-    /// is zero or non-finite (e.g. `Fixed(0)`, or `GoodConductor` with
-    /// `σ ≤ 0`). The `Z_s → 0` PEC limit must be expressed through the
+    /// is zero or non-finite (e.g. `Fixed(0)`, `GoodConductor` with
+    /// `σ ≤ 0`, or `London` with `λ_L ≤ 0` / non-finite). The
+    /// `Z_s → 0` (`λ_L → 0`) PEC limit must be expressed through the
     /// PEC edge mask, not through a vanishing impedance.
     pub fn weak_coefficient(&self, omega: f64) -> Result<c64, DrivenError> {
+        if let SurfaceImpedanceModel::London { lambda_l } = *self {
+            // iω/Z_s = iω/(iωλ_L) = 1/λ_L exactly — real and
+            // ω-independent. Returned directly so the quotient never
+            // degrades to 0/0 at small ω.
+            if !(lambda_l.is_finite() && lambda_l > 0.0) {
+                return Err(DrivenError::SurfaceImpedanceSingular {
+                    z_re: 0.0,
+                    z_im: omega * lambda_l,
+                    omega,
+                });
+            }
+            return Ok(c64::new(1.0 / lambda_l, 0.0));
+        }
         let z = self.z_s(omega);
         let singular = |z: c64| DrivenError::SurfaceImpedanceSingular {
             z_re: z.re,

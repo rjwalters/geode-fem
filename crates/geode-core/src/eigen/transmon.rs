@@ -200,6 +200,73 @@ impl LumpedReactiveShunt<'_> {
     }
 }
 
+/// A **London superconducting wall** on the eigenmode pencil (Epic #475,
+/// issue #604): a set of boundary triangles (one per-surface tag) sharing
+/// a London penetration depth `λ_L`.
+///
+/// The driven-path Leontovich weak term is `+(iω/Z_s) S_Γ`
+/// ([`crate::driven::solve::SurfaceImpedanceModel::London`]); substituting
+/// the London impedance `Z_s = iωμλ_L` (μ = 1 natural units) cancels the
+/// iω **exactly**, leaving the real, frequency-independent coefficient
+/// `1/λ_L` — a stiffness. Like the junction inductor
+/// ([`LumpedReactiveShunt::k_port_triplets`]), the term therefore lands on
+/// the **K side** of the real symmetric pencil:
+///
+/// ```text
+/// (K + K_port + Σ_w λ_L,w⁻¹ S_Γ,w) x = λ (M + M_port) x,
+/// ```
+///
+/// keeping the pencil real symmetric — no new nonlinearity, solvable with
+/// the same shift-invert Lanczos. Physically the term is the wall's
+/// **kinetic inductance**: the eigenfrequency drops relative to the PEC
+/// wall, to first order by `Δω/ω ≈ −(λ_L/2)·∮|H_t|²dA / ∫μ|H|²dV`.
+///
+/// `1/λ_L` acts as a penalty enforcing `E_t → 0` on the wall as
+/// `λ_L → 0`: the small-λ_L limit converges to the PEC wall (wall edges
+/// eliminated). That is how the PEC baseline must be expressed — **exact
+/// `λ_L = 0` is invalid** ([`Self::k_triplets`] panics), mirroring the
+/// driven path's `SurfaceImpedanceSingular` convention.
+///
+/// `lambda_l` is a length in natural (mesh) units:
+/// `λ_L_nat = λ_L_SI / L_unit`.
+#[derive(Debug, Clone, Copy)]
+pub struct LondonSurface<'a> {
+    /// Wall triangles (0-based node triples into `mesh.nodes`, any
+    /// winding); must be faces of the tet mesh. The wall's edges must be
+    /// KEPT (interior) in the pencil's `interior_mask` — a PEC-eliminated
+    /// edge cannot carry the London term.
+    pub triangles: &'a [[u32; 3]],
+    /// London penetration depth λ_L in mesh units
+    /// (`λ_L_nat = λ_L_SI / L_unit`). Must be `> 0` and finite.
+    pub lambda_l: f64,
+}
+
+impl LondonSurface<'_> {
+    /// Assemble the London stiffness triplets `λ_L⁻¹ S_Γ` over global
+    /// edge indices ([`LumpedReactiveShunt::k_port_triplets`]-style; the
+    /// surface mass comes from the shared Whitney kernel via
+    /// [`crate::assembly::surface::assemble_surface_mass_triplets`]).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `lambda_l` is not strictly positive and finite: the
+    /// `λ_L = 0` PEC limit must be expressed through the PEC edge mask,
+    /// not through a vanishing penetration depth.
+    pub fn k_triplets(&self, mesh: &TetMesh, edges: &[[u32; 2]]) -> Vec<(usize, usize, f64)> {
+        assert!(
+            self.lambda_l.is_finite() && self.lambda_l > 0.0,
+            "London lambda_l must be strictly positive and finite, got {}; \
+             the λ_L = 0 PEC limit must be expressed through the PEC edge mask",
+            self.lambda_l
+        );
+        let s = 1.0 / self.lambda_l;
+        crate::assembly::surface::assemble_surface_mass_triplets(mesh, self.triangles, edges)
+            .into_iter()
+            .map(|(r, c, v)| (r, c, s * v))
+            .collect()
+    }
+}
+
 /// Restore a physical frequency (Hz) from an eigenvalue `λ = k²`
 /// (in `(1/mesh-unit)²`).
 ///
@@ -458,9 +525,46 @@ pub fn solve_transmon_eigenmodes_full(
     m_per_unit: f64,
     inner: InnerSolver,
 ) -> Result<Vec<TransmonMode>, EigenError> {
+    solve_transmon_eigenmodes_full_with_london(pencil, &[], sigma, n_modes, m_per_unit, inner)
+}
+
+/// [`solve_transmon_eigenmodes_full`] with additional **London
+/// superconducting walls** (Epic #475, issue #604): each
+/// [`LondonSurface`] contributes its kinetic-inductance stiffness
+/// `λ_L⁻¹ S_Γ` to the **K side** of the real symmetric pencil
+///
+/// ```text
+/// (K + K_port + Σ_w λ_L,w⁻¹ S_Γ,w) x = λ (M + M_port) x.
+/// ```
+///
+/// Multiple walls with distinct `λ_L` (per-surface tags) are supported.
+/// The wall edges must be kept (interior) in the pencil's
+/// `interior_mask`; the junction participation reported per mode remains
+/// junction-only (the London stiffness enters the denominator through
+/// the total `K`, not the `K_port` numerator). With `london = &[]` this
+/// is exactly [`solve_transmon_eigenmodes_full`].
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly or the Lanczos
+/// solve.
+///
+/// # Panics
+///
+/// Panics (via [`LondonSurface::k_triplets`]) if any wall's `lambda_l`
+/// is not strictly positive and finite.
+pub fn solve_transmon_eigenmodes_full_with_london(
+    pencil: &TransmonPencil<'_>,
+    london: &[LondonSurface<'_>],
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    inner: InnerSolver,
+) -> Result<Vec<TransmonMode>, EigenError> {
     let (interior_index, dim) = ungauged_interior_reindex(pencil)?;
     solve_transmon_eigenmodes_reindexed(
         pencil,
+        london,
         &interior_index,
         dim,
         sigma,
@@ -518,6 +622,7 @@ pub fn solve_transmon_eigenmodes_gauged(
     }
     Ok(solve_transmon_eigenmodes_reindexed(
         pencil,
+        &[],
         gauge.gauged_index_map(),
         dim,
         sigma,
@@ -536,9 +641,12 @@ pub fn solve_transmon_eigenmodes_gauged(
 /// ungauged path passes the plain PEC interior reindex; the gauged path
 /// passes the tree-cotree cotree reindex. Everything downstream (surface
 /// terms, reduced assembly, Lanczos, participation) is index-agnostic.
+/// `london` walls add their `λ_L⁻¹ S_Γ` stiffness to the K side (issue
+/// #604); the junction-participation numerator stays `K_port`-only.
 #[allow(clippy::too_many_arguments)]
 fn solve_transmon_eigenmodes_reindexed(
     pencil: &TransmonPencil<'_>,
+    london: &[LondonSurface<'_>],
     reindex: &[Option<usize>],
     dim: usize,
     sigma: f64,
@@ -555,12 +663,20 @@ fn solve_transmon_eigenmodes_reindexed(
     let k_port = pencil.shunt.k_port_triplets(pencil.mesh, pencil.edges);
     let m_port = pencil.shunt.m_port_triplets(pencil.mesh, pencil.edges);
 
-    // Reduced (K + K_port) and (M + M_port) real sparse matrices.
+    // K-side extras: the junction K_port plus every London wall's
+    // kinetic-inductance stiffness λ_L⁻¹ S_Γ (issue #604).
+    let mut k_extra = k_port.clone();
+    for wall in london {
+        k_extra.extend(wall.k_triplets(pencil.mesh, pencil.edges));
+    }
+
+    // Reduced (K + K_port + Σ λ_L⁻¹ S_Γ) and (M + M_port) real sparse
+    // matrices.
     let k_red = assemble_reduced_real(
         &pattern.rows,
         &pattern.cols,
         pencil.k_vals,
-        &k_port,
+        &k_extra,
         interior_index,
         dim,
     )?;
@@ -1069,6 +1185,58 @@ mod tests {
             removed.m_port_triplets(&mesh, &edges).len(),
             shunt.m_port_triplets(&mesh, &edges).len()
         );
+    }
+
+    /// The London stiffness triplets scale as `1/λ_L` (doubling λ_L
+    /// halves every entry) and reproduce the raw surface mass at
+    /// `λ_L = 1` — the K-side, `k_port_triplets`-style contract.
+    #[test]
+    fn london_k_triplets_scale_as_inverse_lambda_l() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+
+        let base = LondonSurface {
+            triangles: &faces,
+            lambda_l: 1.0,
+        };
+        let double = LondonSurface {
+            triangles: &faces,
+            lambda_l: 2.0,
+        };
+        let raw = assemble_port_surface_mass(&mesh, &faces, &edges);
+        let k1 = base.k_triplets(&mesh, &edges);
+        let k2 = double.k_triplets(&mesh, &edges);
+        assert_eq!(k1.len(), raw.len());
+        assert_eq!(k1.len(), k2.len());
+        for ((r, d), s) in k1.iter().zip(k2.iter()).zip(raw.iter()) {
+            assert_eq!((r.0, r.1), (d.0, d.1));
+            assert_eq!((r.0, r.1), (s.0, s.1));
+            // λ_L = 1 reproduces S_Γ exactly; doubling λ_L halves.
+            assert_eq!(r.2, s.2, "λ_L = 1 must reproduce S_Γ");
+            assert!(
+                (r.2 - 2.0 * d.2).abs() < 1e-15 * r.2.abs().max(1.0),
+                "doubling λ_L must halve the London stiffness: {} vs {}",
+                r.2,
+                d.2
+            );
+        }
+    }
+
+    /// Exact `λ_L = 0` (the PEC limit) is invalid — it must be expressed
+    /// through the PEC edge mask, mirroring the driven path's
+    /// `SurfaceImpedanceSingular` convention.
+    #[test]
+    #[should_panic(expected = "London lambda_l must be strictly positive")]
+    fn london_zero_lambda_l_panics() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+        let wall = LondonSurface {
+            triangles: &faces,
+            lambda_l: 0.0,
+        };
+        let _ = wall.k_triplets(&mesh, &edges);
     }
 
     /// Uniform-field closed form: for the constant tangential field
