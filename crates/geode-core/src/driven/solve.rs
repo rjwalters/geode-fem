@@ -1790,6 +1790,23 @@ impl DrivenOperator {
         (triplets, s.model)
     }
 
+    /// Raw real parts of the baked current-source moments
+    /// `∫ N_i · J dV`, full edge length. Together with
+    /// [`DrivenOperator::rhs_im`] these determine the volume-source part
+    /// of the RHS as `b(ω) = iω (rhs_re + i·rhs_im)` — exactly linear in
+    /// ω, which the PROM sweep ([`crate::driven::rom`]) exploits by
+    /// projecting the fixed vector `b̂ = −rhs_im + i·rhs_re` once
+    /// (issue #603).
+    pub(crate) fn rhs_re(&self) -> &[f64] {
+        &self.rhs_re
+    }
+
+    /// Raw imaginary parts of the baked current-source moments, aligned
+    /// with [`DrivenOperator::rhs_re`].
+    pub(crate) fn rhs_im(&self) -> &[f64] {
+        &self.rhs_im
+    }
+
     /// Interior-filter a full-length real vector through the PEC mask,
     /// dropping the eliminated entries (same filtering the RHS uses).
     pub(crate) fn filter_interior_real(&self, full: &[f64]) -> Vec<f64> {

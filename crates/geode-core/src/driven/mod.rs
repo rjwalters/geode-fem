@@ -27,6 +27,10 @@
 //!   time integration of the same `K`/`C`/`M` matrices the driven path
 //!   assembles, with a lumped-port time-domain drive and broadband
 //!   S-parameter extraction via a direct DFT.
+//! - [`rom`] — the adaptive **fast frequency sweep**: a Galerkin
+//!   projection reduced-order model over the same `K`/`C`/`M` (+ port
+//!   admittance) matrices, with greedy residual-driven snapshot
+//!   sampling — a few full-order solves stand in for the whole band.
 //!
 //! The submodules keep their items canonical (`driven::solve::Foo`,
 //! `driven::ports::Bar`, …); the group root does **not** re-export them up
@@ -36,6 +40,7 @@ pub mod adjoint;
 pub mod extraction;
 pub mod matrix_free;
 pub mod ports;
+pub mod rom;
 pub mod scattering;
 pub mod shape;
 pub mod solve;
