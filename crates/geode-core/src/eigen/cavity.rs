@@ -167,10 +167,7 @@ fn cavity_interior_km_p1<B: Backend>(
 /// [`cube_pec_interior_p2_dofs`]) directly — no assembly is re-implemented
 /// here. The lossless cavity is `ε = 1` per tet. Returns
 /// `(K_int, M_int, n_interior)`.
-fn cavity_interior_km_p2(
-    mesh: &TetMesh,
-    side: f64,
-) -> Result<CavityPencil, EigenError> {
+fn cavity_interior_km_p2(mesh: &TetMesh, side: f64) -> Result<CavityPencil, EigenError> {
     let dofs = P2DofMap::build(mesh);
     let eps_tet = vec![1.0_f64; mesh.n_tets()];
     let interior_mask = cube_pec_interior_p2_dofs(mesh, &dofs, side);
