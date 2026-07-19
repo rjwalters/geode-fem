@@ -672,6 +672,121 @@ pub fn detect_srf(omegas: &[f64], zs: &[c64]) -> Option<f64> {
     im_z_zero_crossings(omegas, zs).into_iter().next()
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// |S11|² objective closure for the driven shape/material adjoint (issue #626).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// The squared reflection magnitude `g = |S₁₁|²` **and its Wirtinger
+/// derivative** `∂g/∂V` w.r.t. the (complex, holomorphic) port voltage `V`.
+///
+/// The scalar port chain is
+///
+/// ```text
+/// I    = (2 V_inc − V) / R
+/// Z    = V / I
+/// S₁₁  = (Z − Z₀) / (Z + Z₀)
+/// g    = |S₁₁|² = S₁₁ · conj(S₁₁)
+/// ```
+///
+/// `S₁₁(V)` is a **holomorphic** (rational) function of `V` — the field
+/// enters `g` only through this one holomorphic scalar. Treating `V` and
+/// `V̄` as independent (Wirtinger calculus), `conj(S₁₁)` depends on `V̄`
+/// alone, so `∂(conj S₁₁)/∂V = 0` and
+///
+/// ```text
+/// ∂g/∂V = conj(S₁₁) · dS₁₁/dV,
+/// dS₁₁/dV = (dS₁₁/dZ)(dZ/dV),
+/// dS₁₁/dZ = 2 Z₀ / (Z + Z₀)²,
+/// dZ/dV   = (I + V/R) / I².
+/// ```
+///
+/// This is the single analytic scalar the [`s11_sq_objective`] closure
+/// scatters onto the port-flux covector to form the full-length edge
+/// cotangent. Returns `(g, ∂g/∂V)`.
+///
+/// # Panics / numerics
+///
+/// The chain is singular where `I = 0` (`V = 2 V_inc`, an open port) or
+/// `Z = −Z₀`; callers keep the driven pencil away from these by evaluating
+/// off the (lossless) cavity resonance. No panic is raised — the result is
+/// simply `inf`/`nan` there, which the adjoint's residual check surfaces.
+pub fn s11_sq_and_dg_dv(v: c64, v_inc: c64, r: f64, z0: f64) -> (f64, c64) {
+    let inv_r = 1.0 / r;
+    let i = (v_inc * 2.0 - v) * inv_r;
+    let z = v / i;
+    let zpz0 = z + z0;
+    let s = (z - z0) / zpz0;
+    let g = s.re * s.re + s.im * s.im;
+
+    // dZ/dV = (I + V/R) / I²   and   dS₁₁/dZ = 2 Z₀ / (Z + Z₀)².
+    let dz_dv = (i + v * inv_r) / (i * i);
+    let ds_dz = c64::new(2.0 * z0, 0.0) / (zpz0 * zpz0);
+    let ds_dv = ds_dz * dz_dv;
+    let dg_dv = s.conj() * ds_dv;
+    (g, dg_dv)
+}
+
+/// Build the **real** scalar objective closure `g(x) = |S₁₁(f₀)|²` (with
+/// its Wirtinger cotangent) for the driven Nédélec shape/material adjoint
+/// ([`crate::driven::shape::driven_shape_gradient`],
+/// [`crate::driven::adjoint::driven_material_adjoint_gradient`]) — issue #626.
+///
+/// The field `x` (`[n_edges]` complex edge DOFs) enters the figure of merit
+/// **only** through the single holomorphic linear functional
+///
+/// ```text
+/// V = c · Σ_i f_i x_i,   c = 1/w  (`inv_width`),   f = `flux`
+/// ```
+///
+/// where `f = `[`crate::driven::ports::assemble_port_flux`] is the real,
+/// sparse port-flux covector (non-zero only on port-face edges) and `w` the
+/// port width. Because `V` is holomorphic in `x` (`∂V/∂x_i = c f_i`,
+/// `∂V̄/∂x_i = 0`), the full-length Wirtinger cotangent the adjoint API
+/// wants collapses to
+///
+/// ```text
+/// ∂g/∂x_i = (∂g/∂V) · c · f_i          (nonzero only on port-face edges)
+/// ```
+///
+/// with `∂g/∂V` the single analytic scalar from [`s11_sq_and_dg_dv`]. No new
+/// adjoint and no new assembly: the closure is a thin wrapper over the
+/// existing port-flux primitive and the scalar S-parameter chain, matching
+/// the `Fn(&[c64]) -> (f64, Vec<c64>)` contract (`∂g/∂x_i` un-conjugated, PEC
+/// cotangent entries ignored by the adjoint).
+///
+/// `flux` must be full length (`[n_edges]`); the returned cotangent has the
+/// same length.
+///
+/// * `flux` — the port-flux covector `f_i = ∮_{Γp} N_i·ê dS`.
+/// * `inv_width` — `c = 1/w`.
+/// * `v_inc` — incident (drive) voltage `V_inc`.
+/// * `resistance` — lumped port resistance `R` (natural units).
+/// * `z0` — reference impedance `Z₀` for `S₁₁` (natural units; for the
+///   Palace-style uniform port `Z₀ = R`).
+pub fn s11_sq_objective(
+    flux: Vec<f64>,
+    inv_width: f64,
+    v_inc: c64,
+    resistance: f64,
+    z0: f64,
+) -> impl Fn(&[c64]) -> (f64, Vec<c64>) {
+    move |x: &[c64]| {
+        // V = c · Σ f_i x_i (the single holomorphic port functional).
+        let mut v = c64::new(0.0, 0.0);
+        for (f, xi) in flux.iter().zip(x.iter()) {
+            v += *xi * *f;
+        }
+        v *= inv_width;
+
+        let (g, dg_dv) = s11_sq_and_dg_dv(v, v_inc, resistance, z0);
+
+        // Scatter: ∂g/∂x_i = (∂g/∂V) · c · f_i (sparse on port-face edges).
+        let scale = dg_dv * inv_width;
+        let cot: Vec<c64> = flux.iter().map(|&f| scale * f).collect();
+        (g, cot)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -854,5 +969,108 @@ mod tests {
         assert_eq!(crossings.len(), 2);
         assert_eq!(crossings[0], 2.0);
         assert!((crossings[1] - 3.5).abs() < 1e-15);
+    }
+
+    // ── |S11|² objective closure (issue #626) ────────────────────────────
+
+    /// `g = |S11|²` must equal `|s11(Z, Z₀)|²` with `Z` from the port
+    /// circuit chain, and vanish at the matched voltage `V = V_inc`.
+    #[test]
+    fn s11_sq_value_matches_port_chain() {
+        let v_inc = c(1.0, 0.0);
+        let r = 1.3;
+        let z0 = 1.3;
+        // Matched: V = V_inc ⇒ Z = R = Z₀ ⇒ g = 0.
+        let (g0, _) = s11_sq_and_dg_dv(v_inc, v_inc, r, z0);
+        assert!(g0 < 1e-28, "matched |S11|² should be ~0, got {g0}");
+        // Arbitrary V: cross-check against the standalone s11() helper.
+        let v = c(0.7, -0.4);
+        let i = (v_inc * 2.0 - v) * (1.0 / r);
+        let z = v / i;
+        let (g, _) = s11_sq_and_dg_dv(v, v_inc, r, z0);
+        let g_ref = s11(z, z0).norm().powi(2);
+        assert!((g - g_ref).abs() < 1e-14, "|S11|² {g} vs {g_ref}");
+    }
+
+    /// **Isolated `∂g/∂V` gate.** The analytic Wirtinger derivative
+    /// `∂g/∂V = conj(S11)·dS11/dV` must match a central finite-difference
+    /// Wirtinger estimate `½(∂g/∂V_re − i ∂g/∂V_im)` to ≤ 1e-9 — the issue
+    /// #626 acceptance criterion. (A central FD on the analytic scalar chain
+    /// is equivalent in accuracy to a complex-step here and needs no
+    /// holomorphic real-axis restriction.)
+    #[test]
+    fn dg_dv_matches_finite_difference() {
+        let v_inc = c(1.0, 0.0);
+        let r = 1.3;
+        let z0 = 1.3;
+        let h = 1e-6;
+        // Several off-matched probe voltages (non-singular I, Z ≠ −Z₀).
+        for &v in &[c(0.7, -0.4), c(1.4, 0.9), c(0.2, 1.1), c(-0.5, 0.3)] {
+            let (_, dg_dv) = s11_sq_and_dg_dv(v, v_inc, r, z0);
+            let g = |vv: c64| s11_sq_and_dg_dv(vv, v_inc, r, z0).0;
+            let dgd_re = (g(v + c(h, 0.0)) - g(v - c(h, 0.0))) / (2.0 * h);
+            let dgd_im = (g(v + c(0.0, h)) - g(v - c(0.0, h))) / (2.0 * h);
+            let fd = c(0.5 * dgd_re, -0.5 * dgd_im); // ½(∂/∂a − i ∂/∂b)
+            let rel = (dg_dv - fd).norm() / fd.norm().max(1e-30);
+            assert!(
+                rel < 1e-9,
+                "∂g/∂V at V={v}: analytic {dg_dv} vs FD {fd}, rel {rel:.3e}"
+            );
+        }
+    }
+
+    /// **Closure cotangent gate.** The full-length cotangent
+    /// `∂g/∂x_i = (∂g/∂V)·c·f_i` the [`s11_sq_objective`] closure returns
+    /// must match a central-FD Wirtinger derivative of `g(x)` w.r.t. each
+    /// edge DOF `x_i` on a fixed field, to ≤ 1e-7 — proving the sparse
+    /// scatter onto the port-flux covector is correct.
+    #[test]
+    fn objective_cotangent_matches_forward_fd() {
+        // A short, dense synthetic flux + field (a stand-in for the port
+        // edges of a real mesh) — the closure is mesh-agnostic.
+        let flux = vec![0.3_f64, -0.15, 0.0, 0.22, -0.4, 0.0, 0.11];
+        let inv_width = 1.0 / 1.7;
+        let v_inc = c(1.0, 0.0);
+        let r = 1.3;
+        let z0 = 1.3;
+        let obj = s11_sq_objective(flux.clone(), inv_width, v_inc, r, z0);
+
+        let x = vec![
+            c(0.10, 0.20),
+            c(-0.30, 0.05),
+            c(0.44, -0.12),
+            c(0.02, 0.31),
+            c(-0.18, -0.09),
+            c(0.27, 0.14),
+            c(0.06, -0.22),
+        ];
+        let (_, cot) = obj(&x);
+
+        let h = 1e-6;
+        let g_at = |xx: &[c64]| obj(xx).0;
+        for i in 0..x.len() {
+            let mut xp = x.clone();
+            let mut xm = x.clone();
+            xp[i] += c(h, 0.0);
+            xm[i] -= c(h, 0.0);
+            let dgd_re = (g_at(&xp) - g_at(&xm)) / (2.0 * h);
+            let mut xp = x.clone();
+            let mut xm = x.clone();
+            xp[i] += c(0.0, h);
+            xm[i] -= c(0.0, h);
+            let dgd_im = (g_at(&xp) - g_at(&xm)) / (2.0 * h);
+            let fd = c(0.5 * dgd_re, -0.5 * dgd_im);
+            let rel = (cot[i] - fd).norm() / fd.norm().max(1e-12);
+            // Off-flux edges (f_i = 0) must carry an exact-zero cotangent.
+            if flux[i] == 0.0 {
+                assert_eq!(cot[i], c(0.0, 0.0));
+            } else {
+                assert!(
+                    rel < 1e-7,
+                    "cotangent[{i}]: closure {} vs FD {fd}, rel {rel:.3e}",
+                    cot[i]
+                );
+            }
+        }
     }
 }
