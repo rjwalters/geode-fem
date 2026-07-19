@@ -192,11 +192,15 @@ points:
   returning `∂g/∂ε_k` for every material region from one forward + one adjoint solve.
 
   Two eigen / magnetostatic extensions land on top of the driven matrix, same FD discipline:
-  - **Eigenmode geometry sensitivity** `∂λ/∂(node coords)` via Hellmann–Feynman —
-    [`eigen/sensitivity.rs`](../../crates/geode-core/src/eigen/sensitivity.rs) `deigenvalue_dx`,
-    asserted against central-FD to rel **< 1e-4** and against a closed form to <1e-6 in
+  - **Eigenmode sensitivities** via Hellmann–Feynman, in
+    [`eigen/sensitivity.rs`](../../crates/geode-core/src/eigen/sensitivity.rs) and validated in
     [`tests/transmon_eigen_sensitivity.rs`](../../crates/geode-core/tests/transmon_eigen_sensitivity.rs)
-    ([#596](https://github.com/rjwalters/geode-fem/issues/596)/[#600](https://github.com/rjwalters/geode-fem/pull/600)); plus a London-superconductor surface BC exposing `∂λ/∂λ_L`, again Hellmann–Feynman ([#609](https://github.com/rjwalters/geode-fem/pull/609)).
+    ([#596](https://github.com/rjwalters/geode-fem/issues/596)/[#600](https://github.com/rjwalters/geode-fem/pull/600)):
+    **material** `∂λ/∂ε` (`deigenvalue_deps`) — central-FD **< 1e-4** *and* a closed form **< 1e-6**
+    (`material_sensitivity_matches_fd_and_closed_form`); **geometry** `∂λ/∂θ` node-motion
+    (`deigenvalue_dtheta`) — central-FD **< 5e-3** (`geometry_sensitivity_matches_fd`); and a
+    London-superconductor surface BC `∂λ/∂λ_L` (`deigenvalue_dlambda_l`) — central-FD **< 1e-4**
+    (`london_lambda_l_sensitivity_matches_fd`, [#609](https://github.com/rjwalters/geode-fem/pull/609)).
   - **Inductance reluctivity sensitivity** `∂L_ij/∂ν_k` via the self-adjoint energy form —
     [`adjoint.rs::inductance_adjoint_sensitivity`](../../crates/geode-core/src/adjoint.rs),
     coax-fixture central-FD-validated in
@@ -249,7 +253,8 @@ result or a roadmap promise, and still not a claim of raw-speed superiority.
 - **Complement:** GEODE's tensor-native, single-binary, differentiable-by-construction
   substrate adds **solver-derived design sensitivities** across the full
   {material, geometry} × {scalar, H(curl), eigenmode, magnetostatic} space — every quadrant
-  FD-validated and test-asserted (rel-err ≤ 1e-4 scalar/eigenmode, ≤ 1e-3 H(curl)) — and the
+  FD-validated and test-asserted (rel-err ≤ 1e-4 for scalar and material/London eigenmode
+  quadrants, ≤ 1e-3 H(curl), ≤ 5e-3 eigenmode geometry) — and the
   gradient already drives Newton-based transmon design on the real DeviceLayout mesh (§3).
   A factorization-based solver cannot provide these. That is the intended relationship: an
   independent cross-check that *adds* a capability, not a faster replacement.
@@ -265,7 +270,7 @@ result or a roadmap promise, and still not a claim of raw-speed superiority.
 - [`benchmarks/electrostatic/results.toml`](../../benchmarks/electrostatic/results.toml) — electrostatic solver validation (scalar-ε adjoint demo problem)
 - [`benchmarks/transmon_diffopt/results.toml`](../../benchmarks/transmon_diffopt/results.toml) — gradient-based transmon E_C optimization (Newton via analytic dE_C/dθ)
 - [`benchmarks/transmon_diffopt/pad_results.toml`](../../benchmarks/transmon_diffopt/pad_results.toml) — DeviceLayout island-pad ∂C_Σ/∂θ on the real 133k-tet mesh (FD rel-err 1.154e-4; honest anchor outcome)
-- Adjoint/shape modules (each with a committed FD-validation test): [`adjoint.rs`](../../crates/geode-core/src/adjoint.rs) (scalar-ε + inductance ∂L/∂ν), [`shape.rs`](../../crates/geode-core/src/shape.rs) (geometry + capacitance→E_C chain), [`driven/adjoint.rs`](../../crates/geode-core/src/driven/adjoint.rs) (H(curl) material), [`driven/shape.rs`](../../crates/geode-core/src/driven/shape.rs) (H(curl) geometry), [`eigen/sensitivity.rs`](../../crates/geode-core/src/eigen/sensitivity.rs) (eigenmode ∂λ/∂x, Hellmann–Feynman)
+- Adjoint/shape modules (each with a committed FD-validation test): [`adjoint.rs`](../../crates/geode-core/src/adjoint.rs) (scalar-ε + inductance ∂L/∂ν), [`shape.rs`](../../crates/geode-core/src/shape.rs) (geometry + capacitance→E_C chain), [`driven/adjoint.rs`](../../crates/geode-core/src/driven/adjoint.rs) (H(curl) material), [`driven/shape.rs`](../../crates/geode-core/src/driven/shape.rs) (H(curl) geometry), [`eigen/sensitivity.rs`](../../crates/geode-core/src/eigen/sensitivity.rs) (eigenmode ∂λ/∂ε, ∂λ/∂θ, ∂λ/∂λ_L, Hellmann–Feynman)
 - [`reference/CONFORMANCE.md`](../../reference/CONFORMANCE.md) — cross-backend / independent-solver agreement ledger
 - [`docs/research/2026-07-16-strategic-direction.md`](./2026-07-16-strategic-direction.md) — strategic framing
 - Sensitivity Issues/PRs: 2×2 matrix — [#570](https://github.com/rjwalters/geode-fem/issues/570)/[#573](https://github.com/rjwalters/geode-fem/pull/573) (scalar ε), [#571](https://github.com/rjwalters/geode-fem/issues/571)/[#575](https://github.com/rjwalters/geode-fem/pull/575) (geometry), [#576](https://github.com/rjwalters/geode-fem/issues/576)/[#579](https://github.com/rjwalters/geode-fem/pull/579) (H(curl) ε), [#577](https://github.com/rjwalters/geode-fem/issues/577)/[#581](https://github.com/rjwalters/geode-fem/pull/581) (H(curl) geometry); extensions — [#596](https://github.com/rjwalters/geode-fem/issues/596)/[#600](https://github.com/rjwalters/geode-fem/pull/600) (eigenmode ∂λ/∂x), [#609](https://github.com/rjwalters/geode-fem/pull/609) (London ∂λ/∂λ_L), [#615](https://github.com/rjwalters/geode-fem/pull/615) (inductance ∂L/∂ν); applied — [#583](https://github.com/rjwalters/geode-fem/issues/583)/[#586](https://github.com/rjwalters/geode-fem/pull/586) (C→E_C chain), [#584](https://github.com/rjwalters/geode-fem/issues/584)/[#588](https://github.com/rjwalters/geode-fem/pull/588) (E_C opt), [#589](https://github.com/rjwalters/geode-fem/issues/589)/[#590](https://github.com/rjwalters/geode-fem/pull/590) (island-pad on real mesh); p=2 adjoint — [#621](https://github.com/rjwalters/geode-fem/pull/621)/[#623](https://github.com/rjwalters/geode-fem/pull/623); [#562](https://github.com/rjwalters/geode-fem/issues/562), [#565](https://github.com/rjwalters/geode-fem/issues/565) (plateau); [#518](https://github.com/rjwalters/geode-fem/issues/518) (no 8-thread speedup)
