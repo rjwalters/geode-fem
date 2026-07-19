@@ -1,6 +1,7 @@
 # GEODE-FEM vs Palace — an honest, measured comparison
 
-**Date:** 2026-07-16
+**Date:** 2026-07-16 · **updated 2026-07-18** (§3/§4 now reflect the complete, FD-validated
+2×2 sensitivity matrix + eigenmode/inductance extensions shipped on `main`; §1–§2 unchanged)
 **Purpose:** outreach to the Palace authors. This is a *complement* document, not a
 competitor pitch. It states plainly where Palace wins, where the two solvers match,
 and the one capability GEODE is being built to add. Every performance number below
@@ -168,35 +169,72 @@ points:
   is where matrix-free + GPU genuinely wins and is the S-parameter / EPR workhorse.
 - **Single-binary Rust.** No MPI cluster, no `mpirun -np`, no external solver stack to
   provision — one static binary. (The trade-off is the direct-solver memory wall of §2b.)
-- **Differentiable-by-construction — with an honest boundary.** This is the intended
-  differentiator, and it must be pitched precisely:
+- **Differentiable-by-construction — the full sensitivity matrix, FD-validated.** This is
+  the intended differentiator, and as of **2026-07-18 it is a demonstrated capability, not
+  a roadmap item.** The faer sparse factorization breaks the naïve autodiff tape, so
+  reverse-mode alone yields *no* gradient of a solved observable; the fix is an explicit
+  **discrete-adjoint layer** — one forward + one adjoint solve reusing the same LU factors,
+  supplying the custom backward for `Ax=b`. The complete
+  **{material ε, geometry} × {scalar SPD, H(curl) Maxwell} 2×2 matrix** is now on `main`,
+  every quadrant carrying a committed test that asserts the adjoint gradient matches a
+  central finite-difference of the *whole* pipeline:
 
-  - **Today (done):** the Burn tape reaches the assembled `K`, `M`, `b` and their
-    dependence on **material ε** — assembly is differentiable.
-  - **Just landed (done):** the missing **adjoint-through-solve** layer. The faer sparse
-    factorization breaks the autodiff tape, so naïve reverse-mode yields *no* gradient of
-    a solved observable. Issue [#570](https://github.com/rjwalters/geode-fem/issues/570)
-    (closed) / PR [#573](https://github.com/rjwalters/geode-fem/pull/573) (merged) added an
-    explicit discrete-adjoint layer —
-    [`crates/geode-core/src/adjoint.rs`](../../crates/geode-core/src/adjoint.rs) on `main` —
-    and proves it end-to-end on the **real, SPD electrostatic**
-    solve (itself validated to <1%, O(h²), in
-    [`benchmarks/electrostatic/results.toml`](../../benchmarks/electrostatic/results.toml)):
-    one forward + one adjoint solve (reusing the same LU factors) returns `∂g/∂ε_k` for
-    every material region. The committed test
-    `adjoint_gradient_matches_central_finite_difference` in that module **asserts** the
-    adjoint gradient matches a full central finite-difference of the whole pipeline to
-    **relative error ≤ 1e-4** (the reference run observes ~3e-8). This is the first
-    validated solver-derived gradient in GEODE — a `∂observable/∂ε` that **Palace
-    structurally cannot produce**.
-  - **Roadmap (not done):** **geometry / shape sensitivities** — `∂observable/∂(geometry
-    param)` via the adjoint plus a differentiable node-motion / design-param → mesh map —
-    are issue [#571](https://github.com/rjwalters/geode-fem/issues/571), *in progress*.
-    They are **not** claimed here. The material-ε adjoint is the proof of concept; shape
-    sensitivities are the forthcoming extension.
+  | | material ε | geometry / shape |
+  |---|---|---|
+  | **scalar** (electrostatic, SPD) | [`adjoint.rs`](../../crates/geode-core/src/adjoint.rs) — `adjoint_gradient_matches_central_finite_difference`, rel-err **< 1e-4** ([#570](https://github.com/rjwalters/geode-fem/issues/570)/[#573](https://github.com/rjwalters/geode-fem/pull/573)) | [`shape.rs`](../../crates/geode-core/src/shape.rs) — `shape_gradient_matches_central_finite_difference`, rel-err **< 1e-4** (observed ~7e-12 hi-face / ~1e-9 control-node) ([#571](https://github.com/rjwalters/geode-fem/issues/571)/[#575](https://github.com/rjwalters/geode-fem/pull/575)) |
+  | **H(curl)** (driven Maxwell, complex) | [`driven/adjoint.rs`](../../crates/geode-core/src/driven/adjoint.rs) — `driven_adjoint_gradient_matches_central_finite_difference`, rel-err **< 1e-3** ([#576](https://github.com/rjwalters/geode-fem/issues/576)/[#579](https://github.com/rjwalters/geode-fem/pull/579)) | [`driven/shape.rs`](../../crates/geode-core/src/driven/shape.rs) — `driven_shape_gradient_matches_central_finite_difference`, rel-err **< 1e-3** ([#577](https://github.com/rjwalters/geode-fem/issues/577)/[#581](https://github.com/rjwalters/geode-fem/pull/581)) |
 
-The differentiator is design **sensitivities**, framed as a roadmap capability anchored by
-one already-validated result (the ε-adjoint), not a claim of raw-speed superiority.
+  Both H(curl) quadrants additionally ship a `conjugation_error_is_detected_by_fd` tripwire
+  that reproduces the complex-adjoint conjugation bug inline and asserts the FD catches it —
+  a standing regression guard. The scalar ε-adjoint runs end-to-end on the **real, SPD
+  electrostatic** solve (itself validated to <1%, O(h²), in
+  [`benchmarks/electrostatic/results.toml`](../../benchmarks/electrostatic/results.toml)),
+  returning `∂g/∂ε_k` for every material region from one forward + one adjoint solve.
+
+  Two eigen / magnetostatic extensions land on top of the driven matrix, same FD discipline:
+  - **Eigenmode geometry sensitivity** `∂λ/∂(node coords)` via Hellmann–Feynman —
+    [`eigen/sensitivity.rs`](../../crates/geode-core/src/eigen/sensitivity.rs) `deigenvalue_dx`,
+    asserted against central-FD to rel **< 1e-4** and against a closed form to <1e-6 in
+    [`tests/transmon_eigen_sensitivity.rs`](../../crates/geode-core/tests/transmon_eigen_sensitivity.rs)
+    ([#596](https://github.com/rjwalters/geode-fem/issues/596)/[#600](https://github.com/rjwalters/geode-fem/pull/600)); plus a London-superconductor surface BC exposing `∂λ/∂λ_L`, again Hellmann–Feynman ([#609](https://github.com/rjwalters/geode-fem/pull/609)).
+  - **Inductance reluctivity sensitivity** `∂L_ij/∂ν_k` via the self-adjoint energy form —
+    [`adjoint.rs::inductance_adjoint_sensitivity`](../../crates/geode-core/src/adjoint.rs),
+    coax-fixture central-FD-validated in
+    [`tests/magnetostatic_inductance.rs`](../../crates/geode-core/tests/magnetostatic_inductance.rs)
+    ([#615](https://github.com/rjwalters/geode-fem/pull/615)).
+
+  And two **applied** demonstrations, both from committed benchmark data, show the gradient
+  driving real optimization:
+  - **Gradient-based transmon design** — a damped-Newton optimizer drives a capacitor
+    geometry parameter θ to a target charging energy `E_C` using the analytic `dE_C/dθ`
+    from the electrostatic-energy adjoint (the capacitance→E_C chain,
+    [#583](https://github.com/rjwalters/geode-fem/issues/583)/[#586](https://github.com/rjwalters/geode-fem/pull/586));
+    one forward + one adjoint solve per step, the converged θ confirmed by an independent
+    forward capacitance solve
+    ([`benchmarks/transmon_diffopt/results.toml`](../../benchmarks/transmon_diffopt/results.toml),
+    [#584](https://github.com/rjwalters/geode-fem/issues/584)/[#588](https://github.com/rjwalters/geode-fem/pull/588)).
+    Pitched **honestly as a capability / step-count argument** — the derivative-free
+    alternative (Qiskit Metal + HFSS/Palace parameter sweeps) needs `N_params` extra forward
+    solves per step — **no wall-clock speedup is claimed**.
+  - **DeviceLayout island-pad shape gradient on the real 133k-tet mesh** — the analytic
+    `∂C_Σ/∂θ` for the actual SingleTransmon island conductor, FD-validated on the production
+    mesh to **1.154e-4**. **Honest outcome:** the 89.9 fF anchor is *not* reachable under the
+    fixed-topology node-motion map (the island's junction-attachment nodes sit ~225 µm from
+    its centroid, so the prescribed scale inverts ~0.7 µm junction-region tets at
+    θ ≈ −0.0097 while the anchor needs θ ≈ −0.24); the bounded Newton run stalls honestly at
+    the distortion boundary, and a clearly-labeled in-budget target (`C_Σ → 137.0 fF`)
+    converges, confirmed by an independent multi-conductor extraction
+    ([`benchmarks/transmon_diffopt/pad_results.toml`](../../benchmarks/transmon_diffopt/pad_results.toml),
+    [#589](https://github.com/rjwalters/geode-fem/issues/589)/[#590](https://github.com/rjwalters/geode-fem/pull/590)).
+
+  The adjoint layer now also extends to the **p=2 (20-DOF) Nédélec** driven path — material
+  and geometry shape adjoints on second-order elements
+  ([#621](https://github.com/rjwalters/geode-fem/pull/621)/[#623](https://github.com/rjwalters/geode-fem/pull/623)) —
+  so differentiability is not tied to lowest-order accuracy.
+
+The differentiator is design **sensitivities**, now anchored by a *complete, FD-validated*
+matrix spanning material/geometry × scalar/H(curl)/eigenmode/magnetostatic — not a single
+result or a roadmap promise, and still not a claim of raw-speed superiority.
 
 ---
 
@@ -209,11 +247,12 @@ one already-validated result (the ε-adjoint), not a claim of raw-speed superior
   efficiency edge that does not survive scaling. **No clearly-preferred GEODE raw-perf
   corner exists.**
 - **Complement:** GEODE's tensor-native, single-binary, differentiable-by-construction
-  substrate adds **solver-derived design sensitivities** (material-ε adjoint validated to
-  ≤1e-4, test-asserted; ~3e-8 observed; geometry sensitivities forthcoming) that a
-  factorization-based solver cannot
-  provide. That is the intended relationship: an independent cross-check that *adds* a
-  capability, not a faster replacement.
+  substrate adds **solver-derived design sensitivities** across the full
+  {material, geometry} × {scalar, H(curl), eigenmode, magnetostatic} space — every quadrant
+  FD-validated and test-asserted (rel-err ≤ 1e-4 scalar/eigenmode, ≤ 1e-3 H(curl)) — and the
+  gradient already drives Newton-based transmon design on the real DeviceLayout mesh (§3).
+  A factorization-based solver cannot provide these. That is the intended relationship: an
+  independent cross-check that *adds* a capability, not a faster replacement.
 
 ---
 
@@ -223,7 +262,10 @@ one already-validated result (the ε-adjoint), not a claim of raw-speed superior
 - [`benchmarks/transmon_bench_cpu/results.toml`](../../benchmarks/transmon_bench_cpu/results.toml) — matched CPU head-to-head (133k + 1.16M)
 - [`benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log`](../../benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log) — 1.16M-DOF run (565.5 s / 92.2 GB; AMD OOM at 128.5 GB)
 - [`benchmarks/transmon_bench_cpu/sigma4p5_deepshift_characterization.md`](../../benchmarks/transmon_bench_cpu/sigma4p5_deepshift_characterization.md) — σ=4.5 interior-eigensolve plateau
-- [`benchmarks/electrostatic/results.toml`](../../benchmarks/electrostatic/results.toml) — electrostatic solver validation (adjoint demo problem)
+- [`benchmarks/electrostatic/results.toml`](../../benchmarks/electrostatic/results.toml) — electrostatic solver validation (scalar-ε adjoint demo problem)
+- [`benchmarks/transmon_diffopt/results.toml`](../../benchmarks/transmon_diffopt/results.toml) — gradient-based transmon E_C optimization (Newton via analytic dE_C/dθ)
+- [`benchmarks/transmon_diffopt/pad_results.toml`](../../benchmarks/transmon_diffopt/pad_results.toml) — DeviceLayout island-pad ∂C_Σ/∂θ on the real 133k-tet mesh (FD rel-err 1.154e-4; honest anchor outcome)
+- Adjoint/shape modules (each with a committed FD-validation test): [`adjoint.rs`](../../crates/geode-core/src/adjoint.rs) (scalar-ε + inductance ∂L/∂ν), [`shape.rs`](../../crates/geode-core/src/shape.rs) (geometry + capacitance→E_C chain), [`driven/adjoint.rs`](../../crates/geode-core/src/driven/adjoint.rs) (H(curl) material), [`driven/shape.rs`](../../crates/geode-core/src/driven/shape.rs) (H(curl) geometry), [`eigen/sensitivity.rs`](../../crates/geode-core/src/eigen/sensitivity.rs) (eigenmode ∂λ/∂x, Hellmann–Feynman)
 - [`reference/CONFORMANCE.md`](../../reference/CONFORMANCE.md) — cross-backend / independent-solver agreement ledger
 - [`docs/research/2026-07-16-strategic-direction.md`](./2026-07-16-strategic-direction.md) — strategic framing
-- Issues/PRs: [#570](https://github.com/rjwalters/geode-fem/issues/570) (closed), [#573](https://github.com/rjwalters/geode-fem/pull/573) (merged) — ε-adjoint, committed in [`crates/geode-core/src/adjoint.rs`](../../crates/geode-core/src/adjoint.rs); [#571](https://github.com/rjwalters/geode-fem/issues/571) (shape sensitivities, in progress); [#562](https://github.com/rjwalters/geode-fem/issues/562), [#565](https://github.com/rjwalters/geode-fem/issues/565) (plateau); [#518](https://github.com/rjwalters/geode-fem/issues/518) (no 8-thread speedup)
+- Sensitivity Issues/PRs: 2×2 matrix — [#570](https://github.com/rjwalters/geode-fem/issues/570)/[#573](https://github.com/rjwalters/geode-fem/pull/573) (scalar ε), [#571](https://github.com/rjwalters/geode-fem/issues/571)/[#575](https://github.com/rjwalters/geode-fem/pull/575) (geometry), [#576](https://github.com/rjwalters/geode-fem/issues/576)/[#579](https://github.com/rjwalters/geode-fem/pull/579) (H(curl) ε), [#577](https://github.com/rjwalters/geode-fem/issues/577)/[#581](https://github.com/rjwalters/geode-fem/pull/581) (H(curl) geometry); extensions — [#596](https://github.com/rjwalters/geode-fem/issues/596)/[#600](https://github.com/rjwalters/geode-fem/pull/600) (eigenmode ∂λ/∂x), [#609](https://github.com/rjwalters/geode-fem/pull/609) (London ∂λ/∂λ_L), [#615](https://github.com/rjwalters/geode-fem/pull/615) (inductance ∂L/∂ν); applied — [#583](https://github.com/rjwalters/geode-fem/issues/583)/[#586](https://github.com/rjwalters/geode-fem/pull/586) (C→E_C chain), [#584](https://github.com/rjwalters/geode-fem/issues/584)/[#588](https://github.com/rjwalters/geode-fem/pull/588) (E_C opt), [#589](https://github.com/rjwalters/geode-fem/issues/589)/[#590](https://github.com/rjwalters/geode-fem/pull/590) (island-pad on real mesh); p=2 adjoint — [#621](https://github.com/rjwalters/geode-fem/pull/621)/[#623](https://github.com/rjwalters/geode-fem/pull/623); [#562](https://github.com/rjwalters/geode-fem/issues/562), [#565](https://github.com/rjwalters/geode-fem/issues/565) (plateau); [#518](https://github.com/rjwalters/geode-fem/issues/518) (no 8-thread speedup)
