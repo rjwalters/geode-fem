@@ -8,8 +8,6 @@ general repository hygiene and environment commands invoked as `/repo:<command>`
 `/repo:help` for the command list, or see `.claude/skills/repo/SKILL.md` for the full
 guide. Hygiene commands are report-first: they present findings and wait before changing
 anything. Managed by `install.sh` — edit outside the markers only.
-<!-- END REPO-SKILLS -->
-
-<!-- BEGIN LOOM ORCHESTRATION -->
-This repository uses [Loom](https://github.com/rjwalters/loom) for AI-powered development orchestration. See `.loom/CLAUDE.md` for the full guide (roles, labels, worktrees, configuration).
+<!-- END REPO-SKILLS --><!-- BEGIN LOOM ORCHESTRATION -->
+This repository uses [Loom](https://github.com/rjwalters/loom) for AI-powered development orchestration — see the Loom repository for the full guide (roles, labels, worktrees, configuration). When installed, Loom also writes a locally-substituted copy of that guide to `.loom/CLAUDE.md`.
 <!-- END LOOM ORCHESTRATION -->

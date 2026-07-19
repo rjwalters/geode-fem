@@ -55,6 +55,8 @@ dist/
 .env
 .env.*
 !.env.example
+# >>> loom-managed (do not edit) >>>
+# Loom runtime state (don't commit these)
 .loom-in-use
 .loom-checkpoint
 .loom/.daemon.pid
@@ -85,5 +87,6 @@ dist/
 .loom/*.log
 .loom/*.sock
 .loom/logs/
+# <<< loom-managed <<<
 *.local.md
 /.voice/
