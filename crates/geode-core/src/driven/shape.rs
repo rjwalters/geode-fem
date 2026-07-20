@@ -1698,6 +1698,93 @@ where
     B: Backend,
     G: Fn(&[c64]) -> (f64, Vec<c64>),
 {
+    // Port-less delegation: the shared core with an empty port list is the
+    // historical (Phase C1) box-UPML path, bit-for-bit. See the module docs and
+    // [`driven_shape_gradient_matched_upml_ports`].
+    driven_shape_gradient_matched_upml_ports::<B, G>(
+        mesh,
+        epsilon_tensor,
+        nu_tensor,
+        bcs,
+        &[],
+        omega,
+        source,
+        objective,
+        device,
+    )
+}
+
+/// Compute the full nodal-coordinate gradient `∂g/∂X_{n,d}` of the **composed
+/// open-radiator** driven Nédélec pencil — a **matched box-UPML** tensor
+/// material with a **complex (lossy) ε** AND a slice of **pinned-feed lumped
+/// ports** threaded into the differentiated system — via the discrete adjoint
+/// (**one forward + one adjoint solve**, reusing a single complex sparse LU),
+/// with the **PML shell pinned** (Epic #628 capstone, issue #636).
+///
+/// This is the full-forward composition of the three epic ingredients:
+///
+/// * the **box-UPML tensor material** of [`driven_shape_gradient_matched_upml`]
+///   (`A(ω) = K(ν) − ω² M(ε)`, `ν = Λ⁻¹`, `ε = ε_r·Λ`, both full 3×3 complex),
+/// * the **complex/lossy ε** it already carries (nonzero `Im(ε_r)` for `tan δ`),
+///   and
+/// * the **pinned-feed lumped-port termination** of
+///   [`driven_shape_gradient_ports_complex`]
+///   (`A(ω) += (jω/Z_s) S_p`, port boundary drive folded into `b`).
+///
+/// It differentiates the **exact** system the public open-radiator forward
+/// [`crate::driven::solve::driven_solve_with_ports`] builds with
+/// [`crate::driven::solve::DrivenMaterials::MatchedUpml`] materials and the same
+/// `ports` slice — the full radiating patch model. Radiation loss (the UPML)
+/// dissipates power, so the extracted `|S₁₁|` is a **passive** reflection
+/// coefficient (`≤ 1`), unlike the #626 closed-cavity pencil.
+///
+/// # Pinned feed + pinned PML shell — why the capstone is tractable
+///
+/// Both the port faces/nodes and the PML-region nodes are **geometry-constant**
+/// (the feed is pinned, the shell is pinned), so `∂S_p/∂X = 0`,
+/// `∂b_port/∂X = 0`, and `∂Λ/∂X = 0`: there is **no** new geometry term beyond
+/// the fixed-Λ volume `∂K(ν)/∂X`, `∂M(ε)/∂X` and the material-independent
+/// `∂b/∂X` current-RHS contraction. The port admittance and drive simply load
+/// the shared forward + adjoint solves, and the returned gradient is taken
+/// through the loaded system. Use [`pml_shell_nodes`] +
+/// [`chain_node_motion_pml_pinned`] to enforce (and assert) the shell pinning,
+/// and hold every port-face node fixed in the node-motion map. Both loads keep
+/// `A(ω)` complex-symmetric (`Λ` diagonal-box symmetric; `S_p` real-symmetric
+/// scaled by the scalar `jω/Z_s`), so the transpose (adjoint) solve reuses the
+/// single forward LU (`n_factorizations == 1`).
+///
+/// An empty `ports` slice reproduces [`driven_shape_gradient_matched_upml`]
+/// bit-for-bit.
+///
+/// # Arguments
+///
+/// * `mesh`, `epsilon_tensor`, `nu_tensor`, `bcs`, `omega`, `source`,
+///   `objective`, `device` — exactly as [`driven_shape_gradient_matched_upml`].
+/// * `ports` — the pinned-feed [`LumpedPort`] slice (added parameter), threaded
+///   into the forward + adjoint solves identically to
+///   [`driven_shape_gradient_ports_complex`].
+///
+/// # Errors
+///
+/// Propagates [`DrivenError`] on input-shape mismatches, a bad port spec, empty
+/// interior, a failed factorization / solve, or an objective-cotangent length
+/// mismatch.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_shape_gradient_matched_upml_ports<B, G>(
+    mesh: &TetMesh,
+    epsilon_tensor: &[[[c64; 3]; 3]],
+    nu_tensor: &[[[c64; 3]; 3]],
+    bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
     let n_tets = mesh.n_tets();
     let n_nodes = mesh.n_nodes();
     let edges = mesh.edges();
@@ -1727,6 +1814,39 @@ where
             got: source.j_tet.len(),
             want: n_tets,
         });
+    }
+    // Port validation mirrors the forward `DrivenOperator::assemble_impl` (and
+    // the scalar port core) so the adjoint's port-loaded forward is the same
+    // system `driven_solve_with_ports` builds.
+    for (index, port) in ports.iter().enumerate() {
+        let invalid = |reason: &str| DrivenError::InvalidPort {
+            index,
+            reason: reason.to_string(),
+        };
+        if port.faces.is_empty() {
+            return Err(invalid("port has no faces"));
+        }
+        if !(port.resistance.is_finite() && port.resistance > 0.0) {
+            return Err(invalid("resistance must be finite and positive"));
+        }
+        if !(port.width.is_finite() && port.width > 0.0) {
+            return Err(invalid("width must be finite and positive"));
+        }
+        if !(port.length.is_finite() && port.length > 0.0) {
+            return Err(invalid("length must be finite and positive"));
+        }
+        let e_norm = (port.e_hat[0].powi(2) + port.e_hat[1].powi(2) + port.e_hat[2].powi(2)).sqrt();
+        if (e_norm - 1.0).abs() >= 1e-8 || e_norm.is_nan() {
+            return Err(invalid("e_hat must be a unit vector"));
+        }
+        let n_nodes_u32 = n_nodes as u32;
+        if port
+            .faces
+            .iter()
+            .any(|f| f.iter().any(|&node| node >= n_nodes_u32))
+        {
+            return Err(invalid("face node index out of range"));
+        }
     }
 
     // --- Edge tables and the sparsity scatter map (issue #218 pattern). -------
@@ -1785,11 +1905,29 @@ where
     let rhs_im: Vec<f64> = rhs_im_t.into_data().iter::<f64>().collect();
 
     // b = iωμ₀ ∫ N · J dV with μ₀ = 1: iω (re + i·im) = ω(−im + i·re).
-    let b_full: Vec<c64> = rhs_re
+    let mut b_full: Vec<c64> = rhs_re
         .iter()
         .zip(rhs_im.iter())
         .map(|(&re, &im)| c64::new(-omega * im, omega * re))
         .collect();
+
+    // --- Pinned-feed port boundary drive (issue #631, threaded here for the
+    // composed capstone #636). b_i += (2jω/Z_s)(V_inc/l) ∮ N_i·ê dS, identical
+    // to the forward `driven_solve_with_ports`. The port flux functional f_i is
+    // geometry-constant under the pinned feed (∂b_port/∂X = 0), so it
+    // contributes only to the solves, not the geometry contraction.
+    for port in ports {
+        if port.v_inc == c64::new(0.0, 0.0) {
+            continue;
+        }
+        let z_s = port.surface_impedance();
+        let e_inc = port.v_inc * (1.0 / port.length);
+        let drive = c64::new(0.0, 2.0 * omega / z_s) * e_inc;
+        let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
+        for (b, f) in b_full.iter_mut().zip(flux.iter()) {
+            *b += drive * *f;
+        }
+    }
 
     // --- PEC interior reduction: full edge index → interior index. -----------
     let mut remap = vec![-1_i64; n_edges];
@@ -1821,6 +1959,27 @@ where
         kept.push((rr, cc, idx));
     }
 
+    // --- Pinned-feed port admittance A(ω) += (jω/Z_s) S_p (issue #631). ------
+    // S_p is the real-symmetric tangential surface mass; the scalar jω/Z_s
+    // scaling keeps A(ω)ᵀ = A(ω) (composed with the symmetric box-Λ tensors), so
+    // the transpose (adjoint) solve still reuses the forward LU. Kept as its own
+    // list so the residual health check re-forms the SAME loaded A. Under the
+    // pinned feed ∂S_p/∂X = 0, so these entries do NOT enter the geometry
+    // contraction.
+    let mut port_kept: Vec<(usize, usize, c64)> = Vec::new();
+    for port in ports {
+        let scale = c64::new(0.0, omega / port.surface_impedance());
+        for (r, c, v) in assemble_port_surface_mass(mesh, port.faces, &edges) {
+            let (rr, cc) = (remap[r], remap[c]);
+            if rr < 0 || cc < 0 {
+                continue;
+            }
+            let a_val = scale * v;
+            triplets.push(Triplet::new(rr as usize, cc as usize, a_val));
+            port_kept.push((rr as usize, cc as usize, a_val));
+        }
+    }
+
     let a_int =
         SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
             .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
@@ -1845,11 +2004,14 @@ where
     lu.solve_in_place(fwd.as_mut());
     let x_int: Vec<c64> = (0..n_interior).map(|i| fwd[(i, 0)]).collect();
 
-    // Post-solve residual health check ‖A x − b‖ / ‖b‖.
+    // Post-solve residual health check ‖A x − b‖ / ‖b‖ (includes the port load).
     let residual_rel = {
         let mut ax = vec![c64::new(0.0, 0.0); n_interior];
         for &(rr, cc, idx) in &kept {
             ax[rr] += a_of_idx(idx) * x_int[cc];
+        }
+        for &(rr, cc, a_val) in &port_kept {
+            ax[rr] += a_val * x_int[cc];
         }
         let mut res2 = 0.0_f64;
         let mut b2 = 0.0_f64;
@@ -4621,5 +4783,297 @@ mod tests {
             "conjugation error NOT detected by FD: wrong-adjoint {ana_wrong} vs FD {fd}, \
              rel-err {rel_wrong:.3e} (gate not biting)"
         );
+    }
+
+    /// **The load-bearing capstone test (issue #636).** The composed
+    /// open-radiator shape gradient — matched box-UPML tensor material + lossy
+    /// FR-4 ε + a pinned-feed lumped port, all in one differentiated pencil via
+    /// [`driven_shape_gradient_matched_upml_ports`] — must match a full central
+    /// finite difference of the entire **port-loaded UPML** pipeline (perturb θ →
+    /// move only the non-PML, non-port nodes → re-assemble + re-solve the forward
+    /// through the independent public [`driven_solve_with_ports`] with
+    /// [`DrivenMaterials::MatchedUpml`] → recompute g) to `rel_err ≤ 5e-3`, with
+    /// `n_factorizations == 1`. The PML shell (`∂Λ/∂X = 0`) and the port feed
+    /// (`∂S_p/∂X = ∂b_port/∂X = 0`) are both pinned. A conjugation tripwire proves
+    /// the tolerance bites. This is the composition #626 documented as the
+    /// open-radiator follow-on.
+    #[test]
+    fn driven_shape_gradient_matched_upml_ports_matches_central_finite_difference() {
+        use crate::constants::ETA_0_OHM as ETA_0;
+        use crate::driven::solve::driven_solve_with_ports;
+        use crate::mesh::patch::{FR4_MATERIALS, PHYS_UPML, read_patch_smoke_fixture};
+        use crate::mesh::pec_interior_mask_from_triangles;
+
+        let fixture = read_patch_smoke_fixture().expect("patch smoke fixture");
+        let mesh = fixture.mesh.clone();
+        let patch_tris = fixture.patch_triangles();
+        let ground_tris = fixture.ground_triangles();
+        let outer_tris = fixture.outer_boundary_triangles();
+        let edges = mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                patch_tris.as_slice(),
+                ground_tris.as_slice(),
+                outer_tris.as_slice(),
+            ],
+        );
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+
+        let pml_thick = 8.0;
+        let (air_lo, air_hi) = fixture.air_box(pml_thick);
+        let sigma_0 = 1.0;
+        let omega = 0.35;
+        // Lossy FR-4 (tan δ = 0.02) → complex ε; box-UPML stretch on the shell.
+        let (eps_tensor, nu_tensor) = fixture.matched_upml_materials(
+            &FR4_MATERIALS,
+            air_lo,
+            air_hi,
+            pml_thick,
+            sigma_0,
+            omega,
+        );
+
+        // Pinned-feed lumped port (Palace-style uniform), complex incident drive
+        // so the field, V and the objective are genuinely complex.
+        let patch_port = fixture.port();
+        let r_nat = 50.0 / ETA_0;
+        let port = patch_port.lumped_port(r_nat, c64::new(1.0, 0.5));
+
+        // Both the PML shell AND the port-face nodes are pinned in the motion map.
+        let pml_tet_mask: Vec<bool> = fixture
+            .tet_physical_tags
+            .iter()
+            .map(|&t| t == PHYS_UPML)
+            .collect();
+        let mut pinned = pml_shell_nodes(&mesh, &pml_tet_mask);
+        for tri in &patch_port.faces {
+            for &n in tri {
+                pinned[n as usize] = true;
+            }
+        }
+
+        // A complex volumetric source in addition to the port drive, so the
+        // volume ∂b/∂X term is exercised alongside the port load.
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.20 * c[2].cos()),
+                c64::new(0.15 * c[0].sin(), 0.10),
+                c64::new(0.30 * c[0].cos(), 0.20 * c[1].sin()),
+            ]
+        });
+
+        let sg = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("composed box-UPML + port shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "composed capstone adjoint must reuse the forward factorization"
+        );
+        assert!(
+            sg.residual_rel < 1e-8,
+            "forward composed solve unhealthy (residual {:.3e}); pick ω off resonance",
+            sg.residual_rel
+        );
+
+        // FD reference: hold the per-tet Λ tensors FIXED (pinned-shell C1
+        // convention), move only non-PML/non-port nodes, re-assemble + re-solve
+        // the port-loaded UPML forward through the independent public path.
+        let eps_ref = eps_tensor.clone();
+        let nu_ref = nu_tensor.clone();
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::MatchedUpml {
+                    epsilon_tensor: &eps_ref,
+                    nu_tensor: &nu_ref,
+                },
+                None,
+                &bcs,
+                std::slice::from_ref(&port),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("port-loaded UPML forward");
+            l2_objective(&sol.e_edges).0
+        };
+
+        let g0 = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0 - sg.objective).abs() <= 1e-8 * g0.abs().max(1.0),
+            "objective mismatch: adjoint {} vs public port-loaded UPML forward {g0}",
+            sg.objective
+        );
+
+        // Node-motion map: a +z Gaussian bump on the free (non-pinned) nodes.
+        let mut center = [0.0_f64; 3];
+        let mut n_free = 0.0_f64;
+        for (i, p) in mesh.nodes.iter().enumerate() {
+            if !pinned[i] {
+                for k in 0..3 {
+                    center[k] += p[k];
+                }
+                n_free += 1.0;
+            }
+        }
+        for c in center.iter_mut() {
+            *c /= n_free.max(1.0);
+        }
+        let s2 = 25.0_f64;
+        let d: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if pinned[i] {
+                    [0.0; 3]
+                } else {
+                    let r2 = (p[0] - center[0]).powi(2)
+                        + (p[1] - center[1]).powi(2)
+                        + (p[2] - center[2]).powi(2);
+                    [0.0, 0.0, (-r2 / (2.0 * s2)).exp()]
+                }
+            })
+            .collect();
+        // Guard the pinned-feed premise: no port-face node is moved.
+        for tri in &patch_port.faces {
+            for &nn in tri {
+                assert_eq!(
+                    d[nn as usize], [0.0; 3],
+                    "motion map moves a port-face node — pinned-feed premise violated"
+                );
+            }
+        }
+
+        let h = 1e-6;
+        let ana = chain_node_motion_pml_pinned(&sg.grad_node, &d, &pinned);
+        let fd = (g_of_theta(h, &d) - g_of_theta(-h, &d)) / (2.0 * h);
+        assert!(
+            fd.abs() > 1e-8,
+            "FD gradient {fd} unexpectedly ~0 (fixture/source degenerate?)"
+        );
+        let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel < 5e-3,
+            "composed box-UPML+port adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 5e-3"
+        );
+
+        // Conjugation tripwire: the wrong Wirtinger cotangent (∂g/∂x̄) must be
+        // REJECTED by the FD — proving the 5e-3 gate bites for the composition.
+        let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
+            let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+            let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
+            (g, cot)
+        };
+        let wrong = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &source,
+            wrong_objective,
+            &device(),
+        )
+        .expect("wrong-cotangent composed gradient");
+        let ana_wrong = chain_node_motion_pml_pinned(&wrong.grad_node, &d, &pinned);
+        let rel_wrong = (ana_wrong - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel_wrong > 1e-2,
+            "conjugation error NOT detected by FD: wrong-adjoint {ana_wrong} vs FD {fd}, \
+             rel-err {rel_wrong:.3e} (gate not biting)"
+        );
+    }
+
+    /// Empty `ports` reproduces the port-less box-UPML gradient
+    /// ([`driven_shape_gradient_matched_upml`]) bit-for-bit — the composed
+    /// capstone entry point is a strict superset (issue #636).
+    #[test]
+    fn empty_ports_equals_portless_matched_upml_gradient() {
+        use crate::mesh::patch::{FR4_MATERIALS, PHYS_UPML, read_patch_smoke_fixture};
+        use crate::mesh::pec_interior_mask_from_triangles;
+
+        let fixture = read_patch_smoke_fixture().expect("patch smoke fixture");
+        let mesh = fixture.mesh.clone();
+        let edges = mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                fixture.patch_triangles().as_slice(),
+                fixture.ground_triangles().as_slice(),
+                fixture.outer_boundary_triangles().as_slice(),
+            ],
+        );
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let pml_thick = 8.0;
+        let (air_lo, air_hi) = fixture.air_box(pml_thick);
+        let omega = 0.35;
+        let (eps_tensor, nu_tensor) =
+            fixture.matched_upml_materials(&FR4_MATERIALS, air_lo, air_hi, pml_thick, 1.0, omega);
+        let _ = PHYS_UPML;
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.20 * c[2].cos()),
+                c64::new(0.15 * c[0].sin(), 0.10),
+                c64::new(0.30 * c[0].cos(), 0.20 * c[1].sin()),
+            ]
+        });
+
+        let portless = driven_shape_gradient_matched_upml::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("portless box-UPML gradient");
+        let empty = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            &[],
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("empty-ports composed gradient");
+
+        assert_eq!(portless.n_factorizations, empty.n_factorizations);
+        assert_eq!(portless.objective.to_bits(), empty.objective.to_bits());
+        for (a, b) in portless.grad_node.iter().zip(empty.grad_node.iter()) {
+            for k in 0..3 {
+                assert_eq!(
+                    a[k].to_bits(),
+                    b[k].to_bits(),
+                    "grad_node differs on empty ports"
+                );
+            }
+        }
     }
 }
