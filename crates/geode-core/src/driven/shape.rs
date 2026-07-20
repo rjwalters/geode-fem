@@ -175,6 +175,20 @@ impl Dual {
     fn abs(self) -> Self {
         if self.re >= 0.0 { self } else { self.neg() }
     }
+    /// `√x`, `du = x.du / (2√x.re)`. Used by the surface-Whitney twin
+    /// [`port_face_dual`] for the triangle area `½‖e₁×e₂‖` (the tet element
+    /// kernels never take a square root — they fold `1/|det|` powers instead —
+    /// so this method is new for the port-face geometry derivative). The port
+    /// area is bounded away from zero on any valid boundary mesh, so the
+    /// `x.re = 0` singularity is never hit.
+    #[inline]
+    fn sqrt(self) -> Self {
+        let r = self.re.sqrt();
+        Self {
+            re: r,
+            du: self.du / (2.0 * r),
+        }
+    }
     /// Multiply by an `f64` constant (a lifted scalar with zero tangent).
     #[inline]
     fn scale(self, c: f64) -> Self {
@@ -205,6 +219,11 @@ fn ddot3(a: [Dual; 3], b: [Dual; 3]) -> Dual {
 #[inline]
 fn dscale3(s: f64, a: [Dual; 3]) -> [Dual; 3] {
     [a[0].scale(s), a[1].scale(s), a[2].scale(s)]
+}
+/// Scale a dual 3-vector by a **dual** scalar (both carry tangents).
+#[inline]
+fn dvscale(s: Dual, a: [Dual; 3]) -> [Dual; 3] {
+    [a[0].mul(s), a[1].mul(s), a[2].mul(s)]
 }
 /// The `f64`-scalar linear combination `s·a + t·b` of two dual 3-vectors
 /// (`s`, `t` are fixed reference barycentric weights with zero tangent).
@@ -302,6 +321,103 @@ pub(crate) fn nedelec_local_dual(
     }
 
     (k, m, nint)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Surface-Whitney (flat-triangle) Dual twin — the moving-feed lumped-port
+// geometry derivative (Epic #628 Phase A2, issue #633).
+//
+// Forward-mode-AD counterpart of the flat-triangle Whitney face kernels the
+// forward port assembly uses (`crate::elements::whitney::face_geometry` +
+// `face_mass_block`, and the closed-form flux in
+// `crate::driven::ports::assemble_port_flux`), restricted to ONE port face and
+// evaluated in `Dual` arithmetic — so each `.du` is the exact partial of the
+// face's tangential surface-mass block `S^face_{ij} = ∮_T N_i·N_j dS` and its
+// flux moment `f^face_k = ∮_T N_k·ê dS` w.r.t. whichever face-node coordinate
+// was seeded with `Dual::var`. This is the `∂S_p/∂X` / `∂f/∂X` analog of the
+// volume `nedelec_local_dual`, and is what Phase A1 (pinned feed) dropped.
+//
+// The 3×3 mass block and the 3-vector flux are returned UNSIGNED (local-edge
+// order `TRI_LOCAL_EDGES`); the lower-tag-first orientation signs `s_k` are
+// geometry-independent integers folded in by the caller (into the signed local
+// λ / x), exactly as `assemble_surface_mass_triplets` / `assemble_port_flux`
+// scatter `val·s_i·s_j` and `flux·s_k`.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Dual twin of [`crate::elements::whitney::face_geometry`]'s geometric outputs:
+/// the triangle **area** and the three in-plane **barycentric gradients** `∇λ_k`,
+/// in dual arithmetic on dual-valued triangle vertices `v`.
+///
+/// Mirrors the `f64` kernel entry-for-entry using the determinant-free form
+/// `∇λ_k = (e₁×e₂) × opp_k / ‖e₁×e₂‖²` (identical to the production
+/// `n̂ × opp_k / (2·area)` since `n̂ = (e₁×e₂)/‖e₁×e₂‖`), so the `.re` fields
+/// reproduce the production gradients bit-for-bit while the `.du` fields carry
+/// the exact geometry tangent.
+fn port_face_geometry_dual(v: &[[Dual; 3]; 3]) -> (Dual, [[Dual; 3]; 3]) {
+    let e10 = dsub3(v[1], v[0]);
+    let e20 = dsub3(v[2], v[0]);
+    let cross = dcross3(e10, e20);
+    let two_area_sq = ddot3(cross, cross); // ‖e₁×e₂‖²
+    let two_area = two_area_sq.sqrt();
+    let area = two_area.scale(0.5);
+
+    // opp_k = edge opposite local vertex k (from v_{(k+1)%3} to v_{(k+2)%3}).
+    let opp = [dsub3(v[2], v[1]), dsub3(v[0], v[2]), dsub3(v[1], v[0])];
+    let inv_two_area_sq = Dual::cst(1.0).div(two_area_sq);
+    let grad_lambda = [
+        dvscale(inv_two_area_sq, dcross3(cross, opp[0])),
+        dvscale(inv_two_area_sq, dcross3(cross, opp[1])),
+        dvscale(inv_two_area_sq, dcross3(cross, opp[2])),
+    ];
+    (area, grad_lambda)
+}
+
+/// Dual twin of a single port face: the UNSIGNED tangential surface-mass block
+/// `S^face_{ij} = ∮_T N_i·N_j dS` (`3×3`), the UNSIGNED flux moment
+/// `f^face_k = ∮_T N_k·ê dS` (`3`), and the face area, all in dual arithmetic on
+/// the dual-valued triangle vertices `v`.
+///
+/// The mass block uses the SAME 3-point edge-midpoint quadrature
+/// ([`crate::elements::whitney::BARYCENTRIC_MIDPOINTS`], degree-2 exact) as
+/// `face_mass_block`; the flux uses the SAME closed form
+/// `∫_T N_k dA = (area/3)(∇λ_lb − ∇λ_la)` dotted with `ê` as
+/// `assemble_port_flux`. At zero perturbation the `.re` fields reproduce those
+/// `f64` kernels exactly (unit-tested); the `.du` fields are `∂S^face/∂X` and
+/// `∂f^face/∂X`.
+fn port_face_dual(v: &[[Dual; 3]; 3], e_hat: [f64; 3]) -> (Dual, [[Dual; 3]; 3], [Dual; 3]) {
+    let (area, grad_lambda) = port_face_geometry_dual(v);
+    let weight = area.scale(1.0 / 3.0);
+
+    // Tangential surface mass, 3-point edge-midpoint rule on the Whitney trace
+    // N_e(λ) = λ_la·∇λ_lb − λ_lb·∇λ_la (BAC-CAB rank reduction on the flat face).
+    let mut mass = [[Dual::cst(0.0); 3]; 3];
+    for lam in crate::elements::whitney::BARYCENTRIC_MIDPOINTS.iter() {
+        let mut basis_q = [[Dual::cst(0.0); 3]; 3];
+        for (k, &(la, lb)) in crate::elements::whitney::TRI_LOCAL_EDGES.iter().enumerate() {
+            let term_a = dscale3(lam[la], grad_lambda[lb]);
+            let term_b = dscale3(lam[lb], grad_lambda[la]);
+            basis_q[k] = dsub3(term_a, term_b);
+        }
+        for i in 0..3 {
+            for j in 0..3 {
+                mass[i][j] = mass[i][j].add(ddot3(basis_q[i], basis_q[j]).mul(weight));
+            }
+        }
+    }
+
+    // Flux moment f_k = ∮_T N_k·ê dS with ∫_T N_k dA = (area/3)(∇λ_lb − ∇λ_la).
+    let e = [
+        Dual::cst(e_hat[0]),
+        Dual::cst(e_hat[1]),
+        Dual::cst(e_hat[2]),
+    ];
+    let mut flux = [Dual::cst(0.0); 3];
+    for (k, &(la, lb)) in crate::elements::whitney::TRI_LOCAL_EDGES.iter().enumerate() {
+        let integral = dvscale(weight, dsub3(grad_lambda[lb], grad_lambda[la]));
+        flux[k] = ddot3(integral, e);
+    }
+
+    (area, mass, flux)
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -646,6 +762,56 @@ where
     B: Backend,
     G: Fn(&[c64]) -> (f64, Vec<c64>),
 {
+    let core = driven_shape_gradient_ports_complex_core::<B, G>(
+        mesh, eps_r, bcs, omega, source, ports, objective, device,
+    )?;
+    Ok(DrivenShapeGradient {
+        objective: core.objective,
+        grad_node: core.grad_node,
+        e_edges: core.e_edges,
+        residual_rel: core.residual_rel,
+        n_factorizations: core.n_factorizations,
+    })
+}
+
+/// Internal result of the port-loaded shape-gradient core: the public
+/// [`DrivenShapeGradient`] fields **plus** the full-length adjoint field
+/// `lambda_full` (zero on PEC edges), which the moving-feed sibling
+/// [`driven_shape_gradient_moving_port_s11`] needs to contract the extra
+/// `∂S_p/∂X`, `∂b_port/∂X`, `∂Z_s/∂X` port terms — WITHOUT a second
+/// factorization (the adjoint `λ` is already computed here off the single LU).
+struct PortShapeCore {
+    objective: f64,
+    grad_node: Vec<[f64; 3]>,
+    e_edges: Vec<c64>,
+    lambda_full: Vec<c64>,
+    residual_rel: f64,
+    n_factorizations: usize,
+}
+
+/// The shared core of [`driven_shape_gradient_ports_complex`]: it performs the
+/// single forward + single adjoint solve on the port-loaded complex-symmetric
+/// pencil and accumulates the **volume** (`K`, `M`, volume-`∂b`) shape-gradient
+/// contraction — the pinned-feed Phase A1 computation. It additionally returns
+/// the adjoint field `lambda_full`, so the moving-feed Phase A2 entry point can
+/// add the port `∂A/∂X`, `∂b_port/∂X` and objective `∂f/∂X` terms on top,
+/// reusing the SAME `λ` (no refactorization). The public A1 wrapper drops
+/// `lambda_full` and is therefore bit-for-bit unchanged.
+#[allow(clippy::too_many_arguments)]
+fn driven_shape_gradient_ports_complex_core<B, G>(
+    mesh: &TetMesh,
+    eps_r: &[c64],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    ports: &[LumpedPort<'_>],
+    objective: G,
+    device: &B::Device,
+) -> Result<PortShapeCore, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
     let n_tets = mesh.n_tets();
     let n_nodes = mesh.n_nodes();
     let edges = mesh.edges();
@@ -986,12 +1152,286 @@ where
         }
     }
 
-    Ok(DrivenShapeGradient {
+    Ok(PortShapeCore {
         objective: objective_value,
         grad_node,
         e_edges,
+        lambda_full,
         residual_rel,
         n_factorizations,
+    })
+}
+
+/// Complex-ε (lossy) driven Nédélec **shape** gradient of a **moving-feed**
+/// lumped-port-terminated pencil with a `|S₁₁(f₀)|²` objective — Epic #628
+/// **Phase A2** (issue #633), the sibling of the pinned-feed
+/// [`driven_shape_gradient_ports_complex`] that additionally differentiates the
+/// port through a moving feed.
+///
+/// Phase A1 assumes the port faces/nodes are geometry-constant, so `∂S_p/∂X = 0`
+/// and `∂b_port/∂X = 0`. When a design node **touches a port face** those
+/// assumptions break and three port terms plus one objective term appear, all of
+/// which this entry point accumulates on top of the A1 volume contraction:
+///
+/// ```text
+///   ∂S_p/∂X   — tangential surface-mass geometry derivative (face area + ∇λ),
+///   ∂f/∂X     — port-flux moment geometry derivative,
+///   ∂Z_s/∂X   — Z_s = R·w/l with w = area/l, l = extent along ê both geometric,
+///   ∂g/∂X|_x  — the |S₁₁|² covector's EXPLICIT dependence on the moving feed
+///               (V = (l/area)·Σ f_i x_i reads geometry through f and 1/w).
+/// ```
+///
+/// # Geometry model for the scalar port dims (matches `mesh/patch.rs`)
+///
+/// The forward solve uses the port's supplied `width` (`w`) and `length` (`l`);
+/// this gradient treats them as the **geometry-derived** quantities the patch
+/// fixture builds ([`crate::mesh::patch`]): `l = hi − lo` is the extent of the
+/// port nodes along `ê` and `w = area/l` with `area = Σ face areas`, so
+/// `Z_s = R·w/l = R·area/l²`. The caller must therefore pass a port whose
+/// `width`/`length` equal those geometric values at the current mesh (as
+/// `PatchFixture::port` does). `∂l/∂X` uses the symmetric subgradient of the
+/// non-smooth `max`/`min`: each of the `K` nodes tied at the extremum receives
+/// `±ê/K` (the derivative for a coherent extremum motion, e.g. a feed-height
+/// design DOF), which is what the FD gate exercises.
+///
+/// # Single factorization preserved
+///
+/// The port admittance is still a scalar (`jω/Z_s`) times the real-symmetric
+/// `S_p`, so `A(ω)ᵀ = A(ω)` and the forward + adjoint share one LU. The extra
+/// A2 terms are a post-solve geometry contraction against the SAME `λ` the core
+/// already computed, so `n_factorizations == 1` is preserved.
+///
+/// # Arguments
+///
+/// Matches [`driven_shape_gradient_ports_complex`] but takes a **single** moving
+/// [`LumpedPort`] and the S-parameter reference impedance `z0` (for the
+/// Palace-style uniform port, `z0 = R`). The objective is fixed to `|S₁₁(f₀)|²`.
+///
+/// # Errors
+///
+/// Propagates [`DrivenError`] on input-shape mismatches, a bad port spec, empty
+/// interior, or factorization / solve failure.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_shape_gradient_moving_port_s11<B>(
+    mesh: &TetMesh,
+    eps_r: &[c64],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    port: &LumpedPort<'_>,
+    z0: f64,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+{
+    use crate::driven::extraction::{s11_sq_and_dg_dv, s11_sq_objective};
+    use crate::elements::whitney::{edge_lookup, face_geometry};
+
+    let n_nodes = mesh.n_nodes();
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+
+    // The |S₁₁|² objective closure over the (geometry-fixed-at-base) port-flux
+    // covector — identical to what a caller would build for the A1 path. This
+    // supplies the field cotangent ∂g/∂x that the core adjoint solve uses; the
+    // EXPLICIT geometry term ∂g/∂X|_x is added separately below.
+    let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
+    if flux.len() != n_edges {
+        return Err(DrivenError::SparseAssembly(format!(
+            "port flux length {} != edge count {n_edges}",
+            flux.len()
+        )));
+    }
+    let inv_width = 1.0 / port.width;
+    let objective = s11_sq_objective(flux.clone(), inv_width, port.v_inc, port.resistance, z0);
+
+    // ONE forward + ONE adjoint solve on the port-loaded pencil; also returns λ.
+    let core = driven_shape_gradient_ports_complex_core::<B, _>(
+        mesh,
+        eps_r,
+        bcs,
+        omega,
+        source,
+        std::slice::from_ref(port),
+        objective,
+        device,
+    )?;
+
+    let mut grad_node = core.grad_node;
+    let e_edges = &core.e_edges;
+    let lambda_full = &core.lambda_full;
+
+    // --- Base scalars (all expressed through geometric `area`, `l`, `f`, S_p) --
+    let l = port.length;
+    let w = port.width;
+    let area = w * l; // = Σ face areas (w = area/l), consistent with the forward
+    let inv_area = 1.0 / area;
+    let inv_area2 = inv_area * inv_area;
+    let z_s = port.surface_impedance(); // R·w/l = R·area/l²
+    let alpha = c64::new(0.0, omega / z_s); // jω/Z_s   (A_port = α S_p)
+    let e_inc = port.v_inc * (1.0 / l);
+    let beta = c64::new(0.0, 2.0 * omega / z_s) * e_inc; // (2jω/Z_s)(V_inc/l)
+
+    // Port voltage V = (1/w) Σ f_i x_i = (l/area) P, its |S₁₁|² and ∂g/∂V.
+    let p_scalar: c64 = flux
+        .iter()
+        .zip(e_edges.iter())
+        .map(|(&f, &x)| x * f)
+        .fold(c64::new(0.0, 0.0), |acc, z| acc + z);
+    let v_port = p_scalar * inv_width;
+    let (_g, dg_dv) = s11_sq_and_dg_dv(v_port, port.v_inc, port.resistance, z0);
+
+    // Geometry-independent scalar functionals contracted against λ / x:
+    //   Q_S = λᵀ S_p x,   Q_f = λᵀ f   (S_p triplets already carry the signs).
+    let mut q_s = c64::new(0.0, 0.0);
+    for (r, c, val) in assemble_port_surface_mass(mesh, port.faces, &edges) {
+        q_s += lambda_full[r] * val * e_edges[c];
+    }
+    let mut q_f = c64::new(0.0, 0.0);
+    for (&f, &lam) in flux.iter().zip(lambda_full.iter()) {
+        q_f += lam * f;
+    }
+
+    // --- Per-node/axis geometry tangents from the surface-Whitney Dual twin ----
+    // d_area:  ∂(Σ face areas)/∂X
+    // d_l:     ∂l/∂X  (symmetric subgradient of hi − lo, filled below)
+    // dS_c:    λᵀ (∂S_p/∂X) x        df_l: λᵀ (∂f/∂X)        dP_c: Σ (∂f_i/∂X) x_i
+    let mut d_area = vec![[0.0_f64; 3]; n_nodes];
+    let mut d_l = vec![[0.0_f64; 3]; n_nodes];
+    let mut ds_c = vec![[c64::new(0.0, 0.0); 3]; n_nodes];
+    let mut df_l = vec![[c64::new(0.0, 0.0); 3]; n_nodes];
+    let mut dp_c = vec![[c64::new(0.0, 0.0); 3]; n_nodes];
+
+    let lookup = edge_lookup(&edges);
+    for tri in port.faces {
+        let v_real: [[f64; 3]; 3] = [
+            mesh.nodes[tri[0] as usize],
+            mesh.nodes[tri[1] as usize],
+            mesh.nodes[tri[2] as usize],
+        ];
+        // Geometry-independent global edge index + lower-tag-first sign.
+        let edge_info = face_geometry(tri, &v_real, &lookup).edge_info;
+        let lam_loc: [c64; 3] =
+            std::array::from_fn(|k| lambda_full[edge_info[k].0 as usize] * (edge_info[k].1 as f64));
+        let x_loc: [c64; 3] =
+            std::array::from_fn(|k| e_edges[edge_info[k].0 as usize] * (edge_info[k].1 as f64));
+
+        for a in 0..3 {
+            let node = tri[a] as usize;
+            for c in 0..3 {
+                let mut vd = v_real.map(|p| p.map(Dual::cst));
+                vd[a][c] = Dual::var(v_real[a][c]);
+                let (area_d, mass_d, flux_d) = port_face_dual(&vd, port.e_hat);
+
+                d_area[node][c] += area_d.du;
+
+                let mut ds = c64::new(0.0, 0.0);
+                for i in 0..3 {
+                    for j in 0..3 {
+                        ds += lam_loc[i] * x_loc[j] * mass_d[i][j].du;
+                    }
+                }
+                ds_c[node][c] += ds;
+
+                let mut dfl = c64::new(0.0, 0.0);
+                let mut dp = c64::new(0.0, 0.0);
+                for i in 0..3 {
+                    dfl += lam_loc[i] * flux_d[i].du;
+                    dp += x_loc[i] * flux_d[i].du;
+                }
+                df_l[node][c] += dfl;
+                dp_c[node][c] += dp;
+            }
+        }
+    }
+
+    // ∂l/∂X: l = hi − lo, hi = max_n (p_n·ê), lo = min over the port nodes. Use
+    // the symmetric subgradient at ties (±ê split equally over the extremum set).
+    let mut port_nodes: Vec<usize> = port
+        .faces
+        .iter()
+        .flat_map(|f| f.iter().map(|&n| n as usize))
+        .collect();
+    port_nodes.sort_unstable();
+    port_nodes.dedup();
+    let along = |n: usize| -> f64 {
+        let p = mesh.nodes[n];
+        p[0] * port.e_hat[0] + p[1] * port.e_hat[1] + p[2] * port.e_hat[2]
+    };
+    let hi = port_nodes
+        .iter()
+        .map(|&n| along(n))
+        .fold(f64::NEG_INFINITY, f64::max);
+    let lo = port_nodes
+        .iter()
+        .map(|&n| along(n))
+        .fold(f64::INFINITY, f64::min);
+    let tie = 1e-9 * (hi - lo).abs().max(1.0);
+    let argmax: Vec<usize> = port_nodes
+        .iter()
+        .copied()
+        .filter(|&n| (along(n) - hi).abs() <= tie)
+        .collect();
+    let argmin: Vec<usize> = port_nodes
+        .iter()
+        .copied()
+        .filter(|&n| (along(n) - lo).abs() <= tie)
+        .collect();
+    let inv_kmax = 1.0 / argmax.len() as f64;
+    let inv_kmin = 1.0 / argmin.len() as f64;
+    for &n in &argmax {
+        for (slot, &eh) in d_l[n].iter_mut().zip(port.e_hat.iter()) {
+            *slot += eh * inv_kmax;
+        }
+    }
+    for &n in &argmin {
+        for (slot, &eh) in d_l[n].iter_mut().zip(port.e_hat.iter()) {
+            *slot -= eh * inv_kmin;
+        }
+    }
+
+    // --- Accumulate the A2 port + objective terms into grad_node --------------
+    // dg/dX += 2Re[ Q_f ∂β + β·(λᵀ∂f) ]        (port ∂b_port/∂X)
+    //        − 2Re[ Q_S ∂α + α·(λᵀ∂S_p x) ]    (port ∂A_port/∂X, incl. ∂Z_s/∂X)
+    //        + 2Re[ (∂g/∂V)·∂V|_x ]            (objective ∂f/∂X + ∂(1/w)/∂X)
+    let jw_over_r = c64::new(0.0, omega / port.resistance); // jω/R
+    let two_jw_vinc_over_r = c64::new(0.0, 2.0 * omega / port.resistance) * port.v_inc;
+    for node in 0..n_nodes {
+        for c in 0..3 {
+            let da = d_area[node][c];
+            let dl = d_l[node][c];
+            if da == 0.0
+                && dl == 0.0
+                && ds_c[node][c] == c64::new(0.0, 0.0)
+                && df_l[node][c] == c64::new(0.0, 0.0)
+                && dp_c[node][c] == c64::new(0.0, 0.0)
+            {
+                continue;
+            }
+            // ∂(l/area) = ∂l/area − l ∂area/area²  (real).
+            let dloa = dl * inv_area - l * da * inv_area2;
+            // ∂α = jω/R · ∂(l²/area) = jω/R (2l ∂l/area − l² ∂area/area²).
+            let d_alpha = jw_over_r * (2.0 * l * dl * inv_area - l * l * da * inv_area2);
+            // ∂β = 2jωV_inc/R · ∂(l/area).
+            let d_beta = two_jw_vinc_over_r * dloa;
+
+            let term_b = q_f * d_beta + beta * df_l[node][c];
+            let term_a = q_s * d_alpha + alpha * ds_c[node][c];
+            // ∂V|_x = ∂(l/area)·P + (l/area)·Σ (∂f_i) x_i.
+            let dv = p_scalar * dloa + dp_c[node][c] * (l * inv_area);
+            let term_obj = dg_dv * dv;
+
+            grad_node[node][c] += 2.0 * term_b.re - 2.0 * term_a.re + 2.0 * term_obj.re;
+        }
+    }
+
+    Ok(DrivenShapeGradient {
+        objective: core.objective,
+        grad_node,
+        e_edges: core.e_edges,
+        residual_rel: core.residual_rel,
+        n_factorizations: core.n_factorizations,
     })
 }
 
@@ -1977,8 +2417,8 @@ mod tests {
     // PINNED-FEED LUMPED-PORT shape-gradient tests (issue #631, Epic #628 A1).
     // ─────────────────────────────────────────────────────────────────────
 
-    use crate::driven::extraction::s11;
-    use crate::driven::ports::port_input_impedance;
+    use crate::driven::extraction::{s11, s11_sq_and_dg_dv, s11_sq_objective};
+    use crate::driven::ports::{port_input_impedance, port_voltage};
     use crate::driven::solve::driven_solve_with_ports;
 
     /// Boundary faces of `mesh` lying entirely in the plane `coord[axis]==value`.
@@ -2430,6 +2870,405 @@ mod tests {
         assert!(
             mag < 1.0,
             "lossy passive fixture should give |S11| < 1, got {mag}"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // MOVING-FEED lumped-port shape adjoint (Epic #628 Phase A2, issue #633).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Geometry-derived port dims `(width, length)` — the SAME construction as
+    /// [`crate::mesh::patch::PatchFixture::port`]: `length = hi − lo` along `ê`,
+    /// `width = (Σ face areas) / length`. The moving-feed FD reference recomputes
+    /// these at each perturbed mesh (independent of the adjoint's own formulas).
+    fn port_dims(mesh: &TetMesh, faces: &[[u32; 3]], e_hat: [f64; 3]) -> (f64, f64) {
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        let mut area = 0.0_f64;
+        for tri in faces {
+            let v: [[f64; 3]; 3] = std::array::from_fn(|k| mesh.nodes[tri[k] as usize]);
+            for p in &v {
+                let along = p[0] * e_hat[0] + p[1] * e_hat[1] + p[2] * e_hat[2];
+                lo = lo.min(along);
+                hi = hi.max(along);
+            }
+            let e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
+            let e2 = [v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]];
+            let cx = e1[1] * e2[2] - e1[2] * e2[1];
+            let cy = e1[2] * e2[0] - e1[0] * e2[2];
+            let cz = e1[0] * e2[1] - e1[1] * e2[0];
+            area += 0.5 * (cx * cx + cy * cy + cz * cz).sqrt();
+        }
+        let l = hi - lo;
+        (area / l, l)
+    }
+
+    /// **Surface-Whitney Dual twin `.re` faithfully lifts the real port kernels.**
+    /// Scattering the UNSIGNED `port_face_dual` `.re` blocks with the lower-tag
+    /// signs must reproduce the public [`assemble_port_surface_mass`] and
+    /// [`assemble_port_flux`] at zero perturbation — proving the twin
+    /// differentiates *the same* closed forms the forward assembly uses.
+    #[test]
+    fn port_face_dual_re_reproduces_real_kernels() {
+        use crate::elements::whitney::{edge_lookup, face_geometry};
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces = plane_faces(&mesh, 2, 0.0);
+        assert!(!faces.is_empty());
+        let e_hat = [0.0, 1.0, 0.0];
+
+        let n = edges.len();
+        let mut s_real = vec![0.0_f64; n * n];
+        for (r, c, v) in assemble_port_surface_mass(&mesh, &faces, &edges) {
+            s_real[r * n + c] += v;
+        }
+        let f_real = assemble_port_flux(&mesh, &faces, e_hat, &edges);
+
+        let lookup = edge_lookup(&edges);
+        let mut s_dual = vec![0.0_f64; n * n];
+        let mut f_dual = vec![0.0_f64; n];
+        for tri in &faces {
+            let v_real: [[f64; 3]; 3] = std::array::from_fn(|k| mesh.nodes[tri[k] as usize]);
+            let info = face_geometry(tri, &v_real, &lookup).edge_info;
+            let vd = v_real.map(|p| p.map(Dual::cst));
+            let (_area, mass_d, flux_d) = port_face_dual(&vd, e_hat);
+            for i in 0..3 {
+                let (gi, si) = info[i];
+                f_dual[gi as usize] += flux_d[i].re * (si as f64);
+                for j in 0..3 {
+                    let (gj, sj) = info[j];
+                    s_dual[gi as usize * n + gj as usize] +=
+                        mass_d[i][j].re * (si as f64) * (sj as f64);
+                }
+            }
+        }
+        let mut max_s = 0.0_f64;
+        let mut max_f = 0.0_f64;
+        for k in 0..n {
+            max_f = max_f.max((f_dual[k] - f_real[k]).abs());
+            for j in 0..n {
+                max_s = max_s.max((s_dual[k * n + j] - s_real[k * n + j]).abs());
+            }
+        }
+        assert!(max_s < 1e-13, "dual S_p .re vs real: {max_s}");
+        assert!(max_f < 1e-13, "dual flux .re vs real: {max_f}");
+    }
+
+    /// **Surface-Whitney Dual twin `.du` matches central FD.** On a generic
+    /// (non-axis-aligned) triangle, each `.du` of the face area, surface-mass
+    /// block, and flux moment must match a central finite difference of the
+    /// twin's own `.re` — the element-level `∂S_p/∂X`, `∂f/∂X` gate.
+    #[test]
+    fn port_face_dual_derivative_matches_finite_difference() {
+        let v0 = [[0.10, 0.20, 0.05], [0.90, 0.15, 0.12], [0.25, 0.85, -0.08]];
+        let e_hat = {
+            let e = [0.3_f64, 0.6, -0.2];
+            let n = (e[0] * e[0] + e[1] * e[1] + e[2] * e[2]).sqrt();
+            [e[0] / n, e[1] / n, e[2] / n]
+        };
+        let h = 1e-6;
+        let mut worst = 0.0_f64;
+        for a in 0..3 {
+            for c in 0..3 {
+                let mut vd = v0.map(|p| p.map(Dual::cst));
+                vd[a][c] = Dual::var(v0[a][c]);
+                let (area_d, mass_d, flux_d) = port_face_dual(&vd, e_hat);
+
+                let eval = |val: f64| -> (f64, [[f64; 3]; 3], [f64; 3]) {
+                    let mut vv = v0;
+                    vv[a][c] = val;
+                    let vc = vv.map(|p| p.map(Dual::cst));
+                    let (ar, mm, ff) = port_face_dual(&vc, e_hat);
+                    let mut m = [[0.0; 3]; 3];
+                    let mut f = [0.0; 3];
+                    for i in 0..3 {
+                        f[i] = ff[i].re;
+                        for j in 0..3 {
+                            m[i][j] = mm[i][j].re;
+                        }
+                    }
+                    (ar.re, m, f)
+                };
+                let (ap, mp, fp) = eval(v0[a][c] + h);
+                let (am, mm, fm) = eval(v0[a][c] - h);
+                worst = worst.max((area_d.du - (ap - am) / (2.0 * h)).abs());
+                for i in 0..3 {
+                    worst = worst.max((flux_d[i].du - (fp[i] - fm[i]) / (2.0 * h)).abs());
+                    for j in 0..3 {
+                        worst =
+                            worst.max((mass_d[i][j].du - (mp[i][j] - mm[i][j]) / (2.0 * h)).abs());
+                    }
+                }
+            }
+        }
+        assert!(
+            worst < 1e-7,
+            "port_face_dual .du vs central FD: worst abs err {worst:.3e}"
+        );
+    }
+
+    /// **The load-bearing A2 test.** The moving-feed port-loaded driven-Nédélec
+    /// `|S₁₁|²` shape gradient — one forward + one adjoint solve on the
+    /// complex-symmetric pencil, plus the extra `∂S_p/∂X`, `∂b_port/∂X`,
+    /// `∂Z_s/∂X` and objective `∂f/∂X` contractions — must match a full central
+    /// finite difference of the entire moving-feed pipeline. The FD arm
+    /// RE-ASSEMBLES the geometry-derived port dims (`w = area/l`, `l = hi−lo`)
+    /// AND re-solves the port forward at moved nodes. The fixture is genuinely
+    /// complex (ε = 2 − 0.3i, complex `V_inc`, complex source), so a dropped
+    /// port term, a wrong sign, or a conjugation error in the new covector paths
+    /// breaks the match.
+    #[test]
+    fn moving_feed_s11_shape_gradient_matches_central_finite_difference() {
+        let (mesh, eps_c, mask, source) = port_line_fixture(4);
+        let port_faces = plane_faces(&mesh, 2, 0.0);
+        assert!(!port_faces.is_empty());
+        let e_hat = [0.0, 1.0, 0.0];
+        let omega = 1.3;
+        let r = 1.0;
+        let z0 = r;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let (w0, l0) = port_dims(&mesh, &port_faces, e_hat);
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat,
+            resistance: r,
+            width: w0,
+            length: l0,
+            v_inc: c64::new(1.0, 0.5),
+        };
+
+        let sg = driven_shape_gradient_moving_port_s11::<B>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            &port,
+            z0,
+            &device(),
+        )
+        .expect("moving-feed shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "moving-feed adjoint must reuse the single forward LU"
+        );
+        assert!(
+            sg.residual_rel < 1e-9,
+            "moving-feed forward unhealthy (residual {:.3e})",
+            sg.residual_rel
+        );
+
+        let edges = mesh.edges();
+        // Independent FD reference: recompute geometry-derived port dims + the
+        // |S₁₁|² objective from a re-solved moving-feed forward at moved nodes.
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let (w, l) = port_dims(&moved, &port_faces, e_hat);
+            let port_m = LumpedPort {
+                faces: &port_faces,
+                e_hat,
+                resistance: r,
+                width: w,
+                length: l,
+                v_inc: c64::new(1.0, 0.5),
+            };
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                None,
+                &bcs,
+                std::slice::from_ref(&port_m),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("moving port forward");
+            let v = port_voltage(&moved, &port_m, &edges, &sol.e_edges);
+            s11_sq_and_dg_dv(v, port_m.v_inc, r, z0).0
+        };
+
+        let g0 = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0 - sg.objective).abs() <= 1e-9 * g0.abs().max(1.0),
+            "objective mismatch: adjoint {} vs forward {g0}",
+            sg.objective
+        );
+
+        // Two moving-feed node-motion maps that touch the port face IN-PLANE (an
+        // out-of-plane move is even in the displacement, so its ∂S_p = ∂f = 0 at
+        // the flat face — only in-plane feed motion exercises the A2 terms):
+        //   1. slide a single interior port node in +x (l unchanged; exercises
+        //      ∂area→∂w→∂Z_s, ∂S_p, ∂f, objective ∂f — the dl = 0 path);
+        //   2. lift every y = 1 port node in +y (coherent extremum motion, so
+        //      ∂l ≠ 0 through the symmetric subgradient — the ∂Z_s/∂l path).
+        let tol = 1e-9;
+        let interior_port = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .find(|(_, p)| {
+                p[2].abs() < tol && p[0] > tol && p[0] < 1.0 - tol && p[1] > tol && p[1] < 1.0 - tol
+            })
+            .map(|(i, _)| i)
+            .expect("mesh has an interior z=0 port node");
+        let mut d_shear = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d_shear[interior_port] = [1.0, 0.0, 0.0];
+
+        let d_lift: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if p[2].abs() < tol && (p[1] - 1.0).abs() < tol {
+                    [0.0, 1.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+
+        let h = 1e-6;
+        let mut grads = Vec::new();
+        for (name, d) in [("port-slide-x", &d_shear), ("port-lift-y", &d_lift)] {
+            let ana = chain_node_motion(&sg.grad_node, d);
+            let fd = (g_of_theta(h, d) - g_of_theta(-h, d)) / (2.0 * h);
+            assert!(
+                fd.abs() > 1e-6,
+                "map {name}: FD gradient {fd} unexpectedly ~0 (map does not touch the feed?)"
+            );
+            let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            println!("moving-feed {name}: adjoint {ana:.8}, central-FD {fd:.8}, rel-err {rel:.3e}");
+            assert!(
+                rel < 5e-3,
+                "map {name}: moving-feed adjoint {ana} vs central-FD {fd}, rel {rel:.3e} exceeds 5e-3"
+            );
+            grads.push(ana);
+        }
+        assert!(
+            (grads[0] - grads[1]).abs() > 1e-6,
+            "the two moving-feed maps must yield distinct gradients"
+        );
+    }
+
+    /// **Tripwire that bites.** On a port-moving map the pinned-feed A1 gradient
+    /// (which DROPS `∂S_p/∂X`, `∂b_port/∂X`, `∂Z_s/∂X` and the objective `∂f/∂X`)
+    /// must FAIL the same central-FD gate the moving-feed A2 gradient passes —
+    /// proving the four new terms are load-bearing, not cosmetic. On the
+    /// genuinely complex fixture this also rejects a conjugation error in the new
+    /// covector paths (which would perturb the A2 match away from FD).
+    #[test]
+    fn pinned_a1_gradient_fails_moving_feed_fd() {
+        let (mesh, eps_c, mask, source) = port_line_fixture(4);
+        let port_faces = plane_faces(&mesh, 2, 0.0);
+        let e_hat = [0.0, 1.0, 0.0];
+        let omega = 1.3;
+        let r = 1.0;
+        let z0 = r;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let (w0, l0) = port_dims(&mesh, &port_faces, e_hat);
+        let v_inc = c64::new(1.0, 0.5);
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat,
+            resistance: r,
+            width: w0,
+            length: l0,
+            v_inc,
+        };
+        let edges = mesh.edges();
+
+        // Moving-feed A2 gradient (correct).
+        let a2 = driven_shape_gradient_moving_port_s11::<B>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            &port,
+            z0,
+            &device(),
+        )
+        .expect("A2 gradient");
+
+        // Pinned-feed A1 gradient with the SAME |S₁₁|² objective closure — it
+        // omits every port/objective geometry term (∂S_p = ∂f = ∂Z_s = 0).
+        let flux = assemble_port_flux(&mesh, &port_faces, e_hat, &edges);
+        let obj = s11_sq_objective(flux, 1.0 / w0, v_inc, r, z0);
+        let a1 = driven_shape_gradient_ports_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            std::slice::from_ref(&port),
+            obj,
+            &device(),
+        )
+        .expect("A1 gradient");
+
+        // A port-moving map that touches the feed IN-PLANE: slide a single
+        // interior port node in +x (an out-of-plane move would leave ∂S_p =
+        // ∂f = 0 at the flat face and A1 would spuriously pass).
+        let tol = 1e-9;
+        let interior_port = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .find(|(_, p)| {
+                p[2].abs() < tol && p[0] > tol && p[0] < 1.0 - tol && p[1] > tol && p[1] < 1.0 - tol
+            })
+            .map(|(i, _)| i)
+            .expect("interior port node");
+        let mut d = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d[interior_port] = [1.0, 0.0, 0.0];
+
+        let g_of_theta = |theta: f64| -> f64 {
+            let mut moved = mesh.clone();
+            moved.nodes[interior_port][0] += theta;
+            let (w, l) = port_dims(&moved, &port_faces, e_hat);
+            let port_m = LumpedPort {
+                faces: &port_faces,
+                e_hat,
+                resistance: r,
+                width: w,
+                length: l,
+                v_inc,
+            };
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                None,
+                &bcs,
+                std::slice::from_ref(&port_m),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("forward");
+            let v = port_voltage(&moved, &port_m, &edges, &sol.e_edges);
+            s11_sq_and_dg_dv(v, v_inc, r, z0).0
+        };
+        let h = 1e-6;
+        let fd = (g_of_theta(h) - g_of_theta(-h)) / (2.0 * h);
+        let rel_a2 =
+            (chain_node_motion(&a2.grad_node, &d) - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        let rel_a1 =
+            (chain_node_motion(&a1.grad_node, &d) - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        println!("moving-feed FD {fd:.8}: A2 rel {rel_a2:.3e}, A1(pinned) rel {rel_a1:.3e}");
+        assert!(
+            rel_a2 < 5e-3,
+            "A2 must pass the moving-feed FD (rel {rel_a2:.3e})"
+        );
+        assert!(
+            rel_a1 > 1e-2,
+            "A1(pinned) must FAIL the moving-feed FD (rel {rel_a1:.3e}) — the A2 terms are not biting"
         );
     }
 
