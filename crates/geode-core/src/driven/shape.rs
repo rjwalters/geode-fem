@@ -5076,4 +5076,324 @@ mod tests {
             }
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // High-DOF freeform boundary parametrization + mesh-morph regularizer
+    // (Epic #647 Phase 1, issue #648) — validated END-TO-END through the
+    // composed open-radiator capstone gradient.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Assemble the composed-capstone patch fixture (matched box-UPML + lossy
+    /// FR-4 + a pinned-feed lumped port) shared by the freeform-morph tests. It
+    /// returns everything needed to (a) compute the capstone nodal gradient and
+    /// (b) re-solve the port-loaded UPML forward under a node-motion map, plus
+    /// the pinned-node mask (PML shell ∪ port faces).
+    #[allow(clippy::type_complexity)]
+    fn capstone_patch_fixture() -> (
+        TetMesh,
+        Vec<[[c64; 3]; 3]>,
+        Vec<[[c64; 3]; 3]>,
+        Vec<bool>,
+        crate::mesh::patch::PatchPort,
+        CurrentSource,
+        Vec<bool>,
+        f64,
+    ) {
+        use crate::mesh::patch::{FR4_MATERIALS, PHYS_UPML, read_patch_smoke_fixture};
+        use crate::mesh::pec_interior_mask_from_triangles;
+
+        let fixture = read_patch_smoke_fixture().expect("patch smoke fixture");
+        let mesh = fixture.mesh.clone();
+        let patch_tris = fixture.patch_triangles();
+        let ground_tris = fixture.ground_triangles();
+        let outer_tris = fixture.outer_boundary_triangles();
+        let edges = mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                patch_tris.as_slice(),
+                ground_tris.as_slice(),
+                outer_tris.as_slice(),
+            ],
+        );
+
+        let pml_thick = 8.0;
+        let (air_lo, air_hi) = fixture.air_box(pml_thick);
+        let omega = 0.35;
+        let (eps_tensor, nu_tensor) =
+            fixture.matched_upml_materials(&FR4_MATERIALS, air_lo, air_hi, pml_thick, 1.0, omega);
+
+        let patch_port = fixture.port();
+
+        let pml_tet_mask: Vec<bool> = fixture
+            .tet_physical_tags
+            .iter()
+            .map(|&t| t == PHYS_UPML)
+            .collect();
+        let mut pinned = pml_shell_nodes(&mesh, &pml_tet_mask);
+        for tri in &patch_port.faces {
+            for &nn in tri {
+                pinned[nn as usize] = true;
+            }
+        }
+
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.20 * c[2].cos()),
+                c64::new(0.15 * c[0].sin(), 0.10),
+                c64::new(0.30 * c[0].cos(), 0.20 * c[1].sin()),
+            ]
+        });
+
+        (
+            mesh, eps_tensor, nu_tensor, interior, patch_port, source, pinned, omega,
+        )
+    }
+
+    /// **The multi-DOF freeform-shape gradient is FD-exact on a real mesh.** A
+    /// high-DOF freeform boundary parametrization ([`FreeformBoundaryMorph`]) of
+    /// several free patch-metal nodes — each extended into the interior by the
+    /// Laplace mesh-morph regularizer, with the PML shell and pinned feed held
+    /// fixed — contracted against the composed-capstone nodal gradient must match
+    /// a full central finite difference of the entire port-loaded UPML pipeline,
+    /// per DOF, to `rel_err ≤ 5e-3`, with `n_factorizations == 1`. The columns
+    /// vanish on every pinned node, so the contraction agrees bit-for-bit with
+    /// the PML-pinned chain guard.
+    #[test]
+    fn driven_freeform_multidof_shape_gradient_matches_central_finite_difference() {
+        use crate::constants::ETA_0_OHM as ETA_0;
+        use crate::driven::solve::{DrivenMaterials, driven_solve_with_ports};
+        use crate::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
+
+        let (mesh, eps_tensor, nu_tensor, interior, patch_port, source, pinned, omega) =
+            capstone_patch_fixture();
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let port = patch_port.lumped_port(50.0 / ETA_0, c64::new(1.0, 0.5));
+
+        // Composed-capstone nodal gradient (ONE forward + ONE adjoint solve).
+        let sg = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("composed capstone gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "multi-DOF gradient must inherit the single-factorization capstone adjoint"
+        );
+        assert!(sg.residual_rel < 1e-8, "forward solve unhealthy");
+
+        // fixed_zero = every pinned node (PML shell ∪ port feed). The morph
+        // columns are exactly zero there, so ∂Λ/∂X = 0 and the pinned feed hold.
+        let fixed_zero: Vec<u32> = pinned
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &p)| if p { Some(i as u32) } else { None })
+            .collect();
+
+        // Freeform boundary DOFs: several FREE patch-metal nodes, each a +z
+        // (out-of-plane) normal bump — the curved-metal antenna deformation.
+        let mut patch_nodes: Vec<u32> = {
+            use crate::mesh::patch::read_patch_smoke_fixture;
+            read_patch_smoke_fixture()
+                .expect("patch smoke fixture")
+                .patch_triangles()
+                .iter()
+                .flatten()
+                .copied()
+                .collect()
+        };
+        patch_nodes.sort_unstable();
+        patch_nodes.dedup();
+        let free_patch: Vec<u32> = patch_nodes
+            .into_iter()
+            .filter(|&nn| !pinned[nn as usize])
+            .collect();
+        assert!(
+            free_patch.len() >= 3,
+            "need at least 3 free patch nodes for a multi-DOF test, got {}",
+            free_patch.len()
+        );
+        let dofs: Vec<BoundaryMotionDof> = free_patch
+            .iter()
+            .take(3)
+            .map(|&node| BoundaryMotionDof {
+                node,
+                dir: [0.0, 0.0, 1.0],
+            })
+            .collect();
+
+        let morph = FreeformBoundaryMorph::harmonic_boundary(&mesh, &dofs, &fixed_zero)
+            .expect("harmonic freeform morph");
+        assert_eq!(morph.n_dofs(), dofs.len());
+
+        // Columns must vanish on every pinned node (⇒ the PML-pinned chain guard
+        // never trips and the pinned-feed premise holds).
+        for p in 0..morph.n_dofs() {
+            let col = morph.velocity(p);
+            for (i, &is_pinned) in pinned.iter().enumerate() {
+                if is_pinned {
+                    assert_eq!(col[i], [0.0; 3], "morph col {p} moves pinned node {i}");
+                }
+            }
+        }
+
+        // Analytic design-space gradient (per-column contraction of grad_node).
+        let ana = morph.design_gradient(&sg.grad_node);
+        // The PML-pinned chain guard must agree bit-for-bit (columns are 0 on PML).
+        for (p, &ana_p) in ana.iter().enumerate() {
+            let guarded = chain_node_motion_pml_pinned(&sg.grad_node, morph.velocity(p), &pinned);
+            assert_eq!(
+                ana_p.to_bits(),
+                guarded.to_bits(),
+                "design_gradient[{p}] != PML-pinned chain (columns not zero on PML?)"
+            );
+        }
+
+        // Full-pipeline FD reference: move nodes by θ·D_p, re-solve the
+        // port-loaded UPML forward with the per-tet Λ tensors held fixed.
+        let eps_ref = eps_tensor.clone();
+        let nu_ref = nu_tensor.clone();
+        let g_of = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::MatchedUpml {
+                    epsilon_tensor: &eps_ref,
+                    nu_tensor: &nu_ref,
+                },
+                None,
+                &bcs,
+                std::slice::from_ref(&port),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("port-loaded UPML forward");
+            l2_objective(&sol.e_edges).0
+        };
+
+        let h = 1e-6;
+        let mut worst = 0.0_f64;
+        for (p, &ana_p) in ana.iter().enumerate() {
+            let d = morph.velocity(p);
+            let fd = (g_of(h, d) - g_of(-h, d)) / (2.0 * h);
+            assert!(
+                fd.abs() > 1e-8,
+                "DOF {p}: FD gradient {fd} ~0 (degenerate boundary DOF)"
+            );
+            let rel = (ana_p - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            worst = worst.max(rel);
+            assert!(
+                rel < 5e-3,
+                "DOF {p}: multi-DOF adjoint {ana_p} vs central-FD {fd}, rel-err {rel:.3e} exceeds 5e-3"
+            );
+        }
+        assert!(worst < 5e-3, "worst multi-DOF FD rel-err {worst:.3e}");
+
+        // The DOFs must probe genuinely distinct geometry (not a constant).
+        let distinct = ana
+            .iter()
+            .any(|&g| (g - ana[0]).abs() > 1e-9 * ana[0].abs().max(1.0));
+        assert!(
+            distinct,
+            "all DOF gradients identical — degenerate parametrization"
+        );
+    }
+
+    /// **The multi-DOF parametrization reduces to the single-DOF capstone path
+    /// bit-for-bit.** A one-column [`FreeformBoundaryMorph`] built from the exact
+    /// capstone Gaussian-bump velocity must return precisely the value the
+    /// existing single-DOF chain ([`chain_node_motion_pml_pinned`]) returns from
+    /// the SAME (untouched) capstone `grad_node` — the regression that pins the
+    /// "reduces to the #636 capstone as a special case" invariant.
+    #[test]
+    fn driven_freeform_reduces_to_single_dof_capstone_gradient_bit_for_bit() {
+        use crate::constants::ETA_0_OHM as ETA_0;
+        use crate::shape::{FreeformBoundaryMorph, chain_node_motion};
+
+        let (mesh, eps_tensor, nu_tensor, interior, patch_port, source, pinned, omega) =
+            capstone_patch_fixture();
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let port = patch_port.lumped_port(50.0 / ETA_0, c64::new(1.0, 0.5));
+
+        let sg = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("composed capstone gradient");
+
+        // The capstone single-DOF motion map: a +z Gaussian bump on the free
+        // (non-pinned) nodes, identical to the capstone FD-gate test's `d`.
+        let mut center = [0.0_f64; 3];
+        let mut n_free = 0.0_f64;
+        for (i, p) in mesh.nodes.iter().enumerate() {
+            if !pinned[i] {
+                for k in 0..3 {
+                    center[k] += p[k];
+                }
+                n_free += 1.0;
+            }
+        }
+        for c in center.iter_mut() {
+            *c /= n_free.max(1.0);
+        }
+        let s2 = 25.0_f64;
+        let d: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if pinned[i] {
+                    [0.0; 3]
+                } else {
+                    let r2 = (p[0] - center[0]).powi(2)
+                        + (p[1] - center[1]).powi(2)
+                        + (p[2] - center[2]).powi(2);
+                    [0.0, 0.0, (-r2 / (2.0 * s2)).exp()]
+                }
+            })
+            .collect();
+
+        let morph = FreeformBoundaryMorph::from_columns(vec![d.clone()]).unwrap();
+        let dg = morph.design_gradient(&sg.grad_node);
+        assert_eq!(dg.len(), 1);
+
+        // Bit-for-bit against BOTH the raw chain and the PML-pinned chain guard.
+        let raw = chain_node_motion(&sg.grad_node, &d);
+        let guarded = chain_node_motion_pml_pinned(&sg.grad_node, &d, &pinned);
+        assert_eq!(
+            dg[0].to_bits(),
+            raw.to_bits(),
+            "single-column morph != chain_node_motion bit-for-bit"
+        );
+        assert_eq!(
+            dg[0].to_bits(),
+            guarded.to_bits(),
+            "single-column morph != PML-pinned single-DOF chain bit-for-bit"
+        );
+        assert!(dg[0].abs() > 0.0, "degenerate zero gradient");
+    }
 }
