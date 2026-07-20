@@ -90,7 +90,7 @@ use faer::{Mat, c64};
 
 use crate::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_complex_epsilon_sparse,
-    assemble_nedelec_current_rhs,
+    assemble_global_nedelec_with_full_tensors_sparse, assemble_nedelec_current_rhs,
 };
 use crate::assembly::p1::upload_mesh;
 use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
@@ -302,6 +302,133 @@ pub(crate) fn nedelec_local_dual(
     }
 
     (k, m, nint)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tensor-material (box-UPML) Dual twin of the FIRST-ORDER Nédélec element
+// (issue #635, Epic #628 Phase C1).
+//
+// Forward-mode-AD counterpart of the full-3×3-weight forward kernels
+// `crate::elements::nedelec::batched_nedelec_local_stiffness_weighted` and
+// `batched_nedelec_local_mass_anisotropic_full` — the ones
+// `assemble_global_nedelec_with_full_tensors{,_sparse}` (nedelec.rs:1899/2008)
+// use for the matched box-UPML pencil `A = K(ν) − ω² M(ε)` with per-tet
+// constitutive tensors `ν = Λ⁻¹` (curl weight) and `ε = ε_r·Λ` (mass weight).
+//
+// Scope C1 **pins the PML shell**: the node-motion map holds every PML-region
+// node fixed, so `∂Λ/∂X = 0` and `Λ` (hence the real 3×3 weight components
+// `W_k`, `W_m`) is a **constant** per-tet input here. Only the fixed-Λ geometry
+// contraction — the element-Jacobian / cofactor derivatives sandwiched by the
+// constant weight — is differentiated; the moving-PML centroid-profile
+// derivative `∂s_k/∂centroid_k` is the explicit Phase C2 non-goal.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Contract two dual 3-vectors through a **fixed** real 3×3 weight `W`:
+/// `aᵀ W b = Σ_pq a[p] W[p][q] b[q]`. `W` is a lifted constant (zero tangent),
+/// so the tangent flows only through the dual vectors `a`, `b` — exactly the
+/// "fixed Λ" convention of the box-UPML shape adjoint (issue #635).
+#[inline]
+fn dweighted3(a: [Dual; 3], w: &[[f64; 3]; 3], b: [Dual; 3]) -> Dual {
+    let mut acc = Dual::cst(0.0);
+    for p in 0..3 {
+        // (row p of W) · b, then times a[p].
+        let mut wb = Dual::cst(0.0);
+        for q in 0..3 {
+            wb = wb.add(b[q].scale(w[p][q]));
+        }
+        acc = acc.add(a[p].mul(wb));
+    }
+    acc
+}
+
+/// Tensor-material (box-UPML, issue #635) Dual twin of the first-order Nédélec
+/// element: local **curl-curl** `K(W_k)` and **mass** `M(W_m)` (both `6×6`,
+/// sign-unaware) for a **fixed** real 3×3 per-tet curl weight `W_k` (a real
+/// component of `ν = Λ⁻¹`) and mass weight `W_m` (a real component of
+/// `ε = ε_r·Λ`), evaluated in dual arithmetic on dual-valued `coords` — so each
+/// `.du` is the exact `∂/∂X` at fixed Λ.
+///
+/// Mirrors [`crate::elements::nedelec::batched_nedelec_local_stiffness_weighted`]
+/// and [`crate::elements::nedelec::batched_nedelec_local_mass_anisotropic_full`]
+/// entry-for-entry (so the `.re` fields reproduce those real `f64` kernels), with
+/// the SAME cofactor construction as [`nedelec_local_dual`]:
+///
+/// ```text
+///   e_k = v_k − v_0,  g_1 = e_2×e_3, g_2 = e_3×e_1, g_3 = e_1×e_2,
+///   det = e_1·g_1,    g_0 = −(g_1+g_2+g_3),   cr_i = g_a × g_b  (edge i=(a,b))
+///
+///   K(W_k)_ij = (2/3) cr_iᵀ W_k cr_j / |det|³,
+///   gw_pq     = g_pᵀ W_m g_q,
+///   M(W_m)_ij = (1/120)(f_ac gw_bd − f_ad gw_bc − f_bc gw_ad + f_bd gw_ac)/|det|,
+///              f_pq = 2 if p==q else 1.
+/// ```
+///
+/// A complex weight runs as two calls (real-part weight, imag-part weight),
+/// exactly the Re/Im split the forward assembler uses; the caller recombines
+/// `∂K = ∂K_re + i·∂K_im`, `∂M = ∂M_re + i·∂M_im`.
+#[allow(clippy::type_complexity)]
+fn nedelec_local_dual_tensor(
+    coords: &[[Dual; 3]; 4],
+    w_k: &[[f64; 3]; 3],
+    w_m: &[[f64; 3]; 3],
+) -> ([[Dual; 6]; 6], [[Dual; 6]; 6]) {
+    let v0 = coords[0];
+    let e1 = dsub3(coords[1], v0);
+    let e2 = dsub3(coords[2], v0);
+    let e3 = dsub3(coords[3], v0);
+
+    let g1 = dcross3(e2, e3);
+    let g2 = dcross3(e3, e1);
+    let g3 = dcross3(e1, e2);
+    let det = ddot3(e1, g1); // signed 6V
+    let g0 = [
+        g1[0].add(g2[0]).add(g3[0]).neg(),
+        g1[1].add(g2[1]).add(g3[1]).neg(),
+        g1[2].add(g2[2]).add(g3[2]).neg(),
+    ];
+    let g = [g0, g1, g2, g3];
+
+    let abs_det = det.abs();
+    let inv_abs = Dual::cst(1.0).div(abs_det); // 1/|det|
+    let inv_abs3 = inv_abs.mul(inv_abs).mul(inv_abs); // 1/|det|³
+
+    // Constant per-tet (unnormalized) curls cr_i = g_a × g_b; the physical curl
+    // `2 cr_i / det²` folds its det powers into the K scale below, matching the
+    // forward kernel's `inv_abs_det³ · (2/3)` factoring.
+    let mut cr = [[Dual::cst(0.0); 3]; 6];
+    for (i, &(a, b)) in TET_LOCAL_EDGES.iter().enumerate() {
+        cr[i] = dcross3(g[a], g[b]);
+    }
+
+    let mut k = [[Dual::cst(0.0); 6]; 6];
+    let mut m = [[Dual::cst(0.0); 6]; 6];
+
+    // K(W_k)_ij = (2/3) cr_iᵀ W_k cr_j / |det|³.
+    for i in 0..6 {
+        for j in 0..6 {
+            k[i][j] = dweighted3(cr[i], w_k, cr[j]).mul(inv_abs3).scale(2.0 / 3.0);
+        }
+    }
+
+    // Weighted gram gw_pq = g_pᵀ W_m g_q (physical G^W = gw/det²; det² and V/20
+    // collapse into 1/(120 |det|) below, matching the forward kernel).
+    let gw = |p: usize, q: usize| -> Dual { dweighted3(g[p], w_m, g[q]) };
+    for (i, &(a, b)) in TET_LOCAL_EDGES.iter().enumerate() {
+        for (j, &(c, d)) in TET_LOCAL_EDGES.iter().enumerate() {
+            let f_ac = if a == c { 2.0 } else { 1.0 };
+            let f_ad = if a == d { 2.0 } else { 1.0 };
+            let f_bc = if b == c { 2.0 } else { 1.0 };
+            let f_bd = if b == d { 2.0 } else { 1.0 };
+            let m_term = gw(b, d)
+                .scale(f_ac)
+                .sub(gw(b, c).scale(f_ad))
+                .sub(gw(a, d).scale(f_bc))
+                .add(gw(a, c).scale(f_bd));
+            m[i][j] = m_term.mul(inv_abs).scale(1.0 / 120.0);
+        }
+    }
+
+    (k, m)
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -993,6 +1120,441 @@ where
         residual_rel,
         n_factorizations,
     })
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Box-UPML tensor-material shape-gradient driver — Epic #628 Phase C1
+// (issue #635). PML shell pinned (∂Λ/∂X = 0); the moving-PML profile
+// derivative is the explicit Phase C2 non-goal.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Length-`n_nodes` mask of the mesh nodes touched by any **PML-shell** tet
+/// (`pml_tet_mask[t] == true`, e.g. the tets tagged
+/// [`crate::mesh::patch::PHYS_UPML`]). These nodes carry a geometry-dependent
+/// stretch `Λ(X)` that the **fixed-Λ** box-UPML shape adjoint
+/// ([`driven_shape_gradient_matched_upml`], Phase C1) does **not** differentiate
+/// (`∂Λ/∂X` is the Phase C2 non-goal), so any valid node-motion map MUST hold
+/// them fixed. Pair with [`chain_node_motion_pml_pinned`] to enforce that.
+///
+/// # Panics
+///
+/// If `pml_tet_mask.len() != mesh.n_tets()`.
+pub fn pml_shell_nodes(mesh: &TetMesh, pml_tet_mask: &[bool]) -> Vec<bool> {
+    assert_eq!(
+        pml_tet_mask.len(),
+        mesh.n_tets(),
+        "pml_tet_mask length {} != n_tets {}",
+        pml_tet_mask.len(),
+        mesh.n_tets()
+    );
+    let mut pinned = vec![false; mesh.n_nodes()];
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        if pml_tet_mask[t] {
+            for &v in tet.iter() {
+                pinned[v as usize] = true;
+            }
+        }
+    }
+    pinned
+}
+
+/// [`crate::shape::chain_node_motion`] with a **PML-pinned tripwire** (issue
+/// #635, Phase C1): asserts every node flagged in `pinned` (see
+/// [`pml_shell_nodes`]) carries **zero** design motion before contracting
+/// `⟨grad_node, dnode_dtheta⟩= ∂g/∂θ`.
+///
+/// Because the box-UPML shape adjoint holds `Λ` fixed (`∂Λ/∂X = 0` is unmodeled
+/// — Phase C2), a design node that enters a PML tet would silently drop the
+/// profile-derivative term and return a wrong gradient; this guard turns that
+/// into a loud failure at chain time.
+///
+/// # Panics
+///
+/// If the three slices disagree in length, or if any `pinned` node has a
+/// nonzero `dnode_dtheta` entry.
+pub fn chain_node_motion_pml_pinned(
+    grad_node: &[[f64; 3]],
+    dnode_dtheta: &[[f64; 3]],
+    pinned: &[bool],
+) -> f64 {
+    assert_eq!(
+        pinned.len(),
+        dnode_dtheta.len(),
+        "pinned length {} != dnode_dtheta length {}",
+        pinned.len(),
+        dnode_dtheta.len()
+    );
+    for (n, (&is_pinned, d)) in pinned.iter().zip(dnode_dtheta.iter()).enumerate() {
+        if is_pinned {
+            let mag2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+            assert!(
+                mag2 == 0.0,
+                "PML-pinned node {n} has nonzero design motion {d:?}; ∂Λ/∂X is \
+                 unmodeled in the box-UPML shape adjoint (Phase C1) — a moving PML \
+                 shell is the Phase C2 non-goal"
+            );
+        }
+    }
+    crate::shape::chain_node_motion(grad_node, dnode_dtheta)
+}
+
+/// Compute the full nodal-coordinate gradient `∂g/∂X_{n,d}` of a **matched
+/// box-UPML** (tensor-material) driven Nédélec EM observable via the discrete
+/// adjoint — **one forward + one adjoint solve**, reusing a single complex
+/// sparse LU — with the **PML shell pinned** (Epic #628 Phase C1, issue #635).
+///
+/// This is the tensor-material twin of [`driven_shape_gradient_complex`]: it
+/// differentiates the matched-UPML pencil
+///
+/// ```text
+///   A(ω) = K(ν) − ω² M(ε),   ν = Λ⁻¹ (curl weight),   ε = ε_r·Λ (mass weight),
+/// ```
+///
+/// assembled by [`crate::assembly::nedelec::assemble_global_nedelec_with_full_tensors_sparse`]
+/// (the same forward path [`crate::driven::solve::DrivenMaterials::MatchedUpml`]
+/// uses), with per-tet full-3×3 **complex** constitutive tensors. The element
+/// factors `∂K(ν)/∂X` and `∂M(ε)/∂X` are read from the tensor-material Dual twin
+/// [`nedelec_local_dual_tensor`] (exact forward-mode AD) at **fixed** Λ, and the
+/// current-source RHS carries the same geometric `∂b/∂X` term as the scalar path
+/// (the RHS is material-independent).
+///
+/// # Pinned PML shell — why C1 is tractable
+///
+/// The per-tet `Λ` (hence `ε`, `ν`) is a **constant** input here: the node-motion
+/// map must hold every PML-region node fixed, so `∂Λ/∂X = 0` and the only new work
+/// is the fixed-Λ geometry contraction. Use [`pml_shell_nodes`] +
+/// [`chain_node_motion_pml_pinned`] to enforce (and assert) that pinning at chain
+/// time — a design node entering a PML tet would need the unmodeled profile
+/// derivative `∂s_k/∂centroid_k` (Phase C2). A diagonal box `Λ` is symmetric, so
+/// the complex-symmetric pencil `A(ω)ᵀ = A(ω)` survives and the adjoint reuses the
+/// forward LU (`n_factorizations == 1`).
+///
+/// # Arguments
+///
+/// * `mesh` — tetrahedral mesh (fixed topology; gradient w.r.t. node positions).
+/// * `epsilon_tensor`, `nu_tensor` — per-tet full-3×3 complex mass / curl weights
+///   (`ε = ε_r·Λ`, `ν = Λ⁻¹`; length `mesh.n_tets()` each), e.g. from
+///   [`crate::mesh::patch::PatchFixture::matched_upml_materials`]. Held **fixed**
+///   under the geometry perturbation (the pinned-shell convention).
+/// * `bcs`, `omega`, `source`, `objective`, `device` — exactly as
+///   [`driven_shape_gradient_complex`].
+///
+/// # Errors
+///
+/// Propagates [`DrivenError`] on input-shape mismatches or a failed
+/// factorization / solve, and on an objective-cotangent length mismatch.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_shape_gradient_matched_upml<B, G>(
+    mesh: &TetMesh,
+    epsilon_tensor: &[[[c64; 3]; 3]],
+    nu_tensor: &[[[c64; 3]; 3]],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let n_tets = mesh.n_tets();
+    let n_nodes = mesh.n_nodes();
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+
+    // --- Input validation (mirrors driven_solve + the scalar shape adjoint). --
+    if bcs.pec_interior_mask.len() != n_edges {
+        return Err(DrivenError::MaskDimMismatch {
+            got: bcs.pec_interior_mask.len(),
+            want: n_edges,
+        });
+    }
+    if epsilon_tensor.len() != n_tets {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: epsilon_tensor.len(),
+            want: n_tets,
+        });
+    }
+    if nu_tensor.len() != n_tets {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: nu_tensor.len(),
+            want: n_tets,
+        });
+    }
+    if source.j_tet.len() != n_tets {
+        return Err(DrivenError::SourceDimMismatch {
+            got: source.j_tet.len(),
+            want: n_tets,
+        });
+    }
+
+    // --- Edge tables and the sparsity scatter map (issue #218 pattern). -------
+    let tet_edges = mesh.tet_edges();
+    let tet_idx: Vec<[u32; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].0))
+        .collect();
+    let tet_sign: Vec<[i8; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].1))
+        .collect();
+    let scatter = NedelecScatterMap::new(&tet_idx);
+    let pattern = scatter.pattern();
+
+    let (nodes_t, tets_t) = upload_mesh::<B>(mesh, device);
+
+    // --- Assemble K(ν) and M(ε) (full complex tensors) on the Burn backend. ---
+    // Unlike the scalar path, the matched-UPML curl-curl K also has an imaginary
+    // part (ν = Λ⁻¹ is complex), so we carry k_im alongside k_re.
+    let sys = assemble_global_nedelec_with_full_tensors_sparse(
+        nodes_t.clone(),
+        tets_t.clone(),
+        &tet_sign,
+        &scatter,
+        epsilon_tensor,
+        nu_tensor,
+    );
+    let k_re_host: Vec<f64> = sys.k_re_vals.into_data().iter::<f64>().collect();
+    let k_im_host: Vec<f64> = sys.k_im_vals.into_data().iter::<f64>().collect();
+    let m_re_host: Vec<f64> = sys.m_re_vals.into_data().iter::<f64>().collect();
+    let m_im_host: Vec<f64> = sys.m_im_vals.into_data().iter::<f64>().collect();
+
+    // --- Current-source RHS moments ∫ N · J dV (material-independent). --------
+    let j_re: Vec<[f64; 3]> = source
+        .j_tet
+        .iter()
+        .map(|j| [j[0].re, j[1].re, j[2].re])
+        .collect();
+    let j_im: Vec<[f64; 3]> = source
+        .j_tet
+        .iter()
+        .map(|j| [j[0].im, j[1].im, j[2].im])
+        .collect();
+    let rhs_re_t = assemble_nedelec_current_rhs(
+        nodes_t.clone(),
+        tets_t.clone(),
+        &tet_idx,
+        &tet_sign,
+        n_edges,
+        &j_re,
+    );
+    let rhs_im_t =
+        assemble_nedelec_current_rhs(nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &j_im);
+    let rhs_re: Vec<f64> = rhs_re_t.into_data().iter::<f64>().collect();
+    let rhs_im: Vec<f64> = rhs_im_t.into_data().iter::<f64>().collect();
+
+    // b = iωμ₀ ∫ N · J dV with μ₀ = 1: iω (re + i·im) = ω(−im + i·re).
+    let b_full: Vec<c64> = rhs_re
+        .iter()
+        .zip(rhs_im.iter())
+        .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+        .collect();
+
+    // --- PEC interior reduction: full edge index → interior index. -----------
+    let mut remap = vec![-1_i64; n_edges];
+    let mut n_interior = 0_usize;
+    for (i, &keep) in bcs.pec_interior_mask.iter().enumerate() {
+        if keep {
+            remap[i] = n_interior as i64;
+            n_interior += 1;
+        }
+    }
+    if n_interior == 0 {
+        return Err(DrivenError::EmptyInterior);
+    }
+
+    // --- Interior A(ω) = K(ν) − ω² M(ε) by linear combination over the pattern.
+    let omega2 = omega * omega;
+    let a_of_idx = |idx: usize| -> c64 {
+        c64::new(k_re_host[idx], k_im_host[idx]) - c64::new(m_re_host[idx], m_im_host[idx]) * omega2
+    };
+    let mut kept: Vec<(usize, usize, usize)> = Vec::with_capacity(pattern.nnz());
+    let mut triplets: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(pattern.nnz());
+    for (idx, (&r_u32, &c_u32)) in pattern.rows.iter().zip(pattern.cols.iter()).enumerate() {
+        let (rr, cc) = (remap[r_u32 as usize], remap[c_u32 as usize]);
+        if rr < 0 || cc < 0 {
+            continue;
+        }
+        let (rr, cc) = (rr as usize, cc as usize);
+        triplets.push(Triplet::new(rr, cc, a_of_idx(idx)));
+        kept.push((rr, cc, idx));
+    }
+
+    let a_int =
+        SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
+            .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
+
+    // --- Factor A(ω) ONCE. Serves both the forward and adjoint solves. -------
+    let lu = a_int
+        .as_ref()
+        .sp_lu()
+        .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+    let n_factorizations = 1;
+
+    // Interior-filtered RHS.
+    let b_int: Vec<c64> = bcs
+        .pec_interior_mask
+        .iter()
+        .zip(b_full.iter())
+        .filter_map(|(&keep, &b)| if keep { Some(b) } else { None })
+        .collect();
+
+    // --- Forward solve: A x = b. ---------------------------------------------
+    let mut fwd: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| b_int[i]);
+    lu.solve_in_place(fwd.as_mut());
+    let x_int: Vec<c64> = (0..n_interior).map(|i| fwd[(i, 0)]).collect();
+
+    // Post-solve residual health check ‖A x − b‖ / ‖b‖.
+    let residual_rel = {
+        let mut ax = vec![c64::new(0.0, 0.0); n_interior];
+        for &(rr, cc, idx) in &kept {
+            ax[rr] += a_of_idx(idx) * x_int[cc];
+        }
+        let mut res2 = 0.0_f64;
+        let mut b2 = 0.0_f64;
+        for i in 0..n_interior {
+            let r = ax[i] - b_int[i];
+            res2 += r.re * r.re + r.im * r.im;
+            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
+        }
+        if b2 > 0.0 {
+            (res2 / b2).sqrt()
+        } else {
+            res2.sqrt()
+        }
+    };
+
+    // Scatter x to full length for the objective + contraction (PEC edges = 0).
+    let mut e_edges = vec![c64::new(0.0, 0.0); n_edges];
+    for (full_idx, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            e_edges[full_idx] = x_int[ri as usize];
+        }
+    }
+
+    // --- Objective and its Wirtinger cotangent ∂g/∂x. ------------------------
+    let (objective_value, dg_dx) = objective(&e_edges);
+    if dg_dx.len() != n_edges {
+        return Err(DrivenError::SparseAssembly(format!(
+            "objective cotangent length {} != edge count {n_edges}",
+            dg_dx.len()
+        )));
+    }
+    let g_x_int: Vec<c64> = bcs
+        .pec_interior_mask
+        .iter()
+        .zip(dg_dx.iter())
+        .filter_map(|(&keep, &g)| if keep { Some(g) } else { None })
+        .collect();
+
+    // --- Adjoint solve: Aᵀ λ = ∂g/∂x, REUSING the forward factorization. -----
+    // A is complex-symmetric (Aᵀ = A: K(ν), M(ε) are symmetric for the symmetric
+    // diagonal box Λ), so the transpose solve reuses the forward LU — written as
+    // the transpose to fail loudly under a symmetry-breaking mutation.
+    let mut adj: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| g_x_int[i]);
+    lu.solve_transpose_in_place(adj.as_mut());
+    let lambda_int: Vec<c64> = (0..n_interior).map(|i| adj[(i, 0)]).collect();
+
+    // λ scattered to full edge length, zero on PEC edges.
+    let mut lambda_full = vec![c64::new(0.0, 0.0); n_edges];
+    for (full_idx, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            lambda_full[full_idx] = lambda_int[ri as usize];
+        }
+    }
+
+    // --- Nodal-coordinate gradient (fixed-Λ tensor-material contraction). -----
+    // ∂g/∂X_{n,d} = 2 Re[ λᵀ ∂b/∂X_{n,d} ] − 2 Re[ λᵀ (∂A/∂X_{n,d}) x ], with
+    // ∂A_ij = ∂K(ν)_ij − ω² ∂M(ε)_ij. Both element tangents are COMPLEX here
+    // (the box Λ makes ν, ε complex), so each runs as a Re/Im weight pass of the
+    // tensor Dual twin. The RHS moment ∂(∫N_i) is material-independent — reused
+    // from the scalar dual kernel.
+    let mut grad_node = vec![[0.0_f64; 3]; n_nodes];
+    let iomega = c64::new(0.0, omega);
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        let gidx = &tet_idx[t];
+        let gsign = &tet_sign[t];
+
+        let lam_loc: [c64; 6] =
+            std::array::from_fn(|i| lambda_full[gidx[i] as usize] * (gsign[i] as f64));
+        if lam_loc.iter().all(|z| z.re == 0.0 && z.im == 0.0) {
+            continue;
+        }
+        let x_loc: [c64; 6] =
+            std::array::from_fn(|i| e_edges[gidx[i] as usize] * (gsign[i] as f64));
+
+        let base = [
+            mesh.nodes[tet[0] as usize],
+            mesh.nodes[tet[1] as usize],
+            mesh.nodes[tet[2] as usize],
+            mesh.nodes[tet[3] as usize],
+        ];
+        // Real / imaginary weight components: ν (curl) and ε (mass).
+        let nu_re = tensor_re(&nu_tensor[t]);
+        let nu_im = tensor_im(&nu_tensor[t]);
+        let eps_re = tensor_re(&epsilon_tensor[t]);
+        let eps_im = tensor_im(&epsilon_tensor[t]);
+        let jt = source.j_tet[t]; // held fixed as the mesh morphs
+
+        for a in 0..4 {
+            let node = tet[a] as usize;
+            for c_axis in 0..3 {
+                // Seed local vertex a, axis c_axis; all other coords constant.
+                let mut dc = base.map(|v| v.map(Dual::cst));
+                dc[a][c_axis] = Dual::var(base[a][c_axis]);
+
+                // Re/Im passes of the tensor twin → complex ∂K, ∂M.
+                let (dk_re, dm_re) = nedelec_local_dual_tensor(&dc, &nu_re, &eps_re);
+                let (dk_im, dm_im) = nedelec_local_dual_tensor(&dc, &nu_im, &eps_im);
+                // Material-independent RHS moments ∂(∫N_i)/∂X.
+                let (_, _, dnint) = nedelec_local_dual(&dc);
+
+                // −λᵀ (∂A/∂X) x, ∂A_ij = ∂K(ν)_ij − ω² ∂M(ε)_ij.
+                let mut term_a = c64::new(0.0, 0.0);
+                for i in 0..6 {
+                    for j in 0..6 {
+                        let dk = c64::new(dk_re[i][j].du, dk_im[i][j].du);
+                        let dm = c64::new(dm_re[i][j].du, dm_im[i][j].du);
+                        let d_a = dk - dm * omega2;
+                        term_a += lam_loc[i] * x_loc[j] * d_a;
+                    }
+                }
+
+                // +λᵀ ∂b/∂X, ∂b_i = iω · (∂(∫N_i)·J), J = jt held fixed.
+                let mut term_b = c64::new(0.0, 0.0);
+                for i in 0..6 {
+                    let mut dnj = c64::new(0.0, 0.0);
+                    for c in 0..3 {
+                        dnj += jt[c] * dnint[i][c].du;
+                    }
+                    term_b += lam_loc[i] * (iomega * dnj);
+                }
+
+                grad_node[node][c_axis] += 2.0 * (term_b - term_a).re;
+            }
+        }
+    }
+
+    Ok(DrivenShapeGradient {
+        objective: objective_value,
+        grad_node,
+        e_edges,
+        residual_rel,
+        n_factorizations,
+    })
+}
+
+/// Real part of a complex 3×3 tensor as a plain `f64` matrix (a lifted constant
+/// weight for the fixed-Λ tensor Dual twin, issue #635).
+#[inline]
+fn tensor_re(t: &[[c64; 3]; 3]) -> [[f64; 3]; 3] {
+    std::array::from_fn(|p| std::array::from_fn(|q| t[p][q].re))
+}
+/// Imaginary part of a complex 3×3 tensor as a plain `f64` matrix.
+#[inline]
+fn tensor_im(t: &[[c64; 3]; 3]) -> [[f64; 3]; 3] {
+    std::array::from_fn(|p| std::array::from_fn(|q| t[p][q].im))
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -2872,6 +3434,349 @@ mod tests {
         assert!(
             (g_face - g_node).abs() > 1e-6,
             "the two node-motion maps must yield distinct gradients ({g_face} vs {g_node})"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Box-UPML tensor-material shape adjoint (issue #635, Epic #628 Phase C1).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// The real `f64` **weighted** Nédélec local matrices from the production
+    /// Burn kernels for one tet and a fixed 3×3 weight pair, used to pin the
+    /// tensor dual `.re` fields.
+    fn burn_weighted_local(
+        coords: &[[f64; 3]; 4],
+        w_k: &[[f64; 3]; 3],
+        w_m: &[[f64; 3]; 3],
+    ) -> ([[f64; 6]; 6], [[f64; 6]; 6]) {
+        use crate::elements::nedelec::{
+            batched_nedelec_local_mass_anisotropic_full, batched_nedelec_local_stiffness_weighted,
+        };
+        let cflat: Vec<f64> = coords.iter().flat_map(|v| v.iter().copied()).collect();
+        let ct = burn::tensor::Tensor::<B, 1>::from_data(TensorData::new(cflat, [12]), &device())
+            .reshape([1, 4, 3]);
+        let wk_flat: Vec<f64> = w_k.iter().flat_map(|r| r.iter().copied()).collect();
+        let wm_flat: Vec<f64> = w_m.iter().flat_map(|r| r.iter().copied()).collect();
+        let wkt = burn::tensor::Tensor::<B, 1>::from_data(TensorData::new(wk_flat, [9]), &device())
+            .reshape([1, 3, 3]);
+        let wmt = burn::tensor::Tensor::<B, 1>::from_data(TensorData::new(wm_flat, [9]), &device())
+            .reshape([1, 3, 3]);
+        let k: Vec<f64> = batched_nedelec_local_stiffness_weighted(ct.clone(), wkt)
+            .into_data()
+            .iter::<f64>()
+            .collect();
+        let m: Vec<f64> = batched_nedelec_local_mass_anisotropic_full(ct, wmt)
+            .into_data()
+            .iter::<f64>()
+            .collect();
+        let mut kk = [[0.0_f64; 6]; 6];
+        let mut mm = [[0.0_f64; 6]; 6];
+        for i in 0..6 {
+            for j in 0..6 {
+                kk[i][j] = k[i * 6 + j];
+                mm[i][j] = m[i * 6 + j];
+            }
+        }
+        (kk, mm)
+    }
+
+    /// A generic (non-axis-aligned) well-shaped tet and a genuinely **full**
+    /// (off-diagonal, asymmetric) 3×3 weight pair — a strictly harder input than
+    /// the diagonal box `Λ`, so passing here subsumes the box case.
+    fn tensor_twin_inputs() -> ([[f64; 3]; 4], [[f64; 3]; 3], [[f64; 3]; 3]) {
+        let base = [
+            [0.10, 0.20, 0.05],
+            [1.05, 0.15, 0.20],
+            [0.25, 0.95, 0.10],
+            [0.20, 0.30, 1.10],
+        ];
+        // ν = Λ⁻¹-like curl weight, ε = ε_r·Λ-like mass weight (both full here).
+        let w_k = [[1.30, 0.10, -0.05], [0.07, 0.90, 0.12], [-0.03, 0.08, 1.10]];
+        let w_m = [[2.10, 0.15, 0.05], [0.12, 1.80, -0.09], [0.04, 0.11, 2.40]];
+        (base, w_k, w_m)
+    }
+
+    /// **The tensor dual `.re` faithfully lifts the production weighted kernels.**
+    /// Reproduces the forward `assemble_global_nedelec_with_full_tensors` element
+    /// contribution (`batched_nedelec_local_stiffness_weighted` /
+    /// `batched_nedelec_local_mass_anisotropic_full`) at **zero perturbation**.
+    #[test]
+    fn tensor_dual_local_matrices_reproduce_forward_kernel() {
+        let (base, w_k, w_m) = tensor_twin_inputs();
+        let dc = base.map(|v| v.map(Dual::cst));
+        let (dk, dm) = nedelec_local_dual_tensor(&dc, &w_k, &w_m);
+        let (bk, bm) = burn_weighted_local(&base, &w_k, &w_m);
+        let mut worst = 0.0_f64;
+        for i in 0..6 {
+            for j in 0..6 {
+                let rk = (dk[i][j].re - bk[i][j]).abs() / bk[i][j].abs().max(1e-12);
+                let rm = (dm[i][j].re - bm[i][j]).abs() / bm[i][j].abs().max(1e-12);
+                worst = worst.max(rk).max(rm);
+            }
+        }
+        assert!(
+            worst < 1e-10,
+            "tensor dual .re vs forward weighted kernel worst rel-err {worst:.3e}"
+        );
+    }
+
+    /// **The tensor element-kernel derivative is exact.** The tensor dual
+    /// tangents of `∂K(ν)/∂X`, `∂M(ε)/∂X` must match a central finite difference
+    /// of the SAME `f64` twin for every one of the twelve node coordinates — the
+    /// fixed-Λ geometry Jacobian is analytic forward-mode AD, not FD.
+    #[test]
+    fn tensor_dual_local_derivative_matches_finite_difference() {
+        let (base, w_k, w_m) = tensor_twin_inputs();
+        let eval = |coords: &[[f64; 3]; 4]| {
+            let dc = coords.map(|v| v.map(Dual::cst));
+            let (k, m) = nedelec_local_dual_tensor(&dc, &w_k, &w_m);
+            let kre =
+                std::array::from_fn::<_, 6, _>(|i| std::array::from_fn::<_, 6, _>(|j| k[i][j].re));
+            let mre =
+                std::array::from_fn::<_, 6, _>(|i| std::array::from_fn::<_, 6, _>(|j| m[i][j].re));
+            (kre, mre)
+        };
+        let h = 1e-6;
+        let (mut diff_k, mut scale_k, mut diff_m, mut scale_m) = (0.0, 0.0, 0.0, 0.0);
+        for a in 0..4 {
+            for c in 0..3 {
+                let mut dc = base.map(|v| v.map(Dual::cst));
+                dc[a][c] = Dual::var(base[a][c]);
+                let (dk, dm) = nedelec_local_dual_tensor(&dc, &w_k, &w_m);
+
+                let mut cp = base;
+                let mut cm = base;
+                cp[a][c] += h;
+                cm[a][c] -= h;
+                let (kp, mp) = eval(&cp);
+                let (km, mm) = eval(&cm);
+                for i in 0..6 {
+                    for j in 0..6 {
+                        let fdk = (kp[i][j] - km[i][j]) / (2.0 * h);
+                        let fdm = (mp[i][j] - mm[i][j]) / (2.0 * h);
+                        diff_k = f64::max(diff_k, (dk[i][j].du - fdk).abs());
+                        scale_k = f64::max(scale_k, fdk.abs());
+                        diff_m = f64::max(diff_m, (dm[i][j].du - fdm).abs());
+                        scale_m = f64::max(scale_m, fdm.abs());
+                    }
+                }
+            }
+        }
+        assert!(
+            scale_k > 1e-3 && scale_m > 1e-3,
+            "kernel derivative scales too small (K {scale_k:.3e}, M {scale_m:.3e})"
+        );
+        let (rel_k, rel_m) = (diff_k / scale_k, diff_m / scale_m);
+        assert!(
+            rel_k.max(rel_m) < 1e-6,
+            "tensor dual-vs-FD scale-normalized rel-err too large (K {rel_k:.3e}, M {rel_m:.3e})"
+        );
+    }
+
+    /// **PML-pinned tripwire bites.** [`chain_node_motion_pml_pinned`] must panic
+    /// when a design node that belongs to a PML tet carries nonzero motion, since
+    /// `∂Λ/∂X` is unmodeled in Phase C1 (the moving-PML profile derivative is C2).
+    #[test]
+    #[should_panic(expected = "PML-pinned node")]
+    fn pml_pinned_tripwire_rejects_moving_pml_node() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let mut pml = vec![false; mesh.n_tets()];
+        pml[0] = true; // tag the first tet as PML → its 4 nodes are pinned.
+        let pinned = pml_shell_nodes(&mesh, &pml);
+        let node = pinned.iter().position(|&p| p).expect("a pinned node");
+        let grad = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        let mut d = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d[node] = [1.0, 0.0, 0.0]; // move a pinned node → must panic.
+        let _ = chain_node_motion_pml_pinned(&grad, &d, &pinned);
+    }
+
+    /// **The load-bearing box-UPML gate.** The tensor-material box-UPML shape
+    /// adjoint `∂g/∂θ` on the **real patch UPML shell**
+    /// ([`crate::mesh::patch::PatchFixture::matched_upml_materials`]) must match a
+    /// full central finite difference of the entire UPML driven pipeline
+    /// (perturb θ → move the non-PML nodes → re-assemble + re-solve the
+    /// matched-UPML forward via the public [`driven_solve`] → recompute g) to
+    /// `rel_err ≤ 5e-3`. The PML shell is held fixed (∂Λ/∂X = 0) and the FD
+    /// reference holds the per-tet Λ tensors fixed, matching the C1 convention.
+    /// A conjugation-error tripwire proves the tolerance bites.
+    #[test]
+    fn driven_shape_gradient_matched_upml_matches_central_finite_difference() {
+        use crate::mesh::patch::{FR4_MATERIALS, PHYS_UPML, read_patch_smoke_fixture};
+        use crate::mesh::pec_interior_mask_from_triangles;
+
+        let fixture = read_patch_smoke_fixture().expect("patch smoke fixture");
+        let mesh = fixture.mesh.clone();
+        let patch_tris = fixture.patch_triangles();
+        let ground_tris = fixture.ground_triangles();
+        let outer_tris = fixture.outer_boundary_triangles();
+        let edges = mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                patch_tris.as_slice(),
+                ground_tris.as_slice(),
+                outer_tris.as_slice(),
+            ],
+        );
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+
+        let pml_thick = 8.0;
+        let (air_lo, air_hi) = fixture.air_box(pml_thick);
+        let sigma_0 = 1.0;
+        let omega = 0.35;
+        let (eps_tensor, nu_tensor) = fixture.matched_upml_materials(
+            &FR4_MATERIALS,
+            air_lo,
+            air_hi,
+            pml_thick,
+            sigma_0,
+            omega,
+        );
+
+        let pml_tet_mask: Vec<bool> = fixture
+            .tet_physical_tags
+            .iter()
+            .map(|&t| t == PHYS_UPML)
+            .collect();
+        let pinned = pml_shell_nodes(&mesh, &pml_tet_mask);
+
+        // Fully complex volumetric current source across the domain (so the field
+        // is genuinely complex and the Wirtinger convention is exercised).
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.20 * c[2].cos()),
+                c64::new(0.15 * c[0].sin(), 0.10),
+                c64::new(0.30 * c[0].cos(), 0.20 * c[1].sin()),
+            ]
+        });
+
+        let sg = driven_shape_gradient_matched_upml::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("box-UPML shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "box-UPML shape adjoint must reuse the forward factorization"
+        );
+        assert!(
+            sg.residual_rel < 1e-8,
+            "forward UPML solve unhealthy (residual {:.3e}); pick ω off resonance",
+            sg.residual_rel
+        );
+
+        // FD reference: hold the per-tet Λ tensors FIXED (the pinned-shell C1
+        // convention), move only non-PML nodes, re-assemble + re-solve the UPML
+        // forward through the independent public driven_solve path.
+        let eps_ref = eps_tensor.clone();
+        let nu_ref = nu_tensor.clone();
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve::<B>(
+                &moved,
+                DrivenMaterials::MatchedUpml {
+                    epsilon_tensor: &eps_ref,
+                    nu_tensor: &nu_ref,
+                },
+                &bcs,
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("driven UPML solve");
+            l2_objective(&sol.e_edges).0
+        };
+
+        let g0 = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0 - sg.objective).abs() <= 1e-8 * g0.abs().max(1.0),
+            "objective mismatch: adjoint {} vs public driven_solve {g0}",
+            sg.objective
+        );
+
+        // Node-motion map: a smooth +z Gaussian bump on the NON-pinned nodes
+        // (pinned PML nodes held at zero), linear in θ so X(θ)=X⁰+θD is exact.
+        let mut center = [0.0_f64; 3];
+        let mut n_free = 0.0_f64;
+        for (i, p) in mesh.nodes.iter().enumerate() {
+            if !pinned[i] {
+                for k in 0..3 {
+                    center[k] += p[k];
+                }
+                n_free += 1.0;
+            }
+        }
+        for k in 0..3 {
+            center[k] /= n_free.max(1.0);
+        }
+        let s2 = 25.0_f64; // bump width² (mesh units)
+        let d: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if pinned[i] {
+                    [0.0; 3]
+                } else {
+                    let r2 = (p[0] - center[0]).powi(2)
+                        + (p[1] - center[1]).powi(2)
+                        + (p[2] - center[2]).powi(2);
+                    [0.0, 0.0, (-r2 / (2.0 * s2)).exp()]
+                }
+            })
+            .collect();
+
+        let h = 1e-6;
+        let ana = chain_node_motion_pml_pinned(&sg.grad_node, &d, &pinned);
+        let fd = (g_of_theta(h, &d) - g_of_theta(-h, &d)) / (2.0 * h);
+        assert!(
+            fd.abs() > 1e-8,
+            "FD gradient {fd} unexpectedly ~0 (fixture/source degenerate?)"
+        );
+        let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel < 5e-3,
+            "box-UPML adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 5e-3"
+        );
+
+        // Conjugation tripwire: the wrong Wirtinger cotangent (+i·Im instead of
+        // −i·Im, i.e. ∂g/∂x̄) must be REJECTED by the FD — proving the 5e-3 gate
+        // is biting, not vacuously satisfied.
+        let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
+            let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+            let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
+            (g, cot)
+        };
+        let wrong = driven_shape_gradient_matched_upml::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            omega,
+            &source,
+            wrong_objective,
+            &device(),
+        )
+        .expect("wrong-cotangent box-UPML gradient");
+        let ana_wrong = chain_node_motion_pml_pinned(&wrong.grad_node, &d, &pinned);
+        let rel_wrong = (ana_wrong - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel_wrong > 1e-2,
+            "conjugation error NOT detected by FD: wrong-adjoint {ana_wrong} vs FD {fd}, \
+             rel-err {rel_wrong:.3e} (gate not biting)"
         );
     }
 }
