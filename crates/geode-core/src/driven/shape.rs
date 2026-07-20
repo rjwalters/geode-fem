@@ -1214,7 +1214,7 @@ pub fn chain_node_motion_pml_pinned(
 /// (the same forward path [`crate::driven::solve::DrivenMaterials::MatchedUpml`]
 /// uses), with per-tet full-3×3 **complex** constitutive tensors. The element
 /// factors `∂K(ν)/∂X` and `∂M(ε)/∂X` are read from the tensor-material Dual twin
-/// [`nedelec_local_dual_tensor`] (exact forward-mode AD) at **fixed** Λ, and the
+/// `nedelec_local_dual_tensor` (exact forward-mode AD) at **fixed** Λ, and the
 /// current-source RHS carries the same geometric `∂b/∂X` term as the scalar path
 /// (the RHS is material-independent).
 ///
@@ -3480,10 +3480,14 @@ mod tests {
         (kk, mm)
     }
 
+    /// Tet vertices plus the curl-weight (ν) and mass-weight (ε) 3×3 tensors that
+    /// drive the tensor-material twin fixtures.
+    type TensorTwinInputs = ([[f64; 3]; 4], [[f64; 3]; 3], [[f64; 3]; 3]);
+
     /// A generic (non-axis-aligned) well-shaped tet and a genuinely **full**
     /// (off-diagonal, asymmetric) 3×3 weight pair — a strictly harder input than
     /// the diagonal box `Λ`, so passing here subsumes the box case.
-    fn tensor_twin_inputs() -> ([[f64; 3]; 4], [[f64; 3]; 3], [[f64; 3]; 3]) {
+    fn tensor_twin_inputs() -> TensorTwinInputs {
         let base = [
             [0.10, 0.20, 0.05],
             [1.05, 0.15, 0.20],
@@ -3719,8 +3723,8 @@ mod tests {
                 n_free += 1.0;
             }
         }
-        for k in 0..3 {
-            center[k] /= n_free.max(1.0);
+        for c in center.iter_mut() {
+            *c /= n_free.max(1.0);
         }
         let s2 = 25.0_f64; // bump width² (mesh units)
         let d: Vec<[f64; 3]> = mesh
