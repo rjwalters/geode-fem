@@ -46,8 +46,9 @@ pub use spiral::{
 // `mesh::patch` — like the spiral, several names (e.g.
 // `PHYS_OUTER_BOUNDARY`) would collide with the sphere re-exports above.
 pub use patch::{
-    FR4_MATERIALS, PatchFixture, PatchMaterials, PatchPort, read_patch_fixture,
-    read_patch_fixture_from_bytes, read_patch_matched_fixture, read_patch_smoke_fixture,
+    CURVED_SMOKE_BEND_RADIUS, CURVED_SMOKE_PML_THICK, FR4_MATERIALS, PatchFixture, PatchMaterials,
+    PatchPort, read_patch_fixture, read_patch_fixture_from_bytes, read_patch_matched_fixture,
+    read_patch_smoke_curved_fixture, read_patch_smoke_fixture,
 };
 // The transmon fixture's PHYS_* tag constants stay namespaced under
 // `mesh::transmon` — several names (`PHYS_SUBSTRATE`, `PHYS_VACUUM`)

@@ -331,6 +331,106 @@ impl PatchFixture {
         let air_hi = std::array::from_fn(|k| hi[k] - pml_thick);
         (air_lo, air_hi)
     }
+
+    /// Axis-aligned bounding box `(lo, hi)` over the nodes of the
+    /// [`PHYS_SUBSTRATE`] tets — the flat footprint the conformal metal
+    /// (patch + ground faces) rides on. Anchors the curvature window in
+    /// [`PatchFixture::bent_conformal`].
+    pub fn substrate_box(&self) -> ([f64; 3], [f64; 3]) {
+        let mut lo = [f64::INFINITY; 3];
+        let mut hi = [f64::NEG_INFINITY; 3];
+        for &ti in &self.tets_with_tag(PHYS_SUBSTRATE) {
+            for &n in &self.mesh.tets[ti as usize] {
+                let p = self.mesh.nodes[n as usize];
+                for k in 0..3 {
+                    lo[k] = lo[k].min(p[k]);
+                    hi[k] = hi[k].max(p[k]);
+                }
+            }
+        }
+        (lo, hi)
+    }
+
+    /// A **curved / conformal** copy of this fixture: the flat substrate
+    /// slab (and the PEC patch + ground faces that ride on its top / bottom
+    /// surfaces) is wrapped around a cylinder of radius `bend_radius` (mm)
+    /// about the y-axis, turning the flat metal radiator into a genuinely
+    /// curved one — a geometry a staircased Yee/FDTD grid can only
+    /// approximate at a density-limited cost (the load-bearing argument of
+    /// epic #647).
+    ///
+    /// Only mesh **node coordinates** change; the tet/triangle topology,
+    /// the physical tags, and every port / PEC / UPML adapter are
+    /// preserved, so the returned fixture drives the *same*
+    /// [`crate::driven::solve::driven_solve_with_ports`] pipeline and the
+    /// *same* composed shape gradient
+    /// ([`crate::driven::shape::driven_shape_gradient_matched_upml_ports`])
+    /// as the flat fixture.
+    ///
+    /// The cylindrical map wraps the flat slab into a **constant-thickness
+    /// arc** — the substrate top (`z = h`) and bottom (`z = 0`) become
+    /// concentric arcs — so the patch and ground faces stay conformal to
+    /// the curved substrate surfaces.
+    ///
+    /// The bend is **windowed**: full strength through the substrate
+    /// footprint ([`PatchFixture::substrate_box`]), smoothly decaying (per
+    /// axis, via a `3t² − 2t³` smoothstep) to the identity by the air-box
+    /// inner wall ([`PatchFixture::air_box`], `pml_thick`). Consequently
+    ///
+    /// - the box-UPML shell nodes are left **exactly** in place, so the
+    ///   Cartesian [`box_upml_tensors`] stretch and the recovered air-box
+    ///   extents are unchanged (the absorber stays a proper axis-aligned
+    ///   box), and
+    /// - the `x = x_feed` (`x = 0`) port plane is a fixed plane of the map
+    ///   (`sin 0 = 0` ⇒ the bend is the identity there), so the lumped-port
+    ///   feed is undisturbed and the pinned-feed shape-gradient premise
+    ///   still holds.
+    ///
+    /// The transform is a deterministic, pure function of the committed
+    /// flat mesh and the two parameters, so it is a fully reproducible mesh
+    /// recipe (no external mesher).
+    pub fn bent_conformal(&self, bend_radius: f64, pml_thick: f64) -> PatchFixture {
+        let (sub_lo, sub_hi) = self.substrate_box();
+        let (air_lo, air_hi) = self.air_box(pml_thick);
+        // Bend axis is a distance `bend_radius` below the substrate
+        // mid-plane; the slab wraps around it at constant thickness.
+        let z0 = 0.5 * (sub_lo[2] + sub_hi[2]);
+        let r_bend = bend_radius.max(1e-6);
+
+        let smoothstep = |t: f64| {
+            let t = t.clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        };
+        // Per-axis window: 1 inside the substrate extent, smoothstep down
+        // to 0 at the air-box inner wall, exactly 0 beyond it.
+        let ramp = |v: f64, s_lo: f64, s_hi: f64, a_lo: f64, a_hi: f64| -> f64 {
+            if v > s_hi {
+                smoothstep((a_hi - v) / (a_hi - s_hi).max(1e-12))
+            } else if v < s_lo {
+                smoothstep((v - a_lo) / (s_lo - a_lo).max(1e-12))
+            } else {
+                1.0
+            }
+        };
+
+        let mut bent = self.clone();
+        for p in bent.mesh.nodes.iter_mut() {
+            let wx = ramp(p[0], sub_lo[0], sub_hi[0], air_lo[0], air_hi[0]);
+            let wy = ramp(p[1], sub_lo[1], sub_hi[1], air_lo[1], air_hi[1]);
+            let wz = ramp(p[2], sub_lo[2], sub_hi[2], air_lo[2], air_hi[2]);
+            let w = wx * wy * wz;
+            if w == 0.0 {
+                continue;
+            }
+            let phi = p[0] / r_bend;
+            let r = r_bend + (p[2] - z0);
+            let bent_x = r * phi.sin();
+            let bent_z = z0 + r * phi.cos() - r_bend;
+            p[0] += w * (bent_x - p[0]);
+            p[2] += w * (bent_z - p[2]);
+        }
+        bent
+    }
 }
 
 /// Build a diagonal complex 3×3 tensor.
@@ -461,6 +561,33 @@ pub fn read_patch_matched_fixture() -> Result<PatchFixture, MeshError> {
     read_patch_fixture_from_bytes(PATCH_MATCHED_MSH)
 }
 
+/// Cylinder bend radius (mm) of the bundled **curved-conformal** smoke
+/// fixture ([`read_patch_smoke_curved_fixture`]): the substrate half-width
+/// (~12 mm) subtends ~0.3 rad (~17°) of arc, a curvature no staircased
+/// Yee/FDTD grid can represent without a density-limited approximation
+/// (epic #647), while keeping every substrate tet non-inverted.
+pub const CURVED_SMOKE_BEND_RADIUS: f64 = 40.0;
+
+/// UPML shell thickness (mm) of the smoke fixture, re-stated so the
+/// curved-fixture window and the matched-UPML materials use one value.
+pub const CURVED_SMOKE_PML_THICK: f64 = 8.0;
+
+/// Load the coarse smoke patch fixture and wrap it into a **curved /
+/// conformal** open radiator via [`PatchFixture::bent_conformal`] with
+/// [`CURVED_SMOKE_BEND_RADIUS`] / [`CURVED_SMOKE_PML_THICK`].
+///
+/// Same physical-group convention, materials and adapters as the flat
+/// [`read_patch_smoke_fixture`]; only the substrate + inner-air node
+/// coordinates are bent (the box-UPML shell and the `x = 0` port plane are
+/// left in place). Used to re-validate the composed open-radiator shape
+/// gradient on genuinely curved conformal geometry.
+pub fn read_patch_smoke_curved_fixture() -> Result<PatchFixture, MeshError> {
+    Ok(
+        read_patch_smoke_fixture()?
+            .bent_conformal(CURVED_SMOKE_BEND_RADIUS, CURVED_SMOKE_PML_THICK),
+    )
+}
+
 /// Load a patch-antenna fixture from arbitrary MSH 4.1 ASCII bytes
 /// following the same physical-group convention as the bundled mesh
 /// (see module docs) — e.g. re-generated meshes from
@@ -539,5 +666,384 @@ mod tests {
         for n in &nu {
             assert_eq!(n[0][0], c64::new(1.0, 0.0));
         }
+    }
+
+    // ── Curved / conformal radiator fixture (epic #647 Phase 2) ────────────
+
+    use crate::constants::ETA_0_OHM;
+    use crate::driven::extraction::s11;
+    use crate::driven::ports::port_input_impedance;
+    use crate::driven::shape::{
+        chain_node_motion_pml_pinned, driven_shape_gradient_matched_upml_ports, pml_shell_nodes,
+    };
+    use crate::driven::solve::{
+        CurrentSource, DrivenBcs, DrivenMaterials, driven_solve_with_ports,
+    };
+    use crate::mesh::pec_interior_mask_from_triangles;
+    use crate::testing::TestBackend;
+    use burn::tensor::backend::BackendTypes;
+
+    type B = TestBackend;
+
+    fn device() -> <B as BackendTypes>::Device {
+        <B as BackendTypes>::Device::default()
+    }
+
+    /// Objective `g(x) = Σ_i |x_i|²` and its Wirtinger cotangent
+    /// `∂g/∂x_i = x̄_i` (mirrors the shape-adjoint test objective).
+    fn l2_objective(x: &[c64]) -> (f64, Vec<c64>) {
+        let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+        let cot = x.iter().map(|z| c64::new(z.re, -z.im)).collect();
+        (g, cot)
+    }
+
+    /// The bend is a valid (non-inverting) fixed-topology deformation and it
+    /// actually curves the metal: no substrate/patch node stays coplanar
+    /// with the flat slab, yet the box-UPML shell and the `x = 0` port plane
+    /// are left exactly in place.
+    #[test]
+    fn curved_conformal_bend_is_valid_and_actually_curved() {
+        use crate::shape::min_tet_volume_ratio;
+
+        let flat = read_patch_smoke_fixture().expect("smoke fixture");
+        let curved = read_patch_smoke_curved_fixture().expect("curved smoke fixture");
+
+        // Same fixed topology, tags, and adapters.
+        assert_eq!(curved.mesh.n_tets(), flat.mesh.n_tets());
+        assert_eq!(curved.mesh.n_nodes(), flat.mesh.n_nodes());
+        assert_eq!(curved.tet_physical_tags, flat.tet_physical_tags);
+        assert_eq!(curved.triangle_physical_tags, flat.triangle_physical_tags);
+
+        // No tet inverted (and none nearly degenerate) under the bend.
+        let ratio = min_tet_volume_ratio(&flat.mesh, &curved.mesh);
+        assert!(
+            ratio > 0.2,
+            "curved bend degrades mesh quality (min signed-volume ratio {ratio:.3}); \
+             raise CURVED_SMOKE_BEND_RADIUS"
+        );
+
+        // The box-UPML shell nodes are pinned exactly (Cartesian absorber
+        // preserved), so the recovered air-box extents are unchanged.
+        let pml_mask: Vec<bool> = flat
+            .tet_physical_tags
+            .iter()
+            .map(|&t| t == PHYS_UPML)
+            .collect();
+        let pinned = pml_shell_nodes(&flat.mesh, &pml_mask);
+        for (i, (&fp, &cp)) in flat
+            .mesh
+            .nodes
+            .iter()
+            .zip(curved.mesh.nodes.iter())
+            .enumerate()
+        {
+            if pinned[i] {
+                assert_eq!(fp, cp, "UPML shell node {i} moved by the bend");
+            }
+        }
+        assert_eq!(
+            flat.air_box(CURVED_SMOKE_PML_THICK),
+            curved.air_box(CURVED_SMOKE_PML_THICK),
+            "bend must not change the air-box extents"
+        );
+
+        // The port (x = 0) plane is a fixed plane of the cylindrical map.
+        for tri in &curved.port_triangles() {
+            for &n in tri {
+                assert_eq!(
+                    flat.mesh.nodes[n as usize], curved.mesh.nodes[n as usize],
+                    "port-face node {n} moved — pinned-feed premise broken"
+                );
+            }
+        }
+
+        // The metal genuinely curves: the patch (z = h) nodes are lifted off
+        // the flat plane by the cylindrical arc (max |Δz| clearly nonzero).
+        let mut max_dz = 0.0_f64;
+        for tri in &curved.patch_triangles() {
+            for &n in tri {
+                let dz = (curved.mesh.nodes[n as usize][2] - flat.mesh.nodes[n as usize][2]).abs();
+                max_dz = max_dz.max(dz);
+            }
+        }
+        assert!(
+            max_dz > 0.1,
+            "patch conductor barely curved (max Δz {max_dz:.4} mm) — curvature not load-bearing"
+        );
+    }
+
+    /// Forward `driven_solve_with_ports(MatchedUpml, port)` runs on the
+    /// curved conformal radiator and returns a physically sane, healthy
+    /// baseline reflection `|S11|(ω)` (passive: `0 < |S11| ≤ 1`).
+    #[test]
+    fn curved_conformal_forward_s11_baseline() {
+        let fixture = read_patch_smoke_curved_fixture().expect("curved smoke fixture");
+        let mesh = &fixture.mesh;
+        let edges = mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                fixture.patch_triangles().as_slice(),
+                fixture.ground_triangles().as_slice(),
+                fixture.outer_boundary_triangles().as_slice(),
+            ],
+        );
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+
+        let pml_thick = CURVED_SMOKE_PML_THICK;
+        let (air_lo, air_hi) = fixture.air_box(pml_thick);
+        let omega = 0.35;
+        let (eps_tensor, nu_tensor) =
+            fixture.matched_upml_materials(&FR4_MATERIALS, air_lo, air_hi, pml_thick, 1.0, omega);
+
+        let r_nat = 50.0 / ETA_0_OHM;
+        let patch_port = fixture.port();
+        let port = patch_port.lumped_port(r_nat, c64::new(1.0, 0.0));
+        // Port-driven baseline: no additional volumetric source.
+        let source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+
+        let sol = driven_solve_with_ports::<B>(
+            mesh,
+            DrivenMaterials::MatchedUpml {
+                epsilon_tensor: &eps_tensor,
+                nu_tensor: &nu_tensor,
+            },
+            None,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &source,
+            &device(),
+        )
+        .expect("curved port-loaded UPML forward");
+        assert!(
+            sol.residual_rel < 1e-8,
+            "curved forward solve unhealthy (residual {:.3e})",
+            sol.residual_rel
+        );
+
+        let z = port_input_impedance(mesh, &port, &edges, &sol.e_edges);
+        let refl = s11(z, r_nat);
+        let mag = refl.norm();
+        println!(
+            "curved-conformal baseline |S11|(ω={omega}) = {mag:.6}  (Z_in = {:.4} + {:.4}i, natural units)",
+            z.re, z.im
+        );
+        assert!(
+            mag.is_finite() && mag > 1e-6 && mag <= 1.0 + 1e-9,
+            "baseline |S11| = {mag} not physically sane (passive open radiator: 0 < |S11| <= 1)"
+        );
+    }
+
+    /// **Phase-2 re-validation (epic #647).** The composed open-radiator
+    /// shape gradient — matched box-UPML tensor material + lossy FR-4 ε + a
+    /// pinned-feed lumped port, all in one differentiated pencil via
+    /// [`driven_shape_gradient_matched_upml_ports`] — matches a full central
+    /// finite difference of the entire port-loaded UPML pipeline on the
+    /// **curved conformal** mesh to `rel_err ≤ 5e-3`, with
+    /// `n_factorizations == 1`. This confirms the already-merged adjoint is
+    /// correct on genuinely curved geometry, not just the flat patch. A
+    /// conjugation tripwire proves the tolerance bites.
+    #[test]
+    fn curved_conformal_composed_gradient_matches_central_finite_difference() {
+        let fixture = read_patch_smoke_curved_fixture().expect("curved smoke fixture");
+        let mesh = fixture.mesh.clone();
+        let edges = mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                fixture.patch_triangles().as_slice(),
+                fixture.ground_triangles().as_slice(),
+                fixture.outer_boundary_triangles().as_slice(),
+            ],
+        );
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+
+        let pml_thick = CURVED_SMOKE_PML_THICK;
+        let (air_lo, air_hi) = fixture.air_box(pml_thick);
+        let sigma_0 = 1.0;
+        let omega = 0.35;
+        // Lossy FR-4 (tan δ = 0.02) → complex ε; box-UPML stretch on the shell.
+        let (eps_tensor, nu_tensor) = fixture.matched_upml_materials(
+            &FR4_MATERIALS,
+            air_lo,
+            air_hi,
+            pml_thick,
+            sigma_0,
+            omega,
+        );
+
+        // Pinned-feed lumped port; complex incident drive so V and g are complex.
+        let patch_port = fixture.port();
+        let r_nat = 50.0 / ETA_0_OHM;
+        let port = patch_port.lumped_port(r_nat, c64::new(1.0, 0.5));
+
+        // Pin BOTH the PML shell AND the port-face nodes in the motion map.
+        let pml_tet_mask: Vec<bool> = fixture
+            .tet_physical_tags
+            .iter()
+            .map(|&t| t == PHYS_UPML)
+            .collect();
+        let mut pinned = pml_shell_nodes(&mesh, &pml_tet_mask);
+        for tri in &patch_port.faces {
+            for &n in tri {
+                pinned[n as usize] = true;
+            }
+        }
+
+        // Complex volumetric source (exercises the ∂b/∂X term alongside the port).
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.20 * c[2].cos()),
+                c64::new(0.15 * c[0].sin(), 0.10),
+                c64::new(0.30 * c[0].cos(), 0.20 * c[1].sin()),
+            ]
+        });
+
+        let sg = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("composed box-UPML + port shape gradient on curved mesh");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "composed adjoint must reuse the single forward factorization"
+        );
+        assert!(
+            sg.residual_rel < 1e-8,
+            "curved forward composed solve unhealthy (residual {:.3e})",
+            sg.residual_rel
+        );
+
+        // FD reference: hold the per-tet Λ tensors FIXED (pinned-shell C1
+        // convention), move only non-PML/non-port nodes, re-assemble +
+        // re-solve the port-loaded UPML forward through the public path.
+        let eps_ref = eps_tensor.clone();
+        let nu_ref = nu_tensor.clone();
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::MatchedUpml {
+                    epsilon_tensor: &eps_ref,
+                    nu_tensor: &nu_ref,
+                },
+                None,
+                &bcs,
+                std::slice::from_ref(&port),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("port-loaded UPML forward");
+            l2_objective(&sol.e_edges).0
+        };
+
+        let g0 = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0 - sg.objective).abs() <= 1e-8 * g0.abs().max(1.0),
+            "objective mismatch: adjoint {} vs public forward {g0}",
+            sg.objective
+        );
+
+        // Node-motion map: a +z Gaussian bump on the free (non-pinned) nodes.
+        let mut center = [0.0_f64; 3];
+        let mut n_free = 0.0_f64;
+        for (i, p) in mesh.nodes.iter().enumerate() {
+            if !pinned[i] {
+                for k in 0..3 {
+                    center[k] += p[k];
+                }
+                n_free += 1.0;
+            }
+        }
+        for c in center.iter_mut() {
+            *c /= n_free.max(1.0);
+        }
+        let s2 = 25.0_f64;
+        let d: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if pinned[i] {
+                    [0.0; 3]
+                } else {
+                    let r2 = (p[0] - center[0]).powi(2)
+                        + (p[1] - center[1]).powi(2)
+                        + (p[2] - center[2]).powi(2);
+                    [0.0, 0.0, (-r2 / (2.0 * s2)).exp()]
+                }
+            })
+            .collect();
+        for tri in &patch_port.faces {
+            for &nn in tri {
+                assert_eq!(
+                    d[nn as usize], [0.0; 3],
+                    "motion map moves a port-face node — pinned-feed premise violated"
+                );
+            }
+        }
+
+        let h = 1e-6;
+        let ana = chain_node_motion_pml_pinned(&sg.grad_node, &d, &pinned);
+        let fd = (g_of_theta(h, &d) - g_of_theta(-h, &d)) / (2.0 * h);
+        assert!(
+            fd.abs() > 1e-8,
+            "FD gradient {fd} unexpectedly ~0 (fixture/source degenerate?)"
+        );
+        let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        println!(
+            "curved-conformal composed-gradient FD gate: rel_err = {rel:.3e} (ana {ana:.6e}, fd {fd:.6e})"
+        );
+        assert!(
+            rel < 5e-3,
+            "curved composed adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 5e-3"
+        );
+
+        // Conjugation tripwire: the wrong Wirtinger cotangent (∂g/∂x̄) must
+        // be REJECTED by the FD — proving the 5e-3 gate bites on curved geom.
+        let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
+            let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+            let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
+            (g, cot)
+        };
+        let wrong = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &source,
+            wrong_objective,
+            &device(),
+        )
+        .expect("wrong-cotangent composed gradient");
+        let ana_wrong = chain_node_motion_pml_pinned(&wrong.grad_node, &d, &pinned);
+        let rel_wrong = (ana_wrong - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel_wrong > 1e-2,
+            "conjugation error NOT detected by FD: wrong-adjoint {ana_wrong} vs FD {fd}, \
+             rel-err {rel_wrong:.3e} (gate not biting)"
+        );
     }
 }
