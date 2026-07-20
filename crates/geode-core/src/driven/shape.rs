@@ -93,6 +93,7 @@ use crate::assembly::nedelec::{
     assemble_nedelec_current_rhs,
 };
 use crate::assembly::p1::upload_mesh;
+use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
 use crate::driven::solve::{CurrentSource, DrivenBcs, DrivenError};
 use crate::elements::nedelec_p2::{TET_NEDELEC2_DOFS, TET_NEDELEC2_FACE_DOF_BASE, tet_quad_deg4};
 use crate::mesh::{TET_LOCAL_EDGES, TET_LOCAL_FACES, TetMesh};
@@ -579,6 +580,72 @@ where
     B: Backend,
     G: Fn(&[c64]) -> (f64, Vec<c64>),
 {
+    // Port-less delegation: the shared core with an empty port list is the
+    // historical (Phase B) complex path, bit-for-bit. See the module docs and
+    // [`driven_shape_gradient_ports_complex`].
+    driven_shape_gradient_ports_complex::<B, G>(
+        mesh,
+        eps_r,
+        bcs,
+        omega,
+        source,
+        &[],
+        objective,
+        device,
+    )
+}
+
+/// Complex-ε (lossy) driven Nédélec **shape** gradient of a **port-terminated**
+/// pencil — Epic #628 **Phase A1**, the pinned-feed lumped-port termination in
+/// the shape adjoint (issue #631).
+///
+/// This is [`driven_shape_gradient_complex`] with a slice of **pinned** Palace-
+/// style lumped ports ([`LumpedPort`]) threaded into the differentiated system.
+/// Each port contributes, exactly as the forward
+/// [`crate::driven::solve::driven_solve_with_ports`] does,
+///
+/// ```text
+///   A(ω) += (jω/Z_s) S_p,                    Z_s = R·w/l,  S_p = ∮ N_i·N_j dS
+///   b_i  += (2jω/Z_s)(V_inc/l) ∮ N_i·ê dS    (only if V_inc ≠ 0),
+/// ```
+///
+/// so the adjoint now differentiates the **port-loaded** pencil
+/// `A = K − ω² M(ε) + (jω/Z_s) S_p` with the port boundary drive folded into
+/// the RHS `b`. Because `S_p` is real-symmetric and scaled by the scalar
+/// `jω/Z_s`, `A(ω)ᵀ = A(ω)` is preserved — the transpose (adjoint) solve reuses
+/// the single forward LU (`n_factorizations == 1`), exactly as in the port-less
+/// path.
+///
+/// # Pinned feed — why A1 is tractable
+///
+/// The port faces / nodes are **geometry-constant** (the feed is *pinned*), so
+/// `∂S_p/∂X = 0` and `∂b_port/∂X = 0`: there is **no** new `∂A/∂X` or `∂b/∂X`
+/// port term. The constant port term simply loads the forward + adjoint solves,
+/// and the volume-term (K, M) shape gradient is then taken through the loaded
+/// system — the returned gradient genuinely differs from the port-less path
+/// (the field `x`, adjoint `λ`, and the `∂b/∂X` volume RHS all see the port).
+/// **This assumption requires that the node-motion map hold every port-face
+/// node fixed** (a moving feed — `∂S_p/∂X ≠ 0`, `∂b_port/∂X ≠ 0` — is Phase A2,
+/// a documented non-goal here).
+///
+/// An empty `ports` slice reproduces [`driven_shape_gradient_complex`]
+/// bit-for-bit. See that function for the full argument contract; `ports` is
+/// the added parameter.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_shape_gradient_ports_complex<B, G>(
+    mesh: &TetMesh,
+    eps_r: &[c64],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    ports: &[LumpedPort<'_>],
+    objective: G,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
     let n_tets = mesh.n_tets();
     let n_nodes = mesh.n_nodes();
     let edges = mesh.edges();
@@ -602,6 +669,39 @@ where
             got: source.j_tet.len(),
             want: n_tets,
         });
+    }
+    // Port validation mirrors the forward `DrivenOperator::assemble_impl` so the
+    // adjoint's port-loaded forward is the same system the public
+    // `driven_solve_with_ports` builds (error instead of panic on a bad spec).
+    for (index, port) in ports.iter().enumerate() {
+        let invalid = |reason: &str| DrivenError::InvalidPort {
+            index,
+            reason: reason.to_string(),
+        };
+        if port.faces.is_empty() {
+            return Err(invalid("port has no faces"));
+        }
+        if !(port.resistance.is_finite() && port.resistance > 0.0) {
+            return Err(invalid("resistance must be finite and positive"));
+        }
+        if !(port.width.is_finite() && port.width > 0.0) {
+            return Err(invalid("width must be finite and positive"));
+        }
+        if !(port.length.is_finite() && port.length > 0.0) {
+            return Err(invalid("length must be finite and positive"));
+        }
+        let e_norm = (port.e_hat[0].powi(2) + port.e_hat[1].powi(2) + port.e_hat[2].powi(2)).sqrt();
+        if (e_norm - 1.0).abs() >= 1e-8 || e_norm.is_nan() {
+            return Err(invalid("e_hat must be a unit vector"));
+        }
+        let n_nodes_u32 = n_nodes as u32;
+        if port
+            .faces
+            .iter()
+            .any(|f| f.iter().any(|&node| node >= n_nodes_u32))
+        {
+            return Err(invalid("face node index out of range"));
+        }
     }
 
     // --- Edge tables and the sparsity scatter map (issue #218 pattern) ------
@@ -656,11 +756,29 @@ where
     let rhs_im: Vec<f64> = rhs_im_t.into_data().iter::<f64>().collect();
 
     // b = iωμ₀ ∫ N · J dV with μ₀ = 1: iω (re + i·im) = ω(−im + i·re).
-    let b_full: Vec<c64> = rhs_re
+    let mut b_full: Vec<c64> = rhs_re
         .iter()
         .zip(rhs_im.iter())
         .map(|(&re, &im)| c64::new(-omega * im, omega * re))
         .collect();
+
+    // --- Pinned-feed port boundary drive (issue #631, Phase A1). ------------
+    // b_i += (2jω/Z_s)(V_inc/l) ∮ N_i·ê dS, identical to the forward
+    // `assemble_b_at`. The port flux functional f_i is geometry-constant under
+    // the pinned feed (∂b_port/∂X = 0), so it contributes only to the solves,
+    // not the geometry contraction.
+    for port in ports {
+        if port.v_inc == c64::new(0.0, 0.0) {
+            continue;
+        }
+        let z_s = port.surface_impedance();
+        let e_inc = port.v_inc * (1.0 / port.length);
+        let drive = c64::new(0.0, 2.0 * omega / z_s) * e_inc;
+        let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
+        for (b, f) in b_full.iter_mut().zip(flux.iter()) {
+            *b += drive * *f;
+        }
+    }
 
     // --- PEC interior reduction: full edge index → interior index. ----------
     let mut remap = vec![-1_i64; n_edges];
@@ -690,6 +808,27 @@ where
         triplets.push(Triplet::new(rr, cc, a_val));
         kept.push((rr, cc, idx));
     }
+
+    // --- Pinned-feed port admittance A(ω) += (jω/Z_s) S_p (issue #631). ------
+    // S_p is the real-symmetric tangential surface mass; the scalar jω/Z_s
+    // scaling keeps A(ω)ᵀ = A(ω), so the transpose (adjoint) solve still reuses
+    // the forward LU. Interior-remapped and kept as its own list so the residual
+    // health check below re-forms the SAME loaded A. Under the pinned feed
+    // ∂S_p/∂X = 0, so these entries do NOT enter the geometry contraction.
+    let mut port_kept: Vec<(usize, usize, c64)> = Vec::new();
+    for port in ports {
+        let scale = c64::new(0.0, omega / port.surface_impedance());
+        for (r, c, v) in assemble_port_surface_mass(mesh, port.faces, &edges) {
+            let (rr, cc) = (remap[r], remap[c]);
+            if rr < 0 || cc < 0 {
+                continue;
+            }
+            let a_val = scale * v;
+            triplets.push(Triplet::new(rr as usize, cc as usize, a_val));
+            port_kept.push((rr as usize, cc as usize, a_val));
+        }
+    }
+
     let a_int =
         SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
             .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
@@ -720,6 +859,9 @@ where
         for &(rr, cc, idx) in &kept {
             let a_val =
                 c64::new(k_re_host[idx], 0.0) - c64::new(m_re_host[idx], m_im_host[idx]) * omega2;
+            ax[rr] += a_val * x_int[cc];
+        }
+        for &(rr, cc, a_val) in &port_kept {
             ax[rr] += a_val * x_int[cc];
         }
         let mut res2 = 0.0_f64;
@@ -1828,6 +1970,466 @@ mod tests {
         assert!(
             worst < 1e-12,
             "real vs complex-at-zero-loss shape gradient differ by {worst:.3e}"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PINNED-FEED LUMPED-PORT shape-gradient tests (issue #631, Epic #628 A1).
+    // ─────────────────────────────────────────────────────────────────────
+
+    use crate::driven::extraction::s11;
+    use crate::driven::ports::port_input_impedance;
+    use crate::driven::solve::driven_solve_with_ports;
+
+    /// Boundary faces of `mesh` lying entirely in the plane `coord[axis]==value`.
+    /// (House twin of the `lumped_port.rs` integration-test helper.)
+    fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
+        mesh.faces()
+            .into_iter()
+            .filter(|f| {
+                f.iter()
+                    .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
+            })
+            .collect()
+    }
+
+    /// PEC interior-edge mask eliminating every edge whose **both** endpoints lie
+    /// on the same listed plane `(axis, value)`. The port plane is deliberately
+    /// left OUT of the eliminated set, so its edges stay interior and the port
+    /// admittance term is live.
+    fn pec_mask_for_planes(
+        mesh: &TetMesh,
+        edges: &[[u32; 2]],
+        planes: &[(usize, f64)],
+    ) -> Vec<bool> {
+        edges
+            .iter()
+            .map(|e| {
+                let a = mesh.nodes[e[0] as usize];
+                let b = mesh.nodes[e[1] as usize];
+                !planes.iter().any(|&(axis, value)| {
+                    (a[axis] - value).abs() < 1e-12 && (b[axis] - value).abs() < 1e-12
+                })
+            })
+            .collect()
+    }
+
+    /// Pinned-port fixture: unit-cube parallel-plate line — PEC plates at
+    /// `y = 0/1`, a PEC short at `z = 1`, natural/PMC side walls at `x = 0/1` —
+    /// with the lumped feed across the `z = 0` face (`ê = ŷ`). A **lossy**
+    /// substrate `ε = 2 − 0.3i` (so the terminated `|S11| < 1` strictly) plus a
+    /// genuinely COMPLEX volume source (so the volume `∂b/∂X` term is exercised
+    /// alongside the port load). Returns `(mesh, eps_complex, interior_mask,
+    /// source)`; the caller builds the `LumpedPort` (it must borrow the
+    /// `plane_faces(z=0)` list).
+    fn port_line_fixture(n: usize) -> (TetMesh, Vec<c64>, Vec<bool>, CurrentSource) {
+        let mesh = cube_tet_mesh(n, 1.0);
+        let edges = mesh.edges();
+        let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
+        let eps = vec![c64::new(2.0, -0.3); mesh.n_tets()];
+        let pi = std::f64::consts::PI;
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.2 * (pi * c[2]).sin()),
+                c64::new(0.3 * (pi * c[1]).sin(), 0.15),
+                c64::new(0.1 * (pi * c[0]).sin(), 0.0),
+            ]
+        });
+        (mesh, eps, mask, source)
+    }
+
+    /// **The load-bearing A1 test.** The pinned-feed **port-loaded** driven-
+    /// Nédélec shape gradient `∂g/∂θ` — one forward + one adjoint solve on the
+    /// port-loaded complex-symmetric pencil `A = K − ω²M(ε) + (jω/Z_s)S_p` with
+    /// the port boundary drive in `b` — must match a full central finite
+    /// difference of the entire **port-loaded** driven pipeline. The FD arm
+    /// independently RE-ASSEMBLES + RE-SOLVES the port forward via the public
+    /// [`driven_solve_with_ports`] at moved nodes (not the adjoint's own
+    /// forward). Both node-motion maps hold every `z = 0` port node fixed — the
+    /// pinned-feed premise (`∂S_p/∂X = ∂b_port/∂X = 0`). A wrong sign, a dropped
+    /// port term, or a conjugation error fails it.
+    #[test]
+    fn driven_shape_gradient_with_pinned_port_matches_central_finite_difference() {
+        let (mesh, eps_c, mask, source) = port_line_fixture(4);
+        let port_faces = plane_faces(&mesh, 2, 0.0);
+        assert!(!port_faces.is_empty(), "port surface must be non-empty");
+        let omega = 1.3;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: 1.0,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.5), // genuinely complex drive
+        };
+
+        // ONE forward + ONE adjoint solve on the PORT-LOADED pencil.
+        let sg = driven_shape_gradient_ports_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            std::slice::from_ref(&port),
+            l2_objective,
+            &device(),
+        )
+        .expect("port-loaded shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "port-loaded adjoint must reuse the forward LU (complex-symmetric)"
+        );
+        assert!(
+            sg.residual_rel < 1e-9,
+            "port-loaded forward unhealthy (residual {:.3e}); pick ω off resonance",
+            sg.residual_rel
+        );
+
+        // Independent FD reference: RE-ASSEMBLE + RE-SOLVE the PORT-LOADED
+        // forward via the public `driven_solve_with_ports` at moved nodes.
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                None,
+                &bcs,
+                std::slice::from_ref(&port),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("port forward");
+            l2_objective(&sol.e_edges).0
+        };
+
+        // The adjoint's own port-loaded forward must equal the public port
+        // forward (proves the differentiated pencil IS the public system).
+        let g0 = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0 - sg.objective).abs() <= 1e-9 * g0.abs().max(1.0),
+            "objective mismatch: adjoint {} vs public port forward {g0}",
+            sg.objective
+        );
+
+        // Pinned-feed node-motion maps (both hold every z=0 port node fixed):
+        //   1. translate the PEC short (z = 1) in +x — the port at z = 0 is
+        //      untouched, so ∂S_p/∂X = ∂b_port/∂X = 0 holds exactly.
+        //   2. an interior control node near the centre (off the port plane).
+        let tol = 1e-9;
+        let d_short: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[2] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        // Guard the pinned-feed premise: no port-face node is moved.
+        for f in &port_faces {
+            for &nn in f {
+                assert_eq!(
+                    d_short[nn as usize], [0.0; 3],
+                    "d_short moves a port-face node — pinned-feed premise violated"
+                );
+            }
+        }
+        let ctr = [0.5, 0.5, 0.5];
+        let ctrl = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.iter().all(|&c| c > tol && c < 1.0 - tol))
+            .min_by(|(_, a), (_, b)| {
+                let da =
+                    (a[0] - ctr[0]).powi(2) + (a[1] - ctr[1]).powi(2) + (a[2] - ctr[2]).powi(2);
+                let db =
+                    (b[0] - ctr[0]).powi(2) + (b[1] - ctr[1]).powi(2) + (b[2] - ctr[2]).powi(2);
+                da.partial_cmp(&db).unwrap()
+            })
+            .map(|(i, _)| i)
+            .expect("mesh has an interior node");
+        assert!(
+            mesh.nodes[ctrl][2].abs() > tol,
+            "interior control node must be off the z=0 port plane"
+        );
+        let mut d_node = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d_node[ctrl] = [1.0, 0.0, 0.0];
+
+        let h = 1e-6;
+        for (name, d) in [("short-translate", &d_short), ("interior-node", &d_node)] {
+            let ana = chain_node_motion(&sg.grad_node, d);
+            let fd = (g_of_theta(h, d) - g_of_theta(-h, d)) / (2.0 * h);
+            assert!(
+                fd.abs() > 1e-6,
+                "map {name}: FD gradient {fd} unexpectedly ~0 (fixture degenerate?)"
+            );
+            let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            println!("port map {name}: adjoint {ana:.6}, central-FD {fd:.6}, rel-err {rel:.3e}");
+            assert!(
+                rel < 1e-3,
+                "map {name}: port adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-3"
+            );
+        }
+
+        // The two maps must give DISTINCT gradients.
+        let g_short = chain_node_motion(&sg.grad_node, &d_short);
+        let g_node = chain_node_motion(&sg.grad_node, &d_node);
+        assert!(
+            (g_short - g_node).abs() > 1e-6,
+            "the two node-motion maps must yield distinct gradients ({g_short} vs {g_node})"
+        );
+    }
+
+    /// Mutation tripwire (port-loaded): the FD check must **reject** a
+    /// port-loaded shape gradient built with the classic complex-adjoint
+    /// conjugation error (`∂g/∂x̄` instead of `∂g/∂x`) — proving the load-bearing
+    /// A1 test's tolerance is biting on the genuinely complex port-driven field.
+    #[test]
+    fn port_conjugation_error_is_detected_by_fd() {
+        let (mesh, eps_c, mask, source) = port_line_fixture(4);
+        let port_faces = plane_faces(&mesh, 2, 0.0);
+        let omega = 1.3;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: 1.0,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.5),
+        };
+
+        // Wrong cotangent: +i·Im instead of −i·Im (∂g/∂x̄ rather than ∂g/∂x).
+        let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
+            let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+            let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
+            (g, cot)
+        };
+        let wrong = driven_shape_gradient_ports_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            std::slice::from_ref(&port),
+            wrong_objective,
+            &device(),
+        )
+        .expect("wrong-conjugation port shape gradient");
+
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                None,
+                &bcs,
+                std::slice::from_ref(&port),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("port forward");
+            l2_objective(&sol.e_edges).0
+        };
+
+        let tol = 1e-9;
+        let d_short: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[2] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let h = 1e-6;
+        let fd = (g_of_theta(h, &d_short) - g_of_theta(-h, &d_short)) / (2.0 * h);
+        let ana_wrong = chain_node_motion(&wrong.grad_node, &d_short);
+        let rel = (ana_wrong - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel > 1e-2,
+            "port conjugation-error gradient {ana_wrong} matched the FD {fd} (rel {rel:.3e}) — \
+             the tolerance is not biting"
+        );
+    }
+
+    /// The port load must **genuinely change** the shape gradient (the whole
+    /// point of A1): differentiating the port-loaded pencil is not the same as
+    /// the port-less pencil. Same mesh / ε / source / ω, port present vs absent.
+    #[test]
+    fn pinned_port_changes_the_shape_gradient() {
+        let (mesh, eps_c, mask, source) = port_line_fixture(3);
+        let port_faces = plane_faces(&mesh, 2, 0.0);
+        let omega = 1.3;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: 1.0,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.5),
+        };
+        let with_port = driven_shape_gradient_ports_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            std::slice::from_ref(&port),
+            l2_objective,
+            &device(),
+        )
+        .expect("port-loaded gradient");
+        let no_port = driven_shape_gradient_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("port-less gradient");
+        let mut worst = 0.0_f64;
+        for (a, b) in with_port.grad_node.iter().zip(no_port.grad_node.iter()) {
+            for d in 0..3 {
+                worst = worst.max((a[d] - b[d]).abs());
+            }
+        }
+        assert!(
+            worst > 1e-6,
+            "the pinned-port load must change the shape gradient (max diff {worst:.3e})"
+        );
+    }
+
+    /// **Backward-compat / delegation guard.** An empty port slice through the
+    /// new [`driven_shape_gradient_ports_complex`] must reproduce the port-less
+    /// [`driven_shape_gradient_complex`] bit-for-bit — the historical Phase B
+    /// path is exactly this core with no ports.
+    #[test]
+    fn empty_ports_equals_portless_shape_gradient() {
+        let (mesh, eps_c, interior, source) = cavity_fixture_complex(3);
+        let omega = 1.5;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let portless = driven_shape_gradient_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("port-less gradient");
+        let empty = driven_shape_gradient_ports_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            &[],
+            l2_objective,
+            &device(),
+        )
+        .expect("empty-ports gradient");
+        assert_eq!(portless.n_factorizations, empty.n_factorizations);
+        let mut worst = 0.0_f64;
+        for (a, b) in portless.grad_node.iter().zip(empty.grad_node.iter()) {
+            for d in 0..3 {
+                worst = worst.max((a[d] - b[d]).abs());
+            }
+        }
+        assert!(
+            worst == 0.0,
+            "empty ports diverged from the port-less path by {worst:.3e}"
+        );
+    }
+
+    /// **Physical sanity (issue #631 AC2).** With the port termination present,
+    /// the reflection coefficient `|S11|` read off the port-terminated forward
+    /// is a **bounded** reflection (`≤ 1`) on a passive fixture — a marked
+    /// change from #627's synthetic `|S11|² > 1`, which differentiated a pencil
+    /// with NO port termination (so its extracted `Z = V/I` was not a passive
+    /// impedance). The lossy substrate makes it a strict contraction `< 1`.
+    #[test]
+    fn port_terminated_s11_is_bounded_on_passive_fixture() {
+        let (mesh, eps_c, mask, _src) = port_line_fixture(4);
+        let edges = mesh.edges();
+        let port_faces = plane_faces(&mesh, 2, 0.0);
+        let omega = 1.3;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        // Pure port drive (zero volume source): the reflection is then the
+        // structure's genuine S11 seen at the port.
+        let zero_src = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+        let r = 1.0;
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: r,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.0),
+        };
+        let sol = driven_solve_with_ports::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps_c),
+            None,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &zero_src,
+            &device(),
+        )
+        .expect("port-terminated forward");
+        assert!(
+            sol.residual_rel < 1e-9,
+            "forward unhealthy (residual {:.3e})",
+            sol.residual_rel
+        );
+        let z_in = port_input_impedance(&mesh, &port, &edges, &sol.e_edges);
+        let mag = s11(z_in, r).norm();
+        println!("port-terminated |S11| = {mag:.6}  (Z_in = {z_in})");
+        // Passivity: |S11| ≤ 1 for any passive one-port (the provable bound).
+        assert!(
+            mag <= 1.0 + 1e-9,
+            "passive port |S11| = {mag} exceeds 1 — not a bounded reflection coefficient"
+        );
+        // Dissipative substrate ⇒ strict contraction (not the lossless |S11| = 1
+        // marginal case), confirming the termination absorbs real power.
+        assert!(
+            mag < 1.0,
+            "lossy passive fixture should give |S11| < 1, got {mag}"
         );
     }
 
