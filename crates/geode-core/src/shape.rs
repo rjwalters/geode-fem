@@ -749,6 +749,358 @@ pub fn min_tet_volume_ratio(base: &TetMesh, moved: &TetMesh) -> f64 {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// High-DOF freeform boundary shape parametrization + mesh-morph regularizer
+// (Epic #647 Phase 1, issue #648).
+//
+// The discrete-adjoint drivers above (electrostatic / capacitance here, and the
+// driven-Nédélec `crate::driven::shape` capstone) all return the SAME currency:
+// a full nodal-coordinate gradient `grad_node = ∂g/∂X_{n,d}`, contracted against
+// a node-motion field by `chain_node_motion`. A **single** design DOF is one
+// such field; a **freeform, high-DOF** boundary parametrization is simply a
+// *stack* of them — a linear map `X ↦ ΣX_p D_p` from a design vector to node
+// motion, whose per-column contraction `⟨grad_node, D_p⟩` is the design
+// gradient. Because the contraction reuses `chain_node_motion` verbatim, the
+// existing single-DOF path is recovered exactly as the P = 1 special case: the
+// upstream `grad_node` (and hence the #636 capstone gradient) is never touched.
+//
+// The columns are built by the same **harmonic (Laplace) mesh-morph** as
+// `harmonic_extension_velocity`: prescribed boundary-node motions are extended
+// smoothly into the interior so the volumetric tets stay valid (non-inverted)
+// under large deformation. `min_tet_volume_ratio` is the guard.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// One design degree of freedom of a [`FreeformBoundaryMorph`]: a prescribed
+/// motion of a single **boundary node** along a fixed direction.
+///
+/// A freeform curved-metal boundary is parametrized by many of these — one (or
+/// several, for independent axes) per free boundary node — each an independent
+/// column of the morph. The `dir` need not be a unit vector; its magnitude sets
+/// the DOF's length scale (e.g. an outward surface normal scaled to the local
+/// mesh size).
+#[derive(Clone, Copy, Debug)]
+pub struct BoundaryMotionDof {
+    /// The boundary node this DOF moves (index into `mesh.nodes`).
+    pub node: u32,
+    /// The world-frame motion of `node` per unit design value `∂X_node/∂X_p`.
+    pub dir: [f64; 3],
+}
+
+/// A **high-DOF freeform boundary shape parametrization** with an interior
+/// **mesh-morph regularizer** — the many-DOF generalization of a single
+/// node-motion map (Epic #647 Phase 1, issue #648).
+///
+/// It is a *linear* map from a design vector `X ∈ ℝ^P` to a full
+/// nodal-coordinate displacement field
+///
+/// ```text
+///   X_node(X) = X⁰_node + Σ_p X_p · D_p,
+/// ```
+///
+/// where each column `D_p = ∂X_node/∂X_p` (one `[x, y, z]` triple per node,
+/// length `n_nodes`) is the velocity field of design DOF `p`. Because the map is
+/// linear in `X`, each `D_p` is **simultaneously** the finite-difference
+/// perturbation direction and the analytic Jacobian consumed by
+/// [`chain_node_motion`] — so the design gradient is the per-column contraction
+///
+/// ```text
+///   ∂g/∂X_p = ⟨grad_node, D_p⟩,
+/// ```
+///
+/// against **any** discrete-adjoint driver's nodal gradient: the scalar
+/// [`ShapeGradient`] / [`CapacitanceShapeGradient`] here, or the driven-Nédélec
+/// [`crate::driven::shape::DrivenShapeGradient`] capstone. The upstream
+/// `grad_node` is never modified, so the **single-DOF path is recovered exactly
+/// as the `P = 1` special case** ([`FreeformBoundaryMorph::from_columns`] with
+/// one column reproduces `chain_node_motion` bit-for-bit).
+///
+/// # Two ways to build the columns
+///
+/// * [`FreeformBoundaryMorph::from_columns`] — an arbitrary **low-rank morph
+///   basis** (each column a prescribed node-motion field). This is the general
+///   escape hatch (control-point bases, PCA modes, or an externally supplied
+///   single-DOF velocity for the regression check).
+/// * [`FreeformBoundaryMorph::harmonic_boundary`] — the **mesh-morph
+///   regularizer**: each freeform boundary-node motion ([`BoundaryMotionDof`])
+///   is extended into the interior by a P1-Laplace solve (spring-analogy /
+///   Laplacian smoothing), so the volumetric tets deform gracefully and stay
+///   non-inverted under large boundary deformation. All columns share one
+///   factorization.
+///
+/// The distortion budget is checked with [`FreeformBoundaryMorph::min_volume_ratio`]
+/// (a wrapper over [`min_tet_volume_ratio`]): `> 0` ⇒ every tet is still valid.
+#[derive(Debug, Clone)]
+pub struct FreeformBoundaryMorph {
+    /// One velocity field `D_p` per design DOF (each length `n_nodes`).
+    columns: Vec<Vec<[f64; 3]>>,
+}
+
+impl FreeformBoundaryMorph {
+    /// Build a morph from an explicit **low-rank basis**: `columns[p]` is the
+    /// node-motion velocity field `D_p = ∂X_node/∂X_p` of design DOF `p` (length
+    /// `n_nodes`). All columns must share the same length.
+    ///
+    /// This is the general constructor (control-point bases, reduced modes, or a
+    /// single externally supplied velocity field). With exactly one column it is
+    /// the identity wrapper around a single node-motion map: `design_gradient`
+    /// returns `[chain_node_motion(grad_node, columns[0])]`.
+    ///
+    /// # Errors
+    ///
+    /// [`ElectrostaticError::ShapeMismatch`] if the columns differ in length.
+    pub fn from_columns(columns: Vec<Vec<[f64; 3]>>) -> Result<Self, ElectrostaticError> {
+        if let Some(first) = columns.first() {
+            let n = first.len();
+            for (p, c) in columns.iter().enumerate() {
+                if c.len() != n {
+                    return Err(ElectrostaticError::ShapeMismatch(format!(
+                        "morph column {p} length {} != column 0 length {n}",
+                        c.len()
+                    )));
+                }
+            }
+        }
+        Ok(Self { columns })
+    }
+
+    /// Build the columns by the **harmonic (Laplace) mesh-morph regularizer**:
+    /// each design DOF prescribes one boundary node's motion (`dofs[p]`), and the
+    /// motion is extended smoothly into the interior by solving a P1-Laplace
+    /// problem
+    ///
+    /// ```text
+    ///   ∇²D_p = 0            on the free volume,
+    ///   D_p = dir_p          at node_p                        (Dirichlet),
+    ///   D_p = 0              at every OTHER DOF node and every `fixed_zero` node.
+    /// ```
+    ///
+    /// so column `p` moves boundary node `p` (and, harmonically, its neighborhood)
+    /// while holding every other design boundary node and every pinned node
+    /// (`fixed_zero`: other conductors, the far/outer boundary, and — for the
+    /// driven capstone — the PML shell and pinned feed) fixed. Because the near-DOF
+    /// interior nodes follow the boundary, the relative strain across the adjacent
+    /// tets is a fraction of a rigid boundary bump's, so the mesh stays valid under
+    /// a much larger deformation (see [`harmonic_extension_velocity`] for the same
+    /// mechanism on the single-DOF island map). All `P` columns (three RHS each)
+    /// share a single Laplace factorization.
+    ///
+    /// The columns are exactly **zero** on every `fixed_zero` node, so a downstream
+    /// contraction through [`crate::driven::shape::chain_node_motion_pml_pinned`]
+    /// (which asserts zero
+    /// motion on the pinned PML shell) is satisfied by construction whenever the
+    /// PML nodes are listed in `fixed_zero`.
+    ///
+    /// # Arguments
+    ///
+    /// * `mesh` — base tetrahedral mesh (fixed topology; the columns are w.r.t.
+    ///   its node positions).
+    /// * `dofs` — the freeform boundary DOFs (must be non-empty); each moves one
+    ///   node along its `dir`.
+    /// * `fixed_zero` — nodes held at zero motion in every column (other
+    ///   conductors, the outer/far boundary, and any pinned region such as the
+    ///   UPML shell or a pinned feed). A node appearing in both `dofs` and
+    ///   `fixed_zero` resolves to its (moving) DOF value in its own column.
+    ///
+    /// # Errors
+    ///
+    /// [`ElectrostaticError::ShapeMismatch`] if `dofs` is empty or references a
+    /// node outside the mesh; [`ElectrostaticError::Assembly`] /
+    /// [`ElectrostaticError::Factorization`] from the Laplace assembly / solve.
+    pub fn harmonic_boundary(
+        mesh: &TetMesh,
+        dofs: &[BoundaryMotionDof],
+        fixed_zero: &[u32],
+    ) -> Result<Self, ElectrostaticError> {
+        let n = mesh.n_nodes();
+        let p = dofs.len();
+        if p == 0 {
+            return Err(ElectrostaticError::ShapeMismatch(
+                "harmonic_boundary: at least one boundary DOF required".to_string(),
+            ));
+        }
+        for (i, d) in dofs.iter().enumerate() {
+            if d.node as usize >= n {
+                return Err(ElectrostaticError::ShapeMismatch(format!(
+                    "boundary DOF {i} node {} out of range (n_nodes {n})",
+                    d.node
+                )));
+            }
+        }
+        for &g in fixed_zero {
+            if g as usize >= n {
+                return Err(ElectrostaticError::ShapeMismatch(format!(
+                    "fixed_zero node {g} out of range (n_nodes {n})"
+                )));
+            }
+        }
+
+        // Pinned (Dirichlet) mask: every DOF node and every fixed_zero node.
+        let mut pinned = vec![false; n];
+        for &g in fixed_zero {
+            pinned[g as usize] = true;
+        }
+        for d in dofs {
+            pinned[d.node as usize] = true;
+        }
+
+        // Free renumbering.
+        let mut free_of = vec![None; n];
+        let mut n_free = 0usize;
+        for (g, &pn) in pinned.iter().enumerate() {
+            if !pn {
+                free_of[g] = Some(n_free);
+                n_free += 1;
+            }
+        }
+
+        // Reduce the P1-Laplace operator once, building the 3P RHS by folding the
+        // per-column Dirichlet data (nonzero only at that column's DOF node) into
+        // `−K_fp · D_pinned`. Column `3p + c` is DOF `p`, spatial component `c`.
+        let l_full = assemble_p1_laplace(mesh)?;
+        let ncols = 3 * p;
+        let mut red_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(mesh.n_tets() * 16);
+        let mut b: Mat<f64> = Mat::zeros(n_free, ncols);
+        {
+            let l_ref = l_full.as_ref();
+            let cp = l_ref.col_ptr();
+            let row_idx = l_ref.row_idx();
+            let vals = l_ref.val();
+            for j in 0..n {
+                for k in cp[j]..cp[j + 1] {
+                    let i = row_idx[k];
+                    let v = vals[k];
+                    match (free_of[i], free_of[j]) {
+                        (Some(fi), Some(fj)) => red_trips.push(Triplet::new(fi, fj, v)),
+                        (Some(fi), None) => {
+                            // Column j is Dirichlet: it drives only the DOFs whose
+                            // node IS j (others pin j to zero, contributing nothing).
+                            for (pi, d) in dofs.iter().enumerate() {
+                                if d.node as usize == j {
+                                    for (c, &dc) in d.dir.iter().enumerate() {
+                                        b[(fi, 3 * pi + c)] -= v * dc;
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        let mut columns = vec![vec![[0.0_f64; 3]; n]; p];
+        if n_free > 0 {
+            let k = SparseColMat::<usize, f64>::try_new_from_triplets(n_free, n_free, &red_trips)
+                .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))?;
+            let lu = k
+                .as_ref()
+                .sp_lu()
+                .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
+            lu.solve_in_place(b.as_mut());
+            for (g, slot) in free_of.iter().enumerate() {
+                if let Some(fi) = slot {
+                    for (pi, col) in columns.iter_mut().enumerate() {
+                        col[g] = [b[(*fi, 3 * pi)], b[(*fi, 3 * pi + 1)], b[(*fi, 3 * pi + 2)]];
+                    }
+                }
+            }
+        }
+        // Scatter the Dirichlet motion: each DOF node moves by its `dir` in its
+        // OWN column (every other pinned node stays [0, 0, 0], already initialized).
+        for (pi, d) in dofs.iter().enumerate() {
+            columns[pi][d.node as usize] = d.dir;
+        }
+
+        Ok(Self { columns })
+    }
+
+    /// Number of design DOFs `P` (columns).
+    pub fn n_dofs(&self) -> usize {
+        self.columns.len()
+    }
+
+    /// Number of mesh nodes each column spans (0 for an empty morph).
+    pub fn n_nodes(&self) -> usize {
+        self.columns.first().map_or(0, |c| c.len())
+    }
+
+    /// The velocity field `D_p = ∂X_node/∂X_p` of design DOF `p` (length
+    /// `n_nodes`) — the finite-difference perturbation direction of that DOF.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `dof >= n_dofs()`.
+    pub fn velocity(&self, dof: usize) -> &[[f64; 3]] {
+        &self.columns[dof]
+    }
+
+    /// The combined node-motion field `Σ_p X_p D_p` for a design vector `x`
+    /// (length `n_nodes`) — the total displacement `X_node(x) − X⁰_node`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != n_dofs()`.
+    pub fn combined_velocity(&self, x: &[f64]) -> Vec<[f64; 3]> {
+        assert_eq!(
+            x.len(),
+            self.columns.len(),
+            "combined_velocity: design vector len {} != n_dofs {}",
+            x.len(),
+            self.columns.len()
+        );
+        let mut v = vec![[0.0_f64; 3]; self.n_nodes()];
+        for (&xp, col) in x.iter().zip(&self.columns) {
+            if xp == 0.0 {
+                continue;
+            }
+            for (acc, d) in v.iter_mut().zip(col) {
+                acc[0] += xp * d[0];
+                acc[1] += xp * d[1];
+                acc[2] += xp * d[2];
+            }
+        }
+        v
+    }
+
+    /// Apply the design vector `x`: returns a clone of `mesh` morphed to
+    /// `X⁰ + Σ_p x_p D_p` (topology fixed). `x = 0` reproduces `mesh` exactly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != n_dofs()` or `mesh.n_nodes() != n_nodes()`.
+    pub fn apply(&self, mesh: &TetMesh, x: &[f64]) -> TetMesh {
+        let v = self.combined_velocity(x);
+        apply_node_motion(mesh, &v, 1.0)
+    }
+
+    /// Mesh-distortion guard for a design vector: the minimum signed-volume
+    /// ratio `vol(morphed)/vol(base)` over all tets after applying `x` (see
+    /// [`min_tet_volume_ratio`]). `> 0` ⇒ every tet is still valid (non-inverted);
+    /// `≤ 0` ⇒ the morph inverted a tet and must be rejected.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != n_dofs()` or `mesh.n_nodes() != n_nodes()`.
+    pub fn min_volume_ratio(&self, mesh: &TetMesh, x: &[f64]) -> f64 {
+        let moved = self.apply(mesh, x);
+        min_tet_volume_ratio(mesh, &moved)
+    }
+
+    /// The full **design-space gradient** `∂g/∂X = [⟨grad_node, D_p⟩]_p` (length
+    /// `n_dofs`), contracting the upstream nodal gradient `grad_node` (from any
+    /// discrete-adjoint driver) against every column with [`chain_node_motion`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `grad_node.len() != n_nodes()` (via [`chain_node_motion`]).
+    pub fn design_gradient(&self, grad_node: &[[f64; 3]]) -> Vec<f64> {
+        self.columns
+            .iter()
+            .map(|col| chain_node_motion(grad_node, col))
+            .collect()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Differentiable capacitance → E_C chain (Epic #476 / #569, issue #583).
 // ─────────────────────────────────────────────────────────────────────────
 //
@@ -1694,6 +2046,186 @@ mod tests {
         assert!(
             rel < 1e-3,
             "harmonic-map adjoint ∂C/∂θ {ana} vs central-FD {fd}, rel {rel:.3e} > 1e-3"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // High-DOF freeform boundary morph + mesh-morph regularizer (issue #648).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// **`from_columns` reduces to the single-DOF path bit-for-bit.** A morph
+    /// with exactly one column must return, for any nodal gradient, precisely
+    /// `chain_node_motion(grad_node, column)` — proving the many-DOF
+    /// parametrization is a strict superset of the existing single node-motion
+    /// map, with the upstream `grad_node` untouched. Also checks the ragged
+    /// column-length rejection.
+    #[test]
+    fn freeform_from_columns_reduces_to_chain_node_motion() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let n = mesh.n_nodes();
+        // A deterministic pseudo-random nodal gradient and a velocity field.
+        let grad: Vec<[f64; 3]> = (0..n)
+            .map(|i| {
+                let f = i as f64;
+                [
+                    (0.31 * f + 0.1).sin(),
+                    (0.17 * f - 0.4).cos(),
+                    (0.07 * f + 1.2).sin(),
+                ]
+            })
+            .collect();
+        let d: Vec<[f64; 3]> = (0..n)
+            .map(|i| {
+                let f = i as f64;
+                [(0.05 * f).cos(), (0.09 * f).sin(), (0.03 * f + 0.5).cos()]
+            })
+            .collect();
+
+        let morph = FreeformBoundaryMorph::from_columns(vec![d.clone()]).unwrap();
+        assert_eq!(morph.n_dofs(), 1);
+        assert_eq!(morph.n_nodes(), n);
+
+        let dg = morph.design_gradient(&grad);
+        assert_eq!(dg.len(), 1);
+        let reference = chain_node_motion(&grad, &d);
+        assert_eq!(
+            dg[0].to_bits(),
+            reference.to_bits(),
+            "single-column design gradient must equal chain_node_motion bit-for-bit"
+        );
+
+        // Ragged columns are rejected.
+        let bad = FreeformBoundaryMorph::from_columns(vec![d.clone(), vec![[0.0; 3]; n - 1]]);
+        assert!(matches!(bad, Err(ElectrostaticError::ShapeMismatch(_))));
+    }
+
+    /// **The harmonic morph columns are Dirichlet-exact, independent, and the
+    /// map is linear.** Each column reproduces its own prescribed boundary
+    /// motion, vanishes on every other DOF node and every `fixed_zero` node,
+    /// `combined_velocity` is the exact linear combination `Σ X_p D_p`, the
+    /// identity design vector is a no-op, and `design_gradient` equals the
+    /// per-column `chain_node_motion`.
+    #[test]
+    fn freeform_harmonic_boundary_is_dirichlet_exact_and_linear() {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (top, bot) = face_subsets(&mesh);
+        assert!(top.len() >= 2, "degenerate fixture");
+        let n0 = top[0];
+        let n1 = top[1];
+        let dofs = [
+            BoundaryMotionDof {
+                node: n0,
+                dir: [0.0, 0.0, -1.0],
+            },
+            BoundaryMotionDof {
+                node: n1,
+                dir: [0.0, 0.0, -0.5],
+            },
+        ];
+        let morph = FreeformBoundaryMorph::harmonic_boundary(&mesh, &dofs, &bot).unwrap();
+        assert_eq!(morph.n_dofs(), 2);
+        assert_eq!(morph.n_nodes(), mesh.n_nodes());
+
+        // Column 0: exact at its node, zero at the other DOF node and on the
+        // fixed boundary. Column 1 symmetric.
+        for (p, dof) in dofs.iter().enumerate() {
+            let col = morph.velocity(p);
+            assert_eq!(
+                col[dof.node as usize], dof.dir,
+                "col {p} not Dirichlet-exact"
+            );
+            let other = dofs[1 - p].node as usize;
+            assert_eq!(
+                col[other], [0.0; 3],
+                "col {p} nonzero on the other DOF node"
+            );
+            for &g in &bot {
+                assert_eq!(col[g as usize], [0.0; 3], "col {p} nonzero on fixed_zero");
+            }
+        }
+        // The extension is non-trivial: some free interior node moves.
+        let moved_free = morph.velocity(0).iter().enumerate().any(|(g, v)| {
+            !top.contains(&(g as u32))
+                && !bot.contains(&(g as u32))
+                && (v[0].abs() > 1e-9 || v[1].abs() > 1e-9 || v[2].abs() > 1e-9)
+        });
+        assert!(moved_free, "harmonic extension left all free nodes fixed");
+
+        // Linearity: combined_velocity == a·col0 + b·col1, exactly.
+        let (a, b) = (0.7, -1.3);
+        let combined = morph.combined_velocity(&[a, b]);
+        for (g, comb) in combined.iter().enumerate() {
+            for (k, &cval) in comb.iter().enumerate() {
+                let expect = a * morph.velocity(0)[g][k] + b * morph.velocity(1)[g][k];
+                assert!(
+                    (cval - expect).abs() < 1e-13,
+                    "combined_velocity not linear at node {g} axis {k}"
+                );
+            }
+        }
+        // Identity design vector is a no-op (ratio 1).
+        assert!(
+            (morph.min_volume_ratio(&mesh, &[0.0, 0.0]) - 1.0).abs() < 1e-15,
+            "zero design vector must be the identity morph"
+        );
+
+        // design_gradient == per-column chain_node_motion.
+        let grad: Vec<[f64; 3]> = (0..mesh.n_nodes())
+            .map(|i| [(0.2 * i as f64).sin(), 0.1, (0.05 * i as f64).cos()])
+            .collect();
+        let dg = morph.design_gradient(&grad);
+        assert_eq!(dg[0], chain_node_motion(&grad, morph.velocity(0)));
+        assert_eq!(dg[1], chain_node_motion(&grad, morph.velocity(1)));
+    }
+
+    /// **The mesh-morph regularizer keeps tets non-inverted under a large
+    /// (headline-scale) boundary deformation, where the un-regularized rigid
+    /// boundary bump inverts.** Ramping the amplitude, the harmonic morph must
+    /// still be valid (`min_volume_ratio > 0`) at the amplitude that first
+    /// inverts the rigid single-node bump — the concrete budget-widening the
+    /// regularizer buys, with the guard asserted throughout.
+    #[test]
+    fn freeform_harmonic_morph_widens_noninversion_budget() {
+        let mesh = cube_tet_mesh(5, 1.0);
+        let (top, bot) = face_subsets(&mesh);
+        // Push one top-face node inward (−z); the classic single-node bump that
+        // inverts its adjacent tet layer once it passes the neighbors.
+        let node = top[top.len() / 2];
+        let dof = BoundaryMotionDof {
+            node,
+            dir: [0.0, 0.0, -1.0],
+        };
+        let harm = FreeformBoundaryMorph::harmonic_boundary(&mesh, &[dof], &bot).unwrap();
+
+        // Rigid (un-regularized) column: only `node` moves, everything else fixed.
+        let mut rigid_col = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        rigid_col[node as usize] = dof.dir;
+        let rigid = FreeformBoundaryMorph::from_columns(vec![rigid_col]).unwrap();
+
+        // Both valid at a small amplitude.
+        assert!(harm.min_volume_ratio(&mesh, &[0.05]) > 0.0);
+        assert!(rigid.min_volume_ratio(&mesh, &[0.05]) > 0.0);
+
+        // Ramp until the rigid bump inverts; the harmonic morph must survive it.
+        let mut a = 0.05_f64;
+        let mut found = false;
+        for _ in 0..32 {
+            let r_rigid = rigid.min_volume_ratio(&mesh, &[a]);
+            let r_harm = harm.min_volume_ratio(&mesh, &[a]);
+            if r_rigid <= 0.0 {
+                assert!(
+                    r_harm > 0.0,
+                    "harmonic morph inverted (ratio {r_harm}) at the amplitude a={a} that \
+                     first inverted the rigid bump — regularizer bought no budget"
+                );
+                found = true;
+                break;
+            }
+            a *= 1.3;
+        }
+        assert!(
+            found,
+            "rigid single-node bump never inverted within the amplitude sweep — widen the range"
         );
     }
 }
