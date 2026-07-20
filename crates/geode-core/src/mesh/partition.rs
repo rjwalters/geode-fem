@@ -18,10 +18,8 @@
 //!
 //! 1. **Element partition.** Recursively bisect the *elements* by the median
 //!    centroid coordinate along the longest bounding-box axis — the same
-//!    geometric-bisection primitive
-//!    ([`longest_bbox_axis`](crate::eigen::ordering::longest_bbox_axis) /
-//!    [`rank_split_along_axis`](crate::eigen::ordering::rank_split_along_axis))
-//!    that [`coordinate_nested_dissection`](crate::eigen::ordering) uses to
+//!    geometric-bisection primitive (`longest_bbox_axis` /
+//!    `rank_split_along_axis`) that `coordinate_nested_dissection` uses to
 //!    order DOFs for the direct LU. Splitting proportionally (`⌊k/2⌋` parts
 //!    left, `⌈k/2⌉` right) yields exactly `k` balanced element parts for any
 //!    `k ≥ 1`.
@@ -477,13 +475,9 @@ mod tests {
                 min_part[d] = min_part[d].min(part);
             }
         }
-        for d in 0..p.n_dofs() {
-            if min_part[d] != u32::MAX {
-                assert_eq!(
-                    p.owner_of(d),
-                    min_part[d] as usize,
-                    "owner != min incident part"
-                );
+        for (d, &mp) in min_part.iter().enumerate() {
+            if mp != u32::MAX {
+                assert_eq!(p.owner_of(d), mp as usize, "owner != min incident part");
                 assert!(p.owner_of(d) < k);
             }
         }
@@ -525,8 +519,8 @@ mod tests {
                     );
                 }
             }
-            for d in 0..n_dofs {
-                assert_eq!(owned_count[d], 1, "DOF {d} is not owned exactly once");
+            for (d, &count) in owned_count.iter().enumerate() {
+                assert_eq!(count, 1, "DOF {d} is not owned exactly once");
                 assert!(part.owner_of(d) < k);
             }
 
