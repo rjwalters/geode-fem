@@ -15,9 +15,11 @@
 //! passed its own FD gate on the curved mesh, one factorization per band
 //! frequency, `|S₁₁| ≤ 1` passivity held across the whole band throughout, the
 //! per-tet non-inversion guard was respected, the descent is monotone, the
-//! design is non-obvious (many independent DOFs), and the recorded outcome (a
-//! freeform band match to −10 dB, or an honest-negative) is internally
-//! consistent.
+//! design is non-obvious (many independent DOFs), the descent stopped on a
+//! GENUINE terminal condition (the −10 dB target, a vanishing gradient, the
+//! guard binding, or a true plateau — never the bare step cap), and the recorded
+//! outcome (a freeform band match to −10 dB, or a genuinely-diagnosed negative)
+//! is internally consistent with its terminal flags.
 
 use std::path::PathBuf;
 
@@ -212,6 +214,73 @@ fn committed_conformal_results_meet_acceptance_criteria() {
         opt["diagnosis"].as_str().is_some_and(|d| !d.is_empty()),
         "a physics/distortion diagnosis must be recorded for either outcome"
     );
+
+    // --- The stop was a GENUINE terminal condition, never the bare step cap.
+    //     The Phase-3 headline requires the descent to reach an ACTUAL limit —
+    //     the −10 dB target, a vanishing gradient, the non-inversion guard
+    //     binding, or a true objective plateau — with the recorded flags
+    //     (`converged`, `distortion_limited`, `reached_target`) matching that
+    //     terminal. This is the assertion that forbids a step-budget-limited
+    //     early stop being mis-recorded as a physics/mesh cap. ---
+    let terminal = opt["terminal_condition"].as_str().unwrap();
+    assert_ne!(
+        terminal, "max_steps",
+        "run terminated on the bare step cap (max_steps) — not a genuine limit; a diagnosis \
+         claiming a physics/mesh cap would be unsupported"
+    );
+    let n_steps = opt["n_steps"].as_integer().unwrap();
+    let max_steps = opt["max_steps"].as_integer().unwrap();
+    assert!(
+        n_steps < max_steps,
+        "n_steps {n_steps} hit max_steps {max_steps}: step-budget-limited, not a genuine terminal"
+    );
+    let converged = opt["converged"].as_bool().unwrap();
+    let distortion_limited = opt["distortion_limited"].as_bool().unwrap();
+    let worst_vr = opt["worst_vol_ratio"].as_float().unwrap();
+    let budget = doc["model"]["min_vol_ratio_budget"].as_float().unwrap();
+    match terminal {
+        // POSITIVE: the whole band cleared −10 dB.
+        "target_reached" => {
+            assert!(reached, "terminal=target_reached but reached_target=false");
+            assert!(
+                !converged && !distortion_limited,
+                "target_reached must not also set a gradient/plateau or distortion limit flag"
+            );
+        }
+        // GENUINE NEGATIVE: gradient vanished at a stationary point.
+        "converged_grad_norm" => {
+            assert!(
+                converged && !distortion_limited,
+                "converged_grad_norm must set converged=true, distortion_limited=false"
+            );
+            let gtol = opt["grad_tol"].as_float().unwrap();
+            let gfin = opt["grad_norm_final"].as_float().unwrap();
+            assert!(
+                gfin < gtol,
+                "converged_grad_norm but grad_norm_final {gfin} !< grad_tol {gtol}"
+            );
+        }
+        // GENUINE NEGATIVE: a true objective plateau / local minimum.
+        "plateau" | "line_search_stall" => {
+            assert!(
+                converged && !distortion_limited,
+                "{terminal} must set converged=true, distortion_limited=false"
+            );
+        }
+        // GENUINE NEGATIVE: the non-inversion guard actually bound.
+        "distortion_limited" => {
+            assert!(
+                distortion_limited && !converged,
+                "distortion_limited must set distortion_limited=true, converged=false"
+            );
+            assert!(
+                worst_vr <= budget * 1.05 + 1e-12,
+                "distortion_limited claimed, but worst vol ratio {worst_vr} is not near the \
+                 non-inversion budget {budget} — the guard did not actually bind"
+            );
+        }
+        other => panic!("unknown terminal_condition {other:?}"),
+    }
 
     // --- Fresh, independent forward at X_final agrees with the optimizer. ---
     let cc = &doc["cross_check"];

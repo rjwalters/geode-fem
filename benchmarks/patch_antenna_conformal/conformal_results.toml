@@ -39,46 +39,53 @@ n_factorizations_per_freq = 1
 
 [optimization]
 method = "bounded backtracking steepest descent (Armijo line search) on the many-DOF freeform design vector, with a per-tet non-inversion guard"
-max_steps = 12
-n_steps = 12
+max_steps = 600
+n_steps = 6
+terminal_condition = "target_reached"
 converged = false
 distortion_limited = false
-worst_vol_ratio = 9.130129e-1
-max_nodal_disp_mm = 1.111522e-1
+total_backtracks = 0
+grad_norm_initial = 1.751288204e-1
+grad_norm_final = 8.986832799e-2
+grad_tol = 1.0e-4
+plateau_tol = 1.0e-5
+plateau_window = 6
+worst_vol_ratio = 5.721208e-1
+max_nodal_disp_mm = 5.597611e-1
 band_objective_initial = 1.897943102e-1
-band_objective_final = 1.490775112e-1
-reduction_factor = 1.273125e0
+band_objective_final = 3.411688781e-2
+reduction_factor = 5.563060e0
 worst_s11_db_initial = -5.506281e0
-worst_s11_db_final = -6.611401e0
-reached_target = false
-outcome = "honest_negative"
-diagnosis = "HONEST-NEGATIVE (blessed): the many-DOF freeform loop monotonically reduced the band objective sum_f |S11(f)|^2 from worst -5.51 dB to -6.61 dB but did not drive the whole band below the -10 dB bar. The coarse curved smoke fixture (n_edges 6173) has a fixed pinned-feed inset and a low-order mesh, so the reachable match is capped, and the freeform boundary morph is bounded by the per-tet non-inversion guard (worst vol ratio 0.913, budget 0.25; max nodal displacement 0.111 mm). The machinery — the FD-validated many-DOF/multi-frequency composed port+UPML+lossy shape adjoint on genuinely curved conformal metal, one factorization per band frequency, |S11| <= 1 passivity throughout — is the deliverable; reaching -10 dB across the band needs a finer curved mesh and/or feed-inset design freedom."
+worst_s11_db_final = -1.206262e1
+reached_target = true
+outcome = "freeform_band_match_-10dB"
+diagnosis = "POSITIVE: the many-DOF freeform morph reshaped the curved conformal patch to drive |S11| <= -10 dB across the ENTIRE design band (worst -5.51 -> -12.06 dB in 6 accepted steps; terminal = target_reached). The FD-validated many-DOF/multi-frequency composed port+UPML+lossy shape adjoint on genuinely curved conformal metal (one factorization per band frequency, |S11| <= 1 passivity and the per-tet non-inversion guard asserted at every evaluation) drove a non-obvious 73 -DOF freeform design. worst vol ratio 0.572 (budget 0.25), grad_norm 1.751e-1 -> 8.987e-2, 0 total backtracks."
 
 [cross_check]
 # Fresh, independent forward band solve at X_final (public driven_solve_with_ports, NO adjoint).
-band_objective_fresh = 1.490775112e-1
+band_objective_fresh = 3.411688781e-2
 fresh_vs_optimizer_rel = 0.000000e0
 
 [[s11_band.point]]
 omega = 0.300000
-s11_mag = 4.477375429e-1
-s11_db = -6.979530e0
-objective = 2.004689073e-1
-residual_rel = 9.170148e-15
+s11_mag = 2.493841209e-1
+s11_db = -1.206262e1
+objective = 6.219243975e-2
+residual_rel = 9.309993e-15
 
 [[s11_band.point]]
 omega = 0.350000
-s11_mag = 1.690001707e-1
-s11_db = -1.544226e1
-objective = 2.856105771e-2
-residual_rel = 1.069404e-14
+s11_mag = 6.366188709e-2
+s11_db = -2.392241e1
+objective = 4.052835868e-3
+residual_rel = 9.063050e-15
 
 [[s11_band.point]]
 omega = 0.400000
-s11_mag = 4.671215779e-1
-s11_db = -6.611401e0
-objective = 2.182025685e-1
-residual_rel = 9.038147e-15
+s11_mag = 1.900141779e-1
+s11_db = -1.442428e1
+objective = 3.610538781e-2
+residual_rel = 9.390529e-15
 
 [[trajectory.step]]
 iter = 0
@@ -96,82 +103,40 @@ min_vol_ratio = 9.930673e-1
 
 [[trajectory.step]]
 iter = 2
-band_objective = 1.828288973e-1
-worst_s11_db = -5.668745e0
-grad_norm = 1.731717986e-1
-min_vol_ratio = 9.860687e-1
+band_objective = 1.794152125e-1
+worst_s11_db = -5.751564e0
+grad_norm = 1.722139889e-1
+min_vol_ratio = 9.791494e-1
 
 [[trajectory.step]]
 iter = 3
-band_objective = 1.793748819e-1
-worst_s11_db = -5.753114e0
-grad_norm = 1.722407230e-1
-min_vol_ratio = 9.790067e-1
+band_objective = 1.660163528e-1
+worst_s11_db = -6.101132e0
+grad_norm = 1.685735041e-1
+min_vol_ratio = 9.511323e-1
 
 [[trajectory.step]]
 iter = 4
-band_objective = 1.759392237e-1
-worst_s11_db = -5.839609e0
-grad_norm = 1.713350416e-1
-min_vol_ratio = 9.718841e-1
+band_objective = 1.406296308e-1
+worst_s11_db = -6.882572e0
+grad_norm = 1.614036252e-1
+min_vol_ratio = 8.946116e-1
 
 [[trajectory.step]]
 iter = 5
-band_objective = 1.725214607e-1
-worst_s11_db = -5.928255e0
-grad_norm = 1.704502028e-1
-min_vol_ratio = 9.647033e-1
+band_objective = 9.560693114e-2
+worst_s11_db = -8.251119e0
+grad_norm = 1.437991265e-1
+min_vol_ratio = 7.815871e-1
 
 [[trajectory.step]]
 iter = 6
-band_objective = 1.691212207e-1
-worst_s11_db = -6.019079e0
-grad_norm = 1.695817788e-1
-min_vol_ratio = 9.574669e-1
-
-[[trajectory.step]]
-iter = 7
-band_objective = 1.657382185e-1
-worst_s11_db = -6.112110e0
-grad_norm = 1.687254827e-1
-min_vol_ratio = 9.501774e-1
-
-[[trajectory.step]]
-iter = 8
-band_objective = 1.623722535e-1
-worst_s11_db = -6.207376e0
-grad_norm = 1.678771822e-1
-min_vol_ratio = 9.428370e-1
-
-[[trajectory.step]]
-iter = 9
-band_objective = 1.590232057e-1
-worst_s11_db = -6.304907e0
-grad_norm = 1.670329100e-1
-min_vol_ratio = 9.354482e-1
-
-[[trajectory.step]]
-iter = 10
-band_objective = 1.556910330e-1
-worst_s11_db = -6.404733e0
-grad_norm = 1.661888707e-1
-min_vol_ratio = 9.280131e-1
-
-[[trajectory.step]]
-iter = 11
-band_objective = 1.523757673e-1
-worst_s11_db = -6.506887e0
-grad_norm = 1.653414456e-1
-min_vol_ratio = 9.205340e-1
-
-[[trajectory.step]]
-iter = 12
-band_objective = 1.490775112e-1
-worst_s11_db = -6.611401e0
-grad_norm = 1.644871950e-1
-min_vol_ratio = 9.130129e-1
+band_objective = 3.411688781e-2
+worst_s11_db = -1.206262e1
+grad_norm = 8.986832799e-2
+min_vol_ratio = 5.721208e-1
 
 [shape]
 n_dofs = 73
-design_vector = [-1.085265e-2, -5.619122e-3, -2.046837e-2, 3.338436e-3, -1.803141e-2, 3.494351e-2, -2.010773e-2, -1.202943e-2, -2.569881e-2, 1.656930e-2, 7.355663e-3, -1.639961e-2, 3.650008e-2, -2.880507e-3, 7.818841e-3, -2.102576e-3, 9.641979e-3, -8.374519e-3, -1.011356e-2, 1.606572e-2, -3.869283e-2, 1.495196e-2, -1.191477e-2, -7.520770e-3, 7.587537e-3, -1.462224e-2, 3.022472e-2, -7.455154e-3, -1.385911e-2, 1.193279e-2, 8.365710e-3, -5.207463e-3, 1.066826e-3, -1.760610e-2, 2.885256e-2, -2.014842e-2, -8.888436e-3, -2.247873e-2, 6.426387e-3, -3.400906e-2, 5.923824e-2, 4.717282e-2, 2.561109e-2, 1.602343e-2, 2.559341e-3, 5.788418e-2, 6.414567e-3, 5.522444e-2, 3.773084e-3, -2.814240e-2, -1.727149e-2, -9.205108e-3, -6.273828e-4, -7.802257e-4, -1.360106e-2, 1.269850e-2, 2.840169e-3, -9.698380e-3, -8.070135e-3, 4.976218e-2, -1.100821e-2, -6.063098e-3, 2.680357e-2, -5.190926e-2, -2.146987e-2, -1.997684e-2, -6.948557e-3, -1.021370e-1, -9.941153e-3, -1.820495e-3, 3.304280e-3, -4.942439e-3, -1.111522e-1]
+design_vector = [-5.090181e-2, -3.350699e-2, -6.049556e-2, 1.971339e-2, -8.940051e-2, 1.538572e-1, -6.642776e-2, -4.333071e-2, -9.554747e-2, 6.667395e-2, 4.414780e-2, -5.354311e-2, 1.648179e-1, -1.928376e-3, 4.781849e-3, 4.167430e-4, 1.622743e-2, -5.203127e-2, -2.330677e-2, 3.508802e-2, -1.582020e-1, 5.654163e-2, -6.362402e-2, -2.033198e-2, 2.156305e-2, -6.736359e-2, 1.528671e-1, -2.522829e-2, -7.710047e-2, 5.190679e-2, 5.830682e-2, -1.726324e-2, 1.202517e-2, -6.095677e-2, 1.357986e-1, -1.169247e-1, -4.618362e-2, -1.045648e-1, 8.453556e-2, -1.499631e-1, 2.983235e-1, 2.581755e-1, 1.416040e-1, 9.579759e-2, 2.674066e-2, 1.947828e-1, 5.611571e-3, 2.366316e-1, 4.732290e-2, -1.157826e-1, -7.021516e-2, -4.929651e-2, -3.876203e-2, 1.599095e-2, -3.769487e-2, 7.059212e-2, 9.539184e-3, -3.259294e-2, -2.847030e-2, 1.922639e-1, -5.389320e-2, -8.107921e-3, 1.390189e-1, -1.854997e-1, -5.951147e-2, -6.891621e-2, -4.040563e-2, -4.842620e-1, -4.109732e-2, -1.155551e-4, 3.083162e-2, -1.870487e-2, -5.597611e-1]
 
