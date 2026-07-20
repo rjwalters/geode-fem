@@ -26,6 +26,7 @@
 //! convergence scaffolding (self-consistent Newton, Lanczos restarts,
 //! bracketing root finders) that wraps repeated solves.
 
+pub mod distributed;
 pub mod iterate;
 pub mod ksp;
 pub mod ksp_burn;
