@@ -177,40 +177,13 @@ fn nd_recurse(
         return;
     }
 
-    // Longest bounding-box axis.
-    let mut lo = [f64::INFINITY; 3];
-    let mut hi = [f64::NEG_INFINITY; 3];
-    for &v in subset {
-        for a in 0..3 {
-            lo[a] = lo[a].min(coords[v][a]);
-            hi[a] = hi[a].max(coords[v][a]);
-        }
-    }
-    let mut axis = 0usize;
-    let mut best = hi[0] - lo[0];
-    for a in 1..3 {
-        let ext = hi[a] - lo[a];
-        if ext > best {
-            best = ext;
-            axis = a;
-        }
-    }
-
-    // Balanced (rank-based) median split along the chosen axis. Sorting by
-    // (coordinate, index) and cutting at the halfway rank keeps the two halves
-    // balanced even when many DOFs share a coordinate — the structured cube
-    // mesh has heavy coordinate ties among axis-aligned edge midpoints, and a
-    // value-threshold split there degenerates into a near-linear ordering.
-    let mut sorted: Vec<usize> = subset.to_vec();
-    sorted.sort_by(|&u, &v| {
-        coords[u][axis]
-            .partial_cmp(&coords[v][axis])
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(u.cmp(&v))
-    });
-    let half = sorted.len() / 2;
-    let left: Vec<usize> = sorted[..half].to_vec();
-    let right: Vec<usize> = sorted[half..].to_vec();
+    // Balanced (rank-based) median split along the longest bounding-box axis —
+    // the shared geometric-bisection primitive (also used by the mesh k-way
+    // partitioner, [`crate::mesh::partition`]). Cutting at the halfway rank
+    // keeps the two halves balanced even when many DOFs share a coordinate.
+    let axis = longest_bbox_axis(subset, coords);
+    let half = subset.len() / 2;
+    let (left, right) = rank_split_along_axis(subset, coords, axis, half);
 
     // Mark the right side, then peel off the left-side boundary layer as the
     // vertex separator `C`: any left vertex adjacent to a right vertex.
@@ -249,6 +222,62 @@ fn nd_recurse(
     );
     nd_recurse(&right, coords, col_ptr, row_idx, is_right, order, total);
     order.extend_from_slice(&separator);
+}
+
+/// Longest bounding-box axis (`0`, `1`, or `2`) of `subset` under `coords`.
+///
+/// The shared geometric-bisection primitive: both
+/// [`coordinate_nested_dissection`] (the fill-reducing DOF ordering) and the
+/// mesh k-way partitioner ([`crate::mesh::partition`]) recursively cut along
+/// this axis. Operates on arbitrary index sets into `coords`, so it serves both
+/// per-DOF (edge-midpoint) and per-element (centroid) coordinate arrays.
+/// Returns `0` for an empty subset.
+pub(crate) fn longest_bbox_axis(subset: &[usize], coords: &[[f64; 3]]) -> usize {
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for &v in subset {
+        for a in 0..3 {
+            lo[a] = lo[a].min(coords[v][a]);
+            hi[a] = hi[a].max(coords[v][a]);
+        }
+    }
+    let mut axis = 0usize;
+    let mut best = hi[0] - lo[0];
+    for a in 1..3 {
+        let ext = hi[a] - lo[a];
+        if ext > best {
+            best = ext;
+            axis = a;
+        }
+    }
+    axis
+}
+
+/// Sort `subset` by `(coords[·][axis], index)` and split at rank `cut`,
+/// returning `(left, right)` with `left.len() == cut.min(subset.len())`.
+///
+/// The rank (not value) cut keeps the two halves balanced even when many
+/// members share a coordinate — the structured cube mesh has heavy coordinate
+/// ties among axis-aligned edge midpoints / element centroids, where a
+/// value-threshold split degenerates into a near-linear ordering. The `index`
+/// tie-break makes the split deterministic. `cut` is clamped to
+/// `0..=subset.len()`.
+pub(crate) fn rank_split_along_axis(
+    subset: &[usize],
+    coords: &[[f64; 3]],
+    axis: usize,
+    cut: usize,
+) -> (Vec<usize>, Vec<usize>) {
+    let mut sorted: Vec<usize> = subset.to_vec();
+    sorted.sort_by(|&u, &v| {
+        coords[u][axis]
+            .partial_cmp(&coords[v][axis])
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(u.cmp(&v))
+    });
+    let cut = cut.min(sorted.len());
+    let right = sorted.split_off(cut);
+    (sorted, right)
 }
 
 /// COLAMD column ordering (faer's default for the high-level `sp_lu`).
