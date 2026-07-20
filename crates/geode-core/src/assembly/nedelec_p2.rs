@@ -360,6 +360,61 @@ pub fn p2_interior_km(
     (remap, n_interior, kept)
 }
 
+/// Complex-ε sibling of [`p2_interior_km`]: build the interior `p=2` `(K, M)`
+/// contributions with a per-tet **complex** permittivity `ε = ε′ − i·ε″`
+/// (nonzero `Im(ε)` models a loss tangent). Returns the same `(remap,
+/// n_interior, kept)` triple, but each `kept` entry carries `(ri, rj, k_loc,
+/// ε·m_loc)` with the stiffness `k_loc` promoted to a real `c64` and the mass
+/// scaled by the complex `ε` — so the caller forms the complex-symmetric pencil
+/// `A = K − ω² M(ε)` directly. The element factors `k_loc`, `m_loc` are the
+/// same real `tet_p2_local_sorted` kernels the real path uses; only `ε` is
+/// complex.
+#[allow(clippy::type_complexity)]
+pub fn p2_interior_km_complex(
+    mesh: &TetMesh,
+    dofs: &P2DofMap,
+    eps_tet: &[c64],
+    interior_mask: &[bool],
+) -> (Vec<i64>, usize, Vec<(usize, usize, c64, c64)>) {
+    assert_eq!(eps_tet.len(), mesh.n_tets(), "eps_tet length");
+    assert_eq!(interior_mask.len(), dofs.n_dofs, "interior_mask length");
+
+    let mut remap = vec![-1_i64; dofs.n_dofs];
+    let mut n_interior = 0usize;
+    for (g, &keep) in interior_mask.iter().enumerate() {
+        if keep {
+            remap[g] = n_interior as i64;
+            n_interior += 1;
+        }
+    }
+
+    let mut kept: Vec<(usize, usize, c64, c64)> =
+        Vec::with_capacity(mesh.n_tets() * TET_NEDELEC2_DOFS * TET_NEDELEC2_DOFS);
+    for (t, gdofs) in dofs.tet_dofs.iter().enumerate() {
+        let (k_loc, m_loc) = tet_p2_local_sorted(dofs, mesh, t);
+        let eps = eps_tet[t];
+        for i in 0..TET_NEDELEC2_DOFS {
+            let ri = remap[gdofs[i]];
+            if ri < 0 {
+                continue;
+            }
+            for j in 0..TET_NEDELEC2_DOFS {
+                let rj = remap[gdofs[j]];
+                if rj < 0 {
+                    continue;
+                }
+                kept.push((
+                    ri as usize,
+                    rj as usize,
+                    c64::new(k_loc[i][j], 0.0),
+                    eps * m_loc[i][j],
+                ));
+            }
+        }
+    }
+    (remap, n_interior, kept)
+}
+
 /// Accumulate the per-region mass action `(M_k x)` over interior DOFs, where
 /// `M_k` is the `p=2` mass with `ε` set to the indicator of region `k`
 /// (`region_of_tet[t] == k`). Used by the material adjoint

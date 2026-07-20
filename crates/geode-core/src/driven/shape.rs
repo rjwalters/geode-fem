@@ -478,28 +478,80 @@ pub struct DrivenShapeGradient {
     pub n_factorizations: usize,
 }
 
-/// Compute the full nodal-coordinate gradient `∂g/∂X_{n,d}` of a **driven
-/// Nédélec** EM observable via the discrete adjoint — **one forward + one
-/// adjoint solve**, reusing a single complex sparse LU factorization — then
-/// chain through any analytic node-motion map with
+/// Real-ε_r convenience wrapper over [`driven_shape_gradient_complex`].
+///
+/// This is the original **lossless** entry point (issue #577): the per-tet
+/// permittivity is a real `ε_r`, promoted to `ε_r − i·0` and forwarded to the
+/// complex core. The complex path (issue #629, Epic #628 Phase B) adds
+/// substrate loss (`ε = ε′ − i·ε″`, nonzero `tan δ`); the two share **one**
+/// implementation, so the real gradient returned here is bit-for-bit the
+/// complex core evaluated at zero loss. See [`driven_shape_gradient_complex`]
+/// for the full contract, the adjoint identity, and the `∂b/∂X` term.
+///
+/// # Arguments
+///
+/// * `eps_r` — per-tet **real** relative permittivity (length `mesh.n_tets()`),
+///   the evaluated material at which the gradient is taken (held constant under
+///   the geometry perturbation). Every other argument matches
+///   [`driven_shape_gradient_complex`].
+///
+/// # Errors
+///
+/// Propagates [`DrivenError`] on input-shape mismatches or if the sparse
+/// factorization / solve fails (e.g. `ω²` collides with a lossless-pencil
+/// eigenvalue, making `A(ω)` singular), and on an objective-cotangent length
+/// mismatch.
+pub fn driven_shape_gradient<B, G>(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let eps_complex: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+    driven_shape_gradient_complex::<B, G>(mesh, &eps_complex, bcs, omega, source, objective, device)
+}
+
+/// Compute the full nodal-coordinate gradient `∂g/∂X_{n,d}` of a **complex-ε
+/// (lossy) driven Nédélec** EM observable via the discrete adjoint — **one
+/// forward + one adjoint solve**, reusing a single complex sparse LU
+/// factorization — then chain through any analytic node-motion map with
 /// [`crate::shape::chain_node_motion`].
 ///
-/// This is the **lossless, real-ε_r** geometry shape gradient of
-/// `A(X) x = b(X)`, `A = K − ω² M(ε)`, with a per-tet-constant complex current
-/// source held fixed as the mesh morphs. See the module docs for the identity
-/// (including the geometry-dependent-RHS `∂b/∂X` term) and the scope note.
+/// This is the shape-side twin of the complex **material** adjoint
+/// [`crate::driven::adjoint::driven_material_adjoint_gradient_complex`] (#576):
+/// the geometry shape gradient of `A(X) x = b(X)`, `A = K − ω² M(ε)`, with a
+/// per-tet **complex** permittivity `ε = ε′ − i·ε″` (nonzero `Im(ε)` models a
+/// substrate loss tangent `tan δ`) and a per-tet-constant complex current source
+/// held fixed as the mesh morphs. See the module docs for the identity
+/// (including the geometry-dependent-RHS `∂b/∂X` term).
+///
+/// The `A(ω) = K − ω² M(ε)` pencil stays **complex-symmetric** under loss
+/// (`M(ε)` scales the real symmetric element mass by the complex per-tet `ε`),
+/// so the adjoint `Aᵀ λ = ∂g/∂x` still reuses the forward LU — one
+/// factorization, two back-substitutions (`n_factorizations == 1`). The only
+/// change from the lossless path is that the volume contraction factor
+/// `∂A_ij = ∂K_ij − ω² ε ∂M_ij` now carries the complex `ε` (the field `x`,
+/// adjoint `λ`, and `term_a` were already complex).
 ///
 /// # Arguments
 ///
 /// * `mesh` — tetrahedral mesh (fixed topology; the gradient is w.r.t. its node
 ///   positions).
-/// * `eps_r` — per-tet **real** relative permittivity (length `mesh.n_tets()`),
-///   the evaluated material at which the gradient is taken (held constant under
-///   the geometry perturbation).
+/// * `eps_r` — per-tet **complex** relative permittivity `ε = ε′ − i·ε″`
+///   (length `mesh.n_tets()`), the evaluated material at which the gradient is
+///   taken (held constant under the geometry perturbation). Use
+///   [`driven_shape_gradient`] for the real-ε convenience path.
 /// * `bcs` — PEC interior-edge mask, exactly as
 ///   [`crate::driven::solve::driven_solve`] takes it.
 /// * `omega` — drive frequency `ω = k₀` (natural units). Must sit away from a
-///   resonance of the lossless pencil so `A(ω)` is non-singular.
+///   resonance of the pencil so `A(ω)` is non-singular.
 /// * `source` — per-tet-constant complex volumetric current source. Its `j_tet`
 ///   values are held **fixed per element** under the geometry perturbation, so
 ///   `∂b/∂X` is purely the geometric variation of `∫ N·J dV`.
@@ -512,12 +564,11 @@ pub struct DrivenShapeGradient {
 /// # Errors
 ///
 /// Propagates [`DrivenError`] on input-shape mismatches or if the sparse
-/// factorization / solve fails (e.g. `ω²` collides with a lossless-pencil
-/// eigenvalue, making `A(ω)` singular), and on an objective-cotangent length
-/// mismatch.
-pub fn driven_shape_gradient<B, G>(
+/// factorization / solve fails (e.g. `ω²` collides with a pencil eigenvalue,
+/// making `A(ω)` singular), and on an objective-cotangent length mismatch.
+pub fn driven_shape_gradient_complex<B, G>(
     mesh: &TetMesh,
-    eps_r: &[f64],
+    eps_r: &[c64],
     bcs: &DrivenBcs<'_>,
     omega: f64,
     source: &CurrentSource,
@@ -568,14 +619,13 @@ where
 
     let (nodes_t, tets_t) = upload_mesh::<B>(mesh, device);
 
-    // --- Assemble K and M(ε) on the Burn backend (real ε_r, lossless). ------
-    let eps_complex: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+    // --- Assemble K and M(ε) on the Burn backend (complex ε = ε′ − i·ε″). ---
     let sys = assemble_global_nedelec_with_complex_epsilon_sparse(
         nodes_t.clone(),
         tets_t.clone(),
         &tet_sign,
         &scatter,
-        &eps_complex,
+        eps_r,
     );
     let k_re_host: Vec<f64> = sys.k_vals.into_data().iter::<f64>().collect();
     let m_re_host: Vec<f64> = sys.m_re_vals.into_data().iter::<f64>().collect();
@@ -767,12 +817,14 @@ where
                 dc[a][c_axis] = Dual::var(base[a][c_axis]);
                 let (dk, dm, dnint) = nedelec_local_dual(&dc);
 
-                // −λᵀ (∂A/∂X) x, ∂A_ij = ∂K_ij − ω² ε_t ∂M_ij (ε real, geometry-
-                // independent). λ, x complex; the tangent is a real scalar.
+                // −λᵀ (∂A/∂X) x, ∂A_ij = ∂K_ij − ω² ε_t ∂M_ij. ε_t is the
+                // complex per-tet permittivity (geometry-independent); the
+                // element tangents ∂K/∂X, ∂M/∂X are real, so the mass factor
+                // carries the loss and `d_a` (hence `term_a`) is complex.
                 let mut term_a = c64::new(0.0, 0.0);
                 for i in 0..6 {
                     for j in 0..6 {
-                        let d_a = dk[i][j].du - omega2 * eps_t * dm[i][j].du;
+                        let d_a = c64::new(dk[i][j].du, 0.0) - eps_t * (omega2 * dm[i][j].du);
                         term_a += lam_loc[i] * x_loc[j] * d_a;
                     }
                 }
@@ -877,7 +929,43 @@ pub fn driven_shape_gradient_p2<G>(
 where
     G: Fn(&[c64]) -> (f64, Vec<c64>),
 {
-    use crate::assembly::nedelec_p2::{P2DofMap, assemble_p2_rhs_constant, p2_interior_km};
+    let eps_complex: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+    driven_shape_gradient_p2_complex(
+        mesh,
+        &eps_complex,
+        interior_dof_mask,
+        omega,
+        source,
+        objective,
+    )
+}
+
+/// Complex-ε (lossy) sibling of [`driven_shape_gradient_p2`]: the second-order
+/// (`p=2`) driven-Nédélec **geometry** shape gradient with a per-tet complex
+/// permittivity `ε = ε′ − i·ε″` (nonzero `Im(ε)` models a substrate loss
+/// tangent `tan δ`). This is the `p=2` twin of [`driven_shape_gradient_complex`]
+/// (issue #629, Epic #628 Phase B); the real path above delegates here at zero
+/// loss.
+///
+/// The adjoint identity, the `∂b/∂X` RHS term, and the single-factorization
+/// reuse (`n_factorizations == 1`) are identical to the lossless path — the
+/// only change is that the interior pencil `A = K − ω² M(ε)` and the volume
+/// contraction factor `∂A_ij = ∂K_ij − ω² ε ∂M_ij` carry the complex `ε` (the
+/// field `x`, adjoint `λ`, and `term_a` were already complex). See
+/// [`driven_shape_gradient_p2`] for the argument contract; `eps_r` here is the
+/// per-tet **complex** permittivity (length `mesh.n_tets()`).
+pub fn driven_shape_gradient_p2_complex<G>(
+    mesh: &TetMesh,
+    eps_r: &[c64],
+    interior_dof_mask: &[bool],
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+) -> Result<P2DrivenShapeGradient, DrivenError>
+where
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    use crate::assembly::nedelec_p2::{P2DofMap, assemble_p2_rhs_constant, p2_interior_km_complex};
     use faer::linalg::solvers::Solve;
 
     let n_tets = mesh.n_tets();
@@ -926,14 +1014,16 @@ where
         .collect();
 
     // --- Interior pencil A(ω) = K − ω² M(ε) via the shared substrate. --------
-    let (remap, n_interior, kept) = p2_interior_km(mesh, &dofs, eps_r, interior_dof_mask);
+    // Complex ε folds into the mass term `m` (which is thus c64), keeping the
+    // pencil complex-symmetric so the adjoint reuses the forward LU.
+    let (remap, n_interior, kept) = p2_interior_km_complex(mesh, &dofs, eps_r, interior_dof_mask);
     if n_interior == 0 {
         return Err(DrivenError::EmptyInterior);
     }
     let omega2 = omega * omega;
     let triplets: Vec<Triplet<usize, usize, c64>> = kept
         .iter()
-        .map(|&(r, c, k, m)| Triplet::new(r, c, c64::new(k - omega2 * m, 0.0)))
+        .map(|&(r, c, k, m)| Triplet::new(r, c, k - m * omega2))
         .collect();
     let a_int =
         SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
@@ -963,7 +1053,7 @@ where
     let residual_rel = {
         let mut ax = vec![c64::new(0.0, 0.0); n_interior];
         for &(r, c, k, m) in &kept {
-            ax[r] += c64::new(k - omega2 * m, 0.0) * x_int[c];
+            ax[r] += (k - m * omega2) * x_int[c];
         }
         let mut res2 = 0.0_f64;
         let mut b2 = 0.0_f64;
@@ -1053,11 +1143,13 @@ where
                 dc[a][c_axis] = Dual::var(sorted[a][c_axis]);
                 let (dk, dm, dnint) = nedelec2_local_dual(&dc);
 
-                // −λᵀ (∂A/∂X) x, ∂A_ij = ∂K_ij − ω² ε_t ∂M_ij.
+                // −λᵀ (∂A/∂X) x, ∂A_ij = ∂K_ij − ω² ε_t ∂M_ij. ε_t is the
+                // complex per-tet permittivity; the element tangents are real,
+                // so the mass factor carries the loss and `d_a` is complex.
                 let mut term_a = c64::new(0.0, 0.0);
                 for i in 0..TET_NEDELEC2_DOFS {
                     for j in 0..TET_NEDELEC2_DOFS {
-                        let d_a = dk[i][j].du - omega2 * eps_t * dm[i][j].du;
+                        let d_a = c64::new(dk[i][j].du, 0.0) - eps_t * (omega2 * dm[i][j].du);
                         term_a += lam_loc[i] * x_loc[j] * d_a;
                     }
                 }
@@ -1480,6 +1572,266 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // COMPLEX-ε (lossy substrate) shape-gradient tests (issue #629, #628 B).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Uniform **lossy** complex-ε fixture `ε = ε′ − i·ε″` (nonzero `Im(ε)`, a
+    /// substrate loss tangent `tan δ = ε″/ε′`), driven by the same genuinely
+    /// complex source as [`cavity_fixture`], for the complex-ε shape-gradient
+    /// tests. Returns `(mesh, eps_complex, interior_mask, source)`.
+    fn cavity_fixture_complex(n: usize) -> (TetMesh, Vec<c64>, Vec<bool>, CurrentSource) {
+        let (mesh, eps_r, interior, source) = cavity_fixture(n);
+        // ε′ from the lossless fixture (2.0), ε″ = 0.3 → tan δ = 0.15: a big,
+        // unambiguous loss so the complex-ε contraction path is genuinely
+        // exercised (not a near-lossless perturbation the FD could miss).
+        let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, -0.3)).collect();
+        (mesh, eps_c, interior, source)
+    }
+
+    /// **The load-bearing complex-ε test.** The lossy driven-Nédélec
+    /// discrete-adjoint **shape** gradient `∂g/∂θ` — one forward + one adjoint
+    /// solve on the complex-symmetric pencil `A = K − ω² M(ε)` with `Im(ε) ≠ 0`
+    /// — must match a full central finite difference of the entire complex
+    /// driven pipeline (perturb θ → move nodes → re-assemble the complex `A` and
+    /// current RHS `b` → re-solve → recompute g), for two distinct node-motion
+    /// maps, to the ≤1e-3 issue tolerance. The FD arm drives the **public**
+    /// [`driven_solve`] complex `Scalar(ε)` path, an independent cross-check
+    /// against the shape adjoint's own forward. A dropped loss term, a wrong
+    /// sign, or a conjugation error fails it.
+    #[test]
+    fn driven_shape_gradient_complex_matches_central_finite_difference() {
+        let (mesh, eps_c, interior, source) = cavity_fixture_complex(3);
+        let omega = 1.5;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+
+        // ONE forward + ONE adjoint solve → full nodal-coordinate gradient.
+        let sg = driven_shape_gradient_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("complex shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "complex shape adjoint must reuse the forward factorization (no refactorize)"
+        );
+        assert!(
+            sg.residual_rel < 1e-9,
+            "forward solve unhealthy (residual {:.3e}); pick ω off resonance",
+            sg.residual_rel
+        );
+
+        // Full-pipeline objective under a node-velocity field D, via the public
+        // complex driven path (Scalar takes the c64 ε directly).
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                &bcs,
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("driven solve");
+            l2_objective(&sol.e_edges).0
+        };
+
+        // Objective must agree between the two forward paths (sanity).
+        let g0_pub = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0_pub - sg.objective).abs() <= 1e-9 * g0_pub.abs().max(1.0),
+            "objective mismatch: shape adjoint {} vs public driven_solve {g0_pub}",
+            sg.objective
+        );
+
+        // Two analytic node-motion maps, LINEAR in θ.
+        let tol = 1e-9;
+        let d_face: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[0] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let ctr = [0.5, 0.5, 0.5];
+        let ctrl = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.iter().all(|&c| c > tol && c < 1.0 - tol))
+            .min_by(|(_, a), (_, b)| {
+                let da =
+                    (a[0] - ctr[0]).powi(2) + (a[1] - ctr[1]).powi(2) + (a[2] - ctr[2]).powi(2);
+                let db =
+                    (b[0] - ctr[0]).powi(2) + (b[1] - ctr[1]).powi(2) + (b[2] - ctr[2]).powi(2);
+                da.partial_cmp(&db).unwrap()
+            })
+            .map(|(i, _)| i)
+            .expect("mesh has an interior node");
+        let mut d_node = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d_node[ctrl] = [1.0, 0.0, 0.0];
+
+        let h = 1e-6;
+        for (name, d) in [
+            ("hi-face-translate", &d_face),
+            ("interior-control-node", &d_node),
+        ] {
+            let ana = chain_node_motion(&sg.grad_node, d);
+            let fd = (g_of_theta(h, d) - g_of_theta(-h, d)) / (2.0 * h);
+            assert!(
+                fd.abs() > 1e-6,
+                "map {name}: FD gradient {fd} unexpectedly ~0 (fixture degenerate?)"
+            );
+            let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            assert!(
+                rel < 1e-3,
+                "map {name}: complex adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-3"
+            );
+        }
+
+        // The two maps must give DISTINCT gradients.
+        let g_face = chain_node_motion(&sg.grad_node, &d_face);
+        let g_node = chain_node_motion(&sg.grad_node, &d_node);
+        assert!(
+            (g_face - g_node).abs() > 1e-6,
+            "the two node-motion maps must yield distinct gradients ({g_face} vs {g_node})"
+        );
+    }
+
+    /// Mutation tripwire (complex-ε): the FD check must **reject** a lossy shape
+    /// gradient built with the classic complex-adjoint conjugation error
+    /// (feeding `∂g/∂x̄` instead of `∂g/∂x`). With `Im(ε) ≠ 0` the field is
+    /// even more thoroughly complex, so the conjugation error is unmistakable —
+    /// proving the load-bearing complex test's tolerance is biting.
+    #[test]
+    fn complex_conjugation_error_is_detected_by_fd() {
+        let (mesh, eps_c, interior, source) = cavity_fixture_complex(3);
+        let omega = 1.5;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+
+        // Wrong cotangent: +i·Im instead of −i·Im (∂g/∂x̄ rather than ∂g/∂x).
+        let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
+            let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+            let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
+            (g, cot)
+        };
+        let wrong = driven_shape_gradient_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            wrong_objective,
+            &device(),
+        )
+        .expect("wrong-conjugation complex shape gradient");
+
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                &bcs,
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("driven solve");
+            l2_objective(&sol.e_edges).0
+        };
+
+        let tol = 1e-9;
+        let d_face: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[0] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let h = 1e-6;
+        let fd = (g_of_theta(h, &d_face) - g_of_theta(-h, &d_face)) / (2.0 * h);
+        let ana_wrong = chain_node_motion(&wrong.grad_node, &d_face);
+        let rel = (ana_wrong - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel > 1e-2,
+            "complex conjugation-error gradient {ana_wrong} matched the FD {fd} (rel {rel:.3e}) — \
+             the tolerance is not biting"
+        );
+    }
+
+    /// **Backward-compat / delegation guard.** At zero loss the complex entry
+    /// point must reproduce the real [`driven_shape_gradient`] bit-for-bit (the
+    /// real path is just this core with `ε″ = 0`). Guards against the real
+    /// signature silently diverging from the shared implementation.
+    #[test]
+    fn real_path_equals_complex_at_zero_loss() {
+        let (mesh, eps_r, interior, source) = cavity_fixture(3);
+        let omega = 1.5;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let real = driven_shape_gradient::<B, _>(
+            &mesh,
+            &eps_r,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("real shape gradient");
+        let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+        let cplx = driven_shape_gradient_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("complex shape gradient at zero loss");
+        assert_eq!(real.n_factorizations, cplx.n_factorizations);
+        let mut worst = 0.0_f64;
+        for (r, c) in real.grad_node.iter().zip(cplx.grad_node.iter()) {
+            for d in 0..3 {
+                worst = worst.max((r[d] - c[d]).abs());
+            }
+        }
+        assert!(
+            worst < 1e-12,
+            "real vs complex-at-zero-loss shape gradient differ by {worst:.3e}"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // SECOND-ORDER (p=2) tests (issue #619).
     // ─────────────────────────────────────────────────────────────────────
 
@@ -1810,6 +2162,114 @@ mod tests {
             rel > 1e-2,
             "p2 conjugation-error gradient {ana_wrong} matched the FD {fd} (rel {rel:.3e}) — \
              the tolerance is not biting"
+        );
+    }
+
+    /// **The load-bearing complex-ε p=2 test.** The lossy second-order
+    /// driven-Nédélec shape gradient `∂g/∂θ` (complex `ε = ε′ − i·ε″`,
+    /// `Im(ε) ≠ 0`) must match a full central finite difference of the entire
+    /// complex p=2 pipeline. The public `driven_solve_p2` is real-ε only, so the
+    /// FD reference reuses [`driven_shape_gradient_p2_complex`]'s **own forward
+    /// objective** at perturbed nodes (it re-assembles the complex `A` + RHS and
+    /// re-solves for each θ) — the gradient under test comes from the adjoint
+    /// algebra, the FD reference only reads the forward `g`. A dropped loss term
+    /// in the p=2 pencil or contraction fails it.
+    #[test]
+    fn driven_shape_gradient_p2_complex_matches_central_finite_difference() {
+        let (mesh, eps_r, mask, source) = cavity_fixture_p2(2);
+        let omega = 1.5;
+        // Promote to a lossy substrate: ε = 2.0 − 0.3i (tan δ = 0.15).
+        let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, -0.3)).collect();
+
+        // ONE forward + ONE adjoint solve → full nodal-coordinate gradient.
+        let sg =
+            driven_shape_gradient_p2_complex(&mesh, &eps_c, &mask, omega, &source, l2_objective)
+                .expect("complex p2 shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "complex p2 shape adjoint must reuse the forward factorization"
+        );
+        assert!(
+            sg.residual_rel < 1e-9,
+            "complex p2 forward solve unhealthy (residual {:.3e})",
+            sg.residual_rel
+        );
+
+        // Full-pipeline objective: re-run the complex forward at moved nodes and
+        // read its forward `g` (`.objective`), an independent-of-the-adjoint FD.
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            driven_shape_gradient_p2_complex(&moved, &eps_c, &mask, omega, &source, l2_objective)
+                .expect("complex p2 forward")
+                .objective
+        };
+
+        // Sanity: θ=0 forward matches the gradient run's own objective.
+        let g0 = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0 - sg.objective).abs() <= 1e-9 * g0.abs().max(1.0),
+            "objective mismatch: {} vs {g0}",
+            sg.objective
+        );
+
+        let tol = 1e-9;
+        let d_face: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[0] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let ctr = [0.5, 0.5, 0.5];
+        let ctrl = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.iter().all(|&c| c > tol && c < 1.0 - tol))
+            .min_by(|(_, a), (_, b)| {
+                let da =
+                    (a[0] - ctr[0]).powi(2) + (a[1] - ctr[1]).powi(2) + (a[2] - ctr[2]).powi(2);
+                let db =
+                    (b[0] - ctr[0]).powi(2) + (b[1] - ctr[1]).powi(2) + (b[2] - ctr[2]).powi(2);
+                da.partial_cmp(&db).unwrap()
+            })
+            .map(|(i, _)| i)
+            .expect("mesh has an interior node");
+        let mut d_node = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d_node[ctrl] = [1.0, 0.0, 0.0];
+
+        let h = 1e-6;
+        for (name, d) in [
+            ("hi-face-translate", &d_face),
+            ("interior-control-node", &d_node),
+        ] {
+            let ana = chain_node_motion(&sg.grad_node, d);
+            let fd = (g_of_theta(h, d) - g_of_theta(-h, d)) / (2.0 * h);
+            assert!(
+                fd.abs() > 1e-6,
+                "map {name}: FD gradient {fd} unexpectedly ~0 (fixture degenerate?)"
+            );
+            let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            assert!(
+                rel < 1e-3,
+                "map {name}: complex p2 adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-3"
+            );
+        }
+
+        let g_face = chain_node_motion(&sg.grad_node, &d_face);
+        let g_node = chain_node_motion(&sg.grad_node, &d_node);
+        assert!(
+            (g_face - g_node).abs() > 1e-6,
+            "the two node-motion maps must yield distinct gradients ({g_face} vs {g_node})"
         );
     }
 }
