@@ -1,0 +1,54 @@
+{
+  "description": "Measured Meep 3D FDTD runtime + memory scaling for the curved conformal open-radiator problem (epic #647 Phase 4 / #651). Establishes the computational-intractability axis of the GEODE-vs-FDTD-density head-to-head: structured-grid density FDTD cannot practically reach this design at the resolution needed to represent the curved conductor.",
+  "provenance": {
+    "measured_on": "2026-07-21",
+    "host": "AWS m6i.4xlarge (16 vCPU Intel Ice Lake, 61 GB RAM), Ubuntu 22.04",
+    "instance_id": "i-0b44631b46ade4044",
+    "meep_version": "1.34.0 (conda-forge, single-process)",
+    "container": "reference/meep/docker/ (meep-baseline:cpu)",
+    "cell_mm": [64, 60, 42],
+    "problem": "box-UPML curved conformal FR-4 + PEC patch radiator, per conformal_baseline_3d.py",
+    "note": "per-step timing = steady-state seconds/timestep over 61 timesteps after warmup; single-tenant (no co-tenant contention)."
+  },
+  "measured_perstep": [
+    {"resolution_px_per_mm": 4,  "yee": [256, 240, 168], "cells": 10321920,  "dt": 0.125,     "s_per_step": 0.233343, "peak_rss_gb": 1.573},
+    {"resolution_px_per_mm": 6,  "yee": [384, 360, 252], "cells": 34836480,  "dt": 0.083333,  "s_per_step": 0.742044, "peak_rss_gb": 4.918},
+    {"resolution_px_per_mm": 8,  "yee": [512, 480, 336], "cells": 82575360,  "dt": 0.0625,    "s_per_step": 1.714985, "peak_rss_gb": 11.338},
+    {"resolution_px_per_mm": 10, "yee": [640, 600, 420], "cells": 161280000, "dt": 0.05,      "s_per_step": 3.386214, "peak_rss_gb": 21.836},
+    {"resolution_px_per_mm": 12, "yee": [768, 720, 504], "cells": 278691840, "dt": 0.041667,  "s_per_step": 5.761447, "peak_rss_gb": 37.417}
+  ],
+  "scaling_law": {
+    "cells_vs_R": "exactly 161280 * R^3 (structured Yee grid)",
+    "s_per_step_vs_R": "power-law fit exponent ~2.92 (memory-bandwidth-bound, near-cubic in R); s_per_step ~= 0.00418 * R^2.92 s",
+    "peak_rss_vs_R": "~R^2.89; peak_rss ~= R^3 (dense field arrays)",
+    "dt_vs_R": "dt ~ 1/R (measured: 0.125 -> 0.0417 across R=4..12), the CFL/Courant condition",
+    "steps_to_fixed_decay_vs_R": "~R (fixed physical field-decay time / dt, dt ~ 1/R)",
+    "single_forward_solve_wallclock_vs_R": "s_per_step * steps ~ R^2.92 * R^1 ~ R^3.92  (i.e. ~R^4)"
+  },
+  "measured_anchor": {
+    "note": "Earlier single-tenant R=8 forward-to-decay observation on the same box.",
+    "resolution": 8,
+    "steps_observed": ">=421",
+    "wallclock_min": ">=12 (did NOT reach field decay within a 15-min window)",
+    "implication": "one forward solve at R=8 is >=12 min and unconverged; one adjoint gradient ~2x."
+  },
+  "projection": {
+    "disclaimer": "Projections extrapolate the measured power laws; clearly NOT measured. Conservative (lower-bound) absolute times use the R=8 >=421-step anchor.",
+    "R16_s_per_step_s": 14.2,
+    "R16_peak_rss_gb": 83,
+    "R16_runnable_on_61GB_box": false,
+    "R14_peak_rss_gb": 60,
+    "single_gradient_min_at_R8": ">=24",
+    "full_band_optimization_hours_at_R8": ">=14  (3 freqs x >=12 evals x 2 solves, lower bound)",
+    "full_band_optimization_hours_at_R12": ">=70  (~R^3.92 scaling of the R8 lower bound)",
+    "resolution_to_faithfully_represent_curve_px_per_mm": "~250 (from staircasing_results.json: ~6000 cells across the ~24 mm feature for ~1 micron fidelity)",
+    "cells_at_curve_faithful_resolution": "~2.5e15 (utterly infeasible; ~30x the RAM wall even before timestep cost)"
+  },
+  "geode_comparison": {
+    "source": "benchmarks/patch_antenna_conformal/conformal_results.toml",
+    "method": "unstructured tetrahedral Nedelec H(curl) FEM shape adjoint, single reused factorization",
+    "result": "full 73-DOF freeform curved-conformal band match to worst-of-band -12.06 dB",
+    "cost": "6 optimization steps, 1 factorization per band frequency, seconds-to-minutes total; exact at fixed DOF (no staircasing)"
+  },
+  "conclusion": "FDTD-density on a structured Yee grid is not merely less accurate on this curved open radiator: representing the curved conductor requires ~R^3 cells and ~R^4 wall-clock, so a faithful discretization is computationally intractable (RAM wall at R>=14 on a 61 GB box; ~10^15 cells at the curve-faithful resolution). GEODE's conformal shape adjoint reaches the design at fixed DOF in seconds-to-minutes."
+}
