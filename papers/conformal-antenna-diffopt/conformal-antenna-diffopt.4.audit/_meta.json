@@ -1,0 +1,8 @@
+{
+  "critic": "paper-audit",
+  "scorecard_kind": "human-verdict",
+  "started": "2026-07-21T18:12:00Z",
+  "finished": "2026-07-21T18:23:01Z",
+  "model": "claude-fable-5",
+  "schema_version": 1
+}

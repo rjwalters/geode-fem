@@ -1,0 +1,190 @@
+\begin{thebibliography}{24}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Arens et~al.(2026)Arens, Griesmaier, Kn{\"o}ller, and
+  Schurr]{arens2026tubular}
+Tilo Arens, Roland Griesmaier, Marvin Kn{\"o}ller, and Raphael Schurr.
+\newblock Optimal design of tubular perfectly conducting objects in
+  electromagnetic chirality.
+\newblock \emph{arXiv preprint arXiv:2606.30891}, 2026.
+
+\bibitem[Balouchev et~al.(2024)Balouchev, D{\"o}lz, Nolte, Sch{\"o}ps, and
+  Torchio]{balouchev2024balun}
+Boian Balouchev, J{\"u}rgen D{\"o}lz, Maximilian Nolte, Sebastian Sch{\"o}ps,
+  and Riccardo Torchio.
+\newblock Isogeometric shape optimization of multi-tapered coaxial baluns
+  simulated by an integral equation method.
+\newblock \emph{arXiv preprint arXiv:2406.19025}, 2024.
+
+\bibitem[Chung and Miller(2020)]{chung2020}
+Haejun Chung and Owen~D. Miller.
+\newblock High-{NA} achromatic metalenses by inverse design.
+\newblock \emph{Optics Express}, 28\penalty0 (5):\penalty0 6945--6965, 2020.
+\newblock \doi{10.1364/OE.385440}.
+
+\bibitem[Erentok and Sigmund(2011)]{erentok2011topology}
+Aycan Erentok and Ole Sigmund.
+\newblock Topology optimization of sub-wavelength antennas.
+\newblock \emph{IEEE Transactions on Antennas and Propagation}, 59\penalty0
+  (1):\penalty0 58--69, 2011.
+\newblock \doi{10.1109/TAP.2010.2090451}.
+
+\bibitem[{Flexcompute, Inc.}(2026)]{tidy3dautograd}
+{Flexcompute, Inc.}
+\newblock Tidy3d: hardware-accelerated {FDTD} with autograd shape and material
+  gradients ({PECConformal} subpixel averaging; {TriangleMesh} vertex gradients
+  and {PEC}-embedded-dielectric gradients on the 2.12 development branch).
+\newblock Software and changelog,
+  \url{https://github.com/flexcompute/tidy3d/blob/develop/CHANGELOG.md}, 2026.
+\newblock Version 2.12.0.dev, accessed 2026-07-21.
+
+\bibitem[Gelly et~al.(2026)Gelly, Elsawy, and Lanteri]{gelly2026dgtd}
+Roman Gelly, Mahmoud Elsawy, and St{\'e}phane Lanteri.
+\newblock Optimizing light in space and time: Inverse design of
+  spacetime-modulated metasurfaces via discontinuous {Galerkin} time-domain
+  method.
+\newblock \emph{Advanced Photonics Research}, 7\penalty0 (5), 2026.
+\newblock \doi{10.1002/adpr.70211}.
+
+\bibitem[Ghassemi et~al.(2013)Ghassemi, Bakr, and Sangary]{ghassemi2013}
+Nima Ghassemi, Mohamed~H. Bakr, and Nagula Sangary.
+\newblock Antenna design exploiting adjoint sensitivity-based geometry
+  evolution.
+\newblock \emph{IET Microwaves, Antennas \& Propagation}, 2013.
+\newblock \doi{10.1049/iet-map.2012.0374}.
+
+\bibitem[Ham et~al.(2020)Ham, Mitusch, and Schmidt]{ham2020}
+David~A. Ham, Sebastian~K. Mitusch, and Stephan Schmidt.
+\newblock Automatic shape derivatives for transient {PDE}s in {FEniCS} and
+  {Firedrake}.
+\newblock \emph{arXiv preprint arXiv:2001.10058}, 2020.
+
+\bibitem[Hammond et~al.(2022)Hammond, Oskooi, Chen, Lin, Johnson, and
+  Ralph]{hammond2022meepadjoint}
+Alec~M. Hammond, Ardavan Oskooi, Mo~Chen, Zin Lin, Steven~G. Johnson, and
+  Stephen~E. Ralph.
+\newblock High-performance hybrid time/frequency-domain topology optimization
+  for large-scale photonics inverse design.
+\newblock \emph{Optics Express}, 30\penalty0 (3):\penalty0 4467--4491, 2022.
+\newblock \doi{10.1364/OE.442074}.
+
+\bibitem[Hammond et~al.(2025)Hammond, Oskooi, Hammond, Chen, Ralph, and
+  Johnson]{hammond2025ssp}
+Alec~M. Hammond, Ardavan Oskooi, Ian~M. Hammond, Mo~Chen, Stephen~E. Ralph, and
+  Steven~G. Johnson.
+\newblock Unifying and accelerating level-set and density-based topology
+  optimization by subpixel-smoothed projection.
+\newblock \emph{arXiv preprint arXiv:2503.20189}, 2025.
+
+\bibitem[Hooten et~al.(2025)]{hooten2025}
+Sean Hooten et~al.
+\newblock Automatic differentiation accelerated shape optimization approaches
+  to photonic inverse design on rectilinear simulation grids.
+\newblock \emph{Laser \& Photonics Reviews}, 2025.
+\newblock \doi{10.1002/lpor.202301199}.
+
+\bibitem[Hughes et~al.(2019)Hughes, Williamson, Minkov, and
+  Fan]{hughes2019forward}
+Tyler~W. Hughes, Ian A.~D. Williamson, Momchil Minkov, and Shanhui Fan.
+\newblock Forward-mode differentiation of {Maxwell}'s equations.
+\newblock \emph{ACS Photonics}, 6\penalty0 (11):\penalty0 3010--3016, 2019.
+\newblock \doi{10.1021/acsphotonics.9b01238}.
+
+\bibitem[Liu and Bonar(2024)]{liu2024imagerep}
+Zhaocheng Liu and Jim Bonar.
+\newblock Differential shape optimization with image representation for
+  photonic design.
+\newblock \emph{arXiv preprint arXiv:2410.13074}, 2024.
+
+\bibitem[Mahlau et~al.(2024)Mahlau, Schubert, Bethmann, Caspary, Lesina,
+  Munderloh, Ostermann, and Rosenhahn]{fdtdx}
+Yannik Mahlau, Frederik Schubert, Konrad Bethmann, Reinhard Caspary,
+  Antonio~Cal{\`a} Lesina, Marco Munderloh, J{\"o}rn Ostermann, and Bodo
+  Rosenhahn.
+\newblock A flexible framework for large-scale {FDTD} simulations: Open-source
+  inverse design for {3D} nanostructures ({FDTDX}).
+\newblock \emph{arXiv preprint arXiv:2412.12360}, 2024.
+
+\bibitem[Mahlau et~al.(2026)Mahlau, Schubert, Berg, and
+  Rosenhahn]{mahlau2026fdtdx}
+Yannik Mahlau, Frederik Schubert, Lukas Berg, and Bodo Rosenhahn.
+\newblock {FDTDX}: High-performance open-source {FDTD} simulation with
+  automatic differentiation.
+\newblock \emph{Journal of Open Source Software}, 11\penalty0 (117):\penalty0
+  8912, 2026.
+\newblock \doi{10.21105/joss.08912}.
+
+\bibitem[{Meep developers}(2026)]{meepadjointdocs}
+{Meep developers}.
+\newblock Meep adjoint solver documentation: material-grid adjoint gradients
+  unsupported for dispersive and metallic media.
+\newblock Online documentation,
+  \url{https://meep.readthedocs.io/en/latest/Python_Tutorials/Adjoint_Solver/},
+  2026.
+\newblock Accessed 2026-07-21.
+
+\bibitem[Oskooi et~al.(2010)Oskooi, Roundy, Ibanescu, Bermel, Joannopoulos, and
+  Johnson]{oskooi2010meep}
+Ardavan~F. Oskooi, David Roundy, Mihai Ibanescu, Peter Bermel, J.~D.
+  Joannopoulos, and Steven~G. Johnson.
+\newblock Meep: A flexible free-software package for electromagnetic
+  simulations by the {FDTD} method.
+\newblock \emph{Computer Physics Communications}, 181\penalty0 (3):\penalty0
+  687--702, 2010.
+\newblock \doi{10.1016/j.cpc.2009.11.008}.
+
+\bibitem[Piggott et~al.(2015)Piggott, Lu, Lagoudakis, Petykiewicz, Babinec, and
+  Vu{\v c}kovi{\'c}]{piggott2015}
+Alexander~Y. Piggott, Jesse Lu, Konstantinos~G. Lagoudakis, Jan Petykiewicz,
+  Thomas~M. Babinec, and Jelena Vu{\v c}kovi{\'c}.
+\newblock Inverse design and demonstration of a compact and broadband on-chip
+  wavelength demultiplexer.
+\newblock \emph{Nature Photonics}, 9:\penalty0 374--377, 2015.
+\newblock \doi{10.1038/nphoton.2015.69}.
+
+\bibitem[Romano et~al.(2026)Romano, Arrieta, and Johnson]{romano2026ssp2}
+Giuseppe Romano, Rodrigo Arrieta, and Steven~G. Johnson.
+\newblock Differentiating through binarized topology changes: Second-order
+  subpixel-smoothed projection.
+\newblock \emph{arXiv preprint arXiv:2601.10737}, 2026.
+
+\bibitem[Schubert(2024)]{invrsgym}
+Martin~F. Schubert.
+\newblock {invrs-gym}: A toolkit for nanophotonic inverse design research.
+\newblock \emph{arXiv preprint arXiv:2410.24132}, 2024.
+
+\bibitem[Su et~al.(2019)Su, Vercruysse, Skarda, Sapra, Petykiewicz, and Vu{\v
+  c}kovi{\'c}]{su_spinsb}
+Logan Su, Dries Vercruysse, Jinhie Skarda, Neil~V. Sapra, Jan~A. Petykiewicz,
+  and Jelena Vu{\v c}kovi{\'c}.
+\newblock Nanophotonic inverse design with {SPINS}: Software architecture and
+  practical considerations.
+\newblock \emph{arXiv preprint arXiv:1910.04829}, 2019.
+
+\bibitem[Sun et~al.(2025)Sun, Elsawaf, Zheng, Lin, Hsu, and
+  Sideris]{sun2025pngf}
+Jui-Hung Sun, Mohamed Elsawaf, Yifei Zheng, Ho-Chun Lin, Chia~Wei Hsu, and
+  Constantine Sideris.
+\newblock Near real-time full-wave inverse design of electromagnetic devices.
+\newblock \emph{arXiv preprint arXiv:2501.18054}, 2025.
+
+\bibitem[Takahashi(2025)]{takahashi2025tdbie}
+Toru Takahashi.
+\newblock An electromagnetic shape optimisation for perfectly electric
+  conductors by the time-domain boundary integral equations.
+\newblock \emph{Engineering with Computers}, 41\penalty0 (1):\penalty0
+  293--320, 2025.
+\newblock \doi{10.1007/s00366-024-01990-4}.
+
+\bibitem[Wang and Anderson(2011)]{wang2011}
+Li~Wang and W.~Kyle Anderson.
+\newblock Adjoint-based shape optimization for electromagnetic problems using
+  discontinuous {G}alerkin methods.
+\newblock \emph{AIAA Journal}, 49\penalty0 (6):\penalty0 1302--1305, 2011.
+\newblock \doi{10.2514/1.J050594}.
+
+\end{thebibliography}

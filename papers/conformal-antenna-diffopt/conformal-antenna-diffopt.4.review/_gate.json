@@ -1,0 +1,10 @@
+{
+  "gate": "render_gate",
+  "version_dir": "conformal-antenna-diffopt.4",
+  "passed": null,
+  "skipped": true,
+  "reason": "compile-log.txt absent -- paper-audit has not run on v4; render-gate fails open (expected at review time). Reviewer performed a voluntary scratch-directory rebuild for evidence: pdflatex/bibtex/pdflatex x2 all exit 0, 12 pages, 0 undefined citations/references, committed main.bbl byte-identical to rebuild, 5 overfull hboxes >5pt (92.93pt Sec 3.4; 89.55/57.83/15.48pt availability section; 7.91pt intro bullet). Folded into dim 7 + comments.md as a minor finding, not raised as gate critical flags (v3 shipped AUDITED with 4 overfulls, worst 160.97pt).",
+  "pdf_path": "conformal-antenna-diffopt.4/main.pdf",
+  "log_path": "conformal-antenna-diffopt.4.audit/compile-log.txt",
+  "critical_flags": []
+}
