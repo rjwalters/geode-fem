@@ -161,45 +161,54 @@ cloud_guard_enabled() {
 }
 
 # =============================================================================
-# rm-scope repo mode toggle — default OFF (opt-in).
+# rm-scope repo mode toggle — default REPO (safe-by-default; opt out to off).
 #
-# By default this guard blocks only catastrophic rm targets (root, $HOME, and
-# bare top-level dirs) and ALLOWS every deeper subpath — including subpaths
-# OUTSIDE the repo (e.g. `rm -rf /Users/someone/important`). That permissive
-# default ships unchanged so existing installs see zero behaviour change.
-#
-# Opt-in `repo` mode (guards.rmScope:"repo" / LOOM_RM_SCOPE=repo) additionally
+# As of issue #3628 (ADR Option B) this guard defaults to `repo` mode: it
 # DENIES any rm target that is neither under the repo / worktree areas nor on a
-# built-in ephemeral allowlist (system temp dirs + the Claude scratchpad). The
-# catastrophic top-level deny stays unconditional in BOTH modes, so bare /tmp
-# and / are still blocked.
+# built-in ephemeral allowlist (system temp dirs + the Claude scratchpad), in
+# addition to the catastrophic top-level deny. A zero-config install therefore
+# gets outside-repo rm protection out of the box (e.g. `rm -rf
+# /Users/someone/important` is DENIED).
+#
+# The legacy permissive behaviour — block only catastrophic rm targets (root,
+# $HOME, bare top-level dirs) and ALLOW every deeper subpath including subpaths
+# OUTSIDE the repo — is now an explicit opt-out: guards.rmScope:"off" (or the
+# synonym "permissive") / LOOM_RM_SCOPE=off. Consumers who relied on the old
+# permissive default must set one of those to restore it.
+#
+# The catastrophic top-level deny stays unconditional in BOTH modes, so bare
+# /tmp and / are still blocked regardless of rmScope.
 #
 # Resolution order (highest precedence first):
-#   1. LOOM_RM_SCOPE env var (repo enables; off/0/no disables). Overrides config.
-#   2. .loom/config.json  ->  guards.rmScope == "repo"  (else off)
-#   3. Default: off (permissive, current behaviour)
+#   1. LOOM_RM_SCOPE env var (repo enables; off/0/no/permissive disables).
+#      Overrides config. Absent → falls through to config/default.
+#   2. .loom/config.json  ->  guards.rmScope: "off"/"permissive" => off;
+#      absent key / any other value / malformed JSON => repo (the new default).
+#   3. Default: repo (safe-by-default, current behaviour after #3628)
 #
 # Mirrors sql_guard_enabled() / cloud_guard_enabled(): cached in
 # _RM_SCOPE_CACHE, invoked LAZILY only after a candidate rm target survives the
 # catastrophic check, so the jq config read never touches the hot path for
 # non-rm commands. The config read is best-effort: any parse failure falls
-# through to OFF (no behaviour change) and never trips the ERR trap.
+# through to REPO (the safe default) and never trips the ERR trap.
 # =============================================================================
 _RM_SCOPE_CACHE=""
 rm_scope_repo_enabled() {
     if [[ -z "$_RM_SCOPE_CACHE" ]]; then
-        local mode=off
+        local mode=repo
         if [[ -n "$REPO_ROOT" && -f "$REPO_ROOT/.loom/config.json" ]]; then
-            # Only an explicit guards.rmScope == "repo" enables the mode; any
-            # other value, a missing key, or malformed JSON stays OFF (the jq
-            # non-zero exit is caught by the `||` fallback).
-            mode=$(jq -r 'if .guards.rmScope == "repo" then "repo" else "off" end' "$REPO_ROOT/.loom/config.json" 2>/dev/null) || mode=off
-            [[ -n "$mode" ]] || mode=off
+            # Only an explicit guards.rmScope of "off" or "permissive" opts out
+            # to the legacy permissive behaviour; any other value, a missing
+            # key, or malformed JSON resolves to "repo" (the safe default — the
+            # jq non-zero exit on malformed JSON is caught by the `||`
+            # fallback, which also resolves to repo).
+            mode=$(jq -r 'if (.guards.rmScope == "off" or .guards.rmScope == "permissive") then "off" else "repo" end' "$REPO_ROOT/.loom/config.json" 2>/dev/null) || mode=repo
+            [[ -n "$mode" ]] || mode=repo
         fi
         # Env override wins over config.
         case "${LOOM_RM_SCOPE:-}" in
-            repo)         mode=repo ;;
-            off|0|no)     mode=off ;;
+            repo)                  mode=repo ;;
+            off|0|no|permissive)   mode=off ;;
         esac
         _RM_SCOPE_CACHE="$mode"
     fi
@@ -231,6 +240,186 @@ resolve_worktree_root() {
     fi
     # 3. Default — in-repo worktrees dir.
     printf '%s/.loom/worktrees' "$repo_root"
+}
+
+# =============================================================================
+# force-op branch-scope toggle — default ALL (preserve current behaviour).
+#
+# The three generic force-op ASK patterns (git push --force / -f /
+# --force-with-lease and git reset --hard) prompt on EVERY match regardless of
+# which branch is targeted. For an autonomous/background agent that cannot answer
+# an interactive prompt, that stalls the agent on routine own-branch rebase /
+# amend / reset work. The genuinely dangerous case is a force op against a
+# PROTECTED branch (the repo default plus main/master), which stays a hard deny
+# via ALWAYS_BLOCK_PATTERNS for the explicit main/master forms.
+#
+# guards.forceScope selects the behaviour:
+#   "all"       (default) — ask on every force op, exactly as before (#3674).
+#   "protected"           — ask only when the resolved target is a protected
+#                           branch (repo default / main / master) or the branch
+#                           identity is ambiguous (detached HEAD); allow force
+#                           ops on the agent's own working branches.
+#   "off"                 — never ask/deny on force ops. The unconditional
+#                           main/master hard-denies in ALWAYS_BLOCK_PATTERNS
+#                           STILL apply in every mode, including "off".
+#
+# Resolution order (highest precedence first):
+#   1. LOOM_FORCE_SCOPE env var (all/protected/off). Overrides config.
+#   2. .loom/config.json  ->  guards.forceScope: "protected"/"off"; absent key /
+#      any other value / malformed JSON => "all" (the current-behaviour default).
+#   3. Default: all (preserve current behaviour byte-for-byte)
+#
+# Mirrors sql_guard_enabled() / rm_scope_repo_enabled(): cached in
+# _FORCE_SCOPE_CACHE, invoked LAZILY only after a command plausibly carries a
+# force op, so the jq config read never touches the hot path for the ~99% of
+# commands that are not force ops. The config read is best-effort: any parse
+# failure falls through to "all" (the safe default) and never trips the ERR trap.
+# =============================================================================
+_FORCE_SCOPE_CACHE=""
+force_scope_mode() {
+    if [[ -z "$_FORCE_SCOPE_CACHE" ]]; then
+        local mode=all
+        if [[ -n "$REPO_ROOT" && -f "$REPO_ROOT/.loom/config.json" ]]; then
+            # jq // is alternative-on-null, not default-on-missing, so use an
+            # explicit if/elif/else: only "protected"/"off" opt away from the
+            # default. A missing key, any other value, or malformed JSON (jq
+            # exits non-zero, caught by ||) resolves to "all".
+            mode=$(jq -r 'if (.guards.forceScope == "protected") then "protected" elif (.guards.forceScope == "off") then "off" else "all" end' "$REPO_ROOT/.loom/config.json" 2>/dev/null) || mode=all
+            [[ -n "$mode" ]] || mode=all
+        fi
+        # Env override wins over config.
+        case "${LOOM_FORCE_SCOPE:-}" in
+            all)         mode=all ;;
+            protected)   mode=protected ;;
+            off)         mode=off ;;
+        esac
+        _FORCE_SCOPE_CACHE="$mode"
+    fi
+    printf '%s' "$_FORCE_SCOPE_CACHE"
+}
+
+# Resolve the repository's default branch name for the protected-branch set.
+# Inlined, offline-first detection mirroring loom_default_branch() in
+# defaults/scripts/lib/default-branch.sh, replicated here so the hook stays
+# self-contained (same rationale as resolve_worktree_root() mirroring
+# loom_worktree_root() rather than sourcing it). Deliberately OMITS the network
+# `git ls-remote` fallback — a PreToolUse hook must never touch the network — so
+# resolution is env-var / local-ref only; the main/master literals in the
+# protected set below cover the common case when local detection yields nothing.
+# Best-effort: echoes the branch name or nothing on failure. Only invoked in
+# "protected" mode after a force op has already matched.
+resolve_default_branch() {
+    local dir="$1"
+    # 1. Env var override — highest priority (escape hatch + test seam).
+    if [[ -n "${LOOM_DEFAULT_BRANCH:-}" ]]; then
+        printf '%s' "$LOOM_DEFAULT_BRANCH"
+        return 0
+    fi
+    [[ -z "$dir" ]] && return 0
+    # 2. Local symbolic ref for origin/HEAD — offline, no network.
+    local sref
+    sref=$(git -C "$dir" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)
+    if [[ -n "$sref" ]]; then
+        printf '%s' "${sref#origin/}"
+        return 0
+    fi
+    # 3. Local probe: prefer main, then master, whichever remote ref exists.
+    local candidate
+    for candidate in main master; do
+        if git -C "$dir" show-ref --verify --quiet "refs/remotes/origin/$candidate" 2>/dev/null; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+    # 4. No local answer — echo nothing (caller's main/master literals cover it).
+    return 0
+}
+
+# Parse force-op segments out of a command, emitting one TAB-separated
+# "<cpath>\t<target>" line per genuine git force-push / hard-reset. Portable awk
+# only (mirrors extract_rm_targets / lifecycle_or_cloud_reason segment parsing):
+#   - split on ; | & && || and newline, strip a leading sudo wrapper.
+#   - only a segment whose command word is `git` is considered.
+#   - `git -C <path> ...` sets <cpath>; other pre-subcommand global options are
+#     skipped (`-c <k=v>` consumes its argument).
+#   - push: emitted only when a --force/-f/--force-with-lease flag is present.
+#     ONE line is emitted per positional refspec (pos[2], pos[3], …) after the
+#     remote — a multi-refspec push like `git push --force origin a b` emits a
+#     line for `a` AND `b`, so a protected branch in any refspec position (not
+#     just the first) reaches the caller's per-line check (#3674 follow-up).
+#     <target> is the destination branch parsed from each refspec —
+#       * `<src>:<dst>` form => <dst>
+#       * a bare ref        => the ref with a leading `+` stripped
+#       * `HEAD`, or no ref => the literal "@HEAD@" (resolve checked-out branch)
+#   - reset --hard: always emitted with <target> = "@HEAD@".
+# The caller resolves "@HEAD@" to the checked-out branch and applies the mode.
+parse_force_ops() {
+    printf '%s' "$1" | awk '
+    BEGIN { SEP = sprintf("%c", 31) }  # US (unit separator) — non-whitespace so
+                                       # bash read does not trim an empty cpath.
+    {
+        gsub(/&&|\|\||[;|&]/, "\n")
+        n = split($0, segs, "\n")
+        for (i = 1; i <= n; i++) {
+            seg = segs[i]
+            sub(/^[ \t]+/, "", seg)
+            sub(/^sudo[ \t]+/, "", seg)
+            sub(/^[ \t]+/, "", seg)
+            m = split(seg, toks, /[ \t]+/)
+            if (m == 0) continue
+            if (toks[1] != "git") continue
+            # Walk global options between `git` and the subcommand.
+            cpath = ""
+            k = 2
+            while (k <= m) {
+                t = toks[k]
+                if (t == "-C") { cpath = toks[k+1]; k += 2; continue }
+                if (t == "-c") { k += 2; continue }
+                if (t ~ /^-/)  { k += 1; continue }
+                break
+            }
+            if (k > m) continue
+            subcmd = toks[k]
+            if (subcmd == "push") {
+                force = 0
+                np = 0
+                # pos is a file-global awk array; clear it per segment
+                # (portable — split with an empty string empties the array) so
+                # refspecs from a prior segment cannot leak into this one now
+                # that we read every positional slot, not just pos[2].
+                split("", pos)
+                for (j = k+1; j <= m; j++) {
+                    t = toks[j]
+                    if (t == "--force" || t == "-f" || t == "--force-with-lease" || t ~ /^--force-with-lease=/) { force = 1; continue }
+                    if (t ~ /^-/) continue
+                    np++
+                    pos[np] = t
+                }
+                if (!force) continue
+                # pos[1] is the remote; pos[2..np] are refspecs. Emit ONE line per
+                # positional refspec so a protected branch in ANY refspec position
+                # (not just the first) reaches the per-line check in the caller. A
+                # bare push with no refspec (np < 2) resolves the checked-out branch.
+                if (np < 2) {
+                    print cpath SEP "@HEAD@"
+                } else {
+                    for (p = 2; p <= np; p++) {
+                        rs = pos[p]
+                        sub(/^\+/, "", rs)
+                        ci = index(rs, ":")
+                        if (ci > 0) rs = substr(rs, ci + 1)
+                        target = "@HEAD@"
+                        if (rs != "HEAD" && rs != "") target = rs
+                        print cpath SEP target
+                    }
+                }
+            } else if (subcmd == "reset") {
+                hard = 0
+                for (j = k+1; j <= m; j++) if (toks[j] == "--hard") hard = 1
+                if (hard) print cpath SEP "@HEAD@"
+            }
+        }
+    }'
 }
 
 # Helper: output a deny decision and exit
@@ -686,14 +875,76 @@ if echo "$COMMAND_NO_COMMENT" | grep -qiE 'DELETE[[:space:]]+FROM[[:space:]]+' &
 fi
 
 # =============================================================================
+# FORCE-OP BRANCH SCOPE - branch-aware git push --force / git reset --hard
+#
+# Gated by guards.forceScope / LOOM_FORCE_SCOPE (see force_scope_mode() above).
+#   - "all"       (default): every force op asks — byte-for-byte the pre-#3674
+#                            behaviour, so existing tests still see an ask.
+#   - "protected"          : ask only when the resolved target is a protected
+#                            branch (repo default / main / master) or the branch
+#                            identity is ambiguous (detached HEAD / unresolved);
+#                            own working branches pass straight through.
+#   - "off"                : never ask/deny here.
+#
+# The explicit main/master force-push hard-denies in ALWAYS_BLOCK_PATTERNS above
+# already fired for those forms and are NOT reachable here in ANY mode — this
+# block only ever downgrades to ask/allow, never weakens a hard deny.
+#
+# A cheap pre-check keeps the config read + segment parser off the hot path for
+# the ~99% of commands with no force flag at all.
+# =============================================================================
+if [[ "$COMMAND_NO_COMMENT" == *git* ]] && \
+   echo "$COMMAND_NO_COMMENT" | grep -qE '(--force|--force-with-lease|(^|[[:space:]])-f([[:space:]]|$)|--hard)'; then
+    _FORCE_MODE=$(force_scope_mode)
+    if [[ "$_FORCE_MODE" != "off" ]]; then
+        _FORCE_OPS=$(parse_force_ops "$COMMAND_NO_COMMENT")
+        if [[ -n "$_FORCE_OPS" ]]; then
+            if [[ "$_FORCE_MODE" == "all" ]]; then
+                # Preserve pre-#3674 behaviour byte-for-byte: any force op asks.
+                ask "Command requires confirmation: $COMMAND"
+            fi
+            # "protected" mode: ask only for protected-branch or ambiguous
+            # targets; allow own working branches. resolve_default_branch() plus
+            # the main/master literals form the protected set.
+            while IFS=$'\037' read -r _fcpath _ftarget; do
+                [[ -z "$_ftarget" ]] && _ftarget="@HEAD@"
+                _fcwd="$_fcpath"
+                [[ -z "$_fcwd" ]] && _fcwd="$CWD"
+                if [[ "$_ftarget" == "@HEAD@" ]]; then
+                    _fbranch=""
+                    if [[ -n "$_fcwd" ]]; then
+                        _fbranch=$(git -C "$_fcwd" symbolic-ref --short HEAD 2>/dev/null || true)
+                    fi
+                    if [[ -z "$_fbranch" ]]; then
+                        # Detached HEAD / unresolved identity is ambiguous — ask,
+                        # never silently allow (fail toward asking).
+                        ask "Command requires confirmation: $COMMAND (force operation on a detached or unresolved branch)"
+                    fi
+                    _ftarget="$_fbranch"
+                fi
+                _fdefault=$(resolve_default_branch "$_fcwd")
+                if [[ "$_ftarget" == "main" || "$_ftarget" == "master" ]] || \
+                   { [[ -n "$_fdefault" && "$_ftarget" == "$_fdefault" ]]; }; then
+                    ask "Command requires confirmation: $COMMAND (force operation targets protected branch '$_ftarget')"
+                fi
+            done <<< "$_FORCE_OPS"
+            # No protected/ambiguous target matched — fall through to allow.
+        fi
+    fi
+fi
+
+# =============================================================================
 # REQUIRE CONFIRMATION - Potentially dangerous but sometimes legitimate
 # =============================================================================
 
 ASK_PATTERNS=(
-    # Git destructive operations (not on main/master - those are blocked above)
-    'git push --force'
-    'git push -f '
-    'git reset --hard'
+    # NOTE: the force-op patterns (git push --force / -f / --force-with-lease and
+    # git reset --hard) are NOT in this ungated array. They are handled by the
+    # branch-aware FORCE-OP BRANCH SCOPE block above, gated by
+    # force_scope_mode() (guards.forceScope / LOOM_FORCE_SCOPE, #3674), so an
+    # autonomous agent can force-push / hard-reset its own working branch without
+    # a stall while protected-branch force ops still ask. git clean / checkout .
+    # / restore . stay here — they are not force ops and have no branch scope.
     'git clean -fd'
     'git checkout \.'
     'git restore \.'
@@ -735,6 +986,33 @@ for pattern in "${ASK_PATTERNS[@]}"; do
         ask "Command requires confirmation: $COMMAND"
     fi
 done
+
+# =============================================================================
+# git read-tree WITHOUT an isolating GIT_INDEX_FILE assignment
+#
+# A bare `git read-tree` (no tree-ish, no isolated index) is equivalent to
+# `git read-tree --empty`: it clobbers the repository's REAL staging index,
+# turning every tracked file into a phantom staged deletion. The working tree
+# and HEAD are left untouched and NO reflog entry is written, so the corruption
+# is silent and near-invisible (issue #3637 — a judge ran one against the main
+# checkout during a merge simulation and emptied the live index).
+#
+# This is an ASK (not a deny) because it is generic git hygiene, not a Loom
+# workflow rule, and an isolated form is legitimate. It is kept narrow: the
+# safe, index-free path is `git merge-tree --write-tree <base> <branch>` for a
+# merge preview, or `GIT_INDEX_FILE=$(mktemp) git read-tree <tree>` when a
+# temporary index really is needed. Any command that carries a `GIT_INDEX_FILE=`
+# assignment is treated as isolated and passes through untouched.
+#
+# `git commit-tree` is intentionally NOT guarded here — it writes a commit
+# object from an existing tree and does not mutate the index.
+# =============================================================================
+if echo "$COMMAND_NO_COMMENT" | grep -qE '(^|[;&|(]|[[:space:]])git[[:space:]]+read-tree'; then
+    # Isolated form (GIT_INDEX_FILE=... git read-tree ...) is allowed.
+    if ! echo "$COMMAND_NO_COMMENT" | grep -qE 'GIT_INDEX_FILE='; then
+        ask "Command requires confirmation: $COMMAND (a bare 'git read-tree' empties the real staging index with no reflog trace; use 'git merge-tree --write-tree <base> <branch>' for a merge preview, or isolate with GIT_INDEX_FILE=\$(mktemp))"
+    fi
+fi
 
 # =============================================================================
 # CLOUD CLI ASK patterns — gated by the cloud CLI guard toggle
