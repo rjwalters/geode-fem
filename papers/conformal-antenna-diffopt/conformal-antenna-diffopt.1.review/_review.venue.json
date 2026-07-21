@@ -1,0 +1,21 @@
+{
+  "version_dir": "conformal-antenna-diffopt.1",
+  "critic_id": "paper-review-venue",
+  "rubric": "anvil-pub-neurips-v1",
+  "scores": [
+    { "id": "soundness", "name": "Technical soundness", "score": 3, "max": 4 },
+    { "id": "presentation", "name": "Quality of presentation", "score": 1, "max": 2 },
+    { "id": "contribution", "name": "Significance of contribution", "score": 2, "max": 4 },
+    { "id": "novelty", "name": "Originality vs. prior work", "score": 2, "max": 3 },
+    { "id": "reproducibility", "name": "Reproducibility", "score": 2, "max": 3 }
+  ],
+  "findings": [
+    { "severity": "major", "type": "missing_baseline", "note": "The structured-grid contrast implied by the title/framing is unmeasured — a NeurIPS reviewer would expect at least a staircased-FDTD or low-DOF parametric baseline. Advisory venue signal; does NOT block the /44 gate." },
+    { "severity": "major", "note": "Soundness docked 1: single fixture, no ablation isolating the load-bearing design choice, though the headline reachability claim is well-supported." },
+    { "severity": "minor", "note": "Presentation docked 1: two unrendered placeholder figures; title/body tension." },
+    { "severity": "minor", "note": "Novelty docked 1: positioning prose is accurate but the load-bearing wang2011 bib entry is malformed; re-resolve before final." },
+    { "severity": "minor", "type": "reproducibility", "note": "Artifact of record is well-specified but lives on an unmerged feature branch with no body-level availability statement." }
+  ],
+  "critical_flags": [],
+  "total": 10
+}
