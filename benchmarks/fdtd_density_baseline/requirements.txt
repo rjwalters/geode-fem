@@ -1,0 +1,24 @@
+# FDTD-density baseline harness — epic #647 Phase 4 (issue #651)
+#
+# Two tracks (see README.md):
+#
+#   ceviche / 2D FDFD track  — pinned versions below. Python 3.14 works
+#     for this track (verified: ceviche 0.1.3 + autograd 1.9.1 + numpy
+#     2.5.1 + scipy 1.18.0 import & construct a simulation on 3.14).
+#     staircasing_demo.py needs only numpy/scipy (no ceviche).
+#
+#   Meep / 3D adjoint-FDTD track — NOT installable from this file. pymeep
+#     ships only via conda-forge and does not support Python 3.14; it needs
+#     a separate conda env. See the "Meep-3D operator runbook" in README.md.
+#
+# Install the 2D track (into a Python >=3.11 venv):
+#   python -m pip install -r requirements.txt
+
+ceviche==0.1.3
+autograd==1.9.1
+numpy==2.5.1
+scipy==1.18.0
+
+# Optional: plotting for staircasing_demo.py. If matplotlib is absent the
+# demo falls back to a CSV and skips the PNG (it never hard-fails on it).
+matplotlib==3.11.1

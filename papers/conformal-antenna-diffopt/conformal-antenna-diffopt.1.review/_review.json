@@ -1,0 +1,31 @@
+{
+  "version_dir": "conformal-antenna-diffopt.1",
+  "critic_id": "paper-review",
+  "rubric": "anvil-pub-v2",
+  "scores": [
+    { "id": 1, "name": "Rigor of method / argument", "score": 5, "max": 6 },
+    { "id": 2, "name": "Evidence sufficiency", "score": 3, "max": 6 },
+    { "id": 3, "name": "Clarity of contribution", "score": 5, "max": 5 },
+    { "id": 4, "name": "Related-work positioning", "score": 5, "max": 5 },
+    { "id": 5, "name": "Reproducibility", "score": 4, "max": 5 },
+    { "id": 6, "name": "Figure & table quality", "score": 2, "max": 4 },
+    { "id": 7, "name": "Prose & structural quality", "score": 4, "max": 4 },
+    { "id": 8, "name": "Citation hygiene", "score": 3, "max": 5 },
+    { "id": 9, "name": "Rhetorical economy", "score": 3, "max": 4 }
+  ],
+  "findings": [
+    { "severity": "major", "section": "title", "note": "Title asserts 'Structured-Grid Inverse Design Cannot Reach' — a comparative claim with no supporting experiment; body correctly defers the head-to-head. Retitle to a reachability claim or run the comparison." },
+    { "severity": "major", "section": "Results/Discussion (§4,§5)", "note": "Evidence rests on a single fixture with no baseline or ablation isolating the 73-DOF/harmonic-morph design choices." },
+    { "severity": "major", "section": "refs.bib (wang2011)", "note": "Load-bearing prior-work entry has a garbled/conflated title (two titles merged). Route to paper-litsearch re-run to re-resolve DOI 10.2514/1.J050594 and confirm claim support.", "tags": ["related-work"] },
+    { "severity": "major", "section": "Method/Results (§3,§4 figures)", "note": "Both figures are unrendered placeholders (only figures/src/ exists); run paper-figures." },
+    { "severity": "minor", "section": "Results/Discussion (§4,§5)", "note": "No body-level code/artifact-availability statement; repo+commit live only in the .tex header comment, and the artifact is on an unmerged feature branch." },
+    { "severity": "minor", "section": "Results (§4)", "note": "Prior single-DOF capstone 'FD relative error ~1e-9' traces to no cited artifact." },
+    { "severity": "minor", "section": "refs.bib (ghassemi2013)", "note": "Entry missing volume/number/pages." },
+    { "severity": "minor", "section": "abstract/§1/§2.4/§5/§6", "note": "The 'narrow previously-unoccupied combination' + three-differentiators thesis is restated in five places." },
+    { "severity": "minor", "section": "Method/Results (§3,§4)", "note": "Paper reframes bend_radius_mm/pml_thick_mm/port_resistance_ohm as dimensionless natural units; note the artifact field-name suffixes to pre-empt reader confusion." }
+  ],
+  "critical_flags": [],
+  "total": 34,
+  "threshold": 35,
+  "verdict": "revise"
+}
