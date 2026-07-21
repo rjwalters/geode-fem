@@ -1,0 +1,20 @@
+{
+  "version_dir": "conformal-antenna-diffopt.4",
+  "critic_id": "paper-review-venue",
+  "rubric": "anvil-pub-neurips-v1",
+  "scores": [
+    { "id": "soundness", "dimension": "Technical soundness", "score": 3, "max": 4 },
+    { "id": "presentation", "dimension": "Quality of presentation", "score": 2, "max": 2 },
+    { "id": "contribution", "dimension": "Significance of contribution", "score": 3, "max": 4 },
+    { "id": "novelty", "dimension": "Originality vs. prior work", "score": 3, "max": 3 },
+    { "id": "reproducibility", "dimension": "Reproducibility", "score": 3, "max": 3 }
+  ],
+  "findings": [
+    { "severity": "major", "section": "Evaluation / significance", "note": "Significance still rests on a single GEODE fixture plus a measured-but-indirect intractability argument; a NeurIPS reviewer would ask for the converged head-to-head and/or a bend-radius/band sweep (unchanged from v2 — numbers frozen this pass)." },
+    { "severity": "minor", "section": "Soundness", "note": "The v2 'scope the categorical claim' finding is now RESOLVED: Sec 2 rescopes the title as a fidelity claim, Sec 5.3 scopes the compute axis as a matched single-process open-source comparison, and PNGF/Tidy3D are named as the objections the scoping answers." },
+    { "severity": "minor", "section": "Novelty", "note": "Novelty raised 2/3 -> 3/3: the closest current practice (Tidy3D autograd 2.12-dev, SSP/SSP2, PNGF, FDTDX JOSS, IE/BEM PEC shape work) is now cited and engaged accurately per the .3.litsearch no-scoop re-scan; the combination claim is stated once and honestly bounded." },
+    { "severity": "minor", "section": "Presentation", "note": "Two ~90pt overfull lines (Sec 3.4 call signature; availability path) intrude visibly into the margin in the rendered PDF; cosmetic but below camera-ready polish." }
+  ],
+  "critical_flags": [],
+  "total": 14
+}

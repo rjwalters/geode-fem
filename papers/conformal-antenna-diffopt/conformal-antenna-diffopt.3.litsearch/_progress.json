@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "thread": "conformal-antenna-diffopt",
+  "phases": {
+    "litsearch": {
+      "state": "done",
+      "started": "2026-07-21T17:58:58+00:00",
+      "completed": "2026-07-21T17:58:58+00:00"
+    }
+  },
+  "metadata": {
+    "iteration": 3,
+    "max_iterations": 4,
+    "trigger": "issue #659 items 4+5 \u2014 pre-submission novelty re-scan + litsearch-gap closure"
+  }
+}

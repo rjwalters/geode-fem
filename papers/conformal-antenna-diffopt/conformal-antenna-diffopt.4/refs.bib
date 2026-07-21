@@ -1,0 +1,293 @@
+% Bibliography for the conformal-antenna differentiable inverse-design paper.
+% v4 (2026-07-21, #659): the 9 entries carried from .3 are unchanged. Fifteen
+% entries added, none invented by the reviser:
+%   - 4 base entries (hughes2019forward, hammond2022meepadjoint, oskooi2010meep,
+%     erentok2011topology) copied from the thread-root refs.bib, each DOI
+%     resolver-verified (CrossRef + doi.org) — closing the .2/.3
+%     named-but-uncited gaps.
+%   - 11 entries merged from conformal-antenna-diffopt.3.litsearch/candidates.bib
+%     (pre-submission novelty re-scan): 9 resolver-verified via
+%     anvil/lib/cite.py::resolve() (Crossref / arXiv API) and 2 URL-verified
+%     software/docs references (tidy3dautograd, meepadjointdocs). arXiv misc
+%     entries were normalized to this file's house style (article entries with
+%     "arXiv preprint" journal + eprint/archivePrefix); non-ASCII characters
+%     were transliterated to LaTeX escapes. No identifier was altered.
+% The "Web leads (unverified)" items in the litsearch notes are NOT cited.
+
+@article{wang2011,
+  author  = {Wang, Li and Anderson, W. Kyle},
+  title   = {Adjoint-Based Shape Optimization for Electromagnetic Problems
+             Using Discontinuous {G}alerkin Methods},
+  journal = {AIAA Journal},
+  volume  = {49},
+  number  = {6},
+  pages   = {1302--1305},
+  year    = {2011},
+  doi     = {10.2514/1.J050594}
+}
+
+@article{ghassemi2013,
+  author  = {Ghassemi, Nima and Bakr, Mohamed H. and Sangary, Nagula},
+  title   = {Antenna Design Exploiting Adjoint Sensitivity-Based Geometry
+             Evolution},
+  journal = {IET Microwaves, Antennas \& Propagation},
+  year    = {2013},
+  doi     = {10.1049/iet-map.2012.0374}
+}
+
+@article{ham2020,
+  author        = {Ham, David A. and Mitusch, Sebastian K. and Schmidt, Stephan},
+  title         = {Automatic Shape Derivatives for Transient {PDE}s in {FEniCS}
+                   and {Firedrake}},
+  journal       = {arXiv preprint arXiv:2001.10058},
+  year          = {2020},
+  eprint        = {2001.10058},
+  archivePrefix = {arXiv}
+}
+
+@article{piggott2015,
+  author  = {Piggott, Alexander Y. and Lu, Jesse and
+             Lagoudakis, Konstantinos G. and Petykiewicz, Jan and
+             Babinec, Thomas M. and Vu{\v c}kovi{\'c}, Jelena},
+  title   = {Inverse Design and Demonstration of a Compact and Broadband
+             On-Chip Wavelength Demultiplexer},
+  journal = {Nature Photonics},
+  volume  = {9},
+  pages   = {374--377},
+  year    = {2015},
+  doi     = {10.1038/nphoton.2015.69}
+}
+
+@article{chung2020,
+  author  = {Chung, Haejun and Miller, Owen D.},
+  title   = {High-{NA} Achromatic Metalenses by Inverse Design},
+  journal = {Optics Express},
+  volume  = {28},
+  number  = {5},
+  pages   = {6945--6965},
+  year    = {2020},
+  doi     = {10.1364/OE.385440}
+}
+
+@article{hooten2025,
+  author        = {Hooten, Sean and others},
+  title         = {Automatic Differentiation Accelerated Shape Optimization
+                   Approaches to Photonic Inverse Design on Rectilinear
+                   Simulation Grids},
+  journal       = {Laser \& Photonics Reviews},
+  year          = {2025},
+  doi           = {10.1002/lpor.202301199},
+  eprint        = {2311.05646},
+  archivePrefix = {arXiv}
+}
+
+@article{fdtdx,
+  author        = {Mahlau, Yannik and Schubert, Frederik and Bethmann, Konrad and
+                   Caspary, Reinhard and Lesina, Antonio Cal{\`a} and
+                   Munderloh, Marco and Ostermann, J{\"o}rn and Rosenhahn, Bodo},
+  title         = {A Flexible Framework for Large-Scale {FDTD} Simulations:
+                   Open-Source Inverse Design for {3D} Nanostructures
+                   ({FDTDX})},
+  journal       = {arXiv preprint arXiv:2412.12360},
+  year          = {2024},
+  eprint        = {2412.12360},
+  archivePrefix = {arXiv}
+}
+
+@article{invrsgym,
+  author        = {Schubert, Martin F.},
+  title         = {{invrs-gym}: A Toolkit for Nanophotonic Inverse Design
+                   Research},
+  journal       = {arXiv preprint arXiv:2410.24132},
+  year          = {2024},
+  eprint        = {2410.24132},
+  archivePrefix = {arXiv}
+}
+
+@article{su_spinsb,
+  author        = {Su, Logan and Vercruysse, Dries and Skarda, Jinhie and
+                   Sapra, Neil V. and Petykiewicz, Jan A. and
+                   Vu{\v c}kovi{\'c}, Jelena},
+  title         = {Nanophotonic Inverse Design with {SPINS}: Software
+                   Architecture and Practical Considerations},
+  journal       = {arXiv preprint arXiv:1910.04829},
+  year          = {2019},
+  eprint        = {1910.04829},
+  archivePrefix = {arXiv}
+}
+
+% ---- v4 additions: base litsearch entries (thread-root refs.bib, #659) ----
+
+@article{hughes2019forward,
+  author  = {Hughes, Tyler W. and Williamson, Ian A. D. and Minkov, Momchil and
+             Fan, Shanhui},
+  title   = {Forward-Mode Differentiation of {Maxwell}'s Equations},
+  journal = {ACS Photonics},
+  volume  = {6},
+  number  = {11},
+  pages   = {3010--3016},
+  year    = {2019},
+  doi     = {10.1021/acsphotonics.9b01238}
+}
+
+@article{hammond2022meepadjoint,
+  author  = {Hammond, Alec M. and Oskooi, Ardavan and Chen, Mo and Lin, Zin and
+             Johnson, Steven G. and Ralph, Stephen E.},
+  title   = {High-performance hybrid time/frequency-domain topology
+             optimization for large-scale photonics inverse design},
+  journal = {Optics Express},
+  volume  = {30},
+  number  = {3},
+  pages   = {4467--4491},
+  year    = {2022},
+  doi     = {10.1364/OE.442074}
+}
+
+@article{oskooi2010meep,
+  author  = {Oskooi, Ardavan F. and Roundy, David and Ibanescu, Mihai and
+             Bermel, Peter and Joannopoulos, J. D. and Johnson, Steven G.},
+  title   = {Meep: A flexible free-software package for electromagnetic
+             simulations by the {FDTD} method},
+  journal = {Computer Physics Communications},
+  volume  = {181},
+  number  = {3},
+  pages   = {687--702},
+  year    = {2010},
+  doi     = {10.1016/j.cpc.2009.11.008}
+}
+
+@article{erentok2011topology,
+  author  = {Erentok, Aycan and Sigmund, Ole},
+  title   = {Topology Optimization of Sub-Wavelength Antennas},
+  journal = {IEEE Transactions on Antennas and Propagation},
+  volume  = {59},
+  number  = {1},
+  pages   = {58--69},
+  year    = {2011},
+  doi     = {10.1109/TAP.2010.2090451}
+}
+
+% ---- v4 additions: .3.litsearch/candidates.bib (novelty re-scan, #659) ----
+
+@article{hammond2025ssp,
+  author        = {Hammond, Alec M. and Oskooi, Ardavan and Hammond, Ian M. and
+                   Chen, Mo and Ralph, Stephen E. and Johnson, Steven G.},
+  title         = {Unifying and accelerating level-set and density-based
+                   topology optimization by subpixel-smoothed projection},
+  journal       = {arXiv preprint arXiv:2503.20189},
+  year          = {2025},
+  eprint        = {2503.20189},
+  archivePrefix = {arXiv}
+}
+
+@article{romano2026ssp2,
+  author        = {Romano, Giuseppe and Arrieta, Rodrigo and Johnson, Steven G.},
+  title         = {Differentiating through binarized topology changes:
+                   Second-order subpixel-smoothed projection},
+  journal       = {arXiv preprint arXiv:2601.10737},
+  year          = {2026},
+  eprint        = {2601.10737},
+  archivePrefix = {arXiv}
+}
+
+@article{sun2025pngf,
+  author        = {Sun, Jui-Hung and Elsawaf, Mohamed and Zheng, Yifei and
+                   Lin, Ho-Chun and Hsu, Chia Wei and Sideris, Constantine},
+  title         = {Near Real-time Full-wave Inverse Design of Electromagnetic
+                   Devices},
+  journal       = {arXiv preprint arXiv:2501.18054},
+  year          = {2025},
+  eprint        = {2501.18054},
+  archivePrefix = {arXiv}
+}
+
+@article{mahlau2026fdtdx,
+  author  = {Mahlau, Yannik and Schubert, Frederik and Berg, Lukas and
+             Rosenhahn, Bodo},
+  title   = {{FDTDX}: High-Performance Open-Source {FDTD} Simulation with
+             Automatic Differentiation},
+  journal = {Journal of Open Source Software},
+  volume  = {11},
+  number  = {117},
+  pages   = {8912},
+  year    = {2026},
+  doi     = {10.21105/joss.08912}
+}
+
+@article{liu2024imagerep,
+  author        = {Liu, Zhaocheng and Bonar, Jim},
+  title         = {Differential Shape Optimization with Image Representation
+                   for Photonic Design},
+  journal       = {arXiv preprint arXiv:2410.13074},
+  year          = {2024},
+  eprint        = {2410.13074},
+  archivePrefix = {arXiv}
+}
+
+@article{arens2026tubular,
+  author        = {Arens, Tilo and Griesmaier, Roland and Kn{\"o}ller, Marvin
+                   and Schurr, Raphael},
+  title         = {Optimal Design of Tubular Perfectly Conducting Objects in
+                   Electromagnetic Chirality},
+  journal       = {arXiv preprint arXiv:2606.30891},
+  year          = {2026},
+  eprint        = {2606.30891},
+  archivePrefix = {arXiv}
+}
+
+@article{takahashi2025tdbie,
+  author  = {Takahashi, Toru},
+  title   = {An electromagnetic shape optimisation for perfectly electric
+             conductors by the time-domain boundary integral equations},
+  journal = {Engineering with Computers},
+  volume  = {41},
+  number  = {1},
+  pages   = {293--320},
+  year    = {2025},
+  doi     = {10.1007/s00366-024-01990-4}
+}
+
+@article{balouchev2024balun,
+  author        = {Balouchev, Boian and D{\"o}lz, J{\"u}rgen and Nolte,
+                   Maximilian and Sch{\"o}ps, Sebastian and Torchio, Riccardo},
+  title         = {Isogeometric Shape Optimization of Multi-Tapered Coaxial
+                   Baluns Simulated by an Integral Equation Method},
+  journal       = {arXiv preprint arXiv:2406.19025},
+  year          = {2024},
+  eprint        = {2406.19025},
+  archivePrefix = {arXiv}
+}
+
+@article{gelly2026dgtd,
+  author  = {Gelly, Roman and Elsawy, Mahmoud and Lanteri, St{\'e}phane},
+  title   = {Optimizing Light in Space and Time: Inverse Design of
+             Spacetime-Modulated Metasurfaces via Discontinuous {Galerkin}
+             Time-Domain Method},
+  journal = {Advanced Photonics Research},
+  volume  = {7},
+  number  = {5},
+  year    = {2026},
+  doi     = {10.1002/adpr.70211}
+}
+
+@misc{tidy3dautograd,
+  author       = {{Flexcompute, Inc.}},
+  title        = {Tidy3D: hardware-accelerated {FDTD} with autograd shape and
+                  material gradients ({PECConformal} subpixel averaging;
+                  {TriangleMesh} vertex gradients and {PEC}-embedded-dielectric
+                  gradients on the 2.12 development branch)},
+  year         = {2026},
+  howpublished = {Software and changelog,
+                  \url{https://github.com/flexcompute/tidy3d/blob/develop/CHANGELOG.md}},
+  note         = {Version 2.12.0.dev, accessed 2026-07-21}
+}
+
+@misc{meepadjointdocs,
+  author       = {{Meep developers}},
+  title        = {Meep adjoint solver documentation: material-grid adjoint
+                  gradients unsupported for dispersive and metallic media},
+  year         = {2026},
+  howpublished = {Online documentation,
+                  \url{https://meep.readthedocs.io/en/latest/Python_Tutorials/Adjoint_Solver/}},
+  note         = {Accessed 2026-07-21}
+}
