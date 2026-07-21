@@ -1,0 +1,28 @@
+{
+  "version_dir": "conformal-antenna-diffopt.2",
+  "critic_id": "paper-review",
+  "rubric": "anvil-pub-v2",
+  "scores": [
+    { "id": 1, "dimension": "Rigor of method / argument", "score": 5, "max": 6 },
+    { "id": 2, "dimension": "Evidence sufficiency", "score": 4, "max": 6 },
+    { "id": 3, "dimension": "Clarity of contribution", "score": 5, "max": 5 },
+    { "id": 4, "dimension": "Related-work positioning", "score": 5, "max": 5 },
+    { "id": 5, "dimension": "Reproducibility", "score": 5, "max": 5 },
+    { "id": 6, "dimension": "Figure & table quality", "score": 3, "max": 4 },
+    { "id": 7, "dimension": "Prose & structural quality", "score": 4, "max": 4 },
+    { "id": 8, "dimension": "Citation hygiene", "score": 4, "max": 5 },
+    { "id": 9, "dimension": "Rhetorical economy", "score": 3, "max": 4 }
+  ],
+  "findings": [
+    { "severity": "minor", "section": "figure captions (Sec 3/4/5.2)", "note": "Stale '(Placeholder --- rendered by paper-figures ...)' text in all three captions though figures now render." },
+    { "severity": "minor", "section": "Title / Sec 5.3", "note": "Categorical 'cannot reach' / 'intractable' is demonstrated against single-process Meep on one 61 GB box; scope the claim to single-node." },
+    { "severity": "minor", "section": "Sec 5.1 staircasing table", "note": "Perimeter rel-err is non-monotonic (13.0/15.4/14.2/14.2%); a half-sentence would preempt reader confusion. Numbers verified correct vs staircasing_results.json." },
+    { "severity": "minor", "section": "Artifact availability", "note": "Names 'main branch' but no commit SHA; pin it for reproducibility." },
+    { "severity": "nit", "section": "Sec 2 Related Work", "note": "ceviche/Hughes 2019 and the Meep adjoint-solver reference are discussed but uncited (deferred to litsearch); resolve DOIs before submission.", "tags": ["related-work"] },
+    { "severity": "nit", "section": "global", "note": "Headline numbers (-5.51->-12.06 dB; ~R^3/~R^4) recur across abstract/intro/results/5.3/discussion/conclusion; Sec 5.3 recaps 5.1-5.2." }
+  ],
+  "critical_flags": [],
+  "total": 38,
+  "threshold": 35,
+  "verdict": "advance"
+}
