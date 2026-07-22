@@ -57,6 +57,9 @@ dist/
 !.env.example
 *.local.md
 /.voice/
+
+# Repo Skills machine-local install metadata (absolute source path + timestamp)
+.claude/skills/repo/.install-local.json
 # >>> loom-managed (do not edit) >>>
 # Loom runtime state (don't commit these)
 .loom-in-use
@@ -90,6 +93,3 @@ dist/
 .loom/*.sock
 .loom/logs/
 # <<< loom-managed <<<
-
-# Repo Skills machine-local install metadata (absolute source path + timestamp)
-.claude/skills/repo/.install-local.json
