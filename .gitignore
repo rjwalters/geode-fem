@@ -93,3 +93,6 @@ dist/
 
 # Repo Skills machine-local install metadata (absolute source path + timestamp)
 .claude/skills/repo/.install-local.json
+
+# Anvil paper-vision per-page render intermediates (regenerable at 200 DPI from main.pdf)
+papers/**/*.vision/pages/
