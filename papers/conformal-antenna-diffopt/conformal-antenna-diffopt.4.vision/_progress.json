@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "thread": "conformal-antenna-diffopt",
+  "for_version": 4,
+  "phases": {
+    "vision": {
+      "state": "done",
+      "started": "2026-07-21T22:24:10Z",
+      "completed": "2026-07-21T22:24:10Z"
+    }
+  }
+}
