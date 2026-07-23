@@ -9,6 +9,11 @@
 #       CWD_DELETED     — working directory was removed
 #       TOKEN_EXPIRED   — 401 / OAuth token expired (skip this token)
 #       TOKEN_EXHAUSTED — quota/weekly limit hit (rotate)
+#       MODEL_REFUSAL   — model safety classifier refused the turn
+#                         (stop_reason "refusal" on a non-zero-exit run);
+#                         a routing error, not a quality signal — the sweep
+#                         orchestrator drops one ladder rung (e.g. fable→opus)
+#                         WITHOUT consuming a Doctor cycle (see sweep.md).
 #       RECOVERABLE     — transient (rate limit, 5xx, network, etc.)
 #       FATAL           — non-recoverable (currently never returned;
 #                         reserved for future explicit FATAL signals)
@@ -51,14 +56,33 @@ classify_error() {
         return
     fi
 
+    # Model refusal (safety classifier declined the turn) — a `stop_reason`
+    # of "refusal" on a non-zero-exit run. This is a routing error, not a
+    # transport failure or a quality signal: the sweep orchestrator responds
+    # by dropping one ladder rung (e.g. fable→opus) WITHOUT consuming a Doctor
+    # cycle (see sweep.md, "Refusal-aware fallback"). Matched only on a genuine
+    # failure (exit_code != 0) so the exit-code-first #3233 guarantee holds — a
+    # clean exit whose output merely mentions "refusal" stays SUCCESS above.
+    if echo "$output" | grep -qiE '"?stop_reason"?[[:space:]]*[:=][[:space:]]*"?refusal'; then
+        echo "MODEL_REFUSAL"
+        return
+    fi
+
     # Token expired (401 auth error) — this specific token is bad
     if echo "$output" | grep -qiE "401[^a-z]*authentication_error|OAuth token has expired|token has expired"; then
         echo "TOKEN_EXPIRED"
         return
     fi
 
-    # Token exhausted (quota used up) — rotate to a different token
-    if echo "$output" | grep -qiE "hit your (limit|weekly limit)|hit.your.limit"; then
+    # Token exhausted (quota / session / weekly / usage limit) — rotate to a
+    # different token. The phrase set is widened (issue #3738) to cover the
+    # multi-word-gap variants the Claude CLI actually emits — "hit your
+    # session limit", "hit your weekly limit", an org's "monthly usage limit",
+    # and "out of extra usage". A naive `hit.your.limit` pattern misses the
+    # "session"/multi-word forms (there is filler between "your" and "limit").
+    # This regex is kept in lockstep with claude-wrapper.sh, which sources this
+    # file rather than duplicating the pattern (issue #3738).
+    if echo "$output" | grep -qiE "hit your (limit|session limit|weekly limit)|hit\.your\.limit|monthly usage limit|out of extra usage"; then
         echo "TOKEN_EXHAUSTED"
         return
     fi
