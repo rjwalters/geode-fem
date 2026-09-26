@@ -282,6 +282,9 @@ crates/
                      # (Epic #414)
   geode-app/         # shared application spine (logging / verbosity seam)
                      # for the GEODE-FEM example binaries
+  geode-cli/         # the `geode` binary: headless JSON/TOML problem spec
+                     # in, versioned JSON report out (check / driven);
+                     # schema reference in crates/geode-cli/README.md
   geode-validation/  # cross-backend reference tests (NumPy / JAX / Julia /
                      # ONNX / TF-Java) and analytic-oracle gates
 ```

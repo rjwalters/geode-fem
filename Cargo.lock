@@ -3179,6 +3179,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "geode-cli"
+version = "0.3.0"
+dependencies = [
+ "burn",
+ "clap",
+ "faer",
+ "geode-app",
+ "geode-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "toml 0.8.23",
+]
+
+[[package]]
 name = "geode-core"
 version = "0.3.0"
 dependencies = [

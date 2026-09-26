@@ -53,10 +53,9 @@
 //! `mshio/src/mshfile.rs` calls it "currently unimplemented"). We
 //! therefore hand-scan `$Entities` and `$Elements` ourselves to recover
 //! the entity → physical-tag mapping and the per-block tet/triangle
-//! connectivity. The base [`GmshReader`] handles the node + tet parsing.
+//! connectivity. The base [`super::GmshReader`] handles the node + tet parsing.
 
-use super::msh_tags::{parse_elements_with_entity_tags, parse_entities_physical_tags};
-use super::{GmshReader, MeshError, MeshReader, TetMesh};
+use super::{MeshError, TaggedTetMesh, TetMesh, read_tagged_tet_mesh};
 
 /// Inner dielectric sphere radius used by the bundled fixture.
 pub const R_SPHERE: f64 = 1.0;
@@ -221,14 +220,12 @@ pub fn read_sphere_fine_fixture() -> Result<SphereFixture, MeshError> {
 /// for `outer_boundary`, `4` for `sphere_surface`, `6` for
 /// `pml_interface`.
 pub fn read_sphere_fixture_from_bytes(source: &[u8]) -> Result<SphereFixture, MeshError> {
-    let mesh = GmshReader.read_tet_mesh(source)?;
-
-    let text = std::str::from_utf8(source)
-        .map_err(|e| MeshError::Parse(format!("fixture is not UTF-8: {e}")))?;
-
-    let entity_phys = parse_entities_physical_tags(text)?;
-    let (tet_physical_tags, boundary_triangles, triangle_physical_tags) =
-        parse_elements_with_entity_tags(text, &mesh, &entity_phys)?;
+    let TaggedTetMesh {
+        mesh,
+        tet_physical_tags,
+        boundary_triangles,
+        triangle_physical_tags,
+    } = read_tagged_tet_mesh(source)?;
 
     Ok(SphereFixture {
         mesh,

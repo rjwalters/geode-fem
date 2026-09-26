@@ -40,8 +40,10 @@ pub trait App: clap::Parser {
 /// observability seam ([`crate::lifecycle::init_observability`]) with the
 /// app's [`App::verbosity`], executes [`App::run`], and maps the result to
 /// an [`ExitCode`]: `Ok(())` → [`ExitCode::SUCCESS`]; `Err(e)` → the error
-/// and its source chain are printed to stderr (matching `geode-cli`'s
-/// `eprintln!` style) and [`ExitCode::FAILURE`] is returned.
+/// and its source chain are printed to stderr (`error: …` then one
+/// `  caused by: …` line per source) and [`ExitCode::FAILURE`] is
+/// returned. The `geode` CLI (`crates/geode-cli`) and every
+/// `examples/*` binary share this exit-code contract.
 pub fn main<A: App>() -> ExitCode {
     let app = A::parse();
     crate::lifecycle::init_observability(app.verbosity());

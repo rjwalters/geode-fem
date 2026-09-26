@@ -45,8 +45,9 @@
 //! ```
 //!
 //! [`main`] parses the args, runs the observability seam, calls
-//! [`App::run`], and reports errors to stderr exactly like `geode-cli`
-//! before returning [`std::process::ExitCode::FAILURE`].
+//! [`App::run`], and reports errors (with their source chain) to stderr
+//! before returning [`std::process::ExitCode::FAILURE`]. The `geode` CLI
+//! binary (`crates/geode-cli`) is built on this same harness.
 //!
 //! # Argument groups
 //!

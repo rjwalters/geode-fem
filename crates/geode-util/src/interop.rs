@@ -28,8 +28,11 @@ use num_complex::Complex64;
 /// [`decode_real_imag_interleave_exact`].
 #[must_use]
 pub fn decode_real_imag_interleave(flat: &[f64]) -> Vec<Complex64> {
-    flat.chunks_exact(2)
-        .map(|pair| Complex64::new(pair[0], pair[1]))
+    // `as_chunks` drops the trailing remainder exactly like `chunks_exact`.
+    flat.as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[re, im]| Complex64::new(re, im))
         .collect()
 }
 

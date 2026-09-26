@@ -1,0 +1,210 @@
+//! `geode` — headless JSON-in / JSON-out driver for GEODE-FEM solves
+//! (issue #673, Phase 1).
+//!
+//! ```text
+//! geode check  <spec.json|spec.toml> [-o report.json]
+//! geode driven <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray]
+//! geode eigen   …   # reserved: parses, fails with "not implemented yet"
+//! geode extract …   # reserved: parses, fails with "not implemented yet"
+//! geode --version   # "geode <crate-version> (<git-sha>[-dirty])"
+//! ```
+//!
+//! Input is a problem spec ([`spec`], schema v1); output is exactly one
+//! JSON report ([`report`], schema v1) on stdout or `-o`. Any failure
+//! writes a `kind = "error"` report to the same destination, prints the
+//! error to stderr and exits non-zero (the `geode-app` harness). The
+//! binary performs no network access: nothing in its dependency tree
+//! makes network calls at solve time. See `crates/geode-cli/README.md`.
+
+#![deny(missing_docs)]
+
+mod backend;
+mod check;
+mod driven;
+mod error;
+mod problem;
+mod report;
+mod spec;
+
+use std::error::Error;
+use std::io::Write;
+use std::num::NonZeroUsize;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use clap::{Args, Parser, Subcommand};
+use geode_app::{App, Verbosity};
+use geode_core::eigen::parallel::{NUM_THREADS_ENV, ParallelismGuard};
+use serde::Serialize;
+
+use crate::backend::{BackendChoice, COMPILED_BACKEND};
+use crate::error::CliError;
+use crate::report::{ErrorBody, ErrorReport, Provenance, REPORT_SCHEMA_VERSION};
+
+/// `<crate-version> (<git-sha>)`, the git sha baked in by `build.rs`.
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GEODE_GIT_SHA"), ")");
+
+/// Headless GEODE-FEM driver: problem spec (JSON/TOML) in, one JSON report out.
+#[derive(Parser)]
+#[command(name = "geode", version = VERSION, propagate_version = true)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+
+    #[command(flatten)]
+    verbose: Verbosity,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Validate a problem spec and its mesh without solving; report DOF counts.
+    Check(CheckArgs),
+    /// Frequency sweep with lumped ports → Z / Y / S, L / R / Q per port.
+    Driven(RunArgs),
+    /// Eigenmodes → f, Q. Reserved: not implemented until Phase 2.
+    Eigen(RunArgs),
+    /// L / R / Q extraction incl. f→0 extrapolation. Reserved: not implemented until Phase 2.
+    Extract(RunArgs),
+}
+
+#[derive(Args)]
+struct CheckArgs {
+    /// Problem spec (`.toml` → TOML, anything else → JSON).
+    spec: PathBuf,
+    /// Write the JSON report here instead of stdout.
+    #[arg(short = 'o', long = "output", value_name = "PATH")]
+    output: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct RunArgs {
+    /// Problem spec (`.toml` → TOML, anything else → JSON).
+    spec: PathBuf,
+    /// Write the JSON report here instead of stdout.
+    #[arg(short = 'o', long = "output", value_name = "PATH")]
+    output: Option<PathBuf>,
+    /// Confirm the compute backend. Backends are chosen at BUILD time via
+    /// geode-cli's `wgpu` / `cuda` / `metal` Cargo features (default:
+    /// `ndarray` CPU). This flag never switches backends at runtime: it
+    /// errors if the requested backend is not the compiled-in one.
+    #[arg(long, value_enum, value_name = "BACKEND")]
+    backend: Option<BackendChoice>,
+    /// Cap worker threads for assembly and the sparse factorization
+    /// (sets `GEODE_NUM_THREADS`). Default: the library defaults.
+    #[arg(long, value_name = "N")]
+    threads: Option<NonZeroUsize>,
+}
+
+impl Cli {
+    fn provenance(spec: &Path, threads: Option<usize>) -> Provenance {
+        Provenance {
+            schema_version: REPORT_SCHEMA_VERSION,
+            geode_version: env!("CARGO_PKG_VERSION"),
+            git_sha: env!("GEODE_GIT_SHA"),
+            backend: COMPILED_BACKEND,
+            threads,
+            spec_path: spec.display().to_string(),
+        }
+    }
+}
+
+/// Serialize `value` as pretty JSON to `output` (or stdout).
+fn emit<T: Serialize>(value: &T, output: Option<&Path>) -> Result<(), CliError> {
+    let mut json = serde_json::to_string_pretty(value)?;
+    json.push('\n');
+    match output {
+        Some(path) => std::fs::write(path, json).map_err(|err| CliError::Io {
+            path: path.to_path_buf(),
+            err,
+        }),
+        None => {
+            let mut out = std::io::stdout().lock();
+            out.write_all(json.as_bytes())
+                .and_then(|()| out.flush())
+                .map_err(|err| CliError::Io {
+                    path: PathBuf::from("<stdout>"),
+                    err,
+                })
+        }
+    }
+}
+
+/// Emit the success report, or on failure a `kind = "error"` report
+/// (best effort) before propagating the error to the harness.
+fn finish<T: Serialize>(
+    command: &'static str,
+    provenance: Provenance,
+    output: Option<&Path>,
+    result: Result<T, CliError>,
+) -> Result<(), Box<dyn Error>> {
+    let err = match result.and_then(|report| emit(&report, output)) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    let report = ErrorReport {
+        provenance,
+        kind: "error",
+        status: "error",
+        command,
+        error: ErrorBody {
+            code: err.code(),
+            message: err.to_string(),
+        },
+    };
+    // Best effort: the original error is what the caller needs to see.
+    let _ = emit(&report, output);
+    Err(Box::new(err))
+}
+
+impl App for Cli {
+    fn run(self) -> Result<(), Box<dyn Error>> {
+        match self.command {
+            Command::Check(a) => {
+                let prov = Self::provenance(&a.spec, None);
+                let result = check::run(&a.spec, prov.clone());
+                finish("check", prov, a.output.as_deref(), result)
+            }
+            Command::Driven(a) => {
+                let threads = a.threads.map(NonZeroUsize::get);
+                let prov = Self::provenance(&a.spec, threads);
+                let _par = threads.map(apply_thread_cap);
+                let result =
+                    backend::confirm(a.backend).and_then(|()| driven::run(&a.spec, prov.clone()));
+                finish("driven", prov, a.output.as_deref(), result)
+            }
+            Command::Eigen(a) => {
+                let prov = Self::provenance(&a.spec, a.threads.map(NonZeroUsize::get));
+                let result: Result<(), CliError> = Err(CliError::NotImplemented("eigen"));
+                finish("eigen", prov, a.output.as_deref(), result)
+            }
+            Command::Extract(a) => {
+                let prov = Self::provenance(&a.spec, a.threads.map(NonZeroUsize::get));
+                let result: Result<(), CliError> = Err(CliError::NotImplemented("extract"));
+                finish("extract", prov, a.output.as_deref(), result)
+            }
+        }
+    }
+
+    fn verbosity(&self) -> Verbosity {
+        self.verbose
+    }
+}
+
+/// Apply `--threads N`: export `GEODE_NUM_THREADS=N` (read by the
+/// host-side assembler's scoped rayon pool) and scope faer's global
+/// parallelism for the sparse LU to `N` threads for the guard's lifetime.
+fn apply_thread_cap(n: usize) -> ParallelismGuard {
+    // SAFETY: `set_var` is only unsound when another thread may read or
+    // write the environment concurrently. This runs on the main thread
+    // right after argument parsing, before geode spawns any thread (no
+    // rayon pool or faer parallelism has been touched yet).
+    #[allow(unsafe_code)]
+    unsafe {
+        std::env::set_var(NUM_THREADS_ENV, n.to_string());
+    }
+    ParallelismGuard::rayon(n)
+}
+
+fn main() -> ExitCode {
+    geode_app::main::<Cli>()
+}

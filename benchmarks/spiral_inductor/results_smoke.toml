@@ -9,7 +9,7 @@
 description = "Spiral-inductor extraction smoke run (issue #211): same pipeline as results.toml on the coarse spiral_3p5_smoke.msh fixture — pipeline check, not a benchmark."
 fixture = "tests/fixtures/spiral_3p5_smoke.msh"
 fixture_provenance = "tests/fixtures/spiral_3p5_smoke.provenance.txt"
-generated_at_commit = "14659c1d770dc9f4462fb91955db547662e046dc"
+generated_at_commit = "90759f103fdbdc42e47b1941ccd8d0e0b031c4e6"
 port_resistance_ohm = 50
 conductor_model = "leontovich_good_conductor"
 conductor_sigma_s_m = 5.8e7
@@ -22,46 +22,46 @@ notes = [
 ]
 
 [point_0]
-f_ghz = 1.000000000000000e0
-omega_natural = 2.095845021951682e-5
-z_re_ohm = 6.389285051154624e-1
-z_im_ohm = 5.340700940470651e0
-l_nh = 8.499989542514383e-1
-r_ohm = 6.389285051154624e-1
-q = 8.358839678792418e0
-s11_mag = 9.750464767157730e-1
-solve_residual_rel = 7.564e-11
+f_ghz = 1.0
+omega_natural = 0.000020958450219516817
+z_re_ohm = 0.6349991071003916
+z_im_ohm = 5.328641279009959
+l_nh = 0.8480795995179545
+r_ohm = 0.6349991071003916
+q = 8.391572869042658
+s11_mag = 0.9751967900560572
+solve_residual_rel = 0.000000000011349219780859073
 
 [point_1]
-f_ghz = 5.000000000000000e0
-omega_natural = 1.047922510975841e-4
-z_re_ohm = 1.723904372715232e0
-z_im_ohm = 2.509845868625531e1
-l_nh = 7.989087527810499e-1
-r_ohm = 1.723904372715232e0
-q = 1.455907826646094e1
-s11_mag = 9.464081134281092e-1
-solve_residual_rel = 1.372e-10
+f_ghz = 5.0
+omega_natural = 0.00010479225109758409
+z_re_ohm = 1.6899404305746684
+z_im_ohm = 24.95392337788257
+l_nh = 0.7943080510252835
+r_ohm = 1.6899404305746684
+q = 14.766155614962669
+s11_mag = 0.9473172033701326
+solve_residual_rel = 0.00000000000967703273903696
 
 [point_2]
-f_ghz = 1.000000000000000e1
-omega_natural = 2.095845021951682e-4
-z_re_ohm = 2.776874262599044e0
-z_im_ohm = 5.097036905238106e1
-l_nh = 8.112186185904611e-1
-r_ohm = 2.776874262599044e0
-q = 1.835530320507736e1
-s11_mag = 9.470138484313118e-1
-solve_residual_rel = 8.368e-12
+f_ghz = 10.0
+omega_natural = 0.00020958450219516817
+z_re_ohm = 2.771864120350912
+z_im_ohm = 50.92730011919091
+l_nh = 0.8105331552293704
+r_ohm = 2.771864120350912
+q = 18.372942506555347
+s11_mag = 0.9470624114777151
+solve_residual_rel = 0.000000000007632328955239888
 
 [point_3]
-f_ghz = 2.000000000000000e1
-omega_natural = 4.191690043903363e-4
-z_re_ohm = 6.186097765636569e0
-z_im_ohm = 1.214309125387869e2
-l_nh = 9.663164987353773e-1
-r_ohm = 6.186097765636569e0
-q = 1.962964652988979e1
-s11_mag = 9.648267406413139e-1
-solve_residual_rel = 5.629e-12
+f_ghz = 20.0
+omega_natural = 0.00041916900439033635
+z_re_ohm = 6.1676307281647205
+z_im_ohm = 121.26097154088917
+l_nh = 0.9649641512429078
+r_ohm = 6.1676307281647205
+q = 19.660867663030853
+s11_mag = 0.9648470446435142
+solve_residual_rel = 0.0000000000050867272747891575
 
