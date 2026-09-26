@@ -77,8 +77,7 @@ use std::collections::BTreeSet;
 
 use faer::c64;
 
-use super::msh_tags::{parse_elements_with_entity_tags, parse_entities_physical_tags};
-use super::{GmshReader, MeshError, MeshReader, TetMesh};
+use super::{MeshError, TaggedTetMesh, TetMesh, read_tagged_tet_mesh};
 use crate::driven::ports::LumpedPort;
 
 /// Physical-group tag for the silicon substrate (3D).
@@ -448,14 +447,12 @@ pub fn read_spiral_slcfet_3hp_smoke_fixture() -> Result<SpiralFixture, MeshError
 /// (see module docs) — e.g. re-generated meshes from
 /// `reference/gmsh/spiral_inductor.geo` with different parameters.
 pub fn read_spiral_fixture_from_bytes(source: &[u8]) -> Result<SpiralFixture, MeshError> {
-    let mesh = GmshReader.read_tet_mesh(source)?;
-
-    let text = std::str::from_utf8(source)
-        .map_err(|e| MeshError::Parse(format!("fixture is not UTF-8: {e}")))?;
-
-    let entity_phys = parse_entities_physical_tags(text)?;
-    let (tet_physical_tags, boundary_triangles, triangle_physical_tags) =
-        parse_elements_with_entity_tags(text, &mesh, &entity_phys)?;
+    let TaggedTetMesh {
+        mesh,
+        tet_physical_tags,
+        boundary_triangles,
+        triangle_physical_tags,
+    } = read_tagged_tet_mesh(source)?;
 
     Ok(SpiralFixture {
         mesh,

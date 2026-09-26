@@ -1,0 +1,343 @@
+//! Problem-spec schema v1: the `geode` CLI's input contract.
+//!
+//! A problem spec is a JSON (`.json`) or TOML (`.toml`) document —
+//! both go through the same [`serde::Deserialize`] impl — that binds
+//! materials, boundary conditions and lumped ports to **named** Gmsh
+//! physical groups of a mesh, and lists the frequencies to solve at.
+//! Unknown fields are rejected (`deny_unknown_fields`) so a typo never
+//! silently falls back to a default.
+//!
+//! See `crates/geode-cli/README.md` for the full field reference with
+//! units and an annotated example.
+//!
+//! # Units and conventions
+//!
+//! * **Lengths** are in mesh units; [`MeshSpec::length_unit_m`] states
+//!   how many metres one mesh unit is (e.g. `1e-6` for a micron mesh).
+//!   It is required — every SI ↔ natural-unit conversion (frequency,
+//!   conductivity, inductance) depends on it.
+//! * **Frequencies** carry an explicit [`FrequencyUnit`]: `hz`, `ghz`,
+//!   or `k0` — the solver's natural unit `ω/c = k₀` in radians per mesh
+//!   length unit.
+//! * **Time convention** is `exp(+jωt)`: a lossy dielectric has
+//!   `Im(ε_r) < 0`, i.e. `ε_r = ε'(1 − j·tan δ)`. Specs with
+//!   `Im(ε_r) > 0` (gain) are rejected.
+//! * **Impedances** are in ohms; **conductivities** in S/m.
+
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
+/// The only problem-spec schema version this build understands.
+pub const SPEC_SCHEMA_VERSION: u32 = 1;
+
+/// Top-level problem spec (schema v1).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProblemSpec {
+    /// Must equal [`SPEC_SCHEMA_VERSION`].
+    pub schema_version: u32,
+    /// The mesh to solve on.
+    pub mesh: MeshSpec,
+    /// Per-volume-region complex relative permittivity. Volume physical
+    /// groups not listed here default to vacuum (`ε_r = 1`); the `check`
+    /// report lists which regions defaulted.
+    #[serde(default)]
+    pub materials: Vec<MaterialSpec>,
+    /// Boundary conditions on surface physical groups. Surfaces not named
+    /// here are natural (PMC-like) boundaries of the weak form.
+    #[serde(default)]
+    pub boundary_conditions: BoundaryConditionsSpec,
+    /// Lumped ports (at least one is required).
+    pub ports: Vec<LumpedPortSpec>,
+    /// Frequencies to solve at.
+    pub frequencies: FrequencySpec,
+    /// Linear-solver selection (default: direct sparse LU).
+    #[serde(default)]
+    pub solver: SolverSpec,
+}
+
+/// Mesh file reference.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MeshSpec {
+    /// Path to a Gmsh MSH 4.1 ASCII tetrahedral mesh. Relative paths are
+    /// resolved against the directory containing the spec file.
+    pub path: PathBuf,
+    /// Metres per mesh length unit (e.g. `1e-6` for a micron mesh).
+    pub length_unit_m: f64,
+}
+
+/// Scalar complex permittivity for one volume physical group.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MaterialSpec {
+    /// Name of a dimension-3 physical group (`$PhysicalNames`).
+    pub physical_group: String,
+    /// Complex relative permittivity `[re, im]`, `im ≤ 0`
+    /// (`exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`).
+    pub eps_r: [f64; 2],
+}
+
+/// Boundary conditions (schema v1: PEC and Leontovich only).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BoundaryConditionsSpec {
+    /// Dimension-2 physical-group names whose edges are eliminated as
+    /// perfect electric conductor (tangential `E = 0`).
+    #[serde(default)]
+    pub pec: Vec<String>,
+    /// Leontovich good-conductor surface-impedance walls.
+    #[serde(default)]
+    pub leontovich: Vec<LeontovichSpec>,
+}
+
+/// One Leontovich good-conductor surface
+/// (`Z_s = (1 + j)·√(ωμ₀ / 2σ)`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LeontovichSpec {
+    /// Name of a dimension-2 physical group.
+    pub physical_group: String,
+    /// Conductor conductivity σ in S/m (`> 0`).
+    pub conductivity_s_m: f64,
+}
+
+/// A uniform (Palace-style) lumped port on a surface physical group.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LumpedPortSpec {
+    /// Name of a dimension-2 physical group holding the port faces.
+    pub physical_group: String,
+    /// Gap direction `ê` (normalized on load; must be non-zero).
+    pub e_hat: [f64; 3],
+    /// Port termination / reference resistance in ohms (`> 0`). This is
+    /// also the per-port S-parameter reference impedance `Z₀`.
+    pub resistance_ohm: f64,
+    /// Port width in mesh units (extent across `ê`). Omit to derive it
+    /// from the tagged faces as `area / length`.
+    #[serde(default)]
+    pub width: Option<f64>,
+    /// Gap length in mesh units (extent along `ê`). Omit to derive it
+    /// from the tagged faces' extent along `ê`.
+    #[serde(default)]
+    pub length: Option<f64>,
+    /// Incident drive voltage `[re, im]` (default `[1, 0]`; must be
+    /// non-zero — every port is an S-parameter excitation).
+    #[serde(default = "default_v_inc")]
+    pub v_inc: [f64; 2],
+}
+
+fn default_v_inc() -> [f64; 2] {
+    [1.0, 0.0]
+}
+
+/// Frequency unit of a [`FrequencySpec`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FrequencyUnit {
+    /// Hertz.
+    Hz,
+    /// Gigahertz.
+    Ghz,
+    /// Natural units: free-space wavenumber `k₀ = ω/c` in radians per
+    /// mesh length unit (the solver's internal `ω`).
+    K0,
+}
+
+/// Point spacing of a `start`/`stop`/`count` sweep.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Spacing {
+    /// Evenly spaced (default).
+    #[default]
+    Linear,
+    /// Geometrically spaced.
+    Log,
+}
+
+/// Frequency list: **either** an explicit `values` list **or** a
+/// `start`/`stop`/`count` sweep, in the given `unit`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FrequencySpec {
+    /// Unit of every number in this block (required — no default).
+    pub unit: FrequencyUnit,
+    /// Explicit frequency list.
+    #[serde(default)]
+    pub values: Option<Vec<f64>>,
+    /// Sweep start (inclusive).
+    #[serde(default)]
+    pub start: Option<f64>,
+    /// Sweep stop (inclusive).
+    #[serde(default)]
+    pub stop: Option<f64>,
+    /// Number of sweep points (`≥ 1`; `1` yields just `start`).
+    #[serde(default)]
+    pub count: Option<usize>,
+    /// Sweep spacing (default `linear`).
+    #[serde(default)]
+    pub spacing: Spacing,
+}
+
+/// Linear-solver selection.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SolverSpec {
+    /// Sparse direct LU, one factorization per frequency (default). A
+    /// struct variant so `deny_unknown_fields` rejects stray keys such as
+    /// `tol` under `mode = "direct"`.
+    Direct {},
+    /// COCG Krylov iteration with a Jacobi preconditioner built once per
+    /// frequency. Non-convergence within `max_iters` is a hard error.
+    Iterative {
+        /// Relative-residual stopping tolerance (default `1e-10`).
+        #[serde(default = "default_tol")]
+        tol: f64,
+        /// Iteration budget per right-hand side (default `5000`).
+        #[serde(default = "default_max_iters")]
+        max_iters: usize,
+    },
+}
+
+impl Default for SolverSpec {
+    fn default() -> Self {
+        SolverSpec::Direct {}
+    }
+}
+
+fn default_tol() -> f64 {
+    1e-10
+}
+
+fn default_max_iters() -> usize {
+    5000
+}
+
+impl FrequencySpec {
+    /// Expand to the list of frequencies in [`Self::unit`].
+    pub fn expand(&self) -> Result<Vec<f64>, String> {
+        let list = match (&self.values, self.start, self.stop, self.count) {
+            (Some(v), None, None, None) => {
+                if self.spacing != Spacing::Linear {
+                    return Err("`spacing` only applies to a start/stop/count sweep".into());
+                }
+                v.clone()
+            }
+            (None, Some(start), Some(stop), Some(count)) => {
+                if count == 0 {
+                    return Err("sweep `count` must be ≥ 1".into());
+                }
+                if count == 1 {
+                    vec![start]
+                } else {
+                    let n = (count - 1) as f64;
+                    (0..count)
+                        .map(|i| {
+                            let t = i as f64 / n;
+                            match self.spacing {
+                                Spacing::Linear => start + t * (stop - start),
+                                Spacing::Log => start * (stop / start).powf(t),
+                            }
+                        })
+                        .collect()
+                }
+            }
+            _ => {
+                return Err("give either `values` or all of `start`/`stop`/`count` \
+                     (not both, not a partial sweep)"
+                    .into());
+            }
+        };
+        if list.is_empty() {
+            return Err("frequency list is empty".into());
+        }
+        if let Some(bad) = list.iter().find(|f| !(f.is_finite() && **f > 0.0)) {
+            return Err(format!("frequencies must be finite and > 0 (got {bad})"));
+        }
+        Ok(list)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn freq(json: &str) -> FrequencySpec {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn explicit_list_and_sweeps_expand() {
+        assert_eq!(
+            freq(r#"{"unit":"ghz","values":[1,5]}"#).expand().unwrap(),
+            vec![1.0, 5.0]
+        );
+        assert_eq!(
+            freq(r#"{"unit":"hz","start":1,"stop":3,"count":3}"#)
+                .expand()
+                .unwrap(),
+            vec![1.0, 2.0, 3.0]
+        );
+        let log = freq(r#"{"unit":"hz","start":1,"stop":100,"count":3,"spacing":"log"}"#)
+            .expand()
+            .unwrap();
+        assert!((log[1] - 10.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn ambiguous_or_bad_frequencies_rejected() {
+        assert!(
+            freq(r#"{"unit":"hz","values":[1],"start":1}"#)
+                .expand()
+                .is_err()
+        );
+        assert!(
+            freq(r#"{"unit":"hz","start":1,"stop":2}"#)
+                .expand()
+                .is_err()
+        );
+        assert!(freq(r#"{"unit":"hz","values":[0]}"#).expand().is_err());
+        assert!(freq(r#"{"unit":"hz","values":[]}"#).expand().is_err());
+        // Unit is required.
+        assert!(serde_json::from_str::<FrequencySpec>(r#"{"values":[1]}"#).is_err());
+    }
+
+    #[test]
+    fn solver_defaults_and_unknown_fields() {
+        let s: SolverSpec = serde_json::from_str(r#"{"mode":"iterative"}"#).unwrap();
+        assert_eq!(
+            s,
+            SolverSpec::Iterative {
+                tol: 1e-10,
+                max_iters: 5000
+            }
+        );
+        assert!(serde_json::from_str::<SolverSpec>(r#"{"mode":"direct","tol":1}"#).is_err());
+        assert!(
+            serde_json::from_str::<MeshSpec>(r#"{"path":"a","length_unit_m":1,"x":1}"#).is_err()
+        );
+    }
+
+    #[test]
+    fn toml_goes_through_same_impl() {
+        let spec: ProblemSpec = toml::from_str(
+            r#"
+            schema_version = 1
+            [mesh]
+            path = "m.msh"
+            length_unit_m = 1e-6
+            [[ports]]
+            physical_group = "port"
+            e_hat = [0.0, 1.0, 0.0]
+            resistance_ohm = 50.0
+            [frequencies]
+            unit = "ghz"
+            values = [1.0]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(spec.ports[0].v_inc, [1.0, 0.0]);
+        assert_eq!(spec.solver, SolverSpec::Direct {});
+    }
+}

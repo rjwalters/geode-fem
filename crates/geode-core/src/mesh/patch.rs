@@ -67,8 +67,7 @@
 
 use faer::c64;
 
-use super::msh_tags::{parse_elements_with_entity_tags, parse_entities_physical_tags};
-use super::{GmshReader, MeshError, MeshReader, TetMesh};
+use super::{MeshError, TaggedTetMesh, TetMesh, read_tagged_tet_mesh};
 use crate::driven::ports::LumpedPort;
 
 /// Physical-group tag for the FR-4 substrate slab (3D).
@@ -593,21 +592,17 @@ pub fn read_patch_smoke_curved_fixture() -> Result<PatchFixture, MeshError> {
 /// (see module docs) — e.g. re-generated meshes from
 /// `reference/gmsh/patch_antenna.geo` with different parameters.
 ///
-/// Reuses the surface-tag-retaining `$Entities` / `$Elements`
-/// hand-scanners shared with the sphere/spiral loaders
-/// (`parse_entities_physical_tags` /
-/// `parse_elements_with_entity_tags`) — the base [`crate::mesh::GmshReader`] drops
-/// triangle blocks, so without these the port/patch/ground/outer
-/// surface tags would be lost.
+/// Built on the generic [`read_tagged_tet_mesh`] (the surface-tag-retaining
+/// `$Entities` / `$Elements` scanners shared with every tagged fixture) —
+/// the base [`crate::mesh::GmshReader`] drops triangle blocks, so without
+/// these the port/patch/ground/outer surface tags would be lost.
 pub fn read_patch_fixture_from_bytes(source: &[u8]) -> Result<PatchFixture, MeshError> {
-    let mesh = GmshReader.read_tet_mesh(source)?;
-
-    let text = std::str::from_utf8(source)
-        .map_err(|e| MeshError::Parse(format!("fixture is not UTF-8: {e}")))?;
-
-    let entity_phys = parse_entities_physical_tags(text)?;
-    let (tet_physical_tags, boundary_triangles, triangle_physical_tags) =
-        parse_elements_with_entity_tags(text, &mesh, &entity_phys)?;
+    let TaggedTetMesh {
+        mesh,
+        tet_physical_tags,
+        boundary_triangles,
+        triangle_physical_tags,
+    } = read_tagged_tet_mesh(source)?;
 
     Ok(PatchFixture {
         mesh,

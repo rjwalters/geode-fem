@@ -17,6 +17,11 @@
 //!   returns per-tet 3D tags plus the tagged surface triangles (0-based
 //!   connectivity) and their 2D tags.
 //!
+//! The public, fixture-independent entry point wrapping both scanners
+//! is [`super::read_tagged_tet_mesh`] (issue #673); every fixture loader
+//! and external consumer goes through it rather than calling these
+//! `pub(super)` scanners directly.
+//!
 //! These lived in `mesh/sphere.rs` when the sphere fixture was their
 //! only consumer; they are geometry-neutral (nothing here is
 //! sphere-specific), so they now sit in this shared module. The move is

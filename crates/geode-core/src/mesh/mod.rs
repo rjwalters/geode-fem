@@ -385,6 +385,95 @@ pub enum MeshError {
     Io(#[from] std::io::Error),
 }
 
+/// A [`TetMesh`] plus the per-element physical-group tags that the base
+/// [`GmshReader`] drops (issue #673).
+///
+/// This is the generic, fixture-independent form of the tagged loaders
+/// behind [`SphereFixture`], [`SpiralFixture`], [`PatchFixture`] and
+/// [`TransmonFixture`]: every one of them is a [`read_tagged_tet_mesh`]
+/// call plus fixture-specific tag constants / materials. External
+/// consumers (e.g. the `geode` CLI) bind materials, boundary conditions
+/// and ports to **named** physical groups via
+/// [`TaggedTetMesh::physical_group_tag`] and the `*_with_tag` selectors.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TaggedTetMesh {
+    /// Volume mesh (nodes + tets + `(dim, tag) → name` dictionary).
+    pub mesh: TetMesh,
+    /// Per-tet 3D physical tag (parallel to `mesh.tets`; `0` for a tet
+    /// whose owning entity carries no physical group).
+    pub tet_physical_tags: Vec<i32>,
+    /// Physically tagged surface triangles (0-based node indices into
+    /// `mesh.nodes`).
+    pub boundary_triangles: Vec<[u32; 3]>,
+    /// Per-triangle 2D physical tag (parallel to `boundary_triangles`).
+    pub triangle_physical_tags: Vec<i32>,
+}
+
+impl TaggedTetMesh {
+    /// Numeric tag of the physical group named `name` in dimension `dim`
+    /// (`3` = volume region, `2` = surface), looked up in
+    /// `mesh.physical_groups`. `None` if no such group exists.
+    pub fn physical_group_tag(&self, dim: i32, name: &str) -> Option<i32> {
+        self.mesh
+            .physical_groups
+            .iter()
+            .find(|((d, _), n)| *d == dim && n.as_str() == name)
+            .map(|((_, tag), _)| *tag)
+    }
+
+    /// Triangles carrying the given 2D physical tag.
+    pub fn triangles_with_tag(&self, tag: i32) -> Vec<[u32; 3]> {
+        self.boundary_triangles
+            .iter()
+            .zip(self.triangle_physical_tags.iter())
+            .filter_map(|(tri, &t)| (t == tag).then_some(*tri))
+            .collect()
+    }
+
+    /// 0-based tet indices (into `mesh.tets`) carrying the given 3D
+    /// physical tag.
+    pub fn tets_with_tag(&self, tag: i32) -> Vec<u32> {
+        self.tet_physical_tags
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &t)| (t == tag).then_some(i as u32))
+            .collect()
+    }
+}
+
+/// Load a Gmsh MSH 4.1 ASCII tet mesh **with** its per-tet and
+/// per-triangle physical tags (issue #673).
+///
+/// Runs [`GmshReader`] for nodes, tets and `$PhysicalNames`, then the
+/// shared `$Entities` / `$Elements` side-channel scanners
+/// ([`msh_tags`]) to recover the element → physical-group assignment
+/// the base reader drops. This is the single generic entry point the
+/// bundled fixture loaders ([`read_sphere_fixture_from_bytes`],
+/// [`read_spiral_fixture_from_bytes`], [`read_patch_fixture_from_bytes`],
+/// [`read_transmon_fixture_from_bytes`]) are built on.
+///
+/// # Errors
+///
+/// Any [`MeshError`] from the base reader, a non-UTF-8 source, or a
+/// malformed `$Entities` / `$Elements` section.
+pub fn read_tagged_tet_mesh(source: &[u8]) -> Result<TaggedTetMesh, MeshError> {
+    let mesh = GmshReader.read_tet_mesh(source)?;
+
+    let text = std::str::from_utf8(source)
+        .map_err(|e| MeshError::Parse(format!("mesh is not UTF-8: {e}")))?;
+
+    let entity_phys = msh_tags::parse_entities_physical_tags(text)?;
+    let (tet_physical_tags, boundary_triangles, triangle_physical_tags) =
+        msh_tags::parse_elements_with_entity_tags(text, &mesh, &entity_phys)?;
+
+    Ok(TaggedTetMesh {
+        mesh,
+        tet_physical_tags,
+        boundary_triangles,
+        triangle_physical_tags,
+    })
+}
+
 /// A parser that produces a [`TetMesh`] from a byte slice.
 pub trait MeshReader {
     fn read_tet_mesh(&self, source: &[u8]) -> Result<TetMesh, MeshError>;
@@ -564,6 +653,35 @@ fn split_quoted_name(row: &str) -> Result<(&str, String), MeshError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The generic tagged reader resolves groups by name and agrees
+    /// exactly with the fixture loader built on it (issue #673).
+    #[test]
+    fn read_tagged_tet_mesh_resolves_named_groups() {
+        let bytes = include_bytes!("../../tests/fixtures/spiral_3p5_smoke.msh");
+        let tagged = read_tagged_tet_mesh(bytes).expect("smoke spiral loads");
+        assert_eq!(
+            tagged.physical_group_tag(2, "port"),
+            Some(spiral::PHYS_PORT)
+        );
+        assert_eq!(tagged.physical_group_tag(3, "air"), Some(spiral::PHYS_AIR));
+        // Names are looked up per dimension.
+        assert_eq!(tagged.physical_group_tag(2, "air"), None);
+        assert_eq!(tagged.physical_group_tag(3, "nope"), None);
+
+        let fixture = read_spiral_smoke_fixture().unwrap();
+        assert_eq!(tagged.mesh, fixture.mesh);
+        assert_eq!(tagged.tet_physical_tags, fixture.tet_physical_tags);
+        assert_eq!(
+            tagged.triangles_with_tag(spiral::PHYS_PORT),
+            fixture.port_triangles()
+        );
+        assert_eq!(
+            tagged.tets_with_tag(spiral::PHYS_AIR_BUFFER),
+            fixture.air_buffer_tets()
+        );
+        assert!(read_tagged_tet_mesh(b"\xff\xfe not utf8").is_err());
+    }
 
     fn assert_physical_names_err(input: &str, needle: &str) {
         match parse_physical_names(input.as_bytes()) {
