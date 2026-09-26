@@ -1,6 +1,7 @@
 //! End-to-end CLI contract tests for `geode` (issue #673 Phase 1):
 //! `--version`, `check` success + structured failures, the reserved
-//! `eigen`/`extract` stubs, and `--backend` confirmation. No solves.
+//! `eigen`/`extract` stubs, `--backend` confirmation, and the structured
+//! `solve_failed` error for a non-converging iterative solve (one iteration).
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -215,6 +216,16 @@ fn check_rejects_bad_inputs_with_codes() {
         "invalid_spec",
     );
 
+    // The same physical group listed as two ports.
+    let dup = edited_spec("dup-port", |v| {
+        let port = v["ports"][0].clone();
+        v["ports"].as_array_mut().unwrap().push(port);
+    });
+    let out = geode(&["check", dup.to_str().unwrap()]);
+    let v = assert_error(&out, "check", "invalid_spec");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("more than one port"), "{msg}");
+
     // Missing mesh file.
     let nomesh = edited_spec("nomesh", |v| {
         v["mesh"]["path"] = "/definitely/not/here.msh".into();
@@ -322,4 +333,16 @@ fn error_report_goes_to_output_file_too() {
     let v: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&out_path).unwrap()).unwrap();
     assert_eq!(v["error"]["code"], "not_implemented");
+}
+
+#[test]
+fn driven_non_converging_iterative_solve_fails_with_solve_failed() {
+    // One iteration cannot converge; non-convergence must be a hard,
+    // structured error — never a silently wrong S-matrix.
+    let spec = edited_spec("no-converge", |v| {
+        v["frequencies"]["values"] = serde_json::json!([5.0]);
+        v["solver"] = serde_json::json!({ "mode": "iterative", "tol": 1e-10, "max_iters": 1 });
+    });
+    let out = geode(&["driven", spec.to_str().unwrap()]);
+    assert_error(&out, "driven", "solve_failed");
 }

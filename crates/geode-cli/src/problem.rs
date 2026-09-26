@@ -203,8 +203,15 @@ pub fn load(spec_path: &Path) -> Result<Problem, CliError> {
     if spec.ports.is_empty() {
         return Err(invalid("at least one lumped port is required"));
     }
+    let mut seen_ports = std::collections::HashSet::new();
     for p in &spec.ports {
         let name = &p.physical_group;
+        if !seen_ports.insert(name.as_str()) {
+            return Err(invalid(format!(
+                "physical group `{name}` is listed as more than one port — each port \
+                 must name a distinct surface"
+            )));
+        }
         if !(p.resistance_ohm.is_finite() && p.resistance_ohm > 0.0) {
             return Err(invalid(format!(
                 "ports[{name}].resistance_ohm must be finite and > 0"
