@@ -21,12 +21,12 @@
 //!    `SpiralFixture` (the example's exact code path) to 1e-9 relative.
 //! 2. **Benchmark** (`#[ignore]`d, heavy — 54 k edges): the
 //!    `spiral_3p5.msh` benchmark mesh at the 1 GHz reference point: L
-//!    pinned to the committed `results.toml` (1 %) **and** held to the
-//!    issue-#211 oracle bands — within 10 % of the Mohan current-sheet L
-//!    and 12 % of the Mohan-projected mom-PEEC bracket mean — plus
-//!    library parity on `Z`. R and Q are checked by parity only: the
-//!    committed benchmark R/Q have drifted from the current library
-//!    (issue #674), independent of the CLI. Run with:
+//!    pinned to the committed `results.toml` (1 %; R and Q 2 %, the
+//!    library's tier-3 bands — the artifact was regenerated on an f64
+//!    backend in issue #674) **and** held to the issue-#211 oracle
+//!    bands — within 10 % of the Mohan current-sheet L and 12 % of the
+//!    Mohan-projected mom-PEEC bracket mean — plus library parity on
+//!    `Z`. Run with:
 //!
 //!    ```sh
 //!    cargo test -p geode-cli --release --test spiral_golden -- --ignored
@@ -252,20 +252,27 @@ fn spiral_benchmark_golden_within_oracle_bands() {
     assert!(row.residual_rel < 1e-7, "residual {}", row.residual_rel);
     let l = row.l_nh;
 
-    // (a) L regression vs the committed benchmark sweep at 1 GHz.
+    // (a) L/R/Q regression vs the committed benchmark sweep at 1 GHz.
     let (_, wl, wr, wq, _) = *committed("results.toml")
         .iter()
         .find(|p| p.0 == 1.0)
         .expect("committed 1 GHz point");
     eprintln!(
         "benchmark @ 1 GHz: L {l:.5} nH (committed {wl:.5}, {:+.3}%); \
-         R {:.5} ohm, Q {:.3} (committed {wr:.5} / {wq:.3} are stale, issue #674)",
+         R {:.5} ohm (committed {wr:.5}, {:+.3}%); Q {:.3} (committed {wq:.3}, {:+.3}%)",
         100.0 * rel(l, wl),
         row.r_ohm,
-        row.q
+        100.0 * rel(row.r_ohm, wr),
+        row.q,
+        100.0 * rel(row.q, wq)
     );
     assert!(rel(l, wl).abs() < 0.01, "L drifted: {l} vs {wl} nH");
-    assert!(row.r_ohm > 0.0 && row.q > 0.0);
+    assert!(
+        rel(row.r_ohm, wr).abs() < 0.02,
+        "R drifted: {} vs {wr} ohm",
+        row.r_ohm
+    );
+    assert!(rel(row.q, wq).abs() < 0.02, "Q drifted: {} vs {wq}", row.q);
 
     // (b) Issue-#211 oracle bands on the low-frequency L.
     let spiral = |n_turns: f64| SquareSpiral {
@@ -295,7 +302,7 @@ fn spiral_benchmark_golden_within_oracle_bands() {
     );
     assert!(rel_mom.abs() < 0.12, "mom band: {:+.2}%", 100.0 * rel_mom);
 
-    // (c) Library parity (covers R and Q).
+    // (c) Library parity on Z.
     let fixture = geode_core::mesh::read_spiral_fixture().expect("benchmark fixture");
     assert_library_parity(&fixture, &row);
 }
