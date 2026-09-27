@@ -491,7 +491,7 @@ fn bandwidth_10db(rows: &[Row]) -> Option<(f64, f64)> {
 }
 
 #[allow(clippy::too_many_lines)]
-fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice, pml_thick: f64) {
+fn emit_results(rows: &[Row], path: &Path, choice: FixtureChoice, pml_thick: f64) {
     let commit = geode_util::repo::current_commit();
     let cavity = FIXTURE_PATCH;
     let f_res_cavity_ghz = cavity.resonant_frequency() / 1e9;

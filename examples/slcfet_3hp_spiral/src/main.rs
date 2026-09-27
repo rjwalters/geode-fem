@@ -59,7 +59,7 @@
 //! cargo run -p slcfet_3hp_spiral --release -- smoke
 //! ```
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use burn::prelude::Backend;
@@ -290,7 +290,7 @@ fn run_sweep<B: Backend>(
         .collect()
 }
 
-fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice, srf_ghz: Option<f64>) {
+fn emit_results(rows: &[Row], path: &Path, choice: FixtureChoice, srf_ghz: Option<f64>) {
     let commit = geode_util::repo::current_commit();
     let l_cs = mohan_current_sheet_l(&FIXTURE_SPIRAL) * 1.0e9;
     let l_mw = modified_wheeler_l(&FIXTURE_SPIRAL) * 1.0e9;

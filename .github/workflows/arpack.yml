@@ -10,6 +10,20 @@ name: arpack
 # of scope for the ARPACK glue. We just build the workspace with the
 # feature on and run the gated `sparse_eigensolver` test, which is the
 # acceptance bar for issue #24.
+#
+# Issue #675 — this workflow also hosts the repo's clippy gate, widened
+# from `-p geode-core` to the whole workspace (so `crates/*` and
+# `examples/*` are all lint-gated), plus a separate `geode-cli` job that
+# runs the CLI integration suite (default tier; `#[ignore]`d heavy tiers
+# stay out of CI).
+#
+# Toolchain note: both jobs use the floating `dtolnay/rust-toolchain@stable`
+# (matching `rust-toolchain.toml`'s `channel = "stable"`). This is a
+# deliberate choice — new stable clippy lints surface here first (e.g. the
+# Rust 1.98 `chunks_exact_to_as_chunks` lint that turned #676 red), and
+# the fix is to address the lint in a follow-up, not to pin an old
+# toolchain. Run `rustup update stable` before trusting a clean local
+# clippy run.
 
 on:
   push:
@@ -21,10 +35,11 @@ jobs:
   build-and-test:
     name: cargo test --features arpack (linux)
     runs-on: ubuntu-latest
-    # Cap queue-wait + run time. This is a single Linux build + one gated
-    # test; ~10 min is typical, 15 leaves headroom without letting a
-    # starved runner orphan for the 24h GitHub ceiling (issue #354).
-    timeout-minutes: 15
+    # Cap queue-wait + run time. This is a single Linux build, a
+    # workspace-wide clippy pass (#675), and one gated test; 25 min leaves
+    # headroom for a cold cache without letting a starved runner orphan
+    # for the 24h GitHub ceiling (issue #354).
+    timeout-minutes: 25
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
@@ -58,9 +73,11 @@ jobs:
         run: |
           cargo build -p geode-core --features arpack --release
 
-      - name: Clippy (arpack + ndarray, CPU backend)
+      # Issue #675: gate the whole workspace (crates/* + examples/*), not
+      # just geode-core. The arpack feature stays scoped to geode-core.
+      - name: Clippy (workspace, arpack + ndarray, CPU backend)
         run: |
-          cargo clippy --tests -p geode-core --features arpack -- -D warnings
+          cargo clippy --workspace --tests --features geode-core/arpack -- -D warnings
 
       - name: Run the gated sparse-eigensolver acceptance test
         # Issue #24 acceptance: matches dense oracle to 1e-6 at n=5 with
@@ -69,3 +86,37 @@ jobs:
         run: |
           cargo test --features arpack \
               -p geode-core --release --test sparse_eigensolver -- --ignored
+
+  geode-cli:
+    # Issue #675 — run the `geode` CLI integration suite
+    # (`crates/geode-cli/tests/cli.rs` + the `spiral_golden.rs` smoke tier,
+    # including the `solve_failed` non-convergence exit test). Default
+    # features only, so no libarpack install is needed. The heavy golden
+    # tier is `#[ignore]`d and is deliberately not run here (no
+    # `--ignored`). Runs in parallel with the arpack/clippy job above.
+    name: cargo test -p geode-cli (linux)
+    runs-on: ubuntu-latest
+    # Cold dependency build + ~45s smoke golden solve in debug; 20 min
+    # bounds queue-wait (issue #354).
+    timeout-minutes: 20
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-geode-cli-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run geode-cli tests (default tier, CPU backend)
+        run: |
+          cargo test -p geode-cli

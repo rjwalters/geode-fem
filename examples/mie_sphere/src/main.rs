@@ -583,7 +583,7 @@ fn print_table(rows: &[Row]) {
     eprintln!();
 }
 
-fn emit_results(rows: &[Row], path: &PathBuf, scalar_pml: bool, n_modes: usize) {
+fn emit_results(rows: &[Row], path: &Path, scalar_pml: bool, n_modes: usize) {
     let commit = geode_util::repo::current_commit();
     let pml_kind = if scalar_pml { "scalar" } else { "anisotropic" };
 
