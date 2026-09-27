@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-27
+
+This release gives GEODE-FEM a headless command-line driver: a `geode`
+binary that takes a mesh plus a JSON/TOML problem spec and emits a
+versioned JSON report, so design flows and agents can run validated solves
+without writing Rust. It also closes two latent hazards found along the
+way — a spiral-inductor reference artifact that had silently been generated
+in f32, and lint debt outside `geode-core` hidden by a narrowly scoped CI
+gate.
+
+### Added
+
+#### `geode` CLI — Phase 1 (#673)
+
+- New `crates/geode-cli` crate producing the `geode` binary, installable
+  with `cargo install --locked --git … --rev <sha>` (#676).
+- `geode check` validates a spec and mesh without solving (physical-group
+  resolution, DOF counts); `geode driven` runs a lumped-port frequency
+  sweep with PEC / Leontovich boundaries, direct-LU or iterative COCG, and
+  reports Z/Y/S per frequency plus per-port L/R/Q/S11. `eigen` and
+  `extract` are reserved and return `not_implemented`.
+- Versioned problem-spec v1 (JSON or TOML) and report v1 schemas with
+  explicit units, unknown-field rejection, stable error codes, and
+  provenance (crate version, git sha, backend, mesh SHA-256); documented in
+  `crates/geode-cli/README.md`.
+- `geode --version` prints the git sha; the process exits non-zero on
+  solver failure or non-convergence; `--backend` confirms the compiled-in
+  backend and `--threads N` caps threading.
+- Golden tests re-express the spiral-inductor benchmark as CLI input (smoke
+  tier in default CI; full-mesh tier `#[ignore]`d) and assert agreement
+  with both the committed results and the library (~1e-12).
+- `geode_core::mesh::read_tagged_tet_mesh` / `TaggedTetMesh`: a public
+  tagged-mesh reader with physical-group name lookup; the sphere, spiral,
+  patch, and transmon fixture loaders now share it.
+
+### Changed
+
+- CI clippy gate widened from `geode-core` to the whole workspace
+  (`--workspace --tests --features geode-core/arpack`), and a new CI job
+  runs `cargo test -p geode-cli`; pre-existing lints fixed across
+  `geode-util`, `geode-validation`, and the example crates (#675, #677).
+- Vendored `.anvil/` tool install untracked and gitignored — it is a
+  copy-installed tool tree, not project source.
+- Loom orchestration tooling upgraded to 0.18.0.
+
+### Fixed
+
+- `benchmarks/spiral_inductor/results.toml` regenerated in f64. The
+  committed artifact had been produced on the f32 `wgpu` backend, leaving
+  R/Q at 1 GHz ~16–18 % off (L unaffected); no physics changed. Regeneration
+  now carries the `[oracles.palace]` block through, a default-CI check
+  requires `float_dtype = "F64"`, and the CLI golden test checks R/Q against
+  the artifact (#674, #678).
+- New Rust 1.98 clippy lint (`chunks_exact_to_as_chunks`) fixed in
+  `geode-util` and `geode-validation` (#676, #677).
+- Stale references to the retired `geode-cli` crate in `geode-app` docs.
+
 ## [0.3.0] - 2026-07-29
 
 This release repositions GEODE-FEM as a differentiable-by-construction
