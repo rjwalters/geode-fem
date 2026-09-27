@@ -619,7 +619,13 @@ fn sphere_mie_small_sigma_zero_collapses_to_real_isotropic() {
     let burn = run_burn_mie_pipeline(&sphere, 0.0, n_index, k0_ref);
 
     // (1) Tensor degenerates: Im = 0 exactly, all axes equal.
-    for (i, chunk) in burn.epsilon_tensor_diag_flat.chunks_exact(3).enumerate() {
+    for (i, chunk) in burn
+        .epsilon_tensor_diag_flat
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .enumerate()
+    {
         for (a, c) in chunk.iter().enumerate() {
             assert_eq!(
                 c.im, 0.0,

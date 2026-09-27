@@ -162,6 +162,10 @@ struct Step {
     min_vol_ratio: f64,
 }
 
+/// Per-frequency band data: `(ω, ε(ω), ν(ω), weight)`, with the matched-UPML
+/// material tensors `ε`/`ν`.
+type Band = (f64, Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>, f64);
+
 /// Everything the composed evaluator needs, assembled once on the curved base
 /// fixture. Per-frequency matched-UPML tensors are built ONCE at `X = 0` and
 /// held **fixed** under the pinned-shell / pinned-feed morph (`∂Λ/∂X = 0`),
@@ -172,7 +176,7 @@ struct Model {
     base_det6: Vec<f64>,
     morph: FreeformBoundaryMorph,
     /// Per-frequency `(ω, ε(ω), ν(ω), weight)`.
-    bands: Vec<(f64, Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>, f64)>,
+    bands: Vec<Band>,
     mask: Vec<bool>,
     source: CurrentSource,
     /// Port-flux covector `f` (real, sparse, `[n_edges]`), geometry-constant
@@ -393,7 +397,7 @@ fn build_model() -> Model {
     // --- Per-frequency matched-UPML materials (built once at X = 0, held fixed). ---
     let (air_lo, air_hi) = base.air_box(pml_thick);
     let w_uniform = 1.0 / BAND_OMEGA.len() as f64;
-    let bands: Vec<(f64, Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>, f64)> = BAND_OMEGA
+    let bands: Vec<Band> = BAND_OMEGA
         .iter()
         .map(|&omega| {
             let (eps, nu) = base.matched_upml_materials(

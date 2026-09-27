@@ -62,7 +62,7 @@
 //! cargo run -p mie_driven_scattering --release -- --fine
 //! ```
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
@@ -180,7 +180,7 @@ fn results_path(choice: FixtureChoice) -> PathBuf {
         .join(file)
 }
 
-fn emit_results(rows: &[Row], path: &PathBuf, choice: FixtureChoice) {
+fn emit_results(rows: &[Row], path: &Path, choice: FixtureChoice) {
     let commit = geode_util::repo::current_commit();
     let max_ext = rows.iter().map(|r| r.rel_err_q_ext).fold(0.0_f64, f64::max);
     let max_sca = rows.iter().map(|r| r.rel_err_q_sca).fold(0.0_f64, f64::max);
