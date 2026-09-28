@@ -44,6 +44,11 @@ const N_INSIDE: f64 = 1.5;
 const SIGMA_0: f64 = 5.0;
 /// Physical mode count above the spurious gradient nullspace.
 const N_MODES: usize = 8;
+/// Real shift `σ` (in `k²` units) for the sparse shift-and-invert
+/// Lanczos — same value as `LANCZOS_SIGMA` in `examples/mie_sphere`.
+/// Must be strictly positive: `K` has a discrete-gradient null space, so
+/// `σ = 0` is a singular shift (issue #696).
+const LANCZOS_SIGMA: f64 = 1.0;
 
 fn bench_mie_end_to_end_dense(c: &mut Criterion) {
     let mut group = c.benchmark_group("mie_end_to_end_dense");
@@ -133,6 +138,12 @@ fn bench_mie_end_to_end_dense(c: &mut Criterion) {
 /// `bench_mie_end_to_end_dense`; step 5 swaps in
 /// [`SparseComplexShiftInvertLanczos`] over the CSC projection of the
 /// pencil. Expected speedup: ~100× at the bundled fixture size.
+///
+/// **Baseline reset (issue #696):** before #696 this bench ran at
+/// `σ = 0`, a singular shift on this pencil that resolves only the
+/// gradient null cluster (and skips the `M` term of `K − σM` entirely).
+/// Timings recorded before the fix are not a valid baseline for the
+/// corrected `σ = LANCZOS_SIGMA` solve.
 fn bench_mie_end_to_end_sparse(c: &mut Criterion) {
     let mut group = c.benchmark_group("mie_end_to_end_sparse");
     // Sparse path is fast; we can afford the normal sample count.
@@ -213,8 +224,12 @@ fn bench_mie_end_to_end_sparse(c: &mut Criterion) {
             let m_sp = SparseColMat::<usize, faer::c64>::try_new_from_triplets(dim, dim, &m_trips)
                 .expect("sparse M");
 
+            // σ must be > 0 (issue #696): σ = 0 factors the singular
+            // curl-curl K and times a solve that resolves only the
+            // gradient null cluster. Same shift as the example's
+            // `LANCZOS_SIGMA`.
             let lambdas = SparseComplexShiftInvertLanczos {
-                sigma: 0.0,
+                sigma: LANCZOS_SIGMA,
                 max_iters: 256,
                 tol: 1e-9,
             }

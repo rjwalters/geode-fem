@@ -162,6 +162,11 @@ const K0_REF: f64 = 2.0;
 /// σ = 2.5 agree to 5 significant figures on every mode).
 const LANCZOS_SIGMA: f64 = 1.0;
 
+/// Spurious-mode cutoff relative to [`LANCZOS_SIGMA`]: returned `|λ| <
+/// NULL_TOL_REL · σ` is gradient-null-space noise (issue #696). Mirrors
+/// `PecCavitySettings::null_tol_rel · σ` (#685).
+const NULL_TOL_REL: f64 = 0.5;
+
 /// Number of analytic multiplets to walk when sizing the FEM eigen
 /// request (issue #43).
 ///
@@ -402,13 +407,14 @@ fn fem_complex_k<B: Backend>(
         t_solve.elapsed().as_secs_f64()
     );
 
-    // Spurious filter: anything with |λ| below 1e-3 of the largest
-    // requested |λ| is treated as gradient-kernel noise.
-    let max_abs = lambdas
-        .iter()
-        .map(|l| l.re.hypot(l.im))
-        .fold(0.0_f64, f64::max);
-    let spurious_threshold = 1e-3 * max_abs;
+    // Spurious filter (issue #696): anything with |λ| below
+    // `NULL_TOL_REL · σ` is treated as gradient-kernel noise. The cutoff is
+    // relative to the shift, not to the largest returned |λ| (the old
+    // `1e-3 × max|λ|` rule let a single stray large Ritz value push the
+    // cutoff past TM_1,1). The null cluster sits at |λ| ~ 1e-14 and the
+    // lowest physical k² ≈ 1.5, so σ/2 = 0.5 has a wide margin both ways.
+    // Applied to the dense-oracle path too (same pencil, same null cluster).
+    let spurious_threshold = NULL_TOL_REL * LANCZOS_SIGMA;
     let first_physical = lambdas
         .iter()
         .position(|l| l.re.hypot(l.im) > spurious_threshold)

@@ -47,6 +47,27 @@ const N_INSIDE: f64 = 1.5;
 /// PML absorption strength — matches the Mie example.
 const SIGMA_0: f64 = 5.0;
 
+/// Real shift `σ` (in `k²` units) for the sparse shift-and-invert Lanczos.
+///
+/// Must be **strictly positive** (issue #696): the reduced Nédélec `K`
+/// has an exact discrete-gradient null space (368 directions on the
+/// bundled fixture), so `σ = 0` factors a singular `K − 0·M` and every
+/// Ritz value collapses onto the null cluster (measured: all requested
+/// values at `|λ| ≤ 8.3e-15`; the solver now rejects this with
+/// `EigenError::DegenerateShift`). `1.0` sits between the null cluster and
+/// the lowest physical `k² ≈ 1.20` of this pencil. Same value as
+/// `LANCZOS_SIGMA` in `examples/mie_sphere/src/main.rs` (full derivation
+/// there); duplicated rather than shared because the example is a separate
+/// crate.
+const LANCZOS_SIGMA: f64 = 1.0;
+
+/// Spurious-mode cutoff, relative to [`LANCZOS_SIGMA`]: `|λ| < σ/2` is
+/// treated as gradient-null-space noise (issue #696). Shift-relative
+/// rather than `1e-3 × max|λ|`, which a single stray large Ritz value
+/// could push above the lowest physical mode. Mirrors
+/// `PecCavitySettings::null_tol_rel · σ`.
+const NULL_TOL_REL: f64 = 0.5;
+
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
 }
@@ -172,7 +193,7 @@ fn sparse_complex_matches_dense_on_sphere_fixture() {
 
     let t_sparse = std::time::Instant::now();
     let solver = SparseComplexShiftInvertLanczos {
-        sigma: 0.0,
+        sigma: LANCZOS_SIGMA,
         max_iters: 256,
         tol: 1e-9,
     };
@@ -189,14 +210,11 @@ fn sparse_complex_matches_dense_on_sphere_fixture() {
     );
 
     // Sort both lists by Re(λ) and skip the spurious / gradient
-    // modes. Spurious modes cluster around 0 (gradient nullspace),
-    // so we use a magnitude threshold relative to the largest |λ|
-    // among requested modes — same heuristic as the Mie example.
-    let max_abs = dense_lambdas
-        .iter()
-        .map(|l| l.re.hypot(l.im))
-        .fold(0.0_f64, f64::max);
-    let threshold = 1e-3 * max_abs;
+    // modes. Spurious modes cluster around 0 (gradient nullspace), so we
+    // use a cutoff relative to the shift (issue #696): the null cluster is
+    // at |λ| ~ 1e-14 and the lowest physical mode at |λ| ≈ 1.2, so
+    // σ/2 = 0.5 separates them with a wide margin on both sides.
+    let threshold = NULL_TOL_REL * LANCZOS_SIGMA;
 
     let dense_phys: Vec<faer::c64> = dense_lambdas
         .iter()
