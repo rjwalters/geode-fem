@@ -3,7 +3,9 @@
 //! validation (issue #681), extract-spec validation and its `L₀`
 //! convergence gate (issue #682), open-boundary / wave-port spec
 //! validation (issue #683), `--outdir` field export on a closed
-//! lumped-port spec and its fail-fast `io` error (issue #684), a
+//! lumped-port spec and its fail-fast `io` error (issue #684),
+//! `--touchstone` output and rejections plus `check`'s resource estimate
+//! (issue #703), a
 //! no-double-space guard on every `invalid_spec` message, `--backend`
 //! confirmation, and the
 //! structured `solve_failed` error for a non-converging iterative solve
@@ -13,6 +15,9 @@
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
+
+#[path = "support/touchstone.rs"]
+mod touchstone_support;
 
 fn geode(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_geode"))
@@ -162,6 +167,159 @@ fn check_valid_spec_reports_dofs_without_solving() {
     // Leontovich σ converted to natural units: 5.8e7 · η₀ · 1e-6 ≈ 2.185e4.
     let sigma = v["leontovich"][0]["conductivity_natural"].as_f64().unwrap();
     assert!((sigma - 2.185e4).abs() / 2.185e4 < 1e-3);
+
+    // Resource estimate (issue #703): direct, complex pencil, one LU per
+    // frequency; finite / positive (no ground truth at CI scale).
+    let r = &v["resources"];
+    assert_eq!(r["solver_mode"], "direct");
+    assert_eq!(r["scalar"], "complex");
+    assert!(
+        r["nnz_a"].as_u64().unwrap() > n_edges,
+        "diagonal + couplings"
+    );
+    assert_eq!(r["n_factorizations"], 4);
+    assert_eq!(r["n_rhs_per_frequency"], 1);
+    for k in [
+        "peak_memory_gb",
+        "wall_time_s",
+        "wall_time_per_factorization_s",
+    ] {
+        let x = r[k].as_f64().unwrap();
+        assert!(x.is_finite() && x > 0.0, "{k} = {x}");
+    }
+    assert!(r["flops_per_iteration"].is_null() && r["flops_max"].is_null());
+    assert_eq!(r["peak_memory_confidence"], "order_of_magnitude");
+    assert_eq!(r["wall_time_confidence"], "conservative_below_anchor");
+    let basis = r["calibration_basis"].as_str().unwrap();
+    assert!(
+        basis.contains("2026-07-15") && basis.contains("20467522"),
+        "{basis}"
+    );
+}
+
+#[test]
+fn check_resource_estimate_for_iterative_and_eigen_specs() {
+    let spec = edited_spec("resources-iterative", |v| {
+        v["solver"] = serde_json::json!({ "mode": "iterative", "tol": 1e-8, "max_iters": 500 });
+    });
+    let v = json(&geode(&["check", spec.to_str().unwrap()]));
+    let r = &v["resources"];
+    assert_eq!(r["solver_mode"], "iterative");
+    assert_eq!(r["n_factorizations"], 0);
+    assert!(r["wall_time_s"].is_null() && r["wall_time_confidence"].is_null());
+    let per = r["flops_per_iteration"].as_f64().unwrap();
+    assert!(per > 0.0 && per.is_finite());
+    assert_eq!(r["flops_max"].as_f64().unwrap(), per * 500.0 * 4.0);
+    assert!(r["peak_memory_gb"].as_f64().unwrap() > 0.0);
+    assert!(
+        r["calibration_basis"]
+            .as_str()
+            .unwrap()
+            .contains("no measured anchor")
+    );
+
+    // Eigen: the anchor's own kind — real pencil, one factorization.
+    let v = json(&geode(&["check", sphere_spec().to_str().unwrap()]));
+    let r = &v["resources"];
+    assert_eq!(r["solver_mode"], "direct");
+    assert_eq!(r["scalar"], "real");
+    assert_eq!(r["n_factorizations"], 1);
+    assert_eq!(r["n_rhs_per_frequency"], 0);
+    assert!(r["wall_time_s"].as_f64().unwrap() > 0.0);
+}
+
+#[test]
+fn touchstone_sorts_a_driven_sweep_and_round_trips() {
+    // Spec order 5 GHz then 1 GHz: the report keeps spec order, the
+    // `.s1p` is ascending.
+    let spec = edited_spec("touchstone-sort", |v| {
+        v["frequencies"] = serde_json::json!({ "unit": "ghz", "values": [5.0, 1.0] });
+    });
+    let ts = scratch("touchstone-sort").join("nested-name.s1p");
+    let out = geode(&[
+        "driven",
+        spec.to_str().unwrap(),
+        "--touchstone",
+        ts.to_str().unwrap(),
+    ]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = json(&out);
+    assert_eq!(
+        v["results"][0]["frequency_hz"], 5e9,
+        "report keeps spec order"
+    );
+    touchstone_support::assert_round_trip(&v, &ts);
+    let text = std::fs::read_to_string(&ts).unwrap();
+    assert!(text.contains("\n[Version] 2.0\n# HZ S RI R 5e1\n[Number of Ports] 1\n"));
+    assert!(text.contains("\n[Reference] 5e1\n[Network Data]\n1e9 "));
+    assert!(text.ends_with("[End]\n"));
+    // Without the flag the field is omitted entirely.
+    let v = json(&geode(&["driven", spec.to_str().unwrap()]));
+    assert!(v.get("touchstone_file").is_none());
+    std::fs::remove_dir_all(ts.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn touchstone_extract_round_trips() {
+    let spec = fixtures().join("slcfet_extract_smoke.json");
+    let ts = scratch("touchstone-extract").join("l.s1p");
+    let out = geode(&[
+        "extract",
+        spec.to_str().unwrap(),
+        "--touchstone",
+        ts.to_str().unwrap(),
+    ]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = json(&out);
+    assert_eq!(v["kind"], "extract");
+    touchstone_support::assert_round_trip(&v, &ts);
+    std::fs::remove_dir_all(ts.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn touchstone_is_rejected_for_eigen_and_duplicate_frequencies() {
+    let dir = scratch("touchstone-reject");
+    let ts = dir.join("x.s1p");
+    // Eigen: rejected in the dispatch arm, before the spec is even read.
+    let out = geode(&[
+        "eigen",
+        "/definitely/not/a/spec.json",
+        "--touchstone",
+        ts.to_str().unwrap(),
+    ]);
+    let v = assert_error(&out, "eigen", "invalid_spec");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(
+        msg.contains("--touchstone") && msg.contains("eigen"),
+        "{msg}"
+    );
+    // Duplicate driven frequencies cannot be two Touchstone rows.
+    let spec = edited_spec("touchstone-dup", |v| {
+        v["frequencies"] = serde_json::json!({ "unit": "ghz", "values": [1.0, 1.0] });
+    });
+    let out = geode(&[
+        "driven",
+        spec.to_str().unwrap(),
+        "--touchstone",
+        ts.to_str().unwrap(),
+    ]);
+    let v = assert_error(&out, "driven", "invalid_spec");
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("more than once")
+    );
+    assert!(!ts.exists());
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

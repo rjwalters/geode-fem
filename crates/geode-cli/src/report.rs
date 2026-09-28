@@ -297,6 +297,58 @@ pub struct CheckReport {
     /// The resolved `extract` section, `null` unless an extract spec
     /// (additive in v1).
     pub extract: Option<ExtractSettingsSummary>,
+    /// Up-front memory / cost estimate for the solve (additive in v1;
+    /// order-of-magnitude only — see [`ResourceEstimate`]).
+    pub resources: ResourceEstimate,
+}
+
+/// `geode check`'s up-front resource estimate (additive in v1).
+///
+/// **Order-of-magnitude only.** The direct-LU figures are a linear-in-
+/// `nnz(A)` extrapolation from a single measured anchor (2026-07-15,
+/// 1.16M-DOF transmon eigen run; `calibration_basis` names it). LU fill
+/// grows super-linearly, so the estimate is biased high on meshes much
+/// smaller than the anchor and low on larger ones. Symbolic-fill
+/// predictors are deliberately not used: at the anchor scale an ordering
+/// that won on symbolic fill was OOM-killed by the real LU.
+#[derive(Debug, Clone, Serialize)]
+pub struct ResourceEstimate {
+    /// `"direct"` or `"iterative"` (an eigen spec is always `"direct"`).
+    pub solver_mode: &'static str,
+    /// `"real"` (eigen pencil) or `"complex"` (driven / extract).
+    pub scalar: &'static str,
+    /// Non-zeros of the full Nédélec system pattern before PEC
+    /// elimination (the anchor's convention).
+    pub nnz_a: usize,
+    /// LU factorizations the run performs (one per frequency for
+    /// driven / extract direct, one for eigen, `0` iterative).
+    pub n_factorizations: usize,
+    /// Right-hand sides per frequency (ports, or `2 × channels` for wave
+    /// ports; `0` for eigen).
+    pub n_rhs_per_frequency: usize,
+    /// Estimated peak resident memory (GB = 10⁹ bytes).
+    pub peak_memory_gb: f64,
+    /// Estimated total wall time (s), direct only (`null` iterative: no
+    /// measured anchor).
+    pub wall_time_s: Option<f64>,
+    /// Estimated wall time of one factorization (s), direct only.
+    pub wall_time_per_factorization_s: Option<f64>,
+    /// Floating-point operations per Krylov iteration (one complex SpMV
+    /// plus vector updates), iterative only.
+    pub flops_per_iteration: Option<f64>,
+    /// Worst-case total flops at `max_iters` for every RHS and
+    /// frequency, iterative only.
+    pub flops_max: Option<f64>,
+    /// Accuracy class of `peak_memory_gb`: `"order_of_magnitude"`.
+    pub peak_memory_confidence: &'static str,
+    /// Accuracy class of the direct wall-time figures:
+    /// `"conservative_below_anchor"` — machine-dependent, and on every
+    /// in-repo fixture measured (all far below the anchor) 4–40× **high**;
+    /// above the anchor, super-linear fill makes it an under-estimate.
+    /// `null` for iterative (no wall-time figure).
+    pub wall_time_confidence: Option<&'static str>,
+    /// The calibration anchor, its date and the scaling assumptions.
+    pub calibration_basis: &'static str,
 }
 
 /// Aggregate solver statistics for a driven sweep.
@@ -397,10 +449,13 @@ pub struct FrequencyResult {
     pub far_field: Option<FarFieldResult>,
 }
 
-/// A file written under `--outdir` (additive in v1).
+/// A file written by the CLI besides the report (additive in v1).
 #[derive(Debug, Clone, Serialize)]
 pub struct FileRef {
-    /// Path relative to the `--outdir` directory (a bare file name).
+    /// For `--outdir` files: the path relative to the `--outdir`
+    /// directory (a bare file name). For `touchstone_file`: the
+    /// `--touchstone` argument as given on the command line (like
+    /// `spec_path`).
     pub path: String,
     /// Hex SHA-256 of the bytes written.
     pub sha256: String,
@@ -461,6 +516,10 @@ pub struct DrivenReport {
     pub solver: SolverStats,
     /// Per-frequency results, in spec order.
     pub results: Vec<FrequencyResult>,
+    /// The Touchstone 2.0 `.sNp` written by `--touchstone` (additive in
+    /// v1; present only with that flag).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub touchstone_file: Option<FileRef>,
 }
 
 /// Per-port extraction results of a `geode extract` sweep.
@@ -519,6 +578,10 @@ pub struct ExtractReport {
     pub results: Vec<FrequencyResult>,
     /// Per-port `L₀` / SRF extraction, in port order.
     pub extraction: Vec<PortExtraction>,
+    /// The Touchstone 2.0 `.sNp` written by `--touchstone` (additive in
+    /// v1; present only with that flag).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub touchstone_file: Option<FileRef>,
 }
 
 /// Eigensolver statistics.

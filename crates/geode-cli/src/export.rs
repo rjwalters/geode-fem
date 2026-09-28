@@ -111,13 +111,23 @@ impl OutDir {
     /// `{path, sha256}` of a file just written under the root (hash of
     /// the bytes on disk).
     fn file_ref(&self, name: &str) -> Result<FileRef, CliError> {
-        let path = self.root.join(name);
-        let bytes = std::fs::read(&path).map_err(|err| CliError::Io { path, err })?;
-        Ok(FileRef {
-            path: name.to_string(),
-            sha256: format!("{:x}", Sha256::digest(&bytes)),
-        })
+        file_ref_at(&self.root.join(name), name.to_string())
     }
+}
+
+/// `{path, sha256}` of the file just written at `on_disk` (hash of the
+/// bytes read back from disk), reported under the name `reported`.
+/// Shared by [`OutDir`] (bare name relative to `--outdir`) and
+/// `--touchstone` (the path as given on the command line).
+pub fn file_ref_at(on_disk: &Path, reported: String) -> Result<FileRef, CliError> {
+    let bytes = std::fs::read(on_disk).map_err(|err| CliError::Io {
+        path: on_disk.to_path_buf(),
+        err,
+    })?;
+    Ok(FileRef {
+        path: reported,
+        sha256: format!("{:x}", Sha256::digest(&bytes)),
+    })
 }
 
 /// Field file of driven / extract report row `index`.

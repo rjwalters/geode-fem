@@ -18,7 +18,9 @@
 //!    R and Q within 2 %, `|S11|` within 0.01 — the library's own
 //!    tier-3 bands), plus **library parity**: the CLI's `Z` at 5 GHz
 //!    must equal an in-process `driven_frequency_sweep` on the bundled
-//!    `SpiralFixture` (the example's exact code path) to 1e-9 relative.
+//!    `SpiralFixture` (the example's exact code path) to 1e-9 relative;
+//!    the run also writes `--touchstone` and the `.s1p` must round-trip
+//!    the report's S11 exactly (issue #703).
 //! 2. **Benchmark** (`#[ignore]`d, heavy — 54 k edges): the
 //!    `spiral_3p5.msh` benchmark mesh at the 1 GHz reference point: L
 //!    pinned to the committed `results.toml` (1 %; R and Q 2 %, the
@@ -45,12 +47,16 @@ fn repo_root() -> PathBuf {
     manifest_dir().join("..").join("..")
 }
 
-/// Run `geode driven <spec>` and parse the JSON report from stdout.
-fn run_driven(spec: &str) -> serde_json::Value {
+#[path = "support/touchstone.rs"]
+mod touchstone_support;
+
+/// Run `geode driven <spec> <extra…>` and parse the JSON report from stdout.
+fn run_driven(spec: &str, extra: &[&str]) -> serde_json::Value {
     let spec = manifest_dir().join("tests/fixtures").join(spec);
     let out = Command::new(env!("CARGO_BIN_EXE_geode"))
         .arg("driven")
         .arg(&spec)
+        .args(extra)
         .output()
         .expect("spawn geode");
     assert!(
@@ -193,8 +199,18 @@ fn assert_library_parity(_: &geode_core::mesh::SpiralFixture, _: &Row) {}
 
 #[test]
 fn spiral_smoke_golden_matches_committed_sweep() {
-    let report = run_driven("spiral_golden_smoke.json");
+    // Also exercises `--touchstone` (issue #703): the `.s1p` must carry
+    // exactly the report's S11 over the same (ascending) sweep.
+    let dir = std::env::temp_dir().join(format!("geode-spiral-ts-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let ts = dir.join("spiral.s1p");
+    let report = run_driven(
+        "spiral_golden_smoke.json",
+        &["--touchstone", ts.to_str().unwrap()],
+    );
     assert_provenance(&report);
+    touchstone_support::assert_round_trip(&report, &ts);
+    std::fs::remove_dir_all(&dir).unwrap();
 
     let got = rows(&report);
     let want = committed("results_smoke.toml");
@@ -244,7 +260,7 @@ fn spiral_smoke_golden_matches_committed_sweep() {
 #[test]
 #[ignore = "heavy: 54k-edge driven solve; run with --release -- --ignored"]
 fn spiral_benchmark_golden_within_oracle_bands() {
-    let report = run_driven("spiral_golden_benchmark.json");
+    let report = run_driven("spiral_golden_benchmark.json", &[]);
     assert_provenance(&report);
 
     let row = rows(&report)[0];

@@ -13,12 +13,13 @@ geode driven spec.toml --threads 8 --backend ndarray
 geode eigen  cavity.json -o modes.json              # lossless PEC-cavity modes → f
 geode extract inductor.json -o l0.json              # sweep → L / R / Q, f→0 L₀, SRF
 geode driven patch.json --outdir fields/            # + per-frequency E-field .vtu and NTFF
+geode driven filter.json --touchstone filter.s2p    # + Touchstone 2.0 S-parameters
 ```
 
 | Subcommand | Status |
 |---|---|
-| `check`   | live — parse + validate spec, load mesh, resolve every named physical group, report DOF counts; never solves |
-| `driven`  | live — lumped-port (or wave-port, #683) frequency sweep with PEC / Leontovich / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG |
+| `check`   | live — parse + validate spec, load mesh, resolve every named physical group, report DOF counts and an order-of-magnitude memory / cost estimate (#703); never solves |
+| `driven`  | live — lumped-port (or wave-port, #683) frequency sweep with PEC / Leontovich / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG; optional Touchstone 2.0 `.sNp` (#703) |
 | `eigen`   | live (#681) — lossless PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; `Q` is `null` (lossless) |
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 
@@ -44,7 +45,8 @@ geode driven patch.json --outdir fields/            # + per-frequency E-field .v
 - **No network access**: nothing in the binary's dependency tree makes
   network calls at solve time.
 - **Files written**: only the report (stdout or `-o`) — unless
-  `--outdir` is given (next section).
+  `--outdir` (field export) or `--touchstone` (`.sNp`) is given (next
+  sections).
 - **Version pinning**: `geode --version` and every report's `git_sha`
   carry the source revision baked in by `build.rs`
   (`git rev-parse --short=12 HEAD`, `-dirty` if tracked files differ;
@@ -362,6 +364,125 @@ The physical field there is a linear combination of the per-channel
 Sherman–Morrison–Woodbury solves, which the library does not return, and
 reconstructing it would need a `geode-core` API extension.
 
+## Touchstone output (`--touchstone`, issue #703)
+
+`geode driven | extract … --touchstone <PATH>` additionally writes the
+sweep's S-parameters as a **Touchstone 2.0** file at `<PATH>` (the
+parent directory must exist; an existing file is overwritten).
+Independent of `--outdir`. The report gains
+`touchstone_file: { "path", "sha256" }` — `path` is `<PATH>` **as given
+on the command line** (like `spec_path`; not relative to `--outdir`),
+`sha256` the hex SHA-256 of the bytes written. Without the flag the
+field is omitted.
+
+```text
+! Touchstone 2.0 written by geode 0.4.0 (<git-sha>)
+! spec: filter.json
+! S-parameters vs per-port lumped resistance_ohm ([Reference]); RI format; Hz
+[Version] 2.0
+# HZ S RI R 5e1
+[Number of Ports] 2
+[Two-Port Data Order] 21_12
+[Number of Frequencies] 3
+[Reference] 5e1 7.5e1
+[Network Data]
+1e9 <S11 re im> <S21 re im> <S12 re im> <S22 re im>
+…
+[End]
+```
+
+- **Always 2.0**, whatever the port count: each lumped port's
+  `resistance_ohm` is its own reference impedance and may differ between
+  ports, which only 2.0's `[Reference]` line can express. The option
+  line's `R` repeats port 1's value for 1.0-era readers.
+- **`S` only, `RI`, `HZ`**: `results[].s` copied verbatim (`[re, im]`),
+  frequencies in Hz. Numbers use shortest round-trip formatting (`5e1`,
+  `3.333333333333333e-1`), so a parser gets the report's values back
+  bit for bit. `Z` / `Y` / `MA` / `DB` are not offered.
+- **Ascending frequency**: rows are sorted ascending even though a
+  `driven` report keeps spec order (`extract` rows already are).
+  Duplicate frequencies in the spec are rejected up front
+  (`invalid_spec`) — a Touchstone file cannot hold two rows at one
+  frequency.
+- **Layout**: `[Matrix Format]` is the default `Full`. Two-ports use the
+  classic `S11 S21 S12 S22` order, declared as
+  `[Two-Port Data Order] 21_12`; every other port count is row-major
+  (`S11 S12 … S1N`, then row 2, …), each matrix row on its own line(s)
+  of at most four pairs.
+- **Rejected before any solve** with `invalid_spec`: wave-port specs
+  (their power-normalized channel S-matrix has no real reference
+  impedance, and writing a placeholder `[Reference]` would silently
+  mislabel it) and `geode eigen` (no network parameters).
+
+Loading the file in [scikit-rf](https://scikit-rf.org) — **illustrative,
+not run in CI** (scikit-rf is not a dependency of this repo):
+
+```python
+import skrf
+net = skrf.Network("filter.s2p")   # Touchstone 2.0, per-port [Reference]
+print(net.z0[0], net.f[:3], net.s[0])
+```
+
+## Resource estimate (`geode check`, issue #703)
+
+`geode check` reports a `resources` block so an agent can pick mesh and
+solver before a long run. **It is an order-of-magnitude estimate from a
+single measured anchor, not a prediction** — read the caveats.
+
+| Field | Units | Meaning |
+|---|---|---|
+| `solver_mode` | – | `"direct"` \| `"iterative"` (eigen specs: always `"direct"`) |
+| `scalar` | – | `"complex"` (driven / extract pencil) \| `"real"` (eigen pencil) |
+| `nnz_a` | – | non-zeros of the full Nédélec system pattern (before PEC elimination — the anchor's convention); computed from the mesh, no assembly |
+| `n_factorizations` | – | LU factorizations: one per frequency (driven / extract direct), one (eigen), `0` (iterative) |
+| `n_rhs_per_frequency` | – | ports, or `2 × channels` for wave ports; `0` for eigen |
+| `peak_memory_gb` | GB (10⁹ B) | estimated peak resident memory |
+| `wall_time_s` / `wall_time_per_factorization_s` | s | direct only (`null` iterative) |
+| `flops_per_iteration` / `flops_max` | flop | iterative only: one complex SpMV + vector updates; worst case at `max_iters` for every RHS and frequency |
+| `peak_memory_confidence` | – | `"order_of_magnitude"` |
+| `wall_time_confidence` | – | `"conservative_below_anchor"` (direct), `null` (iterative) |
+| `calibration_basis` | – | the anchor, its date and the scaling assumptions (machine-readable, updated on re-calibration) |
+
+**Direct model.** Peak memory and wall time scale **linearly in
+`nnz(A)`** from one measurement (2026-07-15, the 1 157 564-DOF transmon
+eigen run: `nnz(A)` = 20 467 522, COLAMD + faer supernodal LU, 565.5 s
+wall, 92 166 884 KiB ≈ 94.4 GB peak RSS on a 128 GB cloud box;
+`benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log`,
+`docs/research/geode-vs-palace-comparison.md` §2b). The complex driven
+pencil is scaled ×2 memory / ×4 time over the real anchor
+(uncalibrated: no complex run at that scale exists).
+
+- **Bias**: LU fill grows super-linearly in `nnz(A)`, so the linear
+  model **over-estimates below the anchor scale and under-estimates
+  above it**. Measured locally (2026-09-28, Apple M3 Ultra, release
+  build) on every in-repo fixture — all 17–300× smaller than the anchor:
+
+  | Run | `nnz_a` | est. / measured peak memory | est. / measured wall |
+  |---|---:|---|---|
+  | sphere `eigen` | 66 966 | 0.31 / 0.062 GB (5×) | 1.9 / 0.49 s (4×) |
+  | spiral smoke `driven`, 4 freq | 217 544 | 2.0 / 0.85 GB (2.4×) | 96 / 3.3 s (29×) |
+  | patch `extract` benchmark | 491 375 | 4.5 / 3.2 GB (1.4×) | 706 / 18 s (39×) |
+  | spiral benchmark `driven` | 837 812 | 7.7 / 2.3 GB (3.3×) | 93 / 5.4 s (17×) |
+  | SLCFET `extract` benchmark | 1 207 670 | 11.1 / 7.1 GB (1.6×) | 667 / 50 s (13×) |
+
+  Memory landed within ~5× (always high); wall time is machine- and
+  thread-dependent and was 4–40× high. Treat `wall_time_s` as a
+  conservative ceiling below ~1M DOF, and treat either figure above the
+  anchor as a floor, not a ceiling.
+- **Why not a symbolic-fill model**: a fill-reducing ordering that won
+  on *symbolic* fill (`nnz(L)`) was **OOM-killed at 128.5 GB** by the
+  real supernodal LU at the anchor scale (same log), so symbolic fill is
+  not used as the primary predictor. A symbolic-fill refinement is a
+  possible follow-up, not this model.
+
+**Iterative model.** Memory is a vector count (operator storage, 16
+Krylov vectors, per-tet assembly buffers), not an extrapolation — on the
+spiral smoke mesh it came out ~1.6× **low** (0.044 vs 0.072 GB; process
+and mesh overhead are not modelled). Cost is reported in flops only:
+there is **no measured iterative wall-time anchor**, and iteration
+counts depend on the problem and preconditioner (they cannot be
+predicted from the mesh).
+
 ## Report, schema v1
 
 Every report carries these top-level provenance fields:
@@ -408,10 +529,12 @@ Additive in v1 (issue #683) — always present in `check`, present in
 (`frequency_hz`, `k0`; empty for an eigen spec), `solver` (`mode`, `tol`,
 `max_iters`), `analysis` (`"driven"` \| `"eigen"` \| `"extract"`),
 `eigen` (`null` unless an eigen spec, else `n_modes`, `shift_hz`,
-`shift_k0`, `sigma` = `shift_k0²`, `max_iters`, `tol`, `residual_tol`)
-and `extract` (`null` unless an extract spec, else `anchor_source` =
+`shift_k0`, `sigma` = `shift_k0²`, `max_iters`, `tol`, `residual_tol`),
+`extract` (`null` unless an extract spec, else `anchor_source` =
 `"frequencies"` \| `"anchor_frequencies"`, `anchor_frequencies[]`
-(`frequency_hz`, `k0`; distinct, ascending) and `l0_rel_tol`).
+(`frequency_hz`, `k0`; distinct, ascending) and `l0_rel_tol`) and
+`resources` (additive in v1: the up-front resource estimate — see
+"Resource estimate" above).
 `ports[]` is empty for an eigen spec; for an extract spec
 `frequencies[]` is the ascending solved list.
 
@@ -420,6 +543,8 @@ and `extract` (`null` unless an extract spec, else `anchor_source` =
 - `solver`: `mode`, `tol`, `max_iters`, `iterations_max` (largest per-RHS
   Krylov count; `0` on the direct path), `residual_rel_max` (largest
   `‖Ax − b‖/‖b‖`), `wall_time_s` (assembly + all solves, seconds).
+- `touchstone_file` (additive in v1; `--touchstone` only):
+  `{path, sha256}` of the `.sNp` written (see "Touchstone output").
 - `results[]`, one per frequency in spec order:
 
 | Field | Units | Meaning |
@@ -469,7 +594,7 @@ excitations). `wave_channels[]`, one per channel, carries `channel`,
 | `field_file` | | `--outdir` only: `{path, sha256}` of `E_mode_<mode>.vtu` |
 
 **`kind = "extract"`** has the `kind = "driven"` fields (`mesh`,
-`ports`, `solver`, `results[]` — but `results[]` is **ascending** in
+`ports`, `solver`, `touchstone_file`, `results[]` — but `results[]` is **ascending** in
 frequency over the solved list, not spec order), plus `extract` (the
 resolved settings, as for `check`) and `extraction[]`, one per port:
 

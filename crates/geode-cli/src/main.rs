@@ -30,6 +30,7 @@ mod extract;
 mod problem;
 mod report;
 mod spec;
+mod touchstone;
 
 use std::error::Error;
 use std::io::Write;
@@ -113,6 +114,14 @@ struct RunArgs {
     /// Without this flag nothing but the report is written.
     #[arg(long, value_name = "DIR")]
     outdir: Option<PathBuf>,
+    /// driven / extract with lumped ports: also write the S-parameters as
+    /// a Touchstone 2.0 `.sNp` file here (per-port `[Reference]` = each
+    /// port's resistance_ohm, `# HZ S RI`, rows ascending in frequency).
+    /// Independent of --outdir; the report's `touchstone_file` references
+    /// it (path as given, sha256). Rejected before solving for wave-port
+    /// specs and for eigen.
+    #[arg(long, value_name = "PATH")]
+    touchstone: Option<PathBuf>,
 }
 
 impl Cli {
@@ -188,24 +197,35 @@ impl App for Cli {
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
-                let result = backend::confirm(a.backend)
-                    .and_then(|()| driven::run(&a.spec, prov.clone(), a.outdir.as_deref()));
+                let result = backend::confirm(a.backend).and_then(|()| {
+                    let (out, ts) = (a.outdir.as_deref(), a.touchstone.as_deref());
+                    driven::run(&a.spec, prov.clone(), out, ts)
+                });
                 finish("driven", prov, a.output.as_deref(), result)
             }
             Command::Eigen(a) => {
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
-                let result = backend::confirm(a.backend)
-                    .and_then(|()| eigen::run(&a.spec, prov.clone(), a.outdir.as_deref()));
+                let result = match a.touchstone {
+                    Some(_) => Err(touchstone::unsupported(
+                        "geode eigen has no network parameters (S / Z / Y) to write; \
+                         use --touchstone with geode driven or geode extract",
+                    )),
+                    None => backend::confirm(a.backend),
+                };
+                let result =
+                    result.and_then(|()| eigen::run(&a.spec, prov.clone(), a.outdir.as_deref()));
                 finish("eigen", prov, a.output.as_deref(), result)
             }
             Command::Extract(a) => {
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
-                let result = backend::confirm(a.backend)
-                    .and_then(|()| extract::run(&a.spec, prov.clone(), a.outdir.as_deref()));
+                let result = backend::confirm(a.backend).and_then(|()| {
+                    let (out, ts) = (a.outdir.as_deref(), a.touchstone.as_deref());
+                    extract::run(&a.spec, prov.clone(), out, ts)
+                });
                 finish("extract", prov, a.output.as_deref(), result)
             }
         }

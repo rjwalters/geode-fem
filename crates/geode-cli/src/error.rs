@@ -116,6 +116,13 @@ pub enum CliError {
         /// The gate.
         tol: f64,
     },
+    /// `--touchstone` was given for a subcommand or spec that has no
+    /// lumped-port network to write (`geode eigen`, a wave-port spec, …).
+    #[error("--touchstone: {reason}")]
+    TouchstoneUnsupported {
+        /// Why no Touchstone file can be written.
+        reason: String,
+    },
     /// JSON serialization of the report failed.
     #[error("cannot serialize report: {0}")]
     Serialize(serde_json::Error),
@@ -149,7 +156,7 @@ impl CliError {
             CliError::Io { .. } => "io",
             CliError::SpecParse { .. } => "spec_parse",
             CliError::SchemaVersion(_) => "schema_version",
-            CliError::InvalidSpec(_) => "invalid_spec",
+            CliError::InvalidSpec(_) | CliError::TouchstoneUnsupported { .. } => "invalid_spec",
             CliError::Mesh { .. } => "mesh",
             CliError::UnresolvedGroups { .. } => "unresolved_physical_group",
             CliError::BackendMismatch { .. } => "backend_mismatch",

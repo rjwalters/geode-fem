@@ -2,12 +2,14 @@
 
 use std::path::Path;
 
+use geode_core::assembly::nedelec::sparsity_pattern_from_tet_edges;
+
 use crate::error::CliError;
 use crate::problem::{self, MaterialSource, Problem};
 use crate::report::{
     CheckReport, EigenSettingsSummary, ExtractSettingsSummary, FrequencySummary, LeontovichSummary,
-    MeshSummary, PecSummary, PortSummary, Provenance, RegionSummary, SilverMullerSummary,
-    SolverSummary, UpmlSummary, WavePortSummary,
+    MeshSummary, PecSummary, PortSummary, Provenance, RegionSummary, ResourceEstimate,
+    SilverMullerSummary, SolverSummary, UpmlSummary, WavePortSummary,
 };
 use crate::spec::SolverSpec;
 
@@ -48,7 +50,138 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
         analysis: p.analysis.name(),
         eigen: eigen_settings_summary(&p),
         extract: extract_settings_summary(&p),
+        resources: resource_estimate(&p),
     })
+}
+
+/// Anchor `nnz(A)`: the full (pre-PEC-elimination) Nédélec pattern of the
+/// 2026-07-15 1.16M-DOF transmon run
+/// (`benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log`).
+pub const ANCHOR_NNZ: f64 = 20_467_522.0;
+/// Anchor peak RSS (GB = 10⁹ B): GNU time's `Maximum resident set size`
+/// 92 166 884 kB, in KiB (reported as "92.2 GB" in
+/// `docs/research/geode-vs-palace-comparison.md` §2b).
+pub const ANCHOR_PEAK_GB: f64 = 92.166_884 * 1.024;
+/// Anchor wall time (s): `TOTAL_S = 565.531` (assembly + one real LU
+/// factorization + the shift-invert Lanczos back-solves).
+pub const ANCHOR_WALL_S: f64 = 565.531;
+/// Complex (`c64`, driven / extract) vs real (`f64`, eigen) pencil:
+/// bytes per stored factor entry. Uncalibrated (no complex anchor).
+pub const COMPLEX_MEMORY_FACTOR: f64 = 2.0;
+/// Complex vs real pencil: real flops per complex multiply-add.
+/// Uncalibrated (no complex anchor).
+pub const COMPLEX_TIME_FACTOR: f64 = 4.0;
+/// Machine-readable calibration basis of [`ResourceEstimate`]; bump the
+/// date / figures here when re-calibrating.
+pub const CALIBRATION_BASIS: &str = "linear-in-nnz(A) extrapolation from one direct-LU anchor: \
+     2026-07-15 transmon eigen, real pencil, 1157564 interior DOF, nnz(A)=20467522, COLAMD, \
+     faer supernodal LU, 565.5 s wall / 92166884 KiB (94.4 GB) peak RSS on a 128 GB cloud box; complex pencil \
+     x2 memory / x4 time (uncalibrated); order-of-magnitude only";
+
+/// Machine-readable basis of an **iterative** [`ResourceEstimate`].
+pub const ITERATIVE_BASIS: &str = "vector count (no measured anchor), 2026-09-28: nnz(A) operator \
+     storage x3 + 16 Krylov vectors + per-tet assembly buffers; flops = complex SpMV (8 nnz) + \
+     ~10 vector ops per iteration; no wall-time model";
+
+/// Up-front memory / cost estimate for the spec's solve (no assembly
+/// beyond the sparsity pattern, no factorization).
+///
+/// **Direct** (and every eigen spec — always direct LU): peak memory and
+/// wall time scaled **linearly in `nnz(A)`** from the single 2026-07-15
+/// anchor ([`CALIBRATION_BASIS`]), ×[`COMPLEX_MEMORY_FACTOR`] /
+/// ×[`COMPLEX_TIME_FACTOR`] for the complex driven pencil, with one
+/// factorization per frequency. LU fill grows super-linearly in
+/// `nnz(A)`, so the model **over-estimates below** the anchor scale and
+/// **under-estimates above** it; treat it as order-of-magnitude. A
+/// symbolic-fill (`nnz(L)`) model is deliberately not used: at the same
+/// anchor scale a fill-reducing ordering that won on symbolic fill was
+/// OOM-killed at 128.5 GB by the real supernodal LU.
+///
+/// **Iterative**: memory is a vector count (operator storage, Krylov
+/// vectors, per-tet assembly buffers), not an extrapolation; cost is
+/// reported as floating-point operations per Krylov iteration and a
+/// worst-case total at `max_iters`. There is no measured iterative
+/// wall-time anchor, so no wall time is reported.
+///
+/// Local check (2026-09-28, Apple M3 Ultra, release build, all fixtures
+/// far below the anchor): direct peak memory came out 1.4–5× **high**
+/// and direct wall time 4–40× **high** on the spiral smoke / benchmark,
+/// SLCFET and patch extract benchmarks and the PEC sphere; iterative
+/// memory on the spiral smoke mesh ~1.6× **low** (process and mesh
+/// overhead are not modelled). See `crates/geode-cli/README.md`.
+pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
+    let tet_edges: Vec<[u32; 6]> = p
+        .tagged
+        .mesh
+        .tet_edges()
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].0))
+        .collect();
+    let nnz = sparsity_pattern_from_tet_edges(&tet_edges).nnz();
+    let n = p.n_interior() as f64;
+    let is_eigen = p.eigen.is_some();
+    let n_channels: usize = p.wave_ports.iter().map(|w| w.a_inc.len()).sum();
+    let n_rhs = if is_eigen {
+        0
+    } else if n_channels > 0 {
+        // The SMW column solves, then the excitations.
+        2 * n_channels
+    } else {
+        p.ports.len()
+    };
+    let n_factorizations = if is_eigen { 1 } else { p.frequencies.len() };
+    let scale = nnz as f64 / ANCHOR_NNZ;
+    let base = ResourceEstimate {
+        solver_mode: "direct",
+        scalar: if is_eigen { "real" } else { "complex" },
+        nnz_a: nnz,
+        n_factorizations,
+        n_rhs_per_frequency: n_rhs,
+        peak_memory_gb: 0.0,
+        wall_time_s: None,
+        wall_time_per_factorization_s: None,
+        flops_per_iteration: None,
+        flops_max: None,
+        peak_memory_confidence: "order_of_magnitude",
+        wall_time_confidence: Some("conservative_below_anchor"),
+        calibration_basis: CALIBRATION_BASIS,
+    };
+    match (is_eigen, p.solver()) {
+        (false, SolverSpec::Iterative { max_iters, .. }) => {
+            // Operator values (c64) + column indices (u64), ×3 for the
+            // assembled pieces / preconditioner; 16 Krylov-class c64
+            // vectors; eight 6×6 f64 per-tet element-matrix buffers
+            // (assembly). A vector count, not an extrapolation.
+            let n_tets = p.tagged.mesh.n_tets() as f64;
+            let bytes = nnz as f64 * 24.0 * 3.0 + 16.0 * n * 16.0 + n_tets * 36.0 * 8.0 * 8.0;
+            // Complex SpMV (4 mul + 4 add per entry) + ~10 vector ops.
+            let per_iter = 8.0 * nnz as f64 + 80.0 * n;
+            ResourceEstimate {
+                solver_mode: "iterative",
+                n_factorizations: 0,
+                peak_memory_gb: bytes / 1e9,
+                flops_per_iteration: Some(per_iter),
+                flops_max: Some(per_iter * (max_iters * n_rhs * p.frequencies.len()) as f64),
+                wall_time_confidence: None,
+                calibration_basis: ITERATIVE_BASIS,
+                ..base
+            }
+        }
+        _ => {
+            let (mem_f, time_f) = if is_eigen {
+                (1.0, 1.0)
+            } else {
+                (COMPLEX_MEMORY_FACTOR, COMPLEX_TIME_FACTOR)
+            };
+            let per = ANCHOR_WALL_S * scale * time_f;
+            ResourceEstimate {
+                peak_memory_gb: ANCHOR_PEAK_GB * scale * mem_f,
+                wall_time_per_factorization_s: Some(per),
+                wall_time_s: Some(per * n_factorizations as f64),
+                ..base
+            }
+        }
+    }
 }
 
 /// Volume regions with applied permittivities.
