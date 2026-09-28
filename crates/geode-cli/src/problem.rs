@@ -372,7 +372,9 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
             let kind = analysis.name();
             if analysis == Analysis::Extract && !spec.wave_ports.is_empty() {
                 return Err(invalid(
-                    "an extract spec cannot have `wave_ports`: L / R / Q and L0 come from the                      lumped-port impedance Z_kk, which a wave port does not define — use                      lumped `ports`",
+                    "an extract spec cannot have `wave_ports`: L / R / Q and L0 come from the \
+                     lumped-port impedance Z_kk, which a wave port does not define — use \
+                     lumped `ports`",
                 ));
             }
             if spec.ports.is_empty() && spec.wave_ports.is_empty() {

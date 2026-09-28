@@ -386,6 +386,51 @@ pub struct FrequencyResult {
     /// wave-port specs).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub wave_channels: Vec<WaveChannelResult>,
+    /// Exported `E` field of this row (additive in v1; present only with
+    /// `--outdir` on a lumped-port spec).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_file: Option<FileRef>,
+    /// NTFF far-field quantities of this row (additive in v1; present
+    /// only with `--outdir` on a lumped-port spec with exactly one
+    /// `absorbing_regions` shell).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub far_field: Option<FarFieldResult>,
+}
+
+/// A file written under `--outdir` (additive in v1).
+#[derive(Debug, Clone, Serialize)]
+pub struct FileRef {
+    /// Path relative to the `--outdir` directory (a bare file name).
+    pub path: String,
+    /// Hex SHA-256 of the bytes written.
+    pub sha256: String,
+}
+
+/// Near-to-far-field (NTFF) radiation quantities at one frequency
+/// (additive in v1): Love surface equivalence over the closed box
+/// `box_lo`–`box_hi` (the UPML inner wall shrunk 10 % toward its
+/// centre), sampled on a 91 × 72 `(θ, φ)` grid (2° × 5°).
+#[derive(Debug, Clone, Serialize)]
+pub struct FarFieldResult {
+    /// NTFF / flux box low corner (mesh units).
+    pub box_lo: [f64; 3],
+    /// NTFF / flux box high corner (mesh units).
+    pub box_hi: [f64; 3],
+    /// Peak directivity `D_max` (linear).
+    pub directivity_max: f64,
+    /// Broadside (+z, `θ = 0`) directivity (linear, φ-averaged pole row).
+    pub directivity_broadside: f64,
+    /// Broadside gain `G = D_broadside · η` (linear; `η` clamped to
+    /// `[0, 1]`).
+    pub gain_broadside: f64,
+    /// `10·log10(gain_broadside)` (dBi).
+    pub gain_broadside_db: f64,
+    /// Radiation efficiency `η = P_rad / P_in`: box Poynting flux over
+    /// the net port input power `Σ_k ½ Re(V_k I_k*)` (`0` if
+    /// `P_in = 0`). Not clamped.
+    pub efficiency: f64,
+    /// Principal-plane pattern cuts (E-plane `φ = 0`, H-plane `φ = π/2`).
+    pub pattern_file: FileRef,
 }
 
 /// `geode driven` report (`kind = "driven"`).
@@ -511,6 +556,10 @@ pub struct ModeResult {
     pub q: Option<f64>,
     /// Relative eigen-residual `‖Kx − λMx‖ / (|λ| ‖Mx‖)`.
     pub residual_rel: f64,
+    /// Exported (real, `M_ε`-normalized, arbitrary sign) mode field
+    /// (additive in v1; present only with `--outdir`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_file: Option<FileRef>,
 }
 
 /// `geode eigen` report (`kind = "eigen"`).

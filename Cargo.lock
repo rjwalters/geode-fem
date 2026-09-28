@@ -3187,6 +3187,7 @@ dependencies = [
  "faer",
  "geode-app",
  "geode-core",
+ "geode-util",
  "serde",
  "serde_json",
  "sha2",

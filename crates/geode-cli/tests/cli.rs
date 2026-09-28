@@ -2,7 +2,10 @@
 //! #680): `--version`, `check` success + structured failures, eigen-spec
 //! validation (issue #681), extract-spec validation and its `L₀`
 //! convergence gate (issue #682), open-boundary / wave-port spec
-//! validation (issue #683), `--backend` confirmation, and the
+//! validation (issue #683), `--outdir` field export on a closed
+//! lumped-port spec and its fail-fast `io` error (issue #684), a
+//! no-double-space guard on every `invalid_spec` message, `--backend`
+//! confirmation, and the
 //! structured `solve_failed` error for a non-converging iterative solve
 //! (one iteration). The eigen and extract solves themselves are
 //! exercised by `tests/sphere_pec_golden.rs` and
@@ -64,6 +67,14 @@ fn json(out: &Output) -> serde_json::Value {
     })
 }
 
+/// Every `invalid_spec` message is one clean sentence: a run of spaces
+/// is the signature of a multi-line string literal that lost its `\`
+/// continuation (issue #684 regression guard, applied by
+/// [`assert_error`] to every `invalid_spec` case in this file).
+fn assert_no_double_space(msg: &str) {
+    assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
+}
+
 fn assert_error(out: &Output, command: &str, code: &str) -> serde_json::Value {
     assert!(!out.status.success(), "expected failure");
     let v = json(out);
@@ -71,6 +82,9 @@ fn assert_error(out: &Output, command: &str, code: &str) -> serde_json::Value {
     assert_eq!(v["status"], "error");
     assert_eq!(v["command"], command);
     assert_eq!(v["error"]["code"], code, "report: {v:#}");
+    if code == "invalid_spec" {
+        assert_no_double_space(v["error"]["message"].as_str().expect("error message"));
+    }
     assert!(
         String::from_utf8_lossy(&out.stderr).contains("error:"),
         "stderr carries the human-readable error"
@@ -391,14 +405,12 @@ fn eigen_and_driven_reject_the_other_spec_kind() {
     let v = assert_error(&out, "eigen", "invalid_spec");
     let msg = v["error"]["message"].as_str().unwrap();
     assert!(msg.contains("`eigen` section"), "{msg}");
-    assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
 
     // An eigen spec under `geode driven`.
     let out = geode(&["driven", sphere_spec().to_str().unwrap()]);
     let v = assert_error(&out, "driven", "invalid_spec");
     let msg = v["error"]["message"].as_str().unwrap();
     assert!(msg.contains("geode eigen"), "{msg}");
-    assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
 }
 
 /// A boxed in-place edit of a spec's JSON.
@@ -853,4 +865,62 @@ fn open_boundary_and_wave_port_spec_validation() {
             .unwrap()
             .contains("`no_such_wall` (dim 2, silver_muller)")
     );
+}
+
+#[test]
+fn outdir_exports_lumped_port_fields_without_far_field_when_closed() {
+    // One frequency of the (closed, PEC-bounded) spiral smoke spec: a
+    // field file per row, but no NTFF (no `absorbing_regions` shell).
+    let spec = edited_spec("outdir-closed", |v| {
+        v["frequencies"] = serde_json::json!({ "unit": "ghz", "values": [5.0] });
+    });
+    let outdir = scratch("outdir-closed").join("out");
+    let out = geode(&[
+        "driven",
+        spec.to_str().unwrap(),
+        "--outdir",
+        outdir.to_str().unwrap(),
+    ]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = json(&out);
+    let r = &v["results"][0];
+    assert_eq!(r["field_file"]["path"], "E_0000.vtu");
+    assert_eq!(r["field_file"]["sha256"].as_str().unwrap().len(), 64);
+    assert!(r.get("far_field").is_none(), "no UPML shell → no NTFF");
+    let vtu = std::fs::read_to_string(outdir.join("E_0000.vtu")).unwrap();
+    let n_nodes = v["mesh"]["n_nodes"].as_u64().unwrap();
+    assert!(vtu.contains(&format!("NumberOfPoints=\"{n_nodes}\"")));
+    assert!(vtu.contains("Name=\"E_real\"") && vtu.contains("Name=\"E_imag\""));
+    let names: Vec<_> = std::fs::read_dir(&outdir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["E_0000.vtu"], "exactly the referenced file");
+    std::fs::remove_dir_all(outdir.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn outdir_that_is_a_file_fails_with_io_before_solving() {
+    let dir = scratch("outdir-file");
+    let file = dir.join("not-a-dir");
+    std::fs::write(&file, "x").unwrap();
+    for cmd in ["driven", "extract", "eigen"] {
+        let spec = match cmd {
+            "driven" => smoke_spec(),
+            "extract" => fixtures()
+                .join("slcfet_extract_smoke.json")
+                .display()
+                .to_string(),
+            _ => sphere_spec().display().to_string(),
+        };
+        let out = geode(&[cmd, &spec, "--outdir", file.to_str().unwrap()]);
+        let v = assert_error(&out, cmd, "io");
+        let msg = v["error"]["message"].as_str().unwrap();
+        assert!(msg.contains("not-a-dir"), "{cmd}: {msg}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
 }

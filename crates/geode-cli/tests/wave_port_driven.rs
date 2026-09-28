@@ -165,7 +165,13 @@ fn error_message(out: &Output, cmd: &str, code: &str) -> String {
     assert_eq!(v["kind"], "error");
     assert_eq!(v["command"], cmd);
     assert_eq!(v["error"]["code"], code, "{v:#}");
-    v["error"]["message"].as_str().unwrap().to_string()
+    let msg = v["error"]["message"].as_str().unwrap().to_string();
+    // No lost-`\`-continuation whitespace in any `invalid_spec` message
+    // (issue #684 regression guard; cf. `tests/cli.rs::assert_error`).
+    if code == "invalid_spec" {
+        assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
+    }
+    msg
 }
 
 #[test]
@@ -193,11 +199,26 @@ fn check_echoes_wave_port_cross_sections_without_solving() {
 
 #[test]
 fn wave_port_driven_matches_library_and_reports_cutoffs() {
-    let v = json(&geode(&[
+    // Run with --outdir: wave-port field / NTFF export is out of scope
+    // (issue #684) — the rows carry no export fields and nothing is
+    // written (the directory itself is created up front).
+    let outdir = scratch("driven-outdir").join("fields");
+    let out = geode(&[
         "driven",
         spec("driven", |_| {}).to_str().unwrap(),
-    ]));
+        "--outdir",
+        outdir.to_str().unwrap(),
+    ]);
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("not supported for wave-port specs"),
+        "stderr notes the skipped export"
+    );
+    let v = json(&out);
     assert_eq!(v["kind"], "driven");
+    for r in v["results"].as_array().unwrap() {
+        assert!(r.get("field_file").is_none() && r.get("far_field").is_none());
+    }
+    assert_eq!(std::fs::read_dir(&outdir).unwrap().count(), 0);
 
     // Solved modes: TE10 cutoff in k0 and Hz (k0 is linear in f).
     let wp = v["wave_ports"].as_array().unwrap();

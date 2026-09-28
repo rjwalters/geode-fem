@@ -14,6 +14,9 @@
 //!   (`solve_failed`) instead of reporting an unconverged `L₀`.
 //! * SRF — [`geode_core::driven::extraction::im_z_zero_crossings`] over
 //!   the whole (ascending) sweep; the first crossing is the SRF.
+//!
+//! With `--outdir`, every report row also gets `geode driven`'s field /
+//! far-field export ([`crate::driven`], issue #684).
 
 use std::path::Path;
 
@@ -25,18 +28,24 @@ use crate::check::{
 };
 use crate::driven;
 use crate::error::CliError;
+use crate::export::OutDir;
 use crate::problem;
 use crate::report::{ExtractReport, PortExtraction, Provenance};
 use crate::spec::Analysis;
 
 /// Load, solve, extract and report.
-pub fn run(spec_path: &Path, provenance: Provenance) -> Result<ExtractReport, CliError> {
+pub fn run(
+    spec_path: &Path,
+    provenance: Provenance,
+    outdir: Option<&Path>,
+) -> Result<ExtractReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Extract))?;
+    let out = OutDir::create_opt(outdir)?;
     let target = p
         .extract
         .clone()
         .expect("extract spec has a resolved extract section");
-    let (results, solver) = driven::sweep(&p)?;
+    let (results, solver) = driven::sweep(&p, out.as_ref())?;
 
     // `p.frequencies` (hence `results`) is strictly ascending for an
     // extract spec, as `im_z_zero_crossings` requires. The interpolation
