@@ -20,7 +20,9 @@ use std::path::Path;
 use faer::c64;
 use geode_core::driven::extraction::{extrapolate_l0, im_z_zero_crossings};
 
-use crate::check::{extract_settings_summary, mesh_summary, port_summaries};
+use crate::check::{
+    extract_settings_summary, mesh_summary, port_summaries, silver_muller_summaries, upml_summaries,
+};
 use crate::driven;
 use crate::error::CliError;
 use crate::problem;
@@ -91,6 +93,8 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<ExtractReport, Cl
         status: "ok",
         mesh: mesh_summary(&p),
         ports: port_summaries(&p),
+        silver_muller: silver_muller_summaries(&p),
+        absorbing_regions: upml_summaries(&p),
         extract: extract_settings_summary(&p).expect("extract spec"),
         solver,
         results,

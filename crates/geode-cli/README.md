@@ -17,7 +17,7 @@ geode extract inductor.json -o l0.json              # sweep → L / R / Q, f→0
 | Subcommand | Status |
 |---|---|
 | `check`   | live — parse + validate spec, load mesh, resolve every named physical group, report DOF counts; never solves |
-| `driven`  | live — lumped-port frequency sweep with PEC + Leontovich BCs, direct LU or COCG |
+| `driven`  | live — lumped-port (or wave-port, #683) frequency sweep with PEC / Leontovich / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG |
 | `eigen`   | live (#681) — lossless PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; `Q` is `null` (lossless) |
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 
@@ -57,15 +57,22 @@ both through the same schema.
 A spec describes **one** analysis, decided by which optional analysis
 section it carries:
 
-- **driven spec** (no `eigen`, no `extract`): needs `ports` (≥ 1) and
-  `frequencies`; run with `geode driven`.
-- **eigen spec** (has `eigen`): must not have `ports`, `frequencies` or
-  Leontovich walls, and every `eps_r` must be real (`im = 0`); run with
+- **driven spec** (no `eigen`, no `extract`): needs `ports` (≥ 1) **or**
+  `wave_ports` (≥ 1), and `frequencies`; run with `geode driven`.
+- **eigen spec** (has `eigen`): must not have `ports`, `wave_ports`,
+  `frequencies`, Leontovich or Silver-Müller walls or
+  `absorbing_regions`, and every `eps_r` must be real (`im = 0`); run with
   `geode eigen`.
 - **extract spec** (has `extract`): exactly a driven spec plus the
-  `extract` section (`"extract": {}` takes every default) — needs
-  `ports` (≥ 1), `frequencies`, and ≥ 2 distinct `L₀` anchor
-  frequencies; run with `geode extract`.
+  `extract` section (`"extract": {}` takes every default) — needs lumped
+  `ports` (≥ 1; wave ports define no `Z_kk`, so they are rejected),
+  `frequencies`, and ≥ 2 distinct `L₀` anchor frequencies; run with
+  `geode extract`.
+
+Each **dimension-2** physical group carries at most one role — lumped
+port, wave port, PEC, Leontovich or Silver-Müller; ports, wave ports and
+impedance walls may not be listed twice (repeating a PEC name is
+harmless).
 
 A spec with both `eigen` and `extract` is rejected. Running a spec under
 another subcommand fails with `invalid_spec` before the mesh is read;
@@ -104,6 +111,11 @@ Driven example (the spiral-inductor golden input,
 | `boundary_conditions.leontovich[]` | | good-conductor surface impedance `Z_s = (1+j)·√(ωμ₀/2σ)` |
 | `….leontovich[].physical_group` | string | dimension-2 group |
 | `….leontovich[].conductivity_s_m` | float > 0, S/m | converted to natural units `σ·η₀·length_unit_m` |
+| `boundary_conditions.silver_muller[]` | strings, driven / extract only | **dimension-2** groups carrying the first-order Silver-Müller absorbing condition — the impedance wall with `Z_s = η₀` (no parameters). Composes with Leontovich walls, PEC and `absorbing_regions` |
+| `absorbing_regions[]` | driven / extract only | matched (full Sacks) **box UPML** shells, see below |
+| `absorbing_regions[].physical_group` | string | **dimension-3** group of the shell tets; its `materials` `eps_r` (vacuum if unlisted) is the base permittivity the stretch multiplies |
+| `absorbing_regions[].thickness` | float > 0, mesh units | shell depth; the inner wall is the mesh node bounding box shrunk by it on every face |
+| `absorbing_regions[].sigma_0` | float > 0, **natural units** (rad / mesh unit, like `k0`) | strength of the quadratic profile `s_i = 1 − j·σ₀·(d_i/thickness)²/k₀`; `25` is the validated value of the patch-antenna / Mie shells |
 | `ports[]` | driven: ≥ 1 entry; eigen: absent | uniform (Palace-style) lumped ports; index order = matrix order |
 | `ports[].physical_group` | string | dimension-2 group holding the port faces |
 | `ports[].e_hat` | `[x, y, z]`, non-zero | gap direction (normalized on load) |
@@ -111,6 +123,10 @@ Driven example (the spiral-inductor golden input,
 | `ports[].width` | optional, mesh units | extent across `ê`; default `area / length` of the tagged faces |
 | `ports[].length` | optional, mesh units | gap extent along `ê`; default: extent of the tagged faces along `ê` |
 | `ports[].v_inc` | `[re, im]`, default `[1, 0]` | incident drive voltage (non-zero) |
+| `wave_ports[]` | driven only; not with `ports`, Leontovich or Silver-Müller (v1) | wave (modal) ports, see below; index order = S-matrix block order |
+| `wave_ports[].physical_group` | string | dimension-2 group holding the **planar** port faces |
+| `wave_ports[].n_modes` | int ≥ 1, default `1` | lowest-cutoff cross-section modes carried by the port (one S-matrix channel each) |
+| `wave_ports[].a_inc` | `[[re, im], …]`, length `n_modes`, default all `[1, 0]` | per-mode incident amplitude (finite, non-zero) |
 | `frequencies` | driven: **required**; eigen: absent | the frequencies to sweep |
 | `frequencies.unit` | `"hz"` \| `"ghz"` \| `"k0"`, **required** | `k0` = the solver's natural unit `ω/c` in **rad per mesh length unit** |
 | `frequencies.values` | floats > 0 | explicit list, **or** … |
@@ -223,10 +239,42 @@ diagonal `Z_kk` at each anchor, `L(f) = Im Z_kk / ω`; then
   brackets none). A sign change is a series resonance or a flip through a
   pole (parallel anti-resonance), as in the SLCFET benchmark.
 
-Not in schema v1 (Phase 2+): wave ports, UPML / Silver-Müller absorbing
-regions, tensor materials, the matrix-free iterative solver, field /
-NTFF export, lossy / open-cavity eigenmodes (complex `ε_r`, Leontovich,
-absorbing boundaries → finite `Q`; issue #683).
+**Open boundaries** (issue #683). `absorbing_regions` terminates an
+**axis-aligned box** mesh with a matched (full Sacks) UPML shell: the
+inner wall is the mesh node bounding box shrunk by `thickness` on every
+face, and each shell tet whose centroid is beyond it gets `ε = ε_r·Λ`,
+`ν = Λ⁻¹` with the per-axis box stretch
+(`geode_core::mesh::patch::box_upml_tensors`). Back the shell with a PEC
+outer wall (as the patch antenna does) or a Silver-Müller wall. A region
+thicker than half the mesh extent, or one with no tet beyond the inner
+wall (a no-op), is `invalid_spec`. The UPML tensors carry `1/k₀`, so a
+UPML spec reassembles the operator **once per frequency** (a spec without
+UPML keeps the batched assemble-once sweep, unchanged). Spherical /
+cylindrical shells and the ε-only `DiagTensor` stretch are not in the
+schema.
+
+**Wave ports** (issue #683). Each wave port's tagged faces must be
+coplanar (to `1e-6` of the face diameter); they are projected into a
+local 2-D cross-section whose rim (edges on a single face triangle) is
+PEC, and its `n_modes` lowest-cutoff transverse modes
+(`geode_core::driven::ports::project_port_face` +
+`solve_waveguide_modes`) become the port's channels. Name the waveguide
+walls in `pec`. The driven result is the power-normalized channel
+S-matrix (port-major, mode-minor), with `β` per channel; wave ports
+define no port impedance. **v1 boundary:** a spec has lumped `ports`
+**or** `wave_ports`, never both, and `wave_ports` cannot be combined with
+Leontovich or Silver-Müller walls (PEC and `absorbing_regions` compose)
+— these combinations are rejected with `invalid_spec`, not ignored.
+Cross-sections with a TEM mode (multiply connected, e.g. coax) are not
+supported: the TEM mode lives in the gradient nullspace and is filtered
+out. Asking for more modes than the cross-section can hold fails with
+`solve_failed`.
+
+Not in schema v1: the matrix-free iterative solver, field / NTFF export,
+and lossy / open-cavity eigenmodes (complex `ε_r`, Leontovich / absorbing
+walls in an eigen spec → finite `Q`) — the latter needs a complex
+non-Hermitian quasi-mode eigensolve and is a future eigen-analysis phase,
+not part of the driven open-boundary support above.
 
 ## Report, schema v1
 
@@ -253,6 +301,19 @@ bytes), `length_unit_m`, `n_nodes`, `n_tets`, `n_edges` (Nédélec DOFs),
 **`ports[]`** (check + driven + extract): `index`, `physical_group`, `tag`,
 `n_triangles`, `e_hat` (normalized), `width`, `length` (mesh units),
 `geometry_derived`, `resistance_ohm`, `v_inc`.
+
+Additive in v1 (issue #683) — always present in `check`, present in
+`driven` / `extract` only when non-empty:
+
+- **`silver_muller[]`**: `physical_group`, `tag`, `n_triangles`.
+- **`absorbing_regions[]`**: `physical_group`, `tag`, `n_tets`,
+  `n_tets_stretched` (tets beyond the inner wall), `thickness`, `sigma_0`,
+  `air_box_lo` / `air_box_hi` (the derived inner wall, mesh units).
+- **`wave_ports[]`**: `index`, `physical_group`, `tag`, `n_triangles`,
+  `n_port_edges`, `n_interior_port_edges` (the modal problem size),
+  `area`, `normal`, `n_modes`, `a_inc`, and `modes` — `null` in `check`
+  (no modal solve), else one entry per mode: `mode`, `channel` (flat
+  S-matrix index), `k_c` (rad / mesh unit), `cutoff_hz`.
 
 **`kind = "check"`** adds `regions[]` (`physical_group`, `tag`, `n_tets`,
 `eps_r`, `eps_r_source` = `"spec"` \| `"default_vacuum"`), `pec[]`
@@ -290,6 +351,15 @@ and `extract` (`null` unless an extract spec, else `anchor_source` =
 | `ports[].r_ohm` | Ω | `Re Z_kk` |
 | `ports[].l_h` | H | `Im Z_kk / ω` (negative above self-resonance) |
 | `ports[].q` | – | `Im Z_kk / Re Z_kk` |
+| `wave_channels[]` | | wave-port specs only (see below) |
+
+For a **wave-port** spec `z_ohm` and `ports` are empty and `y_s` is
+`null` (no port impedance); `s` is the power-normalized channel S-matrix
+(`S[k][j] = √(β_k/β_j)·(a_k − a_inc δ_kj)/a_inc,j`, reciprocal), and
+`iterations` has `2·n_channels` entries (the SMW column solves, then the
+excitations). `wave_channels[]`, one per channel, carries `channel`,
+`port`, `mode`, `beta` (`[re, im]`: real positive when propagating,
+`−j|β|` when evanescent), `propagating`, `s` (`S_kk`) and `s_db`.
 
 **`kind = "eigen"`** adds `regions[]` and `pec[]` (as for `check`),
 `eigen` (the resolved settings, as for `check`), and:
@@ -306,7 +376,7 @@ and `extract` (`null` unless an extract spec, else `anchor_source` =
 | `k0` | rad / mesh unit | resonant `ω/c` |
 | `frequency_hz` | Hz | `k₀ c / (2π · length_unit_m)` |
 | `omega_rad_s` | rad/s | `2πf` |
-| `q` | – | quality factor — **always `null`** in this build: the pencil is lossless, so `Q` is undefined (infinite), not a number. Finite `Q` needs lossy / open-cavity eigenmodes (issue #683) |
+| `q` | – | quality factor — **always `null`** in this build: the pencil is lossless, so `Q` is undefined (infinite), not a number. Finite `Q` needs lossy / open-cavity eigenmodes (a future eigen-analysis phase) |
 | `residual_rel` | – | `‖Kx − λMx‖ / (|λ| ‖Mx‖)` |
 
 **`kind = "extract"`** has the `kind = "driven"` fields (`mesh`,
@@ -365,8 +435,9 @@ existing bound — within 15 % of the closest analytic PEC-cavity Mie root
 (ascending, `q = null`, `f = k₀c/(2πL)`, residuals). The ignored tier
 checks the sparse Lanczos modes against the full dense solve of the same
 pencil to 1e-6 relative. This is deliberately not the
-`examples/mie_sphere` UPML benchmark, which needs UPML-as-material and
-complex quasimode eigensolvers (issue #683).
+`examples/mie_sphere` UPML benchmark: an open-cavity quasi-mode needs a
+complex non-Hermitian eigensolve (a future eigen-analysis phase; the
+driven UPML support of issue #683 does not provide it).
 
 `tests/slcfet_extract_golden.rs` (issue #682) re-expresses the SLCFET 3HP
 spiral benchmark (`geode-core/tests/slcfet_3hp_benchmark.rs`, issue #212
@@ -386,3 +457,38 @@ ignored benchmark tier holds `L₀` to the existing bands — 1 % of the
 committed `benchmarks/slcfet_3hp/results.toml` `L₀`, 5 % of the mom-PEEC
 oracle (2.155 nH), 10 % of Mohan — and the SRF to the calibrated
 28–38 GHz band.
+
+`tests/patch_extract_golden.rs` (issue #683) re-expresses the probe-fed
+FR-4 patch antenna (`examples/patch_antenna`, issue #228 — the repo's
+driven open radiator) as an extract spec with an `absorbing_regions`
+box-UPML shell and runs `geode extract`:
+
+```sh
+cargo test -p geode-cli --test patch_extract_golden                               # smoke mesh, default CI
+cargo test -p geode-cli --release --test patch_extract_golden -- --ignored        # 30.6k-edge benchmark mesh
+```
+
+`f_res` is the first `Im Z = 0` crossing, i.e. `extraction[0].srf_hz`
+(`l0_h` is meaningless for an open radiator and is not asserted). The
+smoke tier (`patch_2g4_smoke.msh`, different geometry) checks passivity
+(`Re Z ≥ 0`, `|S11| ≤ 1`), convergence and CLI vs library `Z` parity
+(1e-9) against the fixture's own `matched_upml_materials` path — once
+with the PEC outer wall and once with it swapped for a Silver-Müller
+wall. The ignored tier sweeps `examples/patch_antenna`'s 13 points over
+2.0–3.0 GHz and holds `f_res` to the Balanis cavity model
+(`geode_core::analytic::patch::PatchCavity`) within the repo's existing
+calibrated **8 %** band (`geode-core/tests/patch_antenna_extraction.rs`;
+the FEM resonance, 2.2745 GHz, sits −6.5 % below the ~3–5 %-class cavity
+model's 2.4332 GHz), requires an interior S11 dip ≤ −3 dB, and checks
+library parity at the dip. It does not read
+`benchmarks/patch_antenna/results.toml`.
+
+`tests/wave_port_driven.rs` (issue #683) runs `geode driven` with two
+wave ports on a synthetic tagged rectangular waveguide (geode-core's
+extruded section written as MSH 4.1): the channel S-matrix matches an
+in-process tag-built `solve_wave_port_sweep` to 1e-12, and the straight
+section meets geode-core's `S₂₁ ≈ e^{−jβL}` acceptance. The projection
+primitive itself is validated in `geode-core/tests/wave_port_from_tags.rs`
+(cutoffs vs the hand-built cross-section to 1e-9 and the analytic
+rectangular cutoffs, `S_p`-orthonormality, S-matrix parity with the
+hand-built ports).

@@ -1,7 +1,8 @@
 //! End-to-end CLI contract tests for `geode` (issue #673 Phase 1, Epic
 //! #680): `--version`, `check` success + structured failures, eigen-spec
 //! validation (issue #681), extract-spec validation and its `L₀`
-//! convergence gate (issue #682), `--backend` confirmation, and the
+//! convergence gate (issue #682), open-boundary / wave-port spec
+//! validation (issue #683), `--backend` confirmation, and the
 //! structured `solve_failed` error for a non-converging iterative solve
 //! (one iteration). The eigen and extract solves themselves are
 //! exercised by `tests/sphere_pec_golden.rs` and
@@ -438,6 +439,29 @@ fn eigen_spec_validation_rejects_lossy_or_driven_inputs() {
             "Leontovich",
         ),
         (
+            "eig-sm",
+            Box::new(|v| {
+                v["boundary_conditions"]["silver_muller"] = serde_json::json!(["sphere_surface"])
+            }),
+            "Silver-Müller",
+        ),
+        (
+            "eig-upml",
+            Box::new(|v| {
+                v["absorbing_regions"] = serde_json::json!([{
+                    "physical_group": "air", "thickness": 1.0, "sigma_0": 25.0
+                }])
+            }),
+            "absorbing_regions",
+        ),
+        (
+            "eig-wave",
+            Box::new(|v| {
+                v["wave_ports"] = serde_json::json!([{ "physical_group": "sphere_surface" }])
+            }),
+            "wave_ports",
+        ),
+        (
             "eig-shift0",
             Box::new(|v| v["eigen"]["shift"] = 0.0.into()),
             "eigen.shift",
@@ -678,4 +702,155 @@ fn extract_l0_gate_fails_loudly_when_unconverged() {
     let msg = v["error"]["message"].as_str().unwrap();
     assert!(msg.contains("did not converge"), "{msg}");
     assert!(msg.contains("l0_rel_tol"), "{msg}");
+}
+
+#[test]
+fn open_boundary_and_wave_port_spec_validation() {
+    // Scalar rules (checked before the mesh is read) on the spiral smoke
+    // driven spec: PEC `outer_boundary`, Leontovich `conductor_surface`,
+    // lumped `port`.
+    fn wave(v: &mut serde_json::Value) {
+        v["ports"] = serde_json::json!([]);
+        v["boundary_conditions"]["leontovich"] = serde_json::json!([]);
+        v["wave_ports"] = serde_json::json!([{ "physical_group": "port" }]);
+    }
+    let upml = |t: f64, s0: f64| serde_json::json!({"physical_group": "air", "thickness": t, "sigma_0": s0});
+    let cases: Vec<(&str, SpecEdit, &str)> = vec![
+        (
+            "ob-ports-and-wave",
+            Box::new(|v| v["wave_ports"] = serde_json::json!([{ "physical_group": "air" }])),
+            "not both",
+        ),
+        (
+            "ob-wave-leon",
+            Box::new(|v| {
+                wave(v);
+                v["boundary_conditions"]["leontovich"] = serde_json::json!([{
+                    "physical_group": "conductor_surface", "conductivity_s_m": 5.8e7
+                }]);
+            }),
+            "Leontovich or Silver-Müller",
+        ),
+        (
+            "ob-wave-sm",
+            Box::new(|v| {
+                wave(v);
+                v["boundary_conditions"]["silver_muller"] =
+                    serde_json::json!(["conductor_surface"]);
+            }),
+            "Leontovich or Silver-Müller",
+        ),
+        (
+            "ob-wave-ainc",
+            Box::new(|v| {
+                wave(v);
+                v["wave_ports"][0]["n_modes"] = 2.into();
+                v["wave_ports"][0]["a_inc"] = serde_json::json!([[1.0, 0.0]]);
+            }),
+            "a_inc has 1 entries but n_modes = 2",
+        ),
+        (
+            "ob-wave-ainc0",
+            Box::new(|v| {
+                wave(v);
+                v["wave_ports"][0]["a_inc"] = serde_json::json!([[0.0, 0.0]]);
+            }),
+            "non-zero",
+        ),
+        (
+            "ob-wave-nmodes0",
+            Box::new(|v| {
+                wave(v);
+                v["wave_ports"][0]["n_modes"] = 0.into();
+            }),
+            "n_modes must be",
+        ),
+        (
+            "ob-no-ports",
+            Box::new(|v| v["ports"] = serde_json::json!([])),
+            "lumped port (or wave port)",
+        ),
+        (
+            "ob-sm-pec",
+            Box::new(|v| {
+                v["boundary_conditions"]["silver_muller"] = serde_json::json!(["outer_boundary"])
+            }),
+            "both a PEC surface and a Silver-Müller wall",
+        ),
+        (
+            "ob-sm-leon",
+            Box::new(|v| {
+                v["boundary_conditions"]["silver_muller"] = serde_json::json!(["conductor_surface"])
+            }),
+            "both a Leontovich wall and a Silver-Müller wall",
+        ),
+        (
+            "ob-sm-dup",
+            Box::new(|v| {
+                v["boundary_conditions"]["silver_muller"] = serde_json::json!(["abc", "abc"])
+            }),
+            "more than one Silver-Müller wall",
+        ),
+        (
+            "ob-port-pec",
+            Box::new(|v| {
+                v["boundary_conditions"]["pec"] = serde_json::json!(["outer_boundary", "port"])
+            }),
+            "its edges would be eliminated",
+        ),
+        (
+            "ob-upml-thick0",
+            Box::new(move |v| v["absorbing_regions"] = serde_json::json!([upml(0.0, 25.0)])),
+            "thickness must be finite and > 0",
+        ),
+        (
+            "ob-upml-sigma-nan",
+            Box::new(move |v| v["absorbing_regions"] = serde_json::json!([upml(1.0, -1.0)])),
+            "sigma_0 must be finite and > 0",
+        ),
+        (
+            "ob-upml-dup",
+            Box::new(move |v| {
+                v["absorbing_regions"] = serde_json::json!([upml(1.0, 25.0), upml(2.0, 25.0)])
+            }),
+            "listed more than once",
+        ),
+    ];
+    for (name, edit, needle) in cases {
+        let spec = edited_spec(name, edit);
+        for cmd in ["check", "driven"] {
+            let out = geode(&[cmd, spec.to_str().unwrap()]);
+            let v = assert_error(&out, cmd, "invalid_spec");
+            let msg = v["error"]["message"].as_str().unwrap();
+            assert!(msg.contains(needle), "{name}/{cmd}: {msg}");
+            assert!(!msg.contains("  "), "{name}: stray whitespace: {msg:?}");
+        }
+    }
+
+    // `geode extract` needs port impedances: wave ports are rejected.
+    let spec = edited_extract_spec("ob-extract-wave", wave);
+    let v = assert_error(
+        &geode(&["extract", spec.to_str().unwrap()]),
+        "extract",
+        "invalid_spec",
+    );
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("cannot have `wave_ports`"), "{msg}");
+
+    // A Silver-Müller group that is not in the mesh is an unresolved
+    // group, like any other reference.
+    let spec = edited_spec("ob-sm-missing", |v| {
+        v["boundary_conditions"]["silver_muller"] = serde_json::json!(["no_such_wall"])
+    });
+    let v = assert_error(
+        &geode(&["check", spec.to_str().unwrap()]),
+        "check",
+        "unresolved_physical_group",
+    );
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("`no_such_wall` (dim 2, silver_muller)")
+    );
 }

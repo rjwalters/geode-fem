@@ -61,7 +61,9 @@ struct Cli {
 enum Command {
     /// Validate a problem spec and its mesh without solving; report DOF counts.
     Check(CheckArgs),
-    /// Frequency sweep with lumped ports → Z / Y / S, L / R / Q per port.
+    /// Frequency sweep with lumped ports → Z / Y / S, L / R / Q per port, or
+    /// with wave ports → channel S-matrix. Open boundaries: `absorbing_regions`
+    /// (matched box UPML) and Silver-Müller walls.
     Driven(RunArgs),
     /// Lossless PEC-cavity eigenmodes near `eigen.shift` → resonant f (Q is
     /// null: the pencil is lossless). Needs a spec with an `eigen` section

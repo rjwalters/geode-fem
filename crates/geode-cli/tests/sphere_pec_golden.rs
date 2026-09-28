@@ -12,8 +12,8 @@
 //! ([`geode_core::analytic::mie::merged_roots`]) within **15 %** on `k`.
 //!
 //! This deliberately is **not** the `examples/mie_sphere` UPML benchmark:
-//! that needs UPML-as-material and complex quasimode eigensolvers, which
-//! are Phase 3 scope (issue #683).
+//! an open-cavity quasi-mode needs a complex non-Hermitian eigensolve — a
+//! future eigen-analysis phase (issue #683 added driven UPML only).
 //!
 //! Two tiers, mirroring `tests/spiral_golden.rs`:
 //!
