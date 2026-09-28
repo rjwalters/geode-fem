@@ -101,13 +101,16 @@ jobs:
       # previously never ran in CI. Their default (non-#[ignore]d) tiers
       # read committed TOML/fixtures only and finish in ~1 s each in
       # release; the heavy regeneration tiers stay #[ignore]d.
+      # patch_antenna_radiation also carries the cross-artifact f_res
+      # tie-in between pattern*.toml and results*.toml (#697).
       - name: Benchmark tier-1 regression checks (default tier)
         run: |
           cargo test --features arpack -p geode-core --release \
               --test spiral_inductor_benchmark \
               --test slcfet_3hp_benchmark \
               --test patch_antenna_extraction \
-              --test patch_antenna_matched
+              --test patch_antenna_matched \
+              --test patch_antenna_radiation
 
       - name: Run the gated sparse-eigensolver acceptance test
         # Issue #24 acceptance: matches dense oracle to 1e-6 at n=5 with
