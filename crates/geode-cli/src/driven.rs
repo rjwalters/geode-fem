@@ -128,13 +128,19 @@ pub fn validate_export(p: &Problem) -> Result<(), CliError> {
 }
 
 /// Load, solve and report. With `outdir`, lumped-port specs also export
-/// per-row fields (and NTFF for a UPML open radiator).
+/// per-row fields (and NTFF for a UPML open radiator); with
+/// `touchstone`, lumped-port specs also write a Touchstone 2.0 `.sNp`
+/// ([`crate::touchstone`]; wave-port specs are rejected before solving).
 pub fn run(
     spec_path: &Path,
     provenance: Provenance,
     outdir: Option<&Path>,
+    touchstone: Option<&Path>,
 ) -> Result<DrivenReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Driven))?;
+    if touchstone.is_some() {
+        crate::touchstone::validate(&p)?;
+    }
     // Wave-port specs export nothing, so there is nothing to validate.
     if outdir.is_some() && p.wave_ports.is_empty() {
         validate_export(&p)?;
@@ -152,17 +158,25 @@ pub fn run(
         }
         wave_sweep(&p)?
     };
+    let ports = port_summaries(&p);
+    let touchstone_file = touchstone
+        .map(|path| {
+            let refs: Vec<f64> = ports.iter().map(|q| q.resistance_ohm).collect();
+            crate::touchstone::write(path, &provenance, &refs, &results)
+        })
+        .transpose()?;
     Ok(DrivenReport {
         provenance,
         kind: "driven",
         status: "ok",
         mesh: mesh_summary(&p),
-        ports: port_summaries(&p),
+        ports,
         wave_ports,
         silver_muller: silver_muller_summaries(&p),
         absorbing_regions: upml_summaries(&p),
         solver,
         results,
+        touchstone_file,
     })
 }
 

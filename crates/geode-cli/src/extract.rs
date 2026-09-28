@@ -16,7 +16,9 @@
 //!   the whole (ascending) sweep; the first crossing is the SRF.
 //!
 //! With `--outdir`, every report row also gets `geode driven`'s field /
-//! far-field export ([`crate::driven`], issue #684).
+//! far-field export ([`crate::driven`], issue #684); with `--touchstone`,
+//! the sweep is also written as a Touchstone 2.0 `.sNp`
+//! ([`crate::touchstone`], issue #703).
 
 use std::path::Path;
 
@@ -32,16 +34,21 @@ use crate::export::OutDir;
 use crate::problem;
 use crate::report::{ExtractReport, PortExtraction, Provenance};
 use crate::spec::Analysis;
+use crate::touchstone;
 
 /// Load, solve, extract and report.
 pub fn run(
     spec_path: &Path,
     provenance: Provenance,
     outdir: Option<&Path>,
+    touchstone: Option<&Path>,
 ) -> Result<ExtractReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Extract))?;
     if outdir.is_some() {
         driven::validate_export(&p)?;
+    }
+    if touchstone.is_some() {
+        touchstone::validate(&p)?;
     }
     let out = OutDir::create_opt(outdir)?;
     let target = p
@@ -99,17 +106,25 @@ pub fn run(
         });
     }
 
+    let ports = port_summaries(&p);
+    let touchstone_file = touchstone
+        .map(|path| {
+            let refs: Vec<f64> = ports.iter().map(|q| q.resistance_ohm).collect();
+            touchstone::write(path, &provenance, &refs, &results)
+        })
+        .transpose()?;
     Ok(ExtractReport {
         provenance,
         kind: "extract",
         status: "ok",
         mesh: mesh_summary(&p),
-        ports: port_summaries(&p),
+        ports,
         silver_muller: silver_muller_summaries(&p),
         absorbing_regions: upml_summaries(&p),
         extract: extract_settings_summary(&p).expect("extract spec"),
         solver,
         results,
         extraction,
+        touchstone_file,
     })
 }

@@ -380,3 +380,39 @@ fn mesh_dependent_open_boundary_errors_are_invalid_spec() {
     let msg = error_message(&out, "driven", "solve_failed");
     assert!(msg.contains("wave port `port_in`"), "{msg}");
 }
+
+#[test]
+fn touchstone_is_rejected_for_wave_ports_before_solving() {
+    // Issue #703: a wave-port S-matrix is power-normalized with no real
+    // reference impedance, so `--touchstone` must fail fast with
+    // `invalid_spec` and never write a placeholder-reference file.
+    let ts = scratch("touchstone").join("guide.s2p");
+    let out = geode(&[
+        "driven",
+        spec("touchstone", |_| {}).to_str().unwrap(),
+        "--touchstone",
+        ts.to_str().unwrap(),
+    ]);
+    let msg = error_message(&out, "driven", "invalid_spec");
+    assert!(
+        msg.contains("--touchstone") && msg.contains("wave-port"),
+        "{msg}"
+    );
+    assert!(!ts.exists(), "no file written");
+
+    // `check`'s resource estimate counts the SMW column solves too.
+    let v = json(&geode(&[
+        "check",
+        spec("ts-check", |_| {}).to_str().unwrap(),
+    ]));
+    let r = &v["resources"];
+    let n_channels: u64 = v["wave_ports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["n_modes"].as_u64().unwrap())
+        .sum();
+    assert_eq!(r["n_rhs_per_frequency"].as_u64().unwrap(), 2 * n_channels);
+    assert_eq!(r["solver_mode"], "direct");
+    assert!(r["peak_memory_gb"].as_f64().unwrap() > 0.0);
+}
