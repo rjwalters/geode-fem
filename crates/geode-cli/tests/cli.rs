@@ -75,9 +75,10 @@ fn assert_no_double_space(msg: &str) {
     assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
 }
 
-fn assert_error(out: &Output, command: &str, code: &str) -> serde_json::Value {
-    assert!(!out.status.success(), "expected failure");
-    let v = json(out);
+/// The JSON shape of an error report (wherever it was written): kind,
+/// status, command and code, plus [`assert_no_double_space`] on every
+/// `invalid_spec` message.
+fn assert_error_value(v: &serde_json::Value, command: &str, code: &str) {
     assert_eq!(v["kind"], "error");
     assert_eq!(v["status"], "error");
     assert_eq!(v["command"], command);
@@ -85,6 +86,12 @@ fn assert_error(out: &Output, command: &str, code: &str) -> serde_json::Value {
     if code == "invalid_spec" {
         assert_no_double_space(v["error"]["message"].as_str().expect("error message"));
     }
+}
+
+fn assert_error(out: &Output, command: &str, code: &str) -> serde_json::Value {
+    assert!(!out.status.success(), "expected failure");
+    let v = json(out);
+    assert_error_value(&v, command, code);
     assert!(
         String::from_utf8_lossy(&out.stderr).contains("error:"),
         "stderr carries the human-readable error"
@@ -344,8 +351,11 @@ fn error_report_goes_to_output_file_too() {
     assert!(!out.status.success());
     let v: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&out_path).unwrap()).unwrap();
-    assert_eq!(v["command"], "extract");
-    assert_eq!(v["error"]["code"], "invalid_spec");
+    assert_error_value(&v, "extract", "invalid_spec");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("error:"),
+        "stderr carries the human-readable error"
+    );
 }
 
 fn sphere_spec() -> PathBuf {

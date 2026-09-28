@@ -336,6 +336,26 @@ No NTFF without an `absorbing_regions` shell (a Silver-Müller-only or
 closed spec gets `field_file` only), or with more than one shell (no
 single Huygens box).
 
+**Placing the NTFF box is your job.** The box is the shell's inner wall
+(`air_box_lo` / `air_box_hi`, reported by `check` / `driven` / `extract`)
+shrunk another 10 % toward its centre. For `efficiency`, `directivity_*`
+and `gain_*` to mean anything, it must:
+
+- **enclose the radiator and every port** — the box's Poynting flux and
+  equivalent currents only account for sources inside it, so a radiating
+  conductor or feed outside the box breaks both `P_rad` and the pattern;
+  and
+- **lie entirely in air** — no dielectric or PEC tet may cross the box
+  surface, since the Love equivalence assumes free space on it.
+
+The CLI checks only that the box is not empty (at least one tet centroid
+inside it; with `--outdir`, before the sweep runs, so a bad box fails
+fast). It cannot tell a well-placed box from a badly placed one: a box
+that cuts through the substrate or leaves a port outside still runs to
+completion and reports a silently wrong far field. Size the shell (mesh
+extent and `thickness`) so the radiating structure sits well inside the
+shrunk box, as `examples/patch_antenna` does.
+
 **Wave ports are out of scope**: a wave-port driven report never carries
 `field_file` / `far_field`, even with `--outdir` (stderr notes the skip).
 The physical field there is a linear combination of the per-channel
