@@ -62,6 +62,38 @@ pub enum EigenError {
          hardcoded reference basis does not span this mode (issue #349)"
     )]
     UngaugableMode { mode: usize, best_rel_proj: f64 },
+    /// A shift-and-invert Lanczos solve ran at a **degenerate shift**:
+    /// `K − σM` is numerically singular because `σ` coincides (to within
+    /// [`crate::eigen::shift_guard::DEGENERATE_SHIFT_REL_TOL`] `×` the pencil
+    /// scale) with a multiple eigenvalue, so the result would be
+    /// meaningless. The canonical cause is `σ = 0` on a curl-curl Nédélec
+    /// pencil, whose stiffness `K` has a discrete-gradient null space; place
+    /// `σ` strictly between the null cluster and the lowest eigenvalue of
+    /// interest (issue #696). See [`crate::eigen::shift_guard`] for the two
+    /// detectors and their margins.
+    #[error(
+        "degenerate shift σ = {sigma:e}: K − σM is numerically singular — σ lies within \
+         {distance:.3e} of an eigenvalue cluster (pencil scale median|K_ii/M_ii| = \
+         {pencil_scale:.3e}; {n_returned} Ritz value(s) inspected, 0 = pre-solve \
+         gradient-subspace probe), e.g. σ = 0 on a curl-curl pencil with a \
+         discrete-gradient null space. Place σ strictly between the null cluster and the \
+         lowest eigenvalue of interest (issue #696)"
+    )]
+    DegenerateShift {
+        /// The shift the solve was run at.
+        sigma: f64,
+        /// How close `σ` is to the offending cluster: the largest
+        /// `|λ_i − σ|` over the returned Ritz set (post-solve detector), or
+        /// the Rayleigh-type ratio `‖(K − σM) g‖ / ‖M g‖` along a gradient
+        /// probe `g` (pre-solve detector of the projected solver).
+        distance: f64,
+        /// The pencil scale (median `|K_ii| / |M_ii|`) the threshold is
+        /// relative to.
+        pencil_scale: f64,
+        /// Number of Ritz values inspected (all collapsed onto `σ`); `0`
+        /// for the pre-solve gradient-subspace probe.
+        n_returned: usize,
+    },
 }
 
 /// Interface for "compute the lowest `n` eigenvalues of `K x = λ M x`".

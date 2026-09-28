@@ -62,6 +62,7 @@ pub mod pec_cavity;
 pub mod projection;
 pub mod self_consistent;
 pub mod sensitivity;
+pub mod shift_guard;
 pub mod transmon;
 
 #[cfg(feature = "arpack")]

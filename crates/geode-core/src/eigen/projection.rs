@@ -58,6 +58,7 @@ use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
 use crate::eigen::dense::{EigenError, EigenPair};
+use crate::eigen::shift_guard::{check_degenerate_shift, check_gradient_probe, median_diag_ratio};
 
 /// The sparse interior-restricted discrete gradient `G = d⁰_interior` plus
 /// the reduced dimensions it maps between.
@@ -657,9 +658,24 @@ fn tridiag_eigenpairs(alpha: &[f64], beta: &[f64]) -> Result<(Vec<f64>, Mat<f64>
 /// Tunables for the projected shift-invert Lanczos (mirrors
 /// [`crate::eigen::lanczos::SparseShiftInvertLanczos`] with an added
 /// re-projection cadence).
+///
+/// # ⚠ Choosing `sigma`
+///
+/// The projection deflates the gradient subspace from each **Krylov
+/// vector**; it does not modify the operator `A = K − σM` that is
+/// factored. The [`Default`] `σ = 0` therefore factors the bare curl-curl
+/// `K`, which is singular on its discrete-gradient null space. Always pass
+/// an explicit `σ` strictly between the null cluster (`λ ≈ 0`) and the
+/// lowest eigenvalue of interest (both production callers, e.g.
+/// [`solve_transmon_eigenmodes_projected`], do). As a best-effort
+/// backstop the solve returns [`EigenError::DegenerateShift`] when **every**
+/// returned Ritz value collapsed onto `σ` (issue #696, see
+/// [`crate::eigen::shift_guard`]).
 #[derive(Debug, Clone, Copy)]
 pub struct ProjectedShiftInvertLanczos {
-    /// Shift `σ = k²`; Ritz values closest to `σ` converge first.
+    /// Shift `σ = k²`; Ritz values closest to `σ` converge first. **Do not
+    /// leave at the default `0.0` on a curl-curl pencil** — see the struct
+    /// docs.
     pub sigma: f64,
     /// Maximum Lanczos iterations.
     pub max_iters: usize,
@@ -787,6 +803,27 @@ impl ProjectedShiftInvertLanczos {
         let mut diag = ProjectionDiagnostics::default();
         if n_modes == 0 {
             return Ok((Vec::new(), diag));
+        }
+
+        // 0. Degenerate-shift probe (issue #696). The projector certifies a
+        //    gradient subspace exists; if `K − σM` is numerically singular
+        //    on it, the factorization below would "succeed" and the
+        //    projected Krylov run would return round-off garbage as `Ok`.
+        //    `g = (I − P) z` is a gradient-subspace vector for any `z`.
+        let pencil_scale = median_diag_ratio(k, m, f64::abs);
+        {
+            let z: Vec<f64> = (0..n)
+                .map(|i| (((i as f64) + 1.0) * 0.6437).cos())
+                .collect();
+            let mut pz = z.clone();
+            projector.project_in_place(&mut pz)?;
+            let g: Vec<f64> = z.iter().zip(pz.iter()).map(|(a, b)| a - b).collect();
+            let mg = spmv_vec(m, &g);
+            let kg = spmv_vec(k, &g);
+            let norm = |v: &mut dyn Iterator<Item = f64>| v.map(|x| x * x).sum::<f64>().sqrt();
+            let a_g = norm(&mut kg.iter().zip(mg.iter()).map(|(a, b)| a - self.sigma * b));
+            let m_g = norm(&mut mg.iter().copied());
+            check_gradient_probe(self.sigma, a_g, m_g, pencil_scale)?;
         }
 
         // 1. Factor A = K − σM once.
@@ -933,6 +970,11 @@ impl ProjectedShiftInvertLanczos {
         let take = n_modes.min(pairs.len());
         let mut picked: Vec<(f64, Vec<f64>)> = pairs.into_iter().take(take).collect();
         picked.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(core::cmp::Ordering::Equal));
+
+        // Degenerate-shift guard (issue #696): fail loudly instead of
+        // returning a Ritz set collapsed onto a singular shift.
+        let dists: Vec<f64> = picked.iter().map(|p| (p.0 - sigma).abs()).collect();
+        check_degenerate_shift(sigma, &dists, pencil_scale)?;
 
         let mut out = Vec::with_capacity(take);
         for (lambda, mut x) in picked {
@@ -1887,6 +1929,97 @@ mod tests {
                 "port-aware λ = {}, want {want} (the gradient mode must be re-admitted)",
                 got.lambda
             );
+        }
+    }
+
+    /// The unit-cube PEC cavity curl-curl pencil (`n = 3`) plus its interior
+    /// gradient `G` — a real pencil whose `K` has the discrete-gradient
+    /// null space (issue #696).
+    fn cube_curl_curl_pencil() -> (
+        SparseColMat<usize, f64>,
+        SparseColMat<usize, f64>,
+        InteriorGradient,
+    ) {
+        use crate::testing::TestBackend;
+        use burn::tensor::backend::BackendTypes;
+        let mesh = cube_tet_mesh(3, 1.0);
+        let edges = mesh.edges();
+        let interior_mask = full_outer_pec(&mesh);
+        let (edge_index, edge_dim) = pec_reindex(&interior_mask);
+        let g = InteriorGradient::build(
+            &edges,
+            &interior_mask,
+            &edge_index,
+            mesh.n_nodes(),
+            edge_dim,
+        );
+        let eps = vec![1.0; mesh.n_tets()];
+        let dev = <TestBackend as BackendTypes>::Device::default();
+        let (k, m) = crate::eigen::pec_cavity::assemble_lossless_pencil::<TestBackend>(
+            &mesh,
+            &eps,
+            &interior_mask,
+            &dev,
+        )
+        .unwrap();
+        assert_eq!(k.nrows(), edge_dim);
+        (k, m, g)
+    }
+
+    /// Issue #696 on the projected path: the Krylov-vector projection does
+    /// not change the factored operator, so `σ = 0` still factors the
+    /// singular curl-curl `K`. The projection hides the collapse — before
+    /// the pre-solve probe this returned `Ok` with spurious Ritz values
+    /// `λ ≈ {−0.23, −0.10, 0.08}` (physical `λ ≈ 2π² ≈ 19.7`) — so it must
+    /// now be rejected as `DegenerateShift` by the gradient probe.
+    #[test]
+    fn projected_zero_shift_on_curl_curl_pencil_is_rejected_as_degenerate() {
+        let (k, m, g) = cube_curl_curl_pencil();
+        let proj = MOrthogonalGradientProjector::build(&g, m.as_ref()).unwrap();
+        let solver = ProjectedShiftInvertLanczos {
+            sigma: 0.0,
+            ..Default::default()
+        };
+        match solver.smallest_eigenpairs(k.as_ref(), m.as_ref(), &proj, 3) {
+            Err(EigenError::DegenerateShift {
+                sigma, n_returned, ..
+            }) => {
+                assert_eq!(sigma, 0.0);
+                assert_eq!(n_returned, 0, "must be caught by the pre-solve probe");
+            }
+            other => panic!("expected DegenerateShift, got {other:?}"),
+        }
+    }
+
+    /// Non-trigger on the projected path: a physical shift, and a shift
+    /// placed 1e-6-relative next to the lowest physical eigenvalue, both
+    /// solve normally.
+    #[test]
+    fn projected_physical_shift_near_lowest_mode_is_not_flagged() {
+        let (k, m, g) = cube_curl_curl_pencil();
+        let proj = MOrthogonalGradientProjector::build(&g, m.as_ref()).unwrap();
+        let two_pi2 = 2.0 * std::f64::consts::PI.powi(2);
+        let base = ProjectedShiftInvertLanczos {
+            sigma: 0.7 * two_pi2,
+            ..Default::default()
+        };
+        let (pairs, _) = base
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), &proj, 3)
+            .expect("physical shift must solve");
+        let lam0 = pairs[0].lambda;
+        assert!(
+            (lam0 - two_pi2).abs() / two_pi2 < 0.25,
+            "lowest physical λ = {lam0}, want ≈ 2π² = {two_pi2}"
+        );
+        let near = ProjectedShiftInvertLanczos {
+            sigma: lam0 * (1.0 + 1e-6),
+            ..base
+        };
+        for n_modes in [1usize, 4] {
+            let (got, _) = near
+                .smallest_eigenpairs(k.as_ref(), m.as_ref(), &proj, n_modes)
+                .unwrap_or_else(|e| panic!("near-mode shift, n_modes={n_modes}: {e}"));
+            assert_eq!(got.len(), n_modes);
         }
     }
 }

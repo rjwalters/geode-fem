@@ -69,6 +69,7 @@ use faer::{Mat, MatMut, c64};
 
 use crate::eigen::dense::EigenError;
 use crate::eigen::parallel::{ParallelismGuard, resolve_num_threads};
+use crate::eigen::shift_guard::{check_degenerate_shift, median_diag_ratio};
 
 /// Sparse generalized complex-symmetric eigensolver via shift-and-invert
 /// Lanczos.
@@ -78,8 +79,30 @@ use crate::eigen::parallel::{ParallelismGuard, resolve_num_threads};
 /// the lowest physical `k²` eigenvalues, which are positive real
 /// (with small imaginary parts from the PML). A real shift keeps the
 /// LU factor of `K - σ M` cheap to set up.
+///
+/// # ⚠ Choosing `sigma` on curl-curl pencils
+///
+/// The [`Default`] shift is `σ = 0`, which targets the smallest-magnitude
+/// end of the spectrum and is correct **only when `K` is non-singular**.
+/// Any curl-curl Nédélec pencil (Mie, PML, cavity) has a discrete-gradient
+/// null space in `K`, so `K − 0·M` is singular: the LU still "succeeds"
+/// (pivots `~ε·‖K‖`), and Lanczos converges onto the null cluster instead
+/// of the physical band. For such pencils place `σ` strictly between the
+/// null cluster (`λ ≈ 0`) and the lowest eigenvalue of interest (e.g.
+/// `σ = 1.0` in `k²` units for the bundled Mie sphere — see
+/// `examples/mie_sphere`, issues #691 / #696).
+///
+/// As a best-effort backstop both solve paths run a post-solve check and
+/// return [`EigenError::DegenerateShift`] when **every** returned Ritz value
+/// collapsed onto `σ` (see [`crate::eigen::shift_guard`]). Domain-specific
+/// drivers that *know* their pencil has a null space should also reject
+/// `σ ≤ 0` up front, as
+/// [`crate::eigen::pec_cavity::solve_pec_cavity_modes`] does.
 #[derive(Debug, Clone, Copy)]
 pub struct SparseComplexShiftInvertLanczos {
+    /// Real shift `σ`; Ritz values closest to `σ` converge first. **Must
+    /// not be `0.0` (the default) on a pencil whose `K` has a null space**
+    /// — see the struct docs.
     pub sigma: f64,
     pub max_iters: usize,
     pub tol: f64,
@@ -498,13 +521,30 @@ impl SparseComplexShiftInvertLanczos {
             v = w.iter().map(|x| *x * inv).collect();
         }
 
-        converged.ok_or_else(|| {
+        let picked = converged.ok_or_else(|| {
             EigenError::FaerGevd(format!(
                 "complex Lanczos terminated after {} iters without computing {} ritz pairs",
                 alpha.len(),
                 n_modes
             ))
-        })
+        })?;
+        // Degenerate-shift guard (issue #696): fail loudly instead of
+        // returning a Ritz set collapsed onto a singular shift.
+        self.check_not_degenerate(k, m, picked.iter().copied())?;
+        Ok(picked)
+    }
+
+    /// Post-solve degenerate-shift check shared by both solve paths; see
+    /// [`crate::eigen::shift_guard`].
+    fn check_not_degenerate(
+        &self,
+        k: SparseColMatRef<'_, usize, c64>,
+        m: SparseColMatRef<'_, usize, c64>,
+        lambdas: impl Iterator<Item = c64>,
+    ) -> Result<(), EigenError> {
+        let dists: Vec<f64> = lambdas.map(|l| (l.re - self.sigma).hypot(l.im)).collect();
+        let scale = median_diag_ratio(k, m, |z: c64| z.re.hypot(z.im));
+        check_degenerate_shift(self.sigma, &dists, scale)
     }
 }
 
@@ -705,6 +745,9 @@ impl SparseComplexShiftInvertLanczos {
                 .partial_cmp(&b.0.re)
                 .unwrap_or(core::cmp::Ordering::Equal)
         });
+
+        // Degenerate-shift guard (issue #696).
+        self.check_not_degenerate(k, m, picked.iter().map(|p| p.0))?;
 
         // 5. Bilinear-M-normalize each Ritz vector: divide by sqrt(xᵀ M x).
         let mut out = Vec::with_capacity(take);
@@ -999,6 +1042,103 @@ mod tests {
                 p.im.to_bits(),
                 "eigenvalue[{i}] Im differs across thread counts: {s} vs {p}"
             );
+        }
+    }
+
+    /// The unit-cube PEC cavity curl-curl pencil (`n = 3`), lifted to
+    /// complex. `K` has the discrete-gradient null space (one direction per
+    /// free interior node) — the real-world shape of the issue #696 hazard.
+    fn cube_curl_curl_complex_pencil() -> (SparseColMat<usize, c64>, SparseColMat<usize, c64>) {
+        use crate::testing::TestBackend;
+        use burn::tensor::backend::BackendTypes;
+        let mesh = crate::mesh::cube_tet_mesh(3, 1.0);
+        let (_, mask) = crate::assembly::nedelec::cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vec![1.0; mesh.n_tets()];
+        let dev = <TestBackend as BackendTypes>::Device::default();
+        let (k, m) = crate::eigen::pec_cavity::assemble_lossless_pencil::<TestBackend>(
+            &mesh, &eps, &mask, &dev,
+        )
+        .unwrap();
+        let lift = |a: &SparseColMat<usize, f64>| {
+            let a = a.as_ref();
+            let mut t = Vec::new();
+            for j in 0..a.ncols() {
+                for p in a.col_ptr()[j]..a.col_ptr()[j + 1] {
+                    t.push(Triplet::new(a.row_idx()[p], j, c64::new(a.val()[p], 0.0)));
+                }
+            }
+            SparseColMat::try_new_from_triplets(a.nrows(), a.ncols(), &t).unwrap()
+        };
+        (lift(&k), lift(&m))
+    }
+
+    /// Issue #696 root cause, reproduced on a real curl-curl pencil:
+    /// `σ = 0` factors the singular `K` without error and every Ritz value
+    /// collapses onto the gradient null cluster. Both solve paths must now
+    /// fail with `DegenerateShift` instead of returning that set as `Ok`.
+    #[test]
+    fn zero_shift_on_curl_curl_pencil_is_rejected_as_degenerate() {
+        let (k, m) = cube_curl_curl_complex_pencil();
+        let solver = SparseComplexShiftInvertLanczos {
+            sigma: 0.0,
+            max_iters: 64,
+            tol: 1e-9,
+        };
+        for n_modes in [1usize, 4] {
+            match solver.smallest_complex_pencil_eigenvalues(k.as_ref(), m.as_ref(), n_modes) {
+                Err(EigenError::DegenerateShift {
+                    sigma, n_returned, ..
+                }) => {
+                    assert_eq!(sigma, 0.0);
+                    assert_eq!(n_returned, n_modes);
+                }
+                other => panic!("n_modes={n_modes}: expected DegenerateShift, got {other:?}"),
+            }
+            assert!(
+                matches!(
+                    solver.smallest_eigenpairs(k.as_ref(), m.as_ref(), n_modes),
+                    Err(EigenError::DegenerateShift { .. })
+                ),
+                "eigenpairs path must also reject σ = 0 (n_modes={n_modes})"
+            );
+        }
+    }
+
+    /// Non-trigger: the same curl-curl pencil with a physical shift, and
+    /// with `σ` placed *very* close (1e-6 relative) to the lowest physical
+    /// eigenvalue, solves normally — the detector must not fire on a
+    /// legitimate problem whose lowest mode is near `σ`.
+    #[test]
+    fn physical_shift_near_lowest_mode_is_not_flagged() {
+        let (k, m) = cube_curl_curl_complex_pencil();
+        let two_pi2 = 2.0 * core::f64::consts::PI.powi(2);
+        let base = SparseComplexShiftInvertLanczos {
+            sigma: 0.7 * two_pi2,
+            max_iters: 64,
+            tol: 1e-9,
+        };
+        let l = base
+            .smallest_complex_pencil_eigenvalues(k.as_ref(), m.as_ref(), 3)
+            .expect("physical shift must solve");
+        let lam0 = l[0];
+        assert!(
+            (lam0.re - two_pi2).abs() / two_pi2 < 0.25 && lam0.im.abs() < 1e-8,
+            "lowest physical λ = {lam0:?}, want ≈ 2π² = {two_pi2}"
+        );
+        let near = SparseComplexShiftInvertLanczos {
+            sigma: lam0.re * (1.0 + 1e-6),
+            ..base
+        };
+        for n_modes in [1usize, 4] {
+            let got = near
+                .smallest_complex_pencil_eigenvalues(k.as_ref(), m.as_ref(), n_modes)
+                .unwrap_or_else(|e| panic!("near-mode shift, n_modes={n_modes}: {e}"));
+            assert!(
+                got.iter().any(|z| (z.re - lam0.re).abs() < 1e-8 * lam0.re),
+                "n_modes={n_modes}: lowest mode not recovered: {got:?}"
+            );
+            near.smallest_eigenpairs(k.as_ref(), m.as_ref(), n_modes)
+                .unwrap_or_else(|e| panic!("near-mode eigenpairs, n_modes={n_modes}: {e}"));
         }
     }
 }
