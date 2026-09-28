@@ -19,7 +19,9 @@
 //!
 //! 1. **Golden** (default `cargo test`, ~15 s debug): the CLI report held
 //!    to the 15 % Mie-root bound, plus report-contract checks (ascending
-//!    modes, `q = null`, `f = k₀ c / (2π L)`, tiny residuals).
+//!    modes, `q = null`, `f = k₀ c / (2π L)`, tiny residuals). Run with
+//!    `--outdir` (issue #684): one real-only `E_mode_<i>.vtu` per mode,
+//!    referenced by `{path, sha256}`, node count = mesh, finite, non-zero.
 //! 2. **Dense oracle** (`#[ignore]`d — full dense QZ on the 3300-DOF
 //!    pencil, ~1 min in release, far longer in debug): the CLI's sparse shift-invert Lanczos modes must
 //!    equal the lowest 5 physical eigenvalues of the **same** pencil from
@@ -47,12 +49,13 @@ fn fixture() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sphere_pec_golden.json")
 }
 
-fn run_eigen() -> serde_json::Value {
-    let out = Command::new(env!("CARGO_BIN_EXE_geode"))
-        .arg("eigen")
-        .arg(fixture())
-        .output()
-        .expect("spawn geode");
+fn run_eigen(outdir: Option<&std::path::Path>) -> serde_json::Value {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_geode"));
+    cmd.arg("eigen").arg(fixture());
+    if let Some(dir) = outdir {
+        cmd.arg("--outdir").arg(dir);
+    }
+    let out = cmd.output().expect("spawn geode");
     assert!(
         out.status.success(),
         "geode eigen failed ({}):\nstderr: {}\nstdout: {}",
@@ -75,7 +78,12 @@ fn modes(report: &serde_json::Value) -> Vec<(f64, f64)> {
 
 #[test]
 fn sphere_pec_cavity_golden_matches_mie_roots() {
-    let report = run_eigen();
+    let outdir =
+        std::env::temp_dir().join(format!("geode-cli-sphere-outdir-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&outdir);
+    let report = run_eigen(Some(&outdir));
+    assert_mode_fields(&report, &outdir);
+    std::fs::remove_dir_all(&outdir).unwrap();
     assert_eq!(report["schema_version"], 1);
     assert_eq!(report["kind"], "eigen");
     assert_eq!(report["status"], "ok");
@@ -138,6 +146,35 @@ fn sphere_pec_cavity_golden_matches_mie_roots() {
     }
 }
 
+/// `--outdir` eigen export: one `.vtu` per mode, real-only, finite and
+/// non-trivial, referenced from `modes[i].field_file`.
+fn assert_mode_fields(report: &serde_json::Value, outdir: &std::path::Path) {
+    use sha2::{Digest, Sha256};
+    let n_nodes = report["mesh"]["n_nodes"].as_u64().unwrap() as usize;
+    for (i, m) in report["modes"].as_array().unwrap().iter().enumerate() {
+        let name = format!("E_mode_{i:04}.vtu");
+        assert_eq!(m["field_file"]["path"], name.as_str());
+        let bytes = std::fs::read(outdir.join(&name)).expect("mode field written");
+        assert_eq!(
+            m["field_file"]["sha256"],
+            format!("{:x}", Sha256::digest(&bytes)).as_str()
+        );
+        let vtu = String::from_utf8(bytes).unwrap();
+        assert!(vtu.contains(&format!("NumberOfPoints=\"{n_nodes}\"")));
+        assert!(!vtu.contains("Name=\"E_imag\""), "eigenmodes are real");
+        let start = vtu.find("Name=\"E_real\"").expect("E_real array");
+        let body = &vtu[start..];
+        let body = &body[body.find('>').unwrap() + 1..body.find("</DataArray>").unwrap()];
+        let e: Vec<f64> = body
+            .split_whitespace()
+            .map(|x| x.parse().unwrap())
+            .collect();
+        assert_eq!(e.len(), 3 * n_nodes);
+        assert!(e.iter().all(|x| x.is_finite()), "mode {i}: non-finite E");
+        assert!(e.iter().any(|x| *x != 0.0), "mode {i}: all-zero E");
+    }
+}
+
 /// Dense-oracle tier: same pencil (same tagged-triangle PEC mask, same
 /// per-tet `ε_r`), solved by the full dense generalized eigensolver.
 #[test]
@@ -153,7 +190,16 @@ fn sphere_pec_cavity_sparse_matches_dense_oracle() {
 
     type B = burn::backend::NdArray<f64, i32>;
 
-    let got = modes(&run_eigen());
+    let report = run_eigen(None);
+    // Off by default: no --outdir, no field references.
+    assert!(
+        report["modes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| m.get("field_file").is_none())
+    );
+    let got = modes(&report);
 
     let bytes = std::fs::read(
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../geode-core/tests/fixtures/sphere.msh"),

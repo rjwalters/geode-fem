@@ -12,6 +12,7 @@ geode driven spec.json -o report.json               # frequency sweep → Z / Y 
 geode driven spec.toml --threads 8 --backend ndarray
 geode eigen  cavity.json -o modes.json              # lossless PEC-cavity modes → f
 geode extract inductor.json -o l0.json              # sweep → L / R / Q, f→0 L₀, SRF
+geode driven patch.json --outdir fields/            # + per-frequency E-field .vtu and NTFF
 ```
 
 | Subcommand | Status |
@@ -42,6 +43,8 @@ geode extract inductor.json -o l0.json              # sweep → L / R / Q, f→0
   cores for assembly; serial LU).
 - **No network access**: nothing in the binary's dependency tree makes
   network calls at solve time.
+- **Files written**: only the report (stdout or `-o`) — unless
+  `--outdir` is given (next section).
 - **Version pinning**: `geode --version` and every report's `git_sha`
   carry the source revision baked in by `build.rs`
   (`git rev-parse --short=12 HEAD`, `-dirty` if tracked files differ;
@@ -276,6 +279,69 @@ walls in an eigen spec → finite `Q`) — the latter needs a complex
 non-Hermitian quasi-mode eigensolve and is a future eigen-analysis phase,
 not part of the driven open-boundary support above.
 
+## Field / far-field export (`--outdir`, issue #684)
+
+`geode driven | extract | eigen … --outdir <DIR>` additionally writes
+field files. **Off by default**: without the flag no export runs, nothing
+else touches the filesystem, and the report is byte-for-byte what it was
+before the flag existed (the new fields are omitted, not `null`).
+
+- **Directory**: `<DIR>` (and missing parents) is created up front,
+  before any solve, so an unwritable path fails fast with code `io`. It
+  is created even when nothing ends up exported (wave-port specs).
+- **Overwrite**: files are written under fixed, index-derived names;
+  an existing file of the same name is **overwritten**, and nothing else
+  in `<DIR>` is touched or removed (the repo's `--export-field`
+  precedent). Use a fresh directory per run to keep runs apart.
+- **References**: each file appears in the report as
+  `{ "path", "sha256" }` — `path` **relative to `<DIR>`** (a bare file
+  name, e.g. `"E_0000.vtu"`), `sha256` the hex SHA-256 of the bytes
+  written.
+
+| Spec | Files per report row / mode | Report field |
+|---|---|---|
+| `driven` / `extract`, lumped ports | `E_<row>.vtu` — `E` of **one extra solve** with every port driven at its spec `v_inc` (the sweep itself only keeps `Z` / `S`) | `results[].field_file` |
+| … plus exactly one `absorbing_regions` shell | `pattern_<row>.json` — principal-plane cuts | `results[].far_field` |
+| `eigen` | `E_mode_<mode>.vtu` — the real, `M_ε`-normalized eigenvector (arbitrary overall sign; PEC edges 0) | `modes[].field_file` |
+| wave ports | **nothing** (see below) | — |
+
+`<row>` / `<mode>` are the zero-padded 4-digit `results[]` / `modes[]`
+indices (for `extract`, rows are ascending in frequency). The extra
+export solves are not counted in `solver` statistics.
+
+**`.vtu` files** are ASCII VTK `UnstructuredGrid` (ParaView) with
+`PointData` `E_real`, `E_imag` (driven only), `|E|` and `eps_r` (mean
+`Re ε_r` of the incident tets). The nodal `E` is a **Whitney average**
+(`geode_util::viz::edge_field_to_nodes`): each incident tet's edge-element
+interpolant evaluated at the vertex, averaged onto the shared node — a
+visualization aid, not a quadrature-accurate field sample (it smears the
+normal-`E` jump at material interfaces).
+
+**`far_field`** (Love surface-equivalence NTFF,
+`geode_core::postproc::ntff`, over the shell's inner wall shrunk 10 %
+toward its centre — `examples/patch_antenna`'s Huygens box — on a 91 × 72
+`(θ, φ)` grid, 2° × 5°):
+
+| Field | Units | Meaning |
+|---|---|---|
+| `box_lo` / `box_hi` | mesh units | the NTFF / flux box |
+| `directivity_max` | – | peak `D` (linear) |
+| `directivity_broadside` | – | `D` at +z (`θ = 0`, φ-averaged pole row) |
+| `gain_broadside` | – | `D_broadside · η` (`η` clamped to `[0, 1]`) |
+| `gain_broadside_db` | dBi | `10·log10(gain_broadside)` |
+| `efficiency` | – | `η = P_rad / P_in`: box Poynting flux over the net port input `Σ_k ½ Re(V_k I_k*)`; not clamped |
+| `pattern_file` | | `{path, sha256}` of `pattern_<row>.json`: `frequency_hz`, `theta_rad[]`, `e_plane_e_norm[]` (`φ = 0`), `h_plane_e_norm[]` (`φ = π/2`), each cut normalized to its own max |
+
+No NTFF without an `absorbing_regions` shell (a Silver-Müller-only or
+closed spec gets `field_file` only), or with more than one shell (no
+single Huygens box).
+
+**Wave ports are out of scope**: a wave-port driven report never carries
+`field_file` / `far_field`, even with `--outdir` (stderr notes the skip).
+The physical field there is a linear combination of the per-channel
+Sherman–Morrison–Woodbury solves, which the library does not return, and
+reconstructing it would need a `geode-core` API extension.
+
 ## Report, schema v1
 
 Every report carries these top-level provenance fields:
@@ -352,6 +418,8 @@ and `extract` (`null` unless an extract spec, else `anchor_source` =
 | `ports[].l_h` | H | `Im Z_kk / ω` (negative above self-resonance) |
 | `ports[].q` | – | `Im Z_kk / Re Z_kk` |
 | `wave_channels[]` | | wave-port specs only (see below) |
+| `field_file` | | `--outdir` only: `{path, sha256}` of `E_<row>.vtu` (see above) |
+| `far_field` | | `--outdir` + one UPML shell only: NTFF quantities (see above) |
 
 For a **wave-port** spec `z_ohm` and `ports` are empty and `y_s` is
 `null` (no port impedance); `s` is the power-normalized channel S-matrix
@@ -378,6 +446,7 @@ excitations). `wave_channels[]`, one per channel, carries `channel`,
 | `omega_rad_s` | rad/s | `2πf` |
 | `q` | – | quality factor — **always `null`** in this build: the pencil is lossless, so `Q` is undefined (infinite), not a number. Finite `Q` needs lossy / open-cavity eigenmodes (a future eigen-analysis phase) |
 | `residual_rel` | – | `‖Kx − λMx‖ / (|λ| ‖Mx‖)` |
+| `field_file` | | `--outdir` only: `{path, sha256}` of `E_mode_<mode>.vtu` |
 
 **`kind = "extract"`** has the `kind = "driven"` fields (`mesh`,
 `ports`, `solver`, `results[]` — but `results[]` is **ascending** in
@@ -481,7 +550,16 @@ calibrated **8 %** band (`geode-core/tests/patch_antenna_extraction.rs`;
 the FEM resonance, 2.2745 GHz, sits −6.5 % below the ~3–5 %-class cavity
 model's 2.4332 GHz), requires an interior S11 dip ≤ −3 dB, and checks
 library parity at the dip. It does not read
-`benchmarks/patch_antenna/results.toml`.
+`benchmarks/patch_antenna/results.toml`. A third smoke test (issue #684)
+runs the extract with `--outdir`: every `{path, sha256}` reference
+matches its file, the `.vtu` `E_real` / `E_imag` round-trip against a
+fresh library solve + `edge_field_to_nodes` (1e-9 of max |E|), and the
+`far_field` directivity / gain / efficiency match an in-process
+`geode_core::postproc::ntff` computation built the
+`examples/patch_antenna` way (1e-9 relative). `sphere_pec_golden.rs` runs
+its default tier with `--outdir` (one finite, real `E_mode_<i>.vtu` per
+mode) and `wave_port_driven.rs` checks that wave-port reports carry no
+export fields even with `--outdir`.
 
 `tests/wave_port_driven.rs` (issue #683) runs `geode driven` with two
 wave ports on a synthetic tagged rectangular waveguide (geode-core's

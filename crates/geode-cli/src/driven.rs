@@ -27,6 +27,23 @@
 //!   run [`solve_wave_port_sweep_with_mode`] (per frequency with UPML,
 //!   batched otherwise). The result is a power-normalized channel
 //!   S-matrix; wave ports define no port impedance.
+//!
+//! # Field / far-field export (`--outdir`, issue #684)
+//!
+//! Only with `--outdir`, and only for **lumped-port** specs: the sweep
+//! APIs return `Z` / `S` but not the fields (an N-port S-matrix is N
+//! per-excitation solves), so [`Exporter::export_row`] does **one extra solve per
+//! report row** on a [`DrivenOperator`] with every port driven at its
+//! spec `v_inc` — the physical "driven as specified" state — and writes
+//! its `E` as a `.vtu` ([`crate::export`]). With exactly one
+//! `absorbing_regions` shell it also runs the NTFF
+//! ([`geode_core::postproc::ntff`]) over the shell's inner wall shrunk
+//! 10 % ([`NTFF_SHRINK`], `examples/patch_antenna`'s `FLUX_SHRINK`):
+//! directivity, broadside gain and radiation efficiency.
+//!
+//! Wave-port specs export nothing: their physical field is a linear
+//! combination of the per-channel SMW solves, which the library does not
+//! return (deferred; see `crates/geode-cli/README.md`).
 
 use std::path::Path;
 use std::time::Instant;
@@ -39,28 +56,54 @@ use geode_core::driven::extraction::{SParameterSweepPoint, s_parameter_frequency
 use geode_core::driven::ports::{
     LumpedPort, WavePort, WavePortSweepPoint, solve_wave_port_sweep_with_mode,
 };
+use geode_core::driven::scattering::flux_power_box;
 use geode_core::driven::solve::{
-    DrivenBcs, DrivenMaterials, IterativeSettings, SolverMode, SurfaceImpedanceBc,
-    SurfaceImpedanceModel,
+    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, IterativeSettings, SolverMode,
+    SurfaceImpedanceBc, SurfaceImpedanceModel,
+};
+use geode_core::postproc::ntff::{
+    broadside_directivity, directivity, gain, ntff_far_field, principal_plane_cuts, to_db,
 };
 
 use crate::backend::CompiledBackend;
 use crate::check::{mesh_summary, port_summaries, silver_muller_summaries, upml_summaries};
 use crate::error::CliError;
+use crate::export::{OutDir, PatternFile, eps_per_node, field_file_name, pattern_file_name};
 use crate::problem::{self, Problem};
 use crate::report::{
-    Complex, DrivenReport, FrequencyResult, PortResult, Provenance, SolverStats, WaveChannelResult,
-    WaveModeSummary, WavePortSummary,
+    Complex, DrivenReport, FarFieldResult, FrequencyResult, PortResult, Provenance, SolverStats,
+    WaveChannelResult, WaveModeSummary, WavePortSummary,
 };
 use crate::spec::{Analysis, SolverSpec};
 
-/// Load, solve and report.
-pub fn run(spec_path: &Path, provenance: Provenance) -> Result<DrivenReport, CliError> {
+/// NTFF / flux box = the UPML inner wall shrunk this fraction toward
+/// its centre (`examples/patch_antenna`'s `FLUX_SHRINK`): keeps the
+/// Huygens surface off the stretched-coordinate interface.
+pub const NTFF_SHRINK: f64 = 0.10;
+/// NTFF polar samples on `[0, π]` (2° steps; `examples/patch_antenna`).
+pub const NTFF_N_THETA: usize = 91;
+/// NTFF azimuth samples on `[0, 2π)` (5° steps; `examples/patch_antenna`).
+pub const NTFF_N_PHI: usize = 72;
+
+/// Load, solve and report. With `outdir`, lumped-port specs also export
+/// per-row fields (and NTFF for a UPML open radiator).
+pub fn run(
+    spec_path: &Path,
+    provenance: Provenance,
+    outdir: Option<&Path>,
+) -> Result<DrivenReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Driven))?;
+    let out = OutDir::create_opt(outdir)?;
     let (results, solver, wave_ports) = if p.wave_ports.is_empty() {
-        let (results, solver) = sweep(&p)?;
+        let (results, solver) = sweep(&p, out.as_ref())?;
         (results, solver, Vec::new())
     } else {
+        if out.is_some() {
+            eprintln!(
+                "note: --outdir: field / far-field export is not supported for wave-port specs \
+                 (lumped ports only); nothing exported"
+            );
+        }
         wave_sweep(&p)?
     };
     Ok(DrivenReport {
@@ -117,8 +160,13 @@ fn per_material_sweep<T>(
 /// Run the port-driven sweep over `p.frequencies` (in that order) and
 /// assemble the per-frequency Z / Y / S / per-port results and the
 /// aggregate solver statistics. Non-finite residuals or impedances are
-/// a hard [`CliError::NonFinite`].
-pub fn sweep(p: &Problem) -> Result<(Vec<FrequencyResult>, SolverStats), CliError> {
+/// a hard [`CliError::NonFinite`]. With `out`, each row additionally
+/// gets its exported field (and far field) — see [`Exporter::export_row`]; the
+/// export solves are not counted in [`SolverStats`].
+pub fn sweep(
+    p: &Problem,
+    out: Option<&OutDir>,
+) -> Result<(Vec<FrequencyResult>, SolverStats), CliError> {
     let lumped: Vec<LumpedPort<'_>> = p
         .ports
         .iter()
@@ -214,7 +262,16 @@ pub fn sweep(p: &Problem) -> Result<(Vec<FrequencyResult>, SolverStats), CliErro
             s: matrix(&pt.s.s, n),
             ports,
             wave_channels: Vec::new(),
+            field_file: None,
+            far_field: None,
         });
+    }
+
+    if let Some(out) = out {
+        let exporter = Exporter::<B>::new(p, &lumped, &surfaces, mode, &device)?;
+        for (index, (row, f)) in results.iter_mut().zip(&p.frequencies).enumerate() {
+            exporter.export_row(out, index, f, row)?;
+        }
     }
 
     let summary = crate::check::solver_summary(p.solver());
@@ -345,6 +402,8 @@ pub fn wave_sweep(
             s: matrix(&pt.s, n),
             ports: Vec::new(),
             wave_channels,
+            field_file: None,
+            far_field: None,
         });
     }
 
@@ -365,6 +424,183 @@ pub fn wave_sweep(
         },
         summaries,
     ))
+}
+
+/// Per-row field / NTFF exporter for a lumped-port spec: the
+/// ω-independent [`DrivenOperator`] (built once without UPML; per row
+/// with it, since the stretch is ω-dependent) plus the NTFF box.
+struct Exporter<'a, B: burn::tensor::backend::Backend> {
+    p: &'a Problem,
+    lumped: &'a [LumpedPort<'a>],
+    surfaces: &'a [SurfaceImpedanceBc<'a>],
+    mode: SolverMode,
+    device: &'a B::Device,
+    /// Zero volume source: the ports are the only drive.
+    source: CurrentSource,
+    /// The operator of a spec without UPML (ω-independent materials).
+    scalar_op: Option<DrivenOperator>,
+    /// Tet centroids (UPML tensors), empty without UPML.
+    centroids: Vec<[f64; 3]>,
+    /// Per-node `Re ε_r` for the `.vtu`.
+    eps_nodes: Vec<f64>,
+    /// NTFF box, with exactly one UPML shell.
+    ntff_box: Option<([f64; 3], [f64; 3])>,
+}
+
+impl<'a, B: burn::tensor::backend::Backend> Exporter<'a, B> {
+    fn new(
+        p: &'a Problem,
+        lumped: &'a [LumpedPort<'a>],
+        surfaces: &'a [SurfaceImpedanceBc<'a>],
+        mode: SolverMode,
+        device: &'a B::Device,
+    ) -> Result<Self, CliError> {
+        let mesh = &p.tagged.mesh;
+        let mut this = Self {
+            p,
+            lumped,
+            surfaces,
+            mode,
+            device,
+            source: CurrentSource {
+                j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+            },
+            scalar_op: None,
+            centroids: Vec::new(),
+            eps_nodes: eps_per_node(mesh, &p.eps),
+            ntff_box: None,
+        };
+        if p.upml.is_empty() {
+            this.scalar_op = Some(this.assemble(DrivenMaterials::Scalar(&p.eps))?);
+        } else {
+            this.centroids = tet_centroids(mesh);
+        }
+        if let [u] = p.upml.as_slice() {
+            let (lo, hi) = shrink_box(u.air_lo, u.air_hi, NTFF_SHRINK);
+            let in_box = |c: &[f64; 3]| (0..3).all(|k| c[k] >= lo[k] && c[k] <= hi[k]);
+            let centroids = &this.centroids;
+            if !centroids.iter().any(in_box) {
+                return Err(CliError::InvalidSpec(format!(
+                    "--outdir far-field export: no tet centroid lies inside the NTFF box \
+                     {lo:?}–{hi:?} (absorbing region `{}` inner wall shrunk by {NTFF_SHRINK})",
+                    u.name
+                )));
+            }
+            // Not every centroid is inside: the shell's stretched tets
+            // (`n_tets_stretched ≥ 1`) lie beyond the inner wall.
+            this.ntff_box = Some((lo, hi));
+        }
+        Ok(this)
+    }
+
+    fn assemble(&self, materials: DrivenMaterials<'_>) -> Result<DrivenOperator, CliError> {
+        Ok(DrivenOperator::assemble::<B>(
+            &self.p.tagged.mesh,
+            materials,
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &self.p.pec_mask,
+            },
+            self.lumped,
+            self.surfaces,
+            &self.source,
+            self.device,
+        )?)
+    }
+
+    /// One extra solve at row `index` (every port driven at its `v_inc`),
+    /// written to `E_<index>.vtu`; plus the NTFF quantities and pattern
+    /// file when [`Exporter::ntff_box`] is set.
+    fn export_row(
+        &self,
+        out: &OutDir,
+        index: usize,
+        f: &crate::problem::Frequency,
+        row: &mut FrequencyResult,
+    ) -> Result<(), CliError> {
+        let p = self.p;
+        let mesh = &p.tagged.mesh;
+        let omega = f.k0;
+        let upml_op;
+        let op = match &self.scalar_op {
+            Some(op) => op,
+            None => {
+                let (epsilon_tensor, nu_tensor) = p.upml_tensors(&self.centroids, omega);
+                upml_op = self.assemble(DrivenMaterials::MatchedUpml {
+                    epsilon_tensor: &epsilon_tensor,
+                    nu_tensor: &nu_tensor,
+                })?;
+                &upml_op
+            }
+        };
+        let (sol, _) = op.prepare_at::<B>(omega, self.mode, self.device)?.solve()?;
+        if !sol.residual_rel.is_finite()
+            || sol
+                .e_edges
+                .iter()
+                .any(|e| !(e.re.is_finite() && e.im.is_finite()))
+        {
+            return Err(CliError::NonFinite {
+                index,
+                what: format!(
+                    "--outdir export field (residual_rel = {})",
+                    sol.residual_rel
+                ),
+            });
+        }
+        row.field_file = Some(out.write_field(
+            &field_file_name(index),
+            mesh,
+            &sol.e_edges,
+            true,
+            &self.eps_nodes,
+        )?);
+
+        let Some((lo, hi)) = self.ntff_box else {
+            return Ok(());
+        };
+        // Net input power Σ_k ½ Re(V_k I_k*) (η₀-normalized natural
+        // units; cancels in η against the box flux).
+        let p_in: f64 = (0..op.n_ports())
+            .map(|k| {
+                let v = op.port_voltage(k, &sol.e_edges);
+                let i = op.port_current(k, v);
+                0.5 * (v * i.conj()).re
+            })
+            .sum();
+        let p_rad = flux_power_box(mesh, omega, &sol.e_edges, lo, hi);
+        let efficiency = if p_in != 0.0 { p_rad / p_in } else { 0.0 };
+        let ff = ntff_far_field(mesh, omega, &sol.e_edges, lo, hi, NTFF_N_THETA, NTFF_N_PHI);
+        let (directivity_max, _) = directivity(&ff);
+        let directivity_broadside = broadside_directivity(&ff);
+        let gain_broadside = gain(directivity_broadside, efficiency);
+        let (e_plane, h_plane) = principal_plane_cuts(&ff);
+        let pattern_file = out.write_json(
+            &pattern_file_name(index),
+            &PatternFile::new(f.hz, e_plane, h_plane),
+        )?;
+        row.far_field = Some(FarFieldResult {
+            box_lo: lo,
+            box_hi: hi,
+            directivity_max,
+            directivity_broadside,
+            gain_broadside,
+            gain_broadside_db: to_db(gain_broadside),
+            efficiency,
+            pattern_file,
+        });
+        Ok(())
+    }
+}
+
+/// `(lo, hi)` shrunk by `frac` of its half-extent toward its centre.
+fn shrink_box(lo: [f64; 3], hi: [f64; 3], frac: f64) -> ([f64; 3], [f64; 3]) {
+    let c: [f64; 3] = std::array::from_fn(|k| 0.5 * (lo[k] + hi[k]));
+    let h: [f64; 3] = std::array::from_fn(|k| 0.5 * (hi[k] - lo[k]));
+    (
+        std::array::from_fn(|k| c[k] - (1.0 - frac) * h[k]),
+        std::array::from_fn(|k| c[k] + (1.0 - frac) * h[k]),
+    )
 }
 
 fn pair(z: c64) -> Complex {

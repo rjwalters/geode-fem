@@ -3,9 +3,9 @@
 //!
 //! ```text
 //! geode check  <spec.json|spec.toml> [-o report.json]
-//! geode driven <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray]
-//! geode eigen  <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray]
-//! geode extract <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray]
+//! geode driven <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
+//! geode eigen  <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
+//! geode extract <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //! geode --version   # "geode <crate-version> (<git-sha>[-dirty])"
 //! ```
 //!
@@ -14,7 +14,9 @@
 //! writes a `kind = "error"` report to the same destination, prints the
 //! error to stderr and exits non-zero (the `geode-app` harness). The
 //! binary performs no network access: nothing in its dependency tree
-//! makes network calls at solve time. See `crates/geode-cli/README.md`.
+//! makes network calls at solve time. Nothing besides the report is
+//! written unless `--outdir` is given ([`export`]). See
+//! `crates/geode-cli/README.md`.
 
 #![deny(missing_docs)]
 
@@ -23,6 +25,7 @@ mod check;
 mod driven;
 mod eigen;
 mod error;
+mod export;
 mod extract;
 mod problem;
 mod report;
@@ -101,6 +104,15 @@ struct RunArgs {
     /// (sets `GEODE_NUM_THREADS`). Default: the library defaults.
     #[arg(long, value_name = "N")]
     threads: Option<NonZeroUsize>,
+    /// Opt-in field export directory (created if missing; same-named
+    /// files are overwritten). driven / extract with lumped ports: one
+    /// E-field `.vtu` per report row, plus NTFF directivity / gain /
+    /// efficiency and a pattern file with exactly one `absorbing_regions`
+    /// shell. eigen: one `.vtu` per mode. Wave-port specs export nothing.
+    /// The report references each file (path relative to DIR + sha256).
+    /// Without this flag nothing but the report is written.
+    #[arg(long, value_name = "DIR")]
+    outdir: Option<PathBuf>,
 }
 
 impl Cli {
@@ -176,24 +188,24 @@ impl App for Cli {
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
-                let result =
-                    backend::confirm(a.backend).and_then(|()| driven::run(&a.spec, prov.clone()));
+                let result = backend::confirm(a.backend)
+                    .and_then(|()| driven::run(&a.spec, prov.clone(), a.outdir.as_deref()));
                 finish("driven", prov, a.output.as_deref(), result)
             }
             Command::Eigen(a) => {
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
-                let result =
-                    backend::confirm(a.backend).and_then(|()| eigen::run(&a.spec, prov.clone()));
+                let result = backend::confirm(a.backend)
+                    .and_then(|()| eigen::run(&a.spec, prov.clone(), a.outdir.as_deref()));
                 finish("eigen", prov, a.output.as_deref(), result)
             }
             Command::Extract(a) => {
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
-                let result =
-                    backend::confirm(a.backend).and_then(|()| extract::run(&a.spec, prov.clone()));
+                let result = backend::confirm(a.backend)
+                    .and_then(|()| extract::run(&a.spec, prov.clone(), a.outdir.as_deref()));
                 finish("extract", prov, a.output.as_deref(), result)
             }
         }

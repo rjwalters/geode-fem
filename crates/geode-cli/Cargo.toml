@@ -17,6 +17,10 @@ geode-app = { workspace = true }
 # Default features keep the headless-host posture: ndarray CPU backend +
 # `faer-parallel`. GPU backends are opt-in via this crate's own features.
 geode-core = { workspace = true }
+# `edge_field_to_nodes` (Whitney-average nodal E) for `--outdir` field
+# export. Workspace base features only: backend selection stays with
+# geode-core (above).
+geode-util = { workspace = true }
 # `Backend` / `BackendTypes` for the compile-time backend alias.
 burn = { workspace = true }
 # `faer::c64` for the complex impedance / S-matrix arithmetic.

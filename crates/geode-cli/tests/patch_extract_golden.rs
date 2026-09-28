@@ -43,6 +43,13 @@
 //!    (8 %, `geode-core/tests/patch_antenna_extraction.rs` — the observed
 //!    FEM resonance sits −6.5 % below the ~3–5 %-class cavity model),
 //!    passivity at every point, and CLI vs library parity at the S11 dip.
+//! 3. **`--outdir` export** (default `cargo test`, issue #684): the smoke
+//!    extract with `--outdir` writes one `.vtu` per row plus the NTFF
+//!    pattern file; the report's `{path, sha256}` references match the
+//!    files, the `.vtu` round-trips against a fresh library solve +
+//!    `edge_field_to_nodes`, and the reported directivity / gain /
+//!    efficiency match an in-process `geode_core::postproc::ntff` call
+//!    built the way `examples/patch_antenna` builds it (1e-9).
 //!    Run with:
 //!
 //!    ```sh
@@ -76,10 +83,35 @@ const F_RES_REL_BAND: f64 = 0.08;
 /// UPML strength of both specs (`examples/patch_antenna`'s `SIGMA_0`).
 const SIGMA_0: f64 = 25.0;
 
+/// A scratch directory removed (recursively) on drop, so repeated runs
+/// do not accumulate `$TMPDIR/geode-cli-patch-*` directories.
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new(name: &str) -> Self {
+        let dir =
+            std::env::temp_dir().join(format!("geode-cli-patch-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(dir)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 fn run_geode(cmd: &str, spec: &std::path::Path) -> serde_json::Value {
+    run_geode_args(cmd, spec, &[])
+}
+
+fn run_geode_args(cmd: &str, spec: &std::path::Path, extra: &[&str]) -> serde_json::Value {
     let out = Command::new(env!("CARGO_BIN_EXE_geode"))
         .arg(cmd)
         .arg(spec)
+        .args(extra)
         .output()
         .expect("spawn geode");
     assert!(
@@ -268,6 +300,10 @@ fn patch_smoke_extract_is_passive_and_matches_library() {
     // for an open radiator); the SRF is reported but the smoke sweep does
     // not bracket the (different-geometry) resonance.
     assert_eq!(report["extraction"].as_array().unwrap().len(), 1);
+    // Off by default: without --outdir no row carries export fields.
+    for r in report["results"].as_array().unwrap() {
+        assert!(r.get("field_file").is_none() && r.get("far_field").is_none());
+    }
 
     let fixture = geode_core::mesh::read_patch_smoke_fixture().expect("smoke fixture");
     assert_library_parity(&fixture, SMOKE_PML_THICK, false, &report, 2.2e9);
@@ -290,9 +326,8 @@ fn patch_smoke_silver_muller_outer_wall_matches_library() {
     });
     v["frequencies"] = serde_json::json!({ "unit": "ghz", "values": [2.4] });
     v.as_object_mut().unwrap().remove("extract");
-    let dir = std::env::temp_dir().join(format!("geode-cli-patch-sm-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let spec = dir.join("spec.json");
+    let dir = TempDir::new("sm");
+    let spec = dir.0.join("spec.json");
     std::fs::write(&spec, serde_json::to_string_pretty(&v).unwrap()).unwrap();
 
     let report = run_geode("driven", &spec);
@@ -306,6 +341,191 @@ fn patch_smoke_silver_muller_outer_wall_matches_library() {
     let fixture = geode_core::mesh::read_patch_smoke_fixture().expect("smoke fixture");
     assert_library_parity(&fixture, SMOKE_PML_THICK, true, &report, 2.4e9);
 }
+
+/// Hex SHA-256 of a file's bytes.
+fn sha256_of(path: &std::path::Path) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(std::fs::read(path).unwrap()))
+}
+
+/// The ASCII values of `.vtu` `DataArray` `name`.
+fn vtu_array(vtu: &str, name: &str) -> Vec<f64> {
+    let tag = format!("Name=\"{name}\"");
+    let start = vtu.find(&tag).unwrap_or_else(|| panic!("no {name} array"));
+    let body = &vtu[start..];
+    let body = &body[body.find('>').unwrap() + 1..body.find("</DataArray>").unwrap()];
+    body.split_whitespace()
+        .map(|x| x.parse().expect("float"))
+        .collect()
+}
+
+/// `NumberOfPoints` of a `.vtu` piece.
+fn vtu_points(vtu: &str) -> usize {
+    let s = &vtu[vtu.find("NumberOfPoints=\"").unwrap() + 16..];
+    s[..s.find('"').unwrap()].parse().unwrap()
+}
+
+#[test]
+fn patch_smoke_outdir_exports_field_and_ntff_matching_library() {
+    let dir = TempDir::new("outdir");
+    // A not-yet-existing nested directory is created on demand.
+    let outdir = dir.0.join("fields/run1");
+    let report = run_geode_args(
+        "extract",
+        &fixture_spec("patch_extract_smoke.json"),
+        &["--outdir", outdir.to_str().unwrap()],
+    );
+    assert_eq!(report["schema_version"], 1);
+    let n_nodes = report["mesh"]["n_nodes"].as_u64().unwrap() as usize;
+    let results = report["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+    for (i, r) in results.iter().enumerate() {
+        for (key, want) in [
+            (&r["field_file"], format!("E_{i:04}.vtu")),
+            (
+                &r["far_field"]["pattern_file"],
+                format!("pattern_{i:04}.json"),
+            ),
+        ] {
+            assert_eq!(key["path"], want.as_str(), "relative to --outdir");
+            let path = outdir.join(&want);
+            assert_eq!(key["sha256"], sha256_of(&path).as_str(), "{want}");
+        }
+        let vtu = std::fs::read_to_string(outdir.join(format!("E_{i:04}.vtu"))).unwrap();
+        assert_eq!(vtu_points(&vtu), n_nodes);
+        for name in ["E_real", "E_imag"] {
+            let a = vtu_array(&vtu, name);
+            assert_eq!(a.len(), 3 * n_nodes, "{name}");
+            assert!(a.iter().all(|x| x.is_finite()), "{name}");
+        }
+        let pattern: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(outdir.join(format!("pattern_{i:04}.json"))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(pattern["theta_rad"].as_array().unwrap().len(), 91);
+        assert_eq!(pattern["e_plane_e_norm"].as_array().unwrap().len(), 91);
+    }
+    assert_ntff_library_parity(&report, &outdir);
+}
+
+/// Row 0 of an `--outdir` smoke report vs a fresh in-process solve built
+/// the `examples/patch_antenna` way (`driven_solve_with_ports` on the
+/// patch fixture's own `matched_upml_materials` / lumped port, NTFF box =
+/// `air_box` shrunk 10 %): the `.vtu` `E` and every `far_field` scalar.
+#[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "metal")))]
+fn assert_ntff_library_parity(report: &serde_json::Value, outdir: &std::path::Path) {
+    use faer::c64;
+    use geode_core::constants::ETA_0_OHM;
+    use geode_core::driven::ports::{port_current, port_voltage};
+    use geode_core::driven::scattering::flux_power_box;
+    use geode_core::driven::solve::{
+        CurrentSource, DrivenBcs, DrivenMaterials, driven_solve_with_ports,
+    };
+    use geode_core::mesh::patch::FR4_MATERIALS;
+    use geode_core::mesh::pec_interior_mask_from_triangles;
+    use geode_core::postproc::ntff::{
+        broadside_directivity, directivity, gain, ntff_far_field, to_db,
+    };
+
+    type B = burn::backend::NdArray<f64, i32>;
+    let device = Default::default();
+    let row = &report["results"][0];
+    let k0 = f64_at(&row["k0"]);
+    let fixture = geode_core::mesh::read_patch_smoke_fixture().expect("smoke fixture");
+    let mesh = &fixture.mesh;
+    let edges = mesh.edges();
+    let (patch, ground, outer) = (
+        fixture.patch_triangles(),
+        fixture.ground_triangles(),
+        fixture.outer_boundary_triangles(),
+    );
+    let mask = pec_interior_mask_from_triangles(&edges, &[&patch, &ground, &outer]);
+    let (air_lo, air_hi) = fixture.air_box(SMOKE_PML_THICK);
+    let (eps_t, nu_t) = fixture.matched_upml_materials(
+        &FR4_MATERIALS,
+        air_lo,
+        air_hi,
+        SMOKE_PML_THICK,
+        SIGMA_0,
+        k0,
+    );
+    let port = fixture.port();
+    let lp = port.lumped_port(50.0 / ETA_0_OHM, c64::new(1.0, 0.0));
+    let sol = driven_solve_with_ports::<B>(
+        mesh,
+        DrivenMaterials::MatchedUpml {
+            epsilon_tensor: &eps_t,
+            nu_tensor: &nu_t,
+        },
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        std::slice::from_ref(&lp),
+        k0,
+        &CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        },
+        &device,
+    )
+    .expect("library solve");
+
+    // `.vtu` round trip: E_real / E_imag vs the library field's nodal
+    // Whitney average (ASCII serialization round-off only).
+    let vtu = std::fs::read_to_string(outdir.join("E_0000.vtu")).unwrap();
+    let (e_re, e_im) = geode_util::viz::edge_field_to_nodes(mesh, &sol.e_edges);
+    for (name, lib) in [("E_real", e_re), ("E_imag", e_im)] {
+        let cli = vtu_array(&vtu, name);
+        let lib: Vec<f64> = lib.into_iter().flatten().collect();
+        let scale = lib.iter().fold(0.0_f64, |m, x| m.max(x.abs()));
+        let err = cli
+            .iter()
+            .zip(&lib)
+            .fold(0.0_f64, |m, (a, b)| m.max((a - b).abs()));
+        eprintln!(
+            "vtu {name}: max |CLI − library| / max|E| = {:.2e}",
+            err / scale
+        );
+        assert!(err <= 1e-9 * scale, "{name}: {err:e} vs scale {scale:e}");
+    }
+
+    // NTFF, exactly as examples/patch_antenna::extract_pattern.
+    let c: [f64; 3] = std::array::from_fn(|k| 0.5 * (air_lo[k] + air_hi[k]));
+    let h: [f64; 3] = std::array::from_fn(|k| 0.5 * (air_hi[k] - air_lo[k]));
+    let lo: [f64; 3] = std::array::from_fn(|k| c[k] - 0.9 * h[k]);
+    let hi: [f64; 3] = std::array::from_fn(|k| c[k] + 0.9 * h[k]);
+    let v = port_voltage(mesh, &lp, &edges, &sol.e_edges);
+    let p_in = 0.5 * (v * port_current(&lp, v).conj()).re;
+    let eta = flux_power_box(mesh, k0, &sol.e_edges, lo, hi) / p_in;
+    let ff = ntff_far_field(mesh, k0, &sol.e_edges, lo, hi, 91, 72);
+    let (d_max, _) = directivity(&ff);
+    let d_bs = broadside_directivity(&ff);
+    let g_bs = gain(d_bs, eta);
+
+    let f = &row["far_field"];
+    for k in 0..3 {
+        assert!((f64_at(&f["box_lo"][k]) - lo[k]).abs() < 1e-12);
+        assert!((f64_at(&f["box_hi"][k]) - hi[k]).abs() < 1e-12);
+    }
+    for (key, lib) in [
+        ("directivity_max", d_max),
+        ("directivity_broadside", d_bs),
+        ("gain_broadside", g_bs),
+        ("gain_broadside_db", to_db(g_bs)),
+        ("efficiency", eta),
+    ] {
+        let cli = f64_at(&f[key]);
+        let rel = (cli - lib).abs() / lib.abs();
+        eprintln!("NTFF {key}: CLI {cli:.12e}, library {lib:.12e}, rel {rel:.2e}");
+        assert!(
+            rel < 1e-9,
+            "{key}: CLI {cli} vs library {lib} (rel {rel:e})"
+        );
+    }
+}
+
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "metal"))]
+fn assert_ntff_library_parity(_: &serde_json::Value, _: &std::path::Path) {}
 
 /// cargo test -p geode-cli --release --test patch_extract_golden -- --ignored
 #[test]
