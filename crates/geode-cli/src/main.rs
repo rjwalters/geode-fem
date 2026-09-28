@@ -5,7 +5,7 @@
 //! geode check  <spec.json|spec.toml> [-o report.json]
 //! geode driven <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray]
 //! geode eigen  <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray]
-//! geode extract …   # reserved: parses, fails with "not implemented yet"
+//! geode extract <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray]
 //! geode --version   # "geode <crate-version> (<git-sha>[-dirty])"
 //! ```
 //!
@@ -23,6 +23,7 @@ mod check;
 mod driven;
 mod eigen;
 mod error;
+mod extract;
 mod problem;
 mod report;
 mod spec;
@@ -66,8 +67,9 @@ enum Command {
     /// null: the pencil is lossless). Needs a spec with an `eigen` section
     /// and no ports.
     Eigen(RunArgs),
-    /// L / R / Q extraction incl. f→0 extrapolation. Reserved: not implemented
-    /// yet (issue #682).
+    /// Driven sweep → per-port L / R / Q, quasi-static L0 (f→0 Richardson
+    /// extrapolation on the two lowest anchor frequencies) and SRF. Needs a
+    /// spec with an `extract` section (`"extract": {}` for the defaults).
     Extract(RunArgs),
 }
 
@@ -185,8 +187,11 @@ impl App for Cli {
                 finish("eigen", prov, a.output.as_deref(), result)
             }
             Command::Extract(a) => {
-                let prov = Self::provenance(&a.spec, a.threads.map(NonZeroUsize::get));
-                let result: Result<(), CliError> = Err(CliError::NotImplemented("extract", "#682"));
+                let threads = a.threads.map(NonZeroUsize::get);
+                let prov = Self::provenance(&a.spec, threads);
+                let _par = threads.map(apply_thread_cap);
+                let result =
+                    backend::confirm(a.backend).and_then(|()| extract::run(&a.spec, prov.clone()));
                 finish("extract", prov, a.output.as_deref(), result)
             }
         }

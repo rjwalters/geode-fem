@@ -8,6 +8,9 @@
 //! port this is bit-for-bit the
 //! [`geode_core::driven::extraction::driven_frequency_sweep`] path the
 //! spiral-inductor benchmark uses.
+//!
+//! [`sweep`] (solve + Z / Y / S / per-port assembly) is shared with
+//! `geode extract`, which post-processes the same results.
 
 use std::path::Path;
 use std::time::Instant;
@@ -25,14 +28,30 @@ use geode_core::driven::solve::{
 use crate::backend::CompiledBackend;
 use crate::check::{mesh_summary, port_summaries};
 use crate::error::CliError;
-use crate::problem;
+use crate::problem::{self, Problem};
 use crate::report::{Complex, DrivenReport, FrequencyResult, PortResult, Provenance, SolverStats};
 use crate::spec::{Analysis, SolverSpec};
 
 /// Load, solve and report.
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<DrivenReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Driven))?;
+    let (results, solver) = sweep(&p)?;
+    Ok(DrivenReport {
+        provenance,
+        kind: "driven",
+        status: "ok",
+        mesh: mesh_summary(&p),
+        ports: port_summaries(&p),
+        solver,
+        results,
+    })
+}
 
+/// Run the port-driven sweep over `p.frequencies` (in that order) and
+/// assemble the per-frequency Z / Y / S / per-port results and the
+/// aggregate solver statistics. Non-finite residuals or impedances are
+/// a hard [`CliError::NonFinite`].
+pub fn sweep(p: &Problem) -> Result<(Vec<FrequencyResult>, SolverStats), CliError> {
     let lumped: Vec<LumpedPort<'_>> = p
         .ports
         .iter()
@@ -128,13 +147,9 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<DrivenReport, Cli
     }
 
     let summary = crate::check::solver_summary(p.solver());
-    Ok(DrivenReport {
-        provenance,
-        kind: "driven",
-        status: "ok",
-        mesh: mesh_summary(&p),
-        ports: port_summaries(&p),
-        solver: SolverStats {
+    Ok((
+        results,
+        SolverStats {
             mode: summary.mode,
             tol: summary.tol,
             max_iters: summary.max_iters,
@@ -146,8 +161,7 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<DrivenReport, Cli
             residual_rel_max: points.iter().map(|pt| pt.residual_rel).fold(0.0, f64::max),
             wall_time_s,
         },
-        results,
-    })
+    ))
 }
 
 fn pair(z: c64) -> Complex {

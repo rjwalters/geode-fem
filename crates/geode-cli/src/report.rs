@@ -2,11 +2,13 @@
 //!
 //! Every invocation that gets past argument parsing writes exactly one
 //! JSON document (stdout, or the `-o` path). The document is one of
-//! four kinds, discriminated by the top-level `kind` field:
+//! five kinds, discriminated by the top-level `kind` field:
 //!
 //! * `"check"` — [`CheckReport`], from `geode check` (no solve);
 //! * `"driven"` — [`DrivenReport`], from `geode driven`;
 //! * `"eigen"` — [`EigenReport`], from `geode eigen`;
+//! * `"extract"` — [`ExtractReport`], from `geode extract` (additive in
+//!   v1: a [`DrivenReport`]-shaped sweep plus per-port `L₀` / SRF);
 //! * `"error"` — [`ErrorReport`], from any failed subcommand (the
 //!   process also exits non-zero and prints the error to stderr).
 //!
@@ -169,6 +171,20 @@ pub struct EigenSettingsSummary {
     pub residual_tol: f64,
 }
 
+/// Echo of a resolved `extract` spec section.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExtractSettingsSummary {
+    /// `"frequencies"` or `"anchor_frequencies"` — the spec list the
+    /// `L₀` anchors were taken from.
+    pub anchor_source: &'static str,
+    /// The distinct anchor frequencies, ascending (the two lowest
+    /// extrapolate `L₀`, the third-lowest feeds the error estimate).
+    pub anchor_frequencies: Vec<FrequencySummary>,
+    /// Relative convergence gate on the `L₀` consistency estimate
+    /// (`null` = no gate).
+    pub l0_rel_tol: Option<f64>,
+}
+
 /// `geode check` report (`kind = "check"`).
 #[derive(Debug, Clone, Serialize)]
 pub struct CheckReport {
@@ -193,12 +209,15 @@ pub struct CheckReport {
     pub frequencies: Vec<FrequencySummary>,
     /// Solver selection.
     pub solver: SolverSummary,
-    /// `"driven"` or `"eigen"` — the analysis the spec describes
-    /// (additive in v1).
+    /// `"driven"`, `"eigen"` or `"extract"` — the analysis the spec
+    /// describes (additive in v1).
     pub analysis: &'static str,
-    /// The resolved `eigen` section, `null` for a driven spec (additive
-    /// in v1).
+    /// The resolved `eigen` section, `null` unless an eigen spec
+    /// (additive in v1).
     pub eigen: Option<EigenSettingsSummary>,
+    /// The resolved `extract` section, `null` unless an extract spec
+    /// (additive in v1).
+    pub extract: Option<ExtractSettingsSummary>,
 }
 
 /// Aggregate solver statistics for a driven sweep.
@@ -279,6 +298,58 @@ pub struct DrivenReport {
     pub solver: SolverStats,
     /// Per-frequency results, in spec order.
     pub results: Vec<FrequencyResult>,
+}
+
+/// Per-port extraction results of a `geode extract` sweep.
+#[derive(Debug, Clone, Serialize)]
+pub struct PortExtraction {
+    /// Port index.
+    pub index: usize,
+    /// Quasi-static inductance `L₀ = lim_{f→0} Im Z_kk / ω` (H), by
+    /// two-point Richardson extrapolation of `L(f) ≈ L₀ − a·f²` on the
+    /// two lowest anchors.
+    pub l0_h: f64,
+    /// The two anchor frequencies used (Hz), ascending.
+    pub l0_anchor_frequencies_hz: [f64; 2],
+    /// Consistency estimate `|L₀(f₁,f₂) − L₀(f₂,f₃)|` (H) from the
+    /// third-lowest anchor; `null` with only two anchors.
+    pub l0_error_estimate_h: Option<f64>,
+    /// `l0_error_estimate_h / |l0_h|`; `null` with only two anchors.
+    pub l0_error_estimate_rel: Option<f64>,
+    /// The third-lowest anchor `f₃` (Hz) behind the estimate.
+    pub l0_check_frequency_hz: Option<f64>,
+    /// Every `Im Z_kk` sign change in the swept range (Hz), ascending,
+    /// linearly interpolated between samples. A sign change is a series
+    /// resonance or a flip through a pole (parallel anti-resonance).
+    pub im_z_zero_crossings_hz: Vec<f64>,
+    /// Self-resonant frequency (Hz): the first entry of
+    /// `im_z_zero_crossings_hz`, `null` if the sweep brackets none.
+    pub srf_hz: Option<f64>,
+}
+
+/// `geode extract` report (`kind = "extract"`).
+#[derive(Debug, Clone, Serialize)]
+pub struct ExtractReport {
+    /// Provenance (flattened).
+    #[serde(flatten)]
+    pub provenance: Provenance,
+    /// Always `"extract"`.
+    pub kind: &'static str,
+    /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    pub status: &'static str,
+    /// Mesh summary.
+    pub mesh: MeshSummary,
+    /// Lumped ports (index = matrix row/column).
+    pub ports: Vec<PortSummary>,
+    /// The extract settings as resolved.
+    pub extract: ExtractSettingsSummary,
+    /// Solver statistics (as for `driven`).
+    pub solver: SolverStats,
+    /// Per-frequency results (as for `driven`), **ascending** in
+    /// frequency over the union of `frequencies` and the anchors.
+    pub results: Vec<FrequencyResult>,
+    /// Per-port `L₀` / SRF extraction, in port order.
+    pub extraction: Vec<PortExtraction>,
 }
 
 /// Eigensolver statistics.

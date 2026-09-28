@@ -72,7 +72,7 @@ use geode_core::analytic::spiral::{
     SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
 };
 use geode_core::constants::ETA_0_OHM as ETA_0;
-use geode_core::driven::extraction::{detect_srf, driven_frequency_sweep};
+use geode_core::driven::extraction::{detect_srf, driven_frequency_sweep, extrapolate_l0};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
@@ -181,21 +181,21 @@ impl From<&Row> for PointRow {
     }
 }
 
-/// Quasi-static inductance L0 by Richardson extrapolation of the two
-/// lowest sweep points to f→0. Below self-resonance a substrate-loaded
-/// spiral follows L(f) ≈ L0 − a·f² (the shunt substrate capacitance
-/// siphons current as f rises), so a two-point quadratic-in-f²
-/// extrapolation recovers the C-free inductance that Mohan and mom
-/// report. This is the only apples-to-apples L for the oracle
-/// comparison — a finite quote frequency conflates L0 with the FEM's
-/// (correct, but oracle-absent) substrate-C dispersion.
-fn extrapolate_l0(rows: &[Row]) -> f64 {
-    let mut sorted: Vec<&Row> = rows.iter().collect();
-    sorted.sort_by(|a, b| a.f_ghz.partial_cmp(&b.f_ghz).unwrap());
-    let (f1, l1) = (sorted[0].f_ghz, sorted[0].l_nh);
-    let (f2, l2) = (sorted[1].f_ghz, sorted[1].l_nh);
-    let (f1s, f2s) = (f1 * f1, f2 * f2);
-    (l1 * f2s - l2 * f1s) / (f2s - f1s)
+/// Quasi-static inductance L0 (nH) by Richardson extrapolation of the
+/// two lowest sweep points to f→0. Below self-resonance a
+/// substrate-loaded spiral follows L(f) ≈ L0 − a·f² (the shunt substrate
+/// capacitance siphons current as f rises), so a two-point
+/// quadratic-in-f² extrapolation recovers the C-free inductance that
+/// Mohan and mom report. This is the only apples-to-apples L for the
+/// oracle comparison — a finite quote frequency conflates L0 with the
+/// FEM's (correct, but oracle-absent) substrate-C dispersion. The
+/// arithmetic is the shared library [`extrapolate_l0`] (issue #682; this
+/// example carried a private copy of it before).
+fn l0_nh(rows: &[Row]) -> f64 {
+    let points: Vec<(f64, f64)> = rows.iter().map(|r| (r.f_ghz, r.l_nh)).collect();
+    extrapolate_l0(&points)
+        .expect("≥ 2 distinct finite sweep points")
+        .l0
 }
 
 fn results_path(choice: FixtureChoice) -> PathBuf {
@@ -377,7 +377,7 @@ fn emit_results(rows: &[Row], path: &Path, choice: FixtureChoice, srf_ghz: Optio
         // Achieved comparison. L at the f→0 quasi-static limit (the
         // only apples-to-apples L vs the C-free oracles); Q at the
         // 3 GHz reference (tracking band only).
-        let l0_fem = extrapolate_l0(rows);
+        let l0_fem = l0_nh(rows);
         let q_row = rows
             .iter()
             .min_by(|a, b| {
@@ -495,7 +495,7 @@ fn run<B: Backend>(choice: FixtureChoice, device: &B::Device) {
         );
     }
     let l0_fem = if choice == FixtureChoice::Benchmark {
-        Some(extrapolate_l0(&rows))
+        Some(l0_nh(&rows))
     } else {
         None
     };
