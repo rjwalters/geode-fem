@@ -69,7 +69,7 @@ use crate::backend::CompiledBackend;
 use crate::check::{mesh_summary, port_summaries, silver_muller_summaries, upml_summaries};
 use crate::error::CliError;
 use crate::export::{OutDir, PatternFile, eps_per_node, field_file_name, pattern_file_name};
-use crate::problem::{self, Problem};
+use crate::problem::{self, Problem, UpmlRegion};
 use crate::report::{
     Complex, DrivenReport, FarFieldResult, FrequencyResult, PortResult, Provenance, SolverStats,
     WaveChannelResult, WaveModeSummary, WavePortSummary,
@@ -85,6 +85,48 @@ pub const NTFF_N_THETA: usize = 91;
 /// NTFF azimuth samples on `[0, 2π)` (5° steps; `examples/patch_antenna`).
 pub const NTFF_N_PHI: usize = 72;
 
+/// The NTFF box for the resolved `absorbing_regions` shells `upml` and
+/// the mesh's tet `centroids`: `None` unless there is exactly one shell,
+/// else that shell's inner
+/// wall shrunk by [`NTFF_SHRINK`] — an [`CliError::InvalidSpec`] if no
+/// centroid lies inside it. Only non-emptiness is checked: that the box
+/// encloses the radiator and every port and lies entirely in air is the
+/// spec author's responsibility (`crates/geode-cli/README.md`).
+#[allow(clippy::type_complexity)]
+fn ntff_box(
+    upml: &[UpmlRegion],
+    centroids: &[[f64; 3]],
+) -> Result<Option<([f64; 3], [f64; 3])>, CliError> {
+    let [u] = upml else {
+        return Ok(None);
+    };
+    let (lo, hi) = shrink_box(u.air_lo, u.air_hi, NTFF_SHRINK);
+    let in_box = |c: &[f64; 3]| (0..3).all(|k| c[k] >= lo[k] && c[k] <= hi[k]);
+    if !centroids.iter().any(in_box) {
+        return Err(CliError::InvalidSpec(format!(
+            "--outdir far-field export: no tet centroid lies inside the NTFF box \
+             {lo:?}–{hi:?} (absorbing region `{}` inner wall shrunk by {NTFF_SHRINK})",
+            u.name
+        )));
+    }
+    // Not every centroid is inside: the shell's stretched tets
+    // (`n_tets_stretched ≥ 1`) lie beyond the inner wall.
+    Ok(Some((lo, hi)))
+}
+
+/// Validate the `--outdir` export of `p` up front — right after
+/// [`problem::load`], before the (expensive) sweep — so a spec whose
+/// NTFF box holds no tet centroid fails in milliseconds rather than
+/// after every frequency has been solved. Callers invoke it only when
+/// `--outdir` was passed; [`Exporter`] re-derives the same box through
+/// the same [`ntff_box`], so the two can never disagree.
+pub fn validate_export(p: &Problem) -> Result<(), CliError> {
+    if p.upml.len() == 1 {
+        ntff_box(&p.upml, &tet_centroids(&p.tagged.mesh))?;
+    }
+    Ok(())
+}
+
 /// Load, solve and report. With `outdir`, lumped-port specs also export
 /// per-row fields (and NTFF for a UPML open radiator).
 pub fn run(
@@ -93,6 +135,10 @@ pub fn run(
     outdir: Option<&Path>,
 ) -> Result<DrivenReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Driven))?;
+    // Wave-port specs export nothing, so there is nothing to validate.
+    if outdir.is_some() && p.wave_ports.is_empty() {
+        validate_export(&p)?;
+    }
     let out = OutDir::create_opt(outdir)?;
     let (results, solver, wave_ports) = if p.wave_ports.is_empty() {
         let (results, solver) = sweep(&p, out.as_ref())?;
@@ -475,21 +521,7 @@ impl<'a, B: burn::tensor::backend::Backend> Exporter<'a, B> {
         } else {
             this.centroids = tet_centroids(mesh);
         }
-        if let [u] = p.upml.as_slice() {
-            let (lo, hi) = shrink_box(u.air_lo, u.air_hi, NTFF_SHRINK);
-            let in_box = |c: &[f64; 3]| (0..3).all(|k| c[k] >= lo[k] && c[k] <= hi[k]);
-            let centroids = &this.centroids;
-            if !centroids.iter().any(in_box) {
-                return Err(CliError::InvalidSpec(format!(
-                    "--outdir far-field export: no tet centroid lies inside the NTFF box \
-                     {lo:?}–{hi:?} (absorbing region `{}` inner wall shrunk by {NTFF_SHRINK})",
-                    u.name
-                )));
-            }
-            // Not every centroid is inside: the shell's stretched tets
-            // (`n_tets_stretched ≥ 1`) lie beyond the inner wall.
-            this.ntff_box = Some((lo, hi));
-        }
+        this.ntff_box = ntff_box(&p.upml, &this.centroids)?;
         Ok(this)
     }
 
@@ -682,5 +714,48 @@ mod tests {
             }
         }
         assert!(invert(&[c64::new(0.0, 0.0)], 1).is_none());
+    }
+
+    /// A shell whose inner wall is the box `[-10, 10]³`.
+    fn shell(name: &str) -> UpmlRegion {
+        UpmlRegion {
+            name: name.into(),
+            tag: 1,
+            n_tets: 1,
+            n_tets_stretched: 1,
+            thickness: 1.0,
+            sigma_0: 25.0,
+            air_lo: [-10.0; 3],
+            air_hi: [10.0; 3],
+        }
+    }
+
+    #[test]
+    fn ntff_box_is_the_single_shell_wall_shrunk() {
+        // 0 or ≥ 2 shells: no NTFF, and no check (even with no centroid).
+        assert_eq!(ntff_box(&[], &[]).unwrap(), None);
+        assert_eq!(ntff_box(&[shell("a"), shell("b")], &[]).unwrap(), None);
+        // One shell with a centroid inside the shrunk box.
+        let (lo, hi) = ntff_box(&[shell("a")], &[[0.0; 3], [9.5, 0.0, 0.0]])
+            .unwrap()
+            .expect("one shell → an NTFF box");
+        for k in 0..3 {
+            assert!((lo[k] + 9.0).abs() < 1e-12 && (hi[k] - 9.0).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn ntff_box_without_a_centroid_inside_is_invalid_spec() {
+        // Inside the shell's inner wall, but outside the 10 %-shrunk box.
+        let err = ntff_box(&[shell("upml")], &[[9.5, 0.0, 0.0], [0.0, -9.5, 0.0]]).unwrap_err();
+        let CliError::InvalidSpec(msg) = err else {
+            panic!("expected InvalidSpec, got {err:?}");
+        };
+        assert!(
+            msg.contains("no tet centroid lies inside the NTFF box"),
+            "{msg}"
+        );
+        assert!(msg.contains("`upml`"), "{msg}");
+        assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
     }
 }

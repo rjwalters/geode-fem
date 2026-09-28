@@ -423,6 +423,53 @@ fn matched_sweep_efficiency_at_res() -> f64 {
     parse_scalar(cmp, "efficiency_at_res").expect("comparison.efficiency_at_res")
 }
 
+/// Parse `[meta].<key>` from `benchmarks/patch_antenna/<file>`.
+fn sweep_meta_scalar(file: &str, key: &str) -> f64 {
+    let path = repo_root()
+        .join("benchmarks")
+        .join("patch_antenna")
+        .join(file);
+    let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let meta_pos = text
+        .find("[meta]")
+        .unwrap_or_else(|| panic!("{file}: [meta] block"));
+    parse_scalar(&text[meta_pos..], key).unwrap_or_else(|| panic!("{file}: meta.{key}"))
+}
+
+/// Tier 1 (committed, no solve, issue #697): each pattern artifact is
+/// keyed to exactly the frequency its sibling sweep artifact reports —
+/// `pattern.toml` to `results.toml`'s Im Z = 0 crossing `f_res_fem_ghz`,
+/// `pattern_matched.toml` to `results_matched.toml`'s S11 dip
+/// `s11_dip_f_ghz`. Both sides are decimal literals written by the same
+/// pipeline, so equality is exact: a partial regeneration that touches
+/// only one file of a pair fails here.
+#[test]
+fn committed_pattern_f_res_matches_sweep_artifacts() {
+    let pairs = [
+        (
+            "pattern.toml",
+            committed_pattern().f_res_ghz,
+            "results.toml",
+            "f_res_fem_ghz",
+        ),
+        (
+            "pattern_matched.toml",
+            committed_matched_pattern().f_res_ghz,
+            "results_matched.toml",
+            "s11_dip_f_ghz",
+        ),
+    ];
+    for (pattern_file, pattern_f, sweep_file, sweep_key) in pairs {
+        let sweep_f = sweep_meta_scalar(sweep_file, sweep_key);
+        assert_eq!(
+            pattern_f, sweep_f,
+            "benchmarks/patch_antenna/{pattern_file} [meta].f_res_ghz = {pattern_f} but \
+             benchmarks/patch_antenna/{sweep_file} [meta].{sweep_key} = {sweep_f}: the \
+             artifacts are out of sync (partial regeneration?) — regenerate both"
+        );
+    }
+}
+
 /// Solve the patch and run the NTFF, returning
 /// `(efficiency, D_max, D_broadside, gain_broadside)`.
 fn solve_and_ntff(fixture: &PatchFixture, f_ghz: f64, pml_thick: f64) -> (f64, f64, f64, f64) {

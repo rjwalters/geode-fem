@@ -40,6 +40,9 @@ pub fn run(
     outdir: Option<&Path>,
 ) -> Result<ExtractReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Extract))?;
+    if outdir.is_some() {
+        driven::validate_export(&p)?;
+    }
     let out = OutDir::create_opt(outdir)?;
     let target = p
         .extract

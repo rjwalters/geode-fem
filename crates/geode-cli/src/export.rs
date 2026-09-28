@@ -190,10 +190,32 @@ mod tests {
         assert_eq!(pattern_file_name(0), "pattern_0000.json");
     }
 
+    /// A scratch directory removed (recursively) on drop — even when an
+    /// assertion panics first (mirrors `tests/patch_extract_golden.rs`).
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "geode-cli-export-unit-{name}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn json_file_ref_hashes_the_written_bytes() {
-        let dir =
-            std::env::temp_dir().join(format!("geode-cli-export-unit-{}", std::process::id()));
+        let tmp = TempDir::new("json-ref");
+        let dir = &tmp.0;
         let out = OutDir::create(&dir.join("nested")).unwrap();
         let r = out.write_json("x.json", &[1, 2]).unwrap();
         assert_eq!(r.path, "x.json");
@@ -203,6 +225,5 @@ mod tests {
         // Overwrite semantics: same name, new content, new hash.
         let r2 = out.write_json("x.json", &[3]).unwrap();
         assert_ne!(r.sha256, r2.sha256);
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
