@@ -123,6 +123,37 @@ pub enum CliError {
         /// Why no Touchstone file can be written.
         reason: String,
     },
+    /// The layout file (`geode mesh`) is not valid JSON/TOML for layout
+    /// schema v1.
+    #[error("cannot parse layout `{}`: {message}", .path.display())]
+    LayoutParse {
+        /// Layout path.
+        path: PathBuf,
+        /// Parser diagnostic.
+        message: String,
+    },
+    /// The layout parsed but is semantically invalid.
+    #[error("invalid layout: {0}")]
+    InvalidLayout(String),
+    /// The Gmsh binary (`geode mesh`) could not be run.
+    #[error(
+        "gmsh binary `{}` not found or not runnable (from {source_desc}): {detail}; install \
+         Gmsh >= 4.11 (e.g. `sudo apt-get install gmsh`, `brew install gmsh`, or \
+         https://gmsh.info) or point `--gmsh <path>` / the GEODE_GMSH environment variable \
+         at the binary",
+        .binary.display()
+    )]
+    GmshNotFound {
+        /// The binary that was tried.
+        binary: PathBuf,
+        /// Where the binary name came from (`--gmsh`, `GEODE_GMSH`, `PATH`).
+        source_desc: &'static str,
+        /// Spawn / probe diagnostic.
+        detail: String,
+    },
+    /// Gmsh ran but failed to produce a usable mesh.
+    #[error("gmsh mesh generation failed: {0}")]
+    GmshFailed(String),
     /// JSON serialization of the report failed.
     #[error("cannot serialize report: {0}")]
     Serialize(serde_json::Error),
@@ -165,6 +196,10 @@ impl CliError {
             | CliError::EigenSolve(_)
             | CliError::L0NotConverged { .. } => "solve_failed",
             CliError::NonFinite { .. } => "non_finite",
+            CliError::LayoutParse { .. } => "spec_parse",
+            CliError::InvalidLayout(_) => "invalid_spec",
+            CliError::GmshNotFound { .. } => "gmsh_not_found",
+            CliError::GmshFailed(_) => "gmsh_failed",
             CliError::Serialize(_) => "serialize",
         }
     }

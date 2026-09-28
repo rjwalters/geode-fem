@@ -127,6 +127,11 @@ jobs:
     # features only, so no libarpack install is needed. The heavy golden
     # tier is `#[ignore]`d and is deliberately not run here (no
     # `--ignored`). Runs in parallel with the arpack/clippy job above.
+    #
+    # Issue #704 — `geode mesh` shells out to the external `gmsh` binary,
+    # so Gmsh is installed here and GEODE_REQUIRE_GMSH=1 turns the
+    # Gmsh-dependent tests' local skip-if-absent into a hard failure:
+    # `tests/mesh_golden.rs` must actually run in CI.
     name: cargo test -p geode-cli (linux)
     runs-on: ubuntu-latest
     # Cold dependency build + ~45s smoke golden solve in debug; 20 min
@@ -135,11 +140,18 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
+      GEODE_REQUIRE_GMSH: "1"
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Gmsh (geode mesh, issue #704)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gmsh
+          gmsh --version
 
       - name: Cache cargo registry + target
         uses: actions/cache@v4

@@ -14,6 +14,7 @@ geode eigen  cavity.json -o modes.json              # lossless PEC-cavity modes 
 geode extract inductor.json -o l0.json              # sweep → L / R / Q, f→0 L₀, SRF
 geode driven patch.json --outdir fields/            # + per-frequency E-field .vtu and NTFF
 geode driven filter.json --touchstone filter.s2p    # + Touchstone 2.0 S-parameters
+geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json   # layout → mesh → solve
 ```
 
 | Subcommand | Status |
@@ -22,6 +23,7 @@ geode driven filter.json --touchstone filter.s2p    # + Touchstone 2.0 S-paramet
 | `driven`  | live — lumped-port (or wave-port, #683) frequency sweep with PEC / Leontovich / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG; optional Touchstone 2.0 `.sNp` (#703) |
 | `eigen`   | live (#681) — lossless PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; `Q` is `null` (lossless) |
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
+| `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec, via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
 
 ## Host behavior
 
@@ -46,7 +48,8 @@ geode driven filter.json --touchstone filter.s2p    # + Touchstone 2.0 S-paramet
   network calls at solve time.
 - **Files written**: only the report (stdout or `-o`) — unless
   `--outdir` (field export) or `--touchstone` (`.sNp`) is given (next
-  sections).
+  sections), or for `geode mesh`, which writes the mesh, its `.geo`
+  script and (with `--spec-out`) the starter spec.
 - **Version pinning**: `geode --version` and every report's `git_sha`
   carry the source revision baked in by `build.rs`
   (`git rev-parse --short=12 HEAD`, `-dirty` if tracked files differ;
@@ -483,6 +486,132 @@ there is **no measured iterative wall-time anchor**, and iteration
 counts depend on the problem and preconditioner (they cannot be
 predicted from the mesh).
 
+## Layout → mesh (`geode mesh`, issue #704)
+
+```sh
+geode mesh <layout.json|layout.toml> [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [-o report.json]
+```
+
+`geode mesh` turns a **layout** — 2-D rectilinear polygons per conductor
+layer plus a layer stack — into a solver-ready tagged mesh, so an EDA
+flow (e.g. klayout-tools reading GDS, which geode deliberately does not
+parse) does not need a hand-built `.msh`:
+
+1. validate the layout (schema v1 below; errors are `spec_parse` /
+   `invalid_spec`, reported before Gmsh is looked for);
+2. generate an OpenCASCADE `.geo` script — dielectric slabs and
+   conductor solids as `Box`es, sheets and ports as `Rectangle`s, one
+   `BooleanFragments` for conformal interfaces, bounding-box
+   physical-group selection, a distance/threshold size field — and write
+   it next to the mesh (same stem, `.geo`) as a reproducibility artifact;
+3. run the **external `gmsh` binary** (`--gmsh PATH`, else `$GEODE_GMSH`,
+   else `gmsh` on `PATH`; Gmsh ≥ 4.11 with the OpenCASCADE kernel — the
+   `apt-get install gmsh` / `brew install gmsh` builds). No FFI and no new
+   Rust dependency; a missing binary is a `gmsh_not_found` error naming
+   the binary and the install commands. Output: **MSH 4.1 ASCII, linear
+   Tet4 / Tri3** only. Meshing is pinned single-threaded
+   (`General.NumThreads = 1`, Delaunay 3-D) so the same layout and Gmsh
+   version reproduce the same mesh bytes; the report records the Gmsh
+   version and the SHA-256 of the layout, script and mesh;
+4. read the mesh back through `geode_core::mesh::read_tagged_tet_mesh`
+   and fail with `gmsh_failed` unless every generated group has elements
+   and every tet is tagged;
+5. emit a **starter problem spec** (spec schema v1) wired to the
+   generated names: every slab's `eps_r`, `pec = ["outer_boundary",
+   <conductor layers>…]`, one lumped port per layout port (explicit
+   `e_hat` / `width` / `length`), `absorbing_regions` for a UPML
+   boundary, direct solver, and a **placeholder 1 GHz** frequency list to
+   edit. It is always in the report (`starter_spec`); `--spec-out` also
+   writes it, with `mesh.path` relative to the spec when both share a
+   directory. `-o` is the report, as for every subcommand; the mesh
+   defaults to the layout path with a `.msh` extension.
+
+Automatically named physical groups:
+
+| dim | name | tag | from |
+|---|---|---|---|
+| 3 | `<dielectric name>` | 1, 2, … (stack order) | each dielectric slab (conductor-shell interiors included) |
+| 2 | `<conductor layer name>` | 101, … | every face of the layer's sheets / shells (PEC) |
+| 2 | `<port name>` | next | the port rectangle |
+| 2 | `outer_boundary` | last | the six outer walls (PEC) |
+
+### Layout, schema v1
+
+A layout (JSON or TOML, same schema; unknown fields rejected) — the
+spiral-inductor golden input `tests/fixtures/spiral_layout_smoke.json`,
+abridged (the fixture also has an `air_buffer` slab, the spiral legs,
+the m1 underpass and the vias):
+
+```json
+{
+  "schema_version": 1,
+  "length_unit_m": 1e-6,
+  "dielectrics": [
+    { "name": "substrate",  "z_bottom": -18, "thickness": 18, "eps_r": [11.9, -0.0595] },
+    { "name": "dielectric", "z_bottom": 0,   "thickness": 12, "eps_r": [4.0, -0.004] },
+    { "name": "air",        "z_bottom": 12,  "thickness": 12 }
+  ],
+  "conductors": [
+    { "name": "m2", "z_bottom": 6.5, "thickness": 3, "polygons": [
+      { "name": "feed",   "outer": [[-53, -62], [-47, -62], [-47, -47], [-53, -47]] },
+      { "name": "return", "outer": [[-53, -77], [-47, -77], [-47, -66], [-53, -66]] }
+    ] }
+  ],
+  "ports": [ { "name": "port", "layer": "m2", "between": ["feed", "return"], "resistance_ohm": 50 } ],
+  "margin": 18,
+  "boundary": { "kind": "pec" },
+  "mesh": { "size_max": 26, "size_conductor": 7, "size_port": 2.5, "near_distance": 6, "far_distance": 24 }
+}
+```
+
+| Field | Type / units | Meaning |
+|---|---|---|
+| `schema_version` | int, must be `1` | layout schema version |
+| `description` | string, optional | free text, ignored |
+| `length_unit_m` | float > 0 | metres per layout unit; copied into the starter spec |
+| `dielectrics[]` | ≥ 1 | the layer stack, **bottom to top, contiguous**; each slab spans the whole lateral domain |
+| `dielectrics[].name` | `[A-Za-z0-9_.-]+` | volume group name (unique across every group; `outer_boundary` is reserved) |
+| `dielectrics[].z_bottom`, `.thickness` | length, thickness > 0 | slab extent |
+| `dielectrics[].eps_r` | `[re, im]`, `im ≤ 0`, default `[1, 0]` | complex permittivity (spec convention) |
+| `conductors[]` | | conductor layers, all modelled as **PEC** |
+| `conductors[].name` | name | surface group name |
+| `conductors[].z_bottom` | length | strictly inside the stack |
+| `conductors[].thickness` | length ≥ 0, default `0` | `0`: zero-thickness PEC **sheets** at `z_bottom`; `> 0`: closed PEC **shells** (every face of the extruded solid; the interior stays meshed and is field-free under PEC). Vias are conductor layers spanning the metal layers they join |
+| `conductors[].polygons[]` | ≥ 1 | shapes of the layer |
+| `….polygons[].name` | name, optional | unique within the layer; referenced by `ports[].between` |
+| `….polygons[].outer` | `[[x, y], …]` | simple **rectilinear** ring (every edge parallel to x or y), ≥ 4 vertices, either orientation, closing vertex optional |
+| `….polygons[].holes` | must be empty | accepted by the schema, rejected in v1 |
+| `conductors[].mesh_size` | length > 0, optional | per-layer target size (default `mesh.size_conductor`) |
+| `ports[]` | ≥ 1 | lumped **gap** ports, horizontal, at the layer's mid-height |
+| `ports[].name` | name | surface group name |
+| `ports[].kind` | `"gap"` (default) | the only v1 kind |
+| `ports[].layer` | conductor layer name | the port plane |
+| `ports[].between` | `[shape, shape]` | the gap between the two shapes' bounding boxes (separated along exactly one axis, overlapping along the other), across their common extent; `e_hat` points from the first to the second |
+| `ports[].rect` + `.direction` | `[x0, y0, x1, y1]` + `"x"`/`"y"` | explicit port rectangle and gap axis instead of `between` |
+| `ports[].resistance_ohm` | Ω > 0, default `50` | port resistance / S-parameter reference |
+| `margin` | length > 0 | lateral gap between the conductor / port footprint and the outer walls |
+| `boundary` | `{ "kind": "pec" }` (default) | PEC outer walls |
+| | `{ "kind": "upml", "thickness": t, "sigma_0": 25 }` | matched box UPML of depth `t` (< `margin`) inside PEC walls: every slab is split conformally at the inner wall and listed in the starter spec's `absorbing_regions` (`sigma_0` default `25`) |
+| `mesh.size_max` | length > 0 | global maximum (far) element size |
+| `mesh.size_conductor` | length > 0 | target size on conductor surfaces |
+| `mesh.size_port` | length > 0, default `size_conductor / 2` | target size on ports |
+| `mesh.near_distance` | length > 0, default: the target size | distance from a conductor over which its target size holds (ports: their gap length) |
+| `mesh.far_distance` | length > 0, default `margin` | distance at which the size reaches `size_max` |
+
+**Not in v1** (natural follow-ups): polygons with holes and
+non-rectilinear polygons; thick conductors with the interior excluded
+(boolean-subtracted cavity) and Leontovich / finite-conductivity
+conductor models in the starter spec; wave ports and non-horizontal
+ports; per-layer curvature / sloped sidewalls; GDS ingestion (owned by
+klayout-tools, by design).
+
+The report (`kind = "mesh"`) carries the provenance fields plus `layout`
+/ `geo` (`path`, `sha256`), `gmsh` (`path`, `version`), `mesh` (`path`,
+`sha256`, `length_unit_m`, `n_nodes`, `n_tets`, `n_triangles`),
+`physical_groups[]` (`dim`, `tag`, `name`, `role` = `dielectric` \|
+`pec_sheet` \| `pec_shell` \| `port` \| `outer_boundary`, `n_elements`),
+`starter_spec_path` and `starter_spec`.
+
 ## Report, schema v1
 
 Every report carries these top-level provenance fields:
@@ -495,7 +624,7 @@ Every report carries these top-level provenance fields:
 | `backend` | compiled-in backend: `ndarray` \| `wgpu` \| `cuda` \| `metal` |
 | `threads` | `--threads` value, or `null` |
 | `spec_path` | spec path as given |
-| `kind` | `"check"` \| `"driven"` \| `"eigen"` \| `"extract"` \| `"error"` |
+| `kind` | `"check"` \| `"driven"` \| `"eigen"` \| `"extract"` \| `"mesh"` \| `"error"` |
 | `status` | `"ok"` \| `"error"` |
 
 Complex numbers are `[re, im]`; matrices are row-major nested arrays
@@ -612,7 +741,9 @@ resolved settings, as for `check`) and `extraction[]`, one per port:
 **`kind = "error"`** adds `command` (the subcommand) and
 `error: { code, message }` with `code` one of `io`, `spec_parse`,
 `schema_version`, `invalid_spec`, `mesh`, `unresolved_physical_group`,
-`backend_mismatch`, `solve_failed`, `non_finite`, `serialize`
+`backend_mismatch`, `solve_failed`, `non_finite`, `serialize`,
+`gmsh_not_found`, `gmsh_failed` (the last two from `geode mesh`; a bad
+layout reports `spec_parse` / `invalid_spec`)
 (`not_implemented` was retired once `extract` went live).
 
 ## Golden tests
@@ -633,6 +764,32 @@ the 1 GHz inductance to the committed `results.toml` (1 %), holds it to
 the issue-#211 oracle bands (Mohan current-sheet 10 %, projected mom-PEEC
 mean 12 %), and checks library parity. R and Q on the benchmark mesh are
 covered by parity only, because the committed values are stale (#674).
+
+`tests/mesh_golden.rs` (issue #704) re-expresses the spiral inductor as a
+**layout** (`tests/fixtures/spiral_layout_{smoke,benchmark}.json`: the
+`reference/gmsh/spiral_3p5_{smoke,generic}.yaml` geometries as PEC-shell
+m1 / m2 / via layers with a gap port between the feed and return stubs)
+and runs `geode mesh` → `geode check` → `geode driven`:
+
+```sh
+cargo test -p geode-cli --test mesh_golden                                        # default CI (needs gmsh)
+cargo test -p geode-cli --release --test mesh_golden -- --include-ignored         # + benchmark oracle bands
+```
+
+A Gmsh-generated mesh is not node-identical to the committed fixtures,
+so the per-point 1 % bands above do not apply. The default tier checks
+the generated groups / roles / counts, `geode check` on the starter spec,
+a tiny two-pad UPML layout driven end to end on its **unedited** starter
+spec (and re-meshed to identical bytes), and — with the benchmark's
+Leontovich copper swapped onto the generated conductor groups — the
+smoke spiral's 1 GHz L within 3 % and R within 15 % of
+`results_smoke.toml`. The ignored tier holds the generic spiral's 1 GHz
+L to the issue-#211 oracle bands (Mohan current-sheet 10 %, projected
+mom-PEEC mean 12 %, inside the mom bracket) and to 2 % of the committed
+`results.toml`, and the unedited PEC starter spec to 2 % of the same PEC
+model on the committed `spiral_3p5.msh`. Gmsh-dependent tests skip with
+a loud banner when no `gmsh` is runnable; CI installs Gmsh and sets
+`GEODE_REQUIRE_GMSH=1`, which turns a skip into a failure.
 
 `tests/sphere_pec_golden.rs` (issue #681) re-expresses the PEC-walled
 dielectric-sphere cavity benchmark (`geode-core/tests/sphere_pec_eigenmode.rs`,

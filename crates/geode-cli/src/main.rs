@@ -6,6 +6,7 @@
 //! geode driven <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //! geode eigen  <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //! geode extract <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
+//! geode mesh   <layout.json|layout.toml> [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [-o report.json]
 //! geode --version   # "geode <crate-version> (<git-sha>[-dirty])"
 //! ```
 //!
@@ -27,6 +28,7 @@ mod eigen;
 mod error;
 mod export;
 mod extract;
+mod mesh_cmd;
 mod problem;
 mod report;
 mod spec;
@@ -77,6 +79,9 @@ enum Command {
     /// extrapolation on the two lowest anchor frequencies) and SRF. Needs a
     /// spec with an `extract` section (`"extract": {}` for the defaults).
     Extract(RunArgs),
+    /// Layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged
+    /// Gmsh mesh + starter problem spec, via the external `gmsh` binary.
+    Mesh(mesh_cmd::MeshArgs),
 }
 
 #[derive(Args)]
@@ -228,6 +233,7 @@ impl App for Cli {
                 });
                 finish("extract", prov, a.output.as_deref(), result)
             }
+            Command::Mesh(a) => mesh_cmd::dispatch(a),
         }
     }
 
