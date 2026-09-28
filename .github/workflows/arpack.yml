@@ -11,6 +11,10 @@ name: arpack
 # feature on and run the gated `sparse_eigensolver` test, which is the
 # acceptance bar for issue #24.
 #
+# Issue #692 — the build-and-test job also runs the (static, no-solve)
+# benchmark provenance guard and the default tiers of the per-benchmark
+# regression tests by name; see those steps.
+#
 # Issue #675 — this workflow also hosts the repo's clippy gate, widened
 # from `-p geode-core` to the whole workspace (so `crates/*` and
 # `examples/*` are all lint-gated), plus a separate `geode-cli` job that
@@ -36,7 +40,8 @@ jobs:
     name: cargo test --features arpack (linux)
     runs-on: ubuntu-latest
     # Cap queue-wait + run time. This is a single Linux build, a
-    # workspace-wide clippy pass (#675), and one gated test; 25 min leaves
+    # workspace-wide clippy pass (#675), one gated test, and a few
+    # seconds-scale benchmark provenance/regression checks (#692); 25 min leaves
     # headroom for a cold cache without letting a starved runner orphan
     # for the 24h GitHub ceiling (issue #354).
     timeout-minutes: 25
@@ -78,6 +83,31 @@ jobs:
       - name: Clippy (workspace, arpack + ndarray, CPU backend)
         run: |
           cargo clippy --workspace --tests --features geode-core/arpack -- -D warnings
+
+      # Issue #692: benchmark-artifact provenance guard. Reads the committed
+      # benchmarks/**/*.toml off disk (no solves, <1 s) and fails if a
+      # Burn-backed artifact lacks [meta].backend / float_dtype = "F64" /
+      # generated_at_commit, or if a new artifact is not classified in the
+      # test's MANIFEST. There is no blanket `cargo test -p geode-core` job,
+      # so this test is only enforced because it is named here. Same
+      # features/profile as the build above so the artifacts are reused.
+      - name: Benchmark provenance guard (f64 metadata on committed artifacts)
+        run: |
+          cargo test --features arpack \
+              -p geode-core --release --test benchmark_provenance
+
+      # Issue #692 follow-up: the per-benchmark tier-1 checks that also
+      # assert [meta].float_dtype == "F64" (and compare committed rows)
+      # previously never ran in CI. Their default (non-#[ignore]d) tiers
+      # read committed TOML/fixtures only and finish in ~1 s each in
+      # release; the heavy regeneration tiers stay #[ignore]d.
+      - name: Benchmark tier-1 regression checks (default tier)
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test spiral_inductor_benchmark \
+              --test slcfet_3hp_benchmark \
+              --test patch_antenna_extraction \
+              --test patch_antenna_matched
 
       - name: Run the gated sparse-eigensolver acceptance test
         # Issue #24 acceptance: matches dense oracle to 1e-6 at n=5 with
