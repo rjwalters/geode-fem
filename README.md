@@ -454,7 +454,8 @@ each analytic root claims the next `2l + 1` consecutive FEM modes
 (sorted by `Re(k)`), producing an unambiguous `(l, n, pol, m_idx)`
 label per mode. On the bundled fixture (anisotropic UPML default)
 this identifies the lowest 3 FEM modes as the TM_1,1 triplet
-(Q ≈ 27) and the next 3 as TE_1,1 (rel err ≲ 2.5%).
+(Q ≈ 27), the next 3 as TE_1,1 (rel err ≈ 1%), and the next 5 as
+the TM_2,1 quintet (rel err ≈ 0.5 – 2.3%).
 
 **Current numbers** (bundled fixture, anisotropic UPML default,
 σ₀ = 5.0, k₀_ref = 2.0):
@@ -462,7 +463,8 @@ this identifies the lowest 3 FEM modes as the TM_1,1 triplet
 | mode    | analytic kR | FEM Re(kR) | rel err Re(k) | Q     |
 | ------- | ----------- | ---------- | ------------- | ----- |
 | TM_1,1  | 1.30343     | ≈ 1.229    | ≈ 5.7%        | ≈ 27  |
-| TE_1,1  | 1.88943     | ≈ 1.872 – 1.934 | ≈ 0.7 – 2.3% | ≈ 9 – 50 |
+| TE_1,1  | 1.88943     | ≈ 1.870 – 1.872 | ≈ 0.9 – 1.0% | ≈ 9 |
+| TM_2,1  | 1.89074     | ≈ 1.900 – 1.934 | ≈ 0.5 – 2.3% | ≈ 31 – 48 |
 
 For comparison, the legacy `--scalar-pml` path produces TM_1,1 at
 ~16.2% rel err / Q ≈ 5.8 — the h-independent reflection floor
