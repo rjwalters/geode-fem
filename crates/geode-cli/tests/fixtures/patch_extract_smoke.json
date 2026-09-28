@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "mesh": {
+    "path": "../../../geode-core/tests/fixtures/patch_2g4_smoke.msh",
+    "length_unit_m": 0.001
+  },
+  "materials": [
+    {
+      "physical_group": "substrate",
+      "eps_r": [
+        4.4,
+        -0.088
+      ]
+    }
+  ],
+  "absorbing_regions": [
+    {
+      "physical_group": "upml",
+      "thickness": 8.0,
+      "sigma_0": 25.0
+    }
+  ],
+  "boundary_conditions": {
+    "pec": [
+      "patch",
+      "ground",
+      "outer_boundary"
+    ]
+  },
+  "ports": [
+    {
+      "physical_group": "port",
+      "e_hat": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "resistance_ohm": 50.0
+    }
+  ],
+  "frequencies": {
+    "unit": "ghz",
+    "values": [
+      2.2,
+      2.6
+    ]
+  },
+  "solver": {
+    "mode": "direct"
+  },
+  "extract": {}
+}

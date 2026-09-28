@@ -11,40 +11,107 @@
 //!
 //! [`sweep`] (solve + Z / Y / S / per-port assembly) is shared with
 //! `geode extract`, which post-processes the same results.
+//!
+//! # Open boundaries and wave ports (issue #683)
+//!
+//! * **Silver-Müller** walls join the Leontovich walls in the same
+//!   surface-impedance list (`SurfaceImpedanceModel::Fixed(η₀ = 1)`).
+//! * **Matched box-UPML** (`absorbing_regions`) makes the materials
+//!   ω-dependent (the stretch carries `1/k₀`), which the batched
+//!   assemble-once sweep cannot express. A UPML spec therefore runs the
+//!   same library sweep **once per frequency** with that frequency's
+//!   `DrivenMaterials::MatchedUpml` tensors (reassembling each time). A
+//!   spec without UPML takes the batched path unchanged.
+//! * **Wave ports** build each port's modes from its tagged face
+//!   ([`geode_core::driven::ports::PortFaceProjection::wave_port`]) and
+//!   run [`solve_wave_port_sweep_with_mode`] (per frequency with UPML,
+//!   batched otherwise). The result is a power-normalized channel
+//!   S-matrix; wave ports define no port impedance.
 
 use std::path::Path;
 use std::time::Instant;
 
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
+use geode_core::assembly::nedelec::tet_centroids;
 use geode_core::constants::ETA_0_OHM;
-use geode_core::driven::extraction::s_parameter_frequency_sweep_with_mode;
-use geode_core::driven::ports::LumpedPort;
+use geode_core::driven::extraction::{SParameterSweepPoint, s_parameter_frequency_sweep_with_mode};
+use geode_core::driven::ports::{
+    LumpedPort, WavePort, WavePortSweepPoint, solve_wave_port_sweep_with_mode,
+};
 use geode_core::driven::solve::{
     DrivenBcs, DrivenMaterials, IterativeSettings, SolverMode, SurfaceImpedanceBc,
     SurfaceImpedanceModel,
 };
 
 use crate::backend::CompiledBackend;
-use crate::check::{mesh_summary, port_summaries};
+use crate::check::{mesh_summary, port_summaries, silver_muller_summaries, upml_summaries};
 use crate::error::CliError;
 use crate::problem::{self, Problem};
-use crate::report::{Complex, DrivenReport, FrequencyResult, PortResult, Provenance, SolverStats};
+use crate::report::{
+    Complex, DrivenReport, FrequencyResult, PortResult, Provenance, SolverStats, WaveChannelResult,
+    WaveModeSummary, WavePortSummary,
+};
 use crate::spec::{Analysis, SolverSpec};
 
 /// Load, solve and report.
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<DrivenReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Driven))?;
-    let (results, solver) = sweep(&p)?;
+    let (results, solver, wave_ports) = if p.wave_ports.is_empty() {
+        let (results, solver) = sweep(&p)?;
+        (results, solver, Vec::new())
+    } else {
+        wave_sweep(&p)?
+    };
     Ok(DrivenReport {
         provenance,
         kind: "driven",
         status: "ok",
         mesh: mesh_summary(&p),
         ports: port_summaries(&p),
+        wave_ports,
+        silver_muller: silver_muller_summaries(&p),
+        absorbing_regions: upml_summaries(&p),
         solver,
         results,
     })
+}
+
+/// Solver mode from the spec.
+fn solver_mode(p: &Problem) -> SolverMode {
+    match p.solver() {
+        SolverSpec::Direct {} => SolverMode::Direct,
+        SolverSpec::Iterative { tol, max_iters } => {
+            SolverMode::Iterative(IterativeSettings::new(tol, max_iters))
+        }
+    }
+}
+
+/// Run `solve` over `omegas`: in one batched call when the materials are
+/// ω-independent (no UPML — `DrivenMaterials::Scalar`), else once per
+/// frequency with that frequency's `DrivenMaterials::MatchedUpml`
+/// tensors (the library sweeps assemble once per call).
+fn per_material_sweep<T>(
+    p: &Problem,
+    omegas: &[f64],
+    mut solve: impl FnMut(DrivenMaterials<'_>, &[f64]) -> Result<Vec<T>, CliError>,
+) -> Result<Vec<T>, CliError> {
+    if p.upml.is_empty() {
+        return solve(DrivenMaterials::Scalar(&p.eps), omegas);
+    }
+    let centroids = tet_centroids(&p.tagged.mesh);
+    let mut out = Vec::with_capacity(omegas.len());
+    for omega in omegas {
+        let (epsilon_tensor, nu_tensor) = p.upml_tensors(&centroids, *omega);
+        out.extend(solve(
+            DrivenMaterials::MatchedUpml {
+                epsilon_tensor: &epsilon_tensor,
+                nu_tensor: &nu_tensor,
+            },
+            std::slice::from_ref(omega),
+        )?);
+    }
+    Ok(out)
 }
 
 /// Run the port-driven sweep over `p.frequencies` (in that order) and
@@ -65,6 +132,7 @@ pub fn sweep(p: &Problem) -> Result<(Vec<FrequencyResult>, SolverStats), CliErro
             v_inc: port.v_inc,
         })
         .collect();
+    // Leontovich walls, then Silver-Müller walls (Z_s = η₀ = 1 natural).
     let surfaces: Vec<SurfaceImpedanceBc<'_>> = p
         .leontovich
         .iter()
@@ -74,31 +142,33 @@ pub fn sweep(p: &Problem) -> Result<(Vec<FrequencyResult>, SolverStats), CliErro
                 sigma: l.sigma_natural,
             },
         })
+        .chain(p.silver_muller.iter().map(|s| SurfaceImpedanceBc {
+            triangles: &s.triangles,
+            model: SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0)),
+        }))
         .collect();
-    let mode = match p.solver() {
-        SolverSpec::Direct {} => SolverMode::Direct,
-        SolverSpec::Iterative { tol, max_iters } => {
-            SolverMode::Iterative(IterativeSettings::new(tol, max_iters))
-        }
-    };
+    let mode = solver_mode(p);
     let omegas: Vec<f64> = p.frequencies.iter().map(|f| f.k0).collect();
 
     type B = CompiledBackend;
     let device = <B as BackendTypes>::Device::default();
+    let bcs = DrivenBcs {
+        pec_interior_mask: &p.pec_mask,
+    };
     let t0 = Instant::now();
-    let points = s_parameter_frequency_sweep_with_mode::<B>(
-        &p.tagged.mesh,
-        DrivenMaterials::Scalar(&p.eps),
-        None,
-        &DrivenBcs {
-            pec_interior_mask: &p.pec_mask,
-        },
-        &lumped,
-        &surfaces,
-        &omegas,
-        mode,
-        &device,
-    )?;
+    let points: Vec<SParameterSweepPoint> = per_material_sweep(p, &omegas, |materials, w| {
+        Ok(s_parameter_frequency_sweep_with_mode::<B>(
+            &p.tagged.mesh,
+            materials,
+            None,
+            &bcs,
+            &lumped,
+            &surfaces,
+            w,
+            mode,
+            &device,
+        )?)
+    })?;
     let wall_time_s = t0.elapsed().as_secs_f64();
 
     let n = p.ports.len();
@@ -143,6 +213,7 @@ pub fn sweep(p: &Problem) -> Result<(Vec<FrequencyResult>, SolverStats), CliErro
             y_s: invert(&z, n).map(|y| matrix(&y, n)),
             s: matrix(&pt.s.s, n),
             ports,
+            wave_channels: Vec::new(),
         });
     }
 
@@ -161,6 +232,138 @@ pub fn sweep(p: &Problem) -> Result<(Vec<FrequencyResult>, SolverStats), CliErro
             residual_rel_max: points.iter().map(|pt| pt.residual_rel).fold(0.0, f64::max),
             wall_time_s,
         },
+    ))
+}
+
+/// Wave-port sweep over `p.frequencies`: solve each port's cross-section
+/// modes, run the rank-N SMW wave-port sweep, and report the channel
+/// S-matrix plus the ports' solved modes.
+pub fn wave_sweep(
+    p: &Problem,
+) -> Result<(Vec<FrequencyResult>, SolverStats, Vec<WavePortSummary>), CliError> {
+    let t0 = Instant::now();
+    let ports: Vec<WavePort> = p
+        .wave_ports
+        .iter()
+        .map(|w| {
+            w.projection
+                .wave_port(&p.edges, &w.a_inc)
+                .map_err(|err| CliError::WavePort {
+                    name: w.surface.name.clone(),
+                    err,
+                })
+        })
+        .collect::<Result<_, _>>()?;
+
+    // k₀ → Hz for the cutoff report (k₀ is linear in f).
+    let hz_per_k0 =
+        crate::problem::to_frequency(1.0, crate::spec::FrequencyUnit::K0, p.length_unit_m()).hz;
+    let mut channel = 0;
+    let mut summaries = crate::check::wave_port_summaries(p);
+    for (summary, port) in summaries.iter_mut().zip(&ports) {
+        summary.modes = Some(
+            port.modes
+                .iter()
+                .enumerate()
+                .map(|(mode, m)| {
+                    channel += 1;
+                    WaveModeSummary {
+                        mode,
+                        channel: channel - 1,
+                        k_c: m.k_c,
+                        cutoff_hz: m.k_c * hz_per_k0,
+                    }
+                })
+                .collect(),
+        );
+    }
+
+    let mode = solver_mode(p);
+    let omegas: Vec<f64> = p.frequencies.iter().map(|f| f.k0).collect();
+    type B = CompiledBackend;
+    let device = <B as BackendTypes>::Device::default();
+    let bcs = DrivenBcs {
+        pec_interior_mask: &p.pec_mask,
+    };
+    let points: Vec<WavePortSweepPoint> = per_material_sweep(p, &omegas, |materials, w| {
+        Ok(solve_wave_port_sweep_with_mode::<B>(
+            &p.tagged.mesh,
+            materials,
+            None,
+            &bcs,
+            &ports,
+            w,
+            mode,
+            &device,
+        )?)
+    })?;
+    let wall_time_s = t0.elapsed().as_secs_f64();
+
+    let mut results = Vec::with_capacity(points.len());
+    for (index, (pt, f)) in points.iter().zip(&p.frequencies).enumerate() {
+        let n = pt.n_channels;
+        if !pt.residual_rel.is_finite() {
+            return Err(CliError::NonFinite {
+                index,
+                what: format!("residual_rel = {}", pt.residual_rel),
+            });
+        }
+        if let Some(bad) =
+            pt.s.iter()
+                .find(|z| !(z.re.is_finite() && z.im.is_finite()))
+        {
+            return Err(CliError::NonFinite {
+                index,
+                what: format!("S = {bad}"),
+            });
+        }
+        let mut wave_channels = Vec::with_capacity(n);
+        for (port, &k) in pt.port_mode_counts.iter().enumerate() {
+            for m in 0..k {
+                let c = pt.channel_index(port, m);
+                let skk = pt.s[c * n + c];
+                let beta = pt.beta[c];
+                wave_channels.push(WaveChannelResult {
+                    channel: c,
+                    port,
+                    mode: m,
+                    beta: pair(beta),
+                    propagating: beta.re > 0.0,
+                    s: pair(skk),
+                    s_db: 20.0 * skk.norm().log10(),
+                });
+            }
+        }
+        results.push(FrequencyResult {
+            frequency_hz: f.hz,
+            k0: f.k0,
+            omega_rad_s: 2.0 * std::f64::consts::PI * f.hz,
+            residual_rel: pt.residual_rel,
+            iterations: pt.iters_per_rhs.clone(),
+            z_ohm: Vec::new(),
+            y_s: None,
+            s: matrix(&pt.s, n),
+            ports: Vec::new(),
+            wave_channels,
+        });
+    }
+
+    let summary = crate::check::solver_summary(p.solver());
+    Ok((
+        results,
+        SolverStats {
+            mode: summary.mode,
+            tol: summary.tol,
+            max_iters: summary.max_iters,
+            iterations_max: points
+                .iter()
+                .flat_map(|pt| pt.iters_per_rhs.iter().copied())
+                .max()
+                .unwrap_or(0),
+            residual_rel_max: points.iter().map(|pt| pt.residual_rel).fold(0.0, f64::max),
+            wall_time_s,
+        },
+        summaries,
     ))
 }
 

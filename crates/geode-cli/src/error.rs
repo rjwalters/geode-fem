@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 
+use geode_core::driven::ports::PortFaceError;
 use geode_core::driven::solve::DrivenError;
 use geode_core::eigen::pec_cavity::PecCavityError;
 use geode_core::mesh::MeshError;
@@ -69,6 +70,15 @@ pub enum CliError {
     /// The driven solve itself failed (factorization, non-convergence, …).
     #[error("driven solve failed: {0}")]
     Solve(DrivenError),
+    /// A wave port's cross-section modal solve failed (or resolved fewer
+    /// modes than requested).
+    #[error("wave port `{name}`: {err}")]
+    WavePort {
+        /// Wave-port physical-group name.
+        name: String,
+        /// Underlying error.
+        err: PortFaceError,
+    },
     /// The eigensolve itself failed (factorization, too few modes
     /// resolved near the shift, …).
     #[error("eigen solve failed: {0}")]
@@ -143,9 +153,10 @@ impl CliError {
             CliError::Mesh { .. } => "mesh",
             CliError::UnresolvedGroups { .. } => "unresolved_physical_group",
             CliError::BackendMismatch { .. } => "backend_mismatch",
-            CliError::Solve(_) | CliError::EigenSolve(_) | CliError::L0NotConverged { .. } => {
-                "solve_failed"
-            }
+            CliError::Solve(_)
+            | CliError::WavePort { .. }
+            | CliError::EigenSolve(_)
+            | CliError::L0NotConverged { .. } => "solve_failed",
             CliError::NonFinite { .. } => "non_finite",
             CliError::Serialize(_) => "serialize",
         }

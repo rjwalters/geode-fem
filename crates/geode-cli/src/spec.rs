@@ -7,8 +7,8 @@
 //! exactly **one** analysis ([`Analysis`]), decided by which optional
 //! analysis section it carries:
 //!
-//! * no section — a **driven** spec (`geode driven`): lumped ports and
-//!   the frequencies to sweep;
+//! * no section — a **driven** spec (`geode driven`): lumped ports (or
+//!   wave ports) and the frequencies to sweep;
 //! * an [`EigenSpec`] `eigen` section — an **eigen** spec
 //!   (`geode eigen`): cavity modes near a shift frequency, no ports;
 //! * an [`ExtractSpec`] `extract` section — an **extract** spec
@@ -17,6 +17,11 @@
 //!   quasi-static `L₀` (f → 0 Richardson extrapolation) and the SRF. The
 //!   section may be empty (`"extract": {}`): by default the two lowest
 //!   swept frequencies are the `L₀` anchors.
+//!
+//! Driven and extract specs may additionally carry matched box-UPML
+//! `absorbing_regions` and `boundary_conditions.silver_muller` absorbing
+//! walls (open-boundary problems); driven specs may use `wave_ports`
+//! instead of lumped `ports` (issue #683).
 //!
 //! Carrying both `eigen` and `extract` is rejected, and running a spec
 //! under the wrong subcommand fails with `invalid_spec` before the mesh
@@ -65,11 +70,23 @@ pub struct ProblemSpec {
     /// here are natural (PMC-like) boundaries of the weak form.
     #[serde(default)]
     pub boundary_conditions: BoundaryConditionsSpec,
-    /// Lumped ports. A `driven` / `extract` spec needs at least one; an
-    /// `eigen` spec must have none (lumped ports are resistive, the eigen
-    /// pencil is lossless).
+    /// Matched (box) UPML absorbing shells on volume physical groups
+    /// (additive in v1, issue #683). Empty (default) = no UPML: the
+    /// driven operator uses the plain scalar per-tet `ε_r`. Driven /
+    /// extract specs only.
+    #[serde(default)]
+    pub absorbing_regions: Vec<UpmlSpec>,
+    /// Lumped ports. A `driven` / `extract` spec needs at least one lumped
+    /// port **or** (driven only) at least one wave port; an `eigen` spec
+    /// must have none (lumped ports are resistive, the eigen pencil is
+    /// lossless).
     #[serde(default)]
     pub ports: Vec<LumpedPortSpec>,
+    /// Wave (modal) ports on planar surface physical groups (additive in
+    /// v1, issue #683). `driven` specs only, and in v1 mutually exclusive
+    /// with lumped `ports` and with Leontovich / Silver-Müller walls.
+    #[serde(default)]
+    pub wave_ports: Vec<WavePortSpec>,
     /// Frequencies to solve at. Required for a `driven` / `extract` spec;
     /// not allowed in an `eigen` spec (its target is [`EigenSpec::shift`]).
     #[serde(default)]
@@ -225,7 +242,10 @@ pub struct MaterialSpec {
     pub eps_r: [f64; 2],
 }
 
-/// Boundary conditions (schema v1: PEC and Leontovich only).
+/// Boundary conditions: PEC, Leontovich and (additive in v1, issue
+/// #683) first-order Silver-Müller absorbing walls. A dimension-2
+/// physical group may carry at most one of {port, wave port, PEC,
+/// Leontovich, Silver-Müller}.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BoundaryConditionsSpec {
@@ -236,6 +256,64 @@ pub struct BoundaryConditionsSpec {
     /// Leontovich good-conductor surface-impedance walls.
     #[serde(default)]
     pub leontovich: Vec<LeontovichSpec>,
+    /// Dimension-2 physical-group names carrying the first-order
+    /// Silver-Müller absorbing (radiation) condition — the impedance
+    /// boundary with `Z_s = η₀` (no parameters). Driven / extract specs
+    /// only.
+    #[serde(default)]
+    pub silver_muller: Vec<String>,
+}
+
+/// A matched (full Sacks) box-UPML absorbing shell on one volume physical
+/// group.
+///
+/// The shell's **inner wall** (the air box) is derived from the mesh: the
+/// bounding box of every mesh node, shrunk inward by `thickness` on every
+/// face. Each tet of the group whose centroid lies outside that box gets
+/// the complex coordinate stretch `s_i = 1 − j·sigma_0·(d_i/thickness)²/k₀`
+/// per axis (`d_i` = depth beyond the inner wall on axis `i`), applied as
+/// the constitutive tensors `ε = ε_r·Λ`, `ν = Λ⁻¹` on top of the group's
+/// `materials` permittivity (vacuum if unlisted). The mesh must therefore
+/// be an **axis-aligned box** whose outer shell of depth `thickness` is
+/// the absorbing region; terminate it with a PEC outer wall.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpmlSpec {
+    /// Name of a dimension-3 physical group (the absorbing shell tets).
+    pub physical_group: String,
+    /// Shell thickness in mesh units (`> 0`, less than half the mesh
+    /// extent on every axis).
+    pub thickness: f64,
+    /// UPML strength `σ₀` of the quadratic profile, in **natural units**
+    /// (rad per mesh length unit — the same unit as `k₀`), `> 0`. `25` is
+    /// the repo's validated value for the patch-antenna / Mie shells.
+    pub sigma_0: f64,
+}
+
+/// A wave (modal) port on a planar surface physical group.
+///
+/// The tagged faces are projected into a local 2-D cross-section whose
+/// rim (edges on a single face triangle) is PEC; the `n_modes`
+/// lowest-cutoff transverse modes of that cross-section become the port's
+/// S-parameter channels (TEM modes of multiply connected cross-sections
+/// are not supported).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WavePortSpec {
+    /// Name of a dimension-2 physical group holding the (planar) port
+    /// faces.
+    pub physical_group: String,
+    /// Number of modes (`≥ 1`, default `1`).
+    #[serde(default = "default_n_modes")]
+    pub n_modes: usize,
+    /// Per-mode incident amplitude `[re, im]`, length `n_modes`, every
+    /// entry finite and non-zero. Default: `[1, 0]` for every mode.
+    #[serde(default)]
+    pub a_inc: Option<Vec<[f64; 2]>>,
+}
+
+fn default_n_modes() -> usize {
+    1
 }
 
 /// One Leontovich good-conductor surface
@@ -509,6 +587,39 @@ mod tests {
                 .is_err()
         );
         assert!(serde_json::from_str::<EigenSpec>(r#"{"n_modes":1,"shift":1}"#).is_err());
+    }
+
+    #[test]
+    fn open_boundary_and_wave_port_sections_parse() {
+        let spec: ProblemSpec = serde_json::from_str(
+            r#"{"schema_version":1,
+                "mesh":{"path":"m.msh","length_unit_m":1e-3},
+                "absorbing_regions":[{"physical_group":"upml","thickness":8,"sigma_0":25}],
+                "boundary_conditions":{"pec":["outer"],"silver_muller":["abc"]},
+                "wave_ports":[{"physical_group":"wp"},
+                              {"physical_group":"wp2","n_modes":2,"a_inc":[[1,0],[0,1]]}],
+                "frequencies":{"unit":"ghz","values":[2.4]}}"#,
+        )
+        .unwrap();
+        assert_eq!(spec.analysis(), Analysis::Driven);
+        assert_eq!(spec.absorbing_regions[0].thickness, 8.0);
+        assert_eq!(spec.boundary_conditions.silver_muller, vec!["abc"]);
+        assert_eq!(spec.wave_ports[0].n_modes, 1);
+        assert!(spec.wave_ports[0].a_inc.is_none());
+        assert_eq!(spec.wave_ports[1].a_inc.as_ref().unwrap()[1], [0.0, 1.0]);
+        // Silver-Müller takes no parameters; UPML fields are required.
+        assert!(
+            serde_json::from_str::<BoundaryConditionsSpec>(
+                r#"{"silver_muller":[{"physical_group":"abc"}]}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<UpmlSpec>(r#"{"physical_group":"upml","thickness":8}"#).is_err()
+        );
+        assert!(
+            serde_json::from_str::<WavePortSpec>(r#"{"physical_group":"wp","modes":2}"#).is_err()
+        );
     }
 
     #[test]

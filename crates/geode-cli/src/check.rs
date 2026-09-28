@@ -6,7 +6,8 @@ use crate::error::CliError;
 use crate::problem::{self, MaterialSource, Problem};
 use crate::report::{
     CheckReport, EigenSettingsSummary, ExtractSettingsSummary, FrequencySummary, LeontovichSummary,
-    MeshSummary, PecSummary, PortSummary, Provenance, RegionSummary, SolverSummary,
+    MeshSummary, PecSummary, PortSummary, Provenance, RegionSummary, SilverMullerSummary,
+    SolverSummary, UpmlSummary, WavePortSummary,
 };
 use crate::spec::SolverSpec;
 
@@ -31,7 +32,10 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
                 conductivity_natural: l.sigma_natural,
             })
             .collect(),
+        silver_muller: silver_muller_summaries(&p),
+        absorbing_regions: upml_summaries(&p),
         ports: port_summaries(&p),
+        wave_ports: wave_port_summaries(&p),
         frequencies: p
             .frequencies
             .iter()
@@ -72,6 +76,56 @@ pub fn pec_summaries(p: &Problem) -> Vec<PecSummary> {
             physical_group: s.name.clone(),
             tag: s.tag,
             n_triangles: s.triangles.len(),
+        })
+        .collect()
+}
+
+/// Silver-Müller absorbing walls.
+pub fn silver_muller_summaries(p: &Problem) -> Vec<SilverMullerSummary> {
+    p.silver_muller
+        .iter()
+        .map(|s| SilverMullerSummary {
+            physical_group: s.name.clone(),
+            tag: s.tag,
+            n_triangles: s.triangles.len(),
+        })
+        .collect()
+}
+
+/// Matched box-UPML shells with their derived inner walls.
+pub fn upml_summaries(p: &Problem) -> Vec<UpmlSummary> {
+    p.upml
+        .iter()
+        .map(|u| UpmlSummary {
+            physical_group: u.name.clone(),
+            tag: u.tag,
+            n_tets: u.n_tets,
+            n_tets_stretched: u.n_tets_stretched,
+            thickness: u.thickness,
+            sigma_0: u.sigma_0,
+            air_box_lo: u.air_lo,
+            air_box_hi: u.air_hi,
+        })
+        .collect()
+}
+
+/// Wave ports (cross-section geometry; `modes` unsolved = `null`).
+pub fn wave_port_summaries(p: &Problem) -> Vec<WavePortSummary> {
+    p.wave_ports
+        .iter()
+        .enumerate()
+        .map(|(index, w)| WavePortSummary {
+            index,
+            physical_group: w.surface.name.clone(),
+            tag: w.surface.tag,
+            n_triangles: w.surface.triangles.len(),
+            n_port_edges: w.projection.edges.len(),
+            n_interior_port_edges: w.projection.n_interior_edges(),
+            area: w.projection.area,
+            normal: w.projection.normal,
+            n_modes: w.a_inc.len(),
+            a_inc: w.a_inc.iter().map(|a| [a.re, a.im]).collect(),
+            modes: None,
         })
         .collect()
 }

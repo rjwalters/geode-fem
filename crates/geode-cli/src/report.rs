@@ -107,6 +107,79 @@ pub struct LeontovichSummary {
     pub conductivity_natural: f64,
 }
 
+/// One Silver-Müller absorbing wall (`Z_s = η₀`).
+#[derive(Debug, Clone, Serialize)]
+pub struct SilverMullerSummary {
+    /// Physical-group name.
+    pub physical_group: String,
+    /// Physical tag.
+    pub tag: i32,
+    /// Triangles in the group.
+    pub n_triangles: usize,
+}
+
+/// One matched box-UPML shell (`absorbing_regions` entry).
+#[derive(Debug, Clone, Serialize)]
+pub struct UpmlSummary {
+    /// Physical-group name.
+    pub physical_group: String,
+    /// Physical tag.
+    pub tag: i32,
+    /// Tets in the group.
+    pub n_tets: usize,
+    /// Tets beyond the inner wall (the ones actually stretched).
+    pub n_tets_stretched: usize,
+    /// Shell thickness (mesh units).
+    pub thickness: f64,
+    /// UPML strength σ₀ (natural units, rad / mesh length unit).
+    pub sigma_0: f64,
+    /// Derived inner wall (air box) low corner (mesh units).
+    pub air_box_lo: [f64; 3],
+    /// Derived inner wall (air box) high corner (mesh units).
+    pub air_box_hi: [f64; 3],
+}
+
+/// One solved cross-section mode of a wave port.
+#[derive(Debug, Clone, Serialize)]
+pub struct WaveModeSummary {
+    /// Mode index within the port (ascending cutoff).
+    pub mode: usize,
+    /// Flat S-matrix channel index (port-major, mode-minor).
+    pub channel: usize,
+    /// Cutoff wavenumber `k_c` (rad / mesh length unit).
+    pub k_c: f64,
+    /// Cutoff frequency (Hz).
+    pub cutoff_hz: f64,
+}
+
+/// One wave port.
+#[derive(Debug, Clone, Serialize)]
+pub struct WavePortSummary {
+    /// Port index.
+    pub index: usize,
+    /// Physical-group name.
+    pub physical_group: String,
+    /// Physical tag.
+    pub tag: i32,
+    /// Port faces.
+    pub n_triangles: usize,
+    /// Cross-section edges (rim + interior).
+    pub n_port_edges: usize,
+    /// Cross-section interior edges (the modal problem size; rim edges
+    /// are PEC).
+    pub n_interior_port_edges: usize,
+    /// Port face area (mesh units²).
+    pub area: f64,
+    /// Unit face normal.
+    pub normal: [f64; 3],
+    /// Modes requested.
+    pub n_modes: usize,
+    /// Per-mode incident amplitude.
+    pub a_inc: Vec<Complex>,
+    /// Solved modes (`driven` reports); `null` in `check` (no modal solve).
+    pub modes: Option<Vec<WaveModeSummary>>,
+}
+
 /// One lumped port.
 #[derive(Debug, Clone, Serialize)]
 pub struct PortSummary {
@@ -203,8 +276,14 @@ pub struct CheckReport {
     pub pec: Vec<PecSummary>,
     /// Leontovich walls.
     pub leontovich: Vec<LeontovichSummary>,
+    /// Silver-Müller absorbing walls (additive in v1).
+    pub silver_muller: Vec<SilverMullerSummary>,
+    /// Matched box-UPML shells (additive in v1).
+    pub absorbing_regions: Vec<UpmlSummary>,
     /// Lumped ports.
     pub ports: Vec<PortSummary>,
+    /// Wave ports (additive in v1; `modes` is `null` — no modal solve).
+    pub wave_ports: Vec<WavePortSummary>,
     /// Frequencies to be solved.
     pub frequencies: Vec<FrequencySummary>,
     /// Solver selection.
@@ -257,7 +336,32 @@ pub struct PortResult {
     pub q: f64,
 }
 
+/// Per-channel quantities of a wave-port sweep at one frequency.
+#[derive(Debug, Clone, Serialize)]
+pub struct WaveChannelResult {
+    /// Flat channel index (row/column of `s`).
+    pub channel: usize,
+    /// Wave-port index.
+    pub port: usize,
+    /// Mode index within the port.
+    pub mode: usize,
+    /// Propagation constant `β` (rad / mesh length unit): real positive
+    /// when propagating, `−j|β|` when evanescent.
+    pub beta: Complex,
+    /// `true` above cutoff.
+    pub propagating: bool,
+    /// Power-normalized `S_kk`.
+    pub s: Complex,
+    /// `|S_kk|` in dB.
+    pub s_db: f64,
+}
+
 /// One frequency point of a driven sweep.
+///
+/// For a **wave-port** spec there is no port impedance: `z_ohm` and
+/// `ports` are empty, `y_s` is `null`, `s` is the power-normalized
+/// channel S-matrix (port-major, mode-minor) and `wave_channels` carries
+/// the per-channel `β` / `S_kk`.
 #[derive(Debug, Clone, Serialize)]
 pub struct FrequencyResult {
     /// Frequency (Hz).
@@ -278,6 +382,10 @@ pub struct FrequencyResult {
     pub s: Vec<Vec<Complex>>,
     /// Per-port self quantities.
     pub ports: Vec<PortResult>,
+    /// Per-channel wave-port quantities (additive in v1; present only for
+    /// wave-port specs).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub wave_channels: Vec<WaveChannelResult>,
 }
 
 /// `geode driven` report (`kind = "driven"`).
@@ -294,6 +402,16 @@ pub struct DrivenReport {
     pub mesh: MeshSummary,
     /// Lumped ports (index = matrix row/column).
     pub ports: Vec<PortSummary>,
+    /// Wave ports with their solved modes (additive in v1; present only
+    /// for wave-port specs).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub wave_ports: Vec<WavePortSummary>,
+    /// Silver-Müller walls (additive in v1; present only when used).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub silver_muller: Vec<SilverMullerSummary>,
+    /// Matched box-UPML shells (additive in v1; present only when used).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub absorbing_regions: Vec<UpmlSummary>,
     /// Solver statistics.
     pub solver: SolverStats,
     /// Per-frequency results, in spec order.
@@ -341,6 +459,12 @@ pub struct ExtractReport {
     pub mesh: MeshSummary,
     /// Lumped ports (index = matrix row/column).
     pub ports: Vec<PortSummary>,
+    /// Silver-Müller walls (additive in v1; present only when used).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub silver_muller: Vec<SilverMullerSummary>,
+    /// Matched box-UPML shells (additive in v1; present only when used).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub absorbing_regions: Vec<UpmlSummary>,
     /// The extract settings as resolved.
     pub extract: ExtractSettingsSummary,
     /// Solver statistics (as for `driven`).
@@ -382,7 +506,8 @@ pub struct ModeResult {
     pub omega_rad_s: f64,
     /// Quality factor. Always `null` in this build: the eigen pencil is
     /// lossless (real `ε_r`, PEC walls), so `Q` is undefined (infinite),
-    /// not a number. Lossy / open-cavity `Q` is future work (issue #683).
+    /// not a number. Lossy / open-cavity `Q` needs a complex quasi-mode
+    /// eigensolve — a future eigen-analysis phase.
     pub q: Option<f64>,
     /// Relative eigen-residual `‖Kx − λMx‖ / (|λ| ‖Mx‖)`.
     pub residual_rel: f64,
