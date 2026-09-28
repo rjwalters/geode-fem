@@ -3,7 +3,10 @@
 //! A problem spec is a JSON (`.json`) or TOML (`.toml`) document —
 //! both go through the same [`serde::Deserialize`] impl — that binds
 //! materials, boundary conditions and lumped ports to **named** Gmsh
-//! physical groups of a mesh, and lists the frequencies to solve at.
+//! physical groups of a mesh, and says what to solve: a **driven** spec
+//! lists lumped ports and the frequencies to sweep; an **eigen** spec
+//! (one carrying an [`EigenSpec`] `eigen` section) asks for cavity modes
+//! near a shift frequency and has no ports.
 //! Unknown fields are rejected (`deny_unknown_fields`) so a typo never
 //! silently falls back to a default.
 //!
@@ -48,13 +51,87 @@ pub struct ProblemSpec {
     /// here are natural (PMC-like) boundaries of the weak form.
     #[serde(default)]
     pub boundary_conditions: BoundaryConditionsSpec,
-    /// Lumped ports (at least one is required).
+    /// Lumped ports. A `driven` spec needs at least one; an `eigen` spec
+    /// must have none (lumped ports are resistive, the eigen pencil is
+    /// lossless).
+    #[serde(default)]
     pub ports: Vec<LumpedPortSpec>,
-    /// Frequencies to solve at.
-    pub frequencies: FrequencySpec,
+    /// Frequencies to solve at. Required for a `driven` spec; not allowed
+    /// in an `eigen` spec (its target is [`EigenSpec::shift`]).
+    #[serde(default)]
+    pub frequencies: Option<FrequencySpec>,
     /// Linear-solver selection (default: direct sparse LU).
     #[serde(default)]
     pub solver: SolverSpec,
+    /// Eigenmode analysis settings. Its presence makes this an **eigen
+    /// spec** (for `geode eigen`); without it the spec is a driven spec.
+    #[serde(default)]
+    pub eigen: Option<EigenSpec>,
+}
+
+/// Which analysis a spec describes, decided by the presence of the
+/// `eigen` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Analysis {
+    /// Port-driven frequency sweep (`geode driven`).
+    Driven,
+    /// Lossless eigenmode solve (`geode eigen`).
+    Eigen,
+}
+
+impl Analysis {
+    /// Lower-case name, as used in reports and messages.
+    pub fn name(self) -> &'static str {
+        match self {
+            Analysis::Driven => "driven",
+            Analysis::Eigen => "eigen",
+        }
+    }
+}
+
+impl ProblemSpec {
+    /// The analysis this spec describes.
+    pub fn analysis(&self) -> Analysis {
+        if self.eigen.is_some() {
+            Analysis::Eigen
+        } else {
+            Analysis::Driven
+        }
+    }
+}
+
+/// Eigenmode analysis settings (`geode eigen`).
+///
+/// Solves the **lossless** PEC-cavity pencil `K x = k₀² M_ε x` with the
+/// pure-Rust sparse shift-invert Lanczos (direct sparse-LU inner solve)
+/// and returns the `n_modes` physical modes closest to `shift`,
+/// ascending. `shift` must be `> 0`; place it just **below** the lowest
+/// mode of interest — the curl-curl gradient nullspace sits at `k₀ = 0`
+/// and is filtered out, so a shift near 0 wastes the Lanczos basis on it.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EigenSpec {
+    /// Number of physical modes to return (`≥ 1`).
+    pub n_modes: usize,
+    /// Unit of `shift` (required — no default).
+    pub unit: FrequencyUnit,
+    /// Shift / target frequency in `unit` (`> 0`).
+    pub shift: f64,
+    /// Lanczos basis size (default `160`). Raise it when modes are
+    /// nearly degenerate or when `n_modes` is large.
+    #[serde(default = "default_eigen_max_iters")]
+    pub max_iters: usize,
+    /// Lanczos relative convergence tolerance (default `1e-9`).
+    #[serde(default = "default_eigen_tol")]
+    pub tol: f64,
+}
+
+fn default_eigen_max_iters() -> usize {
+    geode_core::eigen::pec_cavity::PecCavitySettings::DEFAULT_MAX_ITERS
+}
+
+fn default_eigen_tol() -> f64 {
+    geode_core::eigen::pec_cavity::PecCavitySettings::DEFAULT_TOL
 }
 
 /// Mesh file reference.
@@ -339,5 +416,28 @@ mod tests {
         .unwrap();
         assert_eq!(spec.ports[0].v_inc, [1.0, 0.0]);
         assert_eq!(spec.solver, SolverSpec::Direct {});
+        assert_eq!(spec.analysis(), Analysis::Driven);
+    }
+
+    #[test]
+    fn eigen_spec_needs_no_ports_or_frequencies() {
+        let spec: ProblemSpec = serde_json::from_str(
+            r#"{"schema_version":1,
+                "mesh":{"path":"m.msh","length_unit_m":0.01},
+                "eigen":{"n_modes":3,"unit":"k0","shift":1.0}}"#,
+        )
+        .unwrap();
+        assert_eq!(spec.analysis(), Analysis::Eigen);
+        assert!(spec.ports.is_empty());
+        assert!(spec.frequencies.is_none());
+        let e = spec.eigen.unwrap();
+        assert_eq!(e.max_iters, 160);
+        assert_eq!(e.tol, 1e-9);
+        // Unknown eigen keys and a missing unit are rejected.
+        assert!(
+            serde_json::from_str::<EigenSpec>(r#"{"n_modes":1,"unit":"hz","shift":1,"x":1}"#)
+                .is_err()
+        );
+        assert!(serde_json::from_str::<EigenSpec>(r#"{"n_modes":1,"shift":1}"#).is_err());
     }
 }

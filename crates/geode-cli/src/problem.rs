@@ -1,10 +1,12 @@
 //! Resolve a [`ProblemSpec`] against its mesh into solver-ready inputs.
 //!
-//! This is the shared front half of `check` and `driven`: parse the
-//! spec, load the tagged mesh ([`geode_core::mesh::read_tagged_tet_mesh`]),
-//! bind every named physical group, convert SI inputs to the solver's
-//! natural units, and build the PEC edge mask. `check` stops here;
-//! `driven` hands the result to the sweep.
+//! This is the shared front half of `check`, `driven` and `eigen`: parse
+//! the spec, validate it for the analysis it describes
+//! ([`crate::spec::Analysis`]), load the tagged mesh
+//! ([`geode_core::mesh::read_tagged_tet_mesh`]), bind every named physical
+//! group, convert SI inputs to the solver's natural units, and build the
+//! PEC edge mask. `check` stops here; `driven` hands the result to the
+//! sweep, `eigen` to the cavity eigensolve.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -15,7 +17,7 @@ use geode_core::mesh::{TaggedTetMesh, pec_interior_mask_from_triangles, read_tag
 use sha2::{Digest, Sha256};
 
 use crate::error::CliError;
-use crate::spec::{FrequencyUnit, ProblemSpec, SPEC_SCHEMA_VERSION, SolverSpec};
+use crate::spec::{Analysis, FrequencyUnit, ProblemSpec, SPEC_SCHEMA_VERSION, SolverSpec};
 
 /// How a volume region's permittivity was chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +93,26 @@ pub struct Frequency {
     pub k0: f64,
 }
 
+/// A resolved `eigen` section.
+#[derive(Debug, Clone, Copy)]
+pub struct EigenTarget {
+    /// Physical modes requested.
+    pub n_modes: usize,
+    /// The shift frequency in SI and natural units.
+    pub shift: Frequency,
+    /// Lanczos basis size.
+    pub max_iters: usize,
+    /// Lanczos tolerance.
+    pub tol: f64,
+}
+
+impl EigenTarget {
+    /// The Lanczos shift `σ = k₀²` in `(rad / mesh length unit)²`.
+    pub fn sigma(&self) -> f64 {
+        self.shift.k0 * self.shift.k0
+    }
+}
+
 /// A fully resolved problem, ready for `check` reporting or a solve.
 #[derive(Debug, Clone)]
 pub struct Problem {
@@ -116,8 +138,12 @@ pub struct Problem {
     pub leontovich: Vec<Leontovich>,
     /// Lumped ports, in spec order.
     pub ports: Vec<Port>,
-    /// Frequencies, in spec order.
+    /// Frequencies, in spec order (empty for an eigen spec).
     pub frequencies: Vec<Frequency>,
+    /// Which analysis the spec describes.
+    pub analysis: Analysis,
+    /// The resolved `eigen` section (eigen specs only).
+    pub eigen: Option<EigenTarget>,
 }
 
 impl Problem {
@@ -166,8 +192,24 @@ fn invalid(msg: impl Into<String>) -> CliError {
 }
 
 /// Parse, validate and resolve the spec at `spec_path` (no solve).
-pub fn load(spec_path: &Path) -> Result<Problem, CliError> {
+///
+/// The spec is validated for the analysis it describes
+/// ([`ProblemSpec::analysis`]); `expect` (the running subcommand's
+/// analysis, `None` for `check`) must match it — checked before the
+/// mesh is read.
+pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliError> {
     let spec = read_spec(spec_path)?;
+    let analysis = spec.analysis();
+    if let Some(want) = expect
+        && want != analysis
+    {
+        return Err(invalid(match want {
+            Analysis::Eigen => "this is a driven spec (no `eigen` section); `geode eigen` needs                  an `eigen` section — see crates/geode-cli/README.md"
+                .to_string(),
+            Analysis::Driven => "this is an eigen spec (it has an `eigen` section); run it with                  `geode eigen`, or drop the `eigen` section for a driven sweep"
+                .to_string(),
+        }));
+    }
 
     // ---- scalar validation (before touching the mesh) ----------------
     let lu = spec.mesh.length_unit_m;
@@ -200,8 +242,18 @@ pub fn load(spec_path: &Path) -> Result<Problem, CliError> {
             )));
         }
     }
-    if spec.ports.is_empty() {
-        return Err(invalid("at least one lumped port is required"));
+    match analysis {
+        Analysis::Driven => {
+            if spec.ports.is_empty() {
+                return Err(invalid(
+                    "at least one lumped port is required for a driven spec",
+                ));
+            }
+            if spec.frequencies.is_none() {
+                return Err(invalid("a driven spec needs a `frequencies` section"));
+            }
+        }
+        Analysis::Eigen => validate_eigen(&spec)?,
     }
     let mut seen_ports = std::collections::HashSet::new();
     for p in &spec.ports {
@@ -252,7 +304,16 @@ pub fn load(spec_path: &Path) -> Result<Problem, CliError> {
             )));
         }
     }
-    let raw_freqs = spec.frequencies.expand().map_err(invalid)?;
+    let raw_freqs = match &spec.frequencies {
+        Some(f) => f.expand().map_err(invalid)?,
+        None => Vec::new(),
+    };
+    let eigen = spec.eigen.as_ref().map(|e| EigenTarget {
+        n_modes: e.n_modes,
+        shift: to_frequency(e.shift, e.unit, lu),
+        max_iters: e.max_iters,
+        tol: e.tol,
+    });
 
     // ---- mesh --------------------------------------------------------
     let mesh_path = if spec.mesh.path.is_absolute() {
@@ -427,10 +488,13 @@ pub fn load(spec_path: &Path) -> Result<Problem, CliError> {
     let pec_mask = pec_interior_mask_from_triangles(&edges, &pec_lists);
 
     // ---- frequencies -------------------------------------------------
-    let frequencies = raw_freqs
-        .iter()
-        .map(|&f| to_frequency(f, spec.frequencies.unit, lu))
-        .collect();
+    let frequencies = match &spec.frequencies {
+        Some(fs) => raw_freqs
+            .iter()
+            .map(|&f| to_frequency(f, fs.unit, lu))
+            .collect(),
+        None => Vec::new(),
+    };
 
     Ok(Problem {
         spec,
@@ -445,7 +509,75 @@ pub fn load(spec_path: &Path) -> Result<Problem, CliError> {
         leontovich,
         ports,
         frequencies,
+        analysis,
+        eigen,
     })
+}
+
+/// Eigen-spec rules (scalar, before the mesh is read). The eigen pencil
+/// is real symmetric and lossless, so anything that introduces loss or a
+/// driven excitation is rejected rather than silently ignored.
+fn validate_eigen(spec: &ProblemSpec) -> Result<(), CliError> {
+    let e = spec
+        .eigen
+        .as_ref()
+        .expect("eigen spec has an eigen section");
+    if e.n_modes == 0 {
+        return Err(invalid("eigen.n_modes must be ≥ 1"));
+    }
+    if !(e.shift.is_finite() && e.shift > 0.0) {
+        return Err(invalid(format!(
+            "eigen.shift must be finite and > 0 (got {}); a zero shift makes K − σM \
+             singular on the curl-curl gradient nullspace",
+            e.shift
+        )));
+    }
+    if e.max_iters == 0 {
+        return Err(invalid("eigen.max_iters must be ≥ 1"));
+    }
+    if !(e.tol.is_finite() && e.tol > 0.0) {
+        return Err(invalid(format!(
+            "eigen.tol must be finite and > 0 (got {})",
+            e.tol
+        )));
+    }
+    if !spec.ports.is_empty() {
+        return Err(invalid(
+            "an eigen spec cannot have `ports`: lumped ports are resistive terminations and \
+             the eigen solve is lossless",
+        ));
+    }
+    if spec.frequencies.is_some() {
+        return Err(invalid(
+            "an eigen spec cannot have `frequencies`; the eigen target is `eigen.shift`",
+        ));
+    }
+    if !spec.boundary_conditions.leontovich.is_empty() {
+        return Err(invalid(
+            "an eigen spec cannot have Leontovich walls: the eigen solve is lossless \
+             (lossy/open-cavity eigenmodes are tracked in issue #683)",
+        ));
+    }
+    if let SolverSpec::Iterative { .. } = spec.solver {
+        return Err(invalid(
+            "an eigen spec supports only `solver.mode = \"direct\"` (the shift-invert \
+             Lanczos factors K − σM once with sparse LU)",
+        ));
+    }
+    if let Some(m) = spec.materials.iter().find(|m| m.eps_r[1] != 0.0) {
+        return Err(invalid(format!(
+            "materials[{}].eps_r has Im != 0; the eigen solve is lossless (real symmetric \
+             pencil) and needs Im(eps_r) = 0 (lossy eigenmodes are tracked in issue #683)",
+            m.physical_group
+        )));
+    }
+    if let Some(m) = spec.materials.iter().find(|m| m.eps_r[0] <= 0.0) {
+        return Err(invalid(format!(
+            "materials[{}].eps_r must have Re > 0 for the eigen solve",
+            m.physical_group
+        )));
+    }
+    Ok(())
 }
 
 /// Convert one frequency value to both Hz and natural `k₀`.

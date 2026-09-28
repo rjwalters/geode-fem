@@ -2,14 +2,15 @@
 //!
 //! Every invocation that gets past argument parsing writes exactly one
 //! JSON document (stdout, or the `-o` path). The document is one of
-//! three kinds, discriminated by the top-level `kind` field:
+//! four kinds, discriminated by the top-level `kind` field:
 //!
 //! * `"check"` — [`CheckReport`], from `geode check` (no solve);
 //! * `"driven"` — [`DrivenReport`], from `geode driven`;
+//! * `"eigen"` — [`EigenReport`], from `geode eigen`;
 //! * `"error"` — [`ErrorReport`], from any failed subcommand (the
 //!   process also exits non-zero and prints the error to stderr).
 //!
-//! All three carry [`Provenance`] flattened into the top level
+//! All of them carry [`Provenance`] flattened into the top level
 //! (`schema_version`, `geode_version`, `git_sha`, `backend`, …).
 //! Complex numbers are `[re, im]` pairs. Matrices are row-major nested
 //! arrays `m[row][col]`. Units are part of every field name (`_hz`,
@@ -149,6 +150,23 @@ pub struct FrequencySummary {
     pub k0: f64,
 }
 
+/// Echo of a resolved `eigen` spec section.
+#[derive(Debug, Clone, Serialize)]
+pub struct EigenSettingsSummary {
+    /// Physical modes requested.
+    pub n_modes: usize,
+    /// Shift frequency (Hz).
+    pub shift_hz: f64,
+    /// Shift as `k₀` (rad / mesh length unit).
+    pub shift_k0: f64,
+    /// Lanczos shift `σ = k₀²` ((rad / mesh length unit)²).
+    pub sigma: f64,
+    /// Lanczos basis size.
+    pub max_iters: usize,
+    /// Lanczos tolerance.
+    pub tol: f64,
+}
+
 /// `geode check` report (`kind = "check"`).
 #[derive(Debug, Clone, Serialize)]
 pub struct CheckReport {
@@ -173,6 +191,12 @@ pub struct CheckReport {
     pub frequencies: Vec<FrequencySummary>,
     /// Solver selection.
     pub solver: SolverSummary,
+    /// `"driven"` or `"eigen"` — the analysis the spec describes
+    /// (additive in v1).
+    pub analysis: &'static str,
+    /// The resolved `eigen` section, `null` for a driven spec (additive
+    /// in v1).
+    pub eigen: Option<EigenSettingsSummary>,
 }
 
 /// Aggregate solver statistics for a driven sweep.
@@ -253,6 +277,66 @@ pub struct DrivenReport {
     pub solver: SolverStats,
     /// Per-frequency results, in spec order.
     pub results: Vec<FrequencyResult>,
+}
+
+/// Eigensolver statistics.
+#[derive(Debug, Clone, Serialize)]
+pub struct EigenSolverStats {
+    /// Always `"shift_invert_lanczos"` (pure Rust) in this build.
+    pub method: &'static str,
+    /// Inner solve of `K − σM`: always `"direct_lu"` (sparse LU, factored once).
+    pub inner: &'static str,
+    /// Ritz values dropped as the curl-curl gradient nullspace (`λ ≈ 0`).
+    pub n_null_filtered: usize,
+    /// Largest relative eigen-residual over the returned modes.
+    pub residual_rel_max: f64,
+    /// Wall time of assembly + eigensolve, seconds.
+    pub wall_time_s: f64,
+}
+
+/// One eigenmode.
+#[derive(Debug, Clone, Serialize)]
+pub struct ModeResult {
+    /// Mode index (ascending frequency).
+    pub index: usize,
+    /// Eigenvalue `λ = k₀²` ((rad / mesh length unit)²).
+    pub lambda: f64,
+    /// Resonant `k₀ = ω/c` (rad / mesh length unit).
+    pub k0: f64,
+    /// Resonant frequency (Hz).
+    pub frequency_hz: f64,
+    /// Angular frequency `ω = 2πf` (rad/s).
+    pub omega_rad_s: f64,
+    /// Quality factor. Always `null` in this build: the eigen pencil is
+    /// lossless (real `ε_r`, PEC walls), so `Q` is undefined (infinite),
+    /// not a number. Lossy / open-cavity `Q` is future work (issue #683).
+    pub q: Option<f64>,
+    /// Relative eigen-residual `‖Kx − λMx‖ / (|λ| ‖Mx‖)`.
+    pub residual_rel: f64,
+}
+
+/// `geode eigen` report (`kind = "eigen"`).
+#[derive(Debug, Clone, Serialize)]
+pub struct EigenReport {
+    /// Provenance (flattened).
+    #[serde(flatten)]
+    pub provenance: Provenance,
+    /// Always `"eigen"`.
+    pub kind: &'static str,
+    /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    pub status: &'static str,
+    /// Mesh summary (`n_interior` = pencil dimension).
+    pub mesh: MeshSummary,
+    /// Volume regions with applied permittivities.
+    pub regions: Vec<RegionSummary>,
+    /// PEC surfaces.
+    pub pec: Vec<PecSummary>,
+    /// The eigen settings as resolved.
+    pub eigen: EigenSettingsSummary,
+    /// Solver statistics.
+    pub solver: EigenSolverStats,
+    /// Physical modes, ascending in frequency.
+    pub modes: Vec<ModeResult>,
 }
 
 /// Error body.
