@@ -776,6 +776,98 @@ pub fn load_small_sphere_fixture() -> geode_core::mesh::SphereFixture {
     geode_core::mesh::read_sphere_fixture_from_bytes(&bytes).expect("parse small-mesh sphere.msh")
 }
 
+/// Backend provenance recorded in an example's results `[meta]` table:
+/// the Burn backend name and its float dtype.
+///
+/// Committed benchmark artifacts must say which backend produced them,
+/// because for several of them the operator-assembly precision is
+/// load-bearing: an f32 assembly (the pre-#413 `Wgpu` default) shifted
+/// the spiral-inductor `R`/`Q` by ~16 % (issue #674) and the SLCFET 3HP
+/// `L0` by ~0.6 % (issue #687). Tier-1 tests assert the committed
+/// `float_dtype` is `"F64"`. Promoted here from the `spiral_inductor`
+/// example (issue #678) so every example records it the same way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendInfo {
+    /// `Backend::name(device)`, e.g. `"ndarray"`.
+    pub name: String,
+    /// `Debug` spelling of the backend's default float dtype, e.g. `"F64"`.
+    pub float_dtype: String,
+}
+
+impl BackendInfo {
+    /// Probe backend `B` on `device`: its name and the dtype of a
+    /// default-float tensor it allocates.
+    pub fn of<B: burn::tensor::backend::Backend>(device: &B::Device) -> Self {
+        let dtype = burn::tensor::Tensor::<B, 1>::zeros([0], device).dtype();
+        Self {
+            name: B::name(device),
+            float_dtype: format!("{dtype:?}"),
+        }
+    }
+
+    /// Append the `backend = "..."` and `float_dtype = "..."` `[meta]`
+    /// lines to `out`.
+    pub fn push_meta(&self, out: &mut String) {
+        out.push_str(&format!("backend = \"{}\"\n", self.name));
+        out.push_str(&format!("float_dtype = \"{}\"\n", self.float_dtype));
+    }
+}
+
+/// The dotted key of a TOML table / array-of-tables header line
+/// (`[a.b]` or `[[a.b]]`), or `None` if `line` is not a header (e.g. an
+/// inline-array continuation line such as `[1.0, 2.0],`).
+pub fn table_header_key(line: &str) -> Option<&str> {
+    let t = line.trim();
+    let inner = t
+        .strip_prefix("[[")
+        .and_then(|r| r.strip_suffix("]]"))
+        .or_else(|| t.strip_prefix('[').and_then(|r| r.strip_suffix(']')))?
+        .trim();
+    let is_key = !inner.is_empty()
+        && inner
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+    is_key.then_some(inner)
+}
+
+/// Extract the `[<key>]` section of an existing results TOML verbatim:
+/// from its header line up to (not including) the next table header
+/// outside `<key>.*` (so `[[<key>.points]]` sub-tables are carried
+/// along), with trailing blank lines trimmed and a single trailing
+/// newline. `None` when the document has no such section.
+///
+/// Used by example `emit_results` writers to carry operator-populated
+/// oracle slots (e.g. `oracles.palace`, issue #266) through a
+/// regeneration byte-for-byte instead of resetting them to the
+/// hardcoded pending text (issues #674 / #687).
+pub fn existing_table_block(old: &str, key: &str) -> Option<String> {
+    let mut lines = old.lines();
+    lines.find(|l| table_header_key(l) == Some(key))?;
+    let sub_prefix = format!("{key}.");
+    let mut block = format!("[{key}]\n");
+    for line in lines {
+        if table_header_key(line).is_some_and(|k| !k.starts_with(&sub_prefix)) {
+            break;
+        }
+        block.push_str(line);
+        block.push('\n');
+    }
+    while block.ends_with("\n\n") {
+        block.pop();
+    }
+    Some(block)
+}
+
+/// Read `path` (if it exists) and return its `[<key>]` block via
+/// [`existing_table_block`], falling back to `default` when the file is
+/// missing or carries no such table.
+pub fn preserved_table_block(path: &Path, key: &str, default: &str) -> String {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|old| existing_table_block(&old, key))
+        .unwrap_or_else(|| default.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1576,5 +1668,73 @@ median_ns = 6.0
         let f = load_small_sphere_fixture();
         assert!(f.mesh.n_nodes() > 0, "small sphere mesh should have nodes");
         assert!(f.mesh.n_tets() > 0, "small sphere mesh should have tets");
+    }
+
+    #[test]
+    fn backend_info_reports_name_and_dtype() {
+        // Only the f64 flavour is probed: Burn registers the default float
+        // dtype per *device*, and `NdArray<f32>` / `NdArray<f64>` share the
+        // CPU device, so probing both in one test process is order-dependent.
+        // (A standalone `NdArray<f32, i32>` example run does record "F32".)
+        type F64 = burn::backend::NdArray<f64, i32>;
+        let dev = Default::default();
+        let b64 = BackendInfo::of::<F64>(&dev);
+        assert_eq!(b64.name, "ndarray");
+        assert_eq!(b64.float_dtype, "F64");
+        let mut s = String::new();
+        b64.push_meta(&mut s);
+        assert_eq!(s, "backend = \"ndarray\"\nfloat_dtype = \"F64\"\n");
+    }
+
+    #[test]
+    fn header_detection_skips_inline_array_lines() {
+        assert_eq!(table_header_key("[oracles.palace]"), Some("oracles.palace"));
+        assert_eq!(
+            table_header_key("[[oracles.palace.points]]"),
+            Some("oracles.palace.points")
+        );
+        assert_eq!(table_header_key("  [1.0, 2.0],"), None);
+        assert_eq!(table_header_key("[1.0, 2.0]"), None);
+        assert_eq!(table_header_key("key = [1]"), None);
+    }
+
+    #[test]
+    fn table_block_carries_sub_tables_verbatim() {
+        let block = "[oracles.palace]\nstatus = \"populated\"\nsamples = [\n  [1.0, 2.0],\n]\n\n[[oracles.palace.points]]\nf_ghz = 1.0\n\n[[oracles.palace.points]]\nf_ghz = 4.0\n";
+        let doc = format!("[meta]\nx = 1\n\n{block}\n[point_0]\nf_ghz = 0.1\n");
+        assert_eq!(
+            existing_table_block(&doc, "oracles.palace").as_deref(),
+            Some(block)
+        );
+    }
+
+    #[test]
+    fn table_block_stops_at_sibling_prefix_table() {
+        // `[oracles.palace_v2]` shares the textual prefix but is not a
+        // sub-table of `oracles.palace`.
+        let doc = "[oracles.palace]\nstatus = \"x\"\n\n[oracles.palace_v2]\ny = 1\n";
+        assert_eq!(
+            existing_table_block(doc, "oracles.palace").as_deref(),
+            Some("[oracles.palace]\nstatus = \"x\"\n")
+        );
+    }
+
+    #[test]
+    fn missing_table_block_is_none_and_preserved_falls_back() {
+        assert_eq!(
+            existing_table_block("[meta]\nx = 1\n", "oracles.palace"),
+            None
+        );
+        let p = scratch("absent.toml");
+        assert_eq!(
+            preserved_table_block(&p, "oracles.palace", "[oracles.palace]\n"),
+            "[oracles.palace]\n"
+        );
+        fs::write(&p, "[oracles.palace]\nstatus = \"kept\"\n\n[comparison]\n").unwrap();
+        assert_eq!(
+            preserved_table_block(&p, "oracles.palace", "default"),
+            "[oracles.palace]\nstatus = \"kept\"\n"
+        );
+        fs::remove_file(&p).unwrap();
     }
 }

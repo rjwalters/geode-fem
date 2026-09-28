@@ -155,6 +155,19 @@ fn committed_results() -> (Vec<FemRow>, Option<f64>) {
         .unwrap_or_else(|e| panic!("read committed results {}: {e}", path.display()));
     let doc: toml::Value = toml::from_str(&raw).expect("results.toml is valid TOML");
 
+    // Issue #687: the pre-#687 artifact came from the f32 Wgpu default
+    // (pre-#413) and sat -0.57 % off in L0 and ~2x off in Q(3 GHz), so
+    // the committed artifact must come from an f64 backend.
+    let dtype = doc
+        .get("meta")
+        .and_then(|m| m.get("float_dtype"))
+        .and_then(|v| v.as_str());
+    assert_eq!(
+        dtype,
+        Some("F64"),
+        "results.toml [meta].float_dtype must record an f64 generation backend (issue #687)"
+    );
+
     let srf_ghz = doc
         .get("meta")
         .and_then(|m| m.get("srf_ghz"))
