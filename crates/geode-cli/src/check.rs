@@ -5,8 +5,8 @@ use std::path::Path;
 use crate::error::CliError;
 use crate::problem::{self, MaterialSource, Problem};
 use crate::report::{
-    CheckReport, EigenSettingsSummary, FrequencySummary, LeontovichSummary, MeshSummary,
-    PecSummary, PortSummary, Provenance, RegionSummary, SolverSummary,
+    CheckReport, EigenSettingsSummary, ExtractSettingsSummary, FrequencySummary, LeontovichSummary,
+    MeshSummary, PecSummary, PortSummary, Provenance, RegionSummary, SolverSummary,
 };
 use crate::spec::SolverSpec;
 
@@ -43,6 +43,7 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
         solver: solver_summary(p.solver()),
         analysis: p.analysis.name(),
         eigen: eigen_settings_summary(&p),
+        extract: extract_settings_summary(&p),
     })
 }
 
@@ -85,6 +86,22 @@ pub fn eigen_settings_summary(p: &Problem) -> Option<EigenSettingsSummary> {
         max_iters: e.max_iters,
         tol: e.tol,
         residual_tol: e.residual_tol,
+    })
+}
+
+/// Echo of the resolved `extract` section (`None` unless an extract spec).
+pub fn extract_settings_summary(p: &Problem) -> Option<ExtractSettingsSummary> {
+    p.extract.as_ref().map(|x| ExtractSettingsSummary {
+        anchor_source: x.source.name(),
+        anchor_frequencies: x
+            .anchors
+            .iter()
+            .map(|&i| FrequencySummary {
+                frequency_hz: p.frequencies[i].hz,
+                k0: p.frequencies[i].k0,
+            })
+            .collect(),
+        l0_rel_tol: x.l0_rel_tol,
     })
 }
 

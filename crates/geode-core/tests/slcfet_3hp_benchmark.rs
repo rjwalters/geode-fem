@@ -52,7 +52,7 @@ use std::path::PathBuf;
 
 use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
 use geode_core::constants::ETA_0_OHM as ETA_0;
-use geode_core::driven::extraction::{SweepPoint, driven_frequency_sweep};
+use geode_core::driven::extraction::{SweepPoint, driven_frequency_sweep, extrapolate_l0};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
@@ -216,16 +216,16 @@ fn row_at(rows: &[FemRow], f_ghz: f64) -> FemRow {
 }
 
 /// Quasi-static inductance L0 (nH) by Richardson extrapolation of the
-/// two lowest-frequency rows to f→0: `L(f) ≈ L0 − a·f²`. Mirrors the
-/// `extrapolate_l0` in `examples/slcfet_3hp_spiral.rs` — the only
-/// apples-to-apples L vs the C-free Mohan/mom oracles.
-fn extrapolate_l0(rows: &[FemRow]) -> f64 {
-    let mut sorted = rows.to_vec();
-    sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    let (f1, l1) = (sorted[0].0, sorted[0].1);
-    let (f2, l2) = (sorted[1].0, sorted[1].1);
-    let (f1s, f2s) = (f1 * f1, f2 * f2);
-    (l1 * f2s - l2 * f1s) / (f2s - f1s)
+/// two lowest-frequency rows to f→0: `L(f) ≈ L0 − a·f²` — the shared
+/// library [`extrapolate_l0`] (issue #682; this file carried a private
+/// copy of it before), the same helper `examples/slcfet_3hp_spiral` and
+/// `geode extract` use. The only apples-to-apples L vs the C-free
+/// Mohan/mom oracles.
+fn l0_nh(rows: &[FemRow]) -> f64 {
+    let points: Vec<(f64, f64)> = rows.iter().map(|r| (r.0, r.1)).collect();
+    extrapolate_l0(&points)
+        .expect("≥ 2 distinct finite sweep rows")
+        .l0
 }
 
 /// Tier 1: the committed FEM benchmark results are consistent with the
@@ -240,7 +240,7 @@ fn committed_results_consistent_with_oracles() {
     // The FEM L is frequency-dependent (substrate-C dispersion); Mohan
     // and mom report the C-free low-frequency inductance, so L0 (not a
     // finite quote frequency) is the only apples-to-apples comparison.
-    let l0_fem = extrapolate_l0(&rows);
+    let l0_fem = l0_nh(&rows);
 
     // (a) Within 5 % of the exact-geometry mom PEEC L0 (the issue's
     // acceptance bar).
@@ -393,7 +393,7 @@ fn smoke_fixture_extraction_is_physical() {
 #[ignore = "heavy: two 77k-edge driven solves (~90 s release); run with --release -- --ignored"]
 fn benchmark_fixture_l0_matches_committed_results() {
     let (rows, _) = committed_results();
-    let l0_committed = extrapolate_l0(&rows);
+    let l0_committed = l0_nh(&rows);
 
     // Re-solve the two lowest-frequency points and re-extrapolate L0.
     let fixture = read_spiral_slcfet_3hp_fixture().expect("bundled 3HP benchmark fixture");
@@ -408,7 +408,7 @@ fn benchmark_fixture_l0_matches_committed_results() {
             (f, l_nh(pt, f), z.re, pt.ports[0].quality_factor())
         })
         .collect();
-    let l0 = extrapolate_l0(&fresh);
+    let l0 = l0_nh(&fresh);
     eprintln!("benchmark L0: fresh {l0:.5} nH (committed {l0_committed:.5})");
     assert!(
         ((l0 - l0_committed) / l0_committed).abs() < 0.01,

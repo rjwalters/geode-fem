@@ -17,7 +17,8 @@
 //! ```
 //!
 //! plus self-resonance detection from the `Im Z(ω)` zero crossing when
-//! a sweep brackets it.
+//! a sweep brackets it, and the quasi-static `L₀ = lim_{f→0} L(f)`
+//! Richardson extrapolation ([`extrapolate_l0`], issue #682).
 //!
 //! Everything here is **post-processing over [`crate::driven::solve::DrivenSolution`]** — no
 //! new assembly physics. The field-to-circuit reduction reuses the
@@ -673,6 +674,95 @@ pub fn detect_srf(omegas: &[f64], zs: &[c64]) -> Option<f64> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Quasi-static inductance: f → 0 Richardson extrapolation (issue #682).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Result of [`extrapolate_l0`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct L0Extrapolation {
+    /// Quasi-static inductance `L₀`, in the unit of the input `L` values.
+    pub l0: f64,
+    /// The two anchor frequencies actually used, ascending, in the unit
+    /// of the input `f` values.
+    pub anchors: [f64; 2],
+    /// Empirical Richardson consistency estimate `|L₀(f₁, f₂) − L₀(f₂, f₃)|`
+    /// (input `L` unit): the same two-point extrapolation repeated on the
+    /// next-lowest pair `(f₂, f₃)`. It vanishes when the samples follow
+    /// `L(f) = L₀ − a·f²` exactly and grows when the anchors are not yet
+    /// in that asymptotic regime (higher-order `f⁴` terms, or a nearby
+    /// self-resonance). `None` with fewer than three usable points.
+    pub error_estimate: Option<f64>,
+    /// The third-lowest frequency used by [`Self::error_estimate`]
+    /// (`None` exactly when `error_estimate` is `None`).
+    pub check_frequency: Option<f64>,
+}
+
+/// Quasi-static inductance `L₀ = lim_{f→0} L(f)` by two-point Richardson
+/// extrapolation of `L(f) ≈ L₀ − a·f²` (issue #212's SLCFET capstone;
+/// promoted from two duplicated private helpers by issue #682).
+///
+/// Below self-resonance a spiral over a lossy substrate follows
+/// `L(f) ≈ L₀ − a·f²`: the shunt substrate capacitance siphons current
+/// as `f` rises, so `Im Z / ω` falls roughly quadratically. Solving the
+/// 2 × 2 system `L(fᵢ) = L₀ − a·fᵢ²` on the **two lowest-`f`** samples
+/// recovers the capacitance-free inductance that quasi-static oracles
+/// (Mohan, PEEC) report:
+///
+/// ```text
+/// L₀ = (L₁·f₂² − L₂·f₁²) / (f₂² − f₁²)
+/// ```
+///
+/// `points` are `(f, L)` pairs in **any consistent units** — the formula
+/// is a ratio of `f²`s, so the frequency unit cancels and `L₀` comes back
+/// in `L`'s unit. They need not be sorted. With a third point the same
+/// extrapolation on the next-lowest pair gives
+/// [`L0Extrapolation::error_estimate`].
+///
+/// Returns `None` (never panics) when there are fewer than two points,
+/// any value is non-finite, or the two lowest frequencies coincide in
+/// `f²` (the system is singular). The two private originals panicked on
+/// short input; this is public surface a CLI calls on user-supplied
+/// sweeps, so it reports instead.
+pub fn extrapolate_l0(points: &[(f64, f64)]) -> Option<L0Extrapolation> {
+    // New in #682: panic-free input guards.
+    if points.len() < 2
+        || points
+            .iter()
+            .any(|&(f, l)| !(f.is_finite() && l.is_finite()))
+    {
+        return None;
+    }
+    // Ported from the two private `extrapolate_l0` helpers (stable sort
+    // by frequency; `total_cmp` orders finite values exactly as the
+    // originals' `partial_cmp().unwrap()` did, without the panic).
+    let mut sorted = points.to_vec();
+    sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let l0 = richardson_l0(sorted[0], sorted[1])?;
+
+    // New in #682: consistency estimate from the next-lowest pair.
+    let check = sorted
+        .get(2)
+        .and_then(|&p3| richardson_l0(sorted[1], p3).map(|l0_23| (p3.0, (l0 - l0_23).abs())));
+    Some(L0Extrapolation {
+        l0,
+        anchors: [sorted[0].0, sorted[1].0],
+        error_estimate: check.map(|(_, e)| e),
+        check_frequency: check.map(|(f, _)| f),
+    })
+}
+
+/// The two-point `L(f) ≈ L₀ − a·f²` solve — the arithmetic of the two
+/// original private helpers, operand for operand. `None` when `f₁² = f₂²`
+/// (new guard; the originals divided by zero).
+fn richardson_l0((f1, l1): (f64, f64), (f2, l2): (f64, f64)) -> Option<f64> {
+    let (f1s, f2s) = (f1 * f1, f2 * f2);
+    if f2s == f1s {
+        return None;
+    }
+    Some((l1 * f2s - l2 * f1s) / (f2s - f1s))
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // |S11|² objective closure for the driven shape/material adjoint (issue #626).
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -969,6 +1059,118 @@ mod tests {
         assert_eq!(crossings.len(), 2);
         assert_eq!(crossings[0], 2.0);
         assert!((crossings[1] - 3.5).abs() < 1e-15);
+    }
+
+    // ── f → 0 Richardson L₀ extrapolation (issue #682) ───────────────────
+
+    /// The pre-#682 private helper, verbatim (modulo the row type), kept
+    /// here as the behavior-identity oracle for the promoted function.
+    fn legacy_extrapolate_l0(rows: &[(f64, f64)]) -> f64 {
+        let mut sorted = rows.to_vec();
+        sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        let (f1, l1) = (sorted[0].0, sorted[0].1);
+        let (f2, l2) = (sorted[1].0, sorted[1].1);
+        let (f1s, f2s) = (f1 * f1, f2 * f2);
+        (l1 * f2s - l2 * f1s) / (f2s - f1s)
+    }
+
+    /// Exact recovery on synthetic `L(f) = L₀ − a·f²` samples, from
+    /// unsorted input; a pure quadratic gives a zero consistency error.
+    #[test]
+    fn extrapolate_l0_recovers_exact_quadratic() {
+        let (l0, a) = (2.155_f64, 0.037_f64);
+        let pts: Vec<(f64, f64)> = [3.0, 0.2, 1.0, 0.1]
+            .iter()
+            .map(|&f| (f, l0 - a * f * f))
+            .collect();
+        let got = extrapolate_l0(&pts).expect("≥ 2 points");
+        assert!((got.l0 - l0).abs() < 1e-14, "{got:?}");
+        assert_eq!(got.anchors, [0.1, 0.2]);
+        assert_eq!(got.check_frequency, Some(1.0));
+        assert!(got.error_estimate.unwrap() < 1e-13, "{got:?}");
+    }
+
+    /// Unit-agnostic: `f` in GHz or Hz (with `a` rescaled) yields the same
+    /// `L₀`; the anchors come back in the input unit.
+    #[test]
+    fn extrapolate_l0_is_unit_agnostic() {
+        let (l0, a_ghz) = (2.0e-9_f64, 3.0e-11_f64);
+        let ghz: Vec<(f64, f64)> = [0.1, 0.2, 0.5]
+            .iter()
+            .map(|&f| (f, l0 - a_ghz * f * f + 1e-12 * f.powi(4)))
+            .collect();
+        let hz: Vec<(f64, f64)> = ghz.iter().map(|&(f, l)| (f * 1e9, l)).collect();
+        let (g, h) = (extrapolate_l0(&ghz).unwrap(), extrapolate_l0(&hz).unwrap());
+        assert!(((g.l0 - h.l0) / g.l0).abs() < 1e-14, "{g:?} vs {h:?}");
+        assert_eq!(h.anchors, [0.1e9, 0.2e9]);
+        let (eg, eh) = (g.error_estimate.unwrap(), h.error_estimate.unwrap());
+        assert!(((eg - eh) / eg).abs() < 1e-9, "{eg} vs {eh}");
+    }
+
+    /// Too few, non-finite or degenerate inputs are `None`, never a panic;
+    /// two points give no consistency estimate.
+    #[test]
+    fn extrapolate_l0_rejects_bad_input_without_panicking() {
+        assert!(extrapolate_l0(&[]).is_none());
+        assert!(extrapolate_l0(&[(1.0, 2.0)]).is_none());
+        assert!(extrapolate_l0(&[(1.0, 2.0), (f64::NAN, 1.9)]).is_none());
+        assert!(extrapolate_l0(&[(1.0, 2.0), (2.0, f64::INFINITY)]).is_none());
+        assert!(extrapolate_l0(&[(1.0, 2.0), (1.0, 1.9)]).is_none());
+        let two = extrapolate_l0(&[(2.0, 1.0), (1.0, 1.75)]).unwrap();
+        assert_eq!(two.anchors, [1.0, 2.0]);
+        assert_eq!(two.l0, 2.0);
+        assert!(two.error_estimate.is_none() && two.check_frequency.is_none());
+    }
+
+    /// With an `f⁴` correction the consistency estimate shrinks as the
+    /// anchors move deeper into the asymptotic `f → 0` regime, and it
+    /// bounds the actual `L₀` error there.
+    #[test]
+    fn extrapolate_l0_error_estimate_shrinks_toward_asymptotic_regime() {
+        let (l0, a, b) = (2.0_f64, 0.04_f64, 0.002_f64);
+        let l = |f: f64| l0 - a * f * f + b * f.powi(4);
+        let mut prev = f64::INFINITY;
+        for h in [2.0, 1.0, 0.5, 0.25, 0.125] {
+            let pts: Vec<(f64, f64)> = [h, 2.0 * h, 3.0 * h].iter().map(|&f| (f, l(f))).collect();
+            let got = extrapolate_l0(&pts).unwrap();
+            let est = got.error_estimate.unwrap();
+            let actual = (got.l0 - l0).abs();
+            assert!(
+                est < prev,
+                "estimate did not shrink at h = {h}: {est} vs {prev}"
+            );
+            assert!(
+                actual <= est,
+                "estimate {est} does not bound error {actual}"
+            );
+            prev = est;
+        }
+        assert!(prev < 1e-4, "{prev}");
+    }
+
+    /// Behavior identity with the two pre-#682 private helpers, bit for
+    /// bit, on the committed SLCFET 3HP anchor rows and on scrambled
+    /// sweeps.
+    #[test]
+    fn extrapolate_l0_is_bit_identical_to_the_legacy_helper() {
+        // benchmarks/slcfet_3hp/results.toml point_0 / point_1 (GHz, nH).
+        let committed = [
+            (0.1, 2.078_401_361_952_193),
+            (0.2, 1.981_757_336_153_522),
+            (0.5, 1.841_196_659_704_276),
+        ];
+        let sweeps: [&[(f64, f64)]; 3] = [
+            &committed,
+            &[(20.0, 0.82), (1.0, 0.804), (3.0, 0.763), (10.0, 0.756)],
+            &[(5e9, 1.1e-9), (1e8, 1.3e-9), (7e8, 1.25e-9)],
+        ];
+        for rows in sweeps {
+            let new = extrapolate_l0(rows).unwrap().l0;
+            let old = legacy_extrapolate_l0(rows);
+            assert_eq!(new.to_bits(), old.to_bits(), "{rows:?}: {new} vs {old}");
+        }
+        let l0 = extrapolate_l0(&committed).unwrap().l0;
+        assert!((l0 - 2.110_616).abs() < 1e-6, "committed l0_fem_nh: {l0}");
     }
 
     // ── |S11|² objective closure (issue #626) ────────────────────────────

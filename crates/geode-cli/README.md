@@ -11,6 +11,7 @@ geode check  spec.json                              # validate + DOF counts, no 
 geode driven spec.json -o report.json               # frequency sweep → Z / Y / S, L / R / Q
 geode driven spec.toml --threads 8 --backend ndarray
 geode eigen  cavity.json -o modes.json              # lossless PEC-cavity modes → f
+geode extract inductor.json -o l0.json              # sweep → L / R / Q, f→0 L₀, SRF
 ```
 
 | Subcommand | Status |
@@ -18,7 +19,7 @@ geode eigen  cavity.json -o modes.json              # lossless PEC-cavity modes 
 | `check`   | live — parse + validate spec, load mesh, resolve every named physical group, report DOF counts; never solves |
 | `driven`  | live — lumped-port frequency sweep with PEC + Leontovich BCs, direct LU or COCG |
 | `eigen`   | live (#681) — lossless PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; `Q` is `null` (lossless) |
-| `extract` | reserved — parses, exits non-zero with `not_implemented` (issue #682) |
+| `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 
 ## Host behavior
 
@@ -53,17 +54,22 @@ Unknown fields are rejected everywhere (a typo never silently falls back
 to a default). `.toml` files are parsed as TOML, anything else as JSON —
 both through the same schema.
 
-A spec describes **one** analysis, decided by the presence of the
-`eigen` section:
+A spec describes **one** analysis, decided by which optional analysis
+section it carries:
 
-- **driven spec** (no `eigen`): needs `ports` (≥ 1) and `frequencies`;
-  run with `geode driven`.
+- **driven spec** (no `eigen`, no `extract`): needs `ports` (≥ 1) and
+  `frequencies`; run with `geode driven`.
 - **eigen spec** (has `eigen`): must not have `ports`, `frequencies` or
   Leontovich walls, and every `eps_r` must be real (`im = 0`); run with
   `geode eigen`.
+- **extract spec** (has `extract`): exactly a driven spec plus the
+  `extract` section (`"extract": {}` takes every default) — needs
+  `ports` (≥ 1), `frequencies`, and ≥ 2 distinct `L₀` anchor
+  frequencies; run with `geode extract`.
 
-Running a spec under the other subcommand fails with `invalid_spec`;
-`geode check` validates either kind and reports which (`analysis`).
+A spec with both `eigen` and `extract` is rejected. Running a spec under
+another subcommand fails with `invalid_spec` before the mesh is read;
+`geode check` validates any kind and reports which (`analysis`).
 
 Driven example (the spiral-inductor golden input,
 `tests/fixtures/spiral_golden_smoke.json`):
@@ -113,6 +119,9 @@ Driven example (the spiral-inductor golden input,
 | `solver.mode` | `"direct"` (default) \| `"iterative"` | sparse LU per frequency, or COCG with a Jacobi preconditioner built once per frequency |
 | `solver.tol` / `solver.max_iters` | iterative only; default `1e-10` / `5000` | relative-residual tolerance / per-RHS budget; exceeding the budget is a hard error (`solve_failed`, non-zero exit). Jacobi-preconditioned COCG can stall on ill-conditioned low-frequency conductor problems (e.g. the spiral fixture); prefer `direct` there |
 | `solver.mode` (eigen) | `"direct"` only | the eigen path always factors `K − σM` once with sparse LU; `"iterative"` is rejected |
+| `extract` | optional section | its presence makes this an extract spec (see below) |
+| `extract.anchor_frequencies` | optional frequency block (same shape as `frequencies`) | explicit `L₀` anchor ladder, solved **in addition to** `frequencies`. Omitted: the anchors are `frequencies` itself |
+| `extract.l0_rel_tol` | optional float > 0 | convergence gate: fail (`solve_failed`) if any port's relative `L₀` consistency estimate exceeds it. Needs ≥ 3 distinct anchors. Omitted: no gate (the estimate is still reported) |
 | `eigen` | optional section | its presence makes this an eigen spec |
 | `eigen.n_modes` | int ≥ 1 | physical modes to return |
 | `eigen.unit` | `"hz"` \| `"ghz"` \| `"k0"`, **required** | unit of `shift` |
@@ -165,6 +174,55 @@ residuals in `modes[].residual_rel` and `solver.residual_rel_max`
 Lanczos, no ARPACK knob) — a backend choice is a possible future
 additive field.
 
+Extract example (the SLCFET 3HP golden input,
+`tests/fixtures/slcfet_extract_smoke.json` — anchors given in Hz next to
+a GHz sweep):
+
+```json
+{
+  "schema_version": 1,
+  "mesh": { "path": "../../../geode-core/tests/fixtures/spiral_slcfet_3hp_smoke.msh", "length_unit_m": 1e-6 },
+  "materials": [
+    { "physical_group": "substrate",  "eps_r": [9.7, -0.0388] },
+    { "physical_group": "dielectric", "eps_r": [1.0, 0.0] }
+  ],
+  "boundary_conditions": {
+    "pec": ["outer_boundary"],
+    "leontovich": [{ "physical_group": "conductor_surface", "conductivity_s_m": 51466803.9114771 }]
+  },
+  "ports": [{ "physical_group": "port", "e_hat": [0, 1, 0], "resistance_ohm": 50 }],
+  "frequencies": { "unit": "ghz", "values": [10] },
+  "solver": { "mode": "direct" },
+  "extract": { "anchor_frequencies": { "unit": "hz", "values": [1e8, 2e8, 5e8] } }
+}
+```
+
+**What `geode extract` computes.** The solve is exactly `geode
+driven`'s, over the **solved list** = ascending union of `frequencies`
+and `extract.anchor_frequencies` (points equal to 1e-12 relative, e.g.
+the same frequency in two units, are solved once). Per port `k`, from the
+diagonal `Z_kk` at each anchor, `L(f) = Im Z_kk / ω`; then
+
+- **`L₀`** — the quasi-static inductance `lim_{f→0} L(f)` by two-point
+  Richardson extrapolation of `L(f) ≈ L₀ − a·f²` on the **two lowest**
+  anchors: `L₀ = (L₁f₂² − L₂f₁²) / (f₂² − f₁²)`
+  (`geode_core::driven::extraction::extrapolate_l0`). Below self-resonance
+  the shunt substrate capacitance siphons current as `f` rises, so `L(f)`
+  falls ~quadratically; `L₀` is the capacitance-free inductance that
+  quasi-static oracles (PEEC, Mohan) report. Put the two lowest anchors
+  well below the SRF (the SLCFET benchmark uses 0.1 / 0.2 GHz).
+- **Error estimate** — with a third anchor, the same extrapolation on the
+  2nd / 3rd-lowest pair; `|L₀(f₁,f₂) − L₀(f₂,f₃)|` is reported absolute
+  and relative. It vanishes when the anchors sit in the asymptotic
+  `L₀ − a·f²` regime and grows otherwise. With `extract.l0_rel_tol` set,
+  an estimate above it fails the run with `solve_failed` (non-zero exit),
+  naming the port, anchors and estimate — never a silently unconverged
+  `L₀`.
+- **SRF** — every `Im Z_kk` sign change across the whole solved list,
+  linearly interpolated; the first one is `srf_hz` (`null` if the sweep
+  brackets none). A sign change is a series resonance or a flip through a
+  pole (parallel anti-resonance), as in the SLCFET benchmark.
+
 Not in schema v1 (Phase 2+): wave ports, UPML / Silver-Müller absorbing
 regions, tensor materials, the matrix-free iterative solver, field /
 NTFF export, lossy / open-cavity eigenmodes (complex `ε_r`, Leontovich,
@@ -182,17 +240,17 @@ Every report carries these top-level provenance fields:
 | `backend` | compiled-in backend: `ndarray` \| `wgpu` \| `cuda` \| `metal` |
 | `threads` | `--threads` value, or `null` |
 | `spec_path` | spec path as given |
-| `kind` | `"check"` \| `"driven"` \| `"eigen"` \| `"error"` |
+| `kind` | `"check"` \| `"driven"` \| `"eigen"` \| `"extract"` \| `"error"` |
 | `status` | `"ok"` \| `"error"` |
 
 Complex numbers are `[re, im]`; matrices are row-major nested arrays
 `m[row][col]` indexed by port.
 
-**`mesh`** (check + driven + eigen): `path`, `sha256` (hex SHA-256 of the mesh
+**`mesh`** (every success kind): `path`, `sha256` (hex SHA-256 of the mesh
 bytes), `length_unit_m`, `n_nodes`, `n_tets`, `n_edges` (Nédélec DOFs),
 `n_interior` (DOFs kept after PEC elimination = linear-system size).
 
-**`ports[]`** (check + driven): `index`, `physical_group`, `tag`,
+**`ports[]`** (check + driven + extract): `index`, `physical_group`, `tag`,
 `n_triangles`, `e_hat` (normalized), `width`, `length` (mesh units),
 `geometry_derived`, `resistance_ohm`, `v_inc`.
 
@@ -201,9 +259,14 @@ bytes), `length_unit_m`, `n_nodes`, `n_tets`, `n_edges` (Nédélec DOFs),
 (`physical_group`, `tag`, `n_triangles`), `leontovich[]` (… plus
 `conductivity_s_m`, `conductivity_natural`), `frequencies[]`
 (`frequency_hz`, `k0`; empty for an eigen spec), `solver` (`mode`, `tol`,
-`max_iters`), `analysis` (`"driven"` \| `"eigen"`) and `eigen` (`null`
-for a driven spec, else `n_modes`, `shift_hz`, `shift_k0`, `sigma` =
-`shift_k0²`, `max_iters`, `tol`, `residual_tol`). `ports[]` is empty for an eigen spec.
+`max_iters`), `analysis` (`"driven"` \| `"eigen"` \| `"extract"`),
+`eigen` (`null` unless an eigen spec, else `n_modes`, `shift_hz`,
+`shift_k0`, `sigma` = `shift_k0²`, `max_iters`, `tol`, `residual_tol`)
+and `extract` (`null` unless an extract spec, else `anchor_source` =
+`"frequencies"` \| `"anchor_frequencies"`, `anchor_frequencies[]`
+(`frequency_hz`, `k0`; distinct, ascending) and `l0_rel_tol`).
+`ports[]` is empty for an eigen spec; for an extract spec
+`frequencies[]` is the ascending solved list.
 
 **`kind = "driven"`** adds:
 
@@ -246,11 +309,27 @@ for a driven spec, else `n_modes`, `shift_hz`, `shift_k0`, `sigma` =
 | `q` | – | quality factor — **always `null`** in this build: the pencil is lossless, so `Q` is undefined (infinite), not a number. Finite `Q` needs lossy / open-cavity eigenmodes (issue #683) |
 | `residual_rel` | – | `‖Kx − λMx‖ / (|λ| ‖Mx‖)` |
 
+**`kind = "extract"`** has the `kind = "driven"` fields (`mesh`,
+`ports`, `solver`, `results[]` — but `results[]` is **ascending** in
+frequency over the solved list, not spec order), plus `extract` (the
+resolved settings, as for `check`) and `extraction[]`, one per port:
+
+| Field | Units | Meaning |
+|---|---|---|
+| `index` | – | port index |
+| `l0_h` | H | quasi-static `L₀`, two-point Richardson on the two lowest anchors |
+| `l0_anchor_frequencies_hz` | Hz | `[f₁, f₂]`, the two anchors used |
+| `l0_error_estimate_h` | H | `\|L₀(f₁,f₂) − L₀(f₂,f₃)\|`; `null` with two anchors |
+| `l0_error_estimate_rel` | – | `l0_error_estimate_h / \|l0_h\|`; `null` with two anchors |
+| `l0_check_frequency_hz` | Hz | `f₃`, the third anchor behind the estimate; `null` with two anchors |
+| `im_z_zero_crossings_hz` | Hz | every `Im Z_kk` sign change over the solved list, ascending |
+| `srf_hz` | Hz | first entry of `im_z_zero_crossings_hz`, or `null` |
+
 **`kind = "error"`** adds `command` (the subcommand) and
 `error: { code, message }` with `code` one of `io`, `spec_parse`,
 `schema_version`, `invalid_spec`, `mesh`, `unresolved_physical_group`,
-`backend_mismatch`, `solve_failed`, `non_finite`, `not_implemented`,
-`serialize`.
+`backend_mismatch`, `solve_failed`, `non_finite`, `serialize`
+(`not_implemented` was retired once `extract` went live).
 
 ## Golden tests
 
@@ -288,3 +367,22 @@ checks the sparse Lanczos modes against the full dense solve of the same
 pencil to 1e-6 relative. This is deliberately not the
 `examples/mie_sphere` UPML benchmark, which needs UPML-as-material and
 complex quasimode eigensolvers (issue #683).
+
+`tests/slcfet_extract_golden.rs` (issue #682) re-expresses the SLCFET 3HP
+spiral benchmark (`geode-core/tests/slcfet_3hp_benchmark.rs`, issue #212
+— the only fixture with a validated f → 0 `L₀` oracle chain) as an
+extract spec and runs `geode extract`:
+
+```sh
+cargo test -p geode-cli --test slcfet_extract_golden                              # smoke mesh, default CI
+cargo test -p geode-cli --release --test slcfet_extract_golden -- --ignored       # 77k-edge benchmark mesh
+```
+
+The smoke mesh is a different geometry (`d_in` = 60 µm vs 100 µm), so
+its tier holds `l0_h` to **library parity** (an in-process
+`driven_frequency_sweep` + `extrapolate_l0` on the bundled fixture, 1e-9
+relative, plus `Z` at the anchors) and loose physical sanity. The
+ignored benchmark tier holds `L₀` to the existing bands — 1 % of the
+committed `benchmarks/slcfet_3hp/results.toml` `L₀`, 5 % of the mom-PEEC
+oracle (2.155 nH), 10 % of Mohan — and the SRF to the calibrated
+28–38 GHz band.

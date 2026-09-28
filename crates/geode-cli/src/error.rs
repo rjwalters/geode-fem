@@ -81,9 +81,31 @@ pub enum CliError {
         /// What was non-finite.
         what: String,
     },
-    /// Subcommand reserved for a later phase.
-    #[error("`geode {0}` is not implemented yet (tracked in issue {1})")]
-    NotImplemented(&'static str, &'static str),
+    /// `geode extract`: the `L₀` consistency estimate exceeds the spec's
+    /// `extract.l0_rel_tol` gate — the anchors are not yet in the
+    /// asymptotic `L(f) ≈ L₀ − a·f²` regime.
+    #[error(
+        "L0 extrapolation did not converge for port {port}: relative consistency estimate \
+         {rel:.3e} exceeds extract.l0_rel_tol = {tol:.3e} (L0 = {l0_h:.6e} H from anchors \
+         {:.6e} / {:.6e} Hz, re-extrapolated with {check_hz:.6e} Hz); move the anchors lower \
+         toward f -> 0 or loosen l0_rel_tol",
+        .anchors_hz[0],
+        .anchors_hz[1]
+    )]
+    L0NotConverged {
+        /// Port index.
+        port: usize,
+        /// The extrapolated `L₀` (H).
+        l0_h: f64,
+        /// The two anchor frequencies (Hz).
+        anchors_hz: [f64; 2],
+        /// The third anchor behind the estimate (Hz).
+        check_hz: f64,
+        /// Relative consistency estimate.
+        rel: f64,
+        /// The gate.
+        tol: f64,
+    },
     /// JSON serialization of the report failed.
     #[error("cannot serialize report: {0}")]
     Serialize(serde_json::Error),
@@ -121,9 +143,10 @@ impl CliError {
             CliError::Mesh { .. } => "mesh",
             CliError::UnresolvedGroups { .. } => "unresolved_physical_group",
             CliError::BackendMismatch { .. } => "backend_mismatch",
-            CliError::Solve(_) | CliError::EigenSolve(_) => "solve_failed",
+            CliError::Solve(_) | CliError::EigenSolve(_) | CliError::L0NotConverged { .. } => {
+                "solve_failed"
+            }
             CliError::NonFinite { .. } => "non_finite",
-            CliError::NotImplemented(..) => "not_implemented",
             CliError::Serialize(_) => "serialize",
         }
     }

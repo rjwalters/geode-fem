@@ -1,12 +1,12 @@
 //! Resolve a [`ProblemSpec`] against its mesh into solver-ready inputs.
 //!
-//! This is the shared front half of `check`, `driven` and `eigen`: parse
-//! the spec, validate it for the analysis it describes
+//! This is the shared front half of `check`, `driven`, `eigen` and
+//! `extract`: parse the spec, validate it for the analysis it describes
 //! ([`crate::spec::Analysis`]), load the tagged mesh
 //! ([`geode_core::mesh::read_tagged_tet_mesh`]), bind every named physical
 //! group, convert SI inputs to the solver's natural units, and build the
-//! PEC edge mask. `check` stops here; `driven` hands the result to the
-//! sweep, `eigen` to the cavity eigensolve.
+//! PEC edge mask. `check` stops here; `driven` and `extract` hand the
+//! result to the frequency sweep, `eigen` to the cavity eigensolve.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -115,6 +115,38 @@ impl EigenTarget {
     }
 }
 
+/// Where the `L₀` anchors of an extract spec come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnchorSource {
+    /// The spec's `frequencies` (no `extract.anchor_frequencies`).
+    Frequencies,
+    /// `extract.anchor_frequencies`.
+    AnchorFrequencies,
+}
+
+impl AnchorSource {
+    /// Spec field name, as used in reports.
+    pub fn name(self) -> &'static str {
+        match self {
+            AnchorSource::Frequencies => "frequencies",
+            AnchorSource::AnchorFrequencies => "anchor_frequencies",
+        }
+    }
+}
+
+/// A resolved `extract` section.
+#[derive(Debug, Clone)]
+pub struct ExtractTarget {
+    /// Indices into [`Problem::frequencies`] of the distinct `L₀` anchor
+    /// frequencies, ascending (`≥ 2`).
+    pub anchors: Vec<usize>,
+    /// Where the anchors came from.
+    pub source: AnchorSource,
+    /// Optional relative convergence gate on the `L₀` consistency
+    /// estimate.
+    pub l0_rel_tol: Option<f64>,
+}
+
 /// A fully resolved problem, ready for `check` reporting or a solve.
 #[derive(Debug, Clone)]
 pub struct Problem {
@@ -140,12 +172,17 @@ pub struct Problem {
     pub leontovich: Vec<Leontovich>,
     /// Lumped ports, in spec order.
     pub ports: Vec<Port>,
-    /// Frequencies, in spec order (empty for an eigen spec).
+    /// Frequencies to solve: spec order for a driven spec; for an
+    /// extract spec the ascending union of `frequencies` and
+    /// `extract.anchor_frequencies` with duplicates collapsed; empty for
+    /// an eigen spec.
     pub frequencies: Vec<Frequency>,
     /// Which analysis the spec describes.
     pub analysis: Analysis,
     /// The resolved `eigen` section (eigen specs only).
     pub eigen: Option<EigenTarget>,
+    /// The resolved `extract` section (extract specs only).
+    pub extract: Option<ExtractTarget>,
 }
 
 impl Problem {
@@ -201,18 +238,17 @@ fn invalid(msg: impl Into<String>) -> CliError {
 /// mesh is read.
 pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliError> {
     let spec = read_spec(spec_path)?;
+    if spec.eigen.is_some() && spec.extract.is_some() {
+        return Err(invalid(
+            "a spec describes one analysis: it cannot have both an `eigen` and an `extract` \
+             section",
+        ));
+    }
     let analysis = spec.analysis();
     if let Some(want) = expect
         && want != analysis
     {
-        return Err(invalid(match want {
-            Analysis::Eigen => "this is a driven spec (no `eigen` section); `geode eigen` needs \
-                                an `eigen` section — see crates/geode-cli/README.md"
-                .to_string(),
-            Analysis::Driven => "this is an eigen spec (it has an `eigen` section); run it with \
-                                 `geode eigen`, or drop the `eigen` section for a driven sweep"
-                .to_string(),
-        }));
+        return Err(invalid(wrong_subcommand(want, analysis)));
     }
 
     // ---- scalar validation (before touching the mesh) ----------------
@@ -247,14 +283,17 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         }
     }
     match analysis {
-        Analysis::Driven => {
+        Analysis::Driven | Analysis::Extract => {
+            let kind = analysis.name();
             if spec.ports.is_empty() {
-                return Err(invalid(
-                    "at least one lumped port is required for a driven spec",
-                ));
+                return Err(invalid(format!(
+                    "at least one lumped port is required for a `{kind}` spec"
+                )));
             }
             if spec.frequencies.is_none() {
-                return Err(invalid("a driven spec needs a `frequencies` section"));
+                return Err(invalid(format!(
+                    "a `{kind}` spec needs a `frequencies` section"
+                )));
             }
         }
         Analysis::Eigen => validate_eigen(&spec)?,
@@ -311,6 +350,23 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
     let raw_freqs = match &spec.frequencies {
         Some(f) => f.expand().map_err(invalid)?,
         None => Vec::new(),
+    };
+    // Frequencies to solve (SI + natural units) and, for an extract spec,
+    // the resolved L₀ anchors — all scalar, before the mesh is read.
+    let mut frequencies: Vec<Frequency> = match &spec.frequencies {
+        Some(fs) => raw_freqs
+            .iter()
+            .map(|&f| to_frequency(f, fs.unit, lu))
+            .collect(),
+        None => Vec::new(),
+    };
+    let extract = match &spec.extract {
+        Some(x) => {
+            let (target, solved) = resolve_extract(x, frequencies, lu)?;
+            frequencies = solved;
+            Some(target)
+        }
+        None => None,
     };
     let eigen = spec.eigen.as_ref().map(|e| EigenTarget {
         n_modes: e.n_modes,
@@ -492,15 +548,6 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
     let pec_lists: Vec<&[[u32; 3]]> = pec.iter().map(|s| s.triangles.as_slice()).collect();
     let pec_mask = pec_interior_mask_from_triangles(&edges, &pec_lists);
 
-    // ---- frequencies -------------------------------------------------
-    let frequencies = match &spec.frequencies {
-        Some(fs) => raw_freqs
-            .iter()
-            .map(|&f| to_frequency(f, fs.unit, lu))
-            .collect(),
-        None => Vec::new(),
-    };
-
     Ok(Problem {
         spec,
         mesh_path,
@@ -516,7 +563,109 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         frequencies,
         analysis,
         eigen,
+        extract,
     })
+}
+
+/// The `invalid_spec` message for running a spec under the wrong
+/// subcommand.
+fn wrong_subcommand(want: Analysis, got: Analysis) -> String {
+    let what = match got {
+        Analysis::Driven => "a driven spec (no `eigen` or `extract` section)",
+        Analysis::Eigen => "an eigen spec (it has an `eigen` section)",
+        Analysis::Extract => "an extract spec (it has an `extract` section)",
+    };
+    let fix = match want {
+        Analysis::Driven => "drop the analysis section for a plain driven sweep",
+        Analysis::Eigen => "`geode eigen` needs an `eigen` section",
+        Analysis::Extract => {
+            "`geode extract` needs an `extract` section (`\"extract\": {}` for the defaults)"
+        }
+    };
+    format!(
+        "this is {what}; run it with `geode {}`, or: {fix} — see crates/geode-cli/README.md",
+        got.name()
+    )
+}
+
+/// Relative tolerance for treating two requested frequencies as the
+/// same point (they may be given in different units).
+const SAME_FREQUENCY_REL: f64 = 1e-12;
+
+fn same_frequency(a: f64, b: f64) -> bool {
+    (a - b).abs() <= SAME_FREQUENCY_REL * a.abs().max(b.abs())
+}
+
+/// Resolve an `extract` section (scalar, before the mesh is read): the
+/// solved list becomes the ascending union of `frequencies` and the
+/// anchor ladder with duplicates collapsed, and the anchors become
+/// indices into it.
+fn resolve_extract(
+    x: &crate::spec::ExtractSpec,
+    frequencies: Vec<Frequency>,
+    lu: f64,
+) -> Result<(ExtractTarget, Vec<Frequency>), CliError> {
+    let (anchor_list, source) = match &x.anchor_frequencies {
+        Some(a) => {
+            let raw = a
+                .expand()
+                .map_err(|e| invalid(format!("extract.anchor_frequencies: {e}")))?;
+            (
+                raw.iter().map(|&f| to_frequency(f, a.unit, lu)).collect(),
+                AnchorSource::AnchorFrequencies,
+            )
+        }
+        None => (frequencies.clone(), AnchorSource::Frequencies),
+    };
+
+    let mut solved = frequencies;
+    if source == AnchorSource::AnchorFrequencies {
+        solved.extend(anchor_list.iter().copied());
+    }
+    solved.sort_by(|a, b| a.hz.total_cmp(&b.hz));
+    solved.dedup_by(|b, a| same_frequency(a.hz, b.hz));
+
+    let mut anchors: Vec<usize> = anchor_list
+        .iter()
+        .map(|f| {
+            solved
+                .iter()
+                .position(|s| same_frequency(s.hz, f.hz))
+                .expect("every anchor is in the solved union")
+        })
+        .collect();
+    anchors.sort_unstable();
+    anchors.dedup();
+    if anchors.len() < 2 {
+        return Err(invalid(format!(
+            "`geode extract` needs at least 2 distinct L0 anchor frequencies in `{}` \
+             (the f->0 extrapolation L(f) = L0 - a*f^2 has two unknowns); got {}",
+            source.name(),
+            anchors.len()
+        )));
+    }
+    if let Some(tol) = x.l0_rel_tol {
+        if !(tol.is_finite() && tol > 0.0) {
+            return Err(invalid(format!(
+                "extract.l0_rel_tol must be finite and > 0 (got {tol})"
+            )));
+        }
+        if anchors.len() < 3 {
+            return Err(invalid(format!(
+                "extract.l0_rel_tol needs at least 3 distinct anchor frequencies in `{}` \
+                 (the consistency estimate re-extrapolates from the 2nd and 3rd lowest)",
+                source.name()
+            )));
+        }
+    }
+    Ok((
+        ExtractTarget {
+            anchors,
+            source,
+            l0_rel_tol: x.l0_rel_tol,
+        },
+        solved,
+    ))
 }
 
 /// Eigen-spec rules (scalar, before the mesh is read). The eigen pencil

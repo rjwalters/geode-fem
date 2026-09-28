@@ -3,10 +3,24 @@
 //! A problem spec is a JSON (`.json`) or TOML (`.toml`) document —
 //! both go through the same [`serde::Deserialize`] impl — that binds
 //! materials, boundary conditions and lumped ports to **named** Gmsh
-//! physical groups of a mesh, and says what to solve: a **driven** spec
-//! lists lumped ports and the frequencies to sweep; an **eigen** spec
-//! (one carrying an [`EigenSpec`] `eigen` section) asks for cavity modes
-//! near a shift frequency and has no ports.
+//! physical groups of a mesh, and says what to solve. A spec describes
+//! exactly **one** analysis ([`Analysis`]), decided by which optional
+//! analysis section it carries:
+//!
+//! * no section — a **driven** spec (`geode driven`): lumped ports and
+//!   the frequencies to sweep;
+//! * an [`EigenSpec`] `eigen` section — an **eigen** spec
+//!   (`geode eigen`): cavity modes near a shift frequency, no ports;
+//! * an [`ExtractSpec`] `extract` section — an **extract** spec
+//!   (`geode extract`): a driven spec (same ports / frequencies / BCs /
+//!   solver) whose sweep is post-processed into per-port L / R / Q, the
+//!   quasi-static `L₀` (f → 0 Richardson extrapolation) and the SRF. The
+//!   section may be empty (`"extract": {}`): by default the two lowest
+//!   swept frequencies are the `L₀` anchors.
+//!
+//! Carrying both `eigen` and `extract` is rejected, and running a spec
+//! under the wrong subcommand fails with `invalid_spec` before the mesh
+//! is read.
 //! Unknown fields are rejected (`deny_unknown_fields`) so a typo never
 //! silently falls back to a default.
 //!
@@ -51,32 +65,39 @@ pub struct ProblemSpec {
     /// here are natural (PMC-like) boundaries of the weak form.
     #[serde(default)]
     pub boundary_conditions: BoundaryConditionsSpec,
-    /// Lumped ports. A `driven` spec needs at least one; an `eigen` spec
-    /// must have none (lumped ports are resistive, the eigen pencil is
-    /// lossless).
+    /// Lumped ports. A `driven` / `extract` spec needs at least one; an
+    /// `eigen` spec must have none (lumped ports are resistive, the eigen
+    /// pencil is lossless).
     #[serde(default)]
     pub ports: Vec<LumpedPortSpec>,
-    /// Frequencies to solve at. Required for a `driven` spec; not allowed
-    /// in an `eigen` spec (its target is [`EigenSpec::shift`]).
+    /// Frequencies to solve at. Required for a `driven` / `extract` spec;
+    /// not allowed in an `eigen` spec (its target is [`EigenSpec::shift`]).
     #[serde(default)]
     pub frequencies: Option<FrequencySpec>,
     /// Linear-solver selection (default: direct sparse LU).
     #[serde(default)]
     pub solver: SolverSpec,
     /// Eigenmode analysis settings. Its presence makes this an **eigen
-    /// spec** (for `geode eigen`); without it the spec is a driven spec.
+    /// spec** (for `geode eigen`).
     #[serde(default)]
     pub eigen: Option<EigenSpec>,
+    /// Inductance-extraction settings. Its presence makes this an
+    /// **extract spec** (for `geode extract`). Without `eigen` or
+    /// `extract` the spec is a driven spec.
+    #[serde(default)]
+    pub extract: Option<ExtractSpec>,
 }
 
 /// Which analysis a spec describes, decided by the presence of the
-/// `eigen` section.
+/// `eigen` / `extract` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Analysis {
     /// Port-driven frequency sweep (`geode driven`).
     Driven,
     /// Lossless eigenmode solve (`geode eigen`).
     Eigen,
+    /// Driven sweep + L / R / Q, `L₀` and SRF extraction (`geode extract`).
+    Extract,
 }
 
 impl Analysis {
@@ -85,15 +106,20 @@ impl Analysis {
         match self {
             Analysis::Driven => "driven",
             Analysis::Eigen => "eigen",
+            Analysis::Extract => "extract",
         }
     }
 }
 
 impl ProblemSpec {
-    /// The analysis this spec describes.
+    /// The analysis this spec describes. A spec carrying both `eigen` and
+    /// `extract` is ambiguous and rejected by `problem::load`; here it
+    /// classifies as eigen.
     pub fn analysis(&self) -> Analysis {
         if self.eigen.is_some() {
             Analysis::Eigen
+        } else if self.extract.is_some() {
+            Analysis::Extract
         } else {
             Analysis::Driven
         }
@@ -144,6 +170,37 @@ fn default_eigen_tol() -> f64 {
 
 fn default_eigen_residual_tol() -> f64 {
     geode_core::eigen::pec_cavity::PecCavitySettings::DEFAULT_RESIDUAL_TOL
+}
+
+/// Inductance-extraction settings (`geode extract`).
+///
+/// The sweep itself is the driven one (`ports`, `frequencies`,
+/// `boundary_conditions`, `solver`). On top of the per-frequency
+/// `L = Im Z_kk / ω`, `R = Re Z_kk`, `Q = Im Z_kk / Re Z_kk`, `geode
+/// extract` reports per port the quasi-static inductance
+/// `L₀ = lim_{f→0} L(f)` by two-point Richardson extrapolation of
+/// `L(f) ≈ L₀ − a·f²` on the two lowest **anchor** frequencies
+/// ([`geode_core::driven::extraction::extrapolate_l0`]), a consistency
+/// error estimate from the third-lowest anchor, and the self-resonant
+/// frequency (first `Im Z_kk` sign change) when the sweep brackets one.
+/// Every field is optional: `"extract": {}` is a complete section.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExtractSpec {
+    /// Explicit `L₀` anchor ladder (`≥ 2` distinct points), solved **in
+    /// addition to** `frequencies` — e.g. a fine low-frequency ladder for
+    /// `L₀` next to a coarse sweep through the SRF. Omitted: the anchors
+    /// are the spec's `frequencies` (which then need `≥ 2` distinct
+    /// points). Either way the two lowest anchors extrapolate `L₀` and
+    /// the third-lowest (if any) feeds the error estimate.
+    #[serde(default)]
+    pub anchor_frequencies: Option<FrequencySpec>,
+    /// Optional convergence gate on the extrapolation: fail the run
+    /// (`solve_failed`) if any port's relative consistency estimate
+    /// `|L₀(f₁,f₂) − L₀(f₂,f₃)| / |L₀|` exceeds it. Needs `≥ 3` anchors.
+    /// Omitted: no gate (the estimate is still reported).
+    #[serde(default)]
+    pub l0_rel_tol: Option<f64>,
 }
 
 /// Mesh file reference.
@@ -452,5 +509,26 @@ mod tests {
                 .is_err()
         );
         assert!(serde_json::from_str::<EigenSpec>(r#"{"n_modes":1,"shift":1}"#).is_err());
+    }
+
+    #[test]
+    fn extract_section_marks_an_extract_spec() {
+        let spec: ProblemSpec = serde_json::from_str(
+            r#"{"schema_version":1,
+                "mesh":{"path":"m.msh","length_unit_m":1e-6},
+                "ports":[{"physical_group":"port","e_hat":[0,1,0],"resistance_ohm":50}],
+                "frequencies":{"unit":"ghz","values":[0.1,0.2]},
+                "extract":{}}"#,
+        )
+        .unwrap();
+        assert_eq!(spec.analysis(), Analysis::Extract);
+        let x = spec.extract.unwrap();
+        assert!(x.anchor_frequencies.is_none() && x.l0_rel_tol.is_none());
+        let x: ExtractSpec = serde_json::from_str(
+            r#"{"anchor_frequencies":{"unit":"hz","values":[1e8,2e8]},"l0_rel_tol":0.01}"#,
+        )
+        .unwrap();
+        assert_eq!(x.l0_rel_tol, Some(0.01));
+        assert!(serde_json::from_str::<ExtractSpec>(r#"{"anchors":[1]}"#).is_err());
     }
 }

@@ -1,9 +1,11 @@
 //! End-to-end CLI contract tests for `geode` (issue #673 Phase 1, Epic
 //! #680): `--version`, `check` success + structured failures, eigen-spec
-//! validation (issue #681), the reserved `extract` stub, `--backend`
-//! confirmation, and the structured `solve_failed` error for a
-//! non-converging iterative solve (one iteration). The eigen solve itself
-//! is exercised by `tests/sphere_pec_golden.rs`.
+//! validation (issue #681), extract-spec validation and its `L₀`
+//! convergence gate (issue #682), `--backend` confirmation, and the
+//! structured `solve_failed` error for a non-converging iterative solve
+//! (one iteration). The eigen and extract solves themselves are
+//! exercised by `tests/sphere_pec_golden.rs` and
+//! `tests/slcfet_extract_golden.rs`.
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -285,17 +287,14 @@ spacing = "log"
 }
 
 #[test]
-fn extract_is_a_reserved_stub() {
-    let out = geode(&["extract", &smoke_spec()]);
-    let v = assert_error(&out, "extract", "not_implemented");
-    let msg = v["error"]["message"].as_str().unwrap();
-    assert!(msg.contains("not implemented yet"), "{msg}");
-    assert!(msg.contains("#682"), "{msg}");
-    // --help advertises the full intended surface.
+fn help_lists_every_subcommand() {
     let help = String::from_utf8_lossy(&geode(&["--help"]).stdout).to_string();
     for cmd in ["check", "driven", "eigen", "extract"] {
         assert!(help.contains(cmd), "--help lists {cmd}: {help}");
     }
+    let help = String::from_utf8_lossy(&geode(&["extract", "--help"]).stdout).to_string();
+    assert!(help.contains("extract"), "{help}");
+    assert!(help.contains("L0"), "{help}");
 }
 
 #[test]
@@ -325,11 +324,13 @@ fn backend_flag_only_confirms_the_compiled_backend() {
 #[test]
 fn error_report_goes_to_output_file_too() {
     let out_path = scratch("err-output").join("report.json");
+    // A driven spec under `geode extract` fails validation (no solve).
     let out = geode(&["extract", &smoke_spec(), "-o", out_path.to_str().unwrap()]);
     assert!(!out.status.success());
     let v: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&out_path).unwrap()).unwrap();
-    assert_eq!(v["error"]["code"], "not_implemented");
+    assert_eq!(v["command"], "extract");
+    assert_eq!(v["error"]["code"], "invalid_spec");
 }
 
 fn sphere_spec() -> PathBuf {
@@ -501,4 +502,180 @@ fn eigen_unconverged_lanczos_fails_with_solve_failed() {
     let msg = v["error"]["message"].as_str().unwrap();
     assert!(msg.contains("did not converge"), "{msg}");
     assert!(msg.contains("max_iters"), "{msg}");
+}
+
+/// The spiral smoke driven spec turned into an extract spec (`extract`
+/// section added), then `edit`ed.
+fn edited_extract_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> PathBuf {
+    edited_spec(name, |v| {
+        v["extract"] = serde_json::json!({});
+        edit(v);
+    })
+}
+
+#[test]
+fn check_resolves_extract_anchors() {
+    // Default anchors: the spec's own (sorted) frequencies.
+    let spec = edited_extract_spec("x-default", |v| {
+        v["frequencies"]["values"] = serde_json::json!([5.0, 1.0, 20.0]);
+    });
+    let v = json(&geode(&["check", spec.to_str().unwrap()]));
+    assert_eq!(v["analysis"], "extract");
+    assert!(v["eigen"].is_null());
+    let x = &v["extract"];
+    assert_eq!(x["anchor_source"], "frequencies");
+    assert!(x["l0_rel_tol"].is_null());
+    let hz = |a: &serde_json::Value| -> Vec<f64> {
+        a.as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["frequency_hz"].as_f64().unwrap())
+            .collect()
+    };
+    assert_eq!(hz(&x["anchor_frequencies"]), vec![1e9, 5e9, 20e9]);
+    assert_eq!(hz(&v["frequencies"]), vec![1e9, 5e9, 20e9], "ascending");
+
+    // Explicit anchor ladder, in another unit, overlapping the sweep:
+    // solved = ascending union with the shared 1 GHz point collapsed.
+    let spec = edited_extract_spec("x-anchors", |v| {
+        v["frequencies"]["values"] = serde_json::json!([10.0, 1.0]);
+        v["extract"] = serde_json::json!({
+            "anchor_frequencies": { "unit": "hz", "values": [2e8, 1e8, 1e9] },
+            "l0_rel_tol": 0.05
+        });
+    });
+    let v = json(&geode(&["check", spec.to_str().unwrap()]));
+    let x = &v["extract"];
+    assert_eq!(x["anchor_source"], "anchor_frequencies");
+    assert_eq!(x["l0_rel_tol"], 0.05);
+    assert_eq!(hz(&x["anchor_frequencies"]), vec![1e8, 2e8, 1e9]);
+    assert_eq!(hz(&v["frequencies"]), vec![1e8, 2e8, 1e9, 1e10]);
+
+    // Driven / eigen specs report `extract: null`.
+    let v = json(&geode(&["check", &smoke_spec()]));
+    assert!(v["extract"].is_null());
+}
+
+#[test]
+fn extract_and_other_subcommands_reject_each_others_specs() {
+    // A driven spec under `geode extract`.
+    let out = geode(&["extract", &smoke_spec()]);
+    let v = assert_error(&out, "extract", "invalid_spec");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("`extract` section"), "{msg}");
+    assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
+
+    // An extract spec under `geode driven` and `geode eigen`.
+    let spec = edited_extract_spec("x-wrong-cmd", |_| {});
+    for cmd in ["driven", "eigen"] {
+        let out = geode(&[cmd, spec.to_str().unwrap()]);
+        let v = assert_error(&out, cmd, "invalid_spec");
+        let msg = v["error"]["message"].as_str().unwrap();
+        assert!(msg.contains("geode extract"), "{cmd}: {msg}");
+    }
+
+    // An eigen spec under `geode extract`.
+    let out = geode(&["extract", sphere_spec().to_str().unwrap()]);
+    let v = assert_error(&out, "extract", "invalid_spec");
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("geode eigen")
+    );
+}
+
+#[test]
+fn extract_spec_validation_rejects_underdetermined_inputs() {
+    let cases: Vec<(&str, SpecEdit, &str)> = vec![
+        (
+            "x-one-freq",
+            Box::new(|v| v["frequencies"]["values"] = serde_json::json!([5.0])),
+            "at least 2 distinct L0 anchor",
+        ),
+        (
+            "x-dup-freq",
+            // 1 GHz given twice collapses to one distinct anchor.
+            Box::new(|v| v["frequencies"]["values"] = serde_json::json!([1.0, 1.0])),
+            "at least 2 distinct L0 anchor",
+        ),
+        (
+            "x-one-anchor",
+            Box::new(|v| {
+                v["extract"] = serde_json::json!({
+                    "anchor_frequencies": { "unit": "ghz", "values": [0.1] }
+                })
+            }),
+            "`anchor_frequencies`",
+        ),
+        (
+            "x-bad-anchor",
+            Box::new(|v| {
+                v["extract"] = serde_json::json!({
+                    "anchor_frequencies": { "unit": "ghz", "values": [0.1, -0.2] }
+                })
+            }),
+            "extract.anchor_frequencies",
+        ),
+        (
+            "x-tol-two-anchors",
+            Box::new(|v| {
+                v["frequencies"]["values"] = serde_json::json!([1.0, 5.0]);
+                v["extract"] = serde_json::json!({ "l0_rel_tol": 0.01 });
+            }),
+            "at least 3 distinct anchor",
+        ),
+        (
+            "x-tol-zero",
+            Box::new(|v| v["extract"] = serde_json::json!({ "l0_rel_tol": 0.0 })),
+            "extract.l0_rel_tol",
+        ),
+        (
+            "x-no-ports",
+            Box::new(|v| v["ports"] = serde_json::json!([])),
+            "lumped port",
+        ),
+        (
+            "x-and-eigen",
+            Box::new(|v| {
+                v["eigen"] = serde_json::json!({ "n_modes": 1, "unit": "ghz", "shift": 1.0 })
+            }),
+            "both an `eigen` and an `extract`",
+        ),
+    ];
+    for (name, edit, needle) in cases {
+        let spec = edited_extract_spec(name, edit);
+        for cmd in ["check", "extract"] {
+            let out = geode(&[cmd, spec.to_str().unwrap()]);
+            let v = assert_error(&out, cmd, "invalid_spec");
+            let msg = v["error"]["message"].as_str().unwrap();
+            assert!(msg.contains(needle), "{name}/{cmd}: {msg}");
+        }
+    }
+
+    // Typo in the extract section is a parse error, not a silent default.
+    let typo = edited_extract_spec("x-typo", |v| {
+        v["extract"] = serde_json::json!({ "anchors": [0.1, 0.2] })
+    });
+    assert_error(
+        &geode(&["extract", typo.to_str().unwrap()]),
+        "extract",
+        "spec_parse",
+    );
+}
+
+#[test]
+fn extract_l0_gate_fails_loudly_when_unconverged() {
+    // Three anchors spanning 1-10 GHz are nowhere near the asymptotic
+    // L(f) = L0 - a f^2 regime at a 1e-6 gate. An unconverged L0 must be a
+    // hard, structured error — never `status: ok` with a wrong L0.
+    let spec = edited_extract_spec("x-gate", |v| {
+        v["frequencies"]["values"] = serde_json::json!([1.0, 5.0, 10.0]);
+        v["extract"] = serde_json::json!({ "l0_rel_tol": 1e-6 });
+    });
+    let out = geode(&["extract", spec.to_str().unwrap()]);
+    let v = assert_error(&out, "extract", "solve_failed");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("did not converge"), "{msg}");
+    assert!(msg.contains("l0_rel_tol"), "{msg}");
 }
