@@ -469,7 +469,7 @@ spacing = "log"
 #[test]
 fn help_lists_every_subcommand() {
     let help = String::from_utf8_lossy(&geode(&["--help"]).stdout).to_string();
-    for cmd in ["check", "driven", "eigen", "extract"] {
+    for cmd in ["check", "driven", "eigen", "extract", "mesh"] {
         assert!(help.contains(cmd), "--help lists {cmd}: {help}");
     }
     let help = String::from_utf8_lossy(&geode(&["extract", "--help"]).stdout).to_string();
