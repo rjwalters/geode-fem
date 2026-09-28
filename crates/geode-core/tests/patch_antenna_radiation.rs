@@ -79,15 +79,6 @@ const PML_THICK_BENCH_MM: f64 = 25.0;
 const PML_THICK_SMOKE_MM: f64 = 8.0;
 const FLUX_SHRINK: f64 = 0.10;
 
-/// Phase-2 committed FEM resonance (`results.toml` / extraction test).
-const F_RES_FEM_GHZ: f64 = 2.274530;
-
-/// Issue #237 matched-fixture S11 dip frequency
-/// (`results_matched.toml::meta.s11_dip_f_ghz`). NTFF for the matched
-/// `pattern_matched.toml` (issue #247) is sampled here so `G = D · η`
-/// uses the matched-port radiation efficiency.
-const F_RES_MATCHED_GHZ: f64 = 2.270;
-
 const FIXTURE_PATCH: PatchCavity = PatchCavity {
     width: 38.0e-3,
     length: 29.0e-3,
@@ -111,6 +102,13 @@ struct Cut {
 /// Minimal parse of the committed `pattern.toml` (avoids a TOML dep in
 /// the test, matching `patch_antenna_extraction.rs`'s hand parse).
 struct CommittedPattern {
+    /// `[meta].f_res_ghz`: the frequency the committed pattern was
+    /// extracted at — the Phase-2 FEM resonance (`results.toml`
+    /// `f_res_fem_ghz`) for `pattern.toml`, the matched-fixture S11 dip
+    /// (`results_matched.toml` `s11_dip_f_ghz`, issue #237) for
+    /// `pattern_matched.toml`. Read live (issue #690) so the tier-3
+    /// reproductions re-solve at exactly the committed frequency.
+    f_res_ghz: f64,
     efficiency: f64,
     directivity_max: f64,
     directivity_broadside: f64,
@@ -177,6 +175,16 @@ fn committed_pattern_from(file: &str) -> CommittedPattern {
     let text = fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read committed pattern {}: {e}", path.display()));
 
+    // [meta] block (first in the file).
+    let meta_end = text.find("[results]").expect("[results] block");
+    let meta = &text[..meta_end];
+    // Issue #690: the pre-#690 artifacts came from the f32 Wgpu default
+    // (pre-#413); the committed pattern must come from an f64 backend.
+    assert!(
+        meta.lines().any(|l| l.trim() == "float_dtype = \"F64\""),
+        "{file} [meta].float_dtype must record an f64 generation backend (issue #690)"
+    );
+
     // [results] block.
     let res_pos = text.find("[results]").expect("[results] block");
     let res = &text[res_pos..];
@@ -187,6 +195,7 @@ fn committed_pattern_from(file: &str) -> CommittedPattern {
     let cav = &text[cav_pos..];
 
     CommittedPattern {
+        f_res_ghz: parse_scalar(meta, "f_res_ghz").expect("meta.f_res_ghz"),
         efficiency: parse_scalar(res, "efficiency").expect("efficiency"),
         directivity_max: parse_scalar(res, "directivity_max").expect("directivity_max"),
         directivity_broadside: parse_scalar(res, "directivity_broadside")
@@ -511,10 +520,11 @@ fn smoke_ntff_is_physical() {
 fn benchmark_fixture_pattern_matches_committed() {
     let committed = committed_pattern();
     let fixture = geode_core::mesh::read_patch_fixture().expect("bundled benchmark patch fixture");
-    let (eta, d_max, d_bs, g_bs) = solve_and_ntff(&fixture, F_RES_FEM_GHZ, PML_THICK_BENCH_MM);
+    let f_res = committed.f_res_ghz;
+    let (eta, d_max, d_bs, g_bs) = solve_and_ntff(&fixture, f_res, PML_THICK_BENCH_MM);
 
     eprintln!(
-        "benchmark NTFF @ {F_RES_FEM_GHZ} GHz: eta {eta:.4} (committed {:.4}), \
+        "benchmark NTFF @ {f_res} GHz: eta {eta:.4} (committed {:.4}), \
          D_max {d_max:.4} (committed {:.4}), D_broadside {d_bs:.4} (committed {:.4}), \
          G {g_bs:.4} (committed {:.4})",
         committed.efficiency,
@@ -563,7 +573,7 @@ fn benchmark_fixture_pattern_matches_committed() {
 
 /// Tier 3 (heavy, `#[ignore]`d, issue #247): the 31k-edge impedance-
 /// matched fixture solved at the matched-fixture S11 dip frequency
-/// (`F_RES_MATCHED_GHZ` = 2.270 GHz) reproduces the committed
+/// (`pattern_matched.toml` `[meta].f_res_ghz` = 2.270 GHz) reproduces the committed
 /// `pattern_matched.toml` directivity / efficiency / gain to 5%, and
 /// the matched gain is built from `η_matched ≈ 0.287` rather than the
 /// untuned `η ≈ 0.307`.
@@ -580,10 +590,11 @@ fn matched_fixture_pattern_matches_committed() {
     let committed = committed_matched_pattern();
     let fixture =
         geode_core::mesh::read_patch_matched_fixture().expect("bundled matched patch fixture");
-    let (eta, d_max, d_bs, g_bs) = solve_and_ntff(&fixture, F_RES_MATCHED_GHZ, PML_THICK_BENCH_MM);
+    let f_res = committed.f_res_ghz;
+    let (eta, d_max, d_bs, g_bs) = solve_and_ntff(&fixture, f_res, PML_THICK_BENCH_MM);
 
     eprintln!(
-        "matched NTFF @ {F_RES_MATCHED_GHZ} GHz: eta {eta:.4} (committed {:.4}), \
+        "matched NTFF @ {f_res} GHz: eta {eta:.4} (committed {:.4}), \
          D_max {d_max:.4} (committed {:.4}), D_broadside {d_bs:.4} (committed {:.4}), \
          G {g_bs:.4} (committed {:.4})",
         committed.efficiency,
