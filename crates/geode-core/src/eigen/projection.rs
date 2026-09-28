@@ -668,9 +668,11 @@ fn tridiag_eigenpairs(alpha: &[f64], beta: &[f64]) -> Result<(Vec<f64>, Mat<f64>
 /// an explicit `σ` strictly between the null cluster (`λ ≈ 0`) and the
 /// lowest eigenvalue of interest (both production callers, e.g.
 /// [`solve_transmon_eigenmodes_projected`], do). As a best-effort
-/// backstop the solve returns [`EigenError::DegenerateShift`] when **every**
-/// returned Ritz value collapsed onto `σ` (issue #696, see
-/// [`crate::eigen::shift_guard`]).
+/// backstop the solve returns [`EigenError::DegenerateShift`] when `σ` is
+/// numerically zero and either `K − σM` is singular along the gradient
+/// subspace (pre-solve probe) or **every** returned Ritz value collapsed
+/// onto `σ` (issue #696, see [`crate::eigen::shift_guard`]). A shift placed
+/// exactly on a nonzero eigenvalue is not rejected.
 #[derive(Debug, Clone, Copy)]
 pub struct ProjectedShiftInvertLanczos {
     /// Shift `σ = k²`; Ritz values closest to `σ` converge first. **Do not
@@ -2020,6 +2022,66 @@ mod tests {
                 .smallest_eigenpairs(k.as_ref(), m.as_ref(), &proj, n_modes)
                 .unwrap_or_else(|e| panic!("near-mode shift, n_modes={n_modes}: {e}"));
             assert_eq!(got.len(), n_modes);
+        }
+    }
+
+    /// Non-trigger on the projected path (PR #701 review): `σ` placed
+    /// **exactly** on a computed physical eigenvalue — `n_modes = 1` on a
+    /// simple eigenvalue and `n_modes ∈ {1, 2, 3}` on a triplet level of
+    /// the cube pencil (λ ≈ 20.03 on this mesh; picked as the first level
+    /// with ≥ 2 coincident values, since single-vector Lanczos under-resolves
+    /// exact multiplicity in the survey solve) — is a well-posed shift-invert
+    /// solve and must return `Ok` with every `λ` on `σ`.
+    #[test]
+    fn projected_shift_exactly_on_physical_eigenvalue_is_not_flagged() {
+        let (k, m, g) = cube_curl_curl_pencil();
+        let proj = MOrthogonalGradientProjector::build(&g, m.as_ref()).unwrap();
+        let two_pi2 = 2.0 * std::f64::consts::PI.powi(2);
+        let base = ProjectedShiftInvertLanczos {
+            sigma: 0.7 * two_pi2,
+            ..Default::default()
+        };
+        let (pairs, _) = base
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), &proj, 10)
+            .expect("physical shift must solve");
+        let l: Vec<f64> = pairs.iter().map(|p| p.lambda).collect();
+        let rel = |a: f64, b: f64| (a - b).abs() / b.abs();
+        // Group the physical (λ > 1, i.e. off the gradient null cluster)
+        // eigenvalues into numerically-degenerate levels.
+        let mut levels: Vec<(f64, usize)> = Vec::new();
+        for &x in l.iter().filter(|&&x| x > 1.0) {
+            match levels.last_mut() {
+                Some((v, c)) if rel(x, *v) < 1e-8 => *c += 1,
+                _ => levels.push((x, 1)),
+            }
+        }
+        let triplet = levels
+            .iter()
+            .find(|(_, c)| *c >= 2)
+            .unwrap_or_else(|| panic!("no multiplet among {l:?}"))
+            .0;
+        let simple = levels
+            .iter()
+            .find(|(_, c)| *c == 1)
+            .unwrap_or_else(|| panic!("no simple eigenvalue among {l:?}"))
+            .0;
+        let check = |sigma: f64, n_modes: usize| {
+            let at = ProjectedShiftInvertLanczos { sigma, ..base };
+            let (got, _) = at
+                .smallest_eigenpairs(k.as_ref(), m.as_ref(), &proj, n_modes)
+                .unwrap_or_else(|e| panic!("σ = λ = {sigma}, n_modes={n_modes}: {e}"));
+            assert_eq!(got.len(), n_modes);
+            for p in &got {
+                assert!(
+                    rel(p.lambda, sigma) < 1e-8,
+                    "σ = {sigma}, n_modes={n_modes}: λ = {} not on σ",
+                    p.lambda
+                );
+            }
+        };
+        check(simple, 1);
+        for n_modes in 1..=3 {
+            check(triplet, n_modes);
         }
     }
 }

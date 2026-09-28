@@ -93,8 +93,10 @@ use crate::eigen::shift_guard::{check_degenerate_shift, median_diag_ratio};
 /// `examples/mie_sphere`, issues #691 / #696).
 ///
 /// As a best-effort backstop both solve paths run a post-solve check and
-/// return [`EigenError::DegenerateShift`] when **every** returned Ritz value
-/// collapsed onto `σ` (see [`crate::eigen::shift_guard`]). Domain-specific
+/// return [`EigenError::DegenerateShift`] when `σ` is numerically zero and
+/// **every** returned Ritz value collapsed onto it (see
+/// [`crate::eigen::shift_guard`]). A shift placed exactly on a nonzero
+/// eigenvalue (mode tracking) is not rejected. Domain-specific
 /// drivers that *know* their pencil has a null space should also reject
 /// `σ ≤ 0` up front, as
 /// [`crate::eigen::pec_cavity::solve_pec_cavity_modes`] does.
@@ -1139,6 +1141,81 @@ mod tests {
             );
             near.smallest_eigenpairs(k.as_ref(), m.as_ref(), n_modes)
                 .unwrap_or_else(|e| panic!("near-mode eigenpairs, n_modes={n_modes}: {e}"));
+        }
+    }
+
+    /// Non-trigger (PR #701 review): a shift placed **exactly** on a
+    /// computed physical eigenvalue is a well-posed shift-invert solve
+    /// (mode tracking / continuation re-solves at `σ = λ_prev`), even though
+    /// every returned Ritz value then sits on `σ`. Covers `n_modes = 1` on a
+    /// simple eigenvalue and `n_modes ∈ {1, 2, 3}` on the cube's lowest
+    /// physical level (a triplet, λ ≈ 23.50), on both solve paths. Single-vector
+    /// Lanczos under-resolves exact multiplicity in the survey solve (it
+    /// returns two copies), so the level is picked as the first with ≥ 2
+    /// coincident values; `n_modes = 3` at `σ` then asserts all three copies.
+    #[test]
+    fn shift_exactly_on_physical_eigenvalue_is_not_flagged() {
+        let (k, m) = cube_curl_curl_complex_pencil();
+        let two_pi2 = 2.0 * core::f64::consts::PI.powi(2);
+        let base = SparseComplexShiftInvertLanczos {
+            sigma: 0.7 * two_pi2,
+            max_iters: 64,
+            tol: 1e-9,
+        };
+        let l: Vec<f64> = base
+            .smallest_complex_pencil_eigenvalues(k.as_ref(), m.as_ref(), 10)
+            .expect("physical shift must solve")
+            .iter()
+            .map(|z| z.re)
+            .collect();
+        let rel = |a: f64, b: f64| (a - b).abs() / b.abs();
+        // Group the physical (λ > 1, i.e. off the gradient null cluster)
+        // eigenvalues into numerically-degenerate levels.
+        let mut levels: Vec<(f64, usize)> = Vec::new();
+        for &x in l.iter().filter(|&&x| x > 1.0) {
+            match levels.last_mut() {
+                Some((v, c)) if rel(x, *v) < 1e-8 => *c += 1,
+                _ => levels.push((x, 1)),
+            }
+        }
+        let triplet = levels
+            .iter()
+            .find(|(_, c)| *c >= 2)
+            .unwrap_or_else(|| panic!("no multiplet among {l:?}"))
+            .0;
+        let simple = levels
+            .iter()
+            .find(|(_, c)| *c == 1)
+            .unwrap_or_else(|| panic!("no simple eigenvalue among {l:?}"))
+            .0;
+
+        let check = |sigma: f64, n_modes: usize| {
+            let at = SparseComplexShiftInvertLanczos { sigma, ..base };
+            let got = at
+                .smallest_complex_pencil_eigenvalues(k.as_ref(), m.as_ref(), n_modes)
+                .unwrap_or_else(|e| panic!("σ = λ = {sigma}, n_modes={n_modes}: {e}"));
+            assert_eq!(got.len(), n_modes);
+            for z in &got {
+                assert!(
+                    rel(z.re, sigma) < 1e-8 && z.im.abs() < 1e-8 * sigma,
+                    "σ = {sigma}, n_modes={n_modes}: λ = {z:?} not on σ"
+                );
+            }
+            let pairs = at
+                .smallest_eigenpairs(k.as_ref(), m.as_ref(), n_modes)
+                .unwrap_or_else(|e| panic!("eigenpairs σ = λ = {sigma}, n_modes={n_modes}: {e}"));
+            assert_eq!(pairs.len(), n_modes);
+            for p in &pairs {
+                assert!(
+                    rel(p.lambda.re, sigma) < 1e-8,
+                    "eigenpairs σ = {sigma}, n_modes={n_modes}: λ = {:?} not on σ",
+                    p.lambda
+                );
+            }
+        };
+        check(simple, 1);
+        for n_modes in 1..=3 {
+            check(triplet, n_modes);
         }
     }
 }

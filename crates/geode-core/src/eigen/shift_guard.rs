@@ -22,24 +22,43 @@
 //! `1.3e-16 × scale` of the shift; with `σ = 1` the same solve returns the
 //! physical TM₁,₁ multiplet at `λ ≈ 1.20` (distance `0.28` from `σ`).
 //!
-//! # Detector 1 — post-solve collapse check (both solvers)
+//! # Detector 1 — post-solve zero-collapse check (both solvers)
 //!
-//! `check_degenerate_shift` fires iff **every** returned Ritz value lies
-//! within [`DEGENERATE_SHIFT_REL_TOL`] `×` pencil scale of `σ`, where the
-//! pencil scale is the median diagonal ratio `|K_ii| / |M_ii|`
-//! (`median_diag_ratio`). The conditions are chosen so the detector
-//! cannot fire on a legitimate solve:
+//! With `τ = `[`DEGENERATE_SHIFT_REL_TOL`]` × scale`, where the pencil
+//! scale is the median diagonal ratio `|K_ii| / |M_ii|`
+//! (`median_diag_ratio`), `check_degenerate_shift` fires iff **both**
 //!
-//! * **"every"**, not "any": a shift placed *near* (even very near) a
-//!   physical eigenvalue still resolves the other requested modes at
-//!   distances of order the spectral gap, so the set is not collapsed. The
-//!   detector only fires when the shift sits on a cluster of at least
-//!   `n_modes` eigenvalues to ~10 digits — which is exactly the
-//!   singular-`A` condition.
+//! 1. `|σ| ≤ τ` — the shift is numerically zero, **and**
+//! 2. **every** returned Ritz value satisfies `|λ_i − σ| ≤ τ` (hence
+//!    `|λ_i| ≤ 2τ`) — the whole returned set collapsed onto `0 ≈ σ`.
+//!
+//! In words: it fires only when a numerically-zero shift returned nothing
+//! but numerically-zero eigenvalues, i.e. the solve collapsed onto a null
+//! space of `K` (a pencil with eigenvalues at `0` has singular `K` by
+//! definition). This covers every #696 instance, including `n_modes = 1`,
+//! and uses the same `σ ≈ 0` gating as the projected pre-solve probe.
+//!
+//! It deliberately does **not** fire when `σ` sits on a *nonzero*
+//! eigenvalue. `A = K − σM` is then singular too — for a simple eigenvalue
+//! as much as for a multiplet — but that is harmless for shift-invert:
+//! inverse iteration at an exact eigenvalue converges immediately to the
+//! right eigenspace. Re-solving at `σ = λ_prev` (mode tracking,
+//! continuation, parameter sweeps) is a normal pattern, so with
+//! `n_modes ≤` the multiplicity every returned `λ_i ≈ σ` legitimately and
+//! must not be rejected. The one ambiguous case is a pencil with an
+//! *intended* eigenvalue at exactly `0`, solved at `σ ≈ 0` with `n_modes`
+//! no larger than that eigenvalue's multiplicity: it is rejected, because
+//! on the FEM pencils this crate builds a zero eigenvalue is the gradient
+//! null space. The other choices:
+//!
+//! * **"every"**, not "any": at `σ = 0` on a pencil whose null cluster is
+//!   smaller than `n_modes`, the remaining requested modes resolve at the
+//!   spectral gap and the set is not collapsed, so the solve passes.
 //! * **`1e-10 × scale`**: the collapse is at the `ε ≈ 1e-16` level, while a
-//!   genuine eigenvalue gap on an FEM pencil is of order `λ_min ~ scale·h²`;
-//!   the tolerance leaves ~6 orders of margin on each side (a false
-//!   positive would need `h/L ≲ 1e-5`).
+//!   genuine nonzero eigenvalue on an FEM pencil is of order
+//!   `λ_min ~ scale·h²`; the tolerance leaves ~6 orders of margin on each
+//!   side (a physical mode would be mistaken for zero only at
+//!   `h/L ≲ 1e-5`).
 //! * **median** diagonal ratio, not a max-norm ratio: a few rows with a huge
 //!   penalty or port term inflate `max|K|` but not the median, so the scale
 //!   (and hence the threshold) cannot be blown up by a handful of entries.
@@ -67,10 +86,10 @@ use faer::sparse::SparseColMatRef;
 
 use crate::eigen::dense::EigenError;
 
-/// Relative tolerance (in units of the pencil scale, see
-/// the median `|K_ii| / |M_ii|`) within which a Ritz value is considered to have
-/// collapsed onto the shift `σ`. See the module docs for the margin
-/// analysis.
+/// Relative tolerance (in units of the pencil scale, the median
+/// `|K_ii| / |M_ii|`) within which the shift `σ` and a Ritz value's
+/// distance from it are considered numerically zero. See the module docs
+/// for the margin analysis.
 pub const DEGENERATE_SHIFT_REL_TOL: f64 = 1e-10;
 
 /// Median over rows of `|K_ii| / |M_ii|` (rows with `M_ii = 0` or
@@ -115,9 +134,12 @@ pub(crate) fn median_diag_ratio<T: Copy>(
     *median
 }
 
-/// Return [`EigenError::DegenerateShift`] if **every** distance
-/// `|λ_i − σ|` in `dists` is at most
-/// [`DEGENERATE_SHIFT_REL_TOL`]` × pencil_scale`; `Ok(())` otherwise.
+/// Return [`EigenError::DegenerateShift`] iff, with
+/// `τ = `[`DEGENERATE_SHIFT_REL_TOL`]` × pencil_scale`, `|σ| ≤ τ` **and**
+/// every distance `|λ_i − σ|` in `dists` is at most `τ` (a NaN distance
+/// counts as within `τ`); `Ok(())` otherwise. A shift sitting on a
+/// *nonzero* eigenvalue (simple or multiple) is never rejected — see the
+/// module docs.
 ///
 /// A no-op (always `Ok`) for an empty `dists` or a non-positive /
 /// non-finite `pencil_scale` (no meaningful scale to compare against).
@@ -130,6 +152,11 @@ pub(crate) fn check_degenerate_shift(
         return Ok(());
     }
     let threshold = DEGENERATE_SHIFT_REL_TOL * pencil_scale;
+    // Only a numerically-zero shift can signal a null-space collapse; a
+    // shift on a nonzero eigenvalue is a well-posed shift-invert solve.
+    if sigma.is_nan() || sigma.abs() > threshold {
+        return Ok(());
+    }
     // A NaN distance (a broken Ritz value) counts as collapsed.
     let collapsed = dists.iter().all(|d| d.is_nan() || *d <= threshold);
     if collapsed {
@@ -218,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn fires_only_when_every_ritz_value_collapsed_onto_the_shift() {
+    fn fires_only_on_a_zero_shift_with_every_ritz_value_collapsed() {
         let scale = 65.0;
         // Mie-fixture-like collapse: all distances at the 1e-16 relative level.
         let collapsed = [5.6e-19, 1.0e-16, 8.3e-15];
@@ -238,6 +265,16 @@ mod tests {
         // σ very close to a physical eigenvalue (1e-9 relative to scale) but
         // its neighbors resolved at the spectral gap: not degenerate.
         assert!(check_degenerate_shift(1.2, &[6.5e-8, 0.3, 1.4], scale).is_ok());
+        // σ exactly on a nonzero eigenvalue (simple, n_modes = 1, or a
+        // multiplet with n_modes ≤ multiplicity): every λ_i ≈ σ, but this is
+        // a legitimate shift-invert solve (mode tracking) — never rejected.
+        assert!(check_degenerate_shift(23.5, &[0.0], scale).is_ok());
+        assert!(check_degenerate_shift(23.5, &[1e-15, 2e-15, 3e-15], scale).is_ok());
+        // A tiny but not-numerically-zero shift (above 1e-10 × scale) with a
+        // collapsed set is also not flagged: the gating is on σ ≈ 0.
+        assert!(check_degenerate_shift(1e-6, &[0.0, 0.0], scale).is_ok());
+        // σ within the zero tolerance (not exactly 0) still fires.
+        assert!(check_degenerate_shift(1e-12, &collapsed, scale).is_err());
         // NaN distance counts as collapsed.
         assert!(check_degenerate_shift(0.0, &[f64::NAN], scale).is_err());
         // No scale / no values → no-op.
