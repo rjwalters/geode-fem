@@ -74,17 +74,47 @@ const FIXTURE_PATCH: PatchCavity = PatchCavity {
     tan_delta: 0.02,
 };
 
-/// Phase-2 committed resonance from `benchmarks/patch_antenna/results.toml`
-/// (issue #228). Tuning the feed shifts the *match*, not f_res — any
-/// drift > ~3 % between the matched fixture and this value is a red flag
-/// (the tuning probe inset entered the resonant-cavity field as well as
-/// the input-resistance taper).
-const F_RES_PHASE2_GHZ: f64 = 2.274530;
-
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
+}
+
+/// Assert a committed artifact's `[meta].float_dtype` is `"F64"`.
+///
+/// Issue #690: the pre-#690 artifacts came from the f32 Wgpu default
+/// (pre-#413). At the generating commit that shifted the sweep by only
+/// ~1e-4, but today's pipeline on an f32 backend moves Im Z_in by up to
+/// ~80 % on this fixture, so committed artifacts must come from f64.
+fn assert_f64_provenance(doc: &toml::Value, file: &str) {
+    let dtype = doc
+        .get("meta")
+        .and_then(|m| m.get("float_dtype"))
+        .and_then(|v| v.as_str());
+    assert_eq!(
+        dtype,
+        Some("F64"),
+        "{file} [meta].float_dtype must record an f64 generation backend (issue #690)"
+    );
+}
+
+/// Phase-2 committed resonance, read live from
+/// `benchmarks/patch_antenna/results.toml` `[meta].f_res_fem_ghz`
+/// (issue #228; derived rather than hardcoded since issue #690 so a
+/// regeneration cannot leave it stale). Tuning the feed shifts the
+/// *match*, not f_res — any drift > ~3 % between the matched fixture and
+/// this value is a red flag (the tuning probe inset entered the
+/// resonant-cavity field as well as the input-resistance taper).
+fn f_res_phase2_ghz() -> f64 {
+    let path = repo_root().join("benchmarks/patch_antenna/results.toml");
+    let raw = fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read committed results {}: {e}", path.display()));
+    let doc: toml::Value = toml::from_str(&raw).expect("results.toml is valid TOML");
+    assert_f64_provenance(&doc, "results.toml");
+    doc.get("meta")
+        .and_then(|m| m.get("f_res_fem_ghz"))
+        .and_then(|v| v.as_float())
+        .expect("results.toml meta.f_res_fem_ghz")
 }
 
 struct Row {
@@ -112,6 +142,7 @@ fn committed_matched_results() -> Committed {
     let raw = fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read committed matched results {}: {e}", path.display()));
     let doc: toml::Value = toml::from_str(&raw).expect("results_matched.toml is valid TOML");
+    assert_f64_provenance(&doc, "results_matched.toml");
 
     let meta = doc.get("meta").expect("[meta] table");
     let getf = |k: &str| meta.get(k).and_then(|v| v.as_float());
@@ -189,17 +220,18 @@ fn committed_matched_results_meet_acceptance_criteria() {
     let f_res_fem = c
         .f_res_fem_ghz
         .expect("matched sweep brackets an Im Z = 0 resonance");
-    let drift = (f_res_fem - F_RES_PHASE2_GHZ) / F_RES_PHASE2_GHZ;
+    let f_res_phase2 = f_res_phase2_ghz();
+    let drift = (f_res_fem - f_res_phase2) / f_res_phase2;
     eprintln!(
         "f_res drift from Phase 2: matched {:.4} GHz vs phase2 {:.4} GHz ({:+.2} %)",
         f_res_fem,
-        F_RES_PHASE2_GHZ,
+        f_res_phase2,
         100.0 * drift
     );
     assert!(
         drift.abs() < 0.03,
         "issue #237: tuning the feed should not move f_res — got {drift:+.4} \
-         (matched {f_res_fem:.4} GHz vs phase 2 {F_RES_PHASE2_GHZ:.4} GHz). \
+         (matched {f_res_fem:.4} GHz vs phase 2 {f_res_phase2:.4} GHz). \
          If it drifts more than ~3 % the inset is changing the cavity field \
          too aggressively (re-tune)."
     );

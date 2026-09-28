@@ -125,6 +125,15 @@ fn committed_results() -> Committed {
     let doc: toml::Value = toml::from_str(&raw).expect("results.toml is valid TOML");
 
     let meta = doc.get("meta").expect("[meta] table");
+    // Issue #690: the pre-#690 artifact came from the f32 Wgpu default
+    // (pre-#413). At the generating commit that shifted the sweep by only
+    // ~1e-4, but today's pipeline on an f32 backend moves Im Z_in by ~16 %,
+    // so the committed artifact must come from an f64 backend.
+    assert_eq!(
+        meta.get("float_dtype").and_then(|v| v.as_str()),
+        Some("F64"),
+        "results.toml [meta].float_dtype must record an f64 generation backend (issue #690)"
+    );
     let f_res_fem_ghz = meta.get("f_res_fem_ghz").and_then(|v| v.as_float());
     let s11_dip_db = meta
         .get("s11_dip_db")
