@@ -2,8 +2,9 @@
 //! mesh + starter spec, end to end through the real binary.
 //!
 //! * **No Gmsh needed**: the `gmsh_not_found` error (explicit `--gmsh`
-//!   and an empty `PATH`) and the `spec_parse` / `invalid_spec` layout
-//!   errors — layout validation runs before Gmsh is looked up.
+//!   and an empty `PATH`), the `spec_parse` / `invalid_spec` layout
+//!   errors — layout validation runs before Gmsh is looked up — and (Unix)
+//!   `--gmsh-timeout` killing a hung stub Gmsh as `gmsh_failed`.
 //! * **Gmsh** (default tier): a tiny two-pad layout with a matched-UPML
 //!   boundary runs `geode mesh` → `geode check` → `geode driven` on the
 //!   **unedited** starter spec, and meshing is reproducible (identical
@@ -191,6 +192,45 @@ fn missing_gmsh_is_a_clear_actionable_error() {
     assert!(msg.contains("`gmsh`") && msg.contains("PATH"), "{msg}");
     assert!(msg.contains("brew install gmsh"), "{msg}");
     assert!(!mesh.exists(), "no mesh on failure");
+}
+
+/// A hung Gmsh is killed after `--gmsh-timeout` and reported as
+/// `gmsh_failed` (no real Gmsh needed: a stub that answers `--version`
+/// and then sleeps).
+#[cfg(unix)]
+#[test]
+fn hung_gmsh_times_out_with_gmsh_failed() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch("gmsh-timeout");
+    let layout = dir.join("layout.json");
+    write_json(&layout, &tiny_layout());
+    let mesh = dir.join("m.msh");
+    let stub = dir.join("fake-gmsh");
+    std::fs::write(
+        &stub,
+        "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 4.12.1; exit 0; fi\nexec sleep 30\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let start = std::time::Instant::now();
+    let out = geode(&[
+        "mesh",
+        s(&layout),
+        "--mesh-out",
+        s(&mesh),
+        "--gmsh",
+        s(&stub),
+        "--gmsh-timeout",
+        "1",
+    ]);
+    let msg = assert_error(&out, "gmsh_failed");
+    assert!(msg.contains("--gmsh-timeout 1 s"), "{msg}");
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(20),
+        "the stub was not killed on timeout"
+    );
+    assert!(!mesh.exists(), "no mesh on timeout");
+    assert!(dir.join("m.geo").exists(), "script kept on timeout");
 }
 
 #[test]
@@ -478,8 +518,13 @@ fn spiral_smoke_layout_golden() {
         100.0 * rel(l, wl),
         100.0 * rel(r, wr)
     );
+    // New sanity bands, not the issue-#211 oracle bands: measured L +0.15% /
+    // R -5.2% on both Gmsh 4.12.1 (CI) and 4.15.2; the R offset is the
+    // meshed-interior Leontovich approximation (see `leontovich_variant`),
+    // and the bands leave ~2x (R) / ~20x (L) headroom for cross-version
+    // mesh differences. Not a physics tolerance.
     assert!(rel(l, wl).abs() < 0.03, "L off the committed smoke fixture");
-    assert!(rel(r, wr).abs() < 0.15, "R off the committed smoke fixture");
+    assert!(rel(r, wr).abs() < 0.10, "R off the committed smoke fixture");
 }
 
 #[test]

@@ -489,7 +489,7 @@ predicted from the mesh).
 ## Layout → mesh (`geode mesh`, issue #704)
 
 ```sh
-geode mesh <layout.json|layout.toml> [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [-o report.json]
+geode mesh <layout.json|layout.toml> [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [--gmsh-timeout SECONDS] [-o report.json]
 ```
 
 `geode mesh` turns a **layout** — 2-D rectilinear polygons per conductor
@@ -512,7 +512,9 @@ parse) does not need a hand-built `.msh`:
    Tet4 / Tri3** only. Meshing is pinned single-threaded
    (`General.NumThreads = 1`, Delaunay 3-D) so the same layout and Gmsh
    version reproduce the same mesh bytes; the report records the Gmsh
-   version and the SHA-256 of the layout, script and mesh;
+   version and the SHA-256 of the layout, script and mesh. The run is
+   killed after `--gmsh-timeout` seconds (default 600, `0` = no limit)
+   and reported as `gmsh_failed`, with the script kept;
 4. read the mesh back through `geode_core::mesh::read_tagged_tet_mesh`
    and fail with `gmsh_failed` unless every generated group has elements
    and every tet is tagged;
@@ -525,6 +527,38 @@ parse) does not need a hand-built `.msh`:
    writes it, with `mesh.path` relative to the spec when both share a
    directory. `-o` is the report, as for every subcommand; the mesh
    defaults to the layout path with a `.msh` extension.
+
+   The unedited starter spec models every conductor as **PEC**, so it
+   gives **L only**: `R ≈ 0` (lossless conductors), and `Q` is limited
+   only by dielectric loss and the UPML. That L is meaningful — on the
+   spiral benchmark layout it lands within ~1 % of the same PEC model on
+   the committed hand-built mesh. For R / Q, move the conductor groups
+   from `pec` to `leontovich` (keep `outer_boundary` PEC), subject to the
+   thick-conductor caveat below:
+
+   ```json
+   "boundary_conditions": {
+     "pec": ["outer_boundary"],
+     "leontovich": [{ "physical_group": "m1", "conductivity_s_m": 5.8e7 },
+                    { "physical_group": "m2", "conductivity_s_m": 5.8e7 }]
+   }
+   ```
+
+**Thick conductors and Leontovich.** A conductor layer with
+`thickness > 0` becomes a closed shell whose interior stays **meshed**
+as part of the surrounding dielectric (it is not boolean-subtracted).
+Under PEC that interior is field-free, so it does not matter. Switched
+to Leontovich, though, the shell behaves as a resistive sheet over a
+dielectric-filled interior, not the hollow excluded cavity of the
+hand-built benchmark meshes. Also, the bounding-box face selection tags
+every face inside a thick conductor's footprint × z-range (e.g. a slab
+interface cutting through a via), which is harmless under PEC but adds
+extra resistive sheets inside the conductor under Leontovich. So with
+thick conductors from `geode mesh`, **L is reliable** (benchmark tier:
++0.35 % vs the committed `results.toml`, inside the #211 oracle bands)
+while **R / Q under a hand-swapped Leontovich model are approximate**
+(≈ −5 % R on the spiral smoke layout) until the hollow-cavity follow-up
+lands. Zero-thickness sheets (`thickness = 0`) are not affected.
 
 Automatically named physical groups:
 
@@ -576,7 +610,7 @@ the m1 underpass and the vias):
 | `conductors[]` | | conductor layers, all modelled as **PEC** |
 | `conductors[].name` | name | surface group name |
 | `conductors[].z_bottom` | length | strictly inside the stack |
-| `conductors[].thickness` | length ≥ 0, default `0` | `0`: zero-thickness PEC **sheets** at `z_bottom`; `> 0`: closed PEC **shells** (every face of the extruded solid; the interior stays meshed and is field-free under PEC). Vias are conductor layers spanning the metal layers they join |
+| `conductors[].thickness` | length ≥ 0, default `0` | `0`: zero-thickness PEC **sheets** at `z_bottom`; `> 0`: closed PEC **shells** (every face of the extruded solid; the interior stays meshed and is field-free under PEC; see the Leontovich caveat above). Vias are conductor layers spanning the metal layers they join |
 | `conductors[].polygons[]` | ≥ 1 | shapes of the layer |
 | `….polygons[].name` | name, optional | unique within the layer; referenced by `ports[].between` |
 | `….polygons[].outer` | `[[x, y], …]` | simple **rectilinear** ring (every edge parallel to x or y), ≥ 4 vertices, either orientation, closing vertex optional |
@@ -782,8 +816,11 @@ the generated groups / roles / counts, `geode check` on the starter spec,
 a tiny two-pad UPML layout driven end to end on its **unedited** starter
 spec (and re-meshed to identical bytes), and — with the benchmark's
 Leontovich copper swapped onto the generated conductor groups — the
-smoke spiral's 1 GHz L within 3 % and R within 15 % of
-`results_smoke.toml`. The ignored tier holds the generic spiral's 1 GHz
+smoke spiral's 1 GHz L within 3 % and R within 10 % of
+`results_smoke.toml` (new sanity bands with headroom over the measured
++0.15 % L / −5.2 % R on Gmsh 4.12.1 and 4.15.2, not the #211 oracle
+bands; the R offset is the meshed-interior Leontovich approximation
+described under [Layout → mesh](#layout--mesh-geode-mesh-issue-704)). The ignored tier holds the generic spiral's 1 GHz
 L to the issue-#211 oracle bands (Mohan current-sheet 10 %, projected
 mom-PEEC mean 12 %, inside the mom bracket) and to 2 % of the committed
 `results.toml`, and the unedited PEC starter spec to 2 % of the same PEC

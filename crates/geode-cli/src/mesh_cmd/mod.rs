@@ -16,8 +16,10 @@
 //!    (inline in the report, and to `--spec-out`), so
 //!    `geode mesh … --spec-out s.json && geode driven s.json` runs.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant};
 
 use clap::Args;
 use serde::Serialize;
@@ -38,6 +40,10 @@ use crate::spec::{
 /// Environment variable naming the Gmsh binary (below `--gmsh`).
 pub const GMSH_ENV: &str = "GEODE_GMSH";
 
+/// Default wall-clock limit on the Gmsh mesh run (`--gmsh-timeout`), in
+/// seconds.
+pub const DEFAULT_GMSH_TIMEOUT_S: u64 = 600;
+
 /// `geode mesh` arguments.
 #[derive(Args)]
 pub struct MeshArgs {
@@ -56,6 +62,11 @@ pub struct MeshArgs {
     /// Gmsh binary. Default: `$GEODE_GMSH`, else `gmsh` on `PATH`.
     #[arg(long, value_name = "PATH")]
     gmsh: Option<PathBuf>,
+    /// Wall-clock limit on the Gmsh mesh run, in seconds; Gmsh is killed
+    /// and `gmsh_failed` reported when it is exceeded. `0` disables the
+    /// limit.
+    #[arg(long = "gmsh-timeout", value_name = "SECONDS", default_value_t = DEFAULT_GMSH_TIMEOUT_S)]
+    gmsh_timeout: u64,
     /// Write the JSON report here instead of stdout.
     #[arg(short = 'o', long = "output", value_name = "PATH")]
     output: Option<PathBuf>,
@@ -214,6 +225,69 @@ pub fn find_gmsh(flag: Option<&Path>) -> Result<(PathBuf, String), CliError> {
     Ok((binary, version))
 }
 
+/// Captured output of a finished child process.
+struct ChildOutput {
+    status: ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+/// Run `cmd` to completion, capturing stdout / stderr. With a `timeout`,
+/// the child is killed once it is exceeded and `Ok(None)` is returned.
+/// Spawn / wait failures are `Err`.
+fn run_with_timeout(
+    mut cmd: Command,
+    timeout: Option<Duration>,
+) -> std::io::Result<Option<ChildOutput>> {
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    // Drain both pipes on their own threads so a chatty child cannot block
+    // on a full pipe while we poll for exit.
+    let drain = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut buf);
+            }
+            buf
+        })
+    };
+    let out_t = drain(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let err_t = drain(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let start = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break Some(status);
+        }
+        if timeout.is_some_and(|t| start.elapsed() >= t) {
+            let _ = child.kill();
+            let _ = child.wait();
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let stdout = out_t.join().unwrap_or_default();
+    let stderr = err_t.join().unwrap_or_default();
+    Ok(status.map(|status| ChildOutput {
+        status,
+        stdout,
+        stderr,
+    }))
+}
+
 /// Last `n` lines of `text` (for failure diagnostics).
 fn tail(text: &str, n: usize) -> String {
     let lines: Vec<&str> = text.lines().collect();
@@ -249,15 +323,27 @@ fn run(a: &MeshArgs, provenance: Provenance) -> Result<MeshReport, CliError> {
         _ => {}
     }
 
-    let out = Command::new(&gmsh)
-        .arg(&geo_path)
+    let mut cmd = Command::new(&gmsh);
+    cmd.arg(&geo_path)
         .args(["-3", "-format", "msh41", "-v", "4", "-nopopup", "-o"])
-        .arg(&mesh_path)
-        .output()
+        .arg(&mesh_path);
+    let timeout = (a.gmsh_timeout > 0).then(|| Duration::from_secs(a.gmsh_timeout));
+    let out = run_with_timeout(cmd, timeout)
         .map_err(|e| CliError::GmshNotFound {
             binary: gmsh.clone(),
             source_desc: "resolved binary",
             detail: e.to_string(),
+        })?
+        .ok_or_else(|| {
+            CliError::GmshFailed(format!(
+                "`{} {} -3 …` did not finish within --gmsh-timeout {} s and was killed; \
+                 script kept at `{}` (coarsen `mesh.*` sizes or raise --gmsh-timeout, \
+                 0 = no limit)",
+                gmsh.display(),
+                geo_path.display(),
+                a.gmsh_timeout,
+                geo_path.display()
+            ))
         })?;
     let log = format!(
         "{}{}",
