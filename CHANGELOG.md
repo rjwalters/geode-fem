@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-28
+
+This release completes the `geode` CLI's second phase: alongside `check`
+and `driven`, it now computes cavity eigenmodes (`eigen`), extracts L/R/Q
+with a quasi-static f→0 L₀ extrapolation (`extract`), handles open
+radiating problems with wave ports and UPML / Silver-Müller boundaries,
+exports fields and far-field patterns, and writes Touchstone files for
+EDA tools. Every committed benchmark artifact produced through a Burn
+backend was audited for float precision. Three had been generated in
+f32, and CI now enforces f64 provenance. The audit also uncovered a
+singular σ = 0 shift that had silently broken the sparse Mie eigensolve;
+it is fixed and now guarded.
+
+### Added
+
+#### `geode` CLI — Phase 2 (Epic #680)
+
+- `geode eigen`: lossless PEC-cavity eigenmodes via sparse shift-invert
+  Lanczos, with a residual acceptance gate (`eigen.residual_tol`) so a
+  non-converged solve fails with `solve_failed` instead of reporting wrong
+  modes. Golden test: dielectric sphere in a PEC cavity vs analytic Mie
+  roots (#681, #685).
+- `geode extract`: per-frequency L/R/Q, the quasi-static L₀ via
+  Richardson extrapolation (optional `l0_rel_tol` gate) and SRF. Golden
+  test: SLCFET 3HP, L₀ −2.6 % vs MoM-PEEC (#682, #686).
+- Open boundaries and wave ports in the problem spec: box UPML
+  (`absorbing_regions`), Silver-Müller walls, and wave ports built from a
+  tagged mesh face. Golden test: patch antenna, f_res −6.5 % vs the
+  Balanis cavity model (#683, #688).
+- `--outdir`: opt-in VTU field export and NTFF far-field results
+  (directivity, gain, efficiency, principal-plane cuts). The NTFF box is
+  validated before the sweep (#684, #694, #697, #699).
+- `--touchstone <PATH>` on `driven` / `extract`: Touchstone 2.0 `.sNp`
+  output (S-parameters, RI, per-port `[Reference]` impedances), referenced
+  from the report with its sha256; wave-port specs and `eigen` are
+  rejected up front (#703, #711).
+- `geode check` reports `resources`: nnz(A) and order-of-magnitude
+  memory/time estimates for the chosen solver, calibrated on a 1.16M-DOF
+  run and documented with measured error bars (#703, #711).
+- Spec and report stay schema v1; all changes are additive.
+
+#### Library
+
+- `geode_core::eigen::pec_cavity`: tagged mesh + named PEC group +
+  materials → eigenmodes (#685).
+- `geode_core::driven::extraction::extrapolate_l0`: public, panic-free
+  replacement for two duplicated private helpers (#686).
+- Wave-port construction from a tagged planar mesh face
+  (`driven::ports::wave_face`) (#688).
+- `EigenError::DegenerateShift`: the sparse complex and projected
+  shift-invert Lanczos solvers now reject a degenerate σ ≈ 0 solve that
+  collapses onto the gradient null space instead of returning spurious
+  modes (#696, #701).
+- Shared benchmark-provenance helpers in `geode-util` (`BackendInfo`,
+  oracle-block carry-through on regeneration) (#689).
+
+### Changed
+
+- CI: a `benchmark_provenance` guard classifies every committed benchmark
+  artifact and requires f64 provenance on Burn-backed ones. CI also now
+  runs the default tiers of the spiral, SLCFET and patch benchmark tests,
+  which never ran there before (#692, #698, #700).
+
+### Fixed
+
+- Benchmark artifacts that were generated on the f32 `wgpu` backend,
+  now regenerated in f64:
+  - SLCFET 3HP: Q and R had been ~2× off (#687, #689).
+  - patch antenna: negligible drift (#690, #695).
+- `examples/mie_sphere` used a singular σ = 0 Lanczos shift and on main
+  returned only null-space modes. It now uses σ = 1.0, and the committed
+  results were regenerated (TM₁,₁ ~5.7 %, TE₁,₁ ~1 %, TM₂,₁ 0.5–2.3 %)
+  (#691, #693).
+- The same σ = 0 bug in the ignored sparse Mie test and the
+  `mie_end_to_end` benchmark; earlier sparse timings from that
+  benchmark are invalid (#696, #701).
+- A stray tracked `.loom-managed` worktree marker (#679).
+
 ## [0.4.0] - 2026-09-27
 
 This release gives GEODE-FEM a headless command-line driver: a `geode`
