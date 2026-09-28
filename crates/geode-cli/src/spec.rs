@@ -118,12 +118,20 @@ pub struct EigenSpec {
     /// Shift / target frequency in `unit` (`> 0`).
     pub shift: f64,
     /// Lanczos basis size (default `160`). Raise it when modes are
-    /// nearly degenerate or when `n_modes` is large.
+    /// nearly degenerate or when `n_modes` is large. Too small a basis
+    /// leaves modes unconverged: any returned mode whose relative
+    /// residual exceeds [`EigenSpec::residual_tol`] fails the run with
+    /// `solve_failed` (never silently wrong frequencies).
     #[serde(default = "default_eigen_max_iters")]
     pub max_iters: usize,
     /// Lanczos relative convergence tolerance (default `1e-9`).
     #[serde(default = "default_eigen_tol")]
     pub tol: f64,
+    /// Per-mode acceptance bound on the relative eigen-residual
+    /// `‖K x − λ M x‖ / (|λ| ‖M x‖)` (default `1e-6`). A mode above it is
+    /// unconverged and fails the run with `solve_failed`.
+    #[serde(default = "default_eigen_residual_tol")]
+    pub residual_tol: f64,
 }
 
 fn default_eigen_max_iters() -> usize {
@@ -132,6 +140,10 @@ fn default_eigen_max_iters() -> usize {
 
 fn default_eigen_tol() -> f64 {
     geode_core::eigen::pec_cavity::PecCavitySettings::DEFAULT_TOL
+}
+
+fn default_eigen_residual_tol() -> f64 {
+    geode_core::eigen::pec_cavity::PecCavitySettings::DEFAULT_RESIDUAL_TOL
 }
 
 /// Mesh file reference.
@@ -433,6 +445,7 @@ mod tests {
         let e = spec.eigen.unwrap();
         assert_eq!(e.max_iters, 160);
         assert_eq!(e.tol, 1e-9);
+        assert_eq!(e.residual_tol, 1e-6);
         // Unknown eigen keys and a missing unit are rejected.
         assert!(
             serde_json::from_str::<EigenSpec>(r#"{"n_modes":1,"unit":"hz","shift":1,"x":1}"#)

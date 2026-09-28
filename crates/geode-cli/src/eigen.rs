@@ -31,6 +31,7 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<EigenReport, CliE
     let settings = PecCavitySettings {
         max_iters: target.max_iters,
         tol: target.tol,
+        residual_tol: target.residual_tol,
         ..PecCavitySettings::new(target.sigma(), target.n_modes)
     };
 

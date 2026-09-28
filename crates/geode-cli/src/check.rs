@@ -84,6 +84,7 @@ pub fn eigen_settings_summary(p: &Problem) -> Option<EigenSettingsSummary> {
         sigma: e.sigma(),
         max_iters: e.max_iters,
         tol: e.tol,
+        residual_tol: e.residual_tol,
     })
 }
 

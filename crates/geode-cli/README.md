@@ -117,8 +117,9 @@ Driven example (the spiral-inductor golden input,
 | `eigen.n_modes` | int ≥ 1 | physical modes to return |
 | `eigen.unit` | `"hz"` \| `"ghz"` \| `"k0"`, **required** | unit of `shift` |
 | `eigen.shift` | float > 0 | shift / target frequency: the modes **closest** to it are returned, ascending. Place it just **below** the lowest mode of interest (see below) |
-| `eigen.max_iters` | int ≥ 1, default `160` | Lanczos basis size; raise it for many modes or tight near-degenerate multiplets |
+| `eigen.max_iters` | int ≥ 1, default `160` | Lanczos basis size; raise it for many modes or tight near-degenerate multiplets. Too small a basis leaves modes unconverged, which fails the run (see `eigen.residual_tol`) |
 | `eigen.tol` | float > 0, default `1e-9` | Lanczos relative convergence tolerance |
+| `eigen.residual_tol` | float > 0, default `1e-6` | per-mode acceptance bound on the relative eigen-residual `‖Kx − λMx‖ / (\|λ\| ‖Mx‖)`; if any returned mode exceeds it the run fails with `solve_failed` (non-zero exit) |
 
 Eigen example (the sphere-cavity golden input,
 `tests/fixtures/sphere_pec_golden.json` — a dielectric sphere,
@@ -150,7 +151,17 @@ lowest mode you want — with a shift far below it the basis is spent on
 the nullspace, with a shift far above it you get the modes around the
 shift instead. If fewer than `n_modes` physical modes are resolved the
 run fails with `solve_failed` (never a silently short list); raise
-`max_iters` or move `shift`. The solver backend is fixed (pure-Rust
+`max_iters` or move `shift`.
+
+**Convergence gate.** Lanczos returns whatever Ritz pairs its basis
+yields, converged or not, so every returned mode's relative residual
+`‖Kx − λMx‖ / (|λ| ‖Mx‖)` is checked against `eigen.residual_tol`
+(default `10⁻⁶`). If any mode exceeds it the run fails with
+`solve_failed` and a non-zero exit, naming the worst mode, its `λ` and
+residual — never a silently wrong frequency list. Fix it by raising
+`max_iters` or moving `shift`. A converged run reports the actual
+residuals in `modes[].residual_rel` and `solver.residual_rel_max`
+(the sphere golden case sits near `10⁻¹³`). The solver backend is fixed (pure-Rust
 Lanczos, no ARPACK knob) — a backend choice is a possible future
 additive field.
 
@@ -192,7 +203,7 @@ bytes), `length_unit_m`, `n_nodes`, `n_tets`, `n_edges` (Nédélec DOFs),
 (`frequency_hz`, `k0`; empty for an eigen spec), `solver` (`mode`, `tol`,
 `max_iters`), `analysis` (`"driven"` \| `"eigen"`) and `eigen` (`null`
 for a driven spec, else `n_modes`, `shift_hz`, `shift_k0`, `sigma` =
-`shift_k0²`, `max_iters`, `tol`). `ports[]` is empty for an eigen spec.
+`shift_k0²`, `max_iters`, `tol`, `residual_tol`). `ports[]` is empty for an eigen spec.
 
 **`kind = "driven"`** adds:
 

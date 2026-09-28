@@ -99,6 +99,25 @@ pub enum PecCavityError {
         /// The shift.
         sigma: f64,
     },
+    /// A selected mode's relative eigen-residual exceeds
+    /// [`PecCavitySettings::residual_tol`]: the Lanczos basis did not
+    /// converge it, so its `λ` is not a trustworthy eigenvalue. Reports
+    /// the **worst** offending mode.
+    #[error(
+        "eigensolve did not converge: mode {index} (λ = {lambda}) has relative residual \
+         {residual_rel:e} > bound {bound:e} (raise max_iters, or move sigma closer to the \
+         band of interest)"
+    )]
+    NotConverged {
+        /// Index (in the ascending returned order) of the worst mode.
+        index: usize,
+        /// Its Ritz value.
+        lambda: f64,
+        /// Its relative residual (may be non-finite).
+        residual_rel: f64,
+        /// The acceptance bound it exceeded.
+        bound: f64,
+    },
 }
 
 /// Settings for [`solve_pec_cavity_modes`].
@@ -117,6 +136,11 @@ pub struct PecCavitySettings {
     /// Gradient-nullspace filter: Ritz values `λ ≤ null_tol_rel · σ` are
     /// classified as the curl-free near-kernel and dropped.
     pub null_tol_rel: f64,
+    /// Acceptance bound on each returned mode's relative eigen-residual
+    /// [`PecCavityMode::residual_rel`]. If any selected mode exceeds it
+    /// the solve fails with [`PecCavityError::NotConverged`] rather than
+    /// returning unconverged Ritz values (default `1e-6`).
+    pub residual_tol: f64,
 }
 
 impl PecCavitySettings {
@@ -126,6 +150,8 @@ impl PecCavitySettings {
     pub const DEFAULT_TOL: f64 = 1e-9;
     /// Default gradient-nullspace filter (relative to `σ`).
     pub const DEFAULT_NULL_TOL_REL: f64 = 1e-3;
+    /// Default per-mode relative-residual acceptance bound.
+    pub const DEFAULT_RESIDUAL_TOL: f64 = 1e-6;
 
     /// Settings with the defaults for everything but `sigma` / `n_modes`.
     pub fn new(sigma: f64, n_modes: usize) -> Self {
@@ -135,6 +161,7 @@ impl PecCavitySettings {
             max_iters: Self::DEFAULT_MAX_ITERS,
             tol: Self::DEFAULT_TOL,
             null_tol_rel: Self::DEFAULT_NULL_TOL_REL,
+            residual_tol: Self::DEFAULT_RESIDUAL_TOL,
         }
     }
 }
@@ -146,7 +173,10 @@ pub struct PecCavityMode {
     pub lambda: f64,
     /// Resonant wavenumber `k₀ = √λ` in rad per mesh length unit.
     pub k0: f64,
-    /// Relative eigen-residual `‖K x − λ M x‖₂ / (|λ| ‖M x‖₂)`.
+    /// Relative eigen-residual `‖K x − λ M x‖₂ / (|λ| ‖M x‖₂)` (with `σ`
+    /// in place of `|λ|` for an exactly-zero `λ`, which can only survive
+    /// the null filter when `null_tol_rel = 0`). Always
+    /// `≤ settings.residual_tol` for a returned mode.
     pub residual_rel: f64,
     /// `M_ε`-normalized eigenvector over the **interior** edges (the
     /// `true` entries of the PEC mask, in global edge order).
@@ -286,7 +316,10 @@ fn norm2(v: &[f64]) -> f64 {
 /// [`PecCavityError::InvalidInput`] for malformed inputs/settings,
 /// [`PecCavityError::Eigen`] if the factorization or Lanczos fails, and
 /// [`PecCavityError::TooFewModes`] if fewer than `n_modes` physical modes
-/// were resolved (never a silently short list).
+/// were resolved (never a silently short list), and
+/// [`PecCavityError::NotConverged`] if any selected mode's relative
+/// residual exceeds [`PecCavitySettings::residual_tol`] (never silently
+/// unconverged eigenvalues).
 pub fn solve_pec_cavity_modes<B: Backend>(
     mesh: &TetMesh,
     eps_r: &[f64],
@@ -318,6 +351,12 @@ pub fn solve_pec_cavity_modes<B: Backend>(
         return Err(invalid(format!(
             "null_tol_rel must be finite and ≥ 0 (got {})",
             s.null_tol_rel
+        )));
+    }
+    if !(s.residual_tol.is_finite() && s.residual_tol > 0.0) {
+        return Err(invalid(format!(
+            "residual_tol must be finite and > 0 (got {})",
+            s.residual_tol
         )));
     }
 
@@ -360,13 +399,20 @@ pub fn solve_pec_cavity_modes<B: Backend>(
         });
     }
 
-    let modes = physical
+    let modes: Vec<PecCavityMode> = physical
         .into_iter()
         .map(|p| {
             let kx = spmv(k.as_ref(), &p.vector);
             let mx = spmv(m.as_ref(), &p.vector);
             let r: Vec<f64> = kx.iter().zip(&mx).map(|(a, b)| a - p.lambda * b).collect();
-            let residual_rel = norm2(&r) / (p.lambda.abs() * norm2(&mx));
+            // An exactly-zero λ can only get here with `null_tol_rel = 0`;
+            // normalize by σ (> 0, validated) instead of dividing by zero.
+            let scale = if p.lambda != 0.0 {
+                p.lambda.abs()
+            } else {
+                s.sigma
+            };
+            let residual_rel = norm2(&r) / (scale * norm2(&mx));
             PecCavityMode {
                 lambda: p.lambda,
                 k0: p.lambda.sqrt(),
@@ -375,6 +421,26 @@ pub fn solve_pec_cavity_modes<B: Backend>(
             }
         })
         .collect();
+
+    // Residual acceptance gate: Lanczos returns whatever Ritz pairs its
+    // basis yields, converged or not. Reject the worst offender (a NaN
+    // residual counts as the worst possible).
+    let worst = modes
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.residual_rel.is_nan() || m.residual_rel > s.residual_tol)
+        .max_by(|(_, a), (_, b)| {
+            let key = |x: f64| if x.is_nan() { f64::INFINITY } else { x };
+            key(a.residual_rel).total_cmp(&key(b.residual_rel))
+        });
+    if let Some((index, m)) = worst {
+        return Err(PecCavityError::NotConverged {
+            index,
+            lambda: m.lambda,
+            residual_rel: m.residual_rel,
+            bound: s.residual_tol,
+        });
+    }
     Ok(PecCavityModes {
         modes,
         n_interior,
@@ -518,5 +584,49 @@ mod tests {
             run(&eps, &vec![false; mask.len()], ok),
             Err(PecCavityError::EmptyInterior)
         ));
+        for bad in [0.0, -1e-6, f64::NAN, f64::INFINITY] {
+            assert!(matches!(
+                run(
+                    &eps,
+                    &mask,
+                    PecCavitySettings {
+                        residual_tol: bad,
+                        ..ok
+                    }
+                ),
+                Err(PecCavityError::InvalidInput(_))
+            ));
+        }
+    }
+
+    /// A Lanczos basis far too small to converge the requested modes must
+    /// fail with `NotConverged` instead of returning unconverged Ritz
+    /// values as eigenvalues.
+    #[test]
+    fn unconverged_lanczos_is_rejected() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let mask = cube_mask(&mesh);
+        let eps = vec![1.0; mesh.n_tets()];
+        let two_pi2 = 2.0 * std::f64::consts::PI.powi(2);
+        let settings = PecCavitySettings {
+            max_iters: 4,
+            ..PecCavitySettings::new(0.7 * two_pi2, 3)
+        };
+        match solve_pec_cavity_modes::<B>(&mesh, &eps, &mask, &settings, &device()) {
+            Err(PecCavityError::NotConverged {
+                index,
+                residual_rel,
+                bound,
+                ..
+            }) => {
+                assert!(index < 3);
+                assert_eq!(bound, PecCavitySettings::DEFAULT_RESIDUAL_TOL);
+                assert!(
+                    residual_rel.is_nan() || residual_rel > bound,
+                    "residual {residual_rel}"
+                );
+            }
+            other => panic!("expected NotConverged, got {other:?}"),
+        }
     }
 }

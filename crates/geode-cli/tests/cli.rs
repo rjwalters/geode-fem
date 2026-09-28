@@ -375,6 +375,7 @@ fn check_reports_the_analysis_kind() {
     assert_eq!(e["shift_k0"], 1.0);
     assert_eq!(e["sigma"], 1.0);
     assert_eq!(e["max_iters"], 160);
+    assert_eq!(e["residual_tol"], 1e-6);
     // k0 = 1 rad/cm → f = c / (2π · 0.01 m) ≈ 4.771 GHz.
     let f = e["shift_hz"].as_f64().unwrap();
     assert!((f - 4.771_345_159e9).abs() < 1e3, "{f}");
@@ -386,22 +387,16 @@ fn eigen_and_driven_reject_the_other_spec_kind() {
     // A driven spec (no `eigen` section) under `geode eigen`.
     let out = geode(&["eigen", &smoke_spec()]);
     let v = assert_error(&out, "eigen", "invalid_spec");
-    assert!(
-        v["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("`eigen` section")
-    );
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("`eigen` section"), "{msg}");
+    assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
 
     // An eigen spec under `geode driven`.
     let out = geode(&["driven", sphere_spec().to_str().unwrap()]);
     let v = assert_error(&out, "driven", "invalid_spec");
-    assert!(
-        v["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("geode eigen")
-    );
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("geode eigen"), "{msg}");
+    assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
 }
 
 /// A boxed in-place edit of a spec's JSON.
@@ -452,6 +447,11 @@ fn eigen_spec_validation_rejects_lossy_or_driven_inputs() {
             "eigen.n_modes",
         ),
         (
+            "eig-restol0",
+            Box::new(|v| v["eigen"]["residual_tol"] = 0.0.into()),
+            "eigen.residual_tol",
+        ),
+        (
             "eig-iterative",
             Box::new(|v| v["solver"] = serde_json::json!({"mode": "iterative"})),
             "direct",
@@ -486,4 +486,19 @@ fn driven_non_converging_iterative_solve_fails_with_solve_failed() {
     });
     let out = geode(&["driven", spec.to_str().unwrap()]);
     assert_error(&out, "driven", "solve_failed");
+}
+
+#[test]
+fn eigen_unconverged_lanczos_fails_with_solve_failed() {
+    // An 8-vector Lanczos basis cannot converge 5 sphere modes (residuals
+    // up to ~17 before the gate existed). Unconverged Ritz values must be
+    // a hard, structured error — never `status: ok` with wrong frequencies.
+    let spec = edited_eigen_spec("eig-no-converge", |v| {
+        v["eigen"]["max_iters"] = 8.into();
+    });
+    let out = geode(&["eigen", spec.to_str().unwrap()]);
+    let v = assert_error(&out, "eigen", "solve_failed");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("did not converge"), "{msg}");
+    assert!(msg.contains("max_iters"), "{msg}");
 }

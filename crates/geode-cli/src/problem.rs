@@ -104,6 +104,8 @@ pub struct EigenTarget {
     pub max_iters: usize,
     /// Lanczos tolerance.
     pub tol: f64,
+    /// Per-mode relative-residual acceptance bound.
+    pub residual_tol: f64,
 }
 
 impl EigenTarget {
@@ -204,9 +206,11 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         && want != analysis
     {
         return Err(invalid(match want {
-            Analysis::Eigen => "this is a driven spec (no `eigen` section); `geode eigen` needs                  an `eigen` section — see crates/geode-cli/README.md"
+            Analysis::Eigen => "this is a driven spec (no `eigen` section); `geode eigen` needs \
+                                an `eigen` section — see crates/geode-cli/README.md"
                 .to_string(),
-            Analysis::Driven => "this is an eigen spec (it has an `eigen` section); run it with                  `geode eigen`, or drop the `eigen` section for a driven sweep"
+            Analysis::Driven => "this is an eigen spec (it has an `eigen` section); run it with \
+                                 `geode eigen`, or drop the `eigen` section for a driven sweep"
                 .to_string(),
         }));
     }
@@ -313,6 +317,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         shift: to_frequency(e.shift, e.unit, lu),
         max_iters: e.max_iters,
         tol: e.tol,
+        residual_tol: e.residual_tol,
     });
 
     // ---- mesh --------------------------------------------------------
@@ -539,6 +544,12 @@ fn validate_eigen(spec: &ProblemSpec) -> Result<(), CliError> {
         return Err(invalid(format!(
             "eigen.tol must be finite and > 0 (got {})",
             e.tol
+        )));
+    }
+    if !(e.residual_tol.is_finite() && e.residual_tol > 0.0) {
+        return Err(invalid(format!(
+            "eigen.residual_tol must be finite and > 0 (got {})",
+            e.residual_tol
         )));
     }
     if !spec.ports.is_empty() {

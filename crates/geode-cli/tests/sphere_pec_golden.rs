@@ -106,7 +106,8 @@ fn sphere_pec_cavity_golden_matches_mie_roots() {
             (f_hz - want_hz).abs() < 1e-12 * want_hz,
             "f = k0 c / (2π L)"
         );
-        assert!(residual < 1e-6, "mode {i} residual {residual}");
+        // Well under the `eigen.residual_tol` gate (1e-6).
+        assert!(residual < 1e-9, "mode {i} residual {residual}");
 
         let closest = analytic
             .iter()

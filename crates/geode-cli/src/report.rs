@@ -165,6 +165,8 @@ pub struct EigenSettingsSummary {
     pub max_iters: usize,
     /// Lanczos tolerance.
     pub tol: f64,
+    /// Per-mode relative-residual acceptance bound.
+    pub residual_tol: f64,
 }
 
 /// `geode check` report (`kind = "check"`).
