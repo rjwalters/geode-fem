@@ -1,7 +1,7 @@
 # geode-cli — the `geode` binary
 
-Headless, JSON-in / JSON-out driver for GEODE-FEM solves (issue #673,
-Phase 1). A problem spec (JSON or TOML) plus a Gmsh mesh go in; exactly
+Headless, JSON-in / JSON-out driver for GEODE-FEM solves (issue #673;
+Phase 2 tracked in Epic #680). A problem spec (JSON or TOML) plus a Gmsh mesh go in; exactly
 one JSON report comes out on stdout (or `-o <path>`).
 
 ```sh
@@ -10,14 +10,15 @@ geode --version                                     # geode 0.3.0 (<git-sha>[-di
 geode check  spec.json                              # validate + DOF counts, no solve
 geode driven spec.json -o report.json               # frequency sweep → Z / Y / S, L / R / Q
 geode driven spec.toml --threads 8 --backend ndarray
+geode eigen  cavity.json -o modes.json              # lossless PEC-cavity modes → f
 ```
 
-| Subcommand | Phase 1 status |
+| Subcommand | Status |
 |---|---|
 | `check`   | live — parse + validate spec, load mesh, resolve every named physical group, report DOF counts; never solves |
 | `driven`  | live — lumped-port frequency sweep with PEC + Leontovich BCs, direct LU or COCG |
-| `eigen`   | reserved — parses, exits non-zero with `not_implemented` (Phase 2) |
-| `extract` | reserved — parses, exits non-zero with `not_implemented` (Phase 2) |
+| `eigen`   | live (#681) — lossless PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; `Q` is `null` (lossless) |
+| `extract` | reserved — parses, exits non-zero with `not_implemented` (issue #682) |
 
 ## Host behavior
 
@@ -50,7 +51,21 @@ geode driven spec.toml --threads 8 --backend ndarray
 
 Unknown fields are rejected everywhere (a typo never silently falls back
 to a default). `.toml` files are parsed as TOML, anything else as JSON —
-both through the same schema. Example (the spiral-inductor golden input,
+both through the same schema.
+
+A spec describes **one** analysis, decided by the presence of the
+`eigen` section:
+
+- **driven spec** (no `eigen`): needs `ports` (≥ 1) and `frequencies`;
+  run with `geode driven`.
+- **eigen spec** (has `eigen`): must not have `ports`, `frequencies` or
+  Leontovich walls, and every `eps_r` must be real (`im = 0`); run with
+  `geode eigen`.
+
+Running a spec under the other subcommand fails with `invalid_spec`;
+`geode check` validates either kind and reports which (`analysis`).
+
+Driven example (the spiral-inductor golden input,
 `tests/fixtures/spiral_golden_smoke.json`):
 
 ```json
@@ -78,28 +93,82 @@ both through the same schema. Example (the spiral-inductor golden input,
 | `mesh.length_unit_m` | float > 0, **required** | metres per mesh length unit (`1e-6` = micron mesh). Every SI ↔ natural-unit conversion depends on it |
 | `materials[]` | | per-volume-region scalar permittivity; unlisted regions are vacuum (`check` reports which) |
 | `materials[].physical_group` | string | name of a **dimension-3** physical group |
-| `materials[].eps_r` | `[re, im]`, `im ≤ 0` | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
+| `materials[].eps_r` | `[re, im]`, `im ≤ 0` (eigen: `im = 0`, `re > 0`) | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
 | `boundary_conditions.pec[]` | strings | **dimension-2** groups whose edges are eliminated (tangential E = 0). Unnamed surfaces are natural (PMC-like) boundaries |
 | `boundary_conditions.leontovich[]` | | good-conductor surface impedance `Z_s = (1+j)·√(ωμ₀/2σ)` |
 | `….leontovich[].physical_group` | string | dimension-2 group |
 | `….leontovich[].conductivity_s_m` | float > 0, S/m | converted to natural units `σ·η₀·length_unit_m` |
-| `ports[]` | ≥ 1 entry | uniform (Palace-style) lumped ports; index order = matrix order |
+| `ports[]` | driven: ≥ 1 entry; eigen: absent | uniform (Palace-style) lumped ports; index order = matrix order |
 | `ports[].physical_group` | string | dimension-2 group holding the port faces |
 | `ports[].e_hat` | `[x, y, z]`, non-zero | gap direction (normalized on load) |
 | `ports[].resistance_ohm` | float > 0, Ω | termination **and** S-parameter reference impedance |
 | `ports[].width` | optional, mesh units | extent across `ê`; default `area / length` of the tagged faces |
 | `ports[].length` | optional, mesh units | gap extent along `ê`; default: extent of the tagged faces along `ê` |
 | `ports[].v_inc` | `[re, im]`, default `[1, 0]` | incident drive voltage (non-zero) |
+| `frequencies` | driven: **required**; eigen: absent | the frequencies to sweep |
 | `frequencies.unit` | `"hz"` \| `"ghz"` \| `"k0"`, **required** | `k0` = the solver's natural unit `ω/c` in **rad per mesh length unit** |
 | `frequencies.values` | floats > 0 | explicit list, **or** … |
 | `frequencies.start` / `stop` / `count` | floats > 0, int ≥ 1 | … an inclusive sweep |
 | `frequencies.spacing` | `"linear"` (default) \| `"log"` | sweep spacing |
 | `solver.mode` | `"direct"` (default) \| `"iterative"` | sparse LU per frequency, or COCG with a Jacobi preconditioner built once per frequency |
 | `solver.tol` / `solver.max_iters` | iterative only; default `1e-10` / `5000` | relative-residual tolerance / per-RHS budget; exceeding the budget is a hard error (`solve_failed`, non-zero exit). Jacobi-preconditioned COCG can stall on ill-conditioned low-frequency conductor problems (e.g. the spiral fixture); prefer `direct` there |
+| `solver.mode` (eigen) | `"direct"` only | the eigen path always factors `K − σM` once with sparse LU; `"iterative"` is rejected |
+| `eigen` | optional section | its presence makes this an eigen spec |
+| `eigen.n_modes` | int ≥ 1 | physical modes to return |
+| `eigen.unit` | `"hz"` \| `"ghz"` \| `"k0"`, **required** | unit of `shift` |
+| `eigen.shift` | float > 0 | shift / target frequency: the modes **closest** to it are returned, ascending. Place it just **below** the lowest mode of interest (see below) |
+| `eigen.max_iters` | int ≥ 1, default `160` | Lanczos basis size; raise it for many modes or tight near-degenerate multiplets. Too small a basis leaves modes unconverged, which fails the run (see `eigen.residual_tol`) |
+| `eigen.tol` | float > 0, default `1e-9` | Lanczos relative convergence tolerance |
+| `eigen.residual_tol` | float > 0, default `1e-6` | per-mode acceptance bound on the relative eigen-residual `‖Kx − λMx‖ / (\|λ\| ‖Mx‖)`; if any returned mode exceeds it the run fails with `solve_failed` (non-zero exit) |
+
+Eigen example (the sphere-cavity golden input,
+`tests/fixtures/sphere_pec_golden.json` — a dielectric sphere,
+`n = 1.5`, inside a PEC spherical wall):
+
+```json
+{
+  "schema_version": 1,
+  "mesh": { "path": "../../../geode-core/tests/fixtures/sphere.msh", "length_unit_m": 0.01 },
+  "materials": [{ "physical_group": "sphere_interior", "eps_r": [2.25, 0.0] }],
+  "boundary_conditions": { "pec": ["outer_boundary"] },
+  "eigen": { "n_modes": 5, "unit": "k0", "shift": 1.0 }
+}
+```
+
+**What `geode eigen` solves.** The lossless first-order Nédélec pencil
+`K x = k₀² M_ε x` (curl-curl stiffness, `ε_r`-weighted mass, `μ_r = 1`)
+on the edges left after PEC elimination, assembled sparse and solved by
+the pure-Rust sparse shift-invert Lanczos
+(`geode_core::eigen::pec_cavity`) around `σ = k₀,shift²`. Surfaces not
+named PEC are natural (PMC-like) boundaries, as for `driven`.
+
+**Shift placement.** `K` has a large nullspace (the discrete gradients,
+`k₀ = 0`), and Lanczos converges the Ritz values closest to the shift
+first. `shift > 0` is required (a zero shift makes `K − σM` singular);
+Ritz values with `k₀² ≤ 10⁻³ · σ` are classified as gradient nullspace
+and dropped (`solver.n_null_filtered`). Put `shift` just below the
+lowest mode you want — with a shift far below it the basis is spent on
+the nullspace, with a shift far above it you get the modes around the
+shift instead. If fewer than `n_modes` physical modes are resolved the
+run fails with `solve_failed` (never a silently short list); raise
+`max_iters` or move `shift`.
+
+**Convergence gate.** Lanczos returns whatever Ritz pairs its basis
+yields, converged or not, so every returned mode's relative residual
+`‖Kx − λMx‖ / (|λ| ‖Mx‖)` is checked against `eigen.residual_tol`
+(default `10⁻⁶`). If any mode exceeds it the run fails with
+`solve_failed` and a non-zero exit, naming the worst mode, its `λ` and
+residual — never a silently wrong frequency list. Fix it by raising
+`max_iters` or moving `shift`. A converged run reports the actual
+residuals in `modes[].residual_rel` and `solver.residual_rel_max`
+(the sphere golden case sits near `10⁻¹³`). The solver backend is fixed (pure-Rust
+Lanczos, no ARPACK knob) — a backend choice is a possible future
+additive field.
 
 Not in schema v1 (Phase 2+): wave ports, UPML / Silver-Müller absorbing
 regions, tensor materials, the matrix-free iterative solver, field /
-NTFF export.
+NTFF export, lossy / open-cavity eigenmodes (complex `ε_r`, Leontovich,
+absorbing boundaries → finite `Q`; issue #683).
 
 ## Report, schema v1
 
@@ -113,13 +182,13 @@ Every report carries these top-level provenance fields:
 | `backend` | compiled-in backend: `ndarray` \| `wgpu` \| `cuda` \| `metal` |
 | `threads` | `--threads` value, or `null` |
 | `spec_path` | spec path as given |
-| `kind` | `"check"` \| `"driven"` \| `"error"` |
+| `kind` | `"check"` \| `"driven"` \| `"eigen"` \| `"error"` |
 | `status` | `"ok"` \| `"error"` |
 
 Complex numbers are `[re, im]`; matrices are row-major nested arrays
 `m[row][col]` indexed by port.
 
-**`mesh`** (check + driven): `path`, `sha256` (hex SHA-256 of the mesh
+**`mesh`** (check + driven + eigen): `path`, `sha256` (hex SHA-256 of the mesh
 bytes), `length_unit_m`, `n_nodes`, `n_tets`, `n_edges` (Nédélec DOFs),
 `n_interior` (DOFs kept after PEC elimination = linear-system size).
 
@@ -131,7 +200,10 @@ bytes), `length_unit_m`, `n_nodes`, `n_tets`, `n_edges` (Nédélec DOFs),
 `eps_r`, `eps_r_source` = `"spec"` \| `"default_vacuum"`), `pec[]`
 (`physical_group`, `tag`, `n_triangles`), `leontovich[]` (… plus
 `conductivity_s_m`, `conductivity_natural`), `frequencies[]`
-(`frequency_hz`, `k0`) and `solver` (`mode`, `tol`, `max_iters`).
+(`frequency_hz`, `k0`; empty for an eigen spec), `solver` (`mode`, `tol`,
+`max_iters`), `analysis` (`"driven"` \| `"eigen"`) and `eigen` (`null`
+for a driven spec, else `n_modes`, `shift_hz`, `shift_k0`, `sigma` =
+`shift_k0²`, `max_iters`, `tol`, `residual_tol`). `ports[]` is empty for an eigen spec.
 
 **`kind = "driven"`** adds:
 
@@ -156,13 +228,31 @@ bytes), `length_unit_m`, `n_nodes`, `n_tets`, `n_edges` (Nédélec DOFs),
 | `ports[].l_h` | H | `Im Z_kk / ω` (negative above self-resonance) |
 | `ports[].q` | – | `Im Z_kk / Re Z_kk` |
 
+**`kind = "eigen"`** adds `regions[]` and `pec[]` (as for `check`),
+`eigen` (the resolved settings, as for `check`), and:
+
+- `solver`: `method` (`"shift_invert_lanczos"`), `inner` (`"direct_lu"`),
+  `n_null_filtered` (Ritz values dropped as gradient nullspace),
+  `residual_rel_max`, `wall_time_s` (assembly + eigensolve, seconds).
+- `modes[]`, ascending in frequency:
+
+| Field | Units | Meaning |
+|---|---|---|
+| `index` | – | mode index |
+| `lambda` | (rad / mesh unit)² | eigenvalue `k₀²` |
+| `k0` | rad / mesh unit | resonant `ω/c` |
+| `frequency_hz` | Hz | `k₀ c / (2π · length_unit_m)` |
+| `omega_rad_s` | rad/s | `2πf` |
+| `q` | – | quality factor — **always `null`** in this build: the pencil is lossless, so `Q` is undefined (infinite), not a number. Finite `Q` needs lossy / open-cavity eigenmodes (issue #683) |
+| `residual_rel` | – | `‖Kx − λMx‖ / (|λ| ‖Mx‖)` |
+
 **`kind = "error"`** adds `command` (the subcommand) and
 `error: { code, message }` with `code` one of `io`, `spec_parse`,
 `schema_version`, `invalid_spec`, `mesh`, `unresolved_physical_group`,
 `backend_mismatch`, `solve_failed`, `non_finite`, `not_implemented`,
 `serialize`.
 
-## Golden test
+## Golden tests
 
 `tests/spiral_golden.rs` re-expresses the spiral-inductor benchmark
 (issue #211) as a spec and runs it through the real binary:
@@ -180,3 +270,21 @@ the 1 GHz inductance to the committed `results.toml` (1 %), holds it to
 the issue-#211 oracle bands (Mohan current-sheet 10 %, projected mom-PEEC
 mean 12 %), and checks library parity. R and Q on the benchmark mesh are
 covered by parity only, because the committed values are stale (#674).
+
+`tests/sphere_pec_golden.rs` (issue #681) re-expresses the PEC-walled
+dielectric-sphere cavity benchmark (`geode-core/tests/sphere_pec_eigenmode.rs`,
+issues #26/#69) as an eigen spec and runs `geode eigen`:
+
+```sh
+cargo test -p geode-cli --test sphere_pec_golden                                  # default CI tier
+cargo test -p geode-cli --release --test sphere_pec_golden -- --ignored           # dense oracle
+```
+
+The default tier holds each of the lowest 5 modes to the benchmark's
+existing bound — within 15 % of the closest analytic PEC-cavity Mie root
+(`geode_core::analytic::mie::merged_roots`) — plus the report contract
+(ascending, `q = null`, `f = k₀c/(2πL)`, residuals). The ignored tier
+checks the sparse Lanczos modes against the full dense solve of the same
+pencil to 1e-6 relative. This is deliberately not the
+`examples/mie_sphere` UPML benchmark, which needs UPML-as-material and
+complex quasimode eigensolvers (issue #683).

@@ -27,11 +27,11 @@ use crate::check::{mesh_summary, port_summaries};
 use crate::error::CliError;
 use crate::problem;
 use crate::report::{Complex, DrivenReport, FrequencyResult, PortResult, Provenance, SolverStats};
-use crate::spec::SolverSpec;
+use crate::spec::{Analysis, SolverSpec};
 
 /// Load, solve and report.
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<DrivenReport, CliError> {
-    let p = problem::load(spec_path)?;
+    let p = problem::load(spec_path, Some(Analysis::Driven))?;
 
     let lumped: Vec<LumpedPort<'_>> = p
         .ports

@@ -5,42 +5,21 @@ use std::path::Path;
 use crate::error::CliError;
 use crate::problem::{self, MaterialSource, Problem};
 use crate::report::{
-    CheckReport, FrequencySummary, LeontovichSummary, MeshSummary, PecSummary, PortSummary,
-    Provenance, RegionSummary, SolverSummary,
+    CheckReport, EigenSettingsSummary, FrequencySummary, LeontovichSummary, MeshSummary,
+    PecSummary, PortSummary, Provenance, RegionSummary, SolverSummary,
 };
 use crate::spec::SolverSpec;
 
 /// Load + resolve the spec and summarize it (no assembly, no solve).
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliError> {
-    let p = problem::load(spec_path)?;
+    let p = problem::load(spec_path, None)?;
     Ok(CheckReport {
         provenance,
         kind: "check",
         status: "ok",
         mesh: mesh_summary(&p),
-        regions: p
-            .regions
-            .iter()
-            .map(|r| RegionSummary {
-                physical_group: r.name.clone(),
-                tag: r.tag,
-                n_tets: r.n_tets,
-                eps_r: [r.eps_r.re, r.eps_r.im],
-                eps_r_source: match r.source {
-                    MaterialSource::Spec => "spec",
-                    MaterialSource::DefaultVacuum => "default_vacuum",
-                },
-            })
-            .collect(),
-        pec: p
-            .pec
-            .iter()
-            .map(|s| PecSummary {
-                physical_group: s.name.clone(),
-                tag: s.tag,
-                n_triangles: s.triangles.len(),
-            })
-            .collect(),
+        regions: region_summaries(&p),
+        pec: pec_summaries(&p),
         leontovich: p
             .leontovich
             .iter()
@@ -62,6 +41,50 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
             })
             .collect(),
         solver: solver_summary(p.solver()),
+        analysis: p.analysis.name(),
+        eigen: eigen_settings_summary(&p),
+    })
+}
+
+/// Volume regions with applied permittivities.
+pub fn region_summaries(p: &Problem) -> Vec<RegionSummary> {
+    p.regions
+        .iter()
+        .map(|r| RegionSummary {
+            physical_group: r.name.clone(),
+            tag: r.tag,
+            n_tets: r.n_tets,
+            eps_r: [r.eps_r.re, r.eps_r.im],
+            eps_r_source: match r.source {
+                MaterialSource::Spec => "spec",
+                MaterialSource::DefaultVacuum => "default_vacuum",
+            },
+        })
+        .collect()
+}
+
+/// PEC surfaces.
+pub fn pec_summaries(p: &Problem) -> Vec<PecSummary> {
+    p.pec
+        .iter()
+        .map(|s| PecSummary {
+            physical_group: s.name.clone(),
+            tag: s.tag,
+            n_triangles: s.triangles.len(),
+        })
+        .collect()
+}
+
+/// Echo of the resolved `eigen` section (`None` for a driven spec).
+pub fn eigen_settings_summary(p: &Problem) -> Option<EigenSettingsSummary> {
+    p.eigen.map(|e| EigenSettingsSummary {
+        n_modes: e.n_modes,
+        shift_hz: e.shift.hz,
+        shift_k0: e.shift.k0,
+        sigma: e.sigma(),
+        max_iters: e.max_iters,
+        tol: e.tol,
+        residual_tol: e.residual_tol,
     })
 }
 

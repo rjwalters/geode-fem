@@ -1,10 +1,10 @@
 //! `geode` — headless JSON-in / JSON-out driver for GEODE-FEM solves
-//! (issue #673, Phase 1).
+//! (issue #673; Epic #680).
 //!
 //! ```text
 //! geode check  <spec.json|spec.toml> [-o report.json]
 //! geode driven <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray]
-//! geode eigen   …   # reserved: parses, fails with "not implemented yet"
+//! geode eigen  <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray]
 //! geode extract …   # reserved: parses, fails with "not implemented yet"
 //! geode --version   # "geode <crate-version> (<git-sha>[-dirty])"
 //! ```
@@ -21,6 +21,7 @@
 mod backend;
 mod check;
 mod driven;
+mod eigen;
 mod error;
 mod problem;
 mod report;
@@ -61,9 +62,12 @@ enum Command {
     Check(CheckArgs),
     /// Frequency sweep with lumped ports → Z / Y / S, L / R / Q per port.
     Driven(RunArgs),
-    /// Eigenmodes → f, Q. Reserved: not implemented until Phase 2.
+    /// Lossless PEC-cavity eigenmodes near `eigen.shift` → resonant f (Q is
+    /// null: the pencil is lossless). Needs a spec with an `eigen` section
+    /// and no ports.
     Eigen(RunArgs),
-    /// L / R / Q extraction incl. f→0 extrapolation. Reserved: not implemented until Phase 2.
+    /// L / R / Q extraction incl. f→0 extrapolation. Reserved: not implemented
+    /// yet (issue #682).
     Extract(RunArgs),
 }
 
@@ -173,13 +177,16 @@ impl App for Cli {
                 finish("driven", prov, a.output.as_deref(), result)
             }
             Command::Eigen(a) => {
-                let prov = Self::provenance(&a.spec, a.threads.map(NonZeroUsize::get));
-                let result: Result<(), CliError> = Err(CliError::NotImplemented("eigen"));
+                let threads = a.threads.map(NonZeroUsize::get);
+                let prov = Self::provenance(&a.spec, threads);
+                let _par = threads.map(apply_thread_cap);
+                let result =
+                    backend::confirm(a.backend).and_then(|()| eigen::run(&a.spec, prov.clone()));
                 finish("eigen", prov, a.output.as_deref(), result)
             }
             Command::Extract(a) => {
                 let prov = Self::provenance(&a.spec, a.threads.map(NonZeroUsize::get));
-                let result: Result<(), CliError> = Err(CliError::NotImplemented("extract"));
+                let result: Result<(), CliError> = Err(CliError::NotImplemented("extract", "#682"));
                 finish("extract", prov, a.output.as_deref(), result)
             }
         }

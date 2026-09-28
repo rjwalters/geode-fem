@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "mesh": {
+    "path": "../../../geode-core/tests/fixtures/sphere.msh",
+    "length_unit_m": 0.01
+  },
+  "materials": [
+    {
+      "physical_group": "sphere_interior",
+      "eps_r": [
+        2.25,
+        0.0
+      ]
+    }
+  ],
+  "boundary_conditions": {
+    "pec": [
+      "outer_boundary"
+    ]
+  },
+  "eigen": {
+    "n_modes": 5,
+    "unit": "k0",
+    "shift": 1.0
+  }
+}

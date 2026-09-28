@@ -1,7 +1,9 @@
-//! End-to-end CLI contract tests for `geode` (issue #673 Phase 1):
-//! `--version`, `check` success + structured failures, the reserved
-//! `eigen`/`extract` stubs, `--backend` confirmation, and the structured
-//! `solve_failed` error for a non-converging iterative solve (one iteration).
+//! End-to-end CLI contract tests for `geode` (issue #673 Phase 1, Epic
+//! #680): `--version`, `check` success + structured failures, eigen-spec
+//! validation (issue #681), the reserved `extract` stub, `--backend`
+//! confirmation, and the structured `solve_failed` error for a
+//! non-converging iterative solve (one iteration). The eigen solve itself
+//! is exercised by `tests/sphere_pec_golden.rs`.
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -283,17 +285,12 @@ spacing = "log"
 }
 
 #[test]
-fn eigen_and_extract_are_reserved_stubs() {
-    for cmd in ["eigen", "extract"] {
-        let out = geode(&[cmd, &smoke_spec()]);
-        let v = assert_error(&out, cmd, "not_implemented");
-        assert!(
-            v["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("not implemented yet")
-        );
-    }
+fn extract_is_a_reserved_stub() {
+    let out = geode(&["extract", &smoke_spec()]);
+    let v = assert_error(&out, "extract", "not_implemented");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("not implemented yet"), "{msg}");
+    assert!(msg.contains("#682"), "{msg}");
     // --help advertises the full intended surface.
     let help = String::from_utf8_lossy(&geode(&["--help"]).stdout).to_string();
     for cmd in ["check", "driven", "eigen", "extract"] {
@@ -328,11 +325,155 @@ fn backend_flag_only_confirms_the_compiled_backend() {
 #[test]
 fn error_report_goes_to_output_file_too() {
     let out_path = scratch("err-output").join("report.json");
-    let out = geode(&["eigen", &smoke_spec(), "-o", out_path.to_str().unwrap()]);
+    let out = geode(&["extract", &smoke_spec(), "-o", out_path.to_str().unwrap()]);
     assert!(!out.status.success());
     let v: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&out_path).unwrap()).unwrap();
     assert_eq!(v["error"]["code"], "not_implemented");
+}
+
+fn sphere_spec() -> PathBuf {
+    fixtures().join("sphere_pec_golden.json")
+}
+
+/// The sphere eigen spec with `edit` applied, written to a scratch file
+/// (mesh path made absolute).
+fn edited_eigen_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> PathBuf {
+    let raw = std::fs::read_to_string(sphere_spec()).unwrap();
+    let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let mesh = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../geode-core/tests/fixtures/sphere.msh")
+        .canonicalize()
+        .expect("sphere mesh exists");
+    v["mesh"]["path"] = mesh.display().to_string().into();
+    edit(&mut v);
+    let path = scratch(name).join("spec.json");
+    std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    path
+}
+
+#[test]
+fn check_reports_the_analysis_kind() {
+    // Driven spec: analysis "driven", eigen null.
+    let v = json(&geode(&["check", &smoke_spec()]));
+    assert_eq!(v["analysis"], "driven");
+    assert!(v["eigen"].is_null());
+
+    // Eigen spec: no ports / frequencies, resolved eigen settings echoed.
+    let out = geode(&["check", sphere_spec().to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = json(&out);
+    assert_eq!(v["analysis"], "eigen");
+    assert_eq!(v["ports"].as_array().unwrap().len(), 0);
+    assert_eq!(v["frequencies"].as_array().unwrap().len(), 0);
+    let e = &v["eigen"];
+    assert_eq!(e["n_modes"], 5);
+    assert_eq!(e["shift_k0"], 1.0);
+    assert_eq!(e["sigma"], 1.0);
+    assert_eq!(e["max_iters"], 160);
+    assert_eq!(e["residual_tol"], 1e-6);
+    // k0 = 1 rad/cm → f = c / (2π · 0.01 m) ≈ 4.771 GHz.
+    let f = e["shift_hz"].as_f64().unwrap();
+    assert!((f - 4.771_345_159e9).abs() < 1e3, "{f}");
+    assert_eq!(v["mesh"]["n_tets"], 3335);
+}
+
+#[test]
+fn eigen_and_driven_reject_the_other_spec_kind() {
+    // A driven spec (no `eigen` section) under `geode eigen`.
+    let out = geode(&["eigen", &smoke_spec()]);
+    let v = assert_error(&out, "eigen", "invalid_spec");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("`eigen` section"), "{msg}");
+    assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
+
+    // An eigen spec under `geode driven`.
+    let out = geode(&["driven", sphere_spec().to_str().unwrap()]);
+    let v = assert_error(&out, "driven", "invalid_spec");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("geode eigen"), "{msg}");
+    assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
+}
+
+/// A boxed in-place edit of a spec's JSON.
+type SpecEdit = Box<dyn FnOnce(&mut serde_json::Value)>;
+
+#[test]
+fn eigen_spec_validation_rejects_lossy_or_driven_inputs() {
+    let cases: Vec<(&str, SpecEdit, &str)> = vec![
+        (
+            "eig-lossy",
+            Box::new(|v| v["materials"][0]["eps_r"] = serde_json::json!([2.25, -0.01])),
+            "Im != 0",
+        ),
+        (
+            "eig-ports",
+            Box::new(|v| {
+                v["ports"] = serde_json::json!([{
+                    "physical_group": "sphere_surface",
+                    "e_hat": [0.0, 0.0, 1.0],
+                    "resistance_ohm": 50.0
+                }])
+            }),
+            "cannot have `ports`",
+        ),
+        (
+            "eig-freqs",
+            Box::new(|v| v["frequencies"] = serde_json::json!({"unit": "ghz", "values": [1.0]})),
+            "cannot have `frequencies`",
+        ),
+        (
+            "eig-leon",
+            Box::new(|v| {
+                v["boundary_conditions"]["leontovich"] = serde_json::json!([{
+                    "physical_group": "sphere_surface",
+                    "conductivity_s_m": 5.8e7
+                }])
+            }),
+            "Leontovich",
+        ),
+        (
+            "eig-shift0",
+            Box::new(|v| v["eigen"]["shift"] = 0.0.into()),
+            "eigen.shift",
+        ),
+        (
+            "eig-nmodes0",
+            Box::new(|v| v["eigen"]["n_modes"] = 0.into()),
+            "eigen.n_modes",
+        ),
+        (
+            "eig-restol0",
+            Box::new(|v| v["eigen"]["residual_tol"] = 0.0.into()),
+            "eigen.residual_tol",
+        ),
+        (
+            "eig-iterative",
+            Box::new(|v| v["solver"] = serde_json::json!({"mode": "iterative"})),
+            "direct",
+        ),
+    ];
+    for (name, edit, needle) in cases {
+        let spec = edited_eigen_spec(name, edit);
+        for cmd in ["check", "eigen"] {
+            let out = geode(&[cmd, spec.to_str().unwrap()]);
+            let v = assert_error(&out, cmd, "invalid_spec");
+            let msg = v["error"]["message"].as_str().unwrap();
+            assert!(msg.contains(needle), "{name}/{cmd}: {msg}");
+        }
+    }
+
+    // Typo in the eigen section is a parse error, not a silent default.
+    let typo = edited_eigen_spec("eig-typo", |v| v["eigen"]["n_mode"] = 3.into());
+    assert_error(
+        &geode(&["eigen", typo.to_str().unwrap()]),
+        "eigen",
+        "spec_parse",
+    );
 }
 
 #[test]
@@ -345,4 +486,19 @@ fn driven_non_converging_iterative_solve_fails_with_solve_failed() {
     });
     let out = geode(&["driven", spec.to_str().unwrap()]);
     assert_error(&out, "driven", "solve_failed");
+}
+
+#[test]
+fn eigen_unconverged_lanczos_fails_with_solve_failed() {
+    // An 8-vector Lanczos basis cannot converge 5 sphere modes (residuals
+    // up to ~17 before the gate existed). Unconverged Ritz values must be
+    // a hard, structured error — never `status: ok` with wrong frequencies.
+    let spec = edited_eigen_spec("eig-no-converge", |v| {
+        v["eigen"]["max_iters"] = 8.into();
+    });
+    let out = geode(&["eigen", spec.to_str().unwrap()]);
+    let v = assert_error(&out, "eigen", "solve_failed");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("did not converge"), "{msg}");
+    assert!(msg.contains("max_iters"), "{msg}");
 }

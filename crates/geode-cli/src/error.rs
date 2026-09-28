@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 
 use geode_core::driven::solve::DrivenError;
+use geode_core::eigen::pec_cavity::PecCavityError;
 use geode_core::mesh::MeshError;
 
 /// Everything that can make a `geode` invocation fail.
@@ -68,8 +69,12 @@ pub enum CliError {
     /// The driven solve itself failed (factorization, non-convergence, …).
     #[error("driven solve failed: {0}")]
     Solve(DrivenError),
+    /// The eigensolve itself failed (factorization, too few modes
+    /// resolved near the shift, …).
+    #[error("eigen solve failed: {0}")]
+    EigenSolve(PecCavityError),
     /// The solve returned non-finite numbers.
-    #[error("solve produced a non-finite result at frequency index {index}: {what}")]
+    #[error("solve produced a non-finite result at frequency/mode index {index}: {what}")]
     NonFinite {
         /// Frequency index.
         index: usize,
@@ -77,8 +82,8 @@ pub enum CliError {
         what: String,
     },
     /// Subcommand reserved for a later phase.
-    #[error("`geode {0}` is not implemented yet (planned for Phase 2 of issue #673)")]
-    NotImplemented(&'static str),
+    #[error("`geode {0}` is not implemented yet (tracked in issue {1})")]
+    NotImplemented(&'static str, &'static str),
     /// JSON serialization of the report failed.
     #[error("cannot serialize report: {0}")]
     Serialize(serde_json::Error),
@@ -90,6 +95,12 @@ pub enum CliError {
 impl From<DrivenError> for CliError {
     fn from(e: DrivenError) -> Self {
         CliError::Solve(e)
+    }
+}
+
+impl From<PecCavityError> for CliError {
+    fn from(e: PecCavityError) -> Self {
+        CliError::EigenSolve(e)
     }
 }
 
@@ -110,9 +121,9 @@ impl CliError {
             CliError::Mesh { .. } => "mesh",
             CliError::UnresolvedGroups { .. } => "unresolved_physical_group",
             CliError::BackendMismatch { .. } => "backend_mismatch",
-            CliError::Solve(_) => "solve_failed",
+            CliError::Solve(_) | CliError::EigenSolve(_) => "solve_failed",
             CliError::NonFinite { .. } => "non_finite",
-            CliError::NotImplemented(_) => "not_implemented",
+            CliError::NotImplemented(..) => "not_implemented",
             CliError::Serialize(_) => "serialize",
         }
     }

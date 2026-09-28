@@ -26,6 +26,11 @@
 //!   path vs the #621 second-order Nédélec assembly onto the shared sparse
 //!   shift-invert Lanczos, for the `p=2` frequency-convergence gate against
 //!   the analytic `2π²` spectrum (issue #620).
+//! - [`pec_cavity`] — lossless **PEC-walled cavity eigenmodes on any
+//!   (tagged) tet mesh**: per-tet real `ε_r` + PEC surfaces (by mask or by
+//!   Gmsh physical-group name) → resonant `k₀`, via a sparse pattern-aligned
+//!   pencil assembly and the shared shift-invert Lanczos. The library entry
+//!   point behind `geode eigen` (issue #681).
 //! - [`transmon`] — transmon eigenmode solve with the Josephson junction
 //!   as a lumped reactive-shunt surface term (Epic #476 Phase B).
 //! - [`gauge`] — tree-cotree spanning-tree gauge that eliminates the
@@ -53,6 +58,7 @@ pub mod lanczos;
 // `pub(crate)`), which `rustdoc::private_intra_doc_links` (-D warnings) requires.
 pub(crate) mod ordering;
 pub mod parallel;
+pub mod pec_cavity;
 pub mod projection;
 pub mod self_consistent;
 pub mod sensitivity;
