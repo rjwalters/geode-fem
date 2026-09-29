@@ -554,6 +554,10 @@ pub struct InductanceReport {
     pub is_spd: bool,
     /// Solver statistics.
     pub solver: InductanceSolverStats,
+    /// The SPICE subcircuit `.subckt` (self inductors + `K` couplings)
+    /// written by `--spice` (additive in v1; present only with that flag).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spice_file: Option<FileRef>,
 }
 
 /// `geode check`'s up-front resource estimate (additive in v1).

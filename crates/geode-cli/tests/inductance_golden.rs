@@ -44,7 +44,8 @@
 //!
 //! Spec validation (wrong subcommand pre-mesh, rejected frequency-domain
 //! features, the required PEC wall, the same-PEC-component rule, path
-//! geometry, `--spice`) is covered at the bottom.
+//! geometry) is covered at the bottom. The `--spice` export is covered by
+//! `inductance_spice_golden.rs`.
 
 use std::f64::consts::PI;
 use std::path::{Path, PathBuf};
@@ -497,26 +498,6 @@ fn wrong_subcommand_is_rejected_before_the_mesh_is_read() {
     let (code, msg) = run_err("inductance", "wrong-ind", cap);
     assert_eq!(code, "invalid_spec", "{msg}");
     assert!(msg.contains("capacitance spec"), "{msg}");
-}
-
-#[test]
-fn spice_flag_is_rejected_for_inductance() {
-    // `--spice` belongs to `geode capacitance` only; inductance SPICE
-    // export is a follow-up, so the flag must not be silently ignored.
-    let dir = scratch("spice");
-    let out = geode(&[
-        "inductance",
-        fixtures()
-            .join("inductance_coax_smoke.json")
-            .to_str()
-            .unwrap(),
-        "--spice",
-        dir.join("x.sp").to_str().unwrap(),
-    ]);
-    assert!(!out.status.success(), "--spice must be rejected");
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("--spice"), "{stderr}");
-    assert!(!dir.join("x.sp").exists());
 }
 
 #[test]

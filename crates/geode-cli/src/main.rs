@@ -7,7 +7,7 @@
 //! geode eigen  <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //! geode extract <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //! geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH]
-//! geode inductance <spec.json|spec.toml> [-o report.json] [--threads N]
+//! geode inductance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH]
 //! geode mesh   <layout.json|layout.toml> [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [-o report.json]
 //! geode --version   # "geode <crate-version> (<git-sha>[-dirty])"
 //! ```
@@ -96,7 +96,7 @@ enum Command {
     /// quasi-static `l0_h` of `geode extract`. Needs a spec with an
     /// `inductance` section, `boundary_conditions.pec`, and no ports or
     /// frequencies.
-    Inductance(StaticArgs),
+    Inductance(InductanceArgs),
     /// Layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged
     /// Gmsh mesh + starter problem spec, via the external `gmsh` binary.
     Mesh(mesh_cmd::MeshArgs),
@@ -125,8 +125,8 @@ struct StaticArgs {
 }
 
 /// `geode capacitance` arguments: the shared static-solve arguments plus
-/// `--spice` (capacitance only — `geode inductance` has no SPICE export
-/// yet, so clap rejects the flag there).
+/// `--spice` (the static subcommands only — clap rejects it on the RF
+/// subcommands).
 #[derive(Args)]
 struct CapacitanceArgs {
     #[command(flatten)]
@@ -134,6 +134,21 @@ struct CapacitanceArgs {
     /// Also write the mutual (circuit) capacitance matrix as a SPICE
     /// subcircuit `.subckt` at this path (an existing file is overwritten).
     /// The report's `spice_file` references it (path as given, sha256).
+    #[arg(long, value_name = "PATH")]
+    spice: Option<PathBuf>,
+}
+
+/// `geode inductance` arguments: the shared static-solve arguments plus
+/// `--spice`.
+#[derive(Args)]
+struct InductanceArgs {
+    #[command(flatten)]
+    base: StaticArgs,
+    /// Also write the inductance matrix as a SPICE subcircuit `.subckt` at
+    /// this path (an existing file is overwritten): one self inductor per
+    /// path from its node to ground `0`, plus a `K` coupling statement per
+    /// path pair. The report's `spice_file` references it (path as given,
+    /// sha256).
     #[arg(long, value_name = "PATH")]
     spice: Option<PathBuf>,
 }
@@ -285,11 +300,11 @@ impl App for Cli {
                 let result = capacitance::run(&a.spec, prov.clone(), spice.as_deref());
                 finish("capacitance", prov, a.output.as_deref(), result)
             }
-            Command::Inductance(a) => {
+            Command::Inductance(InductanceArgs { base: a, spice }) => {
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
-                let result = inductance::run(&a.spec, prov.clone());
+                let result = inductance::run(&a.spec, prov.clone(), spice.as_deref());
                 finish("inductance", prov, a.output.as_deref(), result)
             }
             Command::Mesh(a) => mesh_cmd::dispatch(a),

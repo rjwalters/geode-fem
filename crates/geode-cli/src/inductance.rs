@@ -41,8 +41,13 @@ pub const SOLENOIDAL_TOL: f64 = 1e-6;
 /// i.e. `~μ₀` scale, so a zero tolerance is the honest threshold).
 const SPD_TOL: f64 = 0.0;
 
-/// Load, solve and report.
-pub fn run(spec_path: &Path, provenance: Provenance) -> Result<InductanceReport, CliError> {
+/// Load, solve and report; with `spice`, also write the SPICE
+/// subcircuit ([`crate::spice::write_inductance`]) there.
+pub fn run(
+    spec_path: &Path,
+    provenance: Provenance,
+    spice: Option<&Path>,
+) -> Result<InductanceReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Inductance))?;
     let target = p
         .inductance
@@ -70,7 +75,7 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<InductanceReport,
         .map(|row| row.iter().map(|v| v * scale).collect())
         .collect();
     let paths = &solved.paths;
-    Ok(InductanceReport {
+    let mut report = InductanceReport {
         provenance,
         kind: "inductance",
         status: "ok",
@@ -99,7 +104,12 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<InductanceReport,
             solenoidal_tol: SOLENOIDAL_TOL,
             wall_time_s,
         },
-    })
+        spice_file: None,
+    };
+    if let Some(path) = spice {
+        report.spice_file = Some(crate::spice::write_inductance(path, &report)?);
+    }
+    Ok(report)
 }
 
 /// A solved inductance target: the library matrix (in `H/m × mesh unit`)
