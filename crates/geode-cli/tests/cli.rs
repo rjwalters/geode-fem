@@ -844,7 +844,7 @@ fn extract_spec_validation_rejects_underdetermined_inputs() {
             Box::new(|v| {
                 v["eigen"] = serde_json::json!({ "n_modes": 1, "unit": "ghz", "shift": 1.0 })
             }),
-            "both an `eigen` and an `extract`",
+            "found `eigen` and `extract`",
         ),
     ];
     for (name, edit, needle) in cases {

@@ -1,13 +1,16 @@
 //! Resolve a [`ProblemSpec`] against its mesh into solver-ready inputs.
 //!
-//! This is the shared front half of `check`, `driven`, `eigen` and
-//! `extract`: parse the spec, validate it for the analysis it describes
+//! This is the shared front half of `check`, `driven`, `eigen`,
+//! `extract` and `capacitance`: parse the spec, validate it for the analysis it describes
 //! ([`crate::spec::Analysis`]), load the tagged mesh
 //! ([`geode_core::mesh::read_tagged_tet_mesh`]), bind every named physical
 //! group, convert SI inputs to the solver's natural units, build the
 //! PEC edge mask, derive the box-UPML inner walls and project wave-port
-//! faces into their 2-D cross-sections (no modal solve). `check` stops here; `driven` and `extract` hand the
-//! result to the frequency sweep, `eigen` to the cavity eigensolve.
+//! faces into their 2-D cross-sections (no modal solve) and, for a
+//! capacitance spec, the terminal / ground conductor node sets. `check`
+//! stops here; `driven` and `extract` hand the result to the frequency
+//! sweep, `eigen` to the cavity eigensolve, `capacitance` to the
+//! electrostatic solve.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -185,6 +188,35 @@ pub struct ExtractTarget {
     pub l0_rel_tol: Option<f64>,
 }
 
+/// One conductor of a capacitance spec (a terminal or a ground surface).
+#[derive(Debug, Clone)]
+pub struct Conductor {
+    /// The conductor surface.
+    pub surface: Surface,
+    /// The distinct mesh nodes of its triangles, ascending (the Dirichlet
+    /// node set of the electrostatic solve).
+    pub nodes: Vec<u32>,
+}
+
+/// A resolved `capacitance` section.
+#[derive(Debug, Clone)]
+pub struct CapacitanceTarget {
+    /// Terminals, in spec (= matrix row/column) order.
+    pub terminals: Vec<Conductor>,
+    /// Ground (0 V reference) surfaces, in spec order.
+    pub ground: Vec<Conductor>,
+    /// Union of every ground surface's nodes, ascending.
+    pub ground_nodes: Vec<u32>,
+}
+
+impl CapacitanceTarget {
+    /// Number of distinct Dirichlet-pinned nodes (terminals + ground;
+    /// pairwise disjoint by construction).
+    pub fn n_pinned(&self) -> usize {
+        self.ground_nodes.len() + self.terminals.iter().map(|t| t.nodes.len()).sum::<usize>()
+    }
+}
+
 /// A fully resolved problem, ready for `check` reporting or a solve.
 #[derive(Debug, Clone)]
 pub struct Problem {
@@ -230,6 +262,8 @@ pub struct Problem {
     pub eigen: Option<EigenTarget>,
     /// The resolved `extract` section (extract specs only).
     pub extract: Option<ExtractTarget>,
+    /// The resolved `capacitance` section (capacitance specs only).
+    pub capacitance: Option<CapacitanceTarget>,
 }
 
 impl Problem {
@@ -323,11 +357,20 @@ fn invalid(msg: impl Into<String>) -> CliError {
 /// mesh is read.
 pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliError> {
     let spec = read_spec(spec_path)?;
-    if spec.eigen.is_some() && spec.extract.is_some() {
-        return Err(invalid(
-            "a spec describes one analysis: it cannot have both an `eigen` and an `extract` \
-             section",
-        ));
+    let sections: Vec<&str> = [
+        ("eigen", spec.eigen.is_some()),
+        ("extract", spec.extract.is_some()),
+        ("capacitance", spec.capacitance.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(name, present)| present.then_some(name))
+    .collect();
+    if sections.len() > 1 {
+        return Err(invalid(format!(
+            "a spec describes one analysis: it cannot have more than one of the `eigen` / \
+             `extract` / `capacitance` sections (found `{}`)",
+            sections.join("` and `")
+        )));
     }
     let analysis = spec.analysis();
     if let Some(want) = expect
@@ -393,6 +436,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
             }
         }
         Analysis::Eigen => validate_eigen(&spec)?,
+        Analysis::Capacitance => validate_capacitance(&spec)?,
     }
     validate_open_boundaries(&spec)?;
     validate_surface_roles(&spec)?;
@@ -521,6 +565,20 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         .iter()
         .map(|w| resolve(2, &w.physical_group, "wave_port"))
         .collect();
+    let (terminal_tags, ground_tags): (Vec<Option<i32>>, Vec<Option<i32>>) = match &spec.capacitance
+    {
+        Some(c) => (
+            c.terminals
+                .iter()
+                .map(|n| resolve(2, n, "capacitance terminal"))
+                .collect(),
+            c.ground
+                .iter()
+                .map(|n| resolve(2, n, "capacitance ground"))
+                .collect(),
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
     if !missing.is_empty() {
         let available = tagged
             .mesh
@@ -668,6 +726,17 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         });
     }
 
+    // ---- capacitance conductors --------------------------------------
+    let capacitance = match &spec.capacitance {
+        Some(c) => Some(resolve_capacitance(
+            c,
+            &terminal_tags,
+            &ground_tags,
+            &surface,
+        )?),
+        None => None,
+    };
+
     // ---- PEC mask ----------------------------------------------------
     let edges = tagged.mesh.edges();
     let pec_lists: Vec<&[[u32; 3]]> = pec.iter().map(|s| s.triangles.as_slice()).collect();
@@ -693,6 +762,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         analysis,
         eigen,
         extract,
+        capacitance,
     })
 }
 
@@ -700,15 +770,20 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
 /// subcommand.
 fn wrong_subcommand(want: Analysis, got: Analysis) -> String {
     let what = match got {
-        Analysis::Driven => "a driven spec (no `eigen` or `extract` section)",
+        Analysis::Driven => "a driven spec (no `eigen`, `extract` or `capacitance` section)",
         Analysis::Eigen => "an eigen spec (it has an `eigen` section)",
         Analysis::Extract => "an extract spec (it has an `extract` section)",
+        Analysis::Capacitance => "a capacitance spec (it has a `capacitance` section)",
     };
     let fix = match want {
         Analysis::Driven => "drop the analysis section for a plain driven sweep",
         Analysis::Eigen => "`geode eigen` needs an `eigen` section",
         Analysis::Extract => {
             "`geode extract` needs an `extract` section (`\"extract\": {}` for the defaults)"
+        }
+        Analysis::Capacitance => {
+            "`geode capacitance` needs a `capacitance` section (`terminals` + `ground`) and no \
+             ports / frequencies"
         }
     };
     format!(
@@ -889,6 +964,173 @@ fn validate_eigen(spec: &ProblemSpec) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Capacitance-spec rules (scalar, before the mesh is read). The
+/// electrostatic solve is static, real and lossless: anything that only
+/// has meaning for a frequency-domain solve is rejected rather than
+/// silently ignored.
+fn validate_capacitance(spec: &ProblemSpec) -> Result<(), CliError> {
+    let c = spec
+        .capacitance
+        .as_ref()
+        .expect("capacitance spec has a capacitance section");
+    if c.terminals.is_empty() {
+        return Err(invalid(
+            "capacitance.terminals must name at least one conductor surface (a dimension-2 \
+             physical group)",
+        ));
+    }
+    if c.ground.is_empty() {
+        return Err(invalid(
+            "capacitance.ground must name at least one grounded (0 V) reference surface — the \
+             return conductor / ground plane / enclosure (required in schema v1)",
+        ));
+    }
+    let static_only = |what: &str, why: &str| {
+        invalid(format!(
+            "a capacitance spec cannot have {what}: {why} (`geode capacitance` is a static \
+             electrostatic solve)"
+        ))
+    };
+    if !spec.ports.is_empty() {
+        return Err(static_only(
+            "`ports`",
+            "lumped ports are frequency-domain excitations; name the conductors in \
+             `capacitance.terminals` instead",
+        ));
+    }
+    if !spec.wave_ports.is_empty() {
+        return Err(static_only(
+            "`wave_ports`",
+            "wave ports are frequency-domain modal boundaries",
+        ));
+    }
+    if spec.frequencies.is_some() {
+        return Err(static_only("`frequencies`", "there is no frequency"));
+    }
+    if !spec.absorbing_regions.is_empty() {
+        return Err(static_only(
+            "`absorbing_regions`",
+            "UPML is a frequency-domain absorber",
+        ));
+    }
+    let bcs = &spec.boundary_conditions;
+    if !bcs.leontovich.is_empty() {
+        return Err(static_only(
+            "Leontovich walls",
+            "a surface impedance has no static meaning",
+        ));
+    }
+    if !bcs.silver_muller.is_empty() {
+        return Err(static_only(
+            "Silver-Müller walls",
+            "a radiation condition has no static meaning",
+        ));
+    }
+    if !bcs.pec.is_empty() {
+        return Err(invalid(format!(
+            "a capacitance spec cannot have `boundary_conditions.pec` ({}): in electrostatics a \
+             conductor must be at a known potential — list a grounded shield / enclosure under \
+             `capacitance.ground`, or a conductor of interest under `capacitance.terminals` \
+             (floating, charge-neutral conductors are not supported)",
+            bcs.pec.join(", ")
+        )));
+    }
+    if let SolverSpec::Iterative { .. } = spec.solver {
+        return Err(invalid(
+            "a capacitance spec supports only `solver.mode = \"direct\"` (sparse LU on the \
+             real SPD electrostatic system)",
+        ));
+    }
+    if let Some(m) = spec.materials.iter().find(|m| m.eps_r[1] != 0.0) {
+        return Err(invalid(format!(
+            "materials[{}].eps_r has Im != 0; electrostatics has no loss / frequency, so a \
+             capacitance spec needs a real permittivity (eps_r = [re, 0])",
+            m.physical_group
+        )));
+    }
+    if let Some(m) = spec.materials.iter().find(|m| m.eps_r[0] <= 0.0) {
+        return Err(invalid(format!(
+            "materials[{}].eps_r must have Re > 0 for the electrostatic solve",
+            m.physical_group
+        )));
+    }
+    Ok(())
+}
+
+/// Bind the capacitance terminals / ground to their tagged triangles and
+/// node sets. Conductors that share a mesh node are electrically shorted
+/// and rejected (the solve would silently give the shared nodes one of
+/// the two potentials).
+fn resolve_capacitance(
+    c: &crate::spec::CapacitanceSpec,
+    terminal_tags: &[Option<i32>],
+    ground_tags: &[Option<i32>],
+    surface: &dyn Fn(&str, i32, &str) -> Result<Surface, CliError>,
+) -> Result<CapacitanceTarget, CliError> {
+    let conductor = |name: &str, tag: Option<i32>, role: &str| -> Result<Conductor, CliError> {
+        let surface = surface(name, tag.expect("resolved above"), role)?;
+        let mut nodes: Vec<u32> = surface.triangles.iter().flatten().copied().collect();
+        nodes.sort_unstable();
+        nodes.dedup();
+        Ok(Conductor { surface, nodes })
+    };
+    let terminals = c
+        .terminals
+        .iter()
+        .zip(terminal_tags)
+        .map(|(n, &t)| conductor(n, t, "capacitance terminal"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let ground = c
+        .ground
+        .iter()
+        .zip(ground_tags)
+        .map(|(n, &t)| conductor(n, t, "capacitance ground"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut ground_nodes: Vec<u32> = ground
+        .iter()
+        .flat_map(|g| g.nodes.iter().copied())
+        .collect();
+    ground_nodes.sort_unstable();
+    ground_nodes.dedup();
+
+    let shared = |a: &[u32], b: &[u32]| a.iter().filter(|n| b.binary_search(n).is_ok()).count();
+    let shorted = |what: String, n: usize| {
+        invalid(format!(
+            "{what} share {n} mesh node(s): touching conductors are electrically shorted — \
+             merge them into one terminal or separate them in the mesh"
+        ))
+    };
+    for (i, t) in terminals.iter().enumerate() {
+        for u in &terminals[i + 1..] {
+            let n = shared(&t.nodes, &u.nodes);
+            if n > 0 {
+                return Err(shorted(
+                    format!(
+                        "capacitance terminals `{}` and `{}`",
+                        t.surface.name, u.surface.name
+                    ),
+                    n,
+                ));
+            }
+        }
+        let n = shared(&t.nodes, &ground_nodes);
+        if n > 0 {
+            return Err(shorted(
+                format!(
+                    "capacitance terminal `{}` and the ground surface(s)",
+                    t.surface.name
+                ),
+                n,
+            ));
+        }
+    }
+    Ok(CapacitanceTarget {
+        terminals,
+        ground,
+        ground_nodes,
+    })
+}
+
 /// Scalar rules for `absorbing_regions` and `wave_ports` (before the mesh
 /// is read). The eigen-spec rejections live in [`validate_eigen`].
 fn validate_open_boundaries(spec: &ProblemSpec) -> Result<(), CliError> {
@@ -957,7 +1199,14 @@ fn validate_open_boundaries(spec: &ProblemSpec) -> Result<(), CliError> {
 fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
     let bcs = &spec.boundary_conditions;
     let mut roles: BTreeMap<&str, &'static str> = BTreeMap::new();
-    let lists: [(&'static str, Vec<&str>); 5] = [
+    let (terminals, ground): (Vec<&str>, Vec<&str>) = match &spec.capacitance {
+        Some(c) => (
+            c.terminals.iter().map(String::as_str).collect(),
+            c.ground.iter().map(String::as_str).collect(),
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
+    let lists: [(&'static str, Vec<&str>); 7] = [
         (
             "port",
             spec.ports
@@ -984,6 +1233,8 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
             "Silver-Müller wall",
             bcs.silver_muller.iter().map(String::as_str).collect(),
         ),
+        ("capacitance terminal", terminals),
+        ("capacitance ground surface", ground),
     ];
     for (role, names) in &lists {
         for &name in names {
@@ -1010,7 +1261,7 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
                     return Err(invalid(format!(
                         "physical group `{name}` is both a {prev} and a {role}{why}; a surface \
                          carries at most one of port / wave port / PEC / Leontovich / \
-                         Silver-Müller"
+                         Silver-Müller / capacitance terminal / capacitance ground"
                     )));
                 }
             }

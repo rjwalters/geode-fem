@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 
+use geode_core::assembly::electrostatic::ElectrostaticError;
 use geode_core::driven::ports::PortFaceError;
 use geode_core::driven::solve::DrivenError;
 use geode_core::eigen::pec_cavity::PecCavityError;
@@ -83,6 +84,10 @@ pub enum CliError {
     /// resolved near the shift, …).
     #[error("eigen solve failed: {0}")]
     EigenSolve(PecCavityError),
+    /// The electrostatic (capacitance) solve failed: assembly, or the
+    /// sparse LU of the reduced system.
+    #[error("electrostatic solve failed: {0}")]
+    Electrostatic(ElectrostaticError),
     /// The solve returned non-finite numbers.
     #[error("solve produced a non-finite result at frequency/mode index {index}: {what}")]
     NonFinite {
@@ -174,6 +179,12 @@ impl From<PecCavityError> for CliError {
     }
 }
 
+impl From<ElectrostaticError> for CliError {
+    fn from(e: ElectrostaticError) -> Self {
+        CliError::Electrostatic(e)
+    }
+}
+
 impl From<serde_json::Error> for CliError {
     fn from(e: serde_json::Error) -> Self {
         CliError::Serialize(e)
@@ -194,6 +205,7 @@ impl CliError {
             CliError::Solve(_)
             | CliError::WavePort { .. }
             | CliError::EigenSolve(_)
+            | CliError::Electrostatic(_)
             | CliError::L0NotConverged { .. } => "solve_failed",
             CliError::NonFinite { .. } => "non_finite",
             CliError::LayoutParse { .. } => "spec_parse",

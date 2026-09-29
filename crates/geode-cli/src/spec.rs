@@ -16,14 +16,20 @@
 //!   solver) whose sweep is post-processed into per-port L / R / Q, the
 //!   quasi-static `L₀` (f → 0 Richardson extrapolation) and the SRF. The
 //!   section may be empty (`"extract": {}`): by default the two lowest
-//!   swept frequencies are the `L₀` anchors.
+//!   swept frequencies are the `L₀` anchors;
+//! * a [`CapacitanceSpec`] `capacitance` section — a **capacitance**
+//!   spec (`geode capacitance`, issue #705): the static Maxwell
+//!   capacitance matrix between named conductor surfaces (terminals) and
+//!   a grounded reference, from an electrostatic solve. No ports, no
+//!   frequencies.
 //!
 //! Driven and extract specs may additionally carry matched box-UPML
 //! `absorbing_regions` and `boundary_conditions.silver_muller` absorbing
 //! walls (open-boundary problems); driven specs may use `wave_ports`
 //! instead of lumped `ports` (issue #683).
 //!
-//! Carrying both `eigen` and `extract` is rejected, and running a spec
+//! Carrying more than one of `eigen` / `extract` / `capacitance` is
+//! rejected, and running a spec
 //! under the wrong subcommand fails with `invalid_spec` before the mesh
 //! is read.
 //! Unknown fields are rejected (`deny_unknown_fields`) so a typo never
@@ -103,10 +109,15 @@ pub struct ProblemSpec {
     /// `extract` the spec is a driven spec.
     #[serde(default)]
     pub extract: Option<ExtractSpec>,
+    /// Static capacitance-extraction settings (additive in v1, issue
+    /// #705). Its presence makes this a **capacitance spec** (for `geode
+    /// capacitance`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacitance: Option<CapacitanceSpec>,
 }
 
 /// Which analysis a spec describes, decided by the presence of the
-/// `eigen` / `extract` section.
+/// `eigen` / `extract` / `capacitance` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Analysis {
     /// Port-driven frequency sweep (`geode driven`).
@@ -115,6 +126,8 @@ pub enum Analysis {
     Eigen,
     /// Driven sweep + L / R / Q, `L₀` and SRF extraction (`geode extract`).
     Extract,
+    /// Static Maxwell capacitance matrix (`geode capacitance`).
+    Capacitance,
 }
 
 impl Analysis {
@@ -124,19 +137,22 @@ impl Analysis {
             Analysis::Driven => "driven",
             Analysis::Eigen => "eigen",
             Analysis::Extract => "extract",
+            Analysis::Capacitance => "capacitance",
         }
     }
 }
 
 impl ProblemSpec {
-    /// The analysis this spec describes. A spec carrying both `eigen` and
-    /// `extract` is ambiguous and rejected by `problem::load`; here it
-    /// classifies as eigen.
+    /// The analysis this spec describes. A spec carrying more than one
+    /// analysis section is ambiguous and rejected by `problem::load`; here
+    /// it classifies by the first of `eigen`, `extract`, `capacitance`.
     pub fn analysis(&self) -> Analysis {
         if self.eigen.is_some() {
             Analysis::Eigen
         } else if self.extract.is_some() {
             Analysis::Extract
+        } else if self.capacitance.is_some() {
+            Analysis::Capacitance
         } else {
             Analysis::Driven
         }
@@ -218,6 +234,37 @@ pub struct ExtractSpec {
     /// Omitted: no gate (the estimate is still reported).
     #[serde(default)]
     pub l0_rel_tol: Option<f64>,
+}
+
+/// Static capacitance-extraction settings (`geode capacitance`, issue
+/// #705).
+///
+/// Solves the scalar electrostatic problem `−∇·(ε₀ε_r ∇φ) = 0` on the
+/// tets (P1, per-region real `ε_r` from `materials`) once per terminal:
+/// terminal *i* held at 1 V, **every other terminal and every ground
+/// surface held at 0 V**. The Maxwell capacitance matrix follows from the
+/// energy method `C_ij = φ⁽ⁱ⁾ᵀ K φ⁽ʲ⁾`
+/// ([`geode_core::assembly::electrostatic::extract_capacitance`]).
+///
+/// **Conductor model.** Every conductor is voltage-driven: a non-excited
+/// terminal is *grounded* (0 V), never floating. There is no
+/// charge-neutral floating-conductor formulation; a metal body with no
+/// electrical connection must still be listed as a terminal (its
+/// row/column is then part of the Maxwell matrix, from which floating
+/// behaviour can be derived by circuit reduction). Surfaces not listed
+/// anywhere are natural boundaries (zero normal `D`, i.e. a symmetry /
+/// open-circuit wall), not conductors.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CapacitanceSpec {
+    /// Dimension-2 physical-group names, one per conductor terminal, in
+    /// matrix row/column order (`≥ 1`, distinct).
+    pub terminals: Vec<String>,
+    /// Dimension-2 physical-group names pinned to 0 V in every
+    /// excitation: the reference / return conductor(s) — ground plane,
+    /// shield, enclosure. At least one is required in v1.
+    #[serde(default)]
+    pub ground: Vec<String>,
 }
 
 /// Mesh file reference.
@@ -641,5 +688,39 @@ mod tests {
         .unwrap();
         assert_eq!(x.l0_rel_tol, Some(0.01));
         assert!(serde_json::from_str::<ExtractSpec>(r#"{"anchors":[1]}"#).is_err());
+    }
+
+    #[test]
+    fn capacitance_section_marks_a_capacitance_spec() {
+        let spec: ProblemSpec = serde_json::from_str(
+            r#"{"schema_version":1,
+                "mesh":{"path":"m.msh","length_unit_m":1e-3},
+                "capacitance":{"terminals":["a","b"],"ground":["gnd"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(spec.analysis(), Analysis::Capacitance);
+        assert_eq!(Analysis::Capacitance.name(), "capacitance");
+        let c = spec.capacitance.as_ref().unwrap();
+        assert_eq!(c.terminals, ["a", "b"]);
+        assert_eq!(c.ground, ["gnd"]);
+        // `ground` defaults to empty (rejected later by `problem::load`);
+        // unknown keys and a missing `terminals` are parse errors.
+        let c: CapacitanceSpec = serde_json::from_str(r#"{"terminals":["a"]}"#).unwrap();
+        assert!(c.ground.is_empty());
+        assert!(
+            serde_json::from_str::<CapacitanceSpec>(r#"{"terminals":["a"],"floating":["b"]}"#)
+                .is_err()
+        );
+        assert!(serde_json::from_str::<CapacitanceSpec>(r#"{"ground":["g"]}"#).is_err());
+        // Absent section is not serialized (starter specs stay unchanged).
+        let driven: ProblemSpec = serde_json::from_str(
+            r#"{"schema_version":1,"mesh":{"path":"m.msh","length_unit_m":1}}"#,
+        )
+        .unwrap();
+        assert!(
+            !serde_json::to_string(&driven)
+                .unwrap()
+                .contains("capacitance")
+        );
     }
 }

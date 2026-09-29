@@ -12,6 +12,7 @@ geode driven spec.json -o report.json               # frequency sweep → Z / Y 
 geode driven spec.toml --threads 8 --backend ndarray
 geode eigen  cavity.json -o modes.json              # lossless PEC-cavity modes → f
 geode extract inductor.json -o l0.json              # sweep → L / R / Q, f→0 L₀, SRF
+geode capacitance caps.json -o c.json               # static Maxwell capacitance matrix (F)
 geode driven patch.json --outdir fields/            # + per-frequency E-field .vtu and NTFF
 geode driven filter.json --touchstone filter.s2p    # + Touchstone 2.0 S-parameters
 geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json   # layout → mesh → solve
@@ -23,6 +24,7 @@ geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json
 | `driven`  | live — lumped-port (or wave-port, #683) frequency sweep with PEC / Leontovich / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG; optional Touchstone 2.0 `.sNp` (#703) |
 | `eigen`   | live (#681) — lossless PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; `Q` is `null` (lossless) |
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
+| `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)) |
 | `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec, via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
 
 ## Host behavior
@@ -76,13 +78,20 @@ section it carries:
   `ports` (≥ 1; wave ports define no `Z_kk`, so they are rejected),
   `frequencies`, and ≥ 2 distinct `L₀` anchor frequencies; run with
   `geode extract`.
+- **capacitance spec** (has `capacitance`, issue #705): conductor
+  terminals + ground surfaces; must not have `ports`, `wave_ports`,
+  `frequencies`, `absorbing_regions`, any `boundary_conditions` (PEC,
+  Leontovich, Silver-Müller) or `solver.mode = "iterative"`, and every
+  `eps_r` must be real (`im = 0`, `re > 0`); run with `geode capacitance`.
 
 Each **dimension-2** physical group carries at most one role — lumped
-port, wave port, PEC, Leontovich or Silver-Müller; ports, wave ports and
-impedance walls may not be listed twice (repeating a PEC name is
+port, wave port, PEC, Leontovich, Silver-Müller, capacitance terminal or
+capacitance ground; ports, wave ports, impedance walls, terminals and
+ground surfaces may not be listed twice (repeating a PEC name is
 harmless).
 
-A spec with both `eigen` and `extract` is rejected. Running a spec under
+A spec with more than one of `eigen` / `extract` / `capacitance` is
+rejected. Running a spec under
 another subcommand fails with `invalid_spec` before the mesh is read;
 `geode check` validates any kind and reports which (`analysis`).
 
@@ -114,7 +123,7 @@ Driven example (the spiral-inductor golden input,
 | `mesh.length_unit_m` | float > 0, **required** | metres per mesh length unit (`1e-6` = micron mesh). Every SI ↔ natural-unit conversion depends on it |
 | `materials[]` | | per-volume-region scalar permittivity; unlisted regions are vacuum (`check` reports which) |
 | `materials[].physical_group` | string | name of a **dimension-3** physical group |
-| `materials[].eps_r` | `[re, im]`, `im ≤ 0` (eigen: `im = 0`, `re > 0`) | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
+| `materials[].eps_r` | `[re, im]`, `im ≤ 0` (eigen / capacitance: `im = 0`, `re > 0`) | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
 | `boundary_conditions.pec[]` | strings | **dimension-2** groups whose edges are eliminated (tangential E = 0). Unnamed surfaces are natural (PMC-like) boundaries |
 | `boundary_conditions.leontovich[]` | | good-conductor surface impedance `Z_s = (1+j)·√(ωμ₀/2σ)` |
 | `….leontovich[].physical_group` | string | dimension-2 group |
@@ -146,6 +155,9 @@ Driven example (the spiral-inductor golden input,
 | `extract` | optional section | its presence makes this an extract spec (see below) |
 | `extract.anchor_frequencies` | optional frequency block (same shape as `frequencies`) | explicit `L₀` anchor ladder, solved **in addition to** `frequencies`. Omitted: the anchors are `frequencies` itself |
 | `extract.l0_rel_tol` | optional float > 0 | convergence gate: fail (`solve_failed`) if any port's relative `L₀` consistency estimate exceeds it. Needs ≥ 3 distinct anchors. Omitted: no gate (the estimate is still reported) |
+| `capacitance` | optional section | its presence makes this a capacitance spec (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)) |
+| `capacitance.terminals` | strings, ≥ 1, distinct | **dimension-2** groups, one per conductor terminal, in matrix row/column order |
+| `capacitance.ground` | strings, ≥ 1 (v1) | **dimension-2** groups held at 0 V in every excitation (ground plane, shield, enclosure) |
 | `eigen` | optional section | its presence makes this an eigen spec |
 | `eigen.n_modes` | int ≥ 1 | physical modes to return |
 | `eigen.unit` | `"hz"` \| `"ghz"` \| `"k0"`, **required** | unit of `shift` |
@@ -277,6 +289,85 @@ Cross-sections with a TEM mode (multiply connected, e.g. coax) are not
 supported: the TEM mode lives in the gradient nullspace and is filtered
 out. Asking for more modes than the cross-section can hold fails with
 `solve_failed`.
+
+## Static capacitance (`geode capacitance`, issue #705)
+
+```sh
+geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N]
+```
+
+Capacitance example (the triaxial golden input,
+`tests/fixtures/capacitance_triax_smoke.toml` — TOML works like JSON):
+
+```toml
+schema_version = 1
+
+[mesh]
+path = "../../../geode-core/tests/fixtures/coax_capacitance_smoke.msh"
+length_unit_m = 0.001
+
+[[materials]]
+physical_group = "dielectric_inner"
+eps_r = [2.0, 0.0]
+
+[capacitance]
+terminals = ["inner", "shield"]
+ground = ["outer"]
+```
+
+**What it solves.** The scalar electrostatic problem
+`−∇·(ε₀ ε_r ∇φ) = 0` on the tets (linear P1 Lagrange, per-region real
+`ε_r` from `materials`, vacuum where unlisted), wrapping the validated
+library extractor `geode_core::assembly::electrostatic`
+(`assemble_electrostatic` + `extract_capacitance`, the
+`benchmarks/electrostatic` path). Each terminal's and ground group's
+tagged triangles become a Dirichlet node set. For every terminal *i* one
+sparse-LU solve runs with **terminal *i* at 1 V and every other terminal
+and every ground surface at 0 V**, and the Maxwell matrix follows from
+the energy method `C_ij = φ⁽ⁱ⁾ᵀ K φ⁽ʲ⁾` with the full stiffness `K`.
+
+- **Conductor model — grounded, not floating.** A non-excited terminal is
+  held at 0 V (the standard multi-conductor Maxwell-matrix convention,
+  as in Palace's `terminal-C.csv`). There is **no** floating
+  (charge-neutral, unknown-potential) conductor formulation. A metal
+  island with no connection must still be listed as a terminal; its
+  floating behaviour can then be derived from the Maxwell matrix by
+  circuit reduction. The report says so in
+  `capacitance.conductor_model = "non_driven_grounded"`.
+- **Every conductor is at a known potential**, so `boundary_conditions`
+  is rejected in a capacitance spec: list a shield / enclosure under
+  `capacitance.ground` (not `pec`). Surfaces listed nowhere are natural
+  boundaries (zero normal `D`: a symmetry / open-circuit wall, not a
+  conductor), and an unlisted interior surface is just mesh faces.
+- **Touching conductors are rejected.** If two terminals, or a terminal
+  and a ground surface, share a mesh node they are electrically shorted
+  and the run fails with `invalid_spec` — never a silently wrong matrix.
+  Merge them into one terminal or separate them in the mesh.
+- **Units.** The mesh is integrated in mesh units; `length_unit_m` scales
+  the result to **farads**. The matrix is real (plain numbers, not
+  `[re, im]` pairs).
+- **Conductor interiors** may be meshed or not. Not meshed (the terminal
+  is a mesh-boundary surface, as in the coax fixture) is cheaper and
+  enables the surface-flux cross-check; a meshed interior is simply
+  field-free.
+- **Accuracy.** The energy method is exact with respect to the
+  discretization; P1 converges as `O(h²)` in `C` and, on the exact
+  geometry, from above. The golden coax sits at 0.32 % on a 1 074-node
+  mesh and 0.14 % on 5 613 nodes (`benchmarks/electrostatic` bar: 1 %).
+
+**Not the same "inductance / capacitance" as `geode extract`.** `geode
+extract`'s `l0_h` is the **RF quasi-static `L₀`** — `Im Z_kk / ω` of a
+driven full-wave sweep extrapolated to `f → 0`, per lumped port.
+`geode capacitance` reports the **static Maxwell `C`-matrix** of an
+electrostatic solve between conductor terminals, with no ports and no
+frequency. A static Maxwell `L`-matrix (`geode inductance`,
+magnetostatics) is not implemented yet.
+
+Not in v1: floating conductors, `--outdir` potential / field export, a
+P2 element option (the library has `extract_capacitance_p2`), SPICE
+subcircuit export, a `geode mesh` capacitance starter spec, and a
+calibrated resource estimate (`geode check` reports the scalar system
+size in `capacitance` and `resources = null` for a capacitance spec).
 
 Not in schema v1: the matrix-free iterative solver, field / NTFF export,
 and lossy / open-cavity eigenmodes (complex `ε_r`, Leontovich / absorbing
@@ -478,6 +569,12 @@ pencil is scaled ×2 memory / ×4 time over the real anchor
   not used as the primary predictor. A symbolic-fill refinement is a
   possible follow-up, not this model.
 
+**Capacitance specs** get `resources = null`: the model above is
+calibrated on the Nédélec H(curl) pencil and has no measured basis for
+the real scalar electrostatic system. `check` reports that system's size
+in its `capacitance` block instead (`n_dof`, `n_free_dof`, `nnz_k`,
+`n_solves`).
+
 **Iterative model.** Memory is a vector count (operator storage, 16
 Krylov vectors, per-tet assembly buffers), not an extrapolation — on the
 spiral smoke mesh it came out ~1.6× **low** (0.044 vs 0.072 GB; process
@@ -658,11 +755,12 @@ Every report carries these top-level provenance fields:
 | `backend` | compiled-in backend: `ndarray` \| `wgpu` \| `cuda` \| `metal` |
 | `threads` | `--threads` value, or `null` |
 | `spec_path` | spec path as given |
-| `kind` | `"check"` \| `"driven"` \| `"eigen"` \| `"extract"` \| `"mesh"` \| `"error"` |
+| `kind` | `"check"` \| `"driven"` \| `"eigen"` \| `"extract"` \| `"capacitance"` \| `"mesh"` \| `"error"` |
 | `status` | `"ok"` \| `"error"` |
 
 Complex numbers are `[re, im]`; matrices are row-major nested arrays
-`m[row][col]` indexed by port.
+`m[row][col]` indexed by port (by terminal for the real capacitance
+matrix).
 
 **`mesh`** (every success kind): `path`, `sha256` (hex SHA-256 of the mesh
 bytes), `length_unit_m`, `n_nodes`, `n_tets`, `n_edges` (Nédélec DOFs),
@@ -690,14 +788,17 @@ Additive in v1 (issue #683) — always present in `check`, present in
 (`physical_group`, `tag`, `n_triangles`), `leontovich[]` (… plus
 `conductivity_s_m`, `conductivity_natural`), `frequencies[]`
 (`frequency_hz`, `k0`; empty for an eigen spec), `solver` (`mode`, `tol`,
-`max_iters`), `analysis` (`"driven"` \| `"eigen"` \| `"extract"`),
+`max_iters`), `analysis` (`"driven"` \| `"eigen"` \| `"extract"` \|
+`"capacitance"`),
 `eigen` (`null` unless an eigen spec, else `n_modes`, `shift_hz`,
 `shift_k0`, `sigma` = `shift_k0²`, `max_iters`, `tol`, `residual_tol`),
 `extract` (`null` unless an extract spec, else `anchor_source` =
 `"frequencies"` \| `"anchor_frequencies"`, `anchor_frequencies[]`
-(`frequency_hz`, `k0`; distinct, ascending) and `l0_rel_tol`) and
-`resources` (additive in v1: the up-front resource estimate — see
-"Resource estimate" above).
+(`frequency_hz`, `k0`; distinct, ascending) and `l0_rel_tol`),
+`capacitance` (additive in v1; `null` unless a capacitance spec, else
+the block described under `kind = "capacitance"` below) and `resources`
+(additive in v1: the up-front resource estimate — see "Resource
+estimate" above; `null` for a capacitance spec).
 `ports[]` is empty for an eigen spec; for an extract spec
 `frequencies[]` is the ascending solved list.
 
@@ -772,10 +873,34 @@ resolved settings, as for `check`) and `extraction[]`, one per port:
 | `im_z_zero_crossings_hz` | Hz | every `Im Z_kk` sign change over the solved list, ascending |
 | `srf_hz` | Hz | first entry of `im_z_zero_crossings_hz`, or `null` |
 
+**`kind = "capacitance"`** (additive in v1, issue #705) adds `regions[]`
+(as for `check`; every `eps_r[1]` is `0`) and:
+
+- `capacitance`: `terminals[]` and `ground[]` (each `physical_group`,
+  `tag`, `n_triangles`, `n_nodes` = distinct pinned nodes),
+  `conductor_model` (`"non_driven_grounded"`), `element` (`"p1_tet"`),
+  `n_dof` (= mesh nodes), `n_free_dof` (unknowns after pinning every
+  terminal and ground node), `nnz_k` (`n_nodes + 2·n_edges`, the full
+  scalar stiffness pattern), `n_solves` (one per terminal). `mesh.n_edges`
+  / `n_interior` are the H(curl) counts of the other analyses and unused
+  here.
+- `solver`: `method` (`"energy"`), `inner` (`"direct_lu"`), `wall_time_s`
+  (assembly + every solve, seconds).
+
+| Field | Units | Meaning |
+|---|---|---|
+| `terminals` | – | terminal names, matrix row/column order |
+| `c_farad` | F | N×N Maxwell capacitance matrix: diagonal `> 0`, off-diagonal `≤ 0` (the mutual capacitance between *i* and *j* is `−c_farad[i][j]`) |
+| `c_sigma_farad` | F | per terminal, the row sum `Σ_j C_ij`: its capacitance to ground with every other terminal also grounded (a fully enclosed terminal has `≈ 0`) |
+| `c_flux_diag_farad` | F | independent surface-flux cross-check of the diagonal (`∮ ε(−∇φ)·n̂ dS` with a piecewise-constant field): a looser sanity signal (~8–15 % on the curved coax), **not** the result; `null` for a terminal not entirely on the mesh boundary (e.g. a zero-thickness sheet with dielectric on both sides), where a one-sided flux would be wrong |
+| `max_rel_asymmetry` | – | `max \|C_ij − C_ji\| / max(\|C_ij\|, \|C_ji\|)` — structural only: the energy method fills `C_ji` from `C_ij`, so it is `0` unless something is corrupted; it is **not** a solver residual (the solve is a direct LU) |
+| `maxwell_sign_structure` | – | `true` if the diagonal is positive, the off-diagonals non-positive and the row sums non-negative (to `1e-9` relative). `false` flags a mesh violating the discrete maximum principle (badly obtuse tets); inspect the matrix — it is not an error |
+
 **`kind = "error"`** adds `command` (the subcommand) and
 `error: { code, message }` with `code` one of `io`, `spec_parse`,
 `schema_version`, `invalid_spec`, `mesh`, `unresolved_physical_group`,
-`backend_mismatch`, `solve_failed`, `non_finite`, `serialize`,
+`backend_mismatch`, `solve_failed` (including an electrostatic
+factorization failure), `non_finite`, `serialize`,
 `gmsh_not_found`, `gmsh_failed` (the last two from `geode mesh`; a bad
 layout reports `spec_parse` / `invalid_spec`)
 (`not_implemented` was retired once `extract` went live).
@@ -899,6 +1024,29 @@ fresh library solve + `edge_field_to_nodes` (1e-9 of max |E|), and the
 its default tier with `--outdir` (one finite, real `E_mode_<i>.vtu` per
 mode) and `wave_port_driven.rs` checks that wave-port reports carry no
 export fields even with `--outdir`.
+
+`tests/capacitance_golden.rs` (issue #705) re-expresses the
+`benchmarks/electrostatic` coax oracle through `geode capacitance` on a
+committed Gmsh mesh (`reference/gmsh/coax_capacitance.geo` →
+`geode-core/tests/fixtures/coax_capacitance{_smoke,}.msh`: a triaxial
+coax, radii 1 / 1.6 / 2.5 mm, natural end caps):
+
+```sh
+cargo test -p geode-cli --test capacitance_golden                                 # both tiers, default CI (~5 s debug)
+```
+
+Both tiers run by default (the static solve is cheap). The **coax** spec
+(terminal `inner`, ground `outer`, the `shield` surface left unlisted) is
+exactly the benchmark coax and is held to its **1 %** bar against
+`2πε₀L/ln(b/a)` (smoke 0.32 %, benchmark 0.14 %); the **triax** spec
+(terminals `inner` + `shield`, `ε_r = 2` in the inner annulus) is held to
+1 % per entry of the analytic 2×2 Maxwell matrix `[[C1, −C1], [−C1,
+C1 + C2]]` (smoke ≤ 0.40 %, benchmark ≤ 0.19 %). Also: CLI-vs-library
+parity (1e-9, the library driven straight from the named groups),
+monotone convergence smoke → benchmark, the flux cross-check band, exact
+`ε_r` linearity, the report / `check` contract, and the validation
+errors (wrong subcommand pre-mesh, frequency-domain features, lossy
+`ε_r`, shorted conductors, unknown groups).
 
 `tests/wave_port_driven.rs` (issue #683) runs `geode driven` with two
 wave ports on a synthetic tagged rectangular waveguide (geode-core's
