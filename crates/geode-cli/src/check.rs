@@ -7,9 +7,10 @@ use geode_core::assembly::nedelec::sparsity_pattern_from_tet_edges;
 use crate::error::CliError;
 use crate::problem::{self, MaterialSource, Problem};
 use crate::report::{
-    CheckReport, EigenSettingsSummary, ExtractSettingsSummary, FrequencySummary, LeontovichSummary,
-    MeshSummary, PecSummary, PortSummary, Provenance, RegionSummary, ResourceEstimate,
-    SilverMullerSummary, SolverSummary, UpmlSummary, WavePortSummary,
+    CapacitanceSettingsSummary, CheckReport, ConductorSummary, EigenSettingsSummary,
+    ExtractSettingsSummary, FrequencySummary, LeontovichSummary, MeshSummary, PecSummary,
+    PortSummary, Provenance, RegionSummary, ResourceEstimate, SilverMullerSummary, SolverSummary,
+    UpmlSummary, WavePortSummary,
 };
 use crate::spec::SolverSpec;
 
@@ -50,7 +51,38 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
         analysis: p.analysis.name(),
         eigen: eigen_settings_summary(&p),
         extract: extract_settings_summary(&p),
-        resources: resource_estimate(&p),
+        capacitance: capacitance_settings_summary(&p),
+        // The H(curl)-pencil calibration does not apply to the scalar
+        // electrostatic system: no fabricated estimate.
+        resources: p.capacitance.is_none().then(|| resource_estimate(&p)),
+    })
+}
+
+/// Echo of the resolved `capacitance` section with the scalar system size
+/// (`None` unless a capacitance spec).
+pub fn capacitance_settings_summary(p: &Problem) -> Option<CapacitanceSettingsSummary> {
+    let c = p.capacitance.as_ref()?;
+    let summary = |list: &[problem::Conductor]| -> Vec<ConductorSummary> {
+        list.iter()
+            .map(|k| ConductorSummary {
+                physical_group: k.surface.name.clone(),
+                tag: k.surface.tag,
+                n_triangles: k.surface.triangles.len(),
+                n_nodes: k.nodes.len(),
+            })
+            .collect()
+    };
+    let n_dof = p.tagged.mesh.n_nodes();
+    Some(CapacitanceSettingsSummary {
+        terminals: summary(&c.terminals),
+        ground: summary(&c.ground),
+        conductor_model: "non_driven_grounded",
+        element: "p1_tet",
+        n_dof,
+        n_free_dof: n_dof - c.n_pinned(),
+        // Two P1 nodes couple iff they share a tet, i.e. a tet edge.
+        nnz_k: n_dof + 2 * p.edges.len(),
+        n_solves: c.terminals.len(),
     })
 }
 

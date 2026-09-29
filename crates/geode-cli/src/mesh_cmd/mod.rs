@@ -571,5 +571,6 @@ pub fn starter_spec(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) 
         solver: SolverSpec::Direct {},
         eigen: None,
         extract: None,
+        capacitance: None,
     }
 }

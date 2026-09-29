@@ -2,21 +2,24 @@
 //!
 //! Every invocation that gets past argument parsing writes exactly one
 //! JSON document (stdout, or the `-o` path). The document is one of
-//! five kinds, discriminated by the top-level `kind` field:
+//! six kinds, discriminated by the top-level `kind` field:
 //!
 //! * `"check"` — [`CheckReport`], from `geode check` (no solve);
 //! * `"driven"` — [`DrivenReport`], from `geode driven`;
 //! * `"eigen"` — [`EigenReport`], from `geode eigen`;
 //! * `"extract"` — [`ExtractReport`], from `geode extract` (additive in
 //!   v1: a [`DrivenReport`]-shaped sweep plus per-port `L₀` / SRF);
+//! * `"capacitance"` — [`CapacitanceReport`], from `geode capacitance`
+//!   (additive in v1, issue #705: the static Maxwell capacitance matrix);
 //! * `"error"` — [`ErrorReport`], from any failed subcommand (the
 //!   process also exits non-zero and prints the error to stderr).
 //!
 //! All of them carry [`Provenance`] flattened into the top level
 //! (`schema_version`, `geode_version`, `git_sha`, `backend`, …).
-//! Complex numbers are `[re, im]` pairs. Matrices are row-major nested
+//! Complex numbers are `[re, im]` pairs (the capacitance matrix is real:
+//! plain numbers). Matrices are row-major nested
 //! arrays `m[row][col]`. Units are part of every field name (`_hz`,
-//! `_ohm`, `_s`, `_h`, …) except the dimensionless `s`, `q`, `k0`
+//! `_ohm`, `_s`, `_h`, `_farad`, …) except the dimensionless `s`, `q`, `k0`
 //! (rad per mesh length unit) and `residual_rel`.
 //!
 //! `crates/geode-cli/README.md` carries the field-by-field reference.
@@ -288,8 +291,8 @@ pub struct CheckReport {
     pub frequencies: Vec<FrequencySummary>,
     /// Solver selection.
     pub solver: SolverSummary,
-    /// `"driven"`, `"eigen"` or `"extract"` — the analysis the spec
-    /// describes (additive in v1).
+    /// `"driven"`, `"eigen"`, `"extract"` or `"capacitance"` — the
+    /// analysis the spec describes (additive in v1).
     pub analysis: &'static str,
     /// The resolved `eigen` section, `null` unless an eigen spec
     /// (additive in v1).
@@ -297,9 +300,117 @@ pub struct CheckReport {
     /// The resolved `extract` section, `null` unless an extract spec
     /// (additive in v1).
     pub extract: Option<ExtractSettingsSummary>,
+    /// The resolved `capacitance` section with its scalar DOF counts,
+    /// `null` unless a capacitance spec (additive in v1).
+    pub capacitance: Option<CapacitanceSettingsSummary>,
     /// Up-front memory / cost estimate for the solve (additive in v1;
-    /// order-of-magnitude only — see [`ResourceEstimate`]).
-    pub resources: ResourceEstimate,
+    /// order-of-magnitude only — see [`ResourceEstimate`]). `null` for a
+    /// capacitance spec: the estimate is calibrated on the complex / real
+    /// Nédélec H(curl) pencil and has no measured basis for the scalar
+    /// electrostatic system (whose size is in `capacitance`).
+    pub resources: Option<ResourceEstimate>,
+}
+
+/// One conductor of a capacitance spec (terminal or ground surface).
+#[derive(Debug, Clone, Serialize)]
+pub struct ConductorSummary {
+    /// Physical-group name.
+    pub physical_group: String,
+    /// Physical tag.
+    pub tag: i32,
+    /// Tagged triangles.
+    pub n_triangles: usize,
+    /// Distinct mesh nodes pinned to this conductor's potential.
+    pub n_nodes: usize,
+}
+
+/// Echo of a resolved `capacitance` spec section plus the size of the
+/// scalar electrostatic system (additive in v1).
+#[derive(Debug, Clone, Serialize)]
+pub struct CapacitanceSettingsSummary {
+    /// Terminals in matrix row/column order.
+    pub terminals: Vec<ConductorSummary>,
+    /// Ground (0 V reference) surfaces.
+    pub ground: Vec<ConductorSummary>,
+    /// Always `"non_driven_grounded"`: in the excitation of terminal *i*
+    /// (1 V) every other terminal and every ground surface is held at
+    /// 0 V. There is no floating (charge-neutral) conductor model.
+    pub conductor_model: &'static str,
+    /// Always `"p1_tet"` (nodal linear Lagrange on the tets).
+    pub element: &'static str,
+    /// Scalar DOFs before Dirichlet elimination (= mesh nodes).
+    pub n_dof: usize,
+    /// Free DOFs after pinning every terminal and ground node (the size
+    /// of the SPD system factored per excitation).
+    pub n_free_dof: usize,
+    /// Non-zeros of the full scalar stiffness pattern
+    /// (`n_nodes + 2·n_edges`).
+    pub nnz_k: usize,
+    /// Unit-voltage solves (one per terminal), each a sparse LU
+    /// factorization + solve.
+    pub n_solves: usize,
+}
+
+/// Statistics of a `geode capacitance` solve.
+#[derive(Debug, Clone, Serialize)]
+pub struct CapacitanceSolverStats {
+    /// Always `"energy"`: `C_ij = φ⁽ⁱ⁾ᵀ K φ⁽ʲ⁾` with the full stiffness.
+    pub method: &'static str,
+    /// Always `"direct_lu"` (faer sparse LU, real SPD system).
+    pub inner: &'static str,
+    /// Wall time of assembly + every solve + post-processing, seconds.
+    pub wall_time_s: f64,
+}
+
+/// `geode capacitance` report (`kind = "capacitance"`, additive in v1).
+///
+/// All capacitances are real, in farads (SI: the mesh length unit is
+/// folded in), row-major `c_farad[row][col]` in terminal order.
+#[derive(Debug, Clone, Serialize)]
+pub struct CapacitanceReport {
+    /// Provenance (flattened).
+    #[serde(flatten)]
+    pub provenance: Provenance,
+    /// Always `"capacitance"`.
+    pub kind: &'static str,
+    /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    pub status: &'static str,
+    /// Mesh summary (`n_edges` / `n_interior` are the H(curl) counts of
+    /// the other analyses, unused here; the scalar system size is in
+    /// `capacitance`).
+    pub mesh: MeshSummary,
+    /// Volume regions with applied permittivities (`eps_r[1]` is `0`).
+    pub regions: Vec<RegionSummary>,
+    /// The capacitance settings and system size.
+    pub capacitance: CapacitanceSettingsSummary,
+    /// Terminal names in matrix row/column order (same order as
+    /// `capacitance.terminals`).
+    pub terminals: Vec<String>,
+    /// The N×N Maxwell capacitance matrix (F): diagonal `> 0`,
+    /// off-diagonals `≤ 0` (mutual capacitance is `−c_farad[i][j]`).
+    pub c_farad: Vec<Vec<f64>>,
+    /// Per terminal, the row sum `Σ_j C_ij` (F): the capacitance from
+    /// that terminal to ground with every other terminal also grounded.
+    pub c_sigma_farad: Vec<f64>,
+    /// Independent surface-flux cross-check of the diagonal (F), `Q_i =
+    /// ∮ ε(−∇φ⁽ⁱ⁾)·n̂ dS` over the terminal's triangles with a piecewise-
+    /// constant field: a looser sanity signal (a few–15 % on curved
+    /// surfaces), not the result. `null` for a terminal whose surface is
+    /// not entirely on the mesh boundary (e.g. a zero-thickness sheet
+    /// with dielectric on both sides), where the one-sided flux would be
+    /// wrong.
+    pub c_flux_diag_farad: Vec<Option<f64>>,
+    /// `max |C_ij − C_ji| / max(|C_ij|, |C_ji|)`. Structural only: the
+    /// energy method fills `C_ji` from `C_ij`, so this is `0` unless the
+    /// matrix is corrupted — it is not a solver residual.
+    pub max_rel_asymmetry: f64,
+    /// Maxwell sign structure (positive diagonal, non-positive
+    /// off-diagonals and non-negative row sums, to `1e-9` relative).
+    /// `false` flags a mesh that violates the discrete maximum principle
+    /// (e.g. badly obtuse tets) — inspect the matrix; it is not an error.
+    pub maxwell_sign_structure: bool,
+    /// Solver statistics.
+    pub solver: CapacitanceSolverStats,
 }
 
 /// `geode check`'s up-front resource estimate (additive in v1).

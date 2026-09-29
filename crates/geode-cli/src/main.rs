@@ -6,6 +6,7 @@
 //! geode driven <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //! geode eigen  <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //! geode extract <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
+//! geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N]
 //! geode mesh   <layout.json|layout.toml> [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [-o report.json]
 //! geode --version   # "geode <crate-version> (<git-sha>[-dirty])"
 //! ```
@@ -22,6 +23,7 @@
 #![deny(missing_docs)]
 
 mod backend;
+mod capacitance;
 mod check;
 mod driven;
 mod eigen;
@@ -79,6 +81,12 @@ enum Command {
     /// extrapolation on the two lowest anchor frequencies) and SRF. Needs a
     /// spec with an `extract` section (`"extract": {}` for the defaults).
     Extract(RunArgs),
+    /// Static Maxwell capacitance matrix (F) between named conductor
+    /// surfaces: one electrostatic solve per terminal at 1 V with every
+    /// other terminal and the ground surfaces at 0 V (no floating
+    /// conductors). Needs a spec with a `capacitance` section and no ports
+    /// or frequencies.
+    Capacitance(StaticArgs),
     /// Layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged
     /// Gmsh mesh + starter problem spec, via the external `gmsh` binary.
     Mesh(mesh_cmd::MeshArgs),
@@ -91,6 +99,19 @@ struct CheckArgs {
     /// Write the JSON report here instead of stdout.
     #[arg(short = 'o', long = "output", value_name = "PATH")]
     output: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct StaticArgs {
+    /// Problem spec (`.toml` → TOML, anything else → JSON).
+    spec: PathBuf,
+    /// Write the JSON report here instead of stdout.
+    #[arg(short = 'o', long = "output", value_name = "PATH")]
+    output: Option<PathBuf>,
+    /// Cap worker threads for the sparse factorization (sets
+    /// `GEODE_NUM_THREADS`). Default: the library defaults.
+    #[arg(long, value_name = "N")]
+    threads: Option<NonZeroUsize>,
 }
 
 #[derive(Args)]
@@ -232,6 +253,13 @@ impl App for Cli {
                     extract::run(&a.spec, prov.clone(), out, ts)
                 });
                 finish("extract", prov, a.output.as_deref(), result)
+            }
+            Command::Capacitance(a) => {
+                let threads = a.threads.map(NonZeroUsize::get);
+                let prov = Self::provenance(&a.spec, threads);
+                let _par = threads.map(apply_thread_cap);
+                let result = capacitance::run(&a.spec, prov.clone());
+                finish("capacitance", prov, a.output.as_deref(), result)
             }
             Command::Mesh(a) => mesh_cmd::dispatch(a),
         }

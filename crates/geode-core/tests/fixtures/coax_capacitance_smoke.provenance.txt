@@ -1,0 +1,16 @@
+fixture:        coax_capacitance_smoke.msh
+sha256:         582f425027f0a5ffc85f8f84b45124bc97d478929cb7f9337d47047d871b17b1
+generated:      2026-09-29T03:16:05+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/coax_capacitance.geo
+command:        gmsh reference/gmsh/coax_capacitance.geo -3 -format msh41 -setnumber lc 0.3 -o crates/geode-core/tests/fixtures/coax_capacitance_smoke.msh
+
+parameter values:
+  a:  1.0   (inner radius, mesh units)
+  m:  1.6   (shield radius)
+  b:  2.5   (outer radius)
+  L:  1.0   (length along z)
+  lc: 0.3    (uniform mesh size)
+
+nodes:          1074
+consumed by:    crates/geode-cli/tests/capacitance_golden.rs (issue #705)
