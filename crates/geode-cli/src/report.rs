@@ -411,6 +411,10 @@ pub struct CapacitanceReport {
     pub maxwell_sign_structure: bool,
     /// Solver statistics.
     pub solver: CapacitanceSolverStats,
+    /// The SPICE subcircuit `.subckt` written by `--spice` (additive in
+    /// v1; present only with that flag).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spice_file: Option<FileRef>,
 }
 
 /// `geode check`'s up-front resource estimate (additive in v1).
@@ -566,7 +570,7 @@ pub struct FileRef {
     /// For `--outdir` files: the path relative to the `--outdir`
     /// directory (a bare file name). For `touchstone_file`: the
     /// `--touchstone` argument as given on the command line (like
-    /// `spec_path`).
+    /// `spec_path`); likewise `spice_file` and `--spice`.
     pub path: String,
     /// Hex SHA-256 of the bytes written.
     pub sha256: String,

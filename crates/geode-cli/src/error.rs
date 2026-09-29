@@ -128,6 +128,14 @@ pub enum CliError {
         /// Why no Touchstone file can be written.
         reason: String,
     },
+    /// `--spice` cannot be honoured: the capacitance matrix has a sign
+    /// violation beyond the noise threshold (a negative branch), or the
+    /// subcommand has no SPICE export yet.
+    #[error("--spice: {reason}")]
+    SpiceUnsupported {
+        /// Why no SPICE subcircuit can be written.
+        reason: String,
+    },
     /// The layout file (`geode mesh`) is not valid JSON/TOML for layout
     /// schema v1.
     #[error("cannot parse layout `{}`: {message}", .path.display())]
@@ -198,7 +206,9 @@ impl CliError {
             CliError::Io { .. } => "io",
             CliError::SpecParse { .. } => "spec_parse",
             CliError::SchemaVersion(_) => "schema_version",
-            CliError::InvalidSpec(_) | CliError::TouchstoneUnsupported { .. } => "invalid_spec",
+            CliError::InvalidSpec(_)
+            | CliError::TouchstoneUnsupported { .. }
+            | CliError::SpiceUnsupported { .. } => "invalid_spec",
             CliError::Mesh { .. } => "mesh",
             CliError::UnresolvedGroups { .. } => "unresolved_physical_group",
             CliError::BackendMismatch { .. } => "backend_mismatch",
