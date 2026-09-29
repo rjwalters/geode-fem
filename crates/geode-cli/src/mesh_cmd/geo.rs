@@ -9,13 +9,16 @@
 //!
 //! 1. **Hollow** ([`hollow_conductors`]): the thick conductor solids are
 //!    unioned and `BooleanDifference`d out of the dielectric stack (every
-//!    slab plus the UPML inner-wall box), deleting both — so a thick
-//!    conductor is an excluded **cavity** whose walls are its exterior
-//!    faces, and a via crossing a slab interface is one continuous cavity
-//!    with no internal face at the interface.
+//!    slab plus the UPML inner-wall box) — so a thick conductor is an
+//!    excluded **cavity** whose walls are its exterior faces, and a via
+//!    crossing a slab interface is one continuous cavity with no internal
+//!    face at the interface. The zero-thickness sheets are cut by the same
+//!    union, so the part of a sheet inside a thick conductor (a trace
+//!    pierced by a via) is removed rather than left as a dangling surface
+//!    with no tet on either side; the cavity wall carries that current.
 //! 2. **Fragment**: one `BooleanFragments` of the hollowed volumes with
-//!    the zero-thickness sheets and port rectangles for conformal
-//!    interfaces (thin sheets take exactly the pre-#721 path).
+//!    the (cut) sheets and port rectangles for conformal interfaces
+//!    (layouts with no thick conductor take exactly the pre-#721 path).
 //!
 //! Then **bounding-box** physical-group selection (robust to OCC's
 //! post-boolean renumbering) with mechanically derived names, a
@@ -88,17 +91,27 @@ pub fn conductor_body(c: &crate::mesh_cmd::layout::ConductorLayer) -> ConductorB
 
 /// Stage 1 of the boolean pipeline: emit the union of the `tools`
 /// (conductor solids to hollow out) and its `BooleanDifference` from the
-/// `objects` (dielectric slabs + UPML box), deleting both. Returns the
-/// volume list to feed to the fragment stage: `objects` unchanged when
-/// there is nothing to hollow, else the `v_hollow()` expression.
+/// `objects` (dielectric slabs + UPML box) and from the zero-thickness
+/// `sheets`, deleting all of them. Returns the `(volumes, sheets)` lists
+/// to feed to the fragment stage: both unchanged when there is nothing to
+/// hollow, else the `v_hollow()` / `s_sheet()` expressions.
 ///
 /// The tools are unioned first (as in the reference fixture) so touching
 /// or overlapping solids — a via over a trace — cut one continuous
 /// cavity; every object is differenced in one operation so a cavity
-/// crossing a slab interface leaves no face inside the conductor.
-fn hollow_conductors(w: &mut String, objects: &[String], tools: &[String]) -> Vec<String> {
+/// crossing a slab interface leaves no face inside the conductor. The
+/// sheets are cut too: a sheet piece inside a cavity would have no tet
+/// on either side (a dangling tagged surface — a silent no-op PEC and an
+/// edge-table panic for Leontovich); physically that piece has merged
+/// into the conductor, whose cavity wall carries the current.
+fn hollow_conductors(
+    w: &mut String,
+    objects: &[String],
+    tools: &[String],
+    sheets: &[String],
+) -> (Vec<String>, Vec<String>) {
     if tools.is_empty() {
-        return objects.to_vec();
+        return (objects.to_vec(), sheets.to_vec());
     }
     let _ = writeln!(
         w,
@@ -120,12 +133,30 @@ fn hollow_conductors(w: &mut String, objects: &[String], tools: &[String]) -> Ve
              {{ Volume{{v_cond({{1 : #v_cond() - 1}})}}; Delete; }};"
         );
     }
+    if sheets.is_empty() {
+        let _ = writeln!(
+            w,
+            "v_hollow() = BooleanDifference{{ Volume{{{}}}; Delete; }}{{ Volume{{v_cond()}}; Delete; }};",
+            objects.join(", ")
+        );
+        return (vec!["v_hollow()".into()], Vec::new());
+    }
+    // Keep the union for the sheet cut, then delete it.
     let _ = writeln!(
         w,
-        "v_hollow() = BooleanDifference{{ Volume{{{}}}; Delete; }}{{ Volume{{v_cond()}}; Delete; }};",
+        "v_hollow() = BooleanDifference{{ Volume{{{}}}; Delete; }}{{ Volume{{v_cond()}}; }};",
         objects.join(", ")
     );
-    vec!["v_hollow()".into()]
+    let _ = writeln!(
+        w,
+        "// Cut the sheets too: a sheet piece inside a thick conductor is removed."
+    );
+    let _ = writeln!(
+        w,
+        "s_sheet() = BooleanDifference{{ Surface{{{}}}; Delete; }}{{ Volume{{v_cond()}}; Delete; }};",
+        sheets.join(", ")
+    );
+    (vec!["v_hollow()".into()], vec!["s_sheet()".into()])
 }
 
 /// First surface-group tag (volume groups count up from 1).
@@ -243,7 +274,8 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
     // and surfaces (sheets + ports) to embed.
     let mut vols = Vec::new();
     let mut solids = Vec::new();
-    let mut surfs = Vec::new();
+    let mut sheets = Vec::new();
+    let mut ports = Vec::new();
     let _ = writeln!(w, "// Dielectric slabs (full lateral domain).");
     for (i, s) in l.dielectrics.iter().enumerate() {
         let v = format!("v_d{i}");
@@ -308,7 +340,7 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
                     num(q.x1 - q.x0),
                     num(q.y1 - q.y0)
                 );
-                surfs.push(s);
+                sheets.push(s);
             }
         }
     }
@@ -326,10 +358,11 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
             num(q.y1 - q.y0),
             p.name
         );
-        surfs.push(s);
+        ports.push(s);
     }
     let _ = writeln!(w);
-    let hollowed = hollow_conductors(w, &vols, &solids);
+    let (hollowed, mut surfs) = hollow_conductors(w, &vols, &solids, &sheets);
+    surfs.extend(ports);
     let _ = writeln!(
         w,
         "// Conformal interfaces between every slab, cavity wall, sheet and port."
@@ -561,11 +594,15 @@ mod tests {
             // Stage 1 (issue #721): the thick via is subtracted from the
             // whole dielectric stack, UPML box included …
             "v_cond() = {v_c1_0};",
+            // (the union is kept for the sheet cut) …
             "v_hollow() = BooleanDifference{ Volume{v_d0, v_d1, v_upml}; Delete; }\
+             { Volume{v_cond()}; };",
+            // … the sheets are cut by the same union (then deleted) …
+            "s_sheet() = BooleanDifference{ Surface{s_c0_0, s_c0_1}; Delete; }\
              { Volume{v_cond()}; Delete; };",
             // … stage 2 fragments the hollowed volumes with sheets + ports.
             "BooleanFragments{ Volume{v_hollow()}; Delete; }\
-             { Surface{s_c0_0, s_c0_1, s_p0}; Delete; }",
+             { Surface{s_sheet(), s_p0}; Delete; }",
         ] {
             assert!(s.text.contains(needle), "missing `{needle}` in\n{}", s.text);
         }
@@ -602,6 +639,7 @@ mod tests {
             "v_cond() = {v_c0_0, v_c0_1};",
             "Geometry.OCCUnionUnify = 0;",
             "v_cond() = BooleanUnion{",
+            "v_hollow() = BooleanDifference{ Volume{v_d0}; Delete; }{ Volume{v_cond()}; Delete; };",
             "BooleanFragments{ Volume{v_hollow()}; Delete; }{ Surface{s_p0}; Delete; }",
         ] {
             assert!(thick.text.contains(needle), "missing `{needle}`");
@@ -609,6 +647,7 @@ mod tests {
         // Zero thickness: sheets, exactly the pre-#721 single fragment.
         let thin = generate(&layout(0.0).resolve().unwrap(), "test");
         assert!(!thin.text.contains("BooleanDifference"));
+        assert!(!thin.text.contains("s_sheet()"));
         assert!(thin.text.contains(
             "BooleanFragments{ Volume{v_d0}; Delete; }{ Surface{s_c0_0, s_c0_1, s_p0}; Delete; }"
         ));

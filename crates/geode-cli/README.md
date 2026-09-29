@@ -817,8 +817,9 @@ parse) does not need a hand-built `.msh`:
    killed after `--gmsh-timeout` seconds (default 600, `0` = no limit)
    and reported as `gmsh_failed`, with the script kept;
 4. read the mesh back through `geode_core::mesh::read_tagged_tet_mesh`
-   and fail with `gmsh_failed` unless every generated group has elements
-   and every tet is tagged;
+   and fail with `gmsh_failed` unless every generated group has elements,
+   every tet is tagged, every exterior face carries a surface group and
+   every tagged triangle is a face of some tet;
 5. emit a **starter problem spec** (spec schema v1) wired to the
    generated names: every slab's `eps_r`, `pec = ["outer_boundary",
    <conductor layers>…]`, one lumped port per layout port (explicit
@@ -862,9 +863,18 @@ at +0.56 % / +0.76 % of the committed `results_smoke.toml` /
 `results.toml`, inside the benchmark's 2 % R / Q band (before hollowing,
 R was about −5 %); L stays inside its bands (+0.92 % / +0.92 %). Every
 exterior face of the generated mesh must carry a surface group (outer
-walls or cavity walls), else `geode mesh` fails with `gmsh_failed`.
-Zero-thickness sheets (`thickness = 0`) take the unchanged path: they
-are embedded in the dielectric and meshed two-sided.
+walls or cavity walls), and every tagged surface triangle must be a face
+of some tet, else `geode mesh` fails with `gmsh_failed`.
+Zero-thickness sheets (`thickness = 0`) are embedded in the dielectric
+and meshed two-sided, as before — except where a sheet passes through a
+thick conductor (e.g. a trace sheet pierced by a thick via): the sheets
+are cut by the same conductor union, so the piece inside the conductor
+is removed (it has merged into the conductor, whose cavity wall carries
+the current) rather than left as a dangling surface with no tet on
+either side. A layout with no thick conductor produces the same script
+as before issue #721. Independently, `geode driven` rejects
+(`invalid_spec`) a Leontovich, Silver-Müller or port surface with a
+triangle that is not a face of any tet (e.g. from a hand-built mesh).
 
 Automatically named physical groups:
 
