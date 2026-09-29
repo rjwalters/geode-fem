@@ -529,6 +529,7 @@ pub fn starter_spec(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) 
             .map(|(d, g)| MaterialSpec {
                 physical_group: g.clone(),
                 eps_r: d.eps_r,
+                mu_r: 1.0,
             })
             .collect(),
         boundary_conditions: BoundaryConditionsSpec {
@@ -572,5 +573,6 @@ pub fn starter_spec(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) 
         eigen: None,
         extract: None,
         capacitance: None,
+        inductance: None,
     }
 }

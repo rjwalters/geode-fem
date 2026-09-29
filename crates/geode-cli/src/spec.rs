@@ -21,15 +21,21 @@
 //!   spec (`geode capacitance`, issue #705): the static Maxwell
 //!   capacitance matrix between named conductor surfaces (terminals) and
 //!   a grounded reference, from an electrostatic solve. No ports, no
-//!   frequencies.
+//!   frequencies;
+//! * an [`InductanceSpec`] `inductance` section — an **inductance** spec
+//!   (`geode inductance`, issue #714): the static Maxwell inductance
+//!   matrix between named open current paths (conductor volume + source /
+//!   sink faces), from a magnetostatic vector-potential solve inside a PEC
+//!   wall. No ports, no frequencies. (Distinct from `geode extract`'s RF
+//!   quasi-static `l0_h`.)
 //!
 //! Driven and extract specs may additionally carry matched box-UPML
 //! `absorbing_regions` and `boundary_conditions.silver_muller` absorbing
 //! walls (open-boundary problems); driven specs may use `wave_ports`
 //! instead of lumped `ports` (issue #683).
 //!
-//! Carrying more than one of `eigen` / `extract` / `capacitance` is
-//! rejected, and running a spec
+//! Carrying more than one of `eigen` / `extract` / `capacitance` /
+//! `inductance` is rejected, and running a spec
 //! under the wrong subcommand fails with `invalid_spec` before the mesh
 //! is read.
 //! Unknown fields are rejected (`deny_unknown_fields`) so a typo never
@@ -114,10 +120,15 @@ pub struct ProblemSpec {
     /// capacitance`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capacitance: Option<CapacitanceSpec>,
+    /// Static inductance-extraction settings (additive in v1, issue
+    /// #714). Its presence makes this an **inductance spec** (for `geode
+    /// inductance`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inductance: Option<InductanceSpec>,
 }
 
 /// Which analysis a spec describes, decided by the presence of the
-/// `eigen` / `extract` / `capacitance` section.
+/// `eigen` / `extract` / `capacitance` / `inductance` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Analysis {
     /// Port-driven frequency sweep (`geode driven`).
@@ -128,6 +139,8 @@ pub enum Analysis {
     Extract,
     /// Static Maxwell capacitance matrix (`geode capacitance`).
     Capacitance,
+    /// Static Maxwell inductance matrix (`geode inductance`).
+    Inductance,
 }
 
 impl Analysis {
@@ -138,6 +151,7 @@ impl Analysis {
             Analysis::Eigen => "eigen",
             Analysis::Extract => "extract",
             Analysis::Capacitance => "capacitance",
+            Analysis::Inductance => "inductance",
         }
     }
 }
@@ -145,7 +159,8 @@ impl Analysis {
 impl ProblemSpec {
     /// The analysis this spec describes. A spec carrying more than one
     /// analysis section is ambiguous and rejected by `problem::load`; here
-    /// it classifies by the first of `eigen`, `extract`, `capacitance`.
+    /// it classifies by the first of `eigen`, `extract`, `capacitance`,
+    /// `inductance`.
     pub fn analysis(&self) -> Analysis {
         if self.eigen.is_some() {
             Analysis::Eigen
@@ -153,6 +168,8 @@ impl ProblemSpec {
             Analysis::Extract
         } else if self.capacitance.is_some() {
             Analysis::Capacitance
+        } else if self.inductance.is_some() {
+            Analysis::Inductance
         } else {
             Analysis::Driven
         }
@@ -267,6 +284,51 @@ pub struct CapacitanceSpec {
     pub ground: Vec<String>,
 }
 
+/// Static inductance-extraction settings (`geode inductance`, issue
+/// #714).
+///
+/// For each current path, a P1 **conduction** solve on the path's
+/// conductor volume (`∇·(σ∇φ) = 0`, `φ = 1` on `source`, `φ = 0` on
+/// `sink`, insulated elsewhere) gives the current density `J = −σ∇φ`,
+/// normalised to 1 A
+/// ([`geode_core::assembly::current_path::open_path_current`]). One
+/// magnetostatic solve per path, `∇×(ν₀ν_r∇×A) = J` on lowest-order
+/// Nédélec edges with a tree-cotree gauge and the `boundary_conditions.pec`
+/// wall as `n×A = 0`, then gives the Maxwell inductance matrix by the
+/// energy method `L_ij = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾ / (I_i I_j)`
+/// ([`geode_core::assembly::magnetostatic3d::extract_inductance`]).
+///
+/// **Open paths, PEC return.** Each path's current enters through
+/// `source` and leaves through `sink`; both faces are treated as PEC
+/// contacts and must touch the `boundary_conditions.pec` wall, which is
+/// the return conductor (e.g. a coax core whose end disks meet the shield
+/// end caps). A closed loop with no terminals, or a terminal floating in
+/// the dielectric, has no return path and is not supported in v1.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InductanceSpec {
+    /// Current paths in matrix row/column order (`≥ 1`, distinct names).
+    pub paths: Vec<CurrentPathSpec>,
+}
+
+/// One open current path of an [`InductanceSpec`].
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CurrentPathSpec {
+    /// Path name (the inductance matrix row/column label).
+    pub name: String,
+    /// Dimension-3 physical group: the conductor volume the current flows
+    /// through (homogeneous: the current distribution of a single-material
+    /// path does not depend on its conductivity).
+    pub conductor: String,
+    /// Dimension-2 physical group on the conductor's boundary where the
+    /// current enters.
+    pub source: String,
+    /// Dimension-2 physical group on the conductor's boundary where the
+    /// current leaves (distinct from, and node-disjoint with, `source`).
+    pub sink: String,
+}
+
 /// Mesh file reference.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -278,15 +340,35 @@ pub struct MeshSpec {
     pub length_unit_m: f64,
 }
 
-/// Scalar complex permittivity for one volume physical group.
+/// Material of one volume physical group: complex permittivity and
+/// (additive in v1, issue #714) real relative permeability.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MaterialSpec {
     /// Name of a dimension-3 physical group (`$PhysicalNames`).
     pub physical_group: String,
     /// Complex relative permittivity `[re, im]`, `im ≤ 0`
-    /// (`exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`).
+    /// (`exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`). Defaults to
+    /// vacuum `[1, 0]` (so an inductance spec can list only `mu_r`).
+    #[serde(default = "default_eps_r")]
     pub eps_r: [f64; 2],
+    /// Real relative permeability `μ_r` (finite, `> 0`; default `1`).
+    /// Honoured only by `geode inductance` in v1: every other analysis
+    /// rejects `μ_r ≠ 1` rather than silently ignoring it.
+    #[serde(default = "default_mu_r", skip_serializing_if = "is_unit_mu_r")]
+    pub mu_r: f64,
+}
+
+fn default_eps_r() -> [f64; 2] {
+    [1.0, 0.0]
+}
+
+fn default_mu_r() -> f64 {
+    1.0
+}
+
+fn is_unit_mu_r(mu_r: &f64) -> bool {
+    *mu_r == 1.0
 }
 
 /// Boundary conditions: PEC, Leontovich and (additive in v1, issue
@@ -688,6 +770,39 @@ mod tests {
         .unwrap();
         assert_eq!(x.l0_rel_tol, Some(0.01));
         assert!(serde_json::from_str::<ExtractSpec>(r#"{"anchors":[1]}"#).is_err());
+    }
+
+    #[test]
+    fn inductance_section_marks_an_inductance_spec() {
+        let spec: ProblemSpec = serde_json::from_str(
+            r#"{"schema_version":1,
+                "mesh":{"path":"m.msh","length_unit_m":1e-3},
+                "materials":[{"physical_group":"core","mu_r":4}],
+                "inductance":{"paths":[
+                    {"name":"p","conductor":"core","source":"in","sink":"out"}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(spec.analysis(), Analysis::Inductance);
+        assert_eq!(Analysis::Inductance.name(), "inductance");
+        let p = &spec.inductance.as_ref().unwrap().paths[0];
+        assert_eq!(
+            (p.name.as_str(), p.conductor.as_str(), p.source.as_str()),
+            ("p", "core", "in")
+        );
+        assert_eq!(p.sink, "out");
+        // `eps_r` defaults to vacuum, `mu_r` to 1 (and is not serialized).
+        assert_eq!(spec.materials[0].eps_r, [1.0, 0.0]);
+        assert_eq!(spec.materials[0].mu_r, 4.0);
+        let m: MaterialSpec =
+            serde_json::from_str(r#"{"physical_group":"x","eps_r":[2,0]}"#).unwrap();
+        assert_eq!(m.mu_r, 1.0);
+        assert!(!serde_json::to_string(&m).unwrap().contains("mu_r"));
+        // Missing path fields and unknown keys are parse errors.
+        assert!(
+            serde_json::from_str::<CurrentPathSpec>(r#"{"name":"p","conductor":"c","source":"s"}"#)
+                .is_err()
+        );
+        assert!(serde_json::from_str::<InductanceSpec>(r#"{"paths":[],"loops":[]}"#).is_err());
     }
 
     #[test]

@@ -112,6 +112,14 @@ jobs:
               --test patch_antenna_matched \
               --test patch_antenna_radiation
 
+      # Issue #714: the open-path current excitation behind
+      # `geode inductance` (P1 conduction J vs the analytic axial / loop
+      # builders, round-off discrete solenoidality, tripwires). No blanket
+      # geode-core job exists, so it is named here; < 1 s in release.
+      - name: Open-path current excitation (geode inductance library)
+        run: |
+          cargo test --features arpack -p geode-core --release --test current_path
+
       - name: Run the gated sparse-eigensolver acceptance test
         # Issue #24 acceptance: matches dense oracle to 1e-6 at n=5 with
         # the same fixture as the Lanczos check. Runs on the CPU backend so
@@ -134,9 +142,10 @@ jobs:
     # `tests/mesh_golden.rs` must actually run in CI.
     name: cargo test -p geode-cli (linux)
     runs-on: ubuntu-latest
-    # Cold dependency build + ~45s smoke golden solve in debug; 20 min
+    # Cold dependency build + ~45s smoke golden solve in debug, plus a
+    # second (release) build for the inductance benchmark tier; 30 min
     # bounds queue-wait (issue #354).
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
@@ -165,3 +174,10 @@ jobs:
       - name: Run geode-cli tests (default tier, CPU backend)
         run: |
           cargo test -p geode-cli
+
+      # The inductance benchmark tier (#714): finer coax/triax mesh at the
+      # 1 % oracle bar + monotone convergence + library parity. ~1 min in
+      # debug but ~2 s in release, so it runs here in release.
+      - name: geode inductance benchmark tier (release, --ignored)
+        run: |
+          cargo test -p geode-cli --release --test inductance_golden -- --ignored

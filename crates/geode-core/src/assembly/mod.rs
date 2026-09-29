@@ -44,6 +44,7 @@
 //!   Arkkio's volume-averaged variant (Epic #448 Phase 3), with the shared
 //!   contour/triangle-location sampler they build on.
 
+pub mod current_path;
 pub mod electrostatic;
 pub mod fe;
 pub mod magnetostatic;

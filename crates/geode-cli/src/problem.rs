@@ -1,21 +1,24 @@
 //! Resolve a [`ProblemSpec`] against its mesh into solver-ready inputs.
 //!
 //! This is the shared front half of `check`, `driven`, `eigen`,
-//! `extract` and `capacitance`: parse the spec, validate it for the analysis it describes
+//! `extract`, `capacitance` and `inductance`: parse the spec, validate it for the analysis it describes
 //! ([`crate::spec::Analysis`]), load the tagged mesh
 //! ([`geode_core::mesh::read_tagged_tet_mesh`]), bind every named physical
 //! group, convert SI inputs to the solver's natural units, build the
 //! PEC edge mask, derive the box-UPML inner walls and project wave-port
 //! faces into their 2-D cross-sections (no modal solve) and, for a
-//! capacitance spec, the terminal / ground conductor node sets. `check`
-//! stops here; `driven` and `extract` hand the result to the frequency
-//! sweep, `eigen` to the cavity eigensolve, `capacitance` to the
-//! electrostatic solve.
+//! capacitance spec, the terminal / ground conductor node sets, for an
+//! inductance spec the current paths (conductor tets + source / sink
+//! faces). `check` stops here; `driven` and `extract` hand the result to
+//! the frequency sweep, `eigen` to the cavity eigensolve, `capacitance`
+//! to the electrostatic solve, `inductance` to the magnetostatic solve.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use faer::c64;
+use geode_core::assembly::current_path::triangle_node_components;
+use geode_core::assembly::electrostatic::face_to_tet_map;
 use geode_core::assembly::nedelec::tet_centroids;
 use geode_core::constants::{C_M_PER_S, ETA_0_OHM};
 use geode_core::driven::ports::{PortFaceProjection, project_port_face};
@@ -46,7 +49,9 @@ pub struct Region {
     pub n_tets: usize,
     /// Applied complex relative permittivity.
     pub eps_r: c64,
-    /// Where `eps_r` came from.
+    /// Applied real relative permeability (`1` unless listed).
+    pub mu_r: f64,
+    /// Where `eps_r` / `mu_r` came from.
     pub source: MaterialSource,
 }
 
@@ -217,6 +222,36 @@ impl CapacitanceTarget {
     }
 }
 
+/// One resolved open current path of an inductance spec.
+#[derive(Debug, Clone)]
+pub struct CurrentPath {
+    /// Path name (matrix row/column label).
+    pub name: String,
+    /// Conductor volume physical-group name.
+    pub conductor_group: String,
+    /// Conductor volume physical tag.
+    pub conductor_tag: i32,
+    /// Per-tet membership of the conductor volume (length `n_tets`).
+    pub conductor: Vec<bool>,
+    /// Tets in the conductor volume.
+    pub n_conductor_tets: usize,
+    /// Source (current-in) face.
+    pub source: Surface,
+    /// Sink (current-out) face.
+    pub sink: Surface,
+    /// Distinct source-face nodes, ascending.
+    pub source_nodes: Vec<u32>,
+    /// Distinct sink-face nodes, ascending.
+    pub sink_nodes: Vec<u32>,
+}
+
+/// A resolved `inductance` section.
+#[derive(Debug, Clone)]
+pub struct InductanceTarget {
+    /// Current paths, in spec (= matrix row/column) order.
+    pub paths: Vec<CurrentPath>,
+}
+
 /// A fully resolved problem, ready for `check` reporting or a solve.
 #[derive(Debug, Clone)]
 pub struct Problem {
@@ -230,10 +265,15 @@ pub struct Problem {
     pub tagged: TaggedTetMesh,
     /// Global edge table (`mesh.edges()`).
     pub edges: Vec<[u32; 2]>,
-    /// Per-edge PEC interior mask (`true` = kept DOF).
+    /// Per-edge PEC interior mask (`true` = kept DOF). For an inductance
+    /// spec it also eliminates the current paths' source / sink faces
+    /// (PEC contacts).
     pub pec_mask: Vec<bool>,
     /// Per-tet complex relative permittivity.
     pub eps: Vec<c64>,
+    /// Per-tet real relative permeability (all `1` unless an inductance
+    /// spec lists `mu_r`).
+    pub mu_r: Vec<f64>,
     /// Volume regions, sorted by tag.
     pub regions: Vec<Region>,
     /// PEC surfaces.
@@ -264,6 +304,8 @@ pub struct Problem {
     pub extract: Option<ExtractTarget>,
     /// The resolved `capacitance` section (capacitance specs only).
     pub capacitance: Option<CapacitanceTarget>,
+    /// The resolved `inductance` section (inductance specs only).
+    pub inductance: Option<InductanceTarget>,
 }
 
 impl Problem {
@@ -361,6 +403,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         ("eigen", spec.eigen.is_some()),
         ("extract", spec.extract.is_some()),
         ("capacitance", spec.capacitance.is_some()),
+        ("inductance", spec.inductance.is_some()),
     ]
     .into_iter()
     .filter_map(|(name, present)| present.then_some(name))
@@ -368,7 +411,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
     if sections.len() > 1 {
         return Err(invalid(format!(
             "a spec describes one analysis: it cannot have more than one of the `eigen` / \
-             `extract` / `capacitance` sections (found `{}`)",
+             `extract` / `capacitance` / `inductance` sections (found `{}`)",
             sections.join("` and `")
         )));
     }
@@ -399,6 +442,21 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
                 "materials[{}].eps_r has Im > 0 (gain); lossy media need Im(eps_r) <= 0 \
                  under the exp(+jwt) convention",
                 m.physical_group
+            )));
+        }
+        if !(m.mu_r.is_finite() && m.mu_r > 0.0) {
+            return Err(invalid(format!(
+                "materials[{}].mu_r must be finite and > 0 (got {})",
+                m.physical_group, m.mu_r
+            )));
+        }
+        if m.mu_r != 1.0 && analysis != Analysis::Inductance {
+            return Err(invalid(format!(
+                "materials[{}].mu_r = {} is only supported by `geode inductance` in schema v1; \
+                 the {} solver has no permeability term and would silently ignore it",
+                m.physical_group,
+                m.mu_r,
+                analysis.name()
             )));
         }
     }
@@ -437,6 +495,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         }
         Analysis::Eigen => validate_eigen(&spec)?,
         Analysis::Capacitance => validate_capacitance(&spec)?,
+        Analysis::Inductance => validate_inductance(&spec)?,
     }
     validate_open_boundaries(&spec)?;
     validate_surface_roles(&spec)?;
@@ -579,6 +638,20 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         ),
         None => (Vec::new(), Vec::new()),
     };
+    let path_tags: Vec<[Option<i32>; 3]> = match &spec.inductance {
+        Some(ind) => ind
+            .paths
+            .iter()
+            .map(|p| {
+                [
+                    resolve(3, &p.conductor, "inductance conductor"),
+                    resolve(2, &p.source, "inductance source"),
+                    resolve(2, &p.sink, "inductance sink"),
+                ]
+            })
+            .collect(),
+        None => Vec::new(),
+    };
     if !missing.is_empty() {
         let available = tagged
             .mesh
@@ -605,6 +678,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
 
     // ---- materials ---------------------------------------------------
     let mut eps_by_tag: BTreeMap<i32, c64> = BTreeMap::new();
+    let mut mu_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
     for (m, tag) in spec.materials.iter().zip(&material_tags) {
         let tag = tag.expect("resolved above");
         let eps = c64::new(m.eps_r[0], m.eps_r[1]);
@@ -614,6 +688,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
                 m.physical_group
             )));
         }
+        mu_by_tag.insert(tag, m.mu_r);
     }
     let vacuum = c64::new(1.0, 0.0);
     let eps: Vec<c64> = tagged
@@ -621,6 +696,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         .iter()
         .map(|t| eps_by_tag.get(t).copied().unwrap_or(vacuum))
         .collect();
+    let mu_r = build_mu_r(&tagged.tet_physical_tags, &mu_by_tag);
     let mut counts: BTreeMap<i32, usize> = BTreeMap::new();
     for &t in &tagged.tet_physical_tags {
         *counts.entry(t).or_default() += 1;
@@ -643,6 +719,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
                 tag,
                 n_tets,
                 eps_r,
+                mu_r: mu_by_tag.get(&tag).copied().unwrap_or(1.0),
                 source,
             }
         })
@@ -737,9 +814,25 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         None => None,
     };
 
+    // ---- inductance current paths ------------------------------------
+    let inductance = match &spec.inductance {
+        Some(ind) => Some(resolve_inductance(
+            ind, &path_tags, &tagged, &pec, &surface,
+        )?),
+        None => None,
+    };
+
     // ---- PEC mask ----------------------------------------------------
     let edges = tagged.mesh.edges();
-    let pec_lists: Vec<&[[u32; 3]]> = pec.iter().map(|s| s.triangles.as_slice()).collect();
+    let mut pec_lists: Vec<&[[u32; 3]]> = pec.iter().map(|s| s.triangles.as_slice()).collect();
+    // Current-path terminals are PEC contacts (the current enters / leaves
+    // through the return conductor there).
+    if let Some(ind) = &inductance {
+        for path in &ind.paths {
+            pec_lists.push(&path.source.triangles);
+            pec_lists.push(&path.sink.triangles);
+        }
+    }
     let pec_mask = pec_interior_mask_from_triangles(&edges, &pec_lists);
 
     Ok(Problem {
@@ -750,6 +843,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         edges,
         pec_mask,
         eps,
+        mu_r,
         regions,
         pec,
         leontovich,
@@ -763,6 +857,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         eigen,
         extract,
         capacitance,
+        inductance,
     })
 }
 
@@ -770,10 +865,13 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
 /// subcommand.
 fn wrong_subcommand(want: Analysis, got: Analysis) -> String {
     let what = match got {
-        Analysis::Driven => "a driven spec (no `eigen`, `extract` or `capacitance` section)",
+        Analysis::Driven => {
+            "a driven spec (no `eigen`, `extract`, `capacitance` or `inductance` section)"
+        }
         Analysis::Eigen => "an eigen spec (it has an `eigen` section)",
         Analysis::Extract => "an extract spec (it has an `extract` section)",
         Analysis::Capacitance => "a capacitance spec (it has a `capacitance` section)",
+        Analysis::Inductance => "an inductance spec (it has an `inductance` section)",
     };
     let fix = match want {
         Analysis::Driven => "drop the analysis section for a plain driven sweep",
@@ -784,6 +882,10 @@ fn wrong_subcommand(want: Analysis, got: Analysis) -> String {
         Analysis::Capacitance => {
             "`geode capacitance` needs a `capacitance` section (`terminals` + `ground`) and no \
              ports / frequencies"
+        }
+        Analysis::Inductance => {
+            "`geode inductance` needs an `inductance` section (`paths`), a \
+             `boundary_conditions.pec` wall and no ports / frequencies"
         }
     };
     format!(
@@ -1131,6 +1233,307 @@ fn resolve_capacitance(
     })
 }
 
+/// Inductance-spec rules (scalar, before the mesh is read). The
+/// magnetostatic solve is static, real and lossless: anything that only
+/// has meaning for a frequency-domain solve is rejected rather than
+/// silently ignored. Unlike a capacitance spec, `boundary_conditions.pec`
+/// is **required**: it is the magnetic wall (`n×A = 0`) that truncates
+/// the domain and the return conductor the open current paths close
+/// through.
+fn validate_inductance(spec: &ProblemSpec) -> Result<(), CliError> {
+    let ind = spec
+        .inductance
+        .as_ref()
+        .expect("inductance spec has an inductance section");
+    if ind.paths.is_empty() {
+        return Err(invalid(
+            "inductance.paths must list at least one current path (`name`, `conductor`, \
+             `source`, `sink`)",
+        ));
+    }
+    let mut names = std::collections::HashSet::new();
+    let mut conductors: BTreeMap<&str, &str> = BTreeMap::new();
+    for p in &ind.paths {
+        if p.name.is_empty() {
+            return Err(invalid("inductance.paths[].name must be non-empty"));
+        }
+        if !names.insert(p.name.as_str()) {
+            return Err(invalid(format!(
+                "inductance path name `{}` is used more than once",
+                p.name
+            )));
+        }
+        if p.source == p.sink {
+            return Err(invalid(format!(
+                "inductance path `{}`: source and sink are the same group `{}` — an open \
+                 current path enters and leaves through two distinct faces (closed loops with \
+                 no terminals are not supported in schema v1)",
+                p.name, p.source
+            )));
+        }
+        if let Some(prev) = conductors.insert(p.conductor.as_str(), p.name.as_str()) {
+            return Err(invalid(format!(
+                "inductance paths `{prev}` and `{}` share the conductor volume `{}`: each path \
+                 needs its own conductor group (one conduction solve per volume)",
+                p.name, p.conductor
+            )));
+        }
+    }
+    let static_only = |what: &str, why: &str| {
+        invalid(format!(
+            "an inductance spec cannot have {what}: {why} (`geode inductance` is a static \
+             magnetostatic solve)"
+        ))
+    };
+    if !spec.ports.is_empty() {
+        return Err(static_only(
+            "`ports`",
+            "lumped ports are frequency-domain excitations; describe each current path in \
+             `inductance.paths` instead",
+        ));
+    }
+    if !spec.wave_ports.is_empty() {
+        return Err(static_only(
+            "`wave_ports`",
+            "wave ports are frequency-domain modal boundaries",
+        ));
+    }
+    if spec.frequencies.is_some() {
+        return Err(static_only("`frequencies`", "there is no frequency"));
+    }
+    if !spec.absorbing_regions.is_empty() {
+        return Err(static_only(
+            "`absorbing_regions`",
+            "UPML is a frequency-domain absorber",
+        ));
+    }
+    let bcs = &spec.boundary_conditions;
+    if !bcs.leontovich.is_empty() {
+        return Err(static_only(
+            "Leontovich walls",
+            "a surface impedance has no static meaning",
+        ));
+    }
+    if !bcs.silver_muller.is_empty() {
+        return Err(static_only(
+            "Silver-Müller walls",
+            "a radiation condition has no static meaning",
+        ));
+    }
+    if bcs.pec.is_empty() {
+        return Err(invalid(
+            "an inductance spec needs `boundary_conditions.pec`: the PEC wall (n x A = 0) \
+             truncates the domain and is the return conductor; every current path's source and \
+             sink faces must touch the same connected PEC component (e.g. the shield + end caps \
+             of a coax)",
+        ));
+    }
+    if let SolverSpec::Iterative { .. } = spec.solver {
+        return Err(invalid(
+            "an inductance spec supports only `solver.mode = \"direct\"` (sparse LU on the \
+             tree-cotree-gauged real magnetostatic system)",
+        ));
+    }
+    if let Some(m) = spec.materials.iter().find(|m| m.eps_r != [1.0, 0.0]) {
+        return Err(invalid(format!(
+            "materials[{}].eps_r = {:?} has no effect on a magnetostatic solve; an inductance \
+             spec takes only `mu_r` (omit `eps_r` or set it to [1, 0])",
+            m.physical_group, m.eps_r
+        )));
+    }
+    Ok(())
+}
+
+/// Per-tet real relative permeability from the per-tag `μ_r` table
+/// (vacuum `1` for untagged / unlisted regions) — the `μ_r` twin of the
+/// per-tet `ε_r` mapping above.
+fn build_mu_r(tet_tags: &[i32], mu_by_tag: &BTreeMap<i32, f64>) -> Vec<f64> {
+    tet_tags
+        .iter()
+        .map(|t| mu_by_tag.get(t).copied().unwrap_or(1.0))
+        .collect()
+}
+
+/// Bind every inductance current path: its conductor tets, source / sink
+/// faces and node sets, then check the geometry the open-path conduction
+/// solve needs — terminal faces on the conductor, node-disjoint source /
+/// sink, each terminal touching the PEC wall (the return conductor), and
+/// source and sink on the same connected PEC component
+/// ([`check_path_components`]).
+fn resolve_inductance(
+    ind: &crate::spec::InductanceSpec,
+    path_tags: &[[Option<i32>; 3]],
+    tagged: &TaggedTetMesh,
+    pec: &[Surface],
+    surface: &dyn Fn(&str, i32, &str) -> Result<Surface, CliError>,
+) -> Result<InductanceTarget, CliError> {
+    let node_set = |tris: &[[u32; 3]]| -> Vec<u32> {
+        let mut n: Vec<u32> = tris.iter().flatten().copied().collect();
+        n.sort_unstable();
+        n.dedup();
+        n
+    };
+    let pec_nodes = node_set(
+        &pec.iter()
+            .flat_map(|s| s.triangles.iter().copied())
+            .collect::<Vec<_>>(),
+    );
+    let mut paths = Vec::with_capacity(ind.paths.len());
+    for (p, tags) in ind.paths.iter().zip(path_tags) {
+        let [ctag, stag, ktag] = tags.map(|t| t.expect("resolved above"));
+        let conductor: Vec<bool> = tagged
+            .tet_physical_tags
+            .iter()
+            .map(|&t| t == ctag)
+            .collect();
+        let n_conductor_tets = conductor.iter().filter(|&&c| c).count();
+        if n_conductor_tets == 0 {
+            return Err(invalid(format!(
+                "inductance path `{}`: conductor volume `{}` has no tagged tets in the mesh",
+                p.name, p.conductor
+            )));
+        }
+        let source = surface(&p.source, stag, "inductance source")?;
+        let sink = surface(&p.sink, ktag, "inductance sink")?;
+        let face_to_tet = face_to_tet_map(&tagged.mesh, Some(&conductor));
+        for (role, surf) in [("source", &source), ("sink", &sink)] {
+            let off = surf
+                .triangles
+                .iter()
+                .filter(|tri| {
+                    let mut k = **tri;
+                    k.sort_unstable();
+                    !face_to_tet.contains_key(&k)
+                })
+                .count();
+            if off > 0 {
+                return Err(invalid(format!(
+                    "inductance path `{}`: {off} of {} triangles of {role} `{}` are not faces \
+                     of the conductor volume `{}` — the terminal must lie on the conductor's \
+                     boundary",
+                    p.name,
+                    surf.triangles.len(),
+                    surf.name,
+                    p.conductor
+                )));
+            }
+        }
+        let source_nodes = node_set(&source.triangles);
+        let sink_nodes = node_set(&sink.triangles);
+        let shared = sink_nodes
+            .iter()
+            .filter(|n| source_nodes.binary_search(n).is_ok())
+            .count();
+        if shared > 0 {
+            return Err(invalid(format!(
+                "inductance path `{}`: source `{}` and sink `{}` share {shared} mesh node(s) — \
+                 the terminals of an open path must be separated by conductor",
+                p.name, p.source, p.sink
+            )));
+        }
+        for (role, surf, nodes) in [
+            ("source", &source, &source_nodes),
+            ("sink", &sink, &sink_nodes),
+        ] {
+            if !nodes.iter().any(|n| pec_nodes.binary_search(n).is_ok()) {
+                return Err(invalid(format!(
+                    "inductance path `{}`: {role} `{}` does not touch any \
+                     `boundary_conditions.pec` surface — the current must enter and leave \
+                     through the PEC return conductor (a terminal floating in the dielectric \
+                     has no return path; lumped gap sources are not supported in schema v1)",
+                    p.name, surf.name
+                )));
+            }
+        }
+        paths.push(CurrentPath {
+            name: p.name.clone(),
+            conductor_group: p.conductor.clone(),
+            conductor_tag: ctag,
+            conductor,
+            n_conductor_tets,
+            source,
+            sink,
+            source_nodes,
+            sink_nodes,
+        });
+    }
+    check_path_components(&paths, tagged.mesh.n_nodes(), pec)?;
+    Ok(InductanceTarget { paths })
+}
+
+/// The **same-PEC-component** rule for current paths (PR #718).
+///
+/// The grounded node set of the magnetostatic solve is the node set of the
+/// `boundary_conditions.pec` triangles plus every path's source/sink
+/// contact triangles (exactly the triangles whose edges
+/// [`Problem::pec_mask`] constrains), connected through those triangle
+/// edges ([`triangle_node_components`]). Each connected component is a
+/// kernel direction of the constrained curl-curl, so each must receive zero
+/// net current *per path*; for an open path that means its source and sink
+/// must touch the same component. Touching *some* PEC node (checked above)
+/// is necessary but not sufficient: two disconnected PEC islands (e.g.
+/// coax end caps without the shield joining them) would otherwise produce a
+/// meaningless, non-SPD `L` with no solver error.
+fn check_path_components(
+    paths: &[CurrentPath],
+    n_nodes: usize,
+    pec: &[Surface],
+) -> Result<(), CliError> {
+    let mut lists: Vec<&[[u32; 3]]> = pec.iter().map(|s| s.triangles.as_slice()).collect();
+    for path in paths {
+        lists.push(&path.source.triangles);
+        lists.push(&path.sink.triangles);
+    }
+    let comps = triangle_node_components(n_nodes, &lists);
+    // PEC groups touching a component, for the message.
+    let groups_of = |k: u32| -> String {
+        let names: Vec<String> = pec
+            .iter()
+            .filter(|s| {
+                s.triangles
+                    .iter()
+                    .flatten()
+                    .any(|&n| comps.label[n as usize] == Some(k))
+            })
+            .map(|s| format!("`{}`", s.name))
+            .collect();
+        if names.is_empty() {
+            "no PEC group".to_string()
+        } else {
+            names.join(", ")
+        }
+    };
+    for path in paths {
+        let src = comps.touched(&path.source_nodes);
+        let sink = comps.touched(&path.sink_nodes);
+        // Terminal faces are themselves contacts, so each is one connected
+        // component on its own; a face spanning two would already join them.
+        if src != sink {
+            let desc = |cs: &[u32]| -> String {
+                cs.iter()
+                    .map(|&k| format!("component {k} ({})", groups_of(k)))
+                    .collect::<Vec<_>>()
+                    .join(" + ")
+            };
+            return Err(invalid(format!(
+                "inductance path `{}`: source `{}` and sink `{}` touch different connected \
+                  components of the PEC wall (source: {}; sink: {}; {} component(s) in total) — \
+                  the current must return through ONE connected PEC conductor, otherwise the \
+                  magnetostatic problem is inconsistent and L is meaningless; add the PEC \
+                  surface that connects them (e.g. the outer shield / return wall) to \
+                  `boundary_conditions.pec`",
+                path.name,
+                path.source.name,
+                path.sink.name,
+                desc(&src),
+                desc(&sink),
+                comps.count
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Scalar rules for `absorbing_regions` and `wave_ports` (before the mesh
 /// is read). The eigen-spec rejections live in [`validate_eigen`].
 fn validate_open_boundaries(spec: &ProblemSpec) -> Result<(), CliError> {
@@ -1206,7 +1609,14 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         ),
         None => (Vec::new(), Vec::new()),
     };
-    let lists: [(&'static str, Vec<&str>); 7] = [
+    let (sources, sinks): (Vec<&str>, Vec<&str>) = match &spec.inductance {
+        Some(ind) => (
+            ind.paths.iter().map(|p| p.source.as_str()).collect(),
+            ind.paths.iter().map(|p| p.sink.as_str()).collect(),
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
+    let lists: [(&'static str, Vec<&str>); 9] = [
         (
             "port",
             spec.ports
@@ -1235,6 +1645,8 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         ),
         ("capacitance terminal", terminals),
         ("capacitance ground surface", ground),
+        ("inductance source terminal", sources),
+        ("inductance sink terminal", sinks),
     ];
     for (role, names) in &lists {
         for &name in names {
@@ -1253,15 +1665,28 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
                     }));
                 }
                 Some(prev) => {
-                    let why = if prev == "PEC surface" || *role == "PEC surface" {
-                        " — its edges would be eliminated"
-                    } else {
-                        ""
+                    let terminal = prev.starts_with("inductance") || role.starts_with("inductance");
+                    let why = match (prev == "PEC surface" || *role == "PEC surface", terminal) {
+                        (true, true) => {
+                            " — inductance terminals are PEC contacts automatically, do not also \
+                             list them under `boundary_conditions.pec`"
+                        }
+                        (true, false) => " — its edges would be eliminated",
+                        _ => "",
                     };
+                    let a = |r: &str| {
+                        if r.starts_with(['a', 'e', 'i', 'o', 'u']) {
+                            "an"
+                        } else {
+                            "a"
+                        }
+                    };
+                    let (a_prev, a_role) = (a(prev), a(role));
                     return Err(invalid(format!(
-                        "physical group `{name}` is both a {prev} and a {role}{why}; a surface \
+                        "physical group `{name}` is both {a_prev} {prev} and {a_role} {role}{why}; a surface \
                          carries at most one of port / wave port / PEC / Leontovich / \
-                         Silver-Müller / capacitance terminal / capacitance ground"
+                         Silver-Müller / capacitance terminal / capacitance ground / inductance \
+                         source / inductance sink"
                     )));
                 }
             }

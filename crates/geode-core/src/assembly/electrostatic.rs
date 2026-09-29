@@ -804,42 +804,65 @@ pub fn recover_e_field(mesh: &TetMesh, phi: &[f64]) -> Vec<[f64; 3]> {
 /// Surface-charge flux `Q = ∮ ε(−∇φ)·n̂ dS = ∮ ε E·n̂ dS` over a
 /// conductor's boundary triangles, using the piecewise-constant per-tet
 /// `E`. Each triangle's `E` and `ε` are taken from the incident tet
-/// (the unique volume element that owns the triangle's face); its outward
-/// normal (magnitude = area) comes from the triangle geometry and is
-/// oriented to point away from the conductor via the triangle winding.
+/// (the unique volume element that owns the triangle's face); its normal
+/// points away from the conductor, i.e. into the incident (dielectric)
+/// tet — see [`flux_into_incident_tets`].
 fn surface_charge(
     mesh: &TetMesh,
     eps_r: &[f64],
     e_field: &[[f64; 3]],
     surface: &ConductorSurface,
 ) -> f64 {
-    // Map each boundary face (sorted node triple) → its incident tet.
-    let face_to_tet = build_face_to_tet(mesh);
+    // Gauss' law for the charge enclosed by the conductor: the flux uses
+    // the surface normal pointing *out of the enclosing Gaussian surface* =
+    // away from the conductor interior = into the dielectric. The incident
+    // tet lies in the dielectric, so that is the "into the incident tet"
+    // orientation of the shared helper.
+    let face_to_tet = face_to_tet_map(mesh, None);
+    flux_into_incident_tets(mesh, e_field, &surface.triangles, &face_to_tet, |t| {
+        EPS_0 * eps_r[t]
+    })
+}
+
+/// Oriented, area-weighted flux `Σ_tri w(t) F(t)·n̂ A` of a piecewise-constant
+/// per-tet vector field `F` through a triangle set.
+///
+/// Each triangle is looked up in `face_to_tet` (build it with
+/// [`face_to_tet_map`]) to find its **incident tet** `t`; the field and the
+/// weight `w(t)` are taken from that tet, and the normal is oriented to point
+/// **into** the incident tet (toward its fourth, off-face vertex), whatever
+/// the triangle's winding. Triangles with no incident tet in the map are
+/// skipped.
+///
+/// Shared by the electrostatic surface-charge cross-check (`F = E`,
+/// `w = ε`, normal into the dielectric) and the magnetostatic open-path
+/// current measurement ([`crate::assembly::current_path`]: `F = J`, `w = 1`,
+/// normal into the conductor = the current entering through a terminal
+/// face).
+pub fn flux_into_incident_tets(
+    mesh: &TetMesh,
+    field: &[[f64; 3]],
+    triangles: &[[u32; 3]],
+    face_to_tet: &std::collections::HashMap<[u32; 3], usize>,
+    weight: impl Fn(usize) -> f64,
+) -> f64 {
     let mut q = 0.0;
-    for tri in &surface.triangles {
+    for tri in triangles {
         let key = sorted3(*tri);
         let Some(&t) = face_to_tet.get(&key) else {
             continue;
         };
-        let e = e_field[t];
-        let eps = EPS_0 * eps_r[t];
-        // Area-weighted normal from the triangle winding (points along
-        // (v1−v0)×(v2−v0)). Orient it *outward from the conductor* =
-        // away from the incident tet's opposite (fourth) vertex.
         let a = mesh.nodes[tri[0] as usize];
         let b = mesh.nodes[tri[1] as usize];
         let c = mesh.nodes[tri[2] as usize];
-        let mut nrm = cross(sub(b, a), sub(c, a)); // 2·area magnitude
-        for n in nrm.iter_mut() {
-            *n *= 0.5;
-        }
+        // Area-weighted normal from the triangle winding.
+        let mut nrm = scale(cross(sub(b, a), sub(c, a)), 0.5);
         // Opposite vertex of the incident tet (the one not on this face).
         let tet = mesh.tets[t];
-        let face: BTreeSet<u32> = tri.iter().copied().collect();
         let opp = tet
             .iter()
             .copied()
-            .find(|v| !face.contains(v))
+            .find(|v| !tri.contains(v))
             .expect("incident tet must have a vertex off the face");
         let centroid = [
             (a[0] + b[0] + c[0]) / 3.0,
@@ -847,41 +870,46 @@ fn surface_charge(
             (a[2] + b[2] + c[2]) / 3.0,
         ];
         let to_opp = sub(mesh.nodes[opp as usize], centroid);
-        // Gauss' law for the charge enclosed by the conductor: the flux uses
-        // the surface normal pointing *out of the enclosing Gaussian
-        // surface* = away from the conductor interior = into the dielectric.
-        // The incident tet lies in the dielectric, so that direction is the
-        // one *toward* the opposite (fourth) vertex. Flip the winding normal
-        // if it currently points the other way.
         if dot(nrm, to_opp) < 0.0 {
-            for n in nrm.iter_mut() {
-                *n = -*n;
-            }
+            nrm = scale(nrm, -1.0);
         }
-        q += eps * dot(e, nrm);
+        q += weight(t) * dot(field[t], nrm);
     }
     q
 }
 
 /// Build a `sorted-node-triple → incident-tet-index` map for the mesh's
-/// faces. Interior faces (shared by two tets) map to one of the two; only
-/// the boundary faces matter for the surface-flux cross-check, and those
-/// are owned by exactly one tet.
-fn build_face_to_tet(mesh: &TetMesh) -> std::collections::HashMap<[u32; 3], usize> {
+/// faces, optionally restricted to the tets with `keep[t] == true`.
+///
+/// Interior faces (shared by two kept tets) map to one of the two; only
+/// faces on the boundary of the kept set are unambiguous, and those are
+/// owned by exactly one kept tet. Restricting to a sub-region (e.g. one
+/// conductor volume) makes a face on the region's boundary resolve to the
+/// region's own tet even where the full mesh continues past it.
+///
+/// # Panics
+///
+/// Panics if `keep` is supplied with a length other than `mesh.n_tets()`.
+pub fn face_to_tet_map(
+    mesh: &TetMesh,
+    keep: Option<&[bool]>,
+) -> std::collections::HashMap<[u32; 3], usize> {
     use std::collections::HashMap;
-    // Local face → opposite-vertex triples (vertices *on* the face).
+    if let Some(k) = keep {
+        assert_eq!(k.len(), mesh.n_tets(), "keep mask length != tet count");
+    }
+    // Local face → the three vertices *on* the face.
     const FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
-    let mut count: HashMap<[u32; 3], (usize, u32)> = HashMap::new();
+    let mut map: HashMap<[u32; 3], usize> = HashMap::with_capacity(mesh.n_tets() * 2);
     for (t, tet) in mesh.tets.iter().enumerate() {
+        if keep.is_some_and(|k| !k[t]) {
+            continue;
+        }
         for f in FACES.iter() {
-            let key = sorted3([tet[f[0]], tet[f[1]], tet[f[2]]]);
-            let entry = count.entry(key).or_insert((t, 0));
-            entry.1 += 1;
-            entry.0 = t;
+            map.insert(sorted3([tet[f[0]], tet[f[1]], tet[f[2]]]), t);
         }
     }
-    // Keep the incident tet for every face (boundary faces have count 1).
-    count.into_iter().map(|(k, (t, _))| (k, t)).collect()
+    map
 }
 
 #[inline]
