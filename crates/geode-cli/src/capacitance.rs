@@ -35,8 +35,14 @@ use crate::spec::Analysis;
 /// Relative slack of the Maxwell sign-structure check.
 const SIGN_TOL: f64 = 1e-9;
 
-/// Load, solve and report.
-pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CapacitanceReport, CliError> {
+/// Load, solve and report; with `spice`, also write the mutual-form
+/// SPICE subcircuit there ([`crate::spice`]) and reference it in the
+/// report.
+pub fn run(
+    spec_path: &Path,
+    provenance: Provenance,
+    spice: Option<&Path>,
+) -> Result<CapacitanceReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Capacitance))?;
     let target = p
         .capacitance
@@ -71,7 +77,7 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CapacitanceReport
         .map(|q| q.map(|q| q * scale))
         .collect();
 
-    Ok(CapacitanceReport {
+    let mut report = CapacitanceReport {
         provenance,
         kind: "capacitance",
         status: "ok",
@@ -89,7 +95,12 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CapacitanceReport
             inner: "direct_lu",
             wall_time_s,
         },
-    })
+        spice_file: None,
+    };
+    if let Some(path) = spice {
+        report.spice_file = Some(crate::spice::write(path, &report)?);
+    }
+    Ok(report)
 }
 
 /// The library capacitance matrix (mesh-unit scaled, i.e. `F/m × mesh

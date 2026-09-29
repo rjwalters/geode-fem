@@ -34,6 +34,7 @@ mod mesh_cmd;
 mod problem;
 mod report;
 mod spec;
+mod spice;
 mod touchstone;
 
 use std::error::Error;
@@ -112,6 +113,11 @@ struct StaticArgs {
     /// `GEODE_NUM_THREADS`). Default: the library defaults.
     #[arg(long, value_name = "N")]
     threads: Option<NonZeroUsize>,
+    /// Also write the mutual (circuit) capacitance matrix as a SPICE
+    /// subcircuit `.subckt` at this path (an existing file is overwritten).
+    /// The report's `spice_file` references it (path as given, sha256).
+    #[arg(long, value_name = "PATH")]
+    spice: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -258,7 +264,7 @@ impl App for Cli {
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
-                let result = capacitance::run(&a.spec, prov.clone());
+                let result = capacitance::run(&a.spec, prov.clone(), a.spice.as_deref());
                 finish("capacitance", prov, a.output.as_deref(), result)
             }
             Command::Mesh(a) => mesh_cmd::dispatch(a),

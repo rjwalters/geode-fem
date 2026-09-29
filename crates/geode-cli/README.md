@@ -15,6 +15,7 @@ geode extract inductor.json -o l0.json              # sweep → L / R / Q, f→0
 geode capacitance caps.json -o c.json               # static Maxwell capacitance matrix (F)
 geode driven patch.json --outdir fields/            # + per-frequency E-field .vtu and NTFF
 geode driven filter.json --touchstone filter.s2p    # + Touchstone 2.0 S-parameters
+geode capacitance caps.json --spice caps.sp         # + SPICE .subckt of the mutual C network
 geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json   # layout → mesh → solve
 ```
 
@@ -24,7 +25,7 @@ geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json
 | `driven`  | live — lumped-port (or wave-port, #683) frequency sweep with PEC / Leontovich / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG; optional Touchstone 2.0 `.sNp` (#703) |
 | `eigen`   | live (#681) — lossless PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; `Q` is `null` (lossless) |
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
-| `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)) |
+| `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
 | `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec, via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
 
 ## Host behavior
@@ -293,7 +294,7 @@ out. Asking for more modes than the cross-section can hold fails with
 ## Static capacitance (`geode capacitance`, issue #705)
 
 ```sh
-geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N]
+geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice out.sp]
 ```
 
 Capacitance example (the triaxial golden input,
@@ -364,8 +365,7 @@ frequency. A static Maxwell `L`-matrix (`geode inductance`,
 magnetostatics) is not implemented yet.
 
 Not in v1: floating conductors, `--outdir` potential / field export, a
-P2 element option (the library has `extract_capacitance_p2`), SPICE
-subcircuit export, a `geode mesh` capacitance starter spec, and a
+P2 element option (the library has `extract_capacitance_p2`), a `geode mesh` capacitance starter spec, and a
 calibrated resource estimate (`geode check` reports the scalar system
 size in `capacitance` and `resources = null` for a capacitance spec).
 
@@ -515,6 +515,81 @@ not run in CI** (scikit-rf is not a dependency of this repo):
 import skrf
 net = skrf.Network("filter.s2p")   # Touchstone 2.0, per-port [Reference]
 print(net.z0[0], net.f[:3], net.s[0])
+```
+
+## SPICE subcircuit export (`--spice`, issue #715)
+
+`geode capacitance … --spice <PATH>` additionally writes the extracted
+capacitance as a SPICE subcircuit at `<PATH>` (the parent directory must
+exist; an existing file is overwritten), for circuit simulators such as
+ngspice. The report gains `spice_file: { "path", "sha256" }` — `path`
+is `<PATH>` **as given on the command line**, `sha256` the hex SHA-256
+of the bytes written; without the flag the field is omitted. Only
+`geode capacitance` has the flag; a static inductance (`L` / `K`) export
+is future work.
+
+```text
+* SPICE subcircuit written by geode 0.5.0 (<git-sha>)
+* spec: tests/fixtures/capacitance_triax_smoke.toml
+* mesh: …/coax_capacitance_smoke.msh sha256=582f4250…
+* Mutual (circuit) capacitance from the Maxwell matrix, farads: C_ground(i) = sum_j C_ij; C_mutual(i,j) = -C_ij (i != j)
+* noise threshold: |C| < 1e-9 * max(diag) = 1e-9 * 3.6264319203392903e-13 F = 3.6264319203392905e-22 F is dropped
+* dropped: C(inner, ground) = -8.271806125530277e-28 F, |C| < 3.6264319203392905e-22 F -- below noise threshold
+.subckt CEXTRACT inner shield
+C1_2 inner shield 2.3767726604103816e-13
+C2_0 shield 0 1.2496592599289087e-13
+.ends CEXTRACT
+```
+
+(the triax golden spec: `inner` is fully enclosed by `shield`, so its
+ground branch is exactly zero up to solver round-off).
+
+- **Conversion** — the report's Maxwell matrix becomes one capacitor per
+  branch: `C_ground(i) = Σ_j C_ij` (`c_sigma_farad[i]`) from terminal
+  *i* to ground node `0`, and `C_mutual(i, j) = −C_ij` (symmetrized,
+  `i < j`) between terminals *i* and *j*. The network reproduces the
+  Maxwell matrix exactly. `capacitance.ground` groups are the reference
+  node `0` itself — never a `.subckt` port.
+- **Noise threshold** — a branch with `|C| < 1e-9 × max_i C_ii` is
+  numerical noise (a shielded terminal's row sum sits at ~1e-15
+  relative) and is **dropped**, with a `* dropped:` comment naming the
+  branch and its value. A branch above the threshold with a **negative**
+  value means a genuinely non-Maxwell matrix (see
+  `maxwell_sign_structure`): the run fails with `invalid_spec` and no
+  file is written — negative capacitors are never emitted or clamped.
+  The threshold is fixed in v1.
+- **Layout** — `.subckt CEXTRACT <terminal nodes…>` in terminal order
+  (fixed name, so testbenches do not depend on the spec file name);
+  instance names from 1-based terminal indices (`C1_2`, `C2_0`), in the
+  order: per terminal, its ground branch then its mutual branches to
+  higher-numbered terminals. Values are plain farads (no `p` / `f`
+  suffix) in shortest round-trip exponent form, so a parser gets the
+  exported numbers back bit for bit. Only whole-line `*` comments.
+- **Node names** — terminal names are sanitized: characters outside
+  `[A-Za-z0-9_]` become `_`; an empty name or one starting with a digit
+  is prefixed `n_`; a (case-insensitive) collision with an earlier node
+  or the ground names `0` / `gnd` gets the first free `_2`, `_3`, …
+  suffix. Each renamed terminal gets a `* node: "<terminal>" -> <node>`
+  comment.
+
+Driving it in ngspice — **illustrative, not run in CI** (ngspice is not
+a dependency of this repo; `tests/spice_golden.rs` runs an equivalent
+check only when an `ngspice` binary is found): port 1 at 1 V AC reads
+back the Maxwell column `C_j1 = −Im I(V_j) / ω`.
+
+```spice
+triax capacitance check
+.include caps.sp
+X1 p1 p2 CEXTRACT
+V1 p1 0 DC 0 AC 1
+V2 p2 0 DC 0 AC 0
+.control
+ac lin 1 1meg 1meg
+let c11 = -imag(i(v1))/(2*pi*1e6)
+let c21 = -imag(i(v2))/(2*pi*1e6)
+print c11 c21
+.endc
+.end
 ```
 
 ## Resource estimate (`geode check`, issue #703)
@@ -895,6 +970,7 @@ resolved settings, as for `check`) and `extraction[]`, one per port:
 | `c_flux_diag_farad` | F | independent surface-flux cross-check of the diagonal (`∮ ε(−∇φ)·n̂ dS` with a piecewise-constant field): a looser sanity signal (~8–15 % on the curved coax), **not** the result; `null` for a terminal not entirely on the mesh boundary (e.g. a zero-thickness sheet with dielectric on both sides), where a one-sided flux would be wrong |
 | `max_rel_asymmetry` | – | `max \|C_ij − C_ji\| / max(\|C_ij\|, \|C_ji\|)` — structural only: the energy method fills `C_ji` from `C_ij`, so it is `0` unless something is corrupted; it is **not** a solver residual (the solve is a direct LU) |
 | `maxwell_sign_structure` | – | `true` if the diagonal is positive, the off-diagonals non-positive and the row sums non-negative (to `1e-9` relative). `false` flags a mesh violating the discrete maximum principle (badly obtuse tets); inspect the matrix — it is not an error |
+| `spice_file` | – | `{ path, sha256 }` of the SPICE `.subckt` written by `--spice` (issue #715; `path` as given on the command line); omitted without the flag |
 
 **`kind = "error"`** adds `command` (the subcommand) and
 `error: { code, message }` with `code` one of `io`, `spec_parse`,
@@ -1047,6 +1123,13 @@ monotone convergence smoke → benchmark, the flux cross-check band, exact
 `ε_r` linearity, the report / `check` contract, and the validation
 errors (wrong subcommand pre-mesh, frequency-domain features, lossy
 `ε_r`, shorted conductors, unknown groups).
+
+`tests/spice_golden.rs` (issue #715) runs `--spice` on the same coax /
+triax smoke specs: the `spice_file` hash, the triax shielded ground
+branch dropped and the other two kept, the network re-read into the
+report's Maxwell matrix, and — only when an `ngspice` binary is runnable
+(`GEODE_NGSPICE`, else `PATH`; otherwise a loud `SKIPPED` on stderr, CI
+has none) — an ngspice AC admittance check of every matrix entry.
 
 `tests/wave_port_driven.rs` (issue #683) runs `geode driven` with two
 wave ports on a synthetic tagged rectangular waveguide (geode-core's
