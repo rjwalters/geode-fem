@@ -662,12 +662,32 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
         return Err(CliError::UnresolvedGroups { missing, available });
     }
 
+    // Faces (sorted node triples) of the tet mesh, built on first use.
+    let tet_faces = std::cell::OnceCell::new();
     let surface = |name: &str, tag: i32, role: &str| -> Result<Surface, CliError> {
         let triangles = tagged.triangles_with_tag(tag);
         if triangles.is_empty() {
             return Err(invalid(format!(
                 "{role} surface `{name}` has no tagged triangles in the mesh"
             )));
+        }
+        // Surface integrals (Leontovich, Silver-Müller, ports) need every
+        // triangle to be a face of the tet mesh; a dangling one has no
+        // edges in the global edge table (issue #721). A PEC triangle
+        // only masks edges, so a dangling one is a no-op, not an error.
+        if role != "pec" {
+            let faces = tet_faces.get_or_init(|| sorted_tet_faces(&tagged.mesh.tets));
+            let dangling = triangles
+                .iter()
+                .filter(|t| !faces.contains(&sorted3(t)))
+                .count();
+            if dangling > 0 {
+                return Err(invalid(format!(
+                    "{role} surface `{name}`: {dangling} of its {} triangles are not a face \
+                     of any tet (a surface dangling outside the meshed volume)",
+                    triangles.len()
+                )));
+            }
         }
         Ok(Surface {
             name: name.to_string(),
@@ -1819,6 +1839,24 @@ fn hex(bytes: &[u8]) -> String {
         let _ = write!(s, "{b:02x}");
         s
     })
+}
+
+/// `t` with its node ids sorted ascending.
+fn sorted3(t: &[u32; 3]) -> [u32; 3] {
+    let mut f = *t;
+    f.sort_unstable();
+    f
+}
+
+/// Every face of `tets`, as sorted node triples.
+fn sorted_tet_faces(tets: &[[u32; 4]]) -> std::collections::HashSet<[u32; 3]> {
+    let mut faces = std::collections::HashSet::with_capacity(3 * tets.len());
+    for &[a, b, c, d] in tets {
+        for f in [[b, c, d], [a, c, d], [a, b, d], [a, b, c]] {
+            faces.insert(sorted3(&f));
+        }
+    }
+    faces
 }
 
 #[cfg(test)]

@@ -10,8 +10,11 @@
 //!    no new dependency) → MSH 4.1 ASCII, linear Tet4 / Tri3;
 //! 4. read the mesh back through
 //!    [`geode_core::mesh::read_tagged_tet_mesh`] and fail
-//!    (`gmsh_failed`) unless every generated physical group is non-empty
-//!    and every tet is tagged;
+//!    (`gmsh_failed`) unless every generated physical group is non-empty,
+//!    every tet is tagged, every exterior face of the tet mesh (outer
+//!    walls, hollow-conductor cavity walls) carries a surface group, and
+//!    every tagged surface triangle is a face of some tet (no dangling
+//!    surface);
 //! 5. emit a starter [`ProblemSpec`] wired to the generated group names
 //!    (inline in the report, and to `--spec-out`), so
 //!    `geode mesh … --spec-out s.json && geode driven s.json` runs.
@@ -422,8 +425,62 @@ fn run(a: &MeshArgs, provenance: Provenance) -> Result<MeshReport, CliError> {
     })
 }
 
-/// Per-group element counts; every generated group must be non-empty
-/// and every tet tagged.
+/// The four faces (sorted node triples) of tet `t`.
+fn tet_faces(t: &[u32; 4]) -> impl Iterator<Item = [u32; 3]> + '_ {
+    (0..4).map(move |skip| {
+        let mut f = [0u32; 3];
+        let mut k = 0;
+        for (j, &n) in t.iter().enumerate() {
+            if j != skip {
+                f[k] = n;
+                k += 1;
+            }
+        }
+        f.sort_unstable();
+        f
+    })
+}
+
+/// Faces (sorted node triples) of `tets` that belong to exactly one tet
+/// — the mesh's exterior: outer walls and hollow-conductor cavity walls.
+fn exterior_faces(tets: &[[u32; 4]]) -> std::collections::HashSet<[u32; 3]> {
+    let mut seen = std::collections::HashSet::with_capacity(2 * tets.len());
+    for t in tets {
+        for f in tet_faces(t) {
+            if !seen.remove(&f) {
+                seen.insert(f);
+            }
+        }
+    }
+    seen
+}
+
+/// Tagged surface triangles that are a face of no tet — a surface left
+/// dangling (e.g. a sheet piece inside a removed conductor), grouped as
+/// `(physical tag, count)` in tag order.
+fn dangling_triangles(tagged: &geode_core::mesh::TaggedTetMesh) -> Vec<(i32, usize)> {
+    let faces: std::collections::HashSet<[u32; 3]> =
+        tagged.mesh.tets.iter().flat_map(tet_faces).collect();
+    let mut by_tag = std::collections::BTreeMap::new();
+    for (tri, &tag) in tagged
+        .boundary_triangles
+        .iter()
+        .zip(&tagged.triangle_physical_tags)
+    {
+        let mut f = *tri;
+        f.sort_unstable();
+        if !faces.contains(&f) {
+            *by_tag.entry(tag).or_insert(0usize) += 1;
+        }
+    }
+    by_tag.into_iter().collect()
+}
+
+/// Per-group element counts; every generated group must be non-empty,
+/// every tet tagged, every exterior face tagged (an untagged cavity
+/// wall would silently act as a natural — PMC — boundary), and every
+/// tagged triangle a face of some tet (a dangling surface constrains
+/// nothing and has no edges in the global edge table).
 fn summarize_groups(
     r: &ResolvedLayout,
     script: &GeoScript,
@@ -433,6 +490,39 @@ fn summarize_groups(
     if untagged > 0 {
         return Err(CliError::GmshFailed(format!(
             "{untagged} generated tets carry no dielectric physical group"
+        )));
+    }
+    let mut exterior = exterior_faces(&tagged.mesh.tets);
+    for tri in &tagged.boundary_triangles {
+        let mut f = *tri;
+        f.sort_unstable();
+        exterior.remove(&f);
+    }
+    if !exterior.is_empty() {
+        return Err(CliError::GmshFailed(format!(
+            "{} exterior faces of the generated mesh (outer walls / conductor cavity walls) \
+             carry no surface physical group",
+            exterior.len()
+        )));
+    }
+    let dangling = dangling_triangles(tagged);
+    if !dangling.is_empty() {
+        let name = |tag: i32| {
+            script
+                .groups
+                .iter()
+                .find(|g| g.dim == 2 && g.tag == tag)
+                .map_or_else(|| format!("tag {tag}"), |g| format!("`{}`", g.name))
+        };
+        let list: Vec<String> = dangling
+            .iter()
+            .map(|&(tag, n)| format!("{n} in {}", name(tag)))
+            .collect();
+        return Err(CliError::GmshFailed(format!(
+            "tagged surface triangles of the generated mesh are a face of no tet ({}): a \
+             surface is left dangling outside the meshed volume (e.g. a sheet or port inside a \
+             thick conductor) and would be a no-op PEC / break Leontovich",
+            list.join(", ")
         )));
     }
     let mut out = Vec::with_capacity(script.groups.len());
@@ -460,8 +550,10 @@ fn summarize_groups(
         }
         let role = match g.role {
             GroupRole::Dielectric(_) => "dielectric",
-            GroupRole::Conductor(i) if r.layout.conductors[i].thickness == 0.0 => "pec_sheet",
-            GroupRole::Conductor(_) => "pec_shell",
+            GroupRole::Conductor(i) => match geo::conductor_body(&r.layout.conductors[i]) {
+                geo::ConductorBody::Sheet => "pec_sheet",
+                geo::ConductorBody::Hollow => "pec_shell",
+            },
             GroupRole::Port(_) => "port",
             GroupRole::OuterBoundary => "outer_boundary",
         };
@@ -574,5 +666,40 @@ pub fn starter_spec(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) 
         extract: None,
         capacitance: None,
         inductance: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One tet plus two tagged triangles: a real face (tag 101) and a
+    /// dangling one sharing no tet (tag 102, e.g. a sheet piece left
+    /// inside a removed conductor, issue #721).
+    #[test]
+    fn dangling_tagged_triangles_are_counted_per_group() {
+        let tagged = geode_core::mesh::TaggedTetMesh {
+            mesh: geode_core::mesh::TetMesh {
+                nodes: vec![
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [5.0, 5.0, 5.0],
+                ],
+                tets: vec![[0, 1, 2, 3]],
+                physical_groups: Default::default(),
+            },
+            tet_physical_tags: vec![1],
+            boundary_triangles: vec![[2, 1, 0], [1, 2, 4], [3, 4, 0]],
+            triangle_physical_tags: vec![101, 102, 102],
+        };
+        assert_eq!(dangling_triangles(&tagged), vec![(102, 2)]);
+        let ok = geode_core::mesh::TaggedTetMesh {
+            boundary_triangles: vec![[2, 1, 0]],
+            triangle_physical_tags: vec![101],
+            ..tagged
+        };
+        assert!(dangling_triangles(&ok).is_empty());
     }
 }
