@@ -27,7 +27,7 @@ geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json
 | `eigen`   | live (#681) — lossless PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; `Q` is `null` (lossless) |
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 | `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
-| `inductance` | live (#714) — static **Maxwell inductance matrix** (henries) between named open current paths (conductor volume + source / sink faces returning through a PEC wall), from a P1 conduction solve per path for the current density and one tree-cotree-gauged magnetostatic solve per path (Nédélec edges, direct LU); **not** `extract`'s RF `l0_h` (see [Inductance](#static-inductance-geode-inductance-issue-714)) |
+| `inductance` | live (#714) — static **Maxwell inductance matrix** (henries) between named open current paths (conductor volume + source / sink faces returning through one connected PEC conductor), from a P1 conduction solve per path for the current density and one tree-cotree-gauged magnetostatic solve per path (Nédélec edges, direct LU); **not** `extract`'s RF `l0_h` (see [Inductance](#static-inductance-geode-inductance-issue-714)) |
 | `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec, via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
 
 ## Host behavior
@@ -132,7 +132,7 @@ Driven example (the spiral-inductor golden input,
 | `mesh.length_unit_m` | float > 0, **required** | metres per mesh length unit (`1e-6` = micron mesh). Every SI ↔ natural-unit conversion depends on it |
 | `materials[]` | | per-volume-region scalar permittivity; unlisted regions are vacuum (`check` reports which) |
 | `materials[].physical_group` | string | name of a **dimension-3** physical group |
-| `materials[].eps_r` | `[re, im]`, `im ≤ 0` (eigen / capacitance: `im = 0`, `re > 0`; inductance: omit or `[1, 0]`); default `[1, 0]` | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
+| `materials[].eps_r` | `[re, im]`, `im ≤ 0` (eigen / capacitance: `im = 0`, `re > 0`; inductance: omit or `[1, 0]`); default `[1, 0]` (vacuum, for every analysis: a `materials` entry may omit `eps_r`) | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
 | `materials[].mu_r` | float > 0, default `1` (additive in v1, issue #714) | real relative permeability. Honoured **only by `geode inductance`**; every other analysis rejects `mu_r ≠ 1` (its solver has no permeability term) |
 | `boundary_conditions.pec[]` | strings | **dimension-2** groups whose edges are eliminated (tangential E = 0). Unnamed surfaces are natural (PMC-like) boundaries |
 | `boundary_conditions.leontovich[]` | | good-conductor surface impedance `Z_s = (1+j)·√(ωμ₀/2σ)` |
@@ -172,7 +172,7 @@ Driven example (the spiral-inductor golden input,
 | `inductance.paths[]` | ≥ 1 | open current paths, in matrix row/column order |
 | `inductance.paths[].name` | string, distinct | the matrix row/column label |
 | `inductance.paths[].conductor` | string | **dimension-3** group the current flows through (one path per volume) |
-| `inductance.paths[].source` / `sink` | strings, distinct | **dimension-2** groups on the conductor's boundary where the current enters / leaves; node-disjoint, each touching a `boundary_conditions.pec` surface |
+| `inductance.paths[].source` / `sink` | strings, distinct | **dimension-2** groups on the conductor's boundary where the current enters / leaves; node-disjoint; source and sink must both touch the **same connected component** of the PEC wall (`boundary_conditions.pec` plus all terminal contacts) |
 | `eigen` | optional section | its presence makes this an eigen spec |
 | `eigen.n_modes` | int ≥ 1 | physical modes to return |
 | `eigen.unit` | `"hz"` \| `"ghz"` \| `"k0"`, **required** | unit of `shift` |
@@ -437,11 +437,23 @@ method `L_ij = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾ / (I_i I_j)` with the full curl-curl `K
 - **Open paths returning through a PEC wall.** The current enters the
   conductor through `source` and leaves through `sink`; both faces are
   treated as **PEC contacts** (eliminated like `pec`, do not list them
-  there) and each must share a node with a `boundary_conditions.pec`
-  surface. The PEC wall is the return conductor (the coax shield + end
+  there). The PEC wall is the return conductor (the coax shield + end
   caps) and truncates the domain, so it is **required** — unlike
   `geode capacitance`, which rejects `pec`. A terminal floating in the
   dielectric has no return path and is rejected (`invalid_spec`).
+- **Source and sink on the same connected PEC component.** Touching
+  *some* PEC surface is not enough. Define the grounded set as the
+  triangles of every `boundary_conditions.pec` group plus every path's
+  source / sink contact faces, with two nodes connected when a chain of
+  those triangles' edges joins them. Each connected component must
+  receive zero net current from each path, so a path's source and sink
+  must touch the **same** component. Coax end caps without the `shield`
+  joining them are two separate components: that spec is rejected at
+  load time (`invalid_spec`, also by `geode check`), and the message
+  names the path and the PEC groups on each side and asks for the
+  connecting PEC surface. Without this rule the magnetostatic problem is
+  inconsistent, and the gauged solve would return a meaningless matrix
+  rather than an error.
 - **Closed loops are not supported.** A ring with no terminals has no
   source / sink pair; driving it needs a cut surface carrying a potential
   jump (an EMF / cohomology-cut condition), which v1 does not implement.
@@ -459,7 +471,12 @@ method `L_ij = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾ / (I_i I_j)` with the full curl-curl `K
 - **Permeability.** `materials[].mu_r` (real, `> 0`, default `1`) weights
   the curl-curl per region, conductors included.
 - **Units.** Integrated in mesh units; `length_unit_m` scales the result
-  to **henries**. The matrix is real and symmetric (SPD: `is_spd`).
+  to **henries**. The matrix is real and symmetric.
+- **Physical gate.** A static inductance matrix is symmetric positive
+  definite. If any self term `L_ii ≤ 0`, or the matrix is not SPD, the
+  run fails with `solve_failed` and a non-zero exit. It never reports
+  `status: "ok"` in that case, so a successful report always has
+  `is_spd = true`.
 - **Accuracy.** The golden coax sits at 0.46 % on a 1 202-node mesh and
   0.16 % on 5 564 nodes (`benchmarks/magnetostatic_inductance` bar: 1 %);
   the triax 2×2 entries at ≤ 0.83 % / ≤ 0.27 %.
@@ -475,7 +492,8 @@ only when the port geometry realises the same current path in the
 low-frequency limit.
 
 Not in v1: closed loops (cut / EMF boundary condition), lumped gap
-sources (terminals off the PEC wall), heterogeneous-conductivity paths,
+sources (terminals off the PEC wall, or a source and sink on different
+PEC components), heterogeneous-conductivity paths,
 SPICE `L` / `K` export (`--spice` is `geode capacitance`-only; clap
 rejects it here), field export, and a `geode mesh` inductance starter
 spec. `geode check` reports the path list and edge-DOF counts in its

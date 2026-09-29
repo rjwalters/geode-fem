@@ -65,13 +65,36 @@
 //!   source/sink pair: driving it needs a cut surface carrying a potential
 //!   *jump* (an EMF / cohomology-cut boundary condition), which is not
 //!   implemented. It is not faked here.
-//! * **Terminals must be grounded in the magnetostatic solve.** The
-//!   source/sink nodes carry the net current into and out of the domain, so
-//!   the curl-curl problem is only consistent if they lie on the PEC wall
-//!   (the return conductor) — the coax end caps are the canonical example.
-//!   [`ungrounded_nodes`] reports violations; a terminal face floating in the
-//!   interior would need an explicit return path (a lumped gap source),
-//!   which is out of scope.
+//! * **Terminals must be grounded in the magnetostatic solve, on the same
+//!   connected PEC component.** The source/sink nodes carry the net current
+//!   into and out of the domain, so the curl-curl problem is only consistent
+//!   if the PEC wall (the return conductor) absorbs it — the coax end caps
+//!   joined by the outer shield are the canonical example.
+//!   [`ungrounded_nodes`] reports terminal nodes that are not on the wall at
+//!   all; a terminal face floating in the interior would need an explicit
+//!   return path (a lumped gap source), which is out of scope.
+//!
+//! # Solvability: net current per grounded component
+//!
+//! Touching the PEC wall is necessary but **not sufficient**. The kernel of
+//! the PEC-constrained discrete curl also contains `∇χ_k`, where `χ_k` is
+//! the P1 indicator of one connected component `k` of the **grounded node
+//! set**: the nodes of the constrained (PEC) edges of the system, i.e. the
+//! edges with `interior_mask == false`, connected through those same
+//! edges. (In the CLI the constrained edges are exactly the edges of the
+//! PEC triangles plus the path terminal-contact triangles, so the
+//! components can equally be computed from those triangles with
+//! [`triangle_node_components`].) `∇χ_k` has zero tangential trace on
+//! every PEC edge, so it is an admissible field, and the source is
+//! compatible only if the **net current into every grounded component is
+//! zero**. For an open path, that means the source and sink must touch the
+//! **same connected component** of the PEC wall. `check_solenoidal` cannot
+//! see this, because it skips every constrained node, and the tree-cotree
+//! gauge makes the inconsistent system nonsingular, so an unbalanced
+//! excitation yields a meaningless (typically non-SPD) inductance matrix
+//! rather than a solve failure. [`grounded_components`] builds the
+//! components and [`check_grounded_balance`] enforces the per-component
+//! balance; call it once per path.
 //! * **`σ_r`** only matters for *heterogeneous* conductors (current sharing
 //!   between sub-regions of different conductivity). For a homogeneous path
 //!   the shape of `J` is independent of the conductivity value.
@@ -107,6 +130,10 @@ pub enum CurrentPathError {
     /// The source and sink are not connected through the conductor: the
     /// net current is zero / not finite.
     NoCurrent(String),
+    /// A connected component of the grounded (PEC) node set receives a
+    /// non-zero net current: the source and sink touch different PEC
+    /// components (see [`check_grounded_balance`]).
+    UnbalancedGround(String),
 }
 
 impl std::fmt::Display for CurrentPathError {
@@ -122,6 +149,12 @@ impl std::fmt::Display for CurrentPathError {
             Self::BadConductivity(s) => write!(f, "current path conductivity: {s}"),
             Self::Conduction(e) => write!(f, "current path conduction solve failed: {e}"),
             Self::NoCurrent(s) => write!(f, "current path carries no current: {s}"),
+            Self::UnbalancedGround(s) => {
+                write!(
+                    f,
+                    "current path does not close through one PEC component: {s}"
+                )
+            }
         }
     }
 }
@@ -367,6 +400,10 @@ pub fn open_path_current(
 /// only consistent if the PEC wall (the return conductor) absorbs it. A
 /// non-empty result means the excitation's discrete divergence at those
 /// nodes is not balanced by anything and the inductance would be wrong.
+///
+/// An empty result is **necessary but not sufficient**: the source and
+/// sink must also lie on the *same connected component* of the PEC wall —
+/// check that with [`check_grounded_balance`].
 pub fn ungrounded_nodes(sys: &Magnetostatic3dSystem, nodes: &[u32]) -> Vec<u32> {
     let mut grounded = vec![false; sys.n_nodes];
     for (e, &keep) in sys.interior_mask.iter().enumerate() {
@@ -382,8 +419,246 @@ pub fn ungrounded_nodes(sys: &Magnetostatic3dSystem, nodes: &[u32]) -> Vec<u32> 
         .collect()
 }
 
+/// Connected components of a node subset, as dense labels.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeComponents {
+    /// Per node (length = total node count): `Some(k)` with
+    /// `k < count` if the node is in the subset, `None` otherwise.
+    /// Labels are assigned in ascending order of each component's smallest
+    /// node index.
+    pub label: Vec<Option<u32>>,
+    /// Number of components.
+    pub count: usize,
+}
+
+impl NodeComponents {
+    /// The distinct component labels touched by `nodes` (ascending);
+    /// nodes outside the subset are ignored.
+    pub fn touched(&self, nodes: &[u32]) -> Vec<u32> {
+        let set: BTreeSet<u32> = nodes
+            .iter()
+            .filter_map(|&n| self.label.get(n as usize).copied().flatten())
+            .collect();
+        set.into_iter().collect()
+    }
+}
+
+/// Connected components of the graph spanned by `edges` on `n_nodes`
+/// nodes. The subset is the set of edge endpoints; two nodes are connected
+/// iff a chain of `edges` joins them. Isolated nodes (no incident edge)
+/// get `None`.
+///
+/// # Panics
+///
+/// If an edge endpoint is `>= n_nodes`.
+pub fn edge_node_components(
+    n_nodes: usize,
+    edges: impl IntoIterator<Item = [u32; 2]>,
+) -> NodeComponents {
+    let mut parent: Vec<u32> = (0..n_nodes as u32).collect();
+    let mut member = vec![false; n_nodes];
+    fn find(parent: &mut [u32], mut x: u32) -> u32 {
+        while parent[x as usize] != x {
+            let up = parent[parent[x as usize] as usize];
+            parent[x as usize] = up;
+            x = up;
+        }
+        x
+    }
+    for [a, b] in edges {
+        member[a as usize] = true;
+        member[b as usize] = true;
+        let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
+        if ra != rb {
+            let (lo, hi) = if ra < rb { (ra, rb) } else { (rb, ra) };
+            parent[hi as usize] = lo;
+        }
+    }
+    let mut label = vec![None; n_nodes];
+    let mut root_label: HashMap<u32, u32> = HashMap::new();
+    for n in 0..n_nodes {
+        if !member[n] {
+            continue;
+        }
+        let r = find(&mut parent, n as u32);
+        let next = root_label.len() as u32;
+        label[n] = Some(*root_label.entry(r).or_insert(next));
+    }
+    NodeComponents {
+        label,
+        count: root_label.len(),
+    }
+}
+
+/// Connected components of the node set of one or more triangle lists,
+/// connected through the triangle edges. With the PEC triangles plus every
+/// path's source/sink contact triangles, this is exactly
+/// [`grounded_components`] of the system assembled from the corresponding
+/// `pec_interior_mask_from_triangles` mask.
+pub fn triangle_node_components(n_nodes: usize, triangle_lists: &[&[[u32; 3]]]) -> NodeComponents {
+    edge_node_components(
+        n_nodes,
+        triangle_lists
+            .iter()
+            .flat_map(|l| l.iter())
+            .flat_map(|t| [[t[0], t[1]], [t[1], t[2]], [t[0], t[2]]]),
+    )
+}
+
+/// Connected components of the magnetostatic system's **grounded node
+/// set**: the endpoints of the constrained (PEC) edges
+/// (`interior_mask == false`), connected through those edges. Each
+/// component `k` contributes a kernel direction `∇χ_k` of the constrained
+/// curl-curl (see the module docs), so each must receive zero net current.
+pub fn grounded_components(sys: &Magnetostatic3dSystem) -> NodeComponents {
+    edge_node_components(
+        sys.n_nodes,
+        sys.interior_mask
+            .iter()
+            .zip(&sys.edges)
+            .filter(|(keep, _)| !**keep)
+            .map(|(_, e)| *e),
+    )
+}
+
+/// Net current each grounded component injects into the domain for the
+/// per-tet current density `j`: `I_k = −∫ ∇χ_k · J dV`, indexed by
+/// component label of `components`. For an open path whose source and sink
+/// lie on the same component this is `0` everywhere (to round-off); a
+/// source on component `a` and a sink on component `b ≠ a` give
+/// `I_a = +I`, `I_b = −I`.
+///
+/// # Panics
+///
+/// If `j.len() != mesh.n_tets()` or `components.label.len() != mesh.n_nodes()`.
+pub fn component_net_currents(
+    mesh: &TetMesh,
+    j: &[[f64; 3]],
+    components: &NodeComponents,
+) -> Vec<f64> {
+    assert_eq!(j.len(), mesh.n_tets(), "j length != tet count");
+    assert_eq!(
+        components.label.len(),
+        mesh.n_nodes(),
+        "component labels length != node count"
+    );
+    let mut net = vec![0.0_f64; components.count];
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        let jt = j[t];
+        if jt == [0.0; 3] {
+            continue;
+        }
+        if tet.iter().all(|&v| components.label[v as usize].is_none()) {
+            continue;
+        }
+        let coords = tet.map(|v| mesh.nodes[v as usize]);
+        let grads = tet_bary_grads(&coords);
+        let vol = tet_signed_volume(&coords).abs();
+        for (p, &v) in tet.iter().enumerate() {
+            if let Some(k) = components.label[v as usize] {
+                let g = grads[p];
+                net[k as usize] -= vol * (g[0] * jt[0] + g[1] * jt[1] + g[2] * jt[2]);
+            }
+        }
+    }
+    net
+}
+
+/// Enforce the **per-component current balance** for one path's
+/// excitation on the assembled system: every connected component of the
+/// grounded node set ([`grounded_components`]) must receive a net current
+/// `|I_k| ≤ tol · |terminal.current|`. Returns the worst relative
+/// imbalance on success.
+///
+/// For an open path this is the statement that the source and sink touch
+/// the **same connected PEC component**. With several paths, call it once
+/// per path (each excitation must balance on its own).
+///
+/// # Errors
+///
+/// [`CurrentPathError::UnbalancedGround`] naming the offending components,
+/// or [`CurrentPathError::ShapeMismatch`] on a mesh/system mismatch.
+pub fn check_grounded_balance(
+    sys: &Magnetostatic3dSystem,
+    mesh: &TetMesh,
+    terminal: &CurrentTerminal,
+    tol: f64,
+) -> Result<f64, CurrentPathError> {
+    if sys.n_nodes != mesh.n_nodes() || terminal.j.len() != mesh.n_tets() {
+        return Err(CurrentPathError::ShapeMismatch(format!(
+            "{}: system/mesh/current size mismatch",
+            terminal.name
+        )));
+    }
+    let comps = grounded_components(sys);
+    let net = component_net_currents(mesh, &terminal.j, &comps);
+    let scale = terminal.current.abs().max(f64::MIN_POSITIVE);
+    // NaN-aware: a non-finite imbalance counts as a violation.
+    let over = |v: f64| {
+        let r = v.abs() / scale;
+        r.is_nan() || r > tol
+    };
+    let worst = net.iter().fold(0.0_f64, |w, v| {
+        let r = v.abs() / scale;
+        if r.is_nan() { f64::NAN } else { w.max(r) }
+    });
+    if over(worst) || net.iter().any(|&v| over(v)) {
+        let bad: Vec<String> = net
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| over(**v))
+            .map(|(k, v)| format!("component {k}: {v:+.3e} A"))
+            .collect();
+        return Err(CurrentPathError::UnbalancedGround(format!(
+            "{}: {} of {} grounded (PEC) components receive a net current ({}) for a \
+             {:.3e} A path current — the source and sink must touch the same connected \
+             PEC component (add the PEC surface that joins them)",
+            terminal.name,
+            bad.len(),
+            comps.count,
+            bad.join(", "),
+            terminal.current
+        )));
+    }
+    Ok(worst)
+}
+
 #[inline]
 fn sorted3(mut t: [u32; 3]) -> [u32; 3] {
     t.sort_unstable();
     t
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn edge_components_label_and_count() {
+        // Two chains {0-1-2} and {4-5}; node 3 isolated.
+        let c = edge_node_components(6, [[0, 1], [2, 1], [5, 4]]);
+        assert_eq!(c.count, 2);
+        assert_eq!(
+            c.label,
+            vec![Some(0), Some(0), Some(0), None, Some(1), Some(1)]
+        );
+        assert_eq!(c.touched(&[3]), Vec::<u32>::new());
+        assert_eq!(c.touched(&[2, 5, 0]), vec![0, 1]);
+    }
+
+    #[test]
+    fn triangle_components_join_through_shared_edges_and_vertices() {
+        // Triangles A=(0,1,2), B=(2,3,4) share vertex 2 -> one component;
+        // C=(5,6,7) is separate.
+        let a = [[0, 1, 2], [2, 3, 4]];
+        let b = [[5, 6, 7]];
+        let c = triangle_node_components(9, &[&a, &b]);
+        assert_eq!(c.count, 2);
+        assert_eq!(c.touched(&[0, 4]), vec![0]);
+        assert_eq!(c.touched(&[0, 7]), vec![0, 1]);
+        assert_eq!(c.label[8], None);
+        // A bridging list merges them.
+        let bridge = [[4, 5, 8]];
+        assert_eq!(triangle_node_components(9, &[&a, &b, &bridge]).count, 1);
+    }
 }

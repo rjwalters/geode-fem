@@ -15,11 +15,18 @@
 //! * Tripwires: a perturbed `J` fails the compatibility check; the ring's
 //!   terminal nodes (not on PEC) fail it when not exempted and are reported
 //!   by `ungrounded_nodes`; malformed paths are rejected.
+//! * Per-component balance: with the PEC wall reduced to two disconnected
+//!   end caps (no shield), the grounded node set splits in two, the source
+//!   and sink land on different components, and `check_grounded_balance`
+//!   rejects the path (the PR #718 judge repro).
 #![allow(clippy::needless_range_loop)]
 
 use std::f64::consts::PI;
 
-use geode_core::assembly::current_path::{CurrentPathError, open_path_current, ungrounded_nodes};
+use geode_core::assembly::current_path::{
+    CurrentPathError, check_grounded_balance, component_net_currents, grounded_components,
+    open_path_current, triangle_node_components, ungrounded_nodes,
+};
 use geode_core::assembly::magnetostatic3d::{
     CurrentTerminal, assemble_current_rhs, assemble_magnetostatic3d, axial_current_density,
     check_solenoidal, extract_inductance, loop_current_density, measure_axial_current,
@@ -30,6 +37,7 @@ use geode_core::mesh::TetMesh;
 use geode_core::mesh::magnetostatic_fixtures::{
     cylinder_cap_nodes, cylinder_pec_interior_mask, loop_pair_mesh, solid_coax_mesh,
 };
+use geode_core::mesh::pec_interior_mask_from_triangles;
 
 const FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
 
@@ -473,4 +481,62 @@ fn disconnected_source_and_sink_are_rejected() {
         ),
         "{e}"
     );
+}
+
+#[test]
+fn source_and_sink_on_disconnected_pec_components_are_rejected() {
+    let (a, b, length) = (1.0, 3.0, 1.0);
+    let cx = coax(a, b, length, 16, 6, 3);
+    let sigma = vec![1.0; cx.mesh.n_tets()];
+    let mu_r = vec![1.0; cx.mesh.n_tets()];
+    let path = open_path_current(
+        &cx.mesh,
+        "wire",
+        &cx.conductor,
+        &sigma,
+        &cx.source,
+        &cx.sink,
+    )
+    .unwrap();
+
+    // Shielded coax: caps + outer wall form ONE grounded component; the
+    // path balances on it to round-off.
+    let sys = assemble_magnetostatic3d(&cx.mesh, &mu_r, &cx.mask).unwrap();
+    let comps = grounded_components(&sys);
+    assert_eq!(comps.count, 1, "caps + shield must be one PEC component");
+    let worst = check_grounded_balance(&sys, &cx.mesh, &path.terminal, 1e-9)
+        .expect("same-component path balances");
+    assert!(worst < 1e-9, "shielded imbalance {worst:e}");
+
+    // Shield dropped: only the two end-cap disks are PEC.
+    let everywhere = vec![true; cx.mesh.n_tets()];
+    let tol = 1e-9;
+    let cap0 = conductor_faces(&cx.mesh, &everywhere, |p| p[2].abs() < tol);
+    let cap1 = conductor_faces(&cx.mesh, &everywhere, |p| (p[2] - length).abs() < tol);
+    let edges = cx.mesh.edges();
+    let caps_mask = pec_interior_mask_from_triangles(&edges, &[&cap0, &cap1]);
+    let sys_caps = assemble_magnetostatic3d(&cx.mesh, &mu_r, &caps_mask).unwrap();
+    let comps = grounded_components(&sys_caps);
+    assert_eq!(comps.count, 2, "two disconnected end caps");
+    // Still every terminal node is "grounded" — the old, insufficient check.
+    assert!(ungrounded_nodes(&sys_caps, &path.terminal.exempt_nodes).is_empty());
+    // The triangle-based components (the CLI's pre-solve view) agree.
+    let tri = triangle_node_components(cx.mesh.n_nodes(), &[&cap0, &cap1]);
+    assert_eq!(tri, comps);
+    let src_c = comps.touched(&path.source_nodes);
+    let sink_c = comps.touched(&path.sink_nodes);
+    assert_eq!(src_c.len(), 1);
+    assert_eq!(sink_c.len(), 1);
+    assert_ne!(src_c, sink_c);
+    // Net current per component: +1 A leaves the source cap, 1 A returns
+    // into the sink cap.
+    let net = component_net_currents(&cx.mesh, &path.terminal.j, &comps);
+    assert!((net[src_c[0] as usize] - 1.0).abs() < 1e-9, "{net:?}");
+    assert!((net[sink_c[0] as usize] + 1.0).abs() < 1e-9, "{net:?}");
+    match check_grounded_balance(&sys_caps, &cx.mesh, &path.terminal, 1e-6) {
+        Err(CurrentPathError::UnbalancedGround(msg)) => {
+            assert!(msg.contains("same connected PEC component"), "{msg}")
+        }
+        other => panic!("expected UnbalancedGround, got {other:?}"),
+    }
 }

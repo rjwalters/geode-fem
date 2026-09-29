@@ -99,6 +99,15 @@ pub enum CliError {
     /// gauged system.
     #[error("magnetostatic solve failed: {0}")]
     Magnetostatic(Magnetostatic3dError),
+    /// The inductance solve finished but the matrix is unphysical (a
+    /// non-positive self inductance or not SPD) — the source problem was
+    /// inconsistent.
+    #[error(
+        "inductance solve produced an unphysical matrix: {0}; a static inductance matrix must \
+         be symmetric positive definite — check that every path's source and sink touch the \
+         same connected `boundary_conditions.pec` conductor"
+    )]
+    NonPhysicalInductance(String),
     /// The solve returned non-finite numbers.
     #[error("solve produced a non-finite result at frequency/mode index {index}: {what}")]
     NonFinite {
@@ -235,6 +244,7 @@ impl CliError {
             | CliError::Electrostatic(_)
             | CliError::CurrentPath(_)
             | CliError::Magnetostatic(_)
+            | CliError::NonPhysicalInductance(_)
             | CliError::L0NotConverged { .. } => "solve_failed",
             CliError::NonFinite { .. } => "non_finite",
             CliError::LayoutParse { .. } => "spec_parse",

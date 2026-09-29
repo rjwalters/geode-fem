@@ -19,7 +19,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use geode_core::assembly::current_path::{
-    CurrentPathError, OpenPathCurrent, open_path_current, ungrounded_nodes,
+    CurrentPathError, OpenPathCurrent, check_grounded_balance, open_path_current, ungrounded_nodes,
 };
 use geode_core::assembly::magnetostatic3d::{
     InductanceMatrix, assemble_current_rhs, assemble_magnetostatic3d, check_solenoidal,
@@ -52,6 +52,7 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<InductanceReport,
     let t0 = Instant::now();
     let solved = solve(&p.tagged.mesh, &p.mu_r, &p.pec_mask, target)?;
     let wall_time_s = t0.elapsed().as_secs_f64();
+    check_physical(&solved.matrix)?;
 
     let scale = p.length_unit_m();
     for (i, row) in solved.matrix.l.iter().enumerate() {
@@ -90,6 +91,7 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<InductanceReport,
         sink_face_flux_a: paths.iter().map(|c| c.sink_face_flux).collect(),
         max_solenoidal_residual: solved.max_solenoidal_residual,
         max_rel_asymmetry: solved.matrix.max_rel_asymmetry(),
+        // Guaranteed by `check_physical` above (kept in the report schema).
         is_spd: solved.matrix.is_spd(SPD_TOL),
         solver: InductanceSolverStats {
             method: "energy",
@@ -153,6 +155,11 @@ pub fn solve(
             path.terminal.name,
             floating.len()
         );
+        // Per-component balance (defense in depth: `problem::load` already
+        // rejects a path whose source and sink touch different PEC
+        // components, and this recomputes it on the assembled system).
+        check_grounded_balance(&sys, mesh, &path.terminal, SOLENOIDAL_TOL)
+            .map_err(|e| path_error(&path.terminal.name, e))?;
         let b = assemble_current_rhs(&sys, mesh, &path.terminal.j)?;
         max_res = max_res.max(check_solenoidal(
             &sys,
@@ -170,6 +177,30 @@ pub fn solve(
     })
 }
 
+/// Post-solve physical gate: a static inductance matrix is symmetric
+/// positive definite (the magnetic energy `½ Iᵀ L I` is positive for any
+/// non-zero current vector). A non-positive self inductance or a failed
+/// Cholesky means the source problem was inconsistent (e.g. an unbalanced
+/// PEC return path that slipped past the pre-solve checks) — report it as a
+/// `solve_failed` error rather than a status-`ok` answer.
+pub fn check_physical(m: &InductanceMatrix) -> Result<(), CliError> {
+    for (i, name) in m.names.iter().enumerate() {
+        let lii = m.l[i][i];
+        if lii.is_nan() || lii <= 0.0 {
+            return Err(CliError::NonPhysicalInductance(format!(
+                "self inductance L[{name}][{name}] = {lii:e} is not positive"
+            )));
+        }
+    }
+    if !m.is_spd(SPD_TOL) {
+        return Err(CliError::NonPhysicalInductance(format!(
+            "the inductance matrix over paths [{}] is not symmetric positive definite",
+            m.names.join(", ")
+        )));
+    }
+    Ok(())
+}
+
 /// Geometry problems of a current path are spec errors (`invalid_spec`);
 /// only a failed conduction factorization is a solve failure.
 fn path_error(name: &str, e: CurrentPathError) -> CliError {
@@ -178,5 +209,44 @@ fn path_error(name: &str, e: CurrentPathError) -> CliError {
             CliError::CurrentPath(e)
         }
         other => CliError::InvalidSpec(format!("inductance path `{name}`: {other}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn matrix(l: Vec<Vec<f64>>) -> InductanceMatrix {
+        let n = l.len();
+        InductanceMatrix {
+            names: (0..n).map(|i| format!("p{i}")).collect(),
+            flux_linkage_diag: (0..n).map(|i| l[i][i]).collect(),
+            l,
+        }
+    }
+
+    #[test]
+    fn physical_gate_accepts_spd() {
+        check_physical(&matrix(vec![vec![2.7e-10]])).unwrap();
+        check_physical(&matrix(vec![vec![2.0e-9, 1.0e-9], vec![1.0e-9, 3.0e-9]])).unwrap();
+    }
+
+    #[test]
+    fn physical_gate_rejects_non_positive_diagonal() {
+        // The PR #718 repro value (shield-less coax).
+        for bad in [-327.68, 0.0, f64::NAN] {
+            let e = check_physical(&matrix(vec![vec![bad]])).unwrap_err();
+            assert_eq!(e.code(), "solve_failed", "{e}");
+            assert!(e.to_string().contains("not positive"), "{e}");
+        }
+    }
+
+    #[test]
+    fn physical_gate_rejects_indefinite_with_positive_diagonal() {
+        // |k| > 1: positive diagonal, indefinite matrix.
+        let e =
+            check_physical(&matrix(vec![vec![1.0e-9, 2.0e-9], vec![2.0e-9, 1.0e-9]])).unwrap_err();
+        assert_eq!(e.code(), "solve_failed");
+        assert!(e.to_string().contains("positive definite"), "{e}");
     }
 }

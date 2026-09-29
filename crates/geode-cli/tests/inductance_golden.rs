@@ -43,8 +43,8 @@
 //! port's quasi-static `Im Z / ω` extrapolated to `f → 0`).
 //!
 //! Spec validation (wrong subcommand pre-mesh, rejected frequency-domain
-//! features, the required PEC wall, path geometry, `--spice`) is covered at
-//! the bottom.
+//! features, the required PEC wall, the same-PEC-component rule, path
+//! geometry, `--spice`) is covered at the bottom.
 
 use std::f64::consts::PI;
 use std::path::{Path, PathBuf};
@@ -706,4 +706,49 @@ fn mesh_level_path_errors() {
             && msg.contains("`nope` (dim 2, inductance sink)"),
         "{msg}"
     );
+}
+
+#[test]
+fn source_and_sink_on_disconnected_pec_components_are_rejected() {
+    // PR #718 judge repro: drop the `shield` from the coax PEC list. The
+    // z = 0 and z = L end caps are then two disconnected PEC islands, the
+    // core's source and sink each touch one of them, and the
+    // magnetostatic problem is inconsistent (it used to report
+    // L = -327.68 H, is_spd = false, status "ok", exit 0).
+    let mesh = smoke_mesh();
+    let mut spec = ind_spec(&mesh);
+    spec["boundary_conditions"]["pec"] = serde_json::json!(["end_caps", "tube_in", "tube_out"]);
+    for sub in ["inductance", "check"] {
+        // `geode check` fails identically: the rule is enforced when the
+        // problem is resolved, before any solve.
+        let (code, msg) = run_err(sub, &format!("no-shield-{sub}"), spec.clone());
+        assert_eq!(code, "invalid_spec", "{sub}: {msg}");
+        assert!(
+            msg.contains("path `core`")
+                && msg.contains("different connected components of the PEC wall")
+                && msg.contains("boundary_conditions.pec"),
+            "{sub}: {msg}"
+        );
+    }
+
+    // Two paths (triax), no shield: the first path is rejected by name.
+    let mut triax = spec.clone();
+    triax["boundary_conditions"]["pec"] = serde_json::json!(["end_caps"]);
+    triax["inductance"]["paths"] = serde_json::json!([
+        {"name": "core", "conductor": "core", "source": "core_in", "sink": "core_out"},
+        {"name": "tube", "conductor": "tube", "source": "tube_in", "sink": "tube_out"}
+    ]);
+    let (code, msg) = run_err("inductance", "no-shield-triax", triax);
+    assert_eq!(code, "invalid_spec", "{msg}");
+    assert!(msg.contains("path `core`"), "{msg}");
+
+    // Restoring the shield restores a physical answer (the smoke oracle
+    // test covers the value).
+    let ok = ind_spec(&mesh);
+    let dir = scratch("with-shield");
+    let path = dir.join("spec.json");
+    std::fs::write(&path, ok.to_string()).unwrap();
+    let report = run_ok("inductance", &path);
+    assert_eq!(report["status"], "ok");
+    assert_eq!(report["is_spd"], true);
 }

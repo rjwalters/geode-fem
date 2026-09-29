@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use faer::c64;
+use geode_core::assembly::current_path::triangle_node_components;
 use geode_core::assembly::electrostatic::face_to_tet_map;
 use geode_core::assembly::nedelec::tet_centroids;
 use geode_core::constants::{C_M_PER_S, ETA_0_OHM};
@@ -1322,8 +1323,9 @@ fn validate_inductance(spec: &ProblemSpec) -> Result<(), CliError> {
     if bcs.pec.is_empty() {
         return Err(invalid(
             "an inductance spec needs `boundary_conditions.pec`: the PEC wall (n x A = 0) \
-             truncates the domain and is the return conductor every current path's source and \
-             sink faces must touch (e.g. the shield + end caps of a coax)",
+             truncates the domain and is the return conductor; every current path's source and \
+             sink faces must touch the same connected PEC component (e.g. the shield + end caps \
+             of a coax)",
         ));
     }
     if let SolverSpec::Iterative { .. } = spec.solver {
@@ -1355,7 +1357,9 @@ fn build_mu_r(tet_tags: &[i32], mu_by_tag: &BTreeMap<i32, f64>) -> Vec<f64> {
 /// Bind every inductance current path: its conductor tets, source / sink
 /// faces and node sets, then check the geometry the open-path conduction
 /// solve needs — terminal faces on the conductor, node-disjoint source /
-/// sink, and each terminal touching the PEC wall (the return conductor).
+/// sink, each terminal touching the PEC wall (the return conductor), and
+/// source and sink on the same connected PEC component
+/// ([`check_path_components`]).
 fn resolve_inductance(
     ind: &crate::spec::InductanceSpec,
     path_tags: &[[Option<i32>; 3]],
@@ -1453,7 +1457,81 @@ fn resolve_inductance(
             sink_nodes,
         });
     }
+    check_path_components(&paths, tagged.mesh.n_nodes(), pec)?;
     Ok(InductanceTarget { paths })
+}
+
+/// The **same-PEC-component** rule for current paths (PR #718).
+///
+/// The grounded node set of the magnetostatic solve is the node set of the
+/// `boundary_conditions.pec` triangles plus every path's source/sink
+/// contact triangles (exactly the triangles whose edges
+/// [`Problem::pec_mask`] constrains), connected through those triangle
+/// edges ([`triangle_node_components`]). Each connected component is a
+/// kernel direction of the constrained curl-curl, so each must receive zero
+/// net current *per path*; for an open path that means its source and sink
+/// must touch the same component. Touching *some* PEC node (checked above)
+/// is necessary but not sufficient: two disconnected PEC islands (e.g.
+/// coax end caps without the shield joining them) would otherwise produce a
+/// meaningless, non-SPD `L` with no solver error.
+fn check_path_components(
+    paths: &[CurrentPath],
+    n_nodes: usize,
+    pec: &[Surface],
+) -> Result<(), CliError> {
+    let mut lists: Vec<&[[u32; 3]]> = pec.iter().map(|s| s.triangles.as_slice()).collect();
+    for path in paths {
+        lists.push(&path.source.triangles);
+        lists.push(&path.sink.triangles);
+    }
+    let comps = triangle_node_components(n_nodes, &lists);
+    // PEC groups touching a component, for the message.
+    let groups_of = |k: u32| -> String {
+        let names: Vec<String> = pec
+            .iter()
+            .filter(|s| {
+                s.triangles
+                    .iter()
+                    .flatten()
+                    .any(|&n| comps.label[n as usize] == Some(k))
+            })
+            .map(|s| format!("`{}`", s.name))
+            .collect();
+        if names.is_empty() {
+            "no PEC group".to_string()
+        } else {
+            names.join(", ")
+        }
+    };
+    for path in paths {
+        let src = comps.touched(&path.source_nodes);
+        let sink = comps.touched(&path.sink_nodes);
+        // Terminal faces are themselves contacts, so each is one connected
+        // component on its own; a face spanning two would already join them.
+        if src != sink {
+            let desc = |cs: &[u32]| -> String {
+                cs.iter()
+                    .map(|&k| format!("component {k} ({})", groups_of(k)))
+                    .collect::<Vec<_>>()
+                    .join(" + ")
+            };
+            return Err(invalid(format!(
+                "inductance path `{}`: source `{}` and sink `{}` touch different connected \
+                  components of the PEC wall (source: {}; sink: {}; {} component(s) in total) — \
+                  the current must return through ONE connected PEC conductor, otherwise the \
+                  magnetostatic problem is inconsistent and L is meaningless; add the PEC \
+                  surface that connects them (e.g. the outer shield / return wall) to \
+                  `boundary_conditions.pec`",
+                path.name,
+                path.source.name,
+                path.sink.name,
+                desc(&src),
+                desc(&sink),
+                comps.count
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Scalar rules for `absorbing_regions` and `wave_ports` (before the mesh
