@@ -5,7 +5,10 @@
 //!   and an empty `PATH`), the `spec_parse` / `invalid_spec` layout
 //!   errors — layout validation runs before Gmsh is looked up — and (Unix)
 //!   `--gmsh-timeout` killing a hung stub Gmsh as `gmsh_failed`.
-//! * **Gmsh** (default tier): a tiny two-pad layout with a matched-UPML
+//! * **Gmsh** (default tier): thick conductors are hollowed (issue #721):
+//!   no tet inside a thick conductor, conductor triangles only on cavity
+//!   walls (none at a slab interface a trace / via crosses), thin sheets
+//!   still embedded two-sided; a tiny two-pad layout with a matched-UPML
 //!   boundary runs `geode mesh` → `geode check` → `geode driven` on the
 //!   **unedited** starter spec, and meshing is reproducible (identical
 //!   mesh bytes on a re-run); the spiral-inductor smoke layout
@@ -361,24 +364,169 @@ fn tiny_upml_layout_meshes_checks_and_drives_unedited() {
     assert!(s11 <= 1.0 + 1e-9);
 }
 
+/// Thick conductors are hollowed (issue #721): a two-slab stack with an
+/// L-shaped thick trace (`m1`, two rectangles with coplanar walls) and a
+/// via (`via`, overlapping `m1` with walls coplanar to it) that both cross
+/// the slab interface at `z = 0`, plus a zero-thickness ground sheet.
+fn hollow_layout() -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": 1,
+        "description": "hollow thick conductors crossing a slab interface (issue #721)",
+        "length_unit_m": 1e-6,
+        "dielectrics": [
+            {"name": "lower", "z_bottom": -10, "thickness": 10, "eps_r": [4.0, 0.0]},
+            {"name": "upper", "z_bottom": 0, "thickness": 12}
+        ],
+        "conductors": [
+            {"name": "gnd", "z_bottom": -6, "polygons": [
+                {"outer": [[-2, -2], [14, -2], [14, 20], [-2, 20]]}]},
+            {"name": "m1", "z_bottom": -2, "thickness": 6, "polygons": [
+                {"name": "a", "outer": [[0, 0], [12, 0], [12, 4], [4, 4], [4, 12], [0, 12]]},
+                {"name": "b", "outer": [[0, 14], [12, 14], [12, 18], [0, 18]]}]},
+            {"name": "via", "z_bottom": -3, "thickness": 9, "polygons": [
+                {"outer": [[8, 0], [12, 0], [12, 4], [8, 4]]}]}
+        ],
+        "ports": [{"name": "p1", "layer": "m1", "between": ["a", "b"]}],
+        "margin": 6,
+        "boundary": {"kind": "pec"},
+        "mesh": {"size_max": 4, "size_conductor": 1.5}
+    })
+}
+
+#[test]
+fn thick_conductors_are_hollow_without_interface_faces() {
+    if !gmsh_or_skip("thick_conductors_are_hollow_without_interface_faces") {
+        return;
+    }
+    let dir = scratch("hollow");
+    let layout = dir.join("layout.json");
+    write_json(&layout, &hollow_layout());
+    let mesh = dir.join("hollow.msh");
+    let report = ok(
+        geode(&["mesh", s(&layout), "--mesh-out", s(&mesh)]),
+        "geode mesh",
+    );
+    let geo = std::fs::read_to_string(dir.join("hollow.geo")).unwrap();
+    assert!(geo.contains("v_hollow() = BooleanDifference{ Volume{v_d0, v_d1}; Delete; }"));
+    let roles: Vec<(&str, &str)> = report["physical_groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|g| (g["name"].as_str().unwrap(), g["role"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        roles,
+        [
+            ("lower", "dielectric"),
+            ("upper", "dielectric"),
+            ("gnd", "pec_sheet"),
+            ("m1", "pec_shell"),
+            ("via", "pec_shell"),
+            ("p1", "port"),
+            ("outer_boundary", "outer_boundary"),
+        ]
+    );
+
+    let tagged = geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(&mesh).unwrap()).unwrap();
+    let nodes = &tagged.mesh.nodes;
+    // Solid boxes of the thick conductors: m1 (L = two rectangles, b) and
+    // the via, as (x0, y0, z0, x1, y1, z1).
+    let boxes = [
+        [0.0, 0.0, -2.0, 12.0, 4.0, 4.0],
+        [0.0, 4.0, -2.0, 4.0, 12.0, 4.0],
+        [0.0, 14.0, -2.0, 12.0, 18.0, 4.0],
+        [8.0, 0.0, -3.0, 12.0, 4.0, 6.0],
+    ];
+    let inside = |p: [f64; 3]| {
+        boxes
+            .iter()
+            .any(|b| (0..3).all(|k| p[k] > b[k] + 1e-9 && p[k] < b[k + 3] - 1e-9))
+    };
+    // (1) No tet inside a thick conductor: the interiors are excluded.
+    let centroid = |ids: &[u32]| {
+        let mut c = [0.0; 3];
+        for &i in ids {
+            for k in 0..3 {
+                c[k] += nodes[i as usize][k] / ids.len() as f64;
+            }
+        }
+        c
+    };
+    let n_inside = tagged
+        .mesh
+        .tets
+        .iter()
+        .filter(|t| inside(centroid(&t[..])))
+        .count();
+    assert_eq!(n_inside, 0, "tets left inside a thick conductor");
+
+    // Tets per face.
+    let mut faces = std::collections::HashMap::<[u32; 3], u32>::new();
+    for t in &tagged.mesh.tets {
+        for skip in 0..4 {
+            let mut f: Vec<u32> = (0..4).filter(|&j| j != skip).map(|j| t[j]).collect();
+            f.sort_unstable();
+            *faces.entry([f[0], f[1], f[2]]).or_default() += 1;
+        }
+    }
+    let tets_on = |tri: &[u32; 3]| {
+        let mut f = *tri;
+        f.sort_unstable();
+        faces.get(&f).copied().unwrap_or(0)
+    };
+    for name in ["m1", "via"] {
+        let tag = tagged.physical_group_tag(2, name).unwrap();
+        let tris = tagged.triangles_with_tag(tag);
+        assert!(!tris.is_empty());
+        for tri in &tris {
+            // (2) Cavity walls only: one tet on the dielectric side, none
+            // inside — so no internal face at the slab interface z = 0.
+            assert_eq!(tets_on(tri), 1, "{name}: triangle not on a cavity wall");
+            let c = centroid(&tri[..]);
+            assert!(!inside(c), "{name}: triangle inside the conductor");
+        }
+        // (3) Explicitly: no conductor triangle lies in the z = 0 plane.
+        let at_interface = tris
+            .iter()
+            .filter(|tri| tri.iter().all(|&i| nodes[i as usize][2].abs() < 1e-9))
+            .count();
+        assert_eq!(at_interface, 0, "{name}: face at the slab interface");
+    }
+    // (4) The zero-thickness sheet is unchanged: embedded, two-sided.
+    let gnd = tagged.physical_group_tag(2, "gnd").unwrap();
+    for tri in tagged.triangles_with_tag(gnd) {
+        assert_eq!(tets_on(&tri), 2, "gnd sheet triangle not embedded");
+    }
+}
+
 /// `L` (nH), `R` (Ω) at the single frequency of a driven report.
 fn l_r(report: &serde_json::Value) -> (f64, f64) {
+    let (l, r, _) = l_r_q(report);
+    (l, r)
+}
+
+/// `L` (nH), `R` (Ω), `Q = Im Z / Re Z` at the single frequency of a
+/// driven report.
+fn l_r_q(report: &serde_json::Value) -> (f64, f64, f64) {
     let r = &report["results"][0];
     assert!(r["residual_rel"].as_f64().unwrap() < 1e-7, "{r}");
     let p = &r["ports"][0];
+    let z = [
+        p["z_ohm"][0].as_f64().unwrap(),
+        p["z_ohm"][1].as_f64().unwrap(),
+    ];
     (
         p["l_h"].as_f64().unwrap() * 1e9,
         p["r_ohm"].as_f64().unwrap(),
+        z[1] / z[0],
     )
 }
 
 /// The generated starter spec with the benchmark's conductor model: the
 /// PEC conductor groups become Leontovich copper (σ = 5.8e7 S/m), as in
-/// `tests/fixtures/spiral_golden_*.json`. The layout's PEC shells keep
-/// their (field-free under PEC) interior meshed, so under Leontovich the
-/// shell is a low-impedance resistive sheet over the dielectric interior
-/// rather than the committed fixture's excluded cavity — an
-/// approximation the comparisons below bound empirically.
+/// `tests/fixtures/spiral_golden_*.json`. Since issue #721 the layout's
+/// thick conductors are hollowed (excluded cavities, walls tagged), the
+/// same conductor model as the committed fixture meshes.
 fn leontovich_variant(spec: &Path, out: &Path) {
     let mut v: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(spec).unwrap()).unwrap();
@@ -479,8 +627,8 @@ fn assert_spiral_structure(report: &serde_json::Value, spec: &Path) {
 }
 
 /// `[point_i]` with `f_ghz = 1` of a committed spiral results TOML:
-/// `(l_nh, r_ohm)`.
-fn committed_1ghz(file: &str) -> (f64, f64) {
+/// `(l_nh, r_ohm, q)`.
+fn committed_1ghz(file: &str) -> (f64, f64, f64) {
     let path = manifest_dir()
         .join("../../benchmarks/spiral_inductor")
         .join(file);
@@ -492,6 +640,7 @@ fn committed_1ghz(file: &str) -> (f64, f64) {
     (
         pt["l_nh"].as_float().unwrap(),
         pt["r_ohm"].as_float().unwrap(),
+        pt["q"].as_float().unwrap(),
     )
 }
 
@@ -510,21 +659,26 @@ fn spiral_smoke_layout_golden() {
     // Coarse physics sanity at 1 GHz with the benchmark's conductor model.
     let leon = dir.join("leontovich.json");
     leontovich_variant(&spec, &leon);
-    let (l, r) = l_r(&ok(geode(&["driven", s(&leon)]), "geode driven"));
-    let (wl, wr) = committed_1ghz("results_smoke.toml");
+    let (l, r, q) = l_r_q(&ok(geode(&["driven", s(&leon)]), "geode driven"));
+    let (wl, wr, wq) = committed_1ghz("results_smoke.toml");
     eprintln!(
         "smoke layout @ 1 GHz: L {l:.5} nH (committed fixture {wl:.5}, {:+.2}%), \
-         R {r:.4} ohm (committed {wr:.4}, {:+.2}%)",
+         R {r:.4} ohm (committed {wr:.4}, {:+.2}%), Q {q:.4} (committed {wq:.4}, {:+.2}%)",
         100.0 * rel(l, wl),
-        100.0 * rel(r, wr)
+        100.0 * rel(r, wr),
+        100.0 * rel(q, wq)
     );
-    // New sanity bands, not the issue-#211 oracle bands: measured L +0.15% /
-    // R -5.2% on both Gmsh 4.12.1 (CI) and 4.15.2; the R offset is the
-    // meshed-interior Leontovich approximation (see `leontovich_variant`),
-    // and the bands leave ~2x (R) / ~20x (L) headroom for cross-version
-    // mesh differences. Not a physics tolerance.
+    // Sanity bands, not the issue-#211 oracle bands. Before the thick
+    // conductors were hollowed (issue #721) R was -5.2 % (meshed-interior
+    // Leontovich approximation) under a 10 % band. Hollowed, measured
+    // 2026-09-29 on Gmsh 4.15.2: L +0.92 % / R +0.37 % / Q +0.55 %
+    // (Gmsh 4.12.1, CI: see the PR for issue #721). R and Q are now held
+    // to the benchmark's own 2 % R / Q band (tier 3, `spiral_golden.rs`);
+    // the L band is unchanged. Not a physics tolerance: a Gmsh-generated
+    // mesh is not node-identical to the committed fixture.
     assert!(rel(l, wl).abs() < 0.03, "L off the committed smoke fixture");
-    assert!(rel(r, wr).abs() < 0.10, "R off the committed smoke fixture");
+    assert!(rel(r, wr).abs() < 0.02, "R off the committed smoke fixture");
+    assert!(rel(q, wq).abs() < 0.02, "Q off the committed smoke fixture");
 }
 
 #[test]
@@ -540,8 +694,8 @@ fn spiral_benchmark_layout_within_oracle_bands() {
     // oracle bands and the committed benchmark sweep.
     let leon = dir.join("leontovich.json");
     leontovich_variant(&spec, &leon);
-    let (l, r) = l_r(&ok(geode(&["driven", s(&leon)]), "geode driven"));
-    let (wl, wr) = committed_1ghz("results.toml");
+    let (l, r, q) = l_r_q(&ok(geode(&["driven", s(&leon)]), "geode driven"));
+    let (wl, wr, wq) = committed_1ghz("results.toml");
     let spiral = |n_turns: f64| SquareSpiral {
         n_turns,
         width: 6.0e-6,
@@ -553,11 +707,12 @@ fn spiral_benchmark_layout_within_oracle_bands() {
     let (mom_n3, mom_n4) = (1.2778, 2.2055);
     let proj = 0.5 * (mom_n3 * l_mohan / mohan(3.0) + mom_n4 * l_mohan / mohan(4.0));
     eprintln!(
-        "benchmark layout @ 1 GHz (Leontovich): L {l:.5} nH, R {r:.4} ohm; committed fixture \
-         L {wl:.5} ({:+.2}%), R {wr:.4} ({:+.2}%); Mohan {l_mohan:.4} nH {:+.2}% (band 10%); \
-         projected mom mean {proj:.4} nH {:+.2}% (band 12%)",
+        "benchmark layout @ 1 GHz (Leontovich): L {l:.5} nH, R {r:.4} ohm, Q {q:.4}; committed \
+         fixture L {wl:.5} ({:+.2}%), R {wr:.4} ({:+.2}%), Q {wq:.4} ({:+.2}%); Mohan \
+         {l_mohan:.4} nH {:+.2}% (band 10%); projected mom mean {proj:.4} nH {:+.2}% (band 12%)",
         100.0 * rel(l, wl),
         100.0 * rel(r, wr),
+        100.0 * rel(q, wq),
         100.0 * rel(l, l_mohan),
         100.0 * rel(l, proj)
     );
@@ -567,6 +722,17 @@ fn spiral_benchmark_layout_within_oracle_bands() {
     assert!(
         rel(l, wl).abs() < 0.02,
         "L off the committed benchmark fixture"
+    );
+    // Hollowed thick conductors (issue #721): R / Q within the benchmark's
+    // 2 % tier-3 band of the committed sweep (measured 2026-09-29, Gmsh
+    // 4.15.2: R +0.16 % / Q +0.76 %; pre-#721 R was -5.9 %).
+    assert!(
+        rel(r, wr).abs() < 0.02,
+        "R off the committed benchmark fixture"
+    );
+    assert!(
+        rel(q, wq).abs() < 0.02,
+        "Q off the committed benchmark fixture"
     );
 
     // (b) The unedited (PEC) starter spec vs the same PEC model on the

@@ -12,9 +12,10 @@
 //! * [`Layout::conductors`] — per-layer 2-D rectilinear polygons,
 //!   extruded to `[z_bottom, z_bottom + thickness]` and modelled as
 //!   **PEC sheets** (`thickness = 0`) or closed **PEC shells** (the
-//!   extruded solid's boundary; its interior stays meshed and is
-//!   field-free). Each layer becomes one **dimension-2** physical group
-//!   named after the layer, listed as PEC in the starter spec.
+//!   extruded solid is subtracted from the dielectric stack — an excluded
+//!   cavity, issue #721 — and its exterior walls are the group). Each
+//!   layer becomes one **dimension-2** physical group named after the
+//!   layer, listed as PEC in the starter spec.
 //! * [`Layout::ports`] — lumped **gap** ports: a horizontal rectangle
 //!   spanning the gap between two named shapes of one conductor layer
 //!   (or an explicit rectangle), at the layer's mid-height. Each becomes

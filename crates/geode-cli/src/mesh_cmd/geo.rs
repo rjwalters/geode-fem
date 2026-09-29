@@ -3,9 +3,22 @@
 //! Emits an OpenCASCADE script in the style of the hand-written
 //! `reference/gmsh/{spiral_inductor,patch_antenna}.geo` fixtures:
 //! dielectric slabs and conductor solids as `Box`es, PEC sheets and port
-//! rectangles as `Rectangle`s, one `BooleanFragments` for conformal
-//! interfaces, then **bounding-box** physical-group selection (robust to
-//! OCC's post-boolean renumbering) with mechanically derived names, a
+//! rectangles as `Rectangle`s, then a **two-stage boolean** (issue #721,
+//! the `reference/gmsh/spiral_inductor.geo` pattern generalized to an
+//! arbitrary slab stack):
+//!
+//! 1. **Hollow** ([`hollow_conductors`]): the thick conductor solids are
+//!    unioned and `BooleanDifference`d out of the dielectric stack (every
+//!    slab plus the UPML inner-wall box), deleting both — so a thick
+//!    conductor is an excluded **cavity** whose walls are its exterior
+//!    faces, and a via crossing a slab interface is one continuous cavity
+//!    with no internal face at the interface.
+//! 2. **Fragment**: one `BooleanFragments` of the hollowed volumes with
+//!    the zero-thickness sheets and port rectangles for conformal
+//!    interfaces (thin sheets take exactly the pre-#721 path).
+//!
+//! Then **bounding-box** physical-group selection (robust to OCC's
+//! post-boolean renumbering) with mechanically derived names, a
 //! distance/threshold size field, and pinned output options (MSH 4.1
 //! ASCII, linear elements, single-threaded meshing for determinism).
 
@@ -46,6 +59,73 @@ pub struct GeoScript {
     pub text: String,
     /// Groups, in tag order within each dimension.
     pub groups: Vec<GroupDef>,
+}
+
+/// How a conductor layer enters the geometry.
+///
+/// The per-layer choice is made in one place ([`conductor_body`]) and the
+/// hollowing stage ([`hollow_conductors`]) takes an explicit list of the
+/// solids to remove, so a future mode that keeps a thick conductor as a
+/// meshed solid (e.g. an inductance current path, issue #720) is a new
+/// variant plus a filter — not a rework of the boolean pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConductorBody {
+    /// `thickness == 0`: `Rectangle` sheets embedded by the fragment step.
+    Sheet,
+    /// `thickness > 0`: `Box` solids subtracted from the dielectric stack
+    /// (an excluded cavity; its walls are the conductor's surface group).
+    Hollow,
+}
+
+/// The body model of conductor layer `c`.
+pub fn conductor_body(c: &crate::mesh_cmd::layout::ConductorLayer) -> ConductorBody {
+    if c.thickness > 0.0 {
+        ConductorBody::Hollow
+    } else {
+        ConductorBody::Sheet
+    }
+}
+
+/// Stage 1 of the boolean pipeline: emit the union of the `tools`
+/// (conductor solids to hollow out) and its `BooleanDifference` from the
+/// `objects` (dielectric slabs + UPML box), deleting both. Returns the
+/// volume list to feed to the fragment stage: `objects` unchanged when
+/// there is nothing to hollow, else the `v_hollow()` expression.
+///
+/// The tools are unioned first (as in the reference fixture) so touching
+/// or overlapping solids — a via over a trace — cut one continuous
+/// cavity; every object is differenced in one operation so a cavity
+/// crossing a slab interface leaves no face inside the conductor.
+fn hollow_conductors(w: &mut String, objects: &[String], tools: &[String]) -> Vec<String> {
+    if tools.is_empty() {
+        return objects.to_vec();
+    }
+    let _ = writeln!(
+        w,
+        "// Hollow thick conductors: union their solids, subtract the union"
+    );
+    let _ = writeln!(
+        w,
+        "// from the whole dielectric stack (interiors excluded, cavity walls kept)."
+    );
+    let _ = writeln!(w, "v_cond() = {{{}}};", tools.join(", "));
+    if tools.len() > 1 {
+        // Keep the per-rectangle face seams: a unified face (e.g. a via
+        // wall coplanar with a trace wall) would fit no per-rectangle
+        // selection box and be left untagged.
+        let _ = writeln!(w, "Geometry.OCCUnionUnify = 0;");
+        let _ = writeln!(
+            w,
+            "v_cond() = BooleanUnion{{ Volume{{v_cond(0)}}; Delete; }}\
+             {{ Volume{{v_cond({{1 : #v_cond() - 1}})}}; Delete; }};"
+        );
+    }
+    let _ = writeln!(
+        w,
+        "v_hollow() = BooleanDifference{{ Volume{{{}}}; Delete; }}{{ Volume{{v_cond()}}; Delete; }};",
+        objects.join(", ")
+    );
+    vec!["v_hollow()".into()]
 }
 
 /// First surface-group tag (volume groups count up from 1).
@@ -144,8 +224,10 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
     for gd in &groups {
         let role = match gd.role {
             GroupRole::Dielectric(_) => "dielectric slab",
-            GroupRole::Conductor(i) if l.conductors[i].thickness == 0.0 => "PEC sheet",
-            GroupRole::Conductor(_) => "PEC shell",
+            GroupRole::Conductor(i) => match conductor_body(&l.conductors[i]) {
+                ConductorBody::Sheet => "PEC sheet",
+                ConductorBody::Hollow => "PEC shell (cavity walls)",
+            },
             GroupRole::Port(_) => "lumped gap port",
             GroupRole::OuterBoundary => "outer walls (PEC)",
         };
@@ -157,7 +239,10 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
 
     // --- Solids and sheets -------------------------------------------
     let (lx, ly) = (d.x1 - d.x0, d.y1 - d.y0);
+    // Dielectric stack (slabs + UPML box), conductor solids to hollow,
+    // and surfaces (sheets + ports) to embed.
     let mut vols = Vec::new();
+    let mut solids = Vec::new();
     let mut surfs = Vec::new();
     let _ = writeln!(w, "// Dielectric slabs (full lateral domain).");
     for (i, s) in l.dielectrics.iter().enumerate() {
@@ -194,8 +279,8 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         vols.push("v_upml".into());
     }
     for (i, (c, rects)) in l.conductors.iter().zip(&r.conductor_rects).enumerate() {
-        if c.thickness > 0.0 {
-            let _ = writeln!(w, "// Conductor `{}`: PEC shell solids.", c.name);
+        if conductor_body(c) == ConductorBody::Hollow {
+            let _ = writeln!(w, "// Conductor `{}`: solids (hollowed below).", c.name);
             for (j, q) in rects.iter().enumerate() {
                 let v = format!("v_c{i}_{j}");
                 let _ = writeln!(
@@ -208,7 +293,7 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
                     num(q.y1 - q.y0),
                     num(c.thickness)
                 );
-                vols.push(v);
+                solids.push(v);
             }
         } else {
             let _ = writeln!(w, "// Conductor `{}`: PEC sheets.", c.name);
@@ -244,14 +329,15 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         surfs.push(s);
     }
     let _ = writeln!(w);
+    let hollowed = hollow_conductors(w, &vols, &solids);
     let _ = writeln!(
         w,
-        "// Conformal interfaces between every slab, solid, sheet and port."
+        "// Conformal interfaces between every slab, cavity wall, sheet and port."
     );
     let _ = writeln!(
         w,
         "BooleanFragments{{ Volume{{{}}}; Delete; }}{{ Surface{{{}}}; Delete; }}",
-        vols.join(", "),
+        hollowed.join(", "),
         surfs.join(", ")
     );
     let _ = writeln!(w);
@@ -472,8 +558,59 @@ mod tests {
             "v_upml = newv;",
             "Rectangle(s_c0_0) = {0, 0, 1, 10, 4};",
             "Box(v_c1_0) = {0, 0, 1, 2, 2, 3};",
+            // Stage 1 (issue #721): the thick via is subtracted from the
+            // whole dielectric stack, UPML box included …
+            "v_cond() = {v_c1_0};",
+            "v_hollow() = BooleanDifference{ Volume{v_d0, v_d1, v_upml}; Delete; }\
+             { Volume{v_cond()}; Delete; };",
+            // … stage 2 fragments the hollowed volumes with sheets + ports.
+            "BooleanFragments{ Volume{v_hollow()}; Delete; }\
+             { Surface{s_c0_0, s_c0_1, s_p0}; Delete; }",
         ] {
             assert!(s.text.contains(needle), "missing `{needle}` in\n{}", s.text);
         }
+        // The raw conductor solid never reaches the fragment step, and a
+        // single solid needs no union.
+        let frag = s
+            .text
+            .lines()
+            .find(|l| l.starts_with("BooleanFragments"))
+            .unwrap();
+        assert!(!frag.contains("v_c"), "{frag}");
+        assert!(!s.text.contains("BooleanUnion"));
+    }
+
+    #[test]
+    fn several_solids_are_unioned_and_sheets_only_skip_hollowing() {
+        let layout = |via_thickness: f64| -> Layout {
+            serde_json::from_value(serde_json::json!({
+                "schema_version": 1,
+                "length_unit_m": 1e-6,
+                "dielectrics": [{"name": "air", "z_bottom": 0, "thickness": 20}],
+                "conductors": [{"name": "m", "z_bottom": 5, "thickness": via_thickness,
+                    "polygons": [
+                        {"name": "a", "outer": [[0, 0], [10, 0], [10, 4], [0, 4]]},
+                        {"name": "b", "outer": [[0, 6], [10, 6], [10, 10], [0, 10]]}]}],
+                "ports": [{"name": "p1", "layer": "m", "between": ["a", "b"]}],
+                "margin": 5,
+                "mesh": {"size_max": 5, "size_conductor": 1}
+            }))
+            .unwrap()
+        };
+        let thick = generate(&layout(2.0).resolve().unwrap(), "test");
+        for needle in [
+            "v_cond() = {v_c0_0, v_c0_1};",
+            "Geometry.OCCUnionUnify = 0;",
+            "v_cond() = BooleanUnion{",
+            "BooleanFragments{ Volume{v_hollow()}; Delete; }{ Surface{s_p0}; Delete; }",
+        ] {
+            assert!(thick.text.contains(needle), "missing `{needle}`");
+        }
+        // Zero thickness: sheets, exactly the pre-#721 single fragment.
+        let thin = generate(&layout(0.0).resolve().unwrap(), "test");
+        assert!(!thin.text.contains("BooleanDifference"));
+        assert!(thin.text.contains(
+            "BooleanFragments{ Volume{v_d0}; Delete; }{ Surface{s_c0_0, s_c0_1, s_p0}; Delete; }"
+        ));
     }
 }

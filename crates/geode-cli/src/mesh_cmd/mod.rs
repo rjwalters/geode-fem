@@ -10,8 +10,9 @@
 //!    no new dependency) → MSH 4.1 ASCII, linear Tet4 / Tri3;
 //! 4. read the mesh back through
 //!    [`geode_core::mesh::read_tagged_tet_mesh`] and fail
-//!    (`gmsh_failed`) unless every generated physical group is non-empty
-//!    and every tet is tagged;
+//!    (`gmsh_failed`) unless every generated physical group is non-empty,
+//!    every tet is tagged, and every exterior face of the tet mesh (outer
+//!    walls, hollow-conductor cavity walls) carries a surface group;
 //! 5. emit a starter [`ProblemSpec`] wired to the generated group names
 //!    (inline in the report, and to `--spec-out`), so
 //!    `geode mesh … --spec-out s.json && geode driven s.json` runs.
@@ -422,8 +423,32 @@ fn run(a: &MeshArgs, provenance: Provenance) -> Result<MeshReport, CliError> {
     })
 }
 
-/// Per-group element counts; every generated group must be non-empty
-/// and every tet tagged.
+/// Faces (sorted node triples) of `tets` that belong to exactly one tet
+/// — the mesh's exterior: outer walls and hollow-conductor cavity walls.
+fn exterior_faces(tets: &[[u32; 4]]) -> std::collections::HashSet<[u32; 3]> {
+    let mut seen = std::collections::HashSet::with_capacity(2 * tets.len());
+    for t in tets {
+        for skip in 0..4 {
+            let mut f = [0u32; 3];
+            let mut k = 0;
+            for (j, &n) in t.iter().enumerate() {
+                if j != skip {
+                    f[k] = n;
+                    k += 1;
+                }
+            }
+            f.sort_unstable();
+            if !seen.remove(&f) {
+                seen.insert(f);
+            }
+        }
+    }
+    seen
+}
+
+/// Per-group element counts; every generated group must be non-empty,
+/// every tet tagged, and every exterior face tagged (an untagged cavity
+/// wall would silently act as a natural — PMC — boundary).
 fn summarize_groups(
     r: &ResolvedLayout,
     script: &GeoScript,
@@ -433,6 +458,19 @@ fn summarize_groups(
     if untagged > 0 {
         return Err(CliError::GmshFailed(format!(
             "{untagged} generated tets carry no dielectric physical group"
+        )));
+    }
+    let mut exterior = exterior_faces(&tagged.mesh.tets);
+    for tri in &tagged.boundary_triangles {
+        let mut f = *tri;
+        f.sort_unstable();
+        exterior.remove(&f);
+    }
+    if !exterior.is_empty() {
+        return Err(CliError::GmshFailed(format!(
+            "{} exterior faces of the generated mesh (outer walls / conductor cavity walls) \
+             carry no surface physical group",
+            exterior.len()
         )));
     }
     let mut out = Vec::with_capacity(script.groups.len());
@@ -460,8 +498,10 @@ fn summarize_groups(
         }
         let role = match g.role {
             GroupRole::Dielectric(_) => "dielectric",
-            GroupRole::Conductor(i) if r.layout.conductors[i].thickness == 0.0 => "pec_sheet",
-            GroupRole::Conductor(_) => "pec_shell",
+            GroupRole::Conductor(i) => match geo::conductor_body(&r.layout.conductors[i]) {
+                geo::ConductorBody::Sheet => "pec_sheet",
+                geo::ConductorBody::Hollow => "pec_shell",
+            },
             GroupRole::Port(_) => "port",
             GroupRole::OuterBoundary => "outer_boundary",
         };

@@ -846,27 +846,32 @@ parse) does not need a hand-built `.msh`:
    ```
 
 **Thick conductors and Leontovich.** A conductor layer with
-`thickness > 0` becomes a closed shell whose interior stays **meshed**
-as part of the surrounding dielectric (it is not boolean-subtracted).
-Under PEC that interior is field-free, so it does not matter. Switched
-to Leontovich, though, the shell behaves as a resistive sheet over a
-dielectric-filled interior, not the hollow excluded cavity of the
-hand-built benchmark meshes. Also, the bounding-box face selection tags
-every face inside a thick conductor's footprint × z-range (e.g. a slab
-interface cutting through a via), which is harmless under PEC but adds
-extra resistive sheets inside the conductor under Leontovich. So with
-thick conductors from `geode mesh`, **L is reliable** (benchmark tier:
-+0.35 % vs the committed `results.toml`, inside the #211 oracle bands)
-while **R / Q under a hand-swapped Leontovich model are approximate**
-(≈ −5 % R on the spiral smoke layout) until the hollow-cavity follow-up
-lands. Zero-thickness sheets (`thickness = 0`) are not affected.
+`thickness > 0` is **hollowed** (issue #721): the generated `.geo`
+unions the layer's extruded solids with every other thick conductor and
+`BooleanDifference`s the union out of the whole dielectric stack (every
+slab, plus the UPML inner-wall box) before the conformal
+`BooleanFragments` that embeds sheets and ports — the pattern of the
+hand-built `reference/gmsh/spiral_inductor.geo`. The conductor interior
+is not meshed, and the layer's group holds exactly its exterior cavity
+walls: a trace or via crossing a slab interface leaves no internal face
+at the interface, and touching conductors (a via over a trace) share no
+wall. So a Leontovich model swapped onto the generated groups is the
+same conductor model as the committed benchmark meshes: on the spiral
+layouts at 1 GHz, R lands at +0.37 % (smoke) / +0.16 % (benchmark) and Q
+at +0.56 % / +0.76 % of the committed `results_smoke.toml` /
+`results.toml`, inside the benchmark's 2 % R / Q band (before hollowing,
+R was about −5 %); L stays inside its bands (+0.92 % / +0.92 %). Every
+exterior face of the generated mesh must carry a surface group (outer
+walls or cavity walls), else `geode mesh` fails with `gmsh_failed`.
+Zero-thickness sheets (`thickness = 0`) take the unchanged path: they
+are embedded in the dielectric and meshed two-sided.
 
 Automatically named physical groups:
 
 | dim | name | tag | from |
 |---|---|---|---|
-| 3 | `<dielectric name>` | 1, 2, … (stack order) | each dielectric slab (conductor-shell interiors included) |
-| 2 | `<conductor layer name>` | 101, … | every face of the layer's sheets / shells (PEC) |
+| 3 | `<dielectric name>` | 1, 2, … (stack order) | each dielectric slab (thick-conductor interiors excluded) |
+| 2 | `<conductor layer name>` | 101, … | the layer's sheets, or the exterior (cavity-wall) faces of its hollowed shells (PEC) |
 | 2 | `<port name>` | next | the port rectangle |
 | 2 | `outer_boundary` | last | the six outer walls (PEC) |
 
@@ -911,7 +916,7 @@ the m1 underpass and the vias):
 | `conductors[]` | | conductor layers, all modelled as **PEC** |
 | `conductors[].name` | name | surface group name |
 | `conductors[].z_bottom` | length | strictly inside the stack |
-| `conductors[].thickness` | length ≥ 0, default `0` | `0`: zero-thickness PEC **sheets** at `z_bottom`; `> 0`: closed PEC **shells** (every face of the extruded solid; the interior stays meshed and is field-free under PEC; see the Leontovich caveat above). Vias are conductor layers spanning the metal layers they join |
+| `conductors[].thickness` | length ≥ 0, default `0` | `0`: zero-thickness PEC **sheets** at `z_bottom`; `> 0`: closed PEC **shells** (the extruded solid is subtracted from the dielectric stack; the group is its exterior cavity walls; see "Thick conductors and Leontovich" above). Vias are conductor layers spanning the metal layers they join |
 | `conductors[].polygons[]` | ≥ 1 | shapes of the layer |
 | `….polygons[].name` | name, optional | unique within the layer; referenced by `ports[].between` |
 | `….polygons[].outer` | `[[x, y], …]` | simple **rectilinear** ring (every edge parallel to x or y), ≥ 4 vertices, either orientation, closing vertex optional |
@@ -934,9 +939,8 @@ the m1 underpass and the vias):
 | `mesh.far_distance` | length > 0, default `margin` | distance at which the size reaches `size_max` |
 
 **Not in v1** (natural follow-ups): polygons with holes and
-non-rectilinear polygons; thick conductors with the interior excluded
-(boolean-subtracted cavity) and Leontovich / finite-conductivity
-conductor models in the starter spec; wave ports and non-horizontal
+non-rectilinear polygons; Leontovich / finite-conductivity conductor
+models in the starter spec; wave ports and non-horizontal
 ports; per-layer curvature / sloped sidewalls; GDS ingestion (owned by
 klayout-tools, by design).
 
@@ -1177,17 +1181,19 @@ A Gmsh-generated mesh is not node-identical to the committed fixtures,
 so the per-point 1 % bands above do not apply. The default tier checks
 the generated groups / roles / counts, `geode check` on the starter spec,
 a tiny two-pad UPML layout driven end to end on its **unedited** starter
-spec (and re-meshed to identical bytes), and — with the benchmark's
-Leontovich copper swapped onto the generated conductor groups — the
-smoke spiral's 1 GHz L within 3 % and R within 10 % of
-`results_smoke.toml` (new sanity bands with headroom over the measured
-+0.15 % L / −5.2 % R on Gmsh 4.12.1 and 4.15.2, not the #211 oracle
-bands; the R offset is the meshed-interior Leontovich approximation
-described under [Layout → mesh](#layout--mesh-geode-mesh-issue-704)). The ignored tier holds the generic spiral's 1 GHz
+spec (and re-meshed to identical bytes), a two-slab layout whose thick
+trace and via cross the slab interface (issue #721: no tet inside a
+thick conductor, conductor triangles only on cavity walls, none at the
+interface, the thin ground sheet still two-sided), and — with the
+benchmark's Leontovich copper swapped onto the generated conductor
+groups — the smoke spiral's 1 GHz L within 3 % and R / Q within 2 % of
+`results_smoke.toml` (sanity bands, not the #211 oracle bands; measured
++0.92 % L / +0.37 % R / +0.56 % Q on Gmsh 4.15.2 with hollowed
+conductors, see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)). The ignored tier holds the generic spiral's 1 GHz
 L to the issue-#211 oracle bands (Mohan current-sheet 10 %, projected
-mom-PEEC mean 12 %, inside the mom bracket) and to 2 % of the committed
-`results.toml`, and the unedited PEC starter spec to 2 % of the same PEC
-model on the committed `spiral_3p5.msh`. Gmsh-dependent tests skip with
+mom-PEEC mean 12 %, inside the mom bracket), its L to 2 % and R / Q to
+2 % of the committed `results.toml`, and the unedited PEC starter spec
+to 2 % of the same PEC model on the committed `spiral_3p5.msh`. Gmsh-dependent tests skip with
 a loud banner when no `gmsh` is runnable; CI installs Gmsh and sets
 `GEODE_REQUIRE_GMSH=1`, which turns a skip into a failure.
 
