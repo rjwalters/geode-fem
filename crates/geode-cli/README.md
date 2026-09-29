@@ -17,6 +17,7 @@ geode inductance coax.json -o l.json                # static Maxwell inductance 
 geode driven patch.json --outdir fields/            # + per-frequency E-field .vtu and NTFF
 geode driven filter.json --touchstone filter.s2p    # + Touchstone 2.0 S-parameters
 geode capacitance caps.json --spice caps.sp         # + SPICE .subckt of the mutual C network
+geode inductance triax.toml --spice l.sp            # + SPICE .subckt of self L + K couplings
 geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json   # layout → mesh → solve
 ```
 
@@ -27,7 +28,7 @@ geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json
 | `eigen`   | live (#681) — lossless PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; `Q` is `null` (lossless) |
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 | `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
-| `inductance` | live (#714) — static **Maxwell inductance matrix** (henries) between named open current paths (conductor volume + source / sink faces returning through one connected PEC conductor), from a P1 conduction solve per path for the current density and one tree-cotree-gauged magnetostatic solve per path (Nédélec edges, direct LU); **not** `extract`'s RF `l0_h` (see [Inductance](#static-inductance-geode-inductance-issue-714)) |
+| `inductance` | live (#714) — static **Maxwell inductance matrix** (henries) between named open current paths (conductor volume + source / sink faces returning through one connected PEC conductor), from a P1 conduction solve per path for the current density and one tree-cotree-gauged magnetostatic solve per path (Nédélec edges, direct LU); **not** `extract`'s RF `l0_h` (see [Inductance](#static-inductance-geode-inductance-issue-714)); optional SPICE `.subckt` (#719) |
 | `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec, via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
 
 ## Host behavior
@@ -391,7 +392,7 @@ not part of the driven open-boundary support above.
 ## Static inductance (`geode inductance`, issue #714)
 
 ```sh
-geode inductance <spec.json|spec.toml> [-o report.json] [--threads N]
+geode inductance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice out.sp]
 ```
 
 Inductance example (the triaxial golden input,
@@ -493,10 +494,11 @@ low-frequency limit.
 
 Not in v1: closed loops (cut / EMF boundary condition), lumped gap
 sources (terminals off the PEC wall, or a source and sink on different
-PEC components), heterogeneous-conductivity paths,
-SPICE `L` / `K` export (`--spice` is `geode capacitance`-only; clap
-rejects it here), field export, and a `geode mesh` inductance starter
-spec. `geode check` reports the path list and edge-DOF counts in its
+PEC components), heterogeneous-conductivity paths, field export, and a
+`geode mesh` inductance starter spec. `--spice` writes the matrix as
+self inductors plus `K` couplings (see [SPICE subcircuit
+export](#spice-subcircuit-export---spice-issues-715--719)).
+`geode check` reports the path list and edge-DOF counts in its
 `inductance` block and a `resources` estimate with `scalar = "real"` and
 one factorization per path.
 
@@ -642,16 +644,20 @@ net = skrf.Network("filter.s2p")   # Touchstone 2.0, per-port [Reference]
 print(net.z0[0], net.f[:3], net.s[0])
 ```
 
-## SPICE subcircuit export (`--spice`, issue #715)
+## SPICE subcircuit export (`--spice`, issues #715 / #719)
 
-`geode capacitance … --spice <PATH>` additionally writes the extracted
-capacitance as a SPICE subcircuit at `<PATH>` (the parent directory must
-exist; an existing file is overwritten), for circuit simulators such as
-ngspice. The report gains `spice_file: { "path", "sha256" }` — `path`
-is `<PATH>` **as given on the command line**, `sha256` the hex SHA-256
-of the bytes written; without the flag the field is omitted. Only
-`geode capacitance` has the flag; a static inductance (`L` / `K`) export
-is future work.
+`geode capacitance … --spice <PATH>` and `geode inductance … --spice
+<PATH>` additionally write the extracted matrix as a SPICE subcircuit at
+`<PATH>` (the parent directory must exist; an existing file is
+overwritten), for circuit simulators such as ngspice. The report gains
+`spice_file: { "path", "sha256" }` — `path` is `<PATH>` **as given on
+the command line**, `sha256` the hex SHA-256 of the bytes written;
+without the flag the field is omitted. The RF subcommands (`driven`,
+`eigen`, `extract`) do not have the flag. Both exports share the
+provenance header, node naming and value formatting below; the
+inductance specifics follow in [Inductance](#inductance-l--k-issue-719).
+
+### Capacitance (`CEXTRACT`, issue #715)
 
 ```text
 * SPICE subcircuit written by geode 0.5.0 (<git-sha>)
@@ -713,6 +719,68 @@ ac lin 1 1meg 1meg
 let c11 = -imag(i(v1))/(2*pi*1e6)
 let c21 = -imag(i(v2))/(2*pi*1e6)
 print c11 c21
+.endc
+.end
+```
+
+### Inductance (`L` / `K`, issue #719)
+
+```text
+* SPICE subcircuit written by geode 0.5.0 (<git-sha>)
+* spec: tests/fixtures/inductance_triax_smoke.toml
+* mesh: …/coax_inductance_smoke.msh sha256=53e6e270…
+* Maxwell inductance matrix as self inductors plus K couplings, henries: L<i>_0 = L_ii from path node i to 0; K<i>_<j> = L_ij / sqrt(L_ii * L_jj)
+* port: a path's source and sink faces both contact the PEC return wall, which is ground 0, so each path is one node; every inductor is declared node -> 0, so k carries the sign of L_ij
+* noise threshold: |k| < 1e-9 is dropped
+.subckt LEXTRACT core tube
+L1_0 core 0 2.6848490936334466e-10
+L2_0 tube 0 8.227359649685979e-11
+K1_2 L1_0 L2_0 6.457431227858365e-1
+.ends LEXTRACT
+```
+
+(the triax golden spec: `core` and `tube` both return through the PEC
+shield, so they are strongly coupled, `k ≈ 0.65`).
+
+- **Ports** — a path's source and sink faces both contact the *same*
+  connected PEC return wall, so the wall is the common return of every
+  path: each path is **one** SPICE node (named from the path name by the
+  node-name rules above) and the wall is ground node `0`.
+  `.subckt LEXTRACT <path nodes…>` in path order (fixed name, distinct
+  from `CEXTRACT`).
+- **Conversion** — one self inductor `L<i>_0 <node_i> 0 <L_ii>` per path
+  (henries), then one coupling statement `K<i>_<j> L<i>_0 L<j>_0 <k_ij>`
+  per pair `i < j` with `k_ij = L_ij / √(L_ii L_jj)`. SPICE has no
+  mutual-inductor branch; the coupled pair gives `V_i = jω Σ_j L_ij
+  I_j`, i.e. the network reproduces `l_henry` exactly.
+- **Sign** — every inductor is declared path node → `0`, so every path's
+  reference current (source → sink through the conductor) enters the
+  dotted end, and `k_ij` carries the sign of `L_ij` directly. Swapping a
+  path's `source` / `sink` flips its mutuals, which appear as a
+  **negative `k`** (legal ngspice syntax; verified against ngspice-46)
+  with the node order unchanged.
+- **Noise threshold** — `k` is dimensionless, so the threshold is
+  absolute: a coupling with `|k_ij| < 1e-9` is **dropped** with a
+  `* dropped: K(<path_i>, <path_j>) = …` comment. `|k_ij| ≥ 1`, or a
+  non-positive self inductance, is not a physical network: the export
+  fails with `invalid_spec` and no file is written (the report's SPD gate
+  already rules this out; the export re-checks independently).
+
+In ngspice, drive a path node with a 1 A AC current source and leave the
+others **undriven** (a grounded node would short the induced mutual
+voltage): `L_jk = Im V(p_j) / ω`. `tests/inductance_spice_golden.rs`
+runs this check when an `ngspice` binary is found.
+
+```spice
+triax inductance check
+.include l.sp
+X1 p1 p2 LEXTRACT
+I1 0 p1 DC 0 AC 1
+.control
+ac lin 1 1meg 1meg
+let l11 = imag(v(p1))/(2*pi*1e6)
+let l21 = imag(v(p2))/(2*pi*1e6)
+print l11 l21
 .endc
 .end
 ```
@@ -1130,9 +1198,7 @@ resolved settings, as for `check`) and `extraction[]`, one per port:
 | `max_solenoidal_residual` | – | largest discrete-divergence residual of any path's `J`, relative to its RHS norm (round-off for this construction) |
 | `max_rel_asymmetry` | – | structural only (the energy method fills `L_ji` from `L_ij`) |
 | `is_spd` | – | `true` if the matrix is symmetric positive definite (Cholesky); `false` flags a corrupted solve |
-
-The report shape (`paths` + `l_henry`) is what a future inductance SPICE
-export (`K` coupling statements, #715 follow-up) will consume.
+| `spice_file` | – | `{ path, sha256 }` of the SPICE `.subckt` (self inductors + `K` couplings) written by `--spice` (issue #719; `path` as given on the command line); omitted without the flag |
 
 **`kind = "error"`** adds `command` (the subcommand) and
 `error: { code, message }` with `code` one of `io`, `spec_parse`,
@@ -1307,17 +1373,28 @@ entry of the closed-form 2×2 matrix from the enclosed-current field
 (1e-9), monotone convergence smoke → benchmark, exact `μ_r` linearity and
 the `μ_r = 4` core closed form `μ₀L/(2π)[ln(b/a) + μ_r/4]`, the report /
 `check` contract (round-off solenoidality, conservation, flux linkage),
-`--spice` rejected, and the validation errors (wrong subcommand
+and the validation errors (wrong subcommand
 pre-mesh, frequency-domain features, missing PEC wall, `source == sink`,
 shared conductors, terminals off the conductor or off the PEC wall,
 `mu_r` outside inductance).
 
-`tests/spice_golden.rs` (issue #715) runs `--spice` on the same coax /
-triax smoke specs: the `spice_file` hash, the triax shielded ground
+`tests/spice_golden.rs` (issue #715) runs `geode capacitance --spice`
+on the capacitance coax / triax smoke specs: the `spice_file` hash, the triax shielded ground
 branch dropped and the other two kept, the network re-read into the
 report's Maxwell matrix, and — only when an `ngspice` binary is runnable
 (`GEODE_NGSPICE`, else `PATH`; otherwise a loud `SKIPPED` on stderr, CI
 has none) — an ngspice AC admittance check of every matrix entry.
+
+`tests/inductance_spice_golden.rs` (issue #719) runs `geode inductance
+--spice` on the inductance coax (one `L`, no `K`) and triax (two `L` +
+one kept `K`) smoke specs, plus the triax with the tube's source / sink
+swapped (same node order, negative `k`): the `spice_file` hash, the
+element shape, the network re-read into the report's `l_henry`, and —
+only when ngspice is runnable, as above — an ngspice AC check driving
+each path with 1 A and reading every `L_jk` from the open-circuit node
+voltages (including the negative mutual). The synthetic drop
+(`|k| < 1e-9`) and reject (`|k| ≥ 1`, non-positive `L_ii`) paths are
+unit tests in `src/spice.rs`.
 
 `tests/wave_port_driven.rs` (issue #683) runs `geode driven` with two
 wave ports on a synthetic tagged rectangular waveguide (geode-core's

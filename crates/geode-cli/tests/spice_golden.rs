@@ -260,8 +260,9 @@ fn without_the_flag_there_is_no_spice_file() {
 }
 
 #[test]
-fn spice_is_a_capacitance_only_flag() {
-    // `--spice` is not a flag of the RF subcommands: clap rejects it.
+fn spice_is_rejected_by_the_rf_subcommands() {
+    // `--spice` is a flag of the static subcommands only (capacitance,
+    // inductance): clap rejects it on the RF subcommands.
     let o = geode(&["driven", "spec.json", "--spice", "x.sp"]);
     assert!(!o.status.success());
     assert!(

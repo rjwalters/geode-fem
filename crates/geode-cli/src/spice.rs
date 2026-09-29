@@ -1,5 +1,6 @@
 //! SPICE subcircuit export for `geode capacitance` (`--spice <PATH>`,
-//! issue #715, Epic #702 Phase 3c).
+//! issue #715, Epic #702 Phase 3c) and `geode inductance` (issue #719; see
+//! [Inductance](#inductance-issue-719) below).
 //!
 //! # Conversion
 //!
@@ -77,21 +78,74 @@
 //! Every terminal whose node name differs from its terminal name gets a
 //! `* node: "<terminal>" -> <node>` comment line.
 //!
-//! # Extension point (inductance, #714)
+//! # Inductance (issue #719)
 //!
-//! The file is built as a generic [`Netlist`] (ports + [`Element`]s +
-//! comments) and rendered by [`Netlist::render`]; only
-//! [`capacitance_netlist`] is capacitance-specific. A future static
-//! `L`-matrix export adds `Element` variants for self inductors and `K`
-//! coupling statements plus an `inductance_netlist` builder, reusing the
-//! header, node naming and rendering unchanged.
+//! Both builders produce a generic [`Netlist`] (subcircuit name + ports +
+//! [`Element`]s + comments) rendered by [`Netlist::render`], with the same
+//! provenance header, node naming and value formatting;
+//! [`capacitance_netlist`] and [`inductance_netlist`] are the only
+//! quantity-specific parts. The subcircuit name is a field of the netlist:
+//! [`SUBCKT_NAME`] (`CEXTRACT`) for capacitance, [`SUBCKT_NAME_INDUCTANCE`]
+//! (`LEXTRACT`) for inductance.
+//!
+//! **Ports.** A `geode inductance` path's source face and sink face are
+//! both PEC contacts on the *same* connected PEC return wall, so the wall
+//! is the common return of every path's loop: a path has one terminal
+//! pair, (path node, return). Each path therefore becomes **one** SPICE
+//! node (named from the path name by the rules of [Node
+//! names](#node-names)) and the return wall is SPICE ground `0` — exactly
+//! the shape of the capacitance ground branch.
+//!
+//! **Elements.** The Maxwell inductance matrix `L` (H, symmetric positive
+//! definite) becomes
+//!
+//! * a self inductor `L<i>_0 <node_i> 0 <L_ii>` per path, and
+//! * a coupling statement `K<i>_<j> L<i>_0 L<j>_0 <k_ij>` per pair `i < j`
+//!   with `k_ij = L_ij / √(L_ii L_jj)` (`L_ij` symmetrized defensively as
+//!   `(L_ij + L_ji) / 2`; the library already writes both from one value).
+//!
+//! SPICE has no mutual-inductor branch: the `K` coefficient is the only
+//! way to express `L_ij`, and a coupled pair `L<i>_0`, `L<j>_0` with
+//! coefficient `k_ij` has `V_i = jω (L_ii I_i + k_ij √(L_ii L_jj) I_j)`,
+//! i.e. exactly `jω Σ_j L_ij I_j`.
+//!
+//! **Sign.** Every self inductor is declared with the same node order
+//! (path node first, ground second), so each path's reference current
+//! (into the path node, i.e. source → sink through the conductor, back
+//! through the return) enters the dotted end of its inductor. `k_ij`
+//! therefore carries the sign of `L_ij` directly — a negative `k` (legal
+//! ngspice syntax) is emitted as is, no node order is ever flipped.
+//!
+//! **Noise threshold.** `k_ij` is dimensionless and bounded by `|k| < 1`
+//! for an SPD matrix, so the threshold is absolute: a coupling with
+//! `|k_ij| < K_DROP_TOL` is dropped with a `* dropped: K(<path_i>,
+//! <path_j>) = …` comment, never silently. A coupling with `|k_ij| ≥ 1`
+//! (or a non-positive / non-finite self inductance) is not a physical
+//! network: the export fails with [`CliError::SpiceUnsupported`]
+//! (`invalid_spec`) and no file is written. `geode inductance` already
+//! gates the whole matrix on SPD before any report exists; this check is
+//! independent defense in depth.
+//!
+//! ```text
+//! * <provenance comments: geode version + git sha, spec, mesh + sha256>
+//! * <conversion formula, port rule, threshold, dropped couplings, node renames>
+//! .subckt LEXTRACT <node_1> … <node_N>
+//! L<i>_0 <node_i> 0 <L_ii>
+//! K<i>_<j> L<i>_0 L<j>_0 <k_ij>
+//! .ends LEXTRACT
+//! ```
+//!
+//! Element order: all self inductors in path order, then the couplings in
+//! `(i, j)` lexicographic order (a `K` line references inductors declared
+//! above it). Values are henries / plain `k` in the same shortest
+//! round-trip `{:e}` formatting as the capacitance export.
 
 use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::error::CliError;
 use crate::export::file_ref_at;
-use crate::report::{CapacitanceReport, FileRef};
+use crate::report::{CapacitanceReport, FileRef, InductanceReport, MeshSummary, Provenance};
 
 /// Relative noise threshold: a branch with `|C| < DROP_REL_TOL × max_i
 /// C_ii` is dropped. Matches the `1e-9` slack of the report's
@@ -101,8 +155,18 @@ use crate::report::{CapacitanceReport, FileRef};
 /// separate them.
 pub const DROP_REL_TOL: f64 = 1e-9;
 
-/// The `.subckt` name (fixed; see the module docs).
+/// The capacitance `.subckt` name (fixed; see the module docs).
 pub const SUBCKT_NAME: &str = "CEXTRACT";
+
+/// The inductance `.subckt` name (fixed; see the module docs).
+pub const SUBCKT_NAME_INDUCTANCE: &str = "LEXTRACT";
+
+/// Absolute threshold on the (dimensionless) coupling coefficient: a `K`
+/// statement with `|k_ij| < K_DROP_TOL` is dropped with a comment. Neither
+/// golden inductance fixture comes near it (the triax core–tube coupling
+/// is `k ≈ 0.7`); it separates a genuinely decoupled pair computed at
+/// round-off from a real coupling.
+pub const K_DROP_TOL: f64 = 1e-9;
 
 /// SPICE ground node.
 const GROUND: &str = "0";
@@ -124,11 +188,36 @@ pub enum Element {
         /// Capacitance (F).
         farad: f64,
     },
+    /// A two-terminal inductor `L<name> <a> <b> <henry>`.
+    Inductor {
+        /// Instance name, including the leading `L`.
+        name: String,
+        /// First node (the dotted end for `K` couplings).
+        a: String,
+        /// Second node.
+        b: String,
+        /// Inductance (H).
+        henry: f64,
+    },
+    /// A mutual coupling `K<name> <l1> <l2> <k>` between two inductors
+    /// declared earlier in the netlist.
+    Coupling {
+        /// Instance name, including the leading `K`.
+        name: String,
+        /// First inductor's instance name.
+        l1: String,
+        /// Second inductor's instance name.
+        l2: String,
+        /// Coupling coefficient, `-1 < k < 1`.
+        k: f64,
+    },
 }
 
 /// A `.subckt` body: header comments, port nodes, elements.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Netlist {
+    /// The `.subckt` name ([`SUBCKT_NAME`] / [`SUBCKT_NAME_INDUCTANCE`]).
+    pub name: &'static str,
     /// Leading `*` comment lines (without the `* ` prefix).
     pub comments: Vec<String>,
     /// Port nodes, in order.
@@ -149,15 +238,22 @@ impl Netlist {
             // `writeln!` into a `String` cannot fail.
             let _ = writeln!(t, "* {flat}");
         }
-        let _ = writeln!(t, ".subckt {SUBCKT_NAME} {}", self.ports.join(" "));
+        let subckt = self.name;
+        let _ = writeln!(t, ".subckt {subckt} {}", self.ports.join(" "));
         for e in &self.elements {
             match e {
                 Element::Capacitor { name, a, b, farad } => {
                     let _ = writeln!(t, "{name} {a} {b} {farad:e}");
                 }
+                Element::Inductor { name, a, b, henry } => {
+                    let _ = writeln!(t, "{name} {a} {b} {henry:e}");
+                }
+                Element::Coupling { name, l1, l2, k } => {
+                    let _ = writeln!(t, "{name} {l1} {l2} {k:e}");
+                }
             }
         }
-        let _ = writeln!(t, ".ends {SUBCKT_NAME}");
+        let _ = writeln!(t, ".ends {subckt}");
         t
     }
 }
@@ -283,24 +379,121 @@ pub fn capacitance_netlist(
         }
     }
     Ok(Netlist {
+        name: SUBCKT_NAME,
         comments,
         ports: nodes,
         elements,
     })
 }
 
-/// Render the SPICE subcircuit of a finished capacitance report (pure;
-/// no I/O).
-pub fn render_capacitance(report: &CapacitanceReport) -> Result<String, CliError> {
-    let p = &report.provenance;
-    let header = vec![
+/// Build the self-inductor + `K`-coupling network of the Maxwell
+/// inductance matrix `l` (H, row-major, `paths` order; see the module
+/// docs). `header` becomes the leading comment lines.
+pub fn inductance_netlist(
+    header: &[String],
+    paths: &[String],
+    l: &[Vec<f64>],
+) -> Result<Netlist, CliError> {
+    let n = paths.len();
+    if n == 0 {
+        return Err(unsupported("no paths, so there is no network to write"));
+    }
+    if l.len() != n || l.iter().any(|row| row.len() != n) {
+        return Err(unsupported(&format!(
+            "the inductance matrix is not {n} x {n} (one row / column per path)"
+        )));
+    }
+    if l.iter().flatten().any(|v| !v.is_finite()) {
+        return Err(unsupported("the inductance matrix has a non-finite entry"));
+    }
+    for (i, p) in paths.iter().enumerate() {
+        if l[i][i] <= 0.0 {
+            return Err(unsupported(&format!(
+                "L({p}, {p}) = {:e} H is not a positive self inductance, so the matrix is not \
+                 a physical inductance matrix",
+                l[i][i]
+            )));
+        }
+    }
+    let nodes = node_names(paths);
+
+    let mut comments: Vec<String> = header.to_vec();
+    comments.push(
+        "Maxwell inductance matrix as self inductors plus K couplings, henries: \
+         L<i>_0 = L_ii from path node i to 0; K<i>_<j> = L_ij / sqrt(L_ii * L_jj)"
+            .to_string(),
+    );
+    comments.push(
+        "port: a path's source and sink faces both contact the PEC return wall, which is \
+         ground 0, so each path is one node; every inductor is declared node -> 0, so k \
+         carries the sign of L_ij"
+            .to_string(),
+    );
+    comments.push(format!("noise threshold: |k| < {K_DROP_TOL:e} is dropped"));
+    for (p, node) in paths.iter().zip(&nodes) {
+        if p != node {
+            comments.push(format!("node: {p:?} -> {node}"));
+        }
+    }
+
+    let ind = |i: usize| format!("L{}_0", i + 1);
+    let mut elements: Vec<Element> = (0..n)
+        .map(|i| Element::Inductor {
+            name: ind(i),
+            a: nodes[i].clone(),
+            b: GROUND.to_string(),
+            henry: l[i][i],
+        })
+        .collect();
+    for i in 0..n {
+        for j in i + 1..n {
+            let lij = 0.5 * (l[i][j] + l[j][i]);
+            let k = lij / (l[i][i] * l[j][j]).sqrt();
+            let label = format!("K({}, {})", paths[i], paths[j]);
+            if k.abs() >= 1.0 {
+                return Err(unsupported(&format!(
+                    "{label} = {k:e} (L_ij = {lij:e} H): |k| >= 1 is not a physical coupling \
+                     (the matrix is not positive definite); refine / repair the mesh"
+                )));
+            } else if k.abs() < K_DROP_TOL {
+                comments.push(format!(
+                    "dropped: {label} = {k:e}, |k| < {K_DROP_TOL:e} -- below noise threshold"
+                ));
+            } else {
+                elements.push(Element::Coupling {
+                    name: format!("K{}_{}", i + 1, j + 1),
+                    l1: ind(i),
+                    l2: ind(j),
+                    k,
+                });
+            }
+        }
+    }
+    Ok(Netlist {
+        name: SUBCKT_NAME_INDUCTANCE,
+        comments,
+        ports: nodes,
+        elements,
+    })
+}
+
+/// The provenance header shared by every export: geode version + git
+/// sha, spec path, mesh path + sha256.
+fn provenance_header(p: &Provenance, mesh: &MeshSummary) -> Vec<String> {
+    vec![
         format!(
             "SPICE subcircuit written by geode {} ({})",
             p.geode_version, p.git_sha
         ),
         format!("spec: {}", p.spec_path),
-        format!("mesh: {} sha256={}", report.mesh.path, report.mesh.sha256),
-    ];
+        format!("mesh: {} sha256={}", mesh.path, mesh.sha256),
+    ]
+}
+
+/// Render the SPICE subcircuit of a finished capacitance report (pure;
+/// no I/O).
+pub fn render_capacitance(report: &CapacitanceReport) -> Result<String, CliError> {
+    let header = provenance_header(&report.provenance, &report.mesh);
     Ok(capacitance_netlist(
         &header,
         &report.terminals,
@@ -310,17 +503,33 @@ pub fn render_capacitance(report: &CapacitanceReport) -> Result<String, CliError
     .render())
 }
 
-/// Write the SPICE subcircuit of `report` to `path` and return its
-/// `{path, sha256}` reference: `path` is the `--spice` argument **as
-/// given on the command line** (like `spec_path`), `sha256` the hash of
-/// the bytes on disk. Nothing is written if the matrix is rejected.
-pub fn write(path: &Path, report: &CapacitanceReport) -> Result<FileRef, CliError> {
-    let text = render_capacitance(report)?;
+/// Render the SPICE subcircuit of a finished inductance report (pure; no
+/// I/O).
+pub fn render_inductance(report: &InductanceReport) -> Result<String, CliError> {
+    let header = provenance_header(&report.provenance, &report.mesh);
+    Ok(inductance_netlist(&header, &report.paths, &report.l_henry)?.render())
+}
+
+/// Write `text` to `path` and return its `{path, sha256}` reference.
+fn write_text(path: &Path, text: String) -> Result<FileRef, CliError> {
     std::fs::write(path, text).map_err(|err| CliError::Io {
         path: path.to_path_buf(),
         err,
     })?;
     file_ref_at(path, path.display().to_string())
+}
+
+/// Write the SPICE subcircuit of `report` to `path` and return its
+/// `{path, sha256}` reference: `path` is the `--spice` argument **as
+/// given on the command line** (like `spec_path`), `sha256` the hash of
+/// the bytes on disk. Nothing is written if the matrix is rejected.
+pub fn write(path: &Path, report: &CapacitanceReport) -> Result<FileRef, CliError> {
+    write_text(path, render_capacitance(report)?)
+}
+
+/// [`write()`] for an inductance report ([`render_inductance`]).
+pub fn write_inductance(path: &Path, report: &InductanceReport) -> Result<FileRef, CliError> {
+    write_text(path, render_inductance(report)?)
 }
 
 /// A parsed subcircuit (only the subset [`Netlist::render`] emits).
@@ -333,6 +542,10 @@ pub struct Parsed {
     pub ports: Vec<String>,
     /// `(instance, node_a, node_b, farad)` in file order.
     pub caps: Vec<(String, String, String, f64)>,
+    /// `(instance, node_a, node_b, henry)` in file order.
+    pub inds: Vec<(String, String, String, f64)>,
+    /// `(instance, inductor_1, inductor_2, k)` in file order.
+    pub couplings: Vec<(String, String, String, f64)>,
     /// Comment lines (without `* `).
     pub comments: Vec<String>,
 }
@@ -342,6 +555,7 @@ pub struct Parsed {
 #[cfg(test)]
 pub fn parse(text: &str) -> Result<Parsed, String> {
     let (mut name, mut ports, mut caps, mut comments) = (None, Vec::new(), Vec::new(), Vec::new());
+    let (mut inds, mut couplings) = (Vec::new(), Vec::new());
     let mut ended = false;
     for line in text.lines() {
         if let Some(c) = line.strip_prefix('*') {
@@ -364,14 +578,25 @@ pub fn parse(text: &str) -> Result<Parsed, String> {
                 }
                 ended = true;
             }
-            Some(k) if k.starts_with('c') && name.is_some() && !ended => {
+            Some(k) if k.starts_with(['c', 'l', 'k']) && name.is_some() && !ended => {
                 if toks.len() != 4 {
-                    return Err(format!("capacitor line {line:?}"));
+                    return Err(format!("element line {line:?}"));
                 }
                 let v = toks[3]
                     .parse::<f64>()
                     .map_err(|e| format!("{line:?}: {e}"))?;
-                caps.push((toks[0].into(), toks[1].into(), toks[2].into(), v));
+                let e = (toks[0].into(), toks[1].into(), toks[2].into(), v);
+                match k.as_bytes()[0] {
+                    b'c' => caps.push(e),
+                    b'l' => inds.push(e),
+                    _ => {
+                        let declared = |l: &str| inds.iter().any(|(n, ..)| n == l);
+                        if !declared(toks[1]) || !declared(toks[2]) {
+                            return Err(format!("{line:?} couples an undeclared inductor"));
+                        }
+                        couplings.push(e)
+                    }
+                }
             }
             _ => return Err(format!("stray line {line:?}")),
         }
@@ -383,8 +608,33 @@ pub fn parse(text: &str) -> Result<Parsed, String> {
         name: name.ok_or("missing .subckt")?,
         ports,
         caps,
+        inds,
+        couplings,
         comments,
     })
+}
+
+/// Rebuild the inductance matrix from a parsed network (test-only):
+/// `L_ii` from the inductor at port node *i* to ground, `L_ij = k_ij
+/// √(L_ii L_jj)` from the `K` line.
+#[cfg(test)]
+pub fn inductance_from(parsed: &Parsed) -> Vec<Vec<f64>> {
+    let n = parsed.ports.len();
+    let mut l = vec![vec![0.0; n]; n];
+    let mut port_of = std::collections::HashMap::new();
+    for (name, a, b, v) in &parsed.inds {
+        assert_eq!(b, GROUND, "{name}: inductor not to ground");
+        let i = parsed.ports.iter().position(|p| p == a).expect("port node");
+        l[i][i] = *v;
+        port_of.insert(name.as_str(), i);
+    }
+    for (_, l1, l2, k) in &parsed.couplings {
+        let (i, j) = (port_of[l1.as_str()], port_of[l2.as_str()]);
+        let m = k * (l[i][i] * l[j][j]).sqrt();
+        l[i][j] = m;
+        l[j][i] = m;
+    }
+    l
 }
 
 /// Rebuild the Maxwell matrix from a parsed network (test-only):
@@ -603,6 +853,174 @@ mod tests {
         assert!(matches!(e, Err(CliError::SpiceUnsupported { .. })));
         let e = capacitance_netlist(&[], &s(&["a"]), &[vec![0.0]], &[0.0]);
         assert!(matches!(e, Err(CliError::SpiceUnsupported { .. })));
+    }
+
+    /// The inductance comment preamble (no header, no renames).
+    fn l_preamble() -> String {
+        "* Maxwell inductance matrix as self inductors plus K couplings, henries: L<i>_0 = \
+         L_ii from path node i to 0; K<i>_<j> = L_ij / sqrt(L_ii * L_jj)\n\
+         * port: a path's source and sink faces both contact the PEC return wall, which is \
+         ground 0, so each path is one node; every inductor is declared node -> 0, so k \
+         carries the sign of L_ij\n\
+         * noise threshold: |k| < 1e-9 is dropped\n"
+            .to_string()
+    }
+
+    #[test]
+    fn one_path_inductance_exact_bytes() {
+        let t = inductance_netlist(&s(&["hdr"]), &s(&["core"]), &[vec![2.5e-10]])
+            .unwrap()
+            .render();
+        assert_eq!(
+            t,
+            format!(
+                "* hdr\n{}.subckt LEXTRACT core\nL1_0 core 0 2.5e-10\n.ends LEXTRACT\n",
+                l_preamble()
+            )
+        );
+        let p = parse(&t).unwrap();
+        assert_eq!(p.name, SUBCKT_NAME_INDUCTANCE);
+        assert!(p.caps.is_empty() && p.couplings.is_empty());
+        assert_eq!(inductance_from(&p), vec![vec![2.5e-10]]);
+    }
+
+    #[test]
+    fn two_path_inductance_exact_bytes_and_round_trip() {
+        // k = 1e-10 / sqrt(4e-10 * 1e-10) = 0.5 (to round-off).
+        let l = vec![vec![4e-10, 1e-10], vec![1e-10, 1e-10]];
+        let net = inductance_netlist(&[], &s(&["core", "tube"]), &l).unwrap();
+        let k = 1e-10 / (4e-10f64 * 1e-10).sqrt();
+        assert!((k - 0.5).abs() < 1e-15, "{k}");
+        let t = net.render();
+        assert_eq!(
+            t,
+            format!(
+                "{}.subckt LEXTRACT core tube\n\
+                 L1_0 core 0 4e-10\n\
+                 L2_0 tube 0 1e-10\n\
+                 K1_2 L1_0 L2_0 {k:e}\n\
+                 .ends LEXTRACT\n",
+                l_preamble()
+            )
+        );
+        let p = parse(&t).unwrap();
+        assert_eq!(p.ports, s(&["core", "tube"]));
+        assert_eq!(p.couplings.len(), 1);
+        let back = inductance_from(&p);
+        for i in 0..2 {
+            for j in 0..2 {
+                assert!(
+                    (back[i][j] - l[i][j]).abs() <= 1e-15 * l[i][i],
+                    "L[{i}][{j}]: {} vs {}",
+                    back[i][j],
+                    l[i][j]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn negative_mutual_is_a_negative_k_without_reordering() {
+        let l = vec![vec![2e-9, -0.6e-9], vec![-0.6e-9, 1e-9]];
+        let t = inductance_netlist(&[], &s(&["a", "b"]), &l)
+            .unwrap()
+            .render();
+        let p = parse(&t).unwrap();
+        // Node order is fixed (node -> 0) for every inductor.
+        assert_eq!(
+            p.inds,
+            vec![
+                ("L1_0".into(), "a".into(), "0".into(), 2e-9),
+                ("L2_0".into(), "b".into(), "0".into(), 1e-9),
+            ]
+        );
+        let (_, l1, l2, k) = &p.couplings[0];
+        assert_eq!((l1.as_str(), l2.as_str()), ("L1_0", "L2_0"));
+        assert!(*k < 0.0);
+        let back = inductance_from(&p);
+        assert!((back[0][1] - l[0][1]).abs() <= 1e-15 * l[0][0]);
+    }
+
+    #[test]
+    fn three_path_inductance_drops_near_zero_coupling() {
+        // a–b and b–c coupled, a–c decoupled at round-off.
+        let noise = 1e-22;
+        let l = vec![
+            vec![3e-9, 1e-9, noise],
+            vec![1e-9, 2e-9, -0.5e-9],
+            vec![noise, -0.5e-9, 1e-9],
+        ];
+        let t = inductance_netlist(&[], &s(&["a", "b", "c"]), &l)
+            .unwrap()
+            .render();
+        let k = |i: usize, j: usize| l[i][j] / (l[i][i] * l[j][j]).sqrt();
+        let body: Vec<&str> = t.lines().filter(|x| !x.starts_with('*')).collect();
+        assert_eq!(
+            body,
+            [
+                ".subckt LEXTRACT a b c",
+                "L1_0 a 0 3e-9",
+                "L2_0 b 0 2e-9",
+                "L3_0 c 0 1e-9",
+                &format!("K1_2 L1_0 L2_0 {:e}", k(0, 1)),
+                &format!("K2_3 L2_0 L3_0 {:e}", k(1, 2)),
+                ".ends LEXTRACT",
+            ]
+        );
+        let dropped: Vec<&str> = t.lines().filter(|x| x.contains("dropped:")).collect();
+        assert_eq!(
+            dropped,
+            [format!(
+                "* dropped: K(a, c) = {:e}, |k| < 1e-9 -- below noise threshold",
+                k(0, 2)
+            )]
+        );
+        let back = inductance_from(&parse(&t).unwrap());
+        for i in 0..3 {
+            for j in 0..3 {
+                assert!((back[i][j] - l[i][j]).abs() <= 1e-9 * 3e-9, "L[{i}][{j}]");
+            }
+        }
+    }
+
+    #[test]
+    fn non_physical_inductance_is_rejected() {
+        let rej = |paths: &[&str], l: &[Vec<f64>]| {
+            let e = inductance_netlist(&[], &s(paths), l);
+            let Err(err) = e else {
+                panic!("accepted {l:?}")
+            };
+            assert!(matches!(err, CliError::SpiceUnsupported { .. }), "{err:?}");
+            assert_eq!(err.code(), "invalid_spec");
+            err.to_string()
+        };
+        // |k| > 1: L_12^2 > L_11 L_22.
+        let msg = rej(&["a", "b"], &[vec![1e-9, 2e-9], vec![2e-9, 1e-9]]);
+        assert!(msg.contains("K(a, b)") && msg.contains("|k| >= 1"), "{msg}");
+        // |k| = 1 exactly (singular), and negative.
+        let msg = rej(&["a", "b"], &[vec![1e-9, -1e-9], vec![-1e-9, 1e-9]]);
+        assert!(msg.contains("|k| >= 1"), "{msg}");
+        // Non-positive self inductance.
+        let msg = rej(&["a", "b"], &[vec![1e-9, 0.0], vec![0.0, -1e-9]]);
+        assert!(msg.contains("L(b, b)"), "{msg}");
+        // Malformed.
+        rej(&[], &[]);
+        rej(&["a", "b"], &[vec![1e-9]]);
+        rej(&["a"], &[vec![f64::INFINITY]]);
+        rej(&["a"], &[vec![f64::NAN]]);
+    }
+
+    #[test]
+    fn inductance_nodes_are_sanitized() {
+        let l = vec![vec![1e-9, 0.1e-9], vec![0.1e-9, 1e-9]];
+        let t = inductance_netlist(&[], &s(&["path 1", "0"]), &l)
+            .unwrap()
+            .render();
+        assert!(t.contains("* node: \"path 1\" -> path_1\n"), "{t}");
+        assert!(t.contains("* node: \"0\" -> n_0\n"), "{t}");
+        assert!(t.contains(".subckt LEXTRACT path_1 n_0\n"), "{t}");
+        assert!(t.contains("L2_0 n_0 0 1e-9\n"), "{t}");
+        parse(&t).unwrap();
     }
 
     #[test]
