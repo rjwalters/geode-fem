@@ -7,10 +7,10 @@ use geode_core::assembly::nedelec::sparsity_pattern_from_tet_edges;
 use crate::error::CliError;
 use crate::problem::{self, MaterialSource, Problem};
 use crate::report::{
-    CapacitanceSettingsSummary, CheckReport, ConductorSummary, EigenSettingsSummary,
-    ExtractSettingsSummary, FrequencySummary, LeontovichSummary, MeshSummary, PecSummary,
-    PortSummary, Provenance, RegionSummary, ResourceEstimate, SilverMullerSummary, SolverSummary,
-    UpmlSummary, WavePortSummary,
+    CapacitanceSettingsSummary, CheckReport, ConductorSummary, CurrentPathSummary,
+    EigenSettingsSummary, ExtractSettingsSummary, FrequencySummary, InductanceSettingsSummary,
+    LeontovichSummary, MeshSummary, PecSummary, PortSummary, Provenance, RegionSummary,
+    ResourceEstimate, SilverMullerSummary, SolverSummary, UpmlSummary, WavePortSummary,
 };
 use crate::spec::SolverSpec;
 
@@ -52,9 +52,42 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
         eigen: eigen_settings_summary(&p),
         extract: extract_settings_summary(&p),
         capacitance: capacitance_settings_summary(&p),
+        inductance: inductance_settings_summary(&p),
         // The H(curl)-pencil calibration does not apply to the scalar
-        // electrostatic system: no fabricated estimate.
+        // electrostatic system: no fabricated estimate. (The inductance
+        // system is a real Nédélec curl-curl, like the anchor's pencil.)
         resources: p.capacitance.is_none().then(|| resource_estimate(&p)),
+    })
+}
+
+/// Echo of the resolved `inductance` section with the edge-DOF system
+/// size (`None` unless an inductance spec).
+pub fn inductance_settings_summary(p: &Problem) -> Option<InductanceSettingsSummary> {
+    let ind = p.inductance.as_ref()?;
+    Some(InductanceSettingsSummary {
+        paths: ind
+            .paths
+            .iter()
+            .map(|c| CurrentPathSummary {
+                name: c.name.clone(),
+                conductor: c.conductor_group.clone(),
+                conductor_tag: c.conductor_tag,
+                n_conductor_tets: c.n_conductor_tets,
+                source: c.source.name.clone(),
+                n_source_triangles: c.source.triangles.len(),
+                n_source_nodes: c.source_nodes.len(),
+                sink: c.sink.name.clone(),
+                n_sink_triangles: c.sink.triangles.len(),
+                n_sink_nodes: c.sink_nodes.len(),
+            })
+            .collect(),
+        excitation: "open_path_conduction",
+        return_path: "pec_wall_return",
+        element: "nedelec1_tet",
+        gauge: "tree_cotree",
+        n_dof: p.edges.len(),
+        n_free_dof: p.n_interior(),
+        n_solves: ind.paths.len(),
     })
 }
 
@@ -152,20 +185,29 @@ pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
     let nnz = sparsity_pattern_from_tet_edges(&tet_edges).nnz();
     let n = p.n_interior() as f64;
     let is_eigen = p.eigen.is_some();
+    let n_paths = p.inductance.as_ref().map(|i| i.paths.len());
+    // Eigen and inductance factor a real symmetric system.
+    let is_real = is_eigen || n_paths.is_some();
     let n_channels: usize = p.wave_ports.iter().map(|w| w.a_inc.len()).sum();
     let n_rhs = if is_eigen {
         0
+    } else if n_paths.is_some() {
+        1
     } else if n_channels > 0 {
         // The SMW column solves, then the excitations.
         2 * n_channels
     } else {
         p.ports.len()
     };
-    let n_factorizations = if is_eigen { 1 } else { p.frequencies.len() };
+    let n_factorizations = match n_paths {
+        Some(n) => n,
+        None if is_eigen => 1,
+        None => p.frequencies.len(),
+    };
     let scale = nnz as f64 / ANCHOR_NNZ;
     let base = ResourceEstimate {
         solver_mode: "direct",
-        scalar: if is_eigen { "real" } else { "complex" },
+        scalar: if is_real { "real" } else { "complex" },
         nnz_a: nnz,
         n_factorizations,
         n_rhs_per_frequency: n_rhs,
@@ -178,7 +220,7 @@ pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
         wall_time_confidence: Some("conservative_below_anchor"),
         calibration_basis: CALIBRATION_BASIS,
     };
-    match (is_eigen, p.solver()) {
+    match (is_real, p.solver()) {
         (false, SolverSpec::Iterative { max_iters, .. }) => {
             // Operator values (c64) + column indices (u64), ×3 for the
             // assembled pieces / preconditioner; 16 Krylov-class c64
@@ -200,7 +242,7 @@ pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
             }
         }
         _ => {
-            let (mem_f, time_f) = if is_eigen {
+            let (mem_f, time_f) = if is_real {
                 (1.0, 1.0)
             } else {
                 (COMPLEX_MEMORY_FACTOR, COMPLEX_TIME_FACTOR)
@@ -229,6 +271,7 @@ pub fn region_summaries(p: &Problem) -> Vec<RegionSummary> {
                 MaterialSource::Spec => "spec",
                 MaterialSource::DefaultVacuum => "default_vacuum",
             },
+            mu_r: r.mu_r,
         })
         .collect()
 }

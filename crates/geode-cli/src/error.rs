@@ -4,7 +4,9 @@
 
 use std::path::PathBuf;
 
+use geode_core::assembly::current_path::CurrentPathError;
 use geode_core::assembly::electrostatic::ElectrostaticError;
+use geode_core::assembly::magnetostatic3d::Magnetostatic3dError;
 use geode_core::driven::ports::PortFaceError;
 use geode_core::driven::solve::DrivenError;
 use geode_core::eigen::pec_cavity::PecCavityError;
@@ -88,6 +90,15 @@ pub enum CliError {
     /// sparse LU of the reduced system.
     #[error("electrostatic solve failed: {0}")]
     Electrostatic(ElectrostaticError),
+    /// The inductance current-path construction (P1 conduction solve)
+    /// failed numerically.
+    #[error("inductance current-path solve failed: {0}")]
+    CurrentPath(CurrentPathError),
+    /// The magnetostatic (inductance) solve failed: assembly, the
+    /// discrete-solenoidality compatibility check, or the sparse LU of the
+    /// gauged system.
+    #[error("magnetostatic solve failed: {0}")]
+    Magnetostatic(Magnetostatic3dError),
     /// The solve returned non-finite numbers.
     #[error("solve produced a non-finite result at frequency/mode index {index}: {what}")]
     NonFinite {
@@ -193,6 +204,12 @@ impl From<ElectrostaticError> for CliError {
     }
 }
 
+impl From<Magnetostatic3dError> for CliError {
+    fn from(e: Magnetostatic3dError) -> Self {
+        CliError::Magnetostatic(e)
+    }
+}
+
 impl From<serde_json::Error> for CliError {
     fn from(e: serde_json::Error) -> Self {
         CliError::Serialize(e)
@@ -216,6 +233,8 @@ impl CliError {
             | CliError::WavePort { .. }
             | CliError::EigenSolve(_)
             | CliError::Electrostatic(_)
+            | CliError::CurrentPath(_)
+            | CliError::Magnetostatic(_)
             | CliError::L0NotConverged { .. } => "solve_failed",
             CliError::NonFinite { .. } => "non_finite",
             CliError::LayoutParse { .. } => "spec_parse",

@@ -2,7 +2,7 @@
 //!
 //! Every invocation that gets past argument parsing writes exactly one
 //! JSON document (stdout, or the `-o` path). The document is one of
-//! six kinds, discriminated by the top-level `kind` field:
+//! seven kinds, discriminated by the top-level `kind` field:
 //!
 //! * `"check"` — [`CheckReport`], from `geode check` (no solve);
 //! * `"driven"` — [`DrivenReport`], from `geode driven`;
@@ -11,13 +11,15 @@
 //!   v1: a [`DrivenReport`]-shaped sweep plus per-port `L₀` / SRF);
 //! * `"capacitance"` — [`CapacitanceReport`], from `geode capacitance`
 //!   (additive in v1, issue #705: the static Maxwell capacitance matrix);
+//! * `"inductance"` — [`InductanceReport`], from `geode inductance`
+//!   (additive in v1, issue #714: the static Maxwell inductance matrix);
 //! * `"error"` — [`ErrorReport`], from any failed subcommand (the
 //!   process also exits non-zero and prints the error to stderr).
 //!
 //! All of them carry [`Provenance`] flattened into the top level
 //! (`schema_version`, `geode_version`, `git_sha`, `backend`, …).
-//! Complex numbers are `[re, im]` pairs (the capacitance matrix is real:
-//! plain numbers). Matrices are row-major nested
+//! Complex numbers are `[re, im]` pairs (the capacitance and inductance
+//! matrices are real: plain numbers). Matrices are row-major nested
 //! arrays `m[row][col]`. Units are part of every field name (`_hz`,
 //! `_ohm`, `_s`, `_h`, `_farad`, …) except the dimensionless `s`, `q`, `k0`
 //! (rad per mesh length unit) and `residual_rel`.
@@ -82,6 +84,9 @@ pub struct RegionSummary {
     pub eps_r: Complex,
     /// `"spec"` or `"default_vacuum"`.
     pub eps_r_source: &'static str,
+    /// Applied real relative permeability (additive in v1, issue #714;
+    /// `1` unless an inductance spec lists `mu_r` for the region).
+    pub mu_r: f64,
 }
 
 /// One PEC surface.
@@ -303,6 +308,9 @@ pub struct CheckReport {
     /// The resolved `capacitance` section with its scalar DOF counts,
     /// `null` unless a capacitance spec (additive in v1).
     pub capacitance: Option<CapacitanceSettingsSummary>,
+    /// The resolved `inductance` section with its edge-DOF counts, `null`
+    /// unless an inductance spec (additive in v1, issue #714).
+    pub inductance: Option<InductanceSettingsSummary>,
     /// Up-front memory / cost estimate for the solve (additive in v1;
     /// order-of-magnitude only — see [`ResourceEstimate`]). `null` for a
     /// capacitance spec: the estimate is calibrated on the complex / real
@@ -417,6 +425,137 @@ pub struct CapacitanceReport {
     pub spice_file: Option<FileRef>,
 }
 
+/// One current path of an inductance spec.
+#[derive(Debug, Clone, Serialize)]
+pub struct CurrentPathSummary {
+    /// Path name (matrix row/column label).
+    pub name: String,
+    /// Conductor volume physical group.
+    pub conductor: String,
+    /// Conductor volume physical tag.
+    pub conductor_tag: i32,
+    /// Tets in the conductor volume.
+    pub n_conductor_tets: usize,
+    /// Source (current-in) face physical group.
+    pub source: String,
+    /// Source-face triangles.
+    pub n_source_triangles: usize,
+    /// Distinct source-face nodes (PEC contact).
+    pub n_source_nodes: usize,
+    /// Sink (current-out) face physical group.
+    pub sink: String,
+    /// Sink-face triangles.
+    pub n_sink_triangles: usize,
+    /// Distinct sink-face nodes (PEC contact).
+    pub n_sink_nodes: usize,
+}
+
+/// Echo of a resolved `inductance` section with the magnetostatic system
+/// size (additive in v1, issue #714).
+#[derive(Debug, Clone, Serialize)]
+pub struct InductanceSettingsSummary {
+    /// Current paths in matrix row/column order.
+    pub paths: Vec<CurrentPathSummary>,
+    /// Always `"open_path_conduction"`: per path, a P1 conduction solve
+    /// `∇·(σ∇φ) = 0` on the conductor (`φ = 1` source, `0` sink,
+    /// insulated elsewhere), `J = −σ∇φ` normalised to a 1 A Galerkin net
+    /// current.
+    pub excitation: &'static str,
+    /// Always `"pec_wall_return"`: the source / sink faces are PEC
+    /// contacts on the `boundary_conditions.pec` wall, which carries the
+    /// return current (`n×A = 0`).
+    pub return_path: &'static str,
+    /// Always `"nedelec1_tet"` (lowest-order Whitney edge elements).
+    pub element: &'static str,
+    /// Always `"tree_cotree"` (the curl-curl gradient nullspace is
+    /// removed by eliminating a spanning forest's edges).
+    pub gauge: &'static str,
+    /// Edge DOFs before PEC elimination (`= mesh.n_edges`).
+    pub n_dof: usize,
+    /// Edge DOFs after eliminating the PEC wall and the terminal contacts
+    /// (before the gauge removes the tree edges).
+    pub n_free_dof: usize,
+    /// Magnetostatic solves (one sparse LU + solve per path).
+    pub n_solves: usize,
+}
+
+/// Statistics of a `geode inductance` solve.
+#[derive(Debug, Clone, Serialize)]
+pub struct InductanceSolverStats {
+    /// Always `"energy"`: `L_ij = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾ / (I_i I_j)` with the full
+    /// (pre-gauge) curl-curl.
+    pub method: &'static str,
+    /// Always `"direct_lu"` (faer sparse LU on the gauged cotree block).
+    pub inner: &'static str,
+    /// Tolerance of the discrete-solenoidality gate each path's `J` passed
+    /// before its solve (relative to the RHS norm).
+    pub solenoidal_tol: f64,
+    /// Wall time of the conduction solves, assembly, every magnetostatic
+    /// solve and post-processing, seconds.
+    pub wall_time_s: f64,
+}
+
+/// `geode inductance` report (`kind = "inductance"`, additive in v1,
+/// issue #714).
+///
+/// The **static** Maxwell inductance matrix of open current paths
+/// returning through a PEC wall, in henries (SI: the mesh length unit is
+/// folded in), row-major `l_henry[row][col]` in path order. This is not
+/// `geode extract`'s `l0_h` (an RF port's quasi-static `Im Z / ω`
+/// extrapolated to `f → 0`).
+#[derive(Debug, Clone, Serialize)]
+pub struct InductanceReport {
+    /// Provenance (flattened).
+    #[serde(flatten)]
+    pub provenance: Provenance,
+    /// Always `"inductance"`.
+    pub kind: &'static str,
+    /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    pub status: &'static str,
+    /// Mesh summary (`n_interior` counts the edges left after the PEC
+    /// wall and terminal contacts).
+    pub mesh: MeshSummary,
+    /// Volume regions with applied `mu_r` (`eps_r` is unused here).
+    pub regions: Vec<RegionSummary>,
+    /// The inductance settings and system size.
+    pub inductance: InductanceSettingsSummary,
+    /// Path names in matrix row/column order (same order as
+    /// `inductance.paths`).
+    pub paths: Vec<String>,
+    /// The N×N Maxwell inductance matrix (H): symmetric, positive
+    /// diagonal (self inductance), off-diagonals the mutual inductances.
+    pub l_henry: Vec<Vec<f64>>,
+    /// Independent flux-linkage cross-check of the diagonal (H):
+    /// `Φ_i / I_i = A⁽ⁱ⁾ᵀ b⁽ⁱ⁾ / I_i²`, a different contraction than the
+    /// energy form (agrees to solver round-off).
+    pub flux_linkage_diag_henry: Vec<f64>,
+    /// Net current each path was driven with (A): the Galerkin current
+    /// through its source face, `1` by normalisation.
+    pub current_a: Vec<f64>,
+    /// Galerkin current leaving through each path's sink (A): equals
+    /// `current_a` to round-off (discrete conservation certificate).
+    pub sink_current_a: Vec<f64>,
+    /// Geometric face flux `∫ J·n̂ dA` into the conductor through each
+    /// path's source triangles (A): an independent check of the 1 A
+    /// normalisation (exact for a uniform current, discretisation-order
+    /// close otherwise).
+    pub source_face_flux_a: Vec<f64>,
+    /// Geometric face flux out of the conductor through each path's sink
+    /// triangles (A).
+    pub sink_face_flux_a: Vec<f64>,
+    /// Largest discrete-divergence residual of any path's `J` (relative
+    /// to its RHS norm; round-off for the conduction construction).
+    pub max_solenoidal_residual: f64,
+    /// `max |L_ij − L_ji| / max(|L_ij|, |L_ji|)`. Structural only: the
+    /// energy method fills `L_ji` from `L_ij`.
+    pub max_rel_asymmetry: f64,
+    /// `true` iff the matrix is symmetric positive definite (Cholesky of
+    /// the symmetrised matrix). `false` flags a corrupted solve.
+    pub is_spd: bool,
+    /// Solver statistics.
+    pub solver: InductanceSolverStats,
+}
+
 /// `geode check`'s up-front resource estimate (additive in v1).
 ///
 /// **Order-of-magnitude only.** The direct-LU figures are a linear-in-
@@ -428,18 +567,21 @@ pub struct CapacitanceReport {
 /// that won on symbolic fill was OOM-killed by the real LU.
 #[derive(Debug, Clone, Serialize)]
 pub struct ResourceEstimate {
-    /// `"direct"` or `"iterative"` (an eigen spec is always `"direct"`).
+    /// `"direct"` or `"iterative"` (an eigen or inductance spec is always
+    /// `"direct"`).
     pub solver_mode: &'static str,
-    /// `"real"` (eigen pencil) or `"complex"` (driven / extract).
+    /// `"real"` (eigen pencil, magnetostatic inductance system) or
+    /// `"complex"` (driven / extract).
     pub scalar: &'static str,
     /// Non-zeros of the full Nédélec system pattern before PEC
     /// elimination (the anchor's convention).
     pub nnz_a: usize,
     /// LU factorizations the run performs (one per frequency for
-    /// driven / extract direct, one for eigen, `0` iterative).
+    /// driven / extract direct, one for eigen, one per current path for
+    /// inductance, `0` iterative).
     pub n_factorizations: usize,
     /// Right-hand sides per frequency (ports, or `2 × channels` for wave
-    /// ports; `0` for eigen).
+    /// ports; `0` for eigen; `1` per factorization for inductance).
     pub n_rhs_per_frequency: usize,
     /// Estimated peak resident memory (GB = 10⁹ bytes).
     pub peak_memory_gb: f64,

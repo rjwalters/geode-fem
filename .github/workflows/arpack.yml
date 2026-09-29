@@ -112,6 +112,14 @@ jobs:
               --test patch_antenna_matched \
               --test patch_antenna_radiation
 
+      # Issue #714: the open-path current excitation behind
+      # `geode inductance` (P1 conduction J vs the analytic axial / loop
+      # builders, round-off discrete solenoidality, tripwires). No blanket
+      # geode-core job exists, so it is named here; < 1 s in release.
+      - name: Open-path current excitation (geode inductance library)
+        run: |
+          cargo test --features arpack -p geode-core --release --test current_path
+
       - name: Run the gated sparse-eigensolver acceptance test
         # Issue #24 acceptance: matches dense oracle to 1e-6 at n=5 with
         # the same fixture as the Lanczos check. Runs on the CPU backend so
