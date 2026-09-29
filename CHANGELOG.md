@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-29
+
+This release turns the `geode` CLI into a static parasitic-extraction tool
+for EDA flows (Epic #702): layout geometry goes in, and tagged meshes,
+Maxwell capacitance and inductance matrices, and SPICE subcircuits come
+out, alongside the Touchstone S-parameters added in 0.5.0.
+
+### Added
+
+#### `geode` CLI — EDA flows (Epic #702)
+
+- `geode mesh`: turns a versioned, tool-neutral layout description
+  (rectilinear conductor polygons, a dielectric layer stack, lumped gap
+  ports, PEC or UPML outer boundary) into an MSH 4.1 mesh with
+  automatically named physical groups, plus a starter problem spec, by
+  driving an external `gmsh` binary (`--gmsh` / `GEODE_GMSH` / `PATH`,
+  `--gmsh-timeout`). The report records the Gmsh version and sha256 of the
+  layout, script and mesh. Golden test: the spiral inductor rebuilt from a
+  layout, L −4.3 % vs Mohan / −6.3 % vs MoM (#704, #712).
+- `geode capacitance`: Maxwell capacitance matrix between named conductor
+  surfaces, with one or more grounded surfaces. Golden test: coaxial and
+  triaxial lines, ≤ 0.2 % vs analytic on the benchmark mesh (#705, #716).
+- `geode capacitance --spice <PATH>`: exports the matrix as a mutual-C
+  SPICE `.subckt` (ground branches from row sums, noise-level branches
+  dropped and listed, significant sign violations rejected), verified by
+  an ngspice AC admittance check (#715, #717).
+- `geode inductance`: static inductance matrix for open current paths
+  (conductor volume from a source face to a sink face), with a new
+  `materials[].mu_r`. Source and sink must sit on the same connected
+  piece of the required PEC wall, checked before solving; a non-physical
+  L (non-SPD or L_ii ≤ 0) fails with `solve_failed`. Golden test: coax
+  and triax, ≤ 0.35 % vs analytic on the benchmark mesh, including a
+  μ_r = 4 core (#714, #718).
+- `geode inductance --spice <PATH>`: exports the L matrix as an
+  `LEXTRACT` `.subckt` (one inductor per path to the PEC return,
+  `K` couplings with sign preserved), verified by an ngspice AC check
+  (#719, #722).
+- Spec and report stay schema v1; all changes are additive.
+
+#### Library
+
+- `geode_core::assembly::current_path`: general open-path current
+  excitation. A P1 conduction solve gives J = −σ∇φ normalised to 1 A,
+  discretely divergence-free and verified against the analytic
+  wire/loop builders. Grounded-component analysis with a per-path
+  current-balance check (`CurrentPathError::UnbalancedGround`) (#718).
+- Electrostatic face-flux helpers made public (#718).
+
+### Changed
+
+- `materials[].eps_r` now defaults to vacuum (1) for every analysis, so a
+  spec that omits it now parses where it used to fail. A non-unit `mu_r`
+  is rejected outside `geode inductance` (#718).
+- CI installs Gmsh (4.12.1 on Ubuntu) for the `geode-cli` job and fails,
+  rather than skips, the Gmsh tests if it is missing. It also runs the
+  inductance golden benchmark tier in release mode (#712, #718).
+
+### Fixed
+
+- `geode mesh` now hollows thick conductors (cut out of the dielectric
+  and any sheets they pierce), so Leontovich R/Q match the benchmark:
+  spiral R −5.9 % → +0.16 %, Q +6.7 % → +0.76 %. Coplanar-wall merging
+  is disabled so no cavity face is left untagged, and new mesh-time and
+  solve-time guards reject untagged or dangling surface triangles
+  (#721, #724).
+
 ## [0.5.0] - 2026-09-28
 
 This release completes the `geode` CLI's second phase: alongside `check`
