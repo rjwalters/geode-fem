@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "mesh": {
+    "path": "../../../geode-core/tests/fixtures/coax_inductance_smoke.msh",
+    "length_unit_m": 0.001
+  },
+  "boundary_conditions": {
+    "pec": ["shield", "end_caps", "tube_in", "tube_out"]
+  },
+  "inductance": {
+    "paths": [
+      {"name": "core", "conductor": "core", "source": "core_in", "sink": "core_out"}
+    ]
+  }
+}

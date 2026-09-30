@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "mesh": {
+    "path": "../../../geode-core/tests/fixtures/coax_capacitance_smoke.msh",
+    "length_unit_m": 0.001
+  },
+  "capacitance": {
+    "terminals": ["inner"],
+    "ground": ["outer"]
+  }
+}

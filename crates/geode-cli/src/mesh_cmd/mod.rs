@@ -33,6 +33,7 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use clap::{Args, ValueEnum};
+use schemars::JsonSchema;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -120,14 +121,16 @@ pub struct MeshArgs {
 }
 
 /// `geode mesh` report (`kind = "mesh"`, additive in report schema v1).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct MeshReport {
     /// Provenance (flattened; `spec_path` is the layout path).
     #[serde(flatten)]
     pub provenance: Provenance,
     /// Always `"mesh"`.
+    #[schemars(extend("const" = "mesh"))]
     pub kind: &'static str,
     /// Always `"ok"`.
+    #[schemars(extend("const" = "ok"))]
     pub status: &'static str,
     /// The `--analysis` the mesh and starter spec were built for
     /// (`driven`, `capacitance` or `inductance`; additive, issue #720).
@@ -149,7 +152,7 @@ pub struct MeshReport {
 }
 
 /// A file path + content hash.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct FileSummary {
     /// Path as written / read.
     pub path: String,
@@ -158,7 +161,7 @@ pub struct FileSummary {
 }
 
 /// The Gmsh binary.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct GmshSummary {
     /// Binary path or name as invoked.
     pub path: String,
@@ -167,7 +170,7 @@ pub struct GmshSummary {
 }
 
 /// Generated-mesh summary.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct GeneratedMeshSummary {
     /// Mesh path.
     pub path: String,
@@ -184,7 +187,7 @@ pub struct GeneratedMeshSummary {
 }
 
 /// One generated physical group.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct GroupSummary {
     /// `3` (volume) or `2` (surface).
     pub dim: i32,

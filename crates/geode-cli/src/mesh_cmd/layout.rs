@@ -46,6 +46,7 @@
 //! `crates/geode-cli/README.md` ("Layout, schema v1") for the field
 //! reference and the documented deferrals.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub use super::MeshAnalysis;
@@ -57,10 +58,11 @@ pub const LAYOUT_SCHEMA_VERSION: u32 = 1;
 pub const OUTER_BOUNDARY: &str = "outer_boundary";
 
 /// Top-level layout (schema v1).
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Layout {
     /// Must equal [`LAYOUT_SCHEMA_VERSION`].
+    #[schemars(extend("const" = LAYOUT_SCHEMA_VERSION))]
     pub schema_version: u32,
     /// Free-form description (ignored by the mesher).
     #[serde(default)]
@@ -97,7 +99,7 @@ pub struct Layout {
 }
 
 /// One dielectric slab of the layer stack.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DielectricLayer {
     /// Volume physical-group name.
@@ -117,7 +119,7 @@ fn vacuum() -> [f64; 2] {
 }
 
 /// One conductor layer: rectilinear polygons at one z-extent.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ConductorLayer {
     /// Surface physical-group name.
@@ -143,7 +145,7 @@ impl ConductorLayer {
 }
 
 /// A simple rectilinear polygon (every edge parallel to x or y).
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Polygon {
     /// Optional shape name, unique within its layer (referenced by
@@ -165,7 +167,7 @@ pub struct Polygon {
 }
 
 /// Port kind. v1 knows only lumped gap ports.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PortKind {
     /// Uniform lumped port across a gap (default).
@@ -174,7 +176,7 @@ pub enum PortKind {
 }
 
 /// In-plane axis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Axis {
     /// `x`.
@@ -184,7 +186,7 @@ pub enum Axis {
 }
 
 /// A lumped gap port.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PortDef {
     /// Surface physical-group name.
@@ -220,7 +222,7 @@ fn default_resistance() -> f64 {
 /// end face of a trace against a via / end wall). A path conductor needs
 /// exactly two contacts: the first listed is the path's `source`, the
 /// second its `sink`.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ContactDef {
     /// Surface physical-group name.
@@ -234,7 +236,7 @@ pub struct ContactDef {
 }
 
 /// Outer boundary treatment.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BoundaryDef {
     /// PEC outer walls (default). A struct variant so stray keys are
@@ -264,7 +266,7 @@ fn default_sigma_0() -> f64 {
 }
 
 /// Mesh-size controls (layout units).
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MeshControls {
     /// Global maximum (far-field) element size.

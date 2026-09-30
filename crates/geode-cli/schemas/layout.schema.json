@@ -1,0 +1,443 @@
+{
+  "$defs": {
+    "Axis": {
+      "description": "In-plane axis.",
+      "oneOf": [
+        {
+          "const": "x",
+          "description": "`x`.",
+          "type": "string"
+        },
+        {
+          "const": "y",
+          "description": "`y`.",
+          "type": "string"
+        }
+      ]
+    },
+    "BoundaryDef": {
+      "description": "Outer boundary treatment.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "PEC outer walls (default). A struct variant so stray keys are\nrejected.",
+          "properties": {
+            "kind": {
+              "const": "pec",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Matched box UPML of depth `thickness` inside PEC outer walls:\nevery dielectric slab is listed as an `absorbing_regions` entry of\nthe starter spec.",
+          "properties": {
+            "kind": {
+              "const": "upml",
+              "type": "string"
+            },
+            "sigma_0": {
+              "default": 25.0,
+              "description": "UPML strength `σ₀` in natural units (rad per layout unit),\n`> 0` (default `25`, the repo's validated value).",
+              "format": "double",
+              "type": "number"
+            },
+            "thickness": {
+              "description": "Shell depth (layout units, `> 0`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "thickness"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ConductorLayer": {
+      "additionalProperties": false,
+      "description": "One conductor layer: rectilinear polygons at one z-extent.",
+      "properties": {
+        "mesh_size": {
+          "default": null,
+          "description": "Target element size on this layer's surfaces (default\n[`MeshControls::size_conductor`]).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Surface physical-group name.",
+          "type": "string"
+        },
+        "polygons": {
+          "description": "The layer's shapes (`≥ 1`).",
+          "items": {
+            "$ref": "#/$defs/Polygon"
+          },
+          "type": "array"
+        },
+        "thickness": {
+          "default": 0.0,
+          "description": "Layer thickness (`≥ 0`; `0` = a zero-thickness PEC sheet).",
+          "format": "double",
+          "type": "number"
+        },
+        "z_bottom": {
+          "description": "Bottom of the layer.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "z_bottom",
+        "polygons"
+      ],
+      "type": "object"
+    },
+    "ContactDef": {
+      "additionalProperties": false,
+      "description": "An inductance current-path endpoint: the interface where the thick\nconductor group `conductor` touches the conductor group `to` (e.g. the\nend face of a trace against a via / end wall). A path conductor needs\nexactly two contacts: the first listed is the path's `source`, the\nsecond its `sink`.",
+      "properties": {
+        "conductor": {
+          "description": "Conductor group (layer or net name) carrying the current; kept as\na meshed solid by `--analysis inductance`. Every part thick.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Surface physical-group name.",
+          "type": "string"
+        },
+        "to": {
+          "description": "The PEC conductor group (layer or net name) it touches: the return\npath. The contact face is every face `conductor` shares with it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "conductor",
+        "to"
+      ],
+      "type": "object"
+    },
+    "DielectricLayer": {
+      "additionalProperties": false,
+      "description": "One dielectric slab of the layer stack.",
+      "properties": {
+        "eps_r": {
+          "default": [
+            1.0,
+            0.0
+          ],
+          "description": "Complex relative permittivity `[re, im]`, `im ≤ 0`\n(default vacuum `[1, 0]`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "name": {
+          "description": "Volume physical-group name.",
+          "type": "string"
+        },
+        "thickness": {
+          "description": "Slab thickness (`> 0`).",
+          "format": "double",
+          "type": "number"
+        },
+        "z_bottom": {
+          "description": "Bottom of the slab.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "z_bottom",
+        "thickness"
+      ],
+      "type": "object"
+    },
+    "MeshControls": {
+      "additionalProperties": false,
+      "description": "Mesh-size controls (layout units).",
+      "properties": {
+        "far_distance": {
+          "default": null,
+          "description": "Distance from conductors / ports at which the size reaches\n`size_max` (default: `margin`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "near_distance": {
+          "default": null,
+          "description": "Distance from a conductor over which the size stays at its target\n(default: the target size itself). Ports use their gap length.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "size_conductor": {
+          "description": "Target size on conductor surfaces (per-layer override:\n[`ConductorLayer::mesh_size`]).",
+          "format": "double",
+          "type": "number"
+        },
+        "size_max": {
+          "description": "Global maximum (far-field) element size.",
+          "format": "double",
+          "type": "number"
+        },
+        "size_port": {
+          "default": null,
+          "description": "Target size on port rectangles (default `size_conductor / 2`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "size_max",
+        "size_conductor"
+      ],
+      "type": "object"
+    },
+    "Polygon": {
+      "additionalProperties": false,
+      "description": "A simple rectilinear polygon (every edge parallel to x or y).",
+      "properties": {
+        "holes": {
+          "default": [],
+          "description": "Interior rings. Accepted by the schema, but v1 rejects non-empty\nholes.",
+          "items": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "name": {
+          "default": null,
+          "description": "Optional shape name, unique within its layer (referenced by\n[`PortDef::between`]).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "net": {
+          "default": null,
+          "description": "Optional net: polygons sharing a net name (on any layer) form one\nconductor group named after the net, instead of joining their\nlayer's group.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outer": {
+          "description": "Outer ring `[[x, y], …]` (`≥ 4` vertices, either orientation,\nclosing vertex optional).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "outer"
+      ],
+      "type": "object"
+    },
+    "PortDef": {
+      "additionalProperties": false,
+      "description": "A lumped gap port.",
+      "properties": {
+        "between": {
+          "default": null,
+          "description": "Two shape names of `layer`: the port spans the gap between their\nbounding boxes, across their common extent; `e_hat` points from\nthe first to the second. Give this **or** `rect`.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Axis"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Gap direction for a `rect` port (the port field `e_hat`)."
+        },
+        "kind": {
+          "$ref": "#/$defs/PortKind",
+          "default": "gap",
+          "description": "Port kind (default `gap`)."
+        },
+        "layer": {
+          "description": "Conductor layer the port sits in (at its mid-height).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Surface physical-group name.",
+          "type": "string"
+        },
+        "rect": {
+          "default": null,
+          "description": "Explicit port rectangle `[x0, y0, x1, y1]`. Give this **or**\n`between`; needs `direction`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "resistance_ohm": {
+          "default": 50.0,
+          "description": "Reference / termination resistance in ohms (default `50`).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "layer"
+      ],
+      "type": "object"
+    },
+    "PortKind": {
+      "description": "Port kind. v1 knows only lumped gap ports.",
+      "oneOf": [
+        {
+          "const": "gap",
+          "description": "Uniform lumped port across a gap (default).",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Input of `geode mesh`: a planar (2.5-D) layer stack with rectilinear conductor polygons, lumped gap ports and inductance contacts. JSON or TOML (same schema). Structural contract only: a document that validates against this schema can still be rejected at run time. Cross-field rules are enforced by the binary, not the schema — which sections each analysis requires or forbids, at most one analysis section, value ranges (> 0, im <= 0, ...), names that must resolve against the mesh / layout, a physical group in at most one role. `geode check` (spec) and `geode mesh` (layout) are the authority.",
+  "properties": {
+    "boundary": {
+      "$ref": "#/$defs/BoundaryDef",
+      "default": {
+        "kind": "pec"
+      },
+      "description": "Outer boundary (default: PEC walls)."
+    },
+    "conductors": {
+      "default": [],
+      "description": "Conductor layers (PEC sheets / shells).",
+      "items": {
+        "$ref": "#/$defs/ConductorLayer"
+      },
+      "type": "array"
+    },
+    "contacts": {
+      "default": [],
+      "description": "Inductance current-path endpoints (used by `--analysis\ninductance`; validated but not meshed otherwise).",
+      "items": {
+        "$ref": "#/$defs/ContactDef"
+      },
+      "type": "array"
+    },
+    "description": {
+      "default": null,
+      "description": "Free-form description (ignored by the mesher).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dielectrics": {
+      "description": "Layer stack, bottom to top, contiguous (`≥ 1`).",
+      "items": {
+        "$ref": "#/$defs/DielectricLayer"
+      },
+      "type": "array"
+    },
+    "ground": {
+      "default": [],
+      "description": "Conductor groups (layer or net names) that are the grounded\nreference: `capacitance.ground` (with `outer_boundary`) in the\ncapacitance starter spec. Every other analysis treats them as PEC\nlike any other non-path conductor.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "length_unit_m": {
+      "description": "Metres per layout length unit (e.g. `1e-6` for microns).",
+      "format": "double",
+      "type": "number"
+    },
+    "margin": {
+      "description": "Lateral margin between the conductor / port footprint and the\nouter walls (`> 0`; with a UPML boundary it includes the shell).",
+      "format": "double",
+      "type": "number"
+    },
+    "mesh": {
+      "$ref": "#/$defs/MeshControls",
+      "description": "Mesh-size controls."
+    },
+    "ports": {
+      "default": [],
+      "description": "Lumped gap ports (`≥ 1` for the driven analysis; optional, and\nnot meshed, for capacitance / inductance).",
+      "items": {
+        "$ref": "#/$defs/PortDef"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "description": "Must equal [`LAYOUT_SCHEMA_VERSION`].",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "length_unit_m",
+    "dielectrics",
+    "margin",
+    "mesh"
+  ],
+  "title": "GEODE layout (schema v1)",
+  "type": "object"
+}
