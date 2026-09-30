@@ -116,9 +116,17 @@ jobs:
       # `geode inductance` (P1 conduction J vs the analytic axial / loop
       # builders, round-off discrete solenoidality, tripwires). No blanket
       # geode-core job exists, so it is named here; < 1 s in release.
-      - name: Open-path current excitation (geode inductance library)
+      #
+      # Issue #731: `surface_not_on_mesh` (5 tests) covers the typed
+      # `SurfaceNotOnMesh` error contract (issue #725) across every public
+      # entry point that accepts caller-supplied surface/port triangles.
+      # Same "no blanket geode-core job" gap, so it is named here too;
+      # < 1 s in release.
+      - name: Open-path current excitation + surface-not-on-mesh error contract
         run: |
-          cargo test --features arpack -p geode-core --release --test current_path
+          cargo test --features arpack -p geode-core --release \
+              --test current_path \
+              --test surface_not_on_mesh
 
       - name: Run the gated sparse-eigensolver acceptance test
         # Issue #24 acceptance: matches dense oracle to 1e-6 at n=5 with
