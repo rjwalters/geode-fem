@@ -47,8 +47,8 @@ pub fn run(
     if outdir.is_some() {
         driven::validate_export(&p)?;
     }
-    if touchstone.is_some() {
-        touchstone::validate(&p)?;
+    if let Some(path) = touchstone {
+        touchstone::validate(&p, path)?;
     }
     let out = OutDir::create_opt(outdir)?;
     let target = p

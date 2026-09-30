@@ -138,8 +138,8 @@ pub fn run(
     touchstone: Option<&Path>,
 ) -> Result<DrivenReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Driven))?;
-    if touchstone.is_some() {
-        crate::touchstone::validate(&p)?;
+    if let Some(path) = touchstone {
+        crate::touchstone::validate(&p, path)?;
     }
     // Wave-port specs export nothing, so there is nothing to validate.
     if outdir.is_some() && p.wave_ports.is_empty() {

@@ -168,6 +168,12 @@ pub const ITERATIVE_BASIS: &str = "vector count (no measured anchor), 2026-09-28
 /// worst-case total at `max_iters`. There is no measured iterative
 /// wall-time anchor, so no wall time is reported.
 ///
+/// Both modes report `anchor_nnz_ratio` (`nnz(A)` over [`ANCHOR_NNZ`]) and
+/// `above_anchor`, so a caller can tell which side of the anchor (and so
+/// which bias direction) its mesh is on. `wall_time_per_factorization_s`
+/// scales the anchor's *total* run ([`ANCHOR_WALL_S`]: assembly + LU +
+/// back-solves), not an isolated factorization.
+///
 /// Local check (2026-09-28, Apple M3 Ultra, release build, all fixtures
 /// far below the anchor): direct peak memory came out 1.4–5× **high**
 /// and direct wall time 4–40× **high** on the spiral smoke / benchmark,
@@ -211,6 +217,8 @@ pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
         nnz_a: nnz,
         n_factorizations,
         n_rhs_per_frequency: n_rhs,
+        anchor_nnz_ratio: scale,
+        above_anchor: scale > 1.0,
         peak_memory_gb: 0.0,
         wall_time_s: None,
         wall_time_per_factorization_s: None,
