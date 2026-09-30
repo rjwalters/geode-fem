@@ -31,6 +31,60 @@ geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json
 | `inductance` | live (#714) — static **Maxwell inductance matrix** (henries) between named open current paths (conductor volume + source / sink faces returning through one connected PEC conductor), from a P1 conduction solve per path for the current density and one tree-cotree-gauged magnetostatic solve per path (Nédélec edges, direct LU); **not** `extract`'s RF `l0_h` (see [Inductance](#static-inductance-geode-inductance-issue-714)); optional SPICE `.subckt` (#719) |
 | `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec, via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
 
+## Install
+
+All three routes produce the same default build: the `ndarray` f64 CPU
+backend with `faer-parallel`, no GPU and no `arpack`, so the binary has no
+native runtime dependencies beyond the platform C library.
+
+**Prebuilt binaries** (issue #709). Each published
+[GitHub Release](https://github.com/rjwalters/geode-fem/releases) carries
+`geode-<version>-<target>.tar.gz` (the `geode` binary + `LICENSE` + this
+README) and a matching `.sha256`, built by `.github/workflows/release.yml` (releases that predate the
+workflow have assets only if backfilled via its `workflow_dispatch`
+trigger with `upload: true`):
+
+| Target | Built on | Runs on |
+|---|---|---|
+| `x86_64-unknown-linux-gnu`  | `ubuntu-22.04`     | Linux x86-64, glibc ≥ 2.35 (Ubuntu 22.04+, Debian 12+, RHEL 10+) |
+| `aarch64-unknown-linux-gnu` | `ubuntu-22.04-arm` | Linux arm64, glibc ≥ 2.35 |
+| `aarch64-apple-darwin`      | `macos-14`         | macOS 11+ on Apple silicon |
+
+```sh
+V=0.6.0; T=x86_64-unknown-linux-gnu   # pick your target
+curl -LO https://github.com/rjwalters/geode-fem/releases/download/v$V/geode-$V-$T.tar.gz
+curl -LO https://github.com/rjwalters/geode-fem/releases/download/v$V/geode-$V-$T.tar.gz.sha256
+sha256sum -c geode-$V-$T.tar.gz.sha256          # macOS: shasum -a 256 -c …
+tar -xzf geode-$V-$T.tar.gz && install geode-$V-$T/geode ~/.local/bin/
+geode --version                                 # geode <version> (<tag's commit sha>)
+```
+
+Older glibc (e.g. RHEL/Rocky 9, Ubuntu 20.04) is not supported by the
+prebuilt Linux binaries; build from source or use the container. macOS
+may quarantine a browser-downloaded binary (`xattr -d com.apple.quarantine geode`);
+`curl` downloads are not quarantined.
+
+**From source** (any platform with a Rust toolchain ≥ the workspace
+`rust-version`), pinned to a release tag:
+
+```sh
+cargo install --locked --git https://github.com/rjwalters/geode-fem --rev v0.6.0 geode-cli
+```
+
+**Container** with Gmsh preinstalled: build
+[`docker/geode-cli/Dockerfile`](../../docker/geode-cli/README.md) from the
+repository root and mount your working directory at `/work`
+(`docker run --rm -v "$PWD:/work" geode-cli check spec.json`). The image is
+not published to a registry yet; build it locally.
+
+**Gmsh is an external runtime dependency of `geode mesh` only** and is not
+bundled in the binaries or the `cargo install` build (the container is the
+exception). Every other subcommand needs nothing but `geode`. `geode mesh`
+needs Gmsh ≥ 4.11 with OpenCASCADE on `PATH` (or `--gmsh` /
+`$GEODE_GMSH`): `brew install gmsh` on macOS, `apt-get install gmsh` on
+Ubuntu 24.04+ / Debian 13+, or the [upstream builds](https://gmsh.info/#Download)
+elsewhere — Ubuntu 22.04 and Debian 12 package Gmsh 4.8, which is too old.
+
 ## Host behavior
 
 - **Exit code**: `0` on success; non-zero on any failure — bad arguments
