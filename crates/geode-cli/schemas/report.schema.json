@@ -2786,6 +2786,15 @@
     "ResourceEstimate": {
       "description": "`geode check`'s up-front resource estimate (additive in v1).\n\n**Order-of-magnitude only.** The direct-LU figures are a linear-in-\n`nnz(A)` extrapolation from a single measured anchor (2026-07-15,\n1.16M-DOF transmon eigen run; `calibration_basis` names it). LU fill\ngrows super-linearly, so the estimate is biased high on meshes much\nsmaller than the anchor and low on larger ones. Symbolic-fill\npredictors are deliberately not used: at the anchor scale an ordering\nthat won on symbolic fill was OOM-killed by the real LU.",
       "properties": {
+        "above_anchor": {
+          "description": "`anchor_nnz_ratio > 1`: the mesh is larger than the calibration\nanchor, where super-linear LU fill makes the direct estimates\n**under**-estimates (`conservative_below_anchor` no longer holds).",
+          "type": "boolean"
+        },
+        "anchor_nnz_ratio": {
+          "description": "`nnz_a` divided by the direct-LU calibration anchor's `nnz(A)`\n(`check::ANCHOR_NNZ`). Always taken against the **direct** anchor,\neven for `solver_mode = \"iterative\"` (which has no measured\nanchor): a scale signal, not a confidence claim.",
+          "format": "double",
+          "type": "number"
+        },
         "calibration_basis": {
           "description": "The calibration anchor, its date and the scaling assumptions.",
           "type": "string"
@@ -2849,7 +2858,7 @@
           ]
         },
         "wall_time_per_factorization_s": {
-          "description": "Estimated wall time of one factorization (s), direct only.",
+          "description": "Per-factorization wall-time **scaling unit** (s), direct only:\nthe anchor run's *total* wall time (assembly + one real LU\nfactorization + the shift-invert Lanczos back-solves;\n`check::ANCHOR_WALL_S`) scaled by `nnz(A)` and the complex-pencil\ntime factor. `wall_time_s` is this times `n_factorizations`. It is\n**not** a measurement of one isolated factorization: despite the\nname it includes the anchor's assembly and back-solve time.",
           "format": "double",
           "type": [
             "number",
@@ -2871,6 +2880,8 @@
         "nnz_a",
         "n_factorizations",
         "n_rhs_per_frequency",
+        "anchor_nnz_ratio",
+        "above_anchor",
         "peak_memory_gb",
         "wall_time_s",
         "wall_time_per_factorization_s",

@@ -598,12 +598,27 @@ pub struct ResourceEstimate {
     /// Right-hand sides per frequency (ports, or `2 × channels` for wave
     /// ports; `0` for eigen; `1` per factorization for inductance).
     pub n_rhs_per_frequency: usize,
+    /// `nnz_a` divided by the direct-LU calibration anchor's `nnz(A)`
+    /// (`check::ANCHOR_NNZ`). Always taken against the **direct** anchor,
+    /// even for `solver_mode = "iterative"` (which has no measured
+    /// anchor): a scale signal, not a confidence claim.
+    pub anchor_nnz_ratio: f64,
+    /// `anchor_nnz_ratio > 1`: the mesh is larger than the calibration
+    /// anchor, where super-linear LU fill makes the direct estimates
+    /// **under**-estimates (`conservative_below_anchor` no longer holds).
+    pub above_anchor: bool,
     /// Estimated peak resident memory (GB = 10⁹ bytes).
     pub peak_memory_gb: f64,
     /// Estimated total wall time (s), direct only (`null` iterative: no
     /// measured anchor).
     pub wall_time_s: Option<f64>,
-    /// Estimated wall time of one factorization (s), direct only.
+    /// Per-factorization wall-time **scaling unit** (s), direct only:
+    /// the anchor run's *total* wall time (assembly + one real LU
+    /// factorization + the shift-invert Lanczos back-solves;
+    /// `check::ANCHOR_WALL_S`) scaled by `nnz(A)` and the complex-pencil
+    /// time factor. `wall_time_s` is this times `n_factorizations`. It is
+    /// **not** a measurement of one isolated factorization: despite the
+    /// name it includes the anchor's assembly and back-solve time.
     pub wall_time_per_factorization_s: Option<f64>,
     /// Floating-point operations per Krylov iteration (one complex SpMV
     /// plus vector updates), iterative only.

@@ -54,9 +54,13 @@ use crate::export::file_ref_at;
 use crate::problem::Problem;
 use crate::report::{FileRef, FrequencyResult, Provenance};
 
-/// Up-front `--touchstone` validation of a loaded problem — called
-/// before the (expensive) sweep so an unsupported spec fails fast.
-pub fn validate(p: &Problem) -> Result<(), CliError> {
+/// Up-front `--touchstone` validation of a loaded problem and its target
+/// `path` — called before the (expensive) sweep so an unsupported spec,
+/// or a target whose parent directory is missing / not a directory /
+/// read-only, fails fast (an `io` error, like an unwritable `--outdir`)
+/// instead of after the sweep. The writability check is best-effort
+/// (the read-only permission bit); nothing is created at `path`.
+pub fn validate(p: &Problem, path: &Path) -> Result<(), CliError> {
     if !p.wave_ports.is_empty() {
         return Err(unsupported(
             "wave-port specs are not supported: their S-matrix is power-normalized per mode \
@@ -77,6 +81,38 @@ pub fn validate(p: &Problem) -> Result<(), CliError> {
              hold two rows at the same frequency; remove the duplicate",
             w[0]
         )));
+    }
+    check_parent_dir(path)
+}
+
+/// The `--touchstone` target's parent directory exists, is a directory
+/// and is not read-only.
+fn check_parent_dir(path: &Path) -> Result<(), CliError> {
+    let parent = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let io = |kind: std::io::ErrorKind, msg: &str| CliError::Io {
+        path: path.to_path_buf(),
+        err: std::io::Error::new(kind, format!("{msg} `{}`", parent.display())),
+    };
+    let meta = std::fs::metadata(parent).map_err(|_| {
+        io(
+            std::io::ErrorKind::NotFound,
+            "Touchstone output's parent directory does not exist:",
+        )
+    })?;
+    if !meta.is_dir() {
+        return Err(io(
+            std::io::ErrorKind::NotADirectory,
+            "Touchstone output's parent is not a directory:",
+        ));
+    }
+    if meta.permissions().readonly() {
+        return Err(io(
+            std::io::ErrorKind::PermissionDenied,
+            "Touchstone output's parent directory is read-only:",
+        ));
     }
     Ok(())
 }
@@ -298,6 +334,10 @@ pub fn parse(text: &str) -> Result<Parsed, String> {
 }
 
 #[cfg(test)]
+#[path = "../tests/support/skrf.rs"]
+mod skrf_support;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -376,6 +416,48 @@ mod tests {
         assert!(data.iter().all(|l| l.split_whitespace().count() <= 9));
         let p = parse(&t).unwrap();
         assert_eq!(p.rows, vec![(1e9, s.clone()), (3e9, s)]);
+    }
+
+    /// Optional scikit-rf read of `render`'s 2-port (classic `21_12`
+    /// order, unequal references) and 5-port (row-major, wrapped) output
+    /// (issue #713); skipped loudly without Python + scikit-rf.
+    #[test]
+    fn scikit_rf_reads_two_and_five_port_files() {
+        let dir = std::env::temp_dir().join(format!("geode-skrf-unit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s2 = |f: f64| {
+            vec![
+                vec![[0.11 * f, -0.12], [0.13, 1.0 / 3.0]],
+                vec![[-0.21, 0.22 * f], [0.23, -0.24]],
+            ]
+        };
+        let refs2 = [50.0, 75.0];
+        let rows2 = [(1e9, s2(1.0)), (2.5e9, s2(2.0))];
+        let rs: Vec<_> = rows2
+            .iter()
+            .rev()
+            .map(|(f, s)| row(*f, s.clone()))
+            .collect();
+        let p2 = dir.join("two.s2p");
+        std::fs::write(&p2, render(&["2-port".into()], &refs2, &rs).unwrap()).unwrap();
+        let n = 5;
+        let s5 = |f: f64| -> Vec<Vec<[f64; 2]>> {
+            (0..n)
+                .map(|i| {
+                    (0..n)
+                        .map(|j| [0.01 * (i * n + j) as f64 * f, -(j as f64) / 7.0])
+                        .collect()
+                })
+                .collect()
+        };
+        let refs5 = [10.0, 20.0, 30.0, 40.0, 50.0];
+        let rows5 = [(1e9, s5(1.0)), (3e9, s5(3.0))];
+        let rs: Vec<_> = rows5.iter().map(|(f, s)| row(*f, s.clone())).collect();
+        let p5 = dir.join("five.s5p");
+        std::fs::write(&p5, render(&[], &refs5, &rs).unwrap()).unwrap();
+        skrf_support::check("render 2-port", &p2, &refs2, &rows2);
+        skrf_support::check("render 5-port", &p5, &refs5, &rows5);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

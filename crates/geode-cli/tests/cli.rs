@@ -188,6 +188,7 @@ fn check_valid_spec_reports_dofs_without_solving() {
         assert!(x.is_finite() && x > 0.0, "{k} = {x}");
     }
     assert!(r["flops_per_iteration"].is_null() && r["flops_max"].is_null());
+    assert_anchor_ratio(r);
     assert_eq!(r["peak_memory_confidence"], "order_of_magnitude");
     assert_eq!(r["wall_time_confidence"], "conservative_below_anchor");
     let basis = r["calibration_basis"].as_str().unwrap();
@@ -195,6 +196,19 @@ fn check_valid_spec_reports_dofs_without_solving() {
         basis.contains("2026-07-15") && basis.contains("20467522"),
         "{basis}"
     );
+}
+
+/// Issue #713: `anchor_nnz_ratio` is `nnz_a` over the direct-LU anchor's
+/// `nnz(A)` (20 467 522), and every in-repo fixture is far below it.
+fn assert_anchor_ratio(r: &serde_json::Value) {
+    let ratio = r["anchor_nnz_ratio"].as_f64().unwrap();
+    let want = r["nnz_a"].as_u64().unwrap() as f64 / 20_467_522.0;
+    assert!((ratio - want).abs() <= 1e-15 * want, "{ratio} vs {want}");
+    assert!(
+        ratio > 0.0 && ratio < 1.0,
+        "fixture below the anchor: {ratio}"
+    );
+    assert_eq!(r["above_anchor"], false);
 }
 
 #[test]
@@ -210,6 +224,8 @@ fn check_resource_estimate_for_iterative_and_eigen_specs() {
     let per = r["flops_per_iteration"].as_f64().unwrap();
     assert!(per > 0.0 && per.is_finite());
     assert_eq!(r["flops_max"].as_f64().unwrap(), per * 500.0 * 4.0);
+    // Still a ratio against the direct anchor (a scale signal).
+    assert_anchor_ratio(r);
     assert!(r["peak_memory_gb"].as_f64().unwrap() > 0.0);
     assert!(
         r["calibration_basis"]
@@ -226,6 +242,12 @@ fn check_resource_estimate_for_iterative_and_eigen_specs() {
     assert_eq!(r["n_factorizations"], 1);
     assert_eq!(r["n_rhs_per_frequency"], 0);
     assert!(r["wall_time_s"].as_f64().unwrap() > 0.0);
+    assert_anchor_ratio(r);
+    // Direct: wall time is the per-factorization unit × factorizations.
+    assert_eq!(
+        r["wall_time_s"].as_f64().unwrap(),
+        r["wall_time_per_factorization_s"].as_f64().unwrap()
+    );
 }
 
 #[test]
@@ -319,6 +341,52 @@ fn touchstone_is_rejected_for_eigen_and_duplicate_frequencies() {
             .contains("more than once")
     );
     assert!(!ts.exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn touchstone_missing_parent_dir_fails_before_solving() {
+    // Issue #713: the `.sNp` is written after the sweep, so its parent
+    // directory is checked up front — an `io` error with no solve output.
+    let dir = scratch("touchstone-noparent");
+    let ts = dir.join("nonexistent_subdir").join("out.s1p");
+    for (cmd, spec) in [
+        ("driven", smoke_spec()),
+        (
+            "extract",
+            fixtures()
+                .join("slcfet_extract_smoke.json")
+                .display()
+                .to_string(),
+        ),
+    ] {
+        let out = geode(&[cmd, &spec, "--touchstone", ts.to_str().unwrap()]);
+        let v = assert_error(&out, cmd, "io");
+        let msg = v["error"]["message"].as_str().unwrap();
+        assert!(
+            msg.contains("parent directory does not exist") && msg.contains("nonexistent_subdir"),
+            "{msg}"
+        );
+        assert!(v.get("results").is_none(), "no solve output");
+    }
+    // A parent that is a regular file is rejected too.
+    let file = dir.join("plain-file");
+    std::fs::write(&file, "x").unwrap();
+    let ts = file.join("out.s1p");
+    let out = geode(&[
+        "driven",
+        &smoke_spec(),
+        "--touchstone",
+        ts.to_str().unwrap(),
+    ]);
+    let v = assert_error(&out, "driven", "io");
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("not a directory")
+    );
+    assert!(!dir.join("nonexistent_subdir").exists());
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

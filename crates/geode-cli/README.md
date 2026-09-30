@@ -656,8 +656,11 @@ reconstructing it would need a `geode-core` API extension.
 ## Touchstone output (`--touchstone`, issue #703)
 
 `geode driven | extract … --touchstone <PATH>` additionally writes the
-sweep's S-parameters as a **Touchstone 2.0** file at `<PATH>` (the
-parent directory must exist; an existing file is overwritten).
+sweep's S-parameters as a **Touchstone 2.0** file at `<PATH>` (an
+existing file is overwritten). The parent directory must exist, be a
+directory and not be read-only: this is checked **before the sweep**
+(an `io` error, like an unwritable `--outdir`), since the file itself is
+only written after it. Nothing is created at `<PATH>` by the check.
 Independent of `--outdir`. The report gains
 `touchstone_file: { "path", "sha256" }` — `path` is `<PATH>` **as given
 on the command line** (like `spec_path`; not relative to `--outdir`),
@@ -687,7 +690,10 @@ field is omitted.
 - **`S` only, `RI`, `HZ`**: `results[].s` copied verbatim (`[re, im]`),
   frequencies in Hz. Numbers use shortest round-trip formatting (`5e1`,
   `3.333333333333333e-1`), so a parser gets the report's values back
-  bit for bit. `Z` / `Y` / `MA` / `DB` are not offered.
+  bit for bit. Integral mantissas carry **no decimal point** and the
+  exponent no `+` (`5e1`, `1e9`, `0e0`) — valid C-locale float syntax,
+  but a naive regex reader expecting `5.0e+01` would misparse it.
+  `Z` / `Y` / `MA` / `DB` are not offered.
 - **Ascending frequency**: rows are sorted ascending even though a
   `driven` report keeps spec order (`extract` rows already are).
   Duplicate frequencies in the spec are rejected up front
@@ -710,6 +716,20 @@ not run in CI** (scikit-rf is not a dependency of this repo):
 import skrf
 net = skrf.Network("filter.s2p")   # Touchstone 2.0, per-port [Reference]
 print(net.z0[0], net.f[:3], net.s[0])
+```
+
+An **optional scikit-rf check** (issue #713) loads a real
+`geode driven --touchstone` `.s1p` (`tests/touchstone_skrf.rs`) and
+`render`'s 2-port (`21_12` order, unequal references) and 5-port
+(row-major, wrapped) output (`src/touchstone.rs` unit tests) and compares
+`f`, `z0` and `s` value for value. It runs when `GEODE_SKRF` (else
+`python3`) can `import skrf`, and is otherwise skipped with a loud
+`SKIPPED` line on stderr — like the ngspice checks, not a CI dependency.
+Last run: scikit-rf 2.1.0, 2026-09-30, all three files matched.
+
+```sh
+python3 -m venv /tmp/skrf && /tmp/skrf/bin/pip install scikit-rf
+GEODE_SKRF=/tmp/skrf/bin/python cargo test -p geode-cli scikit_rf -- --nocapture
 ```
 
 ## SPICE subcircuit export (`--spice`, issues #715 / #719)
@@ -866,8 +886,10 @@ single measured anchor, not a prediction** — read the caveats.
 | `nnz_a` | – | non-zeros of the full Nédélec system pattern (before PEC elimination — the anchor's convention); computed from the mesh, no assembly |
 | `n_factorizations` | – | LU factorizations: one per frequency (driven / extract direct), one (eigen), one per current path (inductance), `0` (iterative) |
 | `n_rhs_per_frequency` | – | ports, or `2 × channels` for wave ports; `0` for eigen; `1` for inductance |
+| `anchor_nnz_ratio` | – | `nnz_a / 20 467 522` — the mesh's scale relative to the direct-LU calibration anchor; always against the **direct** anchor, even for `"iterative"` (a scale signal, not a confidence claim) |
+| `above_anchor` | – | `anchor_nnz_ratio > 1`: the mesh is larger than the anchor, where the direct figures become **under**-estimates (see *Bias*) |
 | `peak_memory_gb` | GB (10⁹ B) | estimated peak resident memory |
-| `wall_time_s` / `wall_time_per_factorization_s` | s | direct only (`null` iterative) |
+| `wall_time_s` / `wall_time_per_factorization_s` | s | direct only (`null` iterative). `wall_time_per_factorization_s` is a per-factorization **scaling unit**, not the time of one isolated LU: the anchor run's *total* wall time (assembly + LU + Lanczos back-solves) scaled by `nnz(A)` and the complex-pencil factor; `wall_time_s` = it × `n_factorizations` |
 | `flops_per_iteration` / `flops_max` | flop | iterative only: one complex SpMV + vector updates; worst case at `max_iters` for every RHS and frequency |
 | `peak_memory_confidence` | – | `"order_of_magnitude"` |
 | `wall_time_confidence` | – | `"conservative_below_anchor"` (direct), `null` (iterative) |
@@ -876,7 +898,9 @@ single measured anchor, not a prediction** — read the caveats.
 **Direct model.** Peak memory and wall time scale **linearly in
 `nnz(A)`** from one measurement (2026-07-15, the 1 157 564-DOF transmon
 eigen run: `nnz(A)` = 20 467 522, COLAMD + faer supernodal LU, 565.5 s
-wall, 92 166 884 KiB ≈ 94.4 GB peak RSS on a 128 GB cloud box;
+total wall — assembly, one real LU and the shift-invert Lanczos
+back-solves together, so each "per-factorization" unit carries its share
+of assembly and back-solve time — 92 166 884 KiB ≈ 94.4 GB peak RSS on a 128 GB cloud box;
 `benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log`,
 `docs/research/geode-vs-palace-comparison.md` §2b). The complex driven
 pencil is scaled ×2 memory / ×4 time over the real anchor
@@ -898,7 +922,10 @@ pencil is scaled ×2 memory / ×4 time over the real anchor
   Memory landed within ~5× (always high); wall time is machine- and
   thread-dependent and was 4–40× high. Treat `wall_time_s` as a
   conservative ceiling below ~1M DOF, and treat either figure above the
-  anchor as a floor, not a ceiling.
+  anchor as a floor, not a ceiling. `above_anchor` / `anchor_nnz_ratio`
+  say which side of the anchor a mesh is on
+  (`wall_time_confidence = "conservative_below_anchor"` holds only while
+  `above_anchor` is `false`).
 - **Why not a symbolic-fill model**: a fill-reducing ordering that won
   on *symbolic* fill (`nnz(L)`) was **OOM-killed at 128.5 GB** by the
   real supernodal LU at the anchor scale (same log), so symbolic fill is
