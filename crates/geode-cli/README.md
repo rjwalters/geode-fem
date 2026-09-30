@@ -1434,7 +1434,10 @@ early (editors, CI, agents); run `geode check` (spec) or `geode mesh`
 Other known limits of v1: numeric fields carry informative `format`
 annotations (`double`, `uint`, `uint32`) that validators treat as
 annotations, not assertions; the `minimum: 0` on integer fields is the
-only range the schemas enforce.
+only range the schemas enforce. JSON Schema's `"type": "integer"` accepts
+any number with a zero fractional part (`3.0`, `"schema_version": 1.0`);
+`geode`'s parser is stricter and rejects these with `spec_parse` — this is
+standard JSON Schema semantics, not a generator defect.
 
 Checked in CI by `tests/schema.rs`: the committed files equal what the
 binary generates (drift guard), they are valid 2020-12 schemas, every
