@@ -8,7 +8,7 @@ the example models, and the output to expect.
 |---|---|---|---|
 | `driven` | [3.5-turn spiral inductor, 1–20 GHz sweep](driven/README.md) | `driven/spiral_inductor.json` | ~30 s / a few s |
 | `extract` | [SLCFET spiral, `L₀` by f → 0 extrapolation](extract/README.md) | `extract/slcfet_spiral.json` | ~30 s / a few s |
-| `eigen` | [PEC-walled dielectric-sphere cavity modes](eigen/README.md) | `eigen/sphere_cavity.json` | ~12 s / ~1 s |
+| `eigen` | [PEC-walled dielectric-sphere cavity modes, lossless and lossy (f, Q)](eigen/README.md) | `eigen/sphere_cavity.json`, `eigen/lossy_sphere_cavity.json` | ~12 s / ~1 s (lossy: ~40 s / ~1 s) |
 | `capacitance` | [coax and triax Maxwell capacitance matrices](capacitance/README.md) | `capacitance/coax.json`, `capacitance/triax.toml` | < 1 s |
 | `inductance` | [coax and triax Maxwell inductance matrices](inductance/README.md) | `inductance/coax.json`, `inductance/triax.toml` | ~1 s |
 | `mesh` → solve | [layout → Gmsh mesh → driven / capacitance / inductance](mesh/README.md) | `mesh/*.layout.json` | a few s (needs Gmsh) |

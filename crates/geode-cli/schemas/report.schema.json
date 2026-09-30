@@ -739,6 +739,13 @@
     "EigenReport": {
       "description": "`geode eigen` report (`kind = \"eigen\"`).",
       "properties": {
+        "absorbing_regions": {
+          "description": "Matched box-UPML shells (`absorbing_regions`), frozen at\n`solver.upml_reference_k0` (additive in v1, issue #706; omitted\nwhen there are none).",
+          "items": {
+            "$ref": "#/$defs/UpmlSummary"
+          },
+          "type": "array"
+        },
         "backend": {
           "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
           "type": "string"
@@ -902,10 +909,31 @@
           "minimum": 0,
           "type": "integer"
         },
+        "n_overdamped_filtered": {
+          "description": "Complex pencil only (additive in v1, issue #706): non-null Ritz\nvalues dropped as **overdamped** — `Re(λ) ≤ 0`, i.e. `Q ≤ ½`, not a\nresonance (absorber-trapped / evanescent quasi-modes of a UPML\npencil). Omitted for a lossless pencil.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "pencil": {
+          "description": "The pencil that was solved (additive in v1, issue #706):\n`\"real_symmetric\"` (lossless: real `ε_r`, PEC walls) or\n`\"complex_symmetric\"` (lossy `ε_r` and / or `absorbing_regions`;\ncomplex eigenvalues, finite `Q`).",
+          "type": "string"
+        },
         "residual_rel_max": {
           "description": "Largest relative eigen-residual over the returned modes.",
           "format": "double",
           "type": "number"
+        },
+        "upml_reference_k0": {
+          "description": "Natural `k₀` (rad / mesh length unit) at which the\n`absorbing_regions` UPML stretch was evaluated — the shift\n`eigen.shift` (additive in v1; present only with\n`absorbing_regions`). The UPML is frozen at this one frequency, so\nthe pencil stays linear; modes far from it see a mistuned absorber\n(no self-consistent iteration).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "wall_time_s": {
           "description": "Wall time of assembly + eigensolve, seconds.",
@@ -918,13 +946,14 @@
         "inner",
         "n_null_filtered",
         "residual_rel_max",
-        "wall_time_s"
+        "wall_time_s",
+        "pencil"
       ],
       "type": "object"
     },
     "EigenSpec": {
       "additionalProperties": false,
-      "description": "Eigenmode analysis settings (`geode eigen`).\n\nSolves the **lossless** PEC-cavity pencil `K x = k₀² M_ε x` with the\npure-Rust sparse shift-invert Lanczos (direct sparse-LU inner solve)\nand returns the `n_modes` physical modes closest to `shift`,\nascending. `shift` must be `> 0`; place it just **below** the lowest\nmode of interest — the curl-curl gradient nullspace sits at `k₀ = 0`\nand is filtered out, so a shift near 0 wastes the Lanczos basis on it.",
+      "description": "Eigenmode analysis settings (`geode eigen`).\n\nSolves the PEC-cavity pencil `K x = k₀² M_ε x` with the pure-Rust\nsparse shift-invert Lanczos (direct sparse-LU inner solve) and returns\nthe `n_modes` physical modes closest to `shift`, ascending. The pencil\nis real symmetric (lossless, `Q = null`) for real `ε_r`, and complex\nsymmetric (complex `k₀`, finite `Q`) when any `materials[].eps_r` has\n`Im < 0` or the spec has `absorbing_regions` (UPML frozen at `shift`;\nissue #706). Leontovich / Silver-Müller walls are rejected: their\nfrequency-dependent terms would make the eigenproblem nonlinear.\n`shift` must be `> 0`; place it just **below** the lowest mode of\ninterest (open cavities: **near** the resonance of interest) — the\ncurl-curl gradient nullspace sits at `k₀ = 0` and is filtered out, so a\nshift near 0 wastes the Lanczos basis on it.",
       "properties": {
         "max_iters": {
           "default": 160,
@@ -2303,10 +2332,10 @@
               "type": "null"
             }
           ],
-          "description": "Exported (real, `M_ε`-normalized, arbitrary sign) mode field\n(additive in v1; present only with `--outdir`)."
+          "description": "Exported mode field (additive in v1; present only with\n`--outdir`): real (`E_real` only), `M_ε`-normalized and of\narbitrary sign for a lossless pencil; complex (`E_real` +\n`E_imag`), bilinear `xᵀMx = 1`-normalized and of arbitrary complex\nphase for a complex pencil."
         },
         "frequency_hz": {
-          "description": "Resonant frequency (Hz).",
+          "description": "Resonant frequency (Hz), from `Re(k₀)`.",
           "format": "double",
           "type": "number"
         },
@@ -2321,18 +2350,34 @@
           "format": "double",
           "type": "number"
         },
+        "k0_im": {
+          "description": "Imaginary part of the complex resonant wavenumber `k₀ = √λ`\n(principal branch, `Re k₀ ≥ 0`) — additive in v1, present only for a\ncomplex pencil; `k0` is then `Re(k₀)`. `k0_im > 0` is a mode that\ndecays in time (`exp(+jωt)`: fields `∝ exp(−c·k0_im·t / L)`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "lambda": {
           "description": "Eigenvalue `λ = k₀²` ((rad / mesh length unit)²).",
           "format": "double",
           "type": "number"
         },
+        "lambda_im": {
+          "description": "Imaginary part of the complex eigenvalue `λ` (additive in v1,\nissue #706; present only for a complex pencil — lossy `ε_r` and / or\n`absorbing_regions`). `lambda` is then `Re(λ)`. Passive modes have\n`lambda_im ≥ 0` (`exp(+jωt)` convention).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "omega_rad_s": {
-          "description": "Angular frequency `ω = 2πf` (rad/s).",
+          "description": "Angular frequency `ω = 2πf` (rad/s), from `Re(k₀)`.",
           "format": "double",
           "type": "number"
         },
         "q": {
-          "description": "Quality factor. Always `null` in this build: the eigen pencil is\nlossless (real `ε_r`, PEC walls), so `Q` is undefined (infinite),\nnot a number. Lossy / open-cavity `Q` needs a complex quasi-mode\neigensolve — a future eigen-analysis phase.",
+          "description": "Quality factor `Q = Re(k₀) / (2 |Im(k₀)|)`. `null` for a lossless\n(real symmetric) pencil, where `Q` is undefined (infinite), not a\nnumber; finite for a complex pencil (lossy `ε_r` and / or\n`absorbing_regions`) — `null` there too for a mode with\n`|Im(k₀)| ≤ 1e-12` (numerically lossless).",
           "format": "double",
           "type": [
             "number",
@@ -2604,7 +2649,7 @@
       "properties": {
         "absorbing_regions": {
           "default": [],
-          "description": "Matched (box) UPML absorbing shells on volume physical groups\n(additive in v1, issue #683). Empty (default) = no UPML: the\ndriven operator uses the plain scalar per-tet `ε_r`. Driven /\nextract specs only.",
+          "description": "Matched (box) UPML absorbing shells on volume physical groups\n(additive in v1, issue #683). Empty (default) = no UPML: the\ndriven operator uses the plain scalar per-tet `ε_r`. Driven /\nextract / eigen specs; in an eigen spec (issue #706) the stretch is\nevaluated once at `eigen.shift` (a linear open-cavity pencil, not\niterated to self-consistency with each mode's frequency).",
           "items": {
             "$ref": "#/$defs/UpmlSpec"
           },
@@ -2691,7 +2736,7 @@
         },
         "ports": {
           "default": [],
-          "description": "Lumped ports. A `driven` / `extract` spec needs at least one lumped\nport **or** (driven only) at least one wave port; an `eigen` spec\nmust have none (lumped ports are resistive, the eigen pencil is\nlossless).",
+          "description": "Lumped ports. A `driven` / `extract` spec needs at least one lumped\nport **or** (driven only) at least one wave port; an `eigen` spec\nmust have none (lumped ports are driven resistive terminations; the\neigen solve computes source-free resonances).",
           "items": {
             "$ref": "#/$defs/LumpedPortSpec"
           },
@@ -2843,7 +2888,7 @@
           "type": "number"
         },
         "scalar": {
-          "description": "`\"real\"` (eigen pencil, magnetostatic inductance system) or\n`\"complex\"` (driven / extract).",
+          "description": "`\"real\"` (lossless eigen pencil, magnetostatic inductance system)\nor `\"complex\"` (driven / extract, lossy / open eigen pencil).",
           "type": "string"
         },
         "solver_mode": {

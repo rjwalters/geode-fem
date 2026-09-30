@@ -324,6 +324,14 @@ impl Problem {
         self.spec.mesh.length_unit_m
     }
 
+    /// Whether the frequency-domain Nédélec operator of this problem is
+    /// complex — a lossy `ε_r` (`Im ≠ 0`) or `absorbing_regions`. For an
+    /// eigen spec this selects the complex-symmetric (lossy / open)
+    /// quasi-mode pencil over the real symmetric lossless one (issue #706).
+    pub fn has_complex_materials(&self) -> bool {
+        !self.upml.is_empty() || self.eps.iter().any(|e| e.im != 0.0)
+    }
+
     /// Per-tet matched-UPML constitutive tensors `(ε, ν)` at natural
     /// frequency `k0` for [`DrivenMaterials::MatchedUpml`]: `ε = ε_r·Λ`,
     /// `ν = Λ⁻¹` with the box stretch `Λ` of the tet's `absorbing_regions`
@@ -1007,8 +1015,11 @@ fn resolve_extract(
 }
 
 /// Eigen-spec rules (scalar, before the mesh is read). The eigen pencil
-/// is real symmetric and lossless, so anything that introduces loss or a
-/// driven excitation is rejected rather than silently ignored.
+/// must be **linear** in `λ = k₀²`: real or complex (passive) `ε_r` and
+/// box-UPML `absorbing_regions` (stretch frozen at the shift frequency)
+/// are allowed (issue #706); anything that makes the operator depend on
+/// the unknown frequency, or that drives the system, is rejected rather
+/// than silently ignored.
 fn validate_eigen(spec: &ProblemSpec) -> Result<(), CliError> {
     let e = spec
         .eigen
@@ -1041,8 +1052,8 @@ fn validate_eigen(spec: &ProblemSpec) -> Result<(), CliError> {
     }
     if !spec.ports.is_empty() {
         return Err(invalid(
-            "an eigen spec cannot have `ports`: lumped ports are resistive terminations and \
-             the eigen solve is lossless",
+            "an eigen spec cannot have `ports`: lumped ports are driven resistive terminations, \
+             and the eigen solve computes source-free resonances",
         ));
     }
     if spec.frequencies.is_some() {
@@ -1052,27 +1063,28 @@ fn validate_eigen(spec: &ProblemSpec) -> Result<(), CliError> {
     }
     if !spec.boundary_conditions.leontovich.is_empty() {
         return Err(invalid(
-            "an eigen spec cannot have Leontovich walls: the eigen solve is lossless \
-             (lossy / open-cavity eigenmodes are a future eigen-analysis phase)",
+            "an eigen spec cannot have Leontovich walls: the surface impedance \
+             Z_s ∝ sqrt(j·omega·mu0 / sigma) depends on the frequency, which in an eigen solve \
+             is the unknown — the operator becomes a nonlinear eigenvalue problem A(k0)x = 0, \
+             not the linear pencil K x = k0² M x the shift-invert Lanczos solves (model the loss \
+             with a lossy `materials` region inside PEC walls, or use `geode driven` at known \
+             frequencies)",
         ));
     }
     if !spec.boundary_conditions.silver_muller.is_empty() {
         return Err(invalid(
-            "an eigen spec cannot have Silver-Müller walls: the eigen solve is a lossless \
-             closed PEC cavity (open-cavity quasi-modes are a future eigen-analysis phase)",
-        ));
-    }
-    if !spec.absorbing_regions.is_empty() {
-        return Err(invalid(
-            "an eigen spec cannot have `absorbing_regions`: UPML makes the pencil complex \
-             non-Hermitian, the eigen solve is a lossless closed PEC cavity (open-cavity \
-             quasi-modes are a future eigen-analysis phase)",
+            "an eigen spec cannot have Silver-Müller walls: the absorbing-boundary term \
+             j·k0·∫(n×E)·(n×v) is linear in k0, not in k0², so the operator becomes a quadratic \
+             (nonlinear) eigenvalue problem rather than the linear pencil K x = k0² M x the \
+             shift-invert Lanczos solves — use `absorbing_regions` (box UPML, evaluated at the \
+             shift frequency) for an open-cavity eigen solve",
         ));
     }
     if !spec.wave_ports.is_empty() {
         return Err(invalid(
-            "an eigen spec cannot have `wave_ports`: a wave port is a radiation boundary and \
-             the eigen solve is a lossless closed PEC cavity",
+            "an eigen spec cannot have `wave_ports`: a wave port is a driven, frequency-dependent \
+             modal boundary (its admittance depends on the unknown eigenfrequency) — use \
+             `absorbing_regions` for an open-cavity eigen solve",
         ));
     }
     if let SolverSpec::Iterative { .. } = spec.solver {
@@ -1081,14 +1093,8 @@ fn validate_eigen(spec: &ProblemSpec) -> Result<(), CliError> {
              Lanczos factors K − σM once with sparse LU)",
         ));
     }
-    if let Some(m) = spec.materials.iter().find(|m| m.eps_r[1] != 0.0) {
-        return Err(invalid(format!(
-            "materials[{}].eps_r has Im != 0; the eigen solve is lossless (real symmetric \
-             pencil) and needs Im(eps_r) = 0 (lossy eigenmodes are a future eigen-analysis \
-             phase)",
-            m.physical_group
-        )));
-    }
+    // Im(eps_r) < 0 (passive loss) is allowed; Im > 0 (gain) was rejected
+    // for every analysis above.
     if let Some(m) = spec.materials.iter().find(|m| m.eps_r[0] <= 0.0) {
         return Err(invalid(format!(
             "materials[{}].eps_r must have Re > 0 for the eigen solve",

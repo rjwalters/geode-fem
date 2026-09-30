@@ -585,8 +585,8 @@ pub struct ResourceEstimate {
     /// `"direct"` or `"iterative"` (an eigen or inductance spec is always
     /// `"direct"`).
     pub solver_mode: &'static str,
-    /// `"real"` (eigen pencil, magnetostatic inductance system) or
-    /// `"complex"` (driven / extract).
+    /// `"real"` (lossless eigen pencil, magnetostatic inductance system)
+    /// or `"complex"` (driven / extract, lossy / open eigen pencil).
     pub scalar: &'static str,
     /// Non-zeros of the full Nédélec system pattern before PEC
     /// elimination (the anchor's convention).
@@ -884,10 +884,29 @@ pub struct EigenSolverStats {
     pub inner: &'static str,
     /// Ritz values dropped as the curl-curl gradient nullspace (`λ ≈ 0`).
     pub n_null_filtered: usize,
+    /// Complex pencil only (additive in v1, issue #706): non-null Ritz
+    /// values dropped as **overdamped** — `Re(λ) ≤ 0`, i.e. `Q ≤ ½`, not a
+    /// resonance (absorber-trapped / evanescent quasi-modes of a UPML
+    /// pencil). Omitted for a lossless pencil.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n_overdamped_filtered: Option<usize>,
     /// Largest relative eigen-residual over the returned modes.
     pub residual_rel_max: f64,
     /// Wall time of assembly + eigensolve, seconds.
     pub wall_time_s: f64,
+    /// The pencil that was solved (additive in v1, issue #706):
+    /// `"real_symmetric"` (lossless: real `ε_r`, PEC walls) or
+    /// `"complex_symmetric"` (lossy `ε_r` and / or `absorbing_regions`;
+    /// complex eigenvalues, finite `Q`).
+    pub pencil: &'static str,
+    /// Natural `k₀` (rad / mesh length unit) at which the
+    /// `absorbing_regions` UPML stretch was evaluated — the shift
+    /// `eigen.shift` (additive in v1; present only with
+    /// `absorbing_regions`). The UPML is frozen at this one frequency, so
+    /// the pencil stays linear; modes far from it see a mistuned absorber
+    /// (no self-consistent iteration).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upml_reference_k0: Option<f64>,
 }
 
 /// One eigenmode.
@@ -899,19 +918,35 @@ pub struct ModeResult {
     pub lambda: f64,
     /// Resonant `k₀ = ω/c` (rad / mesh length unit).
     pub k0: f64,
-    /// Resonant frequency (Hz).
+    /// Imaginary part of the complex eigenvalue `λ` (additive in v1,
+    /// issue #706; present only for a complex pencil — lossy `ε_r` and / or
+    /// `absorbing_regions`). `lambda` is then `Re(λ)`. Passive modes have
+    /// `lambda_im ≥ 0` (`exp(+jωt)` convention).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lambda_im: Option<f64>,
+    /// Imaginary part of the complex resonant wavenumber `k₀ = √λ`
+    /// (principal branch, `Re k₀ ≥ 0`) — additive in v1, present only for a
+    /// complex pencil; `k0` is then `Re(k₀)`. `k0_im > 0` is a mode that
+    /// decays in time (`exp(+jωt)`: fields `∝ exp(−c·k0_im·t / L)`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub k0_im: Option<f64>,
+    /// Resonant frequency (Hz), from `Re(k₀)`.
     pub frequency_hz: f64,
-    /// Angular frequency `ω = 2πf` (rad/s).
+    /// Angular frequency `ω = 2πf` (rad/s), from `Re(k₀)`.
     pub omega_rad_s: f64,
-    /// Quality factor. Always `null` in this build: the eigen pencil is
-    /// lossless (real `ε_r`, PEC walls), so `Q` is undefined (infinite),
-    /// not a number. Lossy / open-cavity `Q` needs a complex quasi-mode
-    /// eigensolve — a future eigen-analysis phase.
+    /// Quality factor `Q = Re(k₀) / (2 |Im(k₀)|)`. `null` for a lossless
+    /// (real symmetric) pencil, where `Q` is undefined (infinite), not a
+    /// number; finite for a complex pencil (lossy `ε_r` and / or
+    /// `absorbing_regions`) — `null` there too for a mode with
+    /// `|Im(k₀)| ≤ 1e-12` (numerically lossless).
     pub q: Option<f64>,
     /// Relative eigen-residual `‖Kx − λMx‖ / (|λ| ‖Mx‖)`.
     pub residual_rel: f64,
-    /// Exported (real, `M_ε`-normalized, arbitrary sign) mode field
-    /// (additive in v1; present only with `--outdir`).
+    /// Exported mode field (additive in v1; present only with
+    /// `--outdir`): real (`E_real` only), `M_ε`-normalized and of
+    /// arbitrary sign for a lossless pencil; complex (`E_real` +
+    /// `E_imag`), bilinear `xᵀMx = 1`-normalized and of arbitrary complex
+    /// phase for a complex pencil.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_file: Option<FileRef>,
 }
@@ -936,6 +971,11 @@ pub struct EigenReport {
     pub pec: Vec<PecSummary>,
     /// The eigen settings as resolved.
     pub eigen: EigenSettingsSummary,
+    /// Matched box-UPML shells (`absorbing_regions`), frozen at
+    /// `solver.upml_reference_k0` (additive in v1, issue #706; omitted
+    /// when there are none).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub absorbing_regions: Vec<UpmlSummary>,
     /// Solver statistics.
     pub solver: EigenSolverStats,
     /// Physical modes, ascending in frequency.

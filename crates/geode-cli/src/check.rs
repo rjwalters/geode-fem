@@ -192,8 +192,9 @@ pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
     let n = p.n_interior() as f64;
     let is_eigen = p.eigen.is_some();
     let n_paths = p.inductance.as_ref().map(|i| i.paths.len());
-    // Eigen and inductance factor a real symmetric system.
-    let is_real = is_eigen || n_paths.is_some();
+    // A lossless eigen pencil and inductance factor a real symmetric
+    // system; a lossy / open eigen pencil is complex (issue #706).
+    let is_real = (is_eigen && !p.has_complex_materials()) || n_paths.is_some();
     let n_channels: usize = p.wave_ports.iter().map(|w| w.a_inc.len()).sum();
     let n_rhs = if is_eigen {
         0

@@ -656,9 +656,9 @@ type SpecEdit = Box<dyn FnOnce(&mut serde_json::Value)>;
 fn eigen_spec_validation_rejects_lossy_or_driven_inputs() {
     let cases: Vec<(&str, SpecEdit, &str)> = vec![
         (
-            "eig-lossy",
-            Box::new(|v| v["materials"][0]["eps_r"] = serde_json::json!([2.25, -0.01])),
-            "Im != 0",
+            "eig-gain",
+            Box::new(|v| v["materials"][0]["eps_r"] = serde_json::json!([2.25, 0.01])),
+            "gain",
         ),
         (
             "eig-ports",
@@ -684,23 +684,14 @@ fn eigen_spec_validation_rejects_lossy_or_driven_inputs() {
                     "conductivity_s_m": 5.8e7
                 }])
             }),
-            "Leontovich",
+            "nonlinear eigenvalue problem",
         ),
         (
             "eig-sm",
             Box::new(|v| {
                 v["boundary_conditions"]["silver_muller"] = serde_json::json!(["sphere_surface"])
             }),
-            "Silver-Müller",
-        ),
-        (
-            "eig-upml",
-            Box::new(|v| {
-                v["absorbing_regions"] = serde_json::json!([{
-                    "physical_group": "air", "thickness": 1.0, "sigma_0": 25.0
-                }])
-            }),
-            "absorbing_regions",
+            "quadratic (nonlinear) eigenvalue problem",
         ),
         (
             "eig-wave",
@@ -747,6 +738,45 @@ fn eigen_spec_validation_rejects_lossy_or_driven_inputs() {
         "eigen",
         "spec_parse",
     );
+}
+
+/// Lossy materials and `absorbing_regions` are accepted in eigen specs
+/// (issue #706): `geode check` classifies the pencil as complex.
+#[test]
+fn eigen_spec_accepts_lossy_materials_and_absorbing_regions() {
+    let lossy = edited_eigen_spec("eig-lossy-ok", |v| {
+        v["materials"][0]["eps_r"] = serde_json::json!([2.25, -0.01])
+    });
+    let out = geode(&["check", lossy.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = json(&out);
+    assert_eq!(v["analysis"], "eigen");
+    assert_eq!(v["resources"]["scalar"], "complex");
+
+    // The sphere mesh's outermost shell as a box UPML: accepted and
+    // resolved (the solve itself is covered by `tests/eigen_upml_smoke.rs`).
+    let upml = edited_eigen_spec("eig-upml-ok", |v| {
+        v["absorbing_regions"] = serde_json::json!([{
+            "physical_group": "pml_shell", "thickness": 0.5, "sigma_0": 2.0
+        }])
+    });
+    let out = geode(&["check", upml.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v = json(&out);
+    assert_eq!(v["absorbing_regions"][0]["physical_group"], "pml_shell");
+    assert_eq!(v["resources"]["scalar"], "complex");
+
+    // The lossless spec stays a real pencil.
+    let v = json(&geode(&["check", sphere_spec().to_str().unwrap()]));
+    assert_eq!(v["resources"]["scalar"], "real");
 }
 
 #[test]
