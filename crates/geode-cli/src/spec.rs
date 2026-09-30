@@ -60,16 +60,18 @@
 
 use std::path::PathBuf;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// The only problem-spec schema version this build understands.
 pub const SPEC_SCHEMA_VERSION: u32 = 1;
 
 /// Top-level problem spec (schema v1).
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProblemSpec {
     /// Must equal [`SPEC_SCHEMA_VERSION`].
+    #[schemars(extend("const" = SPEC_SCHEMA_VERSION))]
     pub schema_version: u32,
     /// The mesh to solve on.
     pub mesh: MeshSpec,
@@ -184,7 +186,7 @@ impl ProblemSpec {
 /// ascending. `shift` must be `> 0`; place it just **below** the lowest
 /// mode of interest — the curl-curl gradient nullspace sits at `k₀ = 0`
 /// and is filtered out, so a shift near 0 wastes the Lanczos basis on it.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EigenSpec {
     /// Number of physical modes to return (`≥ 1`).
@@ -234,7 +236,7 @@ fn default_eigen_residual_tol() -> f64 {
 /// error estimate from the third-lowest anchor, and the self-resonant
 /// frequency (first `Im Z_kk` sign change) when the sweep brackets one.
 /// Every field is optional: `"extract": {}` is a complete section.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ExtractSpec {
     /// Explicit `L₀` anchor ladder (`≥ 2` distinct points), solved **in
@@ -271,7 +273,7 @@ pub struct ExtractSpec {
 /// behaviour can be derived by circuit reduction). Surfaces not listed
 /// anywhere are natural boundaries (zero normal `D`, i.e. a symmetry /
 /// open-circuit wall), not conductors.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CapacitanceSpec {
     /// Dimension-2 physical-group names, one per conductor terminal, in
@@ -304,7 +306,7 @@ pub struct CapacitanceSpec {
 /// the return conductor (e.g. a coax core whose end disks meet the shield
 /// end caps). A closed loop with no terminals, or a terminal floating in
 /// the dielectric, has no return path and is not supported in v1.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InductanceSpec {
     /// Current paths in matrix row/column order (`≥ 1`, distinct names).
@@ -312,7 +314,7 @@ pub struct InductanceSpec {
 }
 
 /// One open current path of an [`InductanceSpec`].
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CurrentPathSpec {
     /// Path name (the inductance matrix row/column label).
@@ -330,7 +332,7 @@ pub struct CurrentPathSpec {
 }
 
 /// Mesh file reference.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MeshSpec {
     /// Path to a Gmsh MSH 4.1 ASCII tetrahedral mesh. Relative paths are
@@ -342,7 +344,7 @@ pub struct MeshSpec {
 
 /// Material of one volume physical group: complex permittivity and
 /// (additive in v1, issue #714) real relative permeability.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MaterialSpec {
     /// Name of a dimension-3 physical group (`$PhysicalNames`).
@@ -375,7 +377,7 @@ fn is_unit_mu_r(mu_r: &f64) -> bool {
 /// #683) first-order Silver-Müller absorbing walls. A dimension-2
 /// physical group may carry at most one of {port, wave port, PEC,
 /// Leontovich, Silver-Müller}.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BoundaryConditionsSpec {
     /// Dimension-2 physical-group names whose edges are eliminated as
@@ -405,7 +407,7 @@ pub struct BoundaryConditionsSpec {
 /// `materials` permittivity (vacuum if unlisted). The mesh must therefore
 /// be an **axis-aligned box** whose outer shell of depth `thickness` is
 /// the absorbing region; terminate it with a PEC outer wall.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UpmlSpec {
     /// Name of a dimension-3 physical group (the absorbing shell tets).
@@ -426,7 +428,7 @@ pub struct UpmlSpec {
 /// lowest-cutoff transverse modes of that cross-section become the port's
 /// S-parameter channels (TEM modes of multiply connected cross-sections
 /// are not supported).
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WavePortSpec {
     /// Name of a dimension-2 physical group holding the (planar) port
@@ -447,7 +449,7 @@ fn default_n_modes() -> usize {
 
 /// One Leontovich good-conductor surface
 /// (`Z_s = (1 + j)·√(ωμ₀ / 2σ)`).
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LeontovichSpec {
     /// Name of a dimension-2 physical group.
@@ -457,7 +459,7 @@ pub struct LeontovichSpec {
 }
 
 /// A uniform (Palace-style) lumped port on a surface physical group.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LumpedPortSpec {
     /// Name of a dimension-2 physical group holding the port faces.
@@ -486,7 +488,7 @@ fn default_v_inc() -> [f64; 2] {
 }
 
 /// Frequency unit of a [`FrequencySpec`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FrequencyUnit {
     /// Hertz.
@@ -499,7 +501,7 @@ pub enum FrequencyUnit {
 }
 
 /// Point spacing of a `start`/`stop`/`count` sweep.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Spacing {
     /// Evenly spaced (default).
@@ -511,7 +513,7 @@ pub enum Spacing {
 
 /// Frequency list: **either** an explicit `values` list **or** a
 /// `start`/`stop`/`count` sweep, in the given `unit`.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FrequencySpec {
     /// Unit of every number in this block (required — no default).
@@ -534,7 +536,7 @@ pub struct FrequencySpec {
 }
 
 /// Linear-solver selection.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SolverSpec {
     /// Sparse direct LU, one factorization per frequency (default). A

@@ -9,6 +9,7 @@
 //! geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH]
 //! geode inductance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH]
 //! geode mesh   <layout.json|layout.toml> [--analysis driven|capacitance|inductance] [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [-o report.json]
+//! geode schema spec|report|layout [-o schema.json]   # JSON Schema (draft 2020-12)
 //! geode --version   # "geode <crate-version> (<git-sha>[-dirty])"
 //! ```
 //!
@@ -35,6 +36,7 @@ mod inductance;
 mod mesh_cmd;
 mod problem;
 mod report;
+mod schema;
 mod spec;
 mod spice;
 mod touchstone;
@@ -100,6 +102,11 @@ enum Command {
     /// Layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged
     /// Gmsh mesh + starter problem spec, via the external `gmsh` binary.
     Mesh(mesh_cmd::MeshArgs),
+    /// Print the JSON Schema (draft 2020-12) of the problem spec, the JSON
+    /// report or the layout, derived from the same types the binary parses
+    /// and emits. Schema-valid is not `geode check`-valid: cross-field rules
+    /// are enforced at run time only.
+    Schema(schema::SchemaArgs),
 }
 
 #[derive(Args)]
@@ -308,6 +315,7 @@ impl App for Cli {
                 finish("inductance", prov, a.output.as_deref(), result)
             }
             Command::Mesh(a) => mesh_cmd::dispatch(a),
+            Command::Schema(a) => schema::run(a),
         }
     }
 

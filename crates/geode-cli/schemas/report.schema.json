@@ -1,0 +1,3412 @@
+{
+  "$defs": {
+    "BoundaryConditionsSpec": {
+      "additionalProperties": false,
+      "description": "Boundary conditions: PEC, Leontovich and (additive in v1, issue\n#683) first-order Silver-Müller absorbing walls. A dimension-2\nphysical group may carry at most one of {port, wave port, PEC,\nLeontovich, Silver-Müller}.",
+      "properties": {
+        "leontovich": {
+          "default": [],
+          "description": "Leontovich good-conductor surface-impedance walls.",
+          "items": {
+            "$ref": "#/$defs/LeontovichSpec"
+          },
+          "type": "array"
+        },
+        "pec": {
+          "default": [],
+          "description": "Dimension-2 physical-group names whose edges are eliminated as\nperfect electric conductor (tangential `E = 0`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "silver_muller": {
+          "default": [],
+          "description": "Dimension-2 physical-group names carrying the first-order\nSilver-Müller absorbing (radiation) condition — the impedance\nboundary with `Z_s = η₀` (no parameters). Driven / extract specs\nonly.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "pec",
+        "leontovich",
+        "silver_muller"
+      ],
+      "type": "object"
+    },
+    "CapacitanceReport": {
+      "description": "`geode capacitance` report (`kind = \"capacitance\"`, additive in v1).\n\nAll capacitances are real, in farads (SI: the mesh length unit is\nfolded in), row-major `c_farad[row][col]` in terminal order.",
+      "properties": {
+        "backend": {
+          "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
+          "type": "string"
+        },
+        "c_farad": {
+          "description": "The N×N Maxwell capacitance matrix (F): diagonal `> 0`,\noff-diagonals `≤ 0` (mutual capacitance is `−c_farad[i][j]`).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "c_flux_diag_farad": {
+          "description": "Independent surface-flux cross-check of the diagonal (F), `Q_i =\n∮ ε(−∇φ⁽ⁱ⁾)·n̂ dS` over the terminal's triangles with a piecewise-\nconstant field: a looser sanity signal (a few–15 % on curved\nsurfaces), not the result. `null` for a terminal whose surface is\nnot entirely on the mesh boundary (e.g. a zero-thickness sheet\nwith dielectric on both sides), where the one-sided flux would be\nwrong.",
+          "items": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "type": "array"
+        },
+        "c_sigma_farad": {
+          "description": "Per terminal, the row sum `Σ_j C_ij` (F): the capacitance from\nthat terminal to ground with every other terminal also grounded.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "capacitance": {
+          "$ref": "#/$defs/CapacitanceSettingsSummary",
+          "description": "The capacitance settings and system size."
+        },
+        "geode_version": {
+          "description": "`geode-cli` crate version.",
+          "type": "string"
+        },
+        "git_sha": {
+          "description": "Git revision baked in at build time (`<sha>[-dirty]` or `unknown`).",
+          "type": "string"
+        },
+        "kind": {
+          "const": "capacitance",
+          "description": "Always `\"capacitance\"`.",
+          "type": "string"
+        },
+        "max_rel_asymmetry": {
+          "description": "`max |C_ij − C_ji| / max(|C_ij|, |C_ji|)`. Structural only: the\nenergy method fills `C_ji` from `C_ij`, so this is `0` unless the\nmatrix is corrupted — it is not a solver residual.",
+          "format": "double",
+          "type": "number"
+        },
+        "maxwell_sign_structure": {
+          "description": "Maxwell sign structure (positive diagonal, non-positive\noff-diagonals and non-negative row sums, to `1e-9` relative).\n`false` flags a mesh that violates the discrete maximum principle\n(e.g. badly obtuse tets) — inspect the matrix; it is not an error.",
+          "type": "boolean"
+        },
+        "mesh": {
+          "$ref": "#/$defs/MeshSummary",
+          "description": "Mesh summary (`n_edges` / `n_interior` are the H(curl) counts of\nthe other analyses, unused here; the scalar system size is in\n`capacitance`)."
+        },
+        "regions": {
+          "description": "Volume regions with applied permittivities (`eps_r[1]` is `0`).",
+          "items": {
+            "$ref": "#/$defs/RegionSummary"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "[`REPORT_SCHEMA_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "solver": {
+          "$ref": "#/$defs/CapacitanceSolverStats",
+          "description": "Solver statistics."
+        },
+        "spec_path": {
+          "description": "Spec path as given on the command line.",
+          "type": "string"
+        },
+        "spice_file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The SPICE subcircuit `.subckt` written by `--spice` (additive in\nv1; present only with that flag)."
+        },
+        "status": {
+          "const": "ok",
+          "description": "Always `\"ok\"` (failures produce an [`ErrorReport`]).",
+          "type": "string"
+        },
+        "terminals": {
+          "description": "Terminal names in matrix row/column order (same order as\n`capacitance.terminals`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "threads": {
+          "description": "`--threads` value, or `null` when not given (library defaults).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "geode_version",
+        "git_sha",
+        "backend",
+        "threads",
+        "spec_path",
+        "kind",
+        "status",
+        "mesh",
+        "regions",
+        "capacitance",
+        "terminals",
+        "c_farad",
+        "c_sigma_farad",
+        "c_flux_diag_farad",
+        "max_rel_asymmetry",
+        "maxwell_sign_structure",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "CapacitanceSettingsSummary": {
+      "description": "Echo of a resolved `capacitance` spec section plus the size of the\nscalar electrostatic system (additive in v1).",
+      "properties": {
+        "conductor_model": {
+          "description": "Always `\"non_driven_grounded\"`: in the excitation of terminal *i*\n(1 V) every other terminal and every ground surface is held at\n0 V. There is no floating (charge-neutral) conductor model.",
+          "type": "string"
+        },
+        "element": {
+          "description": "Always `\"p1_tet\"` (nodal linear Lagrange on the tets).",
+          "type": "string"
+        },
+        "ground": {
+          "description": "Ground (0 V reference) surfaces.",
+          "items": {
+            "$ref": "#/$defs/ConductorSummary"
+          },
+          "type": "array"
+        },
+        "n_dof": {
+          "description": "Scalar DOFs before Dirichlet elimination (= mesh nodes).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_free_dof": {
+          "description": "Free DOFs after pinning every terminal and ground node (the size\nof the SPD system factored per excitation).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_solves": {
+          "description": "Unit-voltage solves (one per terminal), each a sparse LU\nfactorization + solve.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nnz_k": {
+          "description": "Non-zeros of the full scalar stiffness pattern\n(`n_nodes + 2·n_edges`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "terminals": {
+          "description": "Terminals in matrix row/column order.",
+          "items": {
+            "$ref": "#/$defs/ConductorSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "terminals",
+        "ground",
+        "conductor_model",
+        "element",
+        "n_dof",
+        "n_free_dof",
+        "nnz_k",
+        "n_solves"
+      ],
+      "type": "object"
+    },
+    "CapacitanceSolverStats": {
+      "description": "Statistics of a `geode capacitance` solve.",
+      "properties": {
+        "inner": {
+          "description": "Always `\"direct_lu\"` (faer sparse LU, real SPD system).",
+          "type": "string"
+        },
+        "method": {
+          "description": "Always `\"energy\"`: `C_ij = φ⁽ⁱ⁾ᵀ K φ⁽ʲ⁾` with the full stiffness.",
+          "type": "string"
+        },
+        "wall_time_s": {
+          "description": "Wall time of assembly + every solve + post-processing, seconds.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "method",
+        "inner",
+        "wall_time_s"
+      ],
+      "type": "object"
+    },
+    "CapacitanceSpec": {
+      "additionalProperties": false,
+      "description": "Static capacitance-extraction settings (`geode capacitance`, issue\n#705).\n\nSolves the scalar electrostatic problem `−∇·(ε₀ε_r ∇φ) = 0` on the\ntets (P1, per-region real `ε_r` from `materials`) once per terminal:\nterminal *i* held at 1 V, **every other terminal and every ground\nsurface held at 0 V**. The Maxwell capacitance matrix follows from the\nenergy method `C_ij = φ⁽ⁱ⁾ᵀ K φ⁽ʲ⁾`\n([`geode_core::assembly::electrostatic::extract_capacitance`]).\n\n**Conductor model.** Every conductor is voltage-driven: a non-excited\nterminal is *grounded* (0 V), never floating. There is no\ncharge-neutral floating-conductor formulation; a metal body with no\nelectrical connection must still be listed as a terminal (its\nrow/column is then part of the Maxwell matrix, from which floating\nbehaviour can be derived by circuit reduction). Surfaces not listed\nanywhere are natural boundaries (zero normal `D`, i.e. a symmetry /\nopen-circuit wall), not conductors.",
+      "properties": {
+        "ground": {
+          "default": [],
+          "description": "Dimension-2 physical-group names pinned to 0 V in every\nexcitation: the reference / return conductor(s) — ground plane,\nshield, enclosure. At least one is required in v1.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "terminals": {
+          "description": "Dimension-2 physical-group names, one per conductor terminal, in\nmatrix row/column order (`≥ 1`, distinct).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "terminals",
+        "ground"
+      ],
+      "type": "object"
+    },
+    "CheckReport": {
+      "description": "`geode check` report (`kind = \"check\"`).",
+      "properties": {
+        "absorbing_regions": {
+          "description": "Matched box-UPML shells (additive in v1).",
+          "items": {
+            "$ref": "#/$defs/UpmlSummary"
+          },
+          "type": "array"
+        },
+        "analysis": {
+          "description": "`\"driven\"`, `\"eigen\"`, `\"extract\"` or `\"capacitance\"` — the\nanalysis the spec describes (additive in v1).",
+          "type": "string"
+        },
+        "backend": {
+          "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
+          "type": "string"
+        },
+        "capacitance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CapacitanceSettingsSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The resolved `capacitance` section with its scalar DOF counts,\n`null` unless a capacitance spec (additive in v1)."
+        },
+        "eigen": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EigenSettingsSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The resolved `eigen` section, `null` unless an eigen spec\n(additive in v1)."
+        },
+        "extract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExtractSettingsSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The resolved `extract` section, `null` unless an extract spec\n(additive in v1)."
+        },
+        "frequencies": {
+          "description": "Frequencies to be solved.",
+          "items": {
+            "$ref": "#/$defs/FrequencySummary"
+          },
+          "type": "array"
+        },
+        "geode_version": {
+          "description": "`geode-cli` crate version.",
+          "type": "string"
+        },
+        "git_sha": {
+          "description": "Git revision baked in at build time (`<sha>[-dirty]` or `unknown`).",
+          "type": "string"
+        },
+        "inductance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InductanceSettingsSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The resolved `inductance` section with its edge-DOF counts, `null`\nunless an inductance spec (additive in v1, issue #714)."
+        },
+        "kind": {
+          "const": "check",
+          "description": "Always `\"check\"`.",
+          "type": "string"
+        },
+        "leontovich": {
+          "description": "Leontovich walls.",
+          "items": {
+            "$ref": "#/$defs/LeontovichSummary"
+          },
+          "type": "array"
+        },
+        "mesh": {
+          "$ref": "#/$defs/MeshSummary",
+          "description": "Mesh summary including DOF counts."
+        },
+        "pec": {
+          "description": "PEC surfaces.",
+          "items": {
+            "$ref": "#/$defs/PecSummary"
+          },
+          "type": "array"
+        },
+        "ports": {
+          "description": "Lumped ports.",
+          "items": {
+            "$ref": "#/$defs/PortSummary"
+          },
+          "type": "array"
+        },
+        "regions": {
+          "description": "Volume regions with applied permittivities.",
+          "items": {
+            "$ref": "#/$defs/RegionSummary"
+          },
+          "type": "array"
+        },
+        "resources": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResourceEstimate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Up-front memory / cost estimate for the solve (additive in v1;\norder-of-magnitude only — see [`ResourceEstimate`]). `null` for a\ncapacitance spec: the estimate is calibrated on the complex / real\nNédélec H(curl) pencil and has no measured basis for the scalar\nelectrostatic system (whose size is in `capacitance`)."
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "[`REPORT_SCHEMA_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "silver_muller": {
+          "description": "Silver-Müller absorbing walls (additive in v1).",
+          "items": {
+            "$ref": "#/$defs/SilverMullerSummary"
+          },
+          "type": "array"
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverSummary",
+          "description": "Solver selection."
+        },
+        "spec_path": {
+          "description": "Spec path as given on the command line.",
+          "type": "string"
+        },
+        "status": {
+          "const": "ok",
+          "description": "Always `\"ok\"` (failures produce an [`ErrorReport`]).",
+          "type": "string"
+        },
+        "threads": {
+          "description": "`--threads` value, or `null` when not given (library defaults).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "wave_ports": {
+          "description": "Wave ports (additive in v1; `modes` is `null` — no modal solve).",
+          "items": {
+            "$ref": "#/$defs/WavePortSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "geode_version",
+        "git_sha",
+        "backend",
+        "threads",
+        "spec_path",
+        "kind",
+        "status",
+        "mesh",
+        "regions",
+        "pec",
+        "leontovich",
+        "silver_muller",
+        "absorbing_regions",
+        "ports",
+        "wave_ports",
+        "frequencies",
+        "solver",
+        "analysis",
+        "eigen",
+        "extract",
+        "capacitance",
+        "inductance",
+        "resources"
+      ],
+      "type": "object"
+    },
+    "ConductorSummary": {
+      "description": "One conductor of a capacitance spec (terminal or ground surface).",
+      "properties": {
+        "n_nodes": {
+          "description": "Distinct mesh nodes pinned to this conductor's potential.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_triangles": {
+          "description": "Tagged triangles.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Physical-group name.",
+          "type": "string"
+        },
+        "tag": {
+          "description": "Physical tag.",
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "physical_group",
+        "tag",
+        "n_triangles",
+        "n_nodes"
+      ],
+      "type": "object"
+    },
+    "CurrentPathSpec": {
+      "additionalProperties": false,
+      "description": "One open current path of an [`InductanceSpec`].",
+      "properties": {
+        "conductor": {
+          "description": "Dimension-3 physical group: the conductor volume the current flows\nthrough (homogeneous: the current distribution of a single-material\npath does not depend on its conductivity).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Path name (the inductance matrix row/column label).",
+          "type": "string"
+        },
+        "sink": {
+          "description": "Dimension-2 physical group on the conductor's boundary where the\ncurrent leaves (distinct from, and node-disjoint with, `source`).",
+          "type": "string"
+        },
+        "source": {
+          "description": "Dimension-2 physical group on the conductor's boundary where the\ncurrent enters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "conductor",
+        "source",
+        "sink"
+      ],
+      "type": "object"
+    },
+    "CurrentPathSummary": {
+      "description": "One current path of an inductance spec.",
+      "properties": {
+        "conductor": {
+          "description": "Conductor volume physical group.",
+          "type": "string"
+        },
+        "conductor_tag": {
+          "description": "Conductor volume physical tag.",
+          "format": "int32",
+          "type": "integer"
+        },
+        "n_conductor_tets": {
+          "description": "Tets in the conductor volume.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_sink_nodes": {
+          "description": "Distinct sink-face nodes (PEC contact).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_sink_triangles": {
+          "description": "Sink-face triangles.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_source_nodes": {
+          "description": "Distinct source-face nodes (PEC contact).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_source_triangles": {
+          "description": "Source-face triangles.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Path name (matrix row/column label).",
+          "type": "string"
+        },
+        "sink": {
+          "description": "Sink (current-out) face physical group.",
+          "type": "string"
+        },
+        "source": {
+          "description": "Source (current-in) face physical group.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "conductor",
+        "conductor_tag",
+        "n_conductor_tets",
+        "source",
+        "n_source_triangles",
+        "n_source_nodes",
+        "sink",
+        "n_sink_triangles",
+        "n_sink_nodes"
+      ],
+      "type": "object"
+    },
+    "DrivenReport": {
+      "description": "`geode driven` report (`kind = \"driven\"`).",
+      "properties": {
+        "absorbing_regions": {
+          "description": "Matched box-UPML shells (additive in v1; present only when used).",
+          "items": {
+            "$ref": "#/$defs/UpmlSummary"
+          },
+          "type": "array"
+        },
+        "backend": {
+          "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
+          "type": "string"
+        },
+        "geode_version": {
+          "description": "`geode-cli` crate version.",
+          "type": "string"
+        },
+        "git_sha": {
+          "description": "Git revision baked in at build time (`<sha>[-dirty]` or `unknown`).",
+          "type": "string"
+        },
+        "kind": {
+          "const": "driven",
+          "description": "Always `\"driven\"`.",
+          "type": "string"
+        },
+        "mesh": {
+          "$ref": "#/$defs/MeshSummary",
+          "description": "Mesh summary."
+        },
+        "ports": {
+          "description": "Lumped ports (index = matrix row/column).",
+          "items": {
+            "$ref": "#/$defs/PortSummary"
+          },
+          "type": "array"
+        },
+        "results": {
+          "description": "Per-frequency results, in spec order.",
+          "items": {
+            "$ref": "#/$defs/FrequencyResult"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "[`REPORT_SCHEMA_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "silver_muller": {
+          "description": "Silver-Müller walls (additive in v1; present only when used).",
+          "items": {
+            "$ref": "#/$defs/SilverMullerSummary"
+          },
+          "type": "array"
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverStats",
+          "description": "Solver statistics."
+        },
+        "spec_path": {
+          "description": "Spec path as given on the command line.",
+          "type": "string"
+        },
+        "status": {
+          "const": "ok",
+          "description": "Always `\"ok\"` (failures produce an [`ErrorReport`]).",
+          "type": "string"
+        },
+        "threads": {
+          "description": "`--threads` value, or `null` when not given (library defaults).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "touchstone_file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The Touchstone 2.0 `.sNp` written by `--touchstone` (additive in\nv1; present only with that flag)."
+        },
+        "wave_ports": {
+          "description": "Wave ports with their solved modes (additive in v1; present only\nfor wave-port specs).",
+          "items": {
+            "$ref": "#/$defs/WavePortSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "geode_version",
+        "git_sha",
+        "backend",
+        "threads",
+        "spec_path",
+        "kind",
+        "status",
+        "mesh",
+        "ports",
+        "solver",
+        "results"
+      ],
+      "type": "object"
+    },
+    "EigenReport": {
+      "description": "`geode eigen` report (`kind = \"eigen\"`).",
+      "properties": {
+        "backend": {
+          "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
+          "type": "string"
+        },
+        "eigen": {
+          "$ref": "#/$defs/EigenSettingsSummary",
+          "description": "The eigen settings as resolved."
+        },
+        "geode_version": {
+          "description": "`geode-cli` crate version.",
+          "type": "string"
+        },
+        "git_sha": {
+          "description": "Git revision baked in at build time (`<sha>[-dirty]` or `unknown`).",
+          "type": "string"
+        },
+        "kind": {
+          "const": "eigen",
+          "description": "Always `\"eigen\"`.",
+          "type": "string"
+        },
+        "mesh": {
+          "$ref": "#/$defs/MeshSummary",
+          "description": "Mesh summary (`n_interior` = pencil dimension)."
+        },
+        "modes": {
+          "description": "Physical modes, ascending in frequency.",
+          "items": {
+            "$ref": "#/$defs/ModeResult"
+          },
+          "type": "array"
+        },
+        "pec": {
+          "description": "PEC surfaces.",
+          "items": {
+            "$ref": "#/$defs/PecSummary"
+          },
+          "type": "array"
+        },
+        "regions": {
+          "description": "Volume regions with applied permittivities.",
+          "items": {
+            "$ref": "#/$defs/RegionSummary"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "[`REPORT_SCHEMA_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "solver": {
+          "$ref": "#/$defs/EigenSolverStats",
+          "description": "Solver statistics."
+        },
+        "spec_path": {
+          "description": "Spec path as given on the command line.",
+          "type": "string"
+        },
+        "status": {
+          "const": "ok",
+          "description": "Always `\"ok\"` (failures produce an [`ErrorReport`]).",
+          "type": "string"
+        },
+        "threads": {
+          "description": "`--threads` value, or `null` when not given (library defaults).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "geode_version",
+        "git_sha",
+        "backend",
+        "threads",
+        "spec_path",
+        "kind",
+        "status",
+        "mesh",
+        "regions",
+        "pec",
+        "eigen",
+        "solver",
+        "modes"
+      ],
+      "type": "object"
+    },
+    "EigenSettingsSummary": {
+      "description": "Echo of a resolved `eigen` spec section.",
+      "properties": {
+        "max_iters": {
+          "description": "Lanczos basis size.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_modes": {
+          "description": "Physical modes requested.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "residual_tol": {
+          "description": "Per-mode relative-residual acceptance bound.",
+          "format": "double",
+          "type": "number"
+        },
+        "shift_hz": {
+          "description": "Shift frequency (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "shift_k0": {
+          "description": "Shift as `k₀` (rad / mesh length unit).",
+          "format": "double",
+          "type": "number"
+        },
+        "sigma": {
+          "description": "Lanczos shift `σ = k₀²` ((rad / mesh length unit)²).",
+          "format": "double",
+          "type": "number"
+        },
+        "tol": {
+          "description": "Lanczos tolerance.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "n_modes",
+        "shift_hz",
+        "shift_k0",
+        "sigma",
+        "max_iters",
+        "tol",
+        "residual_tol"
+      ],
+      "type": "object"
+    },
+    "EigenSolverStats": {
+      "description": "Eigensolver statistics.",
+      "properties": {
+        "inner": {
+          "description": "Inner solve of `K − σM`: always `\"direct_lu\"` (sparse LU, factored once).",
+          "type": "string"
+        },
+        "method": {
+          "description": "Always `\"shift_invert_lanczos\"` (pure Rust) in this build.",
+          "type": "string"
+        },
+        "n_null_filtered": {
+          "description": "Ritz values dropped as the curl-curl gradient nullspace (`λ ≈ 0`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "residual_rel_max": {
+          "description": "Largest relative eigen-residual over the returned modes.",
+          "format": "double",
+          "type": "number"
+        },
+        "wall_time_s": {
+          "description": "Wall time of assembly + eigensolve, seconds.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "method",
+        "inner",
+        "n_null_filtered",
+        "residual_rel_max",
+        "wall_time_s"
+      ],
+      "type": "object"
+    },
+    "EigenSpec": {
+      "additionalProperties": false,
+      "description": "Eigenmode analysis settings (`geode eigen`).\n\nSolves the **lossless** PEC-cavity pencil `K x = k₀² M_ε x` with the\npure-Rust sparse shift-invert Lanczos (direct sparse-LU inner solve)\nand returns the `n_modes` physical modes closest to `shift`,\nascending. `shift` must be `> 0`; place it just **below** the lowest\nmode of interest — the curl-curl gradient nullspace sits at `k₀ = 0`\nand is filtered out, so a shift near 0 wastes the Lanczos basis on it.",
+      "properties": {
+        "max_iters": {
+          "default": 160,
+          "description": "Lanczos basis size (default `160`). Raise it when modes are\nnearly degenerate or when `n_modes` is large. Too small a basis\nleaves modes unconverged: any returned mode whose relative\nresidual exceeds [`EigenSpec::residual_tol`] fails the run with\n`solve_failed` (never silently wrong frequencies).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_modes": {
+          "description": "Number of physical modes to return (`≥ 1`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "residual_tol": {
+          "default": 1e-6,
+          "description": "Per-mode acceptance bound on the relative eigen-residual\n`‖K x − λ M x‖ / (|λ| ‖M x‖)` (default `1e-6`). A mode above it is\nunconverged and fails the run with `solve_failed`.",
+          "format": "double",
+          "type": "number"
+        },
+        "shift": {
+          "description": "Shift / target frequency in `unit` (`> 0`).",
+          "format": "double",
+          "type": "number"
+        },
+        "tol": {
+          "default": 1e-9,
+          "description": "Lanczos relative convergence tolerance (default `1e-9`).",
+          "format": "double",
+          "type": "number"
+        },
+        "unit": {
+          "$ref": "#/$defs/FrequencyUnit",
+          "description": "Unit of `shift` (required — no default)."
+        }
+      },
+      "required": [
+        "n_modes",
+        "unit",
+        "shift",
+        "max_iters",
+        "tol",
+        "residual_tol"
+      ],
+      "type": "object"
+    },
+    "ErrorBody": {
+      "description": "Error body.",
+      "properties": {
+        "code": {
+          "description": "Stable machine-readable code (see `CliError::code`).",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable message (same text as stderr).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "ErrorReport": {
+      "description": "Failure report (`kind = \"error\"`, `status = \"error\"`).",
+      "properties": {
+        "backend": {
+          "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
+          "type": "string"
+        },
+        "command": {
+          "description": "Subcommand that failed.",
+          "type": "string"
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorBody",
+          "description": "The error."
+        },
+        "geode_version": {
+          "description": "`geode-cli` crate version.",
+          "type": "string"
+        },
+        "git_sha": {
+          "description": "Git revision baked in at build time (`<sha>[-dirty]` or `unknown`).",
+          "type": "string"
+        },
+        "kind": {
+          "const": "error",
+          "description": "Always `\"error\"`.",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "[`REPORT_SCHEMA_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spec_path": {
+          "description": "Spec path as given on the command line.",
+          "type": "string"
+        },
+        "status": {
+          "const": "error",
+          "description": "Always `\"error\"`.",
+          "type": "string"
+        },
+        "threads": {
+          "description": "`--threads` value, or `null` when not given (library defaults).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "geode_version",
+        "git_sha",
+        "backend",
+        "threads",
+        "spec_path",
+        "kind",
+        "status",
+        "command",
+        "error"
+      ],
+      "type": "object"
+    },
+    "ExtractReport": {
+      "description": "`geode extract` report (`kind = \"extract\"`).",
+      "properties": {
+        "absorbing_regions": {
+          "description": "Matched box-UPML shells (additive in v1; present only when used).",
+          "items": {
+            "$ref": "#/$defs/UpmlSummary"
+          },
+          "type": "array"
+        },
+        "backend": {
+          "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
+          "type": "string"
+        },
+        "extract": {
+          "$ref": "#/$defs/ExtractSettingsSummary",
+          "description": "The extract settings as resolved."
+        },
+        "extraction": {
+          "description": "Per-port `L₀` / SRF extraction, in port order.",
+          "items": {
+            "$ref": "#/$defs/PortExtraction"
+          },
+          "type": "array"
+        },
+        "geode_version": {
+          "description": "`geode-cli` crate version.",
+          "type": "string"
+        },
+        "git_sha": {
+          "description": "Git revision baked in at build time (`<sha>[-dirty]` or `unknown`).",
+          "type": "string"
+        },
+        "kind": {
+          "const": "extract",
+          "description": "Always `\"extract\"`.",
+          "type": "string"
+        },
+        "mesh": {
+          "$ref": "#/$defs/MeshSummary",
+          "description": "Mesh summary."
+        },
+        "ports": {
+          "description": "Lumped ports (index = matrix row/column).",
+          "items": {
+            "$ref": "#/$defs/PortSummary"
+          },
+          "type": "array"
+        },
+        "results": {
+          "description": "Per-frequency results (as for `driven`), **ascending** in\nfrequency over the union of `frequencies` and the anchors.",
+          "items": {
+            "$ref": "#/$defs/FrequencyResult"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "[`REPORT_SCHEMA_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "silver_muller": {
+          "description": "Silver-Müller walls (additive in v1; present only when used).",
+          "items": {
+            "$ref": "#/$defs/SilverMullerSummary"
+          },
+          "type": "array"
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverStats",
+          "description": "Solver statistics (as for `driven`)."
+        },
+        "spec_path": {
+          "description": "Spec path as given on the command line.",
+          "type": "string"
+        },
+        "status": {
+          "const": "ok",
+          "description": "Always `\"ok\"` (failures produce an [`ErrorReport`]).",
+          "type": "string"
+        },
+        "threads": {
+          "description": "`--threads` value, or `null` when not given (library defaults).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "touchstone_file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The Touchstone 2.0 `.sNp` written by `--touchstone` (additive in\nv1; present only with that flag)."
+        }
+      },
+      "required": [
+        "schema_version",
+        "geode_version",
+        "git_sha",
+        "backend",
+        "threads",
+        "spec_path",
+        "kind",
+        "status",
+        "mesh",
+        "ports",
+        "extract",
+        "solver",
+        "results",
+        "extraction"
+      ],
+      "type": "object"
+    },
+    "ExtractSettingsSummary": {
+      "description": "Echo of a resolved `extract` spec section.",
+      "properties": {
+        "anchor_frequencies": {
+          "description": "The distinct anchor frequencies, ascending (the two lowest\nextrapolate `L₀`, the third-lowest feeds the error estimate).",
+          "items": {
+            "$ref": "#/$defs/FrequencySummary"
+          },
+          "type": "array"
+        },
+        "anchor_source": {
+          "description": "`\"frequencies\"` or `\"anchor_frequencies\"` — the spec list the\n`L₀` anchors were taken from.",
+          "type": "string"
+        },
+        "l0_rel_tol": {
+          "description": "Relative convergence gate on the `L₀` consistency estimate\n(`null` = no gate).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "anchor_source",
+        "anchor_frequencies",
+        "l0_rel_tol"
+      ],
+      "type": "object"
+    },
+    "ExtractSpec": {
+      "additionalProperties": false,
+      "description": "Inductance-extraction settings (`geode extract`).\n\nThe sweep itself is the driven one (`ports`, `frequencies`,\n`boundary_conditions`, `solver`). On top of the per-frequency\n`L = Im Z_kk / ω`, `R = Re Z_kk`, `Q = Im Z_kk / Re Z_kk`, `geode\nextract` reports per port the quasi-static inductance\n`L₀ = lim_{f→0} L(f)` by two-point Richardson extrapolation of\n`L(f) ≈ L₀ − a·f²` on the two lowest **anchor** frequencies\n([`geode_core::driven::extraction::extrapolate_l0`]), a consistency\nerror estimate from the third-lowest anchor, and the self-resonant\nfrequency (first `Im Z_kk` sign change) when the sweep brackets one.\nEvery field is optional: `\"extract\": {}` is a complete section.",
+      "properties": {
+        "anchor_frequencies": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrequencySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit `L₀` anchor ladder (`≥ 2` distinct points), solved **in\naddition to** `frequencies` — e.g. a fine low-frequency ladder for\n`L₀` next to a coarse sweep through the SRF. Omitted: the anchors\nare the spec's `frequencies` (which then need `≥ 2` distinct\npoints). Either way the two lowest anchors extrapolate `L₀` and\nthe third-lowest (if any) feeds the error estimate."
+        },
+        "l0_rel_tol": {
+          "default": null,
+          "description": "Optional convergence gate on the extrapolation: fail the run\n(`solve_failed`) if any port's relative consistency estimate\n`|L₀(f₁,f₂) − L₀(f₂,f₃)| / |L₀|` exceeds it. Needs `≥ 3` anchors.\nOmitted: no gate (the estimate is still reported).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "anchor_frequencies",
+        "l0_rel_tol"
+      ],
+      "type": "object"
+    },
+    "FarFieldResult": {
+      "description": "Near-to-far-field (NTFF) radiation quantities at one frequency\n(additive in v1): Love surface equivalence over the closed box\n`box_lo`–`box_hi` (the UPML inner wall shrunk 10 % toward its\ncentre), sampled on a 91 × 72 `(θ, φ)` grid (2° × 5°).",
+      "properties": {
+        "box_hi": {
+          "description": "NTFF / flux box high corner (mesh units).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "box_lo": {
+          "description": "NTFF / flux box low corner (mesh units).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "directivity_broadside": {
+          "description": "Broadside (+z, `θ = 0`) directivity (linear, φ-averaged pole row).",
+          "format": "double",
+          "type": "number"
+        },
+        "directivity_max": {
+          "description": "Peak directivity `D_max` (linear).",
+          "format": "double",
+          "type": "number"
+        },
+        "efficiency": {
+          "description": "Radiation efficiency `η = P_rad / P_in`: box Poynting flux over\nthe net port input power `Σ_k ½ Re(V_k I_k*)` (`0` if\n`P_in = 0`). Not clamped.",
+          "format": "double",
+          "type": "number"
+        },
+        "gain_broadside": {
+          "description": "Broadside gain `G = D_broadside · η` (linear; `η` clamped to\n`[0, 1]`).",
+          "format": "double",
+          "type": "number"
+        },
+        "gain_broadside_db": {
+          "description": "`10·log10(gain_broadside)` (dBi).",
+          "format": "double",
+          "type": "number"
+        },
+        "pattern_file": {
+          "$ref": "#/$defs/FileRef",
+          "description": "Principal-plane pattern cuts (E-plane `φ = 0`, H-plane `φ = π/2`)."
+        }
+      },
+      "required": [
+        "box_lo",
+        "box_hi",
+        "directivity_max",
+        "directivity_broadside",
+        "gain_broadside",
+        "gain_broadside_db",
+        "efficiency",
+        "pattern_file"
+      ],
+      "type": "object"
+    },
+    "FileRef": {
+      "description": "A file written by the CLI besides the report (additive in v1).",
+      "properties": {
+        "path": {
+          "description": "For `--outdir` files: the path relative to the `--outdir`\ndirectory (a bare file name). For `touchstone_file`: the\n`--touchstone` argument as given on the command line (like\n`spec_path`); likewise `spice_file` and `--spice`.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "Hex SHA-256 of the bytes written.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "FileSummary": {
+      "description": "A file path + content hash.",
+      "properties": {
+        "path": {
+          "description": "Path as written / read.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "Hex SHA-256 of the file bytes.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "FrequencyResult": {
+      "description": "One frequency point of a driven sweep.\n\nFor a **wave-port** spec there is no port impedance: `z_ohm` and\n`ports` are empty, `y_s` is `null`, `s` is the power-normalized\nchannel S-matrix (port-major, mode-minor) and `wave_channels` carries\nthe per-channel `β` / `S_kk`.",
+      "properties": {
+        "far_field": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FarFieldResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "NTFF far-field quantities of this row (additive in v1; present\nonly with `--outdir` on a lumped-port spec with exactly one\n`absorbing_regions` shell)."
+        },
+        "field_file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Exported `E` field of this row (additive in v1; present only with\n`--outdir` on a lumped-port spec)."
+        },
+        "frequency_hz": {
+          "description": "Frequency (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "iterations": {
+          "description": "Krylov iterations per RHS (one per port; `0` on the direct path).",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "k0": {
+          "description": "`k₀ = ω/c` (rad / mesh length unit).",
+          "format": "double",
+          "type": "number"
+        },
+        "omega_rad_s": {
+          "description": "Angular frequency `ω = 2πf` (rad/s).",
+          "format": "double",
+          "type": "number"
+        },
+        "ports": {
+          "description": "Per-port self quantities.",
+          "items": {
+            "$ref": "#/$defs/PortResult"
+          },
+          "type": "array"
+        },
+        "residual_rel": {
+          "description": "Worst post-solve relative residual over this point's RHS solves.",
+          "format": "double",
+          "type": "number"
+        },
+        "s": {
+          "description": "Scattering matrix vs the per-port reference resistances.",
+          "items": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "wave_channels": {
+          "description": "Per-channel wave-port quantities (additive in v1; present only for\nwave-port specs).",
+          "items": {
+            "$ref": "#/$defs/WaveChannelResult"
+          },
+          "type": "array"
+        },
+        "y_s": {
+          "description": "Admittance matrix `Y = Z⁻¹` (S); `null` if `Z` is singular.",
+          "items": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "z_ohm": {
+          "description": "Impedance matrix `Z` (Ω), `z_ohm[k][j]`.",
+          "items": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "frequency_hz",
+        "k0",
+        "omega_rad_s",
+        "residual_rel",
+        "iterations",
+        "z_ohm",
+        "y_s",
+        "s",
+        "ports"
+      ],
+      "type": "object"
+    },
+    "FrequencySpec": {
+      "additionalProperties": false,
+      "description": "Frequency list: **either** an explicit `values` list **or** a\n`start`/`stop`/`count` sweep, in the given `unit`.",
+      "properties": {
+        "count": {
+          "default": null,
+          "description": "Number of sweep points (`≥ 1`; `1` yields just `start`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "spacing": {
+          "$ref": "#/$defs/Spacing",
+          "default": "linear",
+          "description": "Sweep spacing (default `linear`)."
+        },
+        "start": {
+          "default": null,
+          "description": "Sweep start (inclusive).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "stop": {
+          "default": null,
+          "description": "Sweep stop (inclusive).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "unit": {
+          "$ref": "#/$defs/FrequencyUnit",
+          "description": "Unit of every number in this block (required — no default)."
+        },
+        "values": {
+          "default": null,
+          "description": "Explicit frequency list.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "unit",
+        "values",
+        "start",
+        "stop",
+        "count",
+        "spacing"
+      ],
+      "type": "object"
+    },
+    "FrequencySummary": {
+      "description": "One frequency point as requested.",
+      "properties": {
+        "frequency_hz": {
+          "description": "Frequency (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "k0": {
+          "description": "`k₀ = ω/c` (rad / mesh length unit) — the solver's ω.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "frequency_hz",
+        "k0"
+      ],
+      "type": "object"
+    },
+    "FrequencyUnit": {
+      "description": "Frequency unit of a [`FrequencySpec`].",
+      "oneOf": [
+        {
+          "const": "hz",
+          "description": "Hertz.",
+          "type": "string"
+        },
+        {
+          "const": "ghz",
+          "description": "Gigahertz.",
+          "type": "string"
+        },
+        {
+          "const": "k0",
+          "description": "Natural units: free-space wavenumber `k₀ = ω/c` in radians per\nmesh length unit (the solver's internal `ω`).",
+          "type": "string"
+        }
+      ]
+    },
+    "GeneratedMeshSummary": {
+      "description": "Generated-mesh summary.",
+      "properties": {
+        "length_unit_m": {
+          "description": "Metres per mesh length unit (from the layout).",
+          "format": "double",
+          "type": "number"
+        },
+        "n_nodes": {
+          "description": "Node count.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_tets": {
+          "description": "Tet count.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_triangles": {
+          "description": "Tagged surface-triangle count.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "description": "Mesh path.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "Hex SHA-256 of the mesh bytes.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "length_unit_m",
+        "n_nodes",
+        "n_tets",
+        "n_triangles"
+      ],
+      "type": "object"
+    },
+    "GmshSummary": {
+      "description": "The Gmsh binary.",
+      "properties": {
+        "path": {
+          "description": "Binary path or name as invoked.",
+          "type": "string"
+        },
+        "version": {
+          "description": "`gmsh --version` output.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "version"
+      ],
+      "type": "object"
+    },
+    "GroupSummary": {
+      "description": "One generated physical group.",
+      "properties": {
+        "dim": {
+          "description": "`3` (volume) or `2` (surface).",
+          "format": "int32",
+          "type": "integer"
+        },
+        "n_elements": {
+          "description": "Tets (dim 3) or triangles (dim 2) in the group.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Name.",
+          "type": "string"
+        },
+        "role": {
+          "description": "`dielectric`, `pec_sheet`, `pec_shell`, `conductor_volume`,\n`port`, `contact` or `outer_boundary`.",
+          "type": "string"
+        },
+        "tag": {
+          "description": "Physical tag.",
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dim",
+        "tag",
+        "name",
+        "role",
+        "n_elements"
+      ],
+      "type": "object"
+    },
+    "InductanceReport": {
+      "description": "`geode inductance` report (`kind = \"inductance\"`, additive in v1,\nissue #714).\n\nThe **static** Maxwell inductance matrix of open current paths\nreturning through a PEC wall, in henries (SI: the mesh length unit is\nfolded in), row-major `l_henry[row][col]` in path order. This is not\n`geode extract`'s `l0_h` (an RF port's quasi-static `Im Z / ω`\nextrapolated to `f → 0`).",
+      "properties": {
+        "backend": {
+          "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
+          "type": "string"
+        },
+        "current_a": {
+          "description": "Net current each path was driven with (A): the Galerkin current\nthrough its source face, `1` by normalisation.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "flux_linkage_diag_henry": {
+          "description": "Independent flux-linkage cross-check of the diagonal (H):\n`Φ_i / I_i = A⁽ⁱ⁾ᵀ b⁽ⁱ⁾ / I_i²`, a different contraction than the\nenergy form (agrees to solver round-off).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "geode_version": {
+          "description": "`geode-cli` crate version.",
+          "type": "string"
+        },
+        "git_sha": {
+          "description": "Git revision baked in at build time (`<sha>[-dirty]` or `unknown`).",
+          "type": "string"
+        },
+        "inductance": {
+          "$ref": "#/$defs/InductanceSettingsSummary",
+          "description": "The inductance settings and system size."
+        },
+        "is_spd": {
+          "description": "`true` iff the matrix is symmetric positive definite (Cholesky of\nthe symmetrised matrix). `false` flags a corrupted solve.",
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "inductance",
+          "description": "Always `\"inductance\"`.",
+          "type": "string"
+        },
+        "l_henry": {
+          "description": "The N×N Maxwell inductance matrix (H): symmetric, positive\ndiagonal (self inductance), off-diagonals the mutual inductances.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "max_rel_asymmetry": {
+          "description": "`max |L_ij − L_ji| / max(|L_ij|, |L_ji|)`. Structural only: the\nenergy method fills `L_ji` from `L_ij`.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_solenoidal_residual": {
+          "description": "Largest discrete-divergence residual of any path's `J` (relative\nto its RHS norm; round-off for the conduction construction).",
+          "format": "double",
+          "type": "number"
+        },
+        "mesh": {
+          "$ref": "#/$defs/MeshSummary",
+          "description": "Mesh summary (`n_interior` counts the edges left after the PEC\nwall and terminal contacts)."
+        },
+        "paths": {
+          "description": "Path names in matrix row/column order (same order as\n`inductance.paths`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "regions": {
+          "description": "Volume regions with applied `mu_r` (`eps_r` is unused here).",
+          "items": {
+            "$ref": "#/$defs/RegionSummary"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "[`REPORT_SCHEMA_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sink_current_a": {
+          "description": "Galerkin current leaving through each path's sink (A): equals\n`current_a` to round-off (discrete conservation certificate).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "sink_face_flux_a": {
+          "description": "Geometric face flux out of the conductor through each path's sink\ntriangles (A).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "solver": {
+          "$ref": "#/$defs/InductanceSolverStats",
+          "description": "Solver statistics."
+        },
+        "source_face_flux_a": {
+          "description": "Geometric face flux `∫ J·n̂ dA` into the conductor through each\npath's source triangles (A): an independent check of the 1 A\nnormalisation (exact for a uniform current, discretisation-order\nclose otherwise).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "spec_path": {
+          "description": "Spec path as given on the command line.",
+          "type": "string"
+        },
+        "spice_file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The SPICE subcircuit `.subckt` (self inductors + `K` couplings)\nwritten by `--spice` (additive in v1; present only with that flag)."
+        },
+        "status": {
+          "const": "ok",
+          "description": "Always `\"ok\"` (failures produce an [`ErrorReport`]).",
+          "type": "string"
+        },
+        "threads": {
+          "description": "`--threads` value, or `null` when not given (library defaults).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "geode_version",
+        "git_sha",
+        "backend",
+        "threads",
+        "spec_path",
+        "kind",
+        "status",
+        "mesh",
+        "regions",
+        "inductance",
+        "paths",
+        "l_henry",
+        "flux_linkage_diag_henry",
+        "current_a",
+        "sink_current_a",
+        "source_face_flux_a",
+        "sink_face_flux_a",
+        "max_solenoidal_residual",
+        "max_rel_asymmetry",
+        "is_spd",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "InductanceSettingsSummary": {
+      "description": "Echo of a resolved `inductance` section with the magnetostatic system\nsize (additive in v1, issue #714).",
+      "properties": {
+        "element": {
+          "description": "Always `\"nedelec1_tet\"` (lowest-order Whitney edge elements).",
+          "type": "string"
+        },
+        "excitation": {
+          "description": "Always `\"open_path_conduction\"`: per path, a P1 conduction solve\n`∇·(σ∇φ) = 0` on the conductor (`φ = 1` source, `0` sink,\ninsulated elsewhere), `J = −σ∇φ` normalised to a 1 A Galerkin net\ncurrent.",
+          "type": "string"
+        },
+        "gauge": {
+          "description": "Always `\"tree_cotree\"` (the curl-curl gradient nullspace is\nremoved by eliminating a spanning forest's edges).",
+          "type": "string"
+        },
+        "n_dof": {
+          "description": "Edge DOFs before PEC elimination (`= mesh.n_edges`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_free_dof": {
+          "description": "Edge DOFs after eliminating the PEC wall and the terminal contacts\n(before the gauge removes the tree edges).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_solves": {
+          "description": "Magnetostatic solves (one sparse LU + solve per path).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "paths": {
+          "description": "Current paths in matrix row/column order.",
+          "items": {
+            "$ref": "#/$defs/CurrentPathSummary"
+          },
+          "type": "array"
+        },
+        "return_path": {
+          "description": "Always `\"pec_wall_return\"`: the source / sink faces are PEC\ncontacts on the `boundary_conditions.pec` wall, which carries the\nreturn current (`n×A = 0`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "paths",
+        "excitation",
+        "return_path",
+        "element",
+        "gauge",
+        "n_dof",
+        "n_free_dof",
+        "n_solves"
+      ],
+      "type": "object"
+    },
+    "InductanceSolverStats": {
+      "description": "Statistics of a `geode inductance` solve.",
+      "properties": {
+        "inner": {
+          "description": "Always `\"direct_lu\"` (faer sparse LU on the gauged cotree block).",
+          "type": "string"
+        },
+        "method": {
+          "description": "Always `\"energy\"`: `L_ij = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾ / (I_i I_j)` with the full\n(pre-gauge) curl-curl.",
+          "type": "string"
+        },
+        "solenoidal_tol": {
+          "description": "Tolerance of the discrete-solenoidality gate each path's `J` passed\nbefore its solve (relative to the RHS norm).",
+          "format": "double",
+          "type": "number"
+        },
+        "wall_time_s": {
+          "description": "Wall time of the conduction solves, assembly, every magnetostatic\nsolve and post-processing, seconds.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "method",
+        "inner",
+        "solenoidal_tol",
+        "wall_time_s"
+      ],
+      "type": "object"
+    },
+    "InductanceSpec": {
+      "additionalProperties": false,
+      "description": "Static inductance-extraction settings (`geode inductance`, issue\n#714).\n\nFor each current path, a P1 **conduction** solve on the path's\nconductor volume (`∇·(σ∇φ) = 0`, `φ = 1` on `source`, `φ = 0` on\n`sink`, insulated elsewhere) gives the current density `J = −σ∇φ`,\nnormalised to 1 A\n([`geode_core::assembly::current_path::open_path_current`]). One\nmagnetostatic solve per path, `∇×(ν₀ν_r∇×A) = J` on lowest-order\nNédélec edges with a tree-cotree gauge and the `boundary_conditions.pec`\nwall as `n×A = 0`, then gives the Maxwell inductance matrix by the\nenergy method `L_ij = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾ / (I_i I_j)`\n([`geode_core::assembly::magnetostatic3d::extract_inductance`]).\n\n**Open paths, PEC return.** Each path's current enters through\n`source` and leaves through `sink`; both faces are treated as PEC\ncontacts and must touch the `boundary_conditions.pec` wall, which is\nthe return conductor (e.g. a coax core whose end disks meet the shield\nend caps). A closed loop with no terminals, or a terminal floating in\nthe dielectric, has no return path and is not supported in v1.",
+      "properties": {
+        "paths": {
+          "description": "Current paths in matrix row/column order (`≥ 1`, distinct names).",
+          "items": {
+            "$ref": "#/$defs/CurrentPathSpec"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "type": "object"
+    },
+    "LeontovichSpec": {
+      "additionalProperties": false,
+      "description": "One Leontovich good-conductor surface\n(`Z_s = (1 + j)·√(ωμ₀ / 2σ)`).",
+      "properties": {
+        "conductivity_s_m": {
+          "description": "Conductor conductivity σ in S/m (`> 0`).",
+          "format": "double",
+          "type": "number"
+        },
+        "physical_group": {
+          "description": "Name of a dimension-2 physical group.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "physical_group",
+        "conductivity_s_m"
+      ],
+      "type": "object"
+    },
+    "LeontovichSummary": {
+      "description": "One Leontovich wall.",
+      "properties": {
+        "conductivity_natural": {
+          "description": "Conductivity in natural units `σ·η₀·L_unit` (1 / mesh length unit).",
+          "format": "double",
+          "type": "number"
+        },
+        "conductivity_s_m": {
+          "description": "Conductivity (S/m).",
+          "format": "double",
+          "type": "number"
+        },
+        "n_triangles": {
+          "description": "Triangles in the group.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Physical-group name.",
+          "type": "string"
+        },
+        "tag": {
+          "description": "Physical tag.",
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "physical_group",
+        "tag",
+        "n_triangles",
+        "conductivity_s_m",
+        "conductivity_natural"
+      ],
+      "type": "object"
+    },
+    "LumpedPortSpec": {
+      "additionalProperties": false,
+      "description": "A uniform (Palace-style) lumped port on a surface physical group.",
+      "properties": {
+        "e_hat": {
+          "description": "Gap direction `ê` (normalized on load; must be non-zero).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "length": {
+          "default": null,
+          "description": "Gap length in mesh units (extent along `ê`). Omit to derive it\nfrom the tagged faces' extent along `ê`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "physical_group": {
+          "description": "Name of a dimension-2 physical group holding the port faces.",
+          "type": "string"
+        },
+        "resistance_ohm": {
+          "description": "Port termination / reference resistance in ohms (`> 0`). This is\nalso the per-port S-parameter reference impedance `Z₀`.",
+          "format": "double",
+          "type": "number"
+        },
+        "v_inc": {
+          "default": [
+            1.0,
+            0.0
+          ],
+          "description": "Incident drive voltage `[re, im]` (default `[1, 0]`; must be\nnon-zero — every port is an S-parameter excitation).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "width": {
+          "default": null,
+          "description": "Port width in mesh units (extent across `ê`). Omit to derive it\nfrom the tagged faces as `area / length`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "physical_group",
+        "e_hat",
+        "resistance_ohm",
+        "width",
+        "length",
+        "v_inc"
+      ],
+      "type": "object"
+    },
+    "MaterialSpec": {
+      "additionalProperties": false,
+      "description": "Material of one volume physical group: complex permittivity and\n(additive in v1, issue #714) real relative permeability.",
+      "properties": {
+        "eps_r": {
+          "default": [
+            1.0,
+            0.0
+          ],
+          "description": "Complex relative permittivity `[re, im]`, `im ≤ 0`\n(`exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`). Defaults to\nvacuum `[1, 0]` (so an inductance spec can list only `mu_r`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "mu_r": {
+          "description": "Real relative permeability `μ_r` (finite, `> 0`; default `1`).\nHonoured only by `geode inductance` in v1: every other analysis\nrejects `μ_r ≠ 1` rather than silently ignoring it.",
+          "format": "double",
+          "type": "number"
+        },
+        "physical_group": {
+          "description": "Name of a dimension-3 physical group (`$PhysicalNames`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "physical_group",
+        "eps_r"
+      ],
+      "type": "object"
+    },
+    "MeshReport": {
+      "description": "`geode mesh` report (`kind = \"mesh\"`, additive in report schema v1).",
+      "properties": {
+        "analysis": {
+          "description": "The `--analysis` the mesh and starter spec were built for\n(`driven`, `capacitance` or `inductance`; additive, issue #720).",
+          "type": "string"
+        },
+        "backend": {
+          "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
+          "type": "string"
+        },
+        "geo": {
+          "$ref": "#/$defs/FileSummary",
+          "description": "Generated `.geo` script."
+        },
+        "geode_version": {
+          "description": "`geode-cli` crate version.",
+          "type": "string"
+        },
+        "git_sha": {
+          "description": "Git revision baked in at build time (`<sha>[-dirty]` or `unknown`).",
+          "type": "string"
+        },
+        "gmsh": {
+          "$ref": "#/$defs/GmshSummary",
+          "description": "Gmsh binary used."
+        },
+        "kind": {
+          "const": "mesh",
+          "description": "Always `\"mesh\"`.",
+          "type": "string"
+        },
+        "layout": {
+          "$ref": "#/$defs/FileSummary",
+          "description": "Layout input."
+        },
+        "mesh": {
+          "$ref": "#/$defs/GeneratedMeshSummary",
+          "description": "Generated mesh."
+        },
+        "physical_groups": {
+          "description": "Generated physical groups, volumes then surfaces, in tag order.",
+          "items": {
+            "$ref": "#/$defs/GroupSummary"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "[`REPORT_SCHEMA_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spec_path": {
+          "description": "Spec path as given on the command line.",
+          "type": "string"
+        },
+        "starter_spec": {
+          "$ref": "#/$defs/ProblemSpec",
+          "description": "The starter problem spec (schema v1)."
+        },
+        "starter_spec_path": {
+          "description": "Where the starter spec was written (`--spec-out`), else `null`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "const": "ok",
+          "description": "Always `\"ok\"`.",
+          "type": "string"
+        },
+        "threads": {
+          "description": "`--threads` value, or `null` when not given (library defaults).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "geode_version",
+        "git_sha",
+        "backend",
+        "threads",
+        "spec_path",
+        "kind",
+        "status",
+        "analysis",
+        "layout",
+        "gmsh",
+        "geo",
+        "mesh",
+        "physical_groups",
+        "starter_spec_path",
+        "starter_spec"
+      ],
+      "type": "object"
+    },
+    "MeshSpec": {
+      "additionalProperties": false,
+      "description": "Mesh file reference.",
+      "properties": {
+        "length_unit_m": {
+          "description": "Metres per mesh length unit (e.g. `1e-6` for a micron mesh).",
+          "format": "double",
+          "type": "number"
+        },
+        "path": {
+          "description": "Path to a Gmsh MSH 4.1 ASCII tetrahedral mesh. Relative paths are\nresolved against the directory containing the spec file.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "length_unit_m"
+      ],
+      "type": "object"
+    },
+    "MeshSummary": {
+      "description": "Mesh summary (shared by `check` and `driven`).",
+      "properties": {
+        "length_unit_m": {
+          "description": "Metres per mesh length unit.",
+          "format": "double",
+          "type": "number"
+        },
+        "n_edges": {
+          "description": "Nédélec edge-DOF count before PEC elimination.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_interior": {
+          "description": "Edge DOFs kept after PEC elimination (the linear-system size).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_nodes": {
+          "description": "Node count.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_tets": {
+          "description": "Tet count.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "description": "Mesh path actually read (spec-relative paths resolved).",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "Hex SHA-256 of the mesh file bytes.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "length_unit_m",
+        "n_nodes",
+        "n_tets",
+        "n_edges",
+        "n_interior"
+      ],
+      "type": "object"
+    },
+    "ModeResult": {
+      "description": "One eigenmode.",
+      "properties": {
+        "field_file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Exported (real, `M_ε`-normalized, arbitrary sign) mode field\n(additive in v1; present only with `--outdir`)."
+        },
+        "frequency_hz": {
+          "description": "Resonant frequency (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "index": {
+          "description": "Mode index (ascending frequency).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "k0": {
+          "description": "Resonant `k₀ = ω/c` (rad / mesh length unit).",
+          "format": "double",
+          "type": "number"
+        },
+        "lambda": {
+          "description": "Eigenvalue `λ = k₀²` ((rad / mesh length unit)²).",
+          "format": "double",
+          "type": "number"
+        },
+        "omega_rad_s": {
+          "description": "Angular frequency `ω = 2πf` (rad/s).",
+          "format": "double",
+          "type": "number"
+        },
+        "q": {
+          "description": "Quality factor. Always `null` in this build: the eigen pencil is\nlossless (real `ε_r`, PEC walls), so `Q` is undefined (infinite),\nnot a number. Lossy / open-cavity `Q` needs a complex quasi-mode\neigensolve — a future eigen-analysis phase.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "residual_rel": {
+          "description": "Relative eigen-residual `‖Kx − λMx‖ / (|λ| ‖Mx‖)`.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "index",
+        "lambda",
+        "k0",
+        "frequency_hz",
+        "omega_rad_s",
+        "q",
+        "residual_rel"
+      ],
+      "type": "object"
+    },
+    "PecSummary": {
+      "description": "One PEC surface.",
+      "properties": {
+        "n_triangles": {
+          "description": "Triangles in the group.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Physical-group name.",
+          "type": "string"
+        },
+        "tag": {
+          "description": "Physical tag.",
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "physical_group",
+        "tag",
+        "n_triangles"
+      ],
+      "type": "object"
+    },
+    "PortExtraction": {
+      "description": "Per-port extraction results of a `geode extract` sweep.",
+      "properties": {
+        "im_z_zero_crossings_hz": {
+          "description": "Every `Im Z_kk` sign change in the swept range (Hz), ascending,\nlinearly interpolated between samples. A sign change is a series\nresonance or a flip through a pole (parallel anti-resonance).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "index": {
+          "description": "Port index.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "l0_anchor_frequencies_hz": {
+          "description": "The two anchor frequencies used (Hz), ascending.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "l0_check_frequency_hz": {
+          "description": "The third-lowest anchor `f₃` (Hz) behind the estimate.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "l0_error_estimate_h": {
+          "description": "Consistency estimate `|L₀(f₁,f₂) − L₀(f₂,f₃)|` (H) from the\nthird-lowest anchor; `null` with only two anchors.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "l0_error_estimate_rel": {
+          "description": "`l0_error_estimate_h / |l0_h|`; `null` with only two anchors.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "l0_h": {
+          "description": "Quasi-static inductance `L₀ = lim_{f→0} Im Z_kk / ω` (H), by\ntwo-point Richardson extrapolation of `L(f) ≈ L₀ − a·f²` on the\ntwo lowest anchors.",
+          "format": "double",
+          "type": "number"
+        },
+        "srf_hz": {
+          "description": "Self-resonant frequency (Hz): the first entry of\n`im_z_zero_crossings_hz`, `null` if the sweep brackets none.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "index",
+        "l0_h",
+        "l0_anchor_frequencies_hz",
+        "l0_error_estimate_h",
+        "l0_error_estimate_rel",
+        "l0_check_frequency_hz",
+        "im_z_zero_crossings_hz",
+        "srf_hz"
+      ],
+      "type": "object"
+    },
+    "PortResult": {
+      "description": "Per-port self quantities at one frequency (from the diagonal `Z_kk`,\ni.e. with every other port terminated in its own resistance).",
+      "properties": {
+        "index": {
+          "description": "Port index.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "l_h": {
+          "description": "Series inductance `Im Z_kk / ω` (H). Negative above self-resonance.",
+          "format": "double",
+          "type": "number"
+        },
+        "q": {
+          "description": "Quality factor `Im Z_kk / Re Z_kk`.",
+          "format": "double",
+          "type": "number"
+        },
+        "r_ohm": {
+          "description": "Series resistance `Re Z_kk` (Ω).",
+          "format": "double",
+          "type": "number"
+        },
+        "s": {
+          "description": "`S_kk` vs the port's `resistance_ohm`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "s_db": {
+          "description": "`|S_kk|` in dB (`20·log10|S_kk|`).",
+          "format": "double",
+          "type": "number"
+        },
+        "z_ohm": {
+          "description": "`Z_kk` (Ω).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "index",
+        "z_ohm",
+        "s",
+        "s_db",
+        "r_ohm",
+        "l_h",
+        "q"
+      ],
+      "type": "object"
+    },
+    "PortSummary": {
+      "description": "One lumped port.",
+      "properties": {
+        "e_hat": {
+          "description": "Normalized gap direction.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "geometry_derived": {
+          "description": "`true` if width/length were derived from the tagged faces.",
+          "type": "boolean"
+        },
+        "index": {
+          "description": "Port index (row/column in the Z/Y/S matrices).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "length": {
+          "description": "Gap length (mesh units).",
+          "format": "double",
+          "type": "number"
+        },
+        "n_triangles": {
+          "description": "Port faces.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Physical-group name.",
+          "type": "string"
+        },
+        "resistance_ohm": {
+          "description": "Termination = S-parameter reference resistance (Ω).",
+          "format": "double",
+          "type": "number"
+        },
+        "tag": {
+          "description": "Physical tag.",
+          "format": "int32",
+          "type": "integer"
+        },
+        "v_inc": {
+          "description": "Incident voltage.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "width": {
+          "description": "Width (mesh units).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "index",
+        "physical_group",
+        "tag",
+        "n_triangles",
+        "e_hat",
+        "width",
+        "length",
+        "geometry_derived",
+        "resistance_ohm",
+        "v_inc"
+      ],
+      "type": "object"
+    },
+    "ProblemSpec": {
+      "additionalProperties": false,
+      "description": "Top-level problem spec (schema v1).",
+      "properties": {
+        "absorbing_regions": {
+          "default": [],
+          "description": "Matched (box) UPML absorbing shells on volume physical groups\n(additive in v1, issue #683). Empty (default) = no UPML: the\ndriven operator uses the plain scalar per-tet `ε_r`. Driven /\nextract specs only.",
+          "items": {
+            "$ref": "#/$defs/UpmlSpec"
+          },
+          "type": "array"
+        },
+        "boundary_conditions": {
+          "$ref": "#/$defs/BoundaryConditionsSpec",
+          "default": {
+            "leontovich": [],
+            "pec": [],
+            "silver_muller": []
+          },
+          "description": "Boundary conditions on surface physical groups. Surfaces not named\nhere are natural (PMC-like) boundaries of the weak form."
+        },
+        "capacitance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CapacitanceSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Static capacitance-extraction settings (additive in v1, issue\n#705). Its presence makes this a **capacitance spec** (for `geode\ncapacitance`)."
+        },
+        "eigen": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EigenSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Eigenmode analysis settings. Its presence makes this an **eigen\nspec** (for `geode eigen`)."
+        },
+        "extract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExtractSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inductance-extraction settings. Its presence makes this an\n**extract spec** (for `geode extract`). Without `eigen` or\n`extract` the spec is a driven spec."
+        },
+        "frequencies": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrequencySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Frequencies to solve at. Required for a `driven` / `extract` spec;\nnot allowed in an `eigen` spec (its target is [`EigenSpec::shift`])."
+        },
+        "inductance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InductanceSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Static inductance-extraction settings (additive in v1, issue\n#714). Its presence makes this an **inductance spec** (for `geode\ninductance`)."
+        },
+        "materials": {
+          "default": [],
+          "description": "Per-volume-region complex relative permittivity. Volume physical\ngroups not listed here default to vacuum (`ε_r = 1`); the `check`\nreport lists which regions defaulted.",
+          "items": {
+            "$ref": "#/$defs/MaterialSpec"
+          },
+          "type": "array"
+        },
+        "mesh": {
+          "$ref": "#/$defs/MeshSpec",
+          "description": "The mesh to solve on."
+        },
+        "ports": {
+          "default": [],
+          "description": "Lumped ports. A `driven` / `extract` spec needs at least one lumped\nport **or** (driven only) at least one wave port; an `eigen` spec\nmust have none (lumped ports are resistive, the eigen pencil is\nlossless).",
+          "items": {
+            "$ref": "#/$defs/LumpedPortSpec"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "Must equal [`SPEC_SCHEMA_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverSpec",
+          "default": {
+            "mode": "direct"
+          },
+          "description": "Linear-solver selection (default: direct sparse LU)."
+        },
+        "wave_ports": {
+          "default": [],
+          "description": "Wave (modal) ports on planar surface physical groups (additive in\nv1, issue #683). `driven` specs only, and in v1 mutually exclusive\nwith lumped `ports` and with Leontovich / Silver-Müller walls.",
+          "items": {
+            "$ref": "#/$defs/WavePortSpec"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "mesh",
+        "materials",
+        "boundary_conditions",
+        "absorbing_regions",
+        "ports",
+        "wave_ports",
+        "frequencies",
+        "solver",
+        "eigen",
+        "extract"
+      ],
+      "type": "object"
+    },
+    "RegionSummary": {
+      "description": "One volume region.",
+      "properties": {
+        "eps_r": {
+          "description": "Applied relative permittivity.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "eps_r_source": {
+          "description": "`\"spec\"` or `\"default_vacuum\"`.",
+          "type": "string"
+        },
+        "mu_r": {
+          "description": "Applied real relative permeability (additive in v1, issue #714;\n`1` unless an inductance spec lists `mu_r` for the region).",
+          "format": "double",
+          "type": "number"
+        },
+        "n_tets": {
+          "description": "Tets in the region.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Physical-group name (`<untagged>` for tag 0).",
+          "type": "string"
+        },
+        "tag": {
+          "description": "Physical tag.",
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "physical_group",
+        "tag",
+        "n_tets",
+        "eps_r",
+        "eps_r_source",
+        "mu_r"
+      ],
+      "type": "object"
+    },
+    "ResourceEstimate": {
+      "description": "`geode check`'s up-front resource estimate (additive in v1).\n\n**Order-of-magnitude only.** The direct-LU figures are a linear-in-\n`nnz(A)` extrapolation from a single measured anchor (2026-07-15,\n1.16M-DOF transmon eigen run; `calibration_basis` names it). LU fill\ngrows super-linearly, so the estimate is biased high on meshes much\nsmaller than the anchor and low on larger ones. Symbolic-fill\npredictors are deliberately not used: at the anchor scale an ordering\nthat won on symbolic fill was OOM-killed by the real LU.",
+      "properties": {
+        "calibration_basis": {
+          "description": "The calibration anchor, its date and the scaling assumptions.",
+          "type": "string"
+        },
+        "flops_max": {
+          "description": "Worst-case total flops at `max_iters` for every RHS and\nfrequency, iterative only.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "flops_per_iteration": {
+          "description": "Floating-point operations per Krylov iteration (one complex SpMV\nplus vector updates), iterative only.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "n_factorizations": {
+          "description": "LU factorizations the run performs (one per frequency for\ndriven / extract direct, one for eigen, one per current path for\ninductance, `0` iterative).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_rhs_per_frequency": {
+          "description": "Right-hand sides per frequency (ports, or `2 × channels` for wave\nports; `0` for eigen; `1` per factorization for inductance).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nnz_a": {
+          "description": "Non-zeros of the full Nédélec system pattern before PEC\nelimination (the anchor's convention).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "peak_memory_confidence": {
+          "description": "Accuracy class of `peak_memory_gb`: `\"order_of_magnitude\"`.",
+          "type": "string"
+        },
+        "peak_memory_gb": {
+          "description": "Estimated peak resident memory (GB = 10⁹ bytes).",
+          "format": "double",
+          "type": "number"
+        },
+        "scalar": {
+          "description": "`\"real\"` (eigen pencil, magnetostatic inductance system) or\n`\"complex\"` (driven / extract).",
+          "type": "string"
+        },
+        "solver_mode": {
+          "description": "`\"direct\"` or `\"iterative\"` (an eigen or inductance spec is always\n`\"direct\"`).",
+          "type": "string"
+        },
+        "wall_time_confidence": {
+          "description": "Accuracy class of the direct wall-time figures:\n`\"conservative_below_anchor\"` — machine-dependent, and on every\nin-repo fixture measured (all far below the anchor) 4–40× **high**;\nabove the anchor, super-linear fill makes it an under-estimate.\n`null` for iterative (no wall-time figure).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "wall_time_per_factorization_s": {
+          "description": "Estimated wall time of one factorization (s), direct only.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "wall_time_s": {
+          "description": "Estimated total wall time (s), direct only (`null` iterative: no\nmeasured anchor).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "solver_mode",
+        "scalar",
+        "nnz_a",
+        "n_factorizations",
+        "n_rhs_per_frequency",
+        "peak_memory_gb",
+        "wall_time_s",
+        "wall_time_per_factorization_s",
+        "flops_per_iteration",
+        "flops_max",
+        "peak_memory_confidence",
+        "wall_time_confidence",
+        "calibration_basis"
+      ],
+      "type": "object"
+    },
+    "SilverMullerSummary": {
+      "description": "One Silver-Müller absorbing wall (`Z_s = η₀`).",
+      "properties": {
+        "n_triangles": {
+          "description": "Triangles in the group.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Physical-group name.",
+          "type": "string"
+        },
+        "tag": {
+          "description": "Physical tag.",
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "physical_group",
+        "tag",
+        "n_triangles"
+      ],
+      "type": "object"
+    },
+    "SolverSpec": {
+      "description": "Linear-solver selection.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Sparse direct LU, one factorization per frequency (default). A\nstruct variant so `deny_unknown_fields` rejects stray keys such as\n`tol` under `mode = \"direct\"`.",
+          "properties": {
+            "mode": {
+              "const": "direct",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "COCG Krylov iteration with a Jacobi preconditioner built once per\nfrequency. Non-convergence within `max_iters` is a hard error.",
+          "properties": {
+            "max_iters": {
+              "default": 5000,
+              "description": "Iteration budget per right-hand side (default `5000`).",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "mode": {
+              "const": "iterative",
+              "type": "string"
+            },
+            "tol": {
+              "default": 1e-10,
+              "description": "Relative-residual stopping tolerance (default `1e-10`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "mode",
+            "tol",
+            "max_iters"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SolverStats": {
+      "description": "Aggregate solver statistics for a driven sweep.",
+      "properties": {
+        "iterations_max": {
+          "description": "Largest per-RHS Krylov iteration count over the sweep (`0` direct).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_iters": {
+          "description": "Iterative budget (`null` for direct).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mode": {
+          "description": "`\"direct\"` or `\"iterative\"`.",
+          "type": "string"
+        },
+        "residual_rel_max": {
+          "description": "Largest post-solve relative residual `‖Ax − b‖/‖b‖` over the sweep.",
+          "format": "double",
+          "type": "number"
+        },
+        "tol": {
+          "description": "Iterative tolerance (`null` for direct).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "wall_time_s": {
+          "description": "Wall time of the whole sweep (assembly + all solves), seconds.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "mode",
+        "tol",
+        "max_iters",
+        "iterations_max",
+        "residual_rel_max",
+        "wall_time_s"
+      ],
+      "type": "object"
+    },
+    "SolverSummary": {
+      "description": "Solver selection echoed back.",
+      "properties": {
+        "max_iters": {
+          "description": "Iterative budget (`null` for direct).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mode": {
+          "description": "`\"direct\"` or `\"iterative\"`.",
+          "type": "string"
+        },
+        "tol": {
+          "description": "Iterative tolerance (`null` for direct).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "mode",
+        "tol",
+        "max_iters"
+      ],
+      "type": "object"
+    },
+    "Spacing": {
+      "description": "Point spacing of a `start`/`stop`/`count` sweep.",
+      "oneOf": [
+        {
+          "const": "linear",
+          "description": "Evenly spaced (default).",
+          "type": "string"
+        },
+        {
+          "const": "log",
+          "description": "Geometrically spaced.",
+          "type": "string"
+        }
+      ]
+    },
+    "UpmlSpec": {
+      "additionalProperties": false,
+      "description": "A matched (full Sacks) box-UPML absorbing shell on one volume physical\ngroup.\n\nThe shell's **inner wall** (the air box) is derived from the mesh: the\nbounding box of every mesh node, shrunk inward by `thickness` on every\nface. Each tet of the group whose centroid lies outside that box gets\nthe complex coordinate stretch `s_i = 1 − j·sigma_0·(d_i/thickness)²/k₀`\nper axis (`d_i` = depth beyond the inner wall on axis `i`), applied as\nthe constitutive tensors `ε = ε_r·Λ`, `ν = Λ⁻¹` on top of the group's\n`materials` permittivity (vacuum if unlisted). The mesh must therefore\nbe an **axis-aligned box** whose outer shell of depth `thickness` is\nthe absorbing region; terminate it with a PEC outer wall.",
+      "properties": {
+        "physical_group": {
+          "description": "Name of a dimension-3 physical group (the absorbing shell tets).",
+          "type": "string"
+        },
+        "sigma_0": {
+          "description": "UPML strength `σ₀` of the quadratic profile, in **natural units**\n(rad per mesh length unit — the same unit as `k₀`), `> 0`. `25` is\nthe repo's validated value for the patch-antenna / Mie shells.",
+          "format": "double",
+          "type": "number"
+        },
+        "thickness": {
+          "description": "Shell thickness in mesh units (`> 0`, less than half the mesh\nextent on every axis).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "physical_group",
+        "thickness",
+        "sigma_0"
+      ],
+      "type": "object"
+    },
+    "UpmlSummary": {
+      "description": "One matched box-UPML shell (`absorbing_regions` entry).",
+      "properties": {
+        "air_box_hi": {
+          "description": "Derived inner wall (air box) high corner (mesh units).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "air_box_lo": {
+          "description": "Derived inner wall (air box) low corner (mesh units).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "n_tets": {
+          "description": "Tets in the group.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_tets_stretched": {
+          "description": "Tets beyond the inner wall (the ones actually stretched).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Physical-group name.",
+          "type": "string"
+        },
+        "sigma_0": {
+          "description": "UPML strength σ₀ (natural units, rad / mesh length unit).",
+          "format": "double",
+          "type": "number"
+        },
+        "tag": {
+          "description": "Physical tag.",
+          "format": "int32",
+          "type": "integer"
+        },
+        "thickness": {
+          "description": "Shell thickness (mesh units).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "physical_group",
+        "tag",
+        "n_tets",
+        "n_tets_stretched",
+        "thickness",
+        "sigma_0",
+        "air_box_lo",
+        "air_box_hi"
+      ],
+      "type": "object"
+    },
+    "WaveChannelResult": {
+      "description": "Per-channel quantities of a wave-port sweep at one frequency.",
+      "properties": {
+        "beta": {
+          "description": "Propagation constant `β` (rad / mesh length unit): real positive\nwhen propagating, `−j|β|` when evanescent.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "channel": {
+          "description": "Flat channel index (row/column of `s`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mode": {
+          "description": "Mode index within the port.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "port": {
+          "description": "Wave-port index.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "propagating": {
+          "description": "`true` above cutoff.",
+          "type": "boolean"
+        },
+        "s": {
+          "description": "Power-normalized `S_kk`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "s_db": {
+          "description": "`|S_kk|` in dB.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "channel",
+        "port",
+        "mode",
+        "beta",
+        "propagating",
+        "s",
+        "s_db"
+      ],
+      "type": "object"
+    },
+    "WaveModeSummary": {
+      "description": "One solved cross-section mode of a wave port.",
+      "properties": {
+        "channel": {
+          "description": "Flat S-matrix channel index (port-major, mode-minor).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cutoff_hz": {
+          "description": "Cutoff frequency (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "k_c": {
+          "description": "Cutoff wavenumber `k_c` (rad / mesh length unit).",
+          "format": "double",
+          "type": "number"
+        },
+        "mode": {
+          "description": "Mode index within the port (ascending cutoff).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "mode",
+        "channel",
+        "k_c",
+        "cutoff_hz"
+      ],
+      "type": "object"
+    },
+    "WavePortSpec": {
+      "additionalProperties": false,
+      "description": "A wave (modal) port on a planar surface physical group.\n\nThe tagged faces are projected into a local 2-D cross-section whose\nrim (edges on a single face triangle) is PEC; the `n_modes`\nlowest-cutoff transverse modes of that cross-section become the port's\nS-parameter channels (TEM modes of multiply connected cross-sections\nare not supported).",
+      "properties": {
+        "a_inc": {
+          "default": null,
+          "description": "Per-mode incident amplitude `[re, im]`, length `n_modes`, every\nentry finite and non-zero. Default: `[1, 0]` for every mode.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "n_modes": {
+          "default": 1,
+          "description": "Number of modes (`≥ 1`, default `1`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Name of a dimension-2 physical group holding the (planar) port\nfaces.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "physical_group",
+        "n_modes",
+        "a_inc"
+      ],
+      "type": "object"
+    },
+    "WavePortSummary": {
+      "description": "One wave port.",
+      "properties": {
+        "a_inc": {
+          "description": "Per-mode incident amplitude.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "area": {
+          "description": "Port face area (mesh units²).",
+          "format": "double",
+          "type": "number"
+        },
+        "index": {
+          "description": "Port index.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "modes": {
+          "description": "Solved modes (`driven` reports); `null` in `check` (no modal solve).",
+          "items": {
+            "$ref": "#/$defs/WaveModeSummary"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "n_interior_port_edges": {
+          "description": "Cross-section interior edges (the modal problem size; rim edges\nare PEC).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_modes": {
+          "description": "Modes requested.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_port_edges": {
+          "description": "Cross-section edges (rim + interior).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_triangles": {
+          "description": "Port faces.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "normal": {
+          "description": "Unit face normal.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "physical_group": {
+          "description": "Physical-group name.",
+          "type": "string"
+        },
+        "tag": {
+          "description": "Physical tag.",
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index",
+        "physical_group",
+        "tag",
+        "n_triangles",
+        "n_port_edges",
+        "n_interior_port_edges",
+        "area",
+        "normal",
+        "n_modes",
+        "a_inc",
+        "modes"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Output of every `geode` subcommand except `schema`: exactly one JSON document, one of eight kinds discriminated by the top-level `kind` (`check`, `driven`, `eigen`, `extract`, `capacitance`, `inductance`, `mesh`, `error`). Each branch pins `kind` and `status` with `const`, so exactly one branch matches. Report objects are open (no `additionalProperties: false`): fields added within report schema v1 are additive, and consumers should ignore fields they do not know.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/CheckReport"
+    },
+    {
+      "$ref": "#/$defs/DrivenReport"
+    },
+    {
+      "$ref": "#/$defs/EigenReport"
+    },
+    {
+      "$ref": "#/$defs/ExtractReport"
+    },
+    {
+      "$ref": "#/$defs/CapacitanceReport"
+    },
+    {
+      "$ref": "#/$defs/InductanceReport"
+    },
+    {
+      "$ref": "#/$defs/MeshReport"
+    },
+    {
+      "$ref": "#/$defs/ErrorReport"
+    }
+  ],
+  "title": "GEODE report (schema v1)"
+}

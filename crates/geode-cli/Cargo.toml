@@ -32,6 +32,14 @@ toml = { workspace = true }
 thiserror = { workspace = true }
 # `mesh_sha256` provenance field (already in the lockfile transitively).
 sha2 = "0.10"
+# `geode schema spec|report|layout` (issue #709): JSON Schema derived from the
+# same serde types the binary parses / emits.
+schemars = { workspace = true }
+
+[dev-dependencies]
+# Validates committed fixtures and emitted reports against the committed
+# schemas (tests/schema.rs). Dev-only: not in the binary's dependency tree.
+jsonschema = { workspace = true }
 
 [features]
 # Backend selection is a COMPILE-TIME choice (mirrors geode-core): the

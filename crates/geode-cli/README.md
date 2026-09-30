@@ -20,7 +20,11 @@ geode capacitance caps.json --spice caps.sp         # + SPICE .subckt of the mut
 geode inductance triax.toml --spice l.sp            # + SPICE .subckt of self L + K couplings
 geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json   # layout → mesh → solve
 geode mesh layout.json --analysis capacitance --spec-out c.json && geode capacitance c.json   # layout → C matrix
+geode schema spec                                   # JSON Schema (draft 2020-12) of the spec; also `report`, `layout`
 ```
+
+New to `geode`? Start with the runnable [examples cookbook](examples/README.md):
+one worked example per analysis, with the output to expect.
 
 | Subcommand | Status |
 |---|---|
@@ -31,6 +35,7 @@ geode mesh layout.json --analysis capacitance --spec-out c.json && geode capacit
 | `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
 | `inductance` | live (#714) — static **Maxwell inductance matrix** (henries) between named open current paths (conductor volume + source / sink faces returning through one connected PEC conductor), from a P1 conduction solve per path for the current density and one tree-cotree-gauged magnetostatic solve per path (Nédélec edges, direct LU); **not** `extract`'s RF `l0_h` (see [Inductance](#static-inductance-geode-inductance-issue-714)); optional SPICE `.subckt` (#719) |
 | `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec (`--analysis driven`, `capacitance` or `inductance`, #720), via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
+| `schema`  | live (#709) — print the JSON Schema (draft 2020-12) of the problem spec, the report or the layout (`geode schema spec\|report\|layout [-o PATH]`), derived from the same serde types the binary parses and emits; committed under [`schemas/`](schemas/) (see [JSON Schema](#json-schema-geode-schema-issue-709)) |
 
 ## Install
 
@@ -121,7 +126,9 @@ elsewhere — Ubuntu 22.04 and Debian 12 package Gmsh 4.8, which is too old.
 
 Unknown fields are rejected everywhere (a typo never silently falls back
 to a default). `.toml` files are parsed as TOML, anything else as JSON —
-both through the same schema.
+both through the same schema. The machine-readable form is
+[`schemas/spec.schema.json`](schemas/spec.schema.json) (`geode schema spec`;
+see [JSON Schema](#json-schema-geode-schema-issue-709)).
 
 A spec describes **one** analysis, decided by which optional analysis
 section it carries:
@@ -1369,6 +1376,93 @@ conduction or magnetostatic factorization failure), `non_finite`, `serialize`,
 `gmsh_not_found`, `gmsh_failed` (the last two from `geode mesh`; a bad
 layout reports `spec_parse` / `invalid_spec`)
 (`not_implemented` was retired once `extract` went live).
+
+## JSON Schema (`geode schema`, issue #709)
+
+The three JSON contracts are published as **JSON Schema, draft 2020-12**
+(`"$schema": "https://json-schema.org/draft/2020-12/schema"`), generated
+with [`schemars`](https://docs.rs/schemars) from the same serde types the
+binary parses and emits, so they cannot silently drift from it:
+
+| Contract | Committed file | Print it | Covers |
+|---|---|---|---|
+| problem spec | [`schemas/spec.schema.json`](schemas/spec.schema.json) | `geode schema spec` | input of `check` / `driven` / `eigen` / `extract` / `capacitance` / `inductance` (JSON or TOML) |
+| report | [`schemas/report.schema.json`](schemas/report.schema.json) | `geode schema report` | the one JSON document every subcommand but `schema` writes |
+| layout | [`schemas/layout.schema.json`](schemas/layout.schema.json) | `geode schema layout` | input of `geode mesh` (JSON or TOML) |
+
+`geode schema <kind> [-o PATH]` writes the schema itself (pretty JSON),
+not a report; the files are versioned with the repository and attached to
+nothing else. Field descriptions are the Rust doc comments (units,
+defaults, conventions).
+
+How serde maps onto the schema:
+
+- `deny_unknown_fields` → `"additionalProperties": false` on every spec /
+  layout object: an unknown key is schema-invalid, exactly as `geode`
+  rejects it (`spec_parse`).
+- `#[serde(default)]` fields are optional and carry their `default`.
+- The internally tagged enums become a `oneOf` with one closed branch per
+  variant, keyed by a `const` tag: `solver` (`"mode": "direct" |
+  "iterative"`) and the layout's `boundary` (`"kind": "pec" | "upml"`).
+- `schema_version` is pinned with `"const": 1` in all three.
+- The spec and layout schemas describe what a caller may **write**
+  (defaulted fields optional); the report schema describes what `geode`
+  **writes** — every field it always emits is `required` (nullable ones as
+  `[T, "null"]`), fields present only with a flag (`touchstone_file`,
+  `spice_file`, `field_file`, …) are optional.
+- The report schema is a hand-assembled `oneOf` over the eight kinds
+  (`check`, `driven`, `eigen`, `extract`, `capacitance`, `inductance`,
+  `mesh`, `error`). Each branch pins `kind` — and `status` (`"ok"`, or
+  `"error"` for `kind = "error"`) — with a `const`, so exactly one branch
+  matches a report. Report objects are **open** (no
+  `additionalProperties: false`): fields added within report schema v1 are
+  additive, and consumers should ignore keys they do not know.
+
+**Schema-valid is not `geode check`-valid.** The schemas are structural.
+The cross-field and semantic rules are enforced by the binary only
+(`problem::load` for specs, layout resolution for `geode mesh`) and are not
+expressed in the schemas: which sections each analysis requires or
+forbids (see [Problem spec](#problem-spec-schema-v1)), at most one of
+`eigen` / `extract` / `capacitance` / `inductance`, `mu_r ≠ 1` only in an
+inductance spec, a physical group in at most one role, value ranges
+(`> 0`, `im ≤ 0`, `≥ 2` anchors, …), `values` **or**
+`start`/`stop`/`count`, `between` **or** `rect`, and every name resolving
+against the mesh or layout. Use a schema to catch typos and type errors
+early (editors, CI, agents); run `geode check` (spec) or `geode mesh`
+(layout) as the authority.
+
+Other known limits of v1: numeric fields carry informative `format`
+annotations (`double`, `uint`, `uint32`) that validators treat as
+annotations, not assertions; the `minimum: 0` on integer fields is the
+only range the schemas enforce.
+
+Checked in CI by `tests/schema.rs`: the committed files equal what the
+binary generates (drift guard), they are valid 2020-12 schemas, every
+committed spec and layout (`tests/fixtures/`, `examples/`) validates, the
+schema rejects the serde-rejected cases `geode check` rejects, and real
+reports of every kind validate against the report schema
+(`tests/cookbook.rs` covers the `mesh` report). After changing a spec,
+layout or report type, regenerate from the repository root and review the
+diff — a schema change is a contract change:
+
+```sh
+for k in spec report layout; do
+  cargo run -q -p geode-cli -- schema $k -o crates/geode-cli/schemas/$k.schema.json
+done
+```
+
+## Examples cookbook (`examples/`, issue #709)
+
+[`examples/`](examples/README.md) has one runnable example per analysis —
+`driven`, `extract`, `eigen`, `capacitance`, `inductance`, and `mesh` →
+driven / capacitance / inductance — each with a README giving the command
+line, what it models and the output to expect. The specs (and the spiral
+layout) are byte-identical copies of the golden-test fixtures, so the
+quoted numbers are the pinned ones; `tests/cookbook.rs` fails if a copy
+drifts, runs `geode check` on every cookbook spec, and (with Gmsh) runs
+`geode mesh` on every cookbook layout and `geode check` on the resulting
+starter spec. (`crates/geode-cli/examples/` holds only JSON / TOML and
+Markdown — no `cargo run --example` targets.)
 
 ## Golden tests
 

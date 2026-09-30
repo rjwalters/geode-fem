@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "description": "Kelvin guard-ring parallel-plate capacitor (geode-cli cookbook; the default tier of tests/mesh_static_golden.rs, issue #720): a 1 mm square plate inside a coplanar guard ring (0.1 mm gap), both nets of one sheet layer, 1 mm above a grounded bottom plate (eps_r = 4 between) and 1 mm below the grounded outer wall.",
+  "length_unit_m": 0.001,
+  "dielectrics": [
+    {
+      "name": "below",
+      "z_bottom": -0.25,
+      "thickness": 0.25
+    },
+    {
+      "name": "gap",
+      "z_bottom": 0.0,
+      "thickness": 1.0,
+      "eps_r": [
+        4.0,
+        0.0
+      ]
+    },
+    {
+      "name": "above",
+      "z_bottom": 1.0,
+      "thickness": 1.0
+    }
+  ],
+  "conductors": [
+    {
+      "name": "bottom",
+      "z_bottom": 0.0,
+      "mesh_size": 0.3,
+      "polygons": [
+        {
+          "outer": [
+            [
+              -1.6,
+              -1.6
+            ],
+            [
+              2.6,
+              -1.6
+            ],
+            [
+              2.6,
+              2.6
+            ],
+            [
+              -1.6,
+              2.6
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "top",
+      "z_bottom": 1.0,
+      "polygons": [
+        {
+          "net": "plate",
+          "outer": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0
+            ],
+            [
+              1.0,
+              1.0
+            ],
+            [
+              0.0,
+              1.0
+            ]
+          ]
+        },
+        {
+          "net": "guard",
+          "outer": [
+            [
+              -1.6,
+              -1.6
+            ],
+            [
+              -0.1,
+              -1.6
+            ],
+            [
+              -0.1,
+              2.6
+            ],
+            [
+              -1.6,
+              2.6
+            ]
+          ]
+        },
+        {
+          "net": "guard",
+          "outer": [
+            [
+              1.1,
+              -1.6
+            ],
+            [
+              2.6,
+              -1.6
+            ],
+            [
+              2.6,
+              2.6
+            ],
+            [
+              1.1,
+              2.6
+            ]
+          ]
+        },
+        {
+          "net": "guard",
+          "outer": [
+            [
+              -0.1,
+              -1.6
+            ],
+            [
+              1.1,
+              -1.6
+            ],
+            [
+              1.1,
+              -0.1
+            ],
+            [
+              -0.1,
+              -0.1
+            ]
+          ]
+        },
+        {
+          "net": "guard",
+          "outer": [
+            [
+              -0.1,
+              1.1
+            ],
+            [
+              1.1,
+              1.1
+            ],
+            [
+              1.1,
+              2.6
+            ],
+            [
+              -0.1,
+              2.6
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "ground": [
+    "bottom"
+  ],
+  "margin": 0.5,
+  "mesh": {
+    "size_max": 0.4,
+    "size_conductor": 0.1
+  }
+}

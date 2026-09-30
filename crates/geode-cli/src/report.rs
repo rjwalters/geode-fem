@@ -1,8 +1,11 @@
 //! JSON report schema v1: the `geode` CLI's output contract.
 //!
 //! Every invocation that gets past argument parsing writes exactly one
-//! JSON document (stdout, or the `-o` path). The document is one of
-//! seven kinds, discriminated by the top-level `kind` field:
+//! JSON document (stdout, or the `-o` path; `geode schema` prints a
+//! schema instead). The document is one of the kinds below, or `"mesh"`
+//! ([`crate::mesh_cmd::MeshReport`], from `geode mesh`), discriminated by
+//! the top-level `kind` field (published as the `oneOf` of
+//! `schemas/report.schema.json`, [`crate::schema`]):
 //!
 //! * `"check"` — [`CheckReport`], from `geode check` (no solve);
 //! * `"driven"` — [`DrivenReport`], from `geode driven`;
@@ -26,6 +29,7 @@
 //!
 //! `crates/geode-cli/README.md` carries the field-by-field reference.
 
+use schemars::JsonSchema;
 use serde::Serialize;
 
 /// Report schema version. Bumped on any breaking change to the report
@@ -36,9 +40,10 @@ pub const REPORT_SCHEMA_VERSION: u32 = 1;
 pub type Complex = [f64; 2];
 
 /// Provenance fields shared by every report.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct Provenance {
     /// [`REPORT_SCHEMA_VERSION`].
+    #[schemars(extend("const" = REPORT_SCHEMA_VERSION))]
     pub schema_version: u32,
     /// `geode-cli` crate version.
     pub geode_version: &'static str,
@@ -53,7 +58,7 @@ pub struct Provenance {
 }
 
 /// Mesh summary (shared by `check` and `driven`).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct MeshSummary {
     /// Mesh path actually read (spec-relative paths resolved).
     pub path: String,
@@ -72,7 +77,7 @@ pub struct MeshSummary {
 }
 
 /// One volume region.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct RegionSummary {
     /// Physical-group name (`<untagged>` for tag 0).
     pub physical_group: String,
@@ -90,7 +95,7 @@ pub struct RegionSummary {
 }
 
 /// One PEC surface.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct PecSummary {
     /// Physical-group name.
     pub physical_group: String,
@@ -101,7 +106,7 @@ pub struct PecSummary {
 }
 
 /// One Leontovich wall.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct LeontovichSummary {
     /// Physical-group name.
     pub physical_group: String,
@@ -116,7 +121,7 @@ pub struct LeontovichSummary {
 }
 
 /// One Silver-Müller absorbing wall (`Z_s = η₀`).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct SilverMullerSummary {
     /// Physical-group name.
     pub physical_group: String,
@@ -127,7 +132,7 @@ pub struct SilverMullerSummary {
 }
 
 /// One matched box-UPML shell (`absorbing_regions` entry).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct UpmlSummary {
     /// Physical-group name.
     pub physical_group: String,
@@ -148,7 +153,7 @@ pub struct UpmlSummary {
 }
 
 /// One solved cross-section mode of a wave port.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct WaveModeSummary {
     /// Mode index within the port (ascending cutoff).
     pub mode: usize,
@@ -161,7 +166,7 @@ pub struct WaveModeSummary {
 }
 
 /// One wave port.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct WavePortSummary {
     /// Port index.
     pub index: usize,
@@ -189,7 +194,7 @@ pub struct WavePortSummary {
 }
 
 /// One lumped port.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct PortSummary {
     /// Port index (row/column in the Z/Y/S matrices).
     pub index: usize,
@@ -214,7 +219,7 @@ pub struct PortSummary {
 }
 
 /// Solver selection echoed back.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct SolverSummary {
     /// `"direct"` or `"iterative"`.
     pub mode: &'static str,
@@ -225,7 +230,7 @@ pub struct SolverSummary {
 }
 
 /// One frequency point as requested.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct FrequencySummary {
     /// Frequency (Hz).
     pub frequency_hz: f64,
@@ -234,7 +239,7 @@ pub struct FrequencySummary {
 }
 
 /// Echo of a resolved `eigen` spec section.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct EigenSettingsSummary {
     /// Physical modes requested.
     pub n_modes: usize,
@@ -253,7 +258,7 @@ pub struct EigenSettingsSummary {
 }
 
 /// Echo of a resolved `extract` spec section.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ExtractSettingsSummary {
     /// `"frequencies"` or `"anchor_frequencies"` — the spec list the
     /// `L₀` anchors were taken from.
@@ -267,14 +272,16 @@ pub struct ExtractSettingsSummary {
 }
 
 /// `geode check` report (`kind = "check"`).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CheckReport {
     /// Provenance (flattened).
     #[serde(flatten)]
     pub provenance: Provenance,
     /// Always `"check"`.
+    #[schemars(extend("const" = "check"))]
     pub kind: &'static str,
     /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    #[schemars(extend("const" = "ok"))]
     pub status: &'static str,
     /// Mesh summary including DOF counts.
     pub mesh: MeshSummary,
@@ -320,7 +327,7 @@ pub struct CheckReport {
 }
 
 /// One conductor of a capacitance spec (terminal or ground surface).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ConductorSummary {
     /// Physical-group name.
     pub physical_group: String,
@@ -334,7 +341,7 @@ pub struct ConductorSummary {
 
 /// Echo of a resolved `capacitance` spec section plus the size of the
 /// scalar electrostatic system (additive in v1).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CapacitanceSettingsSummary {
     /// Terminals in matrix row/column order.
     pub terminals: Vec<ConductorSummary>,
@@ -360,7 +367,7 @@ pub struct CapacitanceSettingsSummary {
 }
 
 /// Statistics of a `geode capacitance` solve.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CapacitanceSolverStats {
     /// Always `"energy"`: `C_ij = φ⁽ⁱ⁾ᵀ K φ⁽ʲ⁾` with the full stiffness.
     pub method: &'static str,
@@ -374,14 +381,16 @@ pub struct CapacitanceSolverStats {
 ///
 /// All capacitances are real, in farads (SI: the mesh length unit is
 /// folded in), row-major `c_farad[row][col]` in terminal order.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CapacitanceReport {
     /// Provenance (flattened).
     #[serde(flatten)]
     pub provenance: Provenance,
     /// Always `"capacitance"`.
+    #[schemars(extend("const" = "capacitance"))]
     pub kind: &'static str,
     /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    #[schemars(extend("const" = "ok"))]
     pub status: &'static str,
     /// Mesh summary (`n_edges` / `n_interior` are the H(curl) counts of
     /// the other analyses, unused here; the scalar system size is in
@@ -426,7 +435,7 @@ pub struct CapacitanceReport {
 }
 
 /// One current path of an inductance spec.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CurrentPathSummary {
     /// Path name (matrix row/column label).
     pub name: String,
@@ -452,7 +461,7 @@ pub struct CurrentPathSummary {
 
 /// Echo of a resolved `inductance` section with the magnetostatic system
 /// size (additive in v1, issue #714).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct InductanceSettingsSummary {
     /// Current paths in matrix row/column order.
     pub paths: Vec<CurrentPathSummary>,
@@ -480,7 +489,7 @@ pub struct InductanceSettingsSummary {
 }
 
 /// Statistics of a `geode inductance` solve.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct InductanceSolverStats {
     /// Always `"energy"`: `L_ij = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾ / (I_i I_j)` with the full
     /// (pre-gauge) curl-curl.
@@ -503,14 +512,16 @@ pub struct InductanceSolverStats {
 /// folded in), row-major `l_henry[row][col]` in path order. This is not
 /// `geode extract`'s `l0_h` (an RF port's quasi-static `Im Z / ω`
 /// extrapolated to `f → 0`).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct InductanceReport {
     /// Provenance (flattened).
     #[serde(flatten)]
     pub provenance: Provenance,
     /// Always `"inductance"`.
+    #[schemars(extend("const" = "inductance"))]
     pub kind: &'static str,
     /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    #[schemars(extend("const" = "ok"))]
     pub status: &'static str,
     /// Mesh summary (`n_interior` counts the edges left after the PEC
     /// wall and terminal contacts).
@@ -569,7 +580,7 @@ pub struct InductanceReport {
 /// smaller than the anchor and low on larger ones. Symbolic-fill
 /// predictors are deliberately not used: at the anchor scale an ordering
 /// that won on symbolic fill was OOM-killed by the real LU.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ResourceEstimate {
     /// `"direct"` or `"iterative"` (an eigen or inductance spec is always
     /// `"direct"`).
@@ -613,7 +624,7 @@ pub struct ResourceEstimate {
 }
 
 /// Aggregate solver statistics for a driven sweep.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct SolverStats {
     /// `"direct"` or `"iterative"`.
     pub mode: &'static str,
@@ -631,7 +642,7 @@ pub struct SolverStats {
 
 /// Per-port self quantities at one frequency (from the diagonal `Z_kk`,
 /// i.e. with every other port terminated in its own resistance).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct PortResult {
     /// Port index.
     pub index: usize,
@@ -650,7 +661,7 @@ pub struct PortResult {
 }
 
 /// Per-channel quantities of a wave-port sweep at one frequency.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct WaveChannelResult {
     /// Flat channel index (row/column of `s`).
     pub channel: usize,
@@ -675,7 +686,7 @@ pub struct WaveChannelResult {
 /// `ports` are empty, `y_s` is `null`, `s` is the power-normalized
 /// channel S-matrix (port-major, mode-minor) and `wave_channels` carries
 /// the per-channel `β` / `S_kk`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct FrequencyResult {
     /// Frequency (Hz).
     pub frequency_hz: f64,
@@ -711,7 +722,7 @@ pub struct FrequencyResult {
 }
 
 /// A file written by the CLI besides the report (additive in v1).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct FileRef {
     /// For `--outdir` files: the path relative to the `--outdir`
     /// directory (a bare file name). For `touchstone_file`: the
@@ -726,7 +737,7 @@ pub struct FileRef {
 /// (additive in v1): Love surface equivalence over the closed box
 /// `box_lo`–`box_hi` (the UPML inner wall shrunk 10 % toward its
 /// centre), sampled on a 91 × 72 `(θ, φ)` grid (2° × 5°).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct FarFieldResult {
     /// NTFF / flux box low corner (mesh units).
     pub box_lo: [f64; 3],
@@ -750,14 +761,16 @@ pub struct FarFieldResult {
 }
 
 /// `geode driven` report (`kind = "driven"`).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct DrivenReport {
     /// Provenance (flattened).
     #[serde(flatten)]
     pub provenance: Provenance,
     /// Always `"driven"`.
+    #[schemars(extend("const" = "driven"))]
     pub kind: &'static str,
     /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    #[schemars(extend("const" = "ok"))]
     pub status: &'static str,
     /// Mesh summary.
     pub mesh: MeshSummary,
@@ -784,7 +797,7 @@ pub struct DrivenReport {
 }
 
 /// Per-port extraction results of a `geode extract` sweep.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct PortExtraction {
     /// Port index.
     pub index: usize,
@@ -811,14 +824,16 @@ pub struct PortExtraction {
 }
 
 /// `geode extract` report (`kind = "extract"`).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ExtractReport {
     /// Provenance (flattened).
     #[serde(flatten)]
     pub provenance: Provenance,
     /// Always `"extract"`.
+    #[schemars(extend("const" = "extract"))]
     pub kind: &'static str,
     /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    #[schemars(extend("const" = "ok"))]
     pub status: &'static str,
     /// Mesh summary.
     pub mesh: MeshSummary,
@@ -846,7 +861,7 @@ pub struct ExtractReport {
 }
 
 /// Eigensolver statistics.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct EigenSolverStats {
     /// Always `"shift_invert_lanczos"` (pure Rust) in this build.
     pub method: &'static str,
@@ -861,7 +876,7 @@ pub struct EigenSolverStats {
 }
 
 /// One eigenmode.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ModeResult {
     /// Mode index (ascending frequency).
     pub index: usize,
@@ -887,14 +902,16 @@ pub struct ModeResult {
 }
 
 /// `geode eigen` report (`kind = "eigen"`).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct EigenReport {
     /// Provenance (flattened).
     #[serde(flatten)]
     pub provenance: Provenance,
     /// Always `"eigen"`.
+    #[schemars(extend("const" = "eigen"))]
     pub kind: &'static str,
     /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    #[schemars(extend("const" = "ok"))]
     pub status: &'static str,
     /// Mesh summary (`n_interior` = pencil dimension).
     pub mesh: MeshSummary,
@@ -911,7 +928,7 @@ pub struct EigenReport {
 }
 
 /// Error body.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ErrorBody {
     /// Stable machine-readable code (see `CliError::code`).
     pub code: &'static str,
@@ -920,14 +937,16 @@ pub struct ErrorBody {
 }
 
 /// Failure report (`kind = "error"`, `status = "error"`).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ErrorReport {
     /// Provenance (flattened).
     #[serde(flatten)]
     pub provenance: Provenance,
     /// Always `"error"`.
+    #[schemars(extend("const" = "error"))]
     pub kind: &'static str,
     /// Always `"error"`.
+    #[schemars(extend("const" = "error"))]
     pub status: &'static str,
     /// Subcommand that failed.
     pub command: &'static str,
