@@ -9,19 +9,30 @@
 //!   grounded bottom plate (`ground = ["bottom"]`, a `ε_r = 4` slab
 //!   between) and `h` below the grounded outer wall (vacuum). With plate
 //!   and guard at the same potential the plate's charge is the classic
-//!   guarded parallel-plate value `C = ε₀ (w + g)² (ε_r / d + 1 / h)`
-//!   (Maxwell's effective-area rule: the gap adds `g / 2` per edge). In
-//!   Maxwell-matrix terms that is the plate's row sum `C₁₁ + C₁₂` — its
-//!   `c_sigma_farad` entry and its SPICE ground branch. The
-//!   effective-area rule is exact up to a relative area correction of
-//!   order `(g / d)·(g / w)` (`g / d = 0.1` here: ≲ 0.1 %), and the guard
-//!   width `b = 1.5 d` keeps the far edge's fringe out of the plate's
-//!   field to `e^{-πb/d} < 1 %` of a correction that is itself small.
-//!   Measured (Gmsh 4.15.2, 2026-09-29): **+0.43 %** at
-//!   `size_conductor = 0.1` (7 835 nodes), converging to +0.85 % → +0.43 %
-//!   → −0.01 % → −0.08 % at 0.14 / 0.1 / 0.07 / 0.05. Band **2 %** — ~4×
-//!   the measured offset (headroom for other Gmsh versions), and still
-//!   far inside the 21 % that ignoring the gap (`C ∝ w²`) would miss by.
+//!   guarded parallel-plate value with Maxwell's gap correction,
+//!   `C = ε₀ [ε_r (w + g − 2α_d)² / d + (w + g − 2α_h)² / h]`,
+//!   `α_s = (2s/π) ln cosh(πg / 4s)` ([`kelvin_reference`]): each edge of
+//!   the effective area sits at the gap midpoint (`+g/2`) pulled back by
+//!   `α` (Maxwell, *Treatise* Arts. 196–201; here `α = 0.00196 mm`, which
+//!   takes the area `0.712 %` below the uncorrected `(w + g)²`, confirmed
+//!   by an independent 2-D finite-difference solve of the gap at review).
+//!   In Maxwell-matrix terms that is the plate's row sum `C₁₁ + C₁₂` — its
+//!   `c_sigma_farad` entry and its SPICE ground branch. What the corrected
+//!   rule still leaves out is second order: the four plate corners, where
+//!   the two edge corrections overlap (relative `O((g/w)(α/w))`, ~0.02 %
+//!   here), and the guard's far edge, whose fringe reaches the plate
+//!   suppressed by `e^{−πb/d} < 1 %` of a correction that is itself
+//!   small. The plates are zero-thickness sheets in both the mesh and the
+//!   formula, so there is no thickness term. Measured (Gmsh 4.15.2,
+//!   2026-09-29): **+1.15 %** at `size_conductor = 0.1` (7 835 nodes),
+//!   converging monotonically from above +1.15 % → +0.64 % → +0.22 % at
+//!   0.1 / 0.05 / 0.025 (7.8k / 26k / 97k nodes). Default band
+//!   `−0.5 % < ΔC/C < +2.5 %` (~2.2× the measured default offset on the
+//!   high side for other Gmsh versions; the low edge is the reference's
+//!   residual plus slack, since the observed convergence is from above) —
+//!   still far inside the 21 % that ignoring the gap (`C ∝ w²`) would miss
+//!   by. The ignored tier checks the monotone convergence and holds the
+//!   finest mesh to 0.5 %.
 //! * **Inductance — shielded microstrip shorted by end caps.** A thick
 //!   trace (`sig`, width 1, thickness 0.25, 0.5 over the ground plane)
 //!   inside a rectangular PEC shield (ground plane `gnd`, lid, side
@@ -210,11 +221,51 @@ fn guard_ring_layout(size_conductor: f64) -> serde_json::Value {
     })
 }
 
+/// Maxwell's gap correction (mm) for a thin guarded plate at distance
+/// `s` from the opposite electrode: each edge of the effective area sits
+/// `α = (2s/π) ln cosh(πg / 4s)` inside the gap midpoint (Maxwell,
+/// *Treatise on Electricity and Magnetism*, Arts. 196–201; the conformal
+/// map of a thin plate edge beside a slit; `α ≈ πg²/16s` for `g ≪ s`).
+fn maxwell_gap_alpha(s: f64) -> f64 {
+    2.0 * s / std::f64::consts::PI * (std::f64::consts::PI * GR_G / (4.0 * s)).cosh().ln()
+}
+
 /// Maxwell's guarded parallel-plate capacitance (F) of the plate, both
-/// faces: `ε₀ (w + g)² (ε_r / d + 1 / h)`, mm → m.
+/// faces, with the gap correction on each face:
+/// `ε₀ [ε_r (w + g − 2α_d)² / d + (w + g − 2α_h)² / h]`, mm → m.
 fn kelvin_reference() -> f64 {
-    let a = (GR_W + GR_G).powi(2);
-    EPS0 * a * (GR_EPS_R / GR_D + 1.0 / GR_H) * 1e-3
+    let side = |s: f64| GR_W + GR_G - 2.0 * maxwell_gap_alpha(s);
+    EPS0 * (GR_EPS_R * side(GR_D).powi(2) / GR_D + side(GR_H).powi(2) / GR_H) * 1e-3
+}
+
+/// Mesh the guard ring for capacitance and return the plate's guarded
+/// capacitance relative to [`kelvin_reference`] and the node count.
+fn guard_ring_relative_error(dir: &Path, stem: &str, size_conductor: f64) -> (f64, u64) {
+    let layout = dir.join(format!("{stem}.json"));
+    write_json(&layout, &guard_ring_layout(size_conductor));
+    let (mesh, spec) = (
+        dir.join(format!("{stem}.msh")),
+        dir.join(format!("{stem}.spec.json")),
+    );
+    let report = ok(
+        geode(&[
+            "mesh",
+            s(&layout),
+            "--analysis",
+            "capacitance",
+            "--mesh-out",
+            s(&mesh),
+            "--spec-out",
+            s(&spec),
+        ]),
+        "geode mesh --analysis capacitance",
+    );
+    let cap = ok(geode(&["capacitance", s(&spec)]), "geode capacitance");
+    let c_sigma = cap["c_sigma_farad"][0].as_f64().unwrap();
+    (
+        c_sigma / kelvin_reference() - 1.0,
+        report["mesh"]["n_nodes"].as_u64().unwrap(),
+    )
 }
 
 #[test]
@@ -302,7 +353,13 @@ fn guard_ring_capacitance_matches_kelvin_and_exports_spice() {
         100.0 * rel,
         report["mesh"]["n_nodes"]
     );
-    assert!(rel.abs() < 0.02, "guarded C off by {:+.3} %", 100.0 * rel);
+    // Converges from above (see the module docs); the low edge is the
+    // reference's second-order residual plus slack.
+    assert!(
+        rel < 0.025 && rel > -0.005,
+        "guarded C off by {:+.3} %",
+        100.0 * rel
+    );
 
     // SPICE: the subcircuit named in the report, with the guarded
     // capacitance as the plate's ground branch.
@@ -322,6 +379,36 @@ fn guard_ring_capacitance_matches_kelvin_and_exports_spice() {
     // (Report JSON is parsed without serde_json's exact float round-trip.)
     assert!((value("C1_0") / c_sigma - 1.0).abs() < 1e-14);
     assert!((value("C1_2") / -c[0][1] - 1.0).abs() < 1e-9);
+}
+
+/// Monotone convergence from above to Maxwell's gap-corrected guarded
+/// capacitance on finer meshes (release: ~7 / ~30 / ~25 s per level).
+#[test]
+#[ignore = "benchmark tier: finer meshes, run with --include-ignored in release"]
+fn guard_ring_capacitance_converges_to_kelvin() {
+    if !gmsh_or_skip("guard_ring_capacitance_converges_to_kelvin") {
+        return;
+    }
+    let dir = scratch("guard-ring-convergence");
+    let mut errors = Vec::new();
+    for (k, size) in [0.1, 0.05, 0.025].into_iter().enumerate() {
+        let (rel, nodes) = guard_ring_relative_error(&dir, &format!("gr{k}"), size);
+        eprintln!(
+            "guard ring, size {size}: {:+.3} % vs Kelvin (gap-corrected), {nodes} nodes",
+            100.0 * rel
+        );
+        assert!(rel > -0.005, "guarded C below by {:+.3} %", 100.0 * rel);
+        errors.push(rel);
+    }
+    assert!(
+        errors.windows(2).all(|w| w[1] < w[0]),
+        "not converging from above: {errors:?}"
+    );
+    assert!(
+        errors[2] < 0.005,
+        "finest mesh off by {:+.3} %",
+        100.0 * errors[2]
+    );
 }
 
 // ---- inductance: shielded microstrip with end caps --------------------

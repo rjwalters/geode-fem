@@ -1073,7 +1073,9 @@ The static-analysis rules hold **by construction**, checked twice:
    conductor with a zero-thickness part, a contact whose groups share no
    face or overlap in volume, a path conductor with other than two
    contacts or with both on one `to` group, and a path conductor that
-   touches any group other than its contacts' `to` groups.
+   touches any group other than its contacts' `to` groups. "Touch"
+   here is conservative: shared faces, but also a shared edge or a
+   single shared point, count.
 2. **On the generated mesh**: the starter spec is loaded against the
    mesh exactly as `geode check` would, so a terminal / ground node
    overlap, a contact face that is not on the conductor volume, or
@@ -1085,7 +1087,8 @@ A layout meant for all three analyses therefore puts touching metal
 that is one conductor in one net, and gives each end of a current path
 its own return group (e.g. `via_in` / `via_out` nets).
 `tests/mesh_static_golden.rs` runs both end to end against independent
-references (a Kelvin guard-ring capacitor within 2 %, measured +0.43 %;
+references (a Kelvin guard-ring capacitor within `−0.5 % … +2.5 %`, measured
++1.15 % against Maxwell's gap-corrected value;
 a shielded microstrip shorted by end caps against a 2-D reference,
 measured −2.6 % from below on the default mesh; see [Golden
 tests](#golden-tests)).
@@ -1431,11 +1434,17 @@ cargo test -p geode-cli --release --test mesh_static_golden -- --include-ignored
   sheet layer — 1 mm over a grounded bottom plate (`ε_r = 4` slab) and
   1 mm under the grounded lid. The plate's row sum `C₁₁ + C₁₂` (plate and
   guard at one potential; its `c_sigma_farad` and SPICE ground branch)
-  is held to Maxwell's guarded-plate value `ε₀ (w + g)² (ε_r/d + 1/h)`
-  within **2 %**. Measured +0.43 % on 7 835 nodes (Gmsh 4.15.2),
-  converging +0.85 / +0.43 / −0.01 / −0.08 % as the plate-layer size goes
-  0.14 / 0.1 / 0.07 / 0.05 mm; the effective-area rule is exact to
-  `O((g/d)(g/w))` ≲ 0.1 %, and ignoring the gap would miss by 21 %.
+  is held to Maxwell's guarded-plate value with his gap correction,
+  `ε₀ [ε_r (w+g−2α_d)²/d + (w+g−2α_h)²/h]`, `α_s = (2s/π) ln cosh(πg/4s)`
+  (*Treatise* Arts. 196–201: each effective edge sits `α` inside the gap
+  midpoint; here `α ≈ 0.002 mm`, −0.71 % in area vs the uncorrected
+  `(w+g)²`), within **`−0.5 % … +2.5 %`**. Measured +1.15 % on 7 835 nodes
+  (Gmsh 4.15.2); the ignored tier checks monotone convergence from above,
+  +1.15 / +0.64 / +0.22 % as the plate-layer size goes 0.1 / 0.05 /
+  0.025 mm (7.8k / 26k / 97k nodes), and the finest within 0.5 %. The
+  corrected rule's residual is second order (plate corners,
+  `O((g/w)(α/w))` ≈ 0.02 %; the guard's far edge, `e^{−πb/d}`-suppressed);
+  ignoring the gap would miss by 21 %.
 - **Inductance: shielded microstrip shorted by end caps.** A thick trace
   0.5 mm over the ground plane of a rectangular PEC shield, its end faces
   touching two end caps (**nets** of the wall layer) — the two
