@@ -31,6 +31,11 @@
 //!   Gmsh physical-group name) → resonant `k₀`, via a sparse pattern-aligned
 //!   pencil assembly and the shared shift-invert Lanczos. The library entry
 //!   point behind `geode eigen` (issue #681).
+//! - [`lossy_cavity`] — the complex counterpart of [`pec_cavity`]:
+//!   **lossy / open cavity quasi-modes** (complex per-tet `ε_r`, or full
+//!   complex `(ε, ν)` tensors such as box UPML frozen at a reference `k₀`)
+//!   → complex `k₀` (frequency + `Q`), via the sparse complex shift-invert
+//!   Lanczos. The lossy path behind `geode eigen` (issue #706).
 //! - [`transmon`] — transmon eigenmode solve with the Josephson junction
 //!   as a lumped reactive-shunt surface term (Epic #476 Phase B).
 //! - [`gauge`] — tree-cotree spanning-tree gauge that eliminates the
@@ -52,6 +57,7 @@ pub mod complex;
 pub mod dense;
 pub mod gauge;
 pub mod lanczos;
+pub mod lossy_cavity;
 // `pub(crate)`: the ordering primitives are for internal reuse by the eigen /
 // driven direct-LU paths, not a public API. Keeping the module crate-private
 // also keeps its doc comment out of the public-docs surface (its items are

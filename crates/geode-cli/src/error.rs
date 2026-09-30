@@ -9,6 +9,7 @@ use geode_core::assembly::electrostatic::ElectrostaticError;
 use geode_core::assembly::magnetostatic3d::Magnetostatic3dError;
 use geode_core::driven::ports::PortFaceError;
 use geode_core::driven::solve::DrivenError;
+use geode_core::eigen::lossy_cavity::LossyCavityError;
 use geode_core::eigen::pec_cavity::PecCavityError;
 use geode_core::mesh::MeshError;
 
@@ -86,6 +87,11 @@ pub enum CliError {
     /// resolved near the shift, …).
     #[error("eigen solve failed: {0}")]
     EigenSolve(PecCavityError),
+    /// The lossy / open (complex-pencil) eigen solve failed — same
+    /// failure classes as [`CliError::EigenSolve`], including the
+    /// degenerate-shift guard (issue #706).
+    #[error("eigen solve failed: {0}")]
+    LossyEigenSolve(LossyCavityError),
     /// The electrostatic (capacitance) solve failed: assembly, or the
     /// sparse LU of the reduced system.
     #[error("electrostatic solve failed: {0}")]
@@ -207,6 +213,12 @@ impl From<PecCavityError> for CliError {
     }
 }
 
+impl From<LossyCavityError> for CliError {
+    fn from(e: LossyCavityError) -> Self {
+        CliError::LossyEigenSolve(e)
+    }
+}
+
 impl From<ElectrostaticError> for CliError {
     fn from(e: ElectrostaticError) -> Self {
         CliError::Electrostatic(e)
@@ -241,6 +253,7 @@ impl CliError {
             CliError::Solve(_)
             | CliError::WavePort { .. }
             | CliError::EigenSolve(_)
+            | CliError::LossyEigenSolve(_)
             | CliError::Electrostatic(_)
             | CliError::CurrentPath(_)
             | CliError::Magnetostatic(_)

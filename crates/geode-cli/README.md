@@ -10,7 +10,7 @@ geode --version                                     # geode 0.3.0 (<git-sha>[-di
 geode check  spec.json                              # validate + DOF counts, no solve
 geode driven spec.json -o report.json               # frequency sweep → Z / Y / S, L / R / Q
 geode driven spec.toml --threads 8 --backend ndarray
-geode eigen  cavity.json -o modes.json              # lossless PEC-cavity modes → f
+geode eigen  cavity.json -o modes.json              # PEC-cavity modes → f (and Q if lossy / open)
 geode extract inductor.json -o l0.json              # sweep → L / R / Q, f→0 L₀, SRF
 geode capacitance caps.json -o c.json               # static Maxwell capacitance matrix (F)
 geode inductance coax.json -o l.json                # static Maxwell inductance matrix (H)
@@ -30,7 +30,7 @@ one worked example per analysis, with the output to expect.
 |---|---|
 | `check`   | live — parse + validate spec, load mesh, resolve every named physical group, report DOF counts and an order-of-magnitude memory / cost estimate (#703); never solves |
 | `driven`  | live — lumped-port (or wave-port, #683) frequency sweep with PEC / Leontovich / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG; optional Touchstone 2.0 `.sNp` (#703) |
-| `eigen`   | live (#681) — lossless PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; `Q` is `null` (lossless) |
+| `eigen`   | live (#681) — PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; lossless (`Q` is `null`), or lossy / open (#706: complex `eps_r` and / or box-UPML `absorbing_regions` → complex `k₀`, finite `Q`) |
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 | `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
 | `inductance` | live (#714) — static **Maxwell inductance matrix** (henries) between named open current paths (conductor volume + source / sink faces returning through one connected PEC conductor), from a P1 conduction solve per path for the current density and one tree-cotree-gauged magnetostatic solve per path (Nédélec edges, direct LU); **not** `extract`'s RF `l0_h` (see [Inductance](#static-inductance-geode-inductance-issue-714)); optional SPICE `.subckt` (#719) |
@@ -136,9 +136,11 @@ section it carries:
 - **driven spec** (no `eigen`, no `extract`): needs `ports` (≥ 1) **or**
   `wave_ports` (≥ 1), and `frequencies`; run with `geode driven`.
 - **eigen spec** (has `eigen`): must not have `ports`, `wave_ports`,
-  `frequencies`, Leontovich or Silver-Müller walls or
-  `absorbing_regions`, and every `eps_r` must be real (`im = 0`); run with
-  `geode eigen`.
+  `frequencies`, or Leontovich / Silver-Müller walls (their
+  frequency-dependent terms would make the eigenproblem nonlinear, see
+  [lossy / open eigen](#lossy--open-cavity-eigenmodes-issue-706)); every
+  `eps_r` needs `re > 0`, and lossy `im < 0` plus `absorbing_regions` are
+  allowed (issue #706); run with `geode eigen`.
 - **extract spec** (has `extract`): exactly a driven spec plus the
   `extract` section (`"extract": {}` takes every default) — needs lumped
   `ports` (≥ 1; wave ports define no `Z_kk`, so they are rejected),
@@ -195,14 +197,14 @@ Driven example (the spiral-inductor golden input,
 | `mesh.length_unit_m` | float > 0, **required** | metres per mesh length unit (`1e-6` = micron mesh). Every SI ↔ natural-unit conversion depends on it |
 | `materials[]` | | per-volume-region scalar permittivity; unlisted regions are vacuum (`check` reports which) |
 | `materials[].physical_group` | string | name of a **dimension-3** physical group |
-| `materials[].eps_r` | `[re, im]`, `im ≤ 0` (eigen / capacitance: `im = 0`, `re > 0`; inductance: omit or `[1, 0]`); default `[1, 0]` (vacuum, for every analysis: a `materials` entry may omit `eps_r`) | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
+| `materials[].eps_r` | `[re, im]`, `im ≤ 0` (eigen: `re > 0`; capacitance: `im = 0`, `re > 0`; inductance: omit or `[1, 0]`); default `[1, 0]` (vacuum, for every analysis: a `materials` entry may omit `eps_r`) | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
 | `materials[].mu_r` | float > 0, default `1` (additive in v1, issue #714) | real relative permeability. Honoured **only by `geode inductance`**; every other analysis rejects `mu_r ≠ 1` (its solver has no permeability term) |
 | `boundary_conditions.pec[]` | strings | **dimension-2** groups whose edges are eliminated (tangential E = 0). Unnamed surfaces are natural (PMC-like) boundaries |
 | `boundary_conditions.leontovich[]` | | good-conductor surface impedance `Z_s = (1+j)·√(ωμ₀/2σ)` |
 | `….leontovich[].physical_group` | string | dimension-2 group |
 | `….leontovich[].conductivity_s_m` | float > 0, S/m | converted to natural units `σ·η₀·length_unit_m` |
 | `boundary_conditions.silver_muller[]` | strings, driven / extract only | **dimension-2** groups carrying the first-order Silver-Müller absorbing condition — the impedance wall with `Z_s = η₀` (no parameters). Composes with Leontovich walls, PEC and `absorbing_regions` |
-| `absorbing_regions[]` | driven / extract only | matched (full Sacks) **box UPML** shells, see below |
+| `absorbing_regions[]` | driven / extract / eigen | matched (full Sacks) **box UPML** shells, see below (in an eigen spec the stretch is frozen at `eigen.shift`) |
 | `absorbing_regions[].physical_group` | string | **dimension-3** group of the shell tets; its `materials` `eps_r` (vacuum if unlisted) is the base permittivity the stretch multiplies |
 | `absorbing_regions[].thickness` | float > 0, mesh units | shell depth; the inner wall is the mesh node bounding box shrunk by it on every face |
 | `absorbing_regions[].sigma_0` | float > 0, **natural units** (rad / mesh unit, like `k0`) | strength of the quadratic profile `s_i = 1 − j·σ₀·(d_i/thickness)²/k₀`; `25` is the validated value of the patch-antenna / Mie shells |
@@ -258,12 +260,16 @@ Eigen example (the sphere-cavity golden input,
 }
 ```
 
-**What `geode eigen` solves.** The lossless first-order Nédélec pencil
+**What `geode eigen` solves.** The first-order Nédélec pencil
 `K x = k₀² M_ε x` (curl-curl stiffness, `ε_r`-weighted mass, `μ_r = 1`)
 on the edges left after PEC elimination, assembled sparse and solved by
-the pure-Rust sparse shift-invert Lanczos
-(`geode_core::eigen::pec_cavity`) around `σ = k₀,shift²`. Surfaces not
-named PEC are natural (PMC-like) boundaries, as for `driven`.
+the pure-Rust sparse shift-invert Lanczos around `σ = k₀,shift²`. With
+real `ε_r` and no `absorbing_regions` the pencil is real symmetric and
+lossless (`geode_core::eigen::pec_cavity`, `Q = null`); with any lossy
+`ε_r` or `absorbing_regions` it is complex symmetric
+(`geode_core::eigen::lossy_cavity`, complex `k₀`, finite `Q` — see
+[below](#lossy--open-cavity-eigenmodes-issue-706)). Surfaces not named
+PEC are natural (PMC-like) boundaries, as for `driven`.
 
 **Shift placement.** `K` has a large nullspace (the discrete gradients,
 `k₀ = 0`), and Lanczos converges the Ritz values closest to the shift
@@ -275,6 +281,77 @@ the nullspace, with a shift far above it you get the modes around the
 shift instead. If fewer than `n_modes` physical modes are resolved the
 run fails with `solve_failed` (never a silently short list); raise
 `max_iters` or move `shift`.
+
+### Lossy / open-cavity eigenmodes (issue #706)
+
+A lossy `materials[].eps_r` (`im < 0`) and / or `absorbing_regions` make
+the eigen pencil **complex symmetric**; `geode eigen` then solves it with
+the sparse complex shift-invert Lanczos
+(`geode_core::eigen::lossy_cavity`) and reports complex modes
+(`solver.pencil = "complex_symmetric"`):
+
+- `k₀ = √λ` on the principal branch (`Re k₀ ≥ 0`), time convention
+  `exp(+jωt)`: `Im k₀ > 0` is a mode that **decays** (lossy or
+  radiating). `lambda` / `k0` carry `Re(λ)` / `Re(k₀)`, the additive
+  `lambda_im` / `k0_im` carry the imaginary parts, `frequency_hz` is from
+  `Re(k₀)`, and `q = Re(k₀) / (2|Im k₀|)`.
+- **Exact check for a uniform fill.** A PEC cavity filled entirely with
+  one `ε_r = ε′(1 − j tan δ)` has `λ = μ₀/ε_r` exactly, so
+  `Im(λ)/Re(λ) = tan δ` and `Q = ½·cot(δ/2)` (`δ = atan tan δ`; the
+  familiar `1/tan δ` is its small-loss limit). `tests/sphere_lossy_pec_golden.rs`
+  holds the CLI to that to `10⁻⁶` at `tan δ = 0.01` and `0.1`. A
+  partial fill obeys the passive bound `Q ≥ ½·cot(δ_max/2)`.
+- **`absorbing_regions` are frozen at the shift.** The UPML stretch
+  `s = 1 − jσ₀(d/w)²/k₀` depends on frequency, so an exact open-cavity
+  solve is a nonlinear eigenproblem. `geode eigen` evaluates the
+  tensors once at `k₀ = eigen.shift` (`solver.upml_reference_k0`) and
+  solves the resulting linear pencil — place `shift` **at / near** the
+  resonance you want (not below it, as for a closed cavity): modes far
+  from it see a mistuned absorber. There is no self-consistent
+  iteration of the reference frequency (a possible follow-on).
+- **Filtering.** Besides the gradient nullspace, Ritz values with
+  `Re(λ) ≤ 0` (`Q ≤ ½`, not resonances — the absorber-trapped quasi-modes
+  an open pencil has around the origin) are dropped and counted in
+  `solver.n_overdamped_filtered`. Low-`Q` UPML-coupled modes with
+  `Re(λ) > 0` are genuine eigenpairs of the discrete pencil and are
+  **not** filtered — read `q` to tell them apart from the resonance of
+  interest.
+- **Validation tier.** The lossy closed cavity is checked against the
+  exact relation above. `absorbing_regions`-in-eigen is validated at a
+  **smoke** tier only (`tests/eigen_upml_smoke.rs`, the patch smoke mesh):
+  decaying modes, finite `Q`, the residual gate, `Re(k₀)` of the patch
+  mode stable to ~1 % under a `σ₀` change, and a lower `Q` than the same
+  cavity closed. There is no analytic open-cavity oracle through the CLI:
+  `examples/mie_sphere`'s open-resonator benchmark uses a **spherical**
+  PML, which the box `absorbing_regions` cannot express.
+- **Not supported:** Leontovich walls (`Z_s ∝ √(jωμ₀/σ)` depends on the
+  unknown frequency) and Silver-Müller walls (a term linear in `k₀`, not
+  `k₀²`) — both would make the eigenproblem nonlinear, so eigen specs
+  reject them with `invalid_spec`. Model conductor loss with a lossy
+  `materials` region, or use `geode driven` at known frequencies.
+- `--outdir` writes `E_real` **and** `E_imag` per mode (a complex
+  eigenvector has an arbitrary complex phase).
+
+Example (`examples/eigen/lossy_sphere_cavity.json`, the golden fixture):
+
+```json
+{
+  "schema_version": 1,
+  "mesh": { "path": "../../../geode-core/tests/fixtures/sphere.msh", "length_unit_m": 0.01 },
+  "materials": [
+    { "physical_group": "sphere_interior", "eps_r": [2.25, -0.0225] },
+    { "physical_group": "vacuum_gap",      "eps_r": [2.25, -0.0225] },
+    { "physical_group": "pml_shell",       "eps_r": [2.25, -0.0225] }
+  ],
+  "boundary_conditions": { "pec": ["outer_boundary"] },
+  "eigen": { "n_modes": 5, "unit": "k0", "shift": 1.0 }
+}
+```
+
+(`pml_shell` is only a region name here: it is the `1.5 < r < 2` shell
+inside the PEC wall, filled like the rest.) Every mode reports
+`Im(λ)/Re(λ) = 0.0100000004` (the per-tet weights are uploaded in f32)
+and `q = 100.0025` (`½·cot(δ/2) = 100.0025`, vs `1/tan δ = 100`).
 
 **Convergence gate.** Lanczos returns whatever Ritz pairs its basis
 yields, converged or not, so every returned mode's relative residual
@@ -449,11 +526,12 @@ P2 element option (the library has `extract_capacitance_p2`), and a
 calibrated resource estimate (`geode check` reports the scalar system
 size in `capacitance` and `resources = null` for a capacitance spec).
 
-Not in schema v1: the matrix-free iterative solver, field / NTFF export,
-and lossy / open-cavity eigenmodes (complex `ε_r`, Leontovich / absorbing
-walls in an eigen spec → finite `Q`) — the latter needs a complex
-non-Hermitian quasi-mode eigensolve and is a future eigen-analysis phase,
-not part of the driven open-boundary support above.
+Not in schema v1: the matrix-free iterative solver and field / NTFF
+export. Lossy / open-cavity eigenmodes (complex `ε_r` and
+`absorbing_regions` in an eigen spec → finite `Q`) landed in issue #706
+(see [lossy / open eigen](#lossy--open-cavity-eigenmodes-issue-706));
+Leontovich / Silver-Müller walls stay driven-only (nonlinear in the
+eigenfrequency).
 
 ## Static inductance (`geode inductance`, issue #714)
 
@@ -593,7 +671,7 @@ before the flag existed (the new fields are omitted, not `null`).
 |---|---|---|
 | `driven` / `extract`, lumped ports | `E_<row>.vtu` — `E` of **one extra solve** with every port driven at its spec `v_inc` (the sweep itself only keeps `Z` / `S`) | `results[].field_file` |
 | … plus exactly one `absorbing_regions` shell | `pattern_<row>.json` — principal-plane cuts | `results[].far_field` |
-| `eigen` | `E_mode_<mode>.vtu` — the real, `M_ε`-normalized eigenvector (arbitrary overall sign; PEC edges 0) | `modes[].field_file` |
+| `eigen` | `E_mode_<mode>.vtu` — the eigenvector (PEC edges 0): lossless, real `E_real`, `M_ε`-normalized, arbitrary sign; lossy / open (#706), `E_real` + `E_imag`, bilinear `xᵀMx = 1`-normalized, arbitrary complex phase | `modes[].field_file` |
 | wave ports | **nothing** (see below) | — |
 
 `<row>` / `<mode>` are the zero-padded 4-digit `results[]` / `modes[]`
@@ -949,7 +1027,7 @@ single measured anchor, not a prediction** — read the caveats.
 | Field | Units | Meaning |
 |---|---|---|
 | `solver_mode` | – | `"direct"` \| `"iterative"` (eigen / inductance specs: always `"direct"`) |
-| `scalar` | – | `"complex"` (driven / extract pencil) \| `"real"` (eigen pencil, inductance curl-curl) |
+| `scalar` | – | `"complex"` (driven / extract pencil, lossy / open eigen pencil) \| `"real"` (lossless eigen pencil, inductance curl-curl) |
 | `nnz_a` | – | non-zeros of the full Nédélec system pattern (before PEC elimination — the anchor's convention); computed from the mesh, no assembly |
 | `n_factorizations` | – | LU factorizations: one per frequency (driven / extract direct), one (eigen), one per current path (inductance), `0` (iterative) |
 | `n_rhs_per_frequency` | – | ports, or `2 × channels` for wave ports; `0` for eigen; `1` for inductance |
@@ -1376,21 +1454,28 @@ excitations). `wave_channels[]`, one per channel, carries `channel`,
 `−j|β|` when evanescent), `propagating`, `s` (`S_kk`) and `s_db`.
 
 **`kind = "eigen"`** adds `regions[]` and `pec[]` (as for `check`),
-`eigen` (the resolved settings, as for `check`), and:
+`eigen` (the resolved settings, as for `check`), `absorbing_regions[]`
+(as for `check`; omitted when empty — additive, #706), and:
 
 - `solver`: `method` (`"shift_invert_lanczos"`), `inner` (`"direct_lu"`),
+  `pencil` (`"real_symmetric"` \| `"complex_symmetric"`, #706),
   `n_null_filtered` (Ritz values dropped as gradient nullspace),
+  `n_overdamped_filtered` (complex pencil only: Ritz values with
+  `Re(λ) ≤ 0`, #706), `upml_reference_k0` (with `absorbing_regions`
+  only: the `k₀` the UPML was frozen at, = the shift, #706),
   `residual_rel_max`, `wall_time_s` (assembly + eigensolve, seconds).
-- `modes[]`, ascending in frequency:
+- `modes[]`, ascending in frequency (`Re(k₀)`):
 
 | Field | Units | Meaning |
 |---|---|---|
 | `index` | – | mode index |
-| `lambda` | (rad / mesh unit)² | eigenvalue `k₀²` |
-| `k0` | rad / mesh unit | resonant `ω/c` |
-| `frequency_hz` | Hz | `k₀ c / (2π · length_unit_m)` |
+| `lambda` | (rad / mesh unit)² | eigenvalue `k₀²` (`Re(λ)` for a complex pencil) |
+| `lambda_im` | (rad / mesh unit)² | complex pencil only (#706): `Im(λ)` (`≥ 0` for passive modes) |
+| `k0` | rad / mesh unit | resonant `ω/c` (`Re(k₀)` for a complex pencil) |
+| `k0_im` | rad / mesh unit | complex pencil only (#706): `Im(k₀)`, `> 0` = decaying (`exp(+jωt)`) |
+| `frequency_hz` | Hz | `Re(k₀) c / (2π · length_unit_m)` |
 | `omega_rad_s` | rad/s | `2πf` |
-| `q` | – | quality factor — **always `null`** in this build: the pencil is lossless, so `Q` is undefined (infinite), not a number. Finite `Q` needs lossy / open-cavity eigenmodes (a future eigen-analysis phase) |
+| `q` | – | quality factor `Re(k₀) / (2|Im k₀|)`: `null` for a lossless pencil (`Q` undefined — infinite — not a number); finite for a lossy / open one (#706; `null` only if `|Im k₀| ≤ 1e-12`) |
 | `residual_rel` | – | `‖Kx − λMx‖ / (|λ| ‖Mx‖)` |
 | `field_file` | | `--outdir` only: `{path, sha256}` of `E_mode_<mode>.vtu` |
 
@@ -1665,9 +1750,24 @@ existing bound — within 15 % of the closest analytic PEC-cavity Mie root
 (ascending, `q = null`, `f = k₀c/(2πL)`, residuals). The ignored tier
 checks the sparse Lanczos modes against the full dense solve of the same
 pencil to 1e-6 relative. This is deliberately not the
-`examples/mie_sphere` UPML benchmark: an open-cavity quasi-mode needs a
-complex non-Hermitian eigensolve (a future eigen-analysis phase; the
-driven UPML support of issue #683 does not provide it).
+`examples/mie_sphere` UPML benchmark: that example's open-cavity
+quasi-modes use a spherical-shell PML, which the box `absorbing_regions`
+cannot express (issue #706).
+
+`tests/sphere_lossy_pec_golden.rs` (issue #706) runs the same mesh
+uniformly filled with `ε_r = 2.25(1 − j tan δ)` through `geode eigen`
+at `tan δ = 0.01` (the committed fixture, with `--outdir`) and `0.1`,
+and holds every mode to the **exact** uniform-fill relations
+`Im(λ)/Re(λ) = tan δ` and `Q = ½·cot(δ/2)` at `10⁻⁶` relative (measured
+`4e-8` / `2.6e-8`, the f32 weight upload), plus decay sign, complex
+`E_real` / `E_imag` export and a loss-independent `|λ|·|ε_r|` across the
+two loss levels. `tests/eigen_upml_smoke.rs` is the smoke tier for
+`absorbing_regions` in an eigen spec (no analytic oracle; see
+[lossy / open eigen](#lossy--open-cavity-eigenmodes-issue-706)):
+
+```sh
+cargo test -p geode-cli --test sphere_lossy_pec_golden --test eigen_upml_smoke
+```
 
 `tests/slcfet_extract_golden.rs` (issue #682) re-expresses the SLCFET 3HP
 spiral benchmark (`geode-core/tests/slcfet_3hp_benchmark.rs`, issue #212

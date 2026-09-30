@@ -87,13 +87,15 @@ pub struct ProblemSpec {
     /// Matched (box) UPML absorbing shells on volume physical groups
     /// (additive in v1, issue #683). Empty (default) = no UPML: the
     /// driven operator uses the plain scalar per-tet `ε_r`. Driven /
-    /// extract specs only.
+    /// extract / eigen specs; in an eigen spec (issue #706) the stretch is
+    /// evaluated once at `eigen.shift` (a linear open-cavity pencil, not
+    /// iterated to self-consistency with each mode's frequency).
     #[serde(default)]
     pub absorbing_regions: Vec<UpmlSpec>,
     /// Lumped ports. A `driven` / `extract` spec needs at least one lumped
     /// port **or** (driven only) at least one wave port; an `eigen` spec
-    /// must have none (lumped ports are resistive, the eigen pencil is
-    /// lossless).
+    /// must have none (lumped ports are driven resistive terminations; the
+    /// eigen solve computes source-free resonances).
     #[serde(default)]
     pub ports: Vec<LumpedPortSpec>,
     /// Wave (modal) ports on planar surface physical groups (additive in
@@ -135,7 +137,8 @@ pub struct ProblemSpec {
 pub enum Analysis {
     /// Port-driven frequency sweep (`geode driven`).
     Driven,
-    /// Lossless eigenmode solve (`geode eigen`).
+    /// Eigenmode solve (`geode eigen`): lossless, or lossy / open with
+    /// complex `ε_r` and / or `absorbing_regions` (issue #706).
     Eigen,
     /// Driven sweep + L / R / Q, `L₀` and SRF extraction (`geode extract`).
     Extract,
@@ -180,12 +183,18 @@ impl ProblemSpec {
 
 /// Eigenmode analysis settings (`geode eigen`).
 ///
-/// Solves the **lossless** PEC-cavity pencil `K x = k₀² M_ε x` with the
-/// pure-Rust sparse shift-invert Lanczos (direct sparse-LU inner solve)
-/// and returns the `n_modes` physical modes closest to `shift`,
-/// ascending. `shift` must be `> 0`; place it just **below** the lowest
-/// mode of interest — the curl-curl gradient nullspace sits at `k₀ = 0`
-/// and is filtered out, so a shift near 0 wastes the Lanczos basis on it.
+/// Solves the PEC-cavity pencil `K x = k₀² M_ε x` with the pure-Rust
+/// sparse shift-invert Lanczos (direct sparse-LU inner solve) and returns
+/// the `n_modes` physical modes closest to `shift`, ascending. The pencil
+/// is real symmetric (lossless, `Q = null`) for real `ε_r`, and complex
+/// symmetric (complex `k₀`, finite `Q`) when any `materials[].eps_r` has
+/// `Im < 0` or the spec has `absorbing_regions` (UPML frozen at `shift`;
+/// issue #706). Leontovich / Silver-Müller walls are rejected: their
+/// frequency-dependent terms would make the eigenproblem nonlinear.
+/// `shift` must be `> 0`; place it just **below** the lowest mode of
+/// interest (open cavities: **near** the resonance of interest) — the
+/// curl-curl gradient nullspace sits at `k₀ = 0` and is filtered out, so a
+/// shift near 0 wastes the Lanczos basis on it.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EigenSpec {

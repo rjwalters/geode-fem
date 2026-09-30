@@ -35,7 +35,10 @@
 //! real and a quality factor `Q` is **not defined** (it would be
 //! infinite). Lossy / open cavities (complex `ε_r`, Leontovich walls,
 //! Silver-Müller or UPML boundaries) need the complex quasimode pencils
-//! in [`crate::eigen::complex`] and are out of scope here.
+//! in [`crate::eigen::complex`]: complex `ε_r` and fixed-frequency UPML
+//! are handled by the sibling [`crate::eigen::lossy_cavity`] (issue #706);
+//! frequency-dependent walls (Leontovich, Silver-Müller) make the operator
+//! nonlinear in `λ` and remain out of scope for both.
 //!
 //! # Shift placement and the gradient nullspace
 //!

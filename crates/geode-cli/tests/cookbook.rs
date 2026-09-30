@@ -54,6 +54,11 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Input::Spec("eigen"),
     ),
     (
+        "eigen/lossy_sphere_cavity.json",
+        Some("sphere_lossy_pec_golden.json"),
+        Input::Spec("eigen"),
+    ),
+    (
         "capacitance/coax.json",
         Some("capacitance_coax_smoke.json"),
         Input::Spec("capacitance"),

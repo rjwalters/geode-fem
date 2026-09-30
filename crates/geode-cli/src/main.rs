@@ -79,9 +79,9 @@ enum Command {
     /// with wave ports → channel S-matrix. Open boundaries: `absorbing_regions`
     /// (matched box UPML) and Silver-Müller walls.
     Driven(RunArgs),
-    /// Lossless PEC-cavity eigenmodes near `eigen.shift` → resonant f (Q is
-    /// null: the pencil is lossless). Needs a spec with an `eigen` section
-    /// and no ports.
+    /// PEC-cavity eigenmodes near `eigen.shift` → resonant f, plus Q for a
+    /// lossy (complex eps_r) or open (`absorbing_regions`) cavity (Q is null
+    /// when lossless). Needs a spec with an `eigen` section and no ports.
     Eigen(RunArgs),
     /// Driven sweep → per-port L / R / Q, quasi-static L0 (f→0 Richardson
     /// extrapolation on the two lowest anchor frequencies) and SRF. Needs a

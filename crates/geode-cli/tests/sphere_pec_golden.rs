@@ -12,8 +12,10 @@
 //! ([`geode_core::analytic::mie::merged_roots`]) within **15 %** on `k`.
 //!
 //! This deliberately is **not** the `examples/mie_sphere` UPML benchmark:
-//! an open-cavity quasi-mode needs a complex non-Hermitian eigensolve — a
-//! future eigen-analysis phase (issue #683 added driven UPML only).
+//! that example's open-cavity quasi-modes use a *spherical-shell* PML,
+//! while the CLI's `absorbing_regions` (usable in eigen specs since issue
+//! #706) is a Cartesian box UPML — a different operator. The lossy
+//! counterpart of this test is `tests/sphere_lossy_pec_golden.rs`.
 //!
 //! Two tiers, mirroring `tests/spiral_golden.rs`:
 //!
