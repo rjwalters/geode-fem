@@ -36,12 +36,13 @@ use crate::spec::Analysis;
 const SIGN_TOL: f64 = 1e-9;
 
 /// Load, solve and report; with `spice`, also write the mutual-form
-/// SPICE subcircuit there ([`crate::spice`]) and reference it in the
-/// report.
+/// SPICE subcircuit there ([`crate::spice`], variant `spice_opts`) and
+/// reference it in the report.
 pub fn run(
     spec_path: &Path,
     provenance: Provenance,
     spice: Option<&Path>,
+    spice_opts: crate::spice::SpiceOptions,
 ) -> Result<CapacitanceReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Capacitance))?;
     let target = p
@@ -98,7 +99,7 @@ pub fn run(
         spice_file: None,
     };
     if let Some(path) = spice {
-        report.spice_file = Some(crate::spice::write(path, &report)?);
+        report.spice_file = Some(crate::spice::write(path, &report, spice_opts)?);
     }
     Ok(report)
 }
