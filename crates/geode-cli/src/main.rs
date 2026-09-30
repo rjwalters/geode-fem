@@ -8,7 +8,7 @@
 //! geode extract <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //! geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH]
 //! geode inductance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH]
-//! geode mesh   <layout.json|layout.toml> [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [-o report.json]
+//! geode mesh   <layout.json|layout.toml> [--analysis driven|capacitance|inductance] [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [-o report.json]
 //! geode --version   # "geode <crate-version> (<git-sha>[-dirty])"
 //! ```
 //!

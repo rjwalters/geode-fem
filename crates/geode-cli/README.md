@@ -19,6 +19,7 @@ geode driven filter.json --touchstone filter.s2p    # + Touchstone 2.0 S-paramet
 geode capacitance caps.json --spice caps.sp         # + SPICE .subckt of the mutual C network
 geode inductance triax.toml --spice l.sp            # + SPICE .subckt of self L + K couplings
 geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json   # layout → mesh → solve
+geode mesh layout.json --analysis capacitance --spec-out c.json && geode capacitance c.json   # layout → C matrix
 ```
 
 | Subcommand | Status |
@@ -29,7 +30,7 @@ geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 | `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
 | `inductance` | live (#714) — static **Maxwell inductance matrix** (henries) between named open current paths (conductor volume + source / sink faces returning through one connected PEC conductor), from a P1 conduction solve per path for the current density and one tree-cotree-gauged magnetostatic solve per path (Nédélec edges, direct LU); **not** `extract`'s RF `l0_h` (see [Inductance](#static-inductance-geode-inductance-issue-714)); optional SPICE `.subckt` (#719) |
-| `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec, via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
+| `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec (`--analysis driven`, `capacitance` or `inductance`, #720), via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
 
 ## Install
 
@@ -432,8 +433,12 @@ driven full-wave sweep extrapolated to `f → 0`, per lumped port.
 electrostatic solve between conductor terminals, with no ports and no
 frequency. The static Maxwell `L`-matrix is `geode inductance` (below).
 
+From a layout, `geode mesh --analysis capacitance` writes a ready
+capacitance spec (see [Static-extraction starter
+specs](#static-extraction-starter-specs---analysis-issue-720)).
+
 Not in v1: floating conductors, `--outdir` potential / field export, a
-P2 element option (the library has `extract_capacitance_p2`), a `geode mesh` capacitance starter spec, and a
+P2 element option (the library has `extract_capacitance_p2`), and a
 calibrated resource estimate (`geode check` reports the scalar system
 size in `capacitance` and `resources = null` for a capacitance spec).
 
@@ -548,8 +553,10 @@ low-frequency limit.
 
 Not in v1: closed loops (cut / EMF boundary condition), lumped gap
 sources (terminals off the PEC wall, or a source and sink on different
-PEC components), heterogeneous-conductivity paths, field export, and a
-`geode mesh` inductance starter spec. `--spice` writes the matrix as
+PEC components), heterogeneous-conductivity paths, and field export.
+From a layout, `geode mesh --analysis inductance` writes a ready
+inductance spec (see [Static-extraction starter
+specs](#static-extraction-starter-specs---analysis-issue-720)). `--spice` writes the matrix as
 self inductors plus `K` couplings (see [SPICE subcircuit
 export](#spice-subcircuit-export---spice-issues-715--719)).
 `geode check` reports the path list and edge-DOF counts in its
@@ -912,7 +919,7 @@ predicted from the mesh).
 ## Layout → mesh (`geode mesh`, issue #704)
 
 ```sh
-geode mesh <layout.json|layout.toml> [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [--gmsh-timeout SECONDS] [-o report.json]
+geode mesh <layout.json|layout.toml> [--analysis driven|capacitance|inductance] [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [--gmsh-timeout SECONDS] [-o report.json]
 ```
 
 `geode mesh` turns a **layout** — 2-D rectilinear polygons per conductor
@@ -942,9 +949,12 @@ parse) does not need a hand-built `.msh`:
    and fail with `gmsh_failed` unless every generated group has elements,
    every tet is tagged, every exterior face carries a surface group and
    every tagged triangle is a face of some tet;
-5. emit a **starter problem spec** (spec schema v1) wired to the
-   generated names: every slab's `eps_r`, `pec = ["outer_boundary",
-   <conductor layers>…]`, one lumped port per layout port (explicit
+5. emit a **starter problem spec** (spec schema v1) for the
+   `--analysis` selected (default `driven`, below; `capacitance` /
+   `inductance`: see [Static-extraction starter
+   specs](#static-extraction-starter-specs---analysis-issue-720)) wired
+   to the generated names. The driven spec: every slab's `eps_r`,
+   `pec = ["outer_boundary", <conductor groups>…]`, one lumped port per layout port (explicit
    `e_hat` / `width` / `length`), `absorbing_regions` for a UPML
    boundary, direct solver, and a **placeholder 1 GHz** frequency list to
    edit. It is always in the report (`starter_spec`); `--spec-out` also
@@ -1002,10 +1012,83 @@ Automatically named physical groups:
 
 | dim | name | tag | from |
 |---|---|---|---|
-| 3 | `<dielectric name>` | 1, 2, … (stack order) | each dielectric slab (thick-conductor interiors excluded) |
-| 2 | `<conductor layer name>` | 101, … | the layer's sheets, or the exterior (cavity-wall) faces of its hollowed shells (PEC) |
-| 2 | `<port name>` | next | the port rectangle |
+| 3 | `<dielectric name>` | 1, 2, … (stack order) | each dielectric slab (thick-conductor interiors and current-path volumes excluded) |
+| 3 | `<path conductor group>` | next (inductance only) | a current-path conductor kept as a meshed **solid** (role `conductor_volume`) |
+| 2 | `<conductor layer name>` | 101, … | the layer's un-netted polygons: sheets, or the exterior (cavity-wall) faces of hollowed shells (PEC) |
+| 2 | `<net name>` | next | the polygons of that net, on any layer, the same way |
+| 2 | `<port name>` | next (driven only) | the port rectangle |
+| 2 | `<contact name>` | next (inductance only) | the faces a path conductor shares with its contact's `to` group |
 | 2 | `outer_boundary` | last | the six outer walls (PEC) |
+
+A layout without nets has one conductor group per layer, as before
+issue #720, and `--analysis driven` (the default) produces the same
+script, mesh and starter spec as before.
+
+### Static-extraction starter specs (`--analysis`, issue #720)
+
+`--analysis capacitance` and `--analysis inductance` build the mesh and
+the starter spec for [`geode capacitance`](#static-capacitance-geode-capacitance-issue-705)
+and [`geode inductance`](#static-inductance-geode-inductance-issue-714),
+so a layout goes straight to a C / L matrix (and SPICE):
+
+```sh
+geode mesh guard.json --analysis capacitance --spec-out c.json && geode capacitance c.json --spice c.sp
+geode mesh line.json  --analysis inductance  --spec-out l.json && geode inductance  l.json --spice l.sp
+```
+
+Three additive layout fields (schema v1; layouts without them are
+unchanged):
+
+- **Nets** — `polygons[].net`: polygons sharing a net name, on any
+  layer, form **one conductor group** named after the net instead of
+  joining their layer's group (a layer whose polygons are all netted
+  produces no group of its own). Use nets to make two pads of one layer
+  two capacitance terminals, or a trace plus its via one terminal.
+- **Ground** — top-level `ground: [<group>…]` (layer or net names): the
+  capacitance reference conductors.
+- **Contacts** — top-level `contacts: [{ "name", "conductor", "to" }]`:
+  an inductance current-path endpoint is every face the thick conductor
+  group `conductor` shares with the conductor group `to` (its PEC
+  return, e.g. a via or an end wall). Each path conductor has exactly
+  two contacts, to two different groups: the first listed is the
+  path's `source`, the second its `sink`.
+
+What each analysis emits (ports are meshed for `driven` only; contacts
+are validated always but meshed for `inductance` only; a UPML boundary
+keeps its slab split but is not listed — a static solve has no
+absorber, and the grounded / PEC outer walls close the domain):
+
+| `--analysis` | conductor bodies | starter spec |
+|---|---|---|
+| `driven` (default) | sheets / hollow shells | as above: `pec` = `outer_boundary` + every conductor group, lumped ports, 1 GHz placeholder |
+| `capacitance` | sheets / hollow shells | `capacitance.terminals` = every conductor group not in `ground` (group order); `capacitance.ground` = `["outer_boundary", <ground>…]`; every slab's `Re eps_r` (loss dropped); no `boundary_conditions`, ports or frequencies |
+| `inductance` | path conductors **solid** (a dimension-3 group, left out of the hollowing), others sheets / hollow shells | one `inductance.paths[]` entry per path conductor (`name` = `conductor` = the group, `source` / `sink` = its contacts); `pec` = `outer_boundary` + every other conductor group (the return); vacuum (`materials` empty, `mu_r = 1`); no ports or frequencies |
+
+The static-analysis rules hold **by construction**, checked twice:
+
+1. **At layout validation** (`invalid_spec`, before Gmsh runs):
+   capacitance rejects two conductor groups that touch (they would share
+   mesh nodes — a short) unless both are in `ground`, and needs at least
+   one non-ground group; inductance needs contacts, rejects a path
+   conductor with a zero-thickness part, a contact whose groups share no
+   face or overlap in volume, a path conductor with other than two
+   contacts or with both on one `to` group, and a path conductor that
+   touches any group other than its contacts' `to` groups.
+2. **On the generated mesh**: the starter spec is loaded against the
+   mesh exactly as `geode check` would, so a terminal / ground node
+   overlap, a contact face that is not on the conductor volume, or
+   contacts on two disconnected PEC components fail `geode mesh` with
+   `invalid_spec` instead of producing a spec that `geode capacitance` /
+   `geode inductance` would reject.
+
+A layout meant for all three analyses therefore puts touching metal
+that is one conductor in one net, and gives each end of a current path
+its own return group (e.g. `via_in` / `via_out` nets).
+`tests/mesh_static_golden.rs` runs both end to end against independent
+references (a Kelvin guard-ring capacitor within 2 %, measured +0.43 %;
+a shielded microstrip shorted by end caps against a 2-D reference,
+measured −2.6 % from below on the default mesh; see [Golden
+tests](#golden-tests)).
 
 ### Layout, schema v1
 
@@ -1051,16 +1134,22 @@ the m1 underpass and the vias):
 | `conductors[].thickness` | length ≥ 0, default `0` | `0`: zero-thickness PEC **sheets** at `z_bottom`; `> 0`: closed PEC **shells** (the extruded solid is subtracted from the dielectric stack; the group is its exterior cavity walls; see "Thick conductors and Leontovich" above). Vias are conductor layers spanning the metal layers they join |
 | `conductors[].polygons[]` | ≥ 1 | shapes of the layer |
 | `….polygons[].name` | name, optional | unique within the layer; referenced by `ports[].between` |
+| `….polygons[].net` | name, optional | puts the polygon in the conductor group named after the net (any layer) instead of the layer's group; net names share the group namespace |
 | `….polygons[].outer` | `[[x, y], …]` | simple **rectilinear** ring (every edge parallel to x or y), ≥ 4 vertices, either orientation, closing vertex optional |
 | `….polygons[].holes` | must be empty | accepted by the schema, rejected in v1 |
 | `conductors[].mesh_size` | length > 0, optional | per-layer target size (default `mesh.size_conductor`) |
-| `ports[]` | ≥ 1 | lumped **gap** ports, horizontal, at the layer's mid-height |
+| `ports[]` | ≥ 1 for `--analysis driven`, else optional (not meshed) | lumped **gap** ports, horizontal, at the layer's mid-height |
 | `ports[].name` | name | surface group name |
 | `ports[].kind` | `"gap"` (default) | the only v1 kind |
 | `ports[].layer` | conductor layer name | the port plane |
 | `ports[].between` | `[shape, shape]` | the gap between the two shapes' bounding boxes (separated along exactly one axis, overlapping along the other), across their common extent; `e_hat` points from the first to the second |
 | `ports[].rect` + `.direction` | `[x0, y0, x1, y1]` + `"x"`/`"y"` | explicit port rectangle and gap axis instead of `between` |
 | `ports[].resistance_ohm` | Ω > 0, default `50` | port resistance / S-parameter reference |
+| `ground` | `[group, …]`, default `[]` | conductor groups (layer or net names) that are the capacitance reference (`capacitance.ground`, with `outer_boundary`) |
+| `contacts[]` | default `[]` | inductance current-path endpoints (meshed for `--analysis inductance` only) |
+| `contacts[].name` | name | surface group name |
+| `contacts[].conductor` | group name | the thick path conductor (kept solid for inductance) |
+| `contacts[].to` | group name | the return conductor it touches; the contact is every face the two share. Two contacts per path conductor, to two different groups: source, then sink |
 | `margin` | length > 0 | lateral gap between the conductor / port footprint and the outer walls |
 | `boundary` | `{ "kind": "pec" }` (default) | PEC outer walls |
 | | `{ "kind": "upml", "thickness": t, "sigma_0": 25 }` | matched box UPML of depth `t` (< `margin`) inside PEC walls: every slab is split conformally at the inner wall and listed in the starter spec's `absorbing_regions` (`sigma_0` default `25`) |
@@ -1080,8 +1169,9 @@ The report (`kind = "mesh"`) carries the provenance fields plus `layout`
 / `geo` (`path`, `sha256`), `gmsh` (`path`, `version`), `mesh` (`path`,
 `sha256`, `length_unit_m`, `n_nodes`, `n_tets`, `n_triangles`),
 `physical_groups[]` (`dim`, `tag`, `name`, `role` = `dielectric` \|
-`pec_sheet` \| `pec_shell` \| `port` \| `outer_boundary`, `n_elements`),
-`starter_spec_path` and `starter_spec`.
+`pec_sheet` \| `pec_shell` \| `conductor_volume` \| `port` \| `contact`
+\| `outer_boundary`, `n_elements`), `analysis` (`driven` \|
+`capacitance` \| `inductance`), `starter_spec_path` and `starter_spec`.
 
 ## Report, schema v1
 
@@ -1326,6 +1416,39 @@ mom-PEEC mean 12 %, inside the mom bracket), its L to 2 % and R / Q to
 to 2 % of the same PEC model on the committed `spiral_3p5.msh`. Gmsh-dependent tests skip with
 a loud banner when no `gmsh` is runnable; CI installs Gmsh and sets
 `GEODE_REQUIRE_GMSH=1`, which turns a skip into a failure.
+
+`tests/mesh_static_golden.rs` (issue #720) runs layout → `geode mesh
+--analysis capacitance | inductance` → the **unedited** starter spec →
+`geode check` → `geode capacitance` / `geode inductance` with `--spice`:
+
+```sh
+cargo test -p geode-cli --test mesh_static_golden                                 # default CI (needs gmsh)
+cargo test -p geode-cli --release --test mesh_static_golden -- --include-ignored  # + convergence tier
+```
+
+- **Capacitance: Kelvin guard-ring capacitor.** A 1 mm plate and a
+  coplanar guard ring (0.1 mm gap, 1.5 mm wide) — two **nets** of one
+  sheet layer — 1 mm over a grounded bottom plate (`ε_r = 4` slab) and
+  1 mm under the grounded lid. The plate's row sum `C₁₁ + C₁₂` (plate and
+  guard at one potential; its `c_sigma_farad` and SPICE ground branch)
+  is held to Maxwell's guarded-plate value `ε₀ (w + g)² (ε_r/d + 1/h)`
+  within **2 %**. Measured +0.43 % on 7 835 nodes (Gmsh 4.15.2),
+  converging +0.85 / +0.43 / −0.01 / −0.08 % as the plate-layer size goes
+  0.14 / 0.1 / 0.07 / 0.05 mm; the effective-area rule is exact to
+  `O((g/d)(g/w))` ≲ 0.1 %, and ignoring the gap would miss by 21 %.
+- **Inductance: shielded microstrip shorted by end caps.** A thick trace
+  0.5 mm over the ground plane of a rectangular PEC shield, its end faces
+  touching two end caps (**nets** of the wall layer) — the two
+  **contacts**. Perpendicular PEC caps make the field exactly the 2-D
+  cross-section field, so `L = L′ℓ` with no end effect; `L′` (external
+  plus internal, uniform DC current) comes from an independent in-test
+  2-D finite-difference solve, Richardson-extrapolated. The energy method
+  converges from below: the default tier holds `−5 % < ΔL/L < +0.5 %`
+  (measured −2.60 % on 3 624 nodes); the ignored tier checks monotone
+  convergence −2.60 / −1.26 / −0.75 % on 3.6k / 9.2k / 23k nodes and
+  the finest within 1.5 %.
+- `--analysis driven` is the default byte for byte (script, mesh,
+  spec), and the static-analysis layout errors fail before Gmsh runs.
 
 `tests/sphere_pec_golden.rs` (issue #681) re-expresses the PEC-walled
 dielectric-sphere cavity benchmark (`geode-core/tests/sphere_pec_eigenmode.rs`,
