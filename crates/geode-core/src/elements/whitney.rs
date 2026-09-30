@@ -38,7 +38,7 @@
 
 use std::collections::HashMap;
 
-use crate::mesh::TetMesh;
+use crate::mesh::{TET_LOCAL_FACES, TetMesh};
 
 /// Local edge order on a triangle face. Mirrors `TET_LOCAL_EDGES` for
 /// tets: lower local index first.
@@ -90,6 +90,10 @@ pub(crate) fn edge_lookup(edges: &[[u32; 2]]) -> HashMap<(u32, u32), u32> {
 /// Panics if a triangle edge does not appear in `edge_lookup` — i.e. if
 /// the triangle is not a face of the tet mesh whose edge table was used
 /// to build the lookup.
+/// Public entry points rule this out up front with
+/// [`validate_surface_faces`] (issue #725), so the `expect` below is
+/// unreachable from every checked path; it remains the contract for a
+/// direct caller of this low-level kernel.
 pub(crate) fn face_geometry(
     tri: &[u32; 3],
     v: &[[f64; 3]; 3],
@@ -191,6 +195,8 @@ pub(crate) fn face_mass_block(geo: &FaceGeometry) -> [[f64; 3]; 3] {
 ///
 /// Panics if a triangle edge does not appear in `edges` — i.e. if the
 /// triangles are not faces of the tet mesh whose edge table was passed.
+/// Public entry points validate their surfaces first with
+/// [`validate_surface_faces`] (issue #725) and return an error instead.
 pub(crate) fn assemble_surface_mass_triplets(
     mesh: &TetMesh,
     triangles: &[[u32; 3]],
@@ -216,6 +222,113 @@ pub(crate) fn assemble_surface_mass_triplets(
     }
 
     triplets
+}
+
+/// Canonical (sorted) node key of a triangle, winding-independent.
+#[inline]
+fn face_key(tri: &[u32; 3]) -> [u32; 3] {
+    let mut k = *tri;
+    k.sort_unstable();
+    k
+}
+
+/// A caller-supplied surface triangle list that contains triangles which
+/// are not faces of any tet in the mesh (issue #725). Returned by
+/// [`validate_surface_faces`]; each entry point maps it onto its own
+/// subsystem error (`DrivenError::SurfaceNotOnMesh`,
+/// `EigenSensitivityError::SurfaceNotOnMesh`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DanglingSurface {
+    /// Position of the offending list in the sequence passed to
+    /// [`validate_surface_faces`].
+    pub(crate) surface: usize,
+    /// The first offending triangle, in the caller's node order.
+    pub(crate) triangle: [u32; 3],
+    /// How many triangles of that list are not tet faces.
+    pub(crate) dangling: usize,
+    /// Total number of triangles in that list.
+    pub(crate) total: usize,
+}
+
+/// Verify that every triangle of every list in `surfaces` is a face of
+/// some tet of `mesh` (issue #725).
+///
+/// The surface kernels ([`face_geometry`], [`assemble_surface_mass_triplets`],
+/// `driven::ports::assemble_port_flux`) index the global edge table with
+/// each triangle's edges and `.expect` the lookup to succeed; the driven
+/// assembly additionally expects every surface-mass pair to lie in the
+/// volume sparsity pattern. Both invariants hold exactly when each
+/// triangle is a tet face, which is what this checks. Every public entry
+/// point that accepts caller-supplied surface/port triangles calls it
+/// once, before any kernel, and returns a typed error instead of letting
+/// the kernel panic.
+///
+/// A triangle with a node index out of range, or with a repeated node,
+/// is reported as dangling (no tet face matches it). Winding order is
+/// ignored.
+///
+/// Cost: one pass over `mesh.tets` with a hash lookup per tet face,
+/// memory proportional to the number of *surface* triangles only (the
+/// mesh's face set is never materialized). Returns `Ok` immediately when
+/// every list is empty.
+///
+/// # Errors
+///
+/// Returns the first list (in iteration order) that contains a
+/// non-face triangle, with that list's first offending triangle and its
+/// dangling/total counts.
+pub(crate) fn validate_surface_faces<'a, I>(
+    mesh: &TetMesh,
+    surfaces: I,
+) -> Result<(), DanglingSurface>
+where
+    I: IntoIterator<Item = &'a [[u32; 3]]>,
+{
+    let surfaces: Vec<&[[u32; 3]]> = surfaces.into_iter().collect();
+    let mut found: HashMap<[u32; 3], bool> = HashMap::new();
+    for tri in surfaces.iter().flat_map(|s| s.iter()) {
+        found.insert(face_key(tri), false);
+    }
+    let mut remaining = found.len();
+    if remaining == 0 {
+        return Ok(());
+    }
+    'tets: for tet in &mesh.tets {
+        for local in TET_LOCAL_FACES.iter() {
+            let key = face_key(&[tet[local[0]], tet[local[1]], tet[local[2]]]);
+            if let Some(hit) = found.get_mut(&key)
+                && !*hit
+            {
+                *hit = true;
+                remaining -= 1;
+                if remaining == 0 {
+                    break 'tets;
+                }
+            }
+        }
+    }
+    if remaining == 0 {
+        return Ok(());
+    }
+    for (surface, tris) in surfaces.iter().enumerate() {
+        let mut first = None;
+        let mut dangling = 0usize;
+        for tri in tris.iter() {
+            if !found[&face_key(tri)] {
+                dangling += 1;
+                first.get_or_insert(*tri);
+            }
+        }
+        if let Some(triangle) = first {
+            return Err(DanglingSurface {
+                surface,
+                triangle,
+                dangling,
+                total: tris.len(),
+            });
+        }
+    }
+    unreachable!("a surface triangle was not found but no list reported it")
 }
 
 #[inline]
@@ -245,4 +358,54 @@ pub(crate) fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
 #[inline]
 pub(crate) fn scale3(a: [f64; 3], s: f64) -> [f64; 3] {
     [a[0] * s, a[1] * s, a[2] * s]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mesh::cube_tet_mesh;
+
+    /// Issue #725: `validate_surface_faces` accepts genuine tet faces (in any
+    /// winding) and names the first non-face triangle with per-list counts.
+    #[test]
+    fn validate_surface_faces_accepts_faces_and_names_dangling() {
+        let mut mesh = cube_tet_mesh(2, 1.0);
+        let t0 = mesh.tets[0];
+        let t1 = mesh.tets[1];
+        let face_a = [t0[0], t0[1], t0[2]];
+        let face_b_reversed = [t1[3], t1[2], t1[1]];
+        assert_eq!(
+            validate_surface_faces(&mesh, [&[face_a, face_b_reversed][..]]),
+            Ok(())
+        );
+        // No surfaces / empty surfaces are trivially fine.
+        assert_eq!(validate_surface_faces(&mesh, std::iter::empty()), Ok(()));
+        assert_eq!(validate_surface_faces(&mesh, [&[][..]]), Ok(()));
+
+        // A node no tet touches (the PR #724 dangling-sheet shape).
+        let extra = mesh.nodes.len() as u32;
+        mesh.nodes.push([5.0, 5.0, 5.0]);
+        let dangling = [t0[0], t0[1], extra];
+        let list = [face_a, dangling, face_b_reversed, dangling];
+        assert_eq!(
+            validate_surface_faces(&mesh, [&[face_a][..], &list[..]]),
+            Err(DanglingSurface {
+                surface: 1,
+                triangle: dangling,
+                dangling: 2,
+                total: 4,
+            })
+        );
+
+        // Repeated node, out-of-range node, and an in-range non-face
+        // (a corner-to-corner triangle spanning several cells).
+        let n = mesh.nodes.len() as u32;
+        for bad in [[t0[0], t0[0], t0[1]], [t0[0], t0[1], n + 7], [0, 2, n - 2]] {
+            assert_eq!(
+                validate_surface_faces(&mesh, [&[bad][..]]).map_err(|d| d.triangle),
+                Err(bad),
+                "{bad:?} must be rejected"
+            );
+        }
+    }
 }

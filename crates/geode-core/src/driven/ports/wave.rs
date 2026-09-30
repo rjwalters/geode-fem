@@ -115,7 +115,7 @@ use super::lumped::LumpedPort;
 use crate::assembly::surface::assemble_surface_mass_triplets;
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
-    SurfaceImpedanceBc,
+    SurfaceImpedanceBc, validate_driven_surfaces,
 };
 use crate::mesh::TetMesh;
 
@@ -299,12 +299,22 @@ fn assemble_modal_flux(
 ///
 /// Returns `Vec<Vec<c64>>` — outer index by port, inner by mode within
 /// the port (inner length = `port.n_modes()`).
+///
+/// # Errors
+///
+/// [`DrivenError::SurfaceNotOnMesh`] if a port triangle is not a face of
+/// any tet of `mesh` (issue #725 — previously a panic in the surface
+/// kernel).
+///
+/// # Panics
+///
+/// Panics if `e_edges.len() != edges.len()`.
 pub fn waveguide_mode_reduce(
     mesh: &TetMesh,
     ports: &[WavePort],
     edges: &[[u32; 2]],
     e_edges: &[c64],
-) -> Vec<Vec<c64>> {
+) -> Result<Vec<Vec<c64>>, DrivenError> {
     assert_eq!(
         e_edges.len(),
         edges.len(),
@@ -312,7 +322,8 @@ pub fn waveguide_mode_reduce(
         e_edges.len(),
         edges.len()
     );
-    ports
+    validate_driven_surfaces(mesh, "wave port", ports.iter().map(|p| p.faces.as_slice()))?;
+    Ok(ports
         .iter()
         .map(|port| {
             port.modes
@@ -327,7 +338,7 @@ pub fn waveguide_mode_reduce(
                 })
                 .collect()
         })
-        .collect()
+        .collect())
 }
 
 /// One frequency point of an N-port × K-mode **wave-port** S-parameter
@@ -515,6 +526,9 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
     }
     let edges = mesh.edges();
     let n_edges = edges.len();
+    // Every port triangle must be a tet face (issue #725) — the modal-flux
+    // kernel below `expect`s it.
+    validate_driven_surfaces(mesh, "wave port", ports.iter().map(|p| p.faces.as_slice()))?;
 
     // --- Validate per-port mode sets and collect the flat (port, mode)
     // channel list with cached full-length modal fluxes f_{p,m} = S_p ·

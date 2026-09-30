@@ -142,6 +142,10 @@ impl LumpedPort<'_> {
 ///
 /// Panics if a face references an edge absent from `edges` (i.e. the
 /// triangles are not faces of the volume mesh).
+/// Low-level kernel: the checked public entry points (the driven
+/// solves / operator, shape gradients, wave-port sweeps, eigen
+/// sensitivities) validate their triangles first and return a
+/// `SurfaceNotOnMesh` error instead (issue #725).
 pub fn assemble_port_surface_mass(
     mesh: &TetMesh,
     faces: &[[u32; 3]],
@@ -174,6 +178,10 @@ pub fn assemble_port_surface_mass(
 /// # Panics
 ///
 /// Panics if a face references an edge absent from `edges`.
+/// Low-level kernel: the checked public entry points (the driven
+/// solves / operator, shape gradients, wave-port sweeps, eigen
+/// sensitivities) validate their triangles first and return a
+/// `SurfaceNotOnMesh` error instead (issue #725).
 pub fn assemble_port_flux(
     mesh: &TetMesh,
     faces: &[[u32; 3]],

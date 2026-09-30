@@ -125,6 +125,16 @@ pub enum EigenSensitivityError {
         /// Number of converged eigenvalues available.
         n_modes: usize,
     },
+    /// A surface triangle list contains triangles that are not faces of any
+    /// tet in the mesh (issue #725), so the surface mass cannot be assembled.
+    SurfaceNotOnMesh {
+        /// The first offending triangle (caller's node order).
+        triangle: [u32; 3],
+        /// Number of offending triangles in the list.
+        dangling: usize,
+        /// Total number of triangles in the list.
+        total: usize,
+    },
 }
 
 impl std::fmt::Display for EigenSensitivityError {
@@ -150,6 +160,15 @@ impl std::fmt::Display for EigenSensitivityError {
             EigenSensitivityError::ModeIndexOutOfRange { index, n_modes } => {
                 write!(f, "mode index {index} out of range (have {n_modes} modes)")
             }
+            EigenSensitivityError::SurfaceNotOnMesh {
+                triangle,
+                dangling,
+                total,
+            } => write!(
+                f,
+                "surface triangle {triangle:?} is not a face of any tet in the mesh \
+                 ({dangling} of {total} triangles on this surface are not tet faces)"
+            ),
         }
     }
 }
@@ -375,7 +394,9 @@ impl EigenSensitivity<'_> {
     ///
     /// [`EigenSensitivityError::DegenerateEigenvalue`] if the target
     /// eigenvalue fails the simple-mode gap check;
-    /// [`EigenSensitivityError::DimMismatch`] on a length mismatch.
+    /// [`EigenSensitivityError::DimMismatch`] on a length mismatch;
+    /// [`EigenSensitivityError::SurfaceNotOnMesh`] if a triangle in
+    /// `triangles` is not a face of any tet of the mesh (issue #725).
     ///
     /// # Panics
     ///
@@ -396,6 +417,14 @@ impl EigenSensitivity<'_> {
         // Gap check only — λ itself does not enter the gradient (∂M/∂λ_L = 0).
         let _lambda = self.checked_simple_lambda()?;
         let xf = self.full_edge_vector()?;
+        // The wall must be made of tet faces (issue #725) — the surface-mass
+        // kernel below `expect`s it.
+        crate::elements::whitney::validate_surface_faces(self.mesh, std::iter::once(triangles))
+            .map_err(|d| EigenSensitivityError::SurfaceNotOnMesh {
+                triangle: d.triangle,
+                dangling: d.dangling,
+                total: d.total,
+            })?;
         // xᵀ S_Γ x over the wall's surface-mass triplets (PEC edges carry
         // exact zeros in xf, so no reduction bookkeeping is needed).
         let mut q = 0.0_f64;

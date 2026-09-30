@@ -94,7 +94,7 @@ use crate::assembly::nedelec::{
 };
 use crate::assembly::p1::upload_mesh;
 use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
-use crate::driven::solve::{CurrentSource, DrivenBcs, DrivenError};
+use crate::driven::solve::{CurrentSource, DrivenBcs, DrivenError, validate_driven_surfaces};
 use crate::elements::nedelec_p2::{TET_NEDELEC2_DOFS, TET_NEDELEC2_FACE_DOF_BASE, tet_quad_deg4};
 use crate::mesh::{TET_LOCAL_EDGES, TET_LOCAL_FACES, TetMesh};
 
@@ -996,6 +996,9 @@ where
             return Err(invalid("face node index out of range"));
         }
     }
+    // Every port triangle must be a tet face (issue #725) — the Whitney port
+    // kernels below `expect` it.
+    validate_driven_surfaces(mesh, "lumped port", ports.iter().map(|p| p.faces))?;
 
     // --- Edge tables and the sparsity scatter map (issue #218 pattern) ------
     let tet_edges = mesh.tet_edges();
@@ -1358,6 +1361,12 @@ where
     let n_nodes = mesh.n_nodes();
     let edges = mesh.edges();
     let n_edges = edges.len();
+
+    // The moving port's faces feed the Whitney port kernels (and the direct
+    // `face_geometry` call of the dual twin below) BEFORE the core's own port
+    // validation runs, so check them here first (issue #725): a triangle that
+    // is not a tet face is an error, not a panic.
+    validate_driven_surfaces(mesh, "lumped port", std::iter::once(port.faces))?;
 
     // The |S₁₁|² objective closure over the (geometry-fixed-at-base) port-flux
     // covector — identical to what a caller would build for the A1 path. This
@@ -1848,6 +1857,9 @@ where
             return Err(invalid("face node index out of range"));
         }
     }
+    // Every port triangle must be a tet face (issue #725) — the Whitney port
+    // kernels below `expect` it.
+    validate_driven_surfaces(mesh, "lumped port", ports.iter().map(|p| p.faces))?;
 
     // --- Edge tables and the sparsity scatter map (issue #218 pattern). -------
     let tet_edges = mesh.tet_edges();
