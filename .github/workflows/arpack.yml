@@ -183,6 +183,16 @@ jobs:
           cargo test --features arpack \
               -p geode-core --release --test sparse_eigensolver -- --ignored
 
+      - name: Run the gated complex sparse-eigensolver acceptance test (fixtured dense oracle)
+        # Issue #710: sparse complex shift-invert Lanczos on the Mie
+        # sphere PML pencil vs the committed dense-QZ oracle fixture
+        # (tests/fixtures/mie_complex_pml_dense_eigenvalues.toml). Only
+        # the fast comparison runs here; the heavy dense regeneration
+        # test (regenerate_dense_oracle_fixture) never runs in CI.
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test sparse_complex_eigensolver -- --ignored --exact sparse_complex_matches_dense_fixture
+
   geode-cli:
     # Issue #675 — run the `geode` CLI integration suite
     # (`crates/geode-cli/tests/cli.rs` + the `spiral_golden.rs` smoke tier,
