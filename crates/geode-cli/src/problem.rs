@@ -399,6 +399,21 @@ fn invalid(msg: impl Into<String>) -> CliError {
 /// mesh is read.
 pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliError> {
     let spec = read_spec(spec_path)?;
+    let spec_dir = spec_path.parent().unwrap_or_else(|| Path::new("."));
+    load_parsed(spec, spec_dir, expect)
+}
+
+/// [`load`] for an already-parsed spec (`geode mesh` validates its
+/// starter spec this way, issue #720): a relative `mesh.path` is resolved
+/// against `spec_dir`.
+pub fn load_parsed(
+    spec: ProblemSpec,
+    spec_dir: &Path,
+    expect: Option<Analysis>,
+) -> Result<Problem, CliError> {
+    if spec.schema_version != SPEC_SCHEMA_VERSION {
+        return Err(CliError::SchemaVersion(spec.schema_version));
+    }
     let sections: Vec<&str> = [
         ("eigen", spec.eigen.is_some()),
         ("extract", spec.extract.is_some()),
@@ -562,10 +577,7 @@ pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliEr
     let mesh_path = if spec.mesh.path.is_absolute() {
         spec.mesh.path.clone()
     } else {
-        spec_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(&spec.mesh.path)
+        spec_dir.join(&spec.mesh.path)
     };
     let bytes = std::fs::read(&mesh_path).map_err(|err| CliError::Io {
         path: mesh_path.clone(),

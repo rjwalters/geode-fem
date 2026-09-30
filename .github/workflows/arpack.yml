@@ -177,7 +177,13 @@ jobs:
 
       # The inductance benchmark tier (#714): finer coax/triax mesh at the
       # 1 % oracle bar + monotone convergence + library parity. ~1 min in
-      # debug but ~2 s in release, so it runs here in release.
-      - name: geode inductance benchmark tier (release, --ignored)
+      # debug but ~2 s in release, so it runs here in release. Issue #720
+      # adds the layout → inductance convergence tier (three Gmsh meshes of
+      # a shielded microstrip vs its 2-D reference, ~10 s in release) and
+      # the guard-ring capacitance convergence tier (three meshes, 7.8k /
+      # 26k / 97k nodes, vs Maxwell's gap-corrected value, ~1 min in
+      # release).
+      - name: geode static-extraction benchmark tiers (release, --ignored)
         run: |
-          cargo test -p geode-cli --release --test inductance_golden -- --ignored
+          cargo test -p geode-cli --release --test inductance_golden \
+              --test mesh_static_golden -- --ignored

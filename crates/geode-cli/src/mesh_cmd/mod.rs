@@ -15,16 +15,24 @@
 //!    walls, hollow-conductor cavity walls) carries a surface group, and
 //!    every tagged surface triangle is a face of some tet (no dangling
 //!    surface);
-//! 5. emit a starter [`ProblemSpec`] wired to the generated group names
-//!    (inline in the report, and to `--spec-out`), so
-//!    `geode mesh … --spec-out s.json && geode driven s.json` runs.
+//! 5. emit a starter [`ProblemSpec`] for the `--analysis` selected
+//!    ([`MeshAnalysis`]: `driven` by default, `capacitance` or
+//!    `inductance`, issue #720) wired to the generated group names (inline
+//!    in the report, and to `--spec-out`), so
+//!    `geode mesh … --spec-out s.json && geode driven s.json` runs (or
+//!    `geode capacitance` / `geode inductance`). A capacitance / inductance
+//!    starter spec is also loaded against the generated mesh exactly as
+//!    `geode check` would, so the static-analysis rules (no shared nodes
+//!    between capacitance conductors; inductance contacts on the conductor
+//!    volume and on one connected PEC return) hold by construction or
+//!    `geode mesh` fails with `invalid_spec`.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
-use clap::Args;
+use clap::{Args, ValueEnum};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -36,8 +44,9 @@ use self::layout::{BoundaryDef, Layout, ResolvedLayout};
 use crate::error::CliError;
 use crate::report::Provenance;
 use crate::spec::{
-    BoundaryConditionsSpec, FrequencySpec, FrequencyUnit, LumpedPortSpec, MaterialSpec, MeshSpec,
-    ProblemSpec, SPEC_SCHEMA_VERSION, SolverSpec, Spacing, UpmlSpec,
+    BoundaryConditionsSpec, CapacitanceSpec, CurrentPathSpec, FrequencySpec, FrequencyUnit,
+    InductanceSpec, LumpedPortSpec, MaterialSpec, MeshSpec, ProblemSpec, SPEC_SCHEMA_VERSION,
+    SolverSpec, Spacing, UpmlSpec,
 };
 
 /// Environment variable naming the Gmsh binary (below `--gmsh`).
@@ -46,6 +55,36 @@ pub const GMSH_ENV: &str = "GEODE_GMSH";
 /// Default wall-clock limit on the Gmsh mesh run (`--gmsh-timeout`), in
 /// seconds.
 pub const DEFAULT_GMSH_TIMEOUT_S: u64 = 600;
+
+/// Which analysis `geode mesh` builds the geometry and starter spec for
+/// (`--analysis`, issue #720).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum MeshAnalysis {
+    /// Lumped-port driven spec (`geode driven`): PEC conductors, a
+    /// placeholder 1 GHz sweep. The default; unchanged by issue #720.
+    #[default]
+    Driven,
+    /// Capacitance spec (`geode capacitance`): every conductor group not
+    /// in the layout's `ground` is a terminal; `outer_boundary` plus the
+    /// `ground` groups are the 0 V reference. Ports are not meshed.
+    Capacitance,
+    /// Inductance spec (`geode inductance`): one current path per contact
+    /// pair, its conductor kept as a meshed solid; `outer_boundary` and
+    /// every other conductor group are the PEC return. Ports are not
+    /// meshed.
+    Inductance,
+}
+
+impl MeshAnalysis {
+    /// The analysis name (the `--analysis` value).
+    pub fn name(self) -> &'static str {
+        match self {
+            MeshAnalysis::Driven => "driven",
+            MeshAnalysis::Capacitance => "capacitance",
+            MeshAnalysis::Inductance => "inductance",
+        }
+    }
+}
 
 /// `geode mesh` arguments.
 #[derive(Args)]
@@ -62,6 +101,11 @@ pub struct MeshArgs {
     /// spec is always included in the report (`starter_spec`).
     #[arg(long = "spec-out", value_name = "PATH")]
     spec_out: Option<PathBuf>,
+    /// Analysis to build the geometry and starter spec for: `driven`
+    /// (lumped ports), `capacitance` (terminals + ground) or `inductance`
+    /// (current paths between contacts).
+    #[arg(long, value_enum, default_value_t = MeshAnalysis::Driven)]
+    analysis: MeshAnalysis,
     /// Gmsh binary. Default: `$GEODE_GMSH`, else `gmsh` on `PATH`.
     #[arg(long, value_name = "PATH")]
     gmsh: Option<PathBuf>,
@@ -85,6 +129,9 @@ pub struct MeshReport {
     pub kind: &'static str,
     /// Always `"ok"`.
     pub status: &'static str,
+    /// The `--analysis` the mesh and starter spec were built for
+    /// (`driven`, `capacitance` or `inductance`; additive, issue #720).
+    pub analysis: &'static str,
     /// Layout input.
     pub layout: FileSummary,
     /// Gmsh binary used.
@@ -145,7 +192,8 @@ pub struct GroupSummary {
     pub tag: i32,
     /// Name.
     pub name: String,
-    /// `dielectric`, `pec_sheet`, `pec_shell`, `port` or `outer_boundary`.
+    /// `dielectric`, `pec_sheet`, `pec_shell`, `conductor_volume`,
+    /// `port`, `contact` or `outer_boundary`.
     pub role: &'static str,
     /// Tets (dim 3) or triangles (dim 2) in the group.
     pub n_elements: usize,
@@ -299,7 +347,9 @@ fn tail(text: &str, n: usize) -> String {
 
 fn run(a: &MeshArgs, provenance: Provenance) -> Result<MeshReport, CliError> {
     let (layout, layout_bytes) = read_layout(&a.layout)?;
-    let resolved = layout.resolve().map_err(CliError::InvalidLayout)?;
+    let resolved = layout
+        .resolve_for(a.analysis)
+        .map_err(CliError::InvalidLayout)?;
     let (gmsh, gmsh_version) = find_gmsh(a.gmsh.as_deref())?;
 
     let mesh_path = a
@@ -385,6 +435,19 @@ fn run(a: &MeshArgs, provenance: Provenance) -> Result<MeshReport, CliError> {
         None => mesh_path.clone(),
     };
     let starter_spec = starter_spec(&resolved, &script, spec_dir_mesh_path);
+    if a.analysis != MeshAnalysis::Driven {
+        // Load the starter spec against the generated mesh exactly as
+        // `geode check` would: the static-analysis rules must hold by
+        // construction.
+        let mut probe = starter_spec.clone();
+        probe.mesh.path = mesh_path.clone();
+        crate::problem::load_parsed(probe, Path::new(""), None).map_err(|e| {
+            CliError::InvalidLayout(format!(
+                "the generated {} starter spec does not validate on the generated mesh: {e}",
+                a.analysis.name()
+            ))
+        })?;
+    }
     let starter_spec_path = match &a.spec_out {
         Some(path) => {
             let mut json = serde_json::to_string_pretty(&starter_spec)?;
@@ -399,6 +462,7 @@ fn run(a: &MeshArgs, provenance: Provenance) -> Result<MeshReport, CliError> {
         provenance,
         kind: "mesh",
         status: "ok",
+        analysis: a.analysis.name(),
         layout: FileSummary {
             path: a.layout.display().to_string(),
             sha256: hex(&layout_bytes),
@@ -489,7 +553,7 @@ fn summarize_groups(
     let untagged = tagged.tet_physical_tags.iter().filter(|&&t| t == 0).count();
     if untagged > 0 {
         return Err(CliError::GmshFailed(format!(
-            "{untagged} generated tets carry no dielectric physical group"
+            "{untagged} generated tets carry no dielectric / conductor-volume physical group"
         )));
     }
     let mut exterior = exterior_faces(&tagged.mesh.tets);
@@ -550,11 +614,14 @@ fn summarize_groups(
         }
         let role = match g.role {
             GroupRole::Dielectric(_) => "dielectric",
-            GroupRole::Conductor(i) => match geo::conductor_body(&r.layout.conductors[i]) {
+            GroupRole::Conductor(i) => match r.groups[i].body {
                 geo::ConductorBody::Sheet => "pec_sheet",
                 geo::ConductorBody::Hollow => "pec_shell",
+                geo::ConductorBody::Solid => unreachable!("solid groups are volumes"),
             },
+            GroupRole::ConductorVolume(_) => "conductor_volume",
             GroupRole::Port(_) => "port",
+            GroupRole::Contact(_) => "contact",
             GroupRole::OuterBoundary => "outer_boundary",
         };
         out.push(GroupSummary {
@@ -589,41 +656,71 @@ fn relative_mesh_path(mesh: &Path, spec: &Path) -> PathBuf {
     }
 }
 
-/// The starter problem spec: every slab's `eps_r`, PEC outer walls and
-/// conductors, one lumped port per layout port (explicit width /
-/// length), UPML absorbing regions if requested, a placeholder 1 GHz
-/// sweep to edit.
+/// The starter problem spec for [`ResolvedLayout::analysis`].
 pub fn starter_spec(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) -> ProblemSpec {
-    let l = &r.layout;
-    let name = |role: GroupRole| {
-        script
-            .groups
-            .iter()
-            .find(|g| g.role == role)
-            .map(|g| g.name.clone())
-            .expect("group generated")
-    };
-    let slabs: Vec<String> = (0..l.dielectrics.len())
-        .map(|i| name(GroupRole::Dielectric(i)))
-        .collect();
-    let mut pec = vec![name(GroupRole::OuterBoundary)];
-    pec.extend((0..l.conductors.len()).map(|i| name(GroupRole::Conductor(i))));
+    match r.analysis {
+        MeshAnalysis::Driven => starter_spec_driven(r, script, mesh_path),
+        MeshAnalysis::Capacitance => starter_spec_capacitance(r, script, mesh_path),
+        MeshAnalysis::Inductance => starter_spec_inductance(r, script, mesh_path),
+    }
+}
+
+/// Name of the generated group with `role`.
+fn group_name(script: &GeoScript, role: GroupRole) -> String {
+    script
+        .groups
+        .iter()
+        .find(|g| g.role == role)
+        .map(|g| g.name.clone())
+        .expect("group generated")
+}
+
+/// A spec with only the mesh, materials and solver set (every analysis
+/// section empty).
+fn bare_spec(mesh_path: PathBuf, length_unit_m: f64, materials: Vec<MaterialSpec>) -> ProblemSpec {
     ProblemSpec {
         schema_version: SPEC_SCHEMA_VERSION,
         mesh: MeshSpec {
             path: mesh_path,
-            length_unit_m: l.length_unit_m,
+            length_unit_m,
         },
-        materials: l
-            .dielectrics
-            .iter()
-            .zip(&slabs)
-            .map(|(d, g)| MaterialSpec {
-                physical_group: g.clone(),
-                eps_r: d.eps_r,
-                mu_r: 1.0,
-            })
-            .collect(),
+        materials,
+        boundary_conditions: BoundaryConditionsSpec::default(),
+        absorbing_regions: Vec::new(),
+        ports: Vec::new(),
+        wave_ports: Vec::new(),
+        frequencies: None,
+        solver: SolverSpec::Direct {},
+        eigen: None,
+        extract: None,
+        capacitance: None,
+        inductance: None,
+    }
+}
+
+/// The driven starter spec: every slab's `eps_r`, PEC outer walls and
+/// conductors, one lumped port per layout port (explicit width /
+/// length), UPML absorbing regions if requested, a placeholder 1 GHz
+/// sweep to edit.
+fn starter_spec_driven(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) -> ProblemSpec {
+    let l = &r.layout;
+    let name = |role: GroupRole| group_name(script, role);
+    let slabs: Vec<String> = (0..l.dielectrics.len())
+        .map(|i| name(GroupRole::Dielectric(i)))
+        .collect();
+    let mut pec = vec![name(GroupRole::OuterBoundary)];
+    pec.extend((0..r.groups.len()).map(|i| name(GroupRole::Conductor(i))));
+    let materials = l
+        .dielectrics
+        .iter()
+        .zip(&slabs)
+        .map(|(d, g)| MaterialSpec {
+            physical_group: g.clone(),
+            eps_r: d.eps_r,
+            mu_r: 1.0,
+        })
+        .collect();
+    ProblemSpec {
         boundary_conditions: BoundaryConditionsSpec {
             pec,
             ..Default::default()
@@ -652,7 +749,6 @@ pub fn starter_spec(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) 
                 v_inc: [1.0, 0.0],
             })
             .collect(),
-        wave_ports: Vec::new(),
         frequencies: Some(FrequencySpec {
             unit: FrequencyUnit::Ghz,
             values: Some(vec![1.0]),
@@ -661,11 +757,80 @@ pub fn starter_spec(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) 
             count: None,
             spacing: Spacing::Linear,
         }),
-        solver: SolverSpec::Direct {},
-        eigen: None,
-        extract: None,
-        capacitance: None,
-        inductance: None,
+        ..bare_spec(mesh_path, l.length_unit_m, materials)
+    }
+}
+
+/// The capacitance starter spec: every slab's real permittivity
+/// (`Re eps_r`; electrostatics has no loss), every conductor group not in
+/// the layout's `ground` as a terminal (group order), and
+/// `outer_boundary` plus the `ground` groups as the 0 V reference. No
+/// `boundary_conditions` (a capacitance spec rejects PEC), no ports, no
+/// frequencies, no UPML (a static solve has no absorber; the grounded
+/// outer walls close the domain).
+fn starter_spec_capacitance(
+    r: &ResolvedLayout,
+    script: &GeoScript,
+    mesh_path: PathBuf,
+) -> ProblemSpec {
+    let l = &r.layout;
+    let name = |role: GroupRole| group_name(script, role);
+    let materials = l
+        .dielectrics
+        .iter()
+        .enumerate()
+        .map(|(i, d)| MaterialSpec {
+            physical_group: name(GroupRole::Dielectric(i)),
+            eps_r: [d.eps_r[0], 0.0],
+            mu_r: 1.0,
+        })
+        .collect();
+    let terminals = (0..r.groups.len())
+        .filter(|&g| !r.groups[g].ground)
+        .map(|g| name(GroupRole::Conductor(g)))
+        .collect();
+    let mut ground = vec![name(GroupRole::OuterBoundary)];
+    ground.extend(l.ground.iter().cloned());
+    ProblemSpec {
+        capacitance: Some(CapacitanceSpec { terminals, ground }),
+        ..bare_spec(mesh_path, l.length_unit_m, materials)
+    }
+}
+
+/// The inductance starter spec: one current path per solid conductor
+/// group (named after it; its first contact is the `source`, its second
+/// the `sink`), `pec = ["outer_boundary", <every other conductor
+/// group>…]` as the return, vacuum everywhere (`mu_r = 1`; a
+/// magnetostatic spec takes no `eps_r`), no ports, no frequencies, no
+/// UPML.
+fn starter_spec_inductance(
+    r: &ResolvedLayout,
+    script: &GeoScript,
+    mesh_path: PathBuf,
+) -> ProblemSpec {
+    let name = |role: GroupRole| group_name(script, role);
+    let mut pec = vec![name(GroupRole::OuterBoundary)];
+    let mut paths = Vec::new();
+    for (g, cg) in r.groups.iter().enumerate() {
+        if cg.body == geo::ConductorBody::Solid {
+            let (source, sink) = r.path_contacts(g);
+            paths.push(CurrentPathSpec {
+                name: cg.name.clone(),
+                conductor: name(GroupRole::ConductorVolume(g)),
+                source: name(GroupRole::Contact(source)),
+                sink: name(GroupRole::Contact(sink)),
+            });
+        } else {
+            pec.push(name(GroupRole::Conductor(g)));
+        }
+    }
+    ProblemSpec {
+        boundary_conditions: BoundaryConditionsSpec {
+            pec,
+            ..Default::default()
+        },
+        inductance: Some(InductanceSpec { paths }),
+        ..bare_spec(mesh_path, r.layout.length_unit_m, Vec::new())
     }
 }
 

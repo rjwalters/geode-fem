@@ -24,9 +24,19 @@
 //! post-boolean renumbering) with mechanically derived names, a
 //! distance/threshold size field, and pinned output options (MSH 4.1
 //! ASCII, linear elements, single-threaded meshing for determinism).
+//!
+//! The analysis ([`ResolvedLayout::analysis`], issue #720) only filters
+//! this pipeline: ports are meshed for the driven analysis only; for the
+//! inductance analysis the current-path conductors
+//! ([`ConductorBody::Solid`]) are left out of the hollowing and enter the
+//! fragment step as meshed volumes (each its own dimension-3 group, the
+//! slabs excluding them), and their contact faces are tagged before any
+//! conductor surface. A driven layout without nets produces the same
+//! script as before issue #720.
 
 use std::fmt::Write as _;
 
+pub use crate::mesh_cmd::layout::ConductorBody;
 use crate::mesh_cmd::layout::{BoundaryDef, OUTER_BOUNDARY, Rect, ResolvedLayout};
 
 /// What a generated physical group is.
@@ -34,10 +44,16 @@ use crate::mesh_cmd::layout::{BoundaryDef, OUTER_BOUNDARY, Rect, ResolvedLayout}
 pub enum GroupRole {
     /// Dielectric slab `i` (dimension 3).
     Dielectric(usize),
-    /// Conductor layer `i` (dimension 2, PEC).
+    /// Conductor group `g` of [`ResolvedLayout::groups`] (dimension 2,
+    /// PEC; a sheet or hollow group).
     Conductor(usize),
+    /// Solid conductor group `g` (dimension 3): an inductance current
+    /// path's conductor volume.
+    ConductorVolume(usize),
     /// Port `i` (dimension 2).
     Port(usize),
+    /// Contact `i` (dimension 2): a current-path source / sink face.
+    Contact(usize),
     /// The six outer walls (dimension 2, PEC).
     OuterBoundary,
 }
@@ -62,31 +78,6 @@ pub struct GeoScript {
     pub text: String,
     /// Groups, in tag order within each dimension.
     pub groups: Vec<GroupDef>,
-}
-
-/// How a conductor layer enters the geometry.
-///
-/// The per-layer choice is made in one place ([`conductor_body`]) and the
-/// hollowing stage ([`hollow_conductors`]) takes an explicit list of the
-/// solids to remove, so a future mode that keeps a thick conductor as a
-/// meshed solid (e.g. an inductance current path, issue #720) is a new
-/// variant plus a filter — not a rework of the boolean pipeline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConductorBody {
-    /// `thickness == 0`: `Rectangle` sheets embedded by the fragment step.
-    Sheet,
-    /// `thickness > 0`: `Box` solids subtracted from the dielectric stack
-    /// (an excluded cavity; its walls are the conductor's surface group).
-    Hollow,
-}
-
-/// The body model of conductor layer `c`.
-pub fn conductor_body(c: &crate::mesh_cmd::layout::ConductorLayer) -> ConductorBody {
-    if c.thickness > 0.0 {
-        ConductorBody::Hollow
-    } else {
-        ConductorBody::Sheet
-    }
 }
 
 /// Stage 1 of the boolean pipeline: emit the union of the `tools`
@@ -171,14 +162,20 @@ fn num(v: f64) -> String {
 
 /// `Surface/Volume In BoundingBox{…}` of `r × [z0, z1]` grown by `eps`.
 fn bbox_sel(kind: &str, r: &Rect, z0: f64, z1: f64, eps: f64) -> String {
+    bbox_lohi(kind, [r.x0, r.y0, z0], [r.x1, r.y1, z1], eps)
+}
+
+/// `Surface/Volume In BoundingBox{…}` of the box `[lo, hi]` grown by
+/// `eps`.
+fn bbox_lohi(kind: &str, lo: [f64; 3], hi: [f64; 3], eps: f64) -> String {
     format!(
         "{kind} In BoundingBox{{{}, {}, {}, {}, {}, {}}}",
-        num(r.x0 - eps),
-        num(r.y0 - eps),
-        num(z0 - eps),
-        num(r.x1 + eps),
-        num(r.y1 + eps),
-        num(z1 + eps)
+        num(lo[0] - eps),
+        num(lo[1] - eps),
+        num(lo[2] - eps),
+        num(hi[0] + eps),
+        num(hi[1] + eps),
+        num(hi[2] + eps)
     )
 }
 
@@ -188,6 +185,17 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
     let d = r.domain;
     let (z_min, z_max) = (r.z_min, r.z_max);
     let extent = (d.x1 - d.x0).max(d.y1 - d.y0).max(z_max - z_min);
+    // Contact faces can be narrower than any part (a partial overlap).
+    let contact_dims: Vec<f64> = if r.meshes_contacts() {
+        r.contacts
+            .iter()
+            .flat_map(|c| &c.faces)
+            .flat_map(|f| (0..3).map(|k| f.hi[k] - f.lo[k]))
+            .filter(|v| *v > 0.0)
+            .collect()
+    } else {
+        Vec::new()
+    };
     // Selection tolerance: far below every feature, far above OCC's
     // bounding-box slack.
     let min_feature = r
@@ -203,8 +211,10 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
                 .filter(|t| *t > 0.0),
         )
         .chain(l.dielectrics.iter().map(|s| s.thickness))
+        .chain(contact_dims)
         .fold(f64::INFINITY, f64::min);
     let eps = (1e-5 * extent).min(1e-3 * min_feature);
+    let is_solid = |g: usize| r.groups[g].body == ConductorBody::Solid;
 
     let mut g = String::new();
     let w = &mut g;
@@ -224,26 +234,47 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
             role: GroupRole::Dielectric(i),
         });
     }
+    let solid_groups = r.groups.iter().enumerate().filter(|(gi, _)| is_solid(*gi));
+    for (vtag, (gi, cg)) in (l.dielectrics.len() as i32 + 1..).zip(solid_groups) {
+        groups.push(GroupDef {
+            dim: 3,
+            tag: vtag,
+            name: cg.name.clone(),
+            role: GroupRole::ConductorVolume(gi),
+        });
+    }
     let mut tag = FIRST_SURFACE_TAG;
     let mut next = || {
         tag += 1;
         tag - 1
     };
-    for (i, c) in l.conductors.iter().enumerate() {
+    for (gi, cg) in r.groups.iter().enumerate().filter(|(gi, _)| !is_solid(*gi)) {
         groups.push(GroupDef {
             dim: 2,
             tag: next(),
-            name: c.name.clone(),
-            role: GroupRole::Conductor(i),
+            name: cg.name.clone(),
+            role: GroupRole::Conductor(gi),
         });
     }
-    for (i, p) in r.ports.iter().enumerate() {
-        groups.push(GroupDef {
-            dim: 2,
-            tag: next(),
-            name: p.name.clone(),
-            role: GroupRole::Port(i),
-        });
+    if r.meshes_ports() {
+        for (i, p) in r.ports.iter().enumerate() {
+            groups.push(GroupDef {
+                dim: 2,
+                tag: next(),
+                name: p.name.clone(),
+                role: GroupRole::Port(i),
+            });
+        }
+    }
+    if r.meshes_contacts() {
+        for (i, c) in r.contacts.iter().enumerate() {
+            groups.push(GroupDef {
+                dim: 2,
+                tag: next(),
+                name: c.name.clone(),
+                role: GroupRole::Contact(i),
+            });
+        }
     }
     groups.push(GroupDef {
         dim: 2,
@@ -255,11 +286,14 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
     for gd in &groups {
         let role = match gd.role {
             GroupRole::Dielectric(_) => "dielectric slab",
-            GroupRole::Conductor(i) => match conductor_body(&l.conductors[i]) {
+            GroupRole::Conductor(i) => match r.groups[i].body {
                 ConductorBody::Sheet => "PEC sheet",
                 ConductorBody::Hollow => "PEC shell (cavity walls)",
+                ConductorBody::Solid => unreachable!("solid groups are volumes"),
             },
+            GroupRole::ConductorVolume(_) => "solid conductor (current path)",
             GroupRole::Port(_) => "lumped gap port",
+            GroupRole::Contact(_) => "current-path contact",
             GroupRole::OuterBoundary => "outer walls (PEC)",
         };
         let _ = writeln!(w, "//   | {} | {} | {} | {role} |", gd.dim, gd.tag, gd.name);
@@ -271,9 +305,11 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
     // --- Solids and sheets -------------------------------------------
     let (lx, ly) = (d.x1 - d.x0, d.y1 - d.y0);
     // Dielectric stack (slabs + UPML box), conductor solids to hollow,
-    // and surfaces (sheets + ports) to embed.
+    // solids to keep (current paths), and surfaces (sheets + ports) to
+    // embed.
     let mut vols = Vec::new();
     let mut solids = Vec::new();
+    let mut kept = Vec::new();
     let mut sheets = Vec::new();
     let mut ports = Vec::new();
     let _ = writeln!(w, "// Dielectric slabs (full lateral domain).");
@@ -311,21 +347,37 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         vols.push("v_upml".into());
     }
     for (i, (c, rects)) in l.conductors.iter().zip(&r.conductor_rects).enumerate() {
-        if conductor_body(c) == ConductorBody::Hollow {
-            let _ = writeln!(w, "// Conductor `{}`: solids (hollowed below).", c.name);
-            for (j, q) in rects.iter().enumerate() {
-                let v = format!("v_c{i}_{j}");
-                let _ = writeln!(
-                    w,
-                    "{v} = newv; Box({v}) = {{{}, {}, {}, {}, {}, {}}};",
-                    num(q.x0),
-                    num(q.y0),
-                    num(c.z_bottom),
-                    num(q.x1 - q.x0),
-                    num(q.y1 - q.y0),
-                    num(c.thickness)
-                );
-                solids.push(v);
+        if c.thickness > 0.0 {
+            let solid_rect = |j: &usize| is_solid(r.rect_group[i][*j]);
+            let hollow: Vec<usize> = (0..rects.len()).filter(|j| !solid_rect(j)).collect();
+            let solid: Vec<usize> = (0..rects.len()).filter(solid_rect).collect();
+            for (list, comment, out) in [
+                (&hollow, "solids (hollowed below)", &mut solids),
+                (
+                    &solid,
+                    "solid current-path volumes (kept, meshed)",
+                    &mut kept,
+                ),
+            ] {
+                if list.is_empty() {
+                    continue;
+                }
+                let _ = writeln!(w, "// Conductor `{}`: {comment}.", c.name);
+                for &j in list {
+                    let q = &rects[j];
+                    let v = format!("v_c{i}_{j}");
+                    let _ = writeln!(
+                        w,
+                        "{v} = newv; Box({v}) = {{{}, {}, {}, {}, {}, {}}};",
+                        num(q.x0),
+                        num(q.y0),
+                        num(c.z_bottom),
+                        num(q.x1 - q.x0),
+                        num(q.y1 - q.y0),
+                        num(c.thickness)
+                    );
+                    out.push(v);
+                }
             }
         } else {
             let _ = writeln!(w, "// Conductor `{}`: PEC sheets.", c.name);
@@ -344,35 +396,46 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
             }
         }
     }
-    let _ = writeln!(w, "// Port rectangles.");
-    for (i, p) in r.ports.iter().enumerate() {
-        let s = format!("s_p{i}");
-        let q = &p.rect;
-        let _ = writeln!(
-            w,
-            "{s} = news; Rectangle({s}) = {{{}, {}, {}, {}, {}}}; // {}",
-            num(q.x0),
-            num(q.y0),
-            num(p.z),
-            num(q.x1 - q.x0),
-            num(q.y1 - q.y0),
-            p.name
-        );
-        ports.push(s);
+    if r.meshes_ports() {
+        let _ = writeln!(w, "// Port rectangles.");
+        for (i, p) in r.ports.iter().enumerate() {
+            let s = format!("s_p{i}");
+            let q = &p.rect;
+            let _ = writeln!(
+                w,
+                "{s} = news; Rectangle({s}) = {{{}, {}, {}, {}, {}}}; // {}",
+                num(q.x0),
+                num(q.y0),
+                num(p.z),
+                num(q.x1 - q.x0),
+                num(q.y1 - q.y0),
+                p.name
+            );
+            ports.push(s);
+        }
     }
     let _ = writeln!(w);
-    let (hollowed, mut surfs) = hollow_conductors(w, &vols, &solids, &sheets);
+    let (mut objects, mut surfs) = hollow_conductors(w, &vols, &solids, &sheets);
     surfs.extend(ports);
+    objects.extend(kept);
     let _ = writeln!(
         w,
         "// Conformal interfaces between every slab, cavity wall, sheet and port."
     );
-    let _ = writeln!(
-        w,
-        "BooleanFragments{{ Volume{{{}}}; Delete; }}{{ Surface{{{}}}; Delete; }}",
-        hollowed.join(", "),
-        surfs.join(", ")
-    );
+    if surfs.is_empty() {
+        let _ = writeln!(
+            w,
+            "BooleanFragments{{ Volume{{{}}}; Delete; }}{{ }}",
+            objects.join(", ")
+        );
+    } else {
+        let _ = writeln!(
+            w,
+            "BooleanFragments{{ Volume{{{}}}; Delete; }}{{ Surface{{{}}}; Delete; }}",
+            objects.join(", "),
+            surfs.join(", ")
+        );
+    }
     let _ = writeln!(w);
 
     // --- Physical groups (bounding-box selection) --------------------
@@ -380,6 +443,34 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         w,
         "// Physical groups: bounding-box selection (robust to OCC renumbering)."
     );
+    // Solid conductor volumes first, so the slabs can exclude them.
+    let solid_groups: Vec<&GroupDef> = groups
+        .iter()
+        .filter(|g| matches!(g.role, GroupRole::ConductorVolume(_)))
+        .collect();
+    for gd in &solid_groups {
+        let GroupRole::ConductorVolume(gi) = gd.role else {
+            unreachable!()
+        };
+        let t = gd.tag;
+        let _ = writeln!(w, "g_{t}() = {{}};");
+        for p in &r.groups[gi].parts {
+            let _ = writeln!(
+                w,
+                "g_{t}() += {};",
+                bbox_sel("Volume", &p.rect, p.z0, p.z1, eps)
+            );
+        }
+        let _ = writeln!(w, "g_{t}() = Unique(g_{t}());");
+        let _ = writeln!(w, "Physical Volume(\"{}\", {t}) = {{g_{t}()}};", gd.name);
+    }
+    if !solid_groups.is_empty() {
+        let list: Vec<String> = solid_groups
+            .iter()
+            .map(|g| format!("g_{}()", g.tag))
+            .collect();
+        let _ = writeln!(w, "v_solid() = {{{}}};", list.join(", "));
+    }
     for gd in groups.iter().filter(|g| g.dim == 3) {
         let GroupRole::Dielectric(i) = gd.role else {
             continue;
@@ -391,36 +482,39 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
             gd.tag,
             bbox_sel("Volume", &d, s.z_bottom, s.z_bottom + s.thickness, eps)
         );
+        if !solid_groups.is_empty() {
+            let _ = writeln!(w, "g_{}() -= {{v_solid()}};", gd.tag);
+        }
         let _ = writeln!(
             w,
             "Physical Volume(\"{}\", {}) = {{g_{}()}};",
             gd.name, gd.tag, gd.tag
         );
     }
-    // Ports first: conductor selections exclude already-assigned faces
-    // so no triangle lands in two groups.
+    // Contacts, then ports, then conductors: later selections exclude
+    // already-assigned faces so no triangle lands in two groups (a
+    // contact face also lies in its return conductor's box).
     let _ = writeln!(w, "assigned() = {{}};");
-    let ports_then_conductors = groups
-        .iter()
-        .filter(|g| matches!(g.role, GroupRole::Port(_)))
-        .chain(
-            groups
-                .iter()
-                .filter(|g| matches!(g.role, GroupRole::Conductor(_))),
-        );
-    for gd in ports_then_conductors {
+    let by_role = |f: fn(&GroupRole) -> bool| groups.iter().filter(move |g| f(&g.role));
+    let ordered = by_role(|r| matches!(r, GroupRole::Contact(_)))
+        .chain(by_role(|r| matches!(r, GroupRole::Port(_))))
+        .chain(by_role(|r| matches!(r, GroupRole::Conductor(_))));
+    for gd in ordered {
         let body = match gd.role {
+            GroupRole::Contact(i) => r.contacts[i]
+                .faces
+                .iter()
+                .map(|f| bbox_lohi("Surface", f.lo, f.hi, eps))
+                .collect(),
             GroupRole::Port(i) => {
                 let p = &r.ports[i];
                 vec![bbox_sel("Surface", &p.rect, p.z, p.z, eps)]
             }
-            GroupRole::Conductor(i) => {
-                let c = &l.conductors[i];
-                r.conductor_rects[i]
-                    .iter()
-                    .map(|q| bbox_sel("Surface", q, c.z_bottom, c.z_top(), eps))
-                    .collect()
-            }
+            GroupRole::Conductor(gi) => r.groups[gi]
+                .parts
+                .iter()
+                .map(|p| bbox_sel("Surface", &p.rect, p.z0, p.z1, eps))
+                .collect::<Vec<_>>(),
             _ => continue,
         };
         let t = gd.tag;
@@ -465,12 +559,20 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
     );
     for gd in &groups {
         let (size, near, extent) = match gd.role {
-            GroupRole::Conductor(i) => {
-                let size = r.conductor_size(i);
-                let ext = r.conductor_rects[i]
+            GroupRole::Conductor(gi) | GroupRole::ConductorVolume(gi) => {
+                let size = r.group_size(gi);
+                let ext = r.groups[gi]
+                    .parts
                     .iter()
-                    .map(|q| (q.x1 - q.x0).max(q.y1 - q.y0))
-                    .fold(l.conductors[i].thickness, f64::max);
+                    .map(|p| (p.rect.x1 - p.rect.x0).max(p.rect.y1 - p.rect.y0))
+                    .fold(
+                        r.groups[gi]
+                            .parts
+                            .iter()
+                            .map(|p| p.z1 - p.z0)
+                            .fold(0.0, f64::max),
+                        f64::max,
+                    );
                 (size, l.mesh.near_distance.unwrap_or(size), ext)
             }
             GroupRole::Port(i) => {
@@ -483,7 +585,17 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         field += 1;
         let dist = field;
         let _ = writeln!(w, "Field[{dist}] = Distance;");
-        let _ = writeln!(w, "Field[{dist}].SurfacesList = {{g_{}()}};", gd.tag);
+        if let GroupRole::ConductorVolume(_) = gd.role {
+            // A volume's distance is its boundary surfaces'.
+            let _ = writeln!(
+                w,
+                "b_{}() = Abs(CombinedBoundary{{ Volume{{g_{}()}}; }});",
+                gd.tag, gd.tag
+            );
+            let _ = writeln!(w, "Field[{dist}].SurfacesList = {{b_{}()}};", gd.tag);
+        } else {
+            let _ = writeln!(w, "Field[{dist}].SurfacesList = {{g_{}()}};", gd.tag);
+        }
         let _ = writeln!(w, "Field[{dist}].Sampling = {sampling};");
         field += 1;
         let _ = writeln!(w, "Field[{field}] = Threshold;");
@@ -651,5 +763,123 @@ mod tests {
         assert!(thin.text.contains(
             "BooleanFragments{ Volume{v_d0}; Delete; }{ Surface{s_c0_0, s_c0_1, s_p0}; Delete; }"
         ));
+    }
+
+    /// A thick trace between two thick posts on a sheet ground, with a
+    /// port (issue #720).
+    fn path_layout() -> Layout {
+        let rect = |x0: f64, y0: f64, x1: f64, y1: f64| {
+            serde_json::json!([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])
+        };
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "air", "z_bottom": -1, "thickness": 6}],
+            "conductors": [
+                {"name": "gnd", "z_bottom": 0, "polygons": [{"outer": rect(-4.0, -4.0, 14.0, 4.0)}]},
+                {"name": "posts", "z_bottom": 0, "thickness": 2, "polygons": [
+                    {"net": "post_a", "outer": rect(-2.0, -1.0, 0.0, 1.0)},
+                    {"net": "post_b", "outer": rect(10.0, -1.0, 12.0, 1.0)}]},
+                {"name": "sig", "z_bottom": 1, "thickness": 0.5, "polygons": [
+                    {"outer": rect(0.0, -0.5, 10.0, 0.5)}]}
+            ],
+            "ports": [{"name": "p1", "layer": "sig", "rect": [4, 1, 5, 2], "direction": "y"}],
+            "contacts": [
+                {"name": "c_a", "conductor": "sig", "to": "post_a"},
+                {"name": "c_b", "conductor": "sig", "to": "post_b"}
+            ],
+            "margin": 2,
+            "mesh": {"size_max": 2, "size_conductor": 0.5}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn inductance_keeps_the_path_solid_and_tags_contacts_first() {
+        let r = path_layout()
+            .resolve_for(super::super::MeshAnalysis::Inductance)
+            .unwrap();
+        let s = generate(&r, "test");
+        let names: Vec<_> = s
+            .groups
+            .iter()
+            .map(|g| (g.dim, g.tag, g.name.as_str()))
+            .collect();
+        // No port; the path is a volume; contacts after the conductors.
+        assert_eq!(
+            names,
+            vec![
+                (3, 1, "air"),
+                (3, 2, "sig"),
+                (2, 101, "gnd"),
+                (2, 102, "post_a"),
+                (2, 103, "post_b"),
+                (2, 104, "c_a"),
+                (2, 105, "c_b"),
+                (2, 106, "outer_boundary"),
+            ]
+        );
+        for needle in [
+            // Posts hollowed, the trace kept and fragmented with the stack.
+            "v_cond() = {v_c1_0, v_c1_1};",
+            "// Conductor `sig`: solid current-path volumes (kept, meshed).",
+            "BooleanFragments{ Volume{v_hollow(), v_c2_0}; Delete; }{ Surface{s_sheet()}; Delete; }",
+            // The volume group, excluded from the slab.
+            "g_2() += Volume In BoundingBox{",
+            "Physical Volume(\"sig\", 2) = {g_2()};",
+            "v_solid() = {g_2()};",
+            "g_1() -= {v_solid()};",
+            // The contact face at x = 0.
+            "g_104() += Surface In BoundingBox{-0.00022, -0.50022, 0.99978, 0.00022, 0.50022, 1.50022};",
+            "b_2() = Abs(CombinedBoundary{ Volume{g_2()}; });",
+            "Field[1].SurfacesList = {b_2()};",
+        ] {
+            assert!(s.text.contains(needle), "missing `{needle}` in\n{}", s.text);
+        }
+        assert!(!s.text.contains("s_p0"), "ports are not meshed");
+        // Contacts are assigned before the conductor surfaces.
+        let first = |n: &str| s.text.find(n).unwrap();
+        assert!(first("Physical Surface(\"c_a\"") < first("Physical Surface(\"gnd\""));
+        // No sheet and no port: an empty fragment tool list.
+        let mut l = path_layout();
+        l.conductors.remove(0);
+        let r = l
+            .resolve_for(super::super::MeshAnalysis::Inductance)
+            .unwrap();
+        let s = generate(&r, "test");
+        assert!(
+            s.text
+                .contains("BooleanFragments{ Volume{v_hollow(), v_c1_0}; Delete; }{ }"),
+            "{}",
+            s.text
+        );
+    }
+
+    #[test]
+    fn capacitance_meshes_no_port_and_nets_are_groups() {
+        let mut l = path_layout();
+        l.conductors[1].polygons[0].outer =
+            serde_json::from_value(serde_json::json!([[-2, -1], [-1, -1], [-1, 1], [-2, 1]]))
+                .unwrap();
+        l.conductors[1].polygons[1].outer =
+            serde_json::from_value(serde_json::json!([[11, -1], [12, -1], [12, 1], [11, 1]]))
+                .unwrap();
+        l.conductors[0].z_bottom = -0.5;
+        l.ground = vec!["gnd".into()];
+        // Contacts are validated in every analysis but meshed only for
+        // inductance; these posts no longer touch the trace.
+        l.contacts.clear();
+        let r = l
+            .resolve_for(super::super::MeshAnalysis::Capacitance)
+            .unwrap();
+        let s = generate(&r, "test");
+        let names: Vec<_> = s.groups.iter().map(|g| g.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["air", "gnd", "sig", "post_a", "post_b", "outer_boundary"]
+        );
+        assert!(!s.text.contains("Port rectangles"));
+        assert!(s.text.contains("v_cond() = {v_c1_0, v_c1_1, v_c2_0};"));
+        assert!(!s.text.contains("v_solid"));
     }
 }

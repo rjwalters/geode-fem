@@ -4,7 +4,8 @@
 //! (`.toml`) description of a planar (2.5-D) structure — the kind of
 //! thing a GDS-reading tool (klayout-tools, …) emits after flattening a
 //! cell and applying a layer stack. `geode mesh` turns it into a tagged
-//! Gmsh mesh plus a starter problem spec ([`crate::spec`]).
+//! Gmsh mesh plus a starter problem spec ([`crate::spec`]) for the
+//! analysis selected by `--analysis` ([`MeshAnalysis`]).
 //!
 //! * [`Layout::dielectrics`] — the layer stack: contiguous horizontal
 //!   slabs, bottom to top, each spanning the whole lateral domain; each
@@ -13,13 +14,23 @@
 //!   extruded to `[z_bottom, z_bottom + thickness]` and modelled as
 //!   **PEC sheets** (`thickness = 0`) or closed **PEC shells** (the
 //!   extruded solid is subtracted from the dielectric stack — an excluded
-//!   cavity, issue #721 — and its exterior walls are the group). Each
-//!   layer becomes one **dimension-2** physical group named after the
-//!   layer, listed as PEC in the starter spec.
+//!   cavity, issue #721 — and its exterior walls are the group). The
+//!   layer's polygons without a [`Polygon::net`] become one
+//!   **dimension-2** physical group named after the layer; polygons with
+//!   a `net` (issue #720) become one group per net name instead, which may
+//!   span several layers (a trace and its via as one conductor). These
+//!   **conductor groups** are the PEC surfaces of the driven starter spec
+//!   and the terminals / ground of the capacitance starter spec
+//!   ([`Layout::ground`]).
 //! * [`Layout::ports`] — lumped **gap** ports: a horizontal rectangle
 //!   spanning the gap between two named shapes of one conductor layer
 //!   (or an explicit rectangle), at the layer's mid-height. Each becomes
-//!   one dimension-2 group named after the port.
+//!   one dimension-2 group named after the port (driven analysis only).
+//! * [`Layout::contacts`] — inductance current-path endpoints (issue
+//!   #720): the faces where a thick conductor group touches a PEC
+//!   conductor group. With `--analysis inductance` the contacted group is
+//!   kept as a meshed **solid** (a dimension-3 group) instead of being
+//!   hollowed, and each contact becomes a dimension-2 group.
 //! * [`Layout::boundary`] — PEC outer walls (`outer_boundary`), or a
 //!   matched box UPML of a given depth inside them.
 //! * [`Layout::mesh`] — mesh-size controls.
@@ -27,6 +38,8 @@
 //! Lengths are in layout units; [`Layout::length_unit_m`] states how
 //! many metres one unit is and is copied into the starter spec. Unknown
 //! fields are rejected (`deny_unknown_fields`) like in the problem spec.
+//! `net`, `ground` and `contacts` are additive (schema v1): a layout
+//! without them resolves exactly as before.
 //!
 //! v1 is deliberately small: rectilinear polygons without holes,
 //! thin-sheet / shell PEC conductors, lumped gap ports. See
@@ -34,6 +47,8 @@
 //! reference and the documented deferrals.
 
 use serde::{Deserialize, Serialize};
+
+pub use super::MeshAnalysis;
 
 /// The only layout schema version this build understands.
 pub const LAYOUT_SCHEMA_VERSION: u32 = 1;
@@ -57,8 +72,20 @@ pub struct Layout {
     /// Conductor layers (PEC sheets / shells).
     #[serde(default)]
     pub conductors: Vec<ConductorLayer>,
-    /// Lumped gap ports (`≥ 1`).
+    /// Lumped gap ports (`≥ 1` for the driven analysis; optional, and
+    /// not meshed, for capacitance / inductance).
+    #[serde(default)]
     pub ports: Vec<PortDef>,
+    /// Conductor groups (layer or net names) that are the grounded
+    /// reference: `capacitance.ground` (with `outer_boundary`) in the
+    /// capacitance starter spec. Every other analysis treats them as PEC
+    /// like any other non-path conductor.
+    #[serde(default)]
+    pub ground: Vec<String>,
+    /// Inductance current-path endpoints (used by `--analysis
+    /// inductance`; validated but not meshed otherwise).
+    #[serde(default)]
+    pub contacts: Vec<ContactDef>,
     /// Lateral margin between the conductor / port footprint and the
     /// outer walls (`> 0`; with a UPML boundary it includes the shell).
     pub margin: f64,
@@ -123,6 +150,11 @@ pub struct Polygon {
     /// [`PortDef::between`]).
     #[serde(default)]
     pub name: Option<String>,
+    /// Optional net: polygons sharing a net name (on any layer) form one
+    /// conductor group named after the net, instead of joining their
+    /// layer's group.
+    #[serde(default)]
+    pub net: Option<String>,
     /// Outer ring `[[x, y], …]` (`≥ 4` vertices, either orientation,
     /// closing vertex optional).
     pub outer: Vec<[f64; 2]>,
@@ -181,6 +213,24 @@ pub struct PortDef {
 
 fn default_resistance() -> f64 {
     50.0
+}
+
+/// An inductance current-path endpoint: the interface where the thick
+/// conductor group `conductor` touches the conductor group `to` (e.g. the
+/// end face of a trace against a via / end wall). A path conductor needs
+/// exactly two contacts: the first listed is the path's `source`, the
+/// second its `sink`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContactDef {
+    /// Surface physical-group name.
+    pub name: String,
+    /// Conductor group (layer or net name) carrying the current; kept as
+    /// a meshed solid by `--analysis inductance`. Every part thick.
+    pub conductor: String,
+    /// The PEC conductor group (layer or net name) it touches: the return
+    /// path. The contact face is every face `conductor` shares with it.
+    pub to: String,
 }
 
 /// Outer boundary treatment.
@@ -288,16 +338,106 @@ pub struct ResolvedPort {
     pub resistance_ohm: f64,
 }
 
+/// How a conductor group enters the geometry.
+///
+/// Decided once per group at resolve time ([`Layout::resolve_for`]); the
+/// hollowing stage of the code generator takes an explicit list of the
+/// solids to remove, so a solid current-path conductor (issue #720) is a
+/// filter, not a rework of the boolean pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConductorBody {
+    /// Every part zero-thickness: `Rectangle` sheets embedded by the
+    /// fragment step.
+    Sheet,
+    /// At least one thick part: its `Box` solids are subtracted from the
+    /// dielectric stack (an excluded cavity; its walls are the
+    /// conductor's surface group). Zero-thickness parts stay sheets.
+    Hollow,
+    /// Every part thick and kept as a meshed solid (a dimension-3 group):
+    /// an inductance current path (`--analysis inductance`, issue #720).
+    Solid,
+}
+
+/// One rectangle of a conductor group, on one layer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GroupPart {
+    /// Conductor layer index.
+    pub layer: usize,
+    /// Footprint.
+    pub rect: Rect,
+    /// Bottom of the part (the layer's `z_bottom`).
+    pub z0: f64,
+    /// Top of the part (the layer's top; `z0` for a sheet).
+    pub z1: f64,
+}
+
+impl GroupPart {
+    /// Closed box `[lo, hi]`.
+    fn bounds(&self) -> ([f64; 3], [f64; 3]) {
+        (
+            [self.rect.x0, self.rect.y0, self.z0],
+            [self.rect.x1, self.rect.y1, self.z1],
+        )
+    }
+}
+
+/// A conductor group: one physical group of conductor surfaces (or, for a
+/// [`ConductorBody::Solid`] group, one volume group).
+#[derive(Debug, Clone)]
+pub struct ConductorGroup {
+    /// Group name: the layer name (the layer's un-netted polygons) or the
+    /// net name.
+    pub name: String,
+    /// Its rectangles, layer by layer in input order.
+    pub parts: Vec<GroupPart>,
+    /// Body model.
+    pub body: ConductorBody,
+    /// Listed in [`Layout::ground`].
+    pub ground: bool,
+}
+
+/// An axis-aligned face `[lo, hi]` (degenerate along one axis).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FaceBox {
+    /// Lower corner.
+    pub lo: [f64; 3],
+    /// Upper corner.
+    pub hi: [f64; 3],
+}
+
+/// A validated, resolved contact.
+#[derive(Debug, Clone)]
+pub struct ResolvedContact {
+    /// Group name.
+    pub name: String,
+    /// Index of the path conductor group ([`ResolvedLayout::groups`]).
+    pub conductor: usize,
+    /// Index of the touched (return) conductor group.
+    pub to: usize,
+    /// The interface faces (non-empty).
+    pub faces: Vec<FaceBox>,
+}
+
 /// A validated layout: the input plus the derived geometry the code
 /// generator needs.
 #[derive(Debug, Clone)]
 pub struct ResolvedLayout {
     /// The parsed layout.
     pub layout: Layout,
+    /// The analysis the geometry and starter spec are built for.
+    pub analysis: MeshAnalysis,
     /// Per conductor layer, the rectangle decomposition of its polygons.
     pub conductor_rects: Vec<Vec<Rect>>,
+    /// Per conductor layer and rectangle (as in `conductor_rects`), the
+    /// index of its conductor group.
+    pub rect_group: Vec<Vec<usize>>,
+    /// Conductor groups: layers with un-netted polygons (layer order),
+    /// then nets (first-appearance order).
+    pub groups: Vec<ConductorGroup>,
     /// Resolved ports, in input order.
     pub ports: Vec<ResolvedPort>,
+    /// Resolved contacts, in input order.
+    pub contacts: Vec<ResolvedContact>,
     /// Lateral domain (footprint + margin).
     pub domain: Rect,
     /// Bottom of the stack.
@@ -312,6 +452,41 @@ impl ResolvedLayout {
         self.layout.conductors[i]
             .mesh_size
             .unwrap_or(self.layout.mesh.size_conductor)
+    }
+
+    /// Target size on conductor group `g`: the smallest of its layers'.
+    pub fn group_size(&self, g: usize) -> f64 {
+        self.groups[g]
+            .parts
+            .iter()
+            .map(|p| self.conductor_size(p.layer))
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    /// Whether ports are meshed (and wired into the starter spec).
+    pub fn meshes_ports(&self) -> bool {
+        self.analysis == MeshAnalysis::Driven
+    }
+
+    /// Whether contacts are meshed (and wired into the starter spec).
+    pub fn meshes_contacts(&self) -> bool {
+        self.analysis == MeshAnalysis::Inductance
+    }
+
+    /// The two contacts `(source, sink)` of solid group `g`, in input
+    /// order.
+    pub fn path_contacts(&self, g: usize) -> (usize, usize) {
+        let mut it = self
+            .contacts
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.conductor == g)
+            .map(|(i, _)| i);
+        let pair = (it.next(), it.next());
+        match pair {
+            (Some(a), Some(b)) => (a, b),
+            _ => unreachable!("validated: a path conductor has two contacts"),
+        }
     }
 
     /// Target size on ports.
@@ -444,10 +619,68 @@ fn bbox(rects: &[Rect]) -> Rect {
     rects[1..].iter().fold(rects[0], |acc, r| acc.union(r))
 }
 
+/// Faces shared by two sets of closed boxes (a thick path conductor
+/// `a` and the group `b` it touches). `Err` on a positive-volume overlap,
+/// or a zero-thickness part of `b` passing through the interior of `a`.
+/// Edge / point contacts are not faces and are ignored.
+fn interface(a: &[GroupPart], b: &[GroupPart]) -> Result<Vec<FaceBox>, String> {
+    let mut faces = Vec::new();
+    for pa in a {
+        let (alo, ahi) = pa.bounds();
+        for pb in b {
+            let (blo, bhi) = pb.bounds();
+            let lo: [f64; 3] = std::array::from_fn(|k| alo[k].max(blo[k]));
+            let hi: [f64; 3] = std::array::from_fn(|k| ahi[k].min(bhi[k]));
+            if (0..3).any(|k| hi[k] < lo[k]) {
+                continue;
+            }
+            let flat: Vec<usize> = (0..3).filter(|&k| hi[k] == lo[k]).collect();
+            match flat.as_slice() {
+                [] => return Err("they overlap (a positive-volume intersection)".into()),
+                [k] => {
+                    if lo[*k] != alo[*k] && lo[*k] != ahi[*k] {
+                        return Err(
+                            "a zero-thickness part passes through the path conductor's interior"
+                                .into(),
+                        );
+                    }
+                    faces.push(FaceBox { lo, hi });
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(faces)
+}
+
+/// Whether any closed box of `a` meets any of `b` (touching included).
+fn touches(a: &[GroupPart], b: &[GroupPart]) -> bool {
+    a.iter().any(|pa| {
+        let (alo, ahi) = pa.bounds();
+        b.iter().any(|pb| {
+            let (blo, bhi) = pb.bounds();
+            (0..3).all(|k| alo[k].max(blo[k]) <= ahi[k].min(bhi[k]))
+        })
+    })
+}
+
 impl Layout {
-    /// Validate and resolve derived geometry. Every error is a
-    /// human-readable `invalid layout` message.
+    /// Validate and resolve derived geometry for the driven analysis
+    /// ([`Layout::resolve_for`]).
+    #[cfg(test)]
     pub fn resolve(self) -> Result<ResolvedLayout, String> {
+        self.resolve_for(MeshAnalysis::Driven)
+    }
+
+    /// Validate and resolve derived geometry for `analysis`. Every error
+    /// is a human-readable `invalid layout` message.
+    ///
+    /// The analysis decides the per-analysis requirements (driven: `≥ 1`
+    /// port; capacitance: `≥ 1` non-ground conductor group and no two
+    /// touching conductor groups unless both are ground; inductance:
+    /// `≥ 1` contact pair and a path conductor touching nothing but its
+    /// contacts' groups) and which conductor groups are kept solid.
+    pub fn resolve_for(self, analysis: MeshAnalysis) -> Result<ResolvedLayout, String> {
         if self.schema_version != LAYOUT_SCHEMA_VERSION {
             return Err(format!(
                 "unsupported layout schema_version {} (this build understands {})",
@@ -469,6 +702,19 @@ impl Layout {
             }
         }
 
+        // Nets, in first-appearance order.
+        let mut nets: Vec<&str> = Vec::new();
+        for n in self
+            .conductors
+            .iter()
+            .flat_map(|c| &c.polygons)
+            .filter_map(|p| p.net.as_deref())
+        {
+            if !nets.contains(&n) {
+                nets.push(n);
+            }
+        }
+
         // Names: unique across every physical group.
         let mut names: Vec<&str> = vec![OUTER_BOUNDARY];
         let groups = self
@@ -480,7 +726,9 @@ impl Layout {
                     .iter()
                     .map(|c| ("conductor", c.name.as_str())),
             )
-            .chain(self.ports.iter().map(|p| ("port", p.name.as_str())));
+            .chain(nets.iter().map(|n| ("net", *n)))
+            .chain(self.ports.iter().map(|p| ("port", p.name.as_str())))
+            .chain(self.contacts.iter().map(|c| ("contact", c.name.as_str())));
         for (what, name) in groups {
             check_name(what, name)?;
             if names.contains(&name) {
@@ -578,10 +826,196 @@ impl Layout {
             shape_rects.push(shapes);
         }
 
-        // Ports.
-        if self.ports.is_empty() {
-            return Err("`ports` needs ≥ 1 port".into());
+        // Conductor groups: each layer's un-netted polygons, then nets.
+        let mut cgroups: Vec<ConductorGroup> = Vec::new();
+        let new_group = |name: &str| ConductorGroup {
+            name: name.to_owned(),
+            parts: Vec::new(),
+            body: ConductorBody::Sheet,
+            ground: self.ground.iter().any(|g| g == name),
+        };
+        let layer_group: Vec<Option<usize>> = self
+            .conductors
+            .iter()
+            .map(|c| {
+                c.polygons.iter().any(|p| p.net.is_none()).then(|| {
+                    cgroups.push(new_group(&c.name));
+                    cgroups.len() - 1
+                })
+            })
+            .collect();
+        let net_base = cgroups.len();
+        cgroups.extend(nets.iter().map(|n| new_group(n)));
+        let mut rect_group = Vec::with_capacity(self.conductors.len());
+        for (li, (c, shapes)) in self.conductors.iter().zip(&shape_rects).enumerate() {
+            let mut of_rect = Vec::new();
+            for (p, (_, rects)) in c.polygons.iter().zip(shapes) {
+                let g = match &p.net {
+                    None => layer_group[li].expect("layer has un-netted polygons"),
+                    Some(n) => net_base + nets.iter().position(|m| m == n).expect("collected"),
+                };
+                for &rect in rects {
+                    cgroups[g].parts.push(GroupPart {
+                        layer: li,
+                        rect,
+                        z0: c.z_bottom,
+                        z1: c.z_top(),
+                    });
+                    of_rect.push(g);
+                }
+            }
+            rect_group.push(of_rect);
         }
+        for g in &mut cgroups {
+            if g.parts.iter().any(|p| p.z1 > p.z0) {
+                g.body = ConductorBody::Hollow;
+            }
+        }
+        let group_names: Vec<&str> = cgroups.iter().map(|g| g.name.as_str()).collect();
+        let find_group = |what: String, name: &str| {
+            cgroups.iter().position(|g| g.name == name).ok_or_else(|| {
+                format!(
+                    "{what} `{name}` is not a conductor group (a conductor layer with \
+                         un-netted polygons, or a net); groups: [{}]",
+                    group_names.join(", ")
+                )
+            })
+        };
+        for (i, name) in self.ground.iter().enumerate() {
+            find_group("ground".into(), name)?;
+            if self.ground[..i].contains(name) {
+                return Err(format!("ground lists `{name}` more than once"));
+            }
+        }
+
+        // Contacts: two per path conductor, each a face shared with a
+        // different return group.
+        let mut contacts = Vec::with_capacity(self.contacts.len());
+        for c in &self.contacts {
+            let what = |f: &str| format!("contacts[{}].{f}", c.name);
+            let cond = find_group(what("conductor"), &c.conductor)?;
+            let to = find_group(what("to"), &c.to)?;
+            if cond == to {
+                return Err(format!(
+                    "contacts[{}]: `conductor` and `to` are the same group `{}`",
+                    c.name, c.to
+                ));
+            }
+            if cgroups[cond].parts.iter().any(|p| p.z1 <= p.z0) {
+                return Err(format!(
+                    "contacts[{}]: path conductor `{}` has a zero-thickness part; a current \
+                     path needs a thick (thickness > 0) conductor volume",
+                    c.name, c.conductor
+                ));
+            }
+            let faces = interface(&cgroups[cond].parts, &cgroups[to].parts).map_err(|e| {
+                format!(
+                    "contacts[{}]: `{}` and `{}` must touch without overlapping: {e}",
+                    c.name, c.conductor, c.to
+                )
+            })?;
+            if faces.is_empty() {
+                return Err(format!(
+                    "contacts[{}]: `{}` and `{}` share no face (a contact is where the path \
+                     conductor touches its return conductor over an area)",
+                    c.name, c.conductor, c.to
+                ));
+            }
+            contacts.push(ResolvedContact {
+                name: c.name.clone(),
+                conductor: cond,
+                to,
+                faces,
+            });
+        }
+        for c in &contacts {
+            let mine: Vec<&ResolvedContact> = contacts
+                .iter()
+                .filter(|d| d.conductor == c.conductor)
+                .collect();
+            let name = &cgroups[c.conductor].name;
+            if mine.len() != 2 {
+                return Err(format!(
+                    "path conductor `{name}` has {} contact(s); an open current path needs \
+                     exactly two (the first listed is the source, the second the sink)",
+                    mine.len()
+                ));
+            }
+            if mine[0].to == mine[1].to {
+                return Err(format!(
+                    "the contacts `{}` and `{}` of path conductor `{name}` both touch `{}`, so \
+                     they would be the same faces; put each end's return conductor in its own \
+                     net",
+                    mine[0].name, mine[1].name, cgroups[c.to].name
+                ));
+            }
+            if contacts.iter().any(|d| d.conductor == c.to) {
+                return Err(format!(
+                    "contacts[{}].to `{}` is itself a path conductor; a contact joins a path to \
+                     a PEC return conductor",
+                    c.name, cgroups[c.to].name
+                ));
+            }
+        }
+
+        // Per-analysis requirements.
+        match analysis {
+            MeshAnalysis::Driven => {
+                if self.ports.is_empty() {
+                    return Err("`ports` needs ≥ 1 port (driven analysis)".into());
+                }
+            }
+            MeshAnalysis::Capacitance => {
+                if cgroups.iter().all(|g| g.ground) {
+                    return Err(
+                        "`--analysis capacitance` needs at least one conductor group \
+                         that is not listed in `ground` (a terminal)"
+                            .into(),
+                    );
+                }
+                for (i, a) in cgroups.iter().enumerate() {
+                    for b in &cgroups[i + 1..] {
+                        if !(a.ground && b.ground) && touches(&a.parts, &b.parts) {
+                            return Err(format!(
+                                "conductor groups `{}` and `{}` touch, so they are one \
+                                 conductor electrically (capacitance terminals must not share a \
+                                 node): put their polygons in one net, or list both in `ground`",
+                                a.name, b.name
+                            ));
+                        }
+                    }
+                }
+            }
+            MeshAnalysis::Inductance => {
+                if contacts.is_empty() {
+                    return Err(
+                        "`--analysis inductance` needs `contacts`: two per current-path \
+                         conductor (source, then sink)"
+                            .into(),
+                    );
+                }
+                for c in &contacts {
+                    cgroups[c.conductor].body = ConductorBody::Solid;
+                }
+                for (i, a) in cgroups.iter().enumerate() {
+                    if a.body != ConductorBody::Solid {
+                        continue;
+                    }
+                    for (j, b) in cgroups.iter().enumerate() {
+                        let returns = contacts.iter().any(|c| c.conductor == i && c.to == j);
+                        if i != j && !returns && touches(&a.parts, &b.parts) {
+                            return Err(format!(
+                                "path conductor `{}` touches `{}` outside its contacts (it may \
+                                 touch only its contacts' `to` groups, over their shared faces)",
+                                a.name, b.name
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Ports.
         let mut ports = Vec::with_capacity(self.ports.len());
         for p in &self.ports {
             positive(
@@ -672,7 +1106,7 @@ impl Layout {
             .copied()
             .chain(ports.iter().map(|p| p.rect))
             .reduce(|a, b| a.union(&b))
-            .expect("≥ 1 port");
+            .expect("≥ 1 port or conductor group (checked per analysis)");
         let domain = Rect {
             x0: footprint.x0 - self.margin,
             y0: footprint.y0 - self.margin,
@@ -714,8 +1148,12 @@ impl Layout {
 
         Ok(ResolvedLayout {
             layout: self,
+            analysis,
             conductor_rects,
+            rect_group,
+            groups: cgroups,
             ports,
+            contacts,
             domain,
             z_min,
             z_max,
@@ -975,5 +1413,231 @@ mod tests {
             .contains("< margin")
         );
         assert!(err(&|l| l.dielectrics[0].name = "sub strate".into()).contains("[A-Za-z0-9_.-]"));
+    }
+
+    /// A thick trace `sig` (x ∈ [0, 10]) between two thick end posts
+    /// `post_a` / `post_b` it touches over its end faces, over a sheet
+    /// ground `gnd` the posts stand on (issue #720).
+    fn path_layout() -> Layout {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "air", "z_bottom": -1, "thickness": 6}],
+            "conductors": [
+                {"name": "gnd", "z_bottom": 0, "polygons": [{"outer": rect(-4.0, -4.0, 14.0, 4.0)}]},
+                {"name": "posts", "z_bottom": 0, "thickness": 2, "polygons": [
+                    {"net": "post_a", "outer": rect(-2.0, -1.0, 0.0, 1.0)},
+                    {"net": "post_b", "outer": rect(10.0, -1.0, 12.0, 1.0)}]},
+                {"name": "sig", "z_bottom": 1, "thickness": 0.5, "polygons": [
+                    {"outer": rect(0.0, -0.5, 10.0, 0.5)}]}
+            ],
+            "contacts": [
+                {"name": "c_a", "conductor": "sig", "to": "post_a"},
+                {"name": "c_b", "conductor": "sig", "to": "post_b"}
+            ],
+            "margin": 2,
+            "mesh": {"size_max": 2, "size_conductor": 0.5}
+        }))
+        .unwrap()
+    }
+
+    fn names(r: &ResolvedLayout) -> Vec<&str> {
+        r.groups.iter().map(|g| g.name.as_str()).collect()
+    }
+
+    #[test]
+    fn layouts_without_nets_have_one_group_per_layer() {
+        // The additive guarantee: no nets → one group per layer, holding
+        // exactly the layer's rectangles in order (the pre-#720 model).
+        for fixture in ["spiral_layout_smoke.json", "spiral_layout_benchmark.json"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(fixture);
+            let l: Layout = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+            let r = l.resolve().unwrap();
+            assert_eq!(r.groups.len(), r.layout.conductors.len(), "{fixture}");
+            for (i, (g, c)) in r.groups.iter().zip(&r.layout.conductors).enumerate() {
+                assert_eq!(g.name, c.name);
+                let rects: Vec<Rect> = g.parts.iter().map(|p| p.rect).collect();
+                assert_eq!(rects, r.conductor_rects[i]);
+                assert!(g.parts.iter().all(|p| p.layer == i && p.z0 == c.z_bottom));
+                assert!(r.rect_group[i].iter().all(|&k| k == i));
+                let body = if c.thickness > 0.0 {
+                    ConductorBody::Hollow
+                } else {
+                    ConductorBody::Sheet
+                };
+                assert_eq!(g.body, body);
+            }
+            assert!(r.contacts.is_empty());
+        }
+    }
+
+    #[test]
+    fn nets_group_polygons_across_layers() {
+        let mut l = path_layout();
+        // The trace and the first post become one net; the second post
+        // stays its own net; `gnd` keeps its layer group.
+        l.conductors[2].polygons[0].net = Some("post_a".into());
+        l.contacts.clear();
+        let r = l.resolve_for(MeshAnalysis::Capacitance).unwrap_err();
+        assert!(r.contains("`gnd` and `post_a` touch"), "{r}");
+        let mut l = path_layout();
+        l.conductors[2].polygons[0].net = Some("post_a".into());
+        l.contacts.clear();
+        l.ground = vec!["gnd".into(), "post_a".into(), "post_b".into()];
+        let err = l
+            .clone()
+            .resolve_for(MeshAnalysis::Capacitance)
+            .unwrap_err();
+        assert!(err.contains("not listed in `ground`"), "{err}");
+        l.ground = vec!["gnd".into()];
+        l.conductors[0].polygons[0].outer = rect(-4.0, -4.0, 14.0, -3.0);
+        l.conductors[1].polygons[1].outer = rect(11.0, -1.0, 12.0, 1.0);
+        let r = l.clone().resolve_for(MeshAnalysis::Capacitance).unwrap();
+        assert_eq!(names(&r), ["gnd", "post_a", "post_b"]);
+        let a = &r.groups[1];
+        assert_eq!(
+            a.parts.iter().map(|p| p.layer).collect::<Vec<_>>(),
+            [1, 2],
+            "a net spans layers"
+        );
+        assert_eq!(a.body, ConductorBody::Hollow);
+        assert!(r.groups[0].ground && !a.ground);
+        assert_eq!(r.rect_group, vec![vec![0], vec![1, 2], vec![1]]);
+        // The two nets touch nowhere, so capacitance accepts them; making
+        // the second post reach the trace makes them touch.
+        l.conductors[1].polygons[1].outer = rect(10.0, -1.0, 12.0, 1.0);
+        let err = l.resolve_for(MeshAnalysis::Capacitance).unwrap_err();
+        assert!(err.contains("`post_a` and `post_b` touch"), "{err}");
+    }
+
+    #[test]
+    fn net_and_ground_names_are_validated() {
+        let mut l = two_pad_layout();
+        l.conductors[0].polygons[1].net = Some("air".into());
+        assert!(
+            l.resolve()
+                .unwrap_err()
+                .contains("`air` is used more than once")
+        );
+        let mut l = two_pad_layout();
+        l.conductors[0].polygons[1].net = Some("b net".into());
+        assert!(l.resolve().unwrap_err().contains("net name `b net`"));
+        let mut l = two_pad_layout();
+        l.ground = vec!["nope".into()];
+        let err = l.resolve().unwrap_err();
+        assert!(
+            err.contains("ground `nope` is not a conductor group"),
+            "{err}"
+        );
+        assert!(err.contains("groups: [metal]"), "{err}");
+        let mut l = two_pad_layout();
+        l.ground = vec!["metal".into(), "metal".into()];
+        assert!(l.resolve().unwrap_err().contains("more than once"));
+        // Every polygon netted: the layer itself is no group.
+        let mut l = two_pad_layout();
+        l.conductors[0].polygons[0].net = Some("na".into());
+        l.conductors[0].polygons[1].net = Some("nb".into());
+        let r = l.resolve().unwrap();
+        assert_eq!(names(&r), ["na", "nb"]);
+    }
+
+    #[test]
+    fn per_analysis_requirements() {
+        let mut l = two_pad_layout();
+        l.ports.clear();
+        assert!(l.clone().resolve().unwrap_err().contains("≥ 1 port"));
+        // Ports are optional for the static analyses.
+        let r = l.clone().resolve_for(MeshAnalysis::Capacitance).unwrap();
+        assert!(!r.meshes_ports() && !r.meshes_contacts());
+        let err = l.resolve_for(MeshAnalysis::Inductance).unwrap_err();
+        assert!(err.contains("needs `contacts`"), "{err}");
+    }
+
+    #[test]
+    fn contacts_resolve_to_the_shared_end_faces() {
+        let r = path_layout().resolve_for(MeshAnalysis::Inductance).unwrap();
+        assert_eq!(names(&r), ["gnd", "sig", "post_a", "post_b"]);
+        assert_eq!(r.groups[1].body, ConductorBody::Solid);
+        assert_eq!(r.groups[2].body, ConductorBody::Hollow);
+        assert_eq!(r.groups[0].body, ConductorBody::Sheet);
+        let faces: Vec<_> = r.contacts.iter().map(|c| c.faces.clone()).collect();
+        assert_eq!(
+            faces,
+            vec![
+                vec![FaceBox {
+                    lo: [0.0, -0.5, 1.0],
+                    hi: [0.0, 0.5, 1.5]
+                }],
+                vec![FaceBox {
+                    lo: [10.0, -0.5, 1.0],
+                    hi: [10.0, 0.5, 1.5]
+                }],
+            ]
+        );
+        assert_eq!(r.path_contacts(1), (0, 1));
+        assert_eq!((r.contacts[0].conductor, r.contacts[0].to), (1, 2));
+        // Other analyses keep the path conductor hollow.
+        let d = path_layout()
+            .resolve_for(MeshAnalysis::Capacitance)
+            .unwrap_err();
+        assert!(d.contains("touch"), "{d}");
+
+        // A horizontal contact: the trace lying on a post's top face.
+        let mut l = path_layout();
+        l.conductors[2].polygons[0].outer = rect(-1.0, -0.5, 11.0, 0.5);
+        l.conductors[2].z_bottom = 2.0;
+        let r = l.resolve_for(MeshAnalysis::Inductance).unwrap();
+        assert_eq!(
+            r.contacts[0].faces,
+            vec![FaceBox {
+                lo: [-1.0, -0.5, 2.0],
+                hi: [0.0, 0.5, 2.0]
+            }]
+        );
+    }
+
+    #[test]
+    fn contact_errors_are_reported() {
+        let err = |f: &dyn Fn(&mut Layout)| {
+            let mut l = path_layout();
+            f(&mut l);
+            l.resolve_for(MeshAnalysis::Inductance).unwrap_err()
+        };
+        let e = err(&|l| l.contacts[0].to = "sig".into());
+        assert!(e.contains("same group `sig`"), "{e}");
+        let e = err(&|l| l.contacts[0].to = "zz".into());
+        assert!(
+            e.contains("contacts[c_a].to `zz` is not a conductor group"),
+            "{e}"
+        );
+        let e = err(&|l| l.contacts[0].to = "gnd".into());
+        assert!(e.contains("share no face"), "{e}");
+        let e = err(&|l| l.contacts[1].to = "post_a".into());
+        assert!(e.contains("both touch `post_a`"), "{e}");
+        let e = err(&|l| {
+            l.contacts.pop();
+        });
+        assert!(e.contains("has 1 contact(s)"), "{e}");
+        let e = err(&|l| l.conductors[2].thickness = 0.0);
+        assert!(e.contains("zero-thickness part"), "{e}");
+        let e = err(&|l| l.conductors[2].polygons[0].outer = rect(-1.0, -0.5, 10.0, 0.5));
+        assert!(e.contains("overlap"), "{e}");
+        let e = err(&|l| l.conductors[2].z_bottom = 0.0);
+        assert!(
+            e.contains("`sig` touches `gnd` outside its contacts"),
+            "{e}"
+        );
+        let e = err(&|l| {
+            l.contacts[0].name = "sig".into();
+        });
+        assert!(e.contains("more than once"), "{e}");
+        // A sheet through the path conductor.
+        let e = err(&|l| {
+            l.conductors[0].z_bottom = 1.25;
+            l.contacts[1].to = "gnd".into();
+        });
+        assert!(e.contains("passes through"), "{e}");
     }
 }
