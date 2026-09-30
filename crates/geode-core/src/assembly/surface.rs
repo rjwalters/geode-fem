@@ -176,6 +176,10 @@ pub fn assemble_silver_muller_surface(
 ///
 /// Panics if a triangle edge does not appear in `edges` — i.e. if the
 /// triangles are not faces of the tet mesh whose edge table was passed.
+/// Low-level kernel: the checked public entry points (the driven
+/// solves / operator, shape gradients, wave-port sweeps, eigen
+/// sensitivities) validate their triangles first and return a
+/// `SurfaceNotOnMesh` error instead (issue #725).
 pub fn assemble_surface_mass(
     mesh: &TetMesh,
     triangles: &[[u32; 3]],
@@ -210,6 +214,10 @@ pub fn assemble_surface_mass(
 ///
 /// Panics if a triangle edge does not appear in `edges` — i.e. if the
 /// triangles are not faces of the tet mesh whose edge table was passed.
+/// Low-level kernel: the checked public entry points (the driven
+/// solves / operator, shape gradients, wave-port sweeps, eigen
+/// sensitivities) validate their triangles first and return a
+/// `SurfaceNotOnMesh` error instead (issue #725).
 pub fn assemble_surface_mass_triplets(
     mesh: &TetMesh,
     triangles: &[[u32; 3]],

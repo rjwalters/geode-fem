@@ -149,6 +149,47 @@ pub enum DrivenError {
          configuration: {reason}"
     )]
     UnsupportedMatrixFree { reason: String },
+    /// A caller-supplied surface or port triangle list contains triangles
+    /// that are not faces of any tet in the mesh (issue #725). The surface
+    /// kernels cannot integrate over such a triangle (its edges are not all
+    /// mesh edges), so the entry point rejects the input before assembly.
+    #[error(
+        "{surface}: triangle {triangle:?} is not a face of any tet in the mesh \
+         ({dangling} of {total} triangles on this surface are not tet faces)"
+    )]
+    SurfaceNotOnMesh {
+        /// Which surface, e.g. `"impedance surface 0"` or `"lumped port 1"`.
+        surface: String,
+        /// The first offending triangle (caller's node order).
+        triangle: [u32; 3],
+        /// Number of offending triangles on that surface.
+        dangling: usize,
+        /// Total number of triangles on that surface.
+        total: usize,
+    },
+}
+
+/// Reject any triangle list in `surfaces` that is not made of tet faces
+/// (issue #725), naming it `"{kind} {index}"` in the returned
+/// [`DrivenError::SurfaceNotOnMesh`]. Called once per surface kind at every
+/// driven entry point that accepts caller-supplied triangles, ahead of the
+/// (panicking-on-bad-input) Whitney surface kernels.
+pub(crate) fn validate_driven_surfaces<'a, I>(
+    mesh: &TetMesh,
+    kind: &str,
+    surfaces: I,
+) -> Result<(), DrivenError>
+where
+    I: IntoIterator<Item = &'a [[u32; 3]]>,
+{
+    crate::elements::whitney::validate_surface_faces(mesh, surfaces).map_err(|d| {
+        DrivenError::SurfaceNotOnMesh {
+            surface: format!("{kind} {}", d.surface),
+            triangle: d.triangle,
+            dangling: d.dangling,
+            total: d.total,
+        }
+    })
 }
 
 /// Linear-solver selection for the per-ω back-solves used by the
@@ -712,13 +753,9 @@ pub fn driven_solve_with_ports<B: Backend>(
 ///
 /// In addition to the [`driven_solve`] errors, returns
 /// [`DrivenError::SurfaceImpedanceSingular`] if any model evaluates to
-/// a zero or non-finite `Z_s(ω)`.
-///
-/// # Panics
-///
-/// Panics (in the surface assembly) if a triangle in `surfaces` is not
-/// a conforming face of `mesh` — i.e. one of its edges is missing from
-/// the mesh edge table.
+/// a zero or non-finite `Z_s(ω)`, and [`DrivenError::SurfaceNotOnMesh`]
+/// if a triangle in `surfaces` is not a face of any tet of `mesh`
+/// (issue #725 — previously a panic inside the surface assembly).
 #[allow(clippy::too_many_arguments)]
 pub fn driven_solve_with_surface_impedance<B: Backend>(
     mesh: &TetMesh,
@@ -1303,6 +1340,15 @@ impl DrivenOperator {
                 return Err(invalid("face node index out of range"));
             }
         }
+        // Every surface / port triangle must be a tet face (issue #725): the
+        // Whitney surface kernels below `expect` its edges in the edge table
+        // and its mass pairs in the volume sparsity pattern.
+        validate_driven_surfaces(
+            mesh,
+            "impedance surface",
+            surfaces.iter().map(|bc| bc.triangles),
+        )?;
+        validate_driven_surfaces(mesh, "lumped port", ports.iter().map(|p| p.faces))?;
 
         // --- Edge tables ------------------------------------------------------
         let tet_edges = mesh.tet_edges();
