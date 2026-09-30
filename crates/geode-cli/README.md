@@ -815,7 +815,14 @@ shield, so they are strongly coupled, `k ≈ 0.65`).
   path: each path is **one** SPICE node (named from the path name by the
   node-name rules above) and the wall is ground node `0`.
   `.subckt LEXTRACT <path nodes…>` in path order (fixed name, distinct
-  from `CEXTRACT`).
+  from `CEXTRACT`). Physically, a path's port is the **break in that
+  path's current loop at its source face**: the node is the conductor
+  side of the break, `0` is the PEC wall side, and a current driven
+  *into* the node is the path's reference current (source face →
+  conductor → sink face → wall → back to the source face). So
+  `I1 0 core DC 0 AC 1` pushes 1 A of reference current around the
+  `core` loop, and `V(core)` is that loop's voltage `jω Σ_j L_core,j
+  I_j`.
 - **Conversion** — one self inductor `L<i>_0 <node_i> 0 <L_ii>` per path
   (henries), then one coupling statement `K<i>_<j> L<i>_0 L<j>_0 <k_ij>`
   per pair `i < j` with `k_ij = L_ij / √(L_ii L_jj)`. SPICE has no
@@ -826,7 +833,8 @@ shield, so they are strongly coupled, `k ≈ 0.65`).
   dotted end, and `k_ij` carries the sign of `L_ij` directly. Swapping a
   path's `source` / `sink` flips its mutuals, which appear as a
   **negative `k`** (legal ngspice syntax; verified against ngspice-46)
-  with the node order unchanged.
+  with the node order unchanged. See the portability note below, and
+  `--spice-positive-k` for simulators that reject negative `k`.
 - **Noise threshold** — `k` is dimensionless, so the threshold is
   absolute: a coupling with `|k_ij| < 1e-9` is **dropped** with a
   `* dropped: K(<path_i>, <path_j>) = …` comment. `|k_ij| ≥ 1`, or a
@@ -852,6 +860,65 @@ print l11 l21
 .endc
 .end
 ```
+
+**Negative-`k` portability** (snapshot as of 2026-09; simulator
+behavior can change between versions): ngspice accepts `−1 < k < 1`
+(verified against ngspice-46, including the reversed-triax golden
+netlist). LTspice, HSPICE and Spectre (SPICE mode) are believed to
+accept negative `k` as well, but this is **untested** here. PSpice /
+OrCAD has historically required `0 < k ≤ 1` and would reject a
+negative-`k` file; Xyce is unconfirmed. For those, use
+`--spice-positive-k` (below).
+
+### Variants: `--spice-ret-pin`, `--spice-positive-k` (issue #723)
+
+Both are off by default, and without them the file is byte-identical to
+the layouts above. Both require `--spice`.
+
+- **`--spice-ret-pin`** (`capacitance` and `inductance`) — instead of
+  tying the ground / return reference to the simulator's global node `0`
+  inside the subcircuit, expose it as an extra **last** port named
+  `ret`: `.subckt CEXTRACT <terminal nodes…> ret` /
+  `.subckt LEXTRACT <path nodes…> ret`, and every branch that would go to
+  `0` goes to `ret`. The instantiating deck wires `ret` wherever it
+  likes (or floats it, given some DC reference). For that run `ret` is a
+  reserved node name (case-insensitively), so a terminal / path literally
+  named `ret` / `Ret` gets the usual `_2` suffix, with a `* node:`
+  comment.
+
+  ```spice
+  X1 p1 p2 r LEXTRACT        ; ret -> r, not ground
+  RDC r 0 1                  ; DC reference only; carries no AC current
+  I1 r p1 DC 0 AC 1          ; L_j1 = Im(V(p_j) - V(r)) / ω
+  ```
+
+- **`--spice-positive-k`** (`inductance` only) — emit every `K` with a
+  positive `k`, for simulators that reject negative ones. Some paths are
+  emitted **flipped**: their inductor is declared `L<i>_0 0 <node_i>`
+  (return → node, dot on the return side) instead of `<node_i> 0`, and
+  each emitted `k_ij` becomes `s_i s_j k_ij` (`s = −1` on flipped
+  paths). This is an equivalent network, **not** a change of reference:
+  the port-level matrix is still exactly `l_henry`, signs included, and
+  every path's port reference current is still *into* its node (source
+  → sink). What is reversed is only the flipped inductor's own SPICE
+  branch convention — its dot is on the return side, and ngspice's
+  `i(L<i>_0)` for it reads the **negative** of the path's reference
+  current. Each flipped path gets a `* flipped: "<path>" (…)` comment
+  (or `* flipped: none`). Verified in ngspice-46: the reversed triax
+  exported as `L2_0 0 tube …` with `K1_2 … +0.6457…` measures
+  `L_12 = −9.597e-11 H` at the ports, the report's value.
+
+  Choosing the flips is signed-graph switching: a positive coupling
+  needs both paths oriented alike, a negative one oppositely. It is
+  **always possible for two paths**, and for any set of paths whose
+  couplings form no cycle; with three or more mutually coupled paths it
+  is possible exactly when every cycle of emitted couplings has an even
+  number of negative `k`. Otherwise (e.g. three paths all pairwise
+  negatively coupled) the run fails with `invalid_spec` naming the
+  offending cycle, and no file is written — it never falls back to
+  mixed signs. Couplings dropped by the noise threshold do not count.
+  Within each group of coupled paths the lowest-numbered path is never
+  flipped, so the choice is deterministic.
 
 ## Resource estimate (`geode check`, issue #703)
 

@@ -21,6 +21,12 @@
 //!   `L_jk = Im V_j / ω` against `l_henry`. ngspice is not a CI
 //!   dependency: without it the check is skipped with a loud `SKIPPED`
 //!   line on stderr.
+//! * **Variants (issue #723)**: `--spice-positive-k` on the reversed triax
+//!   declares the tube's inductor `0 -> tube` and emits `+|k|`, and
+//!   `--spice-ret-pin` exposes the return as a last `ret` port; in both
+//!   the *port-level* matrix — negative mutual included — is unchanged,
+//!   checked by the parser and (when available) ngspice, with `ret` wired
+//!   to a non-ground node in the testbench.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -47,12 +53,19 @@ fn geode(args: &[&str]) -> Output {
 
 /// Run `geode inductance <spec> --spice <out>` and return the report.
 fn inductance_with_spice(spec: &Path, out: &Path) -> serde_json::Value {
-    let o = geode(&[
+    inductance_with_spice_flags(spec, out, &[])
+}
+
+/// [`inductance_with_spice`] with extra flags (`--spice-positive-k`, …).
+fn inductance_with_spice_flags(spec: &Path, out: &Path, flags: &[&str]) -> serde_json::Value {
+    let mut args = vec![
         "inductance",
         spec.to_str().unwrap(),
         "--spice",
         out.to_str().unwrap(),
-    ]);
+    ];
+    args.extend_from_slice(flags);
+    let o = geode(&args);
     assert!(
         o.status.success(),
         "geode inductance --spice failed ({}):\nstderr: {}\nstdout: {}",
@@ -147,6 +160,59 @@ fn inductance(net: &Net) -> Vec<Vec<f64>> {
         l[j][i] = m;
     }
     l
+}
+
+/// The port-level inductance matrix of a network whose inductors may be
+/// declared either way round against the return node `ret` (`0` or the
+/// `ret` pin): an inductor declared `ret -> node` has its dot on the
+/// return side, so its couplings enter the port matrix negated.
+fn port_inductance(net: &Net, ret: &str) -> Vec<Vec<f64>> {
+    let paths: Vec<&String> = net.ports.iter().filter(|p| *p != ret).collect();
+    let n = paths.len();
+    let mut l = vec![vec![0.0; n]; n];
+    let mut idx_of = std::collections::HashMap::new();
+    for (name, a, b, v) in &net.inds {
+        let (node, sign) = match (a.as_str() == ret, b.as_str() == ret) {
+            (false, true) => (a, 1.0),
+            (true, false) => (b, -1.0),
+            _ => panic!("{name} must run between a path node and {ret}"),
+        };
+        let i = paths.iter().position(|p| *p == node).expect("port node");
+        l[i][i] = *v;
+        idx_of.insert(name.clone(), (i, sign));
+    }
+    for (_, l1, l2, k) in &net.ks {
+        let ((i, si), (j, sj)) = (idx_of[l1], idx_of[l2]);
+        let m = si * sj * k * (l[i][i] * l[j][j]).sqrt();
+        l[i][j] = m;
+        l[j][i] = m;
+    }
+    l
+}
+
+/// The triax spec with the tube's source and sink swapped (so `L_12 < 0`),
+/// written into `dir`.
+fn reversed_triax_spec(dir: &Path) -> PathBuf {
+    let spec_text = std::fs::read_to_string(fixtures().join("inductance_triax_smoke.toml"))
+        .unwrap()
+        .replace(
+            "path = \"../../../geode-core/tests/fixtures/coax_inductance_smoke.msh\"",
+            &format!(
+                "path = {:?}",
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../geode-core/tests/fixtures/coax_inductance_smoke.msh")
+                    .display()
+                    .to_string()
+            ),
+        )
+        .replace(
+            "source = \"tube_in\"\nsink = \"tube_out\"",
+            "source = \"tube_out\"\nsink = \"tube_in\"",
+        );
+    assert!(spec_text.contains("source = \"tube_out\""), "{spec_text}");
+    let spec = dir.join("triax_reversed.toml");
+    std::fs::write(&spec, spec_text).unwrap();
+    spec
 }
 
 fn assert_file_ref(report: &serde_json::Value, path: &Path) -> String {
@@ -314,6 +380,108 @@ fn coax_single_path_is_one_self_inductor() {
 }
 
 #[test]
+fn positive_k_flips_the_reversed_tube_and_keeps_the_port_matrix() {
+    let dir = scratch("triax-rev-posk");
+    let spec = reversed_triax_spec(&dir);
+    let out = dir.join("triax_reversed_posk.sp");
+    let report = inductance_with_spice_flags(&spec, &out, &["--spice-positive-k"]);
+    let text = assert_file_ref(&report, &out);
+    let l = l_matrix(&report);
+    let net = parse(&text);
+    assert!(l[0][1] < 0.0, "{l:?}");
+    assert_eq!(net.ports, ["core", "tube"]);
+    let shape: Vec<(&str, &str, &str)> = net
+        .inds
+        .iter()
+        .map(|(n, a, b, _)| (n.as_str(), a.as_str(), b.as_str()))
+        .collect();
+    // The tube (path 2) is flipped: declared 0 -> tube.
+    assert_eq!(shape, [("L1_0", "core", "0"), ("L2_0", "0", "tube")]);
+    let k = net.ks[0].3;
+    eprintln!("reversed triax, positive-k: L = {l:?} H, k = {k}");
+    assert!(k > 0.1 && k < 1.0, "{k}");
+    assert!(
+        net.comments
+            .iter()
+            .any(|c| c.starts_with("flipped: \"tube\" (L2_0 declared 0 -> tube")),
+        "{text}"
+    );
+    // The port-level matrix, negative mutual included, is the report's.
+    let back = port_inductance(&net, "0");
+    let max_diag = l[0][0].max(l[1][1]);
+    for i in 0..2 {
+        for j in 0..2 {
+            assert!(
+                (back[i][j] - l[i][j]).abs() <= 1e-15 * max_diag,
+                "L[{i}][{j}]"
+            );
+        }
+    }
+    ngspice_check_with("triax-reversed-positive-k", &out, &l, false);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn ret_pin_exposes_the_return_as_a_last_port() {
+    let dir = scratch("triax-rev-ret");
+    let spec = reversed_triax_spec(&dir);
+    for (what, flags, flipped) in [
+        ("ret", &["--spice-ret-pin"][..], false),
+        (
+            "ret-positive-k",
+            &["--spice-ret-pin", "--spice-positive-k"][..],
+            true,
+        ),
+    ] {
+        let out = dir.join(format!("triax_reversed_{what}.sp"));
+        let report = inductance_with_spice_flags(&spec, &out, flags);
+        let text = assert_file_ref(&report, &out);
+        let l = l_matrix(&report);
+        let net = parse(&text);
+        assert_eq!(net.ports, ["core", "tube", "ret"], "{what}");
+        let tube = if flipped {
+            ("L2_0", "ret", "tube")
+        } else {
+            ("L2_0", "tube", "ret")
+        };
+        let shape: Vec<(&str, &str, &str)> = net
+            .inds
+            .iter()
+            .map(|(n, a, b, _)| (n.as_str(), a.as_str(), b.as_str()))
+            .collect();
+        assert_eq!(shape, [("L1_0", "core", "ret"), tube], "{what}");
+        assert_eq!(net.ks[0].3 > 0.0, flipped, "{what}: {text}");
+        let back = port_inductance(&net, "ret");
+        let max_diag = l[0][0].max(l[1][1]);
+        for i in 0..2 {
+            for j in 0..2 {
+                assert!(
+                    (back[i][j] - l[i][j]).abs() <= 1e-15 * max_diag,
+                    "{what}: L[{i}][{j}]"
+                );
+            }
+        }
+        ngspice_check_with(&format!("triax-reversed-{what}"), &out, &l, true);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn spice_variant_flags_require_spice() {
+    for flag in ["--spice-positive-k", "--spice-ret-pin"] {
+        let o = geode(&[
+            "inductance",
+            fixtures()
+                .join("inductance_coax_smoke.json")
+                .to_str()
+                .unwrap(),
+            flag,
+        ]);
+        assert!(!o.status.success(), "{flag} accepted without --spice");
+    }
+}
+
+#[test]
 fn without_the_flag_there_is_no_spice_file() {
     let o = geode(&[
         "inductance",
@@ -337,8 +505,17 @@ fn ngspice_bin() -> String {
 /// would short the induced mutual voltage), and read `L_jk = Im V(p_j) /
 /// ω` for every path `j`. Skipped loudly when ngspice is not runnable.
 // Column `k` / row `j` indexing of a dense matrix reads clearest as ranges.
-#[allow(clippy::needless_range_loop)]
 fn ngspice_check(what: &str, subckt: &Path, l: &[Vec<f64>]) {
+    ngspice_check_with(what, subckt, l, false)
+}
+
+/// [`ngspice_check`]; with `ret_pin`, the subcircuit's last port `ret` is
+/// wired to a non-ground node `r` (tied to `0` only through a 1 Ω DC
+/// reference resistor that carries no AC current), the source drives `r ->
+/// p_k`, and `L_jk = Im (V_j − V_r) / ω`.
+// Column `k` / row `j` indexing of a dense matrix reads clearest as ranges.
+#[allow(clippy::needless_range_loop)]
+fn ngspice_check_with(what: &str, subckt: &Path, l: &[Vec<f64>], ret_pin: bool) {
     let bin = ngspice_bin();
     if Command::new(&bin).arg("--version").output().is_err() {
         eprintln!(
@@ -351,16 +528,28 @@ fn ngspice_check(what: &str, subckt: &Path, l: &[Vec<f64>]) {
     let max_diag = (0..n).map(|i| l[i][i]).fold(0.0, f64::max);
     let dir = subckt.parent().unwrap();
     for k in 0..n {
-        let ports: Vec<String> = (1..=n).map(|j| format!("p{j}")).collect();
+        let mut ports: Vec<String> = (1..=n).map(|j| format!("p{j}")).collect();
+        let r = if ret_pin { "r" } else { "0" };
+        if ret_pin {
+            ports.push(r.to_string());
+        }
         let mut deck = format!(
             "geode inductance spice check\n.include {}\nX1 {} LEXTRACT\n",
             subckt.display(),
             ports.join(" ")
         );
-        deck += &format!("I{} 0 p{} DC 0 AC 1\n", k + 1, k + 1);
+        if ret_pin {
+            deck += "RDC r 0 1\n";
+        }
+        deck += &format!("I{} {r} p{} DC 0 AC 1\n", k + 1, k + 1);
         deck += ".control\nset numdgt=15\nac lin 1 1meg 1meg\n";
         for j in 1..=n {
-            deck += &format!("let l{j} = imag(v(p{j}))/(2*pi*1e6)\nprint l{j}\n");
+            let v = if ret_pin {
+                format!("v(p{j})-v(r)")
+            } else {
+                format!("v(p{j})")
+            };
+            deck += &format!("let l{j} = imag({v})/(2*pi*1e6)\nprint l{j}\n");
         }
         deck += ".endc\n.end\n";
         let path = dir.join(format!("tb_{k}.cir"));

@@ -6,8 +6,9 @@
 //! geode driven <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //! geode eigen  <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //! geode extract <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
-//! geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH]
-//! geode inductance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH]
+//! geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH [--spice-ret-pin]]
+//! geode inductance <spec.json|spec.toml> [-o report.json] [--threads N]
+//!                   [--spice PATH [--spice-ret-pin] [--spice-positive-k]]
 //! geode mesh   <layout.json|layout.toml> [--analysis driven|capacitance|inductance] [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [-o report.json]
 //! geode schema spec|report|layout [-o schema.json]   # JSON Schema (draft 2020-12)
 //! geode --version   # "geode <crate-version> (<git-sha>[-dirty])"
@@ -143,10 +144,15 @@ struct CapacitanceArgs {
     /// The report's `spice_file` references it (path as given, sha256).
     #[arg(long, value_name = "PATH")]
     spice: Option<PathBuf>,
+    /// With `--spice`: expose the ground reference as a last `.subckt`
+    /// port `ret` instead of tying it to the global node `0` inside the
+    /// subcircuit (a terminal named `ret` is renamed `ret_2`).
+    #[arg(long, requires = "spice")]
+    spice_ret_pin: bool,
 }
 
 /// `geode inductance` arguments: the shared static-solve arguments plus
-/// `--spice`.
+/// `--spice` and its variants.
 #[derive(Args)]
 struct InductanceArgs {
     #[command(flatten)]
@@ -158,6 +164,18 @@ struct InductanceArgs {
     /// sha256).
     #[arg(long, value_name = "PATH")]
     spice: Option<PathBuf>,
+    /// With `--spice`: expose the PEC return wall as a last `.subckt` port
+    /// `ret` instead of tying it to the global node `0` inside the
+    /// subcircuit (a path named `ret` is renamed `ret_2`).
+    #[arg(long, requires = "spice")]
+    spice_ret_pin: bool,
+    /// With `--spice`: emit every coupling as a positive `k` (for
+    /// simulators such as PSpice / OrCAD that reject negative `k`) by
+    /// declaring some paths' inductors return -> node; the port-level
+    /// matrix is unchanged. Fails (`invalid_spec`) when no orientation
+    /// makes every `k` positive (possible with 3+ paths).
+    #[arg(long, requires = "spice")]
+    spice_positive_k: bool,
 }
 
 #[derive(Args)]
@@ -300,18 +318,35 @@ impl App for Cli {
                 });
                 finish("extract", prov, a.output.as_deref(), result)
             }
-            Command::Capacitance(CapacitanceArgs { base: a, spice }) => {
+            Command::Capacitance(CapacitanceArgs {
+                base: a,
+                spice,
+                spice_ret_pin,
+            }) => {
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
-                let result = capacitance::run(&a.spec, prov.clone(), spice.as_deref());
+                let opts = spice::SpiceOptions {
+                    ret_pin: spice_ret_pin,
+                    positive_k: false,
+                };
+                let result = capacitance::run(&a.spec, prov.clone(), spice.as_deref(), opts);
                 finish("capacitance", prov, a.output.as_deref(), result)
             }
-            Command::Inductance(InductanceArgs { base: a, spice }) => {
+            Command::Inductance(InductanceArgs {
+                base: a,
+                spice,
+                spice_ret_pin,
+                spice_positive_k,
+            }) => {
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
-                let result = inductance::run(&a.spec, prov.clone(), spice.as_deref());
+                let opts = spice::SpiceOptions {
+                    ret_pin: spice_ret_pin,
+                    positive_k: spice_positive_k,
+                };
+                let result = inductance::run(&a.spec, prov.clone(), spice.as_deref(), opts);
                 finish("inductance", prov, a.output.as_deref(), result)
             }
             Command::Mesh(a) => mesh_cmd::dispatch(a),

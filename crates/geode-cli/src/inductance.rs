@@ -42,11 +42,13 @@ pub const SOLENOIDAL_TOL: f64 = 1e-6;
 const SPD_TOL: f64 = 0.0;
 
 /// Load, solve and report; with `spice`, also write the SPICE
-/// subcircuit ([`crate::spice::write_inductance`]) there.
+/// subcircuit ([`crate::spice::write_inductance`], variant `spice_opts`)
+/// there.
 pub fn run(
     spec_path: &Path,
     provenance: Provenance,
     spice: Option<&Path>,
+    spice_opts: crate::spice::SpiceOptions,
 ) -> Result<InductanceReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Inductance))?;
     let target = p
@@ -107,7 +109,7 @@ pub fn run(
         spice_file: None,
     };
     if let Some(path) = spice {
-        report.spice_file = Some(crate::spice::write_inductance(path, &report)?);
+        report.spice_file = Some(crate::spice::write_inductance(path, &report, spice_opts)?);
     }
     Ok(report)
 }
