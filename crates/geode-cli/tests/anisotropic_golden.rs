@@ -555,6 +555,32 @@ fn coax_capacitance_sees_transverse_permittivity() {
     }
 }
 
+/// The cookbook's sapphire coax (`tests/fixtures/capacitance_coax_sapphire_smoke.json`
+/// = `examples/capacitance/coax_sapphire.json`): c-axis (z) sapphire,
+/// `ε⊥ = 9.3`, `ε∥ = 11.5`, fills both annuli; the transverse coax field
+/// sees only `ε⊥`: `C = 2πε₀·9.3·L/ln(b/a)` at the golden's 1 % bar.
+#[test]
+fn sapphire_coax_fixture_matches_closed_form() {
+    let r = run_path(
+        "capacitance",
+        &fixture("capacitance_coax_sapphire_smoke.json"),
+    );
+    let c = r["c_farad"][0][0].as_f64().unwrap();
+    let want = coax_c(9.3);
+    eprintln!(
+        "sapphire coax: C = {c:e} F, closed form {want:e} ({:+.3}%), isotropic ε∥ would be {:e}",
+        100.0 * (c - want) / want,
+        coax_c(11.5)
+    );
+    assert!(rel(c, want) < 1e-2, "C = {c:e}, closed form {want:e}");
+    assert!(r["c_flux_diag_farad"][0].is_null());
+    let region = &r["regions"][0];
+    assert_eq!(
+        region["eps_r_diag"],
+        json!([[9.3, 0.0], [9.3, 0.0], [11.5, 0.0]])
+    );
+}
+
 /// `benchmarks/magnetostatic_inductance` coax: `a = 1`, `b = 3`, `L = 1`
 /// mm; core `μ_t`: `L = μ₀L/(2π) [ln(b/a) + μ_t/4]`.
 fn coax_l(mu_core_t: f64) -> f64 {
@@ -612,5 +638,55 @@ fn coax_inductance_sees_transverse_permeability() {
             l(&r),
             100.0 * rel(l(&r), want)
         );
+    }
+}
+
+/// AMS with diagonal materials (release, `--ignored`): the spiral smoke
+/// with a uniaxial lossy substrate (`ε_z = 1.2 ε_t`) and an anisotropic
+/// `μ` on the dielectric runs the AMS-preconditioned COCG on the real
+/// proxy `Re K(ν) + ω² Re M(ε)` and must reproduce direct LU to the
+/// spiral golden's 1e-6 AMS bar.
+#[test]
+#[ignore = "AMS spiral solves (~1 min debug, seconds release); run with --release -- --ignored"]
+fn spiral_ams_with_anisotropic_materials_matches_direct() {
+    let mut direct = load_fixture("spiral_golden_smoke.json", "spiral_3p5_smoke.msh");
+    direct["frequencies"]["values"] = json!([1.0, 10.0]);
+    direct["materials"] = json!([
+        {"physical_group": "substrate",
+         "eps_r_diag": diag_e([11.9, -0.0595], [11.9, -0.0595], [14.28, -0.0714])},
+        {"physical_group": "dielectric",
+         "eps_r_diag": diag_e([4.0, -0.004], [4.0, -0.004], [3.6, -0.0036]),
+         "mu_r_diag": diag_m(1.0, 1.5, 2.0)}
+    ]);
+    let mut ams = direct.clone();
+    ams["solver"] = json!({"mode": "iterative", "preconditioner": "ams"});
+    let (d, a) = (
+        run("driven", "spiral-aniso-direct", &direct),
+        run("driven", "spiral-aniso-ams", &ams),
+    );
+    assert_eq!(a["solver"]["mode"], "iterative");
+    for (i, (rd, ra)) in d["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(a["results"].as_array().unwrap())
+        .enumerate()
+    {
+        let z = |r: &Value| {
+            let p = &r["z_ohm"][0][0];
+            c64::new(p[0].as_f64().unwrap(), p[1].as_f64().unwrap())
+        };
+        let (zd, za) = (z(rd), z(ra));
+        let rel_z = (za - zd).norm() / zd.norm();
+        eprintln!(
+            "row {i}: iterations {}, |ΔZ|/|Z| vs direct {rel_z:.2e}",
+            ra["iterations"]
+        );
+        assert!(
+            rel_z < 1e-6,
+            "row {i}: AMS Z {za} vs direct {zd} ({rel_z:e})"
+        );
+        // The iterative path really ran (not a silent direct fallback).
+        assert!(ra["iterations"][0].as_u64().unwrap() > 0);
     }
 }

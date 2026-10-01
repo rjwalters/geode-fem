@@ -98,6 +98,13 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("capacitance_coax_smoke.json"),
         Input::Spec("capacitance"),
     ),
+    // c-axis sapphire filling the coax (issue #760, `eps_r_diag`);
+    // `tests/anisotropic_golden.rs` pins it.
+    (
+        "capacitance/coax_sapphire.json",
+        Some("capacitance_coax_sapphire_smoke.json"),
+        Input::Spec("capacitance"),
+    ),
     (
         "capacitance/triax.toml",
         Some("capacitance_triax_smoke.toml"),

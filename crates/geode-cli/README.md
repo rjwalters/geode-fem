@@ -211,10 +211,12 @@ Driven example (the spiral-inductor golden input,
 | `schema_version` | int, must be `1` | spec schema version |
 | `mesh.path` | path | Gmsh **MSH 4.1 ASCII**, Tet4 volume mesh with `$PhysicalNames`. Relative paths resolve against the spec file's directory |
 | `mesh.length_unit_m` | float > 0, **required** | metres per mesh length unit (`1e-6` = micron mesh). Every SI ↔ natural-unit conversion depends on it |
-| `materials[]` | | per-volume-region scalar permittivity; unlisted regions are vacuum (`check` reports which) |
+| `materials[]` | | per-volume-region permittivity (scalar or, issue #760, diagonal tensor) and permeability; unlisted regions are vacuum (`check` reports which) |
 | `materials[].physical_group` | string | name of a **dimension-3** physical group |
 | `materials[].eps_r` | `[re, im]`, `im ≤ 0` (eigen: `re > 0`; capacitance: `im = 0`, `re > 0`; inductance: omit or `[1, 0]`); default `[1, 0]` (vacuum, for every analysis: a `materials` entry may omit `eps_r`) | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
-| `materials[].mu_r` | float > 0, default `1` (additive in v1, issue #714) | real relative permeability. Honoured **only by `geode inductance`**; every other analysis rejects `mu_r ≠ 1` (its solver has no permeability term) |
+| `materials[].mu_r` | float > 0, default `1` (additive in v1, issue #714) | real relative permeability. Honoured **only by `geode inductance`**; every other analysis rejects `mu_r ≠ 1` (for a permeable region in `driven` / `extract` / `eigen` give `mu_r_diag`, three equal components for an isotropic one) |
+| `materials[].eps_r_diag` | optional `{"xx": [re, im], "yy": …, "zz": …}`, each `im ≤ 0` (additive, issue #760) | **diagonal anisotropic** permittivity in mesh axes; replaces `eps_r` (omit it) and cannot be combined with `dispersion`. `driven` / `extract` / `eigen` (eigen: every `re > 0`) and `capacitance` (every component real, `> 0`); rejected by `inductance` and with `sensitivity` — see [Anisotropic materials](#anisotropic-materials-issue-760) |
+| `materials[].mu_r_diag` | optional `{"xx": μ, "yy": μ, "zz": μ}`, each finite `> 0` (additive, issue #760) | **diagonal anisotropic** real permeability in mesh axes; replaces `mu_r` (omit it). `driven` / `extract` / `eigen` and `inductance`; rejected by `capacitance` and with `sensitivity` |
 | `materials[].dispersion` | optional (additive, #757 / #761); driven / extract dense sweeps only | frequency-dependent permittivity, one of `{"model": "djordjevic_sarkar", "eps_r": ε′, "tan_delta": tan δ, "f_ref_hz": f_ref}` (optional `f_low_hz` = `1e3`, `f_high_hz` = `1e12`), `{"model": "debye", "eps_inf": ε∞, "poles": [{"delta_eps": Δε, "tau_s": τ}, …]}` or `{"model": "drude", "eps_inf": ε∞, "omega_p_rad_s": ω_p, "gamma_rad_s": γ}`; replaces `eps_r` (which must then be omitted) — see [Dispersive dielectrics](#dispersive-dielectrics-issue-757) |
 | `boundary_conditions.pec[]` | strings | **dimension-2** groups whose edges are eliminated (tangential E = 0). Unnamed surfaces are natural (PMC-like) boundaries |
 | `boundary_conditions.leontovich[]` | | good-conductor surface impedance `Z_s = (1+j)·√(ωμ₀/2σ)` |
@@ -1035,7 +1037,8 @@ cm²/V·s`, `m* = 0.26 mₑ`) is
 | `omega_p_rad_s` (Drude) | finite, `> 0` (rad/s) |
 | `gamma_rad_s` (Drude) | finite, `≥ 0` (rad/s; `0` is lossless) |
 
-**Drude and AMS.** `solver.preconditioner = "ams"` builds its V-cycle on
+**Drude and AMS.** (The same guard covers a constant `eps_r` or an
+`eps_r_diag` component with `Re ≤ 0`, issue #760.) `solver.preconditioner = "ams"` builds its V-cycle on
 the real SPD proxy `Re K + ω² Re M(ε)`, which is positive definite only
 while `Re ε_r > 0`. A dispersive region with `Re ε_r(f) ≤ 0` at **any**
 solved frequency (a Drude model below `f₀`) is therefore `invalid_spec`
@@ -1084,6 +1087,89 @@ Djordjevic–Sarkar substrate
 ([`examples/driven/spiral_inductor_dispersive.json`](examples/driven/README.md#dispersive-substrate-dispersion-issue-757)),
 a two-pole Debye substrate and a Drude doped-silicon substrate
 ([`spiral_inductor_debye.json` / `spiral_inductor_drude.json`](examples/driven/README.md#debye-and-drude-substrates-issue-761)).
+
+## Anisotropic materials (issue #760)
+
+Uniaxial laminates (woven glass, `ε_z ≠ ε_xy`), sapphire substrates
+(`ε⊥ = 9.3`, `ε∥ = 11.5`) and ferrites are anisotropic. Two optional
+`materials[]` fields give a **diagonal** constitutive tensor in **mesh
+axes** (align the crystal / laminate axes with the mesh's `x, y, z`):
+
+```json
+"materials": [{
+  "physical_group": "substrate",
+  "eps_r_diag": {"xx": [9.3, 0.0], "yy": [9.3, 0.0], "zz": [11.5, 0.0]},
+  "mu_r_diag": {"xx": 1.0, "yy": 1.0, "zz": 1.0}
+}]
+```
+
+They are separate fields rather than a second form of `eps_r` / `mu_r`:
+the scalar fields keep their exact type, default and schema, so every
+scalar spec parses and solves **bit-identically** to before, and the
+schema stays a plain object (no untagged union). Three equal components
+are the isotropic case — the way to give an isotropic `μ_r ≠ 1` to the
+wave analyses, which reject the scalar `mu_r` (an inductance-only field).
+
+**Per analysis.**
+
+| Analysis | `eps_r_diag` | `mu_r_diag` | How it is solved |
+|---|---|---|---|
+| `driven` / `extract` | ✓ (complex) | ✓ | the full-tensor operator `K(ν) − ω²M(ε)` (the matched-UPML kernel, off-diagonals zero), `ε = diag(ε_r)·Λ`, `ν = Λ⁻¹·diag(1/μ_r)` with `Λ = I` outside `absorbing_regions`. ω-independent, so it is still assembled **once** (and `sweep.adaptive` applies) unless UPML / dispersion force the per-frequency path |
+| `eigen`, lossless | ✓ (real, every `re > 0`) | ✓ | the real pencil `K(ν) x = k₀² M(ε) x` (`PecCavityMaterials::Diagonal`) |
+| `eigen`, lossy / open | ✓ (any `im < 0`) | ✓ | the complex tensor pencil (`LossyCavityMaterials::Tensor`), UPML frozen at the shift as before |
+| `capacitance` | ✓ (real, `> 0`) | ✗ (no permeability term) | `∇·(ε∇φ)` with a per-tet diagonal `ε` (`assemble_electrostatic_tensor`); `c_flux_diag_farad` is `null` (the flux cross-check takes a scalar `ε`) |
+| `inductance` | ✗ (no permittivity term) | ✓ | `∇×(ν∇×A)` with `ν = ν₀ diag(1/μ_xx, 1/μ_yy, 1/μ_zz)` (`assemble_magnetostatic3d_diag`: explicit Whitney curls, `K_ij = V c_i·ν c_j`) |
+
+**Composition.** An anisotropic material inside an `absorbing_regions`
+shell composes exactly: the box stretch `Λ` is diagonal, so
+`diag(ε_r)·Λ` and `Λ⁻¹·diag(1/μ_r)` are the uniaxial PML of the
+anisotropic medium. A spec may mix anisotropic and **dispersive**
+materials on different regions (the dispersive tets take `ε_r(f)`, the
+anisotropic ones their constant tensor, every frequency); one material
+cannot have both `eps_r_diag` and `dispersion` (dispersion models are
+isotropic in v1) — `invalid_spec`.
+
+**Rejected** (`invalid_spec`): `eps_r_diag` together with `eps_r`, or
+with `dispersion`; `mu_r_diag` together with `mu_r ≠ 1`; a gain
+component (`im > 0`) or a non-positive / non-finite `μ` component;
+`eps_r_diag` in an inductance spec and `mu_r_diag` in a capacitance spec
+(no such term); and **any `sensitivity` section** on a spec with an
+anisotropic material — every material gradient differentiates a scalar
+per-region `ε_r` / `ν_r` on the scalar operator, and there is no
+gradient with respect to a tensor component in v1.
+
+**AMS.** `solver.preconditioner = "ams"` needs `Re ε > 0` and `ν > 0`
+on every axis (its real proxy `Re K(ν) + ω² Re M(ε)` is SPD then; a
+positive diagonal reweighting keeps `K`'s gradient nullspace and `M`'s
+definiteness — unit-tested in `geode-core`). An `eps_r_diag` component
+with `Re ≤ 0` is `invalid_spec` with AMS, as is a constant scalar
+`eps_r` with `Re ≤ 0` (the PR #769 follow-up; before, only a dispersive
+`ε_r(f)` was guarded); `μ` components are positive for every solver.
+
+**Reporting.** `regions[]` gains `eps_r_diag` (`[[re, im] × 3]`) and
+`mu_r_diag` (`[μ × 3]`) for an anisotropic region; its `eps_r` / `mu_r`
+are then the isotropic means `tr/3`, for reference only (also the
+`.vtu` `eps_r` array with `--outdir`).
+
+**Validated** (`tests/anisotropic_golden.rs`,
+`geode-core/tests/uniaxial_cavity.rs`): the uniaxial-filled unit-cube
+cavity (`ε = diag(ε_t, ε_t, ε_z)`, `μ = diag(μ_t, μ_t, μ_z)`, optic axis
+`z`) has the closed form
+
+```text
+TE_z:  λ = (k_z²/μ_t + k_t²/μ_z) / ε_t      (p ≥ 1, (m, n) ≠ (0, 0))
+TM_z:  λ = (k_z²/ε_t + k_t²/ε_z) / μ_t      (m, n ≥ 1)
+```
+
+(`k_t² = (m² + n²)π²`, `k_z² = p²π²`; the TM_z root of
+`(k²I − kkᵀ)E = λεE`, and its E/H dual for `μ`), matched within 0.27 %
+at `n = 16` with ~4× error reduction per mesh halving; `geode eigen`
+reproduces the library pencil to 1e-9 on the same mesh. The coax goldens
+see only the transverse components (`C ∝ ε⊥`, the core's internal `L ∝
+μ⊥`), and an isotropic tensor reproduces the scalar run to 1e-9 on the
+sphere cavity, the spiral, the patch with UPML, and the coax capacitance
+/ inductance. The cookbook has the coax filled with c-axis sapphire
+([`examples/capacitance/coax_sapphire.json`](examples/capacitance/README.md#anisotropic-sapphire-coax-eps_r_diag-issue-760)).
 
 ## Adaptive sweep, parallel frequencies and progress (issue #708)
 
@@ -1894,7 +1980,10 @@ Additive in v1 (issue #683) — always present in `check`, present in
 `eps_r`, `eps_r_source` = `"spec"` \| `"default_vacuum"` \|
 `"dispersion"` (additive, issue #757; `eps_r` is then the model at
 `f_ref_hz`, or for Debye / Drude (#761) at the first solved frequency),
-and — additive in v1, issue #714 — `mu_r`; dispersive regions only,
+and — additive in v1, issue #714 — `mu_r`; anisotropic regions only,
+additive (#760): `eps_r_diag` = `[[re, im] × 3]` and / or `mu_r_diag` =
+`[μ × 3]` (`xx`, `yy`, `zz`; `eps_r` / `mu_r` are then the means
+`tr/3`); dispersive regions only,
 additive (#757 / #761): `dispersion` = `model`, the inputs as given
 (Djordjevic–Sarkar: `eps_r`, `tan_delta`, `f_ref_hz`, `f_low_hz`,
 `f_high_hz`; Debye: `poles[]` = `delta_eps`, `tau_s`, `f_relax_hz`;
@@ -2135,7 +2224,8 @@ The cross-field and semantic rules are enforced by the binary only
 expressed in the schemas: which sections each analysis requires or
 forbids (see [Problem spec](#problem-spec-schema-v1)), at most one of
 `eigen` / `extract` / `capacitance` / `inductance`, `mu_r ≠ 1` only in an
-inductance spec, a physical group in at most one role, value ranges
+inductance spec, which analyses take `eps_r_diag` / `mu_r_diag` and not
+alongside `eps_r` / `mu_r` / `dispersion`, a physical group in at most one role, value ranges
 (`> 0`, `im ≤ 0`, `≥ 2` anchors, …), `values` **or**
 `start`/`stop`/`count`, `between` **or** `rect`, and every name resolving
 against the mesh or layout. Use a schema to catch typos and type errors
@@ -2249,6 +2339,28 @@ iterations):
 ```sh
 cargo test -p geode-cli --test dispersive_golden                          # default tier
 cargo test -p geode-cli --release --test dispersive_golden -- --ignored   # AMS
+```
+
+`tests/anisotropic_golden.rs` (issue #760) covers `eps_r_diag` /
+`mu_r_diag` in every analysis: an isotropic tensor equals the scalar run
+to 1e-9 on the sphere cavity (lossless eigen), the spiral smoke (driven,
+lossy), the patch smoke with UPML (the substrate, and a material on the
+UPML shell composing `ε_r·Λ`), the coax capacitance and the coax core
+inductance; `geode eigen` on a generated uniaxial unit cube equals the
+in-process library pencil to 1e-9 and the closed form within 2 %
+(measured ≤ 1.05 % at `n = 8`; the converging 0.5 % check at `n = 16` is
+`geode-core/tests/uniaxial_cavity.rs`, release `--ignored`); a uniform
+loss tangent scales every eigenvalue of the lossy tensor pencil by
+exactly `1/(1 − j tan δ)`; and the coax `C` follows `ε⊥` and the core's
+internal `L` follows `μ⊥` (1 % / 2 % bands, the sapphire cookbook coax
++0.35 %) while the axial component is varied. In release (`--ignored`)
+the AMS solve of a spiral with a uniaxial substrate and an anisotropic
+`μ` matches direct LU:
+
+```sh
+cargo test -p geode-cli --test anisotropic_golden                          # default tier
+cargo test -p geode-cli --release --test anisotropic_golden -- --ignored   # AMS
+cargo test -p geode-core --release --test uniaxial_cavity -- --ignored     # closed form, n = 16
 ```
 
 `tests/spiral_golden.rs` re-expresses the spiral-inductor benchmark
