@@ -724,6 +724,8 @@ fn starter_spec_driven(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBu
             eps_r: d.eps_r,
             mu_r: 1.0,
             dispersion: None,
+            eps_r_diag: None,
+            mu_r_diag: None,
         })
         .collect();
     ProblemSpec {
@@ -790,6 +792,8 @@ fn starter_spec_capacitance(
             eps_r: [d.eps_r[0], 0.0],
             mu_r: 1.0,
             dispersion: None,
+            eps_r_diag: None,
+            mu_r_diag: None,
         })
         .collect();
     let terminals = (0..r.groups.len())

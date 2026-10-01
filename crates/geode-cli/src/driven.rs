@@ -40,6 +40,12 @@
 //!   take the same per-frequency path: each frequency's operator is
 //!   assembled from [`Problem::eps_at`] (`ε_r(f)`; times the stretch with
 //!   UPML), and each report row echoes the applied `ε_r(f)`.
+//! * **Anisotropic materials** (`eps_r_diag` / `mu_r_diag`, issue #760)
+//!   switch the operator to the same full-tensor (`MatchedUpml`)
+//!   assembly with `ε = ε_r·Λ`, `ν = Λ⁻¹·μ_r⁻¹`
+//!   ([`Problem::material_tensors`]; `Λ = I` outside a shell). They are
+//!   ω-independent, so without UPML / dispersion the operator is still
+//!   assembled once (and the adaptive sweep applies).
 //! * **Wave ports** build each port's modes from its tagged face
 //!   ([`geode_core::driven::ports::PortFaceProjection::wave_port`]) and
 //!   run [`solve_wave_port_sweep_with_mode`] (per frequency with UPML,
@@ -294,32 +300,47 @@ fn solver_mode(p: &Problem) -> SolverMode {
     }
 }
 
-/// The driven materials of one frequency of a frequency-dependent spec
-/// ([`Problem::is_frequency_dependent`]): the per-tet `ε_r(f)`
-/// ([`Problem::eps_at`]) as a scalar, or — with `absorbing_regions` —
-/// the matched-UPML tensors built from it (`ε = ε_r(f)·Λ`).
+/// The driven materials of one frequency: the per-tet `ε_r(f)`
+/// ([`Problem::eps_at`]) as a scalar, or — with `absorbing_regions` and /
+/// or anisotropic materials ([`Problem::needs_tensor_materials`]) — the
+/// full constitutive tensors built from it ([`Problem::material_tensors`]:
+/// `ε = ε_r·Λ`, `ν = Λ⁻¹·μ_r⁻¹`).
 enum FrequencyMaterials<'a> {
     Scalar(std::borrow::Cow<'a, [c64]>),
     #[allow(clippy::type_complexity)]
-    Upml(Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>),
+    Tensor(Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>),
 }
 
 impl<'a> FrequencyMaterials<'a> {
     /// `centroids` is `tet_centroids` of the mesh (unused without UPML).
     fn at(p: &'a Problem, centroids: &[[f64; 3]], f: &problem::Frequency) -> Self {
         let eps = p.eps_at(f.hz);
-        if p.upml.is_empty() {
-            Self::Scalar(eps)
+        if p.needs_tensor_materials() {
+            let (epsilon_tensor, nu_tensor) = p.material_tensors(&eps, centroids, f.k0);
+            Self::Tensor(epsilon_tensor, nu_tensor)
         } else {
-            let (epsilon_tensor, nu_tensor) = p.upml_tensors(&eps, centroids, f.k0);
-            Self::Upml(epsilon_tensor, nu_tensor)
+            Self::Scalar(eps)
+        }
+    }
+
+    /// The ω-independent materials of a spec without UPML or dispersion
+    /// (`!p.is_frequency_dependent()`): the scalar [`Problem::eps`]
+    /// borrowed as before, or the anisotropic tensors (issue #760).
+    fn constant(p: &'a Problem) -> Self {
+        debug_assert!(!p.is_frequency_dependent());
+        if p.is_anisotropic() {
+            // No UPML: centroids / k0 are not read.
+            let (epsilon_tensor, nu_tensor) = p.material_tensors(&p.eps, &[], 0.0);
+            Self::Tensor(epsilon_tensor, nu_tensor)
+        } else {
+            Self::Scalar(std::borrow::Cow::Borrowed(&p.eps))
         }
     }
 
     fn materials(&self) -> DrivenMaterials<'_> {
         match self {
             Self::Scalar(eps) => DrivenMaterials::Scalar(eps),
-            Self::Upml(epsilon_tensor, nu_tensor) => DrivenMaterials::MatchedUpml {
+            Self::Tensor(epsilon_tensor, nu_tensor) => DrivenMaterials::MatchedUpml {
                 epsilon_tensor,
                 nu_tensor,
             },
@@ -329,7 +350,7 @@ impl<'a> FrequencyMaterials<'a> {
 
 /// Run `solve` over `p.frequencies` (passed as natural `k₀`): in one
 /// batched call when the materials are ω-independent
-/// (`DrivenMaterials::Scalar` of [`Problem::eps`]), else once per
+/// ([`FrequencyMaterials::constant`]), else once per
 /// frequency with that frequency's [`FrequencyMaterials`] — UPML
 /// tensors and / or dispersive `ε_r(f)` (the library sweeps assemble
 /// once per call).
@@ -339,7 +360,7 @@ fn per_material_sweep<T>(
 ) -> Result<Vec<T>, CliError> {
     if !p.is_frequency_dependent() {
         let omegas: Vec<f64> = p.frequencies.iter().map(|f| f.k0).collect();
-        return solve(DrivenMaterials::Scalar(&p.eps), &omegas);
+        return solve(FrequencyMaterials::constant(p).materials(), &omegas);
     }
     let centroids = tet_centroids(&p.tagged.mesh);
     let mut out = Vec::with_capacity(p.frequencies.len());
@@ -577,7 +598,7 @@ fn dense_sweep<B: burn::tensor::backend::Backend>(
         let device = <B as BackendTypes>::Device::default();
         let op = s_parameter_operator::<B>(
             mesh,
-            DrivenMaterials::Scalar(&p.eps),
+            FrequencyMaterials::constant(p).materials(),
             None,
             bcs,
             lumped,
@@ -618,7 +639,7 @@ fn adaptive_sweep<B: burn::tensor::backend::Backend>(
     let device = <B as BackendTypes>::Device::default();
     let op = s_parameter_operator::<B>(
         &p.tagged.mesh,
-        DrivenMaterials::Scalar(&p.eps),
+        FrequencyMaterials::constant(p).materials(),
         None,
         bcs,
         lumped,
@@ -955,7 +976,7 @@ impl<'a, B: burn::tensor::backend::Backend> Exporter<'a, B> {
         if p.is_frequency_dependent() {
             this.centroids = tet_centroids(mesh);
         } else {
-            this.scalar_op = Some(this.assemble(DrivenMaterials::Scalar(&p.eps))?);
+            this.scalar_op = Some(this.assemble(FrequencyMaterials::constant(p).materials())?);
         }
         this.ntff_box = ntff_box(&p.upml, &this.centroids)?;
         Ok(this)

@@ -133,6 +133,17 @@ jobs:
               --test surface_not_on_mesh \
               --test rom_sweep
 
+      # Issue #760: diagonal anisotropic materials — the lossless
+      # tensor cavity pencil and diagonal-nu magnetostatics unit tests
+      # (no blanket geode-core job, so named here; < 1 s) and the
+      # uniaxial-cube closed-form golden (n = 8 / 16, ~15 s in release).
+      - name: Anisotropic materials (core units + uniaxial-cavity golden)
+        run: |
+          cargo test --features arpack -p geode-core --release --lib -- \
+              eigen::pec_cavity assembly::magnetostatic3d
+          cargo test --features arpack -p geode-core --release \
+              --test uniaxial_cavity -- --include-ignored
+
       - name: Run the gated sparse-eigensolver acceptance test
         # Issue #24 acceptance: matches dense oracle to 1e-6 at n=5 with
         # the same fixture as the Lanczos check. Runs on the CPU backend so
@@ -246,10 +257,15 @@ jobs:
       # Sarkar spiral smoke, AMS-COCG vs direct LU; ~10 s in release).
       # Issue #761 adds the Debye and Drude (doped-Si) AMS twins to the
       # same --test dispersive_golden (all three ~10 s in release).
+      #
+      # Issue #760 adds the anisotropic-materials AMS golden (spiral smoke
+      # with a uniaxial substrate and diagonal mu, AMS-COCG vs direct LU;
+      # ~4 s in release).
       - name: geode static-extraction benchmark tiers (release, --ignored)
         run: |
           cargo test -p geode-cli --release --test inductance_golden \
               --test mesh_static_golden --test adaptive_sweep_golden \
-              --test roughness_golden --test dispersive_golden -- --ignored
+              --test roughness_golden --test dispersive_golden \
+              --test anisotropic_golden -- --ignored
           cargo test -p geode-cli --release --test spiral_golden -- --ignored \
               spiral_benchmark_ams_matches_direct_lu

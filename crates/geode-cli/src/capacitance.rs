@@ -7,11 +7,14 @@
 //! tagged triangles become a Dirichlet node set
 //! ([`crate::problem::Conductor`]), the per-tet real `ε_r` comes from the
 //! spec's `materials` (vacuum by default), and
-//! [`assemble_electrostatic`] + [`extract_capacitance`] run one
+//! [`assemble_electrostatic`] (or, with `eps_r_diag` materials — issue
+//! #760 — [`assemble_electrostatic_tensor`] for `∇·(ε∇φ)` with a per-tet
+//! diagonal `ε`) + [`extract_capacitance`] run one
 //! unit-voltage solve per terminal — terminal *i* at 1 V, **every other
 //! terminal and all ground at 0 V** — forming `C_ij = φ⁽ⁱ⁾ᵀ K φ⁽ʲ⁾` with
 //! the full stiffness. There is no floating (charge-neutral) conductor
-//! model.
+//! model. The surface-flux cross-check (`c_flux_diag_farad`) uses a
+//! scalar `ε`, so it is `null` for every terminal of an anisotropic spec.
 //!
 //! Units: the library integrates in mesh units with `ε₀` in F/m, so its
 //! capacitances are in `F/m × mesh unit`; multiplying by
@@ -22,7 +25,8 @@ use std::path::Path;
 use std::time::Instant;
 
 use geode_core::assembly::electrostatic::{
-    ConductorSurface, Electrode, assemble_electrostatic, extract_capacitance,
+    ConductorSurface, Electrode, assemble_electrostatic, assemble_electrostatic_tensor,
+    extract_capacitance,
 };
 use geode_core::mesh::TetMesh;
 
@@ -49,11 +53,12 @@ pub fn run(
         .capacitance
         .as_ref()
         .expect("capacitance spec has a resolved capacitance section");
-    // `problem::load` rejected Im(ε_r) ≠ 0 and Re(ε_r) ≤ 0.
+    // `problem::load` rejected Im(ε_r) ≠ 0 and Re(ε_r) ≤ 0 (every axis).
     let eps_r: Vec<f64> = p.eps.iter().map(|e| e.re).collect();
+    let eps_diag: Option<Vec<[f64; 3]>> = p.is_anisotropic().then(|| p.real_diagonal_materials().0);
 
     let t0 = Instant::now();
-    let solved = solve(&p.tagged.mesh, &eps_r, target)?;
+    let solved = solve(&p.tagged.mesh, &eps_r, eps_diag.as_deref(), target)?;
     let wall_time_s = t0.elapsed().as_secs_f64();
 
     let scale = p.length_unit_m();
@@ -111,10 +116,14 @@ pub fn run(
 /// The library capacitance matrix (mesh-unit scaled, i.e. `F/m × mesh
 /// unit`) for a resolved capacitance target. The surface-flux diagonal is
 /// computed only for terminals lying entirely on the mesh boundary
-/// (`None` otherwise).
+/// (`None` otherwise) and only for isotropic materials: with `eps_diag`
+/// (per-tet diagonal `ε_r`, issue #760) the system is assembled with the
+/// tensor operator `∇·(ε∇φ)` and every flux diagonal is `None` (the flux
+/// integral takes a scalar `ε`).
 pub fn solve(
     mesh: &TetMesh,
     eps_r: &[f64],
+    eps_diag: Option<&[[f64; 3]]>,
     target: &CapacitanceTarget,
 ) -> Result<geode_core::assembly::electrostatic::CapacitanceMatrix, CliError> {
     let electrodes: Vec<Electrode> = target
@@ -127,19 +136,36 @@ pub fn solve(
         })
         .collect();
     let rho = vec![0.0_f64; mesh.n_tets()];
-    let sys = assemble_electrostatic(mesh, eps_r, &rho, &electrodes, &target.ground_nodes)?;
+    let sys = match eps_diag {
+        None => assemble_electrostatic(mesh, eps_r, &rho, &electrodes, &target.ground_nodes)?,
+        Some(d) => {
+            let tensors: Vec<[[f64; 3]; 3]> = d
+                .iter()
+                .map(|e| {
+                    let mut t = [[0.0; 3]; 3];
+                    for k in 0..3 {
+                        t[k][k] = e[k];
+                    }
+                    t
+                })
+                .collect();
+            assemble_electrostatic_tensor(mesh, &tensors, &rho, &electrodes, &target.ground_nodes)?
+        }
+    };
 
     // Flux cross-check only where it is well defined: a one-sided surface
-    // (every triangle a boundary face owned by exactly one tet).
+    // (every triangle a boundary face owned by exactly one tet) in an
+    // isotropic spec (the flux integral takes a scalar ε).
     let boundary = boundary_faces(mesh);
     let on_boundary: Vec<bool> = target
         .terminals
         .iter()
         .map(|t| {
-            t.surface
-                .triangles
-                .iter()
-                .all(|tri| boundary.contains(&sorted3(*tri)))
+            eps_diag.is_none()
+                && t.surface
+                    .triangles
+                    .iter()
+                    .all(|tri| boundary.contains(&sorted3(*tri)))
         })
         .collect();
     let surfaces: Vec<ConductorSurface> = target

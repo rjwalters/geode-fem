@@ -28,6 +28,23 @@
 //! pure-Rust sparse shift-invert Lanczos
 //! ([`SparseShiftInvertLanczos`], direct sparse-LU inner solve).
 //!
+//! # Diagonal anisotropic materials (issue #760)
+//!
+//! [`solve_pec_cavity_modes_with_materials`] with
+//! [`PecCavityMaterials::Diagonal`] takes a per-tet real **diagonal**
+//! permittivity `diag(ε_xx, ε_yy, ε_zz)` and inverse relative permeability
+//! `diag(ν_xx, ν_yy, ν_zz)` (mesh axes, all `> 0`):
+//!
+//! ```text
+//! K_ij = ∫ ∇×N_i · ν ∇×N_j dV,   M_ij = ∫ N_i · ε N_j dV.
+//! ```
+//!
+//! The pencil is assembled through the matched-UPML full-tensor kernel
+//! ([`assemble_global_nedelec_with_full_tensors_sparse`], off-diagonals and
+//! imaginary parts zero). A positive diagonal reweighting keeps `K` PSD
+//! (same gradient nullspace) and `M` SPD, so the real shift-invert Lanczos
+//! applies unchanged.
+//!
 //! # Scope: lossless only
 //!
 //! There is no loss mechanism in this pencil (real `ε_r`, perfect
@@ -60,6 +77,7 @@ use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
 use crate::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_complex_epsilon_sparse,
+    assemble_global_nedelec_with_full_tensors_sparse,
 };
 use crate::assembly::p1::upload_mesh;
 use crate::eigen::dense::EigenError;
@@ -200,6 +218,59 @@ pub struct PecCavityModes {
 /// Interior-reduced real sparse pencil `(K, M_ε)`.
 pub type LosslessPencil = (SparseColMat<usize, f64>, SparseColMat<usize, f64>);
 
+/// Per-tet material model of the lossless pencil.
+#[derive(Debug, Clone, Copy)]
+pub enum PecCavityMaterials<'a> {
+    /// Isotropic real relative permittivity per tet (`> 0`), `μ_r = 1`.
+    Isotropic(&'a [f64]),
+    /// Diagonal anisotropic real materials per tet in mesh axes (issue
+    /// #760): `eps` = `[ε_xx, ε_yy, ε_zz]` weights the mass, `nu` =
+    /// `[1/μ_xx, 1/μ_yy, 1/μ_zz]` the curl-curl stiffness. Every component
+    /// finite and `> 0`.
+    Diagonal {
+        /// Per-tet diagonal relative permittivity.
+        eps: &'a [[f64; 3]],
+        /// Per-tet diagonal inverse relative permeability.
+        nu: &'a [[f64; 3]],
+    },
+}
+
+fn validate_materials(
+    n_tets: usize,
+    materials: &PecCavityMaterials<'_>,
+) -> Result<(), PecCavityError> {
+    let invalid = |m: String| PecCavityError::InvalidInput(m);
+    match materials {
+        PecCavityMaterials::Isotropic(eps_r) => {
+            if eps_r.len() != n_tets {
+                return Err(invalid(format!(
+                    "eps_r has {} entries, mesh has {n_tets} tets",
+                    eps_r.len()
+                )));
+            }
+            if let Some(bad) = eps_r.iter().find(|e| !(e.is_finite() && **e > 0.0)) {
+                return Err(invalid(format!("eps_r must be finite and > 0 (got {bad})")));
+            }
+        }
+        PecCavityMaterials::Diagonal { eps, nu } => {
+            for (what, t) in [("eps", eps), ("nu", nu)] {
+                if t.len() != n_tets {
+                    return Err(invalid(format!(
+                        "{what} diagonal has {} entries, mesh has {n_tets} tets",
+                        t.len()
+                    )));
+                }
+                if let Some(bad) = t.iter().flatten().find(|v| !(v.is_finite() && **v > 0.0)) {
+                    return Err(invalid(format!(
+                        "{what} diagonal components must be finite and > 0 (got {bad})"
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Assemble the interior-reduced lossless pencil `(K, M_ε)` sparse.
 ///
 /// `eps_r` is the per-tet real relative permittivity (`> 0`);
@@ -218,17 +289,29 @@ pub fn assemble_lossless_pencil<B: Backend>(
     pec_interior_mask: &[bool],
     device: &B::Device,
 ) -> Result<LosslessPencil, PecCavityError> {
+    assemble_lossless_pencil_with_materials::<B>(
+        mesh,
+        &PecCavityMaterials::Isotropic(eps_r),
+        pec_interior_mask,
+        device,
+    )
+}
+
+/// [`assemble_lossless_pencil`] for any [`PecCavityMaterials`] (issue
+/// #760): the isotropic case is the scalar-ε kernel exactly as before; the
+/// diagonal case feeds the full-tensor kernel real diagonal `ε` / `ν`.
+///
+/// # Errors
+///
+/// As [`assemble_lossless_pencil`].
+pub fn assemble_lossless_pencil_with_materials<B: Backend>(
+    mesh: &TetMesh,
+    materials: &PecCavityMaterials<'_>,
+    pec_interior_mask: &[bool],
+    device: &B::Device,
+) -> Result<LosslessPencil, PecCavityError> {
     let invalid = |m: String| PecCavityError::InvalidInput(m);
-    if eps_r.len() != mesh.n_tets() {
-        return Err(invalid(format!(
-            "eps_r has {} entries, mesh has {} tets",
-            eps_r.len(),
-            mesh.n_tets()
-        )));
-    }
-    if let Some(bad) = eps_r.iter().find(|e| !(e.is_finite() && **e > 0.0)) {
-        return Err(invalid(format!("eps_r must be finite and > 0 (got {bad})")));
-    }
+    validate_materials(mesh.n_tets(), materials)?;
 
     let tet_edges = mesh.tet_edges();
     let n_edges = mesh.edges().len();
@@ -260,16 +343,40 @@ pub fn assemble_lossless_pencil<B: Backend>(
     }
 
     // Same pattern-aligned sparse volume assembly as the driven solver,
-    // with a purely real permittivity (the imaginary mass is identically 0
+    // with purely real materials (the imaginary parts are identically 0
     // and discarded).
     let scatter = NedelecScatterMap::new(&tet_idx);
-    let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
     let (nodes_t, tets_t) = upload_mesh::<B>(mesh, device);
-    let sys = assemble_global_nedelec_with_complex_epsilon_sparse(
-        nodes_t, tets_t, &tet_sign, &scatter, &eps_c,
-    );
-    let k_vals: Vec<f64> = sys.k_vals.into_data().iter::<f64>().collect();
-    let m_vals: Vec<f64> = sys.m_re_vals.into_data().iter::<f64>().collect();
+    let (k_vals, m_vals): (Vec<f64>, Vec<f64>) = match materials {
+        PecCavityMaterials::Isotropic(eps_r) => {
+            let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+            let sys = assemble_global_nedelec_with_complex_epsilon_sparse(
+                nodes_t, tets_t, &tet_sign, &scatter, &eps_c,
+            );
+            (
+                sys.k_vals.into_data().iter::<f64>().collect(),
+                sys.m_re_vals.into_data().iter::<f64>().collect(),
+            )
+        }
+        PecCavityMaterials::Diagonal { eps, nu } => {
+            let full = |d: &[f64; 3]| {
+                let mut t = [[c64::new(0.0, 0.0); 3]; 3];
+                for (k, row) in t.iter_mut().enumerate() {
+                    row[k] = c64::new(d[k], 0.0);
+                }
+                t
+            };
+            let eps_t: Vec<[[c64; 3]; 3]> = eps.iter().map(full).collect();
+            let nu_t: Vec<[[c64; 3]; 3]> = nu.iter().map(full).collect();
+            let sys = assemble_global_nedelec_with_full_tensors_sparse(
+                nodes_t, tets_t, &tet_sign, &scatter, &eps_t, &nu_t,
+            );
+            (
+                sys.k_re_vals.into_data().iter::<f64>().collect(),
+                sys.m_re_vals.into_data().iter::<f64>().collect(),
+            )
+        }
+    };
 
     let pattern = scatter.pattern();
     let mut k_tr = Vec::with_capacity(pattern.nnz());
@@ -330,6 +437,28 @@ pub fn solve_pec_cavity_modes<B: Backend>(
     settings: &PecCavitySettings,
     device: &B::Device,
 ) -> Result<PecCavityModes, PecCavityError> {
+    solve_pec_cavity_modes_with_materials::<B>(
+        mesh,
+        &PecCavityMaterials::Isotropic(eps_r),
+        pec_interior_mask,
+        settings,
+        device,
+    )
+}
+
+/// [`solve_pec_cavity_modes`] for any [`PecCavityMaterials`] — in
+/// particular diagonal anisotropic `ε` / `μ` (issue #760).
+///
+/// # Errors
+///
+/// As [`solve_pec_cavity_modes`].
+pub fn solve_pec_cavity_modes_with_materials<B: Backend>(
+    mesh: &TetMesh,
+    materials: &PecCavityMaterials<'_>,
+    pec_interior_mask: &[bool],
+    settings: &PecCavitySettings,
+    device: &B::Device,
+) -> Result<PecCavityModes, PecCavityError> {
     let s = settings;
     let invalid = |m: String| PecCavityError::InvalidInput(m);
     if !(s.sigma.is_finite() && s.sigma > 0.0) {
@@ -363,7 +492,8 @@ pub fn solve_pec_cavity_modes<B: Backend>(
         )));
     }
 
-    let (k, m) = assemble_lossless_pencil::<B>(mesh, eps_r, pec_interior_mask, device)?;
+    let (k, m) =
+        assemble_lossless_pencil_with_materials::<B>(mesh, materials, pec_interior_mask, device)?;
     let n_interior = k.nrows();
 
     // Take every Ritz pair the Lanczos basis yields: the near-zero
@@ -552,6 +682,118 @@ mod tests {
                 a.lambda,
                 b.lambda
             );
+        }
+    }
+
+    /// Diagonal materials `ε = (e, e, e)`, `ν = (1, 1, 1)` reproduce the
+    /// isotropic scalar path to round-off (issue #760).
+    #[test]
+    fn isotropic_diagonal_matches_scalar_path() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let mask = cube_mask(&mesh);
+        let eps: Vec<f64> = (0..mesh.n_tets())
+            .map(|t| 1.0 + 0.5 * (t % 4) as f64)
+            .collect();
+        let eps_d: Vec<[f64; 3]> = eps.iter().map(|&e| [e; 3]).collect();
+        let nu_d = vec![[1.0; 3]; mesh.n_tets()];
+        let settings = PecCavitySettings::new(4.0, 4);
+        let iso = solve_pec_cavity_modes::<B>(&mesh, &eps, &mask, &settings, &device()).unwrap();
+        let diag = solve_pec_cavity_modes_with_materials::<B>(
+            &mesh,
+            &PecCavityMaterials::Diagonal {
+                eps: &eps_d,
+                nu: &nu_d,
+            },
+            &mask,
+            &settings,
+            &device(),
+        )
+        .unwrap();
+        assert_eq!(iso.n_interior, diag.n_interior);
+        for (a, b) in iso.modes.iter().zip(&diag.modes) {
+            assert!(
+                (a.lambda - b.lambda).abs() <= 1e-9 * a.lambda,
+                "{} vs {}",
+                a.lambda,
+                b.lambda
+            );
+        }
+    }
+
+    /// A diagonal positive `ν` / `ε` keeps the pencil's structure (issue
+    /// #760): `K` annihilates discrete gradients (the curl-curl nullspace
+    /// is unchanged), and the AMS-style proxy `K + ω²M` is SPD (Cholesky
+    /// succeeds) — the property `solve_ams` relies on for `Re K(ν)`.
+    #[test]
+    fn diagonal_materials_keep_gradient_nullspace_and_spd_proxy() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let n_edges = mesh.edges().len();
+        let mask = vec![true; n_edges];
+        let eps_d = vec![[1.0, 2.5, 4.0]; mesh.n_tets()];
+        let nu_d = vec![[0.25, 1.0, 3.0]; mesh.n_tets()];
+        let (k, m) = assemble_lossless_pencil_with_materials::<B>(
+            &mesh,
+            &PecCavityMaterials::Diagonal {
+                eps: &eps_d,
+                nu: &nu_d,
+            },
+            &mask,
+            &device(),
+        )
+        .unwrap();
+        // Gradient of an arbitrary nodal field.
+        let phi: Vec<f64> = mesh
+            .nodes
+            .iter()
+            .map(|p| (1.3 * p[0]).sin() + p[1] * p[2] - 0.7 * p[2])
+            .collect();
+        let g: Vec<f64> = mesh
+            .edges()
+            .iter()
+            .map(|&[a, b]| phi[b as usize] - phi[a as usize])
+            .collect();
+        let kg = spmv(k.as_ref(), &g);
+        let mg = spmv(m.as_ref(), &g);
+        assert!(
+            norm2(&kg) <= 1e-10 * norm2(&mg),
+            "‖K g‖ = {:e} vs ‖M g‖ = {:e}",
+            norm2(&kg),
+            norm2(&mg)
+        );
+        let dense = |a: &SparseColMat<usize, f64>| a.to_dense();
+        let (kd, md) = (dense(&k), dense(&m));
+        let proxy = &kd + &md;
+        assert!(
+            proxy.llt(faer::Side::Lower).is_ok(),
+            "K(ν) + M(ε) is not SPD"
+        );
+        assert!(md.llt(faer::Side::Lower).is_ok(), "M(ε) is not SPD");
+    }
+
+    /// Non-positive / mis-sized diagonal materials are rejected.
+    #[test]
+    fn invalid_diagonal_materials_are_rejected() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let mask = cube_mask(&mesh);
+        let n = mesh.n_tets();
+        let ok_eps = vec![[1.0; 3]; n];
+        let ok_nu = vec![[1.0; 3]; n];
+        let mut bad = ok_eps.clone();
+        bad[0][2] = 0.0;
+        for (eps, nu) in [
+            (&bad, &ok_nu),
+            (&ok_eps, &bad),
+            (&ok_eps[1..].to_vec(), &ok_nu),
+        ] {
+            assert!(matches!(
+                assemble_lossless_pencil_with_materials::<B>(
+                    &mesh,
+                    &PecCavityMaterials::Diagonal { eps, nu },
+                    &mask,
+                    &device(),
+                ),
+                Err(PecCavityError::InvalidInput(_))
+            ));
         }
     }
 

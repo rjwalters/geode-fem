@@ -24,7 +24,7 @@
 //! `problem::load` (spec) and [`Layout::resolve_for`] (layout), not in serde,
 //! and are not expressed in the schemas: which sections an analysis
 //! requires or forbids, at most one analysis section, `mu_r ≠ 1` only in
-//! inductance specs, a physical group in at most one role, value ranges
+//! inductance specs, which analyses take `eps_r_diag` / `mu_r_diag`, a physical group in at most one role, value ranges
 //! (`> 0`, `im ≤ 0`, …), and physical-group names that must exist in the
 //! mesh. `geode check` (and, for layouts, `geode mesh`) stays the
 //! authority.

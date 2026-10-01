@@ -42,3 +42,35 @@ references it.
 
 Non-driven conductors are **grounded**, never floating: list every metal
 body as a terminal or as ground.
+
+## Anisotropic: sapphire coax (`eps_r_diag`, issue #760)
+
+`coax_sapphire.json` (copy of
+`tests/fixtures/capacitance_coax_sapphire_smoke.json`) fills both annuli
+of the coax with **c-axis sapphire**, the optic axis along the coax
+(mesh `z`): a diagonal permittivity in mesh axes,
+
+```json
+{"physical_group": "dielectric_inner",
+ "eps_r_diag": {"xx": [9.3, 0.0], "yy": [9.3, 0.0], "zz": [11.5, 0.0]}}
+```
+
+(`ε⊥ = 9.3` across the c axis, `ε∥ = 11.5` along it). The coax field is
+radial — transverse to `z` — so it sees only `ε⊥`:
+`C = 2π ε₀·9.3·L / ln(b/a)`. Treating sapphire as isotropic `ε∥` (or
+any average) would be 24 % high.
+
+```sh
+geode capacitance crates/geode-cli/examples/capacitance/coax_sapphire.json -o c.json
+```
+
+| entry | `geode` | analytic (`ε⊥`) | error | isotropic `ε∥` would be |
+|---|---|---|---|---|
+| `C` | 566.6 fF | 564.6 fF | +0.35 % | 698.2 fF |
+
+The report's `regions[].eps_r_diag` echoes the tensor (`eps_r` is then
+its isotropic mean, for reference only), and `c_flux_diag_farad` is
+`null`: the surface-flux cross-check integrates a scalar `ε`.
+`tests/anisotropic_golden.rs` pins the 1 % bar, and also checks that the
+axial component does not leak in (`ε = (2, 2, 9)` and `(9, 9, 2)` follow
+`ε⊥` within 1 %).

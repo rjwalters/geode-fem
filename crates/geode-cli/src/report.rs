@@ -97,12 +97,25 @@ pub struct RegionSummary {
     /// `drude` (issue #761).
     pub eps_r_source: &'static str,
     /// Applied real relative permeability (additive in v1, issue #714;
-    /// `1` unless an inductance spec lists `mu_r` for the region).
+    /// `1` unless an inductance spec lists `mu_r` for the region, or the
+    /// mean `tr(μ)/3` of a `mu_r_diag` region, issue #760).
     pub mu_r: f64,
     /// The region's dispersion model (additive in v1, issue #757; present
     /// only for a dispersive region).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dispersion: Option<DispersionSummary>,
+    /// Diagonal anisotropic permittivity `[xx, yy, zz]` in mesh axes
+    /// (additive in v1, issue #760; present only for an `eps_r_diag`
+    /// region, whose `eps_r` is then the isotropic mean `tr(ε)/3`, for
+    /// reference only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eps_r_diag: Option<[Complex; 3]>,
+    /// Diagonal anisotropic permeability `[xx, yy, zz]` in mesh axes
+    /// (additive in v1, issue #760; present only for a `mu_r_diag`
+    /// region, whose `mu_r` is then the mean `tr(μ)/3`, for reference
+    /// only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mu_r_diag: Option<[f64; 3]>,
 }
 
 /// A dispersive region's model: the inputs as given, the fitted /

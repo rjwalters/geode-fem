@@ -1408,6 +1408,48 @@
       ],
       "type": "object"
     },
+    "EpsDiagSpec": {
+      "additionalProperties": false,
+      "description": "Diagonal complex relative-permittivity tensor `diag(ε_xx, ε_yy, ε_zz)`\nin mesh axes (issue #760). Each component is `[re, im]`, `im ≤ 0`\n(`exp(+jωt)`).",
+      "properties": {
+        "xx": {
+          "description": "`ε_xx` as `[re, im]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "yy": {
+          "description": "`ε_yy` as `[re, im]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "zz": {
+          "description": "`ε_zz` as `[re, im]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "xx",
+        "yy",
+        "zz"
+      ],
+      "type": "object"
+    },
     "ErrorBody": {
       "description": "Error body.",
       "properties": {
@@ -2681,10 +2723,32 @@
           "minItems": 2,
           "type": "array"
         },
+        "eps_r_diag": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EpsDiagSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Diagonal anisotropic complex relative permittivity in **mesh\naxes** (additive in v1, issue #760): `{\"xx\": [re, im], \"yy\": …,\n\"zz\": …}`, each component `im ≤ 0` like `eps_r`. Omit (or `null`)\nfor an isotropic material. When present, `eps_r` must be left at\nits default and `dispersion` must be absent. `driven` / `extract`\n/ `eigen` (lossless and lossy) and `capacitance` (real components\nonly); rejected by `inductance` and with a `sensitivity` section."
+        },
         "mu_r": {
           "description": "Real relative permeability `μ_r` (finite, `> 0`; default `1`).\nHonoured only by `geode inductance` in v1: every other analysis\nrejects `μ_r ≠ 1` rather than silently ignoring it.",
           "format": "double",
           "type": "number"
+        },
+        "mu_r_diag": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MuDiagSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Diagonal anisotropic real relative permeability in **mesh axes**\n(additive in v1, issue #760): `{\"xx\": μ, \"yy\": μ, \"zz\": μ}`, each\nfinite and `> 0`. Omit (or `null`) for an isotropic material. When\npresent, `mu_r` must be left at its default. `driven` / `extract`\n/ `eigen` and `inductance`; rejected by `capacitance` and with a\n`sensitivity` section. Unlike the scalar `mu_r` (inductance-only),\nthis is honoured by the wave analyses: three equal components give\nan isotropic `μ_r ≠ 1` there."
         },
         "physical_group": {
           "description": "Name of a dimension-3 physical group (`$PhysicalNames`).",
@@ -2951,6 +3015,33 @@
         "omega_rad_s",
         "q",
         "residual_rel"
+      ],
+      "type": "object"
+    },
+    "MuDiagSpec": {
+      "additionalProperties": false,
+      "description": "Diagonal real relative-permeability tensor `diag(μ_xx, μ_yy, μ_zz)` in\nmesh axes (issue #760), each finite and `> 0`.",
+      "properties": {
+        "xx": {
+          "description": "`μ_xx`.",
+          "format": "double",
+          "type": "number"
+        },
+        "yy": {
+          "description": "`μ_yy`.",
+          "format": "double",
+          "type": "number"
+        },
+        "zz": {
+          "description": "`μ_zz`.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "xx",
+        "yy",
+        "zz"
       ],
       "type": "object"
     },
@@ -3399,14 +3490,45 @@
           "minItems": 2,
           "type": "array"
         },
+        "eps_r_diag": {
+          "description": "Diagonal anisotropic permittivity `[xx, yy, zz]` in mesh axes\n(additive in v1, issue #760; present only for an `eps_r_diag`\nregion, whose `eps_r` is then the isotropic mean `tr(ε)/3`, for\nreference only).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "eps_r_source": {
           "description": "`\"spec\"`, `\"default_vacuum\"` or (issue #757) `\"dispersion\"` — for\nwhich `eps_r` is the model at its reference frequency: `f_ref_hz`\nfor `djordjevic_sarkar`, the first solved frequency for `debye` /\n`drude` (issue #761).",
           "type": "string"
         },
         "mu_r": {
-          "description": "Applied real relative permeability (additive in v1, issue #714;\n`1` unless an inductance spec lists `mu_r` for the region).",
+          "description": "Applied real relative permeability (additive in v1, issue #714;\n`1` unless an inductance spec lists `mu_r` for the region, or the\nmean `tr(μ)/3` of a `mu_r_diag` region, issue #760).",
           "format": "double",
           "type": "number"
+        },
+        "mu_r_diag": {
+          "description": "Diagonal anisotropic permeability `[xx, yy, zz]` in mesh axes\n(additive in v1, issue #760; present only for a `mu_r_diag`\nregion, whose `mu_r` is then the mean `tr(μ)/3`, for reference\nonly).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "n_tets": {
           "description": "Tets in the region.",

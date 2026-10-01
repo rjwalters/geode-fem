@@ -6,7 +6,9 @@
 //! the path's conductor volume (`φ = 1` on the source face, `0` on the
 //! sink, insulated elsewhere) and returns `J = −σ∇φ` normalised to a 1 A
 //! Galerkin net current. [`assemble_magnetostatic3d`] then assembles the
-//! `ν₀/μ_r`-weighted Nédélec curl-curl with the spec's PEC wall plus the
+//! `ν₀/μ_r`-weighted Nédélec curl-curl (with `mu_r_diag` materials —
+//! issue #760 — [`assemble_magnetostatic3d_diag`], a per-tet diagonal
+//! `ν₀ diag(1/μ_xx, 1/μ_yy, 1/μ_zz)`) with the spec's PEC wall plus the
 //! terminal contacts eliminated, and [`extract_inductance`] runs one
 //! tree-cotree-gauged solve per path — each after the discrete-
 //! solenoidality gate — forming `L_ij = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾ / (I_i I_j)`.
@@ -22,8 +24,8 @@ use geode_core::assembly::current_path::{
     CurrentPathError, OpenPathCurrent, check_grounded_balance, open_path_current, ungrounded_nodes,
 };
 use geode_core::assembly::magnetostatic3d::{
-    InductanceMatrix, assemble_current_rhs, assemble_magnetostatic3d, check_solenoidal,
-    extract_inductance,
+    InductanceMatrix, assemble_current_rhs, assemble_magnetostatic3d,
+    assemble_magnetostatic3d_diag, check_solenoidal, extract_inductance,
 };
 use geode_core::mesh::TetMesh;
 
@@ -57,7 +59,14 @@ pub fn run(
         .expect("inductance spec has a resolved inductance section");
 
     let t0 = Instant::now();
-    let solved = solve(&p.tagged.mesh, &p.mu_r, &p.pec_mask, target)?;
+    let mu_diag = p.is_anisotropic().then(|| p.mu_r_diagonal());
+    let solved = solve(
+        &p.tagged.mesh,
+        &p.mu_r,
+        mu_diag.as_deref(),
+        &p.pec_mask,
+        target,
+    )?;
     let wall_time_s = t0.elapsed().as_secs_f64();
     check_physical(&solved.matrix)?;
 
@@ -138,10 +147,13 @@ pub struct Solved {
 
 /// Build every path's excitation and extract the inductance matrix
 /// (`H/m × mesh unit`). `pec_mask` must already eliminate the PEC wall and
-/// the terminal contacts ([`crate::problem::Problem::pec_mask`]).
+/// the terminal contacts ([`crate::problem::Problem::pec_mask`]). With
+/// `mu_diag` (per-tet diagonal `μ_r`, issue #760) the curl-curl is the
+/// anisotropic [`assemble_magnetostatic3d_diag`] and `mu_r` is unused.
 pub fn solve(
     mesh: &TetMesh,
     mu_r: &[f64],
+    mu_diag: Option<&[[f64; 3]]>,
     pec_mask: &[bool],
     target: &InductanceTarget,
 ) -> Result<Solved, CliError> {
@@ -164,7 +176,10 @@ pub fn solve(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let sys = assemble_magnetostatic3d(mesh, mu_r, pec_mask)?;
+    let sys = match mu_diag {
+        None => assemble_magnetostatic3d(mesh, mu_r, pec_mask)?,
+        Some(d) => assemble_magnetostatic3d_diag(mesh, d, pec_mask)?,
+    };
     let mut max_res = 0.0_f64;
     for path in &paths {
         // By construction (terminal faces are PEC contacts) every terminal
