@@ -11,8 +11,10 @@
 //! * **Capacitance** (one terminal) —
 //!   [`geode_core::adjoint::capacitance_adjoint_gradient_p2`]: the
 //!   two-terminal **P2** capacitance `C = 2W/V²` and `∂C/∂ε_k` from one
-//!   forward + one adjoint solve. The P2 `C` is the observable (reported
-//!   per entry) — the report's `c_farad` is the P1 extraction.
+//!   forward + one adjoint solve. The P2 `C` is the observable, named
+//!   `"c_farad_p2"` (reported per entry) to distinguish it from the
+//!   report's `c_farad`, which is the P1 extraction and differs by the P1
+//!   discretization error.
 //! * **Inductance** —
 //!   [`geode_core::adjoint::inductance_adjoint_sensitivity`]: the full
 //!   `∂L_ij/∂ν_k` tensor from the self-adjoint energy form (no extra
@@ -237,7 +239,7 @@ pub fn capacitance(
     };
     finish(
         sens,
-        "c_farad",
+        "c_farad_p2",
         "F",
         "adjoint_p2",
         g,

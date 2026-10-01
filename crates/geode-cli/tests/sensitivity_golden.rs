@@ -170,7 +170,7 @@ fn capacitance_gradient_matches_fd_euler_and_closed_form() {
         &fixtures().join("capacitance_coax_sensitivity_smoke.json"),
     );
     let s = checked_sensitivities(&r);
-    assert_eq!(s["observable"], "c_farad");
+    assert_eq!(s["observable"], "c_farad_p2");
     assert_eq!(s["observable_unit"], "F");
     assert_eq!(s["method"], "adjoint_p2");
     let params = s["parameters"].as_array().unwrap();

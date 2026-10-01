@@ -703,10 +703,12 @@ consumed by that subcommand.
   dimensionless, so a `gradient` has the unit of its observable
   (`observable_unit`).
 - **Capacitance observable.** The library's capacitance adjoint is P2,
-  so the differentiated `C` is the P2 two-terminal capacitance, reported
-  as each entry's `value`; the report's `c_farad` stays the P1 matrix
-  (they differ by the P1 discretization error, ~0.7 % on the coax smoke
-  mesh).
+  so the differentiated `C` is the P2 two-terminal capacitance, named
+  `"c_farad_p2"` and reported as each entry's `value`; the report's own
+  `c_farad` stays the P1 matrix (they differ by the P1 discretization
+  error, ~0.7 % on the coax smoke mesh) — the distinct name keeps an
+  optimizer stepping on the gradient from plateauing against a `c_farad`
+  target that is off by that amount.
 - **Eigen modes.** `modes` index the report's ascending `modes[]`
   (default `[0]`, each `< eigen.n_modes`, and the spec needs `n_modes ≥
   2`). Hellmann–Feynman holds only for a **simple** eigenvalue: a mode
@@ -746,7 +748,7 @@ The report block (`kind = "capacitance" | "inductance" | "eigen"`):
 
 ```json
 "sensitivities": {
-  "observable": "c_farad", "observable_unit": "F", "method": "adjoint_p2",
+  "observable": "c_farad_p2", "observable_unit": "F", "method": "adjoint_p2",
   "parameters": [
     {"physical_group": "dielectric_inner", "kind": "eps_r", "value": 2.0},
     {"physical_group": "dielectric_outer", "kind": "eps_r", "value": 1.0}
@@ -1653,8 +1655,12 @@ estimate" above; `null` for a capacitance spec).
 
 **`sensitivities`** (additive in v1, issue #707; `capacitance`,
 `inductance` and `eigen` reports, present only when the spec has a
-`sensitivity` section): `observable` (`"c_farad"` \| `"l_henry"` \|
-`"frequency_hz"`), `observable_unit` (`"F"` \| `"H"` \| `"Hz"`), `method`
+`sensitivity` section): `observable` (`"c_farad_p2"` \| `"l_henry"` \|
+`"frequency_hz"` — the capacitance observable is named `"c_farad_p2"`,
+distinct from the capacitance report's own `c_farad`, because it is the
+**P2** two-terminal capacitance and differs from the P1 `c_farad[0][0]` by
+the P1 discretization error), `observable_unit` (`"F"` \| `"H"` \| `"Hz"`),
+`method`
 (`"adjoint_p2"` \| `"self_adjoint_energy"` \| `"hellmann_feynman"`),
 `parameters[]` (`physical_group`, `kind`, `value`), `entries[]`
 (`parameter`, `index`, `value`, `gradient`, and with `fd_check`

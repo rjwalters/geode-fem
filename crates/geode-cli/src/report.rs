@@ -16,13 +16,12 @@
 //!   (additive in v1, issue #705: the static Maxwell capacitance matrix);
 //! * `"inductance"` — [`InductanceReport`], from `geode inductance`
 //!   (additive in v1, issue #714: the static Maxwell inductance matrix);
+//! * `"error"` — [`ErrorReport`], from any failed subcommand (the
+//!   process also exits non-zero and prints the error to stderr).
 //!
 //! The capacitance, inductance and eigen reports carry an optional
 //! `sensitivities` block ([`SensitivityReport`], additive in v1, issue
 //! #707) when the spec has a `sensitivity` section.
-//!
-//! * `"error"` — [`ErrorReport`], from any failed subcommand (the
-//!   process also exits non-zero and prints the error to stderr).
 //!
 //! All of them carry [`Provenance`] flattened into the top level
 //! (`schema_version`, `geode_version`, `git_sha`, `backend`, …).
@@ -439,9 +438,10 @@ pub struct CapacitanceReport {
     pub spice_file: Option<FileRef>,
     /// `∂C/∂ε_r` of the two-terminal capacitance (additive in v1, issue
     /// #707; present only with a spec `sensitivity` section). The
-    /// observable is the **P2** two-terminal capacitance (the library's
-    /// capacitance adjoint), reported as each entry's `value` — it differs
-    /// from the P1 `c_farad[0][0]` by the P1 discretization error.
+    /// observable (named `"c_farad_p2"`) is the **P2** two-terminal
+    /// capacitance (the library's capacitance adjoint), reported as each
+    /// entry's `value` — it differs from the P1 `c_farad[0][0]` by the P1
+    /// discretization error.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sensitivities: Option<SensitivityReport>,
 }
@@ -1068,9 +1068,11 @@ pub struct EigenReport {
 /// (`observable_unit`).
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct SensitivityReport {
-    /// The differentiated observable: `"c_farad"` (two-terminal P2
-    /// capacitance), `"l_henry"` (inductance-matrix entries) or
-    /// `"frequency_hz"` (eigenmode resonant frequency).
+    /// The differentiated observable: `"c_farad_p2"` (two-terminal P2
+    /// capacitance — distinct from, and about the P1 discretization
+    /// error off, the report's own `c_farad`), `"l_henry"`
+    /// (inductance-matrix entries) or `"frequency_hz"` (eigenmode
+    /// resonant frequency).
     pub observable: &'static str,
     /// Unit of every entry's `value` and `gradient`: `"F"`, `"H"` or
     /// `"Hz"`.
