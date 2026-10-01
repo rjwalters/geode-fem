@@ -97,6 +97,11 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Input::Spec("inductance"),
     ),
     (
+        "sensitivity/driven_spiral.json",
+        Some("driven_spiral_sensitivity_smoke.json"),
+        Input::Spec("driven"),
+    ),
+    (
         "mesh/spiral_inductor.layout.json",
         Some("spiral_layout_smoke.json"),
         Input::Layout("driven"),
