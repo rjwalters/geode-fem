@@ -427,7 +427,9 @@ fn apply_thread_cap(n: usize) -> ParallelismGuard {
     unsafe {
         std::env::set_var(NUM_THREADS_ENV, n.to_string());
     }
-    ParallelismGuard::rayon(n)
+    // `cap`, not `rayon`: `--threads 1` must make the LU serial rather
+    // than leave faer at its all-cores default (issue #747).
+    ParallelismGuard::cap(n)
 }
 
 fn main() -> ExitCode {

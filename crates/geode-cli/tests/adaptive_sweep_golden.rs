@@ -15,7 +15,8 @@
 //!   first-order Silver-Müller wall — the UPML itself is re-assembled per
 //!   frequency and stays on the dense sweep): an 11-point 2.0–3.0 GHz
 //!   adaptive sweep against the dense sweep; and (default tier) a 4-point
-//!   dense sweep with `--jobs 2 --progress` bit-identical to `--jobs 1`.
+//!   dense sweep with `--jobs 2 --threads 4 --progress` bit-identical to
+//!   `--jobs 1 --threads 2` (same per-factorization thread count).
 //! * **Exhausted snapshot budget** (default tier, issue #747): the patch
 //!   smoke at three points with `max_snapshots = 1` — one interpolated
 //!   row, one exact full-order fallback row, `--outdir` fields for the
@@ -295,15 +296,17 @@ fn patch_spec(dir: &Path, name: &str, count: usize, adaptive: bool) -> PathBuf {
 }
 
 /// Default tier: `--jobs 2` on a dense sweep is bit-identical to the
-/// serial sweep, in frequency order, and `--progress` emits one `point`
+/// serial sweep at the same per-factorization thread count (`--jobs 2
+/// --threads 4` splits into two 2-thread LUs, issue #747), in frequency
+/// order, and `--progress` emits one `point`
 /// per row (in completion order) between `sweep_start` / `sweep_done`.
 #[test]
 fn patch_smoke_parallel_dense_sweep_is_deterministic_with_progress() {
     let dir = TempDir::new("patch-jobs");
     let spec = patch_spec(&dir.0, "dense.json", 4, false);
-    let (serial, stderr) = driven(&spec, &[]);
+    let (serial, stderr) = driven(&spec, &["--threads", "2"]);
     assert!(events(&stderr).is_empty(), "no progress without --progress");
-    let (parallel, stderr) = driven(&spec, &["--jobs", "2", "--progress"]);
+    let (parallel, stderr) = driven(&spec, &["--jobs", "2", "--threads", "4", "--progress"]);
     assert_eq!(serial["results"], parallel["results"]);
     assert!(serial["solver"].get("jobs").is_none());
     assert_eq!(parallel["solver"]["jobs"], 2);

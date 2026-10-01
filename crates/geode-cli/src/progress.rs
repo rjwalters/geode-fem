@@ -29,7 +29,8 @@
 //! `--jobs N` solves up to `N` frequencies of a dense sweep concurrently
 //! (scoped worker threads pulling the next frequency index; results are
 //! stored by index, so the report order is deterministic and identical
-//! to `--jobs 1`). Each in-flight frequency holds its **own** sparse LU
+//! to `--jobs 1` at the same per-factorization thread count; see below).
+//! Each in-flight frequency holds its **own** sparse LU
 //! factorization (and, with `absorbing_regions`, its own assembled
 //! operator), so peak memory grows roughly `N`-fold over the serial
 //! sweep's per-frequency footprint — `geode check`'s `resources`
@@ -40,7 +41,9 @@
 //! factorization (at least 1), where `T` is `--threads` or, without it,
 //! the core count. So `--jobs 4` on a 28-core machine runs four 7-thread
 //! factorizations rather than four that each ask for 28 (issue #747).
-//! Thread count does not change the arithmetic; `--jobs 1` is unchanged.
+//! `--jobs 1` is unchanged. faer's parallel LU differs across thread
+//! counts only at roundoff, so `--jobs 2 --threads 4` is bit-identical
+//! to `--jobs 1 --threads 2`.
 
 use std::io::Write;
 use std::sync::Mutex;
@@ -121,8 +124,7 @@ impl Progress {
 /// across the workers for the duration of the call — each concurrent
 /// factorization gets `budget / workers` threads (at least 1, i.e.
 /// serial) instead of every one claiming the whole budget (issue #747).
-/// Thread count never changes the arithmetic, and the serial path is
-/// untouched.
+/// The serial path is untouched.
 pub fn par_map<T: Send>(
     n: usize,
     jobs: usize,
