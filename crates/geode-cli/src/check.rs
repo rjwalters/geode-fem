@@ -4,16 +4,17 @@ use std::path::Path;
 
 use geode_core::assembly::nedelec::sparsity_pattern_from_tet_edges;
 
+use crate::dispersion::DispersionModel;
 use crate::error::CliError;
 use crate::problem::{self, MaterialSource, Problem};
 use crate::report::{
     CapacitanceSettingsSummary, CheckReport, ConductorSummary, CurrentPathSummary,
-    EigenSettingsSummary, ExtractSettingsSummary, FrequencySummary, InductanceSettingsSummary,
-    LeontovichSummary, MeshSummary, PecSummary, PortSummary, Provenance, RegionSummary,
-    ResourceEstimate, RoughnessSummary, SilverMullerSummary, SolverSummary, UpmlSummary,
-    WavePortSummary,
+    DispersionSummary, EigenSettingsSummary, ExtractSettingsSummary, FrequencySummary,
+    InductanceSettingsSummary, LeontovichSummary, MeshSummary, PecSummary, PortSummary, Provenance,
+    RegionSummary, ResourceEstimate, RoughnessSummary, SilverMullerSummary, SolverSummary,
+    UpmlSummary, WavePortSummary,
 };
-use crate::spec::{RoughnessSpec, SolverSpec};
+use crate::spec::{DispersionSpec, RoughnessSpec, SolverSpec};
 
 /// Load + resolve the spec and summarize it (no assembly, no solve).
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliError> {
@@ -316,8 +317,14 @@ pub fn region_summaries(p: &Problem) -> Vec<RegionSummary> {
             eps_r_source: match r.source {
                 MaterialSource::Spec => "spec",
                 MaterialSource::DefaultVacuum => "default_vacuum",
+                MaterialSource::Dispersion => "dispersion",
             },
             mu_r: r.mu_r,
+            dispersion: p
+                .dispersion
+                .iter()
+                .find(|d| d.tag == r.tag)
+                .map(|d| dispersion_summary(d, p)),
         })
         .collect()
 }
@@ -494,6 +501,41 @@ fn roughness_summary(
             n_balls: Some(n_balls),
             tile_area_m2: Some(tile_area_m2),
             k,
+        },
+    }
+}
+
+/// Echo a dispersive region's model, its fit and `ε_r(f)` over the
+/// requested frequencies (issue #757).
+fn dispersion_summary(d: &problem::DispersiveRegion, p: &Problem) -> DispersionSummary {
+    let eps_r_at_frequencies = p
+        .frequencies
+        .iter()
+        .map(|f| {
+            let e = d.model.eps(f.hz);
+            [e.re, e.im]
+        })
+        .collect();
+    match (d.spec, d.model) {
+        (
+            DispersionSpec::DjordjevicSarkar {
+                eps_r,
+                tan_delta,
+                f_ref_hz,
+                f_low_hz,
+                f_high_hz,
+            },
+            DispersionModel::DjordjevicSarkar(m),
+        ) => DispersionSummary {
+            model: d.model.name(),
+            eps_r,
+            tan_delta,
+            f_ref_hz,
+            f_low_hz,
+            f_high_hz,
+            eps_inf: m.eps_inf,
+            delta_eps: m.delta_eps,
+            eps_r_at_frequencies,
         },
     }
 }

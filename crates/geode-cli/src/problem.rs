@@ -13,6 +13,7 @@
 //! the frequency sweep, `eigen` to the cavity eigensolve, `capacitance`
 //! to the electrostatic solve, `inductance` to the magnetostatic solve.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -27,6 +28,7 @@ use geode_core::mesh::patch::box_upml_tensors;
 use geode_core::mesh::{TaggedTetMesh, pec_interior_mask_from_triangles, read_tagged_tet_mesh};
 use sha2::{Digest, Sha256};
 
+use crate::dispersion::DispersionModel;
 use crate::error::CliError;
 use crate::spec::{
     Analysis, DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit, ProblemSpec, RoughnessSpec,
@@ -40,6 +42,23 @@ pub enum MaterialSource {
     Spec,
     /// Not listed: vacuum `ε_r = 1`.
     DefaultVacuum,
+    /// Listed with a `dispersion` model (issue #757): the region's
+    /// [`Region::eps_r`] is the model at its reference frequency, and the
+    /// solve uses `ε_r(f)` per frequency ([`Problem::eps_at`]).
+    Dispersion,
+}
+
+/// A volume region with a frequency-dependent permittivity (issue #757).
+#[derive(Debug, Clone)]
+pub struct DispersiveRegion {
+    /// Physical-group name.
+    pub name: String,
+    /// Numeric physical tag.
+    pub tag: i32,
+    /// The fitted model.
+    pub model: DispersionModel,
+    /// The spec block as given.
+    pub spec: crate::spec::DispersionSpec,
 }
 
 /// One volume region after resolution.
@@ -51,7 +70,8 @@ pub struct Region {
     pub tag: i32,
     /// Tets in the region.
     pub n_tets: usize,
-    /// Applied complex relative permittivity.
+    /// Applied complex relative permittivity (for a dispersive region,
+    /// the model at its reference frequency `f_ref_hz`).
     pub eps_r: c64,
     /// Applied real relative permeability (`1` unless listed).
     pub mu_r: f64,
@@ -382,8 +402,12 @@ pub struct Problem {
     /// spec it also eliminates the current paths' source / sink faces
     /// (PEC contacts).
     pub pec_mask: Vec<bool>,
-    /// Per-tet complex relative permittivity.
+    /// Per-tet complex relative permittivity (dispersive regions at their
+    /// reference frequency; the solve uses [`Problem::eps_at`]).
     pub eps: Vec<c64>,
+    /// Dispersive regions, in spec order (issue #757; empty when every
+    /// material is constant).
+    pub dispersion: Vec<DispersiveRegion>,
     /// Per-tet real relative permeability (all `1` unless an inductance
     /// spec lists `mu_r`).
     pub mu_r: Vec<f64>,
@@ -447,18 +471,54 @@ impl Problem {
         !self.upml.is_empty() || self.eps.iter().any(|e| e.im != 0.0)
     }
 
+    /// Whether the driven operator's materials depend on frequency —
+    /// `absorbing_regions` (the stretch carries `1/k₀`) or a dispersive
+    /// material (issue #757) — so the sweep re-assembles it per frequency.
+    pub fn is_frequency_dependent(&self) -> bool {
+        !self.upml.is_empty() || !self.dispersion.is_empty()
+    }
+
+    /// Per-tet complex relative permittivity at `hz` (Hz): borrows
+    /// [`Problem::eps`] when no material is dispersive, else a copy with
+    /// every dispersive region's tets set to its model's `ε_r(hz)`.
+    pub fn eps_at(&self, hz: f64) -> Cow<'_, [c64]> {
+        if self.dispersion.is_empty() {
+            return Cow::Borrowed(&self.eps);
+        }
+        let mut eps = self.eps.clone();
+        for d in &self.dispersion {
+            let e = d.model.eps(hz);
+            for (slot, &t) in eps.iter_mut().zip(&self.tagged.tet_physical_tags) {
+                if t == d.tag {
+                    *slot = e;
+                }
+            }
+        }
+        Cow::Owned(eps)
+    }
+
+    /// Each dispersive region's `(name, ε_r(hz))`, in spec order.
+    pub fn dispersive_eps(&self, hz: f64) -> Vec<(&str, c64)> {
+        self.dispersion
+            .iter()
+            .map(|d| (d.name.as_str(), d.model.eps(hz)))
+            .collect()
+    }
+
     /// Per-tet matched-UPML constitutive tensors `(ε, ν)` at natural
     /// frequency `k0` for [`DrivenMaterials::MatchedUpml`]: `ε = ε_r·Λ`,
     /// `ν = Λ⁻¹` with the box stretch `Λ` of the tet's `absorbing_regions`
     /// shell ([`box_upml_tensors`]) and `Λ = I` elsewhere — the formula of
     /// `geode_core::mesh::PatchFixture::matched_upml_materials`, keyed by
     /// the spec's regions instead of a fixed tag. `centroids` is
-    /// `tet_centroids(&self.tagged.mesh)`.
+    /// `tet_centroids(&self.tagged.mesh)`; `eps` is the per-tet `ε_r` at
+    /// this frequency ([`Problem::eps_at`]).
     ///
     /// [`DrivenMaterials::MatchedUpml`]: geode_core::driven::solve::DrivenMaterials::MatchedUpml
     #[allow(clippy::type_complexity)]
     pub fn upml_tensors(
         &self,
+        eps: &[c64],
         centroids: &[[f64; 3]],
         k0: f64,
     ) -> (Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>) {
@@ -468,10 +528,10 @@ impl Problem {
         for (k, row) in identity.iter_mut().enumerate() {
             row[k] = one;
         }
-        let n = self.eps.len();
+        let n = eps.len();
         let mut eps_t = Vec::with_capacity(n);
         let mut nu_t = Vec::with_capacity(n);
-        for ((c, &eps_r), region) in centroids.iter().zip(&self.eps).zip(&self.upml_of_tet) {
+        for ((c, &eps_r), region) in centroids.iter().zip(eps).zip(&self.upml_of_tet) {
             let (lam, lam_inv) = match region {
                 Some(i) => {
                     let r = &self.upml[*i];
@@ -581,6 +641,9 @@ pub fn load_parsed(
                  under the exp(+jwt) convention",
                 m.physical_group
             )));
+        }
+        if let Some(d) = &m.dispersion {
+            validate_dispersion(&m.physical_group, m.eps_r, d, &spec, analysis)?;
         }
         if !(m.mu_r.is_finite() && m.mu_r > 0.0) {
             return Err(invalid(format!(
@@ -845,9 +908,22 @@ pub fn load_parsed(
     // ---- materials ---------------------------------------------------
     let mut eps_by_tag: BTreeMap<i32, c64> = BTreeMap::new();
     let mut mu_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
+    let mut dispersion: Vec<DispersiveRegion> = Vec::new();
     for (m, tag) in spec.materials.iter().zip(&material_tags) {
         let tag = tag.expect("resolved above");
-        let eps = c64::new(m.eps_r[0], m.eps_r[1]);
+        let eps = match &m.dispersion {
+            None => c64::new(m.eps_r[0], m.eps_r[1]),
+            Some(d) => {
+                let model = DispersionModel::from_spec(d).expect("validated above");
+                dispersion.push(DispersiveRegion {
+                    name: m.physical_group.clone(),
+                    tag,
+                    model,
+                    spec: *d,
+                });
+                model.eps(d.f_ref_hz())
+            }
+        };
         if eps_by_tag.insert(tag, eps).is_some() {
             return Err(invalid(format!(
                 "material for `{}` listed more than once",
@@ -877,6 +953,9 @@ pub fn load_parsed(
                 .cloned()
                 .unwrap_or_else(|| "<untagged>".to_string());
             let (eps_r, source) = match eps_by_tag.get(&tag) {
+                Some(&e) if dispersion.iter().any(|d| d.tag == tag) => {
+                    (e, MaterialSource::Dispersion)
+                }
                 Some(&e) => (e, MaterialSource::Spec),
                 None => (vacuum, MaterialSource::DefaultVacuum),
             };
@@ -1030,6 +1109,7 @@ pub fn load_parsed(
         edges,
         pec_mask,
         eps,
+        dispersion,
         mu_r,
         regions,
         pec,
@@ -1160,6 +1240,66 @@ fn resolve_extract(
         },
         solved,
     ))
+}
+
+/// `materials[].dispersion` rules (scalar, before the mesh is read; issue
+/// #757): the model's own inputs and fit, no explicit `eps_r` alongside
+/// it, and only the analyses that evaluate `ε_r(f)` per frequency — the
+/// dense `driven` / `extract` sweep. Everything else would silently use
+/// a frequency-independent permittivity, so it is rejected.
+fn validate_dispersion(
+    group: &str,
+    eps_r: [f64; 2],
+    d: &crate::spec::DispersionSpec,
+    spec: &ProblemSpec,
+    analysis: Analysis,
+) -> Result<(), CliError> {
+    let at = format!("materials[{group}].dispersion");
+    if eps_r != [1.0, 0.0] {
+        return Err(invalid(format!(
+            "materials[{group}] has both `eps_r` and `dispersion`: the dispersion model \
+             defines the permittivity at every frequency — drop `eps_r` (give the reference \
+             value as `dispersion.eps_r` / `tan_delta` at `f_ref_hz`)"
+        )));
+    }
+    DispersionModel::from_spec(d).map_err(|e| invalid(format!("{at}: {e}")))?;
+    let why = match analysis {
+        Analysis::Driven | Analysis::Extract => None,
+        Analysis::Eigen => Some(
+            "an eigen solve has no given frequency: a frequency-dependent ε makes \
+             K x = k0² M(k0) x a nonlinear eigenvalue problem, not the linear pencil the \
+             shift-invert Lanczos solves (use a constant `eps_r` evaluated near the expected \
+             resonance)",
+        ),
+        Analysis::Capacitance => Some(
+            "the electrostatic solve is static, and the DC limit of a dispersion model is a \
+             modelling choice not made in schema v1 (give the static `eps_r` explicitly)",
+        ),
+        Analysis::Inductance => {
+            Some("the magnetostatic solve has no permittivity term and would silently ignore it")
+        }
+    };
+    if let Some(why) = why {
+        return Err(invalid(format!(
+            "{at} is not supported by `geode {}`: {why}",
+            analysis.name()
+        )));
+    }
+    if spec.sensitivity.is_some() {
+        return Err(invalid(format!(
+            "{at} cannot be combined with a `sensitivity` section: the adjoint differentiates \
+             a frequency-independent permittivity, so its forward solve would not be the \
+             dispersive problem (drop `sensitivity`, or use a constant `eps_r`)"
+        )));
+    }
+    if spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
+        return Err(invalid(format!(
+            "{at} does not support `sweep.adaptive`: dispersive materials make M \
+             frequency-dependent, and the reduced-order model projects a fixed M; remove \
+             `sweep.adaptive` to run the dense sweep"
+        )));
+    }
+    Ok(())
 }
 
 /// Eigen-spec rules (scalar, before the mesh is read). The eigen pencil
