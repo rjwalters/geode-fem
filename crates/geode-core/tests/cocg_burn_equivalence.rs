@@ -14,7 +14,8 @@
 //!   nondeterminism only).
 //! - **Preconditioner-effect bands** (`burn_cocg_jacobi_beats_identity`):
 //!   Jacobi strictly beats identity on both cube fixtures, and the Jacobi cube
-//!   grid=3 count lands in the #272 record's ~36-iteration class (the #272
+//!   grid=3 count lands in a generous sanity band (95 measured on the 117-DOF
+//!   face-exact pencil of issue #771; 78 on the old 93-DOF one. The #272
 //!   record: Jacobi 36 / ILU(0) 32 on cube grid=3; ILU is CPU-only and does not
 //!   survive the matrix-free transition, so the Burn assertion is Jacobi band +
 //!   Jacobi-beats-identity ordering).
@@ -129,7 +130,7 @@ fn build_fixture(grid: usize, side: f64, eps_val: f64, sigma_val: f64, omega: f6
         &sigma,
     ));
 
-    // PEC interior mask (edge interior unless both endpoints on the box faces).
+    // PEC interior mask (face-exact since #771: edge pinned iff it lies on a box face).
     let (_edges, interior_mask) = cube_pec_interior_edges(&mesh, side);
     assert_eq!(interior_mask.len(), n_edges);
     let mut remap = vec![None; n_edges];
@@ -358,12 +359,20 @@ fn burn_cocg_jacobi_beats_identity() {
         rep_ja.iters,
         rep_id.iters
     );
-    // Jacobi count in the ~36-iteration class (generous band around the #272
-    // record; exact count depends on the RHS and reduction order).
+    // Jacobi count sanity band (generous; exact count depends on the RHS
+    // and reduction order). The #272 record (Jacobi 36) was taken on a
+    // different RHS/tolerance; this fixture measured 78 on the pre-#771
+    // 93-DOF pencil. Issue #771 made the cube PEC mask face-exact, freeing
+    // the 24 interior chords along the cube's edges that the node rule
+    // wrongly pinned: 117 interior DOFs, measured 95 (identity 101). The
+    // old [10, 90] bar was sized on the over-constrained 93-DOF system;
+    // the upper bound is rescaled by the DOF ratio (90 · 117/93 ≈ 113 →
+    // 115), not loosened against the same operator.
     assert!(
-        (10..=90).contains(&rep_ja.iters),
-        "Jacobi iters {} outside the ~36-class band [10,90] of the #272 record",
-        rep_ja.iters
+        (10..=115).contains(&rep_ja.iters),
+        "Jacobi iters {} outside the sanity band [10,115] (n_interior = {})",
+        rep_ja.iters,
+        fx.n_interior
     );
 
     // The Burn Jacobi COCG solves the same interior problem (embedded) to the

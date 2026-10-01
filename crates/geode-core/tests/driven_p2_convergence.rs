@@ -184,6 +184,12 @@ fn p2_driven_converges_faster_than_p1_on_cube_cavity() {
     eprintln!("p1 L2 errors: {err_p1:?}  slope = {slope_p1:.3}");
     eprintln!("p2 L2 errors: {err_p2:?}  slope = {slope_p2:.3}");
 
+    // Both orders use a face-exact PEC mask since issue #771 (the p=1 cube
+    // mask used to also pin the interior chords along the cube's edges,
+    // inflating the p=1 errors to [0.404, 0.281, 0.204], slope 0.98;
+    // face-exact: [0.311, 0.211, 0.159], slope 0.97). The slope gap is
+    // unchanged by the fix (measured ~0.99), so the 0.5 margin stays.
+    //
     // (1) p=2 slope strictly better than p=1 (with margin against noise).
     assert!(
         slope_p2 > slope_p1 + 0.5,

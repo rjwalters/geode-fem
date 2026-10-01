@@ -103,7 +103,9 @@ fn epsilon_r_assignment_matches_physical_groups() {
 #[test]
 fn pec_mask_excludes_outer_wall_edges() {
     // Edges with both endpoints on r = R_BUFFER are flagged as PEC
-    // (mask false); every other edge is interior (mask true).
+    // (mask false); every other edge is interior (mask true). The mask is
+    // face-exact since #771; on this fixture no interior chord joins two
+    // wall nodes, so it coincides with the node rule checked here.
     let f = read_sphere_fixture().expect("fixture load");
     let (edges, mask) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);
     let tol = 1e-6_f64 * R_BUFFER;

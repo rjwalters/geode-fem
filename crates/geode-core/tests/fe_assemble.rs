@@ -144,8 +144,9 @@ fn fe_assemble_nedelec_matches_manual_two_step_path() {
     let n_index = 1.5_f64;
     let epsilon_r = build_epsilon_r(&f.tet_physical_tags, n_index);
 
-    // PEC edge mask: edges with both endpoints on the outer wall are
-    // Dirichlet (false); every other edge is free (true).
+    // PEC edge mask: edges of the outer-wall faces are Dirichlet (false);
+    // every other edge is free (true). On this fixture that is exactly the
+    // edges with both endpoints on the wall (issue #771).
     let (_edges, interior_mask) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);
     let bc = DirichletBc {
         interior_mask: interior_mask.clone(),

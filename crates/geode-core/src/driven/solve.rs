@@ -26,10 +26,11 @@
 //! eigenpencil:
 //!
 //! - **PEC** — row/column elimination via a per-edge interior mask
-//!   (same mask helpers as the eigen path:
-//!   [`crate::assembly::nedelec::pec_interior_edge_mask`],
+//!   (same face-exact mask helpers as the eigen path:
+//!   [`crate::assembly::nedelec::boundary_pec_interior_edges`],
 //!   [`crate::assembly::nedelec::cube_pec_interior_edges`],
-//!   [`crate::assembly::nedelec::sphere_pec_interior_edges`]). Eliminated
+//!   [`crate::assembly::nedelec::sphere_pec_interior_edges`],
+//!   [`crate::mesh::pec_interior_mask_from_triangles`]). Eliminated
 //!   edge DOFs are returned as exact zeros in the full-length solution.
 //! - **UPML / scalar PML** — enters through the *material*: a complex
 //!   scalar ε ([`crate::assembly::nedelec::build_complex_epsilon_r_pml`])

@@ -176,6 +176,37 @@ impl TetMesh {
         set.into_iter().map(|(a, b, c)| [a, b, c]).collect()
     }
 
+    /// The **boundary faces** of this mesh: every face owned by exactly one
+    /// tet, as a sorted vertex triple `[a, b, c]` with `a < b < c`.
+    ///
+    /// Returned in ascending lexicographic order (a subset of
+    /// [`TetMesh::faces`]), so the result is deterministic. On a conforming
+    /// mesh of a single region these are exactly the triangles of the
+    /// outer surface; internal material interfaces are shared by two tets
+    /// and are **not** included.
+    ///
+    /// This is the face-exact foundation of the PEC edge masks (issue
+    /// #771): an edge lies on the PEC wall iff it is an edge of a boundary
+    /// face. The node-based "both endpoints on the boundary" rule is wrong
+    /// for chords — an interior edge joining two boundary nodes on
+    /// *different* wall faces (e.g. across a cube's edge or a cylinder's
+    /// rim) has both endpoints on the boundary but is not on the wall. See
+    /// [`crate::assembly::nedelec::boundary_pec_interior_edges`].
+    pub fn boundary_faces(&self) -> Vec<[u32; 3]> {
+        let mut count: BTreeMap<[u32; 3], u32> = BTreeMap::new();
+        for tet in &self.tets {
+            for lf in &TET_LOCAL_FACES {
+                let mut tri = [tet[lf[0]], tet[lf[1]], tet[lf[2]]];
+                tri.sort_unstable();
+                *count.entry(tri).or_insert(0) += 1;
+            }
+        }
+        count
+            .into_iter()
+            .filter_map(|(tri, n)| (n == 1).then_some(tri))
+            .collect()
+    }
+
     /// For each tet, return the four `(global_face_index, sign)` pairs in
     /// the canonical local-face order ([`TET_LOCAL_FACES`] /
     /// [`TET_LOCAL_FACE_EDGES`]).

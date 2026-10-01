@@ -218,16 +218,20 @@ fn pec_cube_cavity_lowest_modes_at_n8() {
         );
     }
 
-    // 15% tolerance per issue spec — vector elements need finer mesh
-    // than P1 to hit the same accuracy, but n=8 is sufficient at the
-    // 15% bar. Degenerate clusters split slightly on the 6-tet mesh
-    // (see `degenerate_triplet_cluster` below); they still land within
-    // 15% of the analytic value individually.
+    // 5% tolerance (tightened from the original 15% by issue #771).
+    // Measured at n=8 with the face-exact PEC mask: max 1.98% (λ[0]), the
+    // rest 0.28–0.66%. The pre-#771 node-rule mask also pinned the 84
+    // interior chords along the cube's edges, an artificial constraint
+    // that stiffened the pencil and pushed every mode up (measured max
+    // 6.47%, λ[3..5] at 3π²) — the 15% bar was sized around that bias.
+    // Degenerate clusters split slightly on the 6-tet mesh (see
+    // `degenerate_triplet_cluster` below); they still land within 5% of
+    // the analytic value individually.
     for (i, (got, want)) in physical.iter().zip(targets.iter()).enumerate() {
         let rel = (got - want).abs() / want;
         assert!(
-            rel < 0.15,
-            "physical λ[{i}] = {got} (λ/π² = {:.4}), target λ/π² = {:.4}, rel err {:.4}% > 15%",
+            rel < 0.05,
+            "physical λ[{i}] = {got} (λ/π² = {:.4}), target λ/π² = {:.4}, rel err {:.4}% > 5%",
             got / pi2,
             want / pi2,
             rel * 100.0,

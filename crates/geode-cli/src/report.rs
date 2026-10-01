@@ -554,7 +554,9 @@ pub struct CapacitanceReport {
     /// surfaces), not the result. `null` for a terminal whose surface is
     /// not entirely on the mesh boundary (e.g. a zero-thickness sheet
     /// with dielectric on both sides), where the one-sided flux would be
-    /// wrong.
+    /// wrong, and for **every** terminal when the spec has any
+    /// anisotropic (tensor) material (`eps_r_diag` / `mu_r_diag`), which
+    /// selects the tensor solve — the flux integral takes a scalar `ε`.
     pub c_flux_diag_farad: Vec<Option<f64>>,
     /// `max |C_ij − C_ji| / max(|C_ij|, |C_ji|)`. Structural only: the
     /// energy method fills `C_ji` from `C_ij`, so this is `0` unless the

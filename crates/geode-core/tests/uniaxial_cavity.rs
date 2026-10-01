@@ -62,11 +62,12 @@
 //! ```
 
 use burn::tensor::backend::BackendTypes;
+use geode_core::assembly::nedelec::cube_pec_interior_edges;
 use geode_core::eigen::pec_cavity::{
     PecCavityMaterials, PecCavitySettings, solve_pec_cavity_modes,
     solve_pec_cavity_modes_with_materials,
 };
-use geode_core::mesh::{TetMesh, cube_tet_mesh, pec_interior_mask_from_triangles};
+use geode_core::mesh::{TetMesh, cube_tet_mesh};
 use geode_core::testing::TestBackend;
 
 type B = TestBackend;
@@ -85,24 +86,10 @@ fn device() -> <B as BackendTypes>::Device {
 }
 
 /// Face-exact PEC mask: an edge is eliminated iff it lies on a boundary
-/// face (a face owned by one tet). (`cube_pec_interior_edges`' "both
-/// endpoints on the boundary" rule also eliminates the interior diagonals
-/// joining two boundary faces near the cube's edges — an O(h) artificial
-/// constraint that inflates the coarse-mesh error.)
+/// face (a face owned by one tet) — what `cube_pec_interior_edges` does
+/// since issue #771.
 fn walls_mask(mesh: &TetMesh) -> Vec<bool> {
-    let mut count = std::collections::HashMap::<[u32; 3], usize>::new();
-    for tet in &mesh.tets {
-        for f in [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]] {
-            let mut key = [tet[f[0]], tet[f[1]], tet[f[2]]];
-            key.sort_unstable();
-            *count.entry(key).or_default() += 1;
-        }
-    }
-    let walls: Vec<[u32; 3]> = count
-        .into_iter()
-        .filter_map(|(k, n)| (n == 1).then_some(k))
-        .collect();
-    pec_interior_mask_from_triangles(&mesh.edges(), &[walls.as_slice()])
+    cube_pec_interior_edges(mesh, 1.0).1
 }
 
 /// Analytic uniaxial spectrum `λ/π²`, ascending, with multiplicity.

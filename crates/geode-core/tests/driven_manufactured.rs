@@ -194,10 +194,23 @@ fn manufactured_solution_converges_under_refinement() {
     eprintln!("observed convergence order: 2→4 = {order_24:.3}, 4→8 = {order_48:.3}");
 
     // Lowest-order Nédélec gives O(h) in L²; superconvergence against
-    // the interpolant on the structured mesh may push this toward 2.
+    // the interpolant on the structured mesh pushes this toward 2.
+    // Measured with the face-exact PEC mask (issue #771): errors
+    // [1.09e-1, 3.44e-2, 9.05e-3], orders 1.66 / 1.93. The pre-#771
+    // node-rule mask also pinned the interior chords along the cube's
+    // edges, where the manufactured E_z = sin(πx)sin(πy) is NOT zero —
+    // an O(h) artificial constraint that inflated the errors to
+    // [7.20e-1, 3.00e-1, 9.45e-2] (orders 1.26 / 1.67). Floors tightened
+    // from order > 0.9 to > 1.5, plus an absolute n = 8 bar the biased
+    // mask fails.
     assert!(
-        order_48 > 0.9,
-        "observed order {order_48:.3} below the O(h) acceptance floor (errors: {errs:?})"
+        order_48 > 1.5,
+        "observed order {order_48:.3} below the superconvergent acceptance floor (errors: {errs:?})"
+    );
+    assert!(
+        errs[2] < 2e-2,
+        "n = 8 relative M-norm error {:.3e} above 2e-2 (errors: {errs:?})",
+        errs[2]
     );
 }
 

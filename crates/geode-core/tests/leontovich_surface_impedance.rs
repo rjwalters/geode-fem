@@ -616,6 +616,12 @@ fn small_z_s_recovers_pec_wall() {
 /// within mesh-convergence tolerance (the volumetric run resolves the
 /// skin decay with only 2 elements per δ at n = 8, and the conductor
 /// is 2δ thick → ~2% residual reflection).
+///
+/// Both sides use a face-exact PEC mask since issue #771 (the half-cube
+/// side always did; the full-cube σ reference used the node rule, which
+/// also pinned the interior chords along the cube's edges). With matched
+/// masks: loss 8.42% (was 11.54%), centerline field 0.08% / 0.53% (was
+/// 5.51% / 6.97%) — bars tightened from 25% / 15% to 12% / 2%.
 #[test]
 fn leontovich_loss_matches_volumetric_sigma_oracle() {
     let n = 8;
@@ -699,7 +705,7 @@ fn leontovich_loss_matches_volumetric_sigma_oracle() {
         100.0 * rel_p
     );
     assert!(
-        rel_p < 0.25,
+        rel_p < 0.12,
         "Leontovich loss {p_leo:.4e} vs volumetric {p_vol:.4e}: \
          relative diff {rel_p:.3} above mesh tolerance"
     );
@@ -717,7 +723,7 @@ fn leontovich_loss_matches_volumetric_sigma_oracle() {
             100.0 * rel
         );
         assert!(
-            rel < 0.15,
+            rel < 0.02,
             "vacuum-side field mismatch at x = {}: {rel:.3}",
             i as f64 * h
         );

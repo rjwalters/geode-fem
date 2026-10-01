@@ -259,9 +259,15 @@ pub fn loop_pair_mesh(
     }
 }
 
-/// PEC interior-edge mask for a solid-cylinder mesh: an edge is PEC iff both
-/// endpoints lie on the domain boundary — the lateral shield `r = r_outer`
-/// **and** the two `z` end caps (`z = 0`, `z = length`).
+/// PEC interior-edge mask for a solid-cylinder mesh: an edge is PEC iff it
+/// is an edge of a boundary face lying on the domain wall — the lateral
+/// shield `r = r_outer` **and** the two `z` end caps (`z = 0`,
+/// `z = length`).
+///
+/// Face-exact via [`crate::assembly::nedelec::boundary_pec_interior_edges`]
+/// (issue #771). The pre-#771 node rule ("both endpoints on the wall") also
+/// pinned the interior rim chords joining a cap node to a side-wall node
+/// (~`2·n_theta` edges), which do not lie on the wall.
 ///
 /// # Why the end caps must be PEC (not Neumann)
 ///
@@ -287,17 +293,12 @@ pub fn cylinder_pec_interior_mask(
 ) -> (Vec<[u32; 2]>, Vec<bool>) {
     let tol = 1e-6 * r_outer.max(1.0);
     let tolz = 1e-6 * length.max(1.0);
-    let on_wall: Vec<bool> = mesh
-        .nodes
-        .iter()
-        .map(|p| {
-            let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
-            (r - r_outer).abs() < tol || p[2].abs() < tolz || (p[2] - length).abs() < tolz
-        })
-        .collect();
-    let edges = mesh.edges();
-    let mask = crate::assembly::nedelec::pec_interior_edge_mask(&edges, &on_wall);
-    (edges, mask)
+    let on_side = |p: &[f64; 3]| ((p[0] * p[0] + p[1] * p[1]).sqrt() - r_outer).abs() < tol;
+    let on_cap0 = |p: &[f64; 3]| p[2].abs() < tolz;
+    let on_cap1 = |p: &[f64; 3]| (p[2] - length).abs() < tolz;
+    crate::assembly::nedelec::boundary_pec_interior_edges(mesh, |tri| {
+        tri.iter().all(on_side) || tri.iter().all(on_cap0) || tri.iter().all(on_cap1)
+    })
 }
 
 /// The `z` end-cap nodes of a solid-cylinder mesh (`z = 0` or `z = length`) —

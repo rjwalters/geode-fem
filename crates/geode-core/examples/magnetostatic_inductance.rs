@@ -26,7 +26,6 @@ use geode_core::assembly::magnetostatic3d::{
     CurrentTerminal, MU_0, assemble_magnetostatic3d, axial_current_density, extract_inductance,
     loop_current_density, measure_axial_current, measure_loop_current,
 };
-use geode_core::assembly::nedelec::pec_interior_edge_mask;
 use geode_core::mesh::magnetostatic_fixtures::{
     cylinder_cap_nodes, cylinder_pec_interior_mask, loop_pair_mesh, solid_coax_mesh,
 };
@@ -100,19 +99,8 @@ fn main() {
     let (lr1, lz1, lr2, lz2) = (1.0_f64, 2.0_f64, 1.0_f64, 3.0_f64);
     let (rbox, llen, rtube) = (6.0_f64, 5.0_f64, 0.18_f64);
     let lp = loop_pair_mesh(lr1, lz1, lr2, lz2, rbox, llen, 40, 18, 18);
-    let tolb = 1e-6 * rbox;
-    let tolz = 1e-6 * llen;
-    let on_bdry: Vec<bool> = lp
-        .mesh
-        .nodes
-        .iter()
-        .map(|p| {
-            let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
-            (r - rbox).abs() < tolb || p[2].abs() < tolz || (p[2] - llen).abs() < tolz
-        })
-        .collect();
-    let lp_edges = lp.mesh.edges();
-    let lp_mask = pec_interior_edge_mask(&lp_edges, &on_bdry);
+    // Face-exact PEC on the shield wall + both caps (issue #771).
+    let (lp_edges, lp_mask) = cylinder_pec_interior_mask(&lp.mesh, rbox, llen);
     let lp_mu = vec![1.0; lp.mesh.n_tets()];
     let lp_sys = assemble_magnetostatic3d(&lp.mesh, &lp_mu, &lp_mask).unwrap();
     let j1 = loop_current_density(&lp.mesh, lr1, lz1, rtube, 1.0);
@@ -155,7 +143,7 @@ fn main() {
     let _ = writeln!(out, "[meta]");
     let _ = writeln!(
         out,
-        "description = \"3-D vector magnetostatic solver + Maxwell inductance-matrix extraction (Epic #475, Palace Magnetostatic parity): lowest-order Nedelec edge solve of curl(nu curl A)=J with per-element nu_r=1/mu_r, tree-cotree gauge, RHS-driven unit-current terminals; N solves -> L_ij = A_i^T K A_j/(I_i I_j) (full K). Programmatically-meshed solid-coax L' oracle at <=1% (external+internal closed form) and coaxial-loop-pair off-diagonal mutual M vs the Maxwell elliptic-integral formula.\""
+        "description = \"3-D vector magnetostatic solver + Maxwell inductance-matrix extraction (Epic #475, Palace Magnetostatic parity): lowest-order Nedelec edge solve of curl(nu curl A)=J with per-element nu_r=1/mu_r, tree-cotree gauge, RHS-driven unit-current terminals; N solves -> L_ij = A_i^T K A_j/(I_i I_j) (full K). Programmatically-meshed solid-coax L' oracle at <=0.3% (external+internal closed form; face-exact PEC mask, issue #771) and coaxial-loop-pair off-diagonal mutual M vs the Maxwell elliptic-integral formula.\""
     );
     let _ = writeln!(
         out,
@@ -192,7 +180,7 @@ fn main() {
     let _ = writeln!(out, "l_internal_exact = {l_int:.9e}  # mu0/(8pi)");
     let _ = writeln!(
         out,
-        "rel_err = {:.6e}  # bar: <= 1e-2 vs closed form",
+        "rel_err = {:.6e}  # bar: <= 3e-3 vs closed form (was 1e-2 before the #771 face-exact PEC mask)",
         (coax_lp - l_closed).abs() / l_closed
     );
     let _ = writeln!(

@@ -11,8 +11,8 @@
 //! pre-gauge `K`.
 //!
 //! Oracle 1 (**solid coaxial cable**): per-unit-length
-//! `L' = μ₀/(2π)ln(b/a) + μ₀/(8π)` (external + internal), ≤ 1% vs the closed
-//! form. Oracle 2 (**coaxial loop pair**): off-diagonal Maxwell mutual `M`
+//! `L' = μ₀/(2π)ln(b/a) + μ₀/(8π)` (external + internal), ≤ 0.3% vs the
+//! closed form (the original ≤ 1% bar, tightened by issue #771). Oracle 2 (**coaxial loop pair**): off-diagonal Maxwell mutual `M`
 //! vs the elliptic-integral formula, honest few-% band (fat-tube filament
 //! idealization + PEC-box truncation), with exact symmetry.
 //!
@@ -43,7 +43,7 @@ use geode_core::assembly::magnetostatic3d::{
     measure_axial_current, measure_loop_current, recover_b_field, tet_nedelec_rhs,
     tet_nedelec_stiffness, tet_signed_volume,
 };
-use geode_core::assembly::nedelec::pec_interior_edge_mask;
+use geode_core::assembly::nedelec::cube_pec_interior_edges;
 use geode_core::mesh::cube_tet_mesh;
 use geode_core::mesh::magnetostatic_fixtures::{
     cylinder_cap_nodes, cylinder_pec_interior_mask, loop_pair_mesh, solid_coax_mesh,
@@ -105,7 +105,7 @@ fn rhs_matches_uniform_field_projection() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// 2. Coax oracle: L' ≤ 1% vs the solid-conductor closed form.
+// 2. Coax oracle: L' ≤ 0.3% vs the solid-conductor closed form.
 // ─────────────────────────────────────────────────────────────────────
 
 /// Solve the solid-coax fixture and return `(L'/length, flux_linkage/length)`.
@@ -129,16 +129,21 @@ fn coax_l_per_length(a: f64, b: f64, length: f64, nth: usize, nr: usize, nz: usi
 #[test]
 fn coax_external_plus_internal_inductance_within_1pct() {
     let (a, b, length) = (1.0_f64, 3.0_f64, 1.0_f64);
-    // Resolution matched to the ≤1% bar (the internal-inductance core near
-    // the polar-mesh axis is the convergence-limiting region).
+    // Resolution matched to the original ≤1% bar (the internal-inductance
+    // core near the polar-mesh axis is the convergence-limiting region).
+    // Issue #771: with the face-exact PEC mask the measured error is 0.091%
+    // (was 0.613% — the node-rule mask also pinned the 2·n_theta rim chords
+    // joining the caps to the shield, stiffening the field near the rims),
+    // so the bar is tightened to 0.3%; the old mask fails it.
     let (lp, flux) = coax_l_per_length(a, b, length, 64, 32, 3);
     let l_ext = MU_0 / (2.0 * PI) * (b / a).ln();
     let l_int = MU_0 / (8.0 * PI);
     let l_closed = l_ext + l_int;
     let rel = (lp - l_closed).abs() / l_closed;
+    eprintln!("coax L'/length {lp:.9e} vs closed {l_closed:.9e}: rel {rel:.4e}");
     assert!(
-        rel < 1e-2,
-        "coax L'/length {lp:.6e} vs closed {l_closed:.6e} (ext {l_ext:.6e} + int {l_int:.6e}), rel {rel:.4e} exceeds 1%"
+        rel < 3e-3,
+        "coax L'/length {lp:.6e} vs closed {l_closed:.6e} (ext {l_ext:.6e} + int {l_int:.6e}), rel {rel:.4e} exceeds 0.3%"
     );
     // Flux-linkage cross-check reproduces the energy diagonal (Aᵀb = AᵀKA).
     assert!(
@@ -224,19 +229,8 @@ fn loop_pair_mutual_inductance_sign_symmetry_and_band() {
     // benchmark example). The physics we gate here: correct sign, exact
     // symmetry, SPD, and same-order-of-magnitude agreement with Maxwell.
     let fx = loop_pair_mesh(r1, z1, r2, z2, rbox, length, 24, 12, 12);
-    let tolb = 1e-6 * rbox;
-    let tolz = 1e-6 * length;
-    let on_bdry: Vec<bool> = fx
-        .mesh
-        .nodes
-        .iter()
-        .map(|p| {
-            let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
-            (r - rbox).abs() < tolb || p[2].abs() < tolz || (p[2] - length).abs() < tolz
-        })
-        .collect();
-    let edges = fx.mesh.edges();
-    let mask = pec_interior_edge_mask(&edges, &on_bdry);
+    // Face-exact PEC on the shield wall + both caps (issue #771).
+    let (_edges, mask) = cylinder_pec_interior_mask(&fx.mesh, rbox, length);
     let mu_r = vec![1.0; fx.mesh.n_tets()];
     let sys = assemble_magnetostatic3d(&fx.mesh, &mu_r, &mask).unwrap();
 
@@ -277,6 +271,7 @@ fn loop_pair_mutual_inductance_sign_symmetry_and_band() {
     );
     // Same order of magnitude as Maxwell (coarse-mesh honest band).
     let rel = (m_fem - m_exact).abs() / m_exact.abs();
+    eprintln!("loop pair (24,12,12): M {m_fem:.6e} vs Maxwell {m_exact:.6e}: rel {rel:.4e}");
     assert!(
         rel < 0.30,
         "mutual M {m_fem:.4e} vs Maxwell {m_exact:.4e}, rel {rel:.4e} outside the coarse-mesh band (tight number is in the benchmark)"
@@ -291,15 +286,7 @@ fn loop_pair_mutual_inductance_sign_symmetry_and_band() {
 /// driven by a uniform axial current — the setup for tripwires 1 & 3.
 fn cube_fixture() -> (geode_core::mesh::TetMesh, Vec<bool>) {
     let mesh = cube_tet_mesh(4, 1.0);
-    let side = 1.0;
-    let tol = 1e-9;
-    let on_bdry: Vec<bool> = mesh
-        .nodes
-        .iter()
-        .map(|p| p.iter().any(|&c| c.abs() < tol || (c - side).abs() < tol))
-        .collect();
-    let edges = mesh.edges();
-    let mask = pec_interior_edge_mask(&edges, &on_bdry);
+    let (_edges, mask) = cube_pec_interior_edges(&mesh, 1.0);
     (mesh, mask)
 }
 
@@ -489,7 +476,8 @@ fn fem_vs_palace_terminal_m_within_band_or_skip_with_note() {
     );
 }
 
-/// The committed benchmark records the coax oracle within its ≤1% bar and the
+/// The committed benchmark records the coax oracle within its ≤0.3% bar
+/// (tightened from 1% by issue #771; committed 0.091%) and the
 /// loop-pair mutual within its honest band — guard against silent regressions
 /// of the generated numbers.
 #[test]
@@ -506,8 +494,8 @@ fn committed_benchmark_records_oracle_bars() {
             .unwrap_or_else(|| panic!("missing oracles.{sec}.{key}"))
     };
     assert!(
-        get("coax", "rel_err") < 1e-2,
-        "committed coax rel_err exceeds 1% bar"
+        get("coax", "rel_err") < 3e-3,
+        "committed coax rel_err exceeds 0.3% bar"
     );
     // Loop-pair honest band (fat-tube + truncation dominated).
     assert!(
@@ -642,19 +630,8 @@ fn inductance_sensitivity_loop_pair_offdiag_symmetry_and_fd() {
     // same discrete pipeline), and n_r/n_z = 10 put a radial ring at r_loop=1
     // and z-stations at the loop heights so the current tube is still meshed.
     let fx = loop_pair_mesh(r1, z1, r2, z2, rbox, length, 16, 10, 10);
-    let tolb = 1e-6 * rbox;
-    let tolz = 1e-6 * length;
-    let on_bdry: Vec<bool> = fx
-        .mesh
-        .nodes
-        .iter()
-        .map(|p| {
-            let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
-            (r - rbox).abs() < tolb || p[2].abs() < tolz || (p[2] - length).abs() < tolz
-        })
-        .collect();
-    let edges = fx.mesh.edges();
-    let mask = pec_interior_edge_mask(&edges, &on_bdry);
+    // Face-exact PEC on the shield wall + both caps (issue #771).
+    let (_edges, mask) = cylinder_pec_interior_mask(&fx.mesh, rbox, length);
 
     // Regions by tet-centroid z-half.
     let zmid = 0.5 * length;

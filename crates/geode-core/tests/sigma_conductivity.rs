@@ -556,10 +556,14 @@ fn skin_effect_decay_matches_analytic_skin_depth() {
     );
 
     // (2) FEM vs analytic decay rate within mesh tolerance at n = 8.
+    // Bar 2% (tightened from 12% by issue #771): measured 0.45% with the
+    // face-exact PEC mask (n = 4: 1.61%). The pre-#771 node-rule mask also
+    // pinned the interior chords along the cube's edges, biasing the
+    // field near the walls (measured 3.00% at n = 8, 6.18% at n = 4).
     let rel_err_8 = (slope_fem_8 - slope_model).abs() / slope_model;
     eprintln!("n = 8 relative decay-rate error: {:.2}%", 100.0 * rel_err_8);
     assert!(
-        rel_err_8 < 0.12,
+        rel_err_8 < 0.02,
         "fitted decay rate {slope_fem_8:.4} vs analytic {slope_model:.4}: \
          relative error {rel_err_8:.3} above mesh tolerance"
     );
