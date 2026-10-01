@@ -74,8 +74,8 @@ geode eigen crates/geode-cli/examples/eigen/lossy_sphere_cavity.json --outdir lo
 | 4 | 1.293418 | 0.0064669 | 6.1713 GHz | 100.0025 |
 
 With the whole cavity filled uniformly, the eigenvalue is `λ = μ₀/ε_r`
-exactly, so every mode has `lambda_im / lambda = tan δ = 0.01` (reported
-`0.0100000004`: the per-tet weights are uploaded in f32) and
+exactly, so every mode has `lambda_im / lambda = tan δ = 0.01` (to f64
+round-off on the default CPU backend) and
 `q = ½·cot(δ/2) = 100.0025` — the textbook `1/tan δ = 100` is only the
 small-loss limit. The real parts are the lossless modes of the same mesh
 at `ε′ = 2.25`, shifted by the loss (`|λ| = μ₀/|ε_r|`).

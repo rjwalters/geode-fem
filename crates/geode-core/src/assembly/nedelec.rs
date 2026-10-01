@@ -1064,7 +1064,9 @@ pub fn assemble_global_nedelec_with_epsilon<B: Backend>(
     // 1b. Scale per-element mass by epsilon_r via broadcasting.
     //     eps tensor has shape [n_elem]; unsqueeze to [n_elem, 1, 1]
     //     so the multiply broadcasts across the 6×6 block.
-    let eps_flat: Vec<f32> = epsilon_r.iter().map(|&e| e as f32).collect();
+    // Upload at the backend's float precision (`B::FloatElem`): f64 on the
+    // ndarray backend, f32 on GPU backends (#740).
+    let eps_flat: Vec<B::FloatElem> = epsilon_r.iter().map(|&e| e.elem()).collect();
     let eps_1d = Tensor::<B, 1>::from_data(TensorData::new(eps_flat, [n_elem]), &device);
     let eps_3d = eps_1d.unsqueeze_dim::<2>(1).unsqueeze_dim::<3>(2); // [n_elem, 1, 1]
     let m_local_scaled = local.m_local.mul(eps_3d);
@@ -1172,7 +1174,7 @@ pub fn assemble_global_nedelec_with_nu<B: Backend>(
     // 1b. Scale per-element stiffness by nu_r via broadcasting
     //     ([n_elem] → [n_elem, 1, 1] over the 6×6 block). This is the dual
     //     of the ε-weighting, which scales `m_local` instead.
-    let nu_flat: Vec<f32> = nu_r.iter().map(|&e| e as f32).collect();
+    let nu_flat: Vec<B::FloatElem> = nu_r.iter().map(|&e| e.elem()).collect();
     let nu_1d = Tensor::<B, 1>::from_data(TensorData::new(nu_flat, [n_elem]), &device);
     let nu_3d = nu_1d.unsqueeze_dim::<2>(1).unsqueeze_dim::<3>(2); // [n_elem, 1, 1]
     let k_local_scaled = local.k_local.mul(nu_3d);
@@ -1389,7 +1391,7 @@ pub fn assemble_global_nedelec_with_complex_epsilon<B: Backend>(
 /// Sparse (`[nnz]` pattern-aligned) variant of
 /// [`assemble_global_nedelec_with_complex_epsilon`] (issue #218).
 ///
-/// Same element-local kernels, same f32 weight upload, same orientation
+/// Same element-local kernels, same backend-precision weight upload, same orientation
 /// signs and the same autodiff-preserving 1-D `scatter(0, …, Add)` —
 /// only the scatter target changes from the dense flat `[n_edges²]`
 /// tensor to a flat `[nnz]` tensor indexed by the precomputed
@@ -1439,9 +1441,10 @@ pub fn assemble_global_nedelec_with_complex_epsilon_sparse<B: Backend>(
     let local = batched_nedelec_local_matrices(coords);
 
     // 1b. Scale per-element mass by Re(ε) / Im(ε) via broadcasting —
-    //     same f32 upload as the dense scalar-ε path.
-    let eps_re_flat: Vec<f32> = epsilon_r_complex.iter().map(|c| c.re as f32).collect();
-    let eps_im_flat: Vec<f32> = epsilon_r_complex.iter().map(|c| c.im as f32).collect();
+    //     uploaded at the backend's float precision, as in the dense
+    //     scalar-ε path (#740).
+    let eps_re_flat: Vec<B::FloatElem> = epsilon_r_complex.iter().map(|c| c.re.elem()).collect();
+    let eps_im_flat: Vec<B::FloatElem> = epsilon_r_complex.iter().map(|c| c.im.elem()).collect();
     let eps_re_3d = Tensor::<B, 1>::from_data(TensorData::new(eps_re_flat, [n_elem]), &device)
         .unsqueeze_dim::<2>(1)
         .unsqueeze_dim::<3>(2); // [n_elem, 1, 1]
@@ -1470,7 +1473,7 @@ pub fn assemble_global_nedelec_with_complex_epsilon_sparse<B: Backend>(
 /// Sparse (`[nnz]` pattern-aligned) variant of
 /// [`assemble_nedelec_sigma_damping`] (issue #218): the σ-weighted
 /// damping values `C_ij = ∫ N_i · N_j σ dV` in pattern order. Same
-/// kernels, f32 weight upload, signs and values-side autodiff as the
+/// kernels, backend-precision weight upload, signs and values-side autodiff as the
 /// dense path — only the scatter target changes.
 pub fn assemble_nedelec_sigma_damping_sparse<B: Backend>(
     nodes: Tensor<B, 2>,
@@ -1501,7 +1504,7 @@ pub fn assemble_nedelec_sigma_damping_sparse<B: Backend>(
     let coords = gather_tet_coords(nodes, tets);
     let local = batched_nedelec_local_matrices(coords);
 
-    let sigma_flat: Vec<f32> = sigma_tet.iter().map(|&s| s as f32).collect();
+    let sigma_flat: Vec<B::FloatElem> = sigma_tet.iter().map(|&s| s.elem()).collect();
     let sigma_3d = Tensor::<B, 1>::from_data(TensorData::new(sigma_flat, [n_elem]), &device)
         .unsqueeze_dim::<2>(1)
         .unsqueeze_dim::<3>(2); // [n_elem, 1, 1]
@@ -1692,13 +1695,13 @@ pub fn assemble_global_nedelec_with_anisotropic_epsilon<B: Backend>(
     let coords = gather_tet_coords(nodes, tets);
     let local = batched_nedelec_local_matrices(coords.clone());
 
-    let eps_re_flat: Vec<f32> = epsilon_tensor_diag
+    let eps_re_flat: Vec<B::FloatElem> = epsilon_tensor_diag
         .iter()
-        .flat_map(|row| row.iter().map(|c| c.re as f32))
+        .flat_map(|row| row.iter().map(|c| c.re.elem()))
         .collect();
-    let eps_im_flat: Vec<f32> = epsilon_tensor_diag
+    let eps_im_flat: Vec<B::FloatElem> = epsilon_tensor_diag
         .iter()
-        .flat_map(|row| row.iter().map(|c| c.im as f32))
+        .flat_map(|row| row.iter().map(|c| c.im.elem()))
         .collect();
     let eps_re_tensor =
         Tensor::<B, 2>::from_data(TensorData::new(eps_re_flat, [n_elem, 3]), &device);
@@ -1814,13 +1817,13 @@ pub fn assemble_global_nedelec_with_anisotropic_epsilon_sparse<B: Backend>(
     let coords = gather_tet_coords(nodes, tets);
     let local = batched_nedelec_local_matrices(coords.clone());
 
-    let eps_re_flat: Vec<f32> = epsilon_tensor_diag
+    let eps_re_flat: Vec<B::FloatElem> = epsilon_tensor_diag
         .iter()
-        .flat_map(|row| row.iter().map(|c| c.re as f32))
+        .flat_map(|row| row.iter().map(|c| c.re.elem()))
         .collect();
-    let eps_im_flat: Vec<f32> = epsilon_tensor_diag
+    let eps_im_flat: Vec<B::FloatElem> = epsilon_tensor_diag
         .iter()
-        .flat_map(|row| row.iter().map(|c| c.im as f32))
+        .flat_map(|row| row.iter().map(|c| c.im.elem()))
         .collect();
     let eps_re_tensor =
         Tensor::<B, 2>::from_data(TensorData::new(eps_re_flat, [n_elem, 3]), &device);
@@ -2113,9 +2116,9 @@ pub fn assemble_nedelec_current_rhs<B: Backend>(
 
     // 1. Per-element local RHS.
     let coords = gather_tet_coords(nodes, tets);
-    let j_flat: Vec<f32> = j_tet
+    let j_flat: Vec<B::FloatElem> = j_tet
         .iter()
-        .flat_map(|row| row.iter().map(|&x| x as f32))
+        .flat_map(|row| row.iter().map(|&x| x.elem()))
         .collect();
     let j_tensor = Tensor::<B, 2>::from_data(TensorData::new(j_flat, [n_elem, 3]), &device);
     let local = crate::elements::nedelec::batched_nedelec_local_rhs(coords, j_tensor); // [n_elem, 6]

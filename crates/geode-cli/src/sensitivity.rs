@@ -88,23 +88,6 @@ fn with_region_value(base: &[f64], region_of_tet: &[usize], region: usize, value
         .collect()
 }
 
-/// How the FD check places its two evaluation points.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum FdPoints {
-    /// `p ± h` as given (the forward consumes `f64` parameters).
-    Exact,
-    /// `p ± h` snapped to the nearest `f32`, with the FD denominator the
-    /// snapped spacing. The Nédélec mass assembly the eigen forward uses
-    /// (`assemble_global_nedelec_with_complex_epsilon_sparse`) uploads the
-    /// per-tet `ε_r` as `f32`, so a raw `p ± h` would be quantized to
-    /// `~6e-8` relative — an FD error of `6e-8 / relative_step`
-    /// (`≈ 1.7e-4` measured at the default step, above the `1e-4` bar).
-    /// Evaluating at representable points and dividing by their true
-    /// spacing removes that error exactly. Removable once issue #740
-    /// (the f32 upload) is fixed.
-    SnapToF32,
-}
-
 /// Wrap gradients into the report, running the FD self-check with
 /// `forward(parameter, perturbed_value)` (component values in the
 /// observable unit, same order as `g.components`) when requested.
@@ -116,7 +99,6 @@ fn finish(
     method: &'static str,
     g: Gradients,
     describe: impl Fn(&[usize]) -> String,
-    points: FdPoints,
     mut forward: impl FnMut(usize, f64) -> Result<Vec<f64>, CliError>,
     t0: Instant,
 ) -> Result<SensitivityReport, CliError> {
@@ -150,10 +132,7 @@ fn finish(
             let mut worst: Option<String> = None;
             for (k, prm) in sens.parameters.iter().enumerate() {
                 let h = step * prm.value.abs();
-                let (mut p_plus, mut p_minus) = (prm.value + h, prm.value - h);
-                if points == FdPoints::SnapToF32 {
-                    (p_plus, p_minus) = (f64::from(p_plus as f32), f64::from(p_minus as f32));
-                }
+                let (p_plus, p_minus) = (prm.value + h, prm.value - h);
                 let plus = forward(k, p_plus)?;
                 let minus = forward(k, p_minus)?;
                 for c in 0..n_comp {
@@ -263,7 +242,6 @@ pub fn capacitance(
         "adjoint_p2",
         g,
         |_| format!("C({})", electrodes[0].name),
-        FdPoints::Exact,
         forward,
         t0,
     )
@@ -334,7 +312,6 @@ pub fn inductance(
         "self_adjoint_energy",
         g,
         |idx| format!("L[{}][{}]", names[idx[0]], names[idx[1]]),
-        FdPoints::Exact,
         forward,
         t0,
     )
@@ -416,7 +393,6 @@ pub fn eigen(
         "hellmann_feynman",
         g,
         |idx| format!("mode {} frequency", idx[0]),
-        FdPoints::SnapToF32,
         forward,
         t0,
     )

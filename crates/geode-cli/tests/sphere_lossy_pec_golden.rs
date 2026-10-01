@@ -25,9 +25,12 @@
 //! two differ by `2.5e-3` relative — the test would catch that mistake.)
 //! Discretization error cancels out of the ratio (`Re` and `Im` share one
 //! eigenvector), so the tolerance is solver/assembly-level, not mesh-level:
-//! [`REL_TOL`] `= 1e-6`, which covers the assembly's f32 upload of the
-//! per-tet `ε_r` weights (`0.0225/2.25` is not exact in f32: measured
-//! `Im/Re − tan δ ≈ 4e-8` relative) with an order of margin.
+//! [`REL_TOL`] `= 1e-6`. Since issue #740 the per-tet `ε_r` weights are
+//! uploaded at the backend's float precision, so on the default f64
+//! backend the measured `Im/Re − tan δ` and `Q` residuals are `< 1e-10`
+//! relative (f64 round-off through assembly + Lanczos). The bound keeps
+//! its original margin over the pre-#740 f32-upload error (`≈ 4e-8`, as
+//! `0.0225/2.25` is not exact in f32) so f32-class backends still pass.
 //!
 //! Two loss levels run concurrently: `tan δ = 0.01` (the committed
 //! fixture, with `--outdir` complex field export) and `tan δ = 0.1` (the
