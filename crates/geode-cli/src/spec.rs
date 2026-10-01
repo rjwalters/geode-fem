@@ -596,7 +596,8 @@ fn default_n_modes() -> usize {
 }
 
 /// One Leontovich good-conductor surface
-/// (`Z_s = (1 + j)·√(ωμ₀ / 2σ)`).
+/// (`Z_s = (1 + j)·√(ωμ₀ / 2σ)`, times the roughness factor `K(f)` when
+/// `roughness` is given).
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LeontovichSpec {
@@ -604,6 +605,39 @@ pub struct LeontovichSpec {
     pub physical_group: String,
     /// Conductor conductivity σ in S/m (`> 0`).
     pub conductivity_s_m: f64,
+    /// Conductor surface roughness (additive in v1, issue #758). Omit (or
+    /// `null`) for a smooth conductor. The whole complex `Z_s` is scaled
+    /// by the model's real loss factor `K(f) ≥ 1`, evaluated at the skin
+    /// depth `δ = 1/√(π f μ₀ σ)` of this wall's `conductivity_s_m`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roughness: Option<RoughnessSpec>,
+}
+
+/// Conductor surface-roughness model of a Leontovich wall (issue #758),
+/// selected by `model`.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[serde(tag = "model", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RoughnessSpec {
+    /// Hammerstad–Jensen (1980): `K = 1 + (2/π)·atan(1.4·(Δ/δ)²)`,
+    /// saturating at `K = 2`.
+    Hammerstad {
+        /// RMS surface roughness `Δ` in metres (finite, `≥ 0`; `0` is
+        /// exactly the smooth conductor).
+        rms_m: f64,
+    },
+    /// Huray snowball model, single sphere size on a flat base
+    /// (cannonball form): `K = 1 + (3/2)·(N·4πa²/A_tile) / (1 + δ/a +
+    /// δ²/(2a²))`, saturating at `1 + (3/2)·N·4πa²/A_tile`.
+    Huray {
+        /// Sphere radius `a` in metres (finite, `> 0`).
+        ball_radius_m: f64,
+        /// Spheres `N` per tile (finite, `≥ 0`; may be fractional; `0` is
+        /// the smooth conductor).
+        n_balls: f64,
+        /// Tile (flat base) area `A_tile` in square metres (finite,
+        /// `> 0`).
+        tile_area_m2: f64,
+    },
 }
 
 /// A uniform (Palace-style) lumped port on a surface physical group.

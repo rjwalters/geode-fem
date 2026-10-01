@@ -296,7 +296,7 @@
     },
     "LeontovichSpec": {
       "additionalProperties": false,
-      "description": "One Leontovich good-conductor surface\n(`Z_s = (1 + j)·√(ωμ₀ / 2σ)`).",
+      "description": "One Leontovich good-conductor surface\n(`Z_s = (1 + j)·√(ωμ₀ / 2σ)`, times the roughness factor `K(f)` when\n`roughness` is given).",
       "properties": {
         "conductivity_s_m": {
           "description": "Conductor conductivity σ in S/m (`> 0`).",
@@ -306,6 +306,17 @@
         "physical_group": {
           "description": "Name of a dimension-2 physical group.",
           "type": "string"
+        },
+        "roughness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RoughnessSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Conductor surface roughness (additive in v1, issue #758). Omit (or\n`null`) for a smooth conductor. The whole complex `Z_s` is scaled\nby the model's real loss factor `K(f) ≥ 1`, evaluated at the skin\ndepth `δ = 1/√(π f μ₀ σ)` of this wall's `conductivity_s_m`."
         }
       },
       "required": [
@@ -447,6 +458,63 @@
           "const": "ams",
           "description": "Hiptmair–Xu auxiliary-space Maxwell (AMS) V-cycle on a real SPD\nproxy of `A(ω)` (issue #744): converges low-frequency, near-static\nproblems (e.g. spirals at 1 GHz) where `jacobi` / `ilu0` stall, at\nan iteration count that stays flat with mesh size. Its nodal\n(gradient-space) coarse problem is always solved by exact sparse LU\n(`geode check` reports its modelled memory); see the CLI README for\nmeasured memory.",
           "type": "string"
+        }
+      ]
+    },
+    "RoughnessSpec": {
+      "description": "Conductor surface-roughness model of a Leontovich wall (issue #758),\nselected by `model`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Hammerstad–Jensen (1980): `K = 1 + (2/π)·atan(1.4·(Δ/δ)²)`,\nsaturating at `K = 2`.",
+          "properties": {
+            "model": {
+              "const": "hammerstad",
+              "type": "string"
+            },
+            "rms_m": {
+              "description": "RMS surface roughness `Δ` in metres (finite, `≥ 0`; `0` is\nexactly the smooth conductor).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "model",
+            "rms_m"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Huray snowball model, single sphere size on a flat base\n(cannonball form): `K = 1 + (3/2)·(N·4πa²/A_tile) / (1 + δ/a +\nδ²/(2a²))`, saturating at `1 + (3/2)·N·4πa²/A_tile`.",
+          "properties": {
+            "ball_radius_m": {
+              "description": "Sphere radius `a` in metres (finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "model": {
+              "const": "huray",
+              "type": "string"
+            },
+            "n_balls": {
+              "description": "Spheres `N` per tile (finite, `≥ 0`; may be fractional; `0` is\nthe smooth conductor).",
+              "format": "double",
+              "type": "number"
+            },
+            "tile_area_m2": {
+              "description": "Tile (flat base) area `A_tile` in square metres (finite,\n`> 0`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "model",
+            "ball_radius_m",
+            "n_balls",
+            "tile_area_m2"
+          ],
+          "type": "object"
         }
       ]
     },

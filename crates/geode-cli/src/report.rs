@@ -122,6 +122,45 @@ pub struct LeontovichSummary {
     pub conductivity_s_m: f64,
     /// Conductivity in natural units `σ·η₀·L_unit` (1 / mesh length unit).
     pub conductivity_natural: f64,
+    /// Surface roughness (additive in v1, issue #758; present only for a
+    /// rough wall).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub roughness: Option<RoughnessSummary>,
+}
+
+/// Conductor surface roughness of a Leontovich wall (additive in v1,
+/// issue #758): the model as given plus its loss factor `K(f)` at every
+/// requested frequency. The wall's `Z_s` is the smooth
+/// `(1 + j)·√(ωμ₀/2σ)` times `K(f)`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct RoughnessSummary {
+    /// `"hammerstad"` or `"huray"`.
+    pub model: &'static str,
+    /// Hammerstad RMS roughness `Δ` (m); absent for `huray`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rms_m: Option<f64>,
+    /// Huray sphere radius `a` (m); absent for `hammerstad`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ball_radius_m: Option<f64>,
+    /// Huray spheres per tile `N`; absent for `hammerstad`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n_balls: Option<f64>,
+    /// Huray tile area `A_tile` (m²); absent for `hammerstad`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tile_area_m2: Option<f64>,
+    /// Loss factor `K(f) ≥ 1` at each entry of the report's `frequencies`,
+    /// in the same order.
+    pub k: Vec<f64>,
+}
+
+/// The roughness loss factor of one rough Leontovich wall at one
+/// frequency (additive in v1, issue #758).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct RoughnessKResult {
+    /// The wall's physical-group name.
+    pub physical_group: String,
+    /// Loss factor `K(f) ≥ 1` multiplying the wall's smooth `Z_s`.
+    pub k: f64,
 }
 
 /// One Silver-Müller absorbing wall (`Z_s = η₀`).
@@ -792,6 +831,11 @@ pub struct FrequencyResult {
     /// wave-port specs).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub wave_channels: Vec<WaveChannelResult>,
+    /// Roughness loss factor `K(f)` of every rough Leontovich wall, in
+    /// spec order (additive in v1, issue #758; present only when a wall
+    /// has a `roughness` block).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub roughness_k: Vec<RoughnessKResult>,
     /// Exported `E` field of this row (additive in v1; present only with
     /// `--outdir` on a lumped-port spec).
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -22,14 +22,15 @@ use geode_core::assembly::electrostatic::face_to_tet_map;
 use geode_core::assembly::nedelec::tet_centroids;
 use geode_core::constants::{C_M_PER_S, ETA_0_OHM};
 use geode_core::driven::ports::{PortFaceProjection, project_port_face};
+use geode_core::driven::solve::{SurfaceImpedanceModel, SurfaceRoughness};
 use geode_core::mesh::patch::box_upml_tensors;
 use geode_core::mesh::{TaggedTetMesh, pec_interior_mask_from_triangles, read_tagged_tet_mesh};
 use sha2::{Digest, Sha256};
 
 use crate::error::CliError;
 use crate::spec::{
-    Analysis, DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit, ProblemSpec, SPEC_SCHEMA_VERSION,
-    SensitivityParameterKind, SolverSpec,
+    Analysis, DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit, ProblemSpec, RoughnessSpec,
+    SPEC_SCHEMA_VERSION, SensitivityParameterKind, SolverSpec,
 };
 
 /// How a volume region's permittivity was chosen.
@@ -78,6 +79,80 @@ pub struct Leontovich {
     pub sigma_s_m: f64,
     /// Conductivity in natural units `σ·η₀·L_unit` (1/length).
     pub sigma_natural: f64,
+    /// Surface roughness as given (SI), if any (issue #758).
+    pub roughness: Option<RoughnessSpec>,
+    /// The roughness model in natural units (lengths `/ L_unit`, areas
+    /// `/ L_unit²`), if any.
+    pub roughness_natural: Option<SurfaceRoughness>,
+}
+
+impl Leontovich {
+    /// The wall's surface-impedance model: [`SurfaceImpedanceModel::GoodConductor`]
+    /// when smooth, [`SurfaceImpedanceModel::RoughConductor`] with a
+    /// roughness block.
+    pub fn model(&self) -> SurfaceImpedanceModel {
+        match self.roughness_natural {
+            None => SurfaceImpedanceModel::GoodConductor {
+                sigma: self.sigma_natural,
+            },
+            Some(roughness) => SurfaceImpedanceModel::RoughConductor {
+                sigma: self.sigma_natural,
+                roughness,
+            },
+        }
+    }
+
+    /// The roughness loss factor `K` at a frequency (natural `k₀`), `None`
+    /// for a smooth wall.
+    pub fn roughness_k(&self, k0: f64) -> Option<f64> {
+        self.roughness_natural
+            .map(|r| r.loss_factor(k0, self.sigma_natural))
+    }
+}
+
+/// Convert a spec roughness block (SI) to the solver's natural units.
+fn roughness_natural(r: RoughnessSpec, length_unit_m: f64) -> SurfaceRoughness {
+    match r {
+        RoughnessSpec::Hammerstad { rms_m } => SurfaceRoughness::HammerstadJensen {
+            rms: rms_m / length_unit_m,
+        },
+        RoughnessSpec::Huray {
+            ball_radius_m,
+            n_balls,
+            tile_area_m2,
+        } => SurfaceRoughness::Huray {
+            ball_radius: ball_radius_m / length_unit_m,
+            n_balls,
+            tile_area: tile_area_m2 / (length_unit_m * length_unit_m),
+        },
+    }
+}
+
+/// Validate a spec roughness block (issue #758).
+fn validate_roughness(group: &str, r: &RoughnessSpec) -> Result<(), CliError> {
+    let check = |name: &str, v: f64, allow_zero: bool| {
+        let ok = v.is_finite() && (v > 0.0 || (allow_zero && v == 0.0));
+        if ok {
+            Ok(())
+        } else {
+            Err(invalid(format!(
+                "leontovich[{group}].roughness.{name} must be finite and {} (got {v})",
+                if allow_zero { ">= 0" } else { "> 0" }
+            )))
+        }
+    };
+    match *r {
+        RoughnessSpec::Hammerstad { rms_m } => check("rms_m", rms_m, true),
+        RoughnessSpec::Huray {
+            ball_radius_m,
+            n_balls,
+            tile_area_m2,
+        } => {
+            check("ball_radius_m", ball_radius_m, false)?;
+            check("n_balls", n_balls, true)?;
+            check("tile_area_m2", tile_area_m2, false)
+        }
+    }
 }
 
 /// A resolved matched box-UPML shell (`absorbing_regions` entry).
@@ -530,6 +605,9 @@ pub fn load_parsed(
                 l.physical_group
             )));
         }
+        if let Some(r) = &l.roughness {
+            validate_roughness(&l.physical_group, r)?;
+        }
     }
     match analysis {
         Analysis::Driven | Analysis::Extract => {
@@ -831,6 +909,8 @@ pub fn load_parsed(
                 surface: surface(&l.physical_group, t.expect("resolved above"), "leontovich")?,
                 sigma_s_m: l.conductivity_s_m,
                 sigma_natural: l.conductivity_s_m * ETA_0_OHM * lu,
+                roughness: l.roughness,
+                roughness_natural: l.roughness.map(|r| roughness_natural(r, lu)),
             })
         })
         .collect::<Result<Vec<_>, CliError>>()?;

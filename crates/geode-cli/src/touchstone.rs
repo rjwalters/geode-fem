@@ -381,6 +381,7 @@ mod tests {
             s,
             ports: Vec::new(),
             wave_channels: Vec::new(),
+            roughness_k: Vec::new(),
             field_file: None,
             far_field: None,
         }
