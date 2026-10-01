@@ -17,7 +17,8 @@
 //! A block Galerkin reduced-order model ([`geode_core::driven::rom`],
 //! [`RomDrive::PerPort`]) built from a few greedy full-order snapshot
 //! solves; every other frequency is interpolated through it, and any
-//! frequency still above the tolerance gets a full-order fallback solve.
+//! frequency still above the tolerance (or whose reduced solve is
+//! singular) gets a full-order fallback solve.
 //! Each report row says whether it was solved (`solved`), and
 //! `solver.adaptive` carries the greedy diagnostics. `--outdir` exports
 //! fields only for the solved rows.
@@ -78,11 +79,11 @@ use geode_core::driven::extraction::{
 use geode_core::driven::ports::{
     LumpedPort, WavePort, WavePortSweepPoint, solve_wave_port_sweep_with_mode,
 };
-use geode_core::driven::rom::{DrivenRom, RomDrive, RomSettings};
+use geode_core::driven::rom::{DrivenRom, RomDrive, RomError, RomExcitationPoint, RomSettings};
 use geode_core::driven::scattering::flux_power_box;
 use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, IterativeSettings,
-    SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, IterativeSettings, SolverMode,
+    SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
 use geode_core::postproc::ntff::{
     broadside_directivity, directivity, gain, ntff_far_field, principal_plane_cuts, to_db,
@@ -550,7 +551,8 @@ fn dense_sweep<B: burn::tensor::backend::Backend>(
 /// per-excitation V / I readbacks give `Z = V·I⁻¹` and the S-matrix with
 /// the dense sweep's own arithmetic ([`z_from_port_readbacks`],
 /// [`SMatrix::from_z_matrix`]). A frequency whose residual indicator is
-/// still above `tolerance` (budget exhausted) gets a full-order fallback
+/// still above `tolerance` (budget exhausted), or whose reduced system or
+/// reduced port-current matrix is singular, gets a full-order fallback
 /// solve (up to `opts.jobs` at a time). `problem::load` has already
 /// rejected UPML, wave ports and the iterative solver.
 fn adaptive_sweep<B: burn::tensor::backend::Backend>(
@@ -598,33 +600,16 @@ fn adaptive_sweep<B: burn::tensor::backend::Backend>(
     let mut rows: Vec<Option<LumpedRow>> = Vec::with_capacity(omegas.len());
     let mut fallback: Vec<usize> = Vec::new();
     for (index, &w) in omegas.iter().enumerate() {
-        let pt = rom.evaluate_excitations(w)?;
-        // A NaN indicator also goes to the fallback.
-        if pt.residual_indicator.is_nan() || pt.residual_indicator > a.tolerance {
+        let Some((z, residual)) = reduced_z(rom.evaluate_excitations(w), a.tolerance, n)? else {
             fallback.push(index);
             rows.push(None);
             continue;
-        }
-        // v_mat[k][j] / i_mat[k][j]: port k under excitation j.
-        let mut v_mat = vec![c64::new(0.0, 0.0); n * n];
-        let mut i_mat = vec![c64::new(0.0, 0.0); n * n];
-        for (j, ports) in pt.excitations.iter().enumerate() {
-            for (k, c) in ports.iter().enumerate() {
-                v_mat[k * n + j] = c.v;
-                i_mat[k * n + j] = c.i;
-            }
-        }
-        let z = z_from_port_readbacks(&v_mat, &i_mat, n).ok_or_else(|| {
-            CliError::Solve(DrivenError::Solve(format!(
-                "adaptive sweep: singular per-excitation port-current matrix at ω = {w}: \
-                 Z(ω) = V·I⁻¹ is not defined"
-            )))
-        })?;
+        };
         let s = SMatrix::from_z_matrix(&z, &z0);
         let row = LumpedRow {
             z,
             s,
-            residual_rel: pt.residual_indicator,
+            residual_rel: residual,
             iters_per_rhs: vec![0; n],
             solved: Some(rom.snapshot_omegas().contains(&w)),
         };
@@ -664,6 +649,40 @@ fn adaptive_sweep<B: burn::tensor::backend::Backend>(
         n_factorizations: rom.snapshot_omegas().len() + fallback.len(),
     };
     Ok((rows, stats))
+}
+
+/// `Z(ω)` and the residual indicator from one reduced evaluation, or
+/// `None` when the frequency needs a full-order fallback solve: the
+/// indicator is NaN or above `tolerance`, the reduced system is singular
+/// ([`RomError::ReducedSolveSingular`], possible once the snapshot budget
+/// is exhausted), or the per-excitation port-current matrix is singular
+/// (`Z = V·I⁻¹` undefined or non-finite). Any other error aborts the
+/// sweep: the full-order solve would hit it too (issue #747).
+fn reduced_z(
+    eval: Result<RomExcitationPoint, RomError>,
+    tolerance: f64,
+    n: usize,
+) -> Result<Option<(Vec<c64>, f64)>, CliError> {
+    let pt = match eval {
+        Ok(pt) => pt,
+        Err(RomError::ReducedSolveSingular { .. }) => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    if pt.residual_indicator.is_nan() || pt.residual_indicator > tolerance {
+        return Ok(None);
+    }
+    // v_mat[k][j] / i_mat[k][j]: port k under excitation j.
+    let mut v_mat = vec![c64::new(0.0, 0.0); n * n];
+    let mut i_mat = vec![c64::new(0.0, 0.0); n * n];
+    for (j, ports) in pt.excitations.iter().enumerate() {
+        for (k, c) in ports.iter().enumerate() {
+            v_mat[k * n + j] = c.v;
+            i_mat[k * n + j] = c.i;
+        }
+    }
+    Ok(z_from_port_readbacks(&v_mat, &i_mat, n)
+        .filter(|z| z.iter().all(|x| x.re.is_finite() && x.im.is_finite()))
+        .map(|z| (z, pt.residual_indicator)))
 }
 
 /// Wave-port sweep over `p.frequencies`: solve each port's cross-section
@@ -1055,6 +1074,57 @@ fn invert(a: &[c64], n: usize) -> Option<Vec<c64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use geode_core::driven::extraction::PortCircuit;
+
+    fn circuit(v: f64, i: f64) -> PortCircuit {
+        let (v, i) = (c64::new(v, 0.0), c64::new(i, 0.0));
+        PortCircuit { v, i, z: v / i }
+    }
+
+    fn point(residual: f64, excitations: Vec<Vec<PortCircuit>>) -> RomExcitationPoint {
+        RomExcitationPoint {
+            omega: 1.0,
+            residual_indicator: residual,
+            excitations,
+        }
+    }
+
+    /// Issue #747: the budget-exhaustion failure modes route to the
+    /// full-order fallback (`Ok(None)`); other errors still abort.
+    #[test]
+    fn reduced_z_routes_singular_cases_to_fallback() {
+        // Healthy single port: Z = V / I.
+        let (z, r) = reduced_z(Ok(point(1e-9, vec![vec![circuit(2.0, 4.0)]])), 1e-6, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!((z, r), (vec![c64::new(0.5, 0.0)], 1e-9));
+        // Indicator above tolerance or NaN.
+        let hi = point(1e-3, vec![vec![circuit(2.0, 4.0)]]);
+        assert!(reduced_z(Ok(hi), 1e-6, 1).unwrap().is_none());
+        let nan = point(f64::NAN, vec![vec![circuit(2.0, 4.0)]]);
+        assert!(reduced_z(Ok(nan), 1e-6, 1).unwrap().is_none());
+        // Singular reduced system.
+        let singular = Err(RomError::ReducedSolveSingular {
+            order: 3,
+            omega: 1.0,
+        });
+        assert!(reduced_z(singular, 1e-6, 1).unwrap().is_none());
+        // Singular port-current matrix: one port (V / 0 is non-finite) and
+        // two ports (rank-1 I).
+        let zero_i = point(1e-9, vec![vec![circuit(2.0, 0.0)]]);
+        assert!(reduced_z(Ok(zero_i), 1e-6, 1).unwrap().is_none());
+        let rank1 = point(
+            1e-9,
+            vec![
+                vec![circuit(1.0, 1.0), circuit(1.0, 1.0)],
+                vec![circuit(2.0, 1.0), circuit(3.0, 1.0)],
+            ],
+        );
+        assert!(reduced_z(Ok(rank1), 1e-6, 2).unwrap().is_none());
+        // Anything else still aborts the sweep.
+        let invalid = Err(RomError::InvalidParameter("bad".into()));
+        assert!(reduced_z(invalid, 1e-6, 1).is_err());
+    }
 
     #[test]
     fn invert_two_by_two() {
