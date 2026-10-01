@@ -42,6 +42,14 @@ echo "Testing _extract_host..."
 
 # Need to source the library
 source "$HELPERS_DIR/lib/forge-helpers.sh"
+# #9548: the write wrappers vet their repo through the write scope first. The
+# suite runs from a checkout registered as owner/repo (origin, .loom/, push
+# reported to the permission probe), so the real decision admits it.
+WS_FIXTURE_DIR="$(mktemp -d)"
+# shellcheck source=lib/write-scope-fixture.sh
+source "$SCRIPT_DIR/lib/write-scope-fixture.sh"
+write_scope_register "$WS_FIXTURE_DIR" owner/repo
+cd "$WS_FIXTURE_DIR"
 
 # Reset state for testing
 FORGE_TYPE=""
@@ -319,6 +327,70 @@ assert_eq "0" "$nocache_hits" "CI-status helpers never pass the wrapper-only --n
 
 rm -rf "$CI_STUB_DIR"
 
+# --- Test forge_get_pr_reviews pagination + fail-closed contract (#7647) ---
+# The pre-#7647 helper made ONE unpaginated request, emitted `.[].body` only,
+# and swallowed every error as empty output. All three are now failures by
+# contract: reviews paginate, records are complete (id/state/commit/timestamp),
+# and a read error exits non-zero instead of looking like "no reviews".
+echo ""
+echo "Testing forge_get_pr_reviews pagination and fail-closed behavior (#7647)..."
+
+REV_STUB_DIR=$(mktemp -d)
+cat > "$REV_STUB_DIR/gh" <<'STUB'
+#!/usr/bin/env bash
+# Emulates `gh api <endpoint> --paginate --jq FILTER`: applies the caller's own
+# jq filter to each page in turn, exactly as gh streams them.
+if [[ -n "${REV_STUB_FAIL:-}" ]]; then
+  echo "stub gh: simulated API failure" >&2
+  exit 1
+fi
+shift  # drop "api"
+shift  # drop the endpoint
+jq_filter=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --jq) jq_filter="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+for page in "$REV_STUB_DIR_ENV"/page-*.json; do
+  [[ -f "$page" ]] || continue
+  jq -r "$jq_filter" "$page" || exit 1
+done
+exit 0
+STUB
+chmod +x "$REV_STUB_DIR/gh"
+
+cat > "$REV_STUB_DIR/page-1.json" <<'JSON'
+[{"id":11,"state":"COMMENTED","commit_id":"aaa","submitted_at":"2026-09-14T20:00:00Z","user":{"login":"carol"},"body":"note"}]
+JSON
+cat > "$REV_STUB_DIR/page-2.json" <<'JSON'
+[{"id":12,"state":"CHANGES_REQUESTED","commit_id":"bbb","submitted_at":"2026-09-14T21:10:12Z","user":{"login":"alice"},"body":"needs coverage"}]
+JSON
+
+FORGE_TYPE="github"
+rev_out=$(REV_STUB_DIR_ENV="$REV_STUB_DIR" forge_get_pr_reviews "owner/repo" "5369" "$REV_STUB_DIR/gh" 2>/dev/null)
+assert_eq "2" "$(printf '%s\n' "$rev_out" | grep -c '^{')" "forge_get_pr_reviews returns reviews from BOTH pages"
+assert_eq "CHANGES_REQUESTED" "$(printf '%s\n' "$rev_out" | jq -r 'select(.id == 12) | .state')" "review state is retained (not just the body)"
+assert_eq "bbb" "$(printf '%s\n' "$rev_out" | jq -r 'select(.id == 12) | .commit_id')" "review commit/head association is retained"
+assert_eq "2026-09-14T21:10:12Z" "$(printf '%s\n' "$rev_out" | jq -r 'select(.id == 12) | .submitted_at')" "review submission timestamp is retained"
+
+set +e
+REV_STUB_FAIL=1 REV_STUB_DIR_ENV="$REV_STUB_DIR" \
+  forge_get_pr_reviews "owner/repo" "5369" "$REV_STUB_DIR/gh" > /dev/null 2>&1
+rev_fail_rc=$?
+set -e
+TESTS_RUN=$((TESTS_RUN + 1))
+if [[ "$rev_fail_rc" -ne 0 ]]; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "  ${GREEN}PASS${NC}: a failed review read exits non-zero (fail closed, never silent empty output)"
+else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "  ${RED}FAIL${NC}: a failed review read exited 0 — the #7647 'errors look like no reviews' bug is back"
+fi
+
+rm -rf "$REV_STUB_DIR"
+
 # --- Test gitea_api auth-mode selection (issue #3297) ---
 # Use a `curl` shim on PATH that records its argv and returns a fake 200.
 echo ""
@@ -436,6 +508,202 @@ else
 fi
 
 rm -rf "$SHIM_DIR" "$CURL_ARGS_FILE"
+
+# --- Test forge_detect_merge_method / forge_merge_pr respect a non-squash
+# repo (#7754) -- the original #1258 bug was a hardcoded merge_method=squash
+# / Do:"squash" breaking any repo that has squash-merge disabled.
+echo ""
+echo "Testing forge_detect_merge_method / forge_merge_pr honor the target repo's allowed strategies (#7754)..."
+
+FORGE_TYPE="github"
+
+# --- GitHub: repo allows only merge-commit (squash and rebase disabled) ---
+GH_MM_STUB_DIR=$(mktemp -d)
+cat > "$GH_MM_STUB_DIR/gh" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$1" == "api" && "$2" == repos/* && "$*" != *"-X PUT"* ]]; then
+  printf '{"allow_squash_merge":false,"allow_merge_commit":true,"allow_rebase_merge":false}\n'
+  exit 0
+fi
+exit 1
+STUB
+chmod +x "$GH_MM_STUB_DIR/gh"
+
+gh_mm_result=$(PATH="$GH_MM_STUB_DIR:$PATH" forge_detect_merge_method "owner/repo" "$GH_MM_STUB_DIR/gh")
+assert_eq "merge" "$gh_mm_result" "forge_detect_merge_method (GitHub) selects 'merge' when only allow_merge_commit is true"
+
+# --- GitHub: repo allows only rebase ---
+cat > "$GH_MM_STUB_DIR/gh" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$1" == "api" && "$2" == repos/* ]]; then
+  printf '{"allow_squash_merge":false,"allow_merge_commit":false,"allow_rebase_merge":true}\n'
+  exit 0
+fi
+exit 1
+STUB
+chmod +x "$GH_MM_STUB_DIR/gh"
+
+gh_mm_result=$(PATH="$GH_MM_STUB_DIR:$PATH" forge_detect_merge_method "owner/repo" "$GH_MM_STUB_DIR/gh")
+assert_eq "rebase" "$gh_mm_result" "forge_detect_merge_method (GitHub) selects 'rebase' when only allow_rebase_merge is true"
+
+# --- GitHub: probe failure fails open to "merge" (#9105 inverted the
+# #7754 fail-open: a repo that truly disallows merge commits must fail the
+# merge loudly at the forge, not silently squash history) ---
+cat > "$GH_MM_STUB_DIR/gh" <<'STUB'
+#!/usr/bin/env bash
+exit 1
+STUB
+chmod +x "$GH_MM_STUB_DIR/gh"
+
+gh_mm_result=$(PATH="$GH_MM_STUB_DIR:$PATH" forge_detect_merge_method "owner/repo" "$GH_MM_STUB_DIR/gh")
+assert_eq "merge" "$gh_mm_result" "forge_detect_merge_method (GitHub) fails open to 'merge' on a probe failure (#9105)"
+
+rm -rf "$GH_MM_STUB_DIR"
+
+# --- GitHub: forge_merge_pr sends the CALLER-SUPPLIED method, not a
+# hardcoded squash -- this is the actual fix for the original #1258
+# "Squash merges are not allowed on this repository" failure.
+GH_MERGE_STUB_DIR=$(mktemp -d)
+GH_MERGE_ARGS_FILE=$(mktemp)
+cat > "$GH_MERGE_STUB_DIR/gh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$GH_MERGE_ARGS_FILE"
+echo '{"merged":true}'
+exit 0
+STUB
+chmod +x "$GH_MERGE_STUB_DIR/gh"
+
+: > "$GH_MERGE_ARGS_FILE"
+GH_MERGE_ARGS_FILE="$GH_MERGE_ARGS_FILE" PATH="$GH_MERGE_STUB_DIR:$PATH" \
+  forge_merge_pr "owner/repo" "42" "" "rebase" >/dev/null
+if grep -q -- "-f merge_method=rebase" "$GH_MERGE_ARGS_FILE"; then
+    TESTS_RUN=$((TESTS_RUN + 1)); TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "  ${GREEN}PASS${NC}: forge_merge_pr (GitHub) sends merge_method=rebase when explicitly requested"
+else
+    TESTS_RUN=$((TESTS_RUN + 1)); TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "  ${RED}FAIL${NC}: forge_merge_pr (GitHub) did not send merge_method=rebase (argv: $(cat "$GH_MERGE_ARGS_FILE"))"
+fi
+
+: > "$GH_MERGE_ARGS_FILE"
+GH_MERGE_ARGS_FILE="$GH_MERGE_ARGS_FILE" PATH="$GH_MERGE_STUB_DIR:$PATH" \
+  forge_merge_pr "owner/repo" "42" >/dev/null
+if grep -q -- "-f merge_method=merge" "$GH_MERGE_ARGS_FILE"; then
+    TESTS_RUN=$((TESTS_RUN + 1)); TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "  ${GREEN}PASS${NC}: forge_merge_pr (GitHub) defaults to merge when no method is supplied (#9105: merge commits are the default)"
+else
+    TESTS_RUN=$((TESTS_RUN + 1)); TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "  ${RED}FAIL${NC}: forge_merge_pr (GitHub) default-method behavior regressed (argv: $(cat "$GH_MERGE_ARGS_FILE"))"
+fi
+
+rm -rf "$GH_MERGE_STUB_DIR"; rm -f "$GH_MERGE_ARGS_FILE"
+
+# --- Gitea: repo allows only rebase (squash disabled) ---
+FORGE_TYPE="gitea"
+GITEA_MM_SHIM_DIR=$(mktemp -d)
+cat > "$GITEA_MM_SHIM_DIR/curl" <<'SHIM'
+#!/usr/bin/env bash
+printf '{"allow_squash_merge":false,"allow_merge_commits":false,"allow_rebase_merge":true}\n200\n'
+SHIM
+chmod +x "$GITEA_MM_SHIM_DIR/curl"
+
+_GITEA_BASE_URL="https://gitea.example.com"
+_GITEA_TOKEN="tok-abc"
+_GITEA_USERNAME=""
+gitea_mm_result=$(PATH="$GITEA_MM_SHIM_DIR:$PATH" forge_detect_merge_method "owner/repo")
+assert_eq "rebase" "$gitea_mm_result" "forge_detect_merge_method (Gitea) selects 'rebase' when only allow_rebase_merge is true"
+
+# --- Gitea: forge_merge_pr sends the CALLER-SUPPLIED "Do" value ---
+GITEA_MERGE_CURL_ARGS=$(mktemp)
+export GITEA_MERGE_CURL_ARGS
+cat > "$GITEA_MM_SHIM_DIR/curl" <<'SHIM'
+#!/usr/bin/env bash
+: > "$GITEA_MERGE_CURL_ARGS"
+for a in "$@"; do
+  printf '%s\n' "$a" >> "$GITEA_MERGE_CURL_ARGS"
+done
+printf '{"merged":true}\n200\n'
+SHIM
+chmod +x "$GITEA_MM_SHIM_DIR/curl"
+
+PATH="$GITEA_MM_SHIM_DIR:$PATH" forge_merge_pr "owner/repo" "42" "" "rebase" >/dev/null
+if grep -q '"Do":"rebase"' "$GITEA_MERGE_CURL_ARGS"; then
+    TESTS_RUN=$((TESTS_RUN + 1)); TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "  ${GREEN}PASS${NC}: forge_merge_pr (Gitea) sends Do:rebase when explicitly requested"
+else
+    TESTS_RUN=$((TESTS_RUN + 1)); TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "  ${RED}FAIL${NC}: forge_merge_pr (Gitea) did not send Do:rebase (curl -d args: $(cat "$GITEA_MERGE_CURL_ARGS"))"
+fi
+
+rm -rf "$GITEA_MM_SHIM_DIR"; rm -f "$GITEA_MERGE_CURL_ARGS"
+
+# --- #9109: forge values are URL-encoded before landing in an API path ---
+#
+# A branch name is forge-derived. git's ref-format forbids `..` so there is no
+# path traversal here, but it PERMITS URL metacharacters — and
+# `branches/$branch` interpolated raw turns `?`, `#` or `%` into query/fragment/
+# escape syntax, silently addressing a different endpoint than the caller asked
+# for. The separators must survive, though: both endpoints route on literal
+# slashes, so `feature/issue-N` has to come out unchanged.
+echo ""
+echo "Testing url_encode_path_segment + forge_delete_branch path encoding (#9109)..."
+
+assert_eq "feature/issue-9109" "$(url_encode_path_segment 'feature/issue-9109')" \
+    "url_encode_path_segment leaves an ordinary branch name (and its slashes) alone"
+assert_eq "a%20b%3Fc%23d%25e%26f" "$(url_encode_path_segment 'a b?c#d%e&f')" \
+    "url_encode_path_segment percent-encodes URL metacharacters"
+assert_eq "a%22b%5Cc%3Cd%3Ee" "$(url_encode_path_segment 'a"b\c<d>e')" \
+    "url_encode_path_segment percent-encodes quote/backslash/angle brackets"
+assert_eq "wip/h%C3%A9llo" "$(url_encode_path_segment 'wip/héllo')" \
+    "url_encode_path_segment encodes multi-byte input as UTF-8 bytes"
+assert_eq "" "$(url_encode_path_segment '')" \
+    "url_encode_path_segment on empty input yields empty"
+
+# Gitea arm: shim `curl` and read back the FULL request URL gitea_api built —
+# a strictly stronger assertion than capturing its path argument alone.
+# (Stubbing gitea_api itself is not an option: a redefinition here turns the
+# library's own earlier calls into SC2218 forward references.)
+GITEA_DEL_SHIM_DIR=$(mktemp -d)
+GITEA_DEL_URL_FILE=$(mktemp)
+export GITEA_DEL_URL_FILE
+cat > "$GITEA_DEL_SHIM_DIR/curl" <<'SHIM'
+#!/usr/bin/env bash
+# gitea_api always passes the URL last.
+for a in "$@"; do last="$a"; done
+printf '%s\n' "$last" > "$GITEA_DEL_URL_FILE"
+printf '{}\n200\n'
+SHIM
+chmod +x "$GITEA_DEL_SHIM_DIR/curl"
+FORGE_TYPE="gitea"
+_GITEA_BASE_URL="https://gitea.example.com"
+_GITEA_TOKEN="tok-abc"
+_GITEA_USERNAME=""
+PATH="$GITEA_DEL_SHIM_DIR:$PATH" forge_delete_branch "owner/repo" 'feature/weird?x#y z%00' >/dev/null
+assert_eq "https://gitea.example.com/api/v1/repos/owner/repo/branches/feature/weird%3Fx%23y%20z%2500" \
+    "$(cat "$GITEA_DEL_URL_FILE")" \
+    "forge_delete_branch (Gitea) percent-encodes metacharacters in the branch path"
+PATH="$GITEA_DEL_SHIM_DIR:$PATH" forge_delete_branch "owner/repo" 'feature/issue-9109' >/dev/null
+assert_eq "https://gitea.example.com/api/v1/repos/owner/repo/branches/feature/issue-9109" \
+    "$(cat "$GITEA_DEL_URL_FILE")" \
+    "forge_delete_branch (Gitea) leaves an ordinary branch path byte-identical"
+rm -rf "$GITEA_DEL_SHIM_DIR"; rm -f "$GITEA_DEL_URL_FILE"; unset GITEA_DEL_URL_FILE
+
+# GitHub arm: shim `gh` on PATH and read back the path it was invoked with.
+GH_DEL_SHIM_DIR=$(mktemp -d)
+GH_DEL_ARGS=$(mktemp)
+export GH_DEL_ARGS
+cat > "$GH_DEL_SHIM_DIR/gh" <<'SHIM'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$GH_DEL_ARGS"
+SHIM
+chmod +x "$GH_DEL_SHIM_DIR/gh"
+FORGE_TYPE="github"
+PATH="$GH_DEL_SHIM_DIR:$PATH" forge_delete_branch "owner/repo" 'feature/weird?x#y z'
+assert_eq "repos/owner/repo/git/refs/heads/feature/weird%3Fx%23y%20z" "$(sed -n 2p "$GH_DEL_ARGS")" \
+    "forge_delete_branch (GitHub) percent-encodes metacharacters in the ref path"
+PATH="$GH_DEL_SHIM_DIR:$PATH" forge_delete_branch "owner/repo" 'feature/issue-9109'
+assert_eq "repos/owner/repo/git/refs/heads/feature/issue-9109" "$(sed -n 2p "$GH_DEL_ARGS")" \
+    "forge_delete_branch (GitHub) leaves an ordinary ref path byte-identical"
+rm -rf "$GH_DEL_SHIM_DIR"; rm -f "$GH_DEL_ARGS"; unset GH_DEL_ARGS
 
 # --- Summary ---
 echo ""

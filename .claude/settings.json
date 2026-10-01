@@ -59,8 +59,6 @@
       "Bash(npx:*)",
       "Bash(cargo:*)",
       "Bash(node:*)",
-      "Bash(./scripts/**:*)",
-      "Bash(./.loom/scripts/**:*)",
       "Bash(tmux:*)",
       "Bash(lsof:*)",
       "Bash(cat:*)",
@@ -112,7 +110,11 @@
       "Bash(shuf:*)",
       "WebSearch",
       "Read(/tmp/**)",
-      "Edit(/tmp/**)"
+      "Edit(/tmp/**)",
+      "Bash(./scripts/*)",
+      "Bash(./.loom/scripts/*)",
+      "Read(/private/tmp/**)",
+      "Edit(/private/tmp/**)"
     ]
   }
 }
