@@ -51,6 +51,13 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         None,
         Input::Spec("driven"),
     ),
+    // The spiral smoke with Hammerstad-rough copper (issue #758);
+    // `tests/roughness_golden.rs` pins it.
+    (
+        "driven/spiral_inductor_rough.json",
+        Some("spiral_rough_smoke.json"),
+        Input::Spec("driven"),
+    ),
     (
         "extract/slcfet_spiral.json",
         Some("slcfet_extract_smoke.json"),
