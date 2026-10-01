@@ -891,3 +891,183 @@ fn mixed_specs_reject_touchstone_and_adaptive_before_solving() {
     let msg = error_message(&out, "driven", "invalid_spec");
     assert!(msg.contains("alone or mixed"), "{msg}");
 }
+
+// ---------------------------------------------------------------------
+// Vacuum bit-identity (issue #777)
+// ---------------------------------------------------------------------
+
+/// `to_bits` of every `S` entry (row-major, `[re, im]`) then every
+/// `wave_channels[].beta` (`[re, im]`) of every report row.
+fn report_bits(v: &serde_json::Value) -> Vec<u64> {
+    let mut bits = Vec::new();
+    for r in v["results"].as_array().unwrap() {
+        let (s, _) = s_matrix(r);
+        for z in s {
+            bits.push(z.re.to_bits());
+            bits.push(z.im.to_bits());
+        }
+        for ch in r["wave_channels"].as_array().unwrap() {
+            bits.push(f64_at(&ch["beta"][0]).to_bits());
+            bits.push(f64_at(&ch["beta"][1]).to_bits());
+        }
+    }
+    bits
+}
+
+fn assert_bits(name: &str, got: &[u64], want: &[u64]) {
+    if std::env::var_os("GEODE_PRINT_VACUUM_GOLDEN").is_some() {
+        eprintln!("const {name}: [u64; {}] = {got:#018x?};", got.len());
+        return;
+    }
+    assert_eq!(got.len(), want.len(), "{name}: entry count");
+    for (k, (g, w)) in got.iter().zip(want).enumerate() {
+        assert_eq!(
+            g,
+            w,
+            "{name}[{k}]: {} vs golden {}",
+            f64::from_bits(*g),
+            f64::from_bits(*w)
+        );
+    }
+}
+
+#[test]
+fn vacuum_wave_and_mixed_ports_are_bit_identical_to_the_pre_fill_solver() {
+    // Goldens recorded on main @ 2843250, before the filled-port medium
+    // (issue #777) existed: a vacuum port must take the unchanged
+    // `β² = k₀² − k_c²` path with no extra floating-point operation.
+    let pure = json(&geode(&[
+        "driven",
+        spec("bits-pure", |v| {
+            v["wave_ports"][0]["n_modes"] = 2.into();
+            v["wave_ports"][1]["n_modes"] = 2.into();
+            v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [2.0, 2.5] });
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    assert_bits("PURE_WAVE_BITS", &report_bits(&pure), &PURE_WAVE_BITS);
+    let fixture =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/waveguide_mixed_smoke.json");
+    let mixed = json(&geode(&["driven", fixture.to_str().unwrap()]));
+    assert_bits("MIXED_BITS", &report_bits(&mixed), &MIXED_BITS);
+}
+
+/// Recorded on main @ 2843250 (pre-#777) with `GEODE_PRINT_VACUUM_GOLDEN=1`.
+#[rustfmt::skip]
+const PURE_WAVE_BITS: [u64; 80] = [
+    0x3f6da83f57c6b400,
+    0x3f3428e6d37082a0,
+    0xbf38a73baaea0d48,
+    0xbf64dc224e6c4f3c,
+    0x3fb5ac8f19bdd8bc,
+    0xbfefe2885a6aa99e,
+    0xbf43a65c063eca87,
+    0x3f648910bdb1c6e9,
+    0xbf38a73baaea1a4c,
+    0xbf64dc224e6c51c2,
+    0xbf98830250a17160,
+    0xbedbd3bf63d092bc,
+    0x3f43a66a5ec4c8eb,
+    0xbf6489119a8ecd29,
+    0x3faf0716c723f072,
+    0x3ed9d3a641b49343,
+    0x3fb5ac8f19bdd8be,
+    0xbfefe2885a6aa99c,
+    0x3f43a66a5ec4c825,
+    0xbf6489119a8ecaca,
+    0x3f6da83f5703e600,
+    0x3f3428e71b14c627,
+    0x3f38a71fb04018d4,
+    0x3f64dc2127ee4402,
+    0xbf43a65c063ec9c0,
+    0x3f648910bdb1c1c2,
+    0x3faf0716c723f06c,
+    0x3ed9d3a641b487f1,
+    0x3f38a71fb0401b34,
+    0x3f64dc2127ee3bd4,
+    0xbf988302294d1fa0,
+    0xbedbd3bb0210ad68,
+    0x3ff3e045303f78d7,
+    0x0000000000000000,
+    0x0000000000000000,
+    0xc00317922cfa9444,
+    0x3ff3e045303f78d7,
+    0x0000000000000000,
+    0x0000000000000000,
+    0xc00317922cfa9444,
+    0x3f81fe66c88d5380,
+    0xbf8132e2476b8613,
+    0xbf691f2436de1a40,
+    0xbf6699d5810feddc,
+    0xbfe61be71a0a7a1d,
+    0xbfe72186424589ec,
+    0xbf368d2ff68fa320,
+    0x3f71007f14fa7779,
+    0xbf691f2436de18e2,
+    0xbf6699d5810fea9e,
+    0xbf922d6e25e69a60,
+    0xbef204393b468043,
+    0x3f368d3e10447be8,
+    0xbf7100808c89fa8c,
+    0x3fbcd7781201cecf,
+    0x3ee5cd9e683d27de,
+    0xbfe61be71a0a7a28,
+    0xbfe72186424589e7,
+    0x3f368d3e104464e0,
+    0xbf7100808c89fce7,
+    0x3f81fe66cadca700,
+    0xbf8132e24500e269,
+    0x3f691f20f2c44a62,
+    0x3f6699d49f42bdb2,
+    0xbf368d2ff68f84e8,
+    0x3f71007f14fa7692,
+    0x3fbcd7781201cecf,
+    0x3ee5cd9e683d2b1f,
+    0x3f691f20f2c4467b,
+    0x3f6699d49f42bdc9,
+    0xbf922d6d78ecfca0,
+    0xbef2043600646302,
+    0x3fff296b87009bcb,
+    0x0000000000000000,
+    0x0000000000000000,
+    0xbffdb2f01bc73f22,
+    0x3fff296b87009bcb,
+    0x0000000000000000,
+    0x0000000000000000,
+    0xbffdb2f01bc73f22,
+];
+/// Recorded on main @ 2843250 (pre-#777): `tests/fixtures/waveguide_mixed_smoke.json`.
+#[rustfmt::skip]
+const MIXED_BITS: [u64; 30] = [
+    0xbfb72eed02368c6f,
+    0x3facb5a4f315ea1d,
+    0x3fb342cabc9a0b52,
+    0xbfec53f4d4f8e143,
+    0x3fb342cabc9a0b40,
+    0xbfec53f4d4f8e150,
+    0x3fbd35d7243ad611,
+    0x3f93b6d0c97136b1,
+    0x3ff3e045303f78cf,
+    0x0000000000000000,
+    0xbfc5235bfee29fd7,
+    0x3fb030c5dbd6fe9f,
+    0xbfe3c5c493af052b,
+    0xbfe4b07dba75813a,
+    0xbfe3c5c493af0509,
+    0xbfe4b07dba758140,
+    0x3f8210ff9396aa80,
+    0xbf7f9ff5b3822e47,
+    0x3fff296b87009bc6,
+    0x0000000000000000,
+    0xbfc88a225c625020,
+    0x3fb4e400e869692d,
+    0xbfec83e33f67a4c5,
+    0xbfafd5f430f974b6,
+    0xbfec83e33f67a4c6,
+    0xbfafd5f430f97463,
+    0x3fa7570c0b887e21,
+    0x3f70ae1587a6f6cc,
+    0x400476b740d472a3,
+    0x0000000000000000,
+];
