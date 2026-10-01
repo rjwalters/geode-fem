@@ -157,8 +157,8 @@ fn lcg(seed: u32) -> impl FnMut() -> f64 {
 /// on PEC-boundary nodes. The boundary-zero condition makes `d⁰·φ`
 /// land entirely on interior edges (modulo edges with exactly one
 /// boundary endpoint, which carry the value at the interior endpoint —
-/// fine, because the interior-edge mask in the cube fixture is a
-/// "both-endpoints-on-boundary" exclusion).
+/// fine; an interior chord with both endpoints on the boundary, kept by the
+/// face-exact cube mask since #771, simply carries `0`).
 fn random_h1_zero_field(interior_node_mask: &[bool], next: &mut impl FnMut() -> f64) -> Vec<f64> {
     interior_node_mask
         .iter()
