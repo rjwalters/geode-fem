@@ -119,7 +119,7 @@ use crate::mesh::TetMesh;
 
 #[path = "solve_ams.rs"]
 mod ams;
-pub use ams::{AMS_DIRECT_COARSE_MAX_NODES, AmsCoarseSolve, DrivenAms};
+pub use ams::{AMS_DIRECT_COARSE_MAX_NODES, AMS_PI_COARSE_SWEEPS, AmsCoarseSolve, DrivenAms};
 
 /// Errors produced by the driven-solve layer.
 #[derive(Debug, thiserror::Error)]
@@ -2551,8 +2551,9 @@ fn require_converged(
         Err(DrivenError::Solve(format!(
             "{path}: Krylov solve did not converge — the recursive residual met the \
              tolerance after {} iterations but the explicitly recomputed residual \
-             ‖Ax − b‖/‖b‖ = {:.3e} did not (recursive-residual drift; tighten the \
-             preconditioner or use solver.mode = \"direct\")",
+             ‖Ax − b‖/‖b‖ = {:.3e} did not (recursive-residual drift; loosen solver.tol \
+             to a level the explicit residual can reach, use a stronger \
+             preconditioner, or use solver.mode = \"direct\")",
             report.iters, report.residual_rel
         )))
     }
@@ -2887,10 +2888,6 @@ impl DrivenOperator {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "solve_ams_spike.rs"]
-mod ams_spike;
 
 #[cfg(test)]
 mod tests {

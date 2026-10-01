@@ -42,27 +42,51 @@
 //! under the bilinear (non-conjugating) form, so it composes with COCG
 //! exactly as Jacobi / ILU(0) / Chebyshev do.
 //!
-//! # Coarse (node-space) solve
+//! # Coarse (auxiliary-space) solves
 //!
 //! Measured on the spiral (PR for #744; smoke 14k edges / 2.2k free nodes,
-//! benchmark 53k edges / 8.1k free nodes, COCG `tol = 1e-10`):
+//! benchmark 53k edges / 8.1k free nodes, COCG `tol = 1e-10`, release
+//! build). "drift" = the recursive residual met `tol` but the explicit one
+//! did not, which the back-solve now reports as a failure (#744a):
 //!
-//! | coarse solve | outer iters (smoke 1/5/10/20 GHz; bench 1 GHz) | verdict |
-//! |---|---|---|
-//! | exact sparse LU ([`AmsCoarseSolve::Direct`]) | 106/126/139/155; 102 | converges, flat in mesh size |
-//! | SA-AMG #565 ([`AmsCoarseSolve::Amg`]) | 231/275/280/304; 324 | explicit residual drifts above tol at 1/5 GHz and on the benchmark |
-//! | 2-sweep SGS ([`AmsCoarseSolve::SymmetricGaussSeidel`]) | ~1300 at every ω; > 3000 on the benchmark | plateaus at 1e-9…1e-7 |
+//! | gradient `GᵀPG` | vector-nodal `ΠᵀPΠ` | smoke iters (1/5/10/20 GHz) | bench iters | bench wall / RSS |
+//! |---|---|---|---|---|
+//! | exact LU | exact LU | 106/126/139/155 | 102 | 8.3 s / 0.77 GB |
+//! | **exact LU** | **4-sweep SGS** | **112/131/145/159** | **114** | **3.9 s / 0.34 GB** |
+//! | exact LU | SA-AMG | 105/130/143/160 | 114 | 4.6 s / 0.35 GB |
+//! | exact LU | 2-sweep SGS | — | drift (134) | — |
+//! | SA-AMG | 4-sweep SGS / SA-AMG | — | drift (~330) | — |
+//! | 2-sweep SGS | 2-sweep SGS | ~1300 / drift | > 3000 | — |
 //!
-//! The default is therefore the exact coarse factor
-//! ([`AmsCoarseSolve::Auto`] → [`AmsCoarseSolve::Direct`]) **up to**
-//! [`AMS_DIRECT_COARSE_MAX_NODES`] free nodes, falling back to AMG above
-//! it. The direct coarse factors are an LU of the node-space `Gᵀ P G`
-//! (`node_dim`², ~7 nnz/row) and of the vector-nodal `Πᵀ P Π`
-//! (`3·node_dim` square, ~150 nnz/row); the latter dominates. Their fill
-//! grows superlinearly in `node_dim`, so the size guard keeps a
-//! millions-of-DOF solve from silently attempting a multi-GB coarse factor.
-//! A non-converging (or drifting) solve is never silently accepted — it is
-//! a [`DrivenError::Solve`] via the back-solve's converged check (#744).
+//! (Direct sparse LU of `A(ω)` on the benchmark: 5.0 s / 2.03 GB.)
+//!
+//! The gradient-space solve has to be accurate: it carries the near-kernel
+//! modes that the method exists for, and an approximate solve there
+//! (AMG / SGS) ends in drift. The vector-nodal block only needs a
+//! smoother. So the shipped default is an **exact sparse LU of
+//! `Gᵀ P G`** (`node_dim` square, a nodal Poisson-like matrix with ~15
+//! nnz/row) plus **[`AMS_PI_COARSE_SWEEPS`] symmetric Gauss–Seidel sweeps
+//! on `Πᵀ P Π`** (`3·node_dim` square, ~150 nnz/row; no factor). The LU fill
+//! of `Gᵀ P G` grows superlinearly with `node_dim`, so
+//! [`AmsCoarseSolve::Auto`] switches to AMG above
+//! [`AMS_DIRECT_COARSE_MAX_NODES`] free nodes rather than silently
+//! attempting a multi-GB coarse factor; whatever the choice, a
+//! non-converging or drifting solve is a [`DrivenError::Solve`], never a
+//! silently accepted answer.
+//!
+//! # Known limitation: floating PEC conductors
+//!
+//! With conductors modelled as PEC shells that are **not** connected to the
+//! outer PEC wall (the `geode mesh` starter spec's default), AMS stalls or
+//! drifts (measured: a 65k-edge `geode mesh` spiral drifts at ~2300
+//! iterations; a 228k-edge one stalls at 0.49 after 5000). The same
+//! meshes with the conductors as Leontovich surfaces converge in ~116
+//! iterations. Each floating conductor contributes a near-kernel mode — the
+//! gradient of its own potential — that the grounded-node gradient `G`
+//! cannot represent. Adding one super-node column per floating conductor
+//! was tried and did not restore convergence, so this is reported as an
+//! open limitation. Use Leontovich conductors (or `solver.mode = "direct"`)
+//! for such layouts.
 
 use std::sync::{Arc, OnceLock};
 
@@ -74,28 +98,33 @@ use crate::eigen::ams::{AmsLitePreconditioner, CoarseSolve};
 use crate::eigen::projection::InteriorGradient;
 
 /// Free-node count above which [`AmsCoarseSolve::Auto`] switches the
-/// AMS coarse solve from the exact sparse LU ([`AmsCoarseSolve::Direct`])
-/// to smoothed-aggregation AMG ([`AmsCoarseSolve::Amg`]).
-///
-/// Chosen from the measured coarse-factor memory (see the module docs and
-/// the PR for #744): the vector-nodal `Πᵀ P Π` LU dominates, and at this
-/// node count it is on the order of a few GB — the point beyond which an
-/// exact coarse factor stops being "small next to the edge problem".
-pub const AMS_DIRECT_COARSE_MAX_NODES: usize = 150_000;
+/// gradient-space coarse solve from the exact sparse LU
+/// ([`AmsCoarseSolve::Direct`]) to smoothed-aggregation AMG
+/// ([`AmsCoarseSolve::Amg`]), so that a millions-of-DOF solve does not
+/// silently attempt a multi-GB nodal factor. The nodal LU is a 3-D
+/// Poisson-like factor; see the PR for #744 for its measured memory.
+pub const AMS_DIRECT_COARSE_MAX_NODES: usize = 500_000;
 
-/// Coarse (auxiliary-space) solver used inside the AMS V-cycle.
+/// Symmetric Gauss–Seidel sweeps for the vector-nodal `Πᵀ P Π` coarse
+/// solve (2 sweeps drift on the 53k-edge spiral; 4 converge in the same
+/// iteration count as an exact factor).
+pub const AMS_PI_COARSE_SWEEPS: usize = 4;
+
+/// Gradient-space (`Gᵀ P G`) coarse solver used inside the AMS V-cycle. The
+/// vector-nodal block always uses [`AMS_PI_COARSE_SWEEPS`] symmetric
+/// Gauss–Seidel sweeps.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum AmsCoarseSolve {
     /// [`Self::Direct`] when the free-node count is at most
     /// [`AMS_DIRECT_COARSE_MAX_NODES`], [`Self::Amg`] above it. The default.
     #[default]
     Auto,
-    /// Exact sparse LU of both coarse operators (the measured winner).
+    /// Exact sparse LU of `Gᵀ P G` (the measured winner).
     Direct,
     /// Smoothed-aggregation AMG V-cycle (issue #565).
     Amg,
-    /// Two symmetric Gauss–Seidel sweeps (the eigen path's default; weak
-    /// for the driven operator — kept for measurement).
+    /// Two symmetric Gauss–Seidel sweeps (the eigen path's default; drifts
+    /// on the driven operator — kept for measurement).
     SymmetricGaussSeidel,
 }
 
@@ -163,8 +192,7 @@ impl AmsGeometry {
     }
 
     /// The interior gradient `G` with per-edge vectors attached (so the AMS
-    /// runs the full three-space cycle), augmented with one column per
-    /// floating PEC conductor (see [`floating_conductor_gradient`]).
+    /// runs the full three-space cycle).
     fn gradient(&self, op: &DrivenOperator) -> &InteriorGradient {
         self.gradient.get_or_init(|| {
             let interior_index: Vec<Option<usize>> = op
@@ -181,114 +209,16 @@ impl AmsGeometry {
                     edge_vectors[row] = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
                 }
             }
-            let g = floating_conductor_gradient(
+            InteriorGradient::build(
                 &self.edges,
                 &op.pec_interior_mask,
                 &interior_index,
                 self.nodes.len(),
                 op.n_interior,
-            );
-            InteriorGradient::from_matrix(g).with_edge_vectors(edge_vectors)
+            )
+            .with_edge_vectors(edge_vectors)
         })
     }
-}
-
-/// The interior discrete gradient `G` (`edge_dim × node_dim`) for the
-/// driven AMS, **including floating PEC conductors**.
-///
-/// [`crate::derham::interior_gradient_map`] (the eigen path's `G`) drops
-/// every node touching a PEC edge ("grounded"). That is exact when all PEC
-/// is one body (the outer wall), but a PEC conductor that is *not*
-/// connected to it — a `geode mesh` spiral's PEC-shell traces, for
-/// instance — carries its own floating potential: the field `∇φ` with
-/// `φ = 1` on the conductor (and on no other PEC) is a curl-free interior
-/// edge field, i.e. a near-kernel mode of `K`, that the dropped-node `G`
-/// cannot represent. Each such conductor therefore gets one **super-node**
-/// column (the gradient of its indicator). Grounded nodes are grouped into
-/// conductors by connectivity through PEC edges; the component with the
-/// most nodes is taken as the reference (potential 0) and gets no column,
-/// which keeps `G` full-rank (all components plus all free nodes would
-/// contain the constant).
-fn floating_conductor_gradient(
-    edges: &[[u32; 2]],
-    interior_mask: &[bool],
-    edge_index: &[Option<usize>],
-    n_nodes: usize,
-    edge_dim: usize,
-) -> SparseColMat<usize, f64> {
-    // Union-find over grounded nodes, joined through PEC edges.
-    let mut parent: Vec<usize> = (0..n_nodes).collect();
-    fn find(parent: &mut [usize], mut x: usize) -> usize {
-        while parent[x] != x {
-            parent[x] = parent[parent[x]];
-            x = parent[x];
-        }
-        x
-    }
-    let mut grounded = vec![false; n_nodes];
-    for (e, &keep) in interior_mask.iter().enumerate() {
-        if !keep {
-            let [a, b] = edges[e];
-            let (a, b) = (a as usize, b as usize);
-            grounded[a] = true;
-            grounded[b] = true;
-            let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
-            if ra != rb {
-                parent[ra] = rb;
-            }
-        }
-    }
-    // Component sizes → reference (largest) component.
-    let mut comp_size = vec![0usize; n_nodes];
-    for n in 0..n_nodes {
-        if grounded[n] {
-            let r = find(&mut parent, n);
-            comp_size[r] += 1;
-        }
-    }
-    let reference = (0..n_nodes).max_by_key(|&r| comp_size[r]);
-    // Columns: free nodes first, then one per non-reference conductor.
-    let mut col = vec![None; n_nodes];
-    let mut node_dim = 0usize;
-    for n in 0..n_nodes {
-        if !grounded[n] {
-            col[n] = Some(node_dim);
-            node_dim += 1;
-        }
-    }
-    let mut comp_col = vec![None; n_nodes];
-    for r in 0..n_nodes {
-        if comp_size[r] > 0 && Some(r) != reference {
-            comp_col[r] = Some(node_dim);
-            node_dim += 1;
-        }
-    }
-    for n in 0..n_nodes {
-        if grounded[n] {
-            let r = find(&mut parent, n);
-            col[n] = comp_col[r];
-        }
-    }
-    let mut t: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(2 * edge_dim);
-    for (e, &[a, b]) in edges.iter().enumerate() {
-        let Some(row) = edge_index[e] else {
-            continue;
-        };
-        let (ca, cb) = (col[a as usize], col[b as usize]);
-        // An interior chord between two nodes of the same conductor has
-        // zero gradient of that conductor's indicator.
-        if ca == cb {
-            continue;
-        }
-        if let Some(c) = ca {
-            t.push(Triplet::new(row, c, -1.0));
-        }
-        if let Some(c) = cb {
-            t.push(Triplet::new(row, c, 1.0));
-        }
-    }
-    SparseColMat::try_new_from_triplets(edge_dim, node_dim, &t)
-        .expect("gradient triplets are in range with at most one entry per (edge, column)")
 }
 
 /// A built AMS preconditioner for one ω (see the module docs). Held by
@@ -413,16 +343,14 @@ pub(super) fn build(
         explicit => explicit,
     }
     .resolve(node_dim);
-    let t0 = std::time::Instant::now();
     let p = proxy(op, omega)?;
-    let pi_c = match std::env::var("HACK_PI").ok().as_deref() { Some("amg") => CoarseSolve::Amg, Some("sgs") => CoarseSolve::default(), Some(x) if x.starts_with("sgs") => CoarseSolve::SymmetricGaussSeidel(x[3..].parse().unwrap()), _ => coarse.to_eigen() };
     let ams = AmsLitePreconditioner::build_with_split_coarse(
         gradient,
         p.as_ref(),
         p.as_ref(),
         0.0,
         coarse.to_eigen(),
-        pi_c,
+        CoarseSolve::SymmetricGaussSeidel(AMS_PI_COARSE_SWEEPS),
     )
     .map_err(|e| {
         DrivenError::Solve(format!(
@@ -430,7 +358,6 @@ pub(super) fn build(
             coarse.name()
         ))
     })?;
-    eprintln!("HACK ams setup {:.2}s node_dim={node_dim} coarse={}", t0.elapsed().as_secs_f64(), coarse.name());
     Ok(Arc::new(DrivenAms {
         ams,
         proxy: p,
