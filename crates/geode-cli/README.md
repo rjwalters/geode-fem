@@ -981,10 +981,12 @@ spiral smoke sweep (1–20 GHz, M3 Ultra, 28 cores, release; best of
 three `solver.wall_time_s`, on a shared and busy host, so treat as
 indicative): `--jobs 1` 22.3 s, `--jobs 2` 9.5 s, `--jobs 4` 5.0 s,
 `--jobs 4 --threads 4` 7.2 s. The per-point sparse LU of a 14 k-DOF
-problem does not use many cores, so frequency parallelism wins (2.3×
-at `--jobs 2`, 4.5× at `--jobs 4`). With the cap, plain `--jobs 4`
-(four 7-thread LUs) is now faster than hand-limiting with
-`--threads 4` (four serial LUs).
+problem scales poorly across cores, so the `--jobs 1` baseline is a
+28-thread LU that leaves most of them idle, not a one-core run. That
+is why frequency parallelism can look superlinear (2.3× at
+`--jobs 2`, 4.5× at `--jobs 4`). In this run, plain `--jobs 4` (four
+7-thread LUs) was faster than hand-limiting with `--threads 4` (four
+serial LUs); on a quieter host the ordering may differ.
 
 ### Progress events (`--progress`)
 
