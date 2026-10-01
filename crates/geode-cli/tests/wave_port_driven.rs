@@ -820,6 +820,36 @@ fn mixed_dispersive_fill_matches_constant_eps_at_its_frequency() {
         );
     }
     assert!(reciprocity_err(&sd, n) < 1e-8);
+
+    // Off f_ref the port medium follows ε_r(f) per frequency (issue #777):
+    // each row's β is the filled β at that row's reported ε_r.
+    let sweep = json(&geode(&[
+        "driven",
+        mixed_spec("mixed-ds-sweep", r_ohm, &[2.0, 3.0], |v| {
+            v["materials"] = serde_json::json!([{
+                "physical_group": "guide",
+                "dispersion": {
+                    "model": "djordjevic_sarkar", "eps_r": 1.5, "tan_delta": 0.02,
+                    "f_ref_hz": f_ref
+                }
+            }]);
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let k_c = f64_at(&sweep["wave_ports"][0]["modes"][0]["k_c"]);
+    let mut eps_seen = Vec::new();
+    for r in sweep["results"].as_array().unwrap() {
+        let k0 = f64_at(&r["k0"]);
+        let e = &r["materials"][0]["eps_r"];
+        let eps = faer::c64::new(f64_at(&e[0]), f64_at(&e[1]));
+        let want = geode_core::analytic::waveguide::beta_outgoing_filled(k0, eps, 1.0, 1.0, k_c);
+        let b = &r["wave_channels"][0]["beta"];
+        let got = faer::c64::new(f64_at(&b[0]), f64_at(&b[1]));
+        assert!((got - want).norm() < 1e-12, "k0 = {k0}: β {got} vs {want}");
+        eps_seen.push(eps);
+    }
+    assert!((eps_seen[0] - eps_seen[1]).norm() > 1e-6, "ε_r(f) varies");
 }
 
 #[test]
@@ -859,11 +889,15 @@ fn mixed_anisotropic_fill_runs_through_the_material_tensors() {
         );
     }
 
+    // Transverse-isotropic (issue #777: a wave port needs ε_xx = ε_yy on
+    // its z-normal face; the old xx = 1.2 / yy = 1.6 case is now an
+    // `invalid_spec`, see `wave_port_fill_rejections_are_invalid_spec`),
+    // with ε_zz and μ_zz off the transverse values.
     let aniso = run(
         "mixed-aniso",
         serde_json::json!([{
             "physical_group": "guide",
-            "eps_r_diag": { "xx": [1.2, -0.01], "yy": [1.6, -0.01], "zz": [1.0, -0.01] },
+            "eps_r_diag": { "xx": [1.4, -0.01], "yy": [1.4, -0.01], "zz": [1.0, -0.01] },
             "mu_r_diag": { "xx": 1.0, "yy": 1.0, "zz": 1.3 }
         }]),
     );
@@ -875,6 +909,292 @@ fn mixed_anisotropic_fill_runs_through_the_material_tensors() {
     assert!(
         (sa[1] - ss[1]).norm() > 1e-3,
         "the anisotropy must actually change the network"
+    );
+    // The port takes the transverse ε / μ and the axial μ:
+    // β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c², with the solver's k_c.
+    let medium = &aniso["wave_ports"][0]["medium"];
+    assert_eq!(medium["eps_r_t"], serde_json::json!([1.4, -0.01]));
+    assert_eq!(
+        (f64_at(&medium["mu_r_t"]), f64_at(&medium["mu_r_n"])),
+        (1.0, 1.3)
+    );
+    let k_c = f64_at(&aniso["wave_ports"][0]["modes"][0]["k_c"]);
+    let want = faer::c64::new(k0 * k0 * 1.4 - k_c * k_c / 1.3, -k0 * k0 * 0.01).sqrt();
+    let beta = &aniso["results"][0]["wave_channels"][0]["beta"];
+    let got = faer::c64::new(f64_at(&beta[0]), f64_at(&beta[1]));
+    assert!((got - want).norm() < 1e-12, "β {got} vs {want}");
+    assert!(got.im < 0.0, "lossy fill: decaying outgoing branch");
+}
+
+// ---------------------------------------------------------------------
+// Filled wave ports (issue #777)
+// ---------------------------------------------------------------------
+
+/// Relative permittivity of the filled-guide tests.
+const EPS_FILL: f64 = 2.2;
+
+/// Filled TE₁₀ `β = √(ε_r k₀² − (π/a)²)` (analytic cutoff).
+fn beta_filled(k0: f64) -> f64 {
+    let kc = std::f64::consts::PI / A;
+    (EPS_FILL * k0 * k0 - kc * kc).sqrt()
+}
+
+#[test]
+fn dielectric_filled_wave_ports_follow_the_filled_beta() {
+    // An ε_r = 2.2 guide between two wave ports, single-mode over k₀ ∈
+    // {1.3, 1.6, 1.9} (filled TE₁₀ cutoff ≈ 1.059, TE₂₀ / TE₀₁ ≈ 2.118).
+    // At k₀ = 1.3 a vacuum port is below its own cutoff (π/2), so this
+    // fails on the pre-#777 vacuum ports.
+    let fill = |v: &mut serde_json::Value| {
+        v["materials"] =
+            serde_json::json!([{ "physical_group": "guide", "eps_r": [EPS_FILL, 0.0] }]);
+        v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [1.3, 1.6, 1.9] });
+    };
+    let v = json(&geode(&["driven", spec("filled", fill).to_str().unwrap()]));
+    let wp = &v["wave_ports"][0];
+    assert_eq!(
+        wp["medium"]["physical_groups"],
+        serde_json::json!(["guide"])
+    );
+    assert_eq!(wp["medium"]["eps_r_t"], serde_json::json!([EPS_FILL, 0.0]));
+    // The reported cutoff is the filled one, k_c/√ε_r.
+    let m = &wp["modes"][0];
+    let k_c = f64_at(&m["k_c"]);
+    let c = geode_core::constants::C_M_PER_S;
+    let want_f_c = k_c / EPS_FILL.sqrt() * c / (2.0 * std::f64::consts::PI * LENGTH_UNIT_M);
+    let f_c = f64_at(&m["cutoff_hz"]);
+    assert!(
+        (f_c - want_f_c).abs() / want_f_c < 1e-12,
+        "{f_c} vs {want_f_c}"
+    );
+
+    for r in v["results"].as_array().unwrap() {
+        let k0 = f64_at(&r["k0"]);
+        let ch = &r["wave_channels"][0];
+        assert_eq!(ch["propagating"], true);
+        let beta = f64_at(&ch["beta"][0]);
+        assert_eq!(f64_at(&ch["beta"][1]), 0.0, "lossless fill: real β");
+        assert!((beta - (k0 * k0 * EPS_FILL - k_c * k_c).sqrt()).abs() < 1e-12);
+        let (s, _) = s_matrix(r);
+        let want = faer::c64::new((-beta * LEN).cos(), (-beta * LEN).sin());
+        eprintln!(
+            "filled k0 = {k0}: β = {beta:.5} (analytic {:.5}), |S11| = {:.4e}, |S21| = {:.5}, \
+             |S21 − e^(−jβL)| = {:.3e}",
+            beta_filled(k0),
+            s[0].norm(),
+            s[2].norm(),
+            (s[2] - want).norm()
+        );
+        assert!((beta - beta_filled(k0)).abs() / beta_filled(k0) < 0.05);
+        assert!((s[2].norm() - 1.0).abs() < 0.02, "|S21| = {}", s[2].norm());
+        assert!(s[0].norm() < 0.03, "|S11| = {}", s[0].norm());
+        assert!((s[2] - want).norm() < 0.05, "S21 {} vs {want}", s[2]);
+        assert!(reciprocity_err(&s, 2) < 1e-8);
+    }
+
+    // A transverse-isotropic tensor fill (ε = diag(1.4, 1.4, 1.0), μ =
+    // diag(1.2, 1.2, 1.5) on the z-normal ports): ε_zz does not enter,
+    // μ_zz does through β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c², and the port is
+    // matched through the admittance β/μ_t.
+    let v = json(&geode(&[
+        "driven",
+        spec("filled-tensor", |v| {
+            v["materials"] = serde_json::json!([{
+                "physical_group": "guide",
+                "eps_r_diag": { "xx": [1.4, 0.0], "yy": [1.4, 0.0], "zz": [1.0, 0.0] },
+                "mu_r_diag": { "xx": 1.2, "yy": 1.2, "zz": 1.5 }
+            }]);
+            v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [1.6] });
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let medium = &v["wave_ports"][1]["medium"];
+    assert_eq!(medium["eps_r_t"], serde_json::json!([1.4, 0.0]));
+    assert_eq!(
+        (f64_at(&medium["mu_r_t"]), f64_at(&medium["mu_r_n"])),
+        (1.2, 1.5)
+    );
+    let r = &v["results"][0];
+    let beta = f64_at(&r["wave_channels"][0]["beta"][0]);
+    let kc = std::f64::consts::PI / A;
+    let want_beta = (1.6_f64 * 1.6 * 1.4 * 1.2 - 1.2 / 1.5 * kc * kc).sqrt();
+    let (s, _) = s_matrix(r);
+    let want = faer::c64::new((-beta * LEN).cos(), (-beta * LEN).sin());
+    eprintln!(
+        "tensor fill: β = {beta:.5} (analytic {want_beta:.5}), |S11| = {:.4e}, |S21| = {:.5}",
+        s[0].norm(),
+        s[2].norm()
+    );
+    assert!((beta - want_beta).abs() / want_beta < 0.05);
+    assert!((s[2].norm() - 1.0).abs() < 0.02, "|S21| = {}", s[2].norm());
+    assert!(s[0].norm() < 0.03, "|S11| = {}", s[0].norm());
+    assert!((s[2] - want).norm() < 0.05, "S21 {} vs {want}", s[2]);
+}
+
+#[test]
+fn dielectric_filled_mixed_sheet_follows_closed_form() {
+    // Wave port in, full-face lumped sheet out, ε_r = 2.2 throughout:
+    // the sheet matches the filled TE₁₀ at k₀ = 1.6, R = η₀·(k₀μ_t/β)·(b/a).
+    let eta0 = geode_core::constants::ETA_0_OHM;
+    let r_ohm = eta0 * (1.6 / beta_filled(1.6)) * B_DIM / A;
+    let v = json(&geode(&[
+        "driven",
+        mixed_spec("mixed-filled", r_ohm, &[1.3, 1.6, 1.9], |v| {
+            v["materials"] =
+                serde_json::json!([{ "physical_group": "guide", "eps_r": [EPS_FILL, 0.0] }]);
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let z_s = r_ohm / eta0 * A / B_DIM;
+    for r in v["results"].as_array().unwrap() {
+        let k0 = f64_at(&r["k0"]);
+        let ch = &r["wave_channels"][0];
+        assert_eq!(ch["propagating"], true);
+        // Z_TE = k₀μ_t/β from the reported (filled) β.
+        let z_te = k0 / f64_at(&ch["beta"][0]);
+        let gamma = ((z_s - z_te) / (z_s + z_te)).abs();
+        let (s, n) = s_matrix(r);
+        let s_ww = s[3].norm();
+        let t2 = s[1].norm_sqr();
+        let want_t2 = TE10_UNIFORM_FRACTION * (1.0 - gamma * gamma);
+        let sig = sigma_max_2x2(&s);
+        eprintln!(
+            "filled mixed k0 = {k0}: |S_ww| = {s_ww:.4} vs |Γ| = {gamma:.4}; |S_lw|² = \
+             {t2:.4} vs {want_t2:.4}; σ_max = {sig:.6}"
+        );
+        assert!((s_ww - gamma).abs() < 0.03, "|S_ww| {s_ww} vs {gamma}");
+        assert!((t2 - want_t2).abs() < 0.03, "|S_lw|² {t2} vs {want_t2}");
+        assert!(reciprocity_err(&s, n) < 1e-8, "reciprocity");
+        assert!(sig <= 1.0 + 1e-6, "passivity: σ_max = {sig}");
+    }
+    let (s, _) = s_matrix(&v["results"][1]);
+    assert!(s[3].norm() < 0.05, "matched |S_ww| = {}", s[3].norm());
+}
+
+/// The synthetic guide with its tets split at `x = a/2` into volume
+/// groups `left` / `right`, as a two-wave-port spec `edit`ed.
+fn split_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> ScratchFile {
+    let dir = scratch(name);
+    let g = extruded_rect_waveguide_mesh(8, 4, 4, A, B_DIM, LEN);
+    let (left, right): (Vec<[u32; 4]>, Vec<[u32; 4]>) =
+        g.mesh.tets.iter().partition(|t| {
+            t.iter().map(|&n| g.mesh.nodes[n as usize][0]).sum::<f64>() / 4.0 < A / 2.0
+        });
+    let msh = write_msh_volumes(
+        &g.mesh.nodes,
+        &[(1, "left", &left), (2, "right", &right)],
+        &[
+            (11, "port_in", &g.port1_faces),
+            (12, "port_out", &g.port2_faces),
+            (13, "walls", &g.sidewall_faces),
+        ],
+    );
+    let mesh = dir.join("split.msh");
+    std::fs::write(&mesh, msh).unwrap();
+    let mut v = serde_json::json!({
+        "schema_version": 1,
+        "mesh": { "path": mesh.display().to_string(), "length_unit_m": LENGTH_UNIT_M },
+        "boundary_conditions": { "pec": ["walls"] },
+        "wave_ports": [
+            { "physical_group": "port_in" },
+            { "physical_group": "port_out" }
+        ],
+        "frequencies": { "unit": "k0", "values": [1.6] }
+    });
+    edit(&mut v);
+    ScratchFile::write_in(dir, "spec.json", serde_json::to_string_pretty(&v).unwrap())
+}
+
+#[test]
+fn wave_port_fill_rejections_are_invalid_spec() {
+    // (a) An inhomogeneous port face (a partially filled guide: hybrid
+    // modes, issue #778).
+    let out = geode(&[
+        "check",
+        split_spec("split-inhomogeneous", |v| {
+            v["materials"] =
+                serde_json::json!([{ "physical_group": "left", "eps_r": [EPS_FILL, 0.0] }]);
+        })
+        .to_str()
+        .unwrap(),
+    ]);
+    let msg = error_message(&out, "check", "invalid_spec");
+    assert!(
+        msg.contains("`port_in`")
+            && msg.contains("more than one material")
+            && msg.contains("`left`, `right`")
+            && msg.contains("#778"),
+        "{msg}"
+    );
+    // ... but two groups with the same material by value are one fill.
+    let v = json(&geode(&[
+        "check",
+        split_spec("split-same", |v| {
+            v["materials"] = serde_json::json!([
+                { "physical_group": "left", "eps_r": [EPS_FILL, 0.0] },
+                { "physical_group": "right", "eps_r": [EPS_FILL, 0.0] }
+            ]);
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let medium = &v["wave_ports"][0]["medium"];
+    assert_eq!(
+        medium["physical_groups"],
+        serde_json::json!(["left", "right"])
+    );
+    assert_eq!(medium["eps_r_t"], serde_json::json!([EPS_FILL, 0.0]));
+
+    // (b) Unequal transverse tensor components on a z-normal port (the
+    // pre-#777 `mixed_anisotropic_fill…` case), for ε and for μ.
+    for (what, material) in [
+        (
+            "eps_r_diag.xx and eps_r_diag.yy",
+            serde_json::json!({
+                "physical_group": "guide",
+                "eps_r_diag": { "xx": [1.2, -0.01], "yy": [1.6, -0.01], "zz": [1.0, -0.01] },
+                "mu_r_diag": { "xx": 1.0, "yy": 1.0, "zz": 1.3 }
+            }),
+        ),
+        (
+            "mu_r_diag.xx and mu_r_diag.yy",
+            serde_json::json!({
+                "physical_group": "guide",
+                "mu_r_diag": { "xx": 1.0, "yy": 1.2, "zz": 1.0 }
+            }),
+        ),
+    ] {
+        let out = geode(&[
+            "check",
+            spec("aniso-transverse", |v| {
+                v["materials"] = serde_json::json!([material])
+            })
+            .to_str()
+            .unwrap(),
+        ]);
+        let msg = error_message(&out, "check", "invalid_spec");
+        assert!(
+            msg.contains("`port_in`") && msg.contains(what) && msg.contains("normal to z"),
+            "{msg}"
+        );
+    }
+
+    // (c) A port face on an absorbing region's stretched shell.
+    let out = geode(&[
+        "check",
+        spec("port-on-upml", |v| {
+            v["absorbing_regions"] =
+                serde_json::json!([{ "physical_group": "guide", "thickness": 0.3, "sigma_0": 25.0 }]);
+        })
+        .to_str()
+        .unwrap(),
+    ]);
+    let msg = error_message(&out, "check", "invalid_spec");
+    assert!(
+        msg.contains("`port_in`") && msg.contains("absorbing region `guide`"),
+        "{msg}"
     );
 }
 
