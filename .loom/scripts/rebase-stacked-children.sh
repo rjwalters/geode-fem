@@ -106,7 +106,24 @@ fi
 source "$SCRIPT_DIR/lib/forge-helpers.sh"
 forge_detect
 
+# Verifies the actual post-push ref state when a --force-with-lease push
+# reports a rejection (#6695) — see lib/push-lease-verify.sh for why this
+# is needed (Git LFS pre-push hook racing the lease re-check).
+# shellcheck source=lib/push-lease-verify.sh
+source "$SCRIPT_DIR/lib/push-lease-verify.sh"
+
+# Ref-operand validator (#9106). REQUIRED, not defensive: every git call in this
+# script takes a branch name as a bare operand, and the child names come
+# straight off the forge (`gh pr list --json headRefName`). A missing validator
+# must stop the run, never degrade it to the unvalidated behaviour.
+# shellcheck source=lib/default-branch.sh
+source "$SCRIPT_DIR/lib/default-branch.sh"
+
 REPO_NWO="$(forge_get_repo_nwo "gh" 2>/dev/null || true)"
+# #9548: a real run pushes child branches and comments on child PRs, so it acts
+# only on a repo this installation manages and can write. forge_get_repo_nwo is
+# `gh repo view`, which prefers an `upstream` remote; the vetted repo replaces it.
+[[ "$DRY_RUN" == "true" ]] || REPO_NWO="$(loom_write_repo "${LOOM_REPO:-}")" || { err "Refusing: loom-daemon forge may-write refused this checkout's repo (#9548)."; exit 1; }
 
 # ---- core reconciliation functions (extracted by tests) ----
 # Execute a mutating command, or (under --dry-run) print what would run without
@@ -126,9 +143,20 @@ run() {
 _process_one_stacked_child() {
     local child_pr="$1" child_branch="$2" parent_branch="$3"
 
+    # #9106: $child_branch is the forge's `headRefName` for this PR — attacker-
+    # controlled. Validate BEFORE the fetch below (and therefore before the
+    # rebase/push further down), and skip this child on refusal rather than
+    # letting git parse the name as a switch. $parent_branch was already
+    # validated once at the top of the script.
+    if ! check_branch_name "$child_branch" "head branch of child PR #$child_pr"; then
+        warn "Skipping child PR #$child_pr (#9106) — no git command ran on its head branch."
+        RSC_FAILURE=2; return 0
+    fi
+
     # Fetch the parent + child tips so the staleness check reflects the current
     # remote state, not a stale local view. Read-only w.r.t. the remote.
-    if ! git fetch origin "$parent_branch" "$child_branch" >/dev/null 2>&1; then
+    # `--` ends option parsing: defence in depth behind check_branch_name.
+    if ! git fetch origin -- "$parent_branch" "$child_branch" >/dev/null 2>&1; then
         warn "Could not fetch origin refs for '$parent_branch' / '$child_branch' — skipping child PR #$child_pr"
         return 0
     fi
@@ -190,22 +218,48 @@ Parent branch \`$parent_branch\` advanced (amended/pushed) after this child bran
     # force-push. NO PR base retarget (unlike reconcile-stack.sh's post-merge
     # case): the parent has not merged, so the child stays stacked on it.
     info "Child PR #$child_pr ($child_branch) is stale relative to '$parent_branch' — rebasing onto origin/$parent_branch"
-    if ! run git rebase "origin/$parent_branch" "$child_branch"; then
+    if ! run git rebase -- "origin/$parent_branch" "$child_branch"; then
         err "Rebase of '$child_branch' onto 'origin/$parent_branch' hit a conflict."
-        echo "    Resolve it, then finish manually:" >&2
-        echo "    git rebase origin/$parent_branch $child_branch   # then, after resolving each conflict:" >&2
-        echo "    git rebase --continue" >&2
-        echo "    git push --force-with-lease" >&2
+        printf '    Resolve it, then finish manually:\n    git rebase origin/%s %s   # then, after resolving each conflict:\n    git rebase --continue\n    git push --force-with-lease\n' "$parent_branch" "$child_branch" >&2
         # Abort the conflicted rebase so the remaining children can still process
         # (best-effort; the whole run is not aborted by one child's conflict).
         git rebase --abort >/dev/null 2>&1 || true
         RSC_FAILURE=2
         return 0
     fi
+
+    # Version-bearing-file sync gate (#7168): a rebase silently absorbs
+    # whatever version-bearing values origin/$parent_branch already had. A
+    # file the child's own commits never touched (in practice
+    # .loom/install-metadata.json) never raises a git conflict, so it can
+    # end up stale relative to VERSION/the files that WERE part of the
+    # conflict-free merge -- invisible until CI's "Installer Integration
+    # Tests" fails. `git rebase <upstream> <branch>` (used above) checks out
+    # $child_branch first, so the working tree here already reflects the
+    # rebased child -- skipped under --dry-run since no rebase actually ran.
+    if [[ "$DRY_RUN" != "true" ]] && [[ -x "$SCRIPT_DIR/version-check-gate.sh" ]]; then
+        if ! "$SCRIPT_DIR/version-check-gate.sh" --fix-hint "then push."; then
+            err "Version-bearing files are out of sync for '$child_branch' after rebase onto '$parent_branch' (see BLOCKER:/Fix: above)."
+            RSC_FAILURE=2
+            return 0
+        fi
+    fi
+
     if ! run git push --force-with-lease; then
-        err "force-with-lease push rejected for '$child_branch' (someone else pushed). Fetch, review, and retry."
-        RSC_FAILURE=2
-        return 0
+        # A reported rejection is not always a real one (#6695): Git LFS's
+        # pre-push hook can race the lease re-check on a branch with pending
+        # LFS objects, so the ref update lands while the printed rejection
+        # reflects a stale read. Verify the LIVE remote ref before trusting
+        # the reported failure.
+        local push_race_sha
+        push_race_sha="$(git rev-parse "$child_branch" 2>/dev/null || true)"
+        if [[ "$DRY_RUN" != "true" ]] && push_landed_despite_rejection origin "$child_branch" "$push_race_sha"; then
+            warn "PUSH-LEASE-RACE-DETECTED: push --force-with-lease reported a rejection for '$child_branch', but origin already reflects the update ($push_race_sha) — likely the Git LFS pre-push hook racing the lease re-check (#6695). Treating as landed and continuing."
+        else
+            err "force-with-lease push rejected for '$child_branch' (someone else pushed). Fetch, review, and retry."
+            RSC_FAILURE=2
+            return 0
+        fi
     fi
     ok "Rebased child PR #$child_pr ($child_branch) onto origin/$parent_branch and force-pushed (base unchanged, still stacked on $parent_branch)"
     return 0
@@ -256,6 +310,13 @@ if [[ "$DRY_RUN" != "true" ]] \
     err "Working tree is dirty. Commit, stash, or discard changes before rebasing stacked children."
     exit 1
 fi
+
+# #9106: validate the parent branch ONCE, before any git/gh call can consume it
+# as a bare operand. It reaches `git fetch origin -- <parent> <child>` and
+# `git rebase -- origin/<parent> <child>` below; a name git would parse as a
+# switch is an injection attempt (or a broken caller), not a data error, so the
+# whole run refuses with a named reason rather than skipping quietly.
+check_branch_name "$PARENT_BRANCH" "parent branch argument" || exit 1
 
 RSC_FAILURE=0
 _rebase_stacked_children "$PARENT_BRANCH"
