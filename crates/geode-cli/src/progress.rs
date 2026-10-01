@@ -41,16 +41,24 @@
 //! factorization (at least 1), where `T` is `--threads` or, without it,
 //! the core count. So `--jobs 4` on a 28-core machine runs four 7-thread
 //! factorizations rather than four that each ask for 28 (issue #747).
-//! `--jobs 1` is unchanged. faer's parallel LU differs across thread
-//! counts only at roundoff, so `--jobs 2 --threads 4` is bit-identical
-//! to `--jobs 1 --threads 2`.
+//! The same per-job budget sizes the host-side assembly pool each worker
+//! builds for its own `absorbing_regions` operator (issue #755).
+//! `--jobs 1` is unchanged.
+//!
+//! Reproducibility: faer's sparse LU is deterministic for a given thread
+//! count, but a different thread count may round differently. Results are
+//! therefore bit-identical across `--jobs` settings exactly when each
+//! factorization gets the same thread count: `--jobs 2 --threads 4`
+//! (two 2-thread factorizations) matches `--jobs 1 --threads 2`, while
+//! `--jobs 2` and `--jobs 1` at the same `--threads` may differ at
+//! roundoff.
 
 use std::io::Write;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
-use geode_core::eigen::parallel::{ParallelismGuard, resolve_num_threads};
+use geode_core::eigen::parallel::{ParallelismGuard, resolve_num_threads, with_thread_budget};
 use serde_json::{Map, Value, json};
 
 use crate::error::CliError;
@@ -119,11 +127,13 @@ impl Progress {
 /// the completed calls is returned (deterministic for a failure that does
 /// not depend on scheduling).
 ///
-/// In parallel, the faer factorization thread budget
-/// ([`resolve_num_threads`]: `--threads`, else every core) is split
-/// across the workers for the duration of the call — each concurrent
-/// factorization gets `budget / workers` threads (at least 1, i.e.
-/// serial) instead of every one claiming the whole budget (issue #747).
+/// In parallel, the thread budget ([`resolve_num_threads`]: `--threads`,
+/// else every core) is split across the workers for the duration of the
+/// call — each concurrent factorization gets `budget / workers` threads
+/// (at least 1, i.e. serial) instead of every one claiming the whole
+/// budget (issue #747), and each worker runs under
+/// [`with_thread_budget`] so host-side assembly pools built inside `f`
+/// (the per-frequency UPML operator) are sized the same way (issue #755).
 /// The serial path is untouched.
 pub fn par_map<T: Send>(
     n: usize,
@@ -134,27 +144,32 @@ pub fn par_map<T: Send>(
         return (0..n).map(f).collect();
     }
     let workers = jobs.min(n);
-    let _par = ParallelismGuard::cap(per_job_threads(resolve_num_threads(), workers));
+    let per_job = per_job_threads(resolve_num_threads(), workers);
+    let _par = ParallelismGuard::cap(per_job);
     let next = AtomicUsize::new(0);
     let failed = AtomicBool::new(false);
     let slots: Mutex<Vec<Option<Result<T, CliError>>>> = Mutex::new((0..n).map(|_| None).collect());
     std::thread::scope(|scope| {
         for _ in 0..workers {
+            // The per-worker budget also sizes any host-side pool the
+            // worker builds (the per-frequency UPML assembly, issue #755).
             scope.spawn(|| {
-                loop {
-                    if failed.load(Ordering::Relaxed) {
-                        break;
+                with_thread_budget(per_job, || {
+                    loop {
+                        if failed.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        if i >= n {
+                            break;
+                        }
+                        let r = f(i);
+                        if r.is_err() {
+                            failed.store(true, Ordering::Relaxed);
+                        }
+                        slots.lock().expect("par_map slot lock")[i] = Some(r);
                     }
-                    let i = next.fetch_add(1, Ordering::Relaxed);
-                    if i >= n {
-                        break;
-                    }
-                    let r = f(i);
-                    if r.is_err() {
-                        failed.store(true, Ordering::Relaxed);
-                    }
-                    slots.lock().expect("par_map slot lock")[i] = Some(r);
-                }
+                })
             });
         }
     });
@@ -195,6 +210,19 @@ mod tests {
             assert_eq!(out, (0..17).map(|i| i * i).collect::<Vec<_>>());
         }
         assert!(par_map(0, 4, Ok).unwrap().is_empty());
+    }
+
+    /// Each parallel worker sees the per-job budget through
+    /// `resolve_num_threads` (so assembly pools inside `f` are capped);
+    /// the serial path and the caller's thread see the full budget.
+    #[test]
+    fn par_map_workers_see_the_per_job_budget() {
+        let total = resolve_num_threads();
+        let seen = par_map(6, 2, |_| Ok(resolve_num_threads())).unwrap();
+        assert!(seen.iter().all(|&t| t == per_job_threads(total, 2)));
+        let serial = par_map(3, 1, |_| Ok(resolve_num_threads())).unwrap();
+        assert!(serial.iter().all(|&t| t == total));
+        assert_eq!(resolve_num_threads(), total);
     }
 
     #[test]

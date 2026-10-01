@@ -22,25 +22,36 @@
 //!    that also call faer routines. In this crate the eigensolve owns the
 //!    factorization scope, so we set the global exactly around `sp_lu` and
 //!    restore it immediately afterward.
-//! 2. It must be reverted to serial before the single-RHS triangular-solve
-//!    loop, where rayon is measurably *slower* (the per-solve work is
-//!    latency-bound). Scoping the guard tightly around the factorization
-//!    (not the whole Lanczos loop) achieves exactly this.
+//! 2. The factorization's thread count should not leak into the single-RHS
+//!    triangular-solve loop, where rayon is measurably *slower* (the per-solve
+//!    work is latency-bound). Scoping the guard tightly around the
+//!    factorization (not the whole Lanczos loop) restores the prior global
+//!    afterward. Note that the prior global is whatever the process had set;
+//!    faer 0.24's own default is `Par::rayon(0)` (every core), not serial.
 //!
 //! # RAII, panic-safety, and the correctness gate
 //!
 //! [`ParallelismGuard`] records the prior global parallelism on construction,
-//! sets `Par::rayon(n)`, and restores the prior value on `Drop`. Because
+//! sets the requested parallelism ([`ParallelismGuard::cap`]: `Par::Seq` for
+//! `n <= 1`, `Par::rayon(n)` otherwise), and restores the prior value on
+//! `Drop`. Because
 //! `Drop` runs during stack unwinding, the prior value is restored **even if
 //! the factorization panics** — the process is never left in a globally
 //! parallel state by accident.
 //!
-//! The number of threads is fixed for a given factorization but does **not**
-//! change the arithmetic: faer's sparse LU is a deterministic factorization
-//! whose result is independent of the thread count. The eigenvalues are
-//! therefore identical (within the existing tolerance) whether run at 1 or N
-//! threads; see the cross-thread agreement tests in [`crate::eigen::lanczos`]
-//! and [`crate::eigen::complex::SparseComplexShiftInvertLanczos`].
+//! The eigensolves use [`ParallelismGuard::cap`], so `GEODE_NUM_THREADS=1`
+//! really does give a serial factorization (faer's global default is every
+//! core, so leaving the global untouched would not). For a **fixed** thread
+//! count faer's sparse LU is deterministic, so repeated runs at the same
+//! count are bit-identical. Across **different** thread counts the result is
+//! not guaranteed to be bit-identical: a parallel factorization may group
+//! floating-point operations differently, so eigenvalues can differ at
+//! roundoff (well inside the solver tolerance). On the small pencils in the
+//! cross-thread agreement tests ([`crate::eigen::lanczos`] and
+//! [`crate::eigen::complex::SparseComplexShiftInvertLanczos`]) serial and
+//! 4-thread factorizations do agree bit-for-bit, and those tests assert it as
+//! a determinism tripwire, but larger problems should be compared within
+//! tolerance.
 //!
 //! # When faer is built without `rayon`
 //!
@@ -49,6 +60,7 @@
 //! leaves the (already serial) global parallelism untouched, so callers do
 //! not need to feature-gate their use of it.
 
+use std::cell::Cell;
 use std::env;
 
 use faer::{Par, get_global_parallelism, set_global_parallelism};
@@ -71,23 +83,58 @@ pub const NUM_THREADS_ENV: &str = "GEODE_NUM_THREADS";
 #[cfg(test)]
 pub(crate) static PARALLELISM_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+thread_local! {
+    /// Per-thread override installed by [`with_thread_budget`].
+    static THREAD_BUDGET: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
 /// Resolve the number of threads faer should use for the factorization.
 ///
 /// Precedence:
-/// 1. `GEODE_NUM_THREADS`, if set to a parseable positive integer.
-/// 2. [`std::thread::available_parallelism`] (physical/logical core count).
-/// 3. `1` as a last resort if the platform cannot report a core count.
+/// 1. A per-thread budget installed by [`with_thread_budget`] on the
+///    calling thread (used when several solves run concurrently).
+/// 2. `GEODE_NUM_THREADS`, if set to a parseable positive integer.
+/// 3. [`std::thread::available_parallelism`] (physical/logical core count).
+/// 4. `1` as a last resort if the platform cannot report a core count.
 ///
 /// A value of `0` or an unparseable value falls through to the core-count
 /// default rather than being treated as "serial" — request one thread
 /// explicitly (`GEODE_NUM_THREADS=1`) for the single-threaded path.
 pub fn resolve_num_threads() -> usize {
+    if let Some(n) = THREAD_BUDGET.with(Cell::get) {
+        return n;
+    }
     match parse_num_threads(env::var(NUM_THREADS_ENV).ok().as_deref()) {
         Some(n) => n,
         None => std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1),
     }
+}
+
+/// Run `f` with [`resolve_num_threads`] returning `n.max(1)` **on the
+/// calling thread**, restoring the previous value afterward (also on panic).
+///
+/// This is the per-worker thread budget for callers that run several solves
+/// concurrently on their own threads (the CLI's `--jobs`, issues #747/#755).
+/// Every host-side pool sized from [`resolve_num_threads`] (the Nédélec
+/// sparsity / scatter-map build via [`install_on_pool`]) and every
+/// factorization guarded with `ParallelismGuard::cap(resolve_num_threads())`
+/// inside `f` then takes only its share of the cores, instead of each
+/// concurrent worker asking for the whole machine.
+///
+/// The override is thread-local: it does not propagate to threads that `f`
+/// spawns, and it does not touch faer's process-global parallelism (pair it
+/// with a [`ParallelismGuard::cap`] for that).
+pub fn with_thread_budget<R>(n: usize, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<usize>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            THREAD_BUDGET.with(|b| b.set(self.0));
+        }
+    }
+    let _restore = Restore(THREAD_BUDGET.with(|b| b.replace(Some(n.max(1)))));
+    f()
 }
 
 /// Run `f` on a scoped rayon thread pool of exactly `n_threads` workers,
@@ -155,14 +202,16 @@ fn parse_num_threads(raw: Option<&str>) -> Option<usize> {
 ///
 /// ```ignore
 /// let lu = {
-///     let _par = ParallelismGuard::rayon(resolve_num_threads());
+///     let _par = ParallelismGuard::cap(resolve_num_threads());
 ///     a.as_ref().sp_lu()?
 /// }; // prior global parallelism restored here, even on panic
 /// ```
 ///
-/// The guard is a no-op when `n <= 1`, or when faer is compiled without its
-/// `rayon` feature (in which case `Par::Rayon` does not exist and the global
-/// is left at its serial default).
+/// Prefer [`ParallelismGuard::cap`], which makes `n <= 1` serial. The legacy
+/// [`ParallelismGuard::rayon`] constructor leaves the global untouched for
+/// `n <= 1`. Both are no-ops when faer is compiled without its `rayon`
+/// feature, in which case `Par::Rayon` does not exist and the global is
+/// already serial.
 #[derive(Debug)]
 #[must_use = "the guard restores parallelism on drop; binding it to `_` drops it immediately"]
 pub struct ParallelismGuard {
@@ -176,10 +225,11 @@ pub struct ParallelismGuard {
 impl ParallelismGuard {
     /// Record the current global parallelism, then set `Par::rayon(n)`.
     ///
-    /// `n` is the number of threads. `n <= 1` leaves the global untouched
-    /// (the serial default), so a caller can pass `resolve_num_threads()`
-    /// unconditionally and get single-threaded behavior for
-    /// `GEODE_NUM_THREADS=1`.
+    /// `n` is the number of threads. `n <= 1` leaves the global **untouched**,
+    /// and faer 0.24's global default is `Par::rayon(0)` (every core), so with
+    /// the default global this does **not** give a serial factorization for
+    /// `GEODE_NUM_THREADS=1`. Use [`ParallelismGuard::cap`] when `1` must
+    /// mean serial; every in-tree factorization call site does.
     pub fn rayon(n: usize) -> Self {
         let prior = get_global_parallelism();
         let changed = Self::try_set_rayon(n);
@@ -297,7 +347,8 @@ mod tests {
             "global parallelism not restored after a panicking scope"
         );
 
-        // 3. Requesting a single thread must not change the global at all.
+        // 3. `rayon(1)` must not change the global at all (it is not a
+        //    serial request; use `cap(1)` for that).
         {
             let _g = ParallelismGuard::rayon(1);
             assert_eq!(
@@ -347,5 +398,25 @@ mod tests {
     #[test]
     fn resolve_num_threads_is_positive() {
         assert!(resolve_num_threads() >= 1);
+    }
+
+    /// `with_thread_budget` overrides `resolve_num_threads` on the calling
+    /// thread only, nests, clamps 0 to 1, and restores on exit and on panic.
+    #[test]
+    fn thread_budget_overrides_and_restores() {
+        let ambient = resolve_num_threads();
+        assert_eq!(with_thread_budget(3, resolve_num_threads), 3);
+        assert_eq!(with_thread_budget(0, resolve_num_threads), 1);
+        with_thread_budget(5, || {
+            assert_eq!(with_thread_budget(2, resolve_num_threads), 2);
+            assert_eq!(resolve_num_threads(), 5);
+            // Not inherited by other threads.
+            let other = std::thread::spawn(resolve_num_threads).join().unwrap();
+            assert_eq!(other, ambient);
+        });
+        assert_eq!(resolve_num_threads(), ambient);
+        let r = std::panic::catch_unwind(|| with_thread_budget(7, || panic!("boom")));
+        assert!(r.is_err());
+        assert_eq!(resolve_num_threads(), ambient);
     }
 }

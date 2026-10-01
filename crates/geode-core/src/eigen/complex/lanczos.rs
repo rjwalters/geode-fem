@@ -364,10 +364,11 @@ impl SparseComplexShiftInvertLanczos {
         //    parallelism to this factorization only (issue #518): rayon
         //    speeds up the complex sparse LU but regresses the latency-bound
         //    single-RHS triangular solves in the Lanczos loop, and the guard
-        //    restores serial parallelism on drop.
+        //    restores the prior global parallelism on drop. `cap` makes
+        //    `n_threads == 1` a serial factorization.
         let a = shifted_pencil_complex(k, m, self.sigma)?;
         let lu = {
-            let _par = ParallelismGuard::rayon(n_threads);
+            let _par = ParallelismGuard::cap(n_threads);
             a.as_ref()
                 .sp_lu()
                 .map_err(|e| EigenError::FaerGevd(format!("complex sparse LU: {e:?}")))?
@@ -587,7 +588,7 @@ impl SparseComplexShiftInvertLanczos {
         //    sibling above for the rayon-regresses-the-solves rationale.
         let a = shifted_pencil_complex(k, m, self.sigma)?;
         let lu = {
-            let _par = ParallelismGuard::rayon(resolve_num_threads());
+            let _par = ParallelismGuard::cap(resolve_num_threads());
             a.as_ref()
                 .sp_lu()
                 .map_err(|e| EigenError::FaerGevd(format!("complex sparse LU: {e:?}")))?

@@ -39,16 +39,18 @@
 //! process-global `AtomicUsize` (`set_global_parallelism` /
 //! `get_global_parallelism`, no per-call `Par` argument), so it (a) races
 //! other threads in the same process — the driven/assembly paths also call
-//! `sp_lu`/`solve_in_place` — and (b) must be reverted to serial before the
-//! single-RHS triangular-solve loop, where rayon is measurably *slower*
+//! `sp_lu`/`solve_in_place` — and (b) should not leak into the single-RHS
+//! triangular-solve loop, where rayon is measurably *slower*
 //! (latency-bound). Both concerns are handled by scoping the parallelism to
 //! exactly the `sp_lu` call via [`crate::eigen::parallel::ParallelismGuard`],
-//! a panic-safe RAII guard that sets `Par::rayon(n)` for the factorization
-//! and restores the prior global parallelism on drop (including on panic).
-//! The thread count comes from `GEODE_NUM_THREADS` (falling back to the
-//! physical core count). The factorization is deterministic, so eigenvalues
-//! are identical within tolerance across thread counts — see the
-//! `*_agree_across_thread_counts` regression tests below.
+//! a panic-safe RAII guard (`ParallelismGuard::cap`) that sets `Par::Seq`
+//! for one thread or `Par::rayon(n)` otherwise, and restores the prior
+//! global parallelism on drop (including on panic). The thread count comes
+//! from `GEODE_NUM_THREADS` (falling back to the physical core count), so
+//! `GEODE_NUM_THREADS=1` is a genuinely serial factorization. The
+//! factorization is deterministic for a fixed thread count; across thread
+//! counts eigenvalues agree within tolerance (bit-for-bit on the small
+//! pencils in the `*_agree_across_thread_counts` regression tests below).
 //!
 //! Convergence is declared when the residual norm
 //! `‖K x - λ M x‖_2 / ‖λ M x‖_2 < tol` for **every** requested mode.
@@ -1002,7 +1004,7 @@ impl SparseShiftInvertLanczos {
             InnerSolver::Direct => {
                 let a = shifted_pencil(k, m, self.sigma)?;
                 let lu = {
-                    let _par = ParallelismGuard::rayon(n_threads);
+                    let _par = ParallelismGuard::cap(n_threads);
                     // Fill-reducing ordering (issue #527, Phase 1). faer 0.24's
                     // `sp_lu` uses a **COLAMD** (column approximate minimum
                     // degree) fill-reducing column permutation. It is hardcoded:
@@ -1067,7 +1069,7 @@ impl SparseShiftInvertLanczos {
                 // spectrum unchanged (ordering changes memory, not answers).
                 let a = shifted_pencil(k, m, self.sigma)?;
                 let lu = {
-                    let _par = ParallelismGuard::rayon(n_threads);
+                    let _par = ParallelismGuard::cap(n_threads);
                     let (fwd, inv) =
                         crate::eigen::ordering::column_ordering(a.as_ref().symbolic(), dof_coords)?;
                     crate::eigen::ordering::CustomOrderLu::factorize(
@@ -1958,6 +1960,10 @@ mod tests {
     /// *bit-for-bit* equality (not merely "within tolerance") across thread
     /// counts — any drift would signal a nondeterministic parallel LU, which
     /// would be a correctness bug rather than acceptable rounding.
+    ///
+    /// Since issue #755 the factorization guard is `ParallelismGuard::cap`,
+    /// so the `1`-thread run here is a genuinely serial (`Par::Seq`) LU;
+    /// before that it left faer's all-core default in place.
     ///
     /// This test drives the thread count through the `_with_threads` entry
     /// point (the same code path the `GEODE_NUM_THREADS` knob feeds), which

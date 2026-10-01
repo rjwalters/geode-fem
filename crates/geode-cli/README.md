@@ -967,18 +967,24 @@ serially (a stderr note says so).
 one thread budget `T` (`--threads`, else the core count). While `N > 1`
 workers run, faer's LU parallelism is capped at `max(1, T / N)` threads
 per factorization, so `--jobs 4` on 28 cores runs four 7-thread
-factorizations instead of four that each ask for all 28. Assembly and
-the adaptive sweep's sequential greedy snapshots keep the full budget.
+factorizations instead of four that each ask for all 28. With
+`absorbing_regions`, each worker's per-frequency operator assembly is
+sized by the same `max(1, T / N)` budget (issue #755). The shared
+(non-UPML) operator, assembled once before the workers start, and the
+adaptive sweep's sequential greedy snapshots keep the full budget.
 `--jobs 1` is unaffected. The thread count changes faer's LU only at
 roundoff (measured ~1e-14 relative in `Z` on the patch smoke), so
 `--jobs N` is bit-identical to `--jobs 1` when the per-factorization
 count matches (`--jobs 2 --threads 4` ≡ `--jobs 1 --threads 2`) and
-agrees to roundoff otherwise. Measured on the 40-point spiral smoke sweep (M3 Ultra, 28
-cores, release) before this cap: `--jobs 1` 29.6 s, `--jobs 2` 13.1 s,
-`--jobs 4` 6.5 s, `--jobs 4 --threads 4` 5.2 s. The per-point sparse LU
-of a 14 k-DOF problem does not use many cores, so frequency parallelism
-wins, and splitting the budget instead of oversubscribing it was worth
-about 20%.
+agrees to roundoff otherwise. Measured with the cap on the 40-point
+spiral smoke sweep (1–20 GHz, M3 Ultra, 28 cores, release; best of
+three `solver.wall_time_s`, on a shared and busy host, so treat as
+indicative): `--jobs 1` 22.3 s, `--jobs 2` 9.5 s, `--jobs 4` 5.0 s,
+`--jobs 4 --threads 4` 7.2 s. The per-point sparse LU of a 14 k-DOF
+problem does not use many cores, so frequency parallelism wins (2.3×
+at `--jobs 2`, 4.5× at `--jobs 4`). With the cap, plain `--jobs 4`
+(four 7-thread LUs) is now faster than hand-limiting with
+`--threads 4` (four serial LUs).
 
 ### Progress events (`--progress`)
 
