@@ -2709,10 +2709,9 @@ impl DrivenOperator {
     /// failures, the LU-factorization failure on the direct path,
     /// [`DrivenError::Solve`] wrapping a preconditioner setup error (a
     /// zero / non-finite diagonal, a vanishing ILU(0) pivot) on the
-    /// iterative path, [`DrivenError::UnsupportedMatrixFree`] for a
-    /// non-Jacobi preconditioner on the matrix-free path, or
-    /// [`DrivenError::UnsupportedMatrixFree`] for an unsupported material
-    /// on the matrix-free path.
+    /// iterative path, or [`DrivenError::UnsupportedMatrixFree`] for a
+    /// non-Jacobi preconditioner or an unsupported material on the
+    /// matrix-free path.
     pub fn prepare_at<B: Backend>(
         &self,
         omega: f64,
@@ -3489,7 +3488,81 @@ mod tests {
     ///
     /// The test enforces `iters(ILU(0)) ≤ iters(Jacobi)` and reports
     /// the ratio for future regression awareness.
-    /// Issue #708 Phase 6b: the preconditioner choice reaches the
+    #[test]
+    fn ilu_vs_jacobi_sigma_damped_resistor_regression() {
+        use crate::solver::ksp::{Cocg, IluPreconditioner, JacobiPreconditioner};
+
+        // σ-filled resistor cube — same family as the regression
+        // fixture in `extraction.rs`, but assembled directly here so
+        // the iteration-count comparison is self-contained.
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        // Large σ → strong off-diagonal coupling through the iωσ damping
+        // term, which Jacobi (diagonal-only) cannot capture.
+        let sigma_tet = vec![5.0_f64; mesh.n_tets()];
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        // Low ω → mass term shrinks relative to stiffness + damping;
+        // the off-diagonal contribution from `iωσ·C` dominates the
+        // diagonal correction by a wider margin, sharpening the
+        // ILU-vs-Jacobi separation.
+        let omega = 0.3;
+
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            Some(&sigma_tet),
+            &bcs,
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let ksp = Cocg::new(1e-10, 10_000);
+
+        let (sol_jac, report_jac) = op
+            .solve_at_iterative(omega, &ksp, |a| JacobiPreconditioner::new(a.as_ref()))
+            .expect("Jacobi-preconditioned COCG");
+        let (_sol_ilu, report_ilu) = op
+            .solve_at_iterative(omega, &ksp, |a| IluPreconditioner::new(a.as_ref(), 0))
+            .expect("ILU(0)-preconditioned COCG");
+
+        assert!(report_jac.converged);
+        assert!(report_ilu.converged);
+
+        // The stress fixture's acceptance: ILU(0) must outperform
+        // Jacobi by at least a factor of 1.0×, with the empirically
+        // observed gap reported for the issue's documentation
+        // requirement.
+        assert!(
+            report_ilu.iters <= report_jac.iters,
+            "ILU(0) ({}) must beat Jacobi ({}) on σ-damped resistor",
+            report_ilu.iters,
+            report_jac.iters,
+        );
+
+        eprintln!(
+            "[issue #267 / stress: σ-damped resistor] grid=4, σ=5, ω={:.2}, \
+             n_interior={}, Jacobi iters={}, ILU(0) iters={}, ratio={:.3}",
+            omega,
+            sol_jac.n_interior,
+            report_jac.iters,
+            report_ilu.iters,
+            report_ilu.iters as f64 / report_jac.iters.max(1) as f64,
+        );
+    }
+
+    /// **Issue #708 Phase 6b**: the preconditioner choice reaches the
     /// **public** [`SolverMode::Iterative`] path (`prepare_at`), and on a
     /// loss-dominated low-ω fixture ILU(0) converges inside a budget that
     /// Jacobi exhausts (measured on this fixture: Jacobi 270 vs ILU(0) 70
@@ -3623,22 +3696,15 @@ mod tests {
         );
     }
 
+    /// Smoke test: [`IterativePreconditioner::Chebyshev`] also reaches the
+    /// **public** [`SolverMode::Iterative`] path (`prepare_at`) — the same
+    /// path exercised for ILU(0) above — and converges to an answer that
+    /// matches direct LU.
     #[test]
-    fn ilu_vs_jacobi_sigma_damped_resistor_regression() {
-        use crate::solver::ksp::{Cocg, IluPreconditioner, JacobiPreconditioner};
-
-        // σ-filled resistor cube — same family as the regression
-        // fixture in `extraction.rs`, but assembled directly here so
-        // the iteration-count comparison is self-contained.
-        let mesh = cube_tet_mesh(4, 1.0);
+    fn chebyshev_selectable_on_public_iterative_path_converges() {
+        let mesh = cube_tet_mesh(3, 1.0);
         let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
         let eps = vacuum(&mesh);
-        // Large σ → strong off-diagonal coupling through the iωσ damping
-        // term, which Jacobi (diagonal-only) cannot capture.
-        let sigma_tet = vec![5.0_f64; mesh.n_tets()];
-        let bcs = DrivenBcs {
-            pec_interior_mask: &interior,
-        };
         let source = CurrentSource::from_centroids(&mesh, |c| {
             [
                 c64::new(0.0, 0.0),
@@ -3646,55 +3712,45 @@ mod tests {
                 c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
             ]
         });
-        // Low ω → mass term shrinks relative to stiffness + damping;
-        // the off-diagonal contribution from `iωσ·C` dominates the
-        // diagonal correction by a wider margin, sharpening the
-        // ILU-vs-Jacobi separation.
-        let omega = 0.3;
-
         let op = DrivenOperator::assemble::<B>(
             &mesh,
             DrivenMaterials::Scalar(&eps),
-            Some(&sigma_tet),
-            &bcs,
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
             &[],
             &[],
             &source,
             &device(),
         )
         .expect("operator assembly");
-        let ksp = Cocg::new(1e-10, 10_000);
+        let omega = 1.0;
 
-        let (sol_jac, report_jac) = op
-            .solve_at_iterative(omega, &ksp, |a| JacobiPreconditioner::new(a.as_ref()))
-            .expect("Jacobi-preconditioned COCG");
-        let (_sol_ilu, report_ilu) = op
-            .solve_at_iterative(omega, &ksp, |a| IluPreconditioner::new(a.as_ref(), 0))
-            .expect("ILU(0)-preconditioned COCG");
+        let settings = IterativeSettings::new(1e-10, 500)
+            .with_preconditioner(IterativePreconditioner::Chebyshev { degree: 3 });
+        let (sol_cheb, report) = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(settings), &device())
+            .expect("Chebyshev setup")
+            .solve()
+            .expect("Chebyshev converges");
+        assert!(report.iters > 0);
+        assert!(report.residual_rel <= 1e-10);
 
-        assert!(report_jac.converged);
-        assert!(report_ilu.converged);
-
-        // The stress fixture's acceptance: ILU(0) must outperform
-        // Jacobi by at least a factor of 1.0×, with the empirically
-        // observed gap reported for the issue's documentation
-        // requirement.
-        assert!(
-            report_ilu.iters <= report_jac.iters,
-            "ILU(0) ({}) must beat Jacobi ({}) on σ-damped resistor",
-            report_ilu.iters,
-            report_jac.iters,
-        );
-
-        eprintln!(
-            "[issue #267 / stress: σ-damped resistor] grid=4, σ=5, ω={:.2}, \
-             n_interior={}, Jacobi iters={}, ILU(0) iters={}, ratio={:.3}",
-            omega,
-            sol_jac.n_interior,
-            report_jac.iters,
-            report_ilu.iters,
-            report_ilu.iters as f64 / report_jac.iters.max(1) as f64,
-        );
+        let (sol_lu, _) = op
+            .prepare_at::<B>(omega, SolverMode::Direct, &device())
+            .expect("LU")
+            .solve()
+            .expect("direct solve");
+        let num: f64 = sol_cheb
+            .e_edges
+            .iter()
+            .zip(&sol_lu.e_edges)
+            .map(|(a, b)| (a - b).norm_sqr())
+            .sum();
+        let den: f64 = sol_lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
+        let rel = (num / den).sqrt();
+        assert!(rel < 1e-6, "Chebyshev vs direct LU rel err {rel:.3e}");
     }
 
     /// **Issue #299 regression**: the Chebyshev polynomial smoother on
