@@ -7,6 +7,12 @@
 //! (the PR #724 incident shape — a dangling sheet piece whose triangles use
 //! nodes no tet touches). The offending list mixes one genuine tet face with
 //! the dangling triangle so the reported counts (1 of 2) are exercised.
+//!
+//! Issue #732 adds a second, distinct fixture below: a "false face" — a
+//! triangle whose three edges *all* exist in the mesh (each edge belongs to
+//! some tet) but which is not itself a face of any single tet. This is the
+//! case the stricter per-tet-face check added in #725/PR #729 exists for,
+//! as opposed to the dangling/missing-edge case above.
 
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
@@ -326,4 +332,162 @@ fn eigen_london_sensitivity_rejects_dangling_wall() {
     // A conforming wall still evaluates.
     ctx.deigenvalue_dlambda_l(&f.faces[..1], 0.1)
         .expect("conforming London wall");
+}
+
+// ---------------------------------------------------------------------------
+// Issue #732: the "false face" case — all three edges of the surface
+// triangle exist in the mesh, but the triangle itself is not a face of any
+// single tet.
+// ---------------------------------------------------------------------------
+
+/// Three tets, six nodes, each tet contributing exactly one edge of the
+/// target triangle `{A, B, C}` plus two satellite nodes shared pairwise with
+/// the other two tets (the octahedron's three tets fanned off its
+/// equatorial triangle, built directly rather than derived from a mesh
+/// generator):
+///
+/// ```text
+/// nodes: A, B, C   (the target "false face" triangle)
+///        D, E, F   (satellites)
+///
+/// tetX = [A, B, D, E]   -- contributes edge A-B
+/// tetY = [B, C, D, F]   -- contributes edge B-C
+/// tetZ = [A, C, E, F]   -- contributes edge A-C
+/// ```
+///
+/// `A-B` is an edge of `tetX`, `B-C` of `tetY`, `A-C` of `tetZ` — all three
+/// edges of triangle `{A, B, C}` exist in the mesh. But no single tet
+/// contains all of `A`, `B`, and `C` (`tetX` lacks `C`, `tetY` lacks `A`,
+/// `tetZ` lacks `B`), so `{A, B, C}` is not a tet face.
+struct FalseFaceFixture {
+    mesh: TetMesh,
+    interior: Vec<bool>,
+    eps: Vec<c64>,
+    source: CurrentSource,
+    /// The false-face triangle `{A, B, C}`.
+    false_face: [u32; 3],
+}
+
+fn false_face_fixture() -> FalseFaceFixture {
+    let nodes = vec![
+        [0.0, 0.0, 1.0],   // A
+        [1.0, 0.0, -0.5],  // B
+        [-1.0, 0.0, -0.5], // C
+        [0.0, 1.0, 0.0],   // D
+        [0.6, -0.8, 0.3],  // E
+        [-0.6, -0.8, 0.3], // F
+    ];
+    let (a, b, c, d, e, f) = (0u32, 1u32, 2u32, 3u32, 4u32, 5u32);
+    let tets = vec![
+        [a, b, d, e], // tetX: contributes edge A-B
+        [b, c, d, f], // tetY: contributes edge B-C
+        [a, c, e, f], // tetZ: contributes edge A-C
+    ];
+    let mesh = TetMesh {
+        nodes,
+        tets,
+        physical_groups: Default::default(),
+    };
+    let n_edges = mesh.edges().len();
+    let interior = vec![true; n_edges];
+    let eps = vec![c64::new(1.0, 0.0); mesh.n_tets()];
+    let source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0), c64::new(0.0, 0.0), c64::new(1.0, 0.0)]; mesh.n_tets()],
+    };
+    FalseFaceFixture {
+        mesh,
+        interior,
+        eps,
+        source,
+        false_face: [a, b, c],
+    }
+}
+
+#[track_caller]
+fn assert_false_face_not_on_mesh<T>(
+    res: Result<T, DrivenError>,
+    want_surface: &str,
+    tri: [u32; 3],
+) {
+    match res {
+        Err(DrivenError::SurfaceNotOnMesh {
+            surface,
+            triangle,
+            dangling,
+            total,
+        }) => {
+            assert_eq!(surface, want_surface);
+            assert_eq!(triangle, tri);
+            // The false face is the only triangle in its list: 1 of 1.
+            assert_eq!((dangling, total), (1, 1));
+        }
+        Err(other) => panic!("expected SurfaceNotOnMesh, got {other}"),
+        Ok(_) => panic!("expected SurfaceNotOnMesh, got Ok"),
+    }
+}
+
+/// Sanity check on the fixture itself: a weaker *edge-only* membership test
+/// (does each edge of the triangle exist anywhere in the mesh's edge table?)
+/// must pass, to prove this fixture exercises the stricter per-tet-face
+/// check — not the dangling/missing-edge case already covered above.
+#[test]
+fn false_face_triangle_edges_all_exist_in_mesh() {
+    let f = false_face_fixture();
+    let edges = f.mesh.edges();
+    let [a, b, c] = f.false_face;
+    let edge_key = |u: u32, v: u32| if u < v { [u, v] } else { [v, u] };
+    for (u, v) in [(a, b), (b, c), (a, c)] {
+        assert!(
+            edges.contains(&edge_key(u, v)),
+            "edge ({u}, {v}) of the false face must already exist in the \
+             mesh's edge table — otherwise this fixture would only exercise \
+             the dangling/missing-edge case, not the false-face case"
+        );
+    }
+}
+
+/// `DrivenOperator::assemble` rejects the false face with a typed
+/// `SurfaceNotOnMesh` error (never a panic), through both an impedance
+/// surface and a lumped port.
+#[test]
+fn driven_operator_rejects_false_face_impedance_surface_and_port() {
+    let f = false_face_fixture();
+    let bcs = DrivenBcs {
+        pec_interior_mask: &f.interior,
+    };
+
+    let surfaces = [SurfaceImpedanceBc {
+        triangles: std::slice::from_ref(&f.false_face),
+        model: SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0)),
+    }];
+    assert_false_face_not_on_mesh(
+        DrivenOperator::assemble::<B>(
+            &f.mesh,
+            DrivenMaterials::Scalar(&f.eps),
+            None,
+            &bcs,
+            &[],
+            &surfaces,
+            &f.source,
+            &device(),
+        ),
+        "impedance surface 0",
+        f.false_face,
+    );
+
+    let bad_port = port(std::slice::from_ref(&f.false_face));
+    assert_false_face_not_on_mesh(
+        DrivenOperator::assemble::<B>(
+            &f.mesh,
+            DrivenMaterials::Scalar(&f.eps),
+            None,
+            &bcs,
+            &[bad_port],
+            &[],
+            &f.source,
+            &device(),
+        ),
+        "lumped port 0",
+        f.false_face,
+    );
 }
