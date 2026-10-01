@@ -18,9 +18,11 @@
 # PEC mask note (issue #771): these rows were generated before #771 made
 # `cube_pec_interior_edges` face-exact; the pre-#771 node rule also pinned the
 # 12(n-1) interior chords along the cube's edges. NOT regenerated: every
-# number here is a residual RELATIVE to the same pencil (all four configs share
-# one mask), so the study's conclusions do not depend on which mask built it. A
-# re-run on post-#771 main exercises a pencil with slightly more interior DOFs.
+# residual here is RELATIVE to the same pencil (all four configs share one
+# mask), so the study's conclusions do not depend on which mask built it. The
+# mask-dependent absolute counts below (n_interior and every *_iters /
+# cum_inner_iters) describe the pre-#771 pencil: a re-run on post-#771 main has
+# n_interior = 1206 (grid=6) / 4401 (grid=9), not 1146 / 4305.
 
 [meta]
 description = "CPU convergence study of mixed-precision iterative refinement for the driven matrix-free COCG: an f64 outer defect-correction loop (r = b − A x in f64) whose inner correction solve A δ ≈ r uses an f32-rounded matvec. Answers issue #534 AC2's convergence half — does f32-matvec + f64-refinement break the f32 floor toward f64-class accuracy, and in how many refinement iterations?"
