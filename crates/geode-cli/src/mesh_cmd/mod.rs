@@ -694,6 +694,7 @@ fn bare_spec(mesh_path: PathBuf, length_unit_m: f64, materials: Vec<MaterialSpec
         wave_ports: Vec::new(),
         frequencies: None,
         solver: SolverSpec::Direct {},
+        sweep: None,
         eigen: None,
         extract: None,
         capacitance: None,

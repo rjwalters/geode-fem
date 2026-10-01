@@ -538,6 +538,33 @@ pub fn s_parameter_frequency_sweep_with_mode<B: Backend>(
     solver_mode: SolverMode,
     device: &B::Device,
 ) -> Result<Vec<SParameterSweepPoint>, DrivenError> {
+    let op = s_parameter_operator::<B>(mesh, materials, sigma_tet, bcs, ports, surfaces, device)?;
+    omegas
+        .iter()
+        .map(|&omega| s_parameter_point::<B>(&op, omega, solver_mode, device))
+        .collect()
+}
+
+/// The purely port-driven operator of an S-parameter sweep (issue #708):
+/// validates `ports` and assembles [`DrivenOperator::assemble`] with an
+/// all-zero volume current source — exactly the operator
+/// [`s_parameter_frequency_sweep_with_mode`] builds. Pair it with
+/// [`s_parameter_point`] to drive the per-ω solves yourself (e.g. in
+/// parallel, or only at chosen frequencies).
+///
+/// # Errors
+///
+/// [`DrivenError::InvalidPort`] if `ports` is empty or any port has a
+/// zero `v_inc`; any [`DrivenError`] from assembly.
+pub fn s_parameter_operator<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    device: &B::Device,
+) -> Result<DrivenOperator, DrivenError> {
     if ports.is_empty() {
         return Err(DrivenError::InvalidPort {
             index: 0,
@@ -558,7 +585,7 @@ pub fn s_parameter_frequency_sweep_with_mode<B: Backend>(
     let zero_source = CurrentSource {
         j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
     };
-    let op = DrivenOperator::assemble::<B>(
+    DrivenOperator::assemble::<B>(
         mesh,
         materials,
         sigma_tet,
@@ -567,61 +594,84 @@ pub fn s_parameter_frequency_sweep_with_mode<B: Backend>(
         surfaces,
         &zero_source,
         device,
-    )?;
+    )
+}
+
+/// One frequency point of an N-port S-parameter sweep on a
+/// [`s_parameter_operator`] (issue #708): one solver-handle prep at
+/// `omega`, one back-solve per excited port, `Z = V·I⁻¹` and the
+/// S-matrix — bit-for-bit the per-ω body of
+/// [`s_parameter_frequency_sweep_with_mode`]. Takes `&DrivenOperator`, so
+/// independent frequencies may be solved concurrently (each call holds
+/// its own factorization / preconditioner).
+///
+/// # Errors
+///
+/// Any [`DrivenError`] from the factorization / solves;
+/// [`DrivenError::Solve`] if the per-excitation current matrix `I` is
+/// singular.
+pub fn s_parameter_point<B: Backend>(
+    op: &DrivenOperator,
+    omega: f64,
+    solver_mode: SolverMode,
+    device: &B::Device,
+) -> Result<SParameterSweepPoint, DrivenError> {
     let n = op.n_ports();
     let z0: Vec<f64> = (0..n).map(|p| op.port_resistance(p)).collect();
-
-    omegas
-        .iter()
-        .map(|&omega| {
-            // One solver-handle prep (LU factor on direct, Jacobi build
-            // on iterative), N back-substitutions per excitation
-            // (issue #214 multi-RHS pattern; issue #264 solver-mode knob).
-            let solver = op.prepare_at::<B>(omega, solver_mode, device)?;
-            let mut residual_rel = 0.0_f64;
-            let mut iters_per_rhs: Vec<usize> = Vec::with_capacity(n);
-            // v_mat[k][j] / i_mat[k][j]: port-k readback under excitation j.
-            let mut v_mat = vec![c64::new(0.0, 0.0); n * n];
-            let mut i_mat = vec![c64::new(0.0, 0.0); n * n];
-            for j in 0..n {
-                let (sol, report) = solver.solve_excited(j)?;
-                residual_rel = residual_rel.max(sol.residual_rel);
-                iters_per_rhs.push(report.iters);
-                for k in 0..n {
-                    let v = op.port_voltage(k, &sol.e_edges);
-                    // Port k is driven only in its own excitation solve;
-                    // elsewhere it is a passive termination (V_inc = 0).
-                    let v_inc = if k == j {
-                        op.port_v_inc(k)
-                    } else {
-                        c64::new(0.0, 0.0)
-                    };
-                    v_mat[k * n + j] = v;
-                    i_mat[k * n + j] = op.port_current_with_v_inc(k, v_inc, v);
-                }
-            }
-            // Z = V·I⁻¹. The n = 1 scalar V/I matches PortCircuit::z
-            // bit-for-bit (issue-#214 single-port guarantee).
-            let z = if n == 1 {
-                vec![v_mat[0] / i_mat[0]]
+    // One solver-handle prep (LU factor on direct, Jacobi build
+    // on iterative), N back-substitutions per excitation
+    // (issue #214 multi-RHS pattern; issue #264 solver-mode knob).
+    let solver = op.prepare_at::<B>(omega, solver_mode, device)?;
+    let mut residual_rel = 0.0_f64;
+    let mut iters_per_rhs: Vec<usize> = Vec::with_capacity(n);
+    // v_mat[k][j] / i_mat[k][j]: port-k readback under excitation j.
+    let mut v_mat = vec![c64::new(0.0, 0.0); n * n];
+    let mut i_mat = vec![c64::new(0.0, 0.0); n * n];
+    for j in 0..n {
+        let (sol, report) = solver.solve_excited(j)?;
+        residual_rel = residual_rel.max(sol.residual_rel);
+        iters_per_rhs.push(report.iters);
+        for k in 0..n {
+            let v = op.port_voltage(k, &sol.e_edges);
+            // Port k is driven only in its own excitation solve;
+            // elsewhere it is a passive termination (V_inc = 0).
+            let v_inc = if k == j {
+                op.port_v_inc(k)
             } else {
-                right_divide(&v_mat, &i_mat, n).ok_or_else(|| {
-                    DrivenError::Solve(format!(
-                        "singular per-excitation port-current matrix at ω = {omega}: \
-                         Z(ω) = V·I⁻¹ is not defined"
-                    ))
-                })?
+                c64::new(0.0, 0.0)
             };
-            let s = SMatrix::from_z_matrix(&z, &z0);
-            Ok(SParameterSweepPoint {
-                omega,
-                residual_rel,
-                z,
-                s,
-                iters_per_rhs,
-            })
-        })
-        .collect()
+            v_mat[k * n + j] = v;
+            i_mat[k * n + j] = op.port_current_with_v_inc(k, v_inc, v);
+        }
+    }
+    let z = z_from_port_readbacks(&v_mat, &i_mat, n).ok_or_else(|| {
+        DrivenError::Solve(format!(
+            "singular per-excitation port-current matrix at ω = {omega}: \
+             Z(ω) = V·I⁻¹ is not defined"
+        ))
+    })?;
+    let s = SMatrix::from_z_matrix(&z, &z0);
+    Ok(SParameterSweepPoint {
+        omega,
+        residual_rel,
+        z,
+        s,
+        iters_per_rhs,
+    })
+}
+
+/// The impedance matrix `Z = V·I⁻¹` (row-major `n × n`) from the
+/// per-excitation port readbacks `v_mat[k·n + j]` / `i_mat[k·n + j]`
+/// (port `k` under excitation `j`) — the arithmetic of
+/// [`s_parameter_point`], shared with PROM-backed sweeps (issue #708).
+/// The `n = 1` scalar `V/I` matches [`PortCircuit::z`] bit-for-bit
+/// (issue-#214 single-port guarantee). `None` if `I` is singular.
+pub fn z_from_port_readbacks(v_mat: &[c64], i_mat: &[c64], n: usize) -> Option<Vec<c64>> {
+    if n == 1 {
+        Some(vec![v_mat[0] / i_mat[0]])
+    } else {
+        right_divide(v_mat, i_mat, n)
+    }
 }
 
 /// All `Im Z(ω)` sign changes of a sampled impedance curve, located by

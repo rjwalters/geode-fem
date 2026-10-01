@@ -1,5 +1,25 @@
 {
   "$defs": {
+    "AdaptiveSweepSpec": {
+      "additionalProperties": false,
+      "description": "Adaptive frequency sweep (issue #708): a Galerkin projection\nreduced-order model with greedy snapshot sampling\n([`geode_core::driven::rom`]; Palace's adaptive fast sweep).\n\nA few **snapshot** frequencies get a full-order direct solve (one LU\nfactorization each, one back-solve per port); every other frequency\nis **interpolated** through a small dense reduced system. The greedy\nloop adds the frequency with the worst residual indicator\n`η(ω) = ‖A(ω)·x_rom − b(ω)‖ / ‖b(ω)‖` (the true full-order relative\nresidual of the reduced solution, worst over the port excitations)\nuntil `η ≤ tolerance` everywhere or `max_snapshots` is spent. Any\nfrequency still above `tolerance` then gets a full-order fallback\nsolve, so every reported point is either a full-order solve or\ncertified at `η ≤ tolerance`.\n\nNeeds `solver.mode = \"direct\"` and lumped `ports`; rejected with\n`absorbing_regions` (the matched UPML is re-assembled per frequency)\nand with `wave_ports`. Leontovich and Silver-Müller walls are\nsupported.",
+      "properties": {
+        "max_snapshots": {
+          "default": 20,
+          "description": "Budget of greedy snapshot frequencies (full-order factorizations;\ndefault `20`, `≥ 1`). The three seeds (band ends + midpoint)\ncount against it.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tolerance": {
+          "default": 1e-6,
+          "description": "Residual-indicator tolerance `η` (default `1e-6`; in `(0, 1)`). A\nbound on the relative **residual**, not on the error in `Z` / `S`:\nthe error can exceed it by the conditioning of `A(ω)` (see\n`crates/geode-cli/README.md` for measured ratios).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
     "BoundaryConditionsSpec": {
       "additionalProperties": false,
       "description": "Boundary conditions: PEC, Leontovich and (additive in v1, issue\n#683) first-order Silver-Müller absorbing walls. A dimension-2\nphysical group may carry at most one of {port, wave port, PEC,\nLeontovich, Silver-Müller}.",
@@ -578,6 +598,24 @@
         }
       ]
     },
+    "SweepSpec": {
+      "additionalProperties": false,
+      "description": "Frequency-sweep strategy of a driven / extract spec (additive in v1,\nissue #708).",
+      "properties": {
+        "adaptive": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AdaptiveSweepSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Opt-in adaptive sweep. Omitted: the dense sweep."
+        }
+      },
+      "type": "object"
+    },
     "UpmlSpec": {
       "additionalProperties": false,
       "description": "A matched (full Sacks) box-UPML absorbing shell on one volume physical\ngroup.\n\nThe shell's **inner wall** (the air box) is derived from the mesh: the\nbounding box of every mesh node, shrunk inward by `thickness` on every\nface. Each tet of the group whose centroid lies outside that box gets\nthe complex coordinate stretch `s_i = 1 − j·sigma_0·(d_i/thickness)²/k₀`\nper axis (`d_i` = depth beyond the inner wall on axis `i`), applied as\nthe constitutive tensors `ε = ε_r·Λ`, `ν = Λ⁻¹` on top of the group's\n`materials` permittivity (vacuum if unlisted). The mesh must therefore\nbe an **axis-aligned box** whose outer shell of depth `thickness` is\nthe absorbing region; terminate it with a PEC outer wall.",
@@ -766,6 +804,17 @@
         "mode": "direct"
       },
       "description": "Linear-solver selection (default: direct sparse LU)."
+    },
+    "sweep": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SweepSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Frequency-sweep strategy (additive in v1, issue #708). Omitted: the\ndense sweep — one full-order solve per frequency. Driven / extract\nspecs only."
     },
     "wave_ports": {
       "default": [],

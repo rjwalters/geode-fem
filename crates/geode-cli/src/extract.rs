@@ -32,6 +32,7 @@ use crate::driven;
 use crate::error::CliError;
 use crate::export::OutDir;
 use crate::problem;
+use crate::progress::SweepOptions;
 use crate::report::{ExtractReport, PortExtraction, Provenance};
 use crate::spec::Analysis;
 use crate::touchstone;
@@ -42,6 +43,7 @@ pub fn run(
     provenance: Provenance,
     outdir: Option<&Path>,
     touchstone: Option<&Path>,
+    opts: SweepOptions,
 ) -> Result<ExtractReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Extract))?;
     if outdir.is_some() {
@@ -55,7 +57,7 @@ pub fn run(
         .extract
         .clone()
         .expect("extract spec has a resolved extract section");
-    let (results, solver) = driven::sweep(&p, out.as_ref())?;
+    let (results, solver) = driven::sweep(&p, out.as_ref(), "extract", opts)?;
 
     // `p.frequencies` (hence `results`) is strictly ascending for an
     // extract spec, as `im_z_zero_crossings` requires. The interpolation

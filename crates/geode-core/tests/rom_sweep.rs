@@ -25,9 +25,9 @@
 use std::time::Instant;
 
 use faer::c64;
-use geode_core::driven::extraction::driven_frequency_sweep;
+use geode_core::driven::extraction::{driven_frequency_sweep, s_parameter_frequency_sweep};
 use geode_core::driven::ports::LumpedPort;
-use geode_core::driven::rom::{DrivenRom, RomError, RomSettings, rom_frequency_sweep};
+use geode_core::driven::rom::{DrivenRom, RomDrive, RomSettings, rom_frequency_sweep};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, SurfaceImpedanceBc,
     SurfaceImpedanceModel,
@@ -336,58 +336,183 @@ fn rom_greedy_selection_is_deterministic() {
     assert_eq!(rom_a.reduced_order(), rom_b.reduced_order());
 }
 
-/// v1 guard: Leontovich surface-impedance configurations are rejected
-/// (their √ω coefficient is not polynomial in iω) — both at the sweep
-/// entry point and when building from an already-assembled operator.
+/// Impedance surfaces (issue #708): a Silver-Müller-type `Fixed` wall and
+/// a Leontovich `GoodConductor` wall (√ω coefficient — not polynomial in
+/// iω) replace the PEC short at z = 1. Each `S_Γ` projects once with its
+/// scalar re-evaluated per ω; the PROM must match the dense sweep on
+/// complex Z to the tolerance level, with interpolated (non-snapshot)
+/// points in the comparison.
 #[test]
-fn rom_rejects_surface_impedance() {
-    let fixture = PlateFixture::new(3);
-    let port = fixture.port();
-    let surf_tris = plane_faces(&fixture.mesh, 2, 1.0);
-    let bc = SurfaceImpedanceBc {
-        triangles: &surf_tris,
-        model: SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0)),
+fn rom_surface_impedance_matches_dense_sweep() {
+    let mesh = cube_tet_mesh(5, 1.0);
+    let edges = mesh.edges();
+    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let wall = plane_faces(&mesh, 2, 1.0);
+    // PEC plates only — the z = 1 face is the impedance wall.
+    let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
+    let eps = vacuum(&mesh);
+    let port = LumpedPort {
+        faces: &port_faces,
+        e_hat: [0.0, 1.0, 0.0],
+        resistance: 1.0,
+        width: 1.0,
+        length: 1.0,
+        v_inc: c64::new(1.0, 0.0),
     };
-    let omegas = grid(0.3, 1.0, 5);
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mask,
+    };
+    let omegas = grid(0.3, 2.0, 25);
+    for model in [
+        SurfaceImpedanceModel::Fixed(c64::new(0.5, 0.2)),
+        SurfaceImpedanceModel::GoodConductor { sigma: 40.0 },
+    ] {
+        let bc = SurfaceImpedanceBc {
+            triangles: &wall,
+            model,
+        };
+        let dense = driven_frequency_sweep::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &bcs,
+            std::slice::from_ref(&port),
+            std::slice::from_ref(&bc),
+            &omegas,
+            &zero_source(&mesh),
+            &device(),
+        )
+        .expect("dense sweep with surface");
+        let rom = rom_frequency_sweep::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &bcs,
+            std::slice::from_ref(&port),
+            std::slice::from_ref(&bc),
+            &omegas,
+            &zero_source(&mesh),
+            &RomSettings {
+                tolerance: 1e-8,
+                max_snapshots: 20,
+            },
+            &device(),
+        )
+        .expect("PROM sweep with surface");
+        assert!(rom.converged, "{model:?}: PROM did not converge");
+        assert!(
+            rom.snapshot_omegas.len() < omegas.len(),
+            "{model:?}: no interpolated points"
+        );
+        let mut worst = 0.0_f64;
+        for (d, r) in dense.iter().zip(&rom.points) {
+            let err = (r.ports[0].z - d.ports[0].z).norm() / d.ports[0].z.norm();
+            worst = worst.max(err);
+        }
+        println!(
+            "{model:?}: {} snapshots / {} points, worst |ΔZ|/|Z| = {worst:.3e}, \
+             worst η = {:.3e}",
+            rom.snapshot_omegas.len(),
+            omegas.len(),
+            rom.worst_residual
+        );
+        assert!(worst < 1e-6, "{model:?}: worst |ΔZ|/|Z| = {worst:.3e}");
+    }
+}
 
-    // Entry-point guard.
-    let err = rom_frequency_sweep::<B>(
-        &fixture.mesh,
-        DrivenMaterials::Scalar(&fixture.eps),
+/// Multi-port block PROM (issue #708, [`RomDrive::PerPort`]): a two-port
+/// parallel-plate line (ports at z = 0 and z = 1, no short). One
+/// factorization per snapshot serves both excitations; the per-excitation
+/// V / I readbacks give `Z = V·I⁻¹`, which must match the dense
+/// `s_parameter_frequency_sweep` Z-matrix.
+#[test]
+fn rom_per_port_drive_matches_dense_two_port_z() {
+    let mesh = cube_tet_mesh(5, 1.0);
+    let edges = mesh.edges();
+    let faces_a = plane_faces(&mesh, 2, 0.0);
+    let faces_b = plane_faces(&mesh, 2, 1.0);
+    let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
+    let eps: Vec<c64> = vec![c64::new(2.0, -0.05); mesh.n_tets()];
+    let mk = |faces: &'static [[u32; 3]], r: f64| LumpedPort {
+        faces,
+        e_hat: [0.0, 1.0, 0.0],
+        resistance: r,
+        width: 1.0,
+        length: 1.0,
+        v_inc: c64::new(1.0, 0.0),
+    };
+    let faces_a: &'static [[u32; 3]] = Box::leak(faces_a.into_boxed_slice());
+    let faces_b: &'static [[u32; 3]] = Box::leak(faces_b.into_boxed_slice());
+    let ports = [mk(faces_a, 1.0), mk(faces_b, 0.7)];
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mask,
+    };
+    let omegas = grid(0.4, 1.8, 21);
+    let dense = s_parameter_frequency_sweep::<B>(
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
         None,
-        &fixture.bcs(),
-        std::slice::from_ref(&port),
-        std::slice::from_ref(&bc),
+        &bcs,
+        &ports,
+        &[],
         &omegas,
-        &zero_source(&fixture.mesh),
-        &RomSettings::default(),
         &device(),
     )
-    .expect_err("must reject Leontovich surfaces");
-    assert!(
-        matches!(err, RomError::UnsupportedOperator { .. }),
-        "unexpected error variant: {err}"
-    );
-
-    // Operator-level guard.
+    .expect("dense two-port sweep");
     let op = DrivenOperator::assemble::<B>(
-        &fixture.mesh,
-        DrivenMaterials::Scalar(&fixture.eps),
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
         None,
-        &fixture.bcs(),
-        std::slice::from_ref(&port),
-        std::slice::from_ref(&bc),
-        &zero_source(&fixture.mesh),
+        &bcs,
+        &ports,
+        &[],
+        &zero_source(&mesh),
         &device(),
     )
-    .expect("operator with surface assembles");
-    let err = DrivenRom::build(&op, &omegas, &RomSettings::default())
-        .err()
-        .expect("build must reject surfaces");
-    assert!(
-        matches!(err, RomError::UnsupportedOperator { .. }),
-        "unexpected error variant: {err}"
+    .expect("two-port operator");
+    let mut seen = Vec::new();
+    let rom = DrivenRom::build_with(
+        &op,
+        &omegas,
+        &RomSettings {
+            tolerance: 1e-8,
+            max_snapshots: 20,
+        },
+        RomDrive::PerPort,
+        &mut |w| seen.push(w),
+    )
+    .expect("per-port PROM");
+    assert!(rom.converged());
+    assert_eq!(seen, rom.snapshot_omegas(), "observer sees every snapshot");
+    assert!(rom.snapshot_omegas().len() < omegas.len());
+    let mut worst = 0.0_f64;
+    for (d, &w) in dense.iter().zip(&omegas) {
+        let p = rom.evaluate_excitations(w).expect("evaluate");
+        assert_eq!(p.excitations.len(), 2);
+        // v[k][j], i[k][j]: port k under excitation j; Z = V·I⁻¹ (2×2).
+        let v = |k: usize, j: usize| p.excitations[j][k].v;
+        let i = |k: usize, j: usize| p.excitations[j][k].i;
+        let det = i(0, 0) * i(1, 1) - i(0, 1) * i(1, 0);
+        let inv = [
+            [i(1, 1) / det, -i(0, 1) / det],
+            [-i(1, 0) / det, i(0, 0) / det],
+        ];
+        let norm = d.z.iter().map(|z| z.norm()).fold(0.0, f64::max);
+        for r in 0..2 {
+            for c in 0..2 {
+                let z = v(r, 0) * inv[0][c] + v(r, 1) * inv[1][c];
+                worst = worst.max((z - d.z[r * 2 + c]).norm() / norm);
+            }
+        }
+    }
+    println!(
+        "two-port PROM: {} snapshots ({} basis columns) / {} points, worst |ΔZ|/max|Z| = \
+         {worst:.3e}",
+        rom.snapshot_omegas().len(),
+        rom.reduced_order(),
+        omegas.len()
     );
+    assert!(worst < 1e-6, "worst |ΔZ|/max|Z| = {worst:.3e}");
 }
 
 /// Budget exhaustion is honest, not a panic: with an unreachable

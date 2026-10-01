@@ -43,6 +43,14 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("spiral_golden_smoke.json"),
         Input::Spec("driven"),
     ),
+    // The spiral smoke over a 40-point 1–20 GHz band with
+    // `sweep.adaptive` (issue #708); `tests/adaptive_sweep_golden.rs`
+    // builds its 16-point twin in code.
+    (
+        "driven/spiral_inductor_adaptive.json",
+        None,
+        Input::Spec("driven"),
+    ),
     (
         "extract/slcfet_spiral.json",
         Some("slcfet_extract_smoke.json"),
