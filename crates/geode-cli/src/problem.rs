@@ -1215,8 +1215,8 @@ fn validate_sweep(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError
     Ok(())
 }
 
-/// `sensitivity`-section rules (scalar, before the mesh is read; issue
-/// #707). v1 exposes only the observable × parameter pairs the library
+/// `sensitivity`-section rules (scalar, before the mesh is read; issues
+/// #707 / #739). v1 exposes only the observable × parameter pairs the library
 /// has an FD-validated gradient for; everything else is rejected naming
 /// the gap rather than silently ignored.
 fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError> {
@@ -1224,16 +1224,60 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
         return Ok(());
     };
     match analysis {
-        Analysis::Driven | Analysis::Extract => {
-            return Err(invalid(format!(
-                "`sensitivity` is not supported for a `{}` spec in schema v1: the library's \
-                 driven material adjoint (driven_material_adjoint_gradient) differentiates a \
-                 volume-current-driven, port-less pencil, and no |S11|² / Z / L0 / Q gradient \
-                 of the lumped-port-loaded operator `geode {}` solves exists yet — supported \
-                 analyses are `capacitance` (one terminal), `inductance` and lossless `eigen`",
-                analysis.name(),
-                analysis.name()
-            )));
+        Analysis::Extract => {
+            return Err(invalid(
+                "`sensitivity` is not supported for an `extract` spec in schema v1: there is no \
+                 Z / L0 / SRF / Q gradient — supported analyses are `capacitance` (one \
+                 terminal), `inductance`, lossless `eigen` and one-lumped-port `driven` (|S11|²; \
+                 drop the `extract` section and run `geode driven`)",
+            ));
+        }
+        Analysis::Driven => {
+            // The library's port-loaded material adjoint
+            // (driven_material_adjoint_gradient_ports, issue #739)
+            // differentiates |S11|² of ONE lumped port on the scalar-ε
+            // pencil. Leontovich and Silver-Müller walls are admitted: their
+            // term (iω/Z_s(ω))·S_Γ depends on σ / η₀, ω and the geometry
+            // only — never on the volume ε — so the adjoint composes them
+            // into the forward operator unchanged (as it does the port
+            // admittance and drive).
+            let lib = "the library's port-loaded material adjoint \
+                       (driven_material_adjoint_gradient_ports) differentiates |S11|² of one \
+                       lumped port on the direct-LU, scalar-ε operator";
+            if !spec.wave_ports.is_empty() {
+                return Err(invalid(format!(
+                    "`sensitivity` on a driven spec does not support `wave_ports`: {lib}; there \
+                     is no modal-port (wave-port S-matrix) gradient"
+                )));
+            }
+            if spec.ports.len() != 1 {
+                return Err(invalid(format!(
+                    "`sensitivity` on a driven spec needs exactly one lumped port (got {}): \
+                     {lib}; there is no N-port S-matrix gradient",
+                    spec.ports.len()
+                )));
+            }
+            if !spec.absorbing_regions.is_empty() {
+                return Err(invalid(format!(
+                    "`sensitivity` on a driven spec does not support `absorbing_regions`: {lib}, \
+                     while the matched UPML replaces each shell's ε by a frequency-dependent \
+                     stretched tensor the adjoint does not differentiate (use Silver-Müller \
+                     walls for an open boundary)"
+                )));
+            }
+            if spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
+                return Err(invalid(format!(
+                    "`sensitivity` on a driven spec does not support `sweep.adaptive`: {lib} at \
+                     every frequency, while the adaptive rows are reduced-order interpolations — \
+                     remove `sweep.adaptive` to run the dense sweep"
+                )));
+            }
+            if !matches!(spec.solver, SolverSpec::Direct {}) {
+                return Err(invalid(format!(
+                    "`sensitivity` on a driven spec needs `solver.mode = \"direct\"`: {lib} (one \
+                     sparse LU serves the forward and the adjoint solve)"
+                )));
+            }
         }
         Analysis::Capacitance => {
             let n = spec.capacitance.as_ref().map_or(0, |c| c.terminals.len());

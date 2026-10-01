@@ -2,7 +2,8 @@
 //! Phase 5): the spec's optional `sensitivity` section
 //! ([`crate::spec::SensitivitySpec`], resolved to
 //! [`crate::problem::SensitivityTarget`]) adds a `sensitivities` block
-//! ([`SensitivityReport`]) to the capacitance, inductance and eigen reports.
+//! ([`SensitivityReport`]) to the capacitance, inductance, eigen and driven
+//! reports.
 //!
 //! No new adjoint math lives here: each analysis wires the library's
 //! existing FD-validated gradient (Epic #569) and only aggregates / scales
@@ -26,11 +27,20 @@
 //!   [`geode_core::eigen::transmon::frequency_hz_from_lambda`]:
 //!   `f = c√λ/(2πL)` ⇒ `∂f/∂ε = (f / 2λ) ∂λ/∂ε`.
 //!
+//! * **Driven** (one lumped port, issue #739) —
+//!   [`geode_core::driven::adjoint::driven_material_adjoint_gradient_ports`]
+//!   with [`geode_core::driven::extraction::s11_sq_objective`]: `|S11|²`
+//!   and `∂|S11|²/∂ε_r` at **every swept frequency**, each from one forward
+//!   and one adjoint solve on one LU of the port-loaded pencil `geode
+//!   driven` solves (lumped-port admittance and drive, Leontovich /
+//!   Silver-Müller walls — all ε-independent, so only the forward operator
+//!   changes).
+//!
 //! The library returns one gradient per **design region**; the CLI makes
 //! every volume region a design region (label = index into
 //! [`crate::problem::Problem::regions`]) and reports the regions the spec
 //! names. Gradients are scaled to SI exactly like the observable
-//! (`× mesh.length_unit_m` for `C` and `L`).
+//! (`× mesh.length_unit_m` for `C` and `L`; `|S11|²` is dimensionless).
 //!
 //! The optional `fd_check` re-solves the **shipped forward pipeline** (not
 //! the adjoint routine) at `p·(1 ± relative_step)` per parameter and
@@ -39,14 +49,21 @@
 
 use std::time::Instant;
 
+use burn::tensor::backend::BackendTypes;
+use faer::c64;
 use geode_core::adjoint::{capacitance_adjoint_gradient_p2, inductance_adjoint_sensitivity};
 use geode_core::assembly::electrostatic::{Electrode, assemble_electrostatic_p2};
 use geode_core::assembly::magnetostatic3d::{
     CurrentTerminal, assemble_magnetostatic3d, extract_inductance,
 };
+use geode_core::driven::adjoint::driven_material_adjoint_gradient_ports;
+use geode_core::driven::extraction::{s_parameter_operator, s_parameter_point, s11_sq_objective};
+use geode_core::driven::ports::assemble_port_flux;
+use geode_core::driven::solve::{CurrentSource, DrivenBcs, DrivenMaterials, SolverMode};
 use geode_core::eigen::sensitivity::EigenSensitivity;
 use geode_core::eigen::transmon::frequency_hz_from_lambda;
 
+use crate::backend::CompiledBackend;
 use crate::error::CliError;
 use crate::problem::{CapacitanceTarget, Problem, SensitivityTarget};
 use crate::report::{
@@ -395,6 +412,127 @@ pub fn eigen(
         "hellmann_feynman",
         g,
         |idx| format!("mode {} frequency", idx[0]),
+        forward,
+        t0,
+    )
+}
+
+/// `∂|S11|²/∂ε_r` of the single lumped port at every swept frequency
+/// (issue #739): one entry per (parameter, frequency) with `index =
+/// [frequency index]` (into the report's `results`). `problem::load`
+/// admitted the section only for exactly one lumped port, no wave ports,
+/// no `absorbing_regions`, a direct solver and a dense sweep. Up to `jobs`
+/// frequencies are differentiated concurrently.
+pub fn driven(
+    p: &Problem,
+    sens: &SensitivityTarget,
+    jobs: usize,
+) -> Result<SensitivityReport, CliError> {
+    type B = CompiledBackend;
+    let t0 = Instant::now();
+    let mesh = &p.tagged.mesh;
+    let lumped = crate::driven::lumped_ports(p);
+    let walls = crate::driven::impedance_walls(p);
+    let bcs = DrivenBcs {
+        pec_interior_mask: &p.pec_mask,
+    };
+    let [port] = lumped.as_slice() else {
+        return Err(CliError::InvalidSpec(format!(
+            "`sensitivity` on a driven spec needs exactly one lumped port (got {})",
+            lumped.len()
+        )));
+    };
+    // Purely port-driven, like the S-parameter sweep.
+    let zero_source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+    };
+    let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &p.edges);
+    // S11 against the port's own resistance — the sweep's reference
+    // impedance (`s_parameter_point`: `z0 = R`).
+    let objective = s11_sq_objective(
+        flux,
+        1.0 / port.width,
+        port.v_inc,
+        port.resistance,
+        port.resistance,
+    );
+    let n_freq = p.frequencies.len();
+    let per_freq = crate::progress::par_map(n_freq, jobs, |fi| {
+        let device = <B as BackendTypes>::Device::default();
+        let res = driven_material_adjoint_gradient_ports::<B, _>(
+            mesh,
+            &p.eps,
+            &bcs,
+            p.frequencies[fi].k0,
+            &zero_source,
+            std::slice::from_ref(port),
+            &walls,
+            &sens.region_of_tet,
+            sens.n_regions,
+            &objective,
+            &device,
+        )?;
+        if !res.residual_rel.is_finite() {
+            return Err(CliError::NonFinite {
+                index: fi,
+                what: format!("|S11|² adjoint residual_rel = {}", res.residual_rel),
+            });
+        }
+        Ok((res.objective, res.grad_eps_prime))
+    })?;
+    let g = Gradients {
+        components: per_freq
+            .iter()
+            .enumerate()
+            .map(|(fi, (s11_sq, _))| (vec![fi], *s11_sq))
+            .collect(),
+        grad: sens
+            .parameters
+            .iter()
+            .map(|prm| per_freq.iter().map(|(_, d)| d[prm.region]).collect())
+            .collect(),
+    };
+    // FD: the shipped dense sweep (s_parameter_operator → s_parameter_point,
+    // direct LU) with the region's Re ε_r moved (Im ε_r held).
+    let forward = |k: usize, value: f64| -> Result<Vec<f64>, CliError> {
+        let region = sens.parameters[k].region;
+        let eps: Vec<c64> = p
+            .eps
+            .iter()
+            .zip(&sens.region_of_tet)
+            .map(|(&e, &r)| {
+                if r == region {
+                    c64::new(value, e.im)
+                } else {
+                    e
+                }
+            })
+            .collect();
+        let device = <B as BackendTypes>::Device::default();
+        let op = s_parameter_operator::<B>(
+            mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &bcs,
+            &lumped,
+            &walls,
+            &device,
+        )?;
+        crate::progress::par_map(n_freq, jobs, |fi| {
+            let device = <B as BackendTypes>::Device::default();
+            let pt =
+                s_parameter_point::<B>(&op, p.frequencies[fi].k0, SolverMode::Direct, &device)?;
+            Ok(pt.s.entry(0, 0).norm_sqr())
+        })
+    };
+    let hz: Vec<f64> = p.frequencies.iter().map(|f| f.hz).collect();
+    finish(
+        sens,
+        "s11_mag_sq",
+        "1",
+        "adjoint_port_loaded",
+        g,
+        |idx| format!("|S11|² at {} Hz", hz[idx[0]]),
         forward,
         t0,
     )

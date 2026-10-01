@@ -140,10 +140,10 @@ pub struct ProblemSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inductance: Option<InductanceSpec>,
     /// Material design sensitivities of the analysis's observable
-    /// (additive in v1, issue #707). Not an analysis section: it rides on
-    /// a `capacitance` (two-terminal), `inductance` or lossless `eigen`
-    /// spec and adds a `sensitivities` block to that report. Driven /
-    /// extract specs reject it in v1.
+    /// (additive in v1, issues #707 / #739). Not an analysis section: it
+    /// rides on a `capacitance` (two-terminal), `inductance`, lossless
+    /// `eigen` or one-lumped-port `driven` spec and adds a `sensitivities`
+    /// block to that report. Extract specs reject it in v1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sensitivity: Option<SensitivitySpec>,
 }
@@ -367,11 +367,12 @@ pub struct CurrentPathSpec {
 /// | `capacitance` (exactly one terminal) | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint |
 /// | `inductance` | every `L_ij` (H) | `nu_r`, `mu_r` | self-adjoint energy form |
 /// | `eigen` (lossless) | `frequency_hz` of the listed `modes` | `eps_r` | Hellmann–Feynman |
+/// | `driven` (one lumped port, direct, dense, no UPML) | squared reflection `s11_mag_sq` per frequency | `eps_r` | port-loaded discrete adjoint |
 ///
-/// Not supported in v1 (rejected with `invalid_spec`): driven / extract
-/// specs (`|S11|²`, `Z`, `L₀`, `Q`), N-terminal capacitance matrices,
-/// lossy / open eigen specs (`Q`), loss-tangent (`Im ε_r`) and shape /
-/// geometry parameters.
+/// Not supported in v1 (rejected with `invalid_spec`): extract specs
+/// (`Z`, `L₀`, `Q`), multi-port / wave-port / UPML / adaptive / iterative
+/// driven specs, N-terminal capacitance matrices, lossy / open eigen specs
+/// (`Q`), loss-tangent (`Im ε_r`) and shape / geometry parameters.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SensitivitySpec {
@@ -417,7 +418,7 @@ pub struct SensitivityParameterSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SensitivityParameterKind {
-    /// Real relative permittivity `Re ε_r` (capacitance, eigen).
+    /// Real relative permittivity `Re ε_r` (capacitance, eigen, driven).
     EpsR,
     /// Relative reluctivity `ν_r = 1/μ_r` (inductance) — the parameter
     /// the inductance energy form is linear in.

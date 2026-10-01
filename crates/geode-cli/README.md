@@ -24,9 +24,9 @@ geode mesh layout.json --analysis capacitance --spec-out c.json && geode capacit
 geode schema spec                                   # JSON Schema (draft 2020-12) of the spec; also `report`, `layout`
 ```
 
-Capacitance (one terminal), inductance and lossless eigen specs may add a
-`sensitivity` section for exact material gradients of their observable
-(issue #707; see [Material
+Capacitance (one terminal), inductance, lossless eigen and one-lumped-port
+driven specs may add a `sensitivity` section for exact material gradients
+of their observable (issues #707 / #739; see [Material
 sensitivities](#material-sensitivities-sensitivity-issue-707)).
 
 New to `geode`? Start with the runnable [examples cookbook](examples/README.md):
@@ -695,6 +695,7 @@ consumed by that subcommand.
 | `capacitance`, **exactly one** terminal | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint (`capacitance_adjoint_gradient_p2`) | one P2 forward + one adjoint solve, one factorization |
 | `inductance` | every `L_ij` (H) | `nu_r` (= `1/μ_r`), `mu_r` | self-adjoint energy form (`inductance_adjoint_sensitivity`), `∂L/∂μ_r = −ν_r² ∂L/∂ν_r` | the forward solves again on one factorization; no adjoint solve |
 | `eigen`, **lossless** (real `eps_r`, no `absorbing_regions`) | `frequency_hz` of each `modes[]` entry | `eps_r` | Hellmann–Feynman (`EigenSensitivity::deigenvalue_deps`), `∂f/∂ε = (f/2λ) ∂λ/∂ε` | a local contraction; no solve |
+| `driven`, **exactly one** lumped port, no `wave_ports` / `absorbing_regions`, direct solver, dense sweep (issue #739) | `s11_mag_sq` = `\|S11\|²` at **every** swept frequency (dimensionless) | `eps_r` | port-loaded discrete adjoint (`driven_material_adjoint_gradient_ports` + `s11_sq_objective`) | per frequency: one assembly + LU of the port-loaded `A(ω)`, one forward + one adjoint back-solve |
 
 - **Parameters.** `physical_group` is any dimension-3 group (listed in
   `materials` or not — an unlisted group is differentiated at its vacuum
@@ -717,6 +718,23 @@ consumed by that subcommand.
   cavity's lowest mode (an `l = 1` triplet, gap ≈ 6e-4) — never a
   silently wrong gradient. The gap is measured against the returned modes
   only, so request enough `n_modes` to bracket the differentiated ones.
+- **Driven `|S11|²`** (issue #739). The differentiated operator is the
+  one `geode driven` solves: `K − ω² M(ε)` plus the lumped port's
+  admittance `(iω/Z_s) S_p` and drive, and any Leontovich / Silver-Müller
+  walls `(iω/Z_s(ω)) S_Γ`. None of those boundary terms depends on the
+  volume `ε` (they carry `R`, `σ`, `η₀`, `ω` and geometry only), so
+  `∂A/∂ε_k = −ω² M_k` and the walls are supported, not merely tolerated.
+  Lossy materials (`eps_r = [re, im]`) are fine: the parameter is `Re ε_r`
+  and `Im ε_r` is held. `S11` is referenced to the port's own
+  `resistance_ohm`, exactly as the report's `results[].s`. Entries are
+  one per (parameter, frequency), `index = [i]` into `results[]`, and
+  each `value` equals that row's `|s[0][0]|²`. `|S11|²` is **not**
+  homogeneous in `ε` (the boundary terms scale with `ω`, not `ε`), so
+  unlike the static observables there is no Euler identity to check
+  against. Note that its gradients are often far below the
+  `fd_rel_error` floor `0.01·|value/p|` (a value near 1, a small
+  derivative), so the floored check is loose there; the golden test also
+  asserts the plain relative disagreement (`< 1e-4`).
 - **`fd_check`** (`relative_step`, default `1e-4`, in `(0, 0.1]`;
   `tolerance`, default `1e-4`). Each parameter `p` is re-solved through
   the **shipped forward pipeline** (not the adjoint routine) at `p·(1 ±
@@ -733,18 +751,21 @@ consumed by that subcommand.
   at the backend's float precision (f64 on the default CPU backend), so
   the eigen forward is smooth in `ε` (issue #740; eigen FD now agrees to
   `~1e-9`). Cost: two forward solves per parameter.
-- **Not in v1** (rejected with `invalid_spec`, naming the gap): driven /
-  extract specs — the library's driven material adjoint differentiates a
-  volume-current-driven, port-less pencil, and no `|S11|²` / `Z` / `L₀` /
-  `Q` gradient of the lumped-port-loaded operator exists yet (issue
-  #739); N-terminal
+- **Not in v1** (rejected with `invalid_spec`, naming the gap): extract
+  specs (no `Z` / `L₀` / SRF / `Q` gradient); driven specs with more than
+  one lumped port (no N-port S-matrix gradient), `wave_ports`,
+  `absorbing_regions` (the UPML stretched tensors are not
+  differentiated), `sweep.adaptive` (its rows are reduced-order
+  interpolations) or `solver.mode = "iterative"` (the adjoint is a sparse
+  LU); N-terminal
   capacitance matrices (the library adjoint is two-terminal); lossy /
   open eigen specs (no complex-eigenvalue `Q` / frequency gradient); the
   loss tangent `Im ε_r`; shape / geometry parameters (the library has
   node-displacement shape gradients, but the spec has no geometry
   parametrization yet).
 
-The report block (`kind = "capacitance" | "inductance" | "eigen"`):
+The report block (`kind = "capacitance" | "inductance" | "eigen" |
+"driven"`):
 
 ```json
 "sensitivities": {
@@ -767,7 +788,8 @@ The report block (`kind = "capacitance" | "inductance" | "eigen"`):
 
 `entries[].index` is the observable component: `[]` for the scalar `C`,
 `[i, j]` (path indices, row-major, all `N²`) for `l_henry[i][j]`, `[m]`
-(index into `modes[]`) for `frequency_hz`. An optimizer or agent loop
+(index into `modes[]`) for `frequency_hz`, `[i]` (index into `results[]`)
+for `s11_mag_sq`. An optimizer or agent loop
 edits `materials[]`, runs the subcommand, and reads
 `sensitivities.entries[].gradient` — JSON in, gradient out; see
 [`examples/sensitivity/`](examples/sensitivity/README.md).
@@ -1653,15 +1675,16 @@ estimate" above; `null` for a capacitance spec).
 `ports[]` is empty for an eigen spec; for an extract spec
 `frequencies[]` is the ascending solved list.
 
-**`sensitivities`** (additive in v1, issue #707; `capacitance`,
-`inductance` and `eigen` reports, present only when the spec has a
-`sensitivity` section): `observable` (`"c_farad_p2"` \| `"l_henry"` \|
-`"frequency_hz"` — the capacitance observable is named `"c_farad_p2"`,
+**`sensitivities`** (additive in v1, issues #707 / #739; `capacitance`,
+`inductance`, `eigen` and `driven` reports, present only when the spec
+has a `sensitivity` section): `observable` (`"c_farad_p2"` \| `"l_henry"`
+\| `"frequency_hz"` \| `"s11_mag_sq"` — the capacitance observable is named `"c_farad_p2"`,
 distinct from the capacitance report's own `c_farad`, because it is the
 **P2** two-terminal capacitance and differs from the P1 `c_farad[0][0]` by
-the P1 discretization error), `observable_unit` (`"F"` \| `"H"` \| `"Hz"`),
-`method`
-(`"adjoint_p2"` \| `"self_adjoint_energy"` \| `"hellmann_feynman"`),
+the P1 discretization error), `observable_unit` (`"F"` \| `"H"` \| `"Hz"`
+\| `"1"`), `method`
+(`"adjoint_p2"` \| `"self_adjoint_energy"` \| `"hellmann_feynman"` \|
+`"adjoint_port_loaded"`),
 `parameters[]` (`physical_group`, `kind`, `value`), `entries[]`
 (`parameter`, `index`, `value`, `gradient`, and with `fd_check`
 `fd_gradient`, `fd_rel_error`), `fd_check` (`relative_step`,
@@ -1679,6 +1702,9 @@ sensitivities](#material-sensitivities-sensitivity-issue-707).
   sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)).
 - `touchstone_file` (additive in v1; `--touchstone` only):
   `{path, sha256}` of the `.sNp` written (see "Touchstone output").
+- `sensitivities` (additive in v1, issue #739; only with a `sensitivity`
+  section): `∂|S11|²/∂ε_r` per frequency — see [Material
+  sensitivities](#material-sensitivities-sensitivity-issue-707).
 - `results[]`, one per frequency in spec order:
 
 | Field | Units | Meaning |
@@ -1910,12 +1936,17 @@ section through the real binary with `fd_check` on (library bar:
 adjoint vs central FD `< 1e-4` relative) for a one-terminal coax
 capacitance, the triax inductance (all three regions, full 2×2 tensor,
 plus the `mu_r` chain rule) and a synthetic two-region PEC box cavity
-(eigen, two simple modes), and checks each against the Euler homogeneity
+(eigen, two simple modes) and the one-port spiral smoke at 5 / 20 GHz
+(driven `∂|S11|²/∂ε_r` of the substrate and dielectric through the
+port-loaded adjoint, Leontovich copper included, each `value` equal to
+the report's `|S11|²` to 1e-9 and the FD agreement also asserted without
+the floor), and checks the static ones against the Euler homogeneity
 identity of its observable (`Σ ε ∂C/∂ε = C`, `Σ ν ∂L/∂ν = −L`,
 `Σ ε ∂f/∂ε = −f/2`) to 1e-8, the coax capacitance gradient against the
 two-layer closed form (2 %), the degenerate-mode refusal on the sphere
 cavity, and every `invalid_spec` gap. Measured worst FD disagreement:
-4.7e-9 (capacitance), 1.0e-8 (inductance), 2.4e-9 (eigen).
+4.7e-9 (capacitance), 1.0e-8 (inductance), 2.4e-9 (eigen); driven
+unfloored 2.3e-6 (substrate at 5 GHz, the smallest gradient, 2.7e-5).
 
 `tests/adaptive_sweep_golden.rs` (issue #708) runs the adaptive sweep
 against the dense sweep through the real binary: the spiral smoke

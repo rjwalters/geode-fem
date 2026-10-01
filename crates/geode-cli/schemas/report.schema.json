@@ -785,6 +785,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "sensitivities": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SensitivityReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`∂|S11|²/∂ε_r` of the single lumped port at every swept frequency\n(additive in v1, issue #739; present only with a spec `sensitivity`\nsection). Observable `\"s11_mag_sq\"`; one entry per (parameter,\nfrequency), `index = [i]` into `results`."
+        },
         "silver_muller": {
           "description": "Silver-Müller walls (additive in v1; present only when used).",
           "items": {
@@ -2971,7 +2982,7 @@
               "type": "null"
             }
           ],
-          "description": "Material design sensitivities of the analysis's observable\n(additive in v1, issue #707). Not an analysis section: it rides on\na `capacitance` (two-terminal), `inductance` or lossless `eigen`\nspec and adds a `sensitivities` block to that report. Driven /\nextract specs reject it in v1."
+          "description": "Material design sensitivities of the analysis's observable\n(additive in v1, issues #707 / #739). Not an analysis section: it\nrides on a `capacitance` (two-terminal), `inductance`, lossless\n`eigen` or one-lumped-port `driven` spec and adds a `sensitivities`\nblock to that report. Extract specs reject it in v1."
         },
         "solver": {
           "$ref": "#/$defs/SolverSpec",
@@ -3198,7 +3209,7 @@
           "type": "number"
         },
         "index": {
-          "description": "Observable component: `[]` for the scalar capacitance, `[i, j]`\n(path indices) for `l_henry[i][j]`, `[mode]` (index into the\nreport's `modes`) for `frequency_hz`.",
+          "description": "Observable component: `[]` for the scalar capacitance, `[i, j]`\n(path indices) for `l_henry[i][j]`, `[mode]` (index into the\nreport's `modes`) for `frequency_hz`, `[i]` (index into the\nreport's `results`) for `s11_mag_sq`.",
           "items": {
             "format": "uint",
             "minimum": 0,
@@ -3231,7 +3242,7 @@
       "oneOf": [
         {
           "const": "eps_r",
-          "description": "Real relative permittivity `Re ε_r` (capacitance, eigen).",
+          "description": "Real relative permittivity `Re ε_r` (capacitance, eigen, driven).",
           "type": "string"
         },
         {
@@ -3290,10 +3301,10 @@
       "type": "object"
     },
     "SensitivityReport": {
-      "description": "Material design sensitivities of a report's observable (additive in\nv1, issue #707).\n\nEvery gradient is exact for the **discrete** model (adjoint /\nHellmann–Feynman, no finite differencing) and is in observable units\nper unit parameter: the parameters (`eps_r`, `nu_r`, `mu_r`) are\ndimensionless, so `gradient` has the unit of `value`\n(`observable_unit`).",
+      "description": "Material design sensitivities of a report's observable (additive in\nv1, issues #707 / #739).\n\nEvery gradient is exact for the **discrete** model (adjoint /\nHellmann–Feynman, no finite differencing) and is in observable units\nper unit parameter: the parameters (`eps_r`, `nu_r`, `mu_r`) are\ndimensionless, so `gradient` has the unit of `value`\n(`observable_unit`).",
       "properties": {
         "entries": {
-          "description": "One entry per (parameter, observable component): capacitance one\nper parameter, inductance `N × N` per parameter (row-major `i`,\n`j`), eigen one per `sensitivity.modes` entry per parameter.",
+          "description": "One entry per (parameter, observable component): capacitance one\nper parameter, inductance `N × N` per parameter (row-major `i`,\n`j`), eigen one per `sensitivity.modes` entry per parameter, driven\none per swept frequency per parameter.",
           "items": {
             "$ref": "#/$defs/SensitivityEntry"
           },
@@ -3311,15 +3322,15 @@
           "description": "The finite-difference self-check (present only with\n`sensitivity.fd_check`). A run whose check fails is a\n`solve_failed` error, so a present block always passed."
         },
         "method": {
-          "description": "How the gradient was computed: `\"adjoint_p2\"` (capacitance: one\nforward + one adjoint solve on a shared factorization),\n`\"self_adjoint_energy\"` (inductance: a local contraction of the\nforward solutions, no extra solve) or `\"hellmann_feynman\"` (eigen:\n`∂λ/∂ε_k = −λ·xᵀM_k x` on the converged simple eigenpair, chained\nthrough `f = c√λ / (2π L)`).",
+          "description": "How the gradient was computed: `\"adjoint_p2\"` (capacitance: one\nforward + one adjoint solve on a shared factorization),\n`\"self_adjoint_energy\"` (inductance: a local contraction of the\nforward solutions, no extra solve) or `\"hellmann_feynman\"` (eigen:\n`∂λ/∂ε_k = −λ·xᵀM_k x` on the converged simple eigenpair, chained\nthrough `f = c√λ / (2π L)`) or `\"adjoint_port_loaded\"` (driven:\none forward + one adjoint solve per frequency on one LU of the\nlumped-port-loaded operator).",
           "type": "string"
         },
         "observable": {
-          "description": "The differentiated observable: `\"c_farad_p2\"` (two-terminal P2\ncapacitance — distinct from, and about the P1 discretization\nerror off, the report's own `c_farad`), `\"l_henry\"`\n(inductance-matrix entries) or `\"frequency_hz\"` (eigenmode\nresonant frequency).",
+          "description": "The differentiated observable: `\"c_farad_p2\"` (two-terminal P2\ncapacitance — distinct from, and about the P1 discretization\nerror off, the report's own `c_farad`), `\"l_henry\"`\n(inductance-matrix entries), `\"frequency_hz\"` (eigenmode\nresonant frequency) or `\"s11_mag_sq\"` (driven: the squared\nreflection magnitude `|S11|²` of the single lumped port).",
           "type": "string"
         },
         "observable_unit": {
-          "description": "Unit of every entry's `value` and `gradient`: `\"F\"`, `\"H\"` or\n`\"Hz\"`.",
+          "description": "Unit of every entry's `value` and `gradient`: `\"F\"`, `\"H\"`, `\"Hz\"`\nor `\"1\"` (dimensionless `|S11|²`).",
           "type": "string"
         },
         "parameters": {
@@ -3347,7 +3358,7 @@
     },
     "SensitivitySpec": {
       "additionalProperties": false,
-      "description": "Material design sensitivities (additive in v1, issue #707): exact\ndiscrete gradients of the analysis's observable with respect to\nper-region material parameters, from the library's FD-validated\nadjoint / Hellmann–Feynman machinery (Epic #569).\n\n| analysis | observable | parameter kinds | method |\n|---|---|---|---|\n| `capacitance` (exactly one terminal) | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint |\n| `inductance` | every `L_ij` (H) | `nu_r`, `mu_r` | self-adjoint energy form |\n| `eigen` (lossless) | `frequency_hz` of the listed `modes` | `eps_r` | Hellmann–Feynman |\n\nNot supported in v1 (rejected with `invalid_spec`): driven / extract\nspecs (`|S11|²`, `Z`, `L₀`, `Q`), N-terminal capacitance matrices,\nlossy / open eigen specs (`Q`), loss-tangent (`Im ε_r`) and shape /\ngeometry parameters.",
+      "description": "Material design sensitivities (additive in v1, issue #707): exact\ndiscrete gradients of the analysis's observable with respect to\nper-region material parameters, from the library's FD-validated\nadjoint / Hellmann–Feynman machinery (Epic #569).\n\n| analysis | observable | parameter kinds | method |\n|---|---|---|---|\n| `capacitance` (exactly one terminal) | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint |\n| `inductance` | every `L_ij` (H) | `nu_r`, `mu_r` | self-adjoint energy form |\n| `eigen` (lossless) | `frequency_hz` of the listed `modes` | `eps_r` | Hellmann–Feynman |\n| `driven` (one lumped port, direct, dense, no UPML) | squared reflection `s11_mag_sq` per frequency | `eps_r` | port-loaded discrete adjoint |\n\nNot supported in v1 (rejected with `invalid_spec`): extract specs\n(`Z`, `L₀`, `Q`), multi-port / wave-port / UPML / adaptive / iterative\ndriven specs, N-terminal capacitance matrices, lossy / open eigen specs\n(`Q`), loss-tangent (`Im ε_r`) and shape / geometry parameters.",
       "properties": {
         "fd_check": {
           "anyOf": [

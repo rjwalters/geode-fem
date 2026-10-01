@@ -19,9 +19,9 @@
 //! * `"error"` — [`ErrorReport`], from any failed subcommand (the
 //!   process also exits non-zero and prints the error to stderr).
 //!
-//! The capacitance, inductance and eigen reports carry an optional
-//! `sensitivities` block ([`SensitivityReport`], additive in v1, issue
-//! #707) when the spec has a `sensitivity` section.
+//! The capacitance, inductance, eigen and driven reports carry an
+//! optional `sensitivities` block ([`SensitivityReport`], additive in v1,
+//! issues #707 / #739) when the spec has a `sensitivity` section.
 //!
 //! All of them carry [`Provenance`] flattened into the top level
 //! (`schema_version`, `geode_version`, `git_sha`, `backend`, …).
@@ -876,6 +876,12 @@ pub struct DrivenReport {
     /// v1; present only with that flag).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub touchstone_file: Option<FileRef>,
+    /// `∂|S11|²/∂ε_r` of the single lumped port at every swept frequency
+    /// (additive in v1, issue #739; present only with a spec `sensitivity`
+    /// section). Observable `"s11_mag_sq"`; one entry per (parameter,
+    /// frequency), `index = [i]` into `results`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitivities: Option<SensitivityReport>,
 }
 
 /// Per-port extraction results of a `geode extract` sweep.
@@ -1059,7 +1065,7 @@ pub struct EigenReport {
 }
 
 /// Material design sensitivities of a report's observable (additive in
-/// v1, issue #707).
+/// v1, issues #707 / #739).
 ///
 /// Every gradient is exact for the **discrete** model (adjoint /
 /// Hellmann–Feynman, no finite differencing) and is in observable units
@@ -1071,25 +1077,29 @@ pub struct SensitivityReport {
     /// The differentiated observable: `"c_farad_p2"` (two-terminal P2
     /// capacitance — distinct from, and about the P1 discretization
     /// error off, the report's own `c_farad`), `"l_henry"`
-    /// (inductance-matrix entries) or `"frequency_hz"` (eigenmode
-    /// resonant frequency).
+    /// (inductance-matrix entries), `"frequency_hz"` (eigenmode
+    /// resonant frequency) or `"s11_mag_sq"` (driven: the squared
+    /// reflection magnitude `|S11|²` of the single lumped port).
     pub observable: &'static str,
-    /// Unit of every entry's `value` and `gradient`: `"F"`, `"H"` or
-    /// `"Hz"`.
+    /// Unit of every entry's `value` and `gradient`: `"F"`, `"H"`, `"Hz"`
+    /// or `"1"` (dimensionless `|S11|²`).
     pub observable_unit: &'static str,
     /// How the gradient was computed: `"adjoint_p2"` (capacitance: one
     /// forward + one adjoint solve on a shared factorization),
     /// `"self_adjoint_energy"` (inductance: a local contraction of the
     /// forward solutions, no extra solve) or `"hellmann_feynman"` (eigen:
     /// `∂λ/∂ε_k = −λ·xᵀM_k x` on the converged simple eigenpair, chained
-    /// through `f = c√λ / (2π L)`).
+    /// through `f = c√λ / (2π L)`) or `"adjoint_port_loaded"` (driven:
+    /// one forward + one adjoint solve per frequency on one LU of the
+    /// lumped-port-loaded operator).
     pub method: &'static str,
     /// The design parameters, in spec order (`entries[*].parameter`
     /// indexes this list).
     pub parameters: Vec<SensitivityParameterSummary>,
     /// One entry per (parameter, observable component): capacitance one
     /// per parameter, inductance `N × N` per parameter (row-major `i`,
-    /// `j`), eigen one per `sensitivity.modes` entry per parameter.
+    /// `j`), eigen one per `sensitivity.modes` entry per parameter, driven
+    /// one per swept frequency per parameter.
     pub entries: Vec<SensitivityEntry>,
     /// The finite-difference self-check (present only with
     /// `sensitivity.fd_check`). A run whose check fails is a
@@ -1119,7 +1129,8 @@ pub struct SensitivityEntry {
     pub parameter: usize,
     /// Observable component: `[]` for the scalar capacitance, `[i, j]`
     /// (path indices) for `l_henry[i][j]`, `[mode]` (index into the
-    /// report's `modes`) for `frequency_hz`.
+    /// report's `modes`) for `frequency_hz`, `[i]` (index into the
+    /// report's `results`) for `s11_mag_sq`.
     pub index: Vec<usize>,
     /// Observable value (`observable_unit`).
     pub value: f64,

@@ -41,6 +41,13 @@
 //!   batched otherwise). The result is a power-normalized channel
 //!   S-matrix; wave ports define no port impedance.
 //!
+//! # Material sensitivities (`sensitivity`, issue #739)
+//!
+//! With a `sensitivity` section (one lumped port, direct, dense, no UPML /
+//! wave ports — enforced by `problem::load`), the report also carries
+//! `∂|S11|²/∂ε_r` at every swept frequency from the port-loaded material
+//! adjoint ([`crate::sensitivity::driven`]).
+//!
 //! # Field / far-field export (`--outdir`, issue #684)
 //!
 //! Only with `--outdir`, and only for **lumped-port** specs: the sweep
@@ -177,6 +184,14 @@ pub fn run(
         }
         wave_sweep(&p, opts)?
     };
+    // `∂|S11|²/∂ε_r` per frequency (issue #739); `problem::load` admitted
+    // the `sensitivity` section only for a one-lumped-port direct dense
+    // sweep without UPML.
+    let sensitivities = p
+        .sensitivity
+        .as_ref()
+        .map(|sens| crate::sensitivity::driven(&p, sens, opts.jobs))
+        .transpose()?;
     let ports = port_summaries(&p);
     let touchstone_file = touchstone
         .map(|path| {
@@ -196,7 +211,45 @@ pub fn run(
         solver,
         results,
         touchstone_file,
+        sensitivities,
     })
+}
+
+/// The spec's lumped ports as library [`LumpedPort`]s (resistance in
+/// units of η₀), in spec order — shared by the sweep and the `|S11|²`
+/// sensitivity ([`crate::sensitivity::driven`]).
+pub fn lumped_ports(p: &Problem) -> Vec<LumpedPort<'_>> {
+    p.ports
+        .iter()
+        .map(|port| LumpedPort {
+            faces: &port.surface.triangles,
+            e_hat: port.e_hat,
+            // The solver's resistance is in units of η₀.
+            resistance: port.resistance_ohm / ETA_0_OHM,
+            width: port.width,
+            length: port.length,
+            v_inc: port.v_inc,
+        })
+        .collect()
+}
+
+/// The spec's impedance walls: Leontovich walls, then Silver-Müller walls
+/// (`Z_s = η₀ = 1` natural) — shared by the sweep and the `|S11|²`
+/// sensitivity ([`crate::sensitivity::driven`]).
+pub fn impedance_walls(p: &Problem) -> Vec<SurfaceImpedanceBc<'_>> {
+    p.leontovich
+        .iter()
+        .map(|l| SurfaceImpedanceBc {
+            triangles: &l.surface.triangles,
+            model: SurfaceImpedanceModel::GoodConductor {
+                sigma: l.sigma_natural,
+            },
+        })
+        .chain(p.silver_muller.iter().map(|s| SurfaceImpedanceBc {
+            triangles: &s.triangles,
+            model: SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0)),
+        }))
+        .collect()
 }
 
 /// Solver mode from the spec.
@@ -291,34 +344,8 @@ pub fn sweep(
     command: &'static str,
     opts: SweepOptions,
 ) -> Result<(Vec<FrequencyResult>, SolverStats), CliError> {
-    let lumped: Vec<LumpedPort<'_>> = p
-        .ports
-        .iter()
-        .map(|port| LumpedPort {
-            faces: &port.surface.triangles,
-            e_hat: port.e_hat,
-            // The solver's resistance is in units of η₀.
-            resistance: port.resistance_ohm / ETA_0_OHM,
-            width: port.width,
-            length: port.length,
-            v_inc: port.v_inc,
-        })
-        .collect();
-    // Leontovich walls, then Silver-Müller walls (Z_s = η₀ = 1 natural).
-    let surfaces: Vec<SurfaceImpedanceBc<'_>> = p
-        .leontovich
-        .iter()
-        .map(|l| SurfaceImpedanceBc {
-            triangles: &l.surface.triangles,
-            model: SurfaceImpedanceModel::GoodConductor {
-                sigma: l.sigma_natural,
-            },
-        })
-        .chain(p.silver_muller.iter().map(|s| SurfaceImpedanceBc {
-            triangles: &s.triangles,
-            model: SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0)),
-        }))
-        .collect();
+    let lumped = lumped_ports(p);
+    let surfaces = impedance_walls(p);
     let mode = solver_mode(p);
 
     type B = CompiledBackend;

@@ -36,6 +36,15 @@
 //!    cavity — with two dielectric halves): `∂f/∂ε_k` of the two lowest
 //!    (simple) modes; and the degenerate-mode guard on a square-section
 //!    box (TE₁₀₁ / TE₀₁₁ exactly degenerate) failing with `solve_failed`.
+//! 4. **Driven** (`driven_spiral_sensitivity_smoke.json`, issue #739: the
+//!    spiral smoke — one lumped port, Leontovich copper, lossy substrate
+//!    and dielectric — at 5 and 20 GHz): `∂|S11|²/∂ε_r` of both
+//!    dielectric regions per frequency through the port-loaded adjoint,
+//!    each entry's `value` equal to the report's own `|S11|²`, and the FD
+//!    agreement re-asserted **without** the natural-scale floor (the
+//!    `|S11|²` gradients sit below `0.01·|value/p|`, so the floored check
+//!    alone would be loose). `|S11|²` is not homogeneous in `ε` (the port
+//!    and wall terms carry `ω`, not `ε`), so there is no Euler identity.
 //!
 //! Spec validation (unsupported analyses / kinds / combinations) is at the
 //! bottom.
@@ -449,6 +458,60 @@ fn eigen_degenerate_mode_is_refused() {
 }
 
 // ---------------------------------------------------------------------
+// Driven |S11|²
+// ---------------------------------------------------------------------
+
+#[test]
+fn driven_s11_gradient_matches_fd_and_report() {
+    let r = run_ok(
+        "driven",
+        &fixtures().join("driven_spiral_sensitivity_smoke.json"),
+    );
+    let s = checked_sensitivities(&r);
+    assert_eq!(s["observable"], "s11_mag_sq");
+    assert_eq!(s["observable_unit"], "1");
+    assert_eq!(s["method"], "adjoint_port_loaded");
+    let params = s["parameters"].as_array().unwrap();
+    assert_eq!(params[0]["physical_group"], "substrate");
+    assert_eq!(f(&params[0]["value"]), 11.9);
+    assert_eq!(f(&params[1]["value"]), 4.0);
+    let results = r["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+    assert_eq!(s["entries"].as_array().unwrap().len(), 2 * 2);
+    for (i, row) in results.iter().enumerate() {
+        let s11 = &row["s"][0][0];
+        let s11_sq = f(&s11[0]).powi(2) + f(&s11[1]).powi(2);
+        assert!(s11_sq > 0.0 && s11_sq < 1.0, "row {i}: |S11|² = {s11_sq}");
+        for k in 0..2 {
+            let (value, g) = entry(s, k, &[i]);
+            // The adjoint's own forward is the sweep's operator.
+            assert!(
+                rel(value, s11_sq) < 1e-9,
+                "row {i}: sensitivity value {value} vs report |S11|² {s11_sq}"
+            );
+            let e = s["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["parameter"] == k && e["index"] == json!([i]))
+                .unwrap();
+            let fd = f(&e["fd_gradient"]);
+            assert!(g != 0.0 && fd != 0.0, "row {i} param {k}: zero gradient");
+            // Unfloored: the plain relative adjoint-vs-FD disagreement.
+            assert!(
+                rel(g, fd) < FD_REL_TOL,
+                "row {i} param {k}: adjoint {g:e} vs FD {fd:e} (rel {:e})",
+                rel(g, fd)
+            );
+        }
+    }
+    // Distinct per-region gradients at each frequency.
+    for i in 0..2 {
+        assert_ne!(entry(s, 0, &[i]).1, entry(s, 1, &[i]).1);
+    }
+}
+
+// ---------------------------------------------------------------------
 // Spec validation (pre-solve `invalid_spec`, via `geode check`)
 // ---------------------------------------------------------------------
 
@@ -503,13 +566,61 @@ fn unsupported_combinations_are_rejected_naming_the_gap() {
 }
 
 #[test]
-fn driven_and_lossy_eigen_sensitivity_are_rejected() {
-    // A driven spec: no |S11|² gradient of the port-loaded operator yet.
-    let msg = check_err(&edited("spiral_golden_smoke.json", "driven", |v| {
+fn unsupported_driven_extract_and_lossy_eigen_sensitivity_are_rejected() {
+    let drv = "driven_spiral_sensitivity_smoke.json";
+    // The supported combination passes `geode check` (Leontovich walls
+    // included: their term is ε-independent).
+    let ok = geode(&["check", edited(drv, "ok", |_| {}).to_str().unwrap()]);
+    assert!(
+        ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ok.stdout)
+    );
+    // Two lumped ports: no N-port S-matrix gradient.
+    let msg = check_err(&edited(drv, "two-port", |v| {
+        let p = v["ports"][0].clone();
+        v["ports"].as_array_mut().unwrap().push(p);
+    }));
+    assert!(msg.contains("exactly one lumped port (got 2)"), "{msg}");
+    assert!(msg.contains("N-port"), "{msg}");
+    assert!(
+        msg.contains("driven_material_adjoint_gradient_ports"),
+        "{msg}"
+    );
+    // Wave ports.
+    let msg = check_err(&edited(drv, "wave", |v| {
+        v["wave_ports"] = json!([{"physical_group": "outer_boundary", "n_modes": 1}]);
+    }));
+    assert!(msg.contains("does not support `wave_ports`"), "{msg}");
+    // Matched UPML.
+    let msg = check_err(&edited(drv, "upml", |v| {
+        v["absorbing_regions"] =
+            json!([{"physical_group": "substrate", "thickness": 1.0, "sigma_0": 1.0}]);
+    }));
+    assert!(
+        msg.contains("does not support `absorbing_regions`"),
+        "{msg}"
+    );
+    // Adaptive sweep (ROM-interpolated rows).
+    let msg = check_err(&edited(drv, "adaptive", |v| {
+        v["sweep"] = json!({"adaptive": {}});
+    }));
+    assert!(msg.contains("does not support `sweep.adaptive`"), "{msg}");
+    // Iterative solver.
+    let msg = check_err(&edited(drv, "iterative", |v| {
+        v["solver"] = json!({"mode": "iterative"});
+    }));
+    assert!(msg.contains("needs `solver.mode = \"direct\"`"), "{msg}");
+    // Wrong kind on a driven spec.
+    let msg = check_err(&edited(drv, "kind", |v| {
+        v["sensitivity"]["parameters"][0]["kind"] = json!("mu_r");
+    }));
+    assert!(msg.contains("kind `mu_r`"), "{msg}");
+    // Extract: no Z / L0 / Q gradient.
+    let msg = check_err(&edited("slcfet_extract_smoke.json", "extract", |v| {
         v["sensitivity"] = json!({"parameters": [{"kind": "eps_r", "physical_group": "x"}]});
     }));
-    assert!(msg.contains("not supported for a `driven` spec"), "{msg}");
-    assert!(msg.contains("driven_material_adjoint_gradient"), "{msg}");
+    assert!(msg.contains("not supported for an `extract` spec"), "{msg}");
     // Lossy eigen: no complex-eigenvalue (Q) gradient.
     let msg = check_err(&edited("sphere_lossy_pec_golden.json", "lossy", |v| {
         v["sensitivity"] = json!({

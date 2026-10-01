@@ -450,7 +450,7 @@
       "oneOf": [
         {
           "const": "eps_r",
-          "description": "Real relative permittivity `Re ε_r` (capacitance, eigen).",
+          "description": "Real relative permittivity `Re ε_r` (capacitance, eigen, driven).",
           "type": "string"
         },
         {
@@ -486,7 +486,7 @@
     },
     "SensitivitySpec": {
       "additionalProperties": false,
-      "description": "Material design sensitivities (additive in v1, issue #707): exact\ndiscrete gradients of the analysis's observable with respect to\nper-region material parameters, from the library's FD-validated\nadjoint / Hellmann–Feynman machinery (Epic #569).\n\n| analysis | observable | parameter kinds | method |\n|---|---|---|---|\n| `capacitance` (exactly one terminal) | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint |\n| `inductance` | every `L_ij` (H) | `nu_r`, `mu_r` | self-adjoint energy form |\n| `eigen` (lossless) | `frequency_hz` of the listed `modes` | `eps_r` | Hellmann–Feynman |\n\nNot supported in v1 (rejected with `invalid_spec`): driven / extract\nspecs (`|S11|²`, `Z`, `L₀`, `Q`), N-terminal capacitance matrices,\nlossy / open eigen specs (`Q`), loss-tangent (`Im ε_r`) and shape /\ngeometry parameters.",
+      "description": "Material design sensitivities (additive in v1, issue #707): exact\ndiscrete gradients of the analysis's observable with respect to\nper-region material parameters, from the library's FD-validated\nadjoint / Hellmann–Feynman machinery (Epic #569).\n\n| analysis | observable | parameter kinds | method |\n|---|---|---|---|\n| `capacitance` (exactly one terminal) | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint |\n| `inductance` | every `L_ij` (H) | `nu_r`, `mu_r` | self-adjoint energy form |\n| `eigen` (lossless) | `frequency_hz` of the listed `modes` | `eps_r` | Hellmann–Feynman |\n| `driven` (one lumped port, direct, dense, no UPML) | squared reflection `s11_mag_sq` per frequency | `eps_r` | port-loaded discrete adjoint |\n\nNot supported in v1 (rejected with `invalid_spec`): extract specs\n(`Z`, `L₀`, `Q`), multi-port / wave-port / UPML / adaptive / iterative\ndriven specs, N-terminal capacitance matrices, lossy / open eigen specs\n(`Q`), loss-tangent (`Im ε_r`) and shape / geometry parameters.",
       "properties": {
         "fd_check": {
           "anyOf": [
@@ -796,7 +796,7 @@
           "type": "null"
         }
       ],
-      "description": "Material design sensitivities of the analysis's observable\n(additive in v1, issue #707). Not an analysis section: it rides on\na `capacitance` (two-terminal), `inductance` or lossless `eigen`\nspec and adds a `sensitivities` block to that report. Driven /\nextract specs reject it in v1."
+      "description": "Material design sensitivities of the analysis's observable\n(additive in v1, issues #707 / #739). Not an analysis section: it\nrides on a `capacitance` (two-terminal), `inductance`, lossless\n`eigen` or one-lumped-port `driven` spec and adds a `sensitivities`\nblock to that report. Extract specs reject it in v1."
     },
     "solver": {
       "$ref": "#/$defs/SolverSpec",

@@ -86,6 +86,15 @@
 //! flip the imaginary contraction); the per-component finite-difference tests
 //! and the `epsilon_loss_sign_error_is_detected_by_fd` mutation tripwire pin
 //! the convention.
+//!
+//! [`driven_material_adjoint_gradient_ports`] (issue #739) differentiates the
+//! **port-loaded** pencil `geode driven` solves — lumped-port admittance
+//! `(iω/Z_s) S_p` and port drive in `b`, plus Leontovich / Silver-Müller
+//! impedance walls — with the same contraction: none of those terms carries
+//! ε, so only the forward operator changes. Paired with
+//! [`crate::driven::extraction::s11_sq_objective`] it gives `∂|S₁₁|²/∂ε`.
+//! [`driven_material_adjoint_gradient_complex`] is its port-less, wall-less
+//! special case.
 
 use burn::tensor::backend::Backend;
 use faer::linalg::solvers::Solve;
@@ -97,7 +106,10 @@ use crate::assembly::nedelec::{
     assemble_nedelec_current_rhs,
 };
 use crate::assembly::p1::upload_mesh;
-use crate::driven::solve::{CurrentSource, DrivenBcs, DrivenError};
+use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
+use crate::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenError, SurfaceImpedanceBc, validate_driven_surfaces,
+};
 use crate::mesh::TetMesh;
 
 /// Result of a driven-Nédélec material discrete-adjoint gradient evaluation.
@@ -515,10 +527,8 @@ where
     G: Fn(&[c64]) -> (f64, Vec<c64>),
 {
     let n_tets = mesh.n_tets();
-    let edges = mesh.edges();
-    let n_edges = edges.len();
-
-    // --- Input validation (mirrors driven_solve + the region bookkeeping) ---
+    let n_edges = mesh.edges().len();
+    // Same validation order as before the port-loaded generalization (#739).
     if bcs.pec_interior_mask.len() != n_edges {
         return Err(DrivenError::MaskDimMismatch {
             got: bcs.pec_interior_mask.len(),
@@ -534,6 +544,131 @@ where
     if eps_dprime.len() != n_tets {
         return Err(DrivenError::MaterialDimMismatch {
             got: eps_dprime.len(),
+            want: n_tets,
+        });
+    }
+    // The port-less, impedance-wall-less special case of the port-loaded
+    // adjoint: with no ports and no walls it assembles, factors and
+    // contracts exactly the volume-current pencil `K − ω² M(ε)`.
+    let eps_complex: Vec<c64> = eps_prime
+        .iter()
+        .zip(eps_dprime.iter())
+        .map(|(&ep, &edp)| c64::new(ep, -edp))
+        .collect();
+    driven_material_adjoint_gradient_ports::<B, G>(
+        mesh,
+        &eps_complex,
+        bcs,
+        omega,
+        source,
+        &[],
+        &[],
+        region_of_tet,
+        n_regions,
+        objective,
+        device,
+    )
+}
+
+/// Compute `∂g/∂ε′_k` and `∂g/∂ε″_k` for every design region `k` of the
+/// **port-loaded** driven Nédélec solve — the operator `geode driven`
+/// solves (issue #739) — via the discrete adjoint: one forward + one
+/// adjoint solve on a single complex sparse LU factorization.
+///
+/// # The differentiated system
+///
+/// ```text
+///   A(ε, ω) = K − ω² M(ε) + Σ_p (iω/Z_s,p) S_p + Σ_Γ (iω/Z_s,Γ(ω)) S_Γ,
+///   b       = iω ∫ N·J dV + Σ_p (2iω/Z_s,p)(V_inc,p/l_p) f_p,
+/// ```
+///
+/// with, per [`LumpedPort`] `p`, its real-symmetric tangential surface mass
+/// `S_p` ([`assemble_port_surface_mass`]), its flux functional
+/// `f_p = ∮ N·ê dS` ([`assemble_port_flux`]) and `Z_s,p =`
+/// [`LumpedPort::surface_impedance`]; and, per [`SurfaceImpedanceBc`] `Γ`
+/// (Leontovich good-conductor / London walls, or `Fixed(1)` Silver-Müller
+/// walls), the real-symmetric surface mass `S_Γ`
+/// ([`crate::assembly::surface::assemble_surface_mass_triplets`]) scaled by
+/// [`SurfaceImpedanceModel::weak_coefficient`](crate::driven::solve::SurfaceImpedanceModel::weak_coefficient).
+/// This is term for term the system
+/// [`DrivenOperator`](crate::driven::solve::DrivenOperator) assembles for
+/// `DrivenMaterials::Scalar(eps_r)` without a volume `σ` — the pencil
+/// [`s_parameter_operator`](crate::driven::extraction::s_parameter_operator)
+/// and [`driven_solve_with_ports`](crate::driven::solve::driven_solve_with_ports)
+/// solve.
+///
+/// # Why the material gradient is unchanged by the port and wall terms
+///
+/// Every port and wall term — `S_p`, `f_p`, `Z_s,p` (from `R`, `w`, `l`),
+/// `S_Γ` and `Z_s,Γ(ω)` (from `σ` / `λ_L` / `η₀` and `ω`) — depends only on
+/// the geometry, the port / wall parameters and `ω`, **never on the volume
+/// `ε`**. So `∂A/∂ε′_k = −ω² M_k`, `∂A/∂ε″_k = +iω² M_k` and `∂b/∂ε = 0`
+/// exactly as in [`driven_material_adjoint_gradient_complex`], and the
+/// gradient is the same single contraction `z_k = λᵀ M_k x`:
+/// `∂g/∂ε′_k = 2ω² Re[z_k]`, `∂g/∂ε″_k = 2ω² Im[z_k]`. Only the forward
+/// operator (and hence `x` and `λ`) changes. Each added term is a scalar
+/// times a real-symmetric matrix, so `Aᵀ = A` still holds and the one LU
+/// serves the transpose (adjoint) solve.
+///
+/// With `objective =`
+/// [`s11_sq_objective`](crate::driven::extraction::s11_sq_objective)`(f_p,
+/// 1/w, V_inc, R, R)` on a single port and a zero `source`, `g` is the
+/// `|S₁₁(ω)|²` that
+/// [`s_parameter_point`](crate::driven::extraction::s_parameter_point)
+/// reports for that port.
+///
+/// # Arguments
+///
+/// * `eps_r` — per-tet complex relative permittivity `ε = ε′ − i·ε″`
+///   (length `mesh.n_tets()`; `Im ε_r = −ε″`), the evaluated material.
+/// * `ports` — lumped ports, validated like the forward operator's (a port
+///   with `v_inc = 0` loads `A` but does not drive `b`).
+/// * `surfaces` — impedance walls (Leontovich / London / Silver-Müller);
+///   `&[]` for none.
+///
+/// Every other argument has the meaning documented on
+/// [`driven_material_adjoint_gradient`]. With `ports = surfaces = &[]` this
+/// is exactly [`driven_material_adjoint_gradient_complex`].
+///
+/// # Errors
+///
+/// [`DrivenError`] on input-shape mismatches, an invalid port
+/// ([`DrivenError::InvalidPort`]), a port / wall triangle that is not a tet
+/// face, a singular wall impedance
+/// ([`DrivenError::SurfaceImpedanceSingular`]), or a failed factorization.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_material_adjoint_gradient_ports<B, G>(
+    mesh: &TetMesh,
+    eps_r: &[c64],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    ports: &[LumpedPort<'_>],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    region_of_tet: &[usize],
+    n_regions: usize,
+    objective: G,
+    device: &B::Device,
+) -> Result<DrivenComplexAdjointGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let n_tets = mesh.n_tets();
+    let n_nodes = mesh.n_nodes();
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+
+    // --- Input validation (mirrors driven_solve + the region bookkeeping) ---
+    if bcs.pec_interior_mask.len() != n_edges {
+        return Err(DrivenError::MaskDimMismatch {
+            got: bcs.pec_interior_mask.len(),
+            want: n_edges,
+        });
+    }
+    if eps_r.len() != n_tets {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: eps_r.len(),
             want: n_tets,
         });
     }
@@ -555,6 +690,54 @@ where
             want: n_regions,
         });
     }
+    // Port validation mirrors the forward `DrivenOperator::assemble_impl`, so
+    // the adjoint's forward is the same system `driven_solve_with_ports` /
+    // `s_parameter_operator` build (an error instead of a panic on a bad
+    // port).
+    for (index, port) in ports.iter().enumerate() {
+        let invalid = |reason: &str| DrivenError::InvalidPort {
+            index,
+            reason: reason.to_string(),
+        };
+        if port.faces.is_empty() {
+            return Err(invalid("port has no faces"));
+        }
+        if !(port.resistance.is_finite() && port.resistance > 0.0) {
+            return Err(invalid("resistance must be finite and positive"));
+        }
+        if !(port.width.is_finite() && port.width > 0.0) {
+            return Err(invalid("width must be finite and positive"));
+        }
+        if !(port.length.is_finite() && port.length > 0.0) {
+            return Err(invalid("length must be finite and positive"));
+        }
+        let e_norm = (port.e_hat[0].powi(2) + port.e_hat[1].powi(2) + port.e_hat[2].powi(2)).sqrt();
+        if (e_norm - 1.0).abs() >= 1e-8 || e_norm.is_nan() {
+            return Err(invalid("e_hat must be a unit vector"));
+        }
+        let n_nodes_u32 = n_nodes as u32;
+        if port
+            .faces
+            .iter()
+            .any(|f| f.iter().any(|&node| node >= n_nodes_u32))
+        {
+            return Err(invalid("face node index out of range"));
+        }
+    }
+    // Every wall / port triangle must be a tet face (issue #725) — the
+    // Whitney surface kernels below `expect` it.
+    validate_driven_surfaces(
+        mesh,
+        "impedance surface",
+        surfaces.iter().map(|bc| bc.triangles),
+    )?;
+    validate_driven_surfaces(mesh, "lumped port", ports.iter().map(|p| p.faces))?;
+    // Wall weak coefficients iω/Z_s(ω) (an error on a singular impedance,
+    // exactly like the forward operator).
+    let wall_coeffs: Vec<c64> = surfaces
+        .iter()
+        .map(|bc| bc.model.weak_coefficient(omega))
+        .collect::<Result<_, _>>()?;
 
     // --- Edge tables and the sparsity scatter map (issue #218 pattern) ------
     let tet_edges = mesh.tet_edges();
@@ -572,17 +755,12 @@ where
     let (nodes_t, tets_t) = upload_mesh::<B>(mesh, device);
 
     // --- Assemble K and M(ε) with the COMPLEX permittivity ε = ε′ − i·ε″. ----
-    let eps_complex: Vec<c64> = eps_prime
-        .iter()
-        .zip(eps_dprime.iter())
-        .map(|(&ep, &edp)| c64::new(ep, -edp))
-        .collect();
     let sys = assemble_global_nedelec_with_complex_epsilon_sparse(
         nodes_t.clone(),
         tets_t.clone(),
         &tet_sign,
         &scatter,
-        &eps_complex,
+        eps_r,
     );
     let k_re_host: Vec<f64> = sys.k_vals.into_data().iter::<f64>().collect();
     let m_re_host: Vec<f64> = sys.m_re_vals.into_data().iter::<f64>().collect();
@@ -613,11 +791,27 @@ where
     let rhs_im: Vec<f64> = rhs_im_t.into_data().iter::<f64>().collect();
 
     // b = iωμ₀ ∫ N · J dV with μ₀ = 1: iω (re + i·im) = ω(−im + i·re).
-    let b_full: Vec<c64> = rhs_re
+    let mut b_full: Vec<c64> = rhs_re
         .iter()
         .zip(rhs_im.iter())
         .map(|(&re, &im)| c64::new(-omega * im, omega * re))
         .collect();
+
+    // --- Port boundary drive (ε-independent; issue #739). --------------------
+    // b_i += (2jω/Z_s)(V_inc/l) ∮ N_i·ê dS, identical to the forward
+    // `DrivenOperator` excitation (and the port-loaded shape adjoint).
+    for port in ports {
+        if port.v_inc == c64::new(0.0, 0.0) {
+            continue;
+        }
+        let z_s = port.surface_impedance();
+        let e_inc = port.v_inc * (1.0 / port.length);
+        let drive = c64::new(0.0, 2.0 * omega / z_s) * e_inc;
+        let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
+        for (b, f) in b_full.iter_mut().zip(flux.iter()) {
+            *b += drive * *f;
+        }
+    }
 
     // --- PEC interior reduction: full edge index → interior index. ----------
     let mut remap = vec![-1_i64; n_edges];
@@ -647,6 +841,44 @@ where
         triplets.push(Triplet::new(rr, cc, a_val));
         kept.push((rr, cc, idx));
     }
+
+    // --- ε-independent boundary loads (issue #739). --------------------------
+    // Port admittance (jω/Z_s) S_p and wall impedance (iω/Z_s(ω)) S_Γ: each a
+    // scalar times a real-symmetric surface mass, so A(ω)ᵀ = A(ω) and the
+    // transpose (adjoint) solve still reuses the forward LU. Interior-remapped
+    // and kept as their own list so the residual health check re-forms the
+    // SAME loaded A. They carry no ε, so they do NOT enter the contraction.
+    let mut load_kept: Vec<(usize, usize, c64)> = Vec::new();
+    let surface_loads = ports
+        .iter()
+        .map(|port| {
+            (
+                c64::new(0.0, omega / port.surface_impedance()),
+                assemble_port_surface_mass(mesh, port.faces, &edges),
+            )
+        })
+        .chain(surfaces.iter().zip(&wall_coeffs).map(|(bc, &coeff)| {
+            (
+                coeff,
+                crate::assembly::surface::assemble_surface_mass_triplets(
+                    mesh,
+                    bc.triangles,
+                    &edges,
+                ),
+            )
+        }));
+    for (scale, mass) in surface_loads {
+        for (r, c, v) in mass {
+            let (rr, cc) = (remap[r], remap[c]);
+            if rr < 0 || cc < 0 {
+                continue;
+            }
+            let a_val = scale * v;
+            triplets.push(Triplet::new(rr as usize, cc as usize, a_val));
+            load_kept.push((rr as usize, cc as usize, a_val));
+        }
+    }
+
     let a_int =
         SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
             .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
@@ -671,12 +903,15 @@ where
     lu.solve_in_place(fwd.as_mut());
     let x_int: Vec<c64> = (0..n_interior).map(|i| fwd[(i, 0)]).collect();
 
-    // Post-solve residual health check ‖A x − b‖ / ‖b‖.
+    // Post-solve residual health check ‖A x − b‖ / ‖b‖ (volume + loads).
     let residual_rel = {
         let mut ax = vec![c64::new(0.0, 0.0); n_interior];
         for &(rr, cc, idx) in &kept {
             let a_val =
                 c64::new(k_re_host[idx], 0.0) - c64::new(m_re_host[idx], m_im_host[idx]) * omega2;
+            ax[rr] += a_val * x_int[cc];
+        }
+        for &(rr, cc, a_val) in &load_kept {
             ax[rr] += a_val * x_int[cc];
         }
         let mut res2 = 0.0_f64;
@@ -725,7 +960,7 @@ where
     // ∂g/∂ε′_k = 2 ω² Re[z_k] and ∂g/∂ε″_k = 2 ω² Im[z_k]. M_k is the mass
     // assembled with ε set to the region-k REAL indicator (the exact analytic
     // JVP of the ε′ − i·ε″ mass; the ε′/ε″ split lives entirely in the Re/Im
-    // read-out of z_k, not in M_k). ---
+    // read-out of z_k, not in M_k). The port / wall loads carry no ε. ---
     let mut grad_eps_prime = vec![0.0_f64; n_regions];
     let mut grad_eps_dprime = vec![0.0_f64; n_regions];
     for k in 0..n_regions {
@@ -1607,6 +1842,295 @@ mod tests {
             any_far,
             "sign-flipped ε″ gradient was not rejected by the FD {fd_dprime:?} — \
              the tolerance is not biting on the loss branch"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PORT-LOADED material adjoint: ∂|S₁₁|²/∂ε (issue #739).
+    // ─────────────────────────────────────────────────────────────────────
+
+    use crate::driven::extraction::{s_parameter_operator, s_parameter_point, s11_sq_objective};
+    use crate::driven::ports::{LumpedPort, assemble_port_flux};
+    use crate::driven::solve::{SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel};
+
+    /// Boundary faces of `mesh` lying entirely in the plane `coord[axis] == value`.
+    fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
+        mesh.faces()
+            .into_iter()
+            .filter(|f| {
+                f.iter()
+                    .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
+            })
+            .collect()
+    }
+
+    /// Port-loaded fixture: unit-cube parallel-plate line — PEC plates at
+    /// `y = 0/1`, a PEC short at `z = 1` — fed by a lumped port across the
+    /// `z = 0` face (`ê = ŷ`). The side walls carry impedance conditions: a
+    /// Leontovich good conductor at `x = 1` and a Silver-Müller wall at
+    /// `x = 0`, so both [`SurfaceImpedanceModel`]s the CLI composes are in
+    /// the differentiated operator. Three z-slab design regions with a lossy
+    /// `ε = ε′ − i·ε″` (so `|S₁₁| < 1` and both gradient components are
+    /// nontrivial). Returns `(mesh, region_of_tet, interior_mask, port_faces,
+    /// wall_x1_faces, wall_x0_faces)`.
+    #[allow(clippy::type_complexity)]
+    fn port_line_fixture(
+        n: usize,
+    ) -> (
+        TetMesh,
+        Vec<usize>,
+        Vec<bool>,
+        Vec<[u32; 3]>,
+        Vec<[u32; 3]>,
+        Vec<[u32; 3]>,
+    ) {
+        let mesh = cube_tet_mesh(n, 1.0);
+        let edges = mesh.edges();
+        let pec_planes = [(1_usize, 0.0_f64), (1, 1.0), (2, 1.0)];
+        let mask: Vec<bool> = edges
+            .iter()
+            .map(|e| {
+                let a = mesh.nodes[e[0] as usize];
+                let b = mesh.nodes[e[1] as usize];
+                !pec_planes.iter().any(|&(axis, value)| {
+                    (a[axis] - value).abs() < 1e-12 && (b[axis] - value).abs() < 1e-12
+                })
+            })
+            .collect();
+        let region_of_tet: Vec<usize> = mesh
+            .tets
+            .iter()
+            .map(|tet| {
+                let cz = tet.iter().map(|&v| mesh.nodes[v as usize][2]).sum::<f64>() / 4.0;
+                ((cz * 3.0) as usize).min(2)
+            })
+            .collect();
+        let port = plane_faces(&mesh, 2, 0.0);
+        let wall_x1 = plane_faces(&mesh, 0, 1.0);
+        let wall_x0 = plane_faces(&mesh, 0, 0.0);
+        (mesh, region_of_tet, mask, port, wall_x1, wall_x0)
+    }
+
+    const PORT_EPS_PRIME: [f64; 3] = [2.0, 3.5, 2.5];
+    const PORT_EPS_DPRIME: [f64; 3] = [0.1, 0.25, 0.05];
+    const PORT_OMEGA: f64 = 1.3;
+
+    /// `|S₁₁|²` through the **public S-parameter path** `geode driven` runs
+    /// ([`s_parameter_operator`] + [`s_parameter_point`], direct LU) — an
+    /// independent forward that shares none of the adjoint's assembly code.
+    fn s11_sq_public(
+        mesh: &TetMesh,
+        eps: &[c64],
+        bcs: &DrivenBcs<'_>,
+        port: &LumpedPort<'_>,
+        walls: &[SurfaceImpedanceBc<'_>],
+    ) -> f64 {
+        let op = s_parameter_operator::<B>(
+            mesh,
+            DrivenMaterials::Scalar(eps),
+            None,
+            bcs,
+            std::slice::from_ref(port),
+            walls,
+            &device(),
+        )
+        .expect("S-parameter operator");
+        let pt = s_parameter_point::<B>(&op, PORT_OMEGA, SolverMode::Direct, &device())
+            .expect("S-parameter point");
+        pt.s.entry(0, 0).norm_sqr()
+    }
+
+    /// **The load-bearing #739 test.** The port-loaded material adjoint of
+    /// `g = |S₁₁|²` ([`driven_material_adjoint_gradient_ports`] +
+    /// [`s11_sq_objective`]) must match a central finite difference of the
+    /// public S-parameter sweep path for both `∂/∂ε′_k` and `∂/∂ε″_k` of
+    /// every region, at the driven adjoint's bar (`h = 5e-3`, rel `< 1e-3`).
+    /// The objective value must also equal the public `|S₁₁|²` (proving the
+    /// differentiated pencil IS the one `geode driven` solves).
+    #[test]
+    fn port_loaded_s11_material_gradient_matches_central_finite_difference() {
+        let (mesh, region_of_tet, mask, port_faces, wall_x1, wall_x0) = port_line_fixture(4);
+        let n_regions = 3;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: 1.0,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.5),
+        };
+        let walls = [
+            SurfaceImpedanceBc {
+                triangles: &wall_x1,
+                model: SurfaceImpedanceModel::GoodConductor { sigma: 40.0 },
+            },
+            SurfaceImpedanceBc {
+                triangles: &wall_x0,
+                model: SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0)),
+            },
+        ];
+        let zero_source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+        let eps_c = build_region_eps_complex(&region_of_tet, &PORT_EPS_PRIME, &PORT_EPS_DPRIME);
+        let flux = assemble_port_flux(&mesh, &port_faces, port.e_hat, &mesh.edges());
+        let objective = s11_sq_objective(flux, 1.0 / port.width, port.v_inc, 1.0, 1.0);
+
+        let adj = driven_material_adjoint_gradient_ports::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            PORT_OMEGA,
+            &zero_source,
+            std::slice::from_ref(&port),
+            &walls,
+            &region_of_tet,
+            n_regions,
+            &objective,
+            &device(),
+        )
+        .expect("port-loaded material adjoint");
+        assert_eq!(adj.n_factorizations, 1, "adjoint must reuse the forward LU");
+        assert!(
+            adj.residual_rel < 1e-9,
+            "forward unhealthy (residual {:.3e})",
+            adj.residual_rel
+        );
+
+        let g_of = |ep: &[f64], edp: &[f64]| -> f64 {
+            let eps = build_region_eps_complex(&region_of_tet, ep, edp);
+            s11_sq_public(&mesh, &eps, &bcs, &port, &walls)
+        };
+        let g0 = g_of(&PORT_EPS_PRIME, &PORT_EPS_DPRIME);
+        assert!(
+            (g0 - adj.objective).abs() <= 1e-9 * g0.max(1e-3),
+            "objective mismatch: adjoint |S11|² {} vs public sweep {g0}",
+            adj.objective
+        );
+        assert!(
+            g0 > 1e-3 && g0 < 1.0 - 1e-3,
+            "|S11|² = {g0} should be strictly inside (0, 1) on the lossy fixture"
+        );
+
+        let h = 5e-3;
+        let mut worst = 0.0_f64;
+        for k in 0..n_regions {
+            for (branch, base, grad) in [
+                ("ε′", PORT_EPS_PRIME, &adj.grad_eps_prime),
+                ("ε″", PORT_EPS_DPRIME, &adj.grad_eps_dprime),
+            ] {
+                let (mut p, mut m) = (base, base);
+                p[k] += h;
+                m[k] -= h;
+                let fd = if branch == "ε′" {
+                    (g_of(&p, &PORT_EPS_DPRIME) - g_of(&m, &PORT_EPS_DPRIME)) / (2.0 * h)
+                } else {
+                    (g_of(&PORT_EPS_PRIME, &p) - g_of(&PORT_EPS_PRIME, &m)) / (2.0 * h)
+                };
+                let a = grad[k];
+                let rel = (a - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+                println!(
+                    "region {k} ∂|S11|²/∂{branch}: adjoint {a:.9e}, central FD {fd:.9e}, \
+                     rel {rel:.3e}"
+                );
+                assert!(
+                    fd.abs() > 1e-5,
+                    "region {k} ∂/∂{branch} FD {fd} unexpectedly ~0 (fixture degenerate?)"
+                );
+                assert!(
+                    rel < 1e-3,
+                    "region {k} ∂/∂{branch}: adjoint {a} vs FD {fd}, rel {rel:.3e} > 1e-3"
+                );
+                worst = worst.max(rel);
+            }
+        }
+        println!("worst port-loaded adjoint-vs-FD rel-err {worst:.3e}");
+        // Distinct per-region gradients (a constant-gradient bug would pass a
+        // per-region check trivially).
+        let g = &adj.grad_eps_prime;
+        assert!(
+            (g[0] - g[1]).abs() > 1e-6 && (g[1] - g[2]).abs() > 1e-6,
+            "per-region ∂/∂ε′ not distinct: {g:?}"
+        );
+    }
+
+    /// Mutation tripwire: the impedance walls are ε-independent but they DO
+    /// change the forward field, so dropping them from the differentiated
+    /// operator (the "port-loaded but wall-less" mistake) must be rejected by
+    /// the same FD the load-bearing test passes — proving that test bites on
+    /// the wall terms, not just on the port.
+    #[test]
+    fn dropping_impedance_walls_is_detected_by_fd() {
+        let (mesh, region_of_tet, mask, port_faces, wall_x1, wall_x0) = port_line_fixture(4);
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: 1.0,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.0),
+        };
+        let walls = [
+            SurfaceImpedanceBc {
+                triangles: &wall_x1,
+                model: SurfaceImpedanceModel::GoodConductor { sigma: 40.0 },
+            },
+            SurfaceImpedanceBc {
+                triangles: &wall_x0,
+                model: SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0)),
+            },
+        ];
+        let zero_source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+        let eps_c = build_region_eps_complex(&region_of_tet, &PORT_EPS_PRIME, &PORT_EPS_DPRIME);
+        let flux = assemble_port_flux(&mesh, &port_faces, port.e_hat, &mesh.edges());
+        let objective = s11_sq_objective(flux, 1.0, port.v_inc, 1.0, 1.0);
+        let grad_with = |surfaces: &[SurfaceImpedanceBc<'_>]| {
+            driven_material_adjoint_gradient_ports::<B, _>(
+                &mesh,
+                &eps_c,
+                &bcs,
+                PORT_OMEGA,
+                &zero_source,
+                std::slice::from_ref(&port),
+                surfaces,
+                &region_of_tet,
+                3,
+                &objective,
+                &device(),
+            )
+            .expect("adjoint")
+            .grad_eps_prime
+        };
+        let correct = grad_with(&walls);
+        let wall_less = grad_with(&[]);
+        let h = 5e-3;
+        let mut any_far = false;
+        for k in 0..3 {
+            let (mut p, mut m) = (PORT_EPS_PRIME, PORT_EPS_PRIME);
+            p[k] += h;
+            m[k] -= h;
+            let g = |ep: &[f64]| {
+                let eps = build_region_eps_complex(&region_of_tet, ep, &PORT_EPS_DPRIME);
+                s11_sq_public(&mesh, &eps, &bcs, &port, &walls)
+            };
+            let fd = (g(&p) - g(&m)) / (2.0 * h);
+            let rel_ok = (correct[k] - fd).abs() / fd.abs();
+            assert!(rel_ok < 1e-3, "region {k}: correct rel {rel_ok:.3e}");
+            if (wall_less[k] - fd).abs() / fd.abs() > 1e-2 {
+                any_far = true;
+            }
+        }
+        assert!(
+            any_far,
+            "a wall-less adjoint was not rejected by the FD — the walls are not exercised"
         );
     }
 }
