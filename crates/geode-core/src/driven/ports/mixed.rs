@@ -1,74 +1,8 @@
 //! Mixed **lumped + wave** port S-parameter sweep (Epic #756 Phase 8c,
 //! issue #759).
 //!
-//! Lumped ports ([`LumpedPort`]) and wave (modal) ports ([`WavePort`])
-//! terminate the same complex-symmetric curl-curl operator `A(ω)`: a
-//! lumped port adds the resistive sheet load `(jω/Z_s) S_p` and a wave
-//! port adds the rank-`K_p` modal admittance `Σ_m jβ_m f_m f_mᵀ`. This
-//! module composes the two in one operator:
-//!
-//! * the lumped loads go into the base operator through
-//!   [`DrivenOperator::assemble`] (exactly as the lumped-port sweep
-//!   does), so `A_base(ω) = K − ω²M + jωC + Σ_k (jω/Z_s,k) S_k`;
-//! * the modal terms are folded in per frequency by the same rank-`N_w`
-//!   Sherman-Morrison-Woodbury update as
-//!   [`super::solve_wave_port_sweep_with_mode`].
-//!
-//! Each of the `N_l + N_w` excitations is one SMW-corrected solve: a
-//! lumped port `j` is driven with its matched-source Thévenin RHS
-//! `(2jω/Z_s)(V_inc/l) g_j` (the RHS `solve_excited(j)` of the lumped
-//! sweep uses), a wave channel with `2jβ a_inc f_j`. Every other port is a
-//! passive matched termination.
-//!
-//! # Power-wave S normalization
-//!
-//! A mixed network has no impedance matrix (a modal channel defines no
-//! port voltage), so the lumped sweep's `Z → S` route is not available.
-//! The S-matrix is formed directly from power waves. In solver natural
-//! units (`η₀ = μ₀ = 1`, `ω = k₀`, `R` in units of η₀) the incident and
-//! outgoing amplitudes, normalized so `|ã|²` is the power up to one shared
-//! constant, are
-//!
-//! ```text
-//! lumped port k (Thévenin 2·V_inc behind R_k):
-//!     ã_k = V_inc,k / √R_k          b̃_k = (V_k − V_inc,k δ) / √R_k
-//! wave channel q (TE modal power |a|²β/(2ωμ), S_p-orthonormal modes):
-//!     ã_q = a_inc,q · √(β_q/ω)       b̃_q = (a_q − a_inc,q δ) · √(β_q/ω)
-//! ```
-//!
-//! and `S_ij = b̃_i / ã_j`. Block by block:
-//!
-//! ```text
-//! lumped ← lumped:  S_kj = (V_k − V_inc,j δ_kj) / V_inc,j · √(R_j / R_k)
-//! wave   ← wave:    S_qp = (a_q − a_inc,p δ_qp) / a_inc,p · √β_q / √β_p
-//! wave   ← lumped:  S_qj = a_q · (√β_q / √ω) · √R_j / V_inc,j
-//! lumped ← wave:    S_kp = (V_k / √R_k) / (a_inc,p · √β_p / √ω)
-//! ```
-//!
-//! The lumped block is the lumped sweep's real-reference power-wave
-//! `F(Z − Z₀)(Z + Z₀)⁻¹F⁻¹` with `Z₀ = diag(R)` (the port's own
-//! termination is its reference). The wave block is the wave sweep's
-//! power-normalized modal S. The cross weight `√(β/ω)` is fixed by the
-//! symmetry `A(ω)ᵀ = A(ω)`: for a lumped RHS `b_l` and a wave RHS `b_w`,
-//! `b_wᵀ E⁽ˡ⁾ = b_lᵀ E⁽ʷ⁾` reads `2jβ_q a_inc,q a_q⁽ˡ⁾ = 2jω V_inc,j
-//! V_j⁽ʷ⁾ / R_j` (using `g_jᵀ E = w V`, `Z_s = R w / l`), which is exactly
-//! `S_qj = S_jq` under the weights above. `√β` is the principal-branch
-//! root, as on the wave path, so evanescent channels (`β = −j|β|`) keep
-//! `Sᵀ = S`.
-//!
-//! **Caveat.** The modal admittance `jβ` is the TE form (`1/Z_TE =
-//! β/ωμ`). The port-face eigensolver filters TEM modes, and TM-mode wave
-//! ports are already approximate on the pure-wave path; mixing in lumped
-//! ports does not change that.
-//!
-//! # Channel order
-//!
-//! Lumped ports first (input order), then each wave port's modes
-//! (port-major, mode-minor): flat index `N_l + Σ_{q<p} K_q + m`.
-//!
-//! The pure-lumped ([`crate::driven::extraction::s_parameter_point`]) and
-//! pure-wave ([`super::solve_wave_port_sweep_with_mode`]) paths are
-//! separate functions and are not routed through this one.
+//! See [`solve_mixed_port_sweep_with_mode`] for the formulation, the
+//! power-wave S normalization and the channel order.
 
 use faer::c64;
 
@@ -89,8 +23,8 @@ pub struct MixedPortSweepPoint {
     /// Worst relative residual `‖A_total x − b‖ / ‖b‖` over the
     /// `n_ports` excitation solves at this frequency.
     pub residual_rel: f64,
-    /// Row-major `n_ports × n_ports` power-wave S-matrix (see the
-    /// [module docs](self) for the normalization): lumped ports first,
+    /// Row-major `n_ports × n_ports` power-wave S-matrix (see
+    /// [`solve_mixed_port_sweep_with_mode`] for the normalization): lumped ports first,
     /// then wave channels port-major, mode-minor.
     pub s: Vec<c64>,
     /// Modal `β(ω)` of each wave channel (length `n_ports − n_lumped`,
@@ -122,8 +56,76 @@ impl MixedPortSweepPoint {
 }
 
 /// Mixed lumped + wave port S-parameter sweep (issue #759) with an
-/// explicit [`SolverMode`]. See the [module docs](self) for the
-/// formulation, the power-wave normalization and the channel order.
+/// explicit [`SolverMode`].
+///
+/// Lumped ports ([`LumpedPort`]) and wave (modal) ports ([`WavePort`])
+/// terminate the same complex-symmetric curl-curl operator `A(ω)`: a
+/// lumped port adds the resistive sheet load `(jω/Z_s) S_p` and a wave
+/// port adds the rank-`K_p` modal admittance `Σ_m jβ_m f_m f_mᵀ`. This
+/// function composes the two in one operator:
+///
+/// * the lumped loads go into the base operator through
+///   [`DrivenOperator::assemble`] (exactly as the lumped-port sweep
+///   does), so `A_base(ω) = K − ω²M + jωC + Σ_k (jω/Z_s,k) S_k`;
+/// * the modal terms are folded in per frequency by the same rank-`N_w`
+///   Sherman-Morrison-Woodbury update as
+///   [`crate::driven::ports::solve_wave_port_sweep_with_mode`].
+///
+/// Each of the `N_l + N_w` excitations is one SMW-corrected solve: a
+/// lumped port `j` is driven with its matched-source Thévenin RHS
+/// `(2jω/Z_s)(V_inc/l) g_j` (the RHS `solve_excited(j)` of the lumped
+/// sweep uses), a wave channel with `2jβ a_inc f_j`. Every other port is a
+/// passive matched termination.
+///
+/// # Power-wave S normalization
+///
+/// A mixed network has no impedance matrix (a modal channel defines no
+/// port voltage), so the lumped sweep's `Z → S` route is not available.
+/// The S-matrix is formed directly from power waves. In solver natural
+/// units (`η₀ = μ₀ = 1`, `ω = k₀`, `R` in units of η₀) the incident and
+/// outgoing amplitudes, normalized so `|ã|²` is the power up to one shared
+/// constant, are
+///
+/// ```text
+/// lumped port k (Thévenin 2·V_inc behind R_k):
+///     ã_k = V_inc,k / √R_k          b̃_k = (V_k − V_inc,k δ) / √R_k
+/// wave channel q (TE modal power |a|²β/(2ωμ), S_p-orthonormal modes):
+///     ã_q = a_inc,q · √(β_q/ω)       b̃_q = (a_q − a_inc,q δ) · √(β_q/ω)
+/// ```
+///
+/// and `S_ij = b̃_i / ã_j`. Block by block:
+///
+/// ```text
+/// lumped ← lumped:  S_kj = (V_k − V_inc,j δ_kj) / V_inc,j · √(R_j / R_k)
+/// wave   ← wave:    S_qp = (a_q − a_inc,p δ_qp) / a_inc,p · √β_q / √β_p
+/// wave   ← lumped:  S_qj = a_q · (√β_q / √ω) · √R_j / V_inc,j
+/// lumped ← wave:    S_kp = (V_k / √R_k) / (a_inc,p · √β_p / √ω)
+/// ```
+///
+/// The lumped block is the lumped sweep's real-reference power-wave
+/// `F(Z − Z₀)(Z + Z₀)⁻¹F⁻¹` with `Z₀ = diag(R)` (the port's own
+/// termination is its reference). The wave block is the wave sweep's
+/// power-normalized modal S. The cross weight `√(β/ω)` is fixed by the
+/// symmetry `A(ω)ᵀ = A(ω)`: for a lumped RHS `b_l` and a wave RHS `b_w`,
+/// `b_wᵀ E⁽ˡ⁾ = b_lᵀ E⁽ʷ⁾` reads `2jβ_q a_inc,q a_q⁽ˡ⁾ = 2jω V_inc,j
+/// V_j⁽ʷ⁾ / R_j` (using `g_jᵀ E = w V`, `Z_s = R w / l`), which is exactly
+/// `S_qj = S_jq` under the weights above. `√β` is the principal-branch
+/// root, as on the wave path, so evanescent channels (`β = −j|β|`) keep
+/// `Sᵀ = S`.
+///
+/// **Caveat.** The modal admittance `jβ` is the TE form (`1/Z_TE =
+/// β/ωμ`). The port-face eigensolver filters TEM modes, and TM-mode wave
+/// ports are already approximate on the pure-wave path; mixing in lumped
+/// ports does not change that.
+///
+/// # Channel order
+///
+/// Lumped ports first (input order), then each wave port's modes
+/// (port-major, mode-minor): flat index `N_l + Σ_{q<p} K_q + m`.
+///
+/// The pure-lumped ([`crate::driven::extraction::s_parameter_point`]) and
+/// pure-wave ([`crate::driven::ports::solve_wave_port_sweep_with_mode`]) paths are
+/// separate functions and are not routed through this one.
 ///
 /// `lumped` and `wave` may each be empty, but not both. Every lumped port
 /// needs a non-zero `v_inc` and every wave mode a non-zero `a_inc` (each
