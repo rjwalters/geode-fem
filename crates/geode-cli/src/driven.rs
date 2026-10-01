@@ -97,7 +97,7 @@ use crate::problem::{self, Problem, UpmlRegion};
 use crate::progress::{Progress, SweepOptions, par_map};
 use crate::report::{
     AdaptiveSweepStats, Complex, DrivenReport, FarFieldResult, FrequencyResult, PortResult,
-    Provenance, SolverStats, WaveChannelResult, WaveModeSummary, WavePortSummary,
+    Provenance, RoughnessKResult, SolverStats, WaveChannelResult, WaveModeSummary, WavePortSummary,
 };
 use crate::spec::{AdaptiveSweepSpec, Analysis, SolverSpec};
 use serde_json::json;
@@ -242,14 +242,26 @@ pub fn impedance_walls(p: &Problem) -> Vec<SurfaceImpedanceBc<'_>> {
         .iter()
         .map(|l| SurfaceImpedanceBc {
             triangles: &l.surface.triangles,
-            model: SurfaceImpedanceModel::GoodConductor {
-                sigma: l.sigma_natural,
-            },
+            model: l.model(),
         })
         .chain(p.silver_muller.iter().map(|s| SurfaceImpedanceBc {
             triangles: &s.triangles,
             model: SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0)),
         }))
+        .collect()
+}
+
+/// Roughness loss factor `K(f)` of every rough Leontovich wall at the
+/// natural frequency `k0` (issue #758; empty when every wall is smooth).
+fn roughness_k(p: &Problem, k0: f64) -> Vec<RoughnessKResult> {
+    p.leontovich
+        .iter()
+        .filter_map(|l| {
+            l.roughness_k(k0).map(|k| RoughnessKResult {
+                physical_group: l.surface.name.clone(),
+                k,
+            })
+        })
         .collect()
 }
 
@@ -426,6 +438,7 @@ pub fn sweep(
             s: matrix(&pt.s.s, n),
             ports,
             wave_channels: Vec::new(),
+            roughness_k: roughness_k(p, f.k0),
             field_file: None,
             far_field: None,
         });
@@ -827,6 +840,7 @@ pub fn wave_sweep(
             s: matrix(&pt.s, n),
             ports: Vec::new(),
             wave_channels,
+            roughness_k: roughness_k(p, f.k0),
             field_file: None,
             far_field: None,
         });

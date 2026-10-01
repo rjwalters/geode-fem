@@ -30,7 +30,7 @@ use geode_core::driven::ports::LumpedPort;
 use geode_core::driven::rom::{DrivenRom, RomDrive, RomSettings, rom_frequency_sweep};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, SurfaceImpedanceBc,
-    SurfaceImpedanceModel,
+    SurfaceImpedanceModel, SurfaceRoughness,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
 use geode_core::testing::TestBackend;
@@ -336,9 +336,10 @@ fn rom_greedy_selection_is_deterministic() {
     assert_eq!(rom_a.reduced_order(), rom_b.reduced_order());
 }
 
-/// Impedance surfaces (issue #708): a Silver-Müller-type `Fixed` wall and
+/// Impedance surfaces (issue #708): a Silver-Müller-type `Fixed` wall,
 /// a Leontovich `GoodConductor` wall (√ω coefficient — not polynomial in
-/// iω) replace the PEC short at z = 1. Each `S_Γ` projects once with its
+/// iω) and two rough `RoughConductor` walls (issue #758: Hammerstad and
+/// Huray `K(ω)` on top of the √ω) replace the PEC short at z = 1. Each `S_Γ` projects once with its
 /// scalar re-evaluated per ω; the PROM must match the dense sweep on
 /// complex Z to the tolerance level, with interpolated (non-snapshot)
 /// points in the comparison.
@@ -366,6 +367,19 @@ fn rom_surface_impedance_matches_dense_sweep() {
     for model in [
         SurfaceImpedanceModel::Fixed(c64::new(0.5, 0.2)),
         SurfaceImpedanceModel::GoodConductor { sigma: 40.0 },
+        // Issue #758: rough walls — a real K(ω) on the same √ω scalar.
+        SurfaceImpedanceModel::RoughConductor {
+            sigma: 40.0,
+            roughness: SurfaceRoughness::HammerstadJensen { rms: 0.3 },
+        },
+        SurfaceImpedanceModel::RoughConductor {
+            sigma: 40.0,
+            roughness: SurfaceRoughness::Huray {
+                ball_radius: 0.1,
+                n_balls: 1.0,
+                tile_area: 0.3,
+            },
+        },
     ] {
         let bc = SurfaceImpedanceBc {
             triangles: &wall,

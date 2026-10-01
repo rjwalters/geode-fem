@@ -10,9 +10,10 @@ use crate::report::{
     CapacitanceSettingsSummary, CheckReport, ConductorSummary, CurrentPathSummary,
     EigenSettingsSummary, ExtractSettingsSummary, FrequencySummary, InductanceSettingsSummary,
     LeontovichSummary, MeshSummary, PecSummary, PortSummary, Provenance, RegionSummary,
-    ResourceEstimate, SilverMullerSummary, SolverSummary, UpmlSummary, WavePortSummary,
+    ResourceEstimate, RoughnessSummary, SilverMullerSummary, SolverSummary, UpmlSummary,
+    WavePortSummary,
 };
-use crate::spec::SolverSpec;
+use crate::spec::{RoughnessSpec, SolverSpec};
 
 /// Load + resolve the spec and summarize it (no assembly, no solve).
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliError> {
@@ -33,6 +34,7 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
                 n_triangles: l.surface.triangles.len(),
                 conductivity_s_m: l.sigma_s_m,
                 conductivity_natural: l.sigma_natural,
+                roughness: l.roughness.map(|r| roughness_summary(r, l, &p)),
             })
             .collect(),
         silver_muller: silver_muller_summaries(&p),
@@ -456,6 +458,42 @@ pub fn solver_summary(s: SolverSpec) -> SolverSummary {
             mode: "iterative",
             tol: Some(tol),
             max_iters: Some(max_iters),
+        },
+    }
+}
+
+/// Echo a rough wall's model and its `K(f)` over the requested
+/// frequencies (issue #758).
+fn roughness_summary(
+    r: RoughnessSpec,
+    l: &crate::problem::Leontovich,
+    p: &problem::Problem,
+) -> RoughnessSummary {
+    let k = p
+        .frequencies
+        .iter()
+        .map(|f| l.roughness_k(f.k0).expect("rough wall"))
+        .collect();
+    match r {
+        RoughnessSpec::Hammerstad { rms_m } => RoughnessSummary {
+            model: "hammerstad",
+            rms_m: Some(rms_m),
+            ball_radius_m: None,
+            n_balls: None,
+            tile_area_m2: None,
+            k,
+        },
+        RoughnessSpec::Huray {
+            ball_radius_m,
+            n_balls,
+            tile_area_m2,
+        } => RoughnessSummary {
+            model: "huray",
+            rms_m: None,
+            ball_radius_m: Some(ball_radius_m),
+            n_balls: Some(n_balls),
+            tile_area_m2: Some(tile_area_m2),
+            k,
         },
     }
 }

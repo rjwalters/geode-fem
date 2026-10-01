@@ -82,7 +82,12 @@
 //! polynomial structure — only fixed matrices with scalar ω-coefficients —
 //! and the greedy indicator stays the true full-order residual, so the
 //! tolerance certificate is unchanged. (v1 of #603 rejected surfaces; the
-//! `geode driven` spiral benchmark carries Leontovich copper.)
+//! `geode driven` spiral benchmark carries Leontovich copper.) Conductor
+//! **surface roughness** (issue #758,
+//! [`crate::driven::solve::SurfaceImpedanceModel::RoughConductor`]) is
+//! covered by the same argument: it multiplies `Z_s(ω)` by a real scalar
+//! `K(ω)` (Hammerstad `atan` / Huray rational in the skin depth), which
+//! only changes the per-ω scalar `c_Γ(ω)`, never `S_Γ`.
 //!
 //! # Multi-port drives (issue #708)
 //!

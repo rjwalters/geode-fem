@@ -29,7 +29,11 @@
 //!   volume-mass scalings (the magnitude of the true coefficient for the
 //!   purely-imaginary port and conductivity terms, the real part of the
 //!   Leontovich coefficient — positive for passive surfaces), so `P` stays
-//!   SPD.
+//!   SPD. A rough Leontovich wall (issue #758,
+//!   [`crate::driven::solve::SurfaceImpedanceModel::RoughConductor`])
+//!   composes transparently: its real roughness factor `K(ω) ≥ 1` is
+//!   folded into `Z_s` before `weak_coefficient`, so the proxy reads
+//!   `Re(iω/(K·Z_s)) = Re(iω/Z_s)/K > 0` from the same call.
 //! - For matched UPML (complex `ν`), `Re K(ν)` is used — see the PR #744
 //!   investigation; that case is not covered by the SPD guarantee.
 //! - Two loss terms of `A(ω)` are **omitted** from `P` (both omissions
