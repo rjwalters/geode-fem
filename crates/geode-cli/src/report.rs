@@ -92,7 +92,9 @@ pub struct RegionSummary {
     /// Applied relative permittivity.
     pub eps_r: Complex,
     /// `"spec"`, `"default_vacuum"` or (issue #757) `"dispersion"` — for
-    /// which `eps_r` is the model at its reference frequency `f_ref_hz`.
+    /// which `eps_r` is the model at its reference frequency: `f_ref_hz`
+    /// for `djordjevic_sarkar`, the first solved frequency for `debye` /
+    /// `drude` (issue #761).
     pub eps_r_source: &'static str,
     /// Applied real relative permeability (additive in v1, issue #714;
     /// `1` unless an inductance spec lists `mu_r` for the region).
@@ -103,30 +105,67 @@ pub struct RegionSummary {
     pub dispersion: Option<DispersionSummary>,
 }
 
-/// A dispersive region's model: the inputs as given, the fitted
-/// parameters and `ε_r(f)` at every requested frequency (additive in v1,
-/// issue #757).
+/// A dispersive region's model: the inputs as given, the fitted /
+/// derived parameters and `ε_r(f)` at every requested frequency (additive
+/// in v1, issues #757, #761). Which inputs are present depends on
+/// `model`.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct DispersionSummary {
-    /// `"djordjevic_sarkar"`.
+    /// `"djordjevic_sarkar"`, `"debye"` or `"drude"`.
     pub model: &'static str,
-    /// Real relative permittivity `ε′` at `f_ref_hz` (as given).
-    pub eps_r: f64,
-    /// Loss tangent at `f_ref_hz` (as given).
-    pub tan_delta: f64,
-    /// Reference frequency (Hz).
-    pub f_ref_hz: f64,
-    /// Lower band corner `f₁` (Hz).
-    pub f_low_hz: f64,
-    /// Upper band corner `f₂` (Hz).
-    pub f_high_hz: f64,
-    /// Fitted high-frequency permittivity `ε∞`.
+    /// Real relative permittivity `ε′` at `f_ref_hz` (as given;
+    /// `djordjevic_sarkar` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eps_r: Option<f64>,
+    /// Loss tangent at `f_ref_hz` (as given; `djordjevic_sarkar` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tan_delta: Option<f64>,
+    /// Reference frequency (Hz; `djordjevic_sarkar` only — a Debye / Drude
+    /// region's `eps_r` is the model at the first solved frequency).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub f_ref_hz: Option<f64>,
+    /// Lower band corner `f₁` (Hz; `djordjevic_sarkar` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub f_low_hz: Option<f64>,
+    /// Upper band corner `f₂` (Hz; `djordjevic_sarkar` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub f_high_hz: Option<f64>,
+    /// High-frequency permittivity `ε∞` (fitted for `djordjevic_sarkar`,
+    /// as given for `debye` / `drude`).
     pub eps_inf: f64,
-    /// Fitted permittivity step `Δε = ε_r(0) − ε∞`.
-    pub delta_eps: f64,
+    /// Permittivity step `Δε = ε_r(0) − ε∞` (fitted for
+    /// `djordjevic_sarkar`; `Σ Δε_k` for `debye`; absent for `drude`,
+    /// whose DC limit diverges).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta_eps: Option<f64>,
+    /// Relaxation poles as given (`debye` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub poles: Option<Vec<DebyePoleSummary>>,
+    /// Plasma angular frequency `ω_p` (rad/s; `drude` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub omega_p_rad_s: Option<f64>,
+    /// Collision rate `γ` (rad/s; `drude` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gamma_rad_s: Option<f64>,
+    /// Frequency (Hz) where `Re ε_r` crosses zero, `√(ω_p²/ε∞ − γ²)/(2π)`;
+    /// `Re ε_r < 0` below it, which `solver.preconditioner = "ams"`
+    /// rejects (`drude` only, when `ω_p²/ε∞ > γ²`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub re_eps_zero_hz: Option<f64>,
     /// `ε_r(f)` `[re, im]` at each entry of the report's `frequencies`, in
     /// the same order (empty for a spec without frequencies).
     pub eps_r_at_frequencies: Vec<Complex>,
+}
+
+/// One Debye pole of a [`DispersionSummary`] (issue #761).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DebyePoleSummary {
+    /// Permittivity step `Δε_k`.
+    pub delta_eps: f64,
+    /// Relaxation time `τ_k` (s).
+    pub tau_s: f64,
+    /// Relaxation (loss-peak) frequency `1/(2πτ_k)` (Hz).
+    pub f_relax_hz: f64,
 }
 
 /// One PEC surface.

@@ -42,9 +42,11 @@ pub enum MaterialSource {
     Spec,
     /// Not listed: vacuum `ε_r = 1`.
     DefaultVacuum,
-    /// Listed with a `dispersion` model (issue #757): the region's
-    /// [`Region::eps_r`] is the model at its reference frequency, and the
-    /// solve uses `ε_r(f)` per frequency ([`Problem::eps_at`]).
+    /// Listed with a `dispersion` model (issues #757, #761): the region's
+    /// [`Region::eps_r`] is the model at its reference frequency (the
+    /// Djordjevic–Sarkar `f_ref_hz`; the first solved frequency for Debye
+    /// / Drude), and the solve uses `ε_r(f)` per frequency
+    /// ([`Problem::eps_at`]).
     Dispersion,
 }
 
@@ -756,6 +758,7 @@ pub fn load_parsed(
         }
         None => None,
     };
+    validate_ams_dispersion(&spec, &frequencies)?;
     let eigen = spec.eigen.as_ref().map(|e| EigenTarget {
         n_modes: e.n_modes,
         shift: to_frequency(e.shift, e.unit, lu),
@@ -915,13 +918,23 @@ pub fn load_parsed(
             None => c64::new(m.eps_r[0], m.eps_r[1]),
             Some(d) => {
                 let model = DispersionModel::from_spec(d).expect("validated above");
+                // The DS fit point, else (Debye / Drude) the first solved
+                // frequency — a dispersive spec is a driven / extract one,
+                // which always has frequencies (validated above).
+                let f_ref = d.f_ref_hz().unwrap_or_else(|| {
+                    frequencies
+                        .first()
+                        .expect("a dispersive spec has frequencies")
+                        .hz
+                });
+                let eps = model.eps(f_ref);
                 dispersion.push(DispersiveRegion {
                     name: m.physical_group.clone(),
                     tag,
                     model,
-                    spec: *d,
+                    spec: d.clone(),
                 });
-                model.eps(d.f_ref_hz())
+                eps
             }
         };
         if eps_by_tag.insert(tag, eps).is_some() {
@@ -1258,8 +1271,9 @@ fn validate_dispersion(
     if eps_r != [1.0, 0.0] {
         return Err(invalid(format!(
             "materials[{group}] has both `eps_r` and `dispersion`: the dispersion model \
-             defines the permittivity at every frequency — drop `eps_r` (give the reference \
-             value as `dispersion.eps_r` / `tan_delta` at `f_ref_hz`)"
+             defines the permittivity at every frequency — drop `eps_r` (a \
+             `djordjevic_sarkar` model takes the reference value as `dispersion.eps_r` / \
+             `tan_delta` at `f_ref_hz`)"
         )));
     }
     DispersionModel::from_spec(d).map_err(|e| invalid(format!("{at}: {e}")))?;
@@ -1297,6 +1311,65 @@ fn validate_dispersion(
             "{at} does not support `sweep.adaptive`: dispersive materials make M \
              frequency-dependent, and the reduced-order model projects a fixed M; remove \
              `sweep.adaptive` to run the dense sweep"
+        )));
+    }
+    Ok(())
+}
+
+/// The AMS guard for dispersive materials (issue #761; scalar, before the
+/// mesh is read — the solved frequencies are known up front). The AMS
+/// V-cycle is built on the real SPD proxy `Re K + ω² Re M(ε)`
+/// (`geode_core::driven::solve_ams`), which is SPD only while `Re ε_r >
+/// 0` in every tet: a region with `Re ε_r(f) ≤ 0` (a Drude model below
+/// its zero crossing) makes the proxy indefinite (or singular), and the
+/// preconditioned COCG has no convergence basis. Such a spec is
+/// `invalid_spec` with `solver.preconditioner = "ams"`.
+///
+/// `jacobi` / `ilu0` need no guard: they precondition `A(ω)` itself, and
+/// `Re ε_r < 0` turns the diagonal mass term `−ω² Re ε M_ii` positive,
+/// moving `diag A` *away* from zero (no new breakdown); the direct LU of
+/// the complex-symmetric `A(ω)` is indifferent to the sign. A constant
+/// `eps_r` with `Re < 0` is not guarded either (it predates #761 and is
+/// out of this rule's scope).
+fn validate_ams_dispersion(spec: &ProblemSpec, frequencies: &[Frequency]) -> Result<(), CliError> {
+    let SolverSpec::Iterative {
+        preconditioner: crate::spec::PreconditionerSpec::Ams,
+        ..
+    } = spec.solver
+    else {
+        return Ok(());
+    };
+    for m in &spec.materials {
+        let Some(d) = &m.dispersion else { continue };
+        let model = DispersionModel::from_spec(d).expect("validated above");
+        let bad: Vec<(f64, c64)> = frequencies
+            .iter()
+            .map(|f| (f.hz, model.eps(f.hz)))
+            .filter(|(_, e)| e.re <= 0.0)
+            .collect();
+        let Some(&(hz, e)) = bad.first() else {
+            continue;
+        };
+        let crossover = match &model {
+            DispersionModel::Drude(dr) => dr
+                .re_eps_zero_hz()
+                .map(|f0| format!(" (Re eps_r < 0 below {f0:.6e} Hz)"))
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
+        return Err(invalid(format!(
+            "materials[{}].dispersion ({}) has Re eps_r(f) <= 0 at {} of the {} solved \
+             frequencies{crossover}, first {hz:.6e} Hz with eps_r = [{}, {}]: \
+             `solver.preconditioner = \"ams\"` builds its V-cycle on the real proxy \
+             Re K + w^2 Re M(eps), which is not positive definite there — use \
+             `solver.mode = \"direct\"` or the `jacobi` / `ilu0` preconditioner, or sweep \
+             only where Re eps_r > 0",
+            m.physical_group,
+            model.name(),
+            bad.len(),
+            frequencies.len(),
+            e.re,
+            e.im
         )));
     }
     Ok(())
