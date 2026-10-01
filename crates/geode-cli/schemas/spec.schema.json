@@ -105,8 +105,29 @@
       ],
       "type": "object"
     },
+    "DebyePole": {
+      "additionalProperties": false,
+      "description": "One pole of a [`DispersionSpec::Debye`] model.",
+      "properties": {
+        "delta_eps": {
+          "description": "Permittivity step `Δε_k` across the relaxation (finite, `≥ 0`).",
+          "format": "double",
+          "type": "number"
+        },
+        "tau_s": {
+          "description": "Relaxation time `τ_k` (s; finite, `> 0`).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "delta_eps",
+        "tau_s"
+      ],
+      "type": "object"
+    },
     "DispersionSpec": {
-      "description": "Frequency-dependent relative-permittivity model of a material\n(issue #757), selected by `model`. Further models are added as new\n`model` variants.",
+      "description": "Frequency-dependent relative-permittivity model of a material\n(issues #757, #761), selected by `model`. Further models are added as\nnew `model` variants. All follow the solver's `exp(+jωt)` convention\n(passive: `Im ε_r ≤ 0`).",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -149,6 +170,66 @@
             "eps_r",
             "tan_delta",
             "f_ref_hz"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Multi-pole Debye relaxation (issue #761): `ε_r(f) = ε∞ +\nΣ_k Δε_k / (1 + jωτ_k)`, `ω = 2πf`. Each pole lowers `ε′` by\n`Δε_k` across its relaxation frequency `1/(2πτ_k)`, where its loss\npeaks; `Im ε_r < 0` for `f > 0`.",
+          "properties": {
+            "eps_inf": {
+              "description": "High-frequency permittivity `ε∞` (finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "model": {
+              "const": "debye",
+              "type": "string"
+            },
+            "poles": {
+              "description": "Relaxation poles (at least one).",
+              "items": {
+                "$ref": "#/$defs/DebyePole"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "model",
+            "eps_inf",
+            "poles"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Drude free-carrier model (issue #761): `ε_r(f) = ε∞ − ω_p² / (ω² −\njγω)`, `ω = 2πf` (the textbook `ω² + iγω` is the `exp(−iωt)`\nform). `Re ε_r < 0` below `√(ω_p²/ε∞ − γ²)/(2π)` (when real), which\nthe AMS preconditioner rejects; well below `γ` the model is a\nconductor of `σ = ε₀ω_p²/γ` in a background `ε∞`.",
+          "properties": {
+            "eps_inf": {
+              "description": "Background (high-frequency) permittivity `ε∞` (finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "gamma_rad_s": {
+              "description": "Collision rate `γ` (rad/s; finite, `≥ 0`; `0` is lossless).",
+              "format": "double",
+              "type": "number"
+            },
+            "model": {
+              "const": "drude",
+              "type": "string"
+            },
+            "omega_p_rad_s": {
+              "description": "Plasma angular frequency `ω_p` (rad/s; finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "model",
+            "eps_inf",
+            "omega_p_rad_s",
+            "gamma_rad_s"
           ],
           "type": "object"
         }

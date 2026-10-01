@@ -519,9 +519,10 @@ pub struct MaterialSpec {
 }
 
 /// Frequency-dependent relative-permittivity model of a material
-/// (issue #757), selected by `model`. Further models are added as new
-/// `model` variants.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
+/// (issues #757, #761), selected by `model`. Further models are added as
+/// new `model` variants. All follow the solver's `exp(+jωt)` convention
+/// (passive: `Im ε_r ≤ 0`).
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(tag = "model", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DispersionSpec {
     /// Djordjevic–Sarkar wideband Debye model (Djordjević et al., IEEE
@@ -545,13 +546,49 @@ pub enum DispersionSpec {
         #[serde(default = "default_ds_f_high_hz")]
         f_high_hz: f64,
     },
+    /// Multi-pole Debye relaxation (issue #761): `ε_r(f) = ε∞ +
+    /// Σ_k Δε_k / (1 + jωτ_k)`, `ω = 2πf`. Each pole lowers `ε′` by
+    /// `Δε_k` across its relaxation frequency `1/(2πτ_k)`, where its loss
+    /// peaks; `Im ε_r < 0` for `f > 0`.
+    Debye {
+        /// High-frequency permittivity `ε∞` (finite, `> 0`).
+        eps_inf: f64,
+        /// Relaxation poles (at least one).
+        poles: Vec<DebyePole>,
+    },
+    /// Drude free-carrier model (issue #761): `ε_r(f) = ε∞ − ω_p² / (ω² −
+    /// jγω)`, `ω = 2πf` (the textbook `ω² + iγω` is the `exp(−iωt)`
+    /// form). `Re ε_r < 0` below `√(ω_p²/ε∞ − γ²)/(2π)` (when real), which
+    /// the AMS preconditioner rejects; well below `γ` the model is a
+    /// conductor of `σ = ε₀ω_p²/γ` in a background `ε∞`.
+    Drude {
+        /// Background (high-frequency) permittivity `ε∞` (finite, `> 0`).
+        eps_inf: f64,
+        /// Plasma angular frequency `ω_p` (rad/s; finite, `> 0`).
+        omega_p_rad_s: f64,
+        /// Collision rate `γ` (rad/s; finite, `≥ 0`; `0` is lossless).
+        gamma_rad_s: f64,
+    },
+}
+
+/// One pole of a [`DispersionSpec::Debye`] model.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DebyePole {
+    /// Permittivity step `Δε_k` across the relaxation (finite, `≥ 0`).
+    pub delta_eps: f64,
+    /// Relaxation time `τ_k` (s; finite, `> 0`).
+    pub tau_s: f64,
 }
 
 impl DispersionSpec {
-    /// The frequency (Hz) at which the model's inputs are given.
-    pub fn f_ref_hz(&self) -> f64 {
+    /// The frequency (Hz) at which the model's inputs are given — the
+    /// Djordjevic–Sarkar fit point; `None` for the models given by their
+    /// own parameters (Debye, Drude).
+    pub fn f_ref_hz(&self) -> Option<f64> {
         match *self {
-            Self::DjordjevicSarkar { f_ref_hz, .. } => f_ref_hz,
+            Self::DjordjevicSarkar { f_ref_hz, .. } => Some(f_ref_hz),
+            Self::Debye { .. } | Self::Drude { .. } => None,
         }
     }
 }

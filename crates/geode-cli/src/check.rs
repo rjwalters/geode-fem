@@ -9,10 +9,10 @@ use crate::error::CliError;
 use crate::problem::{self, MaterialSource, Problem};
 use crate::report::{
     CapacitanceSettingsSummary, CheckReport, ConductorSummary, CurrentPathSummary,
-    DispersionSummary, EigenSettingsSummary, ExtractSettingsSummary, FrequencySummary,
-    InductanceSettingsSummary, LeontovichSummary, MeshSummary, PecSummary, PortSummary, Provenance,
-    RegionSummary, ResourceEstimate, RoughnessSummary, SilverMullerSummary, SolverSummary,
-    UpmlSummary, WavePortSummary,
+    DebyePoleSummary, DispersionSummary, EigenSettingsSummary, ExtractSettingsSummary,
+    FrequencySummary, InductanceSettingsSummary, LeontovichSummary, MeshSummary, PecSummary,
+    PortSummary, Provenance, RegionSummary, ResourceEstimate, RoughnessSummary,
+    SilverMullerSummary, SolverSummary, UpmlSummary, WavePortSummary,
 };
 use crate::spec::{DispersionSpec, RoughnessSpec, SolverSpec};
 
@@ -505,8 +505,8 @@ fn roughness_summary(
     }
 }
 
-/// Echo a dispersive region's model, its fit and `ε_r(f)` over the
-/// requested frequencies (issue #757).
+/// Echo a dispersive region's model, its fit / derived parameters and
+/// `ε_r(f)` over the requested frequencies (issues #757, #761).
 fn dispersion_summary(d: &problem::DispersiveRegion, p: &Problem) -> DispersionSummary {
     let eps_r_at_frequencies = p
         .frequencies
@@ -516,9 +516,24 @@ fn dispersion_summary(d: &problem::DispersiveRegion, p: &Problem) -> DispersionS
             [e.re, e.im]
         })
         .collect();
-    match (d.spec, d.model) {
+    let base = DispersionSummary {
+        model: d.model.name(),
+        eps_r: None,
+        tan_delta: None,
+        f_ref_hz: None,
+        f_low_hz: None,
+        f_high_hz: None,
+        eps_inf: 0.0,
+        delta_eps: None,
+        poles: None,
+        omega_p_rad_s: None,
+        gamma_rad_s: None,
+        re_eps_zero_hz: None,
+        eps_r_at_frequencies,
+    };
+    match (&d.spec, &d.model) {
         (
-            DispersionSpec::DjordjevicSarkar {
+            &DispersionSpec::DjordjevicSarkar {
                 eps_r,
                 tan_delta,
                 f_ref_hz,
@@ -527,15 +542,39 @@ fn dispersion_summary(d: &problem::DispersiveRegion, p: &Problem) -> DispersionS
             },
             DispersionModel::DjordjevicSarkar(m),
         ) => DispersionSummary {
-            model: d.model.name(),
-            eps_r,
-            tan_delta,
-            f_ref_hz,
-            f_low_hz,
-            f_high_hz,
+            eps_r: Some(eps_r),
+            tan_delta: Some(tan_delta),
+            f_ref_hz: Some(f_ref_hz),
+            f_low_hz: Some(f_low_hz),
+            f_high_hz: Some(f_high_hz),
             eps_inf: m.eps_inf,
-            delta_eps: m.delta_eps,
-            eps_r_at_frequencies,
+            delta_eps: Some(m.delta_eps),
+            ..base
         },
+        (_, DispersionModel::Debye(m)) => DispersionSummary {
+            eps_inf: m.eps_inf,
+            delta_eps: Some(m.delta_eps()),
+            poles: Some(
+                m.poles
+                    .iter()
+                    .map(|pole| DebyePoleSummary {
+                        delta_eps: pole.delta_eps,
+                        tau_s: pole.tau_s,
+                        f_relax_hz: 1.0 / (2.0 * std::f64::consts::PI * pole.tau_s),
+                    })
+                    .collect(),
+            ),
+            ..base
+        },
+        (_, DispersionModel::Drude(m)) => DispersionSummary {
+            eps_inf: m.eps_inf,
+            omega_p_rad_s: Some(m.omega_p_rad_s),
+            gamma_rad_s: Some(m.gamma_rad_s),
+            re_eps_zero_hz: m.re_eps_zero_hz(),
+            ..base
+        },
+        (_, DispersionModel::DjordjevicSarkar(_)) => {
+            unreachable!("the model is built from its own spec")
+        }
     }
 }

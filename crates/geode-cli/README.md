@@ -215,7 +215,7 @@ Driven example (the spiral-inductor golden input,
 | `materials[].physical_group` | string | name of a **dimension-3** physical group |
 | `materials[].eps_r` | `[re, im]`, `im ≤ 0` (eigen: `re > 0`; capacitance: `im = 0`, `re > 0`; inductance: omit or `[1, 0]`); default `[1, 0]` (vacuum, for every analysis: a `materials` entry may omit `eps_r`) | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
 | `materials[].mu_r` | float > 0, default `1` (additive in v1, issue #714) | real relative permeability. Honoured **only by `geode inductance`**; every other analysis rejects `mu_r ≠ 1` (its solver has no permeability term) |
-| `materials[].dispersion` | optional (additive, #757); driven / extract dense sweeps only | frequency-dependent permittivity `{"model": "djordjevic_sarkar", "eps_r": ε′, "tan_delta": tan δ, "f_ref_hz": f_ref}` (optional `f_low_hz` = `1e3`, `f_high_hz` = `1e12`); replaces `eps_r` (which must then be omitted) — see [Dispersive dielectrics](#dispersive-dielectrics-issue-757) |
+| `materials[].dispersion` | optional (additive, #757 / #761); driven / extract dense sweeps only | frequency-dependent permittivity, one of `{"model": "djordjevic_sarkar", "eps_r": ε′, "tan_delta": tan δ, "f_ref_hz": f_ref}` (optional `f_low_hz` = `1e3`, `f_high_hz` = `1e12`), `{"model": "debye", "eps_inf": ε∞, "poles": [{"delta_eps": Δε, "tau_s": τ}, …]}` or `{"model": "drude", "eps_inf": ε∞, "omega_p_rad_s": ω_p, "gamma_rad_s": γ}`; replaces `eps_r` (which must then be omitted) — see [Dispersive dielectrics](#dispersive-dielectrics-issue-757) |
 | `boundary_conditions.pec[]` | strings | **dimension-2** groups whose edges are eliminated (tangential E = 0). Unnamed surfaces are natural (PMC-like) boundaries |
 | `boundary_conditions.leontovich[]` | | good-conductor surface impedance `Z_s = (1+j)·√(ωμ₀/2σ)` |
 | `….leontovich[].physical_group` | string | dimension-2 group |
@@ -985,8 +985,69 @@ FR-4 (`4.3`, `0.02` at 1 GHz, default band 1 kHz – 1 THz) gives
 
 Non-finite or out-of-range inputs, and a fit with `ε∞ ≤ 0` (a large
 loss tangent over a narrow band), are `invalid_spec`; so is a material
-with **both** `eps_r` and `dispersion`. Further models (Debye, Drude)
-will be new `model` values.
+with **both** `eps_r` and `dispersion`.
+
+### Models
+
+| `model` | `ε_r(f)`, `ω = 2πf` | Inputs | Use |
+|---|---|---|---|
+| `djordjevic_sarkar` | `ε∞ + Δε/L · log₁₀((f₂ + jf)/(f₁ + jf))`, fitted at `f_ref_hz` (above) | `eps_r`, `tan_delta`, `f_ref_hz`, `f_low_hz`, `f_high_hz` | laminates from one datasheet point (flat `tan δ`) |
+| `debye` (#761) | `ε∞ + Σ_k Δε_k/(1 + jωτ_k)` | `eps_inf`, `poles[]` = `{delta_eps, tau_s}` | polar relaxations, fitted multi-pole data |
+| `drude` (#761) | `ε∞ − ω_p²/(ω² − jγω)` | `eps_inf`, `omega_p_rad_s`, `gamma_rad_s` | free carriers: doped semiconductors, plasmas, metals |
+
+**Debye** (issue #761). Each pole relaxes `ε′` by `Δε_k` across its
+relaxation frequency `1/(2πτ_k)`, where its loss `Δε_k·ωτ_k/(1 + ω²τ_k²)`
+peaks at `Δε_k/2`. `Re ε = ε∞ + Σ Δε_k/(1 + ω²τ_k²) ≥ ε∞ > 0` and
+`Im ε = −Σ Δε_k·ωτ_k/(1 + ω²τ_k²) < 0`: causal and passive, `ε∞ + ΣΔε_k`
+at DC, `ε∞` as `f → ∞`.
+
+```json
+"dispersion": {
+  "model": "debye", "eps_inf": 10.0,
+  "poles": [{"delta_eps": 1.5, "tau_s": 5.3e-11}, {"delta_eps": 0.5, "tau_s": 5.3e-12}]
+}
+```
+
+**Drude** (issue #761). Under the solver's `exp(+jωt)` the carrier
+equation of motion gives `σ(ω) = ε₀ω_p²/(γ + jω)` and
+`ε = ε∞ + σ/(jωε₀) = ε∞ − ω_p²/(ω² − jγω)` — **note the sign**: the
+textbook `ω² + iγω` is the `exp(−iωt)` form. Split:
+`Re ε = ε∞ − ω_p²/(ω² + γ²)`, `Im ε = −ω_p²γ/(ω(ω² + γ²)) ≤ 0` (`= 0`
+for `γ = 0`, a lossless plasma). Well below `γ` it is a conductor of
+`σ = ε₀ω_p²/γ` in a background `ε∞` (`Im ε ≈ −σ/(ωε₀)`); `Re ε < 0`
+exactly below `f₀ = √(ω_p²/ε∞ − γ²)/(2π)` when `ω_p²/ε∞ > γ²`. The
+`f → 0` limit diverges, so Drude is a sweep-only model (every swept
+frequency is `> 0`). 10 Ω·cm n-type silicon (`σ = 10 S/m`, `μ = 1350
+cm²/V·s`, `m* = 0.26 mₑ`) is
+
+```json
+"dispersion": {
+  "model": "drude", "eps_inf": 11.9, "omega_p_rad_s": 2.38e12, "gamma_rad_s": 5.0e12
+}
+```
+
+(`γ = e/(m*μ)`, `ω_p = √(σγ/ε₀)`): `ε_r = 11.673 − j·180.3` at 1 GHz.
+
+| Field | Rule |
+|---|---|
+| `eps_inf` (both) | finite, `> 0` |
+| `poles` (Debye) | at least one; each `delta_eps` finite `≥ 0` (`0` contributes nothing), `tau_s` finite `> 0` (s) |
+| `omega_p_rad_s` (Drude) | finite, `> 0` (rad/s) |
+| `gamma_rad_s` (Drude) | finite, `≥ 0` (rad/s; `0` is lossless) |
+
+**Drude and AMS.** `solver.preconditioner = "ams"` builds its V-cycle on
+the real SPD proxy `Re K + ω² Re M(ε)`, which is positive definite only
+while `Re ε_r > 0`. A dispersive region with `Re ε_r(f) ≤ 0` at **any**
+solved frequency (a Drude model below `f₀`) is therefore `invalid_spec`
+**at load** (the frequencies are known up front, so `geode check`
+catches it too), naming the model, how many frequencies, the first one
+and `f₀`. The direct solve is unaffected, and `jacobi` / `ilu0` are not
+guarded: they precondition `A(ω)` itself, and `Re ε < 0` turns the mass
+term `−ω² Re ε M_ii` positive, moving the diagonal away from zero.
+Debye (`Re ε ≥ ε∞`) and Djordjevic–Sarkar never trigger the guard. With
+`Re ε > 0` but `|Im ε| ≫ Re ε` (the doped silicon above) AMS converges,
+in ~1.5–2× the iterations (the proxy drops `Im M(ε)`): 202–235 COCG
+iterations vs 112–159 on the spiral smoke, matching direct LU to 3e-12.
 
 **How it is solved.** A dispersive spec runs the dense sweep with the
 operator **re-assembled per frequency** from that frequency's per-tet
@@ -995,7 +1056,8 @@ operator **re-assembled per frequency** from that frequency's per-tet
 matrix). It composes with everything on that path: lumped and wave ports,
 Leontovich / Silver-Müller walls, `absorbing_regions` (`ε = ε_r(f)·Λ`),
 `--jobs`, the direct and iterative solvers including AMS (the SPD proxy
-reads each frequency's own `Re ε(f) ≥ ε∞ > 0`), `extract`, and `--outdir`
+reads each frequency's own `Re ε(f)`; Djordjevic–Sarkar and Debye keep
+`Re ε(f) ≥ ε∞ > 0`, Drude is guarded — see below), `extract`, and `--outdir`
 (each row's operator and `.vtu` `eps_r` array use that row's `ε_r(f)`).
 The cost is one operator assembly per frequency, minor next to the
 factorization.
@@ -1012,11 +1074,16 @@ factorization.
 
 Every `results[]` row reports the applied `materials[]` (`ε_r(f)` per
 dispersive material); `geode check` reports the region's `eps_r_source =
-"dispersion"`, its `eps_r` at `f_ref_hz`, and a `dispersion` echo with
-the inputs, the fitted `eps_inf` / `delta_eps` and `ε_r(f)` at every
-requested frequency — audit the fit without solving. The cookbook has
-the spiral with a Djordjevic–Sarkar substrate
-([`examples/driven/spiral_inductor_dispersive.json`](examples/driven/README.md#dispersive-substrate-dispersion-issue-757)).
+"dispersion"`, its `eps_r` at the reference frequency (`f_ref_hz` for
+Djordjevic–Sarkar, the first solved frequency for Debye / Drude), and a
+`dispersion` echo with the inputs, the fitted / derived parameters
+(`eps_inf`, `delta_eps`; Debye `poles[].f_relax_hz`; Drude
+`re_eps_zero_hz` = `f₀`) and `ε_r(f)` at every requested frequency —
+audit the model without solving. The cookbook has the spiral with a
+Djordjevic–Sarkar substrate
+([`examples/driven/spiral_inductor_dispersive.json`](examples/driven/README.md#dispersive-substrate-dispersion-issue-757)),
+a two-pole Debye substrate and a Drude doped-silicon substrate
+([`spiral_inductor_debye.json` / `spiral_inductor_drude.json`](examples/driven/README.md#debye-and-drude-substrates-issue-761)).
 
 ## Adaptive sweep, parallel frequencies and progress (issue #708)
 
@@ -1826,11 +1893,15 @@ Additive in v1 (issue #683) — always present in `check`, present in
 **`kind = "check"`** adds `regions[]` (`physical_group`, `tag`, `n_tets`,
 `eps_r`, `eps_r_source` = `"spec"` \| `"default_vacuum"` \|
 `"dispersion"` (additive, issue #757; `eps_r` is then the model at
-`f_ref_hz`), and — additive in v1, issue #714 — `mu_r`; dispersive
-regions only, additive (#757): `dispersion` = `model`, the inputs as
-given (`eps_r`, `tan_delta`, `f_ref_hz`, `f_low_hz`, `f_high_hz`), the
-fit (`eps_inf`, `delta_eps`) and `eps_r_at_frequencies[]`, `ε_r(f)` at each
-`frequencies[]` entry), `pec[]`
+`f_ref_hz`, or for Debye / Drude (#761) at the first solved frequency),
+and — additive in v1, issue #714 — `mu_r`; dispersive regions only,
+additive (#757 / #761): `dispersion` = `model`, the inputs as given
+(Djordjevic–Sarkar: `eps_r`, `tan_delta`, `f_ref_hz`, `f_low_hz`,
+`f_high_hz`; Debye: `poles[]` = `delta_eps`, `tau_s`, `f_relax_hz`;
+Drude: `omega_p_rad_s`, `gamma_rad_s`, and `re_eps_zero_hz` when
+`Re ε < 0` below it), `eps_inf`, `delta_eps` (Djordjevic–Sarkar fit;
+Debye `ΣΔε_k`; absent for Drude) and `eps_r_at_frequencies[]`, `ε_r(f)` at
+each `frequencies[]` entry), `pec[]`
 (`physical_group`, `tag`, `n_triangles`), `leontovich[]` (… plus
 `conductivity_s_m`, `conductivity_natural` and — additive in v1, issue
 #758, rough walls only — `roughness`: `model`, its parameters as given

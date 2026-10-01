@@ -10,6 +10,7 @@ the example models, and the output to expect.
 | `driven` (adaptive) | [the same spiral, 40-point adaptive sweep (10 full solves)](driven/README.md#adaptive-40-point-sweep-sweepadaptive-issue-708) | `driven/spiral_inductor_adaptive.json` | ~1.5 min / ~7 s |
 | `driven` (rough Cu) | [the same spiral with 1 µm RMS Hammerstad copper roughness](driven/README.md#rough-copper-roughness-issue-758) | `driven/spiral_inductor_rough.json` | ~30 s / a few s |
 | `driven` (dispersive) | [the same spiral with a Djordjevic–Sarkar substrate](driven/README.md#dispersive-substrate-dispersion-issue-757) | `driven/spiral_inductor_dispersive.json` | ~30 s / a few s |
+| `driven` (Debye / Drude) | [the same spiral with a two-pole Debye substrate, and with Drude 10 Ω·cm doped silicon](driven/README.md#debye-and-drude-substrates-issue-761) | `driven/spiral_inductor_debye.json`, `driven/spiral_inductor_drude.json` | ~30 s / a few s each |
 | `extract` | [SLCFET spiral, `L₀` by f → 0 extrapolation](extract/README.md) | `extract/slcfet_spiral.json` | ~30 s / a few s |
 | `eigen` | [PEC-walled dielectric-sphere cavity modes, lossless and lossy (f, Q)](eigen/README.md) | `eigen/sphere_cavity.json`, `eigen/lossy_sphere_cavity.json` | ~12 s / ~1 s (lossy: ~40 s / ~1 s) |
 | `capacitance` | [coax and triax Maxwell capacitance matrices](capacitance/README.md) | `capacitance/coax.json`, `capacitance/triax.toml` | < 1 s |

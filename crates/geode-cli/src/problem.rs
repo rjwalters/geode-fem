@@ -42,9 +42,11 @@ pub enum MaterialSource {
     Spec,
     /// Not listed: vacuum `ε_r = 1`.
     DefaultVacuum,
-    /// Listed with a `dispersion` model (issue #757): the region's
-    /// [`Region::eps_r`] is the model at its reference frequency, and the
-    /// solve uses `ε_r(f)` per frequency ([`Problem::eps_at`]).
+    /// Listed with a `dispersion` model (issues #757, #761): the region's
+    /// [`Region::eps_r`] is the model at its reference frequency (the
+    /// Djordjevic–Sarkar `f_ref_hz`; the first solved frequency for Debye
+    /// / Drude), and the solve uses `ε_r(f)` per frequency
+    /// ([`Problem::eps_at`]).
     Dispersion,
 }
 
@@ -756,6 +758,7 @@ pub fn load_parsed(
         }
         None => None,
     };
+    validate_ams_dispersion(&spec, &frequencies)?;
     let eigen = spec.eigen.as_ref().map(|e| EigenTarget {
         n_modes: e.n_modes,
         shift: to_frequency(e.shift, e.unit, lu),
@@ -915,13 +918,23 @@ pub fn load_parsed(
             None => c64::new(m.eps_r[0], m.eps_r[1]),
             Some(d) => {
                 let model = DispersionModel::from_spec(d).expect("validated above");
+                // The DS fit point, else (Debye / Drude) the first solved
+                // frequency — a dispersive spec is a driven / extract one,
+                // which always has frequencies (validated above).
+                let f_ref = d.f_ref_hz().unwrap_or_else(|| {
+                    frequencies
+                        .first()
+                        .expect("a dispersive spec has frequencies")
+                        .hz
+                });
+                let eps = model.eps(f_ref);
                 dispersion.push(DispersiveRegion {
                     name: m.physical_group.clone(),
                     tag,
                     model,
-                    spec: *d,
+                    spec: d.clone(),
                 });
-                model.eps(d.f_ref_hz())
+                eps
             }
         };
         if eps_by_tag.insert(tag, eps).is_some() {
@@ -1258,8 +1271,9 @@ fn validate_dispersion(
     if eps_r != [1.0, 0.0] {
         return Err(invalid(format!(
             "materials[{group}] has both `eps_r` and `dispersion`: the dispersion model \
-             defines the permittivity at every frequency — drop `eps_r` (give the reference \
-             value as `dispersion.eps_r` / `tan_delta` at `f_ref_hz`)"
+             defines the permittivity at every frequency — drop `eps_r` (a \
+             `djordjevic_sarkar` model takes the reference value as `dispersion.eps_r` / \
+             `tan_delta` at `f_ref_hz`)"
         )));
     }
     DispersionModel::from_spec(d).map_err(|e| invalid(format!("{at}: {e}")))?;
@@ -1297,6 +1311,65 @@ fn validate_dispersion(
             "{at} does not support `sweep.adaptive`: dispersive materials make M \
              frequency-dependent, and the reduced-order model projects a fixed M; remove \
              `sweep.adaptive` to run the dense sweep"
+        )));
+    }
+    Ok(())
+}
+
+/// The AMS guard for dispersive materials (issue #761; scalar, before the
+/// mesh is read — the solved frequencies are known up front). The AMS
+/// V-cycle is built on the real SPD proxy `Re K + ω² Re M(ε)`
+/// (`geode_core::driven::solve_ams`), which is SPD only while `Re ε_r >
+/// 0` in every tet: a region with `Re ε_r(f) ≤ 0` (a Drude model below
+/// its zero crossing) makes the proxy indefinite (or singular), and the
+/// preconditioned COCG has no convergence basis. Such a spec is
+/// `invalid_spec` with `solver.preconditioner = "ams"`.
+///
+/// `jacobi` / `ilu0` need no guard: they precondition `A(ω)` itself, and
+/// `Re ε_r < 0` turns the diagonal mass term `−ω² Re ε M_ii` positive,
+/// moving `diag A` *away* from zero (no new breakdown); the direct LU of
+/// the complex-symmetric `A(ω)` is indifferent to the sign. A constant
+/// `eps_r` with `Re < 0` is not guarded either (it predates #761 and is
+/// out of this rule's scope).
+fn validate_ams_dispersion(spec: &ProblemSpec, frequencies: &[Frequency]) -> Result<(), CliError> {
+    let SolverSpec::Iterative {
+        preconditioner: crate::spec::PreconditionerSpec::Ams,
+        ..
+    } = spec.solver
+    else {
+        return Ok(());
+    };
+    for m in &spec.materials {
+        let Some(d) = &m.dispersion else { continue };
+        let model = DispersionModel::from_spec(d).expect("validated above");
+        let bad: Vec<(f64, c64)> = frequencies
+            .iter()
+            .map(|f| (f.hz, model.eps(f.hz)))
+            .filter(|(_, e)| e.re <= 0.0)
+            .collect();
+        let Some(&(hz, e)) = bad.first() else {
+            continue;
+        };
+        let crossover = match &model {
+            DispersionModel::Drude(dr) => dr
+                .re_eps_zero_hz()
+                .map(|f0| format!(" (Re eps_r < 0 below {f0:.6e} Hz)"))
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
+        return Err(invalid(format!(
+            "materials[{}].dispersion ({}) has Re eps_r(f) <= 0 at {} of the {} solved \
+             frequencies{crossover}, first {hz:.6e} Hz with eps_r = [{}, {}]: \
+             `solver.preconditioner = \"ams\"` builds its V-cycle on the real proxy \
+             Re K + w^2 Re M(eps), which is not positive definite there — use \
+             `solver.mode = \"direct\"` or the `jacobi` / `ilu0` preconditioner, or sweep \
+             only where Re eps_r > 0",
+            m.physical_group,
+            model.name(),
+            bad.len(),
+            frequencies.len(),
+            e.re,
+            e.im
         )));
     }
     Ok(())
@@ -2882,6 +2955,153 @@ mod tests {
                 "f_ref_hz": 1e9, "tau_s": 1e-9
             }),
             serde_json::json!({"model": "djordjevic_sarkar", "eps_r": 4.3, "tan_delta": 0.02}),
+        ] {
+            assert!(
+                serde_json::from_value::<crate::spec::DispersionSpec>(bad.clone()).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    /// Debye / Drude spec blocks (issue #761): parse, prefixed input
+    /// errors, and the scalar AMS guard on `Re ε_r(f) ≤ 0`.
+    #[test]
+    fn debye_drude_validation_and_ams_guard() {
+        let spec = |d: serde_json::Value, solver: serde_json::Value, ghz: &[f64]| -> ProblemSpec {
+            serde_json::from_value(serde_json::json!({
+                "schema_version": 1,
+                "mesh": {"path": "does-not-exist.msh", "length_unit_m": 1e-6},
+                "materials": [{"physical_group": "sub", "dispersion": d}],
+                "ports": [{"physical_group": "p", "e_hat": [0.0, 1.0, 0.0], "resistance_ohm": 50.0}],
+                "frequencies": {"unit": "ghz", "values": ghz},
+                "solver": solver
+            }))
+            .expect("spec parses")
+        };
+        let load = |s: ProblemSpec| load_parsed(s, Path::new("."), None);
+        let msg = |s: ProblemSpec| match load(s) {
+            Err(CliError::InvalidSpec(m)) => {
+                assert!(!m.contains("  "), "stray whitespace: {m:?}");
+                m
+            }
+            other => panic!("expected InvalidSpec, got {other:?}"),
+        };
+        let direct = serde_json::json!({"mode": "direct"});
+        let ams = serde_json::json!({"mode": "iterative", "preconditioner": "ams"});
+        let tau = 1.0 / (2.0 * std::f64::consts::PI * 5e9);
+        let debye = serde_json::json!({
+            "model": "debye", "eps_inf": 10.0, "poles": [{"delta_eps": 2.0, "tau_s": tau}]
+        });
+        // Plasma at 8 GHz, γ at 1 GHz (ε∞ = 1): Re ε < 0 below √63 GHz.
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let plasma = serde_json::json!({
+            "model": "drude", "eps_inf": 1.0,
+            "omega_p_rad_s": two_pi * 8e9, "gamma_rad_s": two_pi * 1e9
+        });
+
+        let parsed = spec(debye.clone(), direct.clone(), &[1.0]);
+        assert_eq!(
+            parsed.materials[0].dispersion,
+            Some(crate::spec::DispersionSpec::Debye {
+                eps_inf: 10.0,
+                poles: vec![crate::spec::DebyePole {
+                    delta_eps: 2.0,
+                    tau_s: tau
+                }],
+            })
+        );
+        // Valid specs get as far as the (absent) mesh — Debye with AMS
+        // (Re ε ≥ ε∞ > 0), Drude direct or iterative jacobi / ilu0 below
+        // the crossover, and Drude AMS entirely above it.
+        for (d, solver, ghz) in [
+            (debye.clone(), ams.clone(), vec![1.0, 20.0]),
+            (plasma.clone(), direct.clone(), vec![1.0, 20.0]),
+            (
+                plasma.clone(),
+                serde_json::json!({"mode": "iterative", "preconditioner": "jacobi"}),
+                vec![1.0, 20.0],
+            ),
+            (
+                plasma.clone(),
+                serde_json::json!({"mode": "iterative", "preconditioner": "ilu0"}),
+                vec![1.0],
+            ),
+            (plasma.clone(), ams.clone(), vec![8.0, 20.0]),
+        ] {
+            assert!(
+                matches!(
+                    load(spec(d.clone(), solver.clone(), &ghz)),
+                    Err(CliError::Io { .. })
+                ),
+                "{d} / {solver} / {ghz:?}"
+            );
+        }
+        // The guard: AMS with any frequency below the crossover.
+        let m = msg(spec(plasma.clone(), ams.clone(), &[1.0, 5.0, 10.0, 20.0]));
+        for needle in [
+            "materials[sub].dispersion (drude)",
+            "Re eps_r(f) <= 0 at 2 of the 4 solved frequencies",
+            "below 7.937254e9 Hz",
+            "first 1.000000e9 Hz",
+            "preconditioner = \"ams\"",
+            "solver.mode = \"direct\"",
+        ] {
+            assert!(m.contains(needle), "{needle}: {m}");
+        }
+        // Lossless (γ = 0) plasma: Re ε < 0 below ω_p/√ε∞ = 8 GHz.
+        let lossless = serde_json::json!({
+            "model": "drude", "eps_inf": 1.0, "omega_p_rad_s": two_pi * 8e9, "gamma_rad_s": 0.0
+        });
+        assert!(matches!(
+            load(spec(lossless.clone(), ams.clone(), &[9.0])),
+            Err(CliError::Io { .. })
+        ));
+        let m = msg(spec(lossless, ams.clone(), &[7.0, 9.0]));
+        assert!(
+            m.contains("1 of the 2") && m.contains("below 8.000000e9 Hz"),
+            "{m}"
+        );
+
+        // Prefixed model-input errors.
+        for (d, needle) in [
+            (
+                serde_json::json!({"model": "debye", "eps_inf": 0.0, "poles": [{"delta_eps": 1.0, "tau_s": 1e-10}]}),
+                "eps_inf",
+            ),
+            (
+                serde_json::json!({"model": "debye", "eps_inf": 4.0, "poles": []}),
+                "at least one pole",
+            ),
+            (
+                serde_json::json!({"model": "debye", "eps_inf": 4.0, "poles": [{"delta_eps": -1.0, "tau_s": 1e-10}]}),
+                "poles[0].delta_eps",
+            ),
+            (
+                serde_json::json!({"model": "debye", "eps_inf": 4.0, "poles": [{"delta_eps": 1.0, "tau_s": 0.0}]}),
+                "poles[0].tau_s",
+            ),
+            (
+                serde_json::json!({"model": "drude", "eps_inf": 1.0, "omega_p_rad_s": 0.0, "gamma_rad_s": 1e9}),
+                "omega_p_rad_s",
+            ),
+            (
+                serde_json::json!({"model": "drude", "eps_inf": 1.0, "omega_p_rad_s": 1e10, "gamma_rad_s": -1.0}),
+                "gamma_rad_s",
+            ),
+        ] {
+            let m = msg(spec(d.clone(), direct.clone(), &[1.0]));
+            assert!(
+                m.contains("materials[sub].dispersion") && m.contains(needle),
+                "{d}: {m}"
+            );
+        }
+        // Missing / stray keys are parse errors.
+        for bad in [
+            serde_json::json!({"model": "debye", "eps_inf": 4.0}),
+            serde_json::json!({"model": "debye", "eps_inf": 4.0, "poles": [{"delta_eps": 1.0}]}),
+            serde_json::json!({"model": "debye", "eps_inf": 4.0, "poles": [{"delta_eps": 1.0, "tau_s": 1e-10, "f_hz": 1e9}]}),
+            serde_json::json!({"model": "drude", "eps_inf": 1.0, "omega_p_rad_s": 1e10}),
+            serde_json::json!({"model": "drude", "eps_inf": 1.0, "omega_p_rad_s": 1e10, "gamma_rad_s": 0.0, "tan_delta": 0.0}),
         ] {
             assert!(
                 serde_json::from_value::<crate::spec::DispersionSpec>(bad.clone()).is_err(),

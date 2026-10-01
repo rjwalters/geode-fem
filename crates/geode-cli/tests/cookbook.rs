@@ -65,6 +65,19 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("spiral_dispersive_smoke.json"),
         Input::Spec("driven"),
     ),
+    // The spiral smoke with a two-pole Debye substrate and with a Drude
+    // 10 ohm-cm doped-silicon substrate (issue #761);
+    // `tests/dispersive_golden.rs` pins both.
+    (
+        "driven/spiral_inductor_debye.json",
+        Some("spiral_debye_smoke.json"),
+        Input::Spec("driven"),
+    ),
+    (
+        "driven/spiral_inductor_drude.json",
+        Some("spiral_drude_smoke.json"),
+        Input::Spec("driven"),
+    ),
     (
         "extract/slcfet_spiral.json",
         Some("slcfet_extract_smoke.json"),

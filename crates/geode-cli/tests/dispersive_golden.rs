@@ -21,8 +21,16 @@
 //!   row equal to the constant-ε run.
 //! * **`geode check`** echoes the model, the fitted `ε∞` / `Δε` and
 //!   `ε_r(f)`; unsupported combinations are `invalid_spec`.
+//! * **Debye / Drude** (issue #761): the spiral smoke with a two-pole
+//!   Debye substrate (`spiral_debye_smoke.json`) and with a Drude
+//!   10 Ω·cm doped-silicon substrate (`spiral_drude_smoke.json`) — echo
+//!   = independent closed form (complex division) to 1e-12, every row =
+//!   the constant-ε run at that `ε(f)` to 1e-10. A Drude plasma with
+//!   `Re ε < 0` below its crossover solves directly (same equivalence);
+//!   with `solver.preconditioner = "ams"` it is `invalid_spec` at load.
 //! * **AMS** (`#[ignore]`d, heavy in debug; CI runs it in release): the
-//!   AMS-preconditioned solve of the dispersive spiral matches direct LU.
+//!   AMS-preconditioned solve of the dispersive spirals (DS, Debye, Drude
+//!   doped Si) matches direct LU.
 //!
 //! ```sh
 //! cargo test -p geode-cli --release --test dispersive_golden -- --ignored
@@ -114,13 +122,104 @@ fn material<'a>(v: &'a mut Value, group: &str) -> &'a mut Value {
         .expect("material")
 }
 
-/// Replace `group`'s constant `eps_r` with a DS block.
-fn make_dispersive(v: &mut Value, group: &str, eps: f64, tan_d: f64, f_ref: f64) {
+/// Replace `group`'s constant `eps_r` with the `dispersion` block `d`.
+fn set_dispersion(v: &mut Value, group: &str, d: Value) {
     let m = material(v, group);
     m.as_object_mut().unwrap().remove("eps_r");
-    m["dispersion"] = json!({
-        "model": "djordjevic_sarkar", "eps_r": eps, "tan_delta": tan_d, "f_ref_hz": f_ref
-    });
+    m["dispersion"] = d;
+}
+
+/// Replace `group`'s constant `eps_r` with a DS block.
+fn make_dispersive(v: &mut Value, group: &str, eps: f64, tan_d: f64, f_ref: f64) {
+    set_dispersion(
+        v,
+        group,
+        json!({
+            "model": "djordjevic_sarkar", "eps_r": eps, "tan_delta": tan_d, "f_ref_hz": f_ref
+        }),
+    );
+}
+
+/// `a / b` for `(re, im)` pairs.
+fn cdiv(a: (f64, f64), b: (f64, f64)) -> (f64, f64) {
+    let d = b.0 * b.0 + b.1 * b.1;
+    ((a.0 * b.0 + a.1 * b.1) / d, (a.1 * b.0 - a.0 * b.1) / d)
+}
+
+const TWO_PI: f64 = 2.0 * std::f64::consts::PI;
+
+/// The Debye closed form `ε∞ + Σ Δε_k/(1 + jωτ_k)` by complex division,
+/// independently of `src/dispersion.rs`.
+fn debye_closed_form(eps_inf: f64, poles: &[(f64, f64)], f: f64) -> (f64, f64) {
+    let w = TWO_PI * f;
+    poles.iter().fold((eps_inf, 0.0), |e, &(de, tau)| {
+        let t = cdiv((de, 0.0), (1.0, w * tau));
+        (e.0 + t.0, e.1 + t.1)
+    })
+}
+
+/// The Drude closed form `ε∞ − ω_p²/(ω² − jγω)` (`exp(+jωt)`) by complex
+/// division, independently of `src/dispersion.rs`.
+fn drude_closed_form(eps_inf: f64, wp: f64, gamma: f64, f: f64) -> (f64, f64) {
+    let w = TWO_PI * f;
+    let t = cdiv((wp * wp, 0.0), (w * w, -gamma * w));
+    (eps_inf - t.0, -t.1)
+}
+
+/// The two-pole Debye substrate of `spiral_debye_smoke.json`:
+/// `ε∞ = 10`, `(Δε, τ)` = `(1.5, 53 ps)` (≈ 3 GHz) and `(0.5, 5.3 ps)`
+/// (≈ 30 GHz).
+const DEBYE_EPS_INF: f64 = 10.0;
+const DEBYE_POLES: [(f64, f64); 2] = [(1.5, 5.3e-11), (0.5, 5.3e-12)];
+
+fn spiral_debye(v: &mut Value) {
+    set_dispersion(
+        v,
+        "substrate",
+        json!({
+            "model": "debye", "eps_inf": DEBYE_EPS_INF,
+            "poles": DEBYE_POLES
+                .iter()
+                .map(|&(de, tau)| json!({ "delta_eps": de, "tau_s": tau }))
+                .collect::<Vec<_>>()
+        }),
+    );
+}
+
+/// The Drude substrate of `spiral_drude_smoke.json`: 10 Ω·cm n-type
+/// silicon — lattice `ε∞ = 11.9`, electron collision rate `γ = e/(m*μ)`
+/// = 5.0e12 rad/s (`m* = 0.26 mₑ`, `μ = 1350 cm²/V·s`), `ω_p =
+/// √(σγ/ε₀)` = 2.38e12 rad/s for `σ = 10 S/m`. `ω ≪ γ` across the sweep,
+/// so it is a conductor: `Im ε ≈ −σ/(ωε₀)`, `Re ε ≈ ε∞ − ω_p²/γ² > 0`.
+const SI_EPS_INF: f64 = 11.9;
+const SI_WP: f64 = 2.38e12;
+const SI_GAMMA: f64 = 5.0e12;
+
+fn spiral_drude(v: &mut Value) {
+    set_dispersion(
+        v,
+        "substrate",
+        json!({
+            "model": "drude", "eps_inf": SI_EPS_INF,
+            "omega_p_rad_s": SI_WP, "gamma_rad_s": SI_GAMMA
+        }),
+    );
+}
+
+/// A Drude plasma substrate with `Re ε < 0` below `√63` ≈ 7.94 GHz:
+/// `ε∞ = 1`, `ω_p = 2π·8 GHz`, `γ = 2π·1 GHz`.
+const PLASMA_WP: f64 = TWO_PI * 8e9;
+const PLASMA_GAMMA: f64 = TWO_PI * 1e9;
+
+fn spiral_plasma(v: &mut Value) {
+    set_dispersion(
+        v,
+        "substrate",
+        json!({
+            "model": "drude", "eps_inf": 1.0,
+            "omega_p_rad_s": PLASMA_WP, "gamma_rad_s": PLASMA_GAMMA
+        }),
+    );
 }
 
 /// The DS closed form, written out independently of `src/dispersion.rs`
@@ -339,6 +438,264 @@ fn spiral_ds_rows_equal_constant_eps_runs() {
     assert!(d < 1e-10, "1 GHz row ≠ committed fixture: {d:.2e}");
 }
 
+/// The committed fixture `fixture` is exactly the smoke spec with `edit`
+/// applied (the cookbook copy is pinned to the fixture by
+/// `tests/cookbook.rs`).
+fn assert_fixture_is(fixture: &str, edit: fn(&mut Value), dir: &Path) -> PathBuf {
+    let from_fixture = spec_from(fixture, dir, &format!("fixture-{fixture}"), |_| {});
+    let in_code = spec_from(
+        "spiral_golden_smoke.json",
+        dir,
+        &format!("code-{fixture}"),
+        edit,
+    );
+    let parse =
+        |p: &Path| -> Value { serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap() };
+    assert_eq!(parse(&from_fixture), parse(&in_code), "{fixture}");
+    from_fixture
+}
+
+/// Two-pole Debye substrate (issue #761): echo = closed form, `ε′`
+/// falling and `Im ε < 0`, every row = the constant-ε run.
+#[test]
+fn spiral_debye_rows_equal_constant_eps_runs() {
+    let dir = TempDir::new("debye");
+    let spec = assert_fixture_is("spiral_debye_smoke.json", spiral_debye, &dir.0);
+    let disp = geode(&["driven"], &spec);
+    assert_eq!(rows(&disp).len(), 4);
+    let mut prev_re = f64::INFINITY;
+    for row in rows(&disp) {
+        let f = row["frequency_hz"].as_f64().unwrap();
+        let got = echoed_eps(row, "substrate");
+        let want = debye_closed_form(DEBYE_EPS_INF, &DEBYE_POLES, f);
+        assert!(rel(got, want) < 1e-12, "{f} Hz: {got:?} vs {want:?}");
+        assert!(got.0 < prev_re && got.0 > DEBYE_EPS_INF && got.1 < 0.0);
+        prev_re = got.0;
+    }
+    assert_rows_equal_constant_eps(
+        &disp,
+        "spiral_golden_smoke.json",
+        |_| {},
+        "substrate",
+        "driven",
+        &dir.0,
+        None,
+        "debye",
+    );
+}
+
+/// Drude 10 Ω·cm silicon substrate (issue #761): echo = closed form and
+/// the conductor limit `Im ε ≈ −σ/(ωε₀)`, every row = the constant-ε run.
+#[test]
+fn spiral_drude_rows_equal_constant_eps_runs() {
+    let dir = TempDir::new("drude");
+    let spec = assert_fixture_is("spiral_drude_smoke.json", spiral_drude, &dir.0);
+    let disp = geode(&["driven"], &spec);
+    assert_eq!(rows(&disp).len(), 4);
+    let eps0 = 8.8541878128e-12;
+    let sigma = eps0 * SI_WP * SI_WP / SI_GAMMA;
+    assert!((sigma - 10.0).abs() < 0.05, "σ = {sigma}");
+    for row in rows(&disp) {
+        let f = row["frequency_hz"].as_f64().unwrap();
+        let got = echoed_eps(row, "substrate");
+        let want = drude_closed_form(SI_EPS_INF, SI_WP, SI_GAMMA, f);
+        assert!(rel(got, want) < 1e-12, "{f} Hz: {got:?} vs {want:?}");
+        assert!(got.0 > 0.0, "{f} Hz: Re ε {}", got.0);
+        let im_cond = -sigma / (TWO_PI * f * eps0);
+        assert!(
+            (got.1 / im_cond - 1.0).abs() < 1e-3,
+            "{f} Hz: Im ε {}",
+            got.1
+        );
+    }
+    assert_rows_equal_constant_eps(
+        &disp,
+        "spiral_golden_smoke.json",
+        |_| {},
+        "substrate",
+        "driven",
+        &dir.0,
+        None,
+        "drude",
+    );
+}
+
+/// A Drude plasma (issue #761) on both sides of its `Re ε = 0` crossover
+/// solves with direct LU — row by row equal to the constant-ε run — and
+/// the γ = 0 limit echoes a purely real `ε`.
+#[test]
+fn spiral_drude_plasma_negative_re_eps_solves_direct() {
+    let dir = TempDir::new("plasma");
+    let spec = spec_from("spiral_golden_smoke.json", &dir.0, "plasma.json", |v| {
+        spiral_plasma(v);
+        v["frequencies"] = json!({ "unit": "ghz", "values": [1.0, 20.0] });
+    });
+    let disp = geode(&["driven"], &spec);
+    let eps: Vec<(f64, f64)> = rows(&disp)
+        .iter()
+        .map(|r| echoed_eps(r, "substrate"))
+        .collect();
+    for (row, &e) in rows(&disp).iter().zip(&eps) {
+        let f = row["frequency_hz"].as_f64().unwrap();
+        let want = drude_closed_form(1.0, PLASMA_WP, PLASMA_GAMMA, f);
+        assert!(rel(e, want) < 1e-12, "{f} Hz: {e:?} vs {want:?}");
+    }
+    // 1 GHz: 1 − 64/2 − j·64/2; 20 GHz: 1 − 64/401 − j·64/(20·401).
+    assert!(rel(eps[0], (-31.0, -32.0)) < 1e-12, "{:?}", eps[0]);
+    assert!(eps[1].0 > 0.0 && eps[1].1 < 0.0, "{:?}", eps[1]);
+    assert_rows_equal_constant_eps(
+        &disp,
+        "spiral_golden_smoke.json",
+        |v| v["frequencies"] = json!({ "unit": "ghz", "values": [1.0, 20.0] }),
+        "substrate",
+        "driven",
+        &dir.0,
+        None,
+        "plasma",
+    );
+
+    // γ = 0: `geode check` echoes a purely real ε(f) (no solve needed).
+    let lossless = spec_from("spiral_golden_smoke.json", &dir.0, "lossless.json", |v| {
+        spiral_plasma(v);
+        material(v, "substrate")["dispersion"]["gamma_rad_s"] = json!(0.0);
+    });
+    let check = geode(&["check"], &lossless);
+    let d = &substrate_region(&check)["dispersion"];
+    for (e, ghz) in d["eps_r_at_frequencies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip([1.0, 5.0, 10.0, 20.0])
+    {
+        let (re, im) = pair(e);
+        assert_eq!(im, 0.0, "{ghz} GHz");
+        assert!((re - (1.0 - 64.0 / (ghz * ghz))).abs() < 1e-12, "{ghz} GHz");
+    }
+    assert!((d["re_eps_zero_hz"].as_f64().unwrap() - 8e9).abs() < 1e-3);
+}
+
+/// The `substrate` region of a `geode check` report.
+fn substrate_region(check: &Value) -> &Value {
+    check["regions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["physical_group"] == "substrate")
+        .unwrap()
+}
+
+/// `geode check` echoes the Debye poles and the Drude parameters with
+/// `ε_r(f)`; the region's `eps_r` is the model at the first frequency.
+#[test]
+fn check_echoes_debye_and_drude() {
+    let dir = TempDir::new("check761");
+    let ghz = [1.0, 5.0, 10.0, 20.0];
+
+    let check = geode(
+        &["check"],
+        &spec_from(
+            "spiral_golden_smoke.json",
+            &dir.0,
+            "debye.json",
+            spiral_debye,
+        ),
+    );
+    let region = substrate_region(&check);
+    assert_eq!(region["eps_r_source"], "dispersion");
+    let first = debye_closed_form(DEBYE_EPS_INF, &DEBYE_POLES, 1e9);
+    assert!(rel(pair(&region["eps_r"]), first) < 1e-12);
+    let d = &region["dispersion"];
+    assert_eq!(d["model"], "debye");
+    assert_eq!(d["eps_inf"], DEBYE_EPS_INF);
+    assert_eq!(d["delta_eps"], 2.0);
+    for key in ["eps_r", "tan_delta", "f_ref_hz", "omega_p_rad_s"] {
+        assert!(d.get(key).is_none(), "debye echoes {key}");
+    }
+    let poles = d["poles"].as_array().unwrap();
+    assert_eq!(poles.len(), 2);
+    for (p, &(de, tau)) in poles.iter().zip(&DEBYE_POLES) {
+        assert_eq!(p["delta_eps"], de);
+        assert_eq!(p["tau_s"], tau);
+        let f_relax = p["f_relax_hz"].as_f64().unwrap();
+        assert!((f_relax * TWO_PI * tau - 1.0).abs() < 1e-12);
+    }
+    for (e, g) in d["eps_r_at_frequencies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(ghz)
+    {
+        let want = debye_closed_form(DEBYE_EPS_INF, &DEBYE_POLES, g * 1e9);
+        assert!(rel(pair(e), want) < 1e-12, "{g} GHz");
+    }
+
+    let check = geode(
+        &["check"],
+        &spec_from(
+            "spiral_golden_smoke.json",
+            &dir.0,
+            "drude.json",
+            spiral_drude,
+        ),
+    );
+    let region = substrate_region(&check);
+    let first = drude_closed_form(SI_EPS_INF, SI_WP, SI_GAMMA, 1e9);
+    assert!(rel(pair(&region["eps_r"]), first) < 1e-12);
+    let d = &region["dispersion"];
+    assert_eq!(d["model"], "drude");
+    assert_eq!(d["eps_inf"], SI_EPS_INF);
+    assert_eq!(d["omega_p_rad_s"], SI_WP);
+    assert_eq!(d["gamma_rad_s"], SI_GAMMA);
+    // ω_p²/ε∞ < γ²: Re ε never crosses zero.
+    for key in ["delta_eps", "poles", "re_eps_zero_hz", "f_ref_hz"] {
+        assert!(d.get(key).is_none(), "drude echoes {key}");
+    }
+    for (e, g) in d["eps_r_at_frequencies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(ghz)
+    {
+        let want = drude_closed_form(SI_EPS_INF, SI_WP, SI_GAMMA, g * 1e9);
+        assert!(rel(pair(e), want) < 1e-12, "{g} GHz");
+    }
+}
+
+/// The AMS guard (issue #761): a Drude region with `Re ε_r(f) ≤ 0` at a
+/// solved frequency is `invalid_spec` at load (`check` and `driven`)
+/// with the iterative AMS solve; above the crossover it is accepted.
+#[test]
+fn drude_negative_re_eps_with_ams_is_invalid_spec() {
+    let dir = TempDir::new("amsguard");
+    let ams = |name: &str, ghz: Value| {
+        spec_from("spiral_golden_smoke.json", &dir.0, name, |v| {
+            spiral_plasma(v);
+            v["solver"] = json!({ "mode": "iterative", "preconditioner": "ams" });
+            v["frequencies"] = json!({ "unit": "ghz", "values": ghz });
+        })
+    };
+    let below = ams("below.json", json!([1.0, 5.0, 10.0, 20.0]));
+    for cmd in ["check", "driven"] {
+        let out = run(&[cmd], &below);
+        assert!(!out.status.success(), "{cmd} accepted");
+        let v: Value = serde_json::from_slice(&out.stdout).expect("error report is JSON");
+        assert_eq!(v["error"]["code"], "invalid_spec", "{cmd}: {v}");
+        let msg = v["error"]["message"].as_str().unwrap();
+        for needle in [
+            "materials[substrate].dispersion (drude)",
+            "2 of the 4 solved frequencies",
+            "preconditioner = \"ams\"",
+        ] {
+            assert!(msg.contains(needle), "{cmd}: {needle}: {msg}");
+        }
+    }
+    // Entirely above the √63 GHz crossover: accepted.
+    let above = ams("above.json", json!([10.0, 20.0]));
+    let check = geode(&["check"], &above);
+    let d = &substrate_region(&check)["dispersion"];
+    assert!((d["re_eps_zero_hz"].as_f64().unwrap() - 63f64.sqrt() * 1e9).abs() < 1e-3);
+}
+
 /// Dispersion composes with matched UPML (`ε = ε_r(f)·Λ`): the patch
 /// smoke (driven, 2.2 / 2.6 GHz) with a DS FR-4-like substrate.
 #[test]
@@ -474,15 +831,36 @@ fn unsupported_combinations_are_invalid_spec() {
 #[test]
 #[ignore = "heavy in debug (AMS COCG on 4 spiral frequencies); CI runs it in release with --ignored"]
 fn spiral_ds_ams_matches_direct() {
-    let dir = TempDir::new("ams");
+    ams_matches_direct("ams", spiral_ds);
+}
+
+/// Debye `Re ε ≥ ε∞ > 0` keeps the AMS proxy SPD (issue #761).
+#[test]
+#[ignore = "heavy in debug (AMS COCG on 4 spiral frequencies); CI runs it in release with --ignored"]
+fn spiral_debye_ams_matches_direct() {
+    ams_matches_direct("ams-debye", spiral_debye);
+}
+
+/// Drude doped silicon (`Re ε > 0`, `|Im ε| ≫ Re ε`): the AMS proxy
+/// drops `Im M(ε)` but stays SPD (issue #761).
+#[test]
+#[ignore = "heavy in debug (AMS COCG on 4 spiral frequencies); CI runs it in release with --ignored"]
+fn spiral_drude_ams_matches_direct() {
+    ams_matches_direct("ams-drude", spiral_drude);
+}
+
+/// The AMS-preconditioned solve of the spiral smoke with `edit` matches
+/// direct LU row by row.
+fn ams_matches_direct(tag: &str, edit: fn(&mut Value)) {
+    let dir = TempDir::new(tag);
     let direct = geode(
         &["driven"],
-        &spec_from("spiral_golden_smoke.json", &dir.0, "direct.json", spiral_ds),
+        &spec_from("spiral_golden_smoke.json", &dir.0, "direct.json", edit),
     );
     let ams = geode(
         &["driven"],
         &spec_from("spiral_golden_smoke.json", &dir.0, "ams.json", |v| {
-            spiral_ds(v);
+            edit(v);
             v["solver"] = json!({ "mode": "iterative", "preconditioner": "ams" });
         }),
     );
@@ -490,7 +868,7 @@ fn spiral_ds_ams_matches_direct() {
     for (rd, ra) in rows(&direct).iter().zip(rows(&ams)) {
         let d = row_rel(ra, rd);
         eprintln!(
-            "AMS {:>5.1} GHz: iters {}, |ΔZ|/|Z| vs direct {d:.1e}",
+            "{tag} {:>5.1} GHz: iters {}, |ΔZ|/|Z| vs direct {d:.1e}",
             rd["frequency_hz"].as_f64().unwrap() / 1e9,
             ra["iterations"]
         );
