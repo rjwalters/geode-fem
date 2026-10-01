@@ -2458,6 +2458,58 @@ mod tests {
         );
     }
 
+    /// Roughness rules and SI → natural conversion (issue #758).
+    #[test]
+    fn roughness_validation_and_units() {
+        let bad = |r: RoughnessSpec, field: &str| match validate_roughness("c", &r) {
+            Err(CliError::InvalidSpec(m)) => {
+                assert!(
+                    m.contains(&format!("leontovich[c].roughness.{field}")),
+                    "{m}"
+                );
+            }
+            other => panic!("{r:?}: expected InvalidSpec, got {other:?}"),
+        };
+        for rms_m in [-1e-6, f64::NAN, f64::INFINITY] {
+            bad(RoughnessSpec::Hammerstad { rms_m }, "rms_m");
+        }
+        let huray = |ball_radius_m, n_balls, tile_area_m2| RoughnessSpec::Huray {
+            ball_radius_m,
+            n_balls,
+            tile_area_m2,
+        };
+        for a in [0.0, -1e-6, f64::NAN, f64::INFINITY] {
+            bad(huray(a, 1.0, 1e-10), "ball_radius_m");
+        }
+        for n in [-1.0, f64::NAN, f64::INFINITY] {
+            bad(huray(1e-6, n, 1e-10), "n_balls");
+        }
+        for area in [0.0, -1e-10, f64::NAN, f64::INFINITY] {
+            bad(huray(1e-6, 1.0, area), "tile_area_m2");
+        }
+        // Zero roughness (smooth) is accepted, as is a finite model.
+        validate_roughness("c", &RoughnessSpec::Hammerstad { rms_m: 0.0 }).unwrap();
+        validate_roughness("c", &huray(0.5e-6, 0.0, 1e-10)).unwrap();
+        validate_roughness("c", &huray(0.5e-6, 14.0, 1e-10)).unwrap();
+
+        // Lengths / L_unit, areas / L_unit².
+        assert_eq!(
+            roughness_natural(RoughnessSpec::Hammerstad { rms_m: 2e-6 }, 1e-6),
+            SurfaceRoughness::HammerstadJensen { rms: 2.0 }
+        );
+        let SurfaceRoughness::Huray {
+            ball_radius,
+            n_balls,
+            tile_area,
+        } = roughness_natural(huray(0.5e-6, 14.0, 1e-10), 1e-6)
+        else {
+            panic!("huray")
+        };
+        assert!((ball_radius - 0.5).abs() < 1e-15);
+        assert_eq!(n_balls, 14.0);
+        assert!((tile_area - 100.0).abs() < 1e-12);
+    }
+
     /// `sweep` rules (issue #708): scalar, so a parsed spec suffices.
     #[test]
     fn validate_sweep_accepts_and_rejects() {

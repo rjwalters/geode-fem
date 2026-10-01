@@ -150,6 +150,64 @@ fn reported_k(row: &Value) -> f64 {
     rk[0]["k"].as_f64().unwrap()
 }
 
+/// Out-of-range roughness parameters are `invalid_spec` naming the field;
+/// an unknown model or a stray key is a `spec_parse` error.
+#[test]
+fn invalid_roughness_is_invalid_spec() {
+    let dir = TempDir::new("invalid");
+    let cases = [
+        (
+            json!({ "model": "hammerstad", "rms_m": -1e-6 }),
+            "roughness.rms_m",
+            "invalid_spec",
+        ),
+        (
+            json!({ "model": "huray", "ball_radius_m": 0.0, "n_balls": 1.0, "tile_area_m2": 1e-10 }),
+            "roughness.ball_radius_m",
+            "invalid_spec",
+        ),
+        (
+            json!({ "model": "huray", "ball_radius_m": 1e-6, "n_balls": -2.0, "tile_area_m2": 1e-10 }),
+            "roughness.n_balls",
+            "invalid_spec",
+        ),
+        (
+            json!({ "model": "huray", "ball_radius_m": 1e-6, "n_balls": 1.0, "tile_area_m2": 0.0 }),
+            "roughness.tile_area_m2",
+            "invalid_spec",
+        ),
+        (
+            json!({ "model": "groisse", "rms_m": 1e-6 }),
+            "groisse",
+            "spec_parse",
+        ),
+        (
+            json!({ "model": "hammerstad", "rms_m": 1e-6, "n_balls": 3.0 }),
+            "n_balls",
+            "spec_parse",
+        ),
+    ];
+    for (i, (block, needle, code)) in cases.into_iter().enumerate() {
+        let spec = spec_from(
+            "spiral_golden_smoke.json",
+            &dir.0,
+            &format!("bad{i}.json"),
+            |v| leontovich(v)["roughness"] = block.clone(),
+        );
+        let out = Command::new(env!("CARGO_BIN_EXE_geode"))
+            .arg("check")
+            .arg(&spec)
+            .output()
+            .expect("spawn geode");
+        assert!(!out.status.success(), "{block} accepted");
+        let v: Value = serde_json::from_slice(&out.stdout).expect("error report is JSON");
+        assert_eq!(v["status"], "error");
+        assert_eq!(v["error"]["code"], code, "{block}: {v}");
+        let msg = v["error"]["message"].as_str().unwrap();
+        assert!(msg.contains(needle), "{block}: {msg}");
+    }
+}
+
 #[test]
 fn zero_rms_reproduces_smooth_bit_for_bit() {
     let dir = TempDir::new("rms0");

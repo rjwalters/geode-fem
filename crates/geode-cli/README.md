@@ -35,7 +35,7 @@ one worked example per analysis, with the output to expect.
 | Subcommand | Status |
 |---|---|
 | `check`   | live — parse + validate spec, load mesh, resolve every named physical group, report DOF counts and an order-of-magnitude memory / cost estimate (#703); never solves |
-| `driven`  | live — lumped-port (or wave-port, #683) frequency sweep with PEC / Leontovich / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG; optional Touchstone 2.0 `.sNp` (#703); opt-in adaptive (reduced-order-model) sweep, parallel frequency points and JSONL progress (#708, see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)) |
+| `driven`  | live — lumped-port (or wave-port, #683) frequency sweep with PEC / Leontovich (optionally rough, #758) / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG; optional Touchstone 2.0 `.sNp` (#703); opt-in adaptive (reduced-order-model) sweep, parallel frequency points and JSONL progress (#708, see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)) |
 | `eigen`   | live (#681) — PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; lossless (`Q` is `null`), or lossy / open (#706: complex `eps_r` and / or box-UPML `absorbing_regions` → complex `k₀`, finite `Q`) |
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 | `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
@@ -219,6 +219,7 @@ Driven example (the spiral-inductor golden input,
 | `boundary_conditions.leontovich[]` | | good-conductor surface impedance `Z_s = (1+j)·√(ωμ₀/2σ)` |
 | `….leontovich[].physical_group` | string | dimension-2 group |
 | `….leontovich[].conductivity_s_m` | float > 0, S/m | converted to natural units `σ·η₀·length_unit_m` |
+| `….leontovich[].roughness` | optional (additive, #758) | conductor surface roughness: `{"model": "hammerstad", "rms_m": Δ}` or `{"model": "huray", "ball_radius_m": a, "n_balls": N, "tile_area_m2": A}`; scales the whole complex `Z_s` by `K(f) ≥ 1` (see [Conductor surface roughness](#conductor-surface-roughness-issue-758)) |
 | `boundary_conditions.silver_muller[]` | strings, driven / extract only | **dimension-2** groups carrying the first-order Silver-Müller absorbing condition — the impedance wall with `Z_s = η₀` (no parameters). Composes with Leontovich walls, PEC and `absorbing_regions` |
 | `absorbing_regions[]` | driven / extract / eigen | matched (full Sacks) **box UPML** shells, see below (in an eigen spec the stretch is frozen at `eigen.shift`) |
 | `absorbing_regions[].physical_group` | string | **dimension-3** group of the shell tets; its `materials` `eps_r` (vacuum if unlisted) is the base permittivity the stretch multiplies |
@@ -879,6 +880,51 @@ shrunk box, as `examples/patch_antenna` does.
 The physical field there is a linear combination of the per-channel
 Sherman–Morrison–Woodbury solves, which the library does not return, and
 reconstructing it would need a `geode-core` API extension.
+
+## Conductor surface roughness (issue #758)
+
+Real PCB / RFIC copper is not smooth: foil roughness of 0.5–5 µm RMS
+roughly doubles conductor loss once the skin depth
+`δ = 1/√(π f μ₀ σ)` drops below the roughness, i.e. at multi-GHz. An
+optional `roughness` block on a `boundary_conditions.leontovich[]` wall
+multiplies its smooth good-conductor impedance by a real, frequency-
+dependent loss factor `K(f) ≥ 1`:
+
+```json
+"leontovich": [{
+  "physical_group": "conductor_surface",
+  "conductivity_s_m": 5.8e7,
+  "roughness": { "model": "hammerstad", "rms_m": 1.0e-6 }
+}]
+```
+
+| `model` | Parameters | `K(f)` | Limits |
+|---|---|---|---|
+| `hammerstad` | `rms_m` (Δ, m, finite, `≥ 0`) | `1 + (2/π)·atan(1.4·(Δ/δ)²)` — Hammerstad & Jensen, *IEEE MTT-S Int. Microwave Symp. Digest*, 1980 | `1` as `f → 0` or `Δ = 0`; `→ 2` as `f → ∞` |
+| `huray` | `ball_radius_m` (a, m, `> 0`), `n_balls` (N per tile, `≥ 0`, may be fractional), `tile_area_m2` (A, m², `> 0`) | `1 + (3/2)·(N·4πa²/A) / (1 + δ/a + δ²/(2a²))` — Huray et al., "Impact of copper surface texture on loss: a model that works," *DesignCon* 2010, single sphere size, in the cannonball form (flat base, `A_matte/A_flat = 1`) of Shlepnev & Nwachukwu, *IEEE EMC* 2011 | `1` as `f → 0` or `N = 0`; `→ 1 + (3/2)·N·4πa²/A` as `f → ∞`; monotone in `f` |
+
+`δ` uses the wall's own `conductivity_s_m`. Non-finite or out-of-range
+parameters are `invalid_spec`. `rms_m = 0` / `n_balls = 0` are accepted
+and reproduce the smooth wall **bit for bit** (`K ≡ 1`).
+
+**Convention: the whole complex `Z_s` is scaled**,
+`Z_s,rough = K(f)·(1 + j)·√(ωμ₀/2σ)` — the resistive and the reactive
+(internal-inductance) part alike. This is how both source papers define
+`K` (a multiplier on the conductor's surface impedance) and how the
+common SI solvers apply it; scaling only `Re Z_s` would need a second,
+unreferenced rule for `Im Z_s`. One consequence: a rough wall at one
+frequency is *exactly* a smooth wall of conductivity `σ/K(f)²`
+(`Z_s ∝ 1/√σ`), which is what the golden test pins.
+
+Roughness enters at the single place `Z_s(ω)` is evaluated, so it
+composes with everything that reads it: the direct and iterative solves
+(the AMS SPD proxy reads `Re(jω/(K·Z_s)) = Re(jω/Z_s)/K > 0`), the
+adaptive sweep (the reduced model re-evaluates the wall's scalar
+coefficient per frequency; no polynomial structure is assumed), `extract`
+and driven `sensitivity`. Every `results[]` row reports the applied
+`roughness_k[]`; `geode check` echoes the model and `K` over the
+requested frequencies. The cookbook has the spiral with 1 µm RMS copper
+([`examples/driven/spiral_inductor_rough.json`](examples/driven/README.md#rough-copper-roughness-issue-758)).
 
 ## Adaptive sweep, parallel frequencies and progress (issue #708)
 
@@ -1681,7 +1727,9 @@ Additive in v1 (issue #683) — always present in `check`, present in
 `eps_r`, `eps_r_source` = `"spec"` \| `"default_vacuum"`, and — additive
 in v1, issue #714 — `mu_r`), `pec[]`
 (`physical_group`, `tag`, `n_triangles`), `leontovich[]` (… plus
-`conductivity_s_m`, `conductivity_natural`), `frequencies[]`
+`conductivity_s_m`, `conductivity_natural` and — additive in v1, issue
+#758, rough walls only — `roughness`: `model`, its parameters as given
+and `k[]`, the factor `K(f)` at each `frequencies[]` entry), `frequencies[]`
 (`frequency_hz`, `k0`; empty for an eigen spec), `solver` (`mode`, `tol`,
 `max_iters`), `analysis` (`"driven"` \| `"eigen"` \| `"extract"` \|
 `"capacitance"` \| `"inductance"`),
@@ -1748,6 +1796,7 @@ sensitivities](#material-sensitivities-sensitivity-issue-707).
 | `ports[].l_h` | H | `Im Z_kk / ω` (negative above self-resonance) |
 | `ports[].q` | – | `Im Z_kk / Re Z_kk` |
 | `wave_channels[]` | | wave-port specs only (see below) |
+| `roughness_k[]` | – | rough Leontovich walls only (additive, #758): `{physical_group, k}` per rough wall in spec order, `k` = the roughness factor `K(f)` applied at this frequency |
 | `field_file` | | `--outdir` only: `{path, sha256}` of `E_<row>.vtu` (see above) |
 | `far_field` | | `--outdir` + one UPML shell only: NTFF quantities (see above) |
 
@@ -1989,6 +2038,21 @@ count), and that an adaptive sweep with an exhausted snapshot budget
 ```sh
 cargo test -p geode-cli --test adaptive_sweep_golden                          # default tier
 cargo test -p geode-cli --release --test adaptive_sweep_golden -- --ignored   # adaptive vs dense
+```
+
+`tests/roughness_golden.rs` (issue #758) runs the spiral smoke with
+rough Leontovich copper: `rms_m = 0` is bit-identical to the smooth
+fixture; with Hammerstad `Δ = 1 µm` (`spiral_rough_smoke.json`) and a
+Huray clone, each row's reported `K(f)` matches the closed form evaluated
+in SI to 1e-9 and the row's `Z` equals the smooth solve at `σ/K(f)²` to
+1e-8 (measured ≤ 1.7e-11) at all four frequencies; the lossless-dielectric
+port `R` rises with `K`. In release (`--ignored`) the AMS iterative solve
+and a 16-point adaptive sweep of the rough spiral reproduce the direct
+dense sweep (measured `|ΔZ|/|Z|` 3e-12 and 2.8e-11):
+
+```sh
+cargo test -p geode-cli --test roughness_golden                          # default tier
+cargo test -p geode-cli --release --test roughness_golden -- --ignored   # AMS + adaptive
 ```
 
 `tests/spiral_golden.rs` re-expresses the spiral-inductor benchmark

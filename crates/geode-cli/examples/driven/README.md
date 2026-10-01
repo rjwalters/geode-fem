@@ -65,3 +65,42 @@ full-order solve, then one `point` per frequency, on stderr. The dense
 sweep can instead run frequencies in parallel: `--jobs 4` takes the same
 40 points from 29.6 s to 6.5 s with bit-identical results (each in-flight
 frequency holds its own LU factorization, so memory grows with `--jobs`).
+
+## Rough copper (`roughness`, issue #758)
+
+`spiral_inductor_rough.json` (copy of `tests/fixtures/spiral_rough_smoke.json`)
+is the same spiral with **1 µm RMS** Hammerstad–Jensen roughness on the
+copper:
+
+```json
+"leontovich": [{
+  "physical_group": "conductor_surface",
+  "conductivity_s_m": 5.8e7,
+  "roughness": { "model": "hammerstad", "rms_m": 1e-06 }
+}]
+```
+
+```sh
+geode check  crates/geode-cli/examples/driven/spiral_inductor_rough.json   # leontovich[0].roughness.k
+geode driven crates/geode-cli/examples/driven/spiral_inductor_rough.json -o spiral_rough.json
+```
+
+The wall impedance becomes `K(f)·(1 + j)·√(ωμ₀/2σ)` with
+`K = 1 + (2/π)·atan(1.4·(Δ/δ)²)`; each `results[]` row reports the
+`roughness_k` it applied. Expected (smooth values from the table above):
+
+| f (GHz) | δ (µm) | `roughness_k[0].k` | `r_ohm` (Ω) smooth → rough | `l_h` (nH) smooth → rough |
+|---|---|---|---|---|
+| 1  | 2.09 | 1.197 | 0.635 → 0.738 | 0.848 → 0.869 |
+| 5  | 0.93 | 1.645 | 1.690 → 2.537 | 0.794 → 0.830 |
+| 10 | 0.66 | 1.807 | 2.772 → 4.517 | 0.811 → 0.847 |
+| 20 | 0.47 | 1.901 | 6.168 → 10.672 | 0.965 → 1.010 |
+
+The resistance rises by 78–82 % of `K − 1` rather than all of it, and `L`
+by 2–5 %: the reactive half of `K·Z_s` (the conductor's internal
+inductance) is scaled too, which shifts the current distribution on this
+coarse mesh. `tests/roughness_golden.rs` pins each row to the smooth solve
+at conductivity `σ/K(f)²` (the exact equivalent of a full-complex `K`) and
+`K` to the closed form. For the Huray cannonball model use
+`{"model": "huray", "ball_radius_m": 0.5e-6, "n_balls": 14, "tile_area_m2": 1e-10}`
+(`K` = 1.047 / 1.143 / 1.206 / 1.278 at 1 / 5 / 10 / 20 GHz).
