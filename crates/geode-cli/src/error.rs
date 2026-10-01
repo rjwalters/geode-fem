@@ -74,6 +74,11 @@ pub enum CliError {
     /// The driven solve itself failed (factorization, non-convergence, …).
     #[error("driven solve failed: {0}")]
     Solve(DrivenError),
+    /// The adaptive (PROM) frequency sweep failed (issue #708): a
+    /// singular reduced system or an invalid PROM parameter. Full-order
+    /// solve failures inside the sweep surface as [`CliError::Solve`].
+    #[error("adaptive sweep failed: {0}")]
+    AdaptiveSweep(geode_core::driven::rom::RomError),
     /// A wave port's cross-section modal solve failed (or resolved fewer
     /// modes than requested).
     #[error("wave port `{name}`: {err}")]
@@ -231,6 +236,15 @@ impl From<DrivenError> for CliError {
     }
 }
 
+impl From<geode_core::driven::rom::RomError> for CliError {
+    fn from(e: geode_core::driven::rom::RomError) -> Self {
+        match e {
+            geode_core::driven::rom::RomError::Driven(e) => CliError::Solve(e),
+            e => CliError::AdaptiveSweep(e),
+        }
+    }
+}
+
 impl From<PecCavityError> for CliError {
     fn from(e: PecCavityError) -> Self {
         CliError::EigenSolve(e)
@@ -275,6 +289,7 @@ impl CliError {
             CliError::UnresolvedGroups { .. } => "unresolved_physical_group",
             CliError::BackendMismatch { .. } => "backend_mismatch",
             CliError::Solve(_)
+            | CliError::AdaptiveSweep(_)
             | CliError::WavePort { .. }
             | CliError::EigenSolve(_)
             | CliError::LossyEigenSolve(_)

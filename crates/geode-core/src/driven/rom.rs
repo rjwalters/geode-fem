@@ -8,7 +8,7 @@
 //! (module `exp(+jωt)` convention)
 //!
 //! ```text
-//! A(ω) = K − ω²M + iω C(σ) + Σ_p (iω/Z_p) S_p        (+ Leontovich, rejected)
+//! A(ω) = K − ω²M + iω C(σ) + Σ_p (iω/Z_p) S_p + Σ_Γ c_Γ(ω) S_Γ
 //! ```
 //!
 //! by linear combination of **ω-independent** value tensors, and the RHS
@@ -70,14 +70,32 @@
 //! achieved worst residual is always reported ([`DrivenRom::worst_residual`]),
 //! converged or not.
 //!
-//! # Out of scope (v1) and follow-on hooks
+//! # Impedance surfaces (issue #708)
 //!
-//! - **Leontovich surface impedances** carry a non-polynomial scalar
-//!   coefficient `c_Γ(ω) ∝ √ω(1+i)`; although `VᴴS_ΓV` would project once
-//!   with per-ω scalar evaluation, v1 rejects them
-//!   ([`RomError::UnsupportedOperator`]) — the same v1 boundary the
-//!   transient solver drew. Wave ports are structurally absent from
-//!   [`DrivenOperator`].
+//! Leontovich / Silver-Müller / London surfaces (`Σ_Γ c_Γ(ω) S_Γ` above)
+//! carry a scalar coefficient `c_Γ(ω) = iω/Z_s(ω)` that is **not**
+//! polynomial in `iω` (`∝ √ω(1+i)` for a good conductor), but each `S_Γ`
+//! is still a fixed real matrix: it projects **once** (`S_{Γ,r} =
+//! VᴴS_ΓV`, cached products `S_ΓV`) and only the scalar is re-evaluated
+//! per ω ([`crate::driven::solve::SurfaceImpedanceModel::weak_coefficient`],
+//! exactly as `assemble_a_at` does). The Galerkin projection needs no
+//! polynomial structure — only fixed matrices with scalar ω-coefficients —
+//! and the greedy indicator stays the true full-order residual, so the
+//! tolerance certificate is unchanged. (v1 of #603 rejected surfaces; the
+//! `geode driven` spiral benchmark carries Leontovich copper.)
+//!
+//! # Multi-port drives (issue #708)
+//!
+//! [`RomDrive::PerPort`] builds one PROM for all `N` S-parameter
+//! excitations: each snapshot frequency costs **one** factorization and
+//! `N` back-solves, every solution joins the basis, and the indicator is
+//! the worst over the excitations ([`DrivenRom::evaluate_excitations`]).
+//!
+//! # Out of scope and follow-on hooks
+//!
+//! - Wave ports are structurally absent from [`DrivenOperator`]; matched
+//!   UPML **re-assembled per ω** (the physical open-boundary stretch,
+//!   `∝ 1/k₀`) has ω-dependent matrices and cannot be projected once.
 //! - Hermite / derivative-augmented snapshots, rigorous error certificates,
 //!   and sweep-level adjoints are follow-ons. The struct stores the reduced
 //!   matrices explicitly so `∂A_r/∂ω = −2ωM_r + iC_r + Σ_p (i/Z_p) S_{p,r}`
@@ -97,21 +115,13 @@ use crate::driven::extraction::PortCircuit;
 use crate::driven::ports::LumpedPort;
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SurfaceImpedanceBc,
+    SurfaceImpedanceModel,
 };
 use crate::mesh::TetMesh;
 
 /// Errors from the PROM fast-sweep path.
 #[derive(Debug, thiserror::Error)]
 pub enum RomError {
-    /// The source [`DrivenOperator`] (or sweep configuration) carries an
-    /// ω-dependent term that is not polynomial in `iω` with fixed
-    /// matrices — a Leontovich impedance surface in v1.
-    #[error(
-        "PROM sweep requires an operator polynomial in iω with fixed matrices: {reason} \
-         (lumped ports + σ + PEC + fixed complex materials only; Leontovich surface \
-         impedance is out of scope for v1)"
-    )]
-    UnsupportedOperator { reason: String },
     /// A structurally invalid sweep request (empty grid, non-finite or
     /// non-positive frequency, zero snapshot budget, …).
     #[error("invalid PROM parameter: {0}")]
@@ -183,6 +193,45 @@ pub struct RomSweepReport {
     pub worst_residual: f64,
 }
 
+/// Which right-hand side(s) a [`DrivenRom`] is built for (issue #708).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RomDrive {
+    /// The operator's **baked** drive — volume current source plus every
+    /// lumped port at its `v_inc` — as one right-hand side: the
+    /// [`crate::driven::solve::FactoredDrivenOperator::solve`] solution
+    /// (the historical issue-#603 behavior, and the
+    /// [`crate::driven::extraction::driven_frequency_sweep`] analog).
+    #[default]
+    Baked,
+    /// One right-hand side **per lumped port**: port `j` alone driven at
+    /// its `v_inc`, every other port a passive resistive termination —
+    /// the S-parameter excitations of
+    /// [`crate::driven::solve::FactoredDrivenOperator::solve_excited`]
+    /// (the [`crate::driven::extraction::s_parameter_frequency_sweep`]
+    /// analog). One factorization per snapshot frequency serves all `N`
+    /// excitations (a **block** snapshot): the basis grows by up to `N`
+    /// columns per snapshot, and the greedy indicator is the worst over
+    /// the excitations. Read the per-excitation port quantities with
+    /// [`DrivenRom::evaluate_excitations`].
+    PerPort,
+}
+
+/// One frequency point of a [`DrivenRom`] evaluated for **every** drive
+/// ([`DrivenRom::evaluate_excitations`]).
+#[derive(Debug, Clone)]
+pub struct RomExcitationPoint {
+    /// Frequency `ω ≡ k₀` (natural units).
+    pub omega: f64,
+    /// Worst full-order relative residual indicator over the drives.
+    pub residual_indicator: f64,
+    /// `excitations[d][k]`: port `k`'s circuit quantities under drive
+    /// `d`. For [`RomDrive::Baked`] there is one drive (every port at its
+    /// `v_inc`); for [`RomDrive::PerPort`] drive `d` is port `d` alone,
+    /// and a passive port's current is `I = −V/R` (`V_inc = 0`), exactly
+    /// as in the dense S-parameter sweep's per-excitation readback.
+    pub excitations: Vec<Vec<PortCircuit>>,
+}
+
 /// A built Galerkin PROM over a [`DrivenOperator`]: the orthonormal basis
 /// `V`, the cached matrix–basis products, and the projected reduced
 /// matrices. Construct with [`DrivenRom::build`] (which runs the greedy
@@ -203,6 +252,8 @@ pub struct DrivenRom<'a> {
     mv: Vec<Vec<c64>>,
     cv: Option<Vec<Vec<c64>>>,
     spv: Vec<Vec<Vec<c64>>>,
+    /// Cached products `S_Γ·v_j` per impedance surface.
+    sgv: Vec<Vec<Vec<c64>>>,
     /// Projected reduced matrices (row-major rows of length k) — stored
     /// explicitly so `∂A_r/∂ω` is analytically available (see module
     /// docs, differentiability hook).
@@ -210,13 +261,22 @@ pub struct DrivenRom<'a> {
     m_r: Vec<Vec<c64>>,
     c_r: Option<Vec<Vec<c64>>>,
     s_r: Vec<Vec<Vec<c64>>>,
+    /// Projected impedance-surface masses `VᴴS_ΓV`.
+    sg_r: Vec<Vec<Vec<c64>>>,
     /// `1/Z_p` per port (the iω-linear port-admittance coefficients).
     port_inv_z: Vec<f64>,
-    /// Fixed drive direction: `b(ω) = ω b̂` (interior space) and its
-    /// projection `b̂_r = Vᴴ b̂`.
-    b_hat: Vec<c64>,
-    b_hat_r: Vec<c64>,
-    b_hat_norm: f64,
+    /// Impedance surfaces: interior `(row, col, value)` triplets of each
+    /// real `S_Γ` and its model (coefficient `iω/Z_s(ω)` re-evaluated per
+    /// ω, exactly as `assemble_a_at` does).
+    surf_triplets: Vec<Vec<(usize, usize, f64)>>,
+    surf_models: Vec<SurfaceImpedanceModel>,
+    /// The drives: `None` = the baked drive, `Some(j)` = port `j` alone.
+    drives: Vec<Option<usize>>,
+    /// Per drive: fixed direction `b(ω) = ω b̂` (interior space), its
+    /// projection `b̂_r = Vᴴ b̂` and its norm.
+    b_hat: Vec<Vec<c64>>,
+    b_hat_r: Vec<Vec<c64>>,
+    b_hat_norm: Vec<f64>,
     /// Greedy diagnostics.
     snapshot_omegas: Vec<f64>,
     converged: bool,
@@ -225,7 +285,8 @@ pub struct DrivenRom<'a> {
 
 impl<'a> DrivenRom<'a> {
     /// Run the greedy PROM construction over the candidate grid `omegas`
-    /// (which is also the evaluation grid of [`rom_frequency_sweep`]).
+    /// (which is also the evaluation grid of [`rom_frequency_sweep`]) for
+    /// the operator's baked drive ([`RomDrive::Baked`]).
     ///
     /// Seeds: band endpoints + the grid point nearest the band midpoint.
     /// Each greedy step spends one full-order solve
@@ -235,24 +296,36 @@ impl<'a> DrivenRom<'a> {
     ///
     /// # Errors
     ///
-    /// [`RomError::UnsupportedOperator`] if the operator carries
-    /// Leontovich surfaces; [`RomError::InvalidParameter`] for an empty
-    /// grid, non-finite/non-positive frequencies, a zero snapshot budget,
-    /// or a non-finite tolerance; any [`DrivenError`] from the snapshot
-    /// solves.
+    /// [`RomError::InvalidParameter`] for an empty grid,
+    /// non-finite/non-positive frequencies, a zero snapshot budget, or a
+    /// non-finite tolerance; any [`DrivenError`] from the snapshot solves
+    /// or an impedance surface's coefficient.
     pub fn build(
         op: &'a DrivenOperator,
         omegas: &[f64],
         settings: &RomSettings,
     ) -> Result<Self, RomError> {
-        if op.has_surfaces() {
-            return Err(RomError::UnsupportedOperator {
-                reason: format!(
-                    "{} Leontovich impedance surface(s) on the operator",
-                    op.n_surfaces()
-                ),
-            });
-        }
+        Self::build_with(op, omegas, settings, RomDrive::Baked, &mut |_| {})
+    }
+
+    /// [`DrivenRom::build`] with an explicit [`RomDrive`] and a snapshot
+    /// observer: `on_snapshot(ω)` is called after each full-order
+    /// snapshot solve completes, in greedy selection order (progress
+    /// reporting; issue #708).
+    ///
+    /// # Errors
+    ///
+    /// As [`DrivenRom::build`]; additionally [`RomError::InvalidParameter`]
+    /// for [`RomDrive::PerPort`] on an operator without ports or with a
+    /// port whose `v_inc` is zero (its excitation would be identically
+    /// zero).
+    pub fn build_with(
+        op: &'a DrivenOperator,
+        omegas: &[f64],
+        settings: &RomSettings,
+        drive: RomDrive,
+        on_snapshot: &mut dyn FnMut(f64),
+    ) -> Result<Self, RomError> {
         if omegas.is_empty() {
             return Err(RomError::InvalidParameter(
                 "empty candidate frequency grid".into(),
@@ -274,39 +347,73 @@ impl<'a> DrivenRom<'a> {
                 settings.tolerance
             )));
         }
+        let drives: Vec<Option<usize>> = match drive {
+            RomDrive::Baked => vec![None],
+            RomDrive::PerPort => {
+                if op.n_ports() == 0 {
+                    return Err(RomError::InvalidParameter(
+                        "RomDrive::PerPort needs at least one lumped port".into(),
+                    ));
+                }
+                if let Some(j) = (0..op.n_ports()).find(|&j| op.port_v_inc(j) == c64::new(0.0, 0.0))
+                {
+                    return Err(RomError::InvalidParameter(format!(
+                        "RomDrive::PerPort: port {j} has v_inc = 0 (no excitation)"
+                    )));
+                }
+                (0..op.n_ports()).map(Some).collect()
+            }
+        };
 
         let n = op.n_interior();
         let n_edges = op.rhs_re().len();
         let interior_to_full = op.interior_to_full();
 
-        // --- Fixed drive direction b̂ (b(ω) = ω·b̂), interior-filtered ----
-        // Volume moments: b = iω(re + i·im) = ω(−im + i·re) ⇒ b̂ = −im + i·re.
-        let mut b_hat_full: Vec<c64> = op
+        // --- Fixed drive directions b̂ (b(ω) = ω·b̂), interior-filtered ----
+        // Mirrors `assemble_b_at` exactly. Volume moments:
+        // b = iω(re + i·im) = ω(−im + i·re) ⇒ b̂ = −im + i·re.
+        let volume: Vec<c64> = op
             .rhs_re()
             .iter()
             .zip(op.rhs_im().iter())
             .map(|(&re, &im)| c64::new(-im, re))
             .collect();
-        // Matched-source port drive: b += (2iω/Z_p)(V_inc/ℓ) f ⇒
-        // b̂ += (2i/Z_p)(V_inc/ℓ) f — mirrors `assemble_b_at` exactly.
         let mut port_inv_z = Vec::with_capacity(op.n_ports());
         for p in 0..op.n_ports() {
-            let data = op.port_transient_data(p);
-            port_inv_z.push(1.0 / data.z_s);
-            let v_inc = op.port_v_inc(p);
-            if v_inc == c64::new(0.0, 0.0) {
-                continue;
-            }
-            let e_inc = v_inc * (1.0 / data.length);
-            let drive = c64::new(0.0, 2.0 / data.z_s) * e_inc;
-            for (b, &f) in b_hat_full.iter_mut().zip(data.flux.iter()) {
-                *b += drive * f;
-            }
+            port_inv_z.push(1.0 / op.port_transient_data(p).z_s);
         }
-        let b_hat: Vec<c64> = interior_to_full.iter().map(|&j| b_hat_full[j]).collect();
-        let b_hat_norm = vec_norm(&b_hat);
+        let b_hat: Vec<Vec<c64>> = drives
+            .iter()
+            .map(|&excited| {
+                let mut b_full = volume.clone();
+                // Matched-source port drive: b += (2iω/Z_p)(V_inc/ℓ) f ⇒
+                // b̂ += (2i/Z_p)(V_inc/ℓ) f — restricted to the excited port.
+                for p in 0..op.n_ports() {
+                    if excited.is_some_and(|j| j != p) {
+                        continue;
+                    }
+                    let v_inc = op.port_v_inc(p);
+                    if v_inc == c64::new(0.0, 0.0) {
+                        continue;
+                    }
+                    let data = op.port_transient_data(p);
+                    let e_inc = v_inc * (1.0 / data.length);
+                    let drive = c64::new(0.0, 2.0 / data.z_s) * e_inc;
+                    for (b, &f) in b_full.iter_mut().zip(data.flux.iter()) {
+                        *b += drive * f;
+                    }
+                }
+                interior_to_full.iter().map(|&j| b_full[j]).collect()
+            })
+            .collect();
+        let b_hat_norm: Vec<f64> = b_hat.iter().map(|b| vec_norm(b)).collect();
+
+        let (surf_triplets, surf_models): (Vec<_>, Vec<_>) = (0..op.n_surfaces())
+            .map(|i| op.surface_mass_triplets(i))
+            .unzip();
 
         let has_c = op.c_vals().is_some();
+        let n_drives = drives.len();
         let mut rom = Self {
             op,
             n,
@@ -317,13 +424,18 @@ impl<'a> DrivenRom<'a> {
             mv: Vec::new(),
             cv: has_c.then(Vec::new),
             spv: vec![Vec::new(); op.n_ports()],
+            sgv: vec![Vec::new(); surf_models.len()],
             k_r: Vec::new(),
             m_r: Vec::new(),
             c_r: has_c.then(Vec::new),
             s_r: vec![Vec::new(); op.n_ports()],
+            sg_r: vec![Vec::new(); surf_models.len()],
             port_inv_z,
+            surf_triplets,
+            surf_models,
+            drives,
             b_hat,
-            b_hat_r: Vec::new(),
+            b_hat_r: vec![Vec::new(); n_drives],
             b_hat_norm,
             snapshot_omegas: Vec::new(),
             converged: false,
@@ -332,7 +444,7 @@ impl<'a> DrivenRom<'a> {
 
         // Zero drive: every solution is identically zero (matching the
         // dense sweep's zero-RHS semantics); nothing to sample.
-        if rom.b_hat_norm == 0.0 {
+        if rom.b_hat_norm.iter().all(|&b| b == 0.0) {
             rom.converged = true;
             rom.worst_residual = 0.0;
             return Ok(rom);
@@ -371,6 +483,7 @@ impl<'a> DrivenRom<'a> {
             }
             used[idx] = true;
             rom.add_snapshot(omegas[idx])?;
+            on_snapshot(omegas[idx]);
         }
 
         // --- Greedy refinement --------------------------------------------
@@ -382,10 +495,7 @@ impl<'a> DrivenRom<'a> {
             let mut best_idx: Option<usize> = None;
             let mut best_res = 0.0_f64;
             for &i in &order {
-                let eta = match rom.try_reduced_solve(omegas[i]) {
-                    Some(x_r) => rom.residual_indicator(omegas[i], &x_r),
-                    None => f64::INFINITY,
-                };
+                let eta = rom.indicator_at(omegas[i]);
                 worst = worst.max(eta);
                 // Strict `>` + ascending-ω iteration = lowest-ω tie-break.
                 if !used[i] && eta > best_res {
@@ -407,6 +517,7 @@ impl<'a> DrivenRom<'a> {
             };
             used[idx] = true;
             let grew = rom.add_snapshot(omegas[idx])?;
+            on_snapshot(omegas[idx]);
             if !grew {
                 // Snapshot linearly dependent on the current basis: the
                 // candidate is consumed (never re-picked) but the ROM did
@@ -418,13 +529,13 @@ impl<'a> DrivenRom<'a> {
     }
 
     /// Snapshot frequencies in greedy selection order (one full-order
-    /// solve each).
+    /// factorization each).
     pub fn snapshot_omegas(&self) -> &[f64] {
         &self.snapshot_omegas
     }
 
-    /// Reduced dimension `k` (≤ number of snapshots; smaller when a
-    /// snapshot was linearly dependent).
+    /// Reduced dimension `k` (≤ number of snapshots × drives; smaller
+    /// when a snapshot was linearly dependent).
     pub fn reduced_order(&self) -> usize {
         self.basis.len()
     }
@@ -447,59 +558,111 @@ impl<'a> DrivenRom<'a> {
     /// `omega` need not be a grid point — the ROM is a continuous-in-ω
     /// surrogate; the indicator stays honest off-grid too.
     ///
+    /// For a [`RomDrive::PerPort`] ROM this returns the **first** drive
+    /// (port 0 excited) only; use [`DrivenRom::evaluate_excitations`].
+    ///
     /// # Errors
     ///
     /// [`RomError::ReducedSolveSingular`] if the reduced system has no
-    /// solution at this frequency.
+    /// solution at this frequency; [`DrivenError`] from an impedance
+    /// surface's coefficient.
     pub fn evaluate(&self, omega: f64) -> Result<RomSweepPoint, RomError> {
-        let k = self.basis.len();
-        let x_r = if k == 0 {
-            Vec::new()
-        } else {
-            self.try_reduced_solve(omega)
-                .ok_or(RomError::ReducedSolveSingular { order: k, omega })?
-        };
-        let residual_indicator = self.residual_indicator(omega, &x_r);
-
-        // Reconstruct x = V x_r and scatter to the full edge vector.
-        let mut x_int = vec![c64::new(0.0, 0.0); self.n];
-        for (j, v) in self.basis.iter().enumerate() {
-            let xj = x_r[j];
-            for (xi, &vi) in x_int.iter_mut().zip(v.iter()) {
-                *xi += vi * xj;
-            }
-        }
-        let mut e_edges = vec![c64::new(0.0, 0.0); self.n_edges];
-        for (i, &full) in self.interior_to_full.iter().enumerate() {
-            e_edges[full] = x_int[i];
-        }
-
-        let ports = (0..self.op.n_ports())
-            .map(|p| {
-                let v = self.op.port_voltage(p, &e_edges);
-                let i = self.op.port_current(p, v);
-                PortCircuit { v, i, z: v / i }
-            })
-            .collect();
+        let mut p = self.evaluate_excitations(omega)?;
         Ok(RomSweepPoint {
             omega,
-            residual_indicator,
-            ports,
+            residual_indicator: p.residual_indicator,
+            ports: p.excitations.swap_remove(0),
         })
     }
 
-    /// One full-order snapshot solve at `omega`, MGS-orthonormalized into
-    /// the basis. Returns `Ok(false)` (without growing the ROM) when the
-    /// snapshot is numerically dependent on the current basis.
+    /// Evaluate the PROM at one frequency for **every** drive (see
+    /// [`RomDrive`]): the per-drive port readouts plus the worst residual
+    /// indicator over the drives.
+    ///
+    /// # Errors
+    ///
+    /// As [`DrivenRom::evaluate`].
+    pub fn evaluate_excitations(&self, omega: f64) -> Result<RomExcitationPoint, RomError> {
+        let k = self.basis.len();
+        let coeffs = self.surface_coefficients(omega)?;
+        let x_rs = if k == 0 {
+            vec![Vec::new(); self.drives.len()]
+        } else {
+            self.try_reduced_solve(omega, &coeffs)
+                .ok_or(RomError::ReducedSolveSingular { order: k, omega })?
+        };
+        let residual_indicator = self.residual_indicator(omega, &coeffs, &x_rs);
+
+        let mut excitations = Vec::with_capacity(self.drives.len());
+        for (&excited, x_r) in self.drives.iter().zip(&x_rs) {
+            // Reconstruct x = V x_r and scatter to the full edge vector.
+            let mut x_int = vec![c64::new(0.0, 0.0); self.n];
+            for (j, v) in self.basis.iter().enumerate() {
+                let xj = x_r[j];
+                for (xi, &vi) in x_int.iter_mut().zip(v.iter()) {
+                    *xi += vi * xj;
+                }
+            }
+            let mut e_edges = vec![c64::new(0.0, 0.0); self.n_edges];
+            for (i, &full) in self.interior_to_full.iter().enumerate() {
+                e_edges[full] = x_int[i];
+            }
+            let ports = (0..self.op.n_ports())
+                .map(|p| {
+                    let v = self.op.port_voltage(p, &e_edges);
+                    let i = match excited {
+                        None => self.op.port_current(p, v),
+                        // Driven only in its own excitation; elsewhere a
+                        // passive termination (V_inc = 0).
+                        Some(j) => {
+                            let v_inc = if p == j {
+                                self.op.port_v_inc(p)
+                            } else {
+                                c64::new(0.0, 0.0)
+                            };
+                            self.op.port_current_with_v_inc(p, v_inc, v)
+                        }
+                    };
+                    PortCircuit { v, i, z: v / i }
+                })
+                .collect();
+            excitations.push(ports);
+        }
+        Ok(RomExcitationPoint {
+            omega,
+            residual_indicator,
+            excitations,
+        })
+    }
+
+    /// One full-order snapshot at `omega` — **one** factorization, one
+    /// back-solve per drive — each solution MGS-orthonormalized into the
+    /// basis. Returns `Ok(false)` (without growing the ROM) when every
+    /// drive's snapshot is numerically dependent on the current basis.
     fn add_snapshot(&mut self, omega: f64) -> Result<bool, RomError> {
         self.snapshot_omegas.push(omega);
-        let sol = self.op.factor_at(omega)?.solve()?;
-        let mut w: Vec<c64> = self
-            .interior_to_full
-            .iter()
-            .map(|&j| sol.e_edges[j])
-            .collect();
+        let factor = self.op.factor_at(omega)?;
+        let mut grew = false;
+        let drives = self.drives.clone();
+        for drive in drives {
+            let sol = match drive {
+                None => factor.solve()?,
+                Some(j) => factor.solve_excited(j)?,
+            };
+            let w: Vec<c64> = self
+                .interior_to_full
+                .iter()
+                .map(|&j| sol.e_edges[j])
+                .collect();
+            grew |= self.add_column(w);
+        }
+        Ok(grew)
+    }
 
+    /// MGS-orthonormalize `w` against the basis and, if independent,
+    /// append it (products, reduced matrices, projected drives). Returns
+    /// whether the basis grew.
+    fn add_column(&mut self, mut w: Vec<c64>) -> bool {
         // Modified Gram–Schmidt with one re-orthogonalization pass.
         let norm0 = vec_norm(&w);
         for _pass in 0..2 {
@@ -512,7 +675,7 @@ impl<'a> DrivenRom<'a> {
         }
         let norm = vec_norm(&w);
         if norm0 == 0.0 || norm <= 1e-12 * norm0 {
-            return Ok(false);
+            return false;
         }
         let inv = 1.0 / norm;
         for wi in w.iter_mut() {
@@ -529,12 +692,13 @@ impl<'a> DrivenRom<'a> {
         let spw: Vec<Vec<c64>> = (0..self.op.n_ports())
             .map(|p| {
                 let data = self.op.port_transient_data(p);
-                let mut y = vec![c64::new(0.0, 0.0); self.n];
-                for &(r, c, v) in data.mass_triplets {
-                    y[r] += w[c] * v;
-                }
-                y
+                triplet_list_matvec(data.mass_triplets, &w, self.n)
             })
+            .collect();
+        let sgw: Vec<Vec<c64>> = self
+            .surf_triplets
+            .iter()
+            .map(|t| triplet_list_matvec(t, &w, self.n))
             .collect();
 
         // Grow the reduced matrices: new column (Vᴴ·(X w)), new row
@@ -548,7 +712,12 @@ impl<'a> DrivenRom<'a> {
         for (p, spw_p) in spw.iter().enumerate() {
             grow_reduced(&mut self.s_r[p], &self.basis, &self.spv[p], &w, spw_p);
         }
-        self.b_hat_r.push(dot_h(&w, &self.b_hat));
+        for (g, sgw_g) in sgw.iter().enumerate() {
+            grow_reduced(&mut self.sg_r[g], &self.basis, &self.sgv[g], &w, sgw_g);
+        }
+        for (b_r, b) in self.b_hat_r.iter_mut().zip(&self.b_hat) {
+            b_r.push(dot_h(&w, b));
+        }
 
         // Commit the column.
         self.kv.push(kw);
@@ -559,16 +728,40 @@ impl<'a> DrivenRom<'a> {
         for (p, spw_p) in spw.into_iter().enumerate() {
             self.spv[p].push(spw_p);
         }
+        for (g, sgw_g) in sgw.into_iter().enumerate() {
+            self.sgv[g].push(sgw_g);
+        }
         self.basis.push(w);
-        Ok(true)
+        true
     }
 
-    /// Assemble and solve the reduced `A_r(ω) x_r = ω b̂_r`. `None` when
-    /// the dense LU hits a zero/non-finite pivot.
-    fn try_reduced_solve(&self, omega: f64) -> Option<Vec<c64>> {
+    /// The impedance surfaces' weak coefficients `iω/Z_s(ω)` at `omega`.
+    fn surface_coefficients(&self, omega: f64) -> Result<Vec<c64>, DrivenError> {
+        self.surf_models
+            .iter()
+            .map(|m| m.weak_coefficient(omega))
+            .collect()
+    }
+
+    /// The greedy indicator at `omega`: worst over the drives, `∞` when
+    /// the reduced system (or a surface coefficient) is singular there.
+    fn indicator_at(&self, omega: f64) -> f64 {
+        let Ok(coeffs) = self.surface_coefficients(omega) else {
+            return f64::INFINITY;
+        };
+        match self.try_reduced_solve(omega, &coeffs) {
+            Some(x_rs) => self.residual_indicator(omega, &coeffs, &x_rs),
+            None => f64::INFINITY,
+        }
+    }
+
+    /// Assemble the reduced `A_r(ω)` once and solve `A_r(ω) x_r = ω b̂_r`
+    /// for every drive. `None` when the dense LU hits a zero/non-finite
+    /// pivot.
+    fn try_reduced_solve(&self, omega: f64, coeffs: &[c64]) -> Option<Vec<Vec<c64>>> {
         let k = self.basis.len();
         if k == 0 {
-            return Some(Vec::new());
+            return Some(vec![Vec::new(); self.drives.len()]);
         }
         let omega2 = omega * omega;
         let i_omega = c64::new(0.0, omega);
@@ -582,41 +775,69 @@ impl<'a> DrivenRom<'a> {
                 for (p, s_r) in self.s_r.iter().enumerate() {
                     v += i_omega * self.port_inv_z[p] * s_r[r][c];
                 }
+                for (coeff, sg_r) in coeffs.iter().zip(&self.sg_r) {
+                    v += *coeff * sg_r[r][c];
+                }
                 a[r * k + c] = v;
             }
         }
-        let b: Vec<c64> = self.b_hat_r.iter().map(|&x| x * omega).collect();
-        solve_dense_lu(a, b, k)
+        self.b_hat_r
+            .iter()
+            .map(|b_r| {
+                let b: Vec<c64> = b_r.iter().map(|&x| x * omega).collect();
+                solve_dense_lu(a.clone(), b, k)
+            })
+            .collect()
     }
 
-    /// `η(ω) = ‖A(ω)Vx_r − ωb̂‖ / (ω‖b̂‖)` via the cached matrix–basis
-    /// products — `O(nk)`, no sparse assembly.
-    fn residual_indicator(&self, omega: f64, x_r: &[c64]) -> f64 {
+    /// `η(ω) = max_d ‖A(ω)Vx_{r,d} − ωb̂_d‖ / (ω‖b̂_d‖)` via the cached
+    /// matrix–basis products — `O(nk)` per drive, no sparse assembly.
+    fn residual_indicator(&self, omega: f64, coeffs: &[c64], x_rs: &[Vec<c64>]) -> f64 {
         let omega2 = omega * omega;
-        let mut r: Vec<c64> = self.b_hat.iter().map(|&b| b * (-omega)).collect();
-        for (j, &xj) in x_r.iter().enumerate() {
-            let sk = xj;
-            let sm = xj * (-omega2);
-            let sc = xj * c64::new(0.0, omega);
-            for ((ri, &kvi), &mvi) in r.iter_mut().zip(self.kv[j].iter()).zip(self.mv[j].iter()) {
-                *ri += kvi * sk + mvi * sm;
-            }
-            if let Some(cv) = &self.cv {
-                for (ri, &cvi) in r.iter_mut().zip(cv[j].iter()) {
-                    *ri += cvi * sc;
+        let mut worst = 0.0_f64;
+        for ((b_hat, &b_norm), x_r) in self.b_hat.iter().zip(&self.b_hat_norm).zip(x_rs) {
+            let mut r: Vec<c64> = b_hat.iter().map(|&b| b * (-omega)).collect();
+            for (j, &xj) in x_r.iter().enumerate() {
+                let sk = xj;
+                let sm = xj * (-omega2);
+                let sc = xj * c64::new(0.0, omega);
+                for ((ri, &kvi), &mvi) in r.iter_mut().zip(self.kv[j].iter()).zip(self.mv[j].iter())
+                {
+                    *ri += kvi * sk + mvi * sm;
+                }
+                if let Some(cv) = &self.cv {
+                    for (ri, &cvi) in r.iter_mut().zip(cv[j].iter()) {
+                        *ri += cvi * sc;
+                    }
+                }
+                for (p, spv) in self.spv.iter().enumerate() {
+                    let sp = sc * self.port_inv_z[p];
+                    for (ri, &si) in r.iter_mut().zip(spv[j].iter()) {
+                        *ri += si * sp;
+                    }
+                }
+                for (coeff, sgv) in coeffs.iter().zip(&self.sgv) {
+                    let sg = xj * *coeff;
+                    for (ri, &si) in r.iter_mut().zip(sgv[j].iter()) {
+                        *ri += si * sg;
+                    }
                 }
             }
-            for (p, spv) in self.spv.iter().enumerate() {
-                let sp = sc * self.port_inv_z[p];
-                for (ri, &si) in r.iter_mut().zip(spv[j].iter()) {
-                    *ri += si * sp;
-                }
-            }
+            let num = vec_norm(&r);
+            let den = omega.abs() * b_norm;
+            worst = worst.max(if den == 0.0 { num } else { num / den });
         }
-        let num = vec_norm(&r);
-        let den = omega.abs() * self.b_hat_norm;
-        if den == 0.0 { num } else { num / den }
+        worst
     }
+}
+
+/// `y = S·x` from an interior `(row, col, value)` triplet list.
+fn triplet_list_matvec(triplets: &[(usize, usize, f64)], x: &[c64], n: usize) -> Vec<c64> {
+    let mut y = vec![c64::new(0.0, 0.0); n];
+    for &(r, c, v) in triplets {
+        y[r] += x[c] * v;
+    }
+    y
 }
 
 /// Grow a reduced matrix (rows of length `k`) to `(k+1)×(k+1)` given the
@@ -742,12 +963,12 @@ fn solve_dense_lu(mut a: Vec<c64>, mut b: Vec<c64>, n: usize) -> Option<Vec<c64>
 /// port readouts run through the same flux functional / Thevenin relation
 /// on the reconstruction `x ≈ V x_r`.
 ///
-/// `surfaces` must be empty in v1 (Leontovich walls carry a `√ω`
-/// coefficient — see the module docs); pass `&[]`.
+/// Impedance `surfaces` (Leontovich / Silver-Müller / London) are
+/// projected once with their scalar coefficient re-evaluated per ω (see
+/// the module docs, issue #708).
 ///
 /// # Errors
 ///
-/// [`RomError::UnsupportedOperator`] for a non-empty `surfaces`;
 /// [`RomError::InvalidParameter`] / [`RomError::ReducedSolveSingular`] as
 /// in [`DrivenRom::build`] / [`DrivenRom::evaluate`]; any [`DrivenError`]
 /// from assembly or the snapshot solves.
@@ -764,14 +985,6 @@ pub fn rom_frequency_sweep<B: Backend>(
     settings: &RomSettings,
     device: &B::Device,
 ) -> Result<RomSweepReport, RomError> {
-    if !surfaces.is_empty() {
-        return Err(RomError::UnsupportedOperator {
-            reason: format!(
-                "{} Leontovich impedance surface(s) requested",
-                surfaces.len()
-            ),
-        });
-    }
     let op = DrivenOperator::assemble::<B>(
         mesh, materials, sigma_tet, bcs, ports, surfaces, source, device,
     )?;

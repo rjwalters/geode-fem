@@ -561,6 +561,7 @@ pub fn load_parsed(
         Analysis::Inductance => validate_inductance(&spec)?,
     }
     validate_sensitivity(&spec, analysis)?;
+    validate_sweep(&spec, analysis)?;
     validate_open_boundaries(&spec)?;
     validate_surface_roles(&spec)?;
     // Duplicate / conflicting surface roles were rejected above
@@ -1159,6 +1160,56 @@ fn validate_eigen(spec: &ProblemSpec) -> Result<(), CliError> {
         return Err(invalid(format!(
             "materials[{}].eps_r must have Re > 0 for the eigen solve",
             m.physical_group
+        )));
+    }
+    Ok(())
+}
+
+/// `sweep`-section rules (scalar, before the mesh is read; issue #708).
+/// The adaptive (PROM) sweep projects a frequency-independent operator
+/// and samples it with direct-LU snapshot solves, so it needs lumped
+/// ports, the direct solver and no per-frequency re-assembly (UPML).
+fn validate_sweep(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError> {
+    let Some(sweep) = &spec.sweep else {
+        return Ok(());
+    };
+    if !matches!(analysis, Analysis::Driven | Analysis::Extract) {
+        return Err(invalid(format!(
+            "`sweep` applies to driven / extract specs only (this is a `{}` spec)",
+            analysis.name()
+        )));
+    }
+    let Some(a) = &sweep.adaptive else {
+        return Ok(());
+    };
+    if !(a.tolerance.is_finite() && a.tolerance > 0.0 && a.tolerance < 1.0) {
+        return Err(invalid(format!(
+            "sweep.adaptive.tolerance must be in (0, 1) (got {})",
+            a.tolerance
+        )));
+    }
+    if a.max_snapshots == 0 {
+        return Err(invalid("sweep.adaptive.max_snapshots must be ≥ 1"));
+    }
+    let remedy = "remove `sweep.adaptive` to run the dense sweep";
+    if !spec.wave_ports.is_empty() {
+        return Err(invalid(format!(
+            "sweep.adaptive does not support `wave_ports` (the reduced-order model projects \
+             lumped-port operators only); {remedy}"
+        )));
+    }
+    if !spec.absorbing_regions.is_empty() {
+        return Err(invalid(format!(
+            "sweep.adaptive does not support `absorbing_regions`: the matched UPML stretch is \
+             frequency-dependent, so the operator is re-assembled per frequency and cannot be \
+             projected once (use Silver-Müller walls for an adaptive open-boundary sweep); \
+             {remedy}"
+        )));
+    }
+    if !matches!(spec.solver, SolverSpec::Direct {}) {
+        return Err(invalid(format!(
+            "sweep.adaptive needs `solver.mode = \"direct\"`: its snapshot solves are sparse-LU \
+             factorizations; {remedy}"
         )));
     }
     Ok(())
@@ -2143,6 +2194,85 @@ mod tests {
         assert!((back.hz - 1e9).abs() / 1e9 < 1e-14);
         let hz = to_frequency(1e9, FrequencyUnit::Hz, 1e-6);
         assert_eq!(hz.k0, f.k0);
+    }
+
+    /// `sweep` rules (issue #708): scalar, so a parsed spec suffices.
+    #[test]
+    fn validate_sweep_accepts_and_rejects() {
+        let spec = |extra: serde_json::Value| -> ProblemSpec {
+            let mut v = serde_json::json!({
+                "schema_version": 1,
+                "mesh": {"path": "m.msh", "length_unit_m": 1e-6},
+                "ports": [{"physical_group": "p", "e_hat": [0.0, 1.0, 0.0], "resistance_ohm": 50.0}],
+                "frequencies": {"unit": "ghz", "values": [1.0, 2.0]},
+                "sweep": {"adaptive": {}}
+            });
+            for (k, x) in extra.as_object().unwrap() {
+                v[k] = x.clone();
+            }
+            serde_json::from_value(v).expect("spec parses")
+        };
+        let msg = |s: &ProblemSpec, a: Analysis| match validate_sweep(s, a) {
+            Err(CliError::InvalidSpec(m)) => {
+                assert!(!m.contains("  "), "stray whitespace: {m:?}");
+                m
+            }
+            other => panic!("expected InvalidSpec, got {other:?}"),
+        };
+        // Defaults; Leontovich / Silver-Müller walls are fine.
+        let ok = spec(serde_json::json!({
+            "boundary_conditions": {
+                "leontovich": [{"physical_group": "c", "conductivity_s_m": 5.8e7}],
+                "silver_muller": ["o"]
+            }
+        }));
+        let a = ok.sweep.as_ref().unwrap().adaptive.unwrap();
+        assert_eq!((a.tolerance, a.max_snapshots), (1e-6, 20));
+        validate_sweep(&ok, Analysis::Driven).unwrap();
+        validate_sweep(&ok, Analysis::Extract).unwrap();
+        // An empty `sweep` is the dense sweep.
+        validate_sweep(&spec(serde_json::json!({"sweep": {}})), Analysis::Driven).unwrap();
+
+        assert!(msg(&ok, Analysis::Eigen).contains("driven / extract specs only"));
+        let m = msg(
+            &spec(serde_json::json!({"absorbing_regions": [
+                {"physical_group": "u", "thickness": 1.0, "sigma_0": 25.0}
+            ]})),
+            Analysis::Driven,
+        );
+        assert!(
+            m.contains("absorbing_regions") && m.contains("remove"),
+            "{m}"
+        );
+        let m = msg(
+            &spec(serde_json::json!({"ports": [], "wave_ports": [{"physical_group": "w"}]})),
+            Analysis::Driven,
+        );
+        assert!(m.contains("wave_ports"), "{m}");
+        let m = msg(
+            &spec(serde_json::json!({"solver": {"mode": "iterative"}})),
+            Analysis::Driven,
+        );
+        assert!(m.contains("direct"), "{m}");
+        for bad in [0.0, 1.0, -1e-6] {
+            let m = msg(
+                &spec(serde_json::json!({"sweep": {"adaptive": {"tolerance": bad}}})),
+                Analysis::Driven,
+            );
+            assert!(m.contains("tolerance"), "{m}");
+        }
+        let m = msg(
+            &spec(serde_json::json!({"sweep": {"adaptive": {"max_snapshots": 0}}})),
+            Analysis::Driven,
+        );
+        assert!(m.contains("max_snapshots"), "{m}");
+        // Unknown keys are rejected at parse time.
+        assert!(
+            serde_json::from_value::<crate::spec::SweepSpec>(
+                serde_json::json!({"adaptive": {"tol": 1e-6}})
+            )
+            .is_err()
+        );
     }
 
     #[test]

@@ -4,8 +4,10 @@
 //! ```text
 //! geode check  <spec.json|spec.toml> [-o report.json]
 //! geode driven <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
+//!                   [--touchstone PATH] [--jobs N] [--progress]
 //! geode eigen  <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //! geode extract <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
+//!                   [--touchstone PATH] [--jobs N] [--progress]
 //! geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH [--spice-ret-pin]]
 //! geode inductance <spec.json|spec.toml> [-o report.json] [--threads N]
 //!                   [--spice PATH [--spice-ret-pin] [--spice-positive-k]]
@@ -36,6 +38,7 @@ mod extract;
 mod inductance;
 mod mesh_cmd;
 mod problem;
+mod progress;
 mod report;
 mod schema;
 mod sensitivity;
@@ -79,7 +82,7 @@ enum Command {
     /// Frequency sweep with lumped ports → Z / Y / S, L / R / Q per port, or
     /// with wave ports → channel S-matrix. Open boundaries: `absorbing_regions`
     /// (matched box UPML) and Silver-Müller walls.
-    Driven(RunArgs),
+    Driven(SweepArgs),
     /// PEC-cavity eigenmodes near `eigen.shift` → resonant f, plus Q for a
     /// lossy (complex eps_r) or open (`absorbing_regions`) cavity (Q is null
     /// when lossless). Needs a spec with an `eigen` section and no ports.
@@ -87,7 +90,7 @@ enum Command {
     /// Driven sweep → per-port L / R / Q, quasi-static L0 (f→0 Richardson
     /// extrapolation on the two lowest anchor frequencies) and SRF. Needs a
     /// spec with an `extract` section (`"extract": {}` for the defaults).
-    Extract(RunArgs),
+    Extract(SweepArgs),
     /// Static Maxwell capacitance matrix (F) between named conductor
     /// surfaces: one electrostatic solve per terminal at 1 V with every
     /// other terminal and the ground surfaces at 0 V (no floating
@@ -221,6 +224,46 @@ struct RunArgs {
     touchstone: Option<PathBuf>,
 }
 
+/// `geode driven` / `geode extract` arguments: the shared run arguments
+/// plus the sweep-execution flags (issue #708; clap rejects them on
+/// `geode eigen`).
+#[derive(Args)]
+struct SweepArgs {
+    #[command(flatten)]
+    base: RunArgs,
+    /// Solve up to N frequencies concurrently (default 1). Each in-flight
+    /// frequency holds its own sparse LU factorization, so peak memory
+    /// grows about N-fold (`geode check`'s resource estimate is per
+    /// frequency). Capped at --threads when both are given. Report rows
+    /// stay in frequency order. Adaptive sweeps apply it to their
+    /// fallback solves only; wave-port sweeps run serially.
+    #[arg(long, value_name = "N")]
+    jobs: Option<NonZeroUsize>,
+    /// Write JSONL progress events (one JSON object per line: sweep_start,
+    /// snapshot, point, sweep_done) to stderr as the sweep runs. See
+    /// crates/geode-cli/README.md for the event schema.
+    #[arg(long)]
+    progress: bool,
+}
+
+impl SweepArgs {
+    /// The sweep options, with `--jobs` capped at `--threads`.
+    fn options(&self) -> progress::SweepOptions {
+        let mut jobs = self.jobs.map_or(1, NonZeroUsize::get);
+        if let Some(t) = self.base.threads.map(NonZeroUsize::get)
+            && jobs > t
+        {
+            eprintln!("note: --jobs {jobs} capped at --threads {t}");
+            jobs = t;
+        }
+        progress::SweepOptions {
+            jobs,
+            jobs_explicit: self.jobs.is_some(),
+            progress: self.progress,
+        }
+    }
+}
+
 impl Cli {
     fn provenance(spec: &Path, threads: Option<usize>) -> Provenance {
         Provenance {
@@ -290,13 +333,15 @@ impl App for Cli {
                 let result = check::run(&a.spec, prov.clone());
                 finish("check", prov, a.output.as_deref(), result)
             }
-            Command::Driven(a) => {
+            Command::Driven(sa) => {
+                let opts = sa.options();
+                let a = sa.base;
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
                 let result = backend::confirm(a.backend).and_then(|()| {
                     let (out, ts) = (a.outdir.as_deref(), a.touchstone.as_deref());
-                    driven::run(&a.spec, prov.clone(), out, ts)
+                    driven::run(&a.spec, prov.clone(), out, ts, opts)
                 });
                 finish("driven", prov, a.output.as_deref(), result)
             }
@@ -315,13 +360,15 @@ impl App for Cli {
                     result.and_then(|()| eigen::run(&a.spec, prov.clone(), a.outdir.as_deref()));
                 finish("eigen", prov, a.output.as_deref(), result)
             }
-            Command::Extract(a) => {
+            Command::Extract(sa) => {
+                let opts = sa.options();
+                let a = sa.base;
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
                 let result = backend::confirm(a.backend).and_then(|()| {
                     let (out, ts) = (a.outdir.as_deref(), a.touchstone.as_deref());
-                    extract::run(&a.spec, prov.clone(), out, ts)
+                    extract::run(&a.spec, prov.clone(), out, ts, opts)
                 });
                 finish("extract", prov, a.output.as_deref(), result)
             }

@@ -374,6 +374,7 @@ mod tests {
             k0: 0.0,
             omega_rad_s: 0.0,
             residual_rel: 0.0,
+            solved: None,
             iterations: Vec::new(),
             z_ohm: Vec::new(),
             y_s: None,

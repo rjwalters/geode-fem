@@ -115,6 +115,11 @@ pub struct ProblemSpec {
     /// Linear-solver selection (default: direct sparse LU).
     #[serde(default)]
     pub solver: SolverSpec,
+    /// Frequency-sweep strategy (additive in v1, issue #708). Omitted: the
+    /// dense sweep — one full-order solve per frequency. Driven / extract
+    /// specs only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sweep: Option<SweepSpec>,
     /// Eigenmode analysis settings. Its presence makes this an **eigen
     /// spec** (for `geode eigen`).
     #[serde(default)]
@@ -769,6 +774,59 @@ impl FrequencySpec {
         }
         Ok(list)
     }
+}
+
+/// Frequency-sweep strategy of a driven / extract spec (additive in v1,
+/// issue #708).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SweepSpec {
+    /// Opt-in adaptive sweep. Omitted: the dense sweep.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adaptive: Option<AdaptiveSweepSpec>,
+}
+
+/// Adaptive frequency sweep (issue #708): a Galerkin projection
+/// reduced-order model with greedy snapshot sampling
+/// ([`geode_core::driven::rom`]; Palace's adaptive fast sweep).
+///
+/// A few **snapshot** frequencies get a full-order direct solve (one LU
+/// factorization each, one back-solve per port); every other frequency
+/// is **interpolated** through a small dense reduced system. The greedy
+/// loop adds the frequency with the worst residual indicator
+/// `η(ω) = ‖A(ω)·x_rom − b(ω)‖ / ‖b(ω)‖` (the true full-order relative
+/// residual of the reduced solution, worst over the port excitations)
+/// until `η ≤ tolerance` everywhere or `max_snapshots` is spent. Any
+/// frequency still above `tolerance` then gets a full-order fallback
+/// solve, so every reported point is either a full-order solve or
+/// certified at `η ≤ tolerance`.
+///
+/// Needs `solver.mode = "direct"` and lumped `ports`; rejected with
+/// `absorbing_regions` (the matched UPML is re-assembled per frequency)
+/// and with `wave_ports`. Leontovich and Silver-Müller walls are
+/// supported.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AdaptiveSweepSpec {
+    /// Residual-indicator tolerance `η` (default `1e-6`; in `(0, 1)`). A
+    /// bound on the relative **residual**, not on the error in `Z` / `S`:
+    /// the error can exceed it by the conditioning of `A(ω)` (see
+    /// `crates/geode-cli/README.md` for measured ratios).
+    #[serde(default = "default_adaptive_tolerance")]
+    pub tolerance: f64,
+    /// Budget of greedy snapshot frequencies (full-order factorizations;
+    /// default `20`, `≥ 1`). The three seeds (band ends + midpoint)
+    /// count against it.
+    #[serde(default = "default_adaptive_max_snapshots")]
+    pub max_snapshots: usize,
+}
+
+fn default_adaptive_tolerance() -> f64 {
+    1e-6
+}
+
+fn default_adaptive_max_snapshots() -> usize {
+    20
 }
 
 #[cfg(test)]

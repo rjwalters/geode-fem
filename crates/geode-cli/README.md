@@ -16,6 +16,7 @@ geode capacitance caps.json -o c.json               # static Maxwell capacitance
 geode inductance coax.json -o l.json                # static Maxwell inductance matrix (H)
 geode driven patch.json --outdir fields/            # + per-frequency E-field .vtu and NTFF
 geode driven filter.json --touchstone filter.s2p    # + Touchstone 2.0 S-parameters
+geode driven sweep.json --jobs 4 --progress         # 4 frequencies at a time, JSONL progress on stderr
 geode capacitance caps.json --spice caps.sp         # + SPICE .subckt of the mutual C network
 geode inductance triax.toml --spice l.sp            # + SPICE .subckt of self L + K couplings
 geode mesh layout.json --mesh-out m.msh --spec-out s.json && geode driven s.json   # layout → mesh → solve
@@ -34,7 +35,7 @@ one worked example per analysis, with the output to expect.
 | Subcommand | Status |
 |---|---|
 | `check`   | live — parse + validate spec, load mesh, resolve every named physical group, report DOF counts and an order-of-magnitude memory / cost estimate (#703); never solves |
-| `driven`  | live — lumped-port (or wave-port, #683) frequency sweep with PEC / Leontovich / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG; optional Touchstone 2.0 `.sNp` (#703) |
+| `driven`  | live — lumped-port (or wave-port, #683) frequency sweep with PEC / Leontovich / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG; optional Touchstone 2.0 `.sNp` (#703); opt-in adaptive (reduced-order-model) sweep, parallel frequency points and JSONL progress (#708, see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)) |
 | `eigen`   | live (#681) — PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; lossless (`Q` is `null`), or lossy / open (#706: complex `eps_r` and / or box-UPML `absorbing_regions` → complex `k₀`, finite `Q`) |
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 | `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
@@ -115,6 +116,13 @@ elsewhere — Ubuntu 22.04 and Debian 12 package Gmsh 4.8, which is too old.
   assembly pool) and scopes faer's sparse-LU parallelism to `N`. Without
   it the library defaults apply (`GEODE_NUM_THREADS` if set, else all
   cores for assembly; serial LU).
+- **Parallel frequencies** (`driven` / `extract`): `--jobs N` solves up
+  to `N` frequencies at once; each holds its own LU factorization, so
+  peak memory grows about `N`-fold. Capped at `--threads` when both are
+  given. Report rows stay in frequency order and are bit-identical to
+  `--jobs 1` (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)).
+- **Progress** (`driven` / `extract`): `--progress` writes JSONL events
+  to stderr while the sweep runs; the report is unchanged.
 - **No network access**: nothing in the binary's dependency tree makes
   network calls at solve time.
 - **Files written**: only the report (stdout or `-o`) — unless
@@ -232,6 +240,10 @@ Driven example (the spiral-inductor golden input,
 | `solver.mode` | `"direct"` (default) \| `"iterative"` | sparse LU per frequency, or COCG with a preconditioner built once per frequency |
 | `solver.tol` / `solver.max_iters` | iterative only; default `1e-10` / `5000` | relative-residual tolerance / per-RHS budget; exceeding the budget is a hard error (`solve_failed`, non-zero exit). Jacobi-preconditioned COCG can stall on ill-conditioned low-frequency conductor problems (e.g. the spiral fixture); prefer `direct` there |
 | `solver.preconditioner` | iterative only; `"jacobi"` (default) \| `"ilu0"` | Jacobi = diagonal scaling. `ilu0` = incomplete LU with zero fill on `A(ω)`'s own pattern (+32 B per nonzero of factor storage; ≈ 3.4× the per-iteration time of Jacobi on the spiral smoke mesh). Neither is uniformly better (issue #708, measured 2026-09-30): on the lossy spiral smoke mesh `ilu0` converges at 10 / 20 GHz (17 278 / 12 669 iterations, Z matches direct LU to 1e-10) where Jacobi stalls at every frequency, but it still stalls at 1 / 5 GHz; on the radiating UPML patch `ilu0` stalls where Jacobi converges. Pick per problem; `direct` remains the robust choice below the LU memory wall |
+| `sweep` | driven / extract only; optional section (additive in v1, #708) | sweep strategy; omitted = the dense sweep (one full-order solve per frequency) |
+| `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"` and lumped `ports`; rejected (`invalid_spec`) with `absorbing_regions` or `wave_ports`. Leontovich and Silver-Müller walls are supported |
+| `sweep.adaptive.tolerance` | float in `(0, 1)`, default `1e-6` | residual-indicator target `η = ‖A(ω)x_rom − b‖/‖b‖` (worst over the port excitations) — a bound on the relative **residual**, not directly on `Z` / `S` |
+| `sweep.adaptive.max_snapshots` | int ≥ 1, default `20` | budget of greedy snapshot frequencies (full-order factorizations, seeds included); frequencies still above `tolerance` when it runs out are solved full-order |
 | `solver.mode` (eigen) | `"direct"` only | the eigen path always factors `K − σM` once with sparse LU; `"iterative"` is rejected |
 | `extract` | optional section | its presence makes this an extract spec (see below) |
 | `extract.anchor_frequencies` | optional frequency block (same shape as `frequencies`) | explicit `L₀` anchor ladder, solved **in addition to** `frequencies`. Omitted: the anchors are `frequencies` itself |
@@ -840,6 +852,115 @@ shrunk box, as `examples/patch_antenna` does.
 The physical field there is a linear combination of the per-channel
 Sherman–Morrison–Woodbury solves, which the library does not return, and
 reconstructing it would need a `geode-core` API extension.
+
+## Adaptive sweep, parallel frequencies and progress (issue #708)
+
+### Adaptive sweep (`sweep.adaptive`)
+
+```json
+"sweep": { "adaptive": { "tolerance": 1e-6, "max_snapshots": 20 } }
+```
+
+A Galerkin projection reduced-order model with greedy snapshot sampling
+([`geode_core::driven::rom`](../geode-core/src/driven/rom.rs), Palace's
+adaptive fast sweep). The operator is assembled once; the band ends and
+midpoint, then the frequency with the worst residual indicator, get a
+**full-order** direct solve (one LU factorization, one back-solve per
+port — every port excitation joins one shared basis) until the worst
+indicator over the whole grid is `≤ tolerance` or `max_snapshots` is
+spent. Every other frequency is **interpolated**: a dense `k × k`
+reduced solve (`k` ≈ snapshots × ports) with the same `Z = V·I⁻¹` / S
+arithmetic as the dense sweep. A frequency still above `tolerance` after
+the greedy loop is solved full-order (a **fallback**), so every row is
+either a full-order solve or certified at `η ≤ tolerance`. Leontovich /
+Silver-Müller walls project once with their frequency-dependent
+coefficient re-evaluated per frequency. Requires the direct solver; not
+available with `absorbing_regions` (the UPML is re-assembled per
+frequency) or `wave_ports` — remove `sweep.adaptive` to run the dense
+sweep.
+
+The tolerance bounds the **residual**; the error in `Z` can exceed it by
+the conditioning of `A(ω)`. Measured (issue #708, release, M3 Ultra, all
+on the smoke meshes against the dense sweep at the same points):
+
+| Problem | points | tolerance | factorizations | max `\|ΔZ\|/\|Z\|` | max `\|ΔS₁₁\|` | wall dense → adaptive |
+|---|---|---|---|---|---|---|
+| spiral smoke (Leontovich Cu, 13 997 DOF), 1–20 GHz | 40 | 1e-4 | 7 | 1.4e-8 | 1.0e-8 | 29.4 s → 4.8 s (6.1×) |
+| | 40 | 1e-6 | 10 | 4.0e-12 | 3.7e-12 | 29.4 s → 6.9 s (4.2×) |
+| | 40 | 1e-8 | 12 | 4.4e-12 | 3.9e-12 | 29.4 s → 8.9 s (3.3×) |
+| patch smoke, Silver-Müller wall (UPML removed), 2–3 GHz | 41 | 1e-4 | 4 | 2.6e-4 | 3.2e-6 | 9.4 s → 1.0 s (9.4×) |
+| | 41 | 1e-6 | 6 | 1.0e-6 | 1.7e-8 | 9.4 s → 1.5 s (6.4×) |
+| | 41 | 1e-8 | 8 | 4.1e-10 | 8.8e-11 | 9.4 s → 1.9 s (5.0×) |
+
+(Worst `|ΔZ|/|Z|` ≈ 1.5–4 × the achieved indicator on the patch; far
+below it on the spiral.) The speedup is roughly `points / factorizations`
+and grows with the number of points; with few points (≲ 10) the dense
+sweep may be as fast.
+
+**Report.** Each `results[]` row gains `solved` (`true` = full-order
+solve, `false` = interpolated; absent for a dense sweep); an interpolated
+row's `residual_rel` is its residual indicator and `iterations` are `0`.
+`solver.adaptive` carries `tolerance`, `max_snapshots`, `converged`
+(greedy reached the tolerance within the budget), `worst_residual`
+(worst indicator when the greedy loop stopped), `reduced_order`,
+`snapshot_frequencies_hz` (selection order), `fallback_frequencies_hz`,
+`n_solved`, `n_interpolated` and `n_factorizations` (snapshots +
+fallbacks; a dense sweep spends one per frequency).
+
+**`--touchstone`** writes every requested frequency, interpolated or not
+(the `.sNp` has no per-row provenance — `results[].solved` in the report
+says which rows were interpolated). **`--outdir`** exports fields only
+for the `solved` rows (one extra full-order solve each, as for the dense
+sweep); interpolated rows get no `field_file` (a note goes to stderr).
+`--jobs` applies to the fallback solves only (the greedy loop is
+sequential). `geode extract` runs the same adaptive sweep over its
+solved list (frequencies ∪ anchors).
+
+### Parallel frequency points (`--jobs N`)
+
+`--jobs N` (driven / extract) solves up to `N` frequencies of a dense
+sweep concurrently on scoped worker threads that pull the next frequency
+index; results are stored by index, so the report is in frequency order
+and **bit-identical** to `--jobs 1` (for a fixed `--threads`). Without
+UPML the assembled operator is shared and each frequency factors its own
+`A(ω)`; with `absorbing_regions` each frequency also assembles its own
+operator. **Memory**: each in-flight frequency holds its own sparse LU
+factorization, so peak memory grows about `N`-fold over one frequency's
+footprint (`geode check`'s `resources` estimate is per frequency) —
+choose `N` so that `N × resources.memory_bytes` fits. `--jobs` is capped
+at `--threads` when both are given (`solver.jobs` in the report echoes
+the value used whenever `--jobs` is passed). Wave-port sweeps run
+serially (a stderr note says so). Measured on the 40-point spiral smoke
+sweep (M3 Ultra, 28 cores, release): `--jobs 1` 29.6 s, `--jobs 2`
+13.1 s, `--jobs 4` 6.5 s, `--jobs 4 --threads 4` 5.2 s — the per-point
+sparse LU of a 14 k-DOF problem does not use many cores, so frequency
+parallelism wins.
+
+### Progress events (`--progress`)
+
+`--progress` writes one JSON object per line to **stderr**, flushed as
+each event happens (the report on stdout / `-o` is unchanged). Every
+event has `event` and `elapsed_s` (seconds since the sweep started):
+
+| `event` | extra fields | when |
+|---|---|---|
+| `sweep_start` | `command` (`"driven"` / `"extract"`), `method` (`"dense"` / `"adaptive"`), `n_frequencies`, `jobs` | once, before the first solve |
+| `snapshot` | `frequency_hz`, `n_snapshots` (running count) | adaptive only: a greedy full-order snapshot solve finished |
+| `point` | `index` (row in `results`), `frequency_hz`, `solved` (bool), `residual_rel` | once per frequency, in **completion** order (not frequency order with `--jobs > 1`) |
+| `sweep_done` | `n_frequencies`, `n_solved`, `n_interpolated` | once, after the last point |
+
+```text
+{"command":"driven","elapsed_s":1.4e-6,"event":"sweep_start","jobs":1,"method":"adaptive","n_frequencies":40}
+{"elapsed_s":0.82,"event":"snapshot","frequency_hz":1000000000.0,"n_snapshots":1}
+…
+{"elapsed_s":6.9,"event":"point","frequency_hz":1487179487.2,"index":1,"residual_rel":3.1e-8,"solved":false}
+{"elapsed_s":6.9,"event":"sweep_done","n_frequencies":40,"n_interpolated":30,"n_solved":10}
+```
+
+Other stderr output (warnings, the error message on failure) is plain
+text, so filter on lines starting with `{`. The `--outdir` export solves
+emit no events. A wave-port sweep without UPML emits its `point` events
+together when the batched library sweep returns.
 
 ## Touchstone output (`--touchstone`, issue #703)
 
@@ -1546,7 +1667,10 @@ sensitivities](#material-sensitivities-sensitivity-issue-707).
 
 - `solver`: `mode`, `tol`, `max_iters`, `iterations_max` (largest per-RHS
   Krylov count; `0` on the direct path), `residual_rel_max` (largest
-  `‖Ax − b‖/‖b‖`), `wall_time_s` (assembly + all solves, seconds).
+  `‖Ax − b‖/‖b‖`), `wall_time_s` (assembly + all solves, seconds);
+  additive in v1 (#708): `jobs` (only when `--jobs` is given) and
+  `adaptive` (only with `sweep.adaptive`; see [Adaptive
+  sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)).
 - `touchstone_file` (additive in v1; `--touchstone` only):
   `{path, sha256}` of the `.sNp` written (see "Touchstone output").
 - `results[]`, one per frequency in spec order:
@@ -1556,7 +1680,8 @@ sensitivities](#material-sensitivities-sensitivity-issue-707).
 | `frequency_hz` | Hz | |
 | `k0` | rad / mesh unit | solver ω |
 | `omega_rad_s` | rad/s | `2πf` |
-| `residual_rel` | – | worst per-RHS relative residual at this frequency |
+| `residual_rel` | – | worst per-RHS relative residual at this frequency (interpolated adaptive row: its residual indicator) |
+| `solved` | – | adaptive sweep only (additive, #708): `true` full-order solve, `false` interpolated |
 | `iterations` | – | Krylov iterations per RHS (one per port; `0` direct) |
 | `z_ohm` | Ω | impedance matrix `Z` (every port excited in turn, others terminated in their own `R`) |
 | `y_s` | S | `Y = Z⁻¹`, `null` if `Z` is singular |
@@ -1785,6 +1910,23 @@ identity of its observable (`Σ ε ∂C/∂ε = C`, `Σ ν ∂L/∂ν = −L`,
 two-layer closed form (2 %), the degenerate-mode refusal on the sphere
 cavity, and every `invalid_spec` gap. Measured worst FD disagreement:
 4.7e-9 (capacitance), 1.0e-8 (inductance), 2.4e-9 (eigen).
+
+`tests/adaptive_sweep_golden.rs` (issue #708) runs the adaptive sweep
+against the dense sweep through the real binary: the spiral smoke
+(Leontovich copper) over 16 points in 1–20 GHz and the patch smoke with a
+Silver-Müller outer wall (UPML removed) over 11 points in 2–3 GHz, both
+at tolerance 1e-6 — at least one interpolated row each, every `solved`
+flag consistent with the snapshot / fallback lists, `|ΔZ|/|Z| ≤ 10 ×
+tolerance`, `|ΔS₁₁| ≤ tolerance` (measured 2.4e-11 / 1.7e-11 spiral,
+1.3e-6 / 1.8e-8 patch), plus `--touchstone` and the `--progress` event
+stream. Those two run in release (`--ignored`); the default tier checks
+that a dense sweep with `--jobs 2 --progress` is bit-identical to
+`--jobs 1`:
+
+```sh
+cargo test -p geode-cli --test adaptive_sweep_golden                          # default tier
+cargo test -p geode-cli --release --test adaptive_sweep_golden -- --ignored   # adaptive vs dense
+```
 
 `tests/spiral_golden.rs` re-expresses the spiral-inductor benchmark
 (issue #211) as a spec and runs it through the real binary:

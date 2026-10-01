@@ -7,6 +7,7 @@ the example models, and the output to expect.
 | Analysis | Example | Input | Runtime (debug / release) |
 |---|---|---|---|
 | `driven` | [3.5-turn spiral inductor, 1–20 GHz sweep](driven/README.md) | `driven/spiral_inductor.json` | ~30 s / a few s |
+| `driven` (adaptive) | [the same spiral, 40-point adaptive sweep (10 full solves)](driven/README.md#adaptive-40-point-sweep-sweepadaptive-issue-708) | `driven/spiral_inductor_adaptive.json` | ~1.5 min / ~7 s |
 | `extract` | [SLCFET spiral, `L₀` by f → 0 extrapolation](extract/README.md) | `extract/slcfet_spiral.json` | ~30 s / a few s |
 | `eigen` | [PEC-walled dielectric-sphere cavity modes, lossless and lossy (f, Q)](eigen/README.md) | `eigen/sphere_cavity.json`, `eigen/lossy_sphere_cavity.json` | ~12 s / ~1 s (lossy: ~40 s / ~1 s) |
 | `capacitance` | [coax and triax Maxwell capacitance matrices](capacitance/README.md) | `capacitance/coax.json`, `capacitance/triax.toml` | < 1 s |
@@ -25,7 +26,10 @@ estimate without solving.
 
 ## Where the inputs come from
 
-Every spec here (and `mesh/spiral_inductor.layout.json`) is a
+Every spec here (and `mesh/spiral_inductor.layout.json`) except
+`driven/spiral_inductor_adaptive.json` (the spiral fixture re-cut as a
+40-point adaptive sweep; its numbers are the issue-#708 measurement, and
+`tests/adaptive_sweep_golden.rs` pins a 16-point twin) is a
 **byte-identical copy of a golden-test fixture** in
 `crates/geode-cli/tests/fixtures/`: the numbers quoted in the READMEs are
 the ones the golden tests pin, and `tests/cookbook.rs` fails if a copy

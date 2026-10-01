@@ -669,6 +669,50 @@ pub struct SolverStats {
     pub residual_rel_max: f64,
     /// Wall time of the whole sweep (assembly + all solves), seconds.
     pub wall_time_s: f64,
+    /// Concurrent frequency workers (`--jobs`; additive in v1, issue
+    /// #708). Present only when `--jobs` was given.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jobs: Option<usize>,
+    /// Adaptive-sweep diagnostics (additive in v1, issue #708). Present
+    /// only for a spec with `sweep.adaptive`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive: Option<AdaptiveSweepStats>,
+}
+
+/// Diagnostics of an adaptive (reduced-order-model) sweep (additive in
+/// v1, issue #708). Each frequency is either **solved** (a full-order
+/// direct solve: a greedy snapshot or a fallback) or **interpolated**
+/// (evaluated through the reduced model, certified at residual indicator
+/// `≤ tolerance`); `results[].solved` says which.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AdaptiveSweepStats {
+    /// Requested residual-indicator tolerance.
+    pub tolerance: f64,
+    /// Requested snapshot budget.
+    pub max_snapshots: usize,
+    /// Whether the greedy loop reached `tolerance` over every frequency
+    /// within the budget. When `false`, the frequencies still above it
+    /// were solved full-order (`fallback_frequencies_hz`).
+    pub converged: bool,
+    /// Worst residual indicator over the frequency grid when the greedy
+    /// loop stopped (before any fallback solve).
+    pub worst_residual: f64,
+    /// Dimension of the reduced model (`≤ n_snapshots × n_ports`).
+    pub reduced_order: usize,
+    /// Greedy snapshot frequencies (Hz), in selection order (the three
+    /// seeds — band ends and midpoint — first).
+    pub snapshot_frequencies_hz: Vec<f64>,
+    /// Frequencies (Hz) above `tolerance` after the greedy loop, solved
+    /// full-order instead (ascending; empty when `converged`).
+    pub fallback_frequencies_hz: Vec<f64>,
+    /// Requested frequencies with a full-order solve (snapshots and
+    /// fallbacks).
+    pub n_solved: usize,
+    /// Requested frequencies evaluated through the reduced model.
+    pub n_interpolated: usize,
+    /// Sparse LU factorizations spent (snapshots + fallbacks); a dense
+    /// sweep spends one per frequency.
+    pub n_factorizations: usize,
 }
 
 /// Per-port self quantities at one frequency (from the diagonal `Z_kk`,
@@ -725,8 +769,15 @@ pub struct FrequencyResult {
     pub k0: f64,
     /// Angular frequency `ω = 2πf` (rad/s).
     pub omega_rad_s: f64,
-    /// Worst post-solve relative residual over this point's RHS solves.
+    /// Worst post-solve relative residual over this point's RHS solves
+    /// (for an interpolated adaptive-sweep point: the reduced model's
+    /// residual indicator, worst over the port excitations).
     pub residual_rel: f64,
+    /// Adaptive sweep only (additive in v1, issue #708): `true` for a
+    /// full-order solve, `false` for a point interpolated by the
+    /// reduced-order model. Absent for a dense sweep (every point solved).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub solved: Option<bool>,
     /// Krylov iterations per RHS (one per port; `0` on the direct path).
     pub iterations: Vec<usize>,
     /// Impedance matrix `Z` (Ω), `z_ohm[k][j]`.

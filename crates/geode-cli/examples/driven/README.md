@@ -37,3 +37,31 @@ this size).
 within 2 %, `|S11|` within 0.01). The smoke mesh is deliberately coarse;
 the benchmark tier (`spiral_golden_benchmark.json`, `--ignored`) is the
 one held to the Mohan / mom-PEEC oracle bands.
+
+## Adaptive 40-point sweep (`sweep.adaptive`, issue #708)
+
+`spiral_inductor_adaptive.json` is the same spiral over a 40-point
+1–20 GHz band with an adaptive sweep:
+
+```json
+"sweep": { "adaptive": { "tolerance": 1e-6, "max_snapshots": 20 } }
+```
+
+```sh
+geode driven crates/geode-cli/examples/driven/spiral_inductor_adaptive.json --progress -o spiral40.json
+geode driven crates/geode-cli/examples/driven/spiral_inductor_adaptive.json --touchstone spiral40.s1p
+```
+
+Instead of 40 LU factorizations it spends **10** (the band ends and
+midpoint, then 7 greedy picks), builds a 10-dimensional reduced model and
+interpolates the other 30 frequencies through it. Expected
+(`solver.adaptive`): `converged = true`, `n_factorizations = 10`,
+`n_interpolated = 30`, `worst_residual ≈ 9e-8`; every row carries
+`solved` (`true` for the 10 snapshot frequencies). Against the dense
+40-point sweep (drop the `sweep` section) the worst `|ΔZ|/|Z|` is
+4.0e-12 and the worst `|ΔS₁₁|` 3.7e-12, at 6.9 s vs 29.4 s wall (release,
+M3 Ultra; issue #708). `--progress` streams one `snapshot` event per
+full-order solve, then one `point` per frequency, on stderr. The dense
+sweep can instead run frequencies in parallel: `--jobs 4` takes the same
+40 points from 29.6 s to 6.5 s with bit-identical results (each in-flight
+frequency holds its own LU factorization, so memory grows with `--jobs`).
