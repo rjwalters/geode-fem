@@ -229,8 +229,9 @@ Driven example (the spiral-inductor golden input,
 | `frequencies.values` | floats > 0 | explicit list, **or** … |
 | `frequencies.start` / `stop` / `count` | floats > 0, int ≥ 1 | … an inclusive sweep |
 | `frequencies.spacing` | `"linear"` (default) \| `"log"` | sweep spacing |
-| `solver.mode` | `"direct"` (default) \| `"iterative"` | sparse LU per frequency, or COCG with a Jacobi preconditioner built once per frequency |
+| `solver.mode` | `"direct"` (default) \| `"iterative"` | sparse LU per frequency, or COCG with a preconditioner built once per frequency |
 | `solver.tol` / `solver.max_iters` | iterative only; default `1e-10` / `5000` | relative-residual tolerance / per-RHS budget; exceeding the budget is a hard error (`solve_failed`, non-zero exit). Jacobi-preconditioned COCG can stall on ill-conditioned low-frequency conductor problems (e.g. the spiral fixture); prefer `direct` there |
+| `solver.preconditioner` | iterative only; `"jacobi"` (default) \| `"ilu0"` | Jacobi = diagonal scaling. `ilu0` = incomplete LU with zero fill on `A(ω)`'s own pattern (+32 B per nonzero of factor storage; ≈ 3.4× the per-iteration time of Jacobi on the spiral smoke mesh). Neither is uniformly better (issue #708, measured 2026-09-30): on the lossy spiral smoke mesh `ilu0` converges at 10 / 20 GHz (17 278 / 12 669 iterations, Z matches direct LU to 1e-10) where Jacobi stalls at every frequency, but it still stalls at 1 / 5 GHz; on the radiating UPML patch `ilu0` stalls where Jacobi converges. Pick per problem; `direct` remains the robust choice below the LU memory wall |
 | `solver.mode` (eigen) | `"direct"` only | the eigen path always factors `K − σM` once with sparse LU; `"iterative"` is rejected |
 | `extract` | optional section | its presence makes this an extract spec (see below) |
 | `extract.anchor_frequencies` | optional frequency block (same shape as `frequencies`) | explicit `L₀` anchor ladder, solved **in addition to** `frequencies`. Omitted: the anchors are `frequencies` itself |
@@ -1202,7 +1203,10 @@ spiral smoke mesh it came out ~1.6× **low** (0.044 vs 0.072 GB; process
 and mesh overhead are not modelled). Cost is reported in flops only:
 there is **no measured iterative wall-time anchor**, and iteration
 counts depend on the problem and preconditioner (they cannot be
-predicted from the mesh).
+predicted from the mesh). `solver.preconditioner = "ilu0"` adds the
+factor storage (a second complex copy of `A`'s values plus a per-entry
+row index, `32·nnz(A)` bytes) and one SpMV-equivalent per iteration
+(the two triangular sweeps) to the vector count.
 
 ## Layout → mesh (`geode mesh`, issue #704)
 

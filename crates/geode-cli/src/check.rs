@@ -230,15 +230,30 @@ pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
         calibration_basis: CALIBRATION_BASIS,
     };
     match (is_real, p.solver()) {
-        (false, SolverSpec::Iterative { max_iters, .. }) => {
+        (
+            false,
+            SolverSpec::Iterative {
+                max_iters,
+                preconditioner,
+                ..
+            },
+        ) => {
             // Operator values (c64) + column indices (u64), ×3 for the
             // assembled pieces / preconditioner; 16 Krylov-class c64
             // vectors; eight 6×6 f64 per-tet element-matrix buffers
             // (assembly). A vector count, not an extrapolation.
             let n_tets = p.tagged.mesh.n_tets() as f64;
-            let bytes = nnz as f64 * 24.0 * 3.0 + 16.0 * n * 16.0 + n_tets * 36.0 * 8.0 * 8.0;
+            let mut bytes = nnz as f64 * 24.0 * 3.0 + 16.0 * n * 16.0 + n_tets * 36.0 * 8.0 * 8.0;
             // Complex SpMV (4 mul + 4 add per entry) + ~10 vector ops.
-            let per_iter = 8.0 * nnz as f64 + 80.0 * n;
+            let mut per_iter = 8.0 * nnz as f64 + 80.0 * n;
+            // ILU(0) (issue #708, 2026-09-30): a second c64 copy of A's
+            // values plus a per-row (col, pos) index (16 B per entry, one
+            // Vec header per row); each apply is two triangular sweeps
+            // over the same pattern (≈ one more complex SpMV).
+            if preconditioner == crate::spec::PreconditionerSpec::Ilu0 {
+                bytes += nnz as f64 * (16.0 + 16.0) + n * 24.0;
+                per_iter += 8.0 * nnz as f64;
+            }
             ResourceEstimate {
                 solver_mode: "iterative",
                 n_factorizations: 0,
@@ -417,7 +432,7 @@ pub fn solver_summary(s: SolverSpec) -> SolverSummary {
             tol: None,
             max_iters: None,
         },
-        SolverSpec::Iterative { tol, max_iters } => SolverSummary {
+        SolverSpec::Iterative { tol, max_iters, .. } => SolverSummary {
             mode: "iterative",
             tol: Some(tol),
             max_iters: Some(max_iters),

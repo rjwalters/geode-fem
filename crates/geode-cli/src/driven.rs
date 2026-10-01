@@ -184,9 +184,20 @@ pub fn run(
 fn solver_mode(p: &Problem) -> SolverMode {
     match p.solver() {
         SolverSpec::Direct {} => SolverMode::Direct,
-        SolverSpec::Iterative { tol, max_iters } => {
-            SolverMode::Iterative(IterativeSettings::new(tol, max_iters))
-        }
+        SolverSpec::Iterative {
+            tol,
+            max_iters,
+            preconditioner,
+        } => SolverMode::Iterative(IterativeSettings::new(tol, max_iters).with_preconditioner(
+            match preconditioner {
+                crate::spec::PreconditionerSpec::Jacobi => {
+                    geode_core::driven::solve::IterativePreconditioner::Jacobi
+                }
+                crate::spec::PreconditionerSpec::Ilu0 => {
+                    geode_core::driven::solve::IterativePreconditioner::Ilu0
+                }
+            },
+        )),
     }
 }
 

@@ -2732,6 +2732,21 @@
       ],
       "type": "object"
     },
+    "PreconditionerSpec": {
+      "description": "Preconditioner for `solver.mode = \"iterative\"` (issue #708).",
+      "oneOf": [
+        {
+          "const": "jacobi",
+          "description": "Diagonal (Jacobi) scaling — the default.",
+          "type": "string"
+        },
+        {
+          "const": "ilu0",
+          "description": "Incomplete LU with zero fill on `A(ω)`'s own sparsity pattern.",
+          "type": "string"
+        }
+      ]
+    },
     "ProblemSpec": {
       "additionalProperties": false,
       "description": "Top-level problem spec (schema v1).",
@@ -3303,7 +3318,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "COCG Krylov iteration with a Jacobi preconditioner built once per\nfrequency. Non-convergence within `max_iters` is a hard error.",
+          "description": "COCG Krylov iteration with a preconditioner (Jacobi by default)\nbuilt once per frequency. Non-convergence within `max_iters` is a\nhard error.",
           "properties": {
             "max_iters": {
               "default": 5000,
@@ -3316,6 +3331,11 @@
               "const": "iterative",
               "type": "string"
             },
+            "preconditioner": {
+              "$ref": "#/$defs/PreconditionerSpec",
+              "default": "jacobi",
+              "description": "Preconditioner built once per frequency (default `jacobi`)."
+            },
             "tol": {
               "default": 1e-10,
               "description": "Relative-residual stopping tolerance (default `1e-10`).",
@@ -3326,7 +3346,8 @@
           "required": [
             "mode",
             "tol",
-            "max_iters"
+            "max_iters",
+            "preconditioner"
           ],
           "type": "object"
         }

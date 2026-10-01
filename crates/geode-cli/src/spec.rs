@@ -685,8 +685,9 @@ pub enum SolverSpec {
     /// struct variant so `deny_unknown_fields` rejects stray keys such as
     /// `tol` under `mode = "direct"`.
     Direct {},
-    /// COCG Krylov iteration with a Jacobi preconditioner built once per
-    /// frequency. Non-convergence within `max_iters` is a hard error.
+    /// COCG Krylov iteration with a preconditioner (Jacobi by default)
+    /// built once per frequency. Non-convergence within `max_iters` is a
+    /// hard error.
     Iterative {
         /// Relative-residual stopping tolerance (default `1e-10`).
         #[serde(default = "default_tol")]
@@ -694,7 +695,21 @@ pub enum SolverSpec {
         /// Iteration budget per right-hand side (default `5000`).
         #[serde(default = "default_max_iters")]
         max_iters: usize,
+        /// Preconditioner built once per frequency (default `jacobi`).
+        #[serde(default)]
+        preconditioner: PreconditionerSpec,
     },
+}
+
+/// Preconditioner for `solver.mode = "iterative"` (issue #708).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PreconditionerSpec {
+    /// Diagonal (Jacobi) scaling — the default.
+    #[default]
+    Jacobi,
+    /// Incomplete LU with zero fill on `A(ω)`'s own sparsity pattern.
+    Ilu0,
 }
 
 impl Default for SolverSpec {
@@ -807,8 +822,22 @@ mod tests {
             s,
             SolverSpec::Iterative {
                 tol: 1e-10,
-                max_iters: 5000
+                max_iters: 5000,
+                preconditioner: PreconditionerSpec::Jacobi,
             }
+        );
+        let s: SolverSpec =
+            serde_json::from_str(r#"{"mode":"iterative","preconditioner":"ilu0"}"#).unwrap();
+        assert!(matches!(
+            s,
+            SolverSpec::Iterative {
+                preconditioner: PreconditionerSpec::Ilu0,
+                ..
+            }
+        ));
+        assert!(
+            serde_json::from_str::<SolverSpec>(r#"{"mode":"iterative","preconditioner":"amg"}"#)
+                .is_err()
         );
         assert!(serde_json::from_str::<SolverSpec>(r#"{"mode":"direct","tol":1}"#).is_err());
         assert!(
