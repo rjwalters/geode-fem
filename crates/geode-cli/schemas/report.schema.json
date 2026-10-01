@@ -157,7 +157,7 @@
           "type": "array"
         },
         "c_flux_diag_farad": {
-          "description": "Independent surface-flux cross-check of the diagonal (F), `Q_i =\n∮ ε(−∇φ⁽ⁱ⁾)·n̂ dS` over the terminal's triangles with a piecewise-\nconstant field: a looser sanity signal (a few–15 % on curved\nsurfaces), not the result. `null` for a terminal whose surface is\nnot entirely on the mesh boundary (e.g. a zero-thickness sheet\nwith dielectric on both sides), where the one-sided flux would be\nwrong.",
+          "description": "Independent surface-flux cross-check of the diagonal (F), `Q_i =\n∮ ε(−∇φ⁽ⁱ⁾)·n̂ dS` over the terminal's triangles with a piecewise-\nconstant field: a looser sanity signal (a few–15 % on curved\nsurfaces), not the result. `null` for a terminal whose surface is\nnot entirely on the mesh boundary (e.g. a zero-thickness sheet\nwith dielectric on both sides), where the one-sided flux would be\nwrong, and for **every** terminal when the spec has any\nanisotropic (tensor) material (`eps_r_diag` / `mu_r_diag`), which\nselects the tensor solve — the flux integral takes a scalar `ε`.",
           "items": {
             "format": "double",
             "type": [

@@ -20,7 +20,7 @@
 //! capacitances are in `F/m × mesh unit`; multiplying by
 //! `mesh.length_unit_m` gives farads.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 use std::time::Instant;
 
