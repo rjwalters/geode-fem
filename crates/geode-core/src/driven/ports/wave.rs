@@ -576,7 +576,7 @@ impl WavePortSweepPoint {
 /// rank-N generalization, issue #255):
 ///
 /// - Assemble the volume operator once (`DrivenOperator::assemble`)
-///   with no lumped ports and no Leontovich surfaces; the wave-port
+///   with no lumped ports and no impedance surfaces; the wave-port
 ///   modal terms `+jβ_{p,m} · f_{p,m} ⊗ f_{p,m}` and the per-channel
 ///   drive `+2jβ_{p,m} a_inc · f_{p,m}` are folded in per frequency
 ///   via rank-`N` Sherman-Morrison-Woodbury (N = Σ_p K_p), since β
@@ -614,6 +614,7 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
         sigma_tet,
         bcs,
         ports,
+        &[],
         omegas,
         SolverMode::Direct,
         device,
@@ -640,6 +641,18 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
 /// the remaining `n_channels` from the per-excitation solves).
 ///
 /// See [`crate::driven::solve::SolverMode`] for the documented trade-off.
+///
+/// `surfaces` (issue #776) are surface-impedance walls (Leontovich /
+/// rough-conductor / Silver-Müller, [`SurfaceImpedanceBc`]) folded into
+/// the base operator `A_base(ω)` exactly as in
+/// [`crate::driven::solve::DrivenOperator::assemble`]; each model's
+/// weak coefficient (incl. a roughness factor `K(ω)`) is re-evaluated per
+/// frequency. The port modes stay the PEC-rim modes of
+/// [`WavePort::modes`], which is a first-order model next to a good
+/// conductor (`|Z_s| ≪ η₀`) but **not** next to an absorbing
+/// (`Z_s = η₀`) wall — callers must keep Silver-Müller walls off the port
+/// rims. An empty `surfaces` slice runs exactly the pre-#776 arithmetic
+/// (bit-identical to [`solve_wave_port_sweep`]).
 #[allow(clippy::too_many_arguments)]
 pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
     mesh: &TetMesh,
@@ -647,6 +660,7 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
     sigma_tet: Option<&[f64]>,
     bcs: &DrivenBcs<'_>,
     ports: &[WavePort],
+    surfaces: &[SurfaceImpedanceBc<'_>],
     omegas: &[f64],
     solver_mode: SolverMode,
     device: &B::Device,
@@ -733,19 +747,19 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
     }
     debug_assert_eq!(channels.len(), n_channels);
 
-    // --- Assemble the volume operator once (no lumped ports / surfaces).
+    // --- Assemble the volume operator once (no lumped ports; the
+    // caller's impedance surfaces, issue #776, join A_base).
     let zero_source = CurrentSource {
         j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
     };
     let no_ports: [LumpedPort<'_>; 0] = [];
-    let no_surfaces: [SurfaceImpedanceBc<'_>; 0] = [];
     let op = DrivenOperator::assemble::<B>(
         mesh,
         materials,
         sigma_tet,
         bcs,
         &no_ports,
-        &no_surfaces,
+        surfaces,
         &zero_source,
         device,
     )?;

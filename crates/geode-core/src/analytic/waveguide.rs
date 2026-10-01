@@ -193,6 +193,39 @@ pub fn beta_outgoing_filled(omega: f64, eps_t: c64, mu_t: f64, mu_n: f64, k_c: f
     if beta.im > 0.0 { -beta } else { beta }
 }
 
+/// TE10 **conductor attenuation** `α_c` [Np per length unit] of an
+/// `a × b` rectangular guide with finitely conducting walls (issue #776),
+/// natural units (`η₀ = 1`, `c = 1`, `ω = k₀`, lengths in mesh units):
+///
+/// ```text
+/// α_c = R_s · (2bπ² + a³k²) / (a³ b β k η),
+/// k = k₀√ε_r,   η = 1/√ε_r,   β = √(k² − (π/a)²),
+/// R_s = √(k₀ / (2σ)),
+/// ```
+///
+/// Pozar, *Microwave Engineering*, 4th ed. (Wiley 2012), §3.3,
+/// Eq. (3.96), for a guide homogeneously filled with a lossless
+/// dielectric `ε_r` (non-magnetic) and walls of natural-unit conductivity
+/// `sigma_nat` (`σ_nat = σ_SI·η₀·L_unit`). `R_s` is exactly
+/// `Re Z_s` of
+/// [`crate::driven::solve::SurfaceImpedanceModel::GoodConductor`], so the
+/// oracle uses the same surface resistance the solver applies; a rough
+/// wall scales it by the roughness factor `K` (first order).
+///
+/// Returns `NaN` at or below the TE10 cutoff (`k ≤ π/a`).
+pub fn te10_conductor_attenuation(a: f64, b: f64, k0: f64, eps_r: f64, sigma_nat: f64) -> f64 {
+    let pi = std::f64::consts::PI;
+    let k = k0 * eps_r.sqrt();
+    let eta = 1.0 / eps_r.sqrt();
+    let beta_sq = k * k - (pi / a) * (pi / a);
+    if beta_sq <= 0.0 {
+        return f64::NAN;
+    }
+    let beta = beta_sq.sqrt();
+    let r_s = (k0 / (2.0 * sigma_nat)).sqrt();
+    r_s * (2.0 * b * pi * pi + a * a * a * k * k) / (a * a * a * b * beta * k * eta)
+}
+
 /// Canonical local edge ordering on a triangle.
 ///
 /// For a triangle with local vertices `(v0, v1, v2)`, the three edges in

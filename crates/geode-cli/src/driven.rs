@@ -50,7 +50,10 @@
 //!   ([`geode_core::driven::ports::PortFaceProjection::wave_port`]) and
 //!   run [`solve_wave_port_sweep_with_mode`] (per frequency with UPML,
 //!   batched otherwise). The result is a power-normalized channel
-//!   S-matrix; wave ports define no port impedance.
+//!   S-matrix; wave ports define no port impedance. Leontovich (incl.
+//!   rough) and Silver-Müller walls join the base operator (issue #776);
+//!   the port modes stay PEC-rim modes, so a Silver-Müller wall may not
+//!   touch a port rim (`problem::load` rejects it).
 //! * **Mixed lumped + wave ports** (issue #759) run
 //!   [`solve_mixed_port_sweep_with_mode`] instead: the lumped loads join
 //!   the base operator, the modal terms the same SMW update, and the
@@ -860,6 +863,7 @@ pub fn wave_sweep(
                 None,
                 &bcs,
                 &ports,
+                &surfaces,
                 w,
                 mode,
                 &device,
