@@ -16,6 +16,11 @@
 //!   (additive in v1, issue #705: the static Maxwell capacitance matrix);
 //! * `"inductance"` — [`InductanceReport`], from `geode inductance`
 //!   (additive in v1, issue #714: the static Maxwell inductance matrix);
+//!
+//! The capacitance, inductance and eigen reports carry an optional
+//! `sensitivities` block ([`SensitivityReport`], additive in v1, issue
+//! #707) when the spec has a `sensitivity` section.
+//!
 //! * `"error"` — [`ErrorReport`], from any failed subcommand (the
 //!   process also exits non-zero and prints the error to stderr).
 //!
@@ -432,6 +437,13 @@ pub struct CapacitanceReport {
     /// v1; present only with that flag).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spice_file: Option<FileRef>,
+    /// `∂C/∂ε_r` of the two-terminal capacitance (additive in v1, issue
+    /// #707; present only with a spec `sensitivity` section). The
+    /// observable is the **P2** two-terminal capacitance (the library's
+    /// capacitance adjoint), reported as each entry's `value` — it differs
+    /// from the P1 `c_farad[0][0]` by the P1 discretization error.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitivities: Option<SensitivityReport>,
 }
 
 /// One current path of an inductance spec.
@@ -565,6 +577,10 @@ pub struct InductanceReport {
     pub is_spd: bool,
     /// Solver statistics.
     pub solver: InductanceSolverStats,
+    /// `∂L_ij/∂ν_r` (or `∂L_ij/∂μ_r`) of every matrix entry (additive in
+    /// v1, issue #707; present only with a spec `sensitivity` section).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitivities: Option<SensitivityReport>,
     /// The SPICE subcircuit `.subckt` (self inductors + `K` couplings)
     /// written by `--spice` (additive in v1; present only with that flag).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -984,6 +1000,103 @@ pub struct EigenReport {
     pub solver: EigenSolverStats,
     /// Physical modes, ascending in frequency.
     pub modes: Vec<ModeResult>,
+    /// `∂f/∂ε_r` of the `sensitivity.modes` resonant frequencies (additive
+    /// in v1, issue #707; present only with a spec `sensitivity` section,
+    /// lossless pencil only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitivities: Option<SensitivityReport>,
+}
+
+/// Material design sensitivities of a report's observable (additive in
+/// v1, issue #707).
+///
+/// Every gradient is exact for the **discrete** model (adjoint /
+/// Hellmann–Feynman, no finite differencing) and is in observable units
+/// per unit parameter: the parameters (`eps_r`, `nu_r`, `mu_r`) are
+/// dimensionless, so `gradient` has the unit of `value`
+/// (`observable_unit`).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct SensitivityReport {
+    /// The differentiated observable: `"c_farad"` (two-terminal P2
+    /// capacitance), `"l_henry"` (inductance-matrix entries) or
+    /// `"frequency_hz"` (eigenmode resonant frequency).
+    pub observable: &'static str,
+    /// Unit of every entry's `value` and `gradient`: `"F"`, `"H"` or
+    /// `"Hz"`.
+    pub observable_unit: &'static str,
+    /// How the gradient was computed: `"adjoint_p2"` (capacitance: one
+    /// forward + one adjoint solve on a shared factorization),
+    /// `"self_adjoint_energy"` (inductance: a local contraction of the
+    /// forward solutions, no extra solve) or `"hellmann_feynman"` (eigen:
+    /// `∂λ/∂ε_k = −λ·xᵀM_k x` on the converged simple eigenpair, chained
+    /// through `f = c√λ / (2π L)`).
+    pub method: &'static str,
+    /// The design parameters, in spec order (`entries[*].parameter`
+    /// indexes this list).
+    pub parameters: Vec<SensitivityParameterSummary>,
+    /// One entry per (parameter, observable component): capacitance one
+    /// per parameter, inductance `N × N` per parameter (row-major `i`,
+    /// `j`), eigen one per `sensitivity.modes` entry per parameter.
+    pub entries: Vec<SensitivityEntry>,
+    /// The finite-difference self-check (present only with
+    /// `sensitivity.fd_check`). A run whose check fails is a
+    /// `solve_failed` error, so a present block always passed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fd_check: Option<FdCheckSummary>,
+    /// Wall time of the gradient (and FD check) computation, seconds.
+    pub wall_time_s: f64,
+}
+
+/// One design parameter of a [`SensitivityReport`].
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct SensitivityParameterSummary {
+    /// Volume physical-group name.
+    pub physical_group: String,
+    /// `"eps_r"` (real relative permittivity), `"nu_r"` (relative
+    /// reluctivity `1/μ_r`) or `"mu_r"` (relative permeability).
+    pub kind: &'static str,
+    /// Parameter value at which the gradient was taken (dimensionless).
+    pub value: f64,
+}
+
+/// One gradient component of a [`SensitivityReport`].
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct SensitivityEntry {
+    /// Index into the report's `parameters`.
+    pub parameter: usize,
+    /// Observable component: `[]` for the scalar capacitance, `[i, j]`
+    /// (path indices) for `l_henry[i][j]`, `[mode]` (index into the
+    /// report's `modes`) for `frequency_hz`.
+    pub index: Vec<usize>,
+    /// Observable value (`observable_unit`).
+    pub value: f64,
+    /// `∂value/∂parameter` (`observable_unit` per unit parameter).
+    pub gradient: f64,
+    /// Central finite-difference estimate (present only with
+    /// `fd_check`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fd_gradient: Option<f64>,
+    /// `|gradient − fd_gradient| / max(|gradient|, |fd_gradient|, 0.01 ·
+    /// |value / p|)` with `p` the parameter value — relative, with a floor
+    /// at 1 % of the component's natural (log-derivative) scale so a
+    /// structurally ~zero component is not judged against
+    /// central-difference round-off (present only with `fd_check`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fd_rel_error: Option<f64>,
+}
+
+/// Finite-difference self-check summary of a [`SensitivityReport`].
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FdCheckSummary {
+    /// Relative central-difference step: parameter `p` re-solved at
+    /// `p·(1 ± relative_step)`.
+    pub relative_step: f64,
+    /// Acceptance bound on every entry's `fd_rel_error`.
+    pub tolerance: f64,
+    /// Largest `fd_rel_error` over the entries (`≤ tolerance`).
+    pub max_rel_error: f64,
+    /// Extra forward solves the check ran (`2` per parameter).
+    pub n_forward_solves: usize,
 }
 
 /// Error body.

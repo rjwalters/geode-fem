@@ -97,6 +97,10 @@ pub fn run(
             wall_time_s,
         },
         spice_file: None,
+        sensitivities: match &p.sensitivity {
+            Some(sens) => Some(crate::sensitivity::capacitance(&p, target, sens)?),
+            None => None,
+        },
     };
     if let Some(path) = spice {
         report.spice_file = Some(crate::spice::write(path, &report, spice_opts)?);

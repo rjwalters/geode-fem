@@ -159,6 +159,25 @@
       },
       "type": "object"
     },
+    "FdCheckSpec": {
+      "additionalProperties": false,
+      "description": "Central finite-difference self-check settings of a\n[`SensitivitySpec`].\n\nThe step is relative: parameter `p` is re-solved at `p ± h`, `h =\nrelative_step · |p|`. The defaults (`relative_step = 1e-4`, `tolerance\n= 1e-4`) mirror the library's own adjoint-vs-FD validation tests\n(`adjoint.rs` capacitance, `magnetostatic_inductance.rs`,\n`transmon_eigen_sensitivity.rs`: central FD, relative agreement\n`< 1e-4`). With a central difference the truncation error is\n`O(h²) ≈ 1e-8` relative and the cancellation error `≈ ε_solve / h`, so\na step of `1e-4` sits well inside the window where both are far below\nthe tolerance.",
+      "properties": {
+        "relative_step": {
+          "default": 0.0001,
+          "description": "Relative central-difference step (default `1e-4`; `0 < step ≤\n0.1`).",
+          "format": "double",
+          "type": "number"
+        },
+        "tolerance": {
+          "default": 0.0001,
+          "description": "Largest accepted relative disagreement `|g − g_FD| / max(|g|,\n|g_FD|, 0.01·|value/p|)` per gradient entry (default `1e-4`; `>\n0`). The floor (1 % of the entry's natural log-derivative scale)\nonly matters for structurally ~zero components.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
     "FrequencySpec": {
       "additionalProperties": false,
       "description": "Frequency list: **either** an explicit `values` list **or** a\n`start`/`stop`/`count` sweep, in the given `unit`.",
@@ -388,6 +407,93 @@
       "required": [
         "path",
         "length_unit_m"
+      ],
+      "type": "object"
+    },
+    "SensitivityParameterKind": {
+      "description": "Material property differentiated by a sensitivity parameter.",
+      "oneOf": [
+        {
+          "const": "eps_r",
+          "description": "Real relative permittivity `Re ε_r` (capacitance, eigen).",
+          "type": "string"
+        },
+        {
+          "const": "nu_r",
+          "description": "Relative reluctivity `ν_r = 1/μ_r` (inductance) — the parameter\nthe inductance energy form is linear in.",
+          "type": "string"
+        },
+        {
+          "const": "mu_r",
+          "description": "Relative permeability `μ_r` (inductance): `∂L/∂μ_r =\n−ν_r² ∂L/∂ν_r`.",
+          "type": "string"
+        }
+      ]
+    },
+    "SensitivityParameterSpec": {
+      "additionalProperties": false,
+      "description": "One design parameter of a [`SensitivitySpec`].",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/SensitivityParameterKind",
+          "description": "Which material property."
+        },
+        "physical_group": {
+          "description": "Name of a dimension-3 physical group (need not be listed in\n`materials`: an unlisted group is differentiated at its vacuum\ndefault).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "physical_group"
+      ],
+      "type": "object"
+    },
+    "SensitivitySpec": {
+      "additionalProperties": false,
+      "description": "Material design sensitivities (additive in v1, issue #707): exact\ndiscrete gradients of the analysis's observable with respect to\nper-region material parameters, from the library's FD-validated\nadjoint / Hellmann–Feynman machinery (Epic #569).\n\n| analysis | observable | parameter kinds | method |\n|---|---|---|---|\n| `capacitance` (exactly one terminal) | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint |\n| `inductance` | every `L_ij` (H) | `nu_r`, `mu_r` | self-adjoint energy form |\n| `eigen` (lossless) | `frequency_hz` of the listed `modes` | `eps_r` | Hellmann–Feynman |\n\nNot supported in v1 (rejected with `invalid_spec`): driven / extract\nspecs (`|S11|²`, `Z`, `L₀`, `Q`), N-terminal capacitance matrices,\nlossy / open eigen specs (`Q`), loss-tangent (`Im ε_r`) and shape /\ngeometry parameters.",
+      "properties": {
+        "fd_check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FdCheckSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional central finite-difference self-check: every parameter is\nre-solved at `p·(1 ± relative_step)` and each gradient entry is\ncompared to the FD estimate. A disagreement above `tolerance`\nfails the run with `solve_failed`. Costs two extra forward solves\nper parameter."
+        },
+        "min_rel_gap": {
+          "description": "Eigen specs only: minimum relative gap `|λ − λ_j| / λ` to every\nother returned mode for a differentiated mode to count as simple\n(default `1e-2`, the library's FD-validated value). A (near-)\ndegenerate mode fails the run with `solve_failed`: Hellmann–Feynman\ndoes not apply to it.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "modes": {
+          "description": "Eigen specs only: indices (into the report's ascending `modes`) of\nthe modes to differentiate (default `[0]`). Each must be `<\neigen.n_modes`, and the spec needs `eigen.n_modes ≥ 2` so the\nsimple-eigenvalue gap check has a neighbour to measure.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "parameters": {
+          "description": "Design parameters, one per (volume physical group, kind) pair\n(`≥ 1`, distinct). The gradient is taken at the spec's material\nvalues; every tet of the group shares the parameter.",
+          "items": {
+            "$ref": "#/$defs/SensitivityParameterSpec"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "parameters"
       ],
       "type": "object"
     },
@@ -622,6 +728,17 @@
       "format": "uint32",
       "minimum": 0,
       "type": "integer"
+    },
+    "sensitivity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SensitivitySpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Material design sensitivities of the analysis's observable\n(additive in v1, issue #707). Not an analysis section: it rides on\na `capacitance` (two-terminal), `inductance` or lossless `eigen`\nspec and adds a `sensitivities` block to that report. Driven /\nextract specs reject it in v1."
     },
     "solver": {
       "$ref": "#/$defs/SolverSpec",

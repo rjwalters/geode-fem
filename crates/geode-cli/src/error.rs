@@ -147,6 +147,30 @@ pub enum CliError {
         /// The gate.
         tol: f64,
     },
+    /// The eigenvalue sensitivity was refused — typically a
+    /// (near-)degenerate target mode, where Hellmann–Feynman does not
+    /// apply (issue #707).
+    #[error(
+        "eigenvalue sensitivity failed: {0}; differentiate a well-separated mode \
+         (`sensitivity.modes`), or lower `sensitivity.min_rel_gap` only if the mode is known to \
+         be simple"
+    )]
+    EigenSensitivity(geode_core::eigen::sensitivity::EigenSensitivityError),
+    /// The `sensitivity.fd_check` self-check failed: an adjoint gradient
+    /// disagrees with its central finite difference beyond the tolerance
+    /// (issue #707).
+    #[error(
+        "sensitivity FD self-check failed: {detail}; the adjoint gradient and the central \
+         finite difference disagree beyond sensitivity.fd_check.tolerance = {tolerance:.3e} — \
+         an ill-conditioned or nearly-zero component, or a too-large / too-small \
+         fd_check.relative_step"
+    )]
+    FdCheckFailed {
+        /// The worst entry.
+        detail: String,
+        /// The gate.
+        tolerance: f64,
+    },
     /// `--touchstone` was given for a subcommand or spec that has no
     /// lumped-port network to write (`geode eigen`, a wave-port spec, …).
     #[error("--touchstone: {reason}")]
@@ -258,7 +282,9 @@ impl CliError {
             | CliError::CurrentPath(_)
             | CliError::Magnetostatic(_)
             | CliError::NonPhysicalInductance(_)
-            | CliError::L0NotConverged { .. } => "solve_failed",
+            | CliError::L0NotConverged { .. }
+            | CliError::EigenSensitivity(_)
+            | CliError::FdCheckFailed { .. } => "solve_failed",
             CliError::NonFinite { .. } => "non_finite",
             CliError::LayoutParse { .. } => "spec_parse",
             CliError::InvalidLayout(_) => "invalid_spec",

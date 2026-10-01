@@ -1,0 +1,38 @@
+# Inductance sensitivity fixture (issue #707): the triax of
+# inductance_triax_smoke.toml (paths `core` and `tube` returning through
+# the PEC shield + end caps) with a mu_r = 2 core and a `sensitivity`
+# section differentiating the full 2x2 L matrix w.r.t. the relative
+# reluctivity nu_r = 1/mu_r of every volume region, FD self-check on.
+# See crates/geode-cli/tests/sensitivity_golden.rs.
+schema_version = 1
+
+[mesh]
+path = "../../../geode-core/tests/fixtures/coax_inductance_smoke.msh"
+length_unit_m = 1e-3
+
+[[materials]]
+physical_group = "core"
+mu_r = 2.0
+
+[boundary_conditions]
+pec = ["shield", "end_caps"]
+
+[[inductance.paths]]
+name = "core"
+conductor = "core"
+source = "core_in"
+sink = "core_out"
+
+[[inductance.paths]]
+name = "tube"
+conductor = "tube"
+source = "tube_in"
+sink = "tube_out"
+
+[sensitivity]
+parameters = [
+    { kind = "nu_r", physical_group = "core" },
+    { kind = "nu_r", physical_group = "tube" },
+    { kind = "nu_r", physical_group = "gaps" },
+]
+fd_check = {}

@@ -34,6 +34,11 @@
 //! walls (open-boundary problems); driven specs may use `wave_ports`
 //! instead of lumped `ports` (issue #683).
 //!
+//! Capacitance (one terminal), inductance and lossless eigen specs may
+//! also carry a [`SensitivitySpec`] `sensitivity` section (additive in
+//! v1, issue #707): not an analysis of its own, it adds exact material
+//! gradients of that analysis's observable to the report.
+//!
 //! Carrying more than one of `eigen` / `extract` / `capacitance` /
 //! `inductance` is rejected, and running a spec
 //! under the wrong subcommand fails with `invalid_spec` before the mesh
@@ -129,6 +134,13 @@ pub struct ProblemSpec {
     /// inductance`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inductance: Option<InductanceSpec>,
+    /// Material design sensitivities of the analysis's observable
+    /// (additive in v1, issue #707). Not an analysis section: it rides on
+    /// a `capacitance` (two-terminal), `inductance` or lossless `eigen`
+    /// spec and adds a `sensitivities` block to that report. Driven /
+    /// extract specs reject it in v1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sensitivity: Option<SensitivitySpec>,
 }
 
 /// Which analysis a spec describes, decided by the presence of the
@@ -339,6 +351,127 @@ pub struct CurrentPathSpec {
     /// current leaves (distinct from, and node-disjoint with, `source`).
     pub sink: String,
 }
+
+/// Material design sensitivities (additive in v1, issue #707): exact
+/// discrete gradients of the analysis's observable with respect to
+/// per-region material parameters, from the library's FD-validated
+/// adjoint / Hellmann–Feynman machinery (Epic #569).
+///
+/// | analysis | observable | parameter kinds | method |
+/// |---|---|---|---|
+/// | `capacitance` (exactly one terminal) | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint |
+/// | `inductance` | every `L_ij` (H) | `nu_r`, `mu_r` | self-adjoint energy form |
+/// | `eigen` (lossless) | `frequency_hz` of the listed `modes` | `eps_r` | Hellmann–Feynman |
+///
+/// Not supported in v1 (rejected with `invalid_spec`): driven / extract
+/// specs (`|S11|²`, `Z`, `L₀`, `Q`), N-terminal capacitance matrices,
+/// lossy / open eigen specs (`Q`), loss-tangent (`Im ε_r`) and shape /
+/// geometry parameters.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SensitivitySpec {
+    /// Design parameters, one per (volume physical group, kind) pair
+    /// (`≥ 1`, distinct). The gradient is taken at the spec's material
+    /// values; every tet of the group shares the parameter.
+    pub parameters: Vec<SensitivityParameterSpec>,
+    /// Eigen specs only: indices (into the report's ascending `modes`) of
+    /// the modes to differentiate (default `[0]`). Each must be `<
+    /// eigen.n_modes`, and the spec needs `eigen.n_modes ≥ 2` so the
+    /// simple-eigenvalue gap check has a neighbour to measure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modes: Option<Vec<usize>>,
+    /// Eigen specs only: minimum relative gap `|λ − λ_j| / λ` to every
+    /// other returned mode for a differentiated mode to count as simple
+    /// (default `1e-2`, the library's FD-validated value). A (near-)
+    /// degenerate mode fails the run with `solve_failed`: Hellmann–Feynman
+    /// does not apply to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_rel_gap: Option<f64>,
+    /// Optional central finite-difference self-check: every parameter is
+    /// re-solved at `p·(1 ± relative_step)` and each gradient entry is
+    /// compared to the FD estimate. A disagreement above `tolerance`
+    /// fails the run with `solve_failed`. Costs two extra forward solves
+    /// per parameter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fd_check: Option<FdCheckSpec>,
+}
+
+/// One design parameter of a [`SensitivitySpec`].
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SensitivityParameterSpec {
+    /// Which material property.
+    pub kind: SensitivityParameterKind,
+    /// Name of a dimension-3 physical group (need not be listed in
+    /// `materials`: an unlisted group is differentiated at its vacuum
+    /// default).
+    pub physical_group: String,
+}
+
+/// Material property differentiated by a sensitivity parameter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SensitivityParameterKind {
+    /// Real relative permittivity `Re ε_r` (capacitance, eigen).
+    EpsR,
+    /// Relative reluctivity `ν_r = 1/μ_r` (inductance) — the parameter
+    /// the inductance energy form is linear in.
+    NuR,
+    /// Relative permeability `μ_r` (inductance): `∂L/∂μ_r =
+    /// −ν_r² ∂L/∂ν_r`.
+    MuR,
+}
+
+impl SensitivityParameterKind {
+    /// Lower-case name, as used in reports and messages.
+    pub fn name(self) -> &'static str {
+        match self {
+            SensitivityParameterKind::EpsR => "eps_r",
+            SensitivityParameterKind::NuR => "nu_r",
+            SensitivityParameterKind::MuR => "mu_r",
+        }
+    }
+}
+
+/// Central finite-difference self-check settings of a
+/// [`SensitivitySpec`].
+///
+/// The step is relative: parameter `p` is re-solved at `p ± h`, `h =
+/// relative_step · |p|`. The defaults (`relative_step = 1e-4`, `tolerance
+/// = 1e-4`) mirror the library's own adjoint-vs-FD validation tests
+/// (`adjoint.rs` capacitance, `magnetostatic_inductance.rs`,
+/// `transmon_eigen_sensitivity.rs`: central FD, relative agreement
+/// `< 1e-4`). With a central difference the truncation error is
+/// `O(h²) ≈ 1e-8` relative and the cancellation error `≈ ε_solve / h`, so
+/// a step of `1e-4` sits well inside the window where both are far below
+/// the tolerance.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FdCheckSpec {
+    /// Relative central-difference step (default `1e-4`; `0 < step ≤
+    /// 0.1`).
+    #[serde(default = "default_fd_relative_step")]
+    pub relative_step: f64,
+    /// Largest accepted relative disagreement `|g − g_FD| / max(|g|,
+    /// |g_FD|, 0.01·|value/p|)` per gradient entry (default `1e-4`; `>
+    /// 0`). The floor (1 % of the entry's natural log-derivative scale)
+    /// only matters for structurally ~zero components.
+    #[serde(default = "default_fd_tolerance")]
+    pub tolerance: f64,
+}
+
+/// Default [`FdCheckSpec::relative_step`].
+pub fn default_fd_relative_step() -> f64 {
+    1e-4
+}
+
+/// Default [`FdCheckSpec::tolerance`].
+pub fn default_fd_tolerance() -> f64 {
+    1e-4
+}
+
+/// Default [`SensitivitySpec::min_rel_gap`].
+pub const DEFAULT_SENSITIVITY_MIN_REL_GAP: f64 = 1e-2;
 
 /// Mesh file reference.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -847,6 +980,46 @@ mod tests {
             !serde_json::to_string(&driven)
                 .unwrap()
                 .contains("capacitance")
+        );
+    }
+
+    #[test]
+    fn sensitivity_section_parses_with_defaults() {
+        let spec: ProblemSpec = serde_json::from_str(
+            r#"{"schema_version":1,
+                "mesh":{"path":"m.msh","length_unit_m":1e-3},
+                "capacitance":{"terminals":["a"],"ground":["g"]},
+                "sensitivity":{"parameters":[{"kind":"eps_r","physical_group":"d"}],
+                               "fd_check":{}}}"#,
+        )
+        .unwrap();
+        // Not an analysis section.
+        assert_eq!(spec.analysis(), Analysis::Capacitance);
+        let s = spec.sensitivity.as_ref().unwrap();
+        assert_eq!(s.parameters[0].kind, SensitivityParameterKind::EpsR);
+        assert_eq!(s.parameters[0].kind.name(), "eps_r");
+        assert!(s.modes.is_none() && s.min_rel_gap.is_none());
+        let fd = s.fd_check.as_ref().unwrap();
+        assert_eq!((fd.relative_step, fd.tolerance), (1e-4, 1e-4));
+        // Unknown kinds / keys are parse errors.
+        assert!(
+            serde_json::from_str::<SensitivityParameterSpec>(
+                r#"{"kind":"sigma","physical_group":"d"}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<SensitivitySpec>(r#"{"parameters":[],"shape":[]}"#).is_err()
+        );
+        assert!(serde_json::from_str::<FdCheckSpec>(r#"{"step":1e-3}"#).is_err());
+        // Absent section is not serialized.
+        assert!(
+            !serde_json::to_string(&ProblemSpec {
+                sensitivity: None,
+                ..spec
+            })
+            .unwrap()
+            .contains("sensitivity")
         );
     }
 }

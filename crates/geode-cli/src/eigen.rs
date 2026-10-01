@@ -71,8 +71,13 @@ struct Solved {
     upml_reference_k0: Option<f64>,
 }
 
-fn solve_lossless(p: &Problem, target: &EigenTarget) -> Result<Solved, CliError> {
-    let eps_r: Vec<f64> = p.eps.iter().map(|e| e.re).collect();
+/// The lossless pencil's modes for per-tet real `eps_r` (the spec's, or a
+/// perturbed copy for the sensitivity FD check).
+fn pec_cavity_modes(
+    p: &Problem,
+    target: &EigenTarget,
+    eps_r: &[f64],
+) -> Result<geode_core::eigen::pec_cavity::PecCavityModes, CliError> {
     let settings = PecCavitySettings {
         max_iters: target.max_iters,
         tol: target.tol,
@@ -80,8 +85,18 @@ fn solve_lossless(p: &Problem, target: &EigenTarget) -> Result<Solved, CliError>
         ..PecCavitySettings::new(target.sigma(), target.n_modes)
     };
     let device = <B as BackendTypes>::Device::default();
-    let solved =
-        solve_pec_cavity_modes::<B>(&p.tagged.mesh, &eps_r, &p.pec_mask, &settings, &device)?;
+    Ok(solve_pec_cavity_modes::<B>(
+        &p.tagged.mesh,
+        eps_r,
+        &p.pec_mask,
+        &settings,
+        &device,
+    )?)
+}
+
+fn solve_lossless(p: &Problem, target: &EigenTarget) -> Result<Solved, CliError> {
+    let eps_r: Vec<f64> = p.eps.iter().map(|e| e.re).collect();
+    let solved = pec_cavity_modes(p, target, &eps_r)?;
     Ok(Solved {
         modes: solved
             .modes
@@ -211,6 +226,41 @@ pub fn run(
         });
     }
 
+    // Material sensitivities (issue #707): lossless pencil only
+    // (`problem::load` rejected a lossy / open spec with a `sensitivity`
+    // section), so every λ and eigenvector is real.
+    let sensitivities = match &p.sensitivity {
+        Some(sens) => {
+            debug_assert!(!solved.complex);
+            let lambdas: Vec<f64> = solved.modes.iter().map(|m| m.lambda.re).collect();
+            let vectors: Vec<Vec<f64>> = solved
+                .modes
+                .iter()
+                .map(|m| m.vector.iter().map(|x| x.re).collect())
+                .collect();
+            if let Some(&m) = sens.modes.iter().find(|&&m| m >= lambdas.len()) {
+                return Err(CliError::InvalidSpec(format!(
+                    "sensitivity.modes lists mode {m}, but the eigen solve returned only {} modes",
+                    lambdas.len()
+                )));
+            }
+            Some(crate::sensitivity::eigen(
+                &p,
+                &lambdas,
+                &vectors,
+                sens,
+                |eps_r| {
+                    Ok(pec_cavity_modes(&p, &target, eps_r)?
+                        .modes
+                        .iter()
+                        .map(|m| m.lambda)
+                        .collect())
+                },
+            )?)
+        }
+        None => None,
+    };
+
     Ok(EigenReport {
         provenance,
         kind: "eigen",
@@ -235,6 +285,7 @@ pub fn run(
             upml_reference_k0: solved.upml_reference_k0,
         },
         modes,
+        sensitivities,
     })
 }
 

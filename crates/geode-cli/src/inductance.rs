@@ -107,7 +107,17 @@ pub fn run(
             wall_time_s,
         },
         spice_file: None,
+        sensitivities: None,
     };
+    if let Some(sens) = &p.sensitivity {
+        let terminals: Vec<_> = paths.iter().map(|c| c.terminal.clone()).collect();
+        report.sensitivities = Some(crate::sensitivity::inductance(
+            &p,
+            &terminals,
+            SOLENOIDAL_TOL,
+            sens,
+        )?);
+    }
     if let Some(path) = spice {
         report.spice_file = Some(crate::spice::write_inductance(path, &report, spice_opts)?);
     }
