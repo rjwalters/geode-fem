@@ -18,7 +18,7 @@
 //!   issue #759.
 
 mod lumped;
-mod mixed;
+pub(crate) mod mixed;
 mod wave;
 mod wave_face;
 

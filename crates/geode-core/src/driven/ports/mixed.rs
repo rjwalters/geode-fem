@@ -184,53 +184,9 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
     }
     let edges = mesh.edges();
     let n_edges = edges.len();
-    validate_driven_surfaces(mesh, "wave port", wave.iter().map(|p| p.faces.as_slice()))?;
-
-    // Wave channels (port-major, mode-minor) with their ω-independent
-    // full-length modal fluxes f = S_p · e.
-    struct Channel {
-        port: usize,
-        mode: usize,
-        a_inc: c64,
-        flux: Vec<f64>,
-    }
+    let channels = modal_channels(mesh, lumped.len(), wave, &edges)?;
     let port_mode_counts: Vec<usize> = wave.iter().map(|p| p.modes.len()).collect();
-    let n_wave: usize = port_mode_counts.iter().sum();
-    let mut channels: Vec<Channel> = Vec::with_capacity(n_wave);
-    for (p_idx, port) in wave.iter().enumerate() {
-        if port.modes.is_empty() {
-            return Err(DrivenError::InvalidPort {
-                index: lumped.len() + p_idx,
-                reason: "wave port must carry at least one mode".to_string(),
-            });
-        }
-        for (m_idx, m) in port.modes.iter().enumerate() {
-            if m.mode.len() != n_edges {
-                return Err(DrivenError::InvalidPort {
-                    index: lumped.len() + p_idx,
-                    reason: format!(
-                        "wave-port mode[{m_idx}] profile length {} must match edge count {}",
-                        m.mode.len(),
-                        n_edges
-                    ),
-                });
-            }
-            if m.a_inc == c64::new(0.0, 0.0) {
-                return Err(DrivenError::InvalidPort {
-                    index: lumped.len() + p_idx,
-                    reason: format!(
-                        "wave-port mode[{m_idx}] needs a non-zero a_inc to serve as an excitation"
-                    ),
-                });
-            }
-            channels.push(Channel {
-                port: p_idx,
-                mode: m_idx,
-                a_inc: m.a_inc,
-                flux: assemble_modal_flux(mesh, &port.faces, &m.mode, &edges),
-            });
-        }
-    }
+    let n_wave = channels.len();
     let n_lumped = lumped.len();
     let n_ports = n_lumped + n_wave;
 
@@ -251,21 +207,7 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
     )?;
     let n_int = op.n_interior();
     // Interior-filtered modal fluxes (ω-independent).
-    let fluxes_int: Vec<Vec<c64>> = channels
-        .iter()
-        .map(|c| {
-            c.flux
-                .iter()
-                .zip(bcs.pec_interior_mask.iter())
-                .filter_map(|(&v, &keep)| keep.then_some(c64::new(v, 0.0)))
-                .collect()
-        })
-        .collect();
-    let dot = |u: &[c64], v: &[c64]| -> c64 {
-        u.iter()
-            .zip(v.iter())
-            .fold(c64::new(0.0, 0.0), |acc, (&a, &b)| acc + a * b)
-    };
+    let fluxes_int = interior_fluxes(&channels, bcs.pec_interior_mask);
     let zero = c64::new(0.0, 0.0);
 
     omegas
@@ -274,83 +216,34 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
             // Reported β, and the admittance factor y = β/μ_t (issue
             // #777; `y = β` for a vacuum port) that every operator / power
             // term below uses in place of β.
-            let betas: Vec<c64> = channels
-                .iter()
-                .map(|c| wave[c.port].beta(c.mode, omega))
-                .collect();
-            let ys: Vec<c64> = channels
-                .iter()
-                .zip(&betas)
-                .map(|(c, &b)| wave[c.port].medium.admittance(b))
-                .collect();
+            let (betas, ys) = channel_admittances(wave, &channels, omega);
             let solver = op.prepare_at::<B>(omega, solver_mode, device)?;
             let mut iters_per_rhs = Vec::with_capacity(n_wave + n_ports);
+            let mut back_solve =
+                |b: &[c64], x: &mut [c64]| solver.back_solve(b, x).map(|r| r.iters);
 
-            // A_base⁻¹ U and the capacitance matrix M = Λ⁻¹ + Uᵀ A_base⁻¹ U
-            // (Λ = diag(jβ)); a β = 0 channel is decoupled exactly as on
-            // the wave path.
-            let mut ainv_u: Vec<Vec<c64>> = Vec::with_capacity(n_wave);
-            for col in &fluxes_int {
-                let mut x = vec![zero; n_int];
-                iters_per_rhs.push(solver.back_solve(col, &mut x)?.iters);
-                ainv_u.push(x);
-            }
-            let mut cap = vec![zero; n_wave * n_wave];
-            for i in 0..n_wave {
-                for j in 0..n_wave {
-                    cap[i * n_wave + j] = dot(&fluxes_int[i], &ainv_u[j]);
-                }
-                if ys[i].norm_sqr() > 0.0 {
-                    cap[i * n_wave + i] += c64::new(0.0, -1.0) / ys[i];
-                } else {
-                    for k in 0..n_wave {
-                        cap[i * n_wave + k] = zero;
-                        cap[k * n_wave + i] = zero;
-                    }
-                    cap[i * n_wave + i] = c64::new(1.0, 0.0);
-                }
-            }
-            let cap_inv = invert_complex_dense(&cap, n_wave).ok_or_else(|| {
-                DrivenError::Solve(format!(
-                    "mixed-port rank-N SMW capacitance matrix singular at ω = {omega}"
-                ))
-            })?;
+            // A_base⁻¹ U and the SMW capacitance matrix.
+            let smw = ModalSmw::prepare(
+                &fluxes_int,
+                &ys,
+                n_int,
+                omega,
+                &mut back_solve,
+                &mut iters_per_rhs,
+            )?;
 
             // Power-wave weights: lumped √R_k, wave √y_q / √ω.
-            let sqrt_omega = omega.sqrt();
-            let sqrt_r: Vec<f64> = (0..n_lumped)
-                .map(|k| op.port_resistance(k).sqrt())
-                .collect();
-            let wave_weight: Vec<c64> = ys.iter().map(|y| y.sqrt() / sqrt_omega).collect();
+            let weights = PowerWeights::new(&op, n_lumped, &ys, omega);
 
             let mut s = vec![zero; n_ports * n_ports];
             let mut residual_rel = 0.0_f64;
             for j in 0..n_ports {
                 // Excitation RHS (interior) and its incident power wave ã_j.
-                let (b, a_tilde) = if j < n_lumped {
-                    (
-                        op.assemble_b_at(omega, Some(j)),
-                        op.port_v_inc(j) / sqrt_r[j],
-                    )
-                } else {
-                    let c = j - n_lumped;
-                    let coeff = c64::new(0.0, 2.0) * ys[c] * channels[c].a_inc;
-                    (
-                        fluxes_int[c].iter().map(|&f| f * coeff).collect::<Vec<_>>(),
-                        channels[c].a_inc * wave_weight[c],
-                    )
-                };
+                let b = excitation_rhs(&op, omega, j, n_lumped, &channels, &fluxes_int, &ys);
+                let a_tilde = incident_wave(&op, j, n_lumped, &channels, &weights);
 
                 // SMW: x = A⁻¹b − (A⁻¹U) M⁻¹ Uᵀ A⁻¹b.
-                let mut x = vec![zero; n_int];
-                iters_per_rhs.push(solver.back_solve(&b, &mut x)?.iters);
-                let y: Vec<c64> = fluxes_int.iter().map(|f| dot(f, &x)).collect();
-                for i in 0..n_wave {
-                    let zi = (0..n_wave).fold(zero, |acc, k| acc + cap_inv[i * n_wave + k] * y[k]);
-                    for (xr, &ur) in x.iter_mut().zip(ainv_u[i].iter()) {
-                        *xr -= ur * zi;
-                    }
-                }
+                let x = smw.solve(&fluxes_int, &b, &mut back_solve, &mut iters_per_rhs)?;
 
                 // Residual ‖(A_base + Σ jβ f fᵀ) x − b‖ / ‖b‖.
                 let mut ax = vec![zero; n_int];
@@ -359,7 +252,7 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
                     if ys[p].norm_sqr() == 0.0 {
                         continue;
                     }
-                    let scaled = c64::new(0.0, 1.0) * ys[p] * dot(f, &x);
+                    let scaled = c64::new(0.0, 1.0) * ys[p] * dot_t(f, &x);
                     for (a, &fr) in ax.iter_mut().zip(f.iter()) {
                         *a += fr * scaled;
                     }
@@ -375,28 +268,17 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
                 }
 
                 // Scatter and read back every port's outgoing power wave.
-                let mut e_edges = vec![zero; n_edges];
-                let mut it = x.iter();
-                for (e, &keep) in e_edges.iter_mut().zip(bcs.pec_interior_mask.iter()) {
-                    if keep {
-                        *e = *it.next().expect("interior count matches the PEC mask");
-                    }
-                }
-                for k in 0..n_lumped {
-                    let v = op.port_voltage(k, &e_edges);
-                    let v_out = if k == j { v - op.port_v_inc(k) } else { v };
-                    s[k * n_ports + j] = (v_out / sqrt_r[k]) / a_tilde;
-                }
-                for (q, ch) in channels.iter().enumerate() {
-                    let a_q = ch
-                        .flux
-                        .iter()
-                        .zip(e_edges.iter())
-                        .fold(zero, |acc, (&f, &e)| acc + e * f);
-                    let row = n_lumped + q;
-                    let a_out = if row == j { a_q - ch.a_inc } else { a_q };
-                    s[row * n_ports + j] = (a_out * wave_weight[q]) / a_tilde;
-                }
+                s_column(
+                    &op,
+                    bcs.pec_interior_mask,
+                    n_edges,
+                    &channels,
+                    &weights,
+                    j,
+                    a_tilde,
+                    &x,
+                    &mut s,
+                );
             }
             Ok(MixedPortSweepPoint {
                 omega,
@@ -410,4 +292,290 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
             })
         })
         .collect()
+}
+
+/// One wave channel (port `port`, mode `mode`) of a mixed / modal port
+/// set with its incident amplitude and ω-independent **full-length**
+/// modal flux `f = S_p · e` (issue #774: shared by the dense mixed sweep
+/// and the adaptive PROM).
+pub(crate) struct ModalChannel {
+    pub(crate) port: usize,
+    pub(crate) mode: usize,
+    pub(crate) a_inc: c64,
+    pub(crate) flux: Vec<f64>,
+}
+
+/// Validate the wave ports (faces on the mesh, ≥ 1 mode each, profile
+/// lengths, non-zero `a_inc`) and build their channels port-major,
+/// mode-minor. `n_lumped` offsets the reported port index.
+pub(crate) fn modal_channels(
+    mesh: &TetMesh,
+    n_lumped: usize,
+    wave: &[WavePort],
+    edges: &[[u32; 2]],
+) -> Result<Vec<ModalChannel>, DrivenError> {
+    let n_edges = edges.len();
+    validate_driven_surfaces(mesh, "wave port", wave.iter().map(|p| p.faces.as_slice()))?;
+    let n_wave: usize = wave.iter().map(|p| p.modes.len()).sum();
+    let mut channels: Vec<ModalChannel> = Vec::with_capacity(n_wave);
+    for (p_idx, port) in wave.iter().enumerate() {
+        if port.modes.is_empty() {
+            return Err(DrivenError::InvalidPort {
+                index: n_lumped + p_idx,
+                reason: "wave port must carry at least one mode".to_string(),
+            });
+        }
+        for (m_idx, m) in port.modes.iter().enumerate() {
+            if m.mode.len() != n_edges {
+                return Err(DrivenError::InvalidPort {
+                    index: n_lumped + p_idx,
+                    reason: format!(
+                        "wave-port mode[{m_idx}] profile length {} must match edge count {}",
+                        m.mode.len(),
+                        n_edges
+                    ),
+                });
+            }
+            if m.a_inc == c64::new(0.0, 0.0) {
+                return Err(DrivenError::InvalidPort {
+                    index: n_lumped + p_idx,
+                    reason: format!(
+                        "wave-port mode[{m_idx}] needs a non-zero a_inc to serve as an excitation"
+                    ),
+                });
+            }
+            channels.push(ModalChannel {
+                port: p_idx,
+                mode: m_idx,
+                a_inc: m.a_inc,
+                flux: assemble_modal_flux(mesh, &port.faces, &m.mode, edges),
+            });
+        }
+    }
+    Ok(channels)
+}
+
+/// The channels' modal fluxes restricted to the interior (PEC-masked)
+/// edges, as complex vectors.
+pub(crate) fn interior_fluxes(
+    channels: &[ModalChannel],
+    pec_interior_mask: &[bool],
+) -> Vec<Vec<c64>> {
+    channels
+        .iter()
+        .map(|c| {
+            c.flux
+                .iter()
+                .zip(pec_interior_mask.iter())
+                .filter_map(|(&v, &keep)| keep.then_some(c64::new(v, 0.0)))
+                .collect()
+        })
+        .collect()
+}
+
+/// Reported `β` and admittance factor `y = β/μ_t` of every channel at
+/// `omega` — the exact calls the dense sweep makes.
+pub(crate) fn channel_admittances(
+    wave: &[WavePort],
+    channels: &[ModalChannel],
+    omega: f64,
+) -> (Vec<c64>, Vec<c64>) {
+    let betas: Vec<c64> = channels
+        .iter()
+        .map(|c| wave[c.port].beta(c.mode, omega))
+        .collect();
+    let ys: Vec<c64> = channels
+        .iter()
+        .zip(&betas)
+        .map(|(c, &b)| wave[c.port].medium.admittance(b))
+        .collect();
+    (betas, ys)
+}
+
+/// Unconjugated bilinear form `Σ uᵢ vᵢ` (the complex-symmetric pairing).
+pub(crate) fn dot_t(u: &[c64], v: &[c64]) -> c64 {
+    u.iter()
+        .zip(v.iter())
+        .fold(c64::new(0.0, 0.0), |acc, (&a, &b)| acc + a * b)
+}
+
+/// A back-solve through some factorization / Krylov solver of `A_base(ω)`
+/// returning its iteration count (0 on the direct path).
+pub(crate) type BackSolve<'s> = dyn FnMut(&[c64], &mut [c64]) -> Result<usize, DrivenError> + 's;
+
+/// The per-ω rank-`N_w` Sherman-Morrison-Woodbury data folding the modal
+/// terms `Σ_q j·y_q f_q f_qᵀ` into solves with `A_base(ω)`: the columns
+/// `A_base⁻¹U` and the inverse capacitance matrix
+/// `(Λ⁻¹ + Uᵀ A_base⁻¹ U)⁻¹`, `Λ = diag(j·y)`.
+pub(crate) struct ModalSmw {
+    ainv_u: Vec<Vec<c64>>,
+    cap_inv: Vec<c64>,
+}
+
+impl ModalSmw {
+    /// `N_w` back-solves for `A_base⁻¹U` (iteration counts appended to
+    /// `iters`) and the capacitance inverse; a `y = 0` channel is
+    /// decoupled exactly as on the wave path.
+    pub(crate) fn prepare(
+        fluxes_int: &[Vec<c64>],
+        ys: &[c64],
+        n_int: usize,
+        omega: f64,
+        back_solve: &mut BackSolve<'_>,
+        iters: &mut Vec<usize>,
+    ) -> Result<Self, DrivenError> {
+        let zero = c64::new(0.0, 0.0);
+        let n_wave = fluxes_int.len();
+        let mut ainv_u: Vec<Vec<c64>> = Vec::with_capacity(n_wave);
+        for col in fluxes_int {
+            let mut x = vec![zero; n_int];
+            iters.push(back_solve(col, &mut x)?);
+            ainv_u.push(x);
+        }
+        let mut cap = vec![zero; n_wave * n_wave];
+        for i in 0..n_wave {
+            for j in 0..n_wave {
+                cap[i * n_wave + j] = dot_t(&fluxes_int[i], &ainv_u[j]);
+            }
+            if ys[i].norm_sqr() > 0.0 {
+                cap[i * n_wave + i] += c64::new(0.0, -1.0) / ys[i];
+            } else {
+                for k in 0..n_wave {
+                    cap[i * n_wave + k] = zero;
+                    cap[k * n_wave + i] = zero;
+                }
+                cap[i * n_wave + i] = c64::new(1.0, 0.0);
+            }
+        }
+        let cap_inv = invert_complex_dense(&cap, n_wave).ok_or_else(|| {
+            DrivenError::Solve(format!(
+                "mixed-port rank-N SMW capacitance matrix singular at ω = {omega}"
+            ))
+        })?;
+        Ok(Self { ainv_u, cap_inv })
+    }
+
+    /// The SMW-corrected interior solution of `(A_base + Σ j·y f fᵀ) x =
+    /// b`: `x = A⁻¹b − (A⁻¹U) M⁻¹ Uᵀ A⁻¹b` (one back-solve, its iteration
+    /// count appended to `iters`).
+    pub(crate) fn solve(
+        &self,
+        fluxes_int: &[Vec<c64>],
+        b: &[c64],
+        back_solve: &mut BackSolve<'_>,
+        iters: &mut Vec<usize>,
+    ) -> Result<Vec<c64>, DrivenError> {
+        let zero = c64::new(0.0, 0.0);
+        let n_wave = fluxes_int.len();
+        let mut x = vec![zero; b.len()];
+        iters.push(back_solve(b, &mut x)?);
+        let y: Vec<c64> = fluxes_int.iter().map(|f| dot_t(f, &x)).collect();
+        for i in 0..n_wave {
+            let zi = (0..n_wave).fold(zero, |acc, k| acc + self.cap_inv[i * n_wave + k] * y[k]);
+            for (xr, &ur) in x.iter_mut().zip(self.ainv_u[i].iter()) {
+                *xr -= ur * zi;
+            }
+        }
+        Ok(x)
+    }
+}
+
+/// Power-wave weights at one ω: lumped `√R_k`, wave `√y_q / √ω`.
+pub(crate) struct PowerWeights {
+    sqrt_r: Vec<f64>,
+    wave_weight: Vec<c64>,
+}
+
+impl PowerWeights {
+    pub(crate) fn new(op: &DrivenOperator, n_lumped: usize, ys: &[c64], omega: f64) -> Self {
+        let sqrt_omega = omega.sqrt();
+        let sqrt_r: Vec<f64> = (0..n_lumped)
+            .map(|k| op.port_resistance(k).sqrt())
+            .collect();
+        let wave_weight: Vec<c64> = ys.iter().map(|y| y.sqrt() / sqrt_omega).collect();
+        Self {
+            sqrt_r,
+            wave_weight,
+        }
+    }
+}
+
+/// Interior RHS of excitation `j` (flat channel order): a lumped port's
+/// matched-source drive `op.assemble_b_at(ω, Some(j))`, or a wave
+/// channel's `2j·y·a_inc·f`.
+pub(crate) fn excitation_rhs(
+    op: &DrivenOperator,
+    omega: f64,
+    j: usize,
+    n_lumped: usize,
+    channels: &[ModalChannel],
+    fluxes_int: &[Vec<c64>],
+    ys: &[c64],
+) -> Vec<c64> {
+    if j < n_lumped {
+        op.assemble_b_at(omega, Some(j))
+    } else {
+        let c = j - n_lumped;
+        let coeff = c64::new(0.0, 2.0) * ys[c] * channels[c].a_inc;
+        fluxes_int[c].iter().map(|&f| f * coeff).collect()
+    }
+}
+
+/// Incident power wave `ã_j` of excitation `j`: `V_inc/√R` (lumped) or
+/// `a_inc·√y/√ω` (wave).
+pub(crate) fn incident_wave(
+    op: &DrivenOperator,
+    j: usize,
+    n_lumped: usize,
+    channels: &[ModalChannel],
+    weights: &PowerWeights,
+) -> c64 {
+    if j < n_lumped {
+        op.port_v_inc(j) / weights.sqrt_r[j]
+    } else {
+        let c = j - n_lumped;
+        channels[c].a_inc * weights.wave_weight[c]
+    }
+}
+
+/// Scatter the interior solution `x` of excitation `j` to the full edge
+/// vector and write S-matrix column `j` (row-major `s`, `n_lumped +
+/// channels.len()` ports): `S_kj = b̃_k / ã_j`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn s_column(
+    op: &DrivenOperator,
+    pec_interior_mask: &[bool],
+    n_edges: usize,
+    channels: &[ModalChannel],
+    weights: &PowerWeights,
+    j: usize,
+    a_tilde: c64,
+    x: &[c64],
+    s: &mut [c64],
+) {
+    let zero = c64::new(0.0, 0.0);
+    let n_lumped = weights.sqrt_r.len();
+    let n_ports = n_lumped + channels.len();
+    let mut e_edges = vec![zero; n_edges];
+    let mut it = x.iter();
+    for (e, &keep) in e_edges.iter_mut().zip(pec_interior_mask.iter()) {
+        if keep {
+            *e = *it.next().expect("interior count matches the PEC mask");
+        }
+    }
+    for k in 0..n_lumped {
+        let v = op.port_voltage(k, &e_edges);
+        let v_out = if k == j { v - op.port_v_inc(k) } else { v };
+        s[k * n_ports + j] = (v_out / weights.sqrt_r[k]) / a_tilde;
+    }
+    for (q, ch) in channels.iter().enumerate() {
+        let a_q = ch
+            .flux
+            .iter()
+            .zip(e_edges.iter())
+            .fold(zero, |acc, (&f, &e)| acc + e * f);
+        let row = n_lumped + q;
+        let a_out = if row == j { a_q - ch.a_inc } else { a_q };
+        s[row * n_ports + j] = (a_out * weights.wave_weight[q]) / a_tilde;
+    }
 }
