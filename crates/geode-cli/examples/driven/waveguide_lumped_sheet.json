@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "mesh": {
+    "path": "../../../geode-core/tests/fixtures/waveguide_2x1_smoke.msh",
+    "length_unit_m": 0.01
+  },
+  "boundary_conditions": {
+    "pec": ["walls"]
+  },
+  "ports": [
+    {
+      "physical_group": "port_out",
+      "e_hat": [0.0, 1.0, 0.0],
+      "resistance_ohm": 242.1,
+      "width": 2.0,
+      "length": 1.0
+    }
+  ],
+  "wave_ports": [
+    { "physical_group": "port_in" }
+  ],
+  "frequencies": { "unit": "k0", "values": [2.0, 2.5, 3.0] }
+}

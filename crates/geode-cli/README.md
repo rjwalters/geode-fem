@@ -35,7 +35,7 @@ one worked example per analysis, with the output to expect.
 | Subcommand | Status |
 |---|---|
 | `check`   | live — parse + validate spec, load mesh, resolve every named physical group, report DOF counts and an order-of-magnitude memory / cost estimate (#703); never solves |
-| `driven`  | live — lumped-port (or wave-port, #683) frequency sweep with PEC / Leontovich (optionally rough, #758) / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG; optional Touchstone 2.0 `.sNp` (#703); opt-in adaptive (reduced-order-model) sweep, parallel frequency points and JSONL progress (#708, see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)) |
+| `driven`  | live — lumped-port (or wave-port, #683, or mixed lumped + wave-port, #759) frequency sweep with PEC / Leontovich (optionally rough, #758) / Silver-Müller BCs and matched box-UPML absorbing regions (#683), direct LU or COCG; optional Touchstone 2.0 `.sNp` (#703); opt-in adaptive (reduced-order-model) sweep, parallel frequency points and JSONL progress (#708, see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)) |
 | `eigen`   | live (#681) — PEC-cavity eigenmodes near a shift frequency, sparse shift-invert Lanczos; lossless (`Q` is `null`), or lossy / open (#706: complex `eps_r` and / or box-UPML `absorbing_regions` → complex `k₀`, finite `Q`) |
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 | `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
@@ -150,7 +150,8 @@ A spec describes **one** analysis, decided by which optional analysis
 section it carries:
 
 - **driven spec** (no `eigen`, no `extract`): needs `ports` (≥ 1) **or**
-  `wave_ports` (≥ 1), and `frequencies`; run with `geode driven`.
+  `wave_ports` (≥ 1) — or both (a [mixed network](#mixed-lumped--wave-ports-issue-759),
+  issue #759) — and `frequencies`; run with `geode driven`.
 - **eigen spec** (has `eigen`): must not have `ports`, `wave_ports`,
   `frequencies`, or Leontovich / Silver-Müller walls (their
   frequency-dependent terms would make the eigenproblem nonlinear, see
@@ -159,7 +160,8 @@ section it carries:
   allowed (issue #706); run with `geode eigen`.
 - **extract spec** (has `extract`): exactly a driven spec plus the
   `extract` section (`"extract": {}` takes every default) — needs lumped
-  `ports` (≥ 1; wave ports define no `Z_kk`, so they are rejected),
+  `ports` (≥ 1; wave ports define no `Z_kk`, so they are rejected, also
+  mixed with lumped ports),
   `frequencies`, and ≥ 2 distinct `L₀` anchor frequencies; run with
   `geode extract`.
 - **capacitance spec** (has `capacitance`, issue #705): conductor
@@ -235,7 +237,7 @@ Driven example (the spiral-inductor golden input,
 | `ports[].width` | optional, mesh units | extent across `ê`; default `area / length` of the tagged faces |
 | `ports[].length` | optional, mesh units | gap extent along `ê`; default: extent of the tagged faces along `ê` |
 | `ports[].v_inc` | `[re, im]`, default `[1, 0]` | incident drive voltage (non-zero) |
-| `wave_ports[]` | driven only; not with `ports`, Leontovich or Silver-Müller (v1) | wave (modal) ports, see below; index order = S-matrix block order |
+| `wave_ports[]` | driven only; not with Leontovich or Silver-Müller (v1); may be mixed with `ports` (#759) | wave (modal) ports, see below; index order = S-matrix block order (after the lumped ports in a mixed spec) |
 | `wave_ports[].physical_group` | string | dimension-2 group holding the **planar** port faces |
 | `wave_ports[].n_modes` | int ≥ 1, default `1` | lowest-cutoff cross-section modes carried by the port (one S-matrix channel each) |
 | `wave_ports[].a_inc` | `[[re, im], …]`, length `n_modes`, default all `[1, 0]` | per-mode incident amplitude (finite, non-zero) |
@@ -248,7 +250,7 @@ Driven example (the spiral-inductor golden input,
 | `solver.tol` / `solver.max_iters` | iterative only; default `1e-10` / `5000` | relative-residual tolerance / per-RHS budget; exceeding the budget is a hard error (`solve_failed`, non-zero exit). Jacobi-preconditioned COCG can stall on ill-conditioned low-frequency conductor problems (e.g. the spiral fixture); prefer `direct` there |
 | `solver.preconditioner` | iterative only; `"jacobi"` (default) \| `"ilu0"` | Jacobi = diagonal scaling. `ilu0` = incomplete LU with zero fill on `A(ω)`'s own pattern (+32 B per nonzero of factor storage; ≈ 3.4× the per-iteration time of Jacobi on the spiral smoke mesh). Neither is uniformly better (issue #708, measured 2026-09-30): on the lossy spiral smoke mesh `ilu0` converges at 10 / 20 GHz (17 278 / 12 669 iterations, Z matches direct LU to 1e-10) where Jacobi stalls at every frequency, but it still stalls at 1 / 5 GHz; on the radiating UPML patch `ilu0` stalls where Jacobi converges. Pick per problem; `direct` remains the robust choice below the LU memory wall. `"ams"` (issue #744) = Hiptmair–Xu auxiliary-space Maxwell V-cycle on a real SPD proxy of `A(ω)`, built from the mesh's discrete gradient: exact sparse LU of the nodal `GᵀPG` at every mesh size (an approximate AMG nodal solve is measured to drift; `geode check` reports the LU's modelled memory) plus 4 Gauss–Seidel sweeps on the vector-nodal block. It converges the lossy spiral where `jacobi` / `ilu0` stall — smoke 1 / 5 / 10 / 20 GHz in 112 / 131 / 145 / 159 iterations, 54k-edge benchmark at 1 GHz in 114 iterations (3.9 s, 0.34 GB peak RSS vs direct LU 5.0 s, 2.03 GB; Z matches LU to 1e-12). On meshes above ~200k edges set `solver.tol = 1e-9`: the default `1e-10` sits below the explicit-residual floor there (measured 1.6–2.5e-10 on a 228k-edge spiral), so the solve drifts and reports `solve_failed`. Known negatives: it does **not** converge the radiating UPML patch, nor layouts whose conductors are floating PEC shells — a spec whose `pec` surfaces form more than one connected component is rejected up front as `invalid_spec`, naming the floating groups (use Leontovich conductors, or `direct`) |
 | `sweep` | driven / extract only; optional section (additive in v1, #708) | sweep strategy; omitted = the dense sweep (one full-order solve per frequency) |
-| `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"` and lumped `ports`; rejected (`invalid_spec`) with `absorbing_regions`, `wave_ports` or a dispersive material (`materials[].dispersion`). Leontovich and Silver-Müller walls are supported |
+| `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"` and lumped `ports`; rejected (`invalid_spec`) with `absorbing_regions`, `wave_ports` (alone or mixed with `ports`) or a dispersive material (`materials[].dispersion`). Leontovich and Silver-Müller walls are supported |
 | `sweep.adaptive.tolerance` | float in `(0, 1)`, default `1e-6` | residual-indicator target `η = ‖A(ω)x_rom − b‖/‖b‖` (worst over the port excitations) — a bound on the relative **residual**, not directly on `Z` / `S` |
 | `sweep.adaptive.max_snapshots` | int ≥ 1, default `20` | budget of greedy snapshot frequencies (full-order factorizations, seeds included); frequencies still above `tolerance` when it runs out are solved full-order |
 | `solver.mode` (eigen) | `"direct"` only | the eigen path always factors `K − σM` once with sparse LU; `"iterative"` is rejected |
@@ -463,14 +465,55 @@ PEC, and its `n_modes` lowest-cutoff transverse modes
 `solve_waveguide_modes`) become the port's channels. Name the waveguide
 walls in `pec`. The driven result is the power-normalized channel
 S-matrix (port-major, mode-minor), with `β` per channel; wave ports
-define no port impedance. **v1 boundary:** a spec has lumped `ports`
-**or** `wave_ports`, never both, and `wave_ports` cannot be combined with
-Leontovich or Silver-Müller walls (PEC and `absorbing_regions` compose)
-— these combinations are rejected with `invalid_spec`, not ignored.
+define no port impedance. **v1 boundary:** `wave_ports` cannot be
+combined with Leontovich or Silver-Müller walls (PEC and
+`absorbing_regions` compose) — rejected with `invalid_spec`, not ignored.
+Lumped `ports` may be added alongside (see
+[Mixed lumped + wave ports](#mixed-lumped--wave-ports-issue-759)).
 Cross-sections with a TEM mode (multiply connected, e.g. coax) are not
 supported: the TEM mode lives in the gradient nullspace and is filtered
 out. Asking for more modes than the cross-section can hold fails with
 `solve_failed`.
+
+### Mixed lumped + wave ports (issue #759)
+
+A driven spec may carry both lumped `ports` and `wave_ports` (e.g. a
+waveguide-fed transition into a lumped-port circuit). Both terminate the
+same operator: the lumped loads join the base `A(ω)` and the wave-port
+modal terms the same rank-N Sherman–Morrison–Woodbury update
+(`geode_core::driven::ports::solve_mixed_port_sweep_with_mode`).
+
+- **Port order**: the S-matrix lists the lumped ports first (spec
+  order), then the wave channels (port-major, mode-minor).
+  `wave_ports[].modes[].channel` and `results[].wave_channels[].channel`
+  are offset by the lumped-port count.
+- **Normalization**: power waves. A lumped port `k` uses
+  `ã = V_inc/√R_k`, `b̃ = (V_k − V_inc δ)/√R_k` (reference = its own
+  `resistance_ohm`, as on the lumped path); a wave channel uses
+  `ã = a_inc·√(β/k₀)`, `b̃ = (a − a_inc δ)·√(β/k₀)`; `S_ij = b̃_i/ã_j`. The
+  lumped–lumped block equals the lumped path's `F(Z − Z₀)(Z + Z₀)⁻¹F⁻¹`,
+  the wave–wave block the pure-wave power-normalized S, and the cross
+  weight follows from the symmetry of `A(ω)`, so `Sᵀ = S` exactly.
+- **No impedance matrix**: as for wave-port specs, `z_ohm` and the
+  per-row `ports` are empty and `y_s` is `null`; the top-level `ports`
+  (lumped) and `wave_ports` together give the port list.
+- **A lumped port is not a modal port**: its voltage is the *uniform*
+  projection `V = (1/w)∫E·ê dS`. A full-face lumped sheet on a TE₁₀ guide
+  absorbs the whole wave when `R = η₀·(k₀/β)·(l/w)`, yet `|S_lw|² =
+  8/π²·(1 − |Γ|²)` of the TE₁₀ power reaches its power wave; the rest is
+  dissipated in the sheet's non-uniform field. S is passive, not
+  unitary.
+- **Rejected with `invalid_spec`** before any solve: `--touchstone` (a
+  wave channel's reference is its frequency-dependent `Z_TE(ω) = ωμ/β`,
+  which a constant Touchstone `[Reference]` cannot express), `extract`,
+  `sweep.adaptive` and `sensitivity`; `--outdir` exports nothing (stderr
+  notes it). UPML and dispersive materials work (per-frequency
+  assembly); Leontovich (and so surface roughness) and Silver-Müller
+  walls stay rejected with any wave port.
+- The modal admittance `jβ` is the TE form, so TM-mode wave channels
+  remain approximate, as on the pure-wave path.
+
+Example: [`examples/driven/waveguide_lumped_sheet.json`](examples/driven/README.md).
 
 ## Static capacitance (`geode capacitance`, issue #705)
 
@@ -825,7 +868,7 @@ before the flag existed (the new fields are omitted, not `null`).
 | `driven` / `extract`, lumped ports | `E_<row>.vtu` — `E` of **one extra solve** with every port driven at its spec `v_inc` (the sweep itself only keeps `Z` / `S`) | `results[].field_file` |
 | … plus exactly one `absorbing_regions` shell | `pattern_<row>.json` — principal-plane cuts | `results[].far_field` |
 | `eigen` | `E_mode_<mode>.vtu` — the eigenvector (PEC edges 0): lossless, real `E_real`, `M_ε`-normalized, arbitrary sign; lossy / open (#706), `E_real` + `E_imag`, bilinear `xᵀMx = 1`-normalized, arbitrary complex phase | `modes[].field_file` |
-| wave ports | **nothing** (see below) | — |
+| wave ports (also mixed with lumped ports) | **nothing** (see below) | — |
 
 `<row>` / `<mode>` are the zero-padded 4-digit `results[]` / `modes[]`
 indices (for `extract`, rows are ascending in frequency). The extra
@@ -878,7 +921,7 @@ completion and reports a silently wrong far field. Size the shell (mesh
 extent and `thickness`) so the radiating structure sits well inside the
 shrunk box, as `examples/patch_antenna` does.
 
-**Wave ports are out of scope**: a wave-port driven report never carries
+**Wave ports are out of scope** (pure or mixed with lumped ports): a wave-port driven report never carries
 `field_file` / `far_field`, even with `--outdir` (stderr notes the skip).
 The physical field there is a linear combination of the per-channel
 Sherman–Morrison–Woodbury solves, which the library does not return, and
@@ -1356,10 +1399,12 @@ field is omitted.
   `[Two-Port Data Order] 21_12`; every other port count is row-major
   (`S11 S12 … S1N`, then row 2, …), each matrix row on its own line(s)
   of at most four pairs.
-- **Rejected before any solve** with `invalid_spec`: wave-port specs
-  (their power-normalized channel S-matrix has no real reference
-  impedance, and writing a placeholder `[Reference]` would silently
-  mislabel it) and `geode eigen` (no network parameters).
+- **Rejected before any solve** with `invalid_spec`: wave-port specs,
+  including mixed lumped + wave-port specs (a wave channel's
+  power-normalized S has no real constant reference impedance — its
+  effective reference `Z_TE(ω) = ωμ/β` varies with frequency — and
+  writing a placeholder `[Reference]` would silently mislabel it) and
+  `geode eigen` (no network parameters).
 
 Loading the file in [scikit-rf](https://scikit-rf.org) — **illustrative,
 not run in CI** (scikit-rf is not a dependency of this repo):
@@ -1604,7 +1649,7 @@ single measured anchor, not a prediction** — read the caveats.
 | `scalar` | – | `"complex"` (driven / extract pencil, lossy / open eigen pencil) \| `"real"` (lossless eigen pencil, inductance curl-curl) |
 | `nnz_a` | – | non-zeros of the full Nédélec system pattern (before PEC elimination — the anchor's convention); computed from the mesh, no assembly |
 | `n_factorizations` | – | LU factorizations: one per frequency (driven / extract direct), one (eigen), one per current path (inductance), `0` (iterative) |
-| `n_rhs_per_frequency` | – | ports, or `2 × channels` for wave ports; `0` for eigen; `1` for inductance |
+| `n_rhs_per_frequency` | – | ports, or `2 × channels` for wave ports (`2 × channels + ports` mixed, #759); `0` for eigen; `1` for inductance |
 | `anchor_nnz_ratio` | – | `nnz_a / 20 467 522` — the mesh's scale relative to the direct-LU calibration anchor; always against the **direct** anchor, even for `"iterative"` (a scale signal, not a confidence claim) |
 | `above_anchor` | – | `anchor_nnz_ratio > 1`: the mesh is larger than the anchor, where the direct figures become **under**-estimates (see *Bias*) |
 | `peak_memory_gb` | GB (10⁹ B) | estimated peak resident memory |
@@ -2060,7 +2105,7 @@ sensitivities](#material-sensitivities-sensitivity-issue-707).
 | `ports[].r_ohm` | Ω | `Re Z_kk` |
 | `ports[].l_h` | H | `Im Z_kk / ω` (negative above self-resonance) |
 | `ports[].q` | – | `Im Z_kk / Re Z_kk` |
-| `wave_channels[]` | | wave-port specs only (see below) |
+| `wave_channels[]` | | wave-port and mixed specs only (see below) |
 | `roughness_k[]` | – | rough Leontovich walls only (additive, #758): `{physical_group, k}` per rough wall in spec order, `k` = the roughness factor `K(f)` applied at this frequency |
 | `materials[]` | – | dispersive materials only (additive, #757): `{physical_group, eps_r}` per dispersive material in spec order, `eps_r` = the `[re, im]` `ε_r(f)` applied at this frequency |
 | `field_file` | | `--outdir` only: `{path, sha256}` of `E_<row>.vtu` (see above) |
@@ -2072,7 +2117,11 @@ For a **wave-port** spec `z_ohm` and `ports` are empty and `y_s` is
 `iterations` has `2·n_channels` entries (the SMW column solves, then the
 excitations). `wave_channels[]`, one per channel, carries `channel`,
 `port`, `mode`, `beta` (`[re, im]`: real positive when propagating,
-`−j|β|` when evanescent), `propagating`, `s` (`S_kk`) and `s_db`.
+`−j|β|` when evanescent), `propagating`, `s` (`S_kk`) and `s_db`. For a
+**mixed** spec (issue #759) `s` is the power-wave S-matrix over the
+lumped ports and then the wave channels, `channel` is offset by the
+lumped-port count, and `iterations` has `2·n_channels + n_lumped`
+entries (see [Mixed lumped + wave ports](#mixed-lumped--wave-ports-issue-759)).
 
 **`kind = "eigen"`** adds `regions[]` and `pec[]` (as for `check`),
 `eigen` (the resolved settings, as for `check`), `absorbing_regions[]`
@@ -2609,7 +2658,16 @@ unit tests in `src/spice.rs`.
 wave ports on a synthetic tagged rectangular waveguide (geode-core's
 extruded section written as MSH 4.1): the channel S-matrix matches an
 in-process tag-built `solve_wave_port_sweep` to 1e-12, and the straight
-section meets geode-core's `S₂₁ ≈ e^{−jβL}` acceptance. The projection
+section meets geode-core's `S₂₁ ≈ e^{−jβL}` acceptance. Its mixed tier
+(issue #759) replaces `port_out` with a full-face lumped sheet: across a
+`k₀` sweep `|S_ww|` follows the sheet's closed-form `|Γ(k₀)|` and
+`|S_lw|²` the `8/π²(1 − |Γ|²)` uniform-port fraction; `Sᵀ = S` to 1e-8,
+`σ_max(S) ≤ 1` (strictly `< 1` with a lossy fill), a two-mode wave port
+(evanescent TE₂₀) stays reciprocal, a dispersive fill equals the
+constant-`ε_r` run at `f_ref`, and the CLI matches an in-process
+`solve_mixed_port_sweep_with_mode` to 1e-12. geode-core's
+`tests/mixed_port.rs` checks the lumped block against the lumped path's
+`Z → S` route to 1e-9. The projection
 primitive itself is validated in `geode-core/tests/wave_port_from_tags.rs`
 (cutoffs vs the hand-built cross-section to 1e-9 and the analytic
 rectangular cutoffs, `S_p`-orthonormality, S-matrix parity with the

@@ -78,6 +78,14 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("spiral_drude_smoke.json"),
         Input::Spec("driven"),
     ),
+    // A TE₁₀ wave port feeding a full-face lumped resistive sheet: a mixed
+    // lumped + wave-port spec (issue #759); `tests/wave_port_driven.rs`
+    // pins it against the sheet's closed form.
+    (
+        "driven/waveguide_lumped_sheet.json",
+        Some("waveguide_mixed_smoke.json"),
+        Input::Spec("driven"),
+    ),
     (
         "extract/slcfet_spiral.json",
         Some("slcfet_extract_smoke.json"),

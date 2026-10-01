@@ -518,14 +518,56 @@ fn sigma_max_2x2(s: &[faer::c64]) -> f64 {
     (0.5 * (tr + (tr * tr - 4.0 * det).max(0.0).sqrt())).sqrt()
 }
 
+/// The committed copy of the tagged guide (groups `guide`, `port_in`,
+/// `port_out`, `walls`; no `bent`) that the mixed cookbook example and
+/// its fixture `tests/fixtures/waveguide_mixed_smoke.json` read.
+fn committed_waveguide_mesh() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../geode-core/tests/fixtures/waveguide_2x1_smoke.msh")
+}
+
+#[test]
+fn committed_waveguide_mesh_matches_its_generator() {
+    let g = extruded_rect_waveguide_mesh(8, 4, 4, A, B_DIM, LEN);
+    let msh = write_msh(
+        &g.mesh.nodes,
+        &g.mesh.tets,
+        &[
+            (11, "port_in", &g.port1_faces),
+            (12, "port_out", &g.port2_faces),
+            (13, "walls", &g.sidewall_faces),
+        ],
+    );
+    let path = committed_waveguide_mesh();
+    if std::env::var_os("GEODE_BLESS_WAVEGUIDE_MSH").is_some() {
+        std::fs::write(&path, &msh).unwrap();
+    }
+    let committed = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        committed == msh,
+        "{} drifted from extruded_rect_waveguide_mesh(8, 4, 4, 2, 1, 1.2); regenerate with \
+         GEODE_BLESS_WAVEGUIDE_MSH=1 cargo test -p geode-cli --test wave_port_driven \
+         committed_waveguide_mesh",
+        path.display()
+    );
+}
+
 #[test]
 fn mixed_wave_and_lumped_sheet_follow_closed_form_across_sweep() {
-    // The sheet resistance that matches TE₁₀ at k₀ = 2.5:
-    // Z_s = R·w/l = Z_TE·η₀  ⇒  R = η₀·(k₀/β)·(b/a) ≈ 242 Ω.
+    // The cookbook fixture: `port_in` a TE₁₀ wave port, `port_out` a
+    // full-face lumped sheet whose resistance matches TE₁₀ at k₀ = 2.5:
+    // Z_s = R·w/l = Z_TE·η₀  ⇒  R = η₀·(k₀/β)·(b/a) ≈ 242.1 Ω.
     let eta0 = geode_core::constants::ETA_0_OHM;
-    let r_ohm = eta0 * z_te(2.5) * B_DIM / A;
-    let k0s = [2.0, 2.5, 3.0];
-    let spec_file = mixed_spec("mixed", r_ohm, &k0s, |_| {});
+    let fixture =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/waveguide_mixed_smoke.json");
+    let fixture_spec: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&fixture).unwrap()).unwrap();
+    let r_ohm = f64_at(&fixture_spec["ports"][0]["resistance_ohm"]);
+    assert!(
+        (r_ohm - eta0 * z_te(2.5) * B_DIM / A).abs() < 0.1,
+        "R = {r_ohm}"
+    );
+    let spec_file = fixture;
     let outdir_dir = scratch("mixed-outdir");
     let outdir = outdir_dir.join("fields");
     let out = geode(&[
