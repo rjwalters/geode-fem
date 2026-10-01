@@ -930,8 +930,7 @@ fn galerkin(
             p_rows[ri[k]].push((col, vv[k]));
         }
     }
-    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::new();
-    accumulate_gtag(&p_rows, a, 1.0, &mut trips);
+    let trips = galerkin_triplets(&p_rows, &[(a, 1.0)], n_c);
     SparseColMat::try_new_from_triplets(n_c, n_c, &trips)
         .map_err(|e| EigenError::FaerGevd(format!("AMG Galerkin PᵀAP: {e:?}")))
 }
@@ -1093,6 +1092,27 @@ impl AmsLitePreconditioner {
         sigma: f64,
         coarse: CoarseSolve,
     ) -> Result<Self, EigenError> {
+        Self::build_with_split_coarse(gradient, k, m, sigma, coarse, coarse)
+    }
+
+    /// [`Self::build_with_coarse`] with **independent** coarse solvers for the
+    /// gradient-space `C = Gᵀ A G` (`coarse_g`) and the vector-nodal
+    /// `Πᵀ A Π` (`coarse_pi`, ignored when the gradient carries no edge
+    /// geometry). The two blocks have very different sizes and densities
+    /// (`node_dim`, ~7 nnz/row vs `3·node_dim`, ~150 nnz/row), so the best
+    /// solver for one need not be the best for the other (issue #744).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::build_with_coarse`].
+    pub(crate) fn build_with_split_coarse(
+        gradient: &InteriorGradient,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        sigma: f64,
+        coarse_g: CoarseSolve,
+        coarse_pi: CoarseSolve,
+    ) -> Result<Self, EigenError> {
         let edge_dim = gradient.edge_dim();
         let node_dim = gradient.node_dim();
         assert_eq!(k.nrows(), edge_dim, "K rows must equal G rows (edge_dim)");
@@ -1135,15 +1155,15 @@ impl AmsLitePreconditioner {
         // separately with scales +1 and −σ and let faer's triplet dedup sum
         // coincident (p, q) contributions — no assumption that K and M share a
         // pattern.
-        let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::new();
-        accumulate_gtag(&g_rows, k, 1.0, &mut trips);
-        if sigma != 0.0 {
-            accumulate_gtag(&g_rows, m, -sigma, &mut trips);
-        }
+        let trips = if sigma != 0.0 {
+            galerkin_triplets(&g_rows, &[(k, 1.0), (m, -sigma)], node_dim)
+        } else {
+            galerkin_triplets(&g_rows, &[(k, 1.0)], node_dim)
+        };
 
         let c = SparseColMat::<usize, f64>::try_new_from_triplets(node_dim, node_dim, &trips)
             .map_err(|e| EigenError::FaerGevd(format!("Gᵀ(K−σM)G assembly: {e:?}")))?;
-        let c_coarse = CoarseSolver::build(&c, coarse)?;
+        let c_coarse = CoarseSolver::build(&c, coarse_g)?;
 
         // Vector-nodal auxiliary space (full Hiptmair–Xu, issue #550): build
         // Π and its coarse solver for Πᵀ A Π, but ONLY when the caller supplied
@@ -1153,7 +1173,7 @@ impl AmsLitePreconditioner {
             Some(edge_vectors) => {
                 let pi = build_pi(&g_rows, edge_vectors, edge_dim, node_dim)?;
                 let pi_ata = build_pi_ata(pi.as_ref(), k, m, sigma, node_dim)?;
-                let pi_coarse = CoarseSolver::build(&pi_ata, coarse)?;
+                let pi_coarse = CoarseSolver::build(&pi_ata, coarse_pi)?;
                 (Some(pi), Some(pi_coarse))
             }
             None => (None, None),
@@ -1429,19 +1449,19 @@ fn build_pi_ata(
 
     // Πᵀ A Π = Σ_{A[i,j]=v} v · πᵢ πⱼᵀ, A = K − σM (same folded-shift stream
     // as C = Gᵀ A G).
-    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::new();
-    accumulate_gtag(&pi_rows, k, 1.0, &mut trips);
-    if sigma != 0.0 {
-        accumulate_gtag(&pi_rows, m, -sigma, &mut trips);
-    }
+    let mut trips = if sigma != 0.0 {
+        galerkin_triplets(&pi_rows, &[(k, 1.0), (m, -sigma)], pi_dim)
+    } else {
+        galerkin_triplets(&pi_rows, &[(k, 1.0)], pi_dim)
+    };
 
-    // Tikhonov guard: assemble once to read the diagonal magnitude, then add
+    // Tikhonov guard: read the diagonal magnitude (the triplets are already
+    // deduplicated, so each diagonal entry appears at most once), then add
     // τ·I so the coarse solve is well-posed even when Π is rank-deficient.
-    let ata0 = SparseColMat::<usize, f64>::try_new_from_triplets(pi_dim, pi_dim, &trips)
-        .map_err(|e| EigenError::FaerGevd(format!("ΠᵀAΠ assembly: {e:?}")))?;
-    let mut diag = vec![0.0_f64; pi_dim];
-    csc_diagonal(ata0.as_ref(), &mut diag);
-    let max_diag = diag.iter().fold(0.0_f64, |a, &d| a.max(d.abs()));
+    let max_diag = trips
+        .iter()
+        .filter(|t| t.row == t.col)
+        .fold(0.0_f64, |a, t| a.max(t.val.abs()));
     let tau = if max_diag > 0.0 {
         1e-8 * max_diag
     } else {
@@ -1455,12 +1475,106 @@ fn build_pi_ata(
         .map_err(|e| EigenError::FaerGevd(format!("ΠᵀAΠ assembly (regularized): {e:?}")))
 }
 
+/// Triplets of the Galerkin product `Rᵀ (Σ_t scale_t · A_t) R`, **already
+/// deduplicated** (one triplet per structural nonzero of the coarse operator),
+/// where `R` is the sparse restriction whose row `i` is `rows[i]` (a list of
+/// `(coarse col, weight)`) and the `A_t` are given in CSC (issue #744).
+///
+/// Column-by-column Gustavson product: coarse column `q` is
+/// `Rᵀ (Σ_t s_t A_t (R e_q))`, accumulated in an edge-space and then a
+/// coarse-space sparse accumulator. Memory is `O(nnz(Rᵀ A R) + edge_dim +
+/// n_c)`. The previous outer-product assembly ([`accumulate_gtag`]) emitted
+/// `|rᵢ|·|rⱼ|` triplets **per nonzero of `A`** before deduplication — 36 per
+/// entry for the vector-nodal `Π` — which made `Πᵀ A Π` the dominant setup
+/// time and peak-memory cost of AMS (≈1 GB transient at 53k edges, growing
+/// linearly with `nnz(A)`).
+fn galerkin_triplets(
+    rows: &[Vec<(usize, f64)>],
+    terms: &[(SparseColMatRef<'_, usize, f64>, f64)],
+    n_c: usize,
+) -> Vec<Triplet<usize, usize, f64>> {
+    let n_f = rows.len();
+    // Column view of R: cols[q] = (fine row, weight).
+    let mut col_ptr = vec![0usize; n_c + 1];
+    for r in rows {
+        for &(c, _) in r {
+            col_ptr[c + 1] += 1;
+        }
+    }
+    for q in 0..n_c {
+        col_ptr[q + 1] += col_ptr[q];
+    }
+    let mut fill = col_ptr.clone();
+    let mut col_rows = vec![0usize; col_ptr[n_c]];
+    let mut col_vals = vec![0.0_f64; col_ptr[n_c]];
+    for (i, r) in rows.iter().enumerate() {
+        for &(c, w) in r {
+            col_rows[fill[c]] = i;
+            col_vals[fill[c]] = w;
+            fill[c] += 1;
+        }
+    }
+
+    let mut t = vec![0.0_f64; n_f];
+    let mut t_mark = vec![usize::MAX; n_f];
+    let mut t_list: Vec<usize> = Vec::new();
+    let mut o = vec![0.0_f64; n_c];
+    let mut o_mark = vec![usize::MAX; n_c];
+    let mut o_list: Vec<usize> = Vec::new();
+    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::new();
+    for q in 0..n_c {
+        // t = Σ_t s_t A_t (R e_q)   (fine space)
+        t_list.clear();
+        for kk in col_ptr[q]..col_ptr[q + 1] {
+            let (e, w) = (col_rows[kk], col_vals[kk]);
+            for &(a, scale) in terms {
+                let (cp, ri, va) = (a.col_ptr(), a.row_idx(), a.val());
+                let sw = scale * w;
+                for k in cp[e]..cp[e + 1] {
+                    let i = ri[k];
+                    if t_mark[i] != q {
+                        t_mark[i] = q;
+                        t[i] = 0.0;
+                        t_list.push(i);
+                    }
+                    t[i] += va[k] * sw;
+                }
+            }
+        }
+        // o = Rᵀ t   (coarse space)
+        o_list.clear();
+        for &i in &t_list {
+            let ti = t[i];
+            if ti == 0.0 {
+                continue;
+            }
+            for &(c, u) in &rows[i] {
+                if o_mark[c] != q {
+                    o_mark[c] = q;
+                    o[c] = 0.0;
+                    o_list.push(c);
+                }
+                o[c] += u * ti;
+            }
+        }
+        for &c in &o_list {
+            trips.push(Triplet::new(c, q, o[c]));
+        }
+    }
+    trips
+}
+
+/// Reference outer-product assembly of `scale · Rᵀ A R` (one triplet per
+/// `(A entry, rᵢ entry, rⱼ entry)`, deduplicated by faer afterwards) — the
+/// pre-#744 implementation, kept as the oracle for [`galerkin_triplets`].
+///
 /// Accumulate the triplets of `scale · Rᵀ A R` for a single operator `A`
 /// (given in CSC) into `trips`, where `R` is a sparse restriction whose row
 /// `i` is `rows[i]` (a list of `(col, weight)` — `G`'s ≤2-entry rows for the
 /// gradient space, `Π`'s ≤6-entry rows for the vector-nodal space). Every
 /// nonzero `A[i,j] = v` contributes the `|rows[i]|·|rows[j]|` coarse-indexed
 /// triplets of `scale · v · rᵢ rⱼᵀ`, deduplicated later by faer.
+#[cfg(test)]
 fn accumulate_gtag(
     rows: &[Vec<(usize, f64)>],
     a: SparseColMatRef<'_, usize, f64>,
@@ -1597,6 +1711,52 @@ mod tests {
     /// The AMS-lite apply is symmetric positive definite: `zᵀ r > 0` for
     /// `r ≠ 0` and `⟨M_prec u, v⟩ = ⟨u, M_prec v⟩`. CG requires an SPD
     /// preconditioner, so this is the correctness gate for using AMS-lite at all.
+    /// The Gustavson [`galerkin_triplets`] (issue #744) reproduces the
+    /// reference outer-product `Rᵀ (K − σM) R` assembly to rounding, for a
+    /// ≤6-entry-per-row restriction (Π-shaped) and two operators.
+    #[test]
+    fn galerkin_triplets_matches_outer_product_reference() {
+        let n_f = 40;
+        let n_c = 9;
+        let k = grid_laplacian_2d(8, 5);
+        let (_, m) = laplacian(n_f);
+        assert_eq!(k.nrows(), n_f);
+        let rows: Vec<Vec<(usize, f64)>> = (0..n_f)
+            .map(|i| {
+                (0..(i % 7))
+                    .map(|j| ((i * 3 + j * 5) % n_c, 0.25 + ((i + 2 * j) % 5) as f64 * 0.3))
+                    .collect()
+            })
+            .collect();
+        let sigma = 0.7;
+        let mut reference = Vec::new();
+        accumulate_gtag(&rows, k.as_ref(), 1.0, &mut reference);
+        accumulate_gtag(&rows, m.as_ref(), -sigma, &mut reference);
+        let reference =
+            SparseColMat::<usize, f64>::try_new_from_triplets(n_c, n_c, &reference).unwrap();
+        let fast = galerkin_triplets(&rows, &[(k.as_ref(), 1.0), (m.as_ref(), -sigma)], n_c);
+        // Already deduplicated: at most one triplet per (row, col).
+        let mut seen = std::collections::HashSet::new();
+        assert!(fast.iter().all(|t| seen.insert((t.row, t.col))));
+        let fast = SparseColMat::<usize, f64>::try_new_from_triplets(n_c, n_c, &fast).unwrap();
+        let dense = |a: &SparseColMat<usize, f64>| {
+            let mut d = vec![0.0; n_c * n_c];
+            let a = a.as_ref();
+            for j in 0..n_c {
+                for kk in a.col_ptr()[j]..a.col_ptr()[j + 1] {
+                    d[a.row_idx()[kk] + n_c * j] += a.val()[kk];
+                }
+            }
+            d
+        };
+        let (dr, df) = (dense(&reference), dense(&fast));
+        let scale = dr.iter().fold(0.0_f64, |a, v| a.max(v.abs()));
+        assert!(scale > 0.0);
+        for (a, b) in dr.iter().zip(&df) {
+            assert!((a - b).abs() <= 1e-12 * scale, "{a} vs {b}");
+        }
+    }
+
     #[test]
     fn ams_lite_apply_is_spd() {
         let n = 12;

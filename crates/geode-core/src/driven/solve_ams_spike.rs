@@ -255,9 +255,9 @@ fn ams_spike_spiral() {
         for (spd, vcycle, coarse, label) in [
             (true, true, CoarseSolve::default(), "ams-spd-vc-sgs"),
             (true, true, CoarseSolve::Direct, "ams-spd-vc-lu"),
-            (true, false, CoarseSolve::Direct, "ams-spd-add-lu"),
-            (false, true, CoarseSolve::Direct, "ams-phys-vc-lu"),
+            (true, true, CoarseSolve::Amg, "ams-spd-vc-amg"),
         ] {
+            let t_setup = std::time::Instant::now();
             let p = proxy(&op, omega, spd);
             let ams = match AmsLitePreconditioner::build_with_coarse(
                 &gradient,
@@ -272,6 +272,7 @@ fn ams_spike_spiral() {
                     continue;
                 }
             };
+            eprintln!("  {label} setup={:.2}s", t_setup.elapsed().as_secs_f64());
             let pc = SplitAms {
                 ams,
                 proxy: p,

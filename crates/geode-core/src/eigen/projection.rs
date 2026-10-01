@@ -131,6 +131,18 @@ impl InteriorGradient {
         }
     }
 
+    /// Wrap an already-built `edge_dim × node_dim` discrete gradient (e.g.
+    /// the driven AMS's floating-conductor–augmented `G`, issue #744).
+    pub(crate) fn from_matrix(g: SparseColMat<usize, f64>) -> Self {
+        let (edge_dim, node_dim) = (g.nrows(), g.ncols());
+        Self {
+            g,
+            edge_dim,
+            node_dim,
+            edge_vectors: None,
+        }
+    }
+
     /// Attach the per-reduced-edge-row geometric edge vectors
     /// `d_e = p_b − p_a` (`edges[e] = [a, b]`), length `edge_dim`, enabling
     /// the full-AMS vector-nodal interpolation `Π` (issue #550). Returns

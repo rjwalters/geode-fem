@@ -716,6 +716,13 @@ pub enum PreconditionerSpec {
     Jacobi,
     /// Incomplete LU with zero fill on `A(ω)`'s own sparsity pattern.
     Ilu0,
+    /// Hiptmair–Xu auxiliary-space Maxwell (AMS) V-cycle on a real SPD
+    /// proxy of `A(ω)` (issue #744): converges low-frequency, near-static
+    /// problems (e.g. spirals at 1 GHz) where `jacobi` / `ilu0` stall, at
+    /// an iteration count that stays flat with mesh size. Its node-space
+    /// coarse problems are solved by exact sparse LU up to 150 000 free
+    /// mesh nodes (AMG above); see the CLI README for measured memory.
+    Ams,
 }
 
 impl Default for SolverSpec {
@@ -891,6 +898,15 @@ mod tests {
             s,
             SolverSpec::Iterative {
                 preconditioner: PreconditionerSpec::Ilu0,
+                ..
+            }
+        ));
+        let s: SolverSpec =
+            serde_json::from_str(r#"{"mode":"iterative","preconditioner":"ams"}"#).unwrap();
+        assert!(matches!(
+            s,
+            SolverSpec::Iterative {
+                preconditioner: PreconditionerSpec::Ams,
                 ..
             }
         ));
