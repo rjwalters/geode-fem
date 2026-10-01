@@ -516,6 +516,66 @@ pub struct MaterialSpec {
     /// `capacitance` and `inductance`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dispersion: Option<DispersionSpec>,
+    /// Diagonal anisotropic complex relative permittivity in **mesh
+    /// axes** (additive in v1, issue #760): `{"xx": [re, im], "yy": …,
+    /// "zz": …}`, each component `im ≤ 0` like `eps_r`. Omit (or `null`)
+    /// for an isotropic material. When present, `eps_r` must be left at
+    /// its default and `dispersion` must be absent. `driven` / `extract`
+    /// / `eigen` (lossless and lossy) and `capacitance` (real components
+    /// only); rejected by `inductance` and with a `sensitivity` section.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eps_r_diag: Option<EpsDiagSpec>,
+    /// Diagonal anisotropic real relative permeability in **mesh axes**
+    /// (additive in v1, issue #760): `{"xx": μ, "yy": μ, "zz": μ}`, each
+    /// finite and `> 0`. Omit (or `null`) for an isotropic material. When
+    /// present, `mu_r` must be left at its default. `driven` / `extract`
+    /// / `eigen` and `inductance`; rejected by `capacitance` and with a
+    /// `sensitivity` section. Unlike the scalar `mu_r` (inductance-only),
+    /// this is honoured by the wave analyses: three equal components give
+    /// an isotropic `μ_r ≠ 1` there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mu_r_diag: Option<MuDiagSpec>,
+}
+
+/// Diagonal complex relative-permittivity tensor `diag(ε_xx, ε_yy, ε_zz)`
+/// in mesh axes (issue #760). Each component is `[re, im]`, `im ≤ 0`
+/// (`exp(+jωt)`).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EpsDiagSpec {
+    /// `ε_xx` as `[re, im]`.
+    pub xx: [f64; 2],
+    /// `ε_yy` as `[re, im]`.
+    pub yy: [f64; 2],
+    /// `ε_zz` as `[re, im]`.
+    pub zz: [f64; 2],
+}
+
+impl EpsDiagSpec {
+    /// The components `[xx, yy, zz]` as `[re, im]` pairs.
+    pub fn components(&self) -> [[f64; 2]; 3] {
+        [self.xx, self.yy, self.zz]
+    }
+}
+
+/// Diagonal real relative-permeability tensor `diag(μ_xx, μ_yy, μ_zz)` in
+/// mesh axes (issue #760), each finite and `> 0`.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MuDiagSpec {
+    /// `μ_xx`.
+    pub xx: f64,
+    /// `μ_yy`.
+    pub yy: f64,
+    /// `μ_zz`.
+    pub zz: f64,
+}
+
+impl MuDiagSpec {
+    /// The components `[xx, yy, zz]`.
+    pub fn components(&self) -> [f64; 3] {
+        [self.xx, self.yy, self.zz]
+    }
 }
 
 /// Frequency-dependent relative-permittivity model of a material

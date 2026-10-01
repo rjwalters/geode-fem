@@ -325,6 +325,8 @@ pub fn region_summaries(p: &Problem) -> Vec<RegionSummary> {
                 .iter()
                 .find(|d| d.tag == r.tag)
                 .map(|d| dispersion_summary(d, p)),
+            eps_r_diag: r.eps_r_diag.map(|d| d.map(|e| [e.re, e.im])),
+            mu_r_diag: r.mu_r_diag,
         })
         .collect()
 }

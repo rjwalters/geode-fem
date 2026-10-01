@@ -4,18 +4,22 @@
 //! ([`crate::problem::Problem::has_complex_materials`]):
 //!
 //! - **Lossless** (real `ε_r`, no `absorbing_regions`) — wraps
-//!   [`geode_core::eigen::pec_cavity::solve_pec_cavity_modes`]: the
-//!   interior-reduced first-order Nédélec pencil `K x = k₀² M_ε x`
+//!   [`geode_core::eigen::pec_cavity::solve_pec_cavity_modes_with_materials`]:
+//!   the interior-reduced first-order Nédélec pencil `K x = k₀² M_ε x`
 //!   (PEC surfaces eliminated edge-exactly from their tagged triangles),
 //!   assembled sparse and solved with the pure-Rust sparse shift-invert
-//!   Lanczos around `σ = k₀,shift²`. Every mode's `Q` is `null`.
+//!   Lanczos around `σ = k₀,shift²`. Every mode's `Q` is `null`. With
+//!   anisotropic materials (`eps_r_diag` / `mu_r_diag`, issue #760) the
+//!   pencil is `K(ν) x = k₀² M(ε) x` with per-tet diagonal real `ε` / `ν`
+//!   ([`PecCavityMaterials::Diagonal`]).
 //! - **Lossy / open** (any `Im(ε_r) < 0`, and / or `absorbing_regions`;
 //!   issue #706) — wraps
 //!   [`geode_core::eigen::lossy_cavity::solve_lossy_cavity_modes`]: the
 //!   same pencil with complex `ε_r` (isotropic) or, with
-//!   `absorbing_regions`, the matched box-UPML tensors
-//!   ([`crate::problem::Problem::upml_tensors`]) **frozen at the shift
-//!   frequency** `k₀ = eigen.shift` — a linear complex-symmetric pencil
+//!   `absorbing_regions` and / or anisotropic materials, the full
+//!   constitutive tensors ([`crate::problem::Problem::material_tensors`];
+//!   the box-UPML stretch **frozen at the shift frequency**
+//!   `k₀ = eigen.shift`) — a linear complex-symmetric pencil
 //!   solved with the sparse complex shift-invert Lanczos. Modes carry
 //!   complex `λ` / `k₀` (`lambda_im`, `k0_im`), `f = Re(k₀)·c / (2πL)` and
 //!   `Q = Re(k₀) / (2|Im(k₀)|)` (`geode_util::eigen::q_factor`;
@@ -39,7 +43,9 @@ use geode_core::constants::C_M_PER_S;
 use geode_core::eigen::lossy_cavity::{
     LossyCavityMaterials, LossyCavitySettings, solve_lossy_cavity_modes,
 };
-use geode_core::eigen::pec_cavity::{PecCavitySettings, solve_pec_cavity_modes};
+use geode_core::eigen::pec_cavity::{
+    PecCavityMaterials, PecCavitySettings, solve_pec_cavity_modes_with_materials,
+};
 
 use crate::backend::CompiledBackend;
 use crate::check::{
@@ -71,12 +77,12 @@ struct Solved {
     upml_reference_k0: Option<f64>,
 }
 
-/// The lossless pencil's modes for per-tet real `eps_r` (the spec's, or a
-/// perturbed copy for the sensitivity FD check).
+/// The lossless pencil's modes for `materials` (the spec's, or a
+/// perturbed isotropic copy for the sensitivity FD check).
 fn pec_cavity_modes(
     p: &Problem,
     target: &EigenTarget,
-    eps_r: &[f64],
+    materials: &PecCavityMaterials<'_>,
 ) -> Result<geode_core::eigen::pec_cavity::PecCavityModes, CliError> {
     let settings = PecCavitySettings {
         max_iters: target.max_iters,
@@ -85,9 +91,9 @@ fn pec_cavity_modes(
         ..PecCavitySettings::new(target.sigma(), target.n_modes)
     };
     let device = <B as BackendTypes>::Device::default();
-    Ok(solve_pec_cavity_modes::<B>(
+    Ok(solve_pec_cavity_modes_with_materials::<B>(
         &p.tagged.mesh,
-        eps_r,
+        materials,
         &p.pec_mask,
         &settings,
         &device,
@@ -95,8 +101,17 @@ fn pec_cavity_modes(
 }
 
 fn solve_lossless(p: &Problem, target: &EigenTarget) -> Result<Solved, CliError> {
-    let eps_r: Vec<f64> = p.eps.iter().map(|e| e.re).collect();
-    let solved = pec_cavity_modes(p, target, &eps_r)?;
+    let solved = if p.is_anisotropic() {
+        let (eps, nu) = p.real_diagonal_materials();
+        pec_cavity_modes(
+            p,
+            target,
+            &PecCavityMaterials::Diagonal { eps: &eps, nu: &nu },
+        )?
+    } else {
+        let eps_r: Vec<f64> = p.eps.iter().map(|e| e.re).collect();
+        pec_cavity_modes(p, target, &PecCavityMaterials::Isotropic(&eps_r))?
+    };
     Ok(Solved {
         modes: solved
             .modes
@@ -125,8 +140,9 @@ fn solve_lossy(p: &Problem, target: &EigenTarget) -> Result<Solved, CliError> {
     let device = <B as BackendTypes>::Device::default();
     // UPML frozen at the shift: one linear pencil, no self-consistency.
     let upml_reference_k0 = (!p.upml.is_empty()).then_some(target.shift.k0);
-    let tensors = upml_reference_k0
-        .map(|k0_ref| p.upml_tensors(&p.eps, &tet_centroids(&p.tagged.mesh), k0_ref));
+    let tensors = p
+        .needs_tensor_materials()
+        .then(|| p.material_tensors(&p.eps, &tet_centroids(&p.tagged.mesh), target.shift.k0));
     let materials = match &tensors {
         Some((eps, nu)) => LossyCavityMaterials::Tensor { eps, nu },
         None => LossyCavityMaterials::Isotropic(&p.eps),
@@ -250,11 +266,13 @@ pub fn run(
                 &vectors,
                 sens,
                 |eps_r| {
-                    Ok(pec_cavity_modes(&p, &target, eps_r)?
-                        .modes
-                        .iter()
-                        .map(|m| m.lambda)
-                        .collect())
+                    Ok(
+                        pec_cavity_modes(&p, &target, &PecCavityMaterials::Isotropic(eps_r))?
+                            .modes
+                            .iter()
+                            .map(|m| m.lambda)
+                            .collect(),
+                    )
                 },
             )?)
         }

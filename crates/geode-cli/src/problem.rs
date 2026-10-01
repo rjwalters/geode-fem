@@ -73,12 +73,19 @@ pub struct Region {
     /// Tets in the region.
     pub n_tets: usize,
     /// Applied complex relative permittivity (for a dispersive region,
-    /// the model at its reference frequency `f_ref_hz`).
+    /// the model at its reference frequency `f_ref_hz`; for an
+    /// anisotropic region the isotropic mean `tr(ε)/3` — the tensor is
+    /// [`Region::eps_r_diag`]).
     pub eps_r: c64,
-    /// Applied real relative permeability (`1` unless listed).
+    /// Applied real relative permeability (`1` unless listed; for an
+    /// anisotropic region the mean `tr(μ)/3` — see [`Region::mu_r_diag`]).
     pub mu_r: f64,
     /// Where `eps_r` / `mu_r` came from.
     pub source: MaterialSource,
+    /// Diagonal anisotropic `ε_r` `[xx, yy, zz]` (issue #760), if given.
+    pub eps_r_diag: Option<[c64; 3]>,
+    /// Diagonal anisotropic `μ_r` `[xx, yy, zz]` (issue #760), if given.
+    pub mu_r_diag: Option<[f64; 3]>,
 }
 
 /// A resolved surface group (PEC).
@@ -411,8 +418,16 @@ pub struct Problem {
     /// material is constant).
     pub dispersion: Vec<DispersiveRegion>,
     /// Per-tet real relative permeability (all `1` unless an inductance
-    /// spec lists `mu_r`).
+    /// spec lists `mu_r`; the mean `tr(μ)/3` in a `mu_r_diag` region).
     pub mu_r: Vec<f64>,
+    /// Per-tet diagonal `ε_r` of `eps_r_diag` regions (issue #760; `None`
+    /// elsewhere, where [`Problem::eps`] applies). Empty when no material
+    /// has `eps_r_diag`. [`Problem::eps`] holds `tr(ε)/3` for these tets
+    /// (reporting / field export only).
+    pub eps_diag: Vec<Option<[c64; 3]>>,
+    /// Per-tet diagonal `μ_r` of `mu_r_diag` regions (issue #760; `None`
+    /// elsewhere). Empty when no material has `mu_r_diag`.
+    pub mu_diag: Vec<Option<[f64; 3]>>,
     /// Volume regions, sorted by tag.
     pub regions: Vec<Region>,
     /// PEC surfaces.
@@ -470,7 +485,61 @@ impl Problem {
     /// eigen spec this selects the complex-symmetric (lossy / open)
     /// quasi-mode pencil over the real symmetric lossless one (issue #706).
     pub fn has_complex_materials(&self) -> bool {
-        !self.upml.is_empty() || self.eps.iter().any(|e| e.im != 0.0)
+        !self.upml.is_empty()
+            || self.eps.iter().any(|e| e.im != 0.0)
+            || self
+                .eps_diag
+                .iter()
+                .flatten()
+                .flatten()
+                .any(|e| e.im != 0.0)
+    }
+
+    /// Whether any material is diagonal-anisotropic (`eps_r_diag` /
+    /// `mu_r_diag`, issue #760).
+    pub fn is_anisotropic(&self) -> bool {
+        !self.eps_diag.is_empty() || !self.mu_diag.is_empty()
+    }
+
+    /// Whether the wave (Nédélec) operator needs per-tet constitutive
+    /// tensors ([`Problem::material_tensors`]) rather than the scalar
+    /// `ε_r`: `absorbing_regions` and / or an anisotropic material.
+    pub fn needs_tensor_materials(&self) -> bool {
+        !self.upml.is_empty() || self.is_anisotropic()
+    }
+
+    /// Per-tet real diagonal `(ε, ν = 1/μ)` for the lossless eigen pencil
+    /// of an anisotropic spec (`Re ε_r` of scalar tets on all three axes,
+    /// `ν = 1` outside `mu_r_diag` regions).
+    #[allow(clippy::type_complexity)]
+    pub fn real_diagonal_materials(&self) -> (Vec<[f64; 3]>, Vec<[f64; 3]>) {
+        let eps = (0..self.eps.len())
+            .map(|t| match self.eps_diag.get(t).copied().flatten() {
+                Some(d) => d.map(|e| e.re),
+                None => [self.eps[t].re; 3],
+            })
+            .collect();
+        let nu = (0..self.eps.len())
+            .map(|t| match self.mu_diag.get(t).copied().flatten() {
+                Some(m) => m.map(|m| 1.0 / m),
+                None => [1.0 / self.mu_r[t]; 3],
+            })
+            .collect();
+        (eps, nu)
+    }
+
+    /// Per-tet diagonal `μ_r` (`[μ_r; 3]` outside `mu_r_diag` regions) for
+    /// the anisotropic magnetostatic assembly.
+    pub fn mu_r_diagonal(&self) -> Vec<[f64; 3]> {
+        (0..self.mu_r.len())
+            .map(|t| {
+                self.mu_diag
+                    .get(t)
+                    .copied()
+                    .flatten()
+                    .unwrap_or([self.mu_r[t]; 3])
+            })
+            .collect()
     }
 
     /// Whether the driven operator's materials depend on frequency —
@@ -507,18 +576,24 @@ impl Problem {
             .collect()
     }
 
-    /// Per-tet matched-UPML constitutive tensors `(ε, ν)` at natural
-    /// frequency `k0` for [`DrivenMaterials::MatchedUpml`]: `ε = ε_r·Λ`,
-    /// `ν = Λ⁻¹` with the box stretch `Λ` of the tet's `absorbing_regions`
-    /// shell ([`box_upml_tensors`]) and `Λ = I` elsewhere — the formula of
+    /// Per-tet constitutive tensors `(ε, ν)` at natural frequency `k0`
+    /// for [`DrivenMaterials::MatchedUpml`] / the tensor eigen pencils:
+    /// `ε = ε_r·Λ`, `ν = Λ⁻¹·μ_r⁻¹` with the box stretch `Λ` of the tet's
+    /// `absorbing_regions` shell ([`box_upml_tensors`]) and `Λ = I`
+    /// elsewhere — the formula of
     /// `geode_core::mesh::PatchFixture::matched_upml_materials`, keyed by
-    /// the spec's regions instead of a fixed tag. `centroids` is
-    /// `tet_centroids(&self.tagged.mesh)`; `eps` is the per-tet `ε_r` at
-    /// this frequency ([`Problem::eps_at`]).
+    /// the spec's regions instead of a fixed tag. `ε_r` is the tet's
+    /// `eps_r_diag` (issue #760) or else the scalar `eps[t]` (`eps` is the
+    /// per-tet `ε_r` at this frequency, [`Problem::eps_at`]); `μ_r` is the
+    /// tet's `mu_r_diag` or `1`. `Λ` is diagonal, so the products are
+    /// diagonal-times-diagonal (the uniaxial PML of an anisotropic medium,
+    /// exactly). `centroids` is `tet_centroids(&self.tagged.mesh)` — only
+    /// read for tets in a shell, so it may be empty without UPML (`k0` is
+    /// then unused too).
     ///
     /// [`DrivenMaterials::MatchedUpml`]: geode_core::driven::solve::DrivenMaterials::MatchedUpml
     #[allow(clippy::type_complexity)]
-    pub fn upml_tensors(
+    pub fn material_tensors(
         &self,
         eps: &[c64],
         centroids: &[[f64; 3]],
@@ -533,16 +608,24 @@ impl Problem {
         let n = eps.len();
         let mut eps_t = Vec::with_capacity(n);
         let mut nu_t = Vec::with_capacity(n);
-        for ((c, &eps_r), region) in centroids.iter().zip(eps).zip(&self.upml_of_tet) {
-            let (lam, lam_inv) = match region {
+        for (t, &eps_r) in eps.iter().enumerate() {
+            let (lam, lam_inv) = match self.upml_of_tet.get(t).copied().flatten() {
                 Some(i) => {
-                    let r = &self.upml[*i];
-                    box_upml_tensors(*c, r.air_lo, r.air_hi, r.thickness, r.sigma_0, k0)
+                    let r = &self.upml[i];
+                    box_upml_tensors(centroids[t], r.air_lo, r.air_hi, r.thickness, r.sigma_0, k0)
                 }
                 None => (identity, identity),
             };
-            eps_t.push(lam.map(|row| row.map(|v| v * eps_r)));
-            nu_t.push(lam_inv);
+            eps_t.push(match self.eps_diag.get(t).copied().flatten() {
+                None => lam.map(|row| row.map(|v| v * eps_r)),
+                Some(d) => std::array::from_fn(|i| std::array::from_fn(|j| d[i] * lam[i][j])),
+            });
+            nu_t.push(match self.mu_diag.get(t).copied().flatten() {
+                None => lam_inv,
+                Some(m) => {
+                    std::array::from_fn(|i| std::array::from_fn(|j| lam_inv[i][j] * (1.0 / m[j])))
+                }
+            });
         }
         (eps_t, nu_t)
     }
@@ -644,6 +727,7 @@ pub fn load_parsed(
                 m.physical_group
             )));
         }
+        validate_diagonal_material(m, analysis)?;
         if let Some(d) = &m.dispersion {
             validate_dispersion(&m.physical_group, m.eps_r, d, &spec, analysis)?;
         }
@@ -758,7 +842,7 @@ pub fn load_parsed(
         }
         None => None,
     };
-    validate_ams_dispersion(&spec, &frequencies)?;
+    validate_ams_materials(&spec, &frequencies)?;
     let eigen = spec.eigen.as_ref().map(|e| EigenTarget {
         n_modes: e.n_modes,
         shift: to_frequency(e.shift, e.unit, lu),
@@ -911,10 +995,22 @@ pub fn load_parsed(
     // ---- materials ---------------------------------------------------
     let mut eps_by_tag: BTreeMap<i32, c64> = BTreeMap::new();
     let mut mu_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
+    let mut eps_diag_by_tag: BTreeMap<i32, [c64; 3]> = BTreeMap::new();
+    let mut mu_diag_by_tag: BTreeMap<i32, [f64; 3]> = BTreeMap::new();
     let mut dispersion: Vec<DispersiveRegion> = Vec::new();
     for (m, tag) in spec.materials.iter().zip(&material_tags) {
         let tag = tag.expect("resolved above");
+        if let Some(d) = &m.eps_r_diag {
+            eps_diag_by_tag.insert(tag, d.components().map(|[re, im]| c64::new(re, im)));
+        }
+        if let Some(d) = &m.mu_r_diag {
+            mu_diag_by_tag.insert(tag, d.components());
+        }
         let eps = match &m.dispersion {
+            None if m.eps_r_diag.is_some() => {
+                let d = eps_diag_by_tag[&tag];
+                (d[0] + d[1] + d[2]) / 3.0
+            }
             None => c64::new(m.eps_r[0], m.eps_r[1]),
             Some(d) => {
                 let model = DispersionModel::from_spec(d).expect("validated above");
@@ -943,7 +1039,10 @@ pub fn load_parsed(
                 m.physical_group
             )));
         }
-        mu_by_tag.insert(tag, m.mu_r);
+        mu_by_tag.insert(
+            tag,
+            m.mu_r_diag.map_or(m.mu_r, |d| (d.xx + d.yy + d.zz) / 3.0),
+        );
     }
     let vacuum = c64::new(1.0, 0.0);
     let eps: Vec<c64> = tagged
@@ -952,6 +1051,15 @@ pub fn load_parsed(
         .map(|t| eps_by_tag.get(t).copied().unwrap_or(vacuum))
         .collect();
     let mu_r = build_mu_r(&tagged.tet_physical_tags, &mu_by_tag);
+    // Per-tet diagonal tensors, empty when no material is anisotropic.
+    fn per_tet<T: Copy>(tags: &[i32], by_tag: &BTreeMap<i32, T>) -> Vec<Option<T>> {
+        if by_tag.is_empty() {
+            return Vec::new();
+        }
+        tags.iter().map(|t| by_tag.get(t).copied()).collect()
+    }
+    let eps_diag = per_tet(&tagged.tet_physical_tags, &eps_diag_by_tag);
+    let mu_diag = per_tet(&tagged.tet_physical_tags, &mu_diag_by_tag);
     let mut counts: BTreeMap<i32, usize> = BTreeMap::new();
     for &t in &tagged.tet_physical_tags {
         *counts.entry(t).or_default() += 1;
@@ -979,6 +1087,8 @@ pub fn load_parsed(
                 eps_r,
                 mu_r: mu_by_tag.get(&tag).copied().unwrap_or(1.0),
                 source,
+                eps_r_diag: eps_diag_by_tag.get(&tag).copied(),
+                mu_r_diag: mu_diag_by_tag.get(&tag).copied(),
             }
         })
         .collect();
@@ -1124,6 +1234,8 @@ pub fn load_parsed(
         eps,
         dispersion,
         mu_r,
+        eps_diag,
+        mu_diag,
         regions,
         pec,
         leontovich,
@@ -1255,6 +1367,79 @@ fn resolve_extract(
     ))
 }
 
+/// `materials[].eps_r_diag` / `mu_r_diag` rules (scalar, before the mesh
+/// is read; issue #760): finite components, passive `ε` (`Im ≤ 0`),
+/// positive `μ`, not combined with the scalar field they replace (or, for
+/// `ε`, with a — scalar — `dispersion` model), and only for analyses with
+/// that constitutive term. Per-analysis value rules (`Re ε > 0` for
+/// eigen, real `ε` for capacitance) live with the analysis validators;
+/// `sensitivity` rejects anisotropic materials ([`validate_sensitivity`]).
+fn validate_diagonal_material(
+    m: &crate::spec::MaterialSpec,
+    analysis: Analysis,
+) -> Result<(), CliError> {
+    let g = &m.physical_group;
+    const AXES: [&str; 3] = ["xx", "yy", "zz"];
+    if let Some(d) = &m.eps_r_diag {
+        for (axis, [re, im]) in AXES.into_iter().zip(d.components()) {
+            if !(re.is_finite() && im.is_finite()) {
+                return Err(invalid(format!(
+                    "materials[{g}].eps_r_diag.{axis} must be finite"
+                )));
+            }
+            if im > 0.0 {
+                return Err(invalid(format!(
+                    "materials[{g}].eps_r_diag.{axis} has Im > 0 (gain); lossy media need \
+                     Im(eps_r) <= 0 under the exp(+jwt) convention"
+                )));
+            }
+        }
+        if m.eps_r != [1.0, 0.0] {
+            return Err(invalid(format!(
+                "materials[{g}] has both `eps_r` and `eps_r_diag`: the diagonal tensor defines \
+                 the permittivity — drop `eps_r` (three equal `eps_r_diag` components are the \
+                 isotropic case)"
+            )));
+        }
+        if m.dispersion.is_some() {
+            return Err(invalid(format!(
+                "materials[{g}] has both `eps_r_diag` and `dispersion`: dispersion models are \
+                 isotropic in schema v1 (anisotropic dispersion is not supported) — use one or \
+                 the other; a spec may still mix dispersive and anisotropic materials on \
+                 different regions"
+            )));
+        }
+        if analysis == Analysis::Inductance {
+            return Err(invalid(format!(
+                "materials[{g}].eps_r_diag has no effect on a magnetostatic solve; an \
+                 inductance spec takes only `mu_r` / `mu_r_diag`"
+            )));
+        }
+    }
+    if let Some(d) = &m.mu_r_diag {
+        for (axis, v) in AXES.into_iter().zip(d.components()) {
+            if !(v.is_finite() && v > 0.0) {
+                return Err(invalid(format!(
+                    "materials[{g}].mu_r_diag.{axis} must be finite and > 0 (got {v})"
+                )));
+            }
+        }
+        if m.mu_r != 1.0 {
+            return Err(invalid(format!(
+                "materials[{g}] has both `mu_r` and `mu_r_diag`: the diagonal tensor defines \
+                 the permeability — drop `mu_r`"
+            )));
+        }
+        if analysis == Analysis::Capacitance {
+            return Err(invalid(format!(
+                "materials[{g}].mu_r_diag has no effect on an electrostatic solve (no \
+                 permeability term); drop it from the capacitance spec"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// `materials[].dispersion` rules (scalar, before the mesh is read; issue
 /// #757): the model's own inputs and fit, no explicit `eps_r` alongside
 /// it, and only the analyses that evaluate `ε_r(f)` per frequency — the
@@ -1316,22 +1501,24 @@ fn validate_dispersion(
     Ok(())
 }
 
-/// The AMS guard for dispersive materials (issue #761; scalar, before the
-/// mesh is read — the solved frequencies are known up front). The AMS
-/// V-cycle is built on the real SPD proxy `Re K + ω² Re M(ε)`
-/// (`geode_core::driven::solve_ams`), which is SPD only while `Re ε_r >
-/// 0` in every tet: a region with `Re ε_r(f) ≤ 0` (a Drude model below
-/// its zero crossing) makes the proxy indefinite (or singular), and the
-/// preconditioned COCG has no convergence basis. Such a spec is
-/// `invalid_spec` with `solver.preconditioner = "ams"`.
+/// The AMS material guard (issues #761, #760; scalar, before the mesh is
+/// read — the solved frequencies are known up front). The AMS V-cycle is
+/// built on the real SPD proxy `Re K(ν) + ω² Re M(ε)`
+/// (`geode_core::driven::solve_ams`), which is SPD only while `Re ε > 0`
+/// and `ν > 0` in every tet and on every axis: a region with `Re ε_r ≤
+/// 0` — a constant `eps_r`, any `eps_r_diag` component, or a dispersive
+/// `ε_r(f)` at a solved frequency (a Drude model below its zero crossing)
+/// — makes the proxy indefinite (or singular), and the preconditioned
+/// COCG has no convergence basis. Such a spec is `invalid_spec` with
+/// `solver.preconditioner = "ams"`. (A non-positive `mu_r` / `mu_r_diag`
+/// component is rejected for every solver by the scalar material rules,
+/// so `ν > 0` holds here.)
 ///
 /// `jacobi` / `ilu0` need no guard: they precondition `A(ω)` itself, and
 /// `Re ε_r < 0` turns the diagonal mass term `−ω² Re ε M_ii` positive,
 /// moving `diag A` *away* from zero (no new breakdown); the direct LU of
-/// the complex-symmetric `A(ω)` is indifferent to the sign. A constant
-/// `eps_r` with `Re < 0` is not guarded either (it predates #761 and is
-/// out of this rule's scope).
-fn validate_ams_dispersion(spec: &ProblemSpec, frequencies: &[Frequency]) -> Result<(), CliError> {
+/// the complex-symmetric `A(ω)` is indifferent to the sign.
+fn validate_ams_materials(spec: &ProblemSpec, frequencies: &[Frequency]) -> Result<(), CliError> {
     let SolverSpec::Iterative {
         preconditioner: crate::spec::PreconditionerSpec::Ams,
         ..
@@ -1339,7 +1526,30 @@ fn validate_ams_dispersion(spec: &ProblemSpec, frequencies: &[Frequency]) -> Res
     else {
         return Ok(());
     };
+    let remedy = "use `solver.mode = \"direct\"` or the `jacobi` / `ilu0` preconditioner";
     for m in &spec.materials {
+        let constant: Vec<(&str, f64)> = match (&m.dispersion, &m.eps_r_diag) {
+            (Some(_), _) => Vec::new(),
+            (None, Some(d)) => ["xx", "yy", "zz"]
+                .into_iter()
+                .zip(d.components())
+                .map(|(axis, [re, _])| (axis, re))
+                .collect(),
+            (None, None) => vec![("", m.eps_r[0])],
+        };
+        if let Some((axis, re)) = constant.into_iter().find(|&(_, re)| re <= 0.0) {
+            let field = if axis.is_empty() {
+                "eps_r".to_string()
+            } else {
+                format!("eps_r_diag.{axis}")
+            };
+            return Err(invalid(format!(
+                "materials[{}].{field} has Re = {re} <= 0: `solver.preconditioner = \"ams\"` \
+                 builds its V-cycle on the real proxy Re K + w^2 Re M(eps), which is not \
+                 positive definite with a non-positive Re eps — {remedy}",
+                m.physical_group
+            )));
+        }
         let Some(d) = &m.dispersion else { continue };
         let model = DispersionModel::from_spec(d).expect("validated above");
         let bad: Vec<(f64, c64)> = frequencies
@@ -1462,6 +1672,15 @@ fn validate_eigen(spec: &ProblemSpec) -> Result<(), CliError> {
             m.physical_group
         )));
     }
+    if let Some(m) = spec.materials.iter().find(|m| {
+        m.eps_r_diag
+            .is_some_and(|d| d.components().iter().any(|c| c[0] <= 0.0))
+    }) {
+        return Err(invalid(format!(
+            "materials[{}].eps_r_diag must have Re > 0 on every axis for the eigen solve",
+            m.physical_group
+        )));
+    }
     Ok(())
 }
 
@@ -1523,6 +1742,20 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
     let Some(sens) = &spec.sensitivity else {
         return Ok(());
     };
+    if let Some(m) = spec
+        .materials
+        .iter()
+        .find(|m| m.eps_r_diag.is_some() || m.mu_r_diag.is_some())
+    {
+        return Err(invalid(format!(
+            "`sensitivity` does not support anisotropic materials in schema v1 \
+             (materials[{}] has `eps_r_diag` / `mu_r_diag`): every library material \
+             gradient differentiates a scalar per-region eps_r / nu_r on the scalar operator, \
+             and there is no gradient with respect to a tensor component — drop \
+             `sensitivity`, or use scalar materials",
+            m.physical_group
+        )));
+    }
     match analysis {
         Analysis::Extract => {
             return Err(invalid(
@@ -1837,6 +2070,20 @@ fn validate_capacitance(spec: &ProblemSpec) -> Result<(), CliError> {
     if let Some(m) = spec.materials.iter().find(|m| m.eps_r[0] <= 0.0) {
         return Err(invalid(format!(
             "materials[{}].eps_r must have Re > 0 for the electrostatic solve",
+            m.physical_group
+        )));
+    }
+    // Diagonal ε (issue #760): ∇·(ε∇φ) with a real SPD tensor.
+    if let Some(m) = spec.materials.iter().find(|m| {
+        m.eps_r_diag.is_some_and(|d| {
+            d.components()
+                .iter()
+                .any(|&[re, im]| im != 0.0 || re <= 0.0)
+        })
+    }) {
+        return Err(invalid(format!(
+            "materials[{}].eps_r_diag must be real with Re > 0 on every axis for the \
+             electrostatic solve (each component [re, 0], re > 0)",
             m.physical_group
         )));
     }
@@ -3105,6 +3352,274 @@ mod tests {
         ] {
             assert!(
                 serde_json::from_value::<crate::spec::DispersionSpec>(bad.clone()).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    /// `materials[].eps_r_diag` / `mu_r_diag` rules (issue #760) and the
+    /// generalized AMS guard (constant / diagonal `Re ε ≤ 0`), all scalar:
+    /// they fire before the (absent) mesh is read; a valid spec fails with
+    /// `Io` on the mesh instead.
+    #[test]
+    fn anisotropic_validation_and_ams_guard() {
+        let diag_e = serde_json::json!({"xx": [3.0, 0.0], "yy": [3.0, 0.0], "zz": [9.0, -0.1]});
+        let diag_e_real = serde_json::json!({"xx": [3.0, 0.0], "yy": [3.0, 0.0], "zz": [9.0, 0.0]});
+        let diag_m = serde_json::json!({"xx": 1.0, "yy": 1.0, "zz": 2.0});
+        let base = |analysis: &str| -> serde_json::Value {
+            let mut v = serde_json::json!({
+                "schema_version": 1,
+                "mesh": {"path": "does-not-exist.msh", "length_unit_m": 1e-6},
+            });
+            match analysis {
+                "driven" => {
+                    v["ports"] = serde_json::json!([
+                        {"physical_group": "p", "e_hat": [0.0, 1.0, 0.0], "resistance_ohm": 50.0}
+                    ]);
+                    v["frequencies"] = serde_json::json!({"unit": "ghz", "values": [1.0, 2.0]});
+                }
+                "eigen" => {
+                    v["boundary_conditions"] = serde_json::json!({"pec": ["wall"]});
+                    v["eigen"] = serde_json::json!({"n_modes": 2, "shift": 1.0, "unit": "ghz"});
+                }
+                "capacitance" => {
+                    v["capacitance"] = serde_json::json!({"terminals": ["a"], "ground": ["g"]});
+                }
+                "inductance" => {
+                    v["boundary_conditions"] = serde_json::json!({"pec": ["wall"]});
+                    v["inductance"] = serde_json::json!({"paths": [
+                        {"name": "p", "conductor": "c", "source": "s", "sink": "k"}
+                    ]});
+                }
+                _ => unreachable!(),
+            }
+            v
+        };
+        let spec = |analysis: &str,
+                    material: serde_json::Value,
+                    extra: serde_json::Value|
+         -> ProblemSpec {
+            let mut v = base(analysis);
+            v["materials"] = serde_json::json!([material]);
+            for (k, x) in extra.as_object().unwrap() {
+                v[k] = x.clone();
+            }
+            serde_json::from_value(v).expect("spec parses")
+        };
+        let load = |s: ProblemSpec| load_parsed(s, Path::new("."), None);
+        let msg = |s: ProblemSpec| match load(s) {
+            Err(CliError::InvalidSpec(m)) => {
+                assert!(!m.contains("  "), "stray whitespace: {m:?}");
+                m
+            }
+            other => panic!("expected InvalidSpec, got {other:?}"),
+        };
+        let none = serde_json::json!({});
+        let ams = serde_json::json!({"solver": {"mode": "iterative", "preconditioner": "ams"}});
+        let mat = |fields: serde_json::Value| {
+            let mut m = serde_json::json!({"physical_group": "sub"});
+            for (k, x) in fields.as_object().unwrap() {
+                m[k] = x.clone();
+            }
+            m
+        };
+
+        // Valid: parsed as given, scalar validation passes.
+        let parsed = spec(
+            "driven",
+            mat(serde_json::json!({"eps_r_diag": diag_e, "mu_r_diag": diag_m})),
+            none.clone(),
+        );
+        assert_eq!(
+            parsed.materials[0].eps_r_diag,
+            Some(crate::spec::EpsDiagSpec {
+                xx: [3.0, 0.0],
+                yy: [3.0, 0.0],
+                zz: [9.0, -0.1]
+            })
+        );
+        assert_eq!(
+            parsed.materials[0].mu_r_diag,
+            Some(crate::spec::MuDiagSpec {
+                xx: 1.0,
+                yy: 1.0,
+                zz: 2.0
+            })
+        );
+        for (analysis, fields, extra) in [
+            (
+                "driven",
+                serde_json::json!({"eps_r_diag": diag_e, "mu_r_diag": diag_m}),
+                none.clone(),
+            ),
+            (
+                "driven",
+                serde_json::json!({"eps_r_diag": diag_e}),
+                serde_json::json!({"sweep": {"adaptive": {}}}),
+            ),
+            (
+                "driven",
+                serde_json::json!({"eps_r_diag": diag_e}),
+                ams.clone(),
+            ),
+            (
+                "eigen",
+                serde_json::json!({"eps_r_diag": diag_e, "mu_r_diag": diag_m}),
+                none.clone(),
+            ),
+            (
+                "capacitance",
+                serde_json::json!({"eps_r_diag": diag_e_real}),
+                none.clone(),
+            ),
+            (
+                "inductance",
+                serde_json::json!({"mu_r_diag": diag_m}),
+                none.clone(),
+            ),
+            // A negative constant Re ε stays legal without AMS.
+            (
+                "driven",
+                serde_json::json!({"eps_r": [-2.0, -0.1]}),
+                none.clone(),
+            ),
+        ] {
+            assert!(
+                matches!(
+                    load(spec(analysis, mat(fields.clone()), extra.clone())),
+                    Err(CliError::Io { .. })
+                ),
+                "{analysis} / {fields} / {extra}"
+            );
+        }
+
+        // Rejections.
+        let ds = serde_json::json!({
+            "model": "djordjevic_sarkar", "eps_r": 4.3, "tan_delta": 0.02, "f_ref_hz": 1e9
+        });
+        let gain = serde_json::json!({"xx": [3.0, 0.0], "yy": [3.0, 0.1], "zz": [9.0, 0.0]});
+        let neg_zz = serde_json::json!({"xx": [3.0, 0.0], "yy": [3.0, 0.0], "zz": [-1.0, 0.0]});
+        let zero_mu = serde_json::json!({"xx": 1.0, "yy": 0.0, "zz": 2.0});
+        for (analysis, fields, extra, needles) in [
+            (
+                "driven",
+                serde_json::json!({"eps_r": [2.0, 0.0], "eps_r_diag": diag_e}),
+                none.clone(),
+                vec!["materials[sub]", "both `eps_r` and `eps_r_diag`"],
+            ),
+            (
+                "driven",
+                serde_json::json!({"eps_r_diag": diag_e, "dispersion": ds}),
+                none.clone(),
+                vec!["both `eps_r_diag` and `dispersion`"],
+            ),
+            (
+                "driven",
+                serde_json::json!({"mu_r": 2.0, "mu_r_diag": diag_m}),
+                none.clone(),
+                vec!["both `mu_r` and `mu_r_diag`"],
+            ),
+            (
+                "driven",
+                serde_json::json!({"eps_r_diag": gain}),
+                none.clone(),
+                vec!["eps_r_diag.yy", "gain"],
+            ),
+            (
+                "driven",
+                serde_json::json!({"mu_r_diag": zero_mu}),
+                none.clone(),
+                vec!["mu_r_diag.yy", "> 0"],
+            ),
+            (
+                "inductance",
+                serde_json::json!({"eps_r_diag": diag_e}),
+                none.clone(),
+                vec!["eps_r_diag has no effect on a magnetostatic solve"],
+            ),
+            (
+                "capacitance",
+                serde_json::json!({"mu_r_diag": diag_m}),
+                none.clone(),
+                vec!["mu_r_diag has no effect on an electrostatic solve"],
+            ),
+            (
+                "capacitance",
+                serde_json::json!({"eps_r_diag": diag_e}),
+                none.clone(),
+                vec!["eps_r_diag must be real with Re > 0"],
+            ),
+            (
+                "eigen",
+                serde_json::json!({"eps_r_diag": neg_zz}),
+                none.clone(),
+                vec!["eps_r_diag must have Re > 0 on every axis"],
+            ),
+            (
+                "driven",
+                serde_json::json!({"eps_r_diag": diag_e}),
+                serde_json::json!({"sensitivity": {"parameters": [
+                    {"physical_group": "sub", "kind": "eps_r"}
+                ]}}),
+                vec![
+                    "`sensitivity` does not support anisotropic materials",
+                    "materials[sub]",
+                ],
+            ),
+            (
+                "inductance",
+                serde_json::json!({"mu_r_diag": diag_m}),
+                serde_json::json!({"sensitivity": {"parameters": [
+                    {"physical_group": "sub", "kind": "mu_r"}
+                ]}}),
+                vec!["`sensitivity` does not support anisotropic materials"],
+            ),
+            // The AMS guard (folded-in #769 review follow-up).
+            (
+                "driven",
+                serde_json::json!({"eps_r": [-2.0, -0.1]}),
+                ams.clone(),
+                vec![
+                    "materials[sub].eps_r has Re = -2",
+                    "preconditioner = \"ams\"",
+                    "direct",
+                ],
+            ),
+            (
+                "driven",
+                serde_json::json!({"eps_r": [0.0, -0.1]}),
+                ams.clone(),
+                vec!["materials[sub].eps_r has Re = 0"],
+            ),
+            (
+                "driven",
+                serde_json::json!({"eps_r_diag": neg_zz}),
+                ams.clone(),
+                vec![
+                    "materials[sub].eps_r_diag.zz has Re = -1",
+                    "preconditioner = \"ams\"",
+                ],
+            ),
+        ] {
+            let m = msg(spec(analysis, mat(fields.clone()), extra.clone()));
+            for needle in needles {
+                assert!(
+                    m.contains(needle),
+                    "{fields} / {extra}: `{needle}` not in {m}"
+                );
+            }
+        }
+
+        // Missing / stray components are parse errors.
+        for bad in [
+            serde_json::json!({"physical_group": "sub", "eps_r_diag": {"xx": [1.0, 0.0], "yy": [1.0, 0.0]}}),
+            serde_json::json!({"physical_group": "sub", "eps_r_diag": {"xx": [1.0, 0.0], "yy": [1.0, 0.0], "zz": [1.0, 0.0], "xy": [0.0, 0.0]}}),
+            serde_json::json!({"physical_group": "sub", "eps_r_diag": {"xx": 1.0, "yy": 1.0, "zz": 1.0}}),
+            serde_json::json!({"physical_group": "sub", "mu_r_diag": {"xx": 1.0, "zz": 1.0}}),
+            serde_json::json!({"physical_group": "sub", "mu_r_diag": {"xx": [1.0, 0.0], "yy": 1.0, "zz": 1.0}}),
+        ] {
+            assert!(
+                serde_json::from_value::<crate::spec::MaterialSpec>(bad.clone()).is_err(),
                 "{bad}"
             );
         }
