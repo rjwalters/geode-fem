@@ -416,3 +416,27 @@ fn touchstone_is_rejected_for_wave_ports_before_solving() {
     assert_eq!(r["solver_mode"], "direct");
     assert!(r["peak_memory_gb"].as_f64().unwrap() > 0.0);
 }
+
+#[test]
+fn iterative_recursive_residual_drift_fails_with_solve_failed() {
+    // Issue #744: with a tolerance below the f64 rounding floor, COCG's
+    // *recursive* residual crosses `tol` (it keeps shrinking
+    // geometrically) while the explicitly recomputed residual stalls
+    // above it. That near-miss used to be accepted as converged and an
+    // S-matrix reported with `status: ok`; through the wave-port sweep's
+    // `back_solve` it must now be `solve_failed`. The budget is generous,
+    // so this is the drift path, not `max_iters` exhaustion (which has its
+    // own message).
+    let s = spec("drift", |v| {
+        v["solver"] = serde_json::json!({ "mode": "iterative", "tol": 1e-30, "max_iters": 20000 });
+    });
+    let msg = error_message(
+        &geode(&["driven", s.to_str().unwrap()]),
+        "driven",
+        "solve_failed",
+    );
+    assert!(
+        msg.contains("explicitly recomputed residual"),
+        "expected the recursive-residual drift error, got: {msg}"
+    );
+}
