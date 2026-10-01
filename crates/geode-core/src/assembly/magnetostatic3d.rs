@@ -378,7 +378,6 @@ pub fn assemble_magnetostatic3d(
     mu_r: &[f64],
     interior_mask: &[bool],
 ) -> Result<Magnetostatic3dSystem, Magnetostatic3dError> {
-    let n_nodes = mesh.n_nodes();
     let n_tets = mesh.n_tets();
     if mu_r.len() != n_tets {
         return Err(Magnetostatic3dError::ShapeMismatch(format!(
@@ -386,6 +385,61 @@ pub fn assemble_magnetostatic3d(
             mu_r.len()
         )));
     }
+    assemble_magnetostatic3d_impl(mesh, interior_mask, |t, coords| {
+        let k_local = tet_nedelec_stiffness(coords);
+        let nu_t = NU_0 / mu_r[t];
+        k_local.map(|row| row.map(|k| nu_t * k))
+    })
+}
+
+/// [`assemble_magnetostatic3d`] with a per-tet **diagonal anisotropic**
+/// relative permeability `diag(μ_xx, μ_yy, μ_zz)` in mesh axes (issue
+/// #760): the element curl-curl is `K_ij = V · curl N_i · ν curl N_j` with
+/// `ν = ν₀ diag(1/μ_xx, 1/μ_yy, 1/μ_zz)`
+/// ([`tet_nedelec_stiffness_diag_nu`]). Three equal components reproduce
+/// the scalar `μ_r` path to round-off.
+///
+/// # Errors
+///
+/// As [`assemble_magnetostatic3d`]; also
+/// [`Magnetostatic3dError::ShapeMismatch`] for a non-finite or
+/// non-positive `μ` component.
+pub fn assemble_magnetostatic3d_diag(
+    mesh: &TetMesh,
+    mu_r_diag: &[[f64; 3]],
+    interior_mask: &[bool],
+) -> Result<Magnetostatic3dSystem, Magnetostatic3dError> {
+    let n_tets = mesh.n_tets();
+    if mu_r_diag.len() != n_tets {
+        return Err(Magnetostatic3dError::ShapeMismatch(format!(
+            "mu_r_diag length {} != tet count {n_tets}",
+            mu_r_diag.len()
+        )));
+    }
+    if let Some(bad) = mu_r_diag
+        .iter()
+        .flatten()
+        .find(|m| !(m.is_finite() && **m > 0.0))
+    {
+        return Err(Magnetostatic3dError::ShapeMismatch(format!(
+            "mu_r_diag components must be finite and > 0 (got {bad})"
+        )));
+    }
+    assemble_magnetostatic3d_impl(mesh, interior_mask, |t, coords| {
+        let [mx, my, mz] = mu_r_diag[t];
+        tet_nedelec_stiffness_diag_nu(coords, [NU_0 / mx, NU_0 / my, NU_0 / mz])
+    })
+}
+
+/// Shared assembly: `local(t, coords)` is tet `t`'s sign-unaware,
+/// ν-weighted local 6×6 curl-curl.
+fn assemble_magnetostatic3d_impl(
+    mesh: &TetMesh,
+    interior_mask: &[bool],
+    local: impl Fn(usize, &[[f64; 3]; 4]) -> [[f64; 6]; 6],
+) -> Result<Magnetostatic3dSystem, Magnetostatic3dError> {
+    let n_nodes = mesh.n_nodes();
+    let n_tets = mesh.n_tets();
     let edges = mesh.edges();
     let n_edges = edges.len();
     if interior_mask.len() != n_edges {
@@ -404,14 +458,13 @@ pub fn assemble_magnetostatic3d(
             mesh.nodes[tet[2] as usize],
             mesh.nodes[tet[3] as usize],
         ];
-        let k_local = tet_nedelec_stiffness(&coords);
-        let nu_t = NU_0 / mu_r[t];
+        let k_local = local(t, &coords);
         let te = &tet_edges[t];
         for i in 0..6 {
             let (gi, si) = te[i];
             for j in 0..6 {
                 let (gj, sj) = te[j];
-                let v = nu_t * k_local[i][j] * (si as f64) * (sj as f64);
+                let v = k_local[i][j] * (si as f64) * (sj as f64);
                 full_trips.push(Triplet::new(gi as usize, gj as usize, v));
             }
         }
@@ -809,6 +862,30 @@ pub fn tet_nedelec_stiffness(coords: &[[f64; 3]; 4]) -> [[f64; 6]; 6] {
     k
 }
 
+/// Sign-unaware local 6×6 Nédélec curl-curl weighted by a **diagonal**
+/// reluctivity `ν = diag(ν_x, ν_y, ν_z)` (issue #760):
+/// `K_ij = V · c_i · ν c_j` with the constant Whitney curl
+/// `c_i = curl N_(a,b) = 2 ∇λ_a × ∇λ_b` (`i = (a, b)`, `V = |det|/6`).
+/// For `ν = (1, 1, 1)` this is [`tet_nedelec_stiffness`] (the Binet–Cauchy
+/// identity `(∇λ_a×∇λ_b)·(∇λ_c×∇λ_d) = G_ac G_bd − G_ad G_bc`) up to
+/// round-off. The per-tet orientation sign is applied by the caller.
+pub fn tet_nedelec_stiffness_diag_nu(coords: &[[f64; 3]; 4], nu: [f64; 3]) -> [[f64; 6]; 6] {
+    let grads = tet_bary_grads(coords);
+    let vol = tet_signed_volume(coords).abs();
+    let curls: [[f64; 3]; 6] = std::array::from_fn(|i| {
+        let (a, b) = TET_LOCAL_EDGES[i];
+        scale(cross(grads[a], grads[b]), 2.0)
+    });
+    let mut k = [[0.0_f64; 6]; 6];
+    for i in 0..6 {
+        for j in 0..6 {
+            let (ci, cj) = (curls[i], curls[j]);
+            k[i][j] = vol * (nu[0] * ci[0] * cj[0] + nu[1] * ci[1] * cj[1] + nu[2] * ci[2] * cj[2]);
+        }
+    }
+    k
+}
+
 /// Sign-unaware local Nédélec RHS `b_i = ∫ N_i·J dV = (V/4)(∇λ_b − ∇λ_a)·J`
 /// for a per-tet constant `J` (`i=(a,b)`). Matches
 /// [`crate::elements::nedelec::batched_nedelec_local_rhs`]
@@ -975,4 +1052,91 @@ pub fn loop_current_density(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mesh::cube_tet_mesh;
+
+    /// `ν = (1, 1, 1)` reproduces the scalar Binet–Cauchy local matrix.
+    #[test]
+    fn diag_nu_local_matches_scalar_identity() {
+        let coords = [
+            [0.1, 0.0, 0.2],
+            [1.3, 0.1, 0.0],
+            [0.2, 0.9, 0.1],
+            [0.3, 0.2, 1.1],
+        ];
+        let k = tet_nedelec_stiffness(&coords);
+        let kd = tet_nedelec_stiffness_diag_nu(&coords, [1.0, 1.0, 1.0]);
+        let scale = k.iter().flatten().fold(0.0_f64, |m, v| m.max(v.abs()));
+        for i in 0..6 {
+            for j in 0..6 {
+                assert!(
+                    (k[i][j] - kd[i][j]).abs() <= 1e-13 * scale,
+                    "K[{i}][{j}]: {} vs {}",
+                    k[i][j],
+                    kd[i][j]
+                );
+            }
+        }
+    }
+
+    /// An isotropic diagonal `μ = (m, m, m)` assembles the scalar-`μ_r`
+    /// stiffness to round-off.
+    #[test]
+    fn isotropic_diag_matches_scalar_assembly() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let mask = vec![true; mesh.edges().len()];
+        let mu: Vec<f64> = (0..mesh.n_tets())
+            .map(|t| 1.0 + 0.25 * (t % 3) as f64)
+            .collect();
+        let diag: Vec<[f64; 3]> = mu.iter().map(|&m| [m; 3]).collect();
+        let a = assemble_magnetostatic3d(&mesh, &mu, &mask).unwrap();
+        let b = assemble_magnetostatic3d_diag(&mesh, &diag, &mask).unwrap();
+        let (da, db) = (a.k_full.to_dense(), b.k_full.to_dense());
+        let scale = (0..da.nrows())
+            .flat_map(|i| (0..da.ncols()).map(move |j| (i, j)))
+            .fold(0.0_f64, |m, (i, j)| m.max(da[(i, j)].abs()));
+        for i in 0..da.nrows() {
+            for j in 0..da.ncols() {
+                assert!((da[(i, j)] - db[(i, j)]).abs() <= 1e-12 * scale);
+            }
+        }
+    }
+
+    /// Exact energy of a uniform `B`: the linear potential `A = ½ B × r`
+    /// is reproduced exactly by Whitney edge DOFs (`a_e = A(mid)·(x_b −
+    /// x_a)`), so `aᵀ K a = ∫ B·ν B dV = ν₀ Σ_k B_k² / μ_kk` on the unit
+    /// cube — each field component sees only its own `μ` component.
+    #[test]
+    fn uniform_field_energy_sees_only_its_axis() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let mask = vec![true; edges.len()];
+        let mu = [2.0, 3.0, 5.0];
+        let diag = vec![mu; mesh.n_tets()];
+        let sys = assemble_magnetostatic3d_diag(&mesh, &diag, &mask).unwrap();
+        for (axis, b) in [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+            .into_iter()
+            .enumerate()
+        {
+            let a: Vec<f64> = edges
+                .iter()
+                .map(|&[p, q]| {
+                    let (xp, xq) = (mesh.nodes[p as usize], mesh.nodes[q as usize]);
+                    let mid = std::array::from_fn(|k| 0.5 * (xp[k] + xq[k]));
+                    let pot = scale(cross(b, mid), 0.5);
+                    dot(pot, sub(xq, xp))
+                })
+                .collect();
+            let energy = quad_form(&sys.k_full, &a, &a);
+            let want = NU_0 / mu[axis];
+            assert!(
+                (energy - want).abs() <= 1e-10 * want,
+                "axis {axis}: aᵀKa = {energy:e}, want ν₀/μ = {want:e}"
+            );
+        }
+    }
 }
