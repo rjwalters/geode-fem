@@ -2377,7 +2377,7 @@
           "type": "number"
         },
         "q": {
-          "description": "Quality factor `Q = Re(k₀) / (2 |Im(k₀)|)`. `null` for a lossless\n(real symmetric) pencil, where `Q` is undefined (infinite), not a\nnumber; finite for a complex pencil (lossy `ε_r` and / or\n`absorbing_regions`) — `null` there too for a mode with\n`|Im(k₀)| ≤ 1e-12` (numerically lossless).",
+          "description": "Quality factor `Q = Re(k₀) / (2 |Im(k₀)|)`. `null` for a lossless\n(real symmetric) pencil, where `Q` is undefined (infinite), not a\nnumber; finite for a complex pencil (lossy `ε_r` and / or\n`absorbing_regions`) — `null` there too for a mode with\n`|Im(k₀)| ≤ 1e-12` (numerically lossless). The `1e-12` cutoff is\nabsolute in `k₀`'s rad / mesh length unit, not relative to\n`Re(k₀)`. `Q` uses `|Im(k₀)|`, so a numerically spurious\n**growing** mode (`k0_im < 0`) is not filtered out by `Q` alone —\ncheck `k0_im`'s sign (see `geode_util::eigen::q_factor`).",
           "format": "double",
           "type": [
             "number",

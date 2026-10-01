@@ -938,7 +938,11 @@ pub struct ModeResult {
     /// (real symmetric) pencil, where `Q` is undefined (infinite), not a
     /// number; finite for a complex pencil (lossy `ε_r` and / or
     /// `absorbing_regions`) — `null` there too for a mode with
-    /// `|Im(k₀)| ≤ 1e-12` (numerically lossless).
+    /// `|Im(k₀)| ≤ 1e-12` (numerically lossless). The `1e-12` cutoff is
+    /// absolute in `k₀`'s rad / mesh length unit, not relative to
+    /// `Re(k₀)`. `Q` uses `|Im(k₀)|`, so a numerically spurious
+    /// **growing** mode (`k0_im < 0`) is not filtered out by `Q` alone —
+    /// check `k0_im`'s sign (see `geode_util::eigen::q_factor`).
     pub q: Option<f64>,
     /// Relative eigen-residual `‖Kx − λMx‖ / (|λ| ‖Mx‖)`.
     pub residual_rel: f64,

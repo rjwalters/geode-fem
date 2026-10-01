@@ -296,7 +296,9 @@ the sparse complex shift-invert Lanczos
   `lambda_im` / `k0_im` carry the imaginary parts, `frequency_hz` is from
   `Re(k₀)`, and `q = Re(k₀) / (2|Im k₀|)`.
 - **Exact check for a uniform fill.** A PEC cavity filled entirely with
-  one `ε_r = ε′(1 − j tan δ)` has `λ = μ₀/ε_r` exactly, so
+  one `ε_r = ε′(1 − j tan δ)` has `λ = λ₀/ε_r` exactly, where `λ₀` is the
+  lossless eigenvalue of the same uniform-fill cavity (not the vacuum
+  permeability `μ₀`), so
   `Im(λ)/Re(λ) = tan δ` and `Q = ½·cot(δ/2)` (`δ = atan tan δ`; the
   familiar `1/tan δ` is its small-loss limit). `tests/sphere_lossy_pec_golden.rs`
   holds the CLI to that to `10⁻⁶` at `tan δ = 0.01` and `0.1`. A
@@ -448,7 +450,7 @@ out. Asking for more modes than the cross-section can hold fails with
 ## Static capacitance (`geode capacitance`, issue #705)
 
 ```sh
-geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice out.sp]
+geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice out.sp [--spice-ret-pin]]
 ```
 
 Capacitance example (the triaxial golden input,
@@ -536,7 +538,8 @@ eigenfrequency).
 ## Static inductance (`geode inductance`, issue #714)
 
 ```sh
-geode inductance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice out.sp]
+geode inductance <spec.json|spec.toml> [-o report.json] [--threads N]
+                  [--spice out.sp [--spice-ret-pin] [--spice-positive-k]]
 ```
 
 Inductance example (the triaxial golden input,
@@ -1475,7 +1478,7 @@ excitations). `wave_channels[]`, one per channel, carries `channel`,
 | `k0_im` | rad / mesh unit | complex pencil only (#706): `Im(k₀)`, `> 0` = decaying (`exp(+jωt)`) |
 | `frequency_hz` | Hz | `Re(k₀) c / (2π · length_unit_m)` |
 | `omega_rad_s` | rad/s | `2πf` |
-| `q` | – | quality factor `Re(k₀) / (2|Im k₀|)`: `null` for a lossless pencil (`Q` undefined — infinite — not a number); finite for a lossy / open one (#706; `null` only if `|Im k₀| ≤ 1e-12`) |
+| `q` | – | quality factor `Re(k₀) / (2|Im k₀|)`: `null` for a lossless pencil (`Q` undefined — infinite — not a number); finite for a lossy / open one (#706; `null` only if `|Im k₀| ≤ 1e-12`, an absolute bound in `k₀`'s rad / mesh length unit, not relative to `Re(k₀)`); uses `|Im k₀|`, so a growing mode (`k0_im < 0`) is not distinguished from decay by `Q` alone — check `k0_im`'s sign |
 | `residual_rel` | – | `‖Kx − λMx‖ / (|λ| ‖Mx‖)` |
 | `field_file` | | `--outdir` only: `{path, sha256}` of `E_mode_<mode>.vtu` |
 

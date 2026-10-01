@@ -390,6 +390,87 @@ fn touchstone_missing_parent_dir_fails_before_solving() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// Issue #736, item 4: a `--touchstone` parent directory that exists but
+/// is permission-denied (not merely missing) must not be reported as
+/// "does not exist". Unix-only (permission bits); skipped when running
+/// as root, since root bypasses directory permission checks entirely.
+#[test]
+#[cfg(unix)]
+fn touchstone_permission_denied_parent_is_not_reported_as_missing() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let running_as_root = Command::new("id")
+        .arg("-u")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0")
+        .unwrap_or(false);
+    if running_as_root {
+        eprintln!("SKIPPED: running as root, permission bits are not enforced");
+        return;
+    }
+
+    let dir = scratch("touchstone-permdenied");
+    let locked = dir.join("locked");
+    std::fs::create_dir_all(&locked).unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    // The target's *parent* is one level inside `locked`: stat-ing it must
+    // traverse `locked`, whose missing search (`x`) permission is what
+    // actually triggers `EACCES` — denying permissions on the directory
+    // being stat-ed directly is not enough on every platform (e.g. macOS
+    // permits `stat` on a 0o000 directory itself as long as its own parent
+    // is traversable).
+    let ts = locked.join("sub").join("out.s1p");
+    let out = geode(&[
+        "driven",
+        &smoke_spec(),
+        "--touchstone",
+        ts.to_str().unwrap(),
+    ]);
+
+    // Restore permissions before any assertion so a failure still leaves
+    // the scratch dir removable by later tests / CI cleanup.
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let v = assert_error(&out, "driven", "io");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(
+        !msg.contains("does not exist"),
+        "permission-denied parent must not be reported as missing: {msg}"
+    );
+    assert!(
+        msg.contains("permission denied") || msg.contains("not accessible"),
+        "expected a permission-denied message, got: {msg}"
+    );
+    assert!(v.get("results").is_none(), "no solve output");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Issue #736, item 5: a `--touchstone` target that is itself an
+/// existing directory is rejected fast, before any solve, with an `io`
+/// error.
+#[test]
+fn touchstone_target_itself_a_directory_fails_before_solving() {
+    let dir = scratch("touchstone-targetisdir");
+    let ts = dir.join("out.s1p");
+    std::fs::create_dir_all(&ts).unwrap();
+
+    let out = geode(&[
+        "driven",
+        &smoke_spec(),
+        "--touchstone",
+        ts.to_str().unwrap(),
+    ]);
+    let v = assert_error(&out, "driven", "io");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(
+        msg.contains("directory"),
+        "expected a directory-target error, got: {msg}"
+    );
+    assert!(v.get("results").is_none(), "no solve output");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn check_writes_report_to_output_file() {
     let out_path = scratch("check-output").join("report.json");

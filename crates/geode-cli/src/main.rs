@@ -146,7 +146,10 @@ struct CapacitanceArgs {
     spice: Option<PathBuf>,
     /// With `--spice`: expose the ground reference as a last `.subckt`
     /// port `ret` instead of tying it to the global node `0` inside the
-    /// subcircuit (a terminal named `ret` is renamed `ret_2`).
+    /// subcircuit (a terminal named `ret` is renamed `ret_2`). The
+    /// instantiating deck must still give `ret` a DC path to `0` (e.g.
+    /// through a resistor) — left floating, ngspice fails with
+    /// `singular matrix: check node r`.
     #[arg(long, requires = "spice")]
     spice_ret_pin: bool,
 }
@@ -166,7 +169,10 @@ struct InductanceArgs {
     spice: Option<PathBuf>,
     /// With `--spice`: expose the PEC return wall as a last `.subckt` port
     /// `ret` instead of tying it to the global node `0` inside the
-    /// subcircuit (a path named `ret` is renamed `ret_2`).
+    /// subcircuit (a path named `ret` is renamed `ret_2`). The
+    /// instantiating deck must still give `ret` a DC path to `0` (e.g.
+    /// through a resistor) — left floating, ngspice fails with
+    /// `singular matrix: check node r`.
     #[arg(long, requires = "spice")]
     spice_ret_pin: bool,
     /// With `--spice`: emit every coupling as a positive `k` (for
