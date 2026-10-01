@@ -573,6 +573,156 @@ pub enum SurfaceImpedanceModel {
         /// unit): `λ_L_nat = λ_L_SI / L_unit`. Must be `> 0` and finite.
         lambda_l: f64,
     },
+    /// **Rough good conductor** (Epic #756, issue #758): the
+    /// [`Self::GoodConductor`] impedance scaled by a real, frequency-
+    /// dependent roughness loss factor `K(ω) ≥ 1`
+    /// ([`SurfaceRoughness::loss_factor`]):
+    ///
+    /// ```text
+    /// Z_s,rough(ω) = K(ω) · (1 + i) √(ωμ / 2σ).
+    /// ```
+    ///
+    /// The **whole complex** `Z_s` is scaled — resistive and reactive
+    /// (internal-inductance) parts alike — the convention of the
+    /// Hammerstad–Jensen (1980) and Huray (2010) papers, which define `K`
+    /// as a multiplier on the conductor's surface impedance, and of the
+    /// common SI field solvers. Every consumer (dense / direct assembly,
+    /// the AMS SPD proxy, the matrix-free operator and the PROM sweep)
+    /// reads `Z_s` through [`Self::weak_coefficient`], so roughness
+    /// composes with all of them without further changes: since `K` is
+    /// real and positive, `iω/Z_s,rough = (1/K)·iω/Z_s,smooth`.
+    ///
+    /// With `K ≡ 1` (zero RMS roughness, zero Huray spheres) this is
+    /// **bit-identical** to [`Self::GoodConductor`].
+    RoughConductor {
+        /// Conductivity σ in natural units (`1/length`), as for
+        /// [`Self::GoodConductor`]. Must be `> 0`.
+        sigma: f64,
+        /// The roughness model and its parameters (natural units).
+        roughness: SurfaceRoughness,
+    },
+}
+
+/// Conductor surface-roughness model (Epic #756, issue #758): a real
+/// loss factor `K(ω) = P_rough / P_smooth ≥ 1` multiplying a good
+/// conductor's surface impedance (see
+/// [`SurfaceImpedanceModel::RoughConductor`]).
+///
+/// Both models depend on frequency only through the skin depth
+///
+/// ```text
+/// δ(ω) = √(2 / ωμσ)        (μ = 1 natural units; δ_SI = 1/√(π f μ₀ σ)),
+/// ```
+///
+/// and all lengths are in natural (mesh) units, the same normalization as
+/// the mesh coordinates: `ℓ_nat = ℓ_SI / L_unit` (areas `/ L_unit²`). In
+/// these units `δ_nat = δ_SI / L_unit` exactly, since
+/// `ω_nat · σ_nat = (ω L/c)(σ η₀ L) = ω μ₀ σ L²`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SurfaceRoughness {
+    /// **Hammerstad–Jensen** empirical model (E. Hammerstad and
+    /// Ø. Jensen, "Accurate models for microstrip computer-aided design,"
+    /// *IEEE MTT-S Int. Microwave Symp. Digest*, 1980, pp. 407–409):
+    ///
+    /// ```text
+    /// K = 1 + (2/π) · atan(1.4 · (Δ/δ)²),
+    /// ```
+    ///
+    /// with `Δ` the RMS surface roughness. `K → 1` as `Δ/δ → 0` (low
+    /// frequency or smooth foil) and saturates at `K → 2` as
+    /// `Δ/δ → ∞`.
+    HammerstadJensen {
+        /// RMS roughness `Δ` in natural (mesh) length units. Must be
+        /// finite and `≥ 0` (`0` reproduces the smooth conductor
+        /// exactly).
+        rms: f64,
+    },
+    /// **Huray "snowball" model**, single sphere size, on a flat base
+    /// (P. G. Huray, O. Oluwafemi, J. Loyer, E. Bogatin and X. Ye,
+    /// "Impact of copper surface texture on loss: a model that works,"
+    /// *DesignCon* 2010; P. G. Huray, *The Foundations of Signal
+    /// Integrity*, Wiley 2009, ch. 6), in the "cannonball" form of
+    /// Y. Shlepnev and C. Nwachukwu, "Roughness characterization for
+    /// interconnect analysis," *IEEE Int. Symp. EMC*, 2011:
+    ///
+    /// ```text
+    /// K = A_matte/A_flat + (3/2) · (N · 4πa² / A_tile) / (1 + δ/a + δ²/(2a²)),
+    /// ```
+    ///
+    /// implemented with the flat-base ratio `A_matte/A_flat = 1` (the
+    /// cannonball convention) and one sphere radius `a`, `N` spheres per
+    /// tile of area `A_tile`. The `3/2` is the high-frequency loss of a
+    /// conducting sphere in a uniform tangential field (`6πa²` of
+    /// flat-surface loss per sphere, i.e. `3/2` of its surface area).
+    /// `K → 1` as `δ/a → ∞` (low frequency) or `N → 0`, and `K` increases
+    /// monotonically with frequency to `1 + (3/2)·N·4πa²/A_tile`.
+    Huray {
+        /// Sphere ("snowball") radius `a` in natural (mesh) length units.
+        /// Must be finite and `> 0`.
+        ball_radius: f64,
+        /// Number of spheres `N` per tile (real; fitted values are often
+        /// fractional). Must be finite and `≥ 0` (`0` is smooth).
+        n_balls: f64,
+        /// Tile (flat base) area `A_tile` in natural units (mesh length
+        /// squared). Must be finite and `> 0`.
+        tile_area: f64,
+    },
+}
+
+impl SurfaceRoughness {
+    /// Skin depth `δ = √(2/ωσ)` (natural units, `μ = 1`) of a conductor
+    /// of natural-unit conductivity `sigma` at natural angular frequency
+    /// `omega` (`k₀`). `+∞` at `ω = 0`.
+    pub fn skin_depth(omega: f64, sigma: f64) -> f64 {
+        (2.0 / (omega * sigma)).sqrt()
+    }
+
+    /// The roughness loss factor `K` at skin depth `delta` (same length
+    /// unit as the model's parameters). `delta = +∞` (DC) gives exactly
+    /// `1`.
+    pub fn loss_factor_at_skin_depth(&self, delta: f64) -> f64 {
+        match *self {
+            SurfaceRoughness::HammerstadJensen { rms } => {
+                let r = rms / delta;
+                1.0 + std::f64::consts::FRAC_2_PI * (1.4 * r * r).atan()
+            }
+            SurfaceRoughness::Huray {
+                ball_radius: a,
+                n_balls,
+                tile_area,
+            } => {
+                let ratio = n_balls * 4.0 * std::f64::consts::PI * a * a / tile_area;
+                let d = delta / a;
+                1.0 + 1.5 * ratio / (1.0 + d + 0.5 * d * d)
+            }
+        }
+    }
+
+    /// The roughness loss factor `K(ω)` of a conductor of natural-unit
+    /// conductivity `sigma` at natural angular frequency `omega`.
+    pub fn loss_factor(&self, omega: f64, sigma: f64) -> f64 {
+        self.loss_factor_at_skin_depth(Self::skin_depth(omega, sigma))
+    }
+
+    /// `true` when every parameter is finite and in range (`rms ≥ 0`;
+    /// `ball_radius > 0`, `n_balls ≥ 0`, `tile_area > 0`).
+    pub fn is_valid(&self) -> bool {
+        match *self {
+            SurfaceRoughness::HammerstadJensen { rms } => rms.is_finite() && rms >= 0.0,
+            SurfaceRoughness::Huray {
+                ball_radius,
+                n_balls,
+                tile_area,
+            } => {
+                ball_radius.is_finite()
+                    && ball_radius > 0.0
+                    && n_balls.is_finite()
+                    && n_balls >= 0.0
+                    && tile_area.is_finite()
+                    && tile_area > 0.0
+            }
+        }
+    }
 }
 
 impl SurfaceImpedanceModel {
@@ -587,6 +737,16 @@ impl SurfaceImpedanceModel {
             }
             // iωμλ_L, μ = 1 natural units: purely reactive.
             SurfaceImpedanceModel::London { lambda_l } => c64::new(0.0, omega * lambda_l),
+            SurfaceImpedanceModel::RoughConductor { sigma, roughness } => {
+                // K(ω) · (1 + i) √(ωμ / 2σ): the full complex Z_s scaled.
+                if !roughness.is_valid() {
+                    // Poison Z_s so `weak_coefficient` reports it singular.
+                    return c64::new(f64::NAN, f64::NAN);
+                }
+                let a = (omega / (2.0 * sigma)).sqrt();
+                let k = roughness.loss_factor(omega, sigma);
+                c64::new(k * a, k * a)
+            }
         }
     }
 
@@ -594,7 +754,8 @@ impl SurfaceImpedanceModel {
     /// real surface mass `S_Γ`. For [`SurfaceImpedanceModel::Fixed`]
     /// with `Z_s = η₀ = 1` this is `i k₀` — exactly the Silver-Müller
     /// factor; for the good-conductor model it is
-    /// `(1+i)√(ωσ/2) = (1+i)/δ`; for the London model it is the real,
+    /// `(1+i)√(ωσ/2) = (1+i)/δ` (divided by `K(ω)` for the rough
+    /// conductor); for the London model it is the real,
     /// frequency-independent `1/λ_L` (evaluated **directly**, not as the
     /// `iω/(iωλ_L)` quotient, so it stays finite and exact at any ω,
     /// including ω = 0).
@@ -603,7 +764,9 @@ impl SurfaceImpedanceModel {
     ///
     /// Returns [`DrivenError::SurfaceImpedanceSingular`] when `Z_s(ω)`
     /// is zero or non-finite (e.g. `Fixed(0)`, `GoodConductor` with
-    /// `σ ≤ 0`, or `London` with `λ_L ≤ 0` / non-finite). The
+    /// `σ ≤ 0`, `RoughConductor` with out-of-range roughness parameters
+    /// ([`SurfaceRoughness::is_valid`]), or `London` with `λ_L ≤ 0` /
+    /// non-finite). The
     /// `Z_s → 0` (`λ_L → 0`) PEC limit must be expressed through the
     /// PEC edge mask, not through a vanishing impedance.
     pub fn weak_coefficient(&self, omega: f64) -> Result<c64, DrivenError> {
