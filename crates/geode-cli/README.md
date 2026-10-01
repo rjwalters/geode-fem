@@ -237,7 +237,7 @@ Driven example (the spiral-inductor golden input,
 | `ports[].width` | optional, mesh units | extent across `ê`; default `area / length` of the tagged faces |
 | `ports[].length` | optional, mesh units | gap extent along `ê`; default: extent of the tagged faces along `ê` |
 | `ports[].v_inc` | `[re, im]`, default `[1, 0]` | incident drive voltage (non-zero) |
-| `wave_ports[]` | driven only; not with Leontovich or Silver-Müller (v1); may be mixed with `ports` (#759); the guide at each port face must be one homogeneous, in-plane-isotropic material outside any absorbing shell (#777) | wave (modal) ports, see below; index order = S-matrix block order (after the lumped ports in a mixed spec) |
+| `wave_ports[]` | driven only; composes with Leontovich walls, incl. roughness (#776); a Silver-Müller wall may not share an edge with a port rim; may be mixed with `ports` (#759); the guide at each port face must be one homogeneous, in-plane-isotropic material outside any absorbing shell (#777) | wave (modal) ports, see below; index order = S-matrix block order (after the lumped ports in a mixed spec) |
 | `wave_ports[].physical_group` | string | dimension-2 group holding the **planar** port faces |
 | `wave_ports[].n_modes` | int ≥ 1, default `1` | lowest-cutoff cross-section modes carried by the port (one S-matrix channel each) |
 | `wave_ports[].a_inc` | `[[re, im], …]`, length `n_modes`, default all `[1, 0]` | per-mode incident amplitude (finite, non-zero) |
@@ -465,9 +465,19 @@ PEC, and its `n_modes` lowest-cutoff transverse modes
 `solve_waveguide_modes`) become the port's channels. Name the waveguide
 walls in `pec`. The driven result is the power-normalized channel
 S-matrix (port-major, mode-minor), with `β` per channel; wave ports
-define no port impedance. **v1 boundary:** `wave_ports` cannot be
-combined with Leontovich or Silver-Müller walls (PEC and
-`absorbing_regions` compose) — rejected with `invalid_spec`, not ignored.
+define no port impedance.
+
+**Walls** (issue #776). PEC, `absorbing_regions` and Leontovich walls
+(smooth or rough) all compose with wave ports; a lossy guide's
+`|S21|` then carries the conductor attenuation `α_c`. The port modes
+are still solved with a PEC rim, so next to a Leontovich wall they are
+first-order in `|Z_s|/η₀` (fine for a good conductor; the TE₁₀ `α_c` of
+a σ = 10⁴ S/m guide matches Pozar Eq. 3.96 to ≤ 5 % on an 8 × 4 × 4
+mesh, ≤ 2.4 % on 16 × 8 × 8). A **Silver-Müller** wall is an open
+aperture, not a perturbed conductor, so one that shares a (non-PEC) edge
+with a wave-port rim is rejected with `invalid_spec`, naming both groups;
+Silver-Müller walls away from the ports (e.g. a guide feeding a horn
+into an absorbing box, or a guide's far end cap) are fine.
 Lumped `ports` may be added alongside (see
 [Mixed lumped + wave ports](#mixed-lumped--wave-ports-issue-759)).
 Cross-sections with a TEM mode (multiply connected, e.g. coax) are not
@@ -551,8 +561,8 @@ modal terms the same rank-N Sherman–Morrison–Woodbury update
   which a constant Touchstone `[Reference]` cannot express), `extract`,
   `sweep.adaptive` and `sensitivity`; `--outdir` exports nothing (stderr
   notes it). UPML and dispersive materials work (per-frequency
-  assembly); Leontovich (and so surface roughness) and Silver-Müller
-  walls stay rejected with any wave port.
+  assembly); so do Leontovich walls, incl. surface roughness, and
+  Silver-Müller walls off the port rims (issue #776).
 - The modal admittance `jβ` is the TE form, so TM-mode wave channels
   remain approximate, as on the pure-wave path.
 
@@ -1014,6 +1024,24 @@ and driven `sensitivity`. Every `results[]` row reports the applied
 `roughness_k[]`; `geode check` echoes the model and `K` over the
 requested frequencies. The cookbook has the spiral with 1 µm RMS copper
 ([`examples/driven/spiral_inductor_rough.json`](examples/driven/README.md#rough-copper-roughness-issue-758)).
+
+**Lossy / rough waveguides** (issue #776). Rough walls compose with
+wave ports too: name the guide walls as a rough `leontovich` wall
+instead of `pec`, and `|S21|` carries the rough conductor attenuation
+`≈ K(f)·α_c` (first order in `Z_s`; the measured `α_rough/α_smooth`
+matches `K(f)` to ≈ 1 % on a σ = 10⁴ S/m guide):
+
+```json
+"boundary_conditions": {
+  "pec": [],
+  "leontovich": [{
+    "physical_group": "walls",
+    "conductivity_s_m": 5.8e7,
+    "roughness": { "model": "hammerstad", "rms_m": 1.0e-6 }
+  }]
+},
+"wave_ports": [{ "physical_group": "port_in" }, { "physical_group": "port_out" }]
+```
 
 ## Dispersive dielectrics (issue #757)
 

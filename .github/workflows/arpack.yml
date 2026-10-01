@@ -130,13 +130,19 @@ jobs:
       # Issue #759: `mixed_port` (lumped + wave ports in one operator:
       # lumped block vs the Z route, sheet closed forms, reciprocity,
       # passivity) — same reason; < 1 s in release.
+      #
+      # Issue #776: `wave_port_impedance_walls` (wave ports with Leontovich
+      # / rough / Silver-Müller walls: TE10 α_c vs Pozar Eq. 3.96 on the
+      # 16 × 8 × 8 guide, K(f) scaling, bit-identity of the empty-walls
+      # call) — same reason; ~2 s in release.
       - name: Open-path current excitation + surface-not-on-mesh error contract + PROM sweep
         run: |
           cargo test --features arpack -p geode-core --release \
               --test current_path \
               --test surface_not_on_mesh \
               --test rom_sweep \
-              --test mixed_port
+              --test mixed_port \
+              --test wave_port_impedance_walls
 
       # Issue #760: diagonal anisotropic materials — the lossless
       # tensor cavity pencil and diagonal-nu magnetostatics unit tests

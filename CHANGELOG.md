@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### `geode` CLI
+
+- Wave ports compose with Leontovich walls, including rough walls: a lossy guide's S-parameters carry the conductor attenuation, validated against Pozar Eq. 3.96 (TE10 α_c) and the roughness factor K(f). A Silver-Müller wall that shares an edge with a wave-port rim is rejected with `invalid_spec` (#776).
+
+#### `geode-core`
+
+- `solve_wave_port_sweep_with_mode` takes a `surfaces` argument (impedance walls folded into the base operator); an empty slice is bit-identical to before. New `analytic::waveguide::te10_conductor_attenuation` oracle (#776).
+
 ## [0.7.0] - 2026-10-01
 
 This release completes the `geode` CLI's EDA-flow epic (#702). It adds:
