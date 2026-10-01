@@ -22,25 +22,36 @@
 //!    that also call faer routines. In this crate the eigensolve owns the
 //!    factorization scope, so we set the global exactly around `sp_lu` and
 //!    restore it immediately afterward.
-//! 2. It must be reverted to serial before the single-RHS triangular-solve
-//!    loop, where rayon is measurably *slower* (the per-solve work is
-//!    latency-bound). Scoping the guard tightly around the factorization
-//!    (not the whole Lanczos loop) achieves exactly this.
+//! 2. The factorization's thread count should not leak into the single-RHS
+//!    triangular-solve loop, where rayon is measurably *slower* (the per-solve
+//!    work is latency-bound). Scoping the guard tightly around the
+//!    factorization (not the whole Lanczos loop) restores the prior global
+//!    afterward. Note that the prior global is whatever the process had set;
+//!    faer 0.24's own default is `Par::rayon(0)` (every core), not serial.
 //!
 //! # RAII, panic-safety, and the correctness gate
 //!
 //! [`ParallelismGuard`] records the prior global parallelism on construction,
-//! sets `Par::rayon(n)`, and restores the prior value on `Drop`. Because
+//! sets the requested parallelism ([`ParallelismGuard::cap`]: `Par::Seq` for
+//! `n <= 1`, `Par::rayon(n)` otherwise), and restores the prior value on
+//! `Drop`. Because
 //! `Drop` runs during stack unwinding, the prior value is restored **even if
 //! the factorization panics** — the process is never left in a globally
 //! parallel state by accident.
 //!
-//! The number of threads is fixed for a given factorization but does **not**
-//! change the arithmetic: faer's sparse LU is a deterministic factorization
-//! whose result is independent of the thread count. The eigenvalues are
-//! therefore identical (within the existing tolerance) whether run at 1 or N
-//! threads; see the cross-thread agreement tests in [`crate::eigen::lanczos`]
-//! and [`crate::eigen::complex::SparseComplexShiftInvertLanczos`].
+//! The eigensolves use [`ParallelismGuard::cap`], so `GEODE_NUM_THREADS=1`
+//! really does give a serial factorization (faer's global default is every
+//! core, so leaving the global untouched would not). For a **fixed** thread
+//! count faer's sparse LU is deterministic, so repeated runs at the same
+//! count are bit-identical. Across **different** thread counts the result is
+//! not guaranteed to be bit-identical: a parallel factorization may group
+//! floating-point operations differently, so eigenvalues can differ at
+//! roundoff (well inside the solver tolerance). On the small pencils in the
+//! cross-thread agreement tests ([`crate::eigen::lanczos`] and
+//! [`crate::eigen::complex::SparseComplexShiftInvertLanczos`]) serial and
+//! 4-thread factorizations do agree bit-for-bit, and those tests assert it as
+//! a determinism tripwire, but larger problems should be compared within
+//! tolerance.
 //!
 //! # When faer is built without `rayon`
 //!
@@ -155,14 +166,16 @@ fn parse_num_threads(raw: Option<&str>) -> Option<usize> {
 ///
 /// ```ignore
 /// let lu = {
-///     let _par = ParallelismGuard::rayon(resolve_num_threads());
+///     let _par = ParallelismGuard::cap(resolve_num_threads());
 ///     a.as_ref().sp_lu()?
 /// }; // prior global parallelism restored here, even on panic
 /// ```
 ///
-/// The guard is a no-op when `n <= 1`, or when faer is compiled without its
-/// `rayon` feature (in which case `Par::Rayon` does not exist and the global
-/// is left at its serial default).
+/// Prefer [`ParallelismGuard::cap`], which makes `n <= 1` serial. The legacy
+/// [`ParallelismGuard::rayon`] constructor leaves the global untouched for
+/// `n <= 1`. Both are no-ops when faer is compiled without its `rayon`
+/// feature, in which case `Par::Rayon` does not exist and the global is
+/// already serial.
 #[derive(Debug)]
 #[must_use = "the guard restores parallelism on drop; binding it to `_` drops it immediately"]
 pub struct ParallelismGuard {
@@ -176,10 +189,11 @@ pub struct ParallelismGuard {
 impl ParallelismGuard {
     /// Record the current global parallelism, then set `Par::rayon(n)`.
     ///
-    /// `n` is the number of threads. `n <= 1` leaves the global untouched
-    /// (the serial default), so a caller can pass `resolve_num_threads()`
-    /// unconditionally and get single-threaded behavior for
-    /// `GEODE_NUM_THREADS=1`.
+    /// `n` is the number of threads. `n <= 1` leaves the global **untouched**,
+    /// and faer 0.24's global default is `Par::rayon(0)` (every core), so with
+    /// the default global this does **not** give a serial factorization for
+    /// `GEODE_NUM_THREADS=1`. Use [`ParallelismGuard::cap`] when `1` must
+    /// mean serial; every in-tree factorization call site does.
     pub fn rayon(n: usize) -> Self {
         let prior = get_global_parallelism();
         let changed = Self::try_set_rayon(n);
@@ -297,7 +311,8 @@ mod tests {
             "global parallelism not restored after a panicking scope"
         );
 
-        // 3. Requesting a single thread must not change the global at all.
+        // 3. `rayon(1)` must not change the global at all (it is not a
+        //    serial request; use `cap(1)` for that).
         {
             let _g = ParallelismGuard::rayon(1);
             assert_eq!(
