@@ -1320,14 +1320,17 @@ fn report_bits(v: &serde_json::Value) -> Vec<u64> {
 }
 
 /// Relative tolerance of the vacuum golden comparison: normwise, i.e.
-/// `|got − golden| ≤ 1e-12 · max_k |golden_k|` over one golden vector
+/// `|got − golden| ≤ 1e-10 · max_k |golden_k|` over one golden vector
 /// (`S` entries are unit-bounded and `β ~ k₀`, so the scale is O(1)).
-/// A filled-medium bug moves these entries at O(1e-2) or more; the
-/// platform LU/SIMD stack moves them at ~1e-14 (macOS/aarch64 vs Linux
-/// x86_64, CI run 36927565402). Bit-exact vacuum arithmetic is pinned
-/// platform-independently by the geode-core unit test
+/// The goldens were recorded on macOS/aarch64; Linux x86_64 CI differs
+/// by up to 1.35e-12 normwise (3.2e-12 absolute on the evanescent
+/// channel's self-term, CI run 36934282686), which comes from the
+/// platform's LU/SIMD stack. A filled-medium bug moves these entries by
+/// O(1e-2) or more, so 1e-10 keeps ~8 orders of separation. Bit-exact
+/// vacuum arithmetic is pinned platform-independently by the
+/// geode-core unit test
 /// `vacuum_medium_is_bit_identical_to_the_pre_fill_formulas`.
-const VACUUM_GOLDEN_RTOL: f64 = 1e-12;
+const VACUUM_GOLDEN_RTOL: f64 = 1e-10;
 
 fn assert_matches_golden(name: &str, got: &[u64], want: &[u64]) {
     if std::env::var_os("GEODE_PRINT_VACUUM_GOLDEN").is_some() {
@@ -1340,15 +1343,21 @@ fn assert_matches_golden(name: &str, got: &[u64], want: &[u64]) {
         .map(|&w| f64::from_bits(w).abs())
         .fold(0.0, f64::max);
     assert!(scale > 0.0, "{name}: all-zero golden");
-    for (k, (&g, &w)) in got.iter().zip(want).enumerate() {
-        let (g, w) = (f64::from_bits(g), f64::from_bits(w));
-        assert!(
-            (g - w).abs() <= VACUUM_GOLDEN_RTOL * scale,
-            "{name}[{k}]: {g} vs golden {w} (|Δ| = {:e}, tolerance {:e})",
-            (g - w).abs(),
-            VACUUM_GOLDEN_RTOL * scale
-        );
-    }
+    // Report the worst entry (not the first over tolerance) so a CI
+    // failure shows the full platform spread.
+    let (k, g, w) = got
+        .iter()
+        .zip(want)
+        .enumerate()
+        .map(|(k, (&g, &w))| (k, f64::from_bits(g), f64::from_bits(w)))
+        .max_by(|a, b| (a.1 - a.2).abs().total_cmp(&(b.1 - b.2).abs()))
+        .expect("non-empty golden");
+    let worst = (g - w).abs() / scale;
+    eprintln!("{name}: worst normwise deviation {worst:e} at [{k}]");
+    assert!(
+        worst <= VACUUM_GOLDEN_RTOL,
+        "{name}[{k}]: {g} vs golden {w} (normwise |Δ|/scale = {worst:e} > {VACUUM_GOLDEN_RTOL:e})"
+    );
 }
 
 #[test]
