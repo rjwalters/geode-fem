@@ -40,6 +40,8 @@ schemars = { workspace = true }
 # Validates committed fixtures and emitted reports against the committed
 # schemas (tests/schema.rs). Dev-only: not in the binary's dependency tree.
 jsonschema = { workspace = true }
+# Panic-safe test scratch dirs (issue #766; tests/support/scratch.rs).
+tempfile = { workspace = true }
 
 [features]
 # Backend selection is a COMPILE-TIME choice (mirrors geode-core): the

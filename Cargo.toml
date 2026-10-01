@@ -75,6 +75,10 @@ schemars = "1.2"
 jsonschema = { version = "0.58", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Panic-safe scratch dirs for tests — DEV-dependency only (issue #766): a
+# `TempDir` is removed on drop, including during a failing test's unwind,
+# so `cargo test` no longer leaks scratch dirs into `$TMPDIR`.
+tempfile = "3"
 thiserror = "2"
 toml = "0.8"
 

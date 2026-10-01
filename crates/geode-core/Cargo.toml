@@ -131,6 +131,8 @@ faer = { workspace = true, features = ["sparse-linalg"] }
 # extractor itself now lives in the standalone `examples/extract_baseline`
 # crate (Epic #398), which carries its own serde/serde_json dev-deps.
 serde_json = { workspace = true }
+# Panic-safe temp files in `tests/vtu_roundtrip.rs` (issue #766).
+tempfile = { workspace = true }
 
 # SPIKE-ONLY (issue #451): probes f64 precision on the burn-flex CPU backend.
 # Gated behind the `flex` feature so it is skipped for the default build and

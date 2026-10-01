@@ -38,6 +38,8 @@ burn = { workspace = true }
 # eigenvalues — extending it is tracked as a follow-up). Uses the
 # workspace base faer feature set (`std`, `linalg`); no `sparse-linalg`.
 faer = { workspace = true }
+# Panic-safe temp file in `tests/smoke.rs` (issue #766).
+tempfile = { workspace = true }
 
 [lints.rust]
 unsafe_code = "forbid"

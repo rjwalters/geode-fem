@@ -16,8 +16,12 @@
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
 #[path = "support/touchstone.rs"]
 mod touchstone_support;
+
+use scratch_support::{Scratch, ScratchFile};
 
 fn geode(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_geode"))
@@ -44,23 +48,20 @@ fn smoke_mesh() -> PathBuf {
         .expect("smoke mesh exists")
 }
 
-/// Scratch dir unique to this test process + name.
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("geode-cli-test-{}-{name}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// Fresh scratch dir for one test, removed on drop (also on panic).
+fn scratch(name: &str) -> Scratch {
+    Scratch::new("geode-cli-test-", name)
 }
 
 /// The smoke spec with `edit` applied, written to a scratch file (mesh
 /// path made absolute so the spec can live anywhere).
-fn edited_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> PathBuf {
+fn edited_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> ScratchFile {
     let raw = std::fs::read_to_string(smoke_spec()).unwrap();
     let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
     v["mesh"]["path"] = smoke_mesh().display().to_string().into();
     edit(&mut v);
-    let path = scratch(name).join("spec.json");
-    std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
-    path
+    let text = serde_json::to_string_pretty(&v).unwrap();
+    ScratchFile::write("geode-cli-test-", name, "spec.json", text)
 }
 
 fn json(out: &Output) -> serde_json::Value {
@@ -290,7 +291,8 @@ fn touchstone_sorts_a_driven_sweep_and_round_trips() {
     let spec = edited_spec("touchstone-sort", |v| {
         v["frequencies"] = serde_json::json!({ "unit": "ghz", "values": [5.0, 1.0] });
     });
-    let ts = scratch("touchstone-sort").join("nested-name.s1p");
+    let ts_dir = scratch("touchstone-sort");
+    let ts = ts_dir.join("nested-name.s1p");
     let out = geode(&[
         "driven",
         spec.to_str().unwrap(),
@@ -315,13 +317,13 @@ fn touchstone_sorts_a_driven_sweep_and_round_trips() {
     // Without the flag the field is omitted entirely.
     let v = json(&geode(&["driven", spec.to_str().unwrap()]));
     assert!(v.get("touchstone_file").is_none());
-    std::fs::remove_dir_all(ts.parent().unwrap()).unwrap();
 }
 
 #[test]
 fn touchstone_extract_round_trips() {
     let spec = fixtures().join("slcfet_extract_smoke.json");
-    let ts = scratch("touchstone-extract").join("l.s1p");
+    let ts_dir = scratch("touchstone-extract");
+    let ts = ts_dir.join("l.s1p");
     let out = geode(&[
         "extract",
         spec.to_str().unwrap(),
@@ -336,7 +338,6 @@ fn touchstone_extract_round_trips() {
     let v = json(&out);
     assert_eq!(v["kind"], "extract");
     touchstone_support::assert_round_trip(&v, &ts);
-    std::fs::remove_dir_all(ts.parent().unwrap()).unwrap();
 }
 
 #[test]
@@ -374,7 +375,6 @@ fn touchstone_is_rejected_for_eigen_and_duplicate_frequencies() {
             .contains("more than once")
     );
     assert!(!ts.exists());
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -420,7 +420,6 @@ fn touchstone_missing_parent_dir_fails_before_solving() {
             .contains("not a directory")
     );
     assert!(!dir.join("nonexistent_subdir").exists());
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// Issue #736, item 4: a `--touchstone` parent directory that exists but
@@ -462,7 +461,7 @@ fn touchstone_permission_denied_parent_is_not_reported_as_missing() {
     ]);
 
     // Restore permissions before any assertion so a failure still leaves
-    // the scratch dir removable by later tests / CI cleanup.
+    // the scratch dir removable when it drops.
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
 
     let v = assert_error(&out, "driven", "io");
@@ -476,7 +475,6 @@ fn touchstone_permission_denied_parent_is_not_reported_as_missing() {
         "expected a permission-denied message, got: {msg}"
     );
     assert!(v.get("results").is_none(), "no solve output");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// Issue #736, item 5: a `--touchstone` target that is itself an
@@ -501,12 +499,12 @@ fn touchstone_target_itself_a_directory_fails_before_solving() {
         "expected a directory-target error, got: {msg}"
     );
     assert!(v.get("results").is_none(), "no solve output");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
 fn check_writes_report_to_output_file() {
-    let out_path = scratch("check-output").join("report.json");
+    let out_path_dir = scratch("check-output");
+    let out_path = out_path_dir.join("report.json");
     let out = geode(&["check", &smoke_spec(), "-o", out_path.to_str().unwrap()]);
     assert!(out.status.success());
     assert!(out.stdout.is_empty(), "nothing on stdout with -o");
@@ -537,7 +535,8 @@ fn check_rejects_bad_inputs_with_codes() {
     assert_error(&out, "check", "io");
 
     // Malformed JSON.
-    let bad = scratch("malformed").join("spec.json");
+    let bad_dir = scratch("malformed");
+    let bad = bad_dir.join("spec.json");
     std::fs::write(&bad, "{ not json").unwrap();
     assert_error(
         &geode(&["check", bad.to_str().unwrap()]),
@@ -546,7 +545,8 @@ fn check_rejects_bad_inputs_with_codes() {
     );
 
     // Malformed TOML (routed by extension).
-    let bad_toml = scratch("malformed-toml").join("spec.toml");
+    let bad_toml_dir = scratch("malformed-toml");
+    let bad_toml = bad_toml_dir.join("spec.toml");
     std::fs::write(&bad_toml, "schema_version = [").unwrap();
     assert_error(
         &geode(&["check", bad_toml.to_str().unwrap()]),
@@ -685,7 +685,8 @@ fn backend_flag_only_confirms_the_compiled_backend() {
 
 #[test]
 fn error_report_goes_to_output_file_too() {
-    let out_path = scratch("err-output").join("report.json");
+    let out_path_dir = scratch("err-output");
+    let out_path = out_path_dir.join("report.json");
     // A driven spec under `geode extract` fails validation (no solve).
     let out = geode(&["extract", &smoke_spec(), "-o", out_path.to_str().unwrap()]);
     assert!(!out.status.success());
@@ -704,7 +705,7 @@ fn sphere_spec() -> PathBuf {
 
 /// The sphere eigen spec with `edit` applied, written to a scratch file
 /// (mesh path made absolute).
-fn edited_eigen_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> PathBuf {
+fn edited_eigen_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> ScratchFile {
     let raw = std::fs::read_to_string(sphere_spec()).unwrap();
     let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
     let mesh = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -713,9 +714,8 @@ fn edited_eigen_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> P
         .expect("sphere mesh exists");
     v["mesh"]["path"] = mesh.display().to_string().into();
     edit(&mut v);
-    let path = scratch(name).join("spec.json");
-    std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
-    path
+    let text = serde_json::to_string_pretty(&v).unwrap();
+    ScratchFile::write("geode-cli-test-", name, "spec.json", text)
 }
 
 #[test]
@@ -922,7 +922,7 @@ fn eigen_unconverged_lanczos_fails_with_solve_failed() {
 
 /// The spiral smoke driven spec turned into an extract spec (`extract`
 /// section added), then `edit`ed.
-fn edited_extract_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> PathBuf {
+fn edited_extract_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> ScratchFile {
     edited_spec(name, |v| {
         v["extract"] = serde_json::json!({});
         edit(v);
@@ -1254,7 +1254,8 @@ fn outdir_exports_lumped_port_fields_without_far_field_when_closed() {
     let spec = edited_spec("outdir-closed", |v| {
         v["frequencies"] = serde_json::json!({ "unit": "ghz", "values": [5.0] });
     });
-    let outdir = scratch("outdir-closed").join("out");
+    let outdir_dir = scratch("outdir-closed");
+    let outdir = outdir_dir.join("out");
     let out = geode(&[
         "driven",
         spec.to_str().unwrap(),
@@ -1280,7 +1281,6 @@ fn outdir_exports_lumped_port_fields_without_far_field_when_closed() {
         .map(|e| e.unwrap().file_name())
         .collect();
     assert_eq!(names, ["E_0000.vtu"], "exactly the referenced file");
-    std::fs::remove_dir_all(outdir.parent().unwrap()).unwrap();
 }
 
 #[test]
@@ -1302,5 +1302,4 @@ fn outdir_that_is_a_file_fails_with_io_before_solving() {
         let msg = v["error"]["message"].as_str().unwrap();
         assert!(msg.contains("not-a-dir"), "{cmd}: {msg}");
     }
-    std::fs::remove_dir_all(&dir).unwrap();
 }
