@@ -2729,6 +2729,167 @@ mod tests {
         );
     }
 
+    /// `materials[].dispersion` rules (issue #757), all scalar: they fire
+    /// before the mesh is read, so a valid driven spec gets as far as the
+    /// (absent) mesh file.
+    #[test]
+    fn dispersion_validation() {
+        let ds = serde_json::json!({
+            "model": "djordjevic_sarkar", "eps_r": 4.3, "tan_delta": 0.02, "f_ref_hz": 1e9
+        });
+        let spec = |material: serde_json::Value, extra: serde_json::Value| -> ProblemSpec {
+            let mut v = serde_json::json!({
+                "schema_version": 1,
+                "mesh": {"path": "does-not-exist.msh", "length_unit_m": 1e-6},
+                "materials": [material],
+                "ports": [{"physical_group": "p", "e_hat": [0.0, 1.0, 0.0], "resistance_ohm": 50.0}],
+                "frequencies": {"unit": "ghz", "values": [1.0, 2.0]}
+            });
+            for (k, x) in extra.as_object().unwrap() {
+                if x.is_null() {
+                    v.as_object_mut().unwrap().remove(k);
+                } else {
+                    v[k] = x.clone();
+                }
+            }
+            serde_json::from_value(v).expect("spec parses")
+        };
+        let load = |s: ProblemSpec| load_parsed(s, Path::new("."), None);
+        let msg = |s: ProblemSpec| match load(s) {
+            Err(CliError::InvalidSpec(m)) => {
+                assert!(!m.contains("  "), "stray whitespace: {m:?}");
+                m
+            }
+            other => panic!("expected InvalidSpec, got {other:?}"),
+        };
+        let mat =
+            |d: serde_json::Value| serde_json::json!({"physical_group": "sub", "dispersion": d});
+
+        // Valid: defaults filled in, and scalar validation passes (the
+        // load fails reading the mesh).
+        let ok = spec(mat(ds.clone()), serde_json::json!({}));
+        assert_eq!(
+            ok.materials[0].dispersion,
+            Some(crate::spec::DispersionSpec::DjordjevicSarkar {
+                eps_r: 4.3,
+                tan_delta: 0.02,
+                f_ref_hz: 1e9,
+                f_low_hz: 1e3,
+                f_high_hz: 1e12,
+            })
+        );
+        assert!(matches!(load(ok), Err(CliError::Io { .. })));
+        // Extract and a dense `sweep` are fine too.
+        let ok = spec(
+            mat(ds.clone()),
+            serde_json::json!({"extract": {}, "sweep": {}}),
+        );
+        assert!(matches!(load(ok), Err(CliError::Io { .. })));
+
+        // eps_r alongside dispersion.
+        let mut both = mat(ds.clone());
+        both["eps_r"] = serde_json::json!([4.3, -0.086]);
+        let m = msg(spec(both, serde_json::json!({})));
+        assert!(m.contains("both `eps_r` and `dispersion`"), "{m}");
+
+        // Model inputs and the fit.
+        for (field, value, needle) in [
+            ("eps_r", serde_json::json!(0.0), "eps_r"),
+            ("tan_delta", serde_json::json!(-0.01), "tan_delta"),
+            (
+                "f_ref_hz",
+                serde_json::json!(1e13),
+                "f_low_hz < f_ref_hz < f_high_hz",
+            ),
+            (
+                "f_low_hz",
+                serde_json::json!(2e9),
+                "f_low_hz < f_ref_hz < f_high_hz",
+            ),
+            (
+                "f_high_hz",
+                serde_json::json!(1e8),
+                "f_low_hz < f_ref_hz < f_high_hz",
+            ),
+            (
+                "f_low_hz",
+                serde_json::json!(-1.0),
+                "f_low_hz < f_ref_hz < f_high_hz",
+            ),
+        ] {
+            let mut d = ds.clone();
+            d[field] = value;
+            let m = msg(spec(mat(d), serde_json::json!({})));
+            assert!(
+                m.contains("materials[sub].dispersion") && m.contains(needle),
+                "{field}: {m}"
+            );
+        }
+        let mut narrow = ds.clone();
+        narrow["tan_delta"] = serde_json::json!(1.5);
+        narrow["f_low_hz"] = serde_json::json!(0.5e9);
+        narrow["f_high_hz"] = serde_json::json!(2e9);
+        let m = msg(spec(mat(narrow), serde_json::json!({})));
+        assert!(m.contains("eps_inf"), "{m}");
+
+        // Unsupported analyses / sections.
+        let no_drive = serde_json::json!({"ports": null, "frequencies": null});
+        let with = |extra: serde_json::Value| {
+            let mut e = no_drive.clone();
+            for (k, x) in extra.as_object().unwrap() {
+                e[k] = x.clone();
+            }
+            e
+        };
+        for (extra, needle) in [
+            (
+                with(serde_json::json!({"eigen": {"n_modes": 2, "unit": "ghz", "shift": 1.0}})),
+                "geode eigen",
+            ),
+            (
+                with(serde_json::json!({"capacitance": {"terminals": ["a"], "ground": ["g"]}})),
+                "geode capacitance",
+            ),
+            (
+                with(serde_json::json!({"inductance": {"paths": [
+                    {"name": "p", "conductor": "c", "source": "s", "sink": "t"}
+                ]}})),
+                "geode inductance",
+            ),
+            (
+                serde_json::json!({"sweep": {"adaptive": {}}}),
+                "sweep.adaptive",
+            ),
+            (
+                serde_json::json!({"sensitivity": {"parameters": [
+                    {"physical_group": "sub", "kind": "eps_r"}
+                ]}}),
+                "sensitivity",
+            ),
+        ] {
+            let m = msg(spec(mat(ds.clone()), extra.clone()));
+            assert!(
+                m.contains("materials[sub].dispersion") && m.contains(needle),
+                "{extra}: {m}"
+            );
+        }
+
+        // Unknown model / stray key: parse errors.
+        for bad in [
+            serde_json::json!({"model": "drude_lorentz", "eps_r": 4.3}),
+            serde_json::json!({
+                "model": "djordjevic_sarkar", "eps_r": 4.3, "tan_delta": 0.02,
+                "f_ref_hz": 1e9, "tau_s": 1e-9
+            }),
+            serde_json::json!({"model": "djordjevic_sarkar", "eps_r": 4.3, "tan_delta": 0.02}),
+        ] {
+            assert!(
+                serde_json::from_value::<crate::spec::DispersionSpec>(bad.clone()).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
     #[test]
     fn hex_is_lowercase_two_digit() {
         assert_eq!(hex(&[0x00, 0xab, 0x0f]), "00ab0f");
