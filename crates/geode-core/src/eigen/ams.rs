@@ -1708,9 +1708,6 @@ mod tests {
         InteriorGradient::build(&edges, &interior_mask, &edge_index, n_nodes, edge_dim)
     }
 
-    /// The AMS-lite apply is symmetric positive definite: `zᵀ r > 0` for
-    /// `r ≠ 0` and `⟨M_prec u, v⟩ = ⟨u, M_prec v⟩`. CG requires an SPD
-    /// preconditioner, so this is the correctness gate for using AMS-lite at all.
     /// The Gustavson [`galerkin_triplets`] (issue #744) reproduces the
     /// reference outer-product `Rᵀ (K − σM) R` assembly to rounding, for a
     /// ≤6-entry-per-row restriction (Π-shaped) and two operators.
@@ -1757,6 +1754,9 @@ mod tests {
         }
     }
 
+    /// The AMS-lite apply is symmetric positive definite: `zᵀ r > 0` for
+    /// `r ≠ 0` and `⟨M_prec u, v⟩ = ⟨u, M_prec v⟩`. CG requires an SPD
+    /// preconditioner, so this is the correctness gate for using AMS-lite at all.
     #[test]
     fn ams_lite_apply_is_spd() {
         let n = 12;

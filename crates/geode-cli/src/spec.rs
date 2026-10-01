@@ -719,9 +719,10 @@ pub enum PreconditionerSpec {
     /// Hiptmair–Xu auxiliary-space Maxwell (AMS) V-cycle on a real SPD
     /// proxy of `A(ω)` (issue #744): converges low-frequency, near-static
     /// problems (e.g. spirals at 1 GHz) where `jacobi` / `ilu0` stall, at
-    /// an iteration count that stays flat with mesh size. Its node-space
-    /// coarse problems are solved by exact sparse LU up to 150 000 free
-    /// mesh nodes (AMG above); see the CLI README for measured memory.
+    /// an iteration count that stays flat with mesh size. Its nodal
+    /// (gradient-space) coarse problem is always solved by exact sparse LU
+    /// (`geode check` reports its modelled memory); see the CLI README for
+    /// measured memory.
     Ams,
 }
 

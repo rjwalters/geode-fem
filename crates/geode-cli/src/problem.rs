@@ -922,6 +922,13 @@ pub fn load_parsed(
         }
     }
     let pec_mask = pec_interior_mask_from_triangles(&edges, &pec_lists);
+    if let SolverSpec::Iterative {
+        preconditioner: crate::spec::PreconditionerSpec::Ams,
+        ..
+    } = spec.solver
+    {
+        check_ams_floating_pec(&tagged.mesh.nodes, &pec)?;
+    }
 
     // ---- sensitivity design parameters -------------------------------
     let sensitivity = match &spec.sensitivity {
@@ -1845,6 +1852,91 @@ fn resolve_inductance(
     Ok(InductanceTarget { paths })
 }
 
+/// The **floating-PEC** rule for `solver.preconditioner = "ams"` (issue
+/// #744). Each connected component of the `boundary_conditions.pec`
+/// triangles (connected through triangle edges,
+/// [`triangle_node_components`]) beyond one reference component adds a
+/// near-kernel mode of the driven curl-curl — the gradient of that
+/// conductor's own potential — that the AMS gradient space (built on the
+/// free nodes only) cannot represent, and AMS COCG then stalls or drifts
+/// (measured: a 228k-edge `geode mesh` spiral with floating PEC-shell
+/// conductors stalls at 0.49 after 5000 iterations). The reference is the
+/// component touching the mesh's bounding box at the most nodes (the outer
+/// wall), else the largest; every other component is *floating* and the
+/// spec is rejected up front, naming those components' PEC groups, rather
+/// than failing after the iteration budget.
+fn check_ams_floating_pec(nodes: &[[f64; 3]], pec: &[Surface]) -> Result<(), CliError> {
+    let lists: Vec<&[[u32; 3]]> = pec.iter().map(|s| s.triangles.as_slice()).collect();
+    let comps = triangle_node_components(nodes.len(), &lists);
+    if comps.count < 2 {
+        return Ok(());
+    }
+    // Bounding box (tolerance relative to its diagonal).
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for p in nodes {
+        for d in 0..3 {
+            lo[d] = lo[d].min(p[d]);
+            hi[d] = hi[d].max(p[d]);
+        }
+    }
+    let diag = (0..3).map(|d| (hi[d] - lo[d]).powi(2)).sum::<f64>().sqrt();
+    let tol = 1e-9 * diag.max(f64::MIN_POSITIVE);
+    let on_box =
+        |p: &[f64; 3]| (0..3).any(|d| (p[d] - lo[d]).abs() <= tol || (hi[d] - p[d]).abs() <= tol);
+    let mut size = vec![0usize; comps.count];
+    let mut box_nodes = vec![0usize; comps.count];
+    for (n, label) in comps.label.iter().enumerate() {
+        if let Some(k) = *label {
+            size[k as usize] += 1;
+            if on_box(&nodes[n]) {
+                box_nodes[k as usize] += 1;
+            }
+        }
+    }
+    let reference = (0..comps.count)
+        .max_by_key(|&k| (box_nodes[k], size[k]))
+        .expect("at least two components");
+    let floating: Vec<String> = (0..comps.count)
+        .filter(|&k| k != reference)
+        .map(|k| {
+            let names: Vec<String> = pec
+                .iter()
+                .filter(|s| {
+                    s.triangles
+                        .iter()
+                        .flatten()
+                        .any(|&n| comps.label[n as usize] == Some(k as u32))
+                })
+                .map(|s| format!("`{}`", s.name))
+                .collect();
+            names.join(" + ")
+        })
+        .collect();
+    let groups_of_ref: Vec<String> = pec
+        .iter()
+        .filter(|s| {
+            s.triangles
+                .iter()
+                .flatten()
+                .any(|&n| comps.label[n as usize] == Some(reference as u32))
+        })
+        .map(|s| format!("`{}`", s.name))
+        .collect();
+    Err(invalid(format!(
+        "solver.preconditioner = \"ams\" does not converge with floating PEC conductors: the \
+         `boundary_conditions.pec` surfaces form {} disconnected components, and {} {} not \
+         connected to the outer PEC ({}). Each floating conductor adds a near-kernel mode the \
+         AMS gradient space cannot represent, so COCG stalls or drifts (issue #744). Model those \
+         conductors as `boundary_conditions.leontovich` surfaces, or use `solver.mode = \
+         \"direct\"`",
+        comps.count,
+        floating.join("; "),
+        if floating.len() == 1 { "is" } else { "are" },
+        groups_of_ref.join(" + "),
+    )))
+}
+
 /// The **same-PEC-component** rule for current paths (PR #718).
 ///
 /// The grounded node set of the magnetostatic solve is the node set of the
@@ -2238,6 +2330,52 @@ mod tests {
         assert!((back.hz - 1e9).abs() / 1e9 < 1e-14);
         let hz = to_frequency(1e9, FrequencyUnit::Hz, 1e-6);
         assert_eq!(hz.k0, f.k0);
+    }
+
+    /// The AMS floating-PEC rule (issue #744): one PEC component (or
+    /// none) passes; a PEC island not connected to the outer wall is
+    /// rejected as `invalid_spec`, naming the island's groups and not the
+    /// wall's.
+    #[test]
+    fn ams_rejects_floating_pec_conductors() {
+        // Unit cube corners 0..8 plus an interior triangle 8..11 and a
+        // second interior triangle sharing an edge with it (11).
+        let mut nodes: Vec<[f64; 3]> = (0..8)
+            .map(|i| [(i & 1) as f64, ((i >> 1) & 1) as f64, ((i >> 2) & 1) as f64])
+            .collect();
+        nodes.extend([
+            [0.4, 0.4, 0.5],
+            [0.6, 0.4, 0.5],
+            [0.5, 0.6, 0.5],
+            [0.5, 0.5, 0.6],
+        ]);
+        let surf = |name: &str, tris: Vec<[u32; 3]>| Surface {
+            name: name.to_string(),
+            tag: 1,
+            triangles: tris,
+        };
+        // Outer wall on the cube's boundary; a two-group interior island
+        // (`m1` + `via` share the edge 8–9).
+        let wall = surf("outer_boundary", vec![[0, 1, 2], [1, 2, 3], [2, 3, 6]]);
+        let island = surf("m1", vec![[8, 9, 10]]);
+        let island_b = surf("via", vec![[8, 9, 11]]);
+        assert!(check_ams_floating_pec(&nodes, std::slice::from_ref(&wall)).is_ok());
+        assert!(check_ams_floating_pec(&nodes, &[]).is_ok());
+        // A lone interior conductor (no outer PEC) is its own reference.
+        assert!(check_ams_floating_pec(&nodes, std::slice::from_ref(&island)).is_ok());
+
+        let err = check_ams_floating_pec(&nodes, &[wall.clone(), island.clone(), island_b])
+            .expect_err("floating island must be rejected");
+        let CliError::InvalidSpec(msg) = err else {
+            panic!("expected InvalidSpec, got {err:?}");
+        };
+        assert!(msg.contains("2 disconnected components"), "{msg}");
+        assert!(msg.contains("`m1` + `via` is not connected"), "{msg}");
+        assert!(msg.contains("outer PEC (`outer_boundary`)"), "{msg}");
+        assert!(
+            msg.contains("leontovich") && msg.contains("direct"),
+            "{msg}"
+        );
     }
 
     /// `sweep` rules (issue #708): scalar, so a parsed spec suffices.

@@ -119,7 +119,7 @@ use crate::mesh::TetMesh;
 
 #[path = "solve_ams.rs"]
 mod ams;
-pub use ams::{AMS_DIRECT_COARSE_MAX_NODES, AMS_PI_COARSE_SWEEPS, AmsCoarseSolve, DrivenAms};
+pub use ams::{AMS_PI_COARSE_SWEEPS, AmsCoarseSolve, DrivenAms};
 
 /// Errors produced by the driven-solve layer.
 #[derive(Debug, thiserror::Error)]
@@ -362,8 +362,7 @@ pub enum IterativePreconditioner {
     /// rejects it.
     Ams {
         /// Auxiliary-space coarse solver ([`AmsCoarseSolve::Auto`] by
-        /// default: exact LU up to [`AMS_DIRECT_COARSE_MAX_NODES`] free
-        /// nodes, AMG above).
+        /// default: exact sparse LU of the nodal block at every size).
         coarse: AmsCoarseSolve,
     },
 }
@@ -3965,11 +3964,10 @@ mod tests {
             Err(DrivenError::Solve(msg)) if msg.contains("prepare_at")
         ));
         assert_eq!(IterativePreconditioner::AMS.name(), "ams");
-        assert_eq!(AmsCoarseSolve::Auto.resolve(10), AmsCoarseSolve::Direct);
-        assert_eq!(
-            AmsCoarseSolve::Auto.resolve(AMS_DIRECT_COARSE_MAX_NODES + 1),
-            AmsCoarseSolve::Amg
-        );
+        // `Auto` is always the exact gradient-space LU (an AMG coarse solve
+        // drifts); explicit choices pass through.
+        assert_eq!(AmsCoarseSolve::Auto.resolve(), AmsCoarseSolve::Direct);
+        assert_eq!(AmsCoarseSolve::Amg.resolve(), AmsCoarseSolve::Amg);
     }
 
     /// Smoke test: [`IterativePreconditioner::Chebyshev`] also reaches the

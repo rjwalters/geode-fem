@@ -32,6 +32,14 @@
 //!   SPD.
 //! - For matched UPML (complex `ν`), `Re K(ν)` is used — see the PR #744
 //!   investigation; that case is not covered by the SPD guarantee.
+//! - Two loss terms of `A(ω)` are **omitted** from `P` (both omissions
+//!   keep `P` SPD, but they are inconsistent with the magnitude treatment
+//!   of ports and conductivity): Silver–Müller walls, whose coefficient
+//!   `iω/η` is purely imaginary, contribute `Re(iω/η) = 0` and so drop
+//!   out entirely; and dielectric loss, the `Im M(ε)` part of the mass,
+//!   is dropped because only `Re M(ε)` enters. Neither has been measured
+//!   to matter on the spiral; a `|coeff|` treatment is the natural
+//!   alternative if a lossy-dielectric or radiating case needs it.
 //!
 //! # Complex application
 //!
@@ -66,13 +74,15 @@
 //! smoother. So the shipped default is an **exact sparse LU of
 //! `Gᵀ P G`** (`node_dim` square, a nodal Poisson-like matrix with ~15
 //! nnz/row) plus **[`AMS_PI_COARSE_SWEEPS`] symmetric Gauss–Seidel sweeps
-//! on `Πᵀ P Π`** (`3·node_dim` square, ~150 nnz/row; no factor). The LU fill
-//! of `Gᵀ P G` grows superlinearly with `node_dim`, so
-//! [`AmsCoarseSolve::Auto`] switches to AMG above
-//! [`AMS_DIRECT_COARSE_MAX_NODES`] free nodes rather than silently
-//! attempting a multi-GB coarse factor; whatever the choice, a
-//! non-converging or drifting solve is a [`DrivenError::Solve`], never a
-//! silently accepted answer.
+//! on `Πᵀ P Π`** (`3·node_dim` square, ~150 nnz/row; no factor).
+//! [`AmsCoarseSolve::Auto`] is **always** the exact LU: the LU fill of
+//! `Gᵀ P G` grows superlinearly with `node_dim`, but switching to an
+//! approximate (AMG) gradient solve on large meshes would trade a visible
+//! memory cost for a known drift failure. `geode check` models the nodal
+//! LU fill up front, so the memory is reported before any solve. AMG /
+//! SGS remain available as explicit measurement options. Whatever the
+//! choice, a non-converging or drifting solve is a [`DrivenError::Solve`],
+//! never a silently accepted answer.
 //!
 //! # Known limitation: floating PEC conductors
 //!
@@ -86,7 +96,9 @@
 //! cannot represent. Adding one super-node column per floating conductor
 //! was tried and did not restore convergence, so this is reported as an
 //! open limitation. Use Leontovich conductors (or `solver.mode = "direct"`)
-//! for such layouts.
+//! for such layouts. The `geode` CLI rejects such a spec up front
+//! (`invalid_spec`, naming the floating PEC groups) rather than letting it
+//! run out the iteration budget.
 
 use std::sync::{Arc, OnceLock};
 
@@ -96,14 +108,6 @@ use faer::sparse::{SparseColMat, Triplet};
 use super::{DrivenError, DrivenOperator};
 use crate::eigen::ams::{AmsLitePreconditioner, CoarseSolve};
 use crate::eigen::projection::InteriorGradient;
-
-/// Free-node count above which [`AmsCoarseSolve::Auto`] switches the
-/// gradient-space coarse solve from the exact sparse LU
-/// ([`AmsCoarseSolve::Direct`]) to smoothed-aggregation AMG
-/// ([`AmsCoarseSolve::Amg`]), so that a millions-of-DOF solve does not
-/// silently attempt a multi-GB nodal factor. The nodal LU is a 3-D
-/// Poisson-like factor; see the PR for #744 for its measured memory.
-pub const AMS_DIRECT_COARSE_MAX_NODES: usize = 500_000;
 
 /// Symmetric Gauss–Seidel sweeps for the vector-nodal `Πᵀ P Π` coarse
 /// solve (2 sweeps drift on the 53k-edge spiral; 4 converge in the same
@@ -115,13 +119,15 @@ pub const AMS_PI_COARSE_SWEEPS: usize = 4;
 /// Gauss–Seidel sweeps.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum AmsCoarseSolve {
-    /// [`Self::Direct`] when the free-node count is at most
-    /// [`AMS_DIRECT_COARSE_MAX_NODES`], [`Self::Amg`] above it. The default.
+    /// Resolves to [`Self::Direct`] at every mesh size (an approximate
+    /// gradient-space solve is measured to drift; see the module docs).
+    /// The default.
     #[default]
     Auto,
     /// Exact sparse LU of `Gᵀ P G` (the measured winner).
     Direct,
-    /// Smoothed-aggregation AMG V-cycle (issue #565).
+    /// Smoothed-aggregation AMG V-cycle (issue #565). Measured to drift
+    /// (~330 iterations on the 53k-edge spiral) — kept for measurement.
     Amg,
     /// Two symmetric Gauss–Seidel sweeps (the eigen path's default; drifts
     /// on the driven operator — kept for measurement).
@@ -139,12 +145,11 @@ impl AmsCoarseSolve {
         }
     }
 
-    /// Resolve [`Self::Auto`] for a problem with `node_dim` free nodes.
-    /// Concrete choices are returned unchanged.
-    pub fn resolve(self, node_dim: usize) -> Self {
+    /// Resolve [`Self::Auto`] (always [`Self::Direct`]). Concrete choices
+    /// are returned unchanged.
+    pub fn resolve(self) -> Self {
         match self {
-            Self::Auto if node_dim <= AMS_DIRECT_COARSE_MAX_NODES => Self::Direct,
-            Self::Auto => Self::Amg,
+            Self::Auto => Self::Direct,
             other => other,
         }
     }
@@ -324,7 +329,7 @@ pub(super) fn proxy(
 /// Build the AMS preconditioner for `op` at `omega` with the requested
 /// coarse solve. For [`AmsCoarseSolve::Auto`] the
 /// `GEODE_DRIVEN_AMS_COARSE` environment variable (`direct` / `amg` /
-/// `sgs`), when set, takes precedence over the size rule — a measurement
+/// `sgs`), when set, takes precedence over the exact-LU default — a measurement
 /// knob for the CLI, not part of the spec surface.
 pub(super) fn build(
     op: &DrivenOperator,
@@ -342,7 +347,7 @@ pub(super) fn build(
         AmsCoarseSolve::Auto => AmsCoarseSolve::from_env().unwrap_or(coarse),
         explicit => explicit,
     }
-    .resolve(node_dim);
+    .resolve();
     let p = proxy(op, omega)?;
     let ams = AmsLitePreconditioner::build_with_split_coarse(
         gradient,

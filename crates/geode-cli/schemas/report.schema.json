@@ -2867,7 +2867,7 @@
         },
         {
           "const": "ams",
-          "description": "Hiptmair–Xu auxiliary-space Maxwell (AMS) V-cycle on a real SPD\nproxy of `A(ω)` (issue #744): converges low-frequency, near-static\nproblems (e.g. spirals at 1 GHz) where `jacobi` / `ilu0` stall, at\nan iteration count that stays flat with mesh size. Its node-space\ncoarse problems are solved by exact sparse LU up to 150 000 free\nmesh nodes (AMG above); see the CLI README for measured memory.",
+          "description": "Hiptmair–Xu auxiliary-space Maxwell (AMS) V-cycle on a real SPD\nproxy of `A(ω)` (issue #744): converges low-frequency, near-static\nproblems (e.g. spirals at 1 GHz) where `jacobi` / `ilu0` stall, at\nan iteration count that stays flat with mesh size. Its nodal\n(gradient-space) coarse problem is always solved by exact sparse LU\n(`geode check` reports its modelled memory); see the CLI README for\nmeasured memory.",
           "type": "string"
         }
       ]
