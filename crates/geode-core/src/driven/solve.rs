@@ -2199,7 +2199,9 @@ impl DrivenOperator {
     /// Leontovich model evaluates to a singular `Z_s(ω)`,
     /// [`DrivenError::SparseAssembly`] on triplet assembly failure,
     /// and [`DrivenError::Solve`] (wrapping the Krylov error) for
-    /// iteration breakdown or non-convergence. A zero RHS is treated
+    /// iteration breakdown or non-convergence — including the
+    /// recursive-residual drift case where COCG's recursive residual met
+    /// the tolerance but the explicit residual did not (issue #744). A zero RHS is treated
     /// as a trivial all-zero solution (one iteration recorded) rather
     /// than an error — to match the direct path's
     /// `zero_source_gives_zero_field` semantics.
@@ -2247,6 +2249,7 @@ impl DrivenOperator {
         let report = ksp
             .solve(a_int.as_ref(), &b_int, &mut x_int, &precond)
             .map_err(|e| DrivenError::Solve(format!("Krylov solve: {e}")))?;
+        let report = require_converged(report, "iterative solve")?;
 
         // Post-solve residual check (same definition as the direct
         // path; the Krylov reporter already computes this, but we
@@ -2463,6 +2466,49 @@ pub struct BackSolveReport {
     /// `‖A x − b‖₂ / ‖b‖₂` after the back-solve (same definition on
     /// both paths).
     pub residual_rel: f64,
+    /// Whether the solve met its convergence criterion on the
+    /// **explicitly recomputed** residual (issue #744).
+    ///
+    /// Always `true` on a returned `Ok` report: the direct path has no
+    /// non-convergence mode, and on the iterative paths a Krylov solve
+    /// whose recursively-maintained residual met the tolerance but
+    /// whose explicit residual `‖A x − b‖ / ‖b‖` did not (the "drift"
+    /// case) is turned into [`DrivenError::Solve`] by
+    /// [`DrivenLinearSolver::back_solve`] rather than reported as a
+    /// silently-accepted near miss. The field is carried so callers
+    /// can assert the invariant and so future soft-accept policies
+    /// have a channel.
+    pub converged: bool,
+}
+
+/// Turn a Krylov report whose explicit residual missed the tolerance
+/// into a hard [`DrivenError::Solve`] (issue #744).
+///
+/// Both [`crate::solver::ksp::Cocg`] and the matrix-free
+/// [`crate::solver::ksp_burn::BurnCocg`] return
+/// `Ok(KspReport { converged: false, .. })` in exactly one situation:
+/// the recursively-maintained residual crossed `tol` but the true
+/// residual recomputed with an explicit SpMV did not (recursive-residual
+/// drift on an ill-conditioned / poorly-preconditioned system).
+/// Max-iteration exhaustion is already an `Err(KspError::NotConverged)`.
+/// Accepting the drift case would report a `Z`/`S` value from an
+/// unconverged field as success, so every driven iterative back-solve
+/// funnels its report through this check.
+fn require_converged(
+    report: crate::solver::ksp::KspReport,
+    path: &str,
+) -> Result<crate::solver::ksp::KspReport, DrivenError> {
+    if report.converged {
+        Ok(report)
+    } else {
+        Err(DrivenError::Solve(format!(
+            "{path}: Krylov solve did not converge — the recursive residual met the \
+             tolerance after {} iterations but the explicitly recomputed residual \
+             ‖Ax − b‖/‖b‖ = {:.3e} did not (recursive-residual drift; tighten the \
+             preconditioner or use solver.mode = \"direct\")",
+            report.iters, report.residual_rel
+        )))
+    }
 }
 
 /// Per-ω back-solve handle that abstracts the direct (LU) and iterative
@@ -2595,6 +2641,7 @@ impl<'a, B: Backend> DrivenLinearSolver<'a, B> {
                 Ok(BackSolveReport {
                     iters: 0,
                     residual_rel,
+                    converged: true,
                 })
             }
             SolverBackend::Iterative { precond, ksp } => {
@@ -2612,6 +2659,7 @@ impl<'a, B: Backend> DrivenLinearSolver<'a, B> {
                     return Ok(BackSolveReport {
                         iters: 0,
                         residual_rel: 0.0,
+                        converged: true,
                     });
                 }
                 // Start each RHS from a zero guess — COCG's standard
@@ -2622,18 +2670,22 @@ impl<'a, B: Backend> DrivenLinearSolver<'a, B> {
                 let report = ksp
                     .solve(self.a_int.as_ref(), b, out, precond)
                     .map_err(|e| DrivenError::Solve(format!("Krylov solve: {e}")))?;
+                let report = require_converged(report, "iterative back-solve")?;
                 Ok(BackSolveReport {
                     iters: report.iters,
                     residual_rel: report.residual_rel,
+                    converged: report.converged,
                 })
             }
             SolverBackend::MatrixFree { solver } => {
                 // The matrix-free solver handles the zero-RHS shortcut and
                 // the interior↔full lift internally (issue #302 Phase 3).
                 let report = solver.back_solve(b, out)?;
+                let report = require_converged(report, "matrix-free back-solve")?;
                 Ok(BackSolveReport {
                     iters: report.iters,
                     residual_rel: report.residual_rel,
+                    converged: report.converged,
                 })
             }
         }
@@ -3694,6 +3746,106 @@ mod tests {
             matches!(&err, DrivenError::UnsupportedMatrixFree { reason } if reason.contains("ilu0")),
             "unexpected error: {err:?}"
         );
+    }
+
+    /// **Issue #744 regression — recursive-residual drift is a hard error.**
+    ///
+    /// COCG stops when its *recursively maintained* residual crosses
+    /// `tol`, then recomputes the true residual with an explicit SpMV.
+    /// With `tol` below what f64 can actually deliver on this operator,
+    /// the recursive residual keeps shrinking geometrically while the
+    /// explicit residual stalls at the rounding floor — so `Cocg::solve`
+    /// returns `Ok(KspReport { converged: false, .. })`. Before #744 the
+    /// driven layer discarded that flag and accepted the near-miss as a
+    /// successful solve; now every driven iterative path
+    /// (`prepare_at(..).solve()`/`back_solve` and `solve_at_iterative`)
+    /// must surface it as [`DrivenError::Solve`].
+    #[test]
+    fn iterative_recursive_residual_drift_is_a_hard_error() {
+        use crate::solver::ksp::{Cocg, KspSolve};
+
+        let mesh = cube_tet_mesh(3, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let omega = 1.0;
+        // Far below the f64 rounding floor of ‖Ax − b‖/‖b‖ on this
+        // operator, but reachable by the recursive residual.
+        let tol = 1e-30;
+        let max_iters = 5000;
+
+        // Precondition: the raw KSP really does hit the drift case
+        // (recursive residual crossed tol, explicit residual did not) —
+        // not max-iters exhaustion or breakdown.
+        let a = op.assemble_a_at(omega).expect("A(ω)");
+        let b = op.assemble_b_at(omega, None);
+        let pc = crate::solver::ksp::JacobiPreconditioner::new(a.as_ref()).expect("jacobi");
+        let mut x = vec![c64::new(0.0, 0.0); b.len()];
+        let raw = Cocg::new(tol, max_iters)
+            .solve(a.as_ref(), &b, &mut x, &pc)
+            .expect("COCG returns Ok in the drift case");
+        assert!(!raw.converged, "fixture must drift: {raw:?}");
+        assert!(raw.iters < max_iters, "{raw:?}");
+        assert!(raw.residual_rel > tol, "{raw:?}");
+
+        let expect_drift_err = |r: Result<(), DrivenError>, path: &str| match r {
+            Err(DrivenError::Solve(msg)) => assert!(
+                msg.contains("explicitly recomputed residual"),
+                "{path}: unexpected solve error {msg}"
+            ),
+            other => panic!("{path}: drift must be DrivenError::Solve, got {other:?}"),
+        };
+
+        // Public per-ω handle (the path every sweep consumer funnels through).
+        let settings = IterativeSettings::new(tol, max_iters);
+        let solver = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(settings), &device())
+            .expect("iterative setup");
+        expect_drift_err(solver.solve().map(|_| ()), "prepare_at().solve()");
+        let mut out = vec![c64::new(0.0, 0.0); b.len()];
+        expect_drift_err(solver.back_solve(&b, &mut out).map(|_| ()), "back_solve");
+
+        // The one-shot iterative entry point.
+        expect_drift_err(
+            op.solve_at_iterative(omega, &Cocg::new(tol, max_iters), |a| {
+                crate::solver::ksp::JacobiPreconditioner::new(a.as_ref())
+            })
+            .map(|_| ()),
+            "solve_at_iterative",
+        );
+
+        // A reachable tolerance on the same handle type still succeeds and
+        // reports `converged = true`.
+        let (_, ok) = op
+            .prepare_at::<B>(
+                omega,
+                SolverMode::Iterative(IterativeSettings::new(1e-10, max_iters)),
+                &device(),
+            )
+            .expect("iterative setup")
+            .solve()
+            .expect("tol = 1e-10 converges");
+        assert!(ok.converged);
+        assert!(ok.residual_rel <= 1e-10);
     }
 
     /// Smoke test: [`IterativePreconditioner::Chebyshev`] also reaches the
