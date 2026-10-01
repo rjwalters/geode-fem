@@ -421,7 +421,8 @@ fn check_echoes_model_fit_and_eps_of_f() {
 #[test]
 fn unsupported_combinations_are_invalid_spec() {
     let dir = TempDir::new("invalid");
-    let cases: [(&str, fn(&mut Value), &str); 4] = [
+    type Edit = fn(&mut Value);
+    let cases: [(&str, Edit, &str); 4] = [
         (
             "adaptive",
             |v| v["sweep"] = json!({ "adaptive": {} }),
