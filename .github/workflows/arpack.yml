@@ -117,11 +117,11 @@ jobs:
       # builders, round-off discrete solenoidality, tripwires). No blanket
       # geode-core job exists, so it is named here; < 1 s in release.
       #
-      # Issue #731: `surface_not_on_mesh` (5 tests) covers the typed
-      # `SurfaceNotOnMesh` error contract (issue #725) across every public
-      # entry point that accepts caller-supplied surface/port triangles.
-      # Same "no blanket geode-core job" gap, so it is named here too;
-      # < 1 s in release.
+      # Issue #731: `surface_not_on_mesh` (7 tests, issue #732 added the
+      # "false face" pair) covers the typed `SurfaceNotOnMesh` error
+      # contract (issue #725) across every public entry point that accepts
+      # caller-supplied surface/port triangles. Same "no blanket geode-core
+      # job" gap, so it is named here too; < 1 s in release.
       #
       # Issue #708: `rom_sweep` (the adaptive-sweep PROM behind `geode
       # driven`'s `sweep.adaptive`, now with impedance surfaces and block
