@@ -230,6 +230,10 @@ pub fn bessel_j(l: usize, x: f64) -> f64 {
 ///
 /// `K₀` is singular at the origin (`K₀(x) → −ln(x)` as `x → 0⁺`) and
 /// decays as `√(π/2x)·e^{-x}` for large `x`.
+// `-0.577_215_66` is the tabulated A&S 9.8.5 coefficient (≈ −γ), kept
+// verbatim so the fit is unchanged; clippy ≥ 1.99 flags it as
+// `approx_constant` (`f64::consts::EULER_GAMMA`).
+#[allow(clippy::approx_constant)]
 pub fn bessel_k0(x: f64) -> f64 {
     assert!(x > 0.0, "K₀ is singular at x ≤ 0");
     if x <= 2.0 {

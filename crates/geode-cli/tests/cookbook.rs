@@ -58,6 +58,13 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("spiral_rough_smoke.json"),
         Input::Spec("driven"),
     ),
+    // The spiral smoke with a Djordjevic-Sarkar substrate (issue #757);
+    // `tests/dispersive_golden.rs` pins it.
+    (
+        "driven/spiral_inductor_dispersive.json",
+        Some("spiral_dispersive_smoke.json"),
+        Input::Spec("driven"),
+    ),
     (
         "extract/slcfet_spiral.json",
         Some("slcfet_extract_smoke.json"),

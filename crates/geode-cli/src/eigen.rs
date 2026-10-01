@@ -125,8 +125,8 @@ fn solve_lossy(p: &Problem, target: &EigenTarget) -> Result<Solved, CliError> {
     let device = <B as BackendTypes>::Device::default();
     // UPML frozen at the shift: one linear pencil, no self-consistency.
     let upml_reference_k0 = (!p.upml.is_empty()).then_some(target.shift.k0);
-    let tensors =
-        upml_reference_k0.map(|k0_ref| p.upml_tensors(&tet_centroids(&p.tagged.mesh), k0_ref));
+    let tensors = upml_reference_k0
+        .map(|k0_ref| p.upml_tensors(&p.eps, &tet_centroids(&p.tagged.mesh), k0_ref));
     let materials = match &tensors {
         Some((eps, nu)) => LossyCavityMaterials::Tensor { eps, nu },
         None => LossyCavityMaterials::Isotropic(&p.eps),

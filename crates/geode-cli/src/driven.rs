@@ -36,6 +36,10 @@
 //!   same library sweep **once per frequency** with that frequency's
 //!   `DrivenMaterials::MatchedUpml` tensors (reassembling each time). A
 //!   spec without UPML takes the batched path unchanged.
+//! * **Dispersive materials** (`materials[].dispersion`, issue #757)
+//!   take the same per-frequency path: each frequency's operator is
+//!   assembled from [`Problem::eps_at`] (`ε_r(f)`; times the stretch with
+//!   UPML), and each report row echoes the applied `ε_r(f)`.
 //! * **Wave ports** build each port's modes from its tagged face
 //!   ([`geode_core::driven::ports::PortFaceProjection::wave_port`]) and
 //!   run [`solve_wave_port_sweep_with_mode`] (per frequency with UPML,
@@ -96,8 +100,9 @@ use crate::export::{OutDir, PatternFile, eps_per_node, field_file_name, pattern_
 use crate::problem::{self, Problem, UpmlRegion};
 use crate::progress::{Progress, SweepOptions, par_map};
 use crate::report::{
-    AdaptiveSweepStats, Complex, DrivenReport, FarFieldResult, FrequencyResult, PortResult,
-    Provenance, RoughnessKResult, SolverStats, WaveChannelResult, WaveModeSummary, WavePortSummary,
+    AdaptiveSweepStats, Complex, DrivenReport, FarFieldResult, FrequencyResult, MaterialEpsResult,
+    PortResult, Provenance, RoughnessKResult, SolverStats, WaveChannelResult, WaveModeSummary,
+    WavePortSummary,
 };
 use crate::spec::{AdaptiveSweepSpec, Analysis, SolverSpec};
 use serde_json::json;
@@ -289,31 +294,72 @@ fn solver_mode(p: &Problem) -> SolverMode {
     }
 }
 
-/// Run `solve` over `omegas`: in one batched call when the materials are
-/// ω-independent (no UPML — `DrivenMaterials::Scalar`), else once per
-/// frequency with that frequency's `DrivenMaterials::MatchedUpml`
-/// tensors (the library sweeps assemble once per call).
+/// The driven materials of one frequency of a frequency-dependent spec
+/// ([`Problem::is_frequency_dependent`]): the per-tet `ε_r(f)`
+/// ([`Problem::eps_at`]) as a scalar, or — with `absorbing_regions` —
+/// the matched-UPML tensors built from it (`ε = ε_r(f)·Λ`).
+enum FrequencyMaterials<'a> {
+    Scalar(std::borrow::Cow<'a, [c64]>),
+    #[allow(clippy::type_complexity)]
+    Upml(Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>),
+}
+
+impl<'a> FrequencyMaterials<'a> {
+    /// `centroids` is `tet_centroids` of the mesh (unused without UPML).
+    fn at(p: &'a Problem, centroids: &[[f64; 3]], f: &problem::Frequency) -> Self {
+        let eps = p.eps_at(f.hz);
+        if p.upml.is_empty() {
+            Self::Scalar(eps)
+        } else {
+            let (epsilon_tensor, nu_tensor) = p.upml_tensors(&eps, centroids, f.k0);
+            Self::Upml(epsilon_tensor, nu_tensor)
+        }
+    }
+
+    fn materials(&self) -> DrivenMaterials<'_> {
+        match self {
+            Self::Scalar(eps) => DrivenMaterials::Scalar(eps),
+            Self::Upml(epsilon_tensor, nu_tensor) => DrivenMaterials::MatchedUpml {
+                epsilon_tensor,
+                nu_tensor,
+            },
+        }
+    }
+}
+
+/// Run `solve` over `p.frequencies` (passed as natural `k₀`): in one
+/// batched call when the materials are ω-independent
+/// (`DrivenMaterials::Scalar` of [`Problem::eps`]), else once per
+/// frequency with that frequency's [`FrequencyMaterials`] — UPML
+/// tensors and / or dispersive `ε_r(f)` (the library sweeps assemble
+/// once per call).
 fn per_material_sweep<T>(
     p: &Problem,
-    omegas: &[f64],
     mut solve: impl FnMut(DrivenMaterials<'_>, &[f64]) -> Result<Vec<T>, CliError>,
 ) -> Result<Vec<T>, CliError> {
-    if p.upml.is_empty() {
-        return solve(DrivenMaterials::Scalar(&p.eps), omegas);
+    if !p.is_frequency_dependent() {
+        let omegas: Vec<f64> = p.frequencies.iter().map(|f| f.k0).collect();
+        return solve(DrivenMaterials::Scalar(&p.eps), &omegas);
     }
     let centroids = tet_centroids(&p.tagged.mesh);
-    let mut out = Vec::with_capacity(omegas.len());
-    for omega in omegas {
-        let (epsilon_tensor, nu_tensor) = p.upml_tensors(&centroids, *omega);
-        out.extend(solve(
-            DrivenMaterials::MatchedUpml {
-                epsilon_tensor: &epsilon_tensor,
-                nu_tensor: &nu_tensor,
-            },
-            std::slice::from_ref(omega),
-        )?);
+    let mut out = Vec::with_capacity(p.frequencies.len());
+    for f in &p.frequencies {
+        let m = FrequencyMaterials::at(p, &centroids, f);
+        out.extend(solve(m.materials(), std::slice::from_ref(&f.k0))?);
     }
     Ok(out)
+}
+
+/// Each dispersive region's `ε_r` at `hz` for a report row (issue #757;
+/// empty when every material is constant).
+fn dispersive_eps(p: &Problem, hz: f64) -> Vec<MaterialEpsResult> {
+    p.dispersive_eps(hz)
+        .into_iter()
+        .map(|(name, e)| MaterialEpsResult {
+            physical_group: name.to_string(),
+            eps_r: pair(e),
+        })
+        .collect()
 }
 
 /// One lumped-port sweep row in solver (natural) units, before the
@@ -439,6 +485,7 @@ pub fn sweep(
             ports,
             wave_channels: Vec::new(),
             roughness_k: roughness_k(p, f.k0),
+            materials: dispersive_eps(p, f.hz),
             field_file: None,
             far_field: None,
         });
@@ -504,9 +551,10 @@ fn emit_point(progress: &Progress, p: &Problem, index: usize, row: &LumpedRow) {
 
 /// Dense sweep: every frequency solved full-order, up to `opts.jobs`
 /// concurrently ([`crate::progress::par_map`]; rows in frequency order).
-/// Without UPML the operator is assembled once and shared by the workers
-/// (each frequency factors its own `A(ω)`); with UPML each frequency
-/// assembles its own operator from that frequency's stretch tensors.
+/// Without UPML or dispersive materials the operator is assembled once
+/// and shared by the workers (each frequency factors its own `A(ω)`);
+/// otherwise each frequency assembles its own operator from that
+/// frequency's [`FrequencyMaterials`] (stretch tensors and / or `ε_r(f)`).
 fn dense_sweep<B: burn::tensor::backend::Backend>(
     p: &Problem,
     lumped: &[LumpedPort<'_>],
@@ -525,7 +573,7 @@ fn dense_sweep<B: burn::tensor::backend::Backend>(
         emit_point(progress, p, index, &row);
         Ok(row)
     };
-    if p.upml.is_empty() {
+    if !p.is_frequency_dependent() {
         let device = <B as BackendTypes>::Device::default();
         let op = s_parameter_operator::<B>(
             mesh,
@@ -541,19 +589,9 @@ fn dense_sweep<B: burn::tensor::backend::Backend>(
     let centroids = tet_centroids(mesh);
     par_map(n, opts.jobs, |index| {
         let device = <B as BackendTypes>::Device::default();
-        let (epsilon_tensor, nu_tensor) = p.upml_tensors(&centroids, p.frequencies[index].k0);
-        let op = s_parameter_operator::<B>(
-            mesh,
-            DrivenMaterials::MatchedUpml {
-                epsilon_tensor: &epsilon_tensor,
-                nu_tensor: &nu_tensor,
-            },
-            None,
-            bcs,
-            lumped,
-            surfaces,
-            &device,
-        )?;
+        let m = FrequencyMaterials::at(p, &centroids, &p.frequencies[index]);
+        let op =
+            s_parameter_operator::<B>(mesh, m.materials(), None, bcs, lumped, surfaces, &device)?;
         solve_row(index, &op)
     })
 }
@@ -759,14 +797,13 @@ pub fn wave_sweep(
     }
 
     let mode = solver_mode(p);
-    let omegas: Vec<f64> = p.frequencies.iter().map(|f| f.k0).collect();
     type B = CompiledBackend;
     let device = <B as BackendTypes>::Device::default();
     let bcs = DrivenBcs {
         pec_interior_mask: &p.pec_mask,
     };
     let mut done = 0_usize;
-    let points: Vec<WavePortSweepPoint> = per_material_sweep(p, &omegas, |materials, w| {
+    let points: Vec<WavePortSweepPoint> = per_material_sweep(p, |materials, w| {
         let pts = solve_wave_port_sweep_with_mode::<B>(
             &p.tagged.mesh,
             materials,
@@ -841,6 +878,7 @@ pub fn wave_sweep(
             ports: Vec::new(),
             wave_channels,
             roughness_k: roughness_k(p, f.k0),
+            materials: dispersive_eps(p, f.hz),
             field_file: None,
             far_field: None,
         });
@@ -868,8 +906,9 @@ pub fn wave_sweep(
 }
 
 /// Per-row field / NTFF exporter for a lumped-port spec: the
-/// ω-independent [`DrivenOperator`] (built once without UPML; per row
-/// with it, since the stretch is ω-dependent) plus the NTFF box.
+/// ω-independent [`DrivenOperator`] (built once without UPML or
+/// dispersion; per row with either, since the materials are then
+/// ω-dependent) plus the NTFF box.
 struct Exporter<'a, B: burn::tensor::backend::Backend> {
     p: &'a Problem,
     lumped: &'a [LumpedPort<'a>],
@@ -878,11 +917,13 @@ struct Exporter<'a, B: burn::tensor::backend::Backend> {
     device: &'a B::Device,
     /// Zero volume source: the ports are the only drive.
     source: CurrentSource,
-    /// The operator of a spec without UPML (ω-independent materials).
+    /// The operator of a spec without UPML or dispersion (ω-independent
+    /// materials).
     scalar_op: Option<DrivenOperator>,
-    /// Tet centroids (UPML tensors), empty without UPML.
+    /// Tet centroids (UPML tensors), empty for ω-independent materials.
     centroids: Vec<[f64; 3]>,
-    /// Per-node `Re ε_r` for the `.vtu`.
+    /// Per-node `Re ε_r` for the `.vtu` (re-evaluated per row when a
+    /// material is dispersive).
     eps_nodes: Vec<f64>,
     /// NTFF box, with exactly one UPML shell.
     ntff_box: Option<([f64; 3], [f64; 3])>,
@@ -911,10 +952,10 @@ impl<'a, B: burn::tensor::backend::Backend> Exporter<'a, B> {
             eps_nodes: eps_per_node(mesh, &p.eps),
             ntff_box: None,
         };
-        if p.upml.is_empty() {
-            this.scalar_op = Some(this.assemble(DrivenMaterials::Scalar(&p.eps))?);
-        } else {
+        if p.is_frequency_dependent() {
             this.centroids = tet_centroids(mesh);
+        } else {
+            this.scalar_op = Some(this.assemble(DrivenMaterials::Scalar(&p.eps))?);
         }
         this.ntff_box = ntff_box(&p.upml, &this.centroids)?;
         Ok(this)
@@ -948,17 +989,21 @@ impl<'a, B: burn::tensor::backend::Backend> Exporter<'a, B> {
         let p = self.p;
         let mesh = &p.tagged.mesh;
         let omega = f.k0;
-        let upml_op;
+        let row_op;
         let op = match &self.scalar_op {
             Some(op) => op,
             None => {
-                let (epsilon_tensor, nu_tensor) = p.upml_tensors(&self.centroids, omega);
-                upml_op = self.assemble(DrivenMaterials::MatchedUpml {
-                    epsilon_tensor: &epsilon_tensor,
-                    nu_tensor: &nu_tensor,
-                })?;
-                &upml_op
+                let m = FrequencyMaterials::at(p, &self.centroids, f);
+                row_op = self.assemble(m.materials())?;
+                &row_op
             }
+        };
+        let row_eps_nodes;
+        let eps_nodes = if p.dispersion.is_empty() {
+            &self.eps_nodes
+        } else {
+            row_eps_nodes = eps_per_node(mesh, &p.eps_at(f.hz));
+            &row_eps_nodes
         };
         let (sol, _) = op.prepare_at::<B>(omega, self.mode, self.device)?.solve()?;
         if !sol.residual_rel.is_finite()
@@ -975,13 +1020,8 @@ impl<'a, B: burn::tensor::backend::Backend> Exporter<'a, B> {
                 ),
             });
         }
-        row.field_file = Some(out.write_field(
-            &field_file_name(index),
-            mesh,
-            &sol.e_edges,
-            true,
-            &self.eps_nodes,
-        )?);
+        row.field_file =
+            Some(out.write_field(&field_file_name(index), mesh, &sol.e_edges, true, eps_nodes)?);
 
         let Some((lo, hi)) = self.ntff_box else {
             return Ok(());

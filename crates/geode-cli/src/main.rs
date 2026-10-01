@@ -30,6 +30,7 @@
 mod backend;
 mod capacitance;
 mod check;
+mod dispersion;
 mod driven;
 mod eigen;
 mod error;

@@ -91,11 +91,42 @@ pub struct RegionSummary {
     pub n_tets: usize,
     /// Applied relative permittivity.
     pub eps_r: Complex,
-    /// `"spec"` or `"default_vacuum"`.
+    /// `"spec"`, `"default_vacuum"` or (issue #757) `"dispersion"` — for
+    /// which `eps_r` is the model at its reference frequency `f_ref_hz`.
     pub eps_r_source: &'static str,
     /// Applied real relative permeability (additive in v1, issue #714;
     /// `1` unless an inductance spec lists `mu_r` for the region).
     pub mu_r: f64,
+    /// The region's dispersion model (additive in v1, issue #757; present
+    /// only for a dispersive region).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispersion: Option<DispersionSummary>,
+}
+
+/// A dispersive region's model: the inputs as given, the fitted
+/// parameters and `ε_r(f)` at every requested frequency (additive in v1,
+/// issue #757).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DispersionSummary {
+    /// `"djordjevic_sarkar"`.
+    pub model: &'static str,
+    /// Real relative permittivity `ε′` at `f_ref_hz` (as given).
+    pub eps_r: f64,
+    /// Loss tangent at `f_ref_hz` (as given).
+    pub tan_delta: f64,
+    /// Reference frequency (Hz).
+    pub f_ref_hz: f64,
+    /// Lower band corner `f₁` (Hz).
+    pub f_low_hz: f64,
+    /// Upper band corner `f₂` (Hz).
+    pub f_high_hz: f64,
+    /// Fitted high-frequency permittivity `ε∞`.
+    pub eps_inf: f64,
+    /// Fitted permittivity step `Δε = ε_r(0) − ε∞`.
+    pub delta_eps: f64,
+    /// `ε_r(f)` `[re, im]` at each entry of the report's `frequencies`, in
+    /// the same order (empty for a spec without frequencies).
+    pub eps_r_at_frequencies: Vec<Complex>,
 }
 
 /// One PEC surface.
@@ -161,6 +192,17 @@ pub struct RoughnessKResult {
     pub physical_group: String,
     /// Loss factor `K(f) ≥ 1` multiplying the wall's smooth `Z_s`.
     pub k: f64,
+}
+
+/// The evaluated permittivity of one dispersive material at one
+/// frequency (additive in v1, issue #757).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct MaterialEpsResult {
+    /// The material's volume physical-group name.
+    pub physical_group: String,
+    /// Relative permittivity `ε_r(f)` `[re, im]` (`im ≤ 0`) applied at
+    /// this row's frequency.
+    pub eps_r: Complex,
 }
 
 /// One Silver-Müller absorbing wall (`Z_s = η₀`).
@@ -836,6 +878,11 @@ pub struct FrequencyResult {
     /// has a `roughness` block).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub roughness_k: Vec<RoughnessKResult>,
+    /// Evaluated relative permittivity `ε_r(f)` of every dispersive
+    /// material, in spec order (additive in v1, issue #757; present only
+    /// when a material has a `dispersion` block).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub materials: Vec<MaterialEpsResult>,
     /// Exported `E` field of this row (additive in v1; present only with
     /// `--outdir` on a lumped-port spec).
     #[serde(skip_serializing_if = "Option::is_none")]

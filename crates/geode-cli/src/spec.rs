@@ -507,6 +507,61 @@ pub struct MaterialSpec {
     /// rejects `μ_r ≠ 1` rather than silently ignoring it.
     #[serde(default = "default_mu_r", skip_serializing_if = "is_unit_mu_r")]
     pub mu_r: f64,
+    /// Frequency-dependent permittivity model (additive in v1, issue
+    /// #757). Omit (or `null`) for a constant `eps_r`. When present,
+    /// `eps_r` must be left at its default: the region's permittivity at
+    /// each swept frequency is the model's `ε_r(f)` (`exp(+jωt)`,
+    /// `Im ε_r ≤ 0`). `driven` / `extract` dense sweeps only — rejected
+    /// with `sweep.adaptive`, `sensitivity` and by `eigen`,
+    /// `capacitance` and `inductance`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispersion: Option<DispersionSpec>,
+}
+
+/// Frequency-dependent relative-permittivity model of a material
+/// (issue #757), selected by `model`. Further models are added as new
+/// `model` variants.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[serde(tag = "model", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DispersionSpec {
+    /// Djordjevic–Sarkar wideband Debye model (Djordjević et al., IEEE
+    /// Trans. EMC 43(4), 2001): `ε_r(f) = ε∞ + Δε/L · log₁₀((f₂ + jf) /
+    /// (f₁ + jf))` with `L = log₁₀(f₂/f₁)`, fitted so that
+    /// `ε_r(f_ref) = eps_r·(1 − j·tan_delta)` exactly — a nearly flat
+    /// loss tangent and a slowly falling `ε′` across `[f₁, f₂]` (FR-4 and
+    /// laminate datasheets).
+    DjordjevicSarkar {
+        /// Real relative permittivity `ε′` at `f_ref_hz` (finite, `> 0`).
+        eps_r: f64,
+        /// Loss tangent `tan δ` at `f_ref_hz` (finite, `≥ 0`).
+        tan_delta: f64,
+        /// Frequency (Hz) at which `eps_r` / `tan_delta` are given
+        /// (required; `f_low_hz < f_ref_hz < f_high_hz`).
+        f_ref_hz: f64,
+        /// Lower corner `f₁` (Hz) of the model band (default `1e3`).
+        #[serde(default = "default_ds_f_low_hz")]
+        f_low_hz: f64,
+        /// Upper corner `f₂` (Hz) of the model band (default `1e12`).
+        #[serde(default = "default_ds_f_high_hz")]
+        f_high_hz: f64,
+    },
+}
+
+impl DispersionSpec {
+    /// The frequency (Hz) at which the model's inputs are given.
+    pub fn f_ref_hz(&self) -> f64 {
+        match *self {
+            Self::DjordjevicSarkar { f_ref_hz, .. } => f_ref_hz,
+        }
+    }
+}
+
+fn default_ds_f_low_hz() -> f64 {
+    1e3
+}
+
+fn default_ds_f_high_hz() -> f64 {
+    1e12
 }
 
 fn default_eps_r() -> [f64; 2] {

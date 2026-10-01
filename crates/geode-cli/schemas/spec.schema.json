@@ -105,6 +105,55 @@
       ],
       "type": "object"
     },
+    "DispersionSpec": {
+      "description": "Frequency-dependent relative-permittivity model of a material\n(issue #757), selected by `model`. Further models are added as new\n`model` variants.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Djordjevic–Sarkar wideband Debye model (Djordjević et al., IEEE\nTrans. EMC 43(4), 2001): `ε_r(f) = ε∞ + Δε/L · log₁₀((f₂ + jf) /\n(f₁ + jf))` with `L = log₁₀(f₂/f₁)`, fitted so that\n`ε_r(f_ref) = eps_r·(1 − j·tan_delta)` exactly — a nearly flat\nloss tangent and a slowly falling `ε′` across `[f₁, f₂]` (FR-4 and\nlaminate datasheets).",
+          "properties": {
+            "eps_r": {
+              "description": "Real relative permittivity `ε′` at `f_ref_hz` (finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "f_high_hz": {
+              "default": 1000000000000.0,
+              "description": "Upper corner `f₂` (Hz) of the model band (default `1e12`).",
+              "format": "double",
+              "type": "number"
+            },
+            "f_low_hz": {
+              "default": 1000.0,
+              "description": "Lower corner `f₁` (Hz) of the model band (default `1e3`).",
+              "format": "double",
+              "type": "number"
+            },
+            "f_ref_hz": {
+              "description": "Frequency (Hz) at which `eps_r` / `tan_delta` are given\n(required; `f_low_hz < f_ref_hz < f_high_hz`).",
+              "format": "double",
+              "type": "number"
+            },
+            "model": {
+              "const": "djordjevic_sarkar",
+              "type": "string"
+            },
+            "tan_delta": {
+              "description": "Loss tangent `tan δ` at `f_ref_hz` (finite, `≥ 0`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "model",
+            "eps_r",
+            "tan_delta",
+            "f_ref_hz"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "EigenSpec": {
       "additionalProperties": false,
       "description": "Eigenmode analysis settings (`geode eigen`).\n\nSolves the PEC-cavity pencil `K x = k₀² M_ε x` with the pure-Rust\nsparse shift-invert Lanczos (direct sparse-LU inner solve) and returns\nthe `n_modes` physical modes closest to `shift`, ascending. The pencil\nis real symmetric (lossless, `Q = null`) for real `ε_r`, and complex\nsymmetric (complex `k₀`, finite `Q`) when any `materials[].eps_r` has\n`Im < 0` or the spec has `absorbing_regions` (UPML frozen at `shift`;\nissue #706). Leontovich / Silver-Müller walls are rejected: their\nfrequency-dependent terms would make the eigenproblem nonlinear.\n`shift` must be `> 0`; place it just **below** the lowest mode of\ninterest (open cavities: **near** the resonance of interest) — the\ncurl-curl gradient nullspace sits at `k₀ = 0` and is filtered out, so a\nshift near 0 wastes the Lanczos basis on it.",
@@ -392,6 +441,17 @@
       "additionalProperties": false,
       "description": "Material of one volume physical group: complex permittivity and\n(additive in v1, issue #714) real relative permeability.",
       "properties": {
+        "dispersion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DispersionSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Frequency-dependent permittivity model (additive in v1, issue\n#757). Omit (or `null`) for a constant `eps_r`. When present,\n`eps_r` must be left at its default: the region's permittivity at\neach swept frequency is the model's `ε_r(f)` (`exp(+jωt)`,\n`Im ε_r ≤ 0`). `driven` / `extract` dense sweeps only — rejected\nwith `sweep.adaptive`, `sensitivity` and by `eigen`,\n`capacitance` and `inductance`."
+        },
         "eps_r": {
           "default": [
             1.0,

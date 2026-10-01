@@ -723,6 +723,7 @@ fn starter_spec_driven(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBu
             physical_group: g.clone(),
             eps_r: d.eps_r,
             mu_r: 1.0,
+            dispersion: None,
         })
         .collect();
     ProblemSpec {
@@ -788,6 +789,7 @@ fn starter_spec_capacitance(
             physical_group: name(GroupRole::Dielectric(i)),
             eps_r: [d.eps_r[0], 0.0],
             mu_r: 1.0,
+            dispersion: None,
         })
         .collect();
     let terminals = (0..r.groups.len())
