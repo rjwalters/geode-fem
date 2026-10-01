@@ -104,3 +104,43 @@ at conductivity `σ/K(f)²` (the exact equivalent of a full-complex `K`) and
 `K` to the closed form. For the Huray cannonball model use
 `{"model": "huray", "ball_radius_m": 0.5e-6, "n_balls": 14, "tile_area_m2": 1e-10}`
 (`K` = 1.047 / 1.143 / 1.206 / 1.278 at 1 / 5 / 10 / 20 GHz).
+
+## Dispersive substrate (`dispersion`, issue #757)
+
+`spiral_inductor_dispersive.json` (copy of
+`tests/fixtures/spiral_dispersive_smoke.json`) replaces the substrate's
+constant `ε_r = 11.9 (1 − j·0.005)` with a **Djordjevic–Sarkar** model
+fitted to the same value at 1 GHz:
+
+```json
+{
+  "physical_group": "substrate",
+  "dispersion": {
+    "model": "djordjevic_sarkar",
+    "eps_r": 11.9, "tan_delta": 0.005, "f_ref_hz": 1e9
+  }
+}
+```
+
+```sh
+geode check  crates/geode-cli/examples/driven/spiral_inductor_dispersive.json   # regions[].dispersion: eps_inf, delta_eps, eps_r(f)
+geode driven crates/geode-cli/examples/driven/spiral_inductor_dispersive.json -o spiral_ds.json
+```
+
+Each frequency's operator is assembled with that frequency's `ε_r(f)`,
+and each `results[]` row reports it in `materials[]`. Expected (constant
+values from the table above):
+
+| f (GHz) | `materials[0].eps_r` | tan δ | `l_h` (nH) constant → DS | `r_ohm` (Ω) constant → DS |
+|---|---|---|---|---|
+| 1  | [11.900, −0.05950] | 0.00500 | 0.8481 → 0.8481 | 0.6350 → 0.6350 |
+| 5  | [11.839, −0.05935] | 0.00501 | 0.7943 → 0.7943 | 1.6899 → 1.6899 |
+| 10 | [11.813, −0.05916] | 0.00501 | 0.8105 → 0.8105 | 2.7719 → 2.7715 |
+| 20 | [11.786, −0.05878] | 0.00499 | 0.9650 → 0.9645 | 6.1676 → 6.1621 |
+
+The 1 GHz row is the constant-ε fixture's row exactly (`f = f_ref`).
+Silicon at `tan δ = 0.005` disperses little — `ε′` falls 1 % from 1 to
+20 GHz, moving `L` by 0.05 % — so the change is small on this
+conductor-dominated spiral; for an FR-4 laminate (`4.3`, `0.02`) `ε′`
+falls ~3 % per decade. `tests/dispersive_golden.rs` pins every row to a
+constant-ε run at that row's `ε_r(f)`.

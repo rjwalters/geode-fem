@@ -733,6 +733,126 @@
       ],
       "type": "object"
     },
+    "DispersionSpec": {
+      "description": "Frequency-dependent relative-permittivity model of a material\n(issue #757), selected by `model`. Further models are added as new\n`model` variants.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Djordjevic–Sarkar wideband Debye model (Djordjević et al., IEEE\nTrans. EMC 43(4), 2001): `ε_r(f) = ε∞ + Δε/L · log₁₀((f₂ + jf) /\n(f₁ + jf))` with `L = log₁₀(f₂/f₁)`, fitted so that\n`ε_r(f_ref) = eps_r·(1 − j·tan_delta)` exactly — a nearly flat\nloss tangent and a slowly falling `ε′` across `[f₁, f₂]` (FR-4 and\nlaminate datasheets).",
+          "properties": {
+            "eps_r": {
+              "description": "Real relative permittivity `ε′` at `f_ref_hz` (finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "f_high_hz": {
+              "default": 1000000000000.0,
+              "description": "Upper corner `f₂` (Hz) of the model band (default `1e12`).",
+              "format": "double",
+              "type": "number"
+            },
+            "f_low_hz": {
+              "default": 1000.0,
+              "description": "Lower corner `f₁` (Hz) of the model band (default `1e3`).",
+              "format": "double",
+              "type": "number"
+            },
+            "f_ref_hz": {
+              "description": "Frequency (Hz) at which `eps_r` / `tan_delta` are given\n(required; `f_low_hz < f_ref_hz < f_high_hz`).",
+              "format": "double",
+              "type": "number"
+            },
+            "model": {
+              "const": "djordjevic_sarkar",
+              "type": "string"
+            },
+            "tan_delta": {
+              "description": "Loss tangent `tan δ` at `f_ref_hz` (finite, `≥ 0`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "model",
+            "eps_r",
+            "tan_delta",
+            "f_ref_hz",
+            "f_low_hz",
+            "f_high_hz"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DispersionSummary": {
+      "description": "A dispersive region's model: the inputs as given, the fitted\nparameters and `ε_r(f)` at every requested frequency (additive in v1,\nissue #757).",
+      "properties": {
+        "delta_eps": {
+          "description": "Fitted permittivity step `Δε = ε_r(0) − ε∞`.",
+          "format": "double",
+          "type": "number"
+        },
+        "eps_inf": {
+          "description": "Fitted high-frequency permittivity `ε∞`.",
+          "format": "double",
+          "type": "number"
+        },
+        "eps_r": {
+          "description": "Real relative permittivity `ε′` at `f_ref_hz` (as given).",
+          "format": "double",
+          "type": "number"
+        },
+        "eps_r_at_frequencies": {
+          "description": "`ε_r(f)` `[re, im]` at each entry of the report's `frequencies`, in\nthe same order (empty for a spec without frequencies).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "f_high_hz": {
+          "description": "Upper band corner `f₂` (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "f_low_hz": {
+          "description": "Lower band corner `f₁` (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "f_ref_hz": {
+          "description": "Reference frequency (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "model": {
+          "description": "`\"djordjevic_sarkar\"`.",
+          "type": "string"
+        },
+        "tan_delta": {
+          "description": "Loss tangent at `f_ref_hz` (as given).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "model",
+        "eps_r",
+        "tan_delta",
+        "f_ref_hz",
+        "f_low_hz",
+        "f_high_hz",
+        "eps_inf",
+        "delta_eps",
+        "eps_r_at_frequencies"
+      ],
+      "type": "object"
+    },
     "DrivenReport": {
       "description": "`geode driven` report (`kind = \"driven\"`).",
       "properties": {
@@ -1606,6 +1726,13 @@
           "format": "double",
           "type": "number"
         },
+        "materials": {
+          "description": "Evaluated relative permittivity `ε_r(f)` of every dispersive\nmaterial, in spec order (additive in v1, issue #757; present only\nwhen a material has a `dispersion` block).",
+          "items": {
+            "$ref": "#/$defs/MaterialEpsResult"
+          },
+          "type": "array"
+        },
         "omega_rad_s": {
           "description": "Angular frequency `ω = 2πf` (rad/s).",
           "format": "double",
@@ -2348,10 +2475,45 @@
       ],
       "type": "object"
     },
+    "MaterialEpsResult": {
+      "description": "The evaluated permittivity of one dispersive material at one\nfrequency (additive in v1, issue #757).",
+      "properties": {
+        "eps_r": {
+          "description": "Relative permittivity `ε_r(f)` `[re, im]` (`im ≤ 0`) applied at\nthis row's frequency.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "physical_group": {
+          "description": "The material's volume physical-group name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "physical_group",
+        "eps_r"
+      ],
+      "type": "object"
+    },
     "MaterialSpec": {
       "additionalProperties": false,
       "description": "Material of one volume physical group: complex permittivity and\n(additive in v1, issue #714) real relative permeability.",
       "properties": {
+        "dispersion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DispersionSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Frequency-dependent permittivity model (additive in v1, issue\n#757). Omit (or `null`) for a constant `eps_r`. When present,\n`eps_r` must be left at its default: the region's permittivity at\neach swept frequency is the model's `ε_r(f)` (`exp(+jωt)`,\n`Im ε_r ≤ 0`). `driven` / `extract` dense sweeps only — rejected\nwith `sweep.adaptive`, `sensitivity` and by `eigen`,\n`capacitance` and `inductance`."
+        },
         "eps_r": {
           "default": [
             1.0,
@@ -3063,6 +3225,17 @@
     "RegionSummary": {
       "description": "One volume region.",
       "properties": {
+        "dispersion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DispersionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The region's dispersion model (additive in v1, issue #757; present\nonly for a dispersive region)."
+        },
         "eps_r": {
           "description": "Applied relative permittivity.",
           "items": {
@@ -3074,7 +3247,7 @@
           "type": "array"
         },
         "eps_r_source": {
-          "description": "`\"spec\"` or `\"default_vacuum\"`.",
+          "description": "`\"spec\"`, `\"default_vacuum\"` or (issue #757) `\"dispersion\"` — for\nwhich `eps_r` is the model at its reference frequency `f_ref_hz`.",
           "type": "string"
         },
         "mu_r": {

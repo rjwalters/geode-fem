@@ -215,6 +215,7 @@ Driven example (the spiral-inductor golden input,
 | `materials[].physical_group` | string | name of a **dimension-3** physical group |
 | `materials[].eps_r` | `[re, im]`, `im ≤ 0` (eigen: `re > 0`; capacitance: `im = 0`, `re > 0`; inductance: omit or `[1, 0]`); default `[1, 0]` (vacuum, for every analysis: a `materials` entry may omit `eps_r`) | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
 | `materials[].mu_r` | float > 0, default `1` (additive in v1, issue #714) | real relative permeability. Honoured **only by `geode inductance`**; every other analysis rejects `mu_r ≠ 1` (its solver has no permeability term) |
+| `materials[].dispersion` | optional (additive, #757); driven / extract dense sweeps only | frequency-dependent permittivity `{"model": "djordjevic_sarkar", "eps_r": ε′, "tan_delta": tan δ, "f_ref_hz": f_ref}` (optional `f_low_hz` = `1e3`, `f_high_hz` = `1e12`); replaces `eps_r` (which must then be omitted) — see [Dispersive dielectrics](#dispersive-dielectrics-issue-757) |
 | `boundary_conditions.pec[]` | strings | **dimension-2** groups whose edges are eliminated (tangential E = 0). Unnamed surfaces are natural (PMC-like) boundaries |
 | `boundary_conditions.leontovich[]` | | good-conductor surface impedance `Z_s = (1+j)·√(ωμ₀/2σ)` |
 | `….leontovich[].physical_group` | string | dimension-2 group |
@@ -245,7 +246,7 @@ Driven example (the spiral-inductor golden input,
 | `solver.tol` / `solver.max_iters` | iterative only; default `1e-10` / `5000` | relative-residual tolerance / per-RHS budget; exceeding the budget is a hard error (`solve_failed`, non-zero exit). Jacobi-preconditioned COCG can stall on ill-conditioned low-frequency conductor problems (e.g. the spiral fixture); prefer `direct` there |
 | `solver.preconditioner` | iterative only; `"jacobi"` (default) \| `"ilu0"` | Jacobi = diagonal scaling. `ilu0` = incomplete LU with zero fill on `A(ω)`'s own pattern (+32 B per nonzero of factor storage; ≈ 3.4× the per-iteration time of Jacobi on the spiral smoke mesh). Neither is uniformly better (issue #708, measured 2026-09-30): on the lossy spiral smoke mesh `ilu0` converges at 10 / 20 GHz (17 278 / 12 669 iterations, Z matches direct LU to 1e-10) where Jacobi stalls at every frequency, but it still stalls at 1 / 5 GHz; on the radiating UPML patch `ilu0` stalls where Jacobi converges. Pick per problem; `direct` remains the robust choice below the LU memory wall. `"ams"` (issue #744) = Hiptmair–Xu auxiliary-space Maxwell V-cycle on a real SPD proxy of `A(ω)`, built from the mesh's discrete gradient: exact sparse LU of the nodal `GᵀPG` at every mesh size (an approximate AMG nodal solve is measured to drift; `geode check` reports the LU's modelled memory) plus 4 Gauss–Seidel sweeps on the vector-nodal block. It converges the lossy spiral where `jacobi` / `ilu0` stall — smoke 1 / 5 / 10 / 20 GHz in 112 / 131 / 145 / 159 iterations, 54k-edge benchmark at 1 GHz in 114 iterations (3.9 s, 0.34 GB peak RSS vs direct LU 5.0 s, 2.03 GB; Z matches LU to 1e-12). On meshes above ~200k edges set `solver.tol = 1e-9`: the default `1e-10` sits below the explicit-residual floor there (measured 1.6–2.5e-10 on a 228k-edge spiral), so the solve drifts and reports `solve_failed`. Known negatives: it does **not** converge the radiating UPML patch, nor layouts whose conductors are floating PEC shells — a spec whose `pec` surfaces form more than one connected component is rejected up front as `invalid_spec`, naming the floating groups (use Leontovich conductors, or `direct`) |
 | `sweep` | driven / extract only; optional section (additive in v1, #708) | sweep strategy; omitted = the dense sweep (one full-order solve per frequency) |
-| `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"` and lumped `ports`; rejected (`invalid_spec`) with `absorbing_regions` or `wave_ports`. Leontovich and Silver-Müller walls are supported |
+| `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"` and lumped `ports`; rejected (`invalid_spec`) with `absorbing_regions`, `wave_ports` or a dispersive material (`materials[].dispersion`). Leontovich and Silver-Müller walls are supported |
 | `sweep.adaptive.tolerance` | float in `(0, 1)`, default `1e-6` | residual-indicator target `η = ‖A(ω)x_rom − b‖/‖b‖` (worst over the port excitations) — a bound on the relative **residual**, not directly on `Z` / `S` |
 | `sweep.adaptive.max_snapshots` | int ≥ 1, default `20` | budget of greedy snapshot frequencies (full-order factorizations, seeds included); frequencies still above `tolerance` when it runs out are solved full-order |
 | `solver.mode` (eigen) | `"direct"` only | the eigen path always factors `K − σM` once with sparse LU; `"iterative"` is rejected |
@@ -925,6 +926,97 @@ and driven `sensitivity`. Every `results[]` row reports the applied
 `roughness_k[]`; `geode check` echoes the model and `K` over the
 requested frequencies. The cookbook has the spiral with 1 µm RMS copper
 ([`examples/driven/spiral_inductor_rough.json`](examples/driven/README.md#rough-copper-roughness-issue-758)).
+
+## Dispersive dielectrics (issue #757)
+
+PCB laminates are not constant-ε: FR-4's `ε′` falls by ~7 % from 100 MHz
+to 40 GHz while its loss tangent stays nearly flat. An optional
+`dispersion` block on a `materials[]` entry replaces the constant `eps_r`
+with a model `ε_r(f)` evaluated at **every swept frequency**:
+
+```json
+"materials": [{
+  "physical_group": "substrate",
+  "dispersion": {
+    "model": "djordjevic_sarkar",
+    "eps_r": 4.3, "tan_delta": 0.02, "f_ref_hz": 1e9
+  }
+}]
+```
+
+**Convention.** The solver's `exp(+jωt)`: a passive dielectric has
+`Im ε_r ≤ 0` (`ε_r = ε′(1 − j·tan δ)`), as for a constant `eps_r`.
+
+**Djordjevic–Sarkar** (wideband Debye; A. R. Djordjević, R. M. Biljić,
+V. D. Likar-Smiljanić, T. K. Sarkar, "Wideband frequency-domain
+characterization of FR-4 and time-domain causality," *IEEE Trans.
+Electromagn. Compat.* 43(4), 662–667, 2001). With band corners
+`f₁ = f_low_hz`, `f₂ = f_high_hz` and `L = log₁₀(f₂/f₁)`:
+
+```text
+ε_r(f) = ε∞ + Δε/L · log₁₀((f₂ + jf) / (f₁ + jf))
+```
+
+i.e. `Re = ε∞ + Δε·½·log₁₀((f₂² + f²)/(f₁² + f²))/L` and
+`Im = Δε·[atan(f/f₂) − atan(f/f₁)]/(L·ln 10) < 0`. It is causal
+(Kramers–Kronig consistent), passive, tends to `ε∞ + Δε` at DC and `ε∞`
+as `f → ∞`, and between the corners has a nearly constant loss tangent
+and a slowly falling `ε′` — the datasheet behaviour of FR-4 and most
+laminates. The model is **fitted to one datasheet point**: `ε′ = eps_r`
+and `tan δ = tan_delta` at `f_ref_hz`, imposing
+`ε_r(f_ref) = ε′(1 − j·tan δ)` exactly:
+
+```text
+Δε = ε′·tan δ·L·ln 10 / (atan(f_ref/f₁) − atan(f_ref/f₂))
+ε∞ = ε′ − Δε·½·log₁₀((f₂² + f_ref²)/(f₁² + f_ref²))/L
+```
+
+FR-4 (`4.3`, `0.02` at 1 GHz, default band 1 kHz – 1 THz) gives
+`Δε = 1.1353`, `ε∞ = 3.9216` and `ε′ / tan δ` = 4.426 / 0.0194 at
+100 MHz, 4.300 / 0.0200 at 1 GHz, 4.174 / 0.0205 at 10 GHz and
+4.098 / 0.0205 at 40 GHz.
+
+| Field | Rule |
+|---|---|
+| `eps_r` | `ε′` at `f_ref_hz`, finite, `> 0` |
+| `tan_delta` | finite, `≥ 0` (`0` is a constant real `ε_r = eps_r`) |
+| `f_ref_hz` | required; `0 < f_low_hz < f_ref_hz < f_high_hz` |
+| `f_low_hz`, `f_high_hz` | band corners, default `1e3` / `1e12` (the paper's FR-4 band) |
+
+Non-finite or out-of-range inputs, and a fit with `ε∞ ≤ 0` (a large
+loss tangent over a narrow band), are `invalid_spec`; so is a material
+with **both** `eps_r` and `dispersion`. Further models (Debye, Drude)
+will be new `model` values.
+
+**How it is solved.** A dispersive spec runs the dense sweep with the
+operator **re-assembled per frequency** from that frequency's per-tet
+`ε_r(f)` — the same per-frequency path `absorbing_regions` already takes
+(the batched assemble-once sweep cannot express an ω-dependent mass
+matrix). It composes with everything on that path: lumped and wave ports,
+Leontovich / Silver-Müller walls, `absorbing_regions` (`ε = ε_r(f)·Λ`),
+`--jobs`, the direct and iterative solvers including AMS (the SPD proxy
+reads each frequency's own `Re ε(f) ≥ ε∞ > 0`), `extract`, and `--outdir`
+(each row's operator and `.vtu` `eps_r` array use that row's `ε_r(f)`).
+The cost is one operator assembly per frequency, minor next to the
+factorization.
+
+**Not supported** (each `invalid_spec` when any material is dispersive):
+
+| With | Why |
+|---|---|
+| `sweep.adaptive` | the reduced-order model projects a fixed mass matrix `M`; with `ε(f)` it would interpolate the wrong operator and its residual indicator could not tell |
+| `geode eigen` | the eigenfrequency is the unknown: `K x = k₀²·M(k₀)·x` is a nonlinear eigenproblem, not the linear pencil the shift-invert Lanczos solves |
+| `geode capacitance` | the DC limit (`ε∞ + Δε`) is a modelling choice not made in v1 — give the static `eps_r` explicitly |
+| `geode inductance` | the magnetostatic solve has no permittivity term |
+| a `sensitivity` section | the adjoint differentiates a frequency-independent `ε`; its forward problem would not be the dispersive one |
+
+Every `results[]` row reports the applied `materials[]` (`ε_r(f)` per
+dispersive material); `geode check` reports the region's `eps_r_source =
+"dispersion"`, its `eps_r` at `f_ref_hz`, and a `dispersion` echo with
+the inputs, the fitted `eps_inf` / `delta_eps` and `ε_r(f)` at every
+requested frequency — audit the fit without solving. The cookbook has
+the spiral with a Djordjevic–Sarkar substrate
+([`examples/driven/spiral_inductor_dispersive.json`](examples/driven/README.md#dispersive-substrate-dispersion-issue-757)).
 
 ## Adaptive sweep, parallel frequencies and progress (issue #708)
 
@@ -1732,8 +1824,13 @@ Additive in v1 (issue #683) — always present in `check`, present in
   S-matrix index), `k_c` (rad / mesh unit), `cutoff_hz`.
 
 **`kind = "check"`** adds `regions[]` (`physical_group`, `tag`, `n_tets`,
-`eps_r`, `eps_r_source` = `"spec"` \| `"default_vacuum"`, and — additive
-in v1, issue #714 — `mu_r`), `pec[]`
+`eps_r`, `eps_r_source` = `"spec"` \| `"default_vacuum"` \|
+`"dispersion"` (additive, issue #757; `eps_r` is then the model at
+`f_ref_hz`), and — additive in v1, issue #714 — `mu_r`; dispersive
+regions only, additive (#757): `dispersion` = `model`, the inputs as
+given (`eps_r`, `tan_delta`, `f_ref_hz`, `f_low_hz`, `f_high_hz`), the
+fit (`eps_inf`, `delta_eps`) and `eps_r_at_frequencies[]`, `ε_r(f)` at each
+`frequencies[]` entry), `pec[]`
 (`physical_group`, `tag`, `n_triangles`), `leontovich[]` (… plus
 `conductivity_s_m`, `conductivity_natural` and — additive in v1, issue
 #758, rough walls only — `roughness`: `model`, its parameters as given
@@ -1805,6 +1902,7 @@ sensitivities](#material-sensitivities-sensitivity-issue-707).
 | `ports[].q` | – | `Im Z_kk / Re Z_kk` |
 | `wave_channels[]` | | wave-port specs only (see below) |
 | `roughness_k[]` | – | rough Leontovich walls only (additive, #758): `{physical_group, k}` per rough wall in spec order, `k` = the roughness factor `K(f)` applied at this frequency |
+| `materials[]` | – | dispersive materials only (additive, #757): `{physical_group, eps_r}` per dispersive material in spec order, `eps_r` = the `[re, im]` `ε_r(f)` applied at this frequency |
 | `field_file` | | `--outdir` only: `{path, sha256}` of `E_<row>.vtu` (see above) |
 | `far_field` | | `--outdir` + one UPML shell only: NTFF quantities (see above) |
 
@@ -2061,6 +2159,24 @@ dense sweep (measured `|ΔZ|/|Z|` 3e-12 and 2.8e-11):
 ```sh
 cargo test -p geode-cli --test roughness_golden                          # default tier
 cargo test -p geode-cli --release --test roughness_golden -- --ignored   # AMS + adaptive
+```
+
+`tests/dispersive_golden.rs` (issue #757) runs the spiral smoke with a
+Djordjevic–Sarkar substrate (`spiral_dispersive_smoke.json`: `11.9`,
+`tan δ = 0.005` at 1 GHz — the fixture's constant value there): every
+row's echoed `ε_r(f)` matches the closed form to 1e-12, and every row
+(`Z` and `S`, plus the `--outdir` `.vtu` `eps_r` array and field) equals
+a constant-ε single-frequency run at that `ε_r(f)` to 1e-10 (measured:
+bit-identical); the 1 GHz row reproduces the committed constant-ε
+fixture row (so it sits in the `results_smoke.toml` bands). The patch
+smoke with a dispersive substrate checks the UPML composition the same
+way; `geode check` echoes the fit, and the unsupported combinations are
+`invalid_spec`. In release (`--ignored`) the AMS solve of the dispersive
+spiral matches direct LU:
+
+```sh
+cargo test -p geode-cli --test dispersive_golden                          # default tier
+cargo test -p geode-cli --release --test dispersive_golden -- --ignored   # AMS
 ```
 
 `tests/spiral_golden.rs` re-expresses the spiral-inductor benchmark

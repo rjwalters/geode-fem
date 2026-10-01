@@ -2,7 +2,8 @@
 //! #757), run through the real `geode` binary.
 //!
 //! * **Spiral smoke, Djordjevic–Sarkar substrate**
-//!   (`spiral_golden_smoke.json` with `substrate` replaced by DS
+//!   (`spiral_dispersive_smoke.json` = `spiral_golden_smoke.json` with
+//!   `substrate` replaced by DS
 //!   `ε′ = 11.9`, `tan δ = 0.005` at `f_ref = 1 GHz` — the fixture's own
 //!   constant `[11.9, −0.0595]` there): every row's echoed
 //!   `materials[].eps_r` equals the closed form (evaluated independently
@@ -277,7 +278,19 @@ fn spiral_ds(v: &mut Value) {
 #[test]
 fn spiral_ds_rows_equal_constant_eps_runs() {
     let dir = TempDir::new("spiral");
-    let spec = spec_from("spiral_golden_smoke.json", &dir.0, "ds.json", spiral_ds);
+    // The committed fixture (= the cookbook example) is exactly the
+    // smoke spec with `spiral_ds` applied.
+    let from_fixture = spec_from(
+        "spiral_dispersive_smoke.json",
+        &dir.0,
+        "fixture-ds.json",
+        |_| {},
+    );
+    let in_code = spec_from("spiral_golden_smoke.json", &dir.0, "ds.json", spiral_ds);
+    let parse =
+        |p: &Path| -> Value { serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap() };
+    assert_eq!(parse(&from_fixture), parse(&in_code));
+    let spec = from_fixture;
     let outdir = dir.0.join("ds-out");
     let disp = geode(&["driven", "--outdir", outdir.to_str().unwrap()], &spec);
     assert_eq!(rows(&disp).len(), 4);
