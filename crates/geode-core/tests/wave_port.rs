@@ -36,8 +36,8 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::waveguide::solve_rect_waveguide_modes;
 use geode_core::driven::ports::{
-    PortMode, WavePort, extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
-    map_mode_profile_to_full_mesh, solve_wave_port_sweep,
+    PortMedium, PortMode, WavePort, extruded_height_step_waveguide_mesh,
+    extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh, solve_wave_port_sweep,
 };
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials};
 use geode_core::mesh::TetMesh;
@@ -261,6 +261,152 @@ fn straight_section_s21_phase_matches_exp_minus_j_beta_l() {
         "S21 phase error {:.3e} too large vs exp(−jβL)",
         phase_err
     );
+}
+
+/// `|S₁₁|`, `S₂₁` and reported `β` of a matched two-port straight section
+/// filled with `materials`, both ports carrying `medium` (issue #777).
+fn filled_straight_section(
+    materials: DrivenMaterials<'_>,
+    medium: PortMedium,
+    omegas: &[f64],
+) -> Vec<(f64, c64, c64, c64)> {
+    let (a, b, length) = (2.0, 1.0, 1.2);
+    let (nx, ny, nz) = (8, 4, 4);
+    let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
+    let pec_mask = g.pec_interior_mask();
+    let one = c64::new(1.0, 0.0);
+    let ports = [
+        build_te10_port(&g.mesh, &g.port1_faces, a, b, nx, ny, 0.0, one).with_medium(medium),
+        build_te10_port(&g.mesh, &g.port2_faces, a, b, nx, ny, length, one).with_medium(medium),
+    ];
+    solve_wave_port_sweep::<B>(
+        &g.mesh,
+        materials,
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &pec_mask,
+        },
+        &ports,
+        omegas,
+        &device(),
+    )
+    .expect("filled wave-port sweep")
+    .iter()
+    .map(|pt| {
+        assert!(pt.residual_rel < 1e-9, "residual {}", pt.residual_rel);
+        assert!((pt.s[1] - pt.s[2]).norm() < 1e-8, "reciprocity");
+        assert_eq!(pt.beta[0], pt.beta[1]);
+        (pt.omega, pt.s[0], pt.s[2], pt.beta[0])
+    })
+    .collect()
+}
+
+/// **Dielectric-filled straight section** (issue #777): an `ε_r = 2.2`
+/// guide whose ports carry the same [`PortMedium`] is matched at k₀ ∈
+/// {1.3, 1.6, 1.9} (filled TE₁₀ cutoff `k_c/√2.2 ≈ 1.059`, TE₂₀ / TE₀₁
+/// ≈ 2.118: single-mode). The reported `β = √(2.2k₀² − k_c²)`, `|S₂₁| =
+/// 1`, `|S₁₁| ≈ 0` and `arg S₂₁ = −βL`. At k₀ = 1.3 a vacuum port is
+/// below its own cutoff (π/2 ≈ 1.571), so the pre-#777 vacuum port
+/// cannot terminate this guide — checked as the discriminator.
+#[test]
+fn dielectric_filled_straight_section_follows_the_filled_beta() {
+    let (a, length) = (2.0, 1.2);
+    let n_tets = extruded_rect_waveguide_mesh(8, 4, 4, a, 1.0, length)
+        .mesh
+        .n_tets();
+    let eps_r = 2.2;
+    let eps = vec![c64::new(eps_r, 0.0); n_tets];
+    let medium = PortMedium::isotropic(c64::new(eps_r, 0.0), 1.0);
+    let kc = std::f64::consts::PI / a;
+    let pts = filled_straight_section(DrivenMaterials::Scalar(&eps), medium, &[1.3, 1.6, 1.9]);
+    for (k0, s11, s21, beta) in pts {
+        let want_beta = (eps_r * k0 * k0 - kc * kc).sqrt();
+        let want_s21 = c64::new((-beta.re * length).cos(), (-beta.re * length).sin());
+        eprintln!(
+            "ε_r = {eps_r}, k0 = {k0}: β = {beta} (analytic {want_beta:.5}), |S11| = {:.4e}, \
+             |S21| = {:.5}, |S21 − e^(−jβL)| = {:.3e}",
+            s11.norm(),
+            s21.norm(),
+            (s21 - want_s21).norm()
+        );
+        assert_eq!(beta.im, 0.0, "lossless fill: real β");
+        assert!(
+            (beta.re - want_beta).abs() / want_beta < 0.05,
+            "β {} vs analytic {want_beta}",
+            beta.re
+        );
+        assert!((s21.norm() - 1.0).abs() < 0.02, "|S21| = {}", s21.norm());
+        assert!(s11.norm() < 0.03, "|S11| = {}", s11.norm());
+        assert!(
+            (s21 - want_s21).norm() < 0.05,
+            "S21 {s21} vs e^(−jβL) {want_s21}"
+        );
+    }
+
+    // Discriminator: the same guide with vacuum ports (the pre-#777
+    // behaviour) — TE₁₀ is evanescent at the port, the guide is not
+    // terminated and the transmission is lost.
+    let (_, _, s21_vac, beta_vac) =
+        filled_straight_section(DrivenMaterials::Scalar(&eps), PortMedium::VACUUM, &[1.3])[0];
+    eprintln!("vacuum ports on the filled guide at k0 = 1.3: β = {beta_vac}, S21 = {s21_vac}");
+    assert!(beta_vac.re == 0.0 && beta_vac.im < 0.0);
+    assert!(
+        (s21_vac.norm() - 1.0).abs() > 0.1,
+        "|S21| = {}",
+        s21_vac.norm()
+    );
+}
+
+/// **Transverse-isotropic tensor fill** (issue #777): `ε = diag(1.4, 1.4,
+/// 1.0)`, `μ = diag(1.2, 1.2, 1.5)` on a z-normal port — `ε_n` must not
+/// enter, `μ_n` enters through `β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c²`, and the
+/// Robin term / drive / S weight use the admittance `y = β/μ_t` (a
+/// mutant using `y = β` mismatches the termination: measured `|S₁₁| ≈
+/// 0.18` at k₀ = 1.6, rejected below). Ports with the matching
+/// [`PortMedium`] terminate the guide.
+#[test]
+fn transverse_isotropic_tensor_fill_uses_mu_t_over_mu_n() {
+    let (a, length) = (2.0, 1.2);
+    let n_tets = extruded_rect_waveguide_mesh(8, 4, 4, a, 1.0, length)
+        .mesh
+        .n_tets();
+    let (eps_t, eps_n, mu_t, mu_n) = (1.4, 1.0, 1.2, 1.5);
+    let zero = c64::new(0.0, 0.0);
+    let diag = |d: [f64; 3]| -> [[c64; 3]; 3] {
+        std::array::from_fn(|i| {
+            std::array::from_fn(|j| if i == j { c64::new(d[i], 0.0) } else { zero })
+        })
+    };
+    let eps = vec![diag([eps_t, eps_t, eps_n]); n_tets];
+    let nu = vec![diag([1.0 / mu_t, 1.0 / mu_t, 1.0 / mu_n]); n_tets];
+    let medium = PortMedium {
+        eps_t: c64::new(eps_t, 0.0),
+        mu_t,
+        mu_n,
+    };
+    let kc = std::f64::consts::PI / a;
+    let pts = filled_straight_section(
+        DrivenMaterials::MatchedUpml {
+            epsilon_tensor: &eps,
+            nu_tensor: &nu,
+        },
+        medium,
+        &[1.6, 2.2],
+    );
+    for (k0, s11, s21, beta) in pts {
+        let want_beta = (k0 * k0 * eps_t * mu_t - mu_t / mu_n * kc * kc).sqrt();
+        let want_s21 = c64::new((-beta.re * length).cos(), (-beta.re * length).sin());
+        eprintln!(
+            "tensor fill k0 = {k0}: β = {beta} (analytic {want_beta:.5}), |S11| = {:.4e}, \
+             |S21| = {:.5}",
+            s11.norm(),
+            s21.norm()
+        );
+        assert!((beta.re - want_beta).abs() / want_beta < 0.05);
+        assert!((s21.norm() - 1.0).abs() < 0.02, "|S21| = {}", s21.norm());
+        assert!(s11.norm() < 0.03, "|S11| = {}", s11.norm());
+        assert!((s21 - want_s21).norm() < 0.05, "S21 {s21} vs {want_s21}");
+    }
 }
 
 /// **Discontinuity acceptance**: a height step from `b1 → b2` reflects
@@ -708,6 +854,7 @@ fn build_multimode_port(
     WavePort {
         faces: faces_3d.to_vec(),
         modes: port_modes,
+        medium: PortMedium::VACUUM,
     }
 }
 

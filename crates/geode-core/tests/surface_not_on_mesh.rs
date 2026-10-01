@@ -19,7 +19,7 @@ use faer::c64;
 
 use geode_core::assembly::nedelec::cube_pec_interior_edges;
 use geode_core::driven::ports::{
-    LumpedPort, PortMode, WavePort, solve_wave_port_sweep, waveguide_mode_reduce,
+    LumpedPort, PortMedium, PortMode, WavePort, solve_wave_port_sweep, waveguide_mode_reduce,
 };
 use geode_core::driven::shape::{
     driven_shape_gradient_matched_upml_ports, driven_shape_gradient_moving_port_s11,
@@ -273,6 +273,7 @@ fn wave_port_paths_reject_dangling_port() {
     let ports = [WavePort {
         faces: f.faces.clone(),
         modes: vec![mode],
+        medium: PortMedium::VACUUM,
     }];
 
     assert_driven_not_on_mesh(

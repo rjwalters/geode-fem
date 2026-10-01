@@ -98,6 +98,16 @@
 //!    When K_p = 1 for all ports this reduces bit-identically to the
 //!    rank-1 SMW path from PR #245.
 //!
+//! # Filled ports (issue #777)
+//!
+//! A [`WavePort`] carries the homogeneous [`PortMedium`] filling its
+//! guide. The 2-D modes and `k_c` are geometric; the medium changes `β`
+//! to `β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c²` and replaces `β` by the admittance
+//! factor `y = β/μ_t` in every formula above (the `jβ` Robin term, the
+//! `2jβ` drive and the `√(β_k/β_j)` weight). [`WavePortSweepPoint::beta`]
+//! still reports `β`. A [`PortMedium::VACUUM`] port is bit-identical to
+//! the historical vacuum path.
+//!
 //! # Sign convention
 //!
 //! `exp(+jωt)` time convention, consistent with the rest of the
@@ -162,6 +172,10 @@ impl PortMode {
     /// rank-N machinery, the 2-D modal solver, and the
     /// per-`WaveguideModeProfile::beta_complex` path all share one
     /// canonical sign-convention helper.
+    ///
+    /// This is the **vacuum** β. The sweeps use [`WavePort::beta`], which
+    /// accounts for the port's [`PortMedium`] (issue #777) and equals
+    /// this for [`PortMedium::VACUUM`].
     pub fn beta(&self, omega: f64) -> c64 {
         crate::analytic::waveguide::beta_outgoing(omega, 1.0, self.k_c)
     }
@@ -186,6 +200,12 @@ impl PortMode {
 /// 3-D edge indices — the helper
 /// [`map_mode_profile_to_full_mesh`] does that mapping for a port-face
 /// triangle list.
+///
+/// The guide behind the port is filled with the homogeneous
+/// [`PortMedium`] in [`WavePort::medium`] ([`PortMedium::VACUUM`] by
+/// default; issue #777): the modal shapes and `k_c` are geometric, the
+/// medium enters only through [`WavePort::beta`] and
+/// [`WavePort::admittance`].
 #[derive(Debug, Clone)]
 pub struct WavePort {
     /// Port surface triangles (0-based node indices into `mesh.nodes`).
@@ -194,24 +214,143 @@ pub struct WavePort {
     /// Per-mode entries: length `K_p ≥ 1`, set-wise
     /// `S_p`-orthonormal.
     pub modes: Vec<PortMode>,
+    /// Homogeneous medium filling the guide at the port face (issue
+    /// #777). It must match the volume material of the tets touching the
+    /// face, or the modal termination is not matched.
+    pub medium: PortMedium,
+}
+
+/// Homogeneous medium filling a wave port's guide (issue #777).
+///
+/// For a TE mode only the **transverse** permittivity `ε_t` (the
+/// in-plane block of `ε`, which must be isotropic: `ε_uu = ε_vv`,
+/// `ε_uv = 0`), the transverse permeability `μ_t` and the axial
+/// permeability `μ_n = nᵀμn` matter (`E_n = 0`, so `ε_n` does not
+/// enter). The modal shapes and `k_c` are those of the empty
+/// cross-section; the medium changes only the scalars:
+///
+/// ```text
+/// β² = k₀²·ε_t·μ_t − (μ_t/μ_n)·k_c²                (beta_outgoing_filled)
+/// y  = β / μ_t                                     (modal admittance factor)
+/// ```
+///
+/// `y` replaces `β` in the modal Robin term `j·y·f fᵀ`, the drive
+/// `2j·y·a_inc·f`, the power-normalized S weight `√(y_k / y_j)` and the
+/// mixed-port cross weight `√(y/ω)`: the natural boundary term of the
+/// curl-curl weak form is `∫ μ⁻¹ (n × ∇×E)·v`, which for a TE mode is
+/// `j(β/μ_t)·E_t`, and the TE modal power is `|a|²·Re β / (2ωμ_t)`.
+/// Inhomogeneous cross-sections (hybrid modes, e.g. microstrip) are out
+/// of scope (issue #778).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PortMedium {
+    /// Transverse relative permittivity `ε_t` (complex: `Im ε_t ≤ 0` is
+    /// loss under `exp(+jωt)`).
+    pub eps_t: c64,
+    /// Transverse relative permeability `μ_t`.
+    pub mu_t: f64,
+    /// Axial (along the port normal) relative permeability `μ_n`.
+    pub mu_n: f64,
+}
+
+impl PortMedium {
+    /// Vacuum: `ε_t = μ_t = μ_n = 1`. A vacuum port takes exactly the
+    /// historical `β² = k₀² − k_c²` arithmetic (bit-identical S and β).
+    pub const VACUUM: PortMedium = PortMedium {
+        eps_t: c64 { re: 1.0, im: 0.0 },
+        mu_t: 1.0,
+        mu_n: 1.0,
+    };
+
+    /// An isotropic medium: `ε_t = eps_r`, `μ_t = μ_n = mu_r`.
+    pub fn isotropic(eps_r: c64, mu_r: f64) -> Self {
+        PortMedium {
+            eps_t: eps_r,
+            mu_t: mu_r,
+            mu_n: mu_r,
+        }
+    }
+
+    /// Outgoing-wave `β(ω)` of a mode with cutoff `k_c` in this medium
+    /// ([`crate::analytic::waveguide::beta_outgoing_filled`]; exactly
+    /// [`PortMode::beta`] for [`PortMedium::VACUUM`]).
+    pub fn beta(&self, omega: f64, k_c: f64) -> c64 {
+        if *self == Self::VACUUM {
+            return crate::analytic::waveguide::beta_outgoing(omega, 1.0, k_c);
+        }
+        crate::analytic::waveguide::beta_outgoing_filled(
+            omega, self.eps_t, self.mu_t, self.mu_n, k_c,
+        )
+    }
+
+    /// Modal admittance factor `y = β/μ_t` for a mode of propagation
+    /// constant `beta` (`beta` itself when `μ_t = 1`).
+    pub fn admittance(&self, beta: c64) -> c64 {
+        if self.mu_t == 1.0 {
+            beta
+        } else {
+            beta / self.mu_t
+        }
+    }
+
+    /// Filled-guide cutoff `k₀` of a mode with geometric cutoff `k_c`:
+    /// `k_c / √(Re ε_t · μ_n)` (the `β² = 0` root for a lossless fill).
+    pub fn cutoff_k0(&self, k_c: f64) -> f64 {
+        if *self == Self::VACUUM {
+            return k_c;
+        }
+        k_c / (self.eps_t.re * self.mu_n).sqrt()
+    }
+}
+
+impl Default for PortMedium {
+    fn default() -> Self {
+        Self::VACUUM
+    }
 }
 
 impl WavePort {
     /// Construct a single-mode wave port — the historical rank-1
     /// wave-port API from PR #245. This is a thin shim around
-    /// `WavePort { faces, modes: vec![PortMode { mode, k_c, a_inc }] }`
-    /// kept for ergonomic single-mode call sites; multi-mode callers
-    /// build the `modes` vector directly.
+    /// `WavePort { faces, modes: vec![PortMode { mode, k_c, a_inc }],
+    /// medium: PortMedium::VACUUM }` kept for ergonomic single-mode call
+    /// sites; multi-mode callers build the `modes` vector directly. Use
+    /// [`WavePort::with_medium`] for a filled guide.
     pub fn single_mode(faces: Vec<[u32; 3]>, mode: Vec<f64>, k_c: f64, a_inc: c64) -> Self {
         WavePort {
             faces,
             modes: vec![PortMode { mode, k_c, a_inc }],
+            medium: PortMedium::VACUUM,
         }
     }
 
     /// Number of modes `K_p` on this port.
     pub fn n_modes(&self) -> usize {
         self.modes.len()
+    }
+
+    /// This port with its guide filled by `medium` (issue #777).
+    pub fn with_medium(mut self, medium: PortMedium) -> Self {
+        self.medium = medium;
+        self
+    }
+
+    /// Outgoing-wave `β(ω)` of mode `mode` in this port's
+    /// [`WavePort::medium`] ([`PortMedium::beta`]).
+    ///
+    /// # Panics
+    /// Panics if `mode ≥ self.n_modes()`.
+    pub fn beta(&self, mode: usize, omega: f64) -> c64 {
+        self.medium.beta(omega, self.modes[mode].k_c)
+    }
+
+    /// Modal admittance factor `y = β/μ_t` of mode `mode` at `omega`
+    /// ([`PortMedium::admittance`]) — the scalar the modal Robin term,
+    /// drive and S normalization use.
+    ///
+    /// # Panics
+    /// Panics if `mode ≥ self.n_modes()`.
+    pub fn admittance(&self, mode: usize, omega: f64) -> c64 {
+        self.medium.admittance(self.beta(mode, omega))
     }
 }
 
@@ -381,6 +520,10 @@ pub struct WavePortSweepPoint {
     /// incident self-term subtraction is on the diagonal of the flat
     /// index).
     ///
+    /// For a filled port (issue #777) every `β` in the weight is the
+    /// admittance factor `y = β/μ_t` ([`PortMedium::admittance`]); `y = β`
+    /// for `μ_t = 1`.
+    ///
     /// The `sqrt(β_k / β_j)` factor is the standard waveguide
     /// power-normalization (Pozar, *Microwave Engineering*, §4.6): it
     /// makes the augmented-operator reciprocity `Sᵀ = S` hold for any
@@ -391,9 +534,11 @@ pub struct WavePortSweepPoint {
     /// S-matrix.
     pub s: Vec<c64>,
     /// Per (port, mode) modal `β(ω)` at this frequency, flat-indexed
-    /// the same way as `s` (length `N = Σ_p K_p`). `(β_re, 0)`
-    /// propagating, `(0, β_im)` evanescent — `β_im < 0` under the
-    /// outgoing-wave branch (issue #254).
+    /// the same way as `s` (length `N = Σ_p K_p`), in the port's
+    /// [`PortMedium`]. For a lossless fill `(β_re, 0)` propagating,
+    /// `(0, β_im)` evanescent — `β_im < 0` under the outgoing-wave branch
+    /// (issue #254); a lossy fill gives a complex `β` with `β_im < 0`
+    /// (issue #777).
     pub beta: Vec<c64>,
     /// Total number of channels `N = Σ_p K_p`.
     pub n_channels: usize,
@@ -608,10 +753,18 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
     omegas
         .iter()
         .map(|&omega| {
-            // β per channel at this ω.
+            // β per channel at this ω (reported), and the modal
+            // admittance factor y = β/μ_t (issue #777) that the Robin
+            // term, drive and S normalization use — `y = β` exactly for
+            // a vacuum (μ_t = 1) port.
             let betas: Vec<c64> = channels
                 .iter()
-                .map(|c| ports[c.port].modes[c.mode].beta(omega))
+                .map(|c| ports[c.port].beta(c.mode, omega))
+                .collect();
+            let ys: Vec<c64> = channels
+                .iter()
+                .zip(&betas)
+                .map(|(c, &b)| ports[c.port].medium.admittance(b))
                 .collect();
 
             // Per-channel interior-filtered modal flux vector (length
@@ -675,7 +828,7 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
                 // channel can never carry a drive (its 2jβᵢ a_inc
                 // coefficient is also zero), so the math degenerates
                 // benignly.
-                let beta_i = betas[i];
+                let beta_i = ys[i];
                 if beta_i.norm_sqr() > 0.0 {
                     let inv_jb = c64::new(0.0, -1.0) / beta_i;
                     cap[i * n_channels + i] += inv_jb;
@@ -703,7 +856,7 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
             let mut s = vec![c64::new(0.0, 0.0); n_channels * n_channels];
             let mut residual_rel = 0.0_f64;
             for j in 0..n_channels {
-                let drive_coeff = c64::new(0.0, 2.0) * betas[j] * channels[j].a_inc;
+                let drive_coeff = c64::new(0.0, 2.0) * ys[j] * channels[j].a_inc;
                 // Build b = drive_coeff · f_j (interior).
                 let b: Vec<c64> = fluxes_int[j].iter().map(|&x| x * drive_coeff).collect();
 
@@ -741,7 +894,7 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
                 let mut ax = vec![c64::new(0.0, 0.0); n_int];
                 solver.spmv_a(&x, &mut ax);
                 for p in 0..n_channels {
-                    let beta_p = betas[p];
+                    let beta_p = ys[p];
                     if beta_p.norm_sqr() == 0.0 {
                         continue;
                     }
@@ -798,7 +951,7 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
                 // half-plane and `c64::sqrt` lands in the fourth
                 // quadrant, which keeps `Sᵀ = S` consistent across
                 // any mix of propagating and evanescent channels.
-                let sqrt_beta_j = betas[j].sqrt();
+                let sqrt_beta_j = ys[j].sqrt();
                 for (k, ch) in channels.iter().enumerate() {
                     let mut a_k = c64::new(0.0, 0.0);
                     for (f, e) in ch.flux.iter().zip(e_edges.iter()) {
@@ -812,7 +965,7 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
                         a_k / channels[j].a_inc
                     };
                     // Power-normalize.
-                    let sqrt_beta_k = betas[k].sqrt();
+                    let sqrt_beta_k = ys[k].sqrt();
                     s[k * n_channels + j] = (sqrt_beta_k / sqrt_beta_j) * s_amp;
                 }
             }

@@ -113,6 +113,13 @@ impl MixedPortSweepPoint {
 /// root, as on the wave path, so evanescent channels (`β = −j|β|`) keep
 /// `Sᵀ = S`.
 ///
+/// **Filled ports** (issue #777): for a wave port whose
+/// [`WavePort::medium`] is not vacuum, every `β` in the drive, the modal
+/// term and the weights above is the admittance factor `y = β/μ_t`
+/// ([`crate::driven::ports::PortMedium::admittance`]; the TE power is
+/// `|a|²·Re β/(2ωμ_t)`), and [`MixedPortSweepPoint::beta`] reports the
+/// filled `β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c²`.
+///
 /// **Caveat.** The modal admittance `jβ` is the TE form (`1/Z_TE =
 /// β/ωμ`). The port-face eigensolver filters TEM modes, and TM-mode wave
 /// ports are already approximate on the pure-wave path; mixing in lumped
@@ -264,9 +271,17 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
     omegas
         .iter()
         .map(|&omega| {
+            // Reported β, and the admittance factor y = β/μ_t (issue
+            // #777; `y = β` for a vacuum port) that every operator / power
+            // term below uses in place of β.
             let betas: Vec<c64> = channels
                 .iter()
-                .map(|c| wave[c.port].modes[c.mode].beta(omega))
+                .map(|c| wave[c.port].beta(c.mode, omega))
+                .collect();
+            let ys: Vec<c64> = channels
+                .iter()
+                .zip(&betas)
+                .map(|(c, &b)| wave[c.port].medium.admittance(b))
                 .collect();
             let solver = op.prepare_at::<B>(omega, solver_mode, device)?;
             let mut iters_per_rhs = Vec::with_capacity(n_wave + n_ports);
@@ -285,8 +300,8 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
                 for j in 0..n_wave {
                     cap[i * n_wave + j] = dot(&fluxes_int[i], &ainv_u[j]);
                 }
-                if betas[i].norm_sqr() > 0.0 {
-                    cap[i * n_wave + i] += c64::new(0.0, -1.0) / betas[i];
+                if ys[i].norm_sqr() > 0.0 {
+                    cap[i * n_wave + i] += c64::new(0.0, -1.0) / ys[i];
                 } else {
                     for k in 0..n_wave {
                         cap[i * n_wave + k] = zero;
@@ -301,12 +316,12 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
                 ))
             })?;
 
-            // Power-wave weights: lumped √R_k, wave √β_q / √ω.
+            // Power-wave weights: lumped √R_k, wave √y_q / √ω.
             let sqrt_omega = omega.sqrt();
             let sqrt_r: Vec<f64> = (0..n_lumped)
                 .map(|k| op.port_resistance(k).sqrt())
                 .collect();
-            let wave_weight: Vec<c64> = betas.iter().map(|b| b.sqrt() / sqrt_omega).collect();
+            let wave_weight: Vec<c64> = ys.iter().map(|y| y.sqrt() / sqrt_omega).collect();
 
             let mut s = vec![zero; n_ports * n_ports];
             let mut residual_rel = 0.0_f64;
@@ -319,7 +334,7 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
                     )
                 } else {
                     let c = j - n_lumped;
-                    let coeff = c64::new(0.0, 2.0) * betas[c] * channels[c].a_inc;
+                    let coeff = c64::new(0.0, 2.0) * ys[c] * channels[c].a_inc;
                     (
                         fluxes_int[c].iter().map(|&f| f * coeff).collect::<Vec<_>>(),
                         channels[c].a_inc * wave_weight[c],
@@ -341,10 +356,10 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
                 let mut ax = vec![zero; n_int];
                 solver.spmv_a(&x, &mut ax);
                 for (p, f) in fluxes_int.iter().enumerate() {
-                    if betas[p].norm_sqr() == 0.0 {
+                    if ys[p].norm_sqr() == 0.0 {
                         continue;
                     }
-                    let scaled = c64::new(0.0, 1.0) * betas[p] * dot(f, &x);
+                    let scaled = c64::new(0.0, 1.0) * ys[p] * dot(f, &x);
                     for (a, &fr) in ax.iter_mut().zip(f.iter()) {
                         *a += fr * scaled;
                     }

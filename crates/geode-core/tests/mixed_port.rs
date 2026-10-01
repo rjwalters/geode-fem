@@ -38,7 +38,7 @@ use faer::c64;
 use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
 use geode_core::driven::extraction::s_parameter_frequency_sweep_with_mode;
 use geode_core::driven::ports::{
-    ExtrudedWaveguideMesh, LumpedPort, MixedPortSweepPoint, PortMode, WavePort,
+    ExtrudedWaveguideMesh, LumpedPort, MixedPortSweepPoint, PortMedium, PortMode, WavePort,
     extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh, solve_mixed_port_sweep_with_mode,
     solve_wave_port_sweep,
 };
@@ -100,6 +100,7 @@ fn wave_port(mesh: &TetMesh, faces: &[[u32; 3]], z_plane: f64, n_modes: usize) -
                 a_inc: c64::new(1.0, 0.0),
             })
             .collect(),
+        medium: PortMedium::VACUUM,
     }
 }
 
