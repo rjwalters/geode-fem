@@ -357,8 +357,8 @@ Example (`examples/eigen/lossy_sphere_cavity.json`, the golden fixture):
 
 (`pml_shell` is only a region name here: it is the `1.5 < r < 2` shell
 inside the PEC wall, filled like the rest.) Every mode reports
-`Im(λ)/Re(λ) = 0.0100000004` (the per-tet weights are uploaded in f32)
-and `q = 100.0025` (`½·cot(δ/2) = 100.0025`, vs `1/tan δ = 100`).
+`Im(λ)/Re(λ) = 0.01` (to f64 round-off: the per-tet weights are uploaded
+at the backend's float precision, issue #740) and `q = 100.0025` (`½·cot(δ/2) = 100.0025`, vs `1/tan δ = 100`).
 
 **Convergence gate.** Lanczos returns whatever Ritz pairs its basis
 yields, converged or not, so every returned mode's relative residual
@@ -713,11 +713,11 @@ consumed by that subcommand.
   entry above `tolerance` fails the run with `solve_failed`. The defaults
   mirror the library's own adjoint-vs-FD tests (central FD, `< 1e-4`
   relative); a central difference at `1e-4` has `O(h²) ≈ 1e-8`
-  truncation and far smaller cancellation error. The eigen forward
-  uploads `ε_r` to the Nédélec assembly as `f32`, so for eigen specs the
-  two FD points are snapped to `f32`-representable values and the FD
-  denominator is their true spacing (issue #740). Cost: two forward solves per
-  parameter.
+  truncation and far smaller cancellation error. The FD points are the
+  plain `p ± h` for every observable: the Nédélec assembly uploads `ε_r`
+  at the backend's float precision (f64 on the default CPU backend), so
+  the eigen forward is smooth in `ε` (issue #740; eigen FD now agrees to
+  `~1e-9`). Cost: two forward solves per parameter.
 - **Not in v1** (rejected with `invalid_spec`, naming the gap): driven /
   extract specs — the library's driven material adjoint differentiates a
   volume-current-driven, port-less pencil, and no `|S11|²` / `Z` / `L₀` /
@@ -1893,7 +1893,8 @@ uniformly filled with `ε_r = 2.25(1 − j tan δ)` through `geode eigen`
 at `tan δ = 0.01` (the committed fixture, with `--outdir`) and `0.1`,
 and holds every mode to the **exact** uniform-fill relations
 `Im(λ)/Re(λ) = tan δ` and `Q = ½·cot(δ/2)` at `10⁻⁶` relative (measured
-`4e-8` / `2.6e-8`, the f32 weight upload), plus decay sign, complex
+`< 1e-10` since issue #740 moved the per-tet weight upload to f64; it
+was `4e-8` / `2.6e-8` with the old f32 upload), plus decay sign, complex
 `E_real` / `E_imag` export and a loss-independent `|λ|·|ε_r|` across the
 two loss levels. `tests/eigen_upml_smoke.rs` is the smoke tier for
 `absorbing_regions` in an eigen spec (no analytic oracle; see

@@ -1052,18 +1052,20 @@ mod tests {
     /// [`driven_solve`] path, not this module's assembly. A wrong
     /// factor/sign/conjugation in the adjoint algebra fails it.
     ///
-    /// Achieved worst-region rel-err ≈ 2.3e-5 (regions [3.6e-3, 1.45e-2,
-    /// 4.8e-3]); the residual floor is the FD's own O(h²) truncation plus the
-    /// f32 ε-upload quantization of the perturbed points (the exact analytic
-    /// JVP contributes none). The hard bound is left at the issue's 1e-3
-    /// spec for cross-backend robustness; the mutation tripwire
+    /// Achieved worst-region rel-err ≈ 2.4e-6 (regions [3.6e-3, 1.45e-2,
+    /// 4.8e-3]); the residual floor is the FD's own O(h²) truncation (the
+    /// exact analytic JVP contributes none). Before issue #740 the f32
+    /// ε-upload quantization of the perturbed points added to it (≈ 2.3e-5).
+    /// The hard bound is left at the issue's 1e-3 spec for cross-backend
+    /// robustness; the mutation tripwire
     /// (`conjugation_error_is_detected_by_fd`) proves it is biting.
     #[test]
     fn driven_adjoint_gradient_matches_central_finite_difference() {
         let (mesh, region_of_tet, interior, source) = layered_cavity_fixture(4);
         let n_regions = 3;
-        // Exactly f32-representable region permittivities (the ε-carrying
-        // assembly uploads ε as f32; exact base points keep the FD honest).
+        // Region permittivities. (These were chosen f32-representable while
+        // the ε-carrying assembly still uploaded ε as f32; since #740 it
+        // uploads at the backend's precision, so any values would do.)
         let eps_region = [2.0_f64, 4.0, 3.0];
         let omega = 1.5;
         let eps_r = build_region_eps(&region_of_tet, &eps_region);
@@ -1122,8 +1124,9 @@ mod tests {
             adj.objective
         );
 
-        // h large enough that the f32 ε-quantization noise on the perturbed
-        // points is small vs the O(h²) truncation floor.
+        // h was sized to keep the (pre-#740) f32 ε-quantization noise on the
+        // perturbed points small vs the O(h²) truncation floor; ε now uploads
+        // at the backend's precision, so the floor is pure O(h²).
         let h = 5e-3;
         let mut worst_rel = 0.0_f64;
         for k in 0..n_regions {
@@ -1333,14 +1336,15 @@ mod tests {
 
     /// Per-region base permittivities for the complex-ε fixture. All values —
     /// base points AND the FD step `H` — are exactly f32-representable
-    /// (dyadic), so the f32 ε-upload quantization contributes no noise to the
-    /// central finite difference and the analytic-vs-FD gap is pure O(h²)
-    /// truncation.
+    /// (dyadic). That guarded against the f32 ε-upload quantization the
+    /// assembly had before issue #740; ε now uploads at the backend's float
+    /// precision, so on f64 the analytic-vs-FD gap is pure O(h²) truncation
+    /// regardless (the dyadic values still keep f32 backends honest).
     const EPS_PRIME_REGION: [f64; 3] = [2.0, 4.0, 3.0];
     /// Region loss parts `ε″ ≥ 0` (`ε = ε′ − i·ε″`): dyadic 1/16, 1/8, 1/32.
     const EPS_DPRIME_REGION: [f64; 3] = [0.0625, 0.125, 0.03125];
     /// Central-FD step, dyadic `2⁻⁸` — keeps every perturbed point exactly
-    /// f32-representable.
+    /// f32-representable (relevant on f32 backends only since #740).
     const FD_H: f64 = 0.003_906_25;
 
     /// Build per-tet complex ε = ε′ − i·ε″ from per-region real/loss values.

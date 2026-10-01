@@ -56,6 +56,7 @@
 //! file. Nothing here enables CUDA in a default build.
 
 use bunsen::contracts::{assert_shape_contract, define_shape_contract, unpack_shape_contract};
+use burn::tensor::ElementConversion;
 use burn::tensor::backend::Backend;
 use burn::tensor::{IndexingUpdateOp, Int, Tensor, TensorData};
 
@@ -186,8 +187,9 @@ impl<B: Backend> MatrixFreeNedelecOperator<B> {
         let local = batched_nedelec_local_matrices(coords);
 
         // Scale mass by per-element epsilon_r (broadcast over the 6×6 block) —
-        // identical f32 upload to the assembled `_with_epsilon` path.
-        let eps_flat: Vec<f32> = epsilon_r.iter().map(|&e| e as f32).collect();
+        // identical backend-precision (`B::FloatElem`) upload to the
+        // assembled `_with_epsilon` path (#740).
+        let eps_flat: Vec<B::FloatElem> = epsilon_r.iter().map(|&e| e.elem()).collect();
         let eps_3d = Tensor::<B, 1>::from_data(TensorData::new(eps_flat, [n_elem]), &device)
             .unsqueeze_dim::<2>(1)
             .unsqueeze_dim::<3>(2); // [n_elem, 1, 1]

@@ -555,6 +555,36 @@ mod tests {
         }
     }
 
+    /// Issue #740 regression: the forward eigenvalue is smooth in `ε` at
+    /// f64 precision. A uniform `ε_r ×= 1.0001` must scale `λ` by exactly
+    /// `1/1.0001` up to solver round-off. With the old f32 `ε` upload the
+    /// ratio came out `f32(1.0001) = 1.0001000165939…` (a `1.66e-8`
+    /// relative excess, which a central FD at relative step `1e-4`
+    /// amplifies to `1.66e-4`).
+    #[test]
+    fn uniform_epsilon_scaling_is_exact_at_f64() {
+        if std::mem::size_of::<<B as BackendTypes>::FloatElem>() != 8 {
+            return; // f32-class backend: the precision claim is f64-only.
+        }
+        let mesh = cube_tet_mesh(3, 1.0);
+        let mask = cube_mask(&mesh);
+        let settings = PecCavitySettings::new(0.7 * 2.0 * std::f64::consts::PI.powi(2), 3);
+        let solve = |e: f64| {
+            let eps = vec![e; mesh.n_tets()];
+            solve_pec_cavity_modes::<B>(&mesh, &eps, &mask, &settings, &device()).unwrap()
+        };
+        let (base, scaled) = (solve(1.0), solve(1.0001));
+        for (a, b) in base.modes.iter().zip(&scaled.modes) {
+            let ratio = a.lambda / b.lambda;
+            let rel = (ratio / 1.0001 - 1.0).abs();
+            assert!(
+                rel < 1e-11,
+                "λ0/λ = {ratio:.15} vs 1.0001 (rel {rel:.3e}): ε is being truncated \
+                 below f64 on the way into the pencil (issue #740)"
+            );
+        }
+    }
+
     #[test]
     fn invalid_inputs_are_rejected() {
         let mesh = cube_tet_mesh(2, 1.0);

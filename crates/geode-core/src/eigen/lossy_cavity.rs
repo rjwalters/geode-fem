@@ -695,7 +695,7 @@ mod tests {
             &device(),
         )
         .unwrap();
-        // tan δ = 1/64 and 1/8 are exact in the f32 weight upload.
+        // tan δ = 1/64 and 1/8 are dyadic, so exact even on f32 backends.
         for tan_d in [1.0 / 64.0, 0.125] {
             let eps = c64::new(1.0, -tan_d);
             let modes = solve_lossy_cavity_modes::<B>(
