@@ -196,21 +196,10 @@ pub fn solve(
     Ok(c)
 }
 
-/// Faces (sorted node triples) owned by exactly one tet.
+/// Faces (sorted node triples) owned by exactly one tet, as a lookup set
+/// (see [`TetMesh::boundary_faces`]).
 fn boundary_faces(mesh: &TetMesh) -> HashSet<[u32; 3]> {
-    const FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
-    let mut count: HashMap<[u32; 3], u8> = HashMap::with_capacity(mesh.n_tets() * 2);
-    for tet in &mesh.tets {
-        for f in FACES {
-            *count
-                .entry(sorted3([tet[f[0]], tet[f[1]], tet[f[2]]]))
-                .or_default() += 1;
-        }
-    }
-    count
-        .into_iter()
-        .filter_map(|(k, n)| (n == 1).then_some(k))
-        .collect()
+    mesh.boundary_faces().into_iter().collect()
 }
 
 fn sorted3(mut t: [u32; 3]) -> [u32; 3] {

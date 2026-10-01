@@ -992,19 +992,7 @@ impl P2DofMap {
             edge_index.insert((e[0], e[1]), i as u32);
         }
         // Boundary faces: sorted triples that appear in exactly one tet.
-        const FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
-        let mut count: HashMap<[u32; 3], u32> = HashMap::new();
-        for tet in &mesh.tets {
-            for f in FACES.iter() {
-                let key = sorted3([tet[f[0]], tet[f[1]], tet[f[2]]]);
-                *count.entry(key).or_insert(0) += 1;
-            }
-        }
-        let boundary_faces: Vec<[u32; 3]> = count
-            .into_iter()
-            .filter(|&(_, c)| c == 1)
-            .map(|(k, _)| k)
-            .collect();
+        let boundary_faces = mesh.boundary_faces();
         Self {
             n_nodes: mesh.n_nodes(),
             edges,

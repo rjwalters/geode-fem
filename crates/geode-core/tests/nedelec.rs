@@ -575,50 +575,58 @@ fn cube_assembly_k_symmetric_and_m_total_mass_positive() {
 
 #[test]
 fn pec_interior_mask_isolates_boundary_edges() {
-    // For a 1×1×1 cube (single hex split into 6 tets), every node is on
-    // the boundary surface, so no edges are interior.
-    let mesh = cube_tet_mesh(1, 1.0);
-    let (_edges, mask) = cube_pec_interior_edges(&mesh, 1.0);
-    let n_interior = mask.iter().filter(|&&b| b).count();
-    assert_eq!(
-        n_interior, 0,
-        "1x1x1 cube has no interior edges; got {n_interior}"
-    );
+    // Issue #771: an edge is PEC-eliminated iff it LIES ON a cube wall, i.e.
+    // both endpoints share a wall plane (same coordinate at 0 or at 1).
+    // "Both endpoints on the boundary" is not enough — an interior chord
+    // between two different walls has both endpoints on the boundary but
+    // is not on the PEC surface, and must stay free.
+    let on_common_wall = |pa: [f64; 3], pb: [f64; 3]| -> bool {
+        let tol = 1e-9_f64;
+        (0..3).any(|d| {
+            (pa[d].abs() < tol && pb[d].abs() < tol)
+                || ((pa[d] - 1.0).abs() < tol && (pb[d] - 1.0).abs() < tol)
+        })
+    };
 
-    // For a 2×2×2 cube, there is one interior node (the center) plus
-    // interior face / edge mid-points... actually 27 nodes total, 1 of
-    // which is strictly interior. Every edge with at least one
-    // non-boundary endpoint is interior.
-    for n in 2..=3 {
+    // n = 1 (one hex split into 6 tets): every node is a cube corner, but
+    // the hex's body diagonal (shared by all six tets) runs through the
+    // interior, so exactly one edge is interior. The pre-#771 node rule
+    // eliminated it, leaving no DOF at all.
+    let mesh = cube_tet_mesh(1, 1.0);
+    let (edges, mask) = cube_pec_interior_edges(&mesh, 1.0);
+    let interior: Vec<[u32; 2]> = edges
+        .iter()
+        .zip(&mask)
+        .filter_map(|(e, &m)| m.then_some(*e))
+        .collect();
+    assert_eq!(
+        interior.len(),
+        1,
+        "1x1x1 cube has exactly one interior edge (the body diagonal); got {interior:?}"
+    );
+    let [a, b] = interior[0];
+    let (pa, pb) = (mesh.nodes[a as usize], mesh.nodes[b as usize]);
+    for d in 0..3 {
+        assert!(
+            (pa[d] - pb[d]).abs() > 0.5,
+            "the n=1 interior edge must be a body diagonal, got {pa:?}-{pb:?}"
+        );
+    }
+
+    // n = 1..4: the mask matches the same-plane oracle edge by edge.
+    for n in 1..=4 {
         let mesh = cube_tet_mesh(n, 1.0);
         let (edges, mask) = cube_pec_interior_edges(&mesh, 1.0);
-        let n_interior_edges = mask.iter().filter(|&&b| b).count();
-        assert!(
-            n_interior_edges > 0,
-            "n={n} cube should have some interior edges"
-        );
-
-        // Spot-check: every "interior" edge has at least one non-boundary endpoint.
-        let on_boundary = |p: [f64; 3]| -> bool {
-            let tol = 1e-9_f64;
-            p.iter().any(|&c| c.abs() < tol || (c - 1.0).abs() < tol)
-        };
+        assert!(mask.iter().any(|&m| m), "n={n} cube has interior edges");
         for (e, &m) in edges.iter().zip(mask.iter()) {
-            if m {
-                let pa = mesh.nodes[e[0] as usize];
-                let pb = mesh.nodes[e[1] as usize];
-                assert!(
-                    !on_boundary(pa) || !on_boundary(pb),
-                    "edge {e:?} flagged interior but both endpoints on boundary"
-                );
-            } else {
-                let pa = mesh.nodes[e[0] as usize];
-                let pb = mesh.nodes[e[1] as usize];
-                assert!(
-                    on_boundary(pa) && on_boundary(pb),
-                    "edge {e:?} flagged boundary but at least one endpoint is interior"
-                );
-            }
+            let pa = mesh.nodes[e[0] as usize];
+            let pb = mesh.nodes[e[1] as usize];
+            assert_eq!(
+                m,
+                !on_common_wall(pa, pb),
+                "n={n}: edge {e:?} ({pa:?}-{pb:?}) kept={m}, but on-wall={}",
+                on_common_wall(pa, pb)
+            );
         }
     }
 }

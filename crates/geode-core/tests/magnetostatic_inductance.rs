@@ -43,7 +43,7 @@ use geode_core::assembly::magnetostatic3d::{
     measure_axial_current, measure_loop_current, recover_b_field, tet_nedelec_rhs,
     tet_nedelec_stiffness, tet_signed_volume,
 };
-use geode_core::assembly::nedelec::pec_interior_edge_mask;
+use geode_core::assembly::nedelec::cube_pec_interior_edges;
 use geode_core::mesh::cube_tet_mesh;
 use geode_core::mesh::magnetostatic_fixtures::{
     cylinder_cap_nodes, cylinder_pec_interior_mask, loop_pair_mesh, solid_coax_mesh,
@@ -224,19 +224,8 @@ fn loop_pair_mutual_inductance_sign_symmetry_and_band() {
     // benchmark example). The physics we gate here: correct sign, exact
     // symmetry, SPD, and same-order-of-magnitude agreement with Maxwell.
     let fx = loop_pair_mesh(r1, z1, r2, z2, rbox, length, 24, 12, 12);
-    let tolb = 1e-6 * rbox;
-    let tolz = 1e-6 * length;
-    let on_bdry: Vec<bool> = fx
-        .mesh
-        .nodes
-        .iter()
-        .map(|p| {
-            let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
-            (r - rbox).abs() < tolb || p[2].abs() < tolz || (p[2] - length).abs() < tolz
-        })
-        .collect();
-    let edges = fx.mesh.edges();
-    let mask = pec_interior_edge_mask(&edges, &on_bdry);
+    // Face-exact PEC on the shield wall + both caps (issue #771).
+    let (_edges, mask) = cylinder_pec_interior_mask(&fx.mesh, rbox, length);
     let mu_r = vec![1.0; fx.mesh.n_tets()];
     let sys = assemble_magnetostatic3d(&fx.mesh, &mu_r, &mask).unwrap();
 
@@ -291,15 +280,7 @@ fn loop_pair_mutual_inductance_sign_symmetry_and_band() {
 /// driven by a uniform axial current — the setup for tripwires 1 & 3.
 fn cube_fixture() -> (geode_core::mesh::TetMesh, Vec<bool>) {
     let mesh = cube_tet_mesh(4, 1.0);
-    let side = 1.0;
-    let tol = 1e-9;
-    let on_bdry: Vec<bool> = mesh
-        .nodes
-        .iter()
-        .map(|p| p.iter().any(|&c| c.abs() < tol || (c - side).abs() < tol))
-        .collect();
-    let edges = mesh.edges();
-    let mask = pec_interior_edge_mask(&edges, &on_bdry);
+    let (_edges, mask) = cube_pec_interior_edges(&mesh, 1.0);
     (mesh, mask)
 }
 
@@ -642,19 +623,8 @@ fn inductance_sensitivity_loop_pair_offdiag_symmetry_and_fd() {
     // same discrete pipeline), and n_r/n_z = 10 put a radial ring at r_loop=1
     // and z-stations at the loop heights so the current tube is still meshed.
     let fx = loop_pair_mesh(r1, z1, r2, z2, rbox, length, 16, 10, 10);
-    let tolb = 1e-6 * rbox;
-    let tolz = 1e-6 * length;
-    let on_bdry: Vec<bool> = fx
-        .mesh
-        .nodes
-        .iter()
-        .map(|p| {
-            let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
-            (r - rbox).abs() < tolb || p[2].abs() < tolz || (p[2] - length).abs() < tolz
-        })
-        .collect();
-    let edges = fx.mesh.edges();
-    let mask = pec_interior_edge_mask(&edges, &on_bdry);
+    // Face-exact PEC on the shield wall + both caps (issue #771).
+    let (_edges, mask) = cylinder_pec_interior_mask(&fx.mesh, rbox, length);
 
     // Regions by tet-centroid z-half.
     let zmid = 0.5 * length;

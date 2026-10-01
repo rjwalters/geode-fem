@@ -614,19 +614,31 @@ pub struct NedelecSparseFullTensorSystem<B: Backend> {
     pub m_im_vals: Tensor<B, 1>,
 }
 
-/// Build a boolean mask `[n_edges]` marking each global edge as either
-/// **interior** (`true`) or **on the PEC boundary** (`false`).
+/// Node-based PEC edge mask: an edge is eliminated iff **both** endpoints
+/// are flagged in `on_boundary`.
 ///
-/// An edge is treated as on the boundary iff **both** endpoints lie on
-/// the boundary surface of the mesh. The caller supplies a per-node
-/// boolean array indicating boundary-ness; the typical use is the
-/// rectangular cube box, where a node is on the boundary iff any of
-/// its coordinates equals the box min or max.
+/// # Deprecated: over-eliminates interior chords (issue #771)
 ///
-/// For PEC (perfect electric conductor) BC, `n × E = 0` on the
-/// boundary surface, which forces every edge DOF whose edge lies on
-/// the surface to zero. The returned mask identifies the **kept**
-/// interior edges.
+/// "Both endpoints on the boundary" is **not** "the edge lies on the
+/// boundary". An interior edge whose two endpoints sit on *different* wall
+/// faces — a chord across a cube's edge, a cylinder's rim between the cap
+/// and the side wall, the body diagonal of `cube_tet_mesh(1, ..)` — passes
+/// the node test but is not on the PEC surface, so this rule pins a DOF
+/// that `n × E = 0` does not constrain. On `cube_tet_mesh(n, ..)` it
+/// wrongly eliminates `12(n − 1)` interior edges (n ≥ 2): an artificial
+/// O(h) constraint that biases the coarse-mesh solution and inflates the
+/// first-order error.
+///
+/// Use the face-exact [`boundary_pec_interior_edges`] (edges of boundary
+/// faces, optionally filtered by position) or
+/// [`crate::mesh::pec_interior_mask_from_triangles`] (edges of tagged
+/// triangles) instead. Retained only for out-of-tree callers; no in-tree
+/// code uses it.
+#[deprecated(
+    since = "0.7.1",
+    note = "over-eliminates interior chords between boundary faces (issue #771); \
+            use `boundary_pec_interior_edges` or `pec_interior_mask_from_triangles`"
+)]
 pub fn pec_interior_edge_mask(edges: &[[u32; 2]], on_boundary: &[bool]) -> Vec<bool> {
     edges
         .iter()
@@ -638,48 +650,71 @@ pub fn pec_interior_edge_mask(edges: &[[u32; 2]], on_boundary: &[bool]) -> Vec<b
         .collect()
 }
 
-/// Convenience: identify nodes on the boundary of `cube_tet_mesh(n, side)`
-/// (any coordinate equal to `0` or `side`) and return the interior-edge
-/// mask via [`pec_interior_edge_mask`].
+/// **Face-exact** PEC interior-edge mask over the mesh's outer surface.
+///
+/// An edge is PEC-eliminated (`mask[e] == false`) iff it is an edge of a
+/// boundary face ([`TetMesh::boundary_faces`], a face owned by exactly
+/// one tet) **for which `face_filter` returns `true`**. The filter receives
+/// the face's three vertex coordinates; pass `|_| true` to make the whole
+/// outer surface PEC.
+///
+/// For PEC (perfect electric conductor) BC, `n × E = 0` on the wall forces
+/// every edge DOF *lying in* the wall to zero — exactly the edges of the
+/// wall's triangles. Unlike the deprecated node-based
+/// [`pec_interior_edge_mask`], interior chords whose endpoints happen to
+/// lie on two different wall faces stay free (issue #771).
+///
+/// Returns `(edges, interior_mask)` with `edges = mesh.edges()`, so the
+/// caller can locate the interior edge indices without re-deriving the
+/// edge list.
+pub fn boundary_pec_interior_edges(
+    mesh: &TetMesh,
+    face_filter: impl Fn([[f64; 3]; 3]) -> bool,
+) -> (Vec<[u32; 2]>, Vec<bool>) {
+    let walls: Vec<[u32; 3]> = mesh
+        .boundary_faces()
+        .into_iter()
+        .filter(|f| face_filter(f.map(|v| mesh.nodes[v as usize])))
+        .collect();
+    let edges = mesh.edges();
+    let mask = crate::mesh::pec_interior_mask_from_triangles(&edges, &[walls.as_slice()]);
+    (edges, mask)
+}
+
+/// PEC interior-edge mask for the cube box `cube_tet_mesh(n, side)`: the
+/// whole outer surface (all six walls) is PEC.
+///
+/// Face-exact via [`boundary_pec_interior_edges`] (issue #771): `side` is
+/// unused by the predicate — `cube_tet_mesh` has no internal boundaries, so
+/// every boundary face is a wall face — and is kept for signature
+/// stability. (The pre-#771 node rule also pinned the `12(n − 1)` chords
+/// joining adjacent walls near the cube's edges.)
 ///
 /// Returns `(edges, interior_mask)` so the caller can locate the
 /// interior edge indices without re-deriving the edge list.
 pub fn cube_pec_interior_edges(mesh: &TetMesh, side: f64) -> (Vec<[u32; 2]>, Vec<bool>) {
-    let tol = 1e-9 * side.max(1.0);
-    let on_boundary: Vec<bool> = mesh
-        .nodes
-        .iter()
-        .map(|n| n.iter().any(|&c| c.abs() < tol || (c - side).abs() < tol))
-        .collect();
-    let edges = mesh.edges();
-    let mask = pec_interior_edge_mask(&edges, &on_boundary);
-    (edges, mask)
+    let _ = side;
+    boundary_pec_interior_edges(mesh, |_| true)
 }
 
 /// PEC interior-edge mask for the sphere-in-vacuum mesh fixture.
 ///
-/// A node is treated as "on the outer PEC wall" iff its radius
-/// `r = |p|` is within `tol` of `r_outer`. An edge is **interior**
-/// (`mask[e] == true`) iff at least one endpoint is strictly inside
-/// `r_outer`; equivalently, an edge is PEC-eliminated iff **both**
-/// endpoints lie on the outer sphere. This matches the same
-/// `both-endpoints-on-boundary` convention as
-/// [`pec_interior_edge_mask`] and the cube helper.
+/// An edge is PEC-eliminated iff it is an edge of a boundary face whose
+/// three vertices all lie on the outer sphere `|p| = r_outer` (to a
+/// relative `1e-6`), via [`boundary_pec_interior_edges`]. Face-exact since
+/// issue #771; on the bundled `sphere.msh` / `sphere_fine.msh` fixtures
+/// the mask is bit-identical to the pre-#771 node rule (no chord on those
+/// meshes joins two outer-wall nodes through the interior).
 ///
 /// Returns `(edges, interior_mask)`.
 pub fn sphere_pec_interior_edges(mesh: &TetMesh, r_outer: f64) -> (Vec<[u32; 2]>, Vec<bool>) {
     let tol = 1e-6 * r_outer.max(1.0);
-    let on_boundary: Vec<bool> = mesh
-        .nodes
-        .iter()
-        .map(|p| {
+    boundary_pec_interior_edges(mesh, |tri| {
+        tri.iter().all(|p| {
             let r = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
             (r - r_outer).abs() < tol
         })
-        .collect();
-    let edges = mesh.edges();
-    let mask = pec_interior_edge_mask(&edges, &on_boundary);
-    (edges, mask)
+    })
 }
 
 /// Count nodes that lie strictly inside `r_outer` (i.e. **not** on the

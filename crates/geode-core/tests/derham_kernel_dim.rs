@@ -151,10 +151,9 @@ fn device() -> <B as BackendTypes>::Device {
 /// Sanity check: cross-validate `restrict_gradient_dense` against the
 /// canonical `gradient_map(mesh)` sparse operator by comparing the
 /// total nonzero count after both restrictions. Each surviving interior
-/// edge contributes at most 2 nonzeros (drops to 1 if exactly one
-/// endpoint is on the PEC wall; never 0 because the
-/// `pec_interior_edge_mask` already excludes both-endpoints-on-boundary
-/// edges).
+/// edge contributes at most 2 nonzeros (1 if exactly one endpoint is on
+/// the PEC wall; 0 for a kept interior chord whose two endpoints lie on
+/// different wall faces — the face-exact masks keep those, issue #771).
 fn validate_gradient_restriction(
     mesh: &TetMesh,
     edge_mask: &[bool],

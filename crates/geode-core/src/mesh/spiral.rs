@@ -368,8 +368,8 @@ impl SpiralPort {
 /// PEC interior-edge mask eliminating **exactly** the edges of the
 /// given tagged triangle lists.
 ///
-/// Edge-exact (unlike the node-based
-/// [`crate::assembly::nedelec::pec_interior_edge_mask`]): an edge is
+/// Edge-exact (unlike the deprecated node-based
+/// `crate::assembly::nedelec::pec_interior_edge_mask`, issue #771): an edge is
 /// eliminated iff it is an edge of one of the listed triangles. The
 /// node-based rule would falsely eliminate gap-spanning edges whose two
 /// endpoints lie on *different* conductors — e.g. across the spiral's

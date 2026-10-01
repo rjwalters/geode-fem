@@ -32,7 +32,6 @@ use geode_core::assembly::magnetostatic3d::{
     check_solenoidal, extract_inductance, loop_current_density, measure_axial_current,
     measure_loop_current,
 };
-use geode_core::assembly::nedelec::pec_interior_edge_mask;
 use geode_core::mesh::TetMesh;
 use geode_core::mesh::magnetostatic_fixtures::{
     cylinder_cap_nodes, cylinder_pec_interior_mask, loop_pair_mesh, solid_coax_mesh,
@@ -270,18 +269,8 @@ fn cut_ring() -> Ring {
     };
     let source = conductor_faces(&mesh, &conductor, on_angle(dth));
     let sink = conductor_faces(&mesh, &conductor, on_angle(0.0));
-    let tolb = 1e-6 * r_box;
-    let tolz = 1e-6 * length;
-    let on_bdry: Vec<bool> = mesh
-        .nodes
-        .iter()
-        .map(|p| {
-            (p[0].hypot(p[1]) - r_box).abs() < tolb
-                || p[2].abs() < tolz
-                || (p[2] - length).abs() < tolz
-        })
-        .collect();
-    let mask = pec_interior_edge_mask(&mesh.edges(), &on_bdry);
+    // Face-exact PEC on the shield wall + both caps (issue #771).
+    let (_edges, mask) = cylinder_pec_interior_mask(&mesh, r_box, length);
     Ring {
         mesh,
         conductor,
