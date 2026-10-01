@@ -268,9 +268,16 @@ fn check_resource_estimate_counts_ilu0_factor_storage() {
     assert!(gb(&ilu) > gb(&jac), "{} vs {}", gb(&ilu), gb(&jac));
     assert!(per(&ilu) > per(&jac));
 
+    // Issue #744: `"ams"` parses and adds the auxiliary-space storage (proxy,
+    // G, Π, nodal LU, ΠᵀPΠ) and V-cycle work on top of Jacobi.
+    let ams = estimate("resources-ams", "ams");
+    assert_eq!(ams["solver_mode"], "iterative");
+    assert!(gb(&ams) > gb(&jac), "{} vs {}", gb(&ams), gb(&jac));
+    assert!(per(&ams) > per(&jac));
+
     // An unknown preconditioner is a spec error, not a silent default.
     let spec = edited_spec("resources-bad-pc", |v| {
-        v["solver"] = serde_json::json!({ "mode": "iterative", "preconditioner": "ams" });
+        v["solver"] = serde_json::json!({ "mode": "iterative", "preconditioner": "amg" });
     });
     let out = geode(&["check", spec.to_str().unwrap()]);
     assert!(!out.status.success());

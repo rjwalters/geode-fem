@@ -268,6 +268,9 @@ fn solver_mode(p: &Problem) -> SolverMode {
                 crate::spec::PreconditionerSpec::Ilu0 => {
                     geode_core::driven::solve::IterativePreconditioner::Ilu0
                 }
+                crate::spec::PreconditionerSpec::Ams => {
+                    geode_core::driven::solve::IterativePreconditioner::AMS
+                }
             },
         )),
     }

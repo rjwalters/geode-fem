@@ -254,6 +254,26 @@ pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
                 bytes += nnz as f64 * (16.0 + 16.0) + n * 24.0;
                 per_iter += 8.0 * nnz as f64;
             }
+            // AMS (issue #744): a real copy of the SPD proxy (f64 value +
+            // u64 index), the gradient `G` (2 nnz/edge) and vector-nodal
+            // `Π` (6 nnz/edge), the nodal `GᵀPG` (~15 nnz/node) with its
+            // exact sparse-LU factor (a 3-D Poisson-like fill, modelled as
+            // 15·N·log₂N entries), and `ΠᵀPΠ` (3N rows, ~150 nnz/row) plus
+            // its Gauss–Seidel CSR copy. Each apply runs the real V-cycle on
+            // Re and Im: 2 proxy SpMVs, one LU solve and 4 symmetric GS
+            // sweeps over `ΠᵀPΠ` each. Order of magnitude only.
+            if preconditioner == crate::spec::PreconditionerSpec::Ams {
+                let nodes = p.tagged.mesh.n_nodes() as f64;
+                let lu_fill = 15.0 * nodes * nodes.max(2.0).log2();
+                let pi_nnz = 450.0 * nodes;
+                bytes += nnz as f64 * 16.0
+                    + 8.0 * n * 16.0
+                    + 15.0 * nodes * 16.0
+                    + lu_fill * 16.0
+                    + 2.0 * pi_nnz * 16.0
+                    + 12.0 * n * 8.0;
+                per_iter += 2.0 * (4.0 * nnz as f64 + 4.0 * lu_fill + 16.0 * pi_nnz + 16.0 * n);
+            }
             ResourceEstimate {
                 solver_mode: "iterative",
                 n_factorizations: 0,

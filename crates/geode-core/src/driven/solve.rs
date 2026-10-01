@@ -117,6 +117,10 @@ use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface
 use crate::eigen::complex::{solve_with_lu, spmv};
 use crate::mesh::TetMesh;
 
+#[path = "solve_ams.rs"]
+mod ams;
+pub use ams::{AMS_PI_COARSE_SWEEPS, AmsCoarseSolve, DrivenAms};
+
 /// Errors produced by the driven-solve layer.
 #[derive(Debug, thiserror::Error)]
 pub enum DrivenError {
@@ -345,15 +349,38 @@ pub enum IterativePreconditioner {
         /// application).
         degree: usize,
     },
+    /// Hiptmair–Xu **auxiliary-space Maxwell** (AMS) V-cycle on a real
+    /// SPD proxy of `A(ω)` (issue #744; see [`DrivenAms`] and the
+    /// `solve_ams` module docs for the proxy, the measurements and the
+    /// coarse-solve choice). Converges the low-frequency spiral (#676)
+    /// where Jacobi / ILU(0) stall, in an outer iteration count that
+    /// stays flat with mesh size.
+    ///
+    /// Needs the operator's mesh geometry (the discrete gradient), so it
+    /// is only built by [`DrivenOperator::prepare_at`];
+    /// [`IterativePreconditioner::build`] (which sees only `A(ω)`)
+    /// rejects it.
+    Ams {
+        /// Auxiliary-space coarse solver ([`AmsCoarseSolve::Auto`] by
+        /// default: exact sparse LU of the nodal block at every size).
+        coarse: AmsCoarseSolve,
+    },
 }
 
 impl IterativePreconditioner {
-    /// Short stable name (`"jacobi"`, `"ilu0"`, `"chebyshev"`).
+    /// The AMS preconditioner with the default
+    /// ([`AmsCoarseSolve::Auto`]) coarse solve.
+    pub const AMS: Self = Self::Ams {
+        coarse: AmsCoarseSolve::Auto,
+    };
+
+    /// Short stable name (`"jacobi"`, `"ilu0"`, `"chebyshev"`, `"ams"`).
     pub fn name(self) -> &'static str {
         match self {
             Self::Jacobi => "jacobi",
             Self::Ilu0 => "ilu0",
             Self::Chebyshev { .. } => "chebyshev",
+            Self::Ams { .. } => "ams",
         }
     }
 
@@ -364,7 +391,8 @@ impl IterativePreconditioner {
     ///
     /// [`DrivenError::Solve`] wrapping the setup failure (a zero /
     /// non-finite diagonal for Jacobi / Chebyshev, a vanishing ILU(0)
-    /// pivot).
+    /// pivot), or for [`Self::Ams`], which needs the operator's mesh
+    /// geometry and is built by [`DrivenOperator::prepare_at`] instead.
     pub fn build(
         self,
         a: faer::sparse::SparseColMatRef<'_, usize, c64>,
@@ -383,13 +411,21 @@ impl IterativePreconditioner {
             Self::Chebyshev { degree } => DrivenPreconditioner::Chebyshev(
                 ChebyshevPreconditioner::new(a, degree).map_err(setup)?,
             ),
+            Self::Ams { .. } => {
+                return Err(DrivenError::Solve(
+                    "ams preconditioner setup: AMS needs the operator's mesh geometry \
+                     (discrete gradient), so it is built by DrivenOperator::prepare_at, \
+                     not from A(ω) alone"
+                        .to_string(),
+                ));
+            }
         })
     }
 }
 
 /// A built [`IterativePreconditioner`] — the concrete preconditioner
 /// the [`SolverMode::Iterative`] back-solve applies. Static dispatch
-/// over the three [`crate::solver::ksp`] implementations.
+/// over the [`crate::solver::ksp`] implementations and the driven AMS.
 #[derive(Debug, Clone)]
 pub enum DrivenPreconditioner {
     /// [`crate::solver::ksp::JacobiPreconditioner`].
@@ -398,6 +434,9 @@ pub enum DrivenPreconditioner {
     Ilu0(crate::solver::ksp::IluPreconditioner),
     /// [`crate::solver::ksp::ChebyshevPreconditioner`].
     Chebyshev(crate::solver::ksp::ChebyshevPreconditioner),
+    /// [`DrivenAms`] (issue #744), shared because its coarse factors are
+    /// not cheaply clonable.
+    Ams(std::sync::Arc<DrivenAms>),
 }
 
 impl crate::solver::ksp::Preconditioner for DrivenPreconditioner {
@@ -406,6 +445,7 @@ impl crate::solver::ksp::Preconditioner for DrivenPreconditioner {
             Self::Jacobi(p) => p.apply(r, z),
             Self::Ilu0(p) => p.apply(r, z),
             Self::Chebyshev(p) => p.apply(r, z),
+            Self::Ams(p) => p.apply(r, z),
         }
     }
 
@@ -414,6 +454,7 @@ impl crate::solver::ksp::Preconditioner for DrivenPreconditioner {
             Self::Jacobi(p) => p.dim(),
             Self::Ilu0(p) => p.dim(),
             Self::Chebyshev(p) => p.dim(),
+            Self::Ams(p) => p.dim(),
         }
     }
 }
@@ -1298,6 +1339,10 @@ pub struct DrivenOperator {
     /// the mesh). `None` for tensor / matched-UPML materials, which the
     /// matrix-free path rejects.
     matrix_free: Option<crate::driven::matrix_free::MatrixFreeIngredients>,
+    /// Mesh edge incidence + node coordinates for the AMS preconditioner
+    /// (issue #744); the discrete gradient is built from them lazily, on
+    /// the first [`IterativePreconditioner::Ams`] setup.
+    ams_geometry: Option<ams::AmsGeometry>,
 }
 
 /// Which [`DrivenMaterials`] variant a [`DrivenOperator`] was assembled
@@ -1779,6 +1824,7 @@ impl DrivenOperator {
             rhs_im,
             materials_kind,
             matrix_free,
+            ams_geometry: Some(ams::AmsGeometry::new(edges, mesh.nodes.clone())),
         })
     }
 
@@ -2504,8 +2550,9 @@ fn require_converged(
         Err(DrivenError::Solve(format!(
             "{path}: Krylov solve did not converge — the recursive residual met the \
              tolerance after {} iterations but the explicitly recomputed residual \
-             ‖Ax − b‖/‖b‖ = {:.3e} did not (recursive-residual drift; tighten the \
-             preconditioner or use solver.mode = \"direct\")",
+             ‖Ax − b‖/‖b‖ = {:.3e} did not (recursive-residual drift; loosen solver.tol \
+             to a level the explicit residual can reach, use a stronger \
+             preconditioner, or use solver.mode = \"direct\")",
             report.iters, report.residual_rel
         )))
     }
@@ -2780,7 +2827,12 @@ impl DrivenOperator {
                 SolverBackend::Direct { lu: Box::new(lu) }
             }
             SolverMode::Iterative(settings) => {
-                let precond = settings.preconditioner.build(a_int.as_ref())?;
+                let precond = match settings.preconditioner {
+                    IterativePreconditioner::Ams { coarse } => {
+                        DrivenPreconditioner::Ams(ams::build(self, omega, coarse)?)
+                    }
+                    other => other.build(a_int.as_ref())?,
+                };
                 let ksp = crate::solver::ksp::Cocg::new(settings.tol, settings.max_iters);
                 SolverBackend::Iterative { precond, ksp }
             }
@@ -2835,10 +2887,6 @@ impl DrivenOperator {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "solve_ams_spike.rs"]
-mod ams_spike;
 
 #[cfg(test)]
 mod tests {
@@ -3846,6 +3894,80 @@ mod tests {
             .expect("tol = 1e-10 converges");
         assert!(ok.converged);
         assert!(ok.residual_rel <= 1e-10);
+    }
+
+    /// Issue #744: [`IterativePreconditioner::Ams`] is built by
+    /// `prepare_at` (from the operator's mesh geometry), converges COCG on a
+    /// PEC cube with a lumped-port-free volume source, and matches direct
+    /// LU; the bare `IterativePreconditioner::build` (which only sees
+    /// `A(ω)`) rejects it with a clean error.
+    #[test]
+    fn ams_selectable_on_public_iterative_path_matches_direct() {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[2]).sin(), 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.3),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        // Low frequency: the near-static regime AMS exists for.
+        let omega = 0.05;
+
+        for coarse in [AmsCoarseSolve::Auto, AmsCoarseSolve::Direct] {
+            let settings = IterativeSettings::new(1e-10, 500)
+                .with_preconditioner(IterativePreconditioner::Ams { coarse });
+            let (sol, report) = op
+                .prepare_at::<B>(omega, SolverMode::Iterative(settings), &device())
+                .expect("AMS setup")
+                .solve()
+                .expect("AMS converges");
+            assert!(report.converged && report.iters > 0);
+            assert!(report.residual_rel <= 1e-10);
+            let (sol_lu, _) = op
+                .prepare_at::<B>(omega, SolverMode::Direct, &device())
+                .expect("LU")
+                .solve()
+                .expect("direct solve");
+            let num: f64 = sol
+                .e_edges
+                .iter()
+                .zip(&sol_lu.e_edges)
+                .map(|(a, b)| (a - b).norm_sqr())
+                .sum();
+            let den: f64 = sol_lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
+            let rel = (num / den).sqrt();
+            assert!(
+                rel < 1e-6,
+                "AMS ({coarse:?}) vs direct LU rel err {rel:.3e}"
+            );
+        }
+
+        let a = op.assemble_a_at(omega).expect("A(ω)");
+        assert!(matches!(
+            IterativePreconditioner::AMS.build(a.as_ref()),
+            Err(DrivenError::Solve(msg)) if msg.contains("prepare_at")
+        ));
+        assert_eq!(IterativePreconditioner::AMS.name(), "ams");
+        // `Auto` is always the exact gradient-space LU (an AMG coarse solve
+        // drifts); explicit choices pass through.
+        assert_eq!(AmsCoarseSolve::Auto.resolve(), AmsCoarseSolve::Direct);
+        assert_eq!(AmsCoarseSolve::Amg.resolve(), AmsCoarseSolve::Amg);
     }
 
     /// Smoke test: [`IterativePreconditioner::Chebyshev`] also reaches the

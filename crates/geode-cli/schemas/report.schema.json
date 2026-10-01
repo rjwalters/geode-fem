@@ -2864,6 +2864,11 @@
           "const": "ilu0",
           "description": "Incomplete LU with zero fill on `A(ω)`'s own sparsity pattern.",
           "type": "string"
+        },
+        {
+          "const": "ams",
+          "description": "Hiptmair–Xu auxiliary-space Maxwell (AMS) V-cycle on a real SPD\nproxy of `A(ω)` (issue #744): converges low-frequency, near-static\nproblems (e.g. spirals at 1 GHz) where `jacobi` / `ilu0` stall, at\nan iteration count that stays flat with mesh size. Its nodal\n(gradient-space) coarse problem is always solved by exact sparse LU\n(`geode check` reports its modelled memory); see the CLI README for\nmeasured memory.",
+          "type": "string"
         }
       ]
     },
