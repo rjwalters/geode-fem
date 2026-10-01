@@ -200,7 +200,12 @@ jobs:
       # Issue #708 adds the adaptive-sweep goldens (spiral smoke + patch
       # Silver-Müller smoke, adaptive vs dense sweep; ~15 s in release,
       # minutes in debug).
+      #
+      # Issue #744 adds the AMS-preconditioned spiral benchmark (54k edges,
+      # 1 GHz, AMS-COCG vs direct LU + committed bands; ~10 s in release).
       - name: geode static-extraction benchmark tiers (release, --ignored)
         run: |
           cargo test -p geode-cli --release --test inductance_golden \
               --test mesh_static_golden --test adaptive_sweep_golden -- --ignored
+          cargo test -p geode-cli --release --test spiral_golden -- --ignored \
+              spiral_benchmark_ams_matches_direct_lu

@@ -33,6 +33,12 @@
 //!    ```sh
 //!    cargo test -p geode-cli --release --test spiral_golden -- --ignored
 //!    ```
+//!
+//! Both tiers also run with `solver = {mode: iterative, preconditioner:
+//! ams}` (issue #744) and hold the AMS-preconditioned COCG result to the
+//! same committed bands **and** to the direct-LU `Z` (1e-6 relative),
+//! with a ceiling on the COCG iteration count so a preconditioner
+//! regression shows up even when the answer is still right.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -67,6 +73,69 @@ fn run_driven(spec: &str, extra: &[&str]) -> serde_json::Value {
         String::from_utf8_lossy(&out.stdout)
     );
     serde_json::from_slice(&out.stdout).expect("report is JSON")
+}
+
+/// Run `geode driven` on a fixture spec with its `solver` section
+/// replaced by `solver` (the mesh path is made absolute so the edited spec
+/// can live in a temp dir).
+fn run_driven_with_solver(spec: &str, solver: serde_json::Value) -> serde_json::Value {
+    let fixtures = manifest_dir().join("tests/fixtures");
+    let mut v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(fixtures.join(spec)).unwrap()).unwrap();
+    let mesh = fixtures.join(v["mesh"]["path"].as_str().unwrap());
+    v["mesh"]["path"] = mesh.canonicalize().unwrap().display().to_string().into();
+    v["solver"] = solver;
+    let dir = std::env::temp_dir().join(format!(
+        "geode-spiral-solver-{}-{}",
+        spec.trim_end_matches(".json"),
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("spec.json");
+    std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    let report = run_driven(path.to_str().unwrap(), &[]);
+    std::fs::remove_dir_all(&dir).unwrap();
+    report
+}
+
+/// The AMS-preconditioned iterative solver section (issue #744).
+fn ams_solver() -> serde_json::Value {
+    serde_json::json!({ "mode": "iterative", "preconditioner": "ams" })
+}
+
+/// Hold an AMS report to the direct-LU report it must reproduce: same
+/// frequencies, `Z` within 1e-6 relative, and at most `max_iters` COCG
+/// iterations per right-hand side.
+fn assert_ams_matches_direct(ams: &serde_json::Value, direct: &[Row], max_iters: u64) {
+    assert_eq!(ams["status"], "ok");
+    assert_eq!(ams["solver"]["mode"], "iterative");
+    let got = rows(ams);
+    assert_eq!(got.len(), direct.len());
+    for ((g, d), r) in got
+        .iter()
+        .zip(direct)
+        .zip(ams["results"].as_array().unwrap())
+    {
+        let iters: Vec<u64> = r["iterations"]
+            .as_array()
+            .expect("iterations")
+            .iter()
+            .map(|i| i.as_u64().unwrap())
+            .collect();
+        let dz = (g.z_ohm[0] - d.z_ohm[0]).hypot(g.z_ohm[1] - d.z_ohm[1]);
+        let rel_z = dz / d.z_ohm[0].hypot(d.z_ohm[1]);
+        eprintln!(
+            "AMS {:>5.1} GHz: iters {iters:?}, residual {:.1e}, |ΔZ|/|Z| vs direct LU {rel_z:.1e}",
+            g.f_ghz, g.residual_rel
+        );
+        assert_eq!(g.f_ghz, d.f_ghz);
+        assert!(rel_z < 1e-6, "AMS Z differs from direct LU: {rel_z:.3e}");
+        assert!(g.residual_rel <= 1e-10, "residual {}", g.residual_rel);
+        assert!(
+            iters.iter().all(|&i| i > 0 && i <= max_iters),
+            "AMS iteration count {iters:?} outside (0, {max_iters}]"
+        );
+    }
 }
 
 /// Committed `[point_i]` rows of a spiral results TOML:
@@ -257,6 +326,21 @@ fn spiral_smoke_golden_matches_committed_sweep() {
     assert_library_parity(&fixture, at_5);
 }
 
+/// Issue #744: AMS-preconditioned COCG converges the smoke sweep (where
+/// Jacobi and ILU(0) stall at 1 and 5 GHz) to the direct-LU answer, and
+/// so to the committed smoke bands. Measured 112/131/145/159 iterations.
+#[test]
+fn spiral_smoke_ams_matches_direct_lu() {
+    let direct = rows(&run_driven("spiral_golden_smoke.json", &[]));
+    let ams = run_driven_with_solver("spiral_golden_smoke.json", ams_solver());
+    assert_ams_matches_direct(&ams, &direct, 300);
+    for (g, &(_, wl, wr, wq, _)) in rows(&ams).iter().zip(&committed("results_smoke.toml")) {
+        assert!(rel(g.l_nh, wl).abs() < 0.01, "L: {} vs {wl}", g.l_nh);
+        assert!(rel(g.r_ohm, wr).abs() < 0.02, "R: {} vs {wr}", g.r_ohm);
+        assert!(rel(g.q, wq).abs() < 0.02, "Q: {} vs {wq}", g.q);
+    }
+}
+
 #[test]
 #[ignore = "heavy: 54k-edge driven solve; run with --release -- --ignored"]
 fn spiral_benchmark_golden_within_oracle_bands() {
@@ -321,4 +405,24 @@ fn spiral_benchmark_golden_within_oracle_bands() {
     // (c) Library parity on Z.
     let fixture = geode_core::mesh::read_spiral_fixture().expect("benchmark fixture");
     assert_library_parity(&fixture, &row);
+}
+
+/// Issue #744: AMS on the 54k-edge benchmark at 1 GHz (Jacobi and ILU(0)
+/// do not converge here) reproduces direct LU and the committed bands.
+/// Measured 114 iterations, 3.9 s / 0.34 GB vs direct LU 5.0 s / 2.03 GB
+/// (release, Apple M3 Ultra).
+#[test]
+#[ignore = "heavy: 54k-edge driven solve; run with --release -- --ignored"]
+fn spiral_benchmark_ams_matches_direct_lu() {
+    let direct = rows(&run_driven("spiral_golden_benchmark.json", &[]));
+    let ams = run_driven_with_solver("spiral_golden_benchmark.json", ams_solver());
+    assert_ams_matches_direct(&ams, &direct, 300);
+    let row = rows(&ams)[0];
+    let (_, wl, wr, wq, _) = *committed("results.toml")
+        .iter()
+        .find(|p| p.0 == 1.0)
+        .expect("committed 1 GHz point");
+    assert!(rel(row.l_nh, wl).abs() < 0.01, "L: {} vs {wl}", row.l_nh);
+    assert!(rel(row.r_ohm, wr).abs() < 0.02, "R: {} vs {wr}", row.r_ohm);
+    assert!(rel(row.q, wq).abs() < 0.02, "Q: {} vs {wq}", row.q);
 }
