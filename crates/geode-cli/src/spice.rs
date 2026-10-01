@@ -156,9 +156,12 @@
 //! **`ret_pin`** (`--spice-ret-pin`, both exports): the ground / return
 //! reference is exposed as an extra, **last** `.subckt` port named
 //! [`RET_PIN`] (`ret`) instead of being tied to the simulator's global
-//! node `0` inside the subcircuit, so the instantiating deck can float it
-//! or wire it anywhere. `ret` is reserved case-insensitively for that run,
-//! so a terminal / path literally named `ret` / `Ret` gets the usual `_2`
+//! node `0` inside the subcircuit, so the instantiating deck decides how
+//! to wire it. `ret` must still be given a DC path to node `0` (e.g.
+//! through a resistor, as in the README's `RDC r 0 1` guidance) — left
+//! floating with no DC path, ngspice fails with `singular matrix: check
+//! node r`. `ret` is reserved case-insensitively for that run, so a
+//! terminal / path literally named `ret` / `Ret` gets the usual `_2`
 //! suffix instead of colliding with the pin.
 //!
 //! **`positive_k`** (`--spice-positive-k`, inductance only): some
@@ -209,8 +212,8 @@ pub const SUBCKT_NAME_INDUCTANCE: &str = "LEXTRACT";
 /// Absolute threshold on the (dimensionless) coupling coefficient: a `K`
 /// statement with `|k_ij| < K_DROP_TOL` is dropped with a comment. Neither
 /// golden inductance fixture comes near it (the triax core–tube coupling
-/// is `k ≈ 0.646`, exactly `6.457431227858365e-1`); it separates a genuinely decoupled pair computed at
-/// round-off from a real coupling.
+/// is `k ≈ 0.646`, exactly `6.457431227858365e-1`); it separates a
+/// genuinely decoupled pair computed at round-off from a real coupling.
 pub const K_DROP_TOL: f64 = 1e-9;
 
 /// SPICE ground node.

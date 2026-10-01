@@ -82,7 +82,27 @@ pub fn validate(p: &Problem, path: &Path) -> Result<(), CliError> {
             w[0]
         )));
     }
+    check_not_dir(path)?;
     check_parent_dir(path)
+}
+
+/// The `--touchstone` target `path` itself is not an existing directory
+/// (rejecting it fast, before any solve, instead of only at the final
+/// `std::fs::write` after the frequency sweep).
+fn check_not_dir(path: &Path) -> Result<(), CliError> {
+    if path.is_dir() {
+        return Err(CliError::Io {
+            path: path.to_path_buf(),
+            err: std::io::Error::new(
+                std::io::ErrorKind::IsADirectory,
+                format!(
+                    "Touchstone output path is an existing directory, not a file: `{}`",
+                    path.display()
+                ),
+            ),
+        });
+    }
+    Ok(())
 }
 
 /// The `--touchstone` target's parent directory exists, is a directory
@@ -96,11 +116,18 @@ fn check_parent_dir(path: &Path) -> Result<(), CliError> {
         path: path.to_path_buf(),
         err: std::io::Error::new(kind, format!("{msg} `{}`", parent.display())),
     };
-    let meta = std::fs::metadata(parent).map_err(|_| {
-        io(
-            std::io::ErrorKind::NotFound,
-            "Touchstone output's parent directory does not exist:",
-        )
+    let meta = std::fs::metadata(parent).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            io(
+                std::io::ErrorKind::PermissionDenied,
+                "Touchstone output's parent directory is not accessible (permission denied):",
+            )
+        } else {
+            io(
+                std::io::ErrorKind::NotFound,
+                "Touchstone output's parent directory does not exist:",
+            )
+        }
     })?;
     if !meta.is_dir() {
         return Err(io(
@@ -471,5 +498,103 @@ mod tests {
         assert!(matches!(e, Err(CliError::TouchstoneUnsupported { .. })));
         let e = render(&[], &[50.0, 50.0], &[row(1e9, one)]);
         assert!(matches!(e, Err(CliError::TouchstoneUnsupported { .. })));
+    }
+
+    /// A `--touchstone` target whose parent directory exists but is
+    /// permission-denied (not merely missing) must not be reported as
+    /// "does not exist" (issue #736, item 4). Unix-only (permission bits);
+    /// skipped when running as root, since root bypasses the directory
+    /// permission check entirely and the test would otherwise spuriously
+    /// fail.
+    #[test]
+    #[cfg(unix)]
+    fn parent_permission_denied_is_not_reported_as_missing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Root ignores directory permission bits, so the `chmod 0o000`
+        // below would not actually block metadata access there.
+        if running_as_root() {
+            eprintln!("SKIPPED: running as root, permission bits are not enforced");
+            return;
+        }
+
+        let dir = std::env::temp_dir().join(format!(
+            "geode-touchstone-perm-denied-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let locked = dir.join("locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        // The target's *parent* is one level inside `locked`: stat-ing it
+        // must traverse `locked`, whose missing search (`x`) permission is
+        // what actually triggers `EACCES` — denying permissions on the
+        // directory being stat-ed directly is not enough on every platform
+        // (e.g. macOS permits `stat` on a 0o000 directory itself as long as
+        // its own parent is traversable).
+        let target = locked.join("sub").join("out.s1p");
+        let result = check_parent_dir(&target);
+
+        // Always restore permissions before asserting, so a failed
+        // assertion still leaves the temp dir removable.
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        match result {
+            Err(CliError::Io { err, .. }) => {
+                let msg = err.to_string();
+                assert!(
+                    !msg.contains("does not exist"),
+                    "permission-denied parent must not be reported as missing: {msg}"
+                );
+                assert!(
+                    msg.contains("permission denied") || msg.contains("not accessible"),
+                    "expected a permission-denied message, got: {msg}"
+                );
+            }
+            other => panic!("expected a permission-denied io error, got: {other:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    fn running_as_root() -> bool {
+        // Avoid an extra `libc` dependency: shell out to `id -u`.
+        std::process::Command::new("id")
+            .arg("-u")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0")
+            .unwrap_or(false)
+    }
+
+    /// A `--touchstone` target that is itself an existing directory is
+    /// rejected fast by `validate`'s directory check, with a clear `io`
+    /// error (issue #736, item 5).
+    #[test]
+    fn target_path_itself_a_directory_is_rejected() {
+        let dir = std::env::temp_dir().join(format!(
+            "geode-touchstone-isdir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let result = check_not_dir(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        match result {
+            Err(CliError::Io { path, err }) => {
+                assert_eq!(path, dir);
+                assert_eq!(err.kind(), std::io::ErrorKind::IsADirectory);
+            }
+            other => panic!("expected an IsADirectory io error, got: {other:?}"),
+        }
     }
 }

@@ -108,6 +108,20 @@ pub fn re_k_from_lambda(lambda: Complex64) -> f64 {
 
 /// Quality factor of a complex wavenumber `k`: `Q = Re k / (2 |Im k|)`,
 /// or `+∞` when the mode is (numerically) lossless.
+///
+/// **Growing-mode caveat.** `Q` is computed from `|Im k|`, the
+/// *magnitude* of the imaginary part, so a numerically spurious
+/// **growing** mode (`Im k < 0`, which the `exp(+jωt)` time convention
+/// says should instead decay) still reports a finite, positive `Q`
+/// indistinguishable from a genuine decaying resonance. Callers that
+/// need to rule this out must separately inspect the sign of `Im k`
+/// (`k0_im` in the CLI report).
+///
+/// **The `1e-12` null cutoff is absolute, not relative.** `k` is in
+/// rad / mesh length unit, so `1e-12` below is an absolute bound in
+/// whatever length unit the mesh is authored in — it is not rescaled
+/// against `Re k`. A mesh authored in different length units shifts
+/// what counts as "numerically lossless".
 pub fn q_factor(k: Complex64) -> f64 {
     if k.im.abs() > 1e-12 {
         k.re / (2.0 * k.im.abs())
