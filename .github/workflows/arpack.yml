@@ -157,8 +157,9 @@ jobs:
     runs-on: ubuntu-latest
     # Cold dependency build + the debug default tier. The release
     # `--ignored` benchmark tiers run in the parallel `geode-cli-release`
-    # job below. 30 min bounds queue-wait (issue #354).
-    timeout-minutes: 30
+    # job below. The apt Gmsh install alone has taken ~11 min on a slow
+    # mirror; 45 min bounds queue-wait (issue #354) with that headroom.
+    timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
@@ -195,7 +196,7 @@ jobs:
     # 30-minute bound, and main runs were being cancelled.
     name: cargo test -p geode-cli --release --ignored (linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
