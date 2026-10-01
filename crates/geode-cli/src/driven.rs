@@ -36,6 +36,10 @@
 //!   same library sweep **once per frequency** with that frequency's
 //!   `DrivenMaterials::MatchedUpml` tensors (reassembling each time). A
 //!   spec without UPML takes the batched path unchanged.
+//! * **Dispersive materials** (`materials[].dispersion`, issue #757)
+//!   take the same per-frequency path: each frequency's operator is
+//!   assembled from [`Problem::eps_at`] (`ε_r(f)`; times the stretch with
+//!   UPML), and each report row echoes the applied `ε_r(f)`.
 //! * **Wave ports** build each port's modes from its tagged face
 //!   ([`geode_core::driven::ports::PortFaceProjection::wave_port`]) and
 //!   run [`solve_wave_port_sweep_with_mode`] (per frequency with UPML,

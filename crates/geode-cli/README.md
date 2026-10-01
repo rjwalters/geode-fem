@@ -2172,7 +2172,8 @@ fixture row (so it sits in the `results_smoke.toml` bands). The patch
 smoke with a dispersive substrate checks the UPML composition the same
 way; `geode check` echoes the fit, and the unsupported combinations are
 `invalid_spec`. In release (`--ignored`) the AMS solve of the dispersive
-spiral matches direct LU:
+spiral matches direct LU (measured `|ΔZ|/|Z|` ≤ 1.4e-12, 112–159 COCG
+iterations):
 
 ```sh
 cargo test -p geode-cli --test dispersive_golden                          # default tier
