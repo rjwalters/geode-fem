@@ -2963,6 +2963,153 @@ mod tests {
         }
     }
 
+    /// Debye / Drude spec blocks (issue #761): parse, prefixed input
+    /// errors, and the scalar AMS guard on `Re ε_r(f) ≤ 0`.
+    #[test]
+    fn debye_drude_validation_and_ams_guard() {
+        let spec = |d: serde_json::Value, solver: serde_json::Value, ghz: &[f64]| -> ProblemSpec {
+            serde_json::from_value(serde_json::json!({
+                "schema_version": 1,
+                "mesh": {"path": "does-not-exist.msh", "length_unit_m": 1e-6},
+                "materials": [{"physical_group": "sub", "dispersion": d}],
+                "ports": [{"physical_group": "p", "e_hat": [0.0, 1.0, 0.0], "resistance_ohm": 50.0}],
+                "frequencies": {"unit": "ghz", "values": ghz},
+                "solver": solver
+            }))
+            .expect("spec parses")
+        };
+        let load = |s: ProblemSpec| load_parsed(s, Path::new("."), None);
+        let msg = |s: ProblemSpec| match load(s) {
+            Err(CliError::InvalidSpec(m)) => {
+                assert!(!m.contains("  "), "stray whitespace: {m:?}");
+                m
+            }
+            other => panic!("expected InvalidSpec, got {other:?}"),
+        };
+        let direct = serde_json::json!({"mode": "direct"});
+        let ams = serde_json::json!({"mode": "iterative", "preconditioner": "ams"});
+        let tau = 1.0 / (2.0 * std::f64::consts::PI * 5e9);
+        let debye = serde_json::json!({
+            "model": "debye", "eps_inf": 10.0, "poles": [{"delta_eps": 2.0, "tau_s": tau}]
+        });
+        // Plasma at 8 GHz, γ at 1 GHz (ε∞ = 1): Re ε < 0 below √63 GHz.
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let plasma = serde_json::json!({
+            "model": "drude", "eps_inf": 1.0,
+            "omega_p_rad_s": two_pi * 8e9, "gamma_rad_s": two_pi * 1e9
+        });
+
+        let parsed = spec(debye.clone(), direct.clone(), &[1.0]);
+        assert_eq!(
+            parsed.materials[0].dispersion,
+            Some(crate::spec::DispersionSpec::Debye {
+                eps_inf: 10.0,
+                poles: vec![crate::spec::DebyePole {
+                    delta_eps: 2.0,
+                    tau_s: tau
+                }],
+            })
+        );
+        // Valid specs get as far as the (absent) mesh — Debye with AMS
+        // (Re ε ≥ ε∞ > 0), Drude direct or iterative jacobi / ilu0 below
+        // the crossover, and Drude AMS entirely above it.
+        for (d, solver, ghz) in [
+            (debye.clone(), ams.clone(), vec![1.0, 20.0]),
+            (plasma.clone(), direct.clone(), vec![1.0, 20.0]),
+            (
+                plasma.clone(),
+                serde_json::json!({"mode": "iterative", "preconditioner": "jacobi"}),
+                vec![1.0, 20.0],
+            ),
+            (
+                plasma.clone(),
+                serde_json::json!({"mode": "iterative", "preconditioner": "ilu0"}),
+                vec![1.0],
+            ),
+            (plasma.clone(), ams.clone(), vec![8.0, 20.0]),
+        ] {
+            assert!(
+                matches!(
+                    load(spec(d.clone(), solver.clone(), &ghz)),
+                    Err(CliError::Io { .. })
+                ),
+                "{d} / {solver} / {ghz:?}"
+            );
+        }
+        // The guard: AMS with any frequency below the crossover.
+        let m = msg(spec(plasma.clone(), ams.clone(), &[1.0, 5.0, 10.0, 20.0]));
+        for needle in [
+            "materials[sub].dispersion (drude)",
+            "Re eps_r(f) <= 0 at 2 of the 4 solved frequencies",
+            "below 7.937254e9 Hz",
+            "first 1.000000e9 Hz",
+            "preconditioner = \"ams\"",
+            "solver.mode = \"direct\"",
+        ] {
+            assert!(m.contains(needle), "{needle}: {m}");
+        }
+        // Lossless (γ = 0) plasma: Re ε < 0 below ω_p/√ε∞ = 8 GHz.
+        let lossless = serde_json::json!({
+            "model": "drude", "eps_inf": 1.0, "omega_p_rad_s": two_pi * 8e9, "gamma_rad_s": 0.0
+        });
+        assert!(matches!(
+            load(spec(lossless.clone(), ams.clone(), &[9.0])),
+            Err(CliError::Io { .. })
+        ));
+        let m = msg(spec(lossless, ams.clone(), &[7.0, 9.0]));
+        assert!(
+            m.contains("1 of the 2") && m.contains("below 8.000000e9 Hz"),
+            "{m}"
+        );
+
+        // Prefixed model-input errors.
+        for (d, needle) in [
+            (
+                serde_json::json!({"model": "debye", "eps_inf": 0.0, "poles": [{"delta_eps": 1.0, "tau_s": 1e-10}]}),
+                "eps_inf",
+            ),
+            (
+                serde_json::json!({"model": "debye", "eps_inf": 4.0, "poles": []}),
+                "at least one pole",
+            ),
+            (
+                serde_json::json!({"model": "debye", "eps_inf": 4.0, "poles": [{"delta_eps": -1.0, "tau_s": 1e-10}]}),
+                "poles[0].delta_eps",
+            ),
+            (
+                serde_json::json!({"model": "debye", "eps_inf": 4.0, "poles": [{"delta_eps": 1.0, "tau_s": 0.0}]}),
+                "poles[0].tau_s",
+            ),
+            (
+                serde_json::json!({"model": "drude", "eps_inf": 1.0, "omega_p_rad_s": 0.0, "gamma_rad_s": 1e9}),
+                "omega_p_rad_s",
+            ),
+            (
+                serde_json::json!({"model": "drude", "eps_inf": 1.0, "omega_p_rad_s": 1e10, "gamma_rad_s": -1.0}),
+                "gamma_rad_s",
+            ),
+        ] {
+            let m = msg(spec(d.clone(), direct.clone(), &[1.0]));
+            assert!(
+                m.contains("materials[sub].dispersion") && m.contains(needle),
+                "{d}: {m}"
+            );
+        }
+        // Missing / stray keys are parse errors.
+        for bad in [
+            serde_json::json!({"model": "debye", "eps_inf": 4.0}),
+            serde_json::json!({"model": "debye", "eps_inf": 4.0, "poles": [{"delta_eps": 1.0}]}),
+            serde_json::json!({"model": "debye", "eps_inf": 4.0, "poles": [{"delta_eps": 1.0, "tau_s": 1e-10, "f_hz": 1e9}]}),
+            serde_json::json!({"model": "drude", "eps_inf": 1.0, "omega_p_rad_s": 1e10}),
+            serde_json::json!({"model": "drude", "eps_inf": 1.0, "omega_p_rad_s": 1e10, "gamma_rad_s": 0.0, "tan_delta": 0.0}),
+        ] {
+            assert!(
+                serde_json::from_value::<crate::spec::DispersionSpec>(bad.clone()).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
     #[test]
     fn hex_is_lowercase_two_digit() {
         assert_eq!(hex(&[0x00, 0xab, 0x0f]), "00ab0f");
