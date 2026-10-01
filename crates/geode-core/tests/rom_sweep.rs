@@ -498,11 +498,10 @@ fn rom_per_port_drive_matches_dense_two_port_z() {
             [-i(1, 0) / det, i(0, 0) / det],
         ];
         let norm = d.z.iter().map(|z| z.norm()).fold(0.0, f64::max);
-        for r in 0..2 {
-            for c in 0..2 {
-                let z = v(r, 0) * inv[0][c] + v(r, 1) * inv[1][c];
-                worst = worst.max((z - d.z[r * 2 + c]).norm() / norm);
-            }
+        for (rc, &z_dense) in d.z.iter().enumerate() {
+            let (r, c) = (rc / 2, rc % 2);
+            let z = v(r, 0) * inv[0][c] + v(r, 1) * inv[1][c];
+            worst = worst.max((z - z_dense).norm() / norm);
         }
     }
     println!(
