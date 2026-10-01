@@ -661,8 +661,17 @@ mod tests {
         let modes = solve_pec_cavity_modes::<B>(&mesh, &vac, &mask, &settings, &device()).unwrap();
         assert_eq!(modes.modes.len(), 3);
         let l0 = modes.modes[0].lambda;
+        eprintln!(
+            "unit cube n=3: lowest λ = {l0:.6} vs 2π² = {two_pi2:.6} (rel err {:.4e}, {} interior edges)",
+            (l0 - two_pi2).abs() / two_pi2,
+            modes.n_interior
+        );
+        // 10% bar (was 25%; issue #771): measured 6.6% with the face-exact
+        // PEC mask (117 interior edges). The pre-#771 node-rule mask also
+        // pinned the 24 interior chords along the cube's edges (93 interior
+        // edges), stiffening the pencil to a 19.1% error.
         assert!(
-            (l0 - two_pi2).abs() / two_pi2 < 0.25,
+            (l0 - two_pi2).abs() / two_pi2 < 0.10,
             "lowest λ = {l0}, want ≈ 2π² = {two_pi2}"
         );
         for m in &modes.modes {

@@ -4,7 +4,7 @@
 # Consumed by `tests/magnetostatic_inductance.rs`.
 
 [meta]
-description = "3-D vector magnetostatic solver + Maxwell inductance-matrix extraction (Epic #475, Palace Magnetostatic parity): lowest-order Nedelec edge solve of curl(nu curl A)=J with per-element nu_r=1/mu_r, tree-cotree gauge, RHS-driven unit-current terminals; N solves -> L_ij = A_i^T K A_j/(I_i I_j) (full K). Programmatically-meshed solid-coax L' oracle at <=1% (external+internal closed form) and coaxial-loop-pair off-diagonal mutual M vs the Maxwell elliptic-integral formula."
+description = "3-D vector magnetostatic solver + Maxwell inductance-matrix extraction (Epic #475, Palace Magnetostatic parity): lowest-order Nedelec edge solve of curl(nu curl A)=J with per-element nu_r=1/mu_r, tree-cotree gauge, RHS-driven unit-current terminals; N solves -> L_ij = A_i^T K A_j/(I_i I_j) (full K). Programmatically-meshed solid-coax L' oracle at <=0.3% (external+internal closed form; face-exact PEC mask, issue #771) and coaxial-loop-pair off-diagonal mutual M vs the Maxwell elliptic-integral formula."
 method = "energy_reaction"  # L_ij = A_i^T K A_j / (I_i I_j), full pre-gauge K
 cross_check = "flux_linkage"  # Phi_i = A_i^T b_i / I_i = L_ii I_i
 gauge = "tree_cotree"  # eigen::gauge::TreeCotreeGauge (PR #508); B=curl A gauge-invariant for the source problem
@@ -19,12 +19,12 @@ outer_radius_b = 3
 nodes = 8196
 edges = 48707
 tets = 36288
-l_per_length_fem = 2.680687425e-7
+l_per_length_fem = 2.694763535e-7
 l_per_length_closed = 2.697224577e-7
 l_external_exact = 2.197224577e-7  # mu0/(2pi) ln(b/a)
 l_internal_exact = 5.000000000e-8  # mu0/(8pi)
-rel_err = 6.131174e-3  # bar: <= 1e-2 vs closed form
-flux_linkage_per_length = 2.680687425e-7  # cross-check (= l_per_length_fem)
+rel_err = 9.124350e-4  # bar: <= 3e-3 vs closed form (was 1e-2 before the #771 face-exact PEC mask)
+flux_linkage_per_length = 2.694763535e-7  # cross-check (= l_per_length_fem)
 
 [oracles.loop_pair]
 # Two coaxial circular loops; off-diagonal Maxwell mutual M.
@@ -38,11 +38,11 @@ edges = 91418
 tets = 75600
 measured_current_1 = 1.000337e0  # discrete threading current
 measured_current_2 = 1.129687e0
-m_mutual_fem = 5.139029843e-7
+m_mutual_fem = 5.139030694e-7
 m_mutual_exact = 4.940784631e-7
-m_rel_err = 4.012424e-2  # honest band ~5% at this resolution: fat-tube (r_tube/R=0.18) filament idealization + PEC-box truncation dominate; sign + order + symmetry exact. Not a tight 1% gate (cf. the two-sphere-box off-diagonal of benchmarks/electrostatic/results.toml).
-l_self_1_fem = 2.562261746e-6
-l_self_2_fem = 2.043178046e-6
+m_rel_err = 4.012441e-2  # honest band ~5% at this resolution: fat-tube (r_tube/R=0.18) filament idealization + PEC-box truncation dominate; sign + order + symmetry exact. Not a tight 1% gate (cf. the two-sphere-box off-diagonal of benchmarks/electrostatic/results.toml).
+l_self_1_fem = 2.562261853e-6
+l_self_2_fem = 2.043178113e-6
 l_self_thinwire_band = 2.254708443e-6  # mu0 R[ln(8R/a)-2], Neumann approx band (NOT a tight bar)
 max_rel_asymmetry = 0.000e0  # hard check: < 1e-9
 

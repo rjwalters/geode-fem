@@ -138,14 +138,26 @@ fn p2_cavity_frequency_converges_faster_than_p1() {
     // 1. p=2 is meaningfully steeper than p=1 on the identical meshes — the
     //    whole point of wiring the second-order element into the eigen path.
     //    Band chosen from the observed run (honest, conservative margin).
+    //    Since issue #771 both orders use a face-exact PEC mask (the p=2
+    //    mask always was; the p=1 cube mask used to also pin the interior
+    //    chords along the cube's edges, inflating the p=1 error to
+    //    [3.65e-1, 1.91e-1, 9.33e-2] vs [1.36e-1, 6.63e-2, 3.94e-2] now).
+    //    Measured slopes p1 = 1.78, p2 = 4.15; gap bar 1.5 (was 0.5).
     assert!(
-        slope_p2 > slope_p1 + 0.5,
+        slope_p2 > slope_p1 + 1.5,
         "p=2 cavity λ₁ slope {slope_p2:.3} not meaningfully steeper than p=1 {slope_p1:.3} \
          (err_p1 {err_p1:?}, err_p2 {err_p2:?})"
     );
 
     // 2. At the finest mesh the p=2 frequency error is below p=1.
     let last = ns.len() - 1;
+    // ... and the p=1 error itself is unbiased: measured 3.94% at n=4 with
+    // the face-exact mask; the pre-#771 node-rule mask gave 9.33%.
+    assert!(
+        err_p1[last] < 0.06,
+        "finest-mesh p=1 error {:.3e} above 6% (PEC mask over-constraining?)",
+        err_p1[last]
+    );
     assert!(
         err_p2[last] < err_p1[last],
         "finest-mesh p=2 error {:.3e} not below p=1 error {:.3e}",

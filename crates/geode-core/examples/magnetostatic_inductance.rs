@@ -143,7 +143,7 @@ fn main() {
     let _ = writeln!(out, "[meta]");
     let _ = writeln!(
         out,
-        "description = \"3-D vector magnetostatic solver + Maxwell inductance-matrix extraction (Epic #475, Palace Magnetostatic parity): lowest-order Nedelec edge solve of curl(nu curl A)=J with per-element nu_r=1/mu_r, tree-cotree gauge, RHS-driven unit-current terminals; N solves -> L_ij = A_i^T K A_j/(I_i I_j) (full K). Programmatically-meshed solid-coax L' oracle at <=1% (external+internal closed form) and coaxial-loop-pair off-diagonal mutual M vs the Maxwell elliptic-integral formula.\""
+        "description = \"3-D vector magnetostatic solver + Maxwell inductance-matrix extraction (Epic #475, Palace Magnetostatic parity): lowest-order Nedelec edge solve of curl(nu curl A)=J with per-element nu_r=1/mu_r, tree-cotree gauge, RHS-driven unit-current terminals; N solves -> L_ij = A_i^T K A_j/(I_i I_j) (full K). Programmatically-meshed solid-coax L' oracle at <=0.3% (external+internal closed form; face-exact PEC mask, issue #771) and coaxial-loop-pair off-diagonal mutual M vs the Maxwell elliptic-integral formula.\""
     );
     let _ = writeln!(
         out,
@@ -180,7 +180,7 @@ fn main() {
     let _ = writeln!(out, "l_internal_exact = {l_int:.9e}  # mu0/(8pi)");
     let _ = writeln!(
         out,
-        "rel_err = {:.6e}  # bar: <= 1e-2 vs closed form",
+        "rel_err = {:.6e}  # bar: <= 3e-3 vs closed form (was 1e-2 before the #771 face-exact PEC mask)",
         (coax_lp - l_closed).abs() / l_closed
     );
     let _ = writeln!(
