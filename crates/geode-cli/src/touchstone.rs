@@ -514,7 +514,7 @@ pub fn write(
     write_text(path, render(&comments, reference_ohm, results)?)
 }
 
-/// [`write`] for a spec with wave ports: the kept channels of `plan`
+/// [`write()`] for a spec with wave ports: the kept channels of `plan`
 /// (with every lumped port) renormalized by [`wave_network`].
 pub fn write_wave(
     path: &Path,
@@ -523,8 +523,11 @@ pub fn write_wave(
     plan: &Plan,
     results: &[FrequencyResult],
 ) -> Result<FileRef, CliError> {
-    let (comments, refs, rows) = wave_network(p, plan, provenance_comments(provenance), results)?;
-    write_text(path, render_rows(&comments, &refs, rows)?)
+    let net = wave_network(p, plan, provenance_comments(provenance), results)?;
+    write_text(
+        path,
+        render_rows(&net.comments, &net.reference_ohm, net.rows)?,
+    )
 }
 
 /// Make a comment line safe for scikit-rf: collapse every `::` (a
@@ -538,6 +541,17 @@ fn sanitize(c: String) -> String {
     c
 }
 
+/// A wave-port / mixed network ready to [`render_rows`].
+#[derive(Debug, Clone)]
+pub struct WaveNetwork {
+    /// Leading `!` comment lines.
+    pub comments: Vec<String>,
+    /// `[Reference]` values, one per written port.
+    pub reference_ohm: Vec<f64>,
+    /// Renormalized `(frequency_hz, S)` rows.
+    pub rows: Vec<Row>,
+}
+
 /// The comment lines, `[Reference]` values and renormalized rows of a
 /// wave-port or mixed spec's Touchstone file: every lumped port (its
 /// `resistance_ohm`), then each of `plan`'s kept channels (its port's
@@ -549,7 +563,7 @@ pub fn wave_network(
     plan: &Plan,
     head: Vec<String>,
     results: &[FrequencyResult],
-) -> Result<(Vec<String>, Vec<f64>, Vec<Row>), CliError> {
+) -> Result<WaveNetwork, CliError> {
     let n_lumped = p.ports.len();
     let wave_ref = |c: &WaveChannelPlan| {
         p.wave_ports[c.port].reference_ohm.ok_or_else(|| {
@@ -615,7 +629,11 @@ pub fn wave_network(
             .collect();
         rows.push((r.frequency_hz, matrix));
     }
-    Ok((comments, refs, rows))
+    Ok(WaveNetwork {
+        comments,
+        reference_ohm: refs,
+        rows,
+    })
 }
 
 /// The comment lines of a wave-port / mixed file after the provenance

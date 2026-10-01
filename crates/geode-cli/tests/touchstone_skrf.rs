@@ -191,17 +191,16 @@ fn skrf_checks(
     if !skrf_support::check(what, ts, refs, rows) {
         return;
     }
-    let modal: Vec<(f64, Vec<[f64; 2]>, Vec<[f64; 2]>)> =
-        touchstone_support::modal_sub_blocks(report, kept)
-            .into_iter()
-            .map(|(f, s, z)| {
-                (
-                    f,
-                    s.iter().map(|c| [c.re, c.im]).collect(),
-                    z.iter().map(|c| [c.re, c.im]).collect(),
-                )
-            })
-            .collect();
+    let modal: Vec<skrf_support::ModalRow> = touchstone_support::modal_sub_blocks(report, kept)
+        .into_iter()
+        .map(|(f, s, z)| {
+            (
+                f,
+                s.iter().map(|c| [c.re, c.im]).collect(),
+                z.iter().map(|c| [c.re, c.im]).collect(),
+            )
+        })
+        .collect();
     skrf_support::check_renormalized(what, ts, &modal, refs, labels, 1e-8);
 }
 

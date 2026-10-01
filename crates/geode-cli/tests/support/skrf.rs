@@ -124,6 +124,9 @@ pub fn check(what: &str, path: &Path, refs: &[f64], rows: &Rows) -> bool {
     true
 }
 
+/// `(f_hz, row-major modal S [re, im], Z_c [re, im] per port)`.
+pub type ModalRow = (f64, Vec<[f64; 2]>, Vec<[f64; 2]>);
+
 /// Reads `{path, f, s_re, s_im, z0_re, z0_im, refs}` (JSON on stdin),
 /// renormalizes the modal network with scikit-rf and prints the max
 /// deviation from the file, plus the file's port names.
@@ -151,12 +154,11 @@ print(json.dumps({
 /// #775): `skrf.Network(s = modal S, z0 = Z_c(f), s_def = 'traveling')
 /// .renormalize(refs)` must equal the file's S to `tol` (scikit-rf's own
 /// round-off is ~1e-8), and the file's port names must be `labels`.
-/// `rows` is `(f_hz, row-major modal S [re, im], Z_c [re, im] per port)`,
-/// ascending. Returns whether the check ran (loud `SKIPPED` otherwise).
+/// `rows` ([`ModalRow`]) are ascending. Returns whether the check ran (loud `SKIPPED` otherwise).
 pub fn check_renormalized(
     what: &str,
     path: &Path,
-    rows: &[(f64, Vec<[f64; 2]>, Vec<[f64; 2]>)],
+    rows: &[ModalRow],
     refs: &[f64],
     labels: &[&str],
     tol: f64,

@@ -2671,12 +2671,12 @@ fn validate_open_boundaries(spec: &ProblemSpec) -> Result<(), CliError> {
                 )));
             }
         }
-        if let Some(r) = w.reference_ohm {
-            if !(r.is_finite() && r > 0.0) {
-                return Err(invalid(format!(
-                    "wave_ports[{name}].reference_ohm must be finite and > 0 (got {r})"
-                )));
-            }
+        if let Some(r) = w.reference_ohm
+            && !(r.is_finite() && r > 0.0)
+        {
+            return Err(invalid(format!(
+                "wave_ports[{name}].reference_ohm must be finite and > 0 (got {r})"
+            )));
         }
     }
     Ok(())
