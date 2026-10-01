@@ -205,9 +205,12 @@ fn wave_port_driven_matches_library_and_reports_cutoffs() {
     // written (the directory itself is created up front).
     let outdir_dir = scratch("driven-outdir");
     let outdir = outdir_dir.join("fields");
+    // Bound (not a temporary): the library-parity check below re-reads
+    // the mesh the report points at, inside this spec's scratch dir.
+    let spec_file = spec("driven", |_| {});
     let out = geode(&[
         "driven",
-        spec("driven", |_| {}).to_str().unwrap(),
+        spec_file.to_str().unwrap(),
         "--outdir",
         outdir.to_str().unwrap(),
     ]);
