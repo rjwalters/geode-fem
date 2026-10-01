@@ -234,7 +234,9 @@ struct SweepArgs {
     /// Solve up to N frequencies concurrently (default 1). Each in-flight
     /// frequency holds its own sparse LU factorization, so peak memory
     /// grows about N-fold (`geode check`'s resource estimate is per
-    /// frequency). Capped at --threads when both are given. Report rows
+    /// frequency). Capped at --threads when both are given. The N
+    /// concurrent factorizations split the thread budget (--threads, else
+    /// the core count): each gets budget / N threads, at least 1. Report rows
     /// stay in frequency order. Adaptive sweeps apply it to their
     /// fallback solves only; wave-port sweeps run serially.
     #[arg(long, value_name = "N")]

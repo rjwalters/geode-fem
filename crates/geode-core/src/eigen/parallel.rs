@@ -186,6 +186,31 @@ impl ParallelismGuard {
         Self { prior, changed }
     }
 
+    /// Record the current global parallelism, then cap it at `n` threads:
+    /// `Par::Seq` for `n <= 1`, `Par::rayon(n)` otherwise.
+    ///
+    /// Unlike [`ParallelismGuard::rayon`], `n == 1` really does make the
+    /// factorization serial rather than leaving the global (by default
+    /// `Par::rayon(0)`, i.e. every core) untouched. This is the per-worker
+    /// budget used when several factorizations run concurrently (the CLI's
+    /// `--jobs`, issue #747), where each must take only its share of the
+    /// cores. Without faer's `rayon` feature the global is already serial
+    /// and this is a no-op.
+    pub fn cap(n: usize) -> Self {
+        let prior = get_global_parallelism();
+        let changed = if n <= 1 {
+            if cfg!(feature = "faer-parallel") {
+                set_global_parallelism(Par::Seq);
+                true
+            } else {
+                false
+            }
+        } else {
+            Self::try_set_rayon(n)
+        };
+        Self { prior, changed }
+    }
+
     /// Set the global parallelism to `Par::rayon(n)` and report whether the
     /// global was actually changed.
     ///
@@ -280,6 +305,23 @@ mod tests {
                 before,
                 "requesting 1 thread should leave global parallelism unchanged"
             );
+        }
+        assert_eq!(get_global_parallelism(), before);
+
+        // 4. `cap(1)` forces serial (with faer's rayon feature) and restores.
+        {
+            let _g = ParallelismGuard::cap(1);
+            if cfg!(feature = "faer-parallel") {
+                assert_eq!(get_global_parallelism(), Par::Seq);
+            }
+        }
+        assert_eq!(
+            get_global_parallelism(),
+            before,
+            "global parallelism not restored after a cap(1) guard"
+        );
+        {
+            let _g = ParallelismGuard::cap(3);
         }
         assert_eq!(get_global_parallelism(), before);
     }

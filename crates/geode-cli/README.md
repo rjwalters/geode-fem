@@ -119,7 +119,9 @@ elsewhere — Ubuntu 22.04 and Debian 12 package Gmsh 4.8, which is too old.
 - **Parallel frequencies** (`driven` / `extract`): `--jobs N` solves up
   to `N` frequencies at once; each holds its own LU factorization, so
   peak memory grows about `N`-fold. Capped at `--threads` when both are
-  given. Report rows stay in frequency order and are bit-identical to
+  given. The `N` concurrent LU factorizations split the thread budget
+  (`--threads`, else the core count): each gets `budget / N` threads,
+  at least 1. Report rows stay in frequency order and are bit-identical to
   `--jobs 1` (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)).
 - **Progress** (`driven` / `extract`): `--progress` writes JSONL events
   to stderr while the sweep runs; the report is unchanged.
@@ -936,8 +938,11 @@ fallbacks; a dense sweep spends one per frequency).
 says which rows were interpolated). **`--outdir`** exports fields only
 for the `solved` rows (one extra full-order solve each, as for the dense
 sweep); interpolated rows get no `field_file` (a note goes to stderr).
-`--jobs` applies to the fallback solves only (the greedy loop is
-sequential). `geode extract` runs the same adaptive sweep over its
+A frequency whose reduced system or reduced port-current matrix is
+singular (possible once `max_snapshots` is exhausted) also gets a
+fallback solve instead of aborting the sweep, so every row is either
+within the tolerance or exact. `--jobs` applies to the fallback solves
+only (the greedy loop is sequential). `geode extract` runs the same adaptive sweep over its
 solved list (frequencies ∪ anchors).
 
 ### Parallel frequency points (`--jobs N`)
@@ -954,11 +959,21 @@ footprint (`geode check`'s `resources` estimate is per frequency) —
 choose `N` so that `N × resources.memory_bytes` fits. `--jobs` is capped
 at `--threads` when both are given (`solver.jobs` in the report echoes
 the value used whenever `--jobs` is passed). Wave-port sweeps run
-serially (a stderr note says so). Measured on the 40-point spiral smoke
-sweep (M3 Ultra, 28 cores, release): `--jobs 1` 29.6 s, `--jobs 2`
-13.1 s, `--jobs 4` 6.5 s, `--jobs 4 --threads 4` 5.2 s — the per-point
-sparse LU of a 14 k-DOF problem does not use many cores, so frequency
-parallelism wins.
+serially (a stderr note says so).
+
+**Threads per job** (issue #747): the concurrent factorizations share
+one thread budget `T` (`--threads`, else the core count). While `N > 1`
+workers run, faer's LU parallelism is capped at `max(1, T / N)` threads
+per factorization, so `--jobs 4` on 28 cores runs four 7-thread
+factorizations instead of four that each ask for all 28. Assembly and
+the adaptive sweep's sequential greedy snapshots keep the full budget.
+Thread count does not change the arithmetic, and `--jobs 1` is
+unaffected. Measured on the 40-point spiral smoke sweep (M3 Ultra, 28
+cores, release) before this cap: `--jobs 1` 29.6 s, `--jobs 2` 13.1 s,
+`--jobs 4` 6.5 s, `--jobs 4 --threads 4` 5.2 s. The per-point sparse LU
+of a 14 k-DOF problem does not use many cores, so frequency parallelism
+wins, and splitting the budget instead of oversubscribing it was worth
+about 20%.
 
 ### Progress events (`--progress`)
 

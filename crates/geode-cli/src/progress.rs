@@ -34,12 +34,20 @@
 //! operator), so peak memory grows roughly `N`-fold over the serial
 //! sweep's per-frequency footprint — `geode check`'s `resources`
 //! estimate is per frequency.
+//!
+//! The concurrent factorizations share one thread budget: while `N > 1`
+//! workers run, faer's parallelism is capped at `T / N` threads per
+//! factorization (at least 1), where `T` is `--threads` or, without it,
+//! the core count. So `--jobs 4` on a 28-core machine runs four 7-thread
+//! factorizations rather than four that each ask for 28 (issue #747).
+//! Thread count does not change the arithmetic; `--jobs 1` is unchanged.
 
 use std::io::Write;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
+use geode_core::eigen::parallel::{ParallelismGuard, resolve_num_threads};
 use serde_json::{Map, Value, json};
 
 use crate::error::CliError;
@@ -107,6 +115,14 @@ impl Progress {
 /// up new indices after any failure and the **lowest-index** error among
 /// the completed calls is returned (deterministic for a failure that does
 /// not depend on scheduling).
+///
+/// In parallel, the faer factorization thread budget
+/// ([`resolve_num_threads`]: `--threads`, else every core) is split
+/// across the workers for the duration of the call — each concurrent
+/// factorization gets `budget / workers` threads (at least 1, i.e.
+/// serial) instead of every one claiming the whole budget (issue #747).
+/// Thread count never changes the arithmetic, and the serial path is
+/// untouched.
 pub fn par_map<T: Send>(
     n: usize,
     jobs: usize,
@@ -115,11 +131,13 @@ pub fn par_map<T: Send>(
     if jobs <= 1 || n <= 1 {
         return (0..n).map(f).collect();
     }
+    let workers = jobs.min(n);
+    let _par = ParallelismGuard::cap(per_job_threads(resolve_num_threads(), workers));
     let next = AtomicUsize::new(0);
     let failed = AtomicBool::new(false);
     let slots: Mutex<Vec<Option<Result<T, CliError>>>> = Mutex::new((0..n).map(|_| None).collect());
     std::thread::scope(|scope| {
-        for _ in 0..jobs.min(n) {
+        for _ in 0..workers {
             scope.spawn(|| {
                 loop {
                     if failed.load(Ordering::Relaxed) {
@@ -150,9 +168,23 @@ pub fn par_map<T: Send>(
         .collect()
 }
 
+/// Per-worker faer thread budget: `total / workers`, at least 1.
+fn per_job_threads(total: usize, workers: usize) -> usize {
+    (total / workers.max(1)).max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn per_job_threads_splits_the_budget() {
+        assert_eq!(per_job_threads(28, 4), 7);
+        assert_eq!(per_job_threads(8, 3), 2);
+        assert_eq!(per_job_threads(4, 8), 1);
+        assert_eq!(per_job_threads(1, 1), 1);
+        assert_eq!(per_job_threads(6, 0), 6);
+    }
 
     #[test]
     fn par_map_preserves_order_for_any_job_count() {

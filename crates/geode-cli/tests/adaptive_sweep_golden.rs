@@ -16,6 +16,10 @@
 //!   frequency and stays on the dense sweep): an 11-point 2.0–3.0 GHz
 //!   adaptive sweep against the dense sweep; and (default tier) a 4-point
 //!   dense sweep with `--jobs 2 --progress` bit-identical to `--jobs 1`.
+//! * **Exhausted snapshot budget** (default tier, issue #747): the patch
+//!   smoke at three points with `max_snapshots = 1` — one interpolated
+//!   row, one exact full-order fallback row, `--outdir` fields for the
+//!   solved rows only.
 //!
 //! The two adaptive-vs-dense comparisons are `#[ignore]`d — slow in a
 //! debug build (the per-frequency assembly runs unoptimized) — and run in
@@ -340,4 +344,96 @@ fn patch_smoke_silver_muller_adaptive_sweep_matches_dense_sweep() {
     assert!(n_interp >= 1, "no interpolated row in the comparison");
     assert!(ez <= 10.0 * TOL, "max |ΔZ|/|Z| = {ez:.3e}");
     assert!(es <= TOL, "max |ΔS11| = {es:.3e}");
+}
+
+/// Default tier (issue #747): an adaptive sweep whose snapshot budget is
+/// exhausted sends the unconverged frequencies to the exact full-order
+/// fallback. Patch smoke at 2 GHz, 2.00001 GHz and 3 GHz with
+/// `max_snapshots = 1`: the single snapshot (2 GHz) interpolates its
+/// close neighbour within `tolerance = 1e-3` (indicator ~1e-4), while
+/// 3 GHz (indicator ~0.9) is a fallback row. The fallback row is
+/// `solved: true` and bit-identical to the dense sweep at that point,
+/// `n_factorizations` counts snapshots + fallbacks, and `--outdir`
+/// exports fields for exactly the solved rows.
+#[test]
+fn patch_smoke_exhausted_budget_falls_back_to_exact_solves() {
+    let dir = TempDir::new("patch-fallback");
+    let spec = |name: &str, values: &[f64], adaptive: bool| {
+        let values = values.to_vec();
+        spec_from(
+            "patch_extract_smoke.json",
+            "patch_2g4_smoke.msh",
+            &dir.0,
+            name,
+            move |v| {
+                let o = v.as_object_mut().unwrap();
+                o.remove("absorbing_regions");
+                o.remove("extract");
+                v["boundary_conditions"] = serde_json::json!({
+                    "pec": ["patch", "ground"],
+                    "silver_muller": ["outer_boundary"]
+                });
+                v["frequencies"] = serde_json::json!({ "unit": "ghz", "values": values });
+                if adaptive {
+                    v["sweep"] = serde_json::json!({
+                        "adaptive": { "tolerance": 1e-3, "max_snapshots": 1 }
+                    });
+                }
+            },
+        )
+    };
+    let outdir = dir.0.join("fields");
+    let (adaptive, stderr) = driven(
+        &spec("adaptive.json", &[2.0, 2.00001, 3.0], true),
+        &["--progress", "--outdir", outdir.to_str().unwrap()],
+    );
+    let stats = &adaptive["solver"]["adaptive"];
+    assert_eq!(stats["converged"], false, "{stats}");
+    assert_eq!(stats["max_snapshots"], 1);
+    assert_eq!(stats["snapshot_frequencies_hz"], serde_json::json!([2.0e9]));
+    assert_eq!(stats["fallback_frequencies_hz"], serde_json::json!([3.0e9]));
+    assert_eq!(stats["n_solved"], 2);
+    assert_eq!(stats["n_interpolated"], 1);
+    assert_eq!(stats["n_factorizations"], 2);
+
+    let rows = adaptive["results"].as_array().unwrap();
+    let solved: Vec<bool> = rows
+        .iter()
+        .map(|r| r["solved"].as_bool().unwrap())
+        .collect();
+    assert_eq!(solved, [true, false, true]);
+    let interp = rows[1]["residual_rel"].as_f64().unwrap();
+    assert!(
+        interp > 0.0 && interp <= 1e-3,
+        "interpolated η = {interp:e}"
+    );
+    // The fallback row is a full-order direct solve: residual at machine
+    // precision, and bit-identical to the dense sweep at the same point.
+    let fallback = &rows[2];
+    assert!(fallback["residual_rel"].as_f64().unwrap() < 1e-10);
+    let (dense, _) = driven(&spec("dense.json", &[3.0], false), &[]);
+    let d = &dense["results"][0];
+    assert_eq!(fallback["frequency_hz"], d["frequency_hz"]);
+    assert_eq!(fallback["z_ohm"], d["z_ohm"]);
+    assert_eq!(fallback["s"], d["s"]);
+    assert_eq!(fallback["residual_rel"], d["residual_rel"]);
+
+    // --outdir: a field file for each solved row only, plus the note.
+    for (row, solved) in rows.iter().zip(&solved) {
+        assert_eq!(row["field_file"].is_object(), *solved, "{row}");
+    }
+    let mut files: Vec<String> = std::fs::read_dir(&outdir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| n.ends_with(".vtu"))
+        .collect();
+    files.sort();
+    assert_eq!(files, ["E_0000.vtu", "E_0002.vtu"]);
+    assert!(stderr.contains("exports fields only for its 2 full-order rows"));
+
+    // Progress: one snapshot event per snapshot, one point per row.
+    let events = events(&stderr);
+    let n_snap = events.iter().filter(|e| e["event"] == "snapshot").count();
+    assert_eq!(n_snap, 1);
+    assert_eq!(point_indices(&events), vec![0, 1, 2]);
 }
