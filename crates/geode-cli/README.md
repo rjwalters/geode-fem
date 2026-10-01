@@ -237,7 +237,7 @@ Driven example (the spiral-inductor golden input,
 | `ports[].width` | optional, mesh units | extent across `ê`; default `area / length` of the tagged faces |
 | `ports[].length` | optional, mesh units | gap extent along `ê`; default: extent of the tagged faces along `ê` |
 | `ports[].v_inc` | `[re, im]`, default `[1, 0]` | incident drive voltage (non-zero) |
-| `wave_ports[]` | driven only; not with Leontovich or Silver-Müller (v1); may be mixed with `ports` (#759) | wave (modal) ports, see below; index order = S-matrix block order (after the lumped ports in a mixed spec) |
+| `wave_ports[]` | driven only; not with Leontovich or Silver-Müller (v1); may be mixed with `ports` (#759); the guide at each port face must be one homogeneous, in-plane-isotropic material outside any absorbing shell (#777) | wave (modal) ports, see below; index order = S-matrix block order (after the lumped ports in a mixed spec) |
 | `wave_ports[].physical_group` | string | dimension-2 group holding the **planar** port faces |
 | `wave_ports[].n_modes` | int ≥ 1, default `1` | lowest-cutoff cross-section modes carried by the port (one S-matrix channel each) |
 | `wave_ports[].a_inc` | `[[re, im], …]`, length `n_modes`, default all `[1, 0]` | per-mode incident amplitude (finite, non-zero) |
@@ -475,6 +475,48 @@ supported: the TEM mode lives in the gradient nullspace and is filtered
 out. Asking for more modes than the cross-section can hold fails with
 `solve_failed`.
 
+**Filled wave ports** (issue #777). The guide at a wave port may be
+filled with any **homogeneous** medium: a scalar `eps_r` (lossy or not),
+a dispersive model, or a diagonal `eps_r_diag` / `mu_r_diag` that is
+isotropic in the port plane. The port reads its medium from the volume
+tets touching its face; `check` and `driven` echo it as
+`wave_ports[].medium`. The mode shapes and `k_c` are geometric and do not
+depend on ε. The medium changes only the scalars. With `ε_t` / `μ_t` the
+in-plane permittivity / permeability and `μ_n` the permeability along
+the port normal:
+
+```text
+β² = k₀²·ε_t·μ_t − (μ_t/μ_n)·k_c²        y = β/μ_t
+```
+
+The admittance `y` replaces `β` in the modal termination, the drive and
+the power normalization (`√(y_k/y_j)`, and `√(y/k₀)` in a mixed spec).
+`ε_n` does not enter (TE modes have no normal `E`). The reported
+`cutoff_hz` is the filled cutoff `k_c/√(Re ε_t·μ_n)`; a dispersive fill
+is evaluated at the first sweep frequency for that report, and at each
+frequency for the solve. A lossy fill gives a complex `β` with `Im β <
+0` (the decaying outgoing branch); a channel is reported `propagating`
+when `Re β > |Im β|`. Vacuum ports are bit-identical to the pre-#777
+solver. Rejected with `invalid_spec` (from `check` too), never silently
+treated as vacuum:
+
+- a port face touching **more than one material** (by value: two groups
+  with identical materials are one fill). A partially filled guide or
+  microstrip cross-section carries hybrid modes, which wave ports do not
+  model yet ([#778](https://github.com/rjwalters/geode-fem/issues/778));
+  use a lumped port there;
+- an anisotropic fill with **unequal in-plane components** (e.g.
+  `eps_r_diag.xx ≠ yy` on a z-normal port), or with any anisotropy on a
+  port whose normal is not a coordinate axis;
+- a port face touching the stretched shell of an **`absorbing_regions`**
+  entry: move the port inside the region's inner wall;
+- a **plasma-like fill** with `Re ε_t·μ_n ≤ 0` at any sweep frequency
+  (a negative-real `eps_r`, or a Drude model below its plasma frequency;
+  a dispersive fill is checked at every swept frequency, so one that
+  crosses zero inside the sweep is rejected too). Such a guide has no
+  propagating mode and no real cutoff
+  ([#781](https://github.com/rjwalters/geode-fem/issues/781)).
+
 ### Mixed lumped + wave ports (issue #759)
 
 A driven spec may carry both lumped `ports` and `wave_ports` (e.g. a
@@ -490,7 +532,8 @@ modal terms the same rank-N Sherman–Morrison–Woodbury update
 - **Normalization**: power waves. A lumped port `k` uses
   `ã = V_inc/√R_k`, `b̃ = (V_k − V_inc δ)/√R_k` (reference = its own
   `resistance_ohm`, as on the lumped path); a wave channel uses
-  `ã = a_inc·√(β/k₀)`, `b̃ = (a − a_inc δ)·√(β/k₀)`; `S_ij = b̃_i/ã_j`. The
+  `ã = a_inc·√(y/k₀)`, `b̃ = (a − a_inc δ)·√(y/k₀)` with `y = β/μ_t`
+  (see **Filled wave ports** above); `S_ij = b̃_i/ã_j`. The
   lumped–lumped block equals the lumped path's `F(Z − Z₀)(Z + Z₀)⁻¹F⁻¹`,
   the wave–wave block the pure-wave power-normalized S, and the cross
   weight follows from the symmetry of `A(ω)`, so `Sᵀ = S` exactly.
@@ -499,7 +542,7 @@ modal terms the same rank-N Sherman–Morrison–Woodbury update
   (lumped) and `wave_ports` together give the port list.
 - **A lumped port is not a modal port**: its voltage is the *uniform*
   projection `V = (1/w)∫E·ê dS`. A full-face lumped sheet on a TE₁₀ guide
-  absorbs the whole wave when `R = η₀·(k₀/β)·(l/w)`, yet `|S_lw|² =
+  absorbs the whole wave when `R = η₀·(k₀μ_t/β)·(l/w)`, yet `|S_lw|² =
   8/π²·(1 − |Γ|²)` of the TE₁₀ power reaches its power wave; the rest is
   dissipated in the sheet's non-uniform field. S is passive, not
   unitary.
@@ -2017,9 +2060,12 @@ Additive in v1 (issue #683) — always present in `check`, present in
   `air_box_lo` / `air_box_hi` (the derived inner wall, mesh units).
 - **`wave_ports[]`**: `index`, `physical_group`, `tag`, `n_triangles`,
   `n_port_edges`, `n_interior_port_edges` (the modal problem size),
-  `area`, `normal`, `n_modes`, `a_inc`, and `modes` — `null` in `check`
-  (no modal solve), else one entry per mode: `mode`, `channel` (flat
-  S-matrix index), `k_c` (rad / mesh unit), `cutoff_hz`.
+  `area`, `normal`, `n_modes`, `a_inc`, `medium` (additive, issue #777:
+  `physical_groups` touching the face, `eps_r_t` `[re, im]` — a
+  dispersive fill as in `regions[].eps_r` — `mu_r_t`, `mu_r_n`), and
+  `modes` — `null` in `check` (no modal solve), else one entry per mode:
+  `mode`, `channel` (flat S-matrix index), `k_c` (rad / mesh unit),
+  `cutoff_hz` (the filled cutoff `k_c/√(Re ε_t·μ_n)`).
 
 **`kind = "check"`** adds `regions[]` (`physical_group`, `tag`, `n_tets`,
 `eps_r`, `eps_r_source` = `"spec"` \| `"default_vacuum"` \|
@@ -2113,11 +2159,13 @@ sensitivities](#material-sensitivities-sensitivity-issue-707).
 
 For a **wave-port** spec `z_ohm` and `ports` are empty and `y_s` is
 `null` (no port impedance); `s` is the power-normalized channel S-matrix
-(`S[k][j] = √(β_k/β_j)·(a_k − a_inc δ_kj)/a_inc,j`, reciprocal), and
+(`S[k][j] = √(y_k/y_j)·(a_k − a_inc δ_kj)/a_inc,j` with the modal
+admittance `y = β/μ_t`, i.e. `β` for a non-magnetic fill; reciprocal), and
 `iterations` has `2·n_channels` entries (the SMW column solves, then the
 excitations). `wave_channels[]`, one per channel, carries `channel`,
 `port`, `mode`, `beta` (`[re, im]`: real positive when propagating,
-`−j|β|` when evanescent), `propagating`, `s` (`S_kk`) and `s_db`. For a
+`−j|β|` when evanescent; complex with `im < 0` in a lossy fill),
+`propagating` (`Re β > |Im β|`), `s` (`S_kk`) and `s_db`. For a
 **mixed** spec (issue #759) `s` is the power-wave S-matrix over the
 lumped ports and then the wave channels, `channel` is offset by the
 lumped-port count, and `iterations` has `2·n_channels + n_lumped`

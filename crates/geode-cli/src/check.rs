@@ -12,7 +12,7 @@ use crate::report::{
     DebyePoleSummary, DispersionSummary, EigenSettingsSummary, ExtractSettingsSummary,
     FrequencySummary, InductanceSettingsSummary, LeontovichSummary, MeshSummary, PecSummary,
     PortSummary, Provenance, RegionSummary, ResourceEstimate, RoughnessSummary,
-    SilverMullerSummary, SolverSummary, UpmlSummary, WavePortSummary,
+    SilverMullerSummary, SolverSummary, UpmlSummary, WavePortMediumSummary, WavePortSummary,
 };
 use crate::spec::{DispersionSpec, RoughnessSpec, SolverSpec};
 
@@ -390,6 +390,15 @@ pub fn wave_port_summaries(p: &Problem) -> Vec<WavePortSummary> {
             n_modes: w.a_inc.len(),
             a_inc: w.a_inc.iter().map(|a| [a.re, a.im]).collect(),
             modes: None,
+            medium: {
+                let m = p.port_medium(w);
+                WavePortMediumSummary {
+                    physical_groups: w.fill.groups.clone(),
+                    eps_r_t: [m.eps_t.re, m.eps_t.im],
+                    mu_r_t: m.mu_t,
+                    mu_r_n: m.mu_n,
+                }
+            },
         })
         .collect()
 }

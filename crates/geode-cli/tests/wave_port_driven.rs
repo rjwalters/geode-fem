@@ -50,23 +50,39 @@ fn write_msh(
     tets: &[[u32; 4]],
     surfaces: &[(i32, &str, &[[u32; 3]])],
 ) -> String {
+    write_msh_volumes(nodes, &[(1, "guide", tets)], surfaces)
+}
+
+/// [`write_msh`] with several named volume groups (one entity each).
+fn write_msh_volumes(
+    nodes: &[[f64; 3]],
+    volumes: &[(i32, &str, &[[u32; 4]])],
+    surfaces: &[(i32, &str, &[[u32; 3]])],
+) -> String {
     let mut s = String::from("$MeshFormat\n4.1 0 8\n$EndMeshFormat\n$PhysicalNames\n");
-    let _ = writeln!(s, "{}", surfaces.len() + 1);
+    let _ = writeln!(s, "{}", surfaces.len() + volumes.len());
     for (tag, name, _) in surfaces {
         let _ = writeln!(s, "2 {tag} \"{name}\"");
     }
-    s.push_str("3 1 \"guide\"\n$EndPhysicalNames\n");
-    let _ = writeln!(s, "$Entities\n0 0 {} 1", surfaces.len());
+    for (tag, name, _) in volumes {
+        let _ = writeln!(s, "3 {tag} \"{name}\"");
+    }
+    s.push_str("$EndPhysicalNames\n");
+    let _ = writeln!(s, "$Entities\n0 0 {} {}", surfaces.len(), volumes.len());
     for (i, (tag, _, _)) in surfaces.iter().enumerate() {
         let _ = writeln!(s, "{} 0 0 0 1 1 1 1 {tag} 0", i + 1);
     }
     let bound: Vec<String> = (1..=surfaces.len()).map(|i| i.to_string()).collect();
-    let _ = writeln!(
-        s,
-        "1 0 0 0 1 1 1 1 1 {} {}\n$EndEntities",
-        surfaces.len(),
-        bound.join(" ")
-    );
+    for (i, (tag, _, _)) in volumes.iter().enumerate() {
+        let _ = writeln!(
+            s,
+            "{} 0 0 0 1 1 1 1 {tag} {} {}",
+            i + 1,
+            surfaces.len(),
+            bound.join(" ")
+        );
+    }
+    s.push_str("$EndEntities\n");
     let n = nodes.len();
     let _ = writeln!(s, "$Nodes\n1 {n} 1 {n}\n3 1 0 {n}");
     for i in 1..=n {
@@ -76,11 +92,11 @@ fn write_msh(
         let _ = writeln!(s, "{:.17e} {:.17e} {:.17e}", p[0], p[1], p[2]);
     }
     let n_tris: usize = surfaces.iter().map(|(_, _, t)| t.len()).sum();
-    let n_el = n_tris + tets.len();
+    let n_el = n_tris + volumes.iter().map(|(_, _, t)| t.len()).sum::<usize>();
     let _ = writeln!(
         s,
         "$EndNodes\n$Elements\n{} {n_el} 1 {n_el}",
-        surfaces.len() + 1
+        surfaces.len() + volumes.len()
     );
     let mut id = 1;
     for (i, (_, _, tris)) in surfaces.iter().enumerate() {
@@ -90,17 +106,19 @@ fn write_msh(
             id += 1;
         }
     }
-    let _ = writeln!(s, "3 1 4 {}", tets.len());
-    for t in tets {
-        let _ = writeln!(
-            s,
-            "{id} {} {} {} {}",
-            t[0] + 1,
-            t[1] + 1,
-            t[2] + 1,
-            t[3] + 1
-        );
-        id += 1;
+    for (i, (_, _, tets)) in volumes.iter().enumerate() {
+        let _ = writeln!(s, "3 {} 4 {}", i + 1, tets.len());
+        for t in *tets {
+            let _ = writeln!(
+                s,
+                "{id} {} {} {} {}",
+                t[0] + 1,
+                t[1] + 1,
+                t[2] + 1,
+                t[3] + 1
+            );
+            id += 1;
+        }
     }
     s.push_str("$EndElements\n");
     s
@@ -802,6 +820,36 @@ fn mixed_dispersive_fill_matches_constant_eps_at_its_frequency() {
         );
     }
     assert!(reciprocity_err(&sd, n) < 1e-8);
+
+    // Off f_ref the port medium follows ε_r(f) per frequency (issue #777):
+    // each row's β is the filled β at that row's reported ε_r.
+    let sweep = json(&geode(&[
+        "driven",
+        mixed_spec("mixed-ds-sweep", r_ohm, &[2.0, 3.0], |v| {
+            v["materials"] = serde_json::json!([{
+                "physical_group": "guide",
+                "dispersion": {
+                    "model": "djordjevic_sarkar", "eps_r": 1.5, "tan_delta": 0.02,
+                    "f_ref_hz": f_ref
+                }
+            }]);
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let k_c = f64_at(&sweep["wave_ports"][0]["modes"][0]["k_c"]);
+    let mut eps_seen = Vec::new();
+    for r in sweep["results"].as_array().unwrap() {
+        let k0 = f64_at(&r["k0"]);
+        let e = &r["materials"][0]["eps_r"];
+        let eps = faer::c64::new(f64_at(&e[0]), f64_at(&e[1]));
+        let want = geode_core::analytic::waveguide::beta_outgoing_filled(k0, eps, 1.0, 1.0, k_c);
+        let b = &r["wave_channels"][0]["beta"];
+        let got = faer::c64::new(f64_at(&b[0]), f64_at(&b[1]));
+        assert!((got - want).norm() < 1e-12, "k0 = {k0}: β {got} vs {want}");
+        eps_seen.push(eps);
+    }
+    assert!((eps_seen[0] - eps_seen[1]).norm() > 1e-6, "ε_r(f) varies");
 }
 
 #[test]
@@ -841,11 +889,15 @@ fn mixed_anisotropic_fill_runs_through_the_material_tensors() {
         );
     }
 
+    // Transverse-isotropic (issue #777: a wave port needs ε_xx = ε_yy on
+    // its z-normal face; the old xx = 1.2 / yy = 1.6 case is now an
+    // `invalid_spec`, see `wave_port_fill_rejections_are_invalid_spec`),
+    // with ε_zz and μ_zz off the transverse values.
     let aniso = run(
         "mixed-aniso",
         serde_json::json!([{
             "physical_group": "guide",
-            "eps_r_diag": { "xx": [1.2, -0.01], "yy": [1.6, -0.01], "zz": [1.0, -0.01] },
+            "eps_r_diag": { "xx": [1.4, -0.01], "yy": [1.4, -0.01], "zz": [1.0, -0.01] },
             "mu_r_diag": { "xx": 1.0, "yy": 1.0, "zz": 1.3 }
         }]),
     );
@@ -857,6 +909,359 @@ fn mixed_anisotropic_fill_runs_through_the_material_tensors() {
     assert!(
         (sa[1] - ss[1]).norm() > 1e-3,
         "the anisotropy must actually change the network"
+    );
+    // The port takes the transverse ε / μ and the axial μ:
+    // β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c², with the solver's k_c.
+    let medium = &aniso["wave_ports"][0]["medium"];
+    assert_eq!(medium["eps_r_t"], serde_json::json!([1.4, -0.01]));
+    assert_eq!(
+        (f64_at(&medium["mu_r_t"]), f64_at(&medium["mu_r_n"])),
+        (1.0, 1.3)
+    );
+    let k_c = f64_at(&aniso["wave_ports"][0]["modes"][0]["k_c"]);
+    let want = faer::c64::new(k0 * k0 * 1.4 - k_c * k_c / 1.3, -k0 * k0 * 0.01).sqrt();
+    let beta = &aniso["results"][0]["wave_channels"][0]["beta"];
+    let got = faer::c64::new(f64_at(&beta[0]), f64_at(&beta[1]));
+    assert!((got - want).norm() < 1e-12, "β {got} vs {want}");
+    assert!(got.im < 0.0, "lossy fill: decaying outgoing branch");
+}
+
+// ---------------------------------------------------------------------
+// Filled wave ports (issue #777)
+// ---------------------------------------------------------------------
+
+/// Relative permittivity of the filled-guide tests.
+const EPS_FILL: f64 = 2.2;
+
+/// Filled TE₁₀ `β = √(ε_r k₀² − (π/a)²)` (analytic cutoff).
+fn beta_filled(k0: f64) -> f64 {
+    let kc = std::f64::consts::PI / A;
+    (EPS_FILL * k0 * k0 - kc * kc).sqrt()
+}
+
+#[test]
+fn dielectric_filled_wave_ports_follow_the_filled_beta() {
+    // An ε_r = 2.2 guide between two wave ports, single-mode over k₀ ∈
+    // {1.3, 1.6, 1.9} (filled TE₁₀ cutoff ≈ 1.059, TE₂₀ / TE₀₁ ≈ 2.118).
+    // At k₀ = 1.3 a vacuum port is below its own cutoff (π/2), so this
+    // fails on the pre-#777 vacuum ports.
+    let fill = |v: &mut serde_json::Value| {
+        v["materials"] =
+            serde_json::json!([{ "physical_group": "guide", "eps_r": [EPS_FILL, 0.0] }]);
+        v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [1.3, 1.6, 1.9] });
+    };
+    let v = json(&geode(&["driven", spec("filled", fill).to_str().unwrap()]));
+    let wp = &v["wave_ports"][0];
+    assert_eq!(
+        wp["medium"]["physical_groups"],
+        serde_json::json!(["guide"])
+    );
+    assert_eq!(wp["medium"]["eps_r_t"], serde_json::json!([EPS_FILL, 0.0]));
+    // The reported cutoff is the filled one, k_c/√ε_r.
+    let m = &wp["modes"][0];
+    let k_c = f64_at(&m["k_c"]);
+    let c = geode_core::constants::C_M_PER_S;
+    let want_f_c = k_c / EPS_FILL.sqrt() * c / (2.0 * std::f64::consts::PI * LENGTH_UNIT_M);
+    let f_c = f64_at(&m["cutoff_hz"]);
+    assert!(
+        (f_c - want_f_c).abs() / want_f_c < 1e-12,
+        "{f_c} vs {want_f_c}"
+    );
+
+    for r in v["results"].as_array().unwrap() {
+        let k0 = f64_at(&r["k0"]);
+        let ch = &r["wave_channels"][0];
+        assert_eq!(ch["propagating"], true);
+        let beta = f64_at(&ch["beta"][0]);
+        assert_eq!(f64_at(&ch["beta"][1]), 0.0, "lossless fill: real β");
+        assert!((beta - (k0 * k0 * EPS_FILL - k_c * k_c).sqrt()).abs() < 1e-12);
+        let (s, _) = s_matrix(r);
+        let want = faer::c64::new((-beta * LEN).cos(), (-beta * LEN).sin());
+        eprintln!(
+            "filled k0 = {k0}: β = {beta:.5} (analytic {:.5}), |S11| = {:.4e}, |S21| = {:.5}, \
+             |S21 − e^(−jβL)| = {:.3e}",
+            beta_filled(k0),
+            s[0].norm(),
+            s[2].norm(),
+            (s[2] - want).norm()
+        );
+        assert!((beta - beta_filled(k0)).abs() / beta_filled(k0) < 0.05);
+        assert!((s[2].norm() - 1.0).abs() < 0.02, "|S21| = {}", s[2].norm());
+        assert!(s[0].norm() < 0.03, "|S11| = {}", s[0].norm());
+        assert!((s[2] - want).norm() < 0.05, "S21 {} vs {want}", s[2]);
+        assert!(reciprocity_err(&s, 2) < 1e-8);
+    }
+
+    // A transverse-isotropic tensor fill (ε = diag(1.4, 1.4, 1.0), μ =
+    // diag(1.2, 1.2, 1.5) on the z-normal ports): ε_zz does not enter,
+    // μ_zz does through β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c², and the port is
+    // matched through the admittance β/μ_t.
+    let v = json(&geode(&[
+        "driven",
+        spec("filled-tensor", |v| {
+            v["materials"] = serde_json::json!([{
+                "physical_group": "guide",
+                "eps_r_diag": { "xx": [1.4, 0.0], "yy": [1.4, 0.0], "zz": [1.0, 0.0] },
+                "mu_r_diag": { "xx": 1.2, "yy": 1.2, "zz": 1.5 }
+            }]);
+            v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [1.6] });
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let medium = &v["wave_ports"][1]["medium"];
+    assert_eq!(medium["eps_r_t"], serde_json::json!([1.4, 0.0]));
+    assert_eq!(
+        (f64_at(&medium["mu_r_t"]), f64_at(&medium["mu_r_n"])),
+        (1.2, 1.5)
+    );
+    let r = &v["results"][0];
+    let beta = f64_at(&r["wave_channels"][0]["beta"][0]);
+    let kc = std::f64::consts::PI / A;
+    let want_beta = (1.6_f64 * 1.6 * 1.4 * 1.2 - 1.2 / 1.5 * kc * kc).sqrt();
+    let (s, _) = s_matrix(r);
+    let want = faer::c64::new((-beta * LEN).cos(), (-beta * LEN).sin());
+    eprintln!(
+        "tensor fill: β = {beta:.5} (analytic {want_beta:.5}), |S11| = {:.4e}, |S21| = {:.5}",
+        s[0].norm(),
+        s[2].norm()
+    );
+    assert!((beta - want_beta).abs() / want_beta < 0.05);
+    assert!((s[2].norm() - 1.0).abs() < 0.02, "|S21| = {}", s[2].norm());
+    assert!(s[0].norm() < 0.03, "|S11| = {}", s[0].norm());
+    assert!((s[2] - want).norm() < 0.05, "S21 {} vs {want}", s[2]);
+}
+
+#[test]
+fn dielectric_filled_mixed_sheet_follows_closed_form() {
+    // Wave port in, full-face lumped sheet out, ε_r = 2.2 throughout:
+    // the sheet matches the filled TE₁₀ at k₀ = 1.6, R = η₀·(k₀μ_t/β)·(b/a).
+    let eta0 = geode_core::constants::ETA_0_OHM;
+    let r_ohm = eta0 * (1.6 / beta_filled(1.6)) * B_DIM / A;
+    let v = json(&geode(&[
+        "driven",
+        mixed_spec("mixed-filled", r_ohm, &[1.3, 1.6, 1.9], |v| {
+            v["materials"] =
+                serde_json::json!([{ "physical_group": "guide", "eps_r": [EPS_FILL, 0.0] }]);
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let z_s = r_ohm / eta0 * A / B_DIM;
+    for r in v["results"].as_array().unwrap() {
+        let k0 = f64_at(&r["k0"]);
+        let ch = &r["wave_channels"][0];
+        assert_eq!(ch["propagating"], true);
+        // Z_TE = k₀μ_t/β from the reported (filled) β.
+        let z_te = k0 / f64_at(&ch["beta"][0]);
+        let gamma = ((z_s - z_te) / (z_s + z_te)).abs();
+        let (s, n) = s_matrix(r);
+        let s_ww = s[3].norm();
+        let t2 = s[1].norm_sqr();
+        let want_t2 = TE10_UNIFORM_FRACTION * (1.0 - gamma * gamma);
+        let sig = sigma_max_2x2(&s);
+        eprintln!(
+            "filled mixed k0 = {k0}: |S_ww| = {s_ww:.4} vs |Γ| = {gamma:.4}; |S_lw|² = \
+             {t2:.4} vs {want_t2:.4}; σ_max = {sig:.6}"
+        );
+        assert!((s_ww - gamma).abs() < 0.03, "|S_ww| {s_ww} vs {gamma}");
+        assert!((t2 - want_t2).abs() < 0.03, "|S_lw|² {t2} vs {want_t2}");
+        assert!(reciprocity_err(&s, n) < 1e-8, "reciprocity");
+        assert!(sig <= 1.0 + 1e-6, "passivity: σ_max = {sig}");
+    }
+    let (s, _) = s_matrix(&v["results"][1]);
+    assert!(s[3].norm() < 0.05, "matched |S_ww| = {}", s[3].norm());
+}
+
+/// The synthetic guide with its tets split at `x = a/2` into volume
+/// groups `left` / `right`, as a two-wave-port spec `edit`ed.
+fn split_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> ScratchFile {
+    let dir = scratch(name);
+    let g = extruded_rect_waveguide_mesh(8, 4, 4, A, B_DIM, LEN);
+    let (left, right): (Vec<[u32; 4]>, Vec<[u32; 4]>) =
+        g.mesh.tets.iter().partition(|t| {
+            t.iter().map(|&n| g.mesh.nodes[n as usize][0]).sum::<f64>() / 4.0 < A / 2.0
+        });
+    let msh = write_msh_volumes(
+        &g.mesh.nodes,
+        &[(1, "left", &left), (2, "right", &right)],
+        &[
+            (11, "port_in", &g.port1_faces),
+            (12, "port_out", &g.port2_faces),
+            (13, "walls", &g.sidewall_faces),
+        ],
+    );
+    let mesh = dir.join("split.msh");
+    std::fs::write(&mesh, msh).unwrap();
+    let mut v = serde_json::json!({
+        "schema_version": 1,
+        "mesh": { "path": mesh.display().to_string(), "length_unit_m": LENGTH_UNIT_M },
+        "boundary_conditions": { "pec": ["walls"] },
+        "wave_ports": [
+            { "physical_group": "port_in" },
+            { "physical_group": "port_out" }
+        ],
+        "frequencies": { "unit": "k0", "values": [1.6] }
+    });
+    edit(&mut v);
+    ScratchFile::write_in(dir, "spec.json", serde_json::to_string_pretty(&v).unwrap())
+}
+
+#[test]
+fn wave_port_fill_rejections_are_invalid_spec() {
+    // (a) An inhomogeneous port face (a partially filled guide: hybrid
+    // modes, issue #778).
+    let out = geode(&[
+        "check",
+        split_spec("split-inhomogeneous", |v| {
+            v["materials"] =
+                serde_json::json!([{ "physical_group": "left", "eps_r": [EPS_FILL, 0.0] }]);
+        })
+        .to_str()
+        .unwrap(),
+    ]);
+    let msg = error_message(&out, "check", "invalid_spec");
+    assert!(
+        msg.contains("`port_in`")
+            && msg.contains("more than one material")
+            && msg.contains("`left`, `right`")
+            && msg.contains("#778"),
+        "{msg}"
+    );
+    // ... but two groups with the same material by value are one fill.
+    let v = json(&geode(&[
+        "check",
+        split_spec("split-same", |v| {
+            v["materials"] = serde_json::json!([
+                { "physical_group": "left", "eps_r": [EPS_FILL, 0.0] },
+                { "physical_group": "right", "eps_r": [EPS_FILL, 0.0] }
+            ]);
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let medium = &v["wave_ports"][0]["medium"];
+    assert_eq!(
+        medium["physical_groups"],
+        serde_json::json!(["left", "right"])
+    );
+    assert_eq!(medium["eps_r_t"], serde_json::json!([EPS_FILL, 0.0]));
+
+    // (b) Unequal transverse tensor components on a z-normal port (the
+    // pre-#777 `mixed_anisotropic_fill…` case), for ε and for μ.
+    for (what, material) in [
+        (
+            "eps_r_diag.xx and eps_r_diag.yy",
+            serde_json::json!({
+                "physical_group": "guide",
+                "eps_r_diag": { "xx": [1.2, -0.01], "yy": [1.6, -0.01], "zz": [1.0, -0.01] },
+                "mu_r_diag": { "xx": 1.0, "yy": 1.0, "zz": 1.3 }
+            }),
+        ),
+        (
+            "mu_r_diag.xx and mu_r_diag.yy",
+            serde_json::json!({
+                "physical_group": "guide",
+                "mu_r_diag": { "xx": 1.0, "yy": 1.2, "zz": 1.0 }
+            }),
+        ),
+    ] {
+        let out = geode(&[
+            "check",
+            spec("aniso-transverse", |v| {
+                v["materials"] = serde_json::json!([material])
+            })
+            .to_str()
+            .unwrap(),
+        ]);
+        let msg = error_message(&out, "check", "invalid_spec");
+        assert!(
+            msg.contains("`port_in`") && msg.contains(what) && msg.contains("normal to z"),
+            "{msg}"
+        );
+    }
+
+    // (c) A port face on an absorbing region's stretched shell.
+    let out = geode(&[
+        "check",
+        spec("port-on-upml", |v| {
+            v["absorbing_regions"] =
+                serde_json::json!([{ "physical_group": "guide", "thickness": 0.3, "sigma_0": 25.0 }]);
+        })
+        .to_str()
+        .unwrap(),
+    ]);
+    let msg = error_message(&out, "check", "invalid_spec");
+    assert!(
+        msg.contains("`port_in`") && msg.contains("absorbing region `guide`"),
+        "{msg}"
+    );
+
+    // (d) A plasma-like fill (Re ε_t·μ_n ≤ 0): no propagating mode, and
+    // the filled cutoff k_c/√(Re ε_t·μ_n) would be NaN (`cutoff_hz:
+    // null` against a `number` schema). The judge's repro first.
+    let out = geode(&[
+        "check",
+        spec("plasma-const", |v| {
+            v["materials"] =
+                serde_json::json!([{ "physical_group": "guide", "eps_r": [-1.0, -0.1] }]);
+        })
+        .to_str()
+        .unwrap(),
+    ]);
+    let msg = error_message(&out, "check", "invalid_spec");
+    assert!(
+        msg.contains("`port_in`")
+            && msg.contains("Re ε_t·μ_n")
+            && msg.contains("plasma-like")
+            && msg.contains("#781"),
+        "{msg}"
+    );
+    // A Drude fill whose Re ε(f) = ε∞ − ω_p²/(ω² + γ²) crosses zero
+    // inside the sweep: with ω_p at k₀ = 2.2, Re ε ≈ 1 − (2.2/k₀)² is
+    // −0.8906 at k₀ = 1.6 but +0.23 / +0.46 at k₀ = 2.5 / 3.0. Every sweep
+    // frequency is checked ...
+    let c = geode_core::constants::C_M_PER_S;
+    let omega_p = 2.2 * c / LENGTH_UNIT_M;
+    let drude = serde_json::json!([{
+        "physical_group": "guide",
+        "dispersion": {
+            "model": "drude", "eps_inf": 1.0,
+            "omega_p_rad_s": omega_p, "gamma_rad_s": 1e-3 * omega_p
+        }
+    }]);
+    let out = geode(&[
+        "check",
+        spec("plasma-drude-crossing", |v| {
+            v["materials"] = drude.clone();
+            v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [3.0, 2.5, 1.6] });
+        })
+        .to_str()
+        .unwrap(),
+    ]);
+    let msg = error_message(&out, "check", "invalid_spec");
+    assert!(
+        msg.contains("`port_in`")
+            && msg.contains("plasma-like")
+            && msg.contains("Re ε_t·μ_n = -8.906")
+            && msg.contains(" Hz ")
+            && msg.contains("#781"),
+        "{msg}"
+    );
+    // ... and the same Drude fill is accepted over a sweep that stays
+    // above its zero crossing.
+    let v = json(&geode(&[
+        "check",
+        spec("plasma-drude-above", |v| {
+            v["materials"] = drude.clone();
+            v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [2.5, 3.0] });
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    assert_eq!(
+        v["wave_ports"][0]["medium"]["physical_groups"],
+        serde_json::json!(["guide"])
     );
 }
 
@@ -891,3 +1296,211 @@ fn mixed_specs_reject_touchstone_and_adaptive_before_solving() {
     let msg = error_message(&out, "driven", "invalid_spec");
     assert!(msg.contains("alone or mixed"), "{msg}");
 }
+
+// ---------------------------------------------------------------------
+// Vacuum parity with the pre-#777 solver (issue #777)
+// ---------------------------------------------------------------------
+
+/// `to_bits` of every `S` entry (row-major, `[re, im]`) then every
+/// `wave_channels[].beta` (`[re, im]`) of every report row.
+fn report_bits(v: &serde_json::Value) -> Vec<u64> {
+    let mut bits = Vec::new();
+    for r in v["results"].as_array().unwrap() {
+        let (s, _) = s_matrix(r);
+        for z in s {
+            bits.push(z.re.to_bits());
+            bits.push(z.im.to_bits());
+        }
+        for ch in r["wave_channels"].as_array().unwrap() {
+            bits.push(f64_at(&ch["beta"][0]).to_bits());
+            bits.push(f64_at(&ch["beta"][1]).to_bits());
+        }
+    }
+    bits
+}
+
+/// Relative tolerance of the vacuum golden comparison: normwise, i.e.
+/// `|got − golden| ≤ 1e-10 · max_k |golden_k|` over one golden vector
+/// (`S` entries are unit-bounded and `β ~ k₀`, so the scale is O(1)).
+/// The goldens were recorded on macOS/aarch64; Linux x86_64 CI differs
+/// by up to 1.35e-12 normwise (3.2e-12 absolute on the evanescent
+/// channel's self-term, CI run 36934282686), which comes from the
+/// platform's LU/SIMD stack. A filled-medium bug moves these entries by
+/// O(1e-2) or more, so 1e-10 keeps ~8 orders of separation. Bit-exact
+/// vacuum arithmetic is pinned platform-independently by the
+/// geode-core unit test
+/// `vacuum_medium_is_bit_identical_to_the_pre_fill_formulas`.
+const VACUUM_GOLDEN_RTOL: f64 = 1e-10;
+
+fn assert_matches_golden(name: &str, got: &[u64], want: &[u64]) {
+    if std::env::var_os("GEODE_PRINT_VACUUM_GOLDEN").is_some() {
+        eprintln!("const {name}: [u64; {}] = {got:#018x?};", got.len());
+        return;
+    }
+    assert_eq!(got.len(), want.len(), "{name}: entry count");
+    let scale = want
+        .iter()
+        .map(|&w| f64::from_bits(w).abs())
+        .fold(0.0, f64::max);
+    assert!(scale > 0.0, "{name}: all-zero golden");
+    // Report the worst entry (not the first over tolerance) so a CI
+    // failure shows the full platform spread.
+    let (k, g, w) = got
+        .iter()
+        .zip(want)
+        .enumerate()
+        .map(|(k, (&g, &w))| (k, f64::from_bits(g), f64::from_bits(w)))
+        .max_by(|a, b| (a.1 - a.2).abs().total_cmp(&(b.1 - b.2).abs()))
+        .expect("non-empty golden");
+    let worst = (g - w).abs() / scale;
+    eprintln!("{name}: worst normwise deviation {worst:e} at [{k}]");
+    assert!(
+        worst <= VACUUM_GOLDEN_RTOL,
+        "{name}[{k}]: {g} vs golden {w} (normwise |Δ|/scale = {worst:e} > {VACUUM_GOLDEN_RTOL:e})"
+    );
+}
+
+#[test]
+fn vacuum_wave_and_mixed_ports_match_the_pre_fill_solver() {
+    // Goldens recorded on main @ 2843250 (macOS/aarch64), before the
+    // filled-port medium (issue #777) existed: a vacuum port must
+    // reproduce the pre-#777 S-parameters and β. Compared to a tight
+    // normwise relative tolerance (not `to_bits`) because the recorded
+    // low-order bits depend on the platform's LU/SIMD stack; the
+    // bit-exact vacuum-arithmetic guarantee lives in geode-core
+    // (`vacuum_medium_is_bit_identical_to_the_pre_fill_formulas`).
+    let pure = json(&geode(&[
+        "driven",
+        spec("bits-pure", |v| {
+            v["wave_ports"][0]["n_modes"] = 2.into();
+            v["wave_ports"][1]["n_modes"] = 2.into();
+            v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [2.0, 2.5] });
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    assert_matches_golden("PURE_WAVE_BITS", &report_bits(&pure), &PURE_WAVE_BITS);
+    let fixture =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/waveguide_mixed_smoke.json");
+    let mixed = json(&geode(&["driven", fixture.to_str().unwrap()]));
+    assert_matches_golden("MIXED_BITS", &report_bits(&mixed), &MIXED_BITS);
+}
+
+/// Recorded on main @ 2843250 (pre-#777) with `GEODE_PRINT_VACUUM_GOLDEN=1`.
+#[rustfmt::skip]
+const PURE_WAVE_BITS: [u64; 80] = [
+    0x3f6da83f57c6b400,
+    0x3f3428e6d37082a0,
+    0xbf38a73baaea0d48,
+    0xbf64dc224e6c4f3c,
+    0x3fb5ac8f19bdd8bc,
+    0xbfefe2885a6aa99e,
+    0xbf43a65c063eca87,
+    0x3f648910bdb1c6e9,
+    0xbf38a73baaea1a4c,
+    0xbf64dc224e6c51c2,
+    0xbf98830250a17160,
+    0xbedbd3bf63d092bc,
+    0x3f43a66a5ec4c8eb,
+    0xbf6489119a8ecd29,
+    0x3faf0716c723f072,
+    0x3ed9d3a641b49343,
+    0x3fb5ac8f19bdd8be,
+    0xbfefe2885a6aa99c,
+    0x3f43a66a5ec4c825,
+    0xbf6489119a8ecaca,
+    0x3f6da83f5703e600,
+    0x3f3428e71b14c627,
+    0x3f38a71fb04018d4,
+    0x3f64dc2127ee4402,
+    0xbf43a65c063ec9c0,
+    0x3f648910bdb1c1c2,
+    0x3faf0716c723f06c,
+    0x3ed9d3a641b487f1,
+    0x3f38a71fb0401b34,
+    0x3f64dc2127ee3bd4,
+    0xbf988302294d1fa0,
+    0xbedbd3bb0210ad68,
+    0x3ff3e045303f78d7,
+    0x0000000000000000,
+    0x0000000000000000,
+    0xc00317922cfa9444,
+    0x3ff3e045303f78d7,
+    0x0000000000000000,
+    0x0000000000000000,
+    0xc00317922cfa9444,
+    0x3f81fe66c88d5380,
+    0xbf8132e2476b8613,
+    0xbf691f2436de1a40,
+    0xbf6699d5810feddc,
+    0xbfe61be71a0a7a1d,
+    0xbfe72186424589ec,
+    0xbf368d2ff68fa320,
+    0x3f71007f14fa7779,
+    0xbf691f2436de18e2,
+    0xbf6699d5810fea9e,
+    0xbf922d6e25e69a60,
+    0xbef204393b468043,
+    0x3f368d3e10447be8,
+    0xbf7100808c89fa8c,
+    0x3fbcd7781201cecf,
+    0x3ee5cd9e683d27de,
+    0xbfe61be71a0a7a28,
+    0xbfe72186424589e7,
+    0x3f368d3e104464e0,
+    0xbf7100808c89fce7,
+    0x3f81fe66cadca700,
+    0xbf8132e24500e269,
+    0x3f691f20f2c44a62,
+    0x3f6699d49f42bdb2,
+    0xbf368d2ff68f84e8,
+    0x3f71007f14fa7692,
+    0x3fbcd7781201cecf,
+    0x3ee5cd9e683d2b1f,
+    0x3f691f20f2c4467b,
+    0x3f6699d49f42bdc9,
+    0xbf922d6d78ecfca0,
+    0xbef2043600646302,
+    0x3fff296b87009bcb,
+    0x0000000000000000,
+    0x0000000000000000,
+    0xbffdb2f01bc73f22,
+    0x3fff296b87009bcb,
+    0x0000000000000000,
+    0x0000000000000000,
+    0xbffdb2f01bc73f22,
+];
+/// Recorded on main @ 2843250 (pre-#777): `tests/fixtures/waveguide_mixed_smoke.json`.
+#[rustfmt::skip]
+const MIXED_BITS: [u64; 30] = [
+    0xbfb72eed02368c6f,
+    0x3facb5a4f315ea1d,
+    0x3fb342cabc9a0b52,
+    0xbfec53f4d4f8e143,
+    0x3fb342cabc9a0b40,
+    0xbfec53f4d4f8e150,
+    0x3fbd35d7243ad611,
+    0x3f93b6d0c97136b1,
+    0x3ff3e045303f78cf,
+    0x0000000000000000,
+    0xbfc5235bfee29fd7,
+    0x3fb030c5dbd6fe9f,
+    0xbfe3c5c493af052b,
+    0xbfe4b07dba75813a,
+    0xbfe3c5c493af0509,
+    0xbfe4b07dba758140,
+    0x3f8210ff9396aa80,
+    0xbf7f9ff5b3822e47,
+    0x3fff296b87009bc6,
+    0x0000000000000000,
+    0xbfc88a225c625020,
+    0x3fb4e400e869692d,
+    0xbfec83e33f67a4c5,
+    0xbfafd5f430f974b6,
+    0xbfec83e33f67a4c6,
+    0xbfafd5f430f97463,
+    0x3fa7570c0b887e21,
+    0x3f70ae1587a6f6cc,
+    0x400476b740d472a3,
+    0x0000000000000000,
+];

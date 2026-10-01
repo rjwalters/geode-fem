@@ -158,6 +158,41 @@ pub fn beta_outgoing(omega: f64, c: f64, k_c: f64) -> c64 {
     }
 }
 
+/// Outgoing-wave complex `β` of a TE mode in a **homogeneously filled**
+/// guide (issue #777), natural units (`c = 1`, `k₀ = ω`):
+///
+/// ```text
+/// β² = ω²·ε_t·μ_t − (μ_t/μ_n)·k_c²
+/// ```
+///
+/// with `ε_t` / `μ_t` the (isotropic) transverse permittivity /
+/// permeability and `μ_n` the permeability along the guide axis; the
+/// cutoff wavenumber `k_c` is the geometric (vacuum) one of the
+/// cross-section. `ε_n` does not enter (a TE mode has `E_n = 0`).
+///
+/// * **Real `ε_t`** (`Im ε_t = 0`): the [`beta_outgoing`] branch —
+///   `+√β²` above cutoff, `−j√(−β²)` below. With `ε_t = μ_t = μ_n = 1`
+///   the arithmetic is exactly [`beta_outgoing`]`(ω, 1, k_c)`.
+/// * **Complex `ε_t`** (lossy / dispersive fill): the principal root of
+///   the complex `β²`, negated if needed so that `Im β ≤ 0` — the
+///   decaying, outgoing branch of `exp(−jβz)` under `exp(+jωt)`. For a
+///   lossy propagating mode this gives `Re β > 0`, `Im β < 0`; a lossy
+///   below-cutoff mode keeps a small `Re β ≠ 0`.
+pub fn beta_outgoing_filled(omega: f64, eps_t: c64, mu_t: f64, mu_n: f64, k_c: f64) -> c64 {
+    let k_sq = omega * omega;
+    let cut = (mu_t / mu_n) * (k_c * k_c);
+    if eps_t.im == 0.0 {
+        let arg = k_sq * eps_t.re * mu_t - cut;
+        return if arg >= 0.0 {
+            c64::new(arg.sqrt(), 0.0)
+        } else {
+            c64::new(0.0, -(-arg).sqrt())
+        };
+    }
+    let beta = c64::new(k_sq * eps_t.re * mu_t - cut, k_sq * eps_t.im * mu_t).sqrt();
+    if beta.im > 0.0 { -beta } else { beta }
+}
+
 /// Canonical local edge ordering on a triangle.
 ///
 /// For a triangle with local vertices `(v0, v1, v2)`, the three edges in

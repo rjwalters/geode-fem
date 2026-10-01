@@ -4421,6 +4421,45 @@
       ],
       "type": "object"
     },
+    "WavePortMediumSummary": {
+      "description": "The medium filling a wave port's guide (issue #777): every volume tet\ntouching the port face carries this one material.",
+      "properties": {
+        "eps_r_t": {
+          "description": "Transverse relative permittivity `ε_t` `[re, im]` (a dispersive\nfill at its reference frequency, as `regions[].eps_r`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "mu_r_n": {
+          "description": "Relative permeability `μ_n` along the port normal.",
+          "format": "double",
+          "type": "number"
+        },
+        "mu_r_t": {
+          "description": "Transverse relative permeability `μ_t`.",
+          "format": "double",
+          "type": "number"
+        },
+        "physical_groups": {
+          "description": "Volume physical groups touching the port face (sorted).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "physical_groups",
+        "eps_r_t",
+        "mu_r_t",
+        "mu_r_n"
+      ],
+      "type": "object"
+    },
     "WavePortSpec": {
       "additionalProperties": false,
       "description": "A wave (modal) port on a planar surface physical group.\n\nThe tagged faces are projected into a local 2-D cross-section whose\nrim (edges on a single face triangle) is PEC; the `n_modes`\nlowest-cutoff transverse modes of that cross-section become the port's\nS-parameter channels (TEM modes of multiply connected cross-sections\nare not supported).",
@@ -4488,6 +4527,10 @@
           "minimum": 0,
           "type": "integer"
         },
+        "medium": {
+          "$ref": "#/$defs/WavePortMediumSummary",
+          "description": "The homogeneous medium filling the guide at the port face (issue\n#777; additive in v1)."
+        },
         "modes": {
           "description": "Solved modes (`driven` reports); `null` in `check` (no modal solve).",
           "items": {
@@ -4553,7 +4596,8 @@
         "normal",
         "n_modes",
         "a_inc",
-        "modes"
+        "modes",
+        "medium"
       ],
       "type": "object"
     }

@@ -49,7 +49,7 @@ use std::collections::HashMap;
 
 use faer::c64;
 
-use super::wave::{PortMode, WavePort, map_mode_profile_to_full_mesh};
+use super::wave::{PortMedium, PortMode, WavePort, map_mode_profile_to_full_mesh};
 use crate::analytic::waveguide::{TriMesh, WaveguideModeProfile, solve_waveguide_modes};
 use crate::eigen::dense::EigenError;
 use crate::mesh::TetMesh;
@@ -270,6 +270,7 @@ impl PortFaceProjection {
         Ok(WavePort {
             faces: self.faces.clone(),
             modes,
+            medium: PortMedium::VACUUM,
         })
     }
 }

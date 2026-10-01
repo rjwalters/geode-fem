@@ -22,7 +22,7 @@ use geode_core::assembly::current_path::triangle_node_components;
 use geode_core::assembly::electrostatic::face_to_tet_map;
 use geode_core::assembly::nedelec::tet_centroids;
 use geode_core::constants::{C_M_PER_S, ETA_0_OHM};
-use geode_core::driven::ports::{PortFaceProjection, project_port_face};
+use geode_core::driven::ports::{PortFaceProjection, PortMedium, project_port_face};
 use geode_core::driven::solve::{SurfaceImpedanceModel, SurfaceRoughness};
 use geode_core::mesh::patch::box_upml_tensors;
 use geode_core::mesh::{TaggedTetMesh, pec_interior_mask_from_triangles, read_tagged_tet_mesh};
@@ -216,6 +216,25 @@ pub struct WavePortDef {
     pub projection: PortFaceProjection,
     /// Per-mode incident amplitudes (length = number of modes).
     pub a_inc: Vec<c64>,
+    /// The homogeneous medium filling the guide at the face (issue #777).
+    pub fill: PortFill,
+}
+
+/// The homogeneous medium filling a wave port's guide (issue #777),
+/// resolved from every volume tet touching the port face: all of them
+/// share one material (by value), its transverse `ε` / `μ` blocks are
+/// isotropic, and none is a stretched `absorbing_regions` tet. Evaluate
+/// it with [`Problem::port_medium`] / [`Problem::port_medium_at`].
+#[derive(Debug, Clone)]
+pub struct PortFill {
+    /// A tet touching the face (every touching tet has its material).
+    pub tet: usize,
+    /// Physical groups of the touching tets, sorted.
+    pub groups: Vec<String>,
+    /// For an anisotropic fill, the global axis along the port normal
+    /// (the other two diagonal components are the equal transverse ones);
+    /// `None` when `ε` and `μ` are isotropic.
+    pub normal_axis: Option<usize>,
 }
 
 /// A resolved lumped port.
@@ -566,6 +585,38 @@ impl Problem {
             }
         }
         Cow::Owned(eps)
+    }
+
+    /// The [`PortMedium`] filling wave port `w` at `hz` (issue #777): the
+    /// fill's transverse `ε_t` (its dispersive model at `hz`, else the
+    /// constant `ε_r`), transverse `μ_t` and axial `μ_n`. A vacuum fill
+    /// is exactly [`PortMedium::VACUUM`].
+    pub fn port_medium_at(&self, w: &WavePortDef, hz: f64) -> PortMedium {
+        self.port_medium_impl(w, Some(hz))
+    }
+
+    /// [`Problem::port_medium_at`] with a dispersive fill at its
+    /// reference frequency (the `ε_r` that [`Problem::eps`] and
+    /// `regions[].eps_r` hold).
+    pub fn port_medium(&self, w: &WavePortDef) -> PortMedium {
+        self.port_medium_impl(w, None)
+    }
+
+    fn port_medium_impl(&self, w: &WavePortDef, hz: Option<f64>) -> PortMedium {
+        let t = w.fill.tet;
+        let tag = self.tagged.tet_physical_tags[t];
+        let eps_t = match self.eps_diag.get(t).copied().flatten() {
+            Some(d) => transverse_and_normal(d, w.fill.normal_axis).0,
+            None => match (hz, self.dispersion.iter().find(|d| d.tag == tag)) {
+                (Some(hz), Some(d)) => d.model.eps(hz),
+                _ => self.eps[t],
+            },
+        };
+        let (mu_t, mu_n) = match self.mu_diag.get(t).copied().flatten() {
+            Some(m) => transverse_and_normal(m, w.fill.normal_axis),
+            None => (self.mu_r[t], self.mu_r[t]),
+        };
+        PortMedium { eps_t, mu_t, mu_n }
     }
 
     /// Each dispersive region's `(name, ε_r(hz))`, in spec order.
@@ -1155,6 +1206,17 @@ pub fn load_parsed(
     }
 
     let mut wave_ports = Vec::with_capacity(spec.wave_ports.len());
+    let port_materials = PortMaterials {
+        tagged: &tagged,
+        eps: &eps,
+        eps_diag: &eps_diag,
+        mu_diag: &mu_diag,
+        mu_r: &mu_r,
+        dispersion: &dispersion,
+        frequencies: &frequencies,
+        upml: &upml,
+        upml_of_tet: &upml_of_tet,
+    };
     for (w, t) in spec.wave_ports.iter().zip(&wave_tags) {
         let surf = surface(&w.physical_group, t.expect("resolved above"), "wave_port")?;
         let projection = project_port_face(&tagged.mesh, &surf.triangles).map_err(|e| {
@@ -1163,6 +1225,7 @@ pub fn load_parsed(
                 w.physical_group
             ))
         })?;
+        let fill = port_materials.resolve_fill(&surf, projection.normal)?;
         let a_inc = match &w.a_inc {
             Some(a) => a.iter().map(|&[re, im]| c64::new(re, im)).collect(),
             None => vec![c64::new(1.0, 0.0); w.n_modes],
@@ -1171,6 +1234,7 @@ pub fn load_parsed(
             surface: surf,
             projection,
             a_inc,
+            fill,
         });
     }
 
@@ -2704,6 +2768,220 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         }
     }
     Ok(())
+}
+
+/// `(transverse, normal)` components of a diagonal tensor `d` on a port
+/// whose normal is global axis `normal_axis` (`(d[0], d[0])` for an
+/// isotropic fill, `normal_axis = None`).
+fn transverse_and_normal<T: Copy>(d: [T; 3], normal_axis: Option<usize>) -> (T, T) {
+    match normal_axis {
+        Some(k) => (d[(k + 1) % 3], d[k]),
+        None => (d[0], d[0]),
+    }
+}
+
+/// The resolved per-tet materials a wave port's fill is read from
+/// ([`PortMaterials::resolve_fill`], issue #777).
+struct PortMaterials<'a> {
+    tagged: &'a TaggedTetMesh,
+    eps: &'a [c64],
+    eps_diag: &'a [Option<[c64; 3]>],
+    mu_diag: &'a [Option<[f64; 3]>],
+    mu_r: &'a [f64],
+    dispersion: &'a [DispersiveRegion],
+    frequencies: &'a [Frequency],
+    upml: &'a [UpmlRegion],
+    upml_of_tet: &'a [Option<usize>],
+}
+
+impl PortMaterials<'_> {
+    fn group_name(&self, tag: i32) -> String {
+        self.tagged
+            .mesh
+            .physical_groups
+            .get(&(3, tag))
+            .cloned()
+            .unwrap_or_else(|| "<untagged>".to_string())
+    }
+
+    /// Tet `t`'s `ε_r` tensor diagonal (`[ε; 3]` for a scalar material),
+    /// at `hz` for a dispersive one (`None`: its reference `ε_r`).
+    fn eps_diag_of(&self, t: usize, hz: Option<f64>) -> [c64; 3] {
+        if let Some(d) = self.eps_diag.get(t).copied().flatten() {
+            return d;
+        }
+        let tag = self.tagged.tet_physical_tags[t];
+        match (hz, self.dispersion.iter().find(|d| d.tag == tag)) {
+            (Some(hz), Some(d)) => [d.model.eps(hz); 3],
+            _ => [self.eps[t]; 3],
+        }
+    }
+
+    /// Tet `t`'s `μ_r` tensor diagonal.
+    fn mu_diag_of(&self, t: usize) -> [f64; 3] {
+        self.mu_diag
+            .get(t)
+            .copied()
+            .flatten()
+            .unwrap_or([self.mu_r[t]; 3])
+    }
+
+    /// Whether tets `a` and `b` carry the same material by value (at every
+    /// sweep frequency for a dispersive one).
+    fn same_material(&self, a: usize, b: usize) -> bool {
+        if self.mu_diag_of(a) != self.mu_diag_of(b)
+            || self.eps_diag_of(a, None) != self.eps_diag_of(b, None)
+        {
+            return false;
+        }
+        self.dispersion.is_empty()
+            || self
+                .frequencies
+                .iter()
+                .all(|f| self.eps_diag_of(a, Some(f.hz)) == self.eps_diag_of(b, Some(f.hz)))
+    }
+
+    /// The homogeneous fill of wave port `surf` (unit normal `normal`):
+    /// `invalid_spec` if a touching tet is a stretched UPML tet, if the
+    /// touching tets differ in material (an inhomogeneous cross-section,
+    /// issue #778), if `ε` / `μ` is not isotropic in the port plane, or
+    /// if `Re ε_t·μ_n ≤ 0` at any sweep frequency (no propagating mode,
+    /// issue #781).
+    fn resolve_fill(&self, surf: &Surface, normal: [f64; 3]) -> Result<PortFill, CliError> {
+        let name = &surf.name;
+        let keys: std::collections::HashSet<[u32; 3]> =
+            surf.triangles.iter().map(sorted3).collect();
+        // Every tet with a face on the port (one per boundary face, two
+        // per face of an internal port plane).
+        let mut touching: Vec<usize> = Vec::new();
+        for (t, &[a, b, c, d]) in self.tagged.mesh.tets.iter().enumerate() {
+            if [[b, c, d], [a, c, d], [a, b, d], [a, b, c]]
+                .iter()
+                .any(|f| keys.contains(&sorted3(f)))
+            {
+                touching.push(t);
+            }
+        }
+        let tet = *touching
+            .first()
+            .expect("a wave-port surface's triangles are tet faces (checked on resolution)");
+
+        // A stretched absorbing-region tet is not a port medium.
+        for &t in &touching {
+            if let Some(i) = self.upml_of_tet.get(t).copied().flatten() {
+                let r = &self.upml[i];
+                let nodes = self.tagged.mesh.tets[t].map(|n| self.tagged.mesh.nodes[n as usize]);
+                let c: [f64; 3] =
+                    std::array::from_fn(|k| nodes.iter().map(|q| q[k]).sum::<f64>() / 4.0);
+                if (0..3).any(|k| c[k] < r.air_lo[k] || c[k] > r.air_hi[k]) {
+                    return Err(invalid(format!(
+                        "wave port `{name}` touches the absorbing region `{}`: a stretched UPML \
+                         medium is not a waveguide port medium — move the port face inside the \
+                         region's inner wall (its air box)",
+                        r.name
+                    )));
+                }
+            }
+        }
+
+        // One material by value across every touching tet.
+        let mut tags: BTreeMap<i32, usize> = BTreeMap::new();
+        for &t in &touching {
+            tags.entry(self.tagged.tet_physical_tags[t]).or_insert(t);
+        }
+        let groups: Vec<String> = {
+            let mut g: Vec<String> = tags.keys().map(|&tag| self.group_name(tag)).collect();
+            g.sort();
+            g
+        };
+        if tags.values().any(|&t| !self.same_material(tet, t)) {
+            return Err(invalid(format!(
+                "wave port `{name}` touches more than one material ({}): an inhomogeneous port \
+                 cross-section carries hybrid modes, which wave ports do not model yet (issue \
+                 #778) — fill the guide at the port face with one material, or use a lumped \
+                 port",
+                groups
+                    .iter()
+                    .map(|g| format!("`{g}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+
+        // Transverse isotropy of the (diagonal) tensors.
+        let eps_d = self.eps_diag_of(tet, None);
+        let mu_d = self.mu_diag_of(tet);
+        let isotropic = eps_d[1] == eps_d[0]
+            && eps_d[2] == eps_d[0]
+            && mu_d[1] == mu_d[0]
+            && mu_d[2] == mu_d[0];
+        let normal_axis = if isotropic {
+            None
+        } else {
+            let fill = groups.join(", ");
+            let Some(k) = (0..3).find(|&k| normal[k].abs() > 1.0 - 1e-9) else {
+                return Err(invalid(format!(
+                    "wave port `{name}`: the fill `{fill}` is anisotropic and the port normal \
+                     [{:.6}, {:.6}, {:.6}] is not a coordinate axis, so the diagonal tensors are \
+                     not isotropic in the port plane (hybrid modes, issue #778)",
+                    normal[0], normal[1], normal[2]
+                )));
+            };
+            const AXES: [&str; 3] = ["xx", "yy", "zz"];
+            let (i, j) = ((k + 1) % 3, (k + 2) % 3);
+            for (what, unequal) in [
+                ("eps_r_diag", eps_d[i] != eps_d[j]),
+                ("mu_r_diag", mu_d[i] != mu_d[j]),
+            ] {
+                if unequal {
+                    return Err(invalid(format!(
+                        "wave port `{name}`: the fill `{fill}` has unequal transverse \
+                         {what}.{} and {what}.{} on a port normal to {}: a wave port needs a \
+                         medium that is isotropic in the port plane (unequal transverse \
+                         components hybridize the modes, issue #778)",
+                        AXES[i],
+                        AXES[j],
+                        ["x", "y", "z"][k]
+                    )));
+                }
+            }
+            Some(k)
+        };
+
+        // A propagating TE mode needs Re ε_t·μ_n > 0 (the filled cutoff
+        // k_c/√(Re ε_t·μ_n) is real): a plasma-like fill has none, and its
+        // `cutoff_hz` would be NaN. Checked at every sweep frequency, since
+        // a dispersive (e.g. Drude) fill can cross zero inside the sweep;
+        // a non-dispersive fill evaluates to its constant ε here.
+        let (_, mu_n) = transverse_and_normal(mu_d, normal_axis);
+        let hzs: Vec<Option<f64>> = if self.frequencies.is_empty() {
+            vec![None]
+        } else {
+            self.frequencies.iter().map(|f| Some(f.hz)).collect()
+        };
+        for hz in hzs {
+            let (eps_t, _) = transverse_and_normal(self.eps_diag_of(tet, hz), normal_axis);
+            let re = eps_t.re * mu_n;
+            if re.is_nan() || re <= 0.0 {
+                let at = hz.map_or_else(String::new, |hz| format!(" at {hz:e} Hz"));
+                return Err(invalid(format!(
+                    "wave port `{name}`: the fill `{}` has Re ε_t·μ_n = {re:e} ≤ 0{at} (ε_t = \
+                     {:e}{:+e}j): a plasma-like fill carries no propagating mode and has no real \
+                     cutoff, which wave ports do not support (issue #781) — fill the guide at the \
+                     port face with a medium of Re ε > 0 over the whole sweep",
+                    groups.join(", "),
+                    eps_t.re,
+                    eps_t.im
+                )));
+            }
+        }
+
+        Ok(PortFill {
+            tet,
+            groups,
+            normal_axis,
+        })
+    }
 }
 
 /// Resolve `absorbing_regions`: per region the inner wall (mesh node

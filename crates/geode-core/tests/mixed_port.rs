@@ -38,7 +38,7 @@ use faer::c64;
 use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
 use geode_core::driven::extraction::s_parameter_frequency_sweep_with_mode;
 use geode_core::driven::ports::{
-    ExtrudedWaveguideMesh, LumpedPort, MixedPortSweepPoint, PortMode, WavePort,
+    ExtrudedWaveguideMesh, LumpedPort, MixedPortSweepPoint, PortMedium, PortMode, WavePort,
     extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh, solve_mixed_port_sweep_with_mode,
     solve_wave_port_sweep,
 };
@@ -100,6 +100,7 @@ fn wave_port(mesh: &TetMesh, faces: &[[u32; 3]], z_plane: f64, n_modes: usize) -
                 a_inc: c64::new(1.0, 0.0),
             })
             .collect(),
+        medium: PortMedium::VACUUM,
     }
 }
 
@@ -323,22 +324,37 @@ fn lumped_block_matches_z_matrix_route() {
 /// Two-mode wave port (TE₁₀ propagating, TE₂₀ evanescent at ω = 2.5) plus
 /// a lumped sheet: channel layout, evanescent cross blocks, and `Sᵀ = S`
 /// with a lossy fill, which is also strictly passive.
+///
+/// The wave port carries the fill as its [`PortMedium`] (issue #777;
+/// before it the lossy case terminated the guide with a vacuum port). In
+/// the lossy medium `β² = k₀²ε − k_c²` is complex, so the below-cutoff
+/// TE₂₀ has a small `Re β ≠ 0` next to its dominant `Im β < 0`.
 #[test]
 fn two_mode_wave_port_with_sheet_is_reciprocal_and_passive() {
     let g = guide();
-    let w_in = wave_port(&g.mesh, &g.port1_faces, 0.0, 2);
     let lumped = [sheet(&g.port2_faces, 0.3, c64::new(0.5, 0.5))];
     for eps_r in [c64::new(1.0, 0.0), c64::new(1.0, -0.1)] {
+        let w_in = wave_port(&g.mesh, &g.port1_faces, 0.0, 2)
+            .with_medium(PortMedium::isotropic(eps_r, 1.0));
         let eps = vec![eps_r; g.mesh.n_tets()];
         let pt = &mixed(&g, &eps, &lumped, std::slice::from_ref(&w_in), &[2.5])[0];
         assert_eq!((pt.n_ports, pt.n_lumped), (3, 1));
         assert_eq!(pt.port_mode_counts, vec![2]);
         assert_eq!(pt.wave_channel_index(0, 1), 2);
         assert!(pt.beta[0].re > 0.0, "TE10 propagates");
-        assert!(
-            pt.beta[1].im < 0.0 && pt.beta[1].re == 0.0,
-            "TE20 evanescent"
-        );
+        if eps_r.im == 0.0 {
+            assert!(
+                pt.beta[1].im < 0.0 && pt.beta[1].re == 0.0,
+                "TE20 evanescent"
+            );
+        } else {
+            assert!(pt.beta[0].im < 0.0, "lossy TE10 decays");
+            assert!(
+                pt.beta[1].im < 0.0 && pt.beta[1].re.abs() < 0.1 * pt.beta[1].im.abs(),
+                "lossy TE20 evanescent: β = {}",
+                pt.beta[1]
+            );
+        }
         let rerr = reciprocity_err(&pt.s, 3);
         eprintln!("eps_r = {eps_r}: reciprocity {rerr:.2e}, S = {:?}", pt.s);
         assert!(rerr < 1e-8, "reciprocity {rerr}");
@@ -355,6 +371,54 @@ fn two_mode_wave_port_with_sheet_is_reciprocal_and_passive() {
                 "lossy fill must be strictly passive: σ_max = {sig}"
             );
         }
+    }
+}
+
+/// **Dielectric-filled mixed guide** (issue #777): the `ε_r = 2.2` guide
+/// with a filled TE₁₀ wave port in and a full-face sheet out, matched at
+/// k₀ = 1.6 (`R = (k₀μ_t/β)·(b/a)`, η₀ units). Across k₀ ∈ {1.3, 1.6,
+/// 1.9} `|S_ww|` follows the sheet mismatch with the filled `Z_TE =
+/// k₀/β`, `|S_lw|² = (8/π²)(1 − |Γ|²)` (pins the filled `√(y/ω)` cross
+/// weight), and S is reciprocal and passive. At k₀ = 1.3 a vacuum TE₁₀
+/// port would be below cutoff.
+#[test]
+fn dielectric_filled_wave_port_with_sheet_follows_filled_closed_form() {
+    let g = guide();
+    let eps_r = c64::new(2.2, 0.0);
+    let eps = vec![eps_r; g.mesh.n_tets()];
+    let w_in =
+        wave_port(&g.mesh, &g.port1_faces, 0.0, 1).with_medium(PortMedium::isotropic(eps_r, 1.0));
+    let r = 1.6 / w_in.beta(0, 1.6).re * B_DIM / A;
+    let z_s = r * A / B_DIM;
+    let lumped = [sheet(&g.port2_faces, r, c64::new(1.0, 0.0))];
+    let kc = std::f64::consts::PI / A;
+    for pt in &mixed(
+        &g,
+        &eps,
+        &lumped,
+        std::slice::from_ref(&w_in),
+        &[1.3, 1.6, 1.9],
+    ) {
+        let k0 = pt.omega;
+        let beta = pt.beta[0];
+        let want_beta = (2.2 * k0 * k0 - kc * kc).sqrt();
+        let z_te = k0 / beta.re;
+        let gamma = ((z_s - z_te) / (z_s + z_te)).abs();
+        let s_ww = pt.s[3].norm();
+        let t2 = pt.s[1].norm_sqr();
+        let want_t2 = TE10_UNIFORM_FRACTION * (1.0 - gamma * gamma);
+        let sig = sigma_max_2x2(&pt.s);
+        eprintln!(
+            "filled mixed k0 = {k0}: β = {beta} (analytic {want_beta:.5}), |S_ww| = {s_ww:.4} vs \
+             |Γ| = {gamma:.4}, |S_lw|² = {t2:.4} vs {want_t2:.4}, σ_max = {sig:.6}"
+        );
+        assert_eq!(beta.im, 0.0);
+        assert!((beta.re - want_beta).abs() / want_beta < 0.05);
+        assert!((s_ww - gamma).abs() < 0.03, "|S_ww| {s_ww} vs {gamma}");
+        assert!((t2 - want_t2).abs() < 0.03, "|S_lw|² {t2} vs {want_t2}");
+        assert!(reciprocity_err(&pt.s, 2) < 1e-8, "reciprocity");
+        assert!(sig <= 1.0 + 1e-9, "passivity: σ_max = {sig}");
+        assert!(pt.residual_rel < 1e-9);
     }
 }
 
