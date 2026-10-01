@@ -509,7 +509,13 @@ treated as vacuum:
   `eps_r_diag.xx ≠ yy` on a z-normal port), or with any anisotropy on a
   port whose normal is not a coordinate axis;
 - a port face touching the stretched shell of an **`absorbing_regions`**
-  entry: move the port inside the region's inner wall.
+  entry: move the port inside the region's inner wall;
+- a **plasma-like fill** with `Re ε_t·μ_n ≤ 0` at any sweep frequency
+  (a negative-real `eps_r`, or a Drude model below its plasma frequency;
+  a dispersive fill is checked at every swept frequency, so one that
+  crosses zero inside the sweep is rejected too). Such a guide has no
+  propagating mode and no real cutoff
+  ([#781](https://github.com/rjwalters/geode-fem/issues/781)).
 
 ### Mixed lumped + wave ports (issue #759)
 

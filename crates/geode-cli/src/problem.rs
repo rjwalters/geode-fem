@@ -2844,7 +2844,9 @@ impl PortMaterials<'_> {
     /// The homogeneous fill of wave port `surf` (unit normal `normal`):
     /// `invalid_spec` if a touching tet is a stretched UPML tet, if the
     /// touching tets differ in material (an inhomogeneous cross-section,
-    /// issue #778), or if `ε` / `μ` is not isotropic in the port plane.
+    /// issue #778), if `ε` / `μ` is not isotropic in the port plane, or
+    /// if `Re ε_t·μ_n ≤ 0` at any sweep frequency (no propagating mode,
+    /// issue #781).
     fn resolve_fill(&self, surf: &Surface, normal: [f64; 3]) -> Result<PortFill, CliError> {
         let name = &surf.name;
         let keys: std::collections::HashSet<[u32; 3]> =
@@ -2945,6 +2947,35 @@ impl PortMaterials<'_> {
             }
             Some(k)
         };
+
+        // A propagating TE mode needs Re ε_t·μ_n > 0 (the filled cutoff
+        // k_c/√(Re ε_t·μ_n) is real): a plasma-like fill has none, and its
+        // `cutoff_hz` would be NaN. Checked at every sweep frequency, since
+        // a dispersive (e.g. Drude) fill can cross zero inside the sweep;
+        // a non-dispersive fill evaluates to its constant ε here.
+        let (_, mu_n) = transverse_and_normal(mu_d, normal_axis);
+        let hzs: Vec<Option<f64>> = if self.frequencies.is_empty() {
+            vec![None]
+        } else {
+            self.frequencies.iter().map(|f| Some(f.hz)).collect()
+        };
+        for hz in hzs {
+            let (eps_t, _) = transverse_and_normal(self.eps_diag_of(tet, hz), normal_axis);
+            let re = eps_t.re * mu_n;
+            if re.is_nan() || re <= 0.0 {
+                let at = hz.map_or_else(String::new, |hz| format!(" at {hz:e} Hz"));
+                return Err(invalid(format!(
+                    "wave port `{name}`: the fill `{}` has Re ε_t·μ_n = {re:e} ≤ 0{at} (ε_t = \
+                     {:e}{:+e}j): a plasma-like fill carries no propagating mode and has no real \
+                     cutoff, which wave ports do not support (issue #781) — fill the guide at the \
+                     port face with a medium of Re ε > 0 over the whole sweep",
+                    groups.join(", "),
+                    eps_t.re,
+                    eps_t.im
+                )));
+            }
+        }
+
         Ok(PortFill {
             tet,
             groups,

@@ -1708,4 +1708,112 @@ mod tests {
         assert_eq!(pt.channel_index(1, 2), 4);
         assert_eq!(pt.channel_index(2, 0), 5);
     }
+
+    /// The pre-#777 vacuum `β` expression, copied verbatim from
+    /// `analytic::waveguide::beta_outgoing(omega, 1.0, k_c)` on main @
+    /// 2843250 — the arithmetic every vacuum port used before
+    /// [`PortMedium`] existed.
+    fn pre_777_vacuum_beta(omega: f64, k_c: f64) -> c64 {
+        let c = 1.0;
+        let k0 = omega / c;
+        let arg = k0 * k0 - k_c * k_c;
+        if arg >= 0.0 {
+            c64::new(arg.sqrt(), 0.0)
+        } else {
+            c64::new(0.0, -(-arg).sqrt())
+        }
+    }
+
+    fn assert_c64_bits(what: &str, got: c64, want: c64) {
+        assert!(
+            got.re.to_bits() == want.re.to_bits() && got.im.to_bits() == want.im.to_bits(),
+            "{what}: {got:?} is not bit-identical to {want:?}"
+        );
+    }
+
+    /// Issue #777: a [`PortMedium::VACUUM`] port takes exactly the
+    /// historical vacuum arithmetic — `β`, the admittance factor `y` and
+    /// the cutoff `k₀` are **bit-identical** to the pre-#777 formulas.
+    /// Computed in-process on both sides, so this holds on every platform
+    /// (unlike recorded end-to-end S-parameter goldens, which inherit the
+    /// LU/SIMD stack's platform-dependent low-order bits).
+    #[test]
+    fn vacuum_medium_is_bit_identical_to_the_pre_fill_formulas() {
+        let up = |x: f64| f64::from_bits(x.to_bits() + 1);
+        let down = |x: f64| f64::from_bits(x.to_bits() - 1);
+        let k_cs = [
+            0.0,
+            1e-300,
+            0.1,
+            std::f64::consts::FRAC_PI_2,
+            std::f64::consts::PI,
+            3.0f64.sqrt() * std::f64::consts::PI,
+            7.25,
+            1e3,
+        ];
+        let mut omegas = vec![0.0, 1e-12, 0.3, 1.0, 1.6, 2.0, 2.5, 3.0, 6.5, 12.0, 1e4];
+        // Exactly at, and one ulp / a relative 1e-9 either side of, each
+        // cutoff: the `arg >= 0.0` branch switch.
+        for &k_c in &k_cs {
+            if k_c > 0.0 {
+                omegas.extend([
+                    k_c,
+                    up(k_c),
+                    down(k_c),
+                    k_c * (1.0 + 1e-9),
+                    k_c * (1.0 - 1e-9),
+                    0.5 * k_c,
+                    2.0 * k_c,
+                ]);
+            }
+        }
+        let vacuum = PortMedium::VACUUM;
+        // Every way of spelling vacuum is the vacuum medium.
+        assert_eq!(PortMedium::default(), vacuum);
+        assert_eq!(PortMedium::isotropic(c64::new(1.0, 0.0), 1.0), vacuum);
+        let mut n = 0;
+        for &k_c in &k_cs {
+            assert_eq!(
+                vacuum.cutoff_k0(k_c).to_bits(),
+                k_c.to_bits(),
+                "cutoff_k0({k_c:e})"
+            );
+            let port = WavePort::single_mode(Vec::new(), Vec::new(), k_c, c64::new(1.0, 0.0));
+            assert_eq!(port.medium, vacuum);
+            for &omega in &omegas {
+                let want = pre_777_vacuum_beta(omega, k_c);
+                let at = format!("ω = {omega:e}, k_c = {k_c:e}");
+                assert_c64_bits(&format!("VACUUM.beta({at})"), vacuum.beta(omega, k_c), want);
+                assert_c64_bits(
+                    &format!("PortMode::beta({at})"),
+                    port.modes[0].beta(omega),
+                    want,
+                );
+                assert_c64_bits(&format!("WavePort::beta({at})"), port.beta(0, omega), want);
+                assert_c64_bits(
+                    &format!("VACUUM.admittance(β({at}))"),
+                    vacuum.admittance(want),
+                    want,
+                );
+                assert_c64_bits(
+                    &format!("WavePort::admittance({at})"),
+                    port.admittance(0, omega),
+                    want,
+                );
+                n += 1;
+            }
+        }
+        assert!(n > 100, "sweep covers {n} (ω, k_c) pairs");
+        // The admittance passes any β through untouched (complex, signed
+        // zeros, subnormal) for μ_t = 1.
+        for b in [
+            c64::new(0.0, -0.0),
+            c64::new(-0.0, 0.0),
+            c64::new(0.1637, -1.9096),
+            c64::new(f64::MIN_POSITIVE / 4.0, -3.5),
+            c64::new(1e300, -1e-300),
+        ] {
+            assert_c64_bits("VACUUM.admittance(complex β)", vacuum.admittance(b), b);
+        }
+    }
 }
