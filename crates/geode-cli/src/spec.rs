@@ -98,14 +98,18 @@ pub struct ProblemSpec {
     #[serde(default)]
     pub absorbing_regions: Vec<UpmlSpec>,
     /// Lumped ports. A `driven` / `extract` spec needs at least one lumped
-    /// port **or** (driven only) at least one wave port; an `eigen` spec
-    /// must have none (lumped ports are driven resistive terminations; the
-    /// eigen solve computes source-free resonances).
+    /// port **or** (driven only) at least one wave port; a `driven` spec
+    /// may also mix both kinds (issue #759); an `eigen` spec must have none
+    /// (lumped ports are driven resistive terminations; the eigen solve
+    /// computes source-free resonances).
     #[serde(default)]
     pub ports: Vec<LumpedPortSpec>,
     /// Wave (modal) ports on planar surface physical groups (additive in
-    /// v1, issue #683). `driven` specs only, and in v1 mutually exclusive
-    /// with lumped `ports` and with Leontovich / Silver-Müller walls.
+    /// v1, issue #683). `driven` specs only; not combinable with
+    /// Leontovich / Silver-Müller walls. They may be mixed with lumped
+    /// `ports` (issue #759): the S-matrix then lists the lumped ports
+    /// first, then the wave channels (port-major, mode-minor), and
+    /// `--touchstone`, `sweep.adaptive` and `sensitivity` are rejected.
     #[serde(default)]
     pub wave_ports: Vec<WavePortSpec>,
     /// Frequencies to solve at. Required for a `driven` / `extract` spec;

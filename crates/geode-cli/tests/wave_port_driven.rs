@@ -446,3 +446,448 @@ fn iterative_recursive_residual_drift_fails_with_solve_failed() {
         "expected the recursive-residual drift error, got: {msg}"
     );
 }
+
+// ---------------------------------------------------------------------
+// Mixed lumped + wave ports (issue #759, Epic #756 Phase 8c)
+// ---------------------------------------------------------------------
+
+/// Fraction `8/π²` of a TE₁₀ field (`E_y ∝ sin(πx/a)`) that a full-face
+/// uniform lumped port's voltage `V = (1/w)∫E·ŷ dS` carries.
+const TE10_UNIFORM_FRACTION: f64 = 8.0 / (std::f64::consts::PI * std::f64::consts::PI);
+
+/// TE₁₀ wave impedance `Z_TE = k₀/β` in units of η₀ (analytic cutoff).
+fn z_te(k0: f64) -> f64 {
+    let kc = std::f64::consts::PI / A;
+    k0 / (k0 * k0 - kc * kc).sqrt()
+}
+
+/// A **mixed** spec: `port_in` a TE₁₀ wave port, `port_out` (the whole
+/// `z = L` end face) a lumped port across the `b` gap (`ê = ŷ`, `l = b`,
+/// `w = a`) of resistance `r_ohm` — a uniform resistive sheet terminating
+/// the guide — then `edit`ed.
+fn mixed_spec(
+    name: &str,
+    r_ohm: f64,
+    k0s: &[f64],
+    edit: impl FnOnce(&mut serde_json::Value),
+) -> ScratchFile {
+    spec(name, |v| {
+        v["wave_ports"] = serde_json::json!([{ "physical_group": "port_in" }]);
+        v["ports"] = serde_json::json!([{
+            "physical_group": "port_out",
+            "e_hat": [0.0, 1.0, 0.0],
+            "resistance_ohm": r_ohm,
+            "width": A,
+            "length": B_DIM
+        }]);
+        v["frequencies"] = serde_json::json!({ "unit": "k0", "values": k0s });
+        edit(v);
+    })
+}
+
+fn s_matrix(row: &serde_json::Value) -> (Vec<faer::c64>, usize) {
+    let s = row["s"].as_array().unwrap();
+    let n = s.len();
+    let flat = s
+        .iter()
+        .flat_map(|r| r.as_array().unwrap().iter())
+        .map(|z| faer::c64::new(f64_at(&z[0]), f64_at(&z[1])))
+        .collect();
+    (flat, n)
+}
+
+/// `max |S_ij − S_ji| / max |S|`.
+fn reciprocity_err(s: &[faer::c64], n: usize) -> f64 {
+    let max = s.iter().map(|z| z.norm()).fold(0.0, f64::max);
+    let mut err = 0.0_f64;
+    for i in 0..n {
+        for j in 0..n {
+            err = err.max((s[i * n + j] - s[j * n + i]).norm());
+        }
+    }
+    err / max
+}
+
+/// Largest singular value of a row-major 2 × 2 complex matrix.
+fn sigma_max_2x2(s: &[faer::c64]) -> f64 {
+    let p = s[0].norm_sqr() + s[2].norm_sqr();
+    let r = s[1].norm_sqr() + s[3].norm_sqr();
+    let q = s[0].conj() * s[1] + s[2].conj() * s[3];
+    let tr = p + r;
+    let det = p * r - q.norm_sqr();
+    (0.5 * (tr + (tr * tr - 4.0 * det).max(0.0).sqrt())).sqrt()
+}
+
+/// The committed copy of the tagged guide (groups `guide`, `port_in`,
+/// `port_out`, `walls`; no `bent`) that the mixed cookbook example and
+/// its fixture `tests/fixtures/waveguide_mixed_smoke.json` read.
+fn committed_waveguide_mesh() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../geode-core/tests/fixtures/waveguide_2x1_smoke.msh")
+}
+
+#[test]
+fn committed_waveguide_mesh_matches_its_generator() {
+    let g = extruded_rect_waveguide_mesh(8, 4, 4, A, B_DIM, LEN);
+    let msh = write_msh(
+        &g.mesh.nodes,
+        &g.mesh.tets,
+        &[
+            (11, "port_in", &g.port1_faces),
+            (12, "port_out", &g.port2_faces),
+            (13, "walls", &g.sidewall_faces),
+        ],
+    );
+    let path = committed_waveguide_mesh();
+    if std::env::var_os("GEODE_BLESS_WAVEGUIDE_MSH").is_some() {
+        std::fs::write(&path, &msh).unwrap();
+    }
+    let committed = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        committed == msh,
+        "{} drifted from extruded_rect_waveguide_mesh(8, 4, 4, 2, 1, 1.2); regenerate with \
+         GEODE_BLESS_WAVEGUIDE_MSH=1 cargo test -p geode-cli --test wave_port_driven \
+         committed_waveguide_mesh",
+        path.display()
+    );
+}
+
+#[test]
+fn mixed_wave_and_lumped_sheet_follow_closed_form_across_sweep() {
+    // The cookbook fixture: `port_in` a TE₁₀ wave port, `port_out` a
+    // full-face lumped sheet whose resistance matches TE₁₀ at k₀ = 2.5:
+    // Z_s = R·w/l = Z_TE·η₀  ⇒  R = η₀·(k₀/β)·(b/a) ≈ 242.1 Ω.
+    let eta0 = geode_core::constants::ETA_0_OHM;
+    let fixture =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/waveguide_mixed_smoke.json");
+    let fixture_spec: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&fixture).unwrap()).unwrap();
+    let r_ohm = f64_at(&fixture_spec["ports"][0]["resistance_ohm"]);
+    assert!(
+        (r_ohm - eta0 * z_te(2.5) * B_DIM / A).abs() < 0.1,
+        "R = {r_ohm}"
+    );
+    let spec_file = fixture;
+    let outdir_dir = scratch("mixed-outdir");
+    let outdir = outdir_dir.join("fields");
+    let out = geode(&[
+        "driven",
+        spec_file.to_str().unwrap(),
+        "--outdir",
+        outdir.to_str().unwrap(),
+    ]);
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("not supported for wave-port specs"),
+        "mixed specs export nothing either"
+    );
+    let v = json(&out);
+    assert_eq!(std::fs::read_dir(&outdir).unwrap().count(), 0);
+
+    // Port order: lumped first, then the wave channels (offset by N_l = 1).
+    assert_eq!(v["ports"].as_array().unwrap().len(), 1);
+    assert_eq!(v["wave_ports"][0]["modes"][0]["channel"], 1);
+    let z_s = r_ohm / eta0 * A / B_DIM;
+    for r in v["results"].as_array().unwrap() {
+        assert_eq!(
+            r["z_ohm"],
+            serde_json::json!([]),
+            "no Z for a mixed network"
+        );
+        assert!(r["y_s"].is_null());
+        assert_eq!(r["ports"], serde_json::json!([]));
+        let ch = &r["wave_channels"][0];
+        assert_eq!(ch["channel"], 1);
+        assert_eq!(ch["port"], 0);
+        assert!(f64_at(&r["residual_rel"]) < 1e-9);
+        let (s, n) = s_matrix(r);
+        assert_eq!(n, 2);
+        let k0 = f64_at(&r["k0"]);
+        // Closed form of a uniform sheet on TE₁₀ (Z_TE from the reported
+        // β, so the FEM cutoff error does not enter the oracle).
+        let z_te = k0 / f64_at(&ch["beta"][0]);
+        let gamma = ((z_s - z_te) / (z_s + z_te)).abs();
+        let s_ww = s[3].norm();
+        // The uniform-port power wave carries 8/π² of the transmitted
+        // TE₁₀ power (the rest dissipates in the sheet's non-uniform field).
+        let t2 = s[1].norm_sqr();
+        let want_t2 = TE10_UNIFORM_FRACTION * (1.0 - gamma * gamma);
+        let sig = sigma_max_2x2(&s);
+        eprintln!(
+            "k0 = {k0}: |S_ww| = {s_ww:.4} vs |Γ| = {gamma:.4}; |S_lw|² = {t2:.4} vs \
+             {want_t2:.4}; σ_max = {sig:.6}"
+        );
+        assert!((s_ww - gamma).abs() < 0.03, "|S_ww| {s_ww} vs {gamma}");
+        assert!((t2 - want_t2).abs() < 0.03, "|S_lw|² {t2} vs {want_t2}");
+        assert!(reciprocity_err(&s, n) < 1e-8, "reciprocity");
+        assert!(sig <= 1.0 + 1e-6, "passivity: σ_max = {sig}");
+        assert_eq!(f64_at(&ch["s"][0]), s[3].re, "wave_channels[].s = S_kk");
+    }
+    // Matched at k₀ = 2.5: the wave is absorbed (the pure-wave straight
+    // section's discretization floor is ~0.012).
+    let (s, _) = s_matrix(&v["results"][1]);
+    assert!(s[3].norm() < 0.05, "matched |S_ww| = {}", s[3].norm());
+
+    assert_mixed_library_parity(&v, r_ohm);
+}
+
+/// The CLI's mixed S-matrix equals an in-process
+/// `solve_mixed_port_sweep_with_mode` over tag-built ports.
+#[cfg(not(any(feature = "wgpu", feature = "cuda", feature = "metal")))]
+fn assert_mixed_library_parity(v: &serde_json::Value, r_ohm: f64) {
+    use faer::c64;
+    use geode_core::driven::ports::{
+        LumpedPort, solve_mixed_port_sweep_with_mode, wave_port_from_faces,
+    };
+    use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, SolverMode};
+    use geode_core::mesh::{pec_interior_mask_from_triangles, read_tagged_tet_mesh};
+
+    type B = burn::backend::NdArray<f64, i32>;
+    let path = v["mesh"]["path"].as_str().unwrap();
+    let tagged = read_tagged_tet_mesh(&std::fs::read(path).unwrap()).unwrap();
+    let edges = tagged.mesh.edges();
+    let tri = |name: &str| tagged.triangles_with_tag(tagged.physical_group_tag(2, name).unwrap());
+    let wave = [
+        wave_port_from_faces(&tagged.mesh, &edges, &tri("port_in"), &[c64::new(1.0, 0.0)]).unwrap(),
+    ];
+    let out_faces = tri("port_out");
+    let lumped = [LumpedPort {
+        faces: &out_faces,
+        e_hat: [0.0, 1.0, 0.0],
+        resistance: r_ohm / geode_core::constants::ETA_0_OHM,
+        width: A,
+        length: B_DIM,
+        v_inc: c64::new(1.0, 0.0),
+    }];
+    let walls = tri("walls");
+    let mask = pec_interior_mask_from_triangles(&edges, &[walls.as_slice()]);
+    let eps = vec![c64::new(1.0, 0.0); tagged.mesh.n_tets()];
+    let k0s: Vec<f64> = v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| f64_at(&r["k0"]))
+        .collect();
+    let pts = solve_mixed_port_sweep_with_mode::<B>(
+        &tagged.mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        &lumped,
+        &wave,
+        &[],
+        &k0s,
+        SolverMode::Direct,
+        &Default::default(),
+    )
+    .unwrap();
+    for (r, pt) in v["results"].as_array().unwrap().iter().zip(&pts) {
+        let (s, _) = s_matrix(r);
+        for (k, (cli, lib)) in s.iter().zip(&pt.s).enumerate() {
+            assert!(
+                (cli - lib).norm() < 1e-12,
+                "S[{k}]: CLI {cli} vs library {lib}"
+            );
+        }
+    }
+}
+
+#[cfg(any(feature = "wgpu", feature = "cuda", feature = "metal"))]
+fn assert_mixed_library_parity(_: &serde_json::Value, _: f64) {}
+
+#[test]
+fn mixed_lossy_fill_is_strictly_passive_and_two_modes_are_reciprocal() {
+    let r_ohm = 0.3 * geode_core::constants::ETA_0_OHM;
+    // Lossy fill: σ_max(S) < 1 strictly.
+    let v = json(&geode(&[
+        "driven",
+        mixed_spec("mixed-lossy", r_ohm, &[2.5], |v| {
+            v["materials"] =
+                serde_json::json!([{ "physical_group": "guide", "eps_r": [1.0, -0.1] }]);
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let (s, n) = s_matrix(&v["results"][0]);
+    let sig = sigma_max_2x2(&s);
+    eprintln!("lossy mixed: σ_max = {sig:.6}");
+    assert!(
+        sig < 1.0 - 1e-3,
+        "lossy fill must be strictly passive: {sig}"
+    );
+    assert!(reciprocity_err(&s, n) < 1e-8);
+
+    // Two-mode wave port (TE₁₀ propagating, TE₂₀ evanescent at k₀ = 2.5)
+    // plus the sheet: 3 × 3, channels 1 and 2, Sᵀ = S across the
+    // evanescent cross blocks.
+    let v = json(&geode(&[
+        "driven",
+        mixed_spec("mixed-2mode", r_ohm, &[2.5], |v| {
+            v["wave_ports"][0]["n_modes"] = 2.into();
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let modes = v["wave_ports"][0]["modes"].as_array().unwrap();
+    assert_eq!(modes[0]["channel"], 1);
+    assert_eq!(modes[1]["channel"], 2);
+    let r = &v["results"][0];
+    let ch = r["wave_channels"].as_array().unwrap();
+    assert_eq!(
+        (ch[0]["channel"].as_u64(), ch[1]["channel"].as_u64()),
+        (Some(1), Some(2))
+    );
+    assert_eq!(ch[0]["propagating"], true);
+    assert_eq!(ch[1]["propagating"], false);
+    let (s, n) = s_matrix(r);
+    assert_eq!(n, 3);
+    let err = reciprocity_err(&s, n);
+    eprintln!("two-mode mixed: reciprocity {err:.2e}");
+    assert!(err < 1e-8, "reciprocity {err}");
+    assert!(s.iter().all(|z| z.norm() > 0.0), "every block coupled");
+
+    // `check`: N_w SMW columns + (N_l + N_w) excitations per frequency.
+    let c = json(&geode(&[
+        "check",
+        mixed_spec("mixed-check", r_ohm, &[2.5], |v| {
+            v["wave_ports"][0]["n_modes"] = 2.into();
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    assert_eq!(c["resources"]["n_rhs_per_frequency"], 2 + (1 + 2));
+}
+
+#[test]
+fn mixed_dispersive_fill_matches_constant_eps_at_its_frequency() {
+    // A dispersive (Djordjevic-Sarkar) fill takes the per-frequency path;
+    // at f_ref its ε_r is exactly ε′(1 − j tan δ), so the mixed S-matrix
+    // must equal the constant-ε_r run's.
+    let r_ohm = 0.6 * geode_core::constants::ETA_0_OHM;
+    let k0 = 2.5;
+    let c = geode_core::constants::C_M_PER_S;
+    let f_ref = k0 * c / (2.0 * std::f64::consts::PI * LENGTH_UNIT_M);
+    let disp = json(&geode(&[
+        "driven",
+        mixed_spec("mixed-ds", r_ohm, &[k0], |v| {
+            v["materials"] = serde_json::json!([{
+                "physical_group": "guide",
+                "dispersion": {
+                    "model": "djordjevic_sarkar", "eps_r": 1.5, "tan_delta": 0.02,
+                    "f_ref_hz": f_ref
+                }
+            }]);
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let constant = json(&geode(&[
+        "driven",
+        mixed_spec("mixed-const", r_ohm, &[k0], |v| {
+            v["materials"] =
+                serde_json::json!([{ "physical_group": "guide", "eps_r": [1.5, -0.03] }]);
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let row = &disp["results"][0];
+    assert_eq!(row["materials"][0]["physical_group"], "guide");
+    let (sd, n) = s_matrix(row);
+    let (sc, _) = s_matrix(&constant["results"][0]);
+    for (k, (a, b)) in sd.iter().zip(&sc).enumerate() {
+        assert!(
+            (a - b).norm() < 1e-8,
+            "S[{k}]: dispersive {a} vs constant {b}"
+        );
+    }
+    assert!(reciprocity_err(&sd, n) < 1e-8);
+}
+
+#[test]
+fn mixed_anisotropic_fill_runs_through_the_material_tensors() {
+    // Diagonal anisotropy (issue #760) in a mixed guide takes the
+    // full-tensor assembly: an isotropic `eps_r_diag` / unit `mu_r_diag`
+    // must reproduce the scalar `eps_r` run to round-off, and a genuinely
+    // anisotropic (slightly lossy) fill stays reciprocal and passive.
+    let r_ohm = 0.6 * geode_core::constants::ETA_0_OHM;
+    let k0 = 2.5;
+    let run = |name: &str, materials: serde_json::Value| {
+        json(&geode(&[
+            "driven",
+            mixed_spec(name, r_ohm, &[k0], |v| v["materials"] = materials)
+                .to_str()
+                .unwrap(),
+        ]))
+    };
+    let scalar = run(
+        "mixed-aniso-scalar",
+        serde_json::json!([{ "physical_group": "guide", "eps_r": [1.5, -0.03] }]),
+    );
+    let iso = run(
+        "mixed-aniso-iso",
+        serde_json::json!([{
+            "physical_group": "guide",
+            "eps_r_diag": { "xx": [1.5, -0.03], "yy": [1.5, -0.03], "zz": [1.5, -0.03] },
+            "mu_r_diag": { "xx": 1.0, "yy": 1.0, "zz": 1.0 }
+        }]),
+    );
+    let (ss, n) = s_matrix(&scalar["results"][0]);
+    let (si, _) = s_matrix(&iso["results"][0]);
+    for (k, (a, b)) in si.iter().zip(&ss).enumerate() {
+        assert!(
+            (a - b).norm() < 1e-8,
+            "S[{k}]: isotropic tensor {a} vs scalar {b}"
+        );
+    }
+
+    let aniso = run(
+        "mixed-aniso",
+        serde_json::json!([{
+            "physical_group": "guide",
+            "eps_r_diag": { "xx": [1.2, -0.01], "yy": [1.6, -0.01], "zz": [1.0, -0.01] },
+            "mu_r_diag": { "xx": 1.0, "yy": 1.0, "zz": 1.3 }
+        }]),
+    );
+    let (sa, _) = s_matrix(&aniso["results"][0]);
+    let sig = sigma_max_2x2(&sa);
+    eprintln!("anisotropic mixed: σ_max = {sig:.6}");
+    assert!(reciprocity_err(&sa, n) < 1e-8, "reciprocity");
+    assert!(sig < 1.0, "lossy anisotropic fill must be passive: {sig}");
+    assert!(
+        (sa[1] - ss[1]).norm() > 1e-3,
+        "the anisotropy must actually change the network"
+    );
+}
+
+#[test]
+fn mixed_specs_reject_touchstone_and_adaptive_before_solving() {
+    let r_ohm = 0.6 * geode_core::constants::ETA_0_OHM;
+    let ts_dir = scratch("mixed-touchstone");
+    let ts = ts_dir.join("mixed.s2p");
+    let out = geode(&[
+        "driven",
+        mixed_spec("mixed-ts", r_ohm, &[2.5], |_| {})
+            .to_str()
+            .unwrap(),
+        "--touchstone",
+        ts.to_str().unwrap(),
+    ]);
+    let msg = error_message(&out, "driven", "invalid_spec");
+    assert!(
+        msg.contains("--touchstone") && msg.contains("mixed lumped + wave-port"),
+        "{msg}"
+    );
+    assert!(!ts.exists(), "no file written");
+
+    let out = geode(&[
+        "driven",
+        mixed_spec("mixed-adaptive", r_ohm, &[2.0, 2.5, 3.0], |v| {
+            v["sweep"] = serde_json::json!({ "adaptive": {} });
+        })
+        .to_str()
+        .unwrap(),
+    ]);
+    let msg = error_message(&out, "driven", "invalid_spec");
+    assert!(msg.contains("alone or mixed"), "{msg}");
+}

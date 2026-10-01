@@ -2187,7 +2187,7 @@ impl DrivenOperator {
     /// [`FactoredDrivenOperator::solve_excited`]). Returns the
     /// interior-filtered vector ready for either an LU back-solve or
     /// a Krylov iteration.
-    fn assemble_b_at(&self, omega: f64, excited: Option<usize>) -> Vec<c64> {
+    pub(crate) fn assemble_b_at(&self, omega: f64, excited: Option<usize>) -> Vec<c64> {
         // b = iωμ₀ ∫ N · J dV with μ₀ = 1:  iω (re + i·im) = ω(−im + i·re).
         let mut b_full: Vec<c64> = self
             .rhs_re

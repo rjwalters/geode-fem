@@ -12,8 +12,12 @@
 //! - [`project_port_face`] / [`wave_port_from_faces`] — build a
 //!   [`WavePort`] from a tagged planar port face of an arbitrary tet mesh
 //!   (e.g. a Gmsh physical group), issue #683.
+//! - [`solve_mixed_port_sweep_with_mode`] / [`MixedPortSweepPoint`] —
+//!   lumped and wave ports in one operator with a power-wave S-matrix,
+//!   issue #759.
 
 mod lumped;
+mod mixed;
 mod wave;
 mod wave_face;
 
@@ -21,6 +25,7 @@ pub use lumped::{
     LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
     port_voltage,
 };
+pub use mixed::{MixedPortSweepPoint, solve_mixed_port_sweep_with_mode};
 pub use wave::{
     ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMode, WavePort, WavePortSweepPoint,
     extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,

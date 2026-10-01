@@ -294,7 +294,9 @@ pub struct UpmlSummary {
 pub struct WaveModeSummary {
     /// Mode index within the port (ascending cutoff).
     pub mode: usize,
-    /// Flat S-matrix channel index (port-major, mode-minor).
+    /// Flat S-matrix channel index (port-major, mode-minor), offset by
+    /// the lumped-port count in a mixed lumped + wave-port spec (issue
+    /// #759: lumped ports occupy rows/columns `0..N_l`).
     pub channel: usize,
     /// Cutoff wavenumber `k_c` (rad / mesh length unit).
     pub k_c: f64,
@@ -745,7 +747,8 @@ pub struct ResourceEstimate {
     /// inductance, `0` iterative).
     pub n_factorizations: usize,
     /// Right-hand sides per frequency (ports, or `2 × channels` for wave
-    /// ports; `0` for eigen; `1` per factorization for inductance).
+    /// ports — `2 × channels + lumped ports` for a mixed spec; `0` for
+    /// eigen; `1` per factorization for inductance).
     pub n_rhs_per_frequency: usize,
     /// `nnz_a` divided by the direct-LU calibration anchor's `nnz(A)`
     /// (`check::ANCHOR_NNZ`). Always taken against the **direct** anchor,
@@ -871,7 +874,8 @@ pub struct PortResult {
 /// Per-channel quantities of a wave-port sweep at one frequency.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct WaveChannelResult {
-    /// Flat channel index (row/column of `s`).
+    /// Flat channel index (row/column of `s`); offset by the lumped-port
+    /// count in a mixed lumped + wave-port spec (issue #759).
     pub channel: usize,
     /// Wave-port index.
     pub port: usize,
@@ -894,6 +898,13 @@ pub struct WaveChannelResult {
 /// `ports` are empty, `y_s` is `null`, `s` is the power-normalized
 /// channel S-matrix (port-major, mode-minor) and `wave_channels` carries
 /// the per-channel `β` / `S_kk`.
+///
+/// A **mixed** lumped + wave-port spec (issue #759) has no impedance
+/// matrix either (`z_ohm` / `ports` empty, `y_s` `null`): `s` is the
+/// power-wave S-matrix over the lumped ports first (spec order, reference
+/// = each port's `resistance_ohm`), then the wave channels (port-major,
+/// mode-minor, power-normalized), and `wave_channels[].channel` is offset
+/// by the lumped-port count.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct FrequencyResult {
     /// Frequency (Hz).
@@ -922,7 +933,7 @@ pub struct FrequencyResult {
     /// Per-port self quantities.
     pub ports: Vec<PortResult>,
     /// Per-channel wave-port quantities (additive in v1; present only for
-    /// wave-port specs).
+    /// wave-port and mixed specs).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub wave_channels: Vec<WaveChannelResult>,
     /// Roughness loss factor `K(f)` of every rough Leontovich wall, in
@@ -1002,7 +1013,7 @@ pub struct DrivenReport {
     /// Lumped ports (index = matrix row/column).
     pub ports: Vec<PortSummary>,
     /// Wave ports with their solved modes (additive in v1; present only
-    /// for wave-port specs).
+    /// for wave-port and mixed specs).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub wave_ports: Vec<WavePortSummary>,
     /// Silver-Müller walls (additive in v1; present only when used).

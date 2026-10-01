@@ -200,3 +200,41 @@ both to direct LU (`--ignored`, release). A Drude **plasma** with
 `Re ε < 0` (below `f₀ = re_eps_zero_hz`, echoed by `geode check`) solves
 with `solver.mode = "direct"`; with `solver.preconditioner = "ams"` it is
 `invalid_spec` (the AMS SPD proxy needs `Re ε > 0`).
+
+## Waveguide into a lumped sheet (mixed ports, issue #759)
+
+`waveguide_lumped_sheet.json` (copy of
+`tests/fixtures/waveguide_mixed_smoke.json`) mixes both port kinds in one
+spec. The mesh is a 2 cm × 1 cm × 1.2 cm air-filled rectangular guide
+(`geode-core/tests/fixtures/waveguide_2x1_smoke.msh`, 8 × 4 × 4 cells,
+PEC `walls`). `port_in` (`z = 0`) is a TE₁₀ **wave port**. `port_out`, the
+whole `z = L` end face, is a **lumped port** across the 1 cm gap (`ê = ŷ`,
+`width = 2`, `length = 1`). It acts as a uniform resistive sheet. Its
+242.1 Ω matches TE₁₀ at `k₀ = 2.5` (11.93 GHz):
+`R = η₀·(k₀/β)·(l/w)`.
+
+```sh
+geode check  crates/geode-cli/examples/driven/waveguide_lumped_sheet.json   # n_rhs_per_frequency = 3
+geode driven crates/geode-cli/examples/driven/waveguide_lumped_sheet.json -o mixed.json
+```
+
+The S-matrix lists the lumped port first (row/column 0), then the wave
+channel (1; `wave_ports[0].modes[0].channel = 1`). There is no impedance
+matrix (`z_ohm` empty, `y_s` null). Expected (TE₁₀ cutoff 7.48 GHz):
+
+| k₀ | f (GHz) | `S[0][0]` (sheet) | `S[1][0] = S[0][1]` | `S[1][1]` (wave) | `\|S_lw\|²` | `\|Γ\|` closed form |
+|---|---|---|---|---|---|---|
+| 2.0 | 9.54  | −0.091 + 0.056j | 0.075 − 0.885j | 0.114 + 0.019j | 0.789 | 0.112 |
+| 2.5 | 11.93 | −0.165 + 0.063j | −0.618 − 0.647j | 0.009 − 0.008j | 0.800 | 0.001 |
+| 3.0 | 14.31 | −0.192 + 0.082j | −0.891 − 0.062j | 0.046 + 0.004j | 0.798 | 0.046 |
+
+`|S[1][1]|` follows the sheet mismatch `|Γ| = |(Z_s − Z_TE)/(Z_s + Z_TE)|`,
+with `Z_TE = k₀/β`. `|S_lw|²` follows `8/π²·(1 − |Γ|²) ≈ 0.81`. The
+lumped port's power wave reads only the *uniform* part of the sheet field
+`E_y ∝ sin(πx/a)`. The rest of the TE₁₀ power is absorbed by the sheet
+without reaching the port, so S is passive (`σ_max < 1`) but not unitary.
+For the same reason `S[0][0] ≠ 0` at the match: the uniform drive also
+excites evanescent TE₃₀, TE₅₀, …, which reflect reactively. `--touchstone`
+is rejected for this spec, because a wave channel's reference impedance
+`Z_TE(ω)` varies with frequency. `tests/wave_port_driven.rs` pins the
+closed forms, reciprocity, passivity and library parity.

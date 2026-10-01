@@ -265,7 +265,7 @@ pub fn map_mode_profile_to_full_mesh(
 /// `S_p` is the port-face tangential surface mass
 /// ([`assemble_surface_mass_triplets`]); the result is a real
 /// `[n_edges]` vector supported on the port-face edges.
-fn assemble_modal_flux(
+pub(super) fn assemble_modal_flux(
     mesh: &TetMesh,
     faces: &[[u32; 3]],
     mode: &[f64],
@@ -834,7 +834,7 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
 /// matrices this serves (N = Σ_p K_p — single digits to low tens in
 /// practice) a dense elimination is the right tool — mirrors the
 /// `invert_complex` helper in [`crate::driven::extraction`].
-fn invert_complex_dense(m: &[c64], n: usize) -> Option<Vec<c64>> {
+pub(super) fn invert_complex_dense(m: &[c64], n: usize) -> Option<Vec<c64>> {
     debug_assert_eq!(m.len(), n * n);
     let mut a = m.to_vec();
     let mut inv: Vec<c64> = (0..n * n)
