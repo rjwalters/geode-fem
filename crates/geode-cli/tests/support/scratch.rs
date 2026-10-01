@@ -50,7 +50,12 @@ pub struct ScratchFile {
 impl ScratchFile {
     /// Write `contents` to `<fresh scratch dir>/<file>`.
     pub fn write(prefix: &str, name: &str, file: &str, contents: impl AsRef<[u8]>) -> Self {
-        let dir = Scratch::new(prefix, name);
+        Self::write_in(Scratch::new(prefix, name), file, contents)
+    }
+
+    /// Write `contents` to `dir/<file>`, taking ownership of `dir` (which
+    /// may already hold sibling files, e.g. the spec's mesh).
+    pub fn write_in(dir: Scratch, file: &str, contents: impl AsRef<[u8]>) -> Self {
         let path = dir.join(file);
         std::fs::write(&path, contents).expect("write scratch file");
         Self { path, _dir: dir }

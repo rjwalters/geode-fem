@@ -40,6 +40,10 @@
 //! with a ceiling on the COCG iteration count so a preconditioner
 //! regression shows up even when the answer is still right.
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
+use scratch_support::Scratch;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -85,17 +89,10 @@ fn run_driven_with_solver(spec: &str, solver: serde_json::Value) -> serde_json::
     let mesh = fixtures.join(v["mesh"]["path"].as_str().unwrap());
     v["mesh"]["path"] = mesh.canonicalize().unwrap().display().to_string().into();
     v["solver"] = solver;
-    let dir = std::env::temp_dir().join(format!(
-        "geode-spiral-solver-{}-{}",
-        spec.trim_end_matches(".json"),
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new("geode-spiral-solver-", spec.trim_end_matches(".json"));
     let path = dir.join("spec.json");
     std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
-    let report = run_driven(path.to_str().unwrap(), &[]);
-    std::fs::remove_dir_all(&dir).unwrap();
-    report
+    run_driven(path.to_str().unwrap(), &[])
 }
 
 /// The AMS-preconditioned iterative solver section (issue #744).
@@ -270,8 +267,7 @@ fn assert_library_parity(_: &geode_core::mesh::SpiralFixture, _: &Row) {}
 fn spiral_smoke_golden_matches_committed_sweep() {
     // Also exercises `--touchstone` (issue #703): the `.s1p` must carry
     // exactly the report's S11 over the same (ascending) sweep.
-    let dir = std::env::temp_dir().join(format!("geode-spiral-ts-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new("geode-spiral-ts-", "smoke");
     let ts = dir.join("spiral.s1p");
     let report = run_driven(
         "spiral_golden_smoke.json",
@@ -279,7 +275,6 @@ fn spiral_smoke_golden_matches_committed_sweep() {
     );
     assert_provenance(&report);
     touchstone_support::assert_round_trip(&report, &ts);
-    std::fs::remove_dir_all(&dir).unwrap();
 
     let got = rows(&report);
     let want = committed("results_smoke.toml");

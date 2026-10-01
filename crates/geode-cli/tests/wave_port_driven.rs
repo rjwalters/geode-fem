@@ -15,6 +15,10 @@
 //! [`geode_core::driven::ports::wave_port_from_faces`] ports to round-off,
 //! and report the TE₁₀ cutoff consistently in `k₀` and Hz.
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
+use scratch_support::{Scratch, ScratchFile};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -34,10 +38,9 @@ fn geode(args: &[&str]) -> Output {
         .expect("spawn geode")
 }
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("geode-cli-wave-{}-{name}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// Fresh scratch dir for one test, removed on drop (also on panic).
+fn scratch(name: &str) -> Scratch {
+    Scratch::new("geode-cli-wave-", name)
 }
 
 /// Serialize a tet mesh + named surface groups as Gmsh MSH 4.1 ASCII
@@ -125,7 +128,7 @@ fn write_waveguide(dir: &std::path::Path) -> PathBuf {
 }
 
 /// A two-port wave-port driven spec on the synthetic guide, `edit`ed.
-fn spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> PathBuf {
+fn spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> ScratchFile {
     let dir = scratch(name);
     let mesh = write_waveguide(&dir);
     let mut v = serde_json::json!({
@@ -139,9 +142,7 @@ fn spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> PathBuf {
         "frequencies": { "unit": "k0", "values": [2.5] }
     });
     edit(&mut v);
-    let path = dir.join("spec.json");
-    std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
-    path
+    ScratchFile::write_in(dir, "spec.json", serde_json::to_string_pretty(&v).unwrap())
 }
 
 fn json(out: &Output) -> serde_json::Value {
@@ -202,7 +203,8 @@ fn wave_port_driven_matches_library_and_reports_cutoffs() {
     // Run with --outdir: wave-port field / NTFF export is out of scope
     // (issue #684) — the rows carry no export fields and nothing is
     // written (the directory itself is created up front).
-    let outdir = scratch("driven-outdir").join("fields");
+    let outdir_dir = scratch("driven-outdir");
+    let outdir = outdir_dir.join("fields");
     let out = geode(&[
         "driven",
         spec("driven", |_| {}).to_str().unwrap(),
@@ -386,7 +388,8 @@ fn touchstone_is_rejected_for_wave_ports_before_solving() {
     // Issue #703: a wave-port S-matrix is power-normalized with no real
     // reference impedance, so `--touchstone` must fail fast with
     // `invalid_spec` and never write a placeholder-reference file.
-    let ts = scratch("touchstone").join("guide.s2p");
+    let ts_dir = scratch("touchstone");
+    let ts = ts_dir.join("guide.s2p");
     let out = geode(&[
         "driven",
         spec("touchstone", |_| {}).to_str().unwrap(),

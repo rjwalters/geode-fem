@@ -452,8 +452,12 @@ mod tests {
     /// (issue #713); skipped loudly without Python + scikit-rf.
     #[test]
     fn scikit_rf_reads_two_and_five_port_files() {
-        let dir = std::env::temp_dir().join(format!("geode-skrf-unit-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        // Removed on drop, also if the scikit-rf check panics (issue #766).
+        let tmp = tempfile::Builder::new()
+            .prefix("geode-skrf-unit-")
+            .tempdir()
+            .unwrap();
+        let dir = tmp.path();
         let s2 = |f: f64| {
             vec![
                 vec![[0.11 * f, -0.12], [0.13, 1.0 / 3.0]],
@@ -486,7 +490,6 @@ mod tests {
         std::fs::write(&p5, render(&[], &refs5, &rs).unwrap()).unwrap();
         skrf_support::check("render 2-port", &p2, &refs2, &rows2);
         skrf_support::check("render 5-port", &p5, &refs5, &rows5);
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

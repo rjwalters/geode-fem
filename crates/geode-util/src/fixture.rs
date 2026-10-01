@@ -871,18 +871,37 @@ pub fn preserved_table_block(path: &Path, key: &str, default: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    /// Unique scratch path under the system temp dir (no `tempfile` dep).
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "geode-util-fixture-{}-{nanos}-{name}",
-            std::process::id()
-        ))
+    /// Unique scratch path `<fresh temp dir>/<name>` (not created). The
+    /// temp dir — and anything a test writes under it — is removed on drop,
+    /// also when an assertion panics first (issue #766).
+    struct Scratch {
+        path: std::path::PathBuf,
+        _dir: tempfile::TempDir,
+    }
+
+    impl std::ops::Deref for Scratch {
+        type Target = std::path::Path;
+        fn deref(&self) -> &std::path::Path {
+            &self.path
+        }
+    }
+
+    impl AsRef<std::path::Path> for Scratch {
+        fn as_ref(&self) -> &std::path::Path {
+            &self.path
+        }
+    }
+
+    fn scratch(name: &str) -> Scratch {
+        let dir = tempfile::Builder::new()
+            .prefix("geode-util-fixture-")
+            .tempdir()
+            .unwrap();
+        Scratch {
+            path: dir.path().join(name),
+            _dir: dir,
+        }
     }
 
     #[derive(Serialize)]
@@ -999,7 +1018,6 @@ median_ns = 6.0
         let path = dir.join("nested").join("results.toml");
         write_toml(&path, "[meta]\nx = 1\n").unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "[meta]\nx = 1\n");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1028,7 +1046,6 @@ median_ns = 6.0
             xml.contains("<DataSet timestep=\"2\" group=\"\" part=\"0\" file=\"E_0001.vtu\"/>")
         );
         assert!(xml.trim_end().ends_with("</VTKFile>"));
-        let _ = fs::remove_file(&path);
     }
 
     use serde_json::json;
@@ -1242,8 +1259,8 @@ median_ns = 6.0
     }
 
     /// Write `value` as pretty JSON to a unique scratch file, returning its
-    /// path (caller removes it).
-    fn write_fixture_json(name: &str, value: &serde_json::Value) -> std::path::PathBuf {
+    /// path (removed on drop).
+    fn write_fixture_json(name: &str, value: &serde_json::Value) -> Scratch {
         let path = scratch(name);
         fs::write(&path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
         path
@@ -1253,7 +1270,6 @@ median_ns = 6.0
     fn load_from_round_trips_full_structure() {
         let path = write_fixture_json("roundtrip.json", &representative_fixture_json());
         let fx = Fixture::load_from(&path, FixtureFormat::Json).expect("load ok");
-        let _ = fs::remove_file(&path);
 
         assert_eq!(fx.schema_version, "1");
         assert_eq!(fx.fixture_id, "p1_local/round_trip");
@@ -1285,7 +1301,6 @@ median_ns = 6.0
     fn load_auto_detects_json_by_extension() {
         let path = write_fixture_json("autodetect.json", &representative_fixture_json());
         let fx = Fixture::load(&path).expect("auto-detect json load ok");
-        let _ = fs::remove_file(&path);
         assert_eq!(fx.fixture_id, "p1_local/round_trip");
     }
 
@@ -1298,7 +1313,6 @@ median_ns = 6.0
         v.as_object_mut().unwrap().remove("inputs");
         let path = write_fixture_json("defaults.json", &v);
         let fx = Fixture::load_from(&path, FixtureFormat::Json).expect("load ok");
-        let _ = fs::remove_file(&path);
         assert_eq!(fx.provenance.source, "only source");
         assert_eq!(fx.provenance.verified_against, "");
         assert_eq!(fx.provenance.issue, "");
@@ -1323,7 +1337,6 @@ median_ns = 6.0
         let path = scratch("malformed.json");
         fs::write(&path, b"{ this is : not json ]").unwrap();
         let err = Fixture::load_from(&path, FixtureFormat::Json).unwrap_err();
-        let _ = fs::remove_file(&path);
         assert!(matches!(err, FixtureError::Json(_)), "got {err:?}");
     }
 
@@ -1335,7 +1348,6 @@ median_ns = 6.0
         v.as_object_mut().unwrap().remove("outputs");
         let path = write_fixture_json("missing-outputs.json", &v);
         let err = Fixture::load_from(&path, FixtureFormat::Json).unwrap_err();
-        let _ = fs::remove_file(&path);
         assert!(matches!(err, FixtureError::Json(_)), "got {err:?}");
     }
 
@@ -1346,7 +1358,6 @@ median_ns = 6.0
         v["schema_version"] = json!(1);
         let path = write_fixture_json("wrong-type.json", &v);
         let err = Fixture::load_from(&path, FixtureFormat::Json).unwrap_err();
-        let _ = fs::remove_file(&path);
         assert!(matches!(err, FixtureError::Json(_)), "got {err:?}");
     }
 
@@ -1356,7 +1367,6 @@ median_ns = 6.0
         v["schema_version"] = json!("999");
         let path = write_fixture_json("bad-version.json", &v);
         let err = Fixture::load_from(&path, FixtureFormat::Json).unwrap_err();
-        let _ = fs::remove_file(&path);
         match err {
             FixtureError::UnsupportedSchemaVersion(got, supported) => {
                 assert_eq!(got, "999");
@@ -1371,7 +1381,6 @@ median_ns = 6.0
         // HDF5 is a reserved-but-unwired variant; it errors before any I/O.
         let path = write_fixture_json("hdf.json", &representative_fixture_json());
         let err = Fixture::load_from(&path, FixtureFormat::Hdf5).unwrap_err();
-        let _ = fs::remove_file(&path);
         assert!(matches!(err, FixtureError::HdfNotEnabled), "got {err:?}");
     }
 
@@ -1735,6 +1744,5 @@ median_ns = 6.0
             preserved_table_block(&p, "oracles.palace", "default"),
             "[oracles.palace]\nstatus = \"kept\"\n"
         );
-        fs::remove_file(&p).unwrap();
     }
 }

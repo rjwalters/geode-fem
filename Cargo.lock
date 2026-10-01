@@ -3249,6 +3249,7 @@ name = "geode-app"
 version = "0.7.0"
 dependencies = [
  "clap",
+ "tempfile",
  "thiserror 2.0.18",
 ]
 
@@ -3303,6 +3304,7 @@ dependencies = [
  "num-complex 0.4.6",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "toml 0.8.23",
 ]

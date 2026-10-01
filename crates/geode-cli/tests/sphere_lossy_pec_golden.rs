@@ -37,6 +37,10 @@
 //! same spec edited in a scratch copy). Measured (debug, loaded host):
 //! ~40 s per solve.
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
+use scratch_support::{Scratch, ScratchFile};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -70,7 +74,7 @@ fn run_eigen(spec: &Path, outdir: Option<&Path>) -> serde_json::Value {
 
 /// The fixture with every region's `eps_r` replaced by `ε′(1 − j tan δ)`,
 /// written to a scratch file (mesh path made absolute).
-fn spec_with_tan_delta(tan_d: f64) -> PathBuf {
+fn spec_with_tan_delta(tan_d: f64) -> ScratchFile {
     let raw = std::fs::read_to_string(fixture()).unwrap();
     let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
     let mesh = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -81,12 +85,13 @@ fn spec_with_tan_delta(tan_d: f64) -> PathBuf {
     for m in v["materials"].as_array_mut().unwrap() {
         m["eps_r"] = serde_json::json!([EPS_RE, -EPS_RE * tan_d]);
     }
-    let path = std::env::temp_dir().join(format!(
-        "geode-cli-sphere-lossy-{tan_d}-{}.json",
-        std::process::id()
-    ));
-    std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
-    path
+    let text = serde_json::to_string_pretty(&v).unwrap();
+    ScratchFile::write(
+        "geode-cli-sphere-lossy-",
+        &tan_d.to_string(),
+        "spec.json",
+        text,
+    )
 }
 
 /// Every contract + exact-relation check on one report; returns
@@ -198,9 +203,10 @@ fn assert_complex_fields(report: &serde_json::Value, outdir: &Path) {
 
 #[test]
 fn sphere_lossy_cavity_matches_exact_tan_delta_and_q() {
-    let outdir =
-        std::env::temp_dir().join(format!("geode-cli-sphere-lossy-out-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&outdir);
+    // `--outdir` target must not exist yet: a subpath of a scratch dir
+    // that is removed on drop (also on panic).
+    let outdir_dir = Scratch::new("geode-cli-sphere-lossy-out-", "low");
+    let outdir = outdir_dir.join("out");
     let high = spec_with_tan_delta(0.1);
 
     // Both solves concurrently (each ~40 s in debug).
@@ -209,13 +215,11 @@ fn sphere_lossy_cavity_matches_exact_tan_delta_and_q() {
         let low = run_eigen(&fixture(), Some(&outdir));
         (low, h.join().expect("tan δ = 0.1 solve"))
     });
-    std::fs::remove_file(&high).unwrap();
 
     // The committed fixture is tan δ = 0.0225 / 2.25 = 0.01.
     let mu_low = assert_exact_relations(&low_report, 0.01);
     let mu_high = assert_exact_relations(&high_report, 0.1);
     assert_complex_fields(&low_report, &outdir);
-    std::fs::remove_dir_all(&outdir).unwrap();
     assert!(
         high_report["modes"]
             .as_array()

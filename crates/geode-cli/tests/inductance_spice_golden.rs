@@ -28,6 +28,10 @@
 //!   checked by the parser and (when available) ngspice, with `ret` wired
 //!   to a non-ground node in the testbench.
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
+use scratch_support::Scratch;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -37,11 +41,9 @@ fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-/// Scratch dir unique to this test process + name.
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("geode-lspice-test-{}-{name}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// Fresh scratch dir for one test, removed on drop (also on panic).
+fn scratch(name: &str) -> Scratch {
+    Scratch::new("geode-lspice-test-", name)
 }
 
 fn geode(args: &[&str]) -> Output {
@@ -310,7 +312,6 @@ fn triax_is_two_self_inductors_and_one_coupling() {
 
     assert_reproduces(&report, &net, 1e-15);
     ngspice_check("triax", &out, &l);
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -352,7 +353,6 @@ fn reversed_tube_gives_negative_k_with_unchanged_node_order() {
     assert_header(&net, &report, "triax_reversed.toml");
     assert_reproduces(&report, &net, 1e-15);
     ngspice_check("triax-reversed", &out, &l);
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -376,7 +376,6 @@ fn coax_single_path_is_one_self_inductor() {
     assert_header(&net, &report, "inductance_coax_smoke.json");
     assert_reproduces(&report, &net, 1e-15);
     ngspice_check("coax", &out, &l);
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -418,7 +417,6 @@ fn positive_k_flips_the_reversed_tube_and_keeps_the_port_matrix() {
         }
     }
     ngspice_check_with("triax-reversed-positive-k", &out, &l, false);
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -463,7 +461,6 @@ fn ret_pin_exposes_the_return_as_a_last_port() {
         }
         ngspice_check_with(&format!("triax-reversed-{what}"), &out, &l, true);
     }
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
