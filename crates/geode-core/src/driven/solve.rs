@@ -3897,6 +3897,78 @@ mod tests {
         assert!(ok.residual_rel <= 1e-10);
     }
 
+    /// Issue #744: [`IterativePreconditioner::Ams`] is built by
+    /// `prepare_at` (from the operator's mesh geometry), converges COCG on a
+    /// PEC cube with a lumped-port-free volume source, and matches direct
+    /// LU; the bare `IterativePreconditioner::build` (which only sees
+    /// `A(ω)`) rejects it with a clean error.
+    #[test]
+    fn ams_selectable_on_public_iterative_path_matches_direct() {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[2]).sin(), 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.3),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        // Low frequency: the near-static regime AMS exists for.
+        let omega = 0.05;
+
+        for coarse in [AmsCoarseSolve::Auto, AmsCoarseSolve::Direct] {
+            let settings = IterativeSettings::new(1e-10, 500)
+                .with_preconditioner(IterativePreconditioner::Ams { coarse });
+            let (sol, report) = op
+                .prepare_at::<B>(omega, SolverMode::Iterative(settings), &device())
+                .expect("AMS setup")
+                .solve()
+                .expect("AMS converges");
+            assert!(report.converged && report.iters > 0);
+            assert!(report.residual_rel <= 1e-10);
+            let (sol_lu, _) = op
+                .prepare_at::<B>(omega, SolverMode::Direct, &device())
+                .expect("LU")
+                .solve()
+                .expect("direct solve");
+            let num: f64 = sol
+                .e_edges
+                .iter()
+                .zip(&sol_lu.e_edges)
+                .map(|(a, b)| (a - b).norm_sqr())
+                .sum();
+            let den: f64 = sol_lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
+            let rel = (num / den).sqrt();
+            assert!(rel < 1e-6, "AMS ({coarse:?}) vs direct LU rel err {rel:.3e}");
+        }
+
+        let a = op.assemble_a_at(omega).expect("A(ω)");
+        assert!(matches!(
+            IterativePreconditioner::AMS.build(a.as_ref()),
+            Err(DrivenError::Solve(msg)) if msg.contains("prepare_at")
+        ));
+        assert_eq!(IterativePreconditioner::AMS.name(), "ams");
+        assert_eq!(AmsCoarseSolve::Auto.resolve(10), AmsCoarseSolve::Direct);
+        assert_eq!(
+            AmsCoarseSolve::Auto.resolve(AMS_DIRECT_COARSE_MAX_NODES + 1),
+            AmsCoarseSolve::Amg
+        );
+    }
+
     /// Smoke test: [`IterativePreconditioner::Chebyshev`] also reaches the
     /// **public** [`SolverMode::Iterative`] path (`prepare_at`) — the same
     /// path exercised for ILU(0) above — and converges to an answer that
