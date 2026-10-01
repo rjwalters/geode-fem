@@ -42,17 +42,18 @@
 //! The lowest seven modes of a uniaxial-`ε` and a uniaxial-`μ` fill
 //! (`1.5` on the optic axis) against the closed form:
 //!
-//! * at `n = 16`, every mode within [`REL_TOL`] = 2 % (the cube / sphere
-//!   cavity goldens use 15 %; measured 0.4–1.7 %), tight enough that each
-//!   mode the anisotropy moves is pinned far outside its isotropic value
-//!   (the smallest such shift here is 17 %);
+//! * at `n = 16`, every mode within [`REL_TOL`] = 0.5 % (the cube /
+//!   sphere cavity goldens use 15 %; measured 0.03–0.27 %), far inside
+//!   the shift each anisotropic mode makes off its isotropic value
+//!   (≥ 17 % here);
 //! * **convergence**: each mode's error drops ≥ 2.5× from `n = 8` to
-//!   `n = 16` (measured ~4×, the O(h²) of first-order Nédélec
+//!   `n = 16` (measured 3.9–4.2×, the O(h²) of first-order Nédélec
 //!   eigenvalues) — the discrete spectrum is converging *to the closed
 //!   form*, not merely landing near it.
 //!
 //! A third case checks that the **isotropic** tensor reproduces the scalar
-//! path to round-off.
+//! path to round-off. The PEC walls are eliminated face-exactly (edges on
+//! boundary faces, as `geode eigen` does from tagged triangles).
 //!
 //! Release only (`#[ignore]`d — ~15 s release, minutes in debug):
 //!
@@ -61,12 +62,11 @@
 //! ```
 
 use burn::tensor::backend::BackendTypes;
-use geode_core::assembly::nedelec::cube_pec_interior_edges;
 use geode_core::eigen::pec_cavity::{
     PecCavityMaterials, PecCavitySettings, solve_pec_cavity_modes,
     solve_pec_cavity_modes_with_materials,
 };
-use geode_core::mesh::cube_tet_mesh;
+use geode_core::mesh::{TetMesh, cube_tet_mesh, pec_interior_mask_from_triangles};
 use geode_core::testing::TestBackend;
 
 type B = TestBackend;
@@ -75,13 +75,34 @@ type B = TestBackend;
 const N: usize = 16;
 /// Coarse mesh of the convergence check.
 const N_COARSE: usize = 8;
-/// Per-mode relative tolerance against the closed form.
-const REL_TOL: f64 = 0.02;
+/// Per-mode relative tolerance against the closed form at `n = 16`.
+const REL_TOL: f64 = 0.005;
 /// Modes compared.
 const N_MODES: usize = 7;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
+}
+
+/// Face-exact PEC mask: an edge is eliminated iff it lies on a boundary
+/// face (a face owned by one tet). (`cube_pec_interior_edges`' "both
+/// endpoints on the boundary" rule also eliminates the interior diagonals
+/// joining two boundary faces near the cube's edges — an O(h) artificial
+/// constraint that inflates the coarse-mesh error.)
+fn walls_mask(mesh: &TetMesh) -> Vec<bool> {
+    let mut count = std::collections::HashMap::<[u32; 3], usize>::new();
+    for tet in &mesh.tets {
+        for f in [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]] {
+            let mut key = [tet[f[0]], tet[f[1]], tet[f[2]]];
+            key.sort_unstable();
+            *count.entry(key).or_default() += 1;
+        }
+    }
+    let walls: Vec<[u32; 3]> = count
+        .into_iter()
+        .filter_map(|(k, n)| (n == 1).then_some(k))
+        .collect();
+    pec_interior_mask_from_triangles(&mesh.edges(), &[walls.as_slice()])
 }
 
 /// Analytic uniaxial spectrum `λ/π²`, ascending, with multiplicity.
@@ -110,7 +131,7 @@ fn analytic_over_pi2(eps: [f64; 2], mu: [f64; 2], n_take: usize) -> Vec<f64> {
 /// Lowest `N_MODES` FEM eigenvalues `λ/π²` for a uniform diagonal fill.
 fn fem_over_pi2(n: usize, eps: [f64; 3], mu: [f64; 3]) -> Vec<f64> {
     let mesh = cube_tet_mesh(n, 1.0);
-    let mask = cube_pec_interior_edges(&mesh, 1.0).1;
+    let mask = walls_mask(&mesh);
     let pi2 = std::f64::consts::PI.powi(2);
     let lowest = analytic_over_pi2([eps[0], eps[2]], [mu[0], mu[2]], 1)[0];
     let settings = PecCavitySettings::new(0.7 * lowest * pi2, N_MODES);
@@ -216,7 +237,7 @@ fn uniaxial_permeability_cavity_matches_closed_form() {
 #[ignore = "n = 16 cube eigensolves (~5 s release); run with --release -- --ignored"]
 fn isotropic_tensor_matches_scalar_path() {
     let mesh = cube_tet_mesh(N, 1.0);
-    let mask = cube_pec_interior_edges(&mesh, 1.0).1;
+    let mask = walls_mask(&mesh);
     let pi2 = std::f64::consts::PI.powi(2);
     let e = 2.25;
     let settings = PecCavitySettings::new(0.7 * 2.0 * pi2 / e, N_MODES);

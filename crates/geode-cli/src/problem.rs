@@ -3625,6 +3625,66 @@ mod tests {
         }
     }
 
+    /// `material_tensors` composes an anisotropic material inside a UPML
+    /// shell as `ε = diag(ε_r)·Λ`, `ν = Λ⁻¹·diag(1/μ_r)` (issue #760) —
+    /// diagonal, since the box stretch is — and leaves isotropic tets on
+    /// the scalar `ε_r·Λ` formula.
+    #[test]
+    fn material_tensors_compose_anisotropy_with_upml() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let mut spec = read_spec(&dir.join("patch_extract_smoke.json")).unwrap();
+        spec.materials.push(
+            serde_json::from_value(serde_json::json!({
+                "physical_group": "upml",
+                "eps_r_diag": {"xx": [2.0, -0.1], "yy": [3.0, 0.0], "zz": [4.0, 0.0]},
+                "mu_r_diag": {"xx": 1.0, "yy": 2.0, "zz": 5.0}
+            }))
+            .unwrap(),
+        );
+        let p = load_parsed(spec, &dir, None).unwrap();
+        assert!(p.is_anisotropic() && p.needs_tensor_materials());
+        let centroids = tet_centroids(&p.tagged.mesh);
+        let k0 = 0.05;
+        let (eps_t, nu_t) = p.material_tensors(&p.eps, &centroids, k0);
+        let upml_tag = p.tagged.physical_group_tag(3, "upml").unwrap();
+        let sub_tag = p.tagged.physical_group_tag(3, "substrate").unwrap();
+        let d = [c64::new(2.0, -0.1), c64::new(3.0, 0.0), c64::new(4.0, 0.0)];
+        let m = [1.0, 2.0, 5.0];
+        let (mut n_shell, mut n_sub) = (0, 0);
+        for (t, &tag) in p.tagged.tet_physical_tags.iter().enumerate() {
+            let r = &p.upml[0];
+            let (lam, lam_inv) =
+                box_upml_tensors(centroids[t], r.air_lo, r.air_hi, r.thickness, r.sigma_0, k0);
+            for i in 0..3 {
+                for j in 0..3 {
+                    if tag == upml_tag {
+                        assert_eq!(eps_t[t][i][j], d[i] * lam[i][j]);
+                        assert_eq!(nu_t[t][i][j], lam_inv[i][j] * (1.0 / m[j]));
+                        if i != j {
+                            assert_eq!(eps_t[t][i][j], c64::new(0.0, 0.0));
+                        }
+                    } else if tag == sub_tag && p.upml_of_tet[t].is_none() {
+                        let want = if i == j { p.eps[t] } else { c64::new(0.0, 0.0) };
+                        assert_eq!(eps_t[t][i][j], want);
+                        assert_eq!(nu_t[t][i][j], lam_inv[i][j]);
+                    }
+                }
+            }
+            n_shell += usize::from(tag == upml_tag);
+            n_sub += usize::from(tag == sub_tag);
+        }
+        assert!(n_shell > 0 && n_sub > 0);
+        // The stretch really is complex inside the shell (the composition
+        // is not a no-op).
+        assert!(
+            p.tagged
+                .tet_physical_tags
+                .iter()
+                .zip(&eps_t)
+                .any(|(&tag, e)| tag == upml_tag && e[0][0].im < -0.2)
+        );
+    }
+
     #[test]
     fn hex_is_lowercase_two_digit() {
         assert_eq!(hex(&[0x00, 0xab, 0x0f]), "00ab0f");
