@@ -733,8 +733,55 @@
       ],
       "type": "object"
     },
+    "DebyePole": {
+      "additionalProperties": false,
+      "description": "One pole of a [`DispersionSpec::Debye`] model.",
+      "properties": {
+        "delta_eps": {
+          "description": "Permittivity step `Δε_k` across the relaxation (finite, `≥ 0`).",
+          "format": "double",
+          "type": "number"
+        },
+        "tau_s": {
+          "description": "Relaxation time `τ_k` (s; finite, `> 0`).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "delta_eps",
+        "tau_s"
+      ],
+      "type": "object"
+    },
+    "DebyePoleSummary": {
+      "description": "One Debye pole of a [`DispersionSummary`] (issue #761).",
+      "properties": {
+        "delta_eps": {
+          "description": "Permittivity step `Δε_k`.",
+          "format": "double",
+          "type": "number"
+        },
+        "f_relax_hz": {
+          "description": "Relaxation (loss-peak) frequency `1/(2πτ_k)` (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "tau_s": {
+          "description": "Relaxation time `τ_k` (s).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "delta_eps",
+        "tau_s",
+        "f_relax_hz"
+      ],
+      "type": "object"
+    },
     "DispersionSpec": {
-      "description": "Frequency-dependent relative-permittivity model of a material\n(issue #757), selected by `model`. Further models are added as new\n`model` variants.",
+      "description": "Frequency-dependent relative-permittivity model of a material\n(issues #757, #761), selected by `model`. Further models are added as\nnew `model` variants. All follow the solver's `exp(+jωt)` convention\n(passive: `Im ε_r ≤ 0`).",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -781,26 +828,92 @@
             "f_high_hz"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Multi-pole Debye relaxation (issue #761): `ε_r(f) = ε∞ +\nΣ_k Δε_k / (1 + jωτ_k)`, `ω = 2πf`. Each pole lowers `ε′` by\n`Δε_k` across its relaxation frequency `1/(2πτ_k)`, where its loss\npeaks; `Im ε_r < 0` for `f > 0`.",
+          "properties": {
+            "eps_inf": {
+              "description": "High-frequency permittivity `ε∞` (finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "model": {
+              "const": "debye",
+              "type": "string"
+            },
+            "poles": {
+              "description": "Relaxation poles (at least one).",
+              "items": {
+                "$ref": "#/$defs/DebyePole"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "model",
+            "eps_inf",
+            "poles"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Drude free-carrier model (issue #761): `ε_r(f) = ε∞ − ω_p² / (ω² −\njγω)`, `ω = 2πf` (the textbook `ω² + iγω` is the `exp(−iωt)`\nform). `Re ε_r < 0` below `√(ω_p²/ε∞ − γ²)/(2π)` (when real), which\nthe AMS preconditioner rejects; well below `γ` the model is a\nconductor of `σ = ε₀ω_p²/γ` in a background `ε∞`.",
+          "properties": {
+            "eps_inf": {
+              "description": "Background (high-frequency) permittivity `ε∞` (finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "gamma_rad_s": {
+              "description": "Collision rate `γ` (rad/s; finite, `≥ 0`; `0` is lossless).",
+              "format": "double",
+              "type": "number"
+            },
+            "model": {
+              "const": "drude",
+              "type": "string"
+            },
+            "omega_p_rad_s": {
+              "description": "Plasma angular frequency `ω_p` (rad/s; finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "model",
+            "eps_inf",
+            "omega_p_rad_s",
+            "gamma_rad_s"
+          ],
+          "type": "object"
         }
       ]
     },
     "DispersionSummary": {
-      "description": "A dispersive region's model: the inputs as given, the fitted\nparameters and `ε_r(f)` at every requested frequency (additive in v1,\nissue #757).",
+      "description": "A dispersive region's model: the inputs as given, the fitted /\nderived parameters and `ε_r(f)` at every requested frequency (additive\nin v1, issues #757, #761). Which inputs are present depends on\n`model`.",
       "properties": {
         "delta_eps": {
-          "description": "Fitted permittivity step `Δε = ε_r(0) − ε∞`.",
+          "description": "Permittivity step `Δε = ε_r(0) − ε∞` (fitted for\n`djordjevic_sarkar`; `Σ Δε_k` for `debye`; absent for `drude`,\nwhose DC limit diverges).",
           "format": "double",
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "eps_inf": {
-          "description": "Fitted high-frequency permittivity `ε∞`.",
+          "description": "High-frequency permittivity `ε∞` (fitted for `djordjevic_sarkar`,\nas given for `debye` / `drude`).",
           "format": "double",
           "type": "number"
         },
         "eps_r": {
-          "description": "Real relative permittivity `ε′` at `f_ref_hz` (as given).",
+          "description": "Real relative permittivity `ε′` at `f_ref_hz` (as given;\n`djordjevic_sarkar` only).",
           "format": "double",
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "eps_r_at_frequencies": {
           "description": "`ε_r(f)` `[re, im]` at each entry of the report's `frequencies`, in\nthe same order (empty for a spec without frequencies).",
@@ -816,39 +929,79 @@
           "type": "array"
         },
         "f_high_hz": {
-          "description": "Upper band corner `f₂` (Hz).",
+          "description": "Upper band corner `f₂` (Hz; `djordjevic_sarkar` only).",
           "format": "double",
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "f_low_hz": {
-          "description": "Lower band corner `f₁` (Hz).",
+          "description": "Lower band corner `f₁` (Hz; `djordjevic_sarkar` only).",
           "format": "double",
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "f_ref_hz": {
-          "description": "Reference frequency (Hz).",
+          "description": "Reference frequency (Hz; `djordjevic_sarkar` only — a Debye / Drude\nregion's `eps_r` is the model at the first solved frequency).",
           "format": "double",
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "gamma_rad_s": {
+          "description": "Collision rate `γ` (rad/s; `drude` only).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "model": {
-          "description": "`\"djordjevic_sarkar\"`.",
+          "description": "`\"djordjevic_sarkar\"`, `\"debye\"` or `\"drude\"`.",
           "type": "string"
         },
-        "tan_delta": {
-          "description": "Loss tangent at `f_ref_hz` (as given).",
+        "omega_p_rad_s": {
+          "description": "Plasma angular frequency `ω_p` (rad/s; `drude` only).",
           "format": "double",
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "poles": {
+          "description": "Relaxation poles as given (`debye` only).",
+          "items": {
+            "$ref": "#/$defs/DebyePoleSummary"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "re_eps_zero_hz": {
+          "description": "Frequency (Hz) where `Re ε_r` crosses zero, `√(ω_p²/ε∞ − γ²)/(2π)`;\n`Re ε_r < 0` below it, which `solver.preconditioner = \"ams\"`\nrejects (`drude` only, when `ω_p²/ε∞ > γ²`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tan_delta": {
+          "description": "Loss tangent at `f_ref_hz` (as given; `djordjevic_sarkar` only).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
         }
       },
       "required": [
         "model",
-        "eps_r",
-        "tan_delta",
-        "f_ref_hz",
-        "f_low_hz",
-        "f_high_hz",
         "eps_inf",
-        "delta_eps",
         "eps_r_at_frequencies"
       ],
       "type": "object"
@@ -3247,7 +3400,7 @@
           "type": "array"
         },
         "eps_r_source": {
-          "description": "`\"spec\"`, `\"default_vacuum\"` or (issue #757) `\"dispersion\"` — for\nwhich `eps_r` is the model at its reference frequency `f_ref_hz`.",
+          "description": "`\"spec\"`, `\"default_vacuum\"` or (issue #757) `\"dispersion\"` — for\nwhich `eps_r` is the model at its reference frequency: `f_ref_hz`\nfor `djordjevic_sarkar`, the first solved frequency for `debye` /\n`drude` (issue #761).",
           "type": "string"
         },
         "mu_r": {

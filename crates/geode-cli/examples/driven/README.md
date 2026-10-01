@@ -144,3 +144,59 @@ Silicon at `tan δ = 0.005` disperses little — `ε′` falls 1 % from 1 to
 conductor-dominated spiral; for an FR-4 laminate (`4.3`, `0.02`) `ε′`
 falls ~3 % per decade. `tests/dispersive_golden.rs` pins every row to a
 constant-ε run at that row's `ε_r(f)`.
+
+## Debye and Drude substrates (issue #761)
+
+Two more `dispersion` models on the same spiral (see the
+[CLI README](../../README.md#models) for the formulas and rules):
+
+* `spiral_inductor_debye.json` (copy of
+  `tests/fixtures/spiral_debye_smoke.json`) — an illustrative **two-pole
+  Debye** substrate, relaxations at ≈ 3 GHz and ≈ 30 GHz:
+
+  ```json
+  "dispersion": {
+    "model": "debye", "eps_inf": 10.0,
+    "poles": [{"delta_eps": 1.5, "tau_s": 5.3e-11}, {"delta_eps": 0.5, "tau_s": 5.3e-12}]
+  }
+  ```
+
+* `spiral_inductor_drude.json` (copy of
+  `tests/fixtures/spiral_drude_smoke.json`) — **Drude 10 Ω·cm n-type
+  silicon**: lattice `ε∞ = 11.9`, `γ = e/(m*μ) = 5.0e12 rad/s`,
+  `ω_p = √(σγ/ε₀) = 2.38e12 rad/s` for `σ = 10 S/m`. At GHz `ω ≪ γ`, so
+  the carriers act as a conductor: `Im ε ≈ −σ/(ωε₀)`, and `Re ε` drops
+  only by `ω_p²/γ² = 0.23`:
+
+  ```json
+  "dispersion": {
+    "model": "drude", "eps_inf": 11.9, "omega_p_rad_s": 2.38e12, "gamma_rad_s": 5.0e12
+  }
+  ```
+
+```sh
+geode check  crates/geode-cli/examples/driven/spiral_inductor_drude.json   # regions[].dispersion: omega_p, gamma, eps_r(f)
+geode driven crates/geode-cli/examples/driven/spiral_inductor_debye.json -o spiral_debye.json
+geode driven crates/geode-cli/examples/driven/spiral_inductor_drude.json -o spiral_drude.json
+```
+
+Expected (`r_ohm`, `l_h` = `Re Z`, `Im Z/ω`; constant-ε values from the
+table above):
+
+| f (GHz) | Debye `eps_r` | Drude Si `eps_r` | `r_ohm` (Ω) constant / Debye / Drude | `l_h` (nH) constant / Debye / Drude |
+|---|---|---|---|---|
+| 1  | [11.850, −0.4663] | [11.673, −180.30] | 0.635 / 0.635 / 0.635 | 0.848 / 0.848 / 0.848 |
+| 5  | [10.884, −0.7431] | [11.673, −36.06]  | 1.690 / 1.693 / 1.745 | 0.794 / 0.794 / 0.797 |
+| 10 | [10.574, −0.5631] | [11.673, −18.03]  | 2.772 / 2.789 / 3.231 | 0.811 / 0.810 / 0.815 |
+| 20 | [10.379, −0.4509] | [11.673, −9.009]  | 6.168 / 6.302 / 9.921 | 0.965 / 0.959 / 0.973 |
+
+The Debye loss tangent peaks near the 3 GHz relaxation (0.039 → 0.068 →
+0.053 → 0.043) while `ε′` falls 12 %; on this conductor-dominated spiral
+that moves `R` by ≤ 2.2 %. The conductive silicon is the classic
+spiral-on-CMOS-substrate loss: `R` at 20 GHz rises 61 % over the
+`tan δ = 0.005` silicon. `tests/dispersive_golden.rs` pins every row of
+both to a constant-ε run at that row's `ε_r(f)`, and the AMS solve of
+both to direct LU (`--ignored`, release). A Drude **plasma** with
+`Re ε < 0` (below `f₀ = re_eps_zero_hz`, echoed by `geode check`) solves
+with `solver.mode = "direct"`; with `solver.preconditioner = "ams"` it is
+`invalid_spec` (the AMS SPD proxy needs `Re ε > 0`).
