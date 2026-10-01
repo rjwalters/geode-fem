@@ -3953,7 +3953,10 @@ mod tests {
                 .sum();
             let den: f64 = sol_lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
             let rel = (num / den).sqrt();
-            assert!(rel < 1e-6, "AMS ({coarse:?}) vs direct LU rel err {rel:.3e}");
+            assert!(
+                rel < 1e-6,
+                "AMS ({coarse:?}) vs direct LU rel err {rel:.3e}"
+            );
         }
 
         let a = op.assemble_a_at(omega).expect("A(ω)");
