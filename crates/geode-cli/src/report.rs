@@ -330,6 +330,24 @@ pub struct WavePortSummary {
     pub a_inc: Vec<Complex>,
     /// Solved modes (`driven` reports); `null` in `check` (no modal solve).
     pub modes: Option<Vec<WaveModeSummary>>,
+    /// The homogeneous medium filling the guide at the port face (issue
+    /// #777; additive in v1).
+    pub medium: WavePortMediumSummary,
+}
+
+/// The medium filling a wave port's guide (issue #777): every volume tet
+/// touching the port face carries this one material.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct WavePortMediumSummary {
+    /// Volume physical groups touching the port face (sorted).
+    pub physical_groups: Vec<String>,
+    /// Transverse relative permittivity `ε_t` `[re, im]` (a dispersive
+    /// fill at its reference frequency, as `regions[].eps_r`).
+    pub eps_r_t: Complex,
+    /// Transverse relative permeability `μ_t`.
+    pub mu_r_t: f64,
+    /// Relative permeability `μ_n` along the port normal.
+    pub mu_r_n: f64,
 }
 
 /// One lumped port.

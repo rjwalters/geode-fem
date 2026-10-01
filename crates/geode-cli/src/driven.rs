@@ -793,7 +793,9 @@ pub fn wave_sweep(
         }),
     );
     let t0 = Instant::now();
-    let ports: Vec<WavePort> = p
+    // The modes and k_c are geometric (ε-independent); each port's fill
+    // medium (issue #777) is set per solve call below.
+    let mut ports: Vec<WavePort> = p
         .wave_ports
         .iter()
         .map(|w| {
@@ -815,7 +817,11 @@ pub fn wave_sweep(
     let surfaces = impedance_walls(p);
     let mut channel = n_lumped;
     let mut summaries = crate::check::wave_port_summaries(p);
-    for (summary, port) in summaries.iter_mut().zip(&ports) {
+    // Filled-guide cutoff `k_c/√(Re ε_t·μ_n)`, with a dispersive fill
+    // evaluated at the first sweep frequency.
+    let first_hz = p.frequencies.first().map_or(0.0, |f| f.hz);
+    for ((summary, port), w) in summaries.iter_mut().zip(&ports).zip(&p.wave_ports) {
+        let medium = p.port_medium_at(w, first_hz);
         summary.modes = Some(
             port.modes
                 .iter()
@@ -826,7 +832,7 @@ pub fn wave_sweep(
                         mode,
                         channel: channel - 1,
                         k_c: m.k_c,
-                        cutoff_hz: m.k_c * hz_per_k0,
+                        cutoff_hz: medium.cutoff_k0(m.k_c) * hz_per_k0,
                     }
                 })
                 .collect(),
@@ -841,6 +847,12 @@ pub fn wave_sweep(
     };
     let mut done = 0_usize;
     let points: Vec<ChannelPoint> = per_material_sweep(p, |materials, w| {
+        // Port fill at this call's (first) frequency: per frequency for a
+        // dispersive fill, else the constant fill (the batched call).
+        let hz = p.frequencies[done].hz;
+        for (port, def) in ports.iter_mut().zip(&p.wave_ports) {
+            port.medium = p.port_medium_at(def, hz);
+        }
         let pts: Vec<ChannelPoint> = if lumped.is_empty() {
             solve_wave_port_sweep_with_mode::<B>(
                 &p.tagged.mesh,
@@ -919,7 +931,10 @@ pub fn wave_sweep(
                     port,
                     mode: m,
                     beta: pair(beta),
-                    propagating: beta.re > 0.0,
+                    // Lossless: β real (propagating) or −j|β|. A lossy
+                    // fill makes β complex; a channel propagates when
+                    // Re β > |Im β| (Re β² > 0: above the lossless cutoff).
+                    propagating: beta.re > beta.im.abs(),
                     s: pair(skk),
                     s_db: 20.0 * skk.norm().log10(),
                 });
