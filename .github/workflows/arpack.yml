@@ -126,12 +126,17 @@ jobs:
       # Issue #708: `rom_sweep` (the adaptive-sweep PROM behind `geode
       # driven`'s `sweep.adaptive`, now with impedance surfaces and block
       # per-port drives) — named here for the same reason; ~2 s in release.
+      #
+      # Issue #759: `mixed_port` (lumped + wave ports in one operator:
+      # lumped block vs the Z route, sheet closed forms, reciprocity,
+      # passivity) — same reason; < 1 s in release.
       - name: Open-path current excitation + surface-not-on-mesh error contract + PROM sweep
         run: |
           cargo test --features arpack -p geode-core --release \
               --test current_path \
               --test surface_not_on_mesh \
-              --test rom_sweep
+              --test rom_sweep \
+              --test mixed_port
 
       # Issue #760: diagonal anisotropic materials — the lossless
       # tensor cavity pencil and diagonal-nu magnetostatics unit tests

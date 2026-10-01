@@ -51,6 +51,13 @@
 //!   run [`solve_wave_port_sweep_with_mode`] (per frequency with UPML,
 //!   batched otherwise). The result is a power-normalized channel
 //!   S-matrix; wave ports define no port impedance.
+//! * **Mixed lumped + wave ports** (issue #759) run
+//!   [`solve_mixed_port_sweep_with_mode`] instead: the lumped loads join
+//!   the base operator, the modal terms the same SMW update, and the
+//!   S-matrix is a power-wave matrix over the lumped ports (spec order)
+//!   followed by the wave channels (port-major, mode-minor). Wave channel
+//!   numbers are offset by the lumped-port count. Specs with only one port
+//!   kind take the unchanged pure-lumped / pure-wave paths.
 //!
 //! # Material sensitivities (`sensitivity`, issue #739)
 //!
@@ -87,7 +94,8 @@ use geode_core::driven::extraction::{
     SMatrix, SParameterSweepPoint, s_parameter_operator, s_parameter_point, z_from_port_readbacks,
 };
 use geode_core::driven::ports::{
-    LumpedPort, WavePort, WavePortSweepPoint, solve_wave_port_sweep_with_mode,
+    LumpedPort, MixedPortSweepPoint, WavePort, WavePortSweepPoint,
+    solve_mixed_port_sweep_with_mode, solve_wave_port_sweep_with_mode,
 };
 use geode_core::driven::rom::{DrivenRom, RomDrive, RomError, RomExcitationPoint, RomSettings};
 use geode_core::driven::scattering::flux_power_box;
@@ -191,7 +199,7 @@ pub fn run(
         if out.is_some() {
             eprintln!(
                 "note: --outdir: field / far-field export is not supported for wave-port specs \
-                 (lumped ports only); nothing exported"
+                 (pure or mixed with lumped ports; lumped-only specs export); nothing exported"
             );
         }
         wave_sweep(&p, opts)?
@@ -759,7 +767,10 @@ fn reduced_z(
 
 /// Wave-port sweep over `p.frequencies`: solve each port's cross-section
 /// modes, run the rank-N SMW wave-port sweep, and report the channel
-/// S-matrix plus the ports' solved modes. Serial: `opts.jobs` is not
+/// S-matrix plus the ports' solved modes. A spec that also has lumped
+/// `ports` runs the mixed sweep ([`solve_mixed_port_sweep_with_mode`],
+/// issue #759): lumped ports lead the S-matrix and the wave channel
+/// numbers are offset by their count. Serial: `opts.jobs` is not
 /// applied (noted on stderr when `> 1`), and the `point` progress events
 /// follow the library sweep (all at once without UPML, per frequency
 /// with it).
@@ -797,7 +808,11 @@ pub fn wave_sweep(
     // k₀ → Hz for the cutoff report (k₀ is linear in f).
     let hz_per_k0 =
         crate::problem::to_frequency(1.0, crate::spec::FrequencyUnit::K0, p.length_unit_m()).hz;
-    let mut channel = 0;
+    // Mixed specs (issue #759) number the lumped ports first.
+    let lumped = lumped_ports(p);
+    let n_lumped = lumped.len();
+    let surfaces = impedance_walls(p);
+    let mut channel = n_lumped;
     let mut summaries = crate::check::wave_port_summaries(p);
     for (summary, port) in summaries.iter_mut().zip(&ports) {
         summary.modes = Some(
@@ -824,17 +839,38 @@ pub fn wave_sweep(
         pec_interior_mask: &p.pec_mask,
     };
     let mut done = 0_usize;
-    let points: Vec<WavePortSweepPoint> = per_material_sweep(p, |materials, w| {
-        let pts = solve_wave_port_sweep_with_mode::<B>(
-            &p.tagged.mesh,
-            materials,
-            None,
-            &bcs,
-            &ports,
-            w,
-            mode,
-            &device,
-        )?;
+    let points: Vec<ChannelPoint> = per_material_sweep(p, |materials, w| {
+        let pts: Vec<ChannelPoint> = if lumped.is_empty() {
+            solve_wave_port_sweep_with_mode::<B>(
+                &p.tagged.mesh,
+                materials,
+                None,
+                &bcs,
+                &ports,
+                w,
+                mode,
+                &device,
+            )?
+            .into_iter()
+            .map(ChannelPoint::from)
+            .collect()
+        } else {
+            solve_mixed_port_sweep_with_mode::<B>(
+                &p.tagged.mesh,
+                materials,
+                None,
+                &bcs,
+                &lumped,
+                &ports,
+                &surfaces,
+                w,
+                mode,
+                &device,
+            )?
+            .into_iter()
+            .map(ChannelPoint::from)
+            .collect()
+        };
         for pt in &pts {
             progress.emit(
                 "point",
@@ -853,7 +889,7 @@ pub fn wave_sweep(
 
     let mut results = Vec::with_capacity(points.len());
     for (index, (pt, f)) in points.iter().zip(&p.frequencies).enumerate() {
-        let n = pt.n_channels;
+        let n = pt.n;
         if !pt.residual_rel.is_finite() {
             return Err(CliError::NonFinite {
                 index,
@@ -870,11 +906,13 @@ pub fn wave_sweep(
             });
         }
         let mut wave_channels = Vec::with_capacity(n);
+        let mut wave_idx = 0;
         for (port, &k) in pt.port_mode_counts.iter().enumerate() {
             for m in 0..k {
-                let c = pt.channel_index(port, m);
+                let c = pt.n_lumped + wave_idx;
                 let skk = pt.s[c * n + c];
-                let beta = pt.beta[c];
+                let beta = pt.beta[wave_idx];
+                wave_idx += 1;
                 wave_channels.push(WaveChannelResult {
                     channel: c,
                     port,
@@ -924,6 +962,48 @@ pub fn wave_sweep(
         },
         summaries,
     ))
+}
+
+/// One frequency of a wave-port or mixed sweep, in the shape the report
+/// conversion needs: the row-major `n × n` S-matrix whose leading
+/// `n_lumped` rows / columns are the lumped ports (zero for a pure-wave
+/// spec), then the wave channels port-major, mode-minor with their `β`.
+struct ChannelPoint {
+    residual_rel: f64,
+    s: Vec<c64>,
+    n: usize,
+    n_lumped: usize,
+    beta: Vec<c64>,
+    port_mode_counts: Vec<usize>,
+    iters_per_rhs: Vec<usize>,
+}
+
+impl From<WavePortSweepPoint> for ChannelPoint {
+    fn from(pt: WavePortSweepPoint) -> Self {
+        Self {
+            residual_rel: pt.residual_rel,
+            s: pt.s,
+            n: pt.n_channels,
+            n_lumped: 0,
+            beta: pt.beta,
+            port_mode_counts: pt.port_mode_counts,
+            iters_per_rhs: pt.iters_per_rhs,
+        }
+    }
+}
+
+impl From<MixedPortSweepPoint> for ChannelPoint {
+    fn from(pt: MixedPortSweepPoint) -> Self {
+        Self {
+            residual_rel: pt.residual_rel,
+            s: pt.s,
+            n: pt.n_ports,
+            n_lumped: pt.n_lumped,
+            beta: pt.beta,
+            port_mode_counts: pt.port_mode_counts,
+            iters_per_rhs: pt.iters_per_rhs,
+        }
+    }
 }
 
 /// Per-row field / NTFF exporter for a lumped-port spec: the

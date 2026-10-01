@@ -41,9 +41,12 @@
 //!   matrix row on its own line(s) of at most four complex pairs.
 //!
 //! Only **lumped-port** specs are supported: a wave-port S-matrix is
-//! power-normalized per channel with no real reference impedance, and a
-//! placeholder `[Reference]` would silently mislabel it for every
-//! downstream tool. `geode eigen` has no network parameters at all.
+//! power-normalized per channel with no real reference impedance (its
+//! effective reference is the modal wave impedance `Z_TE(ω) = ωμ/β`,
+//! which varies with frequency), and a placeholder `[Reference]` would
+//! silently mislabel it for every downstream tool. A **mixed** lumped +
+//! wave-port spec (issue #759) is rejected for the same reason: its wave
+//! channels share that frequency-dependent reference. `geode eigen` has no network parameters at all.
 //! Both are rejected before any solve runs.
 
 use std::fmt::Write as _;
@@ -63,9 +66,11 @@ use crate::report::{FileRef, FrequencyResult, Provenance};
 pub fn validate(p: &Problem, path: &Path) -> Result<(), CliError> {
     if !p.wave_ports.is_empty() {
         return Err(unsupported(
-            "wave-port specs are not supported: their S-matrix is power-normalized per mode \
-             channel with no real reference impedance, so a Touchstone [Reference] line would \
-             mislabel it; use the JSON report's results[].s / wave_channels[] instead",
+            "wave-port specs (including mixed lumped + wave-port specs) are not supported: a \
+             wave channel's S is power-normalized to its own modal wave impedance \
+             Z_TE(ω) = ωμ/β, which varies with frequency, so a constant Touchstone [Reference] \
+             line would mislabel it; use the JSON report's results[].s / wave_channels[] \
+             instead",
         ));
     }
     if p.ports.is_empty() {

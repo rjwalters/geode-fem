@@ -1110,7 +1110,7 @@
           "description": "The Touchstone 2.0 `.sNp` written by `--touchstone` (additive in\nv1; present only with that flag)."
         },
         "wave_ports": {
-          "description": "Wave ports with their solved modes (additive in v1; present only\nfor wave-port specs).",
+          "description": "Wave ports with their solved modes (additive in v1; present only\nfor wave-port and mixed specs).",
           "items": {
             "$ref": "#/$defs/WavePortSummary"
           },
@@ -1878,7 +1878,7 @@
       "type": "object"
     },
     "FrequencyResult": {
-      "description": "One frequency point of a driven sweep.\n\nFor a **wave-port** spec there is no port impedance: `z_ohm` and\n`ports` are empty, `y_s` is `null`, `s` is the power-normalized\nchannel S-matrix (port-major, mode-minor) and `wave_channels` carries\nthe per-channel `β` / `S_kk`.",
+      "description": "One frequency point of a driven sweep.\n\nFor a **wave-port** spec there is no port impedance: `z_ohm` and\n`ports` are empty, `y_s` is `null`, `s` is the power-normalized\nchannel S-matrix (port-major, mode-minor) and `wave_channels` carries\nthe per-channel `β` / `S_kk`.\n\nA **mixed** lumped + wave-port spec (issue #759) has no impedance\nmatrix either (`z_ohm` / `ports` empty, `y_s` `null`): `s` is the\npower-wave S-matrix over the lumped ports first (spec order, reference\n= each port's `resistance_ohm`), then the wave channels (port-major,\nmode-minor, power-normalized), and `wave_channels[].channel` is offset\nby the lumped-port count.",
       "properties": {
         "far_field": {
           "anyOf": [
@@ -1976,7 +1976,7 @@
           ]
         },
         "wave_channels": {
-          "description": "Per-channel wave-port quantities (additive in v1; present only for\nwave-port specs).",
+          "description": "Per-channel wave-port quantities (additive in v1; present only for\nwave-port and mixed specs).",
           "items": {
             "$ref": "#/$defs/WaveChannelResult"
           },
@@ -3400,7 +3400,7 @@
         },
         "ports": {
           "default": [],
-          "description": "Lumped ports. A `driven` / `extract` spec needs at least one lumped\nport **or** (driven only) at least one wave port; an `eigen` spec\nmust have none (lumped ports are driven resistive terminations; the\neigen solve computes source-free resonances).",
+          "description": "Lumped ports. A `driven` / `extract` spec needs at least one lumped\nport **or** (driven only) at least one wave port; a `driven` spec\nmay also mix both kinds (issue #759); an `eigen` spec must have none\n(lumped ports are driven resistive terminations; the eigen solve\ncomputes source-free resonances).",
           "items": {
             "$ref": "#/$defs/LumpedPortSpec"
           },
@@ -3444,7 +3444,7 @@
         },
         "wave_ports": {
           "default": [],
-          "description": "Wave (modal) ports on planar surface physical groups (additive in\nv1, issue #683). `driven` specs only, and in v1 mutually exclusive\nwith lumped `ports` and with Leontovich / Silver-Müller walls.",
+          "description": "Wave (modal) ports on planar surface physical groups (additive in\nv1, issue #683). `driven` specs only; not combinable with\nLeontovich / Silver-Müller walls. They may be mixed with lumped\n`ports` (issue #759): the S-matrix then lists the lumped ports\nfirst, then the wave channels (port-major, mode-minor), and\n`--touchstone`, `sweep.adaptive` and `sensitivity` are rejected.",
           "items": {
             "$ref": "#/$defs/WavePortSpec"
           },
@@ -3595,7 +3595,7 @@
           "type": "integer"
         },
         "n_rhs_per_frequency": {
-          "description": "Right-hand sides per frequency (ports, or `2 × channels` for wave\nports; `0` for eigen; `1` per factorization for inductance).",
+          "description": "Right-hand sides per frequency (ports, or `2 × channels` for wave\nports — `2 × channels + lumped ports` for a mixed spec; `0` for\neigen; `1` per factorization for inductance).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -4339,7 +4339,7 @@
           "type": "array"
         },
         "channel": {
-          "description": "Flat channel index (row/column of `s`).",
+          "description": "Flat channel index (row/column of `s`); offset by the lumped-port\ncount in a mixed lumped + wave-port spec (issue #759).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -4391,7 +4391,7 @@
       "description": "One solved cross-section mode of a wave port.",
       "properties": {
         "channel": {
-          "description": "Flat S-matrix channel index (port-major, mode-minor).",
+          "description": "Flat S-matrix channel index (port-major, mode-minor), offset by\nthe lumped-port count in a mixed lumped + wave-port spec (issue\n#759: lumped ports occupy rows/columns `0..N_l`).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"

@@ -204,8 +204,9 @@ pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
     } else if n_paths.is_some() {
         1
     } else if n_channels > 0 {
-        // The SMW column solves, then the excitations.
-        2 * n_channels
+        // The SMW column solves, then the excitations (every lumped port
+        // and wave channel of a mixed spec, issue #759).
+        n_channels + p.ports.len() + n_channels
     } else {
         p.ports.len()
     };

@@ -1079,7 +1079,7 @@
     },
     "ports": {
       "default": [],
-      "description": "Lumped ports. A `driven` / `extract` spec needs at least one lumped\nport **or** (driven only) at least one wave port; an `eigen` spec\nmust have none (lumped ports are driven resistive terminations; the\neigen solve computes source-free resonances).",
+      "description": "Lumped ports. A `driven` / `extract` spec needs at least one lumped\nport **or** (driven only) at least one wave port; a `driven` spec\nmay also mix both kinds (issue #759); an `eigen` spec must have none\n(lumped ports are driven resistive terminations; the eigen solve\ncomputes source-free resonances).",
       "items": {
         "$ref": "#/$defs/LumpedPortSpec"
       },
@@ -1123,7 +1123,7 @@
     },
     "wave_ports": {
       "default": [],
-      "description": "Wave (modal) ports on planar surface physical groups (additive in\nv1, issue #683). `driven` specs only, and in v1 mutually exclusive\nwith lumped `ports` and with Leontovich / Silver-Müller walls.",
+      "description": "Wave (modal) ports on planar surface physical groups (additive in\nv1, issue #683). `driven` specs only; not combinable with\nLeontovich / Silver-Müller walls. They may be mixed with lumped\n`ports` (issue #759): the S-matrix then lists the lumped ports\nfirst, then the wave channels (port-major, mode-minor), and\n`--touchstone`, `sweep.adaptive` and `sensitivity` are rejected.",
       "items": {
         "$ref": "#/$defs/WavePortSpec"
       },

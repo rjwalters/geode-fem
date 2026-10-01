@@ -764,8 +764,9 @@ pub fn load_parsed(
             if analysis == Analysis::Extract && !spec.wave_ports.is_empty() {
                 return Err(invalid(
                     "an extract spec cannot have `wave_ports`: L / R / Q and L0 come from the \
-                     lumped-port impedance Z_kk, which a wave port does not define — use \
-                     lumped `ports`",
+                     lumped-port impedance Z_kk, which a wave port does not define (a mixed \
+                     lumped + wave-port network has no Z-matrix either; mixed specs are \
+                     `driven`-only) — use lumped `ports` only",
                 ));
             }
             if spec.ports.is_empty() && spec.wave_ports.is_empty() {
@@ -1713,8 +1714,8 @@ fn validate_sweep(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError
     let remedy = "remove `sweep.adaptive` to run the dense sweep";
     if !spec.wave_ports.is_empty() {
         return Err(invalid(format!(
-            "sweep.adaptive does not support `wave_ports` (the reduced-order model projects \
-             lumped-port operators only); {remedy}"
+            "sweep.adaptive does not support `wave_ports`, alone or mixed with lumped `ports` \
+             (the reduced-order model projects lumped-port operators only); {remedy}"
         )));
     }
     if !spec.absorbing_regions.is_empty() {
@@ -2571,12 +2572,6 @@ fn validate_open_boundaries(spec: &ProblemSpec) -> Result<(), CliError> {
     }
     if spec.wave_ports.is_empty() {
         return Ok(());
-    }
-    if !spec.ports.is_empty() {
-        return Err(invalid(
-            "a spec may have lumped `ports` or `wave_ports`, not both (mixing the two port \
-             kinds in one operator is not supported in schema v1)",
-        ));
     }
     let bcs = &spec.boundary_conditions;
     if !bcs.leontovich.is_empty() || !bcs.silver_muller.is_empty() {
