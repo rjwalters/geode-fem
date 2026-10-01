@@ -406,8 +406,9 @@ fn mesh_dependent_open_boundary_errors_are_invalid_spec() {
 
 #[test]
 fn touchstone_is_rejected_for_wave_ports_before_solving() {
-    // Issue #703: a wave-port S-matrix is power-normalized with no real
-    // reference impedance, so `--touchstone` must fail fast with
+    // Issues #703 / #775: a wave-port S-matrix is referenced to each
+    // mode's own frequency-dependent Z_TE, so `--touchstone` without a
+    // `wave_ports[].reference_ohm` to renormalize to must fail fast with
     // `invalid_spec` and never write a placeholder-reference file.
     let ts_dir = scratch("touchstone");
     let ts = ts_dir.join("guide.s2p");
@@ -419,7 +420,7 @@ fn touchstone_is_rejected_for_wave_ports_before_solving() {
     ]);
     let msg = error_message(&out, "driven", "invalid_spec");
     assert!(
-        msg.contains("--touchstone") && msg.contains("wave-port"),
+        msg.contains("--touchstone") && msg.contains("reference_ohm is required"),
         "{msg}"
     );
     assert!(!ts.exists(), "no file written");
@@ -1280,7 +1281,7 @@ fn mixed_specs_reject_touchstone_and_adaptive_before_solving() {
     ]);
     let msg = error_message(&out, "driven", "invalid_spec");
     assert!(
-        msg.contains("--touchstone") && msg.contains("mixed lumped + wave-port"),
+        msg.contains("--touchstone") && msg.contains("wave_ports[port_in]"),
         "{msg}"
     );
     assert!(!ts.exists(), "no file written");

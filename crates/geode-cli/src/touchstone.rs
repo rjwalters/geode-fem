@@ -21,14 +21,16 @@
 //! [End]
 //! ```
 //!
-//! * **Parameter**: `S` only (the report's `results[].s`, referenced to
-//!   each port's `resistance_ohm`). `Z` / `Y` export is a non-goal of
-//!   this phase.
-//! * **Format**: `RI` — the report's `[re, im]` pairs copied verbatim, no
-//!   polar conversion.
+//! * **Parameter**: `S` only. For a lumped-port spec, the report's
+//!   `results[].s`, referenced to each port's `resistance_ohm`; for a
+//!   wave-port or mixed spec, its renormalization (below). `Z` / `Y`
+//!   export is a non-goal of this phase.
+//! * **Format**: `RI` — for a lumped-port spec the report's `[re, im]`
+//!   pairs copied verbatim, no polar conversion.
 //! * **Frequency unit**: `HZ` — the report's `frequency_hz`, no rescaling.
 //! * **Numbers** use Rust's shortest round-trip `{:e}` formatting, so
-//!   parsing the file back yields the report's `f64` values bit for bit.
+//!   parsing a lumped-port file back yields the report's `f64` values bit
+//!   for bit.
 //! * **Ordering**: rows are written in **ascending frequency** (a
 //!   `driven` spec's frequencies are solved in spec order, which need not
 //!   be ascending; the writer sorts). Duplicate frequencies cannot be
@@ -565,49 +567,10 @@ pub fn wave_network(
         .chain(plan.kept.iter().map(|c| c.channel))
         .collect();
 
-    let mut comments = head;
-    comments.push(
-        "S renormalized: lumped vs resistance_ohm, wave channels vs wave_ports[].reference_ohm \
-         (modal V = unit-norm modal amplitude, Z_c = Z_TE = eta0*k0*mu_t/beta); RI; Hz"
-            .to_string(),
-    );
-    comments.push(
-        "Convention: Z_c = Z_TE (as openEMS RefImpedance); HFSS Zpi/Zpv/Zvi differ by an ideal \
-         transformer, so renormalized |S| is convention-dependent; the JSON report's modal \
-         results[].s is the cross-tool comparable quantity"
-            .to_string(),
-    );
-    for c in &plan.excluded {
-        comments.push(format!(
-            "Excluded: {} is evanescent at every frequency (terminated in its own modal \
-             impedance, not written)",
-            channel_label(p, c)
-        ));
-    }
-    for (k, q) in p.ports.iter().enumerate() {
-        comments.push(format!(
-            "Port[{}] = lumped {} (JSON channel {k})",
-            k + 1,
-            q.surface.name
-        ));
-    }
-    for (k, c) in plan.kept.iter().enumerate() {
-        comments.push(format!(
-            "Port[{}] = {}",
-            n_lumped + k + 1,
-            channel_label(p, c)
-        ));
-    }
-    let comments: Vec<String> = comments.into_iter().map(sanitize).collect();
-    if let Some((c, k)) = comments
-        .iter()
-        .find_map(|c| reserved_in_comment(c).map(|k| (c, k)))
-    {
-        return Err(unsupported(&format!(
-            "the Touchstone comment {c:?} would carry the scikit-rf keyword {k:?}, which a \
-             reader could take as data; rename the physical group or spec path"
-        )));
-    }
+    let lumped: Vec<&str> = p.ports.iter().map(|q| q.surface.name.as_str()).collect();
+    let kept: Vec<String> = plan.kept.iter().map(|c| channel_label(p, c)).collect();
+    let excluded: Vec<String> = plan.excluded.iter().map(|c| channel_label(p, c)).collect();
+    let comments = wave_comments(head, &lumped, &kept, &excluded)?;
 
     let mut rows = Vec::with_capacity(results.len());
     for r in results {
@@ -653,6 +616,59 @@ pub fn wave_network(
         rows.push((r.frequency_hz, matrix));
     }
     Ok((comments, refs, rows))
+}
+
+/// The comment lines of a wave-port / mixed file after the provenance
+/// `head`: the renormalization and convention notes, one `Excluded:` line
+/// per always-evanescent channel, then one `Port[k] = <label>` line per
+/// written port (`lumped` group names, then the `kept` channel labels).
+/// Every line is [`sanitize`]d and must be free of the scikit-rf keywords
+/// ([`reserved_in_comment`]); one that is not (only possible through a
+/// physical group or spec path) is `invalid_spec`.
+fn wave_comments(
+    head: Vec<String>,
+    lumped: &[&str],
+    kept: &[String],
+    excluded: &[String],
+) -> Result<Vec<String>, CliError> {
+    let mut comments = head;
+    comments.push(
+        "S renormalized: lumped vs resistance_ohm, wave channels vs wave_ports[].reference_ohm \
+         (modal V = unit-norm modal amplitude, Z_c = Z_TE = eta0*k0*mu_t/beta); RI; Hz"
+            .to_string(),
+    );
+    comments.push(
+        "Convention: Z_c = Z_TE (as openEMS RefImpedance); HFSS Zpi/Zpv/Zvi differ by an ideal \
+         transformer, so renormalized |S| is convention-dependent; the JSON report's modal \
+         results[].s is the cross-tool comparable quantity"
+            .to_string(),
+    );
+    for c in excluded {
+        comments.push(format!(
+            "Excluded: {c} is evanescent at every frequency (terminated in its own modal \
+             impedance, not written)"
+        ));
+    }
+    for (k, name) in lumped.iter().enumerate() {
+        comments.push(format!(
+            "Port[{}] = lumped {name} (JSON channel {k})",
+            k + 1
+        ));
+    }
+    for (k, c) in kept.iter().enumerate() {
+        comments.push(format!("Port[{}] = {c}", lumped.len() + k + 1));
+    }
+    let comments: Vec<String> = comments.into_iter().map(sanitize).collect();
+    if let Some((c, k)) = comments
+        .iter()
+        .find_map(|c| reserved_in_comment(c).map(|k| (c, k)))
+    {
+        return Err(unsupported(&format!(
+            "the Touchstone comment {c:?} would carry the scikit-rf keyword {k:?}, which a \
+             reader could take as data; rename the physical group or spec path"
+        )));
+    }
+    Ok(comments)
 }
 
 /// Exact renormalization of the row-major `n × n` S-matrix `s` from each
@@ -818,6 +834,10 @@ pub fn parse(text: &str) -> Result<Parsed, String> {
 mod skrf_support;
 
 #[cfg(test)]
+#[path = "../tests/support/touchstone.rs"]
+mod touchstone_support;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -944,6 +964,122 @@ mod tests {
         std::fs::write(&p5, render(&[], &refs5, &rs).unwrap()).unwrap();
         skrf_support::check("render 2-port", &p2, &refs2, &rows2);
         skrf_support::check("render 5-port", &p5, &refs5, &rows5);
+    }
+
+    /// The reserved scikit-rf comment keywords (issue #775), as an
+    /// independent copy of the curation's list.
+    fn assert_skrf_safe(text: &str) {
+        for line in text.lines().filter(|l| l.starts_with('!')) {
+            let body = line[1..].trim_start().to_ascii_lowercase();
+            for k in [
+                "port impedance",
+                "gamma",
+                "modal data exported",
+                "terminal data exported",
+            ] {
+                assert!(!body.starts_with(k), "reserved prefix in {line:?}");
+            }
+            assert!(!line.contains("S-parameter uses the"), "{line:?}");
+            assert!(!line.contains("::"), "{line:?}");
+            if body.starts_with("port") {
+                let rest = line.strip_prefix("! Port[").expect("only `! Port[k] = …`");
+                let (k, label) = rest.split_once("] = ").expect("`] = `");
+                assert!(k.parse::<usize>().is_ok() && !label.is_empty(), "{line:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn wave_comments_carry_no_scikit_rf_keywords() {
+        let head = vec![
+            "Touchstone 2.0 written by geode 0.0.0 (abc)".to_string(),
+            "spec: dir/spec.json".to_string(),
+        ];
+        // Adversarial group names: a Sigrity `::` and keyword look-alikes.
+        let comments = wave_comments(
+            head.clone(),
+            &["gamma::sheet"],
+            &[
+                "wave port Port Impedance mode 0 (JSON channel 1)".to_string(),
+                "wave port out mode 0 (JSON channel 3)".to_string(),
+            ],
+            &["wave port in mode 1 (JSON channel 2)".to_string()],
+        )
+        .unwrap();
+        assert_eq!(comments[..2], head[..]);
+        let refs = [50.0, 75.0, 100.0];
+        let row = vec![vec![[0.1, 0.0]; 3]; 3];
+        let text = render_rows(&comments, &refs, vec![(1e9, row)]).unwrap();
+        assert_skrf_safe(&text);
+        assert!(text.contains("\n! Port[1] = lumped gamma:sheet (JSON channel 0)\n"));
+        assert!(text.contains("\n! Port[3] = wave port out mode 0 (JSON channel 3)\n"));
+        assert!(text.contains("\n! Excluded: wave port in mode 1 (JSON channel 2) is"));
+        // Every comment precedes `[Version]`.
+        let version = text.find("[Version]").unwrap();
+        assert!(!text[version..].contains('!'));
+
+        // The guard itself, and the error a reserved substring yields.
+        for bad in [
+            "Port Impedance 50 0",
+            "  gamma 0.1",
+            "Modal data exported",
+            "TERMINAL DATA EXPORTED",
+            "x S-parameter uses the power-wave definition",
+            "a::b",
+        ] {
+            assert!(reserved_in_comment(bad).is_some(), "{bad:?}");
+        }
+        for ok in ["Port[1] = x", "spec: a:b", "Excluded: gammas later"] {
+            assert_eq!(reserved_in_comment(ok), None, "{ok:?}");
+        }
+        let e = wave_comments(head, &[], &["S-parameter uses the".to_string()], &[]);
+        assert!(matches!(e, Err(CliError::TouchstoneUnsupported { .. })));
+    }
+
+    /// The Γ-form equals the test-side impedance route (a different
+    /// algebraic path) on a synthetic 3-port with a lumped port and two
+    /// complex-`Z_c` channels, and is the identity for lumped-only rows.
+    #[test]
+    fn renormalize_matches_the_z_route_and_is_identity_for_lumped_ports() {
+        let c = c64::new;
+        let s = vec![
+            c(0.1, -0.2),
+            c(0.3, 0.4),
+            c(-0.05, 0.1),
+            c(0.3, 0.4),
+            c(-0.2, 0.1),
+            c(0.25, -0.3),
+            c(-0.05, 0.1),
+            c(0.25, -0.3),
+            c(0.4, 0.2),
+        ];
+        let refs = [50.0, 75.0, 600.0];
+        let z_c = [c(50.0, 0.0), c(480.0, -35.0), c(120.0, 260.0)];
+        let z = [
+            None,
+            Some((z_c[1], z_c[1].sqrt())),
+            Some((z_c[2], z_c[2].sqrt())),
+        ];
+        let got = renormalize(&s, &z, &refs).unwrap();
+        let want = touchstone_support::z_route(&s, 3, &z_c, &refs);
+        let err = got
+            .iter()
+            .zip(&want)
+            .map(|(a, b)| (a - b).norm())
+            .fold(0.0, f64::max);
+        assert!(err < 1e-13, "Γ-form vs Z-route: {err:e}");
+        // Reciprocity is preserved.
+        for i in 0..3 {
+            for j in 0..3 {
+                assert!((got[i * 3 + j] - got[j * 3 + i]).norm() < 1e-14);
+            }
+        }
+        // Lumped-only (Γ = 0, A = 1): exactly the input.
+        assert_eq!(renormalize(&s, &[None; 3], &refs).unwrap(), s);
+        // R = Z_c (real) on a channel: Γ = 0, A = 1 up to round-off.
+        let z = [None, Some((c(75.0, 0.0), c(75.0f64.sqrt(), 0.0))), None];
+        let id = renormalize(&s, &z, &refs).unwrap();
+        assert!(id.iter().zip(&s).all(|(a, b)| (a - b).norm() < 1e-15));
     }
 
     #[test]

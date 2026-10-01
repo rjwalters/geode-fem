@@ -123,3 +123,111 @@ pub fn check(what: &str, path: &Path, refs: &[f64], rows: &Rows) -> bool {
     );
     true
 }
+
+/// Reads `{path, f, s_re, s_im, z0_re, z0_im, refs}` (JSON on stdin),
+/// renormalizes the modal network with scikit-rf and prints the max
+/// deviation from the file, plus the file's port names.
+const RENORM_SCRIPT: &str = "\
+import json, sys
+import numpy as np
+import skrf
+d = json.load(sys.stdin)
+f = skrf.Network(d['path'])
+s = np.array(d['s_re']) + 1j * np.array(d['s_im'])
+z0 = np.array(d['z0_re']) + 1j * np.array(d['z0_im'])
+freq = skrf.Frequency.from_f(np.array(d['f']), unit='hz')
+m = skrf.Network(frequency=freq, s=s, z0=z0, s_def='traveling')
+m.renormalize(np.array(d['refs'], dtype=complex))
+scale = max(1.0, float(np.abs(m.s).max()))
+print(json.dumps({
+    'version': skrf.__version__,
+    'err': float(np.abs(m.s - f.s).max()) / scale,
+    'df': float(np.abs(f.f - np.array(d['f'])).max()),
+    'port_names': list(f.port_names) if f.port_names is not None else None,
+}))
+";
+
+/// Independent scikit-rf oracle for a renormalized wave-port file (issue
+/// #775): `skrf.Network(s = modal S, z0 = Z_c(f), s_def = 'traveling')
+/// .renormalize(refs)` must equal the file's S to `tol` (scikit-rf's own
+/// round-off is ~1e-8), and the file's port names must be `labels`.
+/// `rows` is `(f_hz, row-major modal S [re, im], Z_c [re, im] per port)`,
+/// ascending. Returns whether the check ran (loud `SKIPPED` otherwise).
+pub fn check_renormalized(
+    what: &str,
+    path: &Path,
+    rows: &[(f64, Vec<[f64; 2]>, Vec<[f64; 2]>)],
+    refs: &[f64],
+    labels: &[&str],
+    tol: f64,
+) -> bool {
+    let py = python();
+    if !available(&py) {
+        eprintln!(
+            "SKIPPED scikit-rf renormalization oracle ({what}): `{py}` is not runnable or cannot \
+             `import skrf` (set GEODE_SKRF to a Python with scikit-rf installed to enable; not a \
+             CI dependency)"
+        );
+        return false;
+    }
+    let n = refs.len();
+    let mat = |m: &[[f64; 2]], k: usize| -> Vec<Vec<f64>> {
+        m.chunks(n)
+            .map(|r| r.iter().map(|z| z[k]).collect())
+            .collect()
+    };
+    let input = serde_json::json!({
+        "path": path.display().to_string(),
+        "f": rows.iter().map(|r| r.0).collect::<Vec<_>>(),
+        "s_re": rows.iter().map(|r| mat(&r.1, 0)).collect::<Vec<_>>(),
+        "s_im": rows.iter().map(|r| mat(&r.1, 1)).collect::<Vec<_>>(),
+        "z0_re": rows.iter().map(|r| r.2.iter().map(|z| z[0]).collect::<Vec<_>>()).collect::<Vec<_>>(),
+        "z0_im": rows.iter().map(|r| r.2.iter().map(|z| z[1]).collect::<Vec<_>>()).collect::<Vec<_>>(),
+        "refs": refs,
+    });
+    let mut child = Command::new(&py)
+        .args(["-c", RENORM_SCRIPT])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run python");
+    {
+        use std::io::Write as _;
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(input.to_string().as_bytes()).unwrap();
+    }
+    let out = child.wait_with_output().expect("python output");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "scikit-rf renormalization failed for {} ({what}):\n{stdout}\n{}",
+        path.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let line = stdout.lines().last().expect("scikit-rf printed nothing");
+    let v: serde_json::Value = serde_json::from_str(line).expect("scikit-rf JSON");
+    let err = v["err"].as_f64().unwrap();
+    assert!(
+        v["df"].as_f64().unwrap() == 0.0,
+        "{what}: frequencies differ"
+    );
+    assert!(
+        err <= tol,
+        "{what}: scikit-rf renormalize vs file S differ by {err:e} (tol {tol:e})"
+    );
+    let names: Vec<&str> = v["port_names"]
+        .as_array()
+        .expect("scikit-rf read port names")
+        .iter()
+        .map(|x| x.as_str().unwrap())
+        .collect();
+    assert_eq!(names, labels, "{what}: scikit-rf port names");
+    eprintln!(
+        "scikit-rf {} renormalized the modal S of {} ({what}) to [Reference]: max deviation \
+         {err:.2e}, port names match",
+        v["version"].as_str().unwrap_or("?"),
+        path.display()
+    );
+    true
+}

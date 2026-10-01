@@ -241,6 +241,7 @@ Driven example (the spiral-inductor golden input,
 | `wave_ports[].physical_group` | string | dimension-2 group holding the **planar** port faces |
 | `wave_ports[].n_modes` | int ≥ 1, default `1` | lowest-cutoff cross-section modes carried by the port (one S-matrix channel each) |
 | `wave_ports[].a_inc` | `[[re, im], …]`, length `n_modes`, default all `[1, 0]` | per-mode incident amplitude (finite, non-zero) |
+| `wave_ports[].reference_ohm` | number > 0, optional (additive, #775) | real Touchstone reference every written mode of the port is renormalized to; **required with `--touchstone`**, inert without it (see [Touchstone output](#touchstone-output---touchstone-issue-703)) |
 | `frequencies` | driven: **required**; eigen: absent | the frequencies to sweep |
 | `frequencies.unit` | `"hz"` \| `"ghz"` \| `"k0"`, **required** | `k0` = the solver's natural unit `ω/c` in **rad per mesh length unit** |
 | `frequencies.values` | floats > 0 | explicit list, **or** … |
@@ -546,9 +547,10 @@ modal terms the same rank-N Sherman–Morrison–Woodbury update
   8/π²·(1 − |Γ|²)` of the TE₁₀ power reaches its power wave; the rest is
   dissipated in the sheet's non-uniform field. S is passive, not
   unitary.
-- **Rejected with `invalid_spec`** before any solve: `--touchstone` (a
-  wave channel's reference is its frequency-dependent `Z_TE(ω) = ωμ/β`,
-  which a constant Touchstone `[Reference]` cannot express), `extract`,
+- **`--touchstone`** (issue #775) writes the lumped ports first, then
+  the wave channels renormalized to `wave_ports[].reference_ohm` (see
+  [Touchstone output](#touchstone-output---touchstone-issue-703)).
+- **Rejected with `invalid_spec`** before any solve: `extract`,
   `sweep.adaptive` and `sensitivity`; `--outdir` exports nothing (stderr
   notes it). UPML and dispersive materials work (per-frequency
   assembly); Leontovich (and so surface roughness) and Silver-Müller
@@ -1442,12 +1444,120 @@ field is omitted.
   `[Two-Port Data Order] 21_12`; every other port count is row-major
   (`S11 S12 … S1N`, then row 2, …), each matrix row on its own line(s)
   of at most four pairs.
-- **Rejected before any solve** with `invalid_spec`: wave-port specs,
-  including mixed lumped + wave-port specs (a wave channel's
-  power-normalized S has no real constant reference impedance — its
-  effective reference `Z_TE(ω) = ωμ/β` varies with frequency — and
-  writing a placeholder `[Reference]` would silently mislabel it) and
-  `geode eigen` (no network parameters).
+- **Rejected before any solve** with `invalid_spec`: `geode eigen` (no
+  network parameters), and the wave-port cases below (a missing
+  `reference_ohm`, a channel crossing its cutoff inside the sweep, or no
+  port left to write).
+
+### Wave-port and mixed specs (issue #775)
+
+A wave channel's `results[].s` in the JSON report is the **modal** S.
+Each channel is a transmission line whose voltage is the amplitude of
+its unit-norm transverse mode and whose characteristic impedance is the
+mode's wave impedance
+
+```text
+Z_c = Z_TE(ω) = η₀·k₀·μ_t/β   (ohms; y = β/μ_t, see Filled wave ports)
+```
+
+in the traveling-wave convention `a = V⁺/√Z_c` (principal root, the
+solver's own `√(y/k₀)` weight). `Z_TE` varies with frequency, so a
+constant `[Reference]` cannot label the modal S. `--touchstone` instead
+**renormalizes** every written wave channel to its port's constant real
+`wave_ports[].reference_ohm`; lumped ports keep `resistance_ohm`:
+
+```json
+"wave_ports": [{ "physical_group": "port_in", "reference_ohm": 500 }]
+```
+
+- **`reference_ohm` is required with `--touchstone` and has no default.**
+  Without it (or with a non-finite / non-positive value) the run fails
+  with `invalid_spec` before any solve; the message lists each mode's
+  `Z_TE` range over the sweep to help choose. A default would silently
+  pick a convention: `Z_TE` at band centre makes every row depend on the
+  rest of the sweep, and 50 Ω makes a matched hollow guide look badly
+  mismatched. The field is inert without `--touchstone` (the JSON S stays
+  modal; `check` and `driven` echo it as `wave_ports[].reference_ohm`).
+- **The transform is exact**: per row,
+  `S' = A⁻¹(S − Γ)(I − ΓS)⁻¹A` with `Γ = diag((R − Z_c)/(R + Z_c))` and
+  `A = diag(2√R·√Z_c/(R + Z_c))` (`Γ = 0`, `A = 1` on lumped ports). It
+  equals the impedance route `Z = √Z_c(I − S)⁻¹(I + S)√Z_c`,
+  `S' = √R⁻¹(Z − R)(Z + R)⁻¹√R` but never inverts `I − S` (singular at a
+  lossless resonance). `β` is recomputed from the port's `k_c` and fill
+  at each row, bit for bit the solver's. Renormalization is **not** an
+  ideal transformer: a guide matched in the modal S reflects at an
+  `R ≠ Z_TE` reference (`|S₁₁'| = |Γ(1 − P²)/(1 − Γ²P²)|`,
+  `P = e^{−jβL}`). That is the physically correct result for an `R`-ohm
+  line connected to the guide.
+- **Convention caveat.** A waveguide mode has no unique characteristic
+  impedance. geode uses the wave impedance `Z_TE`, as openEMS does for
+  waveguide ports (`calcPort(…, RefImpedance=R)` renormalizes exactly
+  this way). HFSS defaults to `Z_pi` and offers `Z_pv` / `Z_vi`, each a
+  different multiple of `Z_TE` for TE₁₀. Changing convention is an ideal
+  transformer at the port, so **a renormalized |S| depends on the
+  convention** and differs from HFSS's renormalized output by design.
+  The **modal S in the JSON report** is the cross-tool comparable
+  quantity. The file states the convention in a header comment.
+- **Port set and order**: one Touchstone port per *kept* channel, in JSON
+  channel order: lumped ports first (spec order), then wave ports
+  port-major, mode-minor. Because excluded channels break the 1:1 index
+  match, wave and mixed files carry one name line per port before
+  `[Version]`, which scikit-rf reads as `port_names`:
+
+  ```text
+  ! Port[1] = lumped port_out (JSON channel 0)
+  ! Port[2] = wave port port_in mode 0 (JSON channel 1)
+  ```
+
+- **Evanescent channels.** Each channel is classified at every sweep
+  frequency with the report's own `propagating` predicate
+  (`Re β > |Im β|`), so the file and the JSON never disagree. A channel
+  **evanescent at every frequency** is excluded (header `! Excluded: …`
+  line and a stderr note). This is exact: the modal sub-block is taken
+  *before* renormalizing, and in the solve the excluded mode is already
+  terminated in its own modal impedance, i.e. the semi-infinite guide.
+  Renormalizing first would terminate it in `R` instead. A channel that
+  **crosses its cutoff inside the sweep** is rejected (`invalid_spec`,
+  naming the port, mode, JSON channel and filled cutoff in Hz): a
+  Touchstone file cannot change its port count, so split the sweep at the
+  cutoff or lower `n_modes`. A wave-only spec with no propagating channel
+  has no network to write (`invalid_spec`). Lumped ports are never
+  dropped.
+- **No per-frequency `Z_TE` comments.** HFSS writes `! Port Impedance` /
+  `! Gamma` comments per frequency; scikit-rf (2.1.0) lets those
+  **override** `[Reference]`, while Touchstone 2.0 readers (ADS, AWR,
+  SPICE importers) take `[Reference]` literally, so one file would mean
+  two different things. No comment line geode writes starts with
+  `! port impedance`, `! gamma`, `! modal data exported` or
+  `! terminal data exported`, contains `S-parameter uses the` or `::`, or
+  starts with `! port` other than the exact `! Port[k] = <label>` form. The
+  per-frequency `Z_TE` is recoverable from the JSON report
+  (`wave_channels[].beta`, `k0`, `wave_ports[].medium.mu_r_t`).
+- **Pure-lumped files are unchanged**, byte for byte.
+
+```text
+! Touchstone 2.0 written by geode 0.7.0 (<git-sha>)
+! spec: guide.json
+! S renormalized: lumped vs resistance_ohm, wave channels vs wave_ports[].reference_ohm (modal V = unit-norm modal amplitude, Z_c = Z_TE = eta0*k0*mu_t/beta); RI; Hz
+! Convention: Z_c = Z_TE (as openEMS RefImpedance); HFSS Zpi/Zpv/Zvi differ by an ideal transformer, so renormalized |S| is convention-dependent; the JSON report's modal results[].s is the cross-tool comparable quantity
+! Excluded: wave port port_in mode 1 (JSON channel 1) is evanescent at every frequency (terminated in its own modal impedance, not written)
+! Port[1] = wave port port_in mode 0 (JSON channel 0)
+! Port[2] = wave port port_out mode 0 (JSON channel 2)
+[Version] 2.0
+# HZ S RI R 5e1
+[Number of Ports] 2
+…
+```
+
+`tests/touchstone_skrf.rs` checks the file against an independent
+impedance-route renormalization of the JSON modal S (1e-12, including a
+lossy fill with complex `Z_c`), the identity at `reference_ohm = Z_TE`,
+the closed-form mismatched line, passivity and reciprocity, multi-mode
+exclusion and the cutoff-crossing rejection, and the mixed port order.
+With scikit-rf available it also loads each file and compares it with
+`skrf.Network(s = modal S, z0 = Z_c(f), s_def = 'traveling')
+.renormalize(R)`, to 1e-8 (scikit-rf's own round-off); last run
+scikit-rf 2.1.0, 2026-10-01, max deviation 1.7e-14.
 
 Loading the file in [scikit-rf](https://scikit-rf.org) — **illustrative,
 not run in CI** (scikit-rf is not a dependency of this repo):
