@@ -96,11 +96,48 @@
 //! `N` back-solves, every solution joins the basis, and the indicator is
 //! the worst over the excitations ([`DrivenRom::evaluate_excitations`]).
 //!
+//! # Wave (modal) ports (issue #774)
+//!
+//! [`DrivenRom::build_with_wave_ports`] adds wave ports to the lumped
+//! families. Wave channel `q` contributes `j·y_q(ω)·f_q f_qᵀ` to the
+//! operator (the dense mixed sweep's rank-`N_w` SMW update), with `f_q`
+//! the real interior modal flux and `y_q = β_q/μ_t` the admittance factor
+//! ([`crate::driven::ports::WavePort::admittance`], issue #777). Each is a
+//! **rank-1 family** projected once: with `u_q[c] = f_qᵀ v_c` (a
+//! `k`-vector, no `n×k` product),
+//!
+//! ```text
+//! Vᴴ (f fᵀ) V = conj(u_q) u_qᵀ          (the operator is complex-symmetric)
+//! ```
+//!
+//! and only the scalar `j·y_q(ω)` is re-evaluated per ω. `y(ω)` is **not
+//! affine** in ω (a square root with a branch point at cutoff), but — as
+//! for the surfaces above — it is a scalar on a fixed matrix, so the
+//! Galerkin projection is exact in it and `x(ω)` stays smooth jointly in
+//! `(ω, y)`. The wave drive is `b_q(ω) = c_q(ω)·f_q` with `c_q = 2j·y_q·
+//! a_inc,q` (the lumped drives keep `c = ω`); the indicator normalizes by
+//! `|c_q|·‖f_q‖` and **includes** the modal terms (`f_q·(u_qᵀ x_r)`,
+//! `O(n)` each), so it is the same full-order residual the dense mixed /
+//! wave sweeps report. Snapshots factor `A_base(ω)` and apply the dense
+//! sweep's SMW post-step (shared code), and only the `N_l + N_w`
+//! excitation solutions join the basis.
+//! [`DrivenRom::evaluate_scattering`] reads the power-wave S-matrix with
+//! the dense sweep's own readout (lumped `V_inc/√R`, wave `a·√y/√ω`) on
+//! `x = V x_r`.
+//!
+//! **Near cutoff** the pure-wave guide is nearly singular (`y → 0`: the
+//! port stops absorbing, and the cutoff mode satisfies the natural port
+//! BC), so `‖A⁻¹‖` amplifies `η` into S error there; exactly at a lossless
+//! cutoff the wave drive vanishes and the S column is non-finite, as in
+//! the dense sweep. **Dispersive** fills stay out of scope: `y(ω)` alone
+//! would project, but the matching volume `M(ω)` inside the guide does
+//! not.
+//!
 //! # Out of scope and follow-on hooks
 //!
-//! - Wave ports are structurally absent from [`DrivenOperator`]; matched
-//!   UPML **re-assembled per ω** (the physical open-boundary stretch,
-//!   `∝ 1/k₀`) has ω-dependent matrices and cannot be projected once.
+//! - Matched UPML **re-assembled per ω** (the physical open-boundary
+//!   stretch, `∝ 1/k₀`) has ω-dependent matrices and cannot be projected
+//!   once.
 //! - Hermite / derivative-augmented snapshots, rigorous error certificates,
 //!   and sweep-level adjoints are follow-ons. The struct stores the reduced
 //!   matrices explicitly so `∂A_r/∂ω = −2ωM_r + iC_r + Σ_p (i/Z_p) S_{p,r}`
@@ -117,7 +154,11 @@ use burn::tensor::backend::Backend;
 use faer::c64;
 
 use crate::driven::extraction::PortCircuit;
-use crate::driven::ports::LumpedPort;
+use crate::driven::ports::mixed::{
+    ModalChannel, ModalSmw, PowerWeights, channel_admittances, dot_t, excitation_rhs,
+    incident_wave, interior_fluxes, modal_channels, s_column,
+};
+use crate::driven::ports::{LumpedPort, WavePort};
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SurfaceImpedanceBc,
     SurfaceImpedanceModel,
@@ -237,6 +278,73 @@ pub struct RomExcitationPoint {
     pub excitations: Vec<Vec<PortCircuit>>,
 }
 
+/// One frequency point of a wave-port / mixed-port [`DrivenRom`]
+/// ([`DrivenRom::evaluate_scattering`], issue #774): the power-wave
+/// S-matrix in the channel order and normalization of
+/// [`crate::driven::ports::solve_mixed_port_sweep_with_mode`].
+#[derive(Debug, Clone)]
+pub struct RomScatteringPoint {
+    /// Frequency `ω ≡ k₀` (natural units).
+    pub omega: f64,
+    /// Worst full-order relative residual indicator over the
+    /// excitations (modal terms included).
+    pub residual_indicator: f64,
+    /// Row-major `n_ports × n_ports` power-wave S-matrix: lumped ports
+    /// first, then wave channels port-major, mode-minor.
+    pub s: Vec<c64>,
+    /// Modal `β(ω)` of each wave channel (wave-channel order) — the same
+    /// call as the dense sweep, so bit-equal to it.
+    pub beta: Vec<c64>,
+    /// Total number of S-matrix ports `N_l + Σ_p K_p`.
+    pub n_ports: usize,
+    /// Number of lumped ports `N_l` (the leading block of `s`).
+    pub n_lumped: usize,
+    /// Per-wave-port mode count `K_p`.
+    pub port_mode_counts: Vec<usize>,
+}
+
+/// Result of a [`rom_mixed_port_sweep`]: per-frequency scattering points
+/// plus the greedy diagnostics.
+#[derive(Debug, Clone)]
+pub struct RomScatteringReport {
+    /// One entry per requested frequency, in request order.
+    pub points: Vec<RomScatteringPoint>,
+    /// Snapshot frequencies, in greedy selection order.
+    pub snapshot_omegas: Vec<f64>,
+    /// Whether the worst residual indicator reached the tolerance.
+    pub converged: bool,
+    /// Worst residual indicator over the candidate grid at termination.
+    pub worst_residual: f64,
+    /// Reduced dimension `k`.
+    pub reduced_order: usize,
+}
+
+/// One right-hand side of a [`DrivenRom`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Drive {
+    /// Volume source + every lumped port at its `v_inc` (`b = ω·b̂`).
+    Baked,
+    /// Lumped port `j` alone (`b = ω·b̂`).
+    Lumped(usize),
+    /// Wave channel `q` alone (`b = 2j·y_q(ω)·a_inc,q · f_q`).
+    Wave(usize),
+}
+
+/// The wave (modal) channels of a [`DrivenRom`] built with
+/// [`DrivenRom::build_with_wave_ports`].
+struct ModalData<'a> {
+    wave: &'a [WavePort],
+    /// Channels port-major, mode-minor, with full-length fluxes.
+    channels: Vec<ModalChannel>,
+    /// Interior-filtered fluxes `f_q` (real, stored complex).
+    fluxes_int: Vec<Vec<c64>>,
+    /// `u_q[c] = f_qᵀ v_c` per channel (length `k`): the rank-1 family
+    /// projects as `Vᴴ f fᵀ V = conj(u) uᵀ`.
+    u: Vec<Vec<c64>>,
+    pec_mask: Vec<bool>,
+    port_mode_counts: Vec<usize>,
+}
+
 /// A built Galerkin PROM over a [`DrivenOperator`]: the orthonormal basis
 /// `V`, the cached matrix–basis products, and the projected reduced
 /// matrices. Construct with [`DrivenRom::build`] (which runs the greedy
@@ -275,9 +383,11 @@ pub struct DrivenRom<'a> {
     /// ω, exactly as `assemble_a_at` does).
     surf_triplets: Vec<Vec<(usize, usize, f64)>>,
     surf_models: Vec<SurfaceImpedanceModel>,
-    /// The drives: `None` = the baked drive, `Some(j)` = port `j` alone.
-    drives: Vec<Option<usize>>,
-    /// Per drive: fixed direction `b(ω) = ω b̂` (interior space), its
+    /// The drives (right-hand sides).
+    drives: Vec<Drive>,
+    /// Wave (modal) channels; `None` for a lumped-only ROM.
+    modal: Option<ModalData<'a>>,
+    /// Per drive: fixed direction `b(ω) = c_d(ω) b̂` (interior space), its
     /// projection `b̂_r = Vᴴ b̂` and its norm.
     b_hat: Vec<Vec<c64>>,
     b_hat_r: Vec<Vec<c64>>,
@@ -331,29 +441,9 @@ impl<'a> DrivenRom<'a> {
         drive: RomDrive,
         on_snapshot: &mut dyn FnMut(f64),
     ) -> Result<Self, RomError> {
-        if omegas.is_empty() {
-            return Err(RomError::InvalidParameter(
-                "empty candidate frequency grid".into(),
-            ));
-        }
-        if let Some(&bad) = omegas.iter().find(|w| !w.is_finite() || **w <= 0.0) {
-            return Err(RomError::InvalidParameter(format!(
-                "candidate frequency {bad} is not finite and positive"
-            )));
-        }
-        if settings.max_snapshots == 0 {
-            return Err(RomError::InvalidParameter(
-                "max_snapshots must be at least 1".into(),
-            ));
-        }
-        if !settings.tolerance.is_finite() || settings.tolerance < 0.0 {
-            return Err(RomError::InvalidParameter(format!(
-                "tolerance {} must be finite and non-negative",
-                settings.tolerance
-            )));
-        }
-        let drives: Vec<Option<usize>> = match drive {
-            RomDrive::Baked => vec![None],
+        validate_request(omegas, settings)?;
+        let drives: Vec<Drive> = match drive {
+            RomDrive::Baked => vec![Drive::Baked],
             RomDrive::PerPort => {
                 if op.n_ports() == 0 {
                     return Err(RomError::InvalidParameter(
@@ -366,17 +456,97 @@ impl<'a> DrivenRom<'a> {
                         "RomDrive::PerPort: port {j} has v_inc = 0 (no excitation)"
                     )));
                 }
-                (0..op.n_ports()).map(Some).collect()
+                (0..op.n_ports()).map(Drive::Lumped).collect()
             }
         };
+        let mut rom = Self::new_base(op, drives, None);
+        rom.run_greedy(omegas, settings, on_snapshot)?;
+        Ok(rom)
+    }
 
+    /// Build a PROM for the **mixed lumped + wave port** S-parameter
+    /// excitations of `op` plus the wave ports `wave` (issue #774) — the
+    /// reduced-order analog of
+    /// [`crate::driven::ports::solve_mixed_port_sweep_with_mode`] (and,
+    /// with no lumped ports, of the pure-wave sweep).
+    ///
+    /// `op` must be assembled with the lumped ports (in S-matrix order),
+    /// the walls and a **zero** volume source, exactly as the dense mixed
+    /// sweep assembles its base operator; `mesh` / `bcs` are the ones it
+    /// was assembled on. There is one drive per channel (`N_l + Σ_p K_p`,
+    /// lumped first, then wave port-major / mode-minor); each snapshot is
+    /// one factorization of `A_base(ω)` plus the dense sweep's rank-`N_w`
+    /// SMW post-step, and only the excitation solutions join the basis.
+    /// Each wave channel's modal term `j·y_q(ω)·f_q f_qᵀ` is a rank-1
+    /// family projected once (see the module docs). Read the S-matrix
+    /// with [`DrivenRom::evaluate_scattering`].
+    ///
+    /// # Errors
+    ///
+    /// As [`DrivenRom::build`]; [`RomError::InvalidParameter`] without
+    /// any port; [`DrivenError::InvalidPort`] (wrapped) for a lumped port
+    /// with `v_inc = 0` or an invalid wave port / mode — the dense mixed
+    /// sweep's errors; any [`DrivenError`] from the snapshot solves.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_with_wave_ports(
+        op: &'a DrivenOperator,
+        mesh: &TetMesh,
+        bcs: &DrivenBcs<'_>,
+        wave: &'a [WavePort],
+        omegas: &[f64],
+        settings: &RomSettings,
+        on_snapshot: &mut dyn FnMut(f64),
+    ) -> Result<Self, RomError> {
+        validate_request(omegas, settings)?;
+        let n_lumped = op.n_ports();
+        if n_lumped == 0 && wave.is_empty() {
+            return Err(RomError::InvalidParameter(
+                "a mixed-port PROM needs at least one lumped or wave port".into(),
+            ));
+        }
+        for index in 0..n_lumped {
+            if op.port_v_inc(index) == c64::new(0.0, 0.0) {
+                return Err(DrivenError::InvalidPort {
+                    index,
+                    reason: "every lumped port needs a non-zero v_inc to serve as an \
+                             S-parameter excitation"
+                        .to_string(),
+                }
+                .into());
+            }
+        }
+        let edges = mesh.edges();
+        let channels = modal_channels(mesh, n_lumped, wave, &edges)?;
+        let fluxes_int = interior_fluxes(&channels, bcs.pec_interior_mask);
+        let drives: Vec<Drive> = (0..n_lumped)
+            .map(Drive::Lumped)
+            .chain((0..channels.len()).map(Drive::Wave))
+            .collect();
+        let modal = ModalData {
+            wave,
+            u: vec![Vec::new(); channels.len()],
+            channels,
+            fluxes_int,
+            pec_mask: bcs.pec_interior_mask.to_vec(),
+            port_mode_counts: wave.iter().map(|p| p.modes.len()).collect(),
+        };
+        let mut rom = Self::new_base(op, drives, Some(modal));
+        rom.run_greedy(omegas, settings, on_snapshot)?;
+        Ok(rom)
+    }
+
+    /// An empty (no basis) ROM for `drives`: the fixed drive directions
+    /// and the per-family storage.
+    fn new_base(op: &'a DrivenOperator, drives: Vec<Drive>, modal: Option<ModalData<'a>>) -> Self {
         let n = op.n_interior();
         let n_edges = op.rhs_re().len();
         let interior_to_full = op.interior_to_full();
 
-        // --- Fixed drive directions b̂ (b(ω) = ω·b̂), interior-filtered ----
-        // Mirrors `assemble_b_at` exactly. Volume moments:
-        // b = iω(re + i·im) = ω(−im + i·re) ⇒ b̂ = −im + i·re.
+        // --- Fixed drive directions b̂, interior-filtered ------------------
+        // Lumped / baked drives (b(ω) = ω·b̂) mirror `assemble_b_at`
+        // exactly. Volume moments: b = iω(re + i·im) = ω(−im + i·re) ⇒
+        // b̂ = −im + i·re. A wave drive's direction is its interior flux
+        // f_q (b(ω) = 2j·y_q(ω)·a_inc,q · f_q).
         let volume: Vec<c64> = op
             .rhs_re()
             .iter()
@@ -389,7 +559,18 @@ impl<'a> DrivenRom<'a> {
         }
         let b_hat: Vec<Vec<c64>> = drives
             .iter()
-            .map(|&excited| {
+            .map(|&drive| {
+                let excited = match drive {
+                    Drive::Baked => None,
+                    Drive::Lumped(j) => Some(j),
+                    Drive::Wave(q) => {
+                        return modal
+                            .as_ref()
+                            .expect("wave drive needs modal data")
+                            .fluxes_int[q]
+                            .clone();
+                    }
+                };
                 let mut b_full = volume.clone();
                 // Matched-source port drive: b += (2iω/Z_p)(V_inc/ℓ) f ⇒
                 // b̂ += (2i/Z_p)(V_inc/ℓ) f — restricted to the excited port.
@@ -419,7 +600,7 @@ impl<'a> DrivenRom<'a> {
 
         let has_c = op.c_vals().is_some();
         let n_drives = drives.len();
-        let mut rom = Self {
+        Self {
             op,
             n,
             n_edges,
@@ -439,20 +620,31 @@ impl<'a> DrivenRom<'a> {
             surf_triplets,
             surf_models,
             drives,
+            modal,
             b_hat,
             b_hat_r: vec![Vec::new(); n_drives],
             b_hat_norm,
             snapshot_omegas: Vec::new(),
             converged: false,
             worst_residual: f64::INFINITY,
-        };
+        }
+    }
 
+    /// The greedy snapshot selection (seeds, then worst-indicator picks)
+    /// over the candidate grid; see the module docs.
+    fn run_greedy(
+        &mut self,
+        omegas: &[f64],
+        settings: &RomSettings,
+        on_snapshot: &mut dyn FnMut(f64),
+    ) -> Result<(), RomError> {
+        let rom = self;
         // Zero drive: every solution is identically zero (matching the
         // dense sweep's zero-RHS semantics); nothing to sample.
         if rom.b_hat_norm.iter().all(|&b| b == 0.0) {
             rom.converged = true;
             rom.worst_residual = 0.0;
-            return Ok(rom);
+            return Ok(());
         }
 
         // Candidate order: ascending ω (stable in original index for exact
@@ -530,7 +722,7 @@ impl<'a> DrivenRom<'a> {
                 continue;
             }
         }
-        Ok(rom)
+        Ok(())
     }
 
     /// Snapshot frequencies in greedy selection order (one full-order
@@ -588,38 +780,33 @@ impl<'a> DrivenRom<'a> {
     ///
     /// As [`DrivenRom::evaluate`].
     pub fn evaluate_excitations(&self, omega: f64) -> Result<RomExcitationPoint, RomError> {
+        if self.modal.is_some() {
+            return Err(RomError::InvalidParameter(
+                "a wave-port PROM has no per-port circuit readout; use \
+                 DrivenRom::evaluate_scattering"
+                    .into(),
+            ));
+        }
         let k = self.basis.len();
         let coeffs = self.surface_coefficients(omega)?;
         let x_rs = if k == 0 {
             vec![Vec::new(); self.drives.len()]
         } else {
-            self.try_reduced_solve(omega, &coeffs)
+            self.try_reduced_solve(omega, &coeffs, &[])
                 .ok_or(RomError::ReducedSolveSingular { order: k, omega })?
         };
-        let residual_indicator = self.residual_indicator(omega, &coeffs, &x_rs);
+        let residual_indicator = self.residual_indicator(omega, &coeffs, &[], &x_rs);
 
         let mut excitations = Vec::with_capacity(self.drives.len());
-        for (&excited, x_r) in self.drives.iter().zip(&x_rs) {
-            // Reconstruct x = V x_r and scatter to the full edge vector.
-            let mut x_int = vec![c64::new(0.0, 0.0); self.n];
-            for (j, v) in self.basis.iter().enumerate() {
-                let xj = x_r[j];
-                for (xi, &vi) in x_int.iter_mut().zip(v.iter()) {
-                    *xi += vi * xj;
-                }
-            }
-            let mut e_edges = vec![c64::new(0.0, 0.0); self.n_edges];
-            for (i, &full) in self.interior_to_full.iter().enumerate() {
-                e_edges[full] = x_int[i];
-            }
+        for (&drive, x_r) in self.drives.iter().zip(&x_rs) {
+            let e_edges = self.reconstruct_full(x_r);
             let ports = (0..self.op.n_ports())
                 .map(|p| {
                     let v = self.op.port_voltage(p, &e_edges);
-                    let i = match excited {
-                        None => self.op.port_current(p, v),
-                        // Driven only in its own excitation; elsewhere a
-                        // passive termination (V_inc = 0).
-                        Some(j) => {
+                    let i = match drive {
+                        Drive::Lumped(j) => {
+                            // Driven only in its own excitation; elsewhere
+                            // a passive termination (V_inc = 0).
                             let v_inc = if p == j {
                                 self.op.port_v_inc(p)
                             } else {
@@ -627,6 +814,7 @@ impl<'a> DrivenRom<'a> {
                             };
                             self.op.port_current_with_v_inc(p, v_inc, v)
                         }
+                        Drive::Baked | Drive::Wave(_) => self.op.port_current(p, v),
                     };
                     PortCircuit { v, i, z: v / i }
                 })
@@ -640,19 +828,143 @@ impl<'a> DrivenRom<'a> {
         })
     }
 
+    /// Evaluate a wave-port / mixed-port PROM
+    /// ([`DrivenRom::build_with_wave_ports`]) at one frequency: one dense
+    /// `k×k` solve per channel, the worst full-order residual indicator
+    /// (modal terms included) and the power-wave S-matrix read out on the
+    /// reconstruction `x = V x_r` with the dense mixed sweep's own
+    /// excitation / readout helpers (lumped `ã = V_inc/√R`, wave
+    /// `ã = a_inc·√y/√ω`). `β` comes from the same call as the dense
+    /// sweep.
+    ///
+    /// At a frequency exactly at a lossless cutoff (`y = 0`) the wave
+    /// drive vanishes and the S column is non-finite — as in the dense
+    /// sweep; callers fall back to it there.
+    ///
+    /// # Errors
+    ///
+    /// [`RomError::InvalidParameter`] for a ROM built without
+    /// [`DrivenRom::build_with_wave_ports`]; otherwise as
+    /// [`DrivenRom::evaluate`].
+    pub fn evaluate_scattering(&self, omega: f64) -> Result<RomScatteringPoint, RomError> {
+        let Some(modal) = &self.modal else {
+            return Err(RomError::InvalidParameter(
+                "evaluate_scattering needs a PROM built with DrivenRom::build_with_wave_ports"
+                    .into(),
+            ));
+        };
+        let k = self.basis.len();
+        let coeffs = self.surface_coefficients(omega)?;
+        let (betas, ys) = channel_admittances(modal.wave, &modal.channels, omega);
+        let x_rs = if k == 0 {
+            vec![Vec::new(); self.drives.len()]
+        } else {
+            self.try_reduced_solve(omega, &coeffs, &ys)
+                .ok_or(RomError::ReducedSolveSingular { order: k, omega })?
+        };
+        let residual_indicator = self.residual_indicator(omega, &coeffs, &ys, &x_rs);
+
+        let n_lumped = self.op.n_ports();
+        let n_ports = self.drives.len();
+        let weights = PowerWeights::new(self.op, n_lumped, &ys, omega);
+        let mut s = vec![c64::new(0.0, 0.0); n_ports * n_ports];
+        for (j, x_r) in x_rs.iter().enumerate() {
+            let x_int = self.reconstruct_interior(x_r);
+            let a_tilde = incident_wave(self.op, j, n_lumped, &modal.channels, &weights);
+            s_column(
+                self.op,
+                &modal.pec_mask,
+                self.n_edges,
+                &modal.channels,
+                &weights,
+                j,
+                a_tilde,
+                &x_int,
+                &mut s,
+            );
+        }
+        Ok(RomScatteringPoint {
+            omega,
+            residual_indicator,
+            s,
+            beta: betas,
+            n_ports,
+            n_lumped,
+            port_mode_counts: modal.port_mode_counts.clone(),
+        })
+    }
+
+    /// `x = V x_r` (interior).
+    fn reconstruct_interior(&self, x_r: &[c64]) -> Vec<c64> {
+        let mut x_int = vec![c64::new(0.0, 0.0); self.n];
+        for (j, v) in self.basis.iter().enumerate() {
+            let xj = x_r[j];
+            for (xi, &vi) in x_int.iter_mut().zip(v.iter()) {
+                *xi += vi * xj;
+            }
+        }
+        x_int
+    }
+
+    /// `x = V x_r` scattered to the full edge vector.
+    fn reconstruct_full(&self, x_r: &[c64]) -> Vec<c64> {
+        let x_int = self.reconstruct_interior(x_r);
+        let mut e_edges = vec![c64::new(0.0, 0.0); self.n_edges];
+        for (i, &full) in self.interior_to_full.iter().enumerate() {
+            e_edges[full] = x_int[i];
+        }
+        e_edges
+    }
+
     /// One full-order snapshot at `omega` — **one** factorization, one
-    /// back-solve per drive — each solution MGS-orthonormalized into the
-    /// basis. Returns `Ok(false)` (without growing the ROM) when every
-    /// drive's snapshot is numerically dependent on the current basis.
+    /// back-solve per drive (plus, with wave ports, the dense mixed
+    /// sweep's rank-`N_w` SMW post-step) — each solution
+    /// MGS-orthonormalized into the basis. Returns `Ok(false)` (without
+    /// growing the ROM) when every drive's snapshot is numerically
+    /// dependent on the current basis.
     fn add_snapshot(&mut self, omega: f64) -> Result<bool, RomError> {
         self.snapshot_omegas.push(omega);
         let factor = self.op.factor_at(omega)?;
         let mut grew = false;
+        if let Some(modal) = &self.modal {
+            // SMW-corrected excitation solves, exactly as
+            // `solve_mixed_port_sweep_with_mode` forms them.
+            let (_, ys) = channel_admittances(modal.wave, &modal.channels, omega);
+            let mut back_solve = |b: &[c64], x: &mut [c64]| factor.back_solve(b, x).map(|()| 0);
+            let mut iters = Vec::new();
+            let smw = ModalSmw::prepare(
+                &modal.fluxes_int,
+                &ys,
+                self.n,
+                omega,
+                &mut back_solve,
+                &mut iters,
+            )?;
+            let n_lumped = self.op.n_ports();
+            let mut sols = Vec::with_capacity(self.drives.len());
+            for j in 0..self.drives.len() {
+                let b = excitation_rhs(
+                    self.op,
+                    omega,
+                    j,
+                    n_lumped,
+                    &modal.channels,
+                    &modal.fluxes_int,
+                    &ys,
+                );
+                sols.push(smw.solve(&modal.fluxes_int, &b, &mut back_solve, &mut iters)?);
+            }
+            for w in sols {
+                grew |= self.add_column(w);
+            }
+            return Ok(grew);
+        }
         let drives = self.drives.clone();
         for drive in drives {
             let sol = match drive {
-                None => factor.solve()?,
-                Some(j) => factor.solve_excited(j)?,
+                Drive::Baked => factor.solve()?,
+                Drive::Lumped(j) => factor.solve_excited(j)?,
+                Drive::Wave(_) => unreachable!("wave drives carry modal data"),
             };
             let w: Vec<c64> = self
                 .interior_to_full
@@ -723,6 +1035,13 @@ impl<'a> DrivenRom<'a> {
         for (b_r, b) in self.b_hat_r.iter_mut().zip(&self.b_hat) {
             b_r.push(dot_h(&w, b));
         }
+        // Rank-1 modal families: u_q gains f_qᵀ w (f real — the
+        // unconjugated pairing; the family projects as conj(u) uᵀ).
+        if let Some(modal) = self.modal.as_mut() {
+            for (u, f) in modal.u.iter_mut().zip(&modal.fluxes_int) {
+                u.push(dot_t(f, &w));
+            }
+        }
 
         // Commit the column.
         self.kv.push(kw);
@@ -748,28 +1067,60 @@ impl<'a> DrivenRom<'a> {
             .collect()
     }
 
+    /// The wave channels' admittance factors `y_q(ω)` (empty for a
+    /// lumped-only ROM).
+    fn admittances(&self, omega: f64) -> Vec<c64> {
+        self.modal.as_ref().map_or_else(Vec::new, |m| {
+            channel_admittances(m.wave, &m.channels, omega).1
+        })
+    }
+
+    /// The scalar drive coefficient `c_d(ω)` of `b_d(ω) = c_d(ω)·b̂_d`:
+    /// `ω` for a baked / lumped drive, `2j·y_q·a_inc,q` for wave channel
+    /// `q` (the dense sweep's `coeff`).
+    fn drive_coefficient(&self, drive: Drive, omega: f64, ys: &[c64]) -> c64 {
+        match drive {
+            Drive::Baked | Drive::Lumped(_) => c64::new(omega, 0.0),
+            Drive::Wave(q) => {
+                let a_inc = self.modal.as_ref().expect("wave drive").channels[q].a_inc;
+                c64::new(0.0, 2.0) * ys[q] * a_inc
+            }
+        }
+    }
+
     /// The greedy indicator at `omega`: worst over the drives, `∞` when
     /// the reduced system (or a surface coefficient) is singular there.
     fn indicator_at(&self, omega: f64) -> f64 {
         let Ok(coeffs) = self.surface_coefficients(omega) else {
             return f64::INFINITY;
         };
-        match self.try_reduced_solve(omega, &coeffs) {
-            Some(x_rs) => self.residual_indicator(omega, &coeffs, &x_rs),
+        let ys = self.admittances(omega);
+        match self.try_reduced_solve(omega, &coeffs, &ys) {
+            Some(x_rs) => self.residual_indicator(omega, &coeffs, &ys, &x_rs),
             None => f64::INFINITY,
         }
     }
 
-    /// Assemble the reduced `A_r(ω)` once and solve `A_r(ω) x_r = ω b̂_r`
-    /// for every drive. `None` when the dense LU hits a zero/non-finite
-    /// pivot.
-    fn try_reduced_solve(&self, omega: f64, coeffs: &[c64]) -> Option<Vec<Vec<c64>>> {
+    /// Assemble the reduced `A_r(ω)` once and solve `A_r(ω) x_r = c_d(ω)
+    /// b̂_{r,d}` for every drive. `ys` are the wave channels' `y_q(ω)`
+    /// (empty without wave ports). `None` when the dense LU hits a
+    /// zero/non-finite pivot.
+    fn try_reduced_solve(&self, omega: f64, coeffs: &[c64], ys: &[c64]) -> Option<Vec<Vec<c64>>> {
         let k = self.basis.len();
         if k == 0 {
             return Some(vec![Vec::new(); self.drives.len()]);
         }
         let omega2 = omega * omega;
         let i_omega = c64::new(0.0, omega);
+        // Modal families: + j·y_q · conj(u_q) u_qᵀ.
+        let modal_terms: Vec<(c64, &[c64])> = match &self.modal {
+            Some(m) => ys
+                .iter()
+                .zip(&m.u)
+                .map(|(&y, u)| (c64::new(0.0, 1.0) * y, u.as_slice()))
+                .collect(),
+            None => Vec::new(),
+        };
         let mut a = vec![c64::new(0.0, 0.0); k * k];
         for r in 0..k {
             for c in 0..k {
@@ -783,25 +1134,48 @@ impl<'a> DrivenRom<'a> {
                 for (coeff, sg_r) in coeffs.iter().zip(&self.sg_r) {
                     v += *coeff * sg_r[r][c];
                 }
+                for &(jy, u) in &modal_terms {
+                    v += jy * (u[r].conj() * u[c]);
+                }
                 a[r * k + c] = v;
             }
         }
         self.b_hat_r
             .iter()
-            .map(|b_r| {
-                let b: Vec<c64> = b_r.iter().map(|&x| x * omega).collect();
+            .zip(&self.drives)
+            .map(|(b_r, &drive)| {
+                let b: Vec<c64> = match drive {
+                    Drive::Baked | Drive::Lumped(_) => b_r.iter().map(|&x| x * omega).collect(),
+                    Drive::Wave(_) => {
+                        let cd = self.drive_coefficient(drive, omega, ys);
+                        b_r.iter().map(|&x| x * cd).collect()
+                    }
+                };
                 solve_dense_lu(a.clone(), b, k)
             })
             .collect()
     }
 
-    /// `η(ω) = max_d ‖A(ω)Vx_{r,d} − ωb̂_d‖ / (ω‖b̂_d‖)` via the cached
-    /// matrix–basis products — `O(nk)` per drive, no sparse assembly.
-    fn residual_indicator(&self, omega: f64, coeffs: &[c64], x_rs: &[Vec<c64>]) -> f64 {
+    /// `η(ω) = max_d ‖A(ω)Vx_{r,d} − c_d b̂_d‖ / (|c_d|·‖b̂_d‖)` via the
+    /// cached matrix–basis products — `O(nk)` per drive, no sparse
+    /// assembly. With wave ports `A(ω)` includes the modal terms
+    /// `Σ_q j·y_q f_q f_qᵀ`, applied as `f_q·(u_qᵀ x_r)` (`O(n)` each):
+    /// the same full-order residual the dense mixed / wave sweeps report.
+    fn residual_indicator(&self, omega: f64, coeffs: &[c64], ys: &[c64], x_rs: &[Vec<c64>]) -> f64 {
         let omega2 = omega * omega;
         let mut worst = 0.0_f64;
-        for ((b_hat, &b_norm), x_r) in self.b_hat.iter().zip(&self.b_hat_norm).zip(x_rs) {
-            let mut r: Vec<c64> = b_hat.iter().map(|&b| b * (-omega)).collect();
+        for (((b_hat, &b_norm), x_r), &drive) in self
+            .b_hat
+            .iter()
+            .zip(&self.b_hat_norm)
+            .zip(x_rs)
+            .zip(&self.drives)
+        {
+            let cd = self.drive_coefficient(drive, omega, ys);
+            let mut r: Vec<c64> = match drive {
+                Drive::Baked | Drive::Lumped(_) => b_hat.iter().map(|&b| b * (-omega)).collect(),
+                Drive::Wave(_) => b_hat.iter().map(|&b| -(b * cd)).collect(),
+            };
             for (j, &xj) in x_r.iter().enumerate() {
                 let sk = xj;
                 let sm = xj * (-omega2);
@@ -828,12 +1202,48 @@ impl<'a> DrivenRom<'a> {
                     }
                 }
             }
+            if let Some(modal) = &self.modal {
+                for ((&y, u), f) in ys.iter().zip(&modal.u).zip(&modal.fluxes_int) {
+                    let scaled = c64::new(0.0, 1.0) * y * dot_t(u, x_r);
+                    for (ri, &fi) in r.iter_mut().zip(f.iter()) {
+                        *ri += fi * scaled;
+                    }
+                }
+            }
             let num = vec_norm(&r);
-            let den = omega.abs() * b_norm;
+            let den = cd.norm() * b_norm;
             worst = worst.max(if den == 0.0 { num } else { num / den });
         }
         worst
     }
+}
+
+/// The structural checks shared by every PROM build: a non-empty grid of
+/// finite positive frequencies, a non-zero snapshot budget and a finite
+/// non-negative tolerance.
+fn validate_request(omegas: &[f64], settings: &RomSettings) -> Result<(), RomError> {
+    if omegas.is_empty() {
+        return Err(RomError::InvalidParameter(
+            "empty candidate frequency grid".into(),
+        ));
+    }
+    if let Some(&bad) = omegas.iter().find(|w| !w.is_finite() || **w <= 0.0) {
+        return Err(RomError::InvalidParameter(format!(
+            "candidate frequency {bad} is not finite and positive"
+        )));
+    }
+    if settings.max_snapshots == 0 {
+        return Err(RomError::InvalidParameter(
+            "max_snapshots must be at least 1".into(),
+        ));
+    }
+    if !settings.tolerance.is_finite() || settings.tolerance < 0.0 {
+        return Err(RomError::InvalidParameter(format!(
+            "tolerance {} must be finite and non-negative",
+            settings.tolerance
+        )));
+    }
+    Ok(())
 }
 
 /// `y = S·x` from an interior `(row, col, value)` triplet list.
@@ -1003,5 +1413,60 @@ pub fn rom_frequency_sweep<B: Backend>(
         snapshot_omegas: rom.snapshot_omegas().to_vec(),
         converged: rom.converged(),
         worst_residual: rom.worst_residual(),
+    })
+}
+
+/// Adaptive fast sweep for **mixed lumped + wave ports** (issue #774):
+/// the PROM analog of
+/// [`crate::driven::ports::solve_mixed_port_sweep_with_mode`] (direct
+/// solver). Assembles the base operator once exactly as the dense mixed
+/// sweep does (lumped loads + `surfaces`, zero volume source), builds a
+/// [`DrivenRom::build_with_wave_ports`] PROM over `omegas`, and evaluates
+/// every requested frequency with [`DrivenRom::evaluate_scattering`].
+/// `lumped` may be empty (pure-wave), `wave` may be empty (then this is a
+/// power-wave lumped sweep), not both.
+///
+/// # Errors
+///
+/// As [`DrivenRom::build_with_wave_ports`] /
+/// [`DrivenRom::evaluate_scattering`]; any [`DrivenError`] from assembly.
+#[allow(clippy::too_many_arguments)]
+pub fn rom_mixed_port_sweep<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    lumped: &[LumpedPort<'_>],
+    wave: &[WavePort],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    omegas: &[f64],
+    settings: &RomSettings,
+    device: &B::Device,
+) -> Result<RomScatteringReport, RomError> {
+    let zero_source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+    };
+    let op = DrivenOperator::assemble::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        lumped,
+        surfaces,
+        &zero_source,
+        device,
+    )?;
+    let rom =
+        DrivenRom::build_with_wave_ports(&op, mesh, bcs, wave, omegas, settings, &mut |_| {})?;
+    let points = omegas
+        .iter()
+        .map(|&w| rom.evaluate_scattering(w))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RomScatteringReport {
+        points,
+        snapshot_omegas: rom.snapshot_omegas().to_vec(),
+        converged: rom.converged(),
+        worst_residual: rom.worst_residual(),
+        reduced_order: rom.reduced_order(),
     })
 }
