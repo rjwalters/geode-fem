@@ -35,6 +35,10 @@
 //!    cargo test -p geode-cli --release --test sphere_pec_golden -- --ignored
 //!    ```
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
+use scratch_support::Scratch;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -80,12 +84,12 @@ fn modes(report: &serde_json::Value) -> Vec<(f64, f64)> {
 
 #[test]
 fn sphere_pec_cavity_golden_matches_mie_roots() {
-    let outdir =
-        std::env::temp_dir().join(format!("geode-cli-sphere-outdir-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&outdir);
+    // `--outdir` target must not exist yet: a subpath of a scratch dir
+    // that is removed on drop (also on panic).
+    let outdir_dir = Scratch::new("geode-cli-sphere-outdir-", "golden");
+    let outdir = outdir_dir.join("out");
     let report = run_eigen(Some(&outdir));
     assert_mode_fields(&report, &outdir);
-    std::fs::remove_dir_all(&outdir).unwrap();
     assert_eq!(report["schema_version"], 1);
     assert_eq!(report["kind"], "eigen");
     assert_eq!(report["status"], "ok");

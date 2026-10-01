@@ -17,6 +17,10 @@
 //!   a CI dependency: without it the check is skipped with a loud
 //!   `SKIPPED` line on stderr.
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
+use scratch_support::Scratch;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -26,11 +30,9 @@ fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-/// Scratch dir unique to this test process + name.
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("geode-spice-test-{}-{name}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// Fresh scratch dir for one test, removed on drop (also on panic).
+fn scratch(name: &str) -> Scratch {
+    Scratch::new("geode-spice-test-", name)
 }
 
 fn geode(args: &[&str]) -> Output {
@@ -216,7 +218,6 @@ fn triax_drops_shielded_ground_branch_and_round_trips() {
 
     assert_reproduces(&report, &net, 1e-12);
     ngspice_check("triax", &out, &c);
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -242,7 +243,6 @@ fn coax_single_terminal_is_one_ground_capacitor() {
     assert!(!text.contains("dropped:"));
     assert_reproduces(&report, &net, 1e-15);
     ngspice_check("coax", &out, &c_matrix(&report));
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

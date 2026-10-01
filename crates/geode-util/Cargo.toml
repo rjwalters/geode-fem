@@ -39,5 +39,9 @@ thiserror = { workspace = true }
 # `{:.15e}` formatting. Existing workspace dep (also used by geode-core).
 toml = { workspace = true }
 
+[dev-dependencies]
+# Panic-safe scratch dirs for the `fixture` unit tests (issue #766).
+tempfile = { workspace = true }
+
 [lints.rust]
 unsafe_code = "forbid"

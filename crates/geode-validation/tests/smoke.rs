@@ -160,9 +160,6 @@ fn deliberate_corruption_produces_structured_diff_artifact() {
     assert!(!reloaded.passed);
     assert_eq!(reloaded.fixture_id, "p1_reference_tet/local_stiffness");
     assert_eq!(reloaded.n_failures(), 1);
-
-    // Clean up.
-    let _ = std::fs::remove_file(&out);
 }
 
 #[test]
@@ -206,16 +203,12 @@ fn shape_mismatch_in_actual_is_reported_as_distinct_failure_mode() {
     }
 }
 
-/// Tiny tempdir helper — `std::env::temp_dir()` + a unique-ish file
-/// name per test invocation. Avoids pulling in the `tempfile` crate
-/// for one path's worth of friction.
-fn tempdir_path(name: &str) -> PathBuf {
-    let pid = std::process::id();
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let mut p = std::env::temp_dir();
-    p.push(format!("geode-validation-{pid}-{ts}-{name}"));
-    p
+/// Unique temp file path, removed on drop — including during a failing
+/// assertion's unwind (issue #766).
+fn tempdir_path(name: &str) -> tempfile::TempPath {
+    tempfile::Builder::new()
+        .prefix(&format!("geode-validation-{name}-"))
+        .tempfile()
+        .expect("create temp file")
+        .into_temp_path()
 }

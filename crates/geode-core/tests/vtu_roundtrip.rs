@@ -15,23 +15,20 @@
 //! This test is the de-facto correctness contract for Phase 2A and runs in
 //! CI (no ParaView dependency).
 
-use std::path::PathBuf;
+use tempfile::TempPath;
 
 use geode_core::mesh::cube_tet_mesh;
 use geode_core::postproc::viz::{write_vtu, write_vtu_surface};
 
-/// Unique tempfile path under the OS temp dir (no `tempfile` dev-dep).
-fn temp_vtu(tag: &str) -> PathBuf {
-    let mut p = std::env::temp_dir();
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    p.push(format!(
-        "geode_vtu_roundtrip_{tag}_{}_{nanos}.vtu",
-        std::process::id()
-    ));
-    p
+/// Unique tempfile path under the OS temp dir, removed on drop — including
+/// during a failing assertion's unwind (issue #766).
+fn temp_vtu(tag: &str) -> TempPath {
+    tempfile::Builder::new()
+        .prefix(&format!("geode_vtu_roundtrip_{tag}_"))
+        .suffix(".vtu")
+        .tempfile()
+        .expect("create temp .vtu")
+        .into_temp_path()
 }
 
 /// Extract the whitespace-separated tokens between the opening and closing
@@ -76,7 +73,6 @@ fn real_only_roundtrip() {
     let path = temp_vtu("real");
     write_vtu(&path, &mesh, &e, None, None).expect("write_vtu");
     let xml = std::fs::read_to_string(&path).expect("read back");
-    let _ = std::fs::remove_file(&path);
 
     // Header counts.
     assert!(xml.contains(&format!("NumberOfPoints=\"{}\"", mesh.n_nodes())));
@@ -156,7 +152,6 @@ fn real_plus_imag_roundtrip() {
     let path = temp_vtu("imag");
     write_vtu(&path, &mesh, &e, Some(&e_imag), None).expect("write_vtu");
     let xml = std::fs::read_to_string(&path).expect("read back");
-    let _ = std::fs::remove_file(&path);
 
     assert!(xml.contains("Name=\"E_real\""));
     assert!(xml.contains("Name=\"E_imag\""));
@@ -205,7 +200,6 @@ fn with_eps_r_overlay() {
     let path = temp_vtu("eps");
     write_vtu(&path, &mesh, &e, None, Some(&eps_r)).expect("write_vtu");
     let xml = std::fs::read_to_string(&path).expect("read back");
-    let _ = std::fs::remove_file(&path);
 
     assert!(xml.contains("Name=\"E_real\""));
     assert!(xml.contains("Name=\"eps_r\""));
@@ -270,7 +264,6 @@ fn surface_writer_roundtrip() {
     )
     .expect("write_vtu_surface");
     let xml = std::fs::read_to_string(&path).expect("read back");
-    let _ = std::fs::remove_file(&path);
 
     // Header counts.
     assert!(xml.contains(&format!("NumberOfPoints=\"{}\"", points.len())));

@@ -173,13 +173,12 @@ mod tests {
 
     #[test]
     fn resolve_creates_nested_directory() {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root =
-            std::env::temp_dir().join(format!("geode-app-test-{}-{}", std::process::id(), nanos));
-        let target = root.join("nested").join("out");
+        // Removed on drop, also if an assertion panics first (issue #766).
+        let root = tempfile::Builder::new()
+            .prefix("geode-app-test-")
+            .tempdir()
+            .unwrap();
+        let target = root.path().join("nested").join("out");
         assert!(!target.exists());
 
         let p = OutProbe::try_parse_from(["prog", "--out-dir", target.to_str().unwrap()]).unwrap();
@@ -190,7 +189,5 @@ mod tests {
 
         // Idempotent: resolving again on an existing directory succeeds.
         p.o.resolve().expect("resolve should be idempotent");
-
-        std::fs::remove_dir_all(&root).ok();
     }
 }

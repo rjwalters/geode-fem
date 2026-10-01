@@ -10,6 +10,10 @@
 //! a loud `SKIPPED` line on stderr. The geode-side round trip (our own
 //! test-side parser) always runs.
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
+use scratch_support::Scratch;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -30,8 +34,7 @@ fn scikit_rf_reads_a_driven_s1p() {
     let mesh = fixtures.join(v["mesh"]["path"].as_str().unwrap());
     v["mesh"]["path"] = mesh.display().to_string().into();
     v["frequencies"] = serde_json::json!({ "unit": "ghz", "values": [5.0, 1.0] });
-    let dir = std::env::temp_dir().join(format!("geode-skrf-test-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new("geode-skrf-test-", "driven");
     let spec = dir.join("spec.json");
     std::fs::write(&spec, serde_json::to_string_pretty(&v).unwrap()).unwrap();
     let ts = dir.join("spiral.s1p");
@@ -49,5 +52,4 @@ fn scikit_rf_reads_a_driven_s1p() {
     touchstone_support::assert_round_trip(&report, &ts);
     let (_, refs, rows) = touchstone_support::parse(&std::fs::read_to_string(&ts).unwrap());
     skrf_support::check("geode driven .s1p", &ts, &refs, &rows);
-    std::fs::remove_dir_all(&dir).unwrap();
 }

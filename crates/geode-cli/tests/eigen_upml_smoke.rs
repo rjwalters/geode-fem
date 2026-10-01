@@ -38,6 +38,10 @@
 //!    opening the box adds radiation loss (measured `Q` ≈ 60 closed vs
 //!    ≈ 13 open).
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
+use scratch_support::ScratchFile;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -47,7 +51,7 @@ fn fixture() -> PathBuf {
 
 /// The fixture with `edit` applied, written to a scratch file (mesh path
 /// made absolute).
-fn edited(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> PathBuf {
+fn edited(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> ScratchFile {
     let raw = std::fs::read_to_string(fixture()).unwrap();
     let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
     let mesh = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -56,12 +60,8 @@ fn edited(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> PathBuf {
         .expect("patch smoke mesh exists");
     v["mesh"]["path"] = mesh.to_str().unwrap().into();
     edit(&mut v);
-    let path = std::env::temp_dir().join(format!(
-        "geode-cli-eigen-upml-{name}-{}.json",
-        std::process::id()
-    ));
-    std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
-    path
+    let text = serde_json::to_string_pretty(&v).unwrap();
+    ScratchFile::write("geode-cli-eigen-upml-", name, "spec.json", text)
 }
 
 fn run_eigen(spec: &Path) -> serde_json::Value {
@@ -125,8 +125,6 @@ fn eigen_box_upml_open_cavity_smoke() {
         let open = run_eigen(&fixture());
         (open, a.join().unwrap(), b.join().unwrap())
     });
-    std::fs::remove_file(&stronger).unwrap();
-    std::fs::remove_file(&closed).unwrap();
 
     // 1. The open pencil.
     let m25 = modes(&open, "open σ0=25");

@@ -49,6 +49,10 @@
 //! Spec validation (unsupported analyses / kinds / combinations) is at the
 //! bottom.
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
+use scratch_support::{Scratch, ScratchFile};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -106,16 +110,14 @@ fn rel(a: f64, b: f64) -> f64 {
     (a - b).abs() / b.abs()
 }
 
-/// Scratch dir unique to this process and test.
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("geode-cli-sens-{}-{name}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// Fresh scratch dir for one test, removed on drop (also on panic).
+fn scratch(name: &str) -> Scratch {
+    Scratch::new("geode-cli-sens-", name)
 }
 
 /// A fixture spec with `edit` applied, written to scratch (the mesh path
 /// made absolute).
-fn edited(fixture: &str, name: &str, edit: impl FnOnce(&mut Value)) -> PathBuf {
+fn edited(fixture: &str, name: &str, edit: impl FnOnce(&mut Value)) -> ScratchFile {
     let src = fixtures().join(fixture);
     let raw = std::fs::read_to_string(&src).unwrap();
     let mut v: Value = if fixture.ends_with(".toml") {
@@ -129,9 +131,12 @@ fn edited(fixture: &str, name: &str, edit: impl FnOnce(&mut Value)) -> PathBuf {
         .unwrap();
     v["mesh"]["path"] = mesh.to_str().unwrap().into();
     edit(&mut v);
-    let path = scratch(name).join("spec.json");
-    std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
-    path
+    ScratchFile::write(
+        "geode-cli-sens-",
+        name,
+        "spec.json",
+        serde_json::to_string_pretty(&v).unwrap(),
+    )
 }
 
 /// The report's `sensitivities` block, with the FD self-check asserted
@@ -369,7 +374,7 @@ fn write_msh(
 /// A closed PEC box cavity `[0,a]×[0,b]×[0,len]` (hex grid `nx×ny×nz`,
 /// `len` split into `front` (z < len/2) and `back`), with an eigen spec
 /// differentiating `modes` w.r.t. both regions' `eps_r`, FD check on.
-fn box_cavity_spec(name: &str, a: f64, b: f64, n: [usize; 3], modes: &[usize]) -> PathBuf {
+fn box_cavity_spec(name: &str, a: f64, b: f64, n: [usize; 3], modes: &[usize]) -> ScratchFile {
     let len = 1.2;
     let g = extruded_rect_waveguide_mesh(n[0], n[1], n[2], a, b, len);
     let region_of: Vec<usize> = g
@@ -409,9 +414,11 @@ fn box_cavity_spec(name: &str, a: f64, b: f64, n: [usize; 3], modes: &[usize]) -
             "fd_check": {}
         }
     });
-    let path = dir.join("spec.json");
-    std::fs::write(&path, serde_json::to_string_pretty(&spec).unwrap()).unwrap();
-    path
+    ScratchFile::write_in(
+        dir,
+        "spec.json",
+        serde_json::to_string_pretty(&spec).unwrap(),
+    )
 }
 
 #[test]
