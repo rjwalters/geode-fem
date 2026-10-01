@@ -251,6 +251,32 @@ fn check_resource_estimate_for_iterative_and_eigen_specs() {
 }
 
 #[test]
+fn check_resource_estimate_counts_ilu0_factor_storage() {
+    // Issue #708: `solver.preconditioner = "ilu0"` parses and threads into
+    // the iterative vector-count model (factor storage + triangular sweeps).
+    let estimate = |name: &str, pc: &str| {
+        let spec = edited_spec(name, |v| {
+            v["solver"] = serde_json::json!({ "mode": "iterative", "preconditioner": pc });
+        });
+        json(&geode(&["check", spec.to_str().unwrap()]))["resources"].clone()
+    };
+    let jac = estimate("resources-jacobi", "jacobi");
+    let ilu = estimate("resources-ilu0", "ilu0");
+    assert_eq!(ilu["solver_mode"], "iterative");
+    let gb = |r: &serde_json::Value| r["peak_memory_gb"].as_f64().unwrap();
+    let per = |r: &serde_json::Value| r["flops_per_iteration"].as_f64().unwrap();
+    assert!(gb(&ilu) > gb(&jac), "{} vs {}", gb(&ilu), gb(&jac));
+    assert!(per(&ilu) > per(&jac));
+
+    // An unknown preconditioner is a spec error, not a silent default.
+    let spec = edited_spec("resources-bad-pc", |v| {
+        v["solver"] = serde_json::json!({ "mode": "iterative", "preconditioner": "ams" });
+    });
+    let out = geode(&["check", spec.to_str().unwrap()]);
+    assert!(!out.status.success());
+}
+
+#[test]
 fn touchstone_sorts_a_driven_sweep_and_round_trips() {
     // Spec order 5 GHz then 1 GHz: the report keeps spec order, the
     // `.s1p` is ascending.

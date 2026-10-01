@@ -240,8 +240,9 @@ pub enum SolverMode {
     Direct,
     /// COCG iterative path (issue #238 / PR #243). No factor — each RHS
     /// at a fixed ω is solved by a fresh COCG iteration against the
-    /// cached sparse `A(ω)`, with the Jacobi preconditioner built once
-    /// per ω and reused across RHS.
+    /// cached sparse `A(ω)`, with the preconditioner selected by
+    /// [`IterativeSettings::preconditioner`] (Jacobi by default) built
+    /// once per ω and reused across RHS.
     Iterative(IterativeSettings),
     /// **GPU-resident matrix-free** COCG path (issue #302 Phase 3 / PR
     /// #487's [`crate::solver::ksp_burn::BurnCocg`]). Like
@@ -276,6 +277,13 @@ pub struct IterativeSettings {
     pub tol: f64,
     /// Maximum COCG iterations per RHS. Default `5000`.
     pub max_iters: usize,
+    /// Preconditioner built once per ω from the assembled `A(ω)` on the
+    /// [`SolverMode::Iterative`] path (issue #708 Phase 6b). Default
+    /// [`IterativePreconditioner::Jacobi`] — the historical behavior.
+    /// The matrix-free path ([`SolverMode::IterativeMatrixFree`]) only
+    /// has an on-device Jacobi and rejects anything else with
+    /// [`DrivenError::UnsupportedMatrixFree`].
+    pub preconditioner: IterativePreconditioner,
 }
 
 impl Default for IterativeSettings {
@@ -285,14 +293,128 @@ impl Default for IterativeSettings {
         Self {
             tol: 1e-10,
             max_iters: 5000,
+            preconditioner: IterativePreconditioner::Jacobi,
         }
     }
 }
 
 impl IterativeSettings {
-    /// Convenience constructor — `tol` and `max_iters` only.
+    /// Convenience constructor — `tol` and `max_iters` only, with the
+    /// default [`IterativePreconditioner::Jacobi`].
     pub fn new(tol: f64, max_iters: usize) -> Self {
-        Self { tol, max_iters }
+        Self {
+            tol,
+            max_iters,
+            preconditioner: IterativePreconditioner::Jacobi,
+        }
+    }
+
+    /// Builder-style override of the preconditioner choice.
+    pub fn with_preconditioner(mut self, preconditioner: IterativePreconditioner) -> Self {
+        self.preconditioner = preconditioner;
+        self
+    }
+}
+
+/// Preconditioner selection for the assembled-CSR
+/// [`SolverMode::Iterative`] path (issue #708 Phase 6b).
+///
+/// Every variant is built once per ω from the assembled interior `A(ω)`
+/// and reused across every RHS at that ω. All of them are applied with
+/// plain (non-conjugating) complex arithmetic, so they compose with the
+/// COCG bilinear form.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum IterativePreconditioner {
+    /// Diagonal scaling ([`crate::solver::ksp::JacobiPreconditioner`]):
+    /// `O(n)` setup and memory. The default.
+    #[default]
+    Jacobi,
+    /// Incomplete LU with zero fill
+    /// ([`crate::solver::ksp::IluPreconditioner`], issue #267): one
+    /// factorization on `A(ω)`'s own sparsity pattern per ω (an extra
+    /// `nnz(A)` complex values plus a row index), two `O(nnz)`
+    /// triangular solves per application. Errors at setup with
+    /// [`DrivenError::Solve`] if a pivot vanishes.
+    Ilu0,
+    /// Degree-`k` first-kind Chebyshev polynomial smoother on the
+    /// Jacobi-scaled operator
+    /// ([`crate::solver::ksp::ChebyshevPreconditioner`], default
+    /// [`crate::solver::ksp::ChebyshevConfig`]). `degree = 0` is Jacobi.
+    Chebyshev {
+        /// Polynomial degree (number of Chebyshev steps, i.e. SpMVs per
+        /// application).
+        degree: usize,
+    },
+}
+
+impl IterativePreconditioner {
+    /// Short stable name (`"jacobi"`, `"ilu0"`, `"chebyshev"`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Jacobi => "jacobi",
+            Self::Ilu0 => "ilu0",
+            Self::Chebyshev { .. } => "chebyshev",
+        }
+    }
+
+    /// Build the selected preconditioner from the assembled interior
+    /// `A(ω)`.
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::Solve`] wrapping the setup failure (a zero /
+    /// non-finite diagonal for Jacobi / Chebyshev, a vanishing ILU(0)
+    /// pivot).
+    pub fn build(
+        self,
+        a: faer::sparse::SparseColMatRef<'_, usize, c64>,
+    ) -> Result<DrivenPreconditioner, DrivenError> {
+        use crate::solver::ksp::{
+            ChebyshevPreconditioner, IluPreconditioner, JacobiPreconditioner,
+        };
+        let setup = |e: crate::solver::ksp::KspError| {
+            DrivenError::Solve(format!("{} preconditioner setup: {e}", self.name()))
+        };
+        Ok(match self {
+            Self::Jacobi => {
+                DrivenPreconditioner::Jacobi(JacobiPreconditioner::new(a).map_err(setup)?)
+            }
+            Self::Ilu0 => DrivenPreconditioner::Ilu0(IluPreconditioner::new(a, 0).map_err(setup)?),
+            Self::Chebyshev { degree } => DrivenPreconditioner::Chebyshev(
+                ChebyshevPreconditioner::new(a, degree).map_err(setup)?,
+            ),
+        })
+    }
+}
+
+/// A built [`IterativePreconditioner`] — the concrete preconditioner
+/// the [`SolverMode::Iterative`] back-solve applies. Static dispatch
+/// over the three [`crate::solver::ksp`] implementations.
+#[derive(Debug, Clone)]
+pub enum DrivenPreconditioner {
+    /// [`crate::solver::ksp::JacobiPreconditioner`].
+    Jacobi(crate::solver::ksp::JacobiPreconditioner),
+    /// [`crate::solver::ksp::IluPreconditioner`] (ILU(0)).
+    Ilu0(crate::solver::ksp::IluPreconditioner),
+    /// [`crate::solver::ksp::ChebyshevPreconditioner`].
+    Chebyshev(crate::solver::ksp::ChebyshevPreconditioner),
+}
+
+impl crate::solver::ksp::Preconditioner for DrivenPreconditioner {
+    fn apply(&self, r: &[c64], z: &mut [c64]) {
+        match self {
+            Self::Jacobi(p) => p.apply(r, z),
+            Self::Ilu0(p) => p.apply(r, z),
+            Self::Chebyshev(p) => p.apply(r, z),
+        }
+    }
+
+    fn dim(&self) -> usize {
+        match self {
+            Self::Jacobi(p) => p.dim(),
+            Self::Ilu0(p) => p.dim(),
+            Self::Chebyshev(p) => p.dim(),
+        }
     }
 }
 
@@ -2357,7 +2479,7 @@ pub struct BackSolveReport {
 /// Multi-RHS callers at the same ω
 /// ([`crate::driven::extraction::s_parameter_frequency_sweep`],
 /// [`crate::driven::ports::solve_wave_port_sweep`]) reuse one handle across
-/// every RHS; on the iterative path the Jacobi preconditioner is built
+/// every RHS; on the iterative path the preconditioner is built
 /// once at construction and reused across every
 /// [`DrivenLinearSolver::back_solve`] call.
 pub struct DrivenLinearSolver<'a, B: Backend> {
@@ -2376,7 +2498,7 @@ enum SolverBackend<B: Backend> {
         lu: Box<Lu<usize, c64>>,
     },
     Iterative {
-        precond: crate::solver::ksp::JacobiPreconditioner,
+        precond: DrivenPreconditioner,
         ksp: crate::solver::ksp::Cocg,
     },
     /// GPU-resident matrix-free COCG (issue #302 Phase 3): the Burn
@@ -2557,8 +2679,9 @@ impl DrivenOperator {
     /// - [`SolverMode::Direct`]: factor `A(ω)` once with sparse LU; the
     ///   resulting handle's [`DrivenLinearSolver::back_solve`] is a
     ///   triangular back-substitution per RHS.
-    /// - [`SolverMode::Iterative`]: build the Jacobi preconditioner from
-    ///   `A(ω)`; the handle's `back_solve` runs a fresh
+    /// - [`SolverMode::Iterative`]: build the selected
+    ///   [`IterativePreconditioner`] (Jacobi by default, ILU(0) or
+    ///   Chebyshev on request) from `A(ω)`; the handle's `back_solve` runs a fresh
     ///   [`crate::solver::ksp::Cocg`] iteration per RHS.
     /// - [`SolverMode::IterativeMatrixFree`]: build the Burn matrix-free
     ///   volume pencil plus the on-device COO surface correction at ω
@@ -2584,10 +2707,11 @@ impl DrivenOperator {
     ///
     /// [`DrivenError::SurfaceImpedanceSingular`], the sparse assembly
     /// failures, the LU-factorization failure on the direct path,
-    /// [`DrivenError::Solve`] wrapping a Jacobi-preconditioner setup
-    /// error (a zero / non-finite diagonal) on the iterative path, or
-    /// [`DrivenError::UnsupportedMatrixFree`] for an unsupported material
-    /// on the matrix-free path.
+    /// [`DrivenError::Solve`] wrapping a preconditioner setup error (a
+    /// zero / non-finite diagonal, a vanishing ILU(0) pivot) on the
+    /// iterative path, or [`DrivenError::UnsupportedMatrixFree`] for a
+    /// non-Jacobi preconditioner or an unsupported material on the
+    /// matrix-free path.
     pub fn prepare_at<B: Backend>(
         &self,
         omega: f64,
@@ -2604,12 +2728,21 @@ impl DrivenOperator {
                 SolverBackend::Direct { lu: Box::new(lu) }
             }
             SolverMode::Iterative(settings) => {
-                let precond = crate::solver::ksp::JacobiPreconditioner::new(a_int.as_ref())
-                    .map_err(|e| DrivenError::Solve(format!("Jacobi preconditioner setup: {e}")))?;
+                let precond = settings.preconditioner.build(a_int.as_ref())?;
                 let ksp = crate::solver::ksp::Cocg::new(settings.tol, settings.max_iters);
                 SolverBackend::Iterative { precond, ksp }
             }
             SolverMode::IterativeMatrixFree(settings) => {
+                if settings.preconditioner != IterativePreconditioner::Jacobi {
+                    return Err(DrivenError::UnsupportedMatrixFree {
+                        reason: format!(
+                            "the matrix-free path (v1) has only an on-device Jacobi \
+                             preconditioner; `{}` needs the assembled-CSR \
+                             SolverMode::Iterative path",
+                            settings.preconditioner.name()
+                        ),
+                    });
+                }
                 let ing = self.matrix_free.as_ref().ok_or_else(|| {
                     DrivenError::UnsupportedMatrixFree {
                         reason: match self.materials_kind {
@@ -2650,6 +2783,10 @@ impl DrivenOperator {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "solve_ams_spike.rs"]
+mod ams_spike;
 
 #[cfg(test)]
 mod tests {
@@ -3423,6 +3560,197 @@ mod tests {
             report_ilu.iters,
             report_ilu.iters as f64 / report_jac.iters.max(1) as f64,
         );
+    }
+
+    /// **Issue #708 Phase 6b**: the preconditioner choice reaches the
+    /// **public** [`SolverMode::Iterative`] path (`prepare_at`), and on a
+    /// loss-dominated low-ω fixture ILU(0) converges inside a budget that
+    /// Jacobi exhausts (measured on this fixture: Jacobi 270 vs ILU(0) 70
+    /// COCG iterations), with the ILU(0) answer matching direct LU. The
+    /// budget sits between the two counts so a regression that silently
+    /// fell back to Jacobi fails here.
+    #[test]
+    fn ilu0_selectable_on_public_iterative_path_converges_where_jacobi_stalls() {
+        let mesh = cube_tet_mesh(5, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        // Every third tet lossy: a heterogeneous iωσ term with strong
+        // off-diagonal coupling that diagonal scaling cannot capture.
+        let sigma_tet: Vec<f64> = (0..mesh.n_tets())
+            .map(|t| if t % 3 == 0 { 5.0 } else { 0.0 })
+            .collect();
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            Some(&sigma_tet),
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let omega = 0.01;
+        let budget = 150;
+
+        // Default settings stay Jacobi (backwards compatible).
+        assert_eq!(
+            IterativeSettings::default().preconditioner,
+            IterativePreconditioner::Jacobi
+        );
+        assert_eq!(
+            IterativeSettings::new(1e-10, budget).preconditioner,
+            IterativePreconditioner::Jacobi
+        );
+
+        let jacobi = op
+            .prepare_at::<B>(
+                omega,
+                SolverMode::Iterative(IterativeSettings::new(1e-10, budget)),
+                &device(),
+            )
+            .expect("Jacobi setup");
+        let err = jacobi.solve().expect_err("Jacobi must exhaust the budget");
+        assert!(
+            matches!(&err, DrivenError::Solve(m) if m.contains("did not converge")),
+            "unexpected Jacobi failure: {err:?}"
+        );
+
+        let ilu = op
+            .prepare_at::<B>(
+                omega,
+                SolverMode::Iterative(
+                    IterativeSettings::new(1e-10, budget)
+                        .with_preconditioner(IterativePreconditioner::Ilu0),
+                ),
+                &device(),
+            )
+            .expect("ILU(0) setup");
+        let (sol_ilu, report) = ilu.solve().expect("ILU(0) converges inside the budget");
+        assert!(report.iters > 0 && report.iters <= budget);
+        assert!(report.residual_rel <= 1e-10);
+
+        let (sol_lu, _) = op
+            .prepare_at::<B>(omega, SolverMode::Direct, &device())
+            .expect("LU")
+            .solve()
+            .expect("direct solve");
+        let num: f64 = sol_ilu
+            .e_edges
+            .iter()
+            .zip(&sol_lu.e_edges)
+            .map(|(a, b)| (a - b).norm_sqr())
+            .sum();
+        let den: f64 = sol_lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
+        let rel = (num / den).sqrt();
+        assert!(rel < 1e-6, "ILU(0) vs direct LU rel err {rel:.3e}");
+        eprintln!(
+            "[issue #708 6b] grid=5 σ=5 (1/3 tets) ω={omega}: ILU(0) iters={} (Jacobi > {budget}), \
+             rel err vs LU {rel:.2e}",
+            report.iters
+        );
+    }
+
+    /// The matrix-free path only has an on-device Jacobi: a non-Jacobi
+    /// preconditioner request is a clean `UnsupportedMatrixFree` error,
+    /// never a silent fallback.
+    #[test]
+    fn matrix_free_rejects_non_jacobi_preconditioner() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |_| {
+            [c64::new(0.0, 0.0), c64::new(0.0, 0.0), c64::new(1.0, 0.0)]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let settings =
+            IterativeSettings::default().with_preconditioner(IterativePreconditioner::Ilu0);
+        let err = op
+            .prepare_at::<B>(1.0, SolverMode::IterativeMatrixFree(settings), &device())
+            .err()
+            .expect("matrix-free must reject ILU(0)");
+        assert!(
+            matches!(&err, DrivenError::UnsupportedMatrixFree { reason } if reason.contains("ilu0")),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    /// Smoke test: [`IterativePreconditioner::Chebyshev`] also reaches the
+    /// **public** [`SolverMode::Iterative`] path (`prepare_at`) — the same
+    /// path exercised for ILU(0) above — and converges to an answer that
+    /// matches direct LU.
+    #[test]
+    fn chebyshev_selectable_on_public_iterative_path_converges() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let omega = 1.0;
+
+        let settings = IterativeSettings::new(1e-10, 500)
+            .with_preconditioner(IterativePreconditioner::Chebyshev { degree: 3 });
+        let (sol_cheb, report) = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(settings), &device())
+            .expect("Chebyshev setup")
+            .solve()
+            .expect("Chebyshev converges");
+        assert!(report.iters > 0);
+        assert!(report.residual_rel <= 1e-10);
+
+        let (sol_lu, _) = op
+            .prepare_at::<B>(omega, SolverMode::Direct, &device())
+            .expect("LU")
+            .solve()
+            .expect("direct solve");
+        let num: f64 = sol_cheb
+            .e_edges
+            .iter()
+            .zip(&sol_lu.e_edges)
+            .map(|(a, b)| (a - b).norm_sqr())
+            .sum();
+        let den: f64 = sol_lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
+        let rel = (num / den).sqrt();
+        assert!(rel < 1e-6, "Chebyshev vs direct LU rel err {rel:.3e}");
     }
 
     /// **Issue #299 regression**: the Chebyshev polynomial smoother on
