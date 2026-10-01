@@ -166,10 +166,11 @@ jobs:
     # `tests/mesh_golden.rs` must actually run in CI.
     name: cargo test -p geode-cli (linux)
     runs-on: ubuntu-latest
-    # Cold dependency build + ~45s smoke golden solve in debug, plus a
-    # second (release) build for the inductance benchmark tier; 30 min
-    # bounds queue-wait (issue #354).
-    timeout-minutes: 30
+    # Cold dependency build + the debug default tier. The release
+    # `--ignored` benchmark tiers run in the parallel `geode-cli-release`
+    # job below. The apt Gmsh install alone has taken ~11 min on a slow
+    # mirror; 45 min bounds queue-wait (issue #354) with that headroom.
+    timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
@@ -198,6 +199,39 @@ jobs:
       - name: Run geode-cli tests (default tier, CPU backend)
         run: |
           cargo test -p geode-cli
+
+  geode-cli-release:
+    # Release-mode `--ignored` benchmark tiers for the geode CLI, split out
+    # of the `geode-cli` job so the debug default tier and the release
+    # benchmark build run in parallel. Together they had outgrown the
+    # 30-minute bound, and main runs were being cancelled.
+    name: cargo test -p geode-cli --release --ignored (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+      GEODE_REQUIRE_GMSH: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Gmsh (geode mesh, issue #704)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gmsh
+          gmsh --version
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-geode-cli-release-${{ hashFiles('**/Cargo.lock') }}
 
       # The inductance benchmark tier (#714): finer coax/triax mesh at the
       # 1 % oracle bar + monotone convergence + library parity. ~1 min in
