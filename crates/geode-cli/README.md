@@ -23,6 +23,11 @@ geode mesh layout.json --analysis capacitance --spec-out c.json && geode capacit
 geode schema spec                                   # JSON Schema (draft 2020-12) of the spec; also `report`, `layout`
 ```
 
+Capacitance (one terminal), inductance and lossless eigen specs may add a
+`sensitivity` section for exact material gradients of their observable
+(issue #707; see [Material
+sensitivities](#material-sensitivities-sensitivity-issue-707)).
+
 New to `geode`? Start with the runnable [examples cookbook](examples/README.md):
 one worked example per analysis, with the output to expect.
 
@@ -647,6 +652,107 @@ export](#spice-subcircuit-export---spice-issues-715--719)).
 `geode check` reports the path list and edge-DOF counts in its
 `inductance` block and a `resources` estimate with `scalar = "real"` and
 one factorization per path.
+
+## Material sensitivities (`sensitivity`, issue #707)
+
+An optional `sensitivity` section adds a `sensitivities` block to the
+report: the **exact discrete gradient** of the analysis's observable with
+respect to per-region material parameters — GEODE's differentiable core
+(Epic #569) exposed for optimizers and agent loops. It is not a new
+analysis or subcommand: it rides on the spec's existing analysis and is
+consumed by that subcommand.
+
+```jsonc
+"sensitivity": {
+  "parameters": [                                  // ≥ 1, distinct
+    { "kind": "eps_r", "physical_group": "substrate" },
+    { "kind": "eps_r", "physical_group": "air" }
+  ],
+  "modes": [0, 1],          // eigen only (default [0])
+  "min_rel_gap": 1e-2,      // eigen only (default 1e-2)
+  "fd_check": {}            // optional: central-FD self-check (defaults below)
+}
+```
+
+| analysis (subcommand) | observable | `kind` | method | cost on top of the solve |
+|---|---|---|---|---|
+| `capacitance`, **exactly one** terminal | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint (`capacitance_adjoint_gradient_p2`) | one P2 forward + one adjoint solve, one factorization |
+| `inductance` | every `L_ij` (H) | `nu_r` (= `1/μ_r`), `mu_r` | self-adjoint energy form (`inductance_adjoint_sensitivity`), `∂L/∂μ_r = −ν_r² ∂L/∂ν_r` | the forward solves again on one factorization; no adjoint solve |
+| `eigen`, **lossless** (real `eps_r`, no `absorbing_regions`) | `frequency_hz` of each `modes[]` entry | `eps_r` | Hellmann–Feynman (`EigenSensitivity::deigenvalue_deps`), `∂f/∂ε = (f/2λ) ∂λ/∂ε` | a local contraction; no solve |
+
+- **Parameters.** `physical_group` is any dimension-3 group (listed in
+  `materials` or not — an unlisted group is differentiated at its vacuum
+  default). Every tet of the group shares the parameter; the gradient is
+  taken at the spec's material values. The parameters are
+  dimensionless, so a `gradient` has the unit of its observable
+  (`observable_unit`).
+- **Capacitance observable.** The library's capacitance adjoint is P2,
+  so the differentiated `C` is the P2 two-terminal capacitance, reported
+  as each entry's `value`; the report's `c_farad` stays the P1 matrix
+  (they differ by the P1 discretization error, ~0.7 % on the coax smoke
+  mesh).
+- **Eigen modes.** `modes` index the report's ascending `modes[]`
+  (default `[0]`, each `< eigen.n_modes`, and the spec needs `n_modes ≥
+  2`). Hellmann–Feynman holds only for a **simple** eigenvalue: a mode
+  whose relative gap `|λ − λ_j| / λ` to any other returned mode is below
+  `min_rel_gap` fails the run with `solve_failed` — e.g. the sphere
+  cavity's lowest mode (an `l = 1` triplet, gap ≈ 6e-4) — never a
+  silently wrong gradient. The gap is measured against the returned modes
+  only, so request enough `n_modes` to bracket the differentiated ones.
+- **`fd_check`** (`relative_step`, default `1e-4`, in `(0, 0.1]`;
+  `tolerance`, default `1e-4`). Each parameter `p` is re-solved through
+  the **shipped forward pipeline** (not the adjoint routine) at `p·(1 ±
+  relative_step)`; every entry gets `fd_gradient` and `fd_rel_error =
+  |g − g_FD| / max(|g|, |g_FD|, 0.01·|value/p|)` (relative, floored at 1 %
+  of the entry's natural log-derivative scale so a structurally ~zero
+  component — e.g. a mutual inductance w.r.t. a region only one path's
+  field fills — is not judged against central-difference round-off). Any
+  entry above `tolerance` fails the run with `solve_failed`. The defaults
+  mirror the library's own adjoint-vs-FD tests (central FD, `< 1e-4`
+  relative); a central difference at `1e-4` has `O(h²) ≈ 1e-8`
+  truncation and far smaller cancellation error. The eigen forward
+  uploads `ε_r` to the Nédélec assembly as `f32`, so for eigen specs the
+  two FD points are snapped to `f32`-representable values and the FD
+  denominator is their true spacing (issue #740). Cost: two forward solves per
+  parameter.
+- **Not in v1** (rejected with `invalid_spec`, naming the gap): driven /
+  extract specs — the library's driven material adjoint differentiates a
+  volume-current-driven, port-less pencil, and no `|S11|²` / `Z` / `L₀` /
+  `Q` gradient of the lumped-port-loaded operator exists yet (issue
+  #739); N-terminal
+  capacitance matrices (the library adjoint is two-terminal); lossy /
+  open eigen specs (no complex-eigenvalue `Q` / frequency gradient); the
+  loss tangent `Im ε_r`; shape / geometry parameters (the library has
+  node-displacement shape gradients, but the spec has no geometry
+  parametrization yet).
+
+The report block (`kind = "capacitance" | "inductance" | "eigen"`):
+
+```json
+"sensitivities": {
+  "observable": "c_farad", "observable_unit": "F", "method": "adjoint_p2",
+  "parameters": [
+    {"physical_group": "dielectric_inner", "kind": "eps_r", "value": 2.0},
+    {"physical_group": "dielectric_outer", "kind": "eps_r", "value": 1.0}
+  ],
+  "entries": [
+    {"parameter": 0, "index": [], "value": 8.1349e-14, "gradient": 1.4064e-14,
+     "fd_gradient": 1.4064e-14, "fd_rel_error": 4.7e-9},
+    {"parameter": 1, "index": [], "value": 8.1349e-14, "gradient": 5.3221e-14,
+     "fd_gradient": 5.3221e-14, "fd_rel_error": 1.5e-9}
+  ],
+  "fd_check": {"relative_step": 1e-4, "tolerance": 1e-4,
+               "max_rel_error": 4.7e-9, "n_forward_solves": 4},
+  "wall_time_s": 7.2
+}
+```
+
+`entries[].index` is the observable component: `[]` for the scalar `C`,
+`[i, j]` (path indices, row-major, all `N²`) for `l_henry[i][j]`, `[m]`
+(index into `modes[]`) for `frequency_hz`. An optimizer or agent loop
+edits `materials[]`, runs the subcommand, and reads
+`sensitivities.entries[].gradient` — JSON in, gradient out; see
+[`examples/sensitivity/`](examples/sensitivity/README.md).
 
 ## Field / far-field export (`--outdir`, issue #684)
 
@@ -1417,6 +1523,18 @@ estimate" above; `null` for a capacitance spec).
 `ports[]` is empty for an eigen spec; for an extract spec
 `frequencies[]` is the ascending solved list.
 
+**`sensitivities`** (additive in v1, issue #707; `capacitance`,
+`inductance` and `eigen` reports, present only when the spec has a
+`sensitivity` section): `observable` (`"c_farad"` \| `"l_henry"` \|
+`"frequency_hz"`), `observable_unit` (`"F"` \| `"H"` \| `"Hz"`), `method`
+(`"adjoint_p2"` \| `"self_adjoint_energy"` \| `"hellmann_feynman"`),
+`parameters[]` (`physical_group`, `kind`, `value`), `entries[]`
+(`parameter`, `index`, `value`, `gradient`, and with `fd_check`
+`fd_gradient`, `fd_rel_error`), `fd_check` (`relative_step`,
+`tolerance`, `max_rel_error`, `n_forward_solves`; only with
+`fd_check`) and `wall_time_s`. See [Material
+sensitivities](#material-sensitivities-sensitivity-issue-707).
+
 **`kind = "driven"`** adds:
 
 - `solver`: `mode`, `tol`, `max_iters`, `iterations_max` (largest per-RHS
@@ -1636,8 +1754,9 @@ done
 ## Examples cookbook (`examples/`, issue #709)
 
 [`examples/`](examples/README.md) has one runnable example per analysis —
-`driven`, `extract`, `eigen`, `capacitance`, `inductance`, and `mesh` →
-driven / capacitance / inductance — each with a README giving the command
+`driven`, `extract`, `eigen`, `capacitance`, `inductance`, material
+`sensitivity` gradients, and `mesh` → driven / capacitance / inductance —
+each with a README giving the command
 line, what it models and the output to expect. The specs (and the spiral
 layout) are byte-identical copies of the golden-test fixtures, so the
 quoted numbers are the pinned ones; `tests/cookbook.rs` fails if a copy
@@ -1647,6 +1766,18 @@ starter spec. (`crates/geode-cli/examples/` holds only JSON / TOML and
 Markdown — no `cargo run --example` targets.)
 
 ## Golden tests
+
+`tests/sensitivity_golden.rs` (issue #707) runs the `sensitivity`
+section through the real binary with `fd_check` on (library bar:
+adjoint vs central FD `< 1e-4` relative) for a one-terminal coax
+capacitance, the triax inductance (all three regions, full 2×2 tensor,
+plus the `mu_r` chain rule) and a synthetic two-region PEC box cavity
+(eigen, two simple modes), and checks each against the Euler homogeneity
+identity of its observable (`Σ ε ∂C/∂ε = C`, `Σ ν ∂L/∂ν = −L`,
+`Σ ε ∂f/∂ε = −f/2`) to 1e-8, the coax capacitance gradient against the
+two-layer closed form (2 %), the degenerate-mode refusal on the sphere
+cavity, and every `invalid_spec` gap. Measured worst FD disagreement:
+4.7e-9 (capacitance), 1.0e-8 (inductance), 2.4e-9 (eigen).
 
 `tests/spiral_golden.rs` re-expresses the spiral-inductor benchmark
 (issue #211) as a spec and runs it through the real binary:

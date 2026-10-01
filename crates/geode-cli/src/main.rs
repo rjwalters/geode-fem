@@ -38,6 +38,7 @@ mod mesh_cmd;
 mod problem;
 mod report;
 mod schema;
+mod sensitivity;
 mod spec;
 mod spice;
 mod touchstone;

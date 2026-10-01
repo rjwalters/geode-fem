@@ -117,6 +117,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "sensitivities": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SensitivityReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`∂C/∂ε_r` of the two-terminal capacitance (additive in v1, issue\n#707; present only with a spec `sensitivity` section). The\nobservable is the **P2** two-terminal capacitance (the library's\ncapacitance adjoint), reported as each entry's `value` — it differs\nfrom the P1 `c_farad[0][0]` by the P1 discretization error."
+        },
         "solver": {
           "$ref": "#/$defs/CapacitanceSolverStats",
           "description": "Solver statistics."
@@ -799,6 +810,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "sensitivities": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SensitivityReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`∂f/∂ε_r` of the `sensitivity.modes` resonant frequencies (additive\nin v1, issue #707; present only with a spec `sensitivity` section,\nlossless pencil only)."
+        },
         "solver": {
           "$ref": "#/$defs/EigenSolverStats",
           "description": "Solver statistics."
@@ -1335,6 +1357,62 @@
       ],
       "type": "object"
     },
+    "FdCheckSpec": {
+      "additionalProperties": false,
+      "description": "Central finite-difference self-check settings of a\n[`SensitivitySpec`].\n\nThe step is relative: parameter `p` is re-solved at `p ± h`, `h =\nrelative_step · |p|`. The defaults (`relative_step = 1e-4`, `tolerance\n= 1e-4`) mirror the library's own adjoint-vs-FD validation tests\n(`adjoint.rs` capacitance, `magnetostatic_inductance.rs`,\n`transmon_eigen_sensitivity.rs`: central FD, relative agreement\n`< 1e-4`). With a central difference the truncation error is\n`O(h²) ≈ 1e-8` relative and the cancellation error `≈ ε_solve / h`, so\na step of `1e-4` sits well inside the window where both are far below\nthe tolerance.",
+      "properties": {
+        "relative_step": {
+          "default": 0.0001,
+          "description": "Relative central-difference step (default `1e-4`; `0 < step ≤\n0.1`).",
+          "format": "double",
+          "type": "number"
+        },
+        "tolerance": {
+          "default": 0.0001,
+          "description": "Largest accepted relative disagreement `|g − g_FD| / max(|g|,\n|g_FD|, 0.01·|value/p|)` per gradient entry (default `1e-4`; `>\n0`). The floor (1 % of the entry's natural log-derivative scale)\nonly matters for structurally ~zero components.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "relative_step",
+        "tolerance"
+      ],
+      "type": "object"
+    },
+    "FdCheckSummary": {
+      "description": "Finite-difference self-check summary of a [`SensitivityReport`].",
+      "properties": {
+        "max_rel_error": {
+          "description": "Largest `fd_rel_error` over the entries (`≤ tolerance`).",
+          "format": "double",
+          "type": "number"
+        },
+        "n_forward_solves": {
+          "description": "Extra forward solves the check ran (`2` per parameter).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "relative_step": {
+          "description": "Relative central-difference step: parameter `p` re-solved at\n`p·(1 ± relative_step)`.",
+          "format": "double",
+          "type": "number"
+        },
+        "tolerance": {
+          "description": "Acceptance bound on every entry's `fd_rel_error`.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "relative_step",
+        "tolerance",
+        "max_rel_error",
+        "n_forward_solves"
+      ],
+      "type": "object"
+    },
     "FileRef": {
       "description": "A file written by the CLI besides the report (additive in v1).",
       "properties": {
@@ -1797,6 +1875,17 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "sensitivities": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SensitivityReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`∂L_ij/∂ν_r` (or `∂L_ij/∂μ_r`) of every matrix entry (additive in\nv1, issue #707; present only with a spec `sensitivity` section)."
         },
         "sink_current_a": {
           "description": "Galerkin current leaving through each path's sink (A): equals\n`current_a` to round-off (discrete conservation certificate).",
@@ -2749,6 +2838,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "sensitivity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SensitivitySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Material design sensitivities of the analysis's observable\n(additive in v1, issue #707). Not an analysis section: it rides on\na `capacitance` (two-terminal), `inductance` or lossless `eigen`\nspec and adds a `sensitivities` block to that report. Driven /\nextract specs reject it in v1."
+        },
         "solver": {
           "$ref": "#/$defs/SolverSpec",
           "default": {
@@ -2935,6 +3035,226 @@
         "peak_memory_confidence",
         "wall_time_confidence",
         "calibration_basis"
+      ],
+      "type": "object"
+    },
+    "SensitivityEntry": {
+      "description": "One gradient component of a [`SensitivityReport`].",
+      "properties": {
+        "fd_gradient": {
+          "description": "Central finite-difference estimate (present only with\n`fd_check`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "fd_rel_error": {
+          "description": "`|gradient − fd_gradient| / max(|gradient|, |fd_gradient|, 0.01 ·\n|value / p|)` with `p` the parameter value — relative, with a floor\nat 1 % of the component's natural (log-derivative) scale so a\nstructurally ~zero component is not judged against\ncentral-difference round-off (present only with `fd_check`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "gradient": {
+          "description": "`∂value/∂parameter` (`observable_unit` per unit parameter).",
+          "format": "double",
+          "type": "number"
+        },
+        "index": {
+          "description": "Observable component: `[]` for the scalar capacitance, `[i, j]`\n(path indices) for `l_henry[i][j]`, `[mode]` (index into the\nreport's `modes`) for `frequency_hz`.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "parameter": {
+          "description": "Index into the report's `parameters`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "value": {
+          "description": "Observable value (`observable_unit`).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "parameter",
+        "index",
+        "value",
+        "gradient"
+      ],
+      "type": "object"
+    },
+    "SensitivityParameterKind": {
+      "description": "Material property differentiated by a sensitivity parameter.",
+      "oneOf": [
+        {
+          "const": "eps_r",
+          "description": "Real relative permittivity `Re ε_r` (capacitance, eigen).",
+          "type": "string"
+        },
+        {
+          "const": "nu_r",
+          "description": "Relative reluctivity `ν_r = 1/μ_r` (inductance) — the parameter\nthe inductance energy form is linear in.",
+          "type": "string"
+        },
+        {
+          "const": "mu_r",
+          "description": "Relative permeability `μ_r` (inductance): `∂L/∂μ_r =\n−ν_r² ∂L/∂ν_r`.",
+          "type": "string"
+        }
+      ]
+    },
+    "SensitivityParameterSpec": {
+      "additionalProperties": false,
+      "description": "One design parameter of a [`SensitivitySpec`].",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/SensitivityParameterKind",
+          "description": "Which material property."
+        },
+        "physical_group": {
+          "description": "Name of a dimension-3 physical group (need not be listed in\n`materials`: an unlisted group is differentiated at its vacuum\ndefault).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "physical_group"
+      ],
+      "type": "object"
+    },
+    "SensitivityParameterSummary": {
+      "description": "One design parameter of a [`SensitivityReport`].",
+      "properties": {
+        "kind": {
+          "description": "`\"eps_r\"` (real relative permittivity), `\"nu_r\"` (relative\nreluctivity `1/μ_r`) or `\"mu_r\"` (relative permeability).",
+          "type": "string"
+        },
+        "physical_group": {
+          "description": "Volume physical-group name.",
+          "type": "string"
+        },
+        "value": {
+          "description": "Parameter value at which the gradient was taken (dimensionless).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "physical_group",
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SensitivityReport": {
+      "description": "Material design sensitivities of a report's observable (additive in\nv1, issue #707).\n\nEvery gradient is exact for the **discrete** model (adjoint /\nHellmann–Feynman, no finite differencing) and is in observable units\nper unit parameter: the parameters (`eps_r`, `nu_r`, `mu_r`) are\ndimensionless, so `gradient` has the unit of `value`\n(`observable_unit`).",
+      "properties": {
+        "entries": {
+          "description": "One entry per (parameter, observable component): capacitance one\nper parameter, inductance `N × N` per parameter (row-major `i`,\n`j`), eigen one per `sensitivity.modes` entry per parameter.",
+          "items": {
+            "$ref": "#/$defs/SensitivityEntry"
+          },
+          "type": "array"
+        },
+        "fd_check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FdCheckSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The finite-difference self-check (present only with\n`sensitivity.fd_check`). A run whose check fails is a\n`solve_failed` error, so a present block always passed."
+        },
+        "method": {
+          "description": "How the gradient was computed: `\"adjoint_p2\"` (capacitance: one\nforward + one adjoint solve on a shared factorization),\n`\"self_adjoint_energy\"` (inductance: a local contraction of the\nforward solutions, no extra solve) or `\"hellmann_feynman\"` (eigen:\n`∂λ/∂ε_k = −λ·xᵀM_k x` on the converged simple eigenpair, chained\nthrough `f = c√λ / (2π L)`).",
+          "type": "string"
+        },
+        "observable": {
+          "description": "The differentiated observable: `\"c_farad\"` (two-terminal P2\ncapacitance), `\"l_henry\"` (inductance-matrix entries) or\n`\"frequency_hz\"` (eigenmode resonant frequency).",
+          "type": "string"
+        },
+        "observable_unit": {
+          "description": "Unit of every entry's `value` and `gradient`: `\"F\"`, `\"H\"` or\n`\"Hz\"`.",
+          "type": "string"
+        },
+        "parameters": {
+          "description": "The design parameters, in spec order (`entries[*].parameter`\nindexes this list).",
+          "items": {
+            "$ref": "#/$defs/SensitivityParameterSummary"
+          },
+          "type": "array"
+        },
+        "wall_time_s": {
+          "description": "Wall time of the gradient (and FD check) computation, seconds.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "observable",
+        "observable_unit",
+        "method",
+        "parameters",
+        "entries",
+        "wall_time_s"
+      ],
+      "type": "object"
+    },
+    "SensitivitySpec": {
+      "additionalProperties": false,
+      "description": "Material design sensitivities (additive in v1, issue #707): exact\ndiscrete gradients of the analysis's observable with respect to\nper-region material parameters, from the library's FD-validated\nadjoint / Hellmann–Feynman machinery (Epic #569).\n\n| analysis | observable | parameter kinds | method |\n|---|---|---|---|\n| `capacitance` (exactly one terminal) | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint |\n| `inductance` | every `L_ij` (H) | `nu_r`, `mu_r` | self-adjoint energy form |\n| `eigen` (lossless) | `frequency_hz` of the listed `modes` | `eps_r` | Hellmann–Feynman |\n\nNot supported in v1 (rejected with `invalid_spec`): driven / extract\nspecs (`|S11|²`, `Z`, `L₀`, `Q`), N-terminal capacitance matrices,\nlossy / open eigen specs (`Q`), loss-tangent (`Im ε_r`) and shape /\ngeometry parameters.",
+      "properties": {
+        "fd_check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FdCheckSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional central finite-difference self-check: every parameter is\nre-solved at `p·(1 ± relative_step)` and each gradient entry is\ncompared to the FD estimate. A disagreement above `tolerance`\nfails the run with `solve_failed`. Costs two extra forward solves\nper parameter."
+        },
+        "min_rel_gap": {
+          "description": "Eigen specs only: minimum relative gap `|λ − λ_j| / λ` to every\nother returned mode for a differentiated mode to count as simple\n(default `1e-2`, the library's FD-validated value). A (near-)\ndegenerate mode fails the run with `solve_failed`: Hellmann–Feynman\ndoes not apply to it.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "modes": {
+          "description": "Eigen specs only: indices (into the report's ascending `modes`) of\nthe modes to differentiate (default `[0]`). Each must be `<\neigen.n_modes`, and the spec needs `eigen.n_modes ≥ 2` so the\nsimple-eigenvalue gap check has a neighbour to measure.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "parameters": {
+          "description": "Design parameters, one per (volume physical group, kind) pair\n(`≥ 1`, distinct). The gradient is taken at the spec's material\nvalues; every tet of the group shares the parameter.",
+          "items": {
+            "$ref": "#/$defs/SensitivityParameterSpec"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "parameters"
       ],
       "type": "object"
     },

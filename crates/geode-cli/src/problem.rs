@@ -27,7 +27,10 @@ use geode_core::mesh::{TaggedTetMesh, pec_interior_mask_from_triangles, read_tag
 use sha2::{Digest, Sha256};
 
 use crate::error::CliError;
-use crate::spec::{Analysis, FrequencyUnit, ProblemSpec, SPEC_SCHEMA_VERSION, SolverSpec};
+use crate::spec::{
+    Analysis, DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit, ProblemSpec, SPEC_SCHEMA_VERSION,
+    SensitivityParameterKind, SolverSpec,
+};
 
 /// How a volume region's permittivity was chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,6 +255,41 @@ pub struct InductanceTarget {
     pub paths: Vec<CurrentPath>,
 }
 
+/// One resolved sensitivity design parameter (issue #707).
+#[derive(Debug, Clone)]
+pub struct SensitivityParameter {
+    /// Volume physical-group name.
+    pub physical_group: String,
+    /// Which material property.
+    pub kind: SensitivityParameterKind,
+    /// Index into [`Problem::regions`] (= the design-region label of
+    /// [`SensitivityTarget::region_of_tet`]).
+    pub region: usize,
+    /// The parameter's value at which the gradient is taken (`Re ε_r`,
+    /// `ν_r = 1/μ_r` or `μ_r` of the region).
+    pub value: f64,
+}
+
+/// The resolved `sensitivity` section (issue #707).
+#[derive(Debug, Clone)]
+pub struct SensitivityTarget {
+    /// Design parameters, in spec order.
+    pub parameters: Vec<SensitivityParameter>,
+    /// Per-tet design-region label: the tet's index into
+    /// [`Problem::regions`] (regions sorted by tag), so every volume
+    /// region is a design region and the library's per-region gradient
+    /// vector is indexed like `regions`.
+    pub region_of_tet: Vec<usize>,
+    /// Number of design regions (`regions.len()`).
+    pub n_regions: usize,
+    /// Eigen specs: mode indices to differentiate (empty otherwise).
+    pub modes: Vec<usize>,
+    /// Eigen specs: simple-eigenvalue gap threshold.
+    pub min_rel_gap: f64,
+    /// `(relative_step, tolerance)` of the FD self-check, if requested.
+    pub fd_check: Option<(f64, f64)>,
+}
+
 /// A fully resolved problem, ready for `check` reporting or a solve.
 #[derive(Debug, Clone)]
 pub struct Problem {
@@ -306,6 +344,8 @@ pub struct Problem {
     pub capacitance: Option<CapacitanceTarget>,
     /// The resolved `inductance` section (inductance specs only).
     pub inductance: Option<InductanceTarget>,
+    /// The resolved `sensitivity` section, if present (issue #707).
+    pub sensitivity: Option<SensitivityTarget>,
 }
 
 impl Problem {
@@ -520,6 +560,7 @@ pub fn load_parsed(
         Analysis::Capacitance => validate_capacitance(&spec)?,
         Analysis::Inductance => validate_inductance(&spec)?,
     }
+    validate_sensitivity(&spec, analysis)?;
     validate_open_boundaries(&spec)?;
     validate_surface_roles(&spec)?;
     // Duplicate / conflicting surface roles were rejected above
@@ -672,6 +713,12 @@ pub fn load_parsed(
             .collect(),
         None => Vec::new(),
     };
+    let sensitivity_tags: Vec<Option<i32>> = spec
+        .sensitivity
+        .iter()
+        .flat_map(|sens| &sens.parameters)
+        .map(|prm| resolve(3, &prm.physical_group, "sensitivity parameter"))
+        .collect();
     if !missing.is_empty() {
         let available = tagged
             .mesh
@@ -741,7 +788,7 @@ pub fn load_parsed(
     for &t in &tagged.tet_physical_tags {
         *counts.entry(t).or_default() += 1;
     }
-    let regions = counts
+    let regions: Vec<Region> = counts
         .into_iter()
         .map(|(tag, n_tets)| {
             let name = tagged
@@ -875,6 +922,18 @@ pub fn load_parsed(
     }
     let pec_mask = pec_interior_mask_from_triangles(&edges, &pec_lists);
 
+    // ---- sensitivity design parameters -------------------------------
+    let sensitivity = match &spec.sensitivity {
+        Some(sens) => Some(resolve_sensitivity(
+            sens,
+            &sensitivity_tags,
+            &regions,
+            &tagged.tet_physical_tags,
+            spec.analysis(),
+        )?),
+        None => None,
+    };
+
     Ok(Problem {
         spec,
         mesh_path,
@@ -898,6 +957,7 @@ pub fn load_parsed(
         extract,
         capacitance,
         inductance,
+        sensitivity,
     })
 }
 
@@ -1102,6 +1162,197 @@ fn validate_eigen(spec: &ProblemSpec) -> Result<(), CliError> {
         )));
     }
     Ok(())
+}
+
+/// `sensitivity`-section rules (scalar, before the mesh is read; issue
+/// #707). v1 exposes only the observable × parameter pairs the library
+/// has an FD-validated gradient for; everything else is rejected naming
+/// the gap rather than silently ignored.
+fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError> {
+    let Some(sens) = &spec.sensitivity else {
+        return Ok(());
+    };
+    match analysis {
+        Analysis::Driven | Analysis::Extract => {
+            return Err(invalid(format!(
+                "`sensitivity` is not supported for a `{}` spec in schema v1: the library's \
+                 driven material adjoint (driven_material_adjoint_gradient) differentiates a \
+                 volume-current-driven, port-less pencil, and no |S11|² / Z / L0 / Q gradient \
+                 of the lumped-port-loaded operator `geode {}` solves exists yet — supported \
+                 analyses are `capacitance` (one terminal), `inductance` and lossless `eigen`",
+                analysis.name(),
+                analysis.name()
+            )));
+        }
+        Analysis::Capacitance => {
+            let n = spec.capacitance.as_ref().map_or(0, |c| c.terminals.len());
+            if n != 1 {
+                return Err(invalid(format!(
+                    "`sensitivity` on a capacitance spec needs exactly one terminal (the \
+                     two-terminal capacitance C between it and `ground`; got {n} terminals): the \
+                     library's capacitance adjoint (capacitance_adjoint_gradient_p2) has no \
+                     N-terminal Maxwell-matrix gradient"
+                )));
+            }
+        }
+        Analysis::Eigen => {
+            if !spec.absorbing_regions.is_empty()
+                || spec.materials.iter().any(|m| m.eps_r[1] != 0.0)
+            {
+                return Err(invalid(
+                    "`sensitivity` on an eigen spec needs a lossless pencil (real `eps_r`, no \
+                     `absorbing_regions`): the library's eigenvalue sensitivity \
+                     (EigenSensitivity::deigenvalue_deps, Hellmann–Feynman) is real \
+                     symmetric-definite only — there is no complex-eigenvalue (frequency / Q) \
+                     gradient of a lossy or open pencil yet",
+                ));
+            }
+        }
+        Analysis::Inductance => {}
+    }
+    if sens.parameters.is_empty() {
+        return Err(invalid(
+            "sensitivity.parameters must list at least one parameter",
+        ));
+    }
+    for (i, prm) in sens.parameters.iter().enumerate() {
+        let allowed: &[SensitivityParameterKind] = match analysis {
+            Analysis::Inductance => &[SensitivityParameterKind::NuR, SensitivityParameterKind::MuR],
+            _ => &[SensitivityParameterKind::EpsR],
+        };
+        if !allowed.contains(&prm.kind) {
+            let names: Vec<&str> = allowed.iter().map(|k| k.name()).collect();
+            return Err(invalid(format!(
+                "sensitivity.parameters[{i}] (`{}`): kind `{}` is not a parameter of the {} \
+                 observable; supported kinds: `{}`",
+                prm.physical_group,
+                prm.kind.name(),
+                analysis.name(),
+                names.join("`, `")
+            )));
+        }
+        if sens.parameters[..i].iter().any(|q| {
+            q.physical_group == prm.physical_group
+                && (q.kind == prm.kind || analysis == Analysis::Inductance)
+        }) {
+            return Err(invalid(format!(
+                "sensitivity.parameters lists `{}` more than once",
+                prm.physical_group
+            )));
+        }
+    }
+    if analysis == Analysis::Eigen {
+        let n_modes = spec.eigen.as_ref().map_or(0, |e| e.n_modes);
+        if n_modes < 2 {
+            return Err(invalid(format!(
+                "`sensitivity` on an eigen spec needs eigen.n_modes ≥ 2 (got {n_modes}): the \
+                 simple-eigenvalue check measures each differentiated mode's gap to the other \
+                 returned modes"
+            )));
+        }
+        let modes = sens.modes.clone().unwrap_or_else(|| vec![0]);
+        if modes.is_empty() {
+            return Err(invalid("sensitivity.modes must not be empty"));
+        }
+        for (i, &m) in modes.iter().enumerate() {
+            if m >= n_modes {
+                return Err(invalid(format!(
+                    "sensitivity.modes[{i}] = {m} is out of range for eigen.n_modes = {n_modes}"
+                )));
+            }
+            if modes[..i].contains(&m) {
+                return Err(invalid(format!(
+                    "sensitivity.modes lists mode {m} more than once"
+                )));
+            }
+        }
+        if let Some(g) = sens.min_rel_gap
+            && !(g.is_finite() && g > 0.0)
+        {
+            return Err(invalid(format!(
+                "sensitivity.min_rel_gap must be finite and > 0 (got {g})"
+            )));
+        }
+    } else if sens.modes.is_some() || sens.min_rel_gap.is_some() {
+        return Err(invalid(format!(
+            "sensitivity.modes / sensitivity.min_rel_gap apply to eigen specs only (this is a \
+             {} spec)",
+            analysis.name()
+        )));
+    }
+    if let Some(fd) = &sens.fd_check {
+        if !(fd.relative_step.is_finite() && fd.relative_step > 0.0 && fd.relative_step <= 0.1) {
+            return Err(invalid(format!(
+                "sensitivity.fd_check.relative_step must be in (0, 0.1] (got {})",
+                fd.relative_step
+            )));
+        }
+        if !(fd.tolerance.is_finite() && fd.tolerance > 0.0) {
+            return Err(invalid(format!(
+                "sensitivity.fd_check.tolerance must be finite and > 0 (got {})",
+                fd.tolerance
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Bind each sensitivity parameter to its volume region (the regions are
+/// sorted by tag, and every region is a design region).
+fn resolve_sensitivity(
+    sens: &crate::spec::SensitivitySpec,
+    tags: &[Option<i32>],
+    regions: &[Region],
+    tet_tags: &[i32],
+    analysis: Analysis,
+) -> Result<SensitivityTarget, CliError> {
+    let index_of: BTreeMap<i32, usize> = regions
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (r.tag, i))
+        .collect();
+    let parameters = sens
+        .parameters
+        .iter()
+        .zip(tags)
+        .map(|(prm, tag)| {
+            let tag = tag.expect("resolved above");
+            let region = *index_of.get(&tag).ok_or_else(|| {
+                invalid(format!(
+                    "sensitivity parameter `{}` names a volume group with no tets",
+                    prm.physical_group
+                ))
+            })?;
+            let r = &regions[region];
+            let value = match prm.kind {
+                SensitivityParameterKind::EpsR => r.eps_r.re,
+                SensitivityParameterKind::NuR => 1.0 / r.mu_r,
+                SensitivityParameterKind::MuR => r.mu_r,
+            };
+            Ok(SensitivityParameter {
+                physical_group: prm.physical_group.clone(),
+                kind: prm.kind,
+                region,
+                value,
+            })
+        })
+        .collect::<Result<Vec<_>, CliError>>()?;
+    let region_of_tet = tet_tags.iter().map(|t| index_of[t]).collect();
+    Ok(SensitivityTarget {
+        parameters,
+        region_of_tet,
+        n_regions: regions.len(),
+        modes: if analysis == Analysis::Eigen {
+            sens.modes.clone().unwrap_or_else(|| vec![0])
+        } else {
+            Vec::new()
+        },
+        min_rel_gap: sens.min_rel_gap.unwrap_or(DEFAULT_SENSITIVITY_MIN_REL_GAP),
+        fd_check: sens
+            .fd_check
+            .as_ref()
+            .map(|fd| (fd.relative_step, fd.tolerance)),
+    })
 }
 
 /// Capacitance-spec rules (scalar, before the mesh is read). The
