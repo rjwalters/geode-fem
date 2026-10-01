@@ -231,7 +231,11 @@ fn matched_sheet_absorbs_te10_and_matches_pure_wave_transmission() {
     );
     // The uniform Thévenin drive also excites the evanescent TE_m0
     // (m = 3, 5, …) content of the uniform field, which the sheet reflects
-    // reactively: S_ll ≠ 0 even at the TE₁₀ match (|S_ll| ≲ 1 − 8/π²).
+    // reactively: S_ll ≠ 0 even at the TE₁₀ match. Power balance only
+    // bounds |S_ll|² ≤ 1 − |S_wl|² (|S_ll| ≲ 0.45 here); the 0.21 below
+    // (= 1 − 8/π² + 0.02, a convenient threshold, not a derived bound) is
+    // an empirical regression bound — measured |S_ll| ≈ 0.176–0.178 from
+    // h = a/8 to a/24.
     assert!(s(0, 0).norm() < 1.0 - TE10_UNIFORM_FRACTION + 0.02);
     assert!(reciprocity_err(&pt.s, 2) < 1e-8, "reciprocity");
     let sig = sigma_max_2x2(&pt.s);

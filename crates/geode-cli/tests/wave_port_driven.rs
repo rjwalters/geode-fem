@@ -805,6 +805,62 @@ fn mixed_dispersive_fill_matches_constant_eps_at_its_frequency() {
 }
 
 #[test]
+fn mixed_anisotropic_fill_runs_through_the_material_tensors() {
+    // Diagonal anisotropy (issue #760) in a mixed guide takes the
+    // full-tensor assembly: an isotropic `eps_r_diag` / unit `mu_r_diag`
+    // must reproduce the scalar `eps_r` run to round-off, and a genuinely
+    // anisotropic (slightly lossy) fill stays reciprocal and passive.
+    let r_ohm = 0.6 * geode_core::constants::ETA_0_OHM;
+    let k0 = 2.5;
+    let run = |name: &str, materials: serde_json::Value| {
+        json(&geode(&[
+            "driven",
+            mixed_spec(name, r_ohm, &[k0], |v| v["materials"] = materials)
+                .to_str()
+                .unwrap(),
+        ]))
+    };
+    let scalar = run(
+        "mixed-aniso-scalar",
+        serde_json::json!([{ "physical_group": "guide", "eps_r": [1.5, -0.03] }]),
+    );
+    let iso = run(
+        "mixed-aniso-iso",
+        serde_json::json!([{
+            "physical_group": "guide",
+            "eps_r_diag": { "xx": [1.5, -0.03], "yy": [1.5, -0.03], "zz": [1.5, -0.03] },
+            "mu_r_diag": { "xx": 1.0, "yy": 1.0, "zz": 1.0 }
+        }]),
+    );
+    let (ss, n) = s_matrix(&scalar["results"][0]);
+    let (si, _) = s_matrix(&iso["results"][0]);
+    for (k, (a, b)) in si.iter().zip(&ss).enumerate() {
+        assert!(
+            (a - b).norm() < 1e-8,
+            "S[{k}]: isotropic tensor {a} vs scalar {b}"
+        );
+    }
+
+    let aniso = run(
+        "mixed-aniso",
+        serde_json::json!([{
+            "physical_group": "guide",
+            "eps_r_diag": { "xx": [1.2, -0.01], "yy": [1.6, -0.01], "zz": [1.0, -0.01] },
+            "mu_r_diag": { "xx": 1.0, "yy": 1.0, "zz": 1.3 }
+        }]),
+    );
+    let (sa, _) = s_matrix(&aniso["results"][0]);
+    let sig = sigma_max_2x2(&sa);
+    eprintln!("anisotropic mixed: σ_max = {sig:.6}");
+    assert!(reciprocity_err(&sa, n) < 1e-8, "reciprocity");
+    assert!(sig < 1.0, "lossy anisotropic fill must be passive: {sig}");
+    assert!(
+        (sa[1] - ss[1]).norm() > 1e-3,
+        "the anisotropy must actually change the network"
+    );
+}
+
+#[test]
 fn mixed_specs_reject_touchstone_and_adaptive_before_solving() {
     let r_ohm = 0.6 * geode_core::constants::ETA_0_OHM;
     let ts_dir = scratch("mixed-touchstone");

@@ -198,8 +198,9 @@ pub fn run(
     } else {
         if out.is_some() {
             eprintln!(
-                "note: --outdir: field / far-field export is not supported for wave-port specs \
-                 (pure or mixed with lumped ports; lumped-only specs export); nothing exported"
+                "note: --outdir: field / far-field export is not supported for wave-port specs, \
+                 including mixed lumped + wave specs (only all-lumped specs export); \
+                 nothing exported"
             );
         }
         wave_sweep(&p, opts)?
