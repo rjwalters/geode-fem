@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-01
+
+This release completes the `geode` CLI's EDA-flow epic (#702). It adds:
+- lossy and open-cavity eigenmodes;
+- design sensitivities for every analysis;
+- a scalable iterative driven path (an AMS preconditioner) with an adaptive frequency sweep and parallel frequency points;
+- published JSON Schemas, a cookbook and prebuilt binaries.
+
+It also fixes several precision and convergence bugs that could silently degrade results.
+
+### Added
+
+#### `geode` CLI
+
+- `geode eigen` solves lossy and open-cavity problems (lossy dielectrics, UPML), reporting complex frequency, f and Q per mode (#706, #737).
+- **Design sensitivities:** a new `sensitivity` spec section. Every gradient is computed by an adjoint, and an optional `fd_check` verifies each one against finite differences (#707, #741, #739, #750). Available observables:
+  - capacitance: two-terminal C at P2, as `c_farad_p2`;
+  - inductance: L_ij;
+  - lossless eigen frequencies;
+  - driven: |S11|², for one lumped port.
+- **Scalable driven solves** (#708):
+  - `solver.preconditioner` selects `jacobi` (default), `ilu0` or `ams` for iterative solves (#742, #744, #752).
+  - `ams` is a Hiptmair–Xu auxiliary-space preconditioner with an exact nodal coarse solve. On the spiral inductor it converges where Jacobi and ILU(0) stall. At 228k edges it takes 33 s and 1.7 GB, against direct LU's 73 s and 17.8 GB. A spec with floating PEC conductors is rejected up front with `invalid_spec`.
+  - `sweep.adaptive {tolerance, max_snapshots}` runs a Galerkin reduced-order sweep. Interpolated rows carry an error indicator. A frequency that misses tolerance, or whose reduced solve is singular, falls back to an exact solve (#745, #747, #753).
+  - `--jobs N` solves frequency points in parallel. Each job gets `max(1, threads/N)` threads, so jobs don't oversubscribe the CPU (#745, #753, #755, #762).
+  - `--progress` writes JSONL progress events to stderr (#745).
+- **Mesh:** `geode mesh --analysis capacitance|inductance` emits starter specs with nets, ground and contacts (#720, #727).
+- **SPICE:** `--spice-positive-k` and `--spice-ret-pin` export variants (#723, #733).
+- **`geode check`:** reports `anchor_nnz_ratio` and `above_anchor` resource-estimate fields, plus an AMS memory estimate (#713, #735, #752).
+- **Touchstone:** the output path is checked before the solve, and the export is round-trip-checked with scikit-rf in CI (#713, #735).
+
+#### Distribution (#709)
+
+- Published JSON Schemas for the spec and the report (`geode schema`, `crates/geode-cli/schemas/`, with a drift test), plus an examples cookbook in `crates/geode-cli/examples/` (#728).
+- Prebuilt `geode` binaries for linux x86_64/aarch64 (glibc ≥ 2.35) and macOS arm64, attached to each GitHub Release, plus a Gmsh-equipped container (`docker/geode-cli/`) (#726).
+
+### Changed
+
+- **Iterative driven solves fail honestly:** a solve whose recomputed explicit residual misses `solver.tol` now fails with `solve_failed`, even if the recursive residual converged. The error suggests loosening `tol` (#744, #749).
+- **`--threads 1` and `GEODE_NUM_THREADS=1` now mean a serial LU.** Previously faer's LU still used every core. Results at one thread can change at roundoff (#753, #755, #762).
+- **`--jobs` bit-identity:** `--jobs N` matches `--jobs 1` bit for bit only at the same threads per factorization. Otherwise the results agree to roundoff, about 1e-14 relative (#753).
+
+### Fixed
+
+- **Nédélec precision:** material and source weights are now uploaded at backend precision (f64). Before this, ε was rounded to f32 (#740, #746).
+- **Surface triangles:** a surface triangle that is not a tet face returns `SurfaceNotOnMesh` instead of panicking, with a per-tet-face check and an integration fixture (#725, #729, #732, #751).
+- **SPICE `ret` pin docs:** the floating `ret` caveat (it needs a DC path to `0`) is now documented, and the README usage lines are fixed (#736, #738).
+
+### API notes (geode-core, pre-1.0)
+
+- `waveguide_mode_reduce` now returns `Result`.
+- `RomError::UnsupportedOperator` is removed.
+- The capacitance sensitivity observable is renamed `c_farad` → `c_farad_p2` (#748).
+- New: `driven::solve_ams` and `IterativePreconditioner::Ams`, `eigen::parallel::ParallelismGuard::cap` and `with_thread_budget`.
+
+The spec and report schemas stay at v1; every CLI change is additive.
+
 ## [0.6.0] - 2026-09-29
 
 This release turns the `geode` CLI into a static parasitic-extraction tool
