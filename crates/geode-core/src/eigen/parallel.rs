@@ -60,6 +60,7 @@
 //! leaves the (already serial) global parallelism untouched, so callers do
 //! not need to feature-gate their use of it.
 
+use std::cell::Cell;
 use std::env;
 
 use faer::{Par, get_global_parallelism, set_global_parallelism};
@@ -82,23 +83,58 @@ pub const NUM_THREADS_ENV: &str = "GEODE_NUM_THREADS";
 #[cfg(test)]
 pub(crate) static PARALLELISM_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+thread_local! {
+    /// Per-thread override installed by [`with_thread_budget`].
+    static THREAD_BUDGET: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
 /// Resolve the number of threads faer should use for the factorization.
 ///
 /// Precedence:
-/// 1. `GEODE_NUM_THREADS`, if set to a parseable positive integer.
-/// 2. [`std::thread::available_parallelism`] (physical/logical core count).
-/// 3. `1` as a last resort if the platform cannot report a core count.
+/// 1. A per-thread budget installed by [`with_thread_budget`] on the
+///    calling thread (used when several solves run concurrently).
+/// 2. `GEODE_NUM_THREADS`, if set to a parseable positive integer.
+/// 3. [`std::thread::available_parallelism`] (physical/logical core count).
+/// 4. `1` as a last resort if the platform cannot report a core count.
 ///
 /// A value of `0` or an unparseable value falls through to the core-count
 /// default rather than being treated as "serial" — request one thread
 /// explicitly (`GEODE_NUM_THREADS=1`) for the single-threaded path.
 pub fn resolve_num_threads() -> usize {
+    if let Some(n) = THREAD_BUDGET.with(Cell::get) {
+        return n;
+    }
     match parse_num_threads(env::var(NUM_THREADS_ENV).ok().as_deref()) {
         Some(n) => n,
         None => std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1),
     }
+}
+
+/// Run `f` with [`resolve_num_threads`] returning `n.max(1)` **on the
+/// calling thread**, restoring the previous value afterward (also on panic).
+///
+/// This is the per-worker thread budget for callers that run several solves
+/// concurrently on their own threads (the CLI's `--jobs`, issues #747/#755).
+/// Every host-side pool sized from [`resolve_num_threads`] (the Nédélec
+/// sparsity / scatter-map build via [`install_on_pool`]) and every
+/// factorization guarded with `ParallelismGuard::cap(resolve_num_threads())`
+/// inside `f` then takes only its share of the cores, instead of each
+/// concurrent worker asking for the whole machine.
+///
+/// The override is thread-local: it does not propagate to threads that `f`
+/// spawns, and it does not touch faer's process-global parallelism (pair it
+/// with a [`ParallelismGuard::cap`] for that).
+pub fn with_thread_budget<R>(n: usize, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<usize>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            THREAD_BUDGET.with(|b| b.set(self.0));
+        }
+    }
+    let _restore = Restore(THREAD_BUDGET.with(|b| b.replace(Some(n.max(1)))));
+    f()
 }
 
 /// Run `f` on a scoped rayon thread pool of exactly `n_threads` workers,
@@ -362,5 +398,25 @@ mod tests {
     #[test]
     fn resolve_num_threads_is_positive() {
         assert!(resolve_num_threads() >= 1);
+    }
+
+    /// `with_thread_budget` overrides `resolve_num_threads` on the calling
+    /// thread only, nests, clamps 0 to 1, and restores on exit and on panic.
+    #[test]
+    fn thread_budget_overrides_and_restores() {
+        let ambient = resolve_num_threads();
+        assert_eq!(with_thread_budget(3, resolve_num_threads), 3);
+        assert_eq!(with_thread_budget(0, resolve_num_threads), 1);
+        with_thread_budget(5, || {
+            assert_eq!(with_thread_budget(2, resolve_num_threads), 2);
+            assert_eq!(resolve_num_threads(), 5);
+            // Not inherited by other threads.
+            let other = std::thread::spawn(resolve_num_threads).join().unwrap();
+            assert_eq!(other, ambient);
+        });
+        assert_eq!(resolve_num_threads(), ambient);
+        let r = std::panic::catch_unwind(|| with_thread_budget(7, || panic!("boom")));
+        assert!(r.is_err());
+        assert_eq!(resolve_num_threads(), ambient);
     }
 }
