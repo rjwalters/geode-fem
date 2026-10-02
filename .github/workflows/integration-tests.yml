@@ -1,0 +1,205 @@
+name: integration-tests
+
+# Issue #786: the geode-core and geode-validation integration-test targets
+# that no other workflow ran (the backlog in
+# scripts/ci-test-coverage-allowlist.txt, found by the #785 coverage guard).
+# There is no blanket `cargo test -p geode-core` job, so each target is
+# named with `--test`, and the guard (workflow ci-test-coverage) sees exactly which
+# ones run here. Default (non-#[ignore]d) tier only, release, CPU / ndarray
+# backend (TestBackend = NdArray<f64>), no ARPACK: only
+# `sparse_eigensolver` has an arpack-gated test, and arpack.yml runs it.
+#
+# Timings (default tier, release, ubuntu-latest 4 vCPU, measured in CI for
+# #786): every geode-validation target finishes in under 1 s (about 6 s
+# for all 26). In geode-core every target finishes in under 20 s except
+# sphere_pec_eigenmode (about 73 s), with about 130 s for all 74. The cold
+# release build of the test binaries dominates (about 24 min for geode-core
+# and 8 min for geode-validation; a warm cache cuts it to a few minutes), so
+# the two crates build in parallel jobs. Cold job wall times on the #786 PR:
+# core-tests 27 min, validation-tests 8 min.
+#
+# What stays out, and why, is recorded per entry in the allowlist:
+# formulation_audit_graddiv fails on Linux and passes on macOS (issue #791).
+# Targets whose default tier is empty (every test #[ignore]d) are not run
+# here for the default tier only, since that would just compile them
+# (clippy --tests in arpack.yml already does that). Two of them run their
+# --ignored tier below. The rest are too slow or are benchmarks.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  core-tests:
+    name: cargo test -p geode-core --release (integration targets, linux)
+    runs-on: ubuntu-latest
+    # About 24 min cold build + about 5 min of tests (27 min measured cold
+    # before the --ignored step was added); 45 min is the per-job bound
+    # (issue #772) and covers a cold cache.
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-core-tests-${{ hashFiles('**/Cargo.lock') }}
+
+      # spade-mesh enables the `#![cfg(feature = "spade-mesh")]`
+      # spade_port_mesh target (2-D Delaunay port meshing, issue #582).
+      # These two targets have an empty default tier: their only test is
+      # #[ignore]d because faer 0.24's dense gevd / qz_real panics under
+      # debug-assertions, so they run in release with --ignored (about 31 s
+      # and 80 s on ubuntu-latest). The other targets whose tests are all
+      # #[ignore]d stay on the allowlist (each release --ignored tier timed
+      # out at 80 min in CI, or is a 42-min wall-clock benchmark).
+      - name: geode-core release-only targets (--ignored tier)
+        run: |
+          cargo test -p geode-core --release --features spade-mesh \
+              --test cube_convergence_regression \
+              --test derham_gauge_invariance -- --ignored
+
+      - name: geode-core integration targets (default tier)
+        run: |
+          cargo test -p geode-core --release --features spade-mesh \
+              --test analytic_cladding_bc_fiber_benchmark \
+              --test assembly \
+              --test circular_waveguide_modes \
+              --test cocg_burn_equivalence \
+              --test derham_curl \
+              --test derham_divergence \
+              --test derham_exact_sequence \
+              --test derham_gradient_kernel \
+              --test derham_gradient \
+              --test driven_manufactured \
+              --test driven_p2_adjoint \
+              --test driven_p2_convergence \
+              --test driven_upml \
+              --test eigensolver \
+              --test electrostatic_capacitance \
+              --test extraction \
+              --test faer_qz_debug_overflow_guard \
+              --test fe_assemble \
+              --test fiber_dispersion_benchmark \
+              --test high_contrast_fiber_benchmark \
+              --test leontovich_roughness \
+              --test leontovich_surface_impedance \
+              --test london_eigen_kinetic_inductance \
+              --test london_surface_impedance \
+              --test lp01_profile_selector_benchmark \
+              --test lumped_port \
+              --test magnetostatic_heterogeneous \
+              --test magnetostatic_inductance \
+              --test magnetostatic_wire \
+              --test matched_upml_burn \
+              --test material_upload_precision \
+              --test mesh_roundtrip \
+              --test mie_driven_scattering \
+              --test mixed_pencil_fiber_benchmark \
+              --test mixed_precision_refinement \
+              --test motor_torque_benchmark \
+              --test nedelec_cavity_p2_convergence \
+              --test nedelec_cavity \
+              --test nedelec_matrix_free_equivalence \
+              --test nedelec_nu_wrapper \
+              --test nedelec_sparse \
+              --test nedelec \
+              --test nedelec2_3d_element \
+              --test nedelec2_convergence \
+              --test p1_local_matrices \
+              --test palace_ingestion \
+              --test patch_antenna_benchmark \
+              --test patch_capstone_diffopt \
+              --test patch_conformal_diffopt \
+              --test patch_diffopt \
+              --test patch_mesh \
+              --test pec_mask_face_exact \
+              --test sigma_conductivity \
+              --test slotless_pm_field \
+              --test soi_waveguide_benchmark \
+              --test spade_port_mesh \
+              --test sphere_matched_upml_eigenmode \
+              --test sphere_mesh \
+              --test sphere_pec_cavity_sparse \
+              --test sphere_pec_eigenmode \
+              --test sphere_pml_anisotropic_eigenmode \
+              --test sphere_pml_eigenmode \
+              --test sphere_silvermuller_eigenmode \
+              --test spiral_mesh \
+              --test step_index_fiber_benchmark \
+              --test torque_loop_oracle \
+              --test transient_sparams \
+              --test transmon_diffopt \
+              --test transmon_eigen_sensitivity \
+              --test transmon_eigenmode \
+              --test transmon_mesh \
+              --test transmon_quantum \
+              --test vtu_roundtrip \
+              --test waveguide_gauge_higher_order
+
+  validation-tests:
+    name: cargo test -p geode-validation --release (reference fixtures, linux)
+    runs-on: ubuntu-latest
+    # The reference tests compare against committed NumPy / Julia / JAX /
+    # ONNX / TF-Java fixtures under fixtures/, so no external toolchain is
+    # needed at test time. About 10 min cold build, about 6 s of tests.
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-validation-tests-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: geode-validation reference targets (default tier)
+        run: |
+          cargo test -p geode-validation --release \
+              --test cube_cavity_jax_reference \
+              --test cube_cavity_julia_reference \
+              --test cube_cavity_onnx_reference \
+              --test derham_julia_reference \
+              --test derham_numpy_reference \
+              --test mie_efficiencies_numpy_reference \
+              --test mie_roots_julia_reference \
+              --test mie_roots_numpy_reference \
+              --test nedelec_local_numpy_reference \
+              --test p1_local_numpy_reference \
+              --test smoke \
+              --test sphere_mie_jax_reference \
+              --test sphere_mie_julia_small_reference \
+              --test sphere_mie_numpy_reference \
+              --test sphere_mie_tfjava_reference \
+              --test sphere_pec_jax_reference \
+              --test sphere_pec_julia_reference \
+              --test sphere_pec_numpy_reference \
+              --test sphere_pec_onnx_reference \
+              --test sphere_pec_tfjava_reference \
+              --test sphere_pml_jax_reference \
+              --test sphere_pml_julia_reference \
+              --test sphere_pml_julia_small_reference \
+              --test sphere_pml_numpy_reference \
+              --test sphere_pml_schema_smoke \
+              --test sphere_pml_tfjava_reference
