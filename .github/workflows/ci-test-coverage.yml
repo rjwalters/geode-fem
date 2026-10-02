@@ -24,5 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Self-test the workflow parser (synthetic workflows)
+        run: python3 scripts/ci-test-coverage.py --self-test
+
       - name: Check test-target coverage (print the full table)
         run: python3 scripts/ci-test-coverage.py --table
