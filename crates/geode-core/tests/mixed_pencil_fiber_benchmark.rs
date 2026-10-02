@@ -8,10 +8,17 @@
 //! established that the reduced transverse-E_t pencil
 //! ([`geode_core::analytic::waveguide::solve_dielectric_modes2`]) cannot
 //! validate the weakly-guiding SMF-28 fundamental against the exact scalar-LP
-//! oracle: it drops the grad–div / E_z-coupling channel (a **leading-order**
-//! operator, per the audit) and so admits a spurious gradient subspace that
-//! pollutes the spectrum into a dense near-`n_core` ladder. The core-confined
+//! oracle: it drops the grad–div / E_z-coupling channel. The #449 audit, as
+//! corrected by issue #791, found that this channel carries `O(1)` energy
+//! relative to the curl-curl energy and that its first-order shift scales
+//! with the index contrast in step with the reduced pencil's bias (≈ 8.8×
+//! from SMF-28 to the ~3 %-step fiber), so it must be restored exactly
+//! rather than patched to first order. The reduced pencil's in-window
+//! spectrum is a dense near-`n_core` ladder, and the core-confined
 //! selection lands `b ≈ 0.77` (over-confined) vs the oracle's `b ≈ 0.458`.
+//! (The original audit's "leading-order operator" and "admitted spurious
+//! gradient subspace" framing was measured on unconverged Ritz vectors; see
+//! the #791 correction in `docs/formulation_audit_reduced_vs_full_vector.md`.)
 //!
 //! This benchmark exercises the **full mixed pencil**
 //! ([`geode_core::analytic::mixed_pencil::solve_mixed_modes`]) that restores

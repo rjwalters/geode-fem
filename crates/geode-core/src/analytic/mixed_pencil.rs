@@ -13,17 +13,25 @@
 //! ```
 //!
 //! dropping the **grad–div / E_z-coupling channel**
-//! `−∇_t(∇_t·E_t) + jβ ∇_t E_z`. The audit
-//! (`docs/formulation_audit_reduced_vs_full_vector.md`) measured that dropped
-//! term at `O(1)…O(10)×` the retained curl-curl energy — it is a
-//! **leading-order** operator, not a small perturbation — and re-localised the
-//! root cause to an **admitted gradient (spurious) subspace** that pollutes the
-//! recovered spectrum. On weakly-guiding SMF-28 this drives the normalized-b
-//! discriminator to `b ≈ 0.77` (over-confined) versus the exact scalar-LP
-//! oracle's `b ≈ 0.458` — a ≈68 % miss.
+//! `−∇_t(∇_t·E_t) + jβ ∇_t E_z`. The #449 audit
+//! (`docs/formulation_audit_reduced_vs_full_vector.md`), as corrected by
+//! issue #791, measured on the genuine reduced-pencil fundamentals that the
+//! dropped term carries `O(1)` unweighted energy relative to the retained
+//! curl-curl energy. Its ε-weighted first-order shift is ≈ 0.12–0.23 × the
+//! guided window and grows ≈ 8.8× from SMF-28 to a ~3 %-step fiber, in step
+//! with the reduced pencil's own over-confinement bias. So the dropped
+//! channel carries the contrast scaling of that bias, and because the energy
+//! fraction is `O(1)` a first-order patch is unreliable: the term has to be
+//! restored exactly. (The original #449 text called the term
+//! "leading-order" and blamed an admitted spurious gradient subspace; those
+//! numbers came from unconverged Ritz vectors, see the #791 correction.) On
+//! weakly-guiding SMF-28 the reduced-pencil selection used in the
+//! PML-terminated benchmarks lands the normalized-b discriminator at
+//! `b ≈ 0.77` (over-confined) versus the exact scalar-LP oracle's
+//! `b ≈ 0.458`, a ≈68 % miss.
 //!
 //! This module implements the **standard mixed E_t–E_z pencil** (Palace /
-//! femwell / Jin), which restores that channel as a leading-order operator and
+//! femwell / Jin), which restores that channel exactly and
 //! is **spurious-mode-free by construction**: the discrete Gauss constraint
 //! pins the gradient nullspace at `β² = 0`, cleanly separated from the guided
 //! window.
