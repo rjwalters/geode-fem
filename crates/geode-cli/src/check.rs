@@ -399,6 +399,7 @@ pub fn wave_port_summaries(p: &Problem) -> Vec<WavePortSummary> {
                     mu_r_n: m.mu_n,
                 }
             },
+            reference_ohm: w.reference_ohm,
         })
         .collect()
 }

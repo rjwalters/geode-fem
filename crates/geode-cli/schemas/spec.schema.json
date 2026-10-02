@@ -978,6 +978,14 @@
         "physical_group": {
           "description": "Name of a dimension-2 physical group holding the (planar) port\nfaces.",
           "type": "string"
+        },
+        "reference_ohm": {
+          "description": "Real Touchstone reference impedance in ohms (finite, `> 0`) that\n`--touchstone` renormalizes every written mode of this port to\n(issue #775; additive in v1). **Required with `--touchstone`** on\na wave-port or mixed spec, and inert without it: the JSON report's\n`results[].s` stays the modal S, referenced to each mode's own\nwave impedance `Z_TE(ω) = η₀·k₀·μ_t/β`, which varies with\nfrequency and so has no default.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
         }
       },
       "required": [

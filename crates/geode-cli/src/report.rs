@@ -333,6 +333,12 @@ pub struct WavePortSummary {
     /// The homogeneous medium filling the guide at the port face (issue
     /// #777; additive in v1).
     pub medium: WavePortMediumSummary,
+    /// Echo of `wave_ports[].reference_ohm` (issue #775; additive in v1;
+    /// omitted when unset): the real reference a `--touchstone` file
+    /// renormalizes this port's written modes to. `results[].s` stays
+    /// the modal S whatever it is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference_ohm: Option<f64>,
 }
 
 /// The medium filling a wave port's guide (issue #777): every volume tet

@@ -218,6 +218,9 @@ pub struct WavePortDef {
     pub a_inc: Vec<c64>,
     /// The homogeneous medium filling the guide at the face (issue #777).
     pub fill: PortFill,
+    /// `--touchstone` reference impedance in ohms (issue #775); validated
+    /// finite and `> 0` when given, required only by `--touchstone`.
+    pub reference_ohm: Option<f64>,
 }
 
 /// The homogeneous medium filling a wave port's guide (issue #777),
@@ -1235,6 +1238,7 @@ pub fn load_parsed(
             projection,
             a_inc,
             fill,
+            reference_ohm: w.reference_ohm,
         });
     }
 
@@ -2667,6 +2671,13 @@ fn validate_open_boundaries(spec: &ProblemSpec) -> Result<(), CliError> {
                 )));
             }
         }
+        if let Some(r) = w.reference_ohm
+            && !(r.is_finite() && r > 0.0)
+        {
+            return Err(invalid(format!(
+                "wave_ports[{name}].reference_ohm must be finite and > 0 (got {r})"
+            )));
+        }
     }
     Ok(())
 }
@@ -3189,6 +3200,48 @@ mod tests {
             msg.contains("leontovich") && msg.contains("direct"),
             "{msg}"
         );
+    }
+
+    /// `wave_ports[].reference_ohm` (issue #775): optional, but when
+    /// given it must be finite and `> 0` (a non-finite value can only
+    /// come from TOML, which spells `nan` / `inf`).
+    #[test]
+    fn wave_port_reference_ohm_must_be_finite_and_positive() {
+        let spec = |r: Option<f64>| -> ProblemSpec {
+            let v = serde_json::json!({
+                "schema_version": 1,
+                "mesh": {"path": "m.msh", "length_unit_m": 1e-2},
+                "boundary_conditions": {"pec": ["walls"]},
+                "wave_ports": [{"physical_group": "wp"}],
+                "frequencies": {"unit": "ghz", "values": [10.0]}
+            });
+            // `serde_json` cannot hold NaN / inf: set it on the struct.
+            let mut s: ProblemSpec = serde_json::from_value(v).unwrap();
+            s.wave_ports[0].reference_ohm = r;
+            s
+        };
+        assert!(validate_open_boundaries(&spec(None)).is_ok());
+        assert!(validate_open_boundaries(&spec(Some(50.0))).is_ok());
+        for bad in [0.0, -50.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            match validate_open_boundaries(&spec(Some(bad))) {
+                Err(CliError::InvalidSpec(m)) => assert!(
+                    m.contains("wave_ports[wp].reference_ohm must be finite and > 0"),
+                    "{m}"
+                ),
+                other => panic!("reference_ohm = {bad}: expected InvalidSpec, got {other:?}"),
+            }
+        }
+        // The TOML spelling reaches the same rule.
+        let toml_spec: ProblemSpec = toml::from_str(
+            "schema_version = 1\nmesh = { path = \"m.msh\", length_unit_m = 1e-2 }\n\
+             frequencies = { unit = \"ghz\", values = [10.0] }\n\
+             [[wave_ports]]\nphysical_group = \"wp\"\nreference_ohm = nan\n",
+        )
+        .unwrap();
+        assert!(matches!(
+            validate_open_boundaries(&toml_spec),
+            Err(CliError::InvalidSpec(_))
+        ));
     }
 
     /// Roughness rules and SI → natural conversion (issue #758).

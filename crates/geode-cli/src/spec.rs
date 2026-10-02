@@ -745,6 +745,15 @@ pub struct WavePortSpec {
     /// entry finite and non-zero. Default: `[1, 0]` for every mode.
     #[serde(default)]
     pub a_inc: Option<Vec<[f64; 2]>>,
+    /// Real Touchstone reference impedance in ohms (finite, `> 0`) that
+    /// `--touchstone` renormalizes every written mode of this port to
+    /// (issue #775; additive in v1). **Required with `--touchstone`** on
+    /// a wave-port or mixed spec, and inert without it: the JSON report's
+    /// `results[].s` stays the modal S, referenced to each mode's own
+    /// wave impedance `Z_TE(ω) = η₀·k₀·μ_t/β`, which varies with
+    /// frequency and so has no default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_ohm: Option<f64>,
 }
 
 fn default_n_modes() -> usize {

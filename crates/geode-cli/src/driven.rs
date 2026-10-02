@@ -174,8 +174,11 @@ pub fn validate_export(p: &Problem) -> Result<(), CliError> {
 
 /// Load, solve and report. With `outdir`, lumped-port specs also export
 /// per-row fields (and NTFF for a UPML open radiator); with
-/// `touchstone`, lumped-port specs also write a Touchstone 2.0 `.sNp`
-/// ([`crate::touchstone`]; wave-port specs are rejected before solving).
+/// `touchstone`, the spec also writes a Touchstone 2.0 `.sNp`
+/// ([`crate::touchstone`]): a lumped-port spec its S verbatim, a wave-port
+/// or mixed spec its propagating channels renormalized to
+/// `wave_ports[].reference_ohm` (issue #775; classified and validated
+/// before solving). The report's `results[].s` is the modal S either way.
 pub fn run(
     spec_path: &Path,
     provenance: Provenance,
@@ -184,9 +187,9 @@ pub fn run(
     opts: SweepOptions,
 ) -> Result<DrivenReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Driven))?;
-    if let Some(path) = touchstone {
-        crate::touchstone::validate(&p, path)?;
-    }
+    let plan = touchstone
+        .map(|path| crate::touchstone::validate(&p, path))
+        .transpose()?;
     // Wave-port specs export nothing, so there is nothing to validate.
     if outdir.is_some() && p.wave_ports.is_empty() {
         validate_export(&p)?;
@@ -215,9 +218,14 @@ pub fn run(
         .transpose()?;
     let ports = port_summaries(&p);
     let touchstone_file = touchstone
-        .map(|path| {
-            let refs: Vec<f64> = ports.iter().map(|q| q.resistance_ohm).collect();
-            crate::touchstone::write(path, &provenance, &refs, &results)
+        .zip(plan.as_ref())
+        .map(|(path, plan)| {
+            if p.wave_ports.is_empty() {
+                let refs: Vec<f64> = ports.iter().map(|q| q.resistance_ohm).collect();
+                crate::touchstone::write(path, &provenance, &refs, &results)
+            } else {
+                crate::touchstone::write_wave(path, &provenance, &p, plan, &results)
+            }
         })
         .transpose()?;
     Ok(DrivenReport {
@@ -1200,7 +1208,7 @@ fn matrix(m: &[c64], n: usize) -> Vec<Vec<Complex>> {
 
 /// Inverse of a row-major `n × n` complex matrix by Gauss–Jordan with
 /// partial pivoting; `None` if (numerically) singular.
-fn invert(a: &[c64], n: usize) -> Option<Vec<c64>> {
+pub(crate) fn invert(a: &[c64], n: usize) -> Option<Vec<c64>> {
     let zero = c64::new(0.0, 0.0);
     let one = c64::new(1.0, 0.0);
     let mut m = a.to_vec();
