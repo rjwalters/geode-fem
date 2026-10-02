@@ -14,7 +14,7 @@ use crate::report::{
     PortSummary, Provenance, RegionSummary, ResourceEstimate, RoughnessSummary,
     SilverMullerSummary, SolverSummary, UpmlSummary, WavePortMediumSummary, WavePortSummary,
 };
-use crate::spec::{DispersionSpec, RoughnessSpec, SolverSpec};
+use crate::spec::{DispersionSpec, FrequencyUnit, RoughnessSpec, SolverSpec};
 
 /// Load + resolve the spec and summarize it (no assembly, no solve).
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliError> {
@@ -399,6 +399,10 @@ pub fn wave_port_summaries(p: &Problem) -> Vec<WavePortSummary> {
                     mu_r_n: m.mu_n,
                 }
             },
+            tm_k_c: w.tm_k_c.is_finite().then_some(w.tm_k_c),
+            tm_cutoff_hz: p
+                .port_tm_cutoff_k0(w)
+                .map(|k0| problem::to_frequency(k0, FrequencyUnit::K0, p.length_unit_m()).hz),
             reference_ohm: w.reference_ohm,
         })
         .collect()

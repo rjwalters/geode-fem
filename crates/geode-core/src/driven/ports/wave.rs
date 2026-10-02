@@ -300,6 +300,36 @@ impl PortMedium {
         }
         k_c / (self.eps_t.re * self.mu_n).sqrt()
     }
+
+    /// Filled-guide cutoff `k₀` of a **TM** mode with geometric cutoff
+    /// `k_c_tm` (issue #808), given the fill's **axial** permittivity
+    /// `eps_n = nᵀεn` (which a TE mode never sees, so [`PortMedium`] does
+    /// not carry it).
+    ///
+    /// Wave ports carry TE modes only, so this exists to reject sweeps that
+    /// reach a TM mode. For a uniaxial fill `ε = diag(ε_t, ε_t, ε_n)`,
+    /// `μ = diag(μ_t, μ_t, μ_n)`, a TM mode (`H_n = 0`) with Dirichlet
+    /// `E_n` eigenvalue `k_c²` has
+    ///
+    /// ```text
+    /// β² = k₀²·ε_t·μ_t − (ε_t/ε_n)·k_c²
+    /// ```
+    ///
+    /// (the electromagnetic dual of the TE `β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c²`:
+    /// `E ↔ H`, `ε ↔ μ`), so `β² = 0` at `k₀ = k_c/√(ε_n·μ_t)`. The real
+    /// part `Re ε_n` is used, as [`Self::cutoff_k0`] does for TE (exact for
+    /// a lossless or isotropic lossy fill, where `Re β² = 0` there).
+    ///
+    /// Returns `None` when `Re ε_n · μ_t ≤ 0` (or NaN): then
+    /// `β² = ε_t(k₀²μ_t − k_c²/ε_n) > 0` at every frequency, i.e. the TM
+    /// modes propagate with no cutoff at all.
+    pub fn tm_cutoff_k0(&self, eps_n: c64, k_c_tm: f64) -> Option<f64> {
+        let d = eps_n.re * self.mu_t;
+        if d.is_nan() || d <= 0.0 {
+            return None;
+        }
+        Some(k_c_tm / d.sqrt())
+    }
 }
 
 impl Default for PortMedium {

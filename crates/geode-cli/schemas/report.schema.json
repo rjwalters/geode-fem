@@ -4599,6 +4599,22 @@
           "description": "Physical tag.",
           "format": "int32",
           "type": "integer"
+        },
+        "tm_cutoff_hz": {
+          "description": "Filled lowest-TM cutoff in Hz, `k_c^TM/√(Re ε_n·μ_t)` in the port's\n[`Self::medium`] (a dispersive fill at its reference `ε_r`; issue\n#808; additive in v1). `null` with [`Self::tm_k_c`].",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tm_k_c": {
+          "description": "Lowest **TM** cutoff wavenumber of the empty cross-section (rad per\nmesh length unit; issue #808; additive in v1). Wave ports carry TE\nmodes only, so every sweep frequency must stay below the filled TM\ncutoff [`Self::tm_cutoff_hz`] (`geode check` / `driven` reject it\notherwise). `null` when the face has no free `E_z` node (no TM\nmode on the port mesh).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
         }
       },
       "required": [
@@ -4613,7 +4629,9 @@
         "n_modes",
         "a_inc",
         "modes",
-        "medium"
+        "medium",
+        "tm_k_c",
+        "tm_cutoff_hz"
       ],
       "type": "object"
     }

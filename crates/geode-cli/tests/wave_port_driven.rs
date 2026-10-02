@@ -823,10 +823,13 @@ fn mixed_dispersive_fill_matches_constant_eps_at_its_frequency() {
     assert!(reciprocity_err(&sd, n) < 1e-8);
 
     // Off f_ref the port medium follows ε_r(f) per frequency (issue #777):
-    // each row's β is the filled β at that row's reported ε_r.
+    // each row's β is the filled β at that row's reported ε_r. The top
+    // point is k0 = 2.8 (it was 3.0): the ε_r ≈ 1.5 fill puts TM₁₁ at
+    // k_c^TM/√1.5 ≈ 2.95 on this port mesh, and wave ports carry TE modes
+    // only (issue #808: a sweep at or above it is now `invalid_spec`).
     let sweep = json(&geode(&[
         "driven",
-        mixed_spec("mixed-ds-sweep", r_ohm, &[2.0, 3.0], |v| {
+        mixed_spec("mixed-ds-sweep", r_ohm, &[2.0, 2.8], |v| {
             v["materials"] = serde_json::json!([{
                 "physical_group": "guide",
                 "dispersion": {
@@ -1739,4 +1742,274 @@ fn mixed_ports_compose_with_leontovich_walls() {
         let sig = sigma_max_2x2(&s);
         assert!(sig < 1.0, "passivity: σ_max = {sig}");
     }
+}
+
+// ---------------------------------------------------------------------
+// TM cutoff guard (issue #808): wave ports carry TE modes only
+// ---------------------------------------------------------------------
+
+/// Analytic TM₁₁ of the `A × B_DIM` guide (k₀ per mesh unit).
+fn tm11() -> f64 {
+    use std::f64::consts::PI;
+    ((PI / A).powi(2) + (PI / B_DIM).powi(2)).sqrt()
+}
+
+/// k₀ → Hz on the `LENGTH_UNIT_M` mesh.
+fn k0_hz(k0: f64) -> f64 {
+    k0 * geode_core::constants::C_M_PER_S / (2.0 * std::f64::consts::PI * LENGTH_UNIT_M)
+}
+
+/// The number (Hz) right after `prefix` in `msg`.
+fn hz_after(msg: &str, prefix: &str) -> f64 {
+    let rest = &msg[msg
+        .find(prefix)
+        .unwrap_or_else(|| panic!("no `{prefix}` in {msg}"))
+        + prefix.len()..];
+    let end = rest
+        .find(" Hz")
+        .unwrap_or_else(|| panic!("no Hz after `{prefix}` in {msg}"));
+    rest[..end]
+        .parse()
+        .unwrap_or_else(|e| panic!("`{}`: {e}", &rest[..end]))
+}
+
+/// The message of a rejected TM sweep names the port, the TM cutoff in Hz,
+/// the first offending frequency in Hz and the TM / hybrid issues.
+fn assert_tm_rejection(msg: &str, port: &str, cut_hz: f64, offending_k0: f64) {
+    let close = |a: f64, b: f64| (a - b).abs() <= 1e-12 * b.abs();
+    assert!(
+        msg.contains(&format!("wave port `{port}`"))
+            && close(hz_after(msg, "lowest TM cutoff "), cut_hz)
+            && close(hz_after(msg, "the sweep frequency "), k0_hz(offending_k0))
+            && msg.contains("TE modes only")
+            && msg.contains("#778")
+            && msg.contains("#804"),
+        "{msg}\n(want cutoff {cut_hz:e} Hz, offending k0 = {offending_k0})"
+    );
+}
+
+#[test]
+fn check_reports_the_tm_cutoff_and_accepts_a_sweep_below_it() {
+    // The default spec (k0 = 2.5) sits below TM11 = 3.512: accepted, and
+    // `check` echoes the port mesh's TM cutoff — the P1 Rayleigh-Ritz
+    // value, above the analytic TM11 on this coarse 8 × 4 face.
+    let v = json(&geode(&[
+        "check",
+        spec("tm-below", |_| {}).to_str().unwrap(),
+    ]));
+    for p in v["wave_ports"].as_array().unwrap() {
+        let k_c = f64_at(&p["tm_k_c"]);
+        assert!(k_c > tm11() && k_c < 1.1 * tm11(), "k_c^TM = {k_c}");
+        let hz = f64_at(&p["tm_cutoff_hz"]);
+        assert!((hz - k0_hz(k_c)).abs() < 1e-6 * hz, "vacuum: f_c = {hz}");
+    }
+    // A filled guide reports the filled cutoff k_c^TM/√ε.
+    let filled = json(&geode(&[
+        "check",
+        spec("tm-below-filled", |v| {
+            v["materials"] =
+                serde_json::json!([{ "physical_group": "guide", "eps_r": [2.2, 0.0] }]);
+            v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [1.6] });
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    let p = &filled["wave_ports"][0];
+    let want = k0_hz(f64_at(&p["tm_k_c"]) / 2.2_f64.sqrt());
+    assert!((f64_at(&p["tm_cutoff_hz"]) - want).abs() < 1e-6 * want);
+}
+
+#[test]
+fn a_sweep_reaching_tm11_is_invalid_spec_in_check_and_driven() {
+    let probe = json(&geode(&[
+        "check",
+        spec("tm-probe", |_| {}).to_str().unwrap(),
+    ]));
+    let k_c = f64_at(&probe["wave_ports"][0]["tm_k_c"]);
+    let cut_hz = f64_at(&probe["wave_ports"][0]["tm_cutoff_hz"]);
+    // Below / exactly at / above the port mesh's TM cutoff: the first
+    // offending frequency (in sweep order) is named, here the 2nd entry.
+    let k0s = [2.5, 4.0, 3.0, 4.5];
+    for cmd in ["check", "driven"] {
+        let file = spec(&format!("tm-cross-{cmd}"), |v| {
+            v["frequencies"] = serde_json::json!({ "unit": "k0", "values": k0s });
+        });
+        let msg = error_message(&geode(&[cmd, file.to_str().unwrap()]), cmd, "invalid_spec");
+        assert_tm_rejection(&msg, "port_in", cut_hz, 4.0);
+    }
+    // At the cutoff itself (`≥`): rejected.
+    let file = spec("tm-at", |v| {
+        v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [k_c] });
+    });
+    let msg = error_message(
+        &geode(&["check", file.to_str().unwrap()]),
+        "check",
+        "invalid_spec",
+    );
+    assert!(msg.contains("lowest TM cutoff"), "{msg}");
+    // Just below it: accepted.
+    let file = spec("tm-just-below", |v| {
+        v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [0.999 * k_c] });
+    });
+    json(&geode(&["check", file.to_str().unwrap()]));
+}
+
+#[test]
+fn a_filled_guide_is_rejected_at_its_filled_tm_cutoff() {
+    // ε_r = 2.2: TM cutoff k_c^TM/√2.2 ≈ 2.4–2.5, so k0 = 2.6 is above it
+    // — while the same k0 is far below the vacuum TM cutoff (accepted).
+    let at = |name: &str, materials: Option<serde_json::Value>, k0: f64| {
+        spec(name, |v| {
+            if let Some(m) = materials {
+                v["materials"] = m;
+            }
+            v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [1.6, k0] });
+        })
+    };
+    json(&geode(&[
+        "check",
+        at("tm-vac-2.6", None, 2.6).to_str().unwrap(),
+    ]));
+    let iso = serde_json::json!([{ "physical_group": "guide", "eps_r": [2.2, -0.01] }]);
+    let probe = json(&geode(&[
+        "check",
+        at("tm-fill-probe", Some(iso.clone()), 1.7)
+            .to_str()
+            .unwrap(),
+    ]));
+    let cut_hz = f64_at(&probe["wave_ports"][0]["tm_cutoff_hz"]);
+    assert!(cut_hz < k0_hz(2.6) && cut_hz > k0_hz(2.3), "{cut_hz:e}");
+    let msg = error_message(
+        &geode(&["check", at("tm-fill", Some(iso), 2.6).to_str().unwrap()]),
+        "check",
+        "invalid_spec",
+    );
+    assert_tm_rejection(&msg, "port_in", cut_hz, 2.6);
+    assert!(msg.contains("in the fill `guide`"), "{msg}");
+
+    // Uniaxial fill: the TE modes see ε_t (and μ), the TM cutoff the
+    // axial ε_n — ε_zz = 3.0 pulls it to k_c^TM/√3 ≈ 2.1 < 2.5 although
+    // ε_t = 1.4 (the accepted `mixed_anisotropic_fill...` case has ε_zz = 1).
+    let uniaxial = |zz: [f64; 2]| {
+        serde_json::json!([{
+            "physical_group": "guide",
+            "eps_r_diag": { "xx": [1.4, 0.0], "yy": [1.4, 0.0], "zz": zz },
+            "mu_r_diag": { "xx": 1.0, "yy": 1.0, "zz": 1.0 }
+        }])
+    };
+    json(&geode(&[
+        "check",
+        at("tm-uni-ok", Some(uniaxial([1.0, 0.0])), 2.5)
+            .to_str()
+            .unwrap(),
+    ]));
+    let msg = error_message(
+        &geode(&[
+            "check",
+            at("tm-uni", Some(uniaxial([3.0, 0.0])), 2.5)
+                .to_str()
+                .unwrap(),
+        ]),
+        "check",
+        "invalid_spec",
+    );
+    assert!(
+        msg.contains("lowest TM cutoff") && msg.contains("ε_n = 3e0"),
+        "{msg}"
+    );
+    // A hyperbolic fill (Re ε_n < 0) has no TM cutoff at all.
+    let msg = error_message(
+        &geode(&[
+            "check",
+            at("tm-hyper", Some(uniaxial([-1.0, 0.0])), 1.7)
+                .to_str()
+                .unwrap(),
+        ]),
+        "check",
+        "invalid_spec",
+    );
+    assert!(
+        msg.contains("Re ε_n·μ_t") && msg.contains("no TM cutoff") && msg.contains("#778"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn mixed_and_adaptive_specs_go_through_the_tm_guard() {
+    let r_ohm = 242.1;
+    let probe = json(&geode(&[
+        "check",
+        mixed_spec("tm-mixed-probe", r_ohm, &[2.5], |_| {})
+            .to_str()
+            .unwrap(),
+    ]));
+    let cut_hz = f64_at(&probe["wave_ports"][0]["tm_cutoff_hz"]);
+    for cmd in ["check", "driven"] {
+        // Mixed lumped + wave (issue #759).
+        let file = mixed_spec(&format!("tm-mixed-{cmd}"), r_ohm, &[2.5, 4.0], |_| {});
+        let msg = error_message(&geode(&[cmd, file.to_str().unwrap()]), cmd, "invalid_spec");
+        assert_tm_rejection(&msg, "port_in", cut_hz, 4.0);
+        // Adaptive band (issue #774) crossing TM11, pure wave and mixed.
+        let band = serde_json::json!({ "unit": "k0", "start": 2.0, "stop": 4.0, "count": 9 });
+        let wave = spec(&format!("tm-adaptive-{cmd}"), |v| {
+            v["frequencies"] = band.clone();
+            v["sweep"] = serde_json::json!({ "adaptive": {} });
+        });
+        let msg = error_message(&geode(&[cmd, wave.to_str().unwrap()]), cmd, "invalid_spec");
+        // The first band point at or above the cutoff is named.
+        let first = (0..9)
+            .map(|i| 2.0 + 0.25 * i as f64)
+            .find(|&k0| k0_hz(k0) >= cut_hz)
+            .unwrap();
+        assert_tm_rejection(&msg, "port_in", cut_hz, first);
+        let mixed = mixed_spec(&format!("tm-adaptive-mixed-{cmd}"), r_ohm, &[2.0], |v| {
+            v["frequencies"] = band.clone();
+            v["sweep"] = serde_json::json!({ "adaptive": {} });
+        });
+        let msg = error_message(&geode(&[cmd, mixed.to_str().unwrap()]), cmd, "invalid_spec");
+        assert_tm_rejection(&msg, "port_in", cut_hz, first);
+    }
+}
+
+#[test]
+fn a_port_rim_off_every_conductor_lowers_the_tm_cutoff() {
+    // Leontovich walls are conductors: the rim stays Dirichlet and the TM
+    // cutoff equals the PEC one.
+    let pec = json(&geode(&[
+        "check",
+        spec("tm-rim-pec", |_| {}).to_str().unwrap(),
+    ]));
+    let leon = json(&geode(&[
+        "check",
+        spec("tm-rim-leon", |v| {
+            v["boundary_conditions"] = serde_json::json!({
+                "pec": [],
+                "leontovich": [{ "physical_group": "walls", "conductivity_s_m": 5.8e7 }]
+            });
+        })
+        .to_str()
+        .unwrap(),
+    ]));
+    assert_eq!(
+        pec["wave_ports"][0]["tm_k_c"], leon["wave_ports"][0]["tm_k_c"],
+        "Leontovich rim = PEC rim"
+    );
+    // No wall at all: E_z is free on the whole rim, the TM cutoff drops to
+    // 0 and every frequency is rejected, with the rim named as the cause.
+    let msg = error_message(
+        &geode(&[
+            "check",
+            spec("tm-rim-open", |v| {
+                v["boundary_conditions"] = serde_json::json!({ "pec": [] });
+            })
+            .to_str()
+            .unwrap(),
+        ]),
+        "check",
+        "invalid_spec",
+    );
+    assert!(
+        hz_after(&msg, "lowest TM cutoff ") == 0.0 && msg.contains("24 rim edge(s)"),
+        "{msg}"
+    );
 }

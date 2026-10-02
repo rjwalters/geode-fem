@@ -278,12 +278,19 @@ fn wave_touchstone_is_the_z_route_renormalization_of_the_modal_s() {
 
     // Lossy fill (complex β, so complex Z_c and √Z_c: a branch mismatch
     // between the solver weights and the transform would flip signs),
-    // unequal references.
+    // unequal references. Its band tops out at k0 = 2.8, not 3.0: the
+    // ε_r = 1.5 fill pulls TM₁₁ down to k_c^TM/√1.5 (≥ 2.868 analytic,
+    // ≈ 2.95 on this 8 × 4 port mesh), and wave ports carry TE modes only,
+    // so k0 = 3.0 had a propagating TM₁₁ with no port termination (issue
+    // #808; now `invalid_spec`). In this straight, uniformly filled guide
+    // nothing couples TE₁₀ to TM₁₁, so the old k0 = 3.0 row was not
+    // numerically damaged — but it was outside the solver's validity.
+    let k0s_lossy = [2.8, 2.0, 2.5, 1.8];
     let ts = dir.join("lossy.s2p");
     let v = ok_json(&run(
         &dir,
         "lossy",
-        &guide_spec(&k0s, |v| {
+        &guide_spec(&k0s_lossy, |v| {
             with_ref(300.0, 450.0)(v);
             v["materials"] =
                 serde_json::json!([{ "physical_group": "guide", "eps_r": [1.5, -0.1] }]);

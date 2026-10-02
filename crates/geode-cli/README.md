@@ -486,6 +486,38 @@ supported: the TEM mode lives in the gradient nullspace and is filtered
 out. Asking for more modes than the cross-section can hold fails with
 `solve_failed`.
 
+**TE modes only: the sweep must stay below the TM cutoff** (issue #808).
+The port modal solve returns **TE** modes only (a TM mode's transverse
+field `∇E_z` is in the same filtered gradient nullspace). Above a port's
+lowest **TM** cutoff (TM₁₁ in a rectangular guide) a propagating TM
+channel would have no termination: it reflects off the port face and the
+S-matrix is silently wrong, while the power balance still looks perfect.
+For example, a height step driven about 17 % above TM₁₁ changes `|S|` by 0.44
+when the feed section is lengthened, against 3.6e-3 below TM₁₁
+(`geode-core` `tests/wave_port.rs`,
+`te_only_ports_above_tm11_give_length_dependent_s`). `check` and
+`driven` therefore reject, with `invalid_spec`, any spec (pure wave,
+[mixed](#mixed-lumped--wave-ports-issue-759) or
+[adaptive](#adaptive-sweep-parallel-frequencies-and-progress-issue-708))
+with a sweep frequency at or above a wave port's lowest TM cutoff. The
+message names the port, the cutoff and the first offending frequency in
+Hz. The cutoff is the lowest Dirichlet eigenvalue `k_c^TM` of the P1
+Laplacian for `E_z` on the port face. It is the port mesh's discrete
+value, slightly above the continuum one on a coarse face. For a filled
+guide it is scaled to `k_c^TM/√(Re ε_n·μ_t)`, where `ε_n` is the
+permittivity along the port normal. That is the TM dual of the TE
+`β²`: `β_TM² = k₀²ε_tμ_t − (ε_t/ε_n)k_c²`. A dispersive fill is checked
+at every sweep frequency. A fill with `Re ε_n·μ_t ≤ 0` has no TM cutoff
+and is always rejected. `E_z = 0` is imposed only on rim edges that lie
+on a `pec` or `leontovich` wall. On any other rim edge `E_z` is left
+free, which lowers the cutoff (the conservative direction). A rim with
+no wall at all has cutoff 0, so every frequency is rejected. `check`
+and `driven` echo `wave_ports[].tm_k_c` (geometric, per mesh unit) and
+`tm_cutoff_hz` (filled, with a dispersive fill at its reference `ε_r`).
+TM and hybrid port modes are tracked in
+[#778](https://github.com/rjwalters/geode-fem/issues/778) /
+[#804](https://github.com/rjwalters/geode-fem/issues/804).
+
 **Filled wave ports** (issue #777). The guide at a wave port may be
 filled with any **homogeneous** medium: a scalar `eps_r` (lossy or not),
 a dispersive model, or a diagonal `eps_r_diag` / `mu_r_diag` that is

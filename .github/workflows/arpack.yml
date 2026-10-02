@@ -150,6 +150,8 @@ jobs:
       # isotropic tensor fill). Its four `#[ignore]`d height-step /
       # bimodal tests and the one `wave_port_step_mode_matching` test are
       # "heavy" only in debug, so they run here via --include-ignored.
+      # Issue #808 added the ignored height-step TM₁₁ measurement
+      # (`te_only_ports_above_tm11_give_length_dependent_s`, ~15 s).
       # Release timings, local (Apple Silicon, 6 threads): wave_port 0.05 s
       # default + 0.52 s ignored, wave_port_from_tags 0.05 s,
       # iterative_sweep 0.04 s, driven_matrix_free_equivalence 1.4 s,
@@ -163,6 +165,10 @@ jobs:
           cargo test --features arpack -p geode-core --release \
               --test wave_port \
               --test wave_port_step_mode_matching -- --include-ignored
+          # Issue #808: the port-face TM-cutoff oracle and the #777
+          # vacuum bit-identity golden are unit tests (`--lib`), < 1 s.
+          cargo test --features arpack -p geode-core --release --lib -- \
+              driven::ports::
 
       # Issue #760: diagonal anisotropic materials — the lossless
       # tensor cavity pencil and diagonal-nu magnetostatics unit tests
