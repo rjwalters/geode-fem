@@ -859,7 +859,8 @@ pub struct AdaptiveSweepStats {
     /// Worst residual indicator over the frequency grid when the greedy
     /// loop stopped (before any fallback solve).
     pub worst_residual: f64,
-    /// Dimension of the reduced model (`≤ n_snapshots × n_ports`).
+    /// Dimension of the reduced model (`≤ n_snapshots × n_channels`:
+    /// lumped ports plus wave channels).
     pub reduced_order: usize,
     /// Greedy snapshot frequencies (Hz), in selection order (the three
     /// seeds — band ends and midpoint — first).

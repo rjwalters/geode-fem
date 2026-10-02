@@ -21,6 +21,15 @@
 //!   smoke at three points with `max_snapshots = 1` — one interpolated
 //!   row, one exact full-order fallback row, `--outdir` fields for the
 //!   solved rows only.
+//! * **Wave and mixed ports** (default tier, issue #774): the
+//!   `waveguide_mixed_smoke.json` guide (mixed) and its pure-wave variant,
+//!   adaptive vs dense over an 11-point band and a cutoff-crossing band
+//!   (`|ΔS_ij| ≤ TOL` on every entry, `β` bit-equal), a grid point exactly
+//!   at cutoff failing like the dense sweep, an exhausted budget whose
+//!   fallback row is the dense row, a dispersive fill rejected, and
+//!   (issue #776 walls) Leontovich sidewalls on the pure-wave and mixed
+//!   guides plus a Silver-Müller end cap. See
+//!   the section header below for the measured numbers.
 //!
 //! The two adaptive-vs-dense comparisons are `#[ignore]`d — slow in a
 //! debug build (the per-frequency assembly runs unoptimized) — and run in
@@ -439,4 +448,444 @@ fn patch_smoke_exhausted_budget_falls_back_to_exact_solves() {
     let n_snap = events.iter().filter(|e| e["event"] == "snapshot").count();
     assert_eq!(n_snap, 1);
     assert_eq!(point_indices(&events), vec![0, 1, 2]);
+}
+
+// =====================================================================
+// Wave-port and mixed lumped + wave adaptive sweeps (issue #774)
+// =====================================================================
+//
+// Fixture: `waveguide_mixed_smoke.json` (the committed `2 × 1 × 1.2`
+// guide mesh, 768 tets; TE₁₀ wave port `port_in`, full-face resistive
+// sheet `port_out`) and its pure-wave variant (both faces wave ports).
+// No `Z` exists for a wave channel, so the bar is `|ΔS_ij| ≤ TOL` over
+// **every** entry, with each channel's reported `β` bit-equal to the dense
+// sweep (the same library call). All default tier (each run ≈ 1–2 s in
+// debug).
+//
+// Measured (tolerance 1e-6, macOS arm64, issue #774):
+//
+// | sweep | points | snapshots | fallbacks | interpolated | worst η | max |ΔS| |
+// |---|---|---|---|---|---|---|
+// | mixed, k0 2.0–3.0 | 11 | 7 | 0 | 4 | 8.0e-8 | 1.9e-9 |
+// | pure wave, k0 2.0–3.0 | 11 | 6 | 0 | 5 | 1.4e-7 | 8.3e-14 |
+// | mixed, k0 1.2–2.4 (crosses cutoff) | 13 | 6 | 0 | 7 | 8.4e-7 | 8.4e-9 |
+// | pure wave, k0 1.2–2.4 (crosses cutoff) | 13 | 5 | 0 | 8 | 4.2e-7 | 1.3e-13 |
+// | pure wave, Leontovich walls (#776), k0 2.0–3.0 | 11 | 8 | 0 | 3 | 2.4e-8 | 3.1e-10 |
+// | mixed, Leontovich walls, k0 2.0–3.0 | 11 | 7 | 0 | 4 | 6.1e-7 | 1.5e-8 |
+// | one wave port + Silver-Müller cap, k0 2.0–3.0 | 11 | 7 | 0 | 4 | 1.8e-7 | 2.1e-8 |
+//
+// `|ΔS|/η ≲ 1e-2` throughout: at a ≥ 2 % margin from the FEM cutoff
+// (`k_c,h = 1.5674`; nearest grid points 1.5 and 1.6) the near-cutoff
+// conditioning (module docs of `geode_core::driven::rom`) does not bite,
+// so no tolerance is tightened.
+
+/// The wave fixture over `frequencies`, optionally pure-wave (lumped
+/// `ports` removed, both end faces wave ports) and adaptive.
+fn guide_spec(
+    dir: &Path,
+    name: &str,
+    pure_wave: bool,
+    frequencies: Value,
+    adaptive: Option<Value>,
+) -> PathBuf {
+    guide_spec_with(dir, name, pure_wave, frequencies, adaptive, |_| {})
+}
+
+/// [`guide_spec`], then `edit` (e.g. the walls, issue #776).
+fn guide_spec_with(
+    dir: &Path,
+    name: &str,
+    pure_wave: bool,
+    frequencies: Value,
+    adaptive: Option<Value>,
+    edit: impl FnOnce(&mut Value),
+) -> PathBuf {
+    spec_from(
+        "waveguide_mixed_smoke.json",
+        "waveguide_2x1_smoke.msh",
+        dir,
+        name,
+        move |v| {
+            if pure_wave {
+                v.as_object_mut().unwrap().remove("ports");
+                v["wave_ports"] = serde_json::json!([
+                    { "physical_group": "port_in" },
+                    { "physical_group": "port_out" }
+                ]);
+            }
+            v["frequencies"] = frequencies;
+            if let Some(a) = adaptive {
+                v["sweep"] = serde_json::json!({ "adaptive": a });
+            }
+            edit(v);
+        },
+    )
+}
+
+/// Row `r`'s S-matrix, row-major, and its size.
+fn s_entries(r: &Value) -> (Vec<(f64, f64)>, usize) {
+    let rows = r["s"].as_array().unwrap();
+    let n = rows.len();
+    (
+        rows.iter()
+            .flat_map(|row| row.as_array().unwrap().iter().map(c))
+            .collect(),
+        n,
+    )
+}
+
+/// Channel-aware [`compare`]: `solved` flags against the snapshot /
+/// fallback lists, interpolated rows within the tolerance, every
+/// channel's `β` bit-equal; returns `(n_interpolated, max |ΔS_ij|)` over
+/// every entry of every row.
+fn compare_channels(dense: &Value, adaptive: &Value, tol: f64) -> (usize, f64) {
+    let stats = &adaptive["solver"]["adaptive"];
+    assert_eq!(stats["tolerance"].as_f64().unwrap(), tol);
+    let full: Vec<f64> = stats["snapshot_frequencies_hz"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(stats["fallback_frequencies_hz"].as_array().unwrap())
+        .map(|f| f.as_f64().unwrap())
+        .collect();
+    let (d, a) = (
+        dense["results"].as_array().unwrap(),
+        adaptive["results"].as_array().unwrap(),
+    );
+    assert_eq!(d.len(), a.len());
+    let (mut n_interp, mut es) = (0, 0.0_f64);
+    for (rd, ra) in d.iter().zip(a) {
+        let f = ra["frequency_hz"].as_f64().unwrap();
+        assert_eq!(f, rd["frequency_hz"].as_f64().unwrap());
+        assert!(rd.get("solved").is_none());
+        let solved = ra["solved"].as_bool().expect("adaptive row has `solved`");
+        assert_eq!(solved, full.contains(&f), "solved flag at {f} Hz");
+        if !solved {
+            n_interp += 1;
+            assert!(ra["residual_rel"].as_f64().unwrap() <= tol);
+        }
+        let (wd, wa) = (
+            rd["wave_channels"].as_array().unwrap(),
+            ra["wave_channels"].as_array().unwrap(),
+        );
+        assert_eq!(wd.len(), wa.len());
+        for (cd, ca) in wd.iter().zip(wa) {
+            assert_eq!(cd["beta"], ca["beta"], "β at {f} Hz");
+            assert_eq!(cd["propagating"], ca["propagating"]);
+        }
+        let ((sd, n), (sa, m)) = (s_entries(rd), s_entries(ra));
+        assert_eq!(n, m);
+        for (x, y) in sd.iter().zip(&sa) {
+            es = es.max(dist(*x, *y));
+        }
+    }
+    assert_eq!(n_interp, stats["n_interpolated"].as_u64().unwrap() as usize);
+    assert_eq!(
+        d.len() - n_interp,
+        stats["n_solved"].as_u64().unwrap() as usize
+    );
+    (n_interp, es)
+}
+
+/// Dense vs adaptive over `frequencies` on the mixed fixture or its
+/// pure-wave variant: converged, ≥ 1 interpolated row, `|ΔS_ij| ≤ TOL`,
+/// `β` bit-equal. Returns the adaptive report.
+fn wave_adaptive_matches_dense(name: &str, pure_wave: bool, frequencies: Value) -> Value {
+    wave_adaptive_matches_dense_with(name, pure_wave, frequencies, |_| {})
+}
+
+/// [`wave_adaptive_matches_dense`] with both specs `edit`ed alike (e.g.
+/// the walls, issue #776).
+fn wave_adaptive_matches_dense_with(
+    name: &str,
+    pure_wave: bool,
+    frequencies: Value,
+    edit: impl Fn(&mut Value),
+) -> Value {
+    let dir = TempDir::new(name);
+    let (dense, _) = driven(
+        &guide_spec_with(
+            &dir.0,
+            "dense.json",
+            pure_wave,
+            frequencies.clone(),
+            None,
+            &edit,
+        ),
+        &[],
+    );
+    let (adaptive, stderr) = driven(
+        &guide_spec_with(
+            &dir.0,
+            "adaptive.json",
+            pure_wave,
+            frequencies,
+            Some(serde_json::json!({ "tolerance": TOL })),
+            &edit,
+        ),
+        &["--progress"],
+    );
+    let stats = &adaptive["solver"]["adaptive"];
+    let (n_interp, es) = compare_channels(&dense, &adaptive, TOL);
+    eprintln!(
+        "{name}: {} points, {} snapshots, {} fallbacks, {n_interp} interpolated, worst η = {:.2e}, \
+         max |ΔS| = {es:.2e}",
+        dense["results"].as_array().unwrap().len(),
+        stats["snapshot_frequencies_hz"].as_array().unwrap().len(),
+        stats["fallback_frequencies_hz"].as_array().unwrap().len(),
+        stats["worst_residual"].as_f64().unwrap(),
+    );
+    assert_eq!(stats["converged"], true, "{stats}");
+    assert!(n_interp >= 1, "no interpolated row: {stats}");
+    assert!(es <= TOL, "{name}: max |ΔS| = {es:.3e}");
+    // The progress stream: `adaptive` method, a snapshot event per
+    // snapshot, one point per row.
+    let events = events(&stderr);
+    assert_eq!(events[0]["event"], "sweep_start");
+    assert_eq!(events[0]["method"], "adaptive");
+    let n_snap = events.iter().filter(|e| e["event"] == "snapshot").count();
+    assert_eq!(
+        n_snap,
+        stats["snapshot_frequencies_hz"].as_array().unwrap().len()
+    );
+    let n = adaptive["results"].as_array().unwrap().len() as u64;
+    assert_eq!(point_indices(&events), (0..n).collect::<Vec<_>>());
+    adaptive
+}
+
+/// Mixed lumped + wave fixture over an 11-point band (the fixture's own
+/// three points are exactly the three seeds, which would interpolate
+/// nothing).
+#[test]
+fn waveguide_mixed_adaptive_sweep_matches_dense_sweep() {
+    let adaptive = wave_adaptive_matches_dense(
+        "wave-mixed-band",
+        false,
+        serde_json::json!({ "unit": "k0", "start": 2.0, "stop": 3.0, "count": 11 }),
+    );
+    assert_eq!(adaptive["results"][0]["s"].as_array().unwrap().len(), 2);
+}
+
+/// Pure-wave variant over the same band; interpolated rows are
+/// reciprocal (`S₂₁ = S₁₂`) to 1e-10.
+#[test]
+fn waveguide_pure_wave_adaptive_sweep_matches_dense_sweep() {
+    let adaptive = wave_adaptive_matches_dense(
+        "wave-pure-band",
+        true,
+        serde_json::json!({ "unit": "k0", "start": 2.0, "stop": 3.0, "count": 11 }),
+    );
+    for r in adaptive["results"].as_array().unwrap() {
+        assert!(r["ports"].as_array().unwrap().is_empty());
+        if r["solved"] == false {
+            let (s, n) = s_entries(r);
+            assert_eq!(n, 2);
+            assert!(dist(s[1], s[2]) <= 1e-10, "reciprocity {:?}", (s[1], s[2]));
+        }
+    }
+}
+
+/// Wave ports with walls (issue #776) under `sweep.adaptive`: the ROM's
+/// base operator assembles the same `impedance_walls` as the dense sweep
+/// and re-evaluates each wall's coefficient per frequency. Three legs on
+/// the 11-point band, each `|ΔS_ij| ≤ TOL` with `β` bit-equal:
+///
+/// * pure wave, every sidewall a Leontovich conductor (σ = 10⁴ S/m, no
+///   PEC — the #776 lossy-guide configuration);
+/// * mixed lumped + wave, the same Leontovich walls;
+/// * one wave port on `port_in`, PEC sidewalls, a Silver-Müller cap on
+///   `port_out` (an SM wall away from every port rim; on a rim it is
+///   `invalid_spec`, see `wave_port_driven.rs`).
+///
+/// The lossy legs are strictly passive.
+#[test]
+fn waveguide_walls_adaptive_sweep_matches_dense_sweep() {
+    let band = serde_json::json!({ "unit": "k0", "start": 2.0, "stop": 3.0, "count": 11 });
+    let leontovich = |v: &mut Value| {
+        v["boundary_conditions"] = serde_json::json!({
+            "pec": [],
+            "leontovich": [{ "physical_group": "walls", "conductivity_s_m": 1e4 }]
+        });
+    };
+    for (name, pure) in [
+        ("wave-pure-leontovich", true),
+        ("wave-mixed-leontovich", false),
+    ] {
+        let adaptive = wave_adaptive_matches_dense_with(name, pure, band.clone(), leontovich);
+        for r in adaptive["results"].as_array().unwrap() {
+            let (s, n) = s_entries(r);
+            assert_eq!(n, 2);
+            // Column 0 power: |S11|² + |S21|² visibly < 1 — the walls
+            // are really lossy (a PEC guide is unitary to ~1e-12).
+            let p = s[0].0.powi(2) + s[0].1.powi(2) + s[2].0.powi(2) + s[2].1.powi(2);
+            assert!(p < 1.0 - 1e-4, "{name}: wall loss, P = {p}");
+        }
+    }
+    let adaptive = wave_adaptive_matches_dense_with("wave-sm-cap", true, band, |v| {
+        v["wave_ports"] = serde_json::json!([{ "physical_group": "port_in" }]);
+        v["boundary_conditions"]["silver_muller"] = serde_json::json!(["port_out"]);
+    });
+    assert_eq!(adaptive["results"][0]["s"].as_array().unwrap().len(), 1);
+}
+
+/// A band crossing the TE₁₀ cutoff (k0 1.2–2.4, 13 points), mixed and
+/// pure-wave: evanescent rows below, propagating above, no grid point
+/// within 2 % of the reported FEM cutoff.
+#[test]
+fn waveguide_cutoff_crossing_adaptive_sweep_matches_dense_sweep() {
+    let freqs = serde_json::json!({ "unit": "k0", "start": 1.2, "stop": 2.4, "count": 13 });
+    for (name, pure) in [("wave-mixed-cutoff", false), ("wave-pure-cutoff", true)] {
+        let adaptive = wave_adaptive_matches_dense(name, pure, freqs.clone());
+        let k_c = adaptive["wave_ports"][0]["modes"][0]["k_c"]
+            .as_f64()
+            .unwrap();
+        let rows = adaptive["results"].as_array().unwrap();
+        let mut propagating = Vec::new();
+        for r in rows {
+            let k0 = r["k0"].as_f64().unwrap();
+            assert!(
+                (k0 / k_c - 1.0).abs() >= 0.02,
+                "k0 = {k0} within 2 % of k_c = {k_c}"
+            );
+            propagating.push(r["wave_channels"][0]["propagating"].as_bool().unwrap());
+        }
+        assert!(propagating.contains(&true) && propagating.contains(&false));
+    }
+}
+
+/// A grid point **exactly** at the FEM cutoff (`y = 0`): the dense sweep
+/// fails with `non_finite`, and so does the adaptive sweep (its reduced
+/// S column is non-finite there, so the row goes to the dense fallback,
+/// which fails identically) — it never reports an interpolated value.
+#[test]
+fn waveguide_exactly_at_cutoff_fails_like_the_dense_sweep() {
+    let dir = TempDir::new("wave-at-cutoff");
+    let (probe, _) = driven(
+        &guide_spec(
+            &dir.0,
+            "probe.json",
+            false,
+            serde_json::json!({ "unit": "k0", "values": [2.0] }),
+            None,
+        ),
+        &[],
+    );
+    let k_c = probe["wave_ports"][0]["modes"][0]["k_c"].as_f64().unwrap();
+    let freqs = serde_json::json!({ "unit": "k0", "values": [1.2, k_c, 2.0, 2.4] });
+    let fail = |name: &str, adaptive: Option<Value>| -> (String, String) {
+        let spec = guide_spec(&dir.0, name, false, freqs.clone(), adaptive);
+        let out = Command::new(env!("CARGO_BIN_EXE_geode"))
+            .arg("driven")
+            .arg(&spec)
+            .output()
+            .expect("spawn geode");
+        assert!(!out.status.success(), "{name}: expected failure");
+        let v: Value = serde_json::from_slice(&out.stdout).expect("error report");
+        (
+            v["error"]["code"].as_str().unwrap().to_string(),
+            v["error"]["message"].as_str().unwrap().to_string(),
+        )
+    };
+    let dense = fail("dense.json", None);
+    let adaptive = fail(
+        "adaptive.json",
+        Some(serde_json::json!({ "tolerance": TOL })),
+    );
+    assert_eq!(dense.0, "non_finite", "{}", dense.1);
+    assert_eq!(adaptive, dense);
+}
+
+/// Exhausted budget on the mixed fixture (`max_snapshots = 1`,
+/// tolerance 1e-3): the snapshot (k0 = 2) interpolates its close
+/// neighbour, and k0 = 3 is a fallback row **bit-identical** to the dense
+/// sweep's row there.
+#[test]
+fn waveguide_mixed_exhausted_budget_falls_back_to_exact_solves() {
+    let dir = TempDir::new("wave-fallback");
+    let (adaptive, _) = driven(
+        &guide_spec(
+            &dir.0,
+            "adaptive.json",
+            false,
+            serde_json::json!({ "unit": "k0", "values": [2.0, 2.0001, 3.0] }),
+            Some(serde_json::json!({ "tolerance": 1e-3, "max_snapshots": 1 })),
+        ),
+        &[],
+    );
+    let stats = &adaptive["solver"]["adaptive"];
+    assert_eq!(stats["converged"], false, "{stats}");
+    assert_eq!(stats["n_solved"], 2);
+    assert_eq!(stats["n_interpolated"], 1);
+    assert_eq!(stats["n_factorizations"], 2);
+    assert_eq!(stats["reduced_order"], 2);
+    let rows = adaptive["results"].as_array().unwrap();
+    let solved: Vec<bool> = rows
+        .iter()
+        .map(|r| r["solved"].as_bool().unwrap())
+        .collect();
+    assert_eq!(solved, [true, false, true]);
+    assert_eq!(
+        stats["fallback_frequencies_hz"][0], rows[2]["frequency_hz"],
+        "{stats}"
+    );
+    let interp = rows[1]["residual_rel"].as_f64().unwrap();
+    assert!(interp > 0.0 && interp <= 1e-3, "η = {interp:e}");
+
+    let (dense, _) = driven(
+        &guide_spec(
+            &dir.0,
+            "dense.json",
+            false,
+            serde_json::json!({ "unit": "k0", "values": [3.0] }),
+            None,
+        ),
+        &[],
+    );
+    let (fb, d) = (&rows[2], &dense["results"][0]);
+    for key in [
+        "frequency_hz",
+        "s",
+        "residual_rel",
+        "iterations",
+        "wave_channels",
+    ] {
+        assert_eq!(fb[key], d[key], "fallback row `{key}`");
+    }
+}
+
+/// A dispersive (Djordjevic-Sarkar) guide fill stays rejected with
+/// `sweep.adaptive`: the fill's `ε(f)` makes the volume `M` frequency
+/// dependent.
+#[test]
+fn waveguide_dispersive_fill_with_adaptive_sweep_is_invalid_spec() {
+    let dir = TempDir::new("wave-dispersive");
+    let spec = spec_from(
+        "waveguide_mixed_smoke.json",
+        "waveguide_2x1_smoke.msh",
+        &dir.0,
+        "dispersive.json",
+        |v| {
+            v["materials"] = serde_json::json!([{
+                "physical_group": "guide",
+                "dispersion": {
+                    "model": "djordjevic_sarkar", "eps_r": 1.5, "tan_delta": 0.02,
+                    "f_ref_hz": 1e10
+                }
+            }]);
+            v["sweep"] = serde_json::json!({ "adaptive": {} });
+        },
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_geode"))
+        .arg("driven")
+        .arg(&spec)
+        .output()
+        .expect("spawn geode");
+    assert!(!out.status.success());
+    let v: Value = serde_json::from_slice(&out.stdout).expect("error report");
+    assert_eq!(v["error"]["code"], "invalid_spec", "{v}");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(
+        msg.contains("dispersi") && msg.contains("sweep.adaptive"),
+        "{msg}"
+    );
 }

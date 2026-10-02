@@ -23,6 +23,13 @@
 //! `solver.adaptive` carries the greedy diagnostics. `--outdir` exports
 //! fields only for the solved rows.
 //!
+//! Wave-port and mixed lumped + wave specs (issue #774) build the same
+//! kind of PROM over every channel excitation
+//! ([`DrivenRom::build_with_wave_ports`]: each modal term a rank-1
+//! family) and read the power-wave S-matrix with
+//! [`DrivenRom::evaluate_scattering`]; their fallback rows come from the
+//! dense wave / mixed sweep itself ([`dense_channel_points`]).
+//!
 //! [`sweep`] (solve + Z / Y / S / per-port assembly) is shared with
 //! `geode extract`, which post-processes the same results.
 //!
@@ -100,7 +107,9 @@ use geode_core::driven::ports::{
     LumpedPort, MixedPortSweepPoint, WavePort, WavePortSweepPoint,
     solve_mixed_port_sweep_with_mode, solve_wave_port_sweep_with_mode,
 };
-use geode_core::driven::rom::{DrivenRom, RomDrive, RomError, RomExcitationPoint, RomSettings};
+use geode_core::driven::rom::{
+    DrivenRom, RomDrive, RomError, RomExcitationPoint, RomScatteringPoint, RomSettings,
+};
 use geode_core::driven::scattering::flux_power_box;
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, IterativeSettings, SolverMode,
@@ -785,7 +794,8 @@ fn reduced_z(
 /// numbers are offset by their count. Serial: `opts.jobs` is not
 /// applied (noted on stderr when `> 1`), and the `point` progress events
 /// follow the library sweep (all at once without UPML, per frequency
-/// with it).
+/// with it). With `sweep.adaptive` it runs [`adaptive_wave_sweep`]
+/// instead (issue #774).
 pub fn wave_sweep(
     p: &Problem,
     opts: SweepOptions,
@@ -793,12 +803,13 @@ pub fn wave_sweep(
     if opts.jobs > 1 {
         eprintln!("note: --jobs: wave-port sweeps run serially (one frequency at a time)");
     }
+    let adaptive = p.spec.sweep.as_ref().and_then(|s| s.adaptive);
     let progress = Progress::new(opts.progress);
     progress.emit(
         "sweep_start",
         json!({
             "command": "driven",
-            "method": "dense",
+            "method": if adaptive.is_some() { "adaptive" } else { "dense" },
             "n_frequencies": p.frequencies.len(),
             "jobs": 1,
         }),
@@ -856,60 +867,36 @@ pub fn wave_sweep(
     let bcs = DrivenBcs {
         pec_interior_mask: &p.pec_mask,
     };
-    let mut done = 0_usize;
-    let points: Vec<ChannelPoint> = per_material_sweep(p, |materials, w| {
-        // Port fill at this call's (first) frequency: per frequency for a
-        // dispersive fill, else the constant fill (the batched call).
-        let hz = p.frequencies[done].hz;
+    let mut adaptive_stats = None;
+    let points: Vec<ChannelPoint> = if let Some(a) = adaptive {
+        // `problem::load` rejected dispersion and UPML with
+        // `sweep.adaptive`, so every fill is constant.
         for (port, def) in ports.iter_mut().zip(&p.wave_ports) {
-            port.medium = p.port_medium_at(def, hz);
+            port.medium = p.port_medium_at(def, first_hz);
         }
-        let pts: Vec<ChannelPoint> = if lumped.is_empty() {
-            solve_wave_port_sweep_with_mode::<B>(
-                &p.tagged.mesh,
-                materials,
-                None,
-                &bcs,
-                &ports,
-                &surfaces,
-                w,
-                mode,
-                &device,
-            )?
-            .into_iter()
-            .map(ChannelPoint::from)
-            .collect()
-        } else {
-            solve_mixed_port_sweep_with_mode::<B>(
-                &p.tagged.mesh,
-                materials,
-                None,
-                &bcs,
-                &lumped,
-                &ports,
-                &surfaces,
-                w,
-                mode,
-                &device,
-            )?
-            .into_iter()
-            .map(ChannelPoint::from)
-            .collect()
-        };
-        for pt in &pts {
-            progress.emit(
-                "point",
-                json!({
-                    "index": done,
-                    "frequency_hz": p.frequencies[done].hz,
-                    "solved": true,
-                    "residual_rel": pt.residual_rel,
-                }),
-            );
-            done += 1;
-        }
-        Ok(pts)
-    })?;
+        let (points, stats) =
+            adaptive_wave_sweep::<B>(p, &bcs, &lumped, &ports, &surfaces, a, &progress)?;
+        adaptive_stats = Some(stats);
+        points
+    } else {
+        let mut done = 0_usize;
+        per_material_sweep(p, |materials, w| {
+            // Port fill at this call's (first) frequency: per frequency for a
+            // dispersive fill, else the constant fill (the batched call).
+            let hz = p.frequencies[done].hz;
+            for (port, def) in ports.iter_mut().zip(&p.wave_ports) {
+                port.medium = p.port_medium_at(def, hz);
+            }
+            let pts = dense_channel_points::<B>(
+                p, materials, &bcs, &lumped, &ports, &surfaces, w, mode, &device,
+            )?;
+            for pt in &pts {
+                emit_channel_point(&progress, p, done, pt);
+                done += 1;
+            }
+            Ok(pts)
+        })?
+    };
     let wall_time_s = t0.elapsed().as_secs_f64();
 
     let mut results = Vec::with_capacity(points.len());
@@ -957,7 +944,7 @@ pub fn wave_sweep(
             k0: f.k0,
             omega_rad_s: 2.0 * std::f64::consts::PI * f.hz,
             residual_rel: pt.residual_rel,
-            solved: None,
+            solved: pt.solved,
             iterations: pt.iters_per_rhs.clone(),
             z_ohm: Vec::new(),
             y_s: None,
@@ -986,10 +973,214 @@ pub fn wave_sweep(
             residual_rel_max: points.iter().map(|pt| pt.residual_rel).fold(0.0, f64::max),
             wall_time_s,
             jobs: opts.jobs_explicit.then_some(opts.jobs),
-            adaptive: None,
+            adaptive: adaptive_stats,
         },
         summaries,
     ))
+}
+
+/// Emit the `point` progress event of wave / mixed report row `index`.
+fn emit_channel_point(progress: &Progress, p: &Problem, index: usize, pt: &ChannelPoint) {
+    progress.emit(
+        "point",
+        json!({
+            "index": index,
+            "frequency_hz": p.frequencies[index].hz,
+            "solved": pt.solved != Some(false),
+            "residual_rel": pt.residual_rel,
+        }),
+    );
+}
+
+/// The dense wave / mixed sweep over `omegas` on one set of materials:
+/// [`solve_wave_port_sweep_with_mode`] without lumped ports, else
+/// [`solve_mixed_port_sweep_with_mode`]. Shared by the dense sweep and
+/// the adaptive sweep's full-order fallback, so fallback rows are the
+/// dense rows bit for bit.
+#[allow(clippy::too_many_arguments)]
+fn dense_channel_points<B: burn::tensor::backend::Backend>(
+    p: &Problem,
+    materials: DrivenMaterials<'_>,
+    bcs: &DrivenBcs<'_>,
+    lumped: &[LumpedPort<'_>],
+    ports: &[WavePort],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    omegas: &[f64],
+    mode: SolverMode,
+    device: &B::Device,
+) -> Result<Vec<ChannelPoint>, CliError> {
+    Ok(if lumped.is_empty() {
+        solve_wave_port_sweep_with_mode::<B>(
+            &p.tagged.mesh,
+            materials,
+            None,
+            bcs,
+            ports,
+            surfaces,
+            omegas,
+            mode,
+            device,
+        )?
+        .into_iter()
+        .map(ChannelPoint::from)
+        .collect()
+    } else {
+        solve_mixed_port_sweep_with_mode::<B>(
+            &p.tagged.mesh,
+            materials,
+            None,
+            bcs,
+            lumped,
+            ports,
+            surfaces,
+            omegas,
+            mode,
+            device,
+        )?
+        .into_iter()
+        .map(ChannelPoint::from)
+        .collect()
+    })
+}
+
+/// Adaptive wave / mixed sweep (issue #774): a Galerkin PROM over every
+/// channel excitation ([`DrivenRom::build_with_wave_ports`]; the base
+/// operator assembled once exactly as the dense mixed sweep assembles
+/// it), evaluated at every frequency with
+/// [`DrivenRom::evaluate_scattering`]. A frequency whose indicator is NaN
+/// or above `tolerance`, whose reduced system is singular, or whose S
+/// has a non-finite entry (e.g. exactly at a lossless cutoff) is solved
+/// full-order by the dense sweep itself ([`dense_channel_points`]), so a
+/// fallback row is the dense row — including its `NonFinite` failure at
+/// a cutoff. Serial, like the dense wave sweep.
+#[allow(clippy::too_many_arguments)]
+fn adaptive_wave_sweep<B: burn::tensor::backend::Backend>(
+    p: &Problem,
+    bcs: &DrivenBcs<'_>,
+    lumped: &[LumpedPort<'_>],
+    ports: &[WavePort],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    a: AdaptiveSweepSpec,
+    progress: &Progress,
+) -> Result<(Vec<ChannelPoint>, AdaptiveSweepStats), CliError> {
+    let device = <B as BackendTypes>::Device::default();
+    let mesh = &p.tagged.mesh;
+    let materials = FrequencyMaterials::constant(p);
+    let zero_source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+    };
+    let op = DrivenOperator::assemble::<B>(
+        mesh,
+        materials.materials(),
+        None,
+        bcs,
+        lumped,
+        surfaces,
+        &zero_source,
+        &device,
+    )?;
+    let omegas: Vec<f64> = p.frequencies.iter().map(|f| f.k0).collect();
+    // Snapshot ω are grid values verbatim, so the lookup is exact.
+    let hz_of = |w: f64| {
+        p.frequencies
+            .iter()
+            .find(|f| f.k0 == w)
+            .map_or(f64::NAN, |f| f.hz)
+    };
+    let settings = RomSettings {
+        tolerance: a.tolerance,
+        max_snapshots: a.max_snapshots,
+    };
+    let mut n_snapshots = 0_usize;
+    let rom =
+        DrivenRom::build_with_wave_ports(&op, mesh, bcs, ports, &omegas, &settings, &mut |w| {
+            n_snapshots += 1;
+            progress.emit(
+                "snapshot",
+                json!({ "frequency_hz": hz_of(w), "n_snapshots": n_snapshots }),
+            );
+        })?;
+
+    let mut points: Vec<ChannelPoint> = Vec::with_capacity(omegas.len());
+    let mut fallback: Vec<usize> = Vec::new();
+    for (index, &w) in omegas.iter().enumerate() {
+        let pt = match reduced_channel_point(rom.evaluate_scattering(w), a.tolerance)? {
+            Some(mut pt) => {
+                pt.solved = Some(rom.snapshot_omegas().contains(&w));
+                pt
+            }
+            None => {
+                fallback.push(index);
+                let mut pt = dense_channel_points::<B>(
+                    p,
+                    materials.materials(),
+                    bcs,
+                    lumped,
+                    ports,
+                    surfaces,
+                    std::slice::from_ref(&w),
+                    SolverMode::Direct,
+                    &device,
+                )?
+                .pop()
+                .expect("one frequency in, one point out");
+                pt.solved = Some(true);
+                pt
+            }
+        };
+        emit_channel_point(progress, p, index, &pt);
+        points.push(pt);
+    }
+
+    let n_solved = points.iter().filter(|r| r.solved == Some(true)).count();
+    let mut fallback_frequencies_hz: Vec<f64> =
+        fallback.iter().map(|&i| p.frequencies[i].hz).collect();
+    fallback_frequencies_hz.sort_by(f64::total_cmp);
+    let stats = AdaptiveSweepStats {
+        tolerance: a.tolerance,
+        max_snapshots: a.max_snapshots,
+        converged: rom.converged(),
+        worst_residual: rom.worst_residual(),
+        reduced_order: rom.reduced_order(),
+        snapshot_frequencies_hz: rom.snapshot_omegas().iter().map(|&w| hz_of(w)).collect(),
+        fallback_frequencies_hz,
+        n_solved,
+        n_interpolated: points.len() - n_solved,
+        n_factorizations: rom.snapshot_omegas().len() + fallback.len(),
+    };
+    Ok((points, stats))
+}
+
+/// The reduced [`ChannelPoint`] of one evaluation, or `None` when the
+/// frequency needs a full-order fallback: the indicator is NaN or above
+/// `tolerance`, the reduced system is singular, or an S entry is
+/// non-finite. Any other error aborts the sweep (the full-order solve
+/// would hit it too).
+fn reduced_channel_point(
+    eval: Result<RomScatteringPoint, RomError>,
+    tolerance: f64,
+) -> Result<Option<ChannelPoint>, CliError> {
+    let pt = match eval {
+        Ok(pt) => pt,
+        Err(RomError::ReducedSolveSingular { .. }) => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    if pt.residual_indicator.is_nan()
+        || pt.residual_indicator > tolerance
+        || pt.s.iter().any(|z| !(z.re.is_finite() && z.im.is_finite()))
+    {
+        return Ok(None);
+    }
+    Ok(Some(ChannelPoint {
+        residual_rel: pt.residual_indicator,
+        iters_per_rhs: vec![0; pt.n_ports],
+        s: pt.s,
+        n: pt.n_ports,
+        n_lumped: pt.n_lumped,
+        beta: pt.beta,
+        port_mode_counts: pt.port_mode_counts,
+        solved: None,
+    }))
 }
 
 /// One frequency of a wave-port or mixed sweep, in the shape the report
@@ -1004,6 +1195,8 @@ struct ChannelPoint {
     beta: Vec<c64>,
     port_mode_counts: Vec<usize>,
     iters_per_rhs: Vec<usize>,
+    /// Adaptive sweep only: full-order (`true`) or interpolated.
+    solved: Option<bool>,
 }
 
 impl From<WavePortSweepPoint> for ChannelPoint {
@@ -1016,6 +1209,7 @@ impl From<WavePortSweepPoint> for ChannelPoint {
             beta: pt.beta,
             port_mode_counts: pt.port_mode_counts,
             iters_per_rhs: pt.iters_per_rhs,
+            solved: None,
         }
     }
 }
@@ -1030,6 +1224,7 @@ impl From<MixedPortSweepPoint> for ChannelPoint {
             beta: pt.beta,
             port_mode_counts: pt.port_mode_counts,
             iters_per_rhs: pt.iters_per_rhs,
+            solved: None,
         }
     }
 }
