@@ -95,6 +95,7 @@ jobs:
               --test fiber_dispersion_benchmark \
               --test formulation_audit_graddiv \
               --test high_contrast_fiber_benchmark \
+              --test hybrid_port_modes \
               --test leontovich_roughness \
               --test leontovich_surface_impedance \
               --test london_eigen_kinetic_inductance \

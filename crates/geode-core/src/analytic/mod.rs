@@ -21,6 +21,10 @@
 //!   ε-coupling term the reduced transverse-E_t modal pencil drops (Epic #339).
 //! - [`mixed_pencil`] — the full-vector mixed E_t–E_z Nédélec–Lagrange
 //!   dielectric modal pencil that restores that coupling (Epic #339, #473).
+//! - [`port_modes`] — the p=1 Whitney + P1 mixed E_t–E_z port-mode solver for
+//!   PEC-shielded inhomogeneous cross-sections (Epic #778 Phase 1, #803).
+//! - [`loaded_guide`] — closed-form LSE/LSM dispersion of a slab-loaded
+//!   rectangular guide, the golden for [`port_modes`] (#803).
 //! - `spade_mesh` (feature `spade-mesh`) — in-process 2-D constrained
 //!   Delaunay + Ruppert/Chew meshing of arbitrary wave-port cross-sections
 //!   from a polygon boundary, with a topological PEC boundary-edge mask
@@ -29,9 +33,11 @@
 pub mod dispersion;
 pub mod fiber;
 pub mod formulation_audit;
+pub mod loaded_guide;
 pub mod mie;
 pub mod mixed_pencil;
 pub mod patch;
+pub mod port_modes;
 pub mod slotless_pm;
 #[cfg(feature = "spade-mesh")]
 pub mod spade_mesh;
