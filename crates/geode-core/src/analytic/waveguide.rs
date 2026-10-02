@@ -4432,6 +4432,12 @@ pub(crate) struct RawDielectricCandidate {
     /// eigenvector (≈ 0 for a gradient-nullspace mode, O(1) for a
     /// genuine guided/physical mode).
     pub curl_ratio: f64,
+    /// Field-weighted permittivity `⟨ε⟩_x = (xᵀ M_ε x)/(xᵀ M₁ x)` of the
+    /// eigenvector, a convex average of the per-triangle `ε_r`, so it lies
+    /// in `[ε_min, ε_max]`. For a converged eigenpair it ties `β²` and
+    /// [`Self::curl_ratio`] together through the Rayleigh identity
+    /// `r = 1 − β²/(k₀²⟨ε⟩_x)` (issue #791).
+    pub eps_weighted: f64,
     /// Interior-DOF eigenvector (length = number of interior edges).
     pub vector: Vec<f64>,
 }
@@ -4519,6 +4525,12 @@ pub(crate) fn dielectric_raw_candidates_with_target(
         let denom = (k0_sq * xmx).abs().max(1e-300);
         xkx.abs() / denom
     };
+    // ⟨ε⟩_x = (xᵀ M_ε x)/(xᵀ M₁ x), the field-weighted permittivity.
+    let eps_weighted = |x_interior: &[f64]| -> f64 {
+        let xmx = sparse_quadratic_form(m_eps_int.as_ref(), x_interior);
+        let xm1x = sparse_quadratic_form(m1_sparse.as_ref(), x_interior);
+        xmx / xm1x.abs().max(1e-300)
+    };
 
     let n_req = n_request.min(dim).max(1);
     let max_iters = (n_req + 8).min(dim).max(1);
@@ -4536,6 +4548,7 @@ pub(crate) fn dielectric_raw_candidates_with_target(
         .map(|pair| RawDielectricCandidate {
             beta_sq: pair.lambda,
             curl_ratio: curl_ratio(&pair.vector),
+            eps_weighted: eps_weighted(&pair.vector),
             vector: pair.vector.clone(),
         })
         .collect();
@@ -4641,40 +4654,51 @@ fn physical_curl_floor() -> f64 {
 ///
 /// # Why a fixed `3e-2` is wrong for weak contrast (issue #791)
 ///
-/// The curl energy a guided mode can carry is bounded by the index
-/// contrast. In the weak-guidance (scalar) limit each Cartesian component
-/// `ψ` of a bound mode solves `∇ₜ²ψ + (k₀²ε − β²)ψ = 0` and decays outside
-/// the core, so integrating by parts
+/// The curl energy an eigenpair of the pencil can carry is bounded by the
+/// index contrast, **exactly**. Multiplying `A x = β² M₁ x` (with
+/// `A = k₀²M_ε − K`) by `xᵀ` gives the Rayleigh identity
 ///
 /// ```text
-///   ∫|∇ₜψ|² = ∫(k₀²ε − β²)|ψ|² ≤ k₀²(ε_max − n_eff²) ∫_core|ψ|²
-///           < k₀²(ε_max − ε_min) ∫|ψ|²            (n_eff > n_clad).
+///   r = (xᵀKx)/(k₀² xᵀM_εx) = 1 − n_eff²/⟨ε⟩_x,   ⟨ε⟩_x = (xᵀM_εx)/(xᵀM₁x).
 /// ```
 ///
-/// With `∫|∇ₜ×Eₜ|² ≤ ∫|∇ₜEₜ|²` (the curl–divergence identity for a decaying
-/// field) and `∫ε|Eₜ|² ≥ ε_min ∫|Eₜ|²`, every guided mode obeys
+/// `⟨ε⟩_x` is a field-weighted average of `ε_r`, so `⟨ε⟩_x ≤ ε_max`, and
+/// a guided pair has `n_eff² > ε_min`. Every in-window eigenpair therefore
+/// obeys
 ///
 /// ```text
-///   r < (ε_max − ε_min) / ε_min.
+///   r < (ε_max − ε_min) / ε_max,
 /// ```
+///
+/// on the discrete pencil and at any contrast (see
+/// [`rayleigh_consistent_p2`], which enforces it).
 ///
 /// For SMF-28 (`n_core = 1.4504`, `n_clad = 1.4447`) that bound is
-/// `7.9×10⁻³`: the old fixed `3×10⁻²` floor sat **3.8× above the largest
-/// curl ratio any guided mode can have**, so the solver could never return
-/// a genuine guided mode of a weakly-guiding fiber. What survived instead
-/// was a marginal cladding/box eigenpair (core-energy fraction 0.21,
-/// `r = 3.3×10⁻²`, only 1.1× above the floor) taken from the least
-/// converged tail of the Lanczos window. Whether that tail pair is present
-/// depends on floating-point rounding (it is there on aarch64 macOS and
-/// absent on x86_64 Linux), so the solve returned 1 mode on one platform
-/// and 0 on the other, and 0 on a refined mesh.
+/// `7.8×10⁻³`. The old fixed `3×10⁻²` floor sat **3.8× above the largest
+/// curl ratio any guided eigenpair can have**, so the solver could never
+/// return a genuine guided mode of a weakly-guiding fiber. The only
+/// candidate that passed (`n_eff = 1.445373`, `r = 3.3×10⁻²`, core-energy
+/// fraction 0.21) was therefore **not an eigenpair at all**. It was an
+/// unconverged Ritz vector from the tail of the shift-invert Lanczos window
+/// (`max_iters = n_request + 8`): its `r` would need `⟨ε⟩_x = 2.161`, above
+/// `ε_core = 2.104`. Whether that tail vector appears depends on
+/// floating-point rounding (present on aarch64 macOS, absent on x86_64
+/// Linux), so the solve returned 1 mode on one platform, 0 on the other,
+/// and 0 on a refined mesh.
 ///
 /// # The calibration
 ///
-/// The measured guided fundamentals sit at `r ≈ 0.08…0.1 ×` the bound on
-/// both audit fibers (SMF-28 `r = 7.2×10⁻⁴` against the bound `7.9×10⁻³`;
-/// the ~3 %-step fiber `r = 5.0×10⁻³` against `6.0×10⁻²`).
-/// [`GUIDED_CURL_FLOOR_FRACTION`] `= 10⁻²` places the floor about 8–10×
+/// The floor is scaled by `(ε_max − ε_min)/ε_min` rather than by the exact
+/// bound's `/ε_max`. The two differ by the factor `ε_max/ε_min`, which is
+/// `1.008` for SMF-28 and `1.06` for the ~3 %-step fiber. At high contrast
+/// the floor is capped anyway. In every case the floor stays below
+/// `0.04 ×` the exact bound: for `(ε_max − ε_min)/ε_min = c ≤ 3` the ratio
+/// is `10⁻²(1 + c) ≤ 0.04`, and above the cap the bound exceeds `0.75`.
+///
+/// The measured guided fundamentals sit at `r ≈ 0.09 ×` the exact bound on
+/// both audit fibers (SMF-28 `r = 7.2×10⁻⁴` against `7.8×10⁻³`; the
+/// ~3 %-step fiber `r = 5.0×10⁻³` against `5.7×10⁻²`).
+/// [`GUIDED_CURL_FLOOR_FRACTION`] `= 10⁻²` places the floor about 8–9×
 /// below the guided fundamentals and still at least ten decades above
 /// the exactly curl-free gradient nullspace (`r ≈ 10⁻¹⁶`). The lower clamp
 /// `10⁻⁶` is the PML path's nullspace floor ([`physical_curl_floor_pml`]),
@@ -4682,9 +4706,12 @@ fn physical_curl_floor() -> f64 {
 /// clamp is reached at `(ε_max − ε_min)/ε_min = 3`, so every Si/SiO₂
 /// cross-section (≈ 4.7) keeps exactly the calibrated `3×10⁻²`, and its
 /// weakly-resolved near-ceiling spurious band (`r ≈ 3×10⁻³…1.7×10⁻²`)
-/// stays rejected. For 2-D-confined cores at intermediate contrast, the
-/// near-ceiling spurious eigenpairs are also removed by the
-/// [`physical_index_ceiling`] window, independently of this floor.
+/// stays rejected. Those spurious pairs are converged eigenpairs of the
+/// discrete pencil, so the Rayleigh check does not remove them. At
+/// intermediate contrast (SiN/SiO₂, floor `≈ 9×10⁻³`) the
+/// [`physical_index_ceiling`] window removes near-ceiling spurious pairs of
+/// 2-D-confined cores, and the unit test
+/// `p2_dielectric_solve_intermediate_contrast_sin_slab` pins the slab case.
 ///
 /// The floor depends only on the materials, never on the candidate
 /// spectrum, so an out-of-window spike cannot raise it (the same argument
@@ -4703,8 +4730,8 @@ fn physical_curl_floor_p2(eps_max: f64, eps_min: f64) -> f64 {
 /// p=2 curl floor calibrated in Epic #318 Phase 2.5C.
 const HIGH_CONTRAST_CURL_FLOOR_P2: f64 = 3e-2;
 
-/// Fraction of the weak-guidance curl bound `(ε_max − ε_min)/ε_min` used as
-/// the p=2 curl floor (issue #791). See [`physical_curl_floor_p2`].
+/// Fraction of the contrast `(ε_max − ε_min)/ε_min` used as the p=2 curl
+/// floor (issue #791). See [`physical_curl_floor_p2`].
 const GUIDED_CURL_FLOOR_FRACTION: f64 = 1e-2;
 
 /// Order-aware (p=2) sibling of [`solve_dielectric_modes`]: solve the
@@ -4765,11 +4792,20 @@ pub fn solve_dielectric_modes2(
 
     let mut bound: Vec<DielectricMode> = Vec::new();
     let mut n_dropped = 0usize;
+    let mut n_inconsistent = 0usize;
     for c in &cands {
         let in_window = c.beta_sq > beta_sq_floor && c.beta_sq < beta_sq_ceiling;
         let has_curl = c.curl_ratio > curl_floor;
         if !(in_window && has_curl) {
             n_dropped += 1;
+            continue;
+        }
+        // Issue #791: an in-window pair whose curl ratio breaks the exact
+        // Rayleigh identity cannot be an eigenpair of the pencil; it is an
+        // unconverged Ritz vector from the Lanczos tail.
+        if !rayleigh_consistent_p2(c, k0, eps_max, eps_min) {
+            n_dropped += 1;
+            n_inconsistent += 1;
             continue;
         }
         let beta = c.beta_sq.max(0.0).sqrt();
@@ -4805,9 +4841,77 @@ pub fn solve_dielectric_modes2(
          n_clad={n_clad:.4}, n_eff_ceiling={n_eff_ceiling:.4} ({ceiling_kind}); \
          β² window=({beta_sq_floor:.4e}, {beta_sq_ceiling:.4e}); \
          curl-energy floor={curl_floor:.4e}; recovered {have} bound mode(s), \
-         dropped {n_dropped} radiation/spurious eigenpair(s) (requested {n_modes})"
+         dropped {n_dropped} radiation/spurious eigenpair(s), {n_inconsistent} of \
+         them unconverged (Rayleigh identity) (requested {n_modes})"
     );
     Ok(bound)
+}
+
+/// Relative tolerance of the p=2 Rayleigh-identity check, as a fraction of
+/// the guided curl bound `(ε_max − ε_min)/ε_max` (issue #791). See
+/// [`rayleigh_consistent_p2`].
+const RAYLEIGH_IDENTITY_TOL_FRACTION: f64 = 1e-3;
+
+/// Violation `δ = |r − (1 − β²/(k₀²⟨ε⟩_x))|` of the exact Rayleigh identity
+/// of the pencil `A = k₀²M_ε − K`, `A x = β² M₁ x` (issue #791).
+///
+/// Multiplying the eigen-equation by `xᵀ` gives
+/// `β² xᵀM₁x = k₀² xᵀM_εx − xᵀKx`. Dividing by `k₀² xᵀM_εx`,
+///
+/// ```text
+///   r = (xᵀKx)/(k₀² xᵀM_εx) = 1 − n_eff²/⟨ε⟩_x,   ⟨ε⟩_x = (xᵀM_εx)/(xᵀM₁x),
+/// ```
+///
+/// so every exact eigenpair has `δ = 0`. For an approximate pair,
+/// `δ·⟨ε⟩_x = |n_RQ² − n_eff²|`: the gap between the reported eigenvalue
+/// and the Rayleigh quotient of the returned vector, in units of `n_eff²`.
+fn rayleigh_identity_violation(c: &RawDielectricCandidate, k0: f64) -> f64 {
+    let eps_x = c.eps_weighted.max(f64::MIN_POSITIVE);
+    (c.curl_ratio - (1.0 - c.beta_sq / (k0 * k0 * eps_x))).abs()
+}
+
+/// Whether an **in-window** p=2 candidate can be an eigenpair of the pencil
+/// `A x = β² M₁ x`, by the exact Rayleigh identity (issue #791).
+///
+/// Every eigenpair satisfies `r = 1 − n_eff²/⟨ε⟩_x` (derivation on
+/// [`rayleigh_identity_violation`]). The field-weighted permittivity
+/// `⟨ε⟩_x` is a convex average of the per-triangle `ε_r`, so it lies in
+/// `[ε_min, ε_max]`. A guided pair has `n_eff² > ε_min`, so
+///
+/// ```text
+///   r ≤ 1 − n_eff²/ε_max < 1 − ε_min/ε_max = (ε_max − ε_min)/ε_max.
+/// ```
+///
+/// This is exact for the discrete pencil at any contrast; it needs no
+/// weak-guidance approximation. A candidate is rejected when either
+///
+/// - `r ≥ (ε_max − ε_min)/ε_max`, which no in-window eigenpair can reach
+///   (this test needs no `⟨ε⟩_x`), or
+/// - `δ > RAYLEIGH_IDENTITY_TOL_FRACTION · (ε_max − ε_min)/ε_max`.
+///
+/// # The tolerance
+///
+/// `δ·⟨ε⟩_x` is the disagreement in `n_eff²` between the reported
+/// eigenvalue and the returned field, and `ε_max − ε_min` is the guided
+/// window in `n_eff²`. Since `⟨ε⟩_x ≤ ε_max`, the rule rejects a pair whose
+/// two estimates of `n_eff²` differ by more than `10⁻³` of the window,
+/// that is, by more than `10⁻³` in normalized `b`. That is ten times finer
+/// than the 1 % `b` accuracy the fiber benchmarks claim. On the #449/#791
+/// audit fibers the converged Lanczos pairs give `δ ≈ 10⁻¹⁴…10⁻¹⁰`, more
+/// than four decades below the threshold (`7.8×10⁻⁶` for SMF-28). The
+/// unconverged tail pairs that the pre-#791 selection returned give
+/// `δ = 3.3×10⁻²` (SMF-28, `r = 3.3×10⁻²`) and `δ = 0.39` (~3 %-step
+/// fiber, `r = 0.38`), and both also break the `r` bound outright.
+fn rayleigh_consistent_p2(c: &RawDielectricCandidate, k0: f64, eps_max: f64, eps_min: f64) -> bool {
+    let bound = if eps_max > 0.0 {
+        ((eps_max - eps_min) / eps_max).max(0.0)
+    } else {
+        0.0
+    };
+    if c.curl_ratio >= bound {
+        return false;
+    }
+    rayleigh_identity_violation(c, k0) <= RAYLEIGH_IDENTITY_TOL_FRACTION * bound
 }
 
 // ===========================================================================
@@ -6198,6 +6302,12 @@ fn dielectric_raw_candidates_p2(
         let denom = (k0_sq * xmx).abs().max(1e-300);
         xkx.abs() / denom
     };
+    // ⟨ε⟩_x = (xᵀ M_ε x)/(xᵀ M₁ x), the field-weighted permittivity.
+    let eps_weighted = |x_interior: &[f64]| -> f64 {
+        let xmx = sparse_quadratic_form(m_eps_int.as_ref(), x_interior);
+        let xm1x = sparse_quadratic_form(m1_sparse.as_ref(), x_interior);
+        xmx / xm1x.abs().max(1e-300)
+    };
 
     let n_req = n_request.min(dim).max(1);
     let max_iters = (n_req + 8).min(dim).max(1);
@@ -6215,6 +6325,7 @@ fn dielectric_raw_candidates_p2(
         .map(|pair| RawDielectricCandidate {
             beta_sq: pair.lambda,
             curl_ratio: curl_ratio(&pair.vector),
+            eps_weighted: eps_weighted(&pair.vector),
             vector: pair.vector.clone(),
         })
         .collect();
@@ -8284,30 +8395,30 @@ mod tests {
     }
 
     /// **Contrast-scaled p=2 curl floor** (issue #791). The floor must sit
-    /// below the weak-guidance bound `r < (ε_max − ε_min)/ε_min` on the
-    /// curl ratio of any guided mode (otherwise no guided mode of a
+    /// well below the exact Rayleigh bound `r < (ε_max − ε_min)/ε_max` on the
+    /// curl ratio of any in-window eigenpair (otherwise no guided mode of a
     /// weakly-guiding fiber can pass), keep the calibrated `3e-2` for
     /// Si/SiO₂, and stay above the gradient-nullspace noise for any input.
     #[test]
     fn p2_curl_floor_scales_with_index_contrast() {
-        // SMF-28: bound = 7.9e-3, below the old fixed 3e-2 floor.
+        // SMF-28: exact bound = 7.8e-3, below the old fixed 3e-2 floor.
         let (e_core, e_clad) = (1.4504_f64.powi(2), 1.4447_f64.powi(2));
-        let bound = (e_core - e_clad) / e_clad;
+        let bound = (e_core - e_clad) / e_core;
         let floor = physical_curl_floor_p2(e_core, e_clad);
         assert!(
             bound < HIGH_CONTRAST_CURL_FLOOR_P2,
             "SMF-28 bound {bound:.3e}"
         );
         assert!(
-            (floor - GUIDED_CURL_FLOOR_FRACTION * bound).abs() < 1e-18,
-            "SMF-28 floor {floor:.3e} must be the scaled bound"
+            (floor - GUIDED_CURL_FLOOR_FRACTION * (e_core - e_clad) / e_clad).abs() < 1e-18,
+            "SMF-28 floor {floor:.3e} must be the scaled contrast"
         );
         // The measured SMF-28 guided fundamental (r = 7.2e-4, issue #791)
         // passes with margin; the old fixed floor rejected it.
         assert!(7.2e-4 > 5.0 * floor && 7.2e-4 < HIGH_CONTRAST_CURL_FLOOR_P2);
 
-        // Si/SiO₂ (bound ≈ 4.7): exactly the calibrated high-contrast floor,
-        // so every high-contrast caller is bit-for-bit unchanged.
+        // Si/SiO₂ (contrast ≈ 4.7): exactly the calibrated high-contrast
+        // floor, so the high-contrast floor is unchanged.
         for (n_core, n_clad) in [(3.45_f64, 1.45_f64), (3.48, 1.444)] {
             let f = physical_curl_floor_p2(n_core * n_core, n_clad * n_clad);
             assert_eq!(
@@ -8319,15 +8430,153 @@ mod tests {
         // Uniform ε (no contrast): the nullspace floor, never zero.
         assert_eq!(physical_curl_floor_p2(2.0, 2.0), physical_curl_floor_pml());
 
-        // Monotone in the contrast, and always below the guided bound.
+        // Monotone in the contrast, and always below 0.04 × the exact bound
+        // (the `/ε_min` scaling never pushes the floor near the bound).
         let mut prev = 0.0;
-        for i in 1..=60 {
+        for i in 1..=200 {
             let e_core = 2.0 + 0.1 * f64::from(i);
             let f = physical_curl_floor_p2(e_core, 2.0);
+            let exact_bound = (e_core - 2.0) / e_core;
             assert!(f >= prev, "floor must not decrease with contrast");
-            assert!(f < (e_core - 2.0) / 2.0, "floor above the guided bound");
+            assert!(
+                f <= 0.04 * exact_bound + 1e-15,
+                "floor {f:.3e} above 0.04 × exact bound {exact_bound:.3e}"
+            );
             prev = f;
         }
+    }
+
+    /// **Rayleigh-identity rejection** (issue #791). Every eigenpair of
+    /// `A x = β² M₁ x` satisfies `r = 1 − n_eff²/⟨ε⟩_x`, so an in-window
+    /// candidate with `r ≥ (ε_max − ε_min)/ε_max`, or whose `δ` exceeds the
+    /// tolerance, is not an eigenpair and must be rejected. Injects the two
+    /// unconverged Ritz pairs the pre-#791 selection returned as
+    /// "fundamentals" (values measured at mesh (5,48)), next to the genuine
+    /// converged fundamentals of the same solves.
+    #[test]
+    fn p2_rayleigh_identity_rejects_unconverged_pairs() {
+        let k0 = 2.0 * std::f64::consts::PI / 1.55;
+        let cand = |n_eff: f64, r: f64, eps_w: f64| RawDielectricCandidate {
+            beta_sq: n_eff * n_eff * k0 * k0,
+            curl_ratio: r,
+            eps_weighted: eps_w,
+            vector: Vec::new(),
+        };
+        // SMF-28.
+        let (e_core, e_clad) = (1.4504_f64.powi(2), 1.4447_f64.powi(2));
+        let genuine = cand(1.448_196_80, 7.2353e-4, 2.098_792);
+        assert!(rayleigh_identity_violation(&genuine, k0) < 1e-6);
+        assert!(rayleigh_consistent_p2(&genuine, k0, e_core, e_clad));
+        let old_pick = cand(1.445_372_57, 3.3259e-2, 2.090_577);
+        // r above the exact bound: needs ⟨ε⟩ = n²/(1−r) > ε_core.
+        assert!(old_pick.curl_ratio >= (e_core - e_clad) / e_core);
+        assert!(1.445_372_57_f64.powi(2) / (1.0 - old_pick.curl_ratio) > e_core);
+        assert!(!rayleigh_consistent_p2(&old_pick, k0, e_core, e_clad));
+        // An unconverged tail pair below the bound, caught by δ alone
+        // (measured δ = 1.1e-5 against the threshold 7.8e-6).
+        let tail = cand(1.446_870_79, 8.3127e-5, 2.093_586);
+        assert!(tail.curl_ratio < (e_core - e_clad) / e_core);
+        assert!(!rayleigh_consistent_p2(&tail, k0, e_core, e_clad));
+
+        // ~3 %-step fiber.
+        let (e_core, e_clad) = (1.4874_f64.powi(2), 1.4447_f64.powi(2));
+        let genuine = cand(1.470_557_30, 4.9671e-3, 2.173_334);
+        assert!(rayleigh_consistent_p2(&genuine, k0, e_core, e_clad));
+        let old_pick = cand(1.468_777_68, 3.8441e-1, 2.153_019);
+        assert!(1.468_777_68_f64.powi(2) / (1.0 - old_pick.curl_ratio) > e_core);
+        assert!(!rayleigh_consistent_p2(&old_pick, k0, e_core, e_clad));
+    }
+
+    /// **Intermediate contrast (SiN/SiO₂) and a constructed unconverged
+    /// vector** (issue #791). At contrast ≈ 0.9 the p=2 floor is ≈ 9e-3,
+    /// below the 3e-2 cap. On a 2-D-confined SiN strip the PEC p=2 solve
+    /// must return a fundamental just below the physical (vertical-slab)
+    /// index ceiling, whose curl ratio (≈ 2.5e-2) the old fixed 3e-2 floor
+    /// would have rejected, and which satisfies the Rayleigh identity. A
+    /// Ritz-like vector built by mixing two converged eigenvectors while
+    /// keeping one reported `β²` breaks the identity and must be rejected.
+    #[test]
+    fn p2_dielectric_solve_intermediate_contrast_sin_strip() {
+        let n_core = 2.0_f64; // SiN
+        let n_clad = 1.45_f64; // oxide
+        let (e_core, e_clad) = (n_core * n_core, n_clad * n_clad);
+        let k0 = 2.0 * std::f64::consts::PI / 1.55;
+        let (w, h) = (3.0_f64, 3.0_f64);
+        let (w_core, d_core) = (1.2_f64, 0.6_f64);
+        let (mesh, eps_r, _interior_p1) =
+            strip_fixture((30, 30), (w, h), (w_core, d_core), (e_core, e_clad));
+        let dof_mask = rect_pec_interior_dofs2(&mesh, w, h);
+
+        let floor = physical_curl_floor_p2(e_core, e_clad);
+        assert!(
+            floor > 5e-3 && floor < HIGH_CONTRAST_CURL_FLOOR_P2,
+            "SiN floor {floor:.3e} must be in the scaled (uncapped) regime"
+        );
+
+        let modes =
+            solve_dielectric_modes2(&mesh, &eps_r, &dof_mask, k0, 1).expect("p=2 dielectric solve");
+        assert!(!modes.is_empty(), "SiN slab must return its fundamental");
+        let ceiling = physical_index_ceiling(&mesh, &eps_r, k0)
+            .expect("a 2-D-confined strip yields a physical ceiling");
+        let gap = ceiling - modes[0].n_eff;
+        eprintln!(
+            "SiN strip p=2: n_eff = {:.6}, physical ceiling = {ceiling:.6}, gap = {gap:.2e}, \
+             floor = {floor:.3e}",
+            modes[0].n_eff
+        );
+        // Measured n_eff 1.830185, 7.3e-3 below the ceiling 1.837505.
+        assert!(
+            gap > 0.0 && gap < 2e-2,
+            "SiN fundamental {:.6} must sit just below the physical ceiling {ceiling:.6}",
+            modes[0].n_eff
+        );
+
+        // Raw candidates: every returned (kept) pair obeys the identity; a
+        // mixed vector with a stale β² does not.
+        let cands = dielectric_raw_candidates_p2(&mesh, &eps_r, &dof_mask, k0, 16, Some(ceiling))
+            .expect("raw p=2 candidates");
+        let fund = cands
+            .iter()
+            .find(|c| (c.beta_sq - modes[0].beta_sq).abs() <= 1e-12 * modes[0].beta_sq)
+            .expect("the returned fundamental is a raw candidate");
+        assert!(
+            rayleigh_identity_violation(fund, k0) < 1e-8,
+            "converged fundamental δ = {:.3e}",
+            rayleigh_identity_violation(fund, k0)
+        );
+        // The old fixed floor would have rejected this fundamental.
+        assert!(fund.curl_ratio > floor && fund.curl_ratio < HIGH_CONTRAST_CURL_FLOOR_P2);
+
+        // Mix the fundamental with the lowest-β² converged candidate.
+        let other = cands
+            .iter()
+            .filter(|c| rayleigh_identity_violation(c, k0) < 1e-8)
+            .min_by(|a, b| a.beta_sq.partial_cmp(&b.beta_sq).unwrap())
+            .expect("a second converged candidate");
+        assert!(other.beta_sq < 0.99 * fund.beta_sq);
+        let ops = assemble_2d_nedelec2_sparse_interior(&mesh, &eps_r, &dof_mask)
+            .expect("interior operators");
+        let mixed: Vec<f64> = fund
+            .vector
+            .iter()
+            .zip(&other.vector)
+            .map(|(a, b)| a + b)
+            .collect();
+        let xkx = sparse_quadratic_form(ops.k.as_ref(), &mixed);
+        let xmx = sparse_quadratic_form(ops.m_eps.as_ref(), &mixed);
+        let xm1x = sparse_quadratic_form(ops.m1.as_ref(), &mixed);
+        let fake = RawDielectricCandidate {
+            beta_sq: fund.beta_sq,
+            curl_ratio: xkx.abs() / (k0 * k0 * xmx),
+            eps_weighted: xmx / xm1x,
+            vector: mixed,
+        };
+        let delta = rayleigh_identity_violation(&fake, k0);
+        eprintln!("mixed (unconverged) vector: δ = {delta:.3e}");
+        assert!(
+            !rayleigh_consistent_p2(&fake, k0, e_core, e_clad),
+            "a mixed vector with a stale β² (δ = {delta:.3e}) must be rejected"
+        );
     }
 
     /// **M-orthonormality + sign pin** of the returned dielectric mode:

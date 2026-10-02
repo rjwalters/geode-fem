@@ -9,28 +9,52 @@ path is modified; every deliverable here is additive:
 - one diagnostic test
   (`crates/geode-core/tests/formulation_audit_graddiv.rs`).
 
-## Correction (issue #791): the original verdict was measured on cladding/box modes
+## Correction (issue #791, 2026-10-02): the original verdict was measured on unconverged Ritz vectors
 
 The #449 measurements below (the TL;DR, §4's original table, and §5) were
-taken on eigenpairs that are **not guided modes** of the fibers. Before #791
-the PEC p=2 solver `solve_dielectric_modes2` used a fixed curl-energy floor
-`r > 3e-2`. A guided mode cannot carry that much curl energy at weak contrast:
-in the weak-guidance limit every guided mode obeys
-`r = (xᵀKx)/(k₀²xᵀM_εx) < (ε_core − ε_clad)/ε_clad`, which is `7.9e-3` for
-SMF-28 and `6.0e-2` for the ~3 %-step fiber (derivation on
-`physical_curl_floor_p2` in `waveguide.rs`). The fixed floor rejected every
-guided SMF-28 mode. The eigenpairs that passed had `r = 3.3e-2` and `0.38`
-(above the bound) and core fractions of 0.21 and 0.53. They were cladding/box
-resonances of the PEC-truncated domain, not polluted fundamentals. For SMF-28
-the surviving pair was the least converged Ritz pair of the Lanczos window,
-1.1× above the floor. It is present on aarch64 macOS and absent on x86_64
-Linux, where the solve recovered no mode (#791). The same failure is the
-"(7,64) SMF-28: no mode" row below.
+not taken on eigenpairs of the pencil. Every eigenpair of
+`A x = β² M₁ x` with `A = k₀²M_ε − K` satisfies the exact Rayleigh identity
+
+```
+β² xᵀM₁x = k₀² xᵀM_εx − xᵀKx   ⇒   r = xᵀKx/(k₀² xᵀM_εx) = 1 − n_eff²/⟨ε⟩_x,
+⟨ε⟩_x = xᵀM_εx / xᵀM₁x ∈ [ε_min, ε_max].
+```
+
+So every in-window eigenpair (`n_eff² > ε_min`) has
+`r < (ε_max − ε_min)/ε_max`. This is exact for the discrete pencil at any
+contrast and needs no weak-guidance argument. The bound is `7.8e-3` for
+SMF-28 and `5.7e-2` for the ~3 %-step fiber.
+
+Before #791 the PEC p=2 solver `solve_dielectric_modes2` used a fixed
+curl-energy floor `r > 3e-2`, above the SMF-28 bound, so it rejected every
+guided SMF-28 eigenpair. The vectors that passed were:
+
+- SMF-28: `n_eff = 1.445373`, `r = 3.3e-2`, core fraction 0.21. Its `r`
+  needs `⟨ε⟩_x = 2.161`, above `ε_core = 2.104`.
+- ~3 %-step fiber: `n_eff = 1.468778`, `r = 0.384`, core fraction 0.53. Its
+  `r` needs `⟨ε⟩_x = 3.50`, above `ε_core = 2.212`.
+
+Neither is an eigenpair. Both are unconverged Ritz vectors from the
+shift-invert Lanczos solve, which returns its requested pairs after
+`max_iters = n_request + 8` steps without requiring the tail to converge.
+Measured directly, the identity violation
+`δ = |r − (1 − n_eff²/⟨ε⟩_x)|` is `3.3e-2` and `0.39` for these two vectors.
+The converged pairs of the same solves give `δ ≈ 1e-14`. The #449 numbers
+(div/curl ≈ 25.8, `|Δn_eff|` ≈ 1.3) were therefore evaluated on vectors
+that are not modes of the pencil. For SMF-28 the vector was the 16th, least
+converged pair of the window. It is present on aarch64 macOS and absent on
+x86_64 Linux, where the solve recovered no mode (#791). The same failure is
+the "(7,64) SMF-28: no mode" row below.
 
 #791 scales the floor with the index contrast (`10⁻² × (ε_core − ε_clad)/ε_clad`,
-capped at the calibrated `3e-2`, so Si/SiO₂ is unchanged). The solver now
+capped at the calibrated `3e-2`, so the Si/SiO₂ floor is unchanged). The
+solver also rejects in-window pairs that break the Rayleigh identity
+(`r ≥ (ε_max − ε_min)/ε_max`, or `δ` above `10⁻³` of that bound), so an
+unconverged Ritz vector can no longer be returned as a mode. It now
 returns the genuine core-guided fundamental (core fraction ≈ 0.7) on every
-mesh and on both platforms. Re-measured on those modes:
+mesh and on both platforms. On these fundamentals the identity holds to
+`δ ≈ 1e-14`, and `⟨ε⟩_x` equals `ε_clad + (core fraction)·Δε` to 1e-8.
+Re-measured on those modes:
 
 | mesh | fiber | n_eff | LP₀₁ oracle | bias | core frac | div/curl | induced Δn_eff | Δn / window |
 |---|---|---|---|---|---|---|---|---|
@@ -57,12 +81,21 @@ contrast ≈ 8.8×, the same as the reduced pencil's own bias (≈ 8.8×) and th
 is `O(1)` but nearly contrast-independent (≈ 1.25×), so the scaling comes
 from the ε-jump weighting. The hypothesis "the dropped grad–div term carries
 the contrast scaling of the over-confinement bias" is therefore **supported,
-not refuted**. The first-order magnitude overshoots the actual bias by a
-factor that is the same for both fibers but shrinks with refinement (≈ 3.7× at (5,48), ≈ 2.1× at (9,80)) (`div/curl = O(1)` makes first order only
-qualitatively reliable). The recommendation is unchanged: restore the term
+not refuted**.
+
+The SUPPORT verdict rests on the **ratios** alone, which are mesh-stable:
+the induced-shift ratio is 8.83–8.85× and the bias ratio 8.77–8.86× over the
+three meshes. The first-order shift itself is **not** mesh-converged. As a
+fraction of the window it falls from 0.200 to 0.149 to 0.117 for SMF-28
+(and `div/curl` from 3.01 to 2.25 to 1.75), while the bias grows slightly.
+The first-order magnitude overshoots the actual bias by a factor that is
+the same for both fibers but shrinks with refinement: ≈ 3.7× at (5,48) and
+≈ 2.1× at (9,80). Since `div/curl = O(1)`, first order is only
+qualitatively reliable. The recommendation is unchanged: restore the term
 exactly with the full mixed E_t–E_z pencil, done in #473 (SMF-28 LP₀₁
 b within 1 %). Do not patch the reduced pencil with a first-order
-correction. `tests/formulation_audit_graddiv.rs` now asserts these facts.
+correction. `tests/formulation_audit_graddiv.rs` now asserts these facts,
+including the Rayleigh identity on both fundamentals.
 
 The original #449 text follows, unchanged, for the record.
 
@@ -232,7 +265,7 @@ operator on that recovered Ritz vector `x` (`xᵀM₁x = 1`):
 The signature to reproduce is the observed **~8× growth** of the absolute
 n_eff bias as the window widens ~7.6× (SMF-28 → ~3 %-step).
 
-### Measured data (original #449; cladding/box modes, see the correction at the top)
+### Measured data (original #449; unconverged Ritz vectors, see the correction at the top)
 
 Fibers: SMF-28 (`n_core=1.4504, n_clad=1.4447, a=4.1 µm`, window 0.0165) and a
 ~3 %-step (`n_core=1.4874, n_clad=1.4447, a=1.40 µm`, window 0.1252, ~7.6×

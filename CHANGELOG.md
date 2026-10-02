@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### `geode-core`
 
-- `analytic::waveguide::solve_dielectric_modes2` now returns the guided modes of weakly-guiding fibers (for example SMF-28). Its fixed curl-energy floor (`3e-2`) sat above the largest curl ratio a guided mode can carry at low index contrast (`(ε_core − ε_clad)/ε_clad`, `7.9e-3` for SMF-28), so it rejected every guided mode. It then returned either a cladding/box eigenpair as the "fundamental" or nothing, depending on platform rounding and mesh. The floor now scales with the contrast and is capped at the old value, so Si/SiO₂ results are unchanged. The #449 grad–div audit is re-measured on the genuine fundamentals, and its verdict is corrected in `docs/formulation_audit_reduced_vs_full_vector.md` (#791).
+- `analytic::waveguide::solve_dielectric_modes2` now returns the guided modes of weakly-guiding fibers (for example SMF-28). Every in-window eigenpair of its pencil obeys the exact Rayleigh identity `r = 1 − n_eff²/⟨ε⟩_x`, so its curl ratio is below `(ε_max − ε_min)/ε_max` (`7.8e-3` for SMF-28). The old fixed curl-energy floor (`3e-2`) sat above that bound, so it rejected every guided mode. What it returned as the "fundamental" was an unconverged Lanczos Ritz vector, or nothing, depending on platform rounding and mesh. The floor now scales with the contrast and is capped at the old value, so the Si/SiO₂ floor is unchanged. The solver also rejects in-window pairs that break the Rayleigh identity (unconverged Ritz vectors). The #449 grad–div audit is re-measured on the genuine fundamentals, and its verdict is corrected in `docs/formulation_audit_reduced_vs_full_vector.md` (#791).
 
 ## [0.7.0] - 2026-10-01
 

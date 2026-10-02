@@ -52,16 +52,22 @@
 //! ## Correction history
 //!
 //! The original #449 verdict (REFUTE: "`|Δn_eff|` ≫ window, no ~8× scaling")
-//! was measured on modes that were not guided modes. Before #791 the PEC p=2
-//! solver's fixed curl-energy floor `3e-2` sat above the largest curl ratio a
-//! guided mode of these fibers can carry (`(ε_core − ε_clad)/ε_clad` =
-//! `7.9e-3` for SMF-28), so it rejected every guided mode. What it returned
-//! was a cladding/box eigenpair (core fraction 0.21 for SMF-28, 0.53 for the
-//! ~3 %-step fiber) whose curl ratio exceeded that bound. For SMF-28 that
-//! eigenpair was the least converged Lanczos tail pair, so the test passed on
-//! aarch64 macOS and recovered no mode at all on x86_64 Linux (#791). The
-//! floor now scales with the index contrast, and the assertions below pin
-//! the facts measured on the genuine fundamentals.
+//! was measured on vectors that are **not eigenvectors** of the pencil.
+//! Every eigenpair of `A x = β² M₁ x` (`A = k₀²M_ε − K`) obeys the exact
+//! Rayleigh identity `r = (xᵀKx)/(k₀²xᵀM_εx) = 1 − n_eff²/⟨ε⟩_x` with
+//! `⟨ε⟩_x = (xᵀM_εx)/(xᵀM₁x) ∈ [ε_min, ε_max]`, so an in-window eigenpair has
+//! `r < (ε_max − ε_min)/ε_max` (`7.8e-3` for SMF-28). Before #791 the PEC p=2
+//! solver's fixed curl-energy floor `3e-2` sat above that bound, so it
+//! rejected every guided eigenpair. What passed were unconverged Ritz
+//! vectors from the tail of the shift-invert Lanczos window: SMF-28
+//! `n_eff = 1.445373`, `r = 3.3e-2` (core fraction 0.21), and the ~3 %-step
+//! fiber `n_eff = 1.468778`, `r = 0.38` (core fraction 0.53). Their `r`
+//! would need `⟨ε⟩_x` above `ε_core`. Because the SMF-28 tail vector
+//! depends on rounding, the test passed on aarch64 macOS and recovered no
+//! mode at all on x86_64 Linux (#791). The floor now scales with the index
+//! contrast, the solver rejects in-window pairs that break the Rayleigh
+//! identity, and the assertions below pin the facts measured on the genuine
+//! fundamentals, including the identity itself.
 
 use geode_core::analytic::fiber::fiber_lp_neff;
 use geode_core::analytic::formulation_audit::graddiv_diagnostic;
@@ -89,9 +95,13 @@ struct FiberAudit {
     /// Exact LP₀₁ n_eff of the step-index fiber ([`fiber_lp_neff`]).
     n_eff_oracle: f64,
     /// Core-energy fraction of the recovered fundamental (≈ 0.7 for the
-    /// genuine core-guided mode; ≈ 0.2 for the cladding/box eigenpair the
-    /// pre-#791 floor admitted).
+    /// genuine core-guided mode; ≈ 0.2 for the unconverged Ritz vector the
+    /// pre-#791 floor let through).
     core_fraction: f64,
+    /// Curl ratio `r = (xᵀKx)/(k₀² xᵀM_εx)` of the recovered fundamental.
+    curl_ratio: f64,
+    /// Field-weighted permittivity `⟨ε⟩_x = (xᵀM_εx)/(xᵀM₁x)`.
+    eps_weighted: f64,
     /// Relative grad–div fraction `(xᵀSx)/(xᵀKx)` on the recovered mode.
     div_to_curl: f64,
     /// First-order induced Δn_eff from restoring the ε-weighted grad–div term.
@@ -138,6 +148,8 @@ fn audit_fiber(
         n_eff_fem: fundamental.n_eff,
         n_eff_oracle,
         core_fraction: shape.core_energy_fraction,
+        curl_ratio: diag.curl_energy / (k0 * k0 * diag.mass_energy_eps),
+        eps_weighted: diag.mass_energy_eps / diag.mass_energy,
         div_to_curl: diag.div_to_curl_ratio(),
         induced_dn: diag.induced_delta_n_eff(k0, fundamental.n_eff),
     }
@@ -199,9 +211,9 @@ fn graddiv_scaling_reproduces_over_confinement_bias() {
 
     // Both fundamentals must be genuine in-window, core-guided modes (the
     // audit evaluates the dropped term on a real recovered mode). The
-    // core-fraction check is the #791 tripwire: the cladding/box eigenpair the
-    // old fixed curl floor admitted had core fraction ≈ 0.21, while the
-    // genuine fundamentals measure ≈ 0.69–0.72 on every mesh.
+    // core-fraction check is the #791 tripwire: the unconverged Ritz vector
+    // the old fixed curl floor let through had core fraction ≈ 0.21, while
+    // the genuine fundamentals measure ≈ 0.69–0.72 on every mesh.
     for f in [&smf, &hc] {
         assert!(
             f.n_eff_fem > f.n_clad && f.n_eff_fem < f.n_core,
@@ -212,8 +224,45 @@ fn graddiv_scaling_reproduces_over_confinement_bias() {
         assert!(
             f.core_fraction > 0.6,
             "{}: recovered fundamental must be core-guided (core fraction {:.3} \
-             ≤ 0.6 → a cladding/box eigenpair was selected; see issue #791)",
+             ≤ 0.6 → a non-guided vector was selected; see issue #791)",
             f.label,
+            f.core_fraction
+        );
+        // The exact Rayleigh identity of the pencil (#791): a converged
+        // eigenpair has r = 1 − n_eff²/⟨ε⟩_x, hence r < (ε_max − ε_min)/ε_max.
+        // The pre-#791 selections broke it by 3.3e-2 (SMF-28) and 0.39.
+        let (e_core, e_clad) = (f.n_core * f.n_core, f.n_clad * f.n_clad);
+        let identity = 1.0 - f.n_eff_fem * f.n_eff_fem / f.eps_weighted;
+        let delta = (f.curl_ratio - identity).abs();
+        eprintln!(
+            "{}: r = {:.6e}, ⟨ε⟩_x = {:.8}, 1 − n_eff²/⟨ε⟩_x = {:.6e}, δ = {:.3e}, \
+             ε_clad + core_frac·Δε = {:.8}",
+            f.label,
+            f.curl_ratio,
+            f.eps_weighted,
+            identity,
+            delta,
+            e_clad + f.core_fraction * (e_core - e_clad)
+        );
+        assert!(
+            delta < 1e-8,
+            "{}: Rayleigh identity violated (δ = {delta:.3e}): not an eigenpair",
+            f.label
+        );
+        assert!(
+            f.curl_ratio < (e_core - e_clad) / e_core,
+            "{}: r = {:.3e} above the exact in-window bound {:.3e}",
+            f.label,
+            f.curl_ratio,
+            (e_core - e_clad) / e_core
+        );
+        // ⟨ε⟩_x is the core-fraction-weighted average of ε for this
+        // two-material cross-section.
+        assert!(
+            (f.eps_weighted - (e_clad + f.core_fraction * (e_core - e_clad))).abs() < 1e-6,
+            "{}: ⟨ε⟩_x {:.8} inconsistent with the core fraction {:.4}",
+            f.label,
+            f.eps_weighted,
             f.core_fraction
         );
         // The reduced pencil over-confines: the FEM fundamental sits above
