@@ -8,25 +8,24 @@
 //! Problems*, §7.13, not the Hermitian `u^H M v`.
 //!
 //! Mirrors the structure of `tests/sparse_eigensolver.rs`: the sparse
-//! complex Lanczos result must agree with the dense
-//! [`FaerComplexEigensolver`] (the correctness oracle) on the lowest
-//! physical modes (above the gradient nullspace) of the bundled Mie
-//! sphere fixture's scalar-isotropic-PML pencil (`dim = 3300` interior
-//! edges).
+//! complex Lanczos result must agree with a **dense** oracle on the
+//! lowest physical modes (above the gradient nullspace) of the bundled
+//! Mie sphere fixture's scalar-isotropic-PML pencil (`dim = 3300`
+//! interior edges).
 //!
 //! # Split oracle (issue #710)
 //!
-//! The dense oracle is a **full** generalized complex Schur / QZ of the
-//! whole `3300 × 3300` pencil — minutes on an idle machine, hours on a
-//! loaded one — so it no longer runs on every check. The file holds two
+//! The dense oracle no longer runs on every check. The file holds two
 //! tests:
 //!
-//! 1. [`regenerate_dense_oracle_fixture`] — heavy, one-time. Runs the
-//!    dense QZ oracle and **writes** the committed fixture
+//! 1. [`regenerate_dense_oracle_fixture`] — one-time (about 2 min in
+//!    release). Computes **all** `3300` eigenvalues of the pencil twice,
+//!    with two independent dense algorithms, requires them to agree, and
+//!    **writes** the committed fixture
 //!    `tests/fixtures/mie_complex_pml_dense_eigenvalues.toml` (the
-//!    physical eigenvalues nearest the shift, the filter parameters, and
-//!    a fingerprint of the pencil), then immediately runs the sparse
-//!    comparison against what it just wrote. Never run in CI.
+//!    physical eigenvalues among the `n_request` smallest-`|Re λ|`, the
+//!    filter parameters, and a fingerprint of the pencil). It then runs
+//!    the sparse comparison against what it just wrote. Never run in CI.
 //! 2. [`sparse_complex_matches_dense_fixture`] — fast (seconds). Builds
 //!    only the sparse pencil, checks it against the fixture's pencil
 //!    fingerprint (so a change to the pencil construction fails loudly
@@ -34,10 +33,38 @@
 //!    shift-invert Lanczos, and compares to the stored dense
 //!    eigenvalues. Run by name in the `arpack.yml` CI workflow.
 //!
-//! Both are `#[ignore]`d by default: the regeneration because faer
-//! 0.24's dense generalized eigen path panics under debug-assertions
-//! (same rationale as `tests/eigensolver.rs`) and is slow; the fast test
-//! to follow the `tests/sparse_eigensolver.rs` convention of un-ignoring
+//! ## Why not `FaerComplexEigensolver`
+//!
+//! The original oracle was `FaerComplexEigensolver` (faer 0.24's dense
+//! generalized complex QZ with default tuning). On this pencil it does
+//! **not terminate in practice**: a regeneration ran 14.8 h without
+//! finishing, with every profiler sample inside faer's
+//! `qz_cplx::hessenberg_to_qz_blocked` → `multishift_sweep`. The stall is
+//! controlled by faer's `recommended_shift_count` (32 shifts for
+//! `150 ≤ n < 590`, 64 below 3000, 128 at `n = 3300`): the leading
+//! `500 × 500` sub-block of this pencil stalls (> 100 s, sequential) at
+//! the default 32 shifts but finishes in 0.6 s at 16, and the full pencil
+//! finishes in 84 s at 16 shifts. faer's blocked QZ has an iteration cap
+//! of `30·n` multishift sweeps but no error path, so it never reports
+//! the failure (issue #796, which tracks the library-level risk). The
+//! regeneration therefore uses:
+//!
+//! * **primary:** dense shift-invert. `(K − σM)` is factored once with
+//!   faer's dense partial-pivoting LU, `A = (K − σM)⁻¹ M` is formed, and
+//!   faer's standard complex eigenvalue solver (Schur QR) gives `μ`, mapped
+//!   back by `λ = σ + 1/μ`. Same spectrum as the pencil, no QZ, about 10 s.
+//!   The gradient null cluster maps to `μ = −1/σ` and is harmless.
+//! * **cross-check:** the full generalized complex QZ (`gevd_cplx`, the
+//!   algorithm `FaerComplexEigensolver` uses) with
+//!   `recommended_shift_count` capped at [`QZ_SHIFT_CAP`]. The two must
+//!   agree on every physical oracle eigenvalue to [`ORACLE_AGREE_REL`].
+//!
+//! Neither path touches ARPACK or the sparse Lanczos under test.
+//!
+//! Both tests are `#[ignore]`d by default: the regeneration because it is
+//! heavy and faer 0.24's dense eigen paths panic under debug-assertions
+//! (same rationale as `tests/eigensolver.rs`); the fast test to follow
+//! the `tests/sparse_eigensolver.rs` convention of un-ignoring
 //! oracle-comparison tests explicitly by name in CI.
 //!
 //! ```sh
@@ -65,10 +92,7 @@ use geode_core::assembly::nedelec::{
     tet_centroid_radii,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::eigen::complex::{
-    ComplexEigenSolver, FaerComplexEigensolver, SparseComplexEigenSolver,
-    SparseComplexShiftInvertLanczos,
-};
+use geode_core::eigen::complex::{SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
 use geode_core::testing::TestBackend;
@@ -133,6 +157,19 @@ const PER_MODE_TOL: [f64; 2] = [1e-3, 1e-2];
 /// that any real change to the pencil (mesh, `N_INSIDE`, `SIGMA_0`, PML
 /// profile, PEC reduction) trips it.
 const FRO_REL_TOL: f64 = 1e-9;
+
+/// Cap on faer's `recommended_shift_count` for the QZ cross-check. faer's
+/// defaults (32 / 64 / 128 shifts by matrix size) make its complex QZ
+/// stall on this pencil; 16 converges (84 s at `n = 3300`). See the
+/// module docs.
+const QZ_SHIFT_CAP: usize = 16;
+
+/// Required relative agreement between the two dense oracle algorithms
+/// (shift-invert + Schur QR vs capped-shift QZ) on every stored physical
+/// eigenvalue. Measured agreement is ~1e-13; 1e-8 leaves headroom for
+/// platform floating-point differences while still being five orders of
+/// magnitude tighter than [`PER_MODE_TOL`].
+const ORACLE_AGREE_REL: f64 = 1e-8;
 
 /// Committed dense-oracle fixture (issue #710).
 fn fixture_path() -> PathBuf {
@@ -523,12 +560,98 @@ fn check_sparse_against(pencil: &MiePencil, dense_phys: &[faer::c64]) {
     }
 }
 
+/// Sort eigenvalues by `|Re λ|` ascending, the dense oracle's order
+/// (the gradient null cluster at `λ ≈ 0` comes first).
+fn sort_by_abs_re(lambdas: &mut [faer::c64]) {
+    lambdas.sort_by(|a, b| {
+        a.re.abs()
+            .partial_cmp(&b.re.abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+}
+
+/// Primary dense oracle: every eigenvalue of `K x = λ M x` via dense
+/// shift-invert. Factor `K − σM` (partial-pivoting LU), form
+/// `A = (K − σM)⁻¹ M`, take the standard complex eigenvalues `μ` of `A`
+/// (faer Schur QR), and map `λ = σ + 1/μ`. Returned sorted by `|Re λ|`.
+fn dense_shift_invert_all(
+    k: faer::MatRef<'_, faer::c64>,
+    m: faer::MatRef<'_, faer::c64>,
+    sigma: f64,
+) -> Vec<faer::c64> {
+    use faer::linalg::solvers::Solve;
+    let n = k.nrows();
+    let shifted = faer::Mat::<faer::c64>::from_fn(n, n, |i, j| k[(i, j)] - m[(i, j)] * sigma);
+    let a = shifted.partial_piv_lu().solve(m);
+    let mu = a.eigenvalues().expect("dense standard complex eigenvalues");
+    let mut lambdas: Vec<faer::c64> = mu
+        .iter()
+        // μ = 0 would be λ = ∞; M is non-singular here, so none expected.
+        .filter(|u| u.re.hypot(u.im) > 1e-300)
+        .map(|u| faer::c64::new(sigma, 0.0) + faer::c64::new(1.0, 0.0) / *u)
+        .collect();
+    sort_by_abs_re(&mut lambdas);
+    lambdas
+}
+
+extern "C" fn capped_shift_count(_n: usize, _active: usize) -> usize {
+    QZ_SHIFT_CAP
+}
+
+/// Cross-check dense oracle: every eigenvalue of the pencil via faer's
+/// full generalized complex QZ (`gevd_cplx`, right eigenvectors requested
+/// so it runs the same full-Schur path as `FaerComplexEigensolver`), with
+/// `recommended_shift_count` capped at [`QZ_SHIFT_CAP`]. Infinite
+/// eigenvalues (`|β| ≈ 0`) are dropped. Sorted by `|Re λ|`.
+fn dense_qz_capped_shifts_all(
+    k: faer::MatRef<'_, faer::c64>,
+    m: faer::MatRef<'_, faer::c64>,
+) -> Vec<faer::c64> {
+    use faer::dyn_stack::{MemBuffer, MemStack};
+    use faer::linalg::gevd::{ComputeEigenvectors, GevdParams, gevd_cplx, gevd_scratch};
+    let n = k.nrows();
+    let mut a = k.to_owned();
+    let mut b = m.to_owned();
+    let mut params: GevdParams = <GevdParams as faer::Auto<faer::c64>>::auto();
+    params.schur.recommended_shift_count = capped_shift_count;
+    let par = faer::get_global_parallelism();
+    let mut buf = MemBuffer::new(gevd_scratch::<faer::c64>(
+        n,
+        ComputeEigenvectors::No,
+        ComputeEigenvectors::Yes,
+        par,
+        params.into(),
+    ));
+    let mut alpha = faer::diag::Diag::<faer::c64>::zeros(n);
+    let mut beta = faer::diag::Diag::<faer::c64>::zeros(n);
+    let mut u_right = faer::Mat::<faer::c64>::zeros(n, n);
+    gevd_cplx(
+        a.as_mut(),
+        b.as_mut(),
+        alpha.as_mut(),
+        beta.as_mut(),
+        None,
+        Some(u_right.as_mut()),
+        par,
+        MemStack::new(&mut buf),
+        params.into(),
+    )
+    .expect("faer gevd_cplx");
+    let (sa, sb) = (alpha.column_vector(), beta.column_vector());
+    let mut lambdas: Vec<faer::c64> = (0..n)
+        .filter(|&i| sb[i].re * sb[i].re + sb[i].im * sb[i].im >= 1e-30)
+        .map(|i| sa[i] / sb[i])
+        .collect();
+    sort_by_abs_re(&mut lambdas);
+    lambdas
+}
+
 /// Serialize the fixture document.
 fn render_fixture(
     fp: &PencilFingerprint,
     n_request: usize,
     dense_phys: &[faer::c64],
-    dense_secs: f64,
+    timing: &OracleTiming,
 ) -> String {
     let backend = geode_util::fixture::BackendInfo::of::<B>(&device());
     let generated_at_unix = std::time::SystemTime::now()
@@ -544,7 +667,8 @@ fn render_fixture(
          # Do NOT edit by hand — regenerate after any intentional change to the\n\
          # Mie pencil construction or the dense oracle, then commit the new values.\n\
          #\n\
-         # Dense-oracle (full complex QZ) eigenvalues of the bundled Mie sphere\n\
+         # Dense-oracle eigenvalues (all modes, dense shift-invert, cross-checked\n\
+         # against a capped-shift full complex QZ) of the bundled Mie sphere\n\
          # scalar-isotropic-PML pencil, consumed by\n\
          # `sparse_complex_matches_dense_fixture` in\n\
          # `tests/sparse_complex_eigensolver.rs`. This is a test-correctness\n\
@@ -558,13 +682,31 @@ fn render_fixture(
         geode_util::repo::current_commit()
     ));
     out.push_str(&format!("generated_at_unix = {generated_at_unix}\n"));
-    out.push_str(&format!("dense_wall_secs = {dense_secs:.1}\n\n"));
+    out.push_str(&format!(
+        "dense_wall_secs = {:.1}\n",
+        timing.shift_invert_secs
+    ));
+    out.push_str(&format!(
+        "cross_check_wall_secs = {:.1}\n\n",
+        timing.qz_secs
+    ));
 
     out.push_str("[oracle]\n");
     out.push_str(
-        "solver = \"FaerComplexEigensolver::smallest_complex_pencil_eigenvalues \
-         (faer dense generalized complex Schur/QZ, all modes, sorted by |Re λ|)\"\n",
+        "solver = \"dense shift-invert: faer partial-pivoting LU of (K - sigma*M), \
+         A = (K - sigma*M)^-1 M, faer standard complex eigenvalues (Schur QR), \
+         lambda = sigma + 1/mu; all modes, sorted by |Re lambda|\"\n",
     );
+    out.push_str(&format!("shift_invert_sigma = {LANCZOS_SIGMA:?}\n"));
+    out.push_str(&format!(
+        "cross_check = \"faer gevd_cplx full generalized complex QZ (right eigenvectors), \
+         recommended_shift_count capped at {QZ_SHIFT_CAP}\"\n"
+    ));
+    out.push_str(&format!(
+        "cross_check_max_rel_diff = {:e}\n",
+        timing.max_rel_diff
+    ));
+    out.push_str(&format!("cross_check_tol = {ORACLE_AGREE_REL:e}\n"));
     out.push_str(&format!("n_request = {n_request}\n"));
     out.push_str(&format!("lanczos_sigma = {LANCZOS_SIGMA:?}\n"));
     out.push_str(&format!("null_tol_rel = {NULL_TOL_REL:?}\n\n"));
@@ -594,8 +736,23 @@ fn render_fixture(
     out
 }
 
+/// Wall times and agreement of the two dense oracle algorithms, recorded
+/// in the fixture's `[meta]` / `[oracle]` tables.
+struct OracleTiming {
+    shift_invert_secs: f64,
+    qz_secs: f64,
+    /// Max over the stored physical eigenvalues of
+    /// `|λ_si − λ_qz| / |λ_si|`.
+    max_rel_diff: f64,
+}
+
+/// Number of eigenvalues in the gradient null cluster (`|λ| < σ/2`).
+fn null_count(lambdas: &[faer::c64]) -> usize {
+    lambdas.len() - physical(lambdas).len()
+}
+
 #[test]
-#[ignore = "heavy: full dense complex QZ of the 3300-DOF pencil (minutes idle, hours loaded; faer gevd panics under debug-assertions); run with --release -- --ignored --exact regenerate_dense_oracle_fixture"]
+#[ignore = "heavy (~2 min release): two full dense eigensolves of the 3300-DOF pencil (faer dense eigen paths panic under debug-assertions); run with --release -- --ignored --exact regenerate_dense_oracle_fixture"]
 fn regenerate_dense_oracle_fixture() {
     let pencil = build_mie_pencil();
     let fp = fingerprint(&pencil);
@@ -607,21 +764,65 @@ fn regenerate_dense_oracle_fixture() {
 
     let k_dense = pencil.k.to_dense();
     let m_dense = pencil.m.to_dense();
-    let t_dense = std::time::Instant::now();
-    let dense_lambdas = FaerComplexEigensolver
-        .smallest_complex_pencil_eigenvalues(k_dense.as_ref(), m_dense.as_ref(), n_request)
-        .expect("dense complex eigensolve");
-    let dense_secs = t_dense.elapsed().as_secs_f64();
-    eprintln!("dense complex eigensolve took {dense_secs:.3} s");
 
-    let dense_phys = physical(&dense_lambdas);
+    let t = std::time::Instant::now();
+    let si_all = dense_shift_invert_all(k_dense.as_ref(), m_dense.as_ref(), LANCZOS_SIGMA);
+    let shift_invert_secs = t.elapsed().as_secs_f64();
+    eprintln!("dense shift-invert (LU + Schur QR) took {shift_invert_secs:.1} s");
+
+    let t = std::time::Instant::now();
+    let qz_all = dense_qz_capped_shifts_all(k_dense.as_ref(), m_dense.as_ref());
+    let qz_secs = t.elapsed().as_secs_f64();
+    eprintln!("dense QZ (shift count capped at {QZ_SHIFT_CAP}) took {qz_secs:.1} s");
+
+    // Both algorithms must see the whole spectrum and resolve exactly the
+    // predicted gradient null space below the cutoff.
+    for (name, all) in [("shift-invert", &si_all), ("QZ", &qz_all)] {
+        assert_eq!(all.len(), pencil.dim, "{name}: finite eigenvalue count");
+        assert_eq!(
+            null_count(all),
+            pencil.spurious_dim,
+            "{name}: eigenvalues below the |λ| < σ/2 cutoff != predicted gradient null space"
+        );
+    }
+
+    // Oracle = same truncation the old FaerComplexEigensolver oracle used:
+    // the n_request smallest-|Re λ|, then the physical filter.
+    let take = |all: &[faer::c64]| -> Vec<faer::c64> {
+        physical(&all.iter().copied().take(n_request).collect::<Vec<_>>())
+    };
+    let dense_phys = take(&si_all);
+    let qz_phys = take(&qz_all);
     assert!(
         dense_phys.len() >= PER_MODE_TOL.len(),
         "dense oracle returned only {} physical modes",
         dense_phys.len()
     );
+    assert_eq!(
+        dense_phys.len(),
+        qz_phys.len(),
+        "oracle algorithms disagree on the physical mode count"
+    );
+    let mut max_rel_diff = 0.0_f64;
+    for (i, (a, b)) in dense_phys.iter().zip(&qz_phys).enumerate() {
+        let rel = (a.re - b.re).hypot(a.im - b.im) / a.re.hypot(a.im);
+        eprintln!(
+            "  oracle[{i}]  shift-invert = {:.12} + {:.12}i,  QZ rel diff = {rel:.2e}",
+            a.re, a.im
+        );
+        max_rel_diff = max_rel_diff.max(rel);
+    }
+    assert!(
+        max_rel_diff < ORACLE_AGREE_REL,
+        "dense oracle algorithms disagree: max rel diff {max_rel_diff:.3e} >= {ORACLE_AGREE_REL:e}"
+    );
 
-    let doc = render_fixture(&fp, n_request, &dense_phys, dense_secs);
+    let timing = OracleTiming {
+        shift_invert_secs,
+        qz_secs,
+        max_rel_diff,
+    };
+    let doc = render_fixture(&fp, n_request, &dense_phys, &timing);
     geode_util::fixture::write_toml(&fixture_path(), &doc).expect("write dense-oracle fixture");
 
     // Round-trip through the loader and confirm the sparse path against

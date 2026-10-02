@@ -25,4 +25,3 @@ geode-core/derham_kernel_dim  # default tier empty (all tests #[ignore]d: faer g
 geode-core/mie_sphere  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
 geode-core/silvermuller_self_consistent  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
 geode-core/silvermuller_self_consistent_vector_tracking  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
-geode-core/sparse_complex_eigensolver  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
