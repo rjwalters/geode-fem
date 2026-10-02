@@ -735,6 +735,7 @@ mod wave {
                 None,
                 &bcs,
                 wave,
+                &[],
                 omegas,
                 SolverMode::Direct,
                 &device(),
