@@ -1,6 +1,6 @@
 # TEMPORARY MEASUREMENT WORKFLOW (issue #786) -- DO NOT MERGE.
-# Times every allowlisted integration-test target (default tier, release,
-# CPU/ndarray backend) on ubuntu-latest. Removed before review.
+# Round 2: times the #[ignore]d tier of the geode-core targets whose default
+# tier is empty (release, CPU/ndarray backend). Removed before review.
 name: TEMP-measure-786
 
 on:
@@ -9,80 +9,38 @@ on:
 
 jobs:
   measure:
-    name: measure ${{ matrix.crate }} shard ${{ matrix.shard }}
+    name: ignored tier ${{ matrix.t }}
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { crate: geode-core, shard: 0, nshards: 6 }
-          - { crate: geode-core, shard: 1, nshards: 6 }
-          - { crate: geode-core, shard: 2, nshards: 6 }
-          - { crate: geode-core, shard: 3, nshards: 6 }
-          - { crate: geode-core, shard: 4, nshards: 6 }
-          - { crate: geode-core, shard: 5, nshards: 6 }
-          - { crate: geode-validation, shard: 0, nshards: 2 }
-          - { crate: geode-validation, shard: 1, nshards: 2 }
+        t: [cube_convergence_regression, derham_gauge_invariance, derham_kernel_dim,
+            gpu_driven_scaling, mie_sphere, silvermuller_self_consistent_vector_tracking,
+            silvermuller_self_consistent, sparse_complex_eigensolver]
     env:
       CARGO_TERM_COLOR: never
       RUST_BACKTRACE: short
     steps:
       - uses: actions/checkout@v4
-      - name: Install libarpack2-dev and pkg-config
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libarpack2-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-measure786-${{ matrix.crate }}-${{ hashFiles('**/Cargo.lock') }}
-      - name: Build test binaries
+          key: ${{ runner.os }}-cargo-measure786-geode-core-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build
         run: |
-          nproc; free -g
-          if [ "${{ matrix.crate }}" = geode-core ]; then F="arpack,spade-mesh"; else F="geode-core/arpack"; fi
-          /usr/bin/time -f "BUILD_WALL %e" cargo test --release -p ${{ matrix.crate }} --features "$F" --tests --no-run --message-format=json > build.json
-          python3 - <<'EOF'
-          import json
-          out = open("bins.tsv", "w")
-          for line in open("build.json"):
-              try:
-                  m = json.loads(line)
-              except Exception:
-                  continue
-              if m.get("reason") == "compiler-artifact" and m.get("executable") and m["target"]["kind"] == ["test"]:
-                  out.write(f'{m["target"]["name"]}\t{m["executable"]}\n')
-          EOF
-          wc -l bins.tsv
-      - name: Run each allowlisted target
+          sudo apt-get update && sudo apt-get install -y libarpack2-dev pkg-config
+          cargo test --release -p geode-core --features arpack,spade-mesh --test ${{ matrix.t }} --no-run
+      - name: Run ignored tier
         run: |
           set +e
-          crate=${{ matrix.crate }}
-          dir=crates/$crate
-          grep -E "^$crate/" scripts/ci-test-coverage-allowlist.txt | sed -E 's/#.*//; s/^[^/]+\///; s/[[:space:]]+$//' > targets.txt
-          mkdir -p logs
-          i=0
-          while read -r t; do
-            if [ $((i % ${{ matrix.nshards }})) -eq ${{ matrix.shard }} ]; then
-              bin=$(awk -F'\t' -v t="$t" '$1==t{print $2}' bins.tsv)
-              if [ -z "$bin" ]; then echo "RESULT|$crate/$t|nobin"; i=$((i+1)); continue; fi
-              ( cd "$dir" && /usr/bin/time -o "$GITHUB_WORKSPACE/logs/$t.time" -f "%e %M" timeout -k 10 900 "$bin" ) > "logs/$t.log" 2>&1
-              rc=$?
-              read -r wall rss < "logs/$t.time" || true
-              summ=$(grep -E '^test result:' "logs/$t.log" | tail -1)
-              echo "RESULT|$crate/$t|rc=$rc|wall=$wall|rss_kb=$rss|$summ"
-              if [ $rc -ne 0 ]; then
-                echo "::group::FAIL LOG $t"; tail -80 "logs/$t.log"; echo "::endgroup::"
-              fi
-            fi
-            i=$((i+1))
-          done < targets.txt
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: logs-${{ matrix.crate }}-${{ matrix.shard }}
-          path: logs/
+          cd crates/geode-core
+          /usr/bin/time -o /tmp/t.time -f "%e %M" timeout -k 10 4800 cargo test --release -p geode-core --features arpack,spade-mesh --test ${{ matrix.t }} -- --ignored > /tmp/t.log 2>&1
+          rc=$?
+          echo "RESULT|${{ matrix.t }}|rc=$rc|$(cat /tmp/t.time | tr '\n' ' ')|$(grep -E '^test result:' /tmp/t.log | tail -1)"
+          grep -E '^test .* \.\.\. ' /tmp/t.log
+          if [ $rc -ne 0 ]; then tail -80 /tmp/t.log; fi

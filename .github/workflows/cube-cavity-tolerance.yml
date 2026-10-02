@@ -118,6 +118,10 @@ jobs:
       # math is correct. Run --release with --ignored so the
       # eigensolve test path is exercised.
       - name: Run cube_cavity substage test (--ignored --nocapture, ndarray, release)
+        # Explicit `shell: bash` runs `bash -eo pipefail`, so a test
+        # failure is not masked by `| tee` (the default `bash -e {0}`
+        # has no pipefail and the step stayed green).
+        shell: bash
         run: |
           cargo test \
             --release -p geode-validation \

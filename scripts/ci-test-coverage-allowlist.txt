@@ -15,119 +15,12 @@
 # Format: <crate>/<target>, one per line. `#` starts a comment.
 
 # geode-core
-geode-core/analytic_cladding_bc_fiber_benchmark
-geode-core/assembly
-geode-core/circular_waveguide_modes
-geode-core/cocg_burn_equivalence
-geode-core/cube_convergence_regression
-geode-core/derham_curl
-geode-core/derham_divergence
-geode-core/derham_exact_sequence
-geode-core/derham_gauge_invariance
-geode-core/derham_gradient
-geode-core/derham_gradient_kernel
-geode-core/derham_kernel_dim
-geode-core/driven_manufactured
-geode-core/driven_p2_adjoint
-geode-core/driven_p2_convergence
-geode-core/driven_upml
-geode-core/eigensolver
-geode-core/electrostatic_capacitance
-geode-core/extraction
-geode-core/faer_qz_debug_overflow_guard
-geode-core/fe_assemble
-geode-core/fiber_dispersion_benchmark
-geode-core/formulation_audit_graddiv
-geode-core/gpu_driven_scaling
-geode-core/high_contrast_fiber_benchmark
-geode-core/leontovich_roughness
-geode-core/leontovich_surface_impedance
-geode-core/london_eigen_kinetic_inductance
-geode-core/london_surface_impedance
-geode-core/lp01_profile_selector_benchmark
-geode-core/lumped_port
-geode-core/magnetostatic_heterogeneous
-geode-core/magnetostatic_inductance
-geode-core/magnetostatic_wire
-geode-core/matched_upml_burn
-geode-core/material_upload_precision
-geode-core/mesh_roundtrip
-geode-core/mie_driven_scattering
-geode-core/mie_sphere
-geode-core/mixed_pencil_fiber_benchmark
-geode-core/mixed_precision_refinement
-geode-core/motor_torque_benchmark
-geode-core/nedelec
-geode-core/nedelec2_3d_element
-geode-core/nedelec2_convergence
-geode-core/nedelec_cavity
-geode-core/nedelec_cavity_p2_convergence
-geode-core/nedelec_matrix_free_equivalence
-geode-core/nedelec_nu_wrapper
-geode-core/nedelec_sparse
-geode-core/p1_local_matrices
-geode-core/palace_ingestion
-geode-core/patch_antenna_benchmark
-geode-core/patch_capstone_diffopt
-geode-core/patch_conformal_diffopt
-geode-core/patch_diffopt
-geode-core/patch_mesh
-geode-core/pec_mask_face_exact
-geode-core/sigma_conductivity
-geode-core/silvermuller_self_consistent
-geode-core/silvermuller_self_consistent_vector_tracking
-geode-core/slotless_pm_field
-geode-core/soi_waveguide_benchmark
-geode-core/spade_port_mesh  # gated on the spade-mesh feature, which no job enables
-geode-core/sparse_complex_eigensolver
-geode-core/sphere_matched_upml_eigenmode
-geode-core/sphere_mesh
-geode-core/sphere_pec_cavity_sparse
-geode-core/sphere_pec_eigenmode
-geode-core/sphere_pml_anisotropic_eigenmode
-geode-core/sphere_pml_eigenmode
-geode-core/sphere_silvermuller_eigenmode
-geode-core/spiral_mesh
-geode-core/step_index_fiber_benchmark
-geode-core/torque_loop_oracle
-geode-core/transient_sparams
-geode-core/transmon_diffopt
-geode-core/transmon_eigen_sensitivity
-geode-core/transmon_eigenmode
-geode-core/transmon_mesh
-geode-core/transmon_quantum
-geode-core/vtu_roundtrip
-geode-core/waveguide_gauge_higher_order
-
-# geode-validation
-geode-validation/cube_cavity_jax_reference
-geode-validation/cube_cavity_julia_reference
-# cube-cavity-tolerance.yml runs this target as `cargo test ... | tee log`
-# under the default `bash -e` shell (no pipefail), so a test failure is
-# masked by tee and the step stays green (issue #788). Remove this line once
-# that step sets `shell: bash` or `set -o pipefail`.
-geode-validation/cube_cavity_numpy_reference
-geode-validation/cube_cavity_onnx_reference
-geode-validation/derham_julia_reference
-geode-validation/derham_numpy_reference
-geode-validation/mie_efficiencies_numpy_reference
-geode-validation/mie_roots_julia_reference
-geode-validation/mie_roots_numpy_reference
-geode-validation/nedelec_local_numpy_reference
-geode-validation/p1_local_numpy_reference
-geode-validation/smoke
-geode-validation/sphere_mie_jax_reference
-geode-validation/sphere_mie_julia_small_reference
-geode-validation/sphere_mie_numpy_reference
-geode-validation/sphere_mie_tfjava_reference
-geode-validation/sphere_pec_jax_reference
-geode-validation/sphere_pec_julia_reference
-geode-validation/sphere_pec_numpy_reference
-geode-validation/sphere_pec_onnx_reference
-geode-validation/sphere_pec_tfjava_reference
-geode-validation/sphere_pml_jax_reference
-geode-validation/sphere_pml_julia_reference
-geode-validation/sphere_pml_julia_small_reference
-geode-validation/sphere_pml_numpy_reference
-geode-validation/sphere_pml_schema_smoke
-geode-validation/sphere_pml_tfjava_reference
+geode-core/cube_convergence_regression  # EMPTY
+geode-core/derham_gauge_invariance  # EMPTY
+geode-core/derham_kernel_dim  # EMPTY
+geode-core/formulation_audit_graddiv  # PENDING
+geode-core/gpu_driven_scaling  # EMPTY
+geode-core/mie_sphere  # EMPTY
+geode-core/silvermuller_self_consistent  # EMPTY
+geode-core/silvermuller_self_consistent_vector_tracking  # EMPTY
+geode-core/sparse_complex_eigensolver  # EMPTY
