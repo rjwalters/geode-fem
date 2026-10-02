@@ -102,6 +102,11 @@ geode-core/waveguide_gauge_higher_order
 # geode-validation
 geode-validation/cube_cavity_jax_reference
 geode-validation/cube_cavity_julia_reference
+# cube-cavity-tolerance.yml runs this target as `cargo test ... | tee log`
+# under the default `bash -e` shell (no pipefail), so a test failure is
+# masked by tee and the step stays green (issue #788). Remove this line once
+# that step sets `shell: bash` or `set -o pipefail`.
+geode-validation/cube_cavity_numpy_reference
 geode-validation/cube_cavity_onnx_reference
 geode-validation/derham_julia_reference
 geode-validation/derham_numpy_reference
