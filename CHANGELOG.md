@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `solve_wave_port_sweep_with_mode` takes a `surfaces` argument (impedance walls folded into the base operator); an empty slice is bit-identical to before. New `analytic::waveguide::te10_conductor_attenuation` oracle (#776).
 
+### Fixed
+
+#### `geode-core`
+
+- `analytic::waveguide::solve_dielectric_modes2` now returns the guided modes of weakly-guiding fibers (for example SMF-28). Its fixed curl-energy floor (`3e-2`) sat above the largest curl ratio a guided mode can carry at low index contrast (`(ε_core − ε_clad)/ε_clad`, `7.9e-3` for SMF-28), so it rejected every guided mode. It then returned either a cladding/box eigenpair as the "fundamental" or nothing, depending on platform rounding and mesh. The floor now scales with the contrast and is capped at the old value, so Si/SiO₂ results are unchanged. The #449 grad–div audit is re-measured on the genuine fundamentals, and its verdict is corrected in `docs/formulation_audit_reduced_vs_full_vector.md` (#791).
+
 ## [0.7.0] - 2026-10-01
 
 This release completes the `geode` CLI's EDA-flow epic (#702). It adds:

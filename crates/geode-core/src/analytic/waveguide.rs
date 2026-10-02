@@ -4612,7 +4612,16 @@ fn physical_curl_floor() -> f64 {
 // ===========================================================================
 
 /// Curl-energy floor separating the physical guided band from the
-/// gradient-nullspace band for the **p=2** Nédélec pencil.
+/// gradient-nullspace band for the **p=2** Nédélec pencil, scaled to the
+/// index contrast of the cross-section (issue #791).
+///
+/// Returns
+///
+/// ```text
+///   floor = clamp( GUIDED_CURL_FLOOR_FRACTION · (ε_max − ε_min)/ε_min,
+///                  physical_curl_floor_pml() = 1e-6,
+///                  HIGH_CONTRAST_CURL_FLOOR_P2 = 3e-2 ).
+/// ```
 ///
 /// # Why p=2 needs its own floor
 ///
@@ -4622,35 +4631,81 @@ fn physical_curl_floor() -> f64 {
 /// interior modes — see [`spurious_dim_2d_p2`]), but those gradient modes
 /// are still *exactly* curl-free by construction (`∇×Q ≡ 0`,
 /// `∇×∇φ ≡ 0`): a converged p=2 gradient eigenpair has `r = (xᵀKx)/(k₀²xᵀM_εx)`
-/// at the f64 noise floor (`≈ 10⁻¹⁶`), the same as p=1. What changes is the
-/// *guided* band: the richer p=2 representation resolves the genuine mode's
-/// curl with **more** curl energy per unit field energy, so the genuine
-/// band floor moves *up*, not down — the gap can only widen, never narrow.
+/// at the f64 noise floor (`≈ 10⁻¹⁶`), the same as p=1. A p=2 curl-energy
+/// refinement sweep (rect TE-cavity and the SOI strip at ny ∈ {20,30,40,60})
+/// shows the p=2 genuine guided band floor at `r ≳ 1.2×10⁻¹` — above the
+/// p=1 genuine floor (`≈ 8.5×10⁻²`) — so for those **high-contrast**
+/// (Si/SiO₂) cross-sections the p=1 value `3×10⁻²` sits inside the p=2 gap.
+/// That calibrated value is kept, unchanged, as the cap
+/// [`HIGH_CONTRAST_CURL_FLOOR_P2`].
 ///
-/// # The recalibration is algebraic, not a fitted constant
+/// # Why a fixed `3e-2` is wrong for weak contrast (issue #791)
 ///
-/// The robust discriminant is the **algebraic** generalized de-Rham
-/// nullspace dimension [`spurious_dim_2d_p2`] = (interior nodes) +
-/// (interior edges): every member of that nullspace is exactly curl-free
-/// and lands at `r ≈ 0`, so any floor in `(noise, genuine-band-floor)`
-/// separates them. A p=2 curl-energy refinement sweep (rect TE-cavity and
-/// the SOI strip at ny ∈ {20,30,40,60}) shows the p=2 genuine guided band
-/// floor at `r ≳ 1.2×10⁻¹` — *above* the p=1 genuine floor (`≈ 8.5×10⁻²`),
-/// confirming the gap widens with order. The p=1 floor `3×10⁻²` therefore
-/// already sits comfortably inside the (wider) p=2 gap, so **reusing it is
-/// safe**; we keep an explicit p=2 entry point (returning the same `3e-2`)
-/// so the calibration is documented and order-local rather than implicitly
-/// shared, and so a future p≥3 extension has an obvious hook. The floor is
-/// never *raised* by an out-of-window spike (it is a fixed constant, not a
-/// gap-widening rule), exactly as argued for p=1.
-fn physical_curl_floor_p2() -> f64 {
-    // Same numeric value as the p=1 floor: the p=2 gradient nullspace is
-    // exactly curl-free (r ≈ 0) and the p=2 genuine guided band floor sits
-    // *above* the p=1 one, so the p=1 gap (1.7e-2, 8.5e-2) is contained in
-    // the wider p=2 gap and the centred 3e-2 floor remains valid. Kept as a
-    // distinct symbol so the p=2 calibration is explicit (Epic #318 2.5C).
-    3e-2
+/// The curl energy a guided mode can carry is bounded by the index
+/// contrast. In the weak-guidance (scalar) limit each Cartesian component
+/// `ψ` of a bound mode solves `∇ₜ²ψ + (k₀²ε − β²)ψ = 0` and decays outside
+/// the core, so integrating by parts
+///
+/// ```text
+///   ∫|∇ₜψ|² = ∫(k₀²ε − β²)|ψ|² ≤ k₀²(ε_max − n_eff²) ∫_core|ψ|²
+///           < k₀²(ε_max − ε_min) ∫|ψ|²            (n_eff > n_clad).
+/// ```
+///
+/// With `∫|∇ₜ×Eₜ|² ≤ ∫|∇ₜEₜ|²` (the curl–divergence identity for a decaying
+/// field) and `∫ε|Eₜ|² ≥ ε_min ∫|Eₜ|²`, every guided mode obeys
+///
+/// ```text
+///   r < (ε_max − ε_min) / ε_min.
+/// ```
+///
+/// For SMF-28 (`n_core = 1.4504`, `n_clad = 1.4447`) that bound is
+/// `7.9×10⁻³`: the old fixed `3×10⁻²` floor sat **3.8× above the largest
+/// curl ratio any guided mode can have**, so the solver could never return
+/// a genuine guided mode of a weakly-guiding fiber. What survived instead
+/// was a marginal cladding/box eigenpair (core-energy fraction 0.21,
+/// `r = 3.3×10⁻²`, only 1.1× above the floor) taken from the least
+/// converged tail of the Lanczos window. Whether that tail pair is present
+/// depends on floating-point rounding (it is there on aarch64 macOS and
+/// absent on x86_64 Linux), so the solve returned 1 mode on one platform
+/// and 0 on the other, and 0 on a refined mesh.
+///
+/// # The calibration
+///
+/// The measured guided fundamentals sit at `r ≈ 0.08…0.1 ×` the bound on
+/// both audit fibers (SMF-28 `r = 7.2×10⁻⁴` against the bound `7.9×10⁻³`;
+/// the ~3 %-step fiber `r = 5.0×10⁻³` against `6.0×10⁻²`).
+/// [`GUIDED_CURL_FLOOR_FRACTION`] `= 10⁻²` places the floor about 8–10×
+/// below the guided fundamentals and still at least ten decades above
+/// the exactly curl-free gradient nullspace (`r ≈ 10⁻¹⁶`). The lower clamp
+/// `10⁻⁶` is the PML path's nullspace floor ([`physical_curl_floor_pml`]),
+/// so a near-zero-contrast input still rejects the nullspace. The upper
+/// clamp is reached at `(ε_max − ε_min)/ε_min = 3`, so every Si/SiO₂
+/// cross-section (≈ 4.7) keeps exactly the calibrated `3×10⁻²`, and its
+/// weakly-resolved near-ceiling spurious band (`r ≈ 3×10⁻³…1.7×10⁻²`)
+/// stays rejected. For 2-D-confined cores at intermediate contrast, the
+/// near-ceiling spurious eigenpairs are also removed by the
+/// [`physical_index_ceiling`] window, independently of this floor.
+///
+/// The floor depends only on the materials, never on the candidate
+/// spectrum, so an out-of-window spike cannot raise it (the same argument
+/// as for p=1).
+fn physical_curl_floor_p2(eps_max: f64, eps_min: f64) -> f64 {
+    let contrast = if eps_min > 0.0 {
+        ((eps_max - eps_min) / eps_min).max(0.0)
+    } else {
+        f64::INFINITY
+    };
+    (GUIDED_CURL_FLOOR_FRACTION * contrast)
+        .clamp(physical_curl_floor_pml(), HIGH_CONTRAST_CURL_FLOOR_P2)
 }
+
+/// Upper clamp of [`physical_curl_floor_p2`]: the high-contrast (Si/SiO₂)
+/// p=2 curl floor calibrated in Epic #318 Phase 2.5C.
+const HIGH_CONTRAST_CURL_FLOOR_P2: f64 = 3e-2;
+
+/// Fraction of the weak-guidance curl bound `(ε_max − ε_min)/ε_min` used as
+/// the p=2 curl floor (issue #791). See [`physical_curl_floor_p2`].
+const GUIDED_CURL_FLOOR_FRACTION: f64 = 1e-2;
 
 /// Order-aware (p=2) sibling of [`solve_dielectric_modes`]: solve the
 /// dielectric full-vector transverse-mode eigenproblem using the
@@ -4663,7 +4718,9 @@ fn physical_curl_floor_p2() -> f64 {
 /// bound-window classifier, the `physical_index_ceiling` geometry ceiling,
 /// and the `pin_eigenvector_sign` gauge are all **order-agnostic** and
 /// reused verbatim; only the assembly order and the curl-energy floor
-/// (`physical_curl_floor_p2`) differ. Returns up to `n_modes` guided
+/// (`physical_curl_floor_p2`, which scales with the index contrast so a
+/// weakly-guiding fiber's guided modes are not rejected; issue #791)
+/// differ. Returns up to `n_modes` guided
 /// [`DielectricMode`]s ordered fundamental-first (largest `n_eff`), with
 /// `e_edges` in the **p=2 DOF ordering** (length [`n_dof_2d_nedelec2`]).
 ///
@@ -4697,7 +4754,7 @@ pub fn solve_dielectric_modes2(
         return Ok(Vec::new());
     }
     let n_dof = n_dof_2d_nedelec2(mesh);
-    let curl_floor = physical_curl_floor_p2();
+    let curl_floor = physical_curl_floor_p2(eps_max, eps_min);
 
     let mut interior_to_full: Vec<usize> = Vec::with_capacity(n_dof);
     for (full_idx, &keep) in interior_dof_mask.iter().enumerate() {
@@ -4962,8 +5019,10 @@ fn dielectric_raw_candidates_p2_pml(
 /// Curl-energy floor for the **PML** dielectric path (Epic #303 PML-B,
 /// issue #332).
 ///
-/// This is deliberately much smaller than the PEC-path
-/// [`physical_curl_floor_p2`] (`3e-2`). That floor was calibrated for a
+/// This is deliberately much smaller than the high-contrast cap of the
+/// PEC-path [`physical_curl_floor_p2`] (`3e-2`, which that floor also
+/// scales down with the index contrast since issue #791; `1e-6` here is
+/// its lower clamp). The `3e-2` value was calibrated for a
 /// **high-contrast** strip on a PEC-walled domain, where the genuine
 /// guided band floors at `r ≈ 8.5×10⁻²`. A **weakly-guiding** fiber
 /// (SMF-28, Δ ≈ 0.4 %, V = 2.135) has an almost-TEM fundamental whose
@@ -8222,6 +8281,53 @@ mod tests {
             err2 <= err1 + 1e-9,
             "p=2 fundamental n_eff error {err2:.3e} worse than p=1 {err1:.3e}"
         );
+    }
+
+    /// **Contrast-scaled p=2 curl floor** (issue #791). The floor must sit
+    /// below the weak-guidance bound `r < (ε_max − ε_min)/ε_min` on the
+    /// curl ratio of any guided mode (otherwise no guided mode of a
+    /// weakly-guiding fiber can pass), keep the calibrated `3e-2` for
+    /// Si/SiO₂, and stay above the gradient-nullspace noise for any input.
+    #[test]
+    fn p2_curl_floor_scales_with_index_contrast() {
+        // SMF-28: bound = 7.9e-3, below the old fixed 3e-2 floor.
+        let (e_core, e_clad) = (1.4504_f64.powi(2), 1.4447_f64.powi(2));
+        let bound = (e_core - e_clad) / e_clad;
+        let floor = physical_curl_floor_p2(e_core, e_clad);
+        assert!(
+            bound < HIGH_CONTRAST_CURL_FLOOR_P2,
+            "SMF-28 bound {bound:.3e}"
+        );
+        assert!(
+            (floor - GUIDED_CURL_FLOOR_FRACTION * bound).abs() < 1e-18,
+            "SMF-28 floor {floor:.3e} must be the scaled bound"
+        );
+        // The measured SMF-28 guided fundamental (r = 7.2e-4, issue #791)
+        // passes with margin; the old fixed floor rejected it.
+        assert!(7.2e-4 > 5.0 * floor && 7.2e-4 < HIGH_CONTRAST_CURL_FLOOR_P2);
+
+        // Si/SiO₂ (bound ≈ 4.7): exactly the calibrated high-contrast floor,
+        // so every high-contrast caller is bit-for-bit unchanged.
+        for (n_core, n_clad) in [(3.45_f64, 1.45_f64), (3.48, 1.444)] {
+            let f = physical_curl_floor_p2(n_core * n_core, n_clad * n_clad);
+            assert_eq!(
+                f, HIGH_CONTRAST_CURL_FLOOR_P2,
+                "Si/SiO2 ({n_core}, {n_clad})"
+            );
+        }
+
+        // Uniform ε (no contrast): the nullspace floor, never zero.
+        assert_eq!(physical_curl_floor_p2(2.0, 2.0), physical_curl_floor_pml());
+
+        // Monotone in the contrast, and always below the guided bound.
+        let mut prev = 0.0;
+        for i in 1..=60 {
+            let e_core = 2.0 + 0.1 * f64::from(i);
+            let f = physical_curl_floor_p2(e_core, 2.0);
+            assert!(f >= prev, "floor must not decrease with contrast");
+            assert!(f < (e_core - 2.0) / 2.0, "floor above the guided bound");
+            prev = f;
+        }
     }
 
     /// **M-orthonormality + sign pin** of the returned dielectric mode:

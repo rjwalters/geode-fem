@@ -15,8 +15,6 @@
 # Format: <crate>/<target>, one per line. `#` starts a comment.
 
 # geode-core
-# Fails on Linux x86_64 (0 bound modes recovered), passes on macOS: issue #791.
-geode-core/formulation_audit_graddiv
 # Wall-clock scaling benchmark (prints a TOML table), not a correctness check;
 # default tier is empty, and the --ignored tier passes but takes 42 min on
 # ubuntu-latest (#786).

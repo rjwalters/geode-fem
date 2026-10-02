@@ -18,8 +18,7 @@ name: integration-tests
 # the two crates build in parallel jobs. Cold job wall times on the #786 PR:
 # core-tests 27 min, validation-tests 8 min.
 #
-# What stays out, and why, is recorded per entry in the allowlist:
-# formulation_audit_graddiv fails on Linux and passes on macOS (issue #791).
+# What stays out, and why, is recorded per entry in the allowlist.
 # Targets whose default tier is empty (every test #[ignore]d) are not run
 # here for the default tier only, since that would just compile them
 # (clippy --tests in arpack.yml already does that). Two of them run their
@@ -93,6 +92,7 @@ jobs:
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
+              --test formulation_audit_graddiv \
               --test high_contrast_fiber_benchmark \
               --test leontovich_roughness \
               --test leontovich_surface_impedance \
