@@ -43,8 +43,10 @@ that fails the job. So these cover nothing too (issue #788):
     quoted string (an unterminated quote covers the rest of the script);
   * a step whose shell is not a modelled POSIX shell: `shell:` (on the step
     or in `defaults.run`) other than exactly `bash` or `sh`, or no shell on
-    a Windows runner (pwsh). An unresolvable `runs-on` with no explicit
-    shell is unmodelled;
+    a Windows runner (pwsh). With no explicit shell, `runs-on` must be one
+    GitHub-hosted label (`ubuntu-*`, `macos-*`, `windows-*`); a self-hosted
+    or larger-runner label, a multi-label array, or an unresolvable
+    expression leaves the OS (so the default shell) unknown (issue #790);
   * `continue-on-error:` on the step or job with any value but `false`;
   * `cargo test ... || <anything>` except `|| exit N` (N != 0) or
     `|| false`; `... || cargo test` (runs only on failure); `cargo test &`;
@@ -57,6 +59,10 @@ that fails the job. So these cover nothing too (issue #788):
   * inside a shell `if` / `case` / `while` / `until` / `for` / `select`
     block, a `{ ...; }` group or function body, a `( ... )` subshell, or
     `$( ... )`. Unbalanced grouping makes the rest of the script unmodelled;
+  * anything after a `trap`, `exec`, `return`, `logout`, or `exit` (other
+    than `cmd || exit N` with N != 0) anywhere earlier in the script, even
+    inside a block: the script may end before the command, or an EXIT trap
+    may rewrite its failing status to success (issue #790);
   * a conditional step or job. A job `if:` and a step `if:` count only when
     always true (`always()`, `success()`, `!cancelled()`, `true`). A step
     `if:` may also be one `matrix.KEY == 'value'` (or `!=`) test: the step
@@ -65,7 +71,22 @@ that fails the job. So these cover nothing too (issue #788):
     resolved per leg, so a Windows-only leg with no `shell:` is pwsh). A
     matrix with `include:` / `exclude:` or an expression value is not
     expanded, so matrix-dependent conditions and runners in that job cover
-    nothing.
+    nothing;
+  * a job whose `needs:` chain may skip it (issue #790). Every job in the
+    transitive `needs:` chain must have an always-true `if:` (as above), a
+    resolvable GitHub-hosted runner, and a modelled `needs:`; a missing job
+    or a cycle is not modelled. A dependency skipped by its own `if:` skips
+    the dependent with CI green. The one exception matches GitHub: a job
+    whose own `if:` is `always()` or `!cancelled()` runs even when a
+    dependency was skipped or failed, so its chain is not checked. An
+    `always()` part-way down the chain does not help the jobs below it
+    (GitHub skips a dependent when any job in its transitive chain was
+    skipped). A dependency that FAILS makes CI red either way;
+  * a workflow whose YAML leaves the modelled subset: an anchor (`&name`),
+    alias (`*name`, for example `runs-on: *win`), merge key (`<<:`) or
+    non-empty flow mapping (`- {run: cargo test}`, `with: {a: b}`) makes
+    the whole workflow cover nothing, with a warning (issue #790). An empty
+    `{}` is fine.
 
 Targets that are knowingly not run in CI live in
 `scripts/ci-test-coverage-allowlist.txt` (one `crate/target` per line).
@@ -93,10 +114,8 @@ crate-wide `-- --ignored` counts as covering the target even though only its
 actions or scripts that call cargo are not followed (they cover nothing).
 Workflow triggers are not modelled: a workflow restricted by `on.*.paths`
 (for example rect-waveguide-modes-debug.yml) still counts, although it runs
-only when the listed paths change. A dependent job that is skipped because a
-`needs:` job failed is treated as running (CI is red either way). The YAML
-reader handles the block-style subset that workflow files use, without
-anchors, flow mappings or multi-line flow sequences.
+only when the listed paths change. The YAML reader handles the block-style
+subset that workflow files use; multi-line flow sequences are not modelled.
 """
 
 from __future__ import annotations
@@ -199,16 +218,39 @@ def _plain(val: str) -> str:
     return _unquote(val)
 
 
-def yaml_leaves(text: str) -> list[tuple[tuple, str]]:
+def _yaml_node_problem(raw: str) -> str | None:
+    """Why an unquoted YAML node value is outside the modelled subset, if it is.
+
+    Anchors (`&name`), aliases (`*name`) and non-empty flow mappings
+    (`{run: ...}`) can hide or rename keys the guard relies on (`runs-on:
+    *win`, `defaults: {run: {working-directory: x}}`), so the reader does not
+    guess: the caller fails the whole workflow closed. An empty `{}` (for
+    example `workflow_dispatch: {}`) holds no keys and is fine.
+    """
+    raw = raw.strip()
+    if raw[:1] == "&":
+        return f"YAML anchor `{raw.split()[0]}`"
+    if raw[:1] == "*":
+        return f"YAML alias `{raw.split()[0]}`"
+    if raw[:1] == "{" and re.sub(r"\s+#.*$", "", raw).strip() != "{}":
+        return f"YAML flow mapping `{raw}`"
+    return None
+
+
+def yaml_leaves(text: str, problems: list[str] | None = None) -> list[tuple[tuple, str]]:
     """Flatten a workflow into (key path, scalar) pairs.
 
     Mapping keys are strings and sequence items are integers in the path, so
     a step's run script is at ("jobs", <job>, "steps", <n>, "run"). Block
     scalars (`|`, `>`, with chomping indicators) are joined: literal blocks
     keep their newlines, folded blocks are joined with spaces. Only the
-    subset of YAML that workflow files use is modelled; anchors, flow
-    mappings and multi-document files are not.
+    subset of YAML that workflow files use is modelled; anchors, aliases,
+    merge keys (`<<:`) and non-empty flow mappings are recorded in
+    `problems` (when given) so the caller can fail closed, and multi-document
+    files are not modelled.
     """
+    if problems is None:
+        problems = []
     lines = text.splitlines()
     out: list[tuple[tuple, str]] = []
     stack: list[tuple[int, object]] = []  # (column, path component)
@@ -242,6 +284,9 @@ def yaml_leaves(text: str) -> list[tuple[tuple, str]]:
         if not m:
             # A scalar sequence item, or a continuation of a plain scalar.
             if col > ind:
+                why = _yaml_node_problem(body)
+                if why:
+                    problems.append(f"line {i + 1}: {why}")
                 out.append((path, _plain(body)))
             elif out and out[-1][0] == path:
                 out[-1] = (path, out[-1][1] + " " + _plain(body))
@@ -250,6 +295,13 @@ def yaml_leaves(text: str) -> list[tuple[tuple, str]]:
         key = _unquote(m.group(1).strip())
         val = (m.group(2) or "").strip()
         kpath = path + (key,)
+        if m.group(1).strip() == "<<":
+            problems.append(f"line {i + 1}: YAML merge key `<<:`")
+        elif m.group(1)[:1] in ("&", "*"):
+            problems.append(f"line {i + 1}: YAML anchor/alias in key `{m.group(1)}`")
+        why = _yaml_node_problem(val)
+        if why:
+            problems.append(f"line {i + 1}: {why}")
         if val[:1] in ("|", ">") and re.fullmatch(r"[|>][+-]?\d?[+-]?(\s+#.*)?", val):
             folded = val[0] == ">"
             block: list[str] = []
@@ -298,6 +350,7 @@ def _flow_list(val: str) -> list[str] | None:
 
 @dataclass
 class Job:
+    name: str = ""
     cond: str | None = None
     continue_on_error: str | None = None
     runs_on: str | None = None
@@ -306,6 +359,8 @@ class Job:
     working_directory: bool = False
     matrix: dict[str, list[str]] = field(default_factory=dict)
     matrix_unmodelled: str | None = None
+    needs: list[str] = field(default_factory=list)
+    needs_unmodelled: str | None = None
 
     def legs(self) -> list[dict[str, str]] | None:
         """Every matrix combination, or None if the matrix is not modelled."""
@@ -332,13 +387,17 @@ class Workflow:
     steps: list[Step]
     shell: str | None = None
     working_directory: bool = False
+    jobs: dict[str, Job] = field(default_factory=dict)
+    # YAML outside the modelled subset (anchors, aliases, merge keys, flow
+    # mappings): the whole workflow covers nothing.
+    yaml_problems: list[str] = field(default_factory=list)
 
 
 def parse_workflow(text: str) -> Workflow:
     wf = Workflow(steps=[])
-    jobs: dict[object, Job] = {}
+    jobs = wf.jobs
     steps: dict[tuple, Step] = {}
-    for path, val in yaml_leaves(text):
+    for path, val in yaml_leaves(text, wf.yaml_problems):
         if path[:1] == ("defaults",):
             if path[-1] == "working-directory":
                 wf.working_directory = True
@@ -349,7 +408,7 @@ def parse_workflow(text: str) -> Workflow:
             if path[-1:] == ("working-directory",):
                 wf.working_directory = True
             continue
-        job = jobs.setdefault(path[1], Job())
+        job = jobs.setdefault(str(path[1]), Job(name=str(path[1])))
         rest = path[2:]
         if (len(rest) >= 3 and rest[0] == "steps" and isinstance(rest[1], int)):
             key = (path[1], rest[1])
@@ -370,6 +429,17 @@ def parse_workflow(text: str) -> Workflow:
             continue
         if rest == ("if",):
             job.cond = val
+        elif rest[0] == "needs":
+            if len(rest) == 1:
+                names = _flow_list(val) if val.startswith("[") else [val]
+                if names is None or any("${{" in n or not n for n in names):
+                    job.needs_unmodelled = f"`needs: {val}`"
+                else:
+                    job.needs.extend(names)
+            elif len(rest) == 2 and isinstance(rest[1], int) and "${{" not in val:
+                job.needs.append(val)
+            else:
+                job.needs_unmodelled = "`needs:` shape"
         elif rest == ("continue-on-error",):
             job.continue_on_error = val
         elif rest[0] == "runs-on":
@@ -439,7 +509,14 @@ def eval_cond(expr: str | None, leg: dict[str, str]) -> bool | None:
     return equal if op == "==" else not equal
 
 
+# GitHub-hosted runner labels (`ubuntu-latest`, `ubuntu-24.04-arm`,
+# `macos-14`, `windows-2022`, ...). Anything else (self-hosted, larger-runner
+# names, multi-label arrays) has an OS the guard cannot know.
+_HOSTED_RUNNER = re.compile(r"(ubuntu|macos|windows)-[\w.-]+", re.I)
+
+
 def _runner_is_windows(job: Job, leg: dict[str, str]) -> bool | None:
+    """True / False for a single GitHub-hosted label, else None (unknown)."""
     if job.runs_on is None or job.runs_on_unmodelled:
         return None
 
@@ -449,7 +526,77 @@ def _runner_is_windows(job: Job, leg: dict[str, str]) -> bool | None:
     runs_on = re.sub(r"\$\{\{\s*matrix\.([\w-]+)\s*\}\}", sub, job.runs_on)
     if "${{" in runs_on:
         return None
-    return "windows" in runs_on.lower()
+    labels = _flow_list(runs_on) if runs_on.strip().startswith("[") else (
+        [x.strip() for x in runs_on.split(",")])
+    if not labels or len(labels) != 1:
+        return None
+    m = _HOSTED_RUNNER.fullmatch(labels[0].strip())
+    if not m:
+        return None
+    return m.group(1).lower() == "windows"
+
+
+# Job `if:` expressions that run the job even when a `needs:` job was skipped
+# or failed (GitHub skips a dependent job unless its condition uses a status
+# function that does not require success; `success()` does).
+NEEDS_OVERRIDE = {"always()", "!cancelled()"}
+
+
+def _normalized_cond(expr: str | None) -> str | None:
+    if expr is None:
+        return None
+    e = expr.strip()
+    m = re.fullmatch(r"\$\{\{(.*)\}\}", e, re.S)
+    if m:
+        e = m.group(1)
+    return " ".join(e.split())
+
+
+def _runner_resolved(job: Job) -> bool:
+    """True when some leg of the job lands on a known GitHub-hosted runner."""
+    legs = job.legs() or [{}]
+    return any(_runner_is_windows(job, leg) is not None for leg in legs)
+
+
+def needs_reason(job: Job, wf: Workflow) -> str | None:
+    """Why a job's `needs:` chain may skip it, or None when it provably runs.
+
+    A job with `needs:` runs only when every job in its transitive `needs:`
+    chain ran and succeeded, unless its own `if:` is `always()` or
+    `!cancelled()` (GitHub evaluates those even when a dependency was skipped
+    or failed). A failed dependency makes CI red anyway, but a dependency
+    skipped by its own `if:` leaves CI green with the dependent skipped. So
+    every job in the chain must be unconditional (always-true `if:`), run on a
+    resolvable runner, and have a modelled `needs:`; a missing job or a cycle
+    is not modelled. GitHub skips a dependent when any job in the transitive
+    chain is skipped, so an `always()` part-way down the chain does not
+    rescue the jobs below it; only the job's own `if:` does.
+    """
+    if job.needs_unmodelled:
+        return f"{job.needs_unmodelled} not modelled"
+    if _normalized_cond(job.cond) in NEEDS_OVERRIDE:
+        return None
+    seen: set[str] = set()
+    todo = list(job.needs)
+    while todo:
+        name = todo.pop()
+        if name == job.name:
+            return f"`needs:` cycle through job `{name}`"
+        if name in seen:
+            continue
+        seen.add(name)
+        up = wf.jobs.get(name)
+        if up is None:
+            return f"`needs: {name}` names no job in this workflow"
+        if up.needs_unmodelled:
+            return f"`needs:` job `{name}` has {up.needs_unmodelled} (not modelled)"
+        if eval_cond(up.cond, {}) is not True:
+            return (f"`needs:` job `{name}` is conditional (`if: {up.cond}`), "
+                    "so this job may be skipped")
+        if not _runner_resolved(up):
+            return f"`needs:` job `{name}` runner not resolved"
+        todo.extend(up.needs)
+    return None
 
 
 def shell_mode(step: Step, wf: Workflow, leg: dict[str, str]) -> tuple[bool | None, str]:
@@ -492,6 +639,9 @@ def step_gate(step: Step, wf: Workflow) -> tuple[bool | None, str]:
             return None, f"{scope} `continue-on-error: {v}` (a failure does not fail CI)"
     if eval_cond(job.cond, {}) is not True:
         return None, f"job `if: {job.cond}` (conditional, not provably run)"
+    why = needs_reason(job, wf)
+    if why:
+        return None, why
     legs = job.legs()
     if legs is None:
         legs = [{}]
@@ -525,6 +675,9 @@ COMPOUND_OPEN = {"if": "if", "while": "loop", "until": "loop", "for": "loop",
                  "select": "loop", "case": "case"}
 COMPOUND_CLOSE = {"fi": "if", "done": "loop", "esac": "case"}
 COMPOUND_MID = {"then", "do", "else", "elif", "function"}
+# Builtins that end the script or rewrite its exit status: a `cargo test`
+# after any of them is not provably run and enforced.
+SCRIPT_FLOW = {"trap", "exit", "exec", "return", "logout"}
 _CARGO_TEST = re.compile(r"\bcargo\b(?:.*\s)?test(?:\s|$)")
 
 
@@ -579,6 +732,7 @@ def script_commands(script: str, pipefail: bool = False):
     found: list[list] = []   # [raw, toks, reason, list_id, needs_final]
     errexit = True
     dir_changed = False
+    flow_changed: str | None = None  # `trap` / `exit` / `exec` / `return` seen
     stack: list[str] = []
     poisoned = False
     list_id = 0
@@ -654,6 +808,16 @@ def script_commands(script: str, pipefail: bool = False):
                         break
                     after.append(v2)
             nxt = after[0] if after else None
+            head = words[1:] if words[0] in ("builtin", "command") and len(words) > 1 \
+                else words
+            if head[0] in SCRIPT_FLOW:
+                # `cmd || exit N` (N != 0) is the one modelled form: it can
+                # only fail the step. Anything else may end the script early
+                # with success, or (trap) rewrite the exit status later.
+                if not (head[0] == "exit" and prev == "||" and len(head) == 2
+                        and head[1].isdigit() and int(head[1]) != 0):
+                    flow_changed = flow_changed or head[0]
+                continue
             if words[0] in ("cd", "pushd", "popd"):
                 dir_changed = True
                 continue
@@ -688,6 +852,9 @@ def script_commands(script: str, pipefail: bool = False):
                 pass
             elif poisoned:
                 reason = "shell grouping not modelled earlier in the run script"
+            elif flow_changed:
+                reason = (f"`{flow_changed}` earlier in the run script (may end the "
+                          "script first or mask its exit status)")
             elif dir_changed:
                 reason = "`cd`/`pushd` earlier in the run script"
             elif stack:
@@ -895,6 +1062,10 @@ def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | Non
     ncmd = 0
     for wf, text in sorted(workflows.items()):
         workflow = parse_workflow(text)
+        if workflow.yaml_problems:
+            warnings.append(f"{wf}: whole workflow counted as covering nothing "
+                            f"({'; '.join(workflow.yaml_problems)} not modelled)")
+            continue
         for step in workflow.steps:
             pipefail, step_why = step_gate(step, workflow)
             for raw, toks, script_why in script_commands(step.run, bool(pipefail)):
@@ -1331,6 +1502,147 @@ def self_test() -> int:
 
         def test_unbalanced_shell_grouping_fails_closed(self):
             self.check("echo }\ncargo test -p a", set())
+
+        # -- issue #790: trap / exit / exec ---------------------------------
+        def test_trap_masks_exit_status(self):
+            # `bash -e -c 'trap "exit 0" EXIT; false'` exits 0.
+            self.check("trap 'exit 0' EXIT\ncargo test -p a", set())
+            self.check("trap 'echo bye' EXIT; cargo test -p a", set())
+            self.check("if true; then trap 'exit 0' EXIT; fi\ncargo test -p a", set())
+            # A trap set only after the command cannot rewrite its failure:
+            # `bash -e` exits before reaching it.
+            self.check("cargo test -p a\ntrap 'exit 0' EXIT", A)
+            r = evaluate({"w.yml": wf_run("trap 'exit 0' EXIT\ncargo test -p a")},
+                         T, set())
+            self.assertIn("`trap` earlier", r.warnings[0])
+
+        def test_exit_exec_before_command(self):
+            self.check("exit 0\ncargo test -p a", set())
+            self.check("exit\ncargo test -p a", set())
+            self.check("echo hi; exit 0; cargo test -p a", set())
+            self.check("exec bash other.sh\ncargo test -p a", set())
+            self.check("builtin exit 0\ncargo test -p a", set())
+            self.check("return 0\ncargo test -p a", set())
+            self.check("[ -n x ] && exit 0\ncargo test -p a", set())
+            self.check("[ -n x ] || exit 0\ncargo test -p a", set())
+            self.check("case $X in\n  y) exit 0 ;;\nesac\ncargo test -p a", set())
+
+        def test_or_exit_nonzero_is_still_modelled(self):
+            # `|| exit N` (N != 0) can only fail the step.
+            self.check("[ -f Cargo.toml ] || exit 1\ncargo test -p a", A)
+            self.check("cargo test -p b || exit 1\ncargo test -p a", UNGATED)
+
+        # -- issue #790: needs: on a conditional job --------------------------
+        def wf_needs(self, gate: str, dep_if: str = "") -> str:
+            return ("jobs:\n  gate:\n    runs-on: ubuntu-latest\n" + gate
+                    + "    steps:\n      - run: echo gate\n"
+                    + "  j:\n    runs-on: ubuntu-latest\n" + dep_if
+                    + "    needs: gate\n"
+                    + "    steps:\n      - run: cargo test -p a\n")
+
+        def test_needs_conditional_job(self):
+            cond = "    if: github.event_name == 'push'\n"
+            self.assertEqual(covered(self.wf_needs(cond)), set())
+            r = evaluate({"w.yml": self.wf_needs(cond)}, T, set())
+            self.assertIn("`needs:` job `gate` is conditional", r.warnings[0])
+            # An unconditional / always-true upstream lets the dependent run.
+            self.assertEqual(covered(self.wf_needs("")), A)
+            self.assertEqual(covered(self.wf_needs("    if: success()\n")), A)
+
+        def test_needs_always_overrides_skipped_upstream(self):
+            cond = "    if: github.event_name == 'push'\n"
+            self.assertEqual(covered(self.wf_needs(cond, "    if: always()\n")), A)
+            self.assertEqual(
+                covered(self.wf_needs(cond, "    if: ${{ !cancelled() }}\n")), A)
+            # `success()` needs every dependency to have succeeded.
+            self.assertEqual(covered(self.wf_needs(cond, "    if: success()\n")),
+                             set())
+
+        def test_needs_transitive_and_shapes(self):
+            text = ("jobs:\n  h:\n    if: false\n    runs-on: ubuntu-latest\n"
+                    "    steps:\n      - run: echo h\n"
+                    "  g:\n    if: always()\n    needs: [h]\n    runs-on: ubuntu-latest\n"
+                    "    steps:\n      - run: echo g\n"
+                    "  j:\n    runs-on: ubuntu-latest\n    needs:\n      - g\n"
+                    "    steps:\n      - run: cargo test -p a\n")
+            # `always()` on `g` does not rescue `j` (skipped grandparent).
+            self.assertEqual(covered(text), set())
+            self.assertEqual(covered(text.replace("    if: false\n", "")), A)
+            missing = self.wf_needs("").replace("needs: gate", "needs: nope")
+            self.assertEqual(covered(missing), set())
+            cycle = self.wf_needs("    needs: j\n")
+            self.assertEqual(covered(cycle), set())
+            expr = self.wf_needs("").replace("needs: gate", "needs: ${{ x }}")
+            self.assertEqual(covered(expr), set())
+            selfhosted = self.wf_needs("").replace(
+                "  gate:\n    runs-on: ubuntu-latest", "  gate:\n    runs-on: [self-hosted]")
+            self.assertEqual(covered(selfhosted), set())
+
+        # -- issue #790: YAML anchors / aliases / flow mappings ---------------
+        def test_yaml_alias_on_runs_on(self):
+            text = ("x: &win windows-latest\njobs:\n  j:\n    runs-on: *win\n"
+                    "    steps:\n      - run: cargo test -p a\n")
+            self.assertEqual(covered(text), set())
+            r = evaluate({"w.yml": text}, T, set())
+            self.assertEqual(r.commands, 0)
+            self.assertIn("whole workflow", r.warnings[0])
+
+        def test_yaml_anchor_merge_key(self):
+            text = ("jobs:\n  base: &base\n    runs-on: ubuntu-latest\n"
+                    "    steps:\n      - run: cargo test -p a\n"
+                    "  j:\n    <<: *base\n")
+            self.assertEqual(covered(text), set())
+            text = ("jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
+                    "      - &s\n        run: cargo test -p a\n      - *s\n")
+            self.assertEqual(covered(text), set())
+
+        def test_yaml_each_rule_diagnosed(self):
+            # An alias or merge key always comes with an anchor, so each rule
+            # is checked by its own diagnosis (defence in depth).
+            def problems(text):
+                return " ".join(parse_workflow(text).yaml_problems)
+            self.assertIn("YAML anchor `&win`", problems("x: &win windows-latest\n"))
+            self.assertIn("YAML alias `*win`", problems("jobs:\n  j:\n    runs-on: *win\n"))
+            self.assertIn("YAML alias `*s`", problems("steps:\n  - *s\n"))
+            self.assertIn("merge key", problems("jobs:\n  j:\n    <<: *base\n"))
+            self.assertEqual(problems(wf_run("cargo test -p a && ls *.rs")), "")
+
+        def test_yaml_flow_mapping(self):
+            text = ("jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
+                    "      - {run: cargo test -p a}\n")
+            self.assertEqual(covered(text), set())
+            r = evaluate({"w.yml": text}, T, set())
+            self.assertIn("flow mapping", r.warnings[0])
+            hidden = ("jobs:\n  j:\n    runs-on: ubuntu-latest\n"
+                      "    defaults: {run: {working-directory: x}}\n    steps:\n"
+                      "      - run: cargo test -p a\n")
+            self.assertEqual(covered(hidden), set())
+            # An empty mapping holds no keys.
+            ok = "on:\n  workflow_dispatch: {}\n" + wf_run("cargo test -p a")
+            self.assertEqual(covered(ok), A)
+
+        def test_shell_text_is_not_yaml_syntax(self):
+            # `&&`, `*)` and `*` inside a run block are shell, not YAML.
+            self.check("echo a && echo b\ncase x in\n  *) echo ;;\nesac\n"
+                       "ls *.rs\ncargo test -p a", A)
+
+        # -- issue #790: self-hosted / unknown runner labels -------------------
+        def test_unknown_runner_labels(self):
+            for ro in ("[self-hosted, win64]", "[self-hosted, linux]", "my-big-runner",
+                       "[ubuntu-latest, gpu]", "self-hosted"):
+                self.check("cargo test -p a", set(),
+                           job_extra=f"    runs-on: {ro}\n")
+            self.check("cargo test -p a", set(),
+                       job_extra="    runs-on:\n      - self-hosted\n      - win64\n")
+            # An explicit POSIX shell does not depend on the runner OS.
+            self.check("cargo test -p a", A, job_extra="    runs-on: [self-hosted, win64]\n",
+                       extra="        shell: bash\n")
+
+        def test_hosted_runner_labels(self):
+            for ro in ("ubuntu-24.04", "ubuntu-24.04-arm", "macos-14", "[ubuntu-latest]",
+                       "'ubuntu-latest'"):
+                self.check("cargo test -p a", A, job_extra=f"    runs-on: {ro}\n")
+            self.check("cargo test -p a", set(), job_extra="    runs-on: windows-2022\n")
 
         # -- ratchet failure modes -----------------------------------------
         def test_uncovered_not_allowlisted_fails(self):
