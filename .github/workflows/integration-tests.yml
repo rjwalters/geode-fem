@@ -22,7 +22,7 @@ name: integration-tests
 # Targets whose default tier is empty (every test #[ignore]d) are not run
 # here for the default tier only, since that would just compile them
 # (clippy --tests in arpack.yml already does that). Four of them run their
-# --ignored tier below (two in core-tests, two in core-dense-complex,
+# --ignored tier below (two in core-tests, two in core-dense-eigen,
 # issue #796). The rest are too slow or are benchmarks.
 
 on:
@@ -150,7 +150,7 @@ jobs:
               --test vtu_roundtrip \
               --test waveguide_gauge_higher_order
 
-  core-dense-complex:
+  core-dense-eigen:
     # Issue #796: the dense complex eigensolver (`FaerComplexEigensolver`)
     # used faer 0.24's generalized complex QZ, which did not terminate on
     # pencils above ~500 DOF. That kept mie_sphere and derham_kernel_dim
@@ -163,7 +163,15 @@ jobs:
     # watchdog per solve so a regression fails instead of hanging). This is
     # its own job, so a cold build here runs in parallel with core-tests
     # and does not push core-tests toward its 45-min bound.
-    name: cargo test -p geode-core --release (dense complex eigensolver targets, linux)
+    #
+    # Issue #800: the dense real eigensolver (`FaerDenseEigensolver`) used
+    # faer 0.24's generalized real QZ, which is many times slower from ~590
+    # DOF (an AED window spin) and loses accuracy on the Mie sub-blocks. It
+    # is now a dense shift-invert too. dense_real_eigensolver_bounded is the
+    # #800 regression guard (default tier, about 1.5 s locally; it checks
+    # the spectrum against a symmetric Cholesky reference and holds the
+    # 600-DOF solve to a 4-s speed budget, with a 120-s watchdog).
+    name: cargo test -p geode-core --release (dense eigensolver targets, linux)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -182,12 +190,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-core-dense-complex-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-core-dense-eigen-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: dense complex eigensolver regression guard (default tier)
+      - name: dense eigensolver regression guards (default tier)
         run: |
           cargo test -p geode-core --release \
-              --test dense_complex_eigensolver_bounded
+              --test dense_complex_eigensolver_bounded \
+              --test dense_real_eigensolver_bounded
 
       # Every test in mie_sphere and derham_kernel_dim is #[ignore]d (faer
       # 0.24's dense eigen paths panic under debug-assertions), so they run

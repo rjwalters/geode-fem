@@ -4,7 +4,9 @@
 //! module:
 //!   - converts them to `faer::Mat<f64>` (CPU, double precision),
 //!   - applies Dirichlet boundary conditions by row/column elimination,
-//!   - solves the generalized eigenvalue problem via `faer::generalized_eigen`,
+//!   - solves the generalized eigenvalue problem by dense shift-invert (faer
+//!     dense LU plus faer's standard real Schur QR; not faer's generalized
+//!     real QZ, which is many times slower from ~590 DOF: issue #800),
 //!   - returns the lowest-`n` real eigenvalues in ascending order.
 //!
 //! Autodiff is necessarily lost at this boundary — `faer` is a CPU-only
@@ -15,8 +17,13 @@
 use bunsen::contracts::{define_shape_contract, unpack_shape_contract};
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
-use faer::Mat;
 use faer::mat::MatRef;
+use faer::{Mat, c64};
+
+use crate::eigen::complex::dense::{
+    SHIFT_DIRECTIONS, SHIFT_PROXIMITY_LIMIT, ShiftInvertSpectrum, pencil_scale_from, recip,
+    shift_invert_spectrum_in_directions,
+};
 
 // ---------------------------------------------------------------------------
 // Named static shape contract (Bunsen, Epic #355 Phase 3)
@@ -94,17 +101,20 @@ pub enum EigenError {
         /// for the pre-solve gradient-subspace probe.
         n_returned: usize,
     },
-    /// A dense complex eigensolve was asked for a pencil larger than
-    /// [`crate::eigen::complex::MAX_DENSE_COMPLEX_DIM`]. The dense path costs
-    /// `O(n³)` time and holds several `n × n` complex matrices, so above the
-    /// limit it is refused up front rather than left to run for an
-    /// unbounded time (issue #796). Use the sparse
-    /// [`crate::eigen::complex::SparseComplexShiftInvertLanczos`] instead.
+    /// A dense eigensolve was asked for a pencil larger than its dense
+    /// limit: [`crate::eigen::complex::MAX_DENSE_COMPLEX_DIM`] for the complex
+    /// path (issue #796), [`MAX_DENSE_REAL_DIM`] for the real
+    /// [`FaerDenseEigensolver`] (issue #800). The dense paths cost `O(n³)`
+    /// time and hold several `n × n` matrices, so above the limit the solve
+    /// is refused up front rather than left to run for an unbounded time.
+    /// Use the sparse [`crate::eigen::lanczos::SparseShiftInvertLanczos`]
+    /// (real) or [`crate::eigen::complex::SparseComplexShiftInvertLanczos`]
+    /// (complex) instead.
     #[error(
-        "dense complex eigensolve refused: pencil dimension {dim} exceeds the dense limit \
-         {max} (O(n³) time, several n×n complex matrices in memory); use the sparse \
-         shift-invert solver `SparseComplexShiftInvertLanczos` for pencils this size \
-         (issue #796)"
+        "dense eigensolve refused: pencil dimension {dim} exceeds the dense limit {max} \
+         (O(n³) time, several n×n matrices in memory); use a sparse shift-invert solver \
+         (`SparseShiftInvertLanczos` for a real pencil, `SparseComplexShiftInvertLanczos` \
+         for a complex one) for pencils this size (issues #796, #800)"
     )]
     DenseTooLarge {
         /// Dimension of the pencil that was passed in.
@@ -144,17 +154,264 @@ pub struct EigenPair {
     pub vector: Vec<f64>,
 }
 
-/// Dense generalized-symmetric eigensolver backed by `faer`.
+/// Largest pencil dimension [`FaerDenseEigensolver`] accepts. Larger pencils
+/// get [`EigenError::DenseTooLarge`] straight away, without any factorization
+/// (issue #800).
+///
+/// The dense path costs `O(n³)` time and holds about five `n × n` real
+/// matrices: the shifted matrix and its LU, the shift-inverted operator, and
+/// the Schur workspace and complex eigenvectors. Measured on a loaded 6-thread
+/// host on the bundled Mie pencil `(Re K, Re M)`: 0.13 s at `n = 600`, 1.3 s
+/// at 2000 and 4.5 s at 3300 for eigenvalues only, and 8.1 s at 3300 with
+/// eigenvectors. Scaling by `n³` puts `n = 8000` at about 65 s for eigenvalues
+/// only, about twice that with eigenvectors, and about 3 GB of memory. Past
+/// that the sparse [`crate::eigen::lanczos::SparseShiftInvertLanczos`] is the
+/// right tool. The limit sits above every in-tree caller.
+pub const MAX_DENSE_REAL_DIM: usize = 8000;
+
+/// Dense generalized eigensolver for the real pencil `K x = λ M x`, backed by
+/// `faer`.
 ///
 /// For our use case (`K` symmetric positive semidefinite, `M` symmetric
-/// positive definite) the eigenvalues are guaranteed real; we still go
-/// through faer's general (possibly-complex) `generalized_eigen` API and
-/// strip negligible imaginary parts, since faer 0.24 does not expose a
-/// dedicated symmetric-generalized solver. The cost is one extra
-/// imaginary-part tolerance check — meaningful only as a correctness
-/// guard, not a real performance hit at the cube-warmup sizes.
+/// positive definite) the eigenvalues are real. The solver does not assume
+/// symmetry, though: it computes the full spectrum of the general real pencil
+/// and checks that the imaginary parts of the returned eigenvalues are
+/// negligible ([`EigenError::ComplexEigenvalue`] otherwise). It works by
+/// **dense shift-invert**, the same method as
+/// [`crate::eigen::complex::FaerComplexEigensolver`] (issue #796):
+///
+/// 1. pick the real shift `σ = −τ`, where `τ` is the pencil scale (median
+///    `|K_ii| / |M_ii|`, rounded to a power of two);
+/// 2. factor `K − σM` with faer's dense partial-pivoting LU and form the
+///    standard operator `T = (K − σM)⁻¹ M`;
+/// 3. take the standard **real** eigendecomposition of `T` (faer's real
+///    multishift Schur QR, `evd_real`) to get `μ` (real, or complex-conjugate
+///    pairs), and map back by `λ = σ + 1/μ`. The eigenvectors of `T` are
+///    those of the pencil.
+///
+/// It is a full spectral transformation, so every finite eigenvalue comes
+/// back and the `lowest n by Re λ` contract is unchanged. `μ ≈ 0`
+/// (`|μ| ≤ n·ε·max|μ|`) is an infinite eigenvalue (singular `M`) and is an
+/// [`EigenError::SingularPencil`] error, as `|β| ≈ 0` was for the old QZ.
+///
+/// If `σ = −τ` is unusable (`K − σM` singular, a non-finite or failed Schur
+/// form, or an eigenvalue within `τ / 10⁶` of `σ`, which needs an indefinite
+/// pencil), the solver falls back to the complex shifts `σ = τ·e^{iθ}`,
+/// `θ ∈ {3π/4, 5π/4, π/2, 3π/2}`, through the complex dense path. For a
+/// symmetric pencil with a definite `M` the spectrum is real, so `±iτ` is at
+/// least `τ` from every eigenvalue and the fallback cannot run out of shifts.
+///
+/// # Why not faer's generalized real QZ (issue #800)
+///
+/// Up to and including v0.7 this type called `faer::Mat::generalized_eigen`,
+/// which is faer 0.24's real QZ (`gevd_real` → `qz_real`). From about 590 DOF
+/// up (where faer's default shift count goes from 32 to 64 and the AED
+/// deflation window to 96) that QZ is many times slower than its `O(n³)` work:
+/// 5.7 s at `n = 600` against 0.36 s at 560. An instrumented copy of faer
+/// 0.24.0 traced it to the recursive deflation-window spin that issue #796
+/// found in the complex QZ. Inside the aggressive early deflation, the window
+/// QZ (`n_w = 96`) clamps its own deflation window to `(n_w − 3)/3 = 31`.
+/// When its active block falls between that clamp and the blocking threshold
+/// (75), it runs no sweep and cannot deflate the whole block, so it spins to
+/// its `30·n_w = 2880` iteration cap. At `n = 600`, 5 of the 13 window QZs
+/// hit the cap, with 14 350 iterations that neither swept nor deflated. Without
+/// the clamp the same QZ takes 0.42 s. The real path has no NaN defect: no
+/// Givens rotation was non-finite or had a subnormal norm, and the matrices
+/// stayed finite after every sweep. faer's standard real Schur QR solves its
+/// deflation window with the non-recursive `lahqr` and always sweeps after an
+/// AED that deflates nothing, so it has no such trap. Measured on the Mie
+/// pencil, eigenvectors included: 0.15 s at `n = 600` (QZ 5.7 s), 2.2 s at
+/// 2000 (QZ 28.9 s), 8.1 s at 3300 (QZ 46 s). The two agree to round-off;
+/// see `tests/dense_real_eigensolver_bounded.rs` and the PR for #800.
+///
+/// # Bounded failure
+///
+/// * pencils larger than [`MAX_DENSE_REAL_DIM`] are refused with
+///   [`EigenError::DenseTooLarge`] before any factorization;
+/// * non-finite input, and no admissible shift after the real shift and the
+///   four complex fallbacks, return [`EigenError::FaerGevd`]. Neither returns
+///   NaN eigenvalues.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FaerDenseEigensolver;
+
+fn all_finite_real(a: MatRef<f64>) -> bool {
+    (0..a.ncols()).all(|j| (0..a.nrows()).all(|i| a[(i, j)].is_finite()))
+}
+
+fn all_finite_c64(a: MatRef<c64>) -> bool {
+    (0..a.ncols())
+        .all(|j| (0..a.nrows()).all(|i| a[(i, j)].re.is_finite() && a[(i, j)].im.is_finite()))
+}
+
+/// The pencil scale `τ` of [`FaerDenseEigensolver`]; the same rule (and the
+/// same value) as the complex path's.
+fn pencil_scale_real(k: MatRef<f64>, m: MatRef<f64>) -> f64 {
+    let max_abs = |a: MatRef<f64>| {
+        (0..a.ncols())
+            .flat_map(|j| (0..a.nrows()).map(move |i| (i, j)))
+            .map(|(i, j)| a[(i, j)].abs())
+            .fold(0.0, f64::max)
+    };
+    pencil_scale_from(
+        (0..k.nrows()).map(|i| k[(i, i)].abs() / m[(i, i)].abs()),
+        || max_abs(k) / max_abs(m),
+    )
+}
+
+/// One attempt at the real shift `σ = −τ`. `Err` carries the reason the shift
+/// was rejected, for the error message if the fallbacks fail too.
+fn real_shift_attempt(
+    k: MatRef<f64>,
+    m: MatRef<f64>,
+    tau: f64,
+    want_vectors: bool,
+) -> Result<ShiftInvertSpectrum, String> {
+    use faer::linalg::solvers::Solve;
+
+    let dim = k.nrows();
+    let sigma = -tau;
+    let shifted = Mat::<f64>::from_fn(dim, dim, |i, j| k[(i, j)] - sigma * m[(i, j)]);
+    let op = shifted.partial_piv_lu().solve(m);
+    if !all_finite_real(op.as_ref()) {
+        return Err("K − σM is singular".into());
+    }
+    let (mu, vectors): (Vec<c64>, Option<Mat<c64>>) = if want_vectors {
+        let e = op
+            .eigen()
+            .map_err(|e| format!("real Schur QR failed ({e:?})"))?;
+        (
+            e.S().column_vector().iter().copied().collect(),
+            Some(e.U().to_owned()),
+        )
+    } else {
+        let mu = op
+            .eigenvalues()
+            .map_err(|e| format!("real Schur QR failed ({e:?})"))?;
+        (mu, None)
+    };
+    if mu.iter().any(|z| !(z.re.is_finite() && z.im.is_finite())) {
+        return Err("non-finite shift-inverted eigenvalue".into());
+    }
+    if let Some(u) = &vectors
+        && !all_finite_c64(u.as_ref())
+    {
+        return Err("non-finite shift-inverted eigenvector".into());
+    }
+    let mu_max = mu.iter().map(|z| z.norm()).fold(0.0, f64::max);
+    if mu_max * tau > SHIFT_PROXIMITY_LIMIT {
+        return Err(format!(
+            "an eigenvalue lies within {:.3e} of σ",
+            1.0 / mu_max
+        ));
+    }
+    // |μ| at round-off level relative to the largest is an infinite
+    // eigenvalue of the pencil (singular M). It is left out here and turned
+    // into `SingularPencil` by the caller.
+    let infinite_floor = dim as f64 * f64::EPSILON * mu_max;
+    let sigma = c64::new(sigma, 0.0);
+    let lambdas = mu
+        .iter()
+        .enumerate()
+        .filter(|(_, z)| z.norm() > infinite_floor)
+        .map(|(i, z)| (sigma + recip(*z), i))
+        .collect();
+    Ok(ShiftInvertSpectrum { lambdas, vectors })
+}
+
+/// Every eigenvalue (and optionally eigenvector) of the real pencil
+/// `K x = λ M x` by dense shift-invert. See [`FaerDenseEigensolver`] for the
+/// method and the failure contract. An infinite eigenvalue is an
+/// [`EigenError::SingularPencil`] error.
+fn real_shift_invert_spectrum(
+    k: MatRef<f64>,
+    m: MatRef<f64>,
+    want_vectors: bool,
+) -> Result<ShiftInvertSpectrum, EigenError> {
+    let dim = k.nrows();
+    if dim > MAX_DENSE_REAL_DIM {
+        return Err(EigenError::DenseTooLarge {
+            dim,
+            max: MAX_DENSE_REAL_DIM,
+        });
+    }
+    if dim == 0 {
+        return Ok(ShiftInvertSpectrum {
+            lambdas: Vec::new(),
+            vectors: None,
+        });
+    }
+    if !all_finite_real(k) || !all_finite_real(m) {
+        return Err(EigenError::FaerGevd(
+            "dense real eigensolve: the pencil has a non-finite entry".into(),
+        ));
+    }
+
+    let tau = pencil_scale_real(k, m);
+    let spec = match real_shift_attempt(k, m, tau, want_vectors) {
+        Ok(spec) => spec,
+        Err(reason) => {
+            // Complex-shift fallback: the remaining directions of the complex
+            // path, on the same pencil promoted to complex.
+            let a = Mat::<c64>::from_fn(dim, dim, |i, j| c64::new(k[(i, j)], 0.0));
+            let b = Mat::<c64>::from_fn(dim, dim, |i, j| c64::new(m[(i, j)], 0.0));
+            shift_invert_spectrum_in_directions(
+                a.as_ref(),
+                b.as_ref(),
+                want_vectors,
+                &SHIFT_DIRECTIONS[1..],
+            )
+            .map_err(|e| match e {
+                EigenError::FaerGevd(msg) => EigenError::FaerGevd(format!(
+                    "dense real shift-invert rejected σ = {:e} ({reason}); complex-shift \
+                     fallback: {msg}",
+                    -tau
+                )),
+                other => other,
+            })?
+        }
+    };
+    if spec.lambdas.len() < dim {
+        let mut present = vec![false; dim];
+        for &(_, col) in &spec.lambdas {
+            present[col] = true;
+        }
+        let missing = present.iter().position(|p| !p).unwrap_or(0);
+        return Err(EigenError::SingularPencil(missing));
+    }
+    Ok(spec)
+}
+
+/// Sort `(Re λ, Im λ, column)` by `Re λ` ascending (stable), keep the lowest
+/// `n`, and reject a kept eigenvalue with a non-negligible imaginary part.
+///
+/// Filtering to the lowest modes BEFORE checking the imaginary tolerance is
+/// the robustness move: high-frequency modes on coarse meshes can accumulate
+/// non-trivial round-off in the imaginary channel even though they are
+/// mathematically real, but the lowest modes remain real to f64 precision and
+/// are all the API promises.
+fn lowest_real(spec: &ShiftInvertSpectrum, n: usize) -> Result<Vec<(f64, usize)>, EigenError> {
+    let mut items: Vec<(f64, f64, usize)> = spec
+        .lambdas
+        .iter()
+        .map(|&(l, col)| (l.re, l.im, col))
+        .collect();
+    // No NaN can reach here (the spectrum is checked finite), so
+    // `partial_cmp` is total; it is kept (rather than `total_cmp`) so that
+    // `-0.0` and `0.0` still compare equal, as before.
+    items.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    items.truncate(n);
+    for (i, (re, im, _)) in items.iter().enumerate() {
+        // Tolerance: 1e-9 relative is comfortably above f64 noise but
+        // catches anything that is actually a conjugate pair.
+        if im.abs() > 1e-9 * re.abs().max(1.0) {
+            return Err(EigenError::ComplexEigenvalue(format!(
+                "λ[{i}] = {re} + {im}i (rel im {})",
+                im.abs() / re.abs().max(1.0)
+            )));
+        }
+    }
+    Ok(items.into_iter().map(|(re, _, col)| (re, col)).collect())
+}
 
 impl FaerDenseEigensolver {
     /// Compute the lowest `n` generalized eigenpairs of `K v = λ M v`,
@@ -177,69 +434,31 @@ impl FaerDenseEigensolver {
         assert_eq!(m.nrows(), m.ncols(), "M must be square");
         assert_eq!(k.nrows(), m.nrows(), "K and M must agree in size");
 
-        let evd = k
-            .generalized_eigen(&m)
-            .map_err(|e| EigenError::FaerGevd(format!("{e:?}")))?;
+        let spec = real_shift_invert_spectrum(k, m, true)?;
+        let kept = lowest_real(&spec, n)?;
+        let Some(u) = spec.vectors else {
+            // Vectors were requested, so they are present whenever the
+            // pencil is non-empty.
+            return Ok(Vec::new());
+        };
+        let dim = u.nrows();
 
-        let s_a = evd.S_a().column_vector();
-        let s_b = evd.S_b().column_vector();
-        let u = evd.U();
-        let dim = s_a.nrows();
-
-        // For each column of U: compute the eigenvalue and grab the
-        // eigenvector. We defer the imaginary-tolerance sanity check
-        // until after sorting & truncating to the lowest `n` modes —
-        // high-frequency spurious modes on coarse meshes can carry
-        // non-trivial conjugate-pair imaginaries even when the lowest
-        // physical modes are real to f64 precision (same robustness
-        // move as `smallest_eigenvalues`).
-        let mut pairs: Vec<(f64, Vec<f64>, f64, f64)> = Vec::with_capacity(dim);
-        for i in 0..dim {
-            let a = s_a[i];
-            let b = s_b[i];
-            if b.norm_sqr() < 1e-30 {
-                return Err(EigenError::SingularPencil(i));
-            }
-            let denom = b.norm_sqr();
-            let re = (a.re * b.re + a.im * b.im) / denom;
-            let im = (a.im * b.re - a.re * b.im) / denom;
-            // Materialize column `i` of U as the eigenvector (real part)
-            // plus the max imag component for the per-mode check below.
-            let mut v: Vec<f64> = Vec::with_capacity(dim);
-            let mut max_im_vec = 0.0_f64;
-            for row in 0..dim {
-                let c = u[(row, i)];
-                v.push(c.re);
-                max_im_vec = max_im_vec.max(c.im.abs());
-            }
-            pairs.push((re, v, im, max_im_vec));
-        }
-        pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-        let take = n.min(pairs.len());
-        // Apply the eigenvalue imag tolerance check to only the kept
-        // lowest modes. We do **not** apply a tolerance check to the
-        // eigenvector's imag part: faer's `generalized_eigen` returns
-        // conjugate-pair columns even when the corresponding
-        // eigenvalues are mathematically real but happen to be paired
-        // by the QZ algorithm (gradient-nullspace clusters near zero
-        // routinely do this). Taking the real part is correct for the
-        // eigenvalues we deem real via the S_a/S_b imag test (which
-        // *is* the rigorous "is this eigenvalue real" check).
-        for (i, (re, _, im, _)) in pairs.iter().enumerate().take(take) {
-            if im.abs() > 1e-9 * re.abs().max(1.0) {
-                return Err(EigenError::ComplexEigenvalue(format!(
-                    "λ[{i}] = {re} + {im}i (rel im {})",
-                    im.abs() / re.abs().max(1.0)
-                )));
-            }
-        }
-
+        // Take the real part of each kept eigenvector. We do **not** apply a
+        // tolerance check to the eigenvector's imaginary part: a real
+        // eigenvalue from the real Schur form has an exactly real
+        // eigenvector, but the complex-shift fallback (and a mathematically
+        // real eigenvalue that round-off paired with its neighbour) can
+        // carry an imaginary part. Taking the real part is correct for the
+        // eigenvalues `lowest_real` deemed real (which *is* the rigorous "is
+        // this eigenvalue real" check).
+        //
         // M-orthonormalize the kept eigenvectors: divide each v by
         // sqrt(vᵀ M v) so vᵀ M v = 1. This is the convention modal
         // projection wants (the modal amplitude `<E, S v>` becomes the
         // pure projection coefficient).
-        let mut out = Vec::with_capacity(take);
-        for (lambda, mut v, _, _) in pairs.into_iter().take(take) {
+        let mut out = Vec::with_capacity(kept.len());
+        for (lambda, col) in kept {
+            let mut v: Vec<f64> = (0..dim).map(|row| u[(row, col)].re).collect();
             let mut norm2 = 0.0_f64;
             for i in 0..dim {
                 let mut mv_i = 0.0_f64;
@@ -271,54 +490,12 @@ impl EigenSolver for FaerDenseEigensolver {
         assert_eq!(m.nrows(), m.ncols(), "M must be square");
         assert_eq!(k.nrows(), m.nrows(), "K and M must agree in size");
 
-        let evd = k
-            .generalized_eigen(&m)
-            .map_err(|e| EigenError::FaerGevd(format!("{e:?}")))?;
-
-        let s_a = evd.S_a().column_vector();
-        let s_b = evd.S_b().column_vector();
-        let dim = s_a.nrows();
-
-        // Compute every eigenvalue as a (real, imag) pair via complex
-        // division `a / b = a * conj(b) / |b|²`. faer's generalized_eigen
-        // uses a Schur-based algorithm that does NOT exploit symmetry, so
-        // even for our symmetric SPD problem the result is in Complex<f64>;
-        // genuine conjugate pairs only show up if the pencil is non-SPD,
-        // which we never feed it.
-        let mut pairs: Vec<(f64, f64)> = Vec::with_capacity(dim);
-        for i in 0..dim {
-            let a = s_a[i];
-            let b = s_b[i];
-            // |b| should be ≫ 0 for a regular pencil. Treat near-zero as
-            // singular — better than silently producing ±inf eigenvalues.
-            if b.norm_sqr() < 1e-30 {
-                return Err(EigenError::SingularPencil(i));
-            }
-            let denom = b.norm_sqr();
-            let re = (a.re * b.re + a.im * b.im) / denom;
-            let im = (a.im * b.re - a.re * b.im) / denom;
-            pairs.push((re, im));
-        }
-
-        // Sort by real part ascending, take the lowest `n`. Filtering to
-        // the lowest modes BEFORE checking imaginary tolerance is the
-        // robustness move: high-frequency modes on coarse meshes can
-        // accumulate non-trivial roundoff in the imaginary channel even
-        // though they are mathematically real, but the lowest modes
-        // remain real to f64 precision and are all this trait promises.
-        pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-        let take = n.min(pairs.len());
-        for (i, (re, im)) in pairs.iter().take(take).enumerate() {
-            // Tolerance: 1e-9 relative is comfortably above f64 noise but
-            // catches anything that is actually a conjugate pair.
-            if im.abs() > 1e-9 * re.abs().max(1.0) {
-                return Err(EigenError::ComplexEigenvalue(format!(
-                    "λ[{i}] = {re} + {im}i (rel im {})",
-                    im.abs() / re.abs().max(1.0)
-                )));
-            }
-        }
-        Ok(pairs.into_iter().take(take).map(|(re, _)| re).collect())
+        // Eigenvalues only: the real Schur form without its eigenvectors.
+        let spec = real_shift_invert_spectrum(k, m, false)?;
+        Ok(lowest_real(&spec, n)?
+            .into_iter()
+            .map(|(re, _)| re)
+            .collect())
     }
 }
 
@@ -413,5 +590,159 @@ mod contract_tests {
         // contract; bunsen must reject it with a `Shape Error`.
         let bad_rank: [usize; 3] = [4, 4, 4];
         assert_shape_contract!(BURN_MATRIX_BRIDGE_CONTRACT, &bad_rank, &[]);
+    }
+}
+
+#[cfg(test)]
+mod shift_invert_tests {
+    //! Unit tests for the dense shift-invert path of [`FaerDenseEigensolver`]
+    //! (issue #800). The 600-DOF regression guard is
+    //! `tests/dense_real_eigensolver_bounded.rs`.
+    use super::*;
+
+    fn diag(d: &[f64]) -> Mat<f64> {
+        Mat::<f64>::from_fn(d.len(), d.len(), |i, j| if i == j { d[i] } else { 0.0 })
+    }
+
+    /// Diagonal pencil with a known spectrum and an exact null cluster,
+    /// returned ascending. The power-of-two `τ` (median ratio 2) and the
+    /// Smith reciprocal make representable eigenvalues come back exactly.
+    #[test]
+    fn diagonal_pencil_spectrum_with_null_cluster() {
+        let k = diag(&[0.0, 5.0, 0.0, 2.0, 0.0, 7.0]);
+        let m = diag(&[1.0, 0.5, 1.0, 1.0, 1.0, 1.0]);
+        let l = FaerDenseEigensolver
+            .smallest_eigenvalues(k.as_ref(), m.as_ref(), 10)
+            .expect("solve");
+        assert_eq!(l.len(), 6, "{l:?}");
+        for z in &l[..3] {
+            assert!(z.abs() < 1e-14, "null cluster: {l:?}");
+        }
+        assert_eq!(&l[3..], &[2.0, 7.0, 10.0], "{l:?}");
+        let l2 = FaerDenseEigensolver
+            .smallest_eigenvalues(k.as_ref(), m.as_ref(), 4)
+            .expect("solve");
+        assert_eq!(l2.len(), 4);
+        assert_eq!(l2[3], 2.0);
+    }
+
+    /// The eigenpair path returns M-normalized eigenvectors of the pencil.
+    #[test]
+    fn eigenpairs_are_m_normalized_eigenvectors() {
+        // K = [[2, −1], [−1, 2]], M = diag(1, 2); checked by residual.
+        let k = Mat::<f64>::from_fn(2, 2, |i, j| if i == j { 2.0 } else { -1.0 });
+        let m = diag(&[1.0, 2.0]);
+        let pairs = FaerDenseEigensolver
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), 2)
+            .expect("solve");
+        assert_eq!(pairs.len(), 2);
+        assert!(pairs[0].lambda < pairs[1].lambda);
+        for p in &pairs {
+            let v = &p.vector;
+            for i in 0..2 {
+                let r = (0..2)
+                    .map(|j| (k[(i, j)] - p.lambda * m[(i, j)]) * v[j])
+                    .sum::<f64>();
+                assert!(r.abs() < 1e-14, "residual {r:e} for {p:?}");
+            }
+            let vmv = v[0] * v[0] + 2.0 * v[1] * v[1];
+            assert!((vmv - 1.0).abs() < 1e-14, "vᵀMv = {vmv}");
+        }
+    }
+
+    /// A zero row/column of `M` is an infinite eigenvalue: an error, as the
+    /// old QZ's `|β| ≈ 0` was.
+    #[test]
+    fn singular_mass_is_a_singular_pencil_error() {
+        let k = diag(&[1.0, 2.0, 7.0]);
+        let m = diag(&[1.0, 1.0, 0.0]);
+        let err = FaerDenseEigensolver
+            .smallest_eigenvalues(k.as_ref(), m.as_ref(), 3)
+            .expect_err("must reject");
+        assert!(matches!(err, EigenError::SingularPencil(2)), "{err:?}");
+    }
+
+    /// An eigenvalue exactly on the real shift `σ = −τ` makes `K − σM`
+    /// singular; the solver must fall back to a complex shift and still
+    /// return the spectrum.
+    #[test]
+    fn eigenvalue_on_real_shift_falls_back_to_complex_shift() {
+        // |diag ratios| {4, 4, 4} → τ = 4, so σ = −4 = λ₀.
+        let k = diag(&[-4.0, 4.0, 4.0]);
+        let m = Mat::<f64>::identity(3, 3);
+        let l = FaerDenseEigensolver
+            .smallest_eigenvalues(k.as_ref(), m.as_ref(), 3)
+            .expect("solve");
+        assert_eq!(l.len(), 3);
+        assert!((l[0] + 4.0).abs() < 1e-12, "{l:?}");
+        assert!(
+            (l[1] - 4.0).abs() < 1e-12 && (l[2] - 4.0).abs() < 1e-12,
+            "{l:?}"
+        );
+        let pairs = FaerDenseEigensolver
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), 1)
+            .expect("solve");
+        let v = &pairs[0].vector;
+        assert!((v[0].abs() - 1.0).abs() < 1e-12, "{v:?}");
+        assert!(v[1].abs() < 1e-12 && v[2].abs() < 1e-12, "{v:?}");
+    }
+
+    /// A genuine complex-conjugate pair among the kept modes is still an
+    /// error, as before.
+    #[test]
+    fn complex_pair_is_reported() {
+        let k = Mat::<f64>::from_fn(2, 2, |i, j| match (i, j) {
+            (0, 1) => 1.0,
+            (1, 0) => -1.0,
+            _ => 0.0,
+        });
+        let m = Mat::<f64>::identity(2, 2);
+        let err = FaerDenseEigensolver
+            .smallest_eigenvalues(k.as_ref(), m.as_ref(), 2)
+            .expect_err("λ = ±i");
+        assert!(matches!(err, EigenError::ComplexEigenvalue(_)), "{err:?}");
+    }
+
+    #[test]
+    fn oversized_pencil_is_refused_before_any_work() {
+        let dim = MAX_DENSE_REAL_DIM + 1;
+        // A repeated-value view: no n×n allocation needed to probe the guard.
+        let zero = 0.0f64;
+        let z = MatRef::from_repeated_ref(&zero, dim, dim);
+        let err = FaerDenseEigensolver
+            .smallest_eigenvalues(z, z, 4)
+            .expect_err("must refuse");
+        assert!(
+            matches!(err, EigenError::DenseTooLarge { dim: d, max } if d == dim && max == MAX_DENSE_REAL_DIM),
+            "{err:?}"
+        );
+        let err = FaerDenseEigensolver
+            .smallest_eigenpairs(z, z, 4)
+            .expect_err("must refuse");
+        assert!(matches!(err, EigenError::DenseTooLarge { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn non_finite_pencil_is_an_error_not_nan_eigenvalues() {
+        let mut k = Mat::<f64>::identity(3, 3);
+        k[(1, 2)] = f64::NAN;
+        let m = Mat::<f64>::identity(3, 3);
+        let err = FaerDenseEigensolver
+            .smallest_eigenvalues(k.as_ref(), m.as_ref(), 3)
+            .expect_err("must reject");
+        assert!(matches!(err, EigenError::FaerGevd(_)), "{err:?}");
+    }
+
+    #[test]
+    fn empty_pencil_returns_nothing() {
+        let z = Mat::<f64>::zeros(0, 0);
+        let l = FaerDenseEigensolver
+            .smallest_eigenvalues(z.as_ref(), z.as_ref(), 3)
+            .expect("solve");
+        assert!(l.is_empty());
+        let p = FaerDenseEigensolver
+            .smallest_eigenpairs(z.as_ref(), z.as_ref(), 3)
+            .expect("solve");
+        assert!(p.is_empty());
     }
 }

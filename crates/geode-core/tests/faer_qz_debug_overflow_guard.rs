@@ -38,15 +38,21 @@
 //!
 //! # What this test asserts
 //!
-//! This test exercises the *same* `faer::generalized_eigen` → `qz_real`
-//! path that `sphere_pec_eigenmode_spectrum` hits, but on a deliberately
-//! tiny pencil chosen so the QZ iteration runs (and historically
-//! overflow-panics) in milliseconds rather than the many-minute dense
-//! O(n³) sphere solve. It is **NOT `#[ignore]`d**: it runs under the
-//! default debug profile and will panic with `attempt to subtract with
-//! overflow` if the profile-level `overflow-checks = false` is ever
-//! removed or stops taking effect. That makes it a fast, always-on guard
-//! against silently regressing the profile wiring.
+//! This test exercises faer's `generalized_eigen` → `qz_real` path on a
+//! deliberately tiny pencil chosen so the QZ iteration runs (and
+//! historically overflow-panics) in milliseconds rather than the
+//! many-minute dense O(n³) sphere solve. Since issue #800,
+//! `FaerDenseEigensolver` no longer goes through `qz_real` (it uses dense
+//! shift-invert with faer's standard real Schur QR), so the test calls
+//! `generalized_eigen` directly, as the remaining direct callers (for example
+//! `geode-validation`'s `cube_cavity_numpy_reference`) do, and also runs
+//! `FaerDenseEigensolver` on the same pencil under the debug profile.
+//!
+//! It is **NOT `#[ignore]`d**: it runs under the default debug profile and
+//! will panic with `attempt to subtract with overflow` if the profile-level
+//! `overflow-checks = false` is ever removed or stops taking effect. That
+//! makes it a fast, always-on guard against silently regressing the profile
+//! wiring.
 
 use faer::Mat;
 use geode_core::eigen::dense::{EigenSolver, FaerDenseEigensolver};
@@ -79,10 +85,17 @@ fn laplacian_pencil(n: usize) -> (Mat<f64>, Mat<f64>) {
 fn faer_qz_does_not_overflow_under_debug() {
     // If the top-level `overflow-checks = false` on the `[profile.dev]` /
     // `[profile.test]` profiles in Cargo.toml is missing or ineffective,
-    // this call panics under the default debug profile with `attempt to
-    // subtract with overflow` from `faer::linalg::gevd::qz_real`. With the
-    // suppression in place it returns the eigenvalues cleanly.
+    // the `generalized_eigen` call below panics under the default debug
+    // profile with `attempt to subtract with overflow` from
+    // `faer::linalg::gevd::qz_real`. With the suppression in place it
+    // returns the eigenvalues cleanly.
     let (k, m) = laplacian_pencil(120);
+    // faer's real QZ itself (`gevd_real` → `qz_real`), the path the
+    // profile-level suppression exists for.
+    let evd = k
+        .generalized_eigen(&m)
+        .expect("faer generalized eigensolve must not error");
+    assert_eq!(evd.S_a().column_vector().nrows(), 120);
     let lambdas = FaerDenseEigensolver
         .smallest_eigenvalues(k.as_ref(), m.as_ref(), 5)
         .expect("faer generalized eigensolve must not error");
