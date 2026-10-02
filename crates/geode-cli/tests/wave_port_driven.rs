@@ -1267,7 +1267,10 @@ fn wave_port_fill_rejections_are_invalid_spec() {
 }
 
 #[test]
-fn mixed_specs_reject_touchstone_and_adaptive_before_solving() {
+fn mixed_specs_need_reference_ohm_for_touchstone_and_accept_adaptive() {
+    // `--touchstone` without `wave_ports[].reference_ohm` (issue #775)
+    // fails before solving; with it, it composes with `sweep.adaptive`
+    // (issue #774): interpolated rows go through the same report path.
     let r_ohm = 0.6 * geode_core::constants::ETA_0_OHM;
     let ts_dir = scratch("mixed-touchstone");
     let ts = ts_dir.join("mixed.s2p");
@@ -1281,21 +1284,34 @@ fn mixed_specs_reject_touchstone_and_adaptive_before_solving() {
     ]);
     let msg = error_message(&out, "driven", "invalid_spec");
     assert!(
-        msg.contains("--touchstone") && msg.contains("wave_ports[port_in]"),
+        msg.contains("--touchstone")
+            && msg.contains("wave_ports[port_in]")
+            && msg.contains("reference_ohm"),
         "{msg}"
     );
     assert!(!ts.exists(), "no file written");
 
+    // `sweep.adaptive` with wave ports is supported since issue #774
+    // (adaptive-vs-dense goldens: `tests/adaptive_sweep_golden.rs`), and
+    // writes Touchstone once the wave port has a reference.
     let out = geode(&[
         "driven",
-        mixed_spec("mixed-adaptive", r_ohm, &[2.0, 2.5, 3.0], |v| {
+        mixed_spec("mixed-adaptive", r_ohm, &[2.0, 2.25, 2.5, 2.75, 3.0], |v| {
             v["sweep"] = serde_json::json!({ "adaptive": {} });
+            v["wave_ports"][0]["reference_ohm"] = serde_json::json!(50.0);
         })
         .to_str()
         .unwrap(),
+        "--touchstone",
+        ts.to_str().unwrap(),
     ]);
-    let msg = error_message(&out, "driven", "invalid_spec");
-    assert!(msg.contains("alone or mixed"), "{msg}");
+    let v = json(&out);
+    assert!(v["solver"]["adaptive"].is_object(), "{v}");
+    let n_rows = v["results"].as_array().unwrap().len();
+    assert_eq!(n_rows, 5);
+    let text = std::fs::read_to_string(&ts).expect("touchstone written");
+    assert!(text.contains("[Number of Ports] 2"), "{text}");
+    assert!(text.contains("[Number of Frequencies] 5"), "{text}");
 }
 
 // ---------------------------------------------------------------------

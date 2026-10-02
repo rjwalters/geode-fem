@@ -110,7 +110,8 @@ pub struct ProblemSpec {
     /// an edge with a wave-port rim. They may be mixed with lumped
     /// `ports` (issue #759): the S-matrix then lists the lumped ports
     /// first, then the wave channels (port-major, mode-minor), and
-    /// `--touchstone`, `sweep.adaptive` and `sensitivity` are rejected.
+    /// `sensitivity` is rejected. `--touchstone` needs every wave port's
+    /// `reference_ohm` (issue #775); `sweep.adaptive` applies (issue #774).
     #[serde(default)]
     pub wave_ports: Vec<WavePortSpec>,
     /// Frequencies to solve at. Required for a `driven` / `extract` spec;
@@ -1010,10 +1011,11 @@ pub struct SweepSpec {
 /// solve, so every reported point is either a full-order solve or
 /// certified at `η ≤ tolerance`.
 ///
-/// Needs `solver.mode = "direct"` and lumped `ports`; rejected with
-/// `absorbing_regions` (the matched UPML is re-assembled per frequency)
-/// and with `wave_ports`. Leontovich and Silver-Müller walls are
-/// supported.
+/// Needs `solver.mode = "direct"`; rejected with `absorbing_regions`
+/// (the matched UPML is re-assembled per frequency) and with dispersive
+/// materials. Lumped `ports`, `wave_ports` and mixed port sets (issue
+/// #774; the residual is then worst over every channel excitation) and
+/// Leontovich / Silver-Müller walls are supported.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AdaptiveSweepSpec {

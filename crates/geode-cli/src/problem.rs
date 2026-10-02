@@ -1756,8 +1756,9 @@ fn validate_eigen(spec: &ProblemSpec) -> Result<(), CliError> {
 
 /// `sweep`-section rules (scalar, before the mesh is read; issue #708).
 /// The adaptive (PROM) sweep projects a frequency-independent operator
-/// and samples it with direct-LU snapshot solves, so it needs lumped
-/// ports, the direct solver and no per-frequency re-assembly (UPML).
+/// and samples it with direct-LU snapshot solves, so it needs the direct
+/// solver and no per-frequency re-assembly (UPML). Lumped, wave and mixed
+/// port sets are all supported (wave ports: issue #774).
 fn validate_sweep(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError> {
     let Some(sweep) = &spec.sweep else {
         return Ok(());
@@ -1781,12 +1782,6 @@ fn validate_sweep(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError
         return Err(invalid("sweep.adaptive.max_snapshots must be ≥ 1"));
     }
     let remedy = "remove `sweep.adaptive` to run the dense sweep";
-    if !spec.wave_ports.is_empty() {
-        return Err(invalid(format!(
-            "sweep.adaptive does not support `wave_ports`, alone or mixed with lumped `ports` \
-             (the reduced-order model projects lumped-port operators only); {remedy}"
-        )));
-    }
     if !spec.absorbing_regions.is_empty() {
         return Err(invalid(format!(
             "sweep.adaptive does not support `absorbing_regions`: the matched UPML stretch is \
@@ -3397,11 +3392,17 @@ mod tests {
             m.contains("absorbing_regions") && m.contains("remove"),
             "{m}"
         );
-        let m = msg(
+        // Wave ports, alone or mixed with lumped ports, are fine (#774).
+        validate_sweep(
             &spec(serde_json::json!({"ports": [], "wave_ports": [{"physical_group": "w"}]})),
             Analysis::Driven,
-        );
-        assert!(m.contains("wave_ports"), "{m}");
+        )
+        .unwrap();
+        validate_sweep(
+            &spec(serde_json::json!({"wave_ports": [{"physical_group": "w"}]})),
+            Analysis::Driven,
+        )
+        .unwrap();
         let m = msg(
             &spec(serde_json::json!({"solver": {"mode": "iterative"}})),
             Analysis::Driven,

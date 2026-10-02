@@ -251,7 +251,7 @@ Driven example (the spiral-inductor golden input,
 | `solver.tol` / `solver.max_iters` | iterative only; default `1e-10` / `5000` | relative-residual tolerance / per-RHS budget; exceeding the budget is a hard error (`solve_failed`, non-zero exit). Jacobi-preconditioned COCG can stall on ill-conditioned low-frequency conductor problems (e.g. the spiral fixture); prefer `direct` there |
 | `solver.preconditioner` | iterative only; `"jacobi"` (default) \| `"ilu0"` | Jacobi = diagonal scaling. `ilu0` = incomplete LU with zero fill on `A(ω)`'s own pattern (+32 B per nonzero of factor storage; ≈ 3.4× the per-iteration time of Jacobi on the spiral smoke mesh). Neither is uniformly better (issue #708, measured 2026-09-30): on the lossy spiral smoke mesh `ilu0` converges at 10 / 20 GHz (17 278 / 12 669 iterations, Z matches direct LU to 1e-10) where Jacobi stalls at every frequency, but it still stalls at 1 / 5 GHz; on the radiating UPML patch `ilu0` stalls where Jacobi converges. Pick per problem; `direct` remains the robust choice below the LU memory wall. `"ams"` (issue #744) = Hiptmair–Xu auxiliary-space Maxwell V-cycle on a real SPD proxy of `A(ω)`, built from the mesh's discrete gradient: exact sparse LU of the nodal `GᵀPG` at every mesh size (an approximate AMG nodal solve is measured to drift; `geode check` reports the LU's modelled memory) plus 4 Gauss–Seidel sweeps on the vector-nodal block. It converges the lossy spiral where `jacobi` / `ilu0` stall — smoke 1 / 5 / 10 / 20 GHz in 112 / 131 / 145 / 159 iterations, 54k-edge benchmark at 1 GHz in 114 iterations (3.9 s, 0.34 GB peak RSS vs direct LU 5.0 s, 2.03 GB; Z matches LU to 1e-12). On meshes above ~200k edges set `solver.tol = 1e-9`: the default `1e-10` sits below the explicit-residual floor there (measured 1.6–2.5e-10 on a 228k-edge spiral), so the solve drifts and reports `solve_failed`. Known negatives: it does **not** converge the radiating UPML patch, nor layouts whose conductors are floating PEC shells — a spec whose `pec` surfaces form more than one connected component is rejected up front as `invalid_spec`, naming the floating groups (use Leontovich conductors, or `direct`) |
 | `sweep` | driven / extract only; optional section (additive in v1, #708) | sweep strategy; omitted = the dense sweep (one full-order solve per frequency) |
-| `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"` and lumped `ports`; rejected (`invalid_spec`) with `absorbing_regions`, `wave_ports` (alone or mixed with `ports`) or a dispersive material (`materials[].dispersion`). Leontovich and Silver-Müller walls are supported |
+| `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"`; rejected (`invalid_spec`) with `absorbing_regions` or a dispersive material (`materials[].dispersion`). Lumped `ports`, `wave_ports` and mixed port sets (#774), Leontovich and Silver-Müller walls are supported |
 | `sweep.adaptive.tolerance` | float in `(0, 1)`, default `1e-6` | residual-indicator target `η = ‖A(ω)x_rom − b‖/‖b‖` (worst over the port excitations) — a bound on the relative **residual**, not directly on `Z` / `S` |
 | `sweep.adaptive.max_snapshots` | int ≥ 1, default `20` | budget of greedy snapshot frequencies (full-order factorizations, seeds included); frequencies still above `tolerance` when it runs out are solved full-order |
 | `solver.mode` (eigen) | `"direct"` only | the eigen path always factors `K − σM` once with sparse LU; `"iterative"` is rejected |
@@ -560,8 +560,8 @@ modal terms the same rank-N Sherman–Morrison–Woodbury update
 - **`--touchstone`** (issue #775) writes the lumped ports first, then
   the wave channels renormalized to `wave_ports[].reference_ohm` (see
   [Touchstone output](#touchstone-output---touchstone-issue-703)).
-- **Rejected with `invalid_spec`** before any solve: `extract`,
-  `sweep.adaptive` and `sensitivity`; `--outdir` exports nothing (stderr
+- **Rejected with `invalid_spec`** before any solve: `extract` and
+  `sensitivity`; `--outdir` exports nothing (stderr
   notes it). UPML and dispersive materials work (per-frequency
   assembly); so do Leontovich walls, incl. surface roughness, and
   Silver-Müller walls off the port rims (issue #776).
@@ -1310,8 +1310,25 @@ either a full-order solve or certified at `η ≤ tolerance`. Leontovich /
 Silver-Müller walls project once with their frequency-dependent
 coefficient re-evaluated per frequency. Requires the direct solver; not
 available with `absorbing_regions` (the UPML is re-assembled per
-frequency) or `wave_ports` — remove `sweep.adaptive` to run the dense
-sweep.
+frequency) or dispersive materials — remove `sweep.adaptive` to run the
+dense sweep.
+
+**Wave and mixed ports** (issue #774). With `wave_ports` (alone or mixed
+with lumped `ports`) the model has one excitation per channel. Each
+wave channel's modal term `j·y(ω)·f fᵀ` (`y = β/μ_t`) is a rank-1 matrix
+projected once, and only its scalar `y(ω)` is re-evaluated per frequency.
+`y(ω)` is a square root with a branch point at cutoff, but it enters
+exactly, so the model has no trouble with it. A snapshot is the dense
+wave / mixed sweep's own solve (factorization + SMW update). An
+interpolated row's S uses the dense power-wave readout on the reduced
+solution, and its `β` is bit-equal to the dense row's. A fallback row is
+the dense sweep's row. A frequency exactly at a lossless cutoff (`β = 0`)
+falls back and fails with `non_finite`, as the dense sweep does.
+Constant lossy and anisotropic guide fills are supported; a dispersive
+fill is a dispersive material and stays rejected. Wave ports with
+Leontovich walls (incl. roughness) or a Silver-Müller wall off the port
+rims (issue #776) work too: the walls join the projected base operator
+exactly as on the lumped path.
 
 The tolerance bounds the **residual**; the error in `Z` can exceed it by
 the conditioning of `A(ω)`. Measured (issue #708, release, M3 Ultra, all
@@ -1325,6 +1342,18 @@ on the smoke meshes against the dense sweep at the same points):
 | patch smoke, Silver-Müller wall (UPML removed), 2–3 GHz | 41 | 1e-4 | 4 | 2.6e-4 | 3.2e-6 | 9.4 s → 1.0 s (9.4×) |
 | | 41 | 1e-6 | 6 | 1.0e-6 | 1.7e-8 | 9.4 s → 1.5 s (6.4×) |
 | | 41 | 1e-8 | 8 | 4.1e-10 | 8.8e-11 | 9.4 s → 1.9 s (5.0×) |
+
+Wave / mixed ports (issue #774, release, M3 Ultra, `waveguide_mixed_smoke.json`
+— 768 tets — and its pure-wave variant; `|ΔS|` is the worst entry of the
+full S-matrix, `β` bit-equal on every row):
+
+| Problem | points | tolerance | factorizations | max `\|ΔS_ij\|` | wall dense → adaptive |
+|---|---|---|---|---|---|
+| mixed (TE₁₀ wave + sheet), k₀ 2–3 | 41 | 1e-6 | 7 | 2.4e-9 | 0.35 s → 0.08 s |
+| | 41 | 1e-8 | 8 | 5.2e-11 | 0.30 s → 0.08 s |
+| mixed, k₀ 1.2–2.4 (crosses cutoff, nearest point 0.5 % from `k_c`) | 41 | 1e-6 | 6 | 6.9e-9 | 0.29 s → 0.06 s |
+| pure wave (2 × TE₁₀), k₀ 2–3 | 41 | 1e-6 | 6 | 1.3e-13 | 0.29 s → 0.06 s |
+| pure wave, k₀ 1.2–2.4 (crosses cutoff) | 41 | 1e-6 | 5 | 1.4e-13 | 0.30 s → 0.06 s |
 
 (Worst `|ΔZ|/|Z|` ≈ 1.5–4 × the achieved indicator on the patch; far
 below it on the spiral.) The speedup is roughly `points / factorizations`
@@ -2535,7 +2564,18 @@ stream. Those two run in release (`--ignored`); the default tier checks
 that a dense sweep with `--jobs 2 --threads 4 --progress` is
 bit-identical to `--jobs 1 --threads 2` (same per-factorization thread
 count), and that an adaptive sweep with an exhausted snapshot budget
-(`max_snapshots = 1`) gives exact fallback rows (issue #747):
+(`max_snapshots = 1`) gives exact fallback rows (issue #747). The
+wave / mixed-port tests (issue #774) also run in the default tier, on the
+`waveguide_mixed_smoke.json` guide and its pure-wave variant at tolerance
+1e-6. Over an 11-point band and a 13-point cutoff-crossing band they check
+`|ΔS_ij| ≤ tolerance` on every entry and `β` bit-equal (measured max
+`|ΔS|` 1.9e-9 / 8.4e-9 mixed, 8e-14 / 1.3e-13 pure wave). They also check
+that a grid point exactly at cutoff fails like the dense sweep, that an
+exhausted budget gives a fallback row identical to the dense row, that a
+dispersive fill is rejected, and (issue #776 walls) the same `|ΔS_ij|` /
+`β` bar with Leontovich sidewalls on the pure-wave and mixed guides and
+with a Silver-Müller end cap on a one-port guide (measured max `|ΔS|`
+3.1e-10 / 1.5e-8 / 2.1e-8):
 
 ```sh
 cargo test -p geode-cli --test adaptive_sweep_golden                          # default tier

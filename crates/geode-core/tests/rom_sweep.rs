@@ -612,3 +612,384 @@ fn rom_degenerate_tiny_grids_match_dense() {
         }
     }
 }
+
+// =====================================================================
+// Wave (modal) and mixed lumped + wave ports (issue #774)
+// =====================================================================
+//
+// Fixture: the extruded `2 × 1 × 1.2` rectangular guide (8 × 4 × 4 cells)
+// of `tests/mixed_port.rs`, TE₁₀ `k_c ≈ π/2`. Every ROM below is checked
+// against the dense sweep it replaces (`|ΔS_ij| ≤ 1e-6` over every
+// entry, `β` bit-equal), plus the **canary**: the full-order residual
+// indicator must be at roundoff (`≤ 1e-10`) at every snapshot frequency —
+// a wrong projection of the rank-1 modal family (`u uᴴ` / `u uᵀ` instead
+// of `conj(u) uᵀ`) or a modal term missing from the indicator breaks it.
+
+mod wave {
+    use super::{B, device};
+    use faer::c64;
+    use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
+    use geode_core::driven::ports::{
+        ExtrudedWaveguideMesh, LumpedPort, PortMedium, PortMode, WavePort,
+        extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh,
+        solve_mixed_port_sweep_with_mode, solve_wave_port_sweep_with_mode,
+    };
+    use geode_core::driven::rom::{
+        DrivenRom, RomError, RomScatteringReport, RomSettings, rom_mixed_port_sweep,
+    };
+    use geode_core::driven::solve::{
+        CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, SolverMode,
+    };
+    use geode_core::mesh::TetMesh;
+
+    const A: f64 = 2.0;
+    const B_DIM: f64 = 1.0;
+    const LEN: f64 = 1.2;
+    const NX: usize = 8;
+    const NY: usize = 4;
+    const NZ: usize = 4;
+    const ROM_TOL: f64 = 1e-8;
+    const S_TOL: f64 = 1e-6;
+
+    fn guide() -> ExtrudedWaveguideMesh {
+        extruded_rect_waveguide_mesh(NX, NY, NZ, A, B_DIM, LEN)
+    }
+
+    /// The lowest `n_modes` port modes on the `z = z_plane` face (as in
+    /// `tests/mixed_port.rs`).
+    fn wave_port(mesh: &TetMesh, faces: &[[u32; 3]], z_plane: f64, n_modes: usize) -> WavePort {
+        let port_mesh = rect_tri_mesh(NX, NY, A, B_DIM);
+        let node_3d = |x: f64, y: f64| -> u32 {
+            mesh.nodes
+                .iter()
+                .position(|p| {
+                    (p[0] - x).abs() < 1e-9
+                        && (p[1] - y).abs() < 1e-9
+                        && (p[2] - z_plane).abs() < 1e-9
+                })
+                .expect("port-face node in the 3-D mesh") as u32
+        };
+        let map: Vec<u32> = port_mesh
+            .nodes
+            .iter()
+            .map(|p| node_3d(p[0], p[1]))
+            .collect();
+        let edges_2d: Vec<[u32; 2]> = port_mesh
+            .edges()
+            .iter()
+            .map(|e| {
+                let (a, b) = (map[e[0] as usize], map[e[1] as usize]);
+                if a < b { [a, b] } else { [b, a] }
+            })
+            .collect();
+        let edges_3d = mesh.edges();
+        let modes = solve_rect_waveguide_modes(&port_mesh, A, B_DIM, n_modes).expect("modal solve");
+        WavePort {
+            faces: faces.to_vec(),
+            modes: modes
+                .iter()
+                .map(|m| PortMode {
+                    mode: map_mode_profile_to_full_mesh(&edges_2d, &m.e_edges, &edges_3d),
+                    k_c: m.k_c,
+                    a_inc: c64::new(1.0, 0.0),
+                })
+                .collect(),
+            medium: PortMedium::VACUUM,
+        }
+    }
+
+    fn sheet(faces: &[[u32; 3]], r: f64) -> LumpedPort<'_> {
+        LumpedPort {
+            faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: r,
+            width: A,
+            length: B_DIM,
+            v_inc: c64::new(1.0, 0.0),
+        }
+    }
+
+    fn grid(lo: f64, hi: f64, n: usize) -> Vec<f64> {
+        (0..n)
+            .map(|i| lo + (hi - lo) * i as f64 / (n - 1) as f64)
+            .collect()
+    }
+
+    /// Dense reference `(S, β)` per frequency: the pure-wave sweep without
+    /// lumped ports, else the mixed sweep.
+    fn dense(
+        g: &ExtrudedWaveguideMesh,
+        materials: DrivenMaterials<'_>,
+        lumped: &[LumpedPort<'_>],
+        wave: &[WavePort],
+        omegas: &[f64],
+    ) -> Vec<(Vec<c64>, Vec<c64>)> {
+        let mask = g.pec_interior_mask();
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        if lumped.is_empty() {
+            solve_wave_port_sweep_with_mode::<B>(
+                &g.mesh,
+                materials,
+                None,
+                &bcs,
+                wave,
+                &[],
+                omegas,
+                SolverMode::Direct,
+                &device(),
+            )
+            .expect("dense wave sweep")
+            .into_iter()
+            .map(|p| (p.s, p.beta))
+            .collect()
+        } else {
+            solve_mixed_port_sweep_with_mode::<B>(
+                &g.mesh,
+                materials,
+                None,
+                &bcs,
+                lumped,
+                wave,
+                &[],
+                omegas,
+                SolverMode::Direct,
+                &device(),
+            )
+            .expect("dense mixed sweep")
+            .into_iter()
+            .map(|p| (p.s, p.beta))
+            .collect()
+        }
+    }
+
+    fn rom(
+        g: &ExtrudedWaveguideMesh,
+        materials: DrivenMaterials<'_>,
+        lumped: &[LumpedPort<'_>],
+        wave: &[WavePort],
+        omegas: &[f64],
+    ) -> RomScatteringReport {
+        let mask = g.pec_interior_mask();
+        rom_mixed_port_sweep::<B>(
+            &g.mesh,
+            materials,
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &mask,
+            },
+            lumped,
+            wave,
+            &[],
+            omegas,
+            &RomSettings {
+                tolerance: ROM_TOL,
+                max_snapshots: 20,
+            },
+            &device(),
+        )
+        .expect("ROM sweep")
+    }
+
+    /// Compare a ROM sweep against the dense one: `β` bit-equal, every
+    /// `|ΔS_ij| ≤ S_TOL`, the canary at the snapshots, fewer snapshots
+    /// than grid points. Returns `max |ΔS|`.
+    fn check(label: &str, rom: &RomScatteringReport, dense: &[(Vec<c64>, Vec<c64>)]) -> f64 {
+        assert_eq!(rom.points.len(), dense.len());
+        // Canary first: it localizes a projection / indicator bug that
+        // would otherwise surface only as non-convergence.
+        for pt in &rom.points {
+            if rom.snapshot_omegas.contains(&pt.omega) {
+                assert!(
+                    pt.residual_indicator <= 1e-10,
+                    "{label}: canary η = {:.3e} at snapshot ω = {}",
+                    pt.residual_indicator,
+                    pt.omega
+                );
+            }
+        }
+        assert!(rom.converged, "{label}: ROM did not converge");
+        let mut max_ds = 0.0_f64;
+        for (pt, (s, beta)) in rom.points.iter().zip(dense) {
+            assert_eq!(&pt.beta, beta, "{label}: β at ω = {}", pt.omega);
+            assert_eq!(pt.s.len(), s.len());
+            let ds =
+                pt.s.iter()
+                    .zip(s)
+                    .map(|(a, b)| (a - b).norm())
+                    .fold(0.0, f64::max);
+            max_ds = max_ds.max(ds);
+        }
+        eprintln!(
+            "{label}: {} points, {} snapshots, k = {}, worst η = {:.2e}, max |ΔS| = {max_ds:.2e}",
+            dense.len(),
+            rom.snapshot_omegas.len(),
+            rom.reduced_order,
+            rom.worst_residual
+        );
+        assert!(max_ds <= S_TOL, "{label}: max |ΔS| = {max_ds:.3e}");
+        assert!(rom.snapshot_omegas.len() < dense.len());
+        max_ds
+    }
+
+    /// Two TE₁₀ wave ports, 21 points across the single-mode band.
+    #[test]
+    fn rom_wave_port_matches_dense_wave_sweep() {
+        let g = guide();
+        let eps = vec![c64::new(1.0, 0.0); g.mesh.n_tets()];
+        let wave = [
+            wave_port(&g.mesh, &g.port1_faces, 0.0, 1),
+            wave_port(&g.mesh, &g.port2_faces, LEN, 1),
+        ];
+        let omegas = grid(1.8, 3.0, 21);
+        let d = dense(&g, DrivenMaterials::Scalar(&eps), &[], &wave, &omegas);
+        let r = rom(&g, DrivenMaterials::Scalar(&eps), &[], &wave, &omegas);
+        check("pure wave", &r, &d);
+    }
+
+    /// TE₁₀ wave port in, resistive sheet (lumped port) out, plus a
+    /// two-mode variant (evanescent TE₂₀ channel) across the band.
+    #[test]
+    fn rom_mixed_port_matches_dense_mixed_sweep() {
+        let g = guide();
+        let eps = vec![c64::new(1.0, 0.0); g.mesh.n_tets()];
+        let lumped = [sheet(&g.port2_faces, 0.9)];
+        let omegas = grid(1.8, 3.0, 21);
+        for n_modes in [1, 2] {
+            let wave = [wave_port(&g.mesh, &g.port1_faces, 0.0, n_modes)];
+            let d = dense(&g, DrivenMaterials::Scalar(&eps), &lumped, &wave, &omegas);
+            let r = rom(&g, DrivenMaterials::Scalar(&eps), &lumped, &wave, &omegas);
+            assert_eq!(r.points[0].n_lumped, 1);
+            assert_eq!(r.points[0].n_ports, 1 + n_modes);
+            check(&format!("mixed, {n_modes} wave mode(s)"), &r, &d);
+        }
+    }
+
+    /// Constant **lossy** fill `ε = 2.2 − 0.05j` (complex `y(ω)`, never
+    /// zero) with matching volume ε, both ports filled.
+    #[test]
+    fn rom_wave_lossy_fill_matches_dense() {
+        let g = guide();
+        let eps_r = c64::new(2.2, -0.05);
+        let eps = vec![eps_r; g.mesh.n_tets()];
+        let medium = PortMedium::isotropic(eps_r, 1.0);
+        let wave = [
+            wave_port(&g.mesh, &g.port1_faces, 0.0, 1).with_medium(medium),
+            wave_port(&g.mesh, &g.port2_faces, LEN, 1).with_medium(medium),
+        ];
+        let omegas = grid(1.2, 2.2, 21);
+        let d = dense(&g, DrivenMaterials::Scalar(&eps), &[], &wave, &omegas);
+        let r = rom(&g, DrivenMaterials::Scalar(&eps), &[], &wave, &omegas);
+        assert!(r.points.iter().all(|p| p.beta[0].im != 0.0));
+        check("lossy fill", &r, &d);
+        // And mixed: the same filled port with a sheet at the far end.
+        let lumped = [sheet(&g.port2_faces, 0.9)];
+        let d = dense(
+            &g,
+            DrivenMaterials::Scalar(&eps),
+            &lumped,
+            &wave[..1],
+            &omegas,
+        );
+        let r = rom(
+            &g,
+            DrivenMaterials::Scalar(&eps),
+            &lumped,
+            &wave[..1],
+            &omegas,
+        );
+        check("lossy fill, mixed", &r, &d);
+    }
+
+    /// Transverse-isotropic **tensor** fill `ε = diag(1.4, 1.4, 1.0)`,
+    /// `μ = diag(1.2, 1.2, 1.5)` (`y = β/μ_t ≠ β`).
+    #[test]
+    fn rom_wave_anisotropic_fill_matches_dense() {
+        let g = guide();
+        let n_tets = g.mesh.n_tets();
+        let (eps_t, eps_n, mu_t, mu_n) = (1.4, 1.0, 1.2, 1.5);
+        let zero = c64::new(0.0, 0.0);
+        let diag = |d: [f64; 3]| -> [[c64; 3]; 3] {
+            std::array::from_fn(|i| {
+                std::array::from_fn(|j| if i == j { c64::new(d[i], 0.0) } else { zero })
+            })
+        };
+        let eps = vec![diag([eps_t, eps_t, eps_n]); n_tets];
+        let nu = vec![diag([1.0 / mu_t, 1.0 / mu_t, 1.0 / mu_n]); n_tets];
+        let medium = PortMedium {
+            eps_t: c64::new(eps_t, 0.0),
+            mu_t,
+            mu_n,
+        };
+        let wave = [
+            wave_port(&g.mesh, &g.port1_faces, 0.0, 1).with_medium(medium),
+            wave_port(&g.mesh, &g.port2_faces, LEN, 1).with_medium(medium),
+        ];
+        let omegas = grid(1.5, 2.5, 21);
+        let mats = || DrivenMaterials::MatchedUpml {
+            epsilon_tensor: &eps,
+            nu_tensor: &nu,
+        };
+        let d = dense(&g, mats(), &[], &wave, &omegas);
+        let r = rom(&g, mats(), &[], &wave, &omegas);
+        check("anisotropic fill", &r, &d);
+    }
+
+    /// Greedy selection is deterministic, and a wave-port ROM refuses the
+    /// lumped circuit readout (and vice versa).
+    #[test]
+    fn rom_wave_port_selection_is_deterministic() {
+        let g = guide();
+        let eps = vec![c64::new(1.0, 0.0); g.mesh.n_tets()];
+        let wave = [wave_port(&g.mesh, &g.port1_faces, 0.0, 1)];
+        let lumped = [sheet(&g.port2_faces, 0.9)];
+        let omegas = grid(1.8, 3.0, 21);
+        let a = rom(&g, DrivenMaterials::Scalar(&eps), &lumped, &wave, &omegas);
+        let b = rom(&g, DrivenMaterials::Scalar(&eps), &lumped, &wave, &omegas);
+        assert_eq!(a.snapshot_omegas, b.snapshot_omegas);
+        assert_eq!(a.reduced_order, b.reduced_order);
+
+        let mask = g.pec_interior_mask();
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let zero = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; g.mesh.n_tets()],
+        };
+        let op = DrivenOperator::assemble::<B>(
+            &g.mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &bcs,
+            &lumped,
+            &[],
+            &zero,
+            &device(),
+        )
+        .unwrap();
+        let settings = RomSettings {
+            tolerance: ROM_TOL,
+            max_snapshots: 2,
+        };
+        let r = DrivenRom::build_with_wave_ports(
+            &op,
+            &g.mesh,
+            &bcs,
+            &wave,
+            &omegas,
+            &settings,
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(matches!(
+            r.evaluate_excitations(2.0),
+            Err(RomError::InvalidParameter(_))
+        ));
+        let lumped_only = DrivenRom::build(&op, &omegas, &settings).unwrap();
+        assert!(matches!(
+            lumped_only.evaluate_scattering(2.0),
+            Err(RomError::InvalidParameter(_))
+        ));
+    }
+}

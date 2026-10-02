@@ -2,7 +2,7 @@
   "$defs": {
     "AdaptiveSweepSpec": {
       "additionalProperties": false,
-      "description": "Adaptive frequency sweep (issue #708): a Galerkin projection\nreduced-order model with greedy snapshot sampling\n([`geode_core::driven::rom`]; Palace's adaptive fast sweep).\n\nA few **snapshot** frequencies get a full-order direct solve (one LU\nfactorization each, one back-solve per port); every other frequency\nis **interpolated** through a small dense reduced system. The greedy\nloop adds the frequency with the worst residual indicator\n`η(ω) = ‖A(ω)·x_rom − b(ω)‖ / ‖b(ω)‖` (the true full-order relative\nresidual of the reduced solution, worst over the port excitations)\nuntil `η ≤ tolerance` everywhere or `max_snapshots` is spent. Any\nfrequency still above `tolerance` then gets a full-order fallback\nsolve, so every reported point is either a full-order solve or\ncertified at `η ≤ tolerance`.\n\nNeeds `solver.mode = \"direct\"` and lumped `ports`; rejected with\n`absorbing_regions` (the matched UPML is re-assembled per frequency)\nand with `wave_ports`. Leontovich and Silver-Müller walls are\nsupported.",
+      "description": "Adaptive frequency sweep (issue #708): a Galerkin projection\nreduced-order model with greedy snapshot sampling\n([`geode_core::driven::rom`]; Palace's adaptive fast sweep).\n\nA few **snapshot** frequencies get a full-order direct solve (one LU\nfactorization each, one back-solve per port); every other frequency\nis **interpolated** through a small dense reduced system. The greedy\nloop adds the frequency with the worst residual indicator\n`η(ω) = ‖A(ω)·x_rom − b(ω)‖ / ‖b(ω)‖` (the true full-order relative\nresidual of the reduced solution, worst over the port excitations)\nuntil `η ≤ tolerance` everywhere or `max_snapshots` is spent. Any\nfrequency still above `tolerance` then gets a full-order fallback\nsolve, so every reported point is either a full-order solve or\ncertified at `η ≤ tolerance`.\n\nNeeds `solver.mode = \"direct\"`; rejected with `absorbing_regions`\n(the matched UPML is re-assembled per frequency) and with dispersive\nmaterials. Lumped `ports`, `wave_ports` and mixed port sets (issue\n#774; the residual is then worst over every channel excitation) and\nLeontovich / Silver-Müller walls are supported.",
       "properties": {
         "max_snapshots": {
           "default": 20,
@@ -1131,7 +1131,7 @@
     },
     "wave_ports": {
       "default": [],
-      "description": "Wave (modal) ports on planar surface physical groups (additive in\nv1, issue #683). `driven` specs only. Leontovich walls (incl.\nroughness) compose (issue #776); a Silver-Müller wall may not share\nan edge with a wave-port rim. They may be mixed with lumped\n`ports` (issue #759): the S-matrix then lists the lumped ports\nfirst, then the wave channels (port-major, mode-minor), and\n`--touchstone`, `sweep.adaptive` and `sensitivity` are rejected.",
+      "description": "Wave (modal) ports on planar surface physical groups (additive in\nv1, issue #683). `driven` specs only. Leontovich walls (incl.\nroughness) compose (issue #776); a Silver-Müller wall may not share\nan edge with a wave-port rim. They may be mixed with lumped\n`ports` (issue #759): the S-matrix then lists the lumped ports\nfirst, then the wave channels (port-major, mode-minor), and\n`sensitivity` is rejected. `--touchstone` needs every wave port's\n`reference_ohm` (issue #775); `sweep.adaptive` applies (issue #774).",
       "items": {
         "$ref": "#/$defs/WavePortSpec"
       },
