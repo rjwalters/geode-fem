@@ -1108,32 +1108,9 @@ fn open_boundary_and_wave_port_spec_validation() {
     }
     let upml = |t: f64, s0: f64| serde_json::json!({"physical_group": "air", "thickness": t, "sigma_0": s0});
     let cases: Vec<(&str, SpecEdit, &str)> = vec![
-        (
-            // Lumped + wave ports may mix (issue #759), but the spiral's
-            // Leontovich wall still may not join a wave-port operator.
-            "ob-ports-and-wave",
-            Box::new(|v| v["wave_ports"] = serde_json::json!([{ "physical_group": "air" }])),
-            "Leontovich or Silver-Müller",
-        ),
-        (
-            "ob-wave-leon",
-            Box::new(|v| {
-                wave(v);
-                v["boundary_conditions"]["leontovich"] = serde_json::json!([{
-                    "physical_group": "conductor_surface", "conductivity_s_m": 5.8e7
-                }]);
-            }),
-            "Leontovich or Silver-Müller",
-        ),
-        (
-            "ob-wave-sm",
-            Box::new(|v| {
-                wave(v);
-                v["boundary_conditions"]["silver_muller"] =
-                    serde_json::json!(["conductor_surface"]);
-            }),
-            "Leontovich or Silver-Müller",
-        ),
+        // Wave ports with Leontovich walls are accepted (issue #776); a
+        // Silver-Müller wall touching a port rim is a mesh-level rule,
+        // covered in `tests/wave_port_driven.rs`.
         (
             "ob-wave-ainc",
             Box::new(|v| {

@@ -1505,3 +1505,222 @@ const MIXED_BITS: [u64; 30] = [
     0x400476b740d472a3,
     0x0000000000000000,
 ];
+
+// ---------------------------------------------------------------------
+// Wave ports with Leontovich / rough / Silver-Müller walls (issue #776)
+// ---------------------------------------------------------------------
+
+/// The lossy wall of the conductor-attenuation goldens: σ = 10⁴ S/m
+/// (`δ ≈ 50 µm ≪ h = 2.5 mm`, and `α_c L ≈ 0.016` sits far above the
+/// lossless guide's `|S11|²` floor). See geode-core's
+/// `tests/wave_port_impedance_walls.rs` for the 16 × 8 × 8 tier.
+const SIGMA_LOSSY_S_M: f64 = 1e4;
+/// Hammerstad RMS roughness ≈ δ(9.54 GHz) of the lossy wall.
+const RMS_M: f64 = 51.5e-6;
+
+/// The two-port guide with every sidewall (`walls`) a Leontovich
+/// conductor of `SIGMA_LOSSY_S_M` (and `roughness`, if given) — no PEC —
+/// swept at k₀ ∈ {2.0, 2.5}, then `edit`ed.
+fn lossy_spec(
+    name: &str,
+    roughness: Option<serde_json::Value>,
+    edit: impl FnOnce(&mut serde_json::Value),
+) -> ScratchFile {
+    spec(name, |v| {
+        let mut wall = serde_json::json!({
+            "physical_group": "walls",
+            "conductivity_s_m": SIGMA_LOSSY_S_M
+        });
+        if let Some(r) = roughness {
+            wall["roughness"] = r;
+        }
+        v["boundary_conditions"] = serde_json::json!({ "pec": [], "leontovich": [wall] });
+        v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [2.0, 2.5] });
+        edit(v);
+    })
+}
+
+fn sigma_lossy_nat() -> f64 {
+    SIGMA_LOSSY_S_M * geode_core::constants::ETA_0_OHM * LENGTH_UNIT_M
+}
+
+/// `(k₀, α̂_21, α̂_pb)` of a two-port row (natural units, per mesh unit),
+/// asserting reciprocity and passivity.
+fn row_alphas(r: &serde_json::Value) -> (f64, f64, f64) {
+    let (s, n) = s_matrix(r);
+    assert_eq!(n, 2);
+    let k0 = f64_at(&r["k0"]);
+    let recip = (s[1] - s[2]).norm() / s[2].norm();
+    assert!(recip <= 1e-10, "k0 = {k0}: |S12 − S21|/|S21| = {recip:e}");
+    let p = s[0].norm_sqr() + s[2].norm_sqr();
+    assert!(p < 1.0, "k0 = {k0}: lossy walls are passive (P = {p})");
+    (k0, -s[2].norm().ln() / LEN, -p.ln() / (2.0 * LEN))
+}
+
+#[test]
+fn leontovich_walled_guide_follows_te10_alpha_c() {
+    use geode_core::analytic::waveguide::te10_conductor_attenuation;
+    let v = json(&geode(&[
+        "driven",
+        lossy_spec("leon", None, |_| {}).to_str().unwrap(),
+    ]));
+    for r in v["results"].as_array().unwrap() {
+        assert!(r.get("roughness_k").is_none(), "smooth wall reports no K");
+        let (k0, a21, apb) = row_alphas(r);
+        let want = te10_conductor_attenuation(A, B_DIM, k0, 1.0, sigma_lossy_nat());
+        let (e21, epb) = (a21 / want - 1.0, apb / want - 1.0);
+        eprintln!(
+            "8×4×4 smooth k0 = {k0}: α̂_21 {:+.2}%, α̂_pb {:+.2}% vs Pozar 3.96",
+            100.0 * e21,
+            100.0 * epb
+        );
+        assert!(e21.abs() <= 0.07 && epb.abs() <= 0.07);
+    }
+}
+
+#[test]
+fn filled_leontovich_walled_guide_follows_te10_alpha_c() {
+    // A lossless ε_r = 2.2 fill (filled wave ports, #777) composes with
+    // the lossy walls; α_c depends on ε through k, η and β. 7 / 8 GHz.
+    use geode_core::analytic::waveguide::te10_conductor_attenuation;
+    let file = lossy_spec("leon-filled", None, |v| {
+        v["materials"] =
+            serde_json::json!([{ "physical_group": "guide", "eps_r": [EPS_FILL, 0.0] }]);
+        v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [1.467, 1.677] });
+    });
+    let out = json(&geode(&["driven", file.to_str().unwrap()]));
+    for r in out["results"].as_array().unwrap() {
+        let (k0, a21, apb) = row_alphas(r);
+        let want = te10_conductor_attenuation(A, B_DIM, k0, EPS_FILL, sigma_lossy_nat());
+        let (e21, epb) = (a21 / want - 1.0, apb / want - 1.0);
+        eprintln!(
+            "8×4×4 smooth ε_r = 2.2 k0 = {k0}: α̂_21 {:+.2}%, α̂_pb {:+.2}% vs Pozar 3.96",
+            100.0 * e21,
+            100.0 * epb
+        );
+        assert!(e21.abs() <= 0.07 && epb.abs() <= 0.07);
+    }
+}
+
+#[test]
+fn rough_walled_guide_scales_alpha_by_the_reported_k() {
+    use geode_core::analytic::waveguide::te10_conductor_attenuation;
+    use geode_core::driven::solve::SurfaceRoughness;
+    let smooth = json(&geode(&[
+        "driven",
+        lossy_spec("smooth", None, |_| {}).to_str().unwrap(),
+    ]));
+    let rough = json(&geode(&[
+        "driven",
+        lossy_spec(
+            "rough",
+            Some(serde_json::json!({ "model": "hammerstad", "rms_m": RMS_M })),
+            |_| {},
+        )
+        .to_str()
+        .unwrap(),
+    ]));
+    let model = SurfaceRoughness::HammerstadJensen {
+        rms: RMS_M / LENGTH_UNIT_M,
+    };
+    let rows = smooth["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(rough["results"].as_array().unwrap());
+    let mut ks = Vec::new();
+    for (s, r) in rows {
+        // K(f) is echoed per row, evaluated at that row's frequency.
+        let rk = r["roughness_k"].as_array().expect("roughness_k");
+        assert_eq!(rk.len(), 1);
+        assert_eq!(rk[0]["physical_group"], "walls");
+        let k = f64_at(&rk[0]["k"]);
+        let (k0, _, a_s) = row_alphas(s);
+        let want_k = model.loss_factor(k0, sigma_lossy_nat());
+        assert!((k - want_k).abs() <= 1e-15 * want_k, "K = {k} vs {want_k}");
+        ks.push(k);
+        let (_, r21, r_pb) = row_alphas(r);
+        let want = k * te10_conductor_attenuation(A, B_DIM, k0, 1.0, sigma_lossy_nat());
+        let ratio = (r_pb / a_s) / k - 1.0;
+        eprintln!(
+            "8×4×4 rough k0 = {k0}: K = {k:.4}; α̂_21 {:+.2}%, α̂_pb {:+.2}% vs K·α_c; \
+             α̂_rough/α̂_smooth vs K {:+.2}%",
+            100.0 * (r21 / want - 1.0),
+            100.0 * (r_pb / want - 1.0),
+            100.0 * ratio
+        );
+        assert!(ratio.abs() <= 0.02);
+        assert!((r21 / want - 1.0).abs() <= 0.07 && (r_pb / want - 1.0).abs() <= 0.07);
+    }
+    assert!(ks[1] > ks[0] + 0.03, "K(f) per frequency: {ks:?}");
+}
+
+#[test]
+fn silver_muller_end_cap_loads_te10_analytically() {
+    // PEC walls, one TE10 port on `port_in`, a Silver-Müller (Z_s = η₀)
+    // cap on `port_out`: |S11| = |(1 − Z_TE)/(1 + Z_TE)|, independent of
+    // L. The cap shares no edge with the port rim, so it is accepted.
+    let file = spec("sm-cap", |v| {
+        v["wave_ports"] = serde_json::json!([{ "physical_group": "port_in" }]);
+        v["boundary_conditions"]["silver_muller"] = serde_json::json!(["port_out"]);
+        v["frequencies"] = serde_json::json!({ "unit": "k0", "values": [2.0, 2.5] });
+    });
+    json(&geode(&["check", file.to_str().unwrap()]));
+    let v = json(&geode(&["driven", file.to_str().unwrap()]));
+    for r in v["results"].as_array().unwrap() {
+        let (s, n) = s_matrix(r);
+        assert_eq!(n, 1);
+        let k0 = f64_at(&r["k0"]);
+        let want = ((1.0 - z_te(k0)) / (1.0 + z_te(k0))).abs();
+        let e = s[0].norm() / want - 1.0;
+        eprintln!(
+            "8×4×4 SM end cap k0 = {k0}: |S11| = {:.4} vs {want:.4} ({:+.2}%)",
+            s[0].norm(),
+            100.0 * e
+        );
+        assert!(e.abs() <= 0.08);
+    }
+}
+
+#[test]
+fn silver_muller_wall_on_a_wave_port_rim_is_invalid_spec() {
+    // SM sidewalls touch both port rims: the PEC-rim port mode is not a
+    // model of an open aperture, so the mesh-level rule rejects it.
+    let out = geode(&[
+        "check",
+        spec("sm-rim", |v| {
+            v["boundary_conditions"] = serde_json::json!({ "pec": [], "silver_muller": ["walls"] });
+        })
+        .to_str()
+        .unwrap(),
+    ]);
+    let msg = error_message(&out, "check", "invalid_spec");
+    assert!(
+        msg.contains("Silver-Müller wall `walls`")
+            && msg.contains("wave port `port_in`")
+            && msg.contains("rim"),
+        "{msg}"
+    );
+    // (SM on a cap that touches no port rim is accepted: see
+    // `silver_muller_end_cap_loads_te10_analytically`.)
+}
+
+#[test]
+fn mixed_ports_compose_with_leontovich_walls() {
+    // The mixed path always took `surfaces`; this proves the validation
+    // no longer blocks it: solves, reciprocal, passive.
+    let file = mixed_spec("mixed-leon", 242.1, &[2.0, 2.5], |v| {
+        v["boundary_conditions"] = serde_json::json!({
+            "pec": [],
+            "leontovich": [{ "physical_group": "walls", "conductivity_s_m": SIGMA_LOSSY_S_M }]
+        });
+    });
+    let v = json(&geode(&["driven", file.to_str().unwrap()]));
+    for r in v["results"].as_array().unwrap() {
+        let (s, n) = s_matrix(r);
+        assert_eq!(n, 2);
+        assert!(reciprocity_err(&s, n) < 1e-8, "reciprocity");
+        let sig = sigma_max_2x2(&s);
+        assert!(sig < 1.0, "passivity: σ_max = {sig}");
+    }
+}

@@ -390,6 +390,7 @@ fn wave_port_sweep_iterative_matches_direct() {
         None,
         &bcs,
         &[port1.clone(), port2.clone()],
+        &[],
         &[omega],
         SolverMode::Iterative(settings),
         &device(),

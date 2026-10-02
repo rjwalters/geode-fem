@@ -1273,6 +1273,7 @@ pub fn load_parsed(
         }
     }
     let pec_mask = pec_interior_mask_from_triangles(&edges, &pec_lists);
+    check_silver_muller_port_rims(&wave_ports, &silver_muller, &edges, &pec_mask)?;
     if let SolverSpec::Iterative {
         preconditioner: crate::spec::PreconditionerSpec::Ams,
         ..
@@ -2619,6 +2620,65 @@ fn check_path_components(
     Ok(())
 }
 
+/// Reject a Silver-Müller wall that shares an edge with a wave-port rim
+/// (issue #776).
+///
+/// A wave port's modes are solved with a PEC rim (`project_port_face`
+/// eliminates the rim edges). Next to a Leontovich wall (`|Z_s| ≪ η₀`)
+/// that is a valid first-order model, but a Silver-Müller wall
+/// (`Z_s = η₀`) is an open aperture, not a perturbed conductor, so the
+/// PEC-rim mode no longer describes the field there. The rim of a port is
+/// its edges that bound exactly one port triangle; only rim edges left
+/// unconstrained by PEC (`pec_mask == true`) can couple to the wall.
+fn check_silver_muller_port_rims(
+    wave_ports: &[WavePortDef],
+    silver_muller: &[Surface],
+    edges: &[[u32; 2]],
+    pec_mask: &[bool],
+) -> Result<(), CliError> {
+    use std::collections::{HashMap, HashSet};
+    if wave_ports.is_empty() || silver_muller.is_empty() {
+        return Ok(());
+    }
+    let key = |a: u32, b: u32| if a < b { (a, b) } else { (b, a) };
+    let tri_edges = |t: &[u32; 3]| [key(t[0], t[1]), key(t[0], t[2]), key(t[1], t[2])].into_iter();
+    let pec_edges: HashSet<(u32, u32)> = edges
+        .iter()
+        .zip(pec_mask)
+        .filter(|&(_, &free)| !free)
+        .map(|(e, _)| key(e[0], e[1]))
+        .collect();
+    let sm_edges: Vec<HashSet<(u32, u32)>> = silver_muller
+        .iter()
+        .map(|s| s.triangles.iter().flat_map(tri_edges).collect())
+        .collect();
+    for w in wave_ports {
+        let mut count: HashMap<(u32, u32), usize> = HashMap::new();
+        for e in w.surface.triangles.iter().flat_map(tri_edges) {
+            *count.entry(e).or_default() += 1;
+        }
+        let rim: Vec<(u32, u32)> = count
+            .into_iter()
+            .filter(|&(e, n)| n == 1 && !pec_edges.contains(&e))
+            .map(|(e, _)| e)
+            .collect();
+        for (sm, set) in silver_muller.iter().zip(&sm_edges) {
+            let n = rim.iter().filter(|e| set.contains(e)).count();
+            if n > 0 {
+                return Err(invalid(format!(
+                    "Silver-Müller wall `{}` shares {n} edge(s) with the rim of wave port `{}`: \
+                     wave-port modes are solved with a PEC rim, which is a valid first-order \
+                     model next to a Leontovich (good-conductor) wall but not next to an \
+                     absorbing wall — keep Silver-Müller walls off the port rim (e.g. feed the \
+                     port through a PEC or Leontovich guide section)",
+                    sm.name, w.surface.name
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Scalar rules for `absorbing_regions` and `wave_ports` (before the mesh
 /// is read). The eigen-spec rejections live in [`validate_eigen`].
 fn validate_open_boundaries(spec: &ProblemSpec) -> Result<(), CliError> {
@@ -2640,13 +2700,6 @@ fn validate_open_boundaries(spec: &ProblemSpec) -> Result<(), CliError> {
     }
     if spec.wave_ports.is_empty() {
         return Ok(());
-    }
-    let bcs = &spec.boundary_conditions;
-    if !bcs.leontovich.is_empty() || !bcs.silver_muller.is_empty() {
-        return Err(invalid(
-            "`wave_ports` cannot be combined with Leontovich or Silver-Müller walls in schema v1 \
-             (the wave-port operator composes PEC and `absorbing_regions` only)",
-        ));
     }
     for w in &spec.wave_ports {
         let name = &w.physical_group;

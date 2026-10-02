@@ -1131,7 +1131,7 @@
     },
     "wave_ports": {
       "default": [],
-      "description": "Wave (modal) ports on planar surface physical groups (additive in\nv1, issue #683). `driven` specs only; not combinable with\nLeontovich / Silver-Müller walls. They may be mixed with lumped\n`ports` (issue #759): the S-matrix then lists the lumped ports\nfirst, then the wave channels (port-major, mode-minor), and\n`--touchstone`, `sweep.adaptive` and `sensitivity` are rejected.",
+      "description": "Wave (modal) ports on planar surface physical groups (additive in\nv1, issue #683). `driven` specs only. Leontovich walls (incl.\nroughness) compose (issue #776); a Silver-Müller wall may not share\nan edge with a wave-port rim. They may be mixed with lumped\n`ports` (issue #759): the S-matrix then lists the lumped ports\nfirst, then the wave channels (port-major, mode-minor), and\n`--touchstone`, `sweep.adaptive` and `sensitivity` are rejected.",
       "items": {
         "$ref": "#/$defs/WavePortSpec"
       },

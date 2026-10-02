@@ -105,8 +105,9 @@ pub struct ProblemSpec {
     #[serde(default)]
     pub ports: Vec<LumpedPortSpec>,
     /// Wave (modal) ports on planar surface physical groups (additive in
-    /// v1, issue #683). `driven` specs only; not combinable with
-    /// Leontovich / Silver-Müller walls. They may be mixed with lumped
+    /// v1, issue #683). `driven` specs only. Leontovich walls (incl.
+    /// roughness) compose (issue #776); a Silver-Müller wall may not share
+    /// an edge with a wave-port rim. They may be mixed with lumped
     /// `ports` (issue #759): the S-matrix then lists the lumped ports
     /// first, then the wave channels (port-major, mode-minor), and
     /// `--touchstone`, `sweep.adaptive` and `sensitivity` are rejected.

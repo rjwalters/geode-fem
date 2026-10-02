@@ -520,6 +520,7 @@ fn matrix_free_rejects_wave_port_sweep() {
             pec_interior_mask: &mask,
         },
         std::slice::from_ref(&port),
+        &[],
         &[2.5],
         SolverMode::IterativeMatrixFree(settings),
         &device(),
