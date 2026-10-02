@@ -44,10 +44,11 @@
 //! quasi-mode sits at complex distance `≈ |Im(λ)|` from the shift,
 //! comfortably inside the Krylov window, and the gradient nullspace
 //! (λ ≈ 0, at distance σ) never needs to be crawled through. The
-//! dense QZ oracle (`FaerComplexEigensolver`) on the 3300-DOF reduced
-//! pencil takes tens of minutes per solve and is impractical for the
-//! 6-solve sweep — pass `--dense` to run it anyway for a one-off
-//! cross-check.
+//! dense oracle (`FaerComplexEigensolver`, dense shift-invert since
+//! issue #796; faer's complex QZ it used before did not terminate on this
+//! pencil) computes the whole spectrum of the 3300-DOF reduced pencil and
+//! is slower than the targeted sparse solve. Pass `--dense` to run it for
+//! a one-off cross-check.
 //!
 //! # Running
 //!
@@ -178,13 +179,13 @@ fn solve_frozen_omega<B: Backend>(
     });
 
     let lambdas = if use_dense {
-        // One-off QZ oracle (`--dense`): sorts ascending by |Re(λ)|
+        // One-off dense oracle (`--dense`): sorts ascending by |Re(λ)|
         // from 0, so it must crawl through the gradient nullspace.
         let spurious_dim = sphere_n_interior_nodes(&f.mesh, R_BUFFER);
         let n_request = spurious_dim + N_EXTRA_DENSE;
         eprintln!(
             "  σ₀ = {sigma_0}, ω = {omega:.4}: {n_edges} edges → {dim} interior DOFs, \
-             dense QZ requesting {n_request} eigenvalues"
+             dense oracle requesting {n_request} eigenvalues"
         );
         FaerComplexEigensolver
             .smallest_complex_pencil_eigenvalues(k_int.as_ref(), m_int.as_ref(), n_request)
@@ -380,8 +381,9 @@ fn write_results(rows: &[QuasiModeRow]) {
     about = "Matched (full Sacks) UPML open-space quasi-mode benchmark vs. Mie WGM complex roots (issue #213)."
 )]
 struct Args {
-    /// Use the dense `FaerComplexEigensolver` QZ oracle (tens of minutes
-    /// per solve) instead of the default sparse shift-invert Lanczos.
+    /// Use the dense `FaerComplexEigensolver` oracle (full spectrum, about
+    /// 10 s per 3300-DOF solve) instead of the default sparse shift-invert
+    /// Lanczos.
     #[arg(long)]
     dense: bool,
 

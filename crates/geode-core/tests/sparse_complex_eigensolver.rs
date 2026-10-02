@@ -35,9 +35,12 @@
 //!
 //! ## Why not `FaerComplexEigensolver`
 //!
-//! The original oracle was `FaerComplexEigensolver` (faer 0.24's dense
-//! generalized complex QZ with default tuning). On this pencil it does
-//! **not terminate in practice**: a regeneration ran 14.8 h without
+//! The original oracle was `FaerComplexEigensolver`, which at the time
+//! called faer 0.24's dense generalized complex QZ with default tuning.
+//! (Since issue #796 `FaerComplexEigensolver` is itself a dense
+//! shift-invert; the oracle below keeps its own copy so the committed
+//! fixture does not depend on the solver it may one day be used to check.)
+//! On this pencil that QZ does **not terminate in practice**: a regeneration ran 14.8 h without
 //! finishing, with every profiler sample inside faer's
 //! `qz_cplx::hessenberg_to_qz_blocked` → `multishift_sweep`. The stall is
 //! controlled by faer's `recommended_shift_count` (32 shifts for

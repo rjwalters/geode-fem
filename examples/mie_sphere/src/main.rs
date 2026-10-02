@@ -368,7 +368,7 @@ fn fem_complex_k<B: Backend>(
         // walk the dense entries and keep only the non-zeros. At the
         // bundled-fixture size (a few hundred interior edges) the
         // cost of this pass is negligible next to the dense oracle's
-        // generalized_eigen, but for the larger refined meshes it
+        // full-spectrum solve, but for the larger refined meshes it
         // pays for itself many times over.
         let n = k_int_complex.nrows();
         let mut k_trips: Vec<Triplet<usize, usize, faer::c64>> = Vec::new();

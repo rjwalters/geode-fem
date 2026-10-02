@@ -21,8 +21,9 @@ name: integration-tests
 # What stays out, and why, is recorded per entry in the allowlist.
 # Targets whose default tier is empty (every test #[ignore]d) are not run
 # here for the default tier only, since that would just compile them
-# (clippy --tests in arpack.yml already does that). Two of them run their
-# --ignored tier below. The rest are too slow or are benchmarks.
+# (clippy --tests in arpack.yml already does that). Four of them run their
+# --ignored tier below (two in core-tests, two in core-dense-complex,
+# issue #796). The rest are too slow or are benchmarks.
 
 on:
   push:
@@ -148,6 +149,61 @@ jobs:
               --test transmon_quantum \
               --test vtu_roundtrip \
               --test waveguide_gauge_higher_order
+
+  core-dense-complex:
+    # Issue #796: the dense complex eigensolver (`FaerComplexEigensolver`)
+    # used faer 0.24's generalized complex QZ, which did not terminate on
+    # pencils above ~500 DOF. That kept mie_sphere and derham_kernel_dim
+    # (and the silvermuller_self_consistent* targets, still allowlisted as
+    # too slow) out of CI: their --ignored tiers timed out at 80 min
+    # (#786). The solver is now a dense shift-invert. Measured release
+    # --ignored tiers, local, 6 threads on a loaded host: mie_sphere 23 s,
+    # derham_kernel_dim 42 s. dense_complex_eigensolver_bounded is the
+    # #796 regression guard (default tier, about 2 s, with a 120-s
+    # watchdog per solve so a regression fails instead of hanging). This is
+    # its own job, so a cold build here runs in parallel with core-tests
+    # and does not push core-tests toward its 45-min bound.
+    name: cargo test -p geode-core --release (dense complex eigensolver targets, linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-core-dense-complex-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: dense complex eigensolver regression guard (default tier)
+        run: |
+          cargo test -p geode-core --release \
+              --test dense_complex_eigensolver_bounded
+
+      # Every test in mie_sphere and derham_kernel_dim is #[ignore]d (faer
+      # 0.24's dense eigen paths panic under debug-assertions), so they run
+      # in release with --ignored. The three sphere_* targets run their
+      # default tier in core-tests; their #[ignore]d dense-complex tests run
+      # here. Measured release --ignored times, local: sphere_pml_eigenmode
+      # 18 s, sphere_pml_anisotropic_eigenmode 12 s,
+      # sphere_silvermuller_eigenmode 25 s.
+      - name: dense complex eigensolver targets (--ignored tier)
+        run: |
+          cargo test -p geode-core --release \
+              --test mie_sphere \
+              --test derham_kernel_dim \
+              --test sphere_pml_eigenmode \
+              --test sphere_pml_anisotropic_eigenmode \
+              --test sphere_silvermuller_eigenmode -- --ignored
 
   validation-tests:
     name: cargo test -p geode-validation --release (reference fixtures, linux)
