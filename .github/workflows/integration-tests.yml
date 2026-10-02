@@ -63,8 +63,8 @@ jobs:
       # #[ignore]d because faer 0.24's dense gevd / qz_real panics under
       # debug-assertions, so they run in release with --ignored (about 31 s
       # and 80 s on ubuntu-latest). The other targets whose tests are all
-      # #[ignore]d stay on the allowlist (each release --ignored tier ran
-      # past 39 min in CI, or is a wall-clock benchmark).
+      # #[ignore]d stay on the allowlist (each release --ignored tier timed
+      # out at 80 min in CI, or is a 42-min wall-clock benchmark).
       - name: geode-core release-only targets (--ignored tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \

@@ -18,10 +18,11 @@
 # Fails on Linux x86_64 (0 bound modes recovered), passes on macOS: issue #791.
 geode-core/formulation_audit_graddiv
 # Wall-clock scaling benchmark (prints a TOML table), not a correctness check;
-# default tier is empty.
+# default tier is empty, and the --ignored tier passes but takes 42 min on
+# ubuntu-latest (#786).
 geode-core/gpu_driven_scaling
-geode-core/derham_kernel_dim  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier ran >39 min on ubuntu-latest (#786), over the 45-min job bound
-geode-core/mie_sphere  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier ran >39 min on ubuntu-latest (#786), over the 45-min job bound
-geode-core/silvermuller_self_consistent  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier ran >39 min on ubuntu-latest (#786), over the 45-min job bound
-geode-core/silvermuller_self_consistent_vector_tracking  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier ran >39 min on ubuntu-latest (#786), over the 45-min job bound
-geode-core/sparse_complex_eigensolver  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier ran >39 min on ubuntu-latest (#786), over the 45-min job bound
+geode-core/derham_kernel_dim  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
+geode-core/mie_sphere  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
+geode-core/silvermuller_self_consistent  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
+geode-core/silvermuller_self_consistent_vector_tracking  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
+geode-core/sparse_complex_eigensolver  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
