@@ -44,11 +44,14 @@ that fails the job. So these cover nothing too (issue #788):
   * a step whose shell is not a modelled POSIX shell: `shell:` (on the step
     or in `defaults.run`) other than exactly `bash` or `sh`, or no shell on
     a Windows runner (pwsh). With no explicit shell, `runs-on` must be one
-    GitHub-hosted label (`ubuntu-*`, `macos-*`, `windows-*`); a self-hosted
-    or larger-runner label, a multi-label array, or an unresolvable
-    expression leaves the OS (so the default shell) unknown (issue #790);
+    label whose prefix names the OS (`ubuntu-*`, `macos-*`, `windows-*`;
+    the OS is inferred from that prefix, so larger runners such as
+    `ubuntu-latest-8core` or `macos-14-xlarge` resolve too); any other
+    label (`self-hosted`, a custom name), a multi-label array, a `group:`
+    mapping, or an unresolvable expression leaves the OS (so the default
+    shell) unknown (issue #790);
   * `continue-on-error:` on the step or job with any value but `false`;
-  * `cargo test ... || <anything>` except `|| exit N` (N != 0) or
+  * `cargo test ... || <anything>` except `|| exit N` (N mod 256 != 0) or
     `|| false`; `... || cargo test` (runs only on failure); `cargo test &`;
     `cargo test | other` unless `pipefail` is on (`shell: bash`, or
     `set -o pipefail` at top level earlier in the script; the default
@@ -60,7 +63,7 @@ that fails the job. So these cover nothing too (issue #788):
     block, a `{ ...; }` group or function body, a `( ... )` subshell, or
     `$( ... )`. Unbalanced grouping makes the rest of the script unmodelled;
   * anything after a `trap`, `exec`, `return`, `logout`, or `exit` (other
-    than `cmd || exit N` with N != 0) anywhere earlier in the script, even
+    than `cmd || exit N` with N mod 256 != 0) anywhere earlier in the script, even
     inside a block: the script may end before the command, or an EXIT trap
     may rewrite its failing status to success (issue #790);
   * a conditional step or job. A job `if:` and a step `if:` count only when
@@ -74,8 +77,8 @@ that fails the job. So these cover nothing too (issue #788):
     nothing;
   * a job whose `needs:` chain may skip it (issue #790). Every job in the
     transitive `needs:` chain must have an always-true `if:` (as above), a
-    resolvable GitHub-hosted runner, and a modelled `needs:`; a missing job
-    or a cycle is not modelled. A dependency skipped by its own `if:` skips
+    resolvable OS-prefixed runner label, and a modelled `needs:`; a missing
+    job or a `needs:` cycle anywhere in the upstream graph fails closed. A dependency skipped by its own `if:` skips
     the dependent with CI green. The one exception matches GitHub: a job
     whose own `if:` is `always()` or `!cancelled()` runs even when a
     dependency was skipped or failed, so its chain is not checked. An
@@ -509,14 +512,16 @@ def eval_cond(expr: str | None, leg: dict[str, str]) -> bool | None:
     return equal if op == "==" else not equal
 
 
-# GitHub-hosted runner labels (`ubuntu-latest`, `ubuntu-24.04-arm`,
-# `macos-14`, `windows-2022`, ...). Anything else (self-hosted, larger-runner
-# names, multi-label arrays) has an OS the guard cannot know.
+# Runner labels whose prefix names the OS (`ubuntu-latest`, `ubuntu-24.04-arm`,
+# `macos-14`, `windows-2022`, and larger runners such as `ubuntu-latest-8core`
+# or `macos-14-xlarge`). The OS is inferred from the `ubuntu-` / `macos-` /
+# `windows-` label prefix alone. Anything else (`self-hosted`, custom names,
+# multi-label arrays) has an OS the guard cannot know.
 _HOSTED_RUNNER = re.compile(r"(ubuntu|macos|windows)-[\w.-]+", re.I)
 
 
 def _runner_is_windows(job: Job, leg: dict[str, str]) -> bool | None:
-    """True / False for a single GitHub-hosted label, else None (unknown)."""
+    """True / False for a single OS-prefixed label, else None (unknown)."""
     if job.runs_on is None or job.runs_on_unmodelled:
         return None
 
@@ -568,7 +573,9 @@ def needs_reason(job: Job, wf: Workflow) -> str | None:
     skipped by its own `if:` leaves CI green with the dependent skipped. So
     every job in the chain must be unconditional (always-true `if:`), run on a
     resolvable runner, and have a modelled `needs:`; a missing job or a cycle
-    is not modelled. GitHub skips a dependent when any job in the transitive
+    anywhere in the upstream graph (a self-`needs:`, two jobs needing each
+    other, or a longer loop, whether or not it passes through this job) is
+    not modelled and fails closed. GitHub skips a dependent when any job in the transitive
     chain is skipped, so an `always()` part-way down the chain does not
     rescue the jobs below it; only the job's own `if:` does.
     """
@@ -576,15 +583,18 @@ def needs_reason(job: Job, wf: Workflow) -> str | None:
         return f"{job.needs_unmodelled} not modelled"
     if _normalized_cond(job.cond) in NEEDS_OVERRIDE:
         return None
-    seen: set[str] = set()
-    todo = list(job.needs)
-    while todo:
-        name = todo.pop()
-        if name == job.name:
+    # Depth-first walk with colour marking over the whole transitive closure:
+    # a job still on the current path (GREY) reached again is a cycle,
+    # wherever it sits in the graph; a finished job (BLACK) is skipped.
+    GREY, BLACK = 1, 2
+    colour: dict[str, int] = {job.name: GREY}
+
+    def visit(name: str) -> str | None:
+        state = colour.get(name)
+        if state == GREY:
             return f"`needs:` cycle through job `{name}`"
-        if name in seen:
-            continue
-        seen.add(name)
+        if state == BLACK:
+            return None
         up = wf.jobs.get(name)
         if up is None:
             return f"`needs: {name}` names no job in this workflow"
@@ -595,7 +605,18 @@ def needs_reason(job: Job, wf: Workflow) -> str | None:
                     "so this job may be skipped")
         if not _runner_resolved(up):
             return f"`needs:` job `{name}` runner not resolved"
-        todo.extend(up.needs)
+        colour[name] = GREY
+        for dep in up.needs:
+            why = visit(dep)
+            if why is not None:
+                return why
+        colour[name] = BLACK
+        return None
+
+    for name in job.needs:
+        why = visit(name)
+        if why is not None:
+            return why
     return None
 
 
@@ -811,11 +832,11 @@ def script_commands(script: str, pipefail: bool = False):
             head = words[1:] if words[0] in ("builtin", "command") and len(words) > 1 \
                 else words
             if head[0] in SCRIPT_FLOW:
-                # `cmd || exit N` (N != 0) is the one modelled form: it can
+                # `cmd || exit N` (N mod 256 != 0) is the one modelled form: it can
                 # only fail the step. Anything else may end the script early
                 # with success, or (trap) rewrite the exit status later.
                 if not (head[0] == "exit" and prev == "||" and len(head) == 2
-                        and head[1].isdigit() and int(head[1]) != 0):
+                        and _exit_fails(head[1])):
                     flow_changed = flow_changed or head[0]
                 continue
             if words[0] in ("cd", "pushd", "popd"):
@@ -886,8 +907,21 @@ def script_commands(script: str, pipefail: bool = False):
         yield raw, toks, reason
 
 
+def _exit_fails(word: str) -> bool:
+    """True when `exit WORD` provably exits with a nonzero status.
+
+    The shell takes the status mod 256, so `exit 256`, `exit 512` and
+    `exit -256` all exit 0. Only a plain decimal integer (optionally negative)
+    whose value mod 256 is nonzero counts; anything else (`$X`, `0x1`, `+1`,
+    an empty word) is treated as possibly 0.
+    """
+    if not re.fullmatch(r"-?[0-9]+", word):
+        return False
+    return int(word) % 256 != 0
+
+
 def _fails_after_or(seq: list[tuple[str, object]], k: int) -> bool:
-    """True for `cargo test ... || exit N` (N != 0) / `|| false`: still enforced."""
+    """True for `cargo test ... || exit N` (N mod 256 != 0) / `|| false`: still enforced."""
     for kind, v in seq[k + 1:]:
         if kind == "sep":
             if v != "||":
@@ -896,7 +930,7 @@ def _fails_after_or(seq: list[tuple[str, object]], k: int) -> bool:
         words = list(v)
         return (words == ["false"]
                 or (len(words) == 2 and words[0] == "exit"
-                    and words[1].isdigit() and int(words[1]) != 0))
+                    and _exit_fails(words[1])))
     return False
 
 
@@ -1531,6 +1565,24 @@ def self_test() -> int:
             # `|| exit N` (N != 0) can only fail the step.
             self.check("[ -f Cargo.toml ] || exit 1\ncargo test -p a", A)
             self.check("cargo test -p b || exit 1\ncargo test -p a", UNGATED)
+            self.check("[ -f x ] || exit 255\ncargo test -p a", A)
+            self.check("[ -f x ] || exit -1\ncargo test -p a", A)
+            self.check("cargo test -p a || exit 255", A)
+            self.check("cargo test -p a || exit -1", A)
+
+        def test_or_exit_multiple_of_256_is_success(self):
+            # The shell takes the status mod 256: `false || exit 256` exits 0.
+            for n in ("256", "512", "-256", "0", "-0", "$X", "+1", "0x1", "1e3"):
+                with self.subTest(n=n):
+                    self.check(f"[ -f nope ] || exit {n}\ncargo test -p a", set())
+                    self.check(f"cargo test -p a || exit {n}", set())
+
+        def test_exit_fails_helper(self):
+            for n in ("1", "255", "257", "-1", "-255", "010", "0400"):
+                self.assertTrue(_exit_fails(n), n)
+            for n in ("0", "256", "512", "-256", "-512", "0256", "", "$X",
+                      "+1", "0x1", "1.0", "\u00b2"):
+                self.assertFalse(_exit_fails(n), n)
 
         # -- issue #790: needs: on a conditional job --------------------------
         def wf_needs(self, gate: str, dep_if: str = "") -> str:
@@ -1572,6 +1624,38 @@ def self_test() -> int:
             self.assertEqual(covered(missing), set())
             cycle = self.wf_needs("    needs: j\n")
             self.assertEqual(covered(cycle), set())
+
+        def test_needs_cycle_anywhere_upstream(self):
+            def wf(jobs: str) -> str:
+                return ("jobs:\n" + jobs
+                        + "  j:\n    runs-on: ubuntu-latest\n    needs: u\n"
+                        "    steps:\n      - run: cargo test -p a\n")
+
+            def job(name: str, needs: str = "") -> str:
+                return (f"  {name}:\n    runs-on: ubuntu-latest\n"
+                        + (f"    needs: {needs}\n" if needs else "")
+                        + f"    steps:\n      - run: echo {name}\n")
+
+            self.assertEqual(covered(wf(job("u"))), A)
+            # `u` needs itself.
+            text = wf(job("u", "u"))
+            self.assertEqual(covered(text), set())
+            r = evaluate({"w.yml": text}, T, set())
+            self.assertIn("`needs:` cycle through job `u`", r.warnings[0])
+            # `u` <-> `v`.
+            self.assertEqual(covered(wf(job("u", "v") + job("v", "u"))), set())
+            # A longer loop below `u` not passing through `j` or `u`.
+            text = wf(job("u", "a") + job("a", "b") + job("b", "c") + job("c", "a"))
+            self.assertEqual(covered(text), set())
+            # A loop back to the dependent through a long chain.
+            text = wf(job("u", "a") + job("a", "j"))
+            self.assertEqual(covered(text), set())
+            # A diamond (shared ancestor reached twice) is not a cycle.
+            text = wf(job("u", "[a, b]") + job("a", "c") + job("b", "c") + job("c"))
+            self.assertEqual(covered(text), A)
+            # The cycle is found even when listed after an acyclic branch.
+            text = wf(job("u", "[a, b]") + job("a") + job("b", "b"))
+            self.assertEqual(covered(text), set())
             expr = self.wf_needs("").replace("needs: gate", "needs: ${{ x }}")
             self.assertEqual(covered(expr), set())
             selfhosted = self.wf_needs("").replace(
