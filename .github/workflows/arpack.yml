@@ -144,6 +144,26 @@ jobs:
               --test mixed_port \
               --test wave_port_impedance_walls
 
+      # Issue #785: the core wave-port and iterative-sweep suites, which
+      # no job ran before (found in the #783 review). `wave_port` carries
+      # the #777 filled-port closed forms (dielectric fill, transverse-
+      # isotropic tensor fill). Its four `#[ignore]`d height-step /
+      # bimodal tests and the one `wave_port_step_mode_matching` test are
+      # "heavy" only in debug, so they run here via --include-ignored.
+      # Release timings, local (Apple Silicon, 6 threads): wave_port 0.05 s
+      # default + 0.52 s ignored, wave_port_from_tags 0.05 s,
+      # iterative_sweep 0.04 s, driven_matrix_free_equivalence 1.4 s,
+      # wave_port_step_mode_matching 0.14 s.
+      - name: Wave ports + iterative sweep + matrix-free driven equivalence
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test wave_port_from_tags \
+              --test iterative_sweep \
+              --test driven_matrix_free_equivalence
+          cargo test --features arpack -p geode-core --release \
+              --test wave_port \
+              --test wave_port_step_mode_matching -- --include-ignored
+
       # Issue #760: diagonal anisotropic materials — the lossless
       # tensor cavity pencil and diagonal-nu magnetostatics unit tests
       # (no blanket geode-core job, so named here; < 1 s) and the
