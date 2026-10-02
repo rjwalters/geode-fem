@@ -1,0 +1,31 @@
+name: ci-test-coverage
+
+# Issue #785: several geode-core integration-test targets (wave ports,
+# iterative sweep, matrix-free driven equivalence) ran in no CI job. Nothing
+# runs a blanket `cargo test -p geode-core`, so each target is only enforced if
+# a workflow step names it. This guard lists every `crates/*/tests/*.rs` and
+# `examples/*/tests/*.rs` target and fails when one is run by no workflow and
+# is not on the known-backlog allowlist
+# (`scripts/ci-test-coverage-allowlist.txt`), or when an allowlist entry has
+# gone stale. It is a static file scan with no cargo build, and takes about a
+# second.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  coverage:
+    name: every test target is run by some workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Self-test the workflow parser (synthetic workflows)
+        run: python3 scripts/ci-test-coverage.py --self-test
+
+      - name: Check test-target coverage (print the full table)
+        run: python3 scripts/ci-test-coverage.py --table
