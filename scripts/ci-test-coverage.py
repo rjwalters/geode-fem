@@ -24,14 +24,48 @@ test would compile to an empty binary. `--all-features` is not counted.
 The guard must never claim coverage it cannot prove, so anything it does not
 model covers NOTHING (and is reported as a warning):
 
-  * `--no-run` (compiles, runs nothing), `--manifest-path`;
+  * `--no-run` (compiles, runs nothing), `--manifest-path`, and after `--`
+    the harness `--list` / `--bench` or any harness flag not in the known
+    list;
   * a step with `working-directory:`, or a workflow / job `defaults:` that
     sets one; a `cd` / `pushd` earlier in the same `run:` script;
   * `cargo` not invoked directly (`cargo +toolchain test`, env-var prefixes,
-    `time cargo test`, shell loops, ...);
+    `time cargo test`, `! cargo test`, ...);
   * shell expansions (`$VAR`, `${{ ... }}`) in the cargo arguments;
   * package specs with globs or versions, `--exclude` without
     `--workspace`, and any cargo flag not in the known list below.
+
+A command must also be *enforced*: run on every push / PR, with a failure
+that fails the job. So these cover nothing too (issue #788):
+
+  * text that is not a command: here-document bodies (`<<EOF`, `<<'PY'`,
+    `<<-EOF`, up to the exact delimiter line) and lines inside a multi-line
+    quoted string (an unterminated quote covers the rest of the script);
+  * a step whose shell is not a modelled POSIX shell: `shell:` (on the step
+    or in `defaults.run`) other than exactly `bash` or `sh`, or no shell on
+    a Windows runner (pwsh). An unresolvable `runs-on` with no explicit
+    shell is unmodelled;
+  * `continue-on-error:` on the step or job with any value but `false`;
+  * `cargo test ... || <anything>` except `|| exit N` (N != 0) or
+    `|| false`; `... || cargo test` (runs only on failure); `cargo test &`;
+    `cargo test | other` unless `pipefail` is on (`shell: bash`, or
+    `set -o pipefail` at top level earlier in the script; the default
+    unspecified shell is `bash -e {0}`, where `| tee log` hides the
+    failure); an `&&` list containing `cargo test` that is not the script's
+    last command (`bash -e` ignores failures inside it); anything after
+    `set +e` / `set +o errexit` (until `set -e`);
+  * inside a shell `if` / `case` / `while` / `until` / `for` / `select`
+    block, a `{ ...; }` group or function body, a `( ... )` subshell, or
+    `$( ... )`. Unbalanced grouping makes the rest of the script unmodelled;
+  * a conditional step or job. A job `if:` and a step `if:` count only when
+    always true (`always()`, `success()`, `!cancelled()`, `true`). A step
+    `if:` may also be one `matrix.KEY == 'value'` (or `!=`) test: the step
+    covers when some leg of the job's `strategy.matrix` satisfies it AND
+    that leg runs a modelled shell (for example `runs-on: ${{ matrix.os }}`
+    resolved per leg, so a Windows-only leg with no `shell:` is pwsh). A
+    matrix with `include:` / `exclude:` or an expression value is not
+    expanded, so matrix-dependent conditions and runners in that job cover
+    nothing.
 
 Targets that are knowingly not run in CI live in
 `scripts/ci-test-coverage-allowlist.txt` (one `crate/target` per line).
@@ -57,6 +91,12 @@ filter is reported in the tier column but still counts as coverage, and a
 crate-wide `-- --ignored` counts as covering the target even though only its
 `#[ignore]`d tier runs (also visible in the tier column). Uses of composite
 actions or scripts that call cargo are not followed (they cover nothing).
+Workflow triggers are not modelled: a workflow restricted by `on.*.paths`
+(for example rect-waveguide-modes-debug.yml) still counts, although it runs
+only when the listed paths change. A dependent job that is skipped because a
+`needs:` job failed is treated as running (CI is red either way). The YAML
+reader handles the block-style subset that workflow files use, without
+anchors, flow mappings or multi-line flow sequences.
 """
 
 from __future__ import annotations
@@ -85,6 +125,14 @@ NEUTRAL_FLAGS = {"--release", "-r", "--all-features", "--no-default-features",
                  "--timings", "--future-incompat-report"}
 NEUTRAL_VALUED = {"--profile", "--target", "-j", "--jobs", "--color",
                   "--target-dir", "--message-format", "--config", "-Z"}
+# libtest harness arguments (after `--`) that still run the selected tests.
+# `--list` (lists, runs nothing) and `--bench` (benchmarks only) cover
+# nothing; anything not listed here is unmodelled and covers nothing.
+HARNESS_FLAGS = {"--ignored", "--include-ignored", "--nocapture", "--no-capture",
+                 "--show-output", "--exact", "-q", "--quiet", "--test",
+                 "--report-time", "--ensure-time", "--shuffle"}
+HARNESS_VALUED = {"--test-threads", "--color", "--format", "-Z", "--shuffle-seed",
+                  "--logfile"}
 CMD_SEPARATORS = {"&&", "||", ";", "|", "&", "(", ")", ";;", "|&"}
 
 
@@ -127,98 +175,343 @@ def bare_cargo_test_is_workspace() -> bool:
 
 
 # --------------------------------------------------------------------------
-# Workflow scanning
+# Workflow scanning (a small indentation-based YAML reader)
 # --------------------------------------------------------------------------
 
 def _indent(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
-@dataclass
-class Step:
-    run: str = ""
-    working_directory: bool = False
+_YAML_KEY = re.compile(r"""^("[^"]*"|'[^']*'|[^\s'"#\[{][^:#]*?)\s*:(?:\s+(.*))?$""")
 
 
-def workflow_steps(text: str) -> tuple[list[Step], bool]:
-    """Split a workflow into steps.
+def _unquote(s: str) -> str:
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in "'\"":
+        return s[1:-1]
+    return s
 
-    Returns (steps, tainted). `tainted` is True when a `working-directory:`
-    appears outside any step (a workflow / job `defaults:` block), in which
-    case no command in the file can be trusted to run from the root.
+
+def _plain(val: str) -> str:
+    """Strip a trailing ` # comment` from an unquoted scalar, then unquote."""
+    val = val.strip()
+    if val[:1] not in ("'", '"'):
+        val = re.sub(r"\s+#.*$", "", val)
+    return _unquote(val)
+
+
+def yaml_leaves(text: str) -> list[tuple[tuple, str]]:
+    """Flatten a workflow into (key path, scalar) pairs.
+
+    Mapping keys are strings and sequence items are integers in the path, so
+    a step's run script is at ("jobs", <job>, "steps", <n>, "run"). Block
+    scalars (`|`, `>`, with chomping indicators) are joined: literal blocks
+    keep their newlines, folded blocks are joined with spaces. Only the
+    subset of YAML that workflow files use is modelled; anchors, flow
+    mappings and multi-document files are not.
     """
     lines = text.splitlines()
-    steps: list[Step] = []
-    wd_total = sum(1 for l in lines
-                   if re.match(r"\s*(?:-\s+)?working-directory\s*:", l))
-    wd_in_steps = 0
-    steps_indent: int | None = None
-    item_indent: int | None = None
-    cur: Step | None = None
+    out: list[tuple[tuple, str]] = []
+    stack: list[tuple[int, object]] = []  # (column, path component)
+    counters: dict[tuple, int] = {}
     i = 0
     while i < len(lines):
         line = lines[i]
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        s = line.strip()
+        if not s or s.startswith("#"):
             i += 1
             continue
         ind = _indent(line)
-        if steps_indent is not None and ind <= steps_indent:
-            steps_indent = item_indent = None
-            cur = None
-        if re.match(r"\s*steps\s*:\s*$", line):
-            steps_indent, item_indent, cur = ind, None, None
+        item = s == "-" or s.startswith("- ")
+        while stack and (stack[-1][0] > ind or (
+                stack[-1][0] == ind and not (item and isinstance(stack[-1][1], str)))):
+            stack.pop()
+        body, col = s, ind
+        while body == "-" or body.startswith("- "):
+            parent = tuple(c for _, c in stack)
+            idx = counters.get(parent, 0)
+            counters[parent] = idx + 1
+            stack.append((col, idx))
+            rest = body[1:].lstrip()
+            col += len(body) - len(rest)
+            body = rest
+        if not body:
             i += 1
             continue
-        if steps_indent is None:
+        path = tuple(c for _, c in stack)
+        m = _YAML_KEY.match(body)
+        if not m:
+            # A scalar sequence item, or a continuation of a plain scalar.
+            if col > ind:
+                out.append((path, _plain(body)))
+            elif out and out[-1][0] == path:
+                out[-1] = (path, out[-1][1] + " " + _plain(body))
             i += 1
             continue
-        body = stripped
-        if stripped.startswith("- ") and (item_indent is None or ind == item_indent):
-            item_indent = ind
-            cur = Step()
-            steps.append(cur)
-            body = stripped[2:].lstrip()
-            key_indent = ind + (len(stripped) - len(body))
-        else:
-            key_indent = ind
-        if cur is None:
-            i += 1
-            continue
-        if re.match(r"working-directory\s*:", body):
-            cur.working_directory = True
-            wd_in_steps += 1
-        m = re.match(r"run\s*:\s*(.*)$", body)
-        if m:
-            val = m.group(1).strip()
-            if val[:1] in ("|", ">"):
-                folded = val[0] == ">"
-                block: list[str] = []
-                j = i + 1
-                block_indent: int | None = None
-                while j < len(lines):
-                    bl = lines[j]
-                    if bl.strip() == "":
-                        block.append("")
-                        j += 1
-                        continue
-                    bi = _indent(bl)
-                    if bi <= key_indent:
-                        break
-                    if block_indent is None:
-                        block_indent = bi
-                    block.append(bl[block_indent:] if bi >= block_indent else bl.strip())
+        key = _unquote(m.group(1).strip())
+        val = (m.group(2) or "").strip()
+        kpath = path + (key,)
+        if val[:1] in ("|", ">") and re.fullmatch(r"[|>][+-]?\d?[+-]?(\s+#.*)?", val):
+            folded = val[0] == ">"
+            block: list[str] = []
+            j = i + 1
+            block_indent: int | None = None
+            while j < len(lines):
+                bl = lines[j]
+                if bl.strip() == "":
+                    block.append("")
                     j += 1
-                if folded:
-                    cur.run += " ".join(b.strip() for b in block if b.strip()) + "\n"
-                else:
-                    cur.run += "\n".join(block) + "\n"
-                i = j
-                continue
-            cur.run += val + "\n"
+                    continue
+                bi = _indent(bl)
+                if bi <= col:
+                    break
+                if block_indent is None:
+                    block_indent = bi
+                block.append(bl[block_indent:] if bi >= block_indent else bl.strip())
+                j += 1
+            if folded:
+                out.append((kpath, " ".join(b.strip() for b in block if b.strip())))
+            else:
+                out.append((kpath, "\n".join(block).rstrip("\n") + "\n"))
+            i = j
+            continue
+        if val and not val.startswith("#"):
+            out.append((kpath, _plain(val)))
+        # Keys (with or without an inline value) open a nesting level, so a
+        # plain-scalar continuation line attaches to them.
+        stack.append((col, key))
         i += 1
-    return steps, wd_total > wd_in_steps
+    return out
 
+
+def _flow_list(val: str) -> list[str] | None:
+    val = val.strip()
+    if not (val.startswith("[") and val.endswith("]")):
+        return None
+    inner = val[1:-1].strip()
+    if not inner:
+        return []
+    items = [_unquote(x.strip()) for x in inner.split(",")]
+    if any(not x or x[:1] in "[{" or "${{" in x for x in items):
+        return None
+    return items
+
+
+@dataclass
+class Job:
+    cond: str | None = None
+    continue_on_error: str | None = None
+    runs_on: str | None = None
+    runs_on_unmodelled: bool = False
+    shell: str | None = None
+    working_directory: bool = False
+    matrix: dict[str, list[str]] = field(default_factory=dict)
+    matrix_unmodelled: str | None = None
+
+    def legs(self) -> list[dict[str, str]] | None:
+        """Every matrix combination, or None if the matrix is not modelled."""
+        if self.matrix_unmodelled:
+            return None
+        legs: list[dict[str, str]] = [{}]
+        for k, values in self.matrix.items():
+            legs = [dict(leg, **{k: v}) for leg in legs for v in values]
+        return legs
+
+
+@dataclass
+class Step:
+    job: Job
+    run: str = ""
+    working_directory: bool = False
+    shell: str | None = None
+    cond: str | None = None
+    continue_on_error: str | None = None
+
+
+@dataclass
+class Workflow:
+    steps: list[Step]
+    shell: str | None = None
+    working_directory: bool = False
+
+
+def parse_workflow(text: str) -> Workflow:
+    wf = Workflow(steps=[])
+    jobs: dict[object, Job] = {}
+    steps: dict[tuple, Step] = {}
+    for path, val in yaml_leaves(text):
+        if path[:1] == ("defaults",):
+            if path[-1] == "working-directory":
+                wf.working_directory = True
+            elif path == ("defaults", "run", "shell"):
+                wf.shell = val
+            continue
+        if path[:1] != ("jobs",) or len(path) < 3:
+            if path[-1:] == ("working-directory",):
+                wf.working_directory = True
+            continue
+        job = jobs.setdefault(path[1], Job())
+        rest = path[2:]
+        if (len(rest) >= 3 and rest[0] == "steps" and isinstance(rest[1], int)):
+            key = (path[1], rest[1])
+            step = steps.get(key)
+            if step is None:
+                step = steps[key] = Step(job)
+            if rest[-1] == "working-directory":
+                step.working_directory = True
+            if len(rest) == 3:
+                if rest[2] == "run":
+                    step.run += val if val.endswith("\n") else val + "\n"
+                elif rest[2] == "shell":
+                    step.shell = val
+                elif rest[2] == "if":
+                    step.cond = val
+                elif rest[2] == "continue-on-error":
+                    step.continue_on_error = val
+            continue
+        if rest == ("if",):
+            job.cond = val
+        elif rest == ("continue-on-error",):
+            job.continue_on_error = val
+        elif rest[0] == "runs-on":
+            if len(rest) == 1 and job.runs_on is None:
+                job.runs_on = val
+            elif len(rest) == 2 and isinstance(rest[1], int):
+                job.runs_on = (job.runs_on + "," if job.runs_on else "") + val
+            else:
+                job.runs_on_unmodelled = True
+        elif rest == ("defaults", "run", "shell"):
+            job.shell = val
+        elif rest[:2] == ("strategy", "matrix"):
+            m = rest[2:]
+            if not m:
+                job.matrix_unmodelled = f"matrix `{val}`"
+            elif m[0] in ("include", "exclude"):
+                job.matrix_unmodelled = f"matrix `{m[0]}:`"
+            elif len(m) == 1:
+                values = _flow_list(val)
+                if values is None:
+                    job.matrix_unmodelled = f"matrix value `{val}`"
+                else:
+                    job.matrix[m[0]] = values
+            elif len(m) == 2 and isinstance(m[1], int) and "${{" not in val:
+                job.matrix.setdefault(m[0], []).append(val)
+            else:
+                job.matrix_unmodelled = f"matrix `{m[0]}`"
+        elif rest[-1] == "working-directory":
+            job.working_directory = True
+    wf.steps = [s for s in steps.values() if s.run]
+    return wf
+
+
+# `if:` expressions that are true whenever the job itself runs.
+ALWAYS_TRUE = {"always()", "success()", "!cancelled()", "true"}
+
+
+def eval_cond(expr: str | None, leg: dict[str, str]) -> bool | None:
+    """Evaluate a step/job `if:` for one matrix leg: True, False or unknown.
+
+    Only always-true status functions and a single `matrix.KEY == 'value'`
+    (or `!=`) comparison are modelled. GitHub compares strings
+    case-insensitively.
+    """
+    if expr is None:
+        return True
+    e = expr.strip()
+    m = re.fullmatch(r"\$\{\{(.*)\}\}", e, re.S)
+    if m:
+        e = m.group(1)
+    e = " ".join(e.split())
+    if e in ALWAYS_TRUE:
+        return True
+    if e == "false":
+        return False
+    m = (re.fullmatch(r"matrix\.([\w-]+) ?(==|!=) ?'([^']*)'", e)
+         or re.fullmatch(r"'([^']*)' ?(==|!=) ?matrix\.([\w-]+)", e))
+    if not m:
+        return None
+    if e.startswith("'"):
+        value, op, key = m.groups()
+    else:
+        key, op, value = m.groups()
+    if key not in leg:
+        return None
+    equal = leg[key].casefold() == value.casefold()
+    return equal if op == "==" else not equal
+
+
+def _runner_is_windows(job: Job, leg: dict[str, str]) -> bool | None:
+    if job.runs_on is None or job.runs_on_unmodelled:
+        return None
+
+    def sub(m: re.Match) -> str:
+        return leg.get(m.group(1), m.group(0))
+
+    runs_on = re.sub(r"\$\{\{\s*matrix\.([\w-]+)\s*\}\}", sub, job.runs_on)
+    if "${{" in runs_on:
+        return None
+    return "windows" in runs_on.lower()
+
+
+def shell_mode(step: Step, wf: Workflow, leg: dict[str, str]) -> tuple[bool | None, str]:
+    """(pipefail, "") for a modelled POSIX shell, else (None, reason).
+
+    GitHub runs an unspecified shell as `bash -e {0}` on Linux/macOS (no
+    pipefail) and as pwsh on Windows; `shell: bash` is
+    `bash --noprofile --norc -eo pipefail {0}`; `shell: sh` is `sh -e {0}`.
+    """
+    sh = step.shell or step.job.shell or wf.shell
+    if sh is None:
+        windows = _runner_is_windows(step.job, leg)
+        if windows is None:
+            return None, "runner OS not resolved, so the default shell is unknown"
+        if windows:
+            return None, "default shell on a Windows runner is pwsh"
+        return False, ""
+    if sh.strip() == "bash":
+        return True, ""
+    if sh.strip() == "sh":
+        return False, ""
+    return None, f"`shell: {sh}` is not a modelled POSIX shell"
+
+
+def step_gate(step: Step, wf: Workflow) -> tuple[bool | None, str]:
+    """Decide whether a step provably runs, and fails CI when its script fails.
+
+    Returns (pipefail, "") when it does (on at least one matrix leg), else
+    (None, reason). A step guarded by `if:` covers only if the condition is
+    always true, or is a `matrix.KEY == 'value'` test that some leg of the
+    job's own matrix satisfies (that leg runs the step on every push / PR).
+    """
+    job = step.job
+    if wf.working_directory or job.working_directory:
+        return None, "workflow/job `defaults:` sets working-directory"
+    if step.working_directory:
+        return None, "step sets working-directory"
+    for scope, v in (("step", step.continue_on_error), ("job", job.continue_on_error)):
+        if v is not None and v.strip().lower() != "false":
+            return None, f"{scope} `continue-on-error: {v}` (a failure does not fail CI)"
+    if eval_cond(job.cond, {}) is not True:
+        return None, f"job `if: {job.cond}` (conditional, not provably run)"
+    legs = job.legs()
+    if legs is None:
+        legs = [{}]
+    shell_reason = ""
+    for leg in legs:
+        if eval_cond(step.cond, leg) is not True:
+            continue
+        pipefail, why = shell_mode(step, wf, leg)
+        if pipefail is not None:
+            return pipefail, ""
+        shell_reason = shell_reason or why
+    if shell_reason:
+        return None, shell_reason
+    extra = f"; {job.matrix_unmodelled} not modelled" if job.matrix_unmodelled else ""
+    return None, f"step `if: {step.cond}` (conditional, not provably run{extra})"
+
+
+# --------------------------------------------------------------------------
+# Shell script scanning
+# --------------------------------------------------------------------------
 
 def _tokenize(line: str) -> list[str]:
     lex = shlex.shlex(line, posix=True, punctuation_chars=True)
@@ -226,17 +519,27 @@ def _tokenize(line: str) -> list[str]:
     return list(lex)
 
 
-def _simple_commands(tokens: list[str]) -> list[list[str]]:
-    """Split shell tokens on control operators; drop redirections."""
-    cmds: list[list[str]] = []
+# Tokens that end a simple command. `{ } ( ) ()` also open/close a group.
+GROUP_TOKENS = {"{", "}", "(", ")", "()"}
+COMPOUND_OPEN = {"if": "if", "while": "loop", "until": "loop", "for": "loop",
+                 "select": "loop", "case": "case"}
+COMPOUND_CLOSE = {"fi": "if", "done": "loop", "esac": "case"}
+COMPOUND_MID = {"then", "do", "else", "elif", "function"}
+_CARGO_TEST = re.compile(r"\bcargo\b(?:.*\s)?test(?:\s|$)")
+
+
+def _split(tokens: list[str]) -> list[tuple[str, object]]:
+    """Split shell tokens into ("sep", op) / ("cmd", words); drop redirections."""
+    seq: list[tuple[str, object]] = []
     cur: list[str] = []
     i = 0
     while i < len(tokens):
         t = tokens[i]
-        if t in CMD_SEPARATORS:
+        if t in CMD_SEPARATORS or t in GROUP_TOKENS:
             if cur:
-                cmds.append(cur)
+                seq.append(("cmd", cur))
             cur = []
+            seq.append(("sep", t))
             i += 1
             continue
         if t and set(t) <= set("<>&") and ("<" in t or ">" in t):
@@ -248,43 +551,186 @@ def _simple_commands(tokens: list[str]) -> list[list[str]]:
         cur.append(t)
         i += 1
     if cur:
-        cmds.append(cur)
-    return cmds
+        seq.append(("cmd", cur))
+    return seq
 
 
-def script_commands(script: str):
-    """Yield (raw line, tokens after `cargo test` or None, dir_changed)."""
-    logical: list[str] = []
+def _heredocs(tokens: list[str]) -> list[tuple[str, bool]]:
+    """Here-document delimiters opened on a line: (word, strip leading tabs)."""
+    out = []
+    for k in range(len(tokens) - 1):
+        if tokens[k] == "<<":
+            word = tokens[k + 1]
+            strip = word.startswith("-") and len(word) > 1
+            out.append((word[1:] if strip else word, strip))
+    return out
+
+
+def script_commands(script: str, pipefail: bool = False):
+    """Yield (raw, tokens after `cargo test` or None, reason or None).
+
+    `reason` is set when the command cannot be shown to run and fail the step
+    on failure: a `cd` earlier in the script, inside `if`/`case`/a loop/a
+    function/a group/a subshell, guarded by or followed by `||`, part of an
+    `&&` list that is not the script's last command, backgrounded with `&`,
+    piped into another command without `pipefail`, after `set +e`, inside a
+    here-document body, or inside an unterminated quote.
+    """
+    found: list[list] = []   # [raw, toks, reason, list_id, needs_final]
+    errexit = True
+    dir_changed = False
+    stack: list[str] = []
+    poisoned = False
+    list_id = 0
+    last_list = -1
     buf = ""
+    quote_open = False
+    heredocs: list[tuple[str, bool]] = []
     for line in script.splitlines():
-        s = line.strip()
-        if s.startswith("#"):
+        if heredocs:
+            delim, strip = heredocs[0]
+            if (line.lstrip("\t") if strip else line) == delim:
+                heredocs.pop(0)
+            elif _CARGO_TEST.search(line):
+                found.append([line.strip(), None,
+                              "inside a here-document body (stdin data, not a command)",
+                              None, False])
             continue
-        if s.endswith("\\"):
+        s = line.strip()
+        if not quote_open and not buf and s.startswith("#"):
+            continue
+        if s.endswith("\\") and not quote_open:
             buf += s[:-1] + " "
             continue
-        logical.append(buf + s)
-        buf = ""
-    if buf:
-        logical.append(buf)
-    dir_changed = False
-    for line in logical:
-        if not line:
-            continue
+        cand = buf + (line if quote_open else s)
         try:
-            cmds = _simple_commands(_tokenize(line))
+            tokens = _tokenize(cand)
         except ValueError:
-            if re.search(r"\bcargo\b(?:.*\s)?test(?:\s|$)", line):
-                yield line, None, dir_changed
+            # Unterminated quote: the string continues on the next line.
+            buf, quote_open = cand + "\n", True
             continue
-        for cmd in cmds:
-            if cmd[0] in ("cd", "pushd", "popd"):
+        buf, quote_open = "", False
+        heredocs.extend(_heredocs(tokens))
+        list_id += 1
+        seq = _split(tokens)
+        for k, (kind, v) in enumerate(seq):
+            if kind == "sep":
+                if v in ("{", "("):
+                    stack.append(v)
+                elif v == "}":
+                    if stack[-1:] == ["{"]:
+                        stack.pop()
+                    else:
+                        poisoned = True
+                elif v == ")":
+                    if stack[-1:] == ["("]:
+                        stack.pop()
+                    elif stack[-1:] != ["case"]:  # `pattern)` inside case
+                        poisoned = True
+                if v in (";", "&", ";;") or v in GROUP_TOKENS:
+                    list_id += 1
+                continue
+            words = list(v)
+            while words and (words[0] in COMPOUND_OPEN or words[0] in COMPOUND_CLOSE
+                             or words[0] in COMPOUND_MID):
+                w = words.pop(0)
+                if w in COMPOUND_OPEN:
+                    stack.append(COMPOUND_OPEN[w])
+                elif w in COMPOUND_CLOSE:
+                    if stack[-1:] == [COMPOUND_CLOSE[w]]:
+                        stack.pop()
+                    else:
+                        poisoned = True
+            if not words:
+                continue
+            last_list = list_id
+            # Operators around this command within its and-or list.
+            prev = seq[k - 1][1] if k > 0 and seq[k - 1][0] == "sep" else None
+            after: list[str] = []
+            for kind2, v2 in seq[k + 1:]:
+                if kind2 == "sep":
+                    if v2 in (";", "&", ";;") or v2 in GROUP_TOKENS:
+                        after.append(v2)
+                        break
+                    after.append(v2)
+            nxt = after[0] if after else None
+            if words[0] in ("cd", "pushd", "popd"):
                 dir_changed = True
                 continue
-            if cmd[:2] == ["cargo", "test"]:
-                yield " ".join(cmd), cmd[2:], dir_changed
-            elif re.search(r"\bcargo\b(?:.*\s)?test(?:\s|$)", " ".join(cmd)):
-                yield " ".join(cmd), None, dir_changed
+            if words[0] == "set":
+                j = 1
+                while j < len(words):
+                    a = words[j]
+                    if a[:1] in "-+" and len(a) > 1 and a != "--":
+                        on = a[0] == "-"
+                        for ch in a[1:]:
+                            if ch == "e" and (not on or not stack):
+                                errexit = on
+                            elif ch == "o" and j + 1 < len(words):
+                                j += 1
+                                opt = words[j]
+                                if opt == "pipefail" and (not on or not stack):
+                                    pipefail = on
+                                elif opt == "errexit" and (not on or not stack):
+                                    errexit = on
+                    j += 1
+                continue
+            joined = " ".join(words)
+            if words[:2] == ["cargo", "test"]:
+                toks: list[str] | None = words[2:]
+            elif _CARGO_TEST.search(joined):
+                toks = None
+            else:
+                continue
+            reason = None
+            needs_final = False
+            if toks is None:
+                pass
+            elif poisoned:
+                reason = "shell grouping not modelled earlier in the run script"
+            elif dir_changed:
+                reason = "`cd`/`pushd` earlier in the run script"
+            elif stack:
+                reason = (f"inside a shell `{stack[-1]}` block "
+                          "(conditional or not provably run)")
+            elif not errexit:
+                reason = "`set +e` earlier in the run script (failure not enforced)"
+            elif nxt == "&":
+                reason = "backgrounded with `&` (failure not enforced)"
+            elif nxt in ("|", "|&") and not pipefail:
+                reason = ("piped into another command without `pipefail` "
+                          "(default `bash -e` shell; failure masked)")
+            elif prev == "||":
+                reason = "runs only if the preceding command fails (`||`)"
+            elif nxt == "||" and _fails_after_or(seq, k):
+                pass  # `cargo test ... || exit 1`: still fails the step
+            elif "||" in after:
+                reason = "followed by `||` (failure not enforced)"
+            elif prev == "&&" or "&&" in after:
+                needs_final = True
+            found.append([joined, toks, reason, list_id, needs_final])
+    if buf.strip() and _CARGO_TEST.search(buf):
+        found.append([" ".join(buf.split()), None,
+                      "inside an unterminated quoted string", None, False])
+    for raw, toks, reason, lid, needs_final in found:
+        if needs_final and lid != last_list:
+            reason = ("in an `&&` list that is not the run script's last command "
+                      "(`bash -e` ignores its failure)")
+        yield raw, toks, reason
+
+
+def _fails_after_or(seq: list[tuple[str, object]], k: int) -> bool:
+    """True for `cargo test ... || exit N` (N != 0) / `|| false`: still enforced."""
+    for kind, v in seq[k + 1:]:
+        if kind == "sep":
+            if v != "||":
+                return False
+            continue
+        words = list(v)
+        return (words == ["false"]
+                or (len(words) == 2 and words[0] == "exit"
+                    and words[1].isdigit() and int(words[1]) != 0))
+    return False
 
 
 # --------------------------------------------------------------------------
@@ -401,10 +847,21 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
     j = 0
     while j < len(harness_args):
         h = harness_args[j]
-        if h == "--skip":
+        hkey, heq, _ = h.partition("=")
+        if h in ("--list", "--bench"):
+            raise Unsupported(f"harness {h} runs no tests")
+        if h == "--skip" or (hkey == "--skip" and heq):
             name_filtered = True
-            j += 1
-        elif not h.startswith("-"):
+            if not heq:
+                j += 1
+        elif hkey in HARNESS_VALUED:
+            if not heq:
+                j += 1
+        elif h in HARNESS_FLAGS:
+            pass
+        elif h.startswith("-"):
+            raise Unsupported(f"harness flag {h!r} not modelled")
+        else:
             name_filtered = True
         j += 1
     if "--include-ignored" in harness_args:
@@ -437,18 +894,15 @@ def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | Non
     warnings: list[str] = []
     ncmd = 0
     for wf, text in sorted(workflows.items()):
-        steps, tainted = workflow_steps(text)
-        for step in steps:
-            for raw, toks, dir_changed in script_commands(step.run):
-                why = None
-                if toks is None:
+        workflow = parse_workflow(text)
+        for step in workflow.steps:
+            pipefail, step_why = step_gate(step, workflow)
+            for raw, toks, script_why in script_commands(step.run, bool(pipefail)):
+                why = script_why
+                if why is None and toks is None:
                     why = "cargo not invoked as a plain `cargo test`"
-                elif tainted:
-                    why = "workflow/job `defaults:` sets working-directory"
-                elif step.working_directory:
-                    why = "step sets working-directory"
-                elif dir_changed:
-                    why = "`cd`/`pushd` earlier in the run script"
+                if why is None and pipefail is None:
+                    why = step_why
                 if why is None:
                     try:
                         sel = parse(toks, bare_is_workspace)
@@ -544,13 +998,19 @@ def self_test() -> int:
 
     def wf_run(script: str, extra: str = "", job_extra: str = "") -> str:
         body = textwrap.indent(textwrap.dedent(script).strip("\n"), " " * 12)
+        runs_on = "" if "runs-on:" in job_extra else "    runs-on: ubuntu-latest\n"
         return (
-            "name: synthetic\non: [push]\njobs:\n  j:\n    runs-on: ubuntu-latest\n"
+            "name: synthetic\non: [push]\njobs:\n  j:\n" + runs_on
             + job_extra
             + "    steps:\n      - uses: actions/checkout@v4\n"
             + "      - name: cargo test -p a (names do not count)\n"
             + extra
             + "        run: |\n" + body + "\n")
+
+    WINDOWS = "    runs-on: windows-latest\n"
+    MATRIX = ("    strategy:\n      matrix:\n"
+              "        os: [ubuntu-latest, macos-latest, windows-latest]\n"
+              "    runs-on: ${{ matrix.os }}\n")
 
     def covered(text: str, bare: bool = True) -> set[tuple[str, str]]:
         r = evaluate({"w.yml": text}, T, set(), bare)
@@ -671,24 +1131,39 @@ def self_test() -> int:
             r = evaluate({"w.yml": text}, T, set())
             self.assertEqual(r.coverage[("a", "t1")], ["w.yml: default+ignored"])
 
-        def test_pipe_and_redirect(self):
-            self.check("cargo test -p a 2>&1 | tee log.txt", A)
+        def test_redirect(self):
+            self.check("cargo test -p a > log.txt 2>&1", A)
+
+        def test_pipe_without_pipefail_masks_failure(self):
+            # Default shell is `bash -e {0}`: `tee`'s status hides cargo's.
+            self.check("cargo test -p a 2>&1 | tee log.txt", set())
+            self.check("cargo test -p a | tee log.txt", set(), job_extra=WINDOWS)
+
+        def test_pipe_with_pipefail(self):
+            self.check("cargo test -p a 2>&1 | tee log.txt", A,
+                       extra="        shell: bash\n")
+            self.check("set -euo pipefail\ncargo test -p a | tee log.txt", A)
+            self.check("cargo test -p a | tee log.txt", A,
+                       job_extra="    defaults:\n      run:\n        shell: bash\n")
+            self.check("set -o pipefail\nset +o pipefail\ncargo test -p a | tee x", set())
+            self.check("if true; then set -o pipefail; fi\ncargo test -p a | tee x",
+                       set())
 
         def test_second_command_in_chain(self):
             self.check("cargo build && cargo test -p a --test t1", {("a", "t1")})
 
         def test_inline_run(self):
-            text = ("jobs:\n  j:\n    steps:\n"
+            text = ("jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
                     "      - run: cargo test -p a --test t1\n")
             self.assertEqual(covered(text), {("a", "t1")})
 
         def test_folded_run(self):
-            text = ("jobs:\n  j:\n    steps:\n      - name: x\n        run: >\n"
+            text = ("jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - name: x\n        run: >\n"
                     "          cargo test -p a\n          --test t1\n")
             self.assertEqual(covered(text), {("a", "t1")})
 
         def test_name_and_comment_do_not_count(self):
-            text = ("jobs:\n  j:\n    steps:\n      - name: cargo test -p a\n"
+            text = ("jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - name: cargo test -p a\n"
                     "        run: |\n          # cargo test -p b\n          echo hi\n")
             self.assertEqual(covered(text), set())
 
@@ -698,10 +1173,164 @@ def self_test() -> int:
             self.assertEqual(r.coverage[("a", "t1")], ["w.yml: ignored only (name-filtered)"])
 
         def test_working_directory_scoped_to_its_step(self):
-            text = ("jobs:\n  j:\n    steps:\n"
+            text = ("jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
                     "      - working-directory: x\n        run: cargo test -p a\n"
                     "      - run: cargo test -p b\n")
             self.assertEqual(covered(text), {("b", "u1")})
+
+        # -- harness arguments (after `--`) -------------------------------
+        def test_harness_list_runs_nothing(self):
+            self.check("cargo test -p a -- --list", set())
+            self.check("cargo test -p a --test t1 -- --ignored --list", set())
+            r = evaluate({"w.yml": wf_run("cargo test -p a -- --list")}, T, set())
+            self.assertIn("--list runs no tests", r.warnings[0])
+
+        def test_harness_unknown_flag(self):
+            self.check("cargo test -p a -- --frobnicate", set())
+            self.check("cargo test -p a -- --bench", set())
+
+        def test_harness_valued_flags(self):
+            text = wf_run("cargo test -p a -- --test-threads 1 --nocapture")
+            r = evaluate({"w.yml": text}, T, set())
+            self.assertEqual(r.coverage[("a", "t1")], ["w.yml: default"])
+
+        # -- here-documents and multi-line strings --------------------------
+        def test_heredoc_body_is_not_a_command(self):
+            self.check("cat <<EOF\ncargo test -p b\nEOF\ncargo test -p a", A)
+            self.check("python3 <<'PY'\ncargo test -p b\nPY", set())
+            self.check("python3 - <<\"PY\" > out\ncargo test -p b\nPY", set())
+
+        def test_heredoc_strip_tabs(self):
+            self.check("cat <<-EOF\n\tcargo test -p b\n\tEOF\ncargo test -p a", A)
+
+        def test_heredoc_delimiter_must_match_exactly(self):
+            # `  EOF` does not end a `<<EOF` body, so the next line is data.
+            self.check("cat <<EOF\n  EOF\ncargo test -p b\nEOF", set())
+
+        def test_heredoc_body_warns(self):
+            r = evaluate({"w.yml": wf_run("cat <<EOF\ncargo test -p b\nEOF")}, T, set())
+            self.assertEqual(r.commands, 0)
+            self.assertEqual(len(r.warnings), 1)
+            self.assertIn("here-document", r.warnings[0])
+
+        def test_multiline_string_is_not_a_command(self):
+            self.check('python3 -c "\nimport os\ncargo test -p a\n"', set())
+            self.check("echo 'a\ncargo test -p a\nb'\ncargo test -p b", {("b", "u1")})
+
+        def test_unterminated_quote(self):
+            self.check("echo \"oops\ncargo test -p a", set())
+
+        # -- step shell -----------------------------------------------------
+        def test_non_posix_shell(self):
+            for sh in ("python", "pwsh", "cmd", "bash {0}", "powershell"):
+                self.check("cargo test -p a", set(), extra=f"        shell: {sh}\n")
+            self.check("cargo test -p a", set(),
+                       job_extra="    defaults:\n      run:\n        shell: pwsh\n")
+
+        def test_posix_shells(self):
+            self.check("cargo test -p a", A, extra="        shell: bash\n")
+            self.check("cargo test -p a", A, extra="        shell: sh\n")
+
+        def test_windows_default_shell_is_pwsh(self):
+            self.check("cargo test -p a", set(), job_extra=WINDOWS)
+            self.check("cargo test -p a", A, job_extra=WINDOWS,
+                       extra="        shell: bash\n")
+
+        # -- failure not enforced -------------------------------------------
+        def test_continue_on_error_step(self):
+            self.check("cargo test -p a", set(),
+                       extra="        continue-on-error: true\n")
+            self.check("cargo test -p a", set(),
+                       extra="        continue-on-error: ${{ matrix.experimental }}\n")
+            self.check("cargo test -p a", A, extra="        continue-on-error: false\n")
+
+        def test_continue_on_error_job(self):
+            self.check("cargo test -p a", set(), job_extra="    continue-on-error: true\n")
+
+        def test_or_true(self):
+            self.check("cargo test -p a || true", set())
+            self.check("cargo test -p a || :", set())
+            self.check("cargo test -p a || echo failed", set())
+            self.check("cargo test -p a && echo ok || true", set())
+
+        def test_or_exit_is_enforced(self):
+            self.check("cargo test -p a || exit 1\necho done", A)
+            self.check("cargo test -p a || false\necho done", A)
+            self.check("cargo test -p a || exit 0", set())
+
+        def test_runs_only_on_failure(self):
+            self.check("false || cargo test -p a", set())
+
+        def test_and_list_not_last(self):
+            # `bash -e` ignores a failure in a non-final `&&` element.
+            self.check("cargo test -p a && echo ok\necho next", set())
+            self.check("cargo build && cargo test -p a\necho next", set())
+            self.check("echo start\ncargo test -p a && echo ok", A)
+
+        def test_set_plus_e(self):
+            self.check("set +e\ncargo test -p a", set())
+            self.check("set +e\nset -e\ncargo test -p a", A)
+            self.check("set +o errexit\ncargo test -p a", set())
+
+        def test_background(self):
+            self.check("cargo test -p a &\nwait", set())
+
+        # -- conditional steps / jobs / shell blocks ------------------------
+        def test_step_if_always_true(self):
+            for cond in ("always()", "${{ always() }}", "success()", "!cancelled()"):
+                self.check("cargo test -p a", A, extra=f"        if: {cond}\n")
+
+        def test_step_if_conditional(self):
+            for cond in ("false", "github.event_name == 'push'", "failure()",
+                         "${{ github.ref == 'refs/heads/main' }}"):
+                self.check("cargo test -p a", set(), extra=f"        if: {cond}\n")
+
+        def test_job_if_conditional(self):
+            self.check("cargo test -p a", set(),
+                       job_extra="    if: github.event_name == 'pull_request'\n")
+            self.check("cargo test -p a", set(),
+                       job_extra="    if: >-\n      github.event_name == 'push'\n")
+            self.check("cargo test -p a", A, job_extra="    if: ${{ !cancelled() }}\n")
+
+        def test_matrix_conditional_step(self):
+            # The step runs on the matrix leg that satisfies its `if:`.
+            self.check("cargo test -p a", A, job_extra=MATRIX,
+                       extra="        if: matrix.os == 'ubuntu-latest'\n")
+            self.check("cargo test -p a", A, job_extra=MATRIX,
+                       extra="        if: ${{ matrix.os != 'macos-latest' }}\n")
+            # No leg has this value (a typo): never runs.
+            self.check("cargo test -p a", set(), job_extra=MATRIX,
+                       extra="        if: matrix.os == 'ubuntu-lates'\n")
+            # Only the Windows leg runs it, where the default shell is pwsh.
+            self.check("cargo test -p a", set(), job_extra=MATRIX,
+                       extra="        if: matrix.os == 'windows-latest'\n")
+
+        def test_matrix_runner(self):
+            self.check("cargo test -p a", A, job_extra=MATRIX)
+            win_only = MATRIX.replace("ubuntu-latest, macos-latest, ", "")
+            self.check("cargo test -p a", set(), job_extra=win_only)
+
+        def test_matrix_include_unmodelled(self):
+            inc = ("    strategy:\n      matrix:\n        os: [ubuntu-latest]\n"
+                   "        include:\n          - os: windows-latest\n")
+            self.check("cargo test -p a", A, job_extra=inc)  # unconditional step
+            self.check("cargo test -p a", set(), job_extra=inc,
+                       extra="        if: matrix.os == 'ubuntu-latest'\n")
+
+        def test_shell_if_block(self):
+            self.check("if [ -n x ]; then\n  cargo test -p a\nfi", set())
+            self.check("if cargo test -p a; then echo ok; fi", set())
+            self.check("if true; then echo; fi\ncargo test -p b", {("b", "u1")})
+
+        def test_shell_case_loop_function(self):
+            self.check("case $X in\n  y) cargo test -p a ;;\nesac", set())
+            self.check("while false; do\n  cargo test -p a\ndone", set())
+            self.check("f() {\n  cargo test -p a\n}", set())
+            self.check("( cargo test -p a ) || true", set())
+            self.check("case $X in\n  y) echo ;;\nesac\ncargo test -p b", {("b", "u1")})
+
+        def test_unbalanced_shell_grouping_fails_closed(self):
+            self.check("echo }\ncargo test -p a", set())
 
         # -- ratchet failure modes -----------------------------------------
         def test_uncovered_not_allowlisted_fails(self):
