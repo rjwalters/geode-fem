@@ -1,0 +1,139 @@
+name: TEMP measure ignored tiers (#793, remove before review)
+
+# TEMPORARY measurement workflow for issue #793. It builds the release test
+# binaries once per crate / feature set, then runs every #[ignore]d test of
+# the targets the coverage guard reports as "runs nowhere", one test at a
+# time, each under a 20-min timeout, and records wall time + exit code.
+# DELETE THIS FILE BEFORE THE PR GOES TO REVIEW.
+
+on:
+  push:
+    branches: [feature/issue-793]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        set: [core, arpack, validation, cli]
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarpack2-dev pkg-config jq
+      - name: Restore cache (read-only)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.set == 'core' && 'core-tests' || matrix.set == 'arpack' && 'arpack' || matrix.set == 'validation' && 'validation-tests' || 'geode-cli-release' }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build test binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.set }}" in
+            core)
+              ARGS="-p geode-core --release --features spade-mesh"
+              T="analytic_cladding_bc_fiber_benchmark eigensolver fiber_dispersion_benchmark high_contrast_fiber_benchmark lp01_profile_selector_benchmark magnetostatic_wire mie_driven_scattering mixed_pencil_fiber_benchmark mixed_precision_refinement motor_torque_benchmark nedelec_cavity sphere_matched_upml_eigenmode step_index_fiber_benchmark transient_sparams transmon_diffopt transmon_eigen_sensitivity transmon_eigenmode transmon_mesh transmon_quantum" ;;
+            arpack)
+              ARGS="-p geode-core --release --features arpack"
+              T="patch_antenna_extraction patch_antenna_matched patch_antenna_radiation slcfet_3hp_benchmark spiral_inductor_benchmark" ;;
+            validation)
+              ARGS="-p geode-validation --release"
+              T="cube_cavity_jax_reference cube_cavity_julia_reference cube_cavity_onnx_reference sphere_mie_numpy_reference sphere_pec_jax_reference sphere_pec_julia_reference sphere_pec_numpy_reference sphere_pec_onnx_reference sphere_pec_tfjava_reference sphere_pml_jax_reference sphere_pml_numpy_reference sphere_pml_tfjava_reference" ;;
+            cli)
+              ARGS="-p geode-cli --release"
+              T="mesh_golden patch_extract_golden slcfet_extract_golden sphere_pec_golden spiral_golden" ;;
+          esac
+          TA=""; for t in $T; do TA="$TA --test $t"; done
+          start=$(date +%s)
+          cargo test $ARGS --no-run --message-format=json $TA > build.json
+          echo "build seconds: $(( $(date +%s) - start ))"
+          jq -r 'select(.reason=="compiler-artifact" and .executable != null and (.target.kind|index("test"))) | "\(.target.name) \(.executable)"' build.json > bins.txt
+          cat bins.txt
+          files="$(cut -d' ' -f2 bins.txt)"
+          if [ "${{ matrix.set }}" = cli ]; then files="$files $PWD/target/release/geode"; fi
+          tar -P -czf bins-${{ matrix.set }}.tgz $files bins.txt
+          ls -la bins-${{ matrix.set }}.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bins-${{ matrix.set }}
+          path: bins-${{ matrix.set }}.tgz
+          retention-days: 3
+
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {g: c1, set: core, crate: geode-core, specs: "eigensolver nedelec_cavity magnetostatic_wire mixed_precision_refinement transmon_mesh"}
+          - {g: c2, set: core, crate: geode-core, specs: "analytic_cladding_bc_fiber_benchmark fiber_dispersion_benchmark"}
+          - {g: c3, set: core, crate: geode-core, specs: "high_contrast_fiber_benchmark lp01_profile_selector_benchmark"}
+          - {g: c4, set: core, crate: geode-core, specs: "mixed_pencil_fiber_benchmark step_index_fiber_benchmark"}
+          - {g: c5, set: core, crate: geode-core, specs: "mie_driven_scattering motor_torque_benchmark sphere_matched_upml_eigenmode"}
+          - {g: c6, set: core, crate: geode-core, specs: "transient_sparams transmon_diffopt transmon_quantum transmon_eigen_sensitivity"}
+          - {g: c7, set: core, crate: geode-core, specs: "transmon_eigenmode::real_transmon_eigenmodes_release transmon_eigenmode::tripwire_real_junction_l_doubling transmon_eigenmode::tree_cotree_dof_elimination_shifts_eigen_spectrum"}
+          - {g: c8, set: core, crate: geode-core, specs: "transmon_eigenmode::real_transmon_projection_deflates_junction_mode transmon_eigenmode::real_transmon_port_aware_retains_all_six_modes transmon_eigenmode::characterize_spurious_3p45_mode"}
+          - {g: c9, set: core, crate: geode-core, specs: "transmon_eigenmode::real_transmon_matrix_free_matches_direct transmon_eigenmode::real_transmon_matrix_free_indefinite_matches_direct transmon_eigenmode::real_transmon_ams_beats_jacobi"}
+          - {g: a1, set: arpack, crate: geode-core, specs: "patch_antenna_extraction patch_antenna_matched patch_antenna_radiation slcfet_3hp_benchmark spiral_inductor_benchmark"}
+          - {g: v1, set: validation, crate: geode-validation, specs: "cube_cavity_jax_reference cube_cavity_julia_reference cube_cavity_onnx_reference sphere_mie_numpy_reference sphere_pec_jax_reference sphere_pec_julia_reference sphere_pec_numpy_reference sphere_pec_onnx_reference sphere_pec_tfjava_reference sphere_pml_jax_reference sphere_pml_numpy_reference sphere_pml_tfjava_reference"}
+          - {g: l1, set: cli, crate: geode-cli, specs: "mesh_golden::spiral_benchmark_layout_within_oracle_bands patch_extract_golden slcfet_extract_golden sphere_pec_golden spiral_golden::spiral_benchmark_golden_within_oracle_bands"}
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarpack2-dev gmsh
+      - uses: actions/download-artifact@v4
+        with:
+          name: bins-${{ matrix.set }}
+      - name: Run each ignored test (20-min cap each)
+        shell: bash
+        run: |
+          set -uo pipefail
+          tar -P -xzf bins-${{ matrix.set }}.tgz
+          mkdir -p target/tmp logs
+          CRATE_DIR="$PWD/crates/${{ matrix.crate }}"
+          : > results.txt
+          for spec in ${{ matrix.specs }}; do
+            target="${spec%%::*}"
+            only=""; [ "$spec" != "$target" ] && only="${spec#*::}"
+            bin="$(awk -v t="$target" '$1==t {print $2}' bins.txt | head -1)"
+            if [ -z "$bin" ]; then echo "RESULT $target MISSING-BINARY" | tee -a results.txt; continue; fi
+            tests="$(cd "$CRATE_DIR" && "$bin" --list --ignored --format terse | sed -n 's/: test$//p')"
+            for t in $tests; do
+              [ -n "$only" ] && [ "$t" != "$only" ] && continue
+              s=$(date +%s)
+              (cd "$CRATE_DIR" && CARGO_MANIFEST_DIR="$CRATE_DIR" timeout 1200 "$bin" --ignored --exact "$t" --nocapture) > "logs/$target--$t.log" 2>&1
+              rc=$?
+              d=$(( $(date +%s) - s ))
+              echo "RESULT $target::$t rc=$rc secs=$d" | tee -a results.txt
+              if [ $rc -ne 0 ]; then echo "---- tail of $target::$t ----"; tail -40 "logs/$target--$t.log"; fi
+            done
+          done
+          echo "==== SUMMARY ${{ matrix.g }} ===="
+          cat results.txt
+          echo "==== git status (files the tests changed) ===="
+          git status --porcelain
+          cat results.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs-${{ matrix.g }}
+          path: |
+            logs
+            results.txt
+          retention-days: 7
