@@ -7,20 +7,21 @@
 #   * a target listed here is now run by a workflow, or no longer exists
 #     (delete the stale line).
 #
-# This is the backlog as of issue #785, generated mechanically. It does not
-# endorse leaving these targets out. Wiring them into CI (timing each in
-# release, and keeping slow or platform-sensitive tiers out) is tracked as
-# follow-up work. Shrink this file; do not grow it without a reason.
+# Issue #785 found 109 such targets. Issue #786 timed each one in release on
+# ubuntu-latest and moved 102 into .github/workflows/integration-tests.yml.
+# Every entry left here carries its reason. Shrink this file; do not grow it
+# without a reason.
 #
 # Format: <crate>/<target>, one per line. `#` starts a comment.
 
 # geode-core
-geode-core/cube_convergence_regression  # EMPTY
-geode-core/derham_gauge_invariance  # EMPTY
-geode-core/derham_kernel_dim  # EMPTY
-geode-core/formulation_audit_graddiv  # PENDING
-geode-core/gpu_driven_scaling  # EMPTY
-geode-core/mie_sphere  # EMPTY
-geode-core/silvermuller_self_consistent  # EMPTY
-geode-core/silvermuller_self_consistent_vector_tracking  # EMPTY
-geode-core/sparse_complex_eigensolver  # EMPTY
+# Fails on Linux x86_64 (0 bound modes recovered), passes on macOS: issue #791.
+geode-core/formulation_audit_graddiv
+# Wall-clock scaling benchmark (prints a TOML table), not a correctness check;
+# default tier is empty.
+geode-core/gpu_driven_scaling
+geode-core/derham_kernel_dim  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier ran >39 min on ubuntu-latest (#786), over the 45-min job bound
+geode-core/mie_sphere  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier ran >39 min on ubuntu-latest (#786), over the 45-min job bound
+geode-core/silvermuller_self_consistent  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier ran >39 min on ubuntu-latest (#786), over the 45-min job bound
+geode-core/silvermuller_self_consistent_vector_tracking  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier ran >39 min on ubuntu-latest (#786), over the 45-min job bound
+geode-core/sparse_complex_eigensolver  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier ran >39 min on ubuntu-latest (#786), over the 45-min job bound

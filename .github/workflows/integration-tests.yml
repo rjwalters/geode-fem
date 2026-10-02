@@ -13,15 +13,17 @@ name: integration-tests
 # #786): every geode-validation target finishes in under 1 s (about 6 s
 # for all 26). In geode-core every target finishes in under 20 s except
 # sphere_pec_eigenmode (about 73 s), with about 130 s for all 74. The cold
-# release build of the test binaries dominates (about 22 min for geode-core
-# and 10 min for geode-validation), so the two crates build in parallel
-# jobs.
+# release build of the test binaries dominates (about 24 min for geode-core
+# and 8 min for geode-validation; a warm cache cuts it to a few minutes), so
+# the two crates build in parallel jobs. Cold job wall times on the #786 PR:
+# core-tests 27 min, validation-tests 8 min.
 #
 # What stays out, and why, is recorded per entry in the allowlist:
-# formulation_audit_graddiv fails on Linux (passes on macOS), and the
-# targets whose default tier is empty (every test #[ignore]d) are not
-# counted as covered, since running them here would only compile them
-# (clippy --tests in arpack.yml already does that).
+# formulation_audit_graddiv fails on Linux and passes on macOS (issue #791).
+# Targets whose default tier is empty (every test #[ignore]d) are not run
+# here for the default tier only, since that would just compile them
+# (clippy --tests in arpack.yml already does that). Two of them run their
+# --ignored tier below. The rest are too slow or are benchmarks.
 
 on:
   push:
@@ -33,8 +35,9 @@ jobs:
   core-tests:
     name: cargo test -p geode-core --release (integration targets, linux)
     runs-on: ubuntu-latest
-    # About 22 min cold build + about 2.5 min of tests; 45 min is the
-    # per-job bound (issue #772) and covers a cold cache.
+    # About 24 min cold build + about 5 min of tests (27 min measured cold
+    # before the --ignored step was added); 45 min is the per-job bound
+    # (issue #772) and covers a cold cache.
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
@@ -56,6 +59,18 @@ jobs:
 
       # spade-mesh enables the `#![cfg(feature = "spade-mesh")]`
       # spade_port_mesh target (2-D Delaunay port meshing, issue #582).
+      # These two targets have an empty default tier: their only test is
+      # #[ignore]d because faer 0.24's dense gevd / qz_real panics under
+      # debug-assertions, so they run in release with --ignored (about 31 s
+      # and 80 s on ubuntu-latest). The other targets whose tests are all
+      # #[ignore]d stay on the allowlist (each release --ignored tier ran
+      # past 39 min in CI, or is a wall-clock benchmark).
+      - name: geode-core release-only targets (--ignored tier)
+        run: |
+          cargo test -p geode-core --release --features spade-mesh \
+              --test cube_convergence_regression \
+              --test derham_gauge_invariance -- --ignored
+
       - name: geode-core integration targets (default tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \
