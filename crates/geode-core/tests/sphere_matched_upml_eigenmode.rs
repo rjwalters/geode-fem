@@ -317,8 +317,10 @@ fn matched_upml_quasimode_q_recovers_open_space_tm11() {
     );
 
     // Sparse shift-invert Lanczos targeted at the analytic root.
-    // (Dense QZ on the 3,300-DOF complex pencil does not finish in
-    // hours; shift-invert at σ = Re(k_a²) ≈ 3.3 puts the gradient
+    // (faer's dense complex QZ did not finish in hours on the 3,300-DOF
+    // pencil, issue #796; the dense path is now a full-spectrum
+    // shift-invert, but the targeted sparse solve is still the right
+    // tool. Shift-invert at σ = Re(k_a²) ≈ 3.3 puts the gradient
     // nullspace λ ≈ 0 far from the shift, so no spurious-mode filter
     // is needed beyond the oscillatory cut below.)
     let lambda_target = c64::new(

@@ -19,7 +19,14 @@
 # default tier is empty, and the --ignored tier passes but takes 42 min on
 # ubuntu-latest (#786).
 geode-core/gpu_driven_scaling
-geode-core/derham_kernel_dim  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
-geode-core/mie_sphere  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
-geode-core/silvermuller_self_consistent  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
-geode-core/silvermuller_self_consistent_vector_tracking  # default tier empty (all tests #[ignore]d: faer gevd debug-assertion panic); release --ignored tier timed out at 80 min on ubuntu-latest (#786), over the 45-min job bound
+# The two Silver-Müller self-consistent targets: default tier empty (all
+# tests #[ignore]d: faer gevd debug-assertion panic). Their release --ignored
+# tiers timed out at 80 min on ubuntu-latest (#786) because faer's complex
+# QZ hung (#796). With the #796 dense shift-invert they finish, but each test
+# runs about 21 dense solves of the full 4512-DOF pencil, which is still too
+# slow for the 45-min job bound. Measured locally (6 threads, loaded host):
+# silvermuller_self_consistent passes in 19 min; the vector-tracking tier
+# needs eigenvectors on every solve and had passed 1 of its 3 tests at a
+# 20-min cap.
+geode-core/silvermuller_self_consistent
+geode-core/silvermuller_self_consistent_vector_tracking

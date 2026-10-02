@@ -422,8 +422,8 @@ pub fn self_consistent_k_vector_tracked(
             }
             Some(prev) => {
                 // Compute |⟨prev, v_j⟩_M| for each candidate. We
-                // do not re-normalize candidates first (faer's
-                // eigenvectors come out of QZ in an arbitrary
+                // do not re-normalize candidates first (the dense
+                // solver's eigenvectors come out in an arbitrary
                 // normalization); instead we score by the
                 // **normalized** overlap
                 //   |⟨prev, v_j⟩_M| / sqrt(|⟨v_j, v_j⟩_M|)

@@ -94,6 +94,24 @@ pub enum EigenError {
         /// for the pre-solve gradient-subspace probe.
         n_returned: usize,
     },
+    /// A dense complex eigensolve was asked for a pencil larger than
+    /// [`crate::eigen::complex::MAX_DENSE_COMPLEX_DIM`]. The dense path costs
+    /// `O(n³)` time and holds several `n × n` complex matrices, so above the
+    /// limit it is refused up front rather than left to run for an
+    /// unbounded time (issue #796). Use the sparse
+    /// [`crate::eigen::complex::SparseComplexShiftInvertLanczos`] instead.
+    #[error(
+        "dense complex eigensolve refused: pencil dimension {dim} exceeds the dense limit \
+         {max} (O(n³) time, several n×n complex matrices in memory); use the sparse \
+         shift-invert solver `SparseComplexShiftInvertLanczos` for pencils this size \
+         (issue #796)"
+    )]
+    DenseTooLarge {
+        /// Dimension of the pencil that was passed in.
+        dim: usize,
+        /// The dense limit it exceeded.
+        max: usize,
+    },
 }
 
 /// Interface for "compute the lowest `n` eigenvalues of `K x = λ M x`".
