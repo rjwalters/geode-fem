@@ -50,7 +50,12 @@ the "(7,64) SMF-28: no mode" row below.
 capped at the calibrated `3e-2`, so the Si/SiO₂ floor is unchanged). The
 solver also rejects in-window pairs that break the Rayleigh identity
 (`r ≥ (ε_max − ε_min)/ε_max`, or `δ` above `10⁻³` of that bound), so an
-unconverged Ritz vector can no longer be returned as a mode. It now
+unconverged Ritz vector can no longer be returned as a mode. (Since #798
+the eigensolve itself returns only pairs with true residual
+`‖A x − β² M₁ x‖/(β²‖M₁ x‖) ≤ 1e-8`, extending the Lanczos run when an
+in-window pair is unconverged; the Rayleigh check is the second line. The
+identity violation is second order in the residual, so on its own it only
+catches residuals above about `3e-3`.) It now
 returns the genuine core-guided fundamental (core fraction ≈ 0.7) on every
 mesh and on both platforms. On these fundamentals the identity holds to
 `δ ≈ 1e-14`, and `⟨ε⟩_x` equals `ε_clad + (core fraction)·Δε` to 1e-8.

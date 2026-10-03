@@ -182,6 +182,11 @@ jobs:
           # vacuum bit-identity golden are unit tests (`--lib`), < 1 s.
           cargo test --features arpack -p geode-core --release --lib -- \
               driven::ports::
+          # Issue #798: residual-checked Lanczos (`eigen::lanczos::`) and the
+          # port/dielectric mode solvers that use it (`analytic::waveguide::`),
+          # incl. the #794 p=1 curl-floor tests. ~93 tests, ~7 s in release.
+          cargo test --features arpack -p geode-core --release --lib -- \
+              eigen::lanczos:: analytic::waveguide::
 
       # Issue #760: diagonal anisotropic materials — the lossless
       # tensor cavity pencil and diagonal-nu magnetostatics unit tests

@@ -1269,11 +1269,6 @@ impl SparseShiftInvertLanczos {
             return Ok((Vec::new(), 0));
         }
 
-        // Running total of inner CG iterations across the outer Lanczos loop
-        // (issue #526): 0 for the direct LU backend, the Jacobi/AMS-lite CG
-        // iteration count for the matrix-free backend.
-        let mut total_inner_iters = 0usize;
-
         // 1. Prepare the inner-solve backend for A⁻¹M. The direct variant
         //    builds A = K − σM and factors it once (scoping faer's rayon to
         //    the factorization — rayon speeds up sparse LU but is slower on
@@ -1290,182 +1285,316 @@ impl SparseShiftInvertLanczos {
         //    basis V_k. Unlike the eigenvalue-only path we always run to
         //    the requested mode count; the Ritz-vector recovery needs the
         //    final basis even if convergence formally lags.
-        let max_k = self.max_iters.min(n).max(n_modes + 2).min(n);
-        let mut basis: Vec<Vec<f64>> = Vec::with_capacity(max_k);
-        // Cache of `M·v_j` for each basis vector, filled in lockstep with
-        // `basis`. The reorth loop reuses these instead of recomputing an
-        // SpMV per basis vector every iteration (turns the O(k²) SpMV cost
-        // into O(k²) dot+axpy — see issue #506).
-        let mut m_basis: Vec<Vec<f64>> = Vec::with_capacity(max_k);
-        let mut alpha: Vec<f64> = Vec::with_capacity(max_k);
-        let mut beta: Vec<f64> = Vec::with_capacity(max_k);
+        let max_k = self.initial_krylov_dim(n, n_modes);
+        let mut run = LanczosRun::start(m, max_k)?;
+        run.extend(&inner, m, n_modes, max_k, self.tol, ExtendMode::Historical)?;
 
-        let mut v: Vec<f64> = (0..n)
-            .map(|i| (((i as f64) + 1.0) * 0.5432).sin())
+        // 3–5. Ritz pairs nearest σ, M-orthonormalized, λ ascending.
+        let out = run.ritz_pairs(m, self.sigma, n_modes)?;
+        Ok((out, run.total_inner_iters))
+    }
+
+    /// Krylov dimension of the first Lanczos pass for `n_modes` requested
+    /// pairs on an `n`-dimensional pencil: `max_iters`, raised to at least
+    /// `n_modes + 2`, never above `n`.
+    fn initial_krylov_dim(&self, n: usize, n_modes: usize) -> usize {
+        self.max_iters.min(n).max(n_modes + 2).min(n)
+    }
+
+    /// [`Self::smallest_eigenpairs`] with a **per-pair convergence check**
+    /// (issue #798): only Ritz pairs whose true residual meets
+    /// [`ConvergenceCheck::residual_tol`] are returned, and the Krylov space is
+    /// extended, up to [`ConvergenceCheck::max_iters_cap`] Lanczos steps, to
+    /// converge the pairs the first pass only approximated.
+    ///
+    /// # Residual
+    ///
+    /// For a Ritz pair `(λ, x)` the check uses the true residual on the
+    /// original pencil,
+    ///
+    /// ```text
+    ///   ρ(λ, x) = ‖K x − λ M x‖₂ / (s · ‖M x‖₂),   s = max(|λ|, |σ|),
+    /// ```
+    ///
+    /// two sparse mat-vecs per pair. `s` is `|λ|` except for pairs much
+    /// closer to zero than the shift, where `|σ|` keeps the ratio finite.
+    ///
+    /// # First pass
+    ///
+    /// The first pass runs exactly the Krylov dimension and arithmetic of
+    /// [`Self::smallest_eigenpairs`] and checks its `n_modes` pairs nearest
+    /// `σ`. Each pair is classified:
+    ///
+    /// - **converged**: `ρ ≤ residual_tol`;
+    /// - **localized** but unconverged, inside [`ConvergenceCheck::window`]:
+    ///   `ρ · s ≤ |λ − σ|`. To first order the nearest eigenvalue lies within
+    ///   `ρ · s` of the Ritz value, so the pair points at a real eigenvalue
+    ///   that a longer run can resolve;
+    /// - anything else: a tail pair (`ρ ≈ 0.1…1` after a short run) whose
+    ///   Ritz value says nothing about where an eigenvalue is, or an
+    ///   unconverged pair outside the caller's window. It is withheld.
+    ///
+    /// The converged and the localized in-window pairs are the *targets*. If
+    /// every target is already converged (and, with no window, `n_modes` of
+    /// the pairs are), the converged pairs are returned **bit-identical** to
+    /// [`Self::smallest_eigenpairs`] and the rest is reported in
+    /// [`CheckedEigenpairs::rejected`].
+    ///
+    /// # Extension
+    ///
+    /// Otherwise the recurrence continues from the stored basis (no restart,
+    /// no refactorization) in increments of `max(n_modes, 8)` steps. Each
+    /// target gets the width `max(ρ, 10⁻¹⁰) · s`. The run stops once every
+    /// target has a converged Ritz pair within its width (and, with no
+    /// [`ConvergenceCheck::window`], at least `n_modes` converged pairs are
+    /// in hand), or when the cap is reached or β breaks down. The result is
+    /// every converged Ritz pair within the width of some target. With no
+    /// window, if that is fewer than `n_modes`, it is topped up with the
+    /// converged Ritz pairs nearest `σ`, so it holds fewer only when the cap
+    /// or a breakdown ends the run ([`CheckedEigenpairs::shortfall`]). With a
+    /// window the caller has said only in-window pairs matter, so there is
+    /// no top-up, and the in-window shortfall is the unconfirmed targets. Converged first-pass pairs
+    /// reappear, re-extracted from the longer basis. Targets left
+    /// unconfirmed, and the final run's unconverged pairs among the
+    /// `requested` in-window pairs nearest `σ`, are reported in
+    /// [`CheckedEigenpairs::rejected`].
+    ///
+    /// The extension tracks the first pass's own pairs rather than re-taking
+    /// "the `n_modes` nearest `σ`", because a longer run resolves more
+    /// eigenvalues next to `σ` (for example a dense gradient-nullspace
+    /// cluster). Re-taking the nearest `n_modes` would push a pair that
+    /// converged at the far edge of the first window out of the result. It
+    /// also does not try to converge every eigenvalue a longer run uncovers.
+    ///
+    /// The extension does not apply the first pass's β-bound early exit
+    /// (`β ≤ tol · max(μ_max, 1)`). That test is absolute whenever `|μ| < 1`,
+    /// so on an SI-unit pencil (`λ ~ 10¹³`) it fires after a few steps, while
+    /// most of the window is unconverged. A first pass cut short that way is
+    /// resumed exactly where it stopped. Only a scale-relative breakdown
+    /// (`β ≤ 10⁻¹³ · max |α_j|`) ends the extension early.
+    ///
+    /// The inner solve is built as in [`Self::smallest_eigenpairs`]: no discrete
+    /// gradient and no DOF coordinates, so [`InnerPreconditioner::Ams`] falls
+    /// back to Jacobi and [`InnerSolver::DirectCustomOrder`] uses AMD.
+    ///
+    /// The plain [`Self::smallest_eigenpairs`] entry point is unchanged and does
+    /// not run this check. The check is opt-in, so the 3-D cavity, transmon and
+    /// projection callers keep their results and cost exactly.
+    pub fn smallest_eigenpairs_checked(
+        &self,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        n_modes: usize,
+        check: ConvergenceCheck,
+    ) -> Result<CheckedEigenpairs, EigenError> {
+        let n = k.nrows();
+        assert_eq!(k.ncols(), n, "K must be square");
+        assert_eq!(m.nrows(), n, "M and K must agree in size");
+        assert_eq!(m.ncols(), n);
+        let requested = n_modes.min(n);
+        let mut out = CheckedEigenpairs {
+            pairs: Vec::new(),
+            residuals: Vec::new(),
+            rejected: Vec::new(),
+            requested,
+            lanczos_steps: 0,
+            extended: false,
+        };
+        if requested == 0 {
+            return Ok(out);
+        }
+        let inner = self.build_inner(k, m, resolve_num_threads(), None, None)?;
+        let sigma = self.sigma;
+        let mut kx = vec![0.0_f64; n];
+        let mut mx = vec![0.0_f64; n];
+        let mut residuals_of = |pairs: &[EigenPair]| -> Vec<f64> {
+            pairs
+                .iter()
+                .map(|p| pair_relative_residual(k, m, p.lambda, &p.vector, sigma, &mut kx, &mut mx))
+                .collect()
+        };
+
+        // First pass: the historical Krylov dimension and window.
+        let first = self.initial_krylov_dim(n, n_modes);
+        let mut run = LanczosRun::start(m, first)?;
+        run.extend(&inner, m, n_modes, first, self.tol, ExtendMode::Historical)?;
+        let pairs = run.ritz_pairs(m, sigma, n_modes)?;
+        let residuals = residuals_of(&pairs);
+        let cap = check.max_iters_cap.max(first).min(n);
+        let tol = check.residual_tol;
+
+        // Targets: the converged first-pass pairs, plus the unconverged ones
+        // whose Ritz value locates an eigenvalue inside the caller's window.
+        let in_window = |lambda: f64| {
+            check
+                .window
+                .is_none_or(|(lo, hi)| lo < lambda && lambda < hi)
+        };
+        let first_pass: Vec<(f64, f64, bool)> = pairs
+            .iter()
+            .zip(&residuals)
+            .map(|(p, &r)| {
+                let target =
+                    r <= tol || (in_window(p.lambda) && ritz_is_localized(p.lambda, r, sigma));
+                (p.lambda, r, target)
+            })
             .collect();
-        let mut mv = vec![0.0_f64; n];
-        spmv(m, &v, &mut mv);
-        let mut nrm2 = v.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
-        if nrm2 <= 0.0 {
-            return Err(EigenError::FaerGevd(
-                "starting vector has non-positive M-norm; M not SPD?".into(),
-            ));
+        let targets: Vec<RitzTarget> = first_pass
+            .iter()
+            .filter(|t| t.2)
+            .map(|&(lambda, residual, _)| RitzTarget {
+                lambda,
+                width: residual.max(TARGET_MATCH_REL_FLOOR) * lambda.abs().max(sigma.abs()),
+                residual,
+            })
+            .collect();
+        // Done after the first pass when every target is converged and, with
+        // no window, the converged pairs already number `n_modes`.
+        let n_converged = residuals.iter().filter(|&&r| r <= tol).count();
+        let enough = check.window.is_some() || n_converged >= requested;
+        if (enough && targets.iter().all(|t| t.residual <= tol))
+            || run.broken_down()
+            || first >= cap
+        {
+            out.lanczos_steps = run.alpha.len();
+            out.split(pairs, residuals, tol);
+            return Ok(out);
         }
-        let mut nrm = nrm2.sqrt();
-        for x in v.iter_mut() {
-            *x /= nrm;
-        }
 
-        let mut w = vec![0.0_f64; n];
-        let mut work = vec![0.0_f64; n];
-
-        // Warm-start buffer for the matrix-free inner CG: retains the
-        // previous iteration's solution `A⁻¹ M v_{j-1}` as the initial guess
-        // for `A⁻¹ M v_j` (the two RHSs are close, so this cuts inner
-        // iterations). Ignored by the direct LU backend.
-        let mut y_guess = vec![0.0_f64; n];
-
-        // Opt-in per-outer-step diagnostic (issue #562): observe how many outer
-        // shift-invert Lanczos steps complete within a wall-clock budget and how
-        // many inner iterations each step's `(K − σM)⁻¹` apply cost.
-        let step_log = diag_env::is_set(diag_env::STEP_LOG);
-        let t_loop = std::time::Instant::now();
-
-        for j in 0..max_k {
-            spmv(m, &v, &mut mv);
-            w.copy_from_slice(&y_guess);
-            let step_iters = inner.solve(&mv, &mut w)?;
-            total_inner_iters += step_iters;
-            if step_log {
-                eprintln!(
-                    "[lanczos] outer_step={j} inner_iters={step_iters} \
-                     cumulative_inner={total_inner_iters} elapsed={:.1}s",
-                    t_loop.elapsed().as_secs_f64()
-                );
+        // Extension: run until every target has a converged Ritz pair within
+        // its uncertainty (and, with no window, `n_modes` converged pairs are
+        // in hand), then return the confirmations, topped up with the
+        // converged pairs nearest σ when there is no window.
+        out.extended = true;
+        let increment = n_modes.max(8);
+        let mut dim_target = first;
+        loop {
+            dim_target = (dim_target + increment).min(cap);
+            run.extend(&inner, m, n_modes, dim_target, tol, ExtendMode::Extension)?;
+            let (values, s_mat) = run.ritz_values(sigma)?;
+            let mut near_picks: Vec<(f64, usize)> = values
+                .iter()
+                .copied()
+                .filter(|&(lambda, _)| targets.iter().any(|t| (lambda - t.lambda).abs() <= t.width))
+                .collect();
+            near_picks.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(core::cmp::Ordering::Equal));
+            let near = run.ritz_vectors(m, &s_mat, &near_picks);
+            let near_res = residuals_of(&near);
+            let confirmed: Vec<bool> = targets
+                .iter()
+                .map(|t| {
+                    near.iter()
+                        .zip(&near_res)
+                        .any(|(p, &r)| r <= tol && (p.lambda - t.lambda).abs() <= t.width)
+                })
+                .collect();
+            let all_confirmed = confirmed.iter().all(|&c| c);
+            let steps = run.alpha.len();
+            let last = run.broken_down() || steps >= cap;
+            if !all_confirmed && !last {
+                continue;
             }
-            y_guess.copy_from_slice(&w);
-
-            let aj = w.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
-            alpha.push(aj);
-            for i in 0..n {
-                w[i] -= aj * v[i];
-            }
-            if let Some(bp) = beta.last().copied() {
-                let prev = &basis[j - 1];
-                for i in 0..n {
-                    w[i] -= bp * prev[i];
-                }
-            }
-
-            // Full reorthogonalization (M-inner product). Reuse the cached
-            // `M·v_k` (`m_basis[idx]`) instead of recomputing an SpMV per
-            // basis vector (issue #506).
-            for (vk, m_vk) in basis.iter().zip(m_basis.iter()) {
-                let c = w.iter().zip(m_vk.iter()).map(|(a, b)| a * b).sum::<f64>();
-                if c.abs() > 0.0 {
-                    for i in 0..n {
-                        w[i] -= c * vk[i];
+            // Each kept pair carries its Ritz column, so the withheld report
+            // below can tell which final-run Ritz values were returned.
+            let mut kept: Vec<(EigenPair, f64, usize)> = near
+                .into_iter()
+                .zip(near_res)
+                .zip(&near_picks)
+                .filter(|((_, r), _)| *r <= tol)
+                .map(|((pair, r), pick)| (pair, r, pick.1))
+                .collect();
+            // Without a window the caller wants `n_modes` converged pairs: top
+            // up from the remaining Ritz pairs nearest σ. With a window only
+            // the in-window targets matter, so their confirmation is enough.
+            let want = if check.window.is_some() { 0 } else { requested };
+            if kept.len() < want {
+                let mut rest: Vec<(f64, usize)> = values
+                    .iter()
+                    .copied()
+                    .filter(|v| !near_picks.iter().any(|p| p.1 == v.1))
+                    .collect();
+                rest.sort_by(|a, b| {
+                    (a.0 - sigma)
+                        .abs()
+                        .partial_cmp(&(b.0 - sigma).abs())
+                        .unwrap_or(core::cmp::Ordering::Equal)
+                });
+                rest.truncate(want);
+                let extra = run.ritz_vectors(m, &s_mat, &rest);
+                let extra_res = residuals_of(&extra);
+                for ((pair, res), pick) in extra.into_iter().zip(extra_res).zip(&rest) {
+                    if kept.len() >= want {
+                        break;
+                    }
+                    if res <= tol {
+                        kept.push((pair, res, pick.1));
                     }
                 }
             }
-            // Re-project off v itself (the just-computed direction). `mv`
-            // still holds `M·v` from the top of this iteration.
-            let c = w.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
-            for i in 0..n {
-                w[i] -= c * v[i];
-            }
-
-            spmv(m, &w, &mut work);
-            nrm2 = w.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
-            let nrm2 = nrm2.max(0.0);
-            nrm = nrm2.sqrt();
-
-            // Cache `M·v` alongside the basis vector before consuming `v`.
-            m_basis.push(core::mem::take(&mut mv));
-            mv = vec![0.0_f64; n];
-            basis.push(core::mem::take(&mut v));
-
-            // Convergence probe — same Kaniel–Saad bound as the
-            // eigenvalues-only path. Break early when the next
-            // Lanczos β has dropped below tolerance relative to the
-            // dominant Ritz value.
-            if alpha.len() >= n_modes && alpha.len() >= 2 {
-                let mus = tridiag_eigenvalues(&alpha, &beta)?;
-                let mu_max = mus.iter().fold(0.0_f64, |a, &b| a.max(b.abs()));
-                if nrm <= self.tol * mu_max.max(1.0) {
-                    break;
-                }
-            }
-
-            if nrm < 1e-14 {
-                break;
-            }
-
-            beta.push(nrm);
-            v = w.iter().map(|x| x / nrm).collect();
-        }
-
-        if alpha.is_empty() {
-            return Err(EigenError::FaerGevd(
-                "Lanczos produced no iterations; trivial problem?".into(),
-            ));
-        }
-
-        // 3. Solve the tridiagonal eigenproblem with eigenvectors.
-        let (mus, s_mat) = tridiag_eigenpairs(&alpha, &beta)?;
-        let k_eff = mus.len();
-
-        // 4. Build (λ, ritz_vector) pairs, filter out near-zero μ
-        //    (corresponds to infinite λ), and sort by |λ - σ| ascending.
-        let sigma = self.sigma;
-        let mut pairs: Vec<(f64, Vec<f64>)> = Vec::with_capacity(k_eff);
-        for col in 0..k_eff {
-            let mu = mus[col];
-            if mu.abs() == 0.0 {
+            if kept.len() < want && !last {
                 continue;
             }
-            let lambda = sigma + 1.0 / mu;
-            // Ritz vector x = V_k · s_col.
-            let mut x = vec![0.0_f64; n];
-            for row in 0..k_eff {
-                let s_rc = s_mat[(row, col)];
-                if s_rc == 0.0 {
-                    continue;
-                }
-                let basis_row = &basis[row];
-                for i in 0..n {
-                    x[i] += s_rc * basis_row[i];
-                }
+            kept.sort_by(|a, b| {
+                a.0.lambda
+                    .partial_cmp(&b.0.lambda)
+                    .unwrap_or(core::cmp::Ordering::Equal)
+            });
+            out.lanczos_steps = steps;
+            // Withheld report. The first pass's non-target pairs are stale
+            // after the extension (a tail Ritz value says nothing about where
+            // an eigenvalue is, and the longer run usually returns a converged
+            // pair there), so they are not reported. Instead report what the
+            // *final* run could not account for: among its `requested`
+            // in-window Ritz values nearest σ, the unconverged ones that were
+            // not returned (each would have displaced a returned pair, or
+            // filled a shortfall), plus the first-pass targets still
+            // unconfirmed at the cap.
+            let mut nearest: Vec<(f64, usize)> = values
+                .iter()
+                .copied()
+                .filter(|&(lambda, col)| in_window(lambda) && !kept.iter().any(|k| k.2 == col))
+                .collect();
+            nearest.sort_by(|a, b| {
+                (a.0 - sigma)
+                    .abs()
+                    .partial_cmp(&(b.0 - sigma).abs())
+                    .unwrap_or(core::cmp::Ordering::Equal)
+            });
+            // `|λ − σ|` of the `requested`-th nearest in-window Ritz value.
+            let mut dist: Vec<f64> = values
+                .iter()
+                .filter(|&&(lambda, _)| in_window(lambda))
+                .map(|&(lambda, _)| (lambda - sigma).abs())
+                .collect();
+            dist.sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
+            let reach = dist.get(requested - 1).copied().unwrap_or(f64::INFINITY);
+            nearest.retain(|&(lambda, _)| (lambda - sigma).abs() <= reach);
+            let unaccounted = run.ritz_vectors(m, &s_mat, &nearest);
+            let unaccounted_res = residuals_of(&unaccounted);
+            let unconverged: Vec<(f64, f64)> = unaccounted
+                .iter()
+                .zip(unaccounted_res)
+                .filter(|(_, r)| *r > tol)
+                .map(|(p, r)| (p.lambda, r))
+                .collect();
+            for (pair, res, _) in kept {
+                out.pairs.push(pair);
+                out.residuals.push(res);
             }
-            pairs.push((lambda, x));
+            out.rejected.extend(
+                targets
+                    .iter()
+                    .zip(&confirmed)
+                    .filter(|(t, c)| {
+                        !**c && !unconverged
+                            .iter()
+                            .any(|&(lambda, _)| (lambda - t.lambda).abs() <= t.width)
+                    })
+                    .map(|(t, _)| (t.lambda, t.residual)),
+            );
+            out.rejected.extend(unconverged);
+            return Ok(out);
         }
-        pairs.sort_by(|a, b| {
-            (a.0 - sigma)
-                .abs()
-                .partial_cmp(&(b.0 - sigma).abs())
-                .unwrap_or(core::cmp::Ordering::Equal)
-        });
-
-        let take = n_modes.min(pairs.len());
-        let mut picked: Vec<(f64, Vec<f64>)> = pairs.into_iter().take(take).collect();
-        // Re-sort by λ ascending — matches the dense path's eigenpair
-        // ordering and the eigenvalue-only sparse path.
-        picked.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(core::cmp::Ordering::Equal));
-
-        // 5. M-orthonormalize each Ritz vector: divide by sqrt(xᵀ M x).
-        let mut out = Vec::with_capacity(take);
-        for (lambda, mut x) in picked {
-            spmv(m, &x, &mut work);
-            let norm2 = x.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
-            if norm2 > 0.0 {
-                let s = norm2.sqrt();
-                for v in x.iter_mut() {
-                    *v /= s;
-                }
-            }
-            out.push(EigenPair { lambda, vector: x });
-        }
-        Ok((out, total_inner_iters))
     }
 
     /// [`SparseEigenSolver::smallest_eigenvalues`] with an explicit
@@ -1705,6 +1834,461 @@ impl SparseShiftInvertLanczos {
     }
 }
 
+/// Per-pair convergence criterion for
+/// [`SparseShiftInvertLanczos::smallest_eigenpairs_checked`] (issue #798).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ConvergenceCheck {
+    /// Largest accepted relative true residual
+    /// `‖K x − λ M x‖₂ / (max(|λ|, |σ|) · ‖M x‖₂)` of a returned pair.
+    pub residual_tol: f64,
+    /// Hard cap on the total Lanczos steps (Krylov dimension). The first pass
+    /// always runs the solver's own `max_iters`-derived dimension; the cap only
+    /// bounds the extension. Clamped to the pencil dimension.
+    pub max_iters_cap: usize,
+    /// Optional eigenvalue interval `(lo, hi)` the caller can use. Only
+    /// unconverged first-pass pairs with `lo < λ < hi` drive an extension.
+    /// Unconverged pairs outside it are withheld without extending the run,
+    /// and an extended result is not topped up to `n_modes`. `None` makes
+    /// every pair eligible and tops an extended result up to `n_modes`.
+    pub window: Option<(f64, f64)>,
+}
+
+/// Result of [`SparseShiftInvertLanczos::smallest_eigenpairs_checked`]: the
+/// converged pairs plus an explicit record of what was withheld (issue #798).
+#[derive(Debug, Clone)]
+pub struct CheckedEigenpairs {
+    /// Converged pairs (relative residual ≤ the tolerance), `λ` ascending,
+    /// M-orthonormalized. At most `requested` entries unless the run was
+    /// [extended](Self::extended), when every converged pair confirming a
+    /// first-pass pair is returned (topped up to `requested` with the
+    /// converged pairs nearest `σ`).
+    pub pairs: Vec<EigenPair>,
+    /// Relative true residual of each entry of [`Self::pairs`] (parallel).
+    pub residuals: Vec<f64>,
+    /// `(λ, residual)` of the unconverged Ritz pairs that were withheld
+    /// although they rank among the `requested` (in-window) pairs nearest
+    /// `σ`, so each would have displaced a returned pair or filled a
+    /// shortfall. Without an extension these are all the first pass's
+    /// unconverged pairs (in or out of the window). After an extension they are the final run's
+    /// unconverged pairs in that range, plus first-pass targets never
+    /// matched by a converged pair before the cap. Stale first-pass tail
+    /// pairs that the longer run resolved are not reported (issue #798).
+    pub rejected: Vec<(f64, f64)>,
+    /// Number of pairs asked for (`n_modes`, clamped to the pencil dimension).
+    pub requested: usize,
+    /// Lanczos steps (Krylov dimension) actually run, first pass included.
+    pub lanczos_steps: usize,
+    /// Whether the first pass left an unconverged pair and the run was
+    /// extended. When `false`, [`Self::pairs`] is bit-identical to
+    /// [`SparseShiftInvertLanczos::smallest_eigenpairs`] minus
+    /// [`Self::rejected`].
+    pub extended: bool,
+}
+
+impl CheckedEigenpairs {
+    /// How many fewer converged pairs than requested were returned:
+    /// `requested − pairs.len()`, saturating at zero (an extended run can
+    /// return more than `requested`). See also [`Self::rejected`], the
+    /// unconverged pairs that were withheld.
+    pub fn shortfall(&self) -> usize {
+        self.requested.saturating_sub(self.pairs.len())
+    }
+
+    /// Partition `pairs` into converged (kept) and rejected by `tol`.
+    fn split(&mut self, pairs: Vec<EigenPair>, residuals: Vec<f64>, tol: f64) {
+        for (pair, res) in pairs.into_iter().zip(residuals) {
+            if res <= tol {
+                self.pairs.push(pair);
+                self.residuals.push(res);
+            } else {
+                self.rejected.push((pair.lambda, res));
+            }
+        }
+    }
+}
+
+/// A localized first-pass Ritz pair the checked solve's extension must
+/// confirm (issue #798).
+#[derive(Debug, Clone, Copy)]
+struct RitzTarget {
+    lambda: f64,
+    /// Half-width of the interval in which a converged counterpart confirms
+    /// the target: `max(ρ, TARGET_MATCH_REL_FLOOR) · max(|λ|, |σ|)`.
+    width: f64,
+    /// First-pass residual of the target.
+    residual: f64,
+}
+
+/// Smallest relative target width, so a pair that was already converged on
+/// the first pass still matches its own re-extraction from a longer basis.
+const TARGET_MATCH_REL_FLOOR: f64 = 1e-10;
+
+/// Whether a Ritz value `λ` with residual `ρ` is **localized**:
+/// `ρ · max(|λ|, |σ|) ≤ |λ − σ|` (issue #798).
+///
+/// `ρ · max(|λ|, |σ|)` bounds, to first order, how far the nearest eigenvalue
+/// can be from the Ritz value. A pair whose uncertainty exceeds its distance
+/// from `σ` does not locate any eigenvalue.
+fn ritz_is_localized(lambda: f64, residual: f64, sigma: f64) -> bool {
+    residual * lambda.abs().max(sigma.abs()) <= (lambda - sigma).abs()
+}
+
+/// Relative true residual `‖K x − λ M x‖₂ / (max(|λ|, |σ|) · ‖M x‖₂)` of a
+/// Ritz pair, using `kx` / `mx` as scratch (issue #798).
+fn pair_relative_residual(
+    k: SparseColMatRef<'_, usize, f64>,
+    m: SparseColMatRef<'_, usize, f64>,
+    lambda: f64,
+    x: &[f64],
+    sigma: f64,
+    kx: &mut [f64],
+    mx: &mut [f64],
+) -> f64 {
+    spmv(k, x, kx);
+    spmv(m, x, mx);
+    let mut r2 = 0.0_f64;
+    let mut m2 = 0.0_f64;
+    for (a, b) in kx.iter().zip(mx.iter()) {
+        let r = a - lambda * b;
+        r2 += r * r;
+        m2 += b * b;
+    }
+    let scale = lambda.abs().max(sigma.abs()) * m2.sqrt();
+    if scale > 0.0 {
+        r2.sqrt() / scale
+    } else {
+        f64::INFINITY
+    }
+}
+
+/// Why a [`LanczosRun`] stopped before its target dimension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LanczosStop {
+    /// The historical β-bound probe fired. The recurrence is intact and an
+    /// [`ExtendMode::Extension`] can resume it.
+    BetaBound,
+    /// β broke down (an invariant subspace was found); nothing can resume.
+    Breakdown,
+}
+
+/// Stopping rules for [`LanczosRun::extend`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExtendMode {
+    /// The original loop: the β-bound probe and the absolute `β < 1e-14`
+    /// breakdown test. Keeps [`SparseShiftInvertLanczos::smallest_eigenpairs`]
+    /// and the first pass of the checked solve bit-identical.
+    Historical,
+    /// The checked solve's extension (issue #798): no β-bound probe (the
+    /// residual check decides convergence) and a breakdown test relative to
+    /// the scale of `T_k`, so SI-unit pencils are not cut short.
+    Extension,
+}
+
+/// Breakdown threshold of [`ExtendMode::Extension`]: `β ≤ this · max |α_j|`.
+const EXTENSION_BREAKDOWN_REL: f64 = 1e-13;
+
+/// Ritz values `(λ, column of S)` and the tridiagonal eigenvector matrix `S`
+/// from [`LanczosRun::ritz_values`].
+type RitzValues = (Vec<(f64, usize)>, Mat<f64>);
+
+/// Resumable state of the eigenpair shift-invert Lanczos recurrence.
+///
+/// Holds the M-orthonormal basis `V_k` (with cached `M·v_j`), the tridiagonal
+/// coefficients, and the next basis vector, so the Krylov space can be
+/// extended after a first pass (issue #798) instead of restarted. A single
+/// [`LanczosRun::extend`] to the full dimension performs exactly the
+/// arithmetic of the historical single-loop implementation.
+struct LanczosRun {
+    basis: Vec<Vec<f64>>,
+    /// `M·v_j` for each basis vector (issue #506).
+    m_basis: Vec<Vec<f64>>,
+    alpha: Vec<f64>,
+    beta: Vec<f64>,
+    /// Next basis vector `v_{k+1}` (valid unless [`Self::stop`] is set).
+    v: Vec<f64>,
+    mv: Vec<f64>,
+    w: Vec<f64>,
+    work: Vec<f64>,
+    /// Warm-start buffer for the matrix-free inner CG: the previous step's
+    /// `A⁻¹ M v_{j-1}`. Ignored by the direct LU backend.
+    y_guess: Vec<f64>,
+    /// Running total of inner CG iterations (issue #526): 0 for the direct LU
+    /// backend.
+    total_inner_iters: usize,
+    /// Why the recurrence stopped before reaching its target, if it did.
+    stop: Option<LanczosStop>,
+    /// The unnormalized next-residual norm `β` at a
+    /// [`LanczosStop::BetaBound`] stop (`w` still holds the residual), so an
+    /// extension can resume the recurrence exactly.
+    pending_beta: f64,
+    /// Running `max |α_j|`, the scale of the tridiagonal `T_k`, for the
+    /// scale-relative breakdown test of [`ExtendMode::Extension`].
+    alpha_scale: f64,
+    /// Opt-in per-outer-step diagnostic (issue #562).
+    step_log: bool,
+    t_loop: std::time::Instant,
+}
+
+impl LanczosRun {
+    /// Normalize the deterministic starting vector and allocate buffers.
+    fn start(m: SparseColMatRef<'_, usize, f64>, capacity: usize) -> Result<Self, EigenError> {
+        let n = m.nrows();
+        let mut v: Vec<f64> = (0..n)
+            .map(|i| (((i as f64) + 1.0) * 0.5432).sin())
+            .collect();
+        let mut mv = vec![0.0_f64; n];
+        spmv(m, &v, &mut mv);
+        let nrm2 = v.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
+        if nrm2 <= 0.0 {
+            return Err(EigenError::FaerGevd(
+                "starting vector has non-positive M-norm; M not SPD?".into(),
+            ));
+        }
+        let nrm = nrm2.sqrt();
+        for x in v.iter_mut() {
+            *x /= nrm;
+        }
+        Ok(Self {
+            basis: Vec::with_capacity(capacity),
+            m_basis: Vec::with_capacity(capacity),
+            alpha: Vec::with_capacity(capacity),
+            beta: Vec::with_capacity(capacity),
+            v,
+            mv,
+            w: vec![0.0_f64; n],
+            work: vec![0.0_f64; n],
+            y_guess: vec![0.0_f64; n],
+            total_inner_iters: 0,
+            stop: None,
+            pending_beta: 0.0,
+            alpha_scale: 0.0,
+            step_log: diag_env::is_set(diag_env::STEP_LOG),
+            t_loop: std::time::Instant::now(),
+        })
+    }
+
+    /// Whether the Krylov space is exhausted: a breakdown stop, which no
+    /// extension can resume.
+    fn broken_down(&self) -> bool {
+        self.stop == Some(LanczosStop::Breakdown)
+    }
+
+    /// Run Lanczos steps until the basis holds `target` vectors or the
+    /// recurrence stops.
+    ///
+    /// [`ExtendMode::Historical`] is the original single-loop arithmetic,
+    /// including its stopping tests. [`ExtendMode::Extension`] first resumes
+    /// a [`LanczosStop::BetaBound`] stop (pushing the pending `β` and the next
+    /// basis vector, exactly as the loop would have) unless that `β` is a
+    /// breakdown, then runs without the β-bound probe and with a
+    /// scale-relative breakdown test (issue #798).
+    fn extend(
+        &mut self,
+        inner: &InnerBackend<'_>,
+        m: SparseColMatRef<'_, usize, f64>,
+        n_modes: usize,
+        target: usize,
+        tol: f64,
+        mode: ExtendMode,
+    ) -> Result<(), EigenError> {
+        let n = m.nrows();
+        if mode == ExtendMode::Extension && self.stop == Some(LanczosStop::BetaBound) {
+            let nrm = self.pending_beta;
+            if nrm > EXTENSION_BREAKDOWN_REL * self.alpha_scale {
+                self.beta.push(nrm);
+                self.v = self.w.iter().map(|x| x / nrm).collect();
+                self.stop = None;
+            } else {
+                self.stop = Some(LanczosStop::Breakdown);
+            }
+        }
+        while self.stop.is_none() && self.alpha.len() < target {
+            let j = self.alpha.len();
+            spmv(m, &self.v, &mut self.mv);
+            self.w.copy_from_slice(&self.y_guess);
+            let step_iters = inner.solve(&self.mv, &mut self.w)?;
+            self.total_inner_iters += step_iters;
+            if self.step_log {
+                eprintln!(
+                    "[lanczos] outer_step={j} inner_iters={step_iters} \
+                     cumulative_inner={} elapsed={:.1}s",
+                    self.total_inner_iters,
+                    self.t_loop.elapsed().as_secs_f64()
+                );
+            }
+            self.y_guess.copy_from_slice(&self.w);
+
+            let w = &mut self.w;
+            let v = &self.v;
+            let aj = w
+                .iter()
+                .zip(self.mv.iter())
+                .map(|(a, b)| a * b)
+                .sum::<f64>();
+            self.alpha.push(aj);
+            self.alpha_scale = self.alpha_scale.max(aj.abs());
+            for i in 0..n {
+                w[i] -= aj * v[i];
+            }
+            if let Some(bp) = self.beta.last().copied() {
+                let prev = &self.basis[j - 1];
+                for i in 0..n {
+                    w[i] -= bp * prev[i];
+                }
+            }
+
+            // Full reorthogonalization (M-inner product). Reuse the cached
+            // `M·v_k` (`m_basis[idx]`) instead of recomputing an SpMV per
+            // basis vector (issue #506).
+            for (vk, m_vk) in self.basis.iter().zip(self.m_basis.iter()) {
+                let c = w.iter().zip(m_vk.iter()).map(|(a, b)| a * b).sum::<f64>();
+                if c.abs() > 0.0 {
+                    for i in 0..n {
+                        w[i] -= c * vk[i];
+                    }
+                }
+            }
+            // Re-project off v itself (the just-computed direction). `mv`
+            // still holds `M·v` from the top of this step.
+            let c = w
+                .iter()
+                .zip(self.mv.iter())
+                .map(|(a, b)| a * b)
+                .sum::<f64>();
+            for i in 0..n {
+                w[i] -= c * v[i];
+            }
+
+            spmv(m, w, &mut self.work);
+            let nrm2 = w
+                .iter()
+                .zip(self.work.iter())
+                .map(|(a, b)| a * b)
+                .sum::<f64>()
+                .max(0.0);
+            let nrm = nrm2.sqrt();
+
+            // Cache `M·v` alongside the basis vector before consuming `v`.
+            self.m_basis.push(core::mem::take(&mut self.mv));
+            self.mv = vec![0.0_f64; n];
+            self.basis.push(core::mem::take(&mut self.v));
+
+            match mode {
+                ExtendMode::Historical => {
+                    // Convergence probe — same Kaniel–Saad bound as the
+                    // eigenvalues-only path. Stop when the next Lanczos β has
+                    // dropped below tolerance relative to the dominant Ritz
+                    // value. (Not scale-invariant: `max(μ_max, 1)` makes it an
+                    // absolute test when |μ| < 1, e.g. SI-unit pencils.)
+                    if self.alpha.len() >= n_modes && self.alpha.len() >= 2 {
+                        let mus = tridiag_eigenvalues(&self.alpha, &self.beta)?;
+                        let mu_max = mus.iter().fold(0.0_f64, |a, &b| a.max(b.abs()));
+                        if nrm <= tol * mu_max.max(1.0) {
+                            self.stop = Some(LanczosStop::BetaBound);
+                            self.pending_beta = nrm;
+                            break;
+                        }
+                    }
+                    if nrm < 1e-14 {
+                        self.stop = Some(LanczosStop::Breakdown);
+                        break;
+                    }
+                }
+                ExtendMode::Extension => {
+                    if nrm <= EXTENSION_BREAKDOWN_REL * self.alpha_scale {
+                        self.stop = Some(LanczosStop::Breakdown);
+                        break;
+                    }
+                }
+            }
+
+            self.beta.push(nrm);
+            self.v = self.w.iter().map(|x| x / nrm).collect();
+        }
+        Ok(())
+    }
+
+    /// Solve the tridiagonal eigenproblem and return each Ritz value
+    /// `λ = σ + 1/μ` (skipping `μ = 0`) with its column in `S`, in column
+    /// order, together with `S`.
+    fn ritz_values(&self, sigma: f64) -> Result<RitzValues, EigenError> {
+        if self.alpha.is_empty() {
+            return Err(EigenError::FaerGevd(
+                "Lanczos produced no iterations; trivial problem?".into(),
+            ));
+        }
+        let (mus, s_mat) = tridiag_eigenpairs(&self.alpha, &self.beta)?;
+        let values = mus
+            .iter()
+            .enumerate()
+            .filter(|(_, mu)| mu.abs() != 0.0)
+            .map(|(col, &mu)| (sigma + 1.0 / mu, col))
+            .collect();
+        Ok((values, s_mat))
+    }
+
+    /// Form the Ritz vectors `x = V_k s_col` of `picks` (in the given order)
+    /// and M-orthonormalize each.
+    fn ritz_vectors(
+        &self,
+        m: SparseColMatRef<'_, usize, f64>,
+        s_mat: &Mat<f64>,
+        picks: &[(f64, usize)],
+    ) -> Vec<EigenPair> {
+        let n = m.nrows();
+        let k_eff = s_mat.nrows();
+        let mut work = vec![0.0_f64; n];
+        let mut out = Vec::with_capacity(picks.len());
+        for &(lambda, col) in picks {
+            let mut x = vec![0.0_f64; n];
+            for row in 0..k_eff {
+                let s_rc = s_mat[(row, col)];
+                if s_rc == 0.0 {
+                    continue;
+                }
+                let basis_row = &self.basis[row];
+                for i in 0..n {
+                    x[i] += s_rc * basis_row[i];
+                }
+            }
+            // M-orthonormalize: divide by sqrt(xᵀ M x).
+            spmv(m, &x, &mut work);
+            let norm2 = x.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
+            if norm2 > 0.0 {
+                let s = norm2.sqrt();
+                for v in x.iter_mut() {
+                    *v /= s;
+                }
+            }
+            out.push(EigenPair { lambda, vector: x });
+        }
+        out
+    }
+
+    /// Extract the `n_modes` Ritz pairs nearest `σ` from the current basis,
+    /// M-orthonormalized and sorted by `λ` ascending.
+    fn ritz_pairs(
+        &self,
+        m: SparseColMatRef<'_, usize, f64>,
+        sigma: f64,
+        n_modes: usize,
+    ) -> Result<Vec<EigenPair>, EigenError> {
+        let (mut values, s_mat) = self.ritz_values(sigma)?;
+        // Nearest σ first (stable, so ties keep column order), take n_modes,
+        // then re-sort by λ ascending — matches the dense path's eigenpair
+        // ordering and the eigenvalue-only sparse path.
+        values.sort_by(|a, b| {
+            (a.0 - sigma)
+                .abs()
+                .partial_cmp(&(b.0 - sigma).abs())
+                .unwrap_or(core::cmp::Ordering::Equal)
+        });
+        values.truncate(n_modes.min(values.len()));
+        values.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(core::cmp::Ordering::Equal));
+        Ok(self.ritz_vectors(m, &s_mat, &values))
+    }
+}
+
 impl SparseEigenSolver for SparseShiftInvertLanczos {
     fn smallest_eigenvalues(
         &self,
@@ -1826,6 +2410,225 @@ mod tests {
         let k = SparseColMat::try_new_from_triplets(n, n, &tk).unwrap();
         let m = SparseColMat::try_new_from_triplets(n, n, &tm).unwrap();
         (k, m)
+    }
+
+    /// Exact eigenvalues of [`laplacian_pencil`]: `2 − 2 cos(π i / (n+1))`.
+    fn laplacian_eigenvalues(n: usize) -> Vec<f64> {
+        (1..=n)
+            .map(|i| 2.0 - 2.0 * (std::f64::consts::PI * i as f64 / (n as f64 + 1.0)).cos())
+            .collect()
+    }
+
+    /// Distance from `lambda` to the nearest exact eigenvalue.
+    fn nearest_gap(lambda: f64, exact: &[f64]) -> f64 {
+        exact
+            .iter()
+            .map(|e| (lambda - e).abs())
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    /// When the first pass already converges every requested pair, the
+    /// checked solve returns exactly [`SparseShiftInvertLanczos::smallest_eigenpairs`],
+    /// bit for bit, with no extension (issue #798).
+    #[test]
+    fn checked_is_bit_identical_when_first_pass_converges() {
+        let (k, m) = laplacian_pencil(200);
+        let solver = SparseShiftInvertLanczos {
+            sigma: 0.0,
+            max_iters: 64,
+            tol: 1e-10,
+            inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
+        };
+        let plain = solver
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), 4)
+            .unwrap();
+        let checked = solver
+            .smallest_eigenpairs_checked(
+                k.as_ref(),
+                m.as_ref(),
+                4,
+                ConvergenceCheck {
+                    residual_tol: 1e-8,
+                    max_iters_cap: 200,
+                    window: None,
+                },
+            )
+            .unwrap();
+        assert!(!checked.extended);
+        assert!(checked.rejected.is_empty());
+        assert_eq!(checked.shortfall(), 0);
+        assert_eq!(checked.pairs.len(), plain.len());
+        for (a, b) in checked.pairs.iter().zip(&plain) {
+            assert_eq!(a.lambda.to_bits(), b.lambda.to_bits());
+            assert!(
+                a.vector
+                    .iter()
+                    .zip(&b.vector)
+                    .all(|(x, y)| x.to_bits() == y.to_bits())
+            );
+        }
+        assert!(checked.residuals.iter().all(|&r| r <= 1e-8));
+    }
+
+    /// A short Krylov budget at an interior shift leaks unconverged Ritz
+    /// pairs from the plain solve. The checked solve withholds them, and
+    /// with room to extend it converges the window instead (issue #798).
+    #[test]
+    fn checked_withholds_then_extends_unconverged_pairs() {
+        let n = 400;
+        let (k, m) = laplacian_pencil(n);
+        let exact = laplacian_eigenvalues(n);
+        let solver = SparseShiftInvertLanczos {
+            sigma: 1.0,
+            max_iters: 8,
+            tol: 1e-10,
+            inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
+        };
+        let n_modes = 6;
+        // The plain solve returns some pair that is no eigenvalue at all.
+        let plain = solver
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), n_modes)
+            .unwrap();
+        let worst = plain
+            .iter()
+            .map(|p| nearest_gap(p.lambda, &exact))
+            .fold(0.0_f64, f64::max);
+        assert!(
+            worst > 1e-6,
+            "short budget should leak a tail pair (gap {worst:.3e})"
+        );
+
+        let tol = 1e-9;
+        let check = |cap: usize, window: Option<(f64, f64)>| {
+            solver
+                .smallest_eigenpairs_checked(
+                    k.as_ref(),
+                    m.as_ref(),
+                    n_modes,
+                    ConvergenceCheck {
+                        residual_tol: tol,
+                        max_iters_cap: cap,
+                        window,
+                    },
+                )
+                .unwrap()
+        };
+        // No room to extend: only converged pairs come back, the rest is an
+        // explicit shortfall.
+        let capped = check(0, None);
+        assert!(!capped.extended);
+        assert!(!capped.rejected.is_empty());
+        assert_eq!(capped.pairs.len() + capped.rejected.len(), n_modes);
+        assert!(capped.shortfall() > 0);
+        // A window that excludes every unconverged pair never extends.
+        let elsewhere = check(n, Some((-2.0, -1.0)));
+        assert!(!elsewhere.extended);
+        assert_eq!(elsewhere.pairs.len(), capped.pairs.len());
+        // Room to extend: every requested pair the first pass located is
+        // confirmed, and each returned pair is an exact eigenvalue.
+        let extended = check(n, None);
+        eprintln!(
+            "short budget: plain worst gap {worst:.3e}; capped {} kept / {} rejected; \
+             extended {} kept / {} rejected after {} steps",
+            capped.pairs.len(),
+            capped.rejected.len(),
+            extended.pairs.len(),
+            extended.rejected.len(),
+            extended.lanczos_steps
+        );
+        assert!(extended.extended);
+        assert!(extended.lanczos_steps > 8);
+        assert!(extended.pairs.len() >= capped.pairs.len());
+        for (p, &r) in extended.pairs.iter().zip(&extended.residuals) {
+            assert!(r <= tol);
+            assert!(
+                nearest_gap(p.lambda, &exact) < 1e-9,
+                "returned λ = {} is not an eigenvalue",
+                p.lambda
+            );
+        }
+        let mut kx = vec![0.0; n];
+        let mut mx = vec![0.0; n];
+        for (p, &r) in extended.pairs.iter().zip(&extended.residuals) {
+            let again = pair_relative_residual(
+                k.as_ref(),
+                m.as_ref(),
+                p.lambda,
+                &p.vector,
+                1.0,
+                &mut kx,
+                &mut mx,
+            );
+            assert_eq!(again.to_bits(), r.to_bits());
+        }
+    }
+
+    /// The historical β-bound probe `β ≤ tol · max(μ_max, 1)` is absolute
+    /// when `|μ| < 1`, so on an SI-scaled pencil (`λ ~ 10¹³`) it stops the
+    /// first pass after `n_modes` steps. The checked solve resumes the
+    /// recurrence and converges anyway (issue #798).
+    #[test]
+    fn checked_resumes_past_the_beta_bound_on_si_scaled_pencils() {
+        let n = 300;
+        let scale = 1e13;
+        let (k, m) = laplacian_pencil(n);
+        let k_si = SparseColMat::<usize, f64>::try_new_from_triplets(
+            n,
+            n,
+            &(0..n)
+                .flat_map(|j| {
+                    let cp = k.col_ptr();
+                    (cp[j]..cp[j + 1]).map(move |p| (p, j)).collect::<Vec<_>>()
+                })
+                .map(|(p, j)| Triplet::new(k.row_idx()[p], j, scale * k.val()[p]))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let exact: Vec<f64> = laplacian_eigenvalues(n).iter().map(|e| e * scale).collect();
+        let n_modes = 4;
+        let solver = SparseShiftInvertLanczos {
+            sigma: 0.5 * scale,
+            max_iters: 40,
+            tol: 1e-9,
+            inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
+        };
+        // The plain solve stops on the probe and leaks unconverged pairs.
+        let plain = solver
+            .smallest_eigenpairs(k_si.as_ref(), m.as_ref(), n_modes)
+            .unwrap();
+        let worst = plain
+            .iter()
+            .map(|p| nearest_gap(p.lambda, &exact))
+            .fold(0.0_f64, f64::max);
+        assert!(worst > 1e-6 * scale, "plain worst gap {worst:.3e}");
+        let checked = solver
+            .smallest_eigenpairs_checked(
+                k_si.as_ref(),
+                m.as_ref(),
+                n_modes,
+                ConvergenceCheck {
+                    residual_tol: 1e-9,
+                    max_iters_cap: n,
+                    window: None,
+                },
+            )
+            .unwrap();
+        eprintln!(
+            "SI-scaled: plain worst gap {worst:.3e}; {} kept, {} rejected, {} steps, \
+             extended = {}",
+            checked.pairs.len(),
+            checked.rejected.len(),
+            checked.lanczos_steps,
+            checked.extended
+        );
+        assert!(checked.extended && checked.lanczos_steps > 2 * n_modes);
+        assert_eq!(checked.shortfall(), 0);
+        for p in &checked.pairs {
+            assert!(nearest_gap(p.lambda, &exact) < 1e-9 * scale);
+        }
     }
 
     /// ISSUE #543 ACCEPTANCE BAR: the custom fill-reducing ordering must change

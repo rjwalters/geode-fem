@@ -265,6 +265,26 @@ fn circular_te11_matches_analytic() {
          analytic k_c = {kc_te11:.4} (best rel err {:.2}%)",
         100.0 * best_match
     );
+    // Both TE_{1,1} polarizations must be returned (issue #798: the
+    // unchecked Lanczos tail used to drop the second one and return
+    // TE_{2,1} as mode[1]). The disk mesh is azimuthally symmetric, so
+    // the pair is degenerate to solver precision.
+    let pair_gap = (modes[1].k_c - modes[0].k_c).abs() / modes[0].k_c;
+    assert!(
+        pair_gap < 1e-8,
+        "circular waveguide: modes[0..2] = {:.8} / {:.8} are not the degenerate \
+         TE_{{1,1}} pair (rel gap {pair_gap:.3e})",
+        modes[0].k_c,
+        modes[1].k_c
+    );
+    for (i, m) in modes.iter().take(2).enumerate() {
+        let err = (m.k_c - kc_te11).abs() / kc_te11;
+        assert!(
+            err < 0.05,
+            "circular waveguide: mode[{i}] k_c = {:.5} is not TE_{{1,1}} ({kc_te11:.5}, rel err {err:.3e})",
+            m.k_c
+        );
+    }
 }
 
 /// **Multi-mode set-wise M-orthonormality regression** for the
