@@ -1976,7 +1976,7 @@ fn number_after(msg: &str, prefix: &str) -> f64 {
 /// (`geode-core` `tests/wave_port.rs`,
 /// `mesh_aware_tm_guard_covers_fine_faces_over_a_coarse_axial_mesh`),
 /// below the fixed-5 % limit 3.337. The margin now reads `h_n` off the
-/// tets on the port face: `0.025·(3.512·0.5)²` = 7.7 %, limit 3.24.
+/// guide near the port: `0.025·(3.512·0.5)²` = 7.7 %, limit 3.24.
 #[test]
 fn a_fine_face_over_a_coarse_axial_mesh_widens_the_tm_margin() {
     let mesh = (16, 8, 2, 1.0);

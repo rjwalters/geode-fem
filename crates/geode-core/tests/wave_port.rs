@@ -1580,7 +1580,7 @@ fn box_tm110_and_mesh_aware_estimate(
 /// 24 × 12 faces over one tet layer of `h_z = 0.5` give 3.327 / 3.318 /
 /// 3.312, below the fixed-5 % guard (3.337). The controlling variable is
 /// `k_c·h_z`, so the margin is now `max(5 %, 0.025·(k_c·h_n)²)` with
-/// `h_n` read off the tets on the port face: 7.7 % here, guard 3.24.
+/// `h_n` read over the guide (here the one layer): 7.7 %, guard 3.24.
 #[test]
 fn mesh_aware_tm_guard_covers_fine_faces_over_a_coarse_axial_mesh() {
     use geode_core::driven::ports::TM_GUARD_MARGIN;
