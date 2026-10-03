@@ -10,7 +10,7 @@
 //! - [`SparseComplexShiftInvertLanczos`] / [`SparseComplexEigenSolver`] /
 //!   [`ComplexEigenPair`] — sparse path.
 
-mod dense;
+pub(crate) mod dense;
 mod lanczos;
 
 pub use dense::{ComplexEigenSolver, FaerComplexEigensolver, MAX_DENSE_COMPLEX_DIM};

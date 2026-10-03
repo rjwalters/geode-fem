@@ -136,7 +136,7 @@ pub const MAX_DENSE_COMPLEX_DIM: usize = 6000;
 /// later directions (`3π/4`, `5π/4`, `π/2`, `3π/2`) are fallbacks for the
 /// rare pencil with an eigenvalue near `−τ`. They are written out rather
 /// than computed with `cos`/`sin` so that `σ = −τ` is exactly real.
-const SHIFT_DIRECTIONS: [(f64, f64); 5] = [
+pub(crate) const SHIFT_DIRECTIONS: [(f64, f64); 5] = [
     (-1.0, 0.0),
     (
         -std::f64::consts::FRAC_1_SQRT_2,
@@ -156,7 +156,7 @@ const SHIFT_DIRECTIONS: [(f64, f64); 5] = [
 /// `ε · (D / min|λ − σ|)`. Rejecting at `10⁶` keeps that loss below
 /// `~10⁻¹⁰` for eigenvalues at distance `~τ`, far below any FEM
 /// discretization error.
-const SHIFT_PROXIMITY_LIMIT: f64 = 1e6;
+pub(crate) const SHIFT_PROXIMITY_LIMIT: f64 = 1e6;
 
 /// Dense `faer`-backed complex generalized eigensolver.
 ///
@@ -231,10 +231,13 @@ const SHIFT_PROXIMITY_LIMIT: f64 = 1e6;
 pub struct FaerComplexEigensolver;
 
 /// Finite spectrum of a pencil from [`shift_invert_spectrum`]: each finite
-/// eigenvalue with the column of `vectors` holding its eigenvector.
-struct ShiftInvertSpectrum {
-    lambdas: Vec<(c64, usize)>,
-    vectors: Option<Mat<c64>>,
+/// eigenvalue with the column of `vectors` holding its eigenvector. Infinite
+/// eigenvalues are absent, so a column index missing from `lambdas` marks
+/// one. The real path ([`crate::eigen::dense::FaerDenseEigensolver`], issue
+/// #800) builds the same structure.
+pub(crate) struct ShiftInvertSpectrum {
+    pub(crate) lambdas: Vec<(c64, usize)>,
+    pub(crate) vectors: Option<Mat<c64>>,
 }
 
 fn all_finite(a: MatRef<c64>) -> bool {
@@ -249,7 +252,27 @@ fn all_finite(a: MatRef<c64>) -> bool {
 /// shift-inverted spectrum are representable (a diagonal test pencil, for
 /// example) comes back bit-exact.
 fn pencil_scale(a: MatRef<c64>, b: MatRef<c64>) -> f64 {
-    let raw = pencil_scale_raw(a, b);
+    let max_abs = |m: MatRef<c64>| {
+        (0..m.ncols())
+            .flat_map(|j| (0..m.nrows()).map(move |i| (i, j)))
+            .map(|(i, j)| m[(i, j)].norm())
+            .fold(0.0, f64::max)
+    };
+    pencil_scale_from(
+        (0..a.nrows()).map(|i| a[(i, i)].norm() / b[(i, i)].norm()),
+        || max_abs(a) / max_abs(b),
+    )
+}
+
+/// [`pencil_scale`] from its parts: the diagonal ratios `|A_ii| / |B_ii|`
+/// and the `max|A| / max|B|` fallback (evaluated only when no diagonal ratio
+/// is finite and positive). Shared with the real path in
+/// [`crate::eigen::dense`] so both pick the same `τ` for the same pencil.
+pub(crate) fn pencil_scale_from(
+    diagonal_ratios: impl Iterator<Item = f64>,
+    max_ratio: impl FnOnce() -> f64,
+) -> f64 {
+    let raw = pencil_scale_raw(diagonal_ratios, max_ratio);
     let pow2 = raw.log2().round().exp2();
     if pow2.is_finite() && pow2 > 0.0 {
         pow2
@@ -258,9 +281,11 @@ fn pencil_scale(a: MatRef<c64>, b: MatRef<c64>) -> f64 {
     }
 }
 
-fn pencil_scale_raw(a: MatRef<c64>, b: MatRef<c64>) -> f64 {
-    let mut ratios: Vec<f64> = (0..a.nrows())
-        .map(|i| a[(i, i)].norm() / b[(i, i)].norm())
+fn pencil_scale_raw(
+    diagonal_ratios: impl Iterator<Item = f64>,
+    max_ratio: impl FnOnce() -> f64,
+) -> f64 {
+    let mut ratios: Vec<f64> = diagonal_ratios
         .filter(|r| r.is_finite() && *r > 0.0)
         .collect();
     if !ratios.is_empty() {
@@ -268,13 +293,7 @@ fn pencil_scale_raw(a: MatRef<c64>, b: MatRef<c64>) -> f64 {
         let (_, median, _) = ratios.select_nth_unstable_by(mid, f64::total_cmp);
         return *median;
     }
-    let max_abs = |m: MatRef<c64>| {
-        (0..m.ncols())
-            .flat_map(|j| (0..m.nrows()).map(move |i| (i, j)))
-            .map(|(i, j)| m[(i, j)].norm())
-            .fold(0.0, f64::max)
-    };
-    let r = max_abs(a) / max_abs(b);
+    let r = max_ratio();
     if r.is_finite() && r > 0.0 { r } else { 1.0 }
 }
 
@@ -286,8 +305,6 @@ fn shift_invert_spectrum(
     b: MatRef<c64>,
     want_vectors: bool,
 ) -> Result<ShiftInvertSpectrum, EigenError> {
-    use faer::linalg::solvers::Solve;
-
     let dim = a.nrows();
     if dim > MAX_DENSE_COMPLEX_DIM {
         return Err(EigenError::DenseTooLarge {
@@ -295,6 +312,23 @@ fn shift_invert_spectrum(
             max: MAX_DENSE_COMPLEX_DIM,
         });
     }
+    shift_invert_spectrum_in_directions(a, b, want_vectors, &SHIFT_DIRECTIONS)
+}
+
+/// [`shift_invert_spectrum`] over a caller-chosen list of shift directions
+/// and without the size limit, which the caller applies. The real path
+/// ([`crate::eigen::dense::FaerDenseEigensolver`], issue #800) tries the
+/// real shift `σ = −τ` with a real Schur form itself and falls back to the
+/// complex directions `SHIFT_DIRECTIONS[1..]` through this function.
+pub(crate) fn shift_invert_spectrum_in_directions(
+    a: MatRef<c64>,
+    b: MatRef<c64>,
+    want_vectors: bool,
+    directions: &[(f64, f64)],
+) -> Result<ShiftInvertSpectrum, EigenError> {
+    use faer::linalg::solvers::Solve;
+
+    let dim = a.nrows();
     if dim == 0 {
         return Ok(ShiftInvertSpectrum {
             lambdas: Vec::new(),
@@ -309,7 +343,7 @@ fn shift_invert_spectrum(
 
     let tau = pencil_scale(a, b);
     let mut rejected: Vec<String> = Vec::new();
-    for (cos, sin) in SHIFT_DIRECTIONS {
+    for &(cos, sin) in directions {
         let sigma = c64::new(tau * cos, tau * sin);
         let shifted = Mat::<c64>::from_fn(dim, dim, |i, j| a[(i, j)] - sigma * b[(i, j)]);
         let op = shifted.partial_piv_lu().solve(b);
@@ -373,7 +407,7 @@ fn shift_invert_spectrum(
 /// `1 / z` by Smith's algorithm: no overflow in `|z|²`, and a real `z`
 /// gives the correctly rounded real reciprocal (`num_complex`'s division
 /// forms `z̄ / |z|²`, which does not).
-fn recip(z: c64) -> c64 {
+pub(crate) fn recip(z: c64) -> c64 {
     if z.re.abs() >= z.im.abs() {
         let r = z.im / z.re;
         let d = z.re + z.im * r;
