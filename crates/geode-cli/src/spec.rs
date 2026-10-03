@@ -730,10 +730,19 @@ pub struct UpmlSpec {
 /// A wave (modal) port on a planar surface physical group.
 ///
 /// The tagged faces are projected into a local 2-D cross-section whose
-/// rim (edges on a single face triangle) is PEC; the `n_modes`
-/// lowest-cutoff transverse modes of that cross-section become the port's
-/// S-parameter channels (TEM modes of multiply connected cross-sections
-/// are not supported).
+/// rim (edges on a single face triangle) is PEC. `geode` routes each port
+/// by its cross-section (Epic #778 Phase 5, issue #807):
+///
+/// * **geometric** — a homogeneously filled face without interior
+///   conductors: the `n_modes` lowest-cutoff TE modes (ω-independent
+///   profiles; the TE-only TM-cutoff guard of issue #808 applies);
+/// * **hybrid** — an **inhomogeneous** face (more than one material) or a
+///   face carrying an **interior conductor** (a PEC strip, sheet or carved
+///   hole: microstrip, stripline, coax): the `n_modes` modes with the
+///   largest `β²` of the full-vector `E_t`–`E_z` port pencil (TE, TM,
+///   hybrid and quasi-TEM modes alike), re-solved and tracked at every
+///   frequency. `impedance_definition` and `hybrid` apply to these ports
+///   only.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WavePortSpec {
@@ -756,10 +765,104 @@ pub struct WavePortSpec {
     /// frequency and so has no default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reference_ohm: Option<f64>,
+    /// Characteristic (line) impedance a **hybrid** port's channels carry
+    /// (issue #807; additive in v1): the `z_line_ohm` of the report and the
+    /// `Z_c` `--touchstone` renormalizes to `reference_ohm`. Default
+    /// `power_current` (`Z_PI`). Needs a face with a floating conductor;
+    /// rejected on a geometric port (its `Z_c` is the TE wave impedance).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impedance_definition: Option<ImpedanceDefinition>,
+    /// Hybrid-port solver options (issue #807; additive in v1; rejected on
+    /// a geometric port). Omit for the defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hybrid: Option<HybridPortSpec>,
 }
 
 fn default_n_modes() -> usize {
     1
+}
+
+/// Line-impedance definition of a hybrid wave port's channels (issue
+/// #807). A hybrid (quasi-TEM / hybrid) mode has no unique characteristic
+/// impedance; the three classical definitions coincide quasi-statically
+/// and separate with dispersion. The TE wave impedance `Z_TE = η₀k₀/β` of
+/// geometric ports is never offered for hybrid ports: it is a wave, not a
+/// line, impedance (about `η₀/√ε_eff` for microstrip, and it predicts step
+/// reflections 14–19× too small).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ImpedanceDefinition {
+    /// `Z_PI = 2P/|I|²` (power–current; with several conductors the
+    /// per-line modal `2P/Σ|I_c|²`, i.e. `Z_e` / `Z_o` of a symmetric pair).
+    /// Contour-independent; the default.
+    PowerCurrent,
+    /// `Z_PV = |V|²/(2P)` (power–voltage). `V` is integrated along the
+    /// automatic shortest path from the shield to the conductor (it ends at
+    /// the nearest conductor point — a microstrip's strip **edge**), so the
+    /// value depends on that path and drifts with frequency (measured
+    /// 1.01× → 1.11× `Z_PI` over `k₀h = 0.05 … 0.2` on a shielded
+    /// microstrip).
+    PowerVoltage,
+    /// `Z_VI = |V/I|` (voltage–current), `√(Z_PI·Z_PV)`: the same path and
+    /// frequency dependence as `power_voltage`.
+    VoltageCurrent,
+}
+
+impl ImpedanceDefinition {
+    /// The spec / report spelling.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::PowerCurrent => "power_current",
+            Self::PowerVoltage => "power_voltage",
+            Self::VoltageCurrent => "voltage_current",
+        }
+    }
+}
+
+/// Default [`HybridPortSpec::n_termination_evanescent`] (issue #807).
+///
+/// Beyond its reported channels a hybrid port terminates this many further
+/// **evanescent** modes exactly (their modal admittance enters the port
+/// boundary condition; they carry no drive and are not reported in S). An
+/// unterminated evanescent field reflects at the port face, which corrupts
+/// S when a discontinuity sits within a few decay lengths of the port.
+/// Four slots: (i) they hold the slowest-decaying evanescent content, which
+/// dominates that error, even when it is a mesh-induced complex pair (two
+/// slots each, operator decision on #804) — up to two pairs; (ii) the
+/// Phase 1 window was validated one-to-one against the slab-guide oracle
+/// with exactly four evanescent modes (#809); (iii) each slot costs one extra
+/// back-solve per frequency on the already factored operator plus one more
+/// mode in the 2-D port solve — negligible next to the 3-D LU. A face too
+/// small to hold `n_modes + 4` modes gets as many as it can (noted in the
+/// report); an explicit value is never reduced.
+pub const DEFAULT_N_TERMINATION_EVANESCENT: usize = 4;
+
+/// Hybrid-port solver options (`wave_ports[].hybrid`, issue #807).
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HybridPortSpec {
+    /// Evanescent modes terminated beyond the reported channels (`≥ 0`).
+    /// Default [`DEFAULT_N_TERMINATION_EVANESCENT`] (`4`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_termination_evanescent: Option<usize>,
+    /// Per-mode accuracy estimate (an `h/2` re-solve of the port face at
+    /// every frequency, plus `h/4` at the first). Default `true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accuracy: Option<bool>,
+    /// Relative error of `β` (and, on a lossy face, of the attenuation
+    /// `α`) above which a propagating channel raises a warning with a
+    /// refine-to-`h` hint (finite, `> 0`). Default `0.005` (0.5 %).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accuracy_threshold: Option<f64>,
+    /// Relative error of the line impedance `z_line_ohm` (the port's
+    /// `impedance_definition`) above which a propagating channel on a face
+    /// with a floating conductor raises an `impedance_accuracy_above_threshold`
+    /// warning with refine / grade-to hints (finite, `> 0`). Default `0.01`
+    /// (1 %: a 1 % `Z` error renormalizes a matched line to `|S11| ≈ 0.005`,
+    /// −46 dB). The estimate covers mesh error only, not the shield box's
+    /// (physical) effect on a shielded line's impedance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impedance_accuracy_threshold: Option<f64>,
 }
 
 /// One Leontovich good-conductor surface

@@ -328,11 +328,20 @@ pub struct WavePortSummary {
     pub n_modes: usize,
     /// Per-mode incident amplitude.
     pub a_inc: Vec<Complex>,
-    /// Solved modes (`driven` reports); `null` in `check` (no modal solve).
+    /// Solved modes (`driven` reports); `null` in `check` (no modal solve)
+    /// and for a hybrid port (its modes have no geometric cutoff; see
+    /// [`Self::hybrid`] and `results[].wave_channels[].hybrid`).
     pub modes: Option<Vec<WaveModeSummary>>,
+    /// How the port is solved (issue #807; additive in v1): `"geometric"`
+    /// (a homogeneously filled face without interior conductors: TE modes,
+    /// ω-independent profiles) or `"hybrid"` (an inhomogeneous face or one
+    /// with a floating conductor: the full-vector `E_t`–`E_z` port modes,
+    /// re-solved and tracked at every frequency).
+    pub route: &'static str,
     /// The homogeneous medium filling the guide at the port face (issue
-    /// #777; additive in v1).
-    pub medium: WavePortMediumSummary,
+    /// #777; additive in v1). `null` for a hybrid port, whose face carries
+    /// a per-triangle permittivity ([`Self::hybrid`]).
+    pub medium: Option<WavePortMediumSummary>,
     /// Estimated lowest **TM** cutoff wavenumber of the empty
     /// cross-section (rad per mesh length unit; issue #808; additive in
     /// v1): the port-face P1 value Richardson-extrapolated over two uniform
@@ -357,6 +366,239 @@ pub struct WavePortSummary {
     /// the modal S whatever it is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_ohm: Option<f64>,
+    /// The hybrid port's face, options and solve summary (issue #807;
+    /// additive in v1; present only for `route = "hybrid"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hybrid: Option<HybridPortSummary>,
+}
+
+/// A hybrid wave port (issue #807): why it is hybrid, its face and
+/// options, and the sweep-level diagnostics of its mode solves.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct HybridPortSummary {
+    /// Why the port is hybrid: `"inhomogeneous"` (the face touches more
+    /// than one material), `"interior_conductor"` (a floating PEC strip,
+    /// sheet or carved hole on the face) or
+    /// `"inhomogeneous_with_interior_conductor"`.
+    pub reason: &'static str,
+    /// Volume physical groups touching the port face (sorted).
+    pub physical_groups: Vec<String>,
+    /// Floating conductors of the face, in canonical order (by 3-D
+    /// centroid): the line-impedance currents / voltages are listed in
+    /// this order.
+    pub conductors: Vec<FaceConductorSummary>,
+    /// Free `E_t` (edge) unknowns of the port-face mixed pencil.
+    pub n_free_edges: usize,
+    /// Free `E_z` (node) unknowns of the port-face mixed pencil.
+    pub n_free_nodes: usize,
+    /// Face mesh size `h` (largest face edge, mesh units): the `h` of the
+    /// accuracy warnings' refine-to-`h` hints.
+    pub mesh_size: f64,
+    /// The face sees a lossy (`Im ε_r ≠ 0`) or dispersive fill: complex
+    /// `β`, complex line impedances, pseudo-power-normalized S (passivity
+    /// is measured per row: `results[].sigma_max`).
+    pub lossy: bool,
+    /// The face sees a dispersive fill: its `ε(ω)` is re-read from the
+    /// volume at every frequency.
+    pub dispersive: bool,
+    /// Always `true`: the port's modes are re-solved at every frequency
+    /// and tracked across the sweep by continuity (a lost mode identity is
+    /// an error, never a guess).
+    pub per_frequency_resolve: bool,
+    /// Evanescent modes terminated beyond the reported channels (not in
+    /// S).
+    pub n_termination_evanescent: usize,
+    /// `true` when the default termination count (4) was reduced to fit
+    /// a small face.
+    pub n_termination_evanescent_clamped: bool,
+    /// Accuracy-warning threshold (relative error of `β`, and of `α` on a
+    /// lossy face); `null` with the accuracy estimate off.
+    pub accuracy_threshold: Option<f64>,
+    /// Line-impedance accuracy-warning threshold (relative error of
+    /// `z_line_ohm`); `null` with the accuracy estimate off or on a face
+    /// without a floating conductor.
+    pub impedance_accuracy_threshold: Option<f64>,
+    /// The line-impedance definition of `z_line_ohm`
+    /// (`"power_current"`, `"power_voltage"`, `"voltage_current"`); `null`
+    /// on a face without a floating conductor (no line impedance).
+    pub impedance_definition: Option<&'static str>,
+    /// What the chosen impedance depends on: `Z_PI` is
+    /// contour-independent; `Z_PV` / `Z_VI` depend on the automatic voltage
+    /// path (shield → nearest conductor point) and drift with frequency.
+    pub impedance_note: Option<&'static str>,
+    /// Observed per-channel `β` convergence rates (`h, h/2, h/4` at the
+    /// first frequency), when measured.
+    pub observed_rates: Option<Vec<f64>>,
+    /// Smallest mode-tracking overlap over the sweep (`null` with one
+    /// frequency): `≈ 1` for a well-resolved sweep; the sweep fails below
+    /// 0.5.
+    pub worst_track_overlap: Option<f64>,
+    /// `geode check` only (empty and omitted in a driven report, whose
+    /// per-row channel data are in `results[].wave_channels[]`): the
+    /// port-face solve at every sweep frequency, without the 3-D solve.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub frequencies: Vec<HybridPointSummary>,
+}
+
+/// One floating conductor of a hybrid port face.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FaceConductorSummary {
+    /// Centroid of the conductor's face nodes (mesh units).
+    pub centroid: [f64; 3],
+    /// Nodes of the automatic shield → conductor voltage path (`0`: no
+    /// path; `power_voltage` / `voltage_current` need one).
+    pub voltage_path_nodes: usize,
+}
+
+/// A hybrid port's face solve at one frequency (`geode check`, issue
+/// #807).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct HybridPointSummary {
+    /// Frequency (Hz).
+    pub frequency_hz: f64,
+    /// `k₀` (rad / mesh length unit).
+    pub k0: f64,
+    /// Propagating modes of the face (all must be reported channels).
+    pub n_propagating: usize,
+    /// Termination-only real evanescent modes.
+    pub termination_real: usize,
+    /// Mesh-induced complex pairs terminated as 2×2 blocks.
+    pub termination_pairs: usize,
+    /// The solver certified that every copy of a repeated eigenvalue was
+    /// found.
+    pub multiplicity_certified: bool,
+    /// The reported channels, in channel order.
+    pub channels: Vec<HybridModeSummary>,
+}
+
+/// One reported channel of a hybrid port's face solve (`geode check`).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct HybridModeSummary {
+    /// Flat S-matrix channel index (lumped ports first).
+    pub channel: usize,
+    /// Mode (channel) index within the port.
+    pub mode: usize,
+    /// Propagation constant `β` (rad / mesh length unit; `Im β ≤ 0`).
+    pub beta: Complex,
+    /// `Re β > |Im β|`.
+    pub propagating: bool,
+    /// `(Re β / k₀)²` for a propagating channel, else `null`.
+    pub eps_eff: Option<f64>,
+    /// `"power"`, `"pseudo_power"` or `"evanescent"`
+    /// ([`WaveChannelResult::normalization`]).
+    pub normalization: &'static str,
+    /// The hybrid mode diagnostics.
+    pub hybrid: HybridChannelResult,
+}
+
+/// Hybrid-mode diagnostics of one channel at one frequency (issue #807).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct HybridChannelResult {
+    /// `E_z` energy fraction `1 − η` of the mode (0: TE-like / quasi-TEM,
+    /// 1: TM-like); the accuracy of P1-carried (`E_z`-heavy) modes is
+    /// lower at a given face resolution.
+    pub ez_energy_fraction: f64,
+    /// Estimated relative error of `β` from an `h/2` re-solve of the port
+    /// face (Richardson, observed rate); `null` with the estimate off or
+    /// unavailable (then a warning says so).
+    pub accuracy: Option<f64>,
+    /// Estimated relative error of the attenuation `α = −Im β` (lossy
+    /// faces only).
+    pub alpha_accuracy: Option<f64>,
+    /// Explicit eigen-residual of the mode solve.
+    pub residual: f64,
+    /// Round-off floor of `residual` (working-precision backward error).
+    pub residual_floor: f64,
+    /// Accepted at the round-off floor (`residual_tol < residual ≤
+    /// residual_floor`).
+    pub floor_accepted: bool,
+    /// Tracking overlap with the previous (lower) frequency's channel
+    /// (`≈ 1`); `null` at the first frequency.
+    pub track_overlap: Option<f64>,
+    /// Size of the exactly degenerate cluster the channel belongs to (`1`:
+    /// a simple mode).
+    pub cluster_size: usize,
+    /// For a channel on a face with exactly two floating conductors:
+    /// `"even"` (the two conductor currents in phase) or `"odd"` (in
+    /// anti-phase). Channel order differs by case (coupled microstrip:
+    /// even first; a degenerate stripline pair: odd first), so read this
+    /// label, not the index.
+    pub coupled_mode: Option<&'static str>,
+    /// Line quantities of a propagating channel on a face with floating
+    /// conductors; `null` otherwise.
+    pub line: Option<LineImpedanceResult>,
+    /// The channel's characteristic impedance under the port's
+    /// `impedance_definition` (ohms; complex on a lossy face): the `Z_c`
+    /// that `--touchstone` renormalizes to `reference_ohm`. `null` without
+    /// a line impedance.
+    pub z_line_ohm: Option<Complex>,
+    /// Estimated discretization error of `z_line_ohm` (`null` without a line
+    /// impedance, with the estimate off, or when unavailable — then an
+    /// `impedance_accuracy_unavailable` warning says why). It does **not**
+    /// include the shield box's effect on a shielded line's impedance
+    /// (physics, not mesh error).
+    pub z_line_accuracy: Option<ImpedanceAccuracyResult>,
+}
+
+/// The line-impedance accuracy estimate of one channel (issue #807
+/// review): `z_line_ohm` re-evaluated on the uniformly refined (`h/2`)
+/// port face, Richardson-extrapolated with the convergence rate observed
+/// over `h, h/2, h/4` (at the first frequency).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ImpedanceAccuracyResult {
+    /// Estimated relative error of `z_line_ohm`:
+    /// `|Z_h − Z_{h/2}| / |Z_{h/2}| / (1 − 2^{−rate})`.
+    pub estimate: f64,
+    /// The impedance on the `h/2` face (ohms).
+    pub z_refined_ohm: Complex,
+    /// Convergence rate used (in `h`; about 1 at a strip edge, whose field
+    /// is singular, so `Z` converges much more slowly than `β`).
+    pub rate: f64,
+    /// `true`: `rate` was observed over `h, h/2, h/4`; `false`: the
+    /// conservative singular rate 1.
+    pub rate_observed: bool,
+}
+
+/// Line impedances of one hybrid channel (issue #807; ohms, complex on a
+/// lossy face). With several conductors they are the per-line modal
+/// impedances (`Z_PI = 2P/Σ I_c²`), i.e. `Z_e` / `Z_o` of a symmetric
+/// pair. `Z_PI` is contour-independent; `Z_PV` and `Z_VI` depend on the
+/// automatic voltage path (shield → nearest conductor point, a microstrip's
+/// strip edge) and on frequency.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct LineImpedanceResult {
+    /// Power–current impedance `Z_PI`.
+    pub z_pi_ohm: Complex,
+    /// Power–voltage impedance `Z_PV` (`null` without a voltage path).
+    pub z_pv_ohm: Option<Complex>,
+    /// Voltage–current impedance `Z_VI` (`null` without a voltage path).
+    pub z_vi_ohm: Option<Complex>,
+    /// Signed conductor currents in the mode's normalization (A per unit
+    /// modal amplitude), conductor order.
+    pub currents: Vec<Complex>,
+    /// Path voltages in the same normalization (`null` without a path).
+    pub voltages: Vec<Option<Complex>>,
+}
+
+/// A report-level warning (issue #807; additive in v1): never an error,
+/// also printed on stderr as `warning: …`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct WarningResult {
+    /// What it is about: `"complex_pair_terminated"`,
+    /// `"complex_pair_dropped"`, `"accuracy_above_threshold"`,
+    /// `"attenuation_accuracy_above_threshold"`, `"accuracy_unavailable"`,
+    /// `"impedance_accuracy_above_threshold"`,
+    /// `"impedance_accuracy_unavailable"`,
+    /// `"multiplicity_uncertified"`, `"cluster_split"`,
+    /// `"non_canonical_cluster_basis"`, `"passivity"` (a lossy spec's
+    /// measured `σ_max(S) > 1`), or `"termination_clamped"`.
+    pub kind: &'static str,
+    /// Wave-port index (spec order), if the warning is about one port.
+    pub wave_port: Option<usize>,
+    /// Its physical group.
+    pub physical_group: Option<String>,
+    /// Human-readable message with the remedy.
+    pub message: String,
 }
 
 /// The medium filling a wave port's guide (issue #777): every volume tet
@@ -505,6 +747,11 @@ pub struct CheckReport {
     /// Nédélec H(curl) pencil and has no measured basis for the scalar
     /// electrostatic system (whose size is in `capacitance`).
     pub resources: Option<ResourceEstimate>,
+    /// Warnings of the hybrid wave ports' face solves (issue #807;
+    /// additive in v1; present only when there are any) — the same ones a
+    /// driven run reports.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<WarningResult>,
 }
 
 /// One conductor of a capacitance spec (terminal or ground surface).
@@ -935,6 +1182,23 @@ pub struct WaveChannelResult {
     pub s: Complex,
     /// `|S_kk|` in dB.
     pub s_db: f64,
+    /// `(Re β / k₀)²` of a propagating channel (issue #807; additive in
+    /// v1; omitted for an evanescent one): the effective permittivity of a
+    /// quasi-TEM line, the effective index squared of any guided mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eps_eff: Option<f64>,
+    /// How this channel's S entries are normalized (issue #807; additive
+    /// in v1): `"power"` (a lossless propagating mode: S is power-wave),
+    /// `"pseudo_power"` (a lossy propagating mode: the unconjugated
+    /// normalization keeps `Sᵀ = S` but passivity is measured, not
+    /// guaranteed — see `sigma_max`) or `"evanescent"` (**not
+    /// power-normalized**: an evanescent channel carries no power and its S
+    /// entries depend on the normalization convention).
+    pub normalization: &'static str,
+    /// Hybrid-mode diagnostics (issue #807; additive in v1; present only
+    /// for a hybrid port's channel).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hybrid: Option<HybridChannelResult>,
 }
 
 /// One frequency point of a driven sweep.
@@ -981,6 +1245,14 @@ pub struct FrequencyResult {
     /// wave-port and mixed specs).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub wave_channels: Vec<WaveChannelResult>,
+    /// Largest singular value of the S block over the lumped ports and
+    /// the propagating wave channels (issue #807; additive in v1; present
+    /// only when a wave port is lossy). With loss the wave channels are
+    /// pseudo-power-normalized, so passivity (`σ_max ≤ 1`) is **measured**
+    /// here, not guaranteed; a value above `1 + 1e-6` raises a
+    /// `"passivity"` warning.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sigma_max: Option<f64>,
     /// Roughness loss factor `K(f)` of every rough Leontovich wall, in
     /// spec order (additive in v1, issue #758; present only when a wall
     /// has a `roughness` block).
@@ -1081,6 +1353,10 @@ pub struct DrivenReport {
     /// frequency), `index = [i]` into `results`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sensitivities: Option<SensitivityReport>,
+    /// Report-level warnings (issue #807; additive in v1; present only when
+    /// there are any): hybrid-port diagnostics and measured passivity.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<WarningResult>,
 }
 
 /// Per-port extraction results of a `geode extract` sweep.

@@ -137,8 +137,13 @@ pub struct WaveChannelPlan {
     pub mode: usize,
     /// JSON channel index (lumped ports first).
     pub channel: usize,
-    /// Geometric cutoff wavenumber of the mode (mesh units).
+    /// Geometric cutoff wavenumber of the mode (mesh units); `0` (unused)
+    /// for a hybrid channel.
     pub k_c: f64,
+    /// A hybrid port's channel (issue #807): its `Z_c` is the line
+    /// impedance `wave_channels[].hybrid.z_line_ohm` of each report row, not
+    /// `Z_TE`.
+    pub hybrid: bool,
 }
 
 /// What a `--touchstone` file will hold, decided by [`validate`] before the
@@ -226,11 +231,15 @@ fn classify(p: &Problem) -> Result<Plan, CliError> {
     let hz_per_k0 =
         crate::problem::to_frequency(1.0, crate::spec::FrequencyUnit::K0, p.length_unit_m()).hz;
     let mut plan = Plan::default();
-    // Per wave port: the Z_TE range of its kept channels (for the
-    // missing-reference message).
+    // Per wave port: the Z_TE (geometric) or Z_line (hybrid) range of its
+    // kept channels (for the missing-reference message).
     let mut z_ranges: Vec<Vec<(usize, f64, f64)>> = vec![Vec::new(); p.wave_ports.len()];
     let mut channel = p.ports.len();
     for (port, w) in p.wave_ports.iter().enumerate() {
+        if let Some(h) = &w.hybrid {
+            channel = classify_hybrid(p, port, h, channel, &mut plan, &mut z_ranges[port])?;
+            continue;
+        }
         let wp = w
             .projection
             .wave_port(&p.edges, &w.a_inc)
@@ -244,6 +253,7 @@ fn classify(p: &Problem) -> Result<Plan, CliError> {
                 mode,
                 channel,
                 k_c: m.k_c,
+                hybrid: false,
             };
             channel += 1;
             let props: Vec<bool> = p
@@ -288,12 +298,13 @@ fn classify(p: &Problem) -> Result<Plan, CliError> {
         .filter(|(w, _)| w.reference_ohm.is_none())
         .map(|(w, zs)| {
             let name = &w.surface.name;
+            let z = if w.hybrid.is_some() { "Z_line" } else { "Z_TE" };
             if zs.is_empty() {
                 format!("wave_ports[{name}] (no propagating mode in this sweep)")
             } else {
                 let modes: Vec<String> = zs
                     .iter()
-                    .map(|(m, lo, hi)| format!("mode {m} Re Z_TE {lo:.4e}..{hi:.4e} Ω"))
+                    .map(|(m, lo, hi)| format!("mode {m} Re {z} {lo:.4e}..{hi:.4e} Ω"))
                     .collect();
                 format!("wave_ports[{name}] ({})", modes.join(", "))
             }
@@ -306,8 +317,15 @@ fn classify(p: &Problem) -> Result<Plan, CliError> {
              η₀·k₀·μ_t/β (the modal Z_c convention), which varies with frequency, so the file \
              renormalizes each written mode to a constant real reference you choose; missing \
              on {} (Z_TE over this sweep shown; a reference far from Z_TE makes a matched guide \
-             look mismatched, which is the physically correct renormalized result)",
-            missing.join("; ")
+             look mismatched, which is the physically correct renormalized result{})",
+            missing.join("; "),
+            if p.wave_ports.iter().any(|w| w.hybrid.is_some()) {
+                "; a hybrid port's channels are referenced to their line impedance Z_line under \
+                 wave_ports[].impedance_definition instead (default power_current, Z_PI), shown \
+                 as Z_line"
+            } else {
+                ""
+            }
         )));
     }
     if p.ports.is_empty() && plan.kept.is_empty() {
@@ -317,6 +335,82 @@ fn classify(p: &Problem) -> Result<Plan, CliError> {
         ));
     }
     Ok(plan)
+}
+/// Classify hybrid port `port`'s channels (issue #807) from its face sweep
+/// over the spec's frequencies (no 3-D solve; [`crate::hybrid::face_sweep`]),
+/// with the geometric rule: kept when propagating at every frequency,
+/// excluded when evanescent at every one, `invalid` when it crosses. A
+/// hybrid port needs a line impedance (a floating conductor). Returns the
+/// next channel index.
+fn classify_hybrid(
+    p: &Problem,
+    port: usize,
+    h: &crate::problem::HybridPortDef,
+    mut channel: usize,
+    plan: &mut Plan,
+    z_range: &mut Vec<(usize, f64, f64)>,
+) -> Result<usize, CliError> {
+    let w = &p.wave_ports[port];
+    let Some(def) = h.impedance_definition else {
+        return Err(unsupported(&format!(
+            "hybrid wave port `{}` has no floating conductor on its face (an inhomogeneously \
+             filled waveguide), so its modes have no line impedance to renormalize to, and the \
+             TE wave impedance is not offered for hybrid ports; use the JSON report's modal \
+             results[].s for this port",
+            w.surface.name
+        )));
+    };
+    let sweep = crate::hybrid::face_sweep(p, port, false)?;
+    for mode in 0..w.a_inc.len() {
+        let c = WaveChannelPlan {
+            port,
+            mode,
+            channel,
+            k_c: 0.0,
+            hybrid: true,
+        };
+        channel += 1;
+        let chans: Vec<&geode_core::driven::ports::HybridChannelReport> = sweep
+            .report
+            .points
+            .iter()
+            .map(|pt| &pt.channels[mode])
+            .collect();
+        let props: Vec<bool> = chans.iter().map(|ch| propagating(ch.beta)).collect();
+        if props.iter().all(|&b| b) {
+            let zs: Vec<f64> = chans
+                .iter()
+                .filter_map(|ch| crate::hybrid::channel_result(h, ch).z_line_ohm)
+                .map(|z| z[0])
+                .collect();
+            if zs.len() != chans.len() {
+                return Err(unsupported(&format!(
+                    "{} has no {} line impedance at every sweep frequency (a voltage path is \
+                     missing); use impedance_definition = \"power_current\"",
+                    channel_label(p, &c),
+                    def.name()
+                )));
+            }
+            let (lo, hi) = zs
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &z| {
+                    (lo.min(z), hi.max(z))
+                });
+            z_range.push((mode, lo, hi));
+            plan.kept.push(c);
+        } else if props.iter().any(|&b| b) {
+            return Err(unsupported(&format!(
+                "{} crosses its cutoff inside the sweep: it propagates at some frequencies and \
+                 is evanescent at others, and a Touchstone file cannot change its port count; \
+                 split the sweep at the cutoff or lower wave_ports[{}].n_modes",
+                channel_label(p, &c),
+                w.surface.name
+            )));
+        } else {
+            plan.excluded.push(c);
+        }
+    }
+    Ok(channel)
 }
 /// The `--touchstone` target `path` itself is not an existing directory
 /// (rejecting it fast, before any solve, instead of only at the final
@@ -584,7 +678,9 @@ pub fn wave_network(
     let lumped: Vec<&str> = p.ports.iter().map(|q| q.surface.name.as_str()).collect();
     let kept: Vec<String> = plan.kept.iter().map(|c| channel_label(p, c)).collect();
     let excluded: Vec<String> = plan.excluded.iter().map(|c| channel_label(p, c)).collect();
-    let comments = wave_comments(head, &lumped, &kept, &excluded)?;
+    let any_hybrid = plan.kept.iter().any(|c| c.hybrid);
+    let any_geometric = plan.kept.iter().any(|c| !c.hybrid);
+    let comments = wave_comments(head, &lumped, &kept, &excluded, any_hybrid, any_geometric)?;
 
     let mut rows = Vec::with_capacity(results.len());
     for r in results {
@@ -606,6 +702,10 @@ pub fn wave_network(
             .collect();
         let mut z = vec![None; n];
         for (k, c) in plan.kept.iter().enumerate() {
+            if c.hybrid {
+                z[n_lumped + k] = Some(hybrid_line_impedance(p, c, r)?);
+                continue;
+            }
             let medium = p.port_medium_at(&p.wave_ports[c.port], r.frequency_hz);
             if !propagating(medium.beta(r.k0, c.k_c)) {
                 return Err(unsupported(&format!(
@@ -636,6 +736,51 @@ pub fn wave_network(
     })
 }
 
+/// `(Z_c, √Z_c)` of a kept **hybrid** channel at report row `r` (issue
+/// #807): its line impedance under the port's `impedance_definition`
+/// (`wave_channels[].hybrid.z_line_ohm`; complex on a lossy face), with the
+/// principal root (`Re Z_c > 0`).
+fn hybrid_line_impedance(
+    p: &Problem,
+    c: &WaveChannelPlan,
+    r: &FrequencyResult,
+) -> Result<(c64, c64), CliError> {
+    let ch = r
+        .wave_channels
+        .iter()
+        .find(|ch| ch.channel == c.channel)
+        .filter(|ch| ch.propagating)
+        .ok_or_else(|| {
+            unsupported(&format!(
+                "{} is not propagating at {:e} Hz, but it was classified as propagating over the \
+                 sweep",
+                channel_label(p, c),
+                r.frequency_hz
+            ))
+        })?;
+    let [re, im] = ch
+        .hybrid
+        .as_ref()
+        .and_then(|h| h.z_line_ohm)
+        .ok_or_else(|| {
+            unsupported(&format!(
+                "{} has no line impedance at {:e} Hz",
+                channel_label(p, c),
+                r.frequency_hz
+            ))
+        })?;
+    let z = c64::new(re, im);
+    if !(z.re > 0.0 && z.re.is_finite() && z.im.is_finite()) {
+        return Err(unsupported(&format!(
+            "{} has the line impedance {z} Ω at {:e} Hz (Re Z must be finite and > 0 to \
+             renormalize)",
+            channel_label(p, c),
+            r.frequency_hz
+        )));
+    }
+    Ok((z, z.sqrt()))
+}
+
 /// The comment lines of a wave-port / mixed file after the provenance
 /// `head`: the renormalization and convention notes, one `Excluded:` line
 /// per always-evanescent channel, then one `Port[k] = <label>` line per
@@ -648,19 +793,43 @@ fn wave_comments(
     lumped: &[&str],
     kept: &[String],
     excluded: &[String],
+    hybrid: bool,
+    geometric: bool,
 ) -> Result<Vec<String>, CliError> {
     let mut comments = head;
-    comments.push(
-        "S renormalized: lumped vs resistance_ohm, wave channels vs wave_ports[].reference_ohm \
-         (modal V = unit-norm modal amplitude, Z_c = Z_TE = eta0*k0*mu_t/beta); RI; Hz"
-            .to_string(),
-    );
-    comments.push(
-        "Convention: Z_c = Z_TE (as openEMS RefImpedance); HFSS Zpi/Zpv/Zvi differ by an ideal \
-         transformer, so renormalized |S| is convention-dependent; the JSON report's modal \
-         results[].s is the cross-tool comparable quantity"
-            .to_string(),
-    );
+    if !hybrid {
+        comments.push(
+            "S renormalized: lumped vs resistance_ohm, wave channels vs wave_ports[].reference_ohm \
+             (modal V = unit-norm modal amplitude, Z_c = Z_TE = eta0*k0*mu_t/beta); RI; Hz"
+                .to_string(),
+        );
+        comments.push(
+            "Convention: Z_c = Z_TE (as openEMS RefImpedance); HFSS Zpi/Zpv/Zvi differ by an \
+             ideal transformer, so renormalized |S| is convention-dependent; the JSON report's \
+             modal results[].s is the cross-tool comparable quantity"
+                .to_string(),
+        );
+    } else {
+        comments.push(
+            "S renormalized: lumped vs resistance_ohm, wave channels vs wave_ports[].reference_ohm; \
+             RI; Hz"
+                .to_string(),
+        );
+        comments.push(
+            "Hybrid wave channels (microstrip / stripline / inhomogeneous): Z_c = the channel's \
+             line impedance under wave_ports[].impedance_definition (default power_current = \
+             Z_PI = 2P/|I|^2, contour-independent; never Z_TE), per frequency, complex on a lossy \
+             face: the JSON report's wave_channels[].hybrid.z_line_ohm"
+                .to_string(),
+        );
+        if geometric {
+            comments.push(
+                "Geometric wave channels: Z_c = Z_TE = eta0*k0*mu_t/beta (as openEMS \
+                 RefImpedance)"
+                    .to_string(),
+            );
+        }
+    }
     for c in excluded {
         comments.push(format!(
             "Excluded: {c} is evanescent at every frequency (terminated in its own modal \
@@ -871,6 +1040,7 @@ mod tests {
             y_s: None,
             s,
             ports: Vec::new(),
+            sigma_max: None,
             wave_channels: Vec::new(),
             roughness_k: Vec::new(),
             materials: Vec::new(),
@@ -1022,9 +1192,19 @@ mod tests {
                 "wave port out mode 0 (JSON channel 3)".to_string(),
             ],
             &["wave port in mode 1 (JSON channel 2)".to_string()],
+            false,
+            true,
         )
         .unwrap();
         assert_eq!(comments[..2], head[..]);
+        // The hybrid-channel convention lines (issue #807) are safe too.
+        for geometric in [false, true] {
+            let hybrid = wave_comments(head.clone(), &[], &[], &[], true, geometric).unwrap();
+            let text = render_rows(&hybrid, &[50.0], vec![(1e9, vec![vec![[0.1, 0.0]]])]).unwrap();
+            assert_skrf_safe(&text);
+            assert!(text.contains("never Z_TE"));
+            assert_eq!(text.contains("Geometric wave channels"), geometric);
+        }
         let refs = [50.0, 75.0, 100.0];
         let row = vec![vec![[0.1, 0.0]; 3]; 3];
         let text = render_rows(&comments, &refs, vec![(1e9, row)]).unwrap();
@@ -1050,7 +1230,14 @@ mod tests {
         for ok in ["Port[1] = x", "spec: a:b", "Excluded: gammas later"] {
             assert_eq!(reserved_in_comment(ok), None, "{ok:?}");
         }
-        let e = wave_comments(head, &[], &["S-parameter uses the".to_string()], &[]);
+        let e = wave_comments(
+            head,
+            &[],
+            &["S-parameter uses the".to_string()],
+            &[],
+            false,
+            true,
+        );
         assert!(matches!(e, Err(CliError::TouchstoneUnsupported { .. })));
     }
 

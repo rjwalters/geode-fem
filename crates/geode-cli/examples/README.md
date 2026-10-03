@@ -12,6 +12,7 @@ the example models, and the output to expect.
 | `driven` (dispersive) | [the same spiral with a Djordjevic–Sarkar substrate](driven/README.md#dispersive-substrate-dispersion-issue-757) | `driven/spiral_inductor_dispersive.json` | ~30 s / a few s |
 | `driven` (Debye / Drude) | [the same spiral with a two-pole Debye substrate, and with Drude 10 Ω·cm doped silicon](driven/README.md#debye-and-drude-substrates-issue-761) | `driven/spiral_inductor_debye.json`, `driven/spiral_inductor_drude.json` | ~30 s / a few s each |
 | `driven` (mixed ports) | [a TE₁₀ wave port feeding a lumped resistive sheet (lumped + wave ports in one spec)](driven/README.md#waveguide-into-a-lumped-sheet-mixed-ports-issue-759) | `driven/waveguide_lumped_sheet.json` | ~1 s |
+| `driven` (microstrip) | [a 50 Ω shielded microstrip line with hybrid wave ports, written to Touchstone](driven/README.md#50--microstrip-line-hybrid-wave-ports-issue-807) | `driven/microstrip_line.json` (+ `driven/microstrip_line.geo`) | minutes / ~25 s (`check` ~4 min / ~7 s) |
 | `extract` | [SLCFET spiral, `L₀` by f → 0 extrapolation](extract/README.md) | `extract/slcfet_spiral.json` | ~30 s / a few s |
 | `eigen` | [PEC-walled dielectric-sphere cavity modes, lossless and lossy (f, Q)](eigen/README.md) | `eigen/sphere_cavity.json`, `eigen/lossy_sphere_cavity.json` | ~12 s / ~1 s (lossy: ~40 s / ~1 s) |
 | `capacitance` | [coax and triax Maxwell capacitance matrices](capacitance/README.md) | `capacitance/coax.json`, `capacitance/triax.toml` | < 1 s |

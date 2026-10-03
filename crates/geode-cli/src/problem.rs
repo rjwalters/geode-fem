@@ -23,7 +23,9 @@ use geode_core::assembly::electrostatic::face_to_tet_map;
 use geode_core::assembly::nedelec::tet_centroids;
 use geode_core::constants::{C_M_PER_S, ETA_0_OHM};
 use geode_core::driven::ports::{
-    PortFaceProjection, PortMedium, TM_GUARD_MARGIN, TmCutoffEstimate, project_port_face,
+    DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD, HybridPortFace, HybridWavePortOpts, LineImpedance,
+    PortAccuracyOpts, PortFaceProjection, PortMedium, TM_GUARD_MARGIN, TmCutoffEstimate,
+    project_port_face,
 };
 use geode_core::driven::solve::{SurfaceImpedanceModel, SurfaceRoughness};
 use geode_core::mesh::patch::box_upml_tensors;
@@ -33,8 +35,9 @@ use sha2::{Digest, Sha256};
 use crate::dispersion::DispersionModel;
 use crate::error::CliError;
 use crate::spec::{
-    Analysis, DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit, ProblemSpec, RoughnessSpec,
-    SPEC_SCHEMA_VERSION, SensitivityParameterKind, SolverSpec,
+    Analysis, DEFAULT_N_TERMINATION_EVANESCENT, DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit,
+    ImpedanceDefinition, ProblemSpec, RoughnessSpec, SPEC_SCHEMA_VERSION, SensitivityParameterKind,
+    SolverSpec, WavePortSpec,
 };
 
 /// How a volume region's permittivity was chosen.
@@ -230,6 +233,62 @@ pub struct WavePortDef {
     /// `--touchstone` reference impedance in ohms (issue #775); validated
     /// finite and `> 0` when given, required only by `--touchstone`.
     pub reference_ohm: Option<f64>,
+    /// The **hybrid** route of this port (issue #807): `Some` for an
+    /// inhomogeneous face or a face with a floating conductor, whose modes
+    /// are re-solved per frequency by the mixed `E_t`–`E_z` pencil; `None`
+    /// for a geometric (homogeneous TE) port. Set by `load`.
+    pub hybrid: Option<HybridPortDef>,
+}
+
+/// Why a wave port is routed to the hybrid path (issue #807).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HybridRoute {
+    /// The face touches more than one material.
+    Inhomogeneous,
+    /// The face carries a floating conductor (strip, sheet or carved hole)
+    /// whose quasi-TEM mode the TE-only geometric path cannot represent.
+    InteriorConductor,
+    /// Both.
+    InhomogeneousWithInteriorConductor,
+}
+
+impl HybridRoute {
+    /// The report spelling.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Inhomogeneous => "inhomogeneous",
+            Self::InteriorConductor => "interior_conductor",
+            Self::InhomogeneousWithInteriorConductor => "inhomogeneous_with_interior_conductor",
+        }
+    }
+}
+
+/// A wave port on the hybrid path (issue #807): its face (per-triangle `ε`
+/// from the tets it bounds, the volume PEC mask applied) and solver
+/// options, resolved by `load`.
+#[derive(Debug, Clone)]
+pub struct HybridPortDef {
+    /// Why the port is hybrid.
+    pub route: HybridRoute,
+    /// The port face, built from the volume: real `ε` for a lossless fixed
+    /// fill, complex `ε` (at the reference frequency for a dispersive fill)
+    /// otherwise.
+    pub face: HybridPortFace,
+    /// Some face triangle bounds a lossy tet (`Im ε_r ≠ 0`), or a
+    /// dispersive one: the complex-symmetric port pencil.
+    pub lossy: bool,
+    /// Some face triangle bounds a dispersive tet: the face `ε(ω)` is
+    /// re-read from the volume at every frequency.
+    pub dispersive: bool,
+    /// Solver options, with the CLI defaults applied
+    /// ([`crate::spec::HybridPortSpec`]).
+    pub opts: HybridWavePortOpts,
+    /// `true` when the default termination count was reduced to fit the
+    /// face (`opts.n_termination_evanescent` holds the value used).
+    pub termination_clamped: bool,
+    /// The line-impedance definition of the channels; `None` on a face
+    /// without a floating conductor (no line impedance exists).
+    pub impedance_definition: Option<ImpedanceDefinition>,
 }
 
 /// The homogeneous medium filling a wave port's guide (issue #777),
@@ -247,6 +306,11 @@ pub struct PortFill {
     /// (the other two diagonal components are the equal transverse ones);
     /// `None` when `ε` and `μ` are isotropic.
     pub normal_axis: Option<usize>,
+    /// The touching tets differ in material (issue #807): the face is
+    /// inhomogeneous and the port goes to the hybrid path; [`Self::tet`] is
+    /// then just one of them (every touching tet is isotropic with
+    /// `μ_r = 1` and `Re ε_r > 0` over the sweep).
+    pub inhomogeneous: bool,
 }
 
 /// A resolved lumped port.
@@ -1277,6 +1341,8 @@ pub fn load_parsed(
             // Set below, once the Silver-Müller rim check has run.
             tm: None,
             reference_ohm: w.reference_ohm,
+            // Set below, once the PEC mask is built.
+            hybrid: None,
         });
     }
 
@@ -1312,12 +1378,25 @@ pub fn load_parsed(
     }
     let pec_mask = pec_interior_mask_from_triangles(&edges, &pec_lists);
     check_silver_muller_port_rims(&wave_ports, &silver_muller, &edges, &pec_mask)?;
+    // Route each wave port (issue #807): an inhomogeneous face, or one with
+    // a floating conductor, goes to the hybrid path; the rest stay
+    // geometric (homogeneous TE), unchanged.
+    for (w, ws) in wave_ports.iter_mut().zip(&spec.wave_ports) {
+        w.hybrid = port_materials.route_hybrid(w, ws, &edges, &pec_mask)?;
+    }
+    validate_hybrid_routes(&spec, &wave_ports, &port_materials)?;
+    // Hybrid ports carry TE, TM and hybrid modes and have core's own
+    // completeness check, so they bypass the TE-only guard below; their rim
+    // must still be all conductor.
+    for w in wave_ports.iter().filter(|w| w.hybrid.is_some()) {
+        check_hybrid_port_rim(w, &conductor_edges)?;
+    }
     // TE-only wave ports (issue #808): the rim must be all conductor and
     // no sweep frequency may reach the TM limit. Runs after the
     // Silver-Müller rim check, whose message is more specific for that
-    // wall. Every wave port here is a homogeneous TE port; a port family
-    // with its own TM / hybrid modes (#804) must bypass this guard.
-    for w in &mut wave_ports {
+    // wall. Geometric (homogeneous TE) ports only: the hybrid ports routed
+    // above (#807) bypass this guard.
+    for w in wave_ports.iter_mut().filter(|w| w.hybrid.is_none()) {
         w.tm = Some(port_materials.check_te_port_guard(
             &w.surface,
             &w.projection,
@@ -1373,6 +1452,126 @@ pub fn load_parsed(
         inductance,
         sensitivity,
     })
+}
+
+/// Cross-port rules of the hybrid route (issue #807), checked once every
+/// wave port is routed: the spec features a hybrid port does not compose
+/// with yet are `invalid_spec`, and the hybrid-only spec fields are
+/// rejected on geometric ports.
+fn validate_hybrid_routes(
+    spec: &ProblemSpec,
+    wave_ports: &[WavePortDef],
+    m: &PortMaterials<'_>,
+) -> Result<(), CliError> {
+    for (w, ws) in wave_ports.iter().zip(&spec.wave_ports) {
+        if w.hybrid.is_none() {
+            let field = if ws.impedance_definition.is_some() {
+                Some("impedance_definition")
+            } else if ws.hybrid.is_some() {
+                Some("hybrid")
+            } else {
+                None
+            };
+            if let Some(field) = field {
+                return Err(invalid(format!(
+                    "wave_ports[{}].{field} applies to hybrid ports only, and `{}` is a geometric \
+                     port (a homogeneously filled face without interior conductors: TE modes, \
+                     whose Touchstone Z_c is the TE wave impedance) — drop {field}",
+                    w.surface.name, w.surface.name
+                )));
+            }
+        }
+    }
+    let Some(h) = wave_ports.iter().find(|w| w.hybrid.is_some()) else {
+        return Ok(());
+    };
+    let name = &h.surface.name;
+    let why = "re-solves its modes per frequency and tracks them across one sweep";
+    if spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
+        return Err(invalid(format!(
+            "sweep.adaptive does not support hybrid wave ports (`{name}`): a hybrid port's \
+             modal flux and β depend non-affinely on ω, so the reduced-order model cannot \
+             project its port operator once (issue #774) — remove `sweep.adaptive` to run the \
+             dense sweep"
+        )));
+    }
+    if !spec.absorbing_regions.is_empty() {
+        return Err(invalid(format!(
+            "`absorbing_regions` are not supported with hybrid wave ports yet (`{name}`): the \
+             hybrid port {why}, while a UPML stretch makes the volume operator \
+             frequency-dependent tensors, which the hybrid sweep does not take — terminate the \
+             open boundary with Silver-Müller walls instead"
+        )));
+    }
+    let anisotropic = !m.eps_diag.is_empty() || !m.mu_diag.is_empty();
+    if !m.dispersion.is_empty() {
+        if anisotropic {
+            return Err(invalid(format!(
+                "a dispersive spec with hybrid wave ports (`{name}`) needs isotropic materials: \
+                 the dispersive hybrid sweep re-assembles a scalar ε(ω) per frequency, and this \
+                 spec has eps_r_diag / mu_r_diag"
+            )));
+        }
+        if let Some(g) = wave_ports.iter().find(|w| {
+            w.hybrid.is_none()
+                && m.dispersion
+                    .iter()
+                    .any(|d| d.tag == m.tagged.tet_physical_tags[w.fill.tet])
+        }) {
+            return Err(invalid(format!(
+                "geometric wave port `{}` is filled with a dispersive material in a sweep that \
+                 also has hybrid wave ports (`{name}`): the dispersive hybrid sweep keeps \
+                 geometric ports at a fixed fill medium, which would be silently stale — use a \
+                 non-dispersive fill at that port, or run it without the hybrid ports",
+                g.surface.name
+            )));
+        }
+    }
+    if anisotropic
+        && let Some(l) = wave_ports
+            .iter()
+            .find(|w| w.hybrid.as_ref().is_some_and(|h| h.lossy))
+    {
+        return Err(invalid(format!(
+            "lossy hybrid wave port `{}` needs isotropic volume materials: the lossy port face \
+             is checked against the volume's scalar ε, and this spec has eps_r_diag / mu_r_diag",
+            l.surface.name
+        )));
+    }
+    Ok(())
+}
+
+/// The rim rule of a hybrid wave port (issue #807): every rim edge of the
+/// port face — the outer shield and the inner rim of a carved-out conductor
+/// — must lie on a `pec` or `leontovich` wall, since the port modes are
+/// solved with a PEC rim (as for geometric ports, #808).
+fn check_hybrid_port_rim(
+    w: &WavePortDef,
+    conductor_edges: &std::collections::HashSet<[u32; 2]>,
+) -> Result<(), CliError> {
+    let proj = &w.projection;
+    let n_rim = proj.interior_edge_mask.iter().filter(|&&i| !i).count();
+    let open: Vec<[u32; 2]> = proj
+        .global_edges
+        .iter()
+        .zip(&proj.interior_edge_mask)
+        .filter(|&(e, &interior)| !interior && !conductor_edges.contains(e))
+        .map(|(e, _)| *e)
+        .collect();
+    if let Some(e) = open.first() {
+        return Err(invalid(format!(
+            "hybrid wave port `{}`: {} of its {n_rim} rim edges are on no `pec` or `leontovich` \
+             wall (first edge between nodes {} and {}). Hybrid port modes are solved with a PEC \
+             rim (the outer shield and any carved-out conductor), so on any other rim they \
+             belong to the wrong cross-section and the S-parameters would be silently wrong — \
+             put the whole port rim on a pec or leontovich wall",
+            w.surface.name,
+            open.len(),
+            e[0],
+            e[1]
+        )));
+    }
+    Ok(())
 }
 
 /// The `invalid_spec` message for running a spec under the wrong
@@ -2777,6 +2976,21 @@ fn validate_open_boundaries(spec: &ProblemSpec) -> Result<(), CliError> {
                 "wave_ports[{name}].reference_ohm must be finite and > 0 (got {r})"
             )));
         }
+        if let Some(t) = w.hybrid.and_then(|h| h.accuracy_threshold)
+            && !(t.is_finite() && t > 0.0)
+        {
+            return Err(invalid(format!(
+                "wave_ports[{name}].hybrid.accuracy_threshold must be finite and > 0 (got {t})"
+            )));
+        }
+        if let Some(t) = w.hybrid.and_then(|h| h.impedance_accuracy_threshold)
+            && !(t.is_finite() && t > 0.0)
+        {
+            return Err(invalid(format!(
+                "wave_ports[{name}].hybrid.impedance_accuracy_threshold must be finite and > 0 \
+                 (got {t})"
+            )));
+        }
     }
     Ok(())
 }
@@ -3005,17 +3219,26 @@ impl PortMaterials<'_> {
             g
         };
         if tags.values().any(|&t| !self.same_material(tet, t)) {
-            return Err(invalid(format!(
-                "wave port `{name}` touches more than one material ({}): an inhomogeneous port \
-                 cross-section carries hybrid modes, which wave ports do not model yet (issue \
-                 #778) — fill the guide at the port face with one material, or use a lumped \
-                 port",
-                groups
-                    .iter()
-                    .map(|g| format!("`{g}`"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )));
+            // An inhomogeneous cross-section: the hybrid path (issue #807),
+            // which models isotropic, non-magnetic fills only.
+            self.check_hybrid_fill(
+                name,
+                &format!(
+                    "its face touches more than one material: {}",
+                    groups
+                        .iter()
+                        .map(|g| format!("`{g}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                &tags,
+            )?;
+            return Ok(PortFill {
+                tet,
+                groups,
+                normal_axis: None,
+                inhomogeneous: true,
+            });
         }
 
         // Transverse isotropy of the (diagonal) tensors.
@@ -3090,7 +3313,249 @@ impl PortMaterials<'_> {
             tet,
             groups,
             normal_axis,
+            inhomogeneous: false,
         })
+    }
+
+    /// The fill rules of a **hybrid** port face (issue #807) over the
+    /// touching tets `tags` (one representative tet per volume tag): every
+    /// material isotropic with `μ_r = 1` (the mixed port pencil has a scalar
+    /// `ε` and no permeability), and `Re ε_r > 0` at every sweep frequency
+    /// (a plasma-like triangle has no port-mode meaning).
+    fn check_hybrid_fill(
+        &self,
+        name: &str,
+        why: &str,
+        tags: &BTreeMap<i32, usize>,
+    ) -> Result<(), CliError> {
+        for (&tag, &t) in tags {
+            let group = self.group_name(tag);
+            if self.mu_diag.get(t).copied().flatten().is_some() || self.mu_r[t] != 1.0 {
+                return Err(invalid(format!(
+                    "wave port `{name}` is a hybrid port ({why}) and the fill `{group}` has \
+                     μ_r ≠ 1: the hybrid port pencil is non-magnetic (μ_r = 1, Epic #778 scope) \
+                     — use μ_r = 1 at the port face"
+                )));
+            }
+            if self.eps_diag.get(t).copied().flatten().is_some() {
+                return Err(invalid(format!(
+                    "wave port `{name}` is a hybrid port ({why}) and the fill `{group}` is \
+                     anisotropic (eps_r_diag): anisotropic ε on a hybrid port face is not \
+                     supported (Epic #778 scope) — use an isotropic eps_r at the port face"
+                )));
+            }
+            let hzs: Vec<Option<f64>> = if self.frequencies.is_empty() {
+                vec![None]
+            } else {
+                self.frequencies.iter().map(|f| Some(f.hz)).collect()
+            };
+            for hz in hzs {
+                let e = self.eps_diag_of(t, hz)[0];
+                if e.re.is_nan() || e.re <= 0.0 {
+                    let at = hz.map_or_else(String::new, |hz| format!(" at {hz:e} Hz"));
+                    return Err(invalid(format!(
+                        "wave port `{name}`: the hybrid port face's fill `{group}` has Re ε_r = \
+                         {:e} ≤ 0{at}: a plasma-like fill has no port-mode meaning (issue #781) \
+                         — use a medium of Re ε > 0 at the port face over the whole sweep",
+                        e.re
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Route wave port `w` (spec entry `spec`): `Some` hybrid definition for
+    /// an inhomogeneous face or a face with a floating conductor (issue
+    /// #807), `None` for a geometric (homogeneous TE) port, which keeps the
+    /// #777 path bit for bit. `edges` / `pec_mask` are the volume's edge
+    /// table and PEC mask: a zero-thickness PEC sheet crossing the face
+    /// becomes a conductor of the face through them.
+    fn route_hybrid(
+        &self,
+        w: &WavePortDef,
+        spec: &WavePortSpec,
+        edges: &[[u32; 2]],
+        pec_mask: &[bool],
+    ) -> Result<Option<HybridPortDef>, CliError> {
+        let name = &w.surface.name;
+        let mesh = &self.tagged.mesh;
+        let faces = &w.surface.triangles;
+        let face_err = |e: geode_core::driven::ports::PortFaceError| {
+            invalid(format!("wave port `{name}`: hybrid port face: {e}"))
+        };
+        // Floating conductors (the geometry alone decides them).
+        let ones = vec![1.0; mesh.n_tets()];
+        let probe = HybridPortFace::from_volume(mesh, faces, &ones)
+            .and_then(|f| f.with_interior_pec(edges, pec_mask));
+        let n_conductors = match probe {
+            Ok(f) => f.conductors.len(),
+            // A homogeneous face the hybrid face cannot even be built on (e.g.
+            // every face edge PEC) stays on the geometric path, unchanged.
+            Err(_) if !w.fill.inhomogeneous => 0,
+            Err(e) => return Err(face_err(e)),
+        };
+        let route = match (w.fill.inhomogeneous, n_conductors > 0) {
+            (false, false) => return Ok(None),
+            (true, false) => HybridRoute::Inhomogeneous,
+            (false, true) => HybridRoute::InteriorConductor,
+            (true, true) => HybridRoute::InhomogeneousWithInteriorConductor,
+        };
+        // Per face triangle, every tet it bounds (two on an internal plane).
+        let keys: BTreeMap<[u32; 3], usize> = faces
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (sorted3(t), i))
+            .collect();
+        let mut tri_tets: Vec<Vec<usize>> = vec![Vec::new(); faces.len()];
+        for (t, &[a, b, c, d]) in mesh.tets.iter().enumerate() {
+            for f in [[b, c, d], [a, c, d], [a, b, d], [a, b, c]] {
+                if let Some(&i) = keys.get(&sorted3(&f)) {
+                    tri_tets[i].push(t);
+                }
+            }
+        }
+        let mut tags: BTreeMap<i32, usize> = BTreeMap::new();
+        for tets in &tri_tets {
+            for &t in tets {
+                tags.entry(self.tagged.tet_physical_tags[t]).or_insert(t);
+            }
+            if let [t0, t1] = tets[..]
+                && !self.same_material(t0, t1)
+            {
+                return Err(invalid(format!(
+                    "wave port `{name}` is an internal port plane whose two sides differ in \
+                     material (`{}` and `{}`) on the same face triangle: the hybrid port face \
+                     takes one permittivity per triangle — put the port plane where both sides \
+                     carry the same material",
+                    self.group_name(self.tagged.tet_physical_tags[t0]),
+                    self.group_name(self.tagged.tet_physical_tags[t1])
+                )));
+            }
+        }
+        if route == HybridRoute::InteriorConductor {
+            self.check_hybrid_fill(
+                name,
+                &format!("its face carries {n_conductors} floating conductor(s)"),
+                &tags,
+            )?;
+        }
+        let dispersive = tags
+            .keys()
+            .any(|tag| self.dispersion.iter().any(|d| d.tag == *tag));
+        let lossy = dispersive || tags.values().any(|&t| self.eps[t].im != 0.0);
+        let face = if lossy {
+            HybridPortFace::from_volume_lossy(mesh, faces, self.eps)
+        } else {
+            let re: Vec<f64> = self.eps.iter().map(|e| e.re).collect();
+            HybridPortFace::from_volume(mesh, faces, &re)
+        }
+        .and_then(|f| f.with_interior_pec(edges, pec_mask))
+        .map_err(face_err)?;
+
+        // Options, with the CLI defaults (spec docs).
+        let hs = spec.hybrid.unwrap_or_default();
+        let k = w.a_inc.len();
+        let max = face.max_modes();
+        if k > max {
+            return Err(invalid(format!(
+                "wave port `{name}`: n_modes = {k} but the hybrid port face holds only {max} \
+                 physical mode(s) (its free transverse DOF count) — refine the port face or \
+                 lower n_modes"
+            )));
+        }
+        let (n_term, termination_clamped) = match hs.n_termination_evanescent {
+            Some(n) if k + n > max => {
+                return Err(invalid(format!(
+                    "wave port `{name}`: n_modes = {k} plus hybrid.n_termination_evanescent = \
+                     {n} exceeds the {max} physical mode(s) the hybrid port face holds — refine \
+                     the port face or request fewer"
+                )));
+            }
+            Some(n) => (n, false),
+            None => {
+                let n = DEFAULT_N_TERMINATION_EVANESCENT.min(max - k);
+                (n, n < DEFAULT_N_TERMINATION_EVANESCENT)
+            }
+        };
+        let accuracy_on = hs.accuracy.unwrap_or(true);
+        for (set, field) in [
+            (hs.accuracy_threshold.is_some(), "accuracy_threshold"),
+            (
+                hs.impedance_accuracy_threshold.is_some(),
+                "impedance_accuracy_threshold",
+            ),
+        ] {
+            if !accuracy_on && set {
+                return Err(invalid(format!(
+                    "wave_ports[{name}].hybrid.{field} is set but hybrid.accuracy is false: the \
+                     threshold applies to the accuracy estimate — drop one of them"
+                )));
+            }
+        }
+        let threshold = hs
+            .accuracy_threshold
+            .unwrap_or(geode_core::analytic::port_mode_accuracy::DEFAULT_ACCURACY_THRESHOLD);
+
+        let impedance_definition = if face.conductors.is_empty() {
+            if let Some(d) = spec.impedance_definition {
+                return Err(invalid(format!(
+                    "wave_ports[{name}].impedance_definition = \"{}\" needs a floating conductor \
+                     on the port face (a line impedance is defined by its current / voltage), \
+                     but this hybrid face has none (a partially filled waveguide) — drop \
+                     impedance_definition; the modal S in the JSON report needs none",
+                    d.name()
+                )));
+            }
+            None
+        } else {
+            let d = spec
+                .impedance_definition
+                .unwrap_or(ImpedanceDefinition::PowerCurrent);
+            if d != ImpedanceDefinition::PowerCurrent
+                && let Some(c) = face
+                    .conductors
+                    .iter()
+                    .position(|c| c.voltage_path.is_empty())
+            {
+                return Err(invalid(format!(
+                    "wave_ports[{name}].impedance_definition = \"{}\" needs a voltage path from \
+                     the shield to every conductor, but conductor {c} cannot be reached without \
+                     crossing another conductor — use \"power_current\" (contour-independent)",
+                    d.name()
+                )));
+            }
+            Some(d)
+        };
+        let opts = HybridWavePortOpts {
+            n_termination_evanescent: n_term,
+            accuracy: accuracy_on.then_some(PortAccuracyOpts {
+                threshold,
+                observe_rate: true,
+                // The attenuation estimate warns at the same threshold (#819
+                // review).
+                alpha_threshold: Some(threshold),
+                // The line impedance `--touchstone` renormalizes to (#807
+                // review): its own, looser default (`Z` converges at the
+                // strip-edge singular rate, not O(h²)).
+                impedance_threshold: Some(
+                    hs.impedance_accuracy_threshold
+                        .unwrap_or(DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD),
+                ),
+                impedance: impedance_definition
+                    .map_or(LineImpedance::PowerCurrent, crate::hybrid::line_impedance),
+            }),
+            ..HybridWavePortOpts::default()
+        };
+        Ok(Some(HybridPortDef {
+            route,
+            face,
+            lossy,
+            dispersive,
+            opts,
+            termination_clamped,
+            impedance_definition,
+        }))
     }
 
     /// The TE-only wave-port guard (issue #808): reject a port whose rim is

@@ -340,8 +340,16 @@ jobs:
       # patch_extract_golden 18 s, slcfet_extract_golden 82 s,
       # sphere_pec_golden dense oracle 74 s; spiral_golden's committed-band
       # benchmark (now unfiltered above) 14 s.
+      #
+      # Issue #807 adds the hybrid wave-port microstrip goldens (50 Ω
+      # Touchstone line, Hammerstad–Jensen eps_eff, coupled even / odd,
+      # lossy sigma_max + accuracy warnings, dispersive substrate; ~10 s in
+      # release, ~12 min in debug). Its review adds the microstrip cookbook
+      # `geode check` (Z_PI within 2 % of 50 ohm, no impedance-accuracy
+      # warning; ~7 s in release, ~4 min in debug).
       - name: geode extraction / eigen benchmark tiers (release, --ignored)
         run: |
           cargo test -p geode-cli --release --test mesh_golden \
               --test patch_extract_golden --test slcfet_extract_golden \
-              --test sphere_pec_golden -- --ignored
+              --test sphere_pec_golden --test hybrid_wave_port \
+              --test cookbook -- --ignored
