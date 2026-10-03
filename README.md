@@ -144,37 +144,17 @@ radiating edges — while the lobe shows the broadside main beam peaking at
 
 ## Roadmap
 
-### v0 (closed)
+The full roadmap, with epics, sequencing and non-goals, is in **[`docs/ROADMAP.md`](docs/ROADMAP.md)**. In brief:
 
-- [x] Cargo workspace skeleton with Burn dependency
-- [x] Scalar Helmholtz on a tetrahedral mesh, vector Nédélec elements
-- [x] Dense + sparse complex-symmetric eigensolvers, PEC + Silver-Müller + scalar PML
-- [x] Mie sphere eigenmode benchmark vs analytic PEC-cavity catalog
+- **v0.4–v0.7 (released):** the `geode` CLI for EDA flows: `check` / `driven` / `eigen` / `extract`, Touchstone, `geode mesh`, C/L + SPICE, lossy eigen, sensitivities, and the adaptive sweep.
+- **v0.8.0 (merged, tagging pending):** physics breadth (Epic #756): dispersive, anisotropic and rough materials; mixed, filled and walled wave ports; and hybrid microstrip/stripline ports (Epic #778).
+- **v0.9.0 (planned):**
+  - p=2 accuracy (#836);
+  - differentiable EDA and `geode optimize` (#841);
+  - adaptive meshing (#835);
+  - periodic/Floquet (#837).
 
-### v1 (closed)
-
-- [x] **Anisotropic UPML** (#54) — broke the 16 % scalar-PML reflection ceiling
-- [x] **Vector-tracking k₀** (#48) — self-consistent Newton on the Silver-Müller pencil
-- [x] **Matched (full Sacks) UPML** lifted into Burn assembly + driven solve (#205, #223)
-- [x] **Deterministic driven solve** `A(ω)x = b` with volumetric current source (#194/#197)
-- [x] **Frequency sweep + extraction** Z(ω) → L/R/Q/S11 (#209), N-port S-matrix (#219)
-- [x] **Lumped ports + Leontovich BC** for driven simulation (#206, #207)
-- [x] **Driven Mie scattering benchmark** Q_ext / Q_sca vs analytic series (#195/#200)
-
-### v2 (recent)
-
-- [x] **Sparse `[nnz]` Nédélec assembly** for driven path — lifts the 46k-edge dense-scatter cap (#220)
-- [x] **Patch antenna benchmark** S11 / bandwidth / NTFF / efficiency (#231–#237)
-- [x] **Spiral inductor benchmark** L/Q vs Mohan + MoM PEEC (#211/#225)
-- [x] **SLCFET 3HP capstone** Au-on-SiC spiral, quasi-static L₀ vs MoM within 5 % (#212/#230)
-- [x] **Wave-port BC** with rank-N SMW augmentation + block S-matrix (#234/#245)
-- [x] **Multi-mode wave ports** (A1 + B1 + C1 + C2) + analytic mode-matching (#254/#255/#256/#257)
-- [x] **2D transverse modal eigensolver** for general cross-sections (#240/#265)
-- [x] **Krylov COCG iterative solver** + Jacobi (#238) and ILU(0) (#267) preconditioners
-- [x] **Iterative path wired through sweep pipelines** with `solver_mode` knob (#264)
-- [x] **Palace 3D oracle integration** for patch antenna (#239) and spiral inductor (#266)
-- [x] **Visualization tooling** — benchmark tearsheets + VTK `.vtu` field export + headless ParaView render (Epic #276)
-- [ ] **Whiteroom L4 mapping** (#5) — operator-only tracker, ongoing
+The early internal milestones (v0–v2: Nédélec elements, UPML, driven solves, wave ports, Krylov solvers, the benchmark tearsheets) are recorded in `CHANGELOG.md` and the closed epics.
 
 ## Build
 
