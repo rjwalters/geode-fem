@@ -20,7 +20,12 @@
 //!   [`solve_wave_port_spec_sweep_with_mode`] /
 //!   [`solve_mixed_port_spec_sweep_with_mode`] — wave ports on
 //!   **inhomogeneous** cross-sections, whose hybrid modes are re-solved and
-//!   tracked per frequency (Epic #778 Phase 2, issue #804).
+//!   tracked per frequency (Epic #778 Phase 2, issue #804); with interior
+//!   PEC conductors (strips, sheets) through the volume mask, degenerate
+//!   clusters tracked as subspaces, and per-channel line impedances (Phase
+//!   3b, issue #817).
+//! - [`strip_line_section`] — 3-D shielded microstrip / stripline sections
+//!   extruded from a 2-D strip face, with their hybrid ports (#817).
 //! - [`HybridPortFace::from_volume_lossy`] and the dispersive sweeps
 //!   [`solve_wave_port_spec_sweep_dispersive_with_mode`] /
 //!   [`solve_mixed_port_spec_sweep_dispersive_with_mode`] — hybrid ports on
@@ -31,14 +36,15 @@ mod hybrid;
 mod hybrid_lossy;
 mod lumped;
 pub(crate) mod mixed;
+mod strip_line;
 mod wave;
 mod wave_face;
 
 pub use hybrid::{
-    DEFAULT_MIN_TRACK_OVERLAP, DispersiveEps, HybridChannelReport, HybridModalFlux, HybridPortFace,
-    HybridPortPointReport, HybridPortReport, HybridWavePort, HybridWavePortOpts,
-    MixedPortSpecSweep, PortAccuracyOpts, PortWarning, PortWarningKind, WavePortSpec,
-    WavePortSpecSweep, solve_mixed_port_spec_sweep_dispersive_with_mode,
+    DEFAULT_MIN_TRACK_OVERLAP, DispersiveEps, FaceConductor, HybridChannelReport, HybridLineReport,
+    HybridModalFlux, HybridPortFace, HybridPortPointReport, HybridPortReport, HybridWavePort,
+    HybridWavePortOpts, MixedPortSpecSweep, PortAccuracyOpts, PortWarning, PortWarningKind,
+    WavePortSpec, WavePortSpecSweep, solve_mixed_port_spec_sweep_dispersive_with_mode,
     solve_mixed_port_spec_sweep_with_mode, solve_wave_port_spec_sweep_dispersive_with_mode,
     solve_wave_port_spec_sweep_with_mode,
 };
@@ -47,6 +53,7 @@ pub use lumped::{
     port_voltage,
 };
 pub use mixed::{MixedPortSweepPoint, solve_mixed_port_sweep_with_mode};
+pub use strip_line::{StripLineSection, strip_line_section};
 pub use wave::{
     ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMedium, PortMode, WavePort,
     WavePortSweepPoint, extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,

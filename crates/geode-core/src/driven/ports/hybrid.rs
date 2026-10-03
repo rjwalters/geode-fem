@@ -51,6 +51,62 @@
 //! reaches it (a crossing of same-family modes), and with a specific message
 //! when the channel collided into a complex pair. It never guesses.
 //!
+//! ## Degenerate clusters (#817)
+//!
+//! Inside an **exactly degenerate** eigenspace (`|Δβ²| ≤
+//! DEGENERATE_REL_TOL · k₀²ε_max`, the P1 solver's own B-orthogonalization
+//! rule — e.g. the TEM pair of a homogeneous two-strip line) every basis is
+//! an eigenbasis, and the solver returns an arbitrary one, so per-vector
+//! overlaps are ambiguous. Such a cluster is tracked as a **subspace**:
+//!
+//! - the candidates are *units* (a cluster, or one simple mode); a channel's
+//!   overlap with a unit is the norm of its overlaps with the members, and
+//!   the greedy assignment respects each unit's size;
+//! - a previous cluster must be captured by the units it maps to — every
+//!   **principal cosine** (singular value of the overlap block) at least
+//!   the threshold, no outside unit reaching it — else "mode identity lost";
+//! - a claimed cluster is rotated onto its previous channels by the
+//!   **orthogonal Procrustes** solution `R = Oᵀ(OOᵀ)^{-1/2}` (rotations of
+//!   an exactly degenerate B-orthonormal set stay B-orthonormal eigenvectors,
+//!   so the SMW is unchanged), and its unclaimed directions (the orthogonal
+//!   complement) are what the termination window sees;
+//! - a previous cluster that **splits** into distinct modes is assigned
+//!   inside the captured subspace by largest overlap, with a
+//!   [`PortWarningKind::ClusterSplit`] warning.
+//!
+//! At the first frequency a reported cluster gets a **canonical basis**:
+//! the rotation that makes its members' conductor-current vectors
+//! orthogonal (an SVD of the `g × n_c` current matrix; the even and odd
+//! modes of a symmetric pair), ordered by descending current norm and signed
+//! so that the first conductor carrying at least half the largest current
+//! has positive current. With fewer conductors than modes, or currents that
+//! do not separate them, the solver's basis is kept (still consistent along
+//! the sweep) and [`PortWarningKind::NonCanonicalClusterBasis`] says so. A
+//! reported-channel count that would split a cluster is an
+//! [`DrivenError::InvalidPort`] (a channel inside a degenerate eigenspace is
+//! not uniquely defined).
+//!
+//! # Interior conductors and line impedances (#817)
+//!
+//! [`HybridPortFace::from_volume_with_pec`] takes the volume PEC mask, so a
+//! zero-thickness strip eliminated inside the volume is PEC on the face too
+//! (type docs of [`HybridPortFace`]). Every propagating channel on a face
+//! with floating conductors reports [`HybridLineReport`] — `Z_PI`, `Z_PV`,
+//! `Z_VI` and the signed conductor currents and voltages — per port and per
+//! frequency, the input of the Phase 5 (#807) characteristic-impedance
+//! choice.
+//!
+//! # Solver certificates in the report (#817)
+//!
+//! Each frequency reports the P1 multiplicity certificate
+//! ([`HybridPortPointReport::multiplicity_certified`]): an uncertified solve
+//! is retried once with twice the Krylov cap, and if it stays uncertified
+//! the sweep continues with [`PortWarningKind::MultiplicityUncertified`] (a
+//! missed copy would be invisible to the completeness guard below, which
+//! counts the solver's own output). Each channel reports its residual, its
+//! round-off floor and whether it was accepted at the floor
+//! ([`HybridChannelReport::floor_accepted`]).
+//!
 //! # Completeness (the hybrid counterpart of the TE-only TM-cutoff guard)
 //!
 //! The mixed pencil carries TE, TM and hybrid modes alike, so a hybrid port
@@ -123,10 +179,11 @@ use crate::analytic::port_mode_accuracy::{
     observed_rate, solve_refined,
 };
 use crate::analytic::port_modes::{
-    HybridComplexMode, HybridComplexPair, HybridPortError, HybridPortMode, HybridPortModeSet,
-    HybridPortOpts, assemble_hybrid_blocks, discrete_gradient, solve_hybrid_port_modes,
-    sparse_matvec,
+    DEGENERATE_REL_TOL, HybridBlocks, HybridComplexMode, HybridComplexPair, HybridPecMasks,
+    HybridPortError, HybridPortMode, HybridPortModeSet, HybridPortOpts, assemble_hybrid_blocks,
+    discrete_gradient, solve_hybrid_port_modes, sparse_matvec,
 };
+use crate::analytic::waveguide::TriMesh;
 use crate::assembly::surface::assemble_surface_mass_triplets;
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
@@ -139,6 +196,25 @@ pub const DEFAULT_MIN_TRACK_OVERLAP: f64 = 0.5;
 
 /// A planar PEC-bounded port face with a per-triangle permittivity: the 2-D
 /// problem a [`HybridWavePort`] re-solves at every frequency.
+///
+/// # Interior conductors (#817)
+///
+/// A face edge is PEC iff it is on the face rim (boundary detection: the
+/// outer shield and the inner rim of a carved-out conductor) **or**, when
+/// the face was built with the volume's PEC mask
+/// ([`Self::from_volume_with_pec`], [`Self::with_interior_pec`]), its 3-D
+/// edge is eliminated by [`DrivenBcs::pec_interior_mask`] — the rule of
+/// [`HybridPecMasks::from_mesh`] with the eliminated face edges as its extra
+/// mask. That is how a zero-thickness strip (a PEC sheet inside the volume,
+/// whose face edges are interior edges of the face) reaches the port solve.
+/// Without a mask the face is rim-only, exactly the Phase 2 behaviour.
+///
+/// The PEC node set splits into connected components (through PEC edges);
+/// the component that holds the outer rim is the shield (ground), and every
+/// other one is a **floating conductor** ([`Self::conductors`]), each carrying
+/// one quasi-TEM-like mode. Conductors are ordered by their 3-D centroid
+/// (`x`, then `y`, then `z`), so two port faces that are translated copies
+/// list them in the same order.
 #[derive(Debug, Clone)]
 pub struct HybridPortFace {
     /// The projected face ([`project_port_face`]): 2-D mesh, rim mask,
@@ -147,7 +223,7 @@ pub struct HybridPortFace {
     /// Real relative permittivity per face triangle (the order of
     /// `projection.tri_mesh.tris`, i.e. of the given face list); `μ_r = 1`.
     pub eps_r: Vec<f64>,
-    /// Free P1 nodes (`E_z` unknowns): every node not on a rim edge.
+    /// Free P1 nodes (`E_z` unknowns): every node not on a PEC edge.
     pub free_node_mask: Vec<bool>,
     /// **Lossy / dispersive face** (#806): complex per-triangle `ε_r`
     /// (`Re ε > 0`, passive `Im ε ≤ 0`). `Some` routes the port through the
@@ -161,10 +237,30 @@ pub struct HybridPortFace {
     /// `ε(ω)` through it, and a fixed-material sweep checks a lossy face
     /// against the volume bit for bit.
     pub tet_of_tri: Option<Vec<usize>>,
+    /// Free face edges (over `projection.edges`): neither on the rim nor
+    /// eliminated by the volume PEC mask. Equal to
+    /// `projection.interior_edge_mask` for a rim-only face.
+    pub interior_edge_mask: Vec<bool>,
+    /// Floating conductors of the face, in canonical order (type docs).
+    pub conductors: Vec<FaceConductor>,
+}
+
+/// A floating conductor of a [`HybridPortFace`] (#817).
+#[derive(Debug, Clone)]
+pub struct FaceConductor {
+    /// Node mask over the face's 2-D nodes (`true` on the conductor).
+    pub nodes: Vec<bool>,
+    /// Shortest node path (by length, along free face edges) from the
+    /// shield to this conductor, in 2-D node indices: the voltage path of
+    /// [`HybridLineReport`]. Empty if the conductor cannot be reached
+    /// without crossing another conductor.
+    pub voltage_path: Vec<u32>,
+    /// Centroid of the conductor's nodes in 3-D coordinates.
+    pub centroid: [f64; 3],
 }
 
 impl HybridPortFace {
-    /// A face from a projection and its per-triangle `ε_r`.
+    /// A rim-only face from a projection and its per-triangle `ε_r`.
     ///
     /// # Errors
     ///
@@ -194,13 +290,17 @@ impl HybridPortFace {
                 on_rim[e[1] as usize] = true;
             }
         }
-        Ok(Self {
+        let mut face = Self {
             free_node_mask: on_rim.iter().map(|&r| !r).collect(),
+            interior_edge_mask: projection.interior_edge_mask.clone(),
             projection,
             eps_r,
             eps_c: None,
             tet_of_tri: None,
-        })
+            conductors: Vec::new(),
+        };
+        face.conductors = face.find_conductors();
+        Ok(face)
     }
 
     /// A **lossy** face from a projection and its complex per-triangle `ε_r`
@@ -256,6 +356,8 @@ impl HybridPortFace {
     /// Project `faces` (triangles of `mesh`) and take each triangle's `ε_r`
     /// from the tet it bounds: `eps_tet` is the real per-tet permittivity of
     /// the volume (so the port sees exactly the fill the 3-D operator uses).
+    /// Rim-only PEC (see [`Self::from_volume_with_pec`] for interior
+    /// conductors).
     ///
     /// # Errors
     ///
@@ -283,6 +385,178 @@ impl HybridPortFace {
         Ok(face)
     }
 
+    /// [`Self::from_volume`] plus the volume PEC mask
+    /// ([`Self::with_interior_pec`]): the face sees every conductor the 3-D
+    /// operator eliminates, sheets included.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::from_volume`] and [`Self::with_interior_pec`].
+    pub fn from_volume_with_pec(
+        mesh: &TetMesh,
+        faces: &[[u32; 3]],
+        eps_tet: &[f64],
+        pec_interior_mask: &[bool],
+    ) -> Result<Self, PortFaceError> {
+        let edges = mesh.edges();
+        Self::from_volume(mesh, faces, eps_tet)?.with_interior_pec(&edges, pec_interior_mask)
+    }
+
+    /// This face with the PEC set of the volume: a face edge is PEC iff it
+    /// is on the rim or its 3-D edge (in `mesh_edges`, the `mesh.edges()` of
+    /// the volume) is eliminated (`pec_interior_mask[e] == false`). Recomputes
+    /// the free-node mask and the conductors.
+    ///
+    /// # Errors
+    ///
+    /// [`PortFaceError::InvalidPecMask`] if the mask length differs from
+    /// `mesh_edges`, or no face edge is left free;
+    /// [`PortFaceError::EdgeNotInMesh`] if a face edge is not in
+    /// `mesh_edges`.
+    pub fn with_interior_pec(
+        mut self,
+        mesh_edges: &[[u32; 2]],
+        pec_interior_mask: &[bool],
+    ) -> Result<Self, PortFaceError> {
+        if pec_interior_mask.len() != mesh_edges.len() {
+            return Err(PortFaceError::InvalidPecMask(format!(
+                "{} mask entries for {} mesh edges",
+                pec_interior_mask.len(),
+                mesh_edges.len()
+            )));
+        }
+        let lookup: HashMap<(u32, u32), usize> = mesh_edges
+            .iter()
+            .enumerate()
+            .map(|(i, e)| ((e[0], e[1]), i))
+            .collect();
+        let mut extra = Vec::with_capacity(self.projection.global_edges.len());
+        for e in &self.projection.global_edges {
+            let g = *lookup
+                .get(&(e[0], e[1]))
+                .ok_or(PortFaceError::EdgeNotInMesh { edge: *e })?;
+            extra.push(!pec_interior_mask[g]);
+        }
+        let masks = HybridPecMasks::from_mesh(&self.projection.tri_mesh, Some(&extra));
+        if !masks.interior_edge_mask.iter().any(|&k| k) {
+            return Err(PortFaceError::InvalidPecMask(
+                "every port-face edge is PEC once the volume mask is applied".into(),
+            ));
+        }
+        self.interior_edge_mask = masks.interior_edge_mask;
+        self.free_node_mask = masks.free_node_mask;
+        self.conductors = self.find_conductors();
+        Ok(self)
+    }
+
+    /// Floating conductors (type docs).
+    fn find_conductors(&self) -> Vec<FaceConductor> {
+        let mesh = &self.projection.tri_mesh;
+        let edges = &self.projection.edges;
+        let n = mesh.n_nodes();
+        // Union-find over PEC edges.
+        let mut parent: Vec<usize> = (0..n).collect();
+        fn root(p: &mut [usize], mut i: usize) -> usize {
+            while p[i] != i {
+                p[i] = p[p[i]];
+                i = p[i];
+            }
+            i
+        }
+        let mut has_pec = vec![false; n];
+        for (e, &free) in edges.iter().zip(&self.interior_edge_mask) {
+            if !free {
+                let (a, b) = (e[0] as usize, e[1] as usize);
+                has_pec[a] = true;
+                has_pec[b] = true;
+                let (ra, rb) = (root(&mut parent, a), root(&mut parent, b));
+                if ra != rb {
+                    parent[ra.max(rb)] = ra.min(rb);
+                }
+            }
+        }
+        // The node with the smallest in-plane u lies on the outer rim.
+        let extreme = (0..n)
+            .min_by(|&a, &b| mesh.nodes[a][0].total_cmp(&mesh.nodes[b][0]))
+            .expect("non-empty face");
+        let shield = root(&mut parent, extreme);
+        let mut groups: Vec<(usize, Vec<bool>)> = Vec::new();
+        for k in (0..n).filter(|&k| has_pec[k]) {
+            let r = root(&mut parent, k);
+            if r == shield {
+                continue;
+            }
+            match groups.iter_mut().find(|(gr, _)| *gr == r) {
+                Some((_, m)) => m[k] = true,
+                None => {
+                    let mut m = vec![false; n];
+                    m[k] = true;
+                    groups.push((r, m));
+                }
+            }
+        }
+        let shield_nodes: Vec<bool> = (0..n)
+            .map(|k| has_pec[k] && root(&mut parent, k) == shield)
+            .collect();
+        let g2l = &self.projection.local_to_global;
+        // 3-D coordinates are not stored on the projection; rebuild them from
+        // the in-plane frame (exact up to round-off for a planar face).
+        let to3 = |p: [f64; 2]| {
+            let (o, u, v) = (self.projection.origin, self.projection.u, self.projection.v);
+            [
+                o[0] + p[0] * u[0] + p[1] * v[0],
+                o[1] + p[0] * u[1] + p[1] * v[1],
+                o[2] + p[0] * u[2] + p[1] * v[2],
+            ]
+        };
+        debug_assert_eq!(g2l.len(), n);
+        let mut out: Vec<FaceConductor> = groups
+            .into_iter()
+            .map(|(_, nodes)| {
+                let cnt = nodes.iter().filter(|&&b| b).count() as f64;
+                let mut c = [0.0; 3];
+                for (k, _) in nodes.iter().enumerate().filter(|(_, b)| **b) {
+                    let q = to3(mesh.nodes[k]);
+                    for d in 0..3 {
+                        c[d] += q[d] / cnt;
+                    }
+                }
+                let voltage_path = shortest_free_path(
+                    mesh,
+                    edges,
+                    &self.interior_edge_mask,
+                    &shield_nodes,
+                    &nodes,
+                )
+                .unwrap_or_default();
+                FaceConductor {
+                    nodes,
+                    voltage_path,
+                    centroid: c,
+                }
+            })
+            .collect();
+        let tol = 1e-9 * self.projection.area.sqrt().max(f64::MIN_POSITIVE);
+        out.sort_by(|a, b| {
+            for d in 0..3 {
+                if (a.centroid[d] - b.centroid[d]).abs() > tol {
+                    return a.centroid[d].total_cmp(&b.centroid[d]);
+                }
+            }
+            std::cmp::Ordering::Equal
+        });
+        out
+    }
+
+    /// Number of physical (non-null) modes the mixed pencil of this face
+    /// holds: the free transverse DOF count. Every free edge carries one
+    /// eigenvalue once the `n_z` null eigenvalues of the free nodes are
+    /// deflated, so on a multiply connected face this includes the
+    /// quasi-TEM mode of each floating conductor.
+    pub fn max_modes(&self) -> usize {
+        self.interior_edge_mask.iter().filter(|&&k| k).count()
+    }
+
     /// Largest face edge length (the `h` of the resolution hints).
     pub fn mesh_size(&self) -> f64 {
         mesh_size(&self.projection.tri_mesh)
@@ -302,19 +576,21 @@ impl HybridPortFace {
         solve_hybrid_port_modes(
             &self.projection.tri_mesh,
             &self.eps_r,
-            &self.projection.interior_edge_mask,
+            &self.interior_edge_mask,
             &self.free_node_mask,
             k0,
             opts,
         )
     }
 
-    /// The uniformly refined (`h/2`) face used by the accuracy estimate.
+    /// The uniformly refined (`h/2`) face used by the accuracy estimate (the
+    /// refined PEC set is the halves of the coarse PEC edges, so interior
+    /// conductors carry over).
     pub fn refine(&self) -> UniformRefinement {
         UniformRefinement::new(
             &self.projection.tri_mesh,
             &self.eps_r,
-            &self.projection.interior_edge_mask,
+            &self.interior_edge_mask,
             &self.free_node_mask,
         )
     }
@@ -361,6 +637,72 @@ pub(super) fn check_lossy_eps(eps: &[c64], what: &str) -> Result<(), PortFaceErr
     Ok(())
 }
 
+/// Multi-source shortest path (Dijkstra by edge length) from the `from`
+/// node set to the `to` node set along free edges; every intermediate node
+/// must be free (touch no PEC edge). Returned as `from … to`.
+fn shortest_free_path(
+    mesh: &TriMesh,
+    edges: &[[u32; 2]],
+    free_edge: &[bool],
+    from: &[bool],
+    to: &[bool],
+) -> Option<Vec<u32>> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    let n = mesh.n_nodes();
+    let mut adj: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n];
+    let mut pec_node = vec![false; n];
+    for (e, &f) in edges.iter().zip(free_edge) {
+        let (a, b) = (e[0] as usize, e[1] as usize);
+        if f {
+            let (p, q) = (mesh.nodes[a], mesh.nodes[b]);
+            let len = (p[0] - q[0]).hypot(p[1] - q[1]);
+            adj[a].push((b, len));
+            adj[b].push((a, len));
+        } else {
+            pec_node[a] = true;
+            pec_node[b] = true;
+        }
+    }
+    let mut dist = vec![f64::INFINITY; n];
+    let mut prev = vec![usize::MAX; n];
+    // Non-negative f64 distances order like their bit patterns.
+    let mut heap = BinaryHeap::new();
+    for k in (0..n).filter(|&k| from[k]) {
+        dist[k] = 0.0;
+        heap.push(Reverse((0u64, k)));
+    }
+    while let Some(Reverse((dbits, k))) = heap.pop() {
+        let d = f64::from_bits(dbits);
+        if d > dist[k] {
+            continue;
+        }
+        if to[k] {
+            let mut path = vec![k as u32];
+            let mut c = k;
+            while prev[c] != usize::MAX {
+                c = prev[c];
+                path.push(c as u32);
+            }
+            path.reverse();
+            return Some(path);
+        }
+        for &(j, len) in &adj[k] {
+            // Never relay through the source set or another conductor.
+            if from[j] || (!to[j] && pec_node[j]) {
+                continue;
+            }
+            let nd = d + len;
+            if nd < dist[j] {
+                dist[j] = nd;
+                prev[j] = k;
+                heap.push(Reverse((nd.to_bits(), j)));
+            }
+        }
+    }
+    None
+}
+
 /// Accuracy-estimate settings of a [`HybridWavePort`].
 #[derive(Debug, Clone, Copy)]
 pub struct PortAccuracyOpts {
@@ -405,6 +747,14 @@ pub struct HybridWavePortOpts {
     /// stops above the pair ([`PortWarningKind::ComplexPairDropped`]).
     /// Default [`crate::analytic::port_modes::PAIR_DEGENERATE_TOL`].
     pub pair_degenerate_tol: f64,
+    /// Run the P1 multiplicity verification pass on every face solve
+    /// ([`HybridPortOpts::verify_multiplicity`]). Default `true`. When a solve
+    /// comes back uncertified the sweep retries once with twice the Krylov
+    /// cap, then continues with a [`PortWarningKind::MultiplicityUncertified`]
+    /// warning (a missed copy of a repeated eigenvalue would otherwise be
+    /// invisible to the completeness guard, which counts the solver's own
+    /// output). `false` skips the pass (faster) and always warns.
+    pub verify_multiplicity: bool,
     /// **Inverse tripwire** (tests only): drop the `−(j/β)∇_tE_z` term and use
     /// the `E_t`-only flux `f = S_p E_t / √(E_tᵀS_pE_t)`. Physical runs keep
     /// `false`.
@@ -421,6 +771,7 @@ impl Default for HybridWavePortOpts {
             max_krylov: p1.max_krylov,
             residual_tol: p1.residual_tol,
             pair_degenerate_tol: crate::analytic::port_modes::PAIR_DEGENERATE_TOL,
+            verify_multiplicity: true,
             transverse_only_flux: false,
         }
     }
@@ -478,7 +829,7 @@ impl HybridWavePort {
         }
         let edges = mesh.edges();
         let ctx = FaceCtx::new(mesh, &edges, self, 0)?;
-        let set = ctx.solve(self, omega, 0)?;
+        let set = ctx.solve(self, omega, 0)?.set;
         let k = self.n_modes();
         let real: Vec<&HybridPortMode> = set.modes.iter().take(k).collect();
         if real.len() < k {
@@ -592,6 +943,57 @@ pub struct HybridChannelReport {
     /// `h/2` re-solve ([`crate::analytic::lossy_port_modes::lossy_alpha_estimate`]);
     /// `None` on the real path or when unavailable.
     pub alpha_accuracy: Option<f64>,
+    /// Round-off floor of [`Self::residual`]
+    /// ([`HybridPortMode::residual_floor`]).
+    pub residual_floor: f64,
+    /// `true` when the mode was accepted at the round-off floor:
+    /// `residual_tol < residual ≤ residual_floor`. On strip-graded faces the
+    /// floor (∝ `1/k₀²`) sits above `residual_tol` across much of the
+    /// practical microstrip band, not only at low frequency (#818 review), so
+    /// this is reported per mode at every frequency.
+    pub floor_accepted: bool,
+    /// Size of the exactly degenerate cluster the channel belongs to (`1`:
+    /// a simple eigenvalue). Inside a cluster the channel is a tracked
+    /// combination of the cluster's eigenvectors (module docs).
+    pub cluster_size: usize,
+    /// Line quantities (`Z_PI`, `Z_PV`, `Z_VI`, conductor currents and
+    /// voltages) for a propagating channel on a face with floating
+    /// conductors; `None` otherwise.
+    pub line: Option<HybridLineReport>,
+}
+
+/// Line quantities of one propagating hybrid channel (#817), for the
+/// characteristic-impedance choice of Phase 5 (#807).
+///
+/// Per conductor `c` (the face's [`HybridPortFace::conductors`] order): the
+/// discrete-Ampère current `I_c` and the path voltage `V_c` (shield →
+/// conductor along [`FaceConductor::voltage_path`]), with the definitions of
+/// [`crate::analytic::port_modes::mode_line_quantities`]. With several
+/// conductors the impedances are the per-line modal impedances
+///
+/// ```text
+///   Z_PI = 2P / Σ_c |I_c|²,   Z_PV = Σ_c |V_c|² / (2P),   Z_VI = √(Z_PI · Z_PV),
+/// ```
+///
+/// which reduce to the single-conductor `2P/|I|²`, `|V|²/2P`, `|V/I|` and,
+/// for the even / odd mode of a symmetric pair (`|I₁| = |I₂|`), are the
+/// usual even / odd line impedances `Z_e`, `Z_o`. All three coincide
+/// quasi-statically and separate as dispersion grows; none of them is the
+/// #775 wave impedance `Z_TE = η₀k₀/β`.
+#[derive(Debug, Clone)]
+pub struct HybridLineReport {
+    /// Modal power `P = xᵀBx/(2k₀η₀β)` in the mode's P1 normalization.
+    pub power: f64,
+    /// Signed conductor currents `I_c` (same normalization).
+    pub currents: Vec<f64>,
+    /// Signed path voltages `V_c`; `None` where no path exists.
+    pub voltages: Vec<Option<f64>>,
+    /// Power–current impedance (ohms).
+    pub z_pi: f64,
+    /// Power–voltage impedance (ohms); `None` if a voltage is missing.
+    pub z_pv: Option<f64>,
+    /// Voltage–current impedance (ohms); `None` if a voltage is missing.
+    pub z_vi: Option<f64>,
 }
 
 /// A hybrid port at one frequency.
@@ -607,6 +1009,21 @@ pub struct HybridPortPointReport {
     pub termination_real: usize,
     /// Complex pairs terminated as 2×2 blocks.
     pub termination_pairs: usize,
+    /// [`HybridSolveDiagnostics::multiplicity_certified`] of the face solve
+    /// used (after the retry, if one ran).
+    ///
+    /// [`HybridSolveDiagnostics::multiplicity_certified`]: crate::analytic::port_modes::HybridSolveDiagnostics::multiplicity_certified
+    pub multiplicity_certified: bool,
+    /// `true` when the first solve was uncertified and the sweep re-solved
+    /// with twice the Krylov cap.
+    pub multiplicity_retried: bool,
+    /// Missed copies the verification pass added.
+    pub repeated_copies: usize,
+    /// Exactly degenerate clusters among the face's returned modes.
+    pub degenerate_clusters: usize,
+    /// Face modes accepted at the residual round-off floor (all returned
+    /// modes, reported or not).
+    pub floor_accepted: usize,
 }
 
 /// Per-port diagnostics of a hybrid port over a sweep.
@@ -621,6 +1038,8 @@ pub struct HybridPortReport {
     /// Observed per-channel `β` convergence rates (`h, h/2, h/4` at the
     /// first frequency), when measured.
     pub observed_rates: Option<Vec<f64>>,
+    /// Floating conductors of the face ([`HybridPortFace::conductors`]).
+    pub n_conductors: usize,
 }
 
 /// What a [`PortWarning`] is about.
@@ -674,6 +1093,42 @@ pub enum PortWarningKind {
         channel: usize,
         /// First frequency it failed at.
         omega: f64,
+    },
+    /// The face solve could not certify that every copy of a repeated
+    /// eigenvalue was found (#817), even after a retry with twice the Krylov
+    /// cap, or the verification pass was switched off. The sweep continued:
+    /// S is right unless a copy is actually missing, in which case that
+    /// channel is unterminated.
+    MultiplicityUncertified {
+        /// First frequency.
+        omega: f64,
+        /// Number of frequencies affected.
+        n_omegas: usize,
+        /// Whether the verification pass ran (`false`: switched off).
+        verified: bool,
+    },
+    /// A tracked exactly degenerate cluster split into distinct modes at
+    /// this frequency; its channels were assigned inside the captured
+    /// subspace by largest overlap (#817).
+    ClusterSplit {
+        /// Channel indices of the cluster.
+        channels: Vec<usize>,
+        /// Frequency.
+        omega: f64,
+        /// Smallest principal cosine between the old and the new subspace.
+        min_cosine: f64,
+    },
+    /// A degenerate cluster of reported channels has no canonical basis
+    /// (fewer conductors than modes, or conductor currents that do not
+    /// separate them); the solver's B-orthonormal basis is used and kept
+    /// consistent across the sweep by subspace tracking (#817).
+    NonCanonicalClusterBasis {
+        /// Channel indices of the cluster.
+        channels: Vec<usize>,
+        /// First frequency.
+        omega: f64,
+        /// Why no canonical basis was formed.
+        reason: String,
     },
 }
 
@@ -1037,6 +1492,18 @@ fn mixed_spec_sweep<B: burn::tensor::backend::Backend>(
                     });
                 }
                 let ctx = FaceCtx::new(mesh, &edges, port, index)?;
+                let max_modes = port.face.max_modes();
+                let need = port.n_modes() + port.opts.n_termination_evanescent;
+                if need > max_modes {
+                    return Err(DrivenError::InvalidPort {
+                        index,
+                        reason: format!(
+                            "hybrid wave port asks for {need} channel(s) (reported + \
+                             termination) but its face holds {max_modes} physical mode(s) (the \
+                             free transverse DOF count); refine the face or request fewer"
+                        ),
+                    });
+                }
                 if let SweepMaterials::Fixed(m) = materials {
                     check_face_matches_volume(port, m, index)?;
                 }
@@ -1061,18 +1528,11 @@ fn mixed_spec_sweep<B: burn::tensor::backend::Backend>(
                     ))));
                     continue;
                 }
-                ports.push(PortState::Hybrid(Box::new(HybridState {
+                ports.push(PortState::Hybrid(Box::new(HybridState::new(
                     ctx,
-                    prev: Vec::new(),
-                    refined: None,
-                    refined2: None,
-                    rates: None,
-                    points: vec![None; omegas.len()],
-                    pair_warn: None,
-                    dropped_warn: Vec::new(),
-                    acc_warn: vec![None; port.n_modes()],
-                    acc_unavail: vec![None; port.n_modes()],
-                })));
+                    omegas.len(),
+                    port.n_modes(),
+                ))));
             }
         }
     }
@@ -1373,8 +1833,17 @@ fn mixed_spec_sweep<B: burn::tensor::backend::Backend>(
                     kind,
                 });
             }
+            if let Some((omega, n_omegas, verified)) = hs.mult_warn {
+                warnings.push(multiplicity_warning(p_idx, omega, n_omegas, verified));
+            }
+            warnings.extend(
+                hs.cluster_warn
+                    .into_iter()
+                    .map(|kind| cluster_warning(p_idx, kind)),
+            );
             hybrid.push(HybridPortReport {
                 port: p_idx,
+                n_conductors: hs.ctx.conductors.len(),
                 mesh_size: h,
                 points: hs
                     .points
@@ -1393,6 +1862,74 @@ fn mixed_spec_sweep<B: burn::tensor::backend::Backend>(
         hybrid,
         warnings,
     })
+}
+
+/// The [`PortWarningKind::MultiplicityUncertified`] warning of port `p_idx`
+/// (shared by the real and the lossy path).
+pub(super) fn multiplicity_warning(
+    p_idx: usize,
+    omega: f64,
+    n_omegas: usize,
+    verified: bool,
+) -> PortWarning {
+    let why = if verified {
+        "the multiplicity verification pass could not certify every copy of a repeated \
+         eigenvalue, even with twice the Krylov cap"
+    } else {
+        "the multiplicity verification pass is switched off"
+    };
+    PortWarning {
+        port: p_idx,
+        message: format!(
+            "hybrid wave port {p_idx}: at ω = {omega} ({n_omegas} frequenc{}) {why}; a missed \
+             copy would be an unterminated channel the completeness guard cannot see. Raise \
+             max_krylov{}",
+            if n_omegas == 1 { "y" } else { "ies" },
+            if verified {
+                ""
+            } else {
+                " or enable verify_multiplicity"
+            }
+        ),
+        kind: PortWarningKind::MultiplicityUncertified {
+            omega,
+            n_omegas,
+            verified,
+        },
+    }
+}
+
+/// The warning for a [`PortWarningKind::ClusterSplit`] or
+/// [`PortWarningKind::NonCanonicalClusterBasis`] of port `p_idx`.
+pub(super) fn cluster_warning(p_idx: usize, kind: PortWarningKind) -> PortWarning {
+    let message = match &kind {
+        PortWarningKind::ClusterSplit {
+            channels,
+            omega,
+            min_cosine,
+        } => format!(
+            "hybrid wave port {p_idx}: the degenerate cluster of channels {channels:?} split \
+             into distinct modes at ω = {omega}; its subspace was tracked (smallest principal \
+             cosine {min_cosine:.4}) and the channels assigned by largest overlap, so their \
+             identity inside the cluster may change here"
+        ),
+        PortWarningKind::NonCanonicalClusterBasis {
+            channels,
+            omega,
+            reason,
+        } => format!(
+            "hybrid wave port {p_idx}: channels {channels:?} form an exactly degenerate cluster \
+             at ω = {omega} without a canonical basis ({reason}); the solver's basis is used and \
+             kept across the sweep by subspace tracking, so S on these channels is in that \
+             (arbitrary but consistent) basis"
+        ),
+        _ => unreachable!("cluster warnings only"),
+    };
+    PortWarning {
+        port: p_idx,
+        message,
+        kind,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1477,7 +2014,21 @@ pub(super) struct FaceCtx {
     pub(super) m1: SparseColMat<usize, f64>,
     /// 2-D discrete gradient.
     pub(super) d: SparseColMat<usize, f64>,
+    /// Full hybrid blocks (`G`, `S`, `T_ε` for the conductor currents).
+    pub(super) blocks: HybridBlocks,
+    /// Conductor node masks (face conductor order).
+    pub(super) conductors: Vec<Vec<bool>>,
+    /// Voltage path of each conductor as signed 2-D edges (empty: no path).
+    pub(super) paths: Vec<Vec<(usize, f64)>>,
+    /// `max ε_r` of the face (the `k₀²ε_max` scale of the degeneracy test).
+    pub(super) eps_max: f64,
     pub(super) h: f64,
+}
+
+/// Solve outcome of [`FaceCtx::solve`].
+struct FaceSolve {
+    set: HybridPortModeSet,
+    retried: bool,
 }
 
 impl FaceCtx {
@@ -1514,24 +2065,55 @@ impl FaceCtx {
                 reason: format!("hybrid port-face assembly: {e}"),
             }
         })?;
+        let local_edge: HashMap<(u32, u32), usize> = proj
+            .edges
+            .iter()
+            .enumerate()
+            .map(|(i, e)| ((e[0], e[1]), i))
+            .collect();
+        let paths = port
+            .face
+            .conductors
+            .iter()
+            .map(|c| {
+                c.voltage_path
+                    .windows(2)
+                    .map(|w| {
+                        let (a, b) = (w[0], w[1]);
+                        let e = local_edge[&(a.min(b), a.max(b))];
+                        (e, if a < b { 1.0 } else { -1.0 })
+                    })
+                    .collect()
+            })
+            .collect();
         Ok(Self {
             lift,
             s_local,
-            m1: blocks.m1,
+            m1: blocks.m1.clone(),
             d: discrete_gradient(&proj.tri_mesh),
+            blocks,
+            conductors: port
+                .face
+                .conductors
+                .iter()
+                .map(|c| c.nodes.clone())
+                .collect(),
+            paths,
+            eps_max: port.face.eps_r.iter().copied().fold(1.0_f64, f64::max),
             h: port.face.mesh_size(),
         })
     }
 
     /// Mode solve at `omega` with `extra` evanescent slots beyond the
     /// reported + termination ones; pairs carried. One retry with the bare
-    /// minimum on a shortfall.
+    /// minimum on a shortfall; one retry with twice the Krylov cap when the
+    /// multiplicity pass could not certify.
     fn solve(
         &self,
         port: &HybridWavePort,
         omega: f64,
         extra: usize,
-    ) -> Result<HybridPortModeSet, DrivenError> {
+    ) -> Result<FaceSolve, DrivenError> {
         let base = port.n_modes() + port.opts.n_termination_evanescent;
         let mut opts = HybridPortOpts {
             n_evanescent: base + extra,
@@ -1540,20 +2122,156 @@ impl FaceCtx {
             max_krylov: port.opts.max_krylov,
             residual_tol: port.opts.residual_tol,
             carry_complex_pairs: true,
-            verify_multiplicity: true,
+            verify_multiplicity: port.opts.verify_multiplicity,
         };
-        match port.face.solve_modes(omega, &opts) {
-            Ok(s) => Ok(s),
-            Err(HybridPortError::Shortfall { n_propagating, .. }) if extra > 0 => {
-                opts.n_evanescent = base.saturating_sub(n_propagating);
-                port.face.solve_modes(omega, &opts)
+        let run = |opts: &mut HybridPortOpts| -> Result<HybridPortModeSet, HybridPortError> {
+            match port.face.solve_modes(omega, opts) {
+                Ok(s) => Ok(s),
+                Err(HybridPortError::Shortfall { n_propagating, .. }) if extra > 0 => {
+                    opts.n_evanescent = base.saturating_sub(n_propagating);
+                    port.face.solve_modes(omega, opts)
+                }
+                Err(e) => Err(e),
             }
-            Err(e) => Err(e),
-        }
-        .map_err(|e| {
+        };
+        let err = |e: HybridPortError| {
             DrivenError::Solve(format!(
                 "hybrid wave port: port-mode solve at ω = {omega} failed: {e}"
             ))
+        };
+        let set = run(&mut opts).map_err(err)?;
+        if opts.verify_multiplicity && !set.diagnostics.multiplicity_certified {
+            opts.max_krylov = 2 * opts.max_krylov.max(1);
+            opts.n_evanescent = base + extra;
+            // The retry is a robust path, not a requirement: keep the first
+            // set if it fails.
+            if let Ok(again) = run(&mut opts) {
+                return Ok(FaceSolve {
+                    set: again,
+                    retried: true,
+                });
+            }
+            return Ok(FaceSolve { set, retried: true });
+        }
+        Ok(FaceSolve {
+            set,
+            retried: false,
+        })
+    }
+
+    /// `k₀²ε_max` at `omega`.
+    fn scale(&self, omega: f64) -> f64 {
+        omega * omega * self.eps_max
+    }
+
+    /// Signed discrete-Ampère conductor currents of `m` at `k0`:
+    /// `I_c = −(1/k₀η₀) Σ_{k∈c} (Gᵀẽ_t + Sẽ_z − k₀²T_εẽ_z)_k`.
+    fn currents(&self, m: &HybridPortMode, k0: f64) -> Vec<f64> {
+        if self.conductors.is_empty() {
+            return Vec::new();
+        }
+        let g = self.blocks.g.as_ref();
+        let (cp, ri, v) = (g.col_ptr(), g.row_idx(), g.val());
+        let mut zrow = vec![0.0; g.ncols()];
+        for (j, o) in zrow.iter_mut().enumerate() {
+            for p in cp[j]..cp[j + 1] {
+                *o += v[p] * m.e_t[ri[p]];
+            }
+        }
+        let s_ez = sparse_matvec(self.blocks.s.as_ref(), &m.e_z);
+        let t_ez = sparse_matvec(self.blocks.t_eps.as_ref(), &m.e_z);
+        let eta = crate::constants::ETA_0_OHM;
+        self.conductors
+            .iter()
+            .map(|c| {
+                let q: f64 = (0..c.len())
+                    .filter(|&k| c[k])
+                    .map(|k| zrow[k] + s_ez[k] - k0 * k0 * t_ez[k])
+                    .sum();
+                -q / (k0 * eta)
+            })
+            .collect()
+    }
+
+    /// [`Self::currents`] of a complex (lossy) mode, used only to pick the
+    /// canonical basis of a degenerate cluster on a lossy face: the
+    /// displacement term uses the real blocks (`T` of `Re ε`), which is exact
+    /// for TEM-like clusters (`ẽ_z = 0`) and immaterial for the basis choice
+    /// otherwise (any rotation of an exactly degenerate cluster is an
+    /// eigenbasis).
+    pub(super) fn currents_c(&self, e_t: &[c64], e_z: &[c64], k0: f64) -> Vec<c64> {
+        if self.conductors.is_empty() {
+            return Vec::new();
+        }
+        let split = |v: &[c64]| -> (Vec<f64>, Vec<f64>) {
+            (
+                v.iter().map(|x| x.re).collect(),
+                v.iter().map(|x| x.im).collect(),
+            )
+        };
+        let (tr, ti) = split(e_t);
+        let (zr, zi) = split(e_z);
+        let g = self.blocks.g.as_ref();
+        let (cp, ri, v) = (g.col_ptr(), g.row_idx(), g.val());
+        let mut zrow = vec![c64::new(0.0, 0.0); g.ncols()];
+        for (j, o) in zrow.iter_mut().enumerate() {
+            for p in cp[j]..cp[j + 1] {
+                *o += c64::new(v[p] * tr[ri[p]], v[p] * ti[ri[p]]);
+            }
+        }
+        let (sr, si) = (
+            sparse_matvec(self.blocks.s.as_ref(), &zr),
+            sparse_matvec(self.blocks.s.as_ref(), &zi),
+        );
+        let (er, ei) = (
+            sparse_matvec(self.blocks.t_eps.as_ref(), &zr),
+            sparse_matvec(self.blocks.t_eps.as_ref(), &zi),
+        );
+        let eta = crate::constants::ETA_0_OHM;
+        self.conductors
+            .iter()
+            .map(|c| {
+                let q = (0..c.len())
+                    .filter(|&k| c[k])
+                    .fold(c64::new(0.0, 0.0), |acc, k| {
+                        acc + zrow[k] + c64::new(sr[k] - k0 * k0 * er[k], si[k] - k0 * k0 * ei[k])
+                    });
+                -q / (k0 * eta)
+            })
+            .collect()
+    }
+
+    /// [`HybridLineReport`] of a propagating mode (`None` without
+    /// conductors or for `β² ≤ 0`).
+    fn line(&self, m: &HybridPortMode, k0: f64) -> Option<HybridLineReport> {
+        if self.conductors.is_empty() || !m.is_propagating() {
+            return None;
+        }
+        let beta = m.beta.re;
+        let eta = crate::constants::ETA_0_OHM;
+        let w = transverse_pairing_from(&self.d, m);
+        let m1w = sparse_matvec(self.m1.as_ref(), &w);
+        let xbx: f64 = m.e_t.iter().zip(&m1w).map(|(a, b)| a * b).sum();
+        let power = xbx / (2.0 * k0 * eta * beta);
+        let currents = self.currents(m, k0);
+        let voltages: Vec<Option<f64>> = self
+            .paths
+            .iter()
+            .map(|p| {
+                (!p.is_empty()).then(|| p.iter().map(|&(e, sg)| sg * m.e_t[e]).sum::<f64>() / beta)
+            })
+            .collect();
+        let i2: f64 = currents.iter().map(|i| i * i).sum();
+        let z_pi = 2.0 * power / i2;
+        let v2: Option<f64> = voltages.iter().map(|v| v.map(|v| v * v)).sum();
+        let z_pv = v2.map(|v2| v2 / (2.0 * power));
+        Some(HybridLineReport {
+            power,
+            currents,
+            voltages,
+            z_pi,
+            z_pv,
+            z_vi: z_pv.map(|z| (z * z_pi).sqrt()),
         })
     }
 
@@ -1682,8 +2400,11 @@ impl PairWarn {
 
 struct HybridState {
     ctx: FaceCtx,
-    /// Tracked reported modes at the previous frequency (sign-fixed).
+    /// Tracked reported modes at the previous frequency (sign-fixed; inside a
+    /// degenerate cluster, the tracked combinations).
     prev: Vec<HybridPortMode>,
+    /// `k₀²ε_max` at the previous frequency.
+    prev_scale: f64,
     refined: Option<UniformRefinement>,
     refined2: Option<UniformRefinement>,
     rates: Option<Vec<f64>>,
@@ -1692,6 +2413,10 @@ struct HybridState {
     dropped_warn: Vec<PortWarningKind>,
     acc_warn: Vec<Option<PortWarningKind>>,
     acc_unavail: Vec<Option<PortWarningKind>>,
+    /// `(first ω, count, verified)` of uncertified multiplicity solves.
+    mult_warn: Option<(f64, usize, bool)>,
+    /// Cluster splits and non-canonical cluster bases.
+    cluster_warn: Vec<PortWarningKind>,
 }
 
 /// An evanescent-window item of a face mode set.
@@ -1709,7 +2434,254 @@ impl Item<'_> {
     }
 }
 
+/// Exactly degenerate clusters of `modes` (descending `β²`): maximal runs
+/// with `|β²_j − β²_first| ≤ DEGENERATE_REL_TOL · scale` and one sign of the
+/// B-norm, the rule under which the P1 solver B-orthogonalizes a cluster. A
+/// simple eigenvalue is a cluster of one.
+fn degenerate_units(modes: &[HybridPortMode], scale: f64) -> Vec<Vec<usize>> {
+    let tol = DEGENERATE_REL_TOL * scale;
+    let mut out: Vec<Vec<usize>> = Vec::new();
+    for (j, m) in modes.iter().enumerate() {
+        if let Some(u) = out.last_mut() {
+            let f = &modes[u[0]];
+            if (m.beta_sq - f.beta_sq).abs() <= tol && (m.norm > 0.0) == (f.norm > 0.0) {
+                u.push(j);
+                continue;
+            }
+        }
+        out.push(vec![j]);
+    }
+    out
+}
+
+/// The same partition for an unordered channel list.
+fn channel_groups(chs: &[HybridPortMode], scale: f64) -> Vec<Vec<usize>> {
+    let tol = DEGENERATE_REL_TOL * scale;
+    let mut out: Vec<Vec<usize>> = Vec::new();
+    for (i, m) in chs.iter().enumerate() {
+        match out.iter_mut().find(|g| {
+            let f = &chs[g[0]];
+            (m.beta_sq - f.beta_sq).abs() <= tol && (m.norm > 0.0) == (f.norm > 0.0)
+        }) {
+            Some(g) => g.push(i),
+            None => out.push(vec![i]),
+        }
+    }
+    out
+}
+
+/// `Σ_j c_j m_j` over the members of an exactly degenerate cluster with
+/// orthonormal coefficients `c` (so the B-norm is the cluster's). `β`,
+/// `β²` and the norm are the first member's; the residual and its floor the
+/// members' maximum; the transverse fraction the `c²`-weighted mean (exact
+/// when the members are energy-orthogonal).
+fn combine_modes(members: &[&HybridPortMode], c: &[f64]) -> HybridPortMode {
+    let f = members[0];
+    let mut out = HybridPortMode {
+        beta_sq: f.beta_sq,
+        beta: f.beta,
+        e_t: vec![0.0; f.e_t.len()],
+        e_z: vec![0.0; f.e_z.len()],
+        norm: f.norm,
+        residual: 0.0,
+        residual_floor: 0.0,
+        transverse_fraction: 0.0,
+    };
+    for (m, &cj) in members.iter().zip(c) {
+        for (o, v) in out.e_t.iter_mut().zip(&m.e_t) {
+            *o += cj * v;
+        }
+        for (o, v) in out.e_z.iter_mut().zip(&m.e_z) {
+            *o += cj * v;
+        }
+        out.residual = out.residual.max(m.residual);
+        out.residual_floor = out.residual_floor.max(m.residual_floor);
+        out.transverse_fraction += cj * cj * m.transverse_fraction;
+    }
+    out
+}
+
+/// Eigen-decomposition of a small symmetric matrix (cyclic Jacobi):
+/// eigenvalues descending, eigenvectors as columns `v[row][col]`.
+pub(super) fn sym_eig(a: &[Vec<f64>]) -> (Vec<f64>, Vec<Vec<f64>>) {
+    let n = a.len();
+    let mut a: Vec<Vec<f64>> = a.to_vec();
+    let mut v: Vec<Vec<f64>> = (0..n)
+        .map(|i| (0..n).map(|j| if i == j { 1.0 } else { 0.0 }).collect())
+        .collect();
+    for _sweep in 0..100 {
+        let off: f64 = (0..n)
+            .flat_map(|i| (0..n).filter(move |&j| j != i).map(move |j| (i, j)))
+            .map(|(i, j)| a[i][j] * a[i][j])
+            .sum();
+        let diag: f64 = (0..n).map(|i| a[i][i] * a[i][i]).sum();
+        if off <= 1e-32 * diag.max(f64::MIN_POSITIVE) {
+            break;
+        }
+        for p in 0..n {
+            for q in p + 1..n {
+                if a[p][q] == 0.0 {
+                    continue;
+                }
+                let theta = (a[q][q] - a[p][p]) / (2.0 * a[p][q]);
+                // t = sgn(θ)/(|θ| + √(θ² + 1)), sgn(0) = +1.
+                let sgn = if theta >= 0.0 { 1.0 } else { -1.0 };
+                let t = sgn / (theta.abs() + (theta * theta + 1.0).sqrt());
+                let c = 1.0 / (t * t + 1.0).sqrt();
+                let s = t * c;
+                for row in a.iter_mut() {
+                    let (akp, akq) = (row[p], row[q]);
+                    row[p] = c * akp - s * akq;
+                    row[q] = s * akp + c * akq;
+                }
+                let (rp, rq) = (a[p].clone(), a[q].clone());
+                for (k, (apk, aqk)) in rp.iter().zip(&rq).enumerate() {
+                    a[p][k] = c * apk - s * aqk;
+                    a[q][k] = s * apk + c * aqk;
+                }
+                for row in v.iter_mut() {
+                    let (vp, vq) = (row[p], row[q]);
+                    row[p] = c * vp - s * vq;
+                    row[q] = s * vp + c * vq;
+                }
+            }
+        }
+    }
+    let mut idx: Vec<usize> = (0..n).collect();
+    idx.sort_by(|&i, &j| a[j][j].total_cmp(&a[i][i]));
+    let vals = idx.iter().map(|&i| a[i][i]).collect();
+    let vecs = (0..n)
+        .map(|r| idx.iter().map(|&c| v[r][c]).collect())
+        .collect();
+    (vals, vecs)
+}
+
+/// Orthogonal Procrustes rotation of a degenerate cluster onto `q` previous
+/// channels: `o` is the `q × g` overlap block (previous channel × cluster
+/// member). Returns the `g × g` orthogonal `R` whose first `q` columns are
+/// `oᵀ(ooᵀ)^{-1/2}` (so `o R[:, ..q] = (ooᵀ)^{1/2}`, symmetric positive
+/// definite: the closest rotation) and whose remaining columns complete an
+/// orthonormal basis (the cluster's unclaimed directions), plus the
+/// principal cosines (singular values of `o`, descending).
+fn procrustes(o: &[Vec<f64>], g: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
+    let q = o.len();
+    let mut oot = vec![vec![0.0; q]; q];
+    for i in 0..q {
+        for k in 0..q {
+            oot[i][k] = (0..g).map(|j| o[i][j] * o[k][j]).sum();
+        }
+    }
+    let (lam, u) = sym_eig(&oot);
+    let cos: Vec<f64> = lam.iter().map(|l| l.max(0.0).sqrt()).collect();
+    // (ooᵀ)^{-1/2} = U Λ^{-1/2} Uᵀ (eigenvalues guarded; the caller rejects
+    // a rank-deficient block before using the rotation).
+    let inv_sqrt: Vec<Vec<f64>> = (0..q)
+        .map(|i| {
+            (0..q)
+                .map(|k| {
+                    (0..q)
+                        .map(|m| u[i][m] * u[k][m] / lam[m].max(1e-300).sqrt())
+                        .sum()
+                })
+                .collect()
+        })
+        .collect();
+    let mut cols: Vec<Vec<f64>> = (0..q)
+        .map(|k| {
+            (0..g)
+                .map(|j| (0..q).map(|i| o[i][j] * inv_sqrt[i][k]).sum())
+                .collect()
+        })
+        .collect();
+    complete_basis(&mut cols, g);
+    let r = (0..g)
+        .map(|j| cols.iter().map(|c| c[j]).collect())
+        .collect();
+    (r, cos)
+}
+
+/// Extend orthonormal columns `cols` (each of length `g`) to a full
+/// orthonormal basis of `R^g` (modified Gram–Schmidt on the unit vectors).
+pub(super) fn complete_basis(cols: &mut Vec<Vec<f64>>, g: usize) {
+    for e in 0..g {
+        if cols.len() == g {
+            break;
+        }
+        let mut v: Vec<f64> = (0..g).map(|j| if j == e { 1.0 } else { 0.0 }).collect();
+        for _ in 0..2 {
+            for c in cols.iter() {
+                let d: f64 = c.iter().zip(&v).map(|(a, b)| a * b).sum();
+                for (vi, ci) in v.iter_mut().zip(c) {
+                    *vi -= d * ci;
+                }
+            }
+        }
+        let n = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+        if n > 1e-8 {
+            cols.push(v.into_iter().map(|x| x / n).collect());
+        }
+    }
+}
+
+/// How a face unit (a degenerate cluster, or one simple mode) is used at one
+/// frequency: the orthogonal rotation of its members (columns), and how many
+/// of the leading rotated directions are reported channels.
+struct UnitUse {
+    members: Vec<usize>,
+    /// `g × g` orthogonal; `rot[j][k]` = coefficient of member `j` in
+    /// direction `k`.
+    rot: Vec<Vec<f64>>,
+    /// `(direction k, channel)` for the claimed directions.
+    claimed: Vec<(usize, usize)>,
+}
+
+impl UnitUse {
+    fn identity(members: Vec<usize>) -> Self {
+        let g = members.len();
+        Self {
+            rot: (0..g)
+                .map(|i| (0..g).map(|j| if i == j { 1.0 } else { 0.0 }).collect())
+                .collect(),
+            members,
+            claimed: Vec::new(),
+        }
+    }
+
+    /// The mode along rotated direction `k`.
+    fn direction(&self, modes: &[HybridPortMode], k: usize) -> HybridPortMode {
+        if self.members.len() == 1 {
+            let mut m = modes[self.members[0]].clone();
+            if self.rot[0][0] < 0.0 {
+                m.e_t.iter_mut().for_each(|v| *v = -*v);
+                m.e_z.iter_mut().for_each(|v| *v = -*v);
+            }
+            return m;
+        }
+        let mem: Vec<&HybridPortMode> = self.members.iter().map(|&j| &modes[j]).collect();
+        let c: Vec<f64> = (0..self.members.len()).map(|j| self.rot[j][k]).collect();
+        combine_modes(&mem, &c)
+    }
+}
+
 impl HybridState {
+    fn new(ctx: FaceCtx, n_omegas: usize, k: usize) -> Self {
+        Self {
+            ctx,
+            prev: Vec::new(),
+            prev_scale: 0.0,
+            mult_warn: None,
+            cluster_warn: Vec::new(),
+            refined: None,
+            refined2: None,
+            rates: None,
+            points: vec![None; n_omegas],
+            pair_warn: None,
+            dropped_warn: Vec::new(),
+            acc_warn: vec![None; k],
+            acc_unavail: vec![None; k],
+        }
+    }
+
     /// Solve, track and lift one hybrid port at `omega`; returns the
     /// reported and the termination channels.
     fn channels_at(
@@ -1721,8 +2693,25 @@ impl HybridState {
         first: bool,
     ) -> Result<(Vec<ChanAt>, Vec<ChanAt>), DrivenError> {
         let k = port.n_modes();
-        let set = self.ctx.solve(port, omega, 2)?;
+        let FaceSolve { set, retried } = self.ctx.solve(port, omega, 2)?;
         let n_prop = set.n_propagating;
+        let scale = self.ctx.scale(omega);
+        if !set.diagnostics.multiplicity_certified {
+            match &mut self.mult_warn {
+                Some(w) => w.1 += 1,
+                None => self.mult_warn = Some((omega, 1, port.opts.verify_multiplicity)),
+            }
+        }
+
+        // Units: exactly degenerate clusters of the real modes.
+        let unit_members = degenerate_units(&set.modes, scale);
+        let mut unit_of = vec![0usize; set.modes.len()];
+        for (u, mem) in unit_members.iter().enumerate() {
+            for &j in mem {
+                unit_of[j] = u;
+            }
+        }
+        let mut units: Vec<UnitUse> = unit_members.into_iter().map(UnitUse::identity).collect();
 
         // All items in descending Re β².
         let mut items: Vec<Item<'_>> = set
@@ -1742,11 +2731,41 @@ impl HybridState {
         }
 
         // --- Reported channels: first-ω selection or tracking.
-        let mut assigned: Vec<(usize, f64, Option<f64>)> = Vec::with_capacity(k); // (mode, sign, overlap)
+        let mut overlaps: Vec<Option<f64>> = vec![None; k];
         if first || self.prev.is_empty() {
-            for (pos, it) in items.iter().take(k).enumerate() {
+            let mut taken = 0usize;
+            for (pos, it) in items.iter().enumerate() {
+                if taken >= k {
+                    break;
+                }
                 match it {
-                    Item::Real(i, _) => assigned.push((*i, 1.0, None)),
+                    Item::Real(i, _) => {
+                        let u = unit_of[*i];
+                        if !units[u].claimed.is_empty() {
+                            continue;
+                        }
+                        let g = units[u].members.len();
+                        if taken + g > k {
+                            return Err(DrivenError::InvalidPort {
+                                index: p_idx,
+                                reason: format!(
+                                    "hybrid wave port: at ω = {omega} the last {} of the {k} \
+                                     reported channel(s) would split an exactly degenerate \
+                                     cluster of {g} modes (β² = {:.6}); a channel inside a \
+                                     degenerate eigenspace is not uniquely defined — report \
+                                     {taken} or {} channel(s)",
+                                    k - taken,
+                                    set.modes[*i].beta_sq,
+                                    taken + g
+                                ),
+                            });
+                        }
+                        units[u].claimed = (0..g).map(|d| (d, taken + d)).collect();
+                        if g > 1 {
+                            self.canonicalize(&set.modes, &mut units[u], omega);
+                        }
+                        taken += g;
+                    }
                     Item::Pair(p) => {
                         return Err(DrivenError::InvalidPort {
                             index: p_idx,
@@ -1764,20 +2783,28 @@ impl HybridState {
                     }
                 }
             }
-            if assigned.len() < k {
+            if taken < k {
                 return Err(DrivenError::Solve(format!(
-                    "hybrid wave port {p_idx}: only {} real modes at ω = {omega}, {k} channels \
-                     requested",
-                    assigned.len()
+                    "hybrid wave port {p_idx}: only {taken} real modes at ω = {omega}, {k} \
+                     channels requested"
                 )));
             }
         } else {
-            assigned = self.track(&set, p_idx, omega, port.opts.min_track_overlap)?;
+            self.track(
+                &set,
+                &mut units,
+                &mut overlaps,
+                p_idx,
+                omega,
+                port.opts.min_track_overlap,
+            )?;
         }
 
-        // Completeness: every propagating mode is a reported channel.
+        // Completeness: every propagating mode is a reported channel (a
+        // degenerate cluster counts once all its directions are claimed).
         for (i, m) in set.modes.iter().enumerate().take(n_prop) {
-            if !assigned.iter().any(|&(a, _, _)| a == i) {
+            let u = &units[unit_of[i]];
+            if u.claimed.len() < u.members.len() {
                 return Err(DrivenError::InvalidPort {
                     index: p_idx,
                     reason: format!(
@@ -1792,18 +2819,17 @@ impl HybridState {
             }
         }
 
-        // Sign-fixed reported modes.
-        let tracked: Vec<HybridPortMode> = assigned
-            .iter()
-            .map(|&(i, s, _)| {
-                let mut m = set.modes[i].clone();
-                if s < 0.0 {
-                    m.e_t.iter_mut().for_each(|v| *v = -*v);
-                    m.e_z.iter_mut().for_each(|v| *v = -*v);
-                }
-                m
-            })
-            .collect();
+        // Tracked reported modes in channel order.
+        let mut tracked_opt: Vec<Option<(HybridPortMode, usize)>> = vec![None; k];
+        for u in &units {
+            for &(dir, ch) in &u.claimed {
+                tracked_opt[ch] = Some((u.direction(&set.modes, dir), u.members.len()));
+            }
+        }
+        let (tracked, cluster_sizes): (Vec<HybridPortMode>, Vec<usize>) = tracked_opt
+            .into_iter()
+            .map(|t| t.expect("every channel assigned"))
+            .unzip();
         let mut reported = Vec::with_capacity(k);
         for (m, &a) in tracked.iter().zip(&port.a_inc) {
             let ch = self.ctx.real_channel(m, port.opts.transverse_only_flux);
@@ -1815,28 +2841,35 @@ impl HybridState {
             });
         }
 
-        // --- Termination window.
+        // --- Termination window (the unclaimed directions of each unit).
         let want = port.opts.n_termination_evanescent;
         let mut termination = Vec::new();
         let (mut slots, mut term_real, mut term_pairs) = (0usize, 0usize, 0usize);
+        let mut unit_done = vec![false; units.len()];
         for (pos, it) in items.iter().enumerate() {
             if slots >= want {
                 break;
             }
             match it {
-                Item::Real(i, m) => {
-                    if assigned.iter().any(|&(a, _, _)| a == *i) {
+                Item::Real(i, _) => {
+                    let ui = unit_of[*i];
+                    if unit_done[ui] {
                         continue;
                     }
-                    let ch = self.ctx.real_channel(m, port.opts.transverse_only_flux);
-                    termination.push(ChanAt {
-                        beta: m.beta,
-                        y: m.beta,
-                        a_inc: None,
-                        flux: ch.flux,
-                    });
-                    slots += 1;
-                    term_real += 1;
+                    unit_done[ui] = true;
+                    let u = &units[ui];
+                    for dir in u.claimed.len()..u.members.len() {
+                        let m = u.direction(&set.modes, dir);
+                        let ch = self.ctx.real_channel(&m, port.opts.transverse_only_flux);
+                        termination.push(ChanAt {
+                            beta: m.beta,
+                            y: m.beta,
+                            a_inc: None,
+                            flux: ch.flux,
+                        });
+                        slots += 1;
+                        term_real += 1;
+                    }
                 }
                 Item::Pair(p) => {
                     let mi = [idx_of[pos], idx_of[pos] + 1];
@@ -1910,13 +2943,20 @@ impl HybridState {
             }
         }
 
+        let tol = port.opts.residual_tol;
+        let floor_accepted = set
+            .modes
+            .iter()
+            .filter(|m| m.residual > tol && m.residual <= m.residual_floor)
+            .count();
         self.points[input_index] = Some(HybridPortPointReport {
             omega,
             channels: tracked
                 .iter()
-                .zip(&assigned)
+                .zip(&overlaps)
                 .zip(accuracy)
-                .map(|((m, &(_, _, ov)), a)| HybridChannelReport {
+                .zip(&cluster_sizes)
+                .map(|(((m, &ov), a), &g)| HybridChannelReport {
                     beta: m.beta,
                     beta_sq: m.beta_sq,
                     beta_sq_im: 0.0,
@@ -1925,25 +2965,116 @@ impl HybridState {
                     accuracy: a,
                     residual: m.residual,
                     alpha_accuracy: None,
+                    residual_floor: m.residual_floor,
+                    floor_accepted: m.residual > tol && m.residual <= m.residual_floor,
+                    cluster_size: g,
+                    line: self.ctx.line(m, omega),
                 })
                 .collect(),
             n_propagating: n_prop,
             termination_real: term_real,
             termination_pairs: term_pairs,
+            multiplicity_certified: set.diagnostics.multiplicity_certified,
+            multiplicity_retried: retried,
+            repeated_copies: set.diagnostics.repeated_copies,
+            degenerate_clusters: set.diagnostics.degenerate_clusters,
+            floor_accepted,
         });
         self.prev = tracked;
+        self.prev_scale = scale;
         Ok((reported, termination))
     }
 
-    /// Greedy one-to-one B-pairing assignment of the previous channels to
-    /// the real modes of `set` (module docs).
+    /// Canonical basis of a reported degenerate cluster at the first
+    /// frequency: rotate so the members' conductor-current vectors are
+    /// mutually orthogonal (the SVD of the `g × n_c` current matrix `Q`,
+    /// directions by descending current norm; even / odd modes of a
+    /// symmetric pair), each signed so its first conductor carrying at least
+    /// half the largest current has positive current. Without enough
+    /// conductors, or when two singular values coincide (uncoupled lines),
+    /// the solver's basis is kept and a warning is recorded.
+    fn canonicalize(&mut self, modes: &[HybridPortMode], unit: &mut UnitUse, omega: f64) {
+        let g = unit.members.len();
+        let channels: Vec<usize> = unit.claimed.iter().map(|&(_, c)| c).collect();
+        let n_c = self.ctx.conductors.len();
+        let fail = |this: &mut Self, reason: String| {
+            this.cluster_warn
+                .push(PortWarningKind::NonCanonicalClusterBasis {
+                    channels: channels.clone(),
+                    omega,
+                    reason,
+                });
+        };
+        if n_c < g {
+            fail(
+                self,
+                format!("{g} degenerate modes but {n_c} floating conductor(s)"),
+            );
+            return;
+        }
+        let q: Vec<Vec<f64>> = unit
+            .members
+            .iter()
+            .map(|&j| self.ctx.currents(&modes[j], omega))
+            .collect();
+        let qqt: Vec<Vec<f64>> = (0..g)
+            .map(|a| {
+                (0..g)
+                    .map(|b| (0..n_c).map(|c| q[a][c] * q[b][c]).sum())
+                    .collect()
+            })
+            .collect();
+        let (lam, u) = sym_eig(&qqt);
+        let top = lam[0].max(f64::MIN_POSITIVE);
+        let min_gap = lam
+            .windows(2)
+            .map(|w| (w[0] - w[1]) / top)
+            .fold(f64::INFINITY, f64::min);
+        if lam[g - 1] <= 1e-12 * top || min_gap <= 1e-6 {
+            fail(
+                self,
+                format!(
+                    "conductor currents do not separate the modes (relative singular-value \
+                     gap {min_gap:.1e}, smallest {:.1e})",
+                    (lam[g - 1] / top).max(0.0).sqrt()
+                ),
+            );
+            return;
+        }
+        let mut rot = u;
+        for kcol in 0..g {
+            let cur: Vec<f64> = (0..n_c)
+                .map(|c| (0..g).map(|j| rot[j][kcol] * q[j][c]).sum())
+                .collect();
+            let big = cur.iter().fold(0.0_f64, |a, v| a.max(v.abs()));
+            let lead = cur
+                .iter()
+                .find(|v| v.abs() >= 0.5 * big)
+                .copied()
+                .unwrap_or(1.0);
+            if lead < 0.0 {
+                for row in rot.iter_mut() {
+                    row[kcol] = -row[kcol];
+                }
+            }
+        }
+        unit.rot = rot;
+    }
+
+    /// Track the previous channels onto the units of `set` (module docs):
+    /// greedy one-to-one at the unit level, verified per previous cluster by
+    /// principal angles; degenerate units are rotated onto their claimed
+    /// channels (orthogonal Procrustes).
+    #[allow(clippy::too_many_arguments)]
     fn track(
-        &self,
+        &mut self,
         set: &HybridPortModeSet,
+        units: &mut [UnitUse],
+        overlaps: &mut [Option<f64>],
         p_idx: usize,
         omega: f64,
         min_overlap: f64,
-    ) -> Result<Vec<(usize, f64, Option<f64>)>, DrivenError> {
+    ) -> Result<(), DrivenError> {
         let w_new: Vec<Vec<f64>> = set
             .modes
             .iter()
@@ -1952,13 +3083,15 @@ impl HybridState {
         let dotf = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(x, y)| x * y).sum::<f64>();
         let n_prev = self.prev.len();
         let n_new = set.modes.len();
+        let n_units = units.len();
+        // Signed normalized B-pairing overlaps.
         let mut o = vec![vec![0.0_f64; n_new]; n_prev];
         let mut pair_o = vec![0.0_f64; n_prev];
         let mut m1e = Vec::with_capacity(n_prev);
         for (i, pm) in self.prev.iter().enumerate() {
             let me = sparse_matvec(self.ctx.m1.as_ref(), &pm.e_t);
             for (j, (nm, w)) in set.modes.iter().zip(&w_new).enumerate() {
-                o[i][j] = dotf(&me, w).abs() / (pm.norm.abs() * nm.norm.abs()).sqrt();
+                o[i][j] = dotf(&me, w) / (pm.norm.abs() * nm.norm.abs()).sqrt();
             }
             for p in &set.complex_pairs {
                 let z = &p.mode;
@@ -1982,55 +3115,144 @@ impl HybridState {
             }
             m1e.push(me);
         }
-        let mut row_done = vec![false; n_prev];
-        let mut col_used = vec![false; n_new];
-        let mut out = vec![(usize::MAX, 1.0, None); n_prev];
-        for _ in 0..n_prev {
-            let mut best = (usize::MAX, usize::MAX, -1.0_f64);
-            for i in (0..n_prev).filter(|&i| !row_done[i]) {
-                for j in (0..n_new).filter(|&j| !col_used[j]) {
-                    if o[i][j] > best.2 {
-                        best = (i, j, o[i][j]);
-                    }
-                }
+        // Captured overlap of each previous channel by each unit.
+        let cap: Vec<Vec<f64>> = (0..n_prev)
+            .map(|i| {
+                units
+                    .iter()
+                    .map(|u| {
+                        u.members
+                            .iter()
+                            .map(|&j| o[i][j] * o[i][j])
+                            .sum::<f64>()
+                            .sqrt()
+                    })
+                    .collect()
+            })
+            .collect();
+        // Greedy one-to-one assignment with unit capacity.
+        let mut assign = vec![usize::MAX; n_prev];
+        let mut load = vec![0usize; n_units];
+        let mut cand: Vec<(f64, usize, usize)> = (0..n_prev)
+            .flat_map(|i| (0..n_units).map(move |u| (i, u)))
+            .map(|(i, u)| (cap[i][u], i, u))
+            .collect();
+        cand.sort_by(|a, b| b.0.total_cmp(&a.0));
+        for &(_, i, u) in &cand {
+            if assign[i] == usize::MAX && load[u] < units[u].members.len() {
+                assign[i] = u;
+                load[u] += 1;
             }
-            let (i, j, ov) = best;
-            if i == usize::MAX {
-                break;
-            }
-            row_done[i] = true;
-            col_used[j] = true;
-            let second = (0..n_new)
-                .filter(|&jj| jj != j)
-                .map(|jj| o[i][jj])
-                .fold(0.0_f64, f64::max);
-            if pair_o[i] >= min_overlap && pair_o[i] > ov {
-                return Err(DrivenError::Solve(format!(
-                    "hybrid wave port {p_idx}: channel {i} (β = {:.6}) collided into a \
-                     mesh-induced complex-conjugate pair at ω = {omega}; a reported channel \
-                     cannot be a pair — refine the port face (h = {:.4e}) or report fewer \
-                     channels",
-                    self.prev[i].beta, self.ctx.h
-                )));
-            }
-            if ov < min_overlap || second >= min_overlap {
-                return Err(DrivenError::Solve(format!(
-                    "hybrid wave port {p_idx}: mode identity lost for channel {i} between the \
-                     previous frequency and ω = {omega} (best overlap {ov:.3}, runner-up \
-                     {second:.3}, threshold {min_overlap}); modes of the same family cross or \
-                     mix here — refine the sweep"
-                )));
-            }
-            let sgn = dotf(&m1e[i], &set.modes[j].e_t);
-            out[i] = (j, if sgn < 0.0 { -1.0 } else { 1.0 }, Some(ov));
         }
-        if out.iter().any(|&(j, _, _)| j == usize::MAX) {
+        if assign.contains(&usize::MAX) {
             return Err(DrivenError::Solve(format!(
                 "hybrid wave port {p_idx}: fewer real modes than channels at ω = {omega}; mode \
                  identity lost — refine the sweep"
             )));
         }
-        Ok(out)
+        // Verify per previous cluster.
+        for grp in channel_groups(&self.prev, self.prev_scale) {
+            let runner_up = |i: usize, own: &[usize]| {
+                (0..n_units)
+                    .filter(|u| !own.contains(u))
+                    .map(|u| cap[i][u])
+                    .fold(0.0_f64, f64::max)
+            };
+            for &i in &grp {
+                if pair_o[i] >= min_overlap && pair_o[i] > cap[i][assign[i]] {
+                    return Err(DrivenError::Solve(format!(
+                        "hybrid wave port {p_idx}: channel {i} (β = {:.6}) collided into a \
+                         mesh-induced complex-conjugate pair at ω = {omega}; a reported channel \
+                         cannot be a pair — refine the port face (h = {:.4e}) or report fewer \
+                         channels",
+                        self.prev[i].beta, self.ctx.h
+                    )));
+                }
+            }
+            if grp.len() == 1 {
+                let i = grp[0];
+                let (ov, second) = (cap[i][assign[i]], runner_up(i, &[assign[i]]));
+                if ov < min_overlap || second >= min_overlap {
+                    return Err(DrivenError::Solve(format!(
+                        "hybrid wave port {p_idx}: mode identity lost for channel {i} between \
+                         the previous frequency and ω = {omega} (best overlap {ov:.3}, \
+                         runner-up {second:.3}, threshold {min_overlap}); modes of the same \
+                         family cross or mix here — refine the sweep"
+                    )));
+                }
+                continue;
+            }
+            // A previous degenerate cluster: its subspace must be captured by
+            // the units it was assigned to.
+            let mut own: Vec<usize> = grp.iter().map(|&i| assign[i]).collect();
+            own.sort_unstable();
+            own.dedup();
+            let cols: Vec<usize> = own
+                .iter()
+                .flat_map(|&u| units[u].members.iter().copied())
+                .collect();
+            let block: Vec<Vec<f64>> = grp
+                .iter()
+                .map(|&i| cols.iter().map(|&j| o[i][j]).collect())
+                .collect();
+            let (_, cos) = procrustes(&block, cols.len());
+            let min_cos = cos[cos.len() - 1];
+            let second = grp
+                .iter()
+                .map(|&i| runner_up(i, &own))
+                .fold(0.0_f64, f64::max);
+            if min_cos < min_overlap || second >= min_overlap {
+                return Err(DrivenError::Solve(format!(
+                    "hybrid wave port {p_idx}: mode identity lost for the degenerate cluster of \
+                     channels {grp:?} between the previous frequency and ω = {omega} (smallest \
+                     principal cosine {min_cos:.3}, runner-up {second:.3}, threshold \
+                     {min_overlap}); refine the sweep"
+                )));
+            }
+            if own.len() > 1 {
+                self.cluster_warn.push(PortWarningKind::ClusterSplit {
+                    channels: grp.clone(),
+                    omega,
+                    min_cosine: min_cos,
+                });
+            }
+        }
+        // Rotate / sign each claimed unit.
+        for (u, unit) in units.iter_mut().enumerate() {
+            let claimed: Vec<usize> = (0..n_prev).filter(|&i| assign[i] == u).collect();
+            if claimed.is_empty() {
+                continue;
+            }
+            if unit.members.len() == 1 {
+                let (i, j) = (claimed[0], unit.members[0]);
+                let sgn = dotf(&m1e[i], &set.modes[j].e_t);
+                unit.rot[0][0] = if sgn < 0.0 { -1.0 } else { 1.0 };
+                unit.claimed = vec![(0, i)];
+                overlaps[i] = Some(o[i][j].abs());
+                continue;
+            }
+            let g = unit.members.len();
+            let block: Vec<Vec<f64>> = claimed
+                .iter()
+                .map(|&i| unit.members.iter().map(|&j| o[i][j]).collect())
+                .collect();
+            let (rot, cos) = procrustes(&block, g);
+            let min_cos = cos[cos.len() - 1];
+            if min_cos < min_overlap {
+                return Err(DrivenError::Solve(format!(
+                    "hybrid wave port {p_idx}: channels {claimed:?} map onto one degenerate \
+                     cluster at ω = {omega} with smallest principal cosine {min_cos:.3} \
+                     (threshold {min_overlap}); mode identity lost — refine the sweep"
+                )));
+            }
+            for (kdir, &i) in claimed.iter().enumerate() {
+                let ov: f64 = (0..g).map(|j| block[kdir][j] * rot[j][kdir]).sum();
+                overlaps[i] = Some(ov.abs());
+            }
+            unit.rot = rot;
+            unit.claimed = claimed.iter().enumerate().map(|(d, &i)| (d, i)).collect();
+        }
+        Ok(())
     }
 
     /// Per-channel accuracy estimate at `omega` (and the observed rates at
@@ -2155,5 +3377,114 @@ fn pair_hint(beta_sq: c64, set_h2: &HybridPortModeSet, h: f64) -> Option<f64> {
                 Some(h2 - im_h2 * (h - h2) / (im_h - im_h2))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::analytic::microstrip::{ShieldedStripFace, StripMeshOpts};
+    use crate::driven::ports::strip_line_section;
+
+    #[test]
+    #[allow(clippy::needless_range_loop)]
+    fn procrustes_and_sym_eig_are_exact_on_small_blocks() {
+        let th = 0.3_f64;
+        let o = vec![vec![th.cos(), th.sin()], vec![-th.sin(), th.cos()]];
+        let (r, cos) = procrustes(&o, 2);
+        // o R = (o oᵀ)^{1/2} = I for an orthogonal o.
+        for i in 0..2 {
+            for k in 0..2 {
+                let v: f64 = (0..2).map(|j| o[i][j] * r[j][k]).sum();
+                assert!((v - if i == k { 1.0 } else { 0.0 }).abs() < 1e-14);
+            }
+        }
+        assert!(cos.iter().all(|c| (c - 1.0).abs() < 1e-14));
+        // One channel onto a 3-cluster: R completes an orthonormal basis.
+        let (r, cos) = procrustes(&[vec![0.6, 0.0, 0.8]], 3);
+        assert!((cos[0] - 1.0).abs() < 1e-14);
+        for a in 0..3 {
+            for b in 0..3 {
+                let v: f64 = (0..3).map(|j| r[j][a] * r[j][b]).sum();
+                assert!((v - if a == b { 1.0 } else { 0.0 }).abs() < 1e-14);
+            }
+        }
+        let (lam, _) = sym_eig(&[vec![2.0, 1.0], vec![1.0, 2.0]]);
+        assert!((lam[0] - 3.0).abs() < 1e-14 && (lam[1] - 1.0).abs() < 1e-14);
+    }
+
+    /// The solver's basis inside an exactly degenerate cluster is arbitrary:
+    /// emulate a different one at the second frequency by rotating the stored
+    /// previous channels 45° inside the cluster. Per-vector overlaps are then
+    /// ambiguous (measured 0.80 / 0.60, both above the 0.5 threshold, so the
+    /// per-vector P2 tracker raised "mode identity lost"),
+    /// while the subspace tracker captures the cluster (principal cosines 1)
+    /// and its Procrustes rotation reproduces the rotated channels.
+    #[test]
+    fn subspace_tracking_survives_an_arbitrary_cluster_basis() {
+        let eps = 2.2;
+        let face = ShieldedStripFace {
+            box_width: 8.0,
+            box_height: 4.0,
+            h: 2.0,
+            strips: vec![[-1.75, -0.25], [0.25, 1.75]],
+            thickness: 0.0,
+            eps_below: eps,
+            eps_above: eps,
+        }
+        .build(&StripMeshOpts {
+            h_min: 0.15,
+            h_max: 1.0,
+            ratio: 1.6,
+            mirror_symmetric: true,
+        });
+        let sec = strip_line_section(&face, 2, 1.0);
+        let [f1, _] = sec.port_faces().unwrap();
+        let port =
+            HybridWavePort::new(f1, vec![c64::new(1.0, 0.0); 2]).with_opts(HybridWavePortOpts {
+                accuracy: None,
+                ..Default::default()
+            });
+        let edges = sec.extruded.mesh.edges();
+        let ctx = FaceCtx::new(&sec.extruded.mesh, &edges, &port, 0).unwrap();
+        let mut st = HybridState::new(ctx, 2, 2);
+        st.channels_at(&port, 0, 0.1, 0, true).unwrap();
+        assert_eq!(st.prev.len(), 2);
+        // Rotate the stored channels by 45° inside the cluster.
+        let (a, b) = (st.prev[0].clone(), st.prev[1].clone());
+        let c = std::f64::consts::FRAC_1_SQRT_2;
+        let rot = [
+            combine_modes(&[&a, &b], &[c, c]),
+            combine_modes(&[&a, &b], &[-c, c]),
+        ];
+        st.prev = rot.to_vec();
+        // Per-vector overlaps against the new solve are ambiguous.
+        let set = st.ctx.solve(&port, 0.12, 2).unwrap().set;
+        let me = sparse_matvec(st.ctx.m1.as_ref(), &st.prev[0].e_t);
+        let ov: Vec<f64> = set
+            .modes
+            .iter()
+            .take(2)
+            .map(|m| {
+                let w = transverse_pairing_from(&st.ctx.d, m);
+                me.iter().zip(&w).map(|(x, y)| x * y).sum::<f64>().abs()
+                    / (st.prev[0].norm * m.norm).abs().sqrt()
+            })
+            .collect();
+        println!("per-vector overlaps of rotated channel 0: {ov:?}");
+        assert!(ov.iter().all(|&o| o >= DEFAULT_MIN_TRACK_OVERLAP));
+        // The subspace tracker succeeds and lands on the rotated basis.
+        st.channels_at(&port, 0, 0.12, 1, false).unwrap();
+        let pt = st.points[1].as_ref().unwrap();
+        for (ch, want) in pt.channels.iter().zip(&rot) {
+            let ovl = ch.track_overlap.unwrap();
+            assert!(ovl >= 1.0 - 1e-9, "overlap {ovl}");
+            let l = ch.line.as_ref().unwrap();
+            let w = st.ctx.line(want, 0.1).unwrap();
+            // Same direction: the current ratio is ω-independent for TEM.
+            let (r, rw) = (l.currents[1] / l.currents[0], w.currents[1] / w.currents[0]);
+            assert!((r - rw).abs() <= 1e-9 * rw.abs().max(1.0), "{r} vs {rw}");
+        }
+        assert!(st.cluster_warn.is_empty());
     }
 }
