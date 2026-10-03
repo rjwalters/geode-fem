@@ -275,7 +275,44 @@ pub struct LossyCavityModes {
     /// absorber-trapped / evanescent quasi-modes clustered around the
     /// origin; on a closed passive cavity only unconverged Ritz values.
     pub n_overdamped_filtered: usize,
+    /// Ritz values the closest-to-`σ` selection passed over as
+    /// **spurious** (relative residual `≥` [`SPURIOUS_RESIDUAL_REL`], not
+    /// an approximation of any eigenpair; issue #830). `0` unless such a
+    /// value sat nearer `σ` than a returned mode.
+    pub n_spurious_filtered: usize,
 }
+
+/// Relative eigen-residual at or above which a Ritz pair of the complex
+/// Lanczos is **spurious** and dropped before the closest-to-`σ` selection
+/// (issue #830).
+///
+/// The complex-symmetric (bilinear) Lanczos has no interlacing guarantee:
+/// unlike the real symmetric one, its full Ritz set can contain values
+/// that approximate no eigenvalue at all, and nothing keeps them away from
+/// `σ`. Measured on the uniformly filled `tan δ = 0.1` sphere
+/// (`sphere_lossy_pec_golden`, x86-64 Linux): one Ritz value
+/// `λ = 0.4756 − 0.0767j`, between the true `0.83` triplet and `1.65`
+/// multiplet and with the wrong sign of `Im λ`, had relative residual
+/// `11`; every genuine Ritz value had `≤ 0.9`, and the ones near `σ`
+/// `≤ 2e-13`. Whether such a value appears near `σ` depends on the last
+/// bits of the iteration (it came and went with the thread count and with
+/// round-off-level changes to the Lanczos normalization), and when it did,
+/// it displaced a converged mode from the selection and failed the
+/// [`LossyCavitySettings::residual_tol`] gate.
+///
+/// A relative residual `‖K x − λ M x‖ ≥ |λ| ‖M x‖` means the residual is
+/// as large as the `λ M x` term it should cancel: `λ` carries no correct
+/// digit. The selection passes over such pairs **only if** the result is
+/// `n_modes` modes that all pass `residual_tol`; otherwise it falls back
+/// to the plain nearest-`n_modes` selection, so every failing run (an
+/// under-resolved basis, say) fails exactly as before, with
+/// [`LossyCavityError::NotConverged`] or
+/// [`LossyCavityError::TooFewModes`]. The skip can only turn such a
+/// failure into a success in which every returned mode is converged; in
+/// shift-invert Lanczos the modes nearest `σ` converge first, so a genuine
+/// mode with no correct digit nearer `σ` than fully converged ones is not
+/// a realistic case.
+pub const SPURIOUS_RESIDUAL_REL: f64 = 1.0;
 
 /// Interior-reduced complex sparse pencil `(K, M)`.
 pub type LossyPencil = (SparseColMat<usize, c64>, SparseColMat<usize, c64>);
@@ -533,30 +570,11 @@ pub fn solve_lossy_cavity_modes<B: Backend>(
         .iter()
         .filter(|p| !is_null(p.lambda) && is_overdamped(p.lambda))
         .count();
-    let mut physical: Vec<_> = pairs
+    // Residual of every remaining candidate (two SpMVs each), so spurious
+    // Ritz values can be dropped before the closest-to-σ selection.
+    let candidates: Vec<LossyCavityMode> = pairs
         .into_iter()
         .filter(|p| !is_null(p.lambda) && !is_overdamped(p.lambda))
-        .collect();
-    let dist = |l: c64| (l.re - s.sigma).hypot(l.im);
-    physical.sort_by(|a, b| dist(a.lambda).total_cmp(&dist(b.lambda)));
-    physical.truncate(s.n_modes);
-    // Ascending resonant frequency Re(k₀) — not Re(λ) = Re(k₀)² − Im(k₀)²,
-    // which reorders strongly damped modes.
-    physical.sort_by(|a, b| {
-        principal_k0(a.lambda)
-            .re
-            .total_cmp(&principal_k0(b.lambda).re)
-    });
-    if physical.len() < s.n_modes {
-        return Err(LossyCavityError::TooFewModes {
-            requested: s.n_modes,
-            found: physical.len(),
-            sigma: s.sigma,
-        });
-    }
-
-    let modes: Vec<LossyCavityMode> = physical
-        .into_iter()
         .map(|p| {
             let kx = spmv(k.as_ref(), &p.vector);
             let mx = spmv(m.as_ref(), &p.vector);
@@ -575,6 +593,24 @@ pub fn solve_lossy_cavity_modes<B: Backend>(
             }
         })
         .collect();
+    let dist = |l: c64| (l.re - s.sigma).hypot(l.im);
+    let dists: Vec<f64> = candidates.iter().map(|m| dist(m.lambda)).collect();
+    let residuals: Vec<f64> = candidates.iter().map(|m| m.residual_rel).collect();
+    let (selected, n_spurious_filtered) =
+        select_closest(&dists, &residuals, s.n_modes, s.residual_tol);
+    let mut slots: Vec<Option<LossyCavityMode>> = candidates.into_iter().map(Some).collect();
+    let mut modes: Vec<LossyCavityMode> =
+        selected.iter().filter_map(|&i| slots[i].take()).collect();
+    // Ascending resonant frequency Re(k₀) — not Re(λ) = Re(k₀)² − Im(k₀)²,
+    // which reorders strongly damped modes.
+    modes.sort_by(|a, b| a.k0.re.total_cmp(&b.k0.re));
+    if modes.len() < s.n_modes {
+        return Err(LossyCavityError::TooFewModes {
+            requested: s.n_modes,
+            found: modes.len(),
+            sigma: s.sigma,
+        });
+    }
 
     // Residual acceptance gate (a NaN residual counts as the worst).
     let worst = modes
@@ -599,7 +635,48 @@ pub fn solve_lossy_cavity_modes<B: Backend>(
         n_interior,
         n_null_filtered,
         n_overdamped_filtered,
+        n_spurious_filtered,
     })
+}
+
+/// The closest-to-`σ` selection (issue #830): indices of the `n_modes`
+/// candidates nearest `σ` (by `dists`), passing over spurious ones
+/// (`residuals[i] ≥` [`SPURIOUS_RESIDUAL_REL`]), and how many were passed
+/// over.
+///
+/// The spurious skip is used **only** if it yields `n_modes` candidates
+/// that all pass `residual_tol`. Otherwise the plain `n_modes` nearest are
+/// returned with a skip count of 0, so a run that fails the residual gate
+/// (or has too few modes) fails exactly as it did without the skip, and
+/// the skip can only turn a failure into a fully converged success. A NaN
+/// residual is never spurious and never passes.
+fn select_closest(
+    dists: &[f64],
+    residuals: &[f64],
+    n_modes: usize,
+    residual_tol: f64,
+) -> (Vec<usize>, usize) {
+    let mut order: Vec<usize> = (0..dists.len()).collect();
+    order.sort_by(|&a, &b| dists[a].total_cmp(&dists[b]));
+    let spurious = |i: usize| residuals[i] >= SPURIOUS_RESIDUAL_REL;
+    let passes = |i: usize| residuals[i] <= residual_tol;
+    let mut selected = Vec::with_capacity(n_modes);
+    let mut skipped = 0;
+    for &i in &order {
+        if selected.len() == n_modes {
+            break;
+        }
+        if spurious(i) {
+            skipped += 1;
+        } else {
+            selected.push(i);
+        }
+    }
+    let converged = selected.len() == n_modes && selected.iter().all(|&i| passes(i));
+    if skipped > 0 && !converged {
+        return (order.into_iter().take(n_modes).collect(), 0);
+    }
+    (selected, skipped)
 }
 
 /// [`solve_lossy_cavity_modes`] on a Gmsh-tagged mesh with isotropic
@@ -666,6 +743,42 @@ pub fn solve_tagged_lossy_cavity_modes<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn select_closest_skips_spurious_only_when_that_converges() {
+        // Issue #830. Candidates by distance to σ: the measured case — a
+        // spurious Ritz value (residual 11) between the converged 0.83
+        // triplet and the 1.65 multiplet.
+        let tol = LossyCavitySettings::DEFAULT_RESIDUAL_TOL;
+        let d = [0.189, 0.1894, 0.1895, 0.53, 0.674, 0.677, 0.678];
+        let r = [6e-14, 6e-14, 7e-14, 11.0, 6e-14, 1e-13, 2e-13];
+        assert_eq!(select_closest(&d, &r, 5, tol), (vec![0, 1, 2, 4, 5], 1));
+        // No spurious candidate: plain nearest-n (unchanged behaviour).
+        let r_ok = [6e-14, 6e-14, 7e-14, 1e-13, 6e-14, 1e-13, 2e-13];
+        assert_eq!(select_closest(&d, &r_ok, 5, tol), (vec![0, 1, 2, 3, 4], 0));
+        // Skipping would select an under-resolved mode (1e-3 > tol): fall
+        // back to the plain nearest-n, so the gate reports as before.
+        let r_bad = [6e-14, 6e-14, 7e-14, 11.0, 1e-3, 1e-13, 2e-13];
+        assert_eq!(select_closest(&d, &r_bad, 5, tol), (vec![0, 1, 2, 3, 4], 0));
+        // Skipping would leave too few candidates: plain nearest-n.
+        assert_eq!(
+            select_closest(&d[..5], &r[..5], 5, tol),
+            (vec![0, 1, 2, 3, 4], 0)
+        );
+        // Boundary and NaN: residual = SPURIOUS_RESIDUAL_REL is spurious;
+        // NaN is never spurious (and never passes, so the gate fires).
+        let r_edge = [6e-14, SPURIOUS_RESIDUAL_REL, 7e-14, 6e-14];
+        assert_eq!(select_closest(&d[..4], &r_edge, 3, tol), (vec![0, 2, 3], 1));
+        let r_nan = [6e-14, f64::NAN, 7e-14, 6e-14];
+        assert_eq!(select_closest(&d[..4], &r_nan, 3, tol), (vec![0, 1, 2], 0));
+        // A residual just below the bound is not spurious: kept, and it
+        // fails the gate loudly.
+        let r_below = [6e-14, 0.999, 7e-14, 6e-14];
+        assert_eq!(
+            select_closest(&d[..4], &r_below, 3, tol),
+            (vec![0, 1, 2], 0)
+        );
+    }
     use crate::eigen::pec_cavity::{PecCavitySettings, solve_pec_cavity_modes};
     use crate::mesh::cube_tet_mesh;
     use crate::testing::TestBackend;
