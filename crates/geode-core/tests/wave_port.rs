@@ -1524,106 +1524,15 @@ fn te_only_ports_above_tm11_give_length_dependent_s() {
     );
 }
 
-/// Lowest physical resonance `k` of the all-PEC `a × b × length` box
-/// (`nx × ny × nz` hexes, 6 tets each) from the 3-D lowest-order Nédélec
-/// pencil — the gradient null space (one eigenvalue per interior node)
-/// is skipped. For `length` short enough that every `TE_mn1` mode sits
-/// higher, this is the 3-D model's own TM₁₁ cutoff (TM₁₁₀ at `β = 0`).
-fn box_lowest_physical_k(nx: usize, ny: usize, nz: usize, a: f64, b: f64, length: f64) -> f64 {
-    use geode_core::assembly::nedelec::assemble_global_nedelec;
-    use geode_core::assembly::p1::upload_mesh;
-    use geode_core::eigen::dense::{
-        EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer,
-    };
-    use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
-
-    let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
-    let mesh = &g.mesh;
-    let (nodes_t, tets_t) = upload_mesh::<B>(mesh, &device());
-    let tet_edges = mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
-    let edges = mesh.edges();
-    let sys = assemble_global_nedelec(nodes_t, tets_t, &tet_idx, &tet_sign, edges.len());
-    let walls = mesh.boundary_faces();
-    let mask = pec_interior_mask_from_triangles(&edges, &[&walls]);
-    let (k, m) = apply_dirichlet_bc(
-        burn_matrix_to_faer(sys.k).as_ref(),
-        burn_matrix_to_faer(sys.m).as_ref(),
-        &mask,
-    )
-    .expect("PEC reduction");
-    let n_interior_nodes = (nx - 1) * (ny - 1) * nz.saturating_sub(1);
-    let lambdas = FaerDenseEigensolver
-        .smallest_eigenvalues(k.as_ref(), m.as_ref(), n_interior_nodes + 3)
-        .expect("box eigensolve");
-    let lambda = lambdas[n_interior_nodes];
-    assert!(
-        n_interior_nodes == 0 || lambdas[n_interior_nodes - 1].abs() < 1e-6 * lambda,
-        "gradient null space not where expected: {lambdas:?}"
-    );
-    lambda.sqrt()
-}
-
-/// Issue #808 (Judge, PR #811): the TE-only guard threshold must sit
-/// below the **3-D** model's TM₁₁ cutoff, not just the face's. The face
-/// P1 value is a Rayleigh-Ritz upper bound (3.661 on the 8 × 4 face of a
-/// `2 × 1` guide, analytic 3.512), while the 3-D lowest-order Nédélec
-/// TM₁₁ drops below the continuum on a coarse axial mesh. Re-measure it on
-/// the all-PEC `2 × 1 × 0.5` box (TE_mn1 modes start near k ≈ 6.5) and pin
-/// the ordering `guard < 3-D TM₁₁ < face`, so the old window
-/// `[3-D TM₁₁, face)` the guard used to admit stays closed.
-#[test]
-fn tm_guard_sits_below_the_3d_nedelec_tm11_cutoff() {
-    use geode_core::driven::ports::project_port_face;
-    let (a, b, length) = (2.0, 1.0, 0.5);
-    let face_mesh = extruded_rect_waveguide_mesh(8, 4, 1, a, b, length);
-    let face = project_port_face(&face_mesh.mesh, &face_mesh.port1_faces).expect("face");
-    let est = face.tm_cutoff_estimate(None).expect("TM estimate");
-    let guard = est.guard_k_c();
-    for (nz, want) in [(1, 3.349), (2, 3.494), (4, 3.529)] {
-        let k3d = box_lowest_physical_k(8, 4, nz, a, b, length);
-        eprintln!(
-            "nz = {nz}: 3-D TM11 = {k3d:.4}, face = {:.4}, k_ext = {:.4}, guard = {guard:.4}",
-            est.k_face, est.k_extrapolated
-        );
-        assert!(
-            (k3d - want).abs() < 2e-3,
-            "nz = {nz}: 3-D TM11 {k3d} vs {want}"
-        );
-        assert!(
-            guard < k3d && k3d < est.k_face,
-            "nz = {nz}: {guard} / {k3d} / {est:?}"
-        );
-    }
-}
-
-/// Lowest physical resonance `k` of the all-PEC `a × b × length` box
-/// (`nx × ny × nz` hexes, 6 tets each) by sparse shift-invert Lanczos
+/// Lowest physical resonance `k` of an all-PEC guide section `mesh`
+/// (every boundary face PEC) of cross-section `a × b`, by sparse
+/// shift-invert Lanczos
 /// ([`geode_core::eigen::pec_cavity::solve_pec_cavity_modes`], gradient
-/// null space filtered) — [`box_lowest_physical_k`] without the dense
-/// pencil, for the finer faces of issue #824. Also returns the axial
-/// spacing the port-face projection measures and the port's TM estimate
-/// with its margin sized for it.
-fn box_tm110_and_mesh_aware_estimate(
-    nx: usize,
-    ny: usize,
-    nz: usize,
-    a: f64,
-    b: f64,
-    length: f64,
-) -> (f64, geode_core::driven::ports::TmCutoffEstimate) {
-    use geode_core::driven::ports::project_port_face;
+/// null space filtered), without a dense pencil, for the finer faces of
+/// issue #824.
+fn pec_guide_lowest_k(mesh: &TetMesh, a: f64, b: f64) -> f64 {
     use geode_core::eigen::pec_cavity::{PecCavitySettings, solve_pec_cavity_modes};
     use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
-    let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
-    let mesh = &g.mesh;
     let edges = mesh.edges();
     let walls = mesh.boundary_faces();
     let mask = pec_interior_mask_from_triangles(&edges, &[&walls]);
@@ -1634,8 +1543,26 @@ fn box_tm110_and_mesh_aware_estimate(
     let settings = PecCavitySettings::new((0.75 * tm11).powi(2), 2);
     let modes = solve_pec_cavity_modes::<B>(mesh, &eps, &mask, &settings, &device())
         .expect("box eigensolve");
+    modes.modes[0].k0
+}
+
+/// The all-PEC `a × b × length` box (`nx × ny × nz` hexes, 6 tets each):
+/// its lowest physical resonance ([`pec_guide_lowest_k`]) and the port's
+/// TM estimate with its margin sized for the axial spacing the port-face
+/// projection measures over the guide.
+fn box_tm110_and_mesh_aware_estimate(
+    nx: usize,
+    ny: usize,
+    nz: usize,
+    a: f64,
+    b: f64,
+    length: f64,
+) -> (f64, geode_core::driven::ports::TmCutoffEstimate) {
+    use geode_core::driven::ports::project_port_face;
+    let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
+    let mesh = &g.mesh;
     let face = project_port_face(mesh, &g.port1_faces).expect("port face");
-    let h_n = face.adjacent_axial_spacing(mesh);
+    let h_n = face.guide_axial_spacing(mesh, f64::INFINITY);
     assert!(
         (h_n - length / nz as f64).abs() < 1e-12,
         "axial spacing {h_n} vs {}",
@@ -1645,7 +1572,7 @@ fn box_tm110_and_mesh_aware_estimate(
         .tm_cutoff_estimate(None)
         .expect("TM estimate")
         .with_axial_spacing(h_n);
-    (modes.modes[0].k0, est)
+    (pec_guide_lowest_k(mesh, a, b), est)
 }
 
 /// Issue #824 (Judge, PR #811 re-review): at a fixed axial spacing a
@@ -1719,5 +1646,53 @@ fn mesh_aware_tm_guard_holds_over_axial_and_face_resolutions() {
             assert!(under < 0.021 * kh * kh, "undershoot {under} at kh {kh}");
             assert!(guard < k3d, "guard {guard} vs 3-D {k3d} ({est:?})");
         }
+    }
+}
+
+/// Issue #824 (Judge, PR #827 review): a fine tet layer at the port over
+/// coarser layers behind it. Read off the face-adjacent tets, `h_n` was
+/// the fine layer, and the guard sat **above** the 3-D TM₁₁₀: 3.3368
+/// against 3.3019 on a `2 × 1` guide (16 × 8 face, layers 0.15 + 0.6),
+/// 3.1460 against 3.0772 on a `3 × 1` guide (24 × 8, layers 0.2 + 0.7).
+/// A TM mode would then propagate unterminated inside the admitted
+/// sweep. `h_n` is now read over the guide within one TM-cutoff
+/// wavelength (the smallest window the CLI uses, `tm_guard_axial_reach`
+/// at an empty sweep), which sees the coarse layer: guards 3.122 and
+/// 2.867, below the 3-D cutoff.
+#[test]
+fn a_fine_layer_at_the_port_does_not_hide_the_coarse_guide_behind_it() {
+    use geode_core::driven::ports::{project_port_face, tm_guard_axial_reach};
+    for (nx, ny, a, b, zs, k3d_want, coarse) in [
+        (16, 8, 2.0, 1.0, [0.0, 0.15, 0.75], 3.3019, 0.6),
+        (24, 8, 3.0, 1.0, [0.0, 0.2, 0.9], 3.0772, 0.7),
+    ] {
+        let mut g = extruded_rect_waveguide_mesh(nx, ny, 2, a, b, 1.0);
+        for p in &mut g.mesh.nodes {
+            p[2] = zs[(2.0 * p[2]).round() as usize];
+        }
+        let mesh = &g.mesh;
+        let k3d = pec_guide_lowest_k(mesh, a, b);
+        let face = project_port_face(mesh, &g.port1_faces).expect("port face");
+        let est = face.tm_cutoff_estimate(None).expect("TM estimate");
+        let face_only = est.with_axial_spacing(face.guide_axial_spacing(mesh, 0.0));
+        let reach = tm_guard_axial_reach(est.k_c(), 0.0);
+        assert!(reach > zs[2], "the window {reach} spans the guide");
+        let h_n = face.guide_axial_spacing(mesh, reach);
+        let guarded = est.with_axial_spacing(h_n);
+        eprintln!(
+            "{a}x{b}, layers {:?}: 3-D TM110 = {k3d:.4}, face-only guard {:.4} (h_n = {:.2}), \
+             guide guard {:.4} (h_n = {h_n:.2}, margin {:.2} %)",
+            zs,
+            face_only.guard_k_c(),
+            face_only.axial_spacing,
+            guarded.guard_k_c(),
+            100.0 * guarded.margin()
+        );
+        assert!((k3d - k3d_want).abs() < 1e-3, "3-D {k3d} vs {k3d_want}");
+        assert!((h_n - coarse).abs() < 1e-12, "h_n {h_n} vs {coarse}");
+        // The failure the review found …
+        assert!(face_only.guard_k_c() > k3d, "{face_only:?} vs {k3d}");
+        // … is closed by reading the guide.
+        assert!(guarded.guard_k_c() < k3d, "{guarded:?} vs {k3d}");
     }
 }

@@ -60,7 +60,7 @@
 //! face value less a margin, [`TM_GUARD_MARGIN`] widened on a coarse axial
 //! mesh by [`tm_guard_margin`]), from
 //! [`PortFaceProjection::tm_cutoff_estimate`] and
-//! [`PortFaceProjection::adjacent_axial_spacing`]. The `geode` CLI rejects
+//! [`PortFaceProjection::guide_axial_spacing`]. The `geode` CLI rejects
 //! sweeps at or above it (and wave ports whose rim is not entirely on a
 //! conductor wall); library callers must keep below it themselves.
 
@@ -385,41 +385,61 @@ impl PortFaceProjection {
         Ok(TmCutoffEstimate::from_levels(k))
     }
 
-    /// The axial mesh spacing `h_n` at the port (issue #824): the largest
-    /// extent along [`Self::normal`] of a volume tet of `mesh` with a face
-    /// on the port (both sides of an internal port plane), i.e. the
-    /// distance of its fourth vertex from the face plane. This is what
-    /// sizes the TE-only TM guard's margin
-    /// ([`TmCutoffEstimate::with_axial_spacing`]): the 3-D model's TM
-    /// cutoff undershoots the continuum by up to `≈ 0.0205·(k_c·h_n)²`.
-    /// The **maximum** is taken (not the mean): on unstructured Gmsh
-    /// meshes of the `2 × 1 × 0.5` box the measured undershoot is at most
-    /// `0.0167·(k_c·h_n,max)²`, while the mean extent under-predicts it.
-    /// The tets on the face stand in for the guide feeding it; a mesh
-    /// that coarsens away from the port is not seen. `0` if no tet of
-    /// `mesh` has a face on the port.
-    pub fn adjacent_axial_spacing(&self, mesh: &TetMesh) -> f64 {
+    /// The axial mesh spacing `h_n` of the guide feeding the port (issue
+    /// #824): the largest extent along [`Self::normal`] of a volume tet of
+    /// `mesh` **in the guide within `reach`** of the port plane, on both
+    /// sides of an internal port plane. This sizes the TE-only TM guard's
+    /// margin ([`TmCutoffEstimate::with_axial_spacing`]).
+    ///
+    /// A tet is in the window when its centroid lies within `reach` of the
+    /// port plane along the normal **and** projects onto the port face
+    /// (inside one of its triangles, in-plane). The tets with a face on
+    /// the port are always included, so a coarse tet layer touching the
+    /// face is never missed. The window is the point of the measure: the
+    /// 3-D model's TM cutoff is set by the **coarsest** cells of the guide,
+    /// not by those at the face. With a fine layer of 0.15 at the port of
+    /// a `2 × 1` guide over a layer of 0.6, the face-adjacent tets span
+    /// only 0.15, and a guard sized from them (3.337) sat **above** the
+    /// 3-D TM cutoff (3.302). Read over the guide, `h_n` is 0.6, and the
+    /// guard (3.20) is below it.
+    ///
+    /// Use [`tm_guard_axial_reach`] for `reach`: about one TM-cutoff or
+    /// operating wavelength. `f64::INFINITY` takes every tet over the
+    /// face. A coarser section further from the port than `reach` is not
+    /// seen. `0` if no tet is in the window.
+    pub fn guide_axial_spacing(&self, mesh: &TetMesh, reach: f64) -> f64 {
+        let reach = reach.max(0.0);
         let sorted = |mut t: [u32; 3]| {
             t.sort_unstable();
             t
         };
         let keys: std::collections::HashSet<[u32; 3]> =
             self.faces.iter().map(|&f| sorted(f)).collect();
-        let dist = |n: u32| {
-            let p = mesh.nodes[n as usize];
-            ((p[0] - self.origin[0]) * self.normal[0]
-                + (p[1] - self.origin[1]) * self.normal[1]
-                + (p[2] - self.origin[2]) * self.normal[2])
-                .abs()
-        };
+        let rel = |n: u32| sub(mesh.nodes[n as usize], self.origin);
+        let footprint = FaceFootprint::new(&self.tri_mesh);
         let mut h = 0.0_f64;
-        for &[a, b, c, d] in &mesh.tets {
-            if [[b, c, d], [a, c, d], [a, b, d], [a, b, c]]
+        for tet in &mesh.tets {
+            let s = tet.map(|n| dot(rel(n), self.normal));
+            let [a, b, c, d] = *tet;
+            let on_face = [[b, c, d], [a, c, d], [a, b, d], [a, b, c]]
                 .iter()
-                .any(|&f| keys.contains(&sorted(f)))
-            {
-                h = h.max(dist(a)).max(dist(b)).max(dist(c)).max(dist(d));
+                .any(|&f| keys.contains(&sorted(f)));
+            if !on_face {
+                let s_c = 0.25 * (s[0] + s[1] + s[2] + s[3]);
+                if s_c.abs() > reach {
+                    continue;
+                }
+                let cen = tet.iter().fold([0.0_f64; 3], |c, &n| {
+                    let p = rel(n);
+                    [c[0] + 0.25 * p[0], c[1] + 0.25 * p[1], c[2] + 0.25 * p[2]]
+                });
+                if !footprint.contains([dot(cen, self.u), dot(cen, self.v)]) {
+                    continue;
+                }
             }
+            let lo = s.iter().copied().fold(f64::INFINITY, f64::min);
+            let hi = s.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            h = h.max(hi - lo);
         }
         h
     }
@@ -523,6 +543,110 @@ fn norm(a: [f64; 3]) -> f64 {
 
 fn scale(a: [f64; 3], s: f64) -> [f64; 3] {
     [a[0] * s, a[1] * s, a[2] * s]
+}
+
+/// The in-plane footprint of a port face (its 2-D triangles), bucketed on
+/// a uniform grid over the bounding box for point-in-face queries.
+struct FaceFootprint<'a> {
+    mesh: &'a TriMesh,
+    lo: [f64; 2],
+    cell: [f64; 2],
+    n: [usize; 2],
+    /// Triangles overlapping each grid cell (row-major, `x` fastest).
+    buckets: Vec<Vec<u32>>,
+    /// Relative tolerance of the barycentric test.
+    tol: f64,
+}
+
+impl<'a> FaceFootprint<'a> {
+    fn new(mesh: &'a TriMesh) -> Self {
+        let mut lo = [f64::INFINITY; 2];
+        let mut hi = [f64::NEG_INFINITY; 2];
+        for p in &mesh.nodes {
+            for k in 0..2 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        }
+        let side = (mesh.tris.len() as f64).sqrt().ceil().max(1.0) as usize;
+        let n = [side, side];
+        let cell = [0, 1].map(|k| ((hi[k] - lo[k]) / n[k] as f64).max(f64::MIN_POSITIVE));
+        let index =
+            |x: f64, k: usize| (((x - lo[k]) / cell[k]).floor().max(0.0) as usize).min(n[k] - 1);
+        let mut buckets = vec![Vec::new(); n[0] * n[1]];
+        for (t, tri) in mesh.tris.iter().enumerate() {
+            let q = tri.map(|i| mesh.nodes[i as usize]);
+            let (i0, i1) = (
+                index(q.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min), 0),
+                index(q.iter().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max), 0),
+            );
+            let (j0, j1) = (
+                index(q.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min), 1),
+                index(q.iter().map(|p| p[1]).fold(f64::NEG_INFINITY, f64::max), 1),
+            );
+            for j in j0..=j1 {
+                for i in i0..=i1 {
+                    buckets[i + j * n[0]].push(t as u32);
+                }
+            }
+        }
+        Self {
+            mesh,
+            lo,
+            cell,
+            n,
+            buckets,
+            tol: 1e-9,
+        }
+    }
+
+    /// Whether the in-plane point `p` lies in (or on the edge of) a face
+    /// triangle.
+    fn contains(&self, p: [f64; 2]) -> bool {
+        let idx = |k: usize| {
+            let x = ((p[k] - self.lo[k]) / self.cell[k]).floor();
+            (x >= -1.0 && x <= self.n[k] as f64).then(|| (x.max(0.0) as usize).min(self.n[k] - 1))
+        };
+        let (Some(i), Some(j)) = (idx(0), idx(1)) else {
+            return false;
+        };
+        self.buckets[i + j * self.n[0]].iter().any(|&t| {
+            let [a, b, c] = self.mesh.tris[t as usize].map(|i| self.mesh.nodes[i as usize]);
+            let cross2 = |o: [f64; 2], x: [f64; 2], y: [f64; 2]| {
+                (x[0] - o[0]) * (y[1] - o[1]) - (x[1] - o[1]) * (y[0] - o[0])
+            };
+            let area = cross2(a, b, c).abs();
+            let tol = -self.tol * area;
+            // CCW-or-CW agnostic: all three sub-areas share the sign of
+            // the triangle's.
+            let sgn = cross2(a, b, c).signum();
+            sgn * cross2(a, b, p) >= tol
+                && sgn * cross2(b, c, p) >= tol
+                && sgn * cross2(c, a, p) >= tol
+        })
+    }
+}
+
+/// The axial window [`PortFaceProjection::guide_axial_spacing`] reads the
+/// guide's mesh over (issue #824): one wavelength, `2π/min(k_c, k)`, with
+/// `k_c` the port's geometric TM cutoff and `k` the sweep's largest
+/// geometric wavenumber in the fill (`k₀·√(Re ε_n·μ_t)`, mesh units).
+///
+/// Why one wavelength. The guard is about TM fields near cutoff. At the
+/// guard's limit, `k ≤ 0.95·k_c`, an evanescent TM tail decays as
+/// `exp(−α|z|)` with `α = √(k_c² − k²) ≤ 0.31·k_c`, a decay length of
+/// at least `λ_c/2`. So the cells within `λ_c` of the port carry the
+/// TM field the port would have to terminate. A swept TE field resolves
+/// over its own guide wavelength, longer still. The larger of the two
+/// windows is taken: `2π/k` for any admitted sweep (`k < k_c`), and
+/// `λ_c` for an empty sweep (`k = 0`). `∞` (every tet over the face)
+/// if neither is finite and positive.
+pub fn tm_guard_axial_reach(k_c: f64, k: f64) -> f64 {
+    [k_c, k]
+        .into_iter()
+        .filter(|x| x.is_finite() && *x > 0.0)
+        .reduce(f64::min)
+        .map_or(f64::INFINITY, |k_min| std::f64::consts::TAU / k_min)
 }
 
 /// Project the tagged planar port face `faces` (triangles of `mesh`, 0-based
@@ -731,9 +855,32 @@ pub fn wave_port_from_faces(
 /// | 0.25 | 0.88 | −1.57 % | 0.0203 |
 /// | 0.125 | 0.44 | −0.39 % | 0.0204 |
 ///
-/// (and up to `k_c·h_n` = 3.42 on a `4 × 2` cross-section: −18.0 %, 0.0154). So the
-/// undershoot is `≈ 0.0205·(k_c·h_n)²`, never above it; the axial term
-/// [`TM_GUARD_AXIAL_COEFF`] = 0.025 covers it with 20 % headroom. `δ₀` =
+/// (and up to `k_c·h_n` = 3.42 on a `4 × 2` cross-section: −18.0 %, 0.0154).
+/// On these structured meshes, uniform along the guide, the undershoot is
+/// `≈ 0.0205·(k_c·h_n)²` and never above it.
+///
+/// `h_n` is read over the guide, not at the face. It is
+/// [`PortFaceProjection::guide_axial_spacing`] over
+/// [`tm_guard_axial_reach`]: the largest axial extent of a tet over the
+/// face within about one wavelength of the port. The ratio is then lower
+/// on every other mesh measured (`2 × 1`, `3 × 1` and `1 × 1` guides,
+/// `h_n` read over the smallest window, `λ_c`; Doctor pass on PR #827):
+///
+/// | mesh along the guide | worst `÷ (k_c·h_n)²` |
+/// |---|---|
+/// | structured, stepped layers (e.g. 0.15 at the port + 0.6) and graded | 0.0140 |
+/// | Gmsh, uniform (`h` = 0.2 to 0.5) | 0.0167 |
+/// | Gmsh, graded (0.08 → 0.4, 0.12 → 0.6, 0.6 → 0.12) and stepped | 0.0089 |
+///
+/// Read off the face-adjacent tets alone, as first done in issue #824,
+/// `h_n` misses the coarse cells behind a fine layer at the port. On a
+/// `2 × 1` guide with layers of 0.15 (at the port) and 0.6 that gave a
+/// guard of 3.337, **above** the 3-D TM cutoff of 3.302; on a `3 × 1`
+/// guide with layers of 0.2 and 0.7 it gave 3.146 against 3.077. Graded
+/// Gmsh meshes gave ratios up to 0.0249. Over the guide window those two
+/// guards are 3.122 and 2.867, both below the 3-D cutoff, and the graded
+/// ratio is 0.0089. So the axial term [`TM_GUARD_AXIAL_COEFF`] = 0.025
+/// covers the worst measured ratio (0.0205) with 20 % headroom. `δ₀` =
 /// 5 % is then the whole margin up to `k_c·h_n = √(δ₀/C_h)` ≈ 1.41
 /// (about 4.4 axial cells per TM-cutoff wavelength); the face-refined
 /// 12 × 6 / 16 × 8 / 24 × 12 faces over one layer of `h_n = 0.5` (3-D
@@ -746,8 +893,11 @@ pub const TM_GUARD_MARGIN: f64 = 0.05;
 
 /// Coefficient `C_h` of the axial-mesh term of the TM guard margin
 /// ([`tm_guard_margin`], issue #824): the 3-D lowest-order Nédélec TM
-/// cutoff undershoots the continuum by at most `≈ 0.0205·(k_c·h_n)²`
-/// (measured, see [`TM_GUARD_MARGIN`]); 0.025 bounds it with headroom.
+/// cutoff undershoots the continuum by at most `≈ 0.0205·(k_c·h_n)²` on
+/// every mesh measured, with `h_n` read over the guide window
+/// ([`PortFaceProjection::guide_axial_spacing`]; uniform, graded and
+/// stepped-layer guides, structured and Gmsh; see [`TM_GUARD_MARGIN`]).
+/// 0.025 bounds it with headroom.
 pub const TM_GUARD_AXIAL_COEFF: f64 = 0.025;
 
 /// Largest `k_c^TM·h_n` the axial term of [`tm_guard_margin`] was measured
@@ -758,9 +908,9 @@ pub const TM_GUARD_AXIAL_COEFF: f64 = 0.025;
 pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 
 /// The TE-only TM guard's relative margin for a geometric TM cutoff `k_c`
-/// (rad / mesh length unit) over a guide whose tets at the port span
-/// `axial_spacing` = `h_n` along the port normal
-/// ([`PortFaceProjection::adjacent_axial_spacing`]):
+/// (rad / mesh length unit) over a guide whose tets near the port span
+/// up to `axial_spacing` = `h_n` along the port normal
+/// ([`PortFaceProjection::guide_axial_spacing`]):
 /// `δ = max(TM_GUARD_MARGIN, TM_GUARD_AXIAL_COEFF·(k_c·h_n)²)`, capped at
 /// `1` (a guard of `0`: every frequency rejected; the axial mesh then
 /// spans more than `λ_c/1.0` and no margin is meaningful). `h_n = 0` gives
@@ -793,8 +943,9 @@ pub struct TmCutoffEstimate {
     pub order: Option<f64>,
     /// Richardson-extrapolated continuum estimate, `≤` every level.
     pub k_extrapolated: f64,
-    /// Axial extent `h_n` (mesh units) of the volume tets on the port
-    /// face along its normal ([`PortFaceProjection::adjacent_axial_spacing`]),
+    /// Axial extent `h_n` (mesh units) of the guide's volume tets near
+    /// the port along its normal
+    /// ([`PortFaceProjection::guide_axial_spacing`]),
     /// which sizes the margin ([`tm_guard_margin`]). `0` (the base margin
     /// only) until set with [`Self::with_axial_spacing`].
     pub axial_spacing: f64,
@@ -1193,19 +1344,84 @@ mod tests {
         );
     }
 
-    /// The axial spacing at a port is the extent of the tets on the face
-    /// along its normal, on both sides of an internal plane.
+    /// The axial spacing of the guide feeding a port is the largest extent
+    /// along the normal of a tet over the face within `reach` of the port
+    /// plane (issue #824, Doctor pass on PR #827): a fine layer at the port
+    /// does not hide coarser cells behind it, tets off the face's footprint
+    /// do not count, and an internal plane reads both sides.
     #[test]
-    fn adjacent_axial_spacing_is_the_tet_extent_along_the_normal() {
+    fn guide_axial_spacing_reads_the_coarsest_tet_within_reach_over_the_face() {
         let g = extruded_rect_waveguide_mesh(4, 2, 3, 2.0, 1.0, 1.2);
         let face = project_port_face(&g.mesh, &g.port1_faces).unwrap();
-        assert!((face.adjacent_axial_spacing(&g.mesh) - 0.4).abs() < 1e-12);
+        for reach in [0.0, 0.5, f64::INFINITY] {
+            assert!((face.guide_axial_spacing(&g.mesh, reach) - 0.4).abs() < 1e-12);
+        }
         let out = project_port_face(&g.mesh, &g.port2_faces).unwrap();
-        assert!((out.adjacent_axial_spacing(&g.mesh) - 0.4).abs() < 1e-12);
-        // No tet on the face: 0.
+        assert!((out.guide_axial_spacing(&g.mesh, f64::INFINITY) - 0.4).abs() < 1e-12);
+
+        // Stepped layers 0.1 / 0.2 / 0.9 (planes z = 0, 0.1, 0.3, 1.2).
+        let zs = [0.0, 0.1, 0.3, 1.2];
+        let mut stepped = g.mesh.clone();
+        for p in &mut stepped.nodes {
+            p[2] = zs[(p[2] / 0.4).round() as usize];
+        }
+        let face = project_port_face(&stepped, &g.port1_faces).unwrap();
+        // Reach 0: only the tets on the face (the 0.1 layer).
+        assert!((face.guide_axial_spacing(&stepped, 0.0) - 0.1).abs() < 1e-12);
+        // Second-layer centroids sit at z ∈ (0.1, 0.3); third-layer ones
+        // at z ≥ 0.3 + 0.9/4.
+        assert!((face.guide_axial_spacing(&stepped, 0.35) - 0.2).abs() < 1e-12);
+        assert!((face.guide_axial_spacing(&stepped, 1.0) - 0.9).abs() < 1e-12);
+        assert!((face.guide_axial_spacing(&stepped, f64::INFINITY) - 0.9).abs() < 1e-12);
+
+        // An internal plane at z = 0.1 reads both sides.
+        let (npx, npy) = (5u32, 3u32);
+        let node = |i: u32, j: u32, k: u32| i + j * npx + k * npx * npy;
+        let mut internal = Vec::new();
+        for j in 0..2 {
+            for i in 0..4 {
+                let (c00, c10, c11, c01) = (
+                    node(i, j, 1),
+                    node(i + 1, j, 1),
+                    node(i + 1, j + 1, 1),
+                    node(i, j + 1, 1),
+                );
+                internal.push([c00, c10, c11]);
+                internal.push([c00, c11, c01]);
+            }
+        }
+        let mid = project_port_face(&stepped, &internal).unwrap();
+        assert!((mid.guide_axial_spacing(&stepped, 0.0) - 0.2).abs() < 1e-12);
+        assert!((mid.guide_axial_spacing(&stepped, f64::INFINITY) - 0.9).abs() < 1e-12);
+
+        // A coarser guide beside the port (off its footprint) is not read.
+        let mut beside = stepped.clone();
+        let off = stepped.nodes.len() as u32;
+        beside
+            .nodes
+            .extend(stepped.nodes.iter().map(|p| [p[0] + 5.0, p[1], 3.0 * p[2]]));
+        beside
+            .tets
+            .extend(stepped.tets.iter().map(|t| t.map(|n| n + off)));
+        let face = project_port_face(&beside, &g.port1_faces).unwrap();
+        assert!((face.guide_axial_spacing(&beside, f64::INFINITY) - 0.9).abs() < 1e-12);
+
+        // No tet in the window: 0.
         let mut empty = g.mesh.clone();
         empty.tets.clear();
-        assert_eq!(face.adjacent_axial_spacing(&empty), 0.0);
+        assert_eq!(face.guide_axial_spacing(&empty, f64::INFINITY), 0.0);
+    }
+
+    /// The window is one wavelength, `2π/min(k_c, k)`, over the finite
+    /// positive inputs.
+    #[test]
+    fn tm_guard_axial_reach_is_one_wavelength() {
+        use std::f64::consts::TAU;
+        assert_eq!(tm_guard_axial_reach(3.5, 0.0), TAU / 3.5);
+        assert_eq!(tm_guard_axial_reach(3.5, 3.0), TAU / 3.0);
+        assert_eq!(tm_guard_axial_reach(3.5, 4.0), TAU / 3.5);
+        assert_eq!(tm_guard_axial_reach(f64::INFINITY, 2.0), TAU / 2.0);
+        assert_eq!(tm_guard_axial_reach(f64::INFINITY, 0.0), f64::INFINITY);
     }
 
     /// An open rim edge stays open under refinement: the estimate of the

@@ -360,12 +360,17 @@ pub struct WavePortSummary {
     /// [`Self::tm_margin`]. The margin covers the 3-D model's own TM
     /// cutoff, which sits below the continuum by up to
     /// `≈ 0.0205·(tm_k_c·h_n)²` with `h_n` = [`Self::tm_axial_spacing`]
-    /// (numerical dispersion along the guide; issue #824). `null` with
+    /// (numerical dispersion along the guide; issue #824; measured on
+    /// uniform, graded and stepped-layer guides, structured and Gmsh, up
+    /// to `tm_k_c·h_n` = 3.42). `null` with
     /// [`Self::tm_k_c`].
     pub tm_limit_hz: Option<f64>,
-    /// Axial mesh spacing `h_n` at the port (mesh units; issue #824;
-    /// additive in v1): the largest extent along the port normal of a
-    /// volume tet with a face on the port. It sizes [`Self::tm_margin`].
+    /// Axial mesh spacing `h_n` of the guide feeding the port (mesh units;
+    /// issue #824; additive in v1): the largest extent along the port
+    /// normal of a volume tet with a face on the port, or with its
+    /// centroid over the port face and within one wavelength
+    /// (`2π/min(k_c, k)`, `k` the top in-fill sweep wavenumber) of the
+    /// port plane. It sizes [`Self::tm_margin`].
     pub tm_axial_spacing: Option<f64>,
     /// The TE-only guard's relative margin `δ` (issue #824; additive in
     /// v1): `max(0.05, 0.025·(tm_k_c·tm_axial_spacing)²)`, so 5 % up to
@@ -375,8 +380,9 @@ pub struct WavePortSummary {
     pub tm_margin: Option<f64>,
     /// Coarse-axial-mesh warning (issue #824; additive in v1; omitted when
     /// there is none): the top sweep frequency spans more than
-    /// `k·h_n ≈ 1.41` per axial cell at the port, so the guard widened its
-    /// margin; the text says how far to refine along the guide. Also
+    /// `k·h_n ≈ 1.41` per axial cell in the guide near the port, so the
+    /// guard widened its margin; the text says how far to refine the guide
+    /// (within one wavelength of the port, not only at the face). Also
     /// printed on stderr as `warning: …`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tm_warning: Option<String>,

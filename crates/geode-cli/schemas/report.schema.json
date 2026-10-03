@@ -5286,7 +5286,7 @@
           "type": "integer"
         },
         "tm_axial_spacing": {
-          "description": "Axial mesh spacing `h_n` at the port (mesh units; issue #824;\nadditive in v1): the largest extent along the port normal of a\nvolume tet with a face on the port. It sizes [`Self::tm_margin`].",
+          "description": "Axial mesh spacing `h_n` of the guide feeding the port (mesh units;\nissue #824; additive in v1): the largest extent along the port\nnormal of a volume tet with a face on the port, or with its\ncentroid over the port face and within one wavelength\n(`2π/min(k_c, k)`, `k` the top in-fill sweep wavenumber) of the\nport plane. It sizes [`Self::tm_margin`].",
           "format": "double",
           "type": [
             "number",
@@ -5310,7 +5310,7 @@
           ]
         },
         "tm_limit_hz": {
-          "description": "The TE-only guard's sweep limit in Hz (issue #808; additive in v1):\n`(1 − δ)·tm_k_c/√(Re ε_n·μ_t)` in the port's [`Self::medium`]\n(a dispersive fill at its reference `ε_r`), with `δ` =\n[`Self::tm_margin`]. The margin covers the 3-D model's own TM\ncutoff, which sits below the continuum by up to\n`≈ 0.0205·(tm_k_c·h_n)²` with `h_n` = [`Self::tm_axial_spacing`]\n(numerical dispersion along the guide; issue #824). `null` with\n[`Self::tm_k_c`].",
+          "description": "The TE-only guard's sweep limit in Hz (issue #808; additive in v1):\n`(1 − δ)·tm_k_c/√(Re ε_n·μ_t)` in the port's [`Self::medium`]\n(a dispersive fill at its reference `ε_r`), with `δ` =\n[`Self::tm_margin`]. The margin covers the 3-D model's own TM\ncutoff, which sits below the continuum by up to\n`≈ 0.0205·(tm_k_c·h_n)²` with `h_n` = [`Self::tm_axial_spacing`]\n(numerical dispersion along the guide; issue #824; measured on\nuniform, graded and stepped-layer guides, structured and Gmsh, up\nto `tm_k_c·h_n` = 3.42). `null` with\n[`Self::tm_k_c`].",
           "format": "double",
           "type": [
             "number",
@@ -5326,7 +5326,7 @@
           ]
         },
         "tm_warning": {
-          "description": "Coarse-axial-mesh warning (issue #824; additive in v1; omitted when\nthere is none): the top sweep frequency spans more than\n`k·h_n ≈ 1.41` per axial cell at the port, so the guard widened its\nmargin; the text says how far to refine along the guide. Also\nprinted on stderr as `warning: …`.",
+          "description": "Coarse-axial-mesh warning (issue #824; additive in v1; omitted when\nthere is none): the top sweep frequency spans more than\n`k·h_n ≈ 1.41` per axial cell in the guide near the port, so the\nguard widened its margin; the text says how far to refine the guide\n(within one wavelength of the port, not only at the face). Also\nprinted on stderr as `warning: …`.",
           "type": [
             "string",
             "null"
