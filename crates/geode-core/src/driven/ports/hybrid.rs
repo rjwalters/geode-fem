@@ -1158,6 +1158,7 @@ impl FaceCtx {
             max_krylov: port.opts.max_krylov,
             residual_tol: port.opts.residual_tol,
             carry_complex_pairs: true,
+            verify_multiplicity: true,
         };
         match port.face.solve_modes(omega, &opts) {
             Ok(s) => Ok(s),

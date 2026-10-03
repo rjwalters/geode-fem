@@ -795,6 +795,23 @@ pub(crate) fn shift_invert_arnoldi_projected(
     krylov: usize,
     project: Option<KrylovProjector<'_>>,
 ) -> Result<Vec<RitzTriple>, EigenError> {
+    shift_invert_arnoldi_projected_from(a, b, sigma, krylov, project, None)
+}
+
+/// [`shift_invert_arnoldi_projected`] with an optional caller-given start
+/// vector (`None`: the default deterministic start, bit-identical to
+/// [`shift_invert_arnoldi_projected`]). The hybrid port solver (#805) uses a
+/// second, independent start vector for its multiplicity verification pass:
+/// a single-vector Krylov space holds only one direction of an exactly
+/// repeated eigenvalue's eigenspace.
+pub(crate) fn shift_invert_arnoldi_projected_from(
+    a: SparseColMatRef<'_, usize, f64>,
+    b: SparseColMatRef<'_, usize, f64>,
+    sigma: f64,
+    krylov: usize,
+    project: Option<KrylovProjector<'_>>,
+    start: Option<&[f64]>,
+) -> Result<Vec<RitzTriple>, EigenError> {
     let n = a.nrows();
     let shifted = shifted_mixed_pencil(a, b, sigma)?;
     let lu = shifted
@@ -808,9 +825,15 @@ pub(crate) fn shift_invert_arnoldi_projected(
     let mut h = Mat::<f64>::zeros(m + 1, m);
 
     // Start vector.
-    let mut v: Vec<f64> = (0..n)
-        .map(|i| (((i as f64) + 1.0) * 0.5432).sin())
-        .collect();
+    let mut v: Vec<f64> = match start {
+        Some(s0) => {
+            assert_eq!(s0.len(), n, "Arnoldi start vector length");
+            s0.to_vec()
+        }
+        None => (0..n)
+            .map(|i| (((i as f64) + 1.0) * 0.5432).sin())
+            .collect(),
+    };
     if let Some(p) = project {
         p(&mut v);
     }

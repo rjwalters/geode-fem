@@ -133,6 +133,40 @@
 //!   `‖A x − μ B x‖ / (|μ| ‖B x‖)`, recomputed in the original pencil.
 //!   Measured: ≤ 1.2e-10, against a threshold of 1e-8.
 //!
+//! # Interior conductors, the quasi-TEM mode, and repeated eigenvalues (#805)
+//!
+//! - **PEC.** [`HybridPecMasks`] applies one rule to the outer rim, holes
+//!   (thick strips carved out of the mesh) and zero-thickness sheets: an
+//!   edge is PEC if it is on the face boundary or in a caller-given extra
+//!   mask, and a node is PEC if it touches a PEC edge.
+//! - **Quasi-TEM.** On a face with floating conductors, `ẽ_t = ∇ψ` with ψ
+//!   constant on each conductor has zero trace on every PEC edge, and
+//!   `K∇ψ = 0`. The pencil therefore holds one TEM-like mode per conductor,
+//!   at `β² = k₀²ε_eff`. It is not near the deflated `β² = 0` null space:
+//!   `k_c = 0` means `β²/k₀²ε_max = ε_eff/ε_max = O(1)`, the opposite end of
+//!   the window from the null set. For a homogeneous fill the mode is
+//!   exactly `(Dψ, 0)` with ψ discrete-harmonic, so `β² = k₀²ε` holds to
+//!   round-off. As `k₀ → 0`, `β²/k₀²` tends to the P1 capacitance ratio
+//!   `C(ε)/C(1)` on the same mesh, with an O(k₀²) gap
+//!   (`tests/hybrid_port_microstrip.rs`).
+//! - **Low-frequency residual floor.** At low frequency `|μ| = β² ~ k₀²` is
+//!   tiny next to the curl-curl entries `~1/h²`, and the relative residual
+//!   hits a round-off floor `∝ 1/(k₀h)²` even when the eigenpair is
+//!   accurate. Acceptance is therefore `residual ≤ max(residual_tol,
+//!   residual_floor)`, where the floor is the working-precision backward
+//!   error ([`HybridPortMode::residual_floor`]). The floor is reported per
+//!   mode and counted in [`HybridSolveDiagnostics::floor_accepted`].
+//! - **Repeated eigenvalues.** A single-start Krylov space sees one
+//!   direction of an exactly repeated eigenvalue. That happens for the `n_c`
+//!   TEM modes of a homogeneous multi-conductor face on *any* mesh, and for
+//!   symmetric meshes. The default
+//!   [`HybridPortOpts::verify_multiplicity`] pass re-runs Arnoldi from an
+//!   independent start with the found modes deflated, and adds any missed
+//!   copy. Each degenerate cluster is then B-orthogonalized, so the returned
+//!   set stays exactly biorthogonal.
+//! - **Line impedance.** [`mode_line_quantities`] gives `Z_PI`, `Z_PV` and
+//!   `Z_VI` from the discrete Ampère current and a path voltage.
+//!
 //! # Accuracy
 //!
 //! Transverse-dominated modes (LSM₁₀, LSE₀₁, LSM₂₀, TE) converge at `O(h²)` in
@@ -196,7 +230,10 @@
 use faer::c64;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
-use super::mixed_pencil::{KrylovProjector, RitzTriple, shift_invert_arnoldi_projected, sp_matvec};
+use super::mixed_pencil::{
+    KrylovProjector, RitzTriple, shift_invert_arnoldi_projected,
+    shift_invert_arnoldi_projected_from, sp_matvec,
+};
 use super::waveguide::{TRI_LOCAL_EDGES, TriMesh, tri_bary_grads, tri_nedelec_local, tri_p1_local};
 use crate::eigen::dense::EigenError;
 
@@ -208,6 +245,10 @@ pub const NULL_BETA_SQ_TOL: f64 = 1e-8;
 /// Null-space classifier: transverse energy fraction `η ≤ NULL_TRANSVERSE_TOL`
 /// (module docs). The exact null vector has `η` at round-off.
 pub const NULL_TRANSVERSE_TOL: f64 = 1e-12;
+
+/// Safety factor on the residual round-off floor
+/// ([`HybridPortMode::residual_floor`]).
+pub const ROUNDOFF_FLOOR_FACTOR: f64 = 64.0;
 
 /// Relative imaginary-part tolerance for treating a Ritz value as real:
 /// `|Im μ| ≤ REAL_TOL · k₀²ε_max`.
@@ -498,6 +539,14 @@ pub struct HybridPortOpts {
     /// `n_evanescent` evanescent slots in descending `Re β²`", where a real
     /// evanescent mode takes one slot and a pair two.
     pub carry_complex_pairs: bool,
+    /// `true` (default, #805): after the window is certified, run the
+    /// **multiplicity verification pass** — a second shift-invert Arnoldi
+    /// from an independent start vector with the returned modes deflated —
+    /// and add any missed copy of an exactly repeated eigenvalue (symmetric
+    /// meshes; several TEM modes of a homogeneous multi-conductor face).
+    /// See [`HybridSolveDiagnostics::multiplicity_certified`]. `false` skips
+    /// it (one Arnoldi pass fewer; used by the tests as the tripwire).
+    pub verify_multiplicity: bool,
 }
 
 impl Default for HybridPortOpts {
@@ -509,6 +558,7 @@ impl Default for HybridPortOpts {
             max_krylov: 600,
             residual_tol: 1e-8,
             carry_complex_pairs: false,
+            verify_multiplicity: true,
         }
     }
 }
@@ -531,6 +581,18 @@ pub struct HybridPortMode {
     pub norm: f64,
     /// Explicit original-pencil residual `‖Ax − μBx‖/(|μ|‖Bx‖)`.
     pub residual: f64,
+    /// Round-off floor of [`Self::residual`] on the same scale — the normwise
+    /// backward error at working precision,
+    /// `ROUNDOFF_FLOOR_FACTOR · ε_mach (‖A‖₁ + |μ|‖B‖₁) ‖x‖ / (|μ|‖Bx‖)`.
+    /// A mode is accepted when `residual ≤ max(residual_tol, residual_floor)`.
+    /// The floor only matters at **low frequency**: there `|μ| = β² ~ k₀²`
+    /// is tiny next to the curl-curl entries `~ 1/h²`, so the floor grows
+    /// like `1/(k₀h)²`. Measured on the shielded microstrip of
+    /// `tests/hybrid_port_microstrip.rs`: residual ≈ 6e-8 at `k₀W = 0.05`
+    /// with the quasi-TEM `β²` still accurate to its O(k₀²) dispersion. At
+    /// ordinary port frequencies the floor is orders of magnitude below
+    /// `1e-8`, so the default acceptance is unchanged.
+    pub residual_floor: f64,
     /// Transverse energy fraction `η` (module docs; `0` would be a null vector).
     pub transverse_fraction: f64,
 }
@@ -590,6 +652,25 @@ pub struct HybridSolveDiagnostics {
     /// Converged eigenvalues with `β² > (1 − 1e-3)·k₀²ε_max` (ceiling
     /// pileup measurement).
     pub near_ceiling: usize,
+    /// Multiplicity verification rounds run (`0` when
+    /// [`HybridPortOpts::verify_multiplicity`] is off).
+    pub multiplicity_passes: usize,
+    /// Missed copies of repeated eigenvalues that the verification pass
+    /// found and added to the returned set.
+    pub repeated_copies: usize,
+    /// `true` when the last verification round found no further copy inside
+    /// the returned window **and** its own coverage radius reached beyond
+    /// the window. `false` when the pass was off, or it could not certify
+    /// within [`HybridPortOpts::max_krylov`] (the modes are still returned;
+    /// a repeated eigenvalue's copies may then be missing).
+    pub multiplicity_certified: bool,
+    /// Degenerate clusters (`|Δβ²| ≤ DEGENERATE_REL_TOL · k₀²ε_max`) among
+    /// the returned real modes, each B-orthogonalized in place.
+    pub degenerate_clusters: usize,
+    /// Returned modes accepted at the residual round-off floor, i.e. with
+    /// `residual_tol < residual ≤ residual_floor` (low-frequency faces;
+    /// see [`HybridPortMode::residual_floor`]).
+    pub floor_accepted: usize,
 }
 
 /// Result of [`solve_hybrid_port_modes`].
@@ -749,6 +830,8 @@ struct Candidate {
     mu_im: f64,
     class: Class,
     residual: f64,
+    /// Round-off floor of `residual` (see [`HybridPortMode::residual_floor`]).
+    residual_floor: f64,
     eta: f64,
     vector: Vec<f64>,
     /// Imaginary part of the Ritz vector (complex Ritz values only).
@@ -873,12 +956,16 @@ pub fn solve_hybrid_port_modes(
 
     let mut m = (2 * k_ev + 40).min(dim).min(opts.max_krylov.max(1));
     let mut passes = 0usize;
-    let mut ax = vec![0.0; dim];
-    let mut bx = vec![0.0; dim];
-    let mut ex = vec![0.0; dim];
-    let mut ay = vec![0.0; dim];
-    let mut by = vec![0.0; dim];
-    loop {
+    let ctx = ClassifyCtx {
+        pencil: &pencil,
+        sigma,
+        scale,
+        residual_tol: opts.residual_tol,
+        a_norm1: norm1(pencil.a.as_ref()),
+        b_norm1: norm1(pencil.b.as_ref()),
+    };
+    let mut scratch = Scratch::new(dim);
+    let mut set = loop {
         passes += 1;
         let ritz: Vec<RitzTriple> = shift_invert_arnoldi_projected(
             pencil.a.as_ref(),
@@ -889,88 +976,10 @@ pub fn solve_hybrid_port_modes(
         )?;
 
         // Classify every Ritz pair with the explicit original-pencil residual.
-        let mut cands: Vec<Candidate> = ritz
-            .into_iter()
-            .map(|t| {
-                let mu = t.mu_re;
-                let mu_im = t.mu_im;
-                let dist = (mu - sigma).hypot(mu_im);
-                let x = t.vector;
-                sp_matvec(pencil.a.as_ref(), &x, &mut ax);
-                sp_matvec(pencil.b.as_ref(), &x, &mut bx);
-                sp_matvec(pencil.energy.as_ref(), &x, &mut ex);
-                let is_real = mu_im.abs() <= REAL_TOL * scale;
-                let (r, bnorm) = if is_real {
-                    let r: f64 = ax
-                        .iter()
-                        .zip(&bx)
-                        .map(|(a, b)| (a - mu * b).powi(2))
-                        .sum::<f64>()
-                        .sqrt();
-                    (r, norm2(&bx))
-                } else {
-                    // Complex residual of x + j y with μ + jμ_im:
-                    //   Re: A x − μ B x + μ_im B y,  Im: A y − μ B y − μ_im B x.
-                    let y = &t.vector_im;
-                    sp_matvec(pencil.a.as_ref(), y, &mut ay);
-                    sp_matvec(pencil.b.as_ref(), y, &mut by);
-                    let mut r2 = 0.0;
-                    for i in 0..dim {
-                        r2 += (ax[i] - mu * bx[i] + mu_im * by[i]).powi(2);
-                        r2 += (ay[i] - mu * by[i] - mu_im * bx[i]).powi(2);
-                    }
-                    (r2.sqrt(), (dot(&bx, &bx) + dot(&by, &by)).sqrt())
-                };
-                let mu_abs = mu.hypot(mu_im);
-                let denom = mu_abs * bnorm;
-                let residual = if denom > 0.0 {
-                    r / denom
-                } else {
-                    f64::INFINITY
-                };
-                let e_t_energy = dot(&x[..n_free_t], &ex[..n_free_t]);
-                let e_tot = dot(&x, &ex);
-                let eta = if e_tot > 0.0 { e_t_energy / e_tot } else { 0.0 };
-                let beta_sq_rel = mu.abs() / scale;
-                let class = if !is_real {
-                    if residual <= opts.residual_tol {
-                        Class::Complex
-                    } else {
-                        Class::Unconverged
-                    }
-                } else if beta_sq_rel <= NULL_BETA_SQ_TOL {
-                    if eta <= NULL_TRANSVERSE_TOL {
-                        Class::Null { beta_sq_rel, eta }
-                    } else if r <= opts.residual_tol * scale * bnorm {
-                        // |μ| ≈ 0 makes the relative residual meaningless
-                        // here; use the residual relative to the pencil
-                        // scale k₀²ε_max instead.
-                        Class::NearCutoff
-                    } else {
-                        Class::Unconverged
-                    }
-                } else if residual <= opts.residual_tol {
-                    Class::Physical
-                } else {
-                    Class::Unconverged
-                };
-                let vector_im = if matches!(class, Class::Complex) {
-                    t.vector_im
-                } else {
-                    Vec::new()
-                };
-                Candidate {
-                    dist,
-                    mu,
-                    mu_im,
-                    class,
-                    residual,
-                    eta,
-                    vector: x,
-                    vector_im,
-                }
-            })
-            .collect();
+        let mut cands: Vec<Candidate> = Vec::with_capacity(ritz.len());
+        for t in ritz {
+            cands.push(classify_ritz(t, &ctx, &mut scratch));
+        }
         cands.sort_by(|p, q| p.dist.total_cmp(&q.dist));
 
         // Coverage radius: distance of the first unconverged Ritz value (or,
@@ -1083,19 +1092,19 @@ pub fn solve_hybrid_port_modes(
                     .collect();
                 let modes: Vec<HybridPortMode> = physical
                     .into_iter()
-                    .map(|c| finish_mode(c, &pencil, n_t, n_z, &mut bx))
+                    .map(|c| finish_mode(c, &pencil, n_t, n_z, &mut scratch.bx))
                     .collect();
                 for md in &modes {
                     diag.max_residual = diag.max_residual.max(md.residual);
                     diag.min_returned_beta_sq_rel =
                         diag.min_returned_beta_sq_rel.min(md.beta_sq.abs() / scale);
                 }
-                return Ok(HybridPortModeSet {
+                break HybridPortModeSet {
                     modes,
                     n_propagating: n_prop,
                     complex_pairs: pairs,
                     diagnostics: diag,
-                });
+                };
             }
             if m >= dim || m >= opts.max_krylov {
                 return Err(HybridPortError::Shortfall {
@@ -1139,19 +1148,19 @@ pub fn solve_hybrid_port_modes(
             physical.truncate(n_prop + k_ev);
             let modes: Vec<HybridPortMode> = physical
                 .into_iter()
-                .map(|c| finish_mode(c, &pencil, n_t, n_z, &mut bx))
+                .map(|c| finish_mode(c, &pencil, n_t, n_z, &mut scratch.bx))
                 .collect();
             for md in &modes {
                 diag.max_residual = diag.max_residual.max(md.residual);
                 diag.min_returned_beta_sq_rel =
                     diag.min_returned_beta_sq_rel.min(md.beta_sq.abs() / scale);
             }
-            return Ok(HybridPortModeSet {
+            break HybridPortModeSet {
                 modes,
                 n_propagating: n_prop,
                 complex_pairs: Vec::new(),
                 diagnostics: diag,
-            });
+            };
         }
         if m >= dim || m >= opts.max_krylov {
             return Err(HybridPortError::Shortfall {
@@ -1164,7 +1173,467 @@ pub fn solve_hybrid_port_modes(
             });
         }
         m = (2 * m).min(dim).min(opts.max_krylov);
+    };
+
+    // Degenerate clusters are B-orthogonalized before the verification pass
+    // too: its deflation `Q` is a projector only for a B-orthogonal set, and
+    // copies of one eigenvalue found by the first pass need not be (measured
+    // on Linux CI: two TEM copies from one start left the pass unable to
+    // certify until this was done).
+    biorthogonalize_degenerate(&mut set, &pencil, scale, &mut scratch);
+    if opts.verify_multiplicity {
+        verify_multiplicity(&mut set, &ctx, project, opts, &mut scratch)?;
+        biorthogonalize_degenerate(&mut set, &pencil, scale, &mut scratch);
     }
+    set.diagnostics.floor_accepted = set
+        .modes
+        .iter()
+        .filter(|m| m.residual > opts.residual_tol)
+        .count();
+    Ok(set)
+}
+
+/// Relative `β²` gap below which two returned real modes are treated as one
+/// **degenerate cluster**: `|β²_i − β²_j| ≤ DEGENERATE_REL_TOL · k₀²ε_max`.
+pub const DEGENERATE_REL_TOL: f64 = 1e-9;
+
+/// B-orthogonalize the returned real modes inside each degenerate cluster
+/// (#805).
+///
+/// Distinct eigenvalues give B-orthogonal eigenvectors automatically. Inside
+/// an exactly repeated eigenvalue, though, any basis of the eigenspace is an
+/// eigenbasis, and the Ritz vectors need not be B-orthogonal. Measured on
+/// the C4v square coax: copies found by a single start pair at 4e-2. The
+/// port SMW needs the exact biorthogonality, so a modified Gram–Schmidt in
+/// the unconjugated B-form is run over each cluster, followed by the usual
+/// normalization and sign pin. Non-degenerate modes are untouched,
+/// bit for bit.
+fn biorthogonalize_degenerate(
+    set: &mut HybridPortModeSet,
+    pencil: &HybridPencil,
+    scale: f64,
+    scratch: &mut Scratch,
+) {
+    let n = set.modes.len();
+    let mut clusters = 0usize;
+    let mut i = 0;
+    while i < n {
+        let mut j = i + 1;
+        while j < n
+            && (set.modes[j].beta_sq - set.modes[i].beta_sq).abs() <= DEGENERATE_REL_TOL * scale
+        {
+            j += 1;
+        }
+        if j - i > 1 {
+            clusters += 1;
+            let mut xs: Vec<Vec<f64>> = (i..j)
+                .map(|k| gather_reduced(pencil, &set.modes[k]))
+                .collect();
+            for a in 0..xs.len() {
+                for b in 0..a {
+                    let bxb = sparse_matvec(pencil.b.as_ref(), &xs[b]);
+                    let nb = dot(&xs[b], &bxb);
+                    if nb != 0.0 {
+                        let c = dot(&bxb, &xs[a]) / nb;
+                        let xb = xs[b].clone();
+                        for (v, w) in xs[a].iter_mut().zip(&xb) {
+                            *v -= c * w;
+                        }
+                    }
+                }
+            }
+            for (k, x) in (i..j).zip(xs) {
+                let old = &set.modes[k];
+                let mu = -old.beta_sq;
+                // Explicit residual of the re-orthogonalized vector.
+                sp_matvec(pencil.a.as_ref(), &x, &mut scratch.ax);
+                sp_matvec(pencil.b.as_ref(), &x, &mut scratch.bx);
+                let r = scratch
+                    .ax
+                    .iter()
+                    .zip(&scratch.bx)
+                    .map(|(a, b)| (a - mu * b).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
+                let den = mu.abs() * norm2(&scratch.bx);
+                let residual = if den > 0.0 { r / den } else { f64::INFINITY };
+                let c = Candidate {
+                    dist: 0.0,
+                    mu,
+                    mu_im: 0.0,
+                    class: Class::Physical,
+                    residual,
+                    residual_floor: old.residual_floor,
+                    eta: old.transverse_fraction,
+                    vector: x,
+                    vector_im: Vec::new(),
+                };
+                let (n_t, n_z) = (pencil.layout.n_t, pencil.layout.n_z);
+                set.modes[k] = finish_mode(c, pencil, n_t, n_z, &mut scratch.bx);
+            }
+        }
+        i = j;
+    }
+    set.diagnostics.degenerate_clusters = clusters;
+}
+
+/// Fixed inputs of [`classify_ritz`].
+struct ClassifyCtx<'a> {
+    pencil: &'a HybridPencil,
+    sigma: f64,
+    scale: f64,
+    residual_tol: f64,
+    /// `‖A‖₁`, `‖B‖₁` for the residual round-off floor.
+    a_norm1: f64,
+    b_norm1: f64,
+}
+
+/// Reusable mat-vec buffers of the classifier.
+struct Scratch {
+    ax: Vec<f64>,
+    bx: Vec<f64>,
+    ex: Vec<f64>,
+    ay: Vec<f64>,
+    by: Vec<f64>,
+}
+
+impl Scratch {
+    fn new(dim: usize) -> Self {
+        Self {
+            ax: vec![0.0; dim],
+            bx: vec![0.0; dim],
+            ex: vec![0.0; dim],
+            ay: vec![0.0; dim],
+            by: vec![0.0; dim],
+        }
+    }
+}
+
+/// Classify one Ritz triple with the explicit original-pencil residual
+/// (module docs, "Null-space classifier" / "Explicit residual").
+fn classify_ritz(t: RitzTriple, ctx: &ClassifyCtx<'_>, s: &mut Scratch) -> Candidate {
+    let pencil = ctx.pencil;
+    let (sigma, scale) = (ctx.sigma, ctx.scale);
+    let n_free_t = pencil.n_free_t;
+    let dim = pencil.free.len();
+    let mu = t.mu_re;
+    let mu_im = t.mu_im;
+    let dist = (mu - sigma).hypot(mu_im);
+    let x = t.vector;
+    sp_matvec(pencil.a.as_ref(), &x, &mut s.ax);
+    sp_matvec(pencil.b.as_ref(), &x, &mut s.bx);
+    sp_matvec(pencil.energy.as_ref(), &x, &mut s.ex);
+    let is_real = mu_im.abs() <= REAL_TOL * scale;
+    let (r, bnorm) = if is_real {
+        let r: f64 =
+            s.ax.iter()
+                .zip(&s.bx)
+                .map(|(a, b)| (a - mu * b).powi(2))
+                .sum::<f64>()
+                .sqrt();
+        (r, norm2(&s.bx))
+    } else {
+        // Complex residual of x + j y with μ + jμ_im:
+        //   Re: A x − μ B x + μ_im B y,  Im: A y − μ B y − μ_im B x.
+        let y = &t.vector_im;
+        sp_matvec(pencil.a.as_ref(), y, &mut s.ay);
+        sp_matvec(pencil.b.as_ref(), y, &mut s.by);
+        let mut r2 = 0.0;
+        for i in 0..dim {
+            r2 += (s.ax[i] - mu * s.bx[i] + mu_im * s.by[i]).powi(2);
+            r2 += (s.ay[i] - mu * s.by[i] - mu_im * s.bx[i]).powi(2);
+        }
+        (r2.sqrt(), (dot(&s.bx, &s.bx) + dot(&s.by, &s.by)).sqrt())
+    };
+    let mu_abs = mu.hypot(mu_im);
+    let denom = mu_abs * bnorm;
+    let residual = if denom > 0.0 {
+        r / denom
+    } else {
+        f64::INFINITY
+    };
+    // Round-off floor of the residual (normwise backward error at working
+    // precision): ε_mach (‖A‖₁ + |μ|‖B‖₁) ‖x‖ relative to |μ|‖Bx‖, times a
+    // safety factor (see `ROUNDOFF_FLOOR_FACTOR`).
+    let residual_floor = if is_real && denom > 0.0 {
+        ROUNDOFF_FLOOR_FACTOR * f64::EPSILON * (ctx.a_norm1 + mu.abs() * ctx.b_norm1) * norm2(&x)
+            / denom
+    } else {
+        0.0
+    };
+    let e_t_energy = dot(&x[..n_free_t], &s.ex[..n_free_t]);
+    let e_tot = dot(&x, &s.ex);
+    let eta = if e_tot > 0.0 { e_t_energy / e_tot } else { 0.0 };
+    let beta_sq_rel = mu.abs() / scale;
+    let class = if !is_real {
+        if residual <= ctx.residual_tol {
+            Class::Complex
+        } else {
+            Class::Unconverged
+        }
+    } else if beta_sq_rel <= NULL_BETA_SQ_TOL {
+        if eta <= NULL_TRANSVERSE_TOL {
+            Class::Null { beta_sq_rel, eta }
+        } else if r <= ctx.residual_tol * scale * bnorm {
+            // |μ| ≈ 0 makes the relative residual meaningless here; use the
+            // residual relative to the pencil scale k₀²ε_max instead.
+            Class::NearCutoff
+        } else {
+            Class::Unconverged
+        }
+    } else if residual <= ctx.residual_tol.max(residual_floor) {
+        Class::Physical
+    } else {
+        Class::Unconverged
+    };
+    let vector_im = if matches!(class, Class::Complex) {
+        t.vector_im
+    } else {
+        Vec::new()
+    };
+    Candidate {
+        dist,
+        mu,
+        mu_im,
+        class,
+        residual,
+        residual_floor,
+        eta,
+        vector: x,
+        vector_im,
+    }
+}
+
+/// Matrix 1-norm (largest absolute column sum).
+fn norm1(a: SparseColMatRef<'_, usize, f64>) -> f64 {
+    let (cp, v) = (a.col_ptr(), a.val());
+    (0..a.ncols())
+        .map(|j| v[cp[j]..cp[j + 1]].iter().map(|x| x.abs()).sum::<f64>())
+        .fold(0.0, f64::max)
+}
+
+/// A deterministic pseudo-random start vector (xorshift64*), independent of
+/// the default `sin` start of [`shift_invert_arnoldi_projected`].
+fn pseudo_random_start(n: usize, seed: u64) -> Vec<f64> {
+    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    (0..n)
+        .map(|_| {
+            state ^= state >> 12;
+            state ^= state << 25;
+            state ^= state >> 27;
+            let r = state.wrapping_mul(0x2545_F491_4F6C_DD1D);
+            // Top 53 bits → [0, 1) → [−1, 1).
+            ((r >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
+        })
+        .collect()
+}
+
+/// Gather a mode's full-ordering `(ẽ_t, ẽ_z)` into the reduced ordering.
+fn gather_reduced(pencil: &HybridPencil, md: &HybridPortMode) -> Vec<f64> {
+    let n_t = pencil.layout.n_t;
+    pencil
+        .free
+        .iter()
+        .map(|&fi| {
+            if fi < n_t {
+                md.e_t[fi]
+            } else {
+                md.e_z[fi - n_t]
+            }
+        })
+        .collect()
+}
+
+/// Re-impose the window "all propagating + the first `k_ev` evanescent
+/// slots" after modes were added (a real evanescent mode takes one slot, a
+/// complex pair two; a pair straddling the last slot is kept whole).
+fn retruncate(set: &mut HybridPortModeSet, k_ev: usize) {
+    set.modes.sort_by(|p, q| q.beta_sq.total_cmp(&p.beta_sq));
+    let n_prop = set.modes.iter().filter(|m| m.beta_sq > 0.0).count();
+    let (mut slots, mut n_real, mut n_pair) = (0usize, 0usize, 0usize);
+    let (mut ri, mut pi) = (n_prop, 0usize);
+    while slots < k_ev {
+        let next_real = set.modes.get(ri).map(|m| m.beta_sq);
+        let next_pair = set.complex_pairs.get(pi).map(|p| p.mode.beta_sq.re);
+        match (next_real, next_pair) {
+            (Some(r), Some(p)) if p > r => {
+                slots += 2;
+                n_pair += 1;
+                pi += 1;
+            }
+            (Some(_), _) => {
+                slots += 1;
+                n_real += 1;
+                ri += 1;
+            }
+            (None, Some(_)) => {
+                slots += 2;
+                n_pair += 1;
+                pi += 1;
+            }
+            (None, None) => break,
+        }
+    }
+    set.modes.truncate(n_prop + n_real);
+    set.complex_pairs.truncate(n_pair);
+    set.n_propagating = n_prop;
+    for pair in &mut set.complex_pairs {
+        let re = pair.mode.beta_sq.re;
+        pair.real_evanescent_before = set.modes[n_prop..]
+            .iter()
+            .filter(|m| m.beta_sq > re)
+            .count();
+    }
+}
+
+/// Upper bound on multiplicity verification rounds (each round that finds a
+/// missed copy triggers another, deflating the copies found so far).
+const MAX_MULTIPLICITY_ROUNDS: usize = 6;
+
+/// **Multiplicity verification pass** (#805; the #809 review's latent risk).
+///
+/// A single-vector Krylov space contains only one direction of an exactly
+/// repeated eigenvalue's eigenspace (in exact arithmetic `T^k v` stays in
+/// `span{P_λ v}` inside the eigenspace), and the coverage certificate cannot
+/// see the missing copy. Exact repeats occur on symmetric port meshes (a
+/// C4v-symmetric square coax: the TE11-like pair) and, mesh-independently, for
+/// the `n_c` TEM modes of a homogeneous face with `n_c` floating conductors.
+///
+/// This pass re-runs the shift-invert Arnoldi from an independent
+/// pseudo-random start, with the returned modes **deflated** by the oblique
+/// spectral projector `Q x = x − Σ_m (x_mᵀBx / x_mᵀBx_m) x_m` (exact because
+/// distinct eigenvectors are B-orthogonal, and `Q` commutes with
+/// `T = (A − σB)⁻¹B`), composed with the null-space projector. Any converged
+/// real eigenpair it finds inside the returned window is a missed copy: it
+/// is added (it is B-orthogonal to the others by construction, so the set
+/// stays biorthogonal), and the pass repeats. A pass that finds nothing new
+/// inside the window, with its own coverage radius beyond the window,
+/// certifies the multiplicities ([`HybridSolveDiagnostics::multiplicity_certified`]).
+fn verify_multiplicity(
+    set: &mut HybridPortModeSet,
+    ctx: &ClassifyCtx<'_>,
+    null_project: Option<KrylovProjector<'_>>,
+    opts: &HybridPortOpts,
+    scratch: &mut Scratch,
+) -> Result<(), HybridPortError> {
+    let pencil = ctx.pencil;
+    let (sigma, scale) = (ctx.sigma, ctx.scale);
+    let dim = pencil.free.len();
+    let (n_t, n_z) = (pencil.layout.n_t, pencil.layout.n_z);
+    let mut m = set.diagnostics.krylov.max(1);
+    let mut rounds = 0usize;
+    let mut copies = 0usize;
+    let mut certified = false;
+    while rounds < MAX_MULTIPLICITY_ROUNDS {
+        rounds += 1;
+        // Window radius in |μ − σ|: the propagating band edge, or the
+        // farthest returned mode / pair.
+        let mut window = 0.5 * scale;
+        for md in &set.modes {
+            window = window.max((-md.beta_sq - sigma).abs());
+        }
+        for p in &set.complex_pairs {
+            window = window.max((-p.mode.beta_sq.re - sigma).hypot(p.mode.beta_sq.im));
+        }
+        let window = window * (1.0 + 1e-9);
+
+        // Deflation basis: the returned real modes (reduced ordering).
+        let basis: Vec<(Vec<f64>, Vec<f64>, f64)> = set
+            .modes
+            .iter()
+            .map(|md| {
+                let x = gather_reduced(pencil, md);
+                let bx = sparse_matvec(pencil.b.as_ref(), &x);
+                let n = dot(&x, &bx);
+                (x, bx, n)
+            })
+            .filter(|(_, _, n)| *n != 0.0)
+            .collect();
+        let deflate = |x: &mut [f64]| {
+            for (xm, bxm, nm) in &basis {
+                let c = dot(bxm, x) / nm;
+                for (xi, v) in x.iter_mut().zip(xm) {
+                    *xi -= c * v;
+                }
+            }
+        };
+        let both = |x: &mut [f64]| {
+            if let Some(p) = null_project {
+                p(x);
+            }
+            deflate(x);
+        };
+        let mut start = pseudo_random_start(dim, 0x5eed_0805 + rounds as u64);
+        both(&mut start);
+
+        let ritz = shift_invert_arnoldi_projected_from(
+            pencil.a.as_ref(),
+            pencil.b.as_ref(),
+            sigma,
+            m,
+            Some(&both),
+            Some(&start),
+        )?;
+        let mut cands: Vec<Candidate> = Vec::with_capacity(ritz.len());
+        for t in ritz {
+            cands.push(classify_ritz(t, ctx, scratch));
+        }
+        cands.sort_by(|p, q| p.dist.total_cmp(&q.dist));
+        let coverage = cands
+            .iter()
+            .find(|c| matches!(c.class, Class::Unconverged))
+            .map_or_else(
+                || cands.last().map_or(0.0, |c| c.dist * (1.0 + 1e-12)),
+                |c| c.dist,
+            );
+        // New converged real eigenpairs inside the window (ghost-filtered:
+        // a vector that the deflation would mostly remove is not new).
+        let mut fresh: Vec<Candidate> = Vec::new();
+        for c in cands {
+            if c.dist >= window.min(coverage) || !matches!(c.class, Class::Physical) {
+                continue;
+            }
+            let mut q = c.vector.clone();
+            deflate(&mut q);
+            if norm2(&q) < 0.5 * norm2(&c.vector) {
+                continue;
+            }
+            let dup = fresh.iter().any(|p| {
+                (p.mu - c.mu).abs() <= 1e-10 * scale
+                    && dot(&p.vector, &c.vector).abs()
+                        >= 0.999 * norm2(&p.vector) * norm2(&c.vector)
+            });
+            if !dup {
+                fresh.push(c);
+            }
+        }
+        if fresh.is_empty() {
+            if coverage > window {
+                certified = true;
+                break;
+            }
+            if m >= dim || m >= opts.max_krylov {
+                break;
+            }
+            m = (2 * m).min(dim).min(opts.max_krylov);
+            continue;
+        }
+        copies += fresh.len();
+        for c in fresh {
+            let md = finish_mode(c, pencil, n_t, n_z, &mut scratch.bx);
+            set.diagnostics.max_residual = set.diagnostics.max_residual.max(md.residual);
+            set.diagnostics.min_returned_beta_sq_rel = set
+                .diagnostics
+                .min_returned_beta_sq_rel
+                .min(md.beta_sq.abs() / scale);
+            set.modes.push(md);
+        }
+        retruncate(set, opts.n_evanescent);
+    }
+    set.diagnostics.multiplicity_passes = rounds;
+    set.diagnostics.repeated_copies = copies;
+    set.diagnostics.multiplicity_certified = certified;
+    Ok(())
 }
 
 /// Normalize (`|xᵀBx| = |β²|`), sign-pin, and scatter one converged pair.
@@ -1219,6 +1688,7 @@ fn finish_mode(
         e_z,
         norm,
         residual: c.residual,
+        residual_floor: c.residual_floor,
         transverse_fraction: c.eta,
     }
 }
@@ -1305,6 +1775,208 @@ pub fn transverse_pairing_vector(mesh: &TriMesh, mode: &HybridPortMode) -> Vec<f
         *wi += ti;
     }
     w
+}
+
+/// PEC masks of a port face with **interior conductors** (#805).
+///
+/// One rule covers the rim, holes and thin sheets: a face edge is PEC iff it
+/// lies on the face boundary (it belongs to exactly one triangle — the outer
+/// shield or the inner rim of a carved-out thick conductor) **or** it is
+/// listed in the caller's extra PEC edge mask (zero-thickness strips, whose
+/// edges sit inside the face; in 3-D, the edges the driven
+/// `pec_interior_mask` eliminates). A node is PEC (`ẽ_z = 0`) iff it touches
+/// a PEC edge.
+///
+/// On a face with `n_c` floating conductors (strips or holes) the pencil
+/// also carries `n_c` TEM-like modes with `ẽ_t ≈ ∇ψ`, ψ constant on each
+/// conductor: such a gradient has zero tangential trace on every PEC edge,
+/// so it is a genuine Whitney eigenvector with `β² ≈ k₀²ε_eff` (exactly
+/// `k₀²ε` for a homogeneous fill), far from the deflated `β² = 0` null
+/// space.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HybridPecMasks {
+    /// `true` for PEC edges (full [`TriMesh::edges`] ordering).
+    pub pec_edges: Vec<bool>,
+    /// `true` for free (non-PEC) edges — the `interior_edge_mask` input of
+    /// [`solve_hybrid_port_modes`].
+    pub interior_edge_mask: Vec<bool>,
+    /// `true` for free (non-PEC) nodes — the `free_node_mask` input.
+    pub free_node_mask: Vec<bool>,
+}
+
+impl HybridPecMasks {
+    /// Build the masks from boundary detection plus `extra_pec_edges`
+    /// (`None` = rim only).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `extra_pec_edges` does not have one entry per mesh edge.
+    pub fn from_mesh(mesh: &TriMesh, extra_pec_edges: Option<&[bool]>) -> Self {
+        let n_e = mesh.edges().len();
+        let mut count = vec![0u32; n_e];
+        for row in mesh.tri_edges() {
+            for (e, _) in row {
+                count[e as usize] += 1;
+            }
+        }
+        if let Some(x) = extra_pec_edges {
+            assert_eq!(
+                x.len(),
+                n_e,
+                "extra_pec_edges length must equal the edge count"
+            );
+        }
+        let pec_edges: Vec<bool> = (0..n_e)
+            .map(|e| count[e] == 1 || extra_pec_edges.is_some_and(|x| x[e]))
+            .collect();
+        Self::from_pec_edges(mesh, pec_edges)
+    }
+
+    /// Masks from an explicit PEC edge set (nodes: PEC iff touching one).
+    pub fn from_pec_edges(mesh: &TriMesh, pec_edges: Vec<bool>) -> Self {
+        let edges = mesh.edges();
+        assert_eq!(pec_edges.len(), edges.len(), "pec_edges length");
+        let mut free_node_mask = vec![true; mesh.n_nodes()];
+        for (e, &[a, b]) in edges.iter().enumerate() {
+            if pec_edges[e] {
+                free_node_mask[a as usize] = false;
+                free_node_mask[b as usize] = false;
+            }
+        }
+        let interior_edge_mask = pec_edges.iter().map(|&p| !p).collect();
+        Self {
+            pec_edges,
+            interior_edge_mask,
+            free_node_mask,
+        }
+    }
+}
+
+/// Line quantities of one **propagating** hybrid mode on a face with an
+/// interior conductor (#805), from [`mode_line_quantities`].
+///
+/// Amplitudes follow the mode's own normalization; the impedances are
+/// amplitude-independent. Conventions (`exp(+jωt)`, `μ_r = 1`,
+/// `η₀ = 376.73 Ω`):
+///
+/// - Power `P = ½ Re∫(E × H*)·ẑ = xᵀBx / (2 k₀η₀ β)`. This uses
+///   `h_t = (ẑ × w)/(ωμ₀)` with the pairing vector `w = ẽ_t + Dẽ_z =
+///   βE_t − j∇_tE_z` (transverse Faraday law).
+/// - Strip current `I = ∮ h_t·dl`. In weak form, for any `χ` with `χ = 1` on
+///   the conductor and `0` on the other PEC, Stokes plus Ampère's
+///   `(∇×H)_z = jωεE_z` give `I = −(1/ωμ₀) Σ_{k ∈ conductor} (Gᵀẽ_t + Lẽ_z)_k`:
+///   the full-mesh z-row of `B x` summed over the conductor nodes. It
+///   vanishes at every free node, so the value does not depend on `χ`. This
+///   is the discrete Ampère law, and it includes the displacement-current
+///   term.
+/// - Voltage `V = ∫ E_t·dl` along a caller-given node path through mesh
+///   edges. Each Whitney DOF is exactly the line integral along its edge, so
+///   `V = (1/β) Σ ±ẽ_t,e`.
+/// - `Z_PI = 2P/|I|²`, `Z_PV = |V|²/(2P)`, `Z_VI = |V/I|`.
+///   `Z_PI·Z_PV = Z_VI²` identically.
+///
+/// These are **line** impedances. They are not the wave impedance
+/// `Z_TE = η₀k₀/β` of the #775 Touchstone path, which is about
+/// `η₀/√ε_eff` for a quasi-TEM mode. All three definitions coincide
+/// quasi-statically and separate as dispersion grows. Choosing which one to
+/// report is a Phase 5 / operator decision.
+#[derive(Debug, Clone, Copy)]
+pub struct ModeLineQuantities {
+    /// Modal power `P` (mode normalization units).
+    pub power: f64,
+    /// Conductor current `|I|`.
+    pub current: f64,
+    /// Path voltage `|V|` (when a path was given).
+    pub voltage: Option<f64>,
+    /// Power–current impedance `Z_PI = 2P/|I|²` (ohms).
+    pub z_pi: f64,
+    /// Power–voltage impedance `Z_PV = |V|²/(2P)` (ohms).
+    pub z_pv: Option<f64>,
+    /// Voltage–current impedance `Z_VI = |V/I|` (ohms).
+    pub z_vi: Option<f64>,
+}
+
+/// [`ModeLineQuantities`] of a propagating `mode` of the hybrid pencil on
+/// `mesh` with fill `eps_r` at `k0`. `conductor_nodes` marks the strip's
+/// nodes (all of them, both faces of a sheet, or the rim of a hole), and
+/// `voltage_path` is an optional node sequence along mesh edges, typically
+/// from the ground plane to the strip. Returns `None` for a non-propagating
+/// mode (`β² ≤ 0`), which has no real line impedance.
+///
+/// # Panics
+///
+/// Panics on mismatched lengths, or if consecutive path nodes are not joined
+/// by a mesh edge.
+pub fn mode_line_quantities(
+    mesh: &TriMesh,
+    eps_r: &[f64],
+    mode: &HybridPortMode,
+    k0: f64,
+    conductor_nodes: &[bool],
+    voltage_path: Option<&[u32]>,
+) -> Result<Option<ModeLineQuantities>, HybridPortError> {
+    if !mode.is_propagating() {
+        return Ok(None);
+    }
+    assert_eq!(
+        conductor_nodes.len(),
+        mesh.n_nodes(),
+        "conductor_nodes length"
+    );
+    let blocks = assemble_hybrid_blocks(mesh, eps_r)?;
+    let beta = mode.beta.re;
+    let eta = crate::constants::ETA_0_OHM;
+    // z-row of B x on the full mesh: Gᵀẽ_t + (S − k₀²T_ε)ẽ_z.
+    let gt = {
+        let g = blocks.g.as_ref();
+        let (cp, ri, v) = (g.col_ptr(), g.row_idx(), g.val());
+        let mut out = vec![0.0; g.ncols()];
+        for (j, o) in out.iter_mut().enumerate() {
+            for p in cp[j]..cp[j + 1] {
+                *o += v[p] * mode.e_t[ri[p]];
+            }
+        }
+        out
+    };
+    let s_ez = sparse_matvec(blocks.s.as_ref(), &mode.e_z);
+    let t_ez = sparse_matvec(blocks.t_eps.as_ref(), &mode.e_z);
+    let q: f64 = (0..mesh.n_nodes())
+        .filter(|&k| conductor_nodes[k])
+        .map(|k| gt[k] + s_ez[k] - k0 * k0 * t_ez[k])
+        .sum();
+    // Unconjugated B-form x ᵀ B x = ẽ_tᵀ M₁ w (real vectors).
+    let w = transverse_pairing_vector(mesh, mode);
+    let m1w = sparse_matvec(blocks.m1.as_ref(), &w);
+    let xbx = dot(&mode.e_t, &m1w);
+    let power = xbx / (2.0 * k0 * eta * beta);
+    let current = q.abs() / (k0 * eta);
+    let z_pi = 2.0 * power / (current * current);
+    let voltage = voltage_path.map(|path| {
+        let edges = mesh.edges();
+        let lookup: std::collections::HashMap<(u32, u32), usize> = edges
+            .iter()
+            .enumerate()
+            .map(|(i, e)| ((e[0], e[1]), i))
+            .collect();
+        let mut sum = 0.0;
+        for pair in path.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let key = (a.min(b), a.max(b));
+            let e = *lookup
+                .get(&key)
+                .unwrap_or_else(|| panic!("voltage path step {a}→{b} is not a mesh edge"));
+            sum += if a < b { mode.e_t[e] } else { -mode.e_t[e] };
+        }
+        sum.abs() / beta
+    });
+    Ok(Some(ModeLineQuantities {
+        power,
+        current,
+        voltage,
+        z_pi,
+        z_pv: voltage.map(|v| v * v / (2.0 * power)),
+        z_vi: voltage.map(|v| v / current),
+    }))
 }
 
 /// `y = A x` for a sparse matrix (public helper for the identity tests).
@@ -1411,6 +2083,18 @@ mod tests {
         let kd = matmul(&dense(blocks.k.as_ref()), &d);
         let (diff_k, _) = max_abs_diff(&kd, &vec![vec![0.0; d[0].len()]; d.len()]);
         assert!(diff_k <= 1e-12, "K D ≠ 0: {diff_k:e}");
+    }
+
+    /// With no interior conductor, boundary detection reproduces the
+    /// rectangular-wall masks exactly (#805 compatibility).
+    #[test]
+    fn pec_masks_from_mesh_match_rect_walls() {
+        let (a, b) = (2.0, 1.0);
+        let mesh = jittered_mesh();
+        let masks = HybridPecMasks::from_mesh(&mesh, None);
+        let (_, edge_mask) = rect_pec_interior_edges(&mesh, a, b);
+        assert_eq!(masks.interior_edge_mask, edge_mask);
+        assert_eq!(masks.free_node_mask, rect_pec_interior_nodes(&mesh, a, b));
     }
 
     /// Requesting more evanescent modes than the pencil holds is an explicit
