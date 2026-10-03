@@ -58,6 +58,7 @@ use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
 use crate::eigen::dense::{EigenError, EigenPair};
+use crate::eigen::lanczos::{HISTORICAL_BREAKDOWN_REL, krylov_breakdown};
 use crate::eigen::shift_guard::{check_degenerate_shift, check_gradient_probe, median_diag_ratio};
 
 /// The sparse interior-restricted discrete gradient `G = d⁰_interior` plus
@@ -862,6 +863,8 @@ impl ProjectedShiftInvertLanczos {
 
         let mut w = vec![0.0_f64; n];
         let mut work = vec![0.0_f64; n];
+        // Running `max |α_j|`, the scale of `T_k`, for the breakdown test.
+        let mut alpha_scale = 0.0_f64;
 
         for j in 0..max_k {
             diag.iterations = j + 1;
@@ -884,6 +887,7 @@ impl ProjectedShiftInvertLanczos {
 
             let aj = w.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
             alpha.push(aj);
+            alpha_scale = alpha_scale.max(aj.abs());
             for i in 0..n {
                 w[i] -= aj * v[i];
             }
@@ -918,14 +922,18 @@ impl ProjectedShiftInvertLanczos {
             mv = vec![0.0_f64; n];
             basis.push(core::mem::take(&mut v));
 
+            // β-bound probe and breakdown, both relative to the scale of
+            // `T_k` so they behave the same in every mesh length unit
+            // (issue #828; they were `β ≤ tol · max(μ_max, 1)` and the
+            // absolute `β < 1e-14`). Same tests as `eigen::lanczos`.
             if alpha.len() >= n_modes && alpha.len() >= 2 {
                 let (mus, _) = tridiag_eigenpairs(&alpha, &beta)?;
                 let mu_max = mus.iter().fold(0.0_f64, |a, &b| a.max(b.abs()));
-                if nrm <= self.tol * mu_max.max(1.0) {
+                if nrm <= self.tol * mu_max {
                     break;
                 }
             }
-            if nrm < 1e-14 {
+            if krylov_breakdown(nrm, alpha_scale, HISTORICAL_BREAKDOWN_REL) {
                 break;
             }
 
@@ -1533,6 +1541,11 @@ mod tests {
     }
 
     fn full_outer_pec(mesh: &TetMesh) -> Vec<bool> {
+        full_outer_pec_sized(mesh, 1.0)
+    }
+
+    /// [`full_outer_pec`] for a cube of side `side`.
+    fn full_outer_pec_sized(mesh: &TetMesh, side: f64) -> Vec<bool> {
         let edges = mesh.edges();
         let metal: Vec<[u32; 3]> = mesh
             .faces()
@@ -1540,9 +1553,9 @@ mod tests {
             .filter(|f| {
                 let on = |c: usize, v: f64| {
                     f.iter()
-                        .all(|&x| (mesh.nodes[x as usize][c] - v).abs() < 1e-12)
+                        .all(|&x| (mesh.nodes[x as usize][c] - v).abs() < 1e-12 * side)
                 };
-                on(0, 0.0) || on(0, 1.0) || on(1, 0.0) || on(1, 1.0) || on(2, 0.0) || on(2, 1.0)
+                on(0, 0.0) || on(0, side) || on(1, 0.0) || on(1, side) || on(2, 0.0) || on(2, side)
             })
             .collect();
         crate::mesh::spiral::pec_interior_mask_from_triangles(&edges, &[metal.as_slice()])
@@ -1942,11 +1955,22 @@ mod tests {
         SparseColMat<usize, f64>,
         InteriorGradient,
     ) {
+        cube_curl_curl_pencil_sized(1.0)
+    }
+
+    /// [`cube_curl_curl_pencil`] for a cube of side `side`.
+    fn cube_curl_curl_pencil_sized(
+        side: f64,
+    ) -> (
+        SparseColMat<usize, f64>,
+        SparseColMat<usize, f64>,
+        InteriorGradient,
+    ) {
         use crate::testing::TestBackend;
         use burn::tensor::backend::BackendTypes;
-        let mesh = cube_tet_mesh(3, 1.0);
+        let mesh = cube_tet_mesh(3, side);
         let edges = mesh.edges();
-        let interior_mask = full_outer_pec(&mesh);
+        let interior_mask = full_outer_pec_sized(&mesh, side);
         let (edge_index, edge_dim) = pec_reindex(&interior_mask);
         let g = InteriorGradient::build(
             &edges,
@@ -1966,6 +1990,40 @@ mod tests {
         .unwrap();
         assert_eq!(k.nrows(), edge_dim);
         (k, m, g)
+    }
+
+    /// Issue #828 regression: the projected solve gives the same `λ · side²`
+    /// for the same cavity meshed with side `1`, `1e-6` and `1e3`. With the
+    /// old `tol · max(μ_max, 1)` probe and absolute `β < 1e-14` breakdown the
+    /// `1e-6` cavity (`|μ| ~ 1e-13`) stopped after a step or two.
+    #[test]
+    fn projected_solve_is_mesh_unit_invariant() {
+        let two_pi2 = 2.0 * std::f64::consts::PI.powi(2);
+        let n_modes = 3;
+        let solve = |side: f64| -> Vec<f64> {
+            let (k, m, g) = cube_curl_curl_pencil_sized(side);
+            let proj = MOrthogonalGradientProjector::build(&g, m.as_ref()).unwrap();
+            let solver = ProjectedShiftInvertLanczos {
+                sigma: 0.7 * two_pi2 / (side * side),
+                ..Default::default()
+            };
+            let (pairs, _) = solver
+                .smallest_eigenpairs(k.as_ref(), m.as_ref(), &proj, n_modes)
+                .unwrap_or_else(|e| panic!("side {side:e}: {e}"));
+            assert_eq!(pairs.len(), n_modes, "side {side:e}");
+            pairs.iter().map(|p| p.lambda * side * side).collect()
+        };
+        let reference = solve(1.0);
+        for side in [1e-6, 1e3] {
+            let got = solve(side);
+            eprintln!("side {side:e}: λ·side² = {got:?} (unit side {reference:?})");
+            for (a, b) in got.iter().zip(&reference) {
+                assert!(
+                    (a - b).abs() < 1e-9 * b.abs(),
+                    "side {side:e}: λ·side² = {a} vs {b}"
+                );
+            }
+        }
     }
 
     /// Issue #696 on the projected path: the Krylov-vector projection does

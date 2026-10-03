@@ -3739,6 +3739,12 @@ impl HybridState {
 /// (`g²/4 ≤ 0`: still in the pre-asymptotic regime) the zero of the linear
 /// `|Im β²|(h)` is used (conservative). `h/2` when the refined face already
 /// resolves the pair (no pair nearby).
+///
+/// "Nearby" is `|Δ Re β²| ≤ ½ |β²|`, relative to the pair's own magnitude
+/// (`|β²| > 0` for a complex pair), so the match is the same in every mesh
+/// length unit and at every frequency (issue #828). It was
+/// `½ max(|Re β²|, 1)`: an absolute `½` whenever `|Re β²| < 1`, which on a
+/// µm-unit face at GHz (`β² ~ 1e-8 µm⁻²`) matched any pair.
 fn pair_hint(beta_sq: c64, set_h2: &HybridPortModeSet, h: f64) -> Option<f64> {
     let im_h = beta_sq.im.abs();
     let near = set_h2
@@ -3749,7 +3755,7 @@ fn pair_hint(beta_sq: c64, set_h2: &HybridPortModeSet, h: f64) -> Option<f64> {
                 .abs()
                 .total_cmp(&(b.mode.beta_sq.re - beta_sq.re).abs())
         })
-        .filter(|p| (p.mode.beta_sq.re - beta_sq.re).abs() <= 0.5 * beta_sq.re.abs().max(1.0));
+        .filter(|p| (p.mode.beta_sq.re - beta_sq.re).abs() <= 0.5 * beta_sq.norm());
     let h2 = 0.5 * h;
     match near {
         None => Some(h2),
@@ -3774,6 +3780,62 @@ mod tests {
     use super::*;
     use crate::analytic::microstrip::{ShieldedStripFace, StripMeshOpts};
     use crate::driven::ports::strip_line_section;
+
+    /// A refined-face mode set holding only the complex pairs `pairs`.
+    fn pair_set(pairs: &[c64]) -> HybridPortModeSet {
+        HybridPortModeSet {
+            modes: Vec::new(),
+            n_propagating: 0,
+            complex_pairs: pairs
+                .iter()
+                .map(|&beta_sq| HybridComplexPair {
+                    mode: HybridComplexMode {
+                        beta_sq,
+                        beta: c64::new(0.0, 0.0),
+                        e_t: Vec::new(),
+                        e_z: Vec::new(),
+                    },
+                    conditioning: 1.0,
+                    degenerate: false,
+                    residual: 0.0,
+                    real_evanescent_before: 0,
+                })
+                .collect(),
+            diagnostics: Default::default(),
+        }
+    }
+
+    /// Issue #828 regression: `pair_hint` is covariant in the mesh length
+    /// unit `L` (`β² ∝ L⁻²`, `h ∝ L`, hint `∝ L`), at `L = 1`, `1e-6` and
+    /// `1e3`. Case 1: the `h/2` face carries an unrelated pair 160 % away in
+    /// `Re β²`, so the pair has resolved and the hint is `h/2`; the old
+    /// absolute `½` window matched that unrelated pair once `|β²| ≪ 1`
+    /// (`L = 1e3`). Case 2: the same pair at `h/2` with a smaller `|Im β²|`
+    /// gives the Krein extrapolation.
+    #[test]
+    fn pair_hint_is_mesh_unit_covariant() {
+        let beta_sq = c64::new(-3.0, -0.2);
+        let unrelated = c64::new(-7.8, -0.1);
+        let refined = c64::new(-3.05, -0.05);
+        let h = 0.1;
+        let hint = |l: f64, set: &[c64]| {
+            let inv_l2 = 1.0 / (l * l);
+            let scaled: Vec<c64> = set.iter().map(|z| z * inv_l2).collect();
+            pair_hint(beta_sq * inv_l2, &pair_set(&scaled), h * l).map(|x| x / l)
+        };
+        for set in [&[unrelated][..], &[unrelated, refined][..]] {
+            let reference = hint(1.0, set).expect("a finite hint");
+            for l in [1e-6, 1e3] {
+                let got = hint(l, set).expect("a finite hint");
+                assert!(
+                    (got - reference).abs() <= 1e-12 * reference,
+                    "L = {l:e}: hint/L = {got} vs {reference} (set {set:?})"
+                );
+            }
+        }
+        assert_eq!(hint(1.0, &[unrelated]), Some(0.5 * h));
+        assert!(hint(1.0, &[unrelated, refined]).unwrap() < 0.5 * h);
+    }
 
     #[test]
     #[allow(clippy::needless_range_loop)]

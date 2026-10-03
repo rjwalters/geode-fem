@@ -91,6 +91,7 @@ use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
 use crate::eigen::dense::EigenError;
+use crate::eigen::lanczos::negligible;
 
 use super::waveguide::{
     TRI_NEDELEC2_DOF_FLIPS, TRI_QUAD_DEG4, TriMesh, n_dof_2d_nedelec2, tri_nedelec2_local,
@@ -770,6 +771,18 @@ fn lu_solve(lu: &Lu<usize, f64>, rhs: &[f64], out: &mut [f64]) {
     }
 }
 
+/// Arnoldi breakdown threshold: `h_{j+1,j} ≤ this · max |h_ik|` (issue #828).
+///
+/// Relative to the running scale of `T = (A − σB)⁻¹B`, which is `∝ L²` in
+/// the mesh length unit. It was the absolute `h_{j+1,j} < 1e-12`, the same
+/// value at unit scale.
+pub(crate) const ARNOLDI_BREAKDOWN_REL: f64 = 1e-12;
+
+/// Relative threshold below which a Hessenberg eigenvalue `ν` is treated as
+/// zero (`μ = σ + 1/ν → ∞`): `|ν| ≤ this · max |h_ik|` (issue #828; it was
+/// the absolute `|ν|² < 1e-30`).
+pub(crate) const ARNOLDI_NULL_NU_REL: f64 = 1e-15;
+
 /// General (non-symmetric) shift-invert Arnoldi for the mixed pencil
 /// `A x = μ B x`. Factors `(A − σB)` once and runs `krylov` Arnoldi steps on
 /// `T = (A − σB)⁻¹ B` with full reorthogonalization. Returns the recovered
@@ -856,6 +869,9 @@ pub(crate) fn shift_invert_arnoldi_projected_from(
     let mut bv = vec![0.0_f64; n];
     let mut w = vec![0.0_f64; n];
     let mut m_used = m;
+    // Running `max |h_ij|`, the scale of `T = (A − σB)⁻¹B` (`∝ L²` in the
+    // mesh length unit), for the breakdown and null-ν tests (issue #828).
+    let mut h_scale = 0.0_f64;
     #[allow(unused_assignments)]
     for j in 0..m {
         // w = T v_j = (A − σB)⁻¹ B v_j.
@@ -881,7 +897,14 @@ pub(crate) fn shift_invert_arnoldi_projected_from(
         }
         let hnext = w.iter().map(|x| x * x).sum::<f64>().sqrt();
         h[(j + 1, j)] = hnext;
-        if hnext < 1e-12 {
+        for i in 0..=j {
+            h_scale = h_scale.max(h[(i, j)].abs());
+        }
+        h_scale = h_scale.max(hnext);
+        // Breakdown relative to the operator scale (issue #828): it was the
+        // absolute `hnext < 1e-12`, which an optical guide meshed in metres
+        // (`|T| ~ 1e-11`) sits right at.
+        if negligible(hnext, h_scale, ARNOLDI_BREAKDOWN_REL) {
             m_used = j + 1;
             break;
         }
@@ -903,7 +926,9 @@ pub(crate) fn shift_invert_arnoldi_projected_from(
     let mut out: Vec<RitzTriple> = Vec::with_capacity(m_used);
     for col in 0..m_used {
         let nu = s[col];
-        if nu.norm_sqr() < 1e-30 {
+        // ν ≈ 0 (μ → ∞), relative to the scale of `T` (issue #828; it was
+        // the absolute `|ν|² < 1e-30`).
+        if negligible(nu.norm(), h_scale, ARNOLDI_NULL_NU_REL) {
             continue;
         }
         // μ = σ + 1/ν, with 1/ν = conj(ν)/|ν|².
@@ -1077,6 +1102,50 @@ fn nedelec2_basis_values(coords: &[[f64; 2]; 3], lam: [f64; 3]) -> [[f64; 2]; 8]
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #828 regression: the shift-invert Arnoldi returns the same
+    /// spectrum, scaled, for the pencil `(s·A, B)` at `s = 1`, `1e13` (an
+    /// SI-unit optical guide, `|T| ~ 1e-13`) and `1e-6`. With the old
+    /// absolute breakdown `h_{j+1,j} < 1e-12`, the `1e13` run stopped after
+    /// one step and returned a single Ritz value.
+    #[test]
+    fn arnoldi_spectrum_is_mesh_unit_invariant() {
+        let n = 12;
+        let run = |s: f64| -> Vec<f64> {
+            let a = SparseColMat::<usize, f64>::try_new_from_triplets(
+                n,
+                n,
+                &(0..n)
+                    .map(|i| faer::sparse::Triplet::new(i, i, s * (1.0 + i as f64)))
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+            let b = SparseColMat::<usize, f64>::try_new_from_triplets(
+                n,
+                n,
+                &(0..n)
+                    .map(|i| faer::sparse::Triplet::new(i, i, 1.0))
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+            let mut mu: Vec<f64> = shift_invert_arnoldi(a.as_ref(), b.as_ref(), 5.5 * s, n)
+                .unwrap()
+                .iter()
+                .map(|r| r.mu_re / s)
+                .collect();
+            mu.sort_by(f64::total_cmp);
+            mu
+        };
+        let reference = run(1.0);
+        assert_eq!(reference.len(), n);
+        for s in [1e13, 1e-6] {
+            let got = run(s);
+            assert_eq!(got.len(), n, "s = {s:e}: {got:?}");
+            for (a, b) in got.iter().zip(&reference) {
+                assert!((a - b).abs() < 1e-10 * b.abs(), "s = {s:e}: {a} vs {b}");
+            }
+        }
+    }
     use crate::analytic::waveguide::rect_tri_mesh;
 
     /// The `B` block must be symmetric (`M₁`, `L` symmetric; `G`/`Gᵀ` placed

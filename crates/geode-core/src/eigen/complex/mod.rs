@@ -14,7 +14,10 @@ pub(crate) mod dense;
 mod lanczos;
 
 pub use dense::{ComplexEigenSolver, FaerComplexEigensolver, MAX_DENSE_COMPLEX_DIM};
-pub use lanczos::{ComplexEigenPair, SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
+pub use lanczos::{
+    CheckedComplexEigenpairs, ComplexEigenPair, SparseComplexEigenSolver,
+    SparseComplexShiftInvertLanczos,
+};
 // Cross-module complex sparse-linear-algebra helpers consumed by
 // `driven` / `scattering` / `solver::ksp`. `spmv_add` stays private to
 // the lanczos leaf.

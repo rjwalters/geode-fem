@@ -1367,11 +1367,13 @@ impl SparseShiftInvertLanczos {
     /// also does not try to converge every eigenvalue a longer run uncovers.
     ///
     /// The extension does not apply the first pass's β-bound early exit
-    /// (`β ≤ tol · max(μ_max, 1)`). That test is absolute whenever `|μ| < 1`,
-    /// so on an SI-unit pencil (`λ ~ 10¹³`) it fires after a few steps, while
-    /// most of the window is unconverged. A first pass cut short that way is
-    /// resumed exactly where it stopped. Only a scale-relative breakdown
-    /// (`β ≤ 10⁻¹³ · max |α_j|`) ends the extension early.
+    /// (`β ≤ tol · μ_max`): the probe bounds every Ritz residual by one
+    /// global `β`, and the residual check is what decides convergence here.
+    /// A first pass the probe cut short is resumed exactly where it stopped.
+    /// Only a scale-relative breakdown (`β ≤ 10⁻¹³ · max |α_j|`) ends the
+    /// extension early. (Before issue #828 the probe was the absolute
+    /// `β ≤ tol · max(μ_max, 1)` whenever `|μ| < 1`, and on SI-unit pencils it
+    /// fired after a few steps; it is relative now.)
     ///
     /// The inner solve is built as in [`Self::smallest_eigenpairs`]: no discrete
     /// gradient and no DOF coordinates, so [`InnerPreconditioner::Ams`] falls
@@ -1707,6 +1709,8 @@ impl SparseShiftInvertLanczos {
         // Warm-start buffer for the matrix-free inner CG (see the eigenpair
         // sibling); ignored by the direct LU backend.
         let mut y_guess = vec![0.0_f64; n];
+        // Running `max |α_j|`, the scale of `T_k`, for the breakdown test.
+        let mut alpha_scale = 0.0_f64;
 
         for j in 0..max_k {
             // M v
@@ -1719,6 +1723,7 @@ impl SparseShiftInvertLanczos {
             // α_j = ⟨w, M v⟩ = ⟨w, mv⟩
             let aj = w.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
             alpha.push(aj);
+            alpha_scale = alpha_scale.max(aj.abs());
 
             // w ← w - α_j v   (subtract M-conjugate component of current v)
             for i in 0..n {
@@ -1793,9 +1798,12 @@ impl SparseShiftInvertLanczos {
                     // Cheap convergence proxy: the next Lanczos β bound
                     // controls all ritz residuals. We accept when β/|μ_max|
                     // is below tol — this is the standard Kaniel–Saad
-                    // bound, scaled to make tol comparable across sigmas.
+                    // bound, relative to the dominant Ritz value so it is
+                    // the same test in every mesh length unit (issue #828;
+                    // the old `max(μ_max, 1)` floor made it absolute, and
+                    // up to `1/μ_max` times looser, whenever `|μ| < 1`).
                     let mu_max = mus.iter().fold(0.0_f64, |a, &b| a.max(b.abs()));
-                    if nrm <= self.tol * mu_max.max(1.0) {
+                    if nrm <= self.tol * mu_max {
                         converged = Some(picked);
                         break;
                     }
@@ -1806,8 +1814,9 @@ impl SparseShiftInvertLanczos {
                 }
             }
 
-            // Numerical breakdown — invariant subspace exhausted.
-            if nrm < 1e-14 {
+            // Numerical breakdown — invariant subspace exhausted. Relative
+            // to the scale of `T_k` (issue #828).
+            if krylov_breakdown(nrm, alpha_scale, HISTORICAL_BREAKDOWN_REL) {
                 break;
             }
 
@@ -1921,7 +1930,7 @@ struct RitzTarget {
 
 /// Smallest relative target width, so a pair that was already converged on
 /// the first pass still matches its own re-extraction from a longer basis.
-const TARGET_MATCH_REL_FLOOR: f64 = 1e-10;
+pub(crate) const TARGET_MATCH_REL_FLOOR: f64 = 1e-10;
 
 /// Whether a Ritz value `λ` with residual `ρ` is **localized**:
 /// `ρ · max(|λ|, |σ|) ≤ |λ − σ|` (issue #798).
@@ -1963,7 +1972,7 @@ fn pair_relative_residual(
 
 /// Why a [`LanczosRun`] stopped before its target dimension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LanczosStop {
+pub(crate) enum LanczosStop {
     /// The historical β-bound probe fired. The recurrence is intact and an
     /// [`ExtendMode::Extension`] can resume it.
     BetaBound,
@@ -1973,10 +1982,12 @@ enum LanczosStop {
 
 /// Stopping rules for [`LanczosRun::extend`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ExtendMode {
-    /// The original loop: the β-bound probe and the absolute `β < 1e-14`
-    /// breakdown test. Keeps [`SparseShiftInvertLanczos::smallest_eigenpairs`]
-    /// and the first pass of the checked solve bit-identical.
+pub(crate) enum ExtendMode {
+    /// The original loop: the β-bound probe `β ≤ tol · μ_max` and the
+    /// breakdown test `β < 10⁻¹⁴ · max |α_j|` (both relative since issue
+    /// #828; before, `β ≤ tol · max(μ_max, 1)` and `β < 10⁻¹⁴`). Keeps
+    /// [`SparseShiftInvertLanczos::smallest_eigenpairs`] and the first pass
+    /// of the checked solve bit-identical.
     Historical,
     /// The checked solve's extension (issue #798): no β-bound probe (the
     /// residual check decides convergence) and a breakdown test relative to
@@ -1985,7 +1996,31 @@ enum ExtendMode {
 }
 
 /// Breakdown threshold of [`ExtendMode::Extension`]: `β ≤ this · max |α_j|`.
-const EXTENSION_BREAKDOWN_REL: f64 = 1e-13;
+pub(crate) const EXTENSION_BREAKDOWN_REL: f64 = 1e-13;
+
+/// Breakdown threshold of [`ExtendMode::Historical`] and the eigenvalue-only
+/// loop: `β < this · max |α_j|` (issue #828).
+///
+/// It was the absolute `β < 10⁻¹⁴`. The shift-inverted operator scales as
+/// `L²` in the mesh length unit, so on a metre-unit or SI pencil
+/// (`|μ| ~ 10⁻¹³`) every step's `β` sat below that cut and the run stopped
+/// after one step, while on a µm pencil a genuine invariant subspace
+/// (`β ≈ 10⁻¹⁴ · |T|`) was normalized and carried on as noise.
+pub(crate) const HISTORICAL_BREAKDOWN_REL: f64 = 1e-14;
+
+/// Whether a Krylov recurrence has broken down: `β` is at most `rel` times
+/// the running scale of the projected operator (so a zero `β` always is), or
+/// is NaN (issue #828).
+pub(crate) fn krylov_breakdown(beta: f64, scale: f64, rel: f64) -> bool {
+    negligible(beta, scale, rel)
+}
+
+/// `value ≤ rel · scale`, or `value` is NaN: the relative smallness test
+/// behind the scale-invariant Krylov breakdown and null thresholds (issue
+/// #828).
+pub(crate) fn negligible(value: f64, scale: f64, rel: f64) -> bool {
+    value.is_nan() || value <= rel * scale
+}
 
 /// Ritz values `(λ, column of S)` and the tridiagonal eigenvector matrix `S`
 /// from [`LanczosRun::ritz_values`].
@@ -2178,18 +2213,19 @@ impl LanczosRun {
                     // Convergence probe — same Kaniel–Saad bound as the
                     // eigenvalues-only path. Stop when the next Lanczos β has
                     // dropped below tolerance relative to the dominant Ritz
-                    // value. (Not scale-invariant: `max(μ_max, 1)` makes it an
-                    // absolute test when |μ| < 1, e.g. SI-unit pencils.)
+                    // value. Scale-invariant since issue #828: the old
+                    // `max(μ_max, 1)` floor made it an absolute test when
+                    // |μ| < 1 (metre-unit and SI pencils).
                     if self.alpha.len() >= n_modes && self.alpha.len() >= 2 {
                         let mus = tridiag_eigenvalues(&self.alpha, &self.beta)?;
                         let mu_max = mus.iter().fold(0.0_f64, |a, &b| a.max(b.abs()));
-                        if nrm <= tol * mu_max.max(1.0) {
+                        if nrm <= tol * mu_max {
                             self.stop = Some(LanczosStop::BetaBound);
                             self.pending_beta = nrm;
                             break;
                         }
                     }
-                    if nrm < 1e-14 {
+                    if krylov_breakdown(nrm, self.alpha_scale, HISTORICAL_BREAKDOWN_REL) {
                         self.stop = Some(LanczosStop::Breakdown);
                         break;
                     }
@@ -2565,33 +2601,94 @@ mod tests {
         }
     }
 
-    /// The historical β-bound probe `β ≤ tol · max(μ_max, 1)` is absolute
-    /// when `|μ| < 1`, so on an SI-scaled pencil (`λ ~ 10¹³`) it stops the
-    /// first pass after `n_modes` steps. The checked solve resumes the
-    /// recurrence and converges anyway (issue #798).
+    /// [`laplacian_pencil`] with `K` scaled by `scale`, so `λ → scale · λ`.
+    fn scaled_laplacian_pencil(
+        n: usize,
+        scale: f64,
+    ) -> (SparseColMat<usize, f64>, SparseColMat<usize, f64>) {
+        let (k, m) = laplacian_pencil(n);
+        let cp = k.col_ptr();
+        let trips: Vec<Triplet<usize, usize, f64>> = (0..n)
+            .flat_map(|j| (cp[j]..cp[j + 1]).map(move |p| (p, j)))
+            .map(|(p, j)| Triplet::new(k.row_idx()[p], j, scale * k.val()[p]))
+            .collect();
+        (
+            SparseColMat::<usize, f64>::try_new_from_triplets(n, n, &trips).unwrap(),
+            m,
+        )
+    }
+
+    /// Issue #828: on an SI-scaled pencil (`λ ~ 10¹³`, so `|μ| ~ 10⁻¹³`) the
+    /// old β-bound probe `β ≤ tol · max(μ_max, 1)` was the absolute `β ≤ tol`
+    /// and fired after `n_modes` steps, and the plain solve returned
+    /// unconverged pairs (worst gap `≈ 4e-3·scale` here). With the relative
+    /// probe the plain solve converges, and the checked solve has nothing
+    /// left to extend, so it is bit-identical to it.
     #[test]
-    fn checked_resumes_past_the_beta_bound_on_si_scaled_pencils() {
+    fn plain_solve_converges_on_si_scaled_pencils() {
         let n = 300;
         let scale = 1e13;
-        let (k, m) = laplacian_pencil(n);
-        let k_si = SparseColMat::<usize, f64>::try_new_from_triplets(
-            n,
-            n,
-            &(0..n)
-                .flat_map(|j| {
-                    let cp = k.col_ptr();
-                    (cp[j]..cp[j + 1]).map(move |p| (p, j)).collect::<Vec<_>>()
-                })
-                .map(|(p, j)| Triplet::new(k.row_idx()[p], j, scale * k.val()[p]))
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
+        let (k_si, m) = scaled_laplacian_pencil(n, scale);
         let exact: Vec<f64> = laplacian_eigenvalues(n).iter().map(|e| e * scale).collect();
         let n_modes = 4;
         let solver = SparseShiftInvertLanczos {
             sigma: 0.5 * scale,
             max_iters: 40,
             tol: 1e-9,
+            inner: InnerSolver::Direct,
+            precond: InnerPreconditioner::Jacobi,
+        };
+        let plain = solver
+            .smallest_eigenpairs(k_si.as_ref(), m.as_ref(), n_modes)
+            .unwrap();
+        let worst = plain
+            .iter()
+            .map(|p| nearest_gap(p.lambda, &exact))
+            .fold(0.0_f64, f64::max);
+        eprintln!("SI-scaled plain solve: worst gap {worst:.3e} (scale {scale:e})");
+        assert_eq!(plain.len(), n_modes);
+        assert!(worst < 1e-9 * scale, "plain worst gap {worst:.3e}");
+        let values = solver
+            .smallest_eigenvalues(k_si.as_ref(), m.as_ref(), n_modes)
+            .unwrap();
+        for (v, p) in values.iter().zip(&plain) {
+            assert!((v - p.lambda).abs() < 1e-9 * scale, "{v} vs {}", p.lambda);
+        }
+        let checked = solver
+            .smallest_eigenpairs_checked(
+                k_si.as_ref(),
+                m.as_ref(),
+                n_modes,
+                ConvergenceCheck {
+                    residual_tol: 1e-9,
+                    max_iters_cap: n,
+                    window: None,
+                },
+            )
+            .unwrap();
+        assert!(!checked.extended);
+        assert_eq!(checked.shortfall(), 0);
+        for (a, b) in checked.pairs.iter().zip(&plain) {
+            assert_eq!(a.lambda.to_bits(), b.lambda.to_bits());
+        }
+    }
+
+    /// A probe tolerance `tol ≥ 1` makes the β-bound probe fire at its first
+    /// test (`β ≤ ‖T_k‖ ≤ μ_max` always), while the window is unconverged.
+    /// The checked solve resumes the recurrence exactly where the probe
+    /// stopped it and converges (issue #798; before issue #828 the absolute
+    /// probe did the same on any SI-scaled pencil).
+    #[test]
+    fn checked_resumes_past_the_beta_bound() {
+        let n = 300;
+        let scale = 1e13;
+        let (k_si, m) = scaled_laplacian_pencil(n, scale);
+        let exact: Vec<f64> = laplacian_eigenvalues(n).iter().map(|e| e * scale).collect();
+        let n_modes = 4;
+        let solver = SparseShiftInvertLanczos {
+            sigma: 0.5 * scale,
+            max_iters: 40,
+            tol: 1.0,
             inner: InnerSolver::Direct,
             precond: InnerPreconditioner::Jacobi,
         };
@@ -2617,7 +2714,7 @@ mod tests {
             )
             .unwrap();
         eprintln!(
-            "SI-scaled: plain worst gap {worst:.3e}; {} kept, {} rejected, {} steps, \
+            "loose probe: plain worst gap {worst:.3e}; {} kept, {} rejected, {} steps, \
              extended = {}",
             checked.pairs.len(),
             checked.rejected.len(),
@@ -2629,6 +2726,98 @@ mod tests {
         for p in &checked.pairs {
             assert!(nearest_gap(p.lambda, &exact) < 1e-9 * scale);
         }
+    }
+
+    /// Lossless unit-cube-shaped PEC cavity pencil of side `side` (`n = 3`).
+    fn cube_cavity_pencil(side: f64) -> (SparseColMat<usize, f64>, SparseColMat<usize, f64>) {
+        use crate::testing::TestBackend;
+        use burn::tensor::backend::BackendTypes;
+        let mesh = crate::mesh::cube_tet_mesh(3, side);
+        let (_, mask) = crate::assembly::nedelec::cube_pec_interior_edges(&mesh, side);
+        let eps = vec![1.0; mesh.n_tets()];
+        let dev = <TestBackend as BackendTypes>::Device::default();
+        crate::eigen::pec_cavity::assemble_lossless_pencil::<TestBackend>(&mesh, &eps, &mask, &dev)
+            .unwrap()
+    }
+
+    /// Issue #828 regression: the same cavity meshed in three length units
+    /// (side `1`, `1e-6` and `1e3`) gives the same `λ · side²` and converged
+    /// pairs from the plain solve, on both the eigenpair and the
+    /// eigenvalue-only path.
+    ///
+    /// `λ` scales as `side⁻²` and `μ = 1/(λ − σ)` as `side²`. With the old
+    /// `tol · max(μ_max, 1)` probe and absolute `β < 1e-14` breakdown, the
+    /// `1e-6` cavity (`|μ| ~ 1e-13`) stopped after one or two steps and
+    /// returned pairs with relative residual `O(1)`, and the unit cavity
+    /// (`μ ≈ 0.2`) ran on the absolute probe.
+    #[test]
+    fn plain_solve_is_mesh_unit_invariant() {
+        let two_pi2 = 2.0 * core::f64::consts::PI.powi(2);
+        let n_modes = 3;
+        let solve = |side: f64| {
+            let (k, m) = cube_cavity_pencil(side);
+            let solver = SparseShiftInvertLanczos {
+                sigma: 0.7 * two_pi2 / (side * side),
+                max_iters: 64,
+                tol: 1e-9,
+                inner: InnerSolver::Direct,
+                precond: InnerPreconditioner::Jacobi,
+            };
+            let pairs = solver
+                .smallest_eigenpairs(k.as_ref(), m.as_ref(), n_modes)
+                .unwrap();
+            let values = solver
+                .smallest_eigenvalues(k.as_ref(), m.as_ref(), n_modes)
+                .unwrap();
+            let n = k.nrows();
+            let (mut kx, mut mx) = (vec![0.0; n], vec![0.0; n]);
+            let residuals: Vec<f64> = pairs
+                .iter()
+                .map(|p| {
+                    pair_relative_residual(
+                        k.as_ref(),
+                        m.as_ref(),
+                        p.lambda,
+                        &p.vector,
+                        solver.sigma,
+                        &mut kx,
+                        &mut mx,
+                    )
+                })
+                .collect();
+            let unit = |l: f64| l * side * side;
+            (
+                pairs.iter().map(|p| unit(p.lambda)).collect::<Vec<_>>(),
+                values.into_iter().map(unit).collect::<Vec<_>>(),
+                residuals,
+            )
+        };
+        let (ref_pairs, ref_values, ref_res) = solve(1.0);
+        for side in [1.0, 1e-6, 1e3] {
+            let (pairs, values, res) = solve(side);
+            eprintln!("side {side:e}: λ·side² = {pairs:?}, residuals {res:?}");
+            assert_eq!(pairs.len(), n_modes, "side {side:e}");
+            assert!(
+                res.iter().all(|&r| r < 1e-9),
+                "side {side:e}: residuals {res:?}"
+            );
+            for i in 0..n_modes {
+                let rel = |a: f64, b: f64| (a - b).abs() / b.abs();
+                assert!(
+                    rel(pairs[i], ref_pairs[i]) < 1e-10,
+                    "side {side:e}: pair {i} λ·side² = {} vs {}",
+                    pairs[i],
+                    ref_pairs[i]
+                );
+                assert!(
+                    rel(values[i], ref_values[i]) < 1e-10,
+                    "side {side:e}: value {i} λ·side² = {} vs {}",
+                    values[i],
+                    ref_values[i]
+                );
+            }
+        }
+        assert!(ref_res.iter().all(|&r| r < 1e-9));
     }
 
     /// ISSUE #543 ACCEPTANCE BAR: the custom fill-reducing ordering must change
