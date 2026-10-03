@@ -285,11 +285,9 @@ fn sphere_silver_muller_eigenmode_spectrum() {
     eprintln!("\nQ-factor diagnostic for first 5 physical modes:");
     for (i, lam) in physical.iter() {
         // k = sqrt(λ) with Re(k) > 0 branch.
-        let r = (lam.re * lam.re + lam.im * lam.im).sqrt();
-        let re_k = ((r + lam.re) / 2.0).sqrt();
-        // Im(k) sign follows sign of Im(λ) for the Re(k) > 0 branch.
-        let im_k_mag = ((r - lam.re) / 2.0).sqrt();
-        let im_k = if lam.im >= 0.0 { im_k_mag } else { -im_k_mag };
+        // Cancellation-free principal √λ (Re k ≥ 0, sign Im k = sign Im λ; #830).
+        let k_sqrt = geode_core::eigen::wavenumber::principal_sqrt(*lam);
+        let (re_k, im_k) = (k_sqrt.re, k_sqrt.im);
         let q = if im_k.abs() > 1e-12 {
             re_k / (2.0 * im_k.abs())
         } else {

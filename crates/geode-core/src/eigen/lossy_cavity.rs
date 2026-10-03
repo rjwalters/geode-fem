@@ -283,11 +283,14 @@ pub type LossyPencil = (SparseColMat<usize, c64>, SparseColMat<usize, c64>);
 /// Principal-branch complex wavenumber `k = √λ` (`Re k ≥ 0`, and
 /// `sign(Im k) = sign(Im λ)`), the convention of
 /// `examples/mie_sphere::fem_complex_k` and `geode_util::eigen::k_from_lambda`.
+///
+/// Delegates to the cancellation-free
+/// [`crate::eigen::wavenumber::principal_sqrt`]: `Im k₀` (and so the
+/// reported `Q`) is accurate to a few ulps at any `Q`, where the old
+/// `√(½(|λ| − Re λ))` form lost `≈ log₁₀(2Q²)` digits and returned
+/// `Im k₀ = 0` (`Q = ∞`) from `Q ≈ 6.7e7` (issue #830).
 pub fn principal_k0(lambda: c64) -> c64 {
-    let r = lambda.re.hypot(lambda.im);
-    let re = (0.5 * (r + lambda.re)).max(0.0).sqrt();
-    let im_mag = (0.5 * (r - lambda.re)).max(0.0).sqrt();
-    c64::new(re, if lambda.im >= 0.0 { im_mag } else { -im_mag })
+    crate::eigen::wavenumber::principal_sqrt(lambda)
 }
 
 fn validate_materials(

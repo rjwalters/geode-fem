@@ -50,6 +50,9 @@
 //!   (material + geometry) on a converged simple eigenpair (issue #596,
 //!   Phase A of the differentiable-eigenmode roadmap; Nelson eigenvector
 //!   derivatives and the PHJD interior eigensolver are deferred follow-ons).
+//! - [`wavenumber`] — the shared cancellation-free principal square root
+//!   `k = √λ` ([`wavenumber::principal_sqrt`]) behind every `λ → k → Q`
+//!   conversion, accurate to a few ulps at any `Q` (issue #830).
 
 pub mod ams;
 pub mod cavity;
@@ -70,6 +73,7 @@ pub mod self_consistent;
 pub mod sensitivity;
 pub mod shift_guard;
 pub mod transmon;
+pub mod wavenumber;
 
 #[cfg(feature = "arpack")]
 pub mod arpack;
