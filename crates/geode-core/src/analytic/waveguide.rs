@@ -75,7 +75,7 @@ use faer::c64;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
 use crate::eigen::complex::SparseComplexShiftInvertLanczos;
-use crate::eigen::dense::EigenError;
+use crate::eigen::dense::{EigenError, EigenPair};
 use crate::eigen::lanczos::{CheckedEigenpairs, ConvergenceCheck, SparseShiftInvertLanczos};
 
 /// A single transverse mode of a waveguide cross-section with its modal
@@ -3899,9 +3899,16 @@ pub struct WaveguideSolveOpts {
 ///    slack below the shift; the gradient cluster sits many decades
 ///    below `σ`).
 /// 4. Run the production shift-invert Lanczos with the estimated `σ`
-///    and filter out cluster modes by threshold.
-/// 5. If the filtered count is short, double the Lanczos budget and
-///    retry (Approach B in issue #265).
+///    and filter out cluster modes by threshold. The pass is
+///    residual-checked (issue #798): only Ritz pairs with relative residual
+///    `‖K x − λ M x‖/(λ‖M x‖) ≤ 1e-8` are returned, and an unconverged pair
+///    above the threshold extends the Lanczos run (bounded) until it
+///    converges.
+/// 5. If the filtered count is short, or a withheld unconverged pair sits
+///    below the last returned mode, double the Lanczos budget and retry
+///    (Approach B in issue #265). If the budget reaches the pencil
+///    dimension first, return an error naming the shortfall. A short list
+///    is never returned silently.
 ///
 /// # Sign / orthogonality conventions
 ///
@@ -4033,28 +4040,27 @@ pub fn solve_waveguide_modes_with_opts(
     // `n_modes + small_buffer` extracts the lowest physical modes plus
     // a handful of spurious modes (which we filter out by λ threshold).
     // Inflate on retry if the filtered-physical count came up short.
+    //
+    // Issue #798: the pass is residual-checked. Only converged pairs come
+    // back (unconverged pairs above the threshold extend the Lanczos run),
+    // and a withheld pair below the last returned mode, which could hide a
+    // missing mode, triggers the same retry as an undercount.
     let mut n_request = (n_modes + 8).min(dim);
     let modes: Vec<WaveguideModeProfile> = loop {
-        let max_iters = (n_request + 8).min(dim).max(1);
-        let solver = SparseShiftInvertLanczos {
+        let pass = metallic_checked_modes(
+            k_sparse.as_ref(),
+            m_sparse.as_ref(),
             sigma,
-            max_iters,
-            tol: 1e-9,
-            inner: crate::eigen::lanczos::InnerSolver::Direct,
-            precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
-        };
-        let mut pairs =
-            solver.smallest_eigenpairs(k_sparse.as_ref(), m_sparse.as_ref(), n_request)?;
-        pairs.sort_by(|a, b| {
-            a.lambda
-                .partial_cmp(&b.lambda)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+            threshold,
+            n_request,
+            n_modes,
+        )?;
+        let unresolved = pass.unresolved_below;
+        let withheld = pass.withheld;
 
-        let physical: Vec<WaveguideModeProfile> = pairs
+        let physical: Vec<WaveguideModeProfile> = pass
+            .physical
             .into_iter()
-            .filter(|p| p.lambda > threshold)
-            .take(n_modes)
             .enumerate()
             .map(|(mode_idx, pair)| {
                 let lam_pos = pair.lambda.max(0.0);
@@ -4087,7 +4093,7 @@ pub fn solve_waveguide_modes_with_opts(
             })
             .collect::<Result<Vec<_>, EigenError>>()?;
 
-        if physical.len() == n_modes {
+        if physical.len() == n_modes && !unresolved {
             break physical;
         }
         if n_request >= dim {
@@ -4095,9 +4101,9 @@ pub fn solve_waveguide_modes_with_opts(
                 .map(|f| format!(" (probe estimated λ_min_phys = {f:.3e})"))
                 .unwrap_or_default();
             return Err(EigenError::FaerGevd(format!(
-                "waveguide modal solve: only recovered {} of {} physical modes \
+                "waveguide modal solve: only recovered {} of {} converged physical modes \
                  (filtered out spurious cluster at λ ≤ {threshold:.3e}, \
-                 σ = {sigma:.3e}{est_msg})",
+                 σ = {sigma:.3e}{est_msg}; {withheld} unconverged Ritz pair(s) withheld)",
                 physical.len(),
                 n_modes
             )));
@@ -4105,6 +4111,96 @@ pub fn solve_waveguide_modes_with_opts(
         n_request = (n_request * 2).min(dim);
     };
     Ok(modes)
+}
+
+/// Largest accepted relative true residual `‖K x − λ M x‖₂ / (λ ‖M x‖₂)` of
+/// a metallic (cutoff) modal eigenpair (issue #798).
+///
+/// Measured on the `b/16` rectangular guide (`rect_tri_mesh(32, 16, 2, 1)`,
+/// the PR #809 cross-check), with the historical `n_request + 8` budget:
+/// converged physical pairs have residuals of `10⁻¹²…10⁻⁶`, and the tail
+/// decays from `≈ 1` to `3×10⁻³`. That tail produced TE₃₁ off by
+/// `1.06×10⁻⁸` and merged the near-degenerate pairs at `k_c² ≈ 39.31` and
+/// `49.34` into single values. With this tolerance the checked solve returns
+/// every pair at `≤ 4×10⁻¹⁰`, reproducing the `n_modes = 20` reference to
+/// `10⁻¹³`. The same value as [`DIELECTRIC_RESIDUAL_TOL`].
+const MODAL_RESIDUAL_TOL: f64 = 1e-8;
+
+/// Cap on the metallic modal Lanczos extension, as a multiple of the
+/// first-pass budget `n_request + 8` (issue #798). The `b/16` cross-check
+/// converged in 68 of its 168 allowed steps.
+const MODAL_LANCZOS_CAP_FACTOR: usize = 6;
+
+/// Converged physical modes of one metallic modal Lanczos pass (issue #798).
+struct MetallicModalPass {
+    /// Converged pairs with `λ > threshold`, `λ` ascending, at most
+    /// `n_modes`.
+    physical: Vec<EigenPair>,
+    /// A withheld (unconverged) Ritz pair sits above the threshold but below
+    /// the last returned mode, so a mode could be missing from the list.
+    unresolved_below: bool,
+    /// Unconverged Ritz pairs above the threshold that were withheld.
+    withheld: usize,
+}
+
+/// One residual-checked shift-invert Lanczos pass of the metallic pencil
+/// `K x = λ M x` near `σ` (issue #798). Only converged pairs are returned;
+/// unconverged pairs above `threshold` extend the run, up to
+/// [`MODAL_LANCZOS_CAP_FACTOR`] times the historical budget
+/// `n_request + 8` (see
+/// [`SparseShiftInvertLanczos::smallest_eigenpairs_checked`]).
+fn metallic_checked_modes(
+    k: SparseColMatRef<'_, usize, f64>,
+    m: SparseColMatRef<'_, usize, f64>,
+    sigma: f64,
+    threshold: f64,
+    n_request: usize,
+    n_modes: usize,
+) -> Result<MetallicModalPass, EigenError> {
+    let dim = k.nrows();
+    let max_iters = (n_request + 8).min(dim).max(1);
+    let solver = SparseShiftInvertLanczos {
+        sigma,
+        max_iters,
+        tol: 1e-9,
+        inner: crate::eigen::lanczos::InnerSolver::Direct,
+        precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
+    };
+    let mut checked = solver.smallest_eigenpairs_checked(
+        k,
+        m,
+        n_request,
+        ConvergenceCheck {
+            residual_tol: MODAL_RESIDUAL_TOL,
+            max_iters_cap: (max_iters * MODAL_LANCZOS_CAP_FACTOR).min(dim),
+            window: Some((threshold, f64::INFINITY)),
+        },
+    )?;
+    checked.pairs.sort_by(|a, b| {
+        a.lambda
+            .partial_cmp(&b.lambda)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let physical: Vec<EigenPair> = checked
+        .pairs
+        .into_iter()
+        .filter(|p| p.lambda > threshold)
+        .take(n_modes)
+        .collect();
+    let above: Vec<f64> = checked
+        .rejected
+        .iter()
+        .map(|&(lambda, _)| lambda)
+        .filter(|&lambda| lambda > threshold)
+        .collect();
+    let unresolved_below = physical
+        .last()
+        .is_some_and(|last| above.iter().any(|&lambda| lambda < last.lambda));
+    Ok(MetallicModalPass {
+        physical,
+        unresolved_below,
+        withheld: above.len(),
+    })
 }
 
 /// Analytic TE/TM cutoff wavenumbers for a rectangular metallic
@@ -6560,37 +6656,29 @@ pub fn solve_rect_waveguide_modes2_cutoffs(
     )?;
     let threshold = 0.1 * sigma;
 
+    // Residual-checked passes (issue #798), as in
+    // [`solve_waveguide_modes_with_opts`].
     let mut n_request = (n_modes + 8).min(dim);
     loop {
-        let max_iters = (n_request + 8).min(dim).max(1);
-        let solver = SparseShiftInvertLanczos {
+        let pass = metallic_checked_modes(
+            k_sparse.as_ref(),
+            m_sparse.as_ref(),
             sigma,
-            max_iters,
-            tol: 1e-9,
-            inner: crate::eigen::lanczos::InnerSolver::Direct,
-            precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
-        };
-        let mut pairs =
-            solver.smallest_eigenpairs(k_sparse.as_ref(), m_sparse.as_ref(), n_request)?;
-        pairs.sort_by(|a, b| {
-            a.lambda
-                .partial_cmp(&b.lambda)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        let physical: Vec<f64> = pairs
-            .into_iter()
-            .filter(|p| p.lambda > threshold)
-            .map(|p| p.lambda.max(0.0))
-            .take(n_modes)
-            .collect();
-        if physical.len() == n_modes {
+            threshold,
+            n_request,
+            n_modes,
+        )?;
+        let physical: Vec<f64> = pass.physical.iter().map(|p| p.lambda.max(0.0)).collect();
+        if physical.len() == n_modes && !pass.unresolved_below {
             return Ok(physical);
         }
         if n_request >= dim {
             return Err(EigenError::FaerGevd(format!(
-                "p=2 metallic modal solve: only recovered {} of {n_modes} physical modes \
-                 (threshold {threshold:.3e}, σ = {sigma:.3e})",
-                physical.len()
+                "p=2 metallic modal solve: only recovered {} of {n_modes} converged physical \
+                 modes (threshold {threshold:.3e}, σ = {sigma:.3e}; {} unconverged Ritz \
+                 pair(s) withheld)",
+                physical.len(),
+                pass.withheld
             )));
         }
         n_request = (n_request * 2).min(dim);
@@ -9339,6 +9427,35 @@ mod tests {
             "n_eff² {} ≠ ε − (kc/k0)² {rhs}",
             n_eff_fem * n_eff_fem
         );
+    }
+
+    /// **Port-mode solve returns converged modes only** (issue #798,
+    /// cross-check from PR #809). On the `b/16` rectangular guide the
+    /// historical `n_modes = 12` solve returned an unconverged tail: TE₃₁ off
+    /// by `1.06e-8` relative, and the near-degenerate pairs at `k_c² ≈ 39.31`
+    /// and `49.34` merged into single values, while `n_modes ≥ 14` was right
+    /// to `1e-12`. The residual-checked solve must give the same 12 lowest
+    /// modes whether asked for 12 or 20.
+    #[test]
+    fn port_mode_solve_tail_matches_larger_request() {
+        let mesh = rect_tri_mesh(32, 16, 2.0, 1.0);
+        let (edges, mask) = rect_pec_interior_edges(&mesh, 2.0, 1.0);
+        let m12 = solve_waveguide_modes(&mesh, &edges, &mask, 12).expect("12-mode solve");
+        let m20 = solve_waveguide_modes(&mesh, &edges, &mask, 20).expect("20-mode solve");
+        assert_eq!(m12.len(), 12);
+        for (i, (a, b)) in m12.iter().zip(&m20).enumerate() {
+            let rel = (a.lambda - b.lambda).abs() / b.lambda;
+            assert!(
+                rel < 1e-11,
+                "mode {i}: k_c² = {:.10} (n=12) vs {:.10} (n=20), rel {rel:.2e}",
+                a.lambda,
+                b.lambda
+            );
+        }
+        // TE₃₁ and both members of the near-degenerate pairs.
+        assert!((m12[6].lambda - 32.106_193_548_1).abs() < 1e-8);
+        assert!((m12[8].lambda - m12[7].lambda) > 5e-4);
+        assert!((m12[11].lambda - m12[10].lambda) > 1e-3);
     }
 
     /// Build a high-contrast **2-D strip** fixture: a rectangle
