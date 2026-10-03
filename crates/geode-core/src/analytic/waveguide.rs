@@ -8868,13 +8868,17 @@ mod tests {
 
     /// **Residual check catches the leaking SMF-28 tail pair** (issue #798).
     /// With the historical budget (`max_iters = n_request + 8`, 16 pairs) the
-    /// SMF-28 p=2 window contains an unconverged in-window pair at
-    /// `n_eff ≈ 1.446871` whose Rayleigh violation `δ = 1.1e-5` cleared the
-    /// #791 check's threshold (`7.8e-6`) by only 1.4×. Its true residual is
-    /// `≈ 3.5e-3`, over five decades above `DIELECTRIC_RESIDUAL_TOL`. The
-    /// checked solve returns only converged pairs, so it cannot reach the
-    /// filters, and every returned candidate satisfies the Rayleigh identity
-    /// to round-off.
+    /// SMF-28 p=2 window contains unconverged in-window pairs with true
+    /// residuals far above `DIELECTRIC_RESIDUAL_TOL`. The #791 Rayleigh check
+    /// cannot be relied on to catch them, because its violation `δ` is second
+    /// order in the residual. Measured on macOS/aarch64: one pair at
+    /// `n_eff ≈ 1.446871` (residual `3.5e-3`, `δ = 1.1e-5`) cleared the
+    /// threshold (`7.8e-6`) by only 1.4×, and the smallest-`δ` pair (residual
+    /// `3.4e-4`, `δ = 1.0e-7`) passes it outright. The test picks the pair by
+    /// these properties, not by its Ritz value, which is not reproducible
+    /// across platforms. The checked solve returns only converged pairs, so
+    /// none of them can reach the filters, and every returned candidate
+    /// satisfies the Rayleigh identity to round-off.
     #[test]
     fn residual_check_withholds_smf28_tail_pair() {
         let k0 = 2.0 * std::f64::consts::PI / 1.55;
@@ -8902,10 +8906,6 @@ mod tests {
         }
         .smallest_eigenpairs(a.as_ref(), ops.m1.as_ref(), 16)
         .unwrap();
-        let tail = old
-            .iter()
-            .find(|p| (p.lambda.sqrt() / k0 - 1.446_870_79).abs() < 1e-7)
-            .expect("the historical window holds the n_eff ≈ 1.446871 tail pair");
         let spmv = |mat: SparseColMatRef<'_, usize, f64>, x: &[f64]| -> Vec<f64> {
             let mut y = vec![0.0; x.len()];
             for (j, &xj) in x.iter().enumerate() {
@@ -8916,33 +8916,58 @@ mod tests {
             }
             y
         };
-        let kx = spmv(a.as_ref(), &tail.vector);
-        let mx = spmv(ops.m1.as_ref(), &tail.vector);
-        let r2: f64 = kx
-            .iter()
-            .zip(&mx)
-            .map(|(k, m)| (k - tail.lambda * m).powi(2))
-            .sum();
-        let m2: f64 = mx.iter().map(|m| m * m).sum();
-        let residual = r2.sqrt() / (tail.lambda * m2.sqrt());
-        let xkx = sparse_quadratic_form(ops.k.as_ref(), &tail.vector);
-        let xmx = sparse_quadratic_form(ops.m_eps.as_ref(), &tail.vector);
-        let xm1x = sparse_quadratic_form(ops.m1.as_ref(), &tail.vector);
-        let tail_cand = RawDielectricCandidate {
-            beta_sq: tail.lambda,
-            curl_ratio: xkx / (k0_sq * xmx),
-            eps_weighted: xmx / xm1x,
-            residual,
-            vector: Vec::new(),
+        // (residual, δ) of one historical pair.
+        let diagnose = |pair: &EigenPair| -> (f64, f64) {
+            let kx = spmv(a.as_ref(), &pair.vector);
+            let mx = spmv(ops.m1.as_ref(), &pair.vector);
+            let r2: f64 = kx
+                .iter()
+                .zip(&mx)
+                .map(|(k, m)| (k - pair.lambda * m).powi(2))
+                .sum();
+            let m2: f64 = mx.iter().map(|m| m * m).sum();
+            let residual = r2.sqrt() / (pair.lambda * m2.sqrt());
+            let xkx = sparse_quadratic_form(ops.k.as_ref(), &pair.vector);
+            let xmx = sparse_quadratic_form(ops.m_eps.as_ref(), &pair.vector);
+            let xm1x = sparse_quadratic_form(ops.m1.as_ref(), &pair.vector);
+            let cand = RawDielectricCandidate {
+                beta_sq: pair.lambda,
+                curl_ratio: xkx / (k0_sq * xmx),
+                eps_weighted: xmx / xm1x,
+                residual,
+                vector: Vec::new(),
+            };
+            (residual, rayleigh_identity_violation(&cand, k0))
         };
-        let delta = rayleigh_identity_violation(&tail_cand, k0);
-        eprintln!("SMF-28 tail pair: residual = {residual:.3e}, δ = {delta:.3e}");
-        // Measured: residual 3.5e-3, δ 1.1e-5 (the pair #791 caught by 1.4×).
-        assert!(delta > 1e-6 && delta < 1e-4, "tail δ = {delta:.3e}");
-        assert!(
-            residual > 1e4 * DIELECTRIC_RESIDUAL_TOL,
-            "tail residual {residual:.3e} must be far above the tolerance"
+        // The leaking tail pair: an unconverged pair inside the guided window
+        // whose Rayleigh violation is the smallest, i.e. the one closest to
+        // slipping past the #791 check. It is selected by these properties,
+        // not by its Ritz value: an unconverged Ritz value (residual ~ 1e-3)
+        // is not reproducible across platforms (measured n_eff ≈ 1.446871 on
+        // macOS/aarch64; it differs on Linux x86_64 CI).
+        let in_guided = |lambda: f64| e_clad * k0_sq < lambda && lambda < e_core * k0_sq;
+        let unconverged: Vec<(f64, f64, f64)> = old
+            .iter()
+            .filter(|p| in_guided(p.lambda))
+            .map(|p| {
+                let (residual, delta) = diagnose(p);
+                (p.lambda, residual, delta)
+            })
+            .filter(|&(_, residual, _)| residual > 1e4 * DIELECTRIC_RESIDUAL_TOL)
+            .collect();
+        let &(tail_lambda, residual, delta) = unconverged
+            .iter()
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .expect("the historical window holds an unconverged in-window tail pair");
+        eprintln!(
+            "SMF-28 tail pair: n_eff = {:.8}, residual = {residual:.3e}, δ = {delta:.3e} \
+             ({} unconverged in-window pairs)",
+            tail_lambda.sqrt() / k0,
+            unconverged.len()
         );
+        // Measured (macOS): residual 3.4e-4, δ 1.0e-7, under the #791
+        // threshold. δ is second order in the residual, so it stays small.
+        assert!(delta < 1e-4, "tail δ = {delta:.3e}");
 
         // The checked solve: only converged pairs, the tail value is gone.
         let raw = dielectric_raw_candidates_p2(&mesh, &eps_r, &dof_mask, k0, 16, ceiling).unwrap();
@@ -8965,10 +8990,12 @@ mod tests {
                 "converged candidate δ = {:.3e}",
                 rayleigh_identity_violation(c, k0)
             );
-            assert!(
-                (c.beta_sq - tail.lambda).abs() > 1e-9 * tail.lambda,
-                "the unconverged tail value must not be returned"
-            );
+            for &(lambda, _, _) in &unconverged {
+                assert!(
+                    (c.beta_sq - lambda).abs() > 1e-9 * lambda,
+                    "an unconverged tail value must not be returned"
+                );
+            }
         }
         assert!(rayleigh_consistent(
             raw.cands
