@@ -24,6 +24,7 @@ use geode_core::assembly::nedelec::{
 };
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::lanczos::InnerSolver;
+use geode_core::eigen::pec_cavity::PecCavitySettings;
 use geode_core::eigen::sensitivity::{EigenSensitivity, EigenSensitivityError};
 use geode_core::eigen::transmon::{
     LondonSurface, LumpedReactiveShunt, ReactiveElementNatural, TransmonMode, TransmonPencil,
@@ -105,7 +106,14 @@ struct CavityFixture {
 }
 
 fn cavity_fixture(n: usize) -> CavityFixture {
-    let mesh = cube_tet_mesh(n, 1.0);
+    cavity_fixture_with_side(n, 1.0)
+}
+
+/// [`cavity_fixture`] for an `n×n×n` cube of edge length `side` — the same
+/// cavity expressed in a different length unit (issue #814 scale-invariance
+/// regression).
+fn cavity_fixture_with_side(n: usize, side: f64) -> CavityFixture {
+    let mesh = cube_tet_mesh(n, side);
     let edges = mesh.edges();
     let (tet_edge_idx, tet_edge_sign) = edge_tables(&mesh);
 
@@ -116,9 +124,9 @@ fn cavity_fixture(n: usize) -> CavityFixture {
         .filter(|f| {
             let on = |c: usize, val: f64| {
                 f.iter()
-                    .all(|&v| (mesh.nodes[v as usize][c] - val).abs() < 1e-12)
+                    .all(|&v| (mesh.nodes[v as usize][c] - val).abs() < 1e-12 * side)
             };
-            on(0, 0.0) || on(0, 1.0) || on(1, 0.0) || on(1, 1.0) || on(2, 0.0) || on(2, 1.0)
+            on(0, 0.0) || on(0, side) || on(1, 0.0) || on(1, side) || on(2, 0.0) || on(2, side)
         })
         .collect();
     let interior_mask = pec_interior_mask_from_triangles(&edges, &[metal.as_slice()]);
@@ -171,15 +179,43 @@ fn solve_cavity(
         .expect("cavity eigensolve")
 }
 
+/// Gradient-nullspace ceiling **relative to the shift** `σ`: a returned Ritz
+/// value `λ ≤ NULL_TOL_REL · σ` is a curl-curl gradient (`λ ≈ 0`) mode, not a
+/// physical one. This is the same scale-invariant criterion (and the same
+/// default) the production cavity solvers use
+/// ([`PecCavitySettings::DEFAULT_NULL_TOL_REL`]): `λ = k²` and `σ` both scale
+/// as `1/L²` under a change of mesh unit, so the classification does not
+/// depend on whether the mesh is in metres or micrometres (issue #814 — the
+/// old ABSOLUTE `λ ≤ 1e-3` cutoff skipped every physical mode of the μm mesh,
+/// where `λ ~ 1e-8`, and silently fell back to a nullspace mode).
+const NULL_TOL_REL: f64 = PecCavitySettings::DEFAULT_NULL_TOL_REL;
+
+/// `true` iff `lambda` is a gradient-nullspace Ritz value for shift `sigma`
+/// (see [`NULL_TOL_REL`]).
+fn is_null_mode(lambda: f64, sigma: f64) -> bool {
+    assert!(
+        sigma > 0.0,
+        "the σ-relative null test needs a positive shift"
+    );
+    lambda <= NULL_TOL_REL * sigma
+}
+
 /// Pick the returned mode with the largest relative gap to its neighbors that
 /// is well above the nullspace — the safest "simple" mode for the HF test.
+/// Nullspace modes are classified relative to the solve's shift `sigma`
+/// ([`is_null_mode`]), so the pick is invariant to the mesh length unit.
 /// Returns `(index_in_list, lambdas_vec, chosen_mode)`.
-fn pick_simple_mode(modes: &[TransmonMode]) -> (usize, Vec<f64>, TransmonMode) {
+///
+/// # Panics
+///
+/// Panics if every returned mode is a nullspace mode (the shift found no
+/// physical mode) rather than silently returning a nullspace mode.
+fn pick_simple_mode(modes: &[TransmonMode], sigma: f64) -> (usize, Vec<f64>, TransmonMode) {
     let lambdas: Vec<f64> = modes.iter().map(|m| m.report.lambda).collect();
-    let mut best = (0usize, f64::NEG_INFINITY);
+    let mut best: Option<(usize, f64)> = None;
     for (i, &li) in lambdas.iter().enumerate() {
-        if li <= 1e-3 {
-            continue; // skip nullspace-adjacent modes
+        if is_null_mode(li, sigma) {
+            continue; // skip gradient-nullspace modes
         }
         let denom = li.abs().max(f64::MIN_POSITIVE);
         let mut gap = f64::INFINITY;
@@ -188,11 +224,17 @@ fn pick_simple_mode(modes: &[TransmonMode]) -> (usize, Vec<f64>, TransmonMode) {
                 gap = gap.min((li - lj).abs() / denom);
             }
         }
-        if gap > best.1 {
-            best = (i, gap);
+        if best.is_none_or(|(_, g)| gap > g) {
+            best = Some((i, gap));
         }
     }
-    let idx = best.0;
+    let (idx, _) = best.unwrap_or_else(|| {
+        panic!(
+            "no physical mode among the {} returned (all λ ≤ {NULL_TOL_REL:e}·σ, \
+             σ = {sigma:e}): {lambdas:?}",
+            lambdas.len()
+        )
+    });
     (idx, lambdas, modes[idx].clone())
 }
 
@@ -255,9 +297,12 @@ fn material_sensitivity_matches_fd_and_closed_form() {
     let n_modes = 6;
 
     let modes = solve_cavity(&fx, &eps_r, sigma, n_modes);
-    let (idx, lambdas, mode) = pick_simple_mode(&modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
     let lambda = mode.report.lambda;
-    assert!(lambda > 1e-3, "picked λ = {lambda} too close to nullspace");
+    assert!(
+        !is_null_mode(lambda, sigma),
+        "picked λ = {lambda} too close to nullspace"
+    );
 
     let sens = EigenSensitivity {
         mesh: &fx.mesh,
@@ -347,7 +392,7 @@ fn per_region_material_sensitivity_matches_fd() {
         .collect();
 
     let modes = solve_cavity(&fx, &eps_r, sigma, n_modes);
-    let (idx, lambdas, mode) = pick_simple_mode(&modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
     let lambda = mode.report.lambda;
 
     // Use 3 regions so region 2 has NO tets (zero-volume edge case).
@@ -423,19 +468,70 @@ fn per_region_material_sensitivity_matches_fd() {
     }
 }
 
+/// Regression (issue #814): the simple-mode picker is invariant to the mesh
+/// length unit. The same cavity meshed with edge `1` (metres, say) and edge
+/// `1e6` (the same cube in micrometres) has every eigenvalue scaled by
+/// `1e-12`; with the shift scaled the same way, the picker must choose the
+/// same mode. The old ABSOLUTE `λ ≤ 1e-3` nullspace cutoff failed this: on the
+/// μm mesh every physical `λ` is below `1e-3`, so it skipped them all and fell
+/// back to index 0 — a gradient-nullspace mode.
+#[test]
+fn pick_simple_mode_is_invariant_to_mesh_unit() {
+    let scale = 1e6_f64; // metres → micrometres
+    let eps_r_of = |fx: &CavityFixture| vec![4.0_f64; fx.mesh.n_tets()];
+    let n_modes = 6;
+
+    let fx_m = cavity_fixture_with_side(3, 1.0);
+    let sigma_m = 5.0;
+    let modes_m = solve_cavity(&fx_m, &eps_r_of(&fx_m), sigma_m, n_modes);
+    let (idx_m, lambdas_m, _) = pick_simple_mode(&modes_m, sigma_m);
+
+    let fx_um = cavity_fixture_with_side(3, scale);
+    let sigma_um = sigma_m / (scale * scale);
+    let modes_um = solve_cavity(&fx_um, &eps_r_of(&fx_um), sigma_um, n_modes);
+    let (idx_um, lambdas_um, _) = pick_simple_mode(&modes_um, sigma_um);
+
+    eprintln!("m:  idx {idx_m}, λ = {lambdas_m:?}");
+    eprintln!("μm: idx {idx_um}, λ = {lambdas_um:?}");
+    assert_eq!(idx_m, idx_um, "picked mode depends on the mesh unit");
+    let (l_m, l_um) = (lambdas_m[idx_m], lambdas_um[idx_um]);
+    assert!(
+        (l_um * scale * scale - l_m).abs() <= 1e-8 * l_m,
+        "picked λ does not scale as 1/L²: {l_m:e} (m) vs {l_um:e}·{:e} (μm)",
+        scale * scale
+    );
+    assert!(!is_null_mode(l_um, sigma_um));
+    // The μm-mesh physical mode sits far below the old absolute cutoff — the
+    // exact situation that made the old picker return a nullspace mode.
+    assert!(l_um < 1e-3, "fixture no longer exercises the #814 regime");
+}
+
 // -------------------------------------------------------------------------
 // CI-fast: geometry sensitivity ∂λ/∂θ.
 // -------------------------------------------------------------------------
 
 /// Move the mesh node whose position is nearest a given target.
-fn nearest_interior_node(mesh: &TetMesh, target: [f64; 3]) -> usize {
-    // Prefer a strictly-interior node (all coords in (eps, 1-eps)) so its
-    // adjacent tets never touch a boundary face.
-    let eps = 1e-9;
+fn nearest_interior_node(
+    mesh: &TetMesh,
+    edges: &[[u32; 2]],
+    interior_mask: &[bool],
+    target: [f64; 3],
+) -> usize {
+    // A node is interior iff every edge incident to it is a kept (non-PEC)
+    // DOF, so it lies on no PEC/boundary face and its adjacent tets never
+    // touch the Dirichlet surface. This is topological — it does not assume
+    // the unit cube or any length unit (issue #814: the old `(eps, 1-eps)`
+    // coordinate box found no node on the μm-scale real fixture).
+    let mut on_boundary = vec![false; mesh.n_nodes()];
+    for (e, &[a, b]) in edges.iter().enumerate() {
+        if !interior_mask[e] {
+            on_boundary[a as usize] = true;
+            on_boundary[b as usize] = true;
+        }
+    }
     let mut best = (0usize, f64::INFINITY);
     for (i, p) in mesh.nodes.iter().enumerate() {
-        let interior = p.iter().all(|&c| c > eps && c < 1.0 - eps);
-        if !interior {
+        if on_boundary[i] {
             continue;
         }
         let d = (0..3).map(|k| (p[k] - target[k]).powi(2)).sum::<f64>();
@@ -460,12 +556,12 @@ fn geometry_sensitivity_matches_fd() {
     let n_modes = 6;
 
     let modes = solve_cavity(&fx, &eps_r, sigma, n_modes);
-    let (idx, lambdas, mode) = pick_simple_mode(&modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
     let lambda = mode.report.lambda;
-    assert!(lambda > 1e-3);
+    assert!(!is_null_mode(lambda, sigma));
 
     // Node-motion velocity: move one interior node along +x by θ.
-    let node = nearest_interior_node(&fx.mesh, [0.5, 0.5, 0.5]);
+    let node = nearest_interior_node(&fx.mesh, &fx.edges, &fx.interior_mask, [0.5, 0.5, 0.5]);
     let mut vel = vec![[0.0_f64; 3]; fx.mesh.n_nodes()];
     vel[node] = [1.0, 0.0, 0.0];
 
@@ -625,9 +721,12 @@ fn london_lambda_l_sensitivity_matches_fd() {
     let lambda_l = 0.05_f64;
 
     let modes = solve_london_cavity(&fx, &eps_r, lambda_l, sigma, n_modes);
-    let (idx, lambdas, mode) = pick_simple_mode(&modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
     let lambda = mode.report.lambda;
-    assert!(lambda > 1e-3, "picked λ = {lambda} too close to nullspace");
+    assert!(
+        !is_null_mode(lambda, sigma),
+        "picked λ = {lambda} too close to nullspace"
+    );
 
     let sens = EigenSensitivity {
         mesh: &fx.mesh,
@@ -678,8 +777,9 @@ fn london_sensitivity_guard_and_invalid_lambda_l() {
     let eps_r = vec![eps0; fx.mesh.n_tets()];
     let lambda_l = 0.05_f64;
 
-    let modes = solve_london_cavity(&fx, &eps_r, lambda_l, 5.0, 8);
-    let (idx, lambdas, mode) = pick_simple_mode(&modes);
+    let sigma = 5.0;
+    let modes = solve_london_cavity(&fx, &eps_r, lambda_l, sigma, 8);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
 
     let strict = EigenSensitivity {
         mesh: &fx.mesh,
@@ -729,7 +829,7 @@ fn degenerate_gap_guard_trips() {
     let n_modes = 6;
 
     let modes = solve_cavity(&fx, &eps_r, sigma, n_modes);
-    let (idx, lambdas, mode) = pick_simple_mode(&modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
 
     // Unreachable gap → guard trips on ALL entry points.
     let strict = EigenSensitivity {
@@ -836,8 +936,9 @@ fn real_eigen_sensitivity_release() {
 
     let (edges, interior_mask, tet_edge_idx, tet_edge_sign, modes) =
         solve_real_bare_cavity(&f, &eps_r, sigma, n_modes);
-    let (idx, lambdas, mode) = pick_simple_mode(&modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
     let lambda = mode.report.lambda;
+    eprintln!("σ = {sigma:.6e}, returned λ = {lambdas:?}");
     eprintln!(
         "picked mode {idx}: λ = {lambda:.6e}, f = {:.4} GHz",
         mode.report.frequency_ghz()
@@ -901,7 +1002,7 @@ fn real_eigen_sensitivity_release() {
     );
 
     // --- Geometry: move one interior node along +x, ∂λ/∂θ vs FD. ---
-    let node = nearest_interior_node(&f.mesh, {
+    let node = nearest_interior_node(&f.mesh, &edges, &interior_mask, {
         // centroid of the mesh bounding box
         let mut lo = [f64::INFINITY; 3];
         let mut hi = [f64::NEG_INFINITY; 3];
