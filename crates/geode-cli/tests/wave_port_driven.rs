@@ -1426,15 +1426,18 @@ fn vacuum_wave_and_mixed_ports_match_the_pre_fill_solver() {
 }
 
 /// Recorded with `GEODE_PRINT_VACUUM_GOLDEN=1`. First recorded on main @ 2843250
-/// (pre-#777). Re-recorded for issue #798 from **converged** port modes, with
-/// no change to the vacuum arithmetic. The old recording carried the second
-/// port mode of the 8×4 face (the near-degenerate TE₂₀/TE₀₁ pair) from a
-/// single unchecked Lanczos pass at relative residual `3.6e-4`, with its
-/// eigenvalue `6.8e-10` off. That moved S by up to `6.0e-9` normwise. The
-/// value depended on platform rounding: Linux CI matched it, and macOS/aarch64
-/// main missed it by `5.97e-9`. With the residual-checked solve, macOS and
-/// Linux agree to `1.6e-15` at the worst old entry. `MIXED_BITS` was within
-/// `1.8e-15` and is unchanged.
+/// (pre-#777). Re-recorded for issue #798, which deliberately converges the
+/// port-mode solve; the vacuum arithmetic is unchanged. The old bits recorded
+/// an unconverged second port mode of the 8×4 face (the near-degenerate
+/// TE₂₀/TE₀₁ pair) from a single unchecked Lanczos pass: relative residual
+/// `3.595e-4`, eigenvalue `6.8e-10` (relative) off the full-Krylov reference.
+/// That tail was wrong but deterministic, so every platform reproduced it.
+/// The residual-checked solve converges the mode, which moves S by up to
+/// `6e-9` normwise on every platform, so a converged solver cannot reproduce
+/// the old bits at `1e-10`. The #777 guarantee this golden protects still
+/// holds: `MIXED_BITS` is untouched (within `1.8e-15`), the tolerance is
+/// unchanged, and `vacuum_medium_is_bit_identical_to_the_pre_fill_formulas`
+/// in geode-core does not touch the mode solve.
 #[rustfmt::skip]
 const PURE_WAVE_BITS: [u64; 80] = [
     0x3f6da83f5789e400,

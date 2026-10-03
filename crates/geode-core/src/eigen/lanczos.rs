@@ -1355,7 +1355,8 @@ impl SparseShiftInvertLanczos {
     /// window the caller has said only in-window pairs matter, so there is
     /// no top-up, and the in-window shortfall is the unconfirmed targets. Converged first-pass pairs
     /// reappear, re-extracted from the longer basis. Targets left
-    /// unconfirmed, and the withheld non-targets, are reported in
+    /// unconfirmed, and the final run's unconverged pairs among the
+    /// `requested` in-window pairs nearest `σ`, are reported in
     /// [`CheckedEigenpairs::rejected`].
     ///
     /// The extension tracks the first pass's own pairs rather than re-taking
@@ -1493,10 +1494,14 @@ impl SparseShiftInvertLanczos {
             if !all_confirmed && !last {
                 continue;
             }
-            let mut kept: Vec<(EigenPair, f64)> = near
+            // Each kept pair carries its Ritz column, so the withheld report
+            // below can tell which final-run Ritz values were returned.
+            let mut kept: Vec<(EigenPair, f64, usize)> = near
                 .into_iter()
                 .zip(near_res)
-                .filter(|(_, r)| *r <= tol)
+                .zip(&near_picks)
+                .filter(|((_, r), _)| *r <= tol)
+                .map(|((pair, r), pick)| (pair, r, pick.1))
                 .collect();
             // Without a window the caller wants `n_modes` converged pairs: top
             // up from the remaining Ritz pairs nearest σ. With a window only
@@ -1517,12 +1522,12 @@ impl SparseShiftInvertLanczos {
                 rest.truncate(want);
                 let extra = run.ritz_vectors(m, &s_mat, &rest);
                 let extra_res = residuals_of(&extra);
-                for (pair, res) in extra.into_iter().zip(extra_res) {
+                for ((pair, res), pick) in extra.into_iter().zip(extra_res).zip(&rest) {
                     if kept.len() >= want {
                         break;
                     }
                     if res <= tol {
-                        kept.push((pair, res));
+                        kept.push((pair, res, pick.1));
                     }
                 }
             }
@@ -1535,23 +1540,59 @@ impl SparseShiftInvertLanczos {
                     .unwrap_or(core::cmp::Ordering::Equal)
             });
             out.lanczos_steps = steps;
-            for (pair, res) in kept {
+            // Withheld report. The first pass's non-target pairs are stale
+            // after the extension (a tail Ritz value says nothing about where
+            // an eigenvalue is, and the longer run usually returns a converged
+            // pair there), so they are not reported. Instead report what the
+            // *final* run could not account for: among its `requested`
+            // in-window Ritz values nearest σ, the unconverged ones that were
+            // not returned (each would have displaced a returned pair, or
+            // filled a shortfall), plus the first-pass targets still
+            // unconfirmed at the cap.
+            let mut nearest: Vec<(f64, usize)> = values
+                .iter()
+                .copied()
+                .filter(|&(lambda, col)| in_window(lambda) && !kept.iter().any(|k| k.2 == col))
+                .collect();
+            nearest.sort_by(|a, b| {
+                (a.0 - sigma)
+                    .abs()
+                    .partial_cmp(&(b.0 - sigma).abs())
+                    .unwrap_or(core::cmp::Ordering::Equal)
+            });
+            // `|λ − σ|` of the `requested`-th nearest in-window Ritz value.
+            let mut dist: Vec<f64> = values
+                .iter()
+                .filter(|&&(lambda, _)| in_window(lambda))
+                .map(|&(lambda, _)| (lambda - sigma).abs())
+                .collect();
+            dist.sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
+            let reach = dist.get(requested - 1).copied().unwrap_or(f64::INFINITY);
+            nearest.retain(|&(lambda, _)| (lambda - sigma).abs() <= reach);
+            let unaccounted = run.ritz_vectors(m, &s_mat, &nearest);
+            let unaccounted_res = residuals_of(&unaccounted);
+            let unconverged: Vec<(f64, f64)> = unaccounted
+                .iter()
+                .zip(unaccounted_res)
+                .filter(|(_, r)| *r > tol)
+                .map(|(p, r)| (p.lambda, r))
+                .collect();
+            for (pair, res, _) in kept {
                 out.pairs.push(pair);
                 out.residuals.push(res);
             }
             out.rejected.extend(
-                first_pass
-                    .iter()
-                    .filter(|t| !t.2)
-                    .map(|&(lambda, residual, _)| (lambda, residual)),
-            );
-            out.rejected.extend(
                 targets
                     .iter()
                     .zip(&confirmed)
-                    .filter(|(_, c)| !**c)
+                    .filter(|(t, c)| {
+                        !**c && !unconverged
+                            .iter()
+                            .any(|&(lambda, _)| (lambda - t.lambda).abs() <= t.width)
+                    })
                     .map(|(t, _)| (t.lambda, t.residual)),
             );
+            out.rejected.extend(unconverged);
             return Ok(out);
         }
     }
@@ -1824,10 +1865,14 @@ pub struct CheckedEigenpairs {
     pub pairs: Vec<EigenPair>,
     /// Relative true residual of each entry of [`Self::pairs`] (parallel).
     pub residuals: Vec<f64>,
-    /// `(λ, residual)` of each first-pass pair (among the `requested`
-    /// nearest `σ`) that was **not** returned or confirmed: unconverged and
-    /// either not localized or outside [`ConvergenceCheck::window`], or
-    /// (after an extension) never matched by a converged pair before the cap.
+    /// `(λ, residual)` of the unconverged Ritz pairs that were withheld
+    /// although they rank among the `requested` (in-window) pairs nearest
+    /// `σ`, so each would have displaced a returned pair or filled a
+    /// shortfall. Without an extension these are all the first pass's
+    /// unconverged pairs (in or out of the window). After an extension they are the final run's
+    /// unconverged pairs in that range, plus first-pass targets never
+    /// matched by a converged pair before the cap. Stale first-pass tail
+    /// pairs that the longer run resolved are not reported (issue #798).
     pub rejected: Vec<(f64, f64)>,
     /// Number of pairs asked for (`n_modes`, clamped to the pencil dimension).
     pub requested: usize,

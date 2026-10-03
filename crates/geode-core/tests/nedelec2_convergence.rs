@@ -182,4 +182,21 @@ fn p2_metallic_cutoffs_at_least_as_accurate_as_p1() {
         te20,
         err_p2_next
     );
+    // Issue #798: the third p=2 cutoff is the degenerate partner (the
+    // unchecked Lanczos tail used to drop it and return ≈ 3.512).
+    let err_p2_partner = (kc_p2[2] - te01).abs() / te01;
+    assert!(
+        err_p2_partner < 0.02,
+        "p=2 third cutoff {:.5} is not the TE20/TE01 partner ({:.5}) within 2% ({:.3e})",
+        kc_p2[2],
+        te01,
+        err_p2_partner
+    );
+    let pair_gap = (kc_p2[2] - kc_p2[1]).abs() / kc_p2[1];
+    assert!(
+        pair_gap < 1e-6,
+        "p=2 TE20/TE01 pair {:.9} / {:.9} not degenerate (rel gap {pair_gap:.3e})",
+        kc_p2[1],
+        kc_p2[2]
+    );
 }
