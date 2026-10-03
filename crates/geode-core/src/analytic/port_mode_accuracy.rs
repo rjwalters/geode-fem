@@ -320,11 +320,24 @@ pub fn mode_accuracy(
     refined: &HybridPortModeSet,
     rates: Option<&[f64]>,
 ) -> Vec<Option<ModeAccuracy>> {
-    match_refined_modes(refinement, coarse, refined)
-        .into_iter()
+    let matches = match_refined_modes(refinement, coarse, refined);
+    mode_accuracy_from_matches(coarse, refined, &matches, rates)
+}
+
+/// [`mode_accuracy`] from precomputed [`match_refined_modes`] matches (so a
+/// caller that also needs the refined indices assembles the refined blocks
+/// once).
+pub fn mode_accuracy_from_matches(
+    coarse: &[&HybridPortMode],
+    refined: &HybridPortModeSet,
+    matches: &[Option<(usize, f64)>],
+    rates: Option<&[f64]>,
+) -> Vec<Option<ModeAccuracy>> {
+    matches
+        .iter()
         .enumerate()
         .map(|(i, m)| {
-            let (j, overlap) = m?;
+            let (j, overlap) = (*m)?;
             let cm = coarse[i];
             let fm = &refined.modes[j];
             let rel_change = (cm.beta - fm.beta).norm() / fm.beta.norm();

@@ -246,6 +246,7 @@ Driven example (the spiral-inductor golden input,
 | `wave_ports[].hybrid.n_termination_evanescent` | int ≥ 0, default `4`; hybrid ports only (additive, #807) | evanescent modes terminated exactly beyond the reported channels (not in S); a face too small for the default gets as many as it holds (noted) |
 | `wave_ports[].hybrid.accuracy` | bool, default `true`; hybrid ports only | the per-mode accuracy estimate (an `h/2` face re-solve per frequency, `h/4` at the first) |
 | `wave_ports[].hybrid.accuracy_threshold` | float > 0, default `0.005`; hybrid ports only | relative `β` (and, on a lossy face, `α`) error above which a propagating channel raises a warning with a refine-to-`h` hint |
+| `wave_ports[].hybrid.impedance_accuracy_threshold` | float > 0, default `0.01`; hybrid ports only (additive, #807 review) | relative `z_line_ohm` error above which a propagating channel on a face with a floating conductor raises `impedance_accuracy_above_threshold` with refine / grade-toward-the-edges hints (mesh error only — not the shield box's physical effect on `Z₀`) |
 | `frequencies` | driven: **required**; eigen: absent | the frequencies to sweep |
 | `frequencies.unit` | `"hz"` \| `"ghz"` \| `"k0"`, **required** | `k0` = the solver's natural unit `ω/c` in **rad per mesh length unit** |
 | `frequencies.values` | floats > 0 | explicit list, **or** … |
@@ -644,6 +645,26 @@ work):
   `hybrid.accuracy_threshold` (default 0.5 %) raises a warning with the
   face mesh size that would meet it. A refined solve that fails degrades
   to an "accuracy unavailable" warning; it never fails the sweep;
+- the **line-impedance accuracy estimate** is on for every channel with a
+  line impedance (`hybrid.z_line_accuracy`): `z_line_ohm` re-evaluated on
+  the same `h/2` face, Richardson-extrapolated with the convergence rate
+  **observed** over `h, h/2, h/4` (the conservative singular rate 1 when
+  it cannot be observed). The `β` estimate is the wrong proxy for `Z`:
+  `ε_eff = C/C₀` is a ratio, so the strip-edge singular error cancels in
+  it, while `Z = 1/(c√(C·C₀))` keeps it in full, and `Z` converges at
+  about `O(h)` in the edge cell size, not `O(h²)`. Above
+  `hybrid.impedance_accuracy_threshold` (default 1 %: a 1 % `Z` error
+  renormalizes a matched line to `|S11| ≈ 0.005`, −46 dB) a channel
+  raises `impedance_accuracy_above_threshold`, on `check` and on every
+  `driven` run (`--touchstone` included), with the refine factor and the
+  strip-edge cell size that would meet it — grade the mesh toward the
+  conductor edges. A missing estimate (refined solve failed, no refined
+  match, a degenerate cluster) raises `impedance_accuracy_unavailable`.
+  **The shield is part of the design**: a shielded line's `Z₀` depends on
+  its box (a `w/h = 1.9`, `ε_r = 4.4` microstrip sits about −3.3 % below
+  the open-line Hammerstad–Jensen value in an `8h × 5h` box, −1 % in
+  `16h × 10h`, −0.3 % in `40h × 40h`). That offset is physics, so no
+  refinement removes it and this estimate does not flag it;
 - every warning is in the report's `warnings[]` (`kind`, `wave_port`,
   `physical_group`, `message`) and on stderr (`warning: wave port
   `<group>`: …`): complex pairs, accuracy, uncertified multiplicity of a
@@ -682,16 +703,19 @@ power-normalized**: an evanescent channel carries no power and its S
 entries depend on the normalization convention). A hybrid channel adds
 `hybrid`: `ez_energy_fraction`, `accuracy`, `alpha_accuracy` (lossy),
 `residual`, `residual_floor`, `floor_accepted`, `track_overlap`,
-`cluster_size`, `coupled_mode`, `line`, `z_line_ohm`. A row of a spec with
+`cluster_size`, `coupled_mode`, `line`, `z_line_ohm`, `z_line_accuracy`
+(`estimate`, `z_refined_ohm`, `rate`, `rate_observed`). A row of a spec with
 a lossy wave port adds `sigma_max`, the largest singular value of S over
 the lumped ports and the propagating channels: `> 1 + 1e-6` raises a
 `"passivity"` warning. `wave_ports[]` adds `route` and, for a hybrid
 port, `hybrid` (the reason, touching groups, conductors with their
 voltage-path length, the face's free `E_t` / `E_z` unknowns and mesh size
-`h`, `lossy` / `dispersive`, the termination count, accuracy threshold,
-impedance definition and its note, the observed convergence rates and the
-worst tracking overlap); its `medium` is `null` (the face has no single
-medium) and `modes` / the TM-guard fields are `null`.
+`h`, `lossy` / `dispersive`, the termination count, the `β` and
+impedance accuracy thresholds, impedance definition and its note, the
+observed convergence rates and the worst tracking overlap); its `medium`
+is `null` (the face has no single medium) and `modes` / the TM-guard
+fields are `null` — a consumer must branch on `route` before reading
+`medium`.
 
 **`geode check`** routes every port and, for a hybrid one, runs the
 port-face half of the sweep at every frequency without the 3-D solve:
@@ -731,8 +755,8 @@ materials; an internal port plane whose two sides differ in material;
 `impedance_definition` on a hybrid face without a floating conductor (a
 partially filled waveguide has no line impedance); `power_voltage` /
 `voltage_current` when a conductor has no voltage path; more reported +
-termination channels than the face holds; `hybrid.accuracy_threshold`
-without the estimate; and `--touchstone` on a hybrid port without a
+termination channels than the face holds; `hybrid.accuracy_threshold` or
+`hybrid.impedance_accuracy_threshold` without the estimate; and `--touchstone` on a hybrid port without a
 floating conductor (use the JSON modal S).
 
 **Volume conductivity.** The `geode` spec has no volume conductivity σ:
@@ -2801,11 +2825,19 @@ the real binary. Default tier: the `geode check` routing report
 guide left on the TE path); the slab-loaded guide against the closed-form
 LSE/LSM oracle (β within 0.5 %, measured 0.031 %, with the accuracy
 estimate equal to the true error to the printed digits; `|S21| ≈ 1`,
-reciprocity 1e-8); every remaining `invalid_spec`. Release tier
+reciprocity 1e-8); the coarse `8h × 5h` microstrip face raising
+`impedance_accuracy_above_threshold` (`Z_PI` estimate about 6 % against a
+`β` estimate of 0.2 %); every remaining `invalid_spec` (including a
+dispersive geometric port beside a hybrid one, and `power_voltage` /
+`voltage_current` on a triaxial face whose inner conductor has no voltage
+path). Release tier
 (`--ignored`, ~10 s): a Hammerstad–Jensen 50 Ω microstrip written to
 Touchstone (`|S11|` ≤ 0.014 against the 0.05 bar; the file equals the
 independent impedance-route renormalization with the reported
-`z_line_ohm` to 5e-16; the `Z_TE` tripwire gives `|Γ| ≈ 0.61`), microstrip
+`z_line_ohm` to 5e-16; the `Z_TE` tripwire gives `|Γ| ≈ 0.61`; its
+`Z_PI` is about 2 % below the box's converged value, which the
+impedance estimate tracks within 2× and warns about on the
+`--touchstone` run), microstrip
 `eps_eff` vs Hammerstad–Jensen (−0.09 % against the 2 % bar, 20h shield),
 coupled microstrip even / odd labels (even first, `ε_eff` 3.27 / 2.88,
 `Z` 61.1 / 39.1 Ω, conversion ≤ 3e-5), a lossy line (`σ_max` 0.997 /

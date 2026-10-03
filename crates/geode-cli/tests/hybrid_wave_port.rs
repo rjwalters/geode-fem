@@ -58,7 +58,7 @@ use std::process::{Command, Output};
 use geode_core::analytic::loaded_guide::SlabLoadedGuide;
 use geode_core::analytic::microstrip::{
     ShieldedStripFace, StripFaceMesh, StripMeshOpts, hammerstad_jensen_eps_eff,
-    hammerstad_jensen_z0,
+    hammerstad_jensen_z0, quasi_static_line,
 };
 use geode_core::driven::ports::{extruded_rect_waveguide_mesh, strip_line_section};
 use scratch_support::{Scratch, ScratchFile};
@@ -280,6 +280,27 @@ fn k0_mm(ghz: f64) -> f64 {
     2.0 * std::f64::consts::PI * ghz * 1e9 * MM / geode_core::constants::C_M_PER_S
 }
 
+/// Quasi-static `Z₀` limit of a width-`w` microstrip on [`EPS_SUB`] in a
+/// `bw × bh` shield (`h = 1`): graded faces at `h_min` 0.012 / 0.006 /
+/// 0.003, extrapolated at the observed rate (about 0.9).
+fn z_qs_limit(bw: f64, bh: f64, w: f64) -> f64 {
+    let geo = ShieldedStripFace::microstrip(bw, bh, 1.0, w, EPS_SUB);
+    let z: Vec<f64> = [0.012, 0.006, 0.003]
+        .iter()
+        .map(|&h_min| {
+            let f = geo.build(&StripMeshOpts {
+                h_min,
+                h_max: 0.5,
+                ratio: 1.15,
+                mirror_symmetric: true,
+            });
+            quasi_static_line(&f, 0).z0
+        })
+        .collect();
+    let p = ((z[1] - z[0]) / (z[2] - z[1])).log2();
+    z[2] + (z[2] - z[1]) / (2f64.powf(p) - 1.0)
+}
+
 // ---------------------------------------------------------------------------
 // 1. `geode check`: the routing report
 // ---------------------------------------------------------------------------
@@ -398,6 +419,86 @@ fn check_reports_the_routing_decision_and_the_hybrid_mode_summary() {
     assert!(wp["tm_limit_hz"].as_f64().is_some());
 }
 
+/// **Z₀ is never silently wrong** (#807 review). On the coarse `8h × 5h`
+/// microstrip face (`h_min = 0.15h`) `Z_PI` is about 6 % below its own
+/// converged value while the `β` estimate is about 0.2 %: `geode check`
+/// reports `hybrid.z_line_accuracy` (the `h/2` re-evaluation, Richardson at
+/// the rate observed over `h, h/2, h/4`, about 1.2 — not the `O(h²)` of
+/// `β`) and raises `impedance_accuracy_above_threshold` (default 1 %) in
+/// `warnings[]` and on stderr, with grade-toward-the-edges guidance. A
+/// threshold above the estimate silences it; `impedance_accuracy_threshold`
+/// is validated like `accuracy_threshold`.
+#[test]
+fn coarse_microstrip_face_raises_the_impedance_accuracy_warning() {
+    let dir = scratch("z-acc");
+    let w = hj_50_ohm_width();
+    let face = ShieldedStripFace::microstrip(8.0, 5.0, 1.0, w, EPS_SUB).build(&coarse());
+    let mesh = write_strip_section(&dir, &face, 2, 2.0);
+    let spec = strip_spec(dir, &mesh, [EPS_SUB, 0.0], &[2.0], |_| {});
+    let out = geode(&["check", spec.to_str().unwrap()]);
+    let v = json_ok(&out);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let h = &v["wave_ports"][0]["hybrid"];
+    assert_eq!(h["impedance_accuracy_threshold"], 0.01, "the default");
+    let ch = &h["frequencies"][0]["channels"][0]["hybrid"];
+    let za = &ch["z_line_accuracy"];
+    println!(
+        "z_line_ohm {} z_line_accuracy {za:#} β accuracy {}",
+        ch["z_line_ohm"], ch["accuracy"]
+    );
+    let est = f64_at(&za["estimate"]);
+    let z = cx(&ch["z_line_ohm"]).re;
+    let z2 = cx(&za["z_refined_ohm"]).re;
+    assert!(est > 0.03, "a coarse strip edge: Z estimate {est}");
+    assert!(
+        z2 > z,
+        "Z_PI converges from below (Dirichlet upper bound on C)"
+    );
+    assert_eq!(za["rate_observed"], true);
+    assert!((0.5..=2.0).contains(&f64_at(&za["rate"])));
+    assert!(
+        f64_at(&ch["accuracy"]) < 0.2 * est,
+        "β is the wrong proxy for Z"
+    );
+    let warns: Vec<&Value> = v["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|w| w["kind"] == "impedance_accuracy_above_threshold")
+        .collect();
+    assert_eq!(warns.len(), 2, "one per port: {:#}", v["warnings"]);
+    let msg = warns[0]["message"].as_str().unwrap();
+    assert_eq!(warns[0]["physical_group"], "port_in");
+    assert!(
+        msg.contains("estimated Z_PI error")
+            && msg.contains("grading toward the conductor edges")
+            && msg.contains("shield box"),
+        "{msg}"
+    );
+    assert!(stderr.contains("estimated Z_PI error"), "{stderr}");
+
+    // A threshold above the estimate: no impedance warning.
+    let dir = scratch("z-acc-loose");
+    let mesh = write_strip_section(&dir, &face, 2, 2.0);
+    let spec = strip_spec(dir, &mesh, [EPS_SUB, 0.0], &[2.0], |v| {
+        for k in 0..2 {
+            v["wave_ports"][k]["hybrid"] = json!({ "impedance_accuracy_threshold": 0.5 });
+        }
+    });
+    let v = json_ok(&geode(&["check", spec.to_str().unwrap()]));
+    assert!(
+        !v["warnings"].as_array().is_some_and(|w| w
+            .iter()
+            .any(|w| w["kind"] == "impedance_accuracy_above_threshold")),
+        "{:#}",
+        v["warnings"]
+    );
+    assert_eq!(
+        v["wave_ports"][0]["hybrid"]["impedance_accuracy_threshold"],
+        0.5
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 2. Slab-loaded guide vs the closed-form oracle
 // ---------------------------------------------------------------------------
@@ -510,14 +611,48 @@ fn microstrip_50_ohm_line_writes_a_matched_touchstone_file() {
             v["wave_ports"][1]["reference_ohm"] = json!(50.0);
         },
     );
-    let v = json_ok(&geode(&[
+    let out = geode(&[
         "driven",
         spec.to_str().unwrap(),
         "--touchstone",
         ts.to_str().unwrap(),
-    ]));
+    ]);
+    let v = json_ok(&out);
     let (_, refs, rows) = touchstone_support::parse(&std::fs::read_to_string(&ts).unwrap());
     assert_eq!(refs, vec![50.0, 50.0]);
+    // The Touchstone file is renormalized to Z_PI, so its accuracy estimate
+    // fires on the driven `--touchstone` run too (#807 review): this face
+    // (16h x 10h shield, h_min = 0.05h) leaves Z_PI about 2 % below its
+    // converged value. The estimate tracks that true error within 2x: the
+    // truth is this box's quasi-static limit (graded faces to h_min =
+    // 0.003h, extrapolated at the observed rate).
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let z_ref = z_qs_limit(16.0, 10.0, w);
+    let ch0 = &v["results"][0]["wave_channels"][0]["hybrid"];
+    let z0 = cx(&ch0["z_line_ohm"]).re;
+    let est = f64_at(&ch0["z_line_accuracy"]["estimate"]);
+    let truth = (z_ref - z0) / z_ref;
+    println!(
+        "Z_PI {z0:.3} Ω vs the 16h x 10h limit {z_ref:.3} Ω: true error {:.2} %, estimate \
+         {:.2} % (rate {})",
+        100.0 * truth,
+        100.0 * est,
+        ch0["z_line_accuracy"]["rate"]
+    );
+    assert!(
+        (0.5..=2.0).contains(&(est / truth)),
+        "estimate {est} vs truth {truth}"
+    );
+    assert!(
+        v["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| w["kind"] == "impedance_accuracy_above_threshold"),
+        "{:#}",
+        v["warnings"]
+    );
+    assert!(stderr.contains("estimated Z_PI error"), "{stderr}");
     let text = std::fs::read_to_string(&ts).unwrap();
     assert!(text.contains("never Z_TE"), "hybrid convention line");
     assert!(!text.contains("Z_c = Z_TE = eta0"), "no geometric line");
@@ -984,4 +1119,126 @@ fn remaining_hybrid_rejections_are_invalid_spec() {
         msg.contains("absorbing_regions") && msg.contains("hybrid"),
         "{msg}"
     );
+
+    // A dispersive fill on a geometric port alongside a hybrid port: the
+    // `port_in` end (z < 0.4) is one homogeneous dispersive material (so
+    // that port is geometric), the `port_out` end the slab (hybrid).
+    let dir = scratch("rej-ds-geom");
+    let (end, rest): (Vec<[u32; 4]>, Vec<[u32; 4]>) =
+        g.mesh.tets.iter().copied().partition(|t| zc(t) < 0.4);
+    let (left, right): (Vec<[u32; 4]>, Vec<[u32; 4]>) =
+        rest.into_iter().partition(|t| xc(t) < A / 2.0);
+    let text = msh::write_msh_volumes(
+        &g.mesh.nodes,
+        &[(1, "left", &left), (2, "right", &right), (3, "end", &end)],
+        &[
+            (11, "port_in", &g.port1_faces),
+            (12, "port_out", &g.port2_faces),
+            (13, "walls", &g.sidewall_faces),
+        ],
+    );
+    let mesh = dir.join("ds-geom.msh");
+    std::fs::write(&mesh, text).unwrap();
+    let v = json!({
+        "schema_version": 1,
+        "mesh": { "path": mesh.display().to_string(), "length_unit_m": 1e-2 },
+        "materials": [
+            { "physical_group": "left", "eps_r": [EPS_SLAB, 0.0] },
+            { "physical_group": "end", "dispersion": {
+                "model": "djordjevic_sarkar", "eps_r": EPS_SLAB, "tan_delta": 0.01,
+                "f_ref_hz": 1e9, "f_low_hz": 1e3, "f_high_hz": 1e12
+            } }
+        ],
+        "boundary_conditions": { "pec": ["walls"] },
+        "wave_ports": [{ "physical_group": "port_in" }, { "physical_group": "port_out" }],
+        "frequencies": { "unit": "k0", "values": [1.8] }
+    });
+    let msg = check_err(write_spec(dir, &v));
+    assert!(
+        msg.contains("geometric wave port `port_in`")
+            && msg.contains("dispersive")
+            && msg.contains("`port_out`"),
+        "{msg}"
+    );
+
+    // `power_voltage` / `voltage_current` on a conductor with no voltage
+    // path: a triaxial face (an inner square sheet conductor inside a
+    // middle square sheet ring inside the shield). The inner conductor
+    // cannot be reached from the shield without crossing the ring.
+    for def in ["power_voltage", "voltage_current"] {
+        let dir = scratch("rej-no-path");
+        let mesh = write_strip_section(&dir, &triaxial_face(), 2, 1.0);
+        let spec = strip_spec(dir, &mesh, [EPS_SLAB, 0.0], &[2.0], |v| {
+            for k in 0..2 {
+                v["wave_ports"][k]["impedance_definition"] = json!(def);
+                v["wave_ports"][k]["n_modes"] = json!(2);
+            }
+        });
+        let msg = check_err(spec);
+        assert!(
+            msg.contains(def)
+                && msg.contains("needs a voltage path")
+                && msg.contains("cannot be reached without crossing another conductor"),
+            "{msg}"
+        );
+    }
+}
+
+/// A triaxial port face: a uniform `[-3, 3]²` grid (step 0.5) with two
+/// closed square PEC sheet rings, `|x|, |y| = 2` (middle) and `|x|, |y| = 1`
+/// (inner), inside the rim shield.
+fn triaxial_face() -> StripFaceMesh {
+    use geode_core::analytic::port_modes::HybridPecMasks;
+    use geode_core::analytic::waveguide::TriMesh;
+    let n = 12usize;
+    let step = 0.5;
+    let xs: Vec<f64> = (0..=n).map(|i| -3.0 + step * i as f64).collect();
+    let id = |i: usize, j: usize| (j * (n + 1) + i) as u32;
+    let mut nodes = Vec::new();
+    for &y in &xs {
+        for &x in &xs {
+            nodes.push([x, y]);
+        }
+    }
+    let mut tris = Vec::new();
+    for j in 0..n {
+        for i in 0..n {
+            let (a, b, c, d) = (id(i, j), id(i + 1, j), id(i + 1, j + 1), id(i, j + 1));
+            tris.push([a, b, c]);
+            tris.push([a, c, d]);
+        }
+    }
+    let mesh = TriMesh { nodes, tris };
+    let on_ring = |p: [f64; 2], r: f64| {
+        let (ax, ay) = (p[0].abs(), p[1].abs());
+        ((ax - r).abs() < 1e-9 && ay <= r + 1e-9) || ((ay - r).abs() < 1e-9 && ax <= r + 1e-9)
+    };
+    let edges = mesh.edges();
+    let ring_edge = |e: &[u32; 2], r: f64| {
+        let (p, q) = (mesh.nodes[e[0] as usize], mesh.nodes[e[1] as usize]);
+        on_ring(p, r) && on_ring(q, r) && ((p[0] - q[0]).abs() < 1e-9 || (p[1] - q[1]).abs() < 1e-9)
+    };
+    let sheet: Vec<bool> = edges
+        .iter()
+        .map(|e| ring_edge(e, 2.0) || ring_edge(e, 1.0))
+        .collect();
+    let masks = HybridPecMasks::from_mesh(&mesh, Some(&sheet));
+    let ring_nodes = |r: f64| -> Vec<bool> { mesh.nodes.iter().map(|&p| on_ring(p, r)).collect() };
+    let shield_nodes: Vec<bool> = mesh
+        .nodes
+        .iter()
+        .map(|p| (p[0].abs() - 3.0).abs() < 1e-9 || (p[1].abs() - 3.0).abs() < 1e-9)
+        .collect();
+    let n_tris = mesh.n_tris();
+    StripFaceMesh {
+        eps_r: vec![EPS_SLAB; n_tris],
+        conductor_nodes: vec![ring_nodes(1.0), ring_nodes(2.0)],
+        shield_nodes,
+        voltage_paths: vec![Vec::new(), Vec::new()],
+        sheet_pec_edges: sheet,
+        masks,
+        xs: xs.clone(),
+        ys: xs,
+        mesh,
+    }
 }

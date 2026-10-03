@@ -468,6 +468,14 @@
             "null"
           ]
         },
+        "impedance_accuracy_threshold": {
+          "description": "Relative error of the line impedance `z_line_ohm` (the port's\n`impedance_definition`) above which a propagating channel on a face\nwith a floating conductor raises an `impedance_accuracy_above_threshold`\nwarning with refine / grade-to hints (finite, `> 0`). Default `0.01`\n(1 %: a 1 % `Z` error renormalizes a matched line to `|S11| ≈ 0.005`,\n−46 dB). The estimate covers mesh error only, not the shield box's\n(physical) effect on a shielded line's impedance.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "n_termination_evanescent": {
           "description": "Evanescent modes terminated beyond the reported channels (`≥ 0`).\nDefault [`DEFAULT_N_TERMINATION_EVANESCENT`] (`4`).",
           "format": "uint",

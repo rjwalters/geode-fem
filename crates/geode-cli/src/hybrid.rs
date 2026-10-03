@@ -27,6 +27,12 @@
 //! * the per-mode accuracy estimate is on, warning above 0.5 % (configurable)
 //!   for `β` and, on a lossy face, for `α`; a failed refined solve degrades
 //!   to an "accuracy unavailable" warning;
+//! * the line-impedance accuracy estimate is on for every channel with a
+//!   line impedance (the `h/2` re-evaluation of `z_line_ohm` at the observed
+//!   rate, `geode_core::driven::ports::ImpedanceAccuracy`), warning above
+//!   1 % (configurable) for the port's `impedance_definition`, on `check`
+//!   and every `driven` run — the impedance `--touchstone` renormalizes to
+//!   must never be silently wrong (#807 review);
 //! * every warning is in the report (`warnings[]`) and on stderr.
 //!
 //! [`DEFAULT_N_TERMINATION_EVANESCENT`]: crate::spec::DEFAULT_N_TERMINATION_EVANESCENT
@@ -36,8 +42,8 @@ use std::time::Instant;
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::driven::ports::{
-    HybridChannelReport, HybridFaceSweep, HybridPortReport, HybridWavePort, PortWarning,
-    PortWarningKind, WavePortSpec, solve_hybrid_port_face_sweep,
+    HybridChannelReport, HybridFaceSweep, HybridPortReport, HybridWavePort, LineImpedance,
+    PortWarning, PortWarningKind, WavePortSpec, solve_hybrid_port_face_sweep,
     solve_mixed_port_spec_sweep_dispersive_with_mode, solve_mixed_port_spec_sweep_with_mode,
     solve_wave_port_spec_sweep_dispersive_with_mode, solve_wave_port_spec_sweep_with_mode,
 };
@@ -51,8 +57,8 @@ use crate::problem::{HybridPortDef, Problem, WavePortDef};
 use crate::progress::{Progress, SweepOptions};
 use crate::report::{
     FaceConductorSummary, FrequencyResult, HybridChannelResult, HybridModeSummary,
-    HybridPointSummary, HybridPortSummary, LineImpedanceResult, SolverStats, WarningResult,
-    WaveModeSummary, WavePortSummary,
+    HybridPointSummary, HybridPortSummary, ImpedanceAccuracyResult, LineImpedanceResult,
+    SolverStats, WarningResult, WaveModeSummary, WavePortSummary,
 };
 use crate::spec::ImpedanceDefinition;
 
@@ -168,7 +174,18 @@ pub fn channel_result(h: &HybridPortDef, c: &HybridChannelReport) -> HybridChann
             ImpedanceDefinition::PowerVoltage => l.z_pv_ohm,
             ImpedanceDefinition::VoltageCurrent => l.z_vi_ohm,
         });
+    let z_line_accuracy = h
+        .impedance_definition
+        .zip(c.impedance_accuracy.as_ref())
+        .and_then(|(d, a)| a.get(line_impedance(d)))
+        .map(|e| ImpedanceAccuracyResult {
+            estimate: e.estimate,
+            z_refined_ohm: cx(e.z_refined),
+            rate: e.rate,
+            rate_observed: e.rate_observed,
+        });
     HybridChannelResult {
+        z_line_accuracy,
         ez_energy_fraction: c.ez_energy_fraction,
         accuracy: c.accuracy.as_ref().map(|a| a.estimate),
         alpha_accuracy: c.alpha_accuracy,
@@ -180,6 +197,15 @@ pub fn channel_result(h: &HybridPortDef, c: &HybridChannelReport) -> HybridChann
         coupled_mode,
         line,
         z_line_ohm,
+    }
+}
+
+/// The core [`LineImpedance`] of an impedance definition.
+pub fn line_impedance(d: ImpedanceDefinition) -> LineImpedance {
+    match d {
+        ImpedanceDefinition::PowerCurrent => LineImpedance::PowerCurrent,
+        ImpedanceDefinition::PowerVoltage => LineImpedance::PowerVoltage,
+        ImpedanceDefinition::VoltageCurrent => LineImpedance::VoltageCurrent,
     }
 }
 
@@ -227,6 +253,11 @@ pub fn summary(
         n_termination_evanescent: h.opts.n_termination_evanescent,
         n_termination_evanescent_clamped: h.termination_clamped,
         accuracy_threshold: h.opts.accuracy.map(|a| a.threshold),
+        impedance_accuracy_threshold: h
+            .opts
+            .accuracy
+            .filter(|_| h.impedance_definition.is_some())
+            .and_then(|a| a.impedance_threshold),
         impedance_definition: h.impedance_definition.map(ImpedanceDefinition::name),
         impedance_note: h.impedance_definition.map(impedance_note),
         observed_rates: report.and_then(|r| r.observed_rates.clone()),
@@ -290,6 +321,10 @@ fn warning_kind(k: &PortWarningKind) -> &'static str {
             "attenuation_accuracy_above_threshold"
         }
         PortWarningKind::AccuracyUnavailable { .. } => "accuracy_unavailable",
+        PortWarningKind::ImpedanceAccuracyAboveThreshold { .. } => {
+            "impedance_accuracy_above_threshold"
+        }
+        PortWarningKind::ImpedanceAccuracyUnavailable { .. } => "impedance_accuracy_unavailable",
         PortWarningKind::MultiplicityUncertified { .. } => "multiplicity_uncertified",
         PortWarningKind::ClusterSplit { .. } => "cluster_split",
         PortWarningKind::NonCanonicalClusterBasis { .. } => "non_canonical_cluster_basis",

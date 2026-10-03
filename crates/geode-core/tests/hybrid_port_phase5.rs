@@ -21,6 +21,12 @@
 //!    a face bounding a conducting tet sees `ε − jσ/ω`, exactly the
 //!    dispersive sweep with that `ε(ω)`.
 //!
+//! 5. **Line-impedance accuracy** (#807 review): `impedance_accuracy`
+//!    (`Z_PI` on the `h/2` face, observed-rate Richardson) tracks the true
+//!    `Z_PI` error of the coarse `8h × 5h` microstrip within 2× (measured
+//!    1.00–1.05×) where the `β` estimate is 10–30× smaller, and raises
+//!    `ImpedanceAccuracyAboveThreshold` with refine / edge-cell hints.
+//!
 //! The failed-refined-solve fallback (#815 review note 1) is a unit test in
 //! `driven::ports::hybrid` (it injects a refinement that cannot be solved).
 //!
@@ -134,6 +140,9 @@ fn report_bits(r: &HybridPortReport) -> Vec<u64> {
             ]);
             if let Some(l) = &c.line {
                 v.extend([l.z_pi.to_bits(), l.power.to_bits()]);
+            }
+            if let Some(a) = &c.impedance_accuracy {
+                v.extend([a.z_pi.estimate.to_bits(), a.z_pi.z_refined.re.to_bits()]);
             }
             if let Some(l) = &c.line_lossy {
                 v.extend([l.z_pi.re.to_bits(), l.z_pi.im.to_bits()]);
@@ -495,4 +504,146 @@ fn hybrid_face_sees_volume_conductivity() {
         }
         e => panic!("expected InvalidPort, got {e:?}"),
     }
+}
+
+/// Quasi-static `Z₀` limit of the `w/h = 1.91`, `ε_r = 4.4` microstrip in a
+/// `bw × bh` shield: three graded levels (`h_min` 0.012 / 0.006 / 0.003,
+/// rate observed, about 0.9) extrapolated (each level costs one P1 Laplace
+/// solve pair).
+fn z_qs_limit(bw: f64, bh: f64) -> f64 {
+    use geode_core::analytic::microstrip::quasi_static_line;
+    let geo = ShieldedStripFace::microstrip(bw, bh, 1.0, 1.91, 4.4);
+    let z: Vec<f64> = [0.012, 0.006, 0.003]
+        .iter()
+        .map(|&h_min| {
+            let f = geo.build(&StripMeshOpts {
+                h_min,
+                h_max: 0.5,
+                ratio: 1.15,
+                mirror_symmetric: true,
+            });
+            quasi_static_line(&f, 0).z0
+        })
+        .collect();
+    let p = ((z[1] - z[0]) / (z[2] - z[1])).log2();
+    z[2] + (z[2] - z[1]) / (2f64.powf(p) - 1.0)
+}
+
+/// **Golden 5** (#807 review: Z₀ must not be silently wrong). The per-channel
+/// line-impedance accuracy estimate (`impedance_accuracy`: `Z_PI` on the
+/// `h/2` face, Richardson with the rate observed over `h, h/2, h/4`):
+///
+/// - **tracks the true `Z_PI` error** within 2× at three coarse levels of
+///   the cookbook's `8h × 5h` microstrip (`w/h = 1.91`, `ε_r = 4.4`). The
+///   truth is the quasi-static limit on the same box (graded levels to
+///   `h_min = 0.003h`, extrapolated), at `k₀h = 0.005`, where `Z_PI → Z_qs`.
+///   The `β` estimate on the same faces is 10–30× smaller: `ε_eff` is a
+///   ratio, so the singular strip-edge error cancels in it;
+/// - **fires** `ImpedanceAccuracyAboveThreshold` (default 1 %) on the
+///   coarse faces, with a refine factor and edge-cell size from the observed
+///   rate (silence on a graded face is the cookbook test's, see below);
+/// - is **not** a shield-box offset detector: the `8h × 5h` limit itself is
+///   about 3 % below the open-line Hammerstad–Jensen `Z₀` (physics).
+#[test]
+fn impedance_accuracy_tracks_the_true_z_error_and_warns() {
+    use geode_core::analytic::microstrip::hammerstad_jensen_z0;
+    let z_ref = z_qs_limit(8.0, 5.0);
+    let hj = hammerstad_jensen_z0(1.91, 4.4);
+    println!(
+        "8h x 5h quasi-static limit {z_ref:.3} Ω, open-line HJ {hj:.3} Ω (shield offset {:.2} %)",
+        100.0 * (z_ref / hj - 1.0)
+    );
+    assert!(
+        (-0.04..-0.025).contains(&(z_ref / hj - 1.0)),
+        "the 8h x 5h shield lowers Z0 by about 3 %"
+    );
+    let omegas = [0.005, 0.01];
+    let geo = ShieldedStripFace::microstrip(8.0, 5.0, 1.0, 1.91, 4.4);
+    let run = |opts: StripMeshOpts| {
+        let face = geo.build(&opts);
+        let sec = strip_line_section(&face, 2, 1.0);
+        let [f1, _] = sec.port_faces().unwrap();
+        let port = HybridWavePort::new(f1, vec![c64::new(1.0, 0.0)]);
+        solve_hybrid_port_face_sweep(&sec.extruded.mesh, &port, 0, &omegas, None).unwrap()
+    };
+    for (h_min, h_max, ratio) in [(0.4, 1.0, 1.5), (0.2, 1.0, 1.5), (0.1, 1.0, 1.5)] {
+        let out = run(StripMeshOpts {
+            h_min,
+            h_max,
+            ratio,
+            mirror_symmetric: true,
+        });
+        let c = &out.report.points[0].channels[0];
+        let z = c.line.as_ref().expect("a line").z_pi;
+        let za = c.impedance_accuracy.expect("a Z estimate").z_pi;
+        let truth = (z_ref - z).abs() / z_ref;
+        let beta_est = c.accuracy.unwrap().estimate;
+        println!(
+            "h_min {h_min}: Z_PI {z:.3} Ω (h/2 {:.3}), true error {:.2} %, estimate {:.2} % \
+             (rate {:.2}, observed {}), β estimate {:.2e}",
+            za.z_refined.re,
+            100.0 * truth,
+            100.0 * za.estimate,
+            za.rate,
+            za.rate_observed,
+            beta_est
+        );
+        assert_eq!(za.z.re, z, "the estimate is of the reported Z_PI");
+        assert!(
+            za.rate_observed,
+            "the rate is observed (h/4 at the first ω)"
+        );
+        assert!(
+            (0.5..=2.0).contains(&(za.estimate / truth)),
+            "estimate {} vs true error {truth}",
+            za.estimate
+        );
+        assert!(beta_est < 0.25 * za.estimate, "β is the wrong proxy for Z");
+        let w: Vec<_> = out
+            .warnings
+            .iter()
+            .filter_map(|w| match &w.kind {
+                PortWarningKind::ImpedanceAccuracyAboveThreshold {
+                    estimate,
+                    threshold,
+                    refine_factor,
+                    rate,
+                    h_min: hm,
+                    h_min_required,
+                    ..
+                } => Some((
+                    w,
+                    *estimate,
+                    *threshold,
+                    *refine_factor,
+                    *rate,
+                    *hm,
+                    *h_min_required,
+                )),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            w.len(),
+            1,
+            "one Z warning: {:?}",
+            messages(&out.warnings, 0)
+        );
+        let (warn, est, thr, f, rate, hm, hm_req) = w[0];
+        assert_eq!(thr, 0.01, "default impedance threshold");
+        assert!(est >= za.estimate, "the worst estimate over the sweep");
+        let want_f = (est / thr).powf(1.0 / rate);
+        assert!(
+            (f - want_f).abs() <= 1e-12 * want_f,
+            "refine factor from the rate"
+        );
+        assert!((hm_req - hm / f).abs() <= 1e-12 * hm);
+        assert!(warn.message.contains("grading toward the conductor edges"));
+        assert!(warn.message.contains("shield box"));
+    }
+
+    // Silence below the threshold is pinned on the graded cookbook face
+    // (geode-cli `tests/cookbook.rs`: `geode check` on
+    // `examples/driven/microstrip_line.json`, Z_PI estimate 0.88 %): a
+    // core face graded that finely costs over a minute here (its h/4 solve).
 }

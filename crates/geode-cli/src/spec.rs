@@ -854,6 +854,15 @@ pub struct HybridPortSpec {
     /// refine-to-`h` hint (finite, `> 0`). Default `0.005` (0.5 %).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accuracy_threshold: Option<f64>,
+    /// Relative error of the line impedance `z_line_ohm` (the port's
+    /// `impedance_definition`) above which a propagating channel on a face
+    /// with a floating conductor raises an `impedance_accuracy_above_threshold`
+    /// warning with refine / grade-to hints (finite, `> 0`). Default `0.01`
+    /// (1 %: a 1 % `Z` error renormalizes a matched line to `|S11| ≈ 0.005`,
+    /// −46 dB). The estimate covers mesh error only, not the shield box's
+    /// (physical) effect on a shielded line's impedance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impedance_accuracy_threshold: Option<f64>,
 }
 
 /// One Leontovich good-conductor surface

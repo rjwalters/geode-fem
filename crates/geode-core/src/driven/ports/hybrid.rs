@@ -185,13 +185,17 @@ use faer::c64;
 use faer::sparse::SparseColMat;
 
 use super::hybrid_lossy::LossyState;
+use super::hybrid_z::{
+    DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD, ImpedanceAccuracy, LineGeom, LineImpedance, LineLevel,
+    ZOutcome, ZWarnings, currents_real, line_real, line_z,
+};
 use super::lumped::LumpedPort;
 use super::mixed::{MixedPortSweepPoint, ModalSmw, PowerWeights, dot_t};
 use super::wave::{WavePort, WavePortSweepPoint, assemble_modal_flux};
 use super::wave_face::{PortFaceError, PortFaceProjection, project_port_face};
 use crate::analytic::port_mode_accuracy::{
-    DEFAULT_ACCURACY_THRESHOLD, ModeAccuracy, UniformRefinement, mesh_size, mode_accuracy,
-    observed_rate, solve_refined,
+    DEFAULT_ACCURACY_THRESHOLD, ModeAccuracy, UniformRefinement, match_refined_modes, mesh_size,
+    mode_accuracy_from_matches, observed_rate, solve_refined,
 };
 use crate::analytic::port_modes::{
     DEGENERATE_REL_TOL, HybridBlocks, HybridComplexMode, HybridComplexPair, HybridPecMasks,
@@ -735,6 +739,17 @@ pub struct PortAccuracyOpts {
     /// (default): `α` is estimated and reported but never warned about. The
     /// `geode` CLI sets it to [`Self::threshold`] (#807).
     pub alpha_threshold: Option<f64>,
+    /// Relative line-impedance error above which a propagating channel of a
+    /// face with floating conductors raises
+    /// [`PortWarningKind::ImpedanceAccuracyAboveThreshold`] (from
+    /// [`HybridChannelReport::impedance_accuracy`], for the impedance
+    /// [`Self::impedance`]; #807 review). Default
+    /// [`DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD`] (1 %). `None`: estimated and
+    /// reported, never warned about.
+    pub impedance_threshold: Option<f64>,
+    /// The line impedance [`Self::impedance_threshold`] is checked on (the
+    /// one a front end renormalizes to). Default `Z_PI`.
+    pub impedance: LineImpedance,
 }
 
 impl Default for PortAccuracyOpts {
@@ -743,6 +758,8 @@ impl Default for PortAccuracyOpts {
             threshold: DEFAULT_ACCURACY_THRESHOLD,
             observe_rate: true,
             alpha_threshold: None,
+            impedance_threshold: Some(DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD),
+            impedance: LineImpedance::PowerCurrent,
         }
     }
 }
@@ -966,6 +983,13 @@ pub struct HybridChannelReport {
     /// `h/2` re-solve ([`crate::analytic::lossy_port_modes::lossy_alpha_estimate`]);
     /// `None` on the real path or when unavailable.
     pub alpha_accuracy: Option<f64>,
+    /// Line-impedance accuracy estimate (`Z_PI`, and `Z_PV` / `Z_VI` with a
+    /// voltage path) of a propagating channel on a face with floating
+    /// conductors, from the same `h/2` re-solve with the **observed**
+    /// impedance rate ([`ImpedanceAccuracy`]); `None` otherwise or
+    /// when unavailable (then
+    /// [`PortWarningKind::ImpedanceAccuracyUnavailable`] says why).
+    pub impedance_accuracy: Option<ImpedanceAccuracy>,
     /// Round-off floor of [`Self::residual`]
     /// ([`HybridPortMode::residual_floor`]).
     pub residual_floor: f64,
@@ -1175,6 +1199,55 @@ pub enum PortWarningKind {
         /// Face mesh size meeting the threshold (`h·(τ/est)^{1/p}` at the
         /// channel's observed or nominal rate `p`).
         h_required: f64,
+    },
+    /// A propagating channel's estimated line-impedance error (of
+    /// [`PortAccuracyOpts::impedance`]) exceeds
+    /// [`PortAccuracyOpts::impedance_threshold`] (#807 review). Covers mesh
+    /// error only: the shield's effect on a shielded line's impedance is
+    /// physics and is not flagged.
+    ImpedanceAccuracyAboveThreshold {
+        /// Channel index within the port.
+        channel: usize,
+        /// Frequency of the worst estimate.
+        omega: f64,
+        /// Which impedance.
+        impedance: LineImpedance,
+        /// The coarse (reported) impedance there (ohms).
+        z: c64,
+        /// Worst estimate of the relative impedance error.
+        estimate: f64,
+        /// Threshold.
+        threshold: f64,
+        /// Convergence rate used.
+        rate: f64,
+        /// `true`: [`Self::ImpedanceAccuracyAboveThreshold::rate`] was
+        /// observed (`h, h/2, h/4`); `false`: the conservative singular rate.
+        rate_observed: bool,
+        /// Uniform refinement factor `(estimate/threshold)^{1/rate}` that
+        /// meets the threshold.
+        refine_factor: f64,
+        /// Current face mesh size (largest edge).
+        h: f64,
+        /// `h / refine_factor`.
+        h_required: f64,
+        /// Current smallest face edge (the conductor-edge cell on a graded
+        /// face).
+        h_min: f64,
+        /// `h_min / refine_factor`: the conductor-edge cell size to grade
+        /// to.
+        h_min_required: f64,
+    },
+    /// The line-impedance estimate of a propagating channel on a face with
+    /// floating conductors could not be formed (refined solve failed, no
+    /// refined match, a degenerate cluster, …); the impedance is reported
+    /// without an error estimate.
+    ImpedanceAccuracyUnavailable {
+        /// Channel index within the port.
+        channel: usize,
+        /// First frequency it was unavailable at.
+        omega: f64,
+        /// Why.
+        reason: String,
     },
     /// The refined counterpart of a channel could not be matched, or the
     /// refined (`h/2`) solve failed; the sweep continued without the estimate.
@@ -2188,6 +2261,8 @@ pub(super) struct FaceCtx {
     /// `max ε_r` of the face (the `k₀²ε_max` scale of the degeneracy test).
     pub(super) eps_max: f64,
     pub(super) h: f64,
+    /// Smallest face edge (the conductor-edge cell of a graded face).
+    pub(super) h_min: f64,
 }
 
 /// Solve outcome of [`FaceCtx::solve`].
@@ -2266,6 +2341,7 @@ impl FaceCtx {
             paths,
             eps_max: port.face.eps_r.iter().copied().fold(1.0_f64, f64::max),
             h: port.face.mesh_size(),
+            h_min: super::hybrid_z::min_edge(&proj.tri_mesh),
         })
     }
 
@@ -2329,33 +2405,10 @@ impl FaceCtx {
         omega * omega * self.eps_max
     }
 
-    /// Signed discrete-Ampère conductor currents of `m` at `k0`:
-    /// `I_c = −(1/k₀η₀) Σ_{k∈c} (Gᵀẽ_t + Sẽ_z − k₀²T_εẽ_z)_k`.
+    /// Signed discrete-Ampère conductor currents of `m` at `k0`
+    /// ([`currents_real`]).
     fn currents(&self, m: &HybridPortMode, k0: f64) -> Vec<f64> {
-        if self.conductors.is_empty() {
-            return Vec::new();
-        }
-        let g = self.blocks.g.as_ref();
-        let (cp, ri, v) = (g.col_ptr(), g.row_idx(), g.val());
-        let mut zrow = vec![0.0; g.ncols()];
-        for (j, o) in zrow.iter_mut().enumerate() {
-            for p in cp[j]..cp[j + 1] {
-                *o += v[p] * m.e_t[ri[p]];
-            }
-        }
-        let s_ez = sparse_matvec(self.blocks.s.as_ref(), &m.e_z);
-        let t_ez = sparse_matvec(self.blocks.t_eps.as_ref(), &m.e_z);
-        let eta = crate::constants::ETA_0_OHM;
-        self.conductors
-            .iter()
-            .map(|c| {
-                let q: f64 = (0..c.len())
-                    .filter(|&k| c[k])
-                    .map(|k| zrow[k] + s_ez[k] - k0 * k0 * t_ez[k])
-                    .sum();
-                -q / (k0 * eta)
-            })
-            .collect()
+        currents_real(&self.blocks, &self.conductors, m, k0)
     }
 
     /// [`Self::currents`] of a complex (lossy) mode, used only to pick the
@@ -2407,37 +2460,9 @@ impl FaceCtx {
     }
 
     /// [`HybridLineReport`] of a propagating mode (`None` without
-    /// conductors or for `β² ≤ 0`).
+    /// conductors or for `β² ≤ 0`; [`line_real`]).
     fn line(&self, m: &HybridPortMode, k0: f64) -> Option<HybridLineReport> {
-        if self.conductors.is_empty() || !m.is_propagating() {
-            return None;
-        }
-        let beta = m.beta.re;
-        let eta = crate::constants::ETA_0_OHM;
-        let w = transverse_pairing_from(&self.d, m);
-        let m1w = sparse_matvec(self.m1.as_ref(), &w);
-        let xbx: f64 = m.e_t.iter().zip(&m1w).map(|(a, b)| a * b).sum();
-        let power = xbx / (2.0 * k0 * eta * beta);
-        let currents = self.currents(m, k0);
-        let voltages: Vec<Option<f64>> = self
-            .paths
-            .iter()
-            .map(|p| {
-                (!p.is_empty()).then(|| p.iter().map(|&(e, sg)| sg * m.e_t[e]).sum::<f64>() / beta)
-            })
-            .collect();
-        let i2: f64 = currents.iter().map(|i| i * i).sum();
-        let z_pi = 2.0 * power / i2;
-        let v2: Option<f64> = voltages.iter().map(|v| v.map(|v| v * v)).sum();
-        let z_pv = v2.map(|v2| v2 / (2.0 * power));
-        Some(HybridLineReport {
-            power,
-            currents,
-            voltages,
-            z_pi,
-            z_pv,
-            z_vi: z_pv.map(|z| (z * z_pi).sqrt()),
-        })
+        line_real(&self.blocks, &self.d, &self.conductors, &self.paths, m, k0)
     }
 
     /// Lift a 2-D edge vector (complex) through `S_p`: the sparse full-length
@@ -2573,6 +2598,13 @@ struct HybridState {
     refined: Option<UniformRefinement>,
     refined2: Option<UniformRefinement>,
     rates: Option<Vec<f64>>,
+    /// Line operators of the `h/2` face (`Some(None)`: they failed to
+    /// assemble) for the impedance estimate.
+    z_h2: Option<Option<LineGeom>>,
+    /// Observed per-channel impedance rates (`[Z_PI, Z_PV, Z_VI]`) at the
+    /// first frequency.
+    z_rates: Option<Vec<[Option<f64>; 3]>>,
+    z_warn: ZWarnings,
     points: Vec<Option<HybridPortPointReport>>,
     pair_warn: Option<PairWarn>,
     dropped_warn: Vec<PortWarningKind>,
@@ -2898,6 +2930,7 @@ impl HybridState {
                 kind,
             });
         }
+        warnings.extend(self.z_warn.into_warnings(p_idx));
         if let Some((omega, n_omegas, verified)) = self.mult_warn {
             warnings.push(multiplicity_warning(p_idx, omega, n_omegas, verified));
         }
@@ -2930,6 +2963,9 @@ impl HybridState {
             refined: None,
             refined2: None,
             rates: None,
+            z_h2: None,
+            z_rates: None,
+            z_warn: ZWarnings::new(k),
             points: vec![None; n_omegas],
             pair_warn: None,
             dropped_warn: Vec::new(),
@@ -3163,10 +3199,20 @@ impl HybridState {
             }
         }
 
-        // --- Accuracy estimate.
+        // --- Line quantities and the accuracy estimate.
+        let lines: Vec<Option<HybridLineReport>> =
+            tracked.iter().map(|m| self.ctx.line(m, omega)).collect();
         let mut accuracy: Vec<Option<ModeAccuracy>> = vec![None; k];
+        let mut z_acc: Vec<Option<ImpedanceAccuracy>> = vec![None; k];
         if let Some(acc) = port.opts.accuracy {
-            accuracy = self.estimate(port, &tracked, omega, first, acc);
+            let z_out;
+            (accuracy, z_out) =
+                self.estimate(port, &tracked, &lines, &cluster_sizes, omega, first, acc);
+            for (c, z) in z_out.iter().enumerate() {
+                self.z_warn
+                    .record(c, omega, z, &acc, self.ctx.h, self.ctx.h_min);
+                z_acc[c] = z.accuracy();
+            }
             for (c, a) in accuracy.iter().enumerate() {
                 match a {
                     None => {
@@ -3212,7 +3258,8 @@ impl HybridState {
                 .zip(&overlaps)
                 .zip(accuracy)
                 .zip(&cluster_sizes)
-                .map(|(((m, &ov), a), &g)| HybridChannelReport {
+                .zip(lines.into_iter().zip(z_acc))
+                .map(|((((m, &ov), a), &g), (line, za))| HybridChannelReport {
                     beta: m.beta,
                     beta_sq: m.beta_sq,
                     beta_sq_im: 0.0,
@@ -3221,10 +3268,11 @@ impl HybridState {
                     accuracy: a,
                     residual: m.residual,
                     alpha_accuracy: None,
+                    impedance_accuracy: za,
                     residual_floor: m.residual_floor,
                     floor_accepted: m.residual > tol && m.residual <= m.residual_floor,
                     cluster_size: g,
-                    line: self.ctx.line(m, omega),
+                    line,
                     line_lossy: None,
                 })
                 .collect(),
@@ -3513,19 +3561,36 @@ impl HybridState {
     }
 
     /// Per-channel accuracy estimate at `omega` (and the observed rates at
-    /// the first frequency). A failed refined (`h/2`) solve gives `None` for
-    /// every channel (reported as [`PortWarningKind::AccuracyUnavailable`]),
-    /// a failed `h/4` rate solve the nominal rate: the estimate is a
-    /// diagnostic and never aborts the sweep (the #815 review's first
-    /// follow-up note; the lossy path already behaves this way).
+    /// the first frequency), with the line-impedance estimate of every
+    /// channel that has a line (`lines`). A failed refined (`h/2`) solve
+    /// gives `None` for every channel (reported as
+    /// [`PortWarningKind::AccuracyUnavailable`] and, for the impedances,
+    /// [`PortWarningKind::ImpedanceAccuracyUnavailable`]), a failed `h/4`
+    /// rate solve the nominal `β` rate and the singular impedance rate: the
+    /// estimate is a diagnostic and never aborts the sweep (the #815
+    /// review's first follow-up note; the lossy path already behaves this
+    /// way).
+    #[allow(clippy::too_many_arguments)]
     fn estimate(
         &mut self,
         port: &HybridWavePort,
         tracked: &[HybridPortMode],
+        lines: &[Option<HybridLineReport>],
+        cluster_sizes: &[usize],
         omega: f64,
         first: bool,
         acc: PortAccuracyOpts,
-    ) -> Vec<Option<ModeAccuracy>> {
+    ) -> (Vec<Option<ModeAccuracy>>, Vec<ZOutcome>) {
+        let unavailable = |why: &str| -> Vec<ZOutcome> {
+            lines
+                .iter()
+                .map(|l| match l {
+                    Some(_) => ZOutcome::Unavailable(why.to_string()),
+                    None => ZOutcome::NotApplicable,
+                })
+                .collect()
+        };
+        let want_z = lines.iter().any(Option::is_some);
         let refined = self.refined.get_or_insert_with(|| port.face.refine());
         let n_ev_tracked = tracked.iter().filter(|m| m.beta_sq < 0.0).count();
         let opts = HybridPortOpts {
@@ -3535,11 +3600,21 @@ impl HybridState {
             ..HybridPortOpts::default()
         };
         let Ok(set_h2) = solve_refined(refined, omega, &opts) else {
-            return vec![None; tracked.len()];
+            return (
+                vec![None; tracked.len()],
+                unavailable("the refined (h/2) solve failed"),
+            );
         };
         let coarse: Vec<&HybridPortMode> = tracked.iter().collect();
+        let matched_h2 = match_refined_modes(refined, &coarse, &set_h2);
+        let face_mesh = &port.face.projection.tri_mesh;
+        if want_z && self.z_h2.is_none() {
+            let level =
+                LineLevel::of_face(&port.face).refine(face_mesh, &port.face.interior_edge_mask);
+            self.z_h2 = Some(LineGeom::new(&refined.mesh, &refined.eps_r, &level));
+        }
         if first && acc.observe_rate && self.rates.is_none() {
-            let base = mode_accuracy(refined, &coarse, &set_h2, None);
+            let base = mode_accuracy_from_matches(&coarse, &set_h2, &matched_h2, None);
             let refined2 = self.refined2.get_or_insert_with(|| {
                 UniformRefinement::new(
                     &refined.mesh,
@@ -3549,23 +3624,41 @@ impl HybridState {
                 )
             });
             let nominal = crate::analytic::port_mode_accuracy::NOMINAL_RATE;
+            let mut z_rates = vec![[None; 3]; tracked.len()];
             let rates = match solve_refined(refined2, omega, &opts) {
                 Ok(set_h4) => {
-                    let matched_h2 = crate::analytic::port_mode_accuracy::match_refined_modes(
-                        refined, &coarse, &set_h2,
-                    );
                     let mid: Vec<&HybridPortMode> = matched_h2
                         .iter()
                         .filter_map(|m| m.map(|(j, _)| &set_h2.modes[j]))
                         .collect();
-                    let fine = mode_accuracy(refined2, &mid, &set_h4, None);
+                    let fine = match_refined_modes(refined2, &mid, &set_h4);
+                    let z_h4 = want_z
+                        .then(|| {
+                            let level = LineLevel::of_face(&port.face)
+                                .refine(face_mesh, &port.face.interior_edge_mask)
+                                .refine(&refined.mesh, &refined.interior_edge_mask);
+                            LineGeom::new(&refined2.mesh, &refined2.eps_r, &level)
+                        })
+                        .flatten();
                     let mut rates = Vec::with_capacity(tracked.len());
                     let mut fi = fine.into_iter();
                     for (c, b) in base.iter().enumerate() {
                         let r = match (b, matched_h2[c]) {
-                            (Some(b), Some(_)) => match fi.next().flatten() {
-                                Some(f) => {
-                                    observed_rate(tracked[c].beta, b.beta_refined, f.beta_refined)
+                            (Some(b), Some((j2, _))) => match fi.next().flatten() {
+                                Some((j4, _)) => {
+                                    let m4 = &set_h4.modes[j4];
+                                    if let (Some(l1), Some(Some(g2)), Some(g4)) =
+                                        (&lines[c], &self.z_h2, &z_h4)
+                                        && let (Some(l2), Some(l4)) =
+                                            (g2.line(&set_h2.modes[j2], omega), g4.line(m4, omega))
+                                    {
+                                        z_rates[c] = super::hybrid_z::observed_rates(
+                                            &line_z(l1),
+                                            &line_z(&l2),
+                                            &line_z(&l4),
+                                        );
+                                    }
+                                    observed_rate(tracked[c].beta, b.beta_refined, m4.beta)
                                 }
                                 None => nominal,
                             },
@@ -3580,6 +3673,7 @@ impl HybridState {
                 Err(_) => vec![nominal; tracked.len()],
             };
             self.rates = Some(rates);
+            self.z_rates = Some(z_rates);
             // Pair hint: linear extrapolation of |Im β²| over h, h/2.
             if let Some(w) = &mut self.pair_warn
                 && w.h_hint.is_none()
@@ -3593,7 +3687,41 @@ impl HybridState {
         {
             w.h_hint = pair_hint(w.beta_sq, &set_h2, self.ctx.h);
         }
-        mode_accuracy(refined, &coarse, &set_h2, self.rates.as_deref())
+        let beta_acc =
+            mode_accuracy_from_matches(&coarse, &set_h2, &matched_h2, self.rates.as_deref());
+        let z = (0..tracked.len())
+            .map(|c| {
+                let Some(l1) = &lines[c] else {
+                    return ZOutcome::NotApplicable;
+                };
+                let Some(Some(g2)) = &self.z_h2 else {
+                    return ZOutcome::Unavailable(
+                        "the refined (h/2) line operators did not assemble".into(),
+                    );
+                };
+                if cluster_sizes[c] > 1 {
+                    return ZOutcome::Unavailable(format!(
+                        "the channel is one of an exactly degenerate cluster of {} modes, whose \
+                         refined counterpart is not unique",
+                        cluster_sizes[c]
+                    ));
+                }
+                let Some((j, _)) = matched_h2[c] else {
+                    return ZOutcome::Unavailable("no refined (h/2) counterpart matched".into());
+                };
+                let Some(l2) = g2.line(&set_h2.modes[j], omega) else {
+                    return ZOutcome::Unavailable(
+                        "the refined (h/2) counterpart is not propagating".into(),
+                    );
+                };
+                let rates = self.z_rates.as_ref().map_or([None; 3], |r| r[c]);
+                match super::hybrid_z::impedance_accuracy(&line_z(l1), &line_z(&l2), &rates) {
+                    Some(a) => ZOutcome::Estimate(a),
+                    None => ZOutcome::Unavailable("a refined line impedance is not finite".into()),
+                }
+            })
+            .collect();
+        (beta_acc, z)
     }
 }
 
@@ -3870,14 +3998,15 @@ mod tests {
                 .expect("the sweep survives a failed accuracy solve");
             st.into_report(0)
         };
-        // Healthy refinement: an estimate, no warning.
+        // Healthy refinement: an estimate (β and Z), no unavailable warning.
         let (report, warnings) = solve_once(false);
         assert!(report.points[0].channels[0].accuracy.is_some());
-        assert!(
-            !warnings
-                .iter()
-                .any(|w| matches!(w.kind, PortWarningKind::AccuracyUnavailable { .. }))
-        );
+        assert!(report.points[0].channels[0].impedance_accuracy.is_some());
+        assert!(!warnings.iter().any(|w| matches!(
+            w.kind,
+            PortWarningKind::AccuracyUnavailable { .. }
+                | PortWarningKind::ImpedanceAccuracyUnavailable { .. }
+        )));
         // Broken refinement: no estimate, an `AccuracyUnavailable` warning,
         // and the same mode.
         let (broken, warnings) = solve_once(true);
@@ -3901,6 +4030,29 @@ mod tests {
             unavailable[0].message.contains("refined solve failed"),
             "{}",
             unavailable[0].message
+        );
+        // The line impedance degrades the same way (#807 review): no Z
+        // estimate, an `ImpedanceAccuracyUnavailable` warning, the same Z.
+        assert!(ch.impedance_accuracy.is_none());
+        assert_eq!(
+            ch.line.as_ref().unwrap().z_pi,
+            report.points[0].channels[0].line.as_ref().unwrap().z_pi
+        );
+        let z_unavailable: Vec<_> = warnings
+            .iter()
+            .filter(|w| {
+                matches!(
+                    &w.kind,
+                    PortWarningKind::ImpedanceAccuracyUnavailable { channel: 0, reason, .. }
+                        if reason.contains("refined (h/2) solve failed")
+                )
+            })
+            .collect();
+        assert_eq!(z_unavailable.len(), 1, "{warnings:?}");
+        assert!(
+            z_unavailable[0]
+                .message
+                .contains("without an error estimate")
         );
     }
 }

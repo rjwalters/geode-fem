@@ -23,8 +23,9 @@ use geode_core::assembly::electrostatic::face_to_tet_map;
 use geode_core::assembly::nedelec::tet_centroids;
 use geode_core::constants::{C_M_PER_S, ETA_0_OHM};
 use geode_core::driven::ports::{
-    HybridPortFace, HybridWavePortOpts, PortAccuracyOpts, PortFaceProjection, PortMedium,
-    TM_GUARD_MARGIN, TmCutoffEstimate, project_port_face,
+    DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD, HybridPortFace, HybridWavePortOpts, LineImpedance,
+    PortAccuracyOpts, PortFaceProjection, PortMedium, TM_GUARD_MARGIN, TmCutoffEstimate,
+    project_port_face,
 };
 use geode_core::driven::solve::{SurfaceImpedanceModel, SurfaceRoughness};
 use geode_core::mesh::patch::box_upml_tensors;
@@ -2982,6 +2983,14 @@ fn validate_open_boundaries(spec: &ProblemSpec) -> Result<(), CliError> {
                 "wave_ports[{name}].hybrid.accuracy_threshold must be finite and > 0 (got {t})"
             )));
         }
+        if let Some(t) = w.hybrid.and_then(|h| h.impedance_accuracy_threshold)
+            && !(t.is_finite() && t > 0.0)
+        {
+            return Err(invalid(format!(
+                "wave_ports[{name}].hybrid.impedance_accuracy_threshold must be finite and > 0 \
+                 (got {t})"
+            )));
+        }
     }
     Ok(())
 }
@@ -3470,26 +3479,23 @@ impl PortMaterials<'_> {
             }
         };
         let accuracy_on = hs.accuracy.unwrap_or(true);
-        if !accuracy_on && hs.accuracy_threshold.is_some() {
-            return Err(invalid(format!(
-                "wave_ports[{name}].hybrid.accuracy_threshold is set but hybrid.accuracy is \
-                 false: the threshold applies to the accuracy estimate — drop one of them"
-            )));
+        for (set, field) in [
+            (hs.accuracy_threshold.is_some(), "accuracy_threshold"),
+            (
+                hs.impedance_accuracy_threshold.is_some(),
+                "impedance_accuracy_threshold",
+            ),
+        ] {
+            if !accuracy_on && set {
+                return Err(invalid(format!(
+                    "wave_ports[{name}].hybrid.{field} is set but hybrid.accuracy is false: the \
+                     threshold applies to the accuracy estimate — drop one of them"
+                )));
+            }
         }
         let threshold = hs
             .accuracy_threshold
             .unwrap_or(geode_core::analytic::port_mode_accuracy::DEFAULT_ACCURACY_THRESHOLD);
-        let opts = HybridWavePortOpts {
-            n_termination_evanescent: n_term,
-            accuracy: accuracy_on.then_some(PortAccuracyOpts {
-                threshold,
-                observe_rate: true,
-                // The attenuation estimate warns at the same threshold (#819
-                // review).
-                alpha_threshold: Some(threshold),
-            }),
-            ..HybridWavePortOpts::default()
-        };
 
         let impedance_definition = if face.conductors.is_empty() {
             if let Some(d) = spec.impedance_definition {
@@ -3520,6 +3526,26 @@ impl PortMaterials<'_> {
                 )));
             }
             Some(d)
+        };
+        let opts = HybridWavePortOpts {
+            n_termination_evanescent: n_term,
+            accuracy: accuracy_on.then_some(PortAccuracyOpts {
+                threshold,
+                observe_rate: true,
+                // The attenuation estimate warns at the same threshold (#819
+                // review).
+                alpha_threshold: Some(threshold),
+                // The line impedance `--touchstone` renormalizes to (#807
+                // review): its own, looser default (`Z` converges at the
+                // strip-edge singular rate, not O(h²)).
+                impedance_threshold: Some(
+                    hs.impedance_accuracy_threshold
+                        .unwrap_or(DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD),
+                ),
+                impedance: impedance_definition
+                    .map_or(LineImpedance::PowerCurrent, crate::hybrid::line_impedance),
+            }),
+            ..HybridWavePortOpts::default()
         };
         Ok(Some(HybridPortDef {
             route,

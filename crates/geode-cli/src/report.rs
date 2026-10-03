@@ -414,6 +414,10 @@ pub struct HybridPortSummary {
     /// Accuracy-warning threshold (relative error of `β`, and of `α` on a
     /// lossy face); `null` with the accuracy estimate off.
     pub accuracy_threshold: Option<f64>,
+    /// Line-impedance accuracy-warning threshold (relative error of
+    /// `z_line_ohm`); `null` with the accuracy estimate off or on a face
+    /// without a floating conductor.
+    pub impedance_accuracy_threshold: Option<f64>,
     /// The line-impedance definition of `z_line_ohm`
     /// (`"power_current"`, `"power_voltage"`, `"voltage_current"`); `null`
     /// on a face without a floating conductor (no line impedance).
@@ -528,6 +532,31 @@ pub struct HybridChannelResult {
     /// that `--touchstone` renormalizes to `reference_ohm`. `null` without
     /// a line impedance.
     pub z_line_ohm: Option<Complex>,
+    /// Estimated discretization error of `z_line_ohm` (`null` without a line
+    /// impedance, with the estimate off, or when unavailable — then an
+    /// `impedance_accuracy_unavailable` warning says why). It does **not**
+    /// include the shield box's effect on a shielded line's impedance
+    /// (physics, not mesh error).
+    pub z_line_accuracy: Option<ImpedanceAccuracyResult>,
+}
+
+/// The line-impedance accuracy estimate of one channel (issue #807
+/// review): `z_line_ohm` re-evaluated on the uniformly refined (`h/2`)
+/// port face, Richardson-extrapolated with the convergence rate observed
+/// over `h, h/2, h/4` (at the first frequency).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ImpedanceAccuracyResult {
+    /// Estimated relative error of `z_line_ohm`:
+    /// `|Z_h − Z_{h/2}| / |Z_{h/2}| / (1 − 2^{−rate})`.
+    pub estimate: f64,
+    /// The impedance on the `h/2` face (ohms).
+    pub z_refined_ohm: Complex,
+    /// Convergence rate used (in `h`; about 1 at a strip edge, whose field
+    /// is singular, so `Z` converges much more slowly than `β`).
+    pub rate: f64,
+    /// `true`: `rate` was observed over `h, h/2, h/4`; `false`: the
+    /// conservative singular rate 1.
+    pub rate_observed: bool,
 }
 
 /// Line impedances of one hybrid channel (issue #807; ohms, complex on a
@@ -558,6 +587,8 @@ pub struct WarningResult {
     /// What it is about: `"complex_pair_terminated"`,
     /// `"complex_pair_dropped"`, `"accuracy_above_threshold"`,
     /// `"attenuation_accuracy_above_threshold"`, `"accuracy_unavailable"`,
+    /// `"impedance_accuracy_above_threshold"`,
+    /// `"impedance_accuracy_unavailable"`,
     /// `"multiplicity_uncertified"`, `"cluster_split"`,
     /// `"non_canonical_cluster_basis"`, `"passivity"` (a lossy spec's
     /// measured `σ_max(S) > 1`), or `"termination_clamped"`.

@@ -66,6 +66,10 @@ use super::hybrid::{
     HybridPortPointReport, HybridPortReport, HybridWavePort, PortAccuracyOpts, PortWarning,
     PortWarningKind, check_lossy_eps, cluster_warning, multiplicity_warning, sym_eig,
 };
+use super::hybrid_z::{
+    ImpedanceAccuracy, LineGeom, LineLevel, ZOutcome, ZWarnings, impedance_accuracy, line_complex,
+    line_z_c, observed_rates,
+};
 use super::wave::invert_complex_dense;
 use crate::analytic::lossy_port_modes::{
     LossyHybridMode, LossyHybridModeSet, LossyRefinement, dot_u, lossy_alpha_estimate,
@@ -87,6 +91,12 @@ pub(super) struct LossyState {
     refined: Option<LossyRefinement>,
     refined2: Option<LossyRefinement>,
     rates: Option<Vec<f64>>,
+    /// Line operators of the `h/2` face (`Some(None)`: they failed to
+    /// assemble) for the impedance estimate.
+    z_h2: Option<Option<LineGeom>>,
+    /// Observed per-channel impedance rates at the first frequency.
+    z_rates: Option<Vec<[Option<f64>; 3]>>,
+    z_warn: ZWarnings,
     points: Vec<Option<HybridPortPointReport>>,
     dropped_warn: Vec<PortWarningKind>,
     acc_warn: Vec<Option<PortWarningKind>>,
@@ -208,6 +218,9 @@ impl LossyState {
             refined: None,
             refined2: None,
             rates: None,
+            z_h2: None,
+            z_rates: None,
+            z_warn: ZWarnings::new(port.n_modes()),
             points: vec![None; n_omegas],
             dropped_warn: Vec::new(),
             acc_warn: vec![None; port.n_modes()],
@@ -385,10 +398,30 @@ impl LossyState {
         }
         let term_real = termination.len();
 
-        // Accuracy estimate.
+        // Line quantities and the accuracy estimate.
+        let lines: Vec<Option<HybridComplexLineReport>> = tracked
+            .iter()
+            .map(|m| lossy_line(&self.ctx, port, m, omega, &eps))
+            .collect();
         let mut accuracy: Vec<Option<ModeAccuracy>> = vec![None; k];
+        let mut z_acc: Vec<Option<ImpedanceAccuracy>> = vec![None; k];
         if let Some(acc) = port.opts.accuracy {
-            accuracy = self.estimate(port, &tracked, &eps, omega, first, acc);
+            let z_out;
+            (accuracy, z_out) = self.estimate(
+                port,
+                &tracked,
+                &lines,
+                &cluster_sizes,
+                &eps,
+                omega,
+                first,
+                acc,
+            );
+            for (c, z) in z_out.iter().enumerate() {
+                self.z_warn
+                    .record(c, omega, z, &acc, self.ctx.h, self.ctx.h_min);
+                z_acc[c] = z.accuracy();
+            }
             for (c, a) in accuracy.iter().enumerate() {
                 match a {
                     None => {
@@ -455,22 +488,26 @@ impl LossyState {
                 .zip(&overlaps)
                 .zip(accuracy)
                 .zip(&cluster_sizes)
-                .map(|(((m, &ov), a), &g)| HybridChannelReport {
-                    beta: m.beta,
-                    beta_sq: m.beta_sq.re,
-                    beta_sq_im: m.beta_sq.im,
-                    ez_energy_fraction: 1.0 - m.transverse_fraction,
-                    track_overlap: ov,
-                    alpha_accuracy: a.as_ref().and_then(lossy_alpha_estimate),
-                    accuracy: a,
-                    residual: m.residual,
-                    residual_floor: m.residual_floor,
-                    floor_accepted: m.residual > tol && m.residual <= m.residual_floor,
-                    cluster_size: g,
-                    // A lossy line's impedance is complex: `line_lossy`.
-                    line: None,
-                    line_lossy: lossy_line(&self.ctx, port, m, omega, &eps),
-                })
+                .zip(lines.into_iter().zip(z_acc))
+                .map(
+                    |((((m, &ov), a), &g), (line_lossy, za))| HybridChannelReport {
+                        beta: m.beta,
+                        beta_sq: m.beta_sq.re,
+                        beta_sq_im: m.beta_sq.im,
+                        ez_energy_fraction: 1.0 - m.transverse_fraction,
+                        track_overlap: ov,
+                        alpha_accuracy: a.as_ref().and_then(lossy_alpha_estimate),
+                        accuracy: a,
+                        impedance_accuracy: za,
+                        residual: m.residual,
+                        residual_floor: m.residual_floor,
+                        floor_accepted: m.residual > tol && m.residual <= m.residual_floor,
+                        cluster_size: g,
+                        // A lossy line's impedance is complex: `line_lossy`.
+                        line: None,
+                        line_lossy,
+                    },
+                )
                 .collect(),
             n_propagating: n_prop,
             termination_real: term_real,
@@ -738,17 +775,32 @@ impl LossyState {
     }
 
     /// Per-channel accuracy at `omega` (and the observed rates at the first
-    /// frequency). A failed refined solve gives `None` (reported as
-    /// unavailable), never an error.
+    /// frequency), with the line-impedance estimate of every channel that
+    /// has a line (`lines`; the real path's rules, [`super::hybrid_z`]). A
+    /// failed refined solve gives `None` (reported as unavailable), never an
+    /// error.
+    #[allow(clippy::too_many_arguments)]
     fn estimate(
         &mut self,
         port: &HybridWavePort,
         tracked: &[LossyHybridMode],
+        lines: &[Option<HybridComplexLineReport>],
+        cluster_sizes: &[usize],
         eps: &[c64],
         omega: f64,
         first: bool,
         acc: PortAccuracyOpts,
-    ) -> Vec<Option<ModeAccuracy>> {
+    ) -> (Vec<Option<ModeAccuracy>>, Vec<ZOutcome>) {
+        let unavailable = |why: &str| -> Vec<ZOutcome> {
+            lines
+                .iter()
+                .map(|l| match l {
+                    Some(_) => ZOutcome::Unavailable(why.to_string()),
+                    None => ZOutcome::NotApplicable,
+                })
+                .collect()
+        };
+        let want_z = lines.iter().any(Option::is_some);
         let f = &port.face;
         let refined = self.refined.get_or_insert_with(|| {
             LossyRefinement::new(
@@ -767,34 +819,97 @@ impl LossyState {
             ..HybridPortOpts::default()
         };
         let Ok(set_h2) = refined.solve(omega, &opts) else {
-            return vec![None; tracked.len()];
+            return (
+                vec![None; tracked.len()],
+                unavailable("the refined (h/2) lossy solve failed"),
+            );
         };
         let coarse: Vec<&LossyHybridMode> = tracked.iter().collect();
+        let level_h2 =
+            || LineLevel::of_face(f).refine(&f.projection.tri_mesh, &f.interior_edge_mask);
+        if want_z && self.z_h2.is_none() {
+            let r = &refined.refinement;
+            self.z_h2 = Some(LineGeom::new(&r.mesh, &r.eps_r, &level_h2()));
+        }
+        let matched = match_refined_lossy_modes(refined, &coarse, &set_h2);
         if first && acc.observe_rate && self.rates.is_none() {
             let base = lossy_mode_accuracy(refined, &coarse, &set_h2, None);
-            let matched = match_refined_lossy_modes(refined, &coarse, &set_h2);
             let refined2 = self.refined2.get_or_insert_with(|| refined.refine());
             let mut rates = vec![NOMINAL_RATE; tracked.len()];
+            let mut z_rates = vec![[None; 3]; tracked.len()];
             if let Ok(set_h4) = refined2.solve(omega, &opts) {
                 let mid: Vec<&LossyHybridMode> = matched
                     .iter()
                     .filter_map(|m| m.map(|(j, _)| &set_h2.modes[j]))
                     .collect();
-                let mut fine = lossy_mode_accuracy(refined2, &mid, &set_h4, None).into_iter();
+                let fine_m = match_refined_lossy_modes(refined2, &mid, &set_h4);
+                let z_h4 = want_z
+                    .then(|| {
+                        let r = &refined.refinement;
+                        let level = level_h2().refine(&r.mesh, &r.interior_edge_mask);
+                        let r2 = &refined2.refinement;
+                        LineGeom::new(&r2.mesh, &r2.eps_r, &level)
+                    })
+                    .flatten();
+                let mut fine = fine_m.into_iter();
                 for (c, b) in base.iter().enumerate() {
-                    if matched[c].is_none() {
+                    let Some((j2, _)) = matched[c] else {
                         continue;
-                    }
+                    };
                     // One fine entry per matched coarse mode (`mid` order).
                     let fm = fine.next().flatten();
-                    if let (Some(b), Some(fm)) = (b, fm) {
-                        rates[c] = observed_rate(tracked[c].beta, b.beta_refined, fm.beta_refined);
+                    if let (Some(b), Some((j4, _))) = (b, fm) {
+                        let m4 = &set_h4.modes[j4];
+                        rates[c] = observed_rate(tracked[c].beta, b.beta_refined, m4.beta);
+                        if let (Some(l1), Some(Some(g2)), Some(g4)) = (&lines[c], &self.z_h2, &z_h4)
+                            && let (Some(l2), Some(l4)) = (
+                                g2.line_lossy(&set_h2.modes[j2], omega, &refined.eps_r),
+                                g4.line_lossy(m4, omega, &refined2.eps_r),
+                            )
+                        {
+                            z_rates[c] =
+                                observed_rates(&line_z_c(l1), &line_z_c(&l2), &line_z_c(&l4));
+                        }
                     }
                 }
             }
             self.rates = Some(rates);
+            self.z_rates = Some(z_rates);
         }
-        lossy_mode_accuracy(refined, &coarse, &set_h2, self.rates.as_deref())
+        let beta_acc = lossy_mode_accuracy(refined, &coarse, &set_h2, self.rates.as_deref());
+        let z = (0..tracked.len())
+            .map(|c| {
+                let Some(l1) = &lines[c] else {
+                    return ZOutcome::NotApplicable;
+                };
+                let Some(Some(g2)) = &self.z_h2 else {
+                    return ZOutcome::Unavailable(
+                        "the refined (h/2) line operators did not assemble".into(),
+                    );
+                };
+                if cluster_sizes[c] > 1 {
+                    return ZOutcome::Unavailable(format!(
+                        "the channel is one of an exactly degenerate cluster of {} modes, whose \
+                         refined counterpart is not unique",
+                        cluster_sizes[c]
+                    ));
+                }
+                let Some((j, _)) = matched[c] else {
+                    return ZOutcome::Unavailable("no refined (h/2) counterpart matched".into());
+                };
+                let Some(l2) = g2.line_lossy(&set_h2.modes[j], omega, &refined.eps_r) else {
+                    return ZOutcome::Unavailable(
+                        "the refined (h/2) counterpart is not propagating".into(),
+                    );
+                };
+                let rates = self.z_rates.as_ref().map_or([None; 3], |r| r[c]);
+                match impedance_accuracy(&line_z_c(l1), &line_z_c(&l2), &rates) {
+                    Some(a) => ZOutcome::Estimate(a),
+                    None => ZOutcome::Unavailable("a refined line impedance is not finite".into()),
+                }
+            })
+            .collect();
+        (beta_acc, z)
     }
 
     /// The port's report and warnings at the end of the sweep.
@@ -886,6 +1001,7 @@ impl LossyState {
                 kind,
             });
         }
+        warnings.extend(self.z_warn.into_warnings(p_idx));
         if let Some((omega, n_omegas, verified)) = self.mult_warn {
             warnings.push(multiplicity_warning(p_idx, omega, n_omegas, verified));
         }
@@ -918,56 +1034,16 @@ fn lossy_line(
     k0: f64,
     eps: &[c64],
 ) -> Option<HybridComplexLineReport> {
-    if ctx.conductors.is_empty() || !m.is_propagating() {
-        return None;
-    }
-    let eta = crate::constants::ETA_0_OHM;
-    // Currents: the real-ε sums of `currents_c` plus the displacement term of
-    // Im ε, `−j k₀² T_{ε″} ẽ_z`, in I = −q/(k₀η₀): `+ j k₀ (T_{ε″}ẽ_z)/η₀`.
-    let mut currents = ctx.currents_c(&m.e_t, &m.e_z, k0);
-    let mesh = &port.face.projection.tri_mesh;
-    let mut t_im = vec![ZERO; mesh.n_nodes()];
-    for (tri, e) in mesh.tris.iter().zip(eps) {
-        if e.im == 0.0 {
-            continue;
-        }
-        let coords = tri.map(|n| mesh.nodes[n as usize]);
-        let (_s, t_loc, _) = crate::analytic::waveguide::tri_p1_local(&coords);
-        for p in 0..3 {
-            for q in 0..3 {
-                t_im[tri[p] as usize] += m.e_z[tri[q] as usize] * (e.im * t_loc[p][q]);
-            }
-        }
-    }
-    for (i, c) in currents.iter_mut().zip(&ctx.conductors) {
-        let t: c64 = (0..c.len()).filter(|&k| c[k]).map(|k| t_im[k]).sum();
-        *i += c64::new(0.0, k0 / eta) * t;
-    }
-    let w = lossy_pairing_vector(&ctx.d, m);
-    let mut m1w = vec![ZERO; w.len()];
-    rmatvec(ctx.m1.as_ref(), &w, &mut m1w);
-    let xbx = dot_u(&m.e_t, &m1w);
-    let power = xbx / (c64::new(2.0 * k0 * eta, 0.0) * m.beta);
-    let voltages: Vec<Option<c64>> = ctx
-        .paths
-        .iter()
-        .map(|p| {
-            (!p.is_empty())
-                .then(|| p.iter().fold(ZERO, |acc, &(e, sg)| acc + m.e_t[e] * sg) / m.beta)
-        })
-        .collect();
-    let i2: c64 = currents.iter().map(|i| i * i).sum();
-    let z_pi = c64::new(2.0, 0.0) * power / i2;
-    let v2: Option<c64> = voltages.iter().map(|v| v.map(|v| v * v)).sum();
-    let z_pv = v2.map(|v2| v2 / (c64::new(2.0, 0.0) * power));
-    Some(HybridComplexLineReport {
-        power,
-        currents,
-        voltages,
-        z_pi,
-        z_pv,
-        z_vi: z_pv.map(|z| (z * z_pi).sqrt()),
-    })
+    line_complex(
+        &ctx.blocks,
+        &ctx.d,
+        &port.face.projection.tri_mesh,
+        &ctx.conductors,
+        &ctx.paths,
+        m,
+        k0,
+        eps,
+    )
 }
 
 /// Exactly degenerate clusters of lossy `modes` (the solver's order):

@@ -34,9 +34,12 @@
 //! - [`solve_hybrid_port_face_sweep`] — the port-face half of a hybrid sweep
 //!   (modes, tracking, line impedances, warnings) without the 3-D solve, for
 //!   front ends that preview a port before solving (Phase 5, issue #807).
+//! - [`ImpedanceAccuracy`] — the per-channel line-impedance accuracy
+//!   estimate (observed-rate Richardson on the `h/2` face; #807 review).
 
 mod hybrid;
 mod hybrid_lossy;
+mod hybrid_z;
 mod lumped;
 pub(crate) mod mixed;
 mod strip_line;
@@ -51,6 +54,10 @@ pub use hybrid::{
     WavePortSpecSweep, solve_hybrid_port_face_sweep,
     solve_mixed_port_spec_sweep_dispersive_with_mode, solve_mixed_port_spec_sweep_with_mode,
     solve_wave_port_spec_sweep_dispersive_with_mode, solve_wave_port_spec_sweep_with_mode,
+};
+pub use hybrid_z::{
+    DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD, ImpedanceAccuracy, ImpedanceEstimate, LineImpedance,
+    MAX_IMPEDANCE_RATE, MIN_IMPEDANCE_RATE, SINGULAR_IMPEDANCE_RATE,
 };
 pub use lumped::{
     LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,

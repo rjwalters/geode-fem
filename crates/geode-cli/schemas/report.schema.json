@@ -2353,6 +2353,17 @@
             "null"
           ]
         },
+        "z_line_accuracy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImpedanceAccuracyResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Estimated discretization error of `z_line_ohm` (`null` without a line\nimpedance, with the estimate off, or when unavailable — then an\n`impedance_accuracy_unavailable` warning says why). It does **not**\ninclude the shield box's effect on a shielded line's impedance\n(physics, not mesh error)."
+        },
         "z_line_ohm": {
           "description": "The channel's characteristic impedance under the port's\n`impedance_definition` (ohms; complex on a lossy face): the `Z_c`\nthat `--touchstone` renormalizes to `reference_ohm`. `null` without\na line impedance.",
           "items": {
@@ -2378,7 +2389,8 @@
         "cluster_size",
         "coupled_mode",
         "line",
-        "z_line_ohm"
+        "z_line_ohm",
+        "z_line_accuracy"
       ],
       "type": "object"
     },
@@ -2512,6 +2524,14 @@
             "null"
           ]
         },
+        "impedance_accuracy_threshold": {
+          "description": "Relative error of the line impedance `z_line_ohm` (the port's\n`impedance_definition`) above which a propagating channel on a face\nwith a floating conductor raises an `impedance_accuracy_above_threshold`\nwarning with refine / grade-to hints (finite, `> 0`). Default `0.01`\n(1 %: a 1 % `Z` error renormalizes a matched line to `|S11| ≈ 0.005`,\n−46 dB). The estimate covers mesh error only, not the shield box's\n(physical) effect on a shielded line's impedance.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "n_termination_evanescent": {
           "description": "Evanescent modes terminated beyond the reported channels (`≥ 0`).\nDefault [`DEFAULT_N_TERMINATION_EVANESCENT`] (`4`).",
           "format": "uint",
@@ -2552,6 +2572,14 @@
             "$ref": "#/$defs/HybridPointSummary"
           },
           "type": "array"
+        },
+        "impedance_accuracy_threshold": {
+          "description": "Line-impedance accuracy-warning threshold (relative error of\n`z_line_ohm`); `null` with the accuracy estimate off or on a face\nwithout a floating conductor.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "impedance_definition": {
           "description": "The line-impedance definition of `z_line_ohm`\n(`\"power_current\"`, `\"power_voltage\"`, `\"voltage_current\"`); `null`\non a face without a floating conductor (no line impedance).",
@@ -2646,10 +2674,47 @@
         "n_termination_evanescent",
         "n_termination_evanescent_clamped",
         "accuracy_threshold",
+        "impedance_accuracy_threshold",
         "impedance_definition",
         "impedance_note",
         "observed_rates",
         "worst_track_overlap"
+      ],
+      "type": "object"
+    },
+    "ImpedanceAccuracyResult": {
+      "description": "The line-impedance accuracy estimate of one channel (issue #807\nreview): `z_line_ohm` re-evaluated on the uniformly refined (`h/2`)\nport face, Richardson-extrapolated with the convergence rate observed\nover `h, h/2, h/4` (at the first frequency).",
+      "properties": {
+        "estimate": {
+          "description": "Estimated relative error of `z_line_ohm`:\n`|Z_h − Z_{h/2}| / |Z_{h/2}| / (1 − 2^{−rate})`.",
+          "format": "double",
+          "type": "number"
+        },
+        "rate": {
+          "description": "Convergence rate used (in `h`; about 1 at a strip edge, whose field\nis singular, so `Z` converges much more slowly than `β`).",
+          "format": "double",
+          "type": "number"
+        },
+        "rate_observed": {
+          "description": "`true`: `rate` was observed over `h, h/2, h/4`; `false`: the\nconservative singular rate 1.",
+          "type": "boolean"
+        },
+        "z_refined_ohm": {
+          "description": "The impedance on the `h/2` face (ohms).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "estimate",
+        "z_refined_ohm",
+        "rate",
+        "rate_observed"
       ],
       "type": "object"
     },
@@ -4845,7 +4910,7 @@
       "description": "A report-level warning (issue #807; additive in v1): never an error,\nalso printed on stderr as `warning: …`.",
       "properties": {
         "kind": {
-          "description": "What it is about: `\"complex_pair_terminated\"`,\n`\"complex_pair_dropped\"`, `\"accuracy_above_threshold\"`,\n`\"attenuation_accuracy_above_threshold\"`, `\"accuracy_unavailable\"`,\n`\"multiplicity_uncertified\"`, `\"cluster_split\"`,\n`\"non_canonical_cluster_basis\"`, `\"passivity\"` (a lossy spec's\nmeasured `σ_max(S) > 1`), or `\"termination_clamped\"`.",
+          "description": "What it is about: `\"complex_pair_terminated\"`,\n`\"complex_pair_dropped\"`, `\"accuracy_above_threshold\"`,\n`\"attenuation_accuracy_above_threshold\"`, `\"accuracy_unavailable\"`,\n`\"impedance_accuracy_above_threshold\"`,\n`\"impedance_accuracy_unavailable\"`,\n`\"multiplicity_uncertified\"`, `\"cluster_split\"`,\n`\"non_canonical_cluster_basis\"`, `\"passivity\"` (a lossy spec's\nmeasured `σ_max(S) > 1`), or `\"termination_clamped\"`.",
           "type": "string"
         },
         "message": {

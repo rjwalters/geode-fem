@@ -8,7 +8,9 @@
 //!   them (the golden tests pin the numbers the READMEs quote), so a
 //!   fixture change cannot leave a stale cookbook copy behind.
 //! * `geode check` passes on every cookbook spec and classifies it as the
-//!   documented analysis.
+//!   documented analysis (the microstrip spec in the release `--ignored`
+//!   tier, where its `Z_PI` is also pinned within 2 % of 50 Ω with no
+//!   impedance-accuracy warning).
 //! * **Gmsh** (default tier): every cookbook layout runs through `geode
 //!   mesh --analysis <a>`; the mesh report validates against the report
 //!   schema, the starter spec against the spec schema, and the starter
@@ -320,10 +322,63 @@ fn every_cookbook_spec_passes_geode_check() {
         let Input::Spec(analysis) = *input else {
             continue;
         };
+        if *path == MICROSTRIP {
+            // Release tier: `microstrip_cookbook_check_lands_near_50_ohm`.
+            continue;
+        }
         let spec = examples().join(path);
         let v = ok(geode(&["check", s(&spec)]), &format!("geode check {path}"));
         assert_eq!(v["analysis"], analysis, "{path}");
     }
+}
+
+/// The microstrip cookbook spec (its `geode check` runs in the release
+/// tier).
+const MICROSTRIP: &str = "driven/microstrip_line.json";
+
+/// `geode check` on the microstrip cookbook. Release tier: its face is
+/// graded finely toward the strip edges, and the accuracy estimate's `h/4`
+/// re-solve of that face takes about 4 min in debug (7 s in release).
+#[test]
+#[ignore = "release tier (minutes in debug): run with --release -- --ignored"]
+fn microstrip_cookbook_check_lands_near_50_ohm() {
+    let spec = examples().join(MICROSTRIP);
+    let v = ok(
+        geode(&["check", s(&spec)]),
+        "geode check microstrip_line.json",
+    );
+    assert_eq!(v["analysis"], "driven");
+    microstrip_cookbook_lands_near_50_ohm(&v);
+}
+
+/// The microstrip cookbook (#807 review): its graded `20h × 12h` face puts
+/// `Z_PI` within 2 % of the 50 Ω design (about 1.4 % low: 0.6 % is the
+/// shield box's physical offset, the rest mesh error) and the line-impedance
+/// accuracy estimate (about 0.9 %) under its 1 % default, so `check` raises
+/// no impedance warning.
+fn microstrip_cookbook_lands_near_50_ohm(v: &Value) {
+    for wp in v["wave_ports"].as_array().unwrap() {
+        let h = &wp["hybrid"];
+        for pt in h["frequencies"].as_array().unwrap() {
+            let ch = &pt["channels"][0]["hybrid"];
+            let z = ch["z_line_ohm"][0].as_f64().unwrap();
+            let est = ch["z_line_accuracy"]["estimate"].as_f64().unwrap();
+            println!(
+                "cookbook microstrip: Z_PI {z:.3} Ω, Z estimate {:.2} %",
+                100.0 * est
+            );
+            assert!((z / 50.0 - 1.0).abs() < 0.02, "Z_PI {z} within 2 % of 50 Ω");
+            assert!(est < 0.01, "Z estimate {est} under the 1 % default");
+        }
+    }
+    let warnings = v["warnings"].as_array().map_or(&[][..], Vec::as_slice);
+    assert!(
+        !warnings
+            .iter()
+            .any(|w| w["kind"] == "impedance_accuracy_above_threshold"
+                || w["kind"] == "impedance_accuracy_unavailable"),
+        "{warnings:?}"
+    );
 }
 
 #[test]
