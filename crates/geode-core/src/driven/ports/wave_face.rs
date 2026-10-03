@@ -43,7 +43,17 @@
 //! waveguide cross-section). Cross-sections supporting a TEM mode
 //! (multiply connected, e.g. coax) inherit the modal solver's
 //! limitation: the TEM mode lives in the gradient nullspace and is
-//! filtered out.
+//! filtered out. The modes are **TE only** (issue #808): a TM mode's
+//! transverse field `∇_t E_z` is in the same filtered nullspace, so a
+//! sweep at or above the lowest TM cutoff has an unterminated propagating
+//! channel and silently wrong S. The face P1 value
+//! ([`PortFaceProjection::lowest_tm_cutoff`]) is an **upper** bound on
+//! that cutoff, not the cutoff of the 3-D driven model; the guard
+//! threshold is [`TmCutoffEstimate::guard_k_c`] (Richardson-extrapolated
+//! face value less [`TM_GUARD_MARGIN`]), from
+//! [`PortFaceProjection::tm_cutoff_estimate`]. The `geode` CLI rejects
+//! sweeps at or above it (and wave ports whose rim is not entirely on a
+//! conductor wall); library callers must keep below it themselves.
 
 use std::collections::HashMap;
 
@@ -226,6 +236,116 @@ impl PortFaceProjection {
             });
         }
         Ok(modes)
+    }
+
+    /// Lowest **TM** cutoff wavenumber `k_c^TM` of the port mesh
+    /// (geometric: rad / mesh length unit, empty guide), issue #808.
+    ///
+    /// [`Self::solve_modes`] returns **TE modes only**: the 2-D Nédélec
+    /// pencil holds `E_t`, and a TM mode's transverse field
+    /// `E_t ∝ ∇_t E_z` lies in the gradient null space that the solver
+    /// filters out. This is the lowest eigenvalue of the P1 scalar
+    /// Laplacian for `E_z` on the projected face,
+    ///
+    /// ```text
+    /// ∫ ∇φ_i·∇φ_j dA · E_z = k_c² ∫ φ_i φ_j dA · E_z,
+    /// ```
+    ///
+    /// with `E_z = 0` (Dirichlet) at every node of a **conductor** rim
+    /// edge. By default every rim edge is a conductor (the PEC rim the TE
+    /// modes also assume). `open_rim`, aligned with [`Self::edges`], marks
+    /// rim edges that are **not** a conductor wall (`true`); `E_z` is left
+    /// free there (the natural, PMC-like condition `∂E_z/∂n = 0`), which
+    /// lowers the cutoff. Entries for interior edges are ignored.
+    ///
+    /// **This is not a safe guard threshold on its own.** It is a
+    /// Rayleigh-Ritz value, so it sits **above** the continuum cutoff on a
+    /// coarse face, and it is **not** the TM cutoff of the 3-D lowest-order
+    /// Nédélec model the driven solve uses (a z-invariant P1 `E_z` with
+    /// zero transverse field is not in the tet Nédélec space). That 3-D
+    /// cutoff can lie **below** the continuum value on a coarse axial
+    /// mesh. On an 8 × 4 face of a `2 × 1` guide: face P1 3.661, continuum
+    /// TM₁₁ 3.512, 3-D Nédélec TM₁₁ 3.349 with one tet layer of 0.5 and
+    /// 3.494 with layers of 0.25. Use [`Self::tm_cutoff_estimate`] and its
+    /// [`TmCutoffEstimate::guard_k_c`] for the TE-only port guard.
+    ///
+    /// Returns `0.0` when no rim node is constrained (`E_z` free on the
+    /// whole rim: the constant field), and `f64::INFINITY` when every face
+    /// node is constrained (the face carries no `E_z` DOF, so the
+    /// discrete port has no TM mode).
+    ///
+    /// # Errors
+    ///
+    /// [`PortFaceError::Modal`] if the sparse eigensolve fails or does not
+    /// converge.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `open_rim` is given with a length other than
+    /// `self.edges.len()`.
+    pub fn lowest_tm_cutoff(&self, open_rim: Option<&[bool]>) -> Result<f64, PortFaceError> {
+        let fixed_edges = self.tm_conductor_rim_edges(open_rim);
+        p1_dirichlet_lowest(&self.tri_mesh.nodes, &self.tri_mesh.tris, &fixed_edges)
+    }
+
+    /// The TE-only wave-port guard's estimate of the lowest **TM** cutoff
+    /// (issue #808): the face P1 value [`Self::lowest_tm_cutoff`] on the
+    /// port mesh and on two uniform refinements of it (each triangle split
+    /// in four at its edge midpoints), Richardson-extrapolated to the
+    /// continuum with the **measured** convergence order.
+    ///
+    /// With `k_h`, `k_{h/2}`, `k_{h/4}` the three face values, the observed
+    /// order is `p = log₂((k_h − k_{h/2})/(k_{h/2} − k_{h/4}))`, clamped to
+    /// `[0.5, 2]` (P1 Dirichlet eigenvalues converge at `O(h²)` on a convex
+    /// face and slower next to a re-entrant corner; a larger `p` would
+    /// under-correct, so the clamp only ever lowers the estimate), and
+    /// `k_ext = k_{h/4} − (k_{h/2} − k_{h/4})/(2ᵖ − 1)`. On the 8 × 4 face
+    /// of a `2 × 1` guide this gives 3.5124 against the analytic
+    /// TM₁₁ = 3.5124. If the sequence is already converged (or not
+    /// monotone because it is at round-off), `k_ext = min` of the three.
+    ///
+    /// `open_rim` is as in [`Self::lowest_tm_cutoff`]; an open rim edge
+    /// stays open (both halves) under refinement.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::lowest_tm_cutoff`].
+    ///
+    /// # Panics
+    ///
+    /// As [`Self::lowest_tm_cutoff`].
+    pub fn tm_cutoff_estimate(
+        &self,
+        open_rim: Option<&[bool]>,
+    ) -> Result<TmCutoffEstimate, PortFaceError> {
+        let fixed0 = self.tm_conductor_rim_edges(open_rim);
+        let (n1, t1, f1) = refine_tri_mesh(&self.tri_mesh.nodes, &self.tri_mesh.tris, &fixed0);
+        let (n2, t2, f2) = refine_tri_mesh(&n1, &t1, &f1);
+        let k = [
+            p1_dirichlet_lowest(&self.tri_mesh.nodes, &self.tri_mesh.tris, &fixed0)?,
+            p1_dirichlet_lowest(&n1, &t1, &f1)?,
+            p1_dirichlet_lowest(&n2, &t2, &f2)?,
+        ];
+        Ok(TmCutoffEstimate::from_levels(k))
+    }
+
+    /// The rim edges (local node indices, lower first) on which `E_z` is
+    /// pinned: every rim edge not marked in `open_rim`.
+    fn tm_conductor_rim_edges(&self, open_rim: Option<&[bool]>) -> Vec<[u32; 2]> {
+        if let Some(o) = open_rim {
+            assert_eq!(
+                o.len(),
+                self.edges.len(),
+                "open_rim must be aligned with the port-face edges"
+            );
+        }
+        self.edges
+            .iter()
+            .zip(&self.interior_edge_mask)
+            .enumerate()
+            .filter(|&(i, (_, &interior))| !interior && !open_rim.is_some_and(|o| o[i]))
+            .map(|(_, (e, _))| *e)
+            .collect()
     }
 
     /// Build a [`WavePort`] on this face carrying one mode per entry of
@@ -491,4 +611,369 @@ pub fn wave_port_from_faces(
     a_inc: &[c64],
 ) -> Result<WavePort, PortFaceError> {
     project_port_face(mesh, faces)?.wave_port(mesh_edges, a_inc)
+}
+
+/// Relative margin `δ` of the TE-only wave-port TM guard (issue #808):
+/// a sweep is rejected at `k₀ ≥ (1 − δ)·k_c^TM` (filled), with `k_c^TM`
+/// the extrapolated estimate of [`TmCutoffEstimate`].
+///
+/// Why a margin at all: the driven solve's 3-D lowest-order Nédélec
+/// discretization has its **own** TM cutoff, and on a coarse axial mesh it
+/// sits **below** the continuum value (numerical dispersion along the
+/// guide). Measured on an all-PEC `2 × 1 × 0.5` box (8 × 4 face, TM₁₁ =
+/// 3.5124): 3-D TM₁₁₀ = 3.349 with one tet layer (`h_z = 0.5`, twice the
+/// face spacing; −4.6 %), 3.494 with two (−0.5 %), 3.529 with four. 5 %
+/// covers an axial spacing up to about twice the in-face spacing at the
+/// port. It does **not** scale with the mesh: the axial spacing is a
+/// property of the volume mesh, not the face, and an even coarser axial
+/// mesh near a port can push the 3-D TM cutoff further down. The margin
+/// also absorbs the `Re ε_n` approximation of a lossy uniaxial fill
+/// ([`super::wave::PortMedium::tm_cutoff_k0`]: `√(1 + tan²δ_n)` too high,
+/// 0.2 % at `tan δ_n = 0.067`).
+pub const TM_GUARD_MARGIN: f64 = 0.05;
+
+/// The TE-only wave-port guard's estimate of a face's lowest **TM**
+/// cutoff (issue #808), from [`PortFaceProjection::tm_cutoff_estimate`].
+/// All values are geometric (empty guide, rad / mesh length unit).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TmCutoffEstimate {
+    /// Face P1 value on the port mesh ([`PortFaceProjection::lowest_tm_cutoff`];
+    /// a Rayleigh-Ritz **upper** bound on the continuum cutoff).
+    pub k_face: f64,
+    /// The same on the once-refined face (`h/2`).
+    pub k_half: f64,
+    /// The same on the twice-refined face (`h/4`).
+    pub k_quarter: f64,
+    /// Convergence order used for the extrapolation (the observed order
+    /// clamped to `[0.5, 2]`); `None` when the sequence was converged or
+    /// not monotone and no extrapolation was applied.
+    pub order: Option<f64>,
+    /// Richardson-extrapolated continuum estimate, `≤` every level.
+    pub k_extrapolated: f64,
+}
+
+impl TmCutoffEstimate {
+    /// Build from the three face values `[k_h, k_{h/2}, k_{h/4}]`.
+    pub fn from_levels(k: [f64; 3]) -> Self {
+        let [k0, k1, k2] = k;
+        let lowest = k0.min(k1).min(k2);
+        let (d1, d2) = (k0 - k1, k1 - k2);
+        let finite = k.iter().all(|x| x.is_finite() && *x > 0.0);
+        let (order, k_ext) = if finite && d1 > 0.0 && d2 > 1e-12 * k2 {
+            let p = (d1 / d2).log2().clamp(0.5, 2.0);
+            (Some(p), (k2 - d2 / (p.exp2() - 1.0)).min(lowest))
+        } else {
+            (None, lowest)
+        };
+        Self {
+            k_face: k0,
+            k_half: k1,
+            k_quarter: k2,
+            order,
+            k_extrapolated: k_ext.max(0.0),
+        }
+    }
+
+    /// The geometric TM cutoff the TE-only guard rejects at:
+    /// `(1 − δ)·min(k_face, k_extrapolated)` with `δ` = [`TM_GUARD_MARGIN`].
+    /// Scale by `1/√(Re ε_n·μ_t)` for a filled guide
+    /// ([`super::wave::PortMedium::tm_cutoff_k0`]).
+    pub fn guard_k_c(&self) -> f64 {
+        (1.0 - TM_GUARD_MARGIN) * self.k_face.min(self.k_extrapolated)
+    }
+}
+
+/// Uniformly refine a triangle mesh (each triangle split in four at its
+/// edge midpoints) and carry the Dirichlet edge set: both halves of a
+/// fixed edge are fixed. Edge keys are lower-index first.
+#[allow(clippy::type_complexity)]
+fn refine_tri_mesh(
+    nodes: &[[f64; 2]],
+    tris: &[[u32; 3]],
+    fixed_edges: &[[u32; 2]],
+) -> (Vec<[f64; 2]>, Vec<[u32; 3]>, Vec<[u32; 2]>) {
+    let key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+    let mut new_nodes = nodes.to_vec();
+    let mut mid: HashMap<[u32; 2], u32> = HashMap::new();
+    let mut midpoint = |a: u32, b: u32, new_nodes: &mut Vec<[f64; 2]>| -> u32 {
+        *mid.entry(key(a, b)).or_insert_with(|| {
+            let (p, q) = (nodes[a as usize], nodes[b as usize]);
+            new_nodes.push([0.5 * (p[0] + q[0]), 0.5 * (p[1] + q[1])]);
+            (new_nodes.len() - 1) as u32
+        })
+    };
+    let mut new_tris = Vec::with_capacity(4 * tris.len());
+    for &[a, b, c] in tris {
+        let ab = midpoint(a, b, &mut new_nodes);
+        let bc = midpoint(b, c, &mut new_nodes);
+        let ca = midpoint(c, a, &mut new_nodes);
+        // Same winding as the parent.
+        new_tris.extend_from_slice(&[[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]]);
+    }
+    let new_fixed = fixed_edges
+        .iter()
+        .flat_map(|&[a, b]| {
+            let m = midpoint(a, b, &mut new_nodes);
+            [key(a, m), key(m, b)]
+        })
+        .collect();
+    (new_nodes, new_tris, new_fixed)
+}
+
+/// Lowest eigenvalue `√λ₁` of the P1 Laplacian on `(nodes, tris)` with
+/// `E_z = 0` at every node of `fixed_edges` (see
+/// [`PortFaceProjection::lowest_tm_cutoff`] for the conventions: `0.0`
+/// with no constrained node, `∞` with no free node).
+fn p1_dirichlet_lowest(
+    nodes: &[[f64; 2]],
+    tris: &[[u32; 3]],
+    fixed_edges: &[[u32; 2]],
+) -> Result<f64, PortFaceError> {
+    use faer::sparse::{SparseColMat, Triplet};
+
+    let n_nodes = nodes.len();
+    let mut fixed = vec![false; n_nodes];
+    for e in fixed_edges {
+        fixed[e[0] as usize] = true;
+        fixed[e[1] as usize] = true;
+    }
+    if !fixed.iter().any(|&f| f) {
+        return Ok(0.0);
+    }
+    let mut renumber = vec![usize::MAX; n_nodes];
+    let mut dim = 0usize;
+    for (r, &f) in renumber.iter_mut().zip(&fixed) {
+        if !f {
+            *r = dim;
+            dim += 1;
+        }
+    }
+    if dim == 0 {
+        return Ok(f64::INFINITY);
+    }
+
+    let mut area = 0.0_f64;
+    let mut k_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(9 * dim);
+    let mut m_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(9 * dim);
+    for tri in tris {
+        let coords = tri.map(|n| nodes[n as usize]);
+        let (k_local, m_local, tri_area) = crate::analytic::waveguide::tri_p1_local(&coords);
+        area += tri_area.abs();
+        for i in 0..3 {
+            let ri = renumber[tri[i] as usize];
+            if ri == usize::MAX {
+                continue;
+            }
+            for j in 0..3 {
+                let rj = renumber[tri[j] as usize];
+                if rj == usize::MAX {
+                    continue;
+                }
+                k_trips.push(Triplet::new(ri, rj, k_local[i][j]));
+                m_trips.push(Triplet::new(ri, rj, m_local[i][j]));
+            }
+        }
+    }
+    let sparse = |t: &[Triplet<usize, usize, f64>]| {
+        SparseColMat::<usize, f64>::try_new_from_triplets(dim, dim, t).map_err(|e| {
+            PortFaceError::Modal(EigenError::FaerGevd(format!(
+                "TM cutoff (P1 Laplacian) sparse assembly: {e:?}"
+            )))
+        })
+    };
+    let k = sparse(&k_trips)?;
+    let m = sparse(&m_trips)?;
+    let apply = |t: &[Triplet<usize, usize, f64>], x: &[f64]| {
+        let mut y = vec![0.0_f64; dim];
+        for tr in t {
+            y[tr.row] += tr.val * x[tr.col];
+        }
+        y
+    };
+
+    // Shift below the spectrum (K − σM is SPD for σ < 0 even with a free
+    // rim), scaled to the face: λ₁ ~ 2π²/area for a square.
+    let sigma = -1.0 / area;
+    let mut max_iters = dim.min(48);
+    loop {
+        let solver = crate::eigen::lanczos::SparseShiftInvertLanczos {
+            sigma,
+            max_iters,
+            tol: 1e-12,
+            inner: crate::eigen::lanczos::InnerSolver::Direct,
+            precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
+        };
+        let pairs = solver.smallest_eigenpairs(k.as_ref(), m.as_ref(), 1)?;
+        let best = pairs
+            .into_iter()
+            .min_by(|a, b| a.lambda.total_cmp(&b.lambda));
+        if let Some(p) = best {
+            // Explicit residual: the Ritz pair is accepted only once
+            // ‖Kx − λMx‖ is small next to ‖Kx‖ + |λ|‖Mx‖.
+            let kx = apply(&k_trips, &p.vector);
+            let mx = apply(&m_trips, &p.vector);
+            let norm = |v: &[f64]| v.iter().map(|x| x * x).sum::<f64>().sqrt();
+            let r: Vec<f64> = kx.iter().zip(&mx).map(|(a, b)| a - p.lambda * b).collect();
+            let scale = norm(&kx) + p.lambda.abs() * norm(&mx);
+            if p.lambda.is_finite() && scale > 0.0 && norm(&r) <= 1e-8 * scale {
+                return Ok(p.lambda.max(0.0).sqrt());
+            }
+        }
+        if max_iters >= dim {
+            return Err(PortFaceError::Modal(EigenError::FaerGevd(format!(
+                "TM cutoff (P1 Laplacian, {dim} DOFs): the lowest eigenpair did not \
+                 converge with a {max_iters}-vector Lanczos basis"
+            ))));
+        }
+        max_iters = (4 * max_iters).min(dim);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::driven::ports::extruded_rect_waveguide_mesh;
+    use std::f64::consts::PI;
+
+    fn rect_face(nx: usize, ny: usize, a: f64, b: f64) -> PortFaceProjection {
+        let g = extruded_rect_waveguide_mesh(nx, ny, 1, a, b, 0.5);
+        project_port_face(&g.mesh, &g.port1_faces).expect("rect face")
+    }
+
+    /// Issue #808: the PEC-rim TM cutoff of an `a × b` face converges to
+    /// TM₁₁ = `√((π/a)² + (π/b)²)` from above (Rayleigh-Ritz).
+    #[test]
+    fn rect_face_tm_cutoff_converges_to_tm11_from_above() {
+        let (a, b) = (2.0, 1.0);
+        let tm11 = ((PI / a).powi(2) + (PI / b).powi(2)).sqrt();
+        let mut prev = f64::INFINITY;
+        for n in [4, 8, 16] {
+            let k = rect_face(2 * n, n, a, b).lowest_tm_cutoff(None).unwrap();
+            assert!(k > tm11 && k < prev, "n = {n}: k_c^TM = {k} vs TM11 {tm11}");
+            prev = k;
+        }
+        assert!((prev - tm11) / tm11 < 5e-3, "16 × 32: {prev} vs {tm11}");
+    }
+
+    /// An open (non-conductor) rim edge frees `E_z` there: with the
+    /// `y = b` side open the lowest TM mode is
+    /// `sin(πx/a)·sin(πy/(2b))`, `k_c = √((π/a)² + (π/2b)²)` — lower than
+    /// the all-PEC value (the guard's conservative direction). A fully
+    /// open rim gives 0; a face with no free node gives ∞.
+    #[test]
+    fn open_rim_edges_lower_the_tm_cutoff() {
+        let (a, b) = (2.0, 1.0);
+        let face = rect_face(32, 16, a, b);
+        let g = extruded_rect_waveguide_mesh(32, 16, 1, a, b, 0.5);
+        let open: Vec<bool> = face
+            .global_edges
+            .iter()
+            .zip(&face.interior_edge_mask)
+            .map(|(e, &interior)| {
+                !interior
+                    && e.iter()
+                        .all(|&n| (g.mesh.nodes[n as usize][1] - b).abs() < 1e-12)
+            })
+            .collect();
+        assert_eq!(open.iter().filter(|&&o| o).count(), 32);
+        let want = ((PI / a).powi(2) + (PI / (2.0 * b)).powi(2)).sqrt();
+        let k = face.lowest_tm_cutoff(Some(&open)).unwrap();
+        let pec = face.lowest_tm_cutoff(None).unwrap();
+        assert!(k > want && (k - want) / want < 5e-3, "{k} vs {want}");
+        assert!(k < pec);
+
+        let all_open: Vec<bool> = face.interior_edge_mask.iter().map(|&i| !i).collect();
+        assert_eq!(face.lowest_tm_cutoff(Some(&all_open)).unwrap(), 0.0);
+
+        // 1 × 1 cells: every node is on the rim.
+        assert_eq!(
+            rect_face(1, 1, a, b).lowest_tm_cutoff(None).unwrap(),
+            f64::INFINITY
+        );
+    }
+
+    /// Issue #808 (Judge, PR #811): the face P1 value on the 8 × 4 face of
+    /// a `2 × 1` guide is 3.661, above the analytic TM₁₁ = 3.512 and above
+    /// the 3-D Nédélec model's own TM₁₁ (3.349 with one tet layer of 0.5).
+    /// The guard extrapolates over two uniform refinements to the
+    /// continuum (observed order ≈ 2) and backs off by `TM_GUARD_MARGIN`,
+    /// landing below the 3-D value.
+    #[test]
+    fn tm_cutoff_estimate_extrapolates_to_tm11_and_guards_below_the_3d_cutoff() {
+        let (a, b) = (2.0, 1.0);
+        let tm11 = ((PI / a).powi(2) + (PI / b).powi(2)).sqrt();
+        let face = rect_face(8, 4, a, b);
+        let est = face.tm_cutoff_estimate(None).unwrap();
+        assert_eq!(est.k_face, face.lowest_tm_cutoff(None).unwrap());
+        // Red refinement of the structured face is the structured face.
+        let k16 = rect_face(16, 8, a, b).lowest_tm_cutoff(None).unwrap();
+        let k32 = rect_face(32, 16, a, b).lowest_tm_cutoff(None).unwrap();
+        assert!((est.k_half - k16).abs() < 1e-9 * k16, "{est:?} vs {k16}");
+        assert!((est.k_quarter - k32).abs() < 1e-9 * k32, "{est:?} vs {k32}");
+        assert!((est.k_face - 3.6611).abs() < 1e-4, "{est:?}");
+        let p = est.order.expect("monotone sequence");
+        assert!((p - 2.0).abs() < 0.05, "observed order {p}");
+        assert!(
+            (est.k_extrapolated - tm11).abs() < 1e-3 * tm11,
+            "{est:?} vs TM11 {tm11}"
+        );
+        let guard = est.guard_k_c();
+        assert!(
+            (guard - (1.0 - TM_GUARD_MARGIN) * est.k_extrapolated).abs() < 1e-15 * guard,
+            "{est:?}"
+        );
+        // Below the measured 3-D lowest-order Nédélec TM₁₁₀ of the
+        // 8 × 4 × 1 box (3.349, `tests/wave_port.rs` re-measures it).
+        assert!(guard < 3.349, "guard {guard}");
+    }
+
+    /// The estimate's corner cases: a converged / non-monotone sequence is
+    /// not extrapolated, a fast-converging one uses the order-2 cap (the
+    /// conservative side), and `0` / `∞` pass through.
+    #[test]
+    fn tm_cutoff_estimate_from_levels_edge_cases() {
+        let flat = TmCutoffEstimate::from_levels([3.0, 3.0, 3.0]);
+        assert_eq!((flat.order, flat.k_extrapolated), (None, 3.0));
+        let wobble = TmCutoffEstimate::from_levels([3.0, 3.1, 2.9]);
+        assert_eq!((wobble.order, wobble.k_extrapolated), (None, 2.9));
+        // Observed order 3 (d1/d2 = 8) is clamped to 2: k2 − d2/3.
+        let fast = TmCutoffEstimate::from_levels([4.0 + 0.8, 4.0 + 0.1, 4.0 + 0.0125]);
+        assert_eq!(fast.order, Some(2.0));
+        assert!((fast.k_extrapolated - (4.0125 - 0.0875 / 3.0)).abs() < 1e-12);
+        // Order 1 is used as measured.
+        let slow = TmCutoffEstimate::from_levels([4.4, 4.2, 4.1]);
+        assert!((slow.order.unwrap() - 1.0).abs() < 1e-12);
+        assert!((slow.k_extrapolated - 4.0).abs() < 1e-12);
+        let open = TmCutoffEstimate::from_levels([0.0, 0.0, 0.0]);
+        assert_eq!(open.guard_k_c(), 0.0);
+        let none = TmCutoffEstimate::from_levels([f64::INFINITY; 3]);
+        assert_eq!(none.guard_k_c(), f64::INFINITY);
+    }
+
+    /// An open rim edge stays open under refinement: the estimate of the
+    /// face with its `y = b` side open converges to
+    /// `√((π/a)² + (π/2b)²)`.
+    #[test]
+    fn tm_cutoff_estimate_keeps_open_rim_edges_open() {
+        let (a, b) = (2.0, 1.0);
+        let face = rect_face(8, 4, a, b);
+        let g = extruded_rect_waveguide_mesh(8, 4, 1, a, b, 0.5);
+        let open: Vec<bool> = face
+            .global_edges
+            .iter()
+            .zip(&face.interior_edge_mask)
+            .map(|(e, &interior)| {
+                !interior
+                    && e.iter()
+                        .all(|&n| (g.mesh.nodes[n as usize][1] - b).abs() < 1e-12)
+            })
+            .collect();
+        let want = ((PI / a).powi(2) + (PI / (2.0 * b)).powi(2)).sqrt();
+        let est = face.tm_cutoff_estimate(Some(&open)).unwrap();
+        assert!(est.k_face > want, "{est:?}");
+        assert!(
+            (est.k_extrapolated - want).abs() < 2e-3 * want,
+            "{est:?} vs {want}"
+        );
+    }
 }

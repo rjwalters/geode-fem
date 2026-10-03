@@ -54,5 +54,6 @@ pub use wave::{
     waveguide_mode_reduce,
 };
 pub use wave_face::{
-    PLANARITY_REL_TOL, PortFaceError, PortFaceProjection, project_port_face, wave_port_from_faces,
+    PLANARITY_REL_TOL, PortFaceError, PortFaceProjection, TM_GUARD_MARGIN, TmCutoffEstimate,
+    project_port_face, wave_port_from_faces,
 };

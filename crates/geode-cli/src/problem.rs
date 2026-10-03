@@ -22,7 +22,9 @@ use geode_core::assembly::current_path::triangle_node_components;
 use geode_core::assembly::electrostatic::face_to_tet_map;
 use geode_core::assembly::nedelec::tet_centroids;
 use geode_core::constants::{C_M_PER_S, ETA_0_OHM};
-use geode_core::driven::ports::{PortFaceProjection, PortMedium, project_port_face};
+use geode_core::driven::ports::{
+    PortFaceProjection, PortMedium, TM_GUARD_MARGIN, TmCutoffEstimate, project_port_face,
+};
 use geode_core::driven::solve::{SurfaceImpedanceModel, SurfaceRoughness};
 use geode_core::mesh::patch::box_upml_tensors;
 use geode_core::mesh::{TaggedTetMesh, pec_interior_mask_from_triangles, read_tagged_tet_mesh};
@@ -218,6 +220,13 @@ pub struct WavePortDef {
     pub a_inc: Vec<c64>,
     /// The homogeneous medium filling the guide at the face (issue #777).
     pub fill: PortFill,
+    /// The TE-only guard's estimate of the face's lowest **TM** cutoff
+    /// (geometric, rad per mesh length unit; issue #808). Wave ports carry
+    /// TE modes only, so `load` rejects any sweep frequency at or above the
+    /// filled limit [`Problem::port_tm_limit_k0`], built on
+    /// [`TmCutoffEstimate::guard_k_c`]. Set by `load` (`None` only while
+    /// it runs).
+    pub tm: Option<TmCutoffEstimate>,
     /// `--touchstone` reference impedance in ohms (issue #775); validated
     /// finite and `> 0` when given, required only by `--touchstone`.
     pub reference_ohm: Option<f64>,
@@ -603,6 +612,26 @@ impl Problem {
     /// `regions[].eps_r` hold).
     pub fn port_medium(&self, w: &WavePortDef) -> PortMedium {
         self.port_medium_impl(w, None)
+    }
+
+    /// The TE-only guard's filled TM limit `k₀` of wave port `w` (issue
+    /// #808) with a dispersive fill at its reference frequency (as
+    /// [`Problem::port_medium`]): [`TmCutoffEstimate::guard_k_c`]` /
+    /// √(Re ε_n·μ_t)`, i.e. `TM_GUARD_MARGIN` below the estimated filled
+    /// TM cutoff. `None` when the face carries no TM mode (no free `E_z`
+    /// node); `load` has already rejected a fill without a TM cutoff and
+    /// any sweep reaching the limit.
+    pub fn port_tm_limit_k0(&self, w: &WavePortDef) -> Option<f64> {
+        let k_c = w.tm?.guard_k_c();
+        if !k_c.is_finite() {
+            return None;
+        }
+        let t = w.fill.tet;
+        let eps_n = match self.eps_diag.get(t).copied().flatten() {
+            Some(d) => transverse_and_normal(d, w.fill.normal_axis).1,
+            None => self.eps[t],
+        };
+        self.port_medium(w).tm_cutoff_k0(eps_n, k_c)
     }
 
     fn port_medium_impl(&self, w: &WavePortDef, hz: Option<f64>) -> PortMedium {
@@ -1220,6 +1249,13 @@ pub fn load_parsed(
         upml: &upml,
         upml_of_tet: &upml_of_tet,
     };
+    // Conductor walls (PEC / Leontovich): a wave-port rim edge on one pins
+    // the TM field `E_z = 0` there (issue #808).
+    let conductor_edges: std::collections::HashSet<[u32; 2]> = pec
+        .iter()
+        .chain(leontovich.iter().map(|l| &l.surface))
+        .flat_map(|s| s.triangles.iter().flat_map(tri_edge_keys))
+        .collect();
     for (w, t) in spec.wave_ports.iter().zip(&wave_tags) {
         let surf = surface(&w.physical_group, t.expect("resolved above"), "wave_port")?;
         let projection = project_port_face(&tagged.mesh, &surf.triangles).map_err(|e| {
@@ -1238,6 +1274,8 @@ pub fn load_parsed(
             projection,
             a_inc,
             fill,
+            // Set below, once the Silver-Müller rim check has run.
+            tm: None,
             reference_ohm: w.reference_ohm,
         });
     }
@@ -1274,6 +1312,19 @@ pub fn load_parsed(
     }
     let pec_mask = pec_interior_mask_from_triangles(&edges, &pec_lists);
     check_silver_muller_port_rims(&wave_ports, &silver_muller, &edges, &pec_mask)?;
+    // TE-only wave ports (issue #808): the rim must be all conductor and
+    // no sweep frequency may reach the TM limit. Runs after the
+    // Silver-Müller rim check, whose message is more specific for that
+    // wall. Every wave port here is a homogeneous TE port; a port family
+    // with its own TM / hybrid modes (#804) must bypass this guard.
+    for w in &mut wave_ports {
+        w.tm = Some(port_materials.check_te_port_guard(
+            &w.surface,
+            &w.projection,
+            &w.fill,
+            &conductor_edges,
+        )?);
+    }
     if let SolverSpec::Iterative {
         preconditioner: crate::spec::PreconditionerSpec::Ams,
         ..
@@ -3041,6 +3092,184 @@ impl PortMaterials<'_> {
             normal_axis,
         })
     }
+
+    /// The TE-only wave-port guard (issue #808): reject a port whose rim is
+    /// not entirely on a conductor wall, and a sweep that reaches the
+    /// port's lowest **TM** mode. Returns the face's TM-cutoff estimate.
+    ///
+    /// This applies to the homogeneous TE wave ports this loader builds;
+    /// a port family with its own TM / hybrid modes (#778, #804) must not
+    /// be routed through it.
+    ///
+    /// **Rim.** The port modes are solved with a PEC rim (`n × E = 0` and,
+    /// for TM, `E_z = 0` on every rim edge). On a rim edge that lies on no
+    /// `pec` / `leontovich` wall (a PMC symmetry plane, an unnamed natural
+    /// surface) they are the modes of the wrong cross-section (a half guide
+    /// with a PMC centre plane gets the full guide's TE₂₀, not TE₁₀), so S
+    /// is silently wrong: rejected with `invalid_spec`, naming the edge
+    /// count and the surface groups they lie on.
+    ///
+    /// **TM cutoff.** The port modal solve returns TE modes only, so a
+    /// propagating TM channel has no termination: it reflects off the port
+    /// face and the S-matrix is silently wrong (measured in `geode-core`'s
+    /// `te_only_ports_above_tm11_give_length_dependent_s`: |S| of a height
+    /// step moves by 0.44 with the feed length above TM₁₁, by 3.6e-3
+    /// below). The threshold is [`TmCutoffEstimate::guard_k_c`]: the face
+    /// P1 Dirichlet `E_z` eigenvalue Richardson-extrapolated over two
+    /// uniform face refinements, less `TM_GUARD_MARGIN` (5 %). The face
+    /// value alone is not safe: it is a Rayleigh-Ritz **upper** bound,
+    /// and the 3-D Nédélec model's own TM cutoff sits below the continuum
+    /// on a coarse axial mesh (8 × 4 face of a `2 × 1` guide: face 3.661,
+    /// continuum 3.512, 3-D 3.349 with one tet layer of 0.5). The filled
+    /// limit is `guard_k_c/√(Re ε_n·μ_t)` ([`PortMedium::tm_cutoff_k0`]),
+    /// evaluated at every sweep frequency for a dispersive fill; a fill
+    /// with `Re ε_n·μ_t ≤ 0` has no TM cutoff and is rejected outright.
+    fn check_te_port_guard(
+        &self,
+        surf: &Surface,
+        projection: &PortFaceProjection,
+        fill: &PortFill,
+        conductor_edges: &std::collections::HashSet<[u32; 2]>,
+    ) -> Result<TmCutoffEstimate, CliError> {
+        let name = &surf.name;
+        let pointer = "wave ports carry TE modes only, solved with a PEC rim (TM / hybrid port \
+                       modes and other rim conditions are issues #778, #804)";
+        let open: Vec<[u32; 2]> = projection
+            .global_edges
+            .iter()
+            .zip(&projection.interior_edge_mask)
+            .filter(|&(e, &interior)| !interior && !conductor_edges.contains(e))
+            .map(|(e, _)| *e)
+            .collect();
+        if !open.is_empty() {
+            let n_rim = projection
+                .interior_edge_mask
+                .iter()
+                .filter(|&&i| !i)
+                .count();
+            let open_set: std::collections::HashSet<[u32; 2]> = open.iter().copied().collect();
+            // The groups of the walls the open rim lies on: tagged
+            // triangles with an open rim edge, other than the port's own.
+            let sorted = |t: &[u32; 3]| {
+                let mut t = *t;
+                t.sort_unstable();
+                t
+            };
+            let port_tris: std::collections::HashSet<[u32; 3]> =
+                surf.triangles.iter().map(sorted).collect();
+            let mut groups = std::collections::BTreeSet::new();
+            for (t, &tag) in self
+                .tagged
+                .boundary_triangles
+                .iter()
+                .zip(&self.tagged.triangle_physical_tags)
+            {
+                if !port_tris.contains(&sorted(t))
+                    && tri_edge_keys(t).iter().any(|e| open_set.contains(e))
+                {
+                    groups.insert(
+                        self.tagged
+                            .mesh
+                            .physical_groups
+                            .get(&(2, tag))
+                            .cloned()
+                            .unwrap_or_else(|| format!("tag {tag}")),
+                    );
+                }
+            }
+            let on = if groups.is_empty() {
+                "they lie on no tagged surface (a natural / PMC-like boundary)".to_string()
+            } else {
+                format!(
+                    "they lie on {}",
+                    groups
+                        .iter()
+                        .map(|g| format!("`{g}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            let node = |n: u32| {
+                let p = self.tagged.mesh.nodes[n as usize];
+                format!("({:e}, {:e}, {:e})", p[0], p[1], p[2])
+            };
+            return Err(invalid(format!(
+                "wave port `{name}`: {} of its {n_rim} rim edges are on no `pec` or \
+                 `leontovich` wall ({on}; first edge {} – {}). The {pointer}, so on any other \
+                 rim the port modes belong to the wrong cross-section and the S-parameters \
+                 would be silently wrong — put the whole port rim on a pec or leontovich wall",
+                open.len(),
+                node(open[0][0]),
+                node(open[0][1]),
+            )));
+        }
+        let est = projection.tm_cutoff_estimate(None).map_err(|e| {
+            invalid(format!(
+                "wave port `{name}`: the TM cutoff of its cross-section could not be \
+                 computed: {e}"
+            ))
+        })?;
+        let k_c = est.guard_k_c();
+        let mu_t = transverse_and_normal(self.mu_diag_of(fill.tet), fill.normal_axis).0;
+        let medium = PortMedium {
+            eps_t: c64::new(1.0, 0.0),
+            mu_t,
+            mu_n: 1.0,
+        };
+        for f in self.frequencies {
+            let eps_n =
+                transverse_and_normal(self.eps_diag_of(fill.tet, Some(f.hz)), fill.normal_axis).1;
+            let Some(limit_k0) = medium.tm_cutoff_k0(eps_n, k_c) else {
+                return Err(invalid(format!(
+                    "wave port `{name}`: the fill `{}` has Re ε_n·μ_t = {:e} ≤ 0 at {:e} Hz \
+                     (axial ε_n = {:e}{:+e}j), so the port's TM modes propagate at every \
+                     frequency (no TM cutoff), but {pointer} — fill the guide at the port face \
+                     with a medium of Re ε_n > 0 over the whole sweep",
+                    fill.groups.join(", "),
+                    eps_n.re * mu_t,
+                    f.hz,
+                    eps_n.re,
+                    eps_n.im
+                )));
+            };
+            if f.k0 >= limit_k0 {
+                let limit_hz = limit_k0 * f.hz / f.k0;
+                let filled = if eps_n == c64::new(1.0, 0.0) && mu_t == 1.0 {
+                    String::new()
+                } else {
+                    format!(
+                        " in the fill `{}`, scaled by 1/√(Re ε_n·μ_t) with ε_n = {:e}{:+e}j, \
+                         μ_t = {mu_t:e}",
+                        fill.groups.join(", "),
+                        eps_n.re,
+                        eps_n.im
+                    )
+                };
+                return Err(invalid(format!(
+                    "wave port `{name}`: the sweep frequency {:e} Hz (k0 = {:.6}) is at or above \
+                     the port's TM limit {limit_hz:e} Hz (k0 = {limit_k0:.6}{filled}): {:.0} % \
+                     below its lowest TM cutoff, estimated at k_c^TM = {:.6} per mesh unit \
+                     (port-face value {:.6}, extrapolated over two face refinements; the \
+                     margin covers the 3-D model's TM cutoff, which sits below the continuum \
+                     on a coarse mesh). The {pointer}, so a propagating TM mode has no port \
+                     termination and the S-parameters would be silently wrong — keep every \
+                     sweep frequency below {limit_hz:e} Hz",
+                    f.hz,
+                    f.k0,
+                    100.0 * TM_GUARD_MARGIN,
+                    est.k_face.min(est.k_extrapolated),
+                    est.k_face,
+                )));
+            }
+        }
+        Ok(est)
+    }
+}
+
+/// The three edges of a triangle as lower-index-first keys.
+fn tri_edge_keys(t: &[u32; 3]) -> [[u32; 2]; 3] {
+    let key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+    [key(t[0], t[1]), key(t[0], t[2]), key(t[1], t[2])]
 }
 
 /// Resolve `absorbing_regions`: per region the inner wall (mesh node

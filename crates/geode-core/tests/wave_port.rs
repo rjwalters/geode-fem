@@ -1408,3 +1408,198 @@ fn bimodal_straight_section_orthogonality() {
         pt.residual_rel
     );
 }
+
+// =====================================================================
+// Issue #808: wave ports are TE-only — the damage above TM₁₁
+// =====================================================================
+
+/// One height-step run for [`te_only_ports_above_tm11_give_length_dependent_s`]:
+/// section A `2 × 1.2 × l1` (port 1, `n1` TE modes) joined to section B
+/// `2 × 0.6 × 1.0` (port 2, `n2` TE modes), `h = 0.1`. Returns the S
+/// matrix, its size, the per-channel `β`, and port 1's lowest TM cutoff.
+fn tm_step_run(l1: f64, omega: f64, n1: usize, n2: usize) -> (Vec<c64>, usize, Vec<c64>, f64) {
+    use geode_core::driven::ports::project_port_face;
+    let (a, b1, b2, l2) = (2.0, 1.2, 0.6, 1.0);
+    let nz1 = (l1 / 0.1_f64).round() as usize;
+    let g = extruded_height_step_waveguide_mesh(20, 12, 6, nz1, 10, a, b1, b2, l1, l2);
+    let edges = g.mesh.edges();
+    let pec_mask = g.pec_interior_mask();
+    let eps = vacuum(&g.mesh);
+    let face1 = project_port_face(&g.mesh, &g.port1_faces).expect("port 1 face");
+    let tm1 = face1.lowest_tm_cutoff(None).expect("port 1 TM cutoff");
+    let port1 = face1
+        .wave_port(&edges, &vec![c64::new(1.0, 0.0); n1])
+        .expect("port 1");
+    let port2 = project_port_face(&g.mesh, &g.port2_faces)
+        .expect("port 2 face")
+        .wave_port(&edges, &vec![c64::new(1.0, 0.0); n2])
+        .expect("port 2");
+    let bcs = DrivenBcs {
+        pec_interior_mask: &pec_mask,
+    };
+    let pt = solve_wave_port_sweep::<B>(
+        &g.mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &bcs,
+        &[port1, port2],
+        &[omega],
+        &device(),
+    )
+    .expect("height-step sweep")
+    .remove(0);
+    (pt.s, pt.n_channels, pt.beta, tm1)
+}
+
+/// **Issue #808 — the defect, measured.** The port modal solve returns TE
+/// modes only, so above a port's lowest TM cutoff a propagating TM
+/// channel has no termination. An E-plane height step (`b₁ = 1.2 → b₂ =
+/// 0.6`, `a = 2`) scatters an incident TE₁₀ into the `m = 1` family:
+/// TE₁ₙ **and TM₁ₙ**. Port 1 carries every TE mode below the frequency
+/// (TE₁₀, TE₀₁, TE₁₁, TE₂₀ — cutoffs 1.571, 2.618, 3.053, 3.142; port 2
+/// TE₁₀, TE₂₀), so only TM₁₁ (`k_c = √((π/2)² + (π/1.2)²) = 3.053`) is
+/// missing.
+///
+/// A matched multiport's S cannot depend on the length of a lossless
+/// feed section beyond a phase. So `|S|` with section A at `L₁ = 1.0` vs
+/// `L₁ = 1.3` measures the termination error:
+///
+/// - **well below TM₁₁** (`k₀ = 2.4`) the change is the mesh floor
+///   (measured 3.6e-3);
+/// - **just below TM₁₁** (`k₀ = 2.9`, reported, not asserted) the
+///   *evanescent* TM₁₁ tail (decay `≈ 1.0`/unit) still reaches port 1 and
+///   the change grows to 2.7e-2 — the usual rule that a port must sit
+///   far enough from a discontinuity for every unported mode to decay;
+/// - **above TM₁₁** (`k₀ = 3.6`) the TM₁₁ wave reflects off port 1 (the
+///   port acts as a natural PMC-like wall for every field outside its TE
+///   span), the step region becomes a cavity and `|S|` moves by 0.44 —
+///   120× the floor (measured `|S₁₁| = 0.877` at `L₁ = 1.0`).
+///
+/// The power balance of the TE₁₀ column stays ≈ 1 in both cases (the
+/// trapped TM energy is not lost, only re-radiated into the TE channels),
+/// so a passivity / unitarity check does **not** catch the error — which
+/// is why the CLI rejects such sweeps up front (`problem.rs`).
+#[test]
+#[ignore = "heavy: two refined height-step solves; cargo test --release --test wave_port -- --ignored te_only_ports_above_tm11"]
+fn te_only_ports_above_tm11_give_length_dependent_s() {
+    let tm11 = ((std::f64::consts::PI / 2.0).powi(2) + (std::f64::consts::PI / 1.2).powi(2)).sqrt();
+    let mut deltas = Vec::new();
+    for omega in [2.4_f64, 2.9, 3.6] {
+        let (s_a, n, beta, tm1) = tm_step_run(1.0, omega, 4, 2);
+        let (s_b, _, _, _) = tm_step_run(1.3, omega, 4, 2);
+        // The face's discrete TM cutoff brackets the analytic TM₁₁ from
+        // above (Rayleigh-Ritz), within 1 % at h = 0.1.
+        assert!(
+            tm1 >= tm11 && tm1 < 1.01 * tm11,
+            "port-1 TM cutoff {tm1} vs analytic TM11 {tm11}"
+        );
+        // Largest change of |S| over the propagating block.
+        let prop: Vec<usize> = (0..n).filter(|&k| beta[k].im == 0.0).collect();
+        let mut delta = 0.0_f64;
+        for &r in &prop {
+            for &c in &prop {
+                delta = delta.max((s_a[r * n + c].norm() - s_b[r * n + c].norm()).abs());
+            }
+        }
+        // Power balance of the TE₁₀ (channel 0) column.
+        let p: f64 = prop.iter().map(|&r| s_a[r * n].norm_sqr()).sum();
+        eprintln!(
+            "k0 = {omega} (TM11 at {tm1:.4}): {} propagating TE channels, max ||S(L1=1.0)| − \
+             |S(L1=1.3)|| = {delta:.4e}, Σ|S_k0|² = {p:.6}, |S11| = {:.4}, |S21| = {:.4}",
+            prop.len(),
+            s_a[0].norm(),
+            s_a[4 * n].norm()
+        );
+        assert!((p - 1.0).abs() < 0.02, "power balance {p}");
+        deltas.push(delta);
+    }
+    let (below, above) = (deltas[0], deltas[2]);
+    assert!(
+        below < 0.01,
+        "below TM11 the feed length must not matter: {below}"
+    );
+    assert!(
+        above > 10.0 * below && above > 0.05,
+        "above TM11 the missing TM channel must show: {above} vs {below}"
+    );
+}
+
+/// Lowest physical resonance `k` of the all-PEC `a × b × length` box
+/// (`nx × ny × nz` hexes, 6 tets each) from the 3-D lowest-order Nédélec
+/// pencil — the gradient null space (one eigenvalue per interior node)
+/// is skipped. For `length` short enough that every `TE_mn1` mode sits
+/// higher, this is the 3-D model's own TM₁₁ cutoff (TM₁₁₀ at `β = 0`).
+fn box_lowest_physical_k(nx: usize, ny: usize, nz: usize, a: f64, b: f64, length: f64) -> f64 {
+    use geode_core::assembly::nedelec::assemble_global_nedelec;
+    use geode_core::assembly::p1::upload_mesh;
+    use geode_core::eigen::dense::{
+        EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer,
+    };
+    use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
+
+    let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
+    let mesh = &g.mesh;
+    let (nodes_t, tets_t) = upload_mesh::<B>(mesh, &device());
+    let tet_edges = mesh.tet_edges();
+    let tet_idx: Vec<[u32; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].0))
+        .collect();
+    let tet_sign: Vec<[i8; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].1))
+        .collect();
+    let edges = mesh.edges();
+    let sys = assemble_global_nedelec(nodes_t, tets_t, &tet_idx, &tet_sign, edges.len());
+    let walls = mesh.boundary_faces();
+    let mask = pec_interior_mask_from_triangles(&edges, &[&walls]);
+    let (k, m) = apply_dirichlet_bc(
+        burn_matrix_to_faer(sys.k).as_ref(),
+        burn_matrix_to_faer(sys.m).as_ref(),
+        &mask,
+    )
+    .expect("PEC reduction");
+    let n_interior_nodes = (nx - 1) * (ny - 1) * nz.saturating_sub(1);
+    let lambdas = FaerDenseEigensolver
+        .smallest_eigenvalues(k.as_ref(), m.as_ref(), n_interior_nodes + 3)
+        .expect("box eigensolve");
+    let lambda = lambdas[n_interior_nodes];
+    assert!(
+        n_interior_nodes == 0 || lambdas[n_interior_nodes - 1].abs() < 1e-6 * lambda,
+        "gradient null space not where expected: {lambdas:?}"
+    );
+    lambda.sqrt()
+}
+
+/// Issue #808 (Judge, PR #811): the TE-only guard threshold must sit
+/// below the **3-D** model's TM₁₁ cutoff, not just the face's. The face
+/// P1 value is a Rayleigh-Ritz upper bound (3.661 on the 8 × 4 face of a
+/// `2 × 1` guide, analytic 3.512), while the 3-D lowest-order Nédélec
+/// TM₁₁ drops below the continuum on a coarse axial mesh. Re-measure it on
+/// the all-PEC `2 × 1 × 0.5` box (TE_mn1 modes start near k ≈ 6.5) and pin
+/// the ordering `guard < 3-D TM₁₁ < face`, so the old window
+/// `[3-D TM₁₁, face)` the guard used to admit stays closed.
+#[test]
+fn tm_guard_sits_below_the_3d_nedelec_tm11_cutoff() {
+    use geode_core::driven::ports::project_port_face;
+    let (a, b, length) = (2.0, 1.0, 0.5);
+    let face_mesh = extruded_rect_waveguide_mesh(8, 4, 1, a, b, length);
+    let face = project_port_face(&face_mesh.mesh, &face_mesh.port1_faces).expect("face");
+    let est = face.tm_cutoff_estimate(None).expect("TM estimate");
+    let guard = est.guard_k_c();
+    for (nz, want) in [(1, 3.349), (2, 3.494), (4, 3.529)] {
+        let k3d = box_lowest_physical_k(8, 4, nz, a, b, length);
+        eprintln!(
+            "nz = {nz}: 3-D TM11 = {k3d:.4}, face = {:.4}, k_ext = {:.4}, guard = {guard:.4}",
+            est.k_face, est.k_extrapolated
+        );
+        assert!(
+            (k3d - want).abs() < 2e-3,
+            "nz = {nz}: 3-D TM11 {k3d} vs {want}"
+        );
+        assert!(
+            guard < k3d && k3d < est.k_face,
+            "nz = {nz}: {guard} / {k3d} / {est:?}"
+        );
+    }
+}
