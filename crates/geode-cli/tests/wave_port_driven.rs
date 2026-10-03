@@ -23,7 +23,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
-use geode_core::driven::ports::extruded_rect_waveguide_mesh;
+use geode_core::driven::ports::{ExtrudedWaveguideMesh, extruded_rect_waveguide_mesh};
 
 const A: f64 = 2.0;
 const B_DIM: f64 = 1.0;
@@ -1927,6 +1927,229 @@ fn a_sweep_between_the_3d_and_face_tm_cutoffs_is_now_rejected() {
         });
         let msg = error_message(&geode(&[cmd, file.to_str().unwrap()]), cmd, "invalid_spec");
         assert_tm_rejection(&msg, "port_in", f64_at(&p["tm_limit_hz"]), k0);
+    }
+}
+
+/// A two-port spec on an `nx × ny` face over `nz` tet layers of a
+/// `2 × 1 × len` guide (issue #824: a fine face over a coarse axial mesh).
+fn axial_spec(
+    name: &str,
+    (nx, ny, nz, len): (usize, usize, usize, f64),
+    k0: &[f64],
+) -> ScratchFile {
+    guide_spec(
+        name,
+        &extruded_rect_waveguide_mesh(nx, ny, nz, A, B_DIM, len),
+        k0,
+    )
+}
+
+/// The two-port spec of [`axial_spec`] on the guide mesh `g`.
+fn guide_spec(name: &str, g: &ExtrudedWaveguideMesh, k0: &[f64]) -> ScratchFile {
+    let dir = scratch(name);
+    let msh = write_msh(
+        &g.mesh.nodes,
+        &g.mesh.tets,
+        &[
+            (11, "port_in", &g.port1_faces),
+            (12, "port_out", &g.port2_faces),
+            (13, "walls", &g.sidewall_faces),
+        ],
+    );
+    let mesh = dir.join("waveguide.msh");
+    std::fs::write(&mesh, msh).unwrap();
+    let v = serde_json::json!({
+        "schema_version": 1,
+        "mesh": { "path": mesh.display().to_string(), "length_unit_m": LENGTH_UNIT_M },
+        "boundary_conditions": { "pec": ["walls"] },
+        "wave_ports": [
+            { "physical_group": "port_in" },
+            { "physical_group": "port_out" }
+        ],
+        "frequencies": { "unit": "k0", "values": k0 }
+    });
+    ScratchFile::write_in(dir, "spec.json", serde_json::to_string_pretty(&v).unwrap())
+}
+
+/// The number right after `prefix` in `msg` (up to the next space).
+fn number_after(msg: &str, prefix: &str) -> f64 {
+    let rest = &msg[msg
+        .find(prefix)
+        .unwrap_or_else(|| panic!("no `{prefix}` in {msg}"))
+        + prefix.len()..];
+    let end = rest.find(' ').unwrap_or(rest.len());
+    rest[..end]
+        .parse()
+        .unwrap_or_else(|e| panic!("`{}`: {e}", &rest[..end]))
+}
+
+/// Issue #824 (Judge, PR #811 re-review): the 3-D model's TM cutoff is
+/// set by the axial spacing `k_c·h_z`, not the axial / in-face ratio. A
+/// 16 × 8 face over tet layers of `h_z = 0.5` has a 3-D TM₁₁₀ of 3.318
+/// (`geode-core` `tests/wave_port.rs`,
+/// `mesh_aware_tm_guard_covers_fine_faces_over_a_coarse_axial_mesh`),
+/// below the fixed-5 % limit 3.337. The margin now reads `h_n` off the
+/// guide near the port: `0.025·(3.512·0.5)²` = 7.7 %, limit 3.24.
+#[test]
+fn a_fine_face_over_a_coarse_axial_mesh_widens_the_tm_margin() {
+    let mesh = (16, 8, 2, 1.0);
+    let probe = geode(&[
+        "check",
+        axial_spec("axial-probe", mesh, &[2.5]).to_str().unwrap(),
+    ]);
+    // k·h_n = 1.25 at the top frequency: no warning.
+    assert!(
+        !String::from_utf8_lossy(&probe.stderr).contains("warning:"),
+        "{}",
+        String::from_utf8_lossy(&probe.stderr)
+    );
+    let probe = json(&probe);
+    let p = &probe["wave_ports"][0];
+    assert!(p.get("tm_warning").is_none(), "{p:#}");
+    assert!(
+        (f64_at(&p["tm_axial_spacing"]) - 0.5).abs() < 1e-12,
+        "{p:#}"
+    );
+    let k_c = f64_at(&p["tm_k_c"]);
+    let margin = f64_at(&p["tm_margin"]);
+    assert!(
+        (margin - 0.025 * (k_c * 0.5).powi(2)).abs() < 1e-12,
+        "margin {margin}"
+    );
+    let limit_hz = f64_at(&p["tm_limit_hz"]);
+    let limit_k0 = (1.0 - margin) * k_c;
+    assert!((limit_hz - k0_hz(limit_k0)).abs() <= 1e-12 * limit_hz);
+    // Below the measured 3-D TM110 of this face and spacing (3.318) —
+    // where the fixed 5 % was not.
+    assert!(
+        limit_k0 < 3.318 && (1.0 - TM_MARGIN) * k_c > 3.318,
+        "{limit_k0}"
+    );
+
+    // k0 = 3.33 (inside the old window [3.318, 3.337)): rejected, with
+    // the axial spacing that would admit it.
+    let k0 = 3.33;
+    for cmd in ["check", "driven"] {
+        let file = axial_spec(&format!("axial-gap-{cmd}"), mesh, &[2.5, k0]);
+        let msg = error_message(&geode(&[cmd, file.to_str().unwrap()]), cmd, "invalid_spec");
+        assert_tm_rejection(&msg, "port_in", limit_hz, k0);
+        assert!(
+            msg.contains("widened from 5 % because the tets of the guide within")
+                && msg.contains("span up to h_n = 0.5"),
+            "{msg}"
+        );
+        // (1 − 0.025·(k_c·h)²)·k_c = k0.
+        let want_h = ((1.0 - k0 / k_c) / 0.025).sqrt() / k_c;
+        let h = number_after(
+            &msg,
+            "refine the mesh along the guide feeding port `port_in` to h ≤ ",
+        );
+        assert!(msg.contains("not only at the face"), "{msg}");
+        assert!((h - want_h).abs() < 1e-5 && h < 0.5, "h ≤ {h} vs {want_h}");
+    }
+    // Above the base 5 % limit no axial refinement helps: lower the sweep.
+    let file = axial_spec("axial-above", mesh, &[3.4]);
+    let msg = error_message(
+        &geode(&["check", file.to_str().unwrap()]),
+        "check",
+        "invalid_spec",
+    );
+    assert_tm_rejection(&msg, "port_in", limit_hz, 3.4);
+    assert!(msg.contains("restores the 5 % margin"), "{msg}");
+    assert!(!msg.contains("to raise the limit above"), "{msg}");
+}
+
+/// Issue #824: a sweep the widened guard admits but whose top frequency
+/// spans `k·h_n > √(0.05/0.025)` ≈ 1.41 per axial cell is run, with a
+/// warning on stderr and in `wave_ports[].tm_warning` naming the spacing
+/// to refine to. The re-review's three faces over one layer of 0.5 all
+/// get it, and their limit sits below their 3-D TM₁₁₀ (3.327 / 3.318 /
+/// 3.312).
+#[test]
+fn a_coarse_axial_mesh_at_the_top_sweep_frequency_warns_with_the_refinement() {
+    let k0 = 3.2;
+    let want_h = 2f64.sqrt() / k0;
+    for ((nx, ny), k3d) in [((12, 6), 3.327), ((16, 8), 3.318), ((24, 12), 3.312)] {
+        let file = axial_spec(&format!("axial-warn-{nx}"), (nx, ny, 1, 0.5), &[2.5, k0]);
+        let out = geode(&["check", file.to_str().unwrap()]);
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        let v = json(&out);
+        for (i, p) in v["wave_ports"].as_array().unwrap().iter().enumerate() {
+            let port = ["port_in", "port_out"][i];
+            assert!(f64_at(&p["tm_limit_hz"]) < k0_hz(k3d), "{nx}x{ny}: {p:#}");
+            let w = p["tm_warning"].as_str().expect("tm_warning");
+            assert!(
+                stderr.contains(&format!("warning: {w}")),
+                "{nx}x{ny}: {stderr}"
+            );
+            assert!(w.starts_with(&format!("wave port `{port}`: coarse mesh along the guide")));
+            assert!(w.contains("h_n = 0.5"), "{w}");
+            let h = number_after(
+                w,
+                &format!("Refine the mesh along the guide feeding port `{port}` to h ≤ "),
+            );
+            assert!(w.contains("not only at the face"), "{w}");
+            assert!((h - want_h).abs() < 1e-6, "{w}");
+            assert!(
+                (hz_after(w, "TM limit ") - f64_at(&p["tm_limit_hz"])).abs()
+                    < 1e-9 * f64_at(&p["tm_limit_hz"]),
+                "{w}"
+            );
+        }
+    }
+    // `driven` runs it and warns the same way.
+    let file = axial_spec("axial-warn-driven", (12, 6, 1, 0.5), &[2.5, k0]);
+    let out = geode(&["driven", file.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    let v = json(&out);
+    assert_eq!(v["results"].as_array().unwrap().len(), 2);
+    let w = v["wave_ports"][0]["tm_warning"]
+        .as_str()
+        .expect("tm_warning");
+    assert!(stderr.contains(&format!("warning: {w}")), "{stderr}");
+}
+
+/// Issue #824 (Judge, PR #827 review): a fine tet layer at the port over
+/// a coarse one behind it (16 × 8 face of the `2 × 1` guide, layers 0.15
+/// and 0.6). The 3-D TM₁₁₀ is 3.3019 (`geode-core` `tests/wave_port.rs`,
+/// `a_fine_layer_at_the_port_does_not_hide_the_coarse_guide_behind_it`).
+/// Reading `h_n` off the face-adjacent tets (0.15) gave a guard of 3.337,
+/// above it, so `k0 = 3.32` was admitted with a propagating TM mode. `h_n`
+/// is now read over the guide within one wavelength (0.6), the limit is
+/// below 3.3019, and the rejection says to refine the whole guide.
+#[test]
+fn a_fine_layer_at_the_port_does_not_hide_a_coarse_guide_from_the_tm_guard() {
+    let mut g = extruded_rect_waveguide_mesh(16, 8, 2, A, B_DIM, 1.0);
+    let zs = [0.0, 0.15, 0.75];
+    for p in &mut g.mesh.nodes {
+        p[2] = zs[(2.0 * p[2]).round() as usize];
+    }
+    // k·h_n = 1.2 at the top frequency: no warning.
+    let probe = json(&geode(&[
+        "check",
+        guide_spec("stepped-probe", &g, &[2.0]).to_str().unwrap(),
+    ]));
+    for p in probe["wave_ports"].as_array().unwrap() {
+        assert!(
+            (f64_at(&p["tm_axial_spacing"]) - 0.6).abs() < 1e-12,
+            "{p:#}"
+        );
+        assert!(p.get("tm_warning").is_none(), "{p:#}");
+        assert!(f64_at(&p["tm_limit_hz"]) < k0_hz(3.3019), "{p:#}");
+    }
+    let k_c = f64_at(&probe["wave_ports"][0]["tm_k_c"]);
+    // Where the face-only reading put the limit.
+    assert!((1.0 - TM_MARGIN) * k_c > 3.32, "{k_c}");
+    for cmd in ["check", "driven"] {
+        let file = guide_spec(&format!("stepped-gap-{cmd}"), &g, &[2.0, 3.32]);
+        let msg = error_message(&geode(&[cmd, file.to_str().unwrap()]), cmd, "invalid_spec");
+        assert!(msg.contains("span up to h_n = 0.6"), "{msg}");
+        let h = number_after(
+            &msg,
+            "refine the mesh along the guide feeding port `port_in` to h ≤ ",
+        );
+        assert!(h < 0.6, "{msg}");
+        assert!(msg.contains("not only at the face"), "{msg}");
     }
 }
 

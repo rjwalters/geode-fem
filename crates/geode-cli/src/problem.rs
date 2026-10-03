@@ -24,8 +24,8 @@ use geode_core::assembly::nedelec::tet_centroids;
 use geode_core::constants::{C_M_PER_S, ETA_0_OHM};
 use geode_core::driven::ports::{
     DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD, HybridPortFace, HybridWavePortOpts, LineImpedance,
-    PortAccuracyOpts, PortFaceProjection, PortMedium, TM_GUARD_MARGIN, TmCutoffEstimate,
-    project_port_face,
+    PortAccuracyOpts, PortFaceProjection, PortMedium, TM_GUARD_AXIAL_COEFF, TM_GUARD_MARGIN,
+    TM_GUARD_MEASURED_KH, TmCutoffEstimate, project_port_face, tm_guard_axial_reach,
 };
 use geode_core::driven::solve::{SurfaceImpedanceModel, SurfaceRoughness};
 use geode_core::mesh::patch::box_upml_tensors;
@@ -230,6 +230,16 @@ pub struct WavePortDef {
     /// [`TmCutoffEstimate::guard_k_c`]. Set by `load` (`None` only while
     /// it runs).
     pub tm: Option<TmCutoffEstimate>,
+    /// The coarse-axial-mesh warning of the TE-only guard (issue #824),
+    /// set by `load` when the top sweep frequency resolves its wavelength
+    /// in the fill with `k·h_n > √(TM_GUARD_MARGIN/TM_GUARD_AXIAL_COEFF)`
+    /// along the guide (`h_n` the largest axial extent of a tet of the
+    /// guide within one wavelength of the port,
+    /// `PortFaceProjection::guide_axial_spacing`):
+    /// the guard has then widened its margin, and the message says how
+    /// far to refine. `geode check` / `driven` print it on stderr and
+    /// echo it in `wave_ports[].tm_warning`.
+    pub tm_warning: Option<String>,
     /// `--touchstone` reference impedance in ohms (issue #775); validated
     /// finite and `> 0` when given, required only by `--touchstone`.
     pub reference_ohm: Option<f64>,
@@ -678,11 +688,22 @@ impl Problem {
         self.port_medium_impl(w, None)
     }
 
+    /// Print the load-time warnings (issue #824: a wave port's coarse
+    /// axial mesh) on stderr, one `warning: …` line each.
+    pub fn print_load_warnings(&self) {
+        for w in &self.wave_ports {
+            if let Some(m) = &w.tm_warning {
+                eprintln!("warning: {m}");
+            }
+        }
+    }
+
     /// The TE-only guard's filled TM limit `k₀` of wave port `w` (issue
     /// #808) with a dispersive fill at its reference frequency (as
     /// [`Problem::port_medium`]): [`TmCutoffEstimate::guard_k_c`]` /
-    /// √(Re ε_n·μ_t)`, i.e. `TM_GUARD_MARGIN` below the estimated filled
-    /// TM cutoff. `None` when the face carries no TM mode (no free `E_z`
+    /// √(Re ε_n·μ_t)`, i.e. the guard margin (`TM_GUARD_MARGIN`, widened
+    /// on a coarse axial mesh at the port, issue #824) below the
+    /// estimated filled TM cutoff. `None` when the face carries no TM mode (no free `E_z`
     /// node); `load` has already rejected a fill without a TM cutoff and
     /// any sweep reaching the limit.
     pub fn port_tm_limit_k0(&self, w: &WavePortDef) -> Option<f64> {
@@ -1340,6 +1361,7 @@ pub fn load_parsed(
             fill,
             // Set below, once the Silver-Müller rim check has run.
             tm: None,
+            tm_warning: None,
             reference_ohm: w.reference_ohm,
             // Set below, once the PEC mask is built.
             hybrid: None,
@@ -1395,14 +1417,16 @@ pub fn load_parsed(
     // no sweep frequency may reach the TM limit. Runs after the
     // Silver-Müller rim check, whose message is more specific for that
     // wall. Geometric (homogeneous TE) ports only: the hybrid ports routed
-    // above (#807) bypass this guard.
+    // above (#807) bypass this guard, and so its mesh-aware margin (#824).
     for w in wave_ports.iter_mut().filter(|w| w.hybrid.is_none()) {
-        w.tm = Some(port_materials.check_te_port_guard(
+        let (tm, warning) = port_materials.check_te_port_guard(
             &w.surface,
             &w.projection,
             &w.fill,
             &conductor_edges,
-        )?);
+        )?;
+        w.tm = Some(tm);
+        w.tm_warning = warning;
     }
     if let SolverSpec::Iterative {
         preconditioner: crate::spec::PreconditionerSpec::Ams,
@@ -3581,21 +3605,38 @@ impl PortMaterials<'_> {
     /// step moves by 0.44 with the feed length above TM₁₁, by 3.6e-3
     /// below). The threshold is [`TmCutoffEstimate::guard_k_c`]: the face
     /// P1 Dirichlet `E_z` eigenvalue Richardson-extrapolated over two
-    /// uniform face refinements, less `TM_GUARD_MARGIN` (5 %). The face
-    /// value alone is not safe: it is a Rayleigh-Ritz **upper** bound,
-    /// and the 3-D Nédélec model's own TM cutoff sits below the continuum
-    /// on a coarse axial mesh (8 × 4 face of a `2 × 1` guide: face 3.661,
-    /// continuum 3.512, 3-D 3.349 with one tet layer of 0.5). The filled
-    /// limit is `guard_k_c/√(Re ε_n·μ_t)` ([`PortMedium::tm_cutoff_k0`]),
+    /// uniform face refinements, less a margin `δ`. The face value alone
+    /// is not safe: it is a Rayleigh-Ritz **upper** bound, and the 3-D
+    /// Nédélec model's own TM cutoff sits below the continuum by numerical
+    /// dispersion along the guide, by up to `≈ 0.0205·(k_c·h_n)²` on the
+    /// meshes measured (issue #824, see `TM_GUARD_MARGIN`). `h_n` is the
+    /// largest axial extent of a tet of the guide feeding the port, over
+    /// its face and within one wavelength of the port plane
+    /// ([`PortFaceProjection::guide_axial_spacing`] over
+    /// [`tm_guard_axial_reach`] of `k_c` and the top in-fill sweep
+    /// wavenumber). It is not read off the face-adjacent tets alone: a
+    /// fine layer at the port over coarser cells behind it would hide the
+    /// coarse cells that set the 3-D cutoff. So
+    /// `δ = max(TM_GUARD_MARGIN, TM_GUARD_AXIAL_COEFF·(k_c·h_n)²)`: 5 % up
+    /// to `k_c·h_n ≈ 1.41`, wider on a coarser axial mesh, and a rejection
+    /// then says how far to refine the guide (the whole window, not only
+    /// the cells at the face) to admit the sweep. The
+    /// filled limit is `guard_k_c/√(Re ε_n·μ_t)` ([`PortMedium::tm_cutoff_k0`]),
     /// evaluated at every sweep frequency for a dispersive fill; a fill
     /// with `Re ε_n·μ_t ≤ 0` has no TM cutoff and is rejected outright.
+    ///
+    /// **Coarse axial mesh (warning).** Returned alongside the estimate
+    /// when the top sweep frequency has `k·h_n > √(δ₀/C_h)` ≈ 1.41 in the
+    /// fill (fewer than ~4.4 cells per wavelength along the guide): the
+    /// sweep is admitted under the widened margin, and the warning names
+    /// the spacing to refine to.
     fn check_te_port_guard(
         &self,
         surf: &Surface,
         projection: &PortFaceProjection,
         fill: &PortFill,
         conductor_edges: &std::collections::HashSet<[u32; 2]>,
-    ) -> Result<TmCutoffEstimate, CliError> {
+    ) -> Result<(TmCutoffEstimate, Option<String>), CliError> {
         let name = &surf.name;
         let pointer = "wave ports carry TE modes only, solved with a PEC rim (TM / hybrid port \
                        modes and other rim conditions are issues #778, #804)";
@@ -3668,35 +3709,62 @@ impl PortMaterials<'_> {
                 node(open[0][1]),
             )));
         }
-        let est = projection.tm_cutoff_estimate(None).map_err(|e| {
+        let face_est = projection.tm_cutoff_estimate(None).map_err(|e| {
             invalid(format!(
                 "wave port `{name}`: the TM cutoff of its cross-section could not be \
                  computed: {e}"
             ))
         })?;
-        let k_c = est.guard_k_c();
         let mu_t = transverse_and_normal(self.mu_diag_of(fill.tet), fill.normal_axis).0;
         let medium = PortMedium {
             eps_t: c64::new(1.0, 0.0),
             mu_t,
             mu_n: 1.0,
         };
+        // Per frequency: the axial ε_n and the geometric wavenumber in the
+        // fill, k₀·√(Re ε_n·μ_t) (what the TM cutoff and the axial mesh
+        // resolution are measured against).
+        let mut rows = Vec::with_capacity(self.frequencies.len());
         for f in self.frequencies {
             let eps_n =
                 transverse_and_normal(self.eps_diag_of(fill.tet, Some(f.hz)), fill.normal_axis).1;
-            let Some(limit_k0) = medium.tm_cutoff_k0(eps_n, k_c) else {
+            let d = eps_n.re * mu_t;
+            if d.is_nan() || d <= 0.0 {
                 return Err(invalid(format!(
                     "wave port `{name}`: the fill `{}` has Re ε_n·μ_t = {:e} ≤ 0 at {:e} Hz \
                      (axial ε_n = {:e}{:+e}j), so the port's TM modes propagate at every \
                      frequency (no TM cutoff), but {pointer} — fill the guide at the port face \
                      with a medium of Re ε_n > 0 over the whole sweep",
                     fill.groups.join(", "),
-                    eps_n.re * mu_t,
+                    d,
                     f.hz,
                     eps_n.re,
                     eps_n.im
                 )));
-            };
+            }
+            rows.push((f, eps_n, f.k0 * d.sqrt()));
+        }
+        // The top of the sweep in the fill (a dispersive fill need not
+        // peak at the top frequency).
+        let top = rows.iter().copied().max_by(|a, b| a.2.total_cmp(&b.2));
+        // `h_n` is read over about one wavelength of the guide feeding the
+        // port, not just the tets on the face: the 3-D TM cutoff is set by
+        // the guide's coarsest cells (issue #824).
+        let reach = tm_guard_axial_reach(face_est.k_c(), top.map_or(0.0, |r| r.2));
+        let est =
+            face_est.with_axial_spacing(projection.guide_axial_spacing(&self.tagged.mesh, reach));
+        let k_c = est.guard_k_c();
+        let axial = TmAxialMesh {
+            name,
+            est: &est,
+            reach,
+            top: top.map(|(f, _, k)| (f.hz, k)),
+            limit_scale_hz: top.map(|(f, _, k)| f.hz / k),
+        };
+        for (f, eps_n, _) in rows {
+            let limit_k0 = medium
+                .tm_cutoff_k0(eps_n, k_c)
+                .expect("Re ε_n·μ_t > 0 checked above");
             if f.k0 >= limit_k0 {
                 let limit_hz = limit_k0 * f.hz / f.k0;
                 let filled = if eps_n == c64::new(1.0, 0.0) && mu_t == 1.0 {
@@ -3712,22 +3780,157 @@ impl PortMaterials<'_> {
                 };
                 return Err(invalid(format!(
                     "wave port `{name}`: the sweep frequency {:e} Hz (k0 = {:.6}) is at or above \
-                     the port's TM limit {limit_hz:e} Hz (k0 = {limit_k0:.6}{filled}): {:.0} % \
+                     the port's TM limit {limit_hz:e} Hz (k0 = {limit_k0:.6}{filled}): {} % \
                      below its lowest TM cutoff, estimated at k_c^TM = {:.6} per mesh unit \
                      (port-face value {:.6}, extrapolated over two face refinements; the \
                      margin covers the 3-D model's TM cutoff, which sits below the continuum \
-                     on a coarse mesh). The {pointer}, so a propagating TM mode has no port \
-                     termination and the S-parameters would be silently wrong — keep every \
-                     sweep frequency below {limit_hz:e} Hz",
+                     on a coarse axial mesh{}). The {pointer}, so a propagating TM mode has no \
+                     port termination and the S-parameters would be silently wrong — {}",
                     f.hz,
                     f.k0,
-                    100.0 * TM_GUARD_MARGIN,
-                    est.k_face.min(est.k_extrapolated),
+                    percent(est.margin()),
+                    est.k_c(),
                     est.k_face,
+                    axial.margin_note(),
+                    axial.rejection_remedy(limit_hz),
                 )));
             }
         }
-        Ok(est)
+        Ok((est, axial.warning()))
+    }
+}
+
+/// The measured worst-case coefficient of the 3-D model's TM cutoff
+/// undershoot, `≈ 0.0205·(k_c·h_n)²` (issue #824: structured meshes
+/// uniform along the guide; graded, stepped and unstructured meshes
+/// measured lower with `h_n` read over the guide; `TM_GUARD_AXIAL_COEFF`
+/// bounds it with headroom), quoted by the coarse-axial-mesh warning.
+const TM_AXIAL_UNDERSHOOT_MEASURED: f64 = 0.0205;
+
+/// `x` as a percentage with at most one decimal (`0.05` → `5`,
+/// `0.0771` → `7.7`).
+fn percent(x: f64) -> String {
+    let s = format!("{:.1}", 100.0 * x);
+    s.strip_suffix(".0").map(str::to_string).unwrap_or(s)
+}
+
+/// The axial-mesh side of the TE-only TM guard of one wave port (issue
+/// #824): the margin note, the rejection remedy and the coarse-mesh
+/// warning, all in terms of `h_n` (the largest axial extent of a tet of
+/// the guide within `reach` of the port) and `k·h_n`.
+struct TmAxialMesh<'a> {
+    name: &'a str,
+    est: &'a TmCutoffEstimate,
+    /// The axial window `h_n` was read over (mesh units, either side of
+    /// the port plane; `tm_guard_axial_reach`).
+    reach: f64,
+    /// `(Hz, geometric k in the fill)` of the sweep point with the largest
+    /// in-fill wavenumber; `None` for an empty sweep.
+    top: Option<(f64, f64)>,
+    /// Hz per unit of in-fill wavenumber at that point (maps a geometric
+    /// wavenumber to a frequency).
+    limit_scale_hz: Option<f64>,
+}
+
+impl TmAxialMesh<'_> {
+    /// Whether the axial term widened the margin beyond `TM_GUARD_MARGIN`.
+    fn widened(&self) -> bool {
+        self.est.margin() > TM_GUARD_MARGIN
+    }
+
+    fn margin_note(&self) -> String {
+        if !self.widened() {
+            return String::new();
+        }
+        format!(
+            "; widened from {} % because the tets of the guide within {:.6} mesh units of the \
+             port (one wavelength) span up to h_n = {:.6} mesh units along it, k_c^TM·h_n = \
+             {:.3}{}",
+            percent(TM_GUARD_MARGIN),
+            self.reach,
+            self.est.axial_spacing,
+            self.est.axial_kh(),
+            if self.est.axial_kh() > TM_GUARD_MEASURED_KH {
+                format!(", beyond the measured range k_c^TM·h_n ≤ {TM_GUARD_MEASURED_KH}")
+            } else {
+                String::new()
+            }
+        )
+    }
+
+    fn rejection_remedy(&self, limit_hz: f64) -> String {
+        let below = format!("keep every sweep frequency below {limit_hz:e} Hz");
+        if !self.widened() {
+            return below;
+        }
+        match self
+            .top
+            .and_then(|(_, k)| self.est.axial_spacing_admitting(k))
+        {
+            Some(h) => format!(
+                "refine the mesh along the guide feeding port `{}` to h ≤ {h:.6} mesh units \
+                 along its axis (now {:.6}), over the whole guide within {:.6} mesh units of \
+                 the port and not only at the face, to raise the limit above the top sweep \
+                 frequency, or {below}",
+                self.name, self.est.axial_spacing, self.reach
+            ),
+            None => format!(
+                "{below} (refining the mesh along the guide feeding port `{}`, within {:.6} \
+                 mesh units of the port and not only at the face, to h ≤ {:.6} mesh units \
+                 along its axis restores the {} % margin, limit {:e} Hz, which the top sweep \
+                 frequency is above as well)",
+                self.name,
+                self.reach,
+                self.est.base_margin_axial_spacing(),
+                percent(TM_GUARD_MARGIN),
+                self.limit_scale_hz
+                    .map_or(f64::NAN, |s| s * (1.0 - TM_GUARD_MARGIN) * self.est.k_c()),
+            ),
+        }
+    }
+
+    /// The coarse-axial-mesh warning: the top sweep frequency resolves its
+    /// in-fill wavelength with `k·h_n > √(δ₀/C_h)` ≈ 1.41 (fewer than ~4.4
+    /// cells per wavelength along the guide), where the 3-D model's TM
+    /// cutoff undershoot outgrows the base margin and the port's TE modes
+    /// are themselves under-resolved along the guide.
+    fn warning(&self) -> Option<String> {
+        let (hz, k) = self.top?;
+        let h_n = self.est.axial_spacing;
+        let k_c = self.est.k_c();
+        if !(k_c.is_finite() && k_c > 0.0 && h_n > 0.0) {
+            return None;
+        }
+        let kh_safe = (TM_GUARD_MARGIN / TM_GUARD_AXIAL_COEFF).sqrt();
+        if k * h_n <= kh_safe {
+            return None;
+        }
+        let scale = self.limit_scale_hz?;
+        Some(format!(
+            "wave port `{}`: coarse mesh along the guide at the port: the tets of the guide \
+             within {:.6} mesh units of the port (one wavelength) span up to h_n = {h_n:.6} \
+             mesh units along it, so k·h_n = {:.3} at the top sweep \
+             frequency {hz:e} Hz ({:.1} cells per wavelength in the fill, fewer than the \
+             {:.1} up to which the guard's base {} % margin covers the 3-D model's TM cutoff). \
+             That cutoff sits up to ~{:.1} % below the continuum here, so the guard margin is \
+             widened to {} % (TM limit {:e} Hz instead of {:e} Hz), and the S-parameters near \
+             the top of the sweep carry axial discretization error. Refine the mesh along the \
+             guide feeding port `{}` to h ≤ {:.6} mesh units along its axis, over the whole \
+             guide within {:.6} mesh units of the port and not only at the face",
+            self.name,
+            self.reach,
+            k * h_n,
+            std::f64::consts::TAU / (k * h_n),
+            std::f64::consts::TAU / kh_safe,
+            percent(TM_GUARD_MARGIN),
+            100.0 * TM_AXIAL_UNDERSHOOT_MEASURED * (k_c * h_n).powi(2),
+            percent(self.est.margin()),
+            scale * self.est.guard_k_c(),
+            scale * (1.0 - TM_GUARD_MARGIN) * k_c,
+            self.name,
+            kh_safe / k,
+            self.reach,
+        ))
     }
 }
 

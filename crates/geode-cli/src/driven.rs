@@ -205,6 +205,7 @@ pub fn run(
     opts: SweepOptions,
 ) -> Result<DrivenReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Driven))?;
+    p.print_load_warnings();
     let plan = touchstone
         .map(|path| crate::touchstone::validate(&p, path))
         .transpose()?;
