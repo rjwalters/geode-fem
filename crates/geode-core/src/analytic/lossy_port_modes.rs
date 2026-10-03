@@ -115,6 +115,7 @@ use faer::linalg::solvers::Solve;
 use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
+use super::mixed_pencil::{ARNOLDI_BREAKDOWN_REL, ARNOLDI_NULL_NU_REL};
 use super::port_mode_accuracy::{MATCH_MIN_OVERLAP, ModeAccuracy, NOMINAL_RATE, UniformRefinement};
 use super::port_modes::{
     DEGENERATE_REL_TOL, HybridDofLayout, HybridPortError, HybridPortOpts, NULL_BETA_SQ_TOL,
@@ -123,6 +124,7 @@ use super::port_modes::{
 };
 use super::waveguide::{TriMesh, tri_nedelec_local, tri_p1_local};
 use crate::eigen::dense::EigenError;
+use crate::eigen::lanczos::negligible;
 
 /// Allowance factor on `|Im β²| ≤ IM_ALLOWANCE · k₀² max|ε″|` used by the
 /// coverage certificate (module docs).
@@ -459,6 +461,9 @@ pub(crate) fn shift_invert_arnoldi_complex(
     let mut bv = vec![ZERO; n];
     let mut w = vec![ZERO; n];
     let mut m_used = m;
+    // Running `max |h_ij|`, the scale of `T` (issue #828), as in
+    // `mixed_pencil`'s real Arnoldi.
+    let mut h_scale = 0.0_f64;
     for j in 0..m {
         cmatvec(b, &basis[j], &mut bv);
         lu_solve_c(&lu, &bv, &mut w);
@@ -481,7 +486,12 @@ pub(crate) fn shift_invert_arnoldi_complex(
         }
         let hnext = cnorm(&w);
         h[(j + 1, j)] = c64::new(hnext, 0.0);
-        if hnext < 1e-12 {
+        for i in 0..=j {
+            h_scale = h_scale.max(h[(i, j)].norm());
+        }
+        h_scale = h_scale.max(hnext);
+        // Relative to the scale of `T` (issue #828; it was `hnext < 1e-12`).
+        if negligible(hnext, h_scale, ARNOLDI_BREAKDOWN_REL) {
             m_used = j + 1;
             break;
         }
@@ -498,7 +508,9 @@ pub(crate) fn shift_invert_arnoldi_complex(
     let mut out = Vec::with_capacity(m_used);
     for col in 0..m_used {
         let nu = s[col];
-        if nu.norm_sqr() < 1e-30 || !(nu.re.is_finite() && nu.im.is_finite()) {
+        if negligible(nu.norm(), h_scale, ARNOLDI_NULL_NU_REL)
+            || !(nu.re.is_finite() && nu.im.is_finite())
+        {
             continue;
         }
         let mu = sigma + recip(nu);
@@ -1505,4 +1517,61 @@ pub fn lossy_alpha_estimate(acc: &ModeAccuracy) -> Option<f64> {
         return None;
     }
     Some((a_h - a_h2).abs() / a_h2.abs() / (1.0 - 2f64.powf(-acc.rate)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #828 regression: the complex shift-invert Arnoldi returns the
+    /// same spectrum, scaled, for the pencil `(s·A, B)` at `s = 1`, `1e13`
+    /// and `1e-6` (lossy diagonal `A`). With the old absolute breakdown
+    /// `h_{j+1,j} < 1e-12`, the `1e13` run stopped after one step.
+    #[test]
+    fn complex_arnoldi_spectrum_is_mesh_unit_invariant() {
+        let n = 12;
+        let run = |s: f64| -> Vec<c64> {
+            let a = SparseColMat::<usize, c64>::try_new_from_triplets(
+                n,
+                n,
+                &(0..n)
+                    .map(|i| {
+                        Triplet::new(i, i, c64::new(s * (1.0 + i as f64), -0.01 * s * i as f64))
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+            let b = SparseColMat::<usize, c64>::try_new_from_triplets(
+                n,
+                n,
+                &(0..n)
+                    .map(|i| Triplet::new(i, i, c64::new(1.0, 0.0)))
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+            let mut mu: Vec<c64> = shift_invert_arnoldi_complex(
+                a.as_ref(),
+                b.as_ref(),
+                c64::new(5.5 * s, 0.0),
+                n,
+                None,
+                None,
+            )
+            .unwrap()
+            .iter()
+            .map(|r| r.mu / s)
+            .collect();
+            mu.sort_by(|x, y| x.re.total_cmp(&y.re));
+            mu
+        };
+        let reference = run(1.0);
+        assert_eq!(reference.len(), n);
+        for s in [1e13, 1e-6] {
+            let got = run(s);
+            assert_eq!(got.len(), n, "s = {s:e}: {got:?}");
+            for (a, b) in got.iter().zip(&reference) {
+                assert!((a - b).norm() < 1e-10 * b.norm(), "s = {s:e}: {a} vs {b}");
+            }
+        }
+    }
 }
