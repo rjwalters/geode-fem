@@ -341,9 +341,10 @@ fn kirschning_jansen_dispersion_below_the_first_box_mode() {
 ///
 /// - Two strips in a homogeneous box carry **two** TEM modes at exactly
 ///   `β² = k₀²ε`, on any mesh. The single-start Arnoldi of Phase 1 sees one
-///   direction of that eigenspace (tripwire, `verify_multiplicity = false`).
-///   The multiplicity verification pass finds the second copy, and the two
-///   copies are B-orthogonal.
+///   direction of that eigenspace in exact arithmetic
+///   (`verify_multiplicity = false`; whether round-off yields the second
+///   copy is platform-dependent). The multiplicity verification pass always
+///   returns both copies, and they are B-orthogonal.
 /// - A C4v-symmetric square coax mesh makes the TE11-like pair exactly
 ///   degenerate. Both copies are returned and B-orthogonal.
 /// - On the mirror-symmetric microstrip, the pass certifies the set with no
@@ -382,14 +383,20 @@ fn repeated_eigenvalues_return_every_copy() {
         verified.diagnostics.multiplicity_certified,
         verified.diagnostics.multiplicity_passes
     );
-    assert_eq!(
-        tem_count(&single),
-        1,
-        "tripwire: single start misses a copy"
-    );
+    // In exact arithmetic the single-start Krylov space holds one direction
+    // of the TEM eigenspace; in floating point a round-off copy may or may not
+    // emerge. Measured: macOS (dev) 1 copy, Linux (CI) 2, so this is
+    // recorded, not asserted as a tripwire. The verified set must hold both.
+    let n_single = tem_count(&single);
+    assert!((1..=2).contains(&n_single));
     assert_eq!(tem_count(&verified), 2, "both TEM modes");
     assert!(verified.diagnostics.multiplicity_certified);
-    assert_eq!(verified.n_propagating, single.n_propagating + 1);
+    assert_eq!(
+        verified.n_propagating,
+        single.n_propagating + 2 - n_single,
+        "the verification pass adds exactly the missed copies"
+    );
+    assert_eq!(verified.diagnostics.repeated_copies, 2 - n_single);
     let n01 = pairing(&f, &verified, 0, 1);
     let rel = n01.abs()
         / (verified.modes[0].norm * verified.modes[1].norm)
