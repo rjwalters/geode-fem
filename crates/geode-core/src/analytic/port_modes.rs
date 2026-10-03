@@ -1175,10 +1175,16 @@ pub fn solve_hybrid_port_modes(
         m = (2 * m).min(dim).min(opts.max_krylov);
     };
 
+    // Degenerate clusters are B-orthogonalized before the verification pass
+    // too: its deflation `Q` is a projector only for a B-orthogonal set, and
+    // copies of one eigenvalue found by the first pass need not be (measured
+    // on Linux CI: two TEM copies from one start left the pass unable to
+    // certify until this was done).
+    biorthogonalize_degenerate(&mut set, &pencil, scale, &mut scratch);
     if opts.verify_multiplicity {
         verify_multiplicity(&mut set, &ctx, project, opts, &mut scratch)?;
+        biorthogonalize_degenerate(&mut set, &pencil, scale, &mut scratch);
     }
-    biorthogonalize_degenerate(&mut set, &pencil, scale, &mut scratch);
     set.diagnostics.floor_accepted = set
         .modes
         .iter()
@@ -1209,6 +1215,7 @@ fn biorthogonalize_degenerate(
     scratch: &mut Scratch,
 ) {
     let n = set.modes.len();
+    let mut clusters = 0usize;
     let mut i = 0;
     while i < n {
         let mut j = i + 1;
@@ -1218,7 +1225,7 @@ fn biorthogonalize_degenerate(
             j += 1;
         }
         if j - i > 1 {
-            set.diagnostics.degenerate_clusters += 1;
+            clusters += 1;
             let mut xs: Vec<Vec<f64>> = (i..j)
                 .map(|k| gather_reduced(pencil, &set.modes[k]))
                 .collect();
@@ -1237,12 +1244,25 @@ fn biorthogonalize_degenerate(
             }
             for (k, x) in (i..j).zip(xs) {
                 let old = &set.modes[k];
+                let mu = -old.beta_sq;
+                // Explicit residual of the re-orthogonalized vector.
+                sp_matvec(pencil.a.as_ref(), &x, &mut scratch.ax);
+                sp_matvec(pencil.b.as_ref(), &x, &mut scratch.bx);
+                let r = scratch
+                    .ax
+                    .iter()
+                    .zip(&scratch.bx)
+                    .map(|(a, b)| (a - mu * b).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
+                let den = mu.abs() * norm2(&scratch.bx);
+                let residual = if den > 0.0 { r / den } else { f64::INFINITY };
                 let c = Candidate {
                     dist: 0.0,
-                    mu: -old.beta_sq,
+                    mu,
                     mu_im: 0.0,
                     class: Class::Physical,
-                    residual: old.residual,
+                    residual,
                     residual_floor: old.residual_floor,
                     eta: old.transverse_fraction,
                     vector: x,
@@ -1254,6 +1274,7 @@ fn biorthogonalize_degenerate(
         }
         i = j;
     }
+    set.diagnostics.degenerate_clusters = clusters;
 }
 
 /// Fixed inputs of [`classify_ritz`].
