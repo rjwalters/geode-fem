@@ -1,86 +1,102 @@
 use faer::{Mat, MatRef};
+use geode_core::eigen::dense::{EigenError, EigenSolver, FaerDenseEigensolver};
 use num_complex::Complex64;
 
-/// Compute the lowest-`n` generalized eigenpairs of `K x = λ M x`
-/// using faer's dense `generalized_eigen`.
+/// Relative gap below which two neighbouring eigenvalues belong to the same
+/// degenerate cluster in [`dense_lowest_eigenpairs`]. The dense solver
+/// resolves eigenvalues to about `1e-12` relative, so a split this small is
+/// round-off, not physics; the cube-cavity clusters it serves are
+/// bit-identical in the reference and well-separated (≥ 3 %) from each other.
+const CLUSTER_REL_GAP: f64 = 1e-8;
+
+/// Compute the lowest-`n_take` generalized eigenpairs of `K x = λ M x`
+/// (`K` symmetric positive semidefinite, `M` symmetric positive definite).
 ///
-/// Returns `(eigvals, eigvecs)` with `eigvals` ascending and `eigvecs`
-/// as columns of an `(n_int, n)` matrix. Eigenvectors are
-/// M-orthonormalized post-hoc via modified Gram–Schmidt within each
-/// degenerate cluster, so the comparison against the NumPy reference
-/// (which is M-orthonormal by `eigsh` construction) is consistent.
+/// Delegates to [`FaerDenseEigensolver::smallest_eigenpairs`] (dense
+/// shift-invert plus faer's standard real Schur QR, issue #800). It does
+/// **not** call faer's generalized real QZ (`generalized_eigen` →
+/// `qz_real`): that QZ is inaccurate in the middle and upper spectrum of
+/// these pencils and returns spurious complex-conjugate pairs (issue #813).
 ///
-/// The existing `FaerDenseEigensolver` trait only returns eigenvalues;
-/// extending it to return eigenpairs is tracked as a follow-up. For
-/// now, we inline the eigenvector path in this test.
+/// Returns `(eigvals, eigvecs)` with `eigvals` ascending by value and
+/// `eigvecs` as the columns of an `(n_int, n)` matrix. Within each degenerate
+/// cluster (neighbouring eigenvalues closer than `1e-8` relative), the
+/// eigenvectors are M-orthonormalized by modified Gram–Schmidt, so the
+/// returned basis is M-orthonormal like a symmetric solver's (for example
+/// the NumPy `eigsh` reference). Vectors from distinct eigenvalues are
+/// M-orthogonal already, up to round-off.
+///
+/// # Errors
+///
+/// Every error of [`FaerDenseEigensolver`]. In particular, a complex
+/// eigenvalue among the lowest `n_take` is
+/// [`EigenError::ComplexEigenvalue`]: a real symmetric-definite pencil has a
+/// real spectrum, so a complex eigenvalue is a numerical failure. The old
+/// helper silently dropped such eigenvalues, which shifted every later index.
 pub fn dense_lowest_eigenpairs(
     k: MatRef<f64>,
     m: MatRef<f64>,
     n_take: usize,
-) -> (Vec<f64>, Mat<f64>) {
+) -> Result<(Vec<f64>, Mat<f64>), EigenError> {
     let dim = k.nrows();
-    let evd = k.generalized_eigen(&m).expect("faer generalized_eigen");
-    let s_a = evd.S_a().column_vector();
-    let s_b = evd.S_b().column_vector();
-    let u = evd.U();
-
-    // Build (real eigenvalue, eigenvector) tuples, filtering complex pairs.
-    let mut pairs: Vec<(f64, Vec<f64>)> = Vec::with_capacity(dim);
-    for i in 0..dim {
-        let a = s_a[i];
-        let b = s_b[i];
-        let denom = b.norm_sqr();
-        if denom < 1e-30 {
-            continue;
-        }
-        let re = (a.re * b.re + a.im * b.im) / denom;
-        let im = (a.im * b.re - a.re * b.im) / denom;
-        // Skip eigenvalues with non-trivial imaginary part (shouldn't
-        // happen for our SPD pencil but the API doesn't promise it).
-        if im.abs() > 1e-9 * re.abs().max(1.0) {
-            continue;
-        }
-        // Real eigenvector — for an SPD pencil U columns are real to
-        // f64 precision modulo a global phase. Take the real part.
-        let mut v = Vec::with_capacity(dim);
-        for row in 0..dim {
-            v.push(u[(row, i)].re);
-        }
-        pairs.push((re, v));
-    }
-
-    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    pairs.truncate(n_take);
+    let pairs = FaerDenseEigensolver.smallest_eigenpairs(k, m, n_take)?;
 
     let n = pairs.len();
-    let eigvals: Vec<f64> = pairs.iter().map(|(l, _)| *l).collect();
-    let mut q = Mat::<f64>::zeros(dim, n);
-    for (j, (_, v)) in pairs.iter().enumerate() {
-        for i in 0..dim {
-            q[(i, j)] = v[i];
+    let eigvals: Vec<f64> = pairs.iter().map(|p| p.lambda).collect();
+    let mut q = Mat::<f64>::from_fn(dim, n, |i, j| pairs[j].vector[i]);
+
+    // Per-cluster modified Gram–Schmidt in the M inner product. The solver
+    // already M-normalizes each column; inside a degenerate cluster any
+    // basis of the eigenspace is valid, but the Schur eigenvectors of the
+    // non-symmetric shift-inverted operator need not be M-orthogonal there.
+    let mut start = 0;
+    while start < n {
+        let mut end = start + 1;
+        while end < n
+            && (eigvals[end] - eigvals[end - 1]).abs()
+                <= CLUSTER_REL_GAP * eigvals[end].abs().max(1.0)
+        {
+            end += 1;
         }
+        for j in start..end {
+            for p in start..j {
+                let vp = column_as_vec(q.as_ref(), p);
+                let vj = column_as_vec(q.as_ref(), j);
+                let r = quad_form(&vp, m, &vj);
+                for i in 0..dim {
+                    q[(i, j)] -= r * vp[i];
+                }
+            }
+            let vj = column_as_vec(q.as_ref(), j);
+            let scale = 1.0 / quad_form(&vj, m, &vj).max(1e-300).sqrt();
+            for i in 0..dim {
+                q[(i, j)] *= scale;
+            }
+        }
+        start = end;
     }
 
-    // M-normalize each column so v^T M v = 1.
-    for j in 0..n {
-        let col = column_as_vec(q.as_ref(), j);
-        let norm_sq = quad_form(&col, m, &col);
-        let scale = 1.0 / norm_sq.max(1e-300).sqrt();
-        for i in 0..dim {
-            q[(i, j)] *= scale;
-        }
-    }
-
-    (eigvals, q)
+    Ok((eigvals, q))
 }
 
-/// The lowest-`n` generalized eigenvalues of `K x = λ M x`, ascending.
+/// The lowest-`n_take` generalized eigenvalues of `K x = λ M x`, ascending.
 ///
-/// Eigenvalues-only convenience over [`dense_lowest_eigenpairs`] (drops
-/// the eigenvector matrix). Replaces the `dense_lowest_eigenvalues` helper
-/// duplicated across the `sphere_pec_*` reference tests.
-pub fn dense_lowest_eigenvalues(k: MatRef<f64>, m: MatRef<f64>, n_take: usize) -> Vec<f64> {
-    dense_lowest_eigenpairs(k, m, n_take).0
+/// Eigenvalues only, through [`FaerDenseEigensolver`]'s
+/// [`EigenSolver::smallest_eigenvalues`] (dense shift-invert, no
+/// eigenvectors computed, no faer generalized real QZ; issue #813).
+/// Replaces the `dense_lowest_eigenvalues` helper duplicated across the
+/// `sphere_pec_*` reference tests.
+///
+/// # Errors
+///
+/// As [`dense_lowest_eigenpairs`]: a complex eigenvalue among the lowest
+/// `n_take` is [`EigenError::ComplexEigenvalue`], never silently dropped.
+pub fn dense_lowest_eigenvalues(
+    k: MatRef<f64>,
+    m: MatRef<f64>,
+    n_take: usize,
+) -> Result<Vec<f64>, EigenError> {
+    FaerDenseEigensolver.smallest_eigenvalues(k, m, n_take)
 }
 
 /// Principal complex square root `k = √λ` of a complex eigenvalue
@@ -207,9 +223,59 @@ mod tests {
         // K = diag(3, 1, 2), M = I  =>  eigenvalues {1, 2, 3}; lowest two = [1, 2].
         let k = Mat::<f64>::from_fn(3, 3, |i, j| if i == j { [3.0, 1.0, 2.0][i] } else { 0.0 });
         let m = Mat::<f64>::from_fn(3, 3, |i, j| if i == j { 1.0 } else { 0.0 });
-        let eigs = dense_lowest_eigenvalues(k.as_ref(), m.as_ref(), 2);
+        let eigs = dense_lowest_eigenvalues(k.as_ref(), m.as_ref(), 2).unwrap();
         assert_eq!(eigs.len(), 2);
         assert!((eigs[0] - 1.0).abs() < 1e-9);
         assert!((eigs[1] - 2.0).abs() < 1e-9);
+    }
+
+    /// A degenerate cluster comes back as an M-orthonormal basis of its
+    /// eigenspace, and the eigenpairs are genuine (`K v = λ M v`).
+    #[test]
+    fn dense_lowest_eigenpairs_m_orthonormal_in_degenerate_cluster() {
+        // K = SᵀDS, M = SᵀS with S unit upper bidiagonal: K v = λ M v
+        // <=> D (S v) = λ (S v), so λ = d_i, a 3-fold cluster at 2.
+        let n = 5;
+        let s_mat = Mat::<f64>::from_fn(n, n, |i, j| {
+            if i == j {
+                1.0
+            } else if j == i + 1 {
+                0.3
+            } else {
+                0.0
+            }
+        });
+        let d = [2.0, 1.0, 2.0, 5.0, 2.0];
+        let m = Mat::<f64>::from_fn(n, n, |i, j| {
+            (0..n).map(|l| s_mat[(l, i)] * s_mat[(l, j)]).sum()
+        });
+        let k = Mat::<f64>::from_fn(n, n, |i, j| {
+            (0..n).map(|l| s_mat[(l, i)] * d[l] * s_mat[(l, j)]).sum()
+        });
+        let (vals, q) = dense_lowest_eigenpairs(k.as_ref(), m.as_ref(), 4).unwrap();
+        let want = [1.0, 2.0, 2.0, 2.0];
+        for (got, want) in vals.iter().zip(want) {
+            assert!((got - want).abs() < 1e-12, "λ = {got}, want {want}");
+        }
+        for (a, &lambda) in vals.iter().enumerate() {
+            let va = column_as_vec(q.as_ref(), a);
+            // Residual ‖K v − λ M v‖∞.
+            let kv: Vec<f64> = (0..n)
+                .map(|i| (0..n).map(|j| k[(i, j)] * va[j]).sum())
+                .collect();
+            let mv: Vec<f64> = (0..n)
+                .map(|i| (0..n).map(|j| m[(i, j)] * va[j]).sum())
+                .collect();
+            let res = (0..n)
+                .map(|i| (kv[i] - lambda * mv[i]).abs())
+                .fold(0.0, f64::max);
+            assert!(res < 1e-12, "residual {res:e} for mode {a}");
+            for b in 0..4 {
+                let vb = column_as_vec(q.as_ref(), b);
+                let g = quad_form(&va, m.as_ref(), &vb);
+                let want = if a == b { 1.0 } else { 0.0 };
+                assert!((g - want).abs() < 1e-12, "(vₐᵀ M v_b)[{a},{b}] = {g:e}");
+            }
+        }
     }
 }

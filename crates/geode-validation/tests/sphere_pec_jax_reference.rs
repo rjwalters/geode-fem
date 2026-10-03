@@ -18,8 +18,8 @@
 //!    Default `cargo test`.
 //! 4. Eigensolve — `eigenvalues_lowest` (full spurious+physical slice,
 //!    length `spurious_dim + 8 = 376`) and `eigenvalues_physical` (lowest 5
-//!    physical modes). Gated on `#[ignore]` / release mode because faer 0.24's
-//!    `qz_real` panics under debug-assertions.
+//!    physical modes). Ignored in debug builds only (slow there); runs in
+//!    the default tier in release.
 //!
 //! # Running
 //!
@@ -28,10 +28,16 @@
 //! cargo test -p geode-validation --test sphere_pec_jax_reference
 //! ```
 //!
-//! Eigensolve tests (release mode required):
+//! The eigensolve test runs in the default tier in release (issue #813).
+//! It used to be `#[ignore]`d because
+//! `geode_util::eigen::dense_lowest_eigenvalues` called faer 0.24's
+//! generalized real QZ (`qz_real`), which panicked under debug-assertions;
+//! it now delegates to `FaerDenseEigensolver` (dense shift-invert, issue
+//! #800). It stays ignored in debug builds only, where it takes over 300 s.
+//!
 //! ```sh
 //! cargo test -p geode-validation --release \
-//!     --test sphere_pec_jax_reference -- --ignored --nocapture
+//!     --test sphere_pec_jax_reference -- --nocapture
 //! ```
 
 use burn::prelude::Backend;
@@ -339,13 +345,14 @@ fn sphere_pec_jax_assembly_substages_agree() {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with \
-    `cargo test -p geode-validation --release --test sphere_pec_jax_reference -- --ignored`"]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "slow in debug (over 300 s: the 3300-DOF sphere pencil); runs in the default tier in release"
+)]
 fn sphere_pec_jax_spectrum_agrees() {
     // Full lowest-spectrum slice and physical eigenvalues.
-    // Gated on --release because faer 0.24's qz_real uses subtraction that
-    // can overflow under debug-assertions. On the 3300x3300 interior matrices
-    // the dense QZ takes ~70s.
+    // Ignored in debug builds (over 300 s there). On the 3300x3300 interior
+    // matrices the dense shift-invert takes about 5 s in release.
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("jax_baseline.json should load");
     let burn = run_burn_pipeline();
@@ -364,7 +371,8 @@ fn sphere_pec_jax_spectrum_agrees() {
     // 6. Full lowest-spectrum slice: spurious_dim + 8 modes.
     let n_request = burn.spurious_dim + 8;
     let burn_spectrum =
-        dense_lowest_eigenvalues(burn.k_int.as_ref(), burn.m_int.as_ref(), n_request);
+        dense_lowest_eigenvalues(burn.k_int.as_ref(), burn.m_int.as_ref(), n_request)
+            .expect("dense eigensolve of the sphere-PEC pencil");
 
     let golden_spectrum = fixture.output_f64("eigenvalues_lowest").unwrap();
     assert_eq!(

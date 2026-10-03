@@ -34,22 +34,18 @@
 //! `ComparisonReport` is the wrong metric for vectors), so we store
 //! `Q_numpy` as an INPUT field and compute the overlap by hand below.
 //!
-//! # Why `#[ignore]` on the eigensolve test
+//! # Running
 //!
-//! Same reason as `crates/geode-core/tests/eigensolver.rs`: faer 0.24's
-//! `gevd::qz_real` performs subtractions that wrap under
-//! debug-assertions even though the release math is correct. The
-//! workspace [`profile.test.package.*`] override disables
-//! debug-assertions for transitive deps, but the override does not
-//! propagate reliably through every Cargo resolver path. Run with:
+//! The two eigensolve tests used to be `#[ignore]`d because
+//! `geode_util::eigen::dense_lowest_eigenpairs` called faer 0.24's
+//! generalized real QZ (`gevd::qz_real`), which panicked under
+//! debug-assertions. It now delegates to `FaerDenseEigensolver` (dense
+//! shift-invert, issues #800 / #813), so every test here runs in the
+//! default tier (about 30 s each in debug):
 //!
 //! ```sh
-//! cargo test -p geode-validation --release -- --ignored
+//! cargo test -p geode-validation --test cube_cavity_numpy_reference
 //! ```
-//!
-//! The non-eigensolve sub-stage tests (mesh shape, assembly diagonals,
-//! Frobenius norms) run under default `cargo test` because they do not
-//! touch `qz_real`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -297,7 +293,6 @@ fn numpy_eigenvalues_match_analytic_within_p1_band() {
 }
 
 #[test]
-#[ignore = "Burn dense generalized_eigen via faer 0.24 qz_real panics under debug-assertions; run with `cargo test -p geode-validation --release -- --ignored`"]
 fn cube_cavity_burn_matches_numpy_reference_at_all_substages() {
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("baseline.json should load");
@@ -310,7 +305,8 @@ fn cube_cavity_burn_matches_numpy_reference_at_all_substages() {
     );
 
     let (eigvals_burn, _eigvecs_burn) =
-        eigen::dense_lowest_eigenpairs(k_int.as_ref(), m_int.as_ref(), 5);
+        eigen::dense_lowest_eigenpairs(k_int.as_ref(), m_int.as_ref(), 5)
+            .expect("dense eigensolve of the cube-cavity pencil");
 
     let actual = build_actual_outputs(k_int.as_ref(), m_int.as_ref(), &eigvals_burn, k_int.nrows());
 
@@ -445,7 +441,6 @@ fn cube_cavity_burn_matches_numpy_reference_at_all_substages() {
 }
 
 #[test]
-#[ignore = "Burn dense generalized_eigen via faer 0.24 qz_real panics under debug-assertions; run with `cargo test -p geode-validation --release -- --ignored`"]
 fn cube_cavity_eigenvector_subspaces_agree_per_cluster() {
     // Per acceptance criterion #3: within each degenerate eigenvalue
     // cluster, compare `‖Q_numpy^T M_int Q_burn‖_F` to the cluster's
@@ -472,7 +467,8 @@ fn cube_cavity_eigenvector_subspaces_agree_per_cluster() {
     let (k_int, m_int, _interior) = burn_pipeline_to_interior();
     let k_modes = 6usize; // 5 for acceptance criterion + 1 to close cluster {4,5}
     let (_eigvals_burn, eigvecs_burn) =
-        eigen::dense_lowest_eigenpairs(k_int.as_ref(), m_int.as_ref(), k_modes);
+        eigen::dense_lowest_eigenpairs(k_int.as_ref(), m_int.as_ref(), k_modes)
+            .expect("dense eigensolve of the cube-cavity pencil");
 
     // Load Q_numpy from the fixture's INPUT field (eigenvectors are
     // stored as inputs because elementwise comparison is the wrong

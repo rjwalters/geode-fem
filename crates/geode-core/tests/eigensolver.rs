@@ -32,23 +32,19 @@
 //!
 //! # Running these tests
 //!
-//! All five tests are `#[ignore]`d by default because faer 0.24's
-//! `gevd::qz_real` performs subtractions that wrap under
-//! `debug-assertions`, producing `attempt to subtract with overflow`
-//! panics even though the release math is correct. Run with:
+//! These tests used to be `#[ignore]`d because faer 0.24's generalized
+//! real QZ (`gevd::qz_real`) panicked under `debug-assertions`.
+//! `FaerDenseEigensolver` no longer calls that QZ (dense shift-invert,
+//! issue #800), so they run in the default tier (issue #813). Each takes
+//! about 30 s in debug on a loaded host. The exception is
+//! `cube_eigenvalues_converge_at_second_order`, which solves three meshes up
+//! to `n = 12` (1331 DOF) and takes about 75 s in debug: it is ignored in
+//! debug builds only and runs in the default tier in release.
 //!
 //! ```sh
-//! cargo test -p geode-core --release                     # all 31 tests
-//! cargo test -p geode-core --release -- --ignored        # only these 5
+//! cargo test -p geode-core --test eigensolver                # debug
+//! cargo test -p geode-core --release --test eigensolver      # all 4
 //! ```
-//!
-//! Workspace-level package profile overrides (`opt-level = 3`,
-//! `debug-assertions = false`, `overflow-checks = false` in both
-//! `[profile.dev.package."*"]` and `[profile.test.package."*"]`) do
-//! not propagate through faer's transitive deps reliably enough to
-//! flip the panic — the `#[ignore]` + `--release` workflow is the
-//! reliable path. A pure-Rust symmetric eigensolver (Cholesky →
-//! standard) would lift this restriction (deferred to v2).
 
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
 use geode_core::eigen::dense::{
@@ -86,7 +82,6 @@ fn ground_mode_at(n: usize) -> f64 {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
 fn cube_ground_mode_matches_analytic_at_n10() {
     let target = 3.0 * std::f64::consts::PI.powi(2); // (1,1,1)
     let got = ground_mode_at(10);
@@ -105,7 +100,6 @@ fn cube_ground_mode_matches_analytic_at_n10() {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
 fn cube_lowest_five_modes_at_n10() {
     let (k, m) = cube_dirichlet_system(10);
     let lambdas = FaerDenseEigensolver
@@ -143,7 +137,10 @@ fn cube_lowest_five_modes_at_n10() {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "slow in debug (about 75 s: three meshes up to n = 12); runs in the default tier in release"
+)]
 fn cube_eigenvalues_converge_at_second_order() {
     // Run the ground-mode solve at three refinements that halve h between
     // successive pairs (h ∈ {1/3, 1/6, 1/12}) and check that the error
@@ -175,7 +172,6 @@ fn cube_eigenvalues_converge_at_second_order() {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
 fn degenerate_triplet_at_6pi_squared_is_clustered() {
     // The three analytic modes (2,1,1), (1,2,1), (1,1,2) are degenerate
     // at 6π². The 6-tet-per-hex mesh split breaks the cubic symmetry

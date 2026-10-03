@@ -31,12 +31,12 @@ num-complex = { workspace = true }
 # default `wgpu` (or `ndarray` if it wins precedence under unification).
 geode-core = { workspace = true, features = ["testing"] }
 burn = { workspace = true }
-# Direct faer access in the cube-cavity test: we materialize the K_int /
-# M_int interior matrices via `burn_matrix_to_faer`, then call
-# `generalized_eigen` directly to recover both eigenvalues AND
-# eigenvectors (the existing `EigenSolver` trait surface only returns
-# eigenvalues — extending it is tracked as a follow-up). Uses the
-# workspace base faer feature set (`std`, `linalg`); no `sparse-linalg`.
+# Direct faer access in the reference tests: we materialize the K_int /
+# M_int interior matrices via `burn_matrix_to_faer` as `faer::Mat` and
+# hand them to the `geode_util::eigen` dense helpers (which delegate to
+# `FaerDenseEigensolver`; no direct `generalized_eigen` call, issue #813).
+# Uses the workspace base faer feature set (`std`, `linalg`); no
+# `sparse-linalg`.
 faer = { workspace = true }
 # Panic-safe temp file in `tests/smoke.rs` (issue #766).
 tempfile = { workspace = true }

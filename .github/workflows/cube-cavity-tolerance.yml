@@ -3,7 +3,7 @@ name: cube-cavity-tolerance
 # Issue #110 — characterize the cross-platform tolerance floor of the
 # Burn↔NumPy cube-cavity sub-stage comparison.
 #
-# This workflow runs the `--ignored` `cube_cavity_numpy_reference` test
+# This workflow runs the `cube_cavity_numpy_reference` eigensolve tests
 # across two runner platforms (`ubuntu-latest`, `macos-latest` arm64)
 # so the observed `m_int_diag` / `k_int_diag` /
 # Frobenius drift surfaces in the CI log under `--nocapture`. The
@@ -18,12 +18,12 @@ name: cube-cavity-tolerance
 #     the path-filtered TF-Java gate without buying the macOS runners
 #     anything they need (they don't have JDK 17 + Maven configured for
 #     TF-Java's native classifier).
-#   - The Rust toolchain + the `--ignored` test takes ~10 minutes per
+#   - The Rust toolchain + the eigensolve tests take ~10 minutes per
 #     platform; total wall-clock is ~30 minutes parallelized.
 #
 # Triggers:
 #   - `pull_request` / `push` to main when the fixture, the test, or
-#     the assembly path that feeds it changes.
+#     the assembly or dense-eigensolver path that feeds it changes.
 #   - `workflow_dispatch` for ad-hoc re-measurement (e.g., after a
 #     toolchain bump).
 #
@@ -48,6 +48,8 @@ on:
       - 'crates/geode-core/src/assembly/**'
       - 'crates/geode-core/src/upload_mesh.rs'
       - 'crates/geode-validation/tests/cube_cavity_numpy_reference.rs'
+      - 'crates/geode-util/src/eigen.rs'
+      - 'crates/geode-core/src/eigen/dense.rs'
       - 'reference/fixtures/cube_cavity/baseline.json'
       - 'reference/fixtures/cube_cavity/baseline.schema.md'
       - 'reference/fixtures/cube_cavity/unit_cube.msh'
@@ -58,6 +60,8 @@ on:
       - 'crates/geode-core/src/assembly/**'
       - 'crates/geode-core/src/upload_mesh.rs'
       - 'crates/geode-validation/tests/cube_cavity_numpy_reference.rs'
+      - 'crates/geode-util/src/eigen.rs'
+      - 'crates/geode-core/src/eigen/dense.rs'
       - 'reference/fixtures/cube_cavity/baseline.json'
       - 'reference/fixtures/cube_cavity/baseline.schema.md'
       - 'reference/fixtures/cube_cavity/unit_cube.msh'
@@ -113,11 +117,11 @@ jobs:
           echo "runner.os=${{ runner.os }}"
           echo "runner.arch=${{ runner.arch }}"
 
-      # Per the test's own doc comment: faer 0.24's `qz_real`
-      # subtractions wrap under debug-assertions even though release
-      # math is correct. Run --release with --ignored so the
-      # eigensolve test path is exercised.
-      - name: Run cube_cavity substage test (--ignored --nocapture, ndarray, release)
+      # The eigensolve tests used to be #[ignore]d (faer 0.24's `qz_real`
+      # panicked under debug-assertions). Since issue #813 they are in the
+      # default tier, so run the whole target (--ignored would now select
+      # nothing). Release keeps the step fast.
+      - name: Run cube_cavity substage test (--nocapture, ndarray, release)
         # Explicit `shell: bash` runs `bash -eo pipefail`, so a test
         # failure is not masked by `| tee` (the default `bash -e {0}`
         # has no pipefail and the step stayed green).
@@ -126,7 +130,7 @@ jobs:
           cargo test \
             --release -p geode-validation \
             --test cube_cavity_numpy_reference \
-            -- --ignored --nocapture \
+            -- --nocapture \
             2>&1 | tee cube_cavity_substage.log
 
       - name: Extract CUBE_CAVITY_SUBSTAGE_DIFF lines

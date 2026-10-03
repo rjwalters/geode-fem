@@ -86,14 +86,17 @@
 //! even with the correct math — the noise in v drives an effectively
 //! linear-in-α drift via the residual M-component of v in the kernel.)
 //!
-//! # Why `#[ignore]` + `--release`?
+//! # Why ignored in debug?
 //!
-//! Same reason as the other Nédélec cavity tests: faer 0.24's
-//! `gevd::qz_real` panics under `debug-assertions` (an arithmetic
-//! overflow in faer's internal pivoting). Run with:
+//! The test used to be `#[ignore]`d because faer 0.24's generalized real
+//! QZ (`gevd::qz_real`) panicked under `debug-assertions`. The full GEVD
+//! now goes through `FaerDenseEigensolver` (dense shift-invert, issue
+//! #800), which does not. It stays ignored in debug builds only, because it
+//! takes over 300 s there; in release it runs in the default tier
+//! (issue #813):
 //!
 //! ```sh
-//! cargo test -p geode-core --test derham_gauge_invariance -- --ignored --release
+//! cargo test -p geode-core --release --test derham_gauge_invariance
 //! ```
 
 use burn::tensor::backend::BackendTypes;
@@ -103,7 +106,9 @@ use faer::linalg::solvers::Solve;
 use geode_core::assembly::nedelec::{assemble_global_nedelec, cube_pec_interior_edges};
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::derham::apply_gradient;
-use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
+use geode_core::eigen::dense::{
+    FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
+};
 use geode_core::mesh::cube_tet_mesh;
 use geode_core::testing::TestBackend;
 
@@ -205,73 +210,42 @@ fn cube_pec_cavity_system_with_meta() -> (
     (k_int, m_int, node_interior_mask, edge_interior_mask, mesh)
 }
 
-/// One open-coded GEVD result — eigenvalues (real, indexed by the
-/// **original** faer column ordering) plus the full complex U matrix.
+/// The full GEVD — every eigenvalue and its eigenvector, sharing one
+/// index.
 ///
-/// Returning the original column ordering (rather than sorting in
-/// lockstep) keeps the eigenvalue↔column mapping bulletproof — the
-/// caller does a single `argmin` over the eigenvalue list and reads
-/// the matched U column directly. This sidesteps the class of bugs
-/// where a sort permutation drifts out of sync with the eigenvector
-/// matrix.
+/// `eigenvalues[i]` and column `i` of `eigvecs` are the same eigenpair, so
+/// the caller does a single `argmin` over the eigenvalue list and reads the
+/// matched column directly; no separate sort permutation can drift out of
+/// sync with the eigenvector matrix.
 struct GevdResult {
-    /// `eigenvalues[i]` is the real part of `S_a[i] / S_b[i]`. NaN
-    /// entries flag complex conjugate pairs (which never appear for
-    /// our SPD pencil but we still defend against them).
+    /// Every eigenvalue of the pencil, ascending.
     eigenvalues: Vec<f64>,
-    /// `eigvecs[i]` is column `i` of `U` (real part, indexed by the
-    /// faer source column — NOT sorted).
+    /// `eigvecs[i]` is the M-normalized eigenvector of `eigenvalues[i]`.
     eigvecs: Mat<f64>,
 }
 
-/// Open-coded GEVD that exposes the eigenvectors — what
-/// `FaerDenseEigensolver::smallest_eigenvalues` does NOT do.
+/// Full dense GEVD with eigenvectors — what
+/// `FaerDenseEigensolver::smallest_eigenvalues` does NOT return.
 ///
-/// Mirrors the call pattern at `eigen.rs:65-94` and additionally
-/// pulls `evd.U()` for the eigenvector matrix.
+/// Calls `FaerDenseEigensolver::smallest_eigenpairs` for the whole
+/// spectrum (dense shift-invert, issue #800). It used to call faer's
+/// `generalized_eigen` (the generalized real QZ, `qz_real`) directly, which
+/// is inaccurate in the upper spectrum of these pencils and can return
+/// spurious complex pairs (issue #813). The solver errors out on a complex
+/// eigenvalue instead of the old NaN tagging.
 fn gevd_full(k: &Mat<f64>, m: &Mat<f64>) -> GevdResult {
     assert_eq!(k.nrows(), k.ncols());
     assert_eq!(m.nrows(), m.ncols());
     assert_eq!(k.nrows(), m.nrows());
 
-    let evd = k.as_ref().generalized_eigen(m.as_ref()).expect("faer GEVD");
+    let dim = k.nrows();
+    let pairs = FaerDenseEigensolver
+        .smallest_eigenpairs(k.as_ref(), m.as_ref(), dim)
+        .expect("dense GEVD");
+    assert_eq!(pairs.len(), dim, "dense GEVD returned a partial spectrum");
 
-    let s_a = evd.S_a().column_vector();
-    let s_b = evd.S_b().column_vector();
-    let u = evd.U();
-    let dim = s_a.nrows();
-
-    let mut eigenvalues = Vec::with_capacity(dim);
-    for i in 0..dim {
-        let a = s_a[i];
-        let b = s_b[i];
-        assert!(
-            b.norm_sqr() >= 1e-30,
-            "singular pencil at index {i}: |S_b|² = {}",
-            b.norm_sqr()
-        );
-        let denom = b.norm_sqr();
-        let re = (a.re * b.re + a.im * b.im) / denom;
-        let im = (a.im * b.re - a.re * b.im) / denom;
-        // For our SPD pencil λ is real; mark anything with a
-        // non-trivial imaginary component as NaN so a downstream
-        // `argmin` skips it. Threshold is `1e-6 · max(|re|, 1)` —
-        // looser than the lowest-band check the existing solver uses
-        // because we're checking every eigenvalue here (high-freq
-        // entries accumulate f64 noise in the imag channel).
-        let lam = if im.abs() <= 1e-6 * re.abs().max(1.0) {
-            re
-        } else {
-            f64::NAN
-        };
-        eigenvalues.push(lam);
-    }
-
-    // Strip the imaginary parts column-wise. For real eigenvalues the
-    // imag is ~0; for the conjugate-pair entries the columns aren't
-    // real, but we never consume them (NaN-tagged above).
-    let n = u.nrows();
-    let eigvecs = Mat::<f64>::from_fn(n, dim, |row, col| u[(row, col)].re);
+    let eigenvalues = pairs.iter().map(|p| p.lambda).collect();
+    let eigvecs = Mat::<f64>::from_fn(dim, dim, |row, col| pairs[col].vector[row]);
 
     GevdResult {
         eigenvalues,
@@ -279,9 +253,9 @@ fn gevd_full(k: &Mat<f64>, m: &Mat<f64>) -> GevdResult {
     }
 }
 
-/// Argmin of the eigenvalue list, skipping the kernel cluster and any
-/// NaN-tagged complex-pair entries. Returns the unsorted faer column
-/// index — the canonical "TM_{1,1}" index in the original GEVD output.
+/// Argmin of the eigenvalue list, skipping the kernel cluster (and any
+/// non-finite entry, defensively). Returns the shared eigenpair index —
+/// the canonical "TM_{1,1}" index in the GEVD output.
 fn argmin_non_kernel(eigenvalues: &[f64]) -> usize {
     let max_abs = eigenvalues
         .iter()
@@ -303,7 +277,7 @@ fn argmin_non_kernel(eigenvalues: &[f64]) -> usize {
     best.expect("non-kernel mode exists").1
 }
 
-/// Max non-kernel eigenvalue (skipping NaN-tagged entries) — used for
+/// Max non-kernel eigenvalue (skipping non-finite entries) — used for
 /// the κ̂ estimate.
 fn max_non_kernel(eigenvalues: &[f64]) -> f64 {
     eigenvalues
@@ -467,7 +441,10 @@ fn refine_via_rqi(
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "slow in debug (over 300 s); runs in the default tier in release"
+)]
 fn cube_pec_rayleigh_quotient_is_gauge_invariant() {
     let (k_int, m_int, node_interior_mask, edge_interior_mask, mesh) =
         cube_pec_cavity_system_with_meta();
@@ -481,9 +458,8 @@ fn cube_pec_rayleigh_quotient_is_gauge_invariant() {
     } = gevd_full(&k_int, &m_int);
 
     // Identify the kernel and pick the lowest non-kernel mode as the
-    // TM_{1,1} candidate. tm11_idx is the source column index in the
-    // unsorted faer output — eigvecs and eigenvalues share that index
-    // (no sort permutation can mis-align them).
+    // TM_{1,1} candidate. eigvecs and eigenvalues share tm11_idx (each
+    // index is one eigenpair, so no sort permutation can mis-align them).
     let tm11_idx = argmin_non_kernel(&eigenvalues);
     let lambda_gevd = eigenvalues[tm11_idx];
 
@@ -504,12 +480,11 @@ fn cube_pec_rayleigh_quotient_is_gauge_invariant() {
         TM11_TOL * 100.0
     );
 
-    // Pull the faer-returned eigenvector column. faer's QZ-based GEVD
-    // produces eigenvectors that mix across tightly clustered
-    // eigenvalues at roughly f32 precision (the TM_{1,1} triplet at
-    // 2π² is split by mesh asymmetry into 19.82 / 20.13 / 20.68 — a
-    // ~5% spread that the cluster-mode QZ cannot fully separate when
-    // K is read out from f32 Burn storage). We refine via one RQI
+    // Pull the GEVD eigenvector column. Eigenvectors from a dense GEVD
+    // can mix across tightly clustered eigenvalues: with faer's QZ, which
+    // this test used before issue #813, they mixed at roughly f32
+    // precision (the TM_{1,1} triplet at 2π² is split by mesh asymmetry
+    // into 19.82 / 20.13 / 20.68, a ~5% spread). We refine via one RQI
     // step below before consuming v in the gauge-invariance test.
     let v0 = Mat::<f64>::from_fn(dim, 1, |i, _| eigvecs[(i, tm11_idx)]);
     assert!(
@@ -556,8 +531,7 @@ fn cube_pec_rayleigh_quotient_is_gauge_invariant() {
     let v_norm = col_norm(&v);
 
     // κ̂ = max-non-kernel-λ / λ_TM11. We use the largest finite
-    // eigenvalue (skipping any NaN-tagged complex-pair entries) as an
-    // over-estimate of σ_max / σ_min for the (K_int, M_int) pencil.
+    // eigenvalue as an over-estimate of σ_max / σ_min for the (K_int, M_int) pencil.
     let lambda_max = max_non_kernel(&eigenvalues);
     let kappa_hat = lambda_max / lambda_tm11;
     let eps_rel = f64::EPSILON * kappa_hat * SAFETY;

@@ -7,9 +7,11 @@
 //! `bench_with_input` is used to attach the pre-computed `(K_int, M_int)`
 //! pair to each parameter point without rebuilding it per sample.
 //!
-//! Dense `generalized_eigen` is `O(n³)`; at n=10 the interior pencil
-//! is 9³ = 729 — already several seconds per call. The criterion
-//! sample budget below is sized to keep total wall-clock manageable.
+//! The dense solve is `O(n³)`; at n=10 the interior pencil is 9³ = 729.
+//! It took several seconds per call when `FaerDenseEigensolver` used faer's
+//! generalized real QZ (`generalized_eigen`); the dense shift-invert that
+//! replaced it (issue #800) takes about 0.14 s. The criterion sample
+//! budget below dates from the QZ and is generous.
 
 use std::time::Duration;
 
@@ -46,8 +48,8 @@ fn build_pencil(n: usize) -> CubePencil {
 
 fn bench_dense_eigensolve(c: &mut Criterion) {
     let mut group = c.benchmark_group("eigensolve_dense");
-    // n=10 dense `generalized_eigen` takes several seconds per call.
-    // 10 samples × measurement_time is the dominant time budget here.
+    // 10 samples × measurement_time is the dominant time budget here
+    // (sized for the old QZ, which took several seconds at n=10).
     group
         .sample_size(10)
         .measurement_time(Duration::from_secs(20));

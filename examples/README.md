@@ -17,11 +17,12 @@ from the per-example invocations below.
 
 ## Example index (12 crates)
 
-> `--release` note: faer 0.24's dense generalized eigensolver
-> (`gevd` / QZ) panics under `debug-assertions` (issues #244 / #354), so
-> every example that exercises a dense complex eigensolve must run in
-> release mode. Only `extract_baseline` (a pure TOML post-processor) runs
-> fine in debug.
+> `--release` note: run the examples in release mode; the assembly and
+> eigensolves are slow unoptimized. (This used to be required:
+> faer 0.24's generalized QZ panicked under `debug-assertions`, issues
+> #244 / #354. The dense real and complex solvers no longer call it,
+> issues #799 / #800 / #813.) Only `extract_baseline` (a pure TOML
+> post-processor) is quick in debug.
 
 ### Eigenmode / scattering benchmarks
 

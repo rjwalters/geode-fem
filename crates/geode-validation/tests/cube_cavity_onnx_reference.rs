@@ -10,13 +10,14 @@
 //!
 //! # Running
 //!
-//! Faer's dense generalized eigensolver panics under debug_assertions
-//! (faer 0.24's `qz_real` subtraction overflow path), so this test is
-//! gated on `--release` like the sibling JAX / NumPy reference tests:
+//! The eigensolve test used to be `#[ignore]`d because faer 0.24's
+//! generalized real QZ (`qz_real`) panicked under debug-assertions.
+//! `FaerDenseEigensolver` no longer calls that QZ (dense shift-invert,
+//! issue #800), so every test here runs in the default tier (issue #813;
+//! about 27 s in debug):
 //!
 //! ```sh
-//! cargo test -p geode-validation --release \
-//!     --test cube_cavity_onnx_reference -- --ignored
+//! cargo test -p geode-validation --test cube_cavity_onnx_reference
 //! ```
 
 use burn::prelude::Backend;
@@ -151,7 +152,6 @@ fn onnx_baseline_fixture_loads_with_canonical_schema() {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with `cargo test -p geode-validation --release -- --ignored`"]
 fn burn_cube_cavity_agrees_with_onnx_baseline() {
     let fixture =
         Fixture::load_from(&fixture_path(), FixtureFormat::Json).expect("load onnx_baseline.json");
