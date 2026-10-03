@@ -19,18 +19,17 @@
 //!
 //! # Running these tests
 //!
-//! All tests are `#[ignore]`d by default with the same rationale as the
-//! dense `tests/eigensolver.rs`: faer 0.24's dense generalized eigen path
-//! (used by the oracle) panics under debug-assertions. The sparse path
-//! itself does not depend on `qz_real`, but the oracle comparison does.
-//! Run with:
+//! These tests used to be `#[ignore]`d because the dense oracle,
+//! `FaerDenseEigensolver`, went through faer 0.24's generalized real QZ
+//! (`gevd::qz_real`), which panicked under `debug-assertions`. The oracle is
+//! now a dense shift-invert (issue #800), so the tests run in the default
+//! tier (issue #813), in about 1 to 8 s each in debug.
 //!
 //! ```sh
-//! cargo test -p geode-core --release --test sparse_eigensolver -- --ignored
+//! cargo test -p geode-core --test sparse_eigensolver
 //!
 //! # With ARPACK (requires libarpack — see README §System dependencies):
-//! cargo test --features arpack -p geode-core --release \
-//!     --test sparse_eigensolver -- --ignored
+//! cargo test --features arpack -p geode-core --release --test sparse_eigensolver
 //! ```
 
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
@@ -87,7 +86,6 @@ fn dense_eigs(n: usize, n_modes: usize) -> Vec<f64> {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
 fn sparse_matches_dense_at_n5() {
     // n=5 cube: 216 nodes, 64 interior — small enough for the dense oracle
     // and big enough that 5 modes is a real test of Lanczos convergence.
@@ -108,7 +106,6 @@ fn sparse_matches_dense_at_n5() {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
 fn sparse_convergence_slope() {
     // Ground-mode (1,1,1) target = 3π². Refine across n ∈ {6, 10, 14} and
     // fit log(err) vs log(h). Slope should be in [-2.2, -1.8] for the
@@ -175,7 +172,6 @@ mod arpack_oracle {
     }
 
     #[test]
-    #[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
     fn arpack_matches_dense_at_n5() {
         // Same fixture as sparse_matches_dense_at_n5: n=5 cube, 5 modes,
         // 1e-6 relative tolerance against the faer dense oracle.

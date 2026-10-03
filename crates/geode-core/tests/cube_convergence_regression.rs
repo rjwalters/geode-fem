@@ -22,12 +22,15 @@
 //!
 //! # Running this test
 //!
-//! Like `tests/eigensolver.rs`, this test is `#[ignore]`d because
-//! faer 0.24's `gevd::qz_real` panics under debug-assertions
-//! (`attempt to subtract with overflow`). Run with:
+//! This test used to be `#[ignore]`d because faer 0.24's generalized real
+//! QZ (`gevd::qz_real`) panicked under debug-assertions.
+//! `FaerDenseEigensolver` no longer calls that QZ (dense shift-invert,
+//! issue #800). It stays ignored in debug builds only, because the sweep
+//! takes about 105 s there; in release it runs in the default tier
+//! (issue #813):
 //!
 //! ```sh
-//! cargo test -p geode-core --release -- --ignored
+//! cargo test -p geode-core --release --test cube_convergence_regression
 //! ```
 
 use std::fs;
@@ -75,7 +78,10 @@ fn ground_mode(n: usize) -> f64 {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "slow in debug (about 105 s); runs in the default tier in release"
+)]
 fn cube_convergence_matches_fixture() {
     let path = fixture_path();
     let raw = fs::read_to_string(&path)

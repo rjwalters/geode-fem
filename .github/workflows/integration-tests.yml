@@ -21,9 +21,10 @@ name: integration-tests
 # What stays out, and why, is recorded per entry in the allowlist.
 # Targets whose default tier is empty (every test #[ignore]d) are not run
 # here for the default tier only, since that would just compile them
-# (clippy --tests in arpack.yml already does that). Four of them run their
-# --ignored tier below (two in core-tests, two in core-dense-eigen,
-# issue #796). The rest are too slow or are benchmarks.
+# (clippy --tests in arpack.yml already does that). Two of them run their
+# --ignored tier in core-dense-eigen below (issue #796), and two more run in
+# core-tests with --include-ignored (issue #813). The rest are too slow or
+# are benchmarks.
 
 on:
   push:
@@ -59,17 +60,20 @@ jobs:
 
       # spade-mesh enables the `#![cfg(feature = "spade-mesh")]`
       # spade_port_mesh target (2-D Delaunay port meshing, issue #582).
-      # These two targets have an empty default tier: their only test is
-      # #[ignore]d because faer 0.24's dense gevd / qz_real panics under
-      # debug-assertions, so they run in release with --ignored (about 31 s
-      # and 80 s on ubuntu-latest). The other targets whose tests are all
-      # #[ignore]d stay on the allowlist (each release --ignored tier timed
-      # out at 80 min in CI, or is a 42-min wall-clock benchmark).
-      - name: geode-core release-only targets (--ignored tier)
+      # These two targets' only test used to be #[ignore]d because faer
+      # 0.24's dense gevd / qz_real panicked under debug-assertions (about
+      # 31 s and 80 s on ubuntu-latest in release). Since issue #813 the test
+      # is ignored in debug builds only (#[cfg_attr(debug_assertions,
+      # ignore)], slow there), so in this release build it is in the default
+      # tier; --include-ignored runs it either way. The other targets whose
+      # tests are all #[ignore]d stay on the allowlist (each release
+      # --ignored tier timed out at 80 min in CI, or is a 42-min wall-clock
+      # benchmark).
+      - name: geode-core release-only targets (debug-ignored tests)
         run: |
           cargo test -p geode-core --release --features spade-mesh \
               --test cube_convergence_regression \
-              --test derham_gauge_invariance -- --ignored
+              --test derham_gauge_invariance -- --include-ignored
 
       - name: geode-core integration targets (default tier)
         run: |
@@ -221,7 +225,10 @@ jobs:
     runs-on: ubuntu-latest
     # The reference tests compare against committed NumPy / Julia / JAX /
     # ONNX / TF-Java fixtures under fixtures/, so no external toolchain is
-    # needed at test time. About 10 min cold build, about 6 s of tests.
+    # needed at test time. About 10 min cold build, about 35 s of tests:
+    # since issue #813 the five sphere_pec_* eigensolve tests (about 5.5 s
+    # each locally, the 3300-DOF dense solve) are no longer #[ignore]d in
+    # release.
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always

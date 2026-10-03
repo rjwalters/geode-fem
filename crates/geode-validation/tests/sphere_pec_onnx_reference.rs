@@ -12,8 +12,8 @@
 //!    norms) against the NumPy baseline. Default `cargo test`.
 //! 4. Eigensolve — `physical_eigenvalues` (lowest 5 physical modes) against
 //!    the NumPy baseline within 1e-5 relative (Epic #88 cross-IR floor).
-//!    Gated on `#[ignore]` / release mode because faer 0.24's `qz_real`
-//!    panics under debug-assertions.
+//!    Ignored in debug builds only (slow there); runs in the default tier
+//!    in release.
 //!
 //! # Key difference from JAX/Julia/NumPy harnesses
 //!
@@ -44,11 +44,16 @@
 //! cargo test -p geode-validation --test sphere_pec_onnx_reference
 //! ```
 //!
-//! Eigensolve tests (release mode required):
+//! The eigensolve test runs in the default tier in release (issue #813).
+//! It used to be `#[ignore]`d because
+//! `geode_util::eigen::dense_lowest_eigenvalues` called faer 0.24's
+//! generalized real QZ (`qz_real`), which panicked under debug-assertions;
+//! it now delegates to `FaerDenseEigensolver` (dense shift-invert, issue
+//! #800). It stays ignored in debug builds only, where it takes over 300 s.
+//!
 //! ```sh
 //! cargo test -p geode-validation --release \
-//!     --features geode-core/ndarray \
-//!     --test sphere_pec_onnx_reference -- --ignored --nocapture
+//!     --test sphere_pec_onnx_reference -- --nocapture
 //! ```
 
 use burn::prelude::Backend;
@@ -386,13 +391,14 @@ fn sphere_pec_onnx_assembly_agrees_with_numpy_baseline() {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with \
-            `cargo test -p geode-validation --release --features geode-core/ndarray \
-            --test sphere_pec_onnx_reference -- --ignored --nocapture`"]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "slow in debug (over 300 s: the 3300-DOF sphere pencil); runs in the default tier in release"
+)]
 fn sphere_pec_onnx_spectrum_agrees() {
     // Eigensolve-touching: compare Burn-side physical eigenvalues against the
     // NumPy baseline (the same target that the ONNX CI eigensolve driver
-    // compares to). Release mode required (faer 0.24 qz_real constraint).
+    // compares to). Ignored in debug builds (over 300 s there).
     let numpy_fixture = Fixture::load_from(&numpy_fixture_path(), FixtureFormat::Json)
         .expect("baseline.json should load");
     let burn = run_burn_pipeline();
@@ -413,7 +419,8 @@ fn sphere_pec_onnx_spectrum_agrees() {
     // Compute Burn-side spectrum (dense QZ, faer 0.24).
     let n_request = burn.spurious_dim + 8;
     let burn_spectrum =
-        dense_lowest_eigenvalues(burn.k_int.as_ref(), burn.m_int.as_ref(), n_request);
+        dense_lowest_eigenvalues(burn.k_int.as_ref(), burn.m_int.as_ref(), n_request)
+            .expect("dense eigensolve of the sphere-PEC pencil");
 
     // n_spurious from the NumPy baseline (algebraic d⁰-rank, Issue #124).
     let n_sp = numpy_fixture

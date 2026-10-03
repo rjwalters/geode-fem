@@ -317,17 +317,15 @@ sweep are committed under
 regressions when assembly or the eigensolver change.
 
 The diff-check test lives at
-`crates/geode-core/tests/cube_convergence_regression.rs`. It is
-`#[ignore]`d for the same reason as the other eigensolver tests:
-faer 0.24's `gevd::qz_real` panics under debug-assertions. Run with:
+`crates/geode-core/tests/cube_convergence_regression.rs`. It used to be
+`#[ignore]`d because faer 0.24's generalized real QZ (`gevd::qz_real`)
+panicked under debug-assertions. `FaerDenseEigensolver` no longer calls
+that QZ (dense shift-invert, #800), and no in-tree solver does (#813).
+The test is ignored in debug builds only, because the sweep takes about
+105 s there; in release it runs in the default tier. Run with:
 
 ```sh
-# Run the regression diff-check (and all other ignored faer tests):
-cargo test -p geode-core --release -- --ignored
-
-# Run only the convergence regression:
-cargo test -p geode-core --release \
-    --test cube_convergence_regression -- --ignored
+cargo test -p geode-core --release --test cube_convergence_regression
 ```
 
 If an intentional change (e.g. mass-lumping, eigensolver swap) shifts
@@ -378,12 +376,20 @@ side-effect-free second step.
 | `assemble_global_p1`               |  45 ms   |
 | `assemble_global_nedelec` (real)   | 289 ms   |
 | `assemble_global_nedelec` (cmplx)  | 407 ms   |
-| `FaerDenseEigensolver`             |  5.95 s  |
+| `FaerDenseEigensolver`             | 141 ms ¹ |
 | `SparseShiftInvertLanczos`         |  52 ms   |
 
-Dense `generalized_eigen` dwarfs every other stage by ~100×. The
-pure-Rust sparse shift-and-invert Lanczos (faer sparse LU) brings the
-eigensolve down to roughly the same order as the Burn-side assembly.
+¹ Re-measured October 2026 (#813) after the dense solver moved from
+faer's generalized real QZ to dense shift-invert (#800), so it is not
+from the same run as the other rows: `cargo bench -p geode-core --bench
+eigensolve_dense`, Apple Silicon, `RAYON_NUM_THREADS=4`, on a heavily
+loaded host (load average 14 to 25), so read it as an upper bound. The
+May 2026 QZ figure was 5.95 s.
+
+The dense eigensolve used to dwarf every other stage by ~100×. With
+shift-invert it is now the same order as the Burn-side assembly, and
+about 3× the pure-Rust sparse shift-and-invert Lanczos (faer sparse LU)
+at this size.
 
 **Mie sphere end-to-end (774-node refined fixture, complex pencil):**
 

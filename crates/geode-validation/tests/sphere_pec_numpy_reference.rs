@@ -39,24 +39,24 @@
 //!    includes the λ ≈ 1.42 triplet that the old heuristic
 //!    mis-classified as spurious.
 //!
-//! # Why `#[ignore]` on the eigensolve test
+//! # Running the eigensolve test
 //!
-//! Same reason as `cube_cavity_numpy_reference.rs`: faer 0.24's
-//! `gevd::qz_real` performs subtractions that wrap under
-//! debug-assertions. The workspace `[profile.test.package.*]` override
-//! does not propagate reliably through every Cargo resolver path. Run
-//! with:
+//! The eigensolve test runs in the default tier in release (issue #813).
+//! It used to be `#[ignore]`d because
+//! `geode_util::eigen::dense_lowest_eigenvalues` called faer 0.24's
+//! generalized real QZ (`qz_real`), which panicked under debug-assertions;
+//! it now delegates to `FaerDenseEigensolver` (dense shift-invert, issue
+//! #800). It stays ignored in debug builds only, where it takes over 300 s.
 //!
 //! ```sh
 //! cargo test -p geode-validation --release \
-//!     --features geode-core/ndarray \
-//!     --test sphere_pec_numpy_reference -- --ignored --nocapture
+//!     --test sphere_pec_numpy_reference -- --nocapture
 //! ```
 //!
 //! Non-eigensolve sub-stage tests (mesh shape, ε_r, edge table, PEC mask,
-//! K/M Frobenius/diag/symmetry/sparsity) run under default `cargo test`
-//! because they do not touch the dense `qz_real` path. The eigensolve
-//! takes ~70s in release mode on the bundled 3300×3300 interior matrices.
+//! K/M Frobenius/diag/symmetry/sparsity) run under default `cargo test`.
+//! The eigensolve takes about 5 s in release on the bundled 3300×3300
+//! interior matrices.
 
 use burn::prelude::Backend;
 use burn::tensor::DType;
@@ -326,8 +326,7 @@ fn fixture_loads_with_canonical_schema() {
 #[test]
 fn sphere_pec_mesh_substages_agree_with_numpy() {
     // Non-eigensolve sub-stages: mesh shape, ε_r, edge table, PEC mask.
-    // These run under default `cargo test` because they don't touch
-    // faer's `qz_real`. They are the bit-exact integer / f64 cross-checks
+    // These run under default `cargo test` (no eigensolve). They are the bit-exact integer / f64 cross-checks
     // that pin orientation + boundary masking in the most stress-resistant
     // way the parent issue describes.
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
@@ -415,7 +414,7 @@ fn sphere_pec_assembly_substages_agree_with_numpy() {
     // sparsity-pattern fingerprint (nnz histogram + symmetry residual).
     // These also run under default `cargo test` — they evaluate K, M
     // from the Burn pipeline and run dense Frobenius / per-row nnz
-    // counts on them, no `qz_real` involvement.
+    // counts on them, no eigensolve.
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("baseline.json should load");
     let burn = run_burn_pipeline();
@@ -545,12 +544,15 @@ fn sphere_pec_assembly_substages_agree_with_numpy() {
 }
 
 #[test]
-#[ignore = "Burn dense generalized_eigen via faer 0.24 qz_real panics under debug-assertions; run with `cargo test -p geode-validation --release --features geode-core/ndarray -- --ignored`"]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "slow in debug (over 300 s: the 3300-DOF sphere pencil); runs in the default tier in release"
+)]
 fn sphere_pec_spectrum_agrees_with_numpy() {
     // Eigensolve-touching sub-stages: full lowest-spectrum slice,
-    // spurious-mode filter output, physical eigenvalues. Runs in release
-    // mode only (faer 0.24 debug-assertions). On the bundled 3300×3300
-    // K_int/M_int the dense QZ takes ~70 s.
+    // spurious-mode filter output, physical eigenvalues. Ignored in debug
+    // builds (over 300 s there). On the bundled 3300×3300 K_int/M_int the
+    // dense shift-invert takes about 5 s in release.
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("baseline.json should load");
     let burn = run_burn_pipeline();
@@ -569,7 +571,8 @@ fn sphere_pec_spectrum_agrees_with_numpy() {
     // 6. Full lowest-spectrum slice: `spurious_dim + 8` modes.
     let n_request = burn.spurious_dim + 8;
     let burn_spectrum =
-        dense_lowest_eigenvalues(burn.k_int.as_ref(), burn.m_int.as_ref(), n_request);
+        dense_lowest_eigenvalues(burn.k_int.as_ref(), burn.m_int.as_ref(), n_request)
+            .expect("dense eigensolve of the sphere-PEC pencil");
     let golden_spectrum = fixture.output_f64("eigenvalues_lowest").unwrap();
     assert_eq!(
         burn_spectrum.len(),

@@ -29,13 +29,16 @@
 //!
 //! Non-eigensolve tests (mesh shape, ε_r, edge count, PEC mask, K/M
 //! Frobenius/diag/symmetry) run under default `cargo test`. The eigensolve
-//! test is gated with `#[ignore]` because faer 0.24's `qz_real` panics under
-//! debug_assertions. Run with:
+//! test runs in the default tier in release (issue #813).
+//! It used to be `#[ignore]`d because
+//! `geode_util::eigen::dense_lowest_eigenvalues` called faer 0.24's
+//! generalized real QZ (`qz_real`), which panicked under debug-assertions;
+//! it now delegates to `FaerDenseEigensolver` (dense shift-invert, issue
+//! #800). It stays ignored in debug builds only, where it takes over 300 s.
 //!
 //! ```sh
 //! cargo test -p geode-validation --release \
-//!     --features geode-core/ndarray \
-//!     --test sphere_pec_julia_reference -- --ignored --nocapture
+//!     --test sphere_pec_julia_reference -- --nocapture
 //! ```
 
 use burn::prelude::Backend;
@@ -391,9 +394,10 @@ fn sphere_pec_julia_assembly_substages_agree() {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with \
-            `cargo test -p geode-validation --release --features geode-core/ndarray \
-            --test sphere_pec_julia_reference -- --ignored --nocapture`"]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "slow in debug (over 300 s: the 3300-DOF sphere pencil); runs in the default tier in release"
+)]
 fn sphere_pec_julia_spectrum_agrees() {
     // Eigensolve-touching: full spectrum, spurious filter, physical eigenvalues.
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
@@ -415,7 +419,8 @@ fn sphere_pec_julia_spectrum_agrees() {
     // Compute Burn-side spectrum (dense QZ, faer 0.24).
     let n_request = burn.spurious_dim + 8;
     let burn_spectrum =
-        dense_lowest_eigenvalues(burn.k_int.as_ref(), burn.m_int.as_ref(), n_request);
+        dense_lowest_eigenvalues(burn.k_int.as_ref(), burn.m_int.as_ref(), n_request)
+            .expect("dense eigensolve of the sphere-PEC pencil");
 
     // n_spurious_observed from the Julia fixture (algebraic d⁰-rank, Issue #124).
     let n_sp_julia = fixture.output_f64("n_spurious_observed").unwrap().data[0] as usize;

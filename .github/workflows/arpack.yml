@@ -178,10 +178,12 @@ jobs:
       - name: Run the gated sparse-eigensolver acceptance test
         # Issue #24 acceptance: matches dense oracle to 1e-6 at n=5 with
         # the same fixture as the Lanczos check. Runs on the CPU backend so
-        # it works headless.
+        # it works headless. Its tests are no longer #[ignore]d (issue
+        # #813: the dense oracle stopped calling faer's qz_real), so this
+        # runs the default tier, not --ignored (which would now select none).
         run: |
           cargo test --features arpack \
-              -p geode-core --release --test sparse_eigensolver -- --ignored
+              -p geode-core --release --test sparse_eigensolver
 
       - name: Run the gated complex sparse-eigensolver acceptance test (fixtured dense oracle)
         # Issue #710: sparse complex shift-invert Lanczos on the Mie

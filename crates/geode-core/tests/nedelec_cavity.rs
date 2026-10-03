@@ -68,11 +68,15 @@
 //!
 //! # Running these tests
 //!
-//! All assertions are `#[ignore]`d by default — faer 0.24's
-//! `gevd::qz_real` panics under debug-assertions. Run with `--release`:
+//! These tests used to be `#[ignore]`d because faer 0.24's generalized
+//! real QZ (`gevd::qz_real`) panicked under debug-assertions.
+//! `FaerDenseEigensolver` no longer calls that QZ (dense shift-invert,
+//! issue #800), so they now run in the default tier in **release** (the
+//! whole target takes a few seconds). They stay ignored in debug builds
+//! only, because each takes over 300 s there (issue #813):
 //!
 //! ```sh
-//! cargo test -p geode-core --release --test nedelec_cavity -- --ignored
+//! cargo test -p geode-core --release --test nedelec_cavity
 //! ```
 
 use burn::tensor::backend::BackendTypes;
@@ -182,7 +186,10 @@ fn analytic_table_lowest_five_eigenvalues_with_multiplicity() {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "slow in debug (over 300 s); runs in the default tier in release"
+)]
 fn pec_cube_cavity_lowest_modes_at_n8() {
     let (k, m, n_interior_nodes) = cube_pec_cavity_system(N_CAVITY);
 
@@ -240,7 +247,10 @@ fn pec_cube_cavity_lowest_modes_at_n8() {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "slow in debug (over 300 s); runs in the default tier in release"
+)]
 fn pec_cube_cavity_spurious_mode_count() {
     let (k, m, n_interior_nodes) = cube_pec_cavity_system(N_CAVITY);
 
@@ -297,7 +307,10 @@ fn pec_cube_cavity_spurious_mode_count() {
 }
 
 #[test]
-#[ignore = "faer 0.24 qz_real panics under debug-assertions; run with --release"]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "slow in debug (over 300 s); runs in the default tier in release"
+)]
 fn pec_cube_cavity_degenerate_triplet_cluster() {
     // Analytic 6π² is realized by (2,1,1), (1,2,1), (1,1,2) — a 3-fold
     // degenerate triplet (one curl-curl mode per ordering, since each

@@ -13,11 +13,10 @@
 //! cargo run -p regen_cube_convergence_fixture --release
 //! ```
 //!
-//! `--release` is required because faer 0.24's `gevd::qz_real` performs
-//! subtractions that wrap under `debug-assertions`, producing
-//! `attempt to subtract with overflow` panics even though the release math
-//! is correct. The same constraint applies to the regression test that
-//! consumes this fixture (see `tests/cube_convergence_regression.rs`).
+//! Use `--release` for speed: the sweep up to `n = 12` takes about 100 s
+//! unoptimized. (It used to be required because faer 0.24's
+//! generalized real QZ, `gevd::qz_real`, panicked under `debug-assertions`;
+//! `FaerDenseEigensolver` no longer calls that QZ, issues #800 / #813.)
 //!
 //! This binary is **not** run from CI. Regenerate manually when an
 //! intentional change alters the produced values; commit the updated
