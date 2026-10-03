@@ -355,11 +355,31 @@ pub struct WavePortSummary {
     /// `null` with [`Self::tm_k_c`].
     pub tm_k_c_face: Option<f64>,
     /// The TE-only guard's sweep limit in Hz (issue #808; additive in v1):
-    /// `(1 − 0.05)·tm_k_c/√(Re ε_n·μ_t)` in the port's [`Self::medium`]
-    /// (a dispersive fill at its reference `ε_r`). The 5 % margin covers
-    /// the 3-D model's own TM cutoff, which sits below the continuum on a
-    /// coarse axial mesh. `null` with [`Self::tm_k_c`].
+    /// `(1 − δ)·tm_k_c/√(Re ε_n·μ_t)` in the port's [`Self::medium`]
+    /// (a dispersive fill at its reference `ε_r`), with `δ` =
+    /// [`Self::tm_margin`]. The margin covers the 3-D model's own TM
+    /// cutoff, which sits below the continuum by up to
+    /// `≈ 0.0205·(tm_k_c·h_n)²` with `h_n` = [`Self::tm_axial_spacing`]
+    /// (numerical dispersion along the guide; issue #824). `null` with
+    /// [`Self::tm_k_c`].
     pub tm_limit_hz: Option<f64>,
+    /// Axial mesh spacing `h_n` at the port (mesh units; issue #824;
+    /// additive in v1): the largest extent along the port normal of a
+    /// volume tet with a face on the port. It sizes [`Self::tm_margin`].
+    pub tm_axial_spacing: Option<f64>,
+    /// The TE-only guard's relative margin `δ` (issue #824; additive in
+    /// v1): `max(0.05, 0.025·(tm_k_c·tm_axial_spacing)²)`, so 5 % up to
+    /// `tm_k_c·h_n ≈ 1.41` (about 4.4 axial cells per TM-cutoff
+    /// wavelength) and wider on a coarser axial mesh. `null` with
+    /// [`Self::tm_k_c`].
+    pub tm_margin: Option<f64>,
+    /// Coarse-axial-mesh warning (issue #824; additive in v1; omitted when
+    /// there is none): the top sweep frequency spans more than
+    /// `k·h_n ≈ 1.41` per axial cell at the port, so the guard widened its
+    /// margin; the text says how far to refine along the guide. Also
+    /// printed on stderr as `warning: …`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tm_warning: Option<String>,
     /// Echo of `wave_ports[].reference_ohm` (issue #775; additive in v1;
     /// omitted when unset): the real reference a `--touchstone` file
     /// renormalizes this port's written modes to. `results[].s` stays

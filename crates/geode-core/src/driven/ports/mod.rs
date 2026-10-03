@@ -72,6 +72,7 @@ pub use wave::{
     waveguide_mode_reduce,
 };
 pub use wave_face::{
-    PLANARITY_REL_TOL, PortFaceError, PortFaceProjection, TM_GUARD_MARGIN, TmCutoffEstimate,
-    project_port_face, wave_port_from_faces,
+    PLANARITY_REL_TOL, PortFaceError, PortFaceProjection, TM_GUARD_AXIAL_COEFF, TM_GUARD_MARGIN,
+    TM_GUARD_MEASURED_KH, TmCutoffEstimate, project_port_face, tm_guard_margin,
+    wave_port_from_faces,
 };

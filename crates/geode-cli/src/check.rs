@@ -19,6 +19,7 @@ use crate::spec::{DispersionSpec, FrequencyUnit, RoughnessSpec, SolverSpec};
 /// Load + resolve the spec and summarize it (no assembly, no solve).
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliError> {
     let p = problem::load(spec_path, None)?;
+    p.print_load_warnings();
     let (wave_ports, warnings) = wave_port_previews(&p)?;
     Ok(CheckReport {
         provenance,
@@ -442,6 +443,9 @@ pub fn wave_port_summaries(p: &Problem) -> Vec<WavePortSummary> {
             tm_limit_hz: p
                 .port_tm_limit_k0(w)
                 .map(|k0| problem::to_frequency(k0, FrequencyUnit::K0, p.length_unit_m()).hz),
+            tm_axial_spacing: w.tm.map(|t| t.axial_spacing),
+            tm_margin: w.tm.filter(|t| t.k_c().is_finite()).map(|t| t.margin()),
+            tm_warning: w.tm_warning.clone(),
             reference_ohm: w.reference_ohm,
             hybrid: w
                 .hybrid

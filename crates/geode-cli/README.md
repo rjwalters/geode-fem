@@ -523,11 +523,43 @@ coarse axial mesh. On the 8 × 4 face of a 2 × 1 guide the face value is
 with one tet layer of 0.5 (3.494 with two). So the guard solves the
 face twice more, refined uniformly (each triangle split in four), and
 Richardson-extrapolates the three values with the measured convergence
-order (capped at 2): 3.5124 on that face. The limit is
-`(1 − 0.05)·min(face, extrapolated)`, 3.337 there. The 5 % margin covers
-an axial mesh spacing up to about twice the in-face spacing at the
-port. It does not scale with the mesh, so keep the volume mesh near a
-wave port no coarser than that along the guide.
+order (clamped to [0.5, 2]): 3.5124 on that face. The limit is
+`(1 − δ)·min(face, extrapolated)`.
+
+The margin `δ` follows the **axial** mesh at the port (issue #824). The
+3-D model's TM cutoff undershoot is set by `k_c·h_n`, where `h_n` is the
+largest extent along the port normal of a tet on the port face. The
+axial/in-face spacing ratio does not set it: at a fixed `h_n`, a finer
+face lowers the 3-D cutoff. Over one tet layer of 0.5, the 3-D TM₁₁ is
+3.349 on an 8 × 4 face and 3.318 on a 16 × 8 face. Measured in the
+fine-face limit:
+
+| `h_n` (2 × 1 guide) | `k_c·h_n` | cells per λ_c | 3-D undershoot |
+|---|---|---|---|
+| 0.125 | 0.44 | 14 | −0.39 % |
+| 0.25 | 0.88 | 7.2 | −1.6 % |
+| 0.375 | 1.32 | 4.8 | −3.4 % |
+| 0.5 | 1.76 | 3.6 | −5.9 % |
+| 0.75 | 2.63 | 2.4 | −11.9 % |
+
+That is at most `0.0205·(k_c·h_n)²`. The data run up to `k_c·h_n` =
+3.42, where the undershoot is −18 %. On unstructured Gmsh meshes, using
+the largest `h_n` on the face, it is at most `0.0167·(k_c·h_n)²`. So
+`δ = max(5 %, 0.025·(k_c·h_n)²)`: 5 % up to `k_c·h_n ≈ 1.41`, about 4.4
+cells per TM-cutoff wavelength along the guide, and wider below that
+resolution. The 16 × 8 face over layers of 0.5 gets 7.7 %, a limit of
+3.24, below its 3-D 3.318. The tets on the face stand in for the guide
+behind it, so a mesh that coarsens away from the port is not seen.
+
+When the widened margin rejects a frequency, the message says so. It
+gives the spacing near the port that would admit the sweep ("refine the
+mesh near port `X` to h ≤ … mesh units along the guide"), or, if even
+the 5 % margin rejects it, says to lower the sweep. When the sweep is
+admitted but its top frequency has `k·h_n > 1.41` in the fill, `check`
+and `driven` print a `warning:` line on stderr. It gives the widened
+limit and the spacing to refine to, `h ≤ 1.41/k` along the guide. At
+that resolution the port's TE modes are also coarse along the guide.
+The same text appears in `wave_ports[].tm_warning`.
 
 For a filled guide the limit is scaled by `1/√(Re ε_n·μ_t)`, where
 `ε_n` is the permittivity along the port normal. That is the TM dual of
@@ -538,8 +570,9 @@ exact for a lossless or isotropic lossy fill; for a lossy **uniaxial**
 checked at every sweep frequency. A fill with `Re ε_n·μ_t ≤ 0` has no TM
 cutoff and is always rejected. `check` and `driven` echo
 `wave_ports[].tm_k_c` (the extrapolated estimate, per mesh unit),
-`tm_k_c_face` (the face value) and `tm_limit_hz` (the filled limit, with
-a dispersive fill at its reference `ε_r`).
+`tm_k_c_face` (the face value), `tm_axial_spacing` (`h_n`),
+`tm_margin` (`δ`) and `tm_limit_hz` (the filled limit, with a
+dispersive fill at its reference `ε_r`).
 
 **The port rim must lie on a conductor wall** (issue #808). The port
 modes are solved with a PEC rim. A rim edge on no `pec` or `leontovich`

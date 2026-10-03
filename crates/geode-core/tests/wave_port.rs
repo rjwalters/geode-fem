@@ -1603,3 +1603,121 @@ fn tm_guard_sits_below_the_3d_nedelec_tm11_cutoff() {
         );
     }
 }
+
+/// Lowest physical resonance `k` of the all-PEC `a × b × length` box
+/// (`nx × ny × nz` hexes, 6 tets each) by sparse shift-invert Lanczos
+/// ([`geode_core::eigen::pec_cavity::solve_pec_cavity_modes`], gradient
+/// null space filtered) — [`box_lowest_physical_k`] without the dense
+/// pencil, for the finer faces of issue #824. Also returns the axial
+/// spacing the port-face projection measures and the port's TM estimate
+/// with its margin sized for it.
+fn box_tm110_and_mesh_aware_estimate(
+    nx: usize,
+    ny: usize,
+    nz: usize,
+    a: f64,
+    b: f64,
+    length: f64,
+) -> (f64, geode_core::driven::ports::TmCutoffEstimate) {
+    use geode_core::driven::ports::project_port_face;
+    use geode_core::eigen::pec_cavity::{PecCavitySettings, solve_pec_cavity_modes};
+    use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
+    let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
+    let mesh = &g.mesh;
+    let edges = mesh.edges();
+    let walls = mesh.boundary_faces();
+    let mask = pec_interior_mask_from_triangles(&edges, &[&walls]);
+    let eps = vec![1.0; mesh.tets.len()];
+    let tm11 = ((std::f64::consts::PI / a).powi(2) + (std::f64::consts::PI / b).powi(2)).sqrt();
+    // Shift below the lowest mode (which sits up to ~18 % under TM11),
+    // nearer to it than to the gradient null space at 0.
+    let settings = PecCavitySettings::new((0.75 * tm11).powi(2), 2);
+    let modes = solve_pec_cavity_modes::<B>(mesh, &eps, &mask, &settings, &device())
+        .expect("box eigensolve");
+    let face = project_port_face(mesh, &g.port1_faces).expect("port face");
+    let h_n = face.adjacent_axial_spacing(mesh);
+    assert!(
+        (h_n - length / nz as f64).abs() < 1e-12,
+        "axial spacing {h_n} vs {}",
+        length / nz as f64
+    );
+    let est = face
+        .tm_cutoff_estimate(None)
+        .expect("TM estimate")
+        .with_axial_spacing(h_n);
+    (modes.modes[0].k0, est)
+}
+
+/// Issue #824 (Judge, PR #811 re-review): at a fixed axial spacing a
+/// **finer** port face lowers the 3-D Nédélec TM₁₁₀ — 12 × 6 / 16 × 8 /
+/// 24 × 12 faces over one tet layer of `h_z = 0.5` give 3.327 / 3.318 /
+/// 3.312, below the fixed-5 % guard (3.337). The controlling variable is
+/// `k_c·h_z`, so the margin is now `max(5 %, 0.025·(k_c·h_n)²)` with
+/// `h_n` read off the tets on the port face: 7.7 % here, guard 3.24.
+#[test]
+fn mesh_aware_tm_guard_covers_fine_faces_over_a_coarse_axial_mesh() {
+    use geode_core::driven::ports::TM_GUARD_MARGIN;
+    let (a, b, length) = (2.0, 1.0, 0.5);
+    for ((nx, ny), want) in [((12, 6), 3.327), ((16, 8), 3.318), ((24, 12), 3.312)] {
+        let (k3d, est) = box_tm110_and_mesh_aware_estimate(nx, ny, 1, a, b, length);
+        let base = (1.0 - TM_GUARD_MARGIN) * est.k_c();
+        let guard = est.guard_k_c();
+        eprintln!(
+            "{nx}x{ny}, h_z = 0.5: 3-D TM110 = {k3d:.4}, k_c = {:.4}, fixed-5% guard = \
+             {base:.4}, mesh-aware guard = {guard:.4} (margin {:.2} %)",
+            est.k_c(),
+            100.0 * est.margin()
+        );
+        assert!(
+            (k3d - want).abs() < 1.5e-3,
+            "{nx}x{ny}: 3-D {k3d} vs {want}"
+        );
+        // The failure the re-review found …
+        assert!(base > k3d, "{nx}x{ny}: {base} vs {k3d}");
+        // … is closed by the axial term.
+        assert!(est.margin() > TM_GUARD_MARGIN, "{est:?}");
+        assert!(guard < k3d, "{nx}x{ny}: guard {guard} vs 3-D {k3d}");
+    }
+}
+
+/// Issue #824: the measured basis of the mesh-aware margin. Over axial
+/// spacings `k_c·h_z` ∈ [0.44, 3.42] and faces from 4 × 2 to 32 × 16 the
+/// 3-D TM₁₁₀ undershoot stays under `0.021·(k_c·h_z)²` (the fine-face
+/// limit is `≈ 0.0205`) and the guard stays below the 3-D cutoff. The
+/// last two rows are a `4 × 2` cross-section, whose TE₁₀₁ stays above
+/// TM₁₁₀ for box lengths up to 2.
+#[test]
+#[ignore = "heavy: ~40 sparse box eigensolves; cargo test --release --test wave_port -- --ignored mesh_aware_tm_guard_holds"]
+fn mesh_aware_tm_guard_holds_over_axial_and_face_resolutions() {
+    let cases: &[(f64, f64, usize, f64)] = &[
+        (2.0, 1.0, 1, 0.75),
+        (2.0, 1.0, 1, 0.6),
+        (2.0, 1.0, 1, 0.5),
+        (2.0, 1.0, 2, 0.75),
+        (2.0, 1.0, 2, 0.5),
+        (2.0, 1.0, 4, 0.5),
+        (2.0, 1.0, 6, 0.5),
+        (4.0, 2.0, 1, 1.5),
+        (4.0, 2.0, 1, 1.95),
+    ];
+    for &(a, b, nz, length) in cases {
+        let tm11 = ((std::f64::consts::PI / a).powi(2) + (std::f64::consts::PI / b).powi(2)).sqrt();
+        let kh = tm11 * length / nz as f64;
+        for n in [2usize, 4, 8, 16] {
+            let (k3d, est) = box_tm110_and_mesh_aware_estimate(2 * n, n, nz, a, b, length);
+            let under = 1.0 - k3d / tm11;
+            let guard = est.guard_k_c();
+            eprintln!(
+                "{a}x{b}, face {}x{n}, h_z = {:.4} (k_c·h_z = {kh:.3}): 3-D {k3d:.4} \
+                 ({:+.2} %, /(kh)² = {:.4}), guard {guard:.4} (margin {:.2} %)",
+                2 * n,
+                length / nz as f64,
+                -100.0 * under,
+                under / (kh * kh),
+                100.0 * est.margin()
+            );
+            assert!(under < 0.021 * kh * kh, "undershoot {under} at kh {kh}");
+            assert!(guard < k3d, "guard {guard} vs 3-D {k3d} ({est:?})");
+        }
+    }
+}

@@ -5285,6 +5285,14 @@
           "format": "int32",
           "type": "integer"
         },
+        "tm_axial_spacing": {
+          "description": "Axial mesh spacing `h_n` at the port (mesh units; issue #824;\nadditive in v1): the largest extent along the port normal of a\nvolume tet with a face on the port. It sizes [`Self::tm_margin`].",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "tm_k_c": {
           "description": "Estimated lowest **TM** cutoff wavenumber of the empty\ncross-section (rad per mesh length unit; issue #808; additive in\nv1): the port-face P1 value Richardson-extrapolated over two uniform\nface refinements. Wave ports carry TE modes only, so every sweep\nfrequency must stay below [`Self::tm_limit_hz`] (`geode check` /\n`driven` reject it otherwise). `null` when the face has no free\n`E_z` node (no TM mode on the port mesh).",
           "format": "double",
@@ -5302,10 +5310,25 @@
           ]
         },
         "tm_limit_hz": {
-          "description": "The TE-only guard's sweep limit in Hz (issue #808; additive in v1):\n`(1 − 0.05)·tm_k_c/√(Re ε_n·μ_t)` in the port's [`Self::medium`]\n(a dispersive fill at its reference `ε_r`). The 5 % margin covers\nthe 3-D model's own TM cutoff, which sits below the continuum on a\ncoarse axial mesh. `null` with [`Self::tm_k_c`].",
+          "description": "The TE-only guard's sweep limit in Hz (issue #808; additive in v1):\n`(1 − δ)·tm_k_c/√(Re ε_n·μ_t)` in the port's [`Self::medium`]\n(a dispersive fill at its reference `ε_r`), with `δ` =\n[`Self::tm_margin`]. The margin covers the 3-D model's own TM\ncutoff, which sits below the continuum by up to\n`≈ 0.0205·(tm_k_c·h_n)²` with `h_n` = [`Self::tm_axial_spacing`]\n(numerical dispersion along the guide; issue #824). `null` with\n[`Self::tm_k_c`].",
           "format": "double",
           "type": [
             "number",
+            "null"
+          ]
+        },
+        "tm_margin": {
+          "description": "The TE-only guard's relative margin `δ` (issue #824; additive in\nv1): `max(0.05, 0.025·(tm_k_c·tm_axial_spacing)²)`, so 5 % up to\n`tm_k_c·h_n ≈ 1.41` (about 4.4 axial cells per TM-cutoff\nwavelength) and wider on a coarser axial mesh. `null` with\n[`Self::tm_k_c`].",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tm_warning": {
+          "description": "Coarse-axial-mesh warning (issue #824; additive in v1; omitted when\nthere is none): the top sweep frequency spans more than\n`k·h_n ≈ 1.41` per axial cell at the port, so the guard widened its\nmargin; the text says how far to refine along the guide. Also\nprinted on stderr as `warning: …`.",
+          "type": [
+            "string",
             "null"
           ]
         }
@@ -5326,7 +5349,9 @@
         "medium",
         "tm_k_c",
         "tm_k_c_face",
-        "tm_limit_hz"
+        "tm_limit_hz",
+        "tm_axial_spacing",
+        "tm_margin"
       ],
       "type": "object"
     }
