@@ -133,17 +133,17 @@ pub fn re_k_from_lambda(lambda: Complex64) -> f64 {
 /// need to rule this out must separately inspect the sign of `Im k`
 /// (`k0_im` in the CLI report).
 ///
-/// **The `1e-12` null cutoff is absolute, not relative.** `k` is in
-/// rad / mesh length unit, so `1e-12` below is an absolute bound in
-/// whatever length unit the mesh is authored in — it is not rescaled
-/// against `Re k`. A mesh authored in different length units shifts
-/// what counts as "numerically lossless".
+/// **The lossless cutoff is relative** (issue #826): `+∞` when
+/// `|Im k| ≤ Q_LOSSLESS_REL_TOL · |Re k|`, a few ulps of `Re k`. This is
+/// [`geode_core::eigen::self_consistent::q_factor`], so the CLI report and
+/// the self-consistent driver agree, and the result does not depend on the
+/// mesh length unit (the old absolute `|Im k| > 1e-12` test reported every
+/// `Q ≳ 5e7` mode as lossless on a μm mesh at 5 GHz). See
+/// [`geode_core::eigen::self_consistent::Q_LOSSLESS_REL_TOL`] for the
+/// tolerance and the separate cancellation limit of `Im k` from
+/// [`k_from_lambda`] at `Q ≳ 1e8`.
 pub fn q_factor(k: Complex64) -> f64 {
-    if k.im.abs() > 1e-12 {
-        k.re / (2.0 * k.im.abs())
-    } else {
-        f64::INFINITY
-    }
+    geode_core::eigen::self_consistent::q_factor(k)
 }
 
 /// Quality factor from a complex eigenvalue `λ = k²` — composes
@@ -210,6 +210,17 @@ mod tests {
         // Conjugate eigenvalue flips the sign of Im k.
         let (_, im_k_conj) = k_from_lambda(Complex64::new(99.75, -10.0));
         assert!((im_k_conj + 0.5).abs() < 1e-9);
+    }
+
+    /// Issue #826: the same mode in metres, millimetres and micrometres
+    /// gets the same `Q` (`k` scales with the unit, `Q` does not).
+    #[test]
+    fn q_factor_is_mesh_unit_invariant() {
+        let k_m = Complex64::new(104.8, 104.8 / (2.0 * 1e9));
+        for s in [1.0, 1e-3, 1e-6] {
+            let q = q_factor(k_m * s);
+            assert!(((q - 1e9) / 1e9).abs() < 1e-12, "unit {s} m: Q = {q}");
+        }
     }
 
     #[test]

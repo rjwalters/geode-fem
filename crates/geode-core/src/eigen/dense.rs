@@ -381,6 +381,14 @@ fn real_shift_invert_spectrum(
     Ok(spec)
 }
 
+/// Relative size of `Im λ` above which [`lowest_real`] rejects a kept
+/// eigenvalue as a genuine complex pair: `|Im λ| > REAL_IM_REL_TOL ·
+/// max(|Re λ|, τ)`, with `τ` the pencil scale.
+///
+/// `1e-9` is comfortably above `f64` noise but catches anything that is
+/// actually a conjugate pair.
+const REAL_IM_REL_TOL: f64 = 1e-9;
+
 /// Sort `(Re λ, Im λ, column)` by `Re λ` ascending (stable), keep the lowest
 /// `n`, and reject a kept eigenvalue with a non-negligible imaginary part.
 ///
@@ -389,7 +397,24 @@ fn real_shift_invert_spectrum(
 /// non-trivial round-off in the imaginary channel even though they are
 /// mathematically real, but the lowest modes remain real to f64 precision and
 /// are all the API promises.
-fn lowest_real(spec: &ShiftInvertSpectrum, n: usize) -> Result<Vec<(f64, usize)>, EigenError> {
+///
+/// # The imaginary-part test (issue #826)
+///
+/// A kept `λ` is real when `|Im λ| ≤ REAL_IM_REL_TOL · max(|Re λ|, scale)`,
+/// where `scale` is the pencil scale `τ` ([`pencil_scale_real`], the same
+/// `τ` the shift `σ = −τ` uses). The floor is needed for null eigenvalues:
+/// an exact `λ = 0` comes back as round-off of absolute size about `ε·τ`
+/// (shift-invert resolves `λ` near `|σ| = τ` to `ε·τ`), so a purely
+/// relative test would reject it. The floor used to be the constant `1`,
+/// which made the test absolute (`|Im λ| > 1e-9`) whenever `|λ| < 1`: on a
+/// μm mesh (`λ ≈ 1e-8`) an imaginary part of 10 % of `λ` passed as real.
+/// `τ` scales with the pencil (`1/L²` for a mesh in length unit `L`, like
+/// `λ`), so the classification does not depend on the mesh length unit.
+fn lowest_real(
+    spec: &ShiftInvertSpectrum,
+    n: usize,
+    scale: f64,
+) -> Result<Vec<(f64, usize)>, EigenError> {
     let mut items: Vec<(f64, f64, usize)> = spec
         .lambdas
         .iter()
@@ -401,12 +426,11 @@ fn lowest_real(spec: &ShiftInvertSpectrum, n: usize) -> Result<Vec<(f64, usize)>
     items.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     items.truncate(n);
     for (i, (re, im, _)) in items.iter().enumerate() {
-        // Tolerance: 1e-9 relative is comfortably above f64 noise but
-        // catches anything that is actually a conjugate pair.
-        if im.abs() > 1e-9 * re.abs().max(1.0) {
+        let floor = re.abs().max(scale);
+        if im.abs() > REAL_IM_REL_TOL * floor {
             return Err(EigenError::ComplexEigenvalue(format!(
-                "λ[{i}] = {re} + {im}i (rel im {})",
-                im.abs() / re.abs().max(1.0)
+                "λ[{i}] = {re} + {im}i (|Im λ| / max(|Re λ|, τ = {scale:e}) = {})",
+                im.abs() / floor
             )));
         }
     }
@@ -435,7 +459,7 @@ impl FaerDenseEigensolver {
         assert_eq!(k.nrows(), m.nrows(), "K and M must agree in size");
 
         let spec = real_shift_invert_spectrum(k, m, true)?;
-        let kept = lowest_real(&spec, n)?;
+        let kept = lowest_real(&spec, n, pencil_scale_real(k, m))?;
         let Some(u) = spec.vectors else {
             // Vectors were requested, so they are present whenever the
             // pencil is non-empty.
@@ -492,7 +516,7 @@ impl EigenSolver for FaerDenseEigensolver {
 
         // Eigenvalues only: the real Schur form without its eigenvectors.
         let spec = real_shift_invert_spectrum(k, m, false)?;
-        Ok(lowest_real(&spec, n)?
+        Ok(lowest_real(&spec, n, pencil_scale_real(k, m))?
             .into_iter()
             .map(|(re, _)| re)
             .collect())
@@ -701,6 +725,99 @@ mod shift_invert_tests {
             .smallest_eigenvalues(k.as_ref(), m.as_ref(), 2)
             .expect_err("λ = ±i");
         assert!(matches!(err, EigenError::ComplexEigenvalue(_)), "{err:?}");
+    }
+
+    /// Issue #826: the complex-pair test does not depend on the mesh length
+    /// unit. `K = c·[[1, 0.1], [−0.1, 1]]`, `M = I` has `λ = c(1 ± 0.1i)`,
+    /// an imaginary part of 10 % of `λ`. The old `max(|Re λ|, 1)` floor made
+    /// the test absolute below `|λ| = 1`, so at `c = 1e-8` (a μm-mesh `λ`)
+    /// this pair passed as real; it is now rejected at every scale.
+    #[test]
+    fn complex_pair_is_reported_at_every_mesh_scale() {
+        for c in [1.0, 1e-8, 1e-12, 1e8] {
+            let k = Mat::<f64>::from_fn(2, 2, |i, j| match (i, j) {
+                (0, 1) => 0.1 * c,
+                (1, 0) => -0.1 * c,
+                _ => c,
+            });
+            let m = Mat::<f64>::identity(2, 2);
+            let err = FaerDenseEigensolver
+                .smallest_eigenvalues(k.as_ref(), m.as_ref(), 2)
+                .expect_err("λ = c(1 ± 0.1i) is a complex pair");
+            assert!(
+                matches!(err, EigenError::ComplexEigenvalue(_)),
+                "c = {c}: {err:?}"
+            );
+            let err = FaerDenseEigensolver
+                .smallest_eigenpairs(k.as_ref(), m.as_ref(), 1)
+                .expect_err("λ = c(1 ± 0.1i) is a complex pair");
+            assert!(
+                matches!(err, EigenError::ComplexEigenvalue(_)),
+                "c = {c}: {err:?}"
+            );
+        }
+    }
+
+    /// Issue #826, on [`lowest_real`] directly: a null eigenvalue that came
+    /// back as round-off `(1 + 1i)·ε·τ` is real at every scale (a purely
+    /// relative test would reject it: `|Im λ| = |Re λ|`), and a 10 %
+    /// imaginary part is complex at every scale (the old `max(|Re λ|, 1)`
+    /// floor accepted it below `|λ| = 1`).
+    #[test]
+    fn lowest_real_classification_is_scale_covariant() {
+        for c in [1.0, 1e-8, 1e-12, 1e8] {
+            let noise = 4.0 * f64::EPSILON * c;
+            let spec = ShiftInvertSpectrum {
+                lambdas: vec![
+                    (c64::new(2.0 * c, 0.0), 0),
+                    (c64::new(noise, noise), 1),
+                    (c64::new(3.0 * c, 1e-14 * c), 2),
+                ],
+                vectors: None,
+            };
+            let kept = lowest_real(&spec, 3, c).unwrap_or_else(|e| panic!("c = {c}: {e:?}"));
+            let cols: Vec<usize> = kept.iter().map(|&(_, col)| col).collect();
+            assert_eq!(cols, [1, 0, 2], "c = {c}");
+            let pair = ShiftInvertSpectrum {
+                lambdas: vec![(c64::new(c, 0.1 * c), 0), (c64::new(c, -0.1 * c), 1)],
+                vectors: None,
+            };
+            let err = lowest_real(&pair, 2, c).expect_err("10 % imaginary part");
+            assert!(
+                matches!(err, EigenError::ComplexEigenvalue(_)),
+                "c = {c}: {err:?}"
+            );
+        }
+    }
+
+    /// Issue #826: a real symmetric pencil with an exact null eigenvalue
+    /// classifies the same way in every length unit, through the solver; the
+    /// spectrum scales with `c`.
+    #[test]
+    fn null_and_real_modes_classify_the_same_at_every_mesh_scale() {
+        // K = [[1, −1], [−1, 1]] ⊕ [3], M = I: λ ∈ {0, 2, 3}.
+        let k_unit = Mat::<f64>::from_fn(3, 3, |i, j| match (i, j) {
+            (0, 0) | (1, 1) => 1.0,
+            (0, 1) | (1, 0) => -1.0,
+            (2, 2) => 3.0,
+            _ => 0.0,
+        });
+        let m = Mat::<f64>::identity(3, 3);
+        for c in [1.0, 1e-8, 1e-12, 1e8] {
+            let k = Mat::<f64>::from_fn(3, 3, |i, j| c * k_unit[(i, j)]);
+            let l = FaerDenseEigensolver
+                .smallest_eigenvalues(k.as_ref(), m.as_ref(), 3)
+                .unwrap_or_else(|e| panic!("c = {c}: {e:?}"));
+            assert_eq!(l.len(), 3);
+            let l: Vec<f64> = l.iter().map(|x| x / c).collect();
+            assert!(l[0].abs() < 1e-12, "c = {c}: null λ/c = {}", l[0]);
+            assert!((l[1] - 2.0).abs() < 1e-12, "c = {c}: {l:?}");
+            assert!((l[2] - 3.0).abs() < 1e-12, "c = {c}: {l:?}");
+            let pairs = FaerDenseEigensolver
+                .smallest_eigenpairs(k.as_ref(), m.as_ref(), 3)
+                .unwrap_or_else(|e| panic!("c = {c}: {e:?}"));
+            assert_eq!(pairs.len(), 3);
+        }
     }
 
     #[test]

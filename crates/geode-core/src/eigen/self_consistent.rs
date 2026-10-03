@@ -76,8 +76,9 @@ pub enum SelfConsistentResult {
         /// Complex wavenumber `k = sqrt(λ_target)` on the
         /// `Re(k) > 0` branch.
         k: c64,
-        /// Q-factor `Re(k) / (2 |Im(k)|)`. `f64::INFINITY` if `Im(k)`
-        /// is below `1e-12` (effectively lossless under the discretization).
+        /// Q-factor `Re(k) / (2 |Im(k)|)` ([`q_factor`]). `f64::INFINITY`
+        /// if `|Im(k)|` is at round-off relative to `|Re(k)|`
+        /// ([`Q_LOSSLESS_REL_TOL`]; effectively lossless).
         q: f64,
         /// Number of solve calls performed (≥ 1).
         iterations: usize,
@@ -529,9 +530,40 @@ fn principal_sqrt(z: c64) -> c64 {
     c64::new(re_k, im_k)
 }
 
-/// `Q = Re(k) / (2 |Im(k)|)`; `f64::INFINITY` when `|Im(k)| < 1e-12`.
-fn q_factor(k: c64) -> f64 {
-    if k.im.abs() < 1e-12 {
+/// Relative round-off band of [`q_factor`]: a wavenumber with
+/// `|Im k| ≤ Q_LOSSLESS_REL_TOL · |Re k|` is numerically lossless and
+/// gets `Q = ∞`.
+///
+/// The test is **relative** (issue #826). `k` is in rad per mesh length
+/// unit, so an absolute cutoff (the old `|Im k| < 1e-12`) meant different
+/// things on different meshes: on a μm mesh at 5 GHz (`Re k ≈ 1e-4`) it
+/// reported every mode with `Q ≳ 5e7` as infinite, while the same mesh in
+/// metres stayed finite up to `Q ≈ 5e13`. Scaling the mesh by `s` scales
+/// `Re k` and `Im k` by `1/s` together, so this test (and `Q` itself) is
+/// unit-invariant.
+///
+/// `16 ε ≈ 3.6e-15` is a few ulps of `Re k`: an `Im k` that small is
+/// below what the `f64` eigenvalue can resolve. The largest finite `Q` it
+/// allows is `1/(2·16ε) ≈ 1.4e14`.
+///
+/// Precision caveat: `Q` is only as good as `Im k`. Computed as
+/// `√(½(|λ| − Re λ))` (the principal square root used here and in
+/// `geode_util::eigen::k_from_lambda`), `Im k` loses about `log₁₀ Q²`
+/// digits to cancellation and reaches exactly zero once `Q ≳ 1e8`,
+/// whatever the mesh unit. That is a separate, unit-independent limit
+/// (#828).
+pub const Q_LOSSLESS_REL_TOL: f64 = 16.0 * f64::EPSILON;
+
+/// Quality factor of a complex wavenumber: `Q = Re(k) / (2 |Im(k)|)`,
+/// or `f64::INFINITY` when `|Im(k)| ≤ Q_LOSSLESS_REL_TOL · |Re(k)|`
+/// (numerically lossless; see [`Q_LOSSLESS_REL_TOL`] for why the test is
+/// relative). `k = 0` counts as lossless.
+///
+/// `Q` uses `|Im k|`, so a growing mode (`Im k < 0` under `exp(+jωt)`)
+/// also gets a positive `Q`; check the sign of `Im k` separately if that
+/// matters.
+pub fn q_factor(k: c64) -> f64 {
+    if k.im.abs() <= Q_LOSSLESS_REL_TOL * k.re.abs() {
         f64::INFINITY
     } else {
         k.re / (2.0 * k.im.abs())
@@ -564,6 +596,83 @@ mod tests {
     fn q_factor_lossless_is_infinite() {
         let q = q_factor(c64::new(1.0, 0.0));
         assert_eq!(q, f64::INFINITY);
+    }
+
+    /// Issue #826: the same physical mode on meshes authored in different
+    /// length units (`k` scales as `1/s`) gets the same `Q`, and the same
+    /// lossless classification. The old absolute `|Im k| < 1e-12` cutoff
+    /// reported the `Q = 1e9` mode as infinite on the μm-scale `k`.
+    #[test]
+    fn q_factor_is_mesh_unit_invariant() {
+        // Re k at 5 GHz is ≈ 104.8 rad/m.
+        let re_k_m = 104.8;
+        for q_true in [10.0, 1e3, 1e9, 1e13] {
+            let k_m = c64::new(re_k_m, re_k_m / (2.0 * q_true));
+            for s in [1.0, 1e-3, 1e-6, 1e6] {
+                // A mesh unit of `s` metres: k in rad/unit is `k_m · s`.
+                let k = k_m * s;
+                let q = q_factor(k);
+                assert!(
+                    q.is_finite() && ((q - q_true) / q_true).abs() < 1e-12,
+                    "unit {s} m, Q_true {q_true}: got {q}"
+                );
+            }
+        }
+        // Lossless (Im k exactly 0 or at a few ulps) is ∞ in every unit,
+        // and so is k = 0.
+        for s in [1.0, 1e-6, 1e6] {
+            assert_eq!(q_factor(c64::new(re_k_m * s, 0.0)), f64::INFINITY);
+            let ulp_im = 4.0 * f64::EPSILON * re_k_m * s;
+            assert_eq!(q_factor(c64::new(re_k_m * s, ulp_im)), f64::INFINITY);
+        }
+        assert_eq!(q_factor(c64::new(0.0, 0.0)), f64::INFINITY);
+    }
+
+    /// Issue #826, end to end: the self-consistent driver on one pencil
+    /// written in three length units. With `k` scaled by `c` (`K` by `c²`,
+    /// `S` by `c`, `k₀` and `tol` by `c`), the converged `k` scales by `c`
+    /// and `Q` is unchanged. At `c = 1e-10`, `Im k ≈ 5e-13`, which the old
+    /// absolute cutoff reported as `Q = ∞`.
+    #[test]
+    fn self_consistent_q_is_mesh_unit_invariant() {
+        let run =
+            |c: f64| {
+                let k = faer::Mat::<f64>::from_fn(2, 2, |i, j| {
+                    if i == j { [1.0, 4.0][i] * c * c } else { 0.0 }
+                });
+                let s = faer::Mat::<f64>::from_fn(2, 2, |i, j| if i == j { 0.01 * c } else { 0.0 });
+                let m = faer::Mat::<f64>::from_fn(2, 2, |i, j| if i == j { 1.0 } else { 0.0 });
+                match self_consistent_k(
+                    k.as_ref(),
+                    s.as_ref(),
+                    m.as_ref(),
+                    0.9 * c,
+                    0,
+                    2,
+                    1e-10 * c,
+                    50,
+                )
+                .expect("diagonal lossy pencil")
+                {
+                    SelfConsistentResult::Converged { k, q, iterations } => (k / c, q, iterations),
+                    other => panic!("c = {c}: expected Converged, got {other:?}"),
+                }
+            };
+        let (k_ref, q_ref, it_ref) = run(1.0);
+        assert!(q_ref.is_finite() && q_ref > 10.0, "reference Q = {q_ref}");
+        for c in [1e-10, 1e-6, 1e6] {
+            let (k, q, it) = run(c);
+            assert!(
+                (k - k_ref).norm() <= 1e-9 * k_ref.norm(),
+                "c = {c}: k/c = {k}, want {k_ref}"
+            );
+            assert!(q.is_finite(), "c = {c}: Q reported infinite");
+            assert!(
+                ((q - q_ref) / q_ref).abs() < 1e-6,
+                "c = {c}: Q = {q}, want {q_ref}"
+            );
+            assert_eq!(it, it_ref, "c = {c}: iteration count");
+        }
     }
 
     #[test]

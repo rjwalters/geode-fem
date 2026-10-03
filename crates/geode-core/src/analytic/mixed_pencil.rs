@@ -540,8 +540,13 @@ pub fn solve_mixed_modes(
     let mut modes: Vec<MixedMode> = Vec::new();
     for triple in ritz {
         // β² = −μ; require a real, converged eigenvalue (physical bound mode).
+        // The test is relative to |β²| with no absolute floor (issue #826):
+        // β² is in 1/(mesh unit)², so the old `max(|μ|, 1)` floor made it
+        // absolute on a mesh with β² < 1. Only modes inside the window
+        // (β² > k₀²n_clad² > 0) survive below, so dropping the floor changes
+        // nothing for β² ≥ 1.
         let beta_sq = -triple.mu_re;
-        if triple.mu_im.abs() > 1e-6 * triple.mu_re.abs().max(1.0) {
+        if triple.mu_im.abs() > 1e-6 * triple.mu_re.abs() {
             continue;
         }
         // Reject unconverged Arnoldi ghosts / spurious Ritz values.
@@ -595,7 +600,9 @@ pub fn solve_mixed_modes(
     for m in modes {
         let dup = deduped
             .last()
-            .is_some_and(|p| (p.beta_sq - m.beta_sq).abs() <= 1e-6 * p.beta_sq.abs().max(1.0));
+            // Relative, no absolute floor (issue #826): every kept β² is
+            // in the window, so strictly positive.
+            .is_some_and(|p| (p.beta_sq - m.beta_sq).abs() <= 1e-6 * p.beta_sq.abs());
         if !dup {
             deduped.push(m);
         }
