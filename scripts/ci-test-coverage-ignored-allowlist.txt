@@ -1,0 +1,56 @@
+# #[ignore]d tests that no CI workflow runs (issue #793).
+#
+# Read by scripts/ci-test-coverage.py. Running a target's default tier does
+# not run its #[ignore]d tests, so the guard lists every ignored test of
+# every target that CI runs, and fails when
+#   * an ignored test runs in no workflow (no `-- --ignored` /
+#     `-- --include-ignored` command that selects it) and is NOT listed
+#     here, or
+#   * an entry here is stale: the test now runs, no longer exists, or its
+#     target does not run in CI at all (that belongs in
+#     ci-test-coverage-allowlist.txt), or
+#   * an entry has no reason.
+#
+# Issue #793 timed every such test in release on ubuntu-latest (one test at
+# a time, 20-min cap) and wired the passing ones into integration-tests.yml
+# and arpack.yml. Every entry left here carries its reason. Shrink this
+# file; do not grow it without a reason.
+#
+# Format: <crate>/<target>::<test>  # <reason>   (one ignored test), or
+#         <crate>/<target>  # <reason>           (every ignored test of the
+#                                                 target). The reason is
+#         required, on the same line.
+
+# geode-core
+
+# Needs an NVIDIA GPU: compiled only with --features cuda (burn-cuda 0.21,
+# f32 only); run by hand on a rented EC2 GPU box.
+geode-core/cocg_burn_equivalence::cocg_burn_cuda_f32_smoke  # needs a CUDA GPU (--features cuda)
+geode-core/driven_matrix_free_equivalence::driven_matrix_free_cuda_f32_smoke  # needs a CUDA GPU (--features cuda)
+geode-core/nedelec_matrix_free_equivalence::matrix_free_cuda_f32_smoke  # needs a CUDA GPU (--features cuda)
+
+# A fixture regenerator, not a check: it rewrites
+# tests/fixtures/mie_complex_pml_dense_eigenvalues.toml. The acceptance test
+# against that fixture (sparse_complex_matches_dense_fixture) runs in
+# arpack.yml.
+geode-core/sparse_complex_eigensolver::regenerate_dense_oracle_fixture  # fixture regenerator (writes a committed fixture)
+
+# Measured negative by design: AMS-MINRES plateaus at about 1.09e-5 at
+# sigma = 4.5 GHz and the test panics if run (issue #531 Phase 1c,
+# benchmarks/transmon_ams_minres_133k/results.toml).
+geode-core/transmon_eigenmode::real_transmon_minres_ams_converges_at_sigma_4p5  # documented measured negative (#531 Phase 1c); panics by design
+
+# Fails on ubuntu-latest AND macos-latest (not platform-specific): it picks
+# a gradient null-space mode (lambda about 1e-17) because pick_simple_mode's
+# absolute 1e-3 threshold skips every mode on the um-scaled mesh. Filed as
+# #814 (logs there). Remove this entry when it passes.
+geode-core/transmon_eigen_sensitivity::real_eigen_sensitivity_release  # fails on Linux and macOS (#814)
+
+# The matrix-free (Jacobi / AMS-preconditioned CG and MINRES) solves of the
+# real 133k-DOF transmon. Each timed out at the 20-min cap on ubuntu-latest
+# (#793 measurement runs 37079249918 and 37081282414), so each is over the
+# per-test budget; the direct-LU transmon tests in the same target run in
+# integration-tests.yml (core-ignored).
+geode-core/transmon_eigenmode::real_transmon_matrix_free_matches_direct  # slow: >=20 min on ubuntu-latest (timed out at the 20-min cap)
+geode-core/transmon_eigenmode::real_transmon_matrix_free_indefinite_matches_direct  # slow: >=20 min on ubuntu-latest (timed out at the 20-min cap)
+geode-core/transmon_eigenmode::real_transmon_ams_beats_jacobi  # slow: >=20 min on ubuntu-latest (timed out at the 20-min cap)

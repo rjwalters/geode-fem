@@ -112,6 +112,19 @@ jobs:
               --test patch_antenna_matched \
               --test patch_antenna_radiation
 
+      # Issue #793: the same five targets' committed-results benchmarks
+      # (#[ignore]d as heavy in debug). Measured release times on
+      # ubuntu-latest, one test at a time: slcfet_3hp 31 s, spiral 7 s,
+      # the four patch tests 1-3 s each (about 46 s in all).
+      - name: Benchmark tier-1 committed-results checks (--ignored tier)
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test spiral_inductor_benchmark \
+              --test slcfet_3hp_benchmark \
+              --test patch_antenna_extraction \
+              --test patch_antenna_matched \
+              --test patch_antenna_radiation -- --ignored
+
       # Issue #714: the open-path current excitation behind
       # `geode inductance` (P1 conduction J vs the analytic axial / loop
       # builders, round-off discrete solenoidality, tripwires). No blanket
@@ -311,5 +324,18 @@ jobs:
               --test mesh_static_golden --test adaptive_sweep_golden \
               --test roughness_golden --test dispersive_golden \
               --test anisotropic_golden -- --ignored
-          cargo test -p geode-cli --release --test spiral_golden -- --ignored \
-              spiral_benchmark_ams_matches_direct_lu
+          cargo test -p geode-cli --release --test spiral_golden -- --ignored
+
+      # Issue #793: the remaining geode-cli benchmark tiers (every one
+      # #[ignore]d as heavy in debug). Measured release times on
+      # ubuntu-latest, one test at a time, before #810 (faster dense real
+      # eigensolver, so the sphere_pec_golden oracle is quicker now):
+      # mesh_golden spiral layout 26 s,
+      # patch_extract_golden 18 s, slcfet_extract_golden 82 s,
+      # sphere_pec_golden dense oracle 74 s; spiral_golden's committed-band
+      # benchmark (now unfiltered above) 14 s.
+      - name: geode extraction / eigen benchmark tiers (release, --ignored)
+        run: |
+          cargo test -p geode-cli --release --test mesh_golden \
+              --test patch_extract_golden --test slcfet_extract_golden \
+              --test sphere_pec_golden -- --ignored
