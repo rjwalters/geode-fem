@@ -117,6 +117,17 @@ pub enum PortFaceError {
     /// The 2-D modal eigensolve failed.
     #[error("cross-section modal solve failed: {0}")]
     Modal(#[from] EigenError),
+    /// A hybrid port face's permittivity is missing or invalid (issue
+    /// #804).
+    #[error("invalid hybrid port-face permittivity: {0}")]
+    InvalidPermittivity(String),
+    /// A face triangle bounds no tet of the mesh, so its fill is unknown
+    /// (issue #804).
+    #[error("port-face triangle {index} is not a face of any tet")]
+    NoAdjacentTet {
+        /// Triangle index in the face list.
+        index: usize,
+    },
     /// The modal solve resolved fewer modes than requested.
     #[error("cross-section modal solve resolved {found} mode(s), {requested} requested")]
     TooFewModes {

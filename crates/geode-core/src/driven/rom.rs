@@ -158,7 +158,7 @@ use crate::driven::ports::mixed::{
     ModalChannel, ModalSmw, PowerWeights, channel_admittances, dot_t, excitation_rhs,
     incident_wave, interior_fluxes, modal_channels, s_column,
 };
-use crate::driven::ports::{LumpedPort, WavePort};
+use crate::driven::ports::{LumpedPort, WavePort, WavePortSpec};
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SurfaceImpedanceBc,
     SurfaceImpedanceModel,
@@ -333,7 +333,9 @@ enum Drive {
 /// The wave (modal) channels of a [`DrivenRom`] built with
 /// [`DrivenRom::build_with_wave_ports`].
 struct ModalData<'a> {
-    wave: &'a [WavePort],
+    /// Borrowed from [`DrivenRom::build_with_wave_ports`], owned (cloned
+    /// geometric ports) from [`DrivenRom::build_with_wave_port_specs`].
+    wave: std::borrow::Cow<'a, [WavePort]>,
     /// Channels port-major, mode-minor, with full-length fluxes.
     channels: Vec<ModalChannel>,
     /// Interior-filtered fluxes `f_q` (real, stored complex).
@@ -497,6 +499,72 @@ impl<'a> DrivenRom<'a> {
         settings: &RomSettings,
         on_snapshot: &mut dyn FnMut(f64),
     ) -> Result<Self, RomError> {
+        Self::build_modal(
+            op,
+            mesh,
+            bcs,
+            std::borrow::Cow::Borrowed(wave),
+            omegas,
+            settings,
+            on_snapshot,
+        )
+    }
+
+    /// [`DrivenRom::build_with_wave_ports`] over [`WavePortSpec`] ports
+    /// (issue #804). Geometric ports are projected exactly as there.
+    ///
+    /// # Errors
+    ///
+    /// [`RomError::InvalidParameter`] for **any hybrid port**: its modal
+    /// flux `f̂(ω)` and `β(ω)` come from a per-frequency re-solve of an
+    /// inhomogeneous cross-section, so the port operator is not affine in ω
+    /// and cannot be projected once (the PROM never silently freezes the
+    /// mode); otherwise as [`DrivenRom::build_with_wave_ports`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_with_wave_port_specs(
+        op: &'a DrivenOperator,
+        mesh: &TetMesh,
+        bcs: &DrivenBcs<'_>,
+        wave: &[WavePortSpec],
+        omegas: &[f64],
+        settings: &RomSettings,
+        on_snapshot: &mut dyn FnMut(f64),
+    ) -> Result<Self, RomError> {
+        let mut owned = Vec::with_capacity(wave.len());
+        for (i, spec) in wave.iter().enumerate() {
+            match spec {
+                WavePortSpec::Geometric(p) => owned.push(p.clone()),
+                WavePortSpec::Hybrid(_) => {
+                    return Err(RomError::InvalidParameter(format!(
+                        "wave port {i} is a hybrid (inhomogeneous cross-section) port: its mode \
+                         shape f̂(ω) and β(ω) are re-solved per frequency and are not affine in \
+                         ω, so the adaptive PROM cannot project them once; use the dense sweep \
+                         (solve_wave_port_spec_sweep_with_mode / \
+                         solve_mixed_port_spec_sweep_with_mode) for hybrid ports"
+                    )));
+                }
+            }
+        }
+        Self::build_modal(
+            op,
+            mesh,
+            bcs,
+            std::borrow::Cow::Owned(owned),
+            omegas,
+            settings,
+            on_snapshot,
+        )
+    }
+
+    fn build_modal(
+        op: &'a DrivenOperator,
+        mesh: &TetMesh,
+        bcs: &DrivenBcs<'_>,
+        wave: std::borrow::Cow<'a, [WavePort]>,
+        omegas: &[f64],
+        settings: &RomSettings,
+        on_snapshot: &mut dyn FnMut(f64),
+    ) -> Result<Self, RomError> {
         validate_request(omegas, settings)?;
         let n_lumped = op.n_ports();
         if n_lumped == 0 && wave.is_empty() {
@@ -516,19 +584,20 @@ impl<'a> DrivenRom<'a> {
             }
         }
         let edges = mesh.edges();
-        let channels = modal_channels(mesh, n_lumped, wave, &edges)?;
+        let channels = modal_channels(mesh, n_lumped, &wave, &edges)?;
         let fluxes_int = interior_fluxes(&channels, bcs.pec_interior_mask);
         let drives: Vec<Drive> = (0..n_lumped)
             .map(Drive::Lumped)
             .chain((0..channels.len()).map(Drive::Wave))
             .collect();
+        let port_mode_counts = wave.iter().map(|p| p.modes.len()).collect();
         let modal = ModalData {
             wave,
             u: vec![Vec::new(); channels.len()],
             channels,
             fluxes_int,
             pec_mask: bcs.pec_interior_mask.to_vec(),
-            port_mode_counts: wave.iter().map(|p| p.modes.len()).collect(),
+            port_mode_counts,
         };
         let mut rom = Self::new_base(op, drives, Some(modal));
         rom.run_greedy(omegas, settings, on_snapshot)?;
@@ -855,7 +924,7 @@ impl<'a> DrivenRom<'a> {
         };
         let k = self.basis.len();
         let coeffs = self.surface_coefficients(omega)?;
-        let (betas, ys) = channel_admittances(modal.wave, &modal.channels, omega);
+        let (betas, ys) = channel_admittances(&modal.wave, &modal.channels, omega);
         let x_rs = if k == 0 {
             vec![Vec::new(); self.drives.len()]
         } else {
@@ -929,7 +998,7 @@ impl<'a> DrivenRom<'a> {
         if let Some(modal) = &self.modal {
             // SMW-corrected excitation solves, exactly as
             // `solve_mixed_port_sweep_with_mode` forms them.
-            let (_, ys) = channel_admittances(modal.wave, &modal.channels, omega);
+            let (_, ys) = channel_admittances(&modal.wave, &modal.channels, omega);
             let mut back_solve = |b: &[c64], x: &mut [c64]| factor.back_solve(b, x).map(|()| 0);
             let mut iters = Vec::new();
             let smw = ModalSmw::prepare(
@@ -1071,7 +1140,7 @@ impl<'a> DrivenRom<'a> {
     /// lumped-only ROM).
     fn admittances(&self, omega: f64) -> Vec<c64> {
         self.modal.as_ref().map_or_else(Vec::new, |m| {
-            channel_admittances(m.wave, &m.channels, omega).1
+            channel_admittances(&m.wave, &m.channels, omega).1
         })
     }
 

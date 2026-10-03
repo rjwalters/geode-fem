@@ -110,8 +110,12 @@
 //!   `|Im β²| = O(h)` (measured: 0.248 → 0.128 → 0.048 for h = b/8 … b/32,
 //!   real at b/64). Converged complex pairs are detected with the complex
 //!   Ritz vector's residual. If one lies inside the requested window, the
-//!   solver raises [`HybridPortError::ComplexPair`]. It does not skip the
-//!   pair or return it as two real modes.
+//!   solver raises [`HybridPortError::ComplexPair`] by default. It does not
+//!   skip the pair or return it as two real modes. With
+//!   [`HybridPortOpts::carry_complex_pairs`] (#804) the pair is returned
+//!   instead, as a [`HybridComplexPair`] occupying two evanescent slots;
+//!   the hybrid wave port terminates its B-invariant 2-D subspace as a
+//!   reciprocal 2×2 modal block.
 //! - **Null-space classifier** (the guard when not deflating, and a defence
 //!   in depth when deflating). A Ritz pair is a null-space vector iff
 //!   `|β²| ≤ NULL_BETA_SQ_TOL · k₀²ε_max` **and** its transverse energy
@@ -485,6 +489,15 @@ pub struct HybridPortOpts {
     /// Explicit-residual convergence threshold
     /// `‖Ax − μBx‖/(|μ|‖Bx‖) ≤ residual_tol`. Default `1e-8`.
     pub residual_tol: f64,
+    /// `false` (default, the Phase 1 contract): a converged complex pair
+    /// inside the evanescent window is a [`HybridPortError::ComplexPair`]
+    /// error. `true` (Phase 2, #804): the pair is **returned** in
+    /// [`HybridPortModeSet::complex_pairs`] and occupies **two** slots of the
+    /// `n_evanescent` window (a pair straddling the last slot is returned
+    /// whole). The window is then "all propagating modes plus the first
+    /// `n_evanescent` evanescent slots in descending `Re β²`", where a real
+    /// evanescent mode takes one slot and a pair two.
+    pub carry_complex_pairs: bool,
 }
 
 impl Default for HybridPortOpts {
@@ -495,6 +508,7 @@ impl Default for HybridPortOpts {
             deflate_null: true,
             max_krylov: 600,
             residual_tol: 1e-8,
+            carry_complex_pairs: false,
         }
     }
 }
@@ -586,8 +600,79 @@ pub struct HybridPortModeSet {
     pub modes: Vec<HybridPortMode>,
     /// How many of `modes` are propagating.
     pub n_propagating: usize,
+    /// Converged complex-conjugate pairs inside the evanescent window,
+    /// descending `Re β²`. Always empty unless
+    /// [`HybridPortOpts::carry_complex_pairs`] is set (otherwise such a pair
+    /// is a [`HybridPortError::ComplexPair`] error).
+    pub complex_pairs: Vec<HybridComplexPair>,
     /// Classifier / window margins.
     pub diagnostics: HybridSolveDiagnostics,
+}
+
+/// Relative B-form magnitude below which a complex pair's unconjugated
+/// self-pairing `zᵀBz` is treated as degenerate
+/// ([`HybridComplexPair::degenerate`]): `|zᵀBz| ≤ PAIR_DEGENERATE_TOL ·
+/// (|xᵀBx| + |yᵀBy| + 2|xᵀBy|)` for `z = x + jy`.
+pub const PAIR_DEGENERATE_TOL: f64 = 1e-6;
+
+/// One member of a converged complex-conjugate eigenpair of the hybrid
+/// pencil, normalized (unconjugated) so that `zᵀBz = β²` with complex `β²`.
+#[derive(Debug, Clone)]
+pub struct HybridComplexMode {
+    /// Complex `β²` (`= −μ`).
+    pub beta_sq: c64,
+    /// The decaying (`Im β < 0`) root of `β²`.
+    pub beta: c64,
+    /// Scaled transverse field `z_t` (complex) on the full edge ordering.
+    pub e_t: Vec<c64>,
+    /// Scaled longitudinal field `z_z` (complex) on the full node ordering.
+    pub e_z: Vec<c64>,
+}
+
+/// A **mesh-induced complex-conjugate pair** of the p=1 hybrid pencil
+/// (module docs, "Complex pairs"), returned only with
+/// [`HybridPortOpts::carry_complex_pairs`].
+///
+/// `A` and `B` are real symmetric, so for `A z = μ B z` with `μ ∉ ℝ` the
+/// conjugate `z̄` is the partner eigenvector, `z̄ᵀBz = 0`
+/// (`(μ − μ̄) z̄ᵀBz = 0`), and `zᵀB x_m = 0` against every real mode. The
+/// two members therefore extend the B-biorthogonal modal set exactly, and
+/// their real span `span{Re z, Im z}` is a B-invariant 2-D subspace (≈
+/// `span{LSE, LSM}` on the slab guide). A port terminates that subspace with
+/// the 2×2 modal admittance block `Σ_k jβ_k f̂_k f̂_kᵀ` over the two members:
+/// complex symmetric, hence reciprocal, and diagonal in this eigenbasis.
+#[derive(Debug, Clone)]
+pub struct HybridComplexPair {
+    /// The member with `Im β² < 0` (its conjugate is [`Self::members`]`[1]`).
+    pub mode: HybridComplexMode,
+    /// Conditioning of the unconjugated self-pairing:
+    /// `|zᵀBz| / (|xᵀBx| + |yᵀBy| + 2|xᵀBy|)` for the raw Ritz vector
+    /// `z = x + jy` (`1` = well conditioned, `0` = the pair is B-null and
+    /// cannot be normalized).
+    pub conditioning: f64,
+    /// `conditioning ≤` [`PAIR_DEGENERATE_TOL`]: the 2×2 block cannot be
+    /// formed (callers fall back to stopping the window above the pair).
+    pub degenerate: bool,
+    /// Explicit complex residual of the Ritz pair.
+    pub residual: f64,
+    /// Real evanescent modes in the returned set with `β²` above the pair's
+    /// `Re β²`.
+    pub real_evanescent_before: usize,
+}
+
+impl HybridComplexPair {
+    /// Both members `[z, z̄]` with `β²` and `conj(β²)`; each is normalized
+    /// so `zᵀBz = β²`, and the decaying roots are `β` and `−conj(β)`.
+    pub fn members(&self) -> [HybridComplexMode; 2] {
+        let m = &self.mode;
+        let conj = HybridComplexMode {
+            beta_sq: m.beta_sq.conj(),
+            beta: -m.beta.conj(),
+            e_t: m.e_t.iter().map(|v| v.conj()).collect(),
+            e_z: m.e_z.iter().map(|v| v.conj()).collect(),
+        };
+        [m.clone(), conj]
+    }
 }
 
 /// Errors of the hybrid port-mode solver.
@@ -625,8 +710,8 @@ pub enum HybridPortError {
     /// collision of a near-degenerate LSE/LSM evanescent pair of opposite
     /// B-signature (`sign xᵀBx`), with `|Im β²| = O(h)` (see
     /// `tests/hybrid_port_modes.rs`). Request at most
-    /// `real_evanescent_before` evanescent modes, refine the mesh, or treat
-    /// the pair explicitly (Phase 2 follow-up).
+    /// `real_evanescent_before` evanescent modes, refine the mesh, or set
+    /// [`HybridPortOpts::carry_complex_pairs`] to receive the pair (#804).
     #[error(
         "hybrid port-mode window contains a converged complex-conjugate pair \
          β² = {beta_sq_re:.6e} ± {beta_sq_im:.3e}j after {n_propagating} propagating and \
@@ -666,6 +751,8 @@ struct Candidate {
     residual: f64,
     eta: f64,
     vector: Vec<f64>,
+    /// Imaginary part of the Ritz vector (complex Ritz values only).
+    vector_im: Vec<f64>,
 }
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
@@ -867,6 +954,11 @@ pub fn solve_hybrid_port_modes(
                 } else {
                     Class::Unconverged
                 };
+                let vector_im = if matches!(class, Class::Complex) {
+                    t.vector_im
+                } else {
+                    Vec::new()
+                };
                 Candidate {
                     dist,
                     mu,
@@ -875,6 +967,7 @@ pub fn solve_hybrid_port_modes(
                     residual,
                     eta,
                     vector: x,
+                    vector_im,
                 }
             })
             .collect();
@@ -901,6 +994,7 @@ pub fn solve_hybrid_port_modes(
         };
         let mut physical: Vec<Candidate> = Vec::new();
         let mut complex_re: Vec<(f64, f64)> = Vec::new(); // (Re β², |Im β²|)
+        let mut complex_cands: Vec<Candidate> = Vec::new();
         for c in cands {
             if c.dist >= coverage_radius {
                 continue;
@@ -916,6 +1010,9 @@ pub fn solve_hybrid_port_modes(
                     // Keep one member per conjugate pair.
                     if c.mu_im > 0.0 {
                         complex_re.push((-c.mu, c.mu_im));
+                        if opts.carry_complex_pairs {
+                            complex_cands.push(c);
+                        }
                     }
                 }
                 Class::Physical => {
@@ -944,6 +1041,75 @@ pub fn solve_hybrid_port_modes(
         let n_prop = physical.iter().filter(|c| c.mu < 0.0).count();
         let n_ev_found = physical.len() - n_prop;
         let propagating_covered = coverage_radius > 0.5 * scale * (1.0 + 1e-9);
+
+        if opts.carry_complex_pairs {
+            // Evanescent slots in descending Re β²: a real mode takes one, a
+            // pair two (a pair straddling the last slot is kept whole).
+            complex_cands.sort_by(|p, q| p.mu.total_cmp(&q.mu)); // descending Re β²
+            let mut slots = 0usize;
+            let (mut n_real, mut n_pair) = (0usize, 0usize);
+            let (mut ri, mut pi) = (n_prop, 0usize);
+            while slots < k_ev {
+                let next_real = physical.get(ri).map(|c| -c.mu);
+                let next_pair = complex_cands.get(pi).map(|c| -c.mu);
+                match (next_real, next_pair) {
+                    (Some(r), Some(p)) if p > r => {
+                        slots += 2;
+                        n_pair += 1;
+                        pi += 1;
+                    }
+                    (Some(_), _) => {
+                        slots += 1;
+                        n_real += 1;
+                        ri += 1;
+                    }
+                    (None, Some(_)) => {
+                        slots += 2;
+                        n_pair += 1;
+                        pi += 1;
+                    }
+                    (None, None) => break,
+                }
+            }
+            if propagating_covered && slots >= k_ev {
+                physical.truncate(n_prop + n_real);
+                complex_cands.truncate(n_pair);
+                let pairs: Vec<HybridComplexPair> = complex_cands
+                    .into_iter()
+                    .map(|c| {
+                        let before = physical[n_prop..].iter().filter(|p| p.mu < c.mu).count();
+                        finish_pair(c, &pencil, n_t, n_z, before)
+                    })
+                    .collect();
+                let modes: Vec<HybridPortMode> = physical
+                    .into_iter()
+                    .map(|c| finish_mode(c, &pencil, n_t, n_z, &mut bx))
+                    .collect();
+                for md in &modes {
+                    diag.max_residual = diag.max_residual.max(md.residual);
+                    diag.min_returned_beta_sq_rel =
+                        diag.min_returned_beta_sq_rel.min(md.beta_sq.abs() / scale);
+                }
+                return Ok(HybridPortModeSet {
+                    modes,
+                    n_propagating: n_prop,
+                    complex_pairs: pairs,
+                    diagnostics: diag,
+                });
+            }
+            if m >= dim || m >= opts.max_krylov {
+                return Err(HybridPortError::Shortfall {
+                    requested_evanescent: k_ev,
+                    found_evanescent: slots,
+                    n_propagating: n_prop,
+                    coverage_radius,
+                    krylov: m,
+                    dim,
+                });
+            }
+            m = (2 * m).min(dim).min(opts.max_krylov);
+            continue;
+        }
 
         // A converged complex pair above the K-th real evanescent mode (or
         // anywhere above the last one found, if fewer than K) is inside the
@@ -983,6 +1149,7 @@ pub fn solve_hybrid_port_modes(
             return Ok(HybridPortModeSet {
                 modes,
                 n_propagating: n_prop,
+                complex_pairs: Vec::new(),
                 diagnostics: diag,
             });
         }
@@ -1053,6 +1220,76 @@ fn finish_mode(
         norm,
         residual: c.residual,
         transverse_fraction: c.eta,
+    }
+}
+
+/// Normalize one converged complex Ritz pair (`μ + jμ_im`, `z = x + jy`)
+/// to `zᵀBz = β²` and scatter it to the full orderings.
+fn finish_pair(
+    c: Candidate,
+    pencil: &HybridPencil,
+    n_t: usize,
+    n_z: usize,
+    real_evanescent_before: usize,
+) -> HybridComplexPair {
+    let x = &c.vector;
+    let y = &c.vector_im;
+    let bx = sparse_matvec(pencil.b.as_ref(), x);
+    let by = sparse_matvec(pencil.b.as_ref(), y);
+    let (xbx, yby, xby) = (dot(x, &bx), dot(y, &by), dot(x, &by));
+    let ztbz = c64::new(xbx - yby, 2.0 * xby);
+    let denom = xbx.abs() + yby.abs() + 2.0 * xby.abs();
+    let conditioning = if denom > 0.0 {
+        ztbz.norm() / denom
+    } else {
+        0.0
+    };
+    let degenerate = conditioning.is_nan() || conditioning <= PAIR_DEGENERATE_TOL;
+    let beta_sq = c64::new(-c.mu, -c.mu_im);
+    let mut beta = beta_sq.sqrt();
+    if beta.im > 0.0 {
+        beta = -beta;
+    }
+    let mut alpha = if degenerate {
+        c64::new(1.0, 0.0)
+    } else {
+        (beta_sq / ztbz).sqrt()
+    };
+    // Sign pin: the largest-|z_t| component has a positive real part.
+    let mut best = 0usize;
+    let mut best_abs = -1.0_f64;
+    for i in 0..pencil.n_free_t {
+        let v = x[i].hypot(y[i]);
+        if v > best_abs {
+            best_abs = v;
+            best = i;
+        }
+    }
+    if pencil.n_free_t > 0 && (alpha * c64::new(x[best], y[best])).re < 0.0 {
+        alpha = -alpha;
+    }
+    let zero = c64::new(0.0, 0.0);
+    let mut e_t = vec![zero; n_t];
+    let mut e_z = vec![zero; n_z];
+    for (ri, &fi) in pencil.free.iter().enumerate() {
+        let v = alpha * c64::new(x[ri], y[ri]);
+        if fi < n_t {
+            e_t[fi] = v;
+        } else {
+            e_z[fi - n_t] = v;
+        }
+    }
+    HybridComplexPair {
+        mode: HybridComplexMode {
+            beta_sq,
+            beta,
+            e_t,
+            e_z,
+        },
+        conditioning,
+        degenerate,
+        residual: c.residual,
+        real_evanescent_before,
     }
 }
 

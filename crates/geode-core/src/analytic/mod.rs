@@ -37,6 +37,7 @@ pub mod loaded_guide;
 pub mod mie;
 pub mod mixed_pencil;
 pub mod patch;
+pub mod port_mode_accuracy;
 pub mod port_modes;
 pub mod slotless_pm;
 #[cfg(feature = "spade-mesh")]
