@@ -185,8 +185,21 @@ jobs:
           # Issue #798: residual-checked Lanczos (`eigen::lanczos::`) and the
           # port/dielectric mode solvers that use it (`analytic::waveguide::`),
           # incl. the #794 p=1 curl-floor tests. ~93 tests, ~7 s in release.
+          # Issues #828/#831/#834: the residual-checked complex Lanczos
+          # (`eigen::complex::`, incl. the seeded spurious-Ritz regression),
+          # its lossy-cavity caller (`eigen::lossy_cavity::`), the projected
+          # Lanczos (`eigen::projection::`), the hybrid-port Arnoldi solvers
+          # (`analytic::mixed_pencil::`, `analytic::lossy_port_modes::`) and
+          # the mesh-unit-invariance regressions in all of them (`pair_hint`'s
+          # runs with `driven::ports::` above). ~140 tests, ~8 s in release.
           cargo test --features arpack -p geode-core --release --lib -- \
-              eigen::lanczos:: analytic::waveguide::
+              eigen::lanczos:: analytic::waveguide:: eigen::complex:: \
+              eigen::lossy_cavity:: eigen::projection:: \
+              analytic::mixed_pencil:: analytic::lossy_port_modes::
+          # Issue #828: geode-util's validation helpers (the degenerate-cluster
+          # floor of `dense_lowest_eigenpairs`, and the #826/#830 `q_factor` /
+          # `k_from_lambda` tests), which no job ran. < 1 s.
+          cargo test --features geode-core/arpack -p geode-util --release --lib
 
       # Issue #760: diagonal anisotropic materials — the lossless
       # tensor cavity pencil and diagonal-nu magnetostatics unit tests

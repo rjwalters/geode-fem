@@ -74,7 +74,7 @@ use faer::Mat;
 use faer::c64;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
-use crate::eigen::complex::SparseComplexShiftInvertLanczos;
+use crate::eigen::complex::{CheckedComplexEigenpairs, SparseComplexShiftInvertLanczos};
 use crate::eigen::dense::{EigenError, EigenPair};
 use crate::eigen::lanczos::{CheckedEigenpairs, ConvergenceCheck, SparseShiftInvertLanczos};
 
@@ -3404,25 +3404,31 @@ fn estimate_modal_shift(
     // O(1). We rescale to O(machine epsilon) for the probe shift so
     // it sits inside the gradient cluster's machine-noise band but
     // doesn't push σ above any plausible physical eigenvalue.
-    let n = m_sparse.nrows();
-    let mut m_trace = 0.0_f64;
-    let cp = m_sparse.col_ptr();
-    let ri = m_sparse.row_idx();
-    let v = m_sparse.val();
-    for j in 0..n {
-        for k in cp[j]..cp[j + 1] {
-            if ri[k] == j {
-                m_trace += v[k].abs();
-            }
-        }
-    }
-    let m_scale = (m_trace / (n as f64).max(1.0)).max(1.0);
-    // Probe shift: 1e-10 · m_scale. Sits ~10 orders of magnitude
-    // below any reasonable physical mode (modal eigenvalues are
-    // ≥ ~1e-2 on a unit-scale mesh, often O(1)). Large enough to
-    // make A = K - σM non-singular even when K has a 100+-dim
-    // gradient nullspace.
-    let probe_sigma = 1e-10_f64 * m_scale;
+    let diag_trace = |a: SparseColMatRef<'_, usize, f64>| {
+        let (cp, ri, v) = (a.col_ptr(), a.row_idx(), a.val());
+        (0..a.ncols())
+            .flat_map(|j| (cp[j]..cp[j + 1]).filter(move |&k| ri[k] == j))
+            .map(|k| v[k].abs())
+            .sum::<f64>()
+    };
+    // Spectral scale `τ = tr K / tr M`, a mean diagonal Rayleigh quotient:
+    // an upper-spectrum eigenvalue scale `∝ 1/h²` that, like every
+    // eigenvalue of the pencil, scales as `L⁻²` with the mesh length unit
+    // (issue #828). The physical cutoffs sit at `≈ (h/a)²·τ` or above.
+    let (k_trace, m_trace) = (diag_trace(k_sparse), diag_trace(m_sparse));
+    let tau = if m_trace > 0.0 && k_trace > 0.0 {
+        k_trace / m_trace
+    } else {
+        1.0
+    };
+    // Probe shift: 1e-10 · τ. Sits ~10 orders of magnitude below the
+    // spectral scale, far below any physical mode on any mesh this targets,
+    // in any length unit. Large enough to make A = K − σM non-singular
+    // (the gradient nullspace sits at round-off, `≈ ε·τ`) even when K has a
+    // 100+-dim gradient nullspace. (It was `1e-10 · max(tr M / n, 1)`: the
+    // mean mass diagonal is not an eigenvalue scale, and the floor made it
+    // the absolute `1e-10` on most meshes.)
+    let probe_sigma = 1e-10_f64 * tau;
     let probe = SparseShiftInvertLanczos {
         sigma: probe_sigma,
         max_iters: probe_budget,
@@ -3441,8 +3447,10 @@ fn estimate_modal_shift(
     // machine-noise scale (|λ| ≤ 1e-10·||K|| typically); a threshold
     // of `1e-6 · max(λ)` gives many decades of slack and still
     // separates cleanly from any plausible first physical mode.
+    // The `1e-12 · τ` floor (scale-covariant, issue #828; it was the absolute
+    // `1e-12`) only matters if every probed λ is noise.
     let max_lambda = pairs.iter().map(|p| p.lambda.abs()).fold(0.0_f64, f64::max);
-    let cluster_threshold = (1e-6_f64 * max_lambda).max(1e-12);
+    let cluster_threshold = (1e-6_f64 * max_lambda).max(1e-12 * tau);
     let first_phys = pairs
         .iter()
         .find(|p| p.lambda > cluster_threshold)
@@ -5302,17 +5310,18 @@ fn sparse_quadratic_form_c64_herm(a: SparseColMatRef<'_, usize, c64>, x: &[c64])
 }
 
 /// Principal complex square root with `Re(√z) ≥ 0` — the `n_eff`/`β`
-/// recovery branch for the complex PML pencil. (A local copy of the
-/// branch used by the complex Lanczos, kept self-contained here.)
+/// recovery branch for the complex PML pencil.
+///
+/// Delegates to the cancellation-free
+/// [`crate::eigen::wavenumber::principal_sqrt`] (issue #831), which has the
+/// same branch: `Re √z ≥ 0`, `sign Im √z = sign Im z` (`Im z = ±0` counts as
+/// non-negative, so a real negative `z` maps to `+i√|z|`), and `0 → 0`. The
+/// old local copy computed `Im √z = √(½(|z| − Re z))`, which cancels: for a
+/// weakly leaky guided mode its relative error in `Im β` (and so in the
+/// propagation loss `Im n_eff`) was `≈ ε · (Re β² / Im β²)²`, and it returned
+/// `Im β = 0` (lossless) once `Im β² / Re β² < √ε ≈ 1.5e-8`.
 fn principal_sqrt_c64(z: c64) -> c64 {
-    if z.re == 0.0 && z.im == 0.0 {
-        return c64::new(0.0, 0.0);
-    }
-    let r = (z.re * z.re + z.im * z.im).sqrt();
-    let re = ((r + z.re) * 0.5).sqrt();
-    let im_mag = ((r - z.re) * 0.5).sqrt();
-    let im = if z.im >= 0.0 { im_mag } else { -im_mag };
-    c64::new(re, im)
+    crate::eigen::wavenumber::principal_sqrt(z)
 }
 
 /// Complex p=2 PML analogue of [`dielectric_raw_candidates_p2`]: assemble
@@ -5339,6 +5348,7 @@ fn dielectric_raw_candidates_p2_pml(
     assert!(k0 > 0.0, "k0 must be positive; got {k0}");
 
     let eps_max = eps_r.iter().cloned().fold(f64::MIN, f64::max);
+    let eps_min = eps_r.iter().cloned().fold(f64::MAX, f64::min);
     let n_core = eps_max.sqrt();
     let beta_sq_ceiling = n_core * n_core * k0 * k0;
 
@@ -5378,14 +5388,20 @@ fn dielectric_raw_candidates_p2_pml(
         xkx / denom
     };
 
-    let n_req = n_request.min(dim).max(1);
-    let max_iters = (n_req + 8).min(dim).max(1);
-    let solver = SparseComplexShiftInvertLanczos {
+    // Converged pairs only (issue #834): the complex bilinear Lanczos has
+    // no interlacing guarantee, so an unconverged Ritz value can land in
+    // the guided window, even nearer σ than converged modes.
+    let guided_window = (eps_min * k0_sq, beta_sq_ceiling);
+    let checked = pml_checked_eigenpairs(
+        a_sparse.as_ref(),
+        m1_sparse.as_ref(),
         sigma,
-        max_iters,
-        tol: 1e-9,
-    };
-    let pairs = solver.smallest_eigenpairs(a_sparse.as_ref(), m1_sparse.as_ref(), n_req)?;
+        n_request,
+        dim,
+        guided_window,
+    )?;
+    log_pml_withheld("dielectric_raw_candidates_p2_pml", &checked, guided_window);
+    let pairs = checked.pairs;
 
     let mut cands: Vec<RawDielectricCandidateComplex> = pairs
         .iter()
@@ -5403,6 +5419,69 @@ fn dielectric_raw_candidates_p2_pml(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     Ok(cands)
+}
+
+/// Complex (PML / DtN) counterpart of [`dielectric_checked_eigenpairs`]
+/// (issue #834): shift-invert Lanczos on the complex-symmetric pencil
+/// `A x = β² M₁ x` near the real shift `σ`, returning only **converged**
+/// pairs.
+///
+/// The first pass is the historical `max_iters = n_req + 8` solve. When one
+/// of its pairs with `Re β²` inside `guided_window` misses
+/// [`DIELECTRIC_RESIDUAL_TOL`] but locates an eigenvalue, the same Krylov
+/// run is extended, up to [`DIELECTRIC_LANCZOS_CAP_FACTOR`] times that
+/// budget, until a converged pair confirms it (see
+/// [`SparseComplexShiftInvertLanczos::smallest_eigenpairs_checked`]). A
+/// pair that locates no eigenvalue (the bilinear Lanczos can return one
+/// anywhere, issue #834) is withheld and never extends the run. When the
+/// first pass converges, the result is bit-identical to the old unchecked
+/// solve minus the withheld pairs.
+fn pml_checked_eigenpairs(
+    a: SparseColMatRef<'_, usize, c64>,
+    m1: SparseColMatRef<'_, usize, c64>,
+    sigma: f64,
+    n_request: usize,
+    dim: usize,
+    guided_window: (f64, f64),
+) -> Result<CheckedComplexEigenpairs, EigenError> {
+    let n_req = n_request.min(dim).max(1);
+    let max_iters = (n_req + 8).min(dim).max(1);
+    let solver = SparseComplexShiftInvertLanczos {
+        sigma,
+        max_iters,
+        tol: 1e-9,
+    };
+    solver.smallest_eigenpairs_checked(
+        a,
+        m1,
+        n_req,
+        ConvergenceCheck {
+            residual_tol: DIELECTRIC_RESIDUAL_TOL,
+            max_iters_cap: (max_iters * DIELECTRIC_LANCZOS_CAP_FACTOR).min(dim),
+            window: Some(guided_window),
+        },
+    )
+}
+
+/// Log what a [`pml_checked_eigenpairs`] solve withheld (issue #834).
+fn log_pml_withheld(who: &str, checked: &CheckedComplexEigenpairs, guided_window: (f64, f64)) {
+    if checked.rejected.is_empty() && !checked.extended {
+        return;
+    }
+    let in_window = checked
+        .rejected
+        .iter()
+        .filter(|(l, _)| guided_window.0 < l.re && l.re < guided_window.1)
+        .count();
+    eprintln!(
+        "{who}: {} converged pair(s); withheld {} unconverged Ritz pair(s) (residual > \
+         {DIELECTRIC_RESIDUAL_TOL:.0e} after {} Lanczos steps{}), {in_window} of them in the \
+         guided window",
+        checked.pairs.len(),
+        checked.rejected.len(),
+        checked.lanczos_steps,
+        if checked.extended { ", extended" } else { "" },
+    );
 }
 
 /// Curl-energy floor for the **PML** dielectric path (Epic #303 PML-B,
@@ -5593,10 +5672,13 @@ pub fn solve_dielectric_modes2_pml(
     // bound-before-leaky, then by descending `Re(β²)` within the bound
     // cluster (and by ascending |Im| within the leaky tail). The
     // core-energy fraction then **confirms** the pick is a genuine LP₀₁.
+    // Relative to `Re β²` in every mesh length unit (issue #828; the old
+    // `max(|Re β²|, 1)` floor made it absolute for `β² < 1`, e.g. a guide
+    // meshed in metres or nm). Every candidate here is in the guided
+    // window, so `Re β² > 0`.
     const BOUND_REL_IM: f64 = 1e-8;
-    let is_bound = |m: &DielectricModePml| -> bool {
-        m.beta_sq.im.abs() <= BOUND_REL_IM * m.beta_sq.re.abs().max(1.0)
-    };
+    let is_bound =
+        |m: &DielectricModePml| -> bool { m.beta_sq.im.abs() <= BOUND_REL_IM * m.beta_sq.re.abs() };
     guided.sort_by(|a, b| {
         let (ba, bb) = (is_bound(a), is_bound(b));
         // Bound modes first.
@@ -6272,8 +6354,9 @@ pub fn solve_dielectric_modes2_pml_profile_selected(
     for c in &cands {
         let in_window = c.beta_sq.re > beta_sq_floor && c.beta_sq.re < beta_sq_ceiling;
         let has_curl = c.curl_ratio > curl_floor;
-        // UNCHANGED bound-mode gate.
-        let is_bound = c.beta_sq.im.abs() <= BOUND_REL_IM * c.beta_sq.re.abs().max(1.0);
+        // The bound-mode gate of `solve_dielectric_modes2_pml`, relative in
+        // every mesh length unit (issue #828; `Re β² > 0` in the window).
+        let is_bound = c.beta_sq.im.abs() <= BOUND_REL_IM * c.beta_sq.re.abs();
         if !(in_window && has_curl && is_bound) {
             continue;
         }
@@ -7225,7 +7308,6 @@ pub fn solve_dielectric_modes2_analytic_cladding_bc(
     };
 
     let n_req = n_modes.max(1).min(dim);
-    let max_iters_lanczos = (n_req + 8).min(dim).max(1);
 
     // Seed β² near the guided-band ceiling (bound modes sit just below n_core²).
     let mut beta_sq = beta_sq_ceiling * (1.0 - 1e-3);
@@ -7253,13 +7335,22 @@ pub fn solve_dielectric_modes2_analytic_cladding_bc(
         let a_sparse = sparse_pencil_a_c64(k_eff.as_ref(), m_eps_c.as_ref(), k0_sq)?;
 
         // Shift just below the guided-band ceiling (guided β² sit near it).
+        // Converged pairs only (issue #834).
         let sigma = beta_sq_ceiling * (1.0 - 1e-3);
-        let solver = SparseComplexShiftInvertLanczos {
+        let checked = pml_checked_eigenpairs(
+            a_sparse.as_ref(),
+            m1_c.as_ref(),
             sigma,
-            max_iters: max_iters_lanczos,
-            tol: 1e-9,
-        };
-        let pairs = solver.smallest_eigenpairs(a_sparse.as_ref(), m1_c.as_ref(), n_req)?;
+            n_req,
+            dim,
+            (beta_sq_floor, beta_sq_ceiling),
+        )?;
+        log_pml_withheld(
+            "solve_dielectric_modes2_analytic_cladding_bc",
+            &checked,
+            (beta_sq_floor, beta_sq_ceiling),
+        );
+        let pairs = checked.pairs;
 
         // Select the in-window, curl-bearing eigenpair with the LARGEST Re(β²)
         // (most confined) — the fundamental. The single-mesh gates match the
@@ -7288,8 +7379,9 @@ pub fn solve_dielectric_modes2_analytic_cladding_bc(
         };
         let vec = vec.clone();
 
-        // Convergence on the relative β² step.
-        let rel = (new_beta_sq.re - beta_sq).abs() / beta_sq.abs().max(1.0);
+        // Convergence on the relative β² step (relative in every mesh length
+        // unit, issue #828; `beta_sq` is in the guided window, so `> 0`).
+        let rel = (new_beta_sq.re - beta_sq).abs() / beta_sq.abs();
         selected = Some((new_beta_sq, vec));
         beta_sq = new_beta_sq.re;
         if rel < tol {
@@ -7359,6 +7451,43 @@ fn sparse_axpy_c64(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #831: `principal_sqrt_c64` recovers the propagation loss
+    /// `Im n_eff` of a weakly leaky mode to a few ulps, at `Im β² / Re β² =
+    /// 1e-6` and `1e-10`, in µm (`β² ≈ 21.8 µm⁻²`) and metre (`≈ 2.18e13
+    /// m⁻²`) units. References: `mpmath` at 50 digits on the exact binary64
+    /// `β²` (rounded to binary64). The old cancelling form was off by `1.3e-5` / `1.1e-4` at
+    /// `1e-6` and returned `Im n_eff = 0` at `1e-10`.
+    #[test]
+    fn principal_sqrt_c64_keeps_low_loss_im_n_eff() {
+        let k0 = 4.05_f64;
+        // (Re β², Im/Re, mpmath Im n_eff, mpmath Re n_eff)
+        let cases = [
+            (21.8, 1e-6, 5.764255570334466e-07, 1.1528511140671813),
+            (21.8, 1e-10, 5.764255570335187e-11, 1.1528511140670372),
+            (2.18e13, 1e-6, 0.5764255570334466, 1152851.1140671815),
+            (2.18e13, 1e-10, 5.7642555703351866e-05, 1152851.1140670374),
+        ];
+        for (re, ratio, im_ref, re_ref) in cases {
+            let beta_sq = c64::new(re, re * ratio);
+            let n_eff = principal_sqrt_c64(beta_sq) / c64::new(k0, 0.0);
+            let rel_im = (n_eff.im - im_ref).abs() / im_ref;
+            let rel_re = (n_eff.re - re_ref).abs() / re_ref;
+            assert!(
+                rel_im <= 4.0 * f64::EPSILON && rel_re <= 4.0 * f64::EPSILON,
+                "β² = {beta_sq}: n_eff = {n_eff}, rel err Im {rel_im:.2e}, Re {rel_re:.2e}"
+            );
+            // The leaky sign is kept, and the lossless branch stays exact.
+            let conj = principal_sqrt_c64(c64::new(re, -re * ratio));
+            assert!(conj.im < 0.0 && conj.re == principal_sqrt_c64(beta_sq).re);
+        }
+        assert_eq!(
+            principal_sqrt_c64(c64::new(21.8, 0.0)).im.to_bits(),
+            0.0_f64.to_bits()
+        );
+        assert_eq!(principal_sqrt_c64(c64::new(-4.0, 0.0)), c64::new(0.0, 2.0));
+        assert_eq!(principal_sqrt_c64(c64::new(0.0, 0.0)), c64::new(0.0, 0.0));
+    }
 
     /// The 6-point degree-4 rule integrates every barycentric monomial of
     /// total degree ≤ 4 exactly against the closed form on the reference
