@@ -290,6 +290,8 @@ jobs:
       # times, one test at a time: 23-61 s each (about 4.2 min for these
       # six). Two threads bound the peak memory of the concurrent sparse
       # LU factorizations. The skipped tests are allowlisted with reasons.
+      # real_eigen_sensitivity_release (issue #814): five 133k-DOF direct
+      # eigensolves (base + material and geometry FD), about 70 s locally.
       - name: geode-core transmon eigenmode benchmarks (--ignored tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \
@@ -298,6 +300,9 @@ jobs:
               --skip real_transmon_matrix_free_indefinite_matches_direct \
               --skip real_transmon_ams_beats_jacobi \
               --skip real_transmon_minres_ams_converges_at_sigma_4p5
+          cargo test -p geode-core --release --features spade-mesh \
+              --test transmon_eigen_sensitivity -- --ignored --exact \
+              real_eigen_sensitivity_release
 
   validation-tests:
     name: cargo test -p geode-validation --release (reference fixtures, linux)

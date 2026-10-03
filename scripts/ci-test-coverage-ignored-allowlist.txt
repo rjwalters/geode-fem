@@ -40,12 +40,6 @@ geode-core/sparse_complex_eigensolver::regenerate_dense_oracle_fixture  # fixtur
 # benchmarks/transmon_ams_minres_133k/results.toml).
 geode-core/transmon_eigenmode::real_transmon_minres_ams_converges_at_sigma_4p5  # documented measured negative (#531 Phase 1c); panics by design
 
-# Fails on ubuntu-latest AND macos-latest (not platform-specific): it picks
-# a gradient null-space mode (lambda about 1e-17) because pick_simple_mode's
-# absolute 1e-3 threshold skips every mode on the um-scaled mesh. Filed as
-# #814 (logs there). Remove this entry when it passes.
-geode-core/transmon_eigen_sensitivity::real_eigen_sensitivity_release  # fails on Linux and macOS (#814)
-
 # The matrix-free (Jacobi / AMS-preconditioned CG and MINRES) solves of the
 # real 133k-DOF transmon. Each timed out at the 20-min cap on ubuntu-latest
 # (#793 measurement runs 37079249918 and 37081282414), so each is over the
