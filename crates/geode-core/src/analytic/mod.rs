@@ -29,6 +29,10 @@
 //!   closed forms, shielded strip-line and square-coax port faces with
 //!   interior PEC, and the 2-D quasi-static capacitance reference
 //!   (Epic #778 Phase 3, #805).
+//! - [`lossy_port_modes`] — the complex-symmetric (lossy / dispersive ε)
+//!   counterpart of [`port_modes`]: complex shift-invert Arnoldi, complex
+//!   `β`, and the per-mode accuracy estimate for complex modes (Epic #778
+//!   Phase 4, #806).
 //! - `spade_mesh` (feature `spade-mesh`) — in-process 2-D constrained
 //!   Delaunay + Ruppert/Chew meshing of arbitrary wave-port cross-sections
 //!   from a polygon boundary, with a topological PEC boundary-edge mask
@@ -38,6 +42,7 @@ pub mod dispersion;
 pub mod fiber;
 pub mod formulation_audit;
 pub mod loaded_guide;
+pub mod lossy_port_modes;
 pub mod microstrip;
 pub mod mie;
 pub mod mixed_pencil;

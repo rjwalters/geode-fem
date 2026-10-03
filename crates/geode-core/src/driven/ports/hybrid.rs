@@ -92,13 +92,28 @@
 //! `f̂(ω)` and `β(ω)` of a hybrid port are not affine in ω, so the #774 PROM
 //! cannot project them once:
 //! [`crate::driven::rom::DrivenRom::build_with_wave_port_specs`] rejects any
-//! hybrid port.
+//! hybrid port, lossy ones included.
+//!
+//! # Lossy and dispersive faces (Phase 4, #806)
+//!
+//! A face built with complex `ε` ([`HybridPortFace::from_volume_lossy`],
+//! [`HybridPortFace::new_lossy`]), or any hybrid port in a dispersive sweep
+//! ([`solve_mixed_port_spec_sweep_dispersive_with_mode`], per-tet `ε(ω)`),
+//! is solved by the complex-symmetric pencil
+//! ([`crate::analytic::lossy_port_modes`]) and handled by a parallel port
+//! state with the same flux, tracking, completeness, termination and
+//! accuracy rules on complex modes (`hybrid_lossy`). A face built from the
+//! volume is checked against the volume's per-tet `ε` bit for bit in a
+//! fixed-material sweep; in a dispersive sweep the face reads `ε(ω)` from
+//! the same vector the 3-D operator is assembled from. Real faces keep the
+//! Phase 2 path above unchanged.
 
 use std::collections::HashMap;
 
 use faer::c64;
 use faer::sparse::SparseColMat;
 
+use super::hybrid_lossy::LossyState;
 use super::lumped::LumpedPort;
 use super::mixed::{MixedPortSweepPoint, ModalSmw, PowerWeights, dot_t};
 use super::wave::{WavePort, WavePortSweepPoint, assemble_modal_flux};
@@ -134,6 +149,18 @@ pub struct HybridPortFace {
     pub eps_r: Vec<f64>,
     /// Free P1 nodes (`E_z` unknowns): every node not on a rim edge.
     pub free_node_mask: Vec<bool>,
+    /// **Lossy / dispersive face** (#806): complex per-triangle `ε_r`
+    /// (`Re ε > 0`, passive `Im ε ≤ 0`). `Some` routes the port through the
+    /// complex-symmetric solver ([`crate::analytic::lossy_port_modes`]);
+    /// [`Self::eps_r`] then holds `Re ε`. `None`: the real lossless path,
+    /// unchanged.
+    pub eps_c: Option<Vec<c64>>,
+    /// The volume tet each face triangle bounds (set by [`Self::from_volume`]
+    /// and [`Self::from_volume_lossy`]). A dispersive sweep
+    /// ([`solve_mixed_port_spec_sweep_dispersive_with_mode`]) reads the face
+    /// `ε(ω)` through it, and a fixed-material sweep checks a lossy face
+    /// against the volume bit for bit.
+    pub tet_of_tri: Option<Vec<usize>>,
 }
 
 impl HybridPortFace {
@@ -171,7 +198,59 @@ impl HybridPortFace {
             free_node_mask: on_rim.iter().map(|&r| !r).collect(),
             projection,
             eps_r,
+            eps_c: None,
+            tet_of_tri: None,
         })
+    }
+
+    /// A **lossy** face from a projection and its complex per-triangle `ε_r`
+    /// (#806; the port is solved by the complex-symmetric pencil).
+    ///
+    /// # Errors
+    ///
+    /// [`PortFaceError::InvalidPermittivity`] for a length mismatch, a
+    /// non-finite entry, `Re ε ≤ 0`, or `Im ε > 0` (gain: a passive laminate
+    /// under `exp(+jωt)` has `Im ε ≤ 0`).
+    pub fn new_lossy(
+        projection: PortFaceProjection,
+        eps_r: Vec<c64>,
+    ) -> Result<Self, PortFaceError> {
+        check_lossy_eps(&eps_r, "face triangle")?;
+        let mut face = Self::new(projection, eps_r.iter().map(|e| e.re).collect())?;
+        face.eps_c = Some(eps_r);
+        Ok(face)
+    }
+
+    /// [`Self::from_volume`] for a lossy volume: each face triangle takes the
+    /// complex `ε_r` of the tet it bounds (`eps_tet`, per tet — exactly the
+    /// [`DrivenMaterials::Scalar`] values the 3-D operator uses).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::from_volume`] and [`Self::new_lossy`].
+    pub fn from_volume_lossy(
+        mesh: &TetMesh,
+        faces: &[[u32; 3]],
+        eps_tet: &[c64],
+    ) -> Result<Self, PortFaceError> {
+        if eps_tet.len() != mesh.n_tets() {
+            return Err(PortFaceError::InvalidPermittivity(format!(
+                "{} per-tet permittivity entries for {} tets",
+                eps_tet.len(),
+                mesh.n_tets()
+            )));
+        }
+        let projection = project_port_face(mesh, faces)?;
+        let tets = face_tets(mesh, faces)?;
+        let eps: Vec<c64> = tets.iter().map(|&t| eps_tet[t]).collect();
+        let mut face = Self::new_lossy(projection, eps)?;
+        face.tet_of_tri = Some(tets);
+        Ok(face)
+    }
+
+    /// `true` for a lossy face ([`Self::eps_c`] set).
+    pub fn is_lossy(&self) -> bool {
+        self.eps_c.is_some()
     }
 
     /// Project `faces` (triangles of `mesh`) and take each triangle's `ε_r`
@@ -197,29 +276,11 @@ impl HybridPortFace {
             )));
         }
         let projection = project_port_face(mesh, faces)?;
-        let key = |t: [u32; 3]| {
-            let mut k = t;
-            k.sort_unstable();
-            k
-        };
-        let mut want: HashMap<[u32; 3], Option<usize>> =
-            faces.iter().map(|&t| (key(t), None)).collect();
-        for (ti, tet) in mesh.tets.iter().enumerate() {
-            for lf in &crate::mesh::TET_LOCAL_FACES {
-                let k = key([tet[lf[0]], tet[lf[1]], tet[lf[2]]]);
-                if let Some(slot) = want.get_mut(&k)
-                    && slot.is_none()
-                {
-                    *slot = Some(ti);
-                }
-            }
-        }
-        let mut eps = Vec::with_capacity(faces.len());
-        for (index, &t) in faces.iter().enumerate() {
-            let tet = want[&key(t)].ok_or(PortFaceError::NoAdjacentTet { index })?;
-            eps.push(eps_tet[tet]);
-        }
-        Self::new(projection, eps)
+        let tets = face_tets(mesh, faces)?;
+        let eps = tets.iter().map(|&t| eps_tet[t]).collect();
+        let mut face = Self::new(projection, eps)?;
+        face.tet_of_tri = Some(tets);
+        Ok(face)
     }
 
     /// Largest face edge length (the `h` of the resolution hints).
@@ -257,6 +318,47 @@ impl HybridPortFace {
             &self.free_node_mask,
         )
     }
+}
+
+/// The tet each face triangle bounds (first match in tet order).
+fn face_tets(mesh: &TetMesh, faces: &[[u32; 3]]) -> Result<Vec<usize>, PortFaceError> {
+    let key = |t: [u32; 3]| {
+        let mut k = t;
+        k.sort_unstable();
+        k
+    };
+    let mut want: HashMap<[u32; 3], Option<usize>> =
+        faces.iter().map(|&t| (key(t), None)).collect();
+    for (ti, tet) in mesh.tets.iter().enumerate() {
+        for lf in &crate::mesh::TET_LOCAL_FACES {
+            let k = key([tet[lf[0]], tet[lf[1]], tet[lf[2]]]);
+            if let Some(slot) = want.get_mut(&k)
+                && slot.is_none()
+            {
+                *slot = Some(ti);
+            }
+        }
+    }
+    faces
+        .iter()
+        .enumerate()
+        .map(|(index, &t)| want[&key(t)].ok_or(PortFaceError::NoAdjacentTet { index }))
+        .collect()
+}
+
+/// Validate a complex (lossy) permittivity list (#806).
+pub(super) fn check_lossy_eps(eps: &[c64], what: &str) -> Result<(), PortFaceError> {
+    if let Some((i, e)) = eps
+        .iter()
+        .enumerate()
+        .find(|(_, e)| !(e.re.is_finite() && e.im.is_finite() && e.re > 0.0 && e.im <= 0.0))
+    {
+        return Err(PortFaceError::InvalidPermittivity(format!(
+            "{what} {i} has ε_r = {e}; a lossy hybrid port needs a finite permittivity with \
+             Re ε > 0 and Im ε ≤ 0 (passive under exp(+jωt); Im ε > 0 is gain)"
+        )));
+    }
+    Ok(())
 }
 
 /// Accuracy-estimate settings of a [`HybridWavePort`].
@@ -371,6 +473,9 @@ impl HybridWavePort {
         mesh: &TetMesh,
         omega: f64,
     ) -> Result<Vec<HybridModalFlux>, DrivenError> {
+        if self.face.is_lossy() {
+            return super::hybrid_lossy::lossy_modal_fluxes(self, mesh, omega);
+        }
         let edges = mesh.edges();
         let ctx = FaceCtx::new(mesh, &edges, self, 0)?;
         let set = ctx.solve(self, omega, 0)?;
@@ -468,8 +573,11 @@ impl WavePortSpec {
 pub struct HybridChannelReport {
     /// Outgoing-branch `β`.
     pub beta: c64,
-    /// `β²` (real).
+    /// `Re β²` (`β²` itself on the real lossless path).
     pub beta_sq: f64,
+    /// `Im β²`: `0` on the real path; negative for a passive lossy mode
+    /// (#806). The attenuation is `α = −Im β`.
+    pub beta_sq_im: f64,
     /// `E_z` energy fraction `1 − η` of the mode.
     pub ez_energy_fraction: f64,
     /// Tracking overlap from the previous (lower) frequency; `None` at the
@@ -480,6 +588,10 @@ pub struct HybridChannelReport {
     pub accuracy: Option<ModeAccuracy>,
     /// Explicit residual of the mode solve.
     pub residual: f64,
+    /// Estimated relative error of the attenuation `α = −Im β` from the same
+    /// `h/2` re-solve ([`crate::analytic::lossy_port_modes::lossy_alpha_estimate`]);
+    /// `None` on the real path or when unavailable.
+    pub alpha_accuracy: Option<f64>,
 }
 
 /// A hybrid port at one frequency.
@@ -639,7 +751,52 @@ pub fn solve_wave_port_spec_sweep_with_mode<B: burn::tensor::backend::Backend>(
         solver_mode,
         device,
     )?;
-    Ok(WavePortSpecSweep {
+    Ok(wave_layout(out))
+}
+
+/// [`solve_wave_port_spec_sweep_with_mode`] for a **dispersive** volume: the
+/// per-ω `ε_r(ω)` path of [`solve_mixed_port_spec_sweep_dispersive_with_mode`]
+/// with the wave-sweep layout.
+///
+/// # Errors
+///
+/// As [`solve_mixed_port_spec_sweep_dispersive_with_mode`].
+#[allow(clippy::too_many_arguments)]
+pub fn solve_wave_port_spec_sweep_dispersive_with_mode<B: burn::tensor::backend::Backend>(
+    mesh: &TetMesh,
+    eps_at: DispersiveEps<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    ports: &[WavePortSpec],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    omegas: &[f64],
+    solver_mode: SolverMode,
+    device: &B::Device,
+) -> Result<WavePortSpecSweep, DrivenError> {
+    if ports.is_empty() {
+        return Err(DrivenError::InvalidPort {
+            index: 0,
+            reason: "wave-port S-parameter extraction needs at least one port".to_string(),
+        });
+    }
+    let out = solve_mixed_port_spec_sweep_dispersive_with_mode::<B>(
+        mesh,
+        eps_at,
+        sigma_tet,
+        bcs,
+        &[],
+        ports,
+        surfaces,
+        omegas,
+        solver_mode,
+        device,
+    )?;
+    Ok(wave_layout(out))
+}
+
+/// A mixed spec sweep without lumped ports, in the wave-sweep layout.
+fn wave_layout(out: MixedPortSpecSweep) -> WavePortSpecSweep {
+    WavePortSpecSweep {
         points: out
             .points
             .into_iter()
@@ -655,7 +812,7 @@ pub fn solve_wave_port_spec_sweep_with_mode<B: burn::tensor::backend::Backend>(
             .collect(),
         hybrid: out.hybrid,
         warnings: out.warnings,
-    })
+    }
 }
 
 /// Mixed lumped + wave sweep over [`WavePortSpec`] ports (the formulation,
@@ -677,6 +834,99 @@ pub fn solve_wave_port_spec_sweep_with_mode<B: burn::tensor::backend::Backend>(
 pub fn solve_mixed_port_spec_sweep_with_mode<B: burn::tensor::backend::Backend>(
     mesh: &TetMesh,
     materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    lumped: &[LumpedPort<'_>],
+    wave: &[WavePortSpec],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    omegas: &[f64],
+    solver_mode: SolverMode,
+    device: &B::Device,
+) -> Result<MixedPortSpecSweep, DrivenError> {
+    mixed_spec_sweep::<B>(
+        mesh,
+        SweepMaterials::Fixed(materials),
+        sigma_tet,
+        bcs,
+        lumped,
+        wave,
+        surfaces,
+        omegas,
+        solver_mode,
+        device,
+    )
+}
+
+/// Per-tet scalar complex `ε_r(ω)` of a **dispersive** volume (#806): called
+/// once per swept `ω` (natural units, `k₀ = ω`), it returns one value per
+/// tet — the [`DrivenMaterials::Scalar`] input of the 3-D operator at that
+/// frequency (a Djordjevic–Sarkar, Debye or Drude fit evaluated at `ω`, for
+/// example).
+pub type DispersiveEps<'a> = &'a dyn Fn(f64) -> Vec<c64>;
+
+/// [`solve_mixed_port_spec_sweep_with_mode`] for a **dispersive** volume
+/// (#806): the 3-D operator is re-assembled at every `ω` with
+/// `DrivenMaterials::Scalar(eps_at(ω))`, and every hybrid port solves its
+/// modes with the complex-symmetric pencil on the face `ε` read from the
+/// **same** `eps_at(ω)` vector through the tet each face triangle bounds
+/// ([`HybridPortFace::tet_of_tri`]). The port and the volume therefore see
+/// bit-identical permittivities at every frequency by construction. Modes
+/// are re-solved and tracked across frequency as in the fixed-material
+/// sweep.
+///
+/// Geometric ([`WavePortSpec::Geometric`]) ports keep their fixed
+/// [`super::PortMedium`]: use them only on faces whose fill is not
+/// dispersive.
+///
+/// # Errors
+///
+/// As [`solve_mixed_port_spec_sweep_with_mode`], plus
+/// [`DrivenError::InvalidPort`] for a hybrid port built without a tet map
+/// (use [`HybridPortFace::from_volume`] /
+/// [`HybridPortFace::from_volume_lossy`]) and for an `eps_at(ω)` of the
+/// wrong length or with an entry a lossy port rejects
+/// ([`HybridPortFace::new_lossy`]).
+#[allow(clippy::too_many_arguments)]
+pub fn solve_mixed_port_spec_sweep_dispersive_with_mode<B: burn::tensor::backend::Backend>(
+    mesh: &TetMesh,
+    eps_at: DispersiveEps<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    lumped: &[LumpedPort<'_>],
+    wave: &[WavePortSpec],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    omegas: &[f64],
+    solver_mode: SolverMode,
+    device: &B::Device,
+) -> Result<MixedPortSpecSweep, DrivenError> {
+    mixed_spec_sweep::<B>(
+        mesh,
+        SweepMaterials::PerOmega(eps_at),
+        sigma_tet,
+        bcs,
+        lumped,
+        wave,
+        surfaces,
+        omegas,
+        solver_mode,
+        device,
+    )
+}
+
+/// Volume materials of a spec sweep: fixed, or re-evaluated per `ω`.
+#[derive(Clone, Copy)]
+enum SweepMaterials<'a> {
+    Fixed(DrivenMaterials<'a>),
+    PerOmega(DispersiveEps<'a>),
+}
+
+/// The spec-sweep implementation behind
+/// [`solve_mixed_port_spec_sweep_with_mode`] and
+/// [`solve_mixed_port_spec_sweep_dispersive_with_mode`].
+#[allow(clippy::too_many_arguments)]
+fn mixed_spec_sweep<B: burn::tensor::backend::Backend>(
+    mesh: &TetMesh,
+    materials: SweepMaterials<'_>,
     sigma_tet: Option<&[f64]>,
     bcs: &DrivenBcs<'_>,
     lumped: &[LumpedPort<'_>],
@@ -787,6 +1037,30 @@ pub fn solve_mixed_port_spec_sweep_with_mode<B: burn::tensor::backend::Backend>(
                     });
                 }
                 let ctx = FaceCtx::new(mesh, &edges, port, index)?;
+                if let SweepMaterials::Fixed(m) = materials {
+                    check_face_matches_volume(port, m, index)?;
+                }
+                if port.face.is_lossy() || matches!(materials, SweepMaterials::PerOmega(_)) {
+                    // Lossy / dispersive face: the complex-symmetric path (#806).
+                    if matches!(materials, SweepMaterials::PerOmega(_))
+                        && port.face.tet_of_tri.is_none()
+                    {
+                        return Err(DrivenError::InvalidPort {
+                            index,
+                            reason: "a hybrid port in a dispersive sweep reads its face ε(ω) from \
+                                     the volume through the tet each face triangle bounds; build \
+                                     the face with HybridPortFace::from_volume or \
+                                     from_volume_lossy"
+                                .to_string(),
+                        });
+                    }
+                    ports.push(PortState::Lossy(Box::new(LossyState::new(
+                        ctx,
+                        port,
+                        omegas.len(),
+                    ))));
+                    continue;
+                }
                 ports.push(PortState::Hybrid(Box::new(HybridState {
                     ctx,
                     prev: Vec::new(),
@@ -809,17 +1083,19 @@ pub fn solve_mixed_port_spec_sweep_with_mode<B: burn::tensor::backend::Backend>(
     let zero_source = CurrentSource {
         j_tet: vec![[zero; 3]; mesh.n_tets()],
     };
-    let op = DrivenOperator::assemble::<B>(
-        mesh,
-        materials,
-        sigma_tet,
-        bcs,
-        lumped,
-        surfaces,
-        &zero_source,
-        device,
-    )?;
-    let n_int = op.n_interior();
+    let fixed_op = match materials {
+        SweepMaterials::Fixed(m) => Some(DrivenOperator::assemble::<B>(
+            mesh,
+            m,
+            sigma_tet,
+            bcs,
+            lumped,
+            surfaces,
+            &zero_source,
+            device,
+        )?),
+        SweepMaterials::PerOmega(_) => None,
+    };
     let mut interior_of = vec![usize::MAX; n_edges];
     let mut next = 0usize;
     for (slot, &keep) in interior_of.iter_mut().zip(bcs.pec_interior_mask) {
@@ -836,6 +1112,44 @@ pub fn solve_mixed_port_spec_sweep_with_mode<B: burn::tensor::backend::Backend>(
 
     for (step, &oi) in order.iter().enumerate() {
         let omega = omegas[oi];
+        // Dispersive volume: ε(ω) per tet, the operator and the hybrid faces
+        // all from the same vector.
+        let eps_w: Option<Vec<c64>> = match materials {
+            SweepMaterials::Fixed(_) => None,
+            SweepMaterials::PerOmega(f) => {
+                let e = f(omega);
+                if e.len() != mesh.n_tets() {
+                    return Err(DrivenError::InvalidPort {
+                        index: 0,
+                        reason: format!(
+                            "dispersive ε(ω) at ω = {omega} has {} entries for {} tets",
+                            e.len(),
+                            mesh.n_tets()
+                        ),
+                    });
+                }
+                Some(e)
+            }
+        };
+        let op_w;
+        let op: &DrivenOperator = match (&fixed_op, &eps_w) {
+            (Some(op), _) => op,
+            (None, Some(e)) => {
+                op_w = DrivenOperator::assemble::<B>(
+                    mesh,
+                    DrivenMaterials::Scalar(e),
+                    sigma_tet,
+                    bcs,
+                    lumped,
+                    surfaces,
+                    &zero_source,
+                    device,
+                )?;
+                &op_w
+            }
+            (None, None) => unreachable!("a per-ω sweep evaluates ε(ω)"),
+        };
+        let n_int = op.n_interior();
         // Channels: reported (port-major, channel-minor), then termination.
         let mut reported: Vec<ChanAt> = Vec::with_capacity(n_reported);
         let mut termination: Vec<ChanAt> = Vec::new();
@@ -860,6 +1174,15 @@ pub fn solve_mixed_port_spec_sweep_with_mode<B: burn::tensor::backend::Backend>(
                         unreachable!("port state matches its spec")
                     };
                     let (rep, term) = hs.channels_at(port, p_idx, omega, oi, step == 0)?;
+                    reported.extend(rep);
+                    termination.extend(term);
+                }
+                PortState::Lossy(ls) => {
+                    let WavePortSpec::Hybrid(port) = &wave[p_idx] else {
+                        unreachable!("port state matches its spec")
+                    };
+                    let (rep, term) =
+                        ls.channels_at(port, p_idx, omega, oi, step == 0, eps_w.as_deref())?;
                     reported.extend(rep);
                     termination.extend(term);
                 }
@@ -893,7 +1216,7 @@ pub fn solve_mixed_port_spec_sweep_with_mode<B: burn::tensor::backend::Backend>(
             &mut back_solve,
             &mut iters_per_rhs,
         )?;
-        let weights = PowerWeights::new(&op, n_lumped, &ys_rep, omega);
+        let weights = PowerWeights::new(op, n_lumped, &ys_rep, omega);
 
         let mut s = vec![zero; n_ports * n_ports];
         let mut residual_rel = 0.0_f64;
@@ -977,6 +1300,12 @@ pub fn solve_mixed_port_spec_sweep_with_mode<B: burn::tensor::backend::Backend>(
     let mut hybrid = Vec::new();
     let mut warnings = Vec::new();
     for (p_idx, state) in ports.into_iter().enumerate() {
+        if let PortState::Lossy(ls) = state {
+            let (report, warns) = ls.into_report(p_idx);
+            hybrid.push(report);
+            warnings.extend(warns);
+            continue;
+        }
         if let PortState::Hybrid(hs) = state {
             let hs = *hs;
             let h = hs.ctx.h;
@@ -1072,34 +1401,87 @@ pub fn solve_mixed_port_spec_sweep_with_mode<B: burn::tensor::backend::Backend>(
 
 /// One modal channel at one frequency: sparse full-length flux, `β`,
 /// admittance factor `y`, and the drive (`None`: termination only).
-struct ChanAt {
-    beta: c64,
-    y: c64,
-    a_inc: Option<c64>,
-    flux: Vec<(usize, c64)>,
+pub(super) struct ChanAt {
+    pub(super) beta: c64,
+    pub(super) y: c64,
+    pub(super) a_inc: Option<c64>,
+    pub(super) flux: Vec<(usize, c64)>,
 }
 
 enum PortState {
-    Geometric { fluxes: Vec<Vec<(usize, c64)>> },
+    Geometric {
+        fluxes: Vec<Vec<(usize, c64)>>,
+    },
     Hybrid(Box<HybridState>),
+    /// A lossy / dispersive hybrid port (#806, [`super::hybrid_lossy`]).
+    Lossy(Box<LossyState>),
+}
+
+/// A face built from the volume ([`HybridPortFace::tet_of_tri`] set) must
+/// carry exactly the volume's per-tet `ε`, bit for bit (#806; the #815
+/// review's note 2), so a lossless face on a lossy volume, or a stale fill,
+/// is a loud error rather than a silently inconsistent port. A **lossy** face
+/// also needs a scalar volume permittivity (anisotropic `ε` on an
+/// inhomogeneous face stays out of scope, Epic #778); a real face on a
+/// non-scalar volume is not checked (the Phase 2 behaviour).
+fn check_face_matches_volume(
+    port: &HybridWavePort,
+    materials: DrivenMaterials<'_>,
+    index: usize,
+) -> Result<(), DrivenError> {
+    let face = &port.face;
+    let DrivenMaterials::Scalar(vol) = materials else {
+        if face.is_lossy() {
+            return Err(DrivenError::InvalidPort {
+                index,
+                reason: "a lossy hybrid port needs a scalar (isotropic) volume permittivity; \
+                         anisotropic ε on an inhomogeneous port face is not supported"
+                    .to_string(),
+            });
+        }
+        return Ok(());
+    };
+    let Some(tets) = &face.tet_of_tri else {
+        return Ok(());
+    };
+    for (t, &tet) in tets.iter().enumerate() {
+        let e = face
+            .eps_c
+            .as_ref()
+            .map_or_else(|| c64::new(face.eps_r[t], 0.0), |c| c[t]);
+        let v = vol.get(tet).copied();
+        if v != Some(e) {
+            return Err(DrivenError::InvalidPort {
+                index,
+                reason: format!(
+                    "hybrid port face triangle {t} has ε = {e} but the tet it bounds ({tet}) has \
+                     ε = {}; the port must see the volume's own permittivity — build the face \
+                     from the same per-tet values (HybridPortFace::from_volume for a real fill, \
+                     from_volume_lossy for a lossy one)",
+                    v.map_or_else(|| "<out of range>".to_string(), |v| v.to_string())
+                ),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Static 2-D ↔ 3-D data of a hybrid face.
-struct FaceCtx {
+pub(super) struct FaceCtx {
     /// 2-D edge → 3-D edge index.
-    lift: Vec<usize>,
+    pub(super) lift: Vec<usize>,
     /// Port-face surface mass `S_p` restricted to the face edges, in 2-D
     /// edge indices.
     s_local: Vec<(usize, usize, f64)>,
     /// 2-D face Whitney mass `M₁` (tracking overlaps).
-    m1: SparseColMat<usize, f64>,
+    pub(super) m1: SparseColMat<usize, f64>,
     /// 2-D discrete gradient.
-    d: SparseColMat<usize, f64>,
-    h: f64,
+    pub(super) d: SparseColMat<usize, f64>,
+    pub(super) h: f64,
 }
 
 impl FaceCtx {
-    fn new(
+    pub(super) fn new(
         mesh: &TetMesh,
         edges: &[[u32; 2]],
         port: &HybridWavePort,
@@ -1177,7 +1559,7 @@ impl FaceCtx {
 
     /// Lift a 2-D edge vector (complex) through `S_p`: the sparse full-length
     /// flux.
-    fn flux(&self, w_local: &[c64]) -> Vec<(usize, c64)> {
+    pub(super) fn flux(&self, w_local: &[c64]) -> Vec<(usize, c64)> {
         let mut f = vec![c64::new(0.0, 0.0); self.lift.len()];
         for &(r, c, v) in &self.s_local {
             f[r] += w_local[c] * v;
@@ -1537,10 +1919,12 @@ impl HybridState {
                 .map(|((m, &(_, _, ov)), a)| HybridChannelReport {
                     beta: m.beta,
                     beta_sq: m.beta_sq,
+                    beta_sq_im: 0.0,
                     ez_energy_fraction: 1.0 - m.transverse_fraction,
                     track_overlap: ov,
                     accuracy: a,
                     residual: m.residual,
+                    alpha_accuracy: None,
                 })
                 .collect(),
             n_propagating: n_prop,
