@@ -1523,3 +1523,83 @@ fn te_only_ports_above_tm11_give_length_dependent_s() {
         "above TM11 the missing TM channel must show: {above} vs {below}"
     );
 }
+
+/// Lowest physical resonance `k` of the all-PEC `a × b × length` box
+/// (`nx × ny × nz` hexes, 6 tets each) from the 3-D lowest-order Nédélec
+/// pencil — the gradient null space (one eigenvalue per interior node)
+/// is skipped. For `length` short enough that every `TE_mn1` mode sits
+/// higher, this is the 3-D model's own TM₁₁ cutoff (TM₁₁₀ at `β = 0`).
+fn box_lowest_physical_k(nx: usize, ny: usize, nz: usize, a: f64, b: f64, length: f64) -> f64 {
+    use geode_core::assembly::nedelec::assemble_global_nedelec;
+    use geode_core::assembly::p1::upload_mesh;
+    use geode_core::eigen::dense::{
+        EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer,
+    };
+    use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
+
+    let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
+    let mesh = &g.mesh;
+    let (nodes_t, tets_t) = upload_mesh::<B>(mesh, &device());
+    let tet_edges = mesh.tet_edges();
+    let tet_idx: Vec<[u32; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].0))
+        .collect();
+    let tet_sign: Vec<[i8; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].1))
+        .collect();
+    let edges = mesh.edges();
+    let sys = assemble_global_nedelec(nodes_t, tets_t, &tet_idx, &tet_sign, edges.len());
+    let walls = mesh.boundary_faces();
+    let mask = pec_interior_mask_from_triangles(&edges, &[&walls]);
+    let (k, m) = apply_dirichlet_bc(
+        burn_matrix_to_faer(sys.k).as_ref(),
+        burn_matrix_to_faer(sys.m).as_ref(),
+        &mask,
+    )
+    .expect("PEC reduction");
+    let n_interior_nodes = (nx - 1) * (ny - 1) * nz.saturating_sub(1);
+    let lambdas = FaerDenseEigensolver
+        .smallest_eigenvalues(k.as_ref(), m.as_ref(), n_interior_nodes + 3)
+        .expect("box eigensolve");
+    let lambda = lambdas[n_interior_nodes];
+    assert!(
+        n_interior_nodes == 0 || lambdas[n_interior_nodes - 1].abs() < 1e-6 * lambda,
+        "gradient null space not where expected: {lambdas:?}"
+    );
+    lambda.sqrt()
+}
+
+/// Issue #808 (Judge, PR #811): the TE-only guard threshold must sit
+/// below the **3-D** model's TM₁₁ cutoff, not just the face's. The face
+/// P1 value is a Rayleigh-Ritz upper bound (3.661 on the 8 × 4 face of a
+/// `2 × 1` guide, analytic 3.512), while the 3-D lowest-order Nédélec
+/// TM₁₁ drops below the continuum on a coarse axial mesh. Re-measure it on
+/// the all-PEC `2 × 1 × 0.5` box (TE_mn1 modes start near k ≈ 6.5) and pin
+/// the ordering `guard < 3-D TM₁₁ < face`, so the old window
+/// `[3-D TM₁₁, face)` the guard used to admit stays closed.
+#[test]
+fn tm_guard_sits_below_the_3d_nedelec_tm11_cutoff() {
+    use geode_core::driven::ports::project_port_face;
+    let (a, b, length) = (2.0, 1.0, 0.5);
+    let face_mesh = extruded_rect_waveguide_mesh(8, 4, 1, a, b, length);
+    let face = project_port_face(&face_mesh.mesh, &face_mesh.port1_faces).expect("face");
+    let est = face.tm_cutoff_estimate(None).expect("TM estimate");
+    let guard = est.guard_k_c();
+    for (nz, want) in [(1, 3.349), (2, 3.494), (4, 3.529)] {
+        let k3d = box_lowest_physical_k(8, 4, nz, a, b, length);
+        eprintln!(
+            "nz = {nz}: 3-D TM11 = {k3d:.4}, face = {:.4}, k_ext = {:.4}, guard = {guard:.4}",
+            est.k_face, est.k_extrapolated
+        );
+        assert!(
+            (k3d - want).abs() < 2e-3,
+            "nz = {nz}: 3-D TM11 {k3d} vs {want}"
+        );
+        assert!(
+            guard < k3d && k3d < est.k_face,
+            "nz = {nz}: {guard} / {k3d} / {est:?}"
+        );
+    }
+}

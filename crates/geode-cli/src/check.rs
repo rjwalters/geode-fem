@@ -399,9 +399,13 @@ pub fn wave_port_summaries(p: &Problem) -> Vec<WavePortSummary> {
                     mu_r_n: m.mu_n,
                 }
             },
-            tm_k_c: w.tm_k_c.is_finite().then_some(w.tm_k_c),
-            tm_cutoff_hz: p
-                .port_tm_cutoff_k0(w)
+            tm_k_c: w
+                .tm
+                .map(|t| t.k_face.min(t.k_extrapolated))
+                .filter(|k| k.is_finite()),
+            tm_k_c_face: w.tm.map(|t| t.k_face).filter(|k| k.is_finite()),
+            tm_limit_hz: p
+                .port_tm_limit_k0(w)
                 .map(|k0| problem::to_frequency(k0, FrequencyUnit::K0, p.length_unit_m()).hz),
             reference_ohm: w.reference_ohm,
         })

@@ -499,21 +499,47 @@ when the feed section is lengthened, against 3.6e-3 below TM₁₁
 `driven` therefore reject, with `invalid_spec`, any spec (pure wave,
 [mixed](#mixed-lumped--wave-ports-issue-759) or
 [adaptive](#adaptive-sweep-parallel-frequencies-and-progress-issue-708))
-with a sweep frequency at or above a wave port's lowest TM cutoff. The
-message names the port, the cutoff and the first offending frequency in
-Hz. The cutoff is the lowest Dirichlet eigenvalue `k_c^TM` of the P1
-Laplacian for `E_z` on the port face. It is the port mesh's discrete
-value, slightly above the continuum one on a coarse face. For a filled
-guide it is scaled to `k_c^TM/√(Re ε_n·μ_t)`, where `ε_n` is the
-permittivity along the port normal. That is the TM dual of the TE
-`β²`: `β_TM² = k₀²ε_tμ_t − (ε_t/ε_n)k_c²`. A dispersive fill is checked
-at every sweep frequency. A fill with `Re ε_n·μ_t ≤ 0` has no TM cutoff
-and is always rejected. `E_z = 0` is imposed only on rim edges that lie
-on a `pec` or `leontovich` wall. On any other rim edge `E_z` is left
-free, which lowers the cutoff (the conservative direction). A rim with
-no wall at all has cutoff 0, so every frequency is rejected. `check`
-and `driven` echo `wave_ports[].tm_k_c` (geometric, per mesh unit) and
-`tm_cutoff_hz` (filled, with a dispersive fill at its reference `ε_r`).
+with a sweep frequency at or above a wave port's **TM limit**. The
+message names the port, the limit and the first offending frequency in
+Hz.
+
+The limit sits 5 % below an estimate of the TM cutoff. The estimate
+starts from the lowest Dirichlet eigenvalue `k_c^TM` of the P1
+Laplacian for `E_z` on the port face. That face value alone is not a
+safe limit: it is a Rayleigh-Ritz **upper** bound, above the continuum
+cutoff on a coarse face, and the 3-D Nédélec model the driven solve
+uses has its own TM cutoff, which sits **below** the continuum on a
+coarse axial mesh. On the 8 × 4 face of a 2 × 1 guide the face value is
+3.661, the analytic TM₁₁ is 3.512, and the 3-D model's TM₁₁ is 3.349
+with one tet layer of 0.5 (3.494 with two). So the guard solves the
+face twice more, refined uniformly (each triangle split in four), and
+Richardson-extrapolates the three values with the measured convergence
+order (capped at 2): 3.5124 on that face. The limit is
+`(1 − 0.05)·min(face, extrapolated)`, 3.337 there. The 5 % margin covers
+an axial mesh spacing up to about twice the in-face spacing at the
+port. It does not scale with the mesh, so keep the volume mesh near a
+wave port no coarser than that along the guide.
+
+For a filled guide the limit is scaled by `1/√(Re ε_n·μ_t)`, where
+`ε_n` is the permittivity along the port normal. That is the TM dual of
+the TE `β²`: `β_TM² = k₀²ε_tμ_t − (ε_t/ε_n)k_c²`. Using `Re ε_n` is
+exact for a lossless or isotropic lossy fill; for a lossy **uniaxial**
+`ε_n` it puts the cutoff `√(1 + tan²δ_n)` too high (0.2 % at
+`tan δ_n = 0.067`), which the margin absorbs. A dispersive fill is
+checked at every sweep frequency. A fill with `Re ε_n·μ_t ≤ 0` has no TM
+cutoff and is always rejected. `check` and `driven` echo
+`wave_ports[].tm_k_c` (the extrapolated estimate, per mesh unit),
+`tm_k_c_face` (the face value) and `tm_limit_hz` (the filled limit, with
+a dispersive fill at its reference `ε_r`).
+
+**The port rim must lie on a conductor wall** (issue #808). The port
+modes are solved with a PEC rim. A rim edge on no `pec` or `leontovich`
+wall, such as a PMC symmetry plane or an unnamed natural surface, would
+make them the modes of a different cross-section: a half guide with a
+PMC centre plane would get the full guide's TE₂₀ instead of TE₁₀.
+`check` and `driven` reject such a port with `invalid_spec`, naming the
+port, the number of open rim edges, the surface groups they lie on and
+the first edge's end points.
 TM and hybrid port modes are tracked in
 [#778](https://github.com/rjwalters/geode-fem/issues/778) /
 [#804](https://github.com/rjwalters/geode-fem/issues/804).

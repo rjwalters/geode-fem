@@ -333,17 +333,24 @@ pub struct WavePortSummary {
     /// The homogeneous medium filling the guide at the port face (issue
     /// #777; additive in v1).
     pub medium: WavePortMediumSummary,
-    /// Lowest **TM** cutoff wavenumber of the empty cross-section (rad per
-    /// mesh length unit; issue #808; additive in v1). Wave ports carry TE
-    /// modes only, so every sweep frequency must stay below the filled TM
-    /// cutoff [`Self::tm_cutoff_hz`] (`geode check` / `driven` reject it
-    /// otherwise). `null` when the face has no free `E_z` node (no TM
-    /// mode on the port mesh).
+    /// Estimated lowest **TM** cutoff wavenumber of the empty
+    /// cross-section (rad per mesh length unit; issue #808; additive in
+    /// v1): the port-face P1 value Richardson-extrapolated over two uniform
+    /// face refinements. Wave ports carry TE modes only, so every sweep
+    /// frequency must stay below [`Self::tm_limit_hz`] (`geode check` /
+    /// `driven` reject it otherwise). `null` when the face has no free
+    /// `E_z` node (no TM mode on the port mesh).
     pub tm_k_c: Option<f64>,
-    /// Filled lowest-TM cutoff in Hz, `k_c^TM/√(Re ε_n·μ_t)` in the port's
-    /// [`Self::medium`] (a dispersive fill at its reference `ε_r`; issue
-    /// #808; additive in v1). `null` with [`Self::tm_k_c`].
-    pub tm_cutoff_hz: Option<f64>,
+    /// The port-face P1 TM cutoff before extrapolation (issue #808;
+    /// additive in v1): a Rayleigh-Ritz upper bound, **not** a safe limit.
+    /// `null` with [`Self::tm_k_c`].
+    pub tm_k_c_face: Option<f64>,
+    /// The TE-only guard's sweep limit in Hz (issue #808; additive in v1):
+    /// `(1 − 0.05)·tm_k_c/√(Re ε_n·μ_t)` in the port's [`Self::medium`]
+    /// (a dispersive fill at its reference `ε_r`). The 5 % margin covers
+    /// the 3-D model's own TM cutoff, which sits below the continuum on a
+    /// coarse axial mesh. `null` with [`Self::tm_k_c`].
+    pub tm_limit_hz: Option<f64>,
     /// Echo of `wave_ports[].reference_ohm` (issue #775; additive in v1;
     /// omitted when unset): the real reference a `--touchstone` file
     /// renormalizes this port's written modes to. `results[].s` stays

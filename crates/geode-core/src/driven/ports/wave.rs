@@ -318,7 +318,12 @@ impl PortMedium {
     /// (the electromagnetic dual of the TE `β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c²`:
     /// `E ↔ H`, `ε ↔ μ`), so `β² = 0` at `k₀ = k_c/√(ε_n·μ_t)`. The real
     /// part `Re ε_n` is used, as [`Self::cutoff_k0`] does for TE (exact for
-    /// a lossless or isotropic lossy fill, where `Re β² = 0` there).
+    /// a lossless or isotropic lossy fill, where `Re β² = 0` there). For a
+    /// lossy **uniaxial** `ε_n` the `Re β² = 0` point is
+    /// `k_c·√(Re(1/ε_n)/μ_t)`, and since `Re(1/ε_n) = Re ε_n/|ε_n|²` this
+    /// value sits above it by `√(1 + tan²δ_n)` (0.2 % at
+    /// `tan δ_n = 0.067`); the TE-only port guard's
+    /// [`super::TM_GUARD_MARGIN`] absorbs that.
     ///
     /// Returns `None` when `Re ε_n · μ_t ≤ 0` (or NaN): then
     /// `β² = ε_t(k₀²μ_t − k_c²/ε_n) > 0` at every frequency, i.e. the TM
