@@ -482,8 +482,8 @@ impl ModalSmw {
 
 /// Power-wave weights at one ω: lumped `√R_k`, wave `√y_q / √ω`.
 pub(crate) struct PowerWeights {
-    sqrt_r: Vec<f64>,
-    wave_weight: Vec<c64>,
+    pub(crate) sqrt_r: Vec<f64>,
+    pub(crate) wave_weight: Vec<c64>,
 }
 
 impl PowerWeights {

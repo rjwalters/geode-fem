@@ -11,11 +11,12 @@
 //! The numbers recorded in each test's doc comment are the measured values
 //! (release, main 3ea66dc + this PR).
 
+use faer::c64;
 use geode_core::analytic::loaded_guide::{LoadedGuideMode, SlabLoadedGuide};
 use geode_core::analytic::port_modes::{
     HybridPortError, HybridPortMode, HybridPortModeSet, HybridPortOpts, NULL_BETA_SQ_TOL,
-    NULL_TRANSVERSE_TOL, assemble_hybrid_blocks, assemble_hybrid_pencil, solve_hybrid_port_modes,
-    sparse_matvec, transverse_pairing_vector,
+    NULL_TRANSVERSE_TOL, assemble_hybrid_blocks, assemble_hybrid_pencil, discrete_gradient,
+    solve_hybrid_port_modes, sparse_matvec, transverse_pairing_vector,
 };
 use geode_core::analytic::waveguide::{
     TriMesh, rect_pec_interior_edges, rect_pec_interior_nodes, rect_tri_mesh, solve_waveguide_modes,
@@ -737,4 +738,118 @@ fn shortfall_is_an_explicit_error() {
         Err(HybridPortError::Shortfall { krylov, .. }) => assert_eq!(krylov, 12),
         other => panic!("expected Shortfall at the Krylov cap, got {other:?}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Carried complex pairs (Phase 2, #804)
+// ---------------------------------------------------------------------------
+
+/// `Σ aᵢ bᵢ` over complex vectors with a real sparse matrix in between:
+/// `aᵀ M b`.
+fn cform(m: faer::sparse::SparseColMatRef<'_, usize, f64>, a: &[c64], b: &[c64]) -> c64 {
+    let re: Vec<f64> = b.iter().map(|v| v.re).collect();
+    let im: Vec<f64> = b.iter().map(|v| v.im).collect();
+    let (mr, mi) = (sparse_matvec(m, &re), sparse_matvec(m, &im));
+    a.iter()
+        .zip(mr.iter().zip(&mi))
+        .fold(c64::new(0.0, 0.0), |acc, (&x, (&r, &i))| {
+            acc + x * c64::new(r, i)
+        })
+}
+
+/// With `carry_complex_pairs` the same LSE₁₁/LSM₁₁ collision (ε = 2.25,
+/// k₀ = 2.5) is **returned** instead of raised: the pair fills both slots of
+/// a `K = 2` window (with `K = 3` the third slot reaches the next pair,
+/// LSE₂₁/LSM₂₁, which is then kept whole: two pairs),
+/// the members are normalized `zᵀBz = β²`, are B-orthogonal to each other
+/// (`z̄ᵀBz = 0`) and to every real mode, and their decaying roots are `β` and
+/// `−conj(β)`. These are exactly the properties that make the 2×2
+/// termination block of #804 reciprocal. The default (`false`) still raises
+/// [`HybridPortError::ComplexPair`]
+/// (`complex_pair_negative_result_lse_lsm_collision`).
+///
+/// Measured (b/16): `β² = −1.884 ± 0.128j` (conditioning 0.74, residual
+/// 1.7e-11), `max |x_mᵀBz| / √|N_m β²| = 4.7e-14`, `|z̄ᵀBz| / |β²| = 5.9e-13`.
+#[test]
+fn carried_complex_pair_is_biorthogonal_and_normalized() {
+    let (eps, k0) = (2.25, 2.5);
+    let f = fixture(16, eps, 1.0);
+    let opts = HybridPortOpts {
+        n_evanescent: 2,
+        carry_complex_pairs: true,
+        ..Default::default()
+    };
+    let set =
+        solve_hybrid_port_modes(&f.mesh, &f.eps_r, &f.edge_mask, &f.node_mask, k0, &opts).unwrap();
+    assert_eq!(set.n_propagating, 3);
+    assert_eq!(set.complex_pairs.len(), 1, "one pair in the window");
+    assert_eq!(set.modes.len(), 3, "the pair fills both evanescent slots");
+    let pair = &set.complex_pairs[0];
+    assert!(!pair.degenerate, "conditioning {}", pair.conditioning);
+    assert_eq!(pair.real_evanescent_before, 0);
+    let three = solve_hybrid_port_modes(
+        &f.mesh,
+        &f.eps_r,
+        &f.edge_mask,
+        &f.node_mask,
+        k0,
+        &HybridPortOpts {
+            n_evanescent: 3,
+            ..opts
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        three.complex_pairs.len(),
+        2,
+        "a straddling pair is kept whole"
+    );
+    let blocks = assemble_hybrid_blocks(&f.mesh, &f.eps_r).unwrap();
+    let d = discrete_gradient(&f.mesh);
+    let w = |z: &[c64], t: &[c64]| -> Vec<c64> {
+        let re: Vec<f64> = z.iter().map(|v| v.re).collect();
+        let im: Vec<f64> = z.iter().map(|v| v.im).collect();
+        let (dr, di) = (
+            sparse_matvec(d.as_ref(), &re),
+            sparse_matvec(d.as_ref(), &im),
+        );
+        t.iter()
+            .zip(dr.iter().zip(&di))
+            .map(|(&a, (&r, &i))| a + c64::new(r, i))
+            .collect()
+    };
+    let [z, zc] = pair.members();
+    let (wz, wzc) = (w(&z.e_z, &z.e_t), w(&zc.e_z, &zc.e_t));
+    let m1 = blocks.m1.as_ref();
+    let nz = cform(m1, &z.e_t, &wz);
+    println!(
+        "pair β² = {}, conditioning {:.3}, residual {:.1e}, zᵀBz = {nz}",
+        z.beta_sq, pair.conditioning, pair.residual
+    );
+    assert!(
+        (nz - z.beta_sq).norm() <= 1e-10 * z.beta_sq.norm(),
+        "zᵀBz = {nz}"
+    );
+    let nzc = cform(m1, &zc.e_t, &wzc);
+    assert!(
+        (nzc - zc.beta_sq).norm() <= 1e-10 * z.beta_sq.norm(),
+        "z̄ᵀBz̄ = {nzc}"
+    );
+    let cross = cform(m1, &zc.e_t, &wz);
+    println!("|z̄ᵀBz| / |β²| = {:.2e}", cross.norm() / z.beta_sq.norm());
+    assert!(cross.norm() <= 1e-9 * z.beta_sq.norm());
+    let mut worst = 0.0_f64;
+    for m in &set.modes {
+        let et: Vec<c64> = m.e_t.iter().map(|&v| c64::new(v, 0.0)).collect();
+        let o = cform(m1, &et, &wz).norm() / (m.norm.abs() * z.beta_sq.norm()).sqrt();
+        worst = worst.max(o);
+    }
+    println!("max |x_mᵀBz| / √|N_m β²| = {worst:.2e}");
+    assert!(
+        worst <= 1e-9,
+        "pair not biorthogonal to the real modes: {worst}"
+    );
+    assert!(z.beta.im < 0.0 && zc.beta.im < 0.0);
+    assert!((zc.beta + z.beta.conj()).norm() < 1e-14);
+    assert!((z.beta * z.beta - z.beta_sq).norm() < 1e-12 * z.beta_sq.norm());
 }

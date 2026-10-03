@@ -16,12 +16,24 @@
 //! - [`solve_mixed_port_sweep_with_mode`] / [`MixedPortSweepPoint`] —
 //!   lumped and wave ports in one operator with a power-wave S-matrix,
 //!   issue #759.
+//! - [`HybridWavePort`] / [`WavePortSpec`] and the spec sweeps
+//!   [`solve_wave_port_spec_sweep_with_mode`] /
+//!   [`solve_mixed_port_spec_sweep_with_mode`] — wave ports on
+//!   **inhomogeneous** cross-sections, whose hybrid modes are re-solved and
+//!   tracked per frequency (Epic #778 Phase 2, issue #804).
 
+mod hybrid;
 mod lumped;
 pub(crate) mod mixed;
 mod wave;
 mod wave_face;
 
+pub use hybrid::{
+    DEFAULT_MIN_TRACK_OVERLAP, HybridChannelReport, HybridModalFlux, HybridPortFace,
+    HybridPortPointReport, HybridPortReport, HybridWavePort, HybridWavePortOpts,
+    MixedPortSpecSweep, PortAccuracyOpts, PortWarning, PortWarningKind, WavePortSpec,
+    WavePortSpecSweep, solve_mixed_port_spec_sweep_with_mode, solve_wave_port_spec_sweep_with_mode,
+};
 pub use lumped::{
     LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
     port_voltage,
