@@ -1271,4 +1271,103 @@ mod tests {
         }
         assert!(st.cluster_warn.is_empty());
     }
+
+    /// `ClusterSplit` on the lossy path: the inhomogeneous lossy coupled
+    /// microstrip (`ε = 4.4(1 − 0.01j)` below, vacuum above) has distinct
+    /// even/odd β². Storing the 45° combinations of the pair with one shared
+    /// β² as the previous channels emulates a tracked cluster that splits at
+    /// the next frequency: the subspace is captured over two units, so the
+    /// tracker assigns inside it and records the split.
+    #[test]
+    fn lossy_cluster_split_fires_when_a_tracked_cluster_becomes_two_simple_modes() {
+        let face = ShieldedStripFace {
+            box_width: 8.0,
+            box_height: 4.0,
+            h: 2.0,
+            strips: vec![[-1.75, -0.25], [0.25, 1.75]],
+            thickness: 0.0,
+            eps_below: 4.4,
+            eps_above: 1.0,
+        }
+        .build(&StripMeshOpts {
+            h_min: 0.15,
+            h_max: 1.0,
+            ratio: 1.6,
+            mirror_symmetric: true,
+        });
+        let sec = strip_line_section(&face, 2, 1.0);
+        let mesh = &sec.extruded.mesh;
+        let edges = mesh.edges();
+        let eps_c: Vec<c64> = sec
+            .eps_tet
+            .iter()
+            .map(|&e| {
+                if e > 1.0 {
+                    c64::new(e, -0.01 * e)
+                } else {
+                    c64::new(e, 0.0)
+                }
+            })
+            .collect();
+        let f1 = HybridPortFace::from_volume_lossy(mesh, &sec.extruded.port1_faces, &eps_c)
+            .unwrap()
+            .with_interior_pec(&edges, &sec.pec_interior_mask)
+            .unwrap();
+        let port =
+            HybridWavePort::new(f1, vec![c64::new(1.0, 0.0); 2]).with_opts(HybridWavePortOpts {
+                accuracy: None,
+                ..Default::default()
+            });
+        let ctx = FaceCtx::new(mesh, &edges, &port, 0).unwrap();
+        let mut st = LossyState::new(ctx, &port, 2);
+        st.channels_at(&port, 0, 0.1, 0, true, None).unwrap();
+        assert_eq!(st.prev.len(), 2);
+        assert!(st.cluster_warn.is_empty(), "{:?}", st.cluster_warn);
+        assert!(
+            (st.prev[0].beta_sq - st.prev[1].beta_sq).norm() > DEGENERATE_REL_TOL * st.prev_scale
+        );
+        let (a0, b0) = (st.prev[0].clone(), st.prev[1].clone());
+        let c = std::f64::consts::FRAC_1_SQRT_2;
+        let mut rot = [
+            combine_lossy(&[&a0, &b0], &[c64::new(c, 0.0), c64::new(c, 0.0)]),
+            combine_lossy(&[&a0, &b0], &[c64::new(-c, 0.0), c64::new(c, 0.0)]),
+        ];
+        for m in &mut rot {
+            m.beta_sq = a0.beta_sq;
+        }
+        st.prev = rot.to_vec();
+        assert_eq!(
+            lossy_channel_groups(&st.prev, st.prev_scale),
+            vec![vec![0, 1]]
+        );
+        st.channels_at(&port, 0, 0.12, 1, false, None).unwrap();
+        println!("lossy cluster_warn: {:?}", st.cluster_warn);
+        assert_eq!(st.cluster_warn.len(), 1);
+        match &st.cluster_warn[0] {
+            PortWarningKind::ClusterSplit {
+                channels,
+                omega,
+                min_cosine,
+            } => {
+                assert_eq!(channels, &vec![0, 1]);
+                assert_eq!(*omega, 0.12);
+                assert!(
+                    *min_cosine >= crate::driven::ports::DEFAULT_MIN_TRACK_OVERLAP
+                        && *min_cosine < 1.0 - 1e-6,
+                    "min cosine {min_cosine}"
+                );
+            }
+            w => panic!("expected ClusterSplit, got {w:?}"),
+        }
+        let pt = st.points[1].as_ref().unwrap();
+        assert_eq!(pt.channels.len(), 2);
+        for ch in &pt.channels {
+            let ovl = ch.track_overlap.unwrap();
+            println!("lossy split-channel overlap {ovl:.4}");
+            assert!(
+                (crate::driven::ports::DEFAULT_MIN_TRACK_OVERLAP..1.0 - 1e-6).contains(&ovl),
+                "overlap {ovl}"
+            );
+        }
+    }
 }

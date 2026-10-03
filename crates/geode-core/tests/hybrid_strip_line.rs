@@ -179,6 +179,14 @@ fn straight_microstrip_section_goldens() {
         assert_eq!(p.face.free_node_mask, face.masks.free_node_mask);
         assert_eq!(p.face.interior_edge_mask, face.masks.interior_edge_mask);
     }
+    // Node count of each port's automatic shield → strip voltage path.
+    let path_nodes: Vec<usize> = ports
+        .iter()
+        .map(|s| match s {
+            WavePortSpec::Hybrid(p) => p.face.conductors[0].voltage_path.len(),
+            WavePortSpec::Geometric(_) => 0,
+        })
+        .collect();
     let out = sweep(&sec, &ports, &OMEGAS);
     let mut worst = [0.0_f64; 5];
     for (i, p) in out.points.iter().enumerate() {
@@ -248,7 +256,7 @@ fn straight_microstrip_section_goldens() {
                 l.z_pi,
                 lq.z_pi,
                 l.z_pv.unwrap(),
-                r.points.len(),
+                path_nodes[r.port],
                 lq.z_pv.unwrap(),
                 l.z_vi.unwrap(),
                 c.residual,

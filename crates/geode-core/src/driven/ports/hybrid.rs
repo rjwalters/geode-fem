@@ -980,6 +980,15 @@ pub struct HybridChannelReport {
 /// usual even / odd line impedances `Z_e`, `Z_o`. All three coincide
 /// quasi-statically and separate as dispersion grows; none of them is the
 /// #775 wave impedance `Z_TE = η₀k₀/β`.
+///
+/// `Z_PI` is contour-independent. `Z_PV` and `Z_VI` are not: a hybrid mode
+/// is not TEM, so the path voltage depends on the voltage path, and the
+/// dependence grows with frequency. The automatic path is the shortest
+/// free-edge path from the shield and ends at the nearest point of the
+/// conductor (for a microstrip, the strip **edge**, not its centre). On the
+/// P3b microstrip at `k₀h = 0.2` this gives `Z_PV` 73.15 Ω against 74.00 Ω
+/// along the P3a centre path, and `Z_PV / Z_PI` drifts from 1.013 to 1.109
+/// over `k₀h = 0.05 … 0.2`.
 #[derive(Debug, Clone)]
 pub struct HybridLineReport {
     /// Modal power `P = xᵀBx/(2k₀η₀β)` in the mode's P1 normalization.
@@ -3486,5 +3495,94 @@ mod tests {
             assert!((r - rw).abs() <= 1e-9 * rw.abs().max(1.0), "{r} vs {rw}");
         }
         assert!(st.cluster_warn.is_empty());
+    }
+
+    /// `ClusterSplit` on the real path. An *inhomogeneous* coupled
+    /// microstrip (ε = 4.4 below, vacuum above) has distinct even/odd β², so
+    /// no exact degeneracy exists. Emulate a tracked cluster that splits: at
+    /// the first frequency store the 45° combinations of the even/odd pair
+    /// as the previous channels and give them one β² so `channel_groups`
+    /// sees a single degenerate cluster. At the next frequency the solve
+    /// returns two simple modes; the cluster's subspace is still captured
+    /// (principal cosines above the threshold) but spread over two units, so
+    /// the tracker assigns inside it and records the split.
+    #[test]
+    fn cluster_split_fires_when_a_tracked_cluster_becomes_two_simple_modes() {
+        let face = ShieldedStripFace {
+            box_width: 8.0,
+            box_height: 4.0,
+            h: 2.0,
+            strips: vec![[-1.75, -0.25], [0.25, 1.75]],
+            thickness: 0.0,
+            eps_below: 4.4,
+            eps_above: 1.0,
+        }
+        .build(&StripMeshOpts {
+            h_min: 0.15,
+            h_max: 1.0,
+            ratio: 1.6,
+            mirror_symmetric: true,
+        });
+        let sec = strip_line_section(&face, 2, 1.0);
+        let [f1, _] = sec.port_faces().unwrap();
+        let port =
+            HybridWavePort::new(f1, vec![c64::new(1.0, 0.0); 2]).with_opts(HybridWavePortOpts {
+                accuracy: None,
+                ..Default::default()
+            });
+        let edges = sec.extruded.mesh.edges();
+        let ctx = FaceCtx::new(&sec.extruded.mesh, &edges, &port, 0).unwrap();
+        let mut st = HybridState::new(ctx, 2, 2);
+        st.channels_at(&port, 0, 0.1, 0, true).unwrap();
+        assert_eq!(st.prev.len(), 2);
+        // The first solve sees two simple modes (no cluster, no warning).
+        assert!(
+            (st.prev[0].beta_sq - st.prev[1].beta_sq).abs() > DEGENERATE_REL_TOL * st.prev_scale
+        );
+        assert!(st.cluster_warn.is_empty());
+        // Replace the stored channels by a fake degenerate cluster: the 45°
+        // combinations of the even/odd pair, sharing one β².
+        let (a, b) = (st.prev[0].clone(), st.prev[1].clone());
+        let c = std::f64::consts::FRAC_1_SQRT_2;
+        let mut rot = [
+            combine_modes(&[&a, &b], &[c, c]),
+            combine_modes(&[&a, &b], &[-c, c]),
+        ];
+        let shared = a.beta_sq;
+        for m in &mut rot {
+            m.beta_sq = shared;
+        }
+        st.prev = rot.to_vec();
+        assert_eq!(channel_groups(&st.prev, st.prev_scale), vec![vec![0, 1]]);
+        // The split is tracked (no error) and warned about.
+        st.channels_at(&port, 0, 0.12, 1, false).unwrap();
+        println!("cluster_warn: {:?}", st.cluster_warn);
+        assert_eq!(st.cluster_warn.len(), 1);
+        match &st.cluster_warn[0] {
+            PortWarningKind::ClusterSplit {
+                channels,
+                omega,
+                min_cosine,
+            } => {
+                assert_eq!(channels, &vec![0, 1]);
+                assert_eq!(*omega, 0.12);
+                assert!(
+                    *min_cosine >= DEFAULT_MIN_TRACK_OVERLAP && *min_cosine < 1.0 - 1e-6,
+                    "min cosine {min_cosine}"
+                );
+            }
+            w => panic!("expected ClusterSplit, got {w:?}"),
+        }
+        // Both channels are still assigned, with overlaps above the threshold.
+        let pt = st.points[1].as_ref().unwrap();
+        assert_eq!(pt.channels.len(), 2);
+        for ch in &pt.channels {
+            let ovl = ch.track_overlap.unwrap();
+            println!("split-channel overlap {ovl:.4}");
+            assert!(
+                (DEFAULT_MIN_TRACK_OVERLAP..1.0 - 1e-6).contains(&ovl),
+                "overlap {ovl}"
+            );
+        }
     }
 }
