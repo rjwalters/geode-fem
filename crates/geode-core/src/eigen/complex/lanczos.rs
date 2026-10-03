@@ -182,15 +182,16 @@ fn bilinear(u: &[c64], mv: &[c64]) -> c64 {
 /// branch. Picking `Re(sqrt) ≥ 0` keeps the basis vectors numerically
 /// well-scaled (β is "almost real positive" when M is close to a real
 /// SPD).
+///
+/// Delegates to the cancellation-free
+/// [`crate::eigen::wavenumber::principal_sqrt`] (issue #830). The old
+/// `Im β = √(½(|z| − Re z))` lost `Im β` to cancellation when `wᵀMw` is
+/// nearly real, i.e. on a weakly lossy (high-Q) pencil: the basis was then
+/// M-normalized only to `≈ √ε`, and on a uniformly filled `tan δ = 1e-10`
+/// cavity the Ritz values came back with residuals `≈ 1e-7` and `Q` off by
+/// 88 % (now `≈ 1e-13` and `≈ 1e-14`).
 fn principal_sqrt(z: c64) -> c64 {
-    if z.re == 0.0 && z.im == 0.0 {
-        return c64::new(0.0, 0.0);
-    }
-    let r = (z.re * z.re + z.im * z.im).sqrt();
-    let re = ((r + z.re) * 0.5).sqrt();
-    let im_mag = ((r - z.re) * 0.5).sqrt();
-    let im = if z.im >= 0.0 { im_mag } else { -im_mag };
-    c64::new(re, im)
+    crate::eigen::wavenumber::principal_sqrt(z)
 }
 
 /// Build `K - σ M` as a fresh complex sparse matrix. Mirrors

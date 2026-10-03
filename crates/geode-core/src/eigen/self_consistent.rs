@@ -517,17 +517,12 @@ pub fn self_consistent_k_vector_tracked(
     })
 }
 
-/// Principal square root of a complex number: the branch with
-/// `Re(sqrt(z)) ≥ 0`. For a real positive `z` this is the usual
-/// positive square root; for `z` with `Im(z) > 0` (radiating modes,
-/// `λ = k²` with positive Q under our convention) the result has
-/// `Im(sqrt(z)) > 0` as required for outgoing waves.
+/// Principal square root `Re √z ≥ 0` (for `Im z > 0`, a radiating mode
+/// under our convention, `Im √z > 0` as required for outgoing waves).
+/// Delegates to the shared cancellation-free
+/// [`crate::eigen::wavenumber::principal_sqrt`] (issue #830).
 fn principal_sqrt(z: c64) -> c64 {
-    let r = (z.re * z.re + z.im * z.im).sqrt();
-    let re_k = ((r + z.re) / 2.0).sqrt();
-    let im_k_mag = ((r - z.re) / 2.0).sqrt();
-    let im_k = if z.im >= 0.0 { im_k_mag } else { -im_k_mag };
-    c64::new(re_k, im_k)
+    crate::eigen::wavenumber::principal_sqrt(z)
 }
 
 /// Relative round-off band of [`q_factor`]: a wavenumber with
@@ -546,12 +541,17 @@ fn principal_sqrt(z: c64) -> c64 {
 /// below what the `f64` eigenvalue can resolve. The largest finite `Q` it
 /// allows is `1/(2·16ε) ≈ 1.4e14`.
 ///
-/// Precision caveat: `Q` is only as good as `Im k`. Computed as
-/// `√(½(|λ| − Re λ))` (the principal square root used here and in
-/// `geode_util::eigen::k_from_lambda`), `Im k` loses about `log₁₀ Q²`
-/// digits to cancellation and reaches exactly zero once `Q ≳ 1e8`,
-/// whatever the mesh unit. That is a separate, unit-independent limit
-/// (#828).
+/// Precision: `Q` is only as good as `Im k`. Every `λ → k` conversion
+/// (here, `lossy_cavity::principal_k0` and
+/// `geode_util::eigen::k_from_lambda`) uses the cancellation-free
+/// [`crate::eigen::wavenumber::principal_sqrt`], so `Im k` is accurate to
+/// a few ulps of itself for any `λ` and the whole finite range up to
+/// `≈ 1.4e14` is usable (issue #830; the old `√(½(|λ| − Re λ))` form lost
+/// `≈ log₁₀(2Q²)` digits and returned `Im k = 0` from `Q ≈ 6.7e7`). What
+/// remains is the accuracy of `Im λ` itself: a finite `Q` near the
+/// ceiling may be eigensolver round-off on an essentially lossless mode,
+/// which is honest (`Q` that large is lossless for every practical
+/// purpose) but is not `∞`.
 pub const Q_LOSSLESS_REL_TOL: f64 = 16.0 * f64::EPSILON;
 
 /// Quality factor of a complex wavenumber: `Q = Re(k) / (2 |Im(k)|)`,

@@ -185,10 +185,9 @@ fn mie_sphere_ground_mode_within_8_percent_of_analytic() {
         .expect("at least one mode above spurious threshold");
 
     let lam = lambdas[first_physical];
-    let r = (lam.re * lam.re + lam.im * lam.im).sqrt();
-    let re_k = ((r + lam.re) / 2.0).sqrt();
-    let im_k_mag = ((r - lam.re) / 2.0).sqrt();
-    let im_k = if lam.im >= 0.0 { im_k_mag } else { -im_k_mag };
+    // Cancellation-free principal √λ (Re k ≥ 0, sign Im k = sign Im λ; #830).
+    let k_sqrt = geode_core::eigen::wavenumber::principal_sqrt(lam);
+    let (re_k, im_k) = (k_sqrt.re, k_sqrt.im);
 
     let rel_err = (re_k - ground.k).abs() / ground.k;
     eprintln!(
@@ -320,11 +319,8 @@ fn mie_sphere_tm11_triplet_q_above_band() {
         .skip(first_physical)
         .take(5)
         .map(|lam| {
-            let r = (lam.re * lam.re + lam.im * lam.im).sqrt();
-            let re_k = ((r + lam.re) / 2.0).sqrt();
-            let im_k_mag = ((r - lam.re) / 2.0).sqrt();
-            let im_k = if lam.im >= 0.0 { im_k_mag } else { -im_k_mag };
-            faer::c64::new(re_k, im_k)
+            // Cancellation-free principal √λ (Re k ≥ 0, sign Im k = sign Im λ; #830).
+            geode_core::eigen::wavenumber::principal_sqrt(*lam)
         })
         .collect();
     ks.sort_by(|a, b| a.re.partial_cmp(&b.re).unwrap());
@@ -498,10 +494,9 @@ fn mie_sphere_ground_mode_matches_open_space_wgm() {
         .position(|l| l.re.hypot(l.im) > spurious_threshold)
         .expect("at least one mode above spurious threshold");
     let lam = lambdas[first_physical];
-    let r = (lam.re * lam.re + lam.im * lam.im).sqrt();
-    let fem_re_k = ((r + lam.re) / 2.0).sqrt();
-    let im_k_mag = ((r - lam.re) / 2.0).sqrt();
-    let fem_im_k = if lam.im >= 0.0 { im_k_mag } else { -im_k_mag };
+    // Cancellation-free principal √λ (Re k ≥ 0, sign Im k = sign Im λ; #830).
+    let k_sqrt = geode_core::eigen::wavenumber::principal_sqrt(lam);
+    let (fem_re_k, fem_im_k) = (k_sqrt.re, k_sqrt.im);
     let fem_q = if fem_im_k.abs() > 1e-12 {
         fem_re_k / (2.0 * fem_im_k.abs())
     } else {

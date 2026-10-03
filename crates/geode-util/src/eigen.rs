@@ -102,15 +102,15 @@ pub fn dense_lowest_eigenvalues(
 /// Principal complex square root `k = √λ` of a complex eigenvalue
 /// `λ = k²`, returned as `(Re k, Im k)`.
 ///
-/// `Re k = √(½(|λ| + Re λ))` (clamped at zero against roundoff); `Im k`
-/// takes the sign of `Im λ`. Replaces the `k_from_lambda` helper
+/// `Re k ≥ 0`; `Im k` takes the sign of `Im λ`. Delegates to the
+/// cancellation-free [`geode_core::eigen::wavenumber::principal_sqrt`], so
+/// both parts are accurate to a few ulps at any `Q` (the old
+/// `Im k = √(½(|λ| − Re λ))` lost `≈ log₁₀(2Q²)` digits and was exactly 0
+/// from `Q ≈ 6.7e7`; issue #830). Replaces the `k_from_lambda` helper
 /// duplicated in the open-quasimode example and the matched-UPML test.
 pub fn k_from_lambda(lambda: Complex64) -> (f64, f64) {
-    let r = (lambda.re * lambda.re + lambda.im * lambda.im).sqrt();
-    let re_k = (0.5 * (r + lambda.re)).max(0.0).sqrt();
-    let im_mag = (0.5 * (r - lambda.re)).max(0.0).sqrt();
-    let im_k = if lambda.im >= 0.0 { im_mag } else { -im_mag };
-    (re_k, im_k)
+    let k = geode_core::eigen::wavenumber::principal_sqrt(lambda);
+    (k.re, k.im)
 }
 
 /// Real part of the resonant wavenumber `k = √λ` for `λ = k²` — the
@@ -140,8 +140,8 @@ pub fn re_k_from_lambda(lambda: Complex64) -> f64 {
 /// mesh length unit (the old absolute `|Im k| > 1e-12` test reported every
 /// `Q ≳ 5e7` mode as lossless on a μm mesh at 5 GHz). See
 /// [`geode_core::eigen::self_consistent::Q_LOSSLESS_REL_TOL`] for the
-/// tolerance and the separate cancellation limit of `Im k` from
-/// [`k_from_lambda`] at `Q ≳ 1e8`.
+/// tolerance. `Im k` from [`k_from_lambda`] is cancellation-free (issue
+/// #830), so `Q` stays accurate up to that `≈ 1.4e14` ceiling.
 pub fn q_factor(k: Complex64) -> f64 {
     geode_core::eigen::self_consistent::q_factor(k)
 }

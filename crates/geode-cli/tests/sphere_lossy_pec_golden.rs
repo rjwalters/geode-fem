@@ -34,7 +34,9 @@
 //!
 //! Two loss levels run concurrently: `tan δ = 0.01` (the committed
 //! fixture, with `--outdir` complex field export) and `tan δ = 0.1` (the
-//! same spec edited in a scratch copy). Measured (debug, loaded host):
+//! same spec edited in a scratch copy). A separate test runs a third,
+//! high-Q level (`tan δ = 1e-10`, `Q = 1e10`), which before issue #830 was
+//! reported as `q: null` (lossless). Measured (debug, loaded host):
 //! ~40 s per solve.
 
 #[path = "support/scratch.rs"]
@@ -237,6 +239,98 @@ fn sphere_lossy_cavity_matches_exact_tan_delta_and_q() {
         assert!(
             (a - b).abs() <= REL_TOL * a,
             "mode {i}: μ₀ = {a} (tan δ 0.01) vs {b} (tan δ 0.1)"
+        );
+    }
+}
+
+/// Issue #830: **high-Q** lossy modes (`tan δ = 5e-9` and `1e-10`, i.e.
+/// `Q = 2e8` and `1e10`) are reported with a finite, accurate `q`, not
+/// `null` ("lossless").
+///
+/// Before #830 two copies of the cancelling square root
+/// `Im √z = √(½(|z| − Re z))` broke this:
+///
+/// - `lossy_cavity::principal_k0` (`λ → k₀`) returned `Im k₀ = 0`
+///   exactly once `(1/Q)² < ε` (`Q ≳ 6.7e7`), so both levels came out as
+///   `k0_im = 0`, `q: null`;
+/// - the complex Lanczos's M-bilinear norm `β = √(wᵀMw)` lost `Im β` on
+///   these nearly real pencils, so the basis was M-normalized only to
+///   `≈ √ε` and the Ritz values themselves degraded (measured with only
+///   the first fix: residuals `≈ 1e-8` / `1e-7` and `Q` off by up to
+///   2.8 % at `tan δ = 5e-9` and 88 % at `1e-10`).
+///
+/// Two independent checks per mode:
+///
+/// 1. **√ precision**, independent of the eigensolver: from the reported
+///    `λ` alone, `Q(λ) = ½·cot(½·atan(Im λ / Re λ))` (no cancellation
+///    anywhere) must match the reported `q`, and `Im λ / (2 Re k₀)` the
+///    reported `k0_im`, to `SQRT_REL_TOL`.
+/// 2. **Physics**: `q` must match the spec's exact `½·cot(δ/2)` (the
+///    uniform-fill relation `Im λ / Re λ = tan δ` is exact, as in the
+///    moderate-loss test above) to `PHYS_REL_TOL`. Measured (macOS,
+///    debug): `≤ 8.2e-14` relative over the 10 modes, residuals
+///    `≤ 1.2e-13`.
+#[test]
+fn sphere_high_q_lossy_cavity_reports_finite_q() {
+    /// Few-ulp agreement of `q` / `k0_im` with the same `λ`.
+    const SQRT_REL_TOL: f64 = 1e-13;
+    /// Solver-level agreement with the exact `½·cot(δ/2)`; measured
+    /// `≤ 8.2e-14`, so this keeps a `1e3` margin.
+    const PHYS_REL_TOL: f64 = 1e-10;
+    let low = spec_with_tan_delta(5e-9);
+    let high = spec_with_tan_delta(1e-10);
+    let (low_report, high_report) = std::thread::scope(|s| {
+        let h = s.spawn(|| run_eigen(&high, None));
+        (
+            run_eigen(&low, None),
+            h.join().expect("tan δ = 1e-10 solve"),
+        )
+    });
+    for (tan_d, report) in [(5e-9, &low_report), (1e-10, &high_report)] {
+        assert_high_q(report, tan_d, SQRT_REL_TOL, PHYS_REL_TOL);
+    }
+}
+
+fn assert_high_q(report: &serde_json::Value, tan_d: f64, sqrt_tol: f64, phys_tol: f64) {
+    assert_eq!(report["status"], "ok");
+    assert_eq!(report["solver"]["pencil"], "complex_symmetric");
+    let q_exact = 0.5 / (0.5 * tan_d.atan()).tan();
+    assert!(q_exact > 1e8, "the point: a Q the old √ reported as ∞");
+    let modes = report["modes"].as_array().unwrap();
+    assert_eq!(modes.len(), 5);
+    for (i, m) in modes.iter().enumerate() {
+        let f = |k: &str| {
+            m[k].as_f64()
+                .unwrap_or_else(|| panic!("mode {i}: `{k}` missing or null"))
+        };
+        let (lr, li, kr, ki) = (f("lambda"), f("lambda_im"), f("k0"), f("k0_im"));
+        let q = m["q"].as_f64().unwrap_or_else(|| {
+            panic!(
+                "mode {i}: q = {} (null = lossless) at Q ≈ {q_exact:.3e}",
+                m["q"]
+            )
+        });
+        let q_lambda = 0.5 / (0.5 * (li / lr).atan()).tan();
+        let ki_lambda = li / (2.0 * kr);
+        eprintln!(
+            "tan δ = {tan_d:e}: mode {i}: λ = {lr:.12} {li:+.6e}j, k0 = {kr:.12} {ki:+.6e}j, \
+             q = {q:.12e}, Q(λ) = {q_lambda:.12e}, exact ½cot(δ/2) = {q_exact:.12e} \
+             (rel {:.2e}), residual {:.2e}",
+            (q - q_exact).abs() / q_exact,
+            f("residual_rel")
+        );
+        assert!(ki > 0.0 && kr > 0.0, "mode {i}: passive loss must decay");
+        assert!(
+            (q - q_lambda).abs() <= sqrt_tol * q_lambda,
+            "mode {i}: q = {q:e} vs cancellation-free Q(λ) = {q_lambda:e}"
+        );
+        assert!(
+            (ki - ki_lambda).abs() <= sqrt_tol * ki_lambda,
+            "mode {i}: k0_im = {ki:e}, want Im λ / (2 Re k₀) = {ki_lambda:e}"
+        );
+        assert!(
+            (q - q_exact).abs() <= phys_tol * q_exact,
+            "mode {i}: q = {q:e} vs exact ½cot(δ/2) = {q_exact:e}"
         );
     }
 }

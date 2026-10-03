@@ -431,12 +431,8 @@ fn fem_complex_k<B: Backend>(
         .skip(first_physical)
         .take(n_modes)
         .map(|lam| {
-            // Principal branch of sqrt: Re(k) ≥ 0.
-            let r = (lam.re * lam.re + lam.im * lam.im).sqrt();
-            let re_k = ((r + lam.re) / 2.0).sqrt();
-            let im_k_mag = ((r - lam.re) / 2.0).sqrt();
-            let im_k = if lam.im >= 0.0 { im_k_mag } else { -im_k_mag };
-            faer::c64::new(re_k, im_k)
+            // Cancellation-free principal √λ (Re k ≥ 0, sign Im k = sign Im λ; #830).
+            geode_core::eigen::wavenumber::principal_sqrt(*lam)
         })
         .collect()
 }
