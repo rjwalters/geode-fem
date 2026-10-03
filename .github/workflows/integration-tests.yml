@@ -229,12 +229,13 @@ jobs:
 
   core-ignored:
     # Issue #793: the #[ignore]d tests of targets whose default tier runs in
-    # core-tests. Most are #[ignore]d only because they are slow in debug
-    # or because faer 0.24's dense eigen paths panic under
-    # debug-assertions; in release each finishes in seconds to about 1.5
-    # min. A separate job, so its build and run time do not push
-    # core-tests toward its 45-min bound. What stays out, and why, is in
-    # scripts/ci-test-coverage-ignored-allowlist.txt.
+    # core-tests. Most are #[ignore]d as heavy benchmarks that are slow in
+    # debug; in release each finishes in seconds to about 1.5 min. (Tests
+    # ignored only under debug-assertions, via
+    # `cfg_attr(debug_assertions, ignore)`, already run in core-tests'
+    # release default tier.) A separate job, so its build and run time do
+    # not push core-tests toward its 45-min bound. What stays out, and why,
+    # is in scripts/ci-test-coverage-ignored-allowlist.txt.
     name: cargo test -p geode-core --release (--ignored tiers, linux)
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -258,11 +259,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-core-tests-
 
-      # Measured release times on ubuntu-latest, one test at a time, before
-      # #810 (which made the dense real eigensolver several times faster):
-      # nedelec_cavity 3 x 47 s, fiber_dispersion_benchmark 90 s (it also
-      # rewrites benchmarks/fiber_dispersion/results.toml in the checkout),
-      # eigensolver 4 x 9 s, mixed_pencil_fiber_benchmark 20 s,
+      # Measured release times on ubuntu-latest, one test at a time:
+      # fiber_dispersion_benchmark 90 s (it also rewrites
+      # benchmarks/fiber_dispersion/results.toml in the checkout),
+      # mixed_pencil_fiber_benchmark 20 s,
       # mixed_precision_refinement 18 s, motor_torque_benchmark 14 s,
       # mie_driven_scattering 12 s, transmon_diffopt 10 s (two tests),
       # sphere_matched_upml_eigenmode 8 s (two tests), the rest 0-5 s.
@@ -270,7 +270,6 @@ jobs:
         run: |
           cargo test -p geode-core --release --features spade-mesh \
               --test analytic_cladding_bc_fiber_benchmark \
-              --test eigensolver \
               --test fiber_dispersion_benchmark \
               --test high_contrast_fiber_benchmark \
               --test lp01_profile_selector_benchmark \
@@ -279,7 +278,6 @@ jobs:
               --test mixed_pencil_fiber_benchmark \
               --test mixed_precision_refinement \
               --test motor_torque_benchmark \
-              --test nedelec_cavity \
               --test sphere_matched_upml_eigenmode \
               --test step_index_fiber_benchmark \
               --test transient_sparams \
@@ -358,28 +356,19 @@ jobs:
               --test sphere_pml_schema_smoke \
               --test sphere_pml_tfjava_reference
 
-      # Issue #793: the release-only eigensolve comparisons. Each is
-      # #[ignore]d because faer 0.24's dense / complex eigen paths panic
-      # under debug-assertions; they compare against the same committed
-      # fixtures, so no toolchain is needed. Measured release times on
-      # ubuntu-latest, one test at a time, before #810 (faster dense real
-      # eigensolver): the five sphere_pec_* about 58 s
-      # each, sphere_pml_numpy 13 s (two tests), sphere_mie_numpy 12 s,
-      # cube_cavity_{julia,onnx} 8 s, the rest under 1 s (about 6 min in
-      # all). cube_cavity_numpy_reference's ignored tier runs in
-      # cube-cavity-tolerance.yml.
+      # Issue #793: the release-only complex eigensolve comparisons (each
+      # #[ignore]d because the complex dense eigen path is too slow or
+      # panics under debug-assertions). They compare against the same
+      # committed fixtures, so no toolchain is needed. Measured release times
+      # on ubuntu-latest, one test at a time: sphere_pml_numpy 13 s (two
+      # tests), sphere_mie_numpy 12 s, sphere_pml_{jax,tfjava} under 1 s.
+      # (The sphere_pec_* and cube_cavity_* comparisons are no longer
+      # ignored in release since #813, so the default-tier step above runs
+      # them.)
       - name: geode-validation release-only eigensolve comparisons (--ignored tier)
         run: |
           cargo test -p geode-validation --release \
-              --test cube_cavity_jax_reference \
-              --test cube_cavity_julia_reference \
-              --test cube_cavity_onnx_reference \
               --test sphere_mie_numpy_reference \
-              --test sphere_pec_jax_reference \
-              --test sphere_pec_julia_reference \
-              --test sphere_pec_numpy_reference \
-              --test sphere_pec_onnx_reference \
-              --test sphere_pec_tfjava_reference \
               --test sphere_pml_jax_reference \
               --test sphere_pml_numpy_reference \
               --test sphere_pml_tfjava_reference -- --ignored

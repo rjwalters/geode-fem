@@ -133,7 +133,10 @@ test of the target) per line, with the reason required. The guard exits 1
 when a covered target has an ignored test that runs nowhere and is not
 allowlisted, when an entry is malformed or has no reason, and when an entry
 is stale (the test now runs, or no longer exists, or its target does not run
-at all, which is the coverage allowlist's business).
+at all, which is the coverage allowlist's business). It also prints a
+`note:` (not an error) for a command that names a target with `--test` and
+asks for its ignored tier but runs none of that target's ignored tests, for
+example after they moved to the default tier.
 
 The scan reads the target's root file and, recursively, the files its
 `mod x;` declarations load (`x.rs`, `x/mod.rs`, `#[path = "..."]`), with
@@ -1517,6 +1520,10 @@ class Report:
     ignored_new_gaps: list[tuple[tuple[str, str], IgnoredTest]] = field(default_factory=list)
     # (allowlist entry, why it is stale).
     ignored_stale: list[tuple[str, str]] = field(default_factory=list)
+    # Notes (not errors): a command that names a target with `--test` and
+    # asks for its ignored tier, but runs none of that target's #[ignore]d
+    # tests (for example after the tests moved to the default tier).
+    ignored_dead: list[str] = field(default_factory=list)
 
 
 def _debug_assertions(sel: Selection, profile_da: dict[str, bool | None],
@@ -1588,6 +1595,7 @@ def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | Non
     ign_runs: dict[tuple[str, str], list[tuple[IgnoredTest, list[str]]]] = {
         k: [(t, []) for t in ignores.get(k, TargetIgnores()).tests] for k in targets}
     warnings: list[str] = []
+    dead: list[str] = []
     ncmd = 0
     for wf, text in sorted(workflows.items()):
         workflow = parse_workflow(text)
@@ -1623,9 +1631,15 @@ def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | Non
                         gate_miss[(crate, target)].append(f"{wf} (missing feature {gate})")
                         continue
                     coverage[(crate, target)].append(f"{wf}: {sel.tier}")
+                    ran = False
                     for t, where in ign_runs[(crate, target)]:
                         if _runs_ignored_test(sel, da, t, feats):
                             where.append(wf)
+                            ran = True
+                    if sel.runs_ignored and not ran and target in sel.named:
+                        dead.append(f"{wf}: `--test {target}` with "
+                                    f"{'--include-ignored' if sel.runs_default else '--ignored'}"
+                                    " runs none of its #[ignore]d tests")
     uncovered = {k for k in targets if not coverage[k]}
     new_gaps = sorted(uncovered - allow)
     stale = sorted(k for k in allow if k not in targets or coverage.get(k))
@@ -1661,7 +1675,7 @@ def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | Non
             continue
         ign_stale.append((entry, why))
     return Report(coverage, gate_miss, warnings, new_gaps, stale, ncmd,
-                  ign_runs, ign_gaps, ign_stale)
+                  ign_runs, ign_gaps, ign_stale, dead)
 
 
 IGNORED_ALLOWLIST = ROOT / "scripts" / "ci-test-coverage-ignored-allowlist.txt"
@@ -1753,7 +1767,9 @@ def main() -> int:
         for u in c.unresolved:
             print(f"warning: {key[0]}/{key[1]}: {u} not found; its #[ignore]d tests "
                   "count only under --include-ignored")
-    if r.warnings:
+    for d in r.ignored_dead:
+        print(f"note: {d}")
+    if r.warnings or r.ignored_dead:
         print()
     if show_table:
         print(f"{'target':60s} coverage")
@@ -2531,6 +2547,20 @@ def self_test() -> int:
             self.assertEqual(len(r.ignored_new_gaps), 1)
             r = ign_eval("cargo test -p a -- --ignored", unnamed)
             self.assertEqual(r.ignored_new_gaps, [])
+
+        def test_dead_ignored_wiring_is_noted(self):
+            r = ign_eval("cargo test -p a --test t1 --test t2 -- --ignored", SLOW)
+            self.assertEqual(r.ignored_dead,
+                             ["w.yml: `--test t2` with --ignored runs none of its "
+                              "#[ignore]d tests"])
+            # Only debug-only tests left: `--release -- --ignored` runs none.
+            d = [IgnoredTest("d", "debug_only")]
+            r = ign_eval("cargo test -p a --release --test t1 -- --ignored", d,
+                         targets={IT: None})
+            self.assertEqual(len(r.ignored_dead), 1)
+            # Crate-wide commands do not name targets, so they are not noted.
+            r = ign_eval("cargo test -p a -- --ignored", SLOW)
+            self.assertEqual(r.ignored_dead, [])
 
         def test_skip_without_value_is_unmodelled(self):
             r = ign_eval("cargo test -p a -- --ignored --skip", SLOW)
