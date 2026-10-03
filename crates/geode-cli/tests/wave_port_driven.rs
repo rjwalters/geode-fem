@@ -2115,7 +2115,7 @@ fn a_coarse_axial_mesh_at_the_top_sweep_frequency_warns_with_the_refinement() {
 /// `a_fine_layer_at_the_port_does_not_hide_the_coarse_guide_behind_it`).
 /// Reading `h_n` off the face-adjacent tets (0.15) gave a guard of 3.337,
 /// above it, so `k0 = 3.32` was admitted with a propagating TM mode. `h_n`
-/// is now read over the guide within one wavelength (0.6), the limit is
+/// is now read over the guide near the port (0.6), the limit is
 /// below 3.3019, and the rejection says to refine the whole guide.
 #[test]
 fn a_fine_layer_at_the_port_does_not_hide_a_coarse_guide_from_the_tm_guard() {
@@ -2150,6 +2150,129 @@ fn a_fine_layer_at_the_port_does_not_hide_a_coarse_guide_from_the_tm_guard() {
         );
         assert!(h < 0.6, "{msg}");
         assert!(msg.contains("not only at the face"), "{msg}");
+    }
+}
+
+/// A `2 × 1` guide (16 × 8 face) of tet layers `(count, thickness)` from
+/// `port_in` to `port_out` (the Judge's probe of PR #827, issue #845).
+fn layered_guide(layers: &[(usize, f64)]) -> ExtrudedWaveguideMesh {
+    let mut zs = vec![0.0];
+    for &(n, h) in layers {
+        for _ in 0..n {
+            zs.push(zs.last().unwrap() + h);
+        }
+    }
+    let nz = zs.len() - 1;
+    let mut g = extruded_rect_waveguide_mesh(16, 8, nz, A, B_DIM, nz as f64);
+    for p in &mut g.mesh.nodes {
+        p[2] = zs[p[2].round() as usize];
+    }
+    g
+}
+
+/// Issue #845 (Judge, PR #827 re-review): a coarse section just beyond
+/// one wavelength (fine layers of 0.15 out to 1.65 / 2.25 / 3.0 mesh
+/// units, 0.92 / 1.26 / 1.68 λ_c, then layers of 0.6). The one-wavelength,
+/// centroid-tested window read `h_n = 0.15` at `port_in` and put the
+/// limit at 3.3368, above the lowest TM-like 3-D mode (3.2735 / 3.2717 /
+/// 3.2691; `geode-core` `tests/wave_port.rs`,
+/// `a_coarse_section_beyond_one_wavelength_does_not_slip_under_the_tm_guard`).
+/// Over three TM-cutoff wavelengths, by nearest vertex, it reads 0.6: the
+/// limit is below the 3-D mode and `k0 = 3.30` is rejected with the
+/// refinement.
+#[test]
+fn a_coarse_section_beyond_one_wavelength_is_seen_by_the_tm_guard() {
+    for (nf, k_tm) in [(11, 3.2735), (15, 3.2717), (20, 3.2691)] {
+        let g = layered_guide(&[(nf, 0.15), (5, 0.6)]);
+        let probe = json(&geode(&[
+            "check",
+            guide_spec(&format!("beyond-probe-{nf}"), &g, &[2.0])
+                .to_str()
+                .unwrap(),
+        ]));
+        let p = &probe["wave_ports"][0];
+        assert!(
+            (f64_at(&p["tm_axial_spacing"]) - 0.6).abs() < 1e-12,
+            "{nf}: {p:#}"
+        );
+        assert!(p.get("tm_warning").is_none(), "{p:#}");
+        assert!(f64_at(&p["tm_limit_hz"]) < k0_hz(k_tm), "{p:#}");
+        // Where the old window put the limit.
+        assert!((1.0 - TM_MARGIN) * f64_at(&p["tm_k_c"]) > 3.30);
+        let file = guide_spec(&format!("beyond-gap-{nf}"), &g, &[2.0, 3.30]);
+        let msg = error_message(
+            &geode(&["check", file.to_str().unwrap()]),
+            "check",
+            "invalid_spec",
+        );
+        assert!(msg.contains("span up to h_n = 0.6"), "{msg}");
+        assert!(msg.contains("(the guard's window)"), "{msg}");
+        assert!(
+            msg.contains(&format!(
+                "the tets coarser than that start {:.6} mesh units from the port",
+                nf as f64 * 0.15
+            )),
+            "{msg}"
+        );
+        let h = number_after(
+            &msg,
+            "refine the mesh along the guide feeding port `port_in` to h ≤ ",
+        );
+        assert!(h < 0.6, "{msg}");
+    }
+}
+
+/// Issue #845: a coarse section beyond the guard's window (fine layers of
+/// 0.15 out to 6.0 mesh units from either port, past 3 λ_c = 5.37, with
+/// five layers of 0.6 between) is
+/// not read into `h_n`, so the sweep is not rejected for it; but its TM
+/// mode lies below a top sweep frequency close to the guard, and the
+/// leak through the evanescent fine section, `exp(−√(g² − k²)·d)`, is
+/// then large: `k0 = 3.33` warns (≈ 28 %) with where and how far to
+/// refine, `k0 = 3.24` (leak < 1 %) and `k0 = 2.5` (the coarse section's
+/// own guard is above it) do not.
+#[test]
+fn a_coarse_section_beyond_the_tm_window_warns_when_its_leak_is_large() {
+    let g = layered_guide(&[(40, 0.15), (5, 0.6), (40, 0.15)]);
+    let far = "coarser mesh further along the guide";
+    for (k0, warns) in [(3.33, true), (3.24, false), (2.5, false)] {
+        let out = geode(&[
+            "check",
+            guide_spec(&format!("far-{k0}"), &g, &[2.0, k0])
+                .to_str()
+                .unwrap(),
+        ]);
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        let v = json(&out);
+        for (i, p) in v["wave_ports"].as_array().unwrap().iter().enumerate() {
+            let port = ["port_in", "port_out"][i];
+            assert!(
+                (f64_at(&p["tm_axial_spacing"]) - 0.15).abs() < 1e-12,
+                "{p:#}"
+            );
+            let w = p["tm_warning"].as_str().unwrap_or("");
+            assert_eq!(w.contains(far), warns, "k0 = {k0}: {w}");
+            assert_eq!(stderr.contains(far), warns, "k0 = {k0}: {stderr}");
+            if !warns {
+                continue;
+            }
+            assert!(stderr.contains(&format!("warning: {w}")), "{stderr}");
+            assert!(
+                w.starts_with(&format!("wave port `{port}`: coarser mesh")),
+                "{w}"
+            );
+            assert!(w.contains("from 6.000000 mesh units from the port"), "{w}");
+            assert!(w.contains("span up to h = 0.600000"), "{w}");
+            let leak = number_after(w, "at up to ~");
+            assert!((leak - 27.9).abs() < 1.0, "{w}");
+            let h = number_after(w, "refine it to h ≤ ");
+            let k_c = f64_at(&p["tm_k_c"]);
+            let want_h = ((1.0 - k0 / k_c) / 0.025).sqrt() / k_c;
+            assert!((h - want_h).abs() < 1e-5, "{w}");
+            // Below the frequency the warning names, the leak is under 1 %.
+            let below = hz_after(w, "keep the sweep below ");
+            assert!(below > k0_hz(3.24) && below < k0_hz(k0), "{w}");
+        }
     }
 }
 

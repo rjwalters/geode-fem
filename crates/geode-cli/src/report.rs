@@ -368,9 +368,10 @@ pub struct WavePortSummary {
     /// Axial mesh spacing `h_n` of the guide feeding the port (mesh units;
     /// issue #824; additive in v1): the largest extent along the port
     /// normal of a volume tet with a face on the port, or with its
-    /// centroid over the port face and within one wavelength
-    /// (`2π/min(k_c, k)`, `k` the top in-fill sweep wavenumber) of the
-    /// port plane. It sizes [`Self::tm_margin`].
+    /// centroid over the port face and its nearest vertex within three
+    /// TM-cutoff wavelengths (`max(3·2π/k_c, 2π/k)`, `k` the top in-fill
+    /// sweep wavenumber; issue #845) of the port plane. It sizes
+    /// [`Self::tm_margin`].
     pub tm_axial_spacing: Option<f64>,
     /// The TE-only guard's relative margin `δ` (issue #824; additive in
     /// v1): `max(0.05, 0.025·(tm_k_c·tm_axial_spacing)²)`, so 5 % up to
@@ -378,12 +379,14 @@ pub struct WavePortSummary {
     /// wavelength) and wider on a coarser axial mesh. `null` with
     /// [`Self::tm_k_c`].
     pub tm_margin: Option<f64>,
-    /// Coarse-axial-mesh warning (issue #824; additive in v1; omitted when
-    /// there is none): the top sweep frequency spans more than
-    /// `k·h_n ≈ 1.41` per axial cell in the guide near the port, so the
-    /// guard widened its margin; the text says how far to refine the guide
-    /// (within one wavelength of the port, not only at the face). Also
-    /// printed on stderr as `warning: …`.
+    /// Coarse-axial-mesh warnings (issues #824, #845; additive in v1;
+    /// omitted when there is none), one per line: the top sweep frequency
+    /// spans more than `k·h_n ≈ 1.41` per axial cell in the guide near the
+    /// port, so the guard widened its margin; or a coarser section of the
+    /// guide beyond the guard's window can carry a TM mode below the top
+    /// sweep frequency whose evanescent leak reaches the port at more than
+    /// 1 %. The text says how far to refine the guide, and where (not only
+    /// at the face). Each line is also printed on stderr as `warning: …`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tm_warning: Option<String>,
     /// Echo of `wave_ports[].reference_ohm` (issue #775; additive in v1;

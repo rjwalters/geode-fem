@@ -389,26 +389,72 @@ impl PortFaceProjection {
     /// #824): the largest extent along [`Self::normal`] of a volume tet of
     /// `mesh` **in the guide within `reach`** of the port plane, on both
     /// sides of an internal port plane. This sizes the TE-only TM guard's
-    /// margin ([`TmCutoffEstimate::with_axial_spacing`]).
+    /// margin ([`TmCutoffEstimate::with_axial_spacing`]). The same as
+    /// [`Self::guide_axial_mesh`]`(mesh, reach).spacing`.
     ///
-    /// A tet is in the window when its centroid lies within `reach` of the
-    /// port plane along the normal **and** projects onto the port face
-    /// (inside one of its triangles, in-plane). The tets with a face on
-    /// the port are always included, so a coarse tet layer touching the
-    /// face is never missed. The window is the point of the measure: the
-    /// 3-D model's TM cutoff is set by the **coarsest** cells of the guide,
+    /// A tet is in the window when its **nearest point** to the port plane
+    /// (its nearest vertex, or `0` for a tet the plane cuts) lies within
+    /// `reach` of it along the normal **and** its centroid projects onto
+    /// the port face (inside one of its triangles, in-plane). So a coarse
+    /// tet that starts inside the window counts even when most of it lies
+    /// beyond (issue #845; a centroid test dropped a coarse layer starting
+    /// at `0.92·λ_c` from a `λ_c` window). The tets with a face on the
+    /// port are always included, so a coarse tet layer touching the face
+    /// is never missed. The window is the point of the measure: the 3-D
+    /// model's TM cutoff is set by the **coarsest** cells of the guide,
     /// not by those at the face. With a fine layer of 0.15 at the port of
     /// a `2 × 1` guide over a layer of 0.6, the face-adjacent tets span
     /// only 0.15, and a guard sized from them (3.337) sat **above** the
     /// 3-D TM cutoff (3.302). Read over the guide, `h_n` is 0.6, and the
-    /// guard (3.20) is below it.
+    /// guard (3.12) is below it.
     ///
-    /// Use [`tm_guard_axial_reach`] for `reach`: about one TM-cutoff or
-    /// operating wavelength. `f64::INFINITY` takes every tet over the
-    /// face. A coarser section further from the port than `reach` is not
-    /// seen. `0` if no tet is in the window.
+    /// Use [`tm_guard_axial_reach`] for `reach`: three TM-cutoff
+    /// wavelengths (or one operating wavelength, if longer).
+    /// `f64::INFINITY` takes every tet over the face. A coarser section
+    /// further from the port than `reach` is not seen here; see
+    /// [`Self::guide_axial_mesh`] for it. `0` if no tet is in the window.
     pub fn guide_axial_spacing(&self, mesh: &TetMesh, reach: f64) -> f64 {
+        self.guide_axial_mesh(mesh, reach).spacing
+    }
+
+    /// The axial mesh of the guide feeding the port (issues #824, #845):
+    /// [`GuideAxialMesh::spacing`] = `h_n` within `reach` of the port
+    /// plane (as [`Self::guide_axial_spacing`]), and, over the whole guide
+    /// footprint (every tet whose centroid projects onto the face, at any
+    /// distance), the coarsest axial extent and how near the port the
+    /// first tet coarser than `h_n` starts. One `O(tets)` pass.
+    ///
+    /// The far reading is what a hard window cannot see: a coarser section
+    /// beyond `reach` can carry a TM mode below the guard, which reaches
+    /// the port through the evanescent guide in between, attenuated by
+    /// about `exp(−α·d)` ([`tm_evanescent_leak`]).
+    pub fn guide_axial_mesh(&self, mesh: &TetMesh, reach: f64) -> GuideAxialMesh {
         let reach = reach.max(0.0);
+        let over = self.guide_tets(mesh);
+        let spacing = over
+            .iter()
+            .filter(|&&(_, d)| d <= reach)
+            .fold(0.0_f64, |h, &(e, _)| h.max(e));
+        let far_spacing = over.iter().fold(0.0_f64, |h, &(e, _)| h.max(e));
+        GuideAxialMesh {
+            spacing,
+            reach,
+            far_spacing,
+            coarser_distance: nearest_coarser(&over, spacing),
+        }
+    }
+
+    /// How near the port plane the guide's first tet coarser than `h`
+    /// (axial extent `> h`) starts: the smallest nearest-point distance
+    /// over the tets of [`Self::guide_axial_mesh`]'s footprint; `None` if
+    /// there is none. Where a refinement to `h` has to start (issue #845).
+    pub fn guide_coarser_than_distance(&self, mesh: &TetMesh, h: f64) -> Option<f64> {
+        nearest_coarser(&self.guide_tets(mesh), h)
+    }
+
+    /// `(axial extent, nearest distance to the port plane)` of every tet
+    /// of `mesh` with a face on the port or its centroid over the face.
+    fn guide_tets(&self, mesh: &TetMesh) -> Vec<(f64, f64)> {
         let sorted = |mut t: [u32; 3]| {
             t.sort_unstable();
             t
@@ -417,18 +463,23 @@ impl PortFaceProjection {
             self.faces.iter().map(|&f| sorted(f)).collect();
         let rel = |n: u32| sub(mesh.nodes[n as usize], self.origin);
         let footprint = FaceFootprint::new(&self.tri_mesh);
-        let mut h = 0.0_f64;
+        // (axial extent, nearest distance to the port plane) of every tet
+        // over the face.
+        let mut over = Vec::new();
         for tet in &mesh.tets {
             let s = tet.map(|n| dot(rel(n), self.normal));
+            let lo = s.iter().copied().fold(f64::INFINITY, f64::min);
+            let hi = s.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let near = if lo <= 0.0 && hi >= 0.0 {
+                0.0
+            } else {
+                lo.abs().min(hi.abs())
+            };
             let [a, b, c, d] = *tet;
             let on_face = [[b, c, d], [a, c, d], [a, b, d], [a, b, c]]
                 .iter()
                 .any(|&f| keys.contains(&sorted(f)));
             if !on_face {
-                let s_c = 0.25 * (s[0] + s[1] + s[2] + s[3]);
-                if s_c.abs() > reach {
-                    continue;
-                }
                 let cen = tet.iter().fold([0.0_f64; 3], |c, &n| {
                     let p = rel(n);
                     [c[0] + 0.25 * p[0], c[1] + 0.25 * p[1], c[2] + 0.25 * p[2]]
@@ -437,11 +488,9 @@ impl PortFaceProjection {
                     continue;
                 }
             }
-            let lo = s.iter().copied().fold(f64::INFINITY, f64::min);
-            let hi = s.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            h = h.max(hi - lo);
+            over.push((hi - lo, if on_face { 0.0 } else { near }));
         }
-        h
+        over
     }
 
     /// The rim edges (local node indices, lower first) on which `E_z` is
@@ -627,26 +676,88 @@ impl<'a> FaceFootprint<'a> {
     }
 }
 
-/// The axial window [`PortFaceProjection::guide_axial_spacing`] reads the
-/// guide's mesh over (issue #824): one wavelength, `2π/min(k_c, k)`, with
-/// `k_c` the port's geometric TM cutoff and `k` the sweep's largest
-/// geometric wavenumber in the fill (`k₀·√(Re ε_n·μ_t)`, mesh units).
+/// The number of TM-cutoff wavelengths `λ_c = 2π/k_c` the TE-only guard
+/// reads the guide's axial mesh over ([`tm_guard_axial_reach`], issue
+/// #845): 3.
 ///
-/// Why one wavelength. The guard is about TM fields near cutoff. At the
-/// guard's limit, `k ≤ 0.95·k_c`, an evanescent TM tail decays as
-/// `exp(−α|z|)` with `α = √(k_c² − k²) ≤ 0.31·k_c`, a decay length of
-/// at least `λ_c/2`. So the cells within `λ_c` of the port carry the
-/// TM field the port would have to terminate. A swept TE field resolves
-/// over its own guide wavelength, longer still. The larger of the two
-/// windows is taken: `2π/k` for any admitted sweep (`k < k_c`), and
-/// `λ_c` for an empty sweep (`k = 0`). `∞` (every tet over the face)
-/// if neither is finite and positive.
+/// A coarse section of the guide supports a 3-D TM mode below the guard
+/// sized on the finer cells nearer the port. That mode reaches the port
+/// through the finer guide in between, where it is evanescent, with
+/// amplitude `exp(−α·d)`, `α = √(k_c,3D² − k²)`
+/// ([`tm_evanescent_leak`]). At the base margin's limit, `k = 0.95·k_c`,
+/// `α ≥ 0.31·k_c`; so a section `d` TM-cutoff wavelengths away arrives
+/// at `exp(−2π·0.31·d)`: 0.14 at one wavelength (the window of PR #827,
+/// measured by the Judge at 9–14 % on a `2 × 1` guide), 0.020 at two,
+/// 0.0028 at three. Three wavelengths is where the leak is a fraction of
+/// a percent across the admitted band; the CLI warns separately about a
+/// coarser section beyond it when the sweep's top sits close enough to
+/// the guard for its leak to exceed 1 %.
+pub const TM_GUARD_REACH_CUTOFF_WAVELENGTHS: f64 = 3.0;
+
+/// The axial window [`PortFaceProjection::guide_axial_spacing`] reads the
+/// guide's mesh over (issues #824, #845):
+/// `max(TM_GUARD_REACH_CUTOFF_WAVELENGTHS·2π/k_c, 2π/k)`, with `k_c` the
+/// port's geometric TM cutoff and `k` the sweep's largest geometric
+/// wavenumber in the fill (`k₀·√(Re ε_n·μ_t)`, mesh units).
+///
+/// Why three TM-cutoff wavelengths: the cells within it carry the TM
+/// field the port would have to terminate, down to a tunnelling leak of
+/// `exp(−6π·√(1 − (k/k_c)²))` ≈ 0.3 % at `k = 0.95·k_c`
+/// ([`TM_GUARD_REACH_CUTOFF_WAVELENGTHS`]). A swept TE field resolves
+/// over its own guide wavelength, which is longer than `λ_c`; the window
+/// covers at least that one (the window of PR #827, which this contains).
+/// `∞` (every tet over the face) if neither `k_c` nor `k` is finite and
+/// positive.
 pub fn tm_guard_axial_reach(k_c: f64, k: f64) -> f64 {
-    [k_c, k]
-        .into_iter()
-        .filter(|x| x.is_finite() && *x > 0.0)
+    let wavelength = |x: f64| (x.is_finite() && x > 0.0).then(|| std::f64::consts::TAU / x);
+    match (wavelength(k_c), wavelength(k)) {
+        (None, None) => f64::INFINITY,
+        (c, k) => (TM_GUARD_REACH_CUTOFF_WAVELENGTHS * c.unwrap_or(0.0)).max(k.unwrap_or(0.0)),
+    }
+}
+
+/// The amplitude a TM field that propagates beyond a distance `d` (mesh
+/// units) keeps at the port, after tunnelling through a guide whose 3-D
+/// TM cutoff is at least `k_c` (geometric): `exp(−α·d)` with
+/// `α = √(k_c² − k²)` at the geometric wavenumber `k` (issue #845). `1`
+/// when `k ≥ k_c` (no evanescent barrier). A conservative estimate when
+/// `k_c` is a guard ([`TmCutoffEstimate::guard_k_c`]), which sits below
+/// the 3-D cutoff it guards.
+pub fn tm_evanescent_leak(k_c: f64, k: f64, d: f64) -> f64 {
+    let a2 = k_c * k_c - k * k;
+    if a2.is_nan() || a2 <= 0.0 {
+        return 1.0;
+    }
+    (-a2.sqrt() * d.max(0.0)).exp()
+}
+
+/// The smallest distance of an `(extent, distance)` entry with
+/// `extent > h`.
+fn nearest_coarser(tets: &[(f64, f64)], h: f64) -> Option<f64> {
+    tets.iter()
+        .filter(|&&(e, _)| e > h)
+        .map(|&(_, d)| d)
         .reduce(f64::min)
-        .map_or(f64::INFINITY, |k_min| std::f64::consts::TAU / k_min)
+}
+
+/// The axial mesh of the guide feeding a port
+/// ([`PortFaceProjection::guide_axial_mesh`], issues #824, #845).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GuideAxialMesh {
+    /// `h_n`: the largest extent along the port normal of a tet over the
+    /// face whose nearest point is within [`Self::reach`] of the port
+    /// plane (or with a face on the port). `0` if there is none.
+    pub spacing: f64,
+    /// The window `spacing` was read over (mesh units, either side of the
+    /// port plane).
+    pub reach: f64,
+    /// The largest axial extent of any tet over the face, at any distance
+    /// (`≥ spacing`).
+    pub far_spacing: f64,
+    /// The nearest distance to the port plane of a tet over the face
+    /// coarser than `spacing` (necessarily beyond `reach`); `None` if the
+    /// guide is nowhere coarser.
+    pub coarser_distance: Option<f64>,
 }
 
 /// Project the tagged planar port face `faces` (triangles of `mesh`, 0-based
@@ -862,9 +973,11 @@ pub fn wave_port_from_faces(
 /// `h_n` is read over the guide, not at the face. It is
 /// [`PortFaceProjection::guide_axial_spacing`] over
 /// [`tm_guard_axial_reach`]: the largest axial extent of a tet over the
-/// face within about one wavelength of the port. The ratio is then lower
-/// on every other mesh measured (`2 × 1`, `3 × 1` and `1 × 1` guides,
-/// `h_n` read over the smallest window, `λ_c`; Doctor pass on PR #827):
+/// face starting within three TM-cutoff wavelengths of the port (issue
+/// #845). The ratio is then lower on every other mesh measured (`2 × 1`,
+/// `3 × 1` and `1 × 1` guides, `h_n` read over a window of `λ_c`; Doctor
+/// pass on PR #827; a wider window only raises `h_n`, so lowers the
+/// ratio further):
 ///
 /// | mesh along the guide | worst `÷ (k_c·h_n)²` |
 /// |---|---|
@@ -1182,8 +1295,31 @@ fn p1_dirichlet_lowest(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::driven::ports::extruded_rect_waveguide_mesh;
+    use crate::driven::ports::{ExtrudedWaveguideMesh, extruded_rect_waveguide_mesh};
     use std::f64::consts::PI;
+
+    /// A `16 × 8`-face `a × b` guide of `nf` tet layers of `hf` from the
+    /// port, then `nc` of `hc` (the Judge's probe of PR #827, issue #845).
+    fn stepped_guide(
+        a: f64,
+        b: f64,
+        nf: usize,
+        hf: f64,
+        nc: usize,
+        hc: f64,
+    ) -> ExtrudedWaveguideMesh {
+        let nz = nf + nc;
+        let mut g = extruded_rect_waveguide_mesh(16, 8, nz, a, b, nz as f64);
+        for p in &mut g.mesh.nodes {
+            let k = p[2].round() as usize;
+            p[2] = if k <= nf {
+                k as f64 * hf
+            } else {
+                nf as f64 * hf + (k - nf) as f64 * hc
+            };
+        }
+        g
+    }
 
     fn rect_face(nx: usize, ny: usize, a: f64, b: f64) -> PortFaceProjection {
         let g = extruded_rect_waveguide_mesh(nx, ny, 1, a, b, 0.5);
@@ -1366,12 +1502,30 @@ mod tests {
             p[2] = zs[(p[2] / 0.4).round() as usize];
         }
         let face = project_port_face(&stepped, &g.port1_faces).unwrap();
-        // Reach 0: only the tets on the face (the 0.1 layer).
+        // Reach 0: only the tets on the face (the 0.1 layer); the second
+        // layer starts at z = 0.1.
         assert!((face.guide_axial_spacing(&stepped, 0.0) - 0.1).abs() < 1e-12);
-        // Second-layer centroids sit at z ∈ (0.1, 0.3); third-layer ones
-        // at z ≥ 0.3 + 0.9/4.
-        assert!((face.guide_axial_spacing(&stepped, 0.35) - 0.2).abs() < 1e-12);
+        assert!((face.guide_axial_spacing(&stepped, 0.09) - 0.1).abs() < 1e-12);
+        assert!((face.guide_axial_spacing(&stepped, 0.25) - 0.2).abs() < 1e-12);
+        // The third layer starts at z = 0.3: it counts from a reach of
+        // 0.3 (its nearest vertex, issue #845), though every one of its
+        // centroids sits at z ≥ 0.3 + 0.9/4 (which the centroid test of
+        // PR #827 needed).
+        assert!((face.guide_axial_spacing(&stepped, 0.3) - 0.9).abs() < 1e-12);
+        assert!((face.guide_axial_spacing(&stepped, 0.35) - 0.9).abs() < 1e-12);
         assert!((face.guide_axial_spacing(&stepped, 1.0) - 0.9).abs() < 1e-12);
+        // The far reading sees the third layer from any window.
+        let m = face.guide_axial_mesh(&stepped, 0.25);
+        assert_eq!(m.reach, 0.25);
+        assert!((m.far_spacing - 0.9).abs() < 1e-12);
+        assert!((m.coarser_distance.unwrap() - 0.3).abs() < 1e-12, "{m:?}");
+        let all = face.guide_axial_mesh(&stepped, f64::INFINITY);
+        assert_eq!(all.coarser_distance, None);
+        // Where a refinement to h has to start.
+        assert_eq!(face.guide_coarser_than_distance(&stepped, 0.05), Some(0.0));
+        assert!((face.guide_coarser_than_distance(&stepped, 0.15).unwrap() - 0.1).abs() < 1e-12);
+        assert!((face.guide_coarser_than_distance(&stepped, 0.5).unwrap() - 0.3).abs() < 1e-12);
+        assert_eq!(face.guide_coarser_than_distance(&stepped, 0.9), None);
         assert!((face.guide_axial_spacing(&stepped, f64::INFINITY) - 0.9).abs() < 1e-12);
 
         // An internal plane at z = 0.1 reads both sides.
@@ -1412,16 +1566,76 @@ mod tests {
         assert_eq!(face.guide_axial_spacing(&empty, f64::INFINITY), 0.0);
     }
 
-    /// The window is one wavelength, `2π/min(k_c, k)`, over the finite
-    /// positive inputs.
+    /// The window is three TM-cutoff wavelengths, or one operating
+    /// wavelength if longer, over the finite positive inputs (issue #845).
     #[test]
-    fn tm_guard_axial_reach_is_one_wavelength() {
+    fn tm_guard_axial_reach_is_three_cutoff_wavelengths() {
         use std::f64::consts::TAU;
-        assert_eq!(tm_guard_axial_reach(3.5, 0.0), TAU / 3.5);
-        assert_eq!(tm_guard_axial_reach(3.5, 3.0), TAU / 3.0);
-        assert_eq!(tm_guard_axial_reach(3.5, 4.0), TAU / 3.5);
+        assert_eq!(tm_guard_axial_reach(3.5, 0.0), 3.0 * TAU / 3.5);
+        assert_eq!(tm_guard_axial_reach(3.5, 3.0), 3.0 * TAU / 3.5);
+        assert_eq!(tm_guard_axial_reach(3.5, 1.0), TAU / 1.0);
+        assert_eq!(tm_guard_axial_reach(3.5, 4.0), 3.0 * TAU / 3.5);
         assert_eq!(tm_guard_axial_reach(f64::INFINITY, 2.0), TAU / 2.0);
         assert_eq!(tm_guard_axial_reach(f64::INFINITY, 0.0), f64::INFINITY);
+        // Never narrower than the one-wavelength window of PR #827.
+        for (k_c, k) in [(3.5, 0.0), (3.5, 3.3), (3.5, 0.5), (1.0, 0.99)] {
+            let old = TAU
+                / [k_c, k]
+                    .into_iter()
+                    .filter(|x| *x > 0.0)
+                    .reduce(f64::min)
+                    .unwrap();
+            assert!(tm_guard_axial_reach(k_c, k) >= old);
+        }
+    }
+
+    /// The tunnelling leak `exp(−√(k_c² − k²)·d)`: 0.14 / 0.020 / 0.0028
+    /// one, two and three TM-cutoff wavelengths out at `k = 0.95·k_c`;
+    /// `1` with no barrier.
+    #[test]
+    fn tm_evanescent_leak_decays_over_cutoff_wavelengths() {
+        use std::f64::consts::TAU;
+        let k_c = 3.5;
+        let lc = TAU / k_c;
+        let leak = |n: f64| tm_evanescent_leak(k_c, 0.95 * k_c, n * lc);
+        assert!((leak(1.0) - 0.141).abs() < 1e-3, "{}", leak(1.0));
+        assert!((leak(2.0) - 0.0198).abs() < 1e-4, "{}", leak(2.0));
+        assert!((leak(TM_GUARD_REACH_CUTOFF_WAVELENGTHS) - 0.0028).abs() < 1e-4);
+        assert_eq!(tm_evanescent_leak(k_c, k_c, 1.0), 1.0);
+        assert_eq!(tm_evanescent_leak(k_c, 4.0, 1.0), 1.0);
+        assert_eq!(tm_evanescent_leak(k_c, 3.0, f64::INFINITY), 0.0);
+        assert_eq!(tm_evanescent_leak(k_c, 3.0, 0.0), 1.0);
+    }
+
+    /// The Judge's probes of PR #827 (issue #845), geometry only (the 3-D
+    /// eigensolves are in `tests/wave_port.rs`): a `2 × 1` guide with
+    /// layers of 0.15 from the port, then 0.6. With the fine section
+    /// 2.25 = 1.26 λ_c or 3.0 = 1.68 λ_c long the old one-wavelength
+    /// window read 0.15; with it 1.65 = 0.92 λ_c long, the old centroid
+    /// test at a `λ_c` reach read 0.15. Both now read 0.6.
+    #[test]
+    fn the_guide_window_sees_the_judges_coarse_sections() {
+        use std::f64::consts::TAU;
+        let (a, b, hf, hc, nc) = (2.0, 1.0, 0.15, 0.6, 5usize);
+        let tm11 = ((PI / a).powi(2) + (PI / b).powi(2)).sqrt();
+        for nf in [11usize, 15, 20] {
+            let g = stepped_guide(a, b, nf, hf, nc, hc);
+            let face = project_port_face(&g.mesh, &g.port1_faces).unwrap();
+            let k_c = face.tm_cutoff_estimate(None).unwrap().k_c();
+            assert!((k_c - tm11).abs() < 2e-3 * tm11, "{k_c}");
+            let reach = tm_guard_axial_reach(k_c, 0.0);
+            assert!(reach > nf as f64 * hf, "{reach}");
+            let m = face.guide_axial_mesh(&g.mesh, reach);
+            assert!((m.spacing - hc).abs() < 1e-12, "nf {nf}: {m:?}");
+            assert_eq!(m.coarser_distance, None);
+            // Nearest vertex: the coarse layer starting at 0.92 λ_c is in
+            // a λ_c window (its centroids are beyond it).
+            if nf == 11 {
+                let lc = TAU / k_c;
+                assert!(nf as f64 * hf < lc && nf as f64 * hf + 0.25 * hc > lc);
+                assert!((face.guide_axial_spacing(&g.mesh, lc) - hc).abs() < 1e-12);
+            }
+        }
     }
 
     /// An open rim edge stays open under refinement: the estimate of the

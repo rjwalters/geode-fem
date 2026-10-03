@@ -530,9 +530,12 @@ The margin `δ` follows the **axial** mesh of the guide feeding the port
 (issue #824). The 3-D model's TM cutoff undershoot is set by `k_c·h_n`.
 Here `h_n` is the largest extent along the port normal of a tet in the
 guide near the port: a tet on the port face, or one whose centroid lies
-over the face and within one wavelength of the port plane. The
-wavelength is `2π/min(k_c, k)`, with `k` the top sweep wavenumber in the
-fill. `tm_axial_spacing` reports it. Tets further away do not count. The
+over the face and whose nearest vertex is within the guard's window of
+the port plane. The window is three TM-cutoff wavelengths, `3·2π/k_c`,
+or one operating wavelength `2π/k` if that is longer, with `k` the top
+sweep wavenumber in the fill (issue #845). `tm_axial_spacing` reports
+it. A tet counts when it starts inside the window, even if most of it
+lies beyond. The
 axial/in-face spacing ratio does not set the undershoot: at a fixed `h_n`, a finer
 face lowers the 3-D cutoff. Over one tet layer of 0.5, the 3-D TM₁₁ is
 3.349 on an 8 × 4 face and 3.318 on a 16 × 8 face. Measured in the
@@ -550,7 +553,7 @@ On these meshes, uniform along the guide, the undershoot is at most
 `0.0205·(k_c·h_n)²`. The data run up to `k_c·h_n` = 3.42, where the
 undershoot is −18 %. The bound has also been checked on 2 × 1, 3 × 1
 and 1 × 1 guides with other meshes along the guide, with `h_n` read over
-the smallest window, one TM-cutoff wavelength:
+a window of one TM-cutoff wavelength:
 
 | mesh along the guide | worst undershoot `÷ (k_c·h_n)²` |
 |---|---|
@@ -569,22 +572,51 @@ cutoff is set by the guide's coarsest cells. A 2 × 1 guide with a layer
 of 0.15 at the port over a layer of 0.6 has a 3-D TM₁₁ of 3.302. Read
 off the tets on the face (0.15), the limit would be 3.337, above it, and
 a TM mode would propagate unterminated inside the sweep. Read over the
-guide (0.6), the limit is 3.12. A coarser section further from the port
-than the window is not seen.
+guide (0.6), the limit is 3.12.
+
+Why three TM-cutoff wavelengths (issue #845). A coarse section further
+along the guide supports a 3-D TM mode below a guard sized on the finer
+cells nearer the port. Its field reaches the port through the finer
+guide in between, where it is evanescent, with amplitude about
+`exp(−α·d)`, `α = √(k_c² − k²)`. At the edge of the base margin
+(`k = 0.95·k_c`) that is 14 % one TM-cutoff wavelength out, 2 % at two
+and 0.3 % at three. A window of one wavelength, as first used, missed
+it: with fine layers of 0.15 out to 2.25 or 3.0 mesh units (1.26 and
+1.68 λ_c) before layers of 0.6, it read `h_n = 0.15` and put the limit
+at 3.337, 2 % above the lowest TM-like 3-D mode (3.272 and 3.269). The
+three-wavelength window reads 0.6 there and puts the limit at 3.12. The
+first window also tested each tet's centroid, so a coarse layer starting
+at 0.92 λ_c, inside it, was dropped; the nearest-vertex test sees it.
+
+A coarser section beyond the window is not read into `h_n`, so it does
+not reject the sweep: it can be a coarse device region behind the port
+rather than the guide, and its leak at the port is bounded. But when it
+is coarse enough to carry a TM mode below the top sweep frequency, and
+the top of the sweep sits so close to the guard that the leak
+`exp(−α·d)` (with `α` from the window's guard and `d` where the coarse
+cells start) is above 1 %, `check` and `driven` warn. The warning says
+where the coarse section starts, its spacing, the estimated leak, the
+spacing to refine it to if it is part of the guide, and the frequency
+below which the leak is under 1 %. With fine layers of 0.15 out to 6.0
+mesh units (past 3 λ_c = 5.37) before layers of 0.6, a top sweep of
+`k0 = 3.33` warns (leak about 28 %), and `k0 = 3.24` does not (under
+1 %).
 
 When the widened margin rejects a frequency, the message says so. It
 gives the spacing that would admit the sweep ("refine the mesh along
 the guide feeding port `X` to h ≤ … mesh units along its axis, over the
-whole guide within … mesh units of the port and not only at the face").
+whole guide within … mesh units of the port and not only at the face"),
+and how far from the port the cells coarser than that start.
 Refining only the cells at the port face does not help: the guard reads
 the coarser cells behind them. If even the 5 % margin rejects the
 frequency, the message says to lower the sweep. When the sweep is
 admitted but its top frequency has `k·h_n > 1.41` in the fill, `check`
 and `driven` print a `warning:` line on stderr. It gives the widened
 limit and the spacing to refine the guide to, `h ≤ 1.41/k` along its
-axis within one wavelength of the port, not only at the face. At
+axis within the guard's window of the port, not only at the face. At
 that resolution the port's TE modes are also coarse along the guide.
-The same text appears in `wave_ports[].tm_warning`.
+The same text appears in `wave_ports[].tm_warning`, one line per
+warning.
 
 For a filled guide the limit is scaled by `1/√(Re ε_n·μ_t)`, where
 `ε_n` is the permittivity along the port normal. That is the TM dual of
