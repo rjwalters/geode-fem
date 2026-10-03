@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### `geode-core`
 
 - `solve_wave_port_sweep_with_mode` takes a `surfaces` argument (impedance walls folded into the base operator); an empty slice is bit-identical to before. New `analytic::waveguide::te10_conductor_attenuation` oracle (#776).
+- New `analytic::port_modes`: a p=1 Whitney + P1 mixed E_t–E_z port-mode solver (`solve_hybrid_port_modes`) for PEC-shielded cross-sections with real per-triangle ε. It returns every propagating mode plus the first K evanescent modes, including fast modes. The exact β² = 0 null space is deflated out of the Krylov space, every pair carries an explicit residual, and modes are normalized by the B-form with `xᵀBx = β²` for propagating modes. A short or uncertified window returns an explicit `Shortfall` error. A complex-conjugate pair inside the window returns a `ComplexPair` error. New `analytic::loaded_guide` closed-form LSE/LSM oracle for the slab-loaded rectangular guide. Measured on the slab guide (ε_r 2.25 and 4): β error ≤ 0.43 % at h = b/16, rate ≈ 2 in β², and the mode set matches the oracle one-to-one with no ceiling pileup. Honest limits: spurious complex LSE/LSM evanescent pairs, with Im β² = O(h); and P1-carried TM modes (uniform TM₂₁ β error 1.8 % at h = b/16). The fiber `mixed_pencil` solver is unchanged; its Arnoldi gains an optional projector (#803, Epic #778 Phase 1).
 
 ### Fixed
 

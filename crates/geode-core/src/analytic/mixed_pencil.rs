@@ -714,7 +714,7 @@ fn assemble_mixed_pencil_sparse(
 }
 
 /// Sparse matvec `y = A x` (overwrite) for a CSC matrix.
-fn sp_matvec(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) {
+pub(crate) fn sp_matvec(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) {
     y.iter_mut().for_each(|v| *v = 0.0);
     let col_ptr = a.col_ptr();
     let row_idx = a.row_idx();
@@ -769,11 +769,31 @@ fn lu_solve(lu: &Lu<usize, f64>, rhs: &[f64], out: &mut [f64]) {
 /// `(μ_re, μ_im, x)` Ritz triples where `μ = σ + 1/ν` and `ν` is a Ritz value
 /// of `T`, and `x` is the corresponding real-part Ritz vector in the reduced
 /// (free-DOF) ordering.
-fn shift_invert_arnoldi(
+pub(crate) fn shift_invert_arnoldi(
     a: SparseColMatRef<'_, usize, f64>,
     b: SparseColMatRef<'_, usize, f64>,
     sigma: f64,
     krylov: usize,
+) -> Result<Vec<RitzTriple>, EigenError> {
+    shift_invert_arnoldi_projected(a, b, sigma, krylov, None)
+}
+
+/// In-place projector applied to Krylov vectors by
+/// [`shift_invert_arnoldi_projected`].
+pub(crate) type KrylovProjector<'a> = &'a dyn Fn(&mut [f64]);
+
+/// [`shift_invert_arnoldi`] with an optional in-place projector applied to
+/// the start vector and to every new Krylov vector (after the solve, before
+/// orthogonalization). The projector must map onto a `T`-invariant subspace;
+/// the hybrid port solver (#803) uses it to deflate the exact `β² = 0`
+/// null space. With `project = None` the arithmetic is exactly that of
+/// [`shift_invert_arnoldi`] (the fiber solver path is unchanged).
+pub(crate) fn shift_invert_arnoldi_projected(
+    a: SparseColMatRef<'_, usize, f64>,
+    b: SparseColMatRef<'_, usize, f64>,
+    sigma: f64,
+    krylov: usize,
+    project: Option<KrylovProjector<'_>>,
 ) -> Result<Vec<RitzTriple>, EigenError> {
     let n = a.nrows();
     let shifted = shifted_mixed_pencil(a, b, sigma)?;
@@ -791,6 +811,9 @@ fn shift_invert_arnoldi(
     let mut v: Vec<f64> = (0..n)
         .map(|i| (((i as f64) + 1.0) * 0.5432).sin())
         .collect();
+    if let Some(p) = project {
+        p(&mut v);
+    }
     let nrm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
     if nrm == 0.0 {
         return Err(EigenError::FaerGevd("zero Arnoldi start vector".into()));
@@ -808,6 +831,9 @@ fn shift_invert_arnoldi(
         // w = T v_j = (A − σB)⁻¹ B v_j.
         sp_matvec(b, &basis[j], &mut bv);
         lu_solve(&lu, &bv, &mut w);
+        if let Some(p) = project {
+            p(&mut w);
+        }
         // Modified Gram–Schmidt against the whole basis (full reorth).
         for (i, bi) in basis.iter().enumerate().take(j + 1) {
             let hij = w.iter().zip(bi.iter()).map(|(a, b)| a * b).sum::<f64>();
@@ -867,6 +893,19 @@ fn shift_invert_arnoldi(
                 *xi += urc * bri;
             }
         }
+        // Imaginary part V_k · Im(u_col), kept separately so complex Ritz
+        // pairs can be checked by callers that need them (#803); it does not
+        // enter `residual` below.
+        let mut x_im = vec![0.0_f64; n];
+        for (row, brow) in basis.iter().enumerate().take(m_used) {
+            let uic = u[(row, col)].im;
+            if uic == 0.0 {
+                continue;
+            }
+            for (xi, bri) in x_im.iter_mut().zip(brow.iter()) {
+                *xi += uic * bri;
+            }
+        }
         // Genuine-eigenpair residual in the ORIGINAL pencil:
         // ‖A x − μ B x‖ / (|μ| ‖B x‖). This rejects Arnoldi ghosts / spurious
         // Ritz values that have not converged to a true eigenpair.
@@ -889,6 +928,7 @@ fn shift_invert_arnoldi(
             mu_im,
             residual,
             vector: x,
+            vector_im: x_im,
         });
     }
     Ok(out)
@@ -897,11 +937,13 @@ fn shift_invert_arnoldi(
 /// One recovered Arnoldi Ritz triple: eigenvalue `μ = μ_re + jμ_im`, the
 /// original-pencil relative residual `‖A x − μ B x‖ / (|μ| ‖B x‖)`, and the
 /// (real-part) Ritz vector in reduced (free-DOF) ordering.
-struct RitzTriple {
-    mu_re: f64,
-    mu_im: f64,
-    residual: f64,
-    vector: Vec<f64>,
+pub(crate) struct RitzTriple {
+    pub(crate) mu_re: f64,
+    pub(crate) mu_im: f64,
+    pub(crate) residual: f64,
+    pub(crate) vector: Vec<f64>,
+    /// Imaginary part of the Ritz vector (zero for a real Ritz value).
+    pub(crate) vector_im: Vec<f64>,
 }
 
 /// Core-energy fraction `∫_core |E_t|² / ∫ |E_t|²` of a transverse field, using
