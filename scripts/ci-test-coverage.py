@@ -100,12 +100,58 @@ The guard is a ratchet:
   * exit 1 if an allowlisted target is now covered or no longer exists
     (stale entry, so remove it).
 
+Ignored tier (issue #793). Running a target's default tier does not run
+its `#[ignore]`d tests, so the guard also lists every ignored test of every
+covered target (statically, from the target's source; see below) and checks
+that some enforced command runs it:
+
+  * a plain `#[ignore]` / `#[ignore = "..."]` test runs under
+    `-- --ignored` or `-- --include-ignored`;
+  * a `#[cfg_attr(debug_assertions, ignore)]` test is ignored only with
+    debug assertions on, so it runs under `--include-ignored`, under
+    `--ignored` in a dev / test-profile build, or in the default tier of a
+    `--release` (or `--profile release|bench`) build. A custom `--profile`,
+    `--config`, a `debug-assertions` key in the root manifest's
+    `[profile.*]` sections, or a workflow / job / step env var that can set
+    RUSTFLAGS / CARGO_PROFILE_* (or any run script in the job that mentions
+    them or `$GITHUB_ENV`) leaves debug assertions unknown, so only
+    `--include-ignored` counts;
+  * a `#[cfg_attr(<any other predicate>, ignore)]` test runs only under
+    `--include-ignored`;
+  * a test-name filter counts only for the tests it provably selects: a
+    positional filter must be a substring of the test's name (with
+    `--exact`, equal to it, and the test must be at the file's top level);
+    a `--skip` value skips any test whose name contains it (equals it, with
+    `--exact`), and any test whose name is unknown or that sits in a module;
+  * a test with `#[cfg(feature = "X")]` needs `X` enabled; any other
+    `#[cfg(...)]` on the test makes it run nowhere.
+
+Ignored tests that knowingly run nowhere live in
+`scripts/ci-test-coverage-ignored-allowlist.txt`, one
+`crate/target::test  # reason` (or `crate/target  # reason` for every ignored
+test of the target) per line, with the reason required. The guard exits 1
+when a covered target has an ignored test that runs nowhere and is not
+allowlisted, when an entry is malformed or has no reason, and when an entry
+is stale (the test now runs, or no longer exists, or its target does not run
+at all, which is the coverage allowlist's business).
+
+The scan reads the target's root file and, recursively, the files its
+`mod x;` declarations load (`x.rs`, `x/mod.rs`, `#[path = "..."]`), with
+comments and string / char literals blanked. It cannot see tests that a
+macro generates (an `#[ignore]` inside a `macro_rules!` body counts once,
+with no name, so only an unfiltered command covers it) or `include!`d
+files. A `mod x;` whose file it cannot find counts as one nameless test that
+only an unfiltered `--include-ignored` covers. Module-level
+`#[cfg(...)]` gates on an inline `mod { }` are not modelled.
+
 Usage:  python3 scripts/ci-test-coverage.py [--table] [--self-test]
 
 `--table` prints the full target -> coverage table. Coverage notes say
 whether the covering command runs the default tier only, `--ignored`
 only, or `--include-ignored`, and whether the command passes a test-name
-filter (for example, `-- --ignored some_test`). `--self-test` runs the
+filter (for example, `-- --ignored some_test`), and after a `|` how many
+of the target's `#[ignore]`d tests run and how many run nowhere.
+`--self-test` runs the
 parser's unit tests on synthetic workflows and exits. The script never runs
 cargo. It only reads files.
 
@@ -113,7 +159,8 @@ Known limits: Cargo `[[test]]` entries with a custom `path` or
 `required-features` are not parsed (the workspace has none). A test-name
 filter is reported in the tier column but still counts as coverage, and a
 crate-wide `-- --ignored` counts as covering the target even though only its
-`#[ignore]`d tier runs (also visible in the tier column). Uses of composite
+`#[ignore]`d tier runs (also visible in the tier column); the ignored-tier
+check above is per test and does not have this slack. Uses of composite
 actions or scripts that call cargo are not followed (they cover nothing).
 Workflow triggers are not modelled: a workflow restricted by `on.*.paths`
 (for example rect-waveguide-modes-debug.yml) still counts, although it runs
@@ -141,11 +188,11 @@ NON_INTEGRATION_FILTERS_VALUED = {"--bin", "--example", "--bench"}
 # Flags that run every integration target of the selected packages.
 ALL_INTEGRATION = {"--tests", "--all-targets"}
 # Flags that do not change which packages / targets run.
-NEUTRAL_FLAGS = {"--release", "-r", "--all-features", "--no-default-features",
+NEUTRAL_FLAGS = {"--all-features", "--no-default-features",
                  "--locked", "--frozen", "--offline", "-v", "-vv", "--verbose",
                  "-q", "--quiet", "--no-fail-fast", "--ignore-rust-version",
                  "--timings", "--future-incompat-report"}
-NEUTRAL_VALUED = {"--profile", "--target", "-j", "--jobs", "--color",
+NEUTRAL_VALUED = {"--target", "-j", "--jobs", "--color",
                   "--target-dir", "--message-format", "--config", "-Z"}
 # libtest harness arguments (after `--`) that still run the selected tests.
 # `--list` (lists, runs nothing) and `--bench` (benchmarks only) cover
@@ -187,6 +234,306 @@ def discover_targets() -> dict[tuple[str, str], str | None]:
             for f in sorted(tests.glob("*/main.rs")):
                 targets[(name, f.parent.name)] = feature_gate(f)
     return targets
+
+
+def target_source(crate: str, target: str) -> Path | None:
+    """The root source file of an integration-test target, if it exists."""
+    for group in ("crates", "examples"):
+        for crate_dir in sorted((ROOT / group).glob("*")):
+            if not (crate_dir / "Cargo.toml").is_file() or crate_name(crate_dir) != crate:
+                continue
+            for f in (crate_dir / "tests" / f"{target}.rs",
+                      crate_dir / "tests" / target / "main.rs"):
+                if f.is_file():
+                    return f
+    return None
+
+
+# --------------------------------------------------------------------------
+# `#[ignore]`d test discovery (issue #793)
+# --------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class IgnoredTest:
+    """One `#[ignore]`d test function found in a target's source.
+
+    cls says when the test is ignored:
+      plain:       `#[ignore]` / `#[ignore = "..."]`: in every build.
+      debug_only:  `#[cfg_attr(debug_assertions, ignore ...)]`: only when
+                   debug assertions are on (dev / test profile), so a
+                   `--release` default-tier run already runs it.
+      conditional: `#[cfg_attr(<any other predicate>, ignore ...)]`: the
+                   predicate is not evaluated, so only `--include-ignored`
+                   provably runs it. An unresolved `mod x;` is recorded as
+                   one nameless conditional test (fail closed).
+    name is None when no `fn NAME` follows the attribute block (for
+    example a macro-generated test); then only an unfiltered command can
+    run it. top_level is False when the function sits inside a `mod { }`
+    block (its libtest path then has a module prefix the guard does not
+    track). features are `#[cfg(feature = "X")]` gates on the function;
+    cfg_unmodelled is set for any other `#[cfg(...)]` on it (fail closed:
+    no command counts as running it).
+    """
+    name: str | None
+    cls: str = "plain"
+    top_level: bool = True
+    features: frozenset = frozenset()
+    cfg_unmodelled: bool = False
+
+
+@dataclass
+class TargetIgnores:
+    tests: list[IgnoredTest] = field(default_factory=list)
+    unresolved: list[str] = field(default_factory=list)
+
+    def total(self) -> int:
+        return len(self.tests)
+
+
+_CHAR_LIT = re.compile(r"'(?:\\u\{[0-9a-fA-F]{1,6}\}|\\x[0-9a-fA-F]{2}|\\.|[^\\'\n])'")
+_RAW_STR = re.compile(r'b?r(#*)"')
+
+
+def strip_rust(text: str) -> str:
+    """Blank Rust comments and the contents of string / char literals.
+
+    Line and (nested) block comments become spaces; a string or char
+    literal keeps its quotes with its contents blanked, so a `#[ignore]`
+    mentioned in a doc comment or a string is not counted, and a quote
+    character inside a literal (`'"'`) does not open a string. Offsets and
+    newlines are preserved, so a position in the result is the same
+    position in the input.
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+
+    def blank(s: str) -> str:
+        return "".join(c if c == "\n" else " " for c in s)
+
+    while i < n:
+        c = text[i]
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            out.append(blank(text[i:j]))
+            i = j
+        elif text.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            out.append(blank(text[i:j]))
+            i = j
+        elif (m := _RAW_STR.match(text, i)) and (i == 0 or not (
+                text[i - 1].isalnum() or text[i - 1] == "_")):
+            end = '"' + m.group(1)
+            j = text.find(end, m.end())
+            j = n if j < 0 else j + len(end)
+            out.append(blank(text[i:j]))
+            i = j
+        elif c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            j = min(j, n)
+            if j < n:  # closing quote at text[j]
+                out.append('"' + blank(text[i + 1:j]) + '"')
+                j += 1
+            else:      # unterminated at end of file
+                out.append('"' + blank(text[i + 1:j]))
+            i = j
+        elif c == "'" and (m := _CHAR_LIT.match(text, i)):
+            out.append(blank(m.group(0)))
+            i = m.end()
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _balanced(text: str, start: int) -> int:
+    """Index just past the bracket matching the one at `start` (or len(text))."""
+    depth = 0
+    for j in range(start, len(text)):
+        if text[j] in "([{":
+            depth += 1
+        elif text[j] in ")]}":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+    return len(text)
+
+
+def _top_level_split(s: str) -> list[str]:
+    parts, depth, cur = [], 0, []
+    for ch in s:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    parts.append("".join(cur))
+    return [p.strip() for p in parts]
+
+
+_OUTER_ATTR = re.compile(r"#\s*\[")
+_FN_ITEM = re.compile(r"\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:(?:async|unsafe|const|extern"
+                      r'(?:\s+"[^"]*")?)\s+)*fn\s+([A-Za-z_]\w*)')
+_MOD_DECL = re.compile(r"\bmod\s+([A-Za-z_]\w*)\s*;")
+_PATH_ATTR = re.compile(r'#\s*\[\s*path\s*=\s*"')
+
+
+def _attr_ignore(body: str) -> str | None:
+    """The ignore class an attribute body (inside `#[...]`) applies, if any."""
+    body = body.strip()
+    if re.match(r"ignore\b", body):
+        return "plain"
+    m = re.match(r"cfg_attr\s*\(", body)
+    if not m:
+        return None
+    args = _top_level_split(body[m.end():_balanced(body, m.end() - 1) - 1])
+    if not any(re.match(r"ignore\b", a) for a in args[1:]):
+        return None
+    return "debug_only" if " ".join(args[0].split()) == "debug_assertions" else "conditional"
+
+
+def parse_ignored_tests(stripped: str, raw: str | None = None) -> list[IgnoredTest]:
+    """Every `#[ignore]`d test in comment- and string-stripped source.
+
+    `raw` is the unstripped source (same offsets), read only for the
+    feature names inside `#[cfg(feature = "...")]`.
+    """
+    raw = stripped if raw is None else raw
+    out: list[IgnoredTest] = []
+    depth_at = [0] * (len(stripped) + 1)
+    d = 0
+    for k, ch in enumerate(stripped):
+        depth_at[k] = d
+        d += (ch == "{") - (ch == "}")
+    depth_at[len(stripped)] = d
+    pos = 0
+    while (m := _OUTER_ATTR.search(stripped, pos)):
+        # An attribute block: consecutive `#[...]` separated by whitespace.
+        start, j = m.start(), m.start()
+        attrs: list[str] = []
+        raw_attrs: list[str] = []
+        while (am := _OUTER_ATTR.match(stripped, j)):
+            close = _balanced(stripped, am.end() - 1)
+            attrs.append(stripped[am.end():close - 1])
+            raw_attrs.append(raw[am.end():close - 1])
+            j = close
+            while j < len(stripped) and stripped[j].isspace():
+                j += 1
+        pos = j
+        classes = [c for c in map(_attr_ignore, attrs) if c]
+        if not classes:
+            continue
+        cls = "plain" if "plain" in classes else (
+            "conditional" if "conditional" in classes else "debug_only")
+        feats, cfg_bad = set(), False
+        for a, ra in zip(attrs, raw_attrs):
+            if not re.fullmatch(r"\s*cfg\s*\(.*\)\s*", a, re.S):
+                continue
+            cm = re.fullmatch(r"\s*cfg\s*\((.*)\)\s*", ra, re.S)
+            fm = cm and re.fullmatch(r'\s*feature\s*=\s*"([^"\\]*)"\s*', cm.group(1))
+            if fm:
+                feats.add(fm.group(1))
+            else:
+                cfg_bad = True
+        fn = _FN_ITEM.match(stripped, j)
+        out.append(IgnoredTest(fn.group(1) if fn else None, cls,
+                               depth_at[start] == 0, frozenset(feats), cfg_bad))
+    return out
+
+
+def target_ignores(root: Path) -> TargetIgnores:
+    """The `#[ignore]`d tests of a target: its root file and the `mod x;`
+    files it pulls in (recursively, honouring `#[path = "..."]`).
+
+    Not seen: tests generated by a macro (an `#[ignore]` written once in a
+    `macro_rules!` body counts once, nameless, however many tests it expands
+    to) and `include!`d files. Commented-out and string text is not
+    counted. A `mod x;` whose file cannot be found (for example one declared
+    inside an inline `mod m { ... }` block) is recorded in `unresolved` and
+    adds one nameless conditional test, so only an unfiltered
+    `--include-ignored` run (or an allowlist entry) covers the target.
+    """
+    total = TargetIgnores()
+    seen: set[Path] = set()
+    todo = [(root, True)]
+    while todo:
+        path, is_dir_owner = todo.pop()
+        path = path.resolve()
+        if path in seen:
+            continue
+        seen.add(path)
+        raw = path.read_text()
+        text = strip_rust(raw)
+        total.tests.extend(parse_ignored_tests(text, raw))
+        # `mod x;` in a crate root or `mod.rs` resolves next to the file; in
+        # any other file `foo.rs`, under `foo/`. `#[path]` on a top-level
+        # module is relative to the file's own directory.
+        child_dir = path.parent if is_dir_owner else path.parent / path.stem
+        for m in _MOD_DECL.finditer(text):
+            item_start = max(text.rfind(ch, 0, m.start()) for ch in ";{}") + 1
+            pm = _PATH_ATTR.search(text, item_start, m.start())
+            if pm:
+                value = re.match(r'"([^"]*)"', raw[pm.end() - 1:])
+                cands = [(path.parent / value.group(1), False)] if value else []
+            else:
+                name = m.group(1)
+                cands = [(child_dir / f"{name}.rs", False),
+                         (child_dir / name / "mod.rs", True)]
+            for cand, owner in cands:
+                if cand.is_file():
+                    todo.append((cand, owner))
+                    break
+            else:
+                total.unresolved.append(f"{path.name}: `mod {m.group(1)};`")
+                total.tests.append(IgnoredTest(None, "conditional", False))
+    return total
+
+
+def discover_ignores(targets) -> dict[tuple[str, str], TargetIgnores]:
+    out = {}
+    for crate, target in targets:
+        src = target_source(crate, target)
+        out[(crate, target)] = target_ignores(src) if src else TargetIgnores()
+    return out
+
+
+def profile_debug_assertions(manifest: str | None = None) -> dict[str, bool | None]:
+    """Whether `cfg(debug_assertions)` is on per profile (None = not known).
+
+    Cargo's defaults are on for dev / test and off for release. Any
+    `debug-assertions` key under a `[profile.<p>...]` section of the root
+    manifest (including package overrides) makes that profile unknown.
+    """
+    da: dict[str, bool | None] = {"dev": True, "test": True, "release": False,
+                                  "bench": False}
+    section = None
+    if manifest is None:
+        manifest = (ROOT / "Cargo.toml").read_text()
+    for line in manifest.splitlines():
+        s = line.split("#", 1)[0].strip()
+        hm = re.fullmatch(r"\[\s*profile\.([\w-]+)[^\]]*\]", s)
+        if hm:
+            section = hm.group(1)
+            continue
+        if s.startswith("["):
+            section = None
+            continue
+        if section and re.match(r"debug-assertions\s*=", s):
+            da[section] = None
+    return da
 
 
 def bare_cargo_test_is_workspace() -> bool:
@@ -364,6 +711,10 @@ class Job:
     matrix_unmodelled: str | None = None
     needs: list[str] = field(default_factory=list)
     needs_unmodelled: str | None = None
+    # Why `cfg(debug_assertions)` may differ from the cargo profile's
+    # default in this job (an env var or `$GITHUB_ENV` write that can set
+    # RUSTFLAGS / CARGO_PROFILE_*), or None.
+    profile_env: str | None = None
 
     def legs(self) -> list[dict[str, str]] | None:
         """Every matrix combination, or None if the matrix is not modelled."""
@@ -394,6 +745,14 @@ class Workflow:
     # YAML outside the modelled subset (anchors, aliases, merge keys, flow
     # mappings): the whole workflow covers nothing.
     yaml_problems: list[str] = field(default_factory=list)
+    profile_env: str | None = None
+
+
+# Env vars that can change `cfg(debug_assertions)` for a cargo build, and
+# script text that can set env vars for later steps.
+_PROFILE_ENV = re.compile(r"^(?:CARGO_(?:ENCODED_|BUILD_)?RUSTFLAGS|RUSTFLAGS|"
+                          r"CARGO_PROFILE_\w+|CARGO_TARGET_\w+_RUSTFLAGS)$")
+_PROFILE_SCRIPT = re.compile(r"RUSTFLAGS|CARGO_PROFILE_|GITHUB_ENV")
 
 
 def parse_workflow(text: str) -> Workflow:
@@ -401,6 +760,19 @@ def parse_workflow(text: str) -> Workflow:
     jobs = wf.jobs
     steps: dict[tuple, Step] = {}
     for path, val in yaml_leaves(text, wf.yaml_problems):
+        if len(path) == 2 and path[0] == "env" and _PROFILE_ENV.match(str(path[1])):
+            wf.profile_env = f"workflow `env: {path[1]}`"
+            continue
+        if (len(path) >= 4 and path[0] == "jobs" and path[-2] == "env"
+                and _PROFILE_ENV.match(str(path[-1]))):
+            job = jobs.setdefault(str(path[1]), Job(name=str(path[1])))
+            job.profile_env = job.profile_env or f"`env: {path[-1]}` in job `{path[1]}`"
+        if (len(path) == 5 and path[0] == "jobs" and path[2] == "steps"
+                and path[4] == "run" and _PROFILE_SCRIPT.search(val)):
+            job = jobs.setdefault(str(path[1]), Job(name=str(path[1])))
+            job.profile_env = job.profile_env or (
+                f"a run script in job `{path[1]}` mentions "
+                f"`{_PROFILE_SCRIPT.search(val).group(0)}`")
         if path[:1] == ("defaults",):
             if path[-1] == "working-directory":
                 wf.working_directory = True
@@ -946,6 +1318,16 @@ class Selection:
     all_integration: bool = True
     features: set[str] = field(default_factory=set)
     tier: str = "default"
+    # Which libtest tiers run, and whether a test-name filter narrows them.
+    runs_default: bool = True
+    runs_ignored: bool = False
+    name_filtered: bool = False
+    filters: list[str] = field(default_factory=list)   # positional TESTNAME filters
+    skips: list[str] = field(default_factory=list)     # harness `--skip` values
+    exact: bool = False                                # harness `--exact`
+    # Cargo profile family: "dev" (dev / test), "release" (release / bench),
+    # or None when not known (a custom `--profile`, or `--config`).
+    profile: str | None = "dev"
 
     def selects(self, crate: str, target: str) -> bool:
         if self.crates is not None and crate not in self.crates:
@@ -985,6 +1367,10 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
     non_integration = False
     all_integration_flag = False
     name_filtered = False
+    filters: list[str] = []
+    skips: list[str] = []
+    profile: str | None = "dev"
+    config_seen = False
     i = 0
     n = len(cargo_args)
 
@@ -1026,6 +1412,17 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
             non_integration = True
             if not eq and i + 1 < n and not cargo_args[i + 1].startswith("-"):
                 i += 1
+        elif a in ("--release", "-r"):
+            profile = "release"
+        elif key == "--profile":
+            p = val if eq else value()
+            profile = {"dev": "dev", "test": "dev", "release": "release",
+                       "bench": "release"}.get(p)
+        elif key == "--config":
+            # May set `profile.*.debug-assertions`.
+            if not eq:
+                value()
+            config_seen = True
         elif a in NEUTRAL_FLAGS:
             pass
         elif key in NEUTRAL_VALUED:
@@ -1035,6 +1432,7 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
             raise Unsupported(f"flag {a!r} not modelled")
         else:
             name_filtered = True  # positional TESTNAME filter
+            filters.append(a)
         i += 1
 
     if exclude and not workspace:
@@ -1042,7 +1440,8 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
     if not workspace and not crates and not bare_is_workspace:
         raise Unsupported("bare `cargo test` outside a virtual workspace")
     sel = Selection(crates=None if workspace or not crates else crates,
-                    exclude=exclude, named=named, features=features)
+                    exclude=exclude, named=named, features=features,
+                    profile=None if config_seen else profile)
     sel.all_integration = all_integration_flag or (not named and not non_integration)
 
     j = 0
@@ -1053,8 +1452,13 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
             raise Unsupported(f"harness {h} runs no tests")
         if h == "--skip" or (hkey == "--skip" and heq):
             name_filtered = True
-            if not heq:
+            if heq:
+                skips.append(h.partition("=")[2])
+            elif j + 1 < len(harness_args):
                 j += 1
+                skips.append(harness_args[j])
+            else:
+                raise Unsupported("harness --skip without a value")
         elif hkey in HARNESS_VALUED:
             if not heq:
                 j += 1
@@ -1064,11 +1468,17 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
             raise Unsupported(f"harness flag {h!r} not modelled")
         else:
             name_filtered = True
+            filters.append(h)
         j += 1
     if "--include-ignored" in harness_args:
         sel.tier = "default+ignored"
+        sel.runs_ignored = True
     elif "--ignored" in harness_args:
         sel.tier = "ignored only"
+        sel.runs_default, sel.runs_ignored = False, True
+    sel.name_filtered = name_filtered
+    sel.filters, sel.skips = filters, skips
+    sel.exact = "--exact" in harness_args
     if name_filtered:
         sel.tier += " (name-filtered)"
     return sel
@@ -1078,6 +1488,18 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
 # Evaluation
 # --------------------------------------------------------------------------
 
+# How the guard names each class of `#[ignore]`d test (see IgnoredTest).
+IGNORE_CLASSES = {
+    "plain": "#[ignore]",
+    "debug_only": "#[cfg_attr(debug_assertions, ignore)]",
+    "conditional": "#[cfg_attr(<other>, ignore)] / unresolved module",
+}
+
+# An ignored-tier allowlist entry: (crate, target, test name or None for
+# every ignored test of the target).
+IgnoredKey = tuple[str, str, "str | None"]
+
+
 @dataclass
 class Report:
     coverage: dict[tuple[str, str], list[str]]
@@ -1086,12 +1508,85 @@ class Report:
     new_gaps: list[tuple[str, str]]
     stale: list[tuple[str, str]]
     commands: int
+    # Issue #793: per target, each `#[ignore]`d test and the workflows that
+    # run it (an empty list: it runs nowhere).
+    ignored_runs: dict[tuple[str, str], list[tuple[IgnoredTest, list[str]]]] = field(
+        default_factory=dict)
+    # (target, test) pairs of a covered target whose test runs nowhere and is
+    # not allowlisted.
+    ignored_new_gaps: list[tuple[tuple[str, str], IgnoredTest]] = field(default_factory=list)
+    # (allowlist entry, why it is stale).
+    ignored_stale: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _debug_assertions(sel: Selection, profile_da: dict[str, bool | None],
+                      env_reason: str | None) -> bool | None:
+    """Whether `cfg(debug_assertions)` is on for the command (None = unknown)."""
+    if sel.profile is None or env_reason:
+        return None
+    if sel.profile == "release":
+        vals = {profile_da.get("release", False), profile_da.get("bench", False)}
+    else:
+        vals = {profile_da.get("dev", True), profile_da.get("test", True)}
+    return vals.pop() if len(vals) == 1 else None
+
+
+def _runs_ignored_test(sel: Selection, da: bool | None, t: IgnoredTest,
+                       feats: set[str]) -> bool:
+    """Whether a command provably runs one `#[ignore]`d test.
+
+    `--ignored` / `--include-ignored` run every plain `#[ignore]` test.
+    `--include-ignored` runs a test whatever its attributes. A
+    `cfg_attr(debug_assertions, ignore)` test is ignored only when debug
+    assertions are on, so it runs under `--ignored` in a debug build and in
+    the default tier of a release build, but under neither `--ignored` in
+    release nor the default tier in debug.
+
+    Name filters fail closed. A positional filter runs the test only when
+    its name is known and contains the filter (with `--exact`: equals it,
+    and the test is at the file's top level, so its libtest path is its
+    bare name). A `--skip` value skips it when the name contains the value
+    (equals it, with `--exact`), and also whenever the name is unknown or
+    the test is inside a module (its path may contain the value).
+    """
+    if t.cfg_unmodelled or not t.features <= feats:
+        return False
+    if t.cls == "plain":
+        tier = sel.runs_ignored
+    elif t.cls == "debug_only":
+        tier = (sel.runs_ignored and sel.runs_default) or (
+            sel.runs_ignored and da is True) or (sel.runs_default and da is False)
+    else:
+        tier = sel.runs_ignored and sel.runs_default
+    if not tier:
+        return False
+
+    def hit(f: str) -> bool:
+        if t.name is None:
+            return False
+        return (t.top_level and f == t.name) if sel.exact else f in t.name
+
+    if sel.filters and not any(hit(f) for f in sel.filters):
+        return False
+    for sk in sel.skips:
+        if t.name is None or not t.top_level or hit(sk):
+            return False
+    return True
 
 
 def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | None],
-             allow: set[tuple[str, str]], bare_is_workspace: bool = True) -> Report:
+             allow: set[tuple[str, str]], bare_is_workspace: bool = True,
+             ignores: dict[tuple[str, str], TargetIgnores] | None = None,
+             ignored_allow: dict[IgnoredKey, str] | None = None,
+             profile_da: dict[str, bool | None] | None = None) -> Report:
+    ignores = ignores or {}
+    ignored_allow = ignored_allow or {}
+    if profile_da is None:
+        profile_da = {"dev": True, "test": True, "release": False}
     coverage: dict[tuple[str, str], list[str]] = {k: [] for k in targets}
     gate_miss: dict[tuple[str, str], list[str]] = {k: [] for k in targets}
+    ign_runs: dict[tuple[str, str], list[tuple[IgnoredTest, list[str]]]] = {
+        k: [(t, []) for t in ignores.get(k, TargetIgnores()).tests] for k in targets}
     warnings: list[str] = []
     ncmd = 0
     for wf, text in sorted(workflows.items()):
@@ -1117,6 +1612,8 @@ def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | Non
                     warnings.append(f"{wf}: `{raw}` counted as covering nothing ({why})")
                     continue
                 ncmd += 1
+                da = _debug_assertions(sel, profile_da,
+                                       workflow.profile_env or step.job.profile_env)
                 # `--features crate/feat` also enables `feat` for that crate.
                 feats = sel.features | {f.split("/", 1)[1] for f in sel.features if "/" in f}
                 for (crate, target), gate in targets.items():
@@ -1126,10 +1623,76 @@ def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | Non
                         gate_miss[(crate, target)].append(f"{wf} (missing feature {gate})")
                         continue
                     coverage[(crate, target)].append(f"{wf}: {sel.tier}")
+                    for t, where in ign_runs[(crate, target)]:
+                        if _runs_ignored_test(sel, da, t, feats):
+                            where.append(wf)
     uncovered = {k for k in targets if not coverage[k]}
     new_gaps = sorted(uncovered - allow)
     stale = sorted(k for k in allow if k not in targets or coverage.get(k))
-    return Report(coverage, gate_miss, warnings, new_gaps, stale, ncmd)
+
+    # Issue #793: a target that runs in CI must also run each of its
+    # #[ignore]d tests somewhere, or carry an ignored-tier allowlist entry
+    # (for the test, or for the whole target). A target that does not run
+    # at all is the coverage allowlist's business.
+    def allowlisted(key: tuple[str, str], t: IgnoredTest) -> bool:
+        return (key + (None,) in ignored_allow
+                or (t.name is not None and key + (t.name,) in ignored_allow))
+
+    ign_gaps = [(k, t) for k in sorted(targets) if coverage[k]
+                for t, where in ign_runs[k] if not where and not allowlisted(k, t)]
+    ign_stale: list[tuple[str, str]] = []
+    for crate, target, name in sorted(ignored_allow, key=lambda e: (e[0], e[1], e[2] or "")):
+        key = (crate, target)
+        entry = f"{crate}/{target}" + (f"::{name}" if name else "")
+        tests = ign_runs.get(key, [])
+        if name is not None:
+            tests = [(t, w) for t, w in tests if t.name == name]
+        if key not in targets:
+            why = "no such test target"
+        elif not tests:
+            why = ("the target has no #[ignore]d tests" if name is None
+                   else "the target has no #[ignore]d test of that name")
+        elif not coverage[key]:
+            why = ("the target does not run in CI at all (it belongs in "
+                   "ci-test-coverage-allowlist.txt instead)")
+        elif all(w for _, w in tests):
+            why = "its #[ignore]d tests now run in a workflow"
+        else:
+            continue
+        ign_stale.append((entry, why))
+    return Report(coverage, gate_miss, warnings, new_gaps, stale, ncmd,
+                  ign_runs, ign_gaps, ign_stale)
+
+
+IGNORED_ALLOWLIST = ROOT / "scripts" / "ci-test-coverage-ignored-allowlist.txt"
+
+
+def parse_ignored_allowlist(text: str) -> tuple[dict[IgnoredKey, str], list[str]]:
+    """Parse `crate/target[::test]  # reason` lines: (entries, format errors).
+
+    `crate/target::test` allowlists one `#[ignore]`d test; a bare
+    `crate/target` allowlists every ignored test of the target. Every entry
+    must carry its reason inline (a non-empty `#` comment on the same
+    line); a missing reason, a malformed name or a duplicate is an error.
+    Lines that are only a comment are free text.
+    """
+    entries: dict[IgnoredKey, str] = {}
+    errors: list[str] = []
+    for n, line in enumerate(text.splitlines(), 1):
+        body, _, reason = line.partition("#")
+        body, reason = body.strip(), reason.strip()
+        if not body:
+            continue
+        m = re.fullmatch(r"([\w-]+)/(\w+)(?:::(\w+))?", body)
+        if not m:
+            errors.append(f"line {n}: `{body}` is not <crate>/<target>[::<test>]")
+        elif not reason:
+            errors.append(f"line {n}: `{body}` has no `# reason`")
+        elif m.groups() in entries:
+            errors.append(f"line {n}: duplicate entry `{body}`")
+        else:
+            entries[m.groups()] = reason
+    return entries, errors
 
 
 def read_allowlist() -> set[tuple[str, str]]:
@@ -1143,17 +1706,53 @@ def read_allowlist() -> set[tuple[str, str]]:
     return allow
 
 
+def _test_label(t: IgnoredTest) -> str:
+    name = t.name or "<unnamed>"
+    extra = [] if t.cls == "plain" else [IGNORE_CLASSES[t.cls]]
+    if t.features:
+        extra.append("needs feature " + ", ".join(sorted(t.features)))
+    if t.cfg_unmodelled:
+        extra.append("unmodelled #[cfg]")
+    if not t.top_level:
+        extra.append("inside a module")
+    return name + (f" [{'; '.join(extra)}]" if extra else "")
+
+
+def _ignored_label(runs: list[tuple[IgnoredTest, list[str]]],
+                   allowlisted) -> str:
+    if not runs:
+        return ""
+    nowhere = [t for t, w in runs if not w]
+    where = sorted({wf for _, w in runs for wf in w})
+    label = f"ignored {len(runs)}"
+    if where:
+        label += f": {len(runs) - len(nowhere)} run ({', '.join(where)})"
+    if nowhere:
+        al = sum(1 for t in nowhere if allowlisted(t))
+        label += (f": {len(nowhere)} RUN NOWHERE"
+                  + (f" ({al} ignored-allowlisted)" if al else ""))
+    return label
+
+
 def main() -> int:
     if "--self-test" in sys.argv[1:]:
         return self_test()
     show_table = "--table" in sys.argv[1:]
     targets = discover_targets()
     allow = read_allowlist()
+    ignores = discover_ignores(targets)
+    ignored_allow, allow_errors = parse_ignored_allowlist(
+        IGNORED_ALLOWLIST.read_text() if IGNORED_ALLOWLIST.is_file() else "")
     workflows = {wf.name: wf.read_text() for wf in sorted(WORKFLOWS.glob("*.yml"))}
-    r = evaluate(workflows, targets, allow, bare_cargo_test_is_workspace())
+    r = evaluate(workflows, targets, allow, bare_cargo_test_is_workspace(),
+                 ignores, ignored_allow, profile_debug_assertions())
 
     for w in r.warnings:
         print(f"warning: {w}")
+    for key, c in sorted(ignores.items()):
+        for u in c.unresolved:
+            print(f"warning: {key[0]}/{key[1]}: {u} not found; its #[ignore]d tests "
+                  "count only under --include-ignored")
     if r.warnings:
         print()
     if show_table:
@@ -1163,6 +1762,12 @@ def main() -> int:
             label = "; ".join(sorted(set(cov))) if cov else "NOT COVERED"
             if not cov and r.gate_miss[key]:
                 label += " — compiled out: " + "; ".join(r.gate_miss[key])
+            ign = _ignored_label(
+                r.ignored_runs[key],
+                lambda t, k=key: (k + (None,) in ignored_allow
+                                  or k + (t.name,) in ignored_allow))
+            if cov and ign:
+                label += " | " + ign
             print(f"{key[0] + '/' + key[1]:60s} {label}")
         print()
 
@@ -1170,6 +1775,13 @@ def main() -> int:
     print(f"{len(targets)} test targets, {len(targets) - len(uncovered)} covered by a "
           f"workflow, {len(uncovered)} not covered ({len(uncovered & allow)} allowlisted); "
           f"{r.commands} `cargo test` commands modelled, {len(r.warnings)} ignored.")
+    with_ign = [k for k in targets if r.coverage[k] and r.ignored_runs[k]]
+    n_ign = sum(len(r.ignored_runs[k]) for k in with_ign)
+    nowhere = [(k, t) for k in with_ign for t, w in r.ignored_runs[k] if not w]
+    print(f"{len(with_ign)} covered targets have {n_ign} #[ignore]d tests: "
+          f"{n_ign - len(nowhere)} run in some workflow, {len(nowhere)} run nowhere "
+          f"({len(nowhere) - len(r.ignored_new_gaps)} ignored-allowlisted, "
+          f"in {len({k for k, _ in nowhere})} targets).")
     rc = 0
     if r.new_gaps:
         rc = 1
@@ -1184,6 +1796,25 @@ def main() -> int:
               "them from scripts/ci-test-coverage-allowlist.txt):")
         for crate, target in r.stale:
             print(f"  {crate}/{target}")
+    if allow_errors:
+        rc = 1
+        print("\nERROR: malformed scripts/ci-test-coverage-ignored-allowlist.txt entries:")
+        for e in allow_errors:
+            print(f"  {e}")
+    if r.ignored_new_gaps:
+        rc = 1
+        print("\nERROR: test targets whose #[ignore]d tests no CI workflow runs (run "
+              "the target with `-- --ignored` or `-- --include-ignored` in a workflow "
+              "step, or add it to scripts/ci-test-coverage-ignored-allowlist.txt with "
+              "a reason):")
+        for (crate, target), t in r.ignored_new_gaps:
+            print(f"  {crate}/{target}::{_test_label(t)}")
+    if r.ignored_stale:
+        rc = 1
+        print("\nERROR: stale ignored-tier allowlist entries (delete them from "
+              "scripts/ci-test-coverage-ignored-allowlist.txt):")
+        for entry, why in r.ignored_stale:
+            print(f"  {entry}: {why}")
     return rc
 
 
@@ -1752,7 +2383,280 @@ def self_test() -> int:
                          {("a", "t1"): None}, {("a", "gone")})
             self.assertEqual(r.stale, [("a", "gone")])
 
-    suite = unittest.defaultTestLoader.loadTestsFromTestCase(ParserTests)
+    # -- issue #793: #[ignore]d tests ----------------------------------------
+    def scan(src: str) -> list[IgnoredTest]:
+        return parse_ignored_tests(strip_rust(src), src)
+
+    def names(src: str) -> list[tuple]:
+        return [(t.name, t.cls) for t in scan(src)]
+
+    IT = ("a", "t1")
+
+    def ign_eval(script: str, tests: list[IgnoredTest], allow=None, job_extra: str = "",
+                 extra: str = "", targets=None, cov_allow=None, profile_da=None,
+                 text: str | None = None):
+        tg = targets if targets is not None else {IT: None, ("a", "t2"): None}
+        return evaluate({"w.yml": text or wf_run(script, extra=extra, job_extra=job_extra)},
+                        tg, cov_allow or set(), True,
+                        {IT: TargetIgnores(list(tests))}, allow or {}, profile_da)
+
+    def gaps(*a, **kw) -> set:
+        r = ign_eval(*a, **kw)
+        return {t.name for _, t in r.ignored_new_gaps}
+
+    SLOW = [IgnoredTest("slow"), IgnoredTest("slower")]
+
+    class IgnoredTierTests(unittest.TestCase):
+        # -- source scanning -------------------------------------------------
+        def test_plain_ignore_shapes(self):
+            src = ('#[test]\n#[ignore]\nfn a() {}\n'
+                   '#[test]\n#[ignore = "slow"]\npub fn b() {}\n'
+                   '#[ignore = "multi \\\n   line"]\n#[test]\nfn c() {}\n'
+                   '#[test]\n#[ignore]\n#[should_panic(expected = "x")]\nasync fn d() {}\n'
+                   '#[test] #[ignore] fn e() {}\n'
+                   '#[test]\nfn not_ignored() {}\n')
+            self.assertEqual(names(src), [(n, "plain") for n in "abcde"])
+
+        def test_cfg_attr_ignore(self):
+            src = ('#[test]\n#[cfg_attr(debug_assertions, ignore)]\nfn a() {}\n'
+                   '#[test]\n#[cfg_attr(\n    debug_assertions,\n    ignore = "slow (debug), see #1"\n)]\nfn b() {}\n'
+                   '#[test]\n#[cfg_attr(not(feature = "x"), ignore)]\nfn c() {}\n'
+                   '#[test]\n#[cfg_attr(miri, should_panic, ignore)]\nfn d() {}\n'
+                   '#[test]\n#[cfg_attr(debug_assertions, allow(dead_code))]\nfn e() {}\n'
+                   '#[test]\n#[cfg_attr(debug_assertions, ignore)]\n#[ignore]\nfn f() {}\n')
+            self.assertEqual(names(src), [("a", "debug_only"), ("b", "debug_only"),
+                                          ("c", "conditional"), ("d", "conditional"),
+                                          ("f", "plain")])
+
+        def test_comments_and_strings_are_not_attributes(self):
+            src = ('// #[ignore]\n/// #[ignore]\n//! #[ignore]\n/* #[ignore] /* nested */ #[ignore] */\n'
+                   'const S: &str = "#[ignore] fn s() {}";\n'
+                   'const R: &str = r#"#[ignore] "quoted" fn r() {}"#;\n'
+                   'const Q: char = \'"\';\n'
+                   '#[test]\n#[ignore]\nfn real() { let _ = "\\" #[ignore]"; }\n'
+                   "fn lifetimes<'a>(x: &'a str) -> &'a str { x }\n"
+                   '#[test]\n#[ignore]\nfn after_lifetime() {}\n')
+            self.assertEqual(names(src), [("real", "plain"), ("after_lifetime", "plain")])
+
+        def test_strip_rust_preserves_offsets(self):
+            src = 'a "x\\"y" /* c */ r#"z"# \'"\' // t\n"unterminated'
+            self.assertEqual(len(strip_rust(src)), len(src))
+
+        def test_cfg_gates_on_the_function(self):
+            [t] = scan('#[test]\n#[cfg(feature = "cuda")]\n#[ignore]\nfn a() {}\n')
+            self.assertEqual((t.features, t.cfg_unmodelled), (frozenset({"cuda"}), False))
+            [t] = scan('#[test]\n#[ignore]\n#[cfg(target_os = "linux")]\nfn a() {}\n')
+            self.assertTrue(t.cfg_unmodelled)
+
+        def test_nesting_and_macros(self):
+            [t] = scan('mod m {\n    #[test]\n    #[ignore]\n    fn a() {}\n}\n')
+            self.assertEqual((t.name, t.top_level), ("a", False))
+            [t] = scan('macro_rules! t { ($n:ident) => { #[test] #[ignore] fn $n() {} }; }\n')
+            self.assertIsNone(t.name)
+            [t] = scan('fn helper() {}\n#[test]\n#[ignore]\nfn top() { if true { } }\n')
+            self.assertTrue(t.top_level)
+
+        def test_module_files_are_followed(self):
+            import tempfile
+            with tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                (root / "common").mkdir()
+                (root / "support").mkdir()
+                (root / "t.rs").write_text(
+                    'mod common;\n#[path = "support/x.rs"]\nmod x;\nmod missing;\n'
+                    '#[test]\n#[ignore]\nfn top() {}\n')
+                (root / "common" / "mod.rs").write_text(
+                    'pub mod deep;\n#[test]\n#[ignore]\npub fn in_common() {}\n')
+                (root / "common" / "deep.rs").write_text('#[test]\n#[ignore]\nfn in_deep() {}\n')
+                (root / "support" / "x.rs").write_text('#[test]\n#[ignore]\nfn in_x() {}\n')
+                ti = target_ignores(root / "t.rs")
+                self.assertEqual(sorted(t.name or "-" for t in ti.tests),
+                                 ["-", "in_common", "in_deep", "in_x", "top"])
+                self.assertEqual(ti.unresolved, ["t.rs: `mod missing;`"])
+                [u] = [t for t in ti.tests if t.name is None]
+                self.assertEqual(u.cls, "conditional")
+                # A `#[path]` loop back to the root terminates.
+                (root / "loop.rs").write_text(
+                    '#[path = "loop.rs"]\nmod again;\n#[test]\n#[ignore]\nfn once() {}\n')
+                self.assertEqual([t.name for t in target_ignores(root / "loop.rs").tests],
+                                 ["once"])
+
+        def test_profile_debug_assertions(self):
+            self.assertEqual(profile_debug_assertions("[profile.release]\nlto = true\n"),
+                             {"dev": True, "test": True, "release": False, "bench": False})
+            da = profile_debug_assertions('[profile.release]\ndebug-assertions = true\n'
+                                          '[profile.dev.package."*"]\ndebug-assertions = false\n')
+            self.assertEqual((da["release"], da["dev"], da["test"]), (None, None, True))
+
+        # -- which commands run which ignored tests ----------------------------
+        def test_default_tier_runs_no_ignored_test(self):
+            self.assertEqual(gaps("cargo test -p a --release", SLOW), {"slow", "slower"})
+
+        def test_ignored_and_include_ignored(self):
+            self.assertEqual(gaps("cargo test -p a -- --ignored", SLOW), set())
+            self.assertEqual(gaps("cargo test -p a --test t1 -- --include-ignored", SLOW), set())
+            r = ign_eval("cargo test -p a -- --ignored", SLOW)
+            self.assertEqual([w for _, w in r.ignored_runs[IT]], [["w.yml"], ["w.yml"]])
+
+        def test_other_target_does_not_count(self):
+            self.assertEqual(gaps("cargo test -p a\ncargo test -p a --test t2 -- --ignored",
+                                  SLOW), {"slow", "slower"})
+
+        def test_name_filters(self):
+            self.assertEqual(gaps("cargo test -p a -- --ignored slow", SLOW), set())
+            self.assertEqual(gaps("cargo test -p a -- --ignored --exact slow", SLOW),
+                             {"slower"})
+            self.assertEqual(gaps("cargo test -p a slower -- --ignored", SLOW), {"slow"})
+            self.assertEqual(gaps("cargo test -p a -- --ignored nomatch", SLOW),
+                             {"slow", "slower"})
+            self.assertEqual(gaps("cargo test -p a -- --ignored --skip slower", SLOW),
+                             {"slower"})
+            self.assertEqual(gaps("cargo test -p a -- --ignored --skip=slo", SLOW),
+                             {"slow", "slower"})
+            self.assertEqual(gaps("cargo test -p a -- --ignored --exact --skip slow", SLOW),
+                             {"slow"})
+
+        def test_name_filters_fail_closed_for_nested_and_unnamed(self):
+            nested = [IgnoredTest("slow", top_level=False)]
+            self.assertEqual(gaps("cargo test -p a -- --ignored --exact slow", nested),
+                             {"slow"})
+            self.assertEqual(gaps("cargo test -p a -- --ignored slow", nested), set())
+            self.assertEqual(gaps("cargo test -p a -- --ignored --skip other", nested),
+                             {"slow"})
+            self.assertEqual(gaps("cargo test -p a -- --ignored", nested), set())
+            unnamed = [IgnoredTest(None)]
+            r = ign_eval("cargo test -p a -- --ignored x", unnamed)
+            self.assertEqual(len(r.ignored_new_gaps), 1)
+            r = ign_eval("cargo test -p a -- --ignored --skip x", unnamed)
+            self.assertEqual(len(r.ignored_new_gaps), 1)
+            r = ign_eval("cargo test -p a -- --ignored", unnamed)
+            self.assertEqual(r.ignored_new_gaps, [])
+
+        def test_skip_without_value_is_unmodelled(self):
+            r = ign_eval("cargo test -p a -- --ignored --skip", SLOW)
+            self.assertEqual(r.commands, 0)
+            self.assertIn("--skip without a value", r.warnings[0])
+
+        def test_debug_only_class(self):
+            d = [IgnoredTest("d", "debug_only")]
+            self.assertEqual(gaps("cargo test -p a --release", d), set())
+            self.assertEqual(gaps("cargo test -p a -r", d), set())
+            self.assertEqual(gaps("cargo test -p a --profile bench", d), set())
+            self.assertEqual(gaps("cargo test -p a", d), {"d"})
+            self.assertEqual(gaps("cargo test -p a -- --ignored", d), set())
+            self.assertEqual(gaps("cargo test -p a --profile test -- --ignored", d), set())
+            self.assertEqual(gaps("cargo test -p a --release -- --ignored", d), {"d"})
+            self.assertEqual(gaps("cargo test -p a -- --include-ignored", d), set())
+            self.assertEqual(gaps("cargo test -p a --release -- --include-ignored", d), set())
+            # A custom profile or a --config override: debug assertions unknown.
+            self.assertEqual(gaps("cargo test -p a --profile ci", d), {"d"})
+            self.assertEqual(gaps("cargo test -p a --release --config x=1", d), {"d"})
+            self.assertEqual(gaps("cargo test -p a --config=x=1 --release", d), {"d"})
+            # The manifest overrides debug-assertions for release.
+            self.assertEqual(gaps("cargo test -p a --release", d,
+                                  profile_da={"dev": True, "test": True, "release": None}),
+                             {"d"})
+            self.assertEqual(gaps("cargo test -p a --release -- --include-ignored", d,
+                                  profile_da={"release": None}), set())
+
+        def test_debug_only_env_overrides(self):
+            d = [IgnoredTest("d", "debug_only")]
+            self.assertEqual(gaps("cargo test -p a --release", d,
+                                  job_extra="    env:\n      RUSTFLAGS: -Cdebug-assertions\n"),
+                             {"d"})
+            self.assertEqual(gaps("cargo test -p a --release", d,
+                                  extra="        env:\n          CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: 'true'\n"),
+                             {"d"})
+            wf = "env:\n  RUSTFLAGS: -Cdebug-assertions\n" + wf_run("cargo test -p a --release")
+            self.assertEqual(gaps("", d, text=wf), {"d"})
+            # A write to $GITHUB_ENV in any step of the job.
+            self.assertEqual(gaps('echo "X=1" >> "$GITHUB_ENV"\ncargo test -p a --release', d),
+                             {"d"})
+            # Unrelated env vars do not matter.
+            self.assertEqual(gaps("cargo test -p a --release", d,
+                                  job_extra="    env:\n      RUST_BACKTRACE: short\n"), set())
+
+        def test_conditional_class_needs_include_ignored(self):
+            c = [IgnoredTest("c", "conditional")]
+            self.assertEqual(gaps("cargo test -p a -- --ignored", c), {"c"})
+            self.assertEqual(gaps("cargo test -p a --release", c), {"c"})
+            self.assertEqual(gaps("cargo test -p a -- --include-ignored", c), set())
+
+        def test_feature_gated_tests(self):
+            cuda = [IgnoredTest("g", features=frozenset({"cuda"}))]
+            self.assertEqual(gaps("cargo test -p a -- --ignored", cuda), {"g"})
+            self.assertEqual(gaps("cargo test -p a --features cuda -- --ignored", cuda), set())
+            self.assertEqual(gaps("cargo test -p a --features a/cuda -- --ignored", cuda), set())
+            bad = [IgnoredTest("g", cfg_unmodelled=True)]
+            self.assertEqual(gaps("cargo test -p a -- --include-ignored", bad), {"g"})
+
+        def test_target_feature_gate_applies(self):
+            r = ign_eval("cargo test -p a -- --ignored", SLOW,
+                         targets={IT: "f", ("a", "t2"): None}, cov_allow={IT})
+            self.assertEqual(r.ignored_new_gaps, [])  # not covered: coverage allowlist's job
+            self.assertEqual(r.new_gaps, [])
+            self.assertEqual([w for _, w in r.ignored_runs[IT]], [[], []])
+
+        def test_unenforced_command_runs_nothing(self):
+            self.assertEqual(gaps("cargo test -p a\ncargo test -p a -- --ignored || true",
+                                  SLOW), {"slow", "slower"})
+            self.assertEqual(gaps("cargo test -p a -- --ignored --list\ncargo test -p a",
+                                  SLOW), {"slow", "slower"})
+
+        # -- ratchet --------------------------------------------------------
+        def test_uncovered_target_is_not_an_ignored_gap(self):
+            r = ign_eval("cargo test -p a --test t2", SLOW, cov_allow={IT})
+            self.assertEqual((r.new_gaps, r.ignored_new_gaps), ([], []))
+
+        def test_allowlist_target_and_test_level(self):
+            self.assertEqual(gaps("cargo test -p a", SLOW, allow={IT + (None,): "r"}), set())
+            self.assertEqual(gaps("cargo test -p a", SLOW, allow={IT + ("slow",): "r"}),
+                             {"slower"})
+            r = ign_eval("cargo test -p a", SLOW, allow={IT + ("slow",): "r",
+                                                          IT + ("slower",): "r"})
+            self.assertEqual((r.ignored_new_gaps, r.ignored_stale), ([], []))
+
+        def test_stale_ignored_allowlist(self):
+            def stale(script, allow, **kw):
+                return [e for e, _ in ign_eval(script, SLOW, allow=allow, **kw).ignored_stale]
+            # Every ignored test of the target now runs.
+            self.assertEqual(stale("cargo test -p a -- --include-ignored",
+                                   {IT + (None,): "r"}), ["a/t1"])
+            # That one test now runs.
+            self.assertEqual(stale("cargo test -p a -- --ignored --exact slow",
+                                   {IT + ("slow",): "r", IT + ("slower",): "r"}),
+                             ["a/t1::slow"])
+            # A target-level entry with one test still not run is not stale.
+            self.assertEqual(stale("cargo test -p a -- --ignored --exact slow",
+                                   {IT + (None,): "r"}), [])
+            self.assertEqual(stale("cargo test -p a", {IT + ("gone",): "r"}), ["a/t1::gone"])
+            self.assertEqual(stale("cargo test -p a", {("a", "nope", None): "r"}), ["a/nope"])
+            self.assertEqual(stale("cargo test -p a", {("a", "t2", None): "r"}), ["a/t2"])
+            # The target is not run at all: belongs on the coverage allowlist.
+            r = ign_eval("cargo test -p a --test t2", SLOW, allow={IT + (None,): "r"},
+                         cov_allow={IT})
+            self.assertEqual(len(r.ignored_stale), 1)
+            self.assertIn("does not run in CI at all", r.ignored_stale[0][1])
+
+        def test_ignored_allowlist_format(self):
+            entries, errors = parse_ignored_allowlist(
+                "# comment\n\n"
+                "geode-core/t1  # slow\n"
+                "geode-core/t2::some_test  # needs CUDA\n"
+                "geode-core/t3\n"
+                "geode-core/t3::x #\n"
+                "not-a-target  # r\n"
+                "geode-core/t1  # again\n"
+                "a/b c  # r\n")
+            self.assertEqual(entries, {("geode-core", "t1", None): "slow",
+                                       ("geode-core", "t2", "some_test"): "needs CUDA"})
+            self.assertEqual(len(errors), 5, errors)
+            self.assertIn("no `# reason`", errors[0])
+            self.assertIn("duplicate", errors[3])
+
+    suite = unittest.TestSuite()
+    for case in (ParserTests, IgnoredTierTests):
+        suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(case))
     result = unittest.TextTestRunner(verbosity=1).run(suite)
     return 0 if result.wasSuccessful() else 1
 
