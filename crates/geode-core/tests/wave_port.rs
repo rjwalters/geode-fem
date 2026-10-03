@@ -1655,10 +1655,10 @@ fn mesh_aware_tm_guard_holds_over_axial_and_face_resolutions() {
 /// against 3.3019 on a `2 × 1` guide (16 × 8 face, layers 0.15 + 0.6),
 /// 3.1460 against 3.0772 on a `3 × 1` guide (24 × 8, layers 0.2 + 0.7).
 /// A TM mode would then propagate unterminated inside the admitted
-/// sweep. `h_n` is now read over the guide within one TM-cutoff
-/// wavelength (the smallest window the CLI uses, `tm_guard_axial_reach`
-/// at an empty sweep), which sees the coarse layer: guards 3.122 and
-/// 2.867, below the 3-D cutoff.
+/// sweep. `h_n` is now read over the guide (the smallest window the CLI
+/// uses, `tm_guard_axial_reach` at an empty sweep: three TM-cutoff
+/// wavelengths since issue #845), which sees the coarse layer: guards
+/// 3.122 and 2.867, below the 3-D cutoff.
 #[test]
 fn a_fine_layer_at_the_port_does_not_hide_the_coarse_guide_behind_it() {
     use geode_core::driven::ports::{project_port_face, tm_guard_axial_reach};
@@ -1694,5 +1694,109 @@ fn a_fine_layer_at_the_port_does_not_hide_the_coarse_guide_behind_it() {
         assert!(face_only.guard_k_c() > k3d, "{face_only:?} vs {k3d}");
         // … is closed by reading the guide.
         assert!(guarded.guard_k_c() < k3d, "{guarded:?} vs {k3d}");
+    }
+}
+
+/// The lowest TM-like 3-D resonance `k` of the all-PEC guide section
+/// `mesh` of cross-section `a × b` (the Judge's classifier on PR #827,
+/// issue #845): of 24 sparse shift-invert modes near `(0.93·TM₁₁)²`, the
+/// lowest with more than half its edge energy on edges along the guide
+/// (`z`). A long box's lowest modes are TE; the TM-like one is what a
+/// coarse section brings below the guard.
+fn pec_guide_lowest_tm_like_k(mesh: &TetMesh, a: f64, b: f64) -> f64 {
+    use geode_core::eigen::pec_cavity::{PecCavitySettings, solve_pec_cavity_modes};
+    use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
+    let edges = mesh.edges();
+    let walls = mesh.boundary_faces();
+    let mask = pec_interior_mask_from_triangles(&edges, &[&walls]);
+    let eps = vec![1.0; mesh.tets.len()];
+    let tm11 = ((std::f64::consts::PI / a).powi(2) + (std::f64::consts::PI / b).powi(2)).sqrt();
+    let settings = PecCavitySettings::new((0.93 * tm11).powi(2), 24);
+    let modes = solve_pec_cavity_modes::<B>(mesh, &eps, &mask, &settings, &device())
+        .expect("box eigensolve");
+    let interior: Vec<usize> = (0..edges.len()).filter(|&e| mask[e]).collect();
+    modes
+        .modes
+        .iter()
+        .filter(|m| {
+            let (mut num, mut den) = (0.0, 0.0);
+            for (i, &e) in interior.iter().enumerate() {
+                let [p, q] = edges[e];
+                let (p, q) = (mesh.nodes[p as usize], mesh.nodes[q as usize]);
+                let d = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
+                let l2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                let w = m.vector[i] * m.vector[i] / l2;
+                num += w * d[2] * d[2] / l2;
+                den += w;
+            }
+            num > 0.5 * den
+        })
+        .map(|m| m.k0)
+        .reduce(f64::min)
+        .expect("a TM-like mode in the window")
+}
+
+/// Issue #845 (Judge, PR #827 re-review): a `2 × 1` guide (16 × 8 face)
+/// with tet layers of 0.15 from the port, then five of 0.6.
+///
+/// - Fine section 2.25 (1.26 λ_c) or 3.0 (1.68 λ_c): the coarse section
+///   lies beyond the one-wavelength window of PR #827, which read
+///   `h_n = 0.15`, a guard of 3.3368 — 2 % above the lowest TM-like 3-D
+///   mode (3.2717 / 3.2691), whose field reaches the port at 9–14 %.
+/// - Fine section 1.65 (0.92 λ_c): the coarse layer starts inside a
+///   `λ_c` window but its centroids lie beyond it, so the centroid test
+///   read 0.15 there.
+///
+/// The guard now reads the guide over three TM-cutoff wavelengths
+/// ([`tm_guard_axial_reach`]) by each tet's nearest vertex: `h_n = 0.6`
+/// in all three, guard 3.1224, below the 3-D TM-like cutoff.
+#[test]
+#[ignore = "heavy: three 24-mode sparse box eigensolves; cargo test --release --test wave_port -- --ignored coarse_section_beyond"]
+fn a_coarse_section_beyond_one_wavelength_does_not_slip_under_the_tm_guard() {
+    use geode_core::driven::ports::{project_port_face, tm_guard_axial_reach};
+    let (a, b, hf, hc, nc) = (2.0, 1.0, 0.15, 0.6, 5usize);
+    for (nf, tm_want) in [(11usize, 3.2735), (15, 3.2717), (20, 3.2691)] {
+        let nz = nf + nc;
+        let mut g = extruded_rect_waveguide_mesh(16, 8, nz, a, b, nz as f64);
+        for p in &mut g.mesh.nodes {
+            let k = p[2].round() as usize;
+            p[2] = if k <= nf {
+                k as f64 * hf
+            } else {
+                nf as f64 * hf + (k - nf) as f64 * hc
+            };
+        }
+        let mesh = &g.mesh;
+        let face = project_port_face(mesh, &g.port1_faces).expect("port face");
+        let est = face.tm_cutoff_estimate(None).expect("TM estimate");
+        let lc = std::f64::consts::TAU / est.k_c();
+        let reach = tm_guard_axial_reach(est.k_c(), 0.0);
+        let guarded = est.with_axial_spacing(face.guide_axial_spacing(mesh, reach));
+        // The fine-layer reading the old window (or the centroid test)
+        // gave.
+        let fine = est.with_axial_spacing(hf);
+        let k_tm = pec_guide_lowest_tm_like_k(mesh, a, b);
+        eprintln!(
+            "fine section {:.2} = {:.2} λ_c: lowest TM-like 3-D mode {k_tm:.4}; old reading \
+             (h_n = {hf}) guard {:.4}; reach {reach:.3} reads h_n = {:.2}, guard {:.4}",
+            nf as f64 * hf,
+            nf as f64 * hf / lc,
+            fine.guard_k_c(),
+            guarded.axial_spacing,
+            guarded.guard_k_c()
+        );
+        assert!((k_tm - tm_want).abs() < 1e-3, "3-D {k_tm} vs {tm_want}");
+        // The failure the re-review measured …
+        assert!(fine.guard_k_c() > k_tm, "{fine:?} vs {k_tm}");
+        if nf == 11 {
+            // (the centroid test at a λ_c reach; nearest vertex sees it)
+            assert!((face.guide_axial_spacing(mesh, lc) - hc).abs() < 1e-12);
+        } else {
+            // (the one-wavelength window of PR #827)
+            assert!((face.guide_axial_spacing(mesh, lc) - hf).abs() < 1e-12);
+        }
+        // … is closed by the three-wavelength window.
+        assert!((guarded.axial_spacing - hc).abs() < 1e-12, "{guarded:?}");
+        assert!(guarded.guard_k_c() < k_tm, "{guarded:?} vs {k_tm}");
     }
 }

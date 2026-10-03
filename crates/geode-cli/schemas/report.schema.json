@@ -5286,7 +5286,7 @@
           "type": "integer"
         },
         "tm_axial_spacing": {
-          "description": "Axial mesh spacing `h_n` of the guide feeding the port (mesh units;\nissue #824; additive in v1): the largest extent along the port\nnormal of a volume tet with a face on the port, or with its\ncentroid over the port face and within one wavelength\n(`2π/min(k_c, k)`, `k` the top in-fill sweep wavenumber) of the\nport plane. It sizes [`Self::tm_margin`].",
+          "description": "Axial mesh spacing `h_n` of the guide feeding the port (mesh units;\nissue #824; additive in v1): the largest extent along the port\nnormal of a volume tet with a face on the port, or with its\ncentroid over the port face and its nearest vertex within three\nTM-cutoff wavelengths (`max(3·2π/k_c, 2π/k)`, `k` the top in-fill\nsweep wavenumber; issue #845) of the port plane. It sizes\n[`Self::tm_margin`].",
           "format": "double",
           "type": [
             "number",
@@ -5326,7 +5326,7 @@
           ]
         },
         "tm_warning": {
-          "description": "Coarse-axial-mesh warning (issue #824; additive in v1; omitted when\nthere is none): the top sweep frequency spans more than\n`k·h_n ≈ 1.41` per axial cell in the guide near the port, so the\nguard widened its margin; the text says how far to refine the guide\n(within one wavelength of the port, not only at the face). Also\nprinted on stderr as `warning: …`.",
+          "description": "Coarse-axial-mesh warnings (issues #824, #845; additive in v1;\nomitted when there is none), one per line: the top sweep frequency\nspans more than `k·h_n ≈ 1.41` per axial cell in the guide near the\nport, so the guard widened its margin; or a coarser section of the\nguide beyond the guard's window can carry a TM mode below the top\nsweep frequency whose evanescent leak reaches the port at more than\n1 %. The text says how far to refine the guide, and where (not only\nat the face). Each line is also printed on stderr as `warning: …`.",
           "type": [
             "string",
             "null"
