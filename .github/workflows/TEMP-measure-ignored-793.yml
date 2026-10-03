@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        set: [core, arpack, validation, cli]
+        set: [core]
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -77,18 +77,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {g: c1, set: core, crate: geode-core, specs: "eigensolver nedelec_cavity magnetostatic_wire mixed_precision_refinement transmon_mesh"}
-          - {g: c2, set: core, crate: geode-core, specs: "analytic_cladding_bc_fiber_benchmark fiber_dispersion_benchmark"}
-          - {g: c3, set: core, crate: geode-core, specs: "high_contrast_fiber_benchmark lp01_profile_selector_benchmark"}
-          - {g: c4, set: core, crate: geode-core, specs: "mixed_pencil_fiber_benchmark step_index_fiber_benchmark"}
-          - {g: c5, set: core, crate: geode-core, specs: "mie_driven_scattering motor_torque_benchmark sphere_matched_upml_eigenmode"}
-          - {g: c6, set: core, crate: geode-core, specs: "transient_sparams transmon_diffopt transmon_quantum transmon_eigen_sensitivity"}
-          - {g: c7, set: core, crate: geode-core, specs: "transmon_eigenmode::real_transmon_eigenmodes_release transmon_eigenmode::tripwire_real_junction_l_doubling transmon_eigenmode::tree_cotree_dof_elimination_shifts_eigen_spectrum"}
-          - {g: c8, set: core, crate: geode-core, specs: "transmon_eigenmode::real_transmon_projection_deflates_junction_mode transmon_eigenmode::real_transmon_port_aware_retains_all_six_modes transmon_eigenmode::characterize_spurious_3p45_mode"}
-          - {g: c9, set: core, crate: geode-core, specs: "transmon_eigenmode::real_transmon_matrix_free_matches_direct transmon_eigenmode::real_transmon_matrix_free_indefinite_matches_direct transmon_eigenmode::real_transmon_ams_beats_jacobi"}
-          - {g: a1, set: arpack, crate: geode-core, specs: "patch_antenna_extraction patch_antenna_matched patch_antenna_radiation slcfet_3hp_benchmark spiral_inductor_benchmark"}
-          - {g: v1, set: validation, crate: geode-validation, specs: "cube_cavity_jax_reference cube_cavity_julia_reference cube_cavity_onnx_reference sphere_mie_numpy_reference sphere_pec_jax_reference sphere_pec_julia_reference sphere_pec_numpy_reference sphere_pec_onnx_reference sphere_pec_tfjava_reference sphere_pml_jax_reference sphere_pml_numpy_reference sphere_pml_tfjava_reference"}
-          - {g: l1, set: cli, crate: geode-cli, specs: "mesh_golden::spiral_benchmark_layout_within_oracle_bands patch_extract_golden slcfet_extract_golden sphere_pec_golden spiral_golden::spiral_benchmark_golden_within_oracle_bands"}
+          - {g: c9b, set: core, crate: geode-core, specs: "transmon_eigenmode::real_transmon_matrix_free_indefinite_matches_direct"}
+          - {g: c9c, set: core, crate: geode-core, specs: "transmon_eigenmode::real_transmon_ams_beats_jacobi"}
     runs-on: ubuntu-latest
     timeout-minutes: 200
     steps:
@@ -103,6 +93,7 @@ jobs:
       - name: Run each ignored test (20-min cap each)
         shell: bash
         run: |
+          set +e
           set -uo pipefail
           tar -P -xzf bins-${{ matrix.set }}.tgz
           mkdir -p target/tmp logs
@@ -137,3 +128,20 @@ jobs:
             logs
             results.txt
           retention-days: 7
+
+  macos-sensitivity:
+    # Is the transmon_eigen_sensitivity failure Linux-only?
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build and run on macOS
+        shell: bash
+        run: |
+          set +e
+          cargo test -p geode-core --release --test transmon_eigen_sensitivity --no-run
+          s=$(date +%s)
+          cargo test -p geode-core --release --test transmon_eigen_sensitivity -- \
+              --ignored --exact real_eigen_sensitivity_release --nocapture
+          echo "RESULT macos transmon_eigen_sensitivity rc=$? secs=$(( $(date +%s) - s ))"
