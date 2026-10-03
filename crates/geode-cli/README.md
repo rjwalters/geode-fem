@@ -237,11 +237,15 @@ Driven example (the spiral-inductor golden input,
 | `ports[].width` | optional, mesh units | extent across `ê`; default `area / length` of the tagged faces |
 | `ports[].length` | optional, mesh units | gap extent along `ê`; default: extent of the tagged faces along `ê` |
 | `ports[].v_inc` | `[re, im]`, default `[1, 0]` | incident drive voltage (non-zero) |
-| `wave_ports[]` | driven only; composes with Leontovich walls, incl. roughness (#776); a Silver-Müller wall may not share an edge with a port rim; may be mixed with `ports` (#759); the guide at each port face must be one homogeneous, in-plane-isotropic material outside any absorbing shell (#777) | wave (modal) ports, see below; index order = S-matrix block order (after the lumped ports in a mixed spec) |
+| `wave_ports[]` | driven only; composes with Leontovich walls, incl. roughness (#776); a Silver-Müller wall may not share an edge with a port rim; may be mixed with `ports` (#759); a port face is **geometric** (one homogeneous, in-plane-isotropic material, no interior conductor; #777) or **hybrid** (an inhomogeneous face or one with a PEC strip / sheet / hole; #807), outside any absorbing shell | wave (modal) ports, see below; index order = S-matrix block order (after the lumped ports in a mixed spec) |
 | `wave_ports[].physical_group` | string | dimension-2 group holding the **planar** port faces |
 | `wave_ports[].n_modes` | int ≥ 1, default `1` | lowest-cutoff cross-section modes carried by the port (one S-matrix channel each) |
 | `wave_ports[].a_inc` | `[[re, im], …]`, length `n_modes`, default all `[1, 0]` | per-mode incident amplitude (finite, non-zero) |
 | `wave_ports[].reference_ohm` | number > 0, optional (additive, #775) | real Touchstone reference every written mode of the port is renormalized to; **required with `--touchstone`**, inert without it (see [Touchstone output](#touchstone-output---touchstone-issue-703)) |
+| `wave_ports[].impedance_definition` | `"power_current"` (default) \| `"power_voltage"` \| `"voltage_current"`; hybrid ports with a floating conductor only (additive, #807) | the line impedance `z_line_ohm` of the port's channels, and the `Z_c` `--touchstone` renormalizes with (see [Hybrid wave ports](#hybrid-wave-ports-microstrip-stripline-inhomogeneous-faces-issue-807)); `Z_TE` is never offered for hybrid ports |
+| `wave_ports[].hybrid.n_termination_evanescent` | int ≥ 0, default `4`; hybrid ports only (additive, #807) | evanescent modes terminated exactly beyond the reported channels (not in S); a face too small for the default gets as many as it holds (noted) |
+| `wave_ports[].hybrid.accuracy` | bool, default `true`; hybrid ports only | the per-mode accuracy estimate (an `h/2` face re-solve per frequency, `h/4` at the first) |
+| `wave_ports[].hybrid.accuracy_threshold` | float > 0, default `0.005`; hybrid ports only | relative `β` (and, on a lossy face, `α`) error above which a propagating channel raises a warning with a refine-to-`h` hint |
 | `frequencies` | driven: **required**; eigen: absent | the frequencies to sweep |
 | `frequencies.unit` | `"hz"` \| `"ghz"` \| `"k0"`, **required** | `k0` = the solver's natural unit `ω/c` in **rad per mesh length unit** |
 | `frequencies.values` | floats > 0 | explicit list, **or** … |
@@ -251,7 +255,7 @@ Driven example (the spiral-inductor golden input,
 | `solver.tol` / `solver.max_iters` | iterative only; default `1e-10` / `5000` | relative-residual tolerance / per-RHS budget; exceeding the budget is a hard error (`solve_failed`, non-zero exit). Jacobi-preconditioned COCG can stall on ill-conditioned low-frequency conductor problems (e.g. the spiral fixture); prefer `direct` there |
 | `solver.preconditioner` | iterative only; `"jacobi"` (default) \| `"ilu0"` | Jacobi = diagonal scaling. `ilu0` = incomplete LU with zero fill on `A(ω)`'s own pattern (+32 B per nonzero of factor storage; ≈ 3.4× the per-iteration time of Jacobi on the spiral smoke mesh). Neither is uniformly better (issue #708, measured 2026-09-30): on the lossy spiral smoke mesh `ilu0` converges at 10 / 20 GHz (17 278 / 12 669 iterations, Z matches direct LU to 1e-10) where Jacobi stalls at every frequency, but it still stalls at 1 / 5 GHz; on the radiating UPML patch `ilu0` stalls where Jacobi converges. Pick per problem; `direct` remains the robust choice below the LU memory wall. `"ams"` (issue #744) = Hiptmair–Xu auxiliary-space Maxwell V-cycle on a real SPD proxy of `A(ω)`, built from the mesh's discrete gradient: exact sparse LU of the nodal `GᵀPG` at every mesh size (an approximate AMG nodal solve is measured to drift; `geode check` reports the LU's modelled memory) plus 4 Gauss–Seidel sweeps on the vector-nodal block. It converges the lossy spiral where `jacobi` / `ilu0` stall — smoke 1 / 5 / 10 / 20 GHz in 112 / 131 / 145 / 159 iterations, 54k-edge benchmark at 1 GHz in 114 iterations (3.9 s, 0.34 GB peak RSS vs direct LU 5.0 s, 2.03 GB; Z matches LU to 1e-12). On meshes above ~200k edges set `solver.tol = 1e-9`: the default `1e-10` sits below the explicit-residual floor there (measured 1.6–2.5e-10 on a 228k-edge spiral), so the solve drifts and reports `solve_failed`. Known negatives: it does **not** converge the radiating UPML patch, nor layouts whose conductors are floating PEC shells — a spec whose `pec` surfaces form more than one connected component is rejected up front as `invalid_spec`, naming the floating groups (use Leontovich conductors, or `direct`) |
 | `sweep` | driven / extract only; optional section (additive in v1, #708) | sweep strategy; omitted = the dense sweep (one full-order solve per frequency) |
-| `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"`; rejected (`invalid_spec`) with `absorbing_regions` or a dispersive material (`materials[].dispersion`). Lumped `ports`, `wave_ports` and mixed port sets (#774), Leontovich and Silver-Müller walls are supported |
+| `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"`; rejected (`invalid_spec`) with `absorbing_regions`, a dispersive material (`materials[].dispersion`) or a hybrid wave port (#807: its port operator is not affine in ω). Lumped `ports`, geometric `wave_ports` and mixed port sets (#774), Leontovich and Silver-Müller walls are supported |
 | `sweep.adaptive.tolerance` | float in `(0, 1)`, default `1e-6` | residual-indicator target `η = ‖A(ω)x_rom − b‖/‖b‖` (worst over the port excitations) — a bound on the relative **residual**, not directly on `Z` / `S` |
 | `sweep.adaptive.max_snapshots` | int ≥ 1, default `20` | budget of greedy snapshot frequencies (full-order factorizations, seeds included); frequencies still above `tolerance` when it runs out are solved full-order |
 | `solver.mode` (eigen) | `"direct"` only | the eigen path always factors `K − σM` once with sparse LU; `"iterative"` is rejected |
@@ -481,12 +485,16 @@ Silver-Müller walls away from the ports (e.g. a guide feeding a horn
 into an absorbing box, or a guide's far end cap) are fine.
 Lumped `ports` may be added alongside (see
 [Mixed lumped + wave ports](#mixed-lumped--wave-ports-issue-759)).
-Cross-sections with a TEM mode (multiply connected, e.g. coax) are not
-supported: the TEM mode lives in the gradient nullspace and is filtered
-out. Asking for more modes than the cross-section can hold fails with
-`solve_failed`.
+A cross-section with an interior conductor (multiply connected: coax,
+stripline, microstrip) or more than one material is routed to the
+[hybrid path](#hybrid-wave-ports-microstrip-stripline-inhomogeneous-faces-issue-807)
+(issue #807): the TE solver below would filter out its TEM / quasi-TEM
+mode. Asking a geometric port for more modes than the cross-section can
+hold fails with `solve_failed`.
 
-**TE modes only: the sweep must stay below the TM cutoff** (issue #808).
+**TE modes only: the sweep must stay below the TM cutoff** (issue #808;
+geometric ports only — hybrid ports carry TM and hybrid modes and have
+their own completeness check, so this guard does not apply to them).
 The port modal solve returns **TE** modes only (a TM mode's transverse
 field `∇E_z` is in the same filtered gradient nullspace). Above a port's
 lowest **TM** cutoff (TM₁₁ in a rectangular guide) a propagating TM
@@ -540,9 +548,9 @@ PMC centre plane would get the full guide's TE₂₀ instead of TE₁₀.
 `check` and `driven` reject such a port with `invalid_spec`, naming the
 port, the number of open rim edges, the surface groups they lie on and
 the first edge's end points.
-TM and hybrid port modes are tracked in
-[#778](https://github.com/rjwalters/geode-fem/issues/778) /
-[#804](https://github.com/rjwalters/geode-fem/issues/804).
+The same rim rule applies to hybrid ports (their outer shield and any
+carved-out conductor), whose TM and hybrid modes are the
+[hybrid path](#hybrid-wave-ports-microstrip-stripline-inhomogeneous-faces-issue-807).
 
 **Filled wave ports** (issue #777). The guide at a wave port may be
 filled with any **homogeneous** medium: a scalar `eps_r` (lossy or not),
@@ -569,11 +577,10 @@ when `Re β > |Im β|`. Vacuum ports are bit-identical to the pre-#777
 solver. Rejected with `invalid_spec` (from `check` too), never silently
 treated as vacuum:
 
-- a port face touching **more than one material** (by value: two groups
-  with identical materials are one fill). A partially filled guide or
-  microstrip cross-section carries hybrid modes, which wave ports do not
-  model yet ([#778](https://github.com/rjwalters/geode-fem/issues/778));
-  use a lumped port there;
+- (no longer rejected, issue #807: a port face touching **more than one
+  material** — by value: two groups with identical materials are one
+  fill — is routed to the
+  [hybrid path](#hybrid-wave-ports-microstrip-stripline-inhomogeneous-faces-issue-807));
 - an anisotropic fill with **unequal in-plane components** (e.g.
   `eps_r_diag.xx ≠ yy` on a z-normal port), or with any anisotropy on a
   port whose normal is not a coordinate axis;
@@ -585,6 +592,154 @@ treated as vacuum:
   crosses zero inside the sweep is rejected too). Such a guide has no
   propagating mode and no real cutoff
   ([#781](https://github.com/rjwalters/geode-fem/issues/781)).
+
+### Hybrid wave ports: microstrip, stripline, inhomogeneous faces (issue #807)
+
+`check` and `driven` route each wave port by its cross-section
+(`wave_ports[].route` in the report):
+
+- **`"geometric"`** — one homogeneous, in-plane-isotropic material and no
+  interior conductor: the TE path above, unchanged (bit for bit).
+- **`"hybrid"`** — the face touches **more than one material** (a
+  partially filled guide, microstrip: substrate below, air above) and/or
+  carries a **floating conductor** (a PEC strip — a zero-thickness `pec`
+  sheet crossing the face, or a carved-out thick strip whose hole rim is
+  on a `pec` surface — as in microstrip, stripline or coax).
+  `wave_ports[].hybrid.reason` says which (`"inhomogeneous"`,
+  `"interior_conductor"`, `"inhomogeneous_with_interior_conductor"`).
+
+A hybrid port's modes come from the full-vector `E_t`–`E_z` port pencil
+(Lee–Sun–Cendes, p = 1 Whitney + P1; `geode-core`'s
+`driven::ports::HybridWavePort`, Epic #778): TE, TM, hybrid and quasi-TEM
+modes alike, the `n_modes` with the largest `β²` at the first frequency.
+Each face triangle takes the permittivity of the tet it bounds (a lossy
+`eps_r` gives a complex-symmetric pencil; a dispersive model is re-read
+from the volume at every frequency, so the port and the 3-D operator see
+the same `ε(ω)` by construction). The modes are **re-solved at every
+frequency and tracked** across the sweep by continuity; a lost mode
+identity is an error ("refine the sweep"), never a guess. Instead of the
+TE-only TM guard, core checks the exact condition: every propagating
+face mode must be a reported channel, else `invalid_spec` ("raise the
+port's mode count").
+
+**Defaults** (operator decision on #804: maximal usefulness in design
+work):
+
+- mesh-induced complex evanescent pairs are carried and terminated as a
+  reciprocal 2×2 block, with a warning that gives the face resolution at
+  which they resolve;
+- `hybrid.n_termination_evanescent = 4` further evanescent modes are
+  terminated exactly (not reported in S). An unterminated evanescent field
+  reflects at the port face, which matters when a discontinuity sits within
+  a few decay lengths of the port. Four slots hold the slowest-decaying
+  evanescent content even when it is a mesh-induced pair (two slots each),
+  match the window the Phase 1 solver was validated with (four evanescent
+  modes, one-to-one against the slab-guide oracle), and cost one extra
+  back-solve per frequency on the factored operator. A smaller face gets as
+  many as it holds (`n_termination_evanescent_clamped`, a warning);
+- the per-mode **accuracy estimate** is on (an `h/2` re-solve of the port
+  face per frequency, `h/4` at the first for the observed rate): a
+  propagating channel whose estimated `β` error — or, on a lossy face,
+  whose estimated attenuation (`α`) error — exceeds
+  `hybrid.accuracy_threshold` (default 0.5 %) raises a warning with the
+  face mesh size that would meet it. A refined solve that fails degrades
+  to an "accuracy unavailable" warning; it never fails the sweep;
+- every warning is in the report's `warnings[]` (`kind`, `wave_port`,
+  `physical_group`, `message`) and on stderr (`warning: wave port
+  `<group>`: …`): complex pairs, accuracy, uncertified multiplicity of a
+  repeated eigenvalue, non-canonical cluster bases, cluster splits, and
+  the measured passivity of a lossy spec.
+
+**Line impedance** (`wave_ports[].impedance_definition`). A face with a
+floating conductor reports, per channel per row,
+`wave_channels[].hybrid.line` — `z_pi_ohm`, `z_pv_ohm`, `z_vi_ohm`, the
+signed conductor `currents` and path `voltages` — and `z_line_ohm`, the
+impedance of the port's definition:
+
+| definition | formula | depends on |
+|---|---|---|
+| `"power_current"` (**default**) | `Z_PI = 2P/Σ\|I_c\|²` | contour-independent; the definition the 3-D width-step golden validates (`\|S11\|` within 0.30 % of `Γ` from `Z_PI`) |
+| `"power_voltage"` | `Z_PV = Σ\|V_c\|²/(2P)` | the automatic voltage path (shortest, shield → nearest conductor point: a microstrip's strip **edge**), and frequency (1.01× → 1.11× `Z_PI` over `k₀h = 0.05 … 0.2` on a shielded microstrip) |
+| `"voltage_current"` | `Z_VI = √(Z_PI·Z_PV)` | as `power_voltage` |
+
+With two conductors the impedances are the per-line modal ones (`Z_e`,
+`Z_o` of a symmetric pair), and each channel carries
+`hybrid.coupled_mode` = `"even"` (conductor currents in phase) or `"odd"`
+(anti-phase). Read the label, not the channel index: the order is even
+first for ordinary coupled microstrip (descending `β²`) but odd first for
+a degenerate (homogeneous) stripline pair. On a lossy face the
+impedances are complex (unconjugated `Z_PI = 2P/Σ I_c²`: for a TEM line
+`√((R + jωL)/(G + jωC))`). The TE wave impedance `Z_TE` is never offered
+for a hybrid port: for microstrip it is about `η₀/√ε_eff`, not ~50 Ω, and
+predicts step reflections 14–19× too small.
+
+**Per-channel report** (`results[].wave_channels[]`, every wave port;
+additive): `eps_eff = (Re β/k₀)²` for a propagating channel;
+`normalization` = `"power"` (lossless propagating), `"pseudo_power"`
+(lossy propagating: the unconjugated normalization keeps `Sᵀ = S`, but
+passivity is measured, not guaranteed) or `"evanescent"` (**not
+power-normalized**: an evanescent channel carries no power and its S
+entries depend on the normalization convention). A hybrid channel adds
+`hybrid`: `ez_energy_fraction`, `accuracy`, `alpha_accuracy` (lossy),
+`residual`, `residual_floor`, `floor_accepted`, `track_overlap`,
+`cluster_size`, `coupled_mode`, `line`, `z_line_ohm`. A row of a spec with
+a lossy wave port adds `sigma_max`, the largest singular value of S over
+the lumped ports and the propagating channels: `> 1 + 1e-6` raises a
+`"passivity"` warning. `wave_ports[]` adds `route` and, for a hybrid
+port, `hybrid` (the reason, touching groups, conductors with their
+voltage-path length, the face's free `E_t` / `E_z` unknowns and mesh size
+`h`, `lossy` / `dispersive`, the termination count, accuracy threshold,
+impedance definition and its note, the observed convergence rates and the
+worst tracking overlap); its `medium` is `null` (the face has no single
+medium) and `modes` / the TM-guard fields are `null`.
+
+**`geode check`** routes every port and, for a hybrid one, runs the
+port-face half of the sweep at every frequency without the 3-D solve:
+`wave_ports[].hybrid.frequencies[]` lists `n_propagating`, the
+termination and multiplicity counts, and per channel `β`, `eps_eff`,
+`normalization` and the `hybrid` diagnostics above (the same numbers
+`driven` reports), and `warnings[]` carries the same warnings.
+
+Example (a 50 Ω microstrip, `examples/driven/microstrip_line.json`):
+
+```json
+"boundary_conditions": { "pec": ["shield", "strip"] },
+"wave_ports": [
+  { "physical_group": "port_in",  "reference_ohm": 50 },
+  { "physical_group": "port_out", "reference_ohm": 50 }
+]
+```
+
+The strip is a zero-thickness `pec` surface inside the volume (interior
+faces between the substrate and the air tets); the port faces are the
+two end caps of the shielded line. No `impedance_definition` is needed
+(`power_current` is the default), and `--touchstone` writes the line
+renormalized to 50 Ω.
+
+**Still `invalid_spec`** (each naming the reason): `μ_r ≠ 1`
+(`mu_r_diag`) or an anisotropic `eps_r_diag` on a hybrid face (the hybrid
+pencil is isotropic and non-magnetic); `sweep.adaptive` with a hybrid
+port (its modal flux and `β` are not affine in ω, so the reduced-order
+model cannot project the port once, #774); `absorbing_regions` with a
+hybrid port (the UPML makes the volume operator frequency-dependent
+tensors, which the hybrid sweep does not take: use Silver-Müller walls);
+a dispersive spec with hybrid ports and a geometric port whose fill is
+dispersive (that port would keep a stale fixed medium) or with
+anisotropic materials; a lossy hybrid face with anisotropic volume
+materials; an internal port plane whose two sides differ in material;
+`impedance_definition` or `hybrid` on a geometric port;
+`impedance_definition` on a hybrid face without a floating conductor (a
+partially filled waveguide has no line impedance); `power_voltage` /
+`voltage_current` when a conductor has no voltage path; more reported +
+termination channels than the face holds; `hybrid.accuracy_threshold`
+without the estimate; and `--touchstone` on a hybrid port without a
+floating conductor (use the JSON modal S).
+
+**Volume conductivity.** The `geode` spec has no volume conductivity σ:
+a lossy dielectric is a complex `eps_r` (or a dispersive model), which the
+hybrid face sees exactly (each face triangle takes the complex `ε` of its
+tet). Conductor loss on a Leontovich wall is not seen by the port modes
+(they are solved with a PEC rim, as for geometric ports).
 
 ### Mixed lumped + wave ports (issue #759)
 
@@ -1386,7 +1541,10 @@ Constant lossy and anisotropic guide fills are supported; a dispersive
 fill is a dispersive material and stays rejected. Wave ports with
 Leontovich walls (incl. roughness) or a Silver-Müller wall off the port
 rims (issue #776) work too: the walls join the projected base operator
-exactly as on the lumped path.
+exactly as on the lumped path. A **hybrid** wave port (issue #807) is
+rejected with `invalid_spec`: its modal flux `f̂(ω)` and `β(ω)` come from a
+per-frequency re-solve of the face and are not affine in ω, so the model
+cannot project the port operator once.
 
 The tolerance bounds the **residual**; the error in `Z` can exceed it by
 the conditioning of `A(ω)`. Measured (issue #708, release, M3 Ultra, all
@@ -1696,6 +1854,36 @@ Last run: scikit-rf 2.1.0, 2026-09-30, all three files matched.
 python3 -m venv /tmp/skrf && /tmp/skrf/bin/pip install scikit-rf
 GEODE_SKRF=/tmp/skrf/bin/python cargo test -p geode-cli scikit_rf -- --nocapture
 ```
+
+### Hybrid wave ports (issue #807)
+
+A [hybrid port](#hybrid-wave-ports-microstrip-stripline-inhomogeneous-faces-issue-807)'s
+channels are renormalized with their **line impedance** instead of
+`Z_TE`: `Z_c` = the row's `wave_channels[].hybrid.z_line_ohm`, the
+port's `impedance_definition` at that frequency (default
+`power_current`, `Z_PI`; complex on a lossy face, principal `√Z_c`). The
+transform, the classification of channels by `propagating` (from a
+face-only solve of the port at every sweep frequency, before the 3-D
+sweep), the exclusion of always-evanescent channels and the
+cutoff-crossing rejection are as above. `reference_ohm` stays required;
+the missing-reference message lists each hybrid channel's `Re Z_line`
+range. `Z_TE` is **never** used for a hybrid channel: for a quasi-TEM
+microstrip mode it is about `η₀/√ε_eff` (≈ 207 Ω for a 50 Ω line on
+`ε_r = 4.4`), so a 50 Ω line would look badly mismatched (`|Γ| ≈ 0.61`;
+`tests/hybrid_wave_port.rs` asserts this tripwire), and step reflections
+predicted from it are 14–19× too small. A hybrid port **without** a
+floating conductor (a partially filled waveguide) has no line impedance,
+so `--touchstone` rejects it with `invalid_spec`; its modal S is in the
+JSON report. A file with hybrid channels states the convention in its
+header (`! Hybrid wave channels (…): Z_c = the channel's line impedance
+under wave_ports[].impedance_definition …`, plus the `Z_TE` line when it
+also writes geometric channels).
+
+Measured (`tests/hybrid_wave_port.rs`, a Hammerstad–Jensen 50 Ω microstrip,
+`ε_r = 4.4`, `w/h = 1.91`, 16h × 10h shield, `L = 4 mm`, 2–4 GHz,
+`reference_ohm = 50`): `Z_PI` = 48.5 Ω, `|S11|` ≤ 0.014 in the file, which
+equals the independent impedance-route renormalization of the modal S with
+the reported `z_line_ohm` to 5e-16.
 
 ## SPICE subcircuit export (`--spice`, issues #715 / #719)
 
@@ -2290,7 +2478,14 @@ Additive in v1 (issue #683) — always present in `check`, present in
   dispersive fill as in `regions[].eps_r` — `mu_r_t`, `mu_r_n`), and
   `modes` — `null` in `check` (no modal solve), else one entry per mode:
   `mode`, `channel` (flat S-matrix index), `k_c` (rad / mesh unit),
-  `cutoff_hz` (the filled cutoff `k_c/√(Re ε_t·μ_n)`).
+  `cutoff_hz` (the filled cutoff `k_c/√(Re ε_t·μ_n)`). Additive, issue
+  #807: `route` (`"geometric"` \| `"hybrid"`) and, for a hybrid port,
+  `hybrid` (see
+  [Hybrid wave ports](#hybrid-wave-ports-microstrip-stripline-inhomogeneous-faces-issue-807));
+  a hybrid port's `medium`, `modes` and TM-guard fields are `null`.
+- **`warnings[]`** (additive, issue #807; omitted when empty): `kind`,
+  `wave_port`, `physical_group`, `message` — hybrid-port diagnostics and
+  the measured passivity of a lossy spec, also printed on stderr.
 
 **`kind = "check"`** adds `regions[]` (`physical_group`, `tag`, `n_tets`,
 `eps_r`, `eps_r_source` = `"spec"` \| `"default_vacuum"` \|
@@ -2390,8 +2585,15 @@ admittance `y = β/μ_t`, i.e. `β` for a non-magnetic fill; reciprocal), and
 excitations). `wave_channels[]`, one per channel, carries `channel`,
 `port`, `mode`, `beta` (`[re, im]`: real positive when propagating,
 `−j|β|` when evanescent; complex with `im < 0` in a lossy fill),
-`propagating` (`Re β > |Im β|`), `s` (`S_kk`) and `s_db`. For a
-**mixed** spec (issue #759) `s` is the power-wave S-matrix over the
+`propagating` (`Re β > |Im β|`), `s` (`S_kk`) and `s_db`, and (additive,
+issue #807) `eps_eff` (`(Re β/k₀)²`, propagating channels only),
+`normalization` (`"power"` \| `"pseudo_power"` \| `"evanescent"` — an
+evanescent channel is **not** power-normalized) and, for a hybrid port's
+channel, `hybrid` (see
+[Hybrid wave ports](#hybrid-wave-ports-microstrip-stripline-inhomogeneous-faces-issue-807)).
+A row of a spec with a lossy wave port adds `sigma_max` (largest singular
+value of S over the lumped ports and propagating channels: measured
+passivity). For a **mixed** spec (issue #759) `s` is the power-wave S-matrix over the
 lumped ports and then the wave channels, `channel` is offset by the
 lumped-port count, and `iterations` has `2·n_channels + n_lumped`
 entries (see [Mixed lumped + wave ports](#mixed-lumped--wave-ports-issue-759)).
@@ -2592,6 +2794,26 @@ starter spec. (`crates/geode-cli/examples/` holds only JSON / TOML and
 Markdown — no `cargo run --example` targets.)
 
 ## Golden tests
+
+`tests/hybrid_wave_port.rs` (issue #807) runs hybrid wave ports through
+the real binary. Default tier: the `geode check` routing report
+(microstrip, slab-loaded guide, homogeneous stripline, and a geometric
+guide left on the TE path); the slab-loaded guide against the closed-form
+LSE/LSM oracle (β within 0.5 %, measured 0.031 %, with the accuracy
+estimate equal to the true error to the printed digits; `|S21| ≈ 1`,
+reciprocity 1e-8); every remaining `invalid_spec`. Release tier
+(`--ignored`, ~10 s): a Hammerstad–Jensen 50 Ω microstrip written to
+Touchstone (`|S11|` ≤ 0.014 against the 0.05 bar; the file equals the
+independent impedance-route renormalization with the reported
+`z_line_ohm` to 5e-16; the `Z_TE` tripwire gives `|Γ| ≈ 0.61`), microstrip
+`eps_eff` vs Hammerstad–Jensen (−0.09 % against the 2 % bar, 20h shield),
+coupled microstrip even / odd labels (even first, `ε_eff` 3.27 / 2.88,
+`Z` 61.1 / 39.1 Ω, conversion ≤ 3e-5), a lossy line (`σ_max` 0.997 /
+0.995, `|S21|` = `e^{−αL}` to 1e-5, complex `Z_PI`, both lossy-path
+accuracy warnings) and a Djordjevic–Sarkar substrate through the
+dispersive sweep. `tests/wave_port_driven.rs` turns the former
+inhomogeneous-face rejection into a success (β within 0.12 % of the
+oracle on its 8 × 4 face).
 
 `tests/sensitivity_golden.rs` (issue #707) runs the `sensitivity`
 section through the real binary with `fd_check` on (library bar:

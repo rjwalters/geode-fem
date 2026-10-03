@@ -141,7 +141,12 @@
 //! above the threshold (default 0.5 %) raises
 //! [`PortWarningKind::AccuracyAboveThreshold`] with the face resolution that
 //! would meet it, from the observed rate (an `h/4` solve at the first
-//! frequency) when [`PortAccuracyOpts::observe_rate`] is set.
+//! frequency) when [`PortAccuracyOpts::observe_rate`] is set. The estimate is
+//! a diagnostic: a refined solve that fails gives
+//! [`PortWarningKind::AccuracyUnavailable`] and the sweep continues (#807).
+//! On a lossy face, [`PortAccuracyOpts::alpha_threshold`] (opt-in) also warns
+//! on the attenuation estimate
+//! ([`PortWarningKind::AttenuationAccuracyAboveThreshold`]).
 //!
 //! # Adaptive PROM
 //!
@@ -163,6 +168,16 @@
 //! fixed-material sweep; in a dispersive sweep the face reads `ε(ω)` from
 //! the same vector the 3-D operator is assembled from. Real faces keep the
 //! Phase 2 path above unchanged.
+//!
+//! # Front-end support (Phase 5, #807)
+//!
+//! - [`solve_hybrid_port_face_sweep`] runs one port's half of the sweep
+//!   (modes, tracking, termination, accuracy, warnings) without the 3-D
+//!   solve, by the same code, so a front end can preview a port.
+//! - A lossy face reports complex line impedances
+//!   ([`HybridChannelReport::line_lossy`], [`HybridComplexLineReport`]).
+//! - With `sigma_tet`, a face built from the volume that bounds a conducting
+//!   tet sees `ε − jσ/ω` there ([`solve_mixed_port_spec_sweep_with_mode`]).
 
 use std::collections::HashMap;
 
@@ -713,6 +728,13 @@ pub struct PortAccuracyOpts {
     /// channel's convergence rate (used for the Richardson factor and the
     /// resolution hint). `false`: the nominal rate 2. Default `true`.
     pub observe_rate: bool,
+    /// Relative error of the attenuation `α = −Im β` above which a
+    /// propagating channel of a **lossy** port raises
+    /// [`PortWarningKind::AttenuationAccuracyAboveThreshold`] (from
+    /// [`HybridChannelReport::alpha_accuracy`]; #819 review). `None`
+    /// (default): `α` is estimated and reported but never warned about. The
+    /// `geode` CLI sets it to [`Self::threshold`] (#807).
+    pub alpha_threshold: Option<f64>,
 }
 
 impl Default for PortAccuracyOpts {
@@ -720,6 +742,7 @@ impl Default for PortAccuracyOpts {
         Self {
             threshold: DEFAULT_ACCURACY_THRESHOLD,
             observe_rate: true,
+            alpha_threshold: None,
         }
     }
 }
@@ -958,8 +981,12 @@ pub struct HybridChannelReport {
     pub cluster_size: usize,
     /// Line quantities (`Z_PI`, `Z_PV`, `Z_VI`, conductor currents and
     /// voltages) for a propagating channel on a face with floating
-    /// conductors; `None` otherwise.
+    /// conductors; `None` otherwise. Real faces only: a lossy face reports
+    /// [`Self::line_lossy`].
     pub line: Option<HybridLineReport>,
+    /// The complex line quantities of a propagating channel of a **lossy**
+    /// face with floating conductors (Phase 5, #807); `None` otherwise.
+    pub line_lossy: Option<HybridComplexLineReport>,
 }
 
 /// Line quantities of one propagating hybrid channel (#817), for the
@@ -1003,6 +1030,42 @@ pub struct HybridLineReport {
     pub z_pv: Option<f64>,
     /// Voltage–current impedance (ohms); `None` if a voltage is missing.
     pub z_vi: Option<f64>,
+}
+
+/// Line quantities of one propagating channel of a **lossy** hybrid port
+/// (Phase 5, #807): the unconjugated (reciprocal) counterparts of
+/// [`HybridLineReport`], with the definitions of Phase 5's operator decision.
+///
+/// With the channel normalized `zᵀBz = β²` (complex), the modal pseudo-power
+/// is `P = zᵀBz/(2k₀η₀β)`, the conductor currents `I_c` are the discrete
+/// Ampère sums with the **complex** `ε` (the displacement term carries
+/// `T_{ε″}`), the path voltages `V_c = Σ ±ẽ_t/β`, and
+///
+/// ```text
+///   Z_PI = 2P / Σ_c I_c²,   Z_PV = Σ_c V_c² / (2P),   Z_VI = √(Z_PI · Z_PV)
+/// ```
+///
+/// (unconjugated squares, principal root). For a TEM line this is
+/// `Z = √((R + jωL)/(G + jωC))`, the complex characteristic impedance a
+/// Touchstone renormalization needs; in the lossless limit it is exactly the
+/// real [`HybridLineReport`] (`P`, `I_c`, `V_c` real). Like the real ones,
+/// `Z_PV` and `Z_VI` depend on the voltage path.
+#[derive(Debug, Clone)]
+pub struct HybridComplexLineReport {
+    /// Modal pseudo-power `P = zᵀBz/(2k₀η₀β)` (complex).
+    pub power: c64,
+    /// Signed conductor currents `I_c` (complex).
+    pub currents: Vec<c64>,
+    /// Path voltages `V_c`; `None` where no path exists.
+    pub voltages: Vec<Option<c64>>,
+    /// Power–current impedance (ohms, complex).
+    pub z_pi: c64,
+    /// Power–voltage impedance (ohms, complex); `None` if a voltage is
+    /// missing.
+    pub z_pv: Option<c64>,
+    /// Voltage–current impedance (ohms, complex); `None` if a voltage is
+    /// missing.
+    pub z_vi: Option<c64>,
 }
 
 /// A hybrid port at one frequency.
@@ -1096,7 +1159,25 @@ pub enum PortWarningKind {
         /// `E_z` energy fraction of the mode there.
         ez_energy_fraction: f64,
     },
-    /// The refined counterpart of a channel could not be matched.
+    /// A lossy propagating channel's estimated attenuation error exceeds
+    /// [`PortAccuracyOpts::alpha_threshold`] (#819 review; off by default).
+    AttenuationAccuracyAboveThreshold {
+        /// Channel index within the port.
+        channel: usize,
+        /// Frequency of the worst estimate.
+        omega: f64,
+        /// Worst estimate of the relative `α` error.
+        estimate: f64,
+        /// Threshold.
+        threshold: f64,
+        /// Current face mesh size.
+        h: f64,
+        /// Face mesh size meeting the threshold (`h·(τ/est)^{1/p}` at the
+        /// channel's observed or nominal rate `p`).
+        h_required: f64,
+    },
+    /// The refined counterpart of a channel could not be matched, or the
+    /// refined (`h/2`) solve failed; the sweep continued without the estimate.
     AccuracyUnavailable {
         /// Channel index within the port.
         channel: usize,
@@ -1284,6 +1365,12 @@ fn wave_layout(out: MixedPortSpecSweep) -> WavePortSpecSweep {
 /// [`super::solve_mixed_port_sweep_with_mode`]); hybrid ports per the module
 /// docs.
 ///
+/// **Volume conductivity** (Phase 5, #807). With `sigma_tet`, a hybrid face
+/// built from the volume ([`HybridPortFace::tet_of_tri`]) that bounds a
+/// conducting tet sees that tet's `ε − jσ/ω` at every `ω` (the same
+/// `K − ω²M(ε − jσ/ω)` the 3-D operator assembles), through the
+/// complex-symmetric port pencil; such a port needs a scalar volume `ε`.
+///
 /// # Errors
 ///
 /// - [`DrivenError::InvalidPort`]: an empty port set, a zero drive, a mode
@@ -1431,6 +1518,7 @@ fn mixed_spec_sweep<B: burn::tensor::backend::Backend>(
 
     // Static per-port data.
     let mut ports: Vec<PortState> = Vec::with_capacity(wave.len());
+    let mut any_conducting = false;
     for (p_idx, spec) in wave.iter().enumerate() {
         let index = n_lumped + p_idx;
         match spec {
@@ -1474,74 +1562,35 @@ fn mixed_spec_sweep<B: burn::tensor::backend::Backend>(
                 ports.push(PortState::Geometric { fluxes });
             }
             WavePortSpec::Hybrid(port) => {
-                if port.a_inc.is_empty() {
-                    return Err(DrivenError::InvalidPort {
-                        index,
-                        reason: "hybrid wave port must report at least one channel".to_string(),
-                    });
-                }
-                if let Some((m, a)) = port
-                    .a_inc
-                    .iter()
-                    .enumerate()
-                    .find(|(_, a)| !(a.re.is_finite() && a.im.is_finite()) || **a == zero)
-                {
-                    return Err(DrivenError::InvalidPort {
-                        index,
-                        reason: format!(
-                            "hybrid wave-port channel {m} has a_inc = {a}; every channel needs \
-                             a finite non-zero amplitude"
-                        ),
-                    });
-                }
-                if let Some(&w) = omegas.iter().find(|w| !(w.is_finite() && **w > 0.0)) {
-                    return Err(DrivenError::InvalidPort {
-                        index,
-                        reason: format!("hybrid wave port needs every ω > 0 (got {w})"),
-                    });
-                }
-                let ctx = FaceCtx::new(mesh, &edges, port, index)?;
-                let max_modes = port.face.max_modes();
-                let need = port.n_modes() + port.opts.n_termination_evanescent;
-                if need > max_modes {
-                    return Err(DrivenError::InvalidPort {
-                        index,
-                        reason: format!(
-                            "hybrid wave port asks for {need} channel(s) (reported + \
-                             termination) but its face holds {max_modes} physical mode(s) (the \
-                             free transverse DOF count); refine the face or request fewer"
-                        ),
-                    });
-                }
                 if let SweepMaterials::Fixed(m) = materials {
                     check_face_matches_volume(port, m, index)?;
                 }
-                if port.face.is_lossy() || matches!(materials, SweepMaterials::PerOmega(_)) {
-                    // Lossy / dispersive face: the complex-symmetric path (#806).
-                    if matches!(materials, SweepMaterials::PerOmega(_))
-                        && port.face.tet_of_tri.is_none()
-                    {
-                        return Err(DrivenError::InvalidPort {
-                            index,
-                            reason: "a hybrid port in a dispersive sweep reads its face ε(ω) from \
-                                     the volume through the tet each face triangle bounds; build \
-                                     the face with HybridPortFace::from_volume or \
-                                     from_volume_lossy"
-                                .to_string(),
-                        });
-                    }
-                    ports.push(PortState::Lossy(Box::new(LossyState::new(
-                        ctx,
-                        port,
-                        omegas.len(),
-                    ))));
-                    continue;
+                // A face bounding a conducting tet sees `ε − jσ/ω` (Phase 5,
+                // #807): the per-ω complex path.
+                let conducting = face_conducts(port, sigma_tet);
+                if conducting
+                    && matches!(
+                        materials,
+                        SweepMaterials::Fixed(DrivenMaterials::MatchedUpml { .. })
+                    )
+                {
+                    return Err(DrivenError::InvalidPort {
+                        index,
+                        reason: "a hybrid port face on a conducting (σ > 0) volume needs a \
+                                 scalar (isotropic) volume permittivity: the face sees the \
+                                 complex ε − jσ/ω of the tets it bounds"
+                            .to_string(),
+                    });
                 }
-                ports.push(PortState::Hybrid(Box::new(HybridState::new(
-                    ctx,
-                    omegas.len(),
-                    port.n_modes(),
-                ))));
+                any_conducting |= conducting;
+                ports.push(new_hybrid_state(
+                    mesh,
+                    &edges,
+                    port,
+                    index,
+                    omegas,
+                    matches!(materials, SweepMaterials::PerOmega(_)) || conducting,
+                )?);
             }
         }
     }
@@ -1618,6 +1667,26 @@ fn mixed_spec_sweep<B: burn::tensor::backend::Backend>(
             }
             (None, None) => unreachable!("a per-ω sweep evaluates ε(ω)"),
         };
+        // The face `ε` of a lossy / dispersive / conducting hybrid port at
+        // this ω: the volume's `ε(ω)` (dispersive) or fixed scalar `ε`, with
+        // `−jσ/ω` on conducting tets (#807); `None`: each face's own `ε`.
+        let face_eps_w: Option<Vec<c64>> = match (any_conducting, sigma_tet) {
+            (true, Some(sig)) => {
+                let base: &[c64] = match (&eps_w, materials) {
+                    (Some(e), _) => e,
+                    (None, SweepMaterials::Fixed(DrivenMaterials::Scalar(v))) => v,
+                    _ => unreachable!("conducting hybrid faces need scalar materials (checked)"),
+                };
+                Some(
+                    base.iter()
+                        .zip(sig)
+                        .map(|(&e, &sg)| e - c64::new(0.0, sg / omega))
+                        .collect(),
+                )
+            }
+            _ => None,
+        };
+        let face_eps = face_eps_w.as_deref().or(eps_w.as_deref());
         let n_int = op.n_interior();
         // Channels: reported (port-major, channel-minor), then termination.
         let mut reported: Vec<ChanAt> = Vec::with_capacity(n_reported);
@@ -1651,7 +1720,7 @@ fn mixed_spec_sweep<B: burn::tensor::backend::Backend>(
                         unreachable!("port state matches its spec")
                     };
                     let (rep, term) =
-                        ls.channels_at(port, p_idx, omega, oi, step == 0, eps_w.as_deref())?;
+                        ls.channels_at(port, p_idx, omega, oi, step == 0, face_eps)?;
                     reported.extend(rep);
                     termination.extend(term);
                 }
@@ -1776,91 +1845,9 @@ fn mixed_spec_sweep<B: burn::tensor::backend::Backend>(
             continue;
         }
         if let PortState::Hybrid(hs) = state {
-            let hs = *hs;
-            let h = hs.ctx.h;
-            if let Some(w) = hs.pair_warn {
-                warnings.push(w.into_warning(p_idx, h));
-            }
-            warnings.extend(hs.dropped_warn.into_iter().map(|kind| {
-                let PortWarningKind::ComplexPairDropped {
-                    mode_indices,
-                    omega,
-                    unfilled_slots,
-                } = &kind
-                else {
-                    unreachable!()
-                };
-                PortWarning {
-                    port: p_idx,
-                    message: format!(
-                        "hybrid wave port {p_idx}: complex pair (modes {}–{}) at ω = {omega} has a \
-                         degenerate self-pairing zᵀBz ≈ 0 and cannot be terminated as a 2×2 \
-                         block; the evanescent termination window stops above it \
-                         ({unfilled_slots} slot(s) unfilled). Refine the port face below h = \
-                         {h:.4e}",
-                        mode_indices[0], mode_indices[1]
-                    ),
-                    kind,
-                }
-            }));
-            for kind in hs.acc_warn.into_iter().flatten() {
-                let PortWarningKind::AccuracyAboveThreshold {
-                    channel,
-                    omega,
-                    estimate,
-                    threshold,
-                    h,
-                    h_required,
-                    ez_energy_fraction,
-                } = &kind
-                else {
-                    unreachable!()
-                };
-                warnings.push(PortWarning {
-                    port: p_idx,
-                    message: format!(
-                        "hybrid wave port {p_idx} channel {channel}: estimated β error {:.3} % at \
-                         ω = {omega} exceeds {:.3} % (E_z energy fraction {:.2}); refine the port \
-                         face to h ≤ {h_required:.4e} (now {h:.4e})",
-                        100.0 * estimate,
-                        100.0 * threshold,
-                        ez_energy_fraction
-                    ),
-                    kind,
-                });
-            }
-            for kind in hs.acc_unavail.into_iter().flatten() {
-                let PortWarningKind::AccuracyUnavailable { channel, omega } = &kind else {
-                    unreachable!()
-                };
-                warnings.push(PortWarning {
-                    port: p_idx,
-                    message: format!(
-                        "hybrid wave port {p_idx} channel {channel}: no refined (h/2) counterpart \
-                         matched at ω = {omega}; accuracy estimate unavailable"
-                    ),
-                    kind,
-                });
-            }
-            if let Some((omega, n_omegas, verified)) = hs.mult_warn {
-                warnings.push(multiplicity_warning(p_idx, omega, n_omegas, verified));
-            }
-            warnings.extend(
-                hs.cluster_warn
-                    .into_iter()
-                    .map(|kind| cluster_warning(p_idx, kind)),
-            );
-            hybrid.push(HybridPortReport {
-                port: p_idx,
-                n_conductors: hs.ctx.conductors.len(),
-                mesh_size: h,
-                points: hs
-                    .points
-                    .into_iter()
-                    .map(|p| p.expect("every frequency visited"))
-                    .collect(),
-                observed_rates: hs.rates,
-            });
+            let (report, warns) = hs.into_report(p_idx);
+            hybrid.push(report);
+            warnings.extend(warns);
         }
     }
     Ok(MixedPortSpecSweep {
@@ -1871,6 +1858,175 @@ fn mixed_spec_sweep<B: burn::tensor::backend::Backend>(
         hybrid,
         warnings,
     })
+}
+
+/// Whether hybrid port `port`'s face bounds a conducting tet (`σ ≠ 0` in
+/// `sigma_tet`; #807). Only faces built from the volume (with a tet map) can
+/// see `σ`; for one built from a bare projection the caller supplies the
+/// face `ε`.
+fn face_conducts(port: &HybridWavePort, sigma_tet: Option<&[f64]>) -> bool {
+    match (sigma_tet, &port.face.tet_of_tri) {
+        (Some(sig), Some(tets)) => tets.iter().any(|&t| sig.get(t).is_some_and(|&s| s != 0.0)),
+        _ => false,
+    }
+}
+
+/// The per-sweep state of hybrid port `port` (wave-port index `index`, after
+/// any lumped ports) over `omegas`: the real Phase 2 state, or the lossy /
+/// dispersive one (`per_omega`: the face `ε` is re-read per `ω` from the
+/// volume). Validates the drive, the frequencies and the mode count.
+fn new_hybrid_state(
+    mesh: &TetMesh,
+    edges: &[[u32; 2]],
+    port: &HybridWavePort,
+    index: usize,
+    omegas: &[f64],
+    per_omega: bool,
+) -> Result<PortState, DrivenError> {
+    let zero = c64::new(0.0, 0.0);
+    if port.a_inc.is_empty() {
+        return Err(DrivenError::InvalidPort {
+            index,
+            reason: "hybrid wave port must report at least one channel".to_string(),
+        });
+    }
+    if let Some((m, a)) = port
+        .a_inc
+        .iter()
+        .enumerate()
+        .find(|(_, a)| !(a.re.is_finite() && a.im.is_finite()) || **a == zero)
+    {
+        return Err(DrivenError::InvalidPort {
+            index,
+            reason: format!(
+                "hybrid wave-port channel {m} has a_inc = {a}; every channel needs a finite \
+                 non-zero amplitude"
+            ),
+        });
+    }
+    if let Some(&w) = omegas.iter().find(|w| !(w.is_finite() && **w > 0.0)) {
+        return Err(DrivenError::InvalidPort {
+            index,
+            reason: format!("hybrid wave port needs every ω > 0 (got {w})"),
+        });
+    }
+    let ctx = FaceCtx::new(mesh, edges, port, index)?;
+    let max_modes = port.face.max_modes();
+    let need = port.n_modes() + port.opts.n_termination_evanescent;
+    if need > max_modes {
+        return Err(DrivenError::InvalidPort {
+            index,
+            reason: format!(
+                "hybrid wave port asks for {need} channel(s) (reported + termination) but its \
+                 face holds {max_modes} physical mode(s) (the free transverse DOF count); refine \
+                 the face or request fewer"
+            ),
+        });
+    }
+    if port.face.is_lossy() || per_omega {
+        // Lossy / dispersive face: the complex-symmetric path (#806).
+        if per_omega && port.face.tet_of_tri.is_none() {
+            return Err(DrivenError::InvalidPort {
+                index,
+                reason: "a hybrid port in a dispersive sweep reads its face ε(ω) from the volume \
+                         through the tet each face triangle bounds; build the face with \
+                         HybridPortFace::from_volume or from_volume_lossy"
+                    .to_string(),
+            });
+        }
+        return Ok(PortState::Lossy(Box::new(LossyState::new(
+            ctx,
+            port,
+            omegas.len(),
+        ))));
+    }
+    Ok(PortState::Hybrid(Box::new(HybridState::new(
+        ctx,
+        omegas.len(),
+        port.n_modes(),
+    ))))
+}
+
+/// Result of [`solve_hybrid_port_face_sweep`].
+#[derive(Debug, Clone)]
+pub struct HybridFaceSweep {
+    /// The port's report, exactly as a 3-D spec sweep over the same
+    /// frequencies would return it.
+    pub report: HybridPortReport,
+    /// The port's warnings, likewise.
+    pub warnings: Vec<PortWarning>,
+}
+
+/// The **port-face half** of a hybrid spec sweep, without the 3-D solve: the
+/// per-frequency mode solve, tracking, completeness check, termination
+/// window, accuracy estimate and warnings of hybrid port `port` over
+/// `omegas` (any order; tracked in ascending order, reported in input order),
+/// by the same code the spec sweeps run per port. `index` is the port's
+/// index in the wave-port list (it names the port in errors and warnings).
+/// `eps_at`: the dispersive volume's per-tet `ε(ω)`, as
+/// [`solve_mixed_port_spec_sweep_dispersive_with_mode`] takes it (`None`: the
+/// face's own fixed `ε`).
+///
+/// This is what a front end runs to preview a hybrid port (modes, `ε_eff`,
+/// line impedances, warnings) before the expensive 3-D sweep, e.g.
+/// `geode check` (Epic #778 Phase 5, #807). Its report and warnings equal
+/// the spec sweep's for that port bit for bit (the face solves do not depend
+/// on the volume).
+///
+/// # Errors
+///
+/// The port's own errors of [`solve_mixed_port_spec_sweep_with_mode`]: an
+/// invalid drive, a non-positive `ω`, too many channels for the face, a
+/// face edge missing from `mesh`, a failed mode solve, lost mode identity, a
+/// propagating mode that is not a reported channel, a complex pair in a
+/// reported slot; and, with `eps_at`, a face without a tet map or an
+/// `eps_at(ω)` of the wrong length or with an entry the port rejects.
+pub fn solve_hybrid_port_face_sweep(
+    mesh: &TetMesh,
+    port: &HybridWavePort,
+    index: usize,
+    omegas: &[f64],
+    eps_at: Option<DispersiveEps<'_>>,
+) -> Result<HybridFaceSweep, DrivenError> {
+    let edges = mesh.edges();
+    let mut state = new_hybrid_state(mesh, &edges, port, index, omegas, eps_at.is_some())?;
+    let mut order: Vec<usize> = (0..omegas.len()).collect();
+    order.sort_by(|&a, &b| omegas[a].total_cmp(&omegas[b]));
+    for (step, &oi) in order.iter().enumerate() {
+        let omega = omegas[oi];
+        match &mut state {
+            PortState::Hybrid(hs) => {
+                hs.channels_at(port, index, omega, oi, step == 0)?;
+            }
+            PortState::Lossy(ls) => {
+                let eps_w = match eps_at {
+                    Some(f) => {
+                        let e = f(omega);
+                        if e.len() != mesh.n_tets() {
+                            return Err(DrivenError::InvalidPort {
+                                index,
+                                reason: format!(
+                                    "dispersive ε(ω) at ω = {omega} has {} entries for {} tets",
+                                    e.len(),
+                                    mesh.n_tets()
+                                ),
+                            });
+                        }
+                        Some(e)
+                    }
+                    None => None,
+                };
+                ls.channels_at(port, index, omega, oi, step == 0, eps_w.as_deref())?;
+            }
+            PortState::Geometric { .. } => unreachable!("a hybrid port state"),
+        }
+    }
+    let (report, warnings) = match state {
+        PortState::Hybrid(hs) => hs.into_report(index),
+        PortState::Lossy(ls) => ls.into_report(index),
+        PortState::Geometric { .. } => unreachable!("a hybrid port state"),
+    };
+    Ok(HybridFaceSweep { report, warnings })
 }
 
 /// The [`PortWarningKind::MultiplicityUncertified`] warning of port `p_idx`
@@ -2673,6 +2829,97 @@ impl UnitUse {
 }
 
 impl HybridState {
+    /// The port's report and warnings at the end of the sweep.
+    fn into_report(self, p_idx: usize) -> (HybridPortReport, Vec<PortWarning>) {
+        let mut warnings = Vec::new();
+        let h = self.ctx.h;
+        if let Some(w) = self.pair_warn {
+            warnings.push(w.into_warning(p_idx, h));
+        }
+        warnings.extend(self.dropped_warn.into_iter().map(|kind| {
+            let PortWarningKind::ComplexPairDropped {
+                mode_indices,
+                omega,
+                unfilled_slots,
+            } = &kind
+            else {
+                unreachable!()
+            };
+            PortWarning {
+                port: p_idx,
+                message: format!(
+                    "hybrid wave port {p_idx}: complex pair (modes {}–{}) at ω = {omega} has a \
+                     degenerate self-pairing zᵀBz ≈ 0 and cannot be terminated as a 2×2 \
+                     block; the evanescent termination window stops above it \
+                     ({unfilled_slots} slot(s) unfilled). Refine the port face below h = \
+                     {h:.4e}",
+                    mode_indices[0], mode_indices[1]
+                ),
+                kind,
+            }
+        }));
+        for kind in self.acc_warn.into_iter().flatten() {
+            let PortWarningKind::AccuracyAboveThreshold {
+                channel,
+                omega,
+                estimate,
+                threshold,
+                h,
+                h_required,
+                ez_energy_fraction,
+            } = &kind
+            else {
+                unreachable!()
+            };
+            warnings.push(PortWarning {
+                port: p_idx,
+                message: format!(
+                    "hybrid wave port {p_idx} channel {channel}: estimated β error {:.3} % at \
+                     ω = {omega} exceeds {:.3} % (E_z energy fraction {:.2}); refine the port \
+                     face to h ≤ {h_required:.4e} (now {h:.4e})",
+                    100.0 * estimate,
+                    100.0 * threshold,
+                    ez_energy_fraction
+                ),
+                kind,
+            });
+        }
+        for kind in self.acc_unavail.into_iter().flatten() {
+            let PortWarningKind::AccuracyUnavailable { channel, omega } = &kind else {
+                unreachable!()
+            };
+            warnings.push(PortWarning {
+                port: p_idx,
+                message: format!(
+                    "hybrid wave port {p_idx} channel {channel}: no refined (h/2) counterpart \
+                     matched (or the refined solve failed) at ω = {omega}; accuracy estimate \
+                     unavailable"
+                ),
+                kind,
+            });
+        }
+        if let Some((omega, n_omegas, verified)) = self.mult_warn {
+            warnings.push(multiplicity_warning(p_idx, omega, n_omegas, verified));
+        }
+        warnings.extend(
+            self.cluster_warn
+                .into_iter()
+                .map(|kind| cluster_warning(p_idx, kind)),
+        );
+        let report = HybridPortReport {
+            port: p_idx,
+            n_conductors: self.ctx.conductors.len(),
+            mesh_size: h,
+            points: self
+                .points
+                .into_iter()
+                .map(|p| p.expect("every frequency visited"))
+                .collect(),
+            observed_rates: self.rates,
+        };
+        (report, warnings)
+    }
+
     fn new(ctx: FaceCtx, n_omegas: usize, k: usize) -> Self {
         Self {
             ctx,
@@ -2919,7 +3166,7 @@ impl HybridState {
         // --- Accuracy estimate.
         let mut accuracy: Vec<Option<ModeAccuracy>> = vec![None; k];
         if let Some(acc) = port.opts.accuracy {
-            accuracy = self.estimate(port, &tracked, omega, first, acc)?;
+            accuracy = self.estimate(port, &tracked, omega, first, acc);
             for (c, a) in accuracy.iter().enumerate() {
                 match a {
                     None => {
@@ -2978,6 +3225,7 @@ impl HybridState {
                     floor_accepted: m.residual > tol && m.residual <= m.residual_floor,
                     cluster_size: g,
                     line: self.ctx.line(m, omega),
+                    line_lossy: None,
                 })
                 .collect(),
             n_propagating: n_prop,
@@ -3265,7 +3513,11 @@ impl HybridState {
     }
 
     /// Per-channel accuracy estimate at `omega` (and the observed rates at
-    /// the first frequency).
+    /// the first frequency). A failed refined (`h/2`) solve gives `None` for
+    /// every channel (reported as [`PortWarningKind::AccuracyUnavailable`]),
+    /// a failed `h/4` rate solve the nominal rate: the estimate is a
+    /// diagnostic and never aborts the sweep (the #815 review's first
+    /// follow-up note; the lossy path already behaves this way).
     fn estimate(
         &mut self,
         port: &HybridWavePort,
@@ -3273,7 +3525,7 @@ impl HybridState {
         omega: f64,
         first: bool,
         acc: PortAccuracyOpts,
-    ) -> Result<Vec<Option<ModeAccuracy>>, DrivenError> {
+    ) -> Vec<Option<ModeAccuracy>> {
         let refined = self.refined.get_or_insert_with(|| port.face.refine());
         let n_ev_tracked = tracked.iter().filter(|m| m.beta_sq < 0.0).count();
         let opts = HybridPortOpts {
@@ -3282,11 +3534,9 @@ impl HybridState {
             residual_tol: port.opts.residual_tol,
             ..HybridPortOpts::default()
         };
-        let set_h2 = solve_refined(refined, omega, &opts).map_err(|e| {
-            DrivenError::Solve(format!(
-                "hybrid wave port: refined (h/2) accuracy solve at ω = {omega} failed: {e}"
-            ))
-        })?;
+        let Ok(set_h2) = solve_refined(refined, omega, &opts) else {
+            return vec![None; tracked.len()];
+        };
         let coarse: Vec<&HybridPortMode> = tracked.iter().collect();
         if first && acc.observe_rate && self.rates.is_none() {
             let base = mode_accuracy(refined, &coarse, &set_h2, None);
@@ -3298,30 +3548,37 @@ impl HybridState {
                     &refined.free_node_mask,
                 )
             });
-            let set_h4 = solve_refined(refined2, omega, &opts).map_err(|e| {
-                DrivenError::Solve(format!(
-                    "hybrid wave port: refined (h/4) rate solve at ω = {omega} failed: {e}"
-                ))
-            })?;
-            let matched_h2 =
-                crate::analytic::port_mode_accuracy::match_refined_modes(refined, &coarse, &set_h2);
-            let mid: Vec<&HybridPortMode> = matched_h2
-                .iter()
-                .filter_map(|m| m.map(|(j, _)| &set_h2.modes[j]))
-                .collect();
-            let fine = mode_accuracy(refined2, &mid, &set_h4, None);
-            let mut rates = Vec::with_capacity(tracked.len());
-            let mut fi = fine.into_iter();
-            for (c, b) in base.iter().enumerate() {
-                let r = match (b, matched_h2[c]) {
-                    (Some(b), Some(_)) => match fi.next().flatten() {
-                        Some(f) => observed_rate(tracked[c].beta, b.beta_refined, f.beta_refined),
-                        None => crate::analytic::port_mode_accuracy::NOMINAL_RATE,
-                    },
-                    _ => crate::analytic::port_mode_accuracy::NOMINAL_RATE,
-                };
-                rates.push(r);
-            }
+            let nominal = crate::analytic::port_mode_accuracy::NOMINAL_RATE;
+            let rates = match solve_refined(refined2, omega, &opts) {
+                Ok(set_h4) => {
+                    let matched_h2 = crate::analytic::port_mode_accuracy::match_refined_modes(
+                        refined, &coarse, &set_h2,
+                    );
+                    let mid: Vec<&HybridPortMode> = matched_h2
+                        .iter()
+                        .filter_map(|m| m.map(|(j, _)| &set_h2.modes[j]))
+                        .collect();
+                    let fine = mode_accuracy(refined2, &mid, &set_h4, None);
+                    let mut rates = Vec::with_capacity(tracked.len());
+                    let mut fi = fine.into_iter();
+                    for (c, b) in base.iter().enumerate() {
+                        let r = match (b, matched_h2[c]) {
+                            (Some(b), Some(_)) => match fi.next().flatten() {
+                                Some(f) => {
+                                    observed_rate(tracked[c].beta, b.beta_refined, f.beta_refined)
+                                }
+                                None => nominal,
+                            },
+                            _ => nominal,
+                        };
+                        rates.push(r);
+                    }
+                    rates
+                }
+                // The rate is a refinement of the estimate, not a
+                // requirement: fall back to the nominal rate.
+                Err(_) => vec![nominal; tracked.len()],
+            };
             self.rates = Some(rates);
             // Pair hint: linear extrapolation of |Im β²| over h, h/2.
             if let Some(w) = &mut self.pair_warn
@@ -3336,12 +3593,7 @@ impl HybridState {
         {
             w.h_hint = pair_hint(w.beta_sq, &set_h2, self.ctx.h);
         }
-        Ok(mode_accuracy(
-            refined,
-            &coarse,
-            &set_h2,
-            self.rates.as_deref(),
-        ))
+        mode_accuracy(refined, &coarse, &set_h2, self.rates.as_deref())
     }
 }
 
@@ -3584,5 +3836,71 @@ mod tests {
                 "overlap {ovl}"
             );
         }
+    }
+
+    /// The #815 review's first follow-up note (Phase 5, #807): a failed
+    /// refined (`h/2`) accuracy solve degrades to
+    /// [`PortWarningKind::AccuracyUnavailable`] instead of aborting the sweep.
+    /// The refinement is replaced by one whose every DOF is PEC, so its solve
+    /// cannot succeed; the channel is still solved, tracked and reported.
+    #[test]
+    fn failed_refined_accuracy_solve_degrades_to_unavailable() {
+        let face = ShieldedStripFace::microstrip(8.0, 5.0, 1.0, 1.0, 4.4).build(&StripMeshOpts {
+            h_min: 0.15,
+            h_max: 1.0,
+            ratio: 1.6,
+            mirror_symmetric: true,
+        });
+        let sec = strip_line_section(&face, 2, 1.0);
+        let [f1, _] = sec.port_faces().unwrap();
+        let port = HybridWavePort::new(f1, vec![c64::new(1.0, 0.0)]);
+        assert!(port.opts.accuracy.is_some(), "accuracy is on by default");
+        let edges = sec.extruded.mesh.edges();
+        let solve_once = |break_refinement: bool| {
+            let ctx = FaceCtx::new(&sec.extruded.mesh, &edges, &port, 0).unwrap();
+            let mut st = HybridState::new(ctx, 1, 1);
+            if break_refinement {
+                let mut r = port.face.refine();
+                r.interior_edge_mask.iter_mut().for_each(|m| *m = false);
+                r.free_node_mask.iter_mut().for_each(|m| *m = false);
+                assert!(solve_refined(&r, 0.1, &HybridPortOpts::default()).is_err());
+                st.refined = Some(r);
+            }
+            st.channels_at(&port, 0, 0.1, 0, true)
+                .expect("the sweep survives a failed accuracy solve");
+            st.into_report(0)
+        };
+        // Healthy refinement: an estimate, no warning.
+        let (report, warnings) = solve_once(false);
+        assert!(report.points[0].channels[0].accuracy.is_some());
+        assert!(
+            !warnings
+                .iter()
+                .any(|w| matches!(w.kind, PortWarningKind::AccuracyUnavailable { .. }))
+        );
+        // Broken refinement: no estimate, an `AccuracyUnavailable` warning,
+        // and the same mode.
+        let (broken, warnings) = solve_once(true);
+        let ch = &broken.points[0].channels[0];
+        assert!(ch.accuracy.is_none());
+        assert_eq!(ch.beta, report.points[0].channels[0].beta);
+        let unavailable: Vec<_> = warnings
+            .iter()
+            .filter(|w| {
+                matches!(
+                    w.kind,
+                    PortWarningKind::AccuracyUnavailable {
+                        channel: 0,
+                        omega: 0.1
+                    }
+                )
+            })
+            .collect();
+        assert_eq!(unavailable.len(), 1, "{warnings:?}");
+        assert!(
+            unavailable[0].message.contains("refined solve failed"),
+            "{}",
+            unavailable[0].message
+        );
     }
 }

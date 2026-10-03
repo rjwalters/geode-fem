@@ -449,6 +449,57 @@
         }
       ]
     },
+    "HybridPortSpec": {
+      "additionalProperties": false,
+      "description": "Hybrid-port solver options (`wave_ports[].hybrid`, issue #807).",
+      "properties": {
+        "accuracy": {
+          "description": "Per-mode accuracy estimate (an `h/2` re-solve of the port face at\nevery frequency, plus `h/4` at the first). Default `true`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "accuracy_threshold": {
+          "description": "Relative error of `β` (and, on a lossy face, of the attenuation\n`α`) above which a propagating channel raises a warning with a\nrefine-to-`h` hint (finite, `> 0`). Default `0.005` (0.5 %).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "n_termination_evanescent": {
+          "description": "Evanescent modes terminated beyond the reported channels (`≥ 0`).\nDefault [`DEFAULT_N_TERMINATION_EVANESCENT`] (`4`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ImpedanceDefinition": {
+      "description": "Line-impedance definition of a hybrid wave port's channels (issue\n#807). A hybrid (quasi-TEM / hybrid) mode has no unique characteristic\nimpedance; the three classical definitions coincide quasi-statically\nand separate with dispersion. The TE wave impedance `Z_TE = η₀k₀/β` of\ngeometric ports is never offered for hybrid ports: it is a wave, not a\nline, impedance (about `η₀/√ε_eff` for microstrip, and it predicts step\nreflections 14–19× too small).",
+      "oneOf": [
+        {
+          "const": "power_current",
+          "description": "`Z_PI = 2P/|I|²` (power–current; with several conductors the\nper-line modal `2P/Σ|I_c|²`, i.e. `Z_e` / `Z_o` of a symmetric pair).\nContour-independent; the default.",
+          "type": "string"
+        },
+        {
+          "const": "power_voltage",
+          "description": "`Z_PV = |V|²/(2P)` (power–voltage). `V` is integrated along the\nautomatic shortest path from the shield to the conductor (it ends at\nthe nearest conductor point — a microstrip's strip **edge**), so the\nvalue depends on that path and drifts with frequency (measured\n1.01× → 1.11× `Z_PI` over `k₀h = 0.05 … 0.2` on a shielded\nmicrostrip).",
+          "type": "string"
+        },
+        {
+          "const": "voltage_current",
+          "description": "`Z_VI = |V/I|` (voltage–current), `√(Z_PI·Z_PV)`: the same path and\nfrequency dependence as `power_voltage`.",
+          "type": "string"
+        }
+      ]
+    },
     "InductanceSpec": {
       "additionalProperties": false,
       "description": "Static inductance-extraction settings (`geode inductance`, issue\n#714).\n\nFor each current path, a P1 **conduction** solve on the path's\nconductor volume (`∇·(σ∇φ) = 0`, `φ = 1` on `source`, `φ = 0` on\n`sink`, insulated elsewhere) gives the current density `J = −σ∇φ`,\nnormalised to 1 A\n([`geode_core::assembly::current_path::open_path_current`]). One\nmagnetostatic solve per path, `∇×(ν₀ν_r∇×A) = J` on lowest-order\nNédélec edges with a tree-cotree gauge and the `boundary_conditions.pec`\nwall as `n×A = 0`, then gives the Maxwell inductance matrix by the\nenergy method `L_ij = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾ / (I_i I_j)`\n([`geode_core::assembly::magnetostatic3d::extract_inductance`]).\n\n**Open paths, PEC return.** Each path's current enters through\n`source` and leaves through `sink`; both faces are treated as PEC\ncontacts and must touch the `boundary_conditions.pec` wall, which is\nthe return conductor (e.g. a coax core whose end disks meet the shield\nend caps). A closed loop with no terminals, or a terminal floating in\nthe dielectric, has no return path and is not supported in v1.",
@@ -949,7 +1000,7 @@
     },
     "WavePortSpec": {
       "additionalProperties": false,
-      "description": "A wave (modal) port on a planar surface physical group.\n\nThe tagged faces are projected into a local 2-D cross-section whose\nrim (edges on a single face triangle) is PEC; the `n_modes`\nlowest-cutoff transverse modes of that cross-section become the port's\nS-parameter channels (TEM modes of multiply connected cross-sections\nare not supported).",
+      "description": "A wave (modal) port on a planar surface physical group.\n\nThe tagged faces are projected into a local 2-D cross-section whose\nrim (edges on a single face triangle) is PEC. `geode` routes each port\nby its cross-section (Epic #778 Phase 5, issue #807):\n\n* **geometric** — a homogeneously filled face without interior\n  conductors: the `n_modes` lowest-cutoff TE modes (ω-independent\n  profiles; the TE-only TM-cutoff guard of issue #808 applies);\n* **hybrid** — an **inhomogeneous** face (more than one material) or a\n  face carrying an **interior conductor** (a PEC strip, sheet or carved\n  hole: microstrip, stripline, coax): the `n_modes` modes with the\n  largest `β²` of the full-vector `E_t`–`E_z` port pencil (TE, TM,\n  hybrid and quasi-TEM modes alike), re-solved and tracked at every\n  frequency. `impedance_definition` and `hybrid` apply to these ports\n  only.",
       "properties": {
         "a_inc": {
           "default": null,
@@ -967,6 +1018,28 @@
             "array",
             "null"
           ]
+        },
+        "hybrid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HybridPortSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hybrid-port solver options (issue #807; additive in v1; rejected on\na geometric port). Omit for the defaults."
+        },
+        "impedance_definition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImpedanceDefinition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Characteristic (line) impedance a **hybrid** port's channels carry\n(issue #807; additive in v1): the `z_line_ohm` of the report and the\n`Z_c` `--touchstone` renormalizes to `reference_ohm`. Default\n`power_current` (`Z_PI`). Needs a face with a floating conductor;\nrejected on a geometric port (its `Z_c` is the TE wave impedance)."
         },
         "n_modes": {
           "default": 1,

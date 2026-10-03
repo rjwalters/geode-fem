@@ -86,6 +86,10 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("waveguide_mixed_smoke.json"),
         Input::Spec("driven"),
     ),
+    // A 50 Ω shielded microstrip line with hybrid wave ports (issue #807),
+    // on a Gmsh mesh of `driven/microstrip_line.geo`;
+    // `tests/hybrid_wave_port.rs` holds the hybrid goldens.
+    ("driven/microstrip_line.json", None, Input::Spec("driven")),
     (
         "extract/slcfet_spiral.json",
         Some("slcfet_extract_smoke.json"),

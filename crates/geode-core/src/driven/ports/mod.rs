@@ -31,6 +31,9 @@
 //!   [`solve_mixed_port_spec_sweep_dispersive_with_mode`] — hybrid ports on
 //!   **lossy and dispersive** substrates (complex-symmetric port pencil,
 //!   per-ω `ε`), Epic #778 Phase 4, issue #806.
+//! - [`solve_hybrid_port_face_sweep`] — the port-face half of a hybrid sweep
+//!   (modes, tracking, line impedances, warnings) without the 3-D solve, for
+//!   front ends that preview a port before solving (Phase 5, issue #807).
 
 mod hybrid;
 mod hybrid_lossy;
@@ -41,12 +44,13 @@ mod wave;
 mod wave_face;
 
 pub use hybrid::{
-    DEFAULT_MIN_TRACK_OVERLAP, DispersiveEps, FaceConductor, HybridChannelReport, HybridLineReport,
-    HybridModalFlux, HybridPortFace, HybridPortPointReport, HybridPortReport, HybridWavePort,
-    HybridWavePortOpts, MixedPortSpecSweep, PortAccuracyOpts, PortWarning, PortWarningKind,
-    WavePortSpec, WavePortSpecSweep, solve_mixed_port_spec_sweep_dispersive_with_mode,
-    solve_mixed_port_spec_sweep_with_mode, solve_wave_port_spec_sweep_dispersive_with_mode,
-    solve_wave_port_spec_sweep_with_mode,
+    DEFAULT_MIN_TRACK_OVERLAP, DispersiveEps, FaceConductor, HybridChannelReport,
+    HybridComplexLineReport, HybridFaceSweep, HybridLineReport, HybridModalFlux, HybridPortFace,
+    HybridPortPointReport, HybridPortReport, HybridWavePort, HybridWavePortOpts,
+    MixedPortSpecSweep, PortAccuracyOpts, PortWarning, PortWarningKind, WavePortSpec,
+    WavePortSpecSweep, solve_hybrid_port_face_sweep,
+    solve_mixed_port_spec_sweep_dispersive_with_mode, solve_mixed_port_spec_sweep_with_mode,
+    solve_wave_port_spec_sweep_dispersive_with_mode, solve_wave_port_spec_sweep_with_mode,
 };
 pub use lumped::{
     LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,

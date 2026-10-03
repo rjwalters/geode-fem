@@ -12,6 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### `geode` CLI
 
 - Wave ports compose with Leontovich walls, including rough walls: a lossy guide's S-parameters carry the conductor attenuation, validated against Pozar Eq. 3.96 (TE10 α_c) and the roughness factor K(f). A Silver-Müller wall that shares an edge with a wave-port rim is rejected with `invalid_spec` (#776).
+- **Hybrid wave ports: microstrip, stripline and inhomogeneous port faces** (#807, Epic #778 Phase 5).
+  - **Routing.** `check` and `driven` route each wave port by its cross-section (`wave_ports[].route`). A face touching more than one material, or carrying a floating conductor (a `pec` strip sheet crossing it, or a carved-out strip), goes to the hybrid path: the full-vector E_t–E_z port modes, re-solved and tracked at every frequency. Before, an inhomogeneous face was `invalid_spec` naming #778, and a coax/strip face silently lost its TEM mode. Homogeneous faces without a conductor keep the geometric TE path bit for bit. The TE-only TM-cutoff guard (#808) applies to geometric ports only; hybrid ports use core's completeness check, and their rim must still lie on a conductor wall. Lossy faces use the complex-symmetric pencil; dispersive specs use the dispersive spec sweeps, so the faces and the volume read ε(ω) from the same per-tet vector.
+  - **Defaults** (operator decision on #804): complex evanescent pairs are carried; `wave_ports[].hybrid.n_termination_evanescent` defaults to 4 (clamped on a small face, with a warning); the accuracy estimate is on, with `hybrid.accuracy_threshold` (default 0.5 %) applied to β and, on a lossy face, to α. Every warning goes to the report's new `warnings[]` and to stderr.
+  - **Line impedance.** `wave_ports[].impedance_definition` defaults to `power_current` (Z_PI); `power_voltage` and `voltage_current` are opt-ins documented as path- and frequency-dependent. Z_TE is never offered for hybrid ports. `--touchstone` renormalizes hybrid channels to `reference_ohm` with the per-row `z_line_ohm`, which is complex on a lossy face. A hybrid port without a floating conductor is rejected for `--touchstone`.
+  - **Report** (additive, schema v1). Every wave channel gets `eps_eff` and `normalization` (`power`, `pseudo_power` or `evanescent`; evanescent means not power-normalized). Hybrid channels add `hybrid`: E_z energy fraction, β and α accuracy estimates, residual and floor, tracking overlap, cluster size, `coupled_mode` even/odd, line impedances, and `z_line_ohm`. Rows of a lossy spec get `sigma_max` (measured passivity, with a `passivity` warning above 1 + 1e-6). Wave ports get `route` and `hybrid` (reason, conductors, free face unknowns, h, options, observed rates, worst tracking overlap); a hybrid port's `medium` is `null`. `geode check` previews every hybrid port's face solve at every frequency (`wave_ports[].hybrid.frequencies[]`) without the 3-D solve.
+  - **Still `invalid_spec`.** μ_r ≠ 1 or anisotropic ε on a hybrid face; `sweep.adaptive` with a hybrid port (non-affine in ω, #774); `absorbing_regions` with a hybrid port; a dispersive geometric fill alongside hybrid ports; internal port planes that differ across the plane; and the hybrid-only fields on geometric ports.
+  - **Cookbook.** `examples/driven/microstrip_line.json` with its Gmsh geometry `microstrip_line.geo`: a 50 Ω shielded microstrip with hybrid ports, written to Touchstone.
+  - **Measured** (`tests/hybrid_wave_port.rs`):
+    - slab-loaded guide β within 0.031 % of the LSE/LSM oracle (the accuracy estimate tracks it: 3.13e-4 vs 3.13e-4);
+    - a Hammerstad–Jensen 50 Ω microstrip gives Z_PI = 48.5 Ω and Touchstone |S11| ≤ 0.014, while the Z_TE tripwire would give |Γ| ≈ 0.61;
+    - microstrip eps_eff is −0.09 % from Hammerstad–Jensen (20h shield);
+    - coupled microstrip: even first, eps_eff 3.27 vs odd 2.88, even→odd conversion ≤ 3e-5;
+    - a tan δ = 0.02 line has σ_max = 0.997 / 0.995 and |S21| = e^{−αL} to 1e-5.
 
 #### `geode-core`
 
@@ -52,6 +65,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - a Djordjevic–Sarkar slab over 8 frequencies tracks continuously;
     - the tan δ = 0 regression reproduces Phase 1/2 to 7.5e-15 (S) and 6.7e-13 (β²);
     - the accuracy estimate is within 1.08× (β) and 1.30× (α) of the true error.
+- **Hybrid-port follow-ups for the CLI** (#807, Epic #778 Phase 5):
+  - `solve_hybrid_port_face_sweep` runs the port-face half of a hybrid spec sweep without the 3-D solve: modes, tracking, completeness, termination window, accuracy and warnings. Its report and warnings equal the 3-D sweep's bit for bit, on both the real and lossy paths.
+  - A failed refined (h/2) accuracy solve on the real path now degrades to `AccuracyUnavailable`; it no longer aborts the sweep (#815 review note 1). The lossy path already did this.
+  - New opt-in `PortAccuracyOpts::alpha_threshold` raises the new `PortWarningKind::AttenuationAccuracyAboveThreshold` for a lossy channel whose α estimate exceeds it (#819 review). It is off by default, so the Phase 4 goldens are unchanged; the CLI sets it to the β threshold.
+  - Lossy faces report complex line impedances, `HybridChannelReport::line_lossy` (`HybridComplexLineReport`, unconjugated `Z_PI = 2P/Σ I_c²`). These equal the real Z_PI in the lossless limit (3e-15), and on an exact lossy TEM line they scale as √(ε′/ε) (3e-13).
+  - With `sigma_tet`, a hybrid face built from the volume now sees the ε − jσ/ω of the conducting tets it bounds; before, it ignored σ. The port β equals the dispersive sweep with that ε(ω) bit for bit, and S matches to 4e-15.
+  - The internal `HybridState` report assembly moved into `into_report`; the arithmetic is unchanged.
 - **3-D microstrip / stripline sections with hybrid wave ports** (#817, Epic #778 Phase 3b).
   - `HybridPortFace::from_volume_with_pec` / `with_interior_pec`: a face edge is PEC if it is on the rim or its 3-D edge is eliminated by the volume PEC mask, so zero-thickness strips (PEC sheets inside the volume) reach the port solve. Floating conductors are found automatically (`HybridPortFace::conductors`, ordered by 3-D centroid), each with a shortest shield-to-conductor voltage path. Without a mask the face is rim-only, as before.
   - New `mesh::extrude_tri_mesh` (and `_layers`): a conforming sorted-vertex prism split of any `TriMesh` into right-handed tets, with per-tet source triangle and slab and an `ExtrudedEdge` classification for z-dependent PEC masks. New `driven::ports::strip_line_section` builds a straight shielded strip-line section and its two hybrid ports.

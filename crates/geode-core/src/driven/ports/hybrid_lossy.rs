@@ -33,9 +33,9 @@
 //! - **Certificates.** As on the real path: an uncertified multiplicity
 //!   pass is retried with twice the Krylov cap and then warned about; each
 //!   channel reports its residual floor and floor acceptance. Line
-//!   impedances ([`super::HybridLineReport`]) are **not** reported on lossy
-//!   faces yet (`line: None`): a lossy line's `Z` is complex and its
-//!   definition is Phase 5's decision (#807).
+//!   impedances are complex on a lossy face and reported as
+//!   [`super::HybridComplexLineReport`] (`line_lossy`; `line` stays `None`):
+//!   the unconjugated `Z_PI = 2P/Σ I_c²` etc. of Phase 5's definition (#807).
 //! - **Completeness.** Every face mode with `Re β² > 0` must be a reported
 //!   channel.
 //! - **Termination.** The next evanescent modes, one slot each. A
@@ -49,19 +49,22 @@
 //!   of the lossy face ([`LossyRefinement`]) gives the per-mode `β` estimate
 //!   and an `α` estimate. A refined solve that fails degrades the estimate to
 //!   [`PortWarningKind::AccuracyUnavailable`] rather than aborting the sweep
-//!   (the #815 review's first follow-up note, applied to this path).
+//!   (the #815 review's first follow-up note, applied to this path). With
+//!   [`PortAccuracyOpts::alpha_threshold`] set, an `α` estimate above it
+//!   raises [`PortWarningKind::AttenuationAccuracyAboveThreshold`] (the #819
+//!   review's note; the `geode` CLI sets it to the `β` threshold).
 //!
 //! Touchstone (#775) renormalizes with a characteristic impedance; a lossy
 //! hybrid channel's is complex and frequency dependent, which the Γ-form
-//! renormalization to a real `reference_ohm` accepts. Which `Z_c`
-//! definition hybrid ports use is Phase 5's decision (#807).
+//! renormalization to a real `reference_ohm` accepts. Phase 5 (#807) uses the
+//! complex `Z_PI` of [`super::HybridComplexLineReport`] by default.
 
 use faer::c64;
 
 use super::hybrid::{
-    ChanAt, FaceCtx, HybridChannelReport, HybridModalFlux, HybridPortPointReport, HybridPortReport,
-    HybridWavePort, PortAccuracyOpts, PortWarning, PortWarningKind, check_lossy_eps,
-    cluster_warning, multiplicity_warning, sym_eig,
+    ChanAt, FaceCtx, HybridChannelReport, HybridComplexLineReport, HybridModalFlux,
+    HybridPortPointReport, HybridPortReport, HybridWavePort, PortAccuracyOpts, PortWarning,
+    PortWarningKind, check_lossy_eps, cluster_warning, multiplicity_warning, sym_eig,
 };
 use super::wave::invert_complex_dense;
 use crate::analytic::lossy_port_modes::{
@@ -87,6 +90,8 @@ pub(super) struct LossyState {
     points: Vec<Option<HybridPortPointReport>>,
     dropped_warn: Vec<PortWarningKind>,
     acc_warn: Vec<Option<PortWarningKind>>,
+    /// Worst [`PortWarningKind::AttenuationAccuracyAboveThreshold`] per channel.
+    alpha_warn: Vec<Option<PortWarningKind>>,
     acc_unavail: Vec<Option<PortWarningKind>>,
     /// `k₀²ε′_max` at the previous frequency.
     prev_scale: f64,
@@ -206,6 +211,7 @@ impl LossyState {
             points: vec![None; n_omegas],
             dropped_warn: Vec::new(),
             acc_warn: vec![None; port.n_modes()],
+            alpha_warn: vec![None; port.n_modes()],
             acc_unavail: vec![None; port.n_modes()],
             prev_scale: 0.0,
             mult_warn: None,
@@ -412,6 +418,32 @@ impl LossyState {
                     }
                     Some(_) => {}
                 }
+                // The attenuation estimate (#819 review), opt-in.
+                if let (Some(a), Some(thr)) = (a, acc.alpha_threshold)
+                    && tracked[c].is_propagating()
+                    && let Some(est) = lossy_alpha_estimate(a)
+                    && est > thr
+                {
+                    let worse = match &self.alpha_warn[c] {
+                        Some(PortWarningKind::AttenuationAccuracyAboveThreshold {
+                            estimate,
+                            ..
+                        }) => est > *estimate,
+                        _ => true,
+                    };
+                    if worse {
+                        let h = self.ctx.h;
+                        self.alpha_warn[c] =
+                            Some(PortWarningKind::AttenuationAccuracyAboveThreshold {
+                                channel: c,
+                                omega,
+                                estimate: est,
+                                threshold: thr,
+                                h,
+                                h_required: h * (thr / est).powf(1.0 / a.rate),
+                            });
+                    }
+                }
             }
         }
 
@@ -435,9 +467,9 @@ impl LossyState {
                     residual_floor: m.residual_floor,
                     floor_accepted: m.residual > tol && m.residual <= m.residual_floor,
                     cluster_size: g,
-                    // A lossy line's impedance is complex; its definition is
-                    // Phase 5's (#807) and it is not reported here yet.
+                    // A lossy line's impedance is complex: `line_lossy`.
                     line: None,
+                    line_lossy: lossy_line(&self.ctx, port, m, omega, &eps),
                 })
                 .collect(),
             n_propagating: n_prop,
@@ -816,6 +848,30 @@ impl LossyState {
                 kind,
             });
         }
+        for kind in self.alpha_warn.into_iter().flatten() {
+            let PortWarningKind::AttenuationAccuracyAboveThreshold {
+                channel,
+                omega,
+                estimate,
+                threshold,
+                h,
+                h_required,
+            } = &kind
+            else {
+                unreachable!()
+            };
+            warnings.push(PortWarning {
+                port: p_idx,
+                message: format!(
+                    "hybrid wave port {p_idx} channel {channel}: estimated attenuation (α) error \
+                     {:.3} % at ω = {omega} exceeds {:.3} %; refine the port face to h ≤ \
+                     {h_required:.4e} (now {h:.4e})",
+                    100.0 * estimate,
+                    100.0 * threshold,
+                ),
+                kind,
+            });
+        }
         for kind in self.acc_unavail.into_iter().flatten() {
             let PortWarningKind::AccuracyUnavailable { channel, omega } = &kind else {
                 unreachable!()
@@ -851,6 +907,67 @@ impl LossyState {
         };
         (report, warnings)
     }
+}
+
+/// [`HybridComplexLineReport`] of a propagating lossy mode on face `ε` at
+/// `k0` (`None` without conductors or for `Re β² ≤ 0`).
+fn lossy_line(
+    ctx: &FaceCtx,
+    port: &HybridWavePort,
+    m: &LossyHybridMode,
+    k0: f64,
+    eps: &[c64],
+) -> Option<HybridComplexLineReport> {
+    if ctx.conductors.is_empty() || !m.is_propagating() {
+        return None;
+    }
+    let eta = crate::constants::ETA_0_OHM;
+    // Currents: the real-ε sums of `currents_c` plus the displacement term of
+    // Im ε, `−j k₀² T_{ε″} ẽ_z`, in I = −q/(k₀η₀): `+ j k₀ (T_{ε″}ẽ_z)/η₀`.
+    let mut currents = ctx.currents_c(&m.e_t, &m.e_z, k0);
+    let mesh = &port.face.projection.tri_mesh;
+    let mut t_im = vec![ZERO; mesh.n_nodes()];
+    for (tri, e) in mesh.tris.iter().zip(eps) {
+        if e.im == 0.0 {
+            continue;
+        }
+        let coords = tri.map(|n| mesh.nodes[n as usize]);
+        let (_s, t_loc, _) = crate::analytic::waveguide::tri_p1_local(&coords);
+        for p in 0..3 {
+            for q in 0..3 {
+                t_im[tri[p] as usize] += m.e_z[tri[q] as usize] * (e.im * t_loc[p][q]);
+            }
+        }
+    }
+    for (i, c) in currents.iter_mut().zip(&ctx.conductors) {
+        let t: c64 = (0..c.len()).filter(|&k| c[k]).map(|k| t_im[k]).sum();
+        *i += c64::new(0.0, k0 / eta) * t;
+    }
+    let w = lossy_pairing_vector(&ctx.d, m);
+    let mut m1w = vec![ZERO; w.len()];
+    rmatvec(ctx.m1.as_ref(), &w, &mut m1w);
+    let xbx = dot_u(&m.e_t, &m1w);
+    let power = xbx / (c64::new(2.0 * k0 * eta, 0.0) * m.beta);
+    let voltages: Vec<Option<c64>> = ctx
+        .paths
+        .iter()
+        .map(|p| {
+            (!p.is_empty())
+                .then(|| p.iter().fold(ZERO, |acc, &(e, sg)| acc + m.e_t[e] * sg) / m.beta)
+        })
+        .collect();
+    let i2: c64 = currents.iter().map(|i| i * i).sum();
+    let z_pi = c64::new(2.0, 0.0) * power / i2;
+    let v2: Option<c64> = voltages.iter().map(|v| v.map(|v| v * v)).sum();
+    let z_pv = v2.map(|v2| v2 / (c64::new(2.0, 0.0) * power));
+    Some(HybridComplexLineReport {
+        power,
+        currents,
+        voltages,
+        z_pi,
+        z_pv,
+        z_vi: z_pv.map(|z| (z * z_pi).sqrt()),
+    })
 }
 
 /// Exactly degenerate clusters of lossy `modes` (the solver's order):

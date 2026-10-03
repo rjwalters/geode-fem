@@ -68,6 +68,12 @@
 //!   followed by the wave channels (port-major, mode-minor). Wave channel
 //!   numbers are offset by the lumped-port count. Specs with only one port
 //!   kind take the unchanged pure-lumped / pure-wave paths.
+//! * **Hybrid wave ports** (issue #807): a spec with a wave port whose face
+//!   is inhomogeneous or carries a floating conductor (microstrip,
+//!   stripline, coax) runs [`crate::hybrid::sweep`] — the core spec sweeps,
+//!   which re-solve and track that port's modes per frequency — and its
+//!   rows add per-channel hybrid diagnostics, line impedances and (lossy)
+//!   the measured `σ_max`. Geometric-only specs are unchanged.
 //!
 //! # Material sensitivities (`sensitivity`, issue #739)
 //!
@@ -127,8 +133,8 @@ use crate::problem::{self, Problem, UpmlRegion};
 use crate::progress::{Progress, SweepOptions, par_map};
 use crate::report::{
     AdaptiveSweepStats, Complex, DrivenReport, FarFieldResult, FrequencyResult, MaterialEpsResult,
-    PortResult, Provenance, RoughnessKResult, SolverStats, WaveChannelResult, WaveModeSummary,
-    WavePortSummary,
+    PortResult, Provenance, RoughnessKResult, SolverStats, WarningResult, WaveChannelResult,
+    WaveModeSummary, WavePortSummary,
 };
 use crate::spec::{AdaptiveSweepSpec, Analysis, SolverSpec};
 use serde_json::json;
@@ -207,9 +213,9 @@ pub fn run(
         validate_export(&p)?;
     }
     let out = OutDir::create_opt(outdir)?;
-    let (results, solver, wave_ports) = if p.wave_ports.is_empty() {
+    let (results, solver, wave_ports, warnings) = if p.wave_ports.is_empty() {
         let (results, solver) = sweep(&p, out.as_ref(), "driven", opts)?;
-        (results, solver, Vec::new())
+        (results, solver, Vec::new(), Vec::new())
     } else {
         if out.is_some() {
             eprintln!(
@@ -253,6 +259,7 @@ pub fn run(
         results,
         touchstone_file,
         sensitivities,
+        warnings,
     })
 }
 
@@ -293,7 +300,7 @@ pub fn impedance_walls(p: &Problem) -> Vec<SurfaceImpedanceBc<'_>> {
 
 /// Roughness loss factor `K(f)` of every rough Leontovich wall at the
 /// natural frequency `k0` (issue #758; empty when every wall is smooth).
-fn roughness_k(p: &Problem, k0: f64) -> Vec<RoughnessKResult> {
+pub(crate) fn roughness_k(p: &Problem, k0: f64) -> Vec<RoughnessKResult> {
     p.leontovich
         .iter()
         .filter_map(|l| {
@@ -306,7 +313,7 @@ fn roughness_k(p: &Problem, k0: f64) -> Vec<RoughnessKResult> {
 }
 
 /// Solver mode from the spec.
-fn solver_mode(p: &Problem) -> SolverMode {
+pub(crate) fn solver_mode(p: &Problem) -> SolverMode {
     match p.solver() {
         SolverSpec::Direct {} => SolverMode::Direct,
         SolverSpec::Iterative {
@@ -402,7 +409,7 @@ fn per_material_sweep<T>(
 
 /// Each dispersive region's `ε_r` at `hz` for a report row (issue #757;
 /// empty when every material is constant).
-fn dispersive_eps(p: &Problem, hz: f64) -> Vec<MaterialEpsResult> {
+pub(crate) fn dispersive_eps(p: &Problem, hz: f64) -> Vec<MaterialEpsResult> {
     p.dispersive_eps(hz)
         .into_iter()
         .map(|(name, e)| MaterialEpsResult {
@@ -533,6 +540,7 @@ pub fn sweep(
             y_s: invert(&z, n).map(|y| matrix(&y, n)),
             s: matrix(&pt.s.s, n),
             ports,
+            sigma_max: None,
             wave_channels: Vec::new(),
             roughness_k: roughness_k(p, f.k0),
             materials: dispersive_eps(p, f.hz),
@@ -796,10 +804,26 @@ fn reduced_z(
 /// follow the library sweep (all at once without UPML, per frequency
 /// with it). With `sweep.adaptive` it runs [`adaptive_wave_sweep`]
 /// instead (issue #774).
+/// A spec with a **hybrid** wave port (issue #807) runs
+/// [`crate::hybrid::sweep`] instead (the spec sweeps that re-solve and
+/// track its modes per frequency); geometric-only specs take the path
+/// below, unchanged. The fourth element is the report-level warnings.
+#[allow(clippy::type_complexity)]
 pub fn wave_sweep(
     p: &Problem,
     opts: SweepOptions,
-) -> Result<(Vec<FrequencyResult>, SolverStats, Vec<WavePortSummary>), CliError> {
+) -> Result<
+    (
+        Vec<FrequencyResult>,
+        SolverStats,
+        Vec<WavePortSummary>,
+        Vec<WarningResult>,
+    ),
+    CliError,
+> {
+    if p.wave_ports.iter().any(|w| w.hybrid.is_some()) {
+        return crate::hybrid::sweep(p, opts);
+    }
     if opts.jobs > 1 {
         eprintln!("note: --jobs: wave-port sweeps run serially (one frequency at a time)");
     }
@@ -899,6 +923,41 @@ pub fn wave_sweep(
     };
     let wall_time_s = t0.elapsed().as_secs_f64();
 
+    let results = channel_rows(p, &points)?;
+    let warnings = passivity_warnings(&results);
+
+    let summary = crate::check::solver_summary(p.solver());
+    Ok((
+        results,
+        SolverStats {
+            mode: summary.mode,
+            tol: summary.tol,
+            max_iters: summary.max_iters,
+            iterations_max: points
+                .iter()
+                .flat_map(|pt| pt.iters_per_rhs.iter().copied())
+                .max()
+                .unwrap_or(0),
+            residual_rel_max: points.iter().map(|pt| pt.residual_rel).fold(0.0, f64::max),
+            wall_time_s,
+            jobs: opts.jobs_explicit.then_some(opts.jobs),
+            adaptive: adaptive_stats,
+        },
+        summaries,
+        warnings,
+    ))
+}
+
+/// The report rows of a wave / mixed sweep: per frequency the channel
+/// S-matrix, the per-channel `β` / `S_kk` / `ε_eff` / normalization and, when a
+/// wave port is lossy, the measured `σ_max` (issue #807). Non-finite
+/// residuals or S entries are a hard [`CliError::NonFinite`]. Shared by
+/// the geometric sweep and the hybrid one ([`crate::hybrid::sweep`]), which
+/// then adds each hybrid channel's diagnostics.
+pub(crate) fn channel_rows(
+    p: &Problem,
+    points: &[ChannelPoint],
+) -> Result<Vec<FrequencyResult>, CliError> {
     let mut results = Vec::with_capacity(points.len());
     for (index, (pt, f)) in points.iter().zip(&p.frequencies).enumerate() {
         let n = pt.n;
@@ -925,17 +984,21 @@ pub fn wave_sweep(
                 let skk = pt.s[c * n + c];
                 let beta = pt.beta[wave_idx];
                 wave_idx += 1;
+                // Lossless: β real (propagating) or −j|β|. A lossy fill
+                // makes β complex; a channel propagates when Re β > |Im β|
+                // (Re β² > 0: above the lossless cutoff).
+                let propagating = beta.re > beta.im.abs();
                 wave_channels.push(WaveChannelResult {
                     channel: c,
                     port,
                     mode: m,
                     beta: pair(beta),
-                    // Lossless: β real (propagating) or −j|β|. A lossy
-                    // fill makes β complex; a channel propagates when
-                    // Re β > |Im β| (Re β² > 0: above the lossless cutoff).
-                    propagating: beta.re > beta.im.abs(),
+                    propagating,
                     s: pair(skk),
                     s_db: 20.0 * skk.norm().log10(),
+                    eps_eff: propagating.then(|| (beta.re / f.k0).powi(2)),
+                    normalization: normalization(beta),
+                    hybrid: None,
                 });
             }
         }
@@ -950,6 +1013,17 @@ pub fn wave_sweep(
             y_s: None,
             s: matrix(&pt.s, n),
             ports: Vec::new(),
+            sigma_max: lossy_wave_ports(p, f.hz).then(|| {
+                let keep: Vec<usize> = (0..pt.n_lumped)
+                    .chain(
+                        wave_channels
+                            .iter()
+                            .filter(|c| c.propagating)
+                            .map(|c| c.channel),
+                    )
+                    .collect();
+                sigma_max(&pt.s, n, &keep)
+            }),
             wave_channels,
             roughness_k: roughness_k(p, f.k0),
             materials: dispersive_eps(p, f.hz),
@@ -957,30 +1031,88 @@ pub fn wave_sweep(
             far_field: None,
         });
     }
+    Ok(results)
+}
 
-    let summary = crate::check::solver_summary(p.solver());
-    Ok((
-        results,
-        SolverStats {
-            mode: summary.mode,
-            tol: summary.tol,
-            max_iters: summary.max_iters,
-            iterations_max: points
-                .iter()
-                .flat_map(|pt| pt.iters_per_rhs.iter().copied())
-                .max()
-                .unwrap_or(0),
-            residual_rel_max: points.iter().map(|pt| pt.residual_rel).fold(0.0, f64::max),
-            wall_time_s,
-            jobs: opts.jobs_explicit.then_some(opts.jobs),
-            adaptive: adaptive_stats,
-        },
-        summaries,
-    ))
+/// How a wave channel of propagation constant `beta` is normalized
+/// ([`WaveChannelResult::normalization`]).
+pub(crate) fn normalization(beta: c64) -> &'static str {
+    if beta.re <= beta.im.abs() {
+        "evanescent"
+    } else if beta.im != 0.0 {
+        "pseudo_power"
+    } else {
+        "power"
+    }
+}
+
+/// Whether some wave port is lossy at `hz` (issue #807): a geometric
+/// port's fill has `Im ε_t ≠ 0` there, or a hybrid port's face is lossy /
+/// dispersive. Its rows then report the measured `σ_max(S)`.
+fn lossy_wave_ports(p: &Problem, hz: f64) -> bool {
+    p.wave_ports.iter().any(|w| match &w.hybrid {
+        Some(h) => h.lossy,
+        None => p.port_medium_at(w, hz).eps_t.im != 0.0,
+    })
+}
+
+/// Largest singular value of the `keep × keep` block of the row-major
+/// `n × n` matrix `s`.
+pub(crate) fn sigma_max(s: &[c64], n: usize, keep: &[usize]) -> f64 {
+    if keep.is_empty() {
+        return 0.0;
+    }
+    let m = faer::Mat::<c64>::from_fn(keep.len(), keep.len(), |i, j| s[keep[i] * n + keep[j]]);
+    // Sorted descending (faer); NaN if the dense SVD fails (never silently
+    // passive).
+    m.as_ref()
+        .singular_values()
+        .ok()
+        .and_then(|sv| sv.first().copied())
+        .unwrap_or(f64::NAN)
+}
+
+/// Tolerance above 1 of a measured `σ_max(S)` before a `"passivity"`
+/// warning (issue #807).
+pub const PASSIVITY_TOL: f64 = 1e-6;
+
+/// A `"passivity"` warning for every row whose measured `σ_max(S)` exceeds
+/// `1 + PASSIVITY_TOL` (issue #807; lossy wave ports are
+/// pseudo-power-normalized, so passivity is measured, not guaranteed), also
+/// printed on stderr.
+pub(crate) fn passivity_warnings(results: &[FrequencyResult]) -> Vec<WarningResult> {
+    let bad: Vec<(f64, f64)> = results
+        .iter()
+        .filter_map(|r| r.sigma_max.map(|s| (r.frequency_hz, s)))
+        // NaN (a failed SVD) counts as a violation: never silently passive.
+        .filter(|&(_, s)| s.is_nan() || s > 1.0 + PASSIVITY_TOL)
+        .collect();
+    let Some(&(hz, worst)) = bad.iter().max_by(|a, b| a.1.total_cmp(&b.1)) else {
+        return Vec::new();
+    };
+    let w = WarningResult {
+        kind: "passivity",
+        wave_port: None,
+        physical_group: None,
+        message: format!(
+            "measured σ_max(S) = {worst:.9} > 1 at {hz:e} Hz ({} row(s) above 1 + {PASSIVITY_TOL:e}): \
+             lossy wave channels are pseudo-power-normalized, so passivity is measured, not \
+             guaranteed; a value above 1 flags an under-resolved lossy port face or a \
+             near-cutoff channel",
+            bad.len()
+        ),
+    };
+    eprintln!("warning: {}", w.message);
+    vec![w]
 }
 
 /// Emit the `point` progress event of wave / mixed report row `index`.
-fn emit_channel_point(progress: &Progress, p: &Problem, index: usize, pt: &ChannelPoint) {
+pub(crate) fn emit_channel_point(
+    progress: &Progress,
+    p: &Problem,
+    index: usize,
+    pt: &ChannelPoint,
+) {
     progress.emit(
         "point",
         json!({
@@ -1187,16 +1319,16 @@ fn reduced_channel_point(
 /// conversion needs: the row-major `n × n` S-matrix whose leading
 /// `n_lumped` rows / columns are the lumped ports (zero for a pure-wave
 /// spec), then the wave channels port-major, mode-minor with their `β`.
-struct ChannelPoint {
-    residual_rel: f64,
-    s: Vec<c64>,
-    n: usize,
-    n_lumped: usize,
-    beta: Vec<c64>,
-    port_mode_counts: Vec<usize>,
-    iters_per_rhs: Vec<usize>,
+pub(crate) struct ChannelPoint {
+    pub(crate) residual_rel: f64,
+    pub(crate) s: Vec<c64>,
+    pub(crate) n: usize,
+    pub(crate) n_lumped: usize,
+    pub(crate) beta: Vec<c64>,
+    pub(crate) port_mode_counts: Vec<usize>,
+    pub(crate) iters_per_rhs: Vec<usize>,
     /// Adaptive sweep only: full-order (`true`) or interpolated.
-    solved: Option<bool>,
+    pub(crate) solved: Option<bool>,
 }
 
 impl From<WavePortSweepPoint> for ChannelPoint {

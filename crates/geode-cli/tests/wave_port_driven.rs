@@ -1117,25 +1117,39 @@ fn split_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> ScratchF
 
 #[test]
 fn wave_port_fill_rejections_are_invalid_spec() {
-    // (a) An inhomogeneous port face (a partially filled guide: hybrid
-    // modes, issue #778).
-    let out = geode(&[
-        "check",
-        split_spec("split-inhomogeneous", |v| {
-            v["materials"] =
-                serde_json::json!([{ "physical_group": "left", "eps_r": [EPS_FILL, 0.0] }]);
-        })
-        .to_str()
-        .unwrap(),
-    ]);
-    let msg = error_message(&out, "check", "invalid_spec");
-    assert!(
-        msg.contains("`port_in`")
-            && msg.contains("more than one material")
-            && msg.contains("`left`, `right`")
-            && msg.contains("#778"),
-        "{msg}"
+    // (a) An inhomogeneous port face (a partially filled guide) is no
+    // longer rejected (it was `invalid_spec` naming #778): it is routed to
+    // the hybrid path (Epic #778 Phase 5, issue #807), solved, and its β is
+    // within 0.5 % of the closed-form slab-loaded-guide oracle, with
+    // `eps_eff` reported. (`tests/hybrid_wave_port.rs` holds the full
+    // hybrid goldens.)
+    let split = split_spec("split-inhomogeneous", |v| {
+        v["materials"] =
+            serde_json::json!([{ "physical_group": "left", "eps_r": [EPS_FILL, 0.0] }]);
+    });
+    let v = json(&geode(&["check", split.to_str().unwrap()]));
+    let wp = &v["wave_ports"][0];
+    assert_eq!(wp["route"], "hybrid");
+    assert_eq!(wp["hybrid"]["reason"], "inhomogeneous");
+    assert_eq!(
+        wp["hybrid"]["physical_groups"],
+        serde_json::json!(["left", "right"])
     );
+    let v = json(&geode(&["driven", split.to_str().unwrap()]));
+    let ch = &v["results"][0]["wave_channels"][0];
+    let beta = f64_at(&ch["beta"][0]);
+    let k0 = 1.6;
+    // The oracle's layering axis is its `y`: layered along our `x` (width
+    // a, `left` = 0 ≤ x ≤ a/2 filled), uniform along our `y`.
+    let oracle =
+        geode_core::analytic::loaded_guide::SlabLoadedGuide::new(B_DIM, A, A / 2.0, EPS_FILL)
+            .modes(k0, 0.0)[0]
+            .beta_sq
+            .sqrt();
+    let rel = (beta - oracle).abs() / oracle;
+    eprintln!("split guide (8 × 4 face): β = {beta:.6}, oracle {oracle:.6}, rel {rel:.2e}");
+    assert!(rel <= 5e-3, "β vs the slab-loaded-guide oracle: {rel}");
+    assert!((f64_at(&ch["eps_eff"]) - (beta / k0).powi(2)).abs() <= 1e-12);
     // ... but two groups with the same material by value are one fill.
     let v = json(&geode(&[
         "check",

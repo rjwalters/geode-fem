@@ -566,6 +566,13 @@
             "null"
           ]
         },
+        "warnings": {
+          "description": "Warnings of the hybrid wave ports' face solves (issue #807;\nadditive in v1; present only when there are any) — the same ones a\ndriven run reports.",
+          "items": {
+            "$ref": "#/$defs/WarningResult"
+          },
+          "type": "array"
+        },
         "wave_ports": {
           "description": "Wave ports (additive in v1; `modes` is `null` — no modal solve).",
           "items": {
@@ -1108,6 +1115,13 @@
             }
           ],
           "description": "The Touchstone 2.0 `.sNp` written by `--touchstone` (additive in\nv1; present only with that flag)."
+        },
+        "warnings": {
+          "description": "Report-level warnings (issue #807; additive in v1; present only when\nthere are any): hybrid-port diagnostics and measured passivity.",
+          "items": {
+            "$ref": "#/$defs/WarningResult"
+          },
+          "type": "array"
         },
         "wave_ports": {
           "description": "Wave ports with their solved modes (additive in v1; present only\nfor wave-port and mixed specs).",
@@ -1720,6 +1734,32 @@
       ],
       "type": "object"
     },
+    "FaceConductorSummary": {
+      "description": "One floating conductor of a hybrid port face.",
+      "properties": {
+        "centroid": {
+          "description": "Centroid of the conductor's face nodes (mesh units).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "voltage_path_nodes": {
+          "description": "Nodes of the automatic shield → conductor voltage path (`0`: no\npath; `power_voltage` / `voltage_current` need one).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "centroid",
+        "voltage_path_nodes"
+      ],
+      "type": "object"
+    },
     "FarFieldResult": {
       "description": "Near-to-far-field (NTFF) radiation quantities at one frequency\n(additive in v1): Love surface equivalence over the closed box\n`box_lo`–`box_hi` (the UPML inner wall shrunk 10 % toward its\ncentre), sampled on a 91 × 72 `(θ, φ)` grid (2° × 5°).",
       "properties": {
@@ -1967,6 +2007,14 @@
             "type": "array"
           },
           "type": "array"
+        },
+        "sigma_max": {
+          "description": "Largest singular value of the S block over the lumped ports and\nthe propagating wave channels (issue #807; additive in v1; present\nonly when a wave port is lossy). With loss the wave channels are\npseudo-power-normalized, so passivity (`σ_max ≤ 1`) is **measured**\nhere, not guaranteed; a value above `1 + 1e-6` raises a\n`\"passivity\"` warning.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "solved": {
           "description": "Adaptive sweep only (additive in v1, issue #708): `true` for a\nfull-order solve, `false` for a point interpolated by the\nreduced-order model. Absent for a dense sweep (every point solved).",
@@ -2234,6 +2282,396 @@
         "n_elements"
       ],
       "type": "object"
+    },
+    "HybridChannelResult": {
+      "description": "Hybrid-mode diagnostics of one channel at one frequency (issue #807).",
+      "properties": {
+        "accuracy": {
+          "description": "Estimated relative error of `β` from an `h/2` re-solve of the port\nface (Richardson, observed rate); `null` with the estimate off or\nunavailable (then a warning says so).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "alpha_accuracy": {
+          "description": "Estimated relative error of the attenuation `α = −Im β` (lossy\nfaces only).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "cluster_size": {
+          "description": "Size of the exactly degenerate cluster the channel belongs to (`1`:\na simple mode).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "coupled_mode": {
+          "description": "For a channel on a face with exactly two floating conductors:\n`\"even\"` (the two conductor currents in phase) or `\"odd\"` (in\nanti-phase). Channel order differs by case (coupled microstrip:\neven first; a degenerate stripline pair: odd first), so read this\nlabel, not the index.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ez_energy_fraction": {
+          "description": "`E_z` energy fraction `1 − η` of the mode (0: TE-like / quasi-TEM,\n1: TM-like); the accuracy of P1-carried (`E_z`-heavy) modes is\nlower at a given face resolution.",
+          "format": "double",
+          "type": "number"
+        },
+        "floor_accepted": {
+          "description": "Accepted at the round-off floor (`residual_tol < residual ≤\nresidual_floor`).",
+          "type": "boolean"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LineImpedanceResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Line quantities of a propagating channel on a face with floating\nconductors; `null` otherwise."
+        },
+        "residual": {
+          "description": "Explicit eigen-residual of the mode solve.",
+          "format": "double",
+          "type": "number"
+        },
+        "residual_floor": {
+          "description": "Round-off floor of `residual` (working-precision backward error).",
+          "format": "double",
+          "type": "number"
+        },
+        "track_overlap": {
+          "description": "Tracking overlap with the previous (lower) frequency's channel\n(`≈ 1`); `null` at the first frequency.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "z_line_ohm": {
+          "description": "The channel's characteristic impedance under the port's\n`impedance_definition` (ohms; complex on a lossy face): the `Z_c`\nthat `--touchstone` renormalizes to `reference_ohm`. `null` without\na line impedance.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ez_energy_fraction",
+        "accuracy",
+        "alpha_accuracy",
+        "residual",
+        "residual_floor",
+        "floor_accepted",
+        "track_overlap",
+        "cluster_size",
+        "coupled_mode",
+        "line",
+        "z_line_ohm"
+      ],
+      "type": "object"
+    },
+    "HybridModeSummary": {
+      "description": "One reported channel of a hybrid port's face solve (`geode check`).",
+      "properties": {
+        "beta": {
+          "description": "Propagation constant `β` (rad / mesh length unit; `Im β ≤ 0`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "channel": {
+          "description": "Flat S-matrix channel index (lumped ports first).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "eps_eff": {
+          "description": "`(Re β / k₀)²` for a propagating channel, else `null`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "hybrid": {
+          "$ref": "#/$defs/HybridChannelResult",
+          "description": "The hybrid mode diagnostics."
+        },
+        "mode": {
+          "description": "Mode (channel) index within the port.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "normalization": {
+          "description": "`\"power\"`, `\"pseudo_power\"` or `\"evanescent\"`\n([`WaveChannelResult::normalization`]).",
+          "type": "string"
+        },
+        "propagating": {
+          "description": "`Re β > |Im β|`.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "channel",
+        "mode",
+        "beta",
+        "propagating",
+        "eps_eff",
+        "normalization",
+        "hybrid"
+      ],
+      "type": "object"
+    },
+    "HybridPointSummary": {
+      "description": "A hybrid port's face solve at one frequency (`geode check`, issue\n#807).",
+      "properties": {
+        "channels": {
+          "description": "The reported channels, in channel order.",
+          "items": {
+            "$ref": "#/$defs/HybridModeSummary"
+          },
+          "type": "array"
+        },
+        "frequency_hz": {
+          "description": "Frequency (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "k0": {
+          "description": "`k₀` (rad / mesh length unit).",
+          "format": "double",
+          "type": "number"
+        },
+        "multiplicity_certified": {
+          "description": "The solver certified that every copy of a repeated eigenvalue was\nfound.",
+          "type": "boolean"
+        },
+        "n_propagating": {
+          "description": "Propagating modes of the face (all must be reported channels).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "termination_pairs": {
+          "description": "Mesh-induced complex pairs terminated as 2×2 blocks.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "termination_real": {
+          "description": "Termination-only real evanescent modes.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "frequency_hz",
+        "k0",
+        "n_propagating",
+        "termination_real",
+        "termination_pairs",
+        "multiplicity_certified",
+        "channels"
+      ],
+      "type": "object"
+    },
+    "HybridPortSpec": {
+      "additionalProperties": false,
+      "description": "Hybrid-port solver options (`wave_ports[].hybrid`, issue #807).",
+      "properties": {
+        "accuracy": {
+          "description": "Per-mode accuracy estimate (an `h/2` re-solve of the port face at\nevery frequency, plus `h/4` at the first). Default `true`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "accuracy_threshold": {
+          "description": "Relative error of `β` (and, on a lossy face, of the attenuation\n`α`) above which a propagating channel raises a warning with a\nrefine-to-`h` hint (finite, `> 0`). Default `0.005` (0.5 %).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "n_termination_evanescent": {
+          "description": "Evanescent modes terminated beyond the reported channels (`≥ 0`).\nDefault [`DEFAULT_N_TERMINATION_EVANESCENT`] (`4`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HybridPortSummary": {
+      "description": "A hybrid wave port (issue #807): why it is hybrid, its face and\noptions, and the sweep-level diagnostics of its mode solves.",
+      "properties": {
+        "accuracy_threshold": {
+          "description": "Accuracy-warning threshold (relative error of `β`, and of `α` on a\nlossy face); `null` with the accuracy estimate off.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "conductors": {
+          "description": "Floating conductors of the face, in canonical order (by 3-D\ncentroid): the line-impedance currents / voltages are listed in\nthis order.",
+          "items": {
+            "$ref": "#/$defs/FaceConductorSummary"
+          },
+          "type": "array"
+        },
+        "dispersive": {
+          "description": "The face sees a dispersive fill: its `ε(ω)` is re-read from the\nvolume at every frequency.",
+          "type": "boolean"
+        },
+        "frequencies": {
+          "description": "`geode check` only (empty and omitted in a driven report, whose\nper-row channel data are in `results[].wave_channels[]`): the\nport-face solve at every sweep frequency, without the 3-D solve.",
+          "items": {
+            "$ref": "#/$defs/HybridPointSummary"
+          },
+          "type": "array"
+        },
+        "impedance_definition": {
+          "description": "The line-impedance definition of `z_line_ohm`\n(`\"power_current\"`, `\"power_voltage\"`, `\"voltage_current\"`); `null`\non a face without a floating conductor (no line impedance).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "impedance_note": {
+          "description": "What the chosen impedance depends on: `Z_PI` is\ncontour-independent; `Z_PV` / `Z_VI` depend on the automatic voltage\npath (shield → nearest conductor point) and drift with frequency.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lossy": {
+          "description": "The face sees a lossy (`Im ε_r ≠ 0`) or dispersive fill: complex\n`β`, complex line impedances, pseudo-power-normalized S (passivity\nis measured per row: `results[].sigma_max`).",
+          "type": "boolean"
+        },
+        "mesh_size": {
+          "description": "Face mesh size `h` (largest face edge, mesh units): the `h` of the\naccuracy warnings' refine-to-`h` hints.",
+          "format": "double",
+          "type": "number"
+        },
+        "n_free_edges": {
+          "description": "Free `E_t` (edge) unknowns of the port-face mixed pencil.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_free_nodes": {
+          "description": "Free `E_z` (node) unknowns of the port-face mixed pencil.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_termination_evanescent": {
+          "description": "Evanescent modes terminated beyond the reported channels (not in\nS).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_termination_evanescent_clamped": {
+          "description": "`true` when the default termination count (4) was reduced to fit\na small face.",
+          "type": "boolean"
+        },
+        "observed_rates": {
+          "description": "Observed per-channel `β` convergence rates (`h, h/2, h/4` at the\nfirst frequency), when measured.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "per_frequency_resolve": {
+          "description": "Always `true`: the port's modes are re-solved at every frequency\nand tracked across the sweep by continuity (a lost mode identity is\nan error, never a guess).",
+          "type": "boolean"
+        },
+        "physical_groups": {
+          "description": "Volume physical groups touching the port face (sorted).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "description": "Why the port is hybrid: `\"inhomogeneous\"` (the face touches more\nthan one material), `\"interior_conductor\"` (a floating PEC strip,\nsheet or carved hole on the face) or\n`\"inhomogeneous_with_interior_conductor\"`.",
+          "type": "string"
+        },
+        "worst_track_overlap": {
+          "description": "Smallest mode-tracking overlap over the sweep (`null` with one\nfrequency): `≈ 1` for a well-resolved sweep; the sweep fails below\n0.5.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reason",
+        "physical_groups",
+        "conductors",
+        "n_free_edges",
+        "n_free_nodes",
+        "mesh_size",
+        "lossy",
+        "dispersive",
+        "per_frequency_resolve",
+        "n_termination_evanescent",
+        "n_termination_evanescent_clamped",
+        "accuracy_threshold",
+        "impedance_definition",
+        "impedance_note",
+        "observed_rates",
+        "worst_track_overlap"
+      ],
+      "type": "object"
+    },
+    "ImpedanceDefinition": {
+      "description": "Line-impedance definition of a hybrid wave port's channels (issue\n#807). A hybrid (quasi-TEM / hybrid) mode has no unique characteristic\nimpedance; the three classical definitions coincide quasi-statically\nand separate with dispersion. The TE wave impedance `Z_TE = η₀k₀/β` of\ngeometric ports is never offered for hybrid ports: it is a wave, not a\nline, impedance (about `η₀/√ε_eff` for microstrip, and it predicts step\nreflections 14–19× too small).",
+      "oneOf": [
+        {
+          "const": "power_current",
+          "description": "`Z_PI = 2P/|I|²` (power–current; with several conductors the\nper-line modal `2P/Σ|I_c|²`, i.e. `Z_e` / `Z_o` of a symmetric pair).\nContour-independent; the default.",
+          "type": "string"
+        },
+        {
+          "const": "power_voltage",
+          "description": "`Z_PV = |V|²/(2P)` (power–voltage). `V` is integrated along the\nautomatic shortest path from the shield to the conductor (it ends at\nthe nearest conductor point — a microstrip's strip **edge**), so the\nvalue depends on that path and drifts with frequency (measured\n1.01× → 1.11× `Z_PI` over `k₀h = 0.05 … 0.2` on a shielded\nmicrostrip).",
+          "type": "string"
+        },
+        {
+          "const": "voltage_current",
+          "description": "`Z_VI = |V/I|` (voltage–current), `√(Z_PI·Z_PV)`: the same path and\nfrequency dependence as `power_voltage`.",
+          "type": "string"
+        }
+      ]
     },
     "InductanceReport": {
       "description": "`geode inductance` report (`kind = \"inductance\"`, additive in v1,\nissue #714).\n\nThe **static** Maxwell inductance matrix of open current paths\nreturning through a PEC wall, in henries (SI: the mesh length unit is\nfolded in), row-major `l_henry[row][col]` in path order. This is not\n`geode extract`'s `l0_h` (an RF port's quasi-static `Im Z / ω`\nextrapolated to `f → 0`).",
@@ -2601,6 +3039,84 @@
         "n_triangles",
         "conductivity_s_m",
         "conductivity_natural"
+      ],
+      "type": "object"
+    },
+    "LineImpedanceResult": {
+      "description": "Line impedances of one hybrid channel (issue #807; ohms, complex on a\nlossy face). With several conductors they are the per-line modal\nimpedances (`Z_PI = 2P/Σ I_c²`), i.e. `Z_e` / `Z_o` of a symmetric\npair. `Z_PI` is contour-independent; `Z_PV` and `Z_VI` depend on the\nautomatic voltage path (shield → nearest conductor point, a microstrip's\nstrip edge) and on frequency.",
+      "properties": {
+        "currents": {
+          "description": "Signed conductor currents in the mode's normalization (A per unit\nmodal amplitude), conductor order.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "voltages": {
+          "description": "Path voltages in the same normalization (`null` without a path).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "type": "array"
+        },
+        "z_pi_ohm": {
+          "description": "Power–current impedance `Z_PI`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "z_pv_ohm": {
+          "description": "Power–voltage impedance `Z_PV` (`null` without a voltage path).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "z_vi_ohm": {
+          "description": "Voltage–current impedance `Z_VI` (`null` without a voltage path).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "z_pi_ohm",
+        "z_pv_ohm",
+        "z_vi_ohm",
+        "currents",
+        "voltages"
       ],
       "type": "object"
     },
@@ -4325,6 +4841,42 @@
       ],
       "type": "object"
     },
+    "WarningResult": {
+      "description": "A report-level warning (issue #807; additive in v1): never an error,\nalso printed on stderr as `warning: …`.",
+      "properties": {
+        "kind": {
+          "description": "What it is about: `\"complex_pair_terminated\"`,\n`\"complex_pair_dropped\"`, `\"accuracy_above_threshold\"`,\n`\"attenuation_accuracy_above_threshold\"`, `\"accuracy_unavailable\"`,\n`\"multiplicity_uncertified\"`, `\"cluster_split\"`,\n`\"non_canonical_cluster_basis\"`, `\"passivity\"` (a lossy spec's\nmeasured `σ_max(S) > 1`), or `\"termination_clamped\"`.",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable message with the remedy.",
+          "type": "string"
+        },
+        "physical_group": {
+          "description": "Its physical group.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "wave_port": {
+          "description": "Wave-port index (spec order), if the warning is about one port.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "wave_port",
+        "physical_group",
+        "message"
+      ],
+      "type": "object"
+    },
     "WaveChannelResult": {
       "description": "Per-channel quantities of a wave-port sweep at one frequency.",
       "properties": {
@@ -4344,11 +4896,34 @@
           "minimum": 0,
           "type": "integer"
         },
+        "eps_eff": {
+          "description": "`(Re β / k₀)²` of a propagating channel (issue #807; additive in\nv1; omitted for an evanescent one): the effective permittivity of a\nquasi-TEM line, the effective index squared of any guided mode.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "hybrid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HybridChannelResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hybrid-mode diagnostics (issue #807; additive in v1; present only\nfor a hybrid port's channel)."
+        },
         "mode": {
           "description": "Mode index within the port.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
+        },
+        "normalization": {
+          "description": "How this channel's S entries are normalized (issue #807; additive\nin v1): `\"power\"` (a lossless propagating mode: S is power-wave),\n`\"pseudo_power\"` (a lossy propagating mode: the unconjugated\nnormalization keeps `Sᵀ = S` but passivity is measured, not\nguaranteed — see `sigma_max`) or `\"evanescent\"` (**not\npower-normalized**: an evanescent channel carries no power and its S\nentries depend on the normalization convention).",
+          "type": "string"
         },
         "port": {
           "description": "Wave-port index.",
@@ -4383,7 +4958,8 @@
         "beta",
         "propagating",
         "s",
-        "s_db"
+        "s_db",
+        "normalization"
       ],
       "type": "object"
     },
@@ -4462,7 +5038,7 @@
     },
     "WavePortSpec": {
       "additionalProperties": false,
-      "description": "A wave (modal) port on a planar surface physical group.\n\nThe tagged faces are projected into a local 2-D cross-section whose\nrim (edges on a single face triangle) is PEC; the `n_modes`\nlowest-cutoff transverse modes of that cross-section become the port's\nS-parameter channels (TEM modes of multiply connected cross-sections\nare not supported).",
+      "description": "A wave (modal) port on a planar surface physical group.\n\nThe tagged faces are projected into a local 2-D cross-section whose\nrim (edges on a single face triangle) is PEC. `geode` routes each port\nby its cross-section (Epic #778 Phase 5, issue #807):\n\n* **geometric** — a homogeneously filled face without interior\n  conductors: the `n_modes` lowest-cutoff TE modes (ω-independent\n  profiles; the TE-only TM-cutoff guard of issue #808 applies);\n* **hybrid** — an **inhomogeneous** face (more than one material) or a\n  face carrying an **interior conductor** (a PEC strip, sheet or carved\n  hole: microstrip, stripline, coax): the `n_modes` modes with the\n  largest `β²` of the full-vector `E_t`–`E_z` port pencil (TE, TM,\n  hybrid and quasi-TEM modes alike), re-solved and tracked at every\n  frequency. `impedance_definition` and `hybrid` apply to these ports\n  only.",
       "properties": {
         "a_inc": {
           "default": null,
@@ -4480,6 +5056,28 @@
             "array",
             "null"
           ]
+        },
+        "hybrid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HybridPortSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hybrid-port solver options (issue #807; additive in v1; rejected on\na geometric port). Omit for the defaults."
+        },
+        "impedance_definition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImpedanceDefinition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Characteristic (line) impedance a **hybrid** port's channels carry\n(issue #807; additive in v1): the `z_line_ohm` of the report and the\n`Z_c` `--touchstone` renormalizes to `reference_ohm`. Default\n`power_current` (`Z_PI`). Needs a face with a floating conductor;\nrejected on a geometric port (its `Z_c` is the TE wave impedance)."
         },
         "n_modes": {
           "default": 1,
@@ -4529,6 +5127,17 @@
           "format": "double",
           "type": "number"
         },
+        "hybrid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HybridPortSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The hybrid port's face, options and solve summary (issue #807;\nadditive in v1; present only for `route = \"hybrid\"`)."
+        },
         "index": {
           "description": "Port index.",
           "format": "uint",
@@ -4536,11 +5145,18 @@
           "type": "integer"
         },
         "medium": {
-          "$ref": "#/$defs/WavePortMediumSummary",
-          "description": "The homogeneous medium filling the guide at the port face (issue\n#777; additive in v1)."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WavePortMediumSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The homogeneous medium filling the guide at the port face (issue\n#777; additive in v1). `null` for a hybrid port, whose face carries\na per-triangle permittivity ([`Self::hybrid`])."
         },
         "modes": {
-          "description": "Solved modes (`driven` reports); `null` in `check` (no modal solve).",
+          "description": "Solved modes (`driven` reports); `null` in `check` (no modal solve)\nand for a hybrid port (its modes have no geometric cutoff; see\n[`Self::hybrid`] and `results[].wave_channels[].hybrid`).",
           "items": {
             "$ref": "#/$defs/WaveModeSummary"
           },
@@ -4595,6 +5211,10 @@
             "null"
           ]
         },
+        "route": {
+          "description": "How the port is solved (issue #807; additive in v1): `\"geometric\"`\n(a homogeneously filled face without interior conductors: TE modes,\nω-independent profiles) or `\"hybrid\"` (an inhomogeneous face or one\nwith a floating conductor: the full-vector `E_t`–`E_z` port modes,\nre-solved and tracked at every frequency).",
+          "type": "string"
+        },
         "tag": {
           "description": "Physical tag.",
           "format": "int32",
@@ -4637,6 +5257,7 @@
         "n_modes",
         "a_inc",
         "modes",
+        "route",
         "medium",
         "tm_k_c",
         "tm_k_c_face",

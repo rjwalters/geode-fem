@@ -19,6 +19,7 @@ use crate::spec::{DispersionSpec, FrequencyUnit, RoughnessSpec, SolverSpec};
 /// Load + resolve the spec and summarize it (no assembly, no solve).
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliError> {
     let p = problem::load(spec_path, None)?;
+    let (wave_ports, warnings) = wave_port_previews(&p)?;
     Ok(CheckReport {
         provenance,
         kind: "check",
@@ -41,7 +42,7 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
         silver_muller: silver_muller_summaries(&p),
         absorbing_regions: upml_summaries(&p),
         ports: port_summaries(&p),
-        wave_ports: wave_port_summaries(&p),
+        wave_ports,
         frequencies: p
             .frequencies
             .iter()
@@ -60,7 +61,35 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
         // electrostatic system: no fabricated estimate. (The inductance
         // system is a real Nédélec curl-curl, like the anchor's pencil.)
         resources: p.capacitance.is_none().then(|| resource_estimate(&p)),
+        warnings,
     })
+}
+
+/// [`wave_port_summaries`] with each **hybrid** port's face solve at every
+/// sweep frequency (issue #807): the port-face half of the driven sweep —
+/// modes, `ε_eff`, line impedances, tracking, accuracy and warnings —
+/// without the 3-D solve ([`crate::hybrid::face_sweep`]). Geometric ports
+/// stay unsolved (`modes: null`), as before.
+fn wave_port_previews(
+    p: &Problem,
+) -> Result<(Vec<WavePortSummary>, Vec<crate::report::WarningResult>), CliError> {
+    let mut summaries = wave_port_summaries(p);
+    let mut core = Vec::new();
+    let mut hybrid = Vec::new();
+    let mut channel0 = p.ports.len();
+    for (i, (s, w)) in summaries.iter_mut().zip(&p.wave_ports).enumerate() {
+        if let Some(h) = &w.hybrid {
+            let sweep = crate::hybrid::face_sweep(p, i, true)?;
+            let mut summary = crate::hybrid::summary(w, h, Some(&sweep.report));
+            summary.frequencies = crate::hybrid::point_summaries(p, h, &sweep.report, channel0);
+            s.hybrid = Some(summary);
+            core.extend(sweep.warnings);
+            hybrid.push(i);
+        }
+        channel0 += w.a_inc.len();
+    }
+    let warnings = crate::hybrid::warnings(p, &hybrid, &core);
+    Ok((summaries, warnings))
 }
 
 /// Echo of the resolved `inductance` section with the edge-DOF system
@@ -390,7 +419,13 @@ pub fn wave_port_summaries(p: &Problem) -> Vec<WavePortSummary> {
             n_modes: w.a_inc.len(),
             a_inc: w.a_inc.iter().map(|a| [a.re, a.im]).collect(),
             modes: None,
-            medium: {
+            route: if w.hybrid.is_some() {
+                "hybrid"
+            } else {
+                "geometric"
+            },
+            // A hybrid face has no single medium (issue #807).
+            medium: w.hybrid.is_none().then(|| {
                 let m = p.port_medium(w);
                 WavePortMediumSummary {
                     physical_groups: w.fill.groups.clone(),
@@ -398,7 +433,7 @@ pub fn wave_port_summaries(p: &Problem) -> Vec<WavePortSummary> {
                     mu_r_t: m.mu_t,
                     mu_r_n: m.mu_n,
                 }
-            },
+            }),
             tm_k_c: w
                 .tm
                 .map(|t| t.k_face.min(t.k_extrapolated))
@@ -408,6 +443,10 @@ pub fn wave_port_summaries(p: &Problem) -> Vec<WavePortSummary> {
                 .port_tm_limit_k0(w)
                 .map(|k0| problem::to_frequency(k0, FrequencyUnit::K0, p.length_unit_m()).hz),
             reference_ohm: w.reference_ohm,
+            hybrid: w
+                .hybrid
+                .as_ref()
+                .map(|h| crate::hybrid::summary(w, h, None)),
         })
         .collect()
 }
