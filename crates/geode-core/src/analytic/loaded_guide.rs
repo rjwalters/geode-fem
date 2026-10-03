@@ -77,6 +77,21 @@
 //! and vanish exactly at the eigenvalues (the 1-D problems are regular
 //! Sturm–Liouville problems, so every root is simple). Roots are bracketed on
 //! a dense uniform `β²` grid and refined by bisection to round-off.
+//!
+//! # Lossy slab: complex roots by continuation (#806)
+//!
+//! The LSE/LSM separation and both Wronskians are algebraic in `ε_r`, so they
+//! hold verbatim for a complex (lossy) slab permittivity, with `S` and `C`
+//! continued to complex `q` (both are entire in `q`: even functions of
+//! `√q`, so the branch of the root does not matter). The roots are then
+//! complex. [`SlabLoadedGuide::continued_root`] finds the one that is the
+//! **continuation** of a given lossless root: it walks `ε` along the straight
+//! path from the real `ε_r` of the guide to the target complex `ε` in many
+//! small steps and polishes with Newton (central-difference derivative of the
+//! analytic `F`) at each step. That is the guard against converging to a
+//! neighbouring root.
+
+use faer::c64;
 
 /// Which of the two slab-guide mode families a root belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -243,6 +258,106 @@ impl SlabLoadedGuide {
     }
 }
 
+/// `S(q, L) = sin(√q L)/√q` for complex `q` (entire in `q`).
+fn s_fn_c(q: c64, l: f64) -> c64 {
+    let ql2 = q * (l * l);
+    if ql2.norm() < 1e-6 {
+        (c64::new(1.0, 0.0) - ql2 / 6.0 + ql2 * ql2 / 120.0) * l
+    } else {
+        let k = q.sqrt();
+        (k * l).sin() / k
+    }
+}
+
+/// `C(q, L) = cos(√q L)` for complex `q` (entire in `q`).
+fn c_fn_c(q: c64, l: f64) -> c64 {
+    (q.sqrt() * l).cos()
+}
+
+impl SlabLoadedGuide {
+    /// The dispersion function `F_family(β²)` of the guide with the slab
+    /// permittivity replaced by a **complex** `eps_r` and complex `β²`
+    /// (module docs, "Lossy slab"). Equal to [`Self::dispersion`] for a real
+    /// `eps_r` and real `β²` up to round-off.
+    pub fn dispersion_complex(
+        &self,
+        family: LsFamily,
+        m: u32,
+        k0: f64,
+        eps_r: c64,
+        beta_sq: c64,
+    ) -> c64 {
+        let kx2 = self.k_x(m).powi(2);
+        let q1 = eps_r * (k0 * k0) - kx2 - beta_sq;
+        let q2 = c64::new(k0 * k0 - kx2, 0.0) - beta_sq;
+        let h = self.b - self.d;
+        match family {
+            LsFamily::Lse => {
+                s_fn_c(q1, self.d) * c_fn_c(q2, h) + c_fn_c(q1, self.d) * s_fn_c(q2, h)
+            }
+            LsFamily::Lsm => {
+                q2 * c_fn_c(q1, self.d) * s_fn_c(q2, h)
+                    + (q1 / eps_r) * s_fn_c(q1, self.d) * c_fn_c(q2, h)
+            }
+        }
+    }
+
+    /// The complex root `β²` of mode `(family, m, n)` for the slab
+    /// permittivity `target` (`Re > 0`; passive `Im ≤ 0`), continued from the
+    /// lossless root of this guide (its real [`Self::eps_r`]) along
+    /// `ε(t) = ε_r + t (target − ε_r)`, `t = 1/steps, …, 1`, with Newton at
+    /// every step (module docs). `beta_sq_min` is the floor passed to
+    /// [`Self::modes`] to find the starting root.
+    ///
+    /// Returns `None` if the starting root does not exist above
+    /// `beta_sq_min` or Newton fails to converge at some step (the caller
+    /// should then use more steps).
+    #[allow(clippy::too_many_arguments)]
+    pub fn continued_root(
+        &self,
+        family: LsFamily,
+        m: u32,
+        n: u32,
+        k0: f64,
+        target: c64,
+        beta_sq_min: f64,
+        steps: usize,
+    ) -> Option<c64> {
+        let start = self
+            .modes(k0, beta_sq_min)
+            .into_iter()
+            .find(|md| md.family == family && md.m == m && md.n == n)?;
+        let scale =
+            self.eps_r.max(target.norm()) * k0 * k0 + (std::f64::consts::PI / self.b).powi(2);
+        let e0 = c64::new(self.eps_r, 0.0);
+        let mut x = c64::new(start.beta_sq, 0.0);
+        let steps = steps.max(1);
+        for st in 1..=steps {
+            let eps = e0 + (target - e0) * (st as f64 / steps as f64);
+            let f = |z: c64| self.dispersion_complex(family, m, k0, eps, z);
+            let mut ok = false;
+            for _ in 0..60 {
+                let dz = 1e-6 * scale;
+                let fx = f(x);
+                let d = (f(x + dz) - f(x - dz)) / (2.0 * dz);
+                if d.norm() == 0.0 || !(d.re.is_finite() && d.im.is_finite()) {
+                    return None;
+                }
+                let step = fx / d;
+                x -= step;
+                if step.norm() <= 1e-14 * scale {
+                    ok = true;
+                    break;
+                }
+            }
+            if !ok {
+                return None;
+            }
+        }
+        Some(x)
+    }
+}
+
 /// Bisection on a sign-changing bracket `[lo, hi]` to round-off.
 fn bisect(f: &impl Fn(f64) -> f64, mut lo: f64, mut hi: f64) -> f64 {
     let mut f_lo = f(lo);
@@ -358,6 +473,42 @@ mod tests {
                 "{md:?}: tan/cot form residual {lhs} vs {rhs}"
             );
         }
+    }
+
+    /// Lossy continuation: the complex form equals the real one on real
+    /// data; the continued LSM₁₀ root is a root, does not depend on the step
+    /// count, and is passive (`Im β² < 0`, smaller than the uniform-fill
+    /// `k₀²|Im ε|`).
+    #[test]
+    fn continued_lossy_root_is_a_root_and_step_independent() {
+        let g = SlabLoadedGuide::new(2.0, 1.0, 0.5, 2.25);
+        let k0 = 2.0;
+        for md in g.modes(k0, -10.0) {
+            let fr = g.dispersion(md.family, md.m, k0, md.beta_sq + 0.3);
+            let fc = g.dispersion_complex(
+                md.family,
+                md.m,
+                k0,
+                c64::new(2.25, 0.0),
+                c64::new(md.beta_sq + 0.3, 0.0),
+            );
+            assert!((fc.re - fr).abs() <= 1e-12 * fr.abs().max(1.0) && fc.im.abs() <= 1e-14);
+        }
+        let target = c64::new(2.25, -2.25 * 2e-2);
+        let r1 = g
+            .continued_root(LsFamily::Lsm, 1, 0, k0, target, -10.0, 32)
+            .unwrap();
+        let r2 = g
+            .continued_root(LsFamily::Lsm, 1, 0, k0, target, -10.0, 128)
+            .unwrap();
+        assert!((r1 - r2).norm() <= 1e-12 * r1.norm(), "{r1} vs {r2}");
+        let f = g.dispersion_complex(LsFamily::Lsm, 1, k0, target, r1);
+        assert!(f.norm() <= 1e-10, "residual {f}");
+        // Passive: Im β² < 0, and |Im β²| < k₀² |Im ε| (partial fill).
+        assert!(
+            r1.im < 0.0 && r1.im.abs() < k0 * k0 * target.im.abs(),
+            "{r1}"
+        );
     }
 
     /// The dominant mode is LSM₁₀ and is slower than the empty TE₁₀

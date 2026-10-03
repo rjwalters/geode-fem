@@ -37,6 +37,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - B-orthogonalization within degenerate clusters. Copies found on a C4v mesh paired at 4e-2 before it.
     - a residual round-off floor (`HybridPortMode::residual_floor`, reported per mode and counted in `floor_accepted`). Low-frequency faces (k₀W ≤ 0.1) previously failed with `Shortfall` even though the eigenpair was accurate.
   - The 3-D part (driving with the quasi-TEM mode) is a follow-up phase.
+- **Lossy and dispersive substrates on hybrid port faces** (#806, Epic #778 Phase 4).
+  - New `analytic::lossy_port_modes`: the complex-symmetric p=1 mixed pencil for complex per-triangle ε (tan δ, Djordjevic–Sarkar, Debye, Drude), solved by a complex shift-invert Arnoldi. It keeps the null-space deflation, coverage certificate, explicit `Shortfall`, multiplicity pass and residual floor of the real solver. β is complex on the outgoing branch (Im β ≤ 0). "Propagating" means Re β² > 0, i.e. Re β > |Im β|. Modes are normalized unconjugated, zᵀBz = β², so Sᵀ = S.
+  - `HybridPortFace::from_volume_lossy` / `new_lossy` build lossy faces. `solve_{wave,mixed}_port_spec_sweep_dispersive_with_mode` re-assemble the volume and re-solve the port faces from the same per-tet ε(ω) at every frequency, with mode tracking across frequency.
+  - A face built from the volume must match the volume's ε bit for bit; a lossless face on a lossy volume is now an `InvalidPort` error. Gain (Im ε > 0) is refused.
+  - `HybridChannelReport` gains `beta_sq_im` and an α accuracy estimate. A failed refined solve on this path reports the estimate as unavailable instead of aborting the sweep.
+  - `FaerComplexEigensolver::smallest_complex_pencil_pairs` adds a general complex (A, B) eigenpair entry point, used as the dense oracle. `SlabLoadedGuide::continued_root` gives complex LSE/LSM roots by continuation in ε.
+  - Measured:
+    - Re β is within 0.44 % and α within 0.41 % of the continued root at h = b/32 (28 modes, O(h²) rates);
+    - first-order α matches the exact lossy solve to 3.4e-6;
+    - the microstrip α_d is −0.86 % from Pozar;
+    - the dense oracle agrees to 3.3e-13;
+    - on the 3-D lossy straight section, |S21| matches e^{−αL} to 8.5e-4 and reciprocity holds to 1e-14; σ_max(S) ≤ 0.981 is measured, not guaranteed (pseudo-power normalization);
+    - a Djordjevic–Sarkar slab over 8 frequencies tracks continuously;
+    - the tan δ = 0 regression reproduces Phase 1/2 to 7.5e-15 (S) and 6.7e-13 (β²);
+    - the accuracy estimate is within 1.08× (β) and 1.30× (α) of the true error.
 
 ### Fixed
 

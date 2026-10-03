@@ -110,6 +110,30 @@ pub trait ComplexEigenSolver {
                 .into(),
         ))
     }
+
+    /// Solve the **fully-complex** generalized pencil `A x = λ B x` and
+    /// return the lowest-`n` **(eigenvalue, eigenvector)** pairs by `|Re λ|`
+    /// (issue #806: the small-face oracle of the lossy hybrid port-mode
+    /// solver, whose pencil is complex symmetric with an indefinite `B`).
+    ///
+    /// Eigenvectors are **not** normalized. Infinite eigenvalues (singular
+    /// `B`) are dropped, as in
+    /// [`ComplexEigenSolver::smallest_complex_pencil_eigenvalues`].
+    ///
+    /// Default implementation returns [`EigenError::FaerGevd`];
+    /// [`FaerComplexEigensolver`] overrides it.
+    fn smallest_complex_pencil_pairs(
+        &self,
+        _a: MatRef<c64>,
+        _b: MatRef<c64>,
+        _n: usize,
+    ) -> Result<Vec<(c64, Vec<c64>)>, EigenError> {
+        Err(EigenError::FaerGevd(
+            "smallest_complex_pencil_pairs not implemented for this eigensolver; \
+             use FaerComplexEigensolver for the dense eigenvector path"
+                .into(),
+        ))
+    }
 }
 
 /// Largest pencil dimension [`FaerComplexEigensolver`] accepts. Larger
@@ -530,6 +554,26 @@ impl ComplexEigenSolver for FaerComplexEigensolver {
             .map(|(lambda, col)| (lambda, (0..u.nrows()).map(|row| u[(row, col)]).collect()))
             .collect())
     }
+
+    fn smallest_complex_pencil_pairs(
+        &self,
+        a: MatRef<c64>,
+        b: MatRef<c64>,
+        n: usize,
+    ) -> Result<Vec<(c64, Vec<c64>)>, EigenError> {
+        assert_eq!(a.nrows(), a.ncols(), "A must be square");
+        assert_eq!(b.nrows(), b.ncols(), "B must be square");
+        assert_eq!(a.nrows(), b.nrows(), "A and B must agree in size");
+        let spec = shift_invert_spectrum(a, b, true)?;
+        let chosen = lowest_by_abs_re(spec.lambdas, |(l, _)| *l, n);
+        let Some(u) = spec.vectors else {
+            return Ok(Vec::new());
+        };
+        Ok(chosen
+            .into_iter()
+            .map(|(lambda, col)| (lambda, (0..u.nrows()).map(|row| u[(row, col)]).collect()))
+            .collect())
+    }
 }
 
 #[cfg(test)]
@@ -598,6 +642,58 @@ mod tests {
             );
         }
         assert_eq!(l.iter().filter(|z| z.re < 0.0).count(), 1, "{l:?}");
+    }
+
+    /// The general complex `(A, B)` entry point returns eigenpairs of a
+    /// complex-symmetric pencil with an indefinite `B` (the #806 oracle
+    /// shape): `A x = λ B x` holds for every returned pair.
+    #[test]
+    fn complex_pencil_pairs_satisfy_the_pencil() {
+        let n = 4;
+        let a = Mat::<c64>::from_fn(n, n, |i, j| {
+            let base = if i == j {
+                2.0 + i as f64
+            } else {
+                0.3 / (1.0 + (i + j) as f64)
+            };
+            c64::new(
+                base,
+                if i == j {
+                    -0.05 * (i as f64 + 1.0)
+                } else {
+                    0.01
+                },
+            )
+        });
+        let b = Mat::<c64>::from_fn(n, n, |i, j| {
+            if i == j {
+                c64::new(if i % 2 == 0 { 1.0 } else { -0.7 }, 0.0)
+            } else {
+                c64::new(0.1, -0.02)
+            }
+        });
+        let pairs = FaerComplexEigensolver
+            .smallest_complex_pencil_pairs(a.as_ref(), b.as_ref(), n)
+            .expect("solve");
+        assert_eq!(pairs.len(), n);
+        for (l, v) in &pairs {
+            let mut r = 0.0;
+            let mut s = 0.0;
+            for i in 0..n {
+                let (mut av, mut bv) = (c64::new(0.0, 0.0), c64::new(0.0, 0.0));
+                for j in 0..n {
+                    av += a[(i, j)] * v[j];
+                    bv += b[(i, j)] * v[j];
+                }
+                r += (av - *l * bv).norm_sqr();
+                s += av.norm_sqr();
+            }
+            assert!(
+                r.sqrt() <= 1e-12 * s.sqrt(),
+                "λ = {l}: residual {}",
+                r.sqrt()
+            );
+        }
     }
 
     #[test]

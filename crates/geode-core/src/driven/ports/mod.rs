@@ -21,18 +21,26 @@
 //!   [`solve_mixed_port_spec_sweep_with_mode`] — wave ports on
 //!   **inhomogeneous** cross-sections, whose hybrid modes are re-solved and
 //!   tracked per frequency (Epic #778 Phase 2, issue #804).
+//! - [`HybridPortFace::from_volume_lossy`] and the dispersive sweeps
+//!   [`solve_wave_port_spec_sweep_dispersive_with_mode`] /
+//!   [`solve_mixed_port_spec_sweep_dispersive_with_mode`] — hybrid ports on
+//!   **lossy and dispersive** substrates (complex-symmetric port pencil,
+//!   per-ω `ε`), Epic #778 Phase 4, issue #806.
 
 mod hybrid;
+mod hybrid_lossy;
 mod lumped;
 pub(crate) mod mixed;
 mod wave;
 mod wave_face;
 
 pub use hybrid::{
-    DEFAULT_MIN_TRACK_OVERLAP, HybridChannelReport, HybridModalFlux, HybridPortFace,
+    DEFAULT_MIN_TRACK_OVERLAP, DispersiveEps, HybridChannelReport, HybridModalFlux, HybridPortFace,
     HybridPortPointReport, HybridPortReport, HybridWavePort, HybridWavePortOpts,
     MixedPortSpecSweep, PortAccuracyOpts, PortWarning, PortWarningKind, WavePortSpec,
-    WavePortSpecSweep, solve_mixed_port_spec_sweep_with_mode, solve_wave_port_spec_sweep_with_mode,
+    WavePortSpecSweep, solve_mixed_port_spec_sweep_dispersive_with_mode,
+    solve_mixed_port_spec_sweep_with_mode, solve_wave_port_spec_sweep_dispersive_with_mode,
+    solve_wave_port_spec_sweep_with_mode,
 };
 pub use lumped::{
     LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
