@@ -2418,7 +2418,7 @@ entries (see [Mixed lumped + wave ports](#mixed-lumped--wave-ports-issue-759)).
 | `k0_im` | rad / mesh unit | complex pencil only (#706): `Im(k₀)`, `> 0` = decaying (`exp(+jωt)`) |
 | `frequency_hz` | Hz | `Re(k₀) c / (2π · length_unit_m)` |
 | `omega_rad_s` | rad/s | `2πf` |
-| `q` | – | quality factor `Re(k₀) / (2|Im k₀|)`: `null` for a lossless pencil (`Q` undefined — infinite — not a number); finite for a lossy / open one (#706; `null` only if `|Im k₀| ≤ 1e-12`, an absolute bound in `k₀`'s rad / mesh length unit, not relative to `Re(k₀)`); uses `|Im k₀|`, so a growing mode (`k0_im < 0`) is not distinguished from decay by `Q` alone — check `k0_im`'s sign |
+| `q` | – | quality factor `Re(k₀) / (2|Im k₀|)`: `null` for a lossless pencil (`Q` undefined — infinite — not a number); finite for a lossy / open one (#706; `null` only if `|Im k₀| ≤ 16ε·|Re k₀|`, numerically lossless — the cutoff is relative, so `Q` does not depend on the mesh length unit, #826); uses `|Im k₀|`, so a growing mode (`k0_im < 0`) is not distinguished from decay by `Q` alone — check `k0_im`'s sign |
 | `residual_rel` | – | `‖Kx − λMx‖ / (|λ| ‖Mx‖)` |
 | `field_file` | | `--outdir` only: `{path, sha256}` of `E_mode_<mode>.vtu` |
 

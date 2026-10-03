@@ -103,9 +103,27 @@ fn solve_fiber(
     n_modes: usize,
     couple: bool,
 ) -> Vec<MixedMode> {
-    let k0 = k0();
-    let outer = clad_mult * a_um;
-    let (mesh, tags) = disk_tri_mesh(a_um, outer, res.0, res.1);
+    solve_fiber_in_units(n_core, n_clad, a_um, clad_mult, res, n_modes, couple, 1.0)
+}
+
+/// [`solve_fiber`] on a mesh authored in a length unit of `1/per_um` µm
+/// (`per_um = 1e3` is nanometres): lengths scale by `per_um`, `k₀` by
+/// `1/per_um`, so `β²` comes back scaled by `1/per_um²`.
+#[allow(clippy::too_many_arguments)]
+fn solve_fiber_in_units(
+    n_core: f64,
+    n_clad: f64,
+    a_um: f64,
+    clad_mult: f64,
+    res: (usize, usize),
+    n_modes: usize,
+    couple: bool,
+    per_um: f64,
+) -> Vec<MixedMode> {
+    let k0 = k0() / per_um;
+    let a = a_um * per_um;
+    let outer = clad_mult * a;
+    let (mesh, tags) = disk_tri_mesh(a, outer, res.0, res.1);
     let eps = epsilon_r_from_region_tags(&tags, |t| {
         if t == REGION_CORE {
             n_core * n_core
@@ -175,6 +193,73 @@ fn coupled_pencil_is_spurious_mode_free_in_window() {
         "coupled in-window modes must be cleaner (min cf {coupled_min_cf:.3}) \
          than the decoupled ladder (min cf {decoupled_min_cf:.3})"
     );
+}
+
+/// **Tier 1** — mesh-unit invariance (issue #826): the same fiber in µm and
+/// in nm returns the same in-window modes (count, `n_eff`, core fraction, and
+/// `β²` scaled by the unit). In nm, `β² ≈ 3.5e-5` and the whole guided window
+/// is `≈ 3e-7` wide, so the old `1e-6 · max(|β²|, 1)` duplicate test (an
+/// absolute `1e-6` below `β² = 1`) merged every in-window mode into one. The
+/// decoupled pencil is used because its dense in-window ladder exposes that.
+#[test]
+fn in_window_modes_do_not_depend_on_mesh_length_unit() {
+    for couple in [false, true] {
+        let um = solve_fiber_in_units(
+            SMF_N_CORE,
+            SMF_N_CLAD,
+            SMF_A_UM,
+            6.0,
+            (7, 64),
+            20,
+            couple,
+            1.0,
+        );
+        let nm = solve_fiber_in_units(
+            SMF_N_CORE,
+            SMF_N_CLAD,
+            SMF_A_UM,
+            6.0,
+            (7, 64),
+            20,
+            couple,
+            1e3,
+        );
+        assert!(
+            !um.is_empty(),
+            "couple = {couple}: no in-window modes in µm"
+        );
+        if !couple {
+            assert!(um.len() > 1, "the decoupled ladder must have several modes");
+        }
+        assert_eq!(
+            um.len(),
+            nm.len(),
+            "couple = {couple}: {} in-window modes in µm, {} in nm",
+            um.len(),
+            nm.len()
+        );
+        for (i, (a, b)) in um.iter().zip(&nm).enumerate() {
+            let beta_sq_nm_in_um = b.beta_sq * 1e6;
+            assert!(
+                (a.beta_sq - beta_sq_nm_in_um).abs() <= 1e-9 * a.beta_sq,
+                "couple = {couple}, mode {i}: β² = {} µm⁻² vs {} (from nm)",
+                a.beta_sq,
+                beta_sq_nm_in_um
+            );
+            assert!(
+                (a.n_eff - b.n_eff).abs() <= 1e-9 * a.n_eff,
+                "couple = {couple}, mode {i}: n_eff {} vs {}",
+                a.n_eff,
+                b.n_eff
+            );
+            assert!(
+                (a.core_energy_fraction - b.core_energy_fraction).abs() <= 1e-6,
+                "couple = {couple}, mode {i}: core fraction {} vs {}",
+                a.core_energy_fraction,
+                b.core_energy_fraction
+            );
+        }
+    }
 }
 
 /// **Tier 1** — the INVERSE TRIPWIRE (Test Plan): zeroing the coupling block
