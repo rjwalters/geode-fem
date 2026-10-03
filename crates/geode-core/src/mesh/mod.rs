@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 use mshio::mshfile::ElementType;
 
 pub mod electrostatic_fixtures;
+pub mod extrude;
 pub mod magnetostatic_fixtures;
 pub mod msh_tags;
 pub mod partition;
@@ -26,6 +27,7 @@ pub mod sphere;
 pub mod spiral;
 pub mod transmon;
 
+pub use extrude::{ExtrudedEdge, ExtrudedTriMesh, extrude_tri_mesh, extrude_tri_mesh_layers};
 #[allow(deprecated)]
 pub use sphere::PHYS_VACUUM_BUFFER;
 pub use sphere::{

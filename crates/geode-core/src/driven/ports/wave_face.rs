@@ -40,10 +40,17 @@
 //! # Scope
 //!
 //! The port face must be **planar** and bounded by PEC (a closed
-//! waveguide cross-section). Cross-sections supporting a TEM mode
-//! (multiply connected, e.g. coax) inherit the modal solver's
-//! limitation: the TEM mode lives in the gradient nullspace and is
-//! filtered out. The modes are **TE only** (issue #808): a TM mode's
+//! waveguide cross-section). On a multiply connected cross-section (a
+//! coax, a carved-out strip) the **E_t-only** path of
+//! [`PortFaceProjection::wave_port`] inherits the modal solver's limitation:
+//! a TEM mode lives in the curl-free (harmonic) part of the edge space and
+//! is filtered out, so these ports carry the higher-order modes only. The
+//! **hybrid** path ([`super::HybridPortFace`], Epic #778) does not have this
+//! limitation: its mixed `E_t`–`E_z` pencil returns the quasi-TEM mode of
+//! every floating conductor, including zero-thickness strips that the volume
+//! PEC mask eliminates inside the face
+//! ([`super::HybridPortFace::from_volume_with_pec`], #817). The E_t-only
+//! modes are **TE only** (issue #808): a TM mode's
 //! transverse field `∇_t E_z` is in the same filtered nullspace, so a
 //! sweep at or above the lowest TM cutoff has an unterminated propagating
 //! channel and silently wrong S. The face P1 value
@@ -138,6 +145,10 @@ pub enum PortFaceError {
         /// Triangle index in the face list.
         index: usize,
     },
+    /// A volume PEC mask handed to a hybrid port face is inconsistent with
+    /// the mesh, or eliminates every face edge (issue #817).
+    #[error("invalid port-face PEC mask: {0}")]
+    InvalidPecMask(String),
     /// The modal solve resolved fewer modes than requested.
     #[error("cross-section modal solve resolved {found} mode(s), {requested} requested")]
     TooFewModes {
@@ -199,6 +210,40 @@ impl PortFaceProjection {
         on_rim.iter().filter(|&&r| !r).count()
     }
 
+    /// Number of holes of the face: connected components of its rim beyond
+    /// the outer one (carved-out conductors). `0` for a simply connected
+    /// cross-section.
+    pub fn n_holes(&self) -> usize {
+        let n = self.tri_mesh.nodes.len();
+        let mut parent: Vec<usize> = (0..n).collect();
+        fn root(p: &mut [usize], mut i: usize) -> usize {
+            while p[i] != i {
+                p[i] = p[p[i]];
+                i = p[i];
+            }
+            i
+        }
+        let mut on_rim = vec![false; n];
+        for (e, &interior) in self.edges.iter().zip(&self.interior_edge_mask) {
+            if !interior {
+                let (a, b) = (e[0] as usize, e[1] as usize);
+                on_rim[a] = true;
+                on_rim[b] = true;
+                let (ra, rb) = (root(&mut parent, a), root(&mut parent, b));
+                if ra != rb {
+                    parent[ra.max(rb)] = ra.min(rb);
+                }
+            }
+        }
+        let mut roots: Vec<usize> = (0..n)
+            .filter(|&k| on_rim[k])
+            .map(|k| root(&mut parent, k))
+            .collect();
+        roots.sort_unstable();
+        roots.dedup();
+        roots.len().saturating_sub(1)
+    }
+
     /// Solve the `n_modes` lowest-cutoff cross-section modes on the
     /// projected mesh ([`solve_waveguide_modes`]). Profiles are indexed
     /// by [`Self::edges`].
@@ -208,15 +253,18 @@ impl PortFaceProjection {
     /// [`PortFaceError::Modal`] if the eigensolve fails,
     /// [`PortFaceError::TooFewModes`] if `n_modes` exceeds the
     /// cross-section's physical-mode count (interior edges − interior
-    /// nodes) or the solve resolves fewer than `n_modes` modes.
+    /// nodes − holes) or the solve resolves fewer than `n_modes` modes.
     pub fn solve_modes(&self, n_modes: usize) -> Result<Vec<WaveguideModeProfile>, PortFaceError> {
-        // de Rham count for a simply connected cross-section: interior
-        // edges minus interior nodes (the gradient nullspace) is the
-        // number of physical modes the discrete pencil can hold. Asking
-        // for more is rejected up front rather than handed to Lanczos.
+        // de Rham count: interior edges minus interior nodes (the gradient
+        // nullspace) minus one harmonic (curl-free, non-gradient) field per
+        // hole is the number of k_c > 0 modes the discrete E_t-only pencil
+        // can hold; the harmonic fields are the TEM modes this path filters
+        // out (#817). Asking for more is rejected up front rather than handed
+        // to Lanczos.
         let available = self
             .n_interior_edges()
-            .saturating_sub(self.n_interior_nodes());
+            .saturating_sub(self.n_interior_nodes())
+            .saturating_sub(self.n_holes());
         if n_modes > available {
             return Err(PortFaceError::TooFewModes {
                 requested: n_modes,
