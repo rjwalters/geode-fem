@@ -45,3 +45,12 @@ geode-core/transmon_eigenmode::real_transmon_minres_ams_converges_at_sigma_4p5  
 # absolute 1e-3 threshold skips every mode on the um-scaled mesh. Filed as
 # #814 (logs there). Remove this entry when it passes.
 geode-core/transmon_eigen_sensitivity::real_eigen_sensitivity_release  # fails on Linux and macOS (#814)
+
+# The matrix-free (Jacobi / AMS-preconditioned CG and MINRES) solves of the
+# real 133k-DOF transmon. Each timed out at the 20-min cap on ubuntu-latest
+# (#793 measurement runs 37079249918 and 37081282414), so each is over the
+# per-test budget; the direct-LU transmon tests in the same target run in
+# integration-tests.yml (core-ignored).
+geode-core/transmon_eigenmode::real_transmon_matrix_free_matches_direct  # slow: >=20 min on ubuntu-latest (timed out at the 20-min cap)
+geode-core/transmon_eigenmode::real_transmon_matrix_free_indefinite_matches_direct  # slow: >=20 min on ubuntu-latest (timed out at the 20-min cap)
+geode-core/transmon_eigenmode::real_transmon_ams_beats_jacobi  # slow: >=20 min on ubuntu-latest (timed out at the 20-min cap)

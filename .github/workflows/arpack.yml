@@ -328,7 +328,9 @@ jobs:
 
       # Issue #793: the remaining geode-cli benchmark tiers (every one
       # #[ignore]d as heavy in debug). Measured release times on
-      # ubuntu-latest, one test at a time: mesh_golden spiral layout 26 s,
+      # ubuntu-latest, one test at a time, before #810 (faster dense real
+      # eigensolver, so the sphere_pec_golden oracle is quicker now):
+      # mesh_golden spiral layout 26 s,
       # patch_extract_golden 18 s, slcfet_extract_golden 82 s,
       # sphere_pec_golden dense oracle 74 s; spiral_golden's committed-band
       # benchmark (now unfiltered above) 14 s.
