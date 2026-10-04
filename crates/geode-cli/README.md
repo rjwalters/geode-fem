@@ -580,7 +580,14 @@ cells nearer the port. Its field reaches the port through the finer
 guide in between, where it is evanescent, with amplitude about
 `exp(−α·d)`, `α = √(k_c² − k²)`. At the edge of the base margin
 (`k = 0.95·k_c`) that is 14 % one TM-cutoff wavelength out, 2 % at two
-and 0.3 % at three. A window of one wavelength, as first used, missed
+and 0.3 % at three. That 0.3 % is for a TM mode at the continuum
+cutoff. The coarse section's own 3-D TM cutoff sits below the continuum
+(the mesh undershoot the margin covers), so its mode can sit closer to
+the top of the sweep and decay more slowly. At the edge of the base
+margin (`k_c·h_n ≈ 1.41`) the leak three TM-cutoff wavelengths out can
+reach about 8 %. The beyond-window warning below covers that case: it
+computes the leak from the window's guard, not the continuum cutoff. A
+window of one wavelength, as first used, missed
 it: with fine layers of 0.15 out to 2.25 or 3.0 mesh units (1.26 and
 1.68 λ_c) before layers of 0.6, it read `h_n = 0.15` and put the limit
 at 3.337, 2 % above the lowest TM-like 3-D mode (3.272 and 3.269). The
@@ -600,7 +607,10 @@ spacing to refine it to if it is part of the guide, and the frequency
 below which the leak is under 1 %. With fine layers of 0.15 out to 6.0
 mesh units (past 3 λ_c = 5.37) before layers of 0.6, a top sweep of
 `k0 = 3.33` warns (leak about 28 %), and `k0 = 3.24` does not (under
-1 %).
+1 %). The quoted leak is an upper bound, so the warning says the
+S-parameters can be off "by up to" as much. On a fine window the bound
+can be loose: with the measured undershoot on that probe the real leak
+is about 0.2 %.
 
 When the widened margin rejects a frequency, the message says so. It
 gives the spacing that would admit the sweep ("refine the mesh along

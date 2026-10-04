@@ -429,27 +429,28 @@ impl PortFaceProjection {
     /// the port through the evanescent guide in between, attenuated by
     /// about `exp(−α·d)` ([`tm_evanescent_leak`]).
     pub fn guide_axial_mesh(&self, mesh: &TetMesh, reach: f64) -> GuideAxialMesh {
-        let reach = reach.max(0.0);
-        let over = self.guide_tets(mesh);
-        let spacing = over
-            .iter()
-            .filter(|&&(_, d)| d <= reach)
-            .fold(0.0_f64, |h, &(e, _)| h.max(e));
-        let far_spacing = over.iter().fold(0.0_f64, |h, &(e, _)| h.max(e));
-        GuideAxialMesh {
-            spacing,
-            reach,
-            far_spacing,
-            coarser_distance: nearest_coarser(&over, spacing),
-        }
+        self.guide_scan(mesh).axial_mesh(reach)
     }
 
     /// How near the port plane the guide's first tet coarser than `h`
     /// (axial extent `> h`) starts: the smallest nearest-point distance
     /// over the tets of [`Self::guide_axial_mesh`]'s footprint; `None` if
     /// there is none. Where a refinement to `h` has to start (issue #845).
+    /// One `O(tets)` pass; to ask for several `h`, or for the
+    /// [`GuideAxialMesh`] too, scan once with [`Self::guide_scan`].
     pub fn guide_coarser_than_distance(&self, mesh: &TetMesh, h: f64) -> Option<f64> {
-        nearest_coarser(&self.guide_tets(mesh), h)
+        self.guide_scan(mesh).coarser_than_distance(h)
+    }
+
+    /// The one `O(tets)` pass behind [`Self::guide_axial_mesh`] and
+    /// [`Self::guide_coarser_than_distance`], kept so both can be read off
+    /// it without re-scanning the mesh (issue #848): the axial extent and
+    /// the nearest distance to the port plane of every tet of the guide
+    /// footprint (a face on the port, or its centroid over the face).
+    pub fn guide_scan(&self, mesh: &TetMesh) -> GuideScan {
+        GuideScan {
+            tets: self.guide_tets(mesh),
+        }
     }
 
     /// `(axial extent, nearest distance to the port plane)` of every tet
@@ -738,6 +739,39 @@ fn nearest_coarser(tets: &[(f64, f64)], h: f64) -> Option<f64> {
         .filter(|&&(e, _)| e > h)
         .map(|&(_, d)| d)
         .reduce(f64::min)
+}
+
+/// The guide footprint of a port, scanned once
+/// ([`PortFaceProjection::guide_scan`], issue #848): every tet with a face
+/// on the port or its centroid over the face, as `(axial extent, nearest
+/// distance to the port plane)`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuideScan {
+    tets: Vec<(f64, f64)>,
+}
+
+impl GuideScan {
+    /// [`PortFaceProjection::guide_axial_mesh`] over this scan.
+    pub fn axial_mesh(&self, reach: f64) -> GuideAxialMesh {
+        let reach = reach.max(0.0);
+        let spacing = self
+            .tets
+            .iter()
+            .filter(|&&(_, d)| d <= reach)
+            .fold(0.0_f64, |h, &(e, _)| h.max(e));
+        let far_spacing = self.tets.iter().fold(0.0_f64, |h, &(e, _)| h.max(e));
+        GuideAxialMesh {
+            spacing,
+            reach,
+            far_spacing,
+            coarser_distance: nearest_coarser(&self.tets, spacing),
+        }
+    }
+
+    /// [`PortFaceProjection::guide_coarser_than_distance`] over this scan.
+    pub fn coarser_than_distance(&self, h: f64) -> Option<f64> {
+        nearest_coarser(&self.tets, h)
+    }
 }
 
 /// The axial mesh of the guide feeding a port

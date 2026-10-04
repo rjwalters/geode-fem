@@ -72,16 +72,24 @@
 //!   (all in the [`geode_core::analytic::dispersion`] unit tests); plus, here, a
 //!   fast oracle-twin `D(λ)`/ZDW sweep and step-size-invariance of the oracle.
 //! - **Tier 2** (`#[ignore]`, **release**): the full ~21-point mixed-pencil
-//!   λ-sweep, the step-size study, bars (1)–(3), and
+//!   λ-sweep, the step-size study, bars (1)–(3), and a regression check of
+//!   the fresh numbers against the committed
 //!   `benchmarks/fiber_dispersion/results.toml`. Run:
 //!   ```sh
 //!   cargo test -p geode-core --release --test fiber_dispersion_benchmark \
 //!       -- --ignored --nocapture
 //!   ```
+//!   A plain run writes its `results.toml` under `CARGO_TARGET_TMPDIR`
+//!   and leaves the committed file alone (issue #823). To regenerate the
+//!   committed file after an intentional change, bless it:
+//!   ```sh
+//!   GEODE_BLESS_FIBER_DISPERSION=1 cargo test -p geode-core --release \
+//!       --test fiber_dispersion_benchmark -- --ignored --nocapture
+//!   ```
 
 use std::fmt::Write as _;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use geode_core::analytic::dispersion::{
     DispersionCurve, SMF28_A_UM, SmoothDispersionFit, dispersion_parameter,
@@ -109,6 +117,45 @@ const CLAD_MULT: f64 = 6.0;
 /// A clean confined LP₀₁ shows a high core-energy fraction; the mixed pencil
 /// isolates the fundamental at cf ≈ 0.74–0.80.
 const CORE_FRAC_FLOOR: f64 = 0.7;
+
+/// Opt-in env var that makes the headline write the committed
+/// `benchmarks/fiber_dispersion/results.toml` (issue #823). Unset, the run
+/// writes under `CARGO_TARGET_TMPDIR` and checks the committed file instead.
+const BLESS_ENV: &str = "GEODE_BLESS_FIBER_DISPERSION";
+
+/// Bar 1 / Bar 3: `|ΔD|` tolerance, ps/(nm·km). Also the tolerance of the
+/// committed-results check on every `D` the file records.
+const BAR_D_PS_NM_KM: f64 = 1.0;
+/// Bar 2: `|ΔZDW|` tolerance, nm. Also the tolerance of the
+/// committed-results check on every ZDW the file records.
+const BAR_ZDW_NM: f64 = 10.0;
+/// Committed-results check on the per-λ FEM `n_eff`: far below the modal
+/// error `ε ≈ 5e-5` (so a real change of the FEM answer shows), far above
+/// eigensolver round-off across platforms.
+const COMMITTED_NEFF_TOL: f64 = 1e-6;
+
+/// The committed `benchmarks/fiber_dispersion/results.toml`.
+fn committed_results_path() -> PathBuf {
+    // CARGO_MANIFEST_DIR = crates/geode-core; benchmarks/ is at the repo root.
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/fiber_dispersion/results.toml")
+}
+
+/// Whether this run blesses (rewrites) the committed results.
+fn blessing() -> bool {
+    std::env::var_os(BLESS_ENV).is_some_and(|v| v == "1")
+}
+
+/// Where this run writes its `results.toml`: the committed path when
+/// blessing, otherwise a scratch copy under `CARGO_TARGET_TMPDIR`.
+fn results_out_path() -> PathBuf {
+    if blessing() {
+        committed_results_path()
+    } else {
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join("fiber_dispersion")
+            .join("results.toml")
+    }
+}
 
 /// Build the fixed sweep grid.
 fn sweep_grid() -> Vec<f64> {
@@ -282,7 +329,11 @@ fn material_only_tripwire_misses_band_and_oracle() {
 
 /// **Tier 2** (`#[ignore]`, release) — THE HEADLINE: the full mixed-pencil
 /// λ-sweep, the step-size study, and the derived acceptance bars vs the oracle
-/// twin. Writes `benchmarks/fiber_dispersion/results.toml`.
+/// twin. Writes its `results.toml` under `CARGO_TARGET_TMPDIR` and checks
+/// the fresh numbers against the committed
+/// `benchmarks/fiber_dispersion/results.toml`; with
+/// `GEODE_BLESS_FIBER_DISPERSION=1` it rewrites the committed file instead
+/// (issue #823).
 #[test]
 #[ignore = "heavy: 21-point mixed-pencil λ-sweep (~60s) + step-size study; run with \
             --release --test fiber_dispersion_benchmark -- --ignored --nocapture"]
@@ -425,8 +476,12 @@ fn headline_fem_dispersion_matches_oracle_twin() {
     );
 
     // Write results.toml BEFORE the asserts, so an honest-negative run still
-    // records the full data (no cherry-picking).
+    // records the full data (no cherry-picking). Unless blessing, it goes to
+    // CARGO_TARGET_TMPDIR: a failing run must not overwrite the committed
+    // numbers (issue #823).
+    let out_path = results_out_path();
     write_results_toml(
+        &out_path,
         &grid,
         &fem_neff,
         &fem_cf,
@@ -529,6 +584,122 @@ fn headline_fem_dispersion_matches_oracle_twin() {
          a fixed FEM-error floor",
         study[2].max_dd
     );
+
+    // --- Committed-results regression check (issue #823): the fresh numbers
+    // must reproduce the committed results.toml, so the artifact cannot drift
+    // from what the code produces with no failing test. Skipped when blessing
+    // (the committed file IS the fresh one then). ---
+    if !blessing() {
+        check_against_committed(&out_path);
+    }
+}
+
+/// Compare the fresh `results.toml` at `fresh` with the committed one:
+/// every `D` within [`BAR_D_PS_NM_KM`], every ZDW within [`BAR_ZDW_NM`]
+/// (`nan` must stay `nan`), every FEM `n_eff` within
+/// [`COMMITTED_NEFF_TOL`], and the same grid.
+fn check_against_committed(fresh: &Path) {
+    let committed = committed_results_path();
+    let read = |p: &Path| -> toml::Value {
+        fs::read_to_string(p)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", p.display()))
+            .parse()
+            .unwrap_or_else(|e| panic!("malformed TOML in {}: {e}", p.display()))
+    };
+    let (new, old) = (read(fresh), read(&committed));
+    let bless = format!(
+        "if the change is intentional, regenerate the committed file with: \
+         {BLESS_ENV}=1 cargo test -p geode-core --release --test fiber_dispersion_benchmark \
+         -- --ignored --nocapture"
+    );
+    let get = |doc: &toml::Value, path: &str| -> toml::Value {
+        path.split('.')
+            .try_fold(doc, |v, k| match k.parse::<usize>() {
+                Ok(i) => v.get(i),
+                Err(_) => v.get(k),
+            })
+            .cloned()
+            .unwrap_or_else(|| panic!("results.toml has no `{path}`"))
+    };
+    let num = |v: &toml::Value| -> f64 {
+        v.as_float()
+            .or_else(|| v.as_integer().map(|i| i as f64))
+            .unwrap_or_else(|| panic!("expected a number, got {v}"))
+    };
+    let mut drift = Vec::new();
+    let mut cmp = |path: &str, tol: f64| {
+        let (a, b) = (num(&get(&new, path)), num(&get(&old, path)));
+        let ok = if a.is_nan() || b.is_nan() {
+            a.is_nan() && b.is_nan()
+        } else {
+            (a - b).abs() <= tol
+        };
+        if !ok {
+            drift.push(format!("{path}: fresh {a} vs committed {b} (tol {tol:e})"));
+        }
+    };
+    for key in [
+        "headline.d_fem_1550_ps_nm_km",
+        "headline.max_abs_delta_d_ps_nm_km",
+        "smooth_fit.d_fem_1550_ps_nm_km",
+        "smooth_fit.max_abs_delta_d_ps_nm_km",
+    ] {
+        cmp(key, BAR_D_PS_NM_KM);
+    }
+    for key in ["headline.zdw_fem_nm", "smooth_fit.zdw_fem_nm"] {
+        cmp(key, BAR_ZDW_NM);
+    }
+    let n_study = get(&old, "step_size_study").as_array().map_or(0, Vec::len);
+    for i in 0..n_study {
+        cmp(
+            &format!("step_size_study.{i}.max_abs_delta_d_ps_nm_km"),
+            BAR_D_PS_NM_KM,
+        );
+        cmp(&format!("step_size_study.{i}.zdw_fem_nm"), BAR_ZDW_NM);
+    }
+    let arr = |doc: &toml::Value, path: &str| -> Vec<f64> {
+        get(doc, path)
+            .as_array()
+            .unwrap_or_else(|| panic!("`{path}` is not an array"))
+            .iter()
+            .map(num)
+            .collect()
+    };
+    let (grid_new, grid_old) = (arr(&new, "sweep.lambda_um"), arr(&old, "sweep.lambda_um"));
+    assert!(
+        grid_new.len() == grid_old.len()
+            && grid_new
+                .iter()
+                .zip(&grid_old)
+                .all(|(a, b)| (a - b).abs() < 1e-12),
+        "the sweep grid differs from the committed {}; {bless}",
+        committed.display()
+    );
+    for (i, (a, b)) in arr(&new, "sweep.n_eff_fem")
+        .iter()
+        .zip(&arr(&old, "sweep.n_eff_fem"))
+        .enumerate()
+    {
+        if (a - b).abs() > COMMITTED_NEFF_TOL {
+            drift.push(format!(
+                "sweep.n_eff_fem[{i}] (λ = {} µm): fresh {a} vs committed {b} \
+                 (tol {COMMITTED_NEFF_TOL:e})",
+                grid_old[i]
+            ));
+        }
+    }
+    assert!(
+        drift.is_empty(),
+        "fresh results ({}) drifted from the committed {}:\n  {}\n{bless}",
+        fresh.display(),
+        committed.display(),
+        drift.join("\n  ")
+    );
+    eprintln!(
+        "fresh results match the committed {} (D within {BAR_D_PS_NM_KM}, ZDW within \
+         {BAR_ZDW_NM} nm, n_eff within {COMMITTED_NEFF_TOL:e})",
+        committed.display()
+    );
 }
 
 /// Per-step-size result of the study.
@@ -542,9 +713,11 @@ struct StepResult {
     orc_curve: DispersionCurve,
 }
 
-/// Write `benchmarks/fiber_dispersion/results.toml` per Epic #303 convention.
+/// Write the `results.toml` per Epic #303 convention to `path`
+/// ([`results_out_path`]).
 #[allow(clippy::too_many_arguments)]
 fn write_results_toml(
+    path: &Path,
     grid: &[f64],
     fem_neff: &[f64],
     fem_cf: &[f64],
@@ -554,20 +727,16 @@ fn write_results_toml(
     orc_fit: &SmoothDispersionFit,
     max_dd_smooth: f64,
 ) {
-    let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    // CARGO_MANIFEST_DIR = crates/geode-core; benchmarks/ is at the repo root.
-    root.pop(); // crates/
-    root.pop(); // repo root
-    let dir = root.join("benchmarks").join("fiber_dispersion");
-    fs::create_dir_all(&dir).expect("create benchmarks/fiber_dispersion");
-    let path = dir.join("results.toml");
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).unwrap_or_else(|e| panic!("create {}: {e}", dir.display()));
+    }
 
     let head = &study[0];
     let mut s = String::new();
     let _ = writeln!(
         s,
-        "# Auto-generated by `cargo test -p geode-core --release --test \\\n\
-         #   fiber_dispersion_benchmark -- --ignored`.\n\
+        "# Auto-generated by `GEODE_BLESS_FIBER_DISPERSION=1 cargo test -p geode-core \\\n\
+         #   --release --test fiber_dispersion_benchmark -- --ignored`.\n\
          # Do NOT edit by hand — regenerate after any intentional change.\n\
          # Epic #303 Phase 3 (issue #479): chromatic dispersion D(lambda) + ZDW of\n\
          # SMF-28 from the full-vector mixed E_t-E_z pencil (Epic #339 / PR #477),\n\
@@ -728,7 +897,7 @@ fn write_results_toml(
     let _ = writeln!(s, "d_fem_ps_nm_km = {:?}", head.fem_curve.d);
     let _ = writeln!(s, "d_oracle_ps_nm_km = {:?}", head.orc_curve.d);
 
-    fs::write(&path, s).expect("write results.toml");
+    fs::write(path, s).unwrap_or_else(|e| panic!("write {}: {e}", path.display()));
     eprintln!("\nWrote {}", path.display());
 }
 

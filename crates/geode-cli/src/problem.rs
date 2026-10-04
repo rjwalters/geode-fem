@@ -23,10 +23,10 @@ use geode_core::assembly::electrostatic::face_to_tet_map;
 use geode_core::assembly::nedelec::tet_centroids;
 use geode_core::constants::{C_M_PER_S, ETA_0_OHM};
 use geode_core::driven::ports::{
-    DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD, GuideAxialMesh, HybridPortFace, HybridWavePortOpts,
-    LineImpedance, PortAccuracyOpts, PortFaceProjection, PortMedium, TM_GUARD_AXIAL_COEFF,
-    TM_GUARD_MARGIN, TM_GUARD_MEASURED_KH, TmCutoffEstimate, project_port_face, tm_evanescent_leak,
-    tm_guard_axial_reach,
+    DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD, GuideAxialMesh, GuideScan, HybridPortFace,
+    HybridWavePortOpts, LineImpedance, PortAccuracyOpts, PortFaceProjection, PortMedium,
+    TM_GUARD_AXIAL_COEFF, TM_GUARD_MARGIN, TM_GUARD_MEASURED_KH, TmCutoffEstimate,
+    project_port_face, tm_evanescent_leak, tm_guard_axial_reach,
 };
 use geode_core::driven::solve::{SurfaceImpedanceModel, SurfaceRoughness};
 use geode_core::mesh::patch::box_upml_tensors;
@@ -3768,14 +3768,17 @@ impl PortMaterials<'_> {
         // feeding the port, not just the tets on the face: the 3-D TM
         // cutoff is set by the guide's coarsest cells (issues #824, #845).
         let reach = tm_guard_axial_reach(face_est.k_c(), top.map_or(0.0, |r| r.2));
-        let guide = projection.guide_axial_mesh(&self.tagged.mesh, reach);
+        // One pass over the guide's tets serves the window reading and every
+        // "where the coarser cells start" lookup of the messages (issue #848).
+        let scan = projection.guide_scan(&self.tagged.mesh);
+        let guide = scan.axial_mesh(reach);
         let est = face_est.with_axial_spacing(guide.spacing);
         let k_c = est.guard_k_c();
         let axial = TmAxialMesh {
             name,
             est: &est,
             guide,
-            coarser_than: &|h| projection.guide_coarser_than_distance(&self.tagged.mesh, h),
+            scan: &scan,
             reach,
             top: top.map(|(f, _, k)| (f.hz, k)),
             limit_scale_hz: top.map(|(f, _, k)| f.hz / k),
@@ -3858,10 +3861,11 @@ struct TmAxialMesh<'a> {
     est: &'a TmCutoffEstimate,
     /// The guide's axial mesh over and beyond the window.
     guide: GuideAxialMesh,
-    /// How near the port the guide's first tet coarser than `h` starts
-    /// (`PortFaceProjection::guide_coarser_than_distance`): where a
-    /// refinement to `h` has to begin.
-    coarser_than: &'a dyn Fn(f64) -> Option<f64>,
+    /// The guide's tets, scanned once (`PortFaceProjection::guide_scan`):
+    /// [`GuideScan::coarser_than_distance`] gives how near the port the
+    /// first tet coarser than `h` starts, where a refinement to `h` has to
+    /// begin.
+    scan: &'a GuideScan,
     /// The axial window `h_n` was read over (mesh units, either side of
     /// the port plane; `tm_guard_axial_reach`).
     reach: f64,
@@ -3882,7 +3886,8 @@ impl TmAxialMesh<'_> {
     /// `"the tets coarser than h start D mesh units from the port"`, or
     /// `None` when there are none (where a refinement to `h` begins).
     fn starts(&self, h: f64) -> Option<String> {
-        (self.coarser_than)(h)
+        self.scan
+            .coarser_than_distance(h)
             .map(|d| format!("the tets coarser than that start {d:.6} mesh units from the port"))
     }
 
@@ -3967,7 +3972,7 @@ impl TmAxialMesh<'_> {
         // Refine to the spacing that admits `k`, from where the tets
         // coarser than it start.
         let refine = self.est.axial_spacing_admitting(k).map(|h| {
-            let from = (self.coarser_than)(h).unwrap_or(d);
+            let from = self.scan.coarser_than_distance(h).unwrap_or(d);
             format!(
                 "if that section is part of the guide feeding port `{}` (not a device region), \
                  refine it to h ≤ {h:.6} mesh units along the port axis from {from:.6} mesh \
@@ -3997,7 +4002,7 @@ impl TmAxialMesh<'_> {
              be at {:e} Hz). The port carries TE modes only and does not terminate that field; \
              it reaches the port through the finer guide in between, where it is evanescent, at \
              up to ~{} % of its amplitude (exp(−α·d), α = {:.4} per mesh unit), so the \
-             S-parameters near the top of the sweep can be off by about as much.{remedy}",
+             S-parameters near the top of the sweep can be off by up to as much.{remedy}",
             self.name,
             self.guide.reach,
             self.guide.far_spacing,
