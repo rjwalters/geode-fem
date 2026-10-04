@@ -120,12 +120,17 @@ use crate::mesh::TetMesh;
 
 #[path = "solve_ams.rs"]
 mod ams;
+#[path = "solve_p2.rs"]
+mod p2;
 pub use ams::{AMS_PI_COARSE_SWEEPS, AmsCoarseSolve, DrivenAms};
 
 /// Errors produced by the driven-solve layer.
 #[derive(Debug, thiserror::Error)]
 pub enum DrivenError {
-    #[error("PEC interior mask length {got} disagrees with edge count {want}")]
+    #[error(
+        "PEC interior mask length {got} disagrees with the space's DOF count {want} \
+         (the edge count at p=1)"
+    )]
     MaskDimMismatch { got: usize, want: usize },
     #[error("source has {got} per-tet entries but mesh has {want} tets")]
     SourceDimMismatch { got: usize, want: usize },
@@ -154,6 +159,37 @@ pub enum DrivenError {
          configuration: {reason}"
     )]
     UnsupportedMatrixFree { reason: String },
+    /// A feature was requested on an operator whose H(curl) space has an
+    /// element order that feature does not support yet (issue #838, Epic
+    /// #836). Returned instead of solving at a different order or silently
+    /// dropping the feature (the #804 rule).
+    #[error(
+        "{feature} is not supported at element order {order} yet (Epic #836; use an \
+         ElementOrder::P1 space for this configuration)"
+    )]
+    UnsupportedAtOrder {
+        /// The order of the space the operator was built on.
+        order: ElementOrder,
+        /// The unsupported feature, e.g. `"lumped ports"`.
+        feature: &'static str,
+    },
+    /// An [`crate::assembly::hcurl_space::HcurlSpace`] was used with a mesh
+    /// it was not built on (issue #838). Spaces are mesh-specific: rebuild
+    /// one per mesh.
+    #[error(
+        "the H(curl) space was built on a mesh with {space_nodes} nodes / {space_tets} tets, \
+         but the operator mesh has {mesh_nodes} / {mesh_tets}; rebuild the space for this mesh"
+    )]
+    SpaceMeshMismatch {
+        /// Node count of the space's mesh.
+        space_nodes: usize,
+        /// Tet count of the space's mesh.
+        space_tets: usize,
+        /// Node count of the operator mesh.
+        mesh_nodes: usize,
+        /// Tet count of the operator mesh.
+        mesh_tets: usize,
+    },
     /// A caller-supplied surface or port triangle list contains triangles
     /// that are not faces of any tet in the mesh (issue #725). The surface
     /// kernels cannot integrate over such a triangle (its edges are not all
@@ -505,8 +541,11 @@ pub enum DrivenMaterials<'a> {
 /// is rebuilt per frequency.
 #[derive(Debug, Clone)]
 pub struct DrivenBcs<'a> {
-    /// Per-edge mask over `mesh.edges()` order: `true` = kept interior
-    /// DOF, `false` = PEC-eliminated edge (forced to zero).
+    /// Per-DOF mask over the H(curl) space's `n_dofs()` (issue #838):
+    /// `true` = kept interior DOF, `false` = PEC-eliminated (forced to
+    /// zero). At p=1 (every pre-#838 entry point) this is unchanged: one
+    /// entry per edge in `mesh.edges()` order. For a p=2 space build it with
+    /// [`crate::assembly::hcurl_space::HcurlSpace::pec_interior_mask`].
     pub pec_interior_mask: &'a [bool],
 }
 
@@ -887,6 +926,42 @@ impl QuadCurrentSource {
     }
 }
 
+/// The volumetric current source of an order-generic
+/// [`DrivenOperator::assemble_with_space`] (issue #838).
+///
+/// | variant | p=1 | p=2 |
+/// |---|---|---|
+/// | [`Self::Constant`] | the pre-#838 constant-J path, verbatim | exact per-tet-constant moments (degree-4 rule) |
+/// | [`Self::Quad`] | the pre-#838 degree-2 quadrature path, verbatim | the same four samples with the degree-2 rule (see below) |
+/// | [`Self::Function`] | sampled into a [`QuadCurrentSource`] (degree 2) | sampled at the degree-≥4 rule |
+///
+/// At p=2 [`Self::Quad`] integrates `N_i · J` with the four stored
+/// degree-2 samples, which is exact for `J` constant per tet and is the
+/// minimum Strang-lemma degree (`2k − 2 = 2`) that keeps the p=2 energy rate;
+/// prefer [`Self::Function`] at p=2 so the moments are sampled at the rule
+/// the element's mass uses.
+#[derive(Clone, Copy)]
+pub enum DrivenSource<'a> {
+    /// Per-tet-constant `J` ([`CurrentSource`]).
+    Constant(&'a CurrentSource),
+    /// `J` sampled at the four degree-2 points of every tet
+    /// ([`QuadCurrentSource`]).
+    Quad(&'a QuadCurrentSource),
+    /// `J(t, x)` evaluated wherever the space's rule needs it (tet index,
+    /// physical point).
+    Function(&'a (dyn Fn(usize, [f64; 3]) -> [c64; 3] + Sync)),
+}
+
+impl std::fmt::Debug for DrivenSource<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Constant(s) => f.debug_tuple("Constant").field(s).finish(),
+            Self::Quad(s) => f.debug_tuple("Quad").field(s).finish(),
+            Self::Function(_) => f.write_str("Function(..)"),
+        }
+    }
+}
+
 /// Internal RHS dispatch: per-tet-constant samples (centroid `J`) or
 /// degree-2 quadrature samples.
 enum RhsSamples<'a> {
@@ -904,17 +979,40 @@ impl RhsSamples<'_> {
 }
 
 /// Solution of the driven system.
+///
+/// The field vector is **order-tagged** (issue #838): [`Self::order`] is
+/// the element order of the H(curl) space it lives in, and
+/// [`Self::e_edges`] is laid out over that space's `n_dofs()`. At p=1 —
+/// every pre-#838 entry point — that is exactly the historical edge vector
+/// in `mesh.edges()` order. At p=2 it is the
+/// [`crate::assembly::hcurl_space::HcurlSpace`] layout (`2·n_edges +
+/// 2·n_faces`); evaluate it with
+/// [`crate::assembly::hcurl_space::HcurlSpace::field_at`], never with a p=1
+/// edge post-processor.
 #[derive(Debug, Clone)]
 pub struct DrivenSolution {
-    /// Full-length `[n_edges]` complex edge-DOF vector in `mesh.edges()`
-    /// order. PEC-eliminated edges carry exact zeros.
+    /// Full-length complex DOF vector over the space's `n_dofs()`: at p=1
+    /// the `[n_edges]` edge vector in `mesh.edges()` order (the historical
+    /// meaning, unchanged), at p=2 the `HcurlSpace` layout. PEC-eliminated
+    /// DOFs carry exact zeros. The name is kept so the ~185 p=1 call sites
+    /// compile unchanged; [`Self::dofs`] is the order-neutral accessor.
     pub e_edges: Vec<c64>,
+    /// Element order of the space [`Self::e_edges`] lives in.
+    pub order: ElementOrder,
     /// Number of interior (kept) DOFs after PEC elimination.
     pub n_interior: usize,
     /// Relative residual `‖A x − b‖₂ / ‖b‖₂` of the interior system,
     /// computed post-solve as a numerical health check. For a healthy
     /// direct sparse solve this is at the round-off floor.
     pub residual_rel: f64,
+}
+
+impl DrivenSolution {
+    /// The full-length DOF vector in the space's layout (the same data as
+    /// [`Self::e_edges`], under an order-neutral name).
+    pub fn dofs(&self) -> &[c64] {
+        &self.e_edges
+    }
 }
 
 /// Deterministic driven frequency-domain solve `A(ω) x = b` with a
@@ -1146,36 +1244,18 @@ pub fn driven_solve_with_sigma_quad<B: Backend>(
     )
 }
 
-/// Opt-in element order for the driven forward path (issue #616, Epic
-/// #475/#569).
+/// Element order of the H(curl) space (issue #616; unified by issue #838).
 ///
-/// [`ElementOrder::P1`] is the **default** and routes to the existing,
-/// byte-identical first-order pipeline ([`driven_solve`] and friends). No
-/// existing entry point changes behavior — the p=1 code path is untouched.
-///
-/// [`ElementOrder::P2`] selects the second-order (20-DOF) Nédélec forward path
-/// [`driven_solve_p2`], built on the shipped
-/// [`crate::elements::nedelec_p2`] element and the
-/// [`crate::assembly::nedelec_p2`] global assembly (`edges×2 + faces×2` DOF
-/// numbering, unit-sign scatter via the ascending-global-vertex convention).
-///
-/// # p=2 scope (this landing)
-///
-/// The p=2 forward path currently supports a **real, per-tet-constant scalar
-/// ε**, PEC elimination, and a volumetric current source (constant or
-/// quadrature-sampled). PML/complex-ε, anisotropic tensors, lumped ports,
-/// Leontovich surfaces, and the σ-damping term remain **p=1-only** for now —
-/// they compose through the Burn-tensor scatter machinery the p=2 assembler
-/// does not yet mirror. Selecting them at p=2 is a future extension.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ElementOrder {
-    /// First-order Whitney edge element (6 DOFs/tet) — the default; the
-    /// existing pipeline, byte-identical.
-    #[default]
-    P1,
-    /// Second-order (first-kind) Nédélec element (20 DOFs/tet).
-    P2,
-}
+/// Re-export of the crate-level [`crate::elements::ElementOrder`], kept at
+/// this historical path so existing callers compile unchanged.
+/// [`ElementOrder::P1`] is the default and routes to the existing,
+/// byte-identical first-order pipeline. [`ElementOrder::P2`] is selected by
+/// building a p=2 [`crate::assembly::hcurl_space::HcurlSpace`] and passing
+/// it to [`DrivenOperator::assemble_with_space`] (the order-generic
+/// operator: complex scalar / diagonal-tensor / matched-UPML ε, σ damping,
+/// volume J, tagged face-exact PEC), or through the narrower standalone
+/// [`driven_solve_p2`] (real ε, caller-built mask and RHS).
+pub use crate::elements::ElementOrder;
 
 /// Solution of the opt-in second-order (`p=2`) driven forward path
 /// ([`driven_solve_p2`]).
@@ -1466,9 +1546,13 @@ struct OperatorSurface {
 /// exactly (the single-ω entry points are implemented on top of this
 /// type).
 pub struct DrivenOperator {
-    n_edges: usize,
+    /// Element order of the H(curl) space the operator was assembled on
+    /// (issue #838). `P1` for every pre-#838 entry point.
+    order: ElementOrder,
+    /// Full DOF count of the space (`n_edges` at p=1).
+    n_dofs: usize,
     n_interior: usize,
-    /// Full edge index → interior index (−1 = PEC-eliminated).
+    /// Full DOF index → interior index (−1 = PEC-eliminated).
     remap: Vec<i64>,
     /// Owned copy of the PEC interior mask (RHS reduction per ω).
     pec_interior_mask: Vec<bool>,
@@ -1575,6 +1659,154 @@ impl DrivenOperator {
             RhsSamples::Constant(&source.j_tet),
             device,
         )
+    }
+
+    /// The **order-generic** assembly (issue #838, Epic #836 Phase 1a):
+    /// assemble the ω-independent operator on the H(curl) `space`.
+    ///
+    /// - **p=1 space:** dispatches to the pre-#838 Burn-tensor assembly of
+    ///   [`DrivenOperator::assemble`] (and its quadrature-source twin)
+    ///   **verbatim** — same tables, same triplet order, so the operator,
+    ///   every solve and every sweep / PROM built on it are bit-identical
+    ///   to the p=1 entry points. All features are available.
+    /// - **p=2 space:** host-side faer assembly from the 20-DOF element on
+    ///   ascending-sorted coords with unit-sign scatter (#616 red flag 1:
+    ///   never the p=1 `sign_outer_tensor`): `K` (`K(ν)` for the matched
+    ///   UPML), `M(ε)` for complex scalar / diagonal-tensor / full matched
+    ///   UPML ε, `C(σ)`, and the [`DrivenSource`] moments, all with the
+    ///   degree-≥4 rule (exact for per-tet-constant coefficients). The
+    ///   result is solved by [`DrivenOperator::solve_at`] /
+    ///   [`DrivenOperator::factor_at`] / [`DrivenOperator::prepare_at`]
+    ///   (direct LU, or assembled-matrix Krylov with Jacobi / ILU(0) /
+    ///   Chebyshev) and the adaptive PROM ([`crate::driven::rom`]) exactly
+    ///   as at p=1.
+    ///
+    /// `bcs.pec_interior_mask` is over `space.n_dofs()` (build it with
+    /// [`crate::assembly::hcurl_space::HcurlSpace::pec_interior_mask`]).
+    ///
+    /// This is the solve that order-generic sensitivities are written
+    /// against (Diff-EDA #841, #836 Phase 4): `A(ω)ᵀ = A(ω)`, so the adjoint
+    /// solve is [`FactoredDrivenOperator::back_solve`] on the same
+    /// factorization, with interior ↔ full DOF maps
+    /// [`DrivenOperator::interior_to_full`] /
+    /// [`DrivenOperator::interior_index`].
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`DrivenOperator::assemble`];
+    /// [`DrivenError::SpaceMeshMismatch`] if `space` was built on another
+    /// mesh; and, at p=2, [`DrivenError::UnsupportedAtOrder`] for non-empty
+    /// `ports` (lumped ports) or `surfaces` (Leontovich / London /
+    /// Silver-Müller) — Epic #836 Phase 1b. The solver-side p=2 limits
+    /// (matrix-free, AMS) are reported by [`DrivenOperator::prepare_at`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn assemble_with_space<B: Backend>(
+        space: &crate::assembly::hcurl_space::HcurlSpace,
+        mesh: &TetMesh,
+        materials: DrivenMaterials<'_>,
+        sigma_tet: Option<&[f64]>,
+        bcs: &DrivenBcs<'_>,
+        ports: &[LumpedPort<'_>],
+        surfaces: &[SurfaceImpedanceBc<'_>],
+        source: DrivenSource<'_>,
+        device: &B::Device,
+    ) -> Result<Self, DrivenError> {
+        if space.n_nodes() != mesh.n_nodes() || space.n_tets() != mesh.n_tets() {
+            return Err(DrivenError::SpaceMeshMismatch {
+                space_nodes: space.n_nodes(),
+                space_tets: space.n_tets(),
+                mesh_nodes: mesh.n_nodes(),
+                mesh_tets: mesh.n_tets(),
+            });
+        }
+        match space.order() {
+            ElementOrder::P1 => match source {
+                DrivenSource::Constant(src) => Self::assemble_impl::<B>(
+                    mesh,
+                    materials,
+                    sigma_tet,
+                    bcs,
+                    ports,
+                    surfaces,
+                    RhsSamples::Constant(&src.j_tet),
+                    device,
+                ),
+                DrivenSource::Quad(src) => Self::assemble_impl::<B>(
+                    mesh,
+                    materials,
+                    sigma_tet,
+                    bcs,
+                    ports,
+                    surfaces,
+                    RhsSamples::Quad(&src.j_quad),
+                    device,
+                ),
+                DrivenSource::Function(f) => {
+                    let src = QuadCurrentSource::from_fn(mesh, f);
+                    Self::assemble_impl::<B>(
+                        mesh,
+                        materials,
+                        sigma_tet,
+                        bcs,
+                        ports,
+                        surfaces,
+                        RhsSamples::Quad(&src.j_quad),
+                        device,
+                    )
+                }
+            },
+            ElementOrder::P2 => {
+                if !ports.is_empty() {
+                    return Err(DrivenError::UnsupportedAtOrder {
+                        order: space.order(),
+                        feature: "lumped ports (Epic #836 Phase 1b)",
+                    });
+                }
+                if !surfaces.is_empty() {
+                    return Err(DrivenError::UnsupportedAtOrder {
+                        order: space.order(),
+                        feature: "impedance surfaces: Leontovich / roughness / London / \
+                                  Silver-Müller (Epic #836 Phase 1b)",
+                    });
+                }
+                p2::assemble(space, mesh, materials, sigma_tet, bcs, source)
+            }
+        }
+    }
+
+    /// Element order of the H(curl) space this operator was assembled on
+    /// (`P1` for every pre-#838 entry point).
+    pub fn order(&self) -> ElementOrder {
+        self.order
+    }
+
+    /// Full DOF count of the operator's space (`n_edges` at p=1): the
+    /// length of [`DrivenSolution::e_edges`] and of the PEC mask.
+    pub fn n_dofs(&self) -> usize {
+        self.n_dofs
+    }
+
+    /// The interior index of full DOF `dof`, or `None` if it is
+    /// PEC-eliminated.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `dof ≥ self.n_dofs()`.
+    pub fn interior_index(&self, dof: usize) -> Option<usize> {
+        let r = self.remap[dof];
+        (r >= 0).then_some(r as usize)
+    }
+
+    /// The interior system matrix `A(ω)` (CSC, `n_interior × n_interior`)
+    /// exactly as [`DrivenOperator::factor_at`] factors it — for
+    /// symmetry / conditioning checks and adjoint consumers.
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::SurfaceImpedanceSingular`] or a sparse-assembly
+    /// failure, as [`DrivenOperator::factor_at`].
+    pub fn matrix_at(&self, omega: f64) -> Result<SparseColMat<usize, c64>, DrivenError> {
+        self.assemble_a_at(omega)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1973,7 +2205,8 @@ impl DrivenOperator {
         };
 
         Ok(DrivenOperator {
-            n_edges,
+            order: ElementOrder::P1,
+            n_dofs: n_edges,
             n_interior,
             remap,
             pec_interior_mask: bcs.pec_interior_mask.to_vec(),
@@ -2012,7 +2245,7 @@ impl DrivenOperator {
     /// length.
     pub fn port_voltage(&self, port: usize, e_edges: &[c64]) -> c64 {
         let p = &self.ports[port];
-        assert_eq!(e_edges.len(), self.n_edges, "edge vector length mismatch");
+        assert_eq!(e_edges.len(), self.n_dofs, "edge vector length mismatch");
         let mut v = c64::new(0.0, 0.0);
         for (f, e) in p.flux.iter().zip(e_edges.iter()) {
             v += *e * *f;
@@ -2225,7 +2458,7 @@ impl DrivenOperator {
     /// full-length `[n_edges]` complex edge vector (zeros on PEC-
     /// eliminated edges).
     fn scatter_to_full(&self, x_int: &[c64]) -> Vec<c64> {
-        let mut e_edges = vec![c64::new(0.0, 0.0); self.n_edges];
+        let mut e_edges = vec![c64::new(0.0, 0.0); self.n_dofs];
         for (full_idx, &ri) in self.remap.iter().enumerate() {
             if ri >= 0 {
                 e_edges[full_idx] = x_int[ri as usize];
@@ -2298,8 +2531,8 @@ impl DrivenOperator {
         }
     }
 
-    /// Interior → full edge-index map: `interior_to_full()[i]` is the
-    /// full `[n_edges]` edge index of the `i`-th kept interior DOF, in
+    /// Interior → full DOF-index map: `interior_to_full()[i]` is the
+    /// full DOF index (the `[n_edges]` edge index at p=1) of the `i`-th kept interior DOF, in
     /// contiguous interior order (the inverse of the private `remap`
     /// full→interior table on its non-eliminated entries).
     ///
@@ -2308,7 +2541,7 @@ impl DrivenOperator {
     /// surface triplet (`port.mass_triplets`, [`OperatorSurface::s_vals`])
     /// is **interior-remapped**; this map lifts those interior indices
     /// back to full-edge space at setup time (issue #493 Gap 1).
-    pub(crate) fn interior_to_full(&self) -> Vec<usize> {
+    pub fn interior_to_full(&self) -> Vec<usize> {
         let mut inv = vec![0_usize; self.n_interior];
         for (full_idx, &ri) in self.remap.iter().enumerate() {
             if ri >= 0 {
@@ -2376,7 +2609,7 @@ impl DrivenOperator {
     /// Scatter an interior-DOF **real** solution back into the
     /// full-length `[n_edges]` edge vector (zeros on PEC edges).
     pub(crate) fn scatter_to_full_real(&self, x_int: &[f64]) -> Vec<f64> {
-        let mut e_edges = vec![0.0_f64; self.n_edges];
+        let mut e_edges = vec![0.0_f64; self.n_dofs];
         for (full_idx, &ri) in self.remap.iter().enumerate() {
             if ri >= 0 {
                 e_edges[full_idx] = x_int[ri as usize];
@@ -2444,7 +2677,8 @@ impl DrivenOperator {
         if b_norm2 == 0.0 {
             return Ok((
                 DrivenSolution {
-                    e_edges: vec![c64::new(0.0, 0.0); self.n_edges],
+                    e_edges: vec![c64::new(0.0, 0.0); self.n_dofs],
+                    order: self.order,
                     n_interior: self.n_interior,
                     residual_rel: 0.0,
                 },
@@ -2485,6 +2719,7 @@ impl DrivenOperator {
         Ok((
             DrivenSolution {
                 e_edges,
+                order: self.order,
                 n_interior: self.n_interior,
                 residual_rel,
             },
@@ -2645,7 +2880,7 @@ impl FactoredDrivenOperator<'_> {
         };
 
         // --- Scatter back to the full edge vector ---------------------------
-        let mut e_edges = vec![c64::new(0.0, 0.0); op.n_edges];
+        let mut e_edges = vec![c64::new(0.0, 0.0); op.n_dofs];
         for (full_idx, &ri) in op.remap.iter().enumerate() {
             if ri >= 0 {
                 e_edges[full_idx] = x_int[ri as usize];
@@ -2654,6 +2889,7 @@ impl FactoredDrivenOperator<'_> {
 
         Ok(DrivenSolution {
             e_edges,
+            order: op.order,
             n_interior: op.n_interior,
             residual_rel,
         })
@@ -2926,6 +3162,7 @@ impl<'a, B: Backend> DrivenLinearSolver<'a, B> {
         Ok((
             DrivenSolution {
                 e_edges,
+                order: op.order,
                 n_interior: op.n_interior,
                 residual_rel: report.residual_rel,
             },
@@ -2981,6 +3218,31 @@ impl DrivenOperator {
         mode: SolverMode,
         device: &B::Device,
     ) -> Result<DrivenLinearSolver<'_, B>, DrivenError> {
+        // Order guards (issue #838): the matrix-free volume pencil and the
+        // AMS auxiliary space are built on the p=1 Whitney edge layout, so
+        // a higher-order operator is rejected loudly, never solved at a
+        // different order. Jacobi / ILU(0) / Chebyshev only read the
+        // assembled A(ω) and are order-agnostic.
+        if self.order != ElementOrder::P1 {
+            match mode {
+                SolverMode::IterativeMatrixFree(_) => {
+                    return Err(DrivenError::UnsupportedAtOrder {
+                        order: self.order,
+                        feature: "the matrix-free iterative solver (SolverMode::IterativeMatrixFree)",
+                    });
+                }
+                SolverMode::Iterative(IterativeSettings {
+                    preconditioner: IterativePreconditioner::Ams { .. },
+                    ..
+                }) => {
+                    return Err(DrivenError::UnsupportedAtOrder {
+                        order: self.order,
+                        feature: "the AMS preconditioner (IterativePreconditioner::Ams)",
+                    });
+                }
+                _ => {}
+            }
+        }
         let a_int = self.assemble_a_at(omega)?;
         let backend = match mode {
             SolverMode::Direct => {

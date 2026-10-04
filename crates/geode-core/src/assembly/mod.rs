@@ -31,6 +31,11 @@
 //!   `assemble_global_nedelec*` family, the anisotropic / complex / PML
 //!   epsilon builders, current-RHS and σ-damping assembly, and the
 //!   edge scatter maps.
+//! - [`hcurl_space`]: the order-pluggable H(curl) space
+//!   [`HcurlSpace`](hcurl_space::HcurlSpace) (issue #838, Epic #836) — one
+//!   object owning the DOF layout, orientation, entity→DOF maps, the
+//!   face-exact PEC mask and field evaluation at p=1 (Whitney, the pre-#838
+//!   tables bit for bit) and p=2.
 //! - [`fe`]: the high-level [`fe_assemble`](fe::fe_assemble) operator
 //!   that selects between the P1 and Nédélec pipelines via
 //!   [`ElementType`](fe::ElementType) and applies Dirichlet BCs.
@@ -47,6 +52,7 @@
 pub mod current_path;
 pub mod electrostatic;
 pub mod fe;
+pub mod hcurl_space;
 pub mod magnetostatic;
 pub mod magnetostatic3d;
 pub mod nedelec;

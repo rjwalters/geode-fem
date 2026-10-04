@@ -566,6 +566,16 @@ impl<'a> DrivenRom<'a> {
         on_snapshot: &mut dyn FnMut(f64),
     ) -> Result<Self, RomError> {
         validate_request(omegas, settings)?;
+        // Issue #838: wave-port modal channels are built on the p=1 edge
+        // layout; reject a higher-order operator instead of projecting
+        // mismatched fluxes.
+        if op.order() != crate::elements::ElementOrder::P1 {
+            return Err(DrivenError::UnsupportedAtOrder {
+                order: op.order(),
+                feature: "wave ports in the adaptive PROM (Epic #836 Phase 3)",
+            }
+            .into());
+        }
         let n_lumped = op.n_ports();
         if n_lumped == 0 && wave.is_empty() {
             return Err(RomError::InvalidParameter(
@@ -839,6 +849,37 @@ impl<'a> DrivenRom<'a> {
             residual_indicator: p.residual_indicator,
             ports: p.excitations.swap_remove(0),
         })
+    }
+
+    /// The reconstructed full-length DOF vector `x ≈ V x_r` of the
+    /// **first** drive at `omega`, plus the residual indicator — a
+    /// read-only accessor for field-level observables (issue #838: the
+    /// port-free p=2 self-oracle). The layout is the operator's space
+    /// ([`DrivenOperator::n_dofs`], the edge vector at p=1). It reuses the
+    /// reduced solve and indicator of [`DrivenRom::evaluate`] unchanged.
+    ///
+    /// # Errors
+    ///
+    /// As [`DrivenRom::evaluate`]; [`RomError::InvalidParameter`] for a
+    /// wave-port PROM (use [`DrivenRom::evaluate_scattering`]).
+    pub fn evaluate_field(&self, omega: f64) -> Result<(Vec<c64>, f64), RomError> {
+        if self.modal.is_some() {
+            return Err(RomError::InvalidParameter(
+                "a wave-port PROM has no single-drive field readout; use \
+                 DrivenRom::evaluate_scattering"
+                    .into(),
+            ));
+        }
+        let k = self.basis.len();
+        let coeffs = self.surface_coefficients(omega)?;
+        let x_rs = if k == 0 {
+            vec![Vec::new(); self.drives.len()]
+        } else {
+            self.try_reduced_solve(omega, &coeffs, &[])
+                .ok_or(RomError::ReducedSolveSingular { order: k, omega })?
+        };
+        let residual_indicator = self.residual_indicator(omega, &coeffs, &[], &x_rs);
+        Ok((self.reconstruct_full(&x_rs[0]), residual_indicator))
     }
 
     /// Evaluate the PROM at one frequency for **every** drive (see
