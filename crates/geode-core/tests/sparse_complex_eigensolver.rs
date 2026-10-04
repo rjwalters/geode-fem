@@ -856,7 +856,6 @@ fn regenerate_dense_oracle_fixture() {
     let doc = render_fixture(&fp, n_request, &dense_phys, &timing);
     let out = regenerated_fixture_path();
     geode_util::fixture::write_toml(&out, &doc).expect("write dense-oracle fixture");
-    eprintln!("wrote {}", out.display());
 
     // Round-trip through the loader and confirm the sparse path against
     // what was just written (this is the full dense-vs-sparse check).
