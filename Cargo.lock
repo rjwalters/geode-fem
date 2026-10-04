@@ -2505,7 +2505,7 @@ checksum = "e1d926b4d407d372f141f93bb444696142c29d32962ccbd3531117cf3aa0bfa9"
 
 [[package]]
 name = "eigen_convergence"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
@@ -2748,7 +2748,7 @@ dependencies = [
 
 [[package]]
 name = "extract_baseline"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "clap",
  "geode-app",
@@ -2853,7 +2853,7 @@ dependencies = [
 
 [[package]]
 name = "fiber_smf28_solve_timing"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "clap",
  "geode-app",
@@ -3246,7 +3246,7 @@ dependencies = [
 
 [[package]]
 name = "geode-app"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "clap",
  "tempfile",
@@ -3255,7 +3255,7 @@ dependencies = [
 
 [[package]]
 name = "geode-cli"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
@@ -3275,7 +3275,7 @@ dependencies = [
 
 [[package]]
 name = "geode-core"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "bunsen",
  "burn",
@@ -3297,7 +3297,7 @@ dependencies = [
 
 [[package]]
 name = "geode-util"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "burn",
  "faer",
@@ -3312,7 +3312,7 @@ dependencies = [
 
 [[package]]
 name = "geode-validation"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "burn",
  "faer",
@@ -4527,7 +4527,7 @@ checksum = "c2a86d3146ed3995b5913c414f6664344b9617457320782e64f0bb44afd49d74"
 
 [[package]]
 name = "mie_driven_scattering"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "clap",
  "geode-app",
@@ -4538,7 +4538,7 @@ dependencies = [
 
 [[package]]
 name = "mie_open_quasimode"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
@@ -4550,7 +4550,7 @@ dependencies = [
 
 [[package]]
 name = "mie_sphere"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
@@ -5287,7 +5287,7 @@ checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
 
 [[package]]
 name = "patch_antenna"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
@@ -6106,7 +6106,7 @@ dependencies = [
 
 [[package]]
 name = "regen_cube_convergence_fixture"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
@@ -6692,7 +6692,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slcfet_3hp_spiral"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
@@ -6743,7 +6743,7 @@ dependencies = [
 
 [[package]]
 name = "soi_waveguide"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "clap",
  "geode-app",
@@ -6789,7 +6789,7 @@ dependencies = [
 
 [[package]]
 name = "spiral_inductor"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
@@ -6841,7 +6841,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "step_index_fiber"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "clap",
  "geode-app",

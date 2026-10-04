@@ -147,7 +147,7 @@ radiating edges — while the lobe shows the broadside main beam peaking at
 The full roadmap, with epics, sequencing and non-goals, is in **[`docs/ROADMAP.md`](docs/ROADMAP.md)**. In brief:
 
 - **v0.4–v0.7 (released):** the `geode` CLI for EDA flows: `check` / `driven` / `eigen` / `extract`, Touchstone, `geode mesh`, C/L + SPICE, lossy eigen, sensitivities, and the adaptive sweep.
-- **v0.8.0 (merged, tagging pending):** physics breadth (Epic #756): dispersive, anisotropic and rough materials; mixed, filled and walled wave ports; and hybrid microstrip/stripline ports (Epic #778).
+- **v0.8.0 (released 2026-10-04):** physics breadth (Epic #756): dispersive, anisotropic and rough materials; mixed, filled and walled wave ports; and hybrid microstrip/stripline ports (Epic #778).
 - **v0.9.0 (planned):**
   - p=2 accuracy (#836);
   - differentiable EDA and `geode optimize` (#841);

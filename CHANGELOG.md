@@ -7,10 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-04
+
+This release completes Epic #756 (geode CLI Phase 4: physics breadth for EDA flows) and Epic #778 (hybrid wave ports). It covers:
+
+- **Materials:** wideband dielectric and conductor models and anisotropic materials.
+- **Wave ports:** the full story, including filled ports, mixed with lumped ports, lossy and rough walls, Touchstone export, adaptive sweeps, and microstrip/stripline/coax/inhomogeneous ports in the CLI with Z_PI line impedances and accuracy warnings.
+- **Correctness fixes:** several silently-wrong results are fixed:
+  - PEC edge masks;
+  - weak-guidance fiber modes;
+  - the faer complex QZ hang and the inaccurate real QZ;
+  - TE-only ports above the TM cutoff;
+  - mesh-unit-dependent thresholds;
+  - high-Q `Im k`;
+  - unconverged Ritz pairs.
+- **CI** now runs 157 of 160 test targets, up from 41, guarded by a fail-closed coverage check.
+
+**Breaking (`geode-core` library):**
+- `solve_wave_port_sweep_with_mode` gains a `surfaces` parameter (#776).
+- `EigenError` gains `DenseTooLarge` and is not `#[non_exhaustive]` (#796, #800).
+- `LossyCavityModes` gains fields (#834).
+- `pec_interior_edge_mask` is deprecated (#771).
+
+The `geode` spec and report schemas change additively (schema v1).
+
 ### Added
 
 #### `geode` CLI
 
+- **Dispersive dielectrics.** Wideband Djordjevic–Sarkar laminates, specified by `eps_r` / `tan_delta` at a reference frequency, with ε(f) evaluated per frequency in `driven` / `extract` (#757). Multi-pole Debye and Drude models are also available (#761). Adaptive (PROM) sweeps reject dispersive specs with `invalid_spec`, because ε(ω) is not affine.
+- **Conductor surface roughness** on Leontovich walls: Hammerstad–Jensen and Huray (cannonball) loss multipliers K(f) (#758).
+- **Diagonal anisotropic materials:** `eps_r_diag` / `mu_r_diag` in every analysis. The AMS preconditioner refuses non-positive Re ε (#760).
+- **Mixed lumped and wave ports** in one driven spec, giving a single S-matrix over all ports (#759).
+- **Filled wave ports.** The port mode solve uses the material filling the face (`PortMedium`), with β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c² and admittance y = β/μ_t. Lossy fills take a complex branch, and vacuum results are bit-identical to before. The report gains `wave_ports[].medium`. These port faces are rejected with `invalid_spec`, including in `geode check`:
+  - inhomogeneous faces (later supported by #807);
+  - unequal in-plane tensor components;
+  - UPML faces;
+  - Re ε_t·μ_n ≤ 0 (#781). (#777)
 - Wave ports compose with Leontovich walls, including rough walls: a lossy guide's S-parameters carry the conductor attenuation, validated against Pozar Eq. 3.96 (TE10 α_c) and the roughness factor K(f). A Silver-Müller wall that shares an edge with a wave-port rim is rejected with `invalid_spec` (#776).
 - **Hybrid wave ports: microstrip, stripline and inhomogeneous port faces** (#807, Epic #778 Phase 5).
   - **Routing.** `check` and `driven` route each wave port by its cross-section (`wave_ports[].route`). A face touching more than one material, or carrying a floating conductor (a `pec` strip sheet crossing it, or a carved-out strip), goes to the hybrid path: the full-vector E_t–E_z port modes, re-solved and tracked at every frequency. Before, an inhomogeneous face was `invalid_spec` naming #778, and a coax/strip face silently lost its TEM mode. Homogeneous faces without a conductor keep the geometric TE path bit for bit. The TE-only TM-cutoff guard (#808) applies to geometric ports only; hybrid ports use core's completeness check, and their rim must still lie on a conductor wall. Lossy faces use the complex-symmetric pencil; dispersive specs use the dispersive spec sweeps, so the faces and the volume read ε(ω) from the same per-tet vector.
@@ -101,6 +134,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### `geode-core`
 
+- **PEC edge masks are now face-exact.** `cube_pec_interior_edges`, `sphere_pec_interior_edges` and `cylinder_pec_interior_mask` used a node rule that also eliminated interior edges joining two boundary faces: 12(n−1) wrong edges on an n-cube, and 2·n_theta on coax/loop meshes. That over-constrained cavities and biased results.
+  - The sphere mask is unchanged, bit for bit.
+  - Accuracy improves sharply, e.g. coax L′ error 6.1e-3 → 9.1e-4, skin depth 3.0% → 0.45%, unit-cube PEC cavity 19.1% → 6.6%. Test tolerances are tightened to match, and `benchmarks/magnetostatic_inductance` is regenerated.
+  - New `TetMesh::boundary_faces()` and `boundary_pec_interior_edges`; `pec_interior_edge_mask` is deprecated (#771).
 - New `PortFaceProjection::lowest_tm_cutoff` (the port face's P1 TM cutoff, with optional open rim edges; a Rayleigh-Ritz upper bound), `PortFaceProjection::tm_cutoff_estimate` / `TmCutoffEstimate` (the face value extrapolated over two uniform refinements, and `guard_k_c`, `TM_GUARD_MARGIN` = 5 % below it) and `PortMedium::tm_cutoff_k0` (the filled TM cutoff from the axial `ε_n`). Wave ports remain TE-only (#808).
 - The TE-only TM guard's margin is mesh-aware (#824). It is `tm_guard_margin(k_c, h_n) = max(TM_GUARD_MARGIN, TM_GUARD_AXIAL_COEFF·(k_c·h_n)²)` with `TM_GUARD_AXIAL_COEFF` = 0.025; the measured basis is in the `TM_GUARD_MARGIN` docs. `PortFaceProjection::guide_axial_spacing(mesh, reach)` gives `h_n`: the largest axial extent of a tet on the face or with its centroid over the face within `reach` of the port plane. `tm_guard_axial_reach(k_c, k)` gives the window, `2π/min(k_c, k)`. `TmCutoffEstimate` gains an `axial_spacing` field (0 from `from_levels`, so the old 5 % guard is unchanged) and new methods `with_axial_spacing`, `k_c`, `margin`, `axial_kh`, `axial_spacing_admitting` and `base_margin_axial_spacing`. The constant `TM_GUARD_MEASURED_KH` is the top of the measured range. The `tm_cutoff_estimate` docs now say which order clamp only lowers the estimate: the cap at p = 2. The floor at 0.5 raises it.
 - `PortFaceProjection::guide_axial_spacing` counts a tet when its nearest point to the port plane is within `reach` (its centroid was), and `tm_guard_axial_reach` is now `max(TM_GUARD_REACH_CUTOFF_WAVELENGTHS·2π/k_c, 2π/k)` with the new constant at 3, which contains the old one-wavelength window (#845). New `PortFaceProjection::guide_axial_mesh` returns a `GuideAxialMesh`: `h_n` in the window, plus the coarsest axial extent over the whole face footprint and how near the port the first coarser tet starts. New `PortFaceProjection::guide_coarser_than_distance` gives where a refinement to `h` has to start. New `tm_evanescent_leak(k_c, k, d)` = `exp(−√(k_c² − k²)·d)`. New ignored test `a_coarse_section_beyond_one_wavelength_does_not_slip_under_the_tm_guard` (`tests/wave_port.rs`) reproduces the Judge's three probes with a TM-like mode classifier: the old readings put the guard above the 3-D mode and the new ones put it below.
@@ -130,6 +167,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Tests and CI
 
+- **CI test coverage** goes from 41 to 157 of 160 integration-test targets.
+  - A new `ci-test-coverage` workflow runs a fail-closed guard (`scripts/ci-test-coverage.py`, with a 90-case self-test). It counts a `cargo test` only if it provably runs and its failure fails the job, and it tracks both test targets and `#[ignore]`d tests per test.
+  - New `integration-tests` jobs: `core-tests`, `validation-tests`, `core-dense-eigen` and `core-ignored`.
+  - `cube-cavity-tolerance` now runs under `shell: bash`, so a failure piped through `tee` fails the step.
+  - The remaining 3 allowlisted targets are slow benchmarks, tracked in #786. (#785, #786, #788, #790, #793)
+- The sparse-vs-dense Mie complex eigensolver test is split around a committed dense-oracle fixture (shift-invert, cross-checked by a capped QZ to 1.4e-11); its sparse half runs in CI in about 3 s (#710).
+- The geode-cli release `--ignored` tiers run in a parallel job, fixing main CI timeouts (#772). Tests use panic-safe tempfile scratch dirs (#766).
 - `arpack.yml` now runs the `eigen::complex::`, `eigen::lossy_cavity::` and `eigen::projection::` lib tests (the #834 checked-solve and seeded spurious-Ritz regressions, and the #828 mesh-unit invariance tests) next to the #798 `eigen::lanczos::` / `analytic::waveguide::` step, and the `geode-util` lib tests (`dense_lowest_eigenpairs` clustering, `q_factor`, `k_from_lambda`), which no job ran before.
 - The 22 `#[ignore = "faer 0.24 qz_real panics under debug-assertions"]` reasons are gone. No in-tree solver reaches `qz_real` any more; only `faer_qz_debug_overflow_guard` calls it, on purpose. The `derham_gauge_invariance` full-spectrum GEVD also moved off a direct `generalized_eigen` call. Tests that pass in debug in under about 30 s are un-ignored. The rest are ignored in debug builds only (`#[cfg_attr(debug_assertions, ignore = "slow in debug …")]`) and run in the default tier in release. As a result, the eigensolve tests of `eigensolver`, `nedelec_cavity`, `cube_cavity_{jax,julia,onnx}_reference` and `sphere_pec_{jax,julia,numpy,onnx,tfjava}_reference` now run in CI. `arpack.yml` runs `sparse_eigensolver`'s default tier, and `cube-cavity-tolerance.yml` runs `cube_cavity_numpy_reference`'s default tier, instead of their `--ignored` tiers, which would now select nothing (#813).
 - `--ignored` benchmark runs no longer rewrite committed artifacts (#823). `fiber_dispersion_benchmark`, `transient_sparams::transient_self_oracle_broadband` and `sparse_complex_eigensolver::regenerate_dense_oracle_fixture` wrote `benchmarks/fiber_dispersion/results.toml`, `benchmarks/transient/results.toml` and `tests/fixtures/mie_complex_pml_dense_eigenvalues.toml` into the checkout on every run, including in CI's `core-ignored` job. The fiber benchmark wrote before its asserts, so a failing local run overwrote the committed numbers with failing ones. Each test now writes under `CARGO_TARGET_TMPDIR` by default and writes the committed path only with `GEODE_BLESS_FIBER_DISPERSION=1`, `GEODE_BLESS_TRANSIENT=1` or `GEODE_BLESS_DENSE_ORACLE=1` (following `GEODE_BLESS_WAVEGUIDE_MSH`). The fiber headline also checks its fresh numbers against the committed `results.toml`: every D within the 1 ps/(nm·km) bar, every ZDW within the 10 nm bar and each FEM `n_eff` within 1e-6. A drift fails with the bless command. The regeneration commands in the artifacts' headers, the provenance manifest and the CI comment name the bless variables.

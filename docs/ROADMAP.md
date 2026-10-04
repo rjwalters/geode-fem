@@ -1,6 +1,6 @@
 # GEODE-FEM roadmap
 
-_Last updated: 2026-10-03._ This is the single source for where the project is going. Each item links to a GitHub epic, and the epic holds the phase plan, its goldens and its acceptance criteria. When an epic changes scope, update this file in the same PR.
+_Last updated: 2026-10-04._ This is the single source for where the project is going. Each item links to a GitHub epic, and the epic holds the phase plan, its goldens and its acceptance criteria. When an epic changes scope, update this file in the same PR.
 
 ## Direction
 
@@ -21,7 +21,7 @@ Rules that every release follows:
 | Version | Theme | Status |
 |---|---|---|
 | v0.4–v0.7 | CLI Phases 1–3 (Epics #673/#680/#702): `check` / `driven` / `eigen` / `extract`, Touchstone, `geode mesh`, C/L + SPICE, lossy eigen, sensitivities, AMS + adaptive sweep, schemas, cookbook, binaries | Released |
-| **v0.8.0** | **Physics breadth for EDA (Epic #756)**, plus **hybrid wave ports (Epic #778)** | Merged on `main`; not yet tagged |
+| **v0.8.0** | **Physics breadth for EDA (Epic #756)**, plus **hybrid wave ports (Epic #778)** | Released 2026-10-04 |
 
 v0.8.0 contents, as merged:
 
@@ -35,7 +35,7 @@ v0.8.0 contents, as merged:
   - wave ports with Leontovich and rough walls (#776);
   - Touchstone for wave ports via `reference_ohm` (#775);
   - adaptive (PROM) sweep with wave ports (#774);
-  - TE-port TM-cutoff guard (#808); its mesh-aware margin (#824, PR #827) is still in review.
+  - TE-port TM-cutoff guard with a mesh-aware margin over 3 λ_c of the feeding guide (#808, #824, #845).
 - **Hybrid wave ports (Epic #778).** Microstrip, stripline, coax and inhomogeneous faces, delivered in phases:
   - P1 (#803): the hybrid mode solver;
   - P2 (#804): driving the 3-D solve with those modes, with complex-pair blocks and per-mode accuracy estimates;
@@ -73,7 +73,7 @@ v0.8.0 contents, as merged:
 - Periodic pairs expose `paired_face()`, which refinement mirrors, plus `alias_node_motion()` and `dphase_dk()` for gradients. The Bloch adjoint is the solve at −k.
 - #836 Phase 5a's same-mesh p=1-vs-p=2 difference becomes one component of the AMR estimator, not a second estimator.
 
-**v0.8 hardening carried into early v0.9:** #824 / #828 / #831 / #834 (the mesh-aware TM-cutoff margin, the Lanczos convergence floor, the stable √, and the complex Lanczos residual check).
+**v0.8 hardening:** #824 / #828 / #831 / #834 / #845 shipped in v0.8.0. Carried into v0.9: #850, the bound-mode hole guard for the PML/dielectric solvers.
 
 ## v0.10.0 and later
 
