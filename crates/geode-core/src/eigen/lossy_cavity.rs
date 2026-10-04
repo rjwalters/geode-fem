@@ -41,10 +41,21 @@
 //! issue #834). The bilinear Lanczos has no interlacing guarantee, so an
 //! unconverged Ritz value can sit nearer `σ` than converged modes; the
 //! checked solve never returns one. It withholds it and extends the same
-//! Krylov run (to at most `2 · max_iters` steps) until `n_modes` converged
-//! physical pairs nearest `σ` are in hand. When the first `max_iters` pass
-//! already converged them, the result is bit-identical to the unchecked
-//! solve.
+//! Krylov run (to at most `2 · max_iters` steps). The result is the
+//! `n_modes` **converged modes nearest `σ`**, or an error:
+//!
+//! - a withheld pair that is not *localized* (`ρ · max(|λ|, σ) > |λ − σ|`,
+//!   for example the `ρ ≈ 11` value of PR #833) locates no eigenvalue and
+//!   is skipped;
+//! - a localized withheld pair is a genuine eigenvalue that did not converge
+//!   by the cap. If it lies nearer `σ` than the farthest returned mode, the
+//!   solve fails with [`LossyCavityError::NotConverged`] rather than let a
+//!   farther mode fill its slot (PR #847);
+//! - fewer than `n_modes` converged physical pairs is also `NotConverged`
+//!   (or [`LossyCavityError::TooFewModes`]).
+//!
+//! When the first `max_iters` pass already converged them, the result is
+//! bit-identical to the unchecked solve.
 //!
 //! # Fixed-frequency UPML (a documented approximation)
 //!
@@ -164,9 +175,12 @@ pub enum LossyCavityError {
         /// The shift.
         sigma: f64,
     },
-    /// A selected mode's relative eigen-residual exceeds
-    /// [`LossyCavitySettings::residual_tol`]: the Lanczos basis did not
-    /// converge it. Reports the **worst** offending mode.
+    /// A mode among the `n_modes` nearest `σ` did not converge: its
+    /// relative eigen-residual exceeds [`LossyCavitySettings::residual_tol`]
+    /// even after the Krylov extension. Reports the **worst** offending
+    /// mode, or, when converged modes farther from `σ` would otherwise fill
+    /// its slot (a localized withheld pair nearer `σ` than the farthest
+    /// returned mode, PR #847), that withheld pair.
     #[error(
         "eigensolve did not converge: mode {index} (λ = {lambda_re} {lambda_im:+}j) has relative \
          residual {residual_rel:e} > bound {bound:e} (raise max_iters, or move sigma closer to \
@@ -288,7 +302,10 @@ pub struct LossyCavityModes {
     /// ([`crate::eigen::complex::CheckedComplexEigenpairs::rejected`],
     /// issue #834). The complex bilinear Lanczos has no interlacing
     /// guarantee, so such a value can sit nearer `σ` than converged modes;
-    /// it is never returned. `0` when the first Krylov pass converged.
+    /// it is never returned. On a successful solve none of them is a
+    /// localized pair nearer `σ` than a returned mode (that is an error), so
+    /// each is spurious or lies beyond the returned range. `0` when the
+    /// first Krylov pass converged.
     pub n_withheld: usize,
     /// Lanczos steps run: `max_iters` (plus 2) unless an unconverged pair
     /// near `σ` made the solve extend the Krylov run (at most
@@ -519,7 +536,10 @@ fn validate_settings(s: &LossyCavitySettings) -> Result<(), LossyCavityError> {
 /// shift guard), [`LossyCavityError::TooFewModes`] if fewer than
 /// `n_modes` physical modes were resolved, and
 /// [`LossyCavityError::NotConverged`] if any selected mode's relative
-/// residual exceeds [`LossyCavitySettings::residual_tol`].
+/// residual exceeds [`LossyCavitySettings::residual_tol`], or if a
+/// localized but unconverged Ritz pair (a genuine eigenvalue the capped
+/// extension could not converge) lies nearer `σ` than the farthest mode
+/// that would be returned: the result would have a hole.
 pub fn solve_lossy_cavity_modes<B: Backend>(
     mesh: &TetMesh,
     materials: &LossyCavityMaterials<'_>,
@@ -527,9 +547,20 @@ pub fn solve_lossy_cavity_modes<B: Backend>(
     settings: &LossyCavitySettings,
     device: &B::Device,
 ) -> Result<LossyCavityModes, LossyCavityError> {
-    let s = settings;
-    validate_settings(s)?;
+    validate_settings(settings)?;
     let (k, m) = assemble_lossy_pencil::<B>(mesh, materials, pec_interior_mask, device)?;
+    solve_lossy_pencil_modes(k.as_ref(), m.as_ref(), settings)
+}
+
+/// The eigensolve and mode selection of [`solve_lossy_cavity_modes`] on an
+/// assembled interior pencil `(K, M)` (settings already validated). Split
+/// out so the selection rules can be pinned on hand-built pencils.
+fn solve_lossy_pencil_modes(
+    k: SparseColMatRef<'_, usize, c64>,
+    m: SparseColMatRef<'_, usize, c64>,
+    settings: &LossyCavitySettings,
+) -> Result<LossyCavityModes, LossyCavityError> {
+    let s = settings;
     let n_interior = k.nrows();
 
     // Screen every Ritz pair the basis yields *before* the closest-to-σ
@@ -555,13 +586,8 @@ pub fn solve_lossy_cavity_modes<B: Backend>(
         max_iters_cap: s.max_iters.saturating_mul(2),
         window: None,
     };
-    let solve = solver.smallest_eigenpairs_checked_filtered(
-        k.as_ref(),
-        m.as_ref(),
-        s.n_modes,
-        check,
-        &eligible,
-    )?;
+    let mut solve =
+        solver.smallest_eigenpairs_checked_filtered(k, m, s.n_modes, check, &eligible)?;
     let n_null_filtered = solve.screened.iter().filter(|&&l| is_null(l)).count();
     let n_overdamped_filtered = solve.screened.len() - n_null_filtered;
     let n_withheld = solve.rejected.len();
@@ -576,12 +602,11 @@ pub fn solve_lossy_cavity_modes<B: Backend>(
             checked
         }
     };
-    let candidates: Vec<LossyCavityMode> = solve
-        .pairs
+    let candidates: Vec<LossyCavityMode> = std::mem::take(&mut solve.pairs)
         .into_iter()
         .map(|p| {
-            let kx = spmv(k.as_ref(), &p.vector);
-            let mx = spmv(m.as_ref(), &p.vector);
+            let kx = spmv(k, &p.vector);
+            let mx = spmv(m, &p.vector);
             let r: Vec<c64> = kx
                 .iter()
                 .zip(&mx)
@@ -637,6 +662,35 @@ pub fn solve_lossy_cavity_modes<B: Backend>(
         });
     }
     modes.truncate(s.n_modes);
+    // Hole check (PR #847 review): a withheld pair that is localized (a
+    // genuine eigenvalue, still unconverged when the extension hit its cap)
+    // and nearer σ than the farthest returned mode means farther converged
+    // modes filled its slot. That is not "the n_modes converged modes
+    // nearest σ"; fail as the unchecked solve did. A spurious Ritz value
+    // (PR #833: ρ ≈ 11) is not localized and is still skipped.
+    let reach = modes.last().map_or(0.0, |m| dist(m.lambda));
+    if let Some((lambda, checked)) = solve.localized_hole(s.sigma, reach, eligible) {
+        let residual_rel = own_residual(lambda, checked);
+        let mut slate: Vec<(c64, f64)> = modes
+            .iter()
+            .map(|m| (m.lambda, m.residual_rel))
+            .chain(std::iter::once((lambda, residual_rel)))
+            .collect();
+        slate.sort_by(|a, b| dist(a.0).total_cmp(&dist(b.0)));
+        slate.truncate(s.n_modes);
+        slate.sort_by(|a, b| principal_k0(a.0).re.total_cmp(&principal_k0(b.0).re));
+        let index = slate
+            .iter()
+            .position(|&(l, _)| l == lambda)
+            .unwrap_or_default();
+        return Err(LossyCavityError::NotConverged {
+            index,
+            lambda_re: lambda.re,
+            lambda_im: lambda.im,
+            residual_rel,
+            bound: s.residual_tol,
+        });
+    }
     // Ascending resonant frequency Re(k₀) — not Re(λ) = Re(k₀)² − Im(k₀)²,
     // which reorders strongly damped modes.
     modes.sort_by(|a, b| a.k0.re.total_cmp(&b.k0.re));
@@ -957,6 +1011,87 @@ mod tests {
             ),
             Err(LossyCavityError::InvalidInput(_))
         ));
+    }
+
+    /// PR #847 regression: a genuine mode nearest `σ` that is still
+    /// unconverged when the extension hits its `2 · max_iters` cap must fail
+    /// with `NotConverged`, never be silently replaced by a farther
+    /// converged mode. On [`slow_mode_hole_pencil`] the checked solve
+    /// returns two converged modes with no shortfall but without
+    /// `λ* = 1.1 − 0.01j`, the eigenvalue nearest `σ = 1` (asserted in
+    /// `checked_localized_hole_reports_capped_nearest_mode`). The
+    /// shortfall-and-residual checks alone accept that set.
+    #[test]
+    fn capped_localized_mode_near_sigma_is_not_converged() {
+        let (slow, k, m) = crate::eigen::complex::slow_mode_hole_pencil();
+        let settings = LossyCavitySettings {
+            max_iters: 14,
+            tol: 1e-12,
+            residual_tol: 1e-9,
+            ..LossyCavitySettings::new(1.0, 2)
+        };
+        validate_settings(&settings).unwrap();
+        match solve_lossy_pencil_modes(k.as_ref(), m.as_ref(), &settings) {
+            Err(LossyCavityError::NotConverged {
+                index,
+                lambda_re,
+                lambda_im,
+                residual_rel,
+                bound,
+            }) => {
+                assert!(
+                    (c64::new(lambda_re, lambda_im) - slow).norm() < 1e-6,
+                    "NotConverged must name λ*, got {lambda_re} {lambda_im:+}j"
+                );
+                // Ascending Re k₀ over {0.75, λ*}: λ* is second.
+                assert_eq!(index, 1);
+                assert_eq!(bound, 1e-9);
+                assert!(residual_rel > bound, "ρ = {residual_rel:.3e}");
+            }
+            other => panic!("expected NotConverged for the hole, got {other:?}"),
+        }
+    }
+
+    /// The other half of the PR #847 rule: a withheld value that is **not**
+    /// localized (the bilinear Lanczos's spurious Ritz value, as in PR #833)
+    /// is still skipped and the solve succeeds with the true nearest modes.
+    /// The 16-step first pass on [`spurious_ritz_pencil`] holds the
+    /// spurious `λ ≈ 1.090 + 0.149j` (ρ ≈ 2.2) among the 3 nearest `σ`; it
+    /// never becomes a target, the run extends, and the 3 true eigenvalues
+    /// nearest `σ` come back. The rule itself is pinned on a hand-built
+    /// result in `localized_hole_skips_spurious_values`.
+    #[test]
+    fn spurious_withheld_value_still_succeeds() {
+        let (lam, k, m) = crate::eigen::complex::spurious_ritz_pencil();
+        let sigma = 1.0;
+        let dist = |l: c64| (l.re - sigma).hypot(l.im);
+        let settings = LossyCavitySettings {
+            max_iters: 14,
+            tol: 1e-12,
+            residual_tol: 1e-9,
+            ..LossyCavitySettings::new(sigma, 3)
+        };
+        validate_settings(&settings).unwrap();
+        let modes = solve_lossy_pencil_modes(k.as_ref(), m.as_ref(), &settings).unwrap();
+        eprintln!(
+            "spurious pencil: {:?}, withheld {}, {} steps",
+            modes.modes.iter().map(|m| m.lambda).collect::<Vec<_>>(),
+            modes.n_withheld,
+            modes.lanczos_steps
+        );
+        assert!(
+            modes.lanczos_steps > 16,
+            "the spurious value must extend the run"
+        );
+        let mut exact: Vec<c64> = lam.iter().copied().filter(|l| l.re > 0.0).collect();
+        exact.sort_by(|a, b| dist(*a).total_cmp(&dist(*b)));
+        assert_eq!(modes.modes.len(), 3);
+        for e in &exact[..3] {
+            assert!(
+                modes.modes.iter().any(|md| (md.lambda - e).norm() < 1e-9),
+                "eigenvalue {e} nearest σ missing"
+            );
+        }
     }
 
     /// Too small a Lanczos basis must fail with `NotConverged`, never

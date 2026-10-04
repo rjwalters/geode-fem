@@ -1467,6 +1467,15 @@ pub struct EigenSolverStats {
     /// pencil). Omitted for a lossless pencil.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub n_overdamped_filtered: Option<usize>,
+    /// Complex pencil only (additive in v1, issue #834): unconverged Ritz
+    /// pairs the residual-checked Lanczos withheld although they ranked
+    /// among the `n_modes` physical pairs nearest `σ`. None of them is a
+    /// genuine mode inside the returned range (that fails the solve), so
+    /// each is a spurious Ritz value or lies beyond the farthest returned
+    /// mode. `0` when the first Krylov pass converged. Omitted for a
+    /// lossless pencil.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n_withheld: Option<usize>,
     /// Largest relative eigen-residual over the returned modes.
     pub residual_rel_max: f64,
     /// Wall time of assembly + eigensolve, seconds.

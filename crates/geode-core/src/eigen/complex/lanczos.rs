@@ -983,6 +983,36 @@ impl CheckedComplexEigenpairs {
         self.requested.saturating_sub(self.pairs.len())
     }
 
+    /// A **hole** in the returned set (PR #847 review): the withheld pair
+    /// nearest `σ` that is *localized* (`ρ · max(|λ|, |σ|) ≤ |λ − σ|`, see
+    /// [`SparseComplexShiftInvertLanczos::smallest_eigenpairs_checked`]) and
+    /// lies strictly nearer `σ` than `reach`. Only withheld pairs with
+    /// `within(λ)` are considered. Returns `(λ, ρ)` with the checked solve's
+    /// relative residual `ρ`.
+    ///
+    /// Callers whose contract is "the converged modes nearest `σ`" pass
+    /// `reach` = the distance `|λ − σ|` of the farthest mode they return. A
+    /// `Some` then means a genuine eigenvalue (a localized Ritz value, still
+    /// unconverged when the extension hit its cap) sits inside the returned
+    /// range while farther converged modes filled its slot: the result has
+    /// a hole and must fail loudly rather than return. A spurious Ritz value
+    /// (the `ρ ≈ 11` value of PR #833) is not localized and never counts.
+    pub fn localized_hole(
+        &self,
+        sigma: f64,
+        reach: f64,
+        within: impl Fn(c64) -> bool,
+    ) -> Option<(c64, f64)> {
+        let dist = |l: c64| (l.re - sigma).hypot(l.im);
+        self.rejected
+            .iter()
+            .copied()
+            .filter(|&(l, r)| {
+                within(l) && dist(l) < reach && complex_ritz_is_localized(l, r, sigma)
+            })
+            .min_by(|a, b| dist(a.0).total_cmp(&dist(b.0)))
+    }
+
     /// Partition `pairs` into converged (kept) and rejected by `tol`.
     fn split(&mut self, pairs: Vec<ComplexEigenPair>, residuals: Vec<f64>, tol: f64) {
         for (pair, res) in pairs.into_iter().zip(residuals) {
@@ -1330,7 +1360,7 @@ impl ComplexLanczosRun {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use faer::sparse::{SparseColMat, Triplet};
 
@@ -1795,7 +1825,8 @@ mod tests {
     /// `0.25…4.25`. Built from `+ − × ÷` only (a rational angle
     /// parametrization, no `sin` / `cos`), so it is bit-identical on every
     /// platform.
-    fn spurious_ritz_pencil() -> (Vec<c64>, SparseColMat<usize, c64>, SparseColMat<usize, c64>) {
+    pub(crate) fn spurious_ritz_pencil()
+    -> (Vec<c64>, SparseColMat<usize, c64>, SparseColMat<usize, c64>) {
         let lcg = |s: u64| {
             s.wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407)
@@ -1956,6 +1987,153 @@ mod tests {
             );
         }
         assert!(filtered.pairs.iter().all(|p| p.lambda.re > 0.9));
+    }
+
+    /// The seeded pencil of the PR #847 hole regression, diagonal around
+    /// `σ = 1`: `λ* = 1.1 − 0.01j` (nearest `σ`, at distance 0.1005), then
+    /// `0.75 − 0.02j` (0.2508), `1.3 − 0.005j` (0.3000), `1.45 − 0.01j` and
+    /// 36 more values at distances `0.7…4.2`, alternately above and below
+    /// `σ` (those below `Re λ = 0` are overdamped). `λ*` carries the
+    /// diagonal scale `K_00 = λ*·10⁻¹³`, `M_00 = 10⁻¹³`, so its component in
+    /// the M-normalized start vector is `~3·10⁻⁷`: it converges more slowly
+    /// than its neighbours although it is nearest `σ`. Arithmetic only (no
+    /// `sin` / `cos`), so the pencil is bit-identical on every platform.
+    ///
+    /// With `max_iters = 14` and `n_modes = 2`, the 14-step first pass
+    /// leaves `λ*` *localized* (relative residual `≈ 7·10⁻³`, against the
+    /// localization bound `|λ* − σ| / |λ*| ≈ 0.091`) but unconverged; at the
+    /// `2 · max_iters = 28`-step cap it is still at `≈ 7·10⁻⁹ > 10⁻⁹`.
+    pub(crate) fn slow_mode_hole_pencil()
+    -> (c64, SparseColMat<usize, c64>, SparseColMat<usize, c64>) {
+        let n = 40;
+        let slow = c64::new(1.1, -0.01);
+        let mut lam = vec![
+            slow,
+            c64::new(0.75, -0.02),
+            c64::new(1.3, -0.005),
+            c64::new(1.45, -0.01),
+        ];
+        let mut i = 0usize;
+        while lam.len() < n {
+            i += 1;
+            let r = 0.6 + 0.1 * i as f64;
+            let im = -0.001 * ((i * 7) % 11) as f64;
+            let re = if i.is_multiple_of(2) {
+                1.0 + r
+            } else {
+                1.0 - r
+            };
+            lam.push(c64::new(re, im));
+        }
+        let scale: Vec<f64> = (0..n).map(|j| if j == 0 { 1e-13 } else { 1.0 }).collect();
+        let diag_k: Vec<c64> = lam.iter().zip(&scale).map(|(l, &s)| l * s).collect();
+        let diag_m: Vec<c64> = scale.iter().map(|&s| c64::new(s, 0.0)).collect();
+        let (k, m) = diagonal_complex_pencil(&diag_k, &diag_m);
+        (slow, k, m)
+    }
+
+    /// PR #847 regression, solver level. On [`slow_mode_hole_pencil`] the
+    /// no-window checked solve hits its cap with the nearest-`σ` eigenvalue
+    /// `λ*` unconfirmed and tops up from the farther converged modes: no
+    /// shortfall, `λ*` missing. That alone looks like success (the
+    /// shortfall-only check of the first #834 cut). [`CheckedComplexEigenpairs::localized_hole`]
+    /// reports `λ*`.
+    #[test]
+    fn checked_localized_hole_reports_capped_nearest_mode() {
+        let (slow, k, m) = slow_mode_hole_pencil();
+        let sigma = 1.0;
+        let dist = |l: c64| (l.re - sigma).hypot(l.im);
+        let solver = SparseComplexShiftInvertLanczos {
+            sigma,
+            max_iters: 14,
+            tol: 1e-12,
+        };
+        let checked = solver
+            .smallest_eigenpairs_checked_filtered(
+                k.as_ref(),
+                m.as_ref(),
+                2,
+                ConvergenceCheck {
+                    residual_tol: 1e-9,
+                    max_iters_cap: 28,
+                    window: None,
+                },
+                &|l: c64| l.re > 0.0,
+            )
+            .unwrap();
+        eprintln!(
+            "hole pencil: pairs {:?}, rejected {:?}, {} steps, extended {}",
+            checked.pairs.iter().map(|p| p.lambda).collect::<Vec<_>>(),
+            checked.rejected,
+            checked.lanczos_steps,
+            checked.extended
+        );
+        assert!(checked.extended);
+        assert_eq!(checked.lanczos_steps, 28, "the run must reach its cap");
+        assert_eq!(checked.shortfall(), 0, "no shortfall: the hole is silent");
+        assert!(
+            checked
+                .pairs
+                .iter()
+                .all(|p| (p.lambda - slow).norm() > 1e-3),
+            "λ* must be missing from the converged set"
+        );
+        let reach = checked
+            .pairs
+            .iter()
+            .map(|p| dist(p.lambda))
+            .fold(0.0_f64, f64::max);
+        assert!(reach > dist(slow));
+        let (lambda, residual) = checked
+            .localized_hole(sigma, reach, |_| true)
+            .expect("the capped nearest mode is a hole");
+        assert!((lambda - slow).norm() < 1e-6, "hole at λ = {lambda}");
+        assert!(residual > 1e-9 && residual < 1e-6, "ρ = {residual:.3e}");
+        // Nothing nearer than λ* itself counts as a hole.
+        assert!(
+            checked
+                .localized_hole(sigma, dist(slow), |_| true)
+                .is_none()
+        );
+    }
+
+    /// [`CheckedComplexEigenpairs::localized_hole`] on a hand-built result
+    /// (PR #847): of the withheld values nearer `σ = 1` than the farthest
+    /// returned mode, the spurious one (ρ = 11, the PR #833 value) is not
+    /// localized and never a hole, a localized one is, and `within` and
+    /// `reach` bound the search.
+    #[test]
+    fn localized_hole_skips_spurious_values() {
+        let pair = |l: c64| ComplexEigenPair {
+            lambda: l,
+            vector: Vec::new(),
+        };
+        let mut checked = CheckedComplexEigenpairs {
+            pairs: vec![pair(c64::new(0.83, -0.08)), pair(c64::new(1.65, -0.16))],
+            residuals: vec![1e-12, 1e-12],
+            rejected: vec![(c64::new(0.4756, -0.0767), 11.0)],
+            screened: Vec::new(),
+            requested: 2,
+            lanczos_steps: 0,
+            extended: true,
+        };
+        let sigma = 1.0;
+        let reach = (0.65_f64).hypot(0.16);
+        assert!(checked.localized_hole(sigma, reach, |_| true).is_none());
+        // A genuine but unconverged pair inside the returned range is a hole.
+        let genuine = (c64::new(1.2, -0.1), 1e-4);
+        checked.rejected.push(genuine);
+        assert_eq!(
+            checked.localized_hole(sigma, reach, |_| true),
+            Some(genuine)
+        );
+        // ... but not past `reach`, nor when `within` excludes it.
+        assert!(checked.localized_hole(sigma, 0.2, |_| true).is_none());
+        assert!(
+            checked
+                .localized_hole(sigma, reach, |l| l.re < 1.0)
+                .is_none()
+        );
     }
 
     /// When the first pass converges, the checked solve returns exactly the

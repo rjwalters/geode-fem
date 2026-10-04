@@ -4631,6 +4631,11 @@ const DIELECTRIC_LANCZOS_CAP_FACTOR: usize = 6;
 /// [`SparseShiftInvertLanczos::smallest_eigenpairs_checked`]). Unconverged
 /// pairs outside the window never extend the run. Everything not confirmed
 /// is withheld and counted in [`CheckedEigenpairs::rejected`].
+///
+/// As for `pml_checked_eigenpairs`, the contract is the classifier's
+/// selection from the converged set, not "the modes nearest `σ`", so no
+/// solver-level hole check applies (PR #847); the withheld in-window count
+/// is reported ([`RawDielectricSolve::withheld_in_window`]).
 fn dielectric_checked_eigenpairs(
     a: SparseColMatRef<'_, usize, f64>,
     m1: SparseColMatRef<'_, usize, f64>,
@@ -5436,6 +5441,20 @@ fn dielectric_raw_candidates_p2_pml(
 /// anywhere, issue #834) is withheld and never extends the run. When the
 /// first pass converges, the result is bit-identical to the old unchecked
 /// solve minus the withheld pairs.
+///
+/// # No hole check here (PR #847)
+///
+/// Unlike [`crate::eigen::lossy_cavity`], this solve's contract is not "the
+/// modes nearest `σ`": the guided window is densely populated with leaky
+/// and PML-continuum pairs, some of which legitimately stay unconverged at
+/// the cap, and the callers *select* from the converged set (bound before
+/// leaky, then largest `Re β²`). A withheld localized pair nearer `σ` than
+/// some returned continuum mode is therefore normal (the high-contrast
+/// fiber withholds one at `β² = 34.94`, below its `35.8` fundamental). The
+/// hole rule belongs at the selection: the analytic-cladding loop applies
+/// it to its fundamental ([`solve_dielectric_modes2_analytic_cladding_bc`]);
+/// the classifier family reports the withheld count through
+/// `log_pml_withheld`.
 fn pml_checked_eigenpairs(
     a: SparseColMatRef<'_, usize, c64>,
     m1: SparseColMatRef<'_, usize, c64>,
@@ -7251,7 +7270,11 @@ impl AnalyticCladdingBcMode {
 ///
 /// The selected [`AnalyticCladdingBcMode`] (with the `converged` flag), or an
 /// empty `Vec` if no in-window curl-bearing mode is found at the seed. Errors
-/// propagate from the eigensolve.
+/// propagate from the eigensolve, and an iteration fails with
+/// [`EigenError::FaerGevd`] when a *localized* withheld Ritz pair (a genuine
+/// eigenvalue still unconverged at the Lanczos cap) lies in the window
+/// nearer `σ` than the selected fundamental: it could be the true
+/// fundamental (PR #847).
 #[allow(clippy::too_many_arguments)]
 pub fn solve_dielectric_modes2_analytic_cladding_bc(
     mesh: &TriMesh,
@@ -7350,14 +7373,14 @@ pub fn solve_dielectric_modes2_analytic_cladding_bc(
             &checked,
             (beta_sq_floor, beta_sq_ceiling),
         );
-        let pairs = checked.pairs;
+        let pairs = &checked.pairs;
 
         // Select the in-window, curl-bearing eigenpair with the LARGEST Re(β²)
         // (most confined) — the fundamental. The single-mesh gates match the
         // PML path; the analytic BC has removed the exterior continuum, so this
         // is the genuine core mode rather than a top-of-ladder artifact.
         let mut best: Option<(c64, &Vec<c64>)> = None;
-        for pair in &pairs {
+        for pair in pairs {
             let bsq = pair.lambda;
             let in_window = bsq.re > beta_sq_floor && bsq.re < beta_sq_ceiling;
             let has_curl = curl_ratio(&pair.vector) > curl_floor;
@@ -7370,6 +7393,25 @@ pub fn solve_dielectric_modes2_analytic_cladding_bc(
             }
         }
 
+        // Hole check at the selection (PR #847): the fundamental is the
+        // in-window mode nearest σ (just under the ceiling). A localized
+        // withheld pair (a genuine eigenvalue, unconverged at the cap)
+        // nearer σ than the pick could be the true fundamental; fail rather
+        // than iterate on the next mode down.
+        if let Some((pick, _)) = best {
+            let reach = (pick.re - sigma).hypot(pick.im);
+            let in_window = |l: c64| l.re > beta_sq_floor && l.re < beta_sq_ceiling;
+            if let Some((lambda, residual)) = checked.localized_hole(sigma, reach, in_window) {
+                return Err(EigenError::FaerGevd(format!(
+                    "analytic-cladding modal solve (iteration {it}): Ritz pair β² = \
+                     {lambda:.6e} (relative residual {residual:.3e} > \
+                     {DIELECTRIC_RESIDUAL_TOL:.0e}) locates an eigenvalue nearer σ = \
+                     {sigma:.6e} than the selected fundamental β² = {pick:.6e} but did not \
+                     converge in {} Lanczos steps; refusing to select past it",
+                    checked.lanczos_steps
+                )));
+            }
+        }
         let Some((new_beta_sq, vec)) = best else {
             // No in-window mode at this guess — stop (nothing to return).
             if selected.is_none() {

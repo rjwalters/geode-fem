@@ -2730,7 +2730,9 @@ entries (see [Mixed lumped + wave ports](#mixed-lumped--wave-ports-issue-759)).
   `pencil` (`"real_symmetric"` \| `"complex_symmetric"`, #706),
   `n_null_filtered` (Ritz values dropped as gradient nullspace),
   `n_overdamped_filtered` (complex pencil only: Ritz values with
-  `Re(λ) ≤ 0`, #706), `upml_reference_k0` (with `absorbing_regions`
+  `Re(λ) ≤ 0`, #706), `n_withheld` (complex pencil only: unconverged
+  Ritz pairs withheld from the nearest-`σ` set, all spurious or beyond the
+  returned range, #834), `upml_reference_k0` (with `absorbing_regions`
   only: the `k₀` the UPML was frozen at, = the shift, #706),
   `residual_rel_max`, `wall_time_s` (assembly + eigensolve, seconds).
 - `modes[]`, ascending in frequency (`Re(k₀)`):

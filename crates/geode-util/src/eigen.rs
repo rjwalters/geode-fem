@@ -15,6 +15,13 @@ use num_complex::Complex64;
 /// clustering is the same in any unit. It was `max(|λ|, 1)`: on a µm-unit
 /// mesh (`λ ~ 1e12`) every eigenvalue below 1 fell into one cluster, and on
 /// a metre-unit one the null floor vanished.
+///
+/// `τ` is an upper-spectrum scale (the mean diagonal ratio), so eigenvalues
+/// well below it cluster at the absolute gap `1e-8 · τ`, looser than
+/// `1e-8 · |λ|`. That is harmless here: the clusters only scope a
+/// Gram–Schmidt pass over vectors the dense solve already returns nearly
+/// M-orthogonal, so merging two close non-degenerate eigenvalues changes
+/// neither eigenvalue and only re-orthogonalizes their vectors together.
 const CLUSTER_REL_GAP: f64 = 1e-8;
 
 /// `τ = tr K / tr M` (absolute diagonals), the spectral scale of the

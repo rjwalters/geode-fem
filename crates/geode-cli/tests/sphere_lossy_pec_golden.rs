@@ -110,6 +110,7 @@ fn assert_exact_relations(report: &serde_json::Value, tan_d: f64) -> Vec<f64> {
     // far end of the Lanczos basis can land there — measured 1 at
     // tan δ = 0.1, 0 at tan δ = 0.01.)
     assert!(report["solver"]["n_overdamped_filtered"].is_u64());
+    assert!(report["solver"]["n_withheld"].is_u64());
     assert!(report["solver"].get("upml_reference_k0").is_none());
     assert!(report.get("absorbing_regions").is_none());
     assert_eq!(report["eigen"]["n_modes"], 5);
