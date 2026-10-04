@@ -199,6 +199,8 @@ const MANIFEST: &[Entry] = &[
     ),
     b(
         "benchmarks/fiber_dispersion/results.toml",
+        // Regenerate with GEODE_BLESS_FIBER_DISPERSION=1 cargo test -p geode-core
+        // --release --test fiber_dispersion_benchmark -- --ignored (issue #823).
         "tests/fiber_dispersion_benchmark.rs: mixed E_t-E_z pencil on faer, no Backend generic",
     ),
     b(
@@ -246,7 +248,7 @@ const MANIFEST: &[Entry] = &[
     ),
     d(
         "benchmarks/transient/results.toml",
-        "cargo test -p geode-core --release --test transient_sparams \
+        "GEODE_BLESS_TRANSIENT=1 cargo test -p geode-core --release --test transient_sparams \
          transient_self_oracle_broadband -- --ignored",
         D_TRACKING,
     ),

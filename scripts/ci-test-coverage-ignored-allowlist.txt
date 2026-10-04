@@ -29,11 +29,13 @@ geode-core/cocg_burn_equivalence::cocg_burn_cuda_f32_smoke  # needs a CUDA GPU (
 geode-core/driven_matrix_free_equivalence::driven_matrix_free_cuda_f32_smoke  # needs a CUDA GPU (--features cuda)
 geode-core/nedelec_matrix_free_equivalence::matrix_free_cuda_f32_smoke  # needs a CUDA GPU (--features cuda)
 
-# A fixture regenerator, not a check: it rewrites
-# tests/fixtures/mie_complex_pml_dense_eigenvalues.toml. The acceptance test
+# A fixture regenerator, not a check: heavy (~2 min), it writes a scratch
+# copy of tests/fixtures/mie_complex_pml_dense_eigenvalues.toml under
+# target/ and rewrites the committed fixture only with
+# GEODE_BLESS_DENSE_ORACLE=1 (issue #823). The acceptance test
 # against that fixture (sparse_complex_matches_dense_fixture) runs in
 # arpack.yml.
-geode-core/sparse_complex_eigensolver::regenerate_dense_oracle_fixture  # fixture regenerator (writes a committed fixture)
+geode-core/sparse_complex_eigensolver::regenerate_dense_oracle_fixture  # fixture regenerator (heavy; GEODE_BLESS_DENSE_ORACLE=1 rewrites the committed fixture)
 
 # Measured negative by design: AMS-MINRES plateaus at about 1.09e-5 at
 # sigma = 4.5 GHz and the test panics if run (issue #531 Phase 1c,

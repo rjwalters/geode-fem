@@ -263,8 +263,11 @@ jobs:
             ${{ runner.os }}-cargo-core-tests-
 
       # Measured release times on ubuntu-latest, one test at a time:
-      # fiber_dispersion_benchmark 90 s (it also rewrites
-      # benchmarks/fiber_dispersion/results.toml in the checkout),
+      # fiber_dispersion_benchmark 90 s (it writes its results.toml under
+      # target/ and checks it against the committed
+      # benchmarks/fiber_dispersion/results.toml; only
+      # GEODE_BLESS_FIBER_DISPERSION=1 rewrites the committed file, and
+      # transient_sparams likewise needs GEODE_BLESS_TRANSIENT=1, #823),
       # mixed_pencil_fiber_benchmark 20 s,
       # mixed_precision_refinement 18 s, motor_torque_benchmark 14 s,
       # mie_driven_scattering 12 s, transmon_diffopt 10 s (two tests),
