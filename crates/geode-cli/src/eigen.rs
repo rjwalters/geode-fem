@@ -73,6 +73,7 @@ struct Solved {
     modes: Vec<SolvedMode>,
     n_null_filtered: usize,
     n_overdamped_filtered: Option<usize>,
+    n_withheld: Option<usize>,
     complex: bool,
     upml_reference_k0: Option<f64>,
 }
@@ -125,6 +126,7 @@ fn solve_lossless(p: &Problem, target: &EigenTarget) -> Result<Solved, CliError>
             .collect(),
         n_null_filtered: solved.n_null_filtered,
         n_overdamped_filtered: None,
+        n_withheld: None,
         complex: false,
         upml_reference_k0: None,
     })
@@ -162,6 +164,7 @@ fn solve_lossy(p: &Problem, target: &EigenTarget) -> Result<Solved, CliError> {
             .collect(),
         n_null_filtered: solved.n_null_filtered,
         n_overdamped_filtered: Some(solved.n_overdamped_filtered),
+        n_withheld: Some(solved.n_withheld),
         complex: true,
         upml_reference_k0,
     })
@@ -293,6 +296,7 @@ pub fn run(
             inner: "direct_lu",
             n_null_filtered: solved.n_null_filtered,
             n_overdamped_filtered: solved.n_overdamped_filtered,
+            n_withheld: solved.n_withheld,
             residual_rel_max: modes.iter().map(|m| m.residual_rel).fold(0.0, f64::max),
             wall_time_s,
             pencil: if solved.complex {

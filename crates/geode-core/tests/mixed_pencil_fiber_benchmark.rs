@@ -195,12 +195,18 @@ fn coupled_pencil_is_spurious_mode_free_in_window() {
     );
 }
 
-/// **Tier 1** — mesh-unit invariance (issue #826): the same fiber in µm and
-/// in nm returns the same in-window modes (count, `n_eff`, core fraction, and
-/// `β²` scaled by the unit). In nm, `β² ≈ 3.5e-5` and the whole guided window
-/// is `≈ 3e-7` wide, so the old `1e-6 · max(|β²|, 1)` duplicate test (an
-/// absolute `1e-6` below `β² = 1`) merged every in-window mode into one. The
-/// decoupled pencil is used because its dense in-window ladder exposes that.
+/// **Tier 1** — mesh-unit invariance (issues #826, #828): the same fiber in
+/// µm, in nm and in metres returns the same in-window modes (count, `n_eff`,
+/// core fraction, and `β²` scaled by the unit). In nm, `β² ≈ 3.5e-5` and the
+/// whole guided window is `≈ 3e-7` wide, so the old `1e-6 · max(|β²|, 1)`
+/// duplicate test (an absolute `1e-6` below `β² = 1`) merged every in-window
+/// mode into one (#826). In metres, `β² ≈ 3.5e13` and the shift-invert
+/// operator `T = (A − σB)⁻¹B` has `|T| ~ 1e-11`, an order above the old
+/// absolute Arnoldi breakdown cut `h_{j+1,j} < 1e-12` (#828). On this mesh
+/// the old cut does not fire, so the metre case checks invariance; the cut
+/// itself is pinned by `mixed_pencil::tests::arnoldi_spectrum_is_mesh_unit_invariant`
+/// at `|T| ~ 1e-13`. The decoupled pencil is used because its dense in-window
+/// ladder exposes the merge.
 #[test]
 fn in_window_modes_do_not_depend_on_mesh_length_unit() {
     for couple in [false, true] {
@@ -214,16 +220,6 @@ fn in_window_modes_do_not_depend_on_mesh_length_unit() {
             couple,
             1.0,
         );
-        let nm = solve_fiber_in_units(
-            SMF_N_CORE,
-            SMF_N_CLAD,
-            SMF_A_UM,
-            6.0,
-            (7, 64),
-            20,
-            couple,
-            1e3,
-        );
         assert!(
             !um.is_empty(),
             "couple = {couple}: no in-window modes in µm"
@@ -231,33 +227,46 @@ fn in_window_modes_do_not_depend_on_mesh_length_unit() {
         if !couple {
             assert!(um.len() > 1, "the decoupled ladder must have several modes");
         }
-        assert_eq!(
-            um.len(),
-            nm.len(),
-            "couple = {couple}: {} in-window modes in µm, {} in nm",
-            um.len(),
-            nm.len()
-        );
-        for (i, (a, b)) in um.iter().zip(&nm).enumerate() {
-            let beta_sq_nm_in_um = b.beta_sq * 1e6;
-            assert!(
-                (a.beta_sq - beta_sq_nm_in_um).abs() <= 1e-9 * a.beta_sq,
-                "couple = {couple}, mode {i}: β² = {} µm⁻² vs {} (from nm)",
-                a.beta_sq,
-                beta_sq_nm_in_um
+        // Units per µm: 1e3 nm, 1e-6 m.
+        for (per_um, unit) in [(1e3, "nm"), (1e-6, "m")] {
+            let other = solve_fiber_in_units(
+                SMF_N_CORE,
+                SMF_N_CLAD,
+                SMF_A_UM,
+                6.0,
+                (7, 64),
+                20,
+                couple,
+                per_um,
             );
-            assert!(
-                (a.n_eff - b.n_eff).abs() <= 1e-9 * a.n_eff,
-                "couple = {couple}, mode {i}: n_eff {} vs {}",
-                a.n_eff,
-                b.n_eff
+            assert_eq!(
+                um.len(),
+                other.len(),
+                "couple = {couple}: {} in-window modes in µm, {} in {unit}",
+                um.len(),
+                other.len()
             );
-            assert!(
-                (a.core_energy_fraction - b.core_energy_fraction).abs() <= 1e-6,
-                "couple = {couple}, mode {i}: core fraction {} vs {}",
-                a.core_energy_fraction,
-                b.core_energy_fraction
-            );
+            for (i, (a, b)) in um.iter().zip(&other).enumerate() {
+                let beta_sq_in_um = b.beta_sq * per_um * per_um;
+                assert!(
+                    (a.beta_sq - beta_sq_in_um).abs() <= 1e-9 * a.beta_sq,
+                    "couple = {couple}, mode {i}: β² = {} µm⁻² vs {} (from {unit})",
+                    a.beta_sq,
+                    beta_sq_in_um
+                );
+                assert!(
+                    (a.n_eff - b.n_eff).abs() <= 1e-9 * a.n_eff,
+                    "couple = {couple}, mode {i}: n_eff {} vs {} ({unit})",
+                    a.n_eff,
+                    b.n_eff
+                );
+                assert!(
+                    (a.core_energy_fraction - b.core_energy_fraction).abs() <= 1e-6,
+                    "couple = {couple}, mode {i}: core fraction {} vs {} ({unit})",
+                    a.core_energy_fraction,
+                    b.core_energy_fraction
+                );
+            }
         }
     }
 }

@@ -7,7 +7,56 @@ use num_complex::Complex64;
 /// resolves eigenvalues to about `1e-12` relative, so a split this small is
 /// round-off, not physics; the cube-cavity clusters it serves are
 /// bit-identical in the reference and well-separated (≥ 3 %) from each other.
+///
+/// The gap is relative to `max(|λ|, τ)`, where `τ = tr K / tr M` is the
+/// pencil's spectral scale (issue #828). The `τ` floor keeps an exact null
+/// cluster (eigenvalues at round-off, `≈ ε·τ`) together, and since `τ`
+/// scales as `L⁻²` with the mesh length unit like every eigenvalue, the
+/// clustering is the same in any unit. It was `max(|λ|, 1)`: on a µm-unit
+/// mesh (`λ ~ 1e12`) every eigenvalue below 1 fell into one cluster, and on
+/// a metre-unit one the null floor vanished.
+///
+/// `τ` is an upper-spectrum scale (the mean diagonal ratio), so eigenvalues
+/// well below it cluster at the absolute gap `1e-8 · τ`, looser than
+/// `1e-8 · |λ|`. That is harmless here: the clusters only scope a
+/// Gram–Schmidt pass over vectors the dense solve already returns nearly
+/// M-orthogonal, so merging two close non-degenerate eigenvalues changes
+/// neither eigenvalue and only re-orthogonalizes their vectors together.
 const CLUSTER_REL_GAP: f64 = 1e-8;
+
+/// `τ = tr K / tr M` (absolute diagonals), the spectral scale of the
+/// clustering floor in [`dense_lowest_eigenpairs`]; `1` if either trace is
+/// zero.
+fn trace_ratio(k: MatRef<f64>, m: MatRef<f64>) -> f64 {
+    let tr = |a: MatRef<f64>| {
+        (0..a.nrows().min(a.ncols()))
+            .map(|i| a[(i, i)].abs())
+            .sum::<f64>()
+    };
+    let (tk, tm) = (tr(k), tr(m));
+    if tk > 0.0 && tm > 0.0 { tk / tm } else { 1.0 }
+}
+
+/// Half-open index ranges `[start, end)` of the degenerate clusters of the
+/// ascending `eigvals`: neighbours closer than
+/// `CLUSTER_REL_GAP · max(|λ|, tau)` share a cluster (issue #828).
+fn degenerate_clusters(eigvals: &[f64], tau: f64) -> Vec<(usize, usize)> {
+    let n = eigvals.len();
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start < n {
+        let mut end = start + 1;
+        while end < n
+            && (eigvals[end] - eigvals[end - 1]).abs()
+                <= CLUSTER_REL_GAP * eigvals[end].abs().max(tau)
+        {
+            end += 1;
+        }
+        out.push((start, end));
+        start = end;
+    }
+    out
+}
 
 /// Compute the lowest-`n_take` generalized eigenpairs of `K x = λ M x`
 /// (`K` symmetric positive semidefinite, `M` symmetric positive definite).
@@ -49,15 +98,7 @@ pub fn dense_lowest_eigenpairs(
     // already M-normalizes each column; inside a degenerate cluster any
     // basis of the eigenspace is valid, but the Schur eigenvectors of the
     // non-symmetric shift-inverted operator need not be M-orthogonal there.
-    let mut start = 0;
-    while start < n {
-        let mut end = start + 1;
-        while end < n
-            && (eigvals[end] - eigvals[end - 1]).abs()
-                <= CLUSTER_REL_GAP * eigvals[end].abs().max(1.0)
-        {
-            end += 1;
-        }
+    for (start, end) in degenerate_clusters(&eigvals, trace_ratio(k, m)) {
         for j in start..end {
             for p in start..j {
                 let vp = column_as_vec(q.as_ref(), p);
@@ -73,7 +114,6 @@ pub fn dense_lowest_eigenpairs(
                 q[(i, j)] *= scale;
             }
         }
-        start = end;
     }
 
     Ok((eigvals, q))
@@ -181,6 +221,29 @@ fn quad_form(x: &[f64], a: MatRef<f64>, y: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #828: the degenerate clusters of a spectrum are the same in any
+    /// mesh length unit (`λ` and `τ` both scale as `L⁻²`). The spectrum
+    /// has an exact null pair at round-off (`±4ε·τ`), a degenerate pair split
+    /// by `1e-12` relative, and distinct eigenvalues `3 %` apart. With the old
+    /// `max(|λ|, 1)` floor, the null pair split at `scale = 1e12` (µm-like)
+    /// and every eigenvalue merged into one cluster at `scale = 1e-12`.
+    #[test]
+    fn degenerate_clusters_are_mesh_unit_invariant() {
+        let tau = 400.0;
+        let eps4 = 4.0 * f64::EPSILON * tau;
+        let unit = [-eps4, eps4, 19.7, 19.7 * (1.0 + 1e-12), 20.3, 20.9];
+        let reference = degenerate_clusters(&unit, tau);
+        assert_eq!(reference, vec![(0, 2), (2, 4), (4, 5), (5, 6)]);
+        for scale in [1e12, 1e6, 1e-6, 1e-12] {
+            let scaled: Vec<f64> = unit.iter().map(|l| l * scale).collect();
+            assert_eq!(
+                degenerate_clusters(&scaled, tau * scale),
+                reference,
+                "scale {scale:e}"
+            );
+        }
+    }
 
     #[test]
     fn re_k_from_real_lambda_is_principal_sqrt() {

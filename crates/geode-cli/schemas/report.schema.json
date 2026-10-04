@@ -1340,6 +1340,15 @@
             "null"
           ]
         },
+        "n_withheld": {
+          "description": "Complex pencil only (additive in v1, issue #834): unconverged Ritz\npairs the residual-checked Lanczos withheld although they ranked\namong the `n_modes` physical pairs nearest `σ`. None of them is a\ngenuine mode inside the returned range (that fails the solve), so\neach is a spurious Ritz value or lies beyond the farthest returned\nmode. `0` when the first Krylov pass converged. Omitted for a\nlossless pencil.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "pencil": {
           "description": "The pencil that was solved (additive in v1, issue #706):\n`\"real_symmetric\"` (lossless: real `ε_r`, PEC walls) or\n`\"complex_symmetric\"` (lossy `ε_r` and / or `absorbing_regions`;\ncomplex eigenvalues, finite `Q`).",
           "type": "string"

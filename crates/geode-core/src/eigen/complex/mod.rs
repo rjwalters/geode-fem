@@ -14,8 +14,14 @@ pub(crate) mod dense;
 mod lanczos;
 
 pub use dense::{ComplexEigenSolver, FaerComplexEigensolver, MAX_DENSE_COMPLEX_DIM};
-pub use lanczos::{ComplexEigenPair, SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
+pub use lanczos::{
+    CheckedComplexEigenpairs, ComplexEigenPair, SparseComplexEigenSolver,
+    SparseComplexShiftInvertLanczos,
+};
 // Cross-module complex sparse-linear-algebra helpers consumed by
 // `driven` / `scattering` / `solver::ksp`. `spmv_add` stays private to
 // the lanczos leaf.
 pub(crate) use lanczos::{solve_with_lu, spmv};
+// Fixed-input regression pencils shared with `eigen::lossy_cavity`'s tests.
+#[cfg(test)]
+pub(crate) use lanczos::tests::{slow_mode_hole_pencil, spurious_ritz_pencil};
