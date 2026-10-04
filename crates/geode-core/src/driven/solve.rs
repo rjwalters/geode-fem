@@ -70,6 +70,20 @@
 //!   coefficient at every ω (the real matrix `S_Γ` itself is
 //!   ω-independent and cacheable).
 //!
+//! # Element order (issue #838, Epic #836 Phase 1a)
+//!
+//! Every entry point above is first order (Whitney edges, one DOF per
+//! edge). [`DrivenOperator::assemble_with_space`] takes an
+//! order-pluggable [`crate::assembly::hcurl_space::HcurlSpace`] instead:
+//! with a p=1 space it runs the same Burn assembly verbatim (bit-identical
+//! results), and with a p=2 space it assembles the 20-DOF element on the
+//! host for the volume physics — complex scalar / diagonal-tensor /
+//! matched-UPML ε, σ damping, volume J, tagged face-exact PEC. Every
+//! feature without a p=2 path yet (lumped ports, impedance surfaces, the
+//! matrix-free solver, AMS, wave ports in the PROM, the transient solver)
+//! returns [`DrivenError::UnsupportedAtOrder`]; nothing is silently solved
+//! at another order.
+//!
 //! # Solver
 //!
 //! Reuses the existing sparse complex factorization machinery from the
@@ -1299,6 +1313,14 @@ pub struct P2DrivenSolution {
 ///
 /// The complex-symmetric pencil is factored once with faer's sparse LU and
 /// back-solved directly, mirroring the p=1 direct path.
+///
+/// This is the narrow #621 entry point (real ε, caller-built mask and RHS)
+/// and is kept as is. The production p=2 path — complex / tensor ε, σ,
+/// frequency sweeps, the PROM — is the order-generic
+/// [`DrivenOperator::assemble_with_space`] on a p=2
+/// [`crate::assembly::hcurl_space::HcurlSpace`] (issue #838); the two agree
+/// to round-off on the same system
+/// (`tests/driven_p2_operator.rs::generic_p2_operator_matches_the_standalone_driven_solve_p2`).
 ///
 /// # Errors
 ///
@@ -2538,7 +2560,7 @@ impl DrivenOperator {
     ///
     /// The matrix-free Krylov path ([`crate::driven::matrix_free`]) runs
     /// in **full-edge** space (with an interior mask), while every stored
-    /// surface triplet (`port.mass_triplets`, [`OperatorSurface::s_vals`])
+    /// surface triplet (`port.mass_triplets`, `OperatorSurface::s_vals`)
     /// is **interior-remapped**; this map lifts those interior indices
     /// back to full-edge space at setup time (issue #493 Gap 1).
     pub fn interior_to_full(&self) -> Vec<usize> {

@@ -389,6 +389,7 @@ fn assembled_p2_space_is_tangentially_conforming_across_interior_faces() {
 // ---------------------------------------------------------------------------
 
 /// `K·g` for the p=2 operator's `K = A(0)` (no σ, so `A(0) = K`).
+#[allow(clippy::needless_range_loop)] // CSC column walk
 fn k_times(op: &DrivenOperator, g_full: &[c64]) -> (Vec<c64>, f64, f64) {
     let a = op.matrix_at(0.0).expect("A(0)");
     let inv = op.interior_to_full();

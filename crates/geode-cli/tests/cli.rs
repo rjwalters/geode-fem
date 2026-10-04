@@ -340,6 +340,26 @@ fn touchstone_extract_round_trips() {
     touchstone_support::assert_round_trip(&v, &ts);
 }
 
+/// Issue #838: p=2 is reachable from the library (`HcurlSpace` +
+/// `DrivenOperator::assemble_with_space`) but not from the CLI until Epic
+/// #836 Phase 5. A spec that asks for it must fail loudly with
+/// `invalid_spec` naming the field — never be solved at p=1 and reported
+/// as if the request were honoured (the #804 rule).
+#[test]
+fn element_order_is_rejected_until_the_cli_supports_it() {
+    for order in [1, 2] {
+        let spec = edited_spec(&format!("element-order-{order}"), |v| {
+            v["element_order"] = serde_json::json!(order);
+        });
+        for command in ["check", "driven"] {
+            let out = geode(&[command, spec.to_str().unwrap()]);
+            let v = assert_error(&out, command, "invalid_spec");
+            let msg = v["error"]["message"].as_str().unwrap();
+            assert!(msg.contains("element_order"), "{command}: {msg}");
+        }
+    }
+}
+
 #[test]
 fn touchstone_is_rejected_for_eigen_and_duplicate_frequencies() {
     let dir = scratch("touchstone-reject");

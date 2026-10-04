@@ -94,14 +94,17 @@ jobs:
               --test derham_gradient_kernel \
               --test derham_gradient \
               --test driven_manufactured \
+              --test driven_p1_bit_identity \
               --test driven_p2_adjoint \
               --test driven_p2_convergence \
+              --test driven_p2_operator \
               --test driven_upml \
               --test eigensolver \
               --test electrostatic_capacitance \
               --test extraction \
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
+              --test hcurl_space_p2 \
               --test fiber_dispersion_benchmark \
               --test formulation_audit_graddiv \
               --test high_contrast_fiber_benchmark \

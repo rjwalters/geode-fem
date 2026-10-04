@@ -712,6 +712,7 @@ fn assert_symmetric(a: &faer::sparse::SparseColMat<usize, c64>, label: &str) {
 }
 
 #[test]
+#[allow(clippy::needless_range_loop)] // symmetric (i, j) fill reads clearer indexed
 fn p2_matched_upml_full_tensor_is_complex_symmetric_and_solves() {
     // Random symmetric complex ε, ν per tet (full 3×3).
     let mesh = jittered_cube(3, 77);
