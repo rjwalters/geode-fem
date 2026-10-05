@@ -399,3 +399,35 @@ jobs:
               --test sphere_pml_jax_reference \
               --test sphere_pml_numpy_reference \
               --test sphere_pml_tfjava_reference -- --ignored
+
+  optimize-tests:
+    # Issue #873 (Epic #841 P6a): the pure-Rust optimizer core. The crate has
+    # no burn / faer / geode-core dependency, so the build takes seconds and
+    # the whole suite runs in debug: the unit tests, the integration targets
+    # (lbfgsb_goldens, mma_goldens, optimize_robustness), the
+    # s_matrix_vjp_adapter example (`test = true`) and the doctest. The tests
+    # take under 1 s.
+    name: cargo test -p geode-optimize (optimizer core, linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-optimize-tests-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: geode-optimize (all targets, debug)
+        run: |
+          cargo test -p geode-optimize

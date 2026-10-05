@@ -3296,6 +3296,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "geode-optimize"
+version = "0.8.0"
+dependencies = [
+ "num-complex 0.4.6",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "geode-util"
 version = "0.8.0"
 dependencies = [

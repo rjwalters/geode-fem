@@ -139,6 +139,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Validated against central FD through the public forwards (worst relative error 4e-9 against a 1e-4 bar), with five mutation tripwires that each miss FD by 0.3 or more.
 - `DrivenLinearSolver::back_solve_transpose`: a transpose back-solve on the cached LU (direct path only).
 
+#### `geode-optimize` (new crate)
+
+- **Gradient-based optimizer core** (#873, Epic #841 Phase 6a). The new `geode-optimize` crate is the library under the coming `geode optimize` (#841 P6b). It is pure Rust and physics-independent: no burn, faer or geode-core, and only the existing serde / serde_json / thiserror workspace dependencies.
+  - **`Objective` trait.** One `evaluate(x)` returns `f`, `∇f` and, for constrained problems, the constraint values and Jacobian rows, which is what one adjoint solve gives. It matches `s_matrix_vjp` (#842) and the port-mode `vjp` (#859). `FnObjective` wraps a VJP closure, `Scaled` maps O(1) design units to physical parameters with an exact gradient chain (`weight = −1` maximizes), and `check_gradient` is a central-FD self-check. The `s_matrix_vjp_adapter` example wires a mock with `s_matrix_vjp`'s exact calling convention end to end. It runs as a test.
+  - **`Lbfgsb`** (Byrd–Lu–Nocedal–Zhu 1995):
+    - the compact limited-memory Hessian;
+    - the generalized Cauchy point along the projected-gradient path;
+    - direct-primal subspace minimization with the Morales–Nocedal (2011) projection;
+    - a strong-Wolfe line search (Nocedal–Wright bracketing and zoom with safeguarded cubic interpolation).
+
+    Unit tests check the compact `B` against the explicit BFGS recursion, the Cauchy point against a brute-force walk of the piecewise path, and the subspace step against `x − B⁻¹g`.
+  - **`Mma`** (Svanberg 1987, with the 2007 `mmasub` parameters):
+    - moving asymptotes and separable convex approximations;
+    - elastic variables, so the subproblem is always feasible;
+    - the subproblem solved through its **dual**, by projected Newton on the concave `W(λ)` with the exact `m × m` dual Hessian.
+
+    `globalize = true` adds the GCMMA conservative inner loop.
+  - **Stopping.** The run stops on the projected-gradient (or KKT) residual, the relative change in `f`, the step size, the maximum iterations or the maximum evaluations. It keeps a per-iteration history (x, f, residual, constraints, step, cumulative and per-iteration evaluation and failure counts, notes).
+  - **Checkpoint/resume.** The whole state goes to JSON (`checkpoint_json` / `resume_json`), with every float stored as a shortest-round-trip string. ±inf bounds survive, and a resumed run is **byte-identical** to the uninterrupted one. A 1e-12 perturbation of one state value is detected, which shows the comparison is sensitive.
+  - **Failed evaluations back off rather than abort**, and are recorded:
+    - L-BFGS-B pulls the line-search trial back toward the last good step;
+    - plain MMA halves the step;
+    - GCMMA multiplies `ρ` by 10 and re-solves.
+
+    A run ends with `Status::Stalled` (and a message) only when even the steepest-descent search, or every backoff, fails. A failure at `x0` is an error.
+  - **Round-off floor.** Sufficient decrease is strict. A step whose `f` is within a few ulps of `f(0)` is accepted by the Hager–Zhang approximate Wolfe test, which reads the decrease from the slope. A search whose bracket predicts sub-ulp decrease stops at once, so near the optimum the projected gradient keeps falling instead of the search burning 40 evaluations per iteration.
+  - **New test targets** `lbfgsb_goldens`, `mma_goldens` and `optimize_robustness`, run by the new `optimize-tests` job in `integration-tests.yml`. Results (the SciPy 1.17 L-BFGS-B counts are reference values, checked within 3×):
+
+    | Problem | Method | Iterations / evaluations | SciPy | Result |
+    |---|---|---|---|---|
+    | Rosenbrock 2-D from (−1.2, 1) | L-BFGS-B | 38 / 47 | 38 / 46 | (1, 1), f = 2e-28 |
+    | Rosenbrock 2-D, x₁ ≤ 0.5 | L-BFGS-B | 24 / 34 | 20 / 30 | (0.5, 0.25) exactly, f = 0.25 |
+    | Rosenbrock 10-D | L-BFGS-B | 83 / 99 | 76 / 94 | all ones, f = 1e-21 |
+    | Rosenbrock 10-D in [1.2, 3]¹⁰ (8 active bounds) | L-BFGS-B | 16 / 18 | 18 / 22 | SciPy's KKT point to 1e-9; bounds hit exactly |
+    | Box QP, n = 30, 12 active bounds | L-BFGS-B | exact active set, ‖x − x*‖∞ ≤ 1e-9 | — | — |
+    | HS71 (≤ form) | MMA / GCMMA | 21 / 22, 26 / 32 | — | 17.0140172892 |
+    | HS76 | MMA / GCMMA | 17 / 18, 15 / 30 | — | −4.6818181818 |
+    | HS21 | GCMMA | 12 / 63 | — | −99.96 at (2, 0) |
+    | Svanberg cantilever | MMA / GCMMA | 10 / 11, 15 / 29 | — | 1.3399563606 |
+    | Svanberg two-bar truss | MMA / GCMMA | 15 / 16, 15 / 21 | — | 1.5086524175 |
+    | Min-compliance, n = 40 (closed form) | MMA / GCMMA | 17 / 18, 28 / 42 | — | f* to 1e-7 relative, x* to 1e-6 |
+
+  - **Honest negative.** **Plain MMA does not converge on HS21.** With `x₂ ∈ [−50, 50]`, Svanberg's asymptote floor `0.01·(xmax − xmin)` leaves the approximation of `x₂²` too flat, and `x₂` falls into a stable 2-cycle between −0.207 and 0.693. GCMMA converges. A test pins both behaviours, and it is why GCMMA exists. Plain MMA is the cheaper default; switch to `globalize = true` when a run oscillates.
+
 ### Changed
 
 - `cube_pec_interior_p2_dofs` is now a wrapper over the face-exact `HcurlSpace` mask. It gives the same mask as before on boxes (#838).
