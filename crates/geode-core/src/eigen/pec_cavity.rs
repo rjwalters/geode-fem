@@ -459,6 +459,15 @@ pub fn solve_pec_cavity_modes_with_materials<B: Backend>(
     settings: &PecCavitySettings,
     device: &B::Device,
 ) -> Result<PecCavityModes, PecCavityError> {
+    validate_settings(settings)?;
+    let (k, m) =
+        assemble_lossless_pencil_with_materials::<B>(mesh, materials, pec_interior_mask, device)?;
+    solve_assembled_pencil(&k, &m, settings)
+}
+
+/// Reject malformed [`PecCavitySettings`] (shared by the PEC and the
+/// periodic cavity solves).
+pub(crate) fn validate_settings(settings: &PecCavitySettings) -> Result<(), PecCavityError> {
     let s = settings;
     let invalid = |m: String| PecCavityError::InvalidInput(m);
     if !(s.sigma.is_finite() && s.sigma > 0.0) {
@@ -492,8 +501,20 @@ pub fn solve_pec_cavity_modes_with_materials<B: Backend>(
         )));
     }
 
-    let (k, m) =
-        assemble_lossless_pencil_with_materials::<B>(mesh, materials, pec_interior_mask, device)?;
+    Ok(())
+}
+
+/// Shift-invert Lanczos on an assembled lossless pencil `(K, M)`, with the
+/// gradient-null filter, the closest-to-`σ` selection and the residual gate
+/// of [`solve_pec_cavity_modes`] (settings already validated). Shared by the
+/// PEC cavity and the periodic cavity (issue #839) paths; eigenvectors are
+/// over the pencil's own DOFs.
+pub(crate) fn solve_assembled_pencil(
+    k: &SparseColMat<usize, f64>,
+    m: &SparseColMat<usize, f64>,
+    settings: &PecCavitySettings,
+) -> Result<PecCavityModes, PecCavityError> {
+    let s = settings;
     let n_interior = k.nrows();
 
     // Take every Ritz pair the Lanczos basis yields: the near-zero

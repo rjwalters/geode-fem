@@ -23,6 +23,7 @@ pub mod magnetostatic_fixtures;
 pub mod msh_tags;
 pub mod partition;
 pub mod patch;
+pub mod periodic;
 pub mod sphere;
 pub mod spiral;
 pub mod transmon;

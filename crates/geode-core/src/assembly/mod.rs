@@ -59,6 +59,7 @@ pub mod nedelec;
 pub mod nedelec_matvec;
 pub mod nedelec_p2;
 pub mod p1;
+pub mod periodic;
 pub mod sparse;
 pub mod surface;
 pub mod torque;

@@ -31,6 +31,10 @@
 //!   Gmsh physical-group name) → resonant `k₀`, via a sparse pattern-aligned
 //!   pencil assembly and the shared shift-invert Lanczos. The library entry
 //!   point behind `geode eigen` (issue #681).
+//! - [`periodic_cavity`] — the same lossless pencil on a **periodic** unit
+//!   cell at zero Bloch phase, reduced by a
+//!   [`crate::assembly::periodic::PeriodicConstraint`] (issue #839, Epic
+//!   #837 Phase 1).
 //! - [`lossy_cavity`] — the complex counterpart of [`pec_cavity`]:
 //!   **lossy / open cavity quasi-modes** (complex per-tet `ε_r`, or full
 //!   complex `(ε, ν)` tensors such as box UPML frozen at a reference `k₀`)
@@ -68,6 +72,7 @@ pub mod lossy_cavity;
 pub(crate) mod ordering;
 pub mod parallel;
 pub mod pec_cavity;
+pub mod periodic_cavity;
 pub mod projection;
 pub mod self_consistent;
 pub mod sensitivity;

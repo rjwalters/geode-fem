@@ -23,6 +23,9 @@
 //!   ([`crate::driven::solve::SolverMode::IterativeMatrixFree`]): the Burn
 //!   volume pencil ([`crate::solver::ksp_burn`]) plus an on-device COO
 //!   correction for the small lumped-port / Leontovich surface terms.
+//! - [`periodic`] — the zero-phase **periodic** direct driven solve (issue
+//!   #839, Epic #837 Phase 1): a [`solve::DrivenOperator`] reduced by a
+//!   [`crate::assembly::periodic::PeriodicConstraint`].
 //! - [`transient`] — implicit second-order (generalized-α / Newmark-β)
 //!   time integration of the same `K`/`C`/`M` matrices the driven path
 //!   assembles, with a lumped-port time-domain drive and broadband
@@ -39,6 +42,7 @@
 pub mod adjoint;
 pub mod extraction;
 pub mod matrix_free;
+pub mod periodic;
 pub mod ports;
 pub mod rom;
 pub mod scattering;
