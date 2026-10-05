@@ -200,6 +200,7 @@ jobs:
               --test driven_p2_operator \
               --test driven_p2_surface \
               --test driven_upml \
+              --test eigen_p2_tagged \
               --test eigensolver \
               --test electrostatic_capacitance \
               --test extraction \

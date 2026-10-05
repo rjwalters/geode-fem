@@ -663,7 +663,7 @@ fn tet_nedelec2_shapes_dual(
 /// with a fixed `J` to recover the RHS entry `∫ N_i · J dV`), so the caller can
 /// use the same tangents for any held-fixed complex `J`.
 #[allow(clippy::type_complexity)]
-fn nedelec2_local_dual(
+pub(crate) fn nedelec2_local_dual(
     coords: &[[Dual; 3]; 4],
 ) -> (
     [[Dual; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS],

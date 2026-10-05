@@ -128,6 +128,7 @@ use burn::tensor::backend::Backend;
 use faer::c64;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
+use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_complex_epsilon_sparse,
     assemble_global_nedelec_with_full_tensors_sparse,
@@ -135,7 +136,9 @@ use crate::assembly::nedelec::{
 use crate::assembly::p1::upload_mesh;
 use crate::eigen::complex::SparseComplexShiftInvertLanczos;
 use crate::eigen::dense::EigenError;
+use crate::eigen::hcurl_null::{GRADIENT_FRACTION_CUT, GradientNullCount, GradientNullSpace};
 use crate::eigen::lanczos::ConvergenceCheck;
+use crate::elements::ElementOrder;
 use crate::mesh::{TaggedTetMesh, TetMesh, pec_interior_mask_from_triangles};
 
 /// Errors from the lossy / open cavity eigensolve.
@@ -174,6 +177,29 @@ pub enum LossyCavityError {
         found: usize,
         /// The shift.
         sigma: f64,
+    },
+    /// The order-generic pencil assembly (issue #871) rejected its input
+    /// (a space or wall that does not belong to the mesh, a singular wall
+    /// impedance at the reference frequency, …).
+    #[error("lossy cavity pencil assembly failed: {0}")]
+    Assembly(#[from] crate::driven::solve::DrivenError),
+    /// Null tripwire (issue #871): a returned mode lies in the exact
+    /// gradient null space (gradient fraction `≥ ½`,
+    /// [`crate::eigen::hcurl_null`]). It is a curl-free Ritz pair that
+    /// escaped the magnitude filter, not a resonance; nothing is returned.
+    #[error(
+        "returned mode {index} (λ = {lambda_re} {lambda_im:+}j) is a gradient (gradient \
+         fraction {fraction:.3}); raise null_tol_rel or move sigma"
+    )]
+    GradientModeReturned {
+        /// Index of the mode in the ascending-`Re(k₀)` order.
+        index: usize,
+        /// Real part of its eigenvalue.
+        lambda_re: f64,
+        /// Imaginary part of its eigenvalue.
+        lambda_im: f64,
+        /// Its gradient fraction.
+        fraction: f64,
     },
     /// A mode among the `n_modes` nearest `σ` did not converge: its
     /// relative eigen-residual exceeds [`LossyCavitySettings::residual_tol`]
@@ -748,6 +774,28 @@ pub fn solve_tagged_lossy_cavity_modes<B: Backend>(
     settings: &LossyCavitySettings,
     device: &B::Device,
 ) -> Result<LossyCavityModes, LossyCavityError> {
+    let (eps_r, pec_tris) = tagged_eps_and_walls(tagged, pec_groups, materials)?;
+    let lists: Vec<&[[u32; 3]]> = pec_tris.iter().map(Vec::as_slice).collect();
+    let mask = pec_interior_mask_from_triangles(&tagged.mesh.edges(), &lists);
+    solve_lossy_cavity_modes::<B>(
+        &tagged.mesh,
+        &LossyCavityMaterials::Isotropic(&eps_r),
+        &mask,
+        settings,
+        device,
+    )
+}
+
+/// A wall's triangles.
+type TriangleList = Vec<[u32; 3]>;
+
+/// Resolve a tagged lossy cavity's physical-group names: the per-tet
+/// complex `ε_r` (unlisted regions vacuum) and the PEC wall triangle lists.
+fn tagged_eps_and_walls(
+    tagged: &TaggedTetMesh,
+    pec_groups: &[&str],
+    materials: &[(&str, c64)],
+) -> Result<(Vec<c64>, Vec<TriangleList>), LossyCavityError> {
     let tag_of = |dim: i32, name: &str| {
         tagged
             .physical_group_tag(dim, name)
@@ -773,12 +821,483 @@ pub fn solve_tagged_lossy_cavity_modes<B: Backend>(
         .iter()
         .map(|name| Ok(tagged.triangles_with_tag(tag_of(2, name)?)))
         .collect::<Result<Vec<_>, LossyCavityError>>()?;
+    Ok((eps_r, pec_tris))
+}
+
+// ---------------------------------------------------------------------------
+// Order-generic entry points (issue #871, Epic #836 Phase 2)
+// ---------------------------------------------------------------------------
+
+/// Result of the order-generic lossy solves
+/// ([`solve_lossy_cavity_modes_on_space`],
+/// [`solve_tagged_lossy_cavity_modes_at_order`]).
+#[derive(Debug, Clone)]
+pub struct SpaceLossyCavityModes {
+    /// Element order the pencil was actually assembled and solved at.
+    pub order: ElementOrder,
+    /// The modes, exactly as [`solve_lossy_cavity_modes`] reports them
+    /// (eigenvectors over the kept DOFs of the space's mask, full-DOF
+    /// order).
+    pub modes: LossyCavityModes,
+    /// The exact gradient null dimension of the pencil
+    /// ([`crate::eigen::hcurl_null`]).
+    pub gradient_null: GradientNullCount,
+    /// The largest gradient fraction among the returned modes (`< ½` by
+    /// the tripwire; round-off-small for converged modes). `None` at p=1,
+    /// which is bit-identical to [`solve_lossy_cavity_modes`] and runs no
+    /// classifier.
+    pub max_gradient_fraction: Option<f64>,
+    /// Per-mode relative offset `|Re k₀ − ω_ref| / ω_ref` of each returned
+    /// mode from the frequency its impedance walls were frozen at
+    /// ([`FrozenWalls`]), in the order of `modes.modes`. `None` when the
+    /// pencil has no frequency-dependent wall (no walls, or London walls
+    /// only, which are exact at every `ω`).
+    pub wall_ref_offset: Option<Vec<f64>>,
+    /// Advisory diagnostics (empty when nothing is flagged): one
+    /// [`LossyCavityWarning::FrozenWallMismatch`] per mode whose
+    /// `wall_ref_offset` exceeds [`FrozenWalls::warn_rel_offset`].
+    pub warnings: Vec<LossyCavityWarning>,
+}
+
+/// Default [`FrozenWalls::warn_rel_offset`]: a returned mode more than 5 %
+/// away from `ω_ref` is flagged. At that offset the wall loss (hence `Q`
+/// and `Im k₀`) of the mode is off by roughly 2.5 % for a Leontovich /
+/// rough-conductor wall and 5 % for a `Fixed` (Silver-Müller) wall; see
+/// [`FrozenWalls`] for the scaling.
+pub const DEFAULT_WALL_REF_WARN_OFFSET: f64 = 0.05;
+
+/// An advisory diagnostic attached to [`SpaceLossyCavityModes::warnings`].
+/// Warnings never change the returned modes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LossyCavityWarning {
+    /// Mode `index` resonates at `Re k₀` far from the frequency `ω_ref`
+    /// its frequency-dependent impedance walls were frozen at
+    /// ([`FrozenWalls`]), so its wall loss — `Q`, `Im k₀`, and the wall
+    /// reactance's pull on `Re k₀` — is only approximate. Re-solve with
+    /// `omega_ref` near this mode's `Re k₀` for an accurate value.
+    FrozenWallMismatch {
+        /// Index of the mode in [`SpaceLossyCavityModes::modes`].
+        index: usize,
+        /// The mode's `Re k₀` (natural units, `= ω`).
+        k0_re: f64,
+        /// The reference frequency the walls were frozen at.
+        omega_ref: f64,
+        /// `|Re k₀ − ω_ref| / ω_ref`.
+        rel_offset: f64,
+        /// The threshold it exceeded ([`FrozenWalls::warn_rel_offset`]).
+        threshold: f64,
+    },
+}
+
+impl std::fmt::Display for LossyCavityWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FrozenWallMismatch {
+                index,
+                k0_re,
+                omega_ref,
+                rel_offset,
+                threshold,
+            } => write!(
+                f,
+                "mode {index} (Re k0 = {k0_re:.6}) is {:.1} % from the wall reference frequency \
+                 omega_ref = {omega_ref:.6} (threshold {:.1} %): its wall-loss Q and Re k0 are \
+                 approximate; re-solve with omega_ref near {k0_re:.6}",
+                100.0 * rel_offset,
+                100.0 * threshold
+            ),
+        }
+    }
+}
+
+/// Impedance walls of a lossy cavity pencil, **frozen at one reference
+/// frequency** (issue #871).
+///
+/// A wall adds `(iω/Z_s(ω))·S_Γ` to the stiffness. That coefficient depends
+/// on the eigenvalue itself (`√ω` for a good conductor, `ω` for the
+/// Silver-Müller `Z_s = η₀`), so the exact problem is nonlinear in `λ`.
+/// The linear pencil here evaluates it once at `omega_ref` (natural units,
+/// `ω = k₀`), the same fixed-frequency linearization the box UPML uses:
+/// modes with `Re k₀ ≈ omega_ref` see the wall as specified, and the loss
+/// of a high-`Q` mode is first-order accurate in `|Re k₀ − omega_ref|`.
+/// The London wall's coefficient `1/λ_L` is frequency-independent, so for
+/// it the pencil is exact.
+///
+/// **Error scaling away from `ω_ref`.** With `δ = |Re k₀ − ω_ref|/ω_ref`,
+/// the wall coefficient a mode sees is wrong by a relative
+/// `|(ω/ω_ref)^α − 1| ≈ α·δ`, and its wall loss (`1/Q_wall`, `Im k₀`) and
+/// wall-induced frequency pull are wrong by the same relative amount, to
+/// first order. (For a good conductor the frozen wall stiffness is large,
+/// the effective `Z_s` it imposes is `iRe k₀/coefficient`, and
+/// `Q_frozen/Q = √(ω_ref/Re k₀)`: freezing below a mode under-estimates its
+/// `Q`. Measured in the `eigen_p2_tagged` golden 3c to 0.03 %.)
+///
+/// | wall model | `iω/Z_s ∝` | `α` | wall-loss error |
+/// |---|---|---|---|
+/// | `GoodConductor` (Leontovich) | `√ω` | ½ | `≈ ½ δ` |
+/// | `RoughConductor` | `K(ω)√ω` | `≥ ½` | `≳ ½ δ` (plus the `K(ω)` slope) |
+/// | `Fixed` (incl. Silver-Müller `η₀`) | `ω` | 1 | `≈ δ` |
+/// | `London` | `ω⁰` (`1/λ_L`) | 0 | exact |
+///
+/// A multi-mode solve over a band therefore gets an accurate `Q` only for
+/// the modes near `ω_ref`. The solver reports every mode's `δ`
+/// ([`SpaceLossyCavityModes::wall_ref_offset`]) and attaches a
+/// [`LossyCavityWarning::FrozenWallMismatch`] to each mode with
+/// `δ > warn_rel_offset` (default [`DEFAULT_WALL_REF_WARN_OFFSET`] = 5 %,
+/// i.e. a wall-loss error of about 2.5 % Leontovich / 5 % Silver-Müller).
+/// London-only walls are never flagged. To get every mode's `Q`, re-solve
+/// once per mode with `omega_ref` set to that mode's `Re k₀` (one or two
+/// fixed-point passes converge the first-order error away).
+#[derive(Debug, Clone, Copy)]
+pub struct FrozenWalls<'a> {
+    /// The walls (triangles + `Z_s(ω)` model).
+    pub walls: &'a [crate::driven::solve::SurfaceImpedanceBc<'a>],
+    /// Reference angular frequency `ω_ref` (natural units, `> 0`).
+    pub omega_ref: f64,
+    /// Relative offset `|Re k₀ − ω_ref|/ω_ref` above which a returned mode
+    /// gets a [`LossyCavityWarning::FrozenWallMismatch`] (advisory only;
+    /// the modes are returned either way). Must be `≥ 0` (`+∞` disables
+    /// the warning). [`FrozenWalls::new`] sets
+    /// [`DEFAULT_WALL_REF_WARN_OFFSET`].
+    pub warn_rel_offset: f64,
+}
+
+impl<'a> FrozenWalls<'a> {
+    /// No walls.
+    pub const NONE: FrozenWalls<'static> = FrozenWalls {
+        walls: &[],
+        omega_ref: 1.0,
+        warn_rel_offset: DEFAULT_WALL_REF_WARN_OFFSET,
+    };
+
+    /// `walls` frozen at `omega_ref`, with the default mismatch warning
+    /// threshold [`DEFAULT_WALL_REF_WARN_OFFSET`].
+    #[must_use]
+    pub const fn new(
+        walls: &'a [crate::driven::solve::SurfaceImpedanceBc<'a>],
+        omega_ref: f64,
+    ) -> Self {
+        Self {
+            walls,
+            omega_ref,
+            warn_rel_offset: DEFAULT_WALL_REF_WARN_OFFSET,
+        }
+    }
+
+    /// Whether any wall's weak coefficient depends on `ω` (everything but
+    /// London), i.e. whether freezing it at `omega_ref` is approximate.
+    #[must_use]
+    pub fn is_frequency_dependent(&self) -> bool {
+        use crate::driven::solve::SurfaceImpedanceModel;
+        self.walls
+            .iter()
+            .any(|w| !matches!(w.model, SurfaceImpedanceModel::London { .. }))
+    }
+}
+
+/// [`assemble_lossy_pencil`] on an order-pluggable [`HcurlSpace`] (issue
+/// #871, Epic #836 Phase 2), optionally with impedance walls frozen at a
+/// reference frequency ([`FrozenWalls`]: Leontovich good / rough conductor,
+/// London, `Fixed` incl. Silver-Müller).
+///
+/// `pec_interior_mask` is over `space.n_dofs()` (build it with
+/// [`HcurlSpace::pec_interior_mask`]).
+///
+/// - **p=1, no walls:** [`assemble_lossy_pencil`] verbatim (bit-identical).
+///   Walls add their Whitney surface masses
+///   ([`crate::assembly::surface::assemble_surface_mass_triplets`]) times
+///   `iω_ref/Z_s(ω_ref)` on the kept edges.
+/// - **p=2:** the host-side p=2 assembly of
+///   [`crate::driven::solve::DrivenOperator::assemble_with_space`] — complex scalar `ε`, or full
+///   complex `(ε, ν)` tensors through its matched-UPML kernel — and the
+///   walls on the 8-DOF p=2 tangential trace ([`crate::assembly::surface_p2`]).
+///
+/// # Errors
+///
+/// [`LossyCavityError::InvalidInput`] on length / value mismatches (gain
+/// media, a non-positive or non-finite `omega_ref` with walls),
+/// [`LossyCavityError::EmptyInterior`], and [`LossyCavityError::Assembly`]
+/// for a foreign space, a wall that is not made of tet faces, or a wall
+/// impedance that is singular at `omega_ref`.
+pub fn assemble_lossy_pencil_on_space<B: Backend>(
+    space: &HcurlSpace,
+    mesh: &TetMesh,
+    materials: &LossyCavityMaterials<'_>,
+    pec_interior_mask: &[bool],
+    walls: FrozenWalls<'_>,
+    device: &B::Device,
+) -> Result<LossyPencil, LossyCavityError> {
+    use crate::driven::solve::{DrivenError, DrivenMaterials};
+    if space.n_nodes() != mesh.n_nodes() || space.n_tets() != mesh.n_tets() {
+        return Err(DrivenError::SpaceMeshMismatch {
+            space_nodes: space.n_nodes(),
+            space_tets: space.n_tets(),
+            mesh_nodes: mesh.n_nodes(),
+            mesh_tets: mesh.n_tets(),
+        }
+        .into());
+    }
+    if pec_interior_mask.len() != space.n_dofs() {
+        return Err(LossyCavityError::InvalidInput(format!(
+            "PEC mask has {} entries, the {:?} space has {} DOFs",
+            pec_interior_mask.len(),
+            space.order(),
+            space.n_dofs()
+        )));
+    }
+    validate_materials(mesh.n_tets(), materials)?;
+    let coeffs: Vec<c64> = if walls.walls.is_empty() {
+        Vec::new()
+    } else {
+        if !(walls.omega_ref.is_finite() && walls.omega_ref > 0.0) {
+            return Err(LossyCavityError::InvalidInput(format!(
+                "omega_ref must be finite and > 0 with impedance walls (got {})",
+                walls.omega_ref
+            )));
+        }
+        if walls.warn_rel_offset.is_nan() || walls.warn_rel_offset < 0.0 {
+            return Err(LossyCavityError::InvalidInput(format!(
+                "warn_rel_offset must be >= 0 (got {})",
+                walls.warn_rel_offset
+            )));
+        }
+        crate::driven::solve::validate_driven_surfaces(
+            mesh,
+            "impedance wall",
+            walls.walls.iter().map(|w| w.triangles),
+        )?;
+        walls
+            .walls
+            .iter()
+            .map(|w| w.model.weak_coefficient(walls.omega_ref))
+            .collect::<Result<_, _>>()?
+    };
+    match space.order() {
+        ElementOrder::P1 => {
+            let (k, m) = assemble_lossy_pencil::<B>(mesh, materials, pec_interior_mask, device)?;
+            if walls.walls.is_empty() {
+                return Ok((k, m));
+            }
+            let mut remap = vec![usize::MAX; pec_interior_mask.len()];
+            let mut n = 0usize;
+            for (i, &keep) in pec_interior_mask.iter().enumerate() {
+                if keep {
+                    remap[i] = n;
+                    n += 1;
+                }
+            }
+            let mut tr = Vec::with_capacity(k.compute_nnz());
+            for j in 0..k.ncols() {
+                for (i, &v) in k.row_idx_of_col(j).zip(k.val_of_col(j)) {
+                    tr.push(Triplet::new(i, j, v));
+                }
+            }
+            for (w, &coeff) in walls.walls.iter().zip(&coeffs) {
+                for (r, c, v) in crate::assembly::surface::assemble_surface_mass_triplets(
+                    mesh,
+                    w.triangles,
+                    space.edges(),
+                ) {
+                    let (rr, cc) = (remap[r], remap[c]);
+                    if rr != usize::MAX && cc != usize::MAX {
+                        tr.push(Triplet::new(rr, cc, coeff * v));
+                    }
+                }
+            }
+            let k = SparseColMat::<usize, c64>::try_new_from_triplets(n, n, &tr).map_err(|e| {
+                LossyCavityError::Eigen(EigenError::FaerGevd(format!("lossy K + walls: {e:?}")))
+            })?;
+            Ok((k, m))
+        }
+        ElementOrder::P2 => {
+            let dm = match *materials {
+                LossyCavityMaterials::Isotropic(eps) => DrivenMaterials::Scalar(eps),
+                LossyCavityMaterials::Tensor { eps, nu } => DrivenMaterials::MatchedUpml {
+                    epsilon_tensor: eps,
+                    nu_tensor: nu,
+                },
+            };
+            let op = crate::eigen::pec_cavity::assemble_eigen_operator_p2::<B>(
+                space,
+                mesh,
+                dm,
+                None,
+                pec_interior_mask,
+                walls.walls,
+                device,
+            )
+            .map_err(|e| match e {
+                DrivenError::EmptyInterior => LossyCavityError::EmptyInterior,
+                other => LossyCavityError::Assembly(other),
+            })?;
+            let n = op.n_interior();
+            let mut k_tr = Vec::with_capacity(op.rows().len());
+            let mut m_tr = Vec::with_capacity(op.rows().len());
+            for (((&r, &c), &kv), &mv) in op
+                .rows()
+                .iter()
+                .zip(op.cols())
+                .zip(op.k_vals())
+                .zip(op.m_vals())
+            {
+                k_tr.push(Triplet::new(r, c, kv));
+                m_tr.push(Triplet::new(r, c, mv));
+            }
+            for (i, &coeff) in coeffs.iter().enumerate() {
+                let (trips, _model) = op.surface_mass_triplets(i);
+                k_tr.extend(
+                    trips
+                        .into_iter()
+                        .map(|(r, c, v)| Triplet::new(r, c, coeff * v)),
+                );
+            }
+            let build = |tr: &[Triplet<usize, usize, c64>], what: &str| {
+                SparseColMat::<usize, c64>::try_new_from_triplets(n, n, tr).map_err(|e| {
+                    LossyCavityError::Eigen(EigenError::FaerGevd(format!("{what}: {e:?}")))
+                })
+            };
+            Ok((
+                build(&k_tr, "p=2 lossy cavity K")?,
+                build(&m_tr, "p=2 lossy cavity M")?,
+            ))
+        }
+    }
+}
+
+/// [`solve_lossy_cavity_modes`] on an order-pluggable [`HcurlSpace`] (issue
+/// #871, Epic #836 Phase 2), optionally with impedance walls frozen at a
+/// reference frequency ([`FrozenWalls`], [`assemble_lossy_pencil_on_space`]).
+///
+/// The residual-checked complex Lanczos, its null / overdamped filters, the
+/// hole check and the selection are those of [`solve_lossy_cavity_modes`]
+/// at both orders (p=1 without walls is bit-identical to it). At p=2 every
+/// returned mode is additionally checked against the exact P2-Lagrange
+/// gradient image ([`crate::eigen::hcurl_null`]): a returned gradient is
+/// [`LossyCavityError::GradientModeReturned`], never a resonance.
+///
+/// With frequency-dependent walls the result also carries each mode's
+/// offset from `omega_ref` ([`SpaceLossyCavityModes::wall_ref_offset`])
+/// and a [`LossyCavityWarning::FrozenWallMismatch`] for every mode beyond
+/// [`FrozenWalls::warn_rel_offset`] (see [`FrozenWalls`] for what the
+/// offset costs in `Q` accuracy).
+///
+/// # Errors
+///
+/// Everything [`solve_lossy_cavity_modes`] and
+/// [`assemble_lossy_pencil_on_space`] return, plus
+/// [`LossyCavityError::GradientModeReturned`].
+pub fn solve_lossy_cavity_modes_on_space<B: Backend>(
+    space: &HcurlSpace,
+    mesh: &TetMesh,
+    materials: &LossyCavityMaterials<'_>,
+    pec_interior_mask: &[bool],
+    walls: FrozenWalls<'_>,
+    settings: &LossyCavitySettings,
+    device: &B::Device,
+) -> Result<SpaceLossyCavityModes, LossyCavityError> {
+    validate_settings(settings)?;
+    let (k, m) = assemble_lossy_pencil_on_space::<B>(
+        space,
+        mesh,
+        materials,
+        pec_interior_mask,
+        walls,
+        device,
+    )?;
+    let wall_tris: Vec<&[[u32; 3]]> = walls.walls.iter().map(|w| w.triangles).collect();
+    let null = GradientNullSpace::build(space, mesh, pec_interior_mask, &wall_tris);
+    let modes = solve_lossy_pencil_modes(k.as_ref(), m.as_ref(), settings)?;
+    let max_gradient_fraction = match space.order() {
+        ElementOrder::P1 => None,
+        ElementOrder::P2 => {
+            let classifier = null.classifier(m.as_ref())?;
+            let mut worst = 0.0_f64;
+            for (index, md) in modes.modes.iter().enumerate() {
+                let fraction = classifier.gradient_fraction(&md.vector);
+                if fraction.is_nan() || fraction >= GRADIENT_FRACTION_CUT {
+                    return Err(LossyCavityError::GradientModeReturned {
+                        index,
+                        lambda_re: md.lambda.re,
+                        lambda_im: md.lambda.im,
+                        fraction,
+                    });
+                }
+                worst = worst.max(fraction);
+            }
+            Some(worst)
+        }
+    };
+    let (wall_ref_offset, warnings) = frozen_wall_diagnostics(&walls, &modes);
+    Ok(SpaceLossyCavityModes {
+        order: space.order(),
+        modes,
+        gradient_null: null.counts(),
+        max_gradient_fraction,
+        wall_ref_offset,
+        warnings,
+    })
+}
+
+/// Per-mode `|Re k₀ − ω_ref|/ω_ref` and the mismatch warnings
+/// ([`FrozenWalls`]). `(None, [])` without a frequency-dependent wall.
+fn frozen_wall_diagnostics(
+    walls: &FrozenWalls<'_>,
+    modes: &LossyCavityModes,
+) -> (Option<Vec<f64>>, Vec<LossyCavityWarning>) {
+    if !walls.is_frequency_dependent() {
+        return (None, Vec::new());
+    }
+    let omega_ref = walls.omega_ref;
+    let offsets: Vec<f64> = modes
+        .modes
+        .iter()
+        .map(|md| (md.k0.re - omega_ref).abs() / omega_ref)
+        .collect();
+    let warnings = offsets
+        .iter()
+        .enumerate()
+        .filter(|&(_, &d)| d > walls.warn_rel_offset)
+        .map(
+            |(index, &rel_offset)| LossyCavityWarning::FrozenWallMismatch {
+                index,
+                k0_re: modes.modes[index].k0.re,
+                omega_ref,
+                rel_offset,
+                threshold: walls.warn_rel_offset,
+            },
+        )
+        .collect();
+    (Some(offsets), warnings)
+}
+
+/// [`solve_tagged_lossy_cavity_modes`] at a chosen [`ElementOrder`] (issue
+/// #871): face-exact PEC mask of the named walls
+/// ([`HcurlSpace::pec_interior_mask`]), solve by
+/// [`solve_lossy_cavity_modes_on_space`]. Bit-identical to
+/// [`solve_tagged_lossy_cavity_modes`] at [`ElementOrder::P1`].
+///
+/// # Errors
+///
+/// As [`solve_tagged_lossy_cavity_modes`] and
+/// [`solve_lossy_cavity_modes_on_space`].
+pub fn solve_tagged_lossy_cavity_modes_at_order<B: Backend>(
+    tagged: &TaggedTetMesh,
+    pec_groups: &[&str],
+    materials: &[(&str, c64)],
+    order: ElementOrder,
+    settings: &LossyCavitySettings,
+    device: &B::Device,
+) -> Result<SpaceLossyCavityModes, LossyCavityError> {
+    let (eps_r, pec_tris) = tagged_eps_and_walls(tagged, pec_groups, materials)?;
     let lists: Vec<&[[u32; 3]]> = pec_tris.iter().map(Vec::as_slice).collect();
-    let mask = pec_interior_mask_from_triangles(&tagged.mesh.edges(), &lists);
-    solve_lossy_cavity_modes::<B>(
+    let space = HcurlSpace::build(&tagged.mesh, order);
+    let mask = space.pec_interior_mask(&tagged.mesh, &lists)?;
+    solve_lossy_cavity_modes_on_space::<B>(
+        &space,
         &tagged.mesh,
         &LossyCavityMaterials::Isotropic(&eps_r),
         &mask,
+        FrozenWalls::NONE,
         settings,
         device,
     )
