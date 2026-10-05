@@ -126,14 +126,16 @@ fn box_mesh(n: usize) -> TetMesh {
     box_tet_mesh([n, (1.25 * n as f64).round() as usize, n], [A, B_Y, C])
 }
 
-/// Golden 4: periodic box vs the closed form, with multiplicity, ≤ 1 % and
-/// O(h²).
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "eigen solves are slow in debug; runs in release CI"
-)]
-fn periodic_box_matches_closed_form_with_multiplicity() {
+/// Golden 4 refinement study.
+struct Golden4 {
+    want: Vec<f64>,
+    levels: [usize; 3],
+    errs: Vec<f64>,
+    rates: Vec<f64>,
+    fit: f64,
+}
+
+fn golden4_study() -> Golden4 {
     let want = analytic_periodic_box(N_MODES);
     eprintln!("analytic λ: {want:.4?}");
     let levels = [4usize, 8, 16];
@@ -146,10 +148,6 @@ fn periodic_box_matches_closed_form_with_multiplicity() {
     }
     let rates: Vec<f64> = errs.windows(2).map(|w| (w[0] / w[1]).log2()).collect();
     eprintln!("golden 4 errors {errs:?}, observed rates {rates:.3?}");
-    assert!(
-        *errs.last().unwrap() < 0.01,
-        "finest error {errs:?} above 1%"
-    );
     // Least-squares slope of log(err) against log(h) over the three levels
     // (the coarsest level is pre-asymptotic), plus the finest step.
     let x: Vec<f64> = levels.iter().map(|&n| (1.0 / n as f64).ln()).collect();
@@ -162,6 +160,30 @@ fn periodic_box_matches_closed_form_with_multiplicity() {
         .sum::<f64>()
         / x.iter().map(|a| (a - mx).powi(2)).sum::<f64>();
     eprintln!("golden 4 fitted LSQ slope {fit:.3}");
+    Golden4 {
+        want,
+        levels,
+        errs,
+        rates,
+        fit,
+    }
+}
+
+/// Golden 4: periodic box vs the closed form, with multiplicity, ≤ 1 % and
+/// O(h²).
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "eigen solves are slow in debug; runs in release CI"
+)]
+fn periodic_box_matches_closed_form_with_multiplicity() {
+    let Golden4 {
+        errs, rates, fit, ..
+    } = golden4_study();
+    assert!(
+        *errs.last().unwrap() < 0.01,
+        "finest error {errs:?} above 1%"
+    );
     assert!(
         fit > 1.7,
         "fitted rate {fit:.3} (errors {errs:?}): want O(h²)"
@@ -319,12 +341,8 @@ fn bragg_gamma_roots(count: usize) -> Vec<f64> {
     roots
 }
 
-#[test]
-#[cfg_attr(
-    debug_assertions,
-    ignore = "eigen solves are slow in debug; runs in release CI"
-)]
-fn bragg_stack_band_edges_at_gamma_match_kronig_penney() {
+/// Golden 5 study: `(analytic λ, FEM λ, nx)`.
+fn golden5_study() -> (Vec<f64>, Vec<f64>, usize) {
     let roots = bragg_gamma_roots(2);
     let want: Vec<f64> = roots.iter().flat_map(|&w| [w * w, w * w]).collect();
     eprintln!("KP Γ roots ω = {roots:.6?} → λ = {want:.5?}");
@@ -359,6 +377,17 @@ fn bragg_stack_band_edges_at_gamma_match_kronig_penney() {
     let got: Vec<f64> = modes.modes.iter().map(|m| m.lambda).collect();
     let e = max_rel_err(&got, &want);
     eprintln!("golden 5: FEM λ = {got:.5?}, max rel err {e:.4e} (nx = {nx})");
+    (want, got, nx)
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "eigen solves are slow in debug; runs in release CI"
+)]
+fn bragg_stack_band_edges_at_gamma_match_kronig_penney() {
+    let (want, got, _) = golden5_study();
+    let e = max_rel_err(&got, &want);
     assert!(e < 0.01, "Bragg band edges off by {e}");
     // Each band edge is doubly degenerate (y / z polarization). The 6-tet
     // split is not symmetric under y ↔ z, so the discrete pair is split at
@@ -370,4 +399,99 @@ fn bragg_stack_band_edges_at_gamma_match_kronig_penney() {
             "{pair:?} not a degenerate pair"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// benchmarks/periodic/results.toml (goldens 4 and 5).
+// ---------------------------------------------------------------------------
+
+/// Opt-in env var that makes the generator write the committed
+/// `benchmarks/periodic/results.toml` (the #823 convention). Unset, it
+/// writes under `CARGO_TARGET_TMPDIR`.
+const BLESS_ENV: &str = "GEODE_BLESS_PERIODIC";
+
+fn results_out_path() -> std::path::PathBuf {
+    if std::env::var_os(BLESS_ENV).is_some_and(|v| v == "1") {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../benchmarks/periodic/results.toml")
+    } else {
+        std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join("periodic")
+            .join("results.toml")
+    }
+}
+
+fn fmt_list(v: &[f64]) -> String {
+    let items: Vec<String> = v.iter().map(|x| format!("{x:.6e}")).collect();
+    format!("[{}]", items.join(", "))
+}
+
+/// Regenerate the golden 4 / 5 record:
+/// `GEODE_BLESS_PERIODIC=1 cargo test -p geode-core --release --test
+/// periodic_cavity -- --ignored regenerate_periodic_results`.
+#[test]
+#[ignore = "artifact generator; run with GEODE_BLESS_PERIODIC=1 to rewrite benchmarks/periodic"]
+fn regenerate_periodic_results() {
+    let g4 = golden4_study();
+    let (want5, got5, nx5) = golden5_study();
+    let roots5: Vec<f64> = want5.iter().step_by(2).map(|l| l.sqrt()).collect();
+    let backend = geode_util::fixture::BackendInfo::of::<B>(&device());
+
+    let mut s = String::new();
+    s.push_str(
+        "# Auto-generated by `GEODE_BLESS_PERIODIC=1 cargo test -p geode-core --release \\\n\
+         #   --test periodic_cavity -- --ignored regenerate_periodic_results` (issue #839).\n\
+         # Do NOT edit by hand: regenerate after any intentional change.\n\n",
+    );
+    s.push_str("[meta]\n");
+    s.push_str(
+        "description = \"Epic #837 Phase 1 (issue #839): zero-phase periodic BCs on p=1 \
+         Nedelec. Golden 4: box periodic in x, y with PEC lids vs the closed form \
+         k^2 = (2 pi m/a)^2 + (2 pi n/b)^2 + (p pi/c)^2, lowest 12 eigenvalues with \
+         multiplicity. Golden 5: two-layer Bragg stack on a 3-torus vs the Kronig-Penney \
+         band edges at Gamma (k = 0), y/z polarized pairs.\"\n",
+    );
+    backend.push_meta(&mut s);
+    s.push_str(&format!(
+        "generated_at_commit = \"{}\"\n\n",
+        geode_util::repo::current_commit()
+    ));
+
+    s.push_str("[golden4]\n");
+    s.push_str(&format!("box = [{A:.3}, {B_Y:.3}, {C:.3}]\n"));
+    s.push_str("periodic_axes = [\"x\", \"y\"]\n");
+    s.push_str("pec = [\"z = 0\", \"z = c\"]\n");
+    s.push_str(&format!("n_modes = {N_MODES}\n"));
+    s.push_str(&format!("analytic_lambda = {}\n", fmt_list(&g4.want)));
+    let levels: Vec<String> = g4
+        .levels
+        .iter()
+        .map(|&n| format!("[{n}, {}, {n}]", (1.25 * n as f64).round() as usize))
+        .collect();
+    s.push_str(&format!("mesh_hexes = [{}]\n", levels.join(", ")));
+    s.push_str(&format!("max_rel_err = {}\n", fmt_list(&g4.errs)));
+    s.push_str(&format!("step_rates = {}\n", fmt_list(&g4.rates)));
+    s.push_str(&format!("lsq_rate = {:.4}\n", g4.fit));
+    s.push_str("gate = \"finest max_rel_err < 1e-2, lsq_rate > 1.7, finest step_rate > 1.85\"\n\n");
+
+    s.push_str("[golden5]\n");
+    s.push_str(&format!(
+        "layers = {{ d1 = {D1}, d2 = {D2}, eps1 = {}, eps2 = {} }}\n",
+        N1 * N1,
+        N2 * N2
+    ));
+    s.push_str(&format!("mesh_hexes = [{nx5}, 2, 2]\n"));
+    s.push_str(&format!("kp_gamma_omega = {}\n", fmt_list(&roots5)));
+    s.push_str(&format!("analytic_lambda = {}\n", fmt_list(&want5)));
+    s.push_str(&format!("fem_lambda = {}\n", fmt_list(&got5)));
+    s.push_str(&format!(
+        "max_rel_err = {:.6e}\n",
+        max_rel_err(&got5, &want5)
+    ));
+    s.push_str("gate = \"max_rel_err < 1e-2\"\n");
+
+    let path = results_out_path();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, s).unwrap();
+    eprintln!("wrote {}", path.display());
 }
