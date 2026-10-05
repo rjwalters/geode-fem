@@ -84,6 +84,7 @@ jobs:
       - name: geode-core integration targets (default tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \
+              --test adapt_refine \
               --test analytic_cladding_bc_fiber_benchmark \
               --test assembly \
               --test circular_waveguide_modes \

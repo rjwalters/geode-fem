@@ -14,6 +14,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### `geode-core`
 
+- **Conforming tet refinement by newest-vertex bisection** (#860, Epic #835 Phase 2). The new `adapt::refine` module refines a `TaggedTetMesh` with Arnold–Mukherjee–Pouly bisection. Marked tets are bisected once, and a recursive closure restores conformity. The algorithm works from any conforming mesh (longest-edge initial marking, strict global tie-break). `BisectionMesh` keeps the marking state between cycles, so the similarity-class bound holds over repeated adaptation; `refine()` is the one-shot form.
+  - **Tags are preserved.** Children inherit the 3-D tag. Tagged triangles (ports, PEC, impedance, interfaces) split exactly as their faces do, keeping their tag and winding. `physical_groups` is copied unchanged. Old nodes keep their indices, and new nodes are appended. Planar port faces stay bit-exactly planar, so `project_port_face` and the wave/hybrid port face meshes keep working.
+  - **Exact nested prolongations:**
+    - `Refined::edge_prolongation` (Whitney p=1), computed from exact dyadic barycentrics with no geometry;
+    - `node_prolongation` (P1);
+    - `hcurl_prolongation(coarse, P2)` (p=2, by exact local L² projection over `HcurlSpace`).
+
+    Every shared row is computed from each adjacent fine tet and checked for agreement, so a broken DOF map is a typed error.
+  - **Periodic meshes.** `BisectionMesh::new_periodic` mirrors refinement across `PeriodicMap::paired_face` partners, including chained corners. After every step it re-matches the refined pairs with #839's `PeriodicMap::build`, which is the post-refinement gate. A failed or snapped match is reported as a refinement bug (`RefineError::PeriodicGate` / `Internal`), never as a user error.
+  - `mesh_quality` reports the min/max dihedral angle and the max aspect ratio. `Refined::stats` reports the closure ratio (bisections per marked tet). A safety cap turns a runaway closure into `RefineError::ClosureCap`.
+  - New test target: `adapt_refine`. Measured results:
+    - Three uniform levels of `cube_tet_mesh(n)` reproduce the node, tet, edge and face counts of `cube_tet_mesh(2n)` exactly (n = 1, 2, 3; six levels give `4n`), so the p=1 / p=2 DOF counts are known in closed form.
+    - `Pᵀ K_h P = K_H` and `Pᵀ M_h P = M_H` hold to ≤ 2e-14 relative Frobenius error, at p=1 and p=2. This was checked on the Kuhn cube, on the non-Kuhn 5-tet cube and on the gmsh spiral smoke fixture (10.7k → 44.5k tets).
+    - Interior faces have exactly two tets, and the Euler characteristic is unchanged. Volume per 3-D group and area per 2-D group are conserved to 1e-12 on the spiral fixture.
+    - A generic tet's descendants fall into 36 similarity classes, all reached by level 6, with none new up to level 15.
+    - A renumbered, triply periodic cube stays matched through five random cycles: #839's matcher accepts every mesh with zero snaps. A non-mirrored refinement trips the matcher.
+    - Refining the middle of a straight wave-port guide leaves β bit-identical and moves S by 3.8e-3. Refining the port face itself (64 → 256 triangles) keeps it planar and moves β toward the analytic value.
+  - **Honest limits:**
+    - The first bisections of a regular tet cost dihedral angle. On the 5-tet cube the minimum drops from 54.7° to 25.2° (0.46×) and then stays constant over eight cycles. The epic's "≥ 0.5× the initial minimum" bar holds on the Kuhn cube (unchanged at 45°) but not on the 5-tet split.
+    - The closure cascades on gmsh meshes: 5% random marks on the spiral fixture give 11–25 bisections per marked tet.
+    - Curved boundaries are not followed, because midpoints stay on the chord.
 - **A-posteriori error estimator for H(curl)** (#840, Epic #835 Phase 1). The new `adapt::estimator::estimate_hcurl` estimates the error of a driven or eigen solution with an explicit residual estimator. It takes the solution's `HcurlSpace`, the DOF vector, `k²` and per-tet `ε` / `ν`. It returns:
   - a per-tet indicator `η_T²` and a per-tet breakdown (volume, divergence, tangential jump, normal jump, natural boundary, plus a reserved `p_surplus` that stays 0 until #836 Phase 5a);
   - the global `η` and the unit-invariant `eta_rel = η / ‖E_h‖_E`, with an empirical effectivity range (`VALIDATED_EFFECTIVITY`, θ ∈ [3.5, 7.0]) and `error_bracket()`;
