@@ -279,9 +279,10 @@ pub struct PeriodicPairReport {
     /// [`PeriodicPair::transform`]).
     pub translation_inferred: bool,
     /// Node pairs an inferred translation was least-squares fitted to
-    /// (issue #856): all matched pairs on a fully perturbed face, or the
-    /// exactly periodic subset when there is one. `0` for a given
-    /// translation.
+    /// (issue #856): all matched pairs ([`Self::n_nodes`]), or the subset
+    /// whose offsets agree to round-off when it is a sizeable part of the
+    /// face (at least 3 pairs and 10 % of them; e.g. exact edges and corners
+    /// around a jittered interior). `0` for a given translation.
     pub translation_fit_pairs: usize,
     /// RMS distance from each matched master node's translated image to its
     /// slave node, before the snap: how well [`Self::translation`] fits the
@@ -357,16 +358,34 @@ impl PeriodicMatchReport {
                     p.pair, p.n_snapped, p.max_snap_displacement
                 );
                 if p.translation_inferred {
+                    let d = p.translation;
+                    let fit = if p.translation_fit_pairs < p.n_nodes {
+                        format!(
+                            "fitted to the exactly periodic subset of {} of {} node pairs, \
+                             RMS residual {:.3e}",
+                            p.translation_fit_pairs, p.n_nodes, p.translation_residual
+                        )
+                    } else {
+                        // Standard error of the mean offset, relative to the
+                        // period; eigenvalues `k²` scale as `|d|⁻²`.
+                        let rel = p.translation_residual
+                            / (p.translation_fit_pairs.max(1) as f64).sqrt()
+                            / norm(d);
+                        format!(
+                            "least squares over {} node pairs, RMS residual {:.3e}; estimated \
+                             translation error {:.1e} of the period, which shifts the periodic \
+                             spectrum by a relative {:.1e} or so",
+                            p.translation_fit_pairs,
+                            p.translation_residual,
+                            rel,
+                            2.0 * rel
+                        )
+                    };
                     w.push_str(&format!(
                         ". The translation [{:.9e}, {:.9e}, {:.9e}] was inferred from the \
-                         perturbed mesh (least squares over {} node pairs, RMS residual \
-                         {:.3e}), so it carries the perturbation's error; pass the exact \
-                         translation in `PeriodicPair::transform` if it is known",
-                        p.translation[0],
-                        p.translation[1],
-                        p.translation[2],
-                        p.translation_fit_pairs,
-                        p.translation_residual
+                         perturbed mesh ({fit}), so it carries the perturbation's error; pass \
+                         the exact translation in `PeriodicPair::transform` if it is known",
+                        d[0], d[1], d[2],
                     ));
                 }
                 w
@@ -893,9 +912,9 @@ fn match_pair(
     // stable.
     let mut fit_pairs = 0usize;
     if inferred {
-        let fit_tol = snap_tol.max(1e-12 * dlen);
+        let zero_tol = snap_tol.max(1e-12 * dlen);
         for _ in 0..MAX_TRANSLATION_REFITS {
-            let (refined, used) = refit_translation(&nm, &mesh.nodes, translation, fit_tol);
+            let (refined, used) = refit_translation(&nm, &mesh.nodes, translation, zero_tol);
             fit_pairs = used;
             if refined == translation {
                 break;
@@ -1064,11 +1083,29 @@ fn match_pair(
 /// normally ends after one or two rounds.
 const MAX_TRANSLATION_REFITS: usize = 4;
 
-/// Smallest group of node pairs whose offsets agree to within the fit
-/// tolerance that counts as an exactly periodic subset of the faces (#856).
-/// Two independent pairs agreeing to `snap_tol = 1e-6 |d|` (default) is not
-/// a coincidence under jitter of a fraction of `h`.
-const CONSENSUS_MIN_PAIRS: usize = 2;
+/// Round-off tolerance of the exactly periodic subset (#856), in units of
+/// `ε · max |x|` over the matched pairs' nodes: two offsets `x_s − x_m` of an
+/// exactly periodic mesh differ by a few rounding errors of the coordinates,
+/// never by more than a few hundred. Agreement this close between jittered
+/// pairs is a coincidence of probability `~(1e3 ε |x| / a)^k` per pair of
+/// pairs (jitter amplitude `a`, jitter dimension `k = 2` or `3`): negligible
+/// even on a face of `10⁶` nodes. (Agreement to `snap_tol = 1e-6 |d|` is not:
+/// on a `101²` face with in-plane jitter of `0.04 h` a handful of pairs
+/// agree by chance.)
+const EXACT_SUBSET_ROUNDOFF: f64 = 1024.0;
+
+/// Smallest exactly periodic subset preferred over the all-pairs least
+/// squares (#856): at least this many pairs …
+const EXACT_SUBSET_MIN_PAIRS: usize = 3;
+
+/// … and at least this fraction of the matched pairs. A genuine exact
+/// subset is a structural part of the face (its edges and corners, or the
+/// part a mesher kept periodic), so it is a sizeable fraction of the pairs;
+/// a cluster of a few percent is more likely a quantisation artefact (e.g.
+/// coordinates written to a fixed number of digits) than an exact boundary,
+/// and the all-pairs mean, whose error falls as `a / √n`, is then the safer
+/// estimate.
+const EXACT_SUBSET_MIN_FRACTION: f64 = 0.1;
 
 /// The node matching of one pair under a candidate translation.
 struct NodeMatch {
@@ -1088,25 +1125,27 @@ struct NodeMatch {
 /// #856), and the number of pairs it was fitted to.
 ///
 /// The offsets `x_slave − x_master` of the one-to-one matched pairs are
-/// grouped greedily into clusters of mutual agreement within `tol`:
+/// grouped greedily into clusters that agree to round-off
+/// ([`EXACT_SUBSET_ROUNDOFF`] `· ε · max |x|`):
 ///
-/// - If some cluster has at least [`CONSENSUS_MIN_PAIRS`] members, part of
+/// - If the largest cluster has at least [`EXACT_SUBSET_MIN_PAIRS`] members
+///   and at least [`EXACT_SUBSET_MIN_FRACTION`] of the pairs, that part of
 ///   the face is exactly periodic (e.g. jitter only on the face interior,
 ///   with the edges and corners exact): `d` is the mean offset of the
-///   largest such cluster, so the jittered pairs do not bias the exact
-///   ones. If every member already agrees with `current` within `tol`,
-///   `current` is returned unchanged (an exactly periodic mesh keeps its
-///   translation bit for bit).
-/// - Otherwise every node is perturbed and `d` is the mean offset over all
-///   pairs, the least-squares translation `argmin Σ |x_s − x_m − d|²`.
+///   cluster, so the jittered pairs do not bias the exact ones. If every
+///   member already agrees with `current` to round-off, `current` is
+///   returned unchanged (an exactly periodic mesh keeps its translation bit
+///   for bit).
+/// - Otherwise `d` is the mean offset over all pairs, the least-squares
+///   translation `argmin Σ |x_s − x_m − d|²`.
 ///
-/// Components of a refitted `d` within `tol` of zero are set to zero, so an
-/// axis-aligned cell keeps an exactly axis-aligned translation.
+/// Components of a refitted `d` within `zero_tol` of zero are set to zero,
+/// so an axis-aligned cell keeps an exactly axis-aligned translation.
 fn refit_translation(
     nm: &NodeMatch,
     nodes: &[[f64; 3]],
     current: [f64; 3],
-    tol: f64,
+    zero_tol: f64,
 ) -> ([f64; 3], usize) {
     let mut pairs: Vec<(u32, u32)> = nm
         .node_map
@@ -1122,6 +1161,11 @@ fn refit_translation(
         .iter()
         .map(|&(m, s)| sub(nodes[s as usize], nodes[m as usize]))
         .collect();
+    let scale = pairs
+        .iter()
+        .flat_map(|&(m, s)| nodes[m as usize].into_iter().chain(nodes[s as usize]))
+        .fold(norm(current), |a, c| a.max(c.abs()));
+    let tol = EXACT_SUBSET_ROUNDOFF * f64::EPSILON * scale;
 
     // Greedy clustering through a hash grid of cell `tol`: each unassigned
     // offset collects the unassigned offsets within `tol` of it. `O(n)` for
@@ -1161,7 +1205,9 @@ fn refit_translation(
         }
     }
 
-    let fit: Vec<usize> = if best.len() >= CONSENSUS_MIN_PAIRS {
+    let min_exact = EXACT_SUBSET_MIN_PAIRS
+        .max((EXACT_SUBSET_MIN_FRACTION * diffs.len() as f64).ceil() as usize);
+    let fit: Vec<usize> = if best.len() >= min_exact {
         if best.iter().all(|&j| norm(sub(diffs[j], current)) <= tol) {
             return (current, best.len());
         }
@@ -1178,7 +1224,7 @@ fn refit_translation(
     }
     for c in d.iter_mut() {
         *c /= n;
-        if c.abs() <= tol {
+        if c.abs() <= zero_tol {
             *c = 0.0;
         }
     }

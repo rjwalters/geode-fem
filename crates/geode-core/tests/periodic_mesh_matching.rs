@@ -31,7 +31,11 @@
 //!   `~10⁻³` and splits its degeneracies;
 //! - (g') on the literal probe (generic jitter, non-zero mean offset) the
 //!   translation is not identifiable from the mesh, so no estimator is exact;
-//!   least squares cuts the spectrum error about sixfold.
+//!   least squares cuts the spectrum error about sixfold;
+//! - (h) the #862 Judge's probe: on a `61²`–`101²` face with every slave
+//!   node jittered (in-plane or 3D, `transform: None`) the fit uses every
+//!   matched pair, not a few pairs that agree by coincidence, and the
+//!   translation is the all-pairs least-squares one.
 //!
 //! Measured (release): (f) LS identity to `2e-16`, LS translation error
 //! `3.3–3.9e-4` vs bounding box `1.2–3.8e-3`; (g) snapped mesh vs the exact
@@ -106,6 +110,10 @@ fn jittered_slave_nodes_are_snapped() {
         let pairs = box_periodic_pairs(&mesh, &[0]);
         let map = PeriodicMap::build(&mut mesh, &pairs, &opts()).expect("snappable");
         let r = &map.report().pairs[0];
+        // The exact edges and corners (16 of 25 pairs) are an exactly
+        // periodic subset: the translation is exact, bit for bit (#856).
+        assert_eq!(r.translation, [side, 0.0, 0.0]);
+        assert_eq!(r.translation_fit_pairs, (n + 1) * (n + 1) - moved);
         if warned {
             assert_eq!(r.n_snapped, moved);
             assert!(
@@ -803,4 +811,91 @@ fn judge_probe_spectrum_error_shrinks_under_least_squares() {
          {d_old:.3e}; degeneracy split LS {s_ls:.3e} vs bbox {s_old:.3e}"
     );
     assert!(d_ls < d_old, "LS {d_ls:e} vs bbox {d_old:e}");
+}
+
+/// (h) The #862 Judge's probe: on a large face with **every** slave node
+/// jittered (uniformly in a box of half-width `0.04 h`, in-plane or in 3D),
+/// coincidental agreement between a few jittered offsets must not pass for
+/// an exactly periodic subset. The fit uses every matched pair and the
+/// translation is the all-pairs mean offset (the least-squares one) to
+/// round-off. Before the fix, 2–5 coincidental pairs agreeing to `snap_tol`
+/// were fitted, with translation errors 25–275× the least-squares one.
+#[test]
+fn large_fully_jittered_face_fits_every_pair() {
+    // (cells per face side, period, in-plane jitter)
+    for (n, period, in_plane) in [
+        (100, 1.0, true),
+        (100, 1.0, false),
+        (60, 10.0, true),
+        (60, 10.0, false),
+    ] {
+        let (nx, ny) = (2usize, n);
+        let mut mesh = box_tet_mesh([nx, n, n], [period; 3]);
+        let pairs = box_periodic_pairs(&mesh, &[0]);
+        let h = period / n as f64;
+        let amp = 0.04 * h;
+        let mut rng = Rng::new(862 + n as u64 + in_plane as u64);
+        for p in mesh.nodes.iter_mut() {
+            if (p[0] - period).abs() < 1e-12 * period {
+                for (c, x) in p.iter_mut().enumerate() {
+                    let u = amp * (2.0 * rng.uniform() - 1.0);
+                    if !(in_plane && c == 0) {
+                        *x += u;
+                    }
+                }
+            }
+        }
+        // All-pairs mean offset: master (0, j, k) ↔ slave (nx, j, k).
+        let idx = |i: usize, j: usize, k: usize| i + j * (nx + 1) + k * (nx + 1) * (ny + 1);
+        let mut mean = [0.0; 3];
+        for k in 0..=n {
+            for j in 0..=n {
+                let (m, s) = (mesh.nodes[idx(0, j, k)], mesh.nodes[idx(nx, j, k)]);
+                for c in 0..3 {
+                    mean[c] += s[c] - m[c];
+                }
+            }
+        }
+        let n_pairs = (n + 1) * (n + 1);
+        let mean = mean.map(|v| v / n_pairs as f64);
+        let truth = [period, 0.0, 0.0];
+        let dist = |a: [f64; 3], b: [f64; 3]| -> f64 {
+            (0..3).map(|c| (a[c] - b[c]).powi(2)).sum::<f64>().sqrt()
+        };
+
+        let map = PeriodicMap::build(&mut mesh, &pairs, &opts()).expect("snappable");
+        let r = &map.report().pairs[0];
+        let d = r.translation;
+        let snap_tol = opts().snap_tol_rel * period;
+        eprintln!(
+            "{n}x{n} face, period {period}, {} jitter: fit {} of {} pairs, |d - true| \
+             {:.3e}, |LS - true| {:.3e}",
+            if in_plane { "in-plane" } else { "3D" },
+            r.translation_fit_pairs,
+            r.n_nodes,
+            dist(d, truth),
+            dist(mean, truth)
+        );
+        assert_eq!(r.n_nodes, n_pairs);
+        assert_eq!(r.translation_fit_pairs, n_pairs, "fit to every pair");
+        for c in 0..3 {
+            // A refitted component within `snap_tol` of zero is zeroed.
+            let zeroed = d[c] == 0.0 && mean[c].abs() <= snap_tol;
+            assert!(
+                zeroed || (d[c] - mean[c]).abs() <= 1e-13 * period,
+                "component {c}: {} vs LS {}",
+                d[c],
+                mean[c]
+            );
+        }
+        assert!(dist(d, truth) <= dist(mean, truth) + 1e-13 * period);
+        let w = map.report().warnings();
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(
+            w[0].contains(&format!("least squares over {n_pairs} node pairs"))
+                && w[0].contains("estimated translation error"),
+            "{}",
+            w[0]
+        );
+    }
 }
