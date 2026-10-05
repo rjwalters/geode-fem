@@ -50,6 +50,12 @@
 //! - [`gauge`] — tree-cotree spanning-tree gauge that eliminates the
 //!   Nédélec gradient nullspace from the reduced pencil before the solve,
 //!   removing the spurious gradient-adjacent mode (issue #502).
+//! - [`hcurl_null`] — the **exact gradient null space** of the
+//!   order-generic H(curl) pencils (issue #871, Epic #836 Phase 2): its
+//!   closed-form dimension at p=1 and p=2 (free P1/P2-Lagrange DOFs plus
+//!   floating wall potentials), the sparse hierarchical discrete gradient,
+//!   and the scale-free gradient-fraction classifier of the p=2 cavity
+//!   solves.
 //! - [`projection`] — spectrum-preserving divergence-free (discrete-
 //!   Helmholtz) projection `P = I − G(GᵀMG)⁻¹GᵀM` for the eigen path: the
 //!   `M`-orthogonal deflation of the gradient subspace that removes the
@@ -69,6 +75,7 @@ pub mod cavity;
 pub mod complex;
 pub mod dense;
 pub mod gauge;
+pub mod hcurl_null;
 pub mod lanczos;
 pub mod lossy_cavity;
 // `pub(crate)`: the ordering primitives are for internal reuse by the eigen /
