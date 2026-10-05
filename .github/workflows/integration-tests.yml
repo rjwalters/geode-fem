@@ -146,6 +146,7 @@ jobs:
               --test patch_conformal_diffopt \
               --test patch_diffopt \
               --test patch_mesh \
+              --test pec_cavity_unit_invariance \
               --test pec_mask_face_exact \
               --test periodic_cavity \
               --test periodic_derham_kernel \

@@ -655,12 +655,14 @@ fn golden2_eigen_pec_box() {
 /// - **Estimator invariance at 1e-6 (the bar):** the unit-scale eigenpair
 ///   is transported to the µm mesh exactly (edge DOFs are line integrals, so
 ///   `x → s·x`; `λ → λ/s²`). `eta_rel` and the eigen ratio agree to 1e-10.
-/// - **End-to-end rerun:** the eigen *solve* is repeated on the scaled
-///   mesh. The PEC-cavity eigensolver fails at `s = 1e-6` (a garbage Ritz
-///   pair with residual 1.0; it works at `s = 3e-6` and above), a
-///   pre-existing solver scale cliff, issue #852. The end-to-end
-///   check therefore runs at `s = 3e-6`, where the bound is the eigensolver
-///   tolerance, not round-off.
+/// - **End-to-end rerun:** the eigen *solve* is repeated on the µm mesh
+///   (`s = 1e-6`) and its `eta_rel` and ratio compared with the unit-scale
+///   solve. (Until issue #852 the PEC-cavity eigensolver failed at
+///   `s = 1e-6` with a residual-1.0 Ritz pair, so this rerun used
+///   `s = 3e-6`; the solver is now unit-invariant, see
+///   `tests/pec_cavity_unit_invariance.rs`.) Measured: `eta_rel` agrees to
+///   `≤ 2.1e-15` and the ratio (which amplifies `λ_h` round-off through
+///   `|λ_h − λ|`) to `≤ 2.8e-12`, against bars of `1e-12` and `1e-9`.
 #[test]
 fn golden5_eigen_unit_invariance() {
     let s = 1e-6;
@@ -679,18 +681,17 @@ fn golden5_eigen_unit_invariance() {
             "m={m}: eta_rel not unit-invariant: {d_rel:e}"
         );
 
-        let s_solve = 3e-6;
-        let b = box_level(m, s_solve);
+        let b = box_level(m, s);
         let d_e2e = (a.eta_rel - b.eta_rel).abs() / a.eta_rel;
         let d_ratio = (a.ratio - b.ratio).abs() / a.ratio;
         eprintln!(
-            "golden5 eigen m={m} end-to-end at s={s_solve:e}: eta_rel rel diff {d_e2e:.2e}, \
+            "golden5 eigen m={m} end-to-end at s={s:e}: eta_rel rel diff {d_e2e:.2e}, \
              lambda*s^2 {:.12} vs {:.12}, ratio rel diff {d_ratio:.2e}",
             a.lambda_h,
-            b.lambda_h * s_solve * s_solve,
+            b.lambda_h * s * s,
         );
-        assert!(d_e2e <= 1e-8, "m={m}: end-to-end eta_rel drift {d_e2e:e}");
-        assert!(d_ratio <= 1e-6, "m={m}: end-to-end ratio drift {d_ratio:e}");
+        assert!(d_e2e <= 1e-12, "m={m}: end-to-end eta_rel drift {d_e2e:e}");
+        assert!(d_ratio <= 1e-9, "m={m}: end-to-end ratio drift {d_ratio:e}");
     }
 }
 

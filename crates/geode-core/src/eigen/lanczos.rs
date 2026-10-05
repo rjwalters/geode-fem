@@ -874,23 +874,62 @@ fn tridiag_eigenvalues(alpha: &[f64], beta: &[f64]) -> Result<Vec<f64>, EigenErr
         .map_err(|e| EigenError::FaerGevd(format!("tridiag evd: {e:?}")))
 }
 
+/// Power-of-two factor `2^{-e}` that brings the largest entry of the
+/// tridiagonal `(alpha, beta)` to magnitude ≈ 1 (`1` for an all-zero or
+/// non-finite `T`). Multiplying by a power of two is exact, so the scaled
+/// `T` has the same eigenvectors and eigenvalues scaled by exactly this
+/// factor (issue #852).
+fn tridiag_unit_scale(alpha: &[f64], beta: &[f64]) -> f64 {
+    let max = alpha
+        .iter()
+        .chain(beta)
+        .fold(0.0_f64, |a, &b| a.max(b.abs()));
+    if !(max.is_finite() && max > 0.0) {
+        return 1.0;
+    }
+    let e = max.log2().round() as i32;
+    // Stay clear of the exponent range ends (an un-normalizable `T` is left
+    // unscaled; it is far outside any pencil this solver sees).
+    if e.abs() > 1000 {
+        return 1.0;
+    }
+    2.0_f64.powi(-e)
+}
+
 /// Solve the symmetric tridiagonal eigenproblem returning **eigenpairs**
 /// `(μ, s)` in ascending μ order. `s` is a unit-norm eigenvector in
 /// k-dimensional tridiagonal space; combine it with the Lanczos basis
 /// `V_k` to recover the corresponding Ritz vector `x = V_k s`.
-fn tridiag_eigenpairs(alpha: &[f64], beta: &[f64]) -> Result<(Vec<f64>, Mat<f64>), EigenError> {
+///
+/// `T` is scaled by a power of two to unit magnitude before the dense EVD
+/// and the eigenvalues are scaled back (issue #852). faer 0.24's
+/// divide-and-conquer tridiagonal solver (used for `k ≥ 128` when
+/// eigenvectors are requested) deflates with the tolerance
+/// `8ε · max(max|d|, max|z|)`, where `z` is a unit vector, so for
+/// `max|d| ≪ 1` the tolerance is the **absolute** `8ε` and merges distinct
+/// eigenvalues. The shift-inverted `T` scales as `L²` in the mesh length
+/// unit (`max|T| ~ 10⁻¹³` for a µm cavity), so without the scaling a large
+/// Krylov basis returned Ritz values off by up to ~10⁻² relative, and the
+/// gradient-null cluster leaked through the null filter as a "physical"
+/// mode with residual ≈ 1. (The eigenvalues-only path runs faer's QR
+/// algorithm, which normalizes internally.)
+pub(crate) fn tridiag_eigenpairs(
+    alpha: &[f64],
+    beta: &[f64],
+) -> Result<(Vec<f64>, Mat<f64>), EigenError> {
     use faer::Side;
     let k = alpha.len();
     if k == 0 {
         return Ok((Vec::new(), Mat::<f64>::zeros(0, 0)));
     }
+    let scale = tridiag_unit_scale(alpha, beta);
     let t = Mat::<f64>::from_fn(k, k, |i, j| {
         if i == j {
-            alpha[i]
+            scale * alpha[i]
         } else if i + 1 == j {
-            beta[i]
+            scale * beta[i]
         } else if j + 1 == i {
-            beta[j]
+            scale * beta[j]
         } else {
             0.0
         }
@@ -901,7 +940,7 @@ fn tridiag_eigenpairs(alpha: &[f64], beta: &[f64]) -> Result<(Vec<f64>, Mat<f64>
         .map_err(|e| EigenError::FaerGevd(format!("tridiag evd (pairs): {e:?}")))?;
     let s_vec = evd.S().column_vector();
     let u = evd.U();
-    let mut mus: Vec<f64> = (0..k).map(|i| s_vec[i]).collect();
+    let mut mus: Vec<f64> = (0..k).map(|i| s_vec[i] / scale).collect();
     // self_adjoint_eigen returns eigenvalues in ascending order already,
     // but be explicit (and defensively sort the matching columns).
     let mut order: Vec<usize> = (0..k).collect();
@@ -3347,6 +3386,58 @@ mod tests {
                 rel < 1e-6,
                 "SPD eigenvalue[{i}] direct={d} MINRES={f} rel-diff={rel:.2e} > 1e-6"
             );
+        }
+    }
+
+    /// Issue #852: the eigenpair tridiagonal solve is homogeneous. A
+    /// `k = 160` tridiagonal (above faer's divide-and-conquer threshold) with
+    /// a tight eigenvalue cluster, scaled by `c ∈ {1e-13, 1e-19, 1e8}`, gives
+    /// `c ×` the unscaled eigenvalues to round-off. Without the power-of-two
+    /// pre-scaling faer's absolute `8ε` deflation tolerance merges the
+    /// cluster when `c ≪ 1`.
+    #[test]
+    fn tridiag_eigenpairs_is_scale_invariant() {
+        let k = 160;
+        // A cluster of near-equal diagonal entries (like the gradient-null
+        // Ritz values) plus a spread of distinct ones, weakly coupled.
+        let alpha: Vec<f64> = (0..k)
+            .map(|i| {
+                if i % 4 == 0 {
+                    -1.0 + 1e-6 * i as f64
+                } else {
+                    0.2 + 0.01 * ((i as f64) * 0.731).sin()
+                }
+            })
+            .collect();
+        let beta: Vec<f64> = (0..k - 1)
+            .map(|i| 1e-3 * (1.0 + ((i as f64) * 0.377).cos()))
+            .collect();
+        let (mu_ref, _) = tridiag_eigenpairs(&alpha, &beta).unwrap();
+        for c in [1e-13, 1e-19, 1e8] {
+            let a: Vec<f64> = alpha.iter().map(|x| c * x).collect();
+            let b: Vec<f64> = beta.iter().map(|x| c * x).collect();
+            let (mu, s) = tridiag_eigenpairs(&a, &b).unwrap();
+            let worst = mu
+                .iter()
+                .zip(&mu_ref)
+                .map(|(m, r)| (m / c - r).abs())
+                .fold(0.0, f64::max);
+            assert!(worst < 1e-13, "scale {c:e}: eigenvalue drift {worst:e}");
+            // The eigenvectors still diagonalize the scaled T.
+            for col in [0, k / 2, k - 1] {
+                let mut r2 = 0.0_f64;
+                for i in 0..k {
+                    let mut tv = a[i] * s[(i, col)];
+                    if i > 0 {
+                        tv += b[i - 1] * s[(i - 1, col)];
+                    }
+                    if i + 1 < k {
+                        tv += b[i] * s[(i + 1, col)];
+                    }
+                    r2 += (tv - mu[col] * s[(i, col)]).powi(2);
+                }
+                assert!(r2.sqrt() < 1e-13 * c, "scale {c:e}: col {col} residual");
+            }
         }
     }
 }
