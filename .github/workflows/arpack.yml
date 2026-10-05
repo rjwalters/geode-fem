@@ -41,10 +41,14 @@ jobs:
     runs-on: ubuntu-latest
     # Cap queue-wait + run time. This is a single Linux build, a
     # workspace-wide clippy pass (#675), one gated test, and a few
-    # seconds-scale benchmark provenance/regression checks (#692); 25 min leaves
-    # headroom for a cold cache without letting a starved runner orphan
-    # for the 24h GitHub ceiling (issue #354).
-    timeout-minutes: 25
+    # seconds-scale benchmark provenance/regression checks (#692). A warm run
+    # takes about 19 min. Any PR that changes Cargo.lock (e.g. a new
+    # workspace member, #873) misses the cache, and the cold run got through
+    # clippy and every test step but the last two before a 25 min cap
+    # cancelled it. A cancelled job never saves the cache, so the miss
+    # repeated on every retry. 40 min fits a cold run without letting a
+    # starved runner orphan for the 24h GitHub ceiling (issue #354).
+    timeout-minutes: 40
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
