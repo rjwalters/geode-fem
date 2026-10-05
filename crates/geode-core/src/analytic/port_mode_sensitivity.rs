@@ -208,15 +208,6 @@ pub enum PortModeSensitivityError {
         /// Its `β²`.
         beta_sq: c64,
     },
-    /// A combination this phase does not differentiate, with the phase that
-    /// lifts it.
-    #[error("not differentiated here: {what} — lifted by {phase}")]
-    Unsupported {
-        /// What was asked.
-        what: String,
-        /// The phase / follow-up that lifts it.
-        phase: &'static str,
-    },
 }
 
 /// Test-only fault injection (the mutation tripwires of issue #859): each
