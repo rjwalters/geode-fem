@@ -471,7 +471,7 @@ pub(super) fn line_real(
 /// The displacement term of the currents uses the full complex `T_ε` of
 /// `eps` (so a dispersive face's `Re ε(ω)` is honoured).
 #[allow(clippy::too_many_arguments)]
-pub(super) fn line_complex(
+pub(crate) fn line_complex(
     blocks: &HybridBlocks,
     d: &SparseColMat<usize, f64>,
     mesh: &TriMesh,

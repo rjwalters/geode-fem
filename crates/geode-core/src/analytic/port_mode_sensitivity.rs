@@ -110,7 +110,8 @@
 //!   derivative matrix, whose eigenvalues are the one-sided directional
 //!   derivatives of the split `β²`.
 //! * **Near-crossings.** Every result reports the relative gap to the
-//!   nearest other returned mode (incl. complex-pair members); below
+//!   nearest other returned mode (incl. complex-pair members of a real set,
+//!   reported as [`NearestMode::ComplexPair`]); below
 //!   [`ModeSensitivityOpts::gap_warn`] it carries a
 //!   [`ModeSensitivityWarning::NearDegenerate`] (the derivative is valid but
 //!   only within a parameter radius of order the gap; mode tracking is a
@@ -146,9 +147,13 @@ use faer::linalg::solvers::Solve;
 use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, Triplet};
 
-use super::lossy_port_modes::{LossyHybridModeSet, assemble_lossy_hybrid_pencil, cmatvec};
+use super::lossy_port_modes::{
+    LossyHybridMode, LossyHybridModeSet, assemble_lossy_hybrid_pencil, cmatvec,
+};
 use super::microstrip::{ShieldedStripFace, StripFaceMesh};
-use super::port_modes::{DEGENERATE_REL_TOL, HybridPortModeSet};
+use super::port_modes::{
+    DEGENERATE_REL_TOL, HybridPortModeSet, assemble_hybrid_blocks, discrete_gradient,
+};
 use super::waveguide::{TRI_LOCAL_EDGES, TriMesh, tri_nedelec_local, tri_p1_local};
 use crate::constants::ETA_0_OHM;
 use crate::eigen::dense::EigenError;
@@ -251,6 +256,16 @@ impl Default for ModeSensitivityOpts {
     }
 }
 
+/// The mode nearest (in `β²`) to the differentiated one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NearestMode {
+    /// Mode `i` of the set's `modes`.
+    Mode(usize),
+    /// A member (`β²` or its conjugate) of `complex_pairs[i]` of a real
+    /// (lossless) set.
+    ComplexPair(usize),
+}
+
 /// A reported (non-fatal) condition of a sensitivity result.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModeSensitivityWarning {
@@ -261,8 +276,8 @@ pub enum ModeSensitivityWarning {
     NearDegenerate {
         /// Relative gap `|Δβ²| / k₀²ε′_max`.
         rel_gap: f64,
-        /// Index of the nearest mode in the set.
-        nearest: usize,
+        /// The nearest mode (a set mode or a complex-pair member).
+        nearest: NearestMode,
     },
     /// The bordered solve left a relative residual above
     /// [`ModeSensitivityOpts::bordered_residual_warn`] (an ill-conditioned
@@ -825,6 +840,54 @@ pub fn real_eps(eps: &[f64]) -> Vec<c64> {
     eps.iter().map(|&e| c64::new(e, 0.0)).collect()
 }
 
+/// The line impedances of lossy mode `m` through the **shipped** lossy
+/// line readout (`driven::ports::line_complex`, the one the hybrid wave
+/// ports report), on face `mesh` with per-triangle complex `eps` at `k0`.
+/// `Ok(None)` for a non-propagating mode. The reference forward of the
+/// lossy FD golden: [`HybridModeDerivative::line_impedances`] is a separate
+/// evaluator (it needs the derivative's intermediates), and this pins the
+/// two to the same forward.
+///
+/// # Errors
+///
+/// [`PortModeSensitivityError::InvalidInput`] on an invalid line spec;
+/// [`PortModeSensitivityError::Eigen`] if the blocks do not assemble.
+#[doc(hidden)]
+pub fn shipped_lossy_line_impedances(
+    mesh: &TriMesh,
+    eps: &[c64],
+    m: &LossyHybridMode,
+    k0: f64,
+    line: &LineSpec<'_>,
+) -> Result<Option<LineImpedances>, PortModeSensitivityError> {
+    if eps.len() != mesh.n_tris() {
+        return Err(PortModeSensitivityError::InvalidInput(
+            "one ε per face triangle".to_string(),
+        ));
+    }
+    let re: Vec<f64> = eps.iter().map(|e| e.re).collect();
+    let blocks = assemble_hybrid_blocks(mesh, &re)?;
+    let paths = match line.voltage_paths {
+        Some(p) => signed_paths(mesh, p)?,
+        None => Vec::new(),
+    };
+    Ok(crate::driven::ports::line_complex(
+        &blocks,
+        &discrete_gradient(mesh),
+        mesh,
+        line.conductor_nodes,
+        &paths,
+        m,
+        k0,
+        eps,
+    )
+    .map(|r| LineImpedances {
+        z_pi: r.z_pi,
+        z_pv: r.z_pv,
+        z_vi: r.z_vi,
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Line quantities (forward evaluator)
 // ---------------------------------------------------------------------------
@@ -1318,7 +1381,7 @@ pub struct HybridModeDerivative<'a> {
     /// The bordered matrix (for the refinement residual).
     kmat: SparseColMat<usize, c64>,
     rel_gap: f64,
-    nearest: Option<usize>,
+    nearest: Option<NearestMode>,
     warnings: Vec<ModeSensitivityWarning>,
     opts: ModeSensitivityOpts,
 }
@@ -1384,8 +1447,8 @@ pub struct PortModeSensitivity {
     pub line: Option<LineSensitivity>,
     /// Relative gap to the nearest other mode, `|Δβ²|/k₀²ε′_max`.
     pub rel_gap: f64,
-    /// Index of the nearest other real-set / lossy-set mode.
-    pub nearest: Option<usize>,
+    /// The nearest other mode (`None` for a single-mode set).
+    pub nearest: Option<NearestMode>,
     /// Non-fatal conditions.
     pub warnings: Vec<ModeSensitivityWarning>,
 }
@@ -1529,8 +1592,8 @@ impl<'a> HybridModeDerivative<'a> {
         (&self.data.z.t, &self.data.z.z)
     }
 
-    /// Relative gap to the nearest other mode and its index.
-    pub fn gap(&self) -> (f64, Option<usize>) {
+    /// Relative gap to the nearest other mode, and that mode.
+    pub fn gap(&self) -> (f64, Option<NearestMode>) {
         (self.rel_gap, self.nearest)
     }
 
@@ -1782,6 +1845,12 @@ impl<'a> HybridModeDerivative<'a> {
         Ok(self.line_parts(line)?.value)
     }
 
+    /// The forward line evaluator (and the intermediates its derivative
+    /// needs). It computes the pseudo-power as `P ∝ zᵀBz`, where the shipped
+    /// `driven::ports::line_complex` uses `ẽ_tᵀM₁(ẽ_t + Dẽ_z)`; the two agree
+    /// **only on eigenmodes** (through the pencil's z-row
+    /// `Gᵀẽ_t + (S − k₀²T_ε)ẽ_z = 0`). The parity is pinned by
+    /// `tests::lossy_line_evaluator_matches_the_shipped_line_complex`.
     fn line_parts(&self, line: &LineSpec<'_>) -> Result<LineParts, PortModeSensitivityError> {
         if self.data.beta_sq.re.is_nan() || self.data.beta_sq.re <= 0.0 {
             return Err(PortModeSensitivityError::NotPropagating {
@@ -2018,22 +2087,30 @@ struct LineParts {
     sv: Option<Vec<c64>>,
 }
 
-fn gap(list: &[ModeData], extra: &[c64], mode: usize, scale: f64) -> (f64, Option<usize>) {
+/// Relative gap from mode `mode` of `list` to the nearest other mode,
+/// over the set's modes and the complex-pair members `extra` (laid out as
+/// `[pair 0, conj pair 0, pair 1, …]`, as [`mode_list`] builds them).
+fn gap(list: &[ModeData], extra: &[c64], mode: usize, scale: f64) -> (f64, Option<NearestMode>) {
     let b = list[mode].beta_sq;
+    let others = list
+        .iter()
+        .enumerate()
+        .filter(|&(j, _)| j != mode)
+        .map(|(j, m)| (m.beta_sq, NearestMode::Mode(j)))
+        .chain(
+            extra
+                .iter()
+                .enumerate()
+                .map(|(j, &e)| (e, NearestMode::ComplexPair(j / 2))),
+        );
     let mut best = f64::INFINITY;
     let mut idx = None;
-    for (j, m) in list.iter().enumerate() {
-        if j == mode {
-            continue;
-        }
-        let d = (m.beta_sq - b).norm() / scale;
+    for (bs, who) in others {
+        let d = (bs - b).norm() / scale;
         if d < best {
             best = d;
-            idx = Some(j);
+            idx = Some(who);
         }
-    }
-    for e in extra {
-        best = best.min((*e - b).norm() / scale);
     }
     (best, idx)
 }
@@ -2079,6 +2156,12 @@ pub struct ClusterSensitivity {
 /// Cluster-invariant sensitivities of the exactly degenerate cluster that
 /// contains `mode` (module docs). A simple `mode` (a cluster of one) is
 /// accepted: the result then holds its own `∂β²`.
+///
+/// The members must be mutually `B`-orthogonal (`z_iᵀBz_j = 0`, `i ≠ j`),
+/// so that the diagonal-normalized restricted derivative is the derivative
+/// of the restricted pencil and its trace is basis-invariant. Both forward
+/// solvers return degenerate clusters biorthogonalized this way
+/// (`biorthogonalize_degenerate`); a hand-built set must be too.
 ///
 /// # Errors
 ///
@@ -2155,7 +2238,138 @@ pub fn cluster_sensitivity(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::analytic::port_modes::assemble_hybrid_blocks;
+    use crate::analytic::lossy_port_modes::solve_lossy_hybrid_port_modes;
+    use crate::analytic::microstrip::StripMeshOpts;
+    use crate::analytic::port_modes::HybridPortOpts;
+
+    fn rel(a: c64, b: c64) -> f64 {
+        (a - b).norm() / b.norm().max(1e-300)
+    }
+
+    /// The module's lossy line evaluator (`P ∝ zᵀBz`) agrees with the
+    /// shipped `driven::ports::line_complex` (`P ∝ ẽ_tᵀM₁(ẽ_t + Dẽ_z)`) on a
+    /// lossy eigenmode, so a change to the shipped lossy readout cannot
+    /// silently drift away from these derivatives.
+    #[test]
+    fn lossy_line_evaluator_matches_the_shipped_line_complex() {
+        let (k0, er, td) = (0.1, 4.4, 0.05);
+        let spec = ShieldedStripFace::microstrip(8.0, 8.0, 1.0, 1.0, er);
+        let f = spec.build(&StripMeshOpts {
+            h_min: 0.08,
+            h_max: 0.5,
+            ratio: 1.3,
+            mirror_symmetric: true,
+        });
+        let eps: Vec<c64> = f
+            .eps_r
+            .iter()
+            .map(|&e| {
+                if e > 1.0 {
+                    c64::new(e, -e * td)
+                } else {
+                    c64::new(e, 0.0)
+                }
+            })
+            .collect();
+        assert!(eps.iter().any(|e| e.im != 0.0), "a lossy face");
+        let set = solve_lossy_hybrid_port_modes(
+            &f.mesh,
+            &eps,
+            &f.masks.interior_edge_mask,
+            &f.masks.free_node_mask,
+            k0,
+            &HybridPortOpts {
+                n_evanescent: 1,
+                residual_tol: 1e-10,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let d = HybridModeDerivative::new(
+            PortFace::from_strip(&f, k0),
+            &eps,
+            FaceModes::Lossy(&set),
+            0,
+            ModeSensitivityOpts::default(),
+        )
+        .unwrap();
+        let module = d.line_impedances(&LineSpec::from_strip(&f)).unwrap();
+        let re: Vec<f64> = eps.iter().map(|e| e.re).collect();
+        let shipped = crate::driven::ports::line_complex(
+            &assemble_hybrid_blocks(&f.mesh, &re).unwrap(),
+            &discrete_gradient(&f.mesh),
+            &f.mesh,
+            &f.conductor_nodes[..1],
+            &signed_paths(&f.mesh, &f.voltage_paths).unwrap()[..1],
+            &set.modes[0],
+            k0,
+            &eps,
+        )
+        .unwrap();
+        let pairs = [
+            ("Z_PI", module.z_pi, shipped.z_pi),
+            ("Z_PV", module.z_pv.unwrap(), shipped.z_pv.unwrap()),
+            ("Z_VI", module.z_vi.unwrap(), shipped.z_vi.unwrap()),
+        ];
+        for (name, a, b) in pairs {
+            let e = rel(a, b);
+            println!("{name}: module {a}, shipped {b}, rel {e:.2e}");
+            assert!(b.im.abs() > 1e-6 * b.norm(), "{name} is lossy");
+            assert!(e <= 1e-9, "{name}: module vs shipped rel {e:e}");
+        }
+        // The public reference wrapper is the same routine.
+        let w = shipped_lossy_line_impedances(
+            &f.mesh,
+            &eps,
+            &set.modes[0],
+            k0,
+            &LineSpec::from_strip(&f),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(w.z_pi, shipped.z_pi);
+        assert_eq!(w.z_pv, shipped.z_pv);
+    }
+
+    fn synthetic(beta_sq: &[c64]) -> Vec<ModeData> {
+        beta_sq
+            .iter()
+            .map(|&b| ModeData {
+                beta_sq: b,
+                beta: b.sqrt(),
+                z: FullVec::zeros(1, 1),
+            })
+            .collect()
+    }
+
+    /// `gap` reports the nearest mode over the set **and** the complex-pair
+    /// members, naming a pair member as such: one real mode with a close
+    /// complex pair is a near-degeneracy, not a single-mode set.
+    #[test]
+    fn gap_names_complex_pair_members() {
+        let pair = c64::new(2.0, 1e-4);
+        // One real mode, a close complex pair (both members).
+        let list = synthetic(&[c64::new(2.0, 0.0)]);
+        let extra = [pair, pair.conj()];
+        let (g, who) = gap(&list, &extra, 0, 1.0);
+        assert!((g - 1e-4).abs() <= 1e-12, "{g}");
+        assert_eq!(who, Some(NearestMode::ComplexPair(0)));
+        // A farther real mode and two pairs: the nearest is pair 1.
+        let list = synthetic(&[c64::new(2.0, 0.0), c64::new(1.0, 0.0)]);
+        let extra = [c64::new(3.0, 0.5), c64::new(3.0, -0.5), pair.conj(), pair];
+        let (g, who) = gap(&list, &extra, 0, 1.0);
+        assert!((g - 1e-4).abs() <= 1e-12, "{g}");
+        assert_eq!(who, Some(NearestMode::ComplexPair(1)));
+        // A real mode nearer than every pair member.
+        let list = synthetic(&[c64::new(2.0, 0.0), c64::new(2.0 - 1e-6, 0.0)]);
+        let (g, who) = gap(&list, &extra, 0, 1.0);
+        assert!((g - 1e-6).abs() <= 1e-12, "{g}");
+        assert_eq!(who, Some(NearestMode::Mode(1)));
+        // A single-mode set with no pairs has no nearest mode.
+        let (g, who) = gap(&synthetic(&[c64::new(2.0, 0.0)]), &[], 0, 1.0);
+        assert!(g.is_infinite() && who.is_none());
+    }
+
     use crate::analytic::waveguide::rect_tri_mesh;
 
     fn jittered() -> TriMesh {

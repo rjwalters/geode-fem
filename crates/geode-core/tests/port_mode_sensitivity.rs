@@ -11,7 +11,8 @@
 //!    tripwires (drop the eigenvector term, drop `−μ∂B`, drop the geometric
 //!    kernel).
 //! 2. Lossy microstrip (`tan δ = 0.02`): central FD on `ε_r` at fixed
-//!    `tan δ`, `tan δ`, `w`, `h` × complex `β²`, `β`, `Z_PI`, `Z_PV`; the
+//!    `tan δ`, `tan δ`, `w`, `h` × complex `β²`, `β`, `Z_PI`, `Z_PV`
+//!    (through the shipped lossy line readout); the
 //!    lossless-limit agreement of the module's line evaluator with the
 //!    shipped `mode_line_quantities`; `∂α/∂tan δ` against Pozar.
 //! 3. Mode-shape tangent vs FD of the normalized mode, and the VJP vs the
@@ -30,8 +31,9 @@ use geode_core::analytic::microstrip::{
 };
 use geode_core::analytic::port_mode_sensitivity::{
     FaceDesign, FaceGroups, FaceModes, HybridModeDerivative, LineSpec, ModeSensitivityFault,
-    ModeSensitivityOpts, ModeSensitivityWarning, PortFace, PortModeSensitivityError,
-    cluster_sensitivity, port_mode_sensitivity, real_eps, strip_face_groups,
+    ModeSensitivityOpts, ModeSensitivityWarning, NearestMode, PortFace, PortModeSensitivityError,
+    cluster_sensitivity, port_mode_sensitivity, real_eps, shipped_lossy_line_impedances,
+    strip_face_groups,
 };
 use geode_core::analytic::port_modes::{
     HybridPortModeSet, HybridPortOpts, mode_line_quantities, solve_hybrid_port_modes,
@@ -207,7 +209,10 @@ fn lossless_microstrip_fd_every_parameter_and_quantity() {
                 ad[q].im.abs() <= 1e-9 * ad[q].norm(),
                 "real parameter, real mode"
             );
-            assert!(e <= 1e-4, "{} ∂{}: {e:e}", s.names[i], names[q]);
+            // The ε row of β² is held to 1e-6 (measured ~4e-9) so that the
+            // quasi-TEM `−μ∂B` drop (~1e-4) fails this golden on its own.
+            let tol = if i == 0 && q == 0 { 1e-6 } else { 1e-4 };
+            assert!(e <= tol, "{} ∂{}: {e:e}", s.names[i], names[q]);
         }
         // ε_eff = β²/k₀² (exactly the β² row scaled).
         let e_eff = rel(s.d_eps_eff[i], fd[0] / (k0 * k0));
@@ -218,7 +223,7 @@ fn lossless_microstrip_fd_every_parameter_and_quantity() {
             fd[0].re / (k0 * k0),
             e_eff
         );
-        assert!(e_eff <= 1e-4);
+        assert!(e_eff <= if i == 0 { 1e-6 } else { 1e-4 });
         fds.push(fd);
     }
 
@@ -241,6 +246,7 @@ fn lossless_microstrip_fd_every_parameter_and_quantity() {
     let drop_b = sens(Some(ModeSensitivityFault::DropDeltaB));
     let e = rel(drop_b.d_beta_sq[0], fds[0][0]);
     println!("mutation DropDeltaB: ∂β²/∂ε rel err {e:.2e} (quasi-TEM, k₀h = 0.1)");
+    assert!(e > 1e-5, "dropping −μ∂B must fail the 1e-6 ε gate");
     for i in 1..3 {
         let e = rel(drop_b.d_beta_sq[i], fds[i][0]);
         println!("mutation DropDeltaB: ∂β²/∂{} rel err {e:.2e}", s.names[i]);
@@ -377,21 +383,14 @@ fn lossy_microstrip_fd_tan_delta_eps_and_geometry() {
         .unwrap()
     };
     // Forward: (β², β, Z_PI, Z_PV) through the shipped lossy solve and the
-    // module's line evaluator (checked against the shipped real evaluator in
-    // the lossless limit below).
+    // shipped lossy line readout (`driven::ports::line_complex`).
     let forward = |mesh: &TriMesh, e: &[c64]| {
         let set = solve(mesh, e);
-        let fc = face.with_mesh(mesh);
-        let d = HybridModeDerivative::new(
-            fc,
-            e,
-            FaceModes::Lossy(&set),
-            0,
-            ModeSensitivityOpts::default(),
-        )
-        .unwrap();
-        let z = d.line_impedances(&line).unwrap();
-        [d.beta_sq(), d.beta(), z.z_pi, z.z_pv.unwrap()]
+        let m = &set.modes[0];
+        let z = shipped_lossy_line_impedances(mesh, e, m, k0, &line)
+            .unwrap()
+            .unwrap();
+        [m.beta_sq, m.beta, z.z_pi, z.z_pv.unwrap()]
     };
     let set = solve(&f.mesh, &eps);
     assert_eq!(set.n_propagating, 1);
@@ -409,6 +408,13 @@ fn lossy_microstrip_fd_tan_delta_eps_and_geometry() {
     println!(
         "lossy: β = {:.6e}, Z_PI = {:.4}, warnings {:?}",
         s.beta, ln.value.z_pi, s.warnings
+    );
+    // The module's evaluator is the shipped one on this lossy face.
+    let base = forward(&f.mesh, &eps);
+    assert!(rel(ln.value.z_pi, base[2]) <= 1e-9, "lossy Z_PI evaluator");
+    assert!(
+        rel(ln.value.z_pv.unwrap(), base[3]) <= 1e-9,
+        "lossy Z_PV evaluator"
     );
     let steps = [1e-4 * er, 1e-4 * td.max(1e-3), 1e-4, 1e-4];
     println!("| param | quantity | adjoint | central FD | rel err |");
@@ -766,7 +772,10 @@ fn degenerate_cluster_is_a_typed_error_with_an_fd_validated_invariant() {
     println!("split pair: gap {:?}, warnings {:?}", d.gap(), d.warnings());
     assert!(matches!(
         d.warnings().first(),
-        Some(ModeSensitivityWarning::NearDegenerate { nearest: 1, .. })
+        Some(ModeSensitivityWarning::NearDegenerate {
+            nearest: NearestMode::Mode(1),
+            ..
+        })
     ));
 }
 
