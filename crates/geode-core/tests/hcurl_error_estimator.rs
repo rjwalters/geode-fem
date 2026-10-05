@@ -41,9 +41,7 @@ use geode_core::adapt::estimator::{
 use geode_core::analytic::loaded_guide::{LsFamily, SlabLoadedGuide};
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::nedelec::boundary_pec_interior_edges;
-use geode_core::driven::solve::{
-    DrivenBcs, DrivenMaterials, QuadCurrentSource, driven_solve_quad,
-};
+use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, QuadCurrentSource, driven_solve_quad};
 use geode_core::eigen::pec_cavity::{
     PecCavitySettings, assemble_lossless_pencil, solve_pec_cavity_modes,
 };
@@ -173,11 +171,7 @@ fn interpolate(mesh: &TetMesh, e: impl Fn([f64; 3]) -> [c64; 3]) -> Vec<c64> {
             let dl = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
             let mut acc = ZERO;
             for &(s, w) in &GL4 {
-                let x = [
-                    p[0] + s * dl[0],
-                    p[1] + s * dl[1],
-                    p[2] + s * dl[2],
-                ];
+                let x = [p[0] + s * dl[0], p[1] + s * dl[1], p[2] + s * dl[2]];
                 let v = e(x);
                 acc += (v[0] * dl[0] + v[1] * dl[1] + v[2] * dl[2]) * w;
             }
@@ -297,7 +291,11 @@ fn driven_cube_level(n: usize, s: f64) -> DrivenLevel {
     )
     .expect("driven solve");
     let solve_s = t0.elapsed().as_secs_f64();
-    assert!(sol.residual_rel < 1e-9, "solve residual {}", sol.residual_rel);
+    assert!(
+        sol.residual_rel < 1e-9,
+        "solve residual {}",
+        sol.residual_rel
+    );
 
     let space = HcurlSpace::build(&mesh, ElementOrder::P1);
     let f = move |_: usize, x: [f64; 3]| [ZERO, ZERO, c(amp * psi(x))];
@@ -413,8 +411,14 @@ fn golden5_driven_unit_invariance() {
              theta rel diff {d_theta:.2e}, kh_max {:.6} vs {:.6}",
             a.eta_rel, b.eta_rel, a.estimate.kh_max, b.estimate.kh_max
         );
-        assert!(d_rel <= 1e-10, "n={n}: eta_rel not unit-invariant: {d_rel:e}");
-        assert!(d_theta <= 1e-10, "n={n}: theta not unit-invariant: {d_theta:e}");
+        assert!(
+            d_rel <= 1e-10,
+            "n={n}: eta_rel not unit-invariant: {d_rel:e}"
+        );
+        assert!(
+            d_theta <= 1e-10,
+            "n={n}: theta not unit-invariant: {d_theta:e}"
+        );
         let d_kh = (a.estimate.kh_max - b.estimate.kh_max).abs() / a.estimate.kh_max;
         assert!(d_kh <= 1e-10, "kh_max not unit-invariant: {d_kh:e}");
     }
@@ -651,7 +655,10 @@ fn golden5_eigen_unit_invariance() {
             "golden5 eigen m={m}: eta_rel {:.12e} vs transported {:.12e} (rel diff {d_rel:.2e})",
             a.eta_rel, est.eta_rel
         );
-        assert!(d_rel <= 1e-10, "m={m}: eta_rel not unit-invariant: {d_rel:e}");
+        assert!(
+            d_rel <= 1e-10,
+            "m={m}: eta_rel not unit-invariant: {d_rel:e}"
+        );
 
         let s_solve = 3e-6;
         let b = box_level(m, s_solve);
@@ -794,7 +801,13 @@ fn golden3b_normal_jump_is_load_bearing_for_gradient_errors() {
         let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
         let space = HcurlSpace::build(&mesh, ElementOrder::P1);
         let eps: Vec<c64> = (0..mesh.n_tets())
-            .map(|t| if centroid(&mesh, t)[0] < 0.5 { c(4.0) } else { c(1.0) })
+            .map(|t| {
+                if centroid(&mesh, t)[0] < 0.5 {
+                    c(4.0)
+                } else {
+                    c(1.0)
+                }
+            })
             .collect();
         let nu = vec![1.0; mesh.n_tets()];
         let v = mesh
@@ -919,9 +932,8 @@ fn golden4_exactness() {
         .expect("estimate");
         let en = est.energy_norm;
         let cmp = &est.components;
-        let interior = (cmp.volume + cmp.divergence + cmp.tangential_jump + cmp.normal_jump)
-            .sqrt()
-            / en;
+        let interior =
+            (cmp.volume + cmp.divergence + cmp.tangential_jump + cmp.normal_jump).sqrt() / en;
         eprintln!(
             "golden4 b={with_b}: eta_rel={:.3e}, interior terms / ||E_h||_E = {interior:.3e}",
             est.eta_rel
@@ -1018,9 +1030,16 @@ fn golden6_coverage_counts_uncovered_faces() {
     // Uncovered faces contribute no term: the same estimate with those faces
     // PEC is identical.
     let pec = |_: [u32; 3]| BoundaryFaceKind::Pec;
-    let est_pec =
-        estimate_hcurl(&EstimatorInput::new(&mesh, &space, &x, c(4.0), &eps, &nu, &pec))
-            .expect("estimate");
+    let est_pec = estimate_hcurl(&EstimatorInput::new(
+        &mesh,
+        &space,
+        &x,
+        c(4.0),
+        &eps,
+        &nu,
+        &pec,
+    ))
+    .expect("estimate");
     assert_eq!(est.eta, est_pec.eta);
 }
 
@@ -1107,7 +1126,11 @@ fn golden7_thick_l_localisation() {
         est.coverage
     );
     assert!(est.coverage.natural_faces > 0 && est.coverage.pec_faces > 0);
-    assert!(frac >= 0.5, "only {:.1}% of the top-5% tets at the re-entrant edge", 100.0 * frac);
+    assert!(
+        frac >= 0.5,
+        "only {:.1}% of the top-5% tets at the re-entrant edge",
+        100.0 * frac
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1125,7 +1148,11 @@ fn periodic_cube_matches_doubled_cube() {
     let field = |p: [f64; 3]| {
         let s = (2.0 * PI * p[0]).sin();
         let co = (2.0 * PI * p[0]).cos();
-        [c(s * p[1] + 0.3), c(co * p[2] * p[2]), c64::new(s * p[1] * p[2], co)]
+        [
+            c(s * p[1] + 0.3),
+            c(co * p[2] * p[2]),
+            c64::new(s * p[1] * p[2], co),
+        ]
     };
     let f = |_: usize, p: [f64; 3]| [c((2.0 * PI * p[0]).cos()), c(p[1]), ZERO];
     let div_f = |_: usize, p: [f64; 3]| c(-2.0 * PI * (2.0 * PI * p[0]).sin());
@@ -1206,7 +1233,10 @@ fn periodic_cube_matches_doubled_cube() {
         }
     }
     eprintln!("periodic: worst per-tet term difference / max eta_T² = {worst:.2e}");
-    assert!(worst <= 1e-10, "periodic torus differs from the doubled cube: {worst:e}");
+    assert!(
+        worst <= 1e-10,
+        "periodic torus differs from the doubled cube: {worst:e}"
+    );
 }
 
 /// p=2 readiness: a p=1 solution injected into a p=2 space
@@ -1245,7 +1275,8 @@ fn p1_field_in_p2_space_gives_the_same_estimate() {
     let eps = vec![c(1.0); mesh.n_tets()];
     let nu = vec![1.0; mesh.n_tets()];
     let amp = PI * PI;
-    let f = move |_: usize, x: [f64; 3]| [ZERO, ZERO, c(amp * (PI * x[0]).sin() * (PI * x[1]).sin())];
+    let f =
+        move |_: usize, x: [f64; 3]| [ZERO, ZERO, c(amp * (PI * x[0]).sin() * (PI * x[1]).sin())];
     let div_f = |_: usize, _: [f64; 3]| ZERO;
     let src = VolumeSource {
         f: &f,
@@ -1312,7 +1343,6 @@ fn vtu_export_writes_per_tet_indicators() {
     let _ = std::fs::remove_file(&path);
 }
 
-
 /// Wall time on the largest in-repo fixture (`transmon_smoke.msh`, about
 /// 133k tets), next to the assembly of the curl-curl / mass pencil on the
 /// same mesh. The issue asks for "the same order or less". Recorded on
@@ -1338,7 +1368,13 @@ fn estimator_wall_time_on_largest_fixture() {
     let nu = vec![1.0; n_tets];
     let natural = |_: [u32; 3]| BoundaryFaceKind::Natural;
     let est = estimate_hcurl(&EstimatorInput::new(
-        mesh, &space, &x, c(1e-4), &eps, &nu, &natural,
+        mesh,
+        &space,
+        &x,
+        c(1e-4),
+        &eps,
+        &nu,
+        &natural,
     ))
     .expect("estimate");
     let estimator_s = t1.elapsed().as_secs_f64();

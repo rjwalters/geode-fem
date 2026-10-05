@@ -14,6 +14,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### `geode-core`
 
+- **A-posteriori error estimator for H(curl)** (#840, Epic #835 Phase 1). The new `adapt::estimator::estimate_hcurl` estimates the error of a driven or eigen solution with an explicit residual estimator. It takes the solution's `HcurlSpace`, the DOF vector, `k²` and per-tet `ε` / `ν`. It returns:
+  - a per-tet indicator `η_T²` and a per-tet breakdown (volume, divergence, tangential jump, normal jump, natural boundary, plus a reserved `p_surplus` that stays 0 until #836 Phase 5a);
+  - the global `η` and the unit-invariant `eta_rel = η / ‖E_h‖_E`, with an empirical effectivity range (`VALIDATED_EFFECTIVITY`, θ ∈ [3.5, 7.0]) and `error_bracket()`;
+  - points per wavelength, with a `pre_asymptotic` flag below 6;
+  - a coverage report. It counts Leontovich, Silver-Müller, port and UPML regions by kind instead of silently ignoring them.
+
+  Material interfaces need no special case, because jumps are taken between per-tet coefficients. Periodic face pairs (`paired_face`, the hook for #837/#839) are treated as interior on the torus. `write_estimate_vtu` exports the indicators as VTU cell data, so you can see in ParaView where to refine.
+  - The estimator is order-generic: a p=1 field injected into a p=2 space gives the same η to round-off. Only p=1 is validated.
+  - On the 133k-tet `transmon_smoke` fixture the estimator takes 0.49 s, against 1.39 s to assemble the pencil.
+  - New test target: `hcurl_error_estimator`. Measured effectivity θ = η / ‖E − E_h‖_E:
+    - driven manufactured cube: 6.50–6.85 over n = 4, 8, 16, and η converges at rate 0.95;
+    - PEC box cavity: 6.22–6.36;
+    - a gradient error at an ε = 4 : 1 interface: 3.72–3.92.
+- **`adapt::goal::GoalFunctional`**, the goal-functional trait shared with the differentiable-EDA epic (#841). It provides `value`, `rhs` (the adjoint load, with no assumed symmetry) and `is_linear`. `LinearGoal` is a reference implementation. Goal-oriented (DWR) estimation itself is #835 Phase 4.
 - **Order-pluggable H(curl) space** (#838, Epic #836 Phase 1a). `assembly::hcurl_space::HcurlSpace::build(mesh, order)` owns the DOF layout. It provides:
   - per-entity DOF counts;
   - the per-tet gather and its orientation;

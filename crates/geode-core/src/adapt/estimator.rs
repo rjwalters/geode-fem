@@ -167,10 +167,7 @@ pub const PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH: f64 = 6.0;
 /// can fall outside it. The `ε_r = 4` slab-loaded cavity has no analytic
 /// field in the test target, so it only checks that the eigenvalue ratio
 /// `(|λ_h − λ|/λ)/η_rel²` stays constant (spread 1.02).
-pub const VALIDATED_EFFECTIVITY: EffectivityRange = EffectivityRange {
-    min: 3.5,
-    max: 7.0,
-};
+pub const VALIDATED_EFFECTIVITY: EffectivityRange = EffectivityRange { min: 3.5, max: 7.0 };
 
 /// A range `[min, max]` of the effectivity index `θ = η / ‖E − E_h‖_E`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -376,7 +373,10 @@ impl BoundaryKinds {
 
     /// The kind of the face `face` (any node order).
     pub fn kind(&self, face: [u32; 3]) -> BoundaryFaceKind {
-        self.map.get(&sorted3(face)).copied().unwrap_or(self.default)
+        self.map
+            .get(&sorted3(face))
+            .copied()
+            .unwrap_or(self.default)
     }
 }
 
@@ -1032,8 +1032,7 @@ pub fn estimate_hcurl(input: &EstimatorInput<'_>) -> Result<ErrorEstimate, Estim
                     pair.translation
                 )));
             }
-            if !(pair.phase.re.is_finite() && pair.phase.im.is_finite())
-                || pair.phase.norm() == 0.0
+            if !(pair.phase.re.is_finite() && pair.phase.im.is_finite()) || pair.phase.norm() == 0.0
             {
                 return Err(bad(format!(
                     "phase must be finite and non-zero (got {})",
@@ -1484,7 +1483,9 @@ mod tests {
                     let got: f64 = TRI_RULE_DEG5
                         .iter()
                         .map(|r| {
-                            r[3] * r[0].powi(aa as i32) * r[1].powi(bb as i32) * r[2].powi(cc as i32)
+                            r[3] * r[0].powi(aa as i32)
+                                * r[1].powi(bb as i32)
+                                * r[2].powi(cc as i32)
                         })
                         .sum();
                     let want = 2.0 * fact(aa) * fact(bb) * fact(cc) / fact(aa + bb + cc + 2);
@@ -1548,9 +1549,8 @@ mod tests {
                 de[0][1] - de[1][0],
             ];
             let curl = field.curl_e_at(t, b);
-            let dc: [[c64; 3]; 3] = std::array::from_fn(|d| {
-                central_diff(|bb| field.curl_e_at(t, bb), b, grad, d, 0.2)
-            });
+            let dc: [[c64; 3]; 3] =
+                std::array::from_fn(|d| central_diff(|bb| field.curl_e_at(t, bb), b, grad, d, 0.2));
             let div_curl = dc[0][0] + dc[1][1] + dc[2][2];
             let scale = curl.iter().map(|v| v.norm()).fold(0.0, f64::max).max(1.0);
             for d in 0..3 {
