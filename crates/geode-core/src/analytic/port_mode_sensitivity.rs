@@ -124,9 +124,13 @@
 //!   (`ε″ = 0`) a negative `ε″` (gain) flips the branch, so `∂β`, `∂Z` with
 //!   respect to `ε″` / `tan δ` are the **passive-side** (`ε″ → 0⁺`)
 //!   derivatives there; `∂β²` is analytic and two-sided.
-//! * Out of scope here, named: the 3-D S gradient through hybrid ports
-//!   (Epic #841 Phase 3b), CLI observables (Phase 5b), dispersive-model
-//!   parameter chains (Phase 2a), the p=2 face pencil (Epic #836).
+//! * The 3-D S gradient through hybrid ports (Epic #841 Phase 3b, issue
+//!   #872) composes this module in [`crate::driven::s_sensitivity`]
+//!   through [`HybridModeDerivative::face_flux`],
+//!   [`HybridModeDerivative::face_flux_tangent`] and
+//!   [`HybridModeDerivative::face_flux_vjp`]. Out of scope here, named: CLI
+//!   observables (Phase 5b), dispersive-model parameter chains (Phase 2a),
+//!   the p=2 face pencil (Epic #836).
 //!
 //! # Cost
 //!

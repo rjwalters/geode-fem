@@ -1,8 +1,10 @@
 //! **N-port S-matrix sensitivities** (Epic #841 Phase 1, issue #842):
 //! `∂S_qp/∂θ` for every entry of the power-normalized S matrix of a
-//! lumped, wave (geometric or filled), mixed or walled driven spec, with
-//! respect to per-region material `ε′`, `ε″` and node-motion (shape)
-//! columns, FD-validated.
+//! lumped, wave (geometric or filled), mixed, walled or hybrid
+//! (microstrip / stripline) driven spec, with respect to per-region
+//! material `ε′`, `ε″` and node-motion (shape) columns, FD-validated —
+//! including designs that **touch a hybrid port face** (Phase 3b, issue
+//! #872; see *Hybrid port faces θ touches* below).
 //!
 //! # The forward this differentiates
 //!
@@ -79,6 +81,64 @@
 //!   `(q, p)` pair. PEC nodes may move (the PEC mask is X-independent);
 //!   port faces and walls must stay pinned (see the fences below).
 //!
+//! # Hybrid port faces θ touches (Phase 3b, issue #872)
+//!
+//! A hybrid port's channels come from the 2-D mode `z` of its face
+//! ([`crate::driven::ports::HybridWavePort`], re-solved and tracked per
+//! ω), with `y = β` and the modal flux `f̂ = S_p κ w̃`. When θ touches the
+//! face — a design region whose tets the face reads its `ε` from
+//! ([`crate::driven::ports::HybridPortFace::tet_of_tri`]), or a shape column
+//! that moves face nodes — `u_c = f̂_c` and `y_c = β_c` depend on θ, and the
+//! identity above gains, for every channel `c` of the touched port,
+//!
+//! ```text
+//! ∂(u_kᵀx_p) ⊃ ∂u_kᵀx_p + d_p λ_kᵀ∂u_p − Σ_c j y_c [(λ_kᵀ∂u_c)(u_cᵀx_p) + (λ_kᵀu_c)(∂u_cᵀx_p)]
+//! ```
+//!
+//! (readout, drive, and the SMW term), while `∂y_c = ∂β_c = ∂β²/(2β)`
+//! enters the existing Robin, drive and power-weight terms. The flux is
+//! `f̂ = σF/β` with `F = (B_full z)_t = M₁ẽ_t + Gẽ_z` (`S_p ≡ M₁` on the
+//! face edges, `G = M₁D`; `σ = ±1` the tracking sign, recovered by matching
+//! the forward's own flux and checked to 1e-9) for the Phase 3a
+//! normalization `zᵀBz = β²`, so
+//!
+//! ```text
+//! ∂f̂ = σ[(∂B z)_t + (B y)_t + c F]/β − f̂ ∂β/β,      ∂z = y + c z,
+//! ```
+//!
+//! with the **mode-shape** term `y` (one bordered back-solve,
+//! [`crate::analytic::port_mode_sensitivity::HybridModeDerivative::face_flux_tangent`]),
+//! the **normalization** terms `c z` and `−f̂ ∂β/β`, and the explicit
+//! face-geometry term `(∂B z)_t` (the moving face's own Whitney mass and
+//! coupling, exact dual-number kernels). Each of the three families has a
+//! mutation tripwire. The VJP folds the flux terms into one face cotangent
+//! per channel and one bordered back-solve
+//! ([`crate::analytic::port_mode_sensitivity::HybridModeDerivative::face_flux_vjp`]),
+//! independent of the parameter count.
+//!
+//! * **Material** on the face: the face triangles whose tet is in a design
+//!   region follow its `ε′` (`∂ε = 1`) and `ε″` (`∂ε = −j`); a lossy,
+//!   conducting (`ε − jσ/ω`) or dispersive face runs the complex-symmetric
+//!   Phase 3a path. `tan δ` at fixed `ε′` is the chain `ε′·∂/∂ε″`.
+//! * **Shape** on the face: the face motion is the in-plane trace
+//!   `(V·u, V·v)` of the same column that moves the volume, so the 2-D
+//!   face terms and #842's volume terms see one geometry (a strip width or
+//!   substrate height extruded through a section moves the port faces and
+//!   the tets next to them together). A uniform normal component (a rigid
+//!   shift of the port plane) leaves the 2-D problem unchanged; a
+//!   non-uniform one would bend the face and is a typed error.
+//! * **Degenerate clusters** (e.g. the #817 even / odd TEM pair of a
+//!   homogeneous coupled line): a per-channel derivative is
+//!   basis-dependent, so a touched port whose channels lie in an exactly
+//!   degenerate cluster is [`SSensitivityError::DegenerateCluster`] (the
+//!   cluster-invariant `∂(mean β²)` is
+//!   [`crate::analytic::port_mode_sensitivity::cluster_sensitivity`] on
+//!   the face); a near-degenerate mode is differentiated and reported in
+//!   [`SSensitivityPoint::port_mode_warnings`]. A mesh-induced complex-pair
+//!   termination member is an [`SSensitivityError::Unsupported`].
+//! * **Tracking** is a discrete assignment with no derivative: the
+//!   derivative is that of the channel the forward tracked at each ω.
+//!
 //! # JVP, VJP and the dual fields
 //!
 //! [`s_matrix_sensitivity_sweep`] returns the full `∂S/∂θ` table (JVP, for
@@ -97,13 +157,19 @@
 //! Every unsupported combination is an [`SSensitivityError::Unsupported`]
 //! naming the phase that lifts it, never a silently wrong gradient:
 //!
-//! * a shape column that moves a **wave-port** face node (Phase 3b), a
+//! * a shape column that moves a **geometric wave-port** face node (its
+//!   modes are fixed user profiles; use a hybrid port for a moving face), a
 //!   **lumped-port** face node (N-port moving feeds: follow-on; one moving
 //!   feed is [`crate::driven::shape::driven_shape_gradient_moving_port_s11`])
 //!   or a **`surfaces`** wall node (Phase 2b);
-//! * a **hybrid** port whose face bounds a design-region tet or carries a
-//!   moving node (Phase 3); an untouched hybrid port is admitted (its modes
-//!   are θ-independent);
+//! * a shape column that **bends** a hybrid port face out of its plane, a
+//!   complex-pair termination member or the `transverse_only_flux` tripwire
+//!   on a touched hybrid port, and an exactly degenerate cluster on a
+//!   touched hybrid port ([`SSensitivityError::DegenerateCluster`]); a
+//!   touched face built without a tet map (its `ε` cannot follow the region)
+//!   and a `port_fill` binding on a hybrid port are
+//!   [`SSensitivityError::InvalidDesign`] (Phase 3b, issue #872; every other
+//!   touched hybrid face is differentiated);
 //! * non-scalar materials ([`DrivenMaterials::DiagTensor`] /
 //!   [`DrivenMaterials::MatchedUpml`]) and anisotropic (`μ ≠ 1`) fills of a
 //!   bound port (Phase 2a); `∂/∂σ` is Phase 2a (σ is allowed in the forward);
@@ -540,8 +606,8 @@ pub struct SDesign {
     ///
     /// For a bound, lossless (`ε″ = 0`) propagating port the `ε″` derivative
     /// is the one-sided passive-side derivative (see
-    /// [`SParam::EpsDoublePrime`]). Binding a hybrid port is the Phase 3
-    /// error.
+    /// [`SParam::EpsDoublePrime`]). Binding a hybrid port is an invalid
+    /// design: its modes follow its face `ε` on their own (Phase 3b).
     pub port_fill: Vec<Option<usize>>,
 }
 
