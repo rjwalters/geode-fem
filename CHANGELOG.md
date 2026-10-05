@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - points per wavelength, with a `pre_asymptotic` flag below 6;
   - a coverage report. It counts Leontovich, Silver-Müller, port and UPML regions by kind instead of silently ignoring them.
 
-  Material interfaces need no special case, because jumps are taken between per-tet coefficients. Periodic face pairs (`paired_face`, the hook for #837/#839) are treated as interior on the torus. `write_estimate_vtu` exports the indicators as VTU cell data, so you can see in ParaView where to refine.
+  Material interfaces need no special case, because jumps are taken between per-tet coefficients. Faces paired by the mesh's `PeriodicMap` (#839, `EstimatorInput::with_periodic_map`) are treated as interior on the torus. A lower-level `paired_face` closure takes Floquet phases. `write_estimate_vtu` exports the indicators as VTU cell data, so you can see in ParaView where to refine.
   - The estimator is order-generic: a p=1 field injected into a p=2 space gives the same η to round-off. Only p=1 is validated.
   - On the 133k-tet `transmon_smoke` fixture the estimator takes 0.49 s, against 1.39 s to assemble the pencil.
   - New test target: `hcurl_error_estimator`. Measured effectivity θ = η / ‖E − E_h‖_E:

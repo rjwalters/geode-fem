@@ -21,7 +21,8 @@
 //! 7. Localisation (soft): the largest indicators sit at the re-entrant edge
 //!    of a thick-L prism.
 //!
-//! Plus: `ν`/`ε`/`f` co-scaling homogeneity, the periodic-pair hook (a zero-phase periodic cube equals the
+//! Plus: `ν`/`ε`/`f` co-scaling homogeneity, periodic faces from a real
+//! `PeriodicMap` (a zero-phase periodic cube equals the
 //! doubled cube cell by cell), p=2 readiness (a p=1 field injected into a
 //! p=2 space gives the same estimate), and the VTU export.
 //!
@@ -51,6 +52,7 @@ use geode_core::eigen::pec_cavity::{
 };
 use geode_core::elements::ElementOrder;
 use geode_core::elements::nedelec_p2::tet_quad_deg4;
+use geode_core::mesh::periodic::{PeriodicMap, PeriodicMatchOptions, box_periodic_pairs};
 use geode_core::mesh::{TetMesh, read_transmon_smoke_fixture};
 use geode_core::testing::TestBackend;
 
@@ -1528,6 +1530,10 @@ fn golden7_thick_l_localisation() {
 /// `[0, 2] × [0, 1]²` carrying the same 1-periodic field: a torus tet that
 /// touches `x = 0` is compared with its image in `[1, 2]` (whose `x = 1` face
 /// is interior there), every other tet with itself.
+///
+/// The torus is built from a real [`PeriodicMap`] (#839). The lower-level
+/// `paired_face` closure (the Floquet hook), given the same zero-phase
+/// pairing, must produce a bit-identical estimate.
 #[test]
 fn periodic_cube_matches_doubled_cube() {
     let n = 3;
@@ -1546,7 +1552,12 @@ fn periodic_cube_matches_doubled_cube() {
     let natural = |_: [u32; 3]| BoundaryFaceKind::Natural;
 
     // Torus.
-    let torus = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let mut torus = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let pairs = box_periodic_pairs(&torus, &[0]);
+    let map = PeriodicMap::build(&mut torus, &pairs, &PeriodicMatchOptions::default())
+        .expect("periodic map");
+    assert_eq!(map.report().n_snapped(), 0, "box_mesh faces match exactly");
+    let torus = torus;
     let pair = |face: [u32; 3]| -> Option<FacePairing> {
         let xs: Vec<f64> = face.iter().map(|&v| torus.nodes[v as usize][0]).collect();
         if xs.iter().all(|&x| x.abs() < 1e-12) {
@@ -1569,17 +1580,21 @@ fn periodic_cube_matches_doubled_cube() {
     let x_t = interpolate(&torus, field);
     let eps_t = vec![c(1.0); torus.n_tets()];
     let nu_t = vec![1.0; torus.n_tets()];
-    let est_t = estimate_hcurl(
-        &EstimatorInput::new(&torus, &space_t, &x_t, k2, &eps_t, &nu_t, &natural)
-            .with_source(VolumeSource {
-                f: &f,
-                div_f: &div_f,
-            })
-            .with_paired_face(&pair),
-    )
-    .expect("torus estimate");
+    let src = VolumeSource {
+        f: &f,
+        div_f: &div_f,
+    };
+    let torus_input =
+        EstimatorInput::new(&torus, &space_t, &x_t, k2, &eps_t, &nu_t, &natural).with_source(src);
+    let est_t = estimate_hcurl(&torus_input.with_periodic_map(&map)).expect("torus estimate");
     assert_eq!(est_t.coverage.periodic_faces, 2 * 2 * n * n);
     assert_eq!(est_t.coverage.natural_faces, 4 * 2 * n * n);
+    let est_c = estimate_hcurl(&torus_input.with_paired_face(&pair)).expect("closure estimate");
+    assert_eq!(est_c.coverage, est_t.coverage);
+    assert_eq!(
+        est_c.eta_t2, est_t.eta_t2,
+        "the PeriodicMap and paired_face paths must agree exactly"
+    );
 
     // Doubled cube.
     let doubled = box_mesh([2 * n, n, n], [2.0, 1.0, 1.0], [0.0; 3], |_, _, _| true);

@@ -125,14 +125,16 @@
 //! ([`EstimateComponents::p_surplus`], #836 Phase 5a) are Epic #835 Phase 7
 //! decisions.
 //!
-//! # Periodic faces (hook for #837 / #839)
+//! # Periodic faces (#837 / #839)
 //!
-//! [`EstimatorInput::paired_face`] maps a boundary face to its periodic
-//! image ([`FacePairing`]). A paired face is **interior on the torus**: its
-//! jump terms are taken against the aliased neighbour across the pair
-//! (with the Floquet phase), never as a boundary term. The closure has the
-//! shape of #837's `PeriodicMap::paired_face`; until #839 lands, callers
-//! (and the test target) supply a local pair map.
+//! Pass the mesh's [`PeriodicMap`] with
+//! [`EstimatorInput::with_periodic_map`]. Every face that
+//! [`PeriodicMap::paired_face`] pairs is **interior on the torus**: its jump
+//! terms are taken against the aliased neighbour across the pair, never as
+//! a boundary term. `PeriodicMap` is zero-phase (#839 Phase 1). For a
+//! Floquet phase, use the lower-level [`EstimatorInput::paired_face`]
+//! closure instead, which returns a [`FacePairing`] with its phase. Give one
+//! or the other, not both.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
@@ -144,6 +146,7 @@ use crate::assembly::hcurl_space::{HcurlSpace, TetOrientation};
 use crate::elements::nedelec_p2::{
     TET_NEDELEC2_DOFS, tet_barycentric_gradients, tet_nedelec2_shapes, tet_quad_deg4,
 };
+use crate::mesh::periodic::PeriodicMap;
 use crate::mesh::{TET_LOCAL_EDGES, TetMesh};
 
 /// Below this many points per wavelength the estimate is flagged
@@ -222,8 +225,9 @@ impl std::fmt::Debug for VolumeSource<'_> {
     }
 }
 
-/// The periodic image of a boundary face (the shape of #837's
-/// `PeriodicMap::paired_face`).
+/// The periodic image of a boundary face, as returned by the
+/// [`EstimatorInput::paired_face`] closure. [`PeriodicMap::paired_face`]
+/// gives the same data at zero phase.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FacePairing {
     /// The image face as a node triple (any order). It must be a boundary
@@ -269,8 +273,14 @@ pub struct EstimatorInput<'a> {
     pub source: Option<VolumeSource<'a>>,
     /// Classifies a boundary face, given as its sorted node triple.
     pub boundary_kind: &'a (dyn Fn([u32; 3]) -> BoundaryFaceKind + Sync),
-    /// Optional periodic pairing of boundary faces (sorted triple → image).
-    /// A paired face is treated as interior on the torus.
+    /// Optional periodic map of the mesh (zero-phase). Every face it pairs
+    /// is treated as interior on the torus. Must be the map `mesh` was
+    /// matched with.
+    pub periodic_map: Option<&'a PeriodicMap>,
+    /// Optional lower-level periodic pairing of boundary faces (sorted
+    /// triple → image, with a Floquet phase). A paired face is treated as
+    /// interior on the torus. Use it only when a phase is needed; it is
+    /// exclusive with [`EstimatorInput::periodic_map`].
     pub paired_face: Option<&'a (dyn Fn([u32; 3]) -> Option<FacePairing> + Sync)>,
     /// Optional per-tet UPML flag (counted in the coverage report).
     pub upml_tet: Option<&'a [bool]>,
@@ -283,6 +293,7 @@ impl std::fmt::Debug for EstimatorInput<'_> {
             .field("order", &self.space.order())
             .field("k2", &self.k2)
             .field("source", &self.source.is_some())
+            .field("periodic_map", &self.periodic_map.is_some())
             .field("paired_face", &self.paired_face.is_some())
             .finish_non_exhaustive()
     }
@@ -310,6 +321,7 @@ impl<'a> EstimatorInput<'a> {
             nu,
             source: None,
             boundary_kind,
+            periodic_map: None,
             paired_face: None,
             upml_tet: None,
         }
@@ -327,7 +339,15 @@ impl<'a> EstimatorInput<'a> {
         self
     }
 
-    /// Set the periodic face pairing.
+    /// Set the mesh's periodic map: every face it pairs is interior on the
+    /// torus (zero phase).
+    pub fn with_periodic_map(mut self, map: &'a PeriodicMap) -> Self {
+        self.periodic_map = Some(map);
+        self
+    }
+
+    /// Set a lower-level periodic face pairing with Floquet phases
+    /// (exclusive with [`EstimatorInput::with_periodic_map`]).
     pub fn with_paired_face(
         mut self,
         paired: &'a (dyn Fn([u32; 3]) -> Option<FacePairing> + Sync),
@@ -655,8 +675,26 @@ pub enum EstimatorError {
         /// Its claimed image.
         image: [u32; 3],
     },
-    /// A periodic pairing has a non-finite translation or a zero /
-    /// non-finite phase.
+    /// The periodic map was built on a different mesh.
+    #[error(
+        "the periodic map was built on a mesh with {map_nodes} nodes / {map_faces} faces, \
+         but the estimator was given {mesh_nodes} nodes / {mesh_faces} faces"
+    )]
+    PeriodicMapMismatch {
+        /// Nodes of the map's mesh.
+        map_nodes: usize,
+        /// Faces of the map's mesh.
+        map_faces: usize,
+        /// Nodes of the given mesh.
+        mesh_nodes: usize,
+        /// Faces of the given mesh.
+        mesh_faces: usize,
+    },
+    /// Both a periodic map and a `paired_face` closure were given.
+    #[error("give either a periodic map or a paired_face closure, not both")]
+    ConflictingPeriodicInputs,
+    /// A periodic pairing has a non-finite translation, a zero /
+    /// non-finite phase, or an unsupported (non-translational) transform.
     #[error("periodic pairing of face {face:?} is invalid: {detail}")]
     InvalidPairing {
         /// The paired face (sorted).
@@ -1066,7 +1104,28 @@ pub fn estimate_hcurl(input: &EstimatorInput<'_>) -> Result<ErrorEstimate, Estim
         }
 
         // Boundary face: periodic image first, then the caller's kind.
-        if let Some(pair) = input.paired_face.and_then(|pf| pf(face)) {
+        let pairing = match input.periodic_map {
+            Some(map) => match map.paired_face(gf) {
+                Some((g, transform)) => match transform.translation() {
+                    Some(translation) => Some(FacePairing {
+                        image: faces[g],
+                        translation,
+                        phase: c64::new(1.0, 0.0),
+                    }),
+                    None => {
+                        return Err(EstimatorError::InvalidPairing {
+                            face,
+                            detail: format!(
+                                "unsupported (non-translational) transform {transform:?}"
+                            ),
+                        });
+                    }
+                },
+                None => None,
+            },
+            None => input.paired_face.and_then(|pf| pf(face)),
+        };
+        if let Some(pair) = pairing {
             let image = sorted3(pair.image);
             let bad = |detail: String| EstimatorError::InvalidPairing { face, detail };
             if !pair.translation.iter().all(|v| v.is_finite()) {
@@ -1264,6 +1323,19 @@ fn validate(input: &EstimatorInput<'_>) -> Result<(), EstimatorError> {
         }
     };
     len("x", input.x.len(), space.n_dofs())?;
+    if let Some(map) = input.periodic_map {
+        if input.paired_face.is_some() {
+            return Err(EstimatorError::ConflictingPeriodicInputs);
+        }
+        if !map.matches_mesh(mesh) || map.n_faces() != space.faces().len() {
+            return Err(EstimatorError::PeriodicMapMismatch {
+                map_nodes: map.n_nodes(),
+                map_faces: map.n_faces(),
+                mesh_nodes: mesh.n_nodes(),
+                mesh_faces: space.faces().len(),
+            });
+        }
+    }
     len("eps", input.eps.len(), n_tets)?;
     len("nu", input.nu.len(), n_tets)?;
     if let Some(d) = input.eps_diag {
@@ -1672,6 +1744,24 @@ mod tests {
         assert!(matches!(
             estimate_hcurl(&paired),
             Err(EstimatorError::PairedFaceNotOnBoundary { .. })
+        ));
+
+        // A periodic map of another mesh, and a map plus a closure.
+        let mut periodic = cube_tet_mesh(3, 1.0);
+        let pairs = crate::mesh::periodic::box_periodic_pairs(&periodic, &[0]);
+        let map = PeriodicMap::build(
+            &mut periodic,
+            &pairs,
+            &crate::mesh::periodic::PeriodicMatchOptions::default(),
+        )
+        .expect("periodic map");
+        assert!(matches!(
+            estimate_hcurl(&ok.with_periodic_map(&map)),
+            Err(EstimatorError::PeriodicMapMismatch { .. })
+        ));
+        assert!(matches!(
+            estimate_hcurl(&paired.with_periodic_map(&map)),
+            Err(EstimatorError::ConflictingPeriodicInputs)
         ));
     }
 }
