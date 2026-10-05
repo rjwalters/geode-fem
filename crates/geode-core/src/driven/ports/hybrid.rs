@@ -2102,6 +2102,68 @@ pub fn solve_hybrid_port_face_sweep(
     Ok(HybridFaceSweep { report, warnings })
 }
 
+/// One frequency's `(reported, termination)` channels of a hybrid port.
+pub(crate) type ChannelsAt = (Vec<ChanAt>, Vec<ChanAt>);
+
+/// The per-frequency channels of **one** hybrid port over a fixed-material
+/// sweep: for every `omegas[i]` (tracked in ascending order, returned in input
+/// order) the `(reported, termination)` channel lists exactly as
+/// [`solve_mixed_port_spec_sweep_with_mode`] builds them for that port —
+/// same state, same face `ε` (incl. the `ε − jσ/ω` of a conducting face,
+/// #807), same validation. Used by the N-port S-matrix sensitivity
+/// ([`crate::driven::s_sensitivity`], issue #842), which composes the
+/// channels with its own volume solve; the spec sweeps themselves are
+/// unchanged.
+pub(crate) fn hybrid_port_channel_sweep(
+    mesh: &TetMesh,
+    edges: &[[u32; 2]],
+    port: &HybridWavePort,
+    index: usize,
+    omegas: &[f64],
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+) -> Result<Vec<ChannelsAt>, DrivenError> {
+    check_face_matches_volume(port, materials, index)?;
+    let conducting = face_conducts(port, sigma_tet);
+    if conducting && !matches!(materials, DrivenMaterials::Scalar(_)) {
+        return Err(DrivenError::InvalidPort {
+            index,
+            reason: "a hybrid port face on a conducting (σ > 0) volume needs a scalar \
+                     (isotropic) volume permittivity: the face sees the complex ε − jσ/ω of the \
+                     tets it bounds"
+                .to_string(),
+        });
+    }
+    let mut state = new_hybrid_state(mesh, edges, port, index, omegas, conducting)?;
+    let mut order: Vec<usize> = (0..omegas.len()).collect();
+    order.sort_by(|&a, &b| omegas[a].total_cmp(&omegas[b]));
+    let mut out: Vec<Option<ChannelsAt>> = (0..omegas.len()).map(|_| None).collect();
+    for (step, &oi) in order.iter().enumerate() {
+        let omega = omegas[oi];
+        let chans = match &mut state {
+            PortState::Hybrid(hs) => hs.channels_at(port, index, omega, oi, step == 0)?,
+            PortState::Lossy(ls) => {
+                let face_eps: Option<Vec<c64>> = match (conducting, sigma_tet, materials) {
+                    (true, Some(sig), DrivenMaterials::Scalar(base)) => Some(
+                        base.iter()
+                            .zip(sig)
+                            .map(|(&e, &sg)| e - c64::new(0.0, sg / omega))
+                            .collect(),
+                    ),
+                    _ => None,
+                };
+                ls.channels_at(port, index, omega, oi, step == 0, face_eps.as_deref())?
+            }
+            PortState::Geometric { .. } => unreachable!("a hybrid port state"),
+        };
+        out[oi] = Some(chans);
+    }
+    Ok(out
+        .into_iter()
+        .map(|c| c.expect("every frequency tracked"))
+        .collect())
+}
+
 /// The [`PortWarningKind::MultiplicityUncertified`] warning of port `p_idx`
 /// (shared by the real and the lossy path).
 pub(super) fn multiplicity_warning(
@@ -2176,11 +2238,11 @@ pub(super) fn cluster_warning(p_idx: usize, kind: PortWarningKind) -> PortWarnin
 
 /// One modal channel at one frequency: sparse full-length flux, `β`,
 /// admittance factor `y`, and the drive (`None`: termination only).
-pub(super) struct ChanAt {
-    pub(super) beta: c64,
-    pub(super) y: c64,
-    pub(super) a_inc: Option<c64>,
-    pub(super) flux: Vec<(usize, c64)>,
+pub(crate) struct ChanAt {
+    pub(crate) beta: c64,
+    pub(crate) y: c64,
+    pub(crate) a_inc: Option<c64>,
+    pub(crate) flux: Vec<(usize, c64)>,
 }
 
 enum PortState {

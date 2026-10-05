@@ -46,6 +46,7 @@ mod strip_line;
 mod wave;
 mod wave_face;
 
+pub(crate) use hybrid::hybrid_port_channel_sweep;
 pub use hybrid::{
     DEFAULT_MIN_TRACK_OVERLAP, DispersiveEps, FaceConductor, HybridChannelReport,
     HybridComplexLineReport, HybridFaceSweep, HybridLineReport, HybridModalFlux, HybridPortFace,
@@ -65,6 +66,7 @@ pub use lumped::{
 };
 pub use mixed::{MixedPortSweepPoint, solve_mixed_port_sweep_with_mode};
 pub use strip_line::{StripLineSection, strip_line_section};
+pub(crate) use wave::assemble_modal_flux;
 pub use wave::{
     ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMedium, PortMode, WavePort,
     WavePortSweepPoint, extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,

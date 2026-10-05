@@ -41,6 +41,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - the periodic manufactured driven solution converges at energy-norm rate 1.08.
   - Inverse tripwires: PEC instead of periodic misses the closed form by 64 %; forcing `σ = +1` on a renumbered mesh, or dropping corner chaining, breaks the kernel count.
 
+- **N-port S-matrix sensitivities** (#842, Epic #841 Phase 1). `driven::s_sensitivity::s_matrix_sensitivity_sweep` returns `∂S_qp/∂θ` for every entry of the power-wave S matrix of a lumped, geometric wave, filled wave, mixed lumped + wave, walled (Leontovich / rough / Silver-Müller) or untouched-hybrid spec. `s_matrix_vjp` returns `dg/dθ` for a real `g(S)` from the same contraction.
+  - Parameters are per-region `ε′` / `ε″` (`MaterialDesign`, bindable to named volume groups), node-motion shape columns with the port faces and walls pinned (`ShapeDesign`: a `FreeformBoundaryMorph`, or `from_group_translations` of named surface groups with named pinned groups), and filled ports whose medium follows a design region (`SDesign::port_fill`, through `∂y/∂ε_t = k₀²/(2β)`).
+  - On the complex-symmetric operator the readout adjoint is the forward field already solved (`λ_q = x_q/d_q`), so all N² gradients cost no extra solve and one factorization per ω. `OperatorSymmetry::General` does explicit transpose solves on the same LU instead, for the Bloch-periodic case (#837).
+  - The forward, dual fields and drive / readout scales are returned (`SAdjointFields`) for goal-oriented error estimation (#835 Phase 4).
+  - Unsupported combinations are typed errors that name the phase that lifts them: moving port faces or walls, touched hybrid ports, non-scalar materials and magnetic fills, iterative solvers, p=2 spaces, and a region on an unbound port face.
+  - Validated against central FD through the public forwards (worst relative error 4e-9 against a 1e-4 bar), with five mutation tripwires that each miss FD by 0.3 or more.
+- `DrivenLinearSolver::back_solve_transpose`: a transpose back-solve on the cached LU (direct path only).
+
 ### Changed
 
 - `cube_pec_interior_p2_dofs` is now a wrapper over the face-exact `HcurlSpace` mask. It gives the same mask as before on boxes (#838).
