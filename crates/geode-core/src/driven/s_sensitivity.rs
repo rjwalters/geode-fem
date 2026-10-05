@@ -127,7 +127,7 @@ use burn::tensor::backend::Backend;
 use faer::c64;
 
 use crate::assembly::hcurl_space::HcurlSpace;
-use crate::driven::ports::mixed::{ModalSmw, dot_t};
+use crate::driven::ports::mixed::{ModalSmw, PowerWeights, dot_t};
 use crate::driven::ports::{
     LumpedPort, WavePort, WavePortSpec, assemble_modal_flux, assemble_port_flux,
     hybrid_port_channel_sweep,
@@ -172,6 +172,11 @@ pub enum SSensitivityError {
     /// port fill, a region map of the wrong length, …).
     #[error("invalid S-matrix sensitivity design: {0}")]
     InvalidDesign(String),
+    /// An internal consistency check failed (the sensitivity's forward
+    /// ingredients disagree with the driven operator's). A bug, not a user
+    /// error: please report it.
+    #[error("S-matrix sensitivity internal consistency check failed: {0}")]
+    Internal(String),
 }
 
 /// How the adjoint (transpose) solves are obtained (issue #842's explicit
@@ -365,6 +370,11 @@ impl ShapeDesign {
     /// re-meshing and refinement (Epic #841, #835 interface item 2): rebuild
     /// the design from the same names on the new mesh.
     ///
+    /// **Cost.** One harmonic column per moving group node and axis:
+    /// `3 × (group nodes)` right-hand sides on a single Laplace
+    /// factorization. Fine at fixture scale; for large groups this should
+    /// become one Dirichlet solve per group (a follow-on).
+    ///
     /// # Errors
     ///
     /// [`SSensitivityError::InvalidDesign`] for an unknown or empty group, a
@@ -481,6 +491,11 @@ pub struct SDesign {
     /// [`crate::driven::ports::PortMedium::eps_t`] must equal that region's
     /// `ε` (it follows the region, as the CLI's port medium does, #777).
     /// Shorter than `wave` means unbound for the rest.
+    ///
+    /// For a bound, lossless (`ε″ = 0`) propagating port the `ε″` derivative
+    /// is the one-sided passive-side derivative (see
+    /// [`SParam::EpsDoublePrime`]). Binding a hybrid port is the Phase 3
+    /// error.
     pub port_fill: Vec<Option<usize>>,
 }
 
@@ -495,6 +510,14 @@ pub enum SParam {
         region: usize,
     },
     /// `ε″` (`ε = ε′ − jε″`) of material region `region`.
+    ///
+    /// **One-sided at `ε″ = 0` on a filled port.** When the region fills a
+    /// propagating port ([`SDesign::port_fill`]), the forward's outgoing
+    /// branch flips `β → −β` for `ε″ < 0`, so S is not differentiable in
+    /// `ε″` at a lossless fill. The adjoint returns the **passive-side**
+    /// (`ε″ → 0⁺`) derivative — the correct one on the feasible set
+    /// `ε″ ≥ 0`. A central finite difference at `ε″ = 0` straddles the kink
+    /// and will not agree; check against a one-sided `+h` difference.
     EpsDoublePrime {
         /// Region index ([`MaterialDesign::names`]).
         region: usize,
@@ -875,6 +898,35 @@ fn unsupported(
         phase,
         hint: hint.into(),
     }
+}
+
+/// The derivative's lumped drive scale `d_k` must reproduce the operator's
+/// own matched-source RHS, `b_k = d_k·u_k` (relative 1e-14): a change to the
+/// forward's lumped drive is then a loud error here, not a silent gradient
+/// drift.
+fn check_drive(
+    k: usize,
+    omega: f64,
+    b: &[c64],
+    u: &[c64],
+    d: c64,
+) -> Result<(), SSensitivityError> {
+    let (mut err2, mut nrm2) = (0.0_f64, 0.0_f64);
+    for (&bi, &ui) in b.iter().zip(u) {
+        err2 += (bi - d * ui).norm_sqr();
+        nrm2 += bi.norm_sqr();
+    }
+    let rel = (err2 / nrm2.max(f64::MIN_POSITIVE)).sqrt();
+    if b.len() != u.len() || rel.is_nan() || rel > 1e-14 {
+        return Err(SSensitivityError::Internal(format!(
+            "lumped port {k} at ω = {omega}: the operator's drive b_k differs from d_k·u_k \
+             (rel {rel:.3e}, lengths {} / {}); the sensitivity forward has drifted from \
+             DrivenOperator::assemble_b_at",
+            b.len(),
+            u.len()
+        )));
+    }
+    Ok(())
 }
 
 fn sorted3(t: [u32; 3]) -> [u32; 3] {
@@ -1413,37 +1465,50 @@ impl<'n> Prepared<'n> {
         let mut bs = |b: &[c64], x: &mut [c64]| solver.back_solve(b, x).map(|r| r.iters);
         let smw = ModalSmw::prepare(&fluxes, &ys, n_int, omega, &mut bs, &mut iters)?;
 
-        // Channel scales: u, d, ρ, W, V (module docs table).
-        let sqrt_omega = omega.sqrt();
+        // Channel scales: u, d, ρ, W, V (module docs table). The excitation
+        // RHS, `√R`, `V_inc` and the incident waves come from the mixed
+        // sweep's own helpers / operator accessors (so the forward cannot
+        // drift from `solve_mixed_port_sweep_with_mode`); `d_p` is kept only
+        // for the derivative and is checked against the operator's drive.
+        let weights = PowerWeights::new(&self.op, nl, &ys[..n_rep], omega);
         let mut u: Vec<&[c64]> = Vec::with_capacity(n);
+        let mut rhs: Vec<Vec<c64>> = Vec::with_capacity(n);
         let mut drive = Vec::with_capacity(n);
         let mut readout = Vec::with_capacity(n);
         let mut weight = Vec::with_capacity(n);
         let mut v_inc = Vec::with_capacity(n);
+        let mut a_tilde = Vec::with_capacity(n);
         for (k, port) in self.net.lumped.iter().enumerate() {
             u.push(&self.lumped_u[k]);
             let z_s = port.surface_impedance();
-            drive.push(c64::new(0.0, 2.0 * omega / z_s) * (port.v_inc * (1.0 / port.length)));
+            let d = c64::new(0.0, 2.0 * omega / z_s) * (port.v_inc * (1.0 / port.length));
+            let b = self.op.assemble_b_at(omega, Some(k));
+            check_drive(k, omega, &b, &self.lumped_u[k], d)?;
+            rhs.push(b);
+            drive.push(d);
             readout.push(c64::new(1.0 / port.width, 0.0));
-            weight.push(c64::new(1.0 / port.resistance.sqrt(), 0.0));
-            v_inc.push(port.v_inc);
+            weight.push(c64::new(1.0 / weights.sqrt_r[k], 0.0));
+            let v = self.op.port_v_inc(k);
+            v_inc.push(v);
+            a_tilde.push(v / weights.sqrt_r[k]);
         }
-        for ch in chans.iter().take(n_rep) {
+        for (c, ch) in chans.iter().take(n_rep).enumerate() {
             let a_inc = ch.a_inc.expect("reported");
+            let d = c64::new(0.0, 2.0) * ch.y * a_inc;
             u.push(&ch.flux);
-            drive.push(c64::new(0.0, 2.0) * ch.y * a_inc);
+            rhs.push(ch.flux.iter().map(|&f| f * d).collect());
+            drive.push(d);
             readout.push(c64::new(1.0, 0.0));
-            weight.push(ch.y.sqrt() / sqrt_omega);
+            weight.push(weights.wave_weight[c]);
             v_inc.push(a_inc);
+            a_tilde.push(a_inc * weights.wave_weight[c]);
         }
-        let a_tilde: Vec<c64> = v_inc.iter().zip(&weight).map(|(v, w)| v * w).collect();
 
         // Forward: one SMW solve per excitation.
         let mut xs = Vec::with_capacity(n);
         let mut residual_rel = 0.0_f64;
-        for p in 0..n {
-            let b: Vec<c64> = u[p].iter().map(|&f| f * drive[p]).collect();
-            let x = smw.solve(&fluxes, &b, &mut bs, &mut iters)?;
+        for b in &rhs {
+            let x = smw.solve(&fluxes, b, &mut bs, &mut iters)?;
             let mut ax = vec![zero; n_int];
             solver.spmv_a(&x, &mut ax);
             for (f, &y) in fluxes.iter().zip(&ys) {
@@ -1455,7 +1520,7 @@ impl<'n> Prepared<'n> {
                     *a += fr * scaled;
                 }
             }
-            let (r2, b2) = ax.iter().zip(&b).fold((0.0, 0.0), |(r, nb), (&a, &bb)| {
+            let (r2, b2) = ax.iter().zip(b).fold((0.0, 0.0), |(r, nb), (&a, &bb)| {
                 (r + (a - bb).norm_sqr(), nb + bb.norm_sqr())
             });
             if b2 > 0.0 {
@@ -1464,7 +1529,9 @@ impl<'n> Prepared<'n> {
             xs.push(x);
         }
 
-        // S (row-major): S_kp = (ρ_k u_kᵀx_p − δ V_p) W_k / ã_p.
+        // S (row-major): S_kp = (ρ_k u_kᵀx_p − δ V_p) W_k / ã_p, in the
+        // operation order of the mixed sweep's `s_column` (lumped rows
+        // divide by `√R`, wave rows multiply by `√y/√ω`).
         let mut s = vec![zero; n * n];
         for k in 0..n {
             for p in 0..n {
@@ -1472,7 +1539,11 @@ impl<'n> Prepared<'n> {
                 if k == p {
                     out -= v_inc[p];
                 }
-                s[k * n + p] = out * weight[k] / a_tilde[p];
+                s[k * n + p] = if k < nl {
+                    (out / weights.sqrt_r[k]) / a_tilde[p]
+                } else {
+                    (out * weight[k]) / a_tilde[p]
+                };
             }
         }
 

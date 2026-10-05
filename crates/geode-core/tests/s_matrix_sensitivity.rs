@@ -186,13 +186,43 @@ fn label(sw: &SSensitivitySweep, i: usize) -> String {
     }
 }
 
+/// The forward-parity bar: the sensitivity module's own S against the
+/// corresponding public sweep's S, every ω.
+const PARITY_TOL: f64 = 1e-12;
+
+/// **Forward parity** (the drift guard): the sensitivity module re-runs the
+/// forward itself, and a forward change that shifts S by a θ-independent
+/// amount would leave every FD row green. So the sensitivity's S must equal
+/// the public sweep's S (`base`, per ω, row-major) to [`PARITY_TOL`] at
+/// every ω. Prints a `PARITY |` row and returns the worst relative error.
+fn assert_forward_parity(spec: &str, sw: &SSensitivitySweep, base: &[Vec<c64>]) -> f64 {
+    assert_eq!(sw.points.len(), base.len(), "{spec}: ω count");
+    let mut worst = 0.0_f64;
+    for (pt, s) in sw.points.iter().zip(base) {
+        assert_eq!(pt.s.len(), s.len(), "{spec}: S size at ω = {}", pt.omega);
+        worst = worst.max(rel_err(&pt.s, s));
+    }
+    eprintln!("PARITY | {spec} | S vs the public sweep | rel = {worst:.2e}");
+    assert!(
+        worst <= PARITY_TOL,
+        "{spec}: the sensitivity forward drifted from the public sweep (rel {worst:.3e})"
+    );
+    worst
+}
+
 /// Central FD of the forward `fwd(param, h)` (per ω, row-major S) for every
 /// parameter of `sw`, compared with the adjoint table. Returns the worst
 /// relative error per parameter and prints an `FD |` row each.
+///
+/// First asserts [forward parity](assert_forward_parity): `fwd(θ₀, 0)` is
+/// the unperturbed public forward, so every FD fixture is also a parity
+/// fixture.
 fn fd_check<F>(spec: &str, sw: &SSensitivitySweep, fwd: F) -> Vec<f64>
 where
     F: Fn(SParam, f64) -> Vec<Vec<c64>>,
 {
+    let base = fwd(sw.params[0], 0.0);
+    assert_forward_parity(spec, sw, &base);
     (0..sw.params.len())
         .map(|i| {
             let plus = fwd(sw.params[i], H);
@@ -597,11 +627,6 @@ fn geometric_wave_ports_material_matches_fd() {
         surfaces: &[],
     };
     let sw = s_matrix_sensitivity_sweep::<B>(&net, &omegas, &design, &opts(), &device()).unwrap();
-    // The sensitivity's own S is the public forward's.
-    let base = wave_forward(&g, &eps, &ports, &omegas, &[], None, &g.mesh);
-    for (pt, s) in sw.points.iter().zip(&base) {
-        assert!(rel_err(&pt.s, s) < 1e-11, "S vs the wave forward");
-    }
     let errs = fd_check("2 wave ports (geometric)", &sw, |prm, h| {
         let e = shift_eps(&eps, &regions, prm, h);
         wave_forward(&g, &e, &ports, &omegas, &[], None, &g.mesh)
@@ -906,9 +931,11 @@ fn mixed_lumped_and_wave_full_table_matches_fd() {
     let sw = mixed_sens(&m, &omegas, &opts());
     let pt = &sw.points[0];
     let base = mixed_forward(&m, &omegas, SParam::Shape { column: 0 }, 0.0);
-    let s_err = rel_err(&pt.s, &base[0]);
-    eprintln!("sensitivity S vs the public mixed forward: rel {s_err:.2e}");
-    assert!(s_err < 1e-12);
+    assert_forward_parity("mixed lumped + 2-mode wave (explicit)", &sw, &base);
+    eprintln!(
+        "sensitivity S vs the public mixed forward: bit-identical = {}",
+        pt.s == base[0]
+    );
     for e in fd_check("mixed lumped + 2-mode wave", &sw, |prm, h| {
         mixed_forward(&m, &omegas, prm, h)
     }) {
@@ -1249,16 +1276,24 @@ fn untouched_hybrid_ports_are_admitted_and_touched_ones_rejected() {
         .map(|p| p.s)
         .collect()
     };
-    let base = fwd(&eps);
-    assert!(
-        rel_err(&sw.points[0].s, &base[0]) < 1e-11,
-        "S vs the hybrid spec sweep"
-    );
     for e in fd_check("2 hybrid ports (untouched)", &sw, |prm, h| {
         fwd(&shift_eps(&eps, &regions, prm, h))
     }) {
         assert!(e <= TOL, "rel_err {e}");
     }
+
+    // A port_fill binding on a hybrid port: Phase 3.
+    let bound = SDesign {
+        port_fill: vec![Some(0)],
+        ..design.clone()
+    };
+    let err =
+        s_matrix_sensitivity_sweep::<B>(&net, &omegas, &bound, &opts(), &device()).unwrap_err();
+    eprintln!("port_fill on a hybrid port: {err}");
+    assert!(
+        matches!(err, SSensitivityError::Unsupported { ref feature, phase, .. }
+            if phase.contains("Phase 3") && feature.contains("port_fill"))
+    );
 
     // A region reaching port 1's face: Phase 3.
     let touching: Vec<Option<usize>> = (0..mesh.n_tets())
@@ -1273,6 +1308,113 @@ fn untouched_hybrid_ports_are_admitted_and_touched_ones_rejected() {
     assert!(
         matches!(err, SSensitivityError::Unsupported { phase, .. } if phase.contains("Phase 3"))
     );
+}
+
+/// **Forward-only parity on a conducting hybrid face.** The slab guide of
+/// the untouched-hybrid test with a conducting block (`σ > 0`) on the tets
+/// bounding port 1's face only (port 2 stays non-conducting), and the design
+/// region in the air away from both faces. Port 1's channels then take the
+/// lossy per-ω `ε − jσ/ω` face path that `hybrid_port_channel_sweep`
+/// duplicates (keyed per port, where the spec sweep keys on any port), so
+/// the sensitivity's S must equal `solve_wave_port_spec_sweep_with_mode`'s at
+/// every ω. No FD: this guards the duplicated forward, not the gradient.
+#[test]
+fn conducting_hybrid_face_forward_matches_the_spec_sweep() {
+    let g = guide();
+    let mesh = &g.mesh;
+    let eps_real: Vec<f64> = (0..mesh.n_tets())
+        .map(|t| {
+            if centroid(mesh, t)[1] < 0.5 {
+                2.25
+            } else {
+                1.0
+            }
+        })
+        .collect();
+    let eps: Vec<c64> = eps_real.iter().map(|&e| c64::new(e, 0.0)).collect();
+    // σ on the first cell layer (bounding port 1's face, z = 0) only.
+    let sigma: Vec<f64> = (0..mesh.n_tets())
+        .map(|t| {
+            if centroid(mesh, t)[2] < LEN / NZ as f64 {
+                0.3
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let regions: Vec<Option<usize>> = (0..mesh.n_tets())
+        .map(|t| {
+            let c = centroid(mesh, t);
+            (c[2] > 0.3 && c[2] < 0.9 && c[1] > 0.5).then_some(0)
+        })
+        .collect();
+    assert!(
+        regions
+            .iter()
+            .zip(&sigma)
+            .all(|(r, &s)| r.is_none() || s == 0.0),
+        "the σ block must stay off the design region"
+    );
+    let specs: Vec<WavePortSpec> = [&g.port1_faces, &g.port2_faces]
+        .iter()
+        .map(|faces| {
+            WavePortSpec::from(
+                HybridWavePort::new(
+                    HybridPortFace::from_volume(mesh, faces, &eps_real).unwrap(),
+                    vec![c64::new(1.0, 0.0)],
+                )
+                .with_opts(HybridWavePortOpts {
+                    accuracy: None,
+                    ..Default::default()
+                }),
+            )
+        })
+        .collect();
+    let mask = g.pec_interior_mask();
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mask,
+    };
+    let space = HcurlSpace::build(mesh, ElementOrder::P1);
+    let net = SNetwork {
+        space: &space,
+        mesh,
+        materials: DrivenMaterials::Scalar(&eps),
+        sigma_tet: Some(&sigma),
+        bcs: &bcs,
+        lumped: &[],
+        wave: &specs,
+        surfaces: &[],
+    };
+    let design = SDesign {
+        material: Some(MaterialDesign::from_regions(regions, vec!["air block".into()]).unwrap()),
+        ..SDesign::default()
+    };
+    let omegas = [1.7, 1.9];
+    let sw = s_matrix_sensitivity_sweep::<B>(&net, &omegas, &design, &opts(), &device()).unwrap();
+    let public = solve_wave_port_spec_sweep_with_mode::<B>(
+        mesh,
+        DrivenMaterials::Scalar(&eps),
+        Some(&sigma),
+        &bcs,
+        &specs,
+        &[],
+        &omegas,
+        SolverMode::Direct,
+        &device(),
+    )
+    .unwrap();
+    let base: Vec<Vec<c64>> = public.points.into_iter().map(|p| p.s).collect();
+    // The conducting face really is lossy: |S11|² + |S21|² < 1.
+    for pt in &sw.points {
+        let n = pt.n_ports;
+        let col0: f64 = (0..n).map(|k| pt.s[k * n].norm_sqr()).sum();
+        eprintln!(
+            "conducting hybrid face at ω = {}: Σ_k |S_k1|² = {col0:.6}",
+            pt.omega
+        );
+        assert!(col0 < 1.0 - 1e-6, "the σ block must make port 1 lossy");
+    }
+    assert_forward_parity("2 hybrid ports, conducting face on port 1", &sw, &base);
 }
 
 // ---------------------------------------------------------------------------
