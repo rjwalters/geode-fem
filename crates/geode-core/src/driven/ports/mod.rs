@@ -59,6 +59,7 @@ pub use hybrid_z::{
     DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD, ImpedanceAccuracy, ImpedanceEstimate, LineImpedance,
     MAX_IMPEDANCE_RATE, MIN_IMPEDANCE_RATE, SINGULAR_IMPEDANCE_RATE,
 };
+pub(crate) use hybrid::hybrid_port_channel_sweep;
 pub use lumped::{
     LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
     port_voltage,
@@ -71,6 +72,7 @@ pub use wave::{
     map_mode_profile_to_full_mesh, solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
     waveguide_mode_reduce,
 };
+pub(crate) use wave::assemble_modal_flux;
 pub use wave_face::{
     GuideAxialMesh, GuideScan, PLANARITY_REL_TOL, PortFaceError, PortFaceProjection,
     TM_GUARD_AXIAL_COEFF, TM_GUARD_MARGIN, TM_GUARD_MEASURED_KH, TM_GUARD_REACH_CUTOFF_WAVELENGTHS,

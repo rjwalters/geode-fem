@@ -3160,6 +3160,43 @@ impl<'a, B: Backend> DrivenLinearSolver<'a, B> {
         }
     }
 
+    /// Back-substitute an interior-length RHS through the **transpose**
+    /// `A(ω)ᵀ` of the cached factorization (`Aᵀ out = b`), with no new
+    /// factorization — the explicit adjoint solve of issue #842 (Epic #841).
+    ///
+    /// The driven pencil assembled today is complex-symmetric (`Aᵀ = A`),
+    /// so this equals [`Self::back_solve`] up to round-off; it exists so
+    /// adjoint consumers do not hard-wire that symmetry (a Bloch-periodic
+    /// operator, #837, has `A(k)ᵀ = A(−k) ≠ A(k)`).
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::Solve`] on the iterative and matrix-free paths
+    /// (COCG has no transpose solve; adjoints stay direct-LU, Epic #841
+    /// non-goal), or on a back-substitution failure.
+    pub fn back_solve_transpose(&self, b: &[c64], out: &mut [c64]) -> Result<(), DrivenError> {
+        assert_eq!(b.len(), self.op.n_interior, "b length mismatch");
+        assert_eq!(out.len(), self.op.n_interior, "out length mismatch");
+        match &self.backend {
+            SolverBackend::Direct { lu } => {
+                use faer::linalg::solvers::Solve;
+                let mut work = faer::Mat::<c64>::from_fn(b.len(), 1, |i, _| b[i]);
+                lu.solve_transpose_in_place(work.as_mut());
+                for (i, o) in out.iter_mut().enumerate() {
+                    *o = work[(i, 0)];
+                }
+                Ok(())
+            }
+            SolverBackend::Iterative { .. } | SolverBackend::MatrixFree { .. } => {
+                Err(DrivenError::Solve(
+                    "transpose (adjoint) back-solve needs SolverMode::Direct: the Krylov paths \
+                     have no transpose solve"
+                        .to_string(),
+                ))
+            }
+        }
+    }
+
     /// Compute `out = A(ω) · x` using the cached sparse `A(ω)` — the
     /// iterative analog of [`FactoredDrivenOperator::spmv_a`], shared
     /// across both backends (the matrix is the same).
