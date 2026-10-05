@@ -3,7 +3,7 @@
 //!
 //! This module is the home of the adaptive-meshing epic. Phase 1 (issue
 //! #840) ships the error **estimator** and Phase 2 (issue #860) the
-//! conforming **refinement**; nothing here drives a solve loop yet.
+//! conforming **refinement**; Phase 3 (issue #868) the adaptive **loop**.
 //!
 //! - [`estimator`]: the explicit residual a-posteriori error estimator for
 //!   the H(curl) driven and eigen problems. It returns a per-tet indicator
@@ -23,8 +23,16 @@
 //!   (#835 Phase 4) will consume. Only the trait and a linear reference goal
 //!   exist here; DWR itself is not implemented.
 //!
-//! The planned siblings (`driver`, `dwr`) arrive with Epic #835 Phases 3–4.
+//! - [`driver`]: the adaptive loop (issue #868, Phase 3): solve → estimate
+//!   → Dörfler mark → bisect on the driven and eigen paths, with the DOF
+//!   budget measured after the conformity closure, honest stopping reasons
+//!   and a per-iteration history ([`driver::adapt_driven`],
+//!   [`driver::adapt_eigen`], and [`driver::adapt_with`] for custom
+//!   solvers).
+//!
+//! The planned sibling `dwr` arrives with Epic #835 Phase 4.
 
+pub mod driver;
 pub mod estimator;
 pub mod goal;
 pub mod refine;
