@@ -74,8 +74,8 @@
 
 use std::collections::HashMap;
 
-use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 use faer::sparse::linalg::solvers::Lu;
+use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 use faer::{Mat, c64};
 
 use crate::assembly::hcurl_space::HcurlSpace;
@@ -326,7 +326,11 @@ impl GradientNullSpace {
                 Col::Node(n) => {
                     for &e in &incident[*n] {
                         // v = hat_n: W_e coefficient v_b − v_a, (a < b).
-                        let coeff = if edges[e][1] as usize == *n { 1.0 } else { -1.0 };
+                        let coeff = if edges[e][1] as usize == *n {
+                            1.0
+                        } else {
+                            -1.0
+                        };
                         debug_assert_ne!(w_row[e], usize::MAX);
                         col.push((w_row[e], coeff));
                     }

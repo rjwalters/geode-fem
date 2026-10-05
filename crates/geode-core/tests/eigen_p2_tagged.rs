@@ -134,7 +134,13 @@ fn box_mesh(n: [usize; 3], len: [f64; 3]) -> TetMesh {
 /// Jitter every node strictly inside the box by up to `amp` per axis
 /// (the walls stay flat, and any node on the plane `keep_plane = (axis,
 /// value)` stays on it).
-fn jitter(mesh: &mut TetMesh, len: [f64; 3], amp: f64, seed: u64, keep_plane: Option<(usize, f64)>) {
+fn jitter(
+    mesh: &mut TetMesh,
+    len: [f64; 3],
+    amp: f64,
+    seed: u64,
+    keep_plane: Option<(usize, f64)>,
+) {
     let mut rng = Lcg(seed);
     for p in mesh.nodes.iter_mut() {
         let inside = (0..3).all(|d| p[d] > 1e-12 && p[d] < len[d] - 1e-12);
@@ -261,7 +267,13 @@ fn box_errors(mesh: &TetMesh, order: ElementOrder) -> ([f64; 3], usize, usize) {
     let exact = box_exact();
     let walls = box_walls(mesh, BOX);
     let eps = vec![1.0; mesh.n_tets()];
-    let (_, _, sol) = solve(mesh, order, &eps, &refs(&walls), &settings(0.8 * exact[0], 3));
+    let (_, _, sol) = solve(
+        mesh,
+        order,
+        &eps,
+        &refs(&walls),
+        &settings(0.8 * exact[0], 3),
+    );
     let got: Vec<f64> = sol.modes.modes.iter().map(|m| m.lambda).collect();
     assert_eq!(got.len(), 3);
     let errs = std::array::from_fn(|i| (got[i] - exact[i]).abs() / exact[i]);
@@ -473,7 +485,13 @@ fn golden2_slab_loaded_cavity_rates() {
         for &m in &ms {
             let (mesh, eps) = slab_mesh(m, 0x5_1ab + m as u64);
             let walls = box_walls(&mesh, SLAB);
-            let (_, _, sol) = solve(&mesh, order, &eps, &refs(&walls), &settings(0.9 * lambda, 3));
+            let (_, _, sol) = solve(
+                &mesh,
+                order,
+                &eps,
+                &refs(&walls),
+                &settings(0.9 * lambda, 3),
+            );
             let got = sol
                 .modes
                 .modes
@@ -533,10 +551,11 @@ fn golden3a_uniform_lossy_fill_exact_q_at_p2() {
             assert!((q - q_exact).abs() < 1e-7 * q_exact, "Q {q} vs {q_exact}");
         }
         let worst = sol.max_gradient_fraction.expect("p=2 runs the classifier");
-        assert!(worst < 1e-6, "gradient fraction of a physical mode {worst:e}");
-        eprintln!(
-            "golden3a tanδ={tan_d}: Q exact {q_exact:.6}, max gradient fraction {worst:.2e}"
+        assert!(
+            worst < 1e-6,
+            "gradient fraction of a physical mode {worst:e}"
         );
+        eprintln!("golden3a tanδ={tan_d}: Q exact {q_exact:.6}, max gradient fraction {worst:.2e}");
     }
 }
 
@@ -559,7 +578,8 @@ fn golden3b_leontovich_walls_vs_pozar_q() {
     let sigma_c = 2.0e5;
     let r_s = (k / (2.0 * sigma_c)).sqrt();
     let (a, d, b) = (BOX[0], BOX[1], BOX[2]);
-    let q_pozar = (k * a * d).powi(3) * b / (2.0 * PI * PI * r_s)
+    let q_pozar = (k * a * d).powi(3) * b
+        / (2.0 * PI * PI * r_s)
         / (2.0 * a.powi(3) * b + 2.0 * b * d.powi(3) + a.powi(3) * d + a * d.powi(3));
     eprintln!("golden3b R_s = {r_s:.4e}, Pozar Q_c = {q_pozar:.4}");
     let mut rel_err = [[0.0; 2]; 2];
@@ -611,9 +631,16 @@ fn golden3b_leontovich_walls_vs_pozar_q() {
     }
     // p=2 at m=2 within 1 % of Pozar (first order in R_s), and closer than
     // p=1 on the same mesh.
-    assert!(rel_err[1][1].abs() < 0.01, "p=2 Q off Pozar by {}", rel_err[1][1]);
+    assert!(
+        rel_err[1][1].abs() < 0.01,
+        "p=2 Q off Pozar by {}",
+        rel_err[1][1]
+    );
     for row in &rel_err {
-        assert!(row[1].abs() < row[0].abs(), "p=2 not closer than p=1: {row:?}");
+        assert!(
+            row[1].abs() < row[0].abs(),
+            "p=2 not closer than p=1: {row:?}"
+        );
     }
     let pull_pozar = -1.0 / (2.0 * q_pozar);
     eprintln!(
@@ -667,9 +694,7 @@ fn golden4_exact_null_count_dense_tripwire() {
     let gmsh = fixture("pec_box_lc03.msh");
     let gmsh_walls: Vec<Vec<[u32; 3]>> = ["x0", "x1", "y0", "y1", "z0"]
         .iter()
-        .map(|n| {
-            gmsh.triangles_with_tag(gmsh.physical_group_tag(2, n).expect("group"))
-        })
+        .map(|n| gmsh.triangles_with_tag(gmsh.physical_group_tag(2, n).expect("group")))
         .collect();
     let cases: Vec<(&str, &TetMesh, Vec<Vec<[u32; 3]>>)> = vec![
         ("all-PEC jittered cube", &jc, box_walls(&jc, cube)),
@@ -746,7 +771,10 @@ fn golden4b_classifier_filters_nulls_alone() {
         sol.modes.n_null_filtered,
         sol.modes.modes.iter().map(|m| m.lambda).collect::<Vec<_>>()
     );
-    assert!(classified >= 1, "the null cluster should surface at this shift");
+    assert!(
+        classified >= 1,
+        "the null cluster should surface at this shift"
+    );
     assert!(classified <= sol.gradient_null.dim);
     for (md, &e) in sol.modes.modes.iter().zip(&exact) {
         assert!((md.lambda - e).abs() / e < 0.05, "λ {} vs {e}", md.lambda);
@@ -805,7 +833,8 @@ fn golden5a_london_dlambda_dlambda_l_fd_at_p2() {
         };
         let hf = sens.deigenvalue_dlambda_l(&top, ll).unwrap();
         let dl = 1e-4 * ll;
-        let fd = (solve_at(ll + dl).modes.modes[0].lambda - solve_at(ll - dl).modes.modes[0].lambda)
+        let fd = (solve_at(ll + dl).modes.modes[0].lambda
+            - solve_at(ll - dl).modes.modes[0].lambda)
             / (2.0 * dl);
         eprintln!(
             "golden5a p={}: λ = {:.8}, ∂λ/∂λ_L HF {hf:.8e} FD {fd:.8e} rel {:.2e}",
@@ -814,7 +843,12 @@ fn golden5a_london_dlambda_dlambda_l_fd_at_p2() {
             rel(hf, fd)
         );
         assert!(hf < 0.0, "kinetic inductance lowers λ");
-        assert!(rel(hf, fd) < 1e-5, "p={} HF vs FD {}", p(order), rel(hf, fd));
+        assert!(
+            rel(hf, fd) < 1e-5,
+            "p={} HF vs FD {}",
+            p(order),
+            rel(hf, fd)
+        );
     }
 }
 
@@ -882,7 +916,10 @@ fn golden5b_material_frequency_and_shape_fd_at_p2() {
         sol.modes.modes[0].lambda
     };
     let fd = (moved(th) - moved(-th)) / (2.0 * th);
-    eprintln!("golden5b ∂λ/∂θ (x-stretch) HF {hf:.8e} FD {fd:.8e} rel {:.2e}", rel(hf, fd));
+    eprintln!(
+        "golden5b ∂λ/∂θ (x-stretch) HF {hf:.8e} FD {fd:.8e} rel {:.2e}",
+        rel(hf, fd)
+    );
     assert!(rel(hf, fd) < 1e-5);
 }
 
@@ -942,7 +979,9 @@ fn p1_on_space_is_bit_identical_to_the_existing_entry_points() {
     let mask = space.pec_interior_mask(&mesh, &wr).unwrap();
     let exact = box_exact();
     let s = PecCavitySettings::new(0.8 * exact[0], 3);
-    let eps: Vec<f64> = (0..mesh.n_tets()).map(|t| 1.0 + 0.25 * (t % 3) as f64).collect();
+    let eps: Vec<f64> = (0..mesh.n_tets())
+        .map(|t| 1.0 + 0.25 * (t % 3) as f64)
+        .collect();
     let eps_d: Vec<[f64; 3]> = eps.iter().map(|&e| [e, 1.5 * e, e]).collect();
     let nu_d = vec![[1.0, 0.8, 1.2]; mesh.n_tets()];
     for materials in [
@@ -1015,7 +1054,14 @@ fn p1_on_space_is_bit_identical_to_the_existing_entry_points() {
         .iter()
         .map(|&e| [[e, z, z], [z, e * 1.1, z], [z, z, e]])
         .collect();
-    let nu_t = vec![[[c64::new(1.0, 0.0), z, z], [z, c64::new(1.0, 0.0), z], [z, z, c64::new(0.9, 0.0)]]; mesh.n_tets()];
+    let nu_t = vec![
+        [
+            [c64::new(1.0, 0.0), z, z],
+            [z, c64::new(1.0, 0.0), z],
+            [z, z, c64::new(0.9, 0.0)]
+        ];
+        mesh.n_tets()
+    ];
     let ls = LossyCavitySettings::new(0.8 * exact[0], 3);
     for materials in [
         LossyCavityMaterials::Isotropic(&eps_c),
@@ -1049,8 +1095,9 @@ fn p1_on_space_is_bit_identical_to_the_existing_entry_points() {
     // Tagged entry points (Gmsh fixture).
     let tagged = fixture("pec_box_lc02.msh");
     let groups = ["x0", "x1", "y0", "y1", "z0", "z1"];
-    let old = solve_tagged_pec_cavity_modes::<B>(&tagged, &groups, &[("domain", 2.0)], &s, &device())
-        .unwrap();
+    let old =
+        solve_tagged_pec_cavity_modes::<B>(&tagged, &groups, &[("domain", 2.0)], &s, &device())
+            .unwrap();
     let new = solve_tagged_pec_cavity_modes_at_order::<B>(
         &tagged,
         &groups,
@@ -1131,7 +1178,9 @@ fn typed_errors() {
                     lambda_l: 0.1
                 }]
             ),
-            Err(PecCavityError::Assembly(DrivenError::SurfaceNotOnMesh { .. }))
+            Err(PecCavityError::Assembly(
+                DrivenError::SurfaceNotOnMesh { .. }
+            ))
         ));
         // A space built on another mesh.
         let other = box_mesh([2, 2, 2], BOX);
@@ -1146,7 +1195,9 @@ fn typed_errors() {
                 &s,
                 &device(),
             ),
-            Err(PecCavityError::Assembly(DrivenError::SpaceMeshMismatch { .. }))
+            Err(PecCavityError::Assembly(
+                DrivenError::SpaceMeshMismatch { .. }
+            ))
         ));
         // Lossy: walls need a valid reference frequency and a non-singular Z_s.
         let eps_c = vec![c64::new(1.0, 0.0); mesh.n_tets()];

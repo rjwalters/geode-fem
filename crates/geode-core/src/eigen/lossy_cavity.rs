@@ -128,11 +128,11 @@ use burn::tensor::backend::Backend;
 use faer::c64;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
+use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_complex_epsilon_sparse,
     assemble_global_nedelec_with_full_tensors_sparse,
 };
-use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::p1::upload_mesh;
 use crate::eigen::complex::SparseComplexShiftInvertLanczos;
 use crate::eigen::dense::EigenError;

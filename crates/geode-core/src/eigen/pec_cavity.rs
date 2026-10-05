@@ -75,11 +75,11 @@ use burn::tensor::backend::Backend;
 use faer::c64;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
+use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_complex_epsilon_sparse,
     assemble_global_nedelec_with_full_tensors_sparse,
 };
-use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::p1::upload_mesh;
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSource,
