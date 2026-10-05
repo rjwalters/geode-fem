@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - driven manufactured cube: 6.50–6.85 over n = 4, 8, 16, and η converges at rate 0.95;
     - PEC box cavity: 6.22–6.36;
     - a gradient error at an ε = 4 : 1 interface: 3.72–3.92.
+  - Every term and weight has a test that fails if it is removed or mis-weighted. The checks cover each of the five terms, the ½ on interior faces, `1/ν`, and the smaller coefficient taken at interfaces (ε and ν). They include a closed-form golden with ν ≠ 1, complex and anisotropic ε, complex `k²` and `∇·f ≠ 0`.
+  - `summary()` prints the error bracket only on an asymptotic mesh. On a pre-asymptotic mesh it says the bracket does not apply and gives the resolution to refine to. When coverage is incomplete, it says the estimate omits the uncovered boundary terms.
 - **`adapt::goal::GoalFunctional`**, the goal-functional trait shared with the differentiable-EDA epic (#841). It provides `value`, `rhs` (the adjoint load, with no assumed symmetry) and `is_linear`. `LinearGoal` is a reference implementation. Goal-oriented (DWR) estimation itself is #835 Phase 4.
 - **Order-pluggable H(curl) space** (#838, Epic #836 Phase 1a). `assembly::hcurl_space::HcurlSpace::build(mesh, order)` owns the DOF layout. It provides:
   - per-entity DOF counts;

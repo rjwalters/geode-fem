@@ -11,13 +11,17 @@
 //! 2. Eigen: the non-degenerate `(1,1,0)` mode of a `1 × 0.8 × 0.6` PEC box.
 //! 3. Material interface: an `ε_r = 4` slab-loaded PEC cavity, with the
 //!    mutation check that the normal-jump term is load-bearing.
+//!    3c. The same construction with a Whitney edge function: the
+//!    tangential-jump term is load-bearing for curl errors.
 //! 4. Exactness: a field in the discrete space has `η` at round-off.
+//!    4b. Every term and weight against its closed form (`ν ≠ 1`, complex
+//!    anisotropic `ε`, complex `k²`, `∇·f ≠ 0`).
 //! 5. Unit invariance: goldens 1 and 2 with the mesh in µm.
 //! 6. Coverage: uncovered boundary kinds are counted exactly.
 //! 7. Localisation (soft): the largest indicators sit at the re-entrant edge
 //!    of a thick-L prism.
 //!
-//! Plus: the periodic-pair hook (a zero-phase periodic cube equals the
+//! Plus: `ν`/`ε`/`f` co-scaling homogeneity, the periodic-pair hook (a zero-phase periodic cube equals the
 //! doubled cube cell by cell), p=2 readiness (a p=1 field injected into a
 //! p=2 space gives the same estimate), and the VTU export.
 //!
@@ -1813,7 +1817,7 @@ fn nu_eps_source_coscaling_leaves_eta_rel_unchanged() {
         .collect();
     let k2 = c(2.5);
     let kind = |f: [u32; 3]| {
-        if f[0] % 2 == 0 {
+        if f[0].is_multiple_of(2) {
             BoundaryFaceKind::Natural
         } else {
             BoundaryFaceKind::Pec
