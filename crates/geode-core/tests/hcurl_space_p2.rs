@@ -575,7 +575,15 @@ fn prolong_p1_reproduces_the_p1_field_exactly() {
 
 /// The `z = 0` lumped-port fixture of the p=1 voltage readback test plus a
 /// p=2 DOF vector of the same (uniform `ŷ`) field via `prolong_p1`.
-fn lumped_port_p2_fixture() -> (TetMesh, Vec<[u32; 2]>, Vec<[u32; 3]>, Vec<c64>, Vec<c64>) {
+struct LumpedFixture {
+    mesh: TetMesh,
+    edges: Vec<[u32; 2]>,
+    faces: Vec<[u32; 3]>,
+    e_p1: Vec<c64>,
+    e_p2: Vec<c64>,
+}
+
+fn lumped_port_p2_fixture() -> LumpedFixture {
     let mesh = cube_tet_mesh(2, 1.0);
     let edges = mesh.edges();
     let faces: Vec<[u32; 3]> = mesh
@@ -594,7 +602,13 @@ fn lumped_port_p2_fixture() -> (TetMesh, Vec<[u32; 2]>, Vec<[u32; 3]>, Vec<c64>,
         .collect();
     let e_p2 = HcurlSpace::build(&mesh, ElementOrder::P2).prolong_p1(&e_p1);
     assert!(e_p2.len() > e_p1.len());
-    (mesh, edges, faces, e_p1, e_p2)
+    LumpedFixture {
+        mesh,
+        edges,
+        faces,
+        e_p1,
+        e_p2,
+    }
 }
 
 fn y_port(faces: &[[u32; 3]]) -> geode_core::driven::ports::LumpedPort<'_> {
@@ -613,7 +627,13 @@ fn y_port(faces: &[[u32; 3]]) -> geode_core::driven::ports::LumpedPort<'_> {
 /// truncate into a plausible V — now fails loudly.
 #[test]
 fn lumped_port_voltage_accepts_p1_and_rejects_a_p2_vector() {
-    let (mesh, edges, faces, e_p1, _) = lumped_port_p2_fixture();
+    let LumpedFixture {
+        mesh,
+        edges,
+        faces,
+        e_p1,
+        ..
+    } = lumped_port_p2_fixture();
     let v = geode_core::driven::ports::port_voltage(&mesh, &y_port(&faces), &edges, &e_p1);
     assert!((v - c64::new(1.0, 0.0)).norm() < 1e-13, "p=1 readback {v}");
 }
@@ -621,21 +641,39 @@ fn lumped_port_voltage_accepts_p1_and_rejects_a_p2_vector() {
 #[test]
 #[should_panic(expected = "lumped::port_voltage")]
 fn lumped_port_voltage_panics_on_a_p2_vector() {
-    let (mesh, edges, faces, _, e_p2) = lumped_port_p2_fixture();
+    let LumpedFixture {
+        mesh,
+        edges,
+        faces,
+        e_p2,
+        ..
+    } = lumped_port_p2_fixture();
     let _ = geode_core::driven::ports::port_voltage(&mesh, &y_port(&faces), &edges, &e_p2);
 }
 
 #[test]
 #[should_panic(expected = "lumped::port_voltage")]
 fn port_input_impedance_panics_on_a_p2_vector() {
-    let (mesh, edges, faces, _, e_p2) = lumped_port_p2_fixture();
+    let LumpedFixture {
+        mesh,
+        edges,
+        faces,
+        e_p2,
+        ..
+    } = lumped_port_p2_fixture();
     let _ = geode_core::driven::ports::port_input_impedance(&mesh, &y_port(&faces), &edges, &e_p2);
 }
 
 #[test]
 #[should_panic(expected = "lumped::port_voltage")]
 fn extract_port_circuit_panics_on_a_p2_vector() {
-    let (mesh, edges, faces, _, e_p2) = lumped_port_p2_fixture();
+    let LumpedFixture {
+        mesh,
+        edges,
+        faces,
+        e_p2,
+        ..
+    } = lumped_port_p2_fixture();
     let _ =
         geode_core::driven::extraction::extract_port_circuit(&mesh, &y_port(&faces), &edges, &e_p2);
 }
