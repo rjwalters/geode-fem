@@ -698,8 +698,9 @@ fn harmonic_group_motion(
 /// Strip width of strip `k`: `moves = [("strip_k_left", [−½, 0]),
 /// ("strip_k_right", [½, 0])]`, `pinned = ["shield"]`. Substrate height:
 /// `moves = [("interface", [0, 1])]`, `pinned = ["ground", "lid"]` (the side
-/// walls slide). Thick strips (`thickness > 0`) translate with the
-/// interface under the height motion.
+/// walls slide). For a thick strip (`thickness > 0`) add `("strip_k", [0,
+/// 1])` to the height motion so its upper face moves with the interface (its
+/// nodes above `y = h` are not in `interface`).
 pub fn strip_face_groups(spec: &ShieldedStripFace, face: &StripFaceMesh) -> FaceGroups {
     let (wb, hb, h) = (spec.box_width, spec.box_height, spec.h);
     let tol = 1e-12 * wb.max(hb);
