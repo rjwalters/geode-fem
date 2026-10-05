@@ -96,7 +96,22 @@ fn tet_grads(mesh: &TetMesh, tet: &[u32; 4]) -> [[f64; 3]; 4] {
 /// ready to hand to [`geode_core::postproc::viz::write_vtu`].
 ///
 /// See the module docs for the (crude, averaging) sampling choice.
+///
+/// # Panics
+///
+/// Panics if `e_edges.len() != mesh.edges().len()` — e.g. a p=2 DOF vector
+/// (`2E + 2F` entries, issue #838), whose leading entries are not the
+/// Whitney edge coefficients and would otherwise plot a plausible but wrong
+/// field (#804).
 pub fn edge_field_to_nodes(mesh: &TetMesh, e_edges: &[c64]) -> (Vec<[f64; 3]>, Vec<[f64; 3]>) {
+    let n_edges = mesh.edges().len();
+    assert_eq!(
+        e_edges.len(),
+        n_edges,
+        "edge_field_to_nodes: e_edges has {} entries but the mesh has {n_edges} edges; \
+         this is a p=1 (Whitney, one DOF per edge) interpolant",
+        e_edges.len()
+    );
     let n_nodes = mesh.n_nodes();
     let tet_edges = mesh.tet_edges();
 
@@ -380,5 +395,25 @@ mod tests {
             .chain(im.iter())
             .any(|v| v.iter().any(|&c| c != 0.0));
         assert!(any_nonzero);
+    }
+
+    /// #804: a vector longer than the edge table (e.g. a p=2 `2E + 2F` DOF
+    /// vector, issue #838) used to be indexed inside its first `E` entries
+    /// and plotted as a plausible but wrong field; it now panics.
+    #[test]
+    #[should_panic(expected = "edge_field_to_nodes")]
+    fn rejects_a_dof_vector_longer_than_the_edge_table() {
+        let mesh = unit_tet();
+        // p=2 on one tet: 2·6 edge DOFs + 2·4 face DOFs.
+        let e_p2 = vec![c64::new(1.0, 0.0); 2 * mesh.edges().len() + 2 * 4];
+        let _ = edge_field_to_nodes(&mesh, &e_p2);
+    }
+
+    #[test]
+    #[should_panic(expected = "edge_field_to_nodes")]
+    fn rejects_a_dof_vector_shorter_than_the_edge_table() {
+        let mesh = unit_tet();
+        let short = vec![c64::new(1.0, 0.0); mesh.edges().len() - 1];
+        let _ = edge_field_to_nodes(&mesh, &short);
     }
 }

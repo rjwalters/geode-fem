@@ -482,7 +482,9 @@ pub fn cube_pec_interior_p2_dofs(mesh: &TetMesh, dofs: &P2DofMap, side: f64) -> 
         "P2DofMap is not built on this mesh"
     );
     let walls = mesh.boundary_faces();
-    space.pec_interior_mask(mesh, &[walls.as_slice()])
+    space
+        .pec_interior_mask(mesh, &[walls.as_slice()])
+        .expect("boundary_faces() are mesh faces by construction")
 }
 
 /// The p=2 shapes and curls of one tet tabulated at the degree-≥4 rule

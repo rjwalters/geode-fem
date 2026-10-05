@@ -61,10 +61,11 @@
 //!   through [`HcurlSpace::tet_dofs`] and evaluate fields with
 //!   [`HcurlSpace::field_at`] / [`HcurlSpace::curl_at`].
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use faer::c64;
 
+use crate::driven::solve::DrivenError;
 use crate::elements::ElementOrder;
 use crate::elements::nedelec_p2::{
     TET_NEDELEC2_DOFS, ascending_vertex_perm, tet_barycentric_gradients, tet_nedelec2_shapes,
@@ -314,16 +315,57 @@ impl HcurlSpace {
     ///   the body diagonal and the interior faces). This is the #780 lesson
     ///   carried to p=2.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `mesh` is not the mesh the space was built on (node or tet
-    /// count differ), or — at p ≥ 2, where the face DOFs need it — if a wall
-    /// triangle is not a face of the mesh (it would leave its face DOFs
-    /// silently free).
-    pub fn pec_interior_mask(&self, mesh: &TetMesh, walls: &[&[[u32; 3]]]) -> Vec<bool> {
-        self.assert_mesh(mesh);
+    /// The wall triangles are caller data (Gmsh physical groups), so bad
+    /// input is a typed error, never a panic (#804):
+    ///
+    /// - [`DrivenError::SpaceMeshMismatch`] if `mesh` is not the mesh the
+    ///   space was built on (node or tet count differ);
+    /// - at p ≥ 2, where the face DOFs need it,
+    ///   [`DrivenError::SurfaceNotOnMesh`] if a wall triangle is not a face
+    ///   of the mesh (it would leave its face DOFs silently free). The
+    ///   surface is named `"PEC wall {i}"` by its index in `walls`, and the
+    ///   first offending triangle (caller's node order) is reported.
+    ///
+    /// At p=1 the mask is the pre-#838 helper's output wrapped in `Ok`, bit
+    /// for bit (dangling triangles are not validated there, exactly as
+    /// before).
+    pub fn pec_interior_mask(
+        &self,
+        mesh: &TetMesh,
+        walls: &[&[[u32; 3]]],
+    ) -> Result<Vec<bool>, DrivenError> {
+        self.check_mesh(mesh)?;
         if self.order == ElementOrder::P1 {
-            return crate::mesh::pec_interior_mask_from_triangles(&self.edges, walls);
+            return Ok(crate::mesh::pec_interior_mask_from_triangles(
+                &self.edges,
+                walls,
+            ));
+        }
+        // Validate every wall list against the face table before building
+        // anything: a dangling triangle is a typed error, not a panic.
+        let face_set: HashSet<(u32, u32, u32)> =
+            self.faces.iter().map(|f| (f[0], f[1], f[2])).collect();
+        for (i, list) in walls.iter().enumerate() {
+            let mut first: Option<[u32; 3]> = None;
+            let mut dangling = 0usize;
+            for tri in *list {
+                let mut s = *tri;
+                s.sort_unstable();
+                if !face_set.contains(&(s[0], s[1], s[2])) {
+                    dangling += 1;
+                    first.get_or_insert(*tri);
+                }
+            }
+            if let Some(triangle) = first {
+                return Err(DrivenError::SurfaceNotOnMesh {
+                    surface: format!("PEC wall {i}"),
+                    triangle,
+                    dangling,
+                    total: list.len(),
+                });
+            }
         }
         let mut wall_edges: BTreeSet<(u32, u32)> = BTreeSet::new();
         let mut wall_faces: BTreeSet<(u32, u32, u32)> = BTreeSet::new();
@@ -345,24 +387,14 @@ impl HcurlSpace {
                 }
             }
         }
-        let mut found = 0usize;
         for (gf, f) in self.faces.iter().enumerate() {
             if wall_faces.contains(&(f[0], f[1], f[2])) {
-                found += 1;
                 for &d in self.face_dofs(gf) {
                     keep[d as usize] = false;
                 }
             }
         }
-        assert_eq!(
-            found,
-            wall_faces.len(),
-            "HcurlSpace::pec_interior_mask: {} wall triangle(s) are not faces of the mesh; \
-             their face DOFs would stay free at {}",
-            wall_faces.len() - found,
-            self.order
-        );
-        keep
+        Ok(keep)
     }
 
     /// The H(curl) field `E_h(x)` of the full-length DOF vector `x` at the
@@ -484,16 +516,19 @@ impl HcurlSpace {
         [face_fn_coeffs(a, b, c), face_fn_coeffs(b, c, a)]
     }
 
-    fn assert_mesh(&self, mesh: &TetMesh) {
-        assert!(
-            mesh.n_nodes() == self.n_nodes && mesh.n_tets() == self.n_tets,
-            "HcurlSpace was built on a different mesh ({} nodes / {} tets, got {} / {}); \
-             rebuild the space for every mesh",
-            self.n_nodes,
-            self.n_tets,
-            mesh.n_nodes(),
-            mesh.n_tets()
-        );
+    /// [`DrivenError::SpaceMeshMismatch`] unless `mesh` has the node and
+    /// tet counts of the mesh this space was built on.
+    fn check_mesh(&self, mesh: &TetMesh) -> Result<(), DrivenError> {
+        if mesh.n_nodes() == self.n_nodes && mesh.n_tets() == self.n_tets {
+            Ok(())
+        } else {
+            Err(DrivenError::SpaceMeshMismatch {
+                space_nodes: self.n_nodes,
+                space_tets: self.n_tets,
+                mesh_nodes: mesh.n_nodes(),
+                mesh_tets: mesh.n_tets(),
+            })
+        }
     }
 }
 

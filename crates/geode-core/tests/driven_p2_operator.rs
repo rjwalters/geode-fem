@@ -5,7 +5,7 @@
 //!   for bit — operator matrix, solutions, sweeps and PROM.
 //! - **MMS gates** on flat-sided, unstructured (interior-jittered) boxes
 //!   with a *tagged* face-exact PEC mask: complex scalar ε, diagonal ε, and
-//!   matched-UPML diagonal ε/ν. Field L² slope p=2 ≥ 1.8, p=1 ≈ 1, and
+//!   matched-UPML diagonal ε/ν. Field L² slope (n = 2..8) p=2 ≥ 1.85, p=1 ≈ 1, and
 //!   p=2 < p=1 at the coarsest shared mesh.
 //! - Matched UPML at p=2: `A(ω)ᵀ = A(ω)` to round-off; the layered-sphere
 //!   fixture of `driven_upml.rs` runs at p=2 (regression, not a rate gate:
@@ -219,7 +219,7 @@ fn mms_errors(case: Case, order: ElementOrder, n: usize, src: Src) -> (f64, f64,
     let space = HcurlSpace::build(&mesh, order);
     let walls = tagged_walls(&mesh);
     let wall_refs: Vec<&[[u32; 3]]> = walls.iter().map(|w| w.as_slice()).collect();
-    let mask = space.pec_interior_mask(&mesh, &wall_refs);
+    let mask = space.pec_interior_mask(&mesh, &wall_refs).unwrap();
     let store = MaterialStore::new(case, mesh.n_tets());
     let j = move |_t: usize, x: [f64; 3]| case.current(x);
     let quad = QuadCurrentSource::from_fn(&mesh, |_t, x| case.current(x));
@@ -268,7 +268,7 @@ fn mms_errors(case: Case, order: ElementOrder, n: usize, src: Src) -> (f64, f64,
 
 /// Run one MMS case at both orders and apply the #838 bars.
 fn mms_gate(label: &str, case: Case) {
-    let ns = [2usize, 3, 4, 6];
+    let ns = [2usize, 3, 4, 6, 8];
     let hs: Vec<f64> = ns.iter().map(|&n| 1.0 / n as f64).collect();
     let run = |order| -> Vec<(f64, f64, usize)> {
         ns.iter()
@@ -294,7 +294,7 @@ fn mms_gate(label: &str, case: Case) {
     println!(
         "[{label}] field L² slope: p1 = {s1:.3}, p2 = {s2:.3};  curl L² slope: p1 = {c1:.3}, p2 = {c2:.3}"
     );
-    assert!(s2 >= 1.8, "[{label}] p=2 field slope {s2:.3} < 1.8");
+    assert!(s2 >= 1.85, "[{label}] p=2 field slope {s2:.3} < 1.85");
     assert!(
         (0.8..=1.3).contains(&s1),
         "[{label}] p=1 field slope {s1:.3} not ≈ 1"
@@ -348,7 +348,7 @@ fn mms_quad_source_at_p2_keeps_the_second_order_rate() {
     // The degree-2 QuadCurrentSource samples (the minimum Strang degree for
     // p=2) still deliver the O(h²) field rate.
     let case = Case::Scalar(c64::new(2.0, -0.1));
-    let ns = [2usize, 3, 4, 6];
+    let ns = [2usize, 3, 4, 6, 8];
     let hs: Vec<f64> = ns.iter().map(|&n| 1.0 / n as f64).collect();
     let errs: Vec<f64> = ns
         .iter()
@@ -357,8 +357,8 @@ fn mms_quad_source_at_p2_keeps_the_second_order_rate() {
     let s = fit_slope(&hs, &errs);
     println!("[quad source, p2] errors {errs:?}, slope {s:.3}");
     assert!(
-        s >= 1.8,
-        "p=2 field slope with the degree-2 source {s:.3} < 1.8"
+        s >= 1.85,
+        "p=2 field slope with the degree-2 source {s:.3} < 1.85"
     );
 }
 
@@ -407,7 +407,7 @@ fn p1_space_path_is_bit_identical_to_assemble() {
         .iter()
         .flat_map(|&(a, v)| plane_faces(&mesh, a, v))
         .collect();
-    let mask = space.pec_interior_mask(&mesh, &[pec.as_slice()]);
+    let mask = space.pec_interior_mask(&mesh, &[pec.as_slice()]).unwrap();
     let bcs = DrivenBcs {
         pec_interior_mask: &mask,
     };
@@ -606,7 +606,7 @@ fn p2_cavity(sigma: Option<&[f64]>) -> (TetMesh, HcurlSpace, DrivenOperator) {
     let space = HcurlSpace::build(&mesh, ElementOrder::P2);
     let walls = tagged_walls(&mesh);
     let refs: Vec<&[[u32; 3]]> = walls.iter().map(|w| w.as_slice()).collect();
-    let mask = space.pec_interior_mask(&mesh, &refs);
+    let mask = space.pec_interior_mask(&mesh, &refs).unwrap();
     let eps = vec![c64::new(2.0, -0.05); mesh.n_tets()];
     let op = DrivenOperator::assemble_with_space::<B>(
         &space,
@@ -737,7 +737,7 @@ fn p2_matched_upml_full_tensor_is_complex_symmetric_and_solves() {
     let nu_t: Vec<_> = (0..mesh.n_tets()).map(|_| sym(0.1)).collect();
     let walls = tagged_walls(&mesh);
     let refs: Vec<&[[u32; 3]]> = walls.iter().map(|w| w.as_slice()).collect();
-    let mask = space.pec_interior_mask(&mesh, &refs);
+    let mask = space.pec_interior_mask(&mesh, &refs).unwrap();
     let op = DrivenOperator::assemble_with_space::<B>(
         &space,
         &mesh,
@@ -820,7 +820,7 @@ fn p2_layered_sphere_matched_upml_regression() {
     let mut near = [0.0; 2];
     for (k, order) in [ElementOrder::P1, ElementOrder::P2].into_iter().enumerate() {
         let space = HcurlSpace::build(mesh, order);
-        let mask = space.pec_interior_mask(mesh, &[outer.as_slice()]);
+        let mask = space.pec_interior_mask(mesh, &[outer.as_slice()]).unwrap();
         let op = DrivenOperator::assemble_with_space::<B>(
             &space,
             mesh,

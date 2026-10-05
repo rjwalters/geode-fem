@@ -102,11 +102,64 @@ fn p1_space_reproduces_the_pre_838_tables_and_mask_bit_for_bit() {
             vec![],
         ] {
             assert_eq!(
-                space.pec_interior_mask(&mesh, &walls),
+                space.pec_interior_mask(&mesh, &walls).unwrap(),
                 pec_interior_mask_from_triangles(&edges, &walls),
                 "n={n}: p=1 mask differs from pec_interior_mask_from_triangles"
             );
         }
+    }
+}
+
+/// #804: wall triangles are caller data, so a dangling (non-face) wall
+/// triangle and a wrong mesh are typed errors at p=2, never a panic. The
+/// error names the wall list by index and reports the first offender.
+#[test]
+fn p2_pec_mask_rejects_non_face_triangles_and_wrong_mesh_with_typed_errors() {
+    use geode_core::driven::solve::DrivenError;
+    let mesh = cube_tet_mesh(2, 1.0);
+    let space = HcurlSpace::build(&mesh, ElementOrder::P2);
+    let good = mesh.boundary_faces();
+    // A triangle whose three vertices are mesh nodes but which is not a
+    // face of any tet: the body diagonal (0,0,0)–(1,1,1) plus a corner.
+    let node = |p: [f64; 3]| {
+        mesh.nodes
+            .iter()
+            .position(|q| (0..3).all(|d| (q[d] - p[d]).abs() < 1e-12))
+            .unwrap() as u32
+    };
+    let bogus = [
+        node([0.0, 0.0, 0.0]),
+        node([1.0, 1.0, 1.0]),
+        node([1.0, 0.0, 1.0]),
+    ];
+    let mut bad: Vec<[u32; 3]> = good[..3].to_vec();
+    bad.push(bogus);
+    bad.push(bogus);
+    match space.pec_interior_mask(&mesh, &[good.as_slice(), bad.as_slice()]) {
+        Err(DrivenError::SurfaceNotOnMesh {
+            surface,
+            triangle,
+            dangling,
+            total,
+        }) => {
+            assert_eq!(surface, "PEC wall 1");
+            assert_eq!(triangle, bogus);
+            assert_eq!(dangling, 2);
+            assert_eq!(total, 5);
+        }
+        other => panic!("expected SurfaceNotOnMesh, got {other:?}"),
+    }
+    // A space used with a different mesh is a typed mismatch.
+    let other_mesh = cube_tet_mesh(3, 1.0);
+    for order in [ElementOrder::P1, ElementOrder::P2] {
+        let s = HcurlSpace::build(&mesh, order);
+        assert!(
+            matches!(
+                s.pec_interior_mask(&other_mesh, &[]),
+                Err(DrivenError::SpaceMeshMismatch { .. })
+            ),
+            "{order}: wrong mesh must be SpaceMeshMismatch"
+        );
     }
 }
 
@@ -116,7 +169,7 @@ fn p2_pec_mask_is_face_exact_and_never_eliminates_chords() {
         let mesh = cube_tet_mesh(n, 1.0);
         let space = HcurlSpace::build(&mesh, ElementOrder::P2);
         let walls = mesh.boundary_faces();
-        let mask = space.pec_interior_mask(&mesh, &[walls.as_slice()]);
+        let mask = space.pec_interior_mask(&mesh, &[walls.as_slice()]).unwrap();
 
         let wall_faces: BTreeSet<[u32; 3]> = walls.iter().copied().collect();
         let wall_edges: BTreeSet<(u32, u32)> = walls
@@ -198,7 +251,7 @@ fn p2_partial_tagged_walls_leave_other_boundaries_free() {
     let mesh = jittered_cube(3, 5);
     let space = HcurlSpace::build(&mesh, ElementOrder::P2);
     let z0 = plane_faces(&mesh, 2, 0.0);
-    let mask = space.pec_interior_mask(&mesh, &[z0.as_slice()]);
+    let mask = space.pec_interior_mask(&mesh, &[z0.as_slice()]).unwrap();
     let z0_set: BTreeSet<[u32; 3]> = z0.iter().copied().collect();
     for (gf, f) in space.faces().iter().enumerate() {
         let want = !z0_set.contains(f);
@@ -422,7 +475,9 @@ fn assembled_p2_curl_curl_annihilates_global_p2_gradients_on_a_tagged_mesh() {
         .flatten()
         .copied()
         .collect();
-    let mask_tagged = space.pec_interior_mask(&mesh, &[walls_z0.as_slice(), walls_x1.as_slice()]);
+    let mask_tagged = space
+        .pec_interior_mask(&mesh, &[walls_z0.as_slice(), walls_x1.as_slice()])
+        .unwrap();
     let mask_free = vec![true; space.n_dofs()];
 
     // A random global P2 scalar φ = Σ_v φ_v λ_v + Σ_e c_e λ_a λ_b; its
@@ -516,4 +571,71 @@ fn prolong_p1_reproduces_the_p1_field_exactly() {
         }
     }
     assert_eq!(s1.prolong_p1(&x1), x1, "p=1 prolongation is the identity");
+}
+
+/// The `z = 0` lumped-port fixture of the p=1 voltage readback test plus a
+/// p=2 DOF vector of the same (uniform `ŷ`) field via `prolong_p1`.
+fn lumped_port_p2_fixture() -> (TetMesh, Vec<[u32; 2]>, Vec<[u32; 3]>, Vec<c64>, Vec<c64>) {
+    let mesh = cube_tet_mesh(2, 1.0);
+    let edges = mesh.edges();
+    let faces: Vec<[u32; 3]> = mesh
+        .faces()
+        .into_iter()
+        .filter(|f| f.iter().all(|&n| mesh.nodes[n as usize][2].abs() < 1e-12))
+        .collect();
+    let e_p1: Vec<c64> = edges
+        .iter()
+        .map(|e| {
+            c64::new(
+                mesh.nodes[e[1] as usize][1] - mesh.nodes[e[0] as usize][1],
+                0.0,
+            )
+        })
+        .collect();
+    let e_p2 = HcurlSpace::build(&mesh, ElementOrder::P2).prolong_p1(&e_p1);
+    assert!(e_p2.len() > e_p1.len());
+    (mesh, edges, faces, e_p1, e_p2)
+}
+
+fn y_port(faces: &[[u32; 3]]) -> geode_core::driven::ports::LumpedPort<'_> {
+    geode_core::driven::ports::LumpedPort {
+        faces,
+        e_hat: [0.0, 1.0, 0.0],
+        resistance: 1.0,
+        width: 1.0,
+        length: 1.0,
+        v_inc: c64::new(0.0, 0.0),
+    }
+}
+
+/// #804: the p=1 lumped-port projection still reads the p=1 vector (bit
+/// for bit the pre-#838 sum), and a p=2 vector — which `zip` used to
+/// truncate into a plausible V — now fails loudly.
+#[test]
+fn lumped_port_voltage_accepts_p1_and_rejects_a_p2_vector() {
+    let (mesh, edges, faces, e_p1, _) = lumped_port_p2_fixture();
+    let v = geode_core::driven::ports::port_voltage(&mesh, &y_port(&faces), &edges, &e_p1);
+    assert!((v - c64::new(1.0, 0.0)).norm() < 1e-13, "p=1 readback {v}");
+}
+
+#[test]
+#[should_panic(expected = "lumped::port_voltage")]
+fn lumped_port_voltage_panics_on_a_p2_vector() {
+    let (mesh, edges, faces, _, e_p2) = lumped_port_p2_fixture();
+    let _ = geode_core::driven::ports::port_voltage(&mesh, &y_port(&faces), &edges, &e_p2);
+}
+
+#[test]
+#[should_panic(expected = "lumped::port_voltage")]
+fn port_input_impedance_panics_on_a_p2_vector() {
+    let (mesh, edges, faces, _, e_p2) = lumped_port_p2_fixture();
+    let _ = geode_core::driven::ports::port_input_impedance(&mesh, &y_port(&faces), &edges, &e_p2);
+}
+
+#[test]
+#[should_panic(expected = "lumped::port_voltage")]
+fn extract_port_circuit_panics_on_a_p2_vector() {
+    let (mesh, edges, faces, _, e_p2) = lumped_port_p2_fixture();
+    let _ =
+        geode_core::driven::extraction::extract_port_circuit(&mesh, &y_port(&faces), &edges, &e_p2);
 }
