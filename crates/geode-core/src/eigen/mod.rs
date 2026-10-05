@@ -35,6 +35,11 @@
 //!   cell at zero Bloch phase, reduced by a
 //!   [`crate::assembly::periodic::PeriodicConstraint`] (issue #839, Epic
 //!   #837 Phase 1).
+//! - [`bloch`] — **Bloch-phase band-structure** solves on a periodic unit
+//!   cell: the Hermitian reduced pencil `P(k)ᴴ (K, M) P(k)` by a native
+//!   Hermitian shift-invert block Krylov solve with Bloch-phased gradient
+//!   deflation, Hellmann–Feynman group velocity, and k-path sweeps with
+//!   overlap band tracking (issue #858, Epic #837 Phase 2).
 //! - [`lossy_cavity`] — the complex counterpart of [`pec_cavity`]:
 //!   **lossy / open cavity quasi-modes** (complex per-tet `ε_r`, or full
 //!   complex `(ε, ν)` tensors such as box UPML frozen at a reference `k₀`)
@@ -59,6 +64,7 @@
 //!   conversion, accurate to a few ulps at any `Q` (issue #830).
 
 pub mod ams;
+pub mod bloch;
 pub mod cavity;
 pub mod complex;
 pub mod dense;
