@@ -1508,3 +1508,79 @@ fn named_group_binding_matches_explicit_regions() {
     assert!(MaterialDesign::from_named_groups(&tagged, &["nope"]).is_err());
     assert!(MaterialDesign::from_named_groups(&tagged, &["block", "block"]).is_err());
 }
+
+/// A shape parameter bound to **named** groups: the `x = a` wall (a 2-D
+/// physical group) translates along `+x` with both port groups pinned,
+/// extended harmonically into the volume. On the mixed fixture the gradient
+/// matches FD through the public forward, and the port faces stay fixed.
+#[test]
+fn named_group_shape_binding_matches_fd() {
+    use geode_core::driven::s_sensitivity::GroupTranslation;
+    use geode_core::mesh::TaggedTetMesh;
+    let m = mixed_fixture();
+    let mesh = &m.g.mesh;
+    let on_xa = |f: &[u32; 3]| {
+        f.iter()
+            .all(|&v| (mesh.nodes[v as usize][0] - A).abs() < 1e-9)
+    };
+    let xa: Vec<[u32; 3]> = m.g.sidewall_faces.iter().copied().filter(on_xa).collect();
+    let mut tris = Vec::new();
+    let mut tags = Vec::new();
+    for (faces, tag) in [(&m.g.port1_faces, 11), (&m.g.port2_faces, 12), (&xa, 13)] {
+        tris.extend_from_slice(faces);
+        tags.extend(std::iter::repeat_n(tag, faces.len()));
+    }
+    let mut tagged = TaggedTetMesh {
+        mesh: mesh.clone(),
+        tet_physical_tags: vec![1; mesh.n_tets()],
+        boundary_triangles: tris,
+        triangle_physical_tags: tags,
+    };
+    for (tag, name) in [(11, "port1"), (12, "port2"), (13, "wall_xa")] {
+        tagged
+            .mesh
+            .physical_groups
+            .insert((2, tag), name.to_string());
+    }
+    let shape = ShapeDesign::from_group_translations(
+        &tagged,
+        &[GroupTranslation {
+            name: "width".into(),
+            group: "wall_xa".into(),
+            dir: [1.0, 0.0, 0.0],
+        }],
+        &["port1", "port2"],
+    )
+    .unwrap();
+    let col = shape.column(0);
+    for f in m.g.port1_faces.iter().chain(&m.g.port2_faces) {
+        for &v in f {
+            assert_eq!(col[v as usize], [0.0; 3], "port node {v} must stay pinned");
+        }
+    }
+    assert!(ShapeDesign::from_group_translations(&tagged, &[], &["nope"]).is_err());
+    let m2 = Mixed {
+        shape: shape.clone(),
+        ..m
+    };
+    let omegas = [2.5];
+    let mut sw = mixed_sens(&m2, &omegas, &opts());
+    // Keep only the shape column of the table (the material rows are
+    // covered by the mixed test).
+    let first = sw
+        .params
+        .iter()
+        .position(|p| matches!(p, SParam::Shape { .. }))
+        .unwrap();
+    sw.params.drain(..first);
+    for pt in &mut sw.points {
+        pt.ds.drain(..first);
+    }
+    for e in fd_check(
+        "mixed, named-group width (harmonic morph)",
+        &sw,
+        |prm, h| mixed_forward(&m2, &omegas, prm, h),
+    ) {
+        assert!(e <= TOL, "rel_err {e}");
+    }
+}

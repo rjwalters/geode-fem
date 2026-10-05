@@ -71,7 +71,9 @@
 //!   propagating fill the `ε″` derivative is the one-sided (passive,
 //!   `ε″ ≥ 0`) one, since `ε″ < 0` flips the branch.
 //! * **Shape** ([`ShapeDesign`]): node-motion velocity columns `∂X/∂θ_i`
-//!   (e.g. [`crate::shape::FreeformBoundaryMorph`]); `∂A_base/∂X` is the
+//!   (e.g. [`crate::shape::FreeformBoundaryMorph`], or rigid translations of
+//!   **named** surface groups with named pinned groups,
+//!   [`ShapeDesign::from_group_translations`]); `∂A_base/∂X` is the
 //!   exact forward-mode Dual Nédélec element kernel of
 //!   [`crate::driven::shape`] (`∂K − ω²ε∂M + jωσ∂M`), contracted for every
 //!   `(q, p)` pair. PEC nodes may move (the PEC mask is X-independent);
@@ -105,6 +107,8 @@
 //! * non-scalar materials ([`DrivenMaterials::DiagTensor`] /
 //!   [`DrivenMaterials::MatchedUpml`]) and anisotropic (`μ ≠ 1`) fills of a
 //!   bound port (Phase 2a); `∂/∂σ` is Phase 2a (σ is allowed in the forward);
+//!   a dispersive (per-ω `ε(ω)`) volume is not an input here (the network
+//!   takes one fixed scalar `ε`): Phase 2a;
 //! * an element order other than p=1 (the p=2 forward has no ports yet:
 //!   Epic #836 Phase 1b; p=2 gradients: #836 Phase 4);
 //! * [`SolverMode::Iterative`] / [`SolverMode::IterativeMatrixFree`]
@@ -134,7 +138,7 @@ use crate::driven::solve::{
     ElementOrder, SolverMode, SurfaceImpedanceBc, validate_driven_surfaces,
 };
 use crate::mesh::{TET_LOCAL_FACES, TaggedTetMesh, TetMesh};
-use crate::shape::FreeformBoundaryMorph;
+use crate::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
 
 const PHASE_2A: &str =
     "Epic #841 Phase 2a: dispersive, anisotropic and conductive (σ) material parameters";
@@ -351,6 +355,87 @@ impl ShapeDesign {
         )
     }
 
+    /// One column per [`GroupTranslation`]: the named 2-D physical groups'
+    /// nodes translate rigidly along `dir`, every node of a `pinned` group
+    /// stays fixed (pinned wins on a shared node, so a wall that meets a port
+    /// face leaves the face in place), and the motion is extended into the
+    /// volume harmonically ([`FreeformBoundaryMorph::harmonic_boundary`],
+    /// summed over the group's nodes — exact by linearity). Binding to
+    /// **group names**, not node ids, is what lets a design survive
+    /// re-meshing and refinement (Epic #841, #835 interface item 2): rebuild
+    /// the design from the same names on the new mesh.
+    ///
+    /// # Errors
+    ///
+    /// [`SSensitivityError::InvalidDesign`] for an unknown or empty group, a
+    /// group that is entirely pinned, or a failed harmonic solve.
+    pub fn from_group_translations(
+        tagged: &TaggedTetMesh,
+        motions: &[GroupTranslation],
+        pinned: &[&str],
+    ) -> Result<Self, SSensitivityError> {
+        let n_nodes = tagged.mesh.n_nodes();
+        let group_nodes = |name: &str| -> Result<Vec<u32>, SSensitivityError> {
+            let tag = tagged.physical_group_tag(2, name).ok_or_else(|| {
+                SSensitivityError::InvalidDesign(format!(
+                    "no 2-D physical group named `{name}` in the mesh"
+                ))
+            })?;
+            let mut nodes: Vec<u32> = tagged
+                .triangles_with_tag(tag)
+                .into_iter()
+                .flatten()
+                .collect();
+            nodes.sort_unstable();
+            nodes.dedup();
+            if nodes.is_empty() {
+                return Err(SSensitivityError::InvalidDesign(format!(
+                    "2-D physical group `{name}` has no triangle"
+                )));
+            }
+            Ok(nodes)
+        };
+        let mut is_pinned = vec![false; n_nodes];
+        let mut fixed_zero = Vec::new();
+        for name in pinned {
+            for n in group_nodes(name)? {
+                is_pinned[n as usize] = true;
+                fixed_zero.push(n);
+            }
+        }
+        let mut columns = Vec::with_capacity(motions.len());
+        for m in motions {
+            let dofs: Vec<BoundaryMotionDof> = group_nodes(&m.group)?
+                .into_iter()
+                .filter(|&n| !is_pinned[n as usize])
+                .map(|node| BoundaryMotionDof { node, dir: m.dir })
+                .collect();
+            if dofs.is_empty() {
+                return Err(SSensitivityError::InvalidDesign(format!(
+                    "every node of moving group `{}` is pinned",
+                    m.group
+                )));
+            }
+            let morph = FreeformBoundaryMorph::harmonic_boundary(&tagged.mesh, &dofs, &fixed_zero)
+                .map_err(|e| {
+                    SSensitivityError::InvalidDesign(format!(
+                        "harmonic extension of group `{}` failed: {e}",
+                        m.group
+                    ))
+                })?;
+            let mut col = vec![[0.0_f64; 3]; n_nodes];
+            for i in 0..morph.n_dofs() {
+                for (c, v) in col.iter_mut().zip(morph.velocity(i)) {
+                    c[0] += v[0];
+                    c[1] += v[1];
+                    c[2] += v[2];
+                }
+            }
+            columns.push(col);
+        }
+        Self::from_columns(columns, motions.iter().map(|m| m.name.clone()).collect())
+    }
+
     /// Number of columns.
     pub fn n_columns(&self) -> usize {
         self.columns.len()
@@ -369,6 +454,18 @@ impl ShapeDesign {
     pub fn names(&self) -> &[String] {
         &self.names
     }
+}
+
+/// A rigid translation of a named 2-D physical group, one shape parameter
+/// of [`ShapeDesign::from_group_translations`].
+#[derive(Debug, Clone)]
+pub struct GroupTranslation {
+    /// Parameter name.
+    pub name: String,
+    /// The 2-D physical group whose nodes move.
+    pub group: String,
+    /// Motion per unit parameter, `∂X/∂θ` on the group's nodes.
+    pub dir: [f64; 3],
 }
 
 /// The full design: material regions, shape columns, and which wave ports
