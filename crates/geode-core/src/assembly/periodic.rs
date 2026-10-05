@@ -444,7 +444,7 @@ impl PeriodicConstraint {
         let master_of = |e: usize| map.edge_alias(e).map_or(e, |a| a.master);
         let mut class_pec = vec![false; n_full];
         let mut class_any_kept = vec![false; n_full];
-        let mut on_periodic = vec![false; n_full];
+        let on_periodic: Vec<bool> = (0..n_full).map(|e| map.edge_alias(e).is_some()).collect();
         for e in 0..n_full {
             let m = master_of(e);
             if kept(e) {
@@ -452,7 +452,6 @@ impl PeriodicConstraint {
             } else {
                 class_pec[m] = true;
             }
-            on_periodic[e] = map.edge_alias(e).is_some();
         }
         let mut n_one_sided_pec = 0usize;
         for e in 0..n_full {
@@ -686,9 +685,9 @@ impl PeriodicConstraint {
         let gr_rows = csc_rows(gr.as_ref());
         let g_rows = csc_rows(g.as_ref());
         let mut worst = 0.0_f64;
-        for e in 0..n_e {
+        for (e, g_row) in g_rows.iter().enumerate().take(n_e) {
             let mut lhs = vec![0.0; n_vr];
-            for &(v, gv) in &g_rows[e] {
+            for &(v, gv) in g_row {
                 for (rv, cv) in self.nodes.row(v) {
                     lhs[rv] += gv * cv.re;
                 }
