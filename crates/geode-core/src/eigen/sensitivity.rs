@@ -532,3 +532,291 @@ impl EigenSensitivity<'_> {
         std::array::from_fn(|i| std::array::from_fn(|j| m[i][j].re))
     }
 }
+
+// ---------------------------------------------------------------------------
+// Order-generic Hellmann–Feynman sensitivities (issue #871, Epic #836 Phase 2)
+// ---------------------------------------------------------------------------
+
+/// The order-generic sibling of [`EigenSensitivity`] (issue #871, Epic #836
+/// Phase 2): the same Hellmann–Feynman sensitivities on a converged simple
+/// eigenpair of a pencil assembled on an
+/// [`crate::assembly::hcurl_space::HcurlSpace`] — e.g. by
+/// [`crate::eigen::pec_cavity::solve_pec_cavity_modes_on_space`] (with or
+/// without London walls).
+///
+/// - **p=1:** every method delegates to [`EigenSensitivity`] on the space's
+///   edge table, so the results are bit-identical to it.
+/// - **p=2:** the same identities, contracted with the 20-DOF element on
+///   the tet's ascending-sorted vertices and unit-sign scatter (the
+///   space's convention): `∂λ/∂ε_k = −λ Σ_{t∈k} x_locᵀ M_loc x_loc`, the
+///   London term `−xᵀS_Γx/λ_L²` on the 8-DOF p=2 trace
+///   ([`crate::assembly::surface_p2`]), and the geometry gradient through the
+///   exact forward-mode `Dual` twin of the p=2 element.
+///
+/// The eigenvector is over the kept DOFs of `interior_mask` (length
+/// `space.n_dofs()`), in full-DOF order, **M-normalized** (`xᵀMx = 1`), as
+/// the cavity solves return it. The scope fences of [`EigenSensitivity`]
+/// apply unchanged (simple eigenvalue, isotropic real `ε_r`; for the
+/// geometry gradient, London-wall nodes held fixed).
+pub struct SpaceEigenSensitivity<'a> {
+    /// The H(curl) space the pencil was assembled on.
+    pub space: &'a crate::assembly::hcurl_space::HcurlSpace,
+    /// The mesh the space was built on.
+    pub mesh: &'a TetMesh,
+    /// Kept-DOF mask over `space.n_dofs()` (the pencil's PEC mask).
+    pub interior_mask: &'a [bool],
+    /// Per-tet isotropic real relative permittivity at which the gradient
+    /// is taken.
+    pub eps_r: &'a [f64],
+    /// All converged eigenvalues (for the simple-eigenvalue gap check).
+    pub lambdas: &'a [f64],
+    /// Index of the target mode within `lambdas`.
+    pub mode_index: usize,
+    /// The target mode's M-normalized eigenvector over the kept DOFs.
+    pub eigenvector: &'a [f64],
+    /// Minimum relative spectral gap for the target to count as simple.
+    pub min_rel_gap: f64,
+}
+
+impl SpaceEigenSensitivity<'_> {
+    fn p1(&self) -> Option<EigenSensitivity<'_>> {
+        (self.space.order() == crate::elements::ElementOrder::P1).then(|| EigenSensitivity {
+            mesh: self.mesh,
+            edges: self.space.edges(),
+            interior_mask: self.interior_mask,
+            eps_r: self.eps_r,
+            lambdas: self.lambdas,
+            mode_index: self.mode_index,
+            eigenvector: self.eigenvector,
+            min_rel_gap: self.min_rel_gap,
+        })
+    }
+
+    /// The p=2 gap check + full-length eigenvector scatter (shared with
+    /// [`EigenSensitivity`] through a p=1-shaped view over all DOFs).
+    fn checked(&self) -> Result<(f64, Vec<f64>), EigenSensitivityError> {
+        let n = self.space.n_dofs();
+        let view = EigenSensitivity {
+            mesh: self.mesh,
+            edges: &[],
+            interior_mask: self.interior_mask,
+            eps_r: self.eps_r,
+            lambdas: self.lambdas,
+            mode_index: self.mode_index,
+            eigenvector: self.eigenvector,
+            min_rel_gap: self.min_rel_gap,
+        };
+        let lambda = view.checked_simple_lambda()?;
+        if self.interior_mask.len() != n {
+            return Err(EigenSensitivityError::DimMismatch {
+                what: "interior_mask",
+                got: self.interior_mask.len(),
+                want: n,
+            });
+        }
+        let dim = self.interior_mask.iter().filter(|&&k| k).count();
+        if dim == 0 {
+            return Err(EigenSensitivityError::EmptyInterior);
+        }
+        if self.eigenvector.len() != dim {
+            return Err(EigenSensitivityError::DimMismatch {
+                what: "eigenvector",
+                got: self.eigenvector.len(),
+                want: dim,
+            });
+        }
+        let mut xf = vec![0.0_f64; n];
+        let mut it = self.eigenvector.iter();
+        for (x, &keep) in xf.iter_mut().zip(self.interior_mask) {
+            if keep {
+                *x = *it.next().expect("length checked");
+            }
+        }
+        Ok((lambda, xf))
+    }
+
+    fn check_eps(&self) -> Result<(), EigenSensitivityError> {
+        if self.eps_r.len() != self.mesh.n_tets() {
+            return Err(EigenSensitivityError::DimMismatch {
+                what: "eps_r",
+                got: self.eps_r.len(),
+                want: self.mesh.n_tets(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Local p=2 DOF values of tet `t` (unit-sign gather).
+    fn x_loc_p2(&self, xf: &[f64], t: usize) -> [f64; 20] {
+        let dofs = self.space.tet_dofs(t);
+        std::array::from_fn(|i| xf[dofs[i] as usize])
+    }
+
+    /// **Material** sensitivity `∂λ/∂ε_k` for every region (see
+    /// [`EigenSensitivity::deigenvalue_deps`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`EigenSensitivity::deigenvalue_deps`].
+    pub fn deigenvalue_deps(
+        &self,
+        region_of: &[usize],
+        n_regions: usize,
+    ) -> Result<Vec<f64>, EigenSensitivityError> {
+        if let Some(p1) = self.p1() {
+            return p1.deigenvalue_deps(region_of, n_regions);
+        }
+        let (lambda, xf) = self.checked()?;
+        let n_tets = self.mesh.n_tets();
+        if region_of.len() != n_tets {
+            return Err(EigenSensitivityError::DimMismatch {
+                what: "region_of",
+                got: region_of.len(),
+                want: n_tets,
+            });
+        }
+        self.check_eps()?;
+        let mut grad = vec![0.0_f64; n_regions];
+        for t in 0..n_tets {
+            let k = region_of[t];
+            if k >= n_regions {
+                continue;
+            }
+            let x = self.x_loc_p2(&xf, t);
+            if x.iter().all(|&v| v == 0.0) {
+                continue;
+            }
+            let coords = self.space.tet_local_coords(self.mesh, t);
+            let (_k, m, _) = crate::elements::nedelec_p2::tet_nedelec2_local(&coords);
+            let mut q = 0.0_f64;
+            for i in 0..20 {
+                for j in 0..20 {
+                    q += x[i] * m[i][j] * x[j];
+                }
+            }
+            grad[k] += -lambda * q;
+        }
+        Ok(grad)
+    }
+
+    /// **Frequency** sensitivity `∂f/∂ε_k`, with `f = k₀/(2π) = √λ/(2π)` in
+    /// cycles per mesh length unit (multiply by `c/L_unit` for Hz):
+    /// `∂f/∂ε_k = (∂λ/∂ε_k)/(4π√λ)`.
+    ///
+    /// # Errors
+    ///
+    /// As [`SpaceEigenSensitivity::deigenvalue_deps`].
+    pub fn dfrequency_deps(
+        &self,
+        region_of: &[usize],
+        n_regions: usize,
+    ) -> Result<Vec<f64>, EigenSensitivityError> {
+        let dl = self.deigenvalue_deps(region_of, n_regions)?;
+        let lambda = self.lambdas[self.mode_index];
+        let s = 1.0 / (4.0 * std::f64::consts::PI * lambda.sqrt());
+        Ok(dl.into_iter().map(|d| d * s).collect())
+    }
+
+    /// **London penetration-depth** sensitivity `∂λ/∂λ_L = −xᵀS_Γx/λ_L²`
+    /// (see [`EigenSensitivity::deigenvalue_dlambda_l`]); at p=2 `S_Γ` is
+    /// the p=2 tangential-trace surface mass.
+    ///
+    /// # Errors
+    ///
+    /// As [`EigenSensitivity::deigenvalue_dlambda_l`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `lambda_l` is not strictly positive and finite.
+    pub fn deigenvalue_dlambda_l(
+        &self,
+        triangles: &[[u32; 3]],
+        lambda_l: f64,
+    ) -> Result<f64, EigenSensitivityError> {
+        if let Some(p1) = self.p1() {
+            return p1.deigenvalue_dlambda_l(triangles, lambda_l);
+        }
+        assert!(
+            lambda_l.is_finite() && lambda_l > 0.0,
+            "London lambda_l must be strictly positive and finite, got {lambda_l}; \
+             the λ_L = 0 PEC limit must be expressed through the PEC edge mask"
+        );
+        let (_lambda, xf) = self.checked()?;
+        crate::elements::whitney::validate_surface_faces(self.mesh, std::iter::once(triangles))
+            .map_err(|d| EigenSensitivityError::SurfaceNotOnMesh {
+                triangle: d.triangle,
+                dangling: d.dangling,
+                total: d.total,
+            })?;
+        let trips = crate::assembly::surface_p2::assemble_p2_surface_mass_triplets(
+            self.space, self.mesh, triangles,
+        )
+        .map_err(|tri| EigenSensitivityError::SurfaceNotOnMesh {
+            triangle: tri,
+            dangling: 1,
+            total: triangles.len(),
+        })?;
+        let q: f64 = trips.iter().map(|&(r, c, v)| xf[r] * v * xf[c]).sum();
+        Ok(-q / (lambda_l * lambda_l))
+    }
+
+    /// The nodal-coordinate geometry gradient `∂λ/∂X_{n,d}` (see
+    /// [`EigenSensitivity::deigenvalue_dx`]); at p=2 through the exact
+    /// forward-mode `Dual` twin of the 20-DOF element.
+    ///
+    /// # Errors
+    ///
+    /// As [`EigenSensitivity::deigenvalue_dx`].
+    pub fn deigenvalue_dx(&self) -> Result<Vec<[f64; 3]>, EigenSensitivityError> {
+        if let Some(p1) = self.p1() {
+            return p1.deigenvalue_dx();
+        }
+        let (lambda, xf) = self.checked()?;
+        self.check_eps()?;
+        let mut grad_node = vec![[0.0_f64; 3]; self.mesh.n_nodes()];
+        for (t, tet) in self.mesh.tets.iter().enumerate() {
+            let x = self.x_loc_p2(&xf, t);
+            if x.iter().all(|&v| v == 0.0) {
+                continue;
+            }
+            let perm = match self.space.tet_orientation(t) {
+                crate::assembly::hcurl_space::TetOrientation::AscendingPerm(p) => p,
+                crate::assembly::hcurl_space::TetOrientation::EdgeSigns(_) => {
+                    unreachable!("p=2 space")
+                }
+            };
+            let base = self.space.tet_local_coords(self.mesh, t);
+            let eps_t = self.eps_r[t];
+            for (a, &nat) in perm.iter().enumerate() {
+                let node = tet[nat] as usize;
+                for axis in 0..3 {
+                    let mut dc = base.map(|v| v.map(Dual::cst));
+                    dc[a][axis] = Dual::var(base[a][axis]);
+                    let (dk, dm, _) = crate::driven::shape::nedelec2_local_dual(&dc);
+                    let mut d = 0.0_f64;
+                    for i in 0..20 {
+                        for j in 0..20 {
+                            d += x[i] * x[j] * (dk[i][j].du - lambda * eps_t * dm[i][j].du);
+                        }
+                    }
+                    grad_node[node][axis] += d;
+                }
+            }
+        }
+        Ok(grad_node)
+    }
+
+    /// Geometry sensitivity `∂λ/∂θ` for a node-motion velocity field (see
+    /// [`EigenSensitivity::deigenvalue_dtheta`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`SpaceEigenSensitivity::deigenvalue_dx`].
+    pub fn deigenvalue_dtheta(
+        &self,
+        dnode_dtheta: &[[f64; 3]],
+    ) -> Result<f64, EigenSensitivityError> {
+        let grad_node = self.deigenvalue_dx()?;
+        Ok(crate::shape::chain_node_motion(&grad_node, dnode_dtheta))
+    }
+}
