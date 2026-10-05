@@ -53,19 +53,12 @@ use crate::mesh::TetMesh;
 
 /// Finite-element order for the lossless-cavity eigensolve.
 ///
-/// `P1` is the first-order Whitney edge element (the historical default —
-/// selecting it reproduces the existing `p=1` eigen path byte-for-byte).
-/// `P2` routes through the #621 second-order Nédélec global assembly
-/// ([`crate::assembly::nedelec_p2`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ElementOrder {
-    /// First-order Whitney edge element (6 DOFs / tet). Default.
-    #[default]
-    P1,
-    /// Second-order Nédélec element (20 DOFs / tet), via #621's global
-    /// `edges×2 + faces×2` assembly.
-    P2,
-}
+/// Re-export of the crate-level [`crate::elements::ElementOrder`] (issue
+/// #838), kept at this historical path. `P1` is the first-order Whitney
+/// edge element (the historical default — selecting it reproduces the
+/// existing `p=1` eigen path byte-for-byte). `P2` routes through the #621
+/// second-order Nédélec global assembly ([`crate::assembly::nedelec_p2`]).
+pub use crate::elements::ElementOrder;
 
 /// Converged lossless-cavity eigenvalues plus the reduced (interior) DOF
 /// count of the pencil they came from.

@@ -1030,6 +1030,7 @@ pub fn solve_scattered_field_matched_upml(
 
     Ok(DrivenSolution {
         e_edges,
+        order: crate::elements::ElementOrder::P1,
         n_interior,
         residual_rel,
     })

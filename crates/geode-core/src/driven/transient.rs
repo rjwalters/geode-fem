@@ -313,6 +313,18 @@ impl<'a> TransientSolver<'a> {
     /// the module docs on out-of-scope operators), and
     /// [`TransientError::Factorization`] on sparse-assembly failure.
     pub fn new(op: &'a DrivenOperator) -> Result<Self, TransientError> {
+        // Issue #838: the transient path is validated on the p=1 operator
+        // only; a higher-order operator is rejected, never integrated
+        // unverified.
+        if op.order() != crate::elements::ElementOrder::P1 {
+            return Err(TransientError::UnsupportedOperator {
+                reason: format!(
+                    "the transient solver supports only p=1 operators (this one is {}; \
+                     Epic #836)",
+                    op.order()
+                ),
+            });
+        }
         if op.has_surfaces() {
             return Err(TransientError::UnsupportedOperator {
                 reason: "Leontovich impedance surface present".into(),

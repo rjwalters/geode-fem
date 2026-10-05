@@ -226,12 +226,26 @@ pub fn assemble_port_flux(
 /// `e_edges` is the full-length edge-DOF vector in `mesh.edges()`
 /// order, e.g. [`crate::driven::solve::DrivenSolution::e_edges`]; `edges` is
 /// that same edge table.
+///
+/// # Panics
+///
+/// Panics if `e_edges.len() != edges.len()` — e.g. a p=2 DOF vector
+/// (`2E + 2F` entries, issue #838) handed to this p=1 (Whitney) projection,
+/// which would otherwise silently pair the flux with the wrong DOFs (#804).
 pub fn port_voltage(
     mesh: &TetMesh,
     port: &LumpedPort<'_>,
     edges: &[[u32; 2]],
     e_edges: &[c64],
 ) -> c64 {
+    assert_eq!(
+        e_edges.len(),
+        edges.len(),
+        "lumped::port_voltage: e_edges has {} entries but the mesh has {} edges; \
+         this is a p=1 (one DOF per edge) projection",
+        e_edges.len(),
+        edges.len()
+    );
     let flux = assemble_port_flux(mesh, port.faces, port.e_hat, edges);
     let mut v = c64::new(0.0, 0.0);
     for (f, e) in flux.iter().zip(e_edges.iter()) {

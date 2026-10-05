@@ -554,6 +554,13 @@ pub(crate) fn s_column(
     s: &mut [c64],
 ) {
     let zero = c64::new(0.0, 0.0);
+    // The modal fluxes are zipped against the scattered vector below; a
+    // length mismatch would silently truncate (#804).
+    assert_eq!(
+        pec_interior_mask.len(),
+        n_edges,
+        "s_column: PEC mask length != n_edges"
+    );
     let n_lumped = weights.sqrt_r.len();
     let n_ports = n_lumped + channels.len();
     let mut e_edges = vec![zero; n_edges];
@@ -569,6 +576,11 @@ pub(crate) fn s_column(
         s[k * n_ports + j] = (v_out / weights.sqrt_r[k]) / a_tilde;
     }
     for (q, ch) in channels.iter().enumerate() {
+        assert_eq!(
+            ch.flux.len(),
+            n_edges,
+            "s_column: modal flux length != n_edges"
+        );
         let a_q = ch
             .flux
             .iter()

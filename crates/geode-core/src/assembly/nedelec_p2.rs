@@ -452,54 +452,130 @@ pub fn p2_region_mass_action(
     out
 }
 
-/// Interior (kept) `p=2` DOF mask for a **cube PEC cavity** `[0, side]³`:
-/// a DOF is eliminated (`false`) iff its edge/face lies entirely on a boundary
-/// plane (`n × E = 0`).
+/// Interior (kept) `p=2` DOF mask for a **cube PEC cavity** `[0, side]³`
+/// whose whole outer surface is PEC. Length `dofs.n_dofs`.
 ///
-/// The geometric predicate is plane-based and exact for a box: an edge is on
-/// the boundary iff both endpoints share a coordinate equal to `0` or `side`;
-/// a face is on the boundary iff all three vertices do. Length `dofs.n_dofs`.
+/// Since issue #838 this is a thin wrapper over the face-exact
+/// [`crate::assembly::hcurl_space::HcurlSpace::pec_interior_mask`] with the
+/// mesh's [`TetMesh::boundary_faces`] as the wall list (the p=2 analogue of
+/// [`crate::assembly::nedelec::cube_pec_interior_edges`]): `(W, Q)` of every
+/// boundary-face edge and `(φ0, φ1)` of every boundary face are eliminated,
+/// and chords stay free. `side` is unused and kept for signature stability.
+///
+/// The pre-#838 implementation was a plane predicate ("both endpoints /
+/// all three vertices on one boundary plane"). On a box every edge lying in
+/// a boundary plane is an edge of a boundary face and every face lying in
+/// a boundary plane is a boundary face, so the two agree exactly there (pinned
+/// on `cube_tet_mesh(n)` for `n = 1..=4` by
+/// `cube_mask_equals_the_old_plane_predicate` below); the face-exact form
+/// is what generalises to tagged meshes. `dofs` must be
+/// [`P2DofMap::build`] of `mesh`; the face-exact space uses the same
+/// numbering.
 pub fn cube_pec_interior_p2_dofs(mesh: &TetMesh, dofs: &P2DofMap, side: f64) -> Vec<bool> {
-    let tol = 1e-9 * side.max(1.0);
-    let edges = mesh.edges();
-    let faces = mesh.faces();
-    let on_plane_pair = |a: usize, b: usize| -> bool {
-        let pa = &mesh.nodes[a];
-        let pb = &mesh.nodes[b];
-        (0..3).any(|d| {
-            let lo = pa[d].abs() < tol && pb[d].abs() < tol;
-            let hi = (pa[d] - side).abs() < tol && (pb[d] - side).abs() < tol;
-            lo || hi
-        })
-    };
-    let on_plane_triple = |a: usize, b: usize, c: usize| -> bool {
-        let pa = &mesh.nodes[a];
-        let pb = &mesh.nodes[b];
-        let pc = &mesh.nodes[c];
-        (0..3).any(|d| {
-            let lo = pa[d].abs() < tol && pb[d].abs() < tol && pc[d].abs() < tol;
-            let hi = (pa[d] - side).abs() < tol
-                && (pb[d] - side).abs() < tol
-                && (pc[d] - side).abs() < tol;
-            lo || hi
-        })
-    };
+    use crate::assembly::hcurl_space::HcurlSpace;
+    use crate::elements::ElementOrder;
+    let _ = side;
+    let space = HcurlSpace::build(mesh, ElementOrder::P2);
+    assert_eq!(
+        space.n_dofs(),
+        dofs.n_dofs,
+        "P2DofMap is not built on this mesh"
+    );
+    let walls = mesh.boundary_faces();
+    space
+        .pec_interior_mask(mesh, &[walls.as_slice()])
+        .expect("boundary_faces() are mesh faces by construction")
+}
 
-    let mut keep = vec![true; dofs.n_dofs];
-    for (ge, e) in edges.iter().enumerate() {
-        if on_plane_pair(e[0] as usize, e[1] as usize) {
-            keep[2 * ge] = false;
-            keep[2 * ge + 1] = false;
+/// The p=2 shapes and curls of one tet tabulated at the degree-≥4 rule
+/// ([`tet_quad_deg4`]): `w[q]` is the absolute quadrature weight
+/// (`|V| · fraction`), `n[q]` / `c[q]` the 20 basis vectors / curls in the
+/// local layout of [`tet_nedelec2_local`]. Built on the
+/// **ascending-sorted** coords (issue #838).
+#[derive(Debug, Clone)]
+pub struct P2TetTabulation {
+    /// Absolute quadrature weights.
+    pub w: Vec<f64>,
+    /// Barycentrics (sorted-vertex order) of each quadrature point.
+    pub lam: Vec<[f64; 4]>,
+    /// Basis vectors per point.
+    pub n: Vec<[[f64; 3]; TET_NEDELEC2_DOFS]>,
+    /// Basis curls per point.
+    pub c: Vec<[[f64; 3]; TET_NEDELEC2_DOFS]>,
+}
+
+/// Tabulate the p=2 shapes and curls of the tet `coords_sorted` (already in
+/// ascending global-tag order) at [`tet_quad_deg4`].
+pub fn tabulate_p2_tet(coords_sorted: &[[f64; 3]; 4]) -> P2TetTabulation {
+    let (bary, signed_vol) = tet_barycentric_gradients(coords_sorted);
+    let vol_abs = signed_vol.abs();
+    let rule = tet_quad_deg4();
+    let mut out = P2TetTabulation {
+        w: Vec::with_capacity(rule.len()),
+        lam: Vec::with_capacity(rule.len()),
+        n: Vec::with_capacity(rule.len()),
+        c: Vec::with_capacity(rule.len()),
+    };
+    for (lam, frac) in rule {
+        let (n, c) = tet_nedelec2_shapes(&lam, &bary);
+        out.w.push(vol_abs * frac);
+        out.lam.push(lam);
+        out.n.push(n);
+        out.c.push(c);
+    }
+    out
+}
+
+/// `Σ_q w_q · u_i(q)ᵀ W v_j(q)` for a per-tet-constant complex 3×3 weight
+/// `W`: the shared contraction behind the tensor mass and curl-curl.
+fn p2_weighted_gram(
+    w: &[f64],
+    u: &[[[f64; 3]; TET_NEDELEC2_DOFS]],
+    weight: &[[c64; 3]; 3],
+) -> [[c64; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS] {
+    let zero = c64::new(0.0, 0.0);
+    let mut out = [[zero; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS];
+    for (q, &wq) in w.iter().enumerate() {
+        let uq = &u[q];
+        // W v_j once per (q, j).
+        let wv: [[c64; 3]; TET_NEDELEC2_DOFS] = std::array::from_fn(|j| {
+            std::array::from_fn(|a| {
+                weight[a][0] * uq[j][0] + weight[a][1] * uq[j][1] + weight[a][2] * uq[j][2]
+            })
+        });
+        for i in 0..TET_NEDELEC2_DOFS {
+            let ui = uq[i];
+            for j in 0..TET_NEDELEC2_DOFS {
+                let v = wv[j];
+                out[i][j] += (v[0] * ui[0] + v[1] * ui[1] + v[2] * ui[2]) * wq;
+            }
         }
     }
-    let face_base = 2 * dofs.n_edges;
-    for (gf, f) in faces.iter().enumerate() {
-        if on_plane_triple(f[0] as usize, f[1] as usize, f[2] as usize) {
-            keep[face_base + 2 * gf] = false;
-            keep[face_base + 2 * gf + 1] = false;
-        }
-    }
-    keep
+    out
+}
+
+/// p=2 **tensor-weighted mass** `M_ij = ∫_T N_i · (ε N_j) dV` for a
+/// per-tet-constant complex 3×3 `ε` (the [`crate::driven::solve::DrivenMaterials::DiagTensor`]
+/// and matched-UPML `ε = ε_r·Λ` weights; same `N_iᵀ ε N_j` convention as
+/// the p=1 `batched_nedelec_local_mass_anisotropic_full`). The integrand is
+/// degree 4, so [`tet_quad_deg4`] is exact (#836 principle 6).
+pub fn p2_local_mass_tensor(
+    tab: &P2TetTabulation,
+    eps: &[[c64; 3]; 3],
+) -> [[c64; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS] {
+    p2_weighted_gram(&tab.w, &tab.n, eps)
+}
+
+/// p=2 **ν-weighted curl-curl** `K_ij = ∫_T (∇×N_i) · (ν ∇×N_j) dV` for a
+/// per-tet-constant complex 3×3 `ν = μ⁻¹` (the matched-UPML `ν = Λ⁻¹`
+/// weight; same convention as the p=1
+/// `batched_nedelec_local_stiffness_weighted`). The integrand is degree 2,
+/// so [`tet_quad_deg4`] is exact.
+pub fn p2_local_curl_tensor(
+    tab: &P2TetTabulation,
+    nu: &[[c64; 3]; 3],
+) -> [[c64; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS] {
+    p2_weighted_gram(&tab.w, &tab.c, nu)
 }
 
 /// Reconstruct the `p=2` vector field `E_h(x)` from a full-length DOF vector at
@@ -581,6 +657,76 @@ mod tests {
                     None => per_face[gf] = Some((d0, d1)),
                     Some(prev) => assert_eq!(prev, (d0, d1)),
                 }
+            }
+        }
+    }
+
+    /// The pre-#838 plane-predicate cube mask, kept here only to pin that
+    /// the face-exact wrapper reproduces it on boxes.
+    fn old_plane_predicate(mesh: &TetMesh, dofs: &P2DofMap, side: f64) -> Vec<bool> {
+        let tol = 1e-9 * side.max(1.0);
+        let on = |ps: &[usize]| -> bool {
+            (0..3).any(|d| {
+                let lo = ps.iter().all(|&p| mesh.nodes[p][d].abs() < tol);
+                let hi = ps.iter().all(|&p| (mesh.nodes[p][d] - side).abs() < tol);
+                lo || hi
+            })
+        };
+        let mut keep = vec![true; dofs.n_dofs];
+        for (ge, e) in mesh.edges().iter().enumerate() {
+            if on(&[e[0] as usize, e[1] as usize]) {
+                keep[2 * ge] = false;
+                keep[2 * ge + 1] = false;
+            }
+        }
+        let fb = 2 * dofs.n_edges;
+        for (gf, f) in mesh.faces().iter().enumerate() {
+            if on(&[f[0] as usize, f[1] as usize, f[2] as usize]) {
+                keep[fb + 2 * gf] = false;
+                keep[fb + 2 * gf + 1] = false;
+            }
+        }
+        keep
+    }
+
+    #[test]
+    fn cube_mask_equals_the_old_plane_predicate() {
+        for n in 1..=4 {
+            let mesh = cube_tet_mesh(n, 2.0);
+            let dofs = P2DofMap::build(&mesh);
+            assert_eq!(
+                cube_pec_interior_p2_dofs(&mesh, &dofs, 2.0),
+                old_plane_predicate(&mesh, &dofs, 2.0),
+                "n = {n}"
+            );
+        }
+    }
+
+    #[test]
+    fn tensor_kernels_reduce_to_the_scalar_element() {
+        // ε = s·I and ν = I must reproduce s·M and K of tet_nedelec2_local.
+        let coords = [
+            [0.1, 0.0, 0.2],
+            [1.0, 0.1, 0.0],
+            [0.2, 0.9, 0.1],
+            [0.0, 0.2, 1.1],
+        ];
+        let (k, m, _) = crate::elements::nedelec_p2::tet_nedelec2_local(&coords);
+        let tab = tabulate_p2_tet(&coords);
+        let s = c64::new(2.0, -0.1);
+        let z = c64::new(0.0, 0.0);
+        let eps = [[s, z, z], [z, s, z], [z, z, s]];
+        let one = c64::new(1.0, 0.0);
+        let id = [[one, z, z], [z, one, z], [z, z, one]];
+        let mt = p2_local_mass_tensor(&tab, &eps);
+        let kt = p2_local_curl_tensor(&tab, &id);
+        for i in 0..TET_NEDELEC2_DOFS {
+            for j in 0..TET_NEDELEC2_DOFS {
+                assert!((mt[i][j] - s * m[i][j]).norm() < 1e-13, "M[{i}][{j}]");
+                assert!(
+                    (kt[i][j] - c64::new(k[i][j], 0.0)).norm() < 1e-12,
+                    "K[{i}][{j}]"
+                );
             }
         }
     }

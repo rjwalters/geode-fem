@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Breaking (`geode-core` library):**
+- `DrivenSolution` gains an `order: ElementOrder` field, and `DrivenError` gains `UnsupportedAtOrder` and `SpaceMeshMismatch` (#838). Code that builds `DrivenSolution` literals or matches `DrivenError` exhaustively must be updated.
+
+### Added
+
+#### `geode-core`
+
+- **Order-pluggable H(curl) space** (#838, Epic #836 Phase 1a). `assembly::hcurl_space::HcurlSpace::build(mesh, order)` owns the DOF layout. It provides:
+  - per-entity DOF counts;
+  - the per-tet gather and its orientation;
+  - `edge_dofs` / `face_dofs`;
+  - a face-exact PEC mask that never eliminates chords. It returns `Result`: a wall triangle that is not a mesh face is `DrivenError::SurfaceNotOnMesh` (named `"PEC wall {i}"`), and a space used with another mesh is `SpaceMeshMismatch`;
+  - `field_at` / `curl_at`;
+  - the hierarchical `prolong_p1`;
+  - `face_dof_transform`, the 2×2 face-DOF relabelling map that periodic pairing needs.
+
+  There is now one crate-level `elements::ElementOrder`, re-exported at `driven::solve::ElementOrder` and `eigen::cavity::ElementOrder`.
+- **p=2 driven operator.** `DrivenOperator::assemble_with_space` assembles the production driven operator on a p=2 space. It supports complex scalar, diagonal-tensor and matched-UPML ε (with ν), σ damping, volume J (constant, degree-2 quadrature samples, or a closure sampled at the degree-4 rule), and tagged face-exact PEC. Direct LU, assembled-matrix COCG (Jacobi / ILU(0) / Chebyshev) and the adaptive PROM all work on it.
+  - On flat-sided unstructured boxes (n = 2..8), the fitted field L² slope is 1.92 at p=2 (gated at ≥ 1.85; the finest-step local slope is 2.00) against 0.99–1.16 at p=1, and p=2 is 4.4–5.9× more accurate on the coarsest mesh.
+  - With a p=1 space, the call routes to the existing assembly verbatim, and the outputs are bit-identical.
+- `DrivenOperator::{order, n_dofs, interior_index, matrix_at}`, a public `interior_to_full`, `DrivenSolution::dofs` and `DrivenRom::evaluate_field`.
+
+### Changed
+
+- `cube_pec_interior_p2_dofs` is now a wrapper over the face-exact `HcurlSpace` mask. It gives the same mask as before on boxes (#838).
+- The p=1 post-processors `driven::ports::port_voltage` (and so `port_input_impedance` and `extraction::extract_port_circuit`) and `geode_util::viz::edge_field_to_nodes` (the CLI VTU export path) now panic when the DOF vector length is not the mesh edge count. Before, a p=2 vector was silently truncated or indexed into, giving a plausible but wrong voltage or field plot (#838, #804). p=1 results are unchanged.
+- p=2 requests that are not supported yet fail with `DrivenError::UnsupportedAtOrder` instead of solving at another order. This covers lumped ports, impedance surfaces, the matrix-free solver, the AMS preconditioner, wave ports in the PROM and the transient solver (#838; Phases 1b–3 of Epic #836).
+
 ## [0.8.0] - 2026-10-04
 
 This release completes Epic #756 (geode CLI Phase 4: physics breadth for EDA flows) and Epic #778 (hybrid wave ports). It covers:
