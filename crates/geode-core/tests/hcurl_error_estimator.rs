@@ -639,7 +639,7 @@ fn golden2_eigen_pec_box() {
 /// - **End-to-end rerun:** the eigen *solve* is repeated on the scaled
 ///   mesh. The PEC-cavity eigensolver fails at `s = 1e-6` (a garbage Ritz
 ///   pair with residual 1.0; it works at `s = 3e-6` and above), a
-///   pre-existing solver scale cliff reported separately. The end-to-end
+///   pre-existing solver scale cliff, issue #852. The end-to-end
 ///   check therefore runs at `s = 3e-6`, where the bound is the eigensolver
 ///   tolerance, not round-off.
 #[test]
