@@ -360,7 +360,8 @@ impl std::fmt::Display for AdaptWarning {
                 uncovered,
                 upml_tets,
             } => {
-                let kinds: Vec<String> = uncovered.iter().map(|(k, n)| format!("{n} {k}")).collect();
+                let kinds: Vec<String> =
+                    uncovered.iter().map(|(k, n)| format!("{n} {k}")).collect();
                 write!(f, "INCOMPLETE estimate on the final mesh:")?;
                 if !kinds.is_empty() {
                     write!(
@@ -540,7 +541,9 @@ pub struct AdaptReport {
 impl AdaptReport {
     /// The last level.
     pub fn last(&self) -> &AdaptIteration {
-        self.history.last().expect("a report has at least one level")
+        self.history
+            .last()
+            .expect("a report has at least one level")
     }
 
     /// `true` iff the loop stopped on [`StopReason::TargetMet`].
@@ -589,9 +592,9 @@ impl AdaptReport {
             None => s.push_str(" (pre-asymptotic: no error bracket)"),
         }
         let rate = self.observed_rate(4);
-        let needed = rate.filter(|r| *r > 0.05).map(|r| {
-            (l.n_dofs as f64) * (l.eta_rel / target.max(f64::MIN_POSITIVE)).powf(1.0 / r)
-        });
+        let needed = rate
+            .filter(|r| *r > 0.05 && target > 0.0)
+            .map(|r| (l.n_dofs as f64) * (l.eta_rel / target.max(f64::MIN_POSITIVE)).powf(1.0 / r));
         let advice = |s: &mut String| {
             if let (Some(r), Some(n)) = (rate, needed) {
                 let _ = write!(
@@ -722,7 +725,7 @@ pub fn dorfler_mark(indicator: &[f64], theta: f64, eligible: Option<&[bool]>) ->
     let ok = |t: usize| eligible.is_none_or(|e| e[t]) && indicator[t] > 0.0;
     let mut idx: Vec<usize> = (0..indicator.len()).filter(|&t| ok(t)).collect();
     let total: f64 = idx.iter().map(|&t| indicator[t]).sum();
-    if !(total > 0.0) {
+    if total.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return Vec::new();
     }
     idx.sort_by(|&a, &b| indicator[b].total_cmp(&indicator[a]).then(a.cmp(&b)));
@@ -946,13 +949,11 @@ pub fn adapt_with<S: LevelSolver>(
             mesh: bm.mesh(),
             periodic_map: bm.periodic_map(),
         };
-        let out = solver
-            .solve_level(&ctx)
-            .map_err(|e| AdaptError::AtLevel {
-                level,
-                n_tets,
-                source: Box::new(e),
-            })?;
+        let out = solver.solve_level(&ctx).map_err(|e| AdaptError::AtLevel {
+            level,
+            n_tets,
+            source: Box::new(e),
+        })?;
         if out.estimates.is_empty() {
             return Err(AdaptError::AtLevel {
                 level,
@@ -1264,7 +1265,9 @@ pub fn bisection_mesh(
         Some(p) => {
             let mut mesh = mesh;
             let map = PeriodicMap::build(&mut mesh.mesh, &p.pairs, &p.options)?;
-            Ok(BisectionMesh::new_periodic(mesh, &p.pairs, &map, p.options)?)
+            Ok(BisectionMesh::new_periodic(
+                mesh, &p.pairs, &map, p.options,
+            )?)
         }
     }
 }
@@ -1423,12 +1426,21 @@ fn bilinear(a: &SparseColMat<usize, f64>, x: &[f64], y: &[f64]) -> f64 {
 }
 
 fn norm_c(v: &[c64]) -> f64 {
-    v.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>().sqrt()
+    v.iter()
+        .map(|z| z.re * z.re + z.im * z.im)
+        .sum::<f64>()
+        .sqrt()
 }
 
 // ---------------------------------------------------------------------------
 // Driven
 // ---------------------------------------------------------------------------
+
+/// A per-level observer of [`DrivenAdaptSpec::observer`].
+pub type DrivenObserver<'a> = dyn Fn(&LevelContext<'_>, &[DrivenSolution]) + Sync + 'a;
+
+/// A per-level observer of [`EigenAdaptSpec::observer`].
+pub type EigenObserver<'a> = dyn Fn(&LevelContext<'_>, &[TrackedMode]) + Sync + 'a;
 
 /// A driven problem for [`adapt_driven`]:
 /// `∇×∇×E − ω² ε E = iωJ` (the production [`crate::driven::solve`]
@@ -1465,7 +1477,7 @@ pub struct DrivenAdaptSpec<'a> {
     /// Optional per-level observer, called after every level's solve with
     /// the level and its solutions (one per adaptation frequency): export
     /// fields, or measure a reference error, without re-running the loop.
-    pub observer: Option<&'a (dyn Fn(&LevelContext<'_>, &[DrivenSolution]) + Sync)>,
+    pub observer: Option<&'a DrivenObserver<'a>>,
 }
 
 impl std::fmt::Debug for DrivenAdaptSpec<'_> {
@@ -1694,7 +1706,10 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
         let mesh = &ctx.mesh.mesh;
         let tets = tet_contexts(ctx.mesh);
         let eps: Vec<c64> = tets.iter().map(|t| (spec.eps)(t)).collect();
-        if let Some(t) = eps.iter().position(|e| !(e.re.is_finite() && e.im.is_finite())) {
+        if let Some(t) = eps
+            .iter()
+            .position(|e| !(e.re.is_finite() && e.im.is_finite()))
+        {
             return Err(AdaptError::InvalidSpec(format!(
                 "eps of tet {t} is not finite ({})",
                 eps[t]
@@ -1915,7 +1930,7 @@ pub struct EigenAdaptSpec<'a> {
     pub extra_candidates: usize,
     /// Optional per-level observer, called after every level with the
     /// level and its tracked modes.
-    pub observer: Option<&'a (dyn Fn(&LevelContext<'_>, &[TrackedMode]) + Sync)>,
+    pub observer: Option<&'a EigenObserver<'a>>,
 }
 
 impl std::fmt::Debug for EigenAdaptSpec<'_> {
@@ -2008,12 +2023,9 @@ impl<B: Backend> LevelSolver for EigenLevelSolver<'_, '_, B> {
         };
         let (k, m) = match &constraint {
             Some(c) => assemble_periodic_lossless_pencil::<B>(mesh, &materials, c, self.device)?,
-            None => assemble_lossless_pencil_with_materials::<B>(
-                mesh,
-                &materials,
-                &mask,
-                self.device,
-            )?,
+            None => {
+                assemble_lossless_pencil_with_materials::<B>(mesh, &materials, &mask, self.device)?
+            }
         };
         let n_red = k.nrows();
         let mut inject: Vec<Option<(usize, f64)>> = vec![None; n_full];

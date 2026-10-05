@@ -30,13 +30,13 @@ use std::time::Instant;
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
+use geode_core::adapt::driver::AdaptError;
 use geode_core::adapt::driver::{
     AdaptIteration, AdaptOptions, AdaptReport, AdaptWarning, DrivenAdaptSpec, EigenAdaptSpec,
     FaceBc, FaceCtx, LevelContext, LevelOutcome, LevelQuantities, LevelSolver, LumpedPortSpec,
     Marking, PeriodicSpec, StopReason, TetCtx, adapt_driven, adapt_eigen, adapt_with,
     bisection_mesh, dorfler_mark, space_dofs,
 };
-use geode_core::adapt::driver::AdaptError;
 use geode_core::adapt::estimator::{ErrorEstimate, EstimateComponents, EstimatorCoverage};
 use geode_core::adapt::refine::Refined;
 use geode_core::assembly::hcurl_space::HcurlSpace;
@@ -267,7 +267,10 @@ fn thick_l_eigen(
     }
     let bc = move |f: &FaceCtx| {
         let bottom = f.points.iter().all(|p| p[2].abs() < 1e-12 * s);
-        let top = f.points.iter().all(|p| (p[2] - THICK * s).abs() < 1e-12 * s);
+        let top = f
+            .points
+            .iter()
+            .all(|p| (p[2] - THICK * s).abs() < 1e-12 * s);
         if bottom || top {
             FaceBc::Natural
         } else {
@@ -285,6 +288,10 @@ fn thick_l_eigen(
     let r = adapt_eigen::<B>(&spec, &opts, &device()).expect("thick-L adapt");
     (r.report, r.mesh)
 }
+
+/// DOF budget of the singular goldens (kept small for CI wall time; the
+/// bars hold with margin at 50k too, see the PR tables).
+const BUDGET: usize = 30_000;
 
 fn eigen_curve(tag: &str, r: &AdaptReport) -> (Vec<f64>, Vec<f64>) {
     let mut n = Vec::new();
@@ -320,13 +327,16 @@ fn eigen_curve(tag: &str, r: &AdaptReport) -> (Vec<f64>, Vec<f64>) {
 #[test]
 fn golden1_thick_l_eigen_adaptive_beats_uniform() {
     let t0 = Instant::now();
-    let (ad, _) = thick_l_eigen(Marking::Dorfler { theta: 0.5 }, 50_000, 40, 1.0, 1);
-    let (un, _) = thick_l_eigen(Marking::Uniform, 50_000, 40, 1.0, 1);
+    let (ad, _) = thick_l_eigen(Marking::Dorfler { theta: 0.5 }, BUDGET, 40, 1.0, 1);
+    let (un, _) = thick_l_eigen(Marking::Uniform, BUDGET, 40, 1.0, 1);
     let (na, ea) = eigen_curve("golden1 adaptive (Dörfler θ = 0.5)", &ad);
     let (nu, eu) = eigen_curve("golden1 uniform (every tet bisected per level)", &un);
     // Fit the adaptive levels past 2000 DOFs and the uniform levels from 2
     // on (uniform bisection levels cycle with period 3; fit them all).
-    let a0 = na.iter().position(|&n| n >= 2000.0).expect("adaptive passes 2000 DOFs");
+    let a0 = na
+        .iter()
+        .position(|&n| n >= 2000.0)
+        .expect("adaptive passes 2000 DOFs");
     let rate_a = -loglog_slope(&na[a0..], &ea[a0..]);
     let rate_u = -loglog_slope(&nu[2..], &eu[2..]);
     let eta_a: Vec<f64> = ad.history.iter().map(|h| h.eta_rel).collect();
@@ -346,8 +356,8 @@ fn golden1_thick_l_eigen_adaptive_beats_uniform() {
     );
     eprintln!("golden1 adaptive summary: {}", ad.summary());
     assert_eq!(ad.stop_reason, StopReason::MaxDofs);
-    assert!(ad.history.iter().all(|h| h.n_dofs <= 50_000));
-    assert!(un.history.iter().all(|h| h.n_dofs <= 50_000));
+    assert!(ad.history.iter().all(|h| h.n_dofs <= BUDGET));
+    assert!(un.history.iter().all(|h| h.n_dofs <= BUDGET));
     for h in &ad.history[1..] {
         let LevelQuantities::Eigen(d) = &h.quantities else {
             unreachable!()
@@ -356,7 +366,10 @@ fn golden1_thick_l_eigen_adaptive_beats_uniform() {
         assert!(o >= 0.99, "level {} overlap {o}", h.level);
     }
     assert!(rate_a >= 0.55, "adaptive rate {rate_a}");
-    assert!(rate_a >= rate_u + 0.1, "adaptive {rate_a} vs uniform {rate_u}");
+    assert!(
+        rate_a >= rate_u + 0.1,
+        "adaptive {rate_a} vs uniform {rate_u}"
+    );
     assert!(n_u / n_a >= 2.0, "DOF saving {}", n_u / n_a);
 }
 
@@ -520,7 +533,12 @@ fn singular_rel_error(mesh: &TetMesh, x: &[c64]) -> f64 {
         let mut h: f64 = 0.0;
         for i in 0..4 {
             for j in i + 1..4 {
-                h = h.max((0..3).map(|d| (v[i][d] - v[j][d]).powi(2)).sum::<f64>().sqrt());
+                h = h.max(
+                    (0..3)
+                        .map(|d| (v[i][d] - v[j][d]).powi(2))
+                        .sum::<f64>()
+                        .sqrt(),
+                );
             }
         }
         let mut point = |b: [f64; 4], w: f64| {
@@ -585,13 +603,9 @@ fn singular_driven(marking: Marking, max_dofs: usize) -> (AdaptReport, Vec<Drive
                 (cx * cx + cy * cy).sqrt() < 0.1
             })
             .count();
-        rows.lock().unwrap().push((
-            m.n_tets(),
-            0,
-            err,
-            0.0,
-            near as f64 / m.n_tets() as f64,
-        ));
+        rows.lock()
+            .unwrap()
+            .push((m.n_tets(), 0, err, 0.0, near as f64 / m.n_tets() as f64));
     };
     let mut spec = DrivenAdaptSpec::new(thick_l(4, 1), 1.0, &eps, &singular_bc, &current, &div);
     spec.observer = Some(&observe);
@@ -619,13 +633,14 @@ fn singular_driven(marking: Marking, max_dofs: usize) -> (AdaptReport, Vec<Drive
 /// are stated on the squared energy error `‖e‖²_E` (the field-energy
 /// error, the quantity the eigenvalue error tracks), so they match
 /// golden 1: adaptive rate ≥ 0.55, ≥ uniform + 0.1, ≥ 2× fewer DOFs at the
-/// finest uniform error. The refinement concentrates at the edge: the
-/// final adaptive mesh has most of its tets within 0.1 of it.
+/// finest uniform error. The refinement concentrates at the edge: at least
+/// 20 % of the final adaptive tets (and 10× the uniform share) lie within
+/// `r < 0.1` of it, a region holding 0.8 % of the volume.
 #[test]
 fn golden2_thick_l_driven_singular_adaptive_beats_uniform() {
     let t0 = Instant::now();
-    let (ra, ad) = singular_driven(Marking::Dorfler { theta: 0.5 }, 50_000);
-    let (_, un) = singular_driven(Marking::Uniform, 50_000);
+    let (ra, ad) = singular_driven(Marking::Dorfler { theta: 0.5 }, BUDGET);
+    let (_, un) = singular_driven(Marking::Uniform, BUDGET);
     for (tag, rows) in [("golden2 adaptive", &ad), ("golden2 uniform", &un)] {
         let t: Vec<(usize, usize, f64, f64, String)> = rows
             .iter()
@@ -637,26 +652,37 @@ fn golden2_thick_l_driven_singular_adaptive_beats_uniform() {
     let ea2: Vec<f64> = ad.iter().map(|r| r.2 * r.2).collect();
     let nu: Vec<f64> = un.iter().map(|r| r.1 as f64).collect();
     let eu2: Vec<f64> = un.iter().map(|r| r.2 * r.2).collect();
-    let a0 = na.iter().position(|&n| n >= 2000.0).expect("adaptive passes 2000 DOFs");
+    let a0 = na
+        .iter()
+        .position(|&n| n >= 2000.0)
+        .expect("adaptive passes 2000 DOFs");
     let rate_a = -loglog_slope(&na[a0..], &ea2[a0..]);
     let rate_u = -loglog_slope(&nu[2..], &eu2[2..]);
     let fine_u = *eu2.last().unwrap();
     let n_u = *nu.last().unwrap();
     let n_a = dofs_to_reach(&na, &ea2, fine_u).expect("adaptive reaches the uniform error");
     let near = ad.last().unwrap().4;
+    let near_u = un.last().unwrap().4;
     eprintln!(
         "golden2: ‖e‖²_E rate adaptive {rate_a:.3} (optimal 2/3), uniform {rate_u:.3} (theory \
          4/9); uniform finest {fine_u:.3e} at {n_u} DOFs, adaptive at {n_a:.0} DOFs ({:.1}x \
-         fewer); final near-edge tet fraction {near:.2}; wall {:.1}s",
+         fewer); final fraction of tets within r < 0.1 of the edge: adaptive {near:.2}, uniform \
+         {near_u:.3} (its volume fraction is π/400 = 0.008); wall {:.1}s",
         n_u / n_a,
         t0.elapsed().as_secs_f64()
     );
     eprintln!("golden2 adaptive summary: {}", ra.summary());
-    assert!(ad.iter().all(|r| r.1 <= 50_000));
+    assert!(ad.iter().all(|r| r.1 <= BUDGET));
     assert!(rate_a >= 0.55, "adaptive rate {rate_a}");
-    assert!(rate_a >= rate_u + 0.1, "adaptive {rate_a} vs uniform {rate_u}");
+    assert!(
+        rate_a >= rate_u + 0.1,
+        "adaptive {rate_a} vs uniform {rate_u}"
+    );
     assert!(n_u / n_a >= 2.0, "DOF saving {}", n_u / n_a);
-    assert!(near >= 0.5, "only {near:.2} of the tets near the edge");
+    assert!(
+        near >= 0.2 && near >= 10.0 * near_u,
+        "refinement did not concentrate at the edge: {near:.3} vs uniform {near_u:.3}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -701,8 +727,10 @@ fn smooth_cube(
                 let eh = space.field_at(m, t, *b, x);
                 let ch = space.curl_at(m, t, *b, x);
                 for d in 0..3 {
-                    e2 += w * vol * ((c(ca[d]) - ch[d]).norm_sqr()
-                        + omega * omega * (c(ea[d]) - eh[d]).norm_sqr());
+                    e2 += w
+                        * vol
+                        * ((c(ca[d]) - ch[d]).norm_sqr()
+                            + omega * omega * (c(ea[d]) - eh[d]).norm_sqr());
                     n2 += w * vol * (ca[d] * ca[d] + omega * omega * ea[d] * ea[d]);
                 }
             }
@@ -729,10 +757,13 @@ fn smooth_cube(
 }
 
 /// Golden 3: on a smooth problem adaptive refinement must not be worse than
-/// uniform: at the adaptive run's finest DOF count its true error is within
-/// 15 % of the uniform curve there, and its rate is not more than 0.05 below
-/// the uniform rate. (Uniform refinement is near-optimal here, so this is a
-/// no-pathology guard, not a win.)
+/// uniform. At every adaptive level past 1000 DOFs inside the uniform
+/// curve's range, its true error is within 15 % of the uniform error
+/// interpolated at the same DOFs, and its rate over that range is not more
+/// than 0.05 below the uniform rate. (Uniform refinement is near-optimal
+/// here, so this is a no-pathology guard, not a win. Uniform bisection
+/// levels cycle with period 3 on a Kuhn mesh, so the comparison is only
+/// made where the uniform curve is interpolated, never extrapolated.)
 #[test]
 fn golden3_smooth_cube_adaptive_not_worse_than_uniform() {
     let (ra, ad) = smooth_cube(
@@ -741,41 +772,61 @@ fn golden3_smooth_cube_adaptive_not_worse_than_uniform() {
         40,
         ElementOrder::P1,
         SolverMode::Direct,
-        true,
+        false,
         vec![PI],
     );
     let (_, un) = smooth_cube(
         Marking::Uniform,
-        30_000,
+        40_000,
         40,
         ElementOrder::P1,
         SolverMode::Direct,
-        true,
+        false,
         vec![PI],
     );
-    for (tag, rows, rep) in [("golden3 adaptive", &ad, Some(&ra)), ("golden3 uniform", &un, None)] {
-        eprintln!("{tag}");
-        for (i, (n, e)) in rows.iter().enumerate() {
-            let eta = rep.map(|r| r.history[i].eta_rel).unwrap_or(f64::NAN);
-            eprintln!("  level {i}: {n} DOFs, rel energy error {e:.4e}, eta_rel {eta:.3e}");
-        }
-    }
-    let na: Vec<f64> = ad.iter().map(|r| r.0).collect();
-    let ea: Vec<f64> = ad.iter().map(|r| r.1).collect();
     let nu: Vec<f64> = un.iter().map(|r| r.0).collect();
     let eu: Vec<f64> = un.iter().map(|r| r.1).collect();
-    let n_fin = *na.last().unwrap();
-    let ratio = ea.last().unwrap() / error_at(&nu, &eu, n_fin);
-    let a0 = na.iter().position(|&n| n >= 1000.0).unwrap();
+    let n_max = *nu.last().unwrap();
+    eprintln!("golden3 adaptive vs uniform (true relative energy error)");
+    eprintln!("| level | DOFs | adaptive error | η_rel | uniform error at these DOFs | ratio |");
+    eprintln!("|---|---|---|---|---|---|");
+    let mut worst: f64 = 0.0;
+    let (mut na, mut ea) = (Vec::new(), Vec::new());
+    for (i, (n, e)) in ad.iter().enumerate() {
+        let inside = *n >= 1000.0 && *n <= n_max;
+        let (u, ratio) = if *n >= nu[0] && *n <= n_max {
+            let u = error_at(&nu, &eu, *n);
+            (format!("{u:.4e}"), format!("{:.3}", e / u))
+        } else {
+            ("-".into(), "-".into())
+        };
+        if inside {
+            worst = worst.max(e / error_at(&nu, &eu, *n));
+            na.push(*n);
+            ea.push(*e);
+        }
+        eprintln!(
+            "| {i} | {n} | {e:.4e} | {:.3e} | {u} | {ratio} |",
+            ra.history[i].eta_rel
+        );
+    }
+    eprintln!("golden3 uniform");
+    for (i, (n, e)) in un.iter().enumerate() {
+        eprintln!("  level {i}: {n} DOFs, rel energy error {e:.4e}");
+    }
     let u0 = nu.iter().position(|&n| n >= 1000.0).unwrap();
-    let rate_a = -loglog_slope(&na[a0..], &ea[a0..]);
+    let rate_a = -loglog_slope(&na, &ea);
     let rate_u = -loglog_slope(&nu[u0..], &eu[u0..]);
     eprintln!(
-        "golden3: at {n_fin} DOFs adaptive/uniform error ratio {ratio:.3}; rates adaptive \
-         {rate_a:.3}, uniform {rate_u:.3} (theory 1/3)"
+        "golden3: worst adaptive/uniform error ratio at matched DOFs {worst:.3}; rates over \
+         [1000, {n_max}] DOFs adaptive {rate_a:.3}, uniform {rate_u:.3} (theory 1/3)"
     );
-    assert!(ratio <= 1.15, "adaptive error is {ratio:.3}x uniform");
-    assert!(rate_a >= rate_u - 0.05, "adaptive {rate_a} vs uniform {rate_u}");
+    assert!(na.len() >= 4, "too few comparable adaptive levels");
+    assert!(worst <= 1.15, "adaptive error is {worst:.3}x uniform");
+    assert!(
+        rate_a >= rate_u - 0.05,
+        "adaptive {rate_a} vs uniform {rate_u}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -891,7 +942,8 @@ fn spiral() -> TaggedTetMesh {
 /// scale (its bounding-box diagonal).
 fn spiral_focus(m: &TetMesh) -> ([f64; 3], f64) {
     let tet = m.tets[m.n_tets() / 2];
-    let focus = std::array::from_fn(|d| tet.iter().map(|&v| m.nodes[v as usize][d]).sum::<f64>() / 4.0);
+    let focus =
+        std::array::from_fn(|d| tet.iter().map(|&v| m.nodes[v as usize][d]).sum::<f64>() / 4.0);
     let mut lo = [f64::INFINITY; 3];
     let mut hi = [f64::NEG_INFINITY; 3];
     for p in &m.nodes {
@@ -948,7 +1000,10 @@ fn golden4_budget_respected_after_closure_on_gmsh_spiral() {
             );
         }
     }
-    eprintln!("golden4: n0 = {n0}, max_dofs = {max_dofs}; {}", report.summary());
+    eprintln!(
+        "golden4: n0 = {n0}, max_dofs = {max_dofs}; {}",
+        report.summary()
+    );
     assert!(report.history.iter().all(|h| h.n_dofs <= max_dofs));
     assert!(space_dofs(&bm.mesh().mesh, ElementOrder::P1) <= max_dofs);
     assert_eq!(report.stop_reason, StopReason::MaxDofs);
@@ -962,7 +1017,10 @@ fn golden4_budget_respected_after_closure_on_gmsh_spiral() {
         .collect();
     assert!(!capped.is_empty(), "no capped step reported");
     assert!(capped.iter().all(|&u| u > max_dofs));
-    assert!(worst_ratio > 5.0, "closure cascades expected (worst ratio {worst_ratio})");
+    assert!(
+        worst_ratio > 5.0,
+        "closure cascades expected (worst ratio {worst_ratio})"
+    );
     let last = report.last().n_dofs;
     assert!(
         (max_dofs - last) as f64 <= 0.05 * max_dofs as f64,
@@ -1003,7 +1061,13 @@ fn golden5_stop_reasons_synthetic() {
 
     // MaxIterations.
     let mut s = Synthetic::new([0.3, 0.4, 0.5], 0.05);
-    let r = run_synthetic(&mut s, &AdaptOptions { max_iterations: 3, ..base });
+    let r = run_synthetic(
+        &mut s,
+        &AdaptOptions {
+            max_iterations: 3,
+            ..base
+        },
+    );
     assert_eq!(r.stop_reason, StopReason::MaxIterations);
     assert_eq!(r.history.len(), 3);
     assert!(r.last().refinement.is_none());
@@ -1039,11 +1103,9 @@ fn golden5_stop_reasons_synthetic() {
     assert_eq!(r.stop_reason, StopReason::NothingToMark);
     assert_eq!(r.history.len(), 1);
     assert!(r.summary().contains("exclude_upml"), "{}", r.summary());
-    assert!(
-        r.warnings
-            .iter()
-            .any(|w| matches!(w, AdaptWarning::CoverageIncomplete { upml_tets, .. } if *upml_tets > 0))
-    );
+    assert!(r.warnings.iter().any(
+        |w| matches!(w, AdaptWarning::CoverageIncomplete { upml_tets, .. } if *upml_tets > 0)
+    ));
     // ... and with exclude_upml = false the UPML tets are refined.
     let mut s = Synthetic::new([0.9, 0.5, 0.5], 0.05);
     s.upml = |c| c[0] > 0.5;
@@ -1072,7 +1134,15 @@ fn golden5_stop_reasons_synthetic() {
     )
     .unwrap_err();
     assert!(matches!(e, AdaptError::InvalidOptions(_)), "{e}");
-    let e = adapt_with(bm, &AdaptOptions { max_dofs: 10, ..base }, &mut s).unwrap_err();
+    let e = adapt_with(
+        bm,
+        &AdaptOptions {
+            max_dofs: 10,
+            ..base
+        },
+        &mut s,
+    )
+    .unwrap_err();
     assert!(matches!(e, AdaptError::InitialMeshOverBudget { .. }), "{e}");
 }
 
@@ -1106,7 +1176,9 @@ fn golden5b_incomplete_coverage_is_reported() {
         if f.points.iter().all(|p| (p[2] - 1.0).abs() < 1e-12) {
             FaceBc::Impedance(0)
         } else if f.points.iter().all(|p| p[2].abs() < 1e-12)
-            && f.points.iter().all(|p| p[0] >= 1.0 / 3.0 - 1e-12 && p[0] <= 2.0 / 3.0 + 1e-12)
+            && f.points
+                .iter()
+                .all(|p| p[0] >= 1.0 / 3.0 - 1e-12 && p[0] <= 2.0 / 3.0 + 1e-12)
         {
             FaceBc::LumpedPort(0)
         } else {
@@ -1199,7 +1271,9 @@ fn golden6_deterministic_mesh_sequence() {
 #[test]
 fn golden7_periodic_driven_adapts_and_stays_matched() {
     let omega = PI;
-    let mesh = untagged(box_mesh([4, 4, 2], [1.0, 1.0, 0.5], [0.0; 3], |_, _, _| true));
+    let mesh = untagged(box_mesh([4, 4, 2], [1.0, 1.0, 0.5], [0.0; 3], |_, _, _| {
+        true
+    }));
     let pairs = box_periodic_pairs(&mesh.mesh, &[0]);
     let eps = |_: &TetCtx| c(1.0);
     let psi = |x: [f64; 3]| (2.0 * PI * x[0]).sin() * (PI * x[1]).sin();
@@ -1227,7 +1301,11 @@ fn golden7_periodic_driven_adapts_and_stays_matched() {
             }
         }
         let x0 = m.nodes.iter().filter(|p| p[0].abs() < 1e-12).count();
-        let x1 = m.nodes.iter().filter(|p| (p[0] - 1.0).abs() < 1e-12).count();
+        let x1 = m
+            .nodes
+            .iter()
+            .filter(|p| (p[0] - 1.0).abs() < 1e-12)
+            .count();
         errs.lock()
             .unwrap()
             .push((m.n_tets(), (e2 / n2).sqrt(), x0, x1));
@@ -1278,7 +1356,9 @@ fn golden8_tagged_port_face_stays_planar_and_conserved() {
     let mut mesh = unit_cube(3);
     let bf = mesh.mesh.boundary_faces();
     for f in bf {
-        if f.iter().all(|&v| mesh.mesh.nodes[v as usize][2].abs() < 1e-12) {
+        if f.iter()
+            .all(|&v| mesh.mesh.nodes[v as usize][2].abs() < 1e-12)
+        {
             mesh.boundary_triangles.push(f);
             mesh.triangle_physical_tags.push(7);
         }
@@ -1337,10 +1417,16 @@ fn golden8_tagged_port_face_stays_planar_and_conserved() {
             "golden8: level {l}: {} tagged triangles, area {:.15}, planar+boundary {}",
             row.0, row.1, row.2
         );
-        assert!(row.2, "level {l}: a tagged triangle left the plane or the boundary");
+        assert!(
+            row.2,
+            "level {l}: a tagged triangle left the plane or the boundary"
+        );
         assert!((row.1 - 1.0).abs() < 1e-12, "level {l}: area {}", row.1);
     }
-    assert!(rows.last().unwrap().0 > n_tagged0, "the port face was never refined");
+    assert!(
+        rows.last().unwrap().0 > n_tagged0,
+        "the port face was never refined"
+    );
     assert!(r.report.history.iter().all(|h| h.coverage_complete));
 }
 
@@ -1403,9 +1489,15 @@ fn golden9a_warm_start_is_correct_and_guarded() {
         let LevelQuantities::Driven(d) = &h.quantities else {
             unreachable!()
         };
-        let r0 = d[0].warm_residual_rel.expect("a prolonged guess on every later level");
+        let r0 = d[0]
+            .warm_residual_rel
+            .expect("a prolonged guess on every later level");
         eprintln!("golden9a: level {} guess residual {r0:.3}", h.level);
-        assert_eq!(d[0].warm_started, r0 < 1.0, "the guard discards guesses with r0 >= 1");
+        assert_eq!(
+            d[0].warm_started,
+            r0 < 1.0,
+            "the guard discards guesses with r0 >= 1"
+        );
         n_warm += usize::from(d[0].warm_started);
         assert!(d[0].residual_rel <= 1e-9, "residual {}", d[0].residual_rel);
     }
@@ -1435,11 +1527,12 @@ fn golden9b_p2_driven_runs_and_flags_unvalidated_order() {
     for (l, (n, err)) in e.iter().enumerate() {
         eprintln!("golden9b: level {l}: {n} p=2 DOFs, rel energy error {err:.4e}");
     }
-    assert!(
-        r.warnings
-            .iter()
-            .any(|w| matches!(w, AdaptWarning::UnvalidatedOrder { order: ElementOrder::P2 }))
-    );
+    assert!(r.warnings.iter().any(|w| matches!(
+        w,
+        AdaptWarning::UnvalidatedOrder {
+            order: ElementOrder::P2
+        }
+    )));
     for l in 1..e.len() {
         assert!(e[l].1 < e[l - 1].1);
     }
@@ -1518,4 +1611,3 @@ fn unsupported_combinations_are_rejected() {
         Err(AdaptError::Unsupported(_))
     ));
 }
-

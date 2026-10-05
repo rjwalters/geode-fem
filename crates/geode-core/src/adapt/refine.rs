@@ -834,6 +834,12 @@ impl BisectionMesh {
     /// returned in [`Refined::mesh`] together with the exact prolongations
     /// from the previous mesh. On error the state is unchanged.
     ///
+    /// **Memory:** the step keeps a full copy of the bisection state to
+    /// restore on error, so its transient memory is about 2× the state of
+    /// one mesh (plus the returned [`Refined`]). The adaptive loop
+    /// ([`crate::adapt::driver`]) refines a trial copy to measure the DOF
+    /// count after closure, which makes it about 3×.
+    ///
     /// # Errors
     ///
     /// See [`RefineError`].
