@@ -108,8 +108,10 @@ impl PeriodicTransform {
 /// `master` and `slave` are boundary triangles of the mesh (any vertex order;
 /// e.g. [`crate::mesh::TaggedTetMesh::triangles_with_tag`] of two physical
 /// surfaces). `transform` maps the master face onto the slave face; `None`
-/// infers a translation from the centroids of the two faces' bounding boxes
-/// (and rejects faces whose boxes differ in size: they are not translates).
+/// infers a translation: a first guess from the centroids of the two faces'
+/// bounding boxes (faces whose boxes differ in size are rejected: they are
+/// not translates), refined by least squares over the matched node pairs
+/// (issue #856; see [`PeriodicPairReport::translation_residual`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PeriodicPair {
     /// Master-face triangles.
@@ -273,8 +275,18 @@ pub struct PeriodicPairReport {
     pub pair: usize,
     /// The translation used (given or inferred).
     pub translation: [f64; 3],
-    /// Whether [`Self::translation`] was inferred from the face boxes.
+    /// Whether [`Self::translation`] was inferred (not given in
+    /// [`PeriodicPair::transform`]).
     pub translation_inferred: bool,
+    /// Node pairs an inferred translation was least-squares fitted to
+    /// (issue #856): all matched pairs on a fully perturbed face, or the
+    /// exactly periodic subset when there is one. `0` for a given
+    /// translation.
+    pub translation_fit_pairs: usize,
+    /// RMS distance from each matched master node's translated image to its
+    /// slave node, before the snap: how well [`Self::translation`] fits the
+    /// mesh (`0` for an exactly periodic mesh).
+    pub translation_residual: f64,
     /// Matched node pairs.
     pub n_nodes: usize,
     /// Matched edge pairs.
@@ -337,13 +349,27 @@ impl PeriodicMatchReport {
             .iter()
             .filter(|p| p.n_snapped > 0)
             .map(|p| {
-                format!(
+                let mut w = format!(
                     "periodic pair {}: snapped {} slave node(s) onto the exact translated image \
                      of their master (largest displacement {:.3e}); the mesh is now exactly \
                      periodic. Mesh with Gmsh `Periodic Surface` or `geode mesh --periodic` to \
                      avoid the snap",
                     p.pair, p.n_snapped, p.max_snap_displacement
-                )
+                );
+                if p.translation_inferred {
+                    w.push_str(&format!(
+                        ". The translation [{:.9e}, {:.9e}, {:.9e}] was inferred from the \
+                         perturbed mesh (least squares over {} node pairs, RMS residual \
+                         {:.3e}), so it carries the perturbation's error; pass the exact \
+                         translation in `PeriodicPair::transform` if it is known",
+                        p.translation[0],
+                        p.translation[1],
+                        p.translation[2],
+                        p.translation_fit_pairs,
+                        p.translation_residual
+                    ));
+                }
+                w
             })
             .collect()
     }
@@ -760,7 +786,7 @@ fn match_pair(
     };
     let (mlo, mhi) = bbox(&master_nodes);
     let (slo, shi) = bbox(&slave_nodes);
-    let (translation, inferred) = match pair.transform {
+    let (mut translation, inferred) = match pair.transform {
         Some(t) => (
             t.translation()
                 .ok_or_else(|| invalid("only translations are supported".into()))?,
@@ -805,49 +831,90 @@ fn match_pair(
     for &s in &slave_nodes {
         grid.entry(key(x(s))).or_default().push(s);
     }
-    let mut node_map: HashMap<u32, u32> = HashMap::with_capacity(master_nodes.len());
-    let mut hits: HashMap<u32, usize> = HashMap::with_capacity(slave_nodes.len());
-    let mut n_unmatched_master = 0usize;
-    let mut far_nodes: Vec<[f64; 3]> = Vec::new();
-    let mut dist_of: HashMap<u32, f64> = HashMap::new();
-    for &m in &master_nodes {
-        let p = add(x(m), translation);
-        let k = key(p);
-        let mut best: Option<(u32, f64)> = None;
-        for dx in -1..=1 {
-            for dy in -1..=1 {
-                for dz in -1..=1 {
-                    if let Some(list) = grid.get(&[k[0] + dx, k[1] + dy, k[2] + dz]) {
-                        for &s in list {
-                            let dist = norm(sub(x(s), p));
-                            if best.is_none_or(|(_, bd)| dist < bd) {
-                                best = Some((s, dist));
+    let match_nodes = |translation: [f64; 3]| -> NodeMatch {
+        let mut node_map: HashMap<u32, u32> = HashMap::with_capacity(master_nodes.len());
+        let mut hits: HashMap<u32, usize> = HashMap::with_capacity(slave_nodes.len());
+        let mut n_unmatched_master = 0usize;
+        let mut far_nodes: Vec<[f64; 3]> = Vec::new();
+        let mut dist_of: HashMap<u32, f64> = HashMap::new();
+        for &m in &master_nodes {
+            let p = add(x(m), translation);
+            let k = key(p);
+            let mut best: Option<(u32, f64)> = None;
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        if let Some(list) = grid.get(&[k[0] + dx, k[1] + dy, k[2] + dz]) {
+                            for &s in list {
+                                let dist = norm(sub(x(s), p));
+                                if best.is_none_or(|(_, bd)| dist < bd) {
+                                    best = Some((s, dist));
+                                }
                             }
                         }
                     }
                 }
             }
+            let limit = (opts.max_snap_rel_h * h_loc[&m]).max(snap_tol);
+            match best {
+                Some((s, dist)) if dist <= limit => {
+                    node_map.insert(m, s);
+                    *hits.entry(s).or_insert(0) += 1;
+                    dist_of.insert(m, dist);
+                }
+                _ => {
+                    n_unmatched_master += 1;
+                    far_nodes.push(p);
+                }
+            }
         }
-        let limit = (opts.max_snap_rel_h * h_loc[&m]).max(snap_tol);
-        match best {
-            Some((s, dist)) if dist <= limit => {
-                node_map.insert(m, s);
-                *hits.entry(s).or_insert(0) += 1;
-                dist_of.insert(m, dist);
+        let n_duplicate = hits
+            .values()
+            .filter(|&&c| c > 1)
+            .map(|&c| c - 1)
+            .sum::<usize>();
+        let n_unhit_slave = slave_nodes.iter().filter(|s| !hits.contains_key(s)).count();
+        NodeMatch {
+            node_map,
+            hits,
+            dist_of,
+            far_nodes,
+            n_unmatched: n_unmatched_master + n_duplicate + n_unhit_slave,
+        }
+    };
+    let mut nm = match_nodes(translation);
+
+    // --- Least-squares refinement of an inferred translation (#856) -------
+    //
+    // The bounding-box centroid is set by the few extreme nodes, so jitter on
+    // the face's edges and corners goes straight into it (off-axis
+    // components included) and the snap would then build a sheared lattice.
+    // Refit `d` to the matched node pairs and rematch until the matching is
+    // stable.
+    let mut fit_pairs = 0usize;
+    if inferred {
+        let fit_tol = snap_tol.max(1e-12 * dlen);
+        for _ in 0..MAX_TRANSLATION_REFITS {
+            let (refined, used) = refit_translation(&nm, &mesh.nodes, translation, fit_tol);
+            fit_pairs = used;
+            if refined == translation {
+                break;
             }
-            _ => {
-                n_unmatched_master += 1;
-                far_nodes.push(p);
+            let next = match_nodes(refined);
+            if next.n_unmatched > nm.n_unmatched {
+                break;
             }
+            translation = refined;
+            nm = next;
         }
     }
-    let n_duplicate = hits
-        .values()
-        .filter(|&&c| c > 1)
-        .map(|&c| c - 1)
-        .sum::<usize>();
-    let n_unhit_slave = slave_nodes.iter().filter(|s| !hits.contains_key(s)).count();
-    let n_unmatched_nodes = n_unmatched_master + n_duplicate + n_unhit_slave;
+    let NodeMatch {
+        node_map,
+        hits: _,
+        dist_of,
+        far_nodes,
+        n_unmatched: n_unmatched_nodes,
+    } = nm;
 
     // Largest nearest-image distance (diagnostic; brute force over the far
     // nodes only, which is the error path).
@@ -960,10 +1027,17 @@ fn match_pair(
         face_pairs.push((face_index(*t), face_index(s), master_vertex));
     }
 
+    let translation_residual = if dist_of.is_empty() {
+        0.0
+    } else {
+        (dist_of.values().map(|d| d * d).sum::<f64>() / dist_of.len() as f64).sqrt()
+    };
     let report = PeriodicPairReport {
         pair: ip,
         translation,
         translation_inferred: inferred,
+        translation_fit_pairs: fit_pairs,
+        translation_residual,
         n_nodes: node_map.len(),
         n_edges: edge_pairs.len(),
         n_faces: face_pairs.len(),
@@ -983,6 +1057,132 @@ fn match_pair(
         },
         report,
     ))
+}
+
+/// Refit–rematch rounds for an inferred translation (#856). A refit that
+/// leaves the node matching unchanged reproduces itself, so the loop
+/// normally ends after one or two rounds.
+const MAX_TRANSLATION_REFITS: usize = 4;
+
+/// Smallest group of node pairs whose offsets agree to within the fit
+/// tolerance that counts as an exactly periodic subset of the faces (#856).
+/// Two independent pairs agreeing to `snap_tol = 1e-6 |d|` (default) is not
+/// a coincidence under jitter of a fraction of `h`.
+const CONSENSUS_MIN_PAIRS: usize = 2;
+
+/// The node matching of one pair under a candidate translation.
+struct NodeMatch {
+    /// Master node → nearest slave node within the snap limit.
+    node_map: HashMap<u32, u32>,
+    /// Slave node → number of master nodes that claimed it.
+    hits: HashMap<u32, usize>,
+    /// Master node → distance from its translated image to its slave.
+    dist_of: HashMap<u32, f64>,
+    /// Translated images of the unmatched master nodes.
+    far_nodes: Vec<[f64; 3]>,
+    /// Unmatched master nodes + duplicate claims + unclaimed slave nodes.
+    n_unmatched: usize,
+}
+
+/// Least-squares translation `d` from the matched node pairs of `nm` (issue
+/// #856), and the number of pairs it was fitted to.
+///
+/// The offsets `x_slave − x_master` of the one-to-one matched pairs are
+/// grouped greedily into clusters of mutual agreement within `tol`:
+///
+/// - If some cluster has at least [`CONSENSUS_MIN_PAIRS`] members, part of
+///   the face is exactly periodic (e.g. jitter only on the face interior,
+///   with the edges and corners exact): `d` is the mean offset of the
+///   largest such cluster, so the jittered pairs do not bias the exact
+///   ones. If every member already agrees with `current` within `tol`,
+///   `current` is returned unchanged (an exactly periodic mesh keeps its
+///   translation bit for bit).
+/// - Otherwise every node is perturbed and `d` is the mean offset over all
+///   pairs, the least-squares translation `argmin Σ |x_s − x_m − d|²`.
+///
+/// Components of a refitted `d` within `tol` of zero are set to zero, so an
+/// axis-aligned cell keeps an exactly axis-aligned translation.
+fn refit_translation(
+    nm: &NodeMatch,
+    nodes: &[[f64; 3]],
+    current: [f64; 3],
+    tol: f64,
+) -> ([f64; 3], usize) {
+    let mut pairs: Vec<(u32, u32)> = nm
+        .node_map
+        .iter()
+        .filter(|(_, s)| nm.hits.get(*s) == Some(&1))
+        .map(|(&m, &s)| (m, s))
+        .collect();
+    if pairs.is_empty() {
+        return (current, 0);
+    }
+    pairs.sort_unstable();
+    let diffs: Vec<[f64; 3]> = pairs
+        .iter()
+        .map(|&(m, s)| sub(nodes[s as usize], nodes[m as usize]))
+        .collect();
+
+    // Greedy clustering through a hash grid of cell `tol`: each unassigned
+    // offset collects the unassigned offsets within `tol` of it. `O(n)` for
+    // both an exact face (one cluster) and a fully jittered one
+    // (singletons).
+    let key = |p: [f64; 3]| -> [i64; 3] { std::array::from_fn(|d| (p[d] / tol).floor() as i64) };
+    let mut grid: HashMap<[i64; 3], Vec<usize>> = HashMap::with_capacity(diffs.len());
+    for (i, d) in diffs.iter().enumerate() {
+        grid.entry(key(*d)).or_default().push(i);
+    }
+    let mut assigned = vec![false; diffs.len()];
+    let mut best: Vec<usize> = Vec::new();
+    for i in 0..diffs.len() {
+        if assigned[i] {
+            continue;
+        }
+        let k = key(diffs[i]);
+        let mut cluster = Vec::new();
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    if let Some(list) = grid.get(&[k[0] + dx, k[1] + dy, k[2] + dz]) {
+                        for &j in list {
+                            if !assigned[j] && norm(sub(diffs[j], diffs[i])) <= tol {
+                                cluster.push(j);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for &j in &cluster {
+            assigned[j] = true;
+        }
+        if cluster.len() > best.len() {
+            best = cluster;
+        }
+    }
+
+    let fit: Vec<usize> = if best.len() >= CONSENSUS_MIN_PAIRS {
+        if best.iter().all(|&j| norm(sub(diffs[j], current)) <= tol) {
+            return (current, best.len());
+        }
+        best
+    } else {
+        (0..diffs.len()).collect()
+    };
+    let n = fit.len() as f64;
+    let mut d = [0.0; 3];
+    for &j in &fit {
+        for c in 0..3 {
+            d[c] += diffs[j][c];
+        }
+    }
+    for c in d.iter_mut() {
+        *c /= n;
+        if c.abs() <= tol {
+            *c = 0.0;
+        }
+    }
+    (d, fit.len())
 }
 
 /// Union–find carrying, per element, its offset and sign relative to its
