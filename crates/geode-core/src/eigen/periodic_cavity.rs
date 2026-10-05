@@ -42,7 +42,8 @@ use crate::mesh::TetMesh;
 /// # Errors
 ///
 /// [`PecCavityError::InvalidInput`] if the constraint was not built for
-/// this mesh's p=1 edge space, plus the errors of
+/// this mesh's p=1 edge space or carries a complex Bloch phase (use
+/// [`crate::eigen::bloch`]), plus the errors of
 /// [`assemble_lossless_pencil_with_materials`];
 /// [`PecCavityError::EmptyInterior`] if every DOF is eliminated.
 pub fn assemble_periodic_lossless_pencil<B: Backend>(
@@ -55,6 +56,15 @@ pub fn assemble_periodic_lossless_pencil<B: Backend>(
     if constraint.order() != ElementOrder::P1 {
         return Err(invalid(
             "the periodic cavity solve is p=1 only (Epic #836 owns p=2)".into(),
+        ));
+    }
+    if constraint.has_complex_phase() {
+        // The reduced pencil would be Hermitian, not real symmetric: the
+        // real Lanczos below cannot take it (issue #858).
+        return Err(invalid(
+            "the periodic constraint carries a complex Bloch phase; the zero-phase cavity \
+             solve is real symmetric only. Use eigen::bloch::BlochCell for Bloch modes"
+                .into(),
         ));
     }
     let n_edges = mesh.edges().len();

@@ -58,7 +58,9 @@ impl<'c> PeriodicDrivenOperator<'c> {
     ///
     /// # Errors
     ///
-    /// - [`PeriodicError::Unsupported`] for a p=2 operator;
+    /// - [`PeriodicError::Unsupported`] for a p=2 operator, or for a
+    ///   constraint with a complex Bloch phase
+    ///   ([`PeriodicConstraint::has_complex_phase`]; Epic #837 Phase 3);
     /// - [`PeriodicError::Mismatch`] if the constraint has another DOF
     ///   count, or keeps a DOF the operator eliminated as PEC (build both
     ///   with the same mask);
@@ -72,6 +74,17 @@ impl<'c> PeriodicDrivenOperator<'c> {
             return Err(PeriodicError::Unsupported {
                 feature: "a p=2 (or higher) driven operator",
                 phase: "the p=2 face-block pairing lands with Epic #836",
+            });
+        }
+        if constraint.has_complex_phase() {
+            // A complex Bloch phase makes `A_r = Pᴴ A P` non-symmetric
+            // (`A_rᵀ = A_r(−k)`): the port read-outs, COCG and the adjoint
+            // shortcut `Aᵀ = A` all assume complex symmetry. Phase 3 of
+            // Epic #837 (Floquet ports) owns the Bloch driven path.
+            return Err(PeriodicError::Unsupported {
+                feature: "a driven solve with a complex Bloch phase",
+                phase: "Bloch-phase driven solves with Floquet ports land in Epic #837 Phase 3; \
+                        use a zero-phase constraint or the Bloch eigen path (eigen::bloch)",
             });
         }
         if op.n_dofs() != constraint.n_full() {

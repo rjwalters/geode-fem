@@ -167,8 +167,13 @@ pub struct DofAliasMap {
     row_ptr: Vec<usize>,
     cols: Vec<usize>,
     coeffs: Vec<c64>,
+    /// Zero-phase coefficients (`σ`, or the p=2 block entries): the
+    /// Bloch phase multiplies these, so re-phasing is never cumulative.
+    base: Vec<c64>,
     /// Lattice vector `Σd` of each full DOF from its canonical master.
     shift: Vec<[f64; 3]>,
+    /// The Bloch wave vector the coefficients carry (zero at construction).
+    bloch_k: [f64; 3],
 }
 
 impl DofAliasMap {
@@ -189,9 +194,50 @@ impl DofAliasMap {
             n_reduced,
             row_ptr,
             cols,
+            base: coeffs.clone(),
             coeffs,
             shift,
+            bloch_k: [0.0; 3],
         }
+    }
+
+    /// The same prolongation with the **Bloch phase** of wave vector `k`
+    /// (rad per mesh length unit): every stored coefficient becomes
+    /// `c₀ · e^{−j k·Σd}`, with `c₀` the zero-phase coefficient and `Σd`
+    /// the row's lattice vector (Epic #837 Phase 2, issue #858). The phase
+    /// is applied to the zero-phase coefficients, so calling this on an
+    /// already-phased map replaces its `k` (it does not compose). Phase
+    /// factor components within `1e-14` of zero are snapped to zero, so
+    /// `k·Σd ∈ πℤ` yields an exactly real (`±1`) `P`.
+    ///
+    /// With a complex phase, `Pᴴ A P` is **Hermitian** for a real
+    /// symmetric `A`, not complex-symmetric: `(Pᴴ A P)ᵀ = Pᵀ A P̄`, the
+    /// reduction at `−k`.
+    pub fn with_bloch_phase(&self, k: [f64; 3]) -> Self {
+        let mut out = self.clone();
+        for i in 0..self.n_full() {
+            let d = self.shift[i];
+            let phase = -(k[0] * d[0] + k[1] * d[1] + k[2] * d[2]);
+            // Snap round-off so a phase in (π/2)ℤ (periodic, anti-periodic,
+            // quarter-wave) is exact: e^{−jπ} is −1, not −1 − 1.2e-16 j.
+            let snap = |x: f64| if x.abs() < 1e-14 { 0.0 } else { x };
+            let ph = c64::new(snap(phase.cos()), snap(phase.sin()));
+            for e in self.row_ptr[i]..self.row_ptr[i + 1] {
+                out.coeffs[e] = if d == [0.0; 3] {
+                    self.base[e]
+                } else {
+                    self.base[e] * ph
+                };
+            }
+        }
+        out.bloch_k = k;
+        out
+    }
+
+    /// The Bloch wave vector the coefficients carry (`[0; 3]` unless set by
+    /// [`Self::with_bloch_phase`]).
+    pub fn bloch_k(&self) -> [f64; 3] {
+        self.bloch_k
     }
 
     /// Full DOF count (rows of `P`).
@@ -308,6 +354,47 @@ impl DofAliasMap {
             .map_err(|e| PeriodicError::Solve(format!("reduced matrix assembly: {e:?}")))
     }
 
+    /// `A_r = Pᴴ A P` for a **real** full-DOF matrix `A` and any (real or
+    /// complex) `P`, returned complex. The Bloch-phase eigen path (issue
+    /// #858) reduces the real lossless pencil this way at every `k` without
+    /// keeping a complex copy of the full matrices.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::reduce_matrix`] (never
+    /// [`PeriodicError::ComplexCoefficients`]).
+    pub fn reduce_real_matrix(
+        &self,
+        a: SparseColMatRef<'_, usize, f64>,
+    ) -> Result<SparseColMat<usize, c64>, PeriodicError> {
+        let n = self.n_full();
+        if a.nrows() != n || a.ncols() != n {
+            return Err(PeriodicError::Mismatch(format!(
+                "matrix is {}×{}, the constraint has {n} full DOFs",
+                a.nrows(),
+                a.ncols()
+            )));
+        }
+        let mut tr: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(a.compute_nnz());
+        for j in 0..n {
+            let (cj0, cj1) = (self.row_ptr[j], self.row_ptr[j + 1]);
+            if cj0 == cj1 {
+                continue;
+            }
+            for (i, &v) in a.row_idx_of_col(j).zip(a.val_of_col(j)) {
+                for ki in self.row_ptr[i]..self.row_ptr[i + 1] {
+                    let ci = self.coeffs[ki].conj();
+                    for kj in cj0..cj1 {
+                        let w = ci * self.coeffs[kj];
+                        tr.push(Triplet::new(self.cols[ki], self.cols[kj], w * v));
+                    }
+                }
+            }
+        }
+        SparseColMat::try_new_from_triplets(self.n_reduced, self.n_reduced, &tr)
+            .map_err(|e| PeriodicError::Solve(format!("reduced matrix assembly: {e:?}")))
+    }
+
     /// `b_r = Pᴴ b`.
     ///
     /// # Panics
@@ -357,7 +444,17 @@ impl DofAliasMap {
     pub(crate) fn restrict_rows(&self, rows: &[usize]) -> Self {
         let rows_v: Vec<Vec<(usize, c64)>> = rows.iter().map(|&i| self.row(i).collect()).collect();
         let shift = rows.iter().map(|&i| self.shift[i]).collect();
-        Self::from_rows(self.n_reduced, rows_v, shift)
+        let mut out = Self::from_rows(self.n_reduced, rows_v, shift);
+        out.base = rows
+            .iter()
+            .flat_map(|&i| {
+                self.base[self.row_ptr[i]..self.row_ptr[i + 1]]
+                    .iter()
+                    .copied()
+            })
+            .collect();
+        out.bloch_k = self.bloch_k;
+        out
     }
 }
 
@@ -612,6 +709,50 @@ impl PeriodicConstraint {
         self.dofs.dphase_dk()
     }
 
+    /// The same constraint with the **Bloch phase** of wave vector `k`
+    /// (rad per mesh length unit) on both the H(curl) DOFs and the P1
+    /// nodes: every alias row becomes `σ · e^{−j k·Σd}` (Epic #837 Phase 2,
+    /// issue #858). Edges and nodes carry the **same** phase, so the
+    /// reduced gradient keeps `G P_node = P_edge G_r` and the curl-curl
+    /// kernel is exactly the Bloch-phased gradients
+    /// ([`Self::reduced_gradient_complex`]).
+    ///
+    /// `k = [0; 3]` reproduces the zero-phase constraint bit for bit. A
+    /// complex phase makes `Pᴴ A P` Hermitian, not complex-symmetric:
+    /// only Hermitian-safe solvers may consume it
+    /// ([`crate::eigen::bloch`]); the zero-phase driven path refuses it
+    /// ([`crate::driven::periodic::PeriodicDrivenOperator::new`]).
+    pub fn with_bloch_phase(&self, k: [f64; 3]) -> Self {
+        let mut out = self.clone();
+        out.dofs = self.dofs.with_bloch_phase(k);
+        out.nodes = self.nodes.with_bloch_phase(k);
+        out
+    }
+
+    /// Inverse tripwire of issue #858 (golden 4): the Bloch phase on the
+    /// H(curl) DOFs **only**, leaving the node constraint at zero phase.
+    /// The reduced gradient then no longer satisfies
+    /// `G P_node = P_edge G_r`, so `image(G_r)` is not the curl-curl
+    /// kernel. Never use it for a solve.
+    #[doc(hidden)]
+    pub fn tripwire_bloch_phase_edges_only(&self, k: [f64; 3]) -> Self {
+        let mut out = self.clone();
+        out.dofs = self.dofs.with_bloch_phase(k);
+        out
+    }
+
+    /// The Bloch wave vector of the constraint (`[0; 3]` at zero phase).
+    pub fn bloch_k(&self) -> [f64; 3] {
+        self.dofs.bloch_k()
+    }
+
+    /// Whether any coefficient is complex (a Bloch phase that is not a
+    /// sign). Real coefficients (`k = 0`, or `k·Σd ∈ πℤ` on every alias)
+    /// keep every operator real / complex-symmetric.
+    pub fn has_complex_phase(&self) -> bool {
+        !(self.dofs.is_real() && self.nodes.is_real())
+    }
+
     /// The counts.
     pub fn report(&self) -> &PeriodicConstraintReport {
         &self.report
@@ -650,7 +791,17 @@ impl PeriodicConstraint {
     /// It satisfies `G P_node = P_edge G_r` (checked by
     /// [`Self::check_gradient_commutes`]), so `image(G_r)` is exactly the
     /// periodic gradients and `K_r G_r = 0`.
+    ///
+    /// # Panics
+    ///
+    /// Panics with a complex (Bloch) phase: the real gradient would drop
+    /// the node phases. Use [`Self::reduced_gradient_complex`].
     pub fn reduced_gradient(&self) -> SparseColMat<usize, f64> {
+        assert!(
+            !self.has_complex_phase(),
+            "PeriodicConstraint::reduced_gradient is real; with a Bloch phase use \
+             reduced_gradient_complex"
+        );
         let mut tr = Vec::new();
         for (e, ab) in self.edges.iter().enumerate() {
             // A canonical master carries coefficient +1 in its own column.
@@ -674,32 +825,73 @@ impl PeriodicConstraint {
             .expect("reduced gradient triplets are in range")
     }
 
-    /// Verify `G P_node = P_edge G_r` entry by entry (exact integers at zero
-    /// phase). Returns the largest absolute entry of the difference.
+    /// The reduced discrete gradient with the **Bloch-phased** node and
+    /// edge constraints (issue #858): row `r` is the gradient row of the
+    /// canonical master edge of reduced DOF `r` (coefficient `+1`, zero
+    /// lattice shift), each endpoint replaced by its reduced node scaled by
+    /// that node's coefficient `e^{−j k·Σd}`. Equal to
+    /// [`Self::reduced_gradient`] at zero phase.
+    ///
+    /// It satisfies `G P_node = P_edge G_r` at any `k` (checked by
+    /// [`Self::check_gradient_commutes`]), so `image(G_r)` is exactly the
+    /// Bloch-periodic gradients and `K_r G_r = 0`.
+    pub fn reduced_gradient_complex(&self) -> SparseColMat<usize, c64> {
+        let mut tr = Vec::new();
+        for (e, ab) in self.edges.iter().enumerate() {
+            if !self.is_master[e] {
+                continue;
+            }
+            let DofAlias::Reduced { index, .. } = self.dofs.alias(e) else {
+                continue;
+            };
+            for (v, s) in [(ab[0] as usize, -1.0), (ab[1] as usize, 1.0)] {
+                if let DofAlias::Reduced {
+                    index: rv,
+                    coeff: cv,
+                } = self.nodes.alias(v)
+                {
+                    tr.push(Triplet::new(index, rv, cv * s));
+                }
+            }
+        }
+        SparseColMat::try_new_from_triplets(self.n_reduced(), self.nodes.n_reduced(), &tr)
+            .expect("reduced gradient triplets are in range")
+    }
+
+    /// Verify `G P_node = P_edge G_r` entry by entry, with
+    /// [`Self::reduced_gradient_complex`] (exact integers at zero phase,
+    /// round-off with a Bloch phase). Returns the largest absolute entry of
+    /// the difference.
     pub fn check_gradient_commutes(&self) -> f64 {
         let g = self.full_gradient();
-        let gr = self.reduced_gradient();
+        let gr = self.reduced_gradient_complex();
         let n_e = self.edges.len();
         let n_vr = self.nodes.n_reduced();
         // Dense-row comparison, one edge at a time (rows are tiny).
-        let gr_rows = csc_rows(gr.as_ref());
+        let mut gr_rows: Vec<Vec<(usize, c64)>> = vec![Vec::new(); gr.nrows()];
+        for j in 0..gr.ncols() {
+            for (i, &v) in gr.row_idx_of_col(j).zip(gr.val_of_col(j)) {
+                gr_rows[i].push((j, v));
+            }
+        }
         let g_rows = csc_rows(g.as_ref());
+        let zero = c64::new(0.0, 0.0);
         let mut worst = 0.0_f64;
         for (e, g_row) in g_rows.iter().enumerate().take(n_e) {
-            let mut lhs = vec![0.0; n_vr];
+            let mut lhs = vec![zero; n_vr];
             for &(v, gv) in g_row {
                 for (rv, cv) in self.nodes.row(v) {
-                    lhs[rv] += gv * cv.re;
+                    lhs[rv] += cv * gv;
                 }
             }
-            let mut rhs = vec![0.0; n_vr];
+            let mut rhs = vec![zero; n_vr];
             for (r, c) in self.dofs.row(e) {
                 for &(rv, val) in &gr_rows[r] {
-                    rhs[rv] += c.re * val;
+                    rhs[rv] += c * val;
                 }
             }
             for k in 0..n_vr {
-                worst = worst.max((lhs[k] - rhs[k]).abs());
+                worst = worst.max((lhs[k] - rhs[k]).norm());
             }
         }
         worst

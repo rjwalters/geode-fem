@@ -87,6 +87,8 @@ jobs:
               --test adapt_refine \
               --test analytic_cladding_bc_fiber_benchmark \
               --test assembly \
+              --test bloch_bands \
+              --test bloch_kernel \
               --test circular_waveguide_modes \
               --test cocg_burn_equivalence \
               --test derham_curl \
