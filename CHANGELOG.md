@@ -64,8 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Lifted refusal.** `PeriodicDrivenOperator` now accepts a complex Bloch phase, lifting the `Unsupported` of #866. The reduced operator is non-symmetric (`A_r(k)ᵀ = A_r(−k)`). The new `back_solve_transpose` is the adjoint and equals a forward solve at `−k`. `FactoredFloquetCell::back_solve_transpose` provides the same for the Floquet cell.
   - **Goldens** (new test target `floquet_ports`):
     - **empty cell** at θ ∈ {0, 30, 60, 75}°, two azimuths, TE and TM: the worst `|S11|` is 4.4e-3, `|S21 − e^{−jk_zL}|` is 3.7e-3 at O(h²) (observed order 2.00), and energy holds to 1e-14;
-    - **ε = 4 slab vs the analytic transfer matrix**, TE and TM, including the **TM Brewster null** (`|S11|` = 2e-5): worst `|ΔS|` 4.5e-4, worst phase 0.073°;
-    - **vacuum/glass interface** (different port media, `√y` normalization, total internal reflection): worst complex error 2.8e-3;
+    - **ε = 4 slab vs the analytic transfer matrix**, TE and TM, including the **TM Brewster null** (`|S11|` = 4e-5): worst `|ΔS|` 3.8e-4, worst phase 0.058°;
+    - **vacuum/glass interface** (different port media, `√y` normalization, total internal reflection): worst complex error 2.2e-3;
     - **reciprocity** `S(k)ᵀ = S(−k)` to 4.8e-14 on a cross-polarizing cell where `S(k) ≠ S(k)ᵀ` by 5.7e-3, and `A_r(k)ᵀ = A_r(−k)` to 2e-16;
     - **inverse tripwire**: dropping the TM channels moves the TE S by 3.8e-3;
     - **cross-check vs a matched-UPML, scattered-field cell**: agreement to 1.7e-3;

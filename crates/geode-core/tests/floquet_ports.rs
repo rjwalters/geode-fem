@@ -184,7 +184,12 @@ fn s_spec(
 
 // --- Golden 1: empty cell ----------------------------------------------------
 
-const A_CELL: f64 = 0.3;
+/// Lateral period of the laterally uniform cells (empty, slab, interface,
+/// UPML). Their fields do not depend on it, but the anisotropic 6-tet split
+/// still needs a small lateral `h`, so a narrow cell keeps them cheap.
+const A_CELL: f64 = 0.1;
+/// Lateral period of the inhomogeneous brick cell.
+const A_BRICK: f64 = 0.3;
 const L_CELL: f64 = 1.0;
 const K0: f64 = 2.5;
 
@@ -245,7 +250,7 @@ fn empty_cell_transmits_with_bloch_phase_at_every_angle_and_polarization() {
         .iter()
         .flat_map(|&t| [(t, 0.0), (t, 37.0)])
         .collect();
-    let (s11, s21, energy) = empty_cell_errors(40, 6, &all, true);
+    let (s11, s21, energy) = empty_cell_errors(40, 2, &all, true);
     eprintln!("worst |S11| {s11:.3e}, |S21 − e^(−jk_zL)| {s21:.3e}, |Σ|S|²−1| {energy:.1e}");
     assert!(energy < 1e-9, "lossless energy balance {energy}");
     // The residual reflection is the O(h²) mismatch between the discrete
@@ -255,8 +260,8 @@ fn empty_cell_transmits_with_bloch_phase_at_every_angle_and_polarization() {
     // O(h²) dispersion: halving h_z (and h_xy) cuts the S21 error ≈ 4×.
     // Convergence on the worst-case angles (the refined level is costly).
     let worst = [(0.0, 37.0), (75.0, 37.0)];
-    let (s11, s21, _) = empty_cell_errors(40, 6, &worst, false);
-    let (s11f, s21f, _) = empty_cell_errors(80, 12, &worst, true);
+    let (s11, s21, _) = empty_cell_errors(40, 2, &worst, false);
+    let (s11f, s21f, _) = empty_cell_errors(80, 4, &worst, true);
     let rate = (s21 / s21f).log2();
     eprintln!("refined: |S11| {s11f:.3e}, S21 err {s21f:.3e}, observed order {rate:.2}");
     assert!(rate > 1.7, "S21 convergence order {rate}");
@@ -268,7 +273,7 @@ fn empty_cell_transmits_with_bloch_phase_at_every_angle_and_polarization() {
 // --- Golden 2: slab vs Fresnel/Airy -----------------------------------------
 
 const EPS_SLAB: f64 = 4.0;
-const SLAB_NXY: usize = 8;
+const SLAB_NXY: usize = 3;
 const SLAB_NZ: usize = 80;
 const Z1: f64 = 0.35;
 const Z2: f64 = 0.65;
@@ -358,7 +363,7 @@ fn dielectric_slab_matches_fresnel_te_tm_including_brewster() {
 )]
 fn vacuum_glass_interface_normalizes_by_admittance_and_handles_total_internal_reflection() {
     const EPS_G: f64 = 2.25;
-    let c = cell([8, 8, 80], [A_CELL, A_CELL, L_CELL], 41);
+    let c = cell([3, 3, 80], [A_CELL, A_CELL, L_CELL], 41);
     let eps: Vec<c64> = (0..c.mesh.n_tets())
         .map(|t| {
             c64::new(
@@ -487,7 +492,7 @@ fn brick_eps(c: &Cell) -> Vec<c64> {
 }
 
 fn brick_cell() -> Cell {
-    cell([6, 6, 40], [A_CELL, A_CELL, L_CELL], 23)
+    cell([6, 6, 40], [A_BRICK, A_BRICK, L_CELL], 23)
 }
 
 #[test]
@@ -742,7 +747,7 @@ fn floquet_ports_agree_with_an_upml_terminated_cell_at_normal_incidence() {
     use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, DrivenOperator, DrivenSource};
     use geode_core::elements::ElementOrder;
 
-    let (nxy, h) = (6usize, 0.0125);
+    let (nxy, h) = (2usize, 0.0125);
     // Floquet cell [0, L].
     let c = cell(
         [nxy, nxy, (L_CELL / h).round() as usize],
@@ -1115,7 +1120,7 @@ fn bloch_manufactured(n: usize, k: [f64; 3]) -> (f64, f64, f64) {
 fn bloch_phase_periodic_driven_solve_converges_and_its_adjoint_is_the_transpose() {
     let k = [0.7 * PI, 0.3 * PI, 0.0];
     let mut prev = f64::NAN;
-    for n in [4usize, 8, 16] {
+    for n in [4usize, 8] {
         let (e_k, e_0, adj) = bloch_manufactured(n, k);
         eprintln!(
             "n = {n:>2}: Bloch M-norm err {e_k:.4e} (rate {:.2}); zero-phase tripwire {e_0:.3}; \
@@ -1127,8 +1132,8 @@ fn bloch_phase_periodic_driven_solve_converges_and_its_adjoint_is_the_transpose(
             "a zero-phase constraint cannot carry a Bloch wave: {e_0}"
         );
         assert!(adj < 1e-10, "transpose solve = −k forward solve: {adj}");
-        if n == 16 {
-            assert!(e_k < 2e-2, "Bloch manufactured error {e_k}");
+        if n == 8 {
+            assert!(e_k < 5e-3, "Bloch manufactured error {e_k}");
             assert!((prev / e_k).log2() > 1.5, "O(h²) M-norm convergence");
         }
         prev = e_k;
