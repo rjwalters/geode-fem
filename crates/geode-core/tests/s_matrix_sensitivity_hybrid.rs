@@ -1170,3 +1170,66 @@ fn touched_hybrid_face_fences_are_typed_errors() {
         "{err:?}"
     );
 }
+
+/// A mesh-induced complex-pair termination member on a touched face (#809's
+/// LSE₁₁/LSM₁₁ collision on the 16×8×4 slab guide, ε = 4 / 1, three
+/// termination slots) is a typed `Unsupported`, never a gradient.
+#[test]
+fn complex_pair_on_a_touched_face_is_a_typed_error() {
+    let g = extruded_rect_waveguide_mesh(16, 8, 4, A, B_DIM, LEN);
+    let mesh = &g.mesh;
+    let regions: Vec<Option<usize>> = (0..mesh.n_tets())
+        .map(|t| (centroid(mesh, t)[1] < 0.5).then_some(0))
+        .collect();
+    let eps_r: Vec<f64> = regions
+        .iter()
+        .map(|r| if r.is_some() { 4.0 } else { 1.0 })
+        .collect();
+    let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+    let opts = HybridWavePortOpts {
+        n_termination_evanescent: 3,
+        ..Default::default()
+    };
+    let mk = |faces: &[[u32; 3]]| {
+        WavePortSpec::from(
+            HybridWavePort::new(
+                HybridPortFace::from_volume(mesh, faces, &eps_r).unwrap(),
+                vec![c64::new(1.0, 0.0); 2],
+            )
+            .with_opts(opts),
+        )
+    };
+    let ports = [mk(&g.port1_faces), mk(&g.port2_faces)];
+    let pec = g.pec_interior_mask();
+    let bcs = DrivenBcs {
+        pec_interior_mask: &pec,
+    };
+    let space = HcurlSpace::build(mesh, ElementOrder::P1);
+    let net = SNetwork {
+        space: &space,
+        mesh,
+        materials: DrivenMaterials::Scalar(&eps_c),
+        sigma_tet: None,
+        bcs: &bcs,
+        lumped: &[],
+        wave: &ports,
+        surfaces: &[],
+    };
+    let design = SDesign {
+        material: Some(MaterialDesign::from_regions(regions, vec!["slab".into()]).unwrap()),
+        ..SDesign::default()
+    };
+    let err = s_matrix_sensitivity_sweep::<B>(
+        &net,
+        &[1.96, 2.0],
+        &design,
+        &SSensitivityOptions::default(),
+        &device(),
+    )
+    .unwrap_err();
+    eprintln!("fence: {err}");
+    assert!(
+        matches!(&err, SSensitivityError::Unsupported { phase, .. } if phase.contains("complex pair")),
+        "{err:?}"
+    );
+}
