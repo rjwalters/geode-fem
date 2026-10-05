@@ -77,8 +77,8 @@ fn cell(n: [usize; 3], size: [f64; 3], seed: u64) -> Cell {
 fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
     let mut c = [0.0; 3];
     for &v in &mesh.tets[t] {
-        for d in 0..3 {
-            c[d] += 0.25 * mesh.nodes[v as usize][d];
+        for (cd, x) in c.iter_mut().zip(mesh.nodes[v as usize]) {
+            *cd += 0.25 * x;
         }
     }
     c
@@ -110,6 +110,20 @@ fn floquet(c: &Cell, eps: &[c64], settings: FloquetSettings) -> FloquetCell {
 /// planes at the first and last layer interfaces. `layers` are
 /// `(ε_r, thickness)`; `kt` is the transverse wavenumber.
 fn tmm(k0: f64, kt: f64, layers: &[(f64, f64)], pol: FloquetPolarization) -> (c64, c64) {
+    tmm_media(k0, kt, 1.0, layers, 1.0, pol)
+}
+
+/// [`tmm`] between an incidence medium `eps_a` and an exit medium `eps_s`;
+/// `t` is the tangential-E ratio (multiply by `√(y_s/y_a)` for the
+/// power-normalized S).
+fn tmm_media(
+    k0: f64,
+    kt: f64,
+    eps_a: f64,
+    layers: &[(f64, f64)],
+    eps_s: f64,
+    pol: FloquetPolarization,
+) -> (c64, c64) {
     let kz = |eps: f64| {
         let a = k0 * k0 * eps - kt * kt;
         if a >= 0.0 {
@@ -141,8 +155,8 @@ fn tmm(k0: f64, kt: f64, layers: &[(f64, f64)], pol: FloquetPolarization) -> (c6
         }
         m = out;
     }
-    let ya = y(1.0);
-    let ys = ya;
+    let ya = y(eps_a);
+    let ys = y(eps_s);
     let p = ya * (m[0][0] + m[0][1] * ys);
     let q = m[1][0] + m[1][1] * ys;
     ((p - q) / (p + q), c64::new(2.0, 0.0) * ya / (p + q))
@@ -335,6 +349,118 @@ fn dielectric_slab_matches_fresnel_te_tm_including_brewster() {
     assert!(worst_ph < 0.5, "phase vs Fresnel/Airy: {worst_ph}°");
 }
 
+// --- Golden 2b: different port media (√y normalization, TIR) ---------------
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "direct solves are slow in debug; runs in release CI"
+)]
+fn vacuum_glass_interface_normalizes_by_admittance_and_handles_total_internal_reflection() {
+    const EPS_G: f64 = 2.25;
+    let c = cell([8, 8, 80], [A_CELL, A_CELL, L_CELL], 41);
+    let eps: Vec<c64> = (0..c.mesh.n_tets())
+        .map(|t| {
+            c64::new(
+                if centroid(&c.mesh, t)[2] > 0.5 {
+                    EPS_G
+                } else {
+                    1.0
+                },
+                0.0,
+            )
+        })
+        .collect();
+    let spec = FloquetCellSpec {
+        eps_r: &eps,
+        sigma: None,
+        pec_interior_mask: None,
+        ports: [
+            FloquetPortSpec {
+                triangles: &c.bottom,
+                eps_r: 1.0,
+            },
+            FloquetPortSpec {
+                triangles: &c.top,
+                eps_r: EPS_G,
+            },
+        ],
+        settings: FloquetSettings::default(),
+    };
+    let fc = FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap();
+    let up = [(1.0, 0.5), (EPS_G, 0.5)];
+    let down = [(EPS_G, 0.5), (1.0, 0.5)];
+    let theta_c = (1.0 / EPS_G.sqrt()).asin().to_degrees();
+    eprintln!("vacuum (port 0) | glass ε = {EPS_G} (port 1); critical angle {theta_c:.3}°");
+    eprintln!(" from  θ°   pol  |S11| FEM  |S11| TMM  |S21| FEM  |S21| TMM  ∠S11 err°  Σ|S|²-1");
+    let mut worst = 0.0_f64;
+    for (from, theta) in [(0usize, 0.0), (0, 30.0), (0, 60.0), (1, 20.0), (1, 60.0)] {
+        let sol = fc
+            .solve_incidence(K0, &FloquetIncidence::degrees(theta, 0.0, from))
+            .unwrap();
+        let eps_in = if from == 0 { 1.0 } else { EPS_G };
+        let eps_out = if from == 0 { EPS_G } else { 1.0 };
+        let kt = K0 * eps_in.sqrt() * theta.to_radians().sin();
+        let tir = kt > K0 * eps_out.sqrt();
+        let other = 1 - from;
+        for pol in [Te, Tm] {
+            let (r, t) = tmm_media(
+                K0,
+                kt,
+                eps_in,
+                if from == 0 { &up } else { &down },
+                eps_out,
+                pol,
+            );
+            let s_rr = sol.s_specular(from, pol, from, pol).unwrap();
+            let j = sol.specular_index(from, pol).unwrap();
+            let e = sol.column_power(j) - 1.0;
+            assert!(e.abs() < 1e-9, "energy {e}");
+            let (s_t, t_n) = if tir {
+                assert!(
+                    sol.specular_index(other, pol).is_none(),
+                    "the transmitted order is evanescent under TIR"
+                );
+                (f64::NAN, f64::NAN)
+            } else {
+                let kz = |er: f64| (K0 * K0 * er - kt * kt).sqrt();
+                let y = |er: f64| match pol {
+                    Te => kz(er) / K0,
+                    Tm => K0 * er / kz(er),
+                };
+                let tn = t * (y(eps_out) / y(eps_in)).sqrt();
+                let st = sol.s_specular(other, pol, from, pol).unwrap();
+                worst = worst.max((st - tn).norm());
+                (st.norm(), tn.norm())
+            };
+            // Complex error (the phase of a small reflection near Brewster is
+            // ill-conditioned on its own).
+            worst = worst.max((s_rr - r).norm());
+            let ph = dphase(s_rr, r);
+            eprintln!(
+                "  P{from}  {theta:>4} {pol:?}   {:.5}    {:.5}    {s_t:.5}    {t_n:.5}    {ph:+.3}    {e:.1e}{}",
+                s_rr.norm(),
+                r.norm(),
+                if tir { "  (TIR)" } else { "" }
+            );
+            if tir {
+                // All power returns to the incidence port (column power is
+                // 1 to round-off, asserted above); the mesh's 6-tet split
+                // diverts a sliver into the cross-polarized reflection.
+                let xp = if pol == Te { Tm } else { Te };
+                let x = sol.s_specular(from, xp, from, pol).unwrap().norm();
+                eprintln!(
+                    "        TIR: |S_rr| − 1 = {:+.2e}, cross-pol {x:.2e}",
+                    s_rr.norm() - 1.0
+                );
+                assert!((s_rr.norm() - 1.0).abs() < 1e-3, "|S| ≈ 1 under TIR");
+            }
+        }
+    }
+    eprintln!("worst complex |S_FEM − S_TMM| {worst:.2e}");
+    assert!(worst < 5e-3, "interface vs Fresnel: {worst}");
+}
+
 // --- Golden 3: reciprocity, energy, adjoint on an asymmetric cell -----------
 
 /// A high-contrast brick that breaks every mirror symmetry of the cell (and
@@ -388,11 +514,11 @@ fn reciprocity_energy_and_adjoint_on_an_asymmetric_cell() {
     assert_eq!(np, 4);
     eprintln!("asymmetric cell, θ = {theta}°, φ = {phi}°: S(k_t)");
     let (mut recip, mut asym, mut cross, mut energy) = (0.0_f64, 0.0_f64, 0.0_f64, 0.0_f64);
-    for i in 0..np {
+    for (i, name) in names.iter().enumerate().take(np) {
         let row: Vec<String> = (0..np)
             .map(|j| format!("{:.4}∠{:+7.2}°", fwd.s[i][j].norm(), deg(fwd.s[i][j])))
             .collect();
-        eprintln!("  {}  {}", names[i], row.join("  "));
+        eprintln!("  {name}  {}", row.join("  "));
         for j in 0..np {
             recip = recip.max((fwd.s[i][j] - bwd.s[j][i]).norm());
             asym = asym.max((fwd.s[i][j] - fwd.s[j][i]).norm());
@@ -756,13 +882,26 @@ fn propagating_higher_orders_and_bad_specs_are_typed_errors() {
         }
         other => panic!("want HigherOrderPropagates (−1, 0), got {:?}", other.err()),
     }
-    // Exactly at the Rayleigh anomaly: |k_t − b₁| = k₀.
+    // At the Rayleigh anomaly: |k_t − b₁| = k₀ with the specular order
+    // well inside the light cone.
     let b1 = 2.0 * PI / 1.5;
-    let k_ray = b1 / 2.0;
-    assert!(matches!(
-        fc.solve_k_t(k_ray, [k_ray, 0.0, 0.0]),
-        Err(FloquetError::HigherOrderPropagates { .. })
-    ));
+    let (kt, k_ray) = (0.5, b1 - 0.5);
+    match fc.solve_k_t(k_ray, [kt, 0.0, 0.0]) {
+        Err(FloquetError::HigherOrderPropagates {
+            m: -1, n: 0, state, ..
+        }) => {
+            assert!(state.contains("cutoff"), "{state}");
+        }
+        other => panic!("want the (−1, 0) Rayleigh anomaly, got {:?}", other.err()),
+    }
+    // Just off the anomaly, on the evanescent side: solvable, with a
+    // near-cutoff warning.
+    let near = fc.solve_k_t(k_ray * (1.0 - 1e-7), [kt, 0.0, 0.0]).unwrap();
+    assert!(
+        near.warnings.iter().any(|w| w.contains("Rayleigh")),
+        "{:?}",
+        near.warnings
+    );
     // Grazing and out-of-range angles.
     for th in [90.0, -5.0, f64::NAN] {
         assert!(matches!(

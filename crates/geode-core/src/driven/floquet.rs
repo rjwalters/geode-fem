@@ -148,6 +148,11 @@ pub const DEFAULT_N_EVANESCENT: usize = 1;
 /// Default [`FloquetSettings::rayleigh_warn`].
 pub const DEFAULT_RAYLEIGH_WARN: f64 = 1e-3;
 
+/// `|k² − |κ|²| ≤ CUTOFF_TOL · k²` counts as **at cutoff** (`k_z = 0` to
+/// round-off): a typed error, never a channel with an infinite TM
+/// admittance.
+pub const CUTOFF_TOL: f64 = 1e-12;
+
 /// Errors of the Floquet unit cell. The CLI (Phase 4b) maps
 /// [`Self::InvalidSpec`] and [`Self::HigherOrderPropagates`] to
 /// `invalid_spec`, and the rest to `solve_failed`.
@@ -171,7 +176,7 @@ pub enum FloquetError {
         m: i32,
         /// Order index along `b₂`.
         n: i32,
-        /// `"propagates"` or `"is exactly at cutoff (Rayleigh anomaly)"`.
+        /// `"propagates"` or `"is at cutoff (Rayleigh anomaly)"`.
         state: &'static str,
         /// Free-space wavenumber.
         k0: f64,
@@ -746,22 +751,24 @@ impl FloquetCell {
                     let kappa = norm(self.lattice.kappa(k_t, order));
                     let arg = (k - kappa) * (k + kappa);
                     let rel = arg.abs().sqrt() / k;
-                    if order != FloquetOrder::SPECULAR && arg >= 0.0 {
+                    // Within round-off of cutoff: k_z ≈ 0, y_TM → ∞.
+                    let at_cutoff = arg.abs() <= CUTOFF_TOL * k * k;
+                    if order != FloquetOrder::SPECULAR && (arg > 0.0 || at_cutoff) {
                         return Err(FloquetError::HigherOrderPropagates {
                             port: p,
                             m,
                             n: nq,
-                            state: if arg > 0.0 {
-                                "propagates"
+                            state: if at_cutoff {
+                                "is at cutoff (Rayleigh anomaly)"
                             } else {
-                                "is exactly at cutoff (Rayleigh anomaly)"
+                                "propagates"
                             },
                             k0: omega,
                             kappa,
                             k,
                         });
                     }
-                    if order == FloquetOrder::SPECULAR && arg == 0.0 {
+                    if order == FloquetOrder::SPECULAR && at_cutoff {
                         return Err(FloquetError::InvalidSpec(format!(
                             "the specular order is exactly at cutoff at port {p} (grazing, k_z = \
                              0)"

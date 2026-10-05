@@ -52,6 +52,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Eigen is p=1 only, and the Lanczos start vector is not warm-started.
     - p=2 runs, but its effectivity is unvalidated (Phase 7).
     - The module is `adapt/driver.rs`, as the epic planned, because `loop` is a Rust keyword.
+- **Floquet ports and oblique plane-wave drive on a Bloch-phased unit cell** (#870, Epic #837 Phase 3a). The new `driven::floquet` module adds `FloquetCell`, a p=1 unit cell that is periodic along two lattice vectors, with Floquet ports on its two open faces.
+  - **Modes.** Each diffraction order `κ_mn = k_t + m b₁ + n b₂` carries analytic **TE and TM** modes (never TE-only, the #808 lesson). `k_z` is computed in a cancellation-free form on the outgoing branch, with `y_TE = k_z/k₀` and `y_TM = k₀ε_r/k_z`. Each order is classified as propagating or evanescent.
+  - **Port term.** The port term `Σ c_q h̄_q h_qᵀ` is Hermitian-structured. It is added to the reduced `Pᴴ A P` and solved by direct sparse LU.
+  - **Drive.** `FloquetIncidence { θ, φ, from_port }` sets the Bloch phase `k_t = k₀√ε_r sinθ (cosφ, sinφ)` from the drive by construction. `solve_k_t` takes a fixed `k_t`.
+  - **S-parameters.** S is power-normalized (`√y` weights) and reported on the propagating specular channels. Configurable evanescent rings (`n_evanescent`, default 1) act as terminations.
+  - **Typed errors (#804), never a silently wrong S:**
+    - a non-specular order that propagates or sits at cutoff gives `FloquetError::HigherOrderPropagates`, which points to Phase 3b;
+    - inhomogeneous, lossy, PEC or mismatched port media, partial or non-planar port faces, three-pair lattices, and grazing or out-of-range angles give `FloquetError::InvalidSpec`.
+  - **Warnings** cover near-Rayleigh-anomaly orders, under-resolved termination orders, and a first excluded evanescent ring that has not decayed at the nearest inhomogeneity.
+  - **Lifted refusal.** `PeriodicDrivenOperator` now accepts a complex Bloch phase, lifting the `Unsupported` of #866. The reduced operator is non-symmetric (`A_r(k)ᵀ = A_r(−k)`). The new `back_solve_transpose` is the adjoint and equals a forward solve at `−k`. `FactoredFloquetCell::back_solve_transpose` provides the same for the Floquet cell.
+  - **Goldens** (new test target `floquet_ports`):
+    - **empty cell** at θ ∈ {0, 30, 60, 75}°, two azimuths, TE and TM: the worst `|S11|` is 4.4e-3, `|S21 − e^{−jk_zL}|` is 3.7e-3 at O(h²) (observed order 2.00), and energy holds to 1e-14;
+    - **ε = 4 slab vs the analytic transfer matrix**, TE and TM, including the **TM Brewster null** (`|S11|` = 2e-5): worst `|ΔS|` 4.5e-4, worst phase 0.073°;
+    - **vacuum/glass interface** (different port media, `√y` normalization, total internal reflection): worst complex error 2.8e-3;
+    - **reciprocity** `S(k)ᵀ = S(−k)` to 4.8e-14 on a cross-polarizing cell where `S(k) ≠ S(k)ᵀ` by 5.7e-3, and `A_r(k)ᵀ = A_r(−k)` to 2e-16;
+    - **inverse tripwire**: dropping the TM channels moves the TE S by 3.8e-3;
+    - **cross-check vs a matched-UPML, scattered-field cell**: agreement to 1.7e-3;
+    - a Bloch manufactured driven solution at O(h²).
 - **Conforming tet refinement by newest-vertex bisection** (#860, Epic #835 Phase 2). The new `adapt::refine` module refines a `TaggedTetMesh` with Arnold–Mukherjee–Pouly bisection. Marked tets are bisected once, and a recursive closure restores conformity. The algorithm works from any conforming mesh (longest-edge initial marking, strict global tie-break). `BisectionMesh` keeps the marking state between cycles, so the similarity-class bound holds over repeated adaptation; `refine()` is the one-shot form.
   - **Tags are preserved.** Children inherit the 3-D tag. Tagged triangles (ports, PEC, impedance, interfaces) split exactly as their faces do, keeping their tag and winding. `physical_groups` is copied unchanged. Old nodes keep their indices, and new nodes are appended. Planar port faces stay bit-exactly planar, so `project_port_face` and the wave/hybrid port face meshes keep working.
   - **Exact nested prolongations:**
