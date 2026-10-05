@@ -134,6 +134,9 @@
 //! back-solve per impedance observable, per tangent, or per VJP; all
 //! parameter dependence is local element contractions.
 
+// Element kernels index 3×3 local blocks by explicit (i, j, k) indices.
+#![allow(clippy::needless_range_loop)]
+
 use std::collections::BTreeMap;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
@@ -1241,12 +1244,13 @@ impl<'a> FaceCtx<'a> {
     }
 }
 
+/// The modes, the extra gap-only `β²` values, and each mode's pairing
+/// conditioning.
+type ModeList = (Vec<ModeData>, Vec<c64>, Vec<f64>);
+
 /// Collect the face's modes as [`ModeData`] plus the extra `β²` values used
 /// only for the gap (complex-pair members of a real set).
-fn mode_list(
-    modes: FaceModes<'_>,
-    eps: &[c64],
-) -> Result<(Vec<ModeData>, Vec<c64>, Vec<f64>), PortModeSensitivityError> {
+fn mode_list(modes: FaceModes<'_>, eps: &[c64]) -> Result<ModeList, PortModeSensitivityError> {
     match modes {
         FaceModes::Real(set) => {
             if eps.iter().any(|e| e.im != 0.0) {

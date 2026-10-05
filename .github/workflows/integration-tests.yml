@@ -153,6 +153,7 @@ jobs:
               --test periodic_derham_kernel \
               --test periodic_driven \
               --test periodic_mesh_matching \
+              --test port_mode_sensitivity \
               --test sigma_conductivity \
               --test slotless_pm_field \
               --test soi_waveguide_benchmark \

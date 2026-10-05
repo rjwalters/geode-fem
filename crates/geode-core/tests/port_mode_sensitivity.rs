@@ -2,8 +2,8 @@
 //! hybrid port pencil (`analytic::port_mode_sensitivity`).
 //!
 //! Goldens (FD through the **shipped** 2-D forward: `solve_hybrid_port_modes`
-//! + `mode_line_quantities` for a lossless face, `solve_lossy_hybrid_port_modes`
-//! for a lossy one):
+//! and `mode_line_quantities` for a lossless face,
+//! `solve_lossy_hybrid_port_modes` for a lossy one):
 //!
 //! 1. Lossless shielded microstrip: central FD on every parameter
 //!    (`ε_r` of the substrate, strip width `w`, substrate height `h`) ×
@@ -19,6 +19,8 @@
 //! 4. Hammerstad–Jensen sanity of `∂Z₀/∂w`, `∂ε_eff/∂w` (sign + loose band).
 //! 5. Degenerate cluster (homogeneous two-strip line): typed error per mode,
 //!    FD-validated cluster-invariant derivative; near-degenerate warning.
+
+#![allow(clippy::needless_range_loop)]
 
 use faer::c64;
 use geode_core::analytic::lossy_port_modes::solve_lossy_hybrid_port_modes;
