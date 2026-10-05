@@ -1098,24 +1098,23 @@ fn hybrid_face_design(
     let n_tris = proj.tri_mesh.n_tris();
     let n_nodes2 = proj.tri_mesh.n_nodes();
     // Material: which design region each face triangle follows.
-    let region_of_tri: Vec<Option<usize>> =
-        match material.filter(|m| m.eps_prime || m.eps_dprime) {
-            Some(m) => match &face.tet_of_tri {
-                Some(tets) => tets.iter().map(|&t| m.region_of_tet[t]).collect(),
-                None => {
-                    if let Some(&t) = touched.first() {
-                        return Err(SSensitivityError::InvalidDesign(format!(
-                            "hybrid wave port {p}'s face bounds design-region tet {t}, but the \
+    let region_of_tri: Vec<Option<usize>> = match material.filter(|m| m.eps_prime || m.eps_dprime) {
+        Some(m) => match &face.tet_of_tri {
+            Some(tets) => tets.iter().map(|&t| m.region_of_tet[t]).collect(),
+            None => {
+                if let Some(&t) = touched.first() {
+                    return Err(SSensitivityError::InvalidDesign(format!(
+                        "hybrid wave port {p}'s face bounds design-region tet {t}, but the \
                              face carries no tet map, so its ε cannot follow the region: build \
                              it with HybridPortFace::from_volume (from_volume_lossy, \
                              from_volume_with_pec)"
-                        )));
-                    }
-                    vec![None; n_tris]
+                    )));
                 }
-            },
-            None => vec![None; n_tris],
-        };
+                vec![None; n_tris]
+            }
+        },
+        None => vec![None; n_tris],
+    };
     // Shape: in-plane traces of every column on the face nodes.
     let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     let mut vel2: Vec<Option<Vec<[f64; 2]>>> = Vec::new();
@@ -1152,11 +1151,7 @@ fn hybrid_face_design(
                 .iter()
                 .map(|v| [dot(*v, proj.u), dot(*v, proj.v)])
                 .collect();
-            vel2.push(
-                v2.iter()
-                    .any(|v| v[0] != 0.0 || v[1] != 0.0)
-                    .then_some(v2),
-            );
+            vel2.push(v2.iter().any(|v| v[0] != 0.0 || v[1] != 0.0).then_some(v2));
         }
     }
     let material_on_face = region_of_tri.iter().any(Option::is_some);
@@ -1166,7 +1161,9 @@ fn hybrid_face_design(
     }
     if port.opts.transverse_only_flux {
         return Err(unsupported(
-            format!("the transverse_only_flux tripwire on hybrid wave port {p}, whose face θ touches"),
+            format!(
+                "the transverse_only_flux tripwire on hybrid wave port {p}, whose face θ touches"
+            ),
             TRIPWIRE,
             "differentiate the physical flux (transverse_only_flux = false)",
         ));
@@ -1929,8 +1926,7 @@ impl<'n> Prepared<'n> {
                                 c64::new(omega * omega, 0.0) / (ch.beta * 2.0)
                             }
                             (Some(r), SParam::EpsDoublePrime { region }) if r == region => {
-                                c64::new(omega * omega, 0.0) / (ch.beta * 2.0)
-                                    * c64::new(0.0, -1.0)
+                                c64::new(omega * omega, 0.0) / (ch.beta * 2.0) * c64::new(0.0, -1.0)
                             }
                             _ => zero,
                         }
@@ -2059,11 +2055,7 @@ impl<'n> Prepared<'n> {
                 cand[g] = f / beta;
             }
         }
-        let proj: c64 = cand
-            .iter()
-            .zip(flux_int)
-            .map(|(c, f)| c.conj() * f)
-            .sum();
+        let proj: c64 = cand.iter().zip(flux_int).map(|(c, f)| c.conj() * f).sum();
         let sigma = if proj.re >= 0.0 { 1.0 } else { -1.0 };
         let (mut e2, mut n2) = (0.0_f64, 0.0_f64);
         for (c, f) in cand.iter().zip(flux_int) {

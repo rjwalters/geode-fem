@@ -3078,13 +3078,8 @@ impl HybridState {
         let k = port.n_modes();
         let FaceSolve { set, retried } = self.ctx.solve(port, omega, 2)?;
         let set = Arc::new(set);
-        let face_eps: Arc<Vec<c64>> = Arc::new(
-            port.face
-                .eps_r
-                .iter()
-                .map(|&e| c64::new(e, 0.0))
-                .collect(),
-        );
+        let face_eps: Arc<Vec<c64>> =
+            Arc::new(port.face.eps_r.iter().map(|&e| c64::new(e, 0.0)).collect());
         let origin = |members: Vec<usize>| ChanOrigin {
             set: FaceModeSet::Real(Arc::clone(&set)),
             eps: Arc::clone(&face_eps),

@@ -64,9 +64,9 @@ use std::sync::Arc;
 use faer::c64;
 
 use super::hybrid::{
-    ChanAt, ChanOrigin, FaceCtx, FaceModeSet, HybridChannelReport, HybridComplexLineReport, HybridModalFlux,
-    HybridPortPointReport, HybridPortReport, HybridWavePort, PortAccuracyOpts, PortWarning,
-    PortWarningKind, check_lossy_eps, cluster_warning, multiplicity_warning, sym_eig,
+    ChanAt, ChanOrigin, FaceCtx, FaceModeSet, HybridChannelReport, HybridComplexLineReport,
+    HybridModalFlux, HybridPortPointReport, HybridPortReport, HybridWavePort, PortAccuracyOpts,
+    PortWarning, PortWarningKind, check_lossy_eps, cluster_warning, multiplicity_warning, sym_eig,
 };
 use super::hybrid_z::{
     ImpedanceAccuracy, LineGeom, LineLevel, ZOutcome, ZWarnings, impedance_accuracy, line_complex,
