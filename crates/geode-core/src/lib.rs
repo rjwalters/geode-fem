@@ -5,6 +5,7 @@
 //! shape of the API; concrete implementations arrive with scalar
 //! Helmholtz (#3) and the eigenmode solver work that follows.
 
+pub mod adapt;
 pub mod adjoint;
 pub mod analytic;
 pub mod assembly;
