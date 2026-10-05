@@ -786,13 +786,16 @@ pub fn solve_tagged_lossy_cavity_modes<B: Backend>(
     )
 }
 
+/// A wall's triangles.
+type TriangleList = Vec<[u32; 3]>;
+
 /// Resolve a tagged lossy cavity's physical-group names: the per-tet
 /// complex `ε_r` (unlisted regions vacuum) and the PEC wall triangle lists.
 fn tagged_eps_and_walls(
     tagged: &TaggedTetMesh,
     pec_groups: &[&str],
     materials: &[(&str, c64)],
-) -> Result<(Vec<c64>, Vec<Vec<[u32; 3]>>), LossyCavityError> {
+) -> Result<(Vec<c64>, Vec<TriangleList>), LossyCavityError> {
     let tag_of = |dim: i32, name: &str| {
         tagged
             .physical_group_tag(dim, name)
@@ -887,7 +890,7 @@ impl FrozenWalls<'_> {
 ///   ([`crate::assembly::surface::assemble_surface_mass_triplets`]) times
 ///   `iω_ref/Z_s(ω_ref)` on the kept edges.
 /// - **p=2:** the host-side p=2 assembly of
-///   [`DrivenOperator::assemble_with_space`] — complex scalar `ε`, or full
+///   [`crate::driven::solve::DrivenOperator::assemble_with_space`] — complex scalar `ε`, or full
 ///   complex `(ε, ν)` tensors through its matched-UPML kernel — and the
 ///   walls on the 8-DOF p=2 tangential trace ([`crate::assembly::surface_p2`]).
 ///

@@ -681,6 +681,9 @@ fn dense_spectrum(k: &Mat<f64>, m: &Mat<f64>) -> Vec<f64> {
     ev
 }
 
+/// A null-count fixture: label, mesh, PEC wall lists.
+type NullCase<'a> = (&'a str, &'a TetMesh, Vec<Vec<[u32; 3]>>);
+
 /// Dense full-spectrum null cluster == the closed-form gradient dimension,
 /// at p=1 and p=2, on four meshes: an all-PEC jittered cube, two PEC
 /// plates (the floating-potential gradient), no PEC at all (one constant),
@@ -696,7 +699,7 @@ fn golden4_exact_null_count_dense_tripwire() {
         .iter()
         .map(|n| gmsh.triangles_with_tag(gmsh.physical_group_tag(2, n).expect("group")))
         .collect();
-    let cases: Vec<(&str, &TetMesh, Vec<Vec<[u32; 3]>>)> = vec![
+    let cases: Vec<NullCase<'_>> = vec![
         ("all-PEC jittered cube", &jc, box_walls(&jc, cube)),
         (
             "two PEC plates",

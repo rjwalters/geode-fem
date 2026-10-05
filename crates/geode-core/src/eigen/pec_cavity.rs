@@ -556,7 +556,7 @@ pub(crate) fn solve_assembled_pencil_classified(
     k: &SparseColMat<usize, f64>,
     m: &SparseColMat<usize, f64>,
     settings: &PecCavitySettings,
-    is_gradient: Option<&dyn Fn(&[f64]) -> bool>,
+    is_gradient: Option<&GradientTest<'_>>,
 ) -> Result<(PecCavityModes, usize), PecCavityError> {
     let s = settings;
     let n_interior = k.nrows();
@@ -692,13 +692,19 @@ pub fn solve_tagged_pec_cavity_modes<B: Backend>(
     solve_pec_cavity_modes::<B>(&tagged.mesh, &eps_r, &mask, settings, device)
 }
 
+/// A wall's triangles.
+type TriangleList = Vec<[u32; 3]>;
+
+/// A vector null classifier: `true` = the Ritz vector is a gradient.
+pub(crate) type GradientTest<'a> = dyn Fn(&[f64]) -> bool + 'a;
+
 /// Resolve a tagged cavity's physical-group names: the per-tet real `ε_r`
 /// (unlisted regions vacuum) and the PEC wall triangle lists.
 fn tagged_eps_and_walls(
     tagged: &TaggedTetMesh,
     pec_groups: &[&str],
     materials: &[(&str, f64)],
-) -> Result<(Vec<f64>, Vec<Vec<[u32; 3]>>), PecCavityError> {
+) -> Result<(Vec<f64>, Vec<TriangleList>), PecCavityError> {
     let tag_of = |dim: i32, name: &str| {
         tagged
             .physical_group_tag(dim, name)

@@ -677,8 +677,7 @@ impl SpaceEigenSensitivity<'_> {
         }
         self.check_eps()?;
         let mut grad = vec![0.0_f64; n_regions];
-        for t in 0..n_tets {
-            let k = region_of[t];
+        for (t, &k) in region_of.iter().enumerate() {
             if k >= n_regions {
                 continue;
             }
