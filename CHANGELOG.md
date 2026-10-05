@@ -71,6 +71,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The p=1 post-processors `driven::ports::port_voltage` (and so `port_input_impedance` and `extraction::extract_port_circuit`) and `geode_util::viz::edge_field_to_nodes` (the CLI VTU export path) now panic when the DOF vector length is not the mesh edge count. Before, a p=2 vector was silently truncated or indexed into, giving a plausible but wrong voltage or field plot (#838, #804). p=1 results are unchanged.
 - p=2 requests that are not supported yet fail with `DrivenError::UnsupportedAtOrder` instead of solving at another order. This covers lumped ports, impedance surfaces, the matrix-free solver, the AMS preconditioner, wave ports in the PROM and the transient solver (#838; Phases 1b–3 of Epic #836).
 
+### Fixed
+
+#### `geode-core`
+
+- **The PEC-cavity eigensolve no longer fails at µm and nm mesh units** (#852). `solve_pec_cavity_modes` was unit-invariant down to `length_unit = 3e-6` but returned `NotConverged` (a garbage Ritz pair with residual ≈ 1.0) at `1e-6`, `1e-7` and `1e-9`. The cause was faer 0.24's divide-and-conquer tridiagonal eigensolver, which the eigenpair Lanczos paths use once the Krylov basis has 128 or more vectors (the default `max_iters` is 160). It deflates with the tolerance `8ε · max(max|d|, max|z|)`, where `z` is a unit vector, so the tolerance is absolute when the matrix is small, and the shift-inverted tridiagonal scales as `L²` in the mesh unit (`~1e-13` for a µm cavity). The deflation merged distinct Ritz values: the gradient-null cluster drifted from round-off to `0.05 · σ` and passed the null filter as a "physical" mode. `T` is now scaled to unit magnitude by an exact power of two before the EVD, in both the plain and the projected shift-invert Lanczos. Unit-scale results are unchanged.
+  - New test target `pec_cavity_unit_invariance`: the `1 × 0.8 × 0.6` PEC box gives the same `λ · s²` for `s` from `1e-9` to `1e3` (worst relative spread 6e-15). A unit test checks that `tridiag_eigenpairs` is homogeneous under scalings of `1e-19` to `1e8`.
+  - The estimator's eigen unit-invariance golden (`hcurl_error_estimator`, #840) now reruns the full solve at `s = 1e-6` instead of `3e-6`, and its bars are tightened from `1e-8` / `1e-6` to `1e-12` / `1e-9` (measured `2.1e-15` / `2.8e-12`).
+
 ## [0.8.0] - 2026-10-04
 
 This release completes Epic #756 (geode CLI Phase 4: physics breadth for EDA flows) and Epic #778 (hybrid wave ports). It covers:

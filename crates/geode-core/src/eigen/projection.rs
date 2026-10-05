@@ -58,7 +58,7 @@ use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
 use crate::eigen::dense::{EigenError, EigenPair};
-use crate::eigen::lanczos::{HISTORICAL_BREAKDOWN_REL, krylov_breakdown};
+use crate::eigen::lanczos::{HISTORICAL_BREAKDOWN_REL, krylov_breakdown, tridiag_eigenpairs};
 use crate::eigen::shift_guard::{check_degenerate_shift, check_gradient_probe, median_diag_ratio};
 
 /// The sparse interior-restricted discrete gradient `G = d⁰_interior` plus
@@ -610,50 +610,6 @@ fn solve_with_lu(lu: &Lu<usize, f64>, rhs: &[f64], out: &mut [f64]) {
     for (i, o) in out.iter_mut().enumerate() {
         *o = work[(i, 0)];
     }
-}
-
-/// Solve the symmetric tridiagonal eigenproblem returning eigenpairs
-/// `(μ, s)` in ascending-μ order (same helper as the un-projected path).
-fn tridiag_eigenpairs(alpha: &[f64], beta: &[f64]) -> Result<(Vec<f64>, Mat<f64>), EigenError> {
-    use faer::Side;
-    let k = alpha.len();
-    if k == 0 {
-        return Ok((Vec::new(), Mat::<f64>::zeros(0, 0)));
-    }
-    let t = Mat::<f64>::from_fn(k, k, |i, j| {
-        if i == j {
-            alpha[i]
-        } else if i + 1 == j {
-            beta[i]
-        } else if j + 1 == i {
-            beta[j]
-        } else {
-            0.0
-        }
-    });
-    let evd = t
-        .as_ref()
-        .self_adjoint_eigen(Side::Lower)
-        .map_err(|e| EigenError::FaerGevd(format!("tridiag evd (pairs): {e:?}")))?;
-    let s_vec = evd.S().column_vector();
-    let u = evd.U();
-    let mut mus: Vec<f64> = (0..k).map(|i| s_vec[i]).collect();
-    let mut order: Vec<usize> = (0..k).collect();
-    order.sort_by(|&a, &b| {
-        mus[a]
-            .partial_cmp(&mus[b])
-            .unwrap_or(core::cmp::Ordering::Equal)
-    });
-    let mut sorted_mus = vec![0.0_f64; k];
-    let mut sorted_u = Mat::<f64>::zeros(k, k);
-    for (new_col, &old_col) in order.iter().enumerate() {
-        sorted_mus[new_col] = mus[old_col];
-        for row in 0..k {
-            sorted_u[(row, new_col)] = u[(row, old_col)];
-        }
-    }
-    mus.copy_from_slice(&sorted_mus);
-    Ok((mus, sorted_u))
 }
 
 /// Tunables for the projected shift-invert Lanczos (mirrors
