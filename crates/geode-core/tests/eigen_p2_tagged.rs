@@ -601,10 +601,7 @@ fn golden3b_leontovich_walls_vs_pozar_q() {
                 &mesh,
                 &LossyCavityMaterials::Isotropic(&eps),
                 &mask,
-                FrozenWalls {
-                    walls: &bcs,
-                    omega_ref: k,
-                },
+                FrozenWalls::new(&bcs, k),
                 &LossyCavitySettings {
                     tol: 1e-12,
                     ..LossyCavitySettings::new(0.8 * exact[0], 1)
@@ -618,6 +615,13 @@ fn golden3b_leontovich_walls_vs_pozar_q() {
             if m == 2 && order == ElementOrder::P2 {
                 pull = (md.k0.re - k) / k;
             }
+            // Solved at its own resonance: tiny offset, no mismatch warning.
+            let off = sol.wall_ref_offset.as_ref().expect("Leontovich offsets")[0];
+            assert!(
+                (off - (md.k0.re - k).abs() / k).abs() < 1e-15 && off < 0.01,
+                "offset {off}"
+            );
+            assert!(sol.warnings.is_empty(), "{:?}", sol.warnings);
             eprintln!(
                 "golden3b p={} m={m}: k = {:.8} {:+.3e}j, Q = {q:.4} (rel vs Pozar {:+.3e}), \
                  null dim {}",
@@ -652,6 +656,130 @@ fn golden3b_leontovich_walls_vs_pozar_q() {
         (pull / pull_pozar - 1.0).abs() < 0.03,
         "Leontovich frequency pull {pull} vs {pull_pozar}"
     );
+}
+
+/// Frozen-wall mismatch diagnostic: a 3-mode Leontovich solve over the box
+/// band, walls frozen at the lowest mode. The near mode has a round-off-
+/// small offset and no warning; the two far modes (≈ 21 % and 30 % up) are
+/// flagged, and re-solving the farthest at its own `ω_ref` moves its `Q` by
+/// the factor `√(1+δ)` (`≈ ½δ`), the documented Leontovich error. The threshold is
+/// configurable, and London-only walls (exact) report nothing.
+#[test]
+fn golden3c_frozen_wall_mismatch_warning_across_band() {
+    use geode_core::eigen::lossy_cavity::{DEFAULT_WALL_REF_WARN_OFFSET, LossyCavityWarning};
+    let exact = box_exact();
+    let ks = exact.map(f64::sqrt);
+    let mesh = jittered_box(1, 0x3c);
+    let all: Vec<[u32; 3]> = box_walls(&mesh, BOX).concat();
+    let space = HcurlSpace::build(&mesh, ElementOrder::P2);
+    let mask = vec![true; space.n_dofs()];
+    let eps = vec![c64::new(1.0, 0.0); mesh.n_tets()];
+    let leontovich = [SurfaceImpedanceBc {
+        triangles: &all,
+        model: SurfaceImpedanceModel::GoodConductor { sigma: 2.0e5 },
+    }];
+    let run = |w: FrozenWalls<'_>| {
+        solve_lossy_cavity_modes_on_space::<B>(
+            &space,
+            &mesh,
+            &LossyCavityMaterials::Isotropic(&eps),
+            &mask,
+            w,
+            &LossyCavitySettings {
+                tol: 1e-12,
+                ..LossyCavitySettings::new(0.8 * exact[0], 3)
+            },
+            &device(),
+        )
+        .expect("Leontovich band solve")
+    };
+    let q = |md: &geode_core::eigen::lossy_cavity::LossyCavityMode| md.k0.re / (2.0 * md.k0.im);
+
+    let walls = FrozenWalls::new(&leontovich, ks[0]);
+    assert_eq!(walls.warn_rel_offset, DEFAULT_WALL_REF_WARN_OFFSET);
+    let sol = run(walls);
+    assert_eq!(sol.modes.modes.len(), 3);
+    let off = sol.wall_ref_offset.clone().expect("Leontovich offsets");
+    assert_eq!(off.len(), 3);
+    eprintln!("golden3c offsets at omega_ref = k0 of mode 0: {off:?}");
+    assert!(off[0] < 0.01, "near-mode offset {}", off[0]);
+    assert!(off[1] > 0.15 && off[2] > 0.25, "far offsets {off:?}");
+    assert_eq!(sol.warnings.len(), 2, "{:?}", sol.warnings);
+    for (w, want) in sol.warnings.iter().zip([1usize, 2]) {
+        let LossyCavityWarning::FrozenWallMismatch {
+            index,
+            k0_re,
+            omega_ref,
+            rel_offset,
+            threshold,
+        } = w;
+        assert_eq!(*index, want);
+        assert_eq!(k0_re.to_bits(), sol.modes.modes[want].k0.re.to_bits());
+        assert_eq!(omega_ref.to_bits(), ks[0].to_bits());
+        assert_eq!(rel_offset.to_bits(), off[want].to_bits());
+        assert_eq!(*threshold, DEFAULT_WALL_REF_WARN_OFFSET);
+        let msg = w.to_string();
+        assert!(
+            msg.contains(&format!("mode {want}"))
+                && msg.contains("approximate")
+                && msg.contains("re-solve with omega_ref"),
+            "{msg}"
+        );
+        eprintln!("golden3c warning: {msg}");
+    }
+
+    // Re-solve at the far mode: its Q moves by ≈ √(1+δ) − 1 (Leontovich ½δ).
+    let resolved = run(FrozenWalls::new(&leontovich, sol.modes.modes[2].k0.re));
+    let own = resolved.wall_ref_offset.as_ref().expect("offsets")[2];
+    assert!(own < 0.01, "re-solved offset {own}");
+    assert!(
+        !resolved
+            .warnings
+            .iter()
+            .any(|LossyCavityWarning::FrozenWallMismatch { index, .. }| *index == 2),
+        "{:?}",
+        resolved.warnings
+    );
+    // The wall stiffness `iω_ref/Z_s(ω_ref) ∝ √ω_ref` is high (the wall is
+    // nearly PEC), so the wall loss goes as its inverse and
+    // Q_frozen / Q_own = √(ω_ref / Re k₀): a −½δ first-order Q error.
+    let ratio = q(&sol.modes.modes[2]) / q(&resolved.modes.modes[2]);
+    let predicted = (ks[0] / sol.modes.modes[2].k0.re).sqrt();
+    eprintln!(
+        "golden3c far-mode Q_frozen/Q_own = {ratio:.6} vs √(ω_ref/Re k₀) = {predicted:.6} \
+         (δ = {:.4}, Q error {:+.4})",
+        off[2],
+        ratio - 1.0
+    );
+    assert!(
+        (ratio / predicted - 1.0).abs() < 0.01,
+        "Q ratio {ratio} vs {predicted}"
+    );
+    assert!(
+        (ratio - 1.0).abs() > 0.3 * off[2] && (ratio - 1.0).abs() < 0.6 * off[2],
+        "Leontovich Q error {} is not ≈ ½δ = {}",
+        ratio - 1.0,
+        0.5 * off[2]
+    );
+
+    // Configurable threshold: at 25 % only the farthest mode is flagged.
+    let loose = run(FrozenWalls {
+        warn_rel_offset: 0.25,
+        ..FrozenWalls::new(&leontovich, ks[0])
+    });
+    assert!(matches!(
+        loose.warnings.as_slice(),
+        [LossyCavityWarning::FrozenWallMismatch { index: 2, .. }]
+    ));
+
+    // London walls are exact at every ω: no offsets, no warnings.
+    let london = [SurfaceImpedanceBc {
+        triangles: &all,
+        model: SurfaceImpedanceModel::London { lambda_l: 0.01 },
+    }];
+    let exact_walls = run(FrozenWalls::new(&london, ks[0]));
+    assert!(exact_walls.wall_ref_offset.is_none());
+    assert!(exact_walls.warnings.is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -1011,6 +1139,7 @@ fn p1_on_space_is_bit_identical_to_the_existing_entry_points() {
         assert!(new.n_gradient_classified.is_none());
         assert_eq!(old.n_interior, new.modes.n_interior);
         assert_eq!(old.n_null_filtered, new.modes.n_null_filtered);
+        assert_eq!(old.modes.len(), new.modes.modes.len());
         for (a, b) in old.modes.iter().zip(&new.modes.modes) {
             assert_eq!(a.lambda.to_bits(), b.lambda.to_bits());
             assert_eq!(a.residual_rel.to_bits(), b.residual_rel.to_bits());
@@ -1110,6 +1239,7 @@ fn p1_on_space_is_bit_identical_to_the_existing_entry_points() {
         &device(),
     )
     .unwrap();
+    assert_eq!(old.modes.len(), new.modes.modes.len());
     for (a, b) in old.modes.iter().zip(&new.modes.modes) {
         assert_eq!(a.lambda.to_bits(), b.lambda.to_bits());
         assert_eq!(bits(&a.vector), bits(&b.vector));
@@ -1126,6 +1256,7 @@ fn p1_on_space_is_bit_identical_to_the_existing_entry_points() {
         &device(),
     )
     .unwrap();
+    assert_eq!(old.modes.len(), new.modes.modes.len());
     for (a, b) in old.modes.iter().zip(&new.modes.modes) {
         assert_eq!(a.lambda.re.to_bits(), b.lambda.re.to_bits());
         assert_eq!(a.lambda.im.to_bits(), b.lambda.im.to_bits());
@@ -1220,10 +1351,7 @@ fn typed_errors() {
             model: SurfaceImpedanceModel::Fixed(c64::new(0.0, 0.0)),
         }];
         assert!(matches!(
-            lrun(FrozenWalls {
-                walls: &bad_z,
-                omega_ref: 4.0
-            }),
+            lrun(FrozenWalls::new(&bad_z, 4.0)),
             Err(LossyCavityError::Assembly(
                 DrivenError::SurfaceImpedanceSingular { .. }
             ))
@@ -1233,9 +1361,13 @@ fn typed_errors() {
             model: SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0)),
         }];
         assert!(matches!(
+            lrun(FrozenWalls::new(&ok_z, f64::NAN)),
+            Err(LossyCavityError::InvalidInput(_))
+        ));
+        assert!(matches!(
             lrun(FrozenWalls {
-                walls: &ok_z,
-                omega_ref: f64::NAN
+                warn_rel_offset: -0.1,
+                ..FrozenWalls::new(&ok_z, 4.0)
             }),
             Err(LossyCavityError::InvalidInput(_))
         ));

@@ -847,6 +847,67 @@ pub struct SpaceLossyCavityModes {
     /// which is bit-identical to [`solve_lossy_cavity_modes`] and runs no
     /// classifier.
     pub max_gradient_fraction: Option<f64>,
+    /// Per-mode relative offset `|Re k₀ − ω_ref| / ω_ref` of each returned
+    /// mode from the frequency its impedance walls were frozen at
+    /// ([`FrozenWalls`]), in the order of `modes.modes`. `None` when the
+    /// pencil has no frequency-dependent wall (no walls, or London walls
+    /// only, which are exact at every `ω`).
+    pub wall_ref_offset: Option<Vec<f64>>,
+    /// Advisory diagnostics (empty when nothing is flagged): one
+    /// [`LossyCavityWarning::FrozenWallMismatch`] per mode whose
+    /// `wall_ref_offset` exceeds [`FrozenWalls::warn_rel_offset`].
+    pub warnings: Vec<LossyCavityWarning>,
+}
+
+/// Default [`FrozenWalls::warn_rel_offset`]: a returned mode more than 5 %
+/// away from `ω_ref` is flagged. At that offset the wall loss (hence `Q`
+/// and `Im k₀`) of the mode is off by roughly 2.5 % for a Leontovich /
+/// rough-conductor wall and 5 % for a `Fixed` (Silver-Müller) wall; see
+/// [`FrozenWalls`] for the scaling.
+pub const DEFAULT_WALL_REF_WARN_OFFSET: f64 = 0.05;
+
+/// An advisory diagnostic attached to [`SpaceLossyCavityModes::warnings`].
+/// Warnings never change the returned modes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LossyCavityWarning {
+    /// Mode `index` resonates at `Re k₀` far from the frequency `ω_ref`
+    /// its frequency-dependent impedance walls were frozen at
+    /// ([`FrozenWalls`]), so its wall loss — `Q`, `Im k₀`, and the wall
+    /// reactance's pull on `Re k₀` — is only approximate. Re-solve with
+    /// `omega_ref` near this mode's `Re k₀` for an accurate value.
+    FrozenWallMismatch {
+        /// Index of the mode in [`SpaceLossyCavityModes::modes`].
+        index: usize,
+        /// The mode's `Re k₀` (natural units, `= ω`).
+        k0_re: f64,
+        /// The reference frequency the walls were frozen at.
+        omega_ref: f64,
+        /// `|Re k₀ − ω_ref| / ω_ref`.
+        rel_offset: f64,
+        /// The threshold it exceeded ([`FrozenWalls::warn_rel_offset`]).
+        threshold: f64,
+    },
+}
+
+impl std::fmt::Display for LossyCavityWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FrozenWallMismatch {
+                index,
+                k0_re,
+                omega_ref,
+                rel_offset,
+                threshold,
+            } => write!(
+                f,
+                "mode {index} (Re k0 = {k0_re:.6}) is {:.1} % from the wall reference frequency \
+                 omega_ref = {omega_ref:.6} (threshold {:.1} %): its wall-loss Q and Re k0 are \
+                 approximate; re-solve with omega_ref near {k0_re:.6}",
+                100.0 * rel_offset,
+                100.0 * threshold
+            ),
+        }
+    }
 }
 
 /// Impedance walls of a lossy cavity pencil, **frozen at one reference
@@ -861,20 +922,77 @@ pub struct SpaceLossyCavityModes {
 /// of a high-`Q` mode is first-order accurate in `|Re k₀ − omega_ref|`.
 /// The London wall's coefficient `1/λ_L` is frequency-independent, so for
 /// it the pencil is exact.
+///
+/// **Error scaling away from `ω_ref`.** With `δ = |Re k₀ − ω_ref|/ω_ref`,
+/// the wall coefficient a mode sees is wrong by a relative
+/// `|(ω/ω_ref)^α − 1| ≈ α·δ`, and its wall loss (`1/Q_wall`, `Im k₀`) and
+/// wall-induced frequency pull are wrong by the same relative amount, to
+/// first order. (For a good conductor the frozen wall stiffness is large,
+/// the effective `Z_s` it imposes is `iRe k₀/coefficient`, and
+/// `Q_frozen/Q = √(ω_ref/Re k₀)`: freezing below a mode under-estimates its
+/// `Q`. Measured in the `eigen_p2_tagged` golden 3c to 0.03 %.)
+///
+/// | wall model | `iω/Z_s ∝` | `α` | wall-loss error |
+/// |---|---|---|---|
+/// | `GoodConductor` (Leontovich) | `√ω` | ½ | `≈ ½ δ` |
+/// | `RoughConductor` | `K(ω)√ω` | `≥ ½` | `≳ ½ δ` (plus the `K(ω)` slope) |
+/// | `Fixed` (incl. Silver-Müller `η₀`) | `ω` | 1 | `≈ δ` |
+/// | `London` | `ω⁰` (`1/λ_L`) | 0 | exact |
+///
+/// A multi-mode solve over a band therefore gets an accurate `Q` only for
+/// the modes near `ω_ref`. The solver reports every mode's `δ`
+/// ([`SpaceLossyCavityModes::wall_ref_offset`]) and attaches a
+/// [`LossyCavityWarning::FrozenWallMismatch`] to each mode with
+/// `δ > warn_rel_offset` (default [`DEFAULT_WALL_REF_WARN_OFFSET`] = 5 %,
+/// i.e. a wall-loss error of about 2.5 % Leontovich / 5 % Silver-Müller).
+/// London-only walls are never flagged. To get every mode's `Q`, re-solve
+/// once per mode with `omega_ref` set to that mode's `Re k₀` (one or two
+/// fixed-point passes converge the first-order error away).
 #[derive(Debug, Clone, Copy)]
 pub struct FrozenWalls<'a> {
     /// The walls (triangles + `Z_s(ω)` model).
     pub walls: &'a [crate::driven::solve::SurfaceImpedanceBc<'a>],
     /// Reference angular frequency `ω_ref` (natural units, `> 0`).
     pub omega_ref: f64,
+    /// Relative offset `|Re k₀ − ω_ref|/ω_ref` above which a returned mode
+    /// gets a [`LossyCavityWarning::FrozenWallMismatch`] (advisory only;
+    /// the modes are returned either way). Must be `≥ 0` (`+∞` disables
+    /// the warning). [`FrozenWalls::new`] sets
+    /// [`DEFAULT_WALL_REF_WARN_OFFSET`].
+    pub warn_rel_offset: f64,
 }
 
-impl FrozenWalls<'_> {
+impl<'a> FrozenWalls<'a> {
     /// No walls.
     pub const NONE: FrozenWalls<'static> = FrozenWalls {
         walls: &[],
         omega_ref: 1.0,
+        warn_rel_offset: DEFAULT_WALL_REF_WARN_OFFSET,
     };
+
+    /// `walls` frozen at `omega_ref`, with the default mismatch warning
+    /// threshold [`DEFAULT_WALL_REF_WARN_OFFSET`].
+    #[must_use]
+    pub const fn new(
+        walls: &'a [crate::driven::solve::SurfaceImpedanceBc<'a>],
+        omega_ref: f64,
+    ) -> Self {
+        Self {
+            walls,
+            omega_ref,
+            warn_rel_offset: DEFAULT_WALL_REF_WARN_OFFSET,
+        }
+    }
+
+    /// Whether any wall's weak coefficient depends on `ω` (everything but
+    /// London), i.e. whether freezing it at `omega_ref` is approximate.
+    #[must_use]
+    pub fn is_frequency_dependent(&self) -> bool {
+        use crate::driven::solve::SurfaceImpedanceModel;
+        self.walls
+            .iter()
+            .any(|w| !matches!(w.model, SurfaceImpedanceModel::London { .. }))
+    }
 }
 
 /// [`assemble_lossy_pencil`] on an order-pluggable [`HcurlSpace`] (issue
@@ -935,6 +1053,12 @@ pub fn assemble_lossy_pencil_on_space<B: Backend>(
             return Err(LossyCavityError::InvalidInput(format!(
                 "omega_ref must be finite and > 0 with impedance walls (got {})",
                 walls.omega_ref
+            )));
+        }
+        if walls.warn_rel_offset.is_nan() || walls.warn_rel_offset < 0.0 {
+            return Err(LossyCavityError::InvalidInput(format!(
+                "warn_rel_offset must be >= 0 (got {})",
+                walls.warn_rel_offset
             )));
         }
         crate::driven::solve::validate_driven_surfaces(
@@ -1051,6 +1175,12 @@ pub fn assemble_lossy_pencil_on_space<B: Backend>(
 /// gradient image ([`crate::eigen::hcurl_null`]): a returned gradient is
 /// [`LossyCavityError::GradientModeReturned`], never a resonance.
 ///
+/// With frequency-dependent walls the result also carries each mode's
+/// offset from `omega_ref` ([`SpaceLossyCavityModes::wall_ref_offset`])
+/// and a [`LossyCavityWarning::FrozenWallMismatch`] for every mode beyond
+/// [`FrozenWalls::warn_rel_offset`] (see [`FrozenWalls`] for what the
+/// offset costs in `Q` accuracy).
+///
 /// # Errors
 ///
 /// Everything [`solve_lossy_cavity_modes`] and
@@ -1097,12 +1227,47 @@ pub fn solve_lossy_cavity_modes_on_space<B: Backend>(
             Some(worst)
         }
     };
+    let (wall_ref_offset, warnings) = frozen_wall_diagnostics(&walls, &modes);
     Ok(SpaceLossyCavityModes {
         order: space.order(),
         modes,
         gradient_null: null.counts(),
         max_gradient_fraction,
+        wall_ref_offset,
+        warnings,
     })
+}
+
+/// Per-mode `|Re k₀ − ω_ref|/ω_ref` and the mismatch warnings
+/// ([`FrozenWalls`]). `(None, [])` without a frequency-dependent wall.
+fn frozen_wall_diagnostics(
+    walls: &FrozenWalls<'_>,
+    modes: &LossyCavityModes,
+) -> (Option<Vec<f64>>, Vec<LossyCavityWarning>) {
+    if !walls.is_frequency_dependent() {
+        return (None, Vec::new());
+    }
+    let omega_ref = walls.omega_ref;
+    let offsets: Vec<f64> = modes
+        .modes
+        .iter()
+        .map(|md| (md.k0.re - omega_ref).abs() / omega_ref)
+        .collect();
+    let warnings = offsets
+        .iter()
+        .enumerate()
+        .filter(|&(_, &d)| d > walls.warn_rel_offset)
+        .map(
+            |(index, &rel_offset)| LossyCavityWarning::FrozenWallMismatch {
+                index,
+                k0_re: modes.modes[index].k0.re,
+                omega_ref,
+                rel_offset,
+                threshold: walls.warn_rel_offset,
+            },
+        )
+        .collect();
+    (Some(offsets), warnings)
 }
 
 /// [`solve_tagged_lossy_cavity_modes`] at a chosen [`ElementOrder`] (issue

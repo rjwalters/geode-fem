@@ -139,7 +139,11 @@ pub enum PecCavityError {
     /// flagged more Ritz pairs as gradients than the exact gradient null
     /// dimension allows ([`crate::eigen::hcurl_null`]). An M-orthonormal
     /// Ritz basis cannot hold more gradients than that, so the classifier
-    /// or the pencil is broken; nothing is returned.
+    /// or the pencil is broken; nothing is returned. This is a **sanity
+    /// bound** (`classified ≤ dim`), not an equality check: a Krylov basis
+    /// normally captures only part of the null space, so fewer classified
+    /// gradients than `dim` is the expected case and catches only gross
+    /// breakage.
     #[error(
         "{classified} Ritz pairs were classified as gradients, but the exact gradient null \
          space has dimension {dim}"
@@ -753,7 +757,7 @@ pub struct SpaceCavityModes {
     /// decomposition ([`crate::eigen::hcurl_null`]).
     pub gradient_null: GradientNullCount,
     /// Ritz pairs the gradient-fraction classifier flagged as curl-free
-    /// (`≤ gradient_null.dim`, the null-count tripwire). `None` at p=1,
+    /// (`≤ gradient_null.dim`, the null-count sanity bound). `None` at p=1,
     /// whose null filter is the historical magnitude test only (the p=1
     /// path is bit-identical to [`solve_pec_cavity_modes`]).
     pub n_gradient_classified: Option<usize>,
@@ -1025,7 +1029,8 @@ fn add_triplets(
 ///   (fraction `≥ ½`). A gradient Ritz value that drifts above the
 ///   magnitude filter is therefore never returned as a mode, and a physical
 ///   mode is never dropped for being small. The number of classified pairs
-///   is checked against the exact null dimension (the tripwire).
+///   is checked against the exact null dimension (a sanity bound,
+///   `classified ≤ dim`, not an equality check).
 ///
 /// # Errors
 ///
