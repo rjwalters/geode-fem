@@ -146,6 +146,10 @@ jobs:
               --test patch_diffopt \
               --test patch_mesh \
               --test pec_mask_face_exact \
+              --test periodic_cavity \
+              --test periodic_derham_kernel \
+              --test periodic_driven \
+              --test periodic_mesh_matching \
               --test sigma_conductivity \
               --test slotless_pm_field \
               --test soi_waveguide_benchmark \
