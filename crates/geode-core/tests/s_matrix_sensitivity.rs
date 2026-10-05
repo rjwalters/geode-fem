@@ -325,8 +325,8 @@ fn mixed_fixture() -> Mixed {
     let g = guide();
     let regions = block_regions(&g.mesh);
     let eps = region_eps(&regions, BLOCK, FILL);
-    let wave = wave_port(&g.mesh, &g.port1_faces, 0.0, 2)
-        .with_medium(PortMedium::isotropic(FILL, 1.0));
+    let wave =
+        wave_port(&g.mesh, &g.port1_faces, 0.0, 2).with_medium(PortMedium::isotropic(FILL, 1.0));
     let shape = ShapeDesign::from_columns(
         vec![wall_bulge(&g.mesh, false), interior_motion(&g.mesh)],
         vec!["bulge".into(), "interior".into()],
@@ -343,7 +343,9 @@ fn mixed_fixture() -> Mixed {
 
 fn mixed_design(m: &Mixed) -> SDesign {
     SDesign {
-        material: Some(MaterialDesign::from_regions(m.regions.clone(), vec!["block".into()]).unwrap()),
+        material: Some(
+            MaterialDesign::from_regions(m.regions.clone(), vec!["block".into()]).unwrap(),
+        ),
         shape: Some(m.shape.clone()),
         port_fill: vec![None],
     }
@@ -464,7 +466,11 @@ fn single_lumped_port_reproduces_the_s11_adjoint() {
     .unwrap();
     let s11 = pt.s[0];
     let rel_g = (s11.norm_sqr() - reference.objective).abs() / reference.objective;
-    eprintln!("|S11|² = {} vs #739 {} (rel {rel_g:.2e})", s11.norm_sqr(), reference.objective);
+    eprintln!(
+        "|S11|² = {} vs #739 {} (rel {rel_g:.2e})",
+        s11.norm_sqr(),
+        reference.objective
+    );
     assert!(rel_g < 1e-10);
     let want: Vec<f64> = reference
         .grad_eps_prime
@@ -475,7 +481,10 @@ fn single_lumped_port_reproduces_the_s11_adjoint() {
     for (i, w) in want.iter().enumerate() {
         let got = 2.0 * (s11.conj() * pt.ds[i][0]).re;
         let rel = (got - w).abs() / w.abs().max(1e-12);
-        eprintln!("FD | 1 lumped port vs #739 adjoint | {} | rel_err = {rel:.3e}", label(&sw, i));
+        eprintln!(
+            "FD | 1 lumped port vs #739 adjoint | {} | rel_err = {rel:.3e}",
+            label(&sw, i)
+        );
         assert!(rel < 1e-10, "{}: {got} vs #739 {w}", label(&sw, i));
     }
     assert_eq!(pt.n_factorizations, 1);
@@ -503,10 +512,12 @@ fn two_lumped_ports_full_table_matches_fd() {
         sheet(&g.port1_faces, 0.4, c64::new(1.0, 0.0)),
         sheet(&g.port2_faces, 0.9, c64::new(2.0, -0.5)),
     ];
-    let shape = ShapeDesign::from_columns(vec![wall_bulge(&g.mesh, false)], vec!["bulge".into()])
-        .unwrap();
+    let shape =
+        ShapeDesign::from_columns(vec![wall_bulge(&g.mesh, false)], vec!["bulge".into()]).unwrap();
     let design = SDesign {
-        material: Some(MaterialDesign::from_regions(regions.clone(), vec!["block".into()]).unwrap()),
+        material: Some(
+            MaterialDesign::from_regions(regions.clone(), vec!["block".into()]).unwrap(),
+        ),
         shape: Some(shape.clone()),
         port_fill: vec![],
     };
@@ -569,7 +580,9 @@ fn geometric_wave_ports_material_matches_fd() {
     ];
     let specs: Vec<WavePortSpec> = ports.iter().cloned().map(WavePortSpec::from).collect();
     let design = SDesign {
-        material: Some(MaterialDesign::from_regions(regions.clone(), vec!["block".into()]).unwrap()),
+        material: Some(
+            MaterialDesign::from_regions(regions.clone(), vec!["block".into()]).unwrap(),
+        ),
         ..SDesign::default()
     };
     let omegas = [2.0, 2.5];
@@ -673,9 +686,11 @@ fn height_step_shape_matches_fd() {
             }
         })
         .collect();
-    let shape =
-        ShapeDesign::from_columns(vec![step_plane, height], vec!["step_z".into(), "height".into()])
-            .unwrap();
+    let shape = ShapeDesign::from_columns(
+        vec![step_plane, height],
+        vec!["step_z".into(), "height".into()],
+    )
+    .unwrap();
     let eps = vec![c64::new(1.0, 0.0); mesh.n_tets()];
     let space = HcurlSpace::build(mesh, ElementOrder::P1);
     let net = SNetwork {
@@ -823,7 +838,9 @@ fn filled_sens(f: &Filled, o: &SSensitivityOptions) -> SSensitivitySweep {
         surfaces: &[],
     };
     let design = SDesign {
-        material: Some(MaterialDesign::from_regions(f.regions.clone(), vec!["fill".into()]).unwrap()),
+        material: Some(
+            MaterialDesign::from_regions(f.regions.clone(), vec!["fill".into()]).unwrap(),
+        ),
         shape: None,
         port_fill: vec![Some(0), None],
     };
@@ -836,7 +853,9 @@ fn filled_fd(f: &Filled, spec: &str, sw: &SSensitivitySweep) -> Vec<f64> {
         // The port medium follows the region (the binding under test).
         let fill = e[f.regions.iter().position(Option::is_some).unwrap()];
         let ports = [
-            f.ports[0].clone().with_medium(PortMedium::isotropic(fill, 1.0)),
+            f.ports[0]
+                .clone()
+                .with_medium(PortMedium::isotropic(fill, 1.0)),
             f.ports[1].clone(),
         ];
         wave_forward(&f.g, &e, &ports, &[1.9, 2.3], &[], None, &f.g.mesh)
@@ -937,13 +956,19 @@ fn walled_wave_ports_material_and_shape_match_fd() {
         .sidewall_faces
         .iter()
         .copied()
-        .filter(|f| f.iter().all(|&v| (mesh.nodes[v as usize][1] - B_DIM).abs() < tol))
+        .filter(|f| {
+            f.iter()
+                .all(|&v| (mesh.nodes[v as usize][1] - B_DIM).abs() < tol)
+        })
         .collect();
     let pec_walls: Vec<[u32; 3]> = g
         .sidewall_faces
         .iter()
         .copied()
-        .filter(|f| !f.iter().all(|&v| (mesh.nodes[v as usize][1] - B_DIM).abs() < tol))
+        .filter(|f| {
+            !f.iter()
+                .all(|&v| (mesh.nodes[v as usize][1] - B_DIM).abs() < tol)
+        })
         .collect();
     let mask = pec_interior_mask_from_triangles(&edges, &[pec_walls.as_slice()]);
     let bcs = DrivenBcs {
@@ -955,7 +980,10 @@ fn walled_wave_ports_material_and_shape_match_fd() {
     }];
     let regions = block_regions(mesh);
     let eps = region_eps(&regions, BLOCK, c64::new(1.0, 0.0));
-    let sigma: Vec<f64> = regions.iter().map(|r| if r.is_some() { 0.05 } else { 0.0 }).collect();
+    let sigma: Vec<f64> = regions
+        .iter()
+        .map(|r| if r.is_some() { 0.05 } else { 0.0 })
+        .collect();
     let ports = [
         wave_port(mesh, &g.port1_faces, 0.0, 1),
         wave_port(mesh, &g.port2_faces, LEN, 1),
@@ -967,7 +995,9 @@ fn walled_wave_ports_material_and_shape_match_fd() {
     )
     .unwrap();
     let design = SDesign {
-        material: Some(MaterialDesign::from_regions(regions.clone(), vec!["block".into()]).unwrap()),
+        material: Some(
+            MaterialDesign::from_regions(regions.clone(), vec!["block".into()]).unwrap(),
+        ),
         shape: Some(shape.clone()),
         port_fill: vec![],
     };
@@ -1068,8 +1098,14 @@ fn vjp_equals_jvp_contraction_and_fd_over_a_band() {
         let rel = (v - j).abs() / j.abs().max(1e-300);
         // FD of g through the public forward.
         let prm = vjp.params[i];
-        let gp: f64 = mixed_forward(&m, &omegas, prm, H).iter().map(|s| g_of(s).0).sum();
-        let gm: f64 = mixed_forward(&m, &omegas, prm, -H).iter().map(|s| g_of(s).0).sum();
+        let gp: f64 = mixed_forward(&m, &omegas, prm, H)
+            .iter()
+            .map(|s| g_of(s).0)
+            .sum();
+        let gm: f64 = mixed_forward(&m, &omegas, prm, -H)
+            .iter()
+            .map(|s| g_of(s).0)
+            .sum();
         let fd = (gp - gm) / (2.0 * H);
         let rel_fd = (v - fd).abs() / fd.abs();
         eprintln!(
@@ -1111,7 +1147,10 @@ fn general_transpose_path_equals_the_reciprocity_shortcut() {
         assert_eq!(b.fields.symmetry, OperatorSymmetry::General);
         for (da, db) in a.ds.iter().zip(&b.ds) {
             let rel = rel_err(db, da);
-            eprintln!("General vs ComplexSymmetric at ω = {}: rel {rel:.2e}", a.omega);
+            eprintln!(
+                "General vs ComplexSymmetric at ω = {}: rel {rel:.2e}",
+                a.omega
+            );
             assert!(rel < 1e-10, "General path differs: {rel}");
         }
         // The exposed dual fields agree too (λ_q = x_q/d_q).
@@ -1135,7 +1174,13 @@ fn untouched_hybrid_ports_are_admitted_and_touched_ones_rejected() {
     let mesh = &g.mesh;
     let slab = 2.25;
     let eps_real: Vec<f64> = (0..mesh.n_tets())
-        .map(|t| if centroid(mesh, t)[1] < 0.5 { slab } else { 1.0 })
+        .map(|t| {
+            if centroid(mesh, t)[1] < 0.5 {
+                slab
+            } else {
+                1.0
+            }
+        })
         .collect();
     let regions: Vec<Option<usize>> = (0..mesh.n_tets())
         .map(|t| {
@@ -1179,7 +1224,9 @@ fn untouched_hybrid_ports_are_admitted_and_touched_ones_rejected() {
         surfaces: &[],
     };
     let design = SDesign {
-        material: Some(MaterialDesign::from_regions(regions.clone(), vec!["air block".into()]).unwrap()),
+        material: Some(
+            MaterialDesign::from_regions(regions.clone(), vec!["air block".into()]).unwrap(),
+        ),
         ..SDesign::default()
     };
     let omegas = [1.8];
@@ -1203,7 +1250,10 @@ fn untouched_hybrid_ports_are_admitted_and_touched_ones_rejected() {
         .collect()
     };
     let base = fwd(&eps);
-    assert!(rel_err(&sw.points[0].s, &base[0]) < 1e-11, "S vs the hybrid spec sweep");
+    assert!(
+        rel_err(&sw.points[0].s, &base[0]) < 1e-11,
+        "S vs the hybrid spec sweep"
+    );
     for e in fd_check("2 hybrid ports (untouched)", &sw, |prm, h| {
         fwd(&shift_eps(&eps, &regions, prm, h))
     }) {
@@ -1220,7 +1270,9 @@ fn untouched_hybrid_ports_are_admitted_and_touched_ones_rejected() {
     };
     let err = s_matrix_sensitivity_sweep::<B>(&net, &omegas, &bad, &opts(), &device()).unwrap_err();
     eprintln!("touched hybrid port: {err}");
-    assert!(matches!(err, SSensitivityError::Unsupported { phase, .. } if phase.contains("Phase 3")));
+    assert!(
+        matches!(err, SSensitivityError::Unsupported { phase, .. } if phase.contains("Phase 3"))
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1231,7 +1283,10 @@ fn expect_unsupported(err: SSensitivityError, phase_fragment: &str) {
     eprintln!("fence: {err}");
     match err {
         SSensitivityError::Unsupported { phase, .. } => {
-            assert!(phase.contains(phase_fragment), "phase `{phase}` lacks `{phase_fragment}`")
+            assert!(
+                phase.contains(phase_fragment),
+                "phase `{phase}` lacks `{phase_fragment}`"
+            )
         }
         other => panic!("expected Unsupported({phase_fragment}), got {other:?}"),
     }
@@ -1251,7 +1306,10 @@ fn scope_fences_are_loud_typed_errors() {
     let space = HcurlSpace::build(mesh, ElementOrder::P1);
     let w1 = wave_port(mesh, &g.port1_faces, 0.0, 1);
     let w2 = wave_port(mesh, &g.port2_faces, LEN, 1);
-    let specs = [WavePortSpec::from(w1.clone()), WavePortSpec::from(w2.clone())];
+    let specs = [
+        WavePortSpec::from(w1.clone()),
+        WavePortSpec::from(w2.clone()),
+    ];
     let net = SNetwork {
         space: &space,
         mesh,
@@ -1276,12 +1334,17 @@ fn scope_fences_are_loud_typed_errors() {
             .collect()
     };
     let material = SDesign {
-        material: Some(MaterialDesign::from_regions(regions.clone(), vec!["block".into()]).unwrap()),
+        material: Some(
+            MaterialDesign::from_regions(regions.clone(), vec!["block".into()]).unwrap(),
+        ),
         ..SDesign::default()
     };
 
     // Moving a wave-port face node: Phase 3b.
-    expect_unsupported(run(&net, &shape_of(moving(&|p| p[2] < 1e-9)), &opts()), "Phase 3b");
+    expect_unsupported(
+        run(&net, &shape_of(moving(&|p| p[2] < 1e-9)), &opts()),
+        "Phase 3b",
+    );
 
     // Moving a lumped-port face node: the N-port moving-feed follow-on.
     let lumped = [sheet(&g.port2_faces, 0.5, c64::new(1.0, 0.0))];
@@ -1328,7 +1391,10 @@ fn scope_fences_are_loud_typed_errors() {
         .collect();
     let fill_eps = region_eps(&fill_regions, c64::new(2.0, 0.0), c64::new(1.0, 0.0));
     let mag = [
-        WavePortSpec::from(w1.clone().with_medium(PortMedium::isotropic(c64::new(2.0, 0.0), 1.5))),
+        WavePortSpec::from(
+            w1.clone()
+                .with_medium(PortMedium::isotropic(c64::new(2.0, 0.0), 1.5)),
+        ),
         WavePortSpec::from(w2.clone()),
     ];
     let net_m = SNetwork {
@@ -1337,7 +1403,9 @@ fn scope_fences_are_loud_typed_errors() {
         ..net
     };
     let bound = SDesign {
-        material: Some(MaterialDesign::from_regions(fill_regions.clone(), vec!["fill".into()]).unwrap()),
+        material: Some(
+            MaterialDesign::from_regions(fill_regions.clone(), vec!["fill".into()]).unwrap(),
+        ),
         shape: None,
         port_fill: vec![Some(0)],
     };
@@ -1345,7 +1413,10 @@ fn scope_fences_are_loud_typed_errors() {
 
     // A region on a port face without a binding, and a binding whose medium
     // does not follow the region: InvalidDesign.
-    let vac = [WavePortSpec::from(w1.clone()), WavePortSpec::from(w2.clone())];
+    let vac = [
+        WavePortSpec::from(w1.clone()),
+        WavePortSpec::from(w2.clone()),
+    ];
     let net_v = SNetwork {
         materials: DrivenMaterials::Scalar(&fill_eps),
         wave: &vac,
@@ -1403,7 +1474,10 @@ fn scope_fences_are_loud_typed_errors() {
         wave: &hyb,
         ..net
     };
-    expect_unsupported(run(&net_h, &shape_of(moving(&|p| p[2] < 1e-9)), &opts()), "Phase 3");
+    expect_unsupported(
+        run(&net_h, &shape_of(moving(&|p| p[2] < 1e-9)), &opts()),
+        "Phase 3",
+    );
 }
 
 /// Regions bound to **named** physical groups survive a rebuild: the same
@@ -1415,11 +1489,20 @@ fn named_group_binding_matches_explicit_regions() {
     let regions = block_regions(&g.mesh);
     let mut tagged = TaggedTetMesh {
         mesh: g.mesh.clone(),
-        tet_physical_tags: regions.iter().map(|r| if r.is_some() { 7 } else { 1 }).collect(),
+        tet_physical_tags: regions
+            .iter()
+            .map(|r| if r.is_some() { 7 } else { 1 })
+            .collect(),
         ..TaggedTetMesh::default()
     };
-    tagged.mesh.physical_groups.insert((3, 7), "block".to_string());
-    tagged.mesh.physical_groups.insert((3, 1), "air".to_string());
+    tagged
+        .mesh
+        .physical_groups
+        .insert((3, 7), "block".to_string());
+    tagged
+        .mesh
+        .physical_groups
+        .insert((3, 1), "air".to_string());
     let by_name = MaterialDesign::from_named_groups(&tagged, &["block"]).unwrap();
     assert_eq!(by_name.region_of_tet(), regions.as_slice());
     assert!(MaterialDesign::from_named_groups(&tagged, &["nope"]).is_err());

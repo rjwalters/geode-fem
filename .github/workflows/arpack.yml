@@ -148,6 +148,12 @@ jobs:
       # / rough / Silver-Müller walls: TE10 α_c vs Pozar Eq. 3.96 on the
       # 16 × 8 × 8 guide, K(f) scaling, bit-identity of the empty-walls
       # call) — same reason; ~2 s in release.
+      #
+      # Issue #842: `s_matrix_sensitivity` (Epic #841 Phase 1: N-port
+      # ∂S/∂θ through lumped / wave / filled / mixed / walled / untouched
+      # hybrid specs vs central FD through the public forwards, the five
+      # mutation tripwires, VJP = JVP, the General transpose path and the
+      # scope fences) — same reason; ~1.5 s in release.
       - name: Open-path current excitation + surface-not-on-mesh error contract + PROM sweep
         run: |
           cargo test --features arpack -p geode-core --release \
@@ -155,7 +161,8 @@ jobs:
               --test surface_not_on_mesh \
               --test rom_sweep \
               --test mixed_port \
-              --test wave_port_impedance_walls
+              --test wave_port_impedance_walls \
+              --test s_matrix_sensitivity
 
       # Issue #785: the core wave-port and iterative-sweep suites, which
       # no job ran before (found in the #783 review). `wave_port` carries

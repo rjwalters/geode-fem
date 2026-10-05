@@ -2102,6 +2102,9 @@ pub fn solve_hybrid_port_face_sweep(
     Ok(HybridFaceSweep { report, warnings })
 }
 
+/// One frequency's `(reported, termination)` channels of a hybrid port.
+pub(crate) type ChannelsAt = (Vec<ChanAt>, Vec<ChanAt>);
+
 /// The per-frequency channels of **one** hybrid port over a fixed-material
 /// sweep: for every `omegas[i]` (tracked in ascending order, returned in input
 /// order) the `(reported, termination)` channel lists exactly as
@@ -2119,7 +2122,7 @@ pub(crate) fn hybrid_port_channel_sweep(
     omegas: &[f64],
     materials: DrivenMaterials<'_>,
     sigma_tet: Option<&[f64]>,
-) -> Result<Vec<(Vec<ChanAt>, Vec<ChanAt>)>, DrivenError> {
+) -> Result<Vec<ChannelsAt>, DrivenError> {
     check_face_matches_volume(port, materials, index)?;
     let conducting = face_conducts(port, sigma_tet);
     if conducting && !matches!(materials, DrivenMaterials::Scalar(_)) {
@@ -2134,7 +2137,7 @@ pub(crate) fn hybrid_port_channel_sweep(
     let mut state = new_hybrid_state(mesh, edges, port, index, omegas, conducting)?;
     let mut order: Vec<usize> = (0..omegas.len()).collect();
     order.sort_by(|&a, &b| omegas[a].total_cmp(&omegas[b]));
-    let mut out: Vec<Option<(Vec<ChanAt>, Vec<ChanAt>)>> = (0..omegas.len()).map(|_| None).collect();
+    let mut out: Vec<Option<ChannelsAt>> = (0..omegas.len()).map(|_| None).collect();
     for (step, &oi) in order.iter().enumerate() {
         let omega = omegas[oi];
         let chans = match &mut state {

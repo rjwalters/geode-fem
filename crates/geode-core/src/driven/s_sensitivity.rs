@@ -768,7 +768,11 @@ struct NetAt {
     n_adjoint_solves: usize,
 }
 
-fn unsupported(feature: impl Into<String>, phase: &'static str, hint: impl Into<String>) -> SSensitivityError {
+fn unsupported(
+    feature: impl Into<String>,
+    phase: &'static str,
+    hint: impl Into<String>,
+) -> SSensitivityError {
     SSensitivityError::Unsupported {
         feature: feature.into(),
         phase,
@@ -997,9 +1001,7 @@ impl<'n> Prepared<'n> {
                     }
                     if let Some(&t) = touched.first() {
                         return Err(unsupported(
-                            format!(
-                                "hybrid wave port {p} whose face bounds design-region tet {t}"
-                            ),
+                            format!("hybrid wave port {p} whose face bounds design-region tet {t}"),
                             PHASE_3,
                             "keep design regions off hybrid port faces (an untouched hybrid port \
                              is admitted)",
@@ -1356,12 +1358,9 @@ impl<'n> Prepared<'n> {
                     *a += fr * scaled;
                 }
             }
-            let (r2, b2) = ax
-                .iter()
-                .zip(&b)
-                .fold((0.0, 0.0), |(r, nb), (&a, &bb)| {
-                    (r + (a - bb).norm_sqr(), nb + bb.norm_sqr())
-                });
+            let (r2, b2) = ax.iter().zip(&b).fold((0.0, 0.0), |(r, nb), (&a, &bb)| {
+                (r + (a - bb).norm_sqr(), nb + bb.norm_sqr())
+            });
             if b2 > 0.0 {
                 residual_rel = residual_rel.max((r2 / b2).sqrt());
             }
@@ -1389,9 +1388,8 @@ impl<'n> Prepared<'n> {
                 0,
             ),
             OperatorSymmetry::General => {
-                let mut bst = |b: &[c64], x: &mut [c64]| {
-                    solver.back_solve_transpose(b, x).map(|()| 0usize)
-                };
+                let mut bst =
+                    |b: &[c64], x: &mut [c64]| solver.back_solve_transpose(b, x).map(|()| 0usize);
                 let mut it = Vec::new();
                 let smw_t = ModalSmw::prepare(&fluxes, &ys, n_int, omega, &mut bst, &mut it)?;
                 let mut lam = Vec::with_capacity(n);
