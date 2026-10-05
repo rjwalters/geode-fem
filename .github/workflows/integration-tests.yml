@@ -9,21 +9,31 @@ name: integration-tests
 # backend (TestBackend = NdArray<f64>), no ARPACK: only
 # `sparse_eigensolver` has an arpack-gated test, and arpack.yml runs it.
 #
-# Timings (default tier, release, ubuntu-latest 4 vCPU, measured in CI for
-# #786): every geode-validation target finishes in under 1 s (about 6 s
-# for all 26). In geode-core every target finishes in under 20 s except
-# sphere_pec_eigenmode (about 73 s), with about 130 s for all 74. The cold
-# release build of the test binaries dominates (about 24 min for geode-core
-# and 8 min for geode-validation; a warm cache cuts it to a few minutes), so
-# the two crates build in parallel jobs. Cold job wall times on the #786 PR:
-# core-tests 27 min, validation-tests 8 min.
+# Timings (issue #880, measured on ubuntu-latest 4 vCPU, release, warm
+# dependency cache): the release build of the geode-core test binaries
+# dominates. thin LTO links each test binary separately, so the build grows
+# with the number of binaries (about 12 s each over 4 jobs, 19-30 min for all
+# 99 depending on the runner) and a warm cache saves little of it. The tests
+# themselves took about 7-10 min for all 99 (port_mode_sensitivity about 90-
+# 150 s, hybrid_strip_line 40-70 s, the rest under 35 s each). So the
+# integration targets are split across two parallel jobs, core-tests-a and
+# core-tests-b, of about 10-16 min build plus 2-5 min of tests each; a single
+# job had reached 28-42 min against its 45-min bound and was cancelled on
+# slower runners. geode-validation builds in about 9 min and tests in about
+# 1 min.
+#
+# Caching (issue #880): every job restores with actions/cache/restore, builds
+# all its test binaries in a `--no-run` step, and saves with
+# actions/cache/save right after that build, before any test step. The
+# post-step save of actions/cache is skipped when a job is cancelled, so a
+# job cut off by its timeout used to leave no cache behind.
 #
 # What stays out, and why, is recorded per entry in the allowlist.
 # Targets whose default tier is empty (every test #[ignore]d) are not run
 # here for the default tier only, since that would just compile them
 # (clippy --tests in arpack.yml already does that). Two of them run their
 # --ignored tier in core-dense-eigen below (issue #796), and two more run in
-# core-tests with --include-ignored (issue #813). The rest are too slow or
+# core-tests-a with --include-ignored (issue #813). The rest are too slow or
 # are benchmarks.
 #
 # Issue #793: running a target's default tier does not run its #[ignore]d
@@ -39,12 +49,24 @@ on:
     branches: [main]
 
 jobs:
-  core-tests:
-    name: cargo test -p geode-core --release (integration targets, linux)
+  core-tests-a:
+    # Issue #880: the geode-core integration targets are split alphabetically
+    # across core-tests-a (adapt_loop to material_upload_precision) and
+    # core-tests-b (mesh_roundtrip to waveguide_gauge_higher_order), which
+    # build in parallel. Add a new target to the half its name sorts into, in
+    # both that half's build step and its test step (a target missing from
+    # the build step still runs; it is just built in the test step and not
+    # cached).
+    name: cargo test -p geode-core --release (integration targets a-m, linux)
     runs-on: ubuntu-latest
-    # About 24 min cold build + about 5 min of tests (27 min measured cold
-    # before the --ignored step was added); 45 min is the per-job bound
-    # (issue #772) and covers a cold cache.
+    # Issue #880: measured on ubuntu-latest (4 vCPU) for the unsplit job,
+    # with a warm dependency cache: the release build of its 99 test binaries
+    # took 19-30 min (thin LTO links each binary separately, so the build
+    # scales with the number of binaries and a warm cache saves little), and
+    # the tests about 7-10 min, about 28-42 min in all against the 45-min
+    # bound. Each half builds and runs about half the binaries: about 10-16
+    # min of build plus 2-5 min of tests. 45 min is the per-job bound (issue
+    # #772).
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
@@ -55,14 +77,88 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry + target
-        uses: actions/cache@v4
+      - name: Restore cargo registry + target
+        id: cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-core-tests-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-core-tests-
+
+      # Builds every test binary this job runs, with the same features as the
+      # test steps, so they reuse it.
+      - name: Build geode-core test binaries (a-m)
+        id: build
+        run: |
+          cargo test -p geode-core --release --features spade-mesh --no-run \
+              --test adapt_loop \
+              --test adapt_refine \
+              --test analytic_cladding_bc_fiber_benchmark \
+              --test assembly \
+              --test bloch_bands \
+              --test bloch_kernel \
+              --test circular_waveguide_modes \
+              --test cocg_burn_equivalence \
+              --test cube_convergence_regression \
+              --test derham_curl \
+              --test derham_divergence \
+              --test derham_exact_sequence \
+              --test derham_gauge_invariance \
+              --test derham_gradient \
+              --test derham_gradient_kernel \
+              --test driven_manufactured \
+              --test driven_p1_bit_identity \
+              --test driven_p2_adjoint \
+              --test driven_p2_convergence \
+              --test driven_p2_operator \
+              --test driven_p2_surface \
+              --test driven_upml \
+              --test eigensolver \
+              --test electrostatic_capacitance \
+              --test extraction \
+              --test faer_qz_debug_overflow_guard \
+              --test fe_assemble \
+              --test fiber_dispersion_benchmark \
+              --test formulation_audit_graddiv \
+              --test hcurl_error_estimator \
+              --test hcurl_space_p2 \
+              --test high_contrast_fiber_benchmark \
+              --test hybrid_port_lossy \
+              --test hybrid_port_microstrip \
+              --test hybrid_port_modes \
+              --test hybrid_port_phase5 \
+              --test hybrid_strip_line \
+              --test hybrid_wave_port \
+              --test leontovich_roughness \
+              --test leontovich_surface_impedance \
+              --test london_eigen_kinetic_inductance \
+              --test london_surface_impedance \
+              --test lp01_profile_selector_benchmark \
+              --test lumped_port \
+              --test magnetostatic_heterogeneous \
+              --test magnetostatic_inductance \
+              --test magnetostatic_wire \
+              --test matched_upml_burn \
+              --test material_upload_precision
+
+      # Saved here, before any test step, so a cancelled or failed test
+      # step still leaves a warm cache (issue #880: actions/cache saves only
+      # in its post step, which a cancelled job skips). Skipped on an exact
+      # key hit, since the key already exists and is immutable.
+      - name: Save cargo registry + target
+        if: steps.build.outcome == 'success' && steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.cache.outputs.cache-primary-key }}
 
       # spade-mesh enables the `#![cfg(feature = "spade-mesh")]`
       # spade_port_mesh target (2-D Delaunay port meshing, issue #582).
@@ -81,7 +177,7 @@ jobs:
               --test cube_convergence_regression \
               --test derham_gauge_invariance -- --include-ignored
 
-      - name: geode-core integration targets (default tier)
+      - name: geode-core integration targets a-m (default tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \
               --test adapt_loop \
@@ -95,8 +191,8 @@ jobs:
               --test derham_curl \
               --test derham_divergence \
               --test derham_exact_sequence \
-              --test derham_gradient_kernel \
               --test derham_gradient \
+              --test derham_gradient_kernel \
               --test driven_manufactured \
               --test driven_p1_bit_identity \
               --test driven_p2_adjoint \
@@ -109,10 +205,10 @@ jobs:
               --test extraction \
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
-              --test hcurl_error_estimator \
-              --test hcurl_space_p2 \
               --test fiber_dispersion_benchmark \
               --test formulation_audit_graddiv \
+              --test hcurl_error_estimator \
+              --test hcurl_space_p2 \
               --test high_contrast_fiber_benchmark \
               --test hybrid_port_lossy \
               --test hybrid_port_microstrip \
@@ -130,20 +226,123 @@ jobs:
               --test magnetostatic_inductance \
               --test magnetostatic_wire \
               --test matched_upml_burn \
-              --test material_upload_precision \
+              --test material_upload_precision
+
+  core-tests-b:
+    # The second half of the geode-core integration targets (see
+    # core-tests-a). It shares core-tests-a's cache key: the dependencies and
+    # features are the same, and only the test binaries differ, which are
+    # rebuilt on every change to geode-core anyway.
+    name: cargo test -p geode-core --release (integration targets m-z, linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore cargo registry + target
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-core-tests-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-core-tests-
+
+      - name: Build geode-core test binaries (m-z)
+        id: build
+        run: |
+          cargo test -p geode-core --release --features spade-mesh --no-run \
               --test mesh_roundtrip \
               --test mie_driven_scattering \
               --test mixed_pencil_fiber_benchmark \
               --test mixed_precision_refinement \
               --test motor_torque_benchmark \
-              --test nedelec_cavity_p2_convergence \
-              --test nedelec_cavity \
-              --test nedelec_matrix_free_equivalence \
-              --test nedelec_nu_wrapper \
-              --test nedelec_sparse \
               --test nedelec \
               --test nedelec2_3d_element \
               --test nedelec2_convergence \
+              --test nedelec_cavity \
+              --test nedelec_cavity_p2_convergence \
+              --test nedelec_matrix_free_equivalence \
+              --test nedelec_nu_wrapper \
+              --test nedelec_sparse \
+              --test p1_local_matrices \
+              --test palace_ingestion \
+              --test patch_antenna_benchmark \
+              --test patch_capstone_diffopt \
+              --test patch_conformal_diffopt \
+              --test patch_diffopt \
+              --test patch_mesh \
+              --test pec_cavity_unit_invariance \
+              --test pec_mask_face_exact \
+              --test periodic_cavity \
+              --test periodic_derham_kernel \
+              --test periodic_driven \
+              --test periodic_mesh_matching \
+              --test port_mode_sensitivity \
+              --test sigma_conductivity \
+              --test slotless_pm_field \
+              --test soi_waveguide_benchmark \
+              --test spade_port_mesh \
+              --test sphere_matched_upml_eigenmode \
+              --test sphere_mesh \
+              --test sphere_pec_cavity_sparse \
+              --test sphere_pec_eigenmode \
+              --test sphere_pml_anisotropic_eigenmode \
+              --test sphere_pml_eigenmode \
+              --test sphere_silvermuller_eigenmode \
+              --test spiral_mesh \
+              --test step_index_fiber_benchmark \
+              --test surface_p2_trace \
+              --test torque_loop_oracle \
+              --test transient_sparams \
+              --test transmon_diffopt \
+              --test transmon_eigen_sensitivity \
+              --test transmon_eigenmode \
+              --test transmon_mesh \
+              --test transmon_quantum \
+              --test vtu_roundtrip \
+              --test waveguide_gauge_higher_order
+
+      # Saved here, before any test step, so a cancelled or failed test
+      # step still leaves a warm cache (issue #880: actions/cache saves only
+      # in its post step, which a cancelled job skips). Skipped on an exact
+      # key hit, since the key already exists and is immutable.
+      - name: Save cargo registry + target
+        if: steps.build.outcome == 'success' && steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+      - name: geode-core integration targets m-z (default tier)
+        run: |
+          cargo test -p geode-core --release --features spade-mesh \
+              --test mesh_roundtrip \
+              --test mie_driven_scattering \
+              --test mixed_pencil_fiber_benchmark \
+              --test mixed_precision_refinement \
+              --test motor_torque_benchmark \
+              --test nedelec \
+              --test nedelec2_3d_element \
+              --test nedelec2_convergence \
+              --test nedelec_cavity \
+              --test nedelec_cavity_p2_convergence \
+              --test nedelec_matrix_free_equivalence \
+              --test nedelec_nu_wrapper \
+              --test nedelec_sparse \
               --test p1_local_matrices \
               --test palace_ingestion \
               --test patch_antenna_benchmark \
@@ -193,8 +392,8 @@ jobs:
     # derham_kernel_dim 42 s. dense_complex_eigensolver_bounded is the
     # #796 regression guard (default tier, about 2 s, with a 120-s
     # watchdog per solve so a regression fails instead of hanging). This is
-    # its own job, so a cold build here runs in parallel with core-tests
-    # and does not push core-tests toward its 45-min bound.
+    # its own job, so a cold build here runs in parallel with core-tests-a/-b
+    # and does not push them toward their 45-min bound.
     #
     # Issue #800: the dense real eigensolver (`FaerDenseEigensolver`) used
     # faer 0.24's generalized real QZ, which is many times slower from ~590
@@ -215,14 +414,42 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry + target
-        uses: actions/cache@v4
+      - name: Restore cargo registry + target
+        id: cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-core-dense-eigen-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-core-dense-eigen-
+
+      - name: Build geode-core dense eigensolver test binaries
+        id: build
+        run: |
+          cargo test -p geode-core --release --no-run \
+              --test dense_complex_eigensolver_bounded \
+              --test dense_real_eigensolver_bounded \
+              --test mie_sphere \
+              --test derham_kernel_dim \
+              --test sphere_pml_eigenmode \
+              --test sphere_pml_anisotropic_eigenmode \
+              --test sphere_silvermuller_eigenmode
+
+      # Saved before the test steps, so a cancelled test step still leaves a
+      # warm cache (issue #880). Skipped on an exact key hit.
+      - name: Save cargo registry + target
+        if: steps.build.outcome == 'success' && steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.cache.outputs.cache-primary-key }}
 
       - name: dense eigensolver regression guards (default tier)
         run: |
@@ -233,7 +460,7 @@ jobs:
       # Every test in mie_sphere and derham_kernel_dim is #[ignore]d (faer
       # 0.24's dense eigen paths panic under debug-assertions), so they run
       # in release with --ignored. The three sphere_* targets run their
-      # default tier in core-tests; their #[ignore]d dense-complex tests run
+      # default tier in core-tests-b; their #[ignore]d dense-complex tests run
       # here. Measured release --ignored times, local: sphere_pml_eigenmode
       # 18 s, sphere_pml_anisotropic_eigenmode 12 s,
       # sphere_silvermuller_eigenmode 25 s.
@@ -248,12 +475,12 @@ jobs:
 
   core-ignored:
     # Issue #793: the #[ignore]d tests of targets whose default tier runs in
-    # core-tests. Most are #[ignore]d as heavy benchmarks that are slow in
+    # core-tests-a/-b. Most are #[ignore]d as heavy benchmarks that are slow in
     # debug; in release each finishes in seconds to about 1.5 min. (Tests
     # ignored only under debug-assertions, via
-    # `cfg_attr(debug_assertions, ignore)`, already run in core-tests'
+    # `cfg_attr(debug_assertions, ignore)`, already run in core-tests-a/-b'
     # release default tier.) A separate job, so its build and run time do
-    # not push core-tests toward its 45-min bound. What stays out, and why,
+    # not push core-tests-a/-b toward their 45-min bound. What stays out, and why,
     # is in scripts/ci-test-coverage-ignored-allowlist.txt.
     name: cargo test -p geode-core --release (--ignored tiers, linux)
     runs-on: ubuntu-latest
@@ -267,8 +494,9 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry + target
-        uses: actions/cache@v4
+      - name: Restore cargo registry + target
+        id: cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
@@ -276,7 +504,43 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-core-ignored-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-cargo-core-ignored-
             ${{ runner.os }}-cargo-core-tests-
+
+      - name: Build geode-core --ignored-tier test binaries
+        id: build
+        run: |
+          cargo test -p geode-core --release --features spade-mesh --no-run \
+              --test analytic_cladding_bc_fiber_benchmark \
+              --test fiber_dispersion_benchmark \
+              --test high_contrast_fiber_benchmark \
+              --test lp01_profile_selector_benchmark \
+              --test magnetostatic_wire \
+              --test mie_driven_scattering \
+              --test mixed_pencil_fiber_benchmark \
+              --test mixed_precision_refinement \
+              --test motor_torque_benchmark \
+              --test sphere_matched_upml_eigenmode \
+              --test step_index_fiber_benchmark \
+              --test transient_sparams \
+              --test transmon_diffopt \
+              --test transmon_eigen_sensitivity \
+              --test transmon_eigenmode \
+              --test transmon_mesh \
+              --test transmon_quantum
+
+      # Saved before the test steps, so a cancelled test step still leaves a
+      # warm cache (issue #880). Skipped on an exact key hit.
+      - name: Save cargo registry + target
+        if: steps.build.outcome == 'success' && steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.cache.outputs.cache-primary-key }}
 
       # Measured release times on ubuntu-latest, one test at a time:
       # fiber_dispersion_benchmark 90 s (it writes its results.toml under
@@ -344,14 +608,61 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry + target
-        uses: actions/cache@v4
+      - name: Restore cargo registry + target
+        id: cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-validation-tests-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-validation-tests-
+
+      - name: Build geode-validation test binaries
+        id: build
+        run: |
+          cargo test -p geode-validation --release --no-run \
+              --test cube_cavity_jax_reference \
+              --test cube_cavity_julia_reference \
+              --test cube_cavity_onnx_reference \
+              --test derham_julia_reference \
+              --test derham_numpy_reference \
+              --test mie_efficiencies_numpy_reference \
+              --test mie_roots_julia_reference \
+              --test mie_roots_numpy_reference \
+              --test nedelec_local_numpy_reference \
+              --test p1_local_numpy_reference \
+              --test smoke \
+              --test sphere_mie_jax_reference \
+              --test sphere_mie_julia_small_reference \
+              --test sphere_mie_numpy_reference \
+              --test sphere_mie_tfjava_reference \
+              --test sphere_pec_jax_reference \
+              --test sphere_pec_julia_reference \
+              --test sphere_pec_numpy_reference \
+              --test sphere_pec_onnx_reference \
+              --test sphere_pec_tfjava_reference \
+              --test sphere_pml_jax_reference \
+              --test sphere_pml_julia_reference \
+              --test sphere_pml_julia_small_reference \
+              --test sphere_pml_numpy_reference \
+              --test sphere_pml_schema_smoke \
+              --test sphere_pml_tfjava_reference
+
+      # Saved before the test steps, so a cancelled test step still leaves a
+      # warm cache (issue #880). Skipped on an exact key hit.
+      - name: Save cargo registry + target
+        if: steps.build.outcome == 'success' && steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.cache.outputs.cache-primary-key }}
 
       - name: geode-validation reference targets (default tier)
         run: |
@@ -399,3 +710,35 @@ jobs:
               --test sphere_pml_jax_reference \
               --test sphere_pml_numpy_reference \
               --test sphere_pml_tfjava_reference -- --ignored
+
+  optimize-tests:
+    # Issue #873 (Epic #841 P6a): the pure-Rust optimizer core. The crate has
+    # no burn / faer / geode-core dependency, so the build takes seconds and
+    # the whole suite runs in debug: the unit tests, the integration targets
+    # (lbfgsb_goldens, mma_goldens, optimize_robustness), the
+    # s_matrix_vjp_adapter example (`test = true`) and the doctest. The tests
+    # take under 1 s.
+    name: cargo test -p geode-optimize (optimizer core, linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-optimize-tests-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: geode-optimize (all targets, debug)
+        run: |
+          cargo test -p geode-optimize

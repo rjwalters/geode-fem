@@ -1,0 +1,31 @@
+[package]
+name = "geode-optimize"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "GEODE-FEM gradient-based optimizer core: pure-Rust L-BFGS-B and MMA with checkpoint/resume (Epic #841 Phase 6a)."
+
+# Physics-independent by design (issue #873): no burn, no faer, no geode-core.
+# `geode optimize` (#841 P6b) couples this crate to the adjoint entry points
+# (`s_matrix_vjp`, the port-mode `vjp`) through the `Objective` trait. Only
+# existing workspace dependencies are used.
+[dependencies]
+# Checkpoint/resume: the full optimizer state serializes to JSON. Floats are
+# written as shortest-round-trip strings (see `exact`), so a resumed run is
+# bit-identical and ±inf bounds survive.
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# Complex cotangents in the `s_matrix_vjp_adapter` example (mirrors
+# geode-core's `faer::c64`, which is `num_complex::Complex<f64>`).
+num-complex = { workspace = true }
+
+# `test = true`: `cargo test -p geode-optimize` (and `clippy --tests`) builds
+# the adapter example in test mode and runs its `#[test]`, so it cannot rot.
+[[example]]
+name = "s_matrix_vjp_adapter"
+test = true
