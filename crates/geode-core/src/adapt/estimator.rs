@@ -151,16 +151,25 @@ use crate::mesh::{TET_LOCAL_EDGES, TetMesh};
 pub const PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH: f64 = 6.0;
 
 /// The empirical effectivity range `θ = η / ‖E − E_h‖_E` this estimator was
-/// validated to, in the asymptotic regime, on the analytic problems of the
-/// `hcurl_error_estimator` test target (issue #840): the driven
-/// manufactured PEC cube (n = 4, 8, 16 finest levels), the PEC box cavity
-/// and the `ε_r = 4` slab-loaded cavity (eigen effectivity
-/// `θ = η_rel / (|λ_h − λ|/λ)^{1/2}`, which is the energy-norm effectivity
-/// for an eigenpair). The issue's bar is `θ ∈ [0.1, 10]` with an asymptotic
-/// spread of at most 1.5 (driven) or 2 (eigen, in `θ²`).
+/// validated to on the analytic problems of the `hcurl_error_estimator`
+/// test target (issue #840), every level of each:
+///
+/// | problem | θ (measured) |
+/// |---|---|
+/// | driven manufactured PEC cube, `n = 2, 4, 8, 16` | 5.97, 6.50, 6.75, 6.85 |
+/// | PEC box cavity `(1,1,0)` mode, `h = 0.2 … 0.05` (energy norm vs the analytic mode) | 5.82, 6.22, 6.32, 6.36 |
+/// | gradient error at an `ε = 4 : 1` interface, `n = 4, 8, 16` | 3.92, 3.76, 3.72 |
+///
+/// The range is these values rounded outward, `[3.5, 7.0]`. It is
+/// empirical: it holds for shape-regular meshes and smooth or mildly
+/// singular fields like these, in the asymptotic regime (≥ 6 points per
+/// wavelength). A singular field, strong anisotropy or a badly shaped mesh
+/// can fall outside it. The `ε_r = 4` slab-loaded cavity has no analytic
+/// field in the test target, so it only checks that the eigenvalue ratio
+/// `(|λ_h − λ|/λ)/η_rel²` stays constant (spread 1.02).
 pub const VALIDATED_EFFECTIVITY: EffectivityRange = EffectivityRange {
-    min: 1.0,
-    max: 10.0,
+    min: 3.5,
+    max: 7.0,
 };
 
 /// A range `[min, max]` of the effectivity index `θ = η / ‖E − E_h‖_E`.
