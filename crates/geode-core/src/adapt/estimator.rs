@@ -167,6 +167,13 @@ pub const PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH: f64 = 6.0;
 /// can fall outside it. The `ε_r = 4` slab-loaded cavity has no analytic
 /// field in the test target, so it only checks that the eigenvalue ratio
 /// `(|λ_h − λ|/λ)/η_rel²` stays constant (spread 1.02).
+///
+/// The top of the range has a thin margin. On the manufactured cube `θ`
+/// rises under refinement (6.50 → 6.75 → 6.85) and extrapolates to about
+/// 6.9, against the 7.0 ceiling. A finer mesh of a similar problem can
+/// therefore sit just under the ceiling, and a slightly different one can
+/// cross it. The floor (3.72) comes from a synthetic gradient error
+/// (golden 3b), which can only widen the upper error bound.
 pub const VALIDATED_EFFECTIVITY: EffectivityRange = EffectivityRange { min: 3.5, max: 7.0 };
 
 /// A range `[min, max]` of the effectivity index `θ = η / ‖E − E_h‖_E`.
@@ -488,8 +495,23 @@ pub struct ErrorEstimate {
 impl ErrorEstimate {
     /// The range of true energy-norm error `‖E − E_h‖_E` implied by `η` and
     /// [`VALIDATED_EFFECTIVITY`]: `(η / θ_max, η / θ_min)`. Empirical; see
-    /// the [module docs](self). Meaningless when
-    /// [`ErrorEstimate::pre_asymptotic`] is set.
+    /// the [module docs](self).
+    ///
+    /// Two cases where the bracket is **not** a statement about the true
+    /// error:
+    ///
+    /// - **Pre-asymptotic** ([`ErrorEstimate::pre_asymptotic`]): the
+    ///   effectivity range was measured in the asymptotic regime only, and
+    ///   below [`PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH`] points per
+    ///   wavelength `η` can underestimate the error by an unknown factor.
+    ///   The bracket does not apply; refine until
+    ///   [`ErrorEstimate::min_points_per_wavelength`] reaches the threshold.
+    ///   [`ErrorEstimate::summary`] omits it in that case.
+    /// - **Incomplete coverage** (`!coverage.is_complete()`): `η` omits the
+    ///   boundary terms of every [`BoundaryFaceKind::Uncovered`] face, so
+    ///   the bracket omits them too. It is not an error bound for the
+    ///   regions next to those boundaries. UPML tets are estimated as
+    ///   ordinary material.
     pub fn error_bracket(&self) -> (f64, f64) {
         (
             self.eta / VALIDATED_EFFECTIVITY.max,
@@ -514,24 +536,33 @@ impl ErrorEstimate {
     }
 
     /// A human-readable one-paragraph summary for reports and logs.
+    ///
+    /// The error bracket is printed only when the mesh is asymptotic: a
+    /// pre-asymptotic estimate says so and gives the resolution to refine
+    /// to instead. When the coverage is incomplete, the summary says that
+    /// the estimate (and bracket) omit the uncovered boundary terms.
     pub fn summary(&self) -> String {
-        let (lo, hi) = self.relative_error_bracket();
-        let mut s = format!(
-            "error estimate: eta_rel = {:.3e} (estimated relative energy error in [{:.2e}, {:.2e}] \
-             for effectivity in [{}, {}]); {:.1} points per wavelength (kh_max = {:.3})",
-            self.eta_rel,
-            lo,
-            hi,
-            VALIDATED_EFFECTIVITY.min,
-            VALIDATED_EFFECTIVITY.max,
-            self.min_points_per_wavelength,
-            self.kh_max,
-        );
+        let mut s = format!("error estimate: eta_rel = {:.3e}", self.eta_rel);
         if self.pre_asymptotic {
             let _ = write!(
                 s,
-                "; WARNING: below {PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH} points per wavelength, \
-                 the estimate is pre-asymptotic and may underestimate the error"
+                " (PRE-ASYMPTOTIC: {:.1} points per wavelength, kh_max = {:.3}; the error \
+                 bracket is not applicable and eta may underestimate the error; refine to \
+                 >= {PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH} points per wavelength)",
+                self.min_points_per_wavelength, self.kh_max,
+            );
+        } else {
+            let (lo, hi) = self.relative_error_bracket();
+            let _ = write!(
+                s,
+                " (estimated relative energy error in [{:.2e}, {:.2e}] for empirical \
+                 effectivity in [{}, {}]); {:.1} points per wavelength (kh_max = {:.3})",
+                lo,
+                hi,
+                VALIDATED_EFFECTIVITY.min,
+                VALIDATED_EFFECTIVITY.max,
+                self.min_points_per_wavelength,
+                self.kh_max,
             );
         }
         if !self.coverage.uncovered.is_empty() {
@@ -541,14 +572,26 @@ impl ErrorEstimate {
                 .iter()
                 .map(|(k, n)| format!("{n} {k}"))
                 .collect();
+            let what = if self.pre_asymptotic {
+                "the estimate omits"
+            } else {
+                "the estimate and its bracket omit"
+            };
             let _ = write!(
                 s,
-                "; boundary faces not covered (no term): {}",
+                "; INCOMPLETE: {what} the boundary terms of {} uncovered boundary faces ({}), \
+                 so they are not an error bound near those boundaries",
+                self.coverage.n_uncovered(),
                 kinds.join(", ")
             );
         }
         if self.coverage.upml_tets > 0 {
-            let _ = write!(s, "; {} UPML tets included", self.coverage.upml_tets);
+            let _ = write!(
+                s,
+                "; INCOMPLETE: {} UPML tets are estimated as ordinary material (their error \
+                 is a PML design parameter, not discretisation error)",
+                self.coverage.upml_tets
+            );
         }
         s
     }

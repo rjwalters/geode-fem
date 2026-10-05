@@ -360,6 +360,19 @@ fn golden1_driven_manufactured_cube_effectivity() {
             l.estimate.coverage.is_complete(),
             "PEC cube must be fully covered"
         );
+        // The summary prints the bracket only on an asymptotic mesh (n = 2
+        // is at 2.3 points per wavelength).
+        let summary = l.estimate.summary();
+        eprintln!("golden1 n={n:>2} summary: {summary}");
+        assert!(!summary.contains("INCOMPLETE"), "{summary}");
+        if l.estimate.pre_asymptotic {
+            assert!(summary.contains("bracket is not applicable"), "{summary}");
+            assert!(summary.contains("refine to >= 6 points"), "{summary}");
+            assert!(!summary.contains("energy error in ["), "{summary}");
+        } else {
+            assert!(summary.contains("energy error in ["), "{summary}");
+            assert!(!summary.contains("PRE-ASYMPTOTIC"), "{summary}");
+        }
         assert_eq!(l.estimate.coverage.natural_faces, 0);
         assert_eq!(l.estimate.coverage.pec_faces, 12 * n * n);
     }
@@ -872,6 +885,116 @@ fn golden3b_normal_jump_is_load_bearing_for_gradient_errors() {
     );
 }
 
+/// Golden 3c: the tangential-jump term is load-bearing for curl errors
+/// (the 3b construction with a Whitney edge function instead of a
+/// gradient).
+///
+/// On the two-material natural-walled cube of 3b, `E = a` with
+/// `f = −k² ε a` is exact and in the space. Perturb it by `δ w_e`, the
+/// Whitney function of the interior edge from the centre node
+/// `(½, ½, ½)` to `(½ + h, ½, ½)`. The error is then **exactly** `δ w_e`.
+/// Its energy is dominated by `‖∇×w_e‖² ∼ h⁻¹`, and the curl jumps across
+/// the faces of the edge's support at the same order, so the tangential
+/// jump sees the perturbation at `O(1)`. Every other term is smaller:
+///
+/// - `∇×∇×w_e = 0` and `∇·w_e = 0` inside every tet, so the volume
+///   residual is `k²ε δw_e` (relative size `O(h²)`) and the divergence
+///   term is zero;
+/// - the normal jump `[[n·k²εw_e]]` has relative size `O(kh)`;
+/// - the support is interior, so there is no boundary term.
+///
+/// Hence `θ` is constant with every term, and without the tangential jump
+/// it decays like `h`. Measured (release): `θ = 4.440, 4.446, 4.448` at
+/// `n = 4, 8, 16` (spread 1.002); without the tangential jump
+/// `θ = 0.348, 0.172, 0.086` (4.06× over 4× in `h`).
+#[test]
+fn golden3c_tangential_jump_is_load_bearing_for_curl_errors() {
+    let k2 = c(2.5);
+    let a = [c(0.3), c(-0.4), c(0.8)];
+    let natural = |_: [u32; 3]| BoundaryFaceKind::Natural;
+    let mut with = Vec::new();
+    let mut without = Vec::new();
+    for n in [4usize, 8, 16] {
+        let h = 1.0 / n as f64;
+        let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+        let space = HcurlSpace::build(&mesh, ElementOrder::P1);
+        let eps: Vec<c64> = (0..mesh.n_tets())
+            .map(|t| {
+                if centroid(&mesh, t)[0] < 0.5 {
+                    c(4.0)
+                } else {
+                    c(1.0)
+                }
+            })
+            .collect();
+        let nu = vec![1.0; mesh.n_tets()];
+        let node = |q: [f64; 3]| {
+            mesh.nodes
+                .iter()
+                .position(|p| (0..3).all(|d| (p[d] - q[d]).abs() < 1e-12))
+                .expect("node") as u32
+        };
+        let (v, w) = (node([0.5; 3]), node([0.5 + h, 0.5, 0.5]));
+        let edge = mesh
+            .edges()
+            .iter()
+            .position(|e| (e[0] == v && e[1] == w) || (e[0] == w && e[1] == v))
+            .expect("centre edge");
+        let delta = 0.05;
+        let mut x = interpolate(&mesh, |_| a);
+        x[edge] += c(delta);
+        let eps_ref = &eps;
+        let f = move |t: usize, _: [f64; 3]| a.map(|ad| -k2 * eps_ref[t] * ad);
+        let div_f = |_: usize, _: [f64; 3]| ZERO;
+        let est = estimate_hcurl(
+            &EstimatorInput::new(&mesh, &space, &x, k2, &eps, &nu, &natural).with_source(
+                VolumeSource {
+                    f: &f,
+                    div_f: &div_f,
+                },
+            ),
+        )
+        .expect("estimate");
+        let err = energy_error(&mesh, &space, &x, k2, &eps, &nu, &|_| a, &|_| [ZERO; 3]);
+        let cmp = &est.components;
+        let th = est.eta / err;
+        let th_nt = (est.eta * est.eta - cmp.tangential_jump).sqrt() / err;
+        eprintln!(
+            "golden3c n={n:>2}: err={err:.4e} theta={th:.4} \
+             theta_without_tangential_jump={th_nt:.4} \
+             [vol {:.2e} div {:.2e} tj {:.2e} nj {:.2e} bd {:.2e}]",
+            cmp.volume, cmp.divergence, cmp.tangential_jump, cmp.normal_jump, cmp.boundary
+        );
+        assert!(
+            cmp.boundary <= 1e-20 * est.eta * est.eta,
+            "support is interior"
+        );
+        with.push(th);
+        without.push(th_nt);
+    }
+    eprintln!(
+        "golden3c spread with all terms {:.4}; without the tangential jump the effectivity \
+         falls {:.2}x from n = 4 to n = 16",
+        spread(&with),
+        without[0] / without[2]
+    );
+    for t in &with {
+        assert!((0.1..=10.0).contains(t), "theta {t} outside [0.1, 10]");
+    }
+    assert!(spread(&with) <= 1.5, "theta spread {}", spread(&with));
+    // Without the term the estimator loses reliability ∝ h.
+    assert!(
+        without[0] / without[2] >= 3.0,
+        "no h-decay without the tangential jump: {without:?}"
+    );
+    assert!(
+        without[2] <= 0.25 * with[2],
+        "tangential jump not load-bearing at n=16: {} vs {}",
+        without[2],
+        with[2]
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Golden 4: exactness
 // ---------------------------------------------------------------------------
@@ -979,6 +1102,250 @@ fn golden4_exactness() {
     }
 }
 
+/// Edge-midpoint rule on a triangle: exact for degree 2. Returns the
+/// integral of `g` over the face `p` divided by its area.
+fn face_mean2(p: &[[f64; 3]; 3], g: impl Fn([f64; 3]) -> f64) -> f64 {
+    let mid =
+        |i: usize, j: usize| -> [f64; 3] { std::array::from_fn(|d| 0.5 * (p[i][d] + p[j][d])) };
+    (g(mid(0, 1)) + g(mid(1, 2)) + g(mid(2, 0))) / 3.0
+}
+
+fn vsub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+fn vlen(a: [f64; 3]) -> f64 {
+    (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
+}
+
+fn vcross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+/// Golden 4b: every term **and every weight** against an independent
+/// analytic evaluation, with non-trivial coefficients everywhere.
+///
+/// Golden 4 covers the boundary term at `ν = 1`. This one exercises what
+/// no effectivity golden can pin (an effectivity golden survives any
+/// mis-weighting that keeps `θ` in range):
+///
+/// - piecewise `ν = 1 | 0.25` (interface `x = ½`);
+/// - piecewise complex `ε = 4 − 0.3i | 1` (interface `y = ½`), with a
+///   diagonal-anisotropic override `[4 − 0.3i, 2 + 0.1i, 6]` in the
+///   `y < ½, z > ½` quarter (so `ε_T = min_d |ε_d|` and an anisotropic
+///   interface at `z = ½`);
+/// - complex `k² = 2.5 − 0.4i`;
+/// - a source with `∇·f ≠ 0`.
+///
+/// The field `E_h = a + b × x` is in the Whitney space, so `∇×E_h = 2b` and
+/// `∂_d E_d = 0` exactly. The source is `f = −k² E_h + g` with
+/// `g = (γ x, 0.5 z, −0.7 y)`, so `∇·f = γ` and the load is
+/// `R_T = k²(ε_T − 1) E_h + g` per tet (diagonal `ε_T` acts componentwise).
+/// Every term then has a closed form that this test evaluates with its
+/// own geometry and quadrature (degree-4 tet rule and the degree-2
+/// edge-midpoint triangle rule, both exact here), independently of the
+/// estimator's finite differences:
+///
+/// - volume `Σ_T h_T²/ν_T ∫_T |R_T|²`;
+/// - divergence `Σ_T h_T²/(|k²| ε_T) |γ|² |T|`;
+/// - tangential jump `Σ_F h_F |F| |n × 2b|² (ν_a − ν_b)² / min(ν_a, ν_b)`;
+/// - normal jump `Σ_F h_F/(|k²| min(ε_a, ε_b)) ∫_F |n·(R_a − R_b)|²`;
+/// - boundary `Σ_F h_F/ν_T |F| |n × 2ν_T b|² + h_F/(|k²| ε_T) ∫_F |n·R_T|²`.
+///
+/// Each component must match to 1e-10. So zeroing a term, dropping the ½
+/// on interior faces, mis-weighting `1/ν`, or taking the larger coefficient
+/// at an interface each fails here.
+#[test]
+fn golden4b_every_term_and_weight_matches_its_closed_form() {
+    use std::collections::BTreeMap;
+
+    let n = 4;
+    let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let space = HcurlSpace::build(&mesh, ElementOrder::P1);
+    let n_tets = mesh.n_tets();
+    let k2 = c64::new(2.5, -0.4);
+    let k2a = k2.norm();
+    let eps_lo = c64::new(4.0, -0.3);
+    let aniso = [eps_lo, c64::new(2.0, 0.1), c(6.0)];
+    let nu: Vec<f64> = (0..n_tets)
+        .map(|t| {
+            if centroid(&mesh, t)[0] < 0.5 {
+                1.0
+            } else {
+                0.25
+            }
+        })
+        .collect();
+    let eps: Vec<c64> = (0..n_tets)
+        .map(|t| {
+            if centroid(&mesh, t)[1] < 0.5 {
+                eps_lo
+            } else {
+                c(1.0)
+            }
+        })
+        .collect();
+    let eps_diag: Vec<Option<[c64; 3]>> = (0..n_tets)
+        .map(|t| {
+            let m = centroid(&mesh, t);
+            (m[1] < 0.5 && m[2] > 0.5).then_some(aniso)
+        })
+        .collect();
+    // The effective diagonal permittivity of each tet and its weight
+    // ε_T = min_d |ε_d|.
+    let eps3: Vec<[c64; 3]> = (0..n_tets)
+        .map(|t| eps_diag[t].unwrap_or([eps[t]; 3]))
+        .collect();
+    let eps_w: Vec<f64> = eps3
+        .iter()
+        .map(|e| e.iter().map(|v| v.norm()).fold(f64::INFINITY, f64::min))
+        .collect();
+
+    let a = [c64::new(0.3, 0.1), c64::new(-1.1, 0.2), c(0.7)];
+    let b = [0.4, -0.2, 0.9];
+    let gamma = c64::new(1.3, 0.2);
+    let field = move |x: [f64; 3]| -> [c64; 3] {
+        [
+            a[0] + c(b[1] * x[2] - b[2] * x[1]),
+            a[1] + c(b[2] * x[0] - b[0] * x[2]),
+            a[2] + c(b[0] * x[1] - b[1] * x[0]),
+        ]
+    };
+    let g = move |x: [f64; 3]| -> [c64; 3] { [gamma * x[0], c(0.5 * x[2]), c(-0.7 * x[1])] };
+    let x = interpolate(&mesh, field);
+    let f = move |_: usize, p: [f64; 3]| {
+        let (e, gp) = (field(p), g(p));
+        [-k2 * e[0] + gp[0], -k2 * e[1] + gp[1], -k2 * e[2] + gp[2]]
+    };
+    let div_f = move |_: usize, _: [f64; 3]| gamma;
+    let natural = |_: [u32; 3]| BoundaryFaceKind::Natural;
+    let est = estimate_hcurl(
+        &EstimatorInput::new(&mesh, &space, &x, k2, &eps, &nu, &natural)
+            .with_eps_diag(&eps_diag)
+            .with_source(VolumeSource {
+                f: &f,
+                div_f: &div_f,
+            }),
+    )
+    .expect("estimate");
+
+    // ---- The closed forms. ----
+    let load = |t: usize, p: [f64; 3]| -> [c64; 3] {
+        let (e, gp) = (field(p), g(p));
+        std::array::from_fn(|d| k2 * (eps3[t][d] - c(1.0)) * e[d] + gp[d])
+    };
+    let curl = [2.0 * b[0], 2.0 * b[1], 2.0 * b[2]];
+    let quad = tet_quad_deg4();
+    let (mut vol, mut div) = (0.0, 0.0);
+    let mut faces: BTreeMap<[u32; 3], Vec<usize>> = BTreeMap::new();
+    for t in 0..n_tets {
+        let tet = mesh.tets[t];
+        let v: [[f64; 3]; 4] = std::array::from_fn(|i| mesh.nodes[tet[i] as usize]);
+        let mut h: f64 = 0.0;
+        for i in 0..4 {
+            for j in i + 1..4 {
+                h = h.max(vlen(vsub(v[i], v[j])));
+            }
+        }
+        let size = vcross(vsub(v[1], v[0]), vsub(v[2], v[0]));
+        let measure = (size[0] * (v[3][0] - v[0][0])
+            + size[1] * (v[3][1] - v[0][1])
+            + size[2] * (v[3][2] - v[0][2]))
+            .abs()
+            / 6.0;
+        let mut r2 = 0.0;
+        for (bq, w) in &quad {
+            let xq: [f64; 3] = std::array::from_fn(|d| (0..4).map(|i| bq[i] * v[i][d]).sum());
+            r2 += w * load(t, xq).iter().map(|r| r.norm_sqr()).sum::<f64>();
+        }
+        vol += h * h / nu[t] * r2 * measure;
+        div += h * h / (k2a * eps_w[t]) * gamma.norm_sqr() * measure;
+        for skip in 0..4 {
+            let mut fc: Vec<u32> = (0..4).filter(|&i| i != skip).map(|i| tet[i]).collect();
+            fc.sort_unstable();
+            faces.entry([fc[0], fc[1], fc[2]]).or_default().push(t);
+        }
+    }
+    let (mut tang, mut normal, mut bnd) = (0.0, 0.0, 0.0);
+    let mut n_interfaces = [0usize; 2];
+    for (face, owners) in &faces {
+        let p: [[f64; 3]; 3] = std::array::from_fn(|i| mesh.nodes[face[i] as usize]);
+        let nn = vcross(vsub(p[1], p[0]), vsub(p[2], p[0]));
+        let area = 0.5 * vlen(nn);
+        let un = [nn[0] / vlen(nn), nn[1] / vlen(nn), nn[2] / vlen(nn)];
+        let h_f = vlen(vsub(p[1], p[0]))
+            .max(vlen(vsub(p[2], p[0])))
+            .max(vlen(vsub(p[2], p[1])));
+        let n_dot = |r: [c64; 3]| r[0] * un[0] + r[1] * un[1] + r[2] * un[2];
+        let nxc = vcross(un, curl);
+        let nxc2 = nxc.iter().map(|v| v * v).sum::<f64>();
+        match owners.as_slice() {
+            &[ta, tb] => {
+                let dnu = nu[ta] - nu[tb];
+                tang += h_f * area * nxc2 * dnu * dnu / nu[ta].min(nu[tb]);
+                let jn = face_mean2(&p, |y| {
+                    let (ra, rb) = (load(ta, y), load(tb, y));
+                    n_dot([ra[0] - rb[0], ra[1] - rb[1], ra[2] - rb[2]]).norm_sqr()
+                });
+                normal += h_f / (k2a * eps_w[ta].min(eps_w[tb])) * jn * area;
+                n_interfaces[0] += usize::from(dnu != 0.0);
+                n_interfaces[1] += usize::from(eps3[ta] != eps3[tb]);
+            }
+            &[t] => {
+                bnd += h_f / nu[t] * area * nxc2 * nu[t] * nu[t];
+                let jn = face_mean2(&p, |y| n_dot(load(t, y)).norm_sqr());
+                bnd += h_f / (k2a * eps_w[t]) * jn * area;
+            }
+            other => panic!("face {face:?} has {} tets", other.len()),
+        }
+    }
+    let cmp = &est.components;
+    eprintln!(
+        "golden4b: {} ν-interface and {} ε-interface faces; components \
+         [vol {:.6e} div {:.6e} tj {:.6e} nj {:.6e} bd {:.6e}] vs closed form \
+         [vol {vol:.6e} div {div:.6e} tj {tang:.6e} nj {normal:.6e} bd {bnd:.6e}]",
+        n_interfaces[0],
+        n_interfaces[1],
+        cmp.volume,
+        cmp.divergence,
+        cmp.tangential_jump,
+        cmp.normal_jump,
+        cmp.boundary,
+    );
+    assert!(n_interfaces[0] > 0 && n_interfaces[1] > 0);
+    for (name, got, want) in [
+        ("volume", cmp.volume, vol),
+        ("divergence", cmp.divergence, div),
+        ("tangential_jump", cmp.tangential_jump, tang),
+        ("normal_jump", cmp.normal_jump, normal),
+        ("boundary", cmp.boundary, bnd),
+    ] {
+        assert!(
+            want > 0.0,
+            "{name}: closed form is zero, the term is not exercised"
+        );
+        let rel = (got - want).abs() / want;
+        assert!(
+            rel <= 1e-10,
+            "{name}: {got:.12e} vs closed form {want:.12e} (rel {rel:.1e})"
+        );
+    }
+    let total = vol + div + tang + normal + bnd;
+    let rel = (est.eta * est.eta - total).abs() / total;
+    assert!(
+        rel <= 1e-10,
+        "eta² {} vs {total} (rel {rel:.1e})",
+        est.eta * est.eta
+    );
+    for (t, terms) in est.eta_t2_terms.iter().enumerate() {
+        assert_eq!(est.eta_t2[t], terms.total());
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Golden 6: coverage
 // ---------------------------------------------------------------------------
@@ -1026,7 +1393,22 @@ fn golden6_coverage_counts_uncovered_faces() {
     assert_eq!(cov.upml_tets, upml.iter().filter(|&&b| b).count());
     assert!(!cov.is_complete());
     assert!(est.eta.is_finite() && est.eta > 0.0);
-    assert!(est.summary().contains("silver_muller"));
+    let summary = est.summary();
+    assert!(
+        summary.contains("16 lumped_port, 32 silver_muller"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains(
+            "INCOMPLETE: the estimate and its bracket omit the boundary terms of 48 \
+             uncovered boundary faces"
+        ),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("UPML tets are estimated as ordinary material"),
+        "{summary}"
+    );
     // Uncovered faces contribute no term: the same estimate with those faces
     // PEC is identical.
     let pec = |_: [u32; 3]| BoundaryFaceKind::Pec;
@@ -1391,4 +1773,71 @@ fn estimator_wall_time_on_largest_fixture() {
         estimator_s <= 10.0 * assembly_s.max(0.1),
         "estimator {estimator_s}s vs assembly {assembly_s}s"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ν / ε / f co-scaling homogeneity
+// ---------------------------------------------------------------------------
+
+/// Scaling `ν`, `ε` and `f` together by `α` scales the operator, so the
+/// error and every term scale alike and `eta_rel` must be unchanged. The
+/// case has piecewise `ν = 1 | 0.25`, piecewise complex `ε`, `∇·f ≠ 0` and
+/// mixed natural / PEC faces, so a weight written with the wrong power of
+/// `ν` or `ε` (for example `ν` for `1/ν`) breaks the invariance. (Judge
+/// review of PR #854.)
+#[test]
+fn nu_eps_source_coscaling_leaves_eta_rel_unchanged() {
+    let n = 4;
+    let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let space = HcurlSpace::build(&mesh, ElementOrder::P1);
+    let x = interpolate(&mesh, |p| {
+        [c(p[1] * p[2]), c((p[0] * 3.0).sin()), c(p[0] * p[1] + 0.2)]
+    });
+    let nu0: Vec<f64> = (0..mesh.n_tets())
+        .map(|t| {
+            if centroid(&mesh, t)[0] < 0.5 {
+                1.0
+            } else {
+                0.25
+            }
+        })
+        .collect();
+    let eps0: Vec<c64> = (0..mesh.n_tets())
+        .map(|t| {
+            if centroid(&mesh, t)[1] < 0.5 {
+                c64::new(4.0, -0.3)
+            } else {
+                c(1.0)
+            }
+        })
+        .collect();
+    let k2 = c(2.5);
+    let kind = |f: [u32; 3]| {
+        if f[0] % 2 == 0 {
+            BoundaryFaceKind::Natural
+        } else {
+            BoundaryFaceKind::Pec
+        }
+    };
+    let run = |alpha: f64| {
+        let nu: Vec<f64> = nu0.iter().map(|v| v * alpha).collect();
+        let eps: Vec<c64> = eps0.iter().map(|v| v * alpha).collect();
+        let f = move |_: usize, p: [f64; 3]| [c(alpha * p[2]), c(alpha), c(alpha * p[0] * p[0])];
+        let div_f = move |_: usize, p: [f64; 3]| c(2.0 * alpha * p[0]);
+        let e = estimate_hcurl(
+            &EstimatorInput::new(&mesh, &space, &x, k2, &eps, &nu, &kind).with_source(
+                VolumeSource {
+                    f: &f,
+                    div_f: &div_f,
+                },
+            ),
+        )
+        .expect("estimate");
+        (e.eta_rel, e.components)
+    };
+    let (a, ca) = run(1.0);
+    let (b, cb) = run(7.0);
+    eprintln!("coscaling: eta_rel {a:.15e} vs {b:.15e}; {ca:?} / {cb:?}");
+    assert!(ca.divergence > 0.0, "the divergence term must be exercised");
+    assert!((a - b).abs() <= 1e-12 * a, "{a} vs {b}");
 }
