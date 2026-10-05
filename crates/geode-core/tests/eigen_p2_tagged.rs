@@ -270,7 +270,6 @@ fn box_errors(mesh: &TetMesh, order: ElementOrder) -> ([f64; 3], usize, usize) {
 
 #[test]
 fn golden1_pec_box_rates_on_jittered_tagged_meshes() {
-    let mut table: Vec<(usize, f64, Vec<[f64; 3]>)> = Vec::new();
     let levels = |order: ElementOrder| -> Vec<usize> {
         match order {
             ElementOrder::P1 => vec![1, 2, 3, 4],
@@ -299,11 +298,20 @@ fn golden1_pec_box_rates_on_jittered_tagged_meshes() {
             errs.push(e);
         }
         coarse[oi] = errs[0];
+        // p=1 is pre-asymptotic on the coarsest (m = 1, ~300 DOF) mesh:
+        // its slope is fitted on the last three levels (the all-level fit
+        // is printed too). p=2 is fitted on every level.
+        let skip = if order == ElementOrder::P1 { 1 } else { 0 };
         for mode in 0..3 {
             let col: Vec<f64> = errs.iter().map(|e| e[mode]).collect();
-            slopes[oi][mode] = fit_slope(&hs, &col);
+            slopes[oi][mode] = fit_slope(&hs[skip..], &col[skip..]);
+            eprintln!(
+                "golden1 p={} mode {mode}: slope (all levels) {:.2}, gated fit {:.2}",
+                p(order),
+                fit_slope(&hs, &col),
+                slopes[oi][mode]
+            );
         }
-        table.push((p(order), 0.0, errs));
     }
     eprintln!("golden1 slopes p=1 {:?}  p=2 {:?}", slopes[0], slopes[1]);
     for mode in 0..3 {
@@ -536,6 +544,14 @@ fn golden3a_uniform_lossy_fill_exact_q_at_p2() {
 /// vs Pozar's first-order wall-loss `Q` of the TE₁₀₁ box mode. In Pozar's
 /// notation (`E` along `b`): `a = 1` (x), `d = 0.8` (y), `b = 0.6` (z):
 /// `Q_c = (k a d)³ b η / (2π² R_s) / (2a³b + 2bd³ + a³d + ad³)`.
+///
+/// Measured (release): p=2 `Q` is `+7e-6` off Pozar at m=1 and `+3.0e-3`
+/// at m=2 — the m=1 agreement is a cancellation between the discretization
+/// error and the `O(R_s)` beyond-first-order term (the converged p=2 value
+/// sits `≈ +0.3 %` above Pozar). The second, independent check is the
+/// Leontovich **frequency pull**: `Z_s = (1+i)R_s` has `X_s = R_s`, so the
+/// first-order resonance shift is `Δk/k = −1/(2Q)`; p=2 at m=2 reproduces it
+/// to `0.5 %`.
 #[test]
 fn golden3b_leontovich_walls_vs_pozar_q() {
     let exact = box_exact();
@@ -547,6 +563,7 @@ fn golden3b_leontovich_walls_vs_pozar_q() {
         / (2.0 * a.powi(3) * b + 2.0 * b * d.powi(3) + a.powi(3) * d + a * d.powi(3));
     eprintln!("golden3b R_s = {r_s:.4e}, Pozar Q_c = {q_pozar:.4}");
     let mut rel_err = [[0.0; 2]; 2];
+    let mut pull = 0.0;
     for (mi, m) in [1usize, 2].into_iter().enumerate() {
         let mesh = jittered_box(m, 0x3b + m as u64);
         let wall_lists = box_walls(&mesh, BOX);
@@ -578,6 +595,9 @@ fn golden3b_leontovich_walls_vs_pozar_q() {
             let md = &sol.modes.modes[0];
             let q = md.k0.re / (2.0 * md.k0.im);
             rel_err[mi][oi] = (q - q_pozar) / q_pozar;
+            if m == 2 && order == ElementOrder::P2 {
+                pull = (md.k0.re - k) / k;
+            }
             eprintln!(
                 "golden3b p={} m={m}: k = {:.8} {:+.3e}j, Q = {q:.4} (rel vs Pozar {:+.3e}), \
                  null dim {}",
@@ -595,6 +615,16 @@ fn golden3b_leontovich_walls_vs_pozar_q() {
     for row in &rel_err {
         assert!(row[1].abs() < row[0].abs(), "p=2 not closer than p=1: {row:?}");
     }
+    let pull_pozar = -1.0 / (2.0 * q_pozar);
+    eprintln!(
+        "golden3b frequency pull p=2 m=2: Δk/k = {pull:.5e} vs −1/(2Q) = {pull_pozar:.5e} \
+         (ratio {:.4})",
+        pull / pull_pozar
+    );
+    assert!(
+        (pull / pull_pozar - 1.0).abs() < 0.03,
+        "Leontovich frequency pull {pull} vs {pull_pozar}"
+    );
 }
 
 // ---------------------------------------------------------------------------
