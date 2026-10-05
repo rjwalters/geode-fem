@@ -180,6 +180,7 @@
 //!   tet sees `ε − jσ/ω` there ([`solve_mixed_port_spec_sweep_with_mode`]).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use faer::c64;
 use faer::sparse::SparseColMat;
@@ -1777,6 +1778,7 @@ fn mixed_spec_sweep<B: burn::tensor::backend::Backend>(
                             y: port.medium.admittance(beta),
                             a_inc: Some(m.a_inc),
                             flux: flux.clone(),
+                            origin: None,
                         });
                     }
                 }
@@ -2243,6 +2245,33 @@ pub(crate) struct ChanAt {
     pub(crate) y: c64,
     pub(crate) a_inc: Option<c64>,
     pub(crate) flux: Vec<(usize, c64)>,
+    /// The face mode behind a hybrid channel (`None`: a geometric port) —
+    /// read only by the N-port S gradient through hybrid ports (Epic #841
+    /// Phase 3b, issue #872); the spec sweeps ignore it.
+    pub(crate) origin: Option<ChanOrigin>,
+}
+
+/// The face mode set a hybrid channel was taken from, as the tracker saw it
+/// at one frequency.
+#[derive(Clone)]
+pub(crate) enum FaceModeSet {
+    /// The real (lossless) pencil's set.
+    Real(Arc<HybridPortModeSet>),
+    /// The complex-symmetric (lossy / conducting / dispersive) pencil's set.
+    Lossy(Arc<crate::analytic::lossy_port_modes::LossyHybridModeSet>),
+}
+
+/// Where one hybrid channel's mode came from (issue #872).
+#[derive(Clone)]
+pub(crate) struct ChanOrigin {
+    /// The frequency's face mode set.
+    pub(crate) set: FaceModeSet,
+    /// The per-triangle face `ε` the set was solved with.
+    pub(crate) eps: Arc<Vec<c64>>,
+    /// The set-mode indices of the channel's unit: one index for a simple
+    /// mode (the channel is `±` that mode), several for a direction inside
+    /// an exactly degenerate cluster. Empty for a complex-pair member.
+    pub(crate) members: Vec<usize>,
 }
 
 enum PortState {
@@ -3048,6 +3077,14 @@ impl HybridState {
     ) -> Result<(Vec<ChanAt>, Vec<ChanAt>), DrivenError> {
         let k = port.n_modes();
         let FaceSolve { set, retried } = self.ctx.solve(port, omega, 2)?;
+        let set = Arc::new(set);
+        let face_eps: Arc<Vec<c64>> =
+            Arc::new(port.face.eps_r.iter().map(|&e| c64::new(e, 0.0)).collect());
+        let origin = |members: Vec<usize>| ChanOrigin {
+            set: FaceModeSet::Real(Arc::clone(&set)),
+            eps: Arc::clone(&face_eps),
+            members,
+        };
         let n_prop = set.n_propagating;
         let scale = self.ctx.scale(omega);
         if !set.diagnostics.multiplicity_certified {
@@ -3175,9 +3212,11 @@ impl HybridState {
 
         // Tracked reported modes in channel order.
         let mut tracked_opt: Vec<Option<(HybridPortMode, usize)>> = vec![None; k];
+        let mut chan_members: Vec<Vec<usize>> = vec![Vec::new(); k];
         for u in &units {
             for &(dir, ch) in &u.claimed {
                 tracked_opt[ch] = Some((u.direction(&set.modes, dir), u.members.len()));
+                chan_members[ch].clone_from(&u.members);
             }
         }
         let (tracked, cluster_sizes): (Vec<HybridPortMode>, Vec<usize>) = tracked_opt
@@ -3185,13 +3224,14 @@ impl HybridState {
             .map(|t| t.expect("every channel assigned"))
             .unzip();
         let mut reported = Vec::with_capacity(k);
-        for (m, &a) in tracked.iter().zip(&port.a_inc) {
+        for ((m, &a), members) in tracked.iter().zip(&port.a_inc).zip(chan_members) {
             let ch = self.ctx.real_channel(m, port.opts.transverse_only_flux);
             reported.push(ChanAt {
                 beta: m.beta,
                 y: m.beta,
                 a_inc: Some(a),
                 flux: ch.flux,
+                origin: Some(origin(members)),
             });
         }
 
@@ -3220,6 +3260,7 @@ impl HybridState {
                             y: m.beta,
                             a_inc: None,
                             flux: ch.flux,
+                            origin: Some(origin(u.members.clone())),
                         });
                         slots += 1;
                         term_real += 1;
@@ -3241,6 +3282,7 @@ impl HybridState {
                             y: z.beta,
                             a_inc: None,
                             flux: self.ctx.complex_channel(&z),
+                            origin: Some(origin(Vec::new())),
                         });
                     }
                     slots += 2;

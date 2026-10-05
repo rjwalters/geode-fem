@@ -1,8 +1,10 @@
 //! **N-port S-matrix sensitivities** (Epic #841 Phase 1, issue #842):
 //! `∂S_qp/∂θ` for every entry of the power-normalized S matrix of a
-//! lumped, wave (geometric or filled), mixed or walled driven spec, with
-//! respect to per-region material `ε′`, `ε″` and node-motion (shape)
-//! columns, FD-validated.
+//! lumped, wave (geometric or filled), mixed, walled or hybrid
+//! (microstrip / stripline) driven spec, with respect to per-region
+//! material `ε′`, `ε″` and node-motion (shape) columns, FD-validated —
+//! including designs that **touch a hybrid port face** (Phase 3b, issue
+//! #872; see *Hybrid port faces θ touches* below).
 //!
 //! # The forward this differentiates
 //!
@@ -79,6 +81,64 @@
 //!   `(q, p)` pair. PEC nodes may move (the PEC mask is X-independent);
 //!   port faces and walls must stay pinned (see the fences below).
 //!
+//! # Hybrid port faces θ touches (Phase 3b, issue #872)
+//!
+//! A hybrid port's channels come from the 2-D mode `z` of its face
+//! ([`crate::driven::ports::HybridWavePort`], re-solved and tracked per
+//! ω), with `y = β` and the modal flux `f̂ = S_p κ w̃`. When θ touches the
+//! face — a design region whose tets the face reads its `ε` from
+//! ([`crate::driven::ports::HybridPortFace::tet_of_tri`]), or a shape column
+//! that moves face nodes — `u_c = f̂_c` and `y_c = β_c` depend on θ, and the
+//! identity above gains, for every channel `c` of the touched port,
+//!
+//! ```text
+//! ∂(u_kᵀx_p) ⊃ ∂u_kᵀx_p + d_p λ_kᵀ∂u_p − Σ_c j y_c [(λ_kᵀ∂u_c)(u_cᵀx_p) + (λ_kᵀu_c)(∂u_cᵀx_p)]
+//! ```
+//!
+//! (readout, drive, and the SMW term), while `∂y_c = ∂β_c = ∂β²/(2β)`
+//! enters the existing Robin, drive and power-weight terms. The flux is
+//! `f̂ = σF/β` with `F = (B_full z)_t = M₁ẽ_t + Gẽ_z` (`S_p ≡ M₁` on the
+//! face edges, `G = M₁D`; `σ = ±1` the tracking sign, recovered by matching
+//! the forward's own flux and checked to 1e-9) for the Phase 3a
+//! normalization `zᵀBz = β²`, so
+//!
+//! ```text
+//! ∂f̂ = σ[(∂B z)_t + (B y)_t + c F]/β − f̂ ∂β/β,      ∂z = y + c z,
+//! ```
+//!
+//! with the **mode-shape** term `y` (one bordered back-solve,
+//! [`crate::analytic::port_mode_sensitivity::HybridModeDerivative::face_flux_tangent`]),
+//! the **normalization** terms `c z` and `−f̂ ∂β/β`, and the explicit
+//! face-geometry term `(∂B z)_t` (the moving face's own Whitney mass and
+//! coupling, exact dual-number kernels). Each of the three families has a
+//! mutation tripwire. The VJP folds the flux terms into one face cotangent
+//! per channel and one bordered back-solve
+//! ([`crate::analytic::port_mode_sensitivity::HybridModeDerivative::face_flux_vjp`]),
+//! independent of the parameter count.
+//!
+//! * **Material** on the face: the face triangles whose tet is in a design
+//!   region follow its `ε′` (`∂ε = 1`) and `ε″` (`∂ε = −j`); a lossy,
+//!   conducting (`ε − jσ/ω`) or dispersive face runs the complex-symmetric
+//!   Phase 3a path. `tan δ` at fixed `ε′` is the chain `ε′·∂/∂ε″`.
+//! * **Shape** on the face: the face motion is the in-plane trace
+//!   `(V·u, V·v)` of the same column that moves the volume, so the 2-D
+//!   face terms and #842's volume terms see one geometry (a strip width or
+//!   substrate height extruded through a section moves the port faces and
+//!   the tets next to them together). A uniform normal component (a rigid
+//!   shift of the port plane) leaves the 2-D problem unchanged; a
+//!   non-uniform one would bend the face and is a typed error.
+//! * **Degenerate clusters** (e.g. the #817 even / odd TEM pair of a
+//!   homogeneous coupled line): a per-channel derivative is
+//!   basis-dependent, so a touched port whose channels lie in an exactly
+//!   degenerate cluster is [`SSensitivityError::DegenerateCluster`] (the
+//!   cluster-invariant `∂(mean β²)` is
+//!   [`crate::analytic::port_mode_sensitivity::cluster_sensitivity`] on
+//!   the face); a near-degenerate mode is differentiated and reported in
+//!   [`SSensitivityPoint::port_mode_warnings`]. A mesh-induced complex-pair
+//!   termination member is an [`SSensitivityError::Unsupported`].
+//! * **Tracking** is a discrete assignment with no derivative: the
+//!   derivative is that of the channel the forward tracked at each ω.
+//!
 //! # JVP, VJP and the dual fields
 //!
 //! [`s_matrix_sensitivity_sweep`] returns the full `∂S/∂θ` table (JVP, for
@@ -97,13 +157,19 @@
 //! Every unsupported combination is an [`SSensitivityError::Unsupported`]
 //! naming the phase that lifts it, never a silently wrong gradient:
 //!
-//! * a shape column that moves a **wave-port** face node (Phase 3b), a
+//! * a shape column that moves a **geometric wave-port** face node (its
+//!   modes are fixed user profiles; use a hybrid port for a moving face), a
 //!   **lumped-port** face node (N-port moving feeds: follow-on; one moving
 //!   feed is [`crate::driven::shape::driven_shape_gradient_moving_port_s11`])
 //!   or a **`surfaces`** wall node (Phase 2b);
-//! * a **hybrid** port whose face bounds a design-region tet or carries a
-//!   moving node (Phase 3); an untouched hybrid port is admitted (its modes
-//!   are θ-independent);
+//! * a shape column that **bends** a hybrid port face out of its plane, a
+//!   complex-pair termination member or the `transverse_only_flux` tripwire
+//!   on a touched hybrid port, and an exactly degenerate cluster on a
+//!   touched hybrid port ([`SSensitivityError::DegenerateCluster`]); a
+//!   touched face built without a tet map (its `ε` cannot follow the region)
+//!   and a `port_fill` binding on a hybrid port are
+//!   [`SSensitivityError::InvalidDesign`] (Phase 3b, issue #872; every other
+//!   touched hybrid face is differentiated);
 //! * non-scalar materials ([`DrivenMaterials::DiagTensor`] /
 //!   [`DrivenMaterials::MatchedUpml`]) and anisotropic (`μ ≠ 1`) fills of a
 //!   bound port (Phase 2a); `∂/∂σ` is Phase 2a (σ is allowed in the forward);
@@ -127,11 +193,15 @@ use std::collections::HashMap;
 use burn::tensor::backend::Backend;
 use faer::c64;
 
+use crate::analytic::port_mode_sensitivity::{
+    FaceDesign, FaceGroups, FaceModes, HybridModeDerivative, ModeSensitivityOpts,
+    ModeSensitivityWarning, PortFace, PortModeSensitivityError,
+};
 use crate::assembly::hcurl_space::HcurlSpace;
 use crate::driven::ports::mixed::{ModalSmw, PowerWeights, dot_t};
 use crate::driven::ports::{
-    LumpedPort, WavePort, WavePortSpec, assemble_modal_flux, assemble_port_flux,
-    hybrid_port_channel_sweep,
+    ChanAt, ChanOrigin, FaceModeSet, HybridWavePort, LumpedPort, WavePort, WavePortSpec,
+    assemble_modal_flux, assemble_port_flux, hybrid_port_channel_sweep,
 };
 use crate::driven::shape::{Dual, nedelec_local_dual};
 use crate::driven::solve::{
@@ -144,9 +214,14 @@ use crate::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
 const PHASE_2A: &str =
     "Epic #841 Phase 2a: dispersive, anisotropic and conductive (σ) material parameters";
 const PHASE_2B: &str = "Epic #841 Phase 2b: wall parameters and moving impedance walls";
-const PHASE_3: &str = "Epic #841 Phase 3: port-mode sensitivities (3a on the 2-D port pencil, \
-                       3b hybrid ports in the 3-D S gradient)";
-const PHASE_3B: &str = "Epic #841 Phase 3b: moving wave-port faces";
+const PHASE_3B_GEOMETRIC: &str = "Epic #841 Phase 3b moves hybrid port faces only: a geometric \
+                                  wave port's modes are fixed user-supplied edge profiles";
+const PHASE_3B_PAIR: &str = "Epic #841 Phase 3b differentiates simple face modes only: a \
+                             mesh-induced complex pair has no per-member derivative (Phase 3a \
+                             scope)";
+const PHASE_3B_PLANAR: &str = "Epic #841 Phase 3b keeps hybrid port faces planar: in-plane face \
+                               motion and a rigid translation along the normal are supported";
+const TRIPWIRE: &str = "a test-only tripwire option, never differentiated";
 const MOVING_FEED: &str = "an Epic #841 follow-on: N-port moving lumped feeds";
 const P2_PHASE: &str = "Epic #836 Phase 4 (gradients at p=2; the p=2 forward with ports and walls \
                         landed in Phase 1b)";
@@ -179,6 +254,41 @@ pub enum SSensitivityError {
     /// error: please report it.
     #[error("S-matrix sensitivity internal consistency check failed: {0}")]
     Internal(String),
+    /// A design θ touches hybrid port `port`'s face, and a channel's face
+    /// mode lies in an **exactly degenerate cluster** (e.g. the #817 even /
+    /// odd TEM pair of a homogeneous coupled line): the per-channel mode is
+    /// basis-dependent, a symmetry-breaking θ splits the cluster, and a
+    /// per-channel `∂S` is undefined. Returned instead of a basis-dependent
+    /// gradient (the #804 rule).
+    #[error(
+        "hybrid port {port} at ω = {omega}: channel {channel} is a direction of the exactly \
+         degenerate face-mode cluster {members:?}, and θ touches the port face — a per-channel \
+         ∂S is basis-dependent and undefined there; {hint}"
+    )]
+    DegenerateCluster {
+        /// Wave-port index.
+        port: usize,
+        /// Frequency.
+        omega: f64,
+        /// The port-local channel index (reported first, then termination).
+        channel: usize,
+        /// The cluster's face-mode indices.
+        members: Vec<usize>,
+        /// What to do instead.
+        hint: String,
+    },
+    /// The 2-D port-mode derivative of a hybrid port θ touches failed
+    /// (Epic #841 Phase 3a: bordered solve, face assembly, a mode that
+    /// cannot be normalized).
+    #[error("hybrid port {port} at ω = {omega}: port-mode derivative failed: {source}")]
+    PortMode {
+        /// Wave-port index.
+        port: usize,
+        /// Frequency.
+        omega: f64,
+        /// The Phase 3a error.
+        source: PortModeSensitivityError,
+    },
 }
 
 /// How the adjoint (transpose) solves are obtained (issue #842's explicit
@@ -496,8 +606,8 @@ pub struct SDesign {
     ///
     /// For a bound, lossless (`ε″ = 0`) propagating port the `ε″` derivative
     /// is the one-sided passive-side derivative (see
-    /// [`SParam::EpsDoublePrime`]). Binding a hybrid port is the Phase 3
-    /// error.
+    /// [`SParam::EpsDoublePrime`]). Binding a hybrid port is an invalid
+    /// design: its modes follow its face `ε` on their own (Phase 3b).
     pub port_fill: Vec<Option<usize>>,
 }
 
@@ -572,6 +682,15 @@ pub enum SensitivityFault {
     DropWeight,
     /// Use `x_p` in place of `x_q` in the off-diagonal contraction.
     SwapOffDiagonal,
+    /// Hybrid port (issue #872): drop the eigenvector-shape part of the
+    /// modal-flux derivative, `(B y)_t` of `∂z = y + c z`.
+    DropModeShape,
+    /// Hybrid port: drop the derivative of the modal normalization — the
+    /// `c z` part of `∂z` and the `−f̂ ∂β/β` of `f̂ = ±F/β`.
+    DropModeNormalization,
+    /// Hybrid port: drop `∂y_c = ∂β_c` of every hybrid channel (Robin term,
+    /// drive and power weights).
+    DropModeAdmittance,
 }
 
 /// Options of the sensitivity sweep.
@@ -650,6 +769,22 @@ pub struct SSensitivityPoint {
     pub n_adjoint_solves: usize,
     /// The forward and dual fields.
     pub fields: SAdjointFields,
+    /// Non-fatal port-mode conditions of the hybrid ports θ touches (a
+    /// near-degenerate face mode, an ill-conditioned bordered solve; issue
+    /// #872). Empty when no hybrid port is touched.
+    pub port_mode_warnings: Vec<HybridModeNote>,
+}
+
+/// A non-fatal port-mode condition of one channel of a hybrid port θ
+/// touches ([`SSensitivityPoint::port_mode_warnings`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct HybridModeNote {
+    /// Wave-port index.
+    pub port: usize,
+    /// Port-local channel index (reported first, then termination).
+    pub channel: usize,
+    /// The Phase 3a condition.
+    pub warning: ModeSensitivityWarning,
 }
 
 /// Result of [`s_matrix_sensitivity_sweep`].
@@ -720,7 +855,7 @@ pub fn s_matrix_sensitivity_sweep<B: Backend>(
     let mut points = Vec::with_capacity(omegas.len());
     for (oi, &omega) in omegas.iter().enumerate() {
         let at = prep.solve_at::<B>(oi, omega, device)?;
-        let ds = prep.jvp(&at);
+        let ds = prep.jvp(&at)?;
         points.push(SSensitivityPoint {
             omega,
             s: at.s.clone(),
@@ -733,6 +868,7 @@ pub fn s_matrix_sensitivity_sweep<B: Backend>(
             n_factorizations: at.n_factorizations,
             n_adjoint_solves: at.n_adjoint_solves,
             fields: prep.fields_of(&at),
+            port_mode_warnings: prep.mode_notes(&at),
         });
     }
     Ok(SSensitivitySweep {
@@ -783,7 +919,7 @@ where
             )));
         }
         total += g;
-        for (gi, v) in grad.iter_mut().zip(prep.vjp(&at, &cot)) {
+        for (gi, v) in grad.iter_mut().zip(prep.vjp(&at, &cot)?) {
             *gi += v;
         }
         s_all.push(at.s.clone());
@@ -814,13 +950,41 @@ enum PortKind {
         fill: Option<usize>,
     },
     /// Hybrid: per-ω `(reported, termination)` channels (interior fluxes,
-    /// β, y, a_inc), tracked once over the whole sweep.
-    Hybrid { per_omega: Vec<HybridAt> },
+    /// β, y, a_inc, face-mode origin), tracked once over the whole sweep;
+    /// `face` the face design when θ touches the port (issue #872).
+    Hybrid {
+        per_omega: Vec<HybridAt>,
+        face: Option<Box<HybridFaceDesign>>,
+    },
 }
 
 struct HybridAt {
-    reported: Vec<(c64, c64, c64, Vec<c64>)>,
-    termination: Vec<(c64, Vec<c64>)>,
+    reported: Vec<HybChan>,
+    termination: Vec<HybChan>,
+}
+
+/// One hybrid channel at one ω (interior flux).
+struct HybChan {
+    beta: c64,
+    y: c64,
+    a_inc: Option<c64>,
+    flux: Vec<c64>,
+    origin: Option<ChanOrigin>,
+}
+
+/// The 2-D design a 3-D design induces on a hybrid port face it touches
+/// (issue #872): the face triangles that follow each design region (through
+/// [`crate::driven::ports::HybridPortFace::tet_of_tri`]) and the in-plane
+/// trace of each shape column.
+struct HybridFaceDesign {
+    /// The face parameters (a subset of the 3-D ones, in their order).
+    design: FaceDesign,
+    /// 3-D parameter `i` → face parameter (`None`: it does not touch the
+    /// face).
+    param_map: Vec<Option<usize>>,
+    /// Face edge (projection order) → operator interior index
+    /// (`usize::MAX`: PEC-eliminated in the volume).
+    lift_int: Vec<usize>,
 }
 
 /// One modal channel at one ω.
@@ -832,6 +996,26 @@ struct Chan<'a> {
     a_inc: Option<c64>,
     /// Bound design region (filled geometric port).
     fill: Option<usize>,
+    /// A hybrid channel of a touched port: `(wave-port index, port-local
+    /// channel index, face-mode origin)`.
+    hyb: Option<(usize, usize, &'a ChanOrigin)>,
+}
+
+/// The port-mode derivative of one hybrid channel at one ω (issue #872).
+struct HybAt<'s> {
+    /// Wave-port index.
+    port: usize,
+    deriv: HybridModeDerivative<'s>,
+    /// The face design.
+    face: &'s HybridFaceDesign,
+    /// `F = (B_full z)_t` of the normalized mode (face edges).
+    flux_face: Vec<c64>,
+    /// `f̂ = σ F/β` (the tracking sign).
+    sigma: f64,
+    /// `β` of the channel (`= y`).
+    beta: c64,
+    /// `∂β²/∂θ_j` per face parameter.
+    d_beta_sq: Vec<c64>,
 }
 
 /// One region's indicator mass on the operator's interior pattern.
@@ -863,7 +1047,7 @@ struct ShapeData {
 }
 
 /// Everything solved at one ω.
-struct NetAt {
+struct NetAt<'s> {
     omega: f64,
     n: usize,
     s: Vec<c64>,
@@ -888,6 +1072,9 @@ struct NetAt {
     residual_rel: f64,
     n_factorizations: usize,
     n_adjoint_solves: usize,
+    /// Port-mode derivatives of the touched hybrid channels (per SMW
+    /// channel; `None` elsewhere).
+    hyb: Vec<Option<HybAt<'s>>>,
 }
 
 fn unsupported(
@@ -946,6 +1133,176 @@ fn tets_on_faces(face_tets: &HashMap<[u32; 3], Vec<usize>>, faces: &[[u32; 3]]) 
     out.sort_unstable();
     out.dedup();
     out
+}
+
+/// The face design a 3-D design induces on hybrid port `p` (issue #872),
+/// or `None` when θ does not touch the face (its modes are θ-independent):
+///
+/// * **material**: the face triangles whose tet
+///   ([`crate::driven::ports::HybridPortFace::tet_of_tri`], the tet the face
+///   reads its `ε` from) lies in a design region follow that region's `ε′`
+///   (`∂ε = 1`) and `ε″` (`∂ε = −j`, `ε = ε′ − jε″`);
+/// * **shape**: the in-plane trace `(V·u, V·v)` of each column on the face
+///   nodes (the face motion **is** the volume motion restricted to the
+///   face, so the 2-D and 3-D derivatives see one geometry). A uniform
+///   normal component (a rigid shift of the port plane) leaves the 2-D
+///   problem unchanged and is the volume term's alone; a non-uniform one
+///   would bend the face and is a typed error.
+#[allow(clippy::too_many_arguments)]
+fn hybrid_face_design(
+    port: &HybridWavePort,
+    p: usize,
+    touched: &[usize],
+    material: Option<&MaterialDesign>,
+    shape: Option<&ShapeDesign>,
+    params: &[SParam],
+    edge_index: &HashMap<(u32, u32), usize>,
+    interior_of: &[usize],
+) -> Result<Option<Box<HybridFaceDesign>>, SSensitivityError> {
+    let face = &port.face;
+    let proj = &face.projection;
+    let n_tris = proj.tri_mesh.n_tris();
+    let n_nodes2 = proj.tri_mesh.n_nodes();
+    // Material: which design region each face triangle follows.
+    let region_of_tri: Vec<Option<usize>> = match material.filter(|m| m.eps_prime || m.eps_dprime) {
+        Some(m) => match &face.tet_of_tri {
+            Some(tets) => tets.iter().map(|&t| m.region_of_tet[t]).collect(),
+            None => {
+                if let Some(&t) = touched.first() {
+                    return Err(SSensitivityError::InvalidDesign(format!(
+                        "hybrid wave port {p}'s face bounds design-region tet {t}, but the \
+                             face carries no tet map, so its ε cannot follow the region: build \
+                             it with HybridPortFace::from_volume (from_volume_lossy, \
+                             from_volume_with_pec)"
+                    )));
+                }
+                vec![None; n_tris]
+            }
+        },
+        None => vec![None; n_tris],
+    };
+    // Shape: in-plane traces of every column on the face nodes.
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let mut vel2: Vec<Option<Vec<[f64; 2]>>> = Vec::new();
+    if let Some(sd) = shape {
+        for (ci, col) in sd.columns.iter().enumerate() {
+            let on_face: Vec<[f64; 3]> = proj
+                .local_to_global
+                .iter()
+                .map(|&g| col[g as usize])
+                .collect();
+            let scale = on_face
+                .iter()
+                .map(|v| dot(*v, *v).sqrt())
+                .fold(0.0, f64::max);
+            if scale == 0.0 {
+                vel2.push(None);
+                continue;
+            }
+            let vn: Vec<f64> = on_face.iter().map(|v| dot(*v, proj.normal)).collect();
+            let spread = vn.iter().fold(0.0_f64, |a, &x| a.max((x - vn[0]).abs()));
+            if spread > 1e-10 * scale {
+                return Err(unsupported(
+                    format!(
+                        "shape column {ci} (`{}`) bends hybrid wave port {p}'s face out of its \
+                         plane (normal velocity spread {spread:.3e})",
+                        sd.names[ci]
+                    ),
+                    PHASE_3B_PLANAR,
+                    "move the face nodes in-plane (strip width, substrate height) and/or \
+                     translate the whole face along its normal",
+                ));
+            }
+            let v2: Vec<[f64; 2]> = on_face
+                .iter()
+                .map(|v| [dot(*v, proj.u), dot(*v, proj.v)])
+                .collect();
+            vel2.push(v2.iter().any(|v| v[0] != 0.0 || v[1] != 0.0).then_some(v2));
+        }
+    }
+    let material_on_face = region_of_tri.iter().any(Option::is_some);
+    let shape_on_face = vel2.iter().any(Option::is_some);
+    if !material_on_face && !shape_on_face {
+        return Ok(None);
+    }
+    if port.opts.transverse_only_flux {
+        return Err(unsupported(
+            format!(
+                "the transverse_only_flux tripwire on hybrid wave port {p}, whose face θ touches"
+            ),
+            TRIPWIRE,
+            "differentiate the physical flux (transverse_only_flux = false)",
+        ));
+    }
+    // The face design, in 3-D parameter order.
+    let n_regions = material.map_or(0, MaterialDesign::n_regions);
+    let mut groups = FaceGroups::default();
+    let mut names = Vec::new();
+    let mut region_name = vec![None; n_regions];
+    for (r, slot) in region_name.iter_mut().enumerate() {
+        let tris: Vec<u32> = (0..n_tris as u32)
+            .filter(|&t| region_of_tri[t as usize] == Some(r))
+            .collect();
+        if !tris.is_empty() {
+            let name = format!("region{r}");
+            groups.tris.insert(name.clone(), tris);
+            *slot = Some(name.clone());
+            names.push(name);
+        }
+    }
+    let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let invalid = |e: PortModeSensitivityError| {
+        SSensitivityError::InvalidDesign(format!("hybrid wave port {p} face design: {e}"))
+    };
+    let mut design = FaceDesign::new(&proj.tri_mesh)
+        .with_tri_groups(&groups, &name_refs)
+        .map_err(invalid)?;
+    let mut param_map = Vec::with_capacity(params.len());
+    for prm in params {
+        let slot = match *prm {
+            SParam::EpsPrime { region } | SParam::EpsDoublePrime { region } => {
+                match &region_name[region] {
+                    Some(name) => {
+                        let d_eps = if matches!(prm, SParam::EpsPrime { .. }) {
+                            c64::new(1.0, 0.0)
+                        } else {
+                            c64::new(0.0, -1.0)
+                        };
+                        design
+                            .push_material(format!("{prm:?}"), name, d_eps)
+                            .map_err(invalid)?;
+                        Some(design.params().len() - 1)
+                    }
+                    None => None,
+                }
+            }
+            SParam::Shape { column } => match &vel2[column] {
+                Some(v) => {
+                    debug_assert_eq!(v.len(), n_nodes2);
+                    design
+                        .push_shape_column(format!("shape[{column}]"), v.clone())
+                        .map_err(invalid)?;
+                    Some(design.params().len() - 1)
+                }
+                None => None,
+            },
+        };
+        param_map.push(slot);
+    }
+    let mut lift_int = Vec::with_capacity(proj.global_edges.len());
+    for e in &proj.global_edges {
+        let g = *edge_index.get(&(e[0], e[1])).ok_or_else(|| {
+            SSensitivityError::InvalidDesign(format!(
+                "hybrid port-face edge {e:?} is not an edge of the 3-D mesh"
+            ))
+        })?;
+        lift_int.push(interior_of[g]);
+    }
+    Ok(Some(Box::new(HybridFaceDesign {
+        design,
+        param_map,
+        lift_int,
+    })))
 }
 
 impl<'n> Prepared<'n> {
@@ -1040,6 +1397,19 @@ impl<'n> Prepared<'n> {
                 .filter_map(|(&v, &k)| k.then_some(v))
                 .collect()
         };
+        let mut interior_of = vec![usize::MAX; edges.len()];
+        let mut next_int = 0usize;
+        for (slot, &keep) in interior_of.iter_mut().zip(mask) {
+            if keep {
+                *slot = next_int;
+                next_int += 1;
+            }
+        }
+        let edge_index: HashMap<(u32, u32), usize> = edges
+            .iter()
+            .enumerate()
+            .map(|(i, e)| ((e[0], e[1]), i))
+            .collect();
 
         // --- Design bookkeeping ---------------------------------------------
         let material = design.material.as_ref();
@@ -1144,27 +1514,22 @@ impl<'n> Prepared<'n> {
             match spec {
                 WavePortSpec::Hybrid(h) => {
                     if fill.is_some() {
-                        return Err(unsupported(
-                            format!("a port_fill binding on hybrid wave port {p}"),
-                            PHASE_3,
-                            "a hybrid port's modes follow its face ε through the 2-D pencil",
-                        ));
+                        return Err(SSensitivityError::InvalidDesign(format!(
+                            "port_fill[{p}] binds hybrid wave port {p}: a hybrid port's modes \
+                             follow its face ε through the 2-D pencil on their own (Epic #841 \
+                             Phase 3b); port_fill is for geometric wave ports"
+                        )));
                     }
-                    if let Some(&t) = touched.first() {
-                        return Err(unsupported(
-                            format!("hybrid wave port {p} whose face bounds design-region tet {t}"),
-                            PHASE_3,
-                            "keep design regions off hybrid port faces (an untouched hybrid port \
-                             is admitted)",
-                        ));
-                    }
-                    if let Some(n) = moved_on(spec.faces()) {
-                        return Err(unsupported(
-                            format!("a shape column moving hybrid wave port {p}'s face (node {n})"),
-                            PHASE_3,
-                            "pin the port face in the morph",
-                        ));
-                    }
+                    let face = hybrid_face_design(
+                        h,
+                        p,
+                        &touched,
+                        material,
+                        design.shape.as_ref(),
+                        &params,
+                        &edge_index,
+                        &interior_of,
+                    )?;
                     let per = hybrid_port_channel_sweep(
                         mesh,
                         &edges,
@@ -1181,32 +1546,30 @@ impl<'n> Prepared<'n> {
                         }
                         interior(&full)
                     };
+                    let chan = |c: ChanAt| HybChan {
+                        beta: c.beta,
+                        y: c.y,
+                        a_inc: c.a_inc,
+                        flux: to_int(&c.flux),
+                        origin: c.origin,
+                    };
                     let per_omega = per
                         .into_iter()
                         .map(|(rep, term)| HybridAt {
-                            reported: rep
-                                .iter()
-                                .map(|c| {
-                                    (
-                                        c.beta,
-                                        c.y,
-                                        c.a_inc.expect("reported channels carry a drive"),
-                                        to_int(&c.flux),
-                                    )
-                                })
-                                .collect(),
-                            termination: term.iter().map(|c| (c.y, to_int(&c.flux))).collect(),
+                            reported: rep.into_iter().map(chan).collect(),
+                            termination: term.into_iter().map(chan).collect(),
                         })
                         .collect();
-                    ports.push(PortKind::Hybrid { per_omega });
+                    ports.push(PortKind::Hybrid { per_omega, face });
                 }
                 WavePortSpec::Geometric(port) => {
                     if let Some(n) = moved_on(&port.faces) {
                         return Err(unsupported(
                             format!("a shape column moving wave port {p}'s face (node {n})"),
-                            PHASE_3B,
+                            PHASE_3B_GEOMETRIC,
                             "pin the port face in the morph (the modal profiles and k_c are \
-                             those of the fixed face)",
+                             those of the fixed face), or use a HybridWavePort, whose modes \
+                             follow a moving face",
                         ));
                     }
                     if port.modes.is_empty() {
@@ -1385,10 +1748,10 @@ impl<'n> Prepared<'n> {
 
     /// The SMW channels at frequency index `oi`: reported (port-major), then
     /// hybrid terminations — the order of the spec sweep.
-    fn channels_at(&self, oi: usize, omega: f64) -> Vec<Chan<'_>> {
+    fn channels_at<'a>(&'a self, oi: usize, omega: f64) -> Vec<Chan<'a>> {
         let mut reported = Vec::new();
         let mut termination = Vec::new();
-        for kind in &self.ports {
+        for (p, kind) in self.ports.iter().enumerate() {
             match kind {
                 PortKind::Geometric { port, fluxes, fill } => {
                     for (m, f) in fluxes.iter().enumerate() {
@@ -1399,27 +1762,35 @@ impl<'n> Prepared<'n> {
                             y: port.medium.admittance(beta),
                             a_inc: Some(port.modes[m].a_inc),
                             fill: *fill,
+                            hyb: None,
                         });
                     }
                 }
-                PortKind::Hybrid { per_omega } => {
+                PortKind::Hybrid { per_omega, face } => {
                     let h = &per_omega[oi];
-                    for (beta, y, a_inc, f) in &h.reported {
+                    let n_rep = h.reported.len();
+                    let hyb = |local: usize, c: &'a HybChan| match (face, &c.origin) {
+                        (Some(_), Some(o)) => Some((p, local, o)),
+                        _ => None,
+                    };
+                    for (local, c) in h.reported.iter().enumerate() {
                         reported.push(Chan {
-                            flux: std::borrow::Cow::Borrowed(f.as_slice()),
-                            beta: *beta,
-                            y: *y,
-                            a_inc: Some(*a_inc),
+                            flux: std::borrow::Cow::Borrowed(c.flux.as_slice()),
+                            beta: c.beta,
+                            y: c.y,
+                            a_inc: Some(c.a_inc.expect("reported channels carry a drive")),
                             fill: None,
+                            hyb: hyb(local, c),
                         });
                     }
-                    for (y, f) in &h.termination {
+                    for (local, c) in h.termination.iter().enumerate() {
                         termination.push(Chan {
-                            flux: std::borrow::Cow::Borrowed(f.as_slice()),
+                            flux: std::borrow::Cow::Borrowed(c.flux.as_slice()),
                             beta: c64::new(0.0, 0.0),
-                            y: *y,
+                            y: c.y,
                             a_inc: None,
                             fill: None,
+                            hyb: hyb(n_rep + local, c),
                         });
                     }
                 }
@@ -1435,7 +1806,7 @@ impl<'n> Prepared<'n> {
         oi: usize,
         omega: f64,
         device: &B::Device,
-    ) -> Result<NetAt, SSensitivityError> {
+    ) -> Result<NetAt<'_>, SSensitivityError> {
         let zero = c64::new(0.0, 0.0);
         let j = c64::new(0.0, 1.0);
         let chans = self.channels_at(oi, omega);
@@ -1457,6 +1828,16 @@ impl<'n> Prepared<'n> {
         }
         let fluxes: Vec<Vec<c64>> = chans.iter().map(|c| c.flux.to_vec()).collect();
         let ys: Vec<c64> = chans.iter().map(|c| c.y).collect();
+        // Port-mode derivatives of the hybrid channels θ touches (#872).
+        let mut hyb = Vec::with_capacity(n_ch);
+        for ch in &chans {
+            hyb.push(match ch.hyb {
+                Some((p, local, origin)) => {
+                    Some(self.hyb_channel(omega, p, local, origin, &ch.flux, ch.y)?)
+                }
+                None => None,
+            });
+        }
 
         // One factorization serves the forward and (General) adjoint solves.
         let solver = self
@@ -1590,19 +1971,31 @@ impl<'n> Prepared<'n> {
         // ∂y_c/∂θ: a filled port bound to region R, ∂y/∂ε_t = k₀²/(2β)
         // (y = β/μ_t, β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c², μ_t = μ_n = 1 here),
         // ∂ε_t/∂ε′ = 1, ∂ε_t/∂ε″ = −j.
+        let drop_mode_y = self.opts.fault == Some(SensitivityFault::DropModeAdmittance);
         let dy: Vec<Vec<c64>> = chans
             .iter()
-            .map(|ch| {
+            .zip(&hyb)
+            .map(|(ch, h)| {
                 self.params
                     .iter()
-                    .map(|prm| match (ch.fill, *prm) {
-                        (Some(r), SParam::EpsPrime { region }) if r == region => {
-                            c64::new(omega * omega, 0.0) / (ch.beta * 2.0)
+                    .enumerate()
+                    .map(|(i, prm)| {
+                        if let Some(h) = h {
+                            // y = β on a hybrid channel: ∂y = ∂β²/(2β).
+                            return match h.face.param_map[i] {
+                                Some(jf) if !drop_mode_y => h.d_beta_sq[jf] / (h.beta * 2.0),
+                                _ => zero,
+                            };
                         }
-                        (Some(r), SParam::EpsDoublePrime { region }) if r == region => {
-                            c64::new(omega * omega, 0.0) / (ch.beta * 2.0) * c64::new(0.0, -1.0)
+                        match (ch.fill, *prm) {
+                            (Some(r), SParam::EpsPrime { region }) if r == region => {
+                                c64::new(omega * omega, 0.0) / (ch.beta * 2.0)
+                            }
+                            (Some(r), SParam::EpsDoublePrime { region }) if r == region => {
+                                c64::new(omega * omega, 0.0) / (ch.beta * 2.0) * c64::new(0.0, -1.0)
+                            }
+                            _ => zero,
                         }
-                        _ => zero,
                     })
                     .collect()
             })
@@ -1639,16 +2032,129 @@ impl<'n> Prepared<'n> {
             residual_rel,
             n_factorizations,
             n_adjoint_solves,
+            hyb,
+        })
+    }
+
+    /// The port-mode derivative of hybrid channel `local` of wave port `p`
+    /// at `omega` (issue #872): the Phase 3a derivative of its face mode, the
+    /// tracking sign `σ` of `f̂ = σF/β`, checked against the forward's own
+    /// flux (`flux_int`, interior) and `y = β`.
+    fn hyb_channel(
+        &self,
+        omega: f64,
+        p: usize,
+        local: usize,
+        origin: &ChanOrigin,
+        flux_int: &[c64],
+        y: c64,
+    ) -> Result<HybAt<'_>, SSensitivityError> {
+        let PortKind::Hybrid { face: Some(fd), .. } = &self.ports[p] else {
+            unreachable!("a touched hybrid channel has a face design")
+        };
+        let wave: &'n [WavePortSpec] = self.net.wave;
+        let WavePortSpec::Hybrid(h) = &wave[p] else {
+            unreachable!("port kind matches its spec")
+        };
+        if origin.members.is_empty() {
+            return Err(unsupported(
+                format!(
+                    "a mesh-induced complex-pair termination member (channel {local}) of hybrid \
+                     wave port {p}, whose face θ touches"
+                ),
+                PHASE_3B_PAIR,
+                "refine the port face so the pair resolves into real modes, or lower \
+                 n_termination_evanescent so the window stops above the pair",
+            ));
+        }
+        let cluster = |members: Vec<usize>| SSensitivityError::DegenerateCluster {
+            port: p,
+            omega,
+            channel: local,
+            members,
+            hint: "keep θ off this port face, or differentiate a cluster-invariant quantity \
+                   on the face (analytic::port_mode_sensitivity::cluster_sensitivity: ∂ of the \
+                   cluster's mean β²)"
+                .to_string(),
+        };
+        if origin.members.len() > 1 {
+            return Err(cluster(origin.members.clone()));
+        }
+        let face = PortFace {
+            mesh: &h.face.projection.tri_mesh,
+            interior_edge_mask: &h.face.interior_edge_mask,
+            free_node_mask: &h.face.free_node_mask,
+            k0: omega,
+        };
+        let modes = match &origin.set {
+            FaceModeSet::Real(set) => FaceModes::Real(set),
+            FaceModeSet::Lossy(set) => FaceModes::Lossy(set),
+        };
+        let port_mode = |source| SSensitivityError::PortMode {
+            port: p,
+            omega,
+            source,
+        };
+        let deriv = HybridModeDerivative::new(
+            face,
+            &origin.eps,
+            modes,
+            origin.members[0],
+            ModeSensitivityOpts::default(),
+        )
+        .map_err(|e| match e {
+            PortModeSensitivityError::DegenerateCluster { members, .. } => cluster(members),
+            other => port_mode(other),
+        })?;
+        let beta = deriv.beta();
+        if (beta - y).norm() > 1e-12 * y.norm() {
+            return Err(SSensitivityError::Internal(format!(
+                "hybrid port {p} channel {local} at ω = {omega}: the face mode's β = {beta} \
+                 differs from the forward channel's y = {y}"
+            )));
+        }
+        let flux_face = deriv.face_flux();
+        // f̂ = σ F/β on the interior edges, against the forward's flux.
+        let mut cand = vec![c64::new(0.0, 0.0); flux_int.len()];
+        for (&g, &f) in fd.lift_int.iter().zip(&flux_face) {
+            if g != usize::MAX {
+                cand[g] = f / beta;
+            }
+        }
+        let proj: c64 = cand.iter().zip(flux_int).map(|(c, f)| c.conj() * f).sum();
+        let sigma = if proj.re >= 0.0 { 1.0 } else { -1.0 };
+        let (mut e2, mut n2) = (0.0_f64, 0.0_f64);
+        for (c, f) in cand.iter().zip(flux_int) {
+            e2 += (f - c * sigma).norm_sqr();
+            n2 += f.norm_sqr();
+        }
+        let rel = (e2 / n2.max(f64::MIN_POSITIVE)).sqrt();
+        if rel.is_nan() || rel > 1e-9 {
+            return Err(SSensitivityError::Internal(format!(
+                "hybrid port {p} channel {local} at ω = {omega}: the face mode's flux ±F/β \
+                 differs from the forward channel's flux (rel {rel:.3e}); the port-mode \
+                 derivative would not differentiate the forward's channel"
+            )));
+        }
+        let d_beta_sq = deriv.d_beta_sq(&fd.design).map_err(port_mode)?;
+        Ok(HybAt {
+            port: p,
+            deriv,
+            face: fd,
+            flux_face,
+            sigma,
+            beta,
+            d_beta_sq,
         })
     }
 
     /// `κ_kp = ρ_k W_k / ã_p`.
-    fn kappa(at: &NetAt, k: usize, p: usize) -> c64 {
+    fn kappa(at: &NetAt<'_>, k: usize, p: usize) -> c64 {
         at.readout[k] * at.weight[k] / at.a_tilde[p]
     }
 
     /// Everything of `∂S_kp/∂θ_i` except the volume term `−κ λ_kᵀ∂A x_p`.
-    fn cheap_term(&self, at: &NetAt, i: usize, k: usize, p: usize) -> c64 {
+    fn cheap_term(&self, at: &NetAt<'_>, i: usize, k: usize, p: usize) -> c64 {
         let zero = c64::new(0.0, 0.0);
         let j = c64::new(0.0, 1.0);
         let n = at.n;
@@ -1686,7 +2192,7 @@ impl<'n> Prepared<'n> {
     }
 
     /// The full `∂S/∂θ` table at one ω.
-    fn jvp(&self, at: &NetAt) -> Vec<Vec<c64>> {
+    fn jvp(&self, at: &NetAt<'_>) -> Result<Vec<Vec<c64>>, SSensitivityError> {
         let n = at.n;
         // Left vector of pair (k, p): λ_k — or, under a test-only fault, the
         // corrupted variant the FD tripwire must catch.
@@ -1719,7 +2225,7 @@ impl<'n> Prepared<'n> {
             .collect();
         let rights: Vec<&[c64]> = (0..n * n).map(|kp| at.xs[kp % n].as_slice()).collect();
         let t = self.volume_terms(at.omega, &lefts, &rights);
-        (0..self.params.len())
+        let mut ds: Vec<Vec<c64>> = (0..self.params.len())
             .map(|i| {
                 (0..n * n)
                     .map(|kp| {
@@ -1728,12 +2234,194 @@ impl<'n> Prepared<'n> {
                     })
                     .collect()
             })
-            .collect()
+            .collect();
+        self.hybrid_flux_jvp(at, &mut ds)?;
+        Ok(ds)
+    }
+
+    /// `∂f̂` on the face edges of one touched hybrid channel from the split
+    /// flux derivative (issue #872): with `f̂ = σF/β`,
+    /// `∂f̂ = σ(explicit + shape + c F)/β − f̂ ∂β/β`, `∂β = ∂β²/(2β)`. The
+    /// test-only faults drop the shape term or both normalization terms.
+    fn dflux_coeffs(&self, h: &HybAt<'_>, norm_coeff: c64, d_beta_sq: c64) -> (c64, c64, bool) {
+        let fault = self.opts.fault;
+        let keep_shape = fault != Some(SensitivityFault::DropModeShape);
+        let (c, dbeta_over_beta) = if fault == Some(SensitivityFault::DropModeNormalization) {
+            (c64::new(0.0, 0.0), c64::new(0.0, 0.0))
+        } else {
+            (norm_coeff, d_beta_sq / (h.beta * h.beta * 2.0))
+        };
+        // ∂f̂ = a·(explicit + [shape]) + b·F with a = σ/β, b = σ(c − ∂β/β)/β.
+        let a = c64::new(h.sigma, 0.0) / h.beta;
+        (a, a * (c - dbeta_over_beta), keep_shape)
+    }
+
+    /// The hybrid modal-flux terms of `∂S` (issue #872), added to the table:
+    /// with `∂u_c` the interior lift of `∂f̂_c`,
+    ///
+    /// ```text
+    /// ∂(u_kᵀx_p) ⊃ ∂u_kᵀx_p + d_p λ_kᵀ∂u_p − Σ_c j y_c [(λ_kᵀ∂u_c)(u_cᵀx_p) + (λ_kᵀu_c)(∂u_cᵀx_p)]
+    /// ```
+    ///
+    /// (the readout, the drive and the SMW term of every touched channel),
+    /// times `κ_kp`.
+    fn hybrid_flux_jvp(
+        &self,
+        at: &NetAt<'_>,
+        ds: &mut [Vec<c64>],
+    ) -> Result<(), SSensitivityError> {
+        if at.hyb.iter().all(Option::is_none) {
+            return Ok(());
+        }
+        let zero = c64::new(0.0, 0.0);
+        let j = c64::new(0.0, 1.0);
+        let (n, nl, n_ch) = (at.n, self.n_lumped, at.n_ch);
+        let n_int = self.op.n_interior();
+        for (i, ds_i) in ds.iter_mut().enumerate() {
+            let mut du: Vec<Option<Vec<c64>>> = vec![None; n_ch];
+            for (c, h) in at.hyb.iter().enumerate() {
+                let Some(h) = h else { continue };
+                let Some(jf) = h.face.param_map[i] else {
+                    continue;
+                };
+                let tan = h
+                    .deriv
+                    .face_flux_tangent(&h.face.design, jf)
+                    .map_err(|source| SSensitivityError::PortMode {
+                        port: h.port,
+                        omega: at.omega,
+                        source,
+                    })?;
+                let (a, b, keep_shape) = self.dflux_coeffs(h, tan.norm_coeff, tan.d_beta_sq);
+                let mut v = vec![zero; n_int];
+                for (l, &g) in h.face.lift_int.iter().enumerate() {
+                    if g == usize::MAX {
+                        continue;
+                    }
+                    let mut d = tan.explicit[l];
+                    if keep_shape {
+                        d += tan.shape[l];
+                    }
+                    v[g] = a * d + b * h.flux_face[l];
+                }
+                du[c] = Some(v);
+            }
+            if du.iter().all(Option::is_none) {
+                continue;
+            }
+            // dux[c·N + p] = ∂u_cᵀx_p, lamdu[k·N_ch + c] = λ_kᵀ∂u_c.
+            let mut dux = vec![zero; n_ch * n];
+            let mut lamdu = vec![zero; n * n_ch];
+            for (c, d) in du.iter().enumerate() {
+                let Some(d) = d else { continue };
+                for p in 0..n {
+                    dux[c * n + p] = dot_t(d, &at.xs[p]);
+                }
+                for k in 0..n {
+                    lamdu[k * n_ch + c] = dot_t(&at.lambdas[k], d);
+                }
+            }
+            for k in 0..n {
+                for p in 0..n {
+                    let mut f = zero;
+                    if k >= nl && du[k - nl].is_some() {
+                        f += dux[(k - nl) * n + p];
+                    }
+                    if p >= nl && du[p - nl].is_some() {
+                        f += at.drive[p] * lamdu[k * n_ch + (p - nl)];
+                    }
+                    for c in (0..n_ch).filter(|&c| du[c].is_some()) {
+                        f -= j
+                            * at.ys[c]
+                            * (lamdu[k * n_ch + c] * at.ac[c * n + p]
+                                + at.lc[k * n_ch + c] * dux[c * n + p]);
+                    }
+                    ds_i[k * n + p] += Self::kappa(at, k, p) * f;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Reverse mode of [`Self::hybrid_flux_jvp`] for the cotangent `cot`:
+    /// the flux terms collapse into one interior cotangent `G_c` per touched
+    /// channel, `Σ_kp c_kp κ_kp F(k,p) = Σ_c G_cᵀ∂u_c`, and each costs one
+    /// bordered back-solve on the face
+    /// ([`HybridModeDerivative::face_flux_vjp`]) for every parameter.
+    fn hybrid_flux_vjp(
+        &self,
+        at: &NetAt<'_>,
+        cot: &[c64],
+        grad: &mut [f64],
+    ) -> Result<(), SSensitivityError> {
+        if at.hyb.iter().all(Option::is_none) {
+            return Ok(());
+        }
+        let zero = c64::new(0.0, 0.0);
+        let j = c64::new(0.0, 1.0);
+        let (n, nl, n_ch) = (at.n, self.n_lumped, at.n_ch);
+        let n_int = self.op.n_interior();
+        let w: Vec<c64> = (0..n * n)
+            .map(|kp| cot[kp] * Self::kappa(at, kp / n, kp % n))
+            .collect();
+        let axpy = |acc: &mut [c64], s: c64, x: &[c64]| {
+            if s != zero {
+                for (a, &v) in acc.iter_mut().zip(x) {
+                    *a += s * v;
+                }
+            }
+        };
+        for (c, h) in at.hyb.iter().enumerate() {
+            let Some(h) = h else { continue };
+            let mut g = vec![zero; n_int];
+            if c + nl < n {
+                // Channel c is S channel k = p = N_l + c.
+                let kc = nl + c;
+                for p in 0..n {
+                    axpy(&mut g, w[kc * n + p], &at.xs[p]);
+                }
+                for k in 0..n {
+                    axpy(&mut g, w[k * n + kc] * at.drive[kc], &at.lambdas[k]);
+                }
+            }
+            for k in 0..n {
+                let s: c64 = (0..n).map(|p| w[k * n + p] * at.ac[c * n + p]).sum();
+                axpy(&mut g, -j * at.ys[c] * s, &at.lambdas[k]);
+            }
+            for p in 0..n {
+                let s: c64 = (0..n).map(|k| w[k * n + p] * at.lc[k * n_ch + c]).sum();
+                axpy(&mut g, -j * at.ys[c] * s, &at.xs[p]);
+            }
+            let cot_face: Vec<c64> = h
+                .face
+                .lift_int
+                .iter()
+                .map(|&gi| if gi == usize::MAX { zero } else { g[gi] })
+                .collect();
+            let fv = h
+                .deriv
+                .face_flux_vjp(&h.face.design, &cot_face)
+                .map_err(|source| SSensitivityError::PortMode {
+                    port: h.port,
+                    omega: at.omega,
+                    source,
+                })?;
+            for (gi, map) in grad.iter_mut().zip(&h.face.param_map) {
+                let Some(jf) = *map else { continue };
+                let (a, b, keep_shape) = self.dflux_coeffs(h, fv.norm_coeff[jf], fv.d_beta_sq[jf]);
+                let mut d = fv.explicit[jf];
+                if keep_shape {
+                    d += fv.shape[jf];
+                }
+                *gi += 2.0 * (a * d + b * fv.g_dot_flux).re;
+            }
+        }
+        Ok(())
     }
 
     /// `2 Re Σ_kp c_kp ∂S_kp/∂θ_i` for every `i`, with the volume term folded
     /// into `N` effective adjoints `μ_p = Σ_k c_kp κ_kp λ_k`.
-    fn vjp(&self, at: &NetAt, cot: &[c64]) -> Vec<f64> {
+    fn vjp(&self, at: &NetAt<'_>, cot: &[c64]) -> Result<Vec<f64>, SSensitivityError> {
         let n = at.n;
         let n_int = self.op.n_interior();
         let zero = c64::new(0.0, 0.0);
@@ -1754,7 +2442,7 @@ impl<'n> Prepared<'n> {
         let lefts: Vec<&[c64]> = mus.iter().map(Vec::as_slice).collect();
         let rights: Vec<&[c64]> = at.xs.iter().map(Vec::as_slice).collect();
         let t = self.volume_terms(at.omega, &lefts, &rights);
-        (0..self.params.len())
+        let mut grad: Vec<f64> = (0..self.params.len())
             .map(|i| {
                 let mut acc = zero;
                 for k in 0..n {
@@ -1767,7 +2455,9 @@ impl<'n> Prepared<'n> {
                 }
                 2.0 * acc.re
             })
-            .collect()
+            .collect();
+        self.hybrid_flux_vjp(at, cot, &mut grad)?;
+        Ok(grad)
     }
 
     /// `t[i][pair] = l_pairᵀ (∂A_base/∂θ_i) r_pair` for interior vectors.
@@ -1905,8 +2595,28 @@ impl<'n> Prepared<'n> {
         out
     }
 
+    /// The non-fatal port-mode conditions of the touched hybrid channels.
+    fn mode_notes(&self, at: &NetAt<'_>) -> Vec<HybridModeNote> {
+        let mut out = Vec::new();
+        let mut local = vec![0usize; self.ports.len()];
+        let chans_of_port = |c: usize| -> Option<usize> { at.hyb[c].as_ref().map(|h| h.port) };
+        for c in 0..at.n_ch {
+            let Some(p) = chans_of_port(c) else { continue };
+            let h = at.hyb[c].as_ref().expect("checked");
+            for w in h.deriv.warnings() {
+                out.push(HybridModeNote {
+                    port: p,
+                    channel: local[p],
+                    warning: w.clone(),
+                });
+            }
+            local[p] += 1;
+        }
+        out
+    }
+
     /// The exposed forward / dual fields at one ω (full DOF length).
-    fn fields_of(&self, at: &NetAt) -> SAdjointFields {
+    fn fields_of(&self, at: &NetAt<'_>) -> SAdjointFields {
         let inv = self.op.interior_to_full();
         let full = |v: &Vec<c64>| {
             let mut f = vec![c64::new(0.0, 0.0); self.op.n_dofs()];

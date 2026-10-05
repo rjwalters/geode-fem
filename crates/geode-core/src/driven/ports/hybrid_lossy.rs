@@ -59,12 +59,14 @@
 //! renormalization to a real `reference_ohm` accepts. Phase 5 (#807) uses the
 //! complex `Z_PI` of [`super::HybridComplexLineReport`] by default.
 
+use std::sync::Arc;
+
 use faer::c64;
 
 use super::hybrid::{
-    ChanAt, FaceCtx, HybridChannelReport, HybridComplexLineReport, HybridModalFlux,
-    HybridPortPointReport, HybridPortReport, HybridWavePort, PortAccuracyOpts, PortWarning,
-    PortWarningKind, check_lossy_eps, cluster_warning, multiplicity_warning, sym_eig,
+    ChanAt, ChanOrigin, FaceCtx, FaceModeSet, HybridChannelReport, HybridComplexLineReport,
+    HybridModalFlux, HybridPortPointReport, HybridPortReport, HybridWavePort, PortAccuracyOpts,
+    PortWarning, PortWarningKind, check_lossy_eps, cluster_warning, multiplicity_warning, sym_eig,
 };
 use super::hybrid_z::{
     ImpedanceAccuracy, LineGeom, LineLevel, ZOutcome, ZWarnings, impedance_accuracy, line_complex,
@@ -248,6 +250,13 @@ impl LossyState {
         let k = port.n_modes();
         let eps = face_eps(port, eps_tet, p_idx, omega)?;
         let (set, retried) = solve(port, &eps, omega, 2)?;
+        let set = Arc::new(set);
+        let face_eps = Arc::new(eps.clone());
+        let origin = |members: Vec<usize>| ChanOrigin {
+            set: FaceModeSet::Lossy(Arc::clone(&set)),
+            eps: Arc::clone(&face_eps),
+            members,
+        };
         let n_prop = set.n_propagating;
         let scale = omega * omega * self.ctx.eps_max;
         if !set.diagnostics.multiplicity_certified {
@@ -349,9 +358,11 @@ impl LossyState {
         }
 
         let mut tracked_opt: Vec<Option<(LossyHybridMode, usize)>> = vec![None; k];
+        let mut chan_members: Vec<Vec<usize>> = vec![Vec::new(); k];
         for u in &units {
             for &(dir, ch) in &u.claimed {
                 tracked_opt[ch] = Some((u.direction(&set.modes, dir), u.members.len()));
+                chan_members[ch].clone_from(&u.members);
             }
         }
         let (tracked, cluster_sizes): (Vec<LossyHybridMode>, Vec<usize>) = tracked_opt
@@ -359,13 +370,14 @@ impl LossyState {
             .map(|t| t.expect("every channel assigned"))
             .unzip();
         let mut reported = Vec::with_capacity(k);
-        for (m, &a) in tracked.iter().zip(&port.a_inc) {
+        for ((m, &a), members) in tracked.iter().zip(&port.a_inc).zip(chan_members) {
             let (flux, _) = channel(&self.ctx, m, port.opts.transverse_only_flux);
             reported.push(ChanAt {
                 beta: m.beta,
                 y: m.beta,
                 a_inc: Some(a),
                 flux,
+                origin: Some(origin(members)),
             });
         }
 
@@ -393,6 +405,7 @@ impl LossyState {
                     y: m.beta,
                     a_inc: None,
                     flux,
+                    origin: Some(origin(u.members.clone())),
                 });
             }
         }

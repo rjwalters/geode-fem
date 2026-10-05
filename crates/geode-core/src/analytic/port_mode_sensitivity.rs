@@ -124,9 +124,13 @@
 //!   (`ε″ = 0`) a negative `ε″` (gain) flips the branch, so `∂β`, `∂Z` with
 //!   respect to `ε″` / `tan δ` are the **passive-side** (`ε″ → 0⁺`)
 //!   derivatives there; `∂β²` is analytic and two-sided.
-//! * Out of scope here, named: the 3-D S gradient through hybrid ports
-//!   (Epic #841 Phase 3b), CLI observables (Phase 5b), dispersive-model
-//!   parameter chains (Phase 2a), the p=2 face pencil (Epic #836).
+//! * The 3-D S gradient through hybrid ports (Epic #841 Phase 3b, issue
+//!   #872) composes this module in [`crate::driven::s_sensitivity`]
+//!   through [`HybridModeDerivative::face_flux`],
+//!   [`HybridModeDerivative::face_flux_tangent`] and
+//!   [`HybridModeDerivative::face_flux_vjp`]. Out of scope here, named: CLI
+//!   observables (Phase 5b), dispersive-model parameter chains (Phase 2a),
+//!   the p=2 face pencil (Epic #836).
 //!
 //! # Cost
 //!
@@ -1219,6 +1223,39 @@ impl<'a> FaceCtx<'a> {
         out
     }
 
+    /// The edge rows of `(∂B_full/∂θ) v` for one parameter (full edge
+    /// ordering): `∂M₁ v_t + ∂G v_z`. A material parameter enters `B` only
+    /// through the node block `T_ε`, so its edge rows vanish.
+    fn apply_db_t(&self, param: &FaceParam, v: &FullVec) -> Vec<c64> {
+        let mesh = self.face.mesh;
+        let mut out = vec![ZERO; self.n_t];
+        let FaceParamKind::Shape { velocity } = &param.kind else {
+            return out;
+        };
+        if self.fault == Some(ModeSensitivityFault::DropGeometricKernel) {
+            return out;
+        }
+        for (tri, row) in mesh.tris.iter().zip(&self.tri_edges) {
+            let vel = tri.map(|n| velocity[n as usize]);
+            if vel.iter().flatten().all(|&x| x == 0.0) {
+                continue;
+            }
+            let coords = tri.map(|n| mesh.nodes[n as usize]);
+            let lb = local_blocks_dual(&coords, &vel);
+            for i in 0..3 {
+                let (gi, si) = (row[i].0 as usize, f64::from(row[i].1));
+                for j in 0..3 {
+                    let (gj, sj) = (row[j].0 as usize, f64::from(row[j].1));
+                    out[gi] += v.t[gj] * (si * sj * lb.m[i][j].d);
+                }
+                for kk in 0..3 {
+                    out[gi] += v.z[tri[kk] as usize] * (si * lb.g[i][kk].d);
+                }
+            }
+        }
+        out
+    }
+
     /// For each pair `(u, v)`: `(uᵀ ∂A v, uᵀ ∂B v)` of parameter `param`
     /// (full-layout vectors; entries outside the free set enter only the
     /// full-mesh `B` rows, as the current readout needs).
@@ -1421,6 +1458,42 @@ pub struct LineSensitivity {
     pub d_z_pv: Option<Vec<c64>>,
     /// `∂Z_VI/∂θ` (with voltage paths).
     pub d_z_vi: Option<Vec<c64>>,
+}
+
+/// The derivative of the face-edge modal flux `F = (B_full z)_t` of the
+/// normalized mode along one parameter ([`HybridModeDerivative::face_flux_tangent`],
+/// Epic #841 Phase 3b): `∂F = explicit + shape + norm_coeff · F`.
+#[derive(Debug, Clone)]
+pub struct FluxTangent {
+    /// `∂β²/∂θ`.
+    pub d_beta_sq: c64,
+    /// `(∂B z)_t`: the explicit dependence of the face blocks (`M₁`, `G`) on
+    /// the parameter (zero for a material parameter, which enters `B` only
+    /// through `T_ε`).
+    pub explicit: Vec<c64>,
+    /// `(B y)_t` with `y` the eigenvector-shape part of `∂z` (the bordered
+    /// solve; `B`-orthogonal to `z`).
+    pub shape: Vec<c64>,
+    /// `c` of `∂z = y + c z`, the derivative of the normalization
+    /// `zᵀBz = β²`.
+    pub norm_coeff: c64,
+}
+
+/// Reverse-mode counterpart of [`FluxTangent`] for one face-edge cotangent
+/// `g` ([`HybridModeDerivative::face_flux_vjp`]), one entry per parameter:
+/// `gᵀ∂F = explicit + shape + norm_coeff · g_dot_flux`.
+#[derive(Debug, Clone)]
+pub struct FluxVjp {
+    /// `gᵀF`.
+    pub g_dot_flux: c64,
+    /// `∂β²/∂θ`.
+    pub d_beta_sq: Vec<c64>,
+    /// `gᵀ(∂B z)_t`.
+    pub explicit: Vec<c64>,
+    /// `gᵀ(B y)_t`.
+    pub shape: Vec<c64>,
+    /// The normalization coefficient `c`.
+    pub norm_coeff: Vec<c64>,
 }
 
 /// Every observable sensitivity of one mode
@@ -2068,6 +2141,114 @@ impl<'a> HybridModeDerivative<'a> {
             nearest: self.nearest,
             warnings,
         })
+    }
+
+    /// The **face-edge modal flux** of the normalized mode,
+    /// `F = (B_full z)_t = M₁ẽ_t + Gẽ_z` on every face edge (PEC edges
+    /// included, full edge ordering) — the input of the 3-D S gradient
+    /// through a hybrid port (Epic #841 Phase 3b, issue #872).
+    ///
+    /// The hybrid wave port's flux is `f̂ = S_p κ w̃`, `w̃ = ẽ_t + Dẽ_z`,
+    /// `κ = 1/√(ẽ_tᵀM₁w̃)`. The port-face surface mass `S_p` restricted to the
+    /// face edges is the face Whitney mass `M₁`, and `G = M₁D` (the gradient
+    /// of a P1 function is exactly in the Whitney span), so
+    /// `S_p w̃ = M₁ẽ_t + Gẽ_z = F` and `f̂ = ±F/β` for this module's
+    /// normalization `zᵀBz = β²` (the sign is the port's tracking sign; `f̂`
+    /// is degree-0 homogeneous in `z`, so only the direction matters).
+    pub fn face_flux(&self) -> Vec<c64> {
+        self.ctx.apply_b_full(&self.data.z).t
+    }
+
+    /// The derivative of [`Self::face_flux`] along parameter `i`, split into
+    /// its terms (`∂F = explicit + shape + norm_coeff · F`, see
+    /// [`FluxTangent`]). One bordered back-solve.
+    ///
+    /// # Errors
+    ///
+    /// A design for another mesh, or `i` out of range.
+    pub fn face_flux_tangent(
+        &self,
+        design: &FaceDesign,
+        i: usize,
+    ) -> Result<FluxTangent, PortModeSensitivityError> {
+        self.check_design(design)?;
+        let p = design.params.get(i).ok_or_else(|| {
+            PortModeSensitivityError::InvalidInput(format!("parameter {i} out of range"))
+        })?;
+        let z = &self.data.z;
+        let c = self.ctx.contract(design, p, &[(z, z)]);
+        let (a_zz, b_zz) = c[0];
+        let dmu = self.d_mu(a_zz, b_zz);
+        // y = K⁻¹[−(∂A − μ∂B)z + ∂μ Bz; 0] (the eigenvector-shape part of ∂z,
+        // B-orthogonal to z), c = −(∂μ + zᵀ∂Bz)/(2β²) (the normalization).
+        let dz_op = self.apply_d_op(design, p, z);
+        let rhs: Vec<c64> = dz_op
+            .iter()
+            .zip(&self.bz)
+            .map(|(d, b)| -*d + dmu * *b)
+            .collect();
+        let (y, _r) = self.bordered_solve(&rhs);
+        let shape = self.ctx.apply_b_full(&self.ctx.scatter(&y)).t;
+        Ok(FluxTangent {
+            d_beta_sq: -dmu,
+            explicit: self.ctx.apply_db_t(p, z),
+            shape,
+            norm_coeff: -(dmu + b_zz) / (c64::new(2.0, 0.0) * self.data.beta_sq),
+        })
+    }
+
+    /// Reverse mode of [`Self::face_flux_tangent`]: for a face-edge
+    /// cotangent `cot` (full edge ordering), every parameter's
+    /// `cotᵀ∂F` split into the same terms ([`FluxVjp`]), from **one**
+    /// bordered back-solve for any number of parameters.
+    ///
+    /// # Errors
+    ///
+    /// A cotangent of the wrong length or a design for another mesh.
+    pub fn face_flux_vjp(
+        &self,
+        design: &FaceDesign,
+        cot: &[c64],
+    ) -> Result<FluxVjp, PortModeSensitivityError> {
+        self.check_design(design)?;
+        if cot.len() != self.ctx.n_t {
+            return Err(PortModeSensitivityError::InvalidInput(
+                "the flux cotangent length must be the face edge count".to_string(),
+            ));
+        }
+        let z = &self.data.z;
+        let g = FullVec {
+            t: cot.to_vec(),
+            z: vec![ZERO; self.ctx.n_z],
+        };
+        // (B g)ᵀy = λᵀ rhs with K[λ; τ] = [B g; 0] (K symmetric), and
+        // λᵀBz = 0 from the border row: (B g)ᵀy = −λᵀ(∂A − μ∂B)z.
+        let bg = self.ctx.gather(&self.ctx.apply_b_full(&g));
+        let (lam, _r) = self.bordered_solve(&bg);
+        let lam_full = self.ctx.scatter(&lam);
+        let flux = self.face_flux();
+        let g_dot_flux = dot_u(cot, &flux);
+        let mut out = FluxVjp {
+            g_dot_flux,
+            d_beta_sq: Vec::with_capacity(design.params.len()),
+            explicit: Vec::with_capacity(design.params.len()),
+            shape: Vec::with_capacity(design.params.len()),
+            norm_coeff: Vec::with_capacity(design.params.len()),
+        };
+        for p in &design.params {
+            let c = self
+                .ctx
+                .contract(design, p, &[(z, z), (&lam_full, z), (&g, z)]);
+            let (a_zz, b_zz) = c[0];
+            let (a_lz, b_lz) = c[1];
+            let dmu = self.d_mu(a_zz, b_zz);
+            out.d_beta_sq.push(-dmu);
+            out.shape.push(-(a_lz - self.mu * b_lz));
+            out.explicit.push(c[2].1);
+            out.norm_coeff
+                .push(-(dmu + b_zz) / (c64::new(2.0, 0.0) * self.data.beta_sq));
+        }
+        Ok(out)
     }
 
     /// The border scale used (diagnostics).

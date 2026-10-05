@@ -46,7 +46,7 @@ mod strip_line;
 mod wave;
 mod wave_face;
 
-pub(crate) use hybrid::hybrid_port_channel_sweep;
+pub(crate) use hybrid::{ChanAt, ChanOrigin, FaceModeSet, hybrid_port_channel_sweep};
 pub use hybrid::{
     DEFAULT_MIN_TRACK_OVERLAP, DispersiveEps, FaceConductor, HybridChannelReport,
     HybridComplexLineReport, HybridFaceSweep, HybridLineReport, HybridModalFlux, HybridPortFace,

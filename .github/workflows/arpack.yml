@@ -158,6 +158,13 @@ jobs:
       # hybrid specs vs central FD through the public forwards, the five
       # mutation tripwires, VJP = JVP, the General transpose path and the
       # scope fences) — same reason; ~1.5 s in release.
+      #
+      # Issue #872: `s_matrix_sensitivity_hybrid` (Epic #841 Phase 3b:
+      # ∂S/∂θ on designs that touch hybrid port faces — slab guide,
+      # microstrip, width step, conducting face — vs central FD through the
+      # public hybrid spec sweep, the three port-mode tripwires, VJP = JVP,
+      # General, the degenerate-cluster error and the fences) — same
+      # reason; ~25 s in release.
       - name: Open-path current excitation + surface-not-on-mesh error contract + PROM sweep
         run: |
           cargo test --features arpack -p geode-core --release \
@@ -166,7 +173,8 @@ jobs:
               --test rom_sweep \
               --test mixed_port \
               --test wave_port_impedance_walls \
-              --test s_matrix_sensitivity
+              --test s_matrix_sensitivity \
+              --test s_matrix_sensitivity_hybrid
 
       # Issue #785: the core wave-port and iterative-sweep suites, which
       # no job ran before (found in the #783 review). `wave_port` carries
