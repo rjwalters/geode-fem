@@ -1341,6 +1341,74 @@ fn golden7_periodic_driven_adapts_and_stays_matched() {
     assert!(errs.last().unwrap().0 > 2 * errs[0].0);
 }
 
+/// Golden 7b: the periodic **eigen** path. The x-periodic slab
+/// `[0,1] × [0,1] × [0,½]` with PEC y and z faces has the zero-phase mode
+/// `E = (0, 0, sin πy)`, `λ = π²` (x-independent). Adapting it tracks the
+/// mode through the mirrored refinement (overlap ≥ 0.95 from a 108-tet
+/// start; the next zero-phase modes are at ≥ 4π², so this is
+/// discretisation difference, not a swap), keeps the seam
+/// matched, and converges `λ_h` towards π². The p=1 eigenvalue error of
+/// this smooth mode is not monotone on bisection meshes (it changes sign);
+/// uniform refinement oscillates the same way (measured: 4.6e-3, 7.1e-4,
+/// 1.5e-3, 1.1e-3, 1.7e-4 over levels 3–7), and the periodic run matches
+/// the equivalent natural-x run level by level, so the bar is on the
+/// overall reduction.
+#[test]
+fn golden7b_periodic_eigen_adapts_and_tracks_the_mode() {
+    let mesh = untagged(box_mesh([3, 3, 2], [1.0, 1.0, 0.5], [0.0; 3], |_, _, _| {
+        true
+    }));
+    let pairs = box_periodic_pairs(&mesh.mesh, &[0]);
+    let eps = |_: &TetCtx| 1.0;
+    let mut spec = EigenAdaptSpec::new(mesh, 0.8 * PI * PI, 1, &eps, &pec);
+    spec.periodic = Some(PeriodicSpec {
+        pairs,
+        options: PeriodicMatchOptions::default(),
+    });
+    let opts = AdaptOptions {
+        target_rel_error: 0.0,
+        max_iterations: 6,
+        ..AdaptOptions::default()
+    };
+    let opts = AdaptOptions {
+        max_iterations: 8,
+        ..opts
+    };
+    let r = adapt_eigen::<B>(&spec, &opts, &device()).expect("periodic eigen adapt");
+    let lam = PI * PI;
+    let errs: Vec<f64> = r
+        .report
+        .history
+        .iter()
+        .map(|h| (eigen_lambdas(h)[0] - lam).abs() / lam)
+        .collect();
+    for (h, e) in r.report.history.iter().zip(&errs) {
+        eprintln!(
+            "golden7b: level {} {} tets λ_h {:.8} rel err {e:.3e} eta_rel {:.3e}",
+            h.level,
+            h.n_tets,
+            eigen_lambdas(h)[0],
+            h.eta_rel
+        );
+        if let LevelQuantities::Eigen(d) = &h.quantities
+            && h.level > 0
+        {
+            assert!(d[0].overlap.unwrap() >= 0.95, "overlap {:?}", d[0].overlap);
+        }
+    }
+    let m = &r.mesh.mesh;
+    let x0 = m.nodes.iter().filter(|p| p[0].abs() < 1e-12).count();
+    let x1 = m
+        .nodes
+        .iter()
+        .filter(|p| (p[0] - 1.0).abs() < 1e-12)
+        .count();
+    assert_eq!(x0, x1);
+    assert!(r.periodic_map.is_some());
+    assert!(*errs.last().unwrap() < 0.25 * errs[0], "λ errors {errs:?}");
+    assert!(r.report.last().n_tets > 2 * r.report.history[0].n_tets);
+}
+
 // ---------------------------------------------------------------------------
 // Golden 8: tagged (port) faces
 // ---------------------------------------------------------------------------
