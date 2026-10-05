@@ -891,74 +891,10 @@ fn expect_unsupported<T>(r: Result<T, DrivenError>, feature_has: &str) {
     }
 }
 
-#[test]
-fn p2_lumped_ports_are_unsupported() {
-    let mesh = cube_tet_mesh(2, 1.0);
-    let space = HcurlSpace::build(&mesh, ElementOrder::P2);
-    let mask = vec![true; space.n_dofs()];
-    let faces = plane_faces(&mesh, 2, 0.0);
-    let port = LumpedPort {
-        faces: &faces,
-        e_hat: [0.0, 1.0, 0.0],
-        resistance: 1.0,
-        width: 1.0,
-        length: 1.0,
-        v_inc: c64::new(1.0, 0.0),
-    };
-    let eps = vec![c64::new(1.0, 0.0); mesh.n_tets()];
-    let zero = zero_source(&mesh);
-    expect_unsupported(
-        DrivenOperator::assemble_with_space::<B>(
-            &space,
-            &mesh,
-            DrivenMaterials::Scalar(&eps),
-            None,
-            &DrivenBcs {
-                pec_interior_mask: &mask,
-            },
-            std::slice::from_ref(&port),
-            &[],
-            DrivenSource::Constant(&zero),
-            &device(),
-        ),
-        "lumped ports",
-    );
-}
-
-#[test]
-fn p2_impedance_surfaces_are_unsupported() {
-    let mesh = cube_tet_mesh(2, 1.0);
-    let space = HcurlSpace::build(&mesh, ElementOrder::P2);
-    let mask = vec![true; space.n_dofs()];
-    let wall = plane_faces(&mesh, 0, 1.0);
-    let eps = vec![c64::new(1.0, 0.0); mesh.n_tets()];
-    let zero = zero_source(&mesh);
-    for model in [
-        SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0)),
-        SurfaceImpedanceModel::GoodConductor { sigma: 10.0 },
-        SurfaceImpedanceModel::London { lambda_l: 0.1 },
-    ] {
-        expect_unsupported(
-            DrivenOperator::assemble_with_space::<B>(
-                &space,
-                &mesh,
-                DrivenMaterials::Scalar(&eps),
-                None,
-                &DrivenBcs {
-                    pec_interior_mask: &mask,
-                },
-                &[],
-                &[SurfaceImpedanceBc {
-                    triangles: &wall,
-                    model,
-                }],
-                DrivenSource::Constant(&zero),
-                &device(),
-            ),
-            "impedance surfaces",
-        );
-    }
-}
+// Lumped ports and impedance surfaces (Leontovich / rough / London /
+// Silver-Müller) are supported at p=2 since issue #857 (Epic #836 Phase 1b);
+// their gates live in `tests/driven_p2_surface.rs` and
+// `tests/surface_p2_trace.rs`.
 
 #[test]
 fn p2_matrix_free_solver_is_unsupported() {
