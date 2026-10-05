@@ -1194,9 +1194,11 @@ fn general_transpose_path_equals_the_reciprocity_shortcut() {
 /// A slab-loaded guide with **hybrid** ports on both ends and a design block
 /// in the air region away from the faces: admitted (its modes are
 /// θ-independent) and FD-validated through the hybrid spec sweep. A block
-/// that reaches a port face is the Phase 3 error.
+/// that reaches a port face is differentiated through the port-mode terms
+/// since Phase 3b (#872; FD-gated in `tests/s_matrix_sensitivity_hybrid.rs`),
+/// and a `port_fill` binding on a hybrid port is an invalid design.
 #[test]
-fn untouched_hybrid_ports_are_admitted_and_touched_ones_rejected() {
+fn untouched_hybrid_ports_are_admitted_and_touched_ones_differentiated() {
     let g = guide();
     let mesh = &g.mesh;
     let slab = 2.25;
@@ -1282,7 +1284,8 @@ fn untouched_hybrid_ports_are_admitted_and_touched_ones_rejected() {
         assert!(e <= TOL, "rel_err {e}");
     }
 
-    // A port_fill binding on a hybrid port: Phase 3.
+    // A port_fill binding on a hybrid port: invalid (hybrid modes follow
+    // their face on their own, Phase 3b).
     let bound = SDesign {
         port_fill: vec![Some(0)],
         ..design.clone()
@@ -1291,23 +1294,21 @@ fn untouched_hybrid_ports_are_admitted_and_touched_ones_rejected() {
         s_matrix_sensitivity_sweep::<B>(&net, &omegas, &bound, &opts(), &device()).unwrap_err();
     eprintln!("port_fill on a hybrid port: {err}");
     assert!(
-        matches!(err, SSensitivityError::Unsupported { ref feature, phase, .. }
-            if phase.contains("Phase 3") && feature.contains("port_fill"))
+        matches!(err, SSensitivityError::InvalidDesign(ref m) if m.contains("port_fill")),
+        "{err:?}"
     );
 
-    // A region reaching port 1's face: Phase 3.
+    // A region reaching port 1's face: admitted since Phase 3b (#872).
     let touching: Vec<Option<usize>> = (0..mesh.n_tets())
         .map(|t| (centroid(mesh, t)[2] < 0.9 && centroid(mesh, t)[1] > 0.5).then_some(0))
         .collect();
-    let bad = SDesign {
+    let touched = SDesign {
         material: Some(MaterialDesign::from_regions(touching, vec!["air".into()]).unwrap()),
         ..SDesign::default()
     };
-    let err = s_matrix_sensitivity_sweep::<B>(&net, &omegas, &bad, &opts(), &device()).unwrap_err();
-    eprintln!("touched hybrid port: {err}");
-    assert!(
-        matches!(err, SSensitivityError::Unsupported { phase, .. } if phase.contains("Phase 3"))
-    );
+    let sw_t = s_matrix_sensitivity_sweep::<B>(&net, &omegas, &touched, &opts(), &device())
+        .expect("a design touching a hybrid face is differentiated (Phase 3b)");
+    assert_eq!(sw_t.points[0].n_ports, 2);
 }
 
 /// **Forward-only parity on a conducting hybrid face.** The slab guide of
@@ -1601,7 +1602,9 @@ fn scope_fences_are_loud_typed_errors() {
     };
     expect_unsupported(run(&net_2, &material, &opts()), "#836");
 
-    // A moved hybrid face: Phase 3.
+    // A hybrid face bent out of its plane: Phase 3b keeps faces planar (a
+    // rigid shift along the normal and in-plane motion are differentiated,
+    // #872).
     let eps_real = vec![1.0; mesh.n_tets()];
     let hyb = [
         WavePortSpec::from(HybridWavePort::new(
@@ -1616,10 +1619,18 @@ fn scope_fences_are_loud_typed_errors() {
         wave: &hyb,
         ..net
     };
-    expect_unsupported(
-        run(&net_h, &shape_of(moving(&|p| p[2] < 1e-9)), &opts()),
-        "Phase 3",
-    );
+    let bend: Vec<[f64; 3]> = mesh
+        .nodes
+        .iter()
+        .map(|p| {
+            if p[2] < 1e-9 {
+                [0.0, 0.0, p[0]]
+            } else {
+                [0.0; 3]
+            }
+        })
+        .collect();
+    expect_unsupported(run(&net_h, &shape_of(bend), &opts()), "planar");
 }
 
 /// Regions bound to **named** physical groups survive a rebuild: the same
