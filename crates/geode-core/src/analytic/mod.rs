@@ -33,6 +33,10 @@
 //!   counterpart of [`port_modes`]: complex shift-invert Arnoldi, complex
 //!   `β`, and the per-mode accuracy estimate for complex modes (Epic #778
 //!   Phase 4, #806).
+//! - [`port_mode_sensitivity`] — Hellmann–Feynman / bordered-adjoint
+//!   sensitivities of the hybrid port modes: `∂β²`, `∂ε_eff`, `∂Z_PI/PV/VI`
+//!   and `∂(mode)` w.r.t. face material and geometry (Epic #841 Phase 3a,
+//!   #859).
 //! - `spade_mesh` (feature `spade-mesh`) — in-process 2-D constrained
 //!   Delaunay + Ruppert/Chew meshing of arbitrary wave-port cross-sections
 //!   from a polygon boundary, with a topological PEC boundary-edge mask
@@ -48,6 +52,7 @@ pub mod mie;
 pub mod mixed_pencil;
 pub mod patch;
 pub mod port_mode_accuracy;
+pub mod port_mode_sensitivity;
 pub mod port_modes;
 pub mod slotless_pm;
 #[cfg(feature = "spade-mesh")]
