@@ -35,6 +35,7 @@ geode-core/nedelec_matrix_free_equivalence::matrix_free_cuda_f32_smoke  # needs 
 # GEODE_BLESS_DENSE_ORACLE=1 (issue #823). The acceptance test
 # against that fixture (sparse_complex_matches_dense_fixture) runs in
 # arpack.yml.
+geode-core/periodic_cavity::regenerate_periodic_results  # artifact regenerator (GEODE_BLESS_PERIODIC=1 rewrites benchmarks/periodic); its goldens 4/5 run in the default tier
 geode-core/sparse_complex_eigensolver::regenerate_dense_oracle_fixture  # fixture regenerator (heavy; GEODE_BLESS_DENSE_ORACLE=1 rewrites the committed fixture)
 
 # Measured negative by design: AMS-MINRES plateaus at about 1.09e-5 at

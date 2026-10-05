@@ -209,6 +209,11 @@ jobs:
         run: |
           cargo test --features arpack -p geode-core --release --lib -- \
               eigen::pec_cavity assembly::magnetostatic3d
+          # Issue #839: the periodic-map unit tests (paired_face,
+          # alias_node_motion) ride along with the pec_cavity units the
+          # periodic eigen path shares; < 1 s.
+          cargo test --features arpack -p geode-core --release --lib -- \
+              mesh::periodic
           cargo test --features arpack -p geode-core --release \
               --test uniaxial_cavity -- --include-ignored
 

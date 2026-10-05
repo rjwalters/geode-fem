@@ -137,6 +137,11 @@ const D_TRACKING: &str = "issue #692 allowlist — regenerate on an f64 backend 
 const MANIFEST: &[Entry] = &[
     // ---- Bucket A: Burn-backed, f64 provenance trio required ------------
     a(
+        "benchmarks/periodic/results.toml",
+        "GEODE_BLESS_PERIODIC=1 cargo test -p geode-core --release --test periodic_cavity \
+         -- --ignored regenerate_periodic_results",
+    ),
+    a(
         "benchmarks/spiral_inductor/results.toml",
         "cargo run -p spiral_inductor --release",
     ),
