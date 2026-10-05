@@ -1656,14 +1656,40 @@ fn unsupported_combinations_are_rejected() {
         adapt_driven::<B>(&spec, &opts, &device()),
         Err(AdaptError::Unsupported(_))
     ));
-    // p=2 + impedance surface.
+    // p=2 + periodic.
     let mut spec = DrivenAdaptSpec::new(mesh.clone(), 1.0, &eps, &pec, &current, &div);
     spec.order = ElementOrder::P2;
-    spec.surfaces = vec![SurfaceImpedanceModel::Fixed(c(1.0))];
+    spec.periodic = Some(PeriodicSpec {
+        pairs: box_periodic_pairs(&mesh.mesh, &[0]),
+        options: PeriodicMatchOptions::default(),
+    });
     assert!(matches!(
         adapt_driven::<B>(&spec, &opts, &device()),
         Err(AdaptError::Unsupported(_))
     ));
+    // p=2 + an impedance surface runs (#836 Phase 1b surface terms).
+    let sm = |f: &FaceCtx| {
+        if f.points.iter().all(|p| p[2].abs() < 1e-12) {
+            FaceBc::Impedance(0)
+        } else {
+            FaceBc::Pec
+        }
+    };
+    let src = |_: &TetCtx, x: [f64; 3]| [c(x[2]), ZERO, ZERO];
+    let mut spec = DrivenAdaptSpec::new(mesh.clone(), 2.0, &eps, &sm, &src, &div);
+    spec.order = ElementOrder::P2;
+    spec.surfaces = vec![SurfaceImpedanceModel::Fixed(c(1.0))];
+    let r = adapt_driven::<B>(
+        &spec,
+        &AdaptOptions {
+            max_iterations: 2,
+            target_rel_error: 0.0,
+            ..opts
+        },
+        &device(),
+    )
+    .expect("p=2 with a Silver-Müller face");
+    assert_eq!(r.report.history.len(), 2);
     // Static problem.
     let spec = DrivenAdaptSpec::new(mesh.clone(), 0.0, &eps, &pec, &current, &div);
     assert!(matches!(

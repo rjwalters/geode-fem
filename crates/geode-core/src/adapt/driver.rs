@@ -125,8 +125,9 @@
 //! - **Boundary residuals of impedance surfaces and lumped ports are not
 //!   estimated** (Phase 1 coverage). Those faces are reported as INCOMPLETE
 //!   coverage; the estimate is then not a bound near them.
-//! - **p=2** runs (driven, non-periodic, without ports or impedance
-//!   surfaces), but the estimator's effectivity is validated at p=1 only
+//! - **p=2** runs (driven, non-periodic; lumped ports and impedance
+//!   surfaces at p=2 come from #836 Phase 1b), but the estimator's
+//!   effectivity is validated at p=1 only
 //!   (Epic #835 Phase 7), so a p=2 report carries
 //!   [`AdaptWarning::UnvalidatedOrder`].
 //! - **Eigen** is the lossless p=1 PEC / natural cavity.
@@ -1453,7 +1454,7 @@ pub struct DrivenAdaptSpec<'a> {
     /// Periodic boundaries (direct solver, p=1, no lumped port on a
     /// periodic face).
     pub periodic: Option<PeriodicSpec>,
-    /// Element order (p=2: non-periodic, no impedance surfaces or ports).
+    /// Element order (p=2: non-periodic).
     pub order: ElementOrder,
     /// The adaptation frequency set `ω` (= `k₀`, mesh units), non-empty.
     /// The marking indicator is the max over the set.
@@ -1537,17 +1538,10 @@ impl<'a> DrivenAdaptSpec<'a> {
                 "periodic driven solves are direct-LU only (#839 Phase 1)".into(),
             ));
         }
-        if self.order != ElementOrder::P1 {
-            if self.periodic.is_some() {
-                return Err(AdaptError::Unsupported(
-                    "periodic boundaries at p=2 (the p=2 face-block pairing is Epic #836)".into(),
-                ));
-            }
-            if !self.surfaces.is_empty() || !self.lumped_ports.is_empty() {
-                return Err(AdaptError::Unsupported(
-                    "impedance surfaces or lumped ports at p=2 (Epic #836 Phase 1b)".into(),
-                ));
-            }
+        if self.order != ElementOrder::P1 && self.periodic.is_some() {
+            return Err(AdaptError::Unsupported(
+                "periodic boundaries at p=2 (the p=2 face-block pairing is Epic #836)".into(),
+            ));
         }
         Ok(())
     }
