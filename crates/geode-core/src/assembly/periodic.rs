@@ -720,8 +720,9 @@ impl PeriodicConstraint {
     /// `k = [0; 3]` reproduces the zero-phase constraint bit for bit. A
     /// complex phase makes `Pᴴ A P` Hermitian, not complex-symmetric:
     /// only Hermitian-safe solvers may consume it
-    /// ([`crate::eigen::bloch`]); the zero-phase driven path refuses it
-    /// ([`crate::driven::periodic::PeriodicDrivenOperator::new`]).
+    /// ([`crate::eigen::bloch`]; the direct-LU driven path
+    /// [`crate::driven::periodic::PeriodicDrivenOperator`] and the Floquet
+    /// unit cell [`crate::driven::floquet`], issue #870).
     pub fn with_bloch_phase(&self, k: [f64; 3]) -> Self {
         let mut out = self.clone();
         out.dofs = self.dofs.with_bloch_phase(k);

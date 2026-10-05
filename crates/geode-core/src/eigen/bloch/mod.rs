@@ -72,10 +72,12 @@
 //! This is lossless only: real per-tet materials, through
 //! [`PecCavityMaterials`]. The following are refused as typed
 //! [`BlochError::Unsupported`]:
-//! - p=2 periodic (Epic #836 owns the face blocks);
-//! - driven solves with a complex Bloch phase (Epic #837 Phase 3): see
-//!   [`crate::driven::periodic::PeriodicDrivenOperator::new`], which
-//!   returns [`crate::assembly::periodic::PeriodicError::Unsupported`].
+//! - p=2 periodic (Epic #836 owns the face blocks).
+//!
+//! Driven solves with a complex Bloch phase are no longer refused: since
+//! issue #870 (Epic #837 Phase 3a) they run by direct LU through
+//! [`crate::driven::periodic::PeriodicDrivenOperator`] and the Floquet-port
+//! unit cell [`crate::driven::floquet`].
 
 pub mod hermitian;
 pub mod path;
