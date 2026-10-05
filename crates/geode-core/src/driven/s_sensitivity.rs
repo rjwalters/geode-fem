@@ -1239,14 +1239,14 @@ fn hybrid_face_design(
     let mut groups = FaceGroups::default();
     let mut names = Vec::new();
     let mut region_name = vec![None; n_regions];
-    for r in 0..n_regions {
+    for (r, slot) in region_name.iter_mut().enumerate() {
         let tris: Vec<u32> = (0..n_tris as u32)
             .filter(|&t| region_of_tri[t as usize] == Some(r))
             .collect();
         if !tris.is_empty() {
             let name = format!("region{r}");
             groups.tris.insert(name.clone(), tris);
-            region_name[r] = Some(name.clone());
+            *slot = Some(name.clone());
             names.push(name);
         }
     }
