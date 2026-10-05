@@ -105,9 +105,20 @@
 //! previous level's solution is prolonged exactly to the new mesh and used
 //! as the Krylov initial guess (as a residual correction, with the
 //! tolerance rescaled so the final residual meets the same `tol · ‖b‖`
-//! bar). The direct path has nothing to warm-start. The eigen path uses the
-//! prolonged vectors for mode tracking only: the shift-invert Lanczos start
-//! vector is fixed, and its cost is dominated by the inner sparse LU.
+//! bar). A guess whose residual is not below `‖b‖` is discarded.
+//!
+//! **Measured: it saves no iterations, so it is off by default.** The
+//! prolonged guess is Galerkin-orthogonal to the coarse space, so its whole
+//! residual lives in the new fine-scale components and
+//! `‖b − A x₀‖ / ‖b‖` is 0.5–2. Single-level Jacobi / ILU(0) and AMS COCG
+//! with a relative-residual stop then need as many iterations as from zero
+//! (driven cube to 6k DOFs: Jacobi 902 warm vs 690 cold, ILU(0) 1150 vs
+//! 1106, AMS 288 vs 280; `tests/adapt_loop.rs` golden 9a). The option is
+//! kept, correct and guarded, for a future energy-norm stopping rule or a
+//! nested-iteration solver. The direct path has nothing to warm-start. The
+//! eigen path uses the prolonged vectors for mode tracking only: the
+//! shift-invert Lanczos start vector is fixed, and its cost is dominated by
+//! the inner sparse LU.
 //!
 //! # Honest limits
 //!
@@ -203,7 +214,9 @@ pub struct AdaptOptions {
     /// Exclude UPML tets from marking (default `true`).
     pub exclude_upml: bool,
     /// Warm-start iterative driven solves from the prolonged previous
-    /// solution (default `true`; no effect on the direct path).
+    /// solution (default `false`: measured to save no Krylov iterations,
+    /// see "Warm start" in the [module docs](self); no effect on the
+    /// direct path).
     pub warm_start: bool,
     /// Options of every refinement step.
     pub refine: RefineOpts,
@@ -217,7 +230,7 @@ impl Default for AdaptOptions {
             max_dofs: 1_000_000,
             marking: Marking::Dorfler { theta: 0.5 },
             exclude_upml: true,
-            warm_start: true,
+            warm_start: false,
             refine: RefineOpts::default(),
         }
     }
@@ -445,6 +458,10 @@ pub struct DrivenLevelData {
     pub iterations: Option<usize>,
     /// `true` if the solve started from the prolonged previous solution.
     pub warm_started: bool,
+    /// `‖b − A x₀‖ / ‖b‖` of the prolonged initial guess `x₀` (`None`
+    /// without a warm start). A guess with a ratio `≥ 1` is no better than
+    /// zero and is discarded (`warm_started == false`).
+    pub warm_residual_rel: Option<f64>,
 }
 
 /// Per-mode data of an eigen level.
@@ -690,8 +707,8 @@ pub enum AdaptError {
 /// assert_eq!(dorfler_mark(&eta2, 0.5, None), vec![1, 3]);
 /// // 8 + 1 = 9 ≥ 0.85 · 10.
 /// assert_eq!(dorfler_mark(&eta2, 0.85, None), vec![1, 3, 0]);
-/// // 9.5 ≥ 0.9 · 10, and tet 4 ties with tet 2.
-/// assert_eq!(dorfler_mark(&eta2, 0.9, None), vec![1, 3, 0, 2, 4]);
+/// // 9.5 ≥ 0.92 · 10, and tet 4 ties with tet 2.
+/// assert_eq!(dorfler_mark(&eta2, 0.92, None), vec![1, 3, 0, 2, 4]);
 /// ```
 ///
 /// # Panics
@@ -1445,6 +1462,10 @@ pub struct DrivenAdaptSpec<'a> {
     pub current_div: &'a (dyn Fn(&TetCtx, [f64; 3]) -> c64 + Sync),
     /// Linear solver (default [`SolverMode::Direct`]).
     pub solver: SolverMode,
+    /// Optional per-level observer, called after every level's solve with
+    /// the level and its solutions (one per adaptation frequency): export
+    /// fields, or measure a reference error, without re-running the loop.
+    pub observer: Option<&'a (dyn Fn(&LevelContext<'_>, &[DrivenSolution]) + Sync)>,
 }
 
 impl std::fmt::Debug for DrivenAdaptSpec<'_> {
@@ -1485,6 +1506,7 @@ impl<'a> DrivenAdaptSpec<'a> {
             current,
             current_div,
             solver: SolverMode::Direct,
+            observer: None,
         }
     }
 
@@ -1552,15 +1574,17 @@ fn surface_kind(model: &SurfaceImpedanceModel) -> &'static str {
 
 /// An iterative solve at `omega`, optionally from the full-length initial
 /// guess `x0_full` (as a residual correction whose Krylov tolerance is
-/// rescaled so that `‖A x − b‖ ≤ tol ‖b‖` still holds). Returns the
-/// solution, the Krylov iterations and whether it was warm-started.
+/// rescaled so that `‖A x − b‖ ≤ tol ‖b‖` still holds). A guess whose
+/// residual is not below `‖b‖` is discarded (cold start). Returns the
+/// solution, the Krylov iterations, whether it was warm-started, and the
+/// guess's relative residual.
 fn solve_iterative<B: Backend>(
     op: &DrivenOperator,
     omega: f64,
     mode: SolverMode,
     x0_full: Option<&[c64]>,
     device: &B::Device,
-) -> Result<(DrivenSolution, usize, bool), DrivenError> {
+) -> Result<IterativeOutcome, DrivenError> {
     let settings = match mode {
         SolverMode::Iterative(s) | SolverMode::IterativeMatrixFree(s) => s,
         SolverMode::Direct => unreachable!("solve_iterative is only called for Krylov modes"),
@@ -1581,35 +1605,41 @@ fn solve_iterative<B: Backend>(
     let mut rhs = b.clone();
     let mut tol = settings.tol;
     let mut warm = false;
+    let mut warm_residual_rel = None;
     if let Some(x) = x0_full
         && bn > 0.0
     {
-        for (xi, &f) in x0.iter_mut().zip(&i2f) {
+        let mut guess = vec![zero; n];
+        for (xi, &f) in guess.iter_mut().zip(&i2f) {
             *xi = x[f];
         }
-        let ax = spmv_c(&op.matrix_at(omega)?, &x0);
-        for (r, a) in rhs.iter_mut().zip(&ax) {
-            *r -= *a;
-        }
-        let rn = norm_c(&rhs);
-        warm = true;
-        if rn <= settings.tol * bn {
-            let mut e = vec![zero; op.n_dofs()];
-            for (&f, &v) in i2f.iter().zip(&x0) {
-                e[f] = v;
+        let ax = spmv_c(&op.matrix_at(omega)?, &guess);
+        let r0: Vec<c64> = b.iter().zip(&ax).map(|(bb, a)| *bb - *a).collect();
+        let rn = norm_c(&r0);
+        warm_residual_rel = Some(rn / bn);
+        if rn < bn {
+            warm = true;
+            x0 = guess;
+            rhs = r0;
+            if rn <= settings.tol * bn {
+                let mut e = vec![zero; op.n_dofs()];
+                for (&f, &v) in i2f.iter().zip(&x0) {
+                    e[f] = v;
+                }
+                return Ok(IterativeOutcome {
+                    solution: DrivenSolution {
+                        e_edges: e,
+                        order: op.order(),
+                        n_interior: n,
+                        residual_rel: rn / bn,
+                    },
+                    iterations: 0,
+                    warm: true,
+                    warm_residual_rel,
+                });
             }
-            return Ok((
-                DrivenSolution {
-                    e_edges: e,
-                    order: op.order(),
-                    n_interior: n,
-                    residual_rel: rn / bn,
-                },
-                0,
-                true,
-            ));
+            tol = (settings.tol * bn / rn).min(0.5);
         }
-        tol = (settings.tol * bn / rn).min(0.5);
     }
     let solver = op.prepare_at::<B>(omega, with_tol(tol), device)?;
     let mut d = vec![zero; n];
@@ -1632,16 +1662,25 @@ fn solve_iterative<B: Backend>(
     for (&f, &v) in i2f.iter().zip(&x0) {
         e[f] = v;
     }
-    Ok((
-        DrivenSolution {
+    Ok(IterativeOutcome {
+        solution: DrivenSolution {
             e_edges: e,
             order: op.order(),
             n_interior: n,
             residual_rel: if bn > 0.0 { res / bn } else { res },
         },
-        report.iters,
+        iterations: report.iters,
         warm,
-    ))
+        warm_residual_rel,
+    })
+}
+
+/// What [`solve_iterative`] returns.
+struct IterativeOutcome {
+    solution: DrivenSolution,
+    iterations: usize,
+    warm: bool,
+    warm_residual_rel: Option<f64>,
 }
 
 impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
@@ -1714,19 +1753,21 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
         )?;
         let n_dofs = op.n_dofs();
 
-        let mut sols: Vec<(DrivenSolution, Option<usize>, bool)> = Vec::new();
+        // (solution, Krylov iterations, warm-started, warm residual)
+        type Solved = (DrivenSolution, Option<usize>, bool, Option<f64>);
+        let mut sols: Vec<Solved> = Vec::new();
         match ctx.periodic_map {
             Some(map) => {
                 let constraint = PeriodicConstraint::build(&space, map, Some(&mask))?;
                 let pop = PeriodicDrivenOperator::new(op, &constraint)?;
                 for &w in &spec.omegas {
-                    sols.push((pop.factor_at(w)?.solve()?, None, false));
+                    sols.push((pop.factor_at(w)?.solve()?, None, false, None));
                 }
             }
             None => match spec.solver {
                 SolverMode::Direct => {
                     for &w in &spec.omegas {
-                        sols.push((op.factor_at(w)?.solve()?, None, false));
+                        sols.push((op.factor_at(w)?.solve()?, None, false, None));
                     }
                 }
                 mode => {
@@ -1737,8 +1778,8 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
                             .filter(|_| self.warm_start)
                             .and_then(|p| p.get(i))
                             .map(|v| v.as_slice());
-                        let (s, iters, warm) = solve_iterative::<B>(&op, w, mode, x0, self.device)?;
-                        sols.push((s, Some(iters), warm));
+                        let o = solve_iterative::<B>(&op, w, mode, x0, self.device)?;
+                        sols.push((o.solution, Some(o.iterations), o.warm, o.warm_residual_rel));
                     }
                 }
             },
@@ -1750,7 +1791,7 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
         let kind = |f: [u32; 3]| cls.kinds.kind(f);
         let mut estimates = Vec::with_capacity(sols.len());
         let mut data = Vec::with_capacity(sols.len());
-        for ((sol, iters, warm), &w) in sols.iter().zip(&spec.omegas) {
+        for ((sol, iters, warm, warm_res), &w) in sols.iter().zip(&spec.omegas) {
             let iw = c64::new(0.0, w);
             let f = |t: usize, x: [f64; 3]| (spec.current)(&tets[t], x).map(|j| iw * j);
             let div_f = |t: usize, x: [f64; 3]| iw * (spec.current_div)(&tets[t], x);
@@ -1780,11 +1821,15 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
                 residual_rel: sol.residual_rel,
                 iterations: *iters,
                 warm_started: *warm,
+                warm_residual_rel: *warm_res,
             });
             estimates.push(est);
         }
         let estimate_s = t1.elapsed().as_secs_f64();
-        self.last = sols.into_iter().map(|(s, _, _)| s).collect();
+        self.last = sols.into_iter().map(|(s, ..)| s).collect();
+        if let Some(obs) = spec.observer {
+            obs(ctx, &self.last);
+        }
         self.last_estimates = estimates.clone();
         self.prolonged = None;
         Ok(LevelOutcome {
@@ -1868,6 +1913,9 @@ pub struct EigenAdaptSpec<'a> {
     /// Extra candidate modes solved on later levels for the overlap
     /// matching (default 2).
     pub extra_candidates: usize,
+    /// Optional per-level observer, called after every level with the
+    /// level and its tracked modes.
+    pub observer: Option<&'a (dyn Fn(&LevelContext<'_>, &[TrackedMode]) + Sync)>,
 }
 
 impl std::fmt::Debug for EigenAdaptSpec<'_> {
@@ -1897,6 +1945,7 @@ impl<'a> EigenAdaptSpec<'a> {
             boundary,
             settings: PecCavitySettings::new(sigma, n_modes),
             extra_candidates: 2,
+            observer: None,
         }
     }
 }
@@ -2100,6 +2149,9 @@ impl<B: Backend> LevelSolver for EigenLevelSolver<'_, '_, B> {
             estimates.push(est);
         }
         let estimate_s = t1.elapsed().as_secs_f64();
+        if let Some(obs) = spec.observer {
+            obs(ctx, &tracked);
+        }
         self.last = tracked;
         self.prolonged = None;
         Ok(LevelOutcome {
