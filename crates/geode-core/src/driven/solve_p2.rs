@@ -34,9 +34,9 @@ use super::{
     validate_lumped_ports,
 };
 use crate::assembly::hcurl_space::{HcurlSpace, TetOrientation};
+use crate::assembly::nedelec_p2::{p2_local_curl_tensor, p2_local_mass_tensor, tabulate_p2_tet};
 use crate::assembly::surface_p2::{assemble_p2_port_flux, assemble_p2_surface_mass_triplets};
 use crate::driven::ports::LumpedPort;
-use crate::assembly::nedelec_p2::{p2_local_curl_tensor, p2_local_mass_tensor, tabulate_p2_tet};
 use crate::elements::nedelec::{TET_QUAD4_A, TET_QUAD4_B};
 use crate::elements::nedelec_p2::{
     TET_NEDELEC2_DOFS as ND, tet_barycentric_gradients, tet_nedelec2_local, tet_nedelec2_local_rhs,

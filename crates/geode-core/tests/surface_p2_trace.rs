@@ -136,7 +136,11 @@ fn tet_restriction_equals_trace_kernel_on_every_boundary_face() {
         let tet_dofs = space.tet_dofs(*t);
         for _ in 0..5 {
             let (a, b) = (rng.next(), rng.next());
-            let (a, b) = if a + b > 1.0 { (1.0 - a, 1.0 - b) } else { (a, b) };
+            let (a, b) = if a + b > 1.0 {
+                (1.0 - a, 1.0 - b)
+            } else {
+                (a, b)
+            };
             let mu = [1.0 - a - b, a, b];
             let nat = tet_bary_on_face(&mesh, *t, &s, mu);
             let lam: [f64; 4] = std::array::from_fn(|i| nat[perm[i]]);
@@ -161,7 +165,10 @@ fn tet_restriction_equals_trace_kernel_on_every_boundary_face() {
          max off-face tangential trace = {worst_off:.2e}"
     );
     assert!(worst < 1e-12, "tet restriction ≠ trace kernel: {worst:.3e}");
-    assert!(worst_off < 1e-12, "off-face function leaks a trace: {worst_off:.3e}");
+    assert!(
+        worst_off < 1e-12,
+        "off-face function leaks a trace: {worst_off:.3e}"
+    );
 }
 
 #[test]
@@ -177,7 +184,11 @@ fn surface_mass_equals_flat_tri_nedelec2_mass() {
         let n = unit_normal(&v);
         let u = e1.map(|x| x / dot(e1, e1).sqrt());
         let w = cross(n, u);
-        let c2 = [[0.0, 0.0], [dot(e1, u), dot(e1, w)], [dot(e2, u), dot(e2, w)]];
+        let c2 = [
+            [0.0, 0.0],
+            [dot(e1, u), dot(e1, w)],
+            [dot(e2, u), dot(e2, w)],
+        ];
         let (_k2, m2, _area) = tri_nedelec2_local(&c2);
         let scale = (0..8).map(|i| s3[i][i].abs()).fold(0.0, f64::max);
         for i in 0..TRI_NEDELEC2_TRACE_DOFS {
@@ -318,7 +329,12 @@ fn uniform_field_reads_back_the_gap_voltage_at_p2() {
     let x1: Vec<c64> = mesh
         .edges()
         .iter()
-        .map(|e| c64::new(mesh.nodes[e[1] as usize][1] - mesh.nodes[e[0] as usize][1], 0.0))
+        .map(|e| {
+            c64::new(
+                mesh.nodes[e[1] as usize][1] - mesh.nodes[e[0] as usize][1],
+                0.0,
+            )
+        })
         .collect();
     let x2 = p2.prolong_p1(&x1);
     let port: Vec<[u32; 3]> = mesh

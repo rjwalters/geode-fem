@@ -180,7 +180,8 @@ fn field_error(mesh: &TetMesh, space: &HcurlSpace, x: &[c64], tl: &Tl) -> f64 {
         let e1 = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
         let e2 = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
         let e3 = [p[3][0] - p[0][0], p[3][1] - p[0][1], p[3][2] - p[0][2]];
-        let vol = (e1[0] * (e2[1] * e3[2] - e2[2] * e3[1]) - e1[1] * (e2[0] * e3[2] - e2[2] * e3[0])
+        let vol = (e1[0] * (e2[1] * e3[2] - e2[2] * e3[1])
+            - e1[1] * (e2[0] * e3[2] - e2[2] * e3[0])
             + e1[2] * (e2[0] * e3[1] - e2[1] * e3[0]))
             .abs()
             / 6.0;
@@ -311,11 +312,23 @@ fn assert_rates(label: &str, errs: &[[Vec<f64>; 2]; 2]) {
         f_err[0][0] / f_err[1][0]
     );
     assert!(sf2 >= 1.8, "{label}: p=2 field slope {sf2:.2} < 1.8");
-    assert!((0.8..=1.35).contains(&sf1), "{label}: p=1 field slope {sf1:.2} not ≈ 1");
+    assert!(
+        (0.8..=1.35).contains(&sf1),
+        "{label}: p=1 field slope {sf1:.2} not ≈ 1"
+    );
     assert!(sz2 >= 3.0, "{label}: p=2 impedance slope {sz2:.2} < 3");
-    assert!(sz2 > sz1 + 0.8, "{label}: p=2 Z rate {sz2:.2} not above p=1 {sz1:.2}");
-    assert!(z_err[1][0] < z_err[0][0], "{label}: p=2 Z not better on the coarse mesh");
-    assert!(f_err[1][0] < f_err[0][0], "{label}: p=2 field not better on the coarse mesh");
+    assert!(
+        sz2 > sz1 + 0.8,
+        "{label}: p=2 Z rate {sz2:.2} not above p=1 {sz1:.2}"
+    );
+    assert!(
+        z_err[1][0] < z_err[0][0],
+        "{label}: p=2 Z not better on the coarse mesh"
+    );
+    assert!(
+        f_err[1][0] < f_err[0][0],
+        "{label}: p=2 field not better on the coarse mesh"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -352,14 +365,23 @@ fn silver_muller_end_cap_reflection() {
         let r = solve_line(p, 6, omega, eps_r, end);
         let g = phase * (r.z_in - tl.zc) / (r.z_in + tl.zc);
         g_err[pi] = (g - want).norm();
-        println!("silver-müller ε=4: p={p} n=6 Γ_L = {g:.6} (closed form {want:.6}), |ΔΓ| = {:.3e}", g_err[pi]);
+        println!(
+            "silver-müller ε=4: p={p} n=6 Γ_L = {g:.6} (closed form {want:.6}), |ΔΓ| = {:.3e}",
+            g_err[pi]
+        );
     }
     assert!(g_err[1] < 2e-3, "p=2 SM reflection off by {:.3e}", g_err[1]);
-    assert!(g_err[1] < 0.2 * g_err[0], "p=2 SM reflection not ≫ better than p=1");
+    assert!(
+        g_err[1] < 0.2 * g_err[0],
+        "p=2 SM reflection not ≫ better than p=1"
+    );
 
     // Vacuum: the absorber is matched to the TEM wave (Γ = 0, Z_in = 1).
     let r = solve_line(2, 4, 1.3, 1.0, end);
-    println!("silver-müller vacuum: p=2 n=4 Z_in = {:.6} (exact 1)", r.z_in);
+    println!(
+        "silver-müller vacuum: p=2 n=4 Z_in = {:.6} (exact 1)",
+        r.z_in
+    );
     assert!((r.z_in - c64::new(1.0, 0.0)).norm() < 1e-3);
 }
 
@@ -521,7 +543,10 @@ fn roughness_scales_wall_loss_by_k_of_f() {
             "roughness ω={omega}: K(f)={k:.5} α̂_rough/α̂_smooth={ratio:.5} rel={:+.3e}",
             ratio / k - 1.0
         );
-        assert!((ratio / k - 1.0).abs() < 0.01, "loss ratio {ratio} vs K {k}");
+        assert!(
+            (ratio / k - 1.0).abs() < 0.01,
+            "loss ratio {ratio} vs K {k}"
+        );
     }
 }
 
@@ -625,7 +650,12 @@ fn reciprocity_and_symmetry_with_every_surface_term() {
         .collect();
     // Two localized volume sources.
     let centroid = |t: usize| -> [f64; 3] {
-        std::array::from_fn(|d| (0..4).map(|i| mesh.nodes[mesh.tets[t][i] as usize][d]).sum::<f64>() / 4.0)
+        std::array::from_fn(|d| {
+            (0..4)
+                .map(|i| mesh.nodes[mesh.tets[t][i] as usize][d])
+                .sum::<f64>()
+                / 4.0
+        })
     };
     let src = |c: [f64; 3], dir: [f64; 3]| -> CurrentSource {
         CurrentSource {
@@ -687,7 +717,9 @@ fn reciprocity_and_symmetry_with_every_surface_term() {
         }
     }
     let rel = (r12 - r21).norm() / r12.norm();
-    println!("reciprocity p=2 (port + 4 surface models): ∫J₂·E₁ = {r12:.6e}, ∫J₁·E₂ = {r21:.6e}, rel {rel:.2e}");
+    println!(
+        "reciprocity p=2 (port + 4 surface models): ∫J₂·E₁ = {r12:.6e}, ∫J₁·E₂ = {r21:.6e}, rel {rel:.2e}"
+    );
     assert!(rel < 1e-10, "reciprocity broken: {rel:.3e}");
 
     // A(ω)ᵀ = A(ω) with every surface term.
@@ -701,7 +733,10 @@ fn reciprocity_and_symmetry_with_every_surface_term() {
             amax = amax.max(dense[(i, j)].norm());
         }
     }
-    println!("A(ω)ᵀ = A(ω) at p=2: max|A − Aᵀ|/max|A| = {:.2e}", asym / amax);
+    println!(
+        "A(ω)ᵀ = A(ω) at p=2: max|A − Aᵀ|/max|A| = {:.2e}",
+        asym / amax
+    );
     assert!(asym / amax < 1e-14);
 }
 

@@ -315,10 +315,10 @@ mod tests {
     fn mass_is_symmetric_psd() {
         let v = [[0.0, 0.0, 0.0], [1.0, 0.2, 0.1], [0.3, 0.9, -0.2]];
         let s = tri_nedelec2_surface_mass(&v);
-        for i in 0..8 {
-            assert!(s[i][i] > 0.0);
-            for j in 0..8 {
-                assert!((s[i][j] - s[j][i]).abs() < 1e-15);
+        for (i, row) in s.iter().enumerate() {
+            assert!(row[i] > 0.0);
+            for (j, &sij) in row.iter().enumerate() {
+                assert!((sij - s[j][i]).abs() < 1e-15);
             }
         }
     }
