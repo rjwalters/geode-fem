@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - On flat-sided unstructured boxes (n = 2..8), the fitted field L² slope is 1.92 at p=2 (gated at ≥ 1.85; the finest-step local slope is 2.00) against 0.99–1.16 at p=1, and p=2 is 4.4–5.9× more accurate on the coarsest mesh.
   - With a p=1 space, the call routes to the existing assembly verbatim, and the outputs are bit-identical.
 - `DrivenOperator::{order, n_dofs, interior_index, matrix_at}`, a public `interior_to_full`, `DrivenSolution::dofs` and `DrivenRom::evaluate_field`.
+- **Zero-phase periodic boundary conditions on p=1 Nédélec** (#839, Epic #837 Phase 1).
+  - `mesh::periodic::PeriodicMap::build(&mut mesh, pairs, opts)` matches master/slave boundary faces. It hashes the translated master nodes onto the slave nodes in O(n), infers the translation from the face bounding boxes when none is given, and rejects faces that are not translates. Edge orientation `σ = ±1` follows the node numbering, and corner entities (four copies of a z-edge on an x–y corner, eight of a triply periodic corner node) are chained to one canonical master with the lattice vector `Σd`.
+  - Design rule (#804): a node within `1e-6·|d|` matches silently. A node within `0.25·h_min` is snapped onto the exact image, with a warning in `PeriodicMatchReport` (`n_snapped`, `max_snap_displacement`), but only when every master triangle maps onto a slave triangle. Anything else is `PeriodicMatchError::NonConforming`, which names the pair and the unmatched node and triangle counts and gives the fix: Gmsh `Periodic Surface … Translate {…}` or `geode mesh --periodic`.
+  - `assembly::periodic::PeriodicConstraint::build(space, map, pec_mask)` builds the prolongation `P` on an `HcurlSpace` (`c64` coefficients, ready for the Phase 2 Bloch phase), together with the P1 node constraint and the reduced gradient `G_r`. `G P_node = P_edge G_r` is checked exactly. `Pᴴ A P`, `Pᴴ b` and `P x` are index remaps over the existing pattern. A one-sided PEC class eliminates every copy and warns. The row storage allows the p=2 blocks; a p=2 space returns `PeriodicError::Unsupported`.
+  - `eigen::periodic_cavity::solve_periodic_cavity_modes` runs the unchanged shift-invert Lanczos on the reduced lossless pencil. `driven::periodic::PeriodicDrivenOperator` wraps a p=1 `DrivenOperator` for direct LU solves; lumped ports may not touch a periodic face. Every non-periodic path is untouched, and an empty periodic map reproduces `solve_pec_cavity_modes` and `DrivenOperator::solve_at` bit for bit.
+  - Hooks for the sibling epics: `PeriodicMap::paired_face` (AMR, #835), `PeriodicMap::alias_node_motion` (shape sensitivities, #841) and `DofAliasMap::dphase_dk` (group velocity, Phase 2).
+  - Goldens, recorded in `benchmarks/periodic/results.toml`:
+    - the de Rham kernel is exact: `n_nodes_red − 1 + 3` on the 3-torus and `n_interior_nodes_red + 1` with PEC lids;
+    - a box periodic in x and y with PEC lids matches the closed form, 12 modes with multiplicity: 0.78 % at the finest mesh, finest-step rate 1.96;
+    - the two-layer Bragg stack at Γ matches the Kronig–Penney band edges to 0.27 %;
+    - the periodic manufactured driven solution converges at energy-norm rate 1.08.
+  - Inverse tripwires: PEC instead of periodic misses the closed form by 64 %; forcing `σ = +1` on a renumbered mesh, or dropping corner chaining, breaks the kernel count.
 
 ### Changed
 
