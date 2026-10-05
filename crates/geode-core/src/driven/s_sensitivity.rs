@@ -109,8 +109,9 @@
 //!   bound port (Phase 2a); `∂/∂σ` is Phase 2a (σ is allowed in the forward);
 //!   a dispersive (per-ω `ε(ω)`) volume is not an input here (the network
 //!   takes one fixed scalar `ε`): Phase 2a;
-//! * an element order other than p=1 (the p=2 forward has no ports yet:
-//!   Epic #836 Phase 1b; p=2 gradients: #836 Phase 4);
+//! * an element order other than p=1 (the p=2 forward has lumped ports and
+//!   walls since #857, Epic #836 Phase 1b, but no p=2 gradients yet: #836
+//!   Phase 4);
 //! * [`SolverMode::Iterative`] / [`SolverMode::IterativeMatrixFree`]
 //!   (adjoints stay direct-LU, an Epic #841 non-goal);
 //! * a geometric port whose face bounds a design-region tet but is not
@@ -147,7 +148,8 @@ const PHASE_3: &str = "Epic #841 Phase 3: port-mode sensitivities (3a on the 2-D
                        3b hybrid ports in the 3-D S gradient)";
 const PHASE_3B: &str = "Epic #841 Phase 3b: moving wave-port faces";
 const MOVING_FEED: &str = "an Epic #841 follow-on: N-port moving lumped feeds";
-const P2_PHASE: &str = "Epic #836 Phase 1b (ports and walls at p=2) and Phase 4 (gradients at p=2)";
+const P2_PHASE: &str = "Epic #836 Phase 4 (gradients at p=2; the p=2 forward with ports and walls \
+                        landed in Phase 1b)";
 const ITERATIVE: &str = "Epic #841 non-goal: adjoints stay direct-LU, like the forward";
 
 /// Errors of the N-port S-matrix sensitivity.

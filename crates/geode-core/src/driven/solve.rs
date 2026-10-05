@@ -78,8 +78,10 @@
 //! with a p=1 space it runs the same Burn assembly verbatim (bit-identical
 //! results), and with a p=2 space it assembles the 20-DOF element on the
 //! host for the volume physics — complex scalar / diagonal-tensor /
-//! matched-UPML ε, σ damping, volume J, tagged face-exact PEC. Every
-//! feature without a p=2 path yet (lumped ports, impedance surfaces, the
+//! matched-UPML ε, σ damping, volume J, tagged face-exact PEC — and (issue
+//! #857, Phase 1b) the surface terms on the p=2 tangential trace: lumped
+//! ports and every impedance-surface model (Leontovich, rough conductor,
+//! London, Silver-Müller). Every feature without a p=2 path yet (the
 //! matrix-free solver, AMS, wave ports in the PROM, the transient solver)
 //! returns [`DrivenError::UnsupportedAtOrder`]; nothing is silently solved
 //! at another order.
@@ -245,6 +247,48 @@ where
             total: d.total,
         }
     })
+}
+
+/// Validate lumped-port specifications with exactly the checks (and error
+/// texts) of the p=1 [`DrivenOperator::assemble`]: non-empty faces, finite
+/// positive `R`, `w`, `l`, unit `ê`, in-range face nodes. Used by the p=2
+/// operator assembly (issue #857); the p=1 path keeps its inline copy so
+/// its code path is untouched.
+pub(crate) fn validate_lumped_ports(
+    mesh: &TetMesh,
+    ports: &[LumpedPort<'_>],
+) -> Result<(), DrivenError> {
+    for (index, port) in ports.iter().enumerate() {
+        let invalid = |reason: &str| DrivenError::InvalidPort {
+            index,
+            reason: reason.to_string(),
+        };
+        if port.faces.is_empty() {
+            return Err(invalid("port has no faces"));
+        }
+        if !(port.resistance.is_finite() && port.resistance > 0.0) {
+            return Err(invalid("resistance must be finite and positive"));
+        }
+        if !(port.width.is_finite() && port.width > 0.0) {
+            return Err(invalid("width must be finite and positive"));
+        }
+        if !(port.length.is_finite() && port.length > 0.0) {
+            return Err(invalid("length must be finite and positive"));
+        }
+        let e_norm = (port.e_hat[0].powi(2) + port.e_hat[1].powi(2) + port.e_hat[2].powi(2)).sqrt();
+        if (e_norm - 1.0).abs() >= 1e-8 || e_norm.is_nan() {
+            return Err(invalid("e_hat must be a unit vector"));
+        }
+        let n_nodes = mesh.n_nodes() as u32;
+        if port
+            .faces
+            .iter()
+            .any(|f| f.iter().any(|&node| node >= n_nodes))
+        {
+            return Err(invalid("face node index out of range"));
+        }
+    }
+    Ok(())
 }
 
 /// Linear-solver selection for the per-ω back-solves used by the
@@ -1696,7 +1740,12 @@ impl DrivenOperator {
     ///   never the p=1 `sign_outer_tensor`): `K` (`K(ν)` for the matched
     ///   UPML), `M(ε)` for complex scalar / diagonal-tensor / full matched
     ///   UPML ε, `C(σ)`, and the [`DrivenSource`] moments, all with the
-    ///   degree-≥4 rule (exact for per-tet-constant coefficients). The
+    ///   degree-≥4 rule (exact for per-tet-constant coefficients), plus the
+    ///   surface terms on the 8-DOF p=2 tangential trace of each boundary
+    ///   triangle ([`crate::assembly::surface_p2`], issue #857): lumped-port
+    ///   admittance masses and flux functionals, and the surface mass of
+    ///   every [`SurfaceImpedanceModel`] (Leontovich good / rough conductor,
+    ///   London, `Fixed` incl. the Silver-Müller `Z_s = η₀`). The
     ///   result is solved by [`DrivenOperator::solve_at`] /
     ///   [`DrivenOperator::factor_at`] / [`DrivenOperator::prepare_at`]
     ///   (direct LU, or assembled-matrix Krylov with Jacobi / ILU(0) /
@@ -1717,10 +1766,10 @@ impl DrivenOperator {
     ///
     /// The errors of [`DrivenOperator::assemble`];
     /// [`DrivenError::SpaceMeshMismatch`] if `space` was built on another
-    /// mesh; and, at p=2, [`DrivenError::UnsupportedAtOrder`] for non-empty
-    /// `ports` (lumped ports) or `surfaces` (Leontovich / London /
-    /// Silver-Müller) — Epic #836 Phase 1b. The solver-side p=2 limits
-    /// (matrix-free, AMS) are reported by [`DrivenOperator::prepare_at`].
+    /// mesh. The solver-side p=2 limits (matrix-free, AMS) are reported by
+    /// [`DrivenOperator::prepare_at`]; wave ports have no p=2 path yet (Epic
+    /// #836 Phase 3) and are rejected where they meet an operator
+    /// ([`crate::driven::rom::DrivenRom::build_with_wave_ports`]).
     #[allow(clippy::too_many_arguments)]
     pub fn assemble_with_space<B: Backend>(
         space: &crate::assembly::hcurl_space::HcurlSpace,
@@ -1777,22 +1826,13 @@ impl DrivenOperator {
                     )
                 }
             },
-            ElementOrder::P2 => {
-                if !ports.is_empty() {
-                    return Err(DrivenError::UnsupportedAtOrder {
-                        order: space.order(),
-                        feature: "lumped ports (Epic #836 Phase 1b)",
-                    });
-                }
-                if !surfaces.is_empty() {
-                    return Err(DrivenError::UnsupportedAtOrder {
-                        order: space.order(),
-                        feature: "impedance surfaces: Leontovich / roughness / London / \
-                                  Silver-Müller (Epic #836 Phase 1b)",
-                    });
-                }
-                p2::assemble(space, mesh, materials, sigma_tet, bcs, source)
-            }
+            // Issue #857 (Epic #836 Phase 1b): lumped ports and every
+            // impedance-surface model (Leontovich / rough conductor /
+            // London / Silver-Müller) run at p=2 through the trace kernel
+            // of `crate::assembly::surface_p2`.
+            ElementOrder::P2 => p2::assemble(
+                space, mesh, materials, sigma_tet, bcs, ports, surfaces, source,
+            ),
         }
     }
 

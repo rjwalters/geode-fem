@@ -99,6 +99,7 @@ jobs:
               --test driven_p2_adjoint \
               --test driven_p2_convergence \
               --test driven_p2_operator \
+              --test driven_p2_surface \
               --test driven_upml \
               --test eigensolver \
               --test electrostatic_capacitance \
@@ -166,6 +167,7 @@ jobs:
               --test sphere_silvermuller_eigenmode \
               --test spiral_mesh \
               --test step_index_fiber_benchmark \
+              --test surface_p2_trace \
               --test torque_loop_oracle \
               --test transient_sparams \
               --test transmon_diffopt \

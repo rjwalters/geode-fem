@@ -44,6 +44,9 @@
 //!   optional Dirichlet reduction.
 //! - [`surface`]: Silver–Müller and surface-mass boundary assembly on
 //!   the mesh's exterior triangle faces.
+//! - [`surface_p2`]: the p=2 (second-order Nédélec) tangential-trace
+//!   surface kernel — surface mass and port flux over the 8 trace DOFs of a
+//!   boundary triangle (issue #857, Epic #836 Phase 1b).
 //! - [`torque`]: electromagnetic torque extraction from a per-triangle
 //!   air-gap flux density — the Maxwell stress-tensor line integral and
 //!   Arkkio's volume-averaged variant (Epic #448 Phase 3), with the shared
@@ -62,4 +65,5 @@ pub mod p1;
 pub mod periodic;
 pub mod sparse;
 pub mod surface;
+pub mod surface_p2;
 pub mod torque;

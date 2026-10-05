@@ -17,17 +17,26 @@
 //!   slot per coupled interior pair), built through a DOF → tet incidence
 //!   so peak memory is `O(nnz)`, not `O(n_tets · 400)` triplets.
 //!
-//! Lumped ports and impedance surfaces are rejected by the caller with
-//! [`DrivenError::UnsupportedAtOrder`] before this module runs (Phase 1b).
+//! Surface terms (issue #857, Phase 1b) use the 8-DOF p=2 tangential-trace
+//! kernel of [`crate::assembly::surface_p2`]: every lumped-port surface mass
+//! and every impedance-surface mass couples only DOFs of the tet owning the
+//! boundary face, so its entries are a subset of the volume pattern and are
+//! cached aligned with it (surfaces) or as interior-remapped triplets
+//! (ports), exactly as the p=1 operator stores them. The port flux
+//! functional is full length (`n_dofs`), so the operator's port drive and
+//! voltage readout are order-agnostic.
 
 use faer::c64;
 
 use super::{
     DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSource, ElementOrder,
-    MaterialsKind,
+    MaterialsKind, OperatorPort, OperatorSurface, SurfaceImpedanceBc, validate_driven_surfaces,
+    validate_lumped_ports,
 };
 use crate::assembly::hcurl_space::{HcurlSpace, TetOrientation};
 use crate::assembly::nedelec_p2::{p2_local_curl_tensor, p2_local_mass_tensor, tabulate_p2_tet};
+use crate::assembly::surface_p2::{assemble_p2_port_flux, assemble_p2_surface_mass_triplets};
+use crate::driven::ports::LumpedPort;
 use crate::elements::nedelec::{TET_QUAD4_A, TET_QUAD4_B};
 use crate::elements::nedelec_p2::{
     TET_NEDELEC2_DOFS as ND, tet_barycentric_gradients, tet_nedelec2_local, tet_nedelec2_local_rhs,
@@ -41,12 +50,15 @@ const ZERO: c64 = c64 { re: 0.0, im: 0.0 };
 
 /// Assemble the ω-independent p=2 operator. Inputs are validated with the
 /// same errors as the p=1 [`DrivenOperator::assemble`].
+#[allow(clippy::too_many_arguments)]
 pub(super) fn assemble(
     space: &HcurlSpace,
     mesh: &TetMesh,
     materials: DrivenMaterials<'_>,
     sigma_tet: Option<&[f64]>,
     bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
+    surfaces: &[SurfaceImpedanceBc<'_>],
     source: DrivenSource<'_>,
 ) -> Result<DrivenOperator, DrivenError> {
     debug_assert_eq!(space.order(), ElementOrder::P2);
@@ -103,6 +115,16 @@ pub(super) fn assemble(
             want: n_tets,
         });
     }
+    // Ports and surfaces: the p=1 checks, then every triangle must be a
+    // tet face (issue #725) — the trace kernel needs its edges and face in
+    // the space's tables.
+    validate_lumped_ports(mesh, ports)?;
+    validate_driven_surfaces(
+        mesh,
+        "impedance surface",
+        surfaces.iter().map(|bc| bc.triangles),
+    )?;
+    validate_driven_surfaces(mesh, "lumped port", ports.iter().map(|p| p.faces))?;
 
     // --- PEC reduction ------------------------------------------------------
     let mut remap = vec![-1_i64; n_dofs];
@@ -206,6 +228,58 @@ pub(super) fn assemble(
     }
     let cols: Vec<usize> = col_idx.iter().map(|&c| c as usize).collect();
 
+    // --- Surface terms on the p=2 trace (issue #857) -------------------------
+    // Impedance surfaces: S_Γ aligned with the interior pattern (its scalar
+    // iω/Z_s(ω) is applied per ω by `assemble_a_at`, as at p=1).
+    let operator_surfaces = surfaces
+        .iter()
+        .enumerate()
+        .map(|(index, bc)| {
+            let triplets = assemble_p2_surface_mass_triplets(space, mesh, bc.triangles)
+                .map_err(|tri| not_on_mesh("impedance surface", index, tri, bc.triangles))?;
+            let mut s_vals = vec![0.0_f64; nnz];
+            for (r, c, v) in triplets {
+                let (rr, cc) = (remap[r], remap[c]);
+                if rr < 0 || cc < 0 {
+                    continue;
+                }
+                s_vals[slot(&row_ptr, &col_idx, rr as usize, cc as usize)] += v;
+            }
+            Ok(OperatorSurface {
+                s_vals,
+                model: bc.model,
+            })
+        })
+        .collect::<Result<Vec<_>, DrivenError>>()?;
+
+    // Lumped ports: interior-remapped S_p triplets and the full-length flux
+    // functional f_i = ∮ N_i · ê dS (drive and voltage readout).
+    let operator_ports = ports
+        .iter()
+        .enumerate()
+        .map(|(index, port)| {
+            let flux = assemble_p2_port_flux(space, mesh, port.faces, port.e_hat)
+                .map_err(|tri| not_on_mesh("lumped port", index, tri, port.faces))?;
+            let mass_triplets = assemble_p2_surface_mass_triplets(space, mesh, port.faces)
+                .map_err(|tri| not_on_mesh("lumped port", index, tri, port.faces))?
+                .into_iter()
+                .filter_map(|(r, c, v)| {
+                    let (rr, cc) = (remap[r], remap[c]);
+                    (rr >= 0 && cc >= 0).then_some((rr as usize, cc as usize, v))
+                })
+                .collect();
+            Ok(OperatorPort {
+                mass_triplets,
+                flux,
+                z_s: port.surface_impedance(),
+                v_inc: port.v_inc,
+                length: port.length,
+                width: port.width,
+                resistance: port.resistance,
+            })
+        })
+        .collect::<Result<Vec<_>, DrivenError>>()?;
+
     Ok(DrivenOperator {
         order: ElementOrder::P2,
         n_dofs,
@@ -217,8 +291,8 @@ pub(super) fn assemble(
         k_vals,
         m_vals,
         c_vals,
-        surfaces: Vec::new(),
-        ports: Vec::new(),
+        surfaces: operator_surfaces,
+        ports: operator_ports,
         rhs_re: rhs.iter().map(|b| b.re).collect(),
         rhs_im: rhs.iter().map(|b| b.im).collect(),
         materials_kind,
@@ -285,6 +359,29 @@ fn local_rhs(
             let _ = mesh;
             b
         }
+    }
+}
+
+/// The pattern slot of interior pair `(r, c)`. Every surface pair lies in
+/// the pattern: a boundary face's 8 trace DOFs are DOFs of the tet owning
+/// the face.
+fn slot(row_ptr: &[usize], col_idx: &[u32], r: usize, c: usize) -> usize {
+    let row = &col_idx[row_ptr[r]..row_ptr[r + 1]];
+    row_ptr[r]
+        + row
+            .binary_search(&(c as u32))
+            .expect("surface pair must lie within the volume pattern")
+}
+
+/// [`DrivenError::SurfaceNotOnMesh`] for a triangle the p=2 trace kernel
+/// could not place (defensive: [`validate_driven_surfaces`] has already
+/// rejected non-faces).
+fn not_on_mesh(kind: &str, index: usize, tri: [u32; 3], all: &[[u32; 3]]) -> DrivenError {
+    DrivenError::SurfaceNotOnMesh {
+        surface: format!("{kind} {index}"),
+        triangle: tri,
+        dangling: 1,
+        total: all.len(),
     }
 }
 
