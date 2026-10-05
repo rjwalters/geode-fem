@@ -79,9 +79,19 @@ use crate::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_complex_epsilon_sparse,
     assemble_global_nedelec_with_full_tensors_sparse,
 };
+use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::p1::upload_mesh;
+use crate::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSource,
+    SurfaceImpedanceBc, SurfaceImpedanceModel,
+};
 use crate::eigen::dense::EigenError;
+use crate::eigen::hcurl_null::{
+    GRADIENT_FRACTION_CUT, GradientNullCount, GradientNullSpace, real_to_complex,
+};
 use crate::eigen::lanczos::SparseShiftInvertLanczos;
+use crate::eigen::transmon::LondonSurface;
+use crate::elements::ElementOrder;
 use crate::mesh::{TaggedTetMesh, TetMesh, pec_interior_mask_from_triangles};
 
 /// Errors from the tagged-mesh lossless cavity eigensolve.
@@ -119,6 +129,26 @@ pub enum PecCavityError {
         found: usize,
         /// The shift.
         sigma: f64,
+    },
+    /// The order-generic pencil assembly (issue #871) rejected its input:
+    /// a wall or space that does not belong to the mesh, a London wall
+    /// that is not made of tet faces, …
+    #[error("cavity pencil assembly failed: {0}")]
+    Assembly(#[from] crate::driven::solve::DrivenError),
+    /// Null-count tripwire (issue #871): the gradient-fraction classifier
+    /// flagged more Ritz pairs as gradients than the exact gradient null
+    /// dimension allows ([`crate::eigen::hcurl_null`]). An M-orthonormal
+    /// Ritz basis cannot hold more gradients than that, so the classifier
+    /// or the pencil is broken; nothing is returned.
+    #[error(
+        "{classified} Ritz pairs were classified as gradients, but the exact gradient null \
+         space has dimension {dim}"
+    )]
+    GradientNullExceeded {
+        /// Ritz pairs the classifier flagged.
+        classified: usize,
+        /// The exact gradient null dimension.
+        dim: usize,
     },
     /// A selected mode's relative eigen-residual exceeds
     /// [`PecCavitySettings::residual_tol`]: the Lanczos basis did not
@@ -514,6 +544,20 @@ pub(crate) fn solve_assembled_pencil(
     m: &SparseColMat<usize, f64>,
     settings: &PecCavitySettings,
 ) -> Result<PecCavityModes, PecCavityError> {
+    Ok(solve_assembled_pencil_classified(k, m, settings, None)?.0)
+}
+
+/// [`solve_assembled_pencil`] with an optional **vector** null classifier
+/// (issue #871): a Ritz pair is gradient null when `λ ≤ null_tol_rel·σ`
+/// **or** `is_gradient(x)`. Returns the modes and the number of Ritz pairs
+/// `is_gradient` flagged (`0` without a classifier). With `None` the
+/// filter, selection and result are exactly [`solve_assembled_pencil`]'s.
+pub(crate) fn solve_assembled_pencil_classified(
+    k: &SparseColMat<usize, f64>,
+    m: &SparseColMat<usize, f64>,
+    settings: &PecCavitySettings,
+    is_gradient: Option<&dyn Fn(&[f64]) -> bool>,
+) -> Result<(PecCavityModes, usize), PecCavityError> {
     let s = settings;
     let n_interior = k.nrows();
 
@@ -532,11 +576,30 @@ pub(crate) fn solve_assembled_pencil(
     let pairs = solver.smallest_eigenpairs(k.as_ref(), m.as_ref(), request)?;
 
     let null_ceiling = s.null_tol_rel * s.sigma;
-    let n_null_filtered = pairs.iter().filter(|p| p.lambda <= null_ceiling).count();
-    let mut physical: Vec<_> = pairs
-        .into_iter()
-        .filter(|p| p.lambda > null_ceiling)
-        .collect();
+    let (n_null_filtered, n_gradient, mut physical) = match is_gradient {
+        None => {
+            let n_null_filtered = pairs.iter().filter(|p| p.lambda <= null_ceiling).count();
+            let physical: Vec<_> = pairs
+                .into_iter()
+                .filter(|p| p.lambda > null_ceiling)
+                .collect();
+            (n_null_filtered, 0, physical)
+        }
+        Some(is_gradient) => {
+            let flags: Vec<bool> = pairs.iter().map(|p| is_gradient(&p.vector)).collect();
+            let n_gradient = flags.iter().filter(|&&g| g).count();
+            let mut n_null_filtered = 0usize;
+            let mut physical = Vec::with_capacity(pairs.len());
+            for (p, g) in pairs.into_iter().zip(flags) {
+                if g || p.lambda <= null_ceiling {
+                    n_null_filtered += 1;
+                } else {
+                    physical.push(p);
+                }
+            }
+            (n_null_filtered, n_gradient, physical)
+        }
+    };
     // Closest to σ first, then ascending.
     physical.sort_by(|a, b| {
         (a.lambda - s.sigma)
@@ -595,11 +658,14 @@ pub(crate) fn solve_assembled_pencil(
             bound: s.residual_tol,
         });
     }
-    Ok(PecCavityModes {
-        modes,
-        n_interior,
-        n_null_filtered,
-    })
+    Ok((
+        PecCavityModes {
+            modes,
+            n_interior,
+            n_null_filtered,
+        },
+        n_gradient,
+    ))
 }
 
 /// [`solve_pec_cavity_modes`] on a Gmsh-tagged mesh, binding by physical-
@@ -620,6 +686,19 @@ pub fn solve_tagged_pec_cavity_modes<B: Backend>(
     settings: &PecCavitySettings,
     device: &B::Device,
 ) -> Result<PecCavityModes, PecCavityError> {
+    let (eps_r, pec_tris) = tagged_eps_and_walls(tagged, pec_groups, materials)?;
+    let lists: Vec<&[[u32; 3]]> = pec_tris.iter().map(Vec::as_slice).collect();
+    let mask = pec_interior_mask_from_triangles(&tagged.mesh.edges(), &lists);
+    solve_pec_cavity_modes::<B>(&tagged.mesh, &eps_r, &mask, settings, device)
+}
+
+/// Resolve a tagged cavity's physical-group names: the per-tet real `ε_r`
+/// (unlisted regions vacuum) and the PEC wall triangle lists.
+fn tagged_eps_and_walls(
+    tagged: &TaggedTetMesh,
+    pec_groups: &[&str],
+    materials: &[(&str, f64)],
+) -> Result<(Vec<f64>, Vec<Vec<[u32; 3]>>), PecCavityError> {
     let tag_of = |dim: i32, name: &str| {
         tagged
             .physical_group_tag(dim, name)
@@ -645,9 +724,389 @@ pub fn solve_tagged_pec_cavity_modes<B: Backend>(
         .iter()
         .map(|name| Ok(tagged.triangles_with_tag(tag_of(2, name)?)))
         .collect::<Result<Vec<_>, PecCavityError>>()?;
+    Ok((eps_r, pec_tris))
+}
+
+// ---------------------------------------------------------------------------
+// Order-generic entry points (issue #871, Epic #836 Phase 2)
+// ---------------------------------------------------------------------------
+
+/// Result of the order-generic lossless solves
+/// ([`solve_pec_cavity_modes_on_space`],
+/// [`solve_tagged_pec_cavity_modes_at_order`]).
+#[derive(Debug, Clone)]
+pub struct SpaceCavityModes {
+    /// Element order the pencil was actually assembled and solved at.
+    pub order: ElementOrder,
+    /// The modes, exactly as [`solve_pec_cavity_modes`] reports them.
+    /// Eigenvectors are over the kept DOFs of the space's mask (in full-DOF
+    /// order); scatter them with the mask to get a full
+    /// [`HcurlSpace::n_dofs`] vector for [`HcurlSpace::field_at`].
+    pub modes: PecCavityModes,
+    /// The exact gradient null dimension of the pencil and its closed-form
+    /// decomposition ([`crate::eigen::hcurl_null`]).
+    pub gradient_null: GradientNullCount,
+    /// Ritz pairs the gradient-fraction classifier flagged as curl-free
+    /// (`≤ gradient_null.dim`, the null-count tripwire). `None` at p=1,
+    /// whose null filter is the historical magnitude test only (the p=1
+    /// path is bit-identical to [`solve_pec_cavity_modes`]).
+    pub n_gradient_classified: Option<usize>,
+}
+
+/// The per-tet materials of a lossless pencil as driven-operator materials
+/// (p=2 assembly through [`DrivenOperator::assemble_with_space`]).
+enum OwnedDrivenMaterials {
+    Scalar(Vec<c64>),
+    Tensor(Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>),
+}
+
+impl OwnedDrivenMaterials {
+    fn from_lossless(materials: &PecCavityMaterials<'_>) -> Self {
+        let diag = |d: &[f64; 3]| {
+            let mut t = [[c64::new(0.0, 0.0); 3]; 3];
+            for (k, row) in t.iter_mut().enumerate() {
+                row[k] = c64::new(d[k], 0.0);
+            }
+            t
+        };
+        match materials {
+            PecCavityMaterials::Isotropic(eps) => {
+                Self::Scalar(eps.iter().map(|&e| c64::new(e, 0.0)).collect())
+            }
+            PecCavityMaterials::Diagonal { eps, nu } => Self::Tensor(
+                eps.iter().map(diag).collect(),
+                nu.iter().map(diag).collect(),
+            ),
+        }
+    }
+
+    fn view(&self) -> DrivenMaterials<'_> {
+        match self {
+            Self::Scalar(e) => DrivenMaterials::Scalar(e),
+            Self::Tensor(e, n) => DrivenMaterials::MatchedUpml {
+                epsilon_tensor: e,
+                nu_tensor: n,
+            },
+        }
+    }
+}
+
+/// Assemble the ω-independent p=2 operator on `space` for an eigen pencil
+/// (no ports, no source), mapping the driven errors onto the cavity ones.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn assemble_eigen_operator_p2<B: Backend>(
+    space: &HcurlSpace,
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    pec_interior_mask: &[bool],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    device: &B::Device,
+) -> Result<DrivenOperator, DrivenError> {
+    let source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+    };
+    DrivenOperator::assemble_with_space::<B>(
+        space,
+        mesh,
+        materials,
+        sigma_tet,
+        &DrivenBcs { pec_interior_mask },
+        &[],
+        surfaces,
+        DrivenSource::Constant(&source),
+        device,
+    )
+}
+
+/// Reject malformed London walls up front (the p=1 kernel panics on them).
+fn validate_london(mesh: &TetMesh, london: &[LondonSurface<'_>]) -> Result<(), PecCavityError> {
+    if let Some(bad) = london
+        .iter()
+        .find(|w| !(w.lambda_l.is_finite() && w.lambda_l > 0.0))
+    {
+        return Err(PecCavityError::InvalidInput(format!(
+            "London lambda_l must be finite and > 0 (got {}); the λ_L = 0 PEC limit is the PEC \
+             mask",
+            bad.lambda_l
+        )));
+    }
+    crate::driven::solve::validate_driven_surfaces(
+        mesh,
+        "London wall",
+        london.iter().map(|w| w.triangles),
+    )?;
+    Ok(())
+}
+
+/// [`assemble_lossless_pencil_with_materials`] on an order-pluggable
+/// [`HcurlSpace`] (issue #871, Epic #836 Phase 2), optionally with London
+/// superconducting walls `λ_L⁻¹ S_Γ` on the K side
+/// ([`crate::eigen::transmon::LondonSurface`]; real, positive semi-definite
+/// and frequency-independent, so the pencil stays real symmetric and
+/// linear in `λ`).
+///
+/// `pec_interior_mask` is over `space.n_dofs()` — build it with
+/// [`HcurlSpace::pec_interior_mask`] (face-exact, #780). Interior DOFs are
+/// renumbered contiguously in full-DOF order.
+///
+/// - **p=1, no London walls:** calls
+///   [`assemble_lossless_pencil_with_materials`] verbatim (bit-identical).
+///   With London walls, their Whitney surface masses
+///   ([`crate::eigen::transmon::LondonSurface::k_triplets`]) are added to
+///   that `K` on the kept edges.
+/// - **p=2:** the 20-DOF element through the host-side p=2 assembly of
+///   [`DrivenOperator::assemble_with_space`] (degree-4 rule, exact for
+///   per-tet-constant materials; diagonal `ε`/`ν` through its full-tensor
+///   kernel), and the London masses on the 8-DOF p=2 tangential trace
+///   ([`crate::assembly::surface_p2`], #857).
+///
+/// # Errors
+///
+/// [`PecCavityError::InvalidInput`] on length / value mismatches (including
+/// a non-positive `λ_L`), [`PecCavityError::EmptyInterior`] when no DOF
+/// survives the mask, [`PecCavityError::Assembly`] for a space built on
+/// another mesh or a London wall that is not made of tet faces.
+pub fn assemble_lossless_pencil_on_space<B: Backend>(
+    space: &HcurlSpace,
+    mesh: &TetMesh,
+    materials: &PecCavityMaterials<'_>,
+    pec_interior_mask: &[bool],
+    london: &[LondonSurface<'_>],
+    device: &B::Device,
+) -> Result<LosslessPencil, PecCavityError> {
+    check_space(space, mesh)?;
+    if pec_interior_mask.len() != space.n_dofs() {
+        return Err(PecCavityError::InvalidInput(format!(
+            "PEC mask has {} entries, the {:?} space has {} DOFs",
+            pec_interior_mask.len(),
+            space.order(),
+            space.n_dofs()
+        )));
+    }
+    validate_london(mesh, london)?;
+    match space.order() {
+        ElementOrder::P1 => {
+            let (k, m) = assemble_lossless_pencil_with_materials::<B>(
+                mesh,
+                materials,
+                pec_interior_mask,
+                device,
+            )?;
+            if london.is_empty() {
+                return Ok((k, m));
+            }
+            let mut remap = vec![usize::MAX; pec_interior_mask.len()];
+            let mut n = 0usize;
+            for (i, &keep) in pec_interior_mask.iter().enumerate() {
+                if keep {
+                    remap[i] = n;
+                    n += 1;
+                }
+            }
+            let mut extra = Vec::new();
+            for wall in london {
+                for (r, c, v) in wall.k_triplets(mesh, space.edges()) {
+                    let (rr, cc) = (remap[r], remap[c]);
+                    if rr != usize::MAX && cc != usize::MAX {
+                        extra.push((rr, cc, v));
+                    }
+                }
+            }
+            Ok((add_triplets(&k, &extra, "cavity K + London")?, m))
+        }
+        ElementOrder::P2 => {
+            validate_materials(mesh.n_tets(), materials)?;
+            let owned = OwnedDrivenMaterials::from_lossless(materials);
+            let surfaces: Vec<SurfaceImpedanceBc<'_>> = london
+                .iter()
+                .map(|w| SurfaceImpedanceBc {
+                    triangles: w.triangles,
+                    model: SurfaceImpedanceModel::London {
+                        lambda_l: w.lambda_l,
+                    },
+                })
+                .collect();
+            let op = assemble_eigen_operator_p2::<B>(
+                space,
+                mesh,
+                owned.view(),
+                None,
+                pec_interior_mask,
+                &surfaces,
+                device,
+            )
+            .map_err(empty_or_assembly)?;
+            let n = op.n_interior();
+            let mut k_tr = Vec::with_capacity(op.rows().len());
+            let mut m_tr = Vec::with_capacity(op.rows().len());
+            for (((&r, &c), kv), mv) in op
+                .rows()
+                .iter()
+                .zip(op.cols())
+                .zip(op.k_vals())
+                .zip(op.m_vals())
+            {
+                k_tr.push(Triplet::new(r, c, kv.re));
+                m_tr.push(Triplet::new(r, c, mv.re));
+            }
+            for (i, wall) in london.iter().enumerate() {
+                let (trips, _model) = op.surface_mass_triplets(i);
+                let w = 1.0 / wall.lambda_l;
+                k_tr.extend(trips.into_iter().map(|(r, c, v)| Triplet::new(r, c, w * v)));
+            }
+            let build = |tr: &[Triplet<usize, usize, f64>], what: &str| {
+                SparseColMat::<usize, f64>::try_new_from_triplets(n, n, tr).map_err(|e| {
+                    PecCavityError::Eigen(EigenError::FaerGevd(format!("{what}: {e:?}")))
+                })
+            };
+            Ok((build(&k_tr, "p=2 cavity K")?, build(&m_tr, "p=2 cavity M")?))
+        }
+    }
+}
+
+/// `DrivenError::EmptyInterior` is the cavity's own `EmptyInterior`.
+fn empty_or_assembly(e: DrivenError) -> PecCavityError {
+    match e {
+        DrivenError::EmptyInterior => PecCavityError::EmptyInterior,
+        other => PecCavityError::Assembly(other),
+    }
+}
+
+/// [`DrivenError::SpaceMeshMismatch`] unless `space` was built on `mesh`.
+fn check_space(space: &HcurlSpace, mesh: &TetMesh) -> Result<(), DrivenError> {
+    if space.n_nodes() == mesh.n_nodes() && space.n_tets() == mesh.n_tets() {
+        Ok(())
+    } else {
+        Err(DrivenError::SpaceMeshMismatch {
+            space_nodes: space.n_nodes(),
+            space_tets: space.n_tets(),
+            mesh_nodes: mesh.n_nodes(),
+            mesh_tets: mesh.n_tets(),
+        })
+    }
+}
+
+/// `a + Σ extra` as a new sparse matrix (duplicates summed).
+fn add_triplets(
+    a: &SparseColMat<usize, f64>,
+    extra: &[(usize, usize, f64)],
+    what: &str,
+) -> Result<SparseColMat<usize, f64>, PecCavityError> {
+    let mut tr = Vec::with_capacity(a.compute_nnz() + extra.len());
+    for j in 0..a.ncols() {
+        for (i, &v) in a.row_idx_of_col(j).zip(a.val_of_col(j)) {
+            tr.push(Triplet::new(i, j, v));
+        }
+    }
+    tr.extend(extra.iter().map(|&(r, c, v)| Triplet::new(r, c, v)));
+    SparseColMat::<usize, f64>::try_new_from_triplets(a.nrows(), a.ncols(), &tr)
+        .map_err(|e| PecCavityError::Eigen(EigenError::FaerGevd(format!("{what}: {e:?}"))))
+}
+
+/// [`solve_pec_cavity_modes_with_materials`] on an order-pluggable
+/// [`HcurlSpace`] (issue #871, Epic #836 Phase 2), optionally with London
+/// walls (see [`assemble_lossless_pencil_on_space`]).
+///
+/// - **p=1** (no London walls): the pencil, the Lanczos solve, the null
+///   filter and the selection are exactly
+///   [`solve_pec_cavity_modes_with_materials`]'s, so `modes` is
+///   bit-identical to it.
+/// - **p=2:** the same Lanczos solve and selection, with the null filter
+///   extended by the exact **gradient-fraction classifier**
+///   ([`crate::eigen::hcurl_null`]): a Ritz pair is null when
+///   `λ ≤ null_tol_rel·σ` or when it lies in the P2-Lagrange gradient image
+///   (fraction `≥ ½`). A gradient Ritz value that drifts above the
+///   magnitude filter is therefore never returned as a mode, and a physical
+///   mode is never dropped for being small. The number of classified pairs
+///   is checked against the exact null dimension (the tripwire).
+///
+/// # Errors
+///
+/// Everything [`solve_pec_cavity_modes`] and
+/// [`assemble_lossless_pencil_on_space`] return, plus
+/// [`PecCavityError::GradientNullExceeded`] when the tripwire fires.
+pub fn solve_pec_cavity_modes_on_space<B: Backend>(
+    space: &HcurlSpace,
+    mesh: &TetMesh,
+    materials: &PecCavityMaterials<'_>,
+    pec_interior_mask: &[bool],
+    london: &[LondonSurface<'_>],
+    settings: &PecCavitySettings,
+    device: &B::Device,
+) -> Result<SpaceCavityModes, PecCavityError> {
+    validate_settings(settings)?;
+    let (k, m) = assemble_lossless_pencil_on_space::<B>(
+        space,
+        mesh,
+        materials,
+        pec_interior_mask,
+        london,
+        device,
+    )?;
+    let walls: Vec<&[[u32; 3]]> = london.iter().map(|w| w.triangles).collect();
+    let null = GradientNullSpace::build(space, mesh, pec_interior_mask, &walls);
+    match space.order() {
+        ElementOrder::P1 => Ok(SpaceCavityModes {
+            order: ElementOrder::P1,
+            modes: solve_assembled_pencil(&k, &m, settings)?,
+            gradient_null: null.counts(),
+            n_gradient_classified: None,
+        }),
+        ElementOrder::P2 => {
+            let m_c = real_to_complex(m.as_ref())?;
+            let classifier = null.classifier(m_c.as_ref())?;
+            let is_gradient =
+                |x: &[f64]| classifier.gradient_fraction_real(x) >= GRADIENT_FRACTION_CUT;
+            let (modes, classified) =
+                solve_assembled_pencil_classified(&k, &m, settings, Some(&is_gradient))?;
+            if classified > null.dim() {
+                return Err(PecCavityError::GradientNullExceeded {
+                    classified,
+                    dim: null.dim(),
+                });
+            }
+            Ok(SpaceCavityModes {
+                order: ElementOrder::P2,
+                modes,
+                gradient_null: null.counts(),
+                n_gradient_classified: Some(classified),
+            })
+        }
+    }
+}
+
+/// [`solve_tagged_pec_cavity_modes`] at a chosen [`ElementOrder`] (issue
+/// #871): the PEC mask is the face-exact
+/// [`HcurlSpace::pec_interior_mask`] of the named walls, the solve is
+/// [`solve_pec_cavity_modes_on_space`]. At [`ElementOrder::P1`] the modes
+/// are bit-identical to [`solve_tagged_pec_cavity_modes`].
+///
+/// # Errors
+///
+/// As [`solve_tagged_pec_cavity_modes`] and
+/// [`solve_pec_cavity_modes_on_space`].
+pub fn solve_tagged_pec_cavity_modes_at_order<B: Backend>(
+    tagged: &TaggedTetMesh,
+    pec_groups: &[&str],
+    materials: &[(&str, f64)],
+    order: ElementOrder,
+    settings: &PecCavitySettings,
+    device: &B::Device,
+) -> Result<SpaceCavityModes, PecCavityError> {
+    let (eps_r, pec_tris) = tagged_eps_and_walls(tagged, pec_groups, materials)?;
     let lists: Vec<&[[u32; 3]]> = pec_tris.iter().map(Vec::as_slice).collect();
-    let mask = pec_interior_mask_from_triangles(&tagged.mesh.edges(), &lists);
-    solve_pec_cavity_modes::<B>(&tagged.mesh, &eps_r, &mask, settings, device)
+    let space = HcurlSpace::build(&tagged.mesh, order);
+    let mask = space.pec_interior_mask(&tagged.mesh, &lists)?;
+    solve_pec_cavity_modes_on_space::<B>(
+        &space,
+        &tagged.mesh,
+        &PecCavityMaterials::Isotropic(&eps_r),
+        &mask,
+        &[],
+        settings,
+        device,
+    )
 }
 
 #[cfg(test)]
