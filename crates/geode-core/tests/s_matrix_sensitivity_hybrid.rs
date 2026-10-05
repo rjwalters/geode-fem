@@ -211,6 +211,8 @@ struct Fixture {
     h: f64,
     /// The FD bar of this fixture.
     tol: f64,
+    /// Per-tet conductivity (a conducting face sees `ε − jσ/ω`).
+    sigma: Option<Vec<f64>>,
 }
 
 impl Fixture {
@@ -256,7 +258,7 @@ impl Fixture {
             space: &space,
             mesh: &self.mesh,
             materials: DrivenMaterials::Scalar(&self.eps),
-            sigma_tet: None,
+            sigma_tet: self.sigma.as_deref(),
             bcs: &bcs,
             lumped: &[],
             wave: &specs,
@@ -282,7 +284,7 @@ impl Fixture {
         solve_wave_port_spec_sweep_with_mode::<B>(
             &mesh,
             DrivenMaterials::Scalar(&eps),
-            None,
+            self.sigma.as_deref(),
             &DrivenBcs {
                 pec_interior_mask: &self.pec,
             },
@@ -379,6 +381,7 @@ fn slab_fixture(eps_slab: c64) -> Fixture {
         omegas: vec![1.8, 2.1],
         h: 1e-5,
         tol: TOL,
+        sigma: None,
     }
 }
 
@@ -423,6 +426,44 @@ fn lossy_slab_guide_matches_fd() {
     let rec = gradient_reciprocity(&sw);
     eprintln!("RECIPROCITY | lossy slab guide | {rec:.2e}");
     assert!(rec < 1e-8);
+}
+
+/// **Conducting port face**: the slab guide with `σ = 0.3` on the first cell
+/// layer, so port 1's face sees `ε − jσ/ω` (the per-ω complex face path of
+/// #807) while port 2's stays real; the slab (on both faces) and its height
+/// are the parameters.
+#[test]
+fn conducting_hybrid_face_design_matches_fd() {
+    let mut fx = slab_fixture(c64::new(2.25, 0.0));
+    fx.sigma = Some(
+        (0..fx.mesh.n_tets())
+            .map(|t| {
+                if centroid(&fx.mesh, t)[2] < LEN / 4.0 {
+                    0.3
+                } else {
+                    0.0
+                }
+            })
+            .collect(),
+    );
+    fx.omegas = vec![1.7, 1.9];
+    let design = SDesign {
+        material: Some(
+            MaterialDesign::from_regions(fx.regions.clone(), vec!["slab".into()])
+                .unwrap()
+                .with_components(true, false),
+        ),
+        shape: fx.shape.clone(),
+        ..SDesign::default()
+    };
+    let sw = fx.sens_with(&design, &SSensitivityOptions::default());
+    let pt = &sw.points[0];
+    let col0: f64 = (0..2).map(|k| pt.s[k * 2].norm_sqr()).sum();
+    eprintln!("conducting face: Σ_k |S_k1|² = {col0:.6}");
+    assert!(col0 < 1.0 - 1e-6, "the σ layer must make port 1 lossy");
+    for e in fx.fd("slab guide, conducting port-1 face", &sw) {
+        assert!(e <= fx.tol, "rel_err {e}");
+    }
 }
 
 /// The three new term families each carry a tripwire: dropping the
@@ -646,6 +687,7 @@ fn strip_fixture(
         omegas,
         h: 1e-5,
         tol: STRIP_TOL,
+        sigma: None,
     }
 }
 
@@ -993,4 +1035,138 @@ fn degenerate_pair_on_a_touched_face_is_a_typed_error() {
         }
         other => panic!("expected DegenerateCluster, got {other:?}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Fences
+// ---------------------------------------------------------------------------
+
+/// The loud errors that remain on touched hybrid faces: a column that bends
+/// a face out of its plane, the `transverse_only_flux` tripwire option, a
+/// face with no tet map (its `ε` cannot follow the region) and a
+/// `port_fill` binding on a hybrid port (hybrid modes follow the face on
+/// their own).
+#[test]
+fn touched_hybrid_face_fences_are_typed_errors() {
+    use geode_core::driven::ports::project_port_face;
+    let fx = slab_fixture(c64::new(2.25, 0.0));
+    let bcs = DrivenBcs {
+        pec_interior_mask: &fx.pec,
+    };
+    let space = HcurlSpace::build(&fx.mesh, ElementOrder::P1);
+    let run = |specs: &[WavePortSpec], design: &SDesign| {
+        let net = SNetwork {
+            space: &space,
+            mesh: &fx.mesh,
+            materials: DrivenMaterials::Scalar(&fx.eps),
+            sigma_tet: None,
+            bcs: &bcs,
+            lumped: &[],
+            wave: specs,
+            surfaces: &[],
+        };
+        s_matrix_sensitivity_sweep::<B>(
+            &net,
+            &[1.8],
+            design,
+            &SSensitivityOptions::default(),
+            &device(),
+        )
+        .unwrap_err()
+    };
+    let specs = fx.ports(&fx.mesh, &fx.eps);
+    let material = SDesign {
+        material: Some(
+            MaterialDesign::from_regions(fx.regions.clone(), vec!["slab".into()]).unwrap(),
+        ),
+        ..SDesign::default()
+    };
+
+    // A column that bends port 1's face (normal velocity ∝ x).
+    let bend: Vec<[f64; 3]> = fx
+        .mesh
+        .nodes
+        .iter()
+        .map(|p| {
+            if p[2] < 1e-9 {
+                [0.0, 0.0, p[0]]
+            } else {
+                [0.0; 3]
+            }
+        })
+        .collect();
+    let err = run(
+        &specs,
+        &SDesign {
+            shape: Some(ShapeDesign::from_columns(vec![bend], vec!["bend".into()]).unwrap()),
+            ..SDesign::default()
+        },
+    );
+    eprintln!("fence: {err}");
+    assert!(
+        matches!(&err, SSensitivityError::Unsupported { phase, .. } if phase.contains("planar")),
+        "{err:?}"
+    );
+
+    // The transverse-only tripwire option on a touched port.
+    let tripwire: Vec<WavePortSpec> = specs
+        .iter()
+        .map(|s| match s {
+            WavePortSpec::Hybrid(h) => {
+                let mut h = (**h).clone();
+                h.opts.transverse_only_flux = true;
+                WavePortSpec::from(h)
+            }
+            WavePortSpec::Geometric(g) => WavePortSpec::from(g.clone()),
+        })
+        .collect();
+    let err = run(&tripwire, &material);
+    eprintln!("fence: {err}");
+    assert!(
+        matches!(&err, SSensitivityError::Unsupported { phase, .. } if phase.contains("tripwire")),
+        "{err:?}"
+    );
+
+    // A face built from a bare projection (no tet map) on a design region.
+    let bare: Vec<WavePortSpec> = fx
+        .port_faces
+        .iter()
+        .map(|faces| {
+            let proj = project_port_face(&fx.mesh, faces).unwrap();
+            // The volume's fill per face triangle (projection order is the
+            // given face order), but no tet map.
+            let face_eps: Vec<f64> = faces
+                .iter()
+                .map(|f| {
+                    let yc = f.iter().map(|&v| fx.mesh.nodes[v as usize][1]).sum::<f64>() / 3.0;
+                    if yc < 0.5 { 2.25 } else { 1.0 }
+                })
+                .collect();
+            WavePortSpec::from(
+                HybridWavePort::new(
+                    HybridPortFace::new(proj, face_eps).unwrap(),
+                    vec![c64::new(1.0, 0.0)],
+                )
+                .with_opts(quiet()),
+            )
+        })
+        .collect();
+    let err = run(&bare, &material);
+    eprintln!("fence: {err}");
+    assert!(
+        matches!(&err, SSensitivityError::InvalidDesign(m) if m.contains("tet map")),
+        "{err:?}"
+    );
+
+    // port_fill on a hybrid port.
+    let bound = SDesign {
+        port_fill: vec![Some(0)],
+        ..material.clone()
+    };
+    let err = run(&specs, &bound);
+    eprintln!("fence: {err}");
+    assert!(
+        matches!(&err, SSensitivityError::InvalidDesign(m) if m.contains("port_fill")),
+        "{err:?}"
+    );
 }
