@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "mesh": {
+    "path": "../../../geode-core/tests/fixtures/microstrip_line_smoke.msh",
+    "length_unit_m": 0.001
+  },
+  "materials": [
+    { "physical_group": "substrate", "eps_r": [4.4, 0.0] }
+  ],
+  "boundary_conditions": {
+    "pec": ["shield", "strip"]
+  },
+  "wave_ports": [
+    { "physical_group": "port_in", "reference_ohm": 50 },
+    { "physical_group": "port_out", "reference_ohm": 50 }
+  ],
+  "frequencies": { "unit": "ghz", "values": [2.0] },
+  "sensitivity": {
+    "parameters": [
+      {
+        "kind": "shape",
+        "name": "strip_width",
+        "physical_group": "strip",
+        "motion": "stretch",
+        "axis": [1, 0, 0],
+        "pinned": ["shield"]
+      },
+      { "kind": "eps_r", "physical_group": "substrate" }
+    ],
+    "observables": [
+      { "quantity": "z0", "wave_port": "port_in" },
+      { "quantity": "eps_eff", "wave_port": "port_in" },
+      { "quantity": "s", "entry": [0, 0], "form": "db" },
+      { "quantity": "s", "entry": [1, 0], "form": "phase_deg" }
+    ]
+  }
+}

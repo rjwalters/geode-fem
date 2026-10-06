@@ -389,9 +389,14 @@ jobs:
       # release, ~12 min in debug). Its review adds the microstrip cookbook
       # `geode check` (Z_PI within 2 % of 50 ohm, no impedance-accuracy
       # warning; ~7 s in release, ~4 min in debug).
+      #
+      # Issue #883 adds the microstrip cookbook's strip-width sensitivity
+      # under --check-gradient (dZ0/dw, deps_eff/dw, dS vs the shipped
+      # forward on the morphed mesh + the Hammerstad-Jensen oracle; ~2.5 min
+      # in release on an M-series laptop).
       - name: geode extraction / eigen benchmark tiers (release, --ignored)
         run: |
           cargo test -p geode-cli --release --test mesh_golden \
               --test patch_extract_golden --test slcfet_extract_golden \
               --test sphere_pec_golden --test hybrid_wave_port \
-              --test cookbook -- --ignored
+              --test cookbook --test sensitivity_nport -- --ignored

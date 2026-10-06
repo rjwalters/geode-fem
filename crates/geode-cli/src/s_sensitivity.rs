@@ -43,10 +43,14 @@
 //! — material: the region's `ε_r` changed; shape: the mesh nodes moved by
 //! `±h` times the parameter's column (never re-meshed), the hybrid faces
 //! rebuilt on the moved mesh — and each entry is compared to the central
-//! difference. A loss parameter at its lossless bound (`ε″ = 0`,
-//! `tan δ = 0`) uses the one-sided second-order difference
-//! `(−3f(0) + 4f(h) − f(2h))/(2h)`: `ε″ < 0` is gain, and a filled port's
-//! outgoing branch flips there (the library's passive-side derivative).
+//! difference. A loss parameter within one step of its lossless bound
+//! (`ε″ = 0`, `tan δ = 0`) uses the one-sided second-order difference
+//! `(f(2h)·(−1) + 4f(h) − 3f(0))/(2h)`: `ε″ < 0` is gain, and a filled
+//! port's outgoing branch flips there (the library's passive-side
+//! derivative). The step is `relative_step` times the parameter's natural
+//! scale (`|ε′|`, `|ε_r|` for `ε″`, `1` for `tan δ`, the motion length for
+//! shape), and the disagreement is floored at the central difference's
+//! round-off (see the README).
 
 use std::time::Instant;
 

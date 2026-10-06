@@ -62,6 +62,40 @@ gradient must: `Σ ε_k ∂C/∂ε_k = C` and `Σ ν_k ∂L_ij/∂ν_k = −L_ij
 round-off (`tests/sensitivity_golden.rs`, which also covers the eigen
 `∂f/∂ε_r` case on a synthetic cavity).
 
+## N-port: `∂S`, `∂Z₀`, `∂ε_eff` w.r.t. a strip width (issue #883)
+
+* `microstrip_strip_width.json`: the 50 Ω shielded microstrip cookbook
+  line (`driven/microstrip_line.json`, hybrid wave ports, `w/h = 1.91` on
+  `ε_r = 4.4`) at 2 GHz, with two parameters — the strip width (a
+  `shape` parameter: the `strip` group stretched along x, its value the
+  width 1.91 mm, the `shield` pinned; the port faces move in their plane
+  and the hybrid port modes follow them) and the substrate `eps_r` — and
+  four observables: the input port's `z0` and `eps_eff`, `S11` in dB and
+  `∠S21` in degrees.
+
+```sh
+geode driven crates/geode-cli/examples/sensitivity/microstrip_strip_width.json \
+    --check-gradient -o ms.json      # ~2.5 min release (the graded face)
+jq '.sensitivities.entries[] | {parameter, observable, gradient, fd_rel_error}' ms.json
+```
+
+`--check-gradient` re-runs the shipped forward with the strip moved by
+`±1e-4·w` (the mesh morphed, never re-meshed) and the substrate's `ε_r`
+moved by `±1e-4·ε_r`:
+
+| parameter | observable | `value` | `gradient` | FD rel. error | Hammerstad–Jensen (open line) |
+|---|---|---|---|---|---|
+| `strip_width` (m) | `z0` (Ω) | 49.27 | −15 297 Ω/m | 1.7e-8 | −15 744 Ω/m |
+| `strip_width` | `eps_eff` | 3.328 | 147.3 /m | 3.2e-7 | 149.3 /m |
+| `strip_width` | `db(S[0,0])` | −68.43 dB | 2973 dB/m | 2.8e-6 | |
+| `strip_width` | `phase_deg(S[1,0])` | −8.787° | −181.7 °/m | 5.7e-8 | |
+| `substrate` `eps_r` | `z0` | 49.27 | −5.041 Ω | 3.6e-8 | −5.118 Ω |
+| `substrate` `eps_r` | `eps_eff` | 3.328 | 0.6842 | 3.0e-8 | 0.6805 |
+
+The closed-form column is the differentiated Hammerstad–Jensen formula of
+the **open** line; the shielded `20h × 12h` box and the mesh put geode
+within 3 %.
+
 ## Using it in an optimizer / agent loop
 
 Edit the spec's `materials[].eps_r` (or `mu_r`), run, read

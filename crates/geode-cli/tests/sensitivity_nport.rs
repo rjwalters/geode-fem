@@ -301,15 +301,24 @@ fn assert_every_parameter_is_live(s: &Value, what: &str) {
 
 #[test]
 fn wave_slab_guide_check_gradient_agrees_and_matches_the_library_exactly() {
-    let spec = slab_spec("wave", Ports::Wave, |_| {});
+    // Plus the lossless guide fill's `ε″` (it fills both ports): a loss
+    // parameter at its bound, checked one-sided (`ε″ < 0` is gain and flips
+    // the filled ports' outgoing branch).
+    let spec = slab_spec("wave", Ports::Wave, |v| {
+        v["sensitivity"]["parameters"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"kind": "eps_r_imag", "physical_group": "guide"}));
+    });
     let r = ok(
         &geode(&["driven", spec.to_str().unwrap(), "--check-gradient"]),
         "geode driven --check-gradient (wave)",
     );
     let s = assert_fd_agreement(&r, "wave slab guide");
     assert_every_parameter_is_live(&s, "wave slab guide");
-    // The report's shape: 6 parameters × 6 observables × 2 frequencies.
-    assert_eq!(s["entries"].as_array().unwrap().len(), 6 * 6 * 2);
+    // The report's shape: 7 parameters × 6 observables × 2 frequencies.
+    assert_eq!(s["entries"].as_array().unwrap().len(), 7 * 6 * 2);
+    assert_eq!(f(&s["parameters"][6]["value"]), 0.0);
     let params = s["parameters"].as_array().unwrap();
     assert_eq!(params[4]["kind"], "shape");
     assert_eq!(params[4]["name"], "slab_thickness");
@@ -485,6 +494,7 @@ fn assert_library_parity(report: &Value, s: &Value) {
         (1, 1.0),
         (4, 1.0 / LENGTH_UNIT_M),
         (5, 1.0 / LENGTH_UNIT_M),
+        (3, 1.0),
     ];
     let n = 2;
     let mut checked = 0;
@@ -514,7 +524,7 @@ fn assert_library_parity(report: &Value, s: &Value) {
         checked += 1;
     }
     eprintln!("LIBRARY PARITY | wave slab guide | {checked} entries bit-identical");
-    assert_eq!(checked, 6 * 4 * 2);
+    assert_eq!(checked, 7 * 4 * 2);
 }
 
 #[test]
@@ -546,6 +556,20 @@ fn mixed_slab_guide_check_gradient_agrees_on_a_frequency_selection() {
         assert!((f(&e["frequency_hz"]) - f(&r["results"][1]["frequency_hz"])).abs() < 1e-3);
     }
     assert_eq!(s["entries"].as_array().unwrap().len(), 6 * 6);
+    // The check is a real gate: a tolerance below the FD truncation error
+    // fails the run, naming the worst entry.
+    let strict = slab_spec("mixed-strict", Ports::Mixed, |v| {
+        v["sensitivity"]["frequencies"] = json!({"unit": "k0", "values": [2.7]});
+        v["sensitivity"]["fd_check"] = json!({"tolerance": 1e-12});
+    });
+    let msg = err(
+        &geode(&["driven", strict.to_str().unwrap(), "--check-gradient"]),
+        "solve_failed",
+    );
+    assert!(
+        msg.contains("FD self-check failed") && msg.contains("Hz"),
+        "{msg}"
+    );
 }
 
 /// The original one-lumped-port `s11_mag_sq` report is unchanged, and the
@@ -635,6 +659,41 @@ fn microstrip_cookbook_strip_width_check_gradient_agrees() {
         "strip width {}",
         w["value"]
     );
+    // The strip edges move, and with them the port faces (in their plane);
+    // the pinned shield does not.
+    assert_eq!(
+        w["moved_groups"],
+        json!(["port_in", "port_out", "strip"]),
+        "{w}"
+    );
+    // Sanity oracle: the differentiated Hammerstad–Jensen closed form of the
+    // OPEN line (w/h = 1.91, ε_r = 4.4, h = 1 mm): ∂Z₀/∂w = −15 744 Ω/m,
+    // ∂ε_eff/∂w = 149.3 /m, ∂Z₀/∂ε_r = −5.118 Ω, ∂ε_eff/∂ε_r = 0.6805. The
+    // shielded 20h × 12h box and the mesh put geode within a few % (the
+    // port's own accuracy class, Epic #841 Phase 3a).
+    let g = |k: usize, o: usize| {
+        let e = s["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["parameter"] == k && e["observable"] == o)
+            .unwrap();
+        f(&e["gradient"])
+    };
+    for (k, o, hj) in [
+        (0, 0, -15_744.0),
+        (0, 1, 149.30),
+        (1, 0, -5.1175),
+        (1, 1, 0.68051),
+    ] {
+        let rel = (g(k, o) - hj).abs() / hj.abs();
+        eprintln!(
+            "HJ | param {k} obs {o}: geode {:.6e} vs Hammerstad–Jensen {hj:.6e} ({:.2} %)",
+            g(k, o),
+            100.0 * rel
+        );
+        assert!(rel < 0.05, "param {k} obs {o}: {} vs HJ {hj}", g(k, o));
+    }
 }
 
 // ---------------------------------------------------------------------------

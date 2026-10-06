@@ -42,6 +42,10 @@
 //! names. Gradients are scaled to SI exactly like the observable
 //! (`× mesh.length_unit_m` for `C` and `L`; `|S11|²` is dimensionless).
 //!
+//! Driven specs beyond one lumped port with `eps_r` parameters (N-port S
+//! observables, loss and shape parameters, issue #883) run
+//! [`crate::s_sensitivity`] instead.
+//!
 //! The optional `fd_check` re-solves the **shipped forward pipeline** (not
 //! the adjoint routine) at `p·(1 ± relative_step)` per parameter and
 //! fails the run (`solve_failed`) when any entry disagrees beyond the

@@ -34,10 +34,12 @@
 //! walls (open-boundary problems); driven specs may use `wave_ports`
 //! instead of lumped `ports` (issue #683).
 //!
-//! Capacitance (one terminal), inductance and lossless eigen specs may
-//! also carry a [`SensitivitySpec`] `sensitivity` section (additive in
-//! v1, issue #707): not an analysis of its own, it adds exact material
-//! gradients of that analysis's observable to the report.
+//! Capacitance (one terminal), inductance, lossless eigen and driven specs
+//! may also carry a [`SensitivitySpec`] `sensitivity` section (additive in
+//! v1, issues #707 / #739 / #883): not an analysis of its own, it adds exact
+//! gradients of that analysis's observable to the report — on a driven spec
+//! any S entry or hybrid-port `Z₀` / `ε_eff` w.r.t. material and shape
+//! parameters bound to named groups.
 //!
 //! Carrying more than one of `eigen` / `extract` / `capacitance` /
 //! `inductance` is rejected, and running a spec
@@ -145,11 +147,12 @@ pub struct ProblemSpec {
     /// inductance`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inductance: Option<InductanceSpec>,
-    /// Material design sensitivities of the analysis's observable
-    /// (additive in v1, issues #707 / #739). Not an analysis section: it
-    /// rides on a `capacitance` (two-terminal), `inductance`, lossless
-    /// `eigen` or one-lumped-port `driven` spec and adds a `sensitivities`
-    /// block to that report. Extract specs reject it in v1.
+    /// Design sensitivities of the analysis's observable (additive in v1,
+    /// issues #707 / #739 / #883). Not an analysis section: it rides on a
+    /// `capacitance` (two-terminal), `inductance`, lossless `eigen` or
+    /// `driven` spec (lumped, wave, mixed or hybrid ports; N-port S
+    /// observables and shape parameters, issue #883) and adds a
+    /// `sensitivities` block to that report. Extract specs reject it in v1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sensitivity: Option<SensitivitySpec>,
 }

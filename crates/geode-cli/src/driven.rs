@@ -75,12 +75,15 @@
 //!   rows add per-channel hybrid diagnostics, line impedances and (lossy)
 //!   the measured `σ_max`. Geometric-only specs are unchanged.
 //!
-//! # Material sensitivities (`sensitivity`, issue #739)
+//! # Sensitivities (`sensitivity`, issues #739 / #883)
 //!
-//! With a `sensitivity` section (one lumped port, direct, dense, no UPML /
-//! wave ports — enforced by `problem::load`), the report also carries
-//! `∂|S11|²/∂ε_r` at every swept frequency from the port-loaded material
-//! adjoint ([`crate::sensitivity::driven`]).
+//! With a `sensitivity` section (direct, dense, no UPML — enforced by
+//! `problem::load`), the report also carries gradients: for a one-lumped-port
+//! spec with `eps_r` parameters only, `∂|S11|²/∂ε_r` at every swept frequency
+//! from the port-loaded material adjoint ([`crate::sensitivity::driven`]);
+//! otherwise the N-port S-matrix observables' gradients w.r.t. material and
+//! shape parameters ([`crate::s_sensitivity::driven`]), checked against the
+//! rows this sweep reports.
 //!
 //! # Field / far-field export (`--outdir`, issue #684)
 //!

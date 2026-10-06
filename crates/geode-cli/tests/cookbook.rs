@@ -149,6 +149,14 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("driven_spiral_sensitivity_smoke.json"),
         Input::Spec("driven"),
     ),
+    // ∂S / ∂Z₀ / ∂ε_eff w.r.t. the strip width of the microstrip cookbook
+    // line (issue #883); `tests/sensitivity_nport.rs` runs it with
+    // `--check-gradient` in the release tier.
+    (
+        "sensitivity/microstrip_strip_width.json",
+        None,
+        Input::Spec("driven"),
+    ),
     (
         "mesh/spiral_inductor.layout.json",
         Some("spiral_layout_smoke.json"),
@@ -322,8 +330,9 @@ fn every_cookbook_spec_passes_geode_check() {
         let Input::Spec(analysis) = *input else {
             continue;
         };
-        if *path == MICROSTRIP {
-            // Release tier: `microstrip_cookbook_check_lands_near_50_ohm`.
+        if *path == MICROSTRIP || *path == MICROSTRIP_SENSITIVITY {
+            // Release tier: `microstrip_cookbook_check_lands_near_50_ohm`
+            // and (the same graded face) `tests/sensitivity_nport.rs`.
             continue;
         }
         let spec = examples().join(path);
@@ -335,6 +344,11 @@ fn every_cookbook_spec_passes_geode_check() {
 /// The microstrip cookbook spec (its `geode check` runs in the release
 /// tier).
 const MICROSTRIP: &str = "driven/microstrip_line.json";
+
+/// The microstrip strip-width sensitivity cookbook spec (the same face; its
+/// `geode driven --check-gradient` runs in the release tier of
+/// `tests/sensitivity_nport.rs`).
+const MICROSTRIP_SENSITIVITY: &str = "sensitivity/microstrip_strip_width.json";
 
 /// `geode check` on the microstrip cookbook. Release tier: its face is
 /// graded finely toward the strip edges, and the accuracy estimate's `h/4`
