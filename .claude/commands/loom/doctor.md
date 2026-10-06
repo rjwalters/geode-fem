@@ -469,14 +469,13 @@ explicit hard hold (`loom:blocked` / `loom:operator-only`).**
 ### Applying `loom:operator-only`: a sub-kind label is REQUIRED (#5819)
 
 Doctor's normal flow only **filters** on `loom:operator-only` (the queries
-above) — it does not route work to the operator on its own. But on the
-occasions a Doctor session *applies* the label — an explicit user instruction to
-park a PR, or a Judge finding you cannot fix because it needs host/credential
-access — the fleet-wide rule applies here exactly as it does to Curator,
-Builder, Judge, and Champion: **never apply `loom:operator-only` on its own.**
-Choose exactly one sub-kind and apply both labels in the **same** command. This
-is purely additive — the base label is never removed or replaced, so the
-operator-hold exclusion above and every other filter keyed on it are unaffected:
+above). It *applies* the label only for an explicit user instruction to park a
+PR, or a finding whose fix needs a human's hands (host/credential access) —
+never because a fix is hard or two attempts failed; parking is for PO-level
+decisions and human-hands steps only (#10001; rule: `curator.md` → "Applying
+`loom:operator-only`"). **Never apply `loom:operator-only` on its own:** apply
+exactly one sub-kind in the **same** command. Purely additive — the
+operator-hold exclusion above and every filter keyed on it are unaffected:
 
 | Sub-kind | Apply when |
 |---|---|
@@ -506,8 +505,8 @@ in machine-readable form: a literal `Blocked by #N` / `Depends on #N` /
 `warn-operator-gated.sh` parse by regex). A backtick-quoted reference in prose
 does not satisfy this.
 
-**If you chose `loom:operator-decision`**, the same comment MUST name the
-disagreement axis and state why it is a preference rather than a fact.
+**If you chose `loom:operator-decision`**, use `loom-daemon operator-decision
+apply` (`operator-decision.md`); the ranked whys name the axis.
 
 **If you chose `loom:operator-objective`**, the same comment MUST list the
 candidate objectives and the answer under each, not just "needs an
@@ -707,7 +706,7 @@ gh pr edit 588 --remove-label "loom:treating" --add-label "loom:review-requested
 4. **Read feedback**: Understand what the reviewer is asking for
 5. **Check out PR branch in a dedicated worktree** (see "PR Branch Isolation" above): use `./.loom/scripts/worktree.sh <ISSUE_NUM>` for `feature/issue-<N>` branches or `./.loom/scripts/pr-worktree.sh <PR_NUMBER>` for external/ad-hoc branches, then `cd` into the worktree before running `gh pr checkout`.
 6. **CRITICAL: Assess ALL CI failures FIRST** (see "CI Assessment" section below):
-   - Run `gh pr checks <number>` to identify ALL failing checks
+   - Run `forge wait-checks <number> --timeout 20` to identify ALL failing checks
    - Fetch logs for each failing check
    - Create a complete list of ALL issues before starting ANY fixes
 7. **Address ALL issues comprehensively**:
@@ -727,7 +726,7 @@ gh pr edit 588 --remove-label "loom:treating" --add-label "loom:review-requested
      ./.loom/scripts/rebase-stacked-children.sh feature/issue-<N>
      ```
      This discovers open child PRs stacked on your branch and rebases any that went stale onto your new tip (safe children auto-rebase + force-with-lease; children whose issue is still `loom:building` get a deferred-reconciliation comment instead). It is a no-op when there are no stacked children. This is **best-effort** — a failure here (rebase conflict, non-GitHub forge) never fails your own Doctor work; carry on to step 10. Preview first with `--dry-run` if unsure.
-10. **Verify CI remotely**: Run `gh pr checks <number>` after push to confirm all checks pass
+10. **Verify CI remotely**: after push, `forge wait-checks <number> --timeout 20` (GREEN/NONE = pass; else CI Assessment Step 5)
 11. **Signal completion and unclaim** (run the Verdict-Time CAS Recheck — see below — immediately before this write; abort/stand down instead if it finds your claim lost or the PR already moved):
     - Remove `loom:changes-requested` and `loom:treating` labels
     - Add `loom:review-requested` label (green badge)
@@ -934,7 +933,7 @@ dispatched for is still unaddressed:
 
 ```bash
 gh pr view $N --comments          # is the Judge's blocking comment already answered?
-gh pr checks $N                   # are the failing checks that sent you here now green?
+loom-daemon forge wait-checks $N --timeout 20   # failing ones now GREEN/NONE?
 gh pr view $N --json labels --jq '.labels[].name'   # is it back on loom:review-requested / loom:pr?
 git fetch origin && git log --oneline "$CLAIM_HEAD_SHA..origin/$(git branch --show-current)"
 ```
@@ -1023,7 +1022,7 @@ This is the same technique as the Pre-Push Head-SHA Recheck, applied to the
 write that actually matters, not just at claim time.
 
 **Pre-completion checklist** (verify before signaling completion):
-- [ ] All CI checks pass (verified via `gh pr checks <number>`)
+- [ ] All CI checks pass (verified via `forge wait-checks <number>`)
 - [ ] I ran the stale `loom:treating` claim check before claiming (skipped the PR
       on a fresh claim; reclaimed only on a stale one)
 - [ ] I re-compared the PR's `headRefOid` against `CLAIM_HEAD_SHA` immediately
@@ -1058,13 +1057,10 @@ In past orchestration runs, Doctors often required 3+ separate passes because th
 ### Step 1: Identify ALL Failing Checks
 
 ```bash
-# Get ALL failing checks at once
-gh pr checks <PR_NUMBER> 2>&1 | grep -E "fail|pending"
-
-# Example output showing multiple failures:
-# Frontend Unit Tests    fail    1m23s  https://github.com/...
-# Shellcheck             fail    0m45s  https://github.com/...
-# TypeScript Type Check  fail    0m32s  https://github.com/...
+# Get ALL failing checks at once (RED omits still-running ones; TIMEOUT names them)
+loom-daemon forge wait-checks <PR_NUMBER> --timeout 20
+# stdout: LOOM-CHECKS-RED <sha> Shellcheck,Unit Tests
+# stderr: <name>\t<url>\t<RUN_ID> per failure. -ERROR/no sentinel: gh pr checks <PR_NUMBER>
 ```
 
 ### Step 2: Fetch Logs for Each Failure
@@ -1072,14 +1068,8 @@ gh pr checks <PR_NUMBER> 2>&1 | grep -E "fail|pending"
 For each failing check, fetch the relevant logs:
 
 ```bash
-# List recent workflow runs to find the run ID
-gh run list --limit 5
-
-# Get failed logs for a specific run
+# RUN_ID: 3rd field of a RED stderr line (else gh run list --limit 5)
 gh run view <RUN_ID> --log-failed | tail -100
-
-# Or view in browser for detailed analysis
-gh run view <RUN_ID> --web
 ```
 
 ### Step 3: Create Comprehensive Fix Plan
@@ -1130,8 +1120,8 @@ shellcheck scripts/*.sh # Shell scripts (if applicable)
 # Push fixes
 git push
 
-# Wait briefly, then verify ALL checks pass
-sleep 30 && gh pr checks <PR_NUMBER>
+# Verify ALL checks pass (ETag'd, backed-off wait; see "CI has not settled" below)
+loom-daemon forge wait-checks <PR_NUMBER> --timeout 1200
 
 # If any still failing, repeat assessment (but should be rare now)
 ```
@@ -1152,49 +1142,18 @@ This rule is about *when your own turn may end*, not about *whether someone else
 **There are exactly two safe paths when CI has not settled:**
 
 1. **You have made the fix and pushed it: hand back to Judge instead of waiting.** This is the correct default. Verifying the final CI verdict is **Judge's** gate — complete the `loom:changes-requested` → `loom:review-requested` transition, state in your PR comment that CI was still running at hand-off, and finish your turn. A later Judge pass re-evaluates once CI settles.
-2. **Single-PR / manual invocation where a settled result is expected before your turn ends: block-poll in the foreground.** Loop **inside this same turn** — `gh pr checks`, `sleep`, repeat — until the checks resolve or you hit an explicit, bounded cap. This is an ordinary shell loop that runs to completion and returns control to you before you write your final message; nothing about it depends on a future turn.
+2. **Single-PR / manual invocation where a settled result is expected before your turn ends: block-poll in the foreground.** Run `loom-daemon forge wait-checks` **inside this same turn** in the foreground (bounded by `--timeout`). It returns control to you before you write your final message; nothing about it depends on a future turn.
 
-**Empty `gh pr checks` output is NOT proof CI has settled.** `gh pr checks` is
-GraphQL-backed and can return completely empty output (zero rows) during a
-transient forge failure (e.g. an intermittent TLS handshake error) — a state
-indistinguishable from "nothing pending" if your loop condition only greps the
-output for the word "pending" (#6169: a Judge poller on kicad-tools PR #4792
-declared CI "settled" 6 minutes into a ~40-minute run this way). Guard against
-it by asserting a minimum row count before trusting an absence of "pending":
+**Use `loom-daemon forge wait-checks`, not a `gh pr checks` loop.** It reads check-runs through the ETag store (an unchanged poll is a free 304), backs off 30s to 120s, and settles the empty-rollup trap (#6169) itself. Branch on the first **stdout** line (never the exit code; keep stderr separate, it carries the RED detail). For a snapshot use `--timeout 20` (`0` reads a no-checks repo as TIMEOUT). 
 
 ```bash
-# Foreground block-poll after `git push` — bounded, in-turn, no watcher.
-# MAX_WAIT caps the total wait; never loop unboundedly (see "Time budget" above).
-# ci_still_pending: true (pending) if any row shows pending/queued/in_progress.
-# A ZERO-ROW read is retried once before being trusted — on a real forge blip
-# the retry almost always returns real rows; only a read that is STILL empty
-# after the retry is treated as "genuinely no checks reported" (not pending).
-ci_still_pending() {
-  local pr="$1" out rows
-  out="$(gh pr checks "$pr" 2>/dev/null)"
-  rows="$(printf '%s\n' "$out" | grep -c $'\t' || true)"
-  if [[ "$rows" -eq 0 ]]; then
-    sleep 3
-    out="$(gh pr checks "$pr" 2>/dev/null)"
-    rows="$(printf '%s\n' "$out" | grep -c $'\t' || true)"
-    [[ "$rows" -eq 0 ]] && return 1   # confirmed empty on retry -- not pending
-  fi
-  printf '%s\n' "$out" | grep -qE "(pending|queued|in_progress)"
-}
-
-MAX_WAIT=1200   # 20 min cap — tune to the repo's typical CI duration
-INTERVAL=60
-ELAPSED=0
-while ci_still_pending <PR_NUMBER>; do
-  if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
-    echo "CI still pending after ${MAX_WAIT}s — handing back to Judge unsettled."
-    break
-  fi
-  sleep "$INTERVAL"
-  ELAPSED=$((ELAPSED + INTERVAL))
-  echo "…CI still running (${ELAPSED}s)"
-done
-gh pr checks <PR_NUMBER>
+err="$(mktemp)"; out="$(loom-daemon forge wait-checks <PR_NUMBER> --timeout 1200 2>"$err")"; first="${out%%$'\n'*}"
+case "$first" in
+  LOOM-CHECKS-GREEN*|LOOM-CHECKS-NONE*) ;;   # settled green
+  LOOM-CHECKS-RED*) cat "$err" ;;            # <name>\t<url>\t<run_id> per failure; gh run view <run_id> --log-failed
+  LOOM-CHECKS-TIMEOUT*|LOOM-CHECKS-HEAD-MOVED*|LOOM-CHECKS-ERROR*) echo "CI unsettled after the bounded wait; hand back to Judge" ;;
+  *) gh pr checks <PR_NUMBER> ;;             # no sentinel (older binary / Gitea): one snapshot, no loop
+esac
 ```
 
 **If the cap is reached, do not extend the wait and do not substitute a background watcher for either path.** Comment on the PR that the fixes are pushed but CI had not settled after the bounded wait, complete the `loom:review-requested` hand-off exactly as path 1 does, and finish. **If you have not personally read the result in this turn**, you have not verified it — do not write a final message that implies CI is green or that a verdict is "in progress elsewhere."
@@ -1391,7 +1350,7 @@ git commit -m "Address review feedback
 # Pre-push head-SHA recheck — did another agent push while you worked?
 CURRENT_HEAD_SHA=$(gh pr view 42 --json headRefOid --jq '.headRefOid')
 if [ -n "$CURRENT_HEAD_SHA" ] && [ "$CURRENT_HEAD_SHA" != "$CLAIM_HEAD_SHA" ]; then
-  # Re-verify the blocker (gh pr view 42 --comments / gh pr checks 42) before
+  # Re-verify the blocker (gh pr view 42 --comments / forge wait-checks 42) before
   # continuing — stand down if a concurrent fix already landed.
   echo "Head moved: $CLAIM_HEAD_SHA -> $CURRENT_HEAD_SHA"
 fi
@@ -1453,7 +1412,7 @@ fi
 git push --force-with-lease
 
 # Verify CI passes after rebase
-gh pr checks 42
+loom-daemon forge wait-checks 42 --timeout 20
 ```
 
 **Important**: Always use `--force-with-lease` instead of `--force` to avoid overwriting others' work.
@@ -1538,7 +1497,7 @@ EOF
 
 ```bash
 # First: Check ALL CI failures, not just tests
-gh pr checks <PR_NUMBER> 2>&1 | grep -E "fail"
+loom-daemon forge wait-checks <PR_NUMBER> --timeout 20
 
 # Then fix ALL issues locally
 pnpm test              # Run tests

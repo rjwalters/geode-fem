@@ -398,6 +398,8 @@ Local verification:
 - [ ] Linter run on changed files (0 errors)
 ```
 
+**Pre-PR gate (pre-flight, #10476).** If `buildGate` is configured, run `loom-daemon preflight --issue N` before `create-pr.sh`. Exit 1 = failed: it prints the output tail; fix, commit, re-run (max `buildGate.preflightMaxAttempts`, default 3). Exit 4 (`preflight_unresolved`) = stop, open NO PR (claim already released). `create-pr.sh` refuses (exit 7) a HEAD that has not passed. No `buildGate` = no-op exit 0.
+
 ### Language-Specific Verification
 
 **Rust Code Changes**
@@ -418,12 +420,7 @@ cargo fmt
 cargo fmt --all -- --check
 ```
 
-**Why check compilation before commit (not just rely on CI)?**
-
-1. **Defense in depth** - Pre-commit hooks can fail silently in worktrees or with PATH issues
-2. **Early feedback** - Catch errors immediately instead of after CI failure
-3. **Save a Doctor cycle** - the project's check command (`buildGate.command` in `.loom/config.json`, e.g. `pnpm check:ci`) includes compilation; catching it early avoids a fix cycle
-4. **Async pitfalls** - Common Rust async errors (e.g., holding `MutexGuard` across `.await`) are only caught by the compiler, not by reading code
+**Why check before commit?** Pre-commit hooks can fail silently in worktrees; a Doctor cycle costs far more than a local check; async errors (e.g. `MutexGuard` across `.await`) only the compiler catches.
 
 **Add to your pre-PR checklist when modifying Rust:**
 
@@ -664,8 +661,10 @@ body. `--signoff` is harmless when not required. See
 ### PR Label Rules
 
 **When creating a NEW PR:**
-- Add `loom:review-requested` during creation, plus `loom:operator-priority`
-  if the issue carries it (#9244: the one label a role copies, never invents)
+- Add `loom:review-requested` during creation, plus each priority label the issue
+  carries (`loom:operator-priority`, `loom:operator-high-priority`,
+  `loom:high-priority-inherited`; #9244/#10307: the one set a role copies, never invents;
+  level list: keep in sync with operator_levels.rs LEVELS until #10311)
 - This is the ONLY time you add labels to a PR
 
 **After PR creation:**
@@ -674,16 +673,8 @@ body. `--signoff` is harmless when not required. See
 - NEVER add `loom:pr` yourself (only Judge can approve)
 - NEVER modify any labels on PRs you didn't create
 
-**Why?** PR labels are review-pipeline signals:
-```
-Builder creates PR -> loom:review-requested -> Judge reviews
-                                            |
-                      Judge removes loom:review-requested
-                                            |
-                      Judge adds loom:pr -> Champion merges
-```
-
-Touching them breaks the pipeline.
+**Why?** PR labels are review-pipeline signals (`loom:review-requested` -> Judge
+-> `loom:pr` -> Champion merges). Touching them breaks the pipeline.
 
 ### GitHub Auto-Close Requirements
 
@@ -894,21 +885,21 @@ externally-visible action of this whole Builder run — run the sweep-side
 fencing check:
 
 ```bash
-./.loom/scripts/sweep-lease-fence.sh check "$N"
+./.loom/scripts/sweep-lease-fence.sh check "$N" --branch "$(git rev-parse --abbrev-ref HEAD)"
 FENCE_RC=$?
 if [[ "$FENCE_RC" -eq 3 ]]; then
   echo "Lease fence: EXPIRED — MY OWN claim's lease record is stale on the forge's own clock (my renewal loop died). Aborting before push/PR-open; NOT pushing, NOT opening a PR." >&2
   # Stop here for issue $N. Do not push, do not create a PR, do not touch
   # the loom:building label or contest any peer's claim — report this issue
-  # as not-contributed-this-run.
-  # (Issue #6783: exit 3 now means the EXPIRED lease is THIS sweep's own —
-  # an expired lease owned by a DIFFERENT, abandoned host is no longer a
-  # fencing abort; that case is folded into FENCE_RC == 0 below.)
+  # as not-contributed-this-run. (#6783: an expired lease of a DIFFERENT,
+  # abandoned host is not an abort; it folds into FENCE_RC == 0 below.)
 elif [[ "$FENCE_RC" -eq 4 ]]; then
   echo "Lease fence: SUPERSEDED — a different host's lease is now the freshest for issue $N. Aborting before push/PR-open; NOT pushing, NOT opening a PR." >&2
   # Same stop-here handling as the EXPIRED branch above.
-elif [[ "$FENCE_RC" -eq 5 ]]; then
-  echo "Lease fence: BRANCH_COLLISION — feature/issue-$N exists on origin, unpushed by this worktree. Yours: adopt via create-pr.sh. Else: stand down. NEVER a suffix branch." >&2
+elif [[ "$FENCE_RC" -ne 0 ]]; then
+  # 5: yours -> adopt via create-pr.sh, else stand down; NEVER a suffix
+  # branch. 6: loom-daemon too old/missing (#10027).
+  echo "Lease fence: exit $FENCE_RC (5 BRANCH_COLLISION / 6 BRANCH_PROBE_UNAVAILABLE) — NOT pushing." >&2
 else
   # FENCE_RC == 0 (fresh & own host, OR no lease evidence to fence against —
   # fail-open, see the script's own header doc — OR an EXPIRED lease owned

@@ -62,13 +62,12 @@ for it, #4966):
 > the only actor that could notice the blocker closed is the one this exclusion
 > tells to ignore it.
 >
-> **Separately, if a `loom:operator-only` proposal you happen to read is
-> actually blocked on missing capability rather than a genuine operator
-> ruling**, relabel it to `loom:needs-capability` per
-> `.loom/docs/label-state-machine.md` → "Bidirectional routing:
-> `loom:operator-only` ↔ `loom:needs-capability`" (#5818) — this is an
-> opportunistic per-occurrence judgment call, not a scheduled scan like Pass 0
-> above.
+> **A `loom:operator-only` proposal you read that is really blocked on
+> missing capability** is relabeled `loom:needs-capability` per
+> `.loom/docs/label-state-machine.md` → "Bidirectional routing" (#5818), an
+> opportunistic per-occurrence call. **Any operator label you apply** is for a
+> PO-level decision (ranked options) or a human-hands step only (#10001):
+> `curator.md` → "Applying `loom:operator-only`".
 
 > **`loom:evaluating` is excluded here too, but not unexamined (#6828).**
 > `champion-issue-promo.md` → "Pass 0b: Stale `loom:evaluating` Claim Re-Scan"
@@ -156,20 +155,21 @@ gh issue list \
 
 If found, **read and follow instructions in `.claude/commands/loom/champion-issue-promo.md`**. Architect/Hermit/Auditor proposals use the curated issues' 8 criteria plus that file's "Concurrency Guard and Idempotency (`loom:evaluating`)" section.
 
-**Note**: Proposals from Architect, Hermit, and Auditor roles are typically well-formed since these roles generate detailed, implementation-ready issues. Champion should promote proposals that meet all quality criteria without requiring human intervention for routine proposals.
+**Note**: Architect, Hermit and Auditor proposals are usually implementation-ready; promote those meeting all quality criteria without human intervention.
 
 ### Priority 4: Epic Proposals Ready to Evaluate
 
 If no individual proposals need promotion, check for epic proposals:
 
 ```bash
-# Check for Epic proposals — starred (loom:operator-priority, #9244) first
+# Epic proposals, highest priority level first (#9244, #10307)
+# level list: keep in sync with operator_levels.rs LEVELS until #10311
 gh issue list \
   --label="loom:epic" \
   --state=open \
   --limit=500 \
   --json number,title,body,labels,comments \
-  --jq 'sort_by([.labels[].name] | index("loom:operator-priority") == null) | .[] | "#\(.number) \(.title) [epic]"'
+  --jq 'sort_by([.labels[].name] | if any(test("high-priority")) then 0 elif index("loom:operator-priority") then 1 else 2 end) | .[] | "#\(.number) \(.title) [epic]"'
 ```
 
 If found, **read and follow instructions in `.claude/commands/loom/champion-epic.md`**. Epics have their own evaluation criteria focused on structure and phase decomposition.
