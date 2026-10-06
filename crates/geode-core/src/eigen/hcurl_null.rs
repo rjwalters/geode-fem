@@ -47,12 +47,52 @@
 //! DOFs = interior vertices + interior edges" at p=2 (interior vertices at
 //! p=1).
 //!
+//! # Loop harmonics: reported, and where only bounded
+//!
 //! The full kernel of the reduced `K` is this space plus the discrete
-//! **loop harmonics** (relative first cohomology: a field circulating
-//! through a handle, e.g. the azimuthal field of an open-ended coax). They
-//! are not gradients of single-valued scalars and are not counted here. The
-//! fixtures that pin the count exactly (`tests/eigen_p2_tagged.rs`) are
-//! simply connected, where that term is zero.
+//! **loop harmonics**: curl-free fields that circulate through a handle of
+//! the domain (the azimuthal field of an annulus, for instance) and are not
+//! gradients of a single-valued scalar. With `Γ` the constrained surface
+//! (PEC walls plus impedance / London walls), their number is
+//!
+//! ```text
+//!   h = dim ker( H¹(Ω) → H¹(Γ) ),   0 ≤ h ≤ b₁(Ω).
+//! ```
+//!
+//! (`H¹(Ω, Γ)` is this kernel plus the floating potentials, which the
+//! formula above already counts as gradients.) They are **not** in
+//! [`GradientNullCount::dim`] and the classifier does not flag them: a loop
+//! harmonic is `M`-orthogonal to every gradient. In a solve they are
+//! `λ ≈ 0` pairs removed by the magnitude filter (`λ ≤ null_tol_rel·σ`).
+//!
+//! [`GradientNullSpace::build`] reports what the mesh topology determines
+//! ([`GradientNullCount::betti_1`],
+//! [`GradientNullCount::loop_harmonics_bound`],
+//! [`GradientNullCount::loop_harmonics_exact`]):
+//!
+//! - **`b₁(Ω)` exactly**, per connected component, from the Euler
+//!   characteristic: `b₁ = b₀ + b₂ − χ` with `χ = V − E + F − T`, `b₀ = 1`
+//!   and `b₂ = (boundary surface components) − 1`. The `b₂` identity is
+//!   Alexander duality, so it assumes the mesh is a 3-manifold with
+//!   boundary in `ℝ³` (no two solids touching at only a vertex or an edge).
+//! - **`h` exactly in two cases.** A component with no constrained edge has
+//!   `h = b₁`. A component whose **whole boundary** is constrained has
+//!   `h = 0`: there `H¹(Ω) → H¹(∂Ω)` is injective, because its kernel has
+//!   dimension `b₁(Ω, ∂Ω) − b₂(Ω)` (relative classes minus the floating
+//!   potentials) and `b₁(Ω, ∂Ω) = b₂(Ω)` by Lefschetz duality. An all-PEC
+//!   solid torus has `b₁ = 1` and no loop harmonic.
+//! - **Only the bound `h ≤ b₁` otherwise** (a component with a handle and a
+//!   partly constrained boundary). The exact count needs the rank of
+//!   `H₁(Γ) → H₁(Ω)`, i.e. whether the walls carry a loop around each
+//!   handle, which the Euler characteristic cannot see: an annulus with PEC
+//!   on its two cylinders has `h = 0`, with PEC on one small patch `h = 1`,
+//!   and both have `b₁ = 1`. That rank is not computed here.
+//!
+//! The cavity solves turn a non-zero bound into an advisory warning
+//! ([`LoopHarmonics`]) and widen the null-count sanity bound to
+//! `classified ≤ dim + loop_harmonics_bound`. The dense null clusters of
+//! `tests/eigen_p2_tagged.rs` (golden 4c) pin `dim + h` on an annulus under
+//! four wall configurations and on a sphere shell, at p=1 and p=2.
 //!
 //! # The gradient-fraction classifier
 //!
@@ -72,7 +112,7 @@
 //! magnitude filter, which can be fooled by a gradient Ritz value that
 //! drifts upward (the #852 failure mode).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
@@ -102,6 +142,75 @@ pub struct GradientNullCount {
     /// The gradient null dimension
     /// `free_nodes + free_bubbles + Σ_d (wall_components(d) − 1)`.
     pub dim: usize,
+    /// First Betti number `b₁(Ω)` of the mesh (its number of independent
+    /// handles), summed over the connected components, from the Euler
+    /// characteristic (module docs). `0` for a simply connected mesh.
+    pub betti_1: usize,
+    /// Upper bound on the number of **loop harmonics**: curl-free kernel
+    /// fields that are not gradients, hence not in `dim` (module docs).
+    /// The sum of `b₁` over the components whose boundary is not wholly
+    /// constrained.
+    pub loop_harmonics_bound: usize,
+    /// `true` when `loop_harmonics_bound` is the exact loop-harmonic count:
+    /// every component with a handle either has no constrained edge or has
+    /// its whole boundary constrained. `false` means "up to
+    /// `loop_harmonics_bound`".
+    pub loop_harmonics_exact: bool,
+}
+
+impl GradientNullCount {
+    /// The loop-harmonic diagnostic of this count, `None` when the topology
+    /// rules loop harmonics out (`loop_harmonics_bound == 0`).
+    pub fn loop_harmonics(&self) -> Option<LoopHarmonics> {
+        (self.loop_harmonics_bound > 0).then_some(LoopHarmonics {
+            b1: self.betti_1,
+            count: self.loop_harmonics_bound,
+            exact: self.loop_harmonics_exact,
+        })
+    }
+}
+
+/// The loop harmonics a multiply-connected mesh adds to the kernel of the
+/// reduced curl-curl operator (module docs). Carried by the
+/// `HarmonicFieldsPresent` warning of the cavity solves; its `Display` is
+/// that warning's text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoopHarmonics {
+    /// First Betti number `b₁(Ω)` of the mesh
+    /// ([`GradientNullCount::betti_1`]).
+    pub b1: usize,
+    /// The loop-harmonic count when `exact`, otherwise its upper bound
+    /// ([`GradientNullCount::loop_harmonics_bound`]); `≥ 1`.
+    pub count: usize,
+    /// Whether `count` is exact ([`GradientNullCount::loop_harmonics_exact`]).
+    pub exact: bool,
+}
+
+impl std::fmt::Display for LoopHarmonics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self { b1, count, exact } = *self;
+        let (qty, basis) = if exact {
+            (
+                format!("{count}"),
+                "exact: that part of the mesh has no PEC or impedance wall",
+            )
+        } else {
+            (
+                format!("up to {count}"),
+                "an upper bound: walls that carry a loop around a handle remove its harmonic, \
+                 and that is not computed",
+            )
+        };
+        write!(
+            f,
+            "the mesh is multiply connected (first Betti number b1 = {b1}): the curl-curl \
+             operator has {qty} loop-harmonic null field(s) ({basis}). They are curl-free but \
+             are not gradients, so they are outside the gradient null count and the gradient \
+             classifier; lambda ~ 0 harmonic pairs are possible and are removed by the \
+             magnitude filter (null_tol_rel) only. Keep the shift sigma well above zero and \
+             the magnitude filter enabled; the returned modes are unaffected"
+        )
+    }
 }
 
 /// The interior-restricted discrete gradient `G` over the admissible scalar
@@ -141,6 +250,94 @@ impl Dsu {
             self.0[ra.max(rb)] = ra.min(rb);
         }
     }
+}
+
+/// `(b₁(Ω), loop-harmonic bound, bound is exact)` of the mesh under the
+/// constrained-edge set (module docs, "Loop harmonics").
+///
+/// Per connected component: `b₁ = (boundary components) − χ`, which is
+/// `b₀ + b₂ − χ` with `b₀ = 1` and `b₂ = (boundary components) − 1`. The
+/// component contributes `0` to the bound when every boundary edge is
+/// constrained, and `b₁` otherwise (exact when it has no constrained edge).
+fn loop_harmonic_topology(
+    space: &HcurlSpace,
+    mesh: &TetMesh,
+    constrained: &[bool],
+    dom: &mut Dsu,
+    used: &[bool],
+) -> (usize, usize, bool) {
+    #[derive(Default)]
+    struct Component {
+        /// `V − E + F − T`.
+        chi: isize,
+        boundary_components: isize,
+        has_wall: bool,
+        open_boundary: bool,
+    }
+    let n_nodes = mesh.n_nodes();
+    let edges = space.edges();
+    let faces = space.faces();
+    let mut comps: BTreeMap<usize, Component> = BTreeMap::new();
+
+    for n in (0..n_nodes).filter(|&n| used[n]) {
+        comps.entry(dom.find(n)).or_default().chi += 1;
+    }
+    for (e, &[a, _]) in edges.iter().enumerate() {
+        let c = comps.entry(dom.find(a as usize)).or_default();
+        c.chi -= 1;
+        c.has_wall |= constrained[e];
+    }
+    // Tets per face: a boundary face lies in exactly one.
+    let mut tets_of_face = vec![0u8; faces.len()];
+    for t in &mesh.tets {
+        comps.entry(dom.find(t[0] as usize)).or_default().chi -= 1;
+        for lf in [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]] {
+            let mut tri = [t[lf[0]], t[lf[1]], t[lf[2]]];
+            tri.sort_unstable();
+            let f = faces
+                .binary_search(&tri)
+                .expect("tet face is not in the space's face table");
+            tets_of_face[f] = tets_of_face[f].saturating_add(1);
+        }
+    }
+    // Boundary surface components (union-find over the boundary faces'
+    // nodes), and whether any boundary edge is left unconstrained.
+    let mut bnd = Dsu::new(n_nodes);
+    let mut on_bnd = vec![false; n_nodes];
+    for (f, tri) in faces.iter().enumerate() {
+        let c = comps.entry(dom.find(tri[0] as usize)).or_default();
+        c.chi += 1;
+        if tets_of_face[f] != 1 {
+            continue;
+        }
+        for (a, b) in [(tri[0], tri[1]), (tri[0], tri[2]), (tri[1], tri[2])] {
+            let ge = edges
+                .binary_search(&[a, b])
+                .expect("face edge is not a mesh edge");
+            c.open_boundary |= !constrained[ge];
+            bnd.union(a as usize, b as usize);
+        }
+        for &v in tri {
+            on_bnd[v as usize] = true;
+        }
+    }
+    for n in (0..n_nodes).filter(|&n| on_bnd[n]) {
+        if bnd.find(n) == n {
+            comps.entry(dom.find(n)).or_default().boundary_components += 1;
+        }
+    }
+
+    let (mut betti_1, mut bound, mut exact) = (0usize, 0usize, true);
+    for c in comps.values() {
+        // Negative only for a mesh that is not a 3-manifold with boundary.
+        let b1 = usize::try_from(c.boundary_components - c.chi).unwrap_or(0);
+        betti_1 += b1;
+        if b1 > 0 && c.open_boundary {
+            bound += b1;
+            exact &= !c.has_wall;
+        }
+    }
+    (betti_1, bound, exact)
 }
 
 impl GradientNullSpace {
@@ -364,6 +561,8 @@ impl GradientNullSpace {
             dim + domains.len(),
             free_nodes + free_bubbles + wall_components
         );
+        let (betti_1, loop_harmonics_bound, loop_harmonics_exact) =
+            loop_harmonic_topology(space, mesh, &constrained, &mut dom, &used);
         Self {
             n_interior,
             cols,
@@ -374,6 +573,9 @@ impl GradientNullSpace {
                 wall_components,
                 domains: domains.len(),
                 dim,
+                betti_1,
+                loop_harmonics_bound,
+                loop_harmonics_exact,
             },
         }
     }
@@ -611,5 +813,75 @@ mod tests {
             };
             assert_eq!(null.dim(), want, "{order:?} free");
         }
+    }
+
+    /// `b₁` from the Euler characteristic: `0` on a cube and on a sphere
+    /// shell (whose `b₂ = 1` must cancel `χ = 2`), `1` on an annulus. The
+    /// loop-harmonic bound is exact without walls and with the whole
+    /// boundary PEC, and only a bound in between.
+    #[test]
+    fn betti_1_and_loop_harmonic_bound() {
+        use crate::mesh::electrostatic_fixtures::{coax_shell_mesh, sphere_shell_mesh};
+        let topo = |mesh: &TetMesh, walls: &[&[[u32; 3]]], order| {
+            let space = HcurlSpace::build(mesh, order);
+            let mask = space.pec_interior_mask(mesh, walls).unwrap();
+            let c = GradientNullSpace::build(&space, mesh, &mask, &[]).counts();
+            (c.betti_1, c.loop_harmonics_bound, c.loop_harmonics_exact)
+        };
+        let cube = cube_tet_mesh(2, 1.0);
+        let shell = sphere_shell_mesh(1.0, 2.0, 0, 1).mesh;
+        let coax = coax_shell_mesh(1.0, 2.0, 1.0, 6, 1, 1);
+        let coax_bnd = coax.mesh.boundary_faces();
+        for order in [ElementOrder::P1, ElementOrder::P2] {
+            for mesh in [&cube, &shell] {
+                let bnd = mesh.boundary_faces();
+                assert_eq!(topo(mesh, &[], order), (0, 0, true), "{order:?}");
+                assert_eq!(topo(mesh, &[&bnd], order), (0, 0, true), "{order:?}");
+            }
+            assert_eq!(topo(&coax.mesh, &[], order), (1, 1, true), "{order:?}");
+            assert_eq!(
+                topo(&coax.mesh, &[&coax_bnd], order),
+                (1, 0, true),
+                "{order:?} all-PEC annulus"
+            );
+            assert_eq!(
+                topo(&coax.mesh, &[&coax.inner_triangles], order),
+                (1, 1, false),
+                "{order:?} inner conductor only"
+            );
+        }
+        // Two disjoint annuli: b₁ adds over the components.
+        let mut two = coax.mesh.clone();
+        let n = two.nodes.len() as u32;
+        two.nodes
+            .extend(coax.mesh.nodes.iter().map(|p| [p[0] + 10.0, p[1], p[2]]));
+        two.tets
+            .extend(coax.mesh.tets.iter().map(|t| t.map(|v| v + n)));
+        assert_eq!(topo(&two, &[], ElementOrder::P1), (2, 2, true));
+        assert_eq!(topo(&two, &[&coax_bnd], ElementOrder::P1), (2, 1, true));
+
+        // A handle and a void together, so the `b₂` term is load-bearing
+        // (the sphere shell's `b₁ = 2 − χ = 0` would also come out of a
+        // clamped `1 − χ`): a 5³ cube minus one interior cell (`b₂ = 1`)
+        // and minus a through column (`b₁ = 1`), `χ = 1 − 1 + 1`.
+        let mut holed = cube_tet_mesh(5, 5.0);
+        holed.tets.retain(|t| {
+            let cell: Vec<usize> = (0..3)
+                .map(|ax| {
+                    (t.iter().map(|&v| holed.nodes[v as usize][ax]).sum::<f64>() / 4.0) as usize
+                })
+                .collect();
+            cell != [1, 1, 1] && cell[..2] != [3, 3]
+        });
+        assert_eq!(
+            holed.boundary_faces().len(),
+            2 * 25 * 6 + 12 + 4 * 5 * 2 - 4
+        );
+        assert_eq!(topo(&holed, &[], ElementOrder::P1), (1, 1, true));
+
+        let msg = |b1, count, exact| LoopHarmonics { b1, count, exact }.to_string();
+        assert!(msg(1, 1, true).contains("has 1 loop-harmonic"));
+        assert!(msg(1, 1, false).contains("has up to 1 loop-harmonic"));
+        assert!(msg(2, 2, false).contains("b1 = 2") && msg(2, 2, false).contains("null_tol_rel"));
     }
 }
