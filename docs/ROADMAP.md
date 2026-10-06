@@ -52,12 +52,12 @@ v0.8.0 contents, as merged:
 
 ## v0.9.0: differentiable EDA on a higher-order, adaptive foundation
 
-| Epic | Theme | First phase |
-|---|---|---|
-| #836 | **Higher-order accuracy.** p=2 Nédélec through driven, eigen, lumped/wave/hybrid ports, sensitivities and the CLI `element_order`, then curved geometry | #838: order-generic element space + driven solver |
-| #841 | **Differentiable EDA.** N-port S, material, roughness, dispersion, port-mode (β, ε_eff, Z₀) and lossy-Q gradients, CLI shape parameters, and `geode optimize` (L-BFGS-B / MMA) | #842: N-port S gradients through wave/filled/mixed/walled specs |
-| #835 | **Adaptive meshing.** H(curl) a-posteriori estimator, conforming bisection, the solve→estimate→mark→refine loop, goal-oriented DWR, port-driven refinement, CLI `adaptive_mesh`, and hp | #840: explicit-residual estimator, validated on effectivity |
-| #837 | **Periodic / Floquet.** Zero-phase periodic BCs, Bloch band structure, Floquet ports (TE + TM, diffraction orders), CLI `geode mesh --periodic`, and infinite-array scan impedance | #839: zero-phase periodic BCs |
+| Epic | Theme | First phase | Status (2026-10-06) |
+|---|---|---|---|
+| #836 | **Higher-order accuracy.** p=2 Nédélec through driven, eigen, lumped/wave/hybrid ports, sensitivities and the CLI `element_order`, then curved geometry | #838: order-generic element space + driven solver | **Merged:** P1a #838, P1b #857, P2 #871, P3a #884. **Open:** P3b (hybrid ports at p=2), P4 (sensitivities at p=2), P5 (CLI `element_order`), P6 (curved geometry, likely v0.10.0). In flight: the wave-port gauge fix #888 (PR #892), with its p=2 follow-up #894 |
+| #841 | **Differentiable EDA.** N-port S, material, roughness, dispersion, port-mode (β, ε_eff, Z₀) and lossy-Q gradients, CLI shape parameters, and `geode optimize` (L-BFGS-B / MMA) | #842: N-port S gradients through wave/filled/mixed/walled specs | **Merged:** P1 #842, P3a #859, P3b #872, P5a #883, P6a #873. **Open:** P2a (material physics), P2b (conductor/wall physics, lossy-eigen f and Q), P4 (adaptive PROM), P5b (CLI coverage for P2–P4), P6b (`geode optimize`) |
+| #835 | **Adaptive meshing.** H(curl) a-posteriori estimator, conforming bisection, the solve→estimate→mark→refine loop, goal-oriented DWR, port-driven refinement, CLI `adaptive_mesh`, and hp | #840: explicit-residual estimator, validated on effectivity | **Merged:** P1 #840, P2 #860, P3 #868, and the P3 boundary residuals #879. **Open:** P4 (goal-oriented DWR), P5 (port-face consistency), P6 (CLI `adaptive_mesh`), P7 (hp) |
+| #837 | **Periodic / Floquet.** Zero-phase periodic BCs, Bloch band structure, Floquet ports (TE + TM, diffraction orders), CLI `geode mesh --periodic`, and infinite-array scan impedance | #839: zero-phase periodic BCs | **Merged:** P1 #839, P2 #858, P3a #870. **Open:** P3b (higher Floquet orders and diffraction), P4a/P4b (CLI, schema, `geode mesh --periodic`), P5 (optional: infinite-array scan impedance) |
 
 **Sequencing.** #838 is the **first solver-core merge** of v0.9, because every other epic builds on the order-generic element space. After it:
 

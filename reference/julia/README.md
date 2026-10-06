@@ -486,17 +486,30 @@ the switch as the first Julia-specific Friction Artifact filed on
   geometry tags), the right place to add them is here, in
   source-controlled Julia, not behind a libgmsh ABI.
 
-## Planned layout
+## Layout
 
-This directory will grow per-spine-slice files alongside
-`cube_cavity.jl`. The pattern (per `reference/README.md`):
+One file per spine slice, alongside `cube_cavity.jl`, each with its
+`gen_*` fixture generator:
 
 ```
 reference/julia/
 ├── README.md                            ← this file
 ├── Project.toml                         ← pinned deps
+├── Manifest.toml                        ← resolved dependency lockfile
 ├── mesh.jl                              ← cube_tet_mesh, load_msh
 ├── cube_cavity.jl                       ← Epic #88 / #115 (Phase E)
-├── gen_cube_cavity_baseline.jl
-└── <next_slice>.jl                      ← future spine slices
+├── gen_cube_cavity_baseline.jl          ← fixtures/cube_cavity/julia_baseline.json
+├── sphere_pec.jl                        ← sphere-PEC Nédélec eigenmodes (Phase G.4)
+├── gen_sphere_pec_baseline.jl           ← fixtures/sphere_pec/julia_baseline.json
+├── sphere_pml.jl                        ← scalar-isotropic sphere-PML eigenmodes
+├── gen_sphere_pml_baseline.jl           ← fixtures/sphere_pml/julia_baseline.json
+├── sphere_pml_small.jl                  ← small-mesh sphere-PML, dense path (Phase H.2, #160)
+├── gen_sphere_pml_small_baseline.jl     ← fixtures/sphere_pml/julia_small_baseline.json
+├── derham.jl                            ← discrete de Rham complex d⁰, d¹, d²
+├── gen_derham_baseline.jl               ← fixtures/derham/julia_baseline.json
+├── mie_roots.jl                         ← analytic Mie root catalogue (Phase J.3)
+├── gen_mie_roots_julia_baseline.jl      ← fixtures/mie_roots/julia_baseline.json
+├── sphere_mie_small.jl                  ← small-mesh anisotropic-UPML dielectric-sphere Mie
+├── gen_sphere_mie_small_baseline.jl     ← fixtures/sphere_mie_small/julia_baseline.json
+└── generate_transmon_fixture.jl         ← transmon + readout-resonator Gmsh fixture (Epic #476, #485)
 ```

@@ -8,32 +8,38 @@ default tiebreaker.
 
 ## Status
 
-Stub — first concrete impl lands with **#90** (NumPy P1 local
-matrices) and **#92** (cube cavity end-to-end). Until then this
-directory is intentionally empty.
+Implemented — the first concrete impls landed with **#90** (NumPy P1
+local matrices) and **#92** (cube cavity end-to-end); the slices below
+followed.
 
-## Planned layout
+## Layout
 
 ```
 reference/numpy/
 ├── README.md                       — this file
-├── pyproject.toml                  — pinned NumPy/SciPy versions (lands with #90)
+├── requirements.txt                — pinned NumPy + SciPy + meshio versions (#90, #92)
+├── mesh.py                         — shared mesh builders (cube_tet_mesh, cube_interior_mask, load_msh, write_msh) (#103)
 ├── p1_local_matrices.py            — element-local K and M for the P1 reference tet (#90)
+├── gen_p1_local_per_case.py        — fixture generator for fixtures/p1_local/<case>.json (#90 / #101)
+├── nedelec_local_matrices.py       — Nédélec edge-element local curl-curl K and mass M
+├── gen_nedelec_local_per_case.py   — fixture generator for fixtures/nedelec_local/<case>.json
 ├── cube_cavity.py                  — end-to-end cube-cavity eigenmode driver (#92)
+├── cube_cavity_minimal.py          — sibling cube-cavity driver, programmatic-mesh path (#93)
+├── gen_cube_cavity_baseline.py     — fixture generator for cube_cavity/{unit_cube.msh,baseline.json} (#92)
 ├── sphere_pec.py                   — end-to-end PEC sphere eigenmode driver (#118, Phase G.2)
 ├── sphere_pml.py                   — end-to-end scalar-PML sphere eigenmode driver (#146, Phase H.1)
 ├── derham.py                       — discrete de Rham operators d⁰, d¹, d² (#149, Epic #88 Phase I bridge)
 ├── gen_derham_baseline.py          — fixture generator for reference/fixtures/derham/baseline.json (#149)
 ├── gen_sphere_pec_baseline.py      — fixture generator for sphere_pec/baseline.json
 ├── gen_sphere_pml_baseline.py      — fixture generator for sphere_pml/baseline.json (#146)
+├── gen_sphere_pml_small_baseline.py— fixture generator for sphere_pml_small/baseline.json (#158)
 ├── mie_roots.py                    — analytic Mie root catalogue, SciPy port of geode_core::mie (#170, Phase J.1)
 ├── gen_mie_roots_baseline.py       — fixture generator for mie_roots/baseline.json (#170)
 ├── sphere_mie.py                   — end-to-end anisotropic-UPML Mie driver (#171, Phase J.2)
 ├── gen_sphere_mie_baseline.py      — fixture generator for sphere_mie/baseline.json (#171)
 ├── gen_sphere_mie_small_baseline.py— fixture generator for sphere_mie_small/baseline.json (#171)
 ├── mie_efficiencies.py             — Q_ext/Q_sca Mie efficiency curve, BHMIE log-derivative algorithm (#195, Epic #193)
-├── gen_mie_efficiencies_baseline.py— fixture generator for mie_efficiencies/baseline.json (#195)
-└── _harness.py                     — fixture I/O helper shared across slices
+└── gen_mie_efficiencies_baseline.py— fixture generator for mie_efficiencies/baseline.json (#195)
 ```
 
 ### Scalar-PML sphere (`sphere_pml.py`, Phase H.1)

@@ -26,15 +26,27 @@ unit-tested against synthetic fixtures under
 ```
 reference/palace/
 ├── README.md                            — this file
+├── docker/
+│   ├── README.md                        — reproducible Palace oracle builds
+│   ├── Dockerfile                       — CPU Palace build recipe
+│   └── Dockerfile.cuda                  — GPU (CUDA) variant (#519)
 ├── geode_patch_baseline/
+│   ├── .gitignore
 │   ├── Cargo.toml                       — offline-driver workspace
 │   └── src/main.rs                      — Palace JSON config emitter for
 │                                          the FR-4 patch fixture (#228)
-└── geode_spiral_baseline/
+├── geode_spiral_baseline/
+│   ├── .gitignore
+│   ├── Cargo.toml                       — offline-driver workspace
+│   └── src/main.rs                      — Palace JSON config emitter for
+│                                          the 3.5-turn spiral inductor
+│                                          fixture (#211 / #266)
+└── geode_transmon_baseline/
     ├── Cargo.toml                       — offline-driver workspace
-    └── src/main.rs                      — Palace JSON config emitter for
-                                          the 3.5-turn spiral inductor
-                                          fixture (#211 / #266)
+    ├── Cargo.lock
+    └── src/main.rs                      — Palace eigenmode JSON config
+                                          emitter for the transmon
+                                          benchmark (Epic #476, #492)
 ```
 
 The committed config outputs live under `reference/fixtures/`:
