@@ -2749,7 +2749,7 @@ fn resolve_shape_parameter(
     }
     let size = (0..3).map(|k| hi[k] - lo[k]).fold(0.0, f64::max);
     let fd_length = if value_mesh > 0.0 { value_mesh } else { size };
-    if !(fd_length > 0.0) {
+    if fd_length.is_nan() || fd_length <= 0.0 {
         return Err(invalid(format!(
             "sensitivity shape parameter `{name}`: its groups are a single point (no length \
              scale for the motion)"

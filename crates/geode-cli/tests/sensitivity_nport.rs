@@ -704,9 +704,12 @@ fn check_err(spec: &Path) -> String {
     err(&geode(&["check", spec.to_str().unwrap()]), "invalid_spec")
 }
 
+/// A spec edit of one rejection case.
+type Edit = Box<dyn Fn(&mut Value)>;
+
 #[test]
 fn unsupported_n_port_combinations_are_rejected_naming_the_gap() {
-    let cases: Vec<(&str, Box<dyn Fn(&mut Value)>, &[&str])> = vec![
+    let cases: Vec<(&str, Edit, &[&str])> = vec![
         (
             "upml",
             Box::new(|v| {

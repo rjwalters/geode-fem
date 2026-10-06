@@ -584,21 +584,7 @@ fn unsupported_driven_extract_and_lossy_eigen_sensitivity_are_rejected() {
         String::from_utf8_lossy(&ok.stdout)
     );
     // N lumped ports / wave ports now run the N-port S-matrix adjoint
-    // (issue #883, `tests/sensitivity_nport.rs`): a two-port spec passes.
-    let two = geode(&[
-        "check",
-        edited(drv, "two-port", |v| {
-            let p = v["ports"][0].clone();
-            v["ports"].as_array_mut().unwrap().push(p);
-        })
-        .to_str()
-        .unwrap(),
-    ]);
-    assert!(
-        two.status.success(),
-        "{}",
-        String::from_utf8_lossy(&two.stdout)
-    );
+    // (issue #883): `tests/sensitivity_nport.rs` covers them.
     // Matched UPML.
     let msg = check_err(&edited(drv, "upml", |v| {
         v["absorbing_regions"] =

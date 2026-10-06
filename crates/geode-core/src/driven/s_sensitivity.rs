@@ -721,7 +721,8 @@ impl GroupMotion {
             lo = lo.min(s);
             hi = hi.max(s);
         }
-        if !(hi - lo > 0.0) {
+        let extent = hi - lo;
+        if extent.is_nan() || extent <= 0.0 {
             return Err(SSensitivityError::InvalidDesign(format!(
                 "shape parameter `{}`: its groups have zero extent along the stretch axis {a:?}",
                 self.name

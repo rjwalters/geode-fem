@@ -618,7 +618,7 @@ fn perturbed(
                 x[2] += t * v[2];
             }
             let ratio = geode_core::shape::min_tet_volume_ratio(&p.tagged.mesh, &q.tagged.mesh);
-            if !(ratio > 0.0) {
+            if ratio.is_nan() || ratio <= 0.0 {
                 return Err(CliError::InvalidSpec(format!(
                     "`sensitivity` FD check: the step {delta:e} m of shape parameter `{}` \
                      inverts a tet (min volume ratio {ratio:.3e}) — lower \
@@ -722,7 +722,7 @@ pub fn driven(
             if let (Some(want), Some(got)) = (row_port_mode(p, o, row), port_mode_complex(p, o, pt))
             {
                 let rel = (got - want).norm() / want.norm().max(f64::MIN_POSITIVE);
-                if !(rel <= PORT_MODE_PARITY_TOL) {
+                if rel.is_nan() || rel > PORT_MODE_PARITY_TOL {
                     return Err(CliError::SensitivitySolve(format!(
                         "{} at {} Hz: the sensitivity's value {got} differs from the report's \
                          {want} (rel {rel:.3e} > {PORT_MODE_PARITY_TOL:e})",
@@ -746,7 +746,7 @@ pub fn driven(
             });
         }
     }
-    if !(parity <= FORWARD_PARITY_TOL) {
+    if parity.is_nan() || parity > FORWARD_PARITY_TOL {
         return Err(CliError::SensitivitySolve(format!(
             "the sensitivity's forward S differs from the report's by {parity:.3e} (relative) > \
              {FORWARD_PARITY_TOL:e}: the gradient would not be of the reported forward"
@@ -823,7 +823,7 @@ pub fn driven(
                         q.frequencies = sens
                             .frequency_indices
                             .iter()
-                            .map(|&fi| p.frequencies[fi].clone())
+                            .map(|&fi| p.frequencies[fi])
                             .collect();
                     }
                     let out = forward_rows(&q, jobs)?;
