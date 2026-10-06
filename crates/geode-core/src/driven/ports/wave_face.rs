@@ -2160,21 +2160,19 @@ mod tests {
         };
         // 2 × 1: TE10, then the TE20 / TE01 pair.
         let f = rect_face(8, 4, 2.0, 1.0);
-        let raw1: Vec<f64> = solve_waveguide_modes_ungauged(
-            &f.tri_mesh,
-            &f.edges,
-            &f.interior_edge_mask,
-            3,
-            None,
-        )
-        .map(|(m, _)| lam(&m))
-        .unwrap();
+        let raw1: Vec<f64> =
+            solve_waveguide_modes_ungauged(&f.tri_mesh, &f.edges, &f.interior_edge_mask, 3, None)
+                .map(|(m, _)| lam(&m))
+                .unwrap();
         let raw2 = lam2(&f.solve_modes_p2_raw(3, None).unwrap());
         assert!(relative_gap(raw1[1], raw1[2]) > DEGENERATE_EXACT_REL_TOL);
         let want = vec![(0, 1), (1, 3)];
         assert_eq!(f.degenerate_clusters(&raw1, 3, ElementOrder::P1), want);
         assert_eq!(f.degenerate_clusters(&raw2[..3], 3, ElementOrder::P2), want);
-        let (g1, g2) = (lam(&f.solve_modes(3).unwrap()), lam2(&f.solve_modes_p2(3).unwrap()));
+        let (g1, g2) = (
+            lam(&f.solve_modes(3).unwrap()),
+            lam2(&f.solve_modes_p2(3).unwrap()),
+        );
         assert_eq!(g1[1], g1[2], "p=1 pair shares its mean cutoff");
         assert_eq!(g2[1], g2[2], "p=2 pair shares its mean cutoff");
 
@@ -2200,7 +2198,11 @@ mod tests {
         let f = rect_face(10, 5, 2.0, 0.9);
         let l1 = lam(&f.solve_modes(6).unwrap());
         let l2 = lam2(&f.solve_modes_p2(6).unwrap());
-        assert_eq!((l1[4], l2[4]), (l1[5], l2[5]), "unresolved at p=1: one cluster");
+        assert_eq!(
+            (l1[4], l2[4]),
+            (l1[5], l2[5]),
+            "unresolved at p=1: one cluster"
+        );
     }
 
     /// Issue #808: the PEC-rim TM cutoff of an `a × b` face converges to

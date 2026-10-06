@@ -27,7 +27,12 @@
 //! 6. a port normal along `x` (the `(ŷ, ẑ)` frame), against the same guide
 //!    along `z`;
 //! 7. hybrid ports (slab-loaded and lossy fills) on the Gmsh guides, whose
-//!    modes were signed by their largest edge DOF.
+//!    modes were signed by their largest edge DOF;
+//! 8. p=2 ports (issue #894): the same face-order invariance and the square
+//!    guide's canonical cluster basis;
+//! 9. the degenerate-cluster confirmation (issue #892): a cost guard on a
+//!    338-triangle circular face (≤ 2× the raw modal solve) and the p=1 /
+//!    p=2 agreement of its cluster decision.
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test wave_port_gauge -- --nocapture
@@ -37,12 +42,16 @@ use std::path::PathBuf;
 
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
+use geode_core::analytic::waveguide::solve_waveguide_modes;
+use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::driven::ports::{
     HybridPortFace, HybridWavePort, HybridWavePortOpts, LumpedPort, MixedPortSweepPoint,
     PortMedium, WavePort, WavePortSpec, extruded_rect_waveguide_mesh, project_port_face,
     solve_mixed_port_sweep_with_mode, solve_wave_port_spec_sweep_with_mode, solve_wave_port_sweep,
+    solve_wave_port_sweep_on_space, wave_port_from_faces_on_space,
 };
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, SolverMode};
+use geode_core::elements::ElementOrder;
 use geode_core::mesh::{TetMesh, pec_interior_mask_from_triangles};
 use geode_core::testing::TestBackend;
 
@@ -489,4 +498,176 @@ fn hybrid_ports_transmit_with_the_analytic_phase() {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// 8. p=2 ports (issue #894)
+// ---------------------------------------------------------------------------
+
+/// The p=2 counterpart of [`sweep`]: the full S matrix and port 1's `β`.
+fn sweep_p2(
+    g: &Guide,
+    p1: &[[u32; 3]],
+    p2: &[[u32; 3]],
+    k: usize,
+    omega: f64,
+) -> (Vec<c64>, Vec<f64>) {
+    let space = HcurlSpace::build(&g.mesh, ElementOrder::P2);
+    let mask = space
+        .pec_interior_mask(&g.mesh, &[g.walls.as_slice()])
+        .expect("PEC mask");
+    let a = vec![one(); k];
+    let ports = [p1, p2]
+        .map(|f| wave_port_from_faces_on_space(&space, &g.mesh, f, &a).expect("p=2 wave port"));
+    let eps = vec![one(); g.mesh.n_tets()];
+    let pt = solve_wave_port_sweep_on_space::<B>(
+        &space,
+        &g.mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        &ports,
+        &[],
+        &[omega],
+        SolverMode::Direct,
+        &device(),
+    )
+    .expect("p=2 wave-port sweep")
+    .remove(0);
+    let beta = pt.beta.iter().take(k).map(|b| b.re).collect();
+    (pt.s, beta)
+}
+
+/// p=2 port modes take the same canonical gauge as p=1 (issue #894; before,
+/// `gauge_p2` signed each mode on its own with the #300 rule and had no
+/// cluster logic). The structured `2 × 0.9` guide at ω = 3.7 (TE₁₀, TE₂₀,
+/// TE₀₁): every face list gives the same S and the analytic phase.
+#[test]
+fn p2_ports_are_independent_of_face_order_and_winding() {
+    let g = structured(8, 4, 4, 2.0, 0.9, 1.0);
+    let (s0, beta) = sweep_p2(&g, &g.port1, &g.port2, 3, 3.7);
+    check_phases("p=2 structured default", &s0, &beta, g.len, 3.0);
+    for (label, p1, p2) in [
+        ("p=2 port 2 permuted", g.port1.clone(), permuted(&g.port2)),
+        ("p=2 port 2 re-wound", g.port1.clone(), rewound(&g.port2)),
+        ("p=2 both re-wound", rewound(&g.port1), rewound(&g.port2)),
+    ] {
+        let (s, b) = sweep_p2(&g, &p1, &p2, 3, 3.7);
+        check_phases(label, &s, &b, g.len, 3.0);
+        let d = max_diff(&s, &s0);
+        eprintln!("{label}: max |ΔS| vs default {d:.2e}");
+        assert!(d < 1e-9, "{label}: S moved by {d:e}");
+    }
+}
+
+/// The degenerate TE₁₀ / TE₀₁ pair of a square guide at p=2: one cluster
+/// with the canonical basis on both ports, so the port-1 → port-2 block is
+/// diagonal with the analytic phase and does not move when port 2's face
+/// list is reordered and re-wound.
+#[test]
+fn p2_square_guide_degenerate_pair_gets_a_canonical_basis() {
+    for (label, g, offdiag_tol, phase_tol) in [
+        (
+            "p=2 structured square",
+            structured(6, 6, 4, 1.0, 1.0, 1.0),
+            0.05,
+            3.0,
+        ),
+        (
+            "p=2 gmsh square",
+            gmsh_guide("guide_square_lc020.msh", 1.0, 2),
+            0.05,
+            5.0,
+        ),
+    ] {
+        let omega = 3.7;
+        let (s, beta) = sweep_p2(&g, &g.port1, &g.port2, 2, omega);
+        check_phases(label, &s, &beta, g.len, phase_tol);
+        let n = 4;
+        let (x, y) = (s[2 * n + 1].norm(), s[3 * n].norm());
+        eprintln!("{label}: |S(2:TE01 ← 1:TE10)| {x:.2e}, |S(2:TE10 ← 1:TE01)| {y:.2e}");
+        assert!(
+            x < offdiag_tol && y < offdiag_tol,
+            "{label}: cross terms {x:e}, {y:e}"
+        );
+        let (s2, _) = sweep_p2(&g, &g.port1, &rewound(&permuted(&g.port2)), 2, omega);
+        let d = max_diff(&s, &s2);
+        assert!(
+            d < 1e-8,
+            "{label}: S moved by {d:e} under port-2 reordering"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 9. The cost and the agreement of the cluster confirmation (issue #892)
+// ---------------------------------------------------------------------------
+
+/// Port 1 of the committed circular guide (`reference/gmsh/guide_cyl.geo`,
+/// a 338-triangle face whose TE₁₁ and TE₂₁ pairs are split by the
+/// discretization, so every solve has cluster candidates).
+fn circular_face() -> geode_core::driven::ports::PortFaceProjection {
+    let g = gmsh_guide("guide_cyl_lc015.msh", 0.2, 2);
+    project_port_face(&g.mesh, &g.port1).expect("circular face")
+}
+
+/// The confirmation of a degenerate-cluster candidate must stay cheap
+/// against the raw modal solve. Before #892 it re-solved the face refined
+/// once (4× the edges) with the shift probe, whose budget grows with the
+/// null space: 30–70× the raw solve on 144- to 932-triangle circular faces
+/// (338 triangles: 0.24 s raw, 10.4 s gauged). It now solves the same face
+/// at the other order with an explicit shift. The bound is `2×` the raw
+/// solve (the ungauged #300 path on the same face), best of three runs.
+#[test]
+fn degenerate_cluster_confirmation_is_cheap() {
+    let f = circular_face();
+    let best = |run: &dyn Fn()| {
+        (0..3)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                run();
+                t.elapsed().as_secs_f64()
+            })
+            .fold(f64::INFINITY, f64::min)
+    };
+    let raw = best(&|| {
+        solve_waveguide_modes(&f.tri_mesh, &f.edges, &f.interior_edge_mask, 4).expect("raw");
+    });
+    let gauged = best(&|| {
+        f.solve_modes(4).expect("gauged");
+    });
+    eprintln!(
+        "{} triangles: raw {raw:.3} s, gauged {gauged:.3} s ({:.2}×)",
+        f.tri_mesh.tris.len(),
+        gauged / raw
+    );
+    assert!(
+        gauged <= 2.0 * raw,
+        "the canonical gauge costs {:.1}× the raw modal solve (bound 2×)",
+        gauged / raw
+    );
+}
+
+/// The p=1 and p=2 solves of one circular face make the same cluster
+/// decision (both compare the face's p=1 and p=2 gaps): TE₁₁ and TE₂₁ are
+/// each one cluster, whose members share the mean cutoff, at both orders.
+#[test]
+fn p1_and_p2_cluster_the_circular_pairs_alike() {
+    let f = circular_face();
+    let l1: Vec<f64> = f.solve_modes(4).unwrap().iter().map(|m| m.lambda).collect();
+    let l2: Vec<f64> = f
+        .solve_modes_p2(4)
+        .unwrap()
+        .iter()
+        .map(|m| m.lambda)
+        .collect();
+    eprintln!("circular k_c²: p=1 {l1:?}, p=2 {l2:?}");
+    for l in [&l1, &l2] {
+        assert_eq!(l[0], l[1], "TE11 is one cluster");
+        assert_eq!(l[2], l[3], "TE21 is one cluster");
+    }
+    // j'₁₁² = 3.3900, j'₂₁² = 9.3284 for r = 1 (the polygonal rim lowers both).
+    assert!((l2[0] - 3.39).abs() < 0.03 && (l2[2] - 9.33).abs() < 0.1);
 }

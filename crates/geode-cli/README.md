@@ -1331,11 +1331,11 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   microstrip cookbook — is discretization residue: its gradient is exact
   for the fixed-topology morph (the FD check passes) but is not a
   physical sensitivity, and a re-meshed difference can disagree in sign.
-  Between two **geometric** wave ports the `phase_deg` / `real` / `imag`
-  *values* of a cross-port entry (`S21`) may be 180° off until #888 fixes
-  the face-mode sign gauge; their *derivatives* are invariant to that
-  constant sign and unaffected, but do not target an absolute `S21` phase
-  across re-meshes yet.
+  Cross-port entries (`S21`) between two **geometric** wave ports carry a
+  mesh-independent sign since #888 (the canonical face-mode gauge), so
+  their `phase_deg` / `real` / `imag` values and derivatives target the
+  absolute `S21` phase across re-meshes. (In v0.8.0 such a value could be
+  180° off; its derivative was unaffected.)
 - **Forward parity.** The sensitivity solves its own forward on the same
   operator and must reproduce the report's `results[].s` to `1e-8`
   (relative; `sensitivities.forward_parity`, typically `≤ 1e-15`) and the
