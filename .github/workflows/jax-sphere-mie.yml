@@ -71,6 +71,13 @@ on:
         required: false
         default: '5.0'
 
+# Issue #899: a newer push to a PR cancels that PR's older run. On main a
+# started run is never cancelled, and at most one run waits: a newer one
+# replaces the waiting one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-and-drift-check:
     name: JAX sphere-Mie pipeline + strict snapshot drift gate

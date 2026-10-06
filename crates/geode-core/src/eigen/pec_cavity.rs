@@ -87,7 +87,7 @@ use crate::driven::solve::{
 };
 use crate::eigen::dense::EigenError;
 use crate::eigen::hcurl_null::{
-    GRADIENT_FRACTION_CUT, GradientNullCount, GradientNullSpace, real_to_complex,
+    GRADIENT_FRACTION_CUT, GradientNullCount, GradientNullSpace, LoopHarmonics, real_to_complex,
 };
 use crate::eigen::lanczos::SparseShiftInvertLanczos;
 use crate::eigen::transmon::LondonSurface;
@@ -761,6 +761,67 @@ pub struct SpaceCavityModes {
     /// whose null filter is the historical magnitude test only (the p=1
     /// path is bit-identical to [`solve_pec_cavity_modes`]).
     pub n_gradient_classified: Option<usize>,
+    /// Advisory diagnostics (empty when nothing is flagged): a
+    /// [`PecCavityWarning::HarmonicFieldsPresent`] when the mesh topology
+    /// allows loop harmonics. Warnings never change `modes`.
+    pub warnings: Vec<PecCavityWarning>,
+}
+
+/// An advisory diagnostic attached to [`SpaceCavityModes::warnings`].
+/// Warnings never change the returned modes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PecCavityWarning {
+    /// The mesh is multiply connected (`b₁ > 0`) and its walls do not close
+    /// its whole boundary, so the curl-curl operator can have **loop
+    /// harmonics**: curl-free fields circulating through a handle that are
+    /// neither gradients nor resonances
+    /// ([`crate::eigen::hcurl_null`], "Loop harmonics"). They are outside
+    /// [`SpaceCavityModes::gradient_null`]`.dim` and the gradient
+    /// classifier; `λ ≈ 0` harmonic pairs are removed by the magnitude
+    /// filter ([`PecCavitySettings::null_tol_rel`]) only.
+    HarmonicFieldsPresent {
+        /// First Betti number `b₁` of the mesh (its handle count).
+        b1: usize,
+        /// The number of loop harmonics when `exact`, otherwise an upper
+        /// bound on it (`≤ b1`).
+        loop_harmonics: usize,
+        /// Whether `loop_harmonics` is the exact count (no wall on the
+        /// multiply-connected part) or only a bound.
+        exact: bool,
+    },
+}
+
+impl PecCavityWarning {
+    /// The loop-harmonic warning of a null count, if its topology allows
+    /// any.
+    fn harmonic(counts: &GradientNullCount) -> Vec<Self> {
+        counts
+            .loop_harmonics()
+            .map(|h| Self::HarmonicFieldsPresent {
+                b1: h.b1,
+                loop_harmonics: h.count,
+                exact: h.exact,
+            })
+            .into_iter()
+            .collect()
+    }
+}
+
+impl std::fmt::Display for PecCavityWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::HarmonicFieldsPresent {
+                b1,
+                loop_harmonics,
+                exact,
+            } => LoopHarmonics {
+                b1,
+                count: loop_harmonics,
+                exact,
+            }
+            .fmt(f),
+        }
+    }
 }
 
 /// The per-tet materials of a lossless pencil as driven-operator materials
@@ -1030,7 +1091,13 @@ fn add_triplets(
 ///   magnitude filter is therefore never returned as a mode, and a physical
 ///   mode is never dropped for being small. The number of classified pairs
 ///   is checked against the exact null dimension (a sanity bound,
-///   `classified ≤ dim`, not an equality check).
+///   `classified ≤ dim + loop_harmonics_bound`, not an equality check; the
+///   second term is zero on a simply connected mesh).
+///
+/// At both orders a multiply-connected mesh whose walls leave part of its
+/// boundary open gets an advisory
+/// [`PecCavityWarning::HarmonicFieldsPresent`] in
+/// [`SpaceCavityModes::warnings`]. It never changes the modes.
 ///
 /// # Errors
 ///
@@ -1057,12 +1124,14 @@ pub fn solve_pec_cavity_modes_on_space<B: Backend>(
     )?;
     let walls: Vec<&[[u32; 3]]> = london.iter().map(|w| w.triangles).collect();
     let null = GradientNullSpace::build(space, mesh, pec_interior_mask, &walls);
+    let warnings = PecCavityWarning::harmonic(&null.counts());
     match space.order() {
         ElementOrder::P1 => Ok(SpaceCavityModes {
             order: ElementOrder::P1,
             modes: solve_assembled_pencil(&k, &m, settings)?,
             gradient_null: null.counts(),
             n_gradient_classified: None,
+            warnings,
         }),
         ElementOrder::P2 => {
             let m_c = real_to_complex(m.as_ref())?;
@@ -1071,7 +1140,10 @@ pub fn solve_pec_cavity_modes_on_space<B: Backend>(
                 |x: &[f64]| classifier.gradient_fraction_real(x) >= GRADIENT_FRACTION_CUT;
             let (modes, classified) =
                 solve_assembled_pencil_classified(&k, &m, settings, Some(&is_gradient))?;
-            if classified > null.dim() {
+            // A null-cluster Ritz vector may mix gradients with loop
+            // harmonics, so the bound allows for the harmonics the topology
+            // permits (zero on a simply connected mesh).
+            if classified > null.dim() + null.counts().loop_harmonics_bound {
                 return Err(PecCavityError::GradientNullExceeded {
                     classified,
                     dim: null.dim(),
@@ -1082,6 +1154,7 @@ pub fn solve_pec_cavity_modes_on_space<B: Backend>(
                 modes,
                 gradient_null: null.counts(),
                 n_gradient_classified: Some(classified),
+                warnings,
             })
         }
     }
