@@ -2466,11 +2466,14 @@ fn a_port_rim_off_every_conductor_is_invalid_spec() {
 // Issue #888: the canonical mode gauge through the CLI and Touchstone
 // ---------------------------------------------------------------------
 
+/// A transformation of a port's triangle list (its order and winding).
+type FaceEdit = fn(&[[u32; 3]]) -> Vec<[u32; 3]>;
+
 /// The committed Gmsh guide `guide_box_lc030.msh` (`2 × 0.9 × 1`,
 /// unstructured, from geode-core's fixtures) written with `port_in` /
 /// `port_out` / `walls` groups taken from its boundary faces, `port_out`
 /// transformed by `edit` (its order and winding).
-fn write_gmsh_guide(dir: &std::path::Path, edit: fn(&[[u32; 3]]) -> Vec<[u32; 3]>) -> PathBuf {
+fn write_gmsh_guide(dir: &std::path::Path, edit: FaceEdit) -> PathBuf {
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../geode-core/tests/fixtures/guide_box_lc030.msh");
     let mesh = geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(src).unwrap())
@@ -2516,7 +2519,7 @@ fn write_gmsh_guide(dir: &std::path::Path, edit: fn(&[[u32; 3]]) -> Vec<[u32; 3]
 fn gmsh_guide_s21_has_the_transmission_phase_in_the_report_and_touchstone() {
     let k0 = 2.5;
     let len = 1.0;
-    let variants: [(&str, fn(&[[u32; 3]]) -> Vec<[u32; 3]>); 2] = [
+    let variants: [(&str, FaceEdit); 2] = [
         ("as listed", |f| f.to_vec()),
         ("reordered and re-wound", |f| {
             let mut p: Vec<[u32; 3]> = f.iter().rev().map(|t| [t[0], t[2], t[1]]).collect();

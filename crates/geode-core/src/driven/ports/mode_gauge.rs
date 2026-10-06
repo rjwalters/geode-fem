@@ -229,10 +229,8 @@ pub(crate) fn canonical_coefficients(
     let mut f_norm = vec![0.0_f64; N_REFERENCE_FIELDS];
     for (r, (gr, fr)) in g.iter_mut().zip(f_norm.iter_mut()).enumerate() {
         let mut n2 = 0.0_f64;
-        for q in 0..nq {
-            let [sx, sy] = quad.points[q];
+        for (q, (&w, &[sx, sy])) in quad.weights.iter().zip(&quad.points).enumerate() {
             let f = reference_field(r, sx, sy);
-            let w = quad.weights[q];
             n2 += w * (f[0] * f[0] + f[1] * f[1]);
             if f == [0.0, 0.0] {
                 continue;
@@ -250,7 +248,7 @@ pub(crate) fn canonical_coefficients(
         let size = e - s;
         // Directions chosen so far (orthonormal, in cluster coordinates).
         let mut dirs: Vec<Vec<f64>> = Vec::with_capacity(size);
-        let mut used = vec![false; N_REFERENCE_FIELDS];
+        let mut used = [false; N_REFERENCE_FIELDS];
         while dirs.len() < size && s + dirs.len() < n_keep {
             // Each reference's overlap with the unused part of the cluster.
             let residual = |r: usize| -> Vec<f64> {
@@ -564,7 +562,8 @@ mod tests {
             points: vec![[0.25, 0.5], [0.75, 0.5]],
         };
         let zero = vec![[0.0, 0.0]; 2];
-        let err = canonical_coefficients(&quad, &[zero.clone()], &[(0, 1)], 1).unwrap_err();
+        let err =
+            canonical_coefficients(&quad, std::slice::from_ref(&zero), &[(0, 1)], 1).unwrap_err();
         assert!(
             matches!(err, EigenError::UngaugableMode { mode: 0, .. }),
             "{err:?}"
