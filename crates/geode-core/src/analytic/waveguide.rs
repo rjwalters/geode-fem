@@ -3970,6 +3970,52 @@ pub fn solve_waveguide_modes_with_opts(
     n_modes: usize,
     opts: &WaveguideSolveOpts,
 ) -> Result<Vec<WaveguideModeProfile>, EigenError> {
+    solve_metallic_modes(mesh, edges, interior_edge_mask, n_modes, opts, true).map(|(m, _)| m)
+}
+
+/// [`solve_waveguide_modes`] **without** the reference-integral sign gauge
+/// (issue #888): the lowest `n_modes` modes with the Lanczos signs, plus the
+/// further converged modes of the same pass (`λ` ascending, possibly
+/// empty, not checked for completeness). The first list is bit-identical
+/// to [`solve_waveguide_modes`] up to the sign of each vector. The port-face
+/// path applies its own canonical gauge
+/// ([`crate::driven::ports::PortFaceProjection::solve_modes`]) and reads the
+/// second list to complete a degenerate cluster cut by `n_modes`.
+///
+/// `sigma` is an explicit shift-invert shift (`None`: the probe estimator
+/// [`estimate_modal_shift`], as [`solve_waveguide_modes`]). The probe
+/// budget grows with the gradient null space, which makes it the dominant,
+/// roughly cubic cost of the solve; a caller that already knows the
+/// spectrum (the degenerate-cluster confirmation of issue #892, which knows
+/// the face's lowest cutoff from the solve it confirms) passes
+/// `σ = λ_first / 2` and skips it.
+pub(crate) fn solve_waveguide_modes_ungauged(
+    mesh: &TriMesh,
+    edges: &[[u32; 2]],
+    interior_edge_mask: &[bool],
+    n_modes: usize,
+    sigma: Option<f64>,
+) -> Result<(Vec<WaveguideModeProfile>, Vec<WaveguideModeProfile>), EigenError> {
+    let opts = WaveguideSolveOpts {
+        sigma,
+        spurious_threshold: None,
+        sigma_relative_threshold: 0.1,
+    };
+    solve_metallic_modes(mesh, edges, interior_edge_mask, n_modes, &opts, false)
+}
+
+/// The metallic modal solve behind [`solve_waveguide_modes_with_opts`]
+/// (`gauge = true`) and [`solve_waveguide_modes_ungauged`] (`gauge =
+/// false`): the requested modes and the further converged modes of the
+/// final pass.
+fn solve_metallic_modes(
+    mesh: &TriMesh,
+    edges: &[[u32; 2]],
+    interior_edge_mask: &[bool],
+    n_modes: usize,
+    opts: &WaveguideSolveOpts,
+    gauge: bool,
+) -> Result<(Vec<WaveguideModeProfile>, Vec<WaveguideModeProfile>), EigenError> {
     let n_edges = edges.len();
     assert_eq!(
         interior_edge_mask.len(),
@@ -4054,7 +4100,18 @@ pub fn solve_waveguide_modes_with_opts(
     // and a withheld pair below the last returned mode, which could hide a
     // missing mode, triggers the same retry as an undercount.
     let mut n_request = (n_modes + 8).min(dim);
-    let modes: Vec<WaveguideModeProfile> = loop {
+    let scatter = |pair: &EigenPair| {
+        let mut e_edges = vec![0.0_f64; n_edges];
+        for (interior_idx, &full_idx) in interior_to_full.iter().enumerate() {
+            e_edges[full_idx] = pair.vector[interior_idx];
+        }
+        WaveguideModeProfile {
+            k_c: pair.lambda.max(0.0).sqrt(),
+            lambda: pair.lambda,
+            e_edges,
+        }
+    };
+    let modes = loop {
         let pass = metallic_checked_modes(
             k_sparse.as_ref(),
             m_sparse.as_ref(),
@@ -4071,10 +4128,9 @@ pub fn solve_waveguide_modes_with_opts(
             .into_iter()
             .enumerate()
             .map(|(mode_idx, pair)| {
-                let lam_pos = pair.lambda.max(0.0);
-                let mut e_edges = vec![0.0_f64; n_edges];
-                for (interior_idx, &full_idx) in interior_to_full.iter().enumerate() {
-                    e_edges[full_idx] = pair.vector[interior_idx];
+                let mut profile = scatter(&pair);
+                if !gauge {
+                    return Ok(profile);
                 }
                 // Reference-integral gauge (issue #300, replacing the
                 // issue-#262 argmax pin at the wrapper layer): rotate the
@@ -4092,17 +4148,13 @@ pub fn solve_waveguide_modes_with_opts(
                 // (issue #349) the gauge returns `UngaugableMode` rather
                 // than silently falling through to the cross-mesh-unstable
                 // argmax pin; propagate it so the failure is loud.
-                gauge_fix_eigenvector(mesh, edges, &mut e_edges, mode_idx)?;
-                Ok(WaveguideModeProfile {
-                    k_c: lam_pos.sqrt(),
-                    lambda: pair.lambda,
-                    e_edges,
-                })
+                gauge_fix_eigenvector(mesh, edges, &mut profile.e_edges, mode_idx)?;
+                Ok(profile)
             })
             .collect::<Result<Vec<_>, EigenError>>()?;
 
         if physical.len() == n_modes && !unresolved {
-            break physical;
+            break (physical, pass.beyond.iter().map(scatter).collect());
         }
         if n_request >= dim {
             let est_msg = est_first_phys
@@ -4144,6 +4196,11 @@ pub(crate) struct MetallicModalPass {
     /// Converged pairs with `λ > threshold`, `λ` ascending, at most
     /// `n_modes`.
     pub(crate) physical: Vec<EigenPair>,
+    /// The further converged pairs of the same pass above `physical`,
+    /// `λ` ascending (issue #888: the canonical port-mode gauge reads them
+    /// to complete a degenerate cluster cut by `n_modes`). Not checked for
+    /// completeness: an unconverged pair may sit between them.
+    pub(crate) beyond: Vec<EigenPair>,
     /// A withheld (unconverged) Ritz pair sits above the threshold but below
     /// the last returned mode, so a mode could be missing from the list.
     pub(crate) unresolved_below: bool,
@@ -4189,12 +4246,12 @@ pub(crate) fn metallic_checked_modes(
             .partial_cmp(&b.lambda)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    let physical: Vec<EigenPair> = checked
+    let mut physical: Vec<EigenPair> = checked
         .pairs
         .into_iter()
         .filter(|p| p.lambda > threshold)
-        .take(n_modes)
         .collect();
+    let beyond = physical.split_off(n_modes.min(physical.len()));
     let above: Vec<f64> = checked
         .rejected
         .iter()
@@ -4206,6 +4263,7 @@ pub(crate) fn metallic_checked_modes(
         .is_some_and(|last| above.iter().any(|&lambda| lambda < last.lambda));
     Ok(MetallicModalPass {
         physical,
+        beyond,
         unresolved_below,
         withheld: above.len(),
     })

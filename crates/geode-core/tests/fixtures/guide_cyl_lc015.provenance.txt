@@ -1,0 +1,19 @@
+fixture:        guide_cyl_lc015.msh
+sha256:         19add4509ec17fb8565d676eaf8d88b36ffa3c14b726e6515e3a90d63679bf2e
+generated:      2026-10-06T06:21:45+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/guide_cyl.geo
+command:        gmsh reference/gmsh/guide_cyl.geo -3 -format msh41 -v 0 -setnumber r 1 -setnumber d 0.2 -setnumber lc 0.15 -setnumber lc1 0.5 -o crates/geode-core/tests/fixtures/guide_cyl_lc015.msh
+
+parameter values:
+  r:   1     (guide radius, mesh units)
+  d:   0.2   (z extent: the guide length)
+  lc:  0.15  (mesh size at the z = 0 port: a 338-triangle face)
+  lc1: 0.5   (mesh size at z = d: a 41-triangle face, keeps the file small)
+
+physical groups: 3-D "domain"; 2-D "walls" (all faces). The tests take the
+                 ports from boundary_faces() at z = 0 / z = d, in its order.
+nodes:          226
+consumed by:    crates/geode-core/tests/wave_port_gauge.rs (issue #892: the
+                cost guard of the degenerate-cluster confirmation, and the
+                p=1 / p=2 cluster-decision agreement)

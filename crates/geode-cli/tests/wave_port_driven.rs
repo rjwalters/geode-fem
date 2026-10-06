@@ -17,6 +17,8 @@
 
 #[path = "support/scratch.rs"]
 mod scratch_support;
+#[path = "support/touchstone.rs"]
+mod touchstone_support;
 
 use scratch_support::{Scratch, ScratchFile};
 use std::fmt::Write as _;
@@ -1438,88 +1440,106 @@ fn vacuum_wave_and_mixed_ports_match_the_pre_fill_solver() {
 /// holds: `MIXED_BITS` is untouched (within `1.8e-15`), the tolerance is
 /// unchanged, and `vacuum_medium_is_bit_identical_to_the_pre_fill_formulas`
 /// in geode-core does not touch the mode solve.
+///
+/// Re-recorded again for issue #888 (the canonical wave-port mode gauge).
+/// Port mode 2 of the 8×4 face is the TE₂₀ member of the TE₂₀ / TE₀₁ pair,
+/// which is degenerate in the continuum (`k_c = π` for both on a `2 × 1`
+/// guide) and split by the discretization (relative gap `6.5e-4` in `k_c²`
+/// at p=1, `3.9e-8` in the p=2 solve of the same face, so the gauge
+/// confirms the pair as one cluster; #892). The members of a degenerate cluster now share its mean cutoff,
+/// so the port's modal term over the cluster does not depend on the basis
+/// the gauge picks inside it. That moves this mode's `k_c²` from the lower
+/// discrete value 9.69543 to the pair mean 9.69859, its evanescent `β` by
+/// `3.6e-4` relative (`−1.85619j → −1.85704j` at `k₀ = 2.5`,
+/// `−2.38651j → −2.38717j` at `k₀ = 2`), and its own reflection `|S₂₂|` from
+/// `2.394e-2` to `2.380e-2` (`1.775e-2 → 1.753e-2`). Every other S entry
+/// moves by at most `9.1e-7` (the mode-2 port-1 → port-2 entry, `0.1126628 →
+/// 0.1126637` at `k₀ = 2.5`), and **no sign changed**: on this mesh both ports' TE₂₀ already matched
+/// the canonical reference. The old value of this mode was not wrong, but
+/// it was one arbitrary member of a split pair. `MIXED_BITS` (TE₁₀ only) is
+/// unchanged to `8e-16`.
 #[rustfmt::skip]
 const PURE_WAVE_BITS: [u64; 80] = [
-    0x3f6da83f5789e400,
-    0x3f3428e6f760d27a,
-    0xbf38a733713a9910,
-    0xbf64dc21f8b8cb31,
-    0x3fb5ac8f19c50c1f,
-    0xbfefe2885a6a95e4,
-    0xbf43a6662768e867,
-    0x3f6489115a807d2f,
-    0xbf38a733713a9c4c,
-    0xbf64dc21f8b8cc70,
-    0xbf9883017ff4b960,
-    0xbedbd3be1c53eba4,
-    0x3f43a666276f0fb2,
-    0xbf6489115a80cf72,
-    0x3faf0716b4212cc6,
-    0x3ed9d3a670141ecf,
-    0x3fb5ac8f19c50bf9,
-    0xbfefe2885a6a95e3,
-    0x3f43a666276f106f,
-    0xbf6489115a80cfab,
-    0x3f6da83f5789ea00,
-    0x3f3428e6f763a5e1,
-    0x3f38a733712e8eb4,
-    0x3f64dc21f8b858c4,
-    0xbf43a6662768f12a,
-    0x3f6489115a807a8e,
-    0x3faf0716b4212ca8,
-    0x3ed9d3a670141ec6,
-    0x3f38a733712e80f0,
-    0x3f64dc21f8b857b5,
-    0xbf9883017ff4c0c0,
-    0xbedbd3be1c52295b,
-    0x3ff3e045303f78d6,
+    0x3f6da8404153f400,
+    0x3f3428e79dacee83,
+    0xbf38a723206f6e5c,
+    0xbf64dc31ce482928,
+    0x3fb5ac8f21a45061,
+    0xbfefe2885a54533a,
+    0xbf43a663a3254a99,
+    0x3f6489214bc8985a,
+    0xbf38a723206f72bc,
+    0xbf64dc31ce482d7e,
+    0xbf985ecf10183b20,
+    0xbedbd3e6a15b0aa5,
+    0x3f43a663a3255de8,
+    0xbf6489214bc88e77,
+    0x3faf07242a019cb4,
+    0x3ed9d3d04b00f94c,
+    0x3fb5ac8f21a450a3,
+    0xbfefe2885a545330,
+    0x3f43a663a32554eb,
+    0xbf6489214bc88bb5,
+    0x3f6da8404153dc00,
+    0x3f3428e79dafe86b,
+    0x3f38a723206f4db0,
+    0x3f64dc31ce4834f4,
+    0xbf43a663a3255ae6,
+    0x3f6489214bc88f92,
+    0x3faf07242a019cb3,
+    0x3ed9d3d04b00eb30,
+    0x3f38a723206f61f4,
+    0x3f64dc31ce482e36,
+    0xbf985ecf10183ce0,
+    0xbedbd3e6a15b1b65,
+    0x3ff3e045303f78c6,
     0x0000000000000000,
     0x0000000000000000,
-    0xc00317922ccb59c3,
-    0x3ff3e045303f78d6,
+    0xc00318ed3bb7f897,
+    0x3ff3e045303f78c6,
     0x0000000000000000,
     0x0000000000000000,
-    0xc00317922ccb59c3,
-    0x3f81fe66c9d0c700,
-    0xbf8132e2464d9b51,
-    0xbf691f234d74dbaa,
-    0xbf6699d5535c1a4c,
-    0xbfe61be71a08523e,
-    0xbfe72186424796f7,
-    0xbf368d39c263f748,
-    0x3f71008029f62be8,
-    0xbf691f234d74d92c,
-    0xbf6699d5535c1996,
-    0xbf922d6d313a2bc0,
-    0xbef2043860b41192,
-    0x3f368d39c275dd08,
-    0xbf71008029f7247c,
-    0x3fbcd77804363ad0,
-    0x3ee5cd9ed86676bd,
-    0xbfe61be71a085232,
-    0xbfe7218642479705,
-    0x3f368d39c275f518,
-    0xbf71008029f721ce,
-    0x3f81fe66c9d0ca80,
-    0xbf8132e2464d8d98,
-    0x3f691f234d71ed5b,
-    0x3f6699d5535c4b4f,
-    0xbf368d39c2641288,
-    0x3f71008029f62a1e,
-    0x3fbcd77804363ac9,
-    0x3ee5cd9ed8666e42,
-    0x3f691f234d71ed3b,
-    0x3f6699d5535c460f,
-    0xbf922d6d313a2d40,
-    0xbef2043860b1dabd,
-    0x3fff296b87009bca,
+    0xc00318ed3bb7f897,
+    0x3f81fe6742739980,
+    0xbf8132e2b50f3cf1,
+    0xbf691f252d550aa9,
+    0xbf669a14dc4f8541,
+    0xbfe61be716f463c8,
+    0xbfe72186452db266,
+    0xbf368bebbfd5c248,
+    0x3f710097cae64b78,
+    0xbf691f252d550a64,
+    0xbf669a14dc4f86c4,
+    0xbf91f220f05142c0,
+    0xbef20466d20e304e,
+    0x3f368bebbfd60c70,
+    0xbf710097cae64c2d,
+    0x3fbcd7874c56a695,
+    0x3ee5ce245958b42e,
+    0xbfe61be716f463d5,
+    0xbfe72186452db261,
+    0x3f368bebbfd60734,
+    0xbf710097cae64c7c,
+    0x3f81fe674273a200,
+    0xbf8132e2b50f38a3,
+    0x3f691f252d5502cd,
+    0x3f669a14dc4f898d,
+    0xbf368bebbfd61d84,
+    0x3f710097cae6475f,
+    0x3fbcd7874c56a688,
+    0x3ee5ce245958a9ca,
+    0x3f691f252d5506de,
+    0x3f669a14dc4f83ce,
+    0xbf91f220f05143e0,
+    0xbef20466d20e2b26,
+    0x3fff296b87009bc0,
     0x0000000000000000,
     0x0000000000000000,
-    0xbffdb2f01b4dcd77,
-    0x3fff296b87009bca,
+    0xbffdb66c74a5e3af,
+    0x3fff296b87009bc0,
     0x0000000000000000,
     0x0000000000000000,
-    0xbffdb2f01b4dcd77,
+    0xbffdb66c74a5e3af,
 ];
 /// Recorded on main @ 2843250 (pre-#777): `tests/fixtures/waveguide_mixed_smoke.json`.
 #[rustfmt::skip]
@@ -2439,5 +2459,140 @@ fn a_port_rim_off_every_conductor_is_invalid_spec() {
                 && msg.contains("#804"),
             "{msg}"
         );
+    }
+}
+
+// ---------------------------------------------------------------------
+// Issue #888: the canonical mode gauge through the CLI and Touchstone
+// ---------------------------------------------------------------------
+
+/// A transformation of a port's triangle list (its order and winding).
+type FaceEdit = fn(&[[u32; 3]]) -> Vec<[u32; 3]>;
+
+/// The committed Gmsh guide `guide_box_lc030.msh` (`2 × 0.9 × 1`,
+/// unstructured, from geode-core's fixtures) written with `port_in` /
+/// `port_out` / `walls` groups taken from its boundary faces, `port_out`
+/// transformed by `edit` (its order and winding).
+fn write_gmsh_guide(dir: &std::path::Path, edit: FaceEdit) -> PathBuf {
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../geode-core/tests/fixtures/guide_box_lc030.msh");
+    let mesh = geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(src).unwrap())
+        .unwrap()
+        .mesh;
+    let bf = mesh.boundary_faces();
+    let on = |f: &[u32; 3], z: f64| {
+        f.iter()
+            .all(|&n| (mesh.nodes[n as usize][2] - z).abs() < 1e-9)
+    };
+    let port_in: Vec<_> = bf.iter().copied().filter(|f| on(f, 0.0)).collect();
+    let port_out: Vec<_> = edit(
+        &bf.iter()
+            .copied()
+            .filter(|f| on(f, 1.0))
+            .collect::<Vec<_>>(),
+    );
+    let walls: Vec<_> = bf
+        .iter()
+        .copied()
+        .filter(|f| !on(f, 0.0) && !on(f, 1.0))
+        .collect();
+    let msh = write_msh(
+        &mesh.nodes,
+        &mesh.tets,
+        &[
+            (11, "port_in", &port_in),
+            (12, "port_out", &port_out),
+            (13, "walls", &walls),
+        ],
+    );
+    let path = dir.join("gmsh_guide.msh");
+    std::fs::write(&path, msh).unwrap();
+    path
+}
+
+/// Issue #888 through the CLI: on the unstructured Gmsh guide where `main`
+/// before #888 turned TE₁₀'s `S21` by 180° (`+178.3°`), the report's `S21`
+/// and the Touchstone file's (reference = the mode's `Z_TE`, so the file is
+/// the modal S) carry `e^{−jβL}`, and re-winding / reordering the
+/// `port_out` triangles in the `.msh` file changes neither.
+#[test]
+fn gmsh_guide_s21_has_the_transmission_phase_in_the_report_and_touchstone() {
+    let k0 = 2.5;
+    let len = 1.0;
+    let variants: [(&str, FaceEdit); 2] = [
+        ("as listed", |f| f.to_vec()),
+        ("reordered and re-wound", |f| {
+            let mut p: Vec<[u32; 3]> = f.iter().rev().map(|t| [t[0], t[2], t[1]]).collect();
+            p.rotate_left(5);
+            p
+        }),
+    ];
+    let mut first: Option<serde_json::Value> = None;
+    for (label, edit) in variants {
+        let dir = scratch("gauge-888");
+        let mesh = write_gmsh_guide(&dir, edit);
+        let base = serde_json::json!({
+            "schema_version": 1,
+            "mesh": { "path": mesh.display().to_string(), "length_unit_m": LENGTH_UNIT_M },
+            "boundary_conditions": { "pec": ["walls"] },
+            "wave_ports": [
+                { "physical_group": "port_in" },
+                { "physical_group": "port_out" }
+            ],
+            "frequencies": { "unit": "k0", "values": [k0] }
+        });
+        let probe_path = dir.join("probe.json");
+        std::fs::write(&probe_path, base.to_string()).unwrap();
+        let probe = json(&geode(&["driven", probe_path.to_str().unwrap()]));
+        let z_te = |port: usize| {
+            let k_c = f64_at(&probe["wave_ports"][port]["modes"][0]["k_c"]);
+            geode_core::constants::ETA_0_OHM * k0 / (k0 * k0 - k_c * k_c).sqrt()
+        };
+        let mut spec = base.clone();
+        spec["wave_ports"][0]["reference_ohm"] = z_te(0).into();
+        spec["wave_ports"][1]["reference_ohm"] = z_te(1).into();
+        let spec_path = dir.join("spec.json");
+        std::fs::write(&spec_path, spec.to_string()).unwrap();
+        let ts = dir.join("guide.s2p");
+        let v = json(&geode(&[
+            "driven",
+            spec_path.to_str().unwrap(),
+            "--touchstone",
+            ts.to_str().unwrap(),
+        ]));
+        let row = &v["results"][0];
+        let (s, n) = s_matrix(row);
+        assert_eq!(n, 2);
+        let beta = f64_at(&row["wave_channels"][0]["beta"][0]);
+        let want = faer::c64::new((-beta * len).cos(), (-beta * len).sin());
+        let phase = |z: faer::c64| {
+            let r = z / want;
+            r.im.atan2(r.re).to_degrees()
+        };
+        let (_, _, rows) = touchstone_support::parse(&std::fs::read_to_string(&ts).unwrap());
+        let file_s21 = faer::c64::new(rows[0].1[1][0][0], rows[0].1[1][0][1]);
+        eprintln!(
+            "{label}: report arg(S21/e^-jβL) {:+.2}°, Touchstone {:+.2}°",
+            phase(s[2]),
+            phase(file_s21)
+        );
+        assert!(phase(s[2]).abs() < 10.0, "{label}: report S21 {}", s[2]);
+        assert!(
+            (file_s21 - s[2]).norm() < 1e-9,
+            "{label}: file S21 {file_s21} vs {}",
+            s[2]
+        );
+        match &first {
+            None => first = Some(row["s"].clone()),
+            Some(s0) => {
+                let (a, _) = s_matrix(&serde_json::json!({ "s": s0 }));
+                let d = a
+                    .iter()
+                    .zip(&s)
+                    .map(|(x, y)| (x - y).norm())
+                    .fold(0.0, f64::max);
+                assert!(d < 1e-9, "{label}: S moved by {d:e}");
+            }
+        }
     }
 }

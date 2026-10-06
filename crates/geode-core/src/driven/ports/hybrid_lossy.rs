@@ -301,6 +301,13 @@ impl LossyState {
                 unit.claimed = (0..g).map(|d| (d, taken + d)).collect();
                 if g > 1 {
                     self.canonicalize(&set.modes, unit, omega);
+                } else {
+                    // Canonical sign (issue #888, `FaceCtx::reference_sign`).
+                    let e_t = &set.modes[unit.members[0]].e_t;
+                    let re: Vec<f64> = e_t.iter().map(|z| z.re).collect();
+                    let im: Vec<f64> = e_t.iter().map(|z| z.im).collect();
+                    let sign = self.ctx.reference_sign(&re, Some(&im), p_idx, taken)?;
+                    unit.rot[0][0] = c64::new(sign, 0.0);
                 }
                 taken += g;
             }

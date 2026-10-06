@@ -192,6 +192,7 @@ use super::hybrid_z::{
 };
 use super::lumped::LumpedPort;
 use super::mixed::{MixedPortSweepPoint, ModalSmw, PowerWeights, dot_t};
+use super::mode_gauge::{reference_sign, whitney_samples};
 use super::wave::{WavePort, WavePortSweepPoint, assemble_modal_flux};
 use super::wave_face::{PortFaceError, PortFaceProjection, project_port_face};
 use crate::analytic::port_mode_accuracy::{
@@ -2354,6 +2355,10 @@ pub(super) struct FaceCtx {
     pub(super) h: f64,
     /// Smallest face edge (the conductor-edge cell of a graded face).
     pub(super) h_min: f64,
+    /// The projected face mesh and its edge table, for the canonical mode
+    /// sign at the first frequency (issue #888).
+    face_mesh: TriMesh,
+    face_edges: Vec<[u32; 2]>,
 }
 
 /// Solve outcome of [`FaceCtx::solve`].
@@ -2433,6 +2438,35 @@ impl FaceCtx {
             eps_max: port.face.eps_r.iter().copied().fold(1.0_f64, f64::max),
             h: port.face.mesh_size(),
             h_min: super::hybrid_z::min_edge(&proj.tri_mesh),
+            face_mesh: proj.tri_mesh.clone(),
+            face_edges: proj.edges.clone(),
+        })
+    }
+
+    /// The canonical sign (`±1`) of a simple reported mode at the first
+    /// frequency (issue #888): the reference-overlap rule of the geometric
+    /// ports ([`super::reference_field`]) on the scaled transverse field
+    /// `ẽ_t` (real `re`, plus `im` for a lossy mode), in the face's canonical
+    /// frame. The solver's own sign (its largest edge DOF) depends on the
+    /// mesh, so two ports of one guide could disagree and turn the
+    /// cross-port S of the mode by 180°.
+    pub(super) fn reference_sign(
+        &self,
+        re: &[f64],
+        im: Option<&[f64]>,
+        port: usize,
+        mode: usize,
+    ) -> Result<f64, DrivenError> {
+        let mut vectors = vec![re];
+        vectors.extend(im);
+        let (quad, fields) = whitney_samples(&self.face_mesh, &self.face_edges, &vectors);
+        reference_sign(&quad, &fields[0], fields.get(1).map(Vec::as_slice), mode).map_err(|e| {
+            DrivenError::InvalidPort {
+                index: port,
+                reason: format!(
+                    "hybrid wave port: no reference field fixes the sign of reported mode                      {mode} ({e}); its cross-port S-parameters would have a mesh-dependent sign"
+                ),
+            }
         })
     }
 
@@ -3154,6 +3188,10 @@ impl HybridState {
                         units[u].claimed = (0..g).map(|d| (d, taken + d)).collect();
                         if g > 1 {
                             self.canonicalize(&set.modes, &mut units[u], omega);
+                        } else {
+                            units[u].rot[0][0] =
+                                self.ctx
+                                    .reference_sign(&set.modes[*i].e_t, None, p_idx, taken)?;
                         }
                         taken += g;
                     }

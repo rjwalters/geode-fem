@@ -10,7 +10,9 @@
 //! triangles. This module supplies the missing glue:
 //!
 //! 1. [`project_port_face`] checks the tagged triangles are coplanar,
-//!    picks an orthonormal in-plane basis, and projects them into a local
+//!    picks the plane's **canonical** orthonormal in-plane basis (a
+//!    function of the plane alone, not of the face list's order or
+//!    winding; issue #888), and projects them into a local
 //!    2-D [`TriMesh`] (counter-clockwise triangles, as the 2-D Nédélec
 //!    assembly requires). Local node `i` is the `i`-th smallest 3-D node
 //!    index on the face, so the map is **monotone**: every local edge
@@ -25,10 +27,17 @@
 //!    triangles is an interior DOF. An edge shared by three or more face
 //!    triangles is rejected (non-manifold port face).
 //! 3. [`PortFaceProjection::wave_port`] runs the general cross-section
-//!    modal solver [`solve_waveguide_modes`] on the projected mesh and
+//!    modal solver [`crate::analytic::waveguide::solve_waveguide_modes`] on the projected mesh and
 //!    lifts each profile onto the 3-D edge table with
 //!    [`map_mode_profile_to_full_mesh`], yielding a [`WavePort`] ready for
 //!    [`super::solve_wave_port_sweep`].
+//!
+//! The mode signs (and the basis inside a degenerate cluster) follow the
+//! canonical gauge of issue #888 (`mode_gauge` module): the overlap with
+//! fixed reference fields in the canonical frame. Two ports of one guide,
+//! however they are meshed, listed or wound, therefore share a mode's sign
+//! convention, and the cross-port S of a straight guide carries the
+//! analytic `e^{−jβL}`.
 //!
 //! The 2-D modal solver returns M-orthonormal profiles in the 2-D
 //! Nédélec mass. On a planar face that mass **is** the port-face
@@ -68,8 +77,12 @@ use std::collections::HashMap;
 
 use faer::c64;
 
+use super::mode_gauge::{
+    DEGENERATE_CANDIDATE_REL_TOL, DEGENERATE_CONVERGENCE_RATIO, DEGENERATE_EXACT_REL_TOL,
+    clusters_from_links, gauge_whitney_modes, relative_gap,
+};
 use super::wave::{PortMedium, PortMode, WavePort, map_mode_profile_to_full_mesh};
-use crate::analytic::waveguide::{TriMesh, WaveguideModeProfile, solve_waveguide_modes};
+use crate::analytic::waveguide::{TriMesh, WaveguideModeProfile, solve_waveguide_modes_ungauged};
 use crate::eigen::dense::EigenError;
 use crate::elements::ElementOrder;
 use crate::mesh::TetMesh;
@@ -183,12 +196,15 @@ pub struct PortFaceProjection {
     pub interior_edge_mask: Vec<bool>,
     /// A point on the plane (the face-node centroid).
     pub origin: [f64; 3],
-    /// First in-plane unit axis.
+    /// First in-plane unit axis: the canonical axis of the plane (issue
+    /// #888), the projection of the global axis least aligned with
+    /// [`Self::normal`]. Independent of the face list's order and winding.
     pub u: [f64; 3],
     /// Second in-plane unit axis (`normal × u`).
     pub v: [f64; 3],
-    /// Unit face normal (orientation follows the first non-degenerate
-    /// triangle's winding).
+    /// Unit face normal in its canonical orientation (issue #888): the
+    /// largest-magnitude component is positive, so parallel faces share it
+    /// whatever their winding. It is **not** an outward normal.
     pub normal: [f64; 3],
     /// Total face area (mesh units²).
     pub area: f64,
@@ -334,7 +350,9 @@ impl PortFaceProjection {
     }
 
     /// Solve the `n_modes` lowest-cutoff cross-section modes on the
-    /// projected mesh ([`solve_waveguide_modes`]). Profiles are indexed
+    /// projected mesh ([`crate::analytic::waveguide::solve_waveguide_modes`],
+    /// without its #300 gauge), in the canonical gauge of issue #888
+    /// ([`crate::driven::ports::reference_field`]). Profiles are indexed
     /// by [`Self::edges`].
     ///
     /// # Errors
@@ -350,21 +368,19 @@ impl PortFaceProjection {
         // can hold; the harmonic fields are the TEM modes this path filters
         // out (#817). Asking for more is rejected up front rather than handed
         // to Lanczos.
-        let available = self
-            .n_interior_edges()
-            .saturating_sub(self.n_interior_nodes())
-            .saturating_sub(self.n_holes());
+        let available = self.available_modes_p1();
         if n_modes > available {
             return Err(PortFaceError::TooFewModes {
                 requested: n_modes,
                 found: available,
             });
         }
-        let modes = solve_waveguide_modes(
+        let (mut modes, beyond) = solve_waveguide_modes_ungauged(
             &self.tri_mesh,
             &self.edges,
             &self.interior_edge_mask,
             n_modes,
+            None,
         )?;
         if modes.len() < n_modes {
             return Err(PortFaceError::TooFewModes {
@@ -372,7 +388,124 @@ impl PortFaceProjection {
                 found: modes.len(),
             });
         }
-        Ok(modes)
+        modes.extend(beyond);
+        let lam: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
+        let clusters = self.degenerate_clusters(&lam, n_modes, ElementOrder::P1);
+        modes.truncate(clusters.last().map_or(0, |c| c.1));
+        Ok(gauge_whitney_modes(
+            &self.tri_mesh,
+            &self.edges,
+            &modes,
+            &clusters,
+            n_modes,
+        )?)
+    }
+
+    /// The degenerate clusters (`[start, end)`, consecutive, from mode 0)
+    /// of the cutoffs `lam` (`k_c²` ascending, the requested `n_keep`
+    /// first, then any further modes of the same solve) of this face's
+    /// `order` mode solve, for the canonical gauge (issue #888,
+    /// [`crate::driven::ports::DEGENERATE_CANDIDATE_REL_TOL`]). The
+    /// clusters end with the one that holds mode `n_keep − 1`; the caller
+    /// truncates its modes there.
+    ///
+    /// A pair at round-off is degenerate outright. A **candidate** pair
+    /// (gap ≤ 5 %) is confirmed against the same face solved at the
+    /// **other** element order (p=1 ↔ p=2): it is degenerate if the p=2 gap
+    /// is at most [`crate::driven::ports::DEGENERATE_CONVERGENCE_RATIO`] of
+    /// the p=1 gap. A discretization split shrinks from `O(h²)` to
+    /// `O(h⁴)` between the orders; a physical split is the same at both.
+    /// The ratio is the same number whichever order the port runs at, so
+    /// a p=1 and a p=2 port of one face decide alike.
+    ///
+    /// The confirming solve is given its shift (`σ = λ₀ / 2`, from `lam`)
+    /// instead of running the shift probe (issue #892), whose budget grows
+    /// with the gradient null space and dominates the cost of an
+    /// unshifted face solve. If it fails, candidates stay distinct.
+    pub(crate) fn degenerate_clusters(
+        &self,
+        lam: &[f64],
+        n_keep: usize,
+        order: ElementOrder,
+    ) -> Vec<(usize, usize)> {
+        let gap = |l: &[f64], i: usize| relative_gap(l[i], l[i + 1]);
+        // Modes needed: through the end of the candidate chain holding
+        // mode n_keep − 1.
+        let mut upto = n_keep.min(lam.len());
+        while upto < lam.len() && gap(lam, upto - 1) <= DEGENERATE_CANDIDATE_REL_TOL {
+            upto += 1;
+        }
+        let lam = &lam[..upto];
+        let mut links: Vec<bool> = (0..upto.saturating_sub(1))
+            .map(|i| gap(lam, i) <= DEGENERATE_EXACT_REL_TOL)
+            .collect();
+        let candidates: Vec<usize> = (0..links.len())
+            .filter(|&i| !links[i] && gap(lam, i) <= DEGENERATE_CANDIDATE_REL_TOL)
+            .collect();
+        if !candidates.is_empty()
+            && let Some(other) = self.confirmation_cutoffs(upto, order, 0.5 * lam[0])
+        {
+            for i in candidates {
+                let (p1, p2) = match order {
+                    ElementOrder::P1 => (gap(lam, i), gap(&other, i)),
+                    ElementOrder::P2 => (gap(&other, i), gap(lam, i)),
+                };
+                links[i] = p2 <= DEGENERATE_CONVERGENCE_RATIO * p1;
+            }
+        }
+        clusters_from_links(upto, &links)
+    }
+
+    /// The face's p=1 physical-mode count (de Rham: interior edges minus
+    /// interior nodes minus one harmonic field per hole), the most modes
+    /// [`Self::solve_modes`] accepts.
+    fn available_modes_p1(&self) -> usize {
+        self.n_interior_edges()
+            .saturating_sub(self.n_interior_nodes())
+            .saturating_sub(self.n_holes())
+    }
+
+    /// The lowest `n` cutoffs `k_c²` of this face solved at the order
+    /// **other** than `order`, with the explicit shift `sigma`, or `None`
+    /// if that solve fails or returns fewer than `n`.
+    ///
+    /// The solve asks for [`CONFIRMATION_MARGIN`] modes past `n` (clamped
+    /// to the other order's mode count) and drops them. A candidate pair
+    /// at the end of the block is otherwise the last pair of the shifted
+    /// Lanczos pass, whose top member is the least resolved: its p=2 gap,
+    /// and so the cluster decision, then followed round-off from the face
+    /// list's order and winding (#892 round 2: the coax TE₃₁ pair at
+    /// `n_modes = 6` merged on one listing of a port and stayed split on
+    /// another, a silent 180° flip). Two extra modes keep every pair under
+    /// test strictly inside the resolved set at the cost of two more
+    /// eigenvalues on an already-shifted solve.
+    fn confirmation_cutoffs(&self, n: usize, order: ElementOrder, sigma: f64) -> Option<Vec<f64>> {
+        let available = match order {
+            ElementOrder::P1 => self.available_modes_p2(),
+            ElementOrder::P2 => self.available_modes_p1(),
+        };
+        let request = (n + CONFIRMATION_MARGIN).min(available).max(n);
+        let lam: Vec<f64> = match order {
+            ElementOrder::P1 => self
+                .solve_modes_p2_raw(request, Some(sigma))
+                .ok()?
+                .iter()
+                .map(|m| m.lambda)
+                .collect(),
+            ElementOrder::P2 => solve_waveguide_modes_ungauged(
+                &self.tri_mesh,
+                &self.edges,
+                &self.interior_edge_mask,
+                request,
+                Some(sigma),
+            )
+            .ok()?
+            .0
+            .iter()
+            .map(|m| m.lambda)
+            .collect(),
+        };
+        (lam.len() >= n).then(|| lam[..n].to_vec())
     }
 
     /// Lowest **TM** cutoff wavenumber `k_c^TM` of the port mesh
@@ -722,6 +855,53 @@ impl PortFaceProjection {
     }
 }
 
+/// Modes the cluster-confirming solve asks for past the block under test
+/// (`PortFaceProjection::confirmation_cutoffs`, #892): the top eigenpair of a
+/// shifted Lanczos pass is its least resolved, so no candidate pair may be
+/// the last of the confirming solve.
+const CONFIRMATION_MARGIN: usize = 2;
+
+/// Relative tolerance under which two components of a unit normal count as
+/// equal in magnitude for the canonical frame ([`canonical_normal`],
+/// [`canonical_in_plane_axes`]); far above the round-off of a fitted plane
+/// normal and far below any geometric difference.
+const FRAME_TIE_TOL: f64 = 1e-9;
+
+/// The canonical orientation of a unit plane normal (issue #888): the sign
+/// that makes its largest-magnitude component positive (the first such
+/// component, in `x, y, z` order, on a tie within [`FRAME_TIE_TOL`]). So
+/// the two end faces of a straight guide, and any parallel faces, share
+/// one normal however their triangles are wound.
+fn canonical_normal(n: [f64; 3]) -> [f64; 3] {
+    let big = n.iter().fold(0.0_f64, |a, c| a.max(c.abs()));
+    let lead = n
+        .iter()
+        .copied()
+        .find(|c| c.abs() >= big - FRAME_TIE_TOL)
+        .unwrap_or(1.0);
+    if lead < 0.0 { scale(n, -1.0) } else { n }
+}
+
+/// The canonical in-plane axes `(u, v)` of a plane with (canonical) unit
+/// normal `n` (issue #888): `u` is the projection onto the plane of the
+/// global axis least aligned with `n` (the first such axis, in `x, y, z`
+/// order, on a tie within [`FRAME_TIE_TOL`]), normalized; `v = n × u`.
+///
+/// A port at constant `z` gets `(x̂, ŷ)`, at constant `x` `(ŷ, ẑ)`, at
+/// constant `y` `(x̂, −ẑ)`: fixed global directions, the same for every
+/// face parallel to the plane however it is meshed, listed or wound.
+fn canonical_in_plane_axes(n: [f64; 3]) -> ([f64; 3], [f64; 3]) {
+    let small = n.iter().fold(f64::INFINITY, |a, c| a.min(c.abs()));
+    let k = (0..3)
+        .find(|&k| n[k].abs() <= small + FRAME_TIE_TOL)
+        .unwrap_or(0);
+    let mut axis = [0.0_f64; 3];
+    axis[k] = 1.0;
+    let u_raw = sub(axis, scale(n, dot(axis, n)));
+    let u = scale(u_raw, 1.0 / norm(u_raw));
+    (u, cross(n, u))
+}
+
 fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
@@ -1016,7 +1196,7 @@ pub fn project_port_face(
         let s = if dot(c, r) < 0.0 { -1.0 } else { 1.0 };
         acc = [acc[0] + s * c[0], acc[1] + s * c[1], acc[2] + s * c[2]];
     }
-    let normal = scale(acc, 1.0 / norm(acc));
+    let normal = canonical_normal(scale(acc, 1.0 / norm(acc)));
 
     let inv_n = 1.0 / local_to_global.len() as f64;
     let origin = local_to_global.iter().fold([0.0_f64; 3], |o, &g| {
@@ -1041,12 +1221,9 @@ pub fn project_port_face(
         });
     }
 
-    // In-plane basis: u along the first triangle's first edge (with the
-    // normal component removed), v = n × u.
-    let e0 = sub(p(faces[0][1]), p(faces[0][0]));
-    let u_raw = sub(e0, scale(normal, dot(e0, normal)));
-    let u = scale(u_raw, 1.0 / norm(u_raw));
-    let v = cross(normal, u);
+    // Canonical in-plane basis (issue #888): from the plane alone, never
+    // from the face list's order or winding.
+    let (u, v) = canonical_in_plane_axes(normal);
 
     let nodes: Vec<[f64; 2]> = local_to_global
         .iter()
@@ -1896,6 +2073,75 @@ mod tests {
     use crate::driven::ports::{ExtrudedWaveguideMesh, extruded_rect_waveguide_mesh};
     use std::f64::consts::PI;
 
+    /// Issue #888: the canonical frame of an axis-aligned plane is a fixed
+    /// global frame, for either orientation of the fitted normal, up to the
+    /// round-off of a fitted normal.
+    #[test]
+    fn canonical_frame_of_axis_planes() {
+        let x = [1.0, 0.0, 0.0];
+        let y = [0.0, 1.0, 0.0];
+        let z = [0.0, 0.0, 1.0];
+        let close = |a: [f64; 3], b: [f64; 3]| norm(sub(a, b)) < 1e-12;
+        for (n, want) in [(x, (x, y, z)), (y, (y, x, scale(z, -1.0))), (z, (z, x, y))] {
+            for s in [1.0, -1.0] {
+                // A fitted normal carries round-off off the axis.
+                let noisy = [n[0] * s + 3e-17, n[1] * s - 2e-17, n[2] * s + 1e-17];
+                let nc = canonical_normal(scale(noisy, 1.0 / norm(noisy)));
+                let (u, v) = canonical_in_plane_axes(nc);
+                assert!(close(nc, want.0), "normal {nc:?} for {n:?}·{s}");
+                assert!(close(u, want.1), "u {u:?} for {n:?}·{s}");
+                assert!(close(v, want.2), "v {v:?} for {n:?}·{s}");
+            }
+        }
+    }
+
+    /// Issue #888: on a tilted plane, the projected face (frame, 2-D nodes,
+    /// mode cutoffs and gauged mode vectors) does not depend on the order or
+    /// winding of the face list.
+    #[test]
+    fn projection_is_independent_of_face_order_and_winding() {
+        let mut g = extruded_rect_waveguide_mesh(6, 3, 2, 2.0, 1.0, 1.0);
+        // Tilt the guide: rotate about x by 0.3 rad, then about y by 0.2.
+        for p in &mut g.mesh.nodes {
+            let (c, s) = (0.3_f64.cos(), 0.3_f64.sin());
+            let q = [p[0], c * p[1] - s * p[2], s * p[1] + c * p[2]];
+            let (c, s) = (0.2_f64.cos(), 0.2_f64.sin());
+            *p = [c * q[0] + s * q[2], q[1], -s * q[0] + c * q[2]];
+        }
+        let edges = g.mesh.edges();
+        let base = project_port_face(&g.mesh, &g.port1_faces).unwrap();
+        let mut perm: Vec<[u32; 3]> = g
+            .port1_faces
+            .iter()
+            .rev()
+            .map(|t| [t[2], t[1], t[0]])
+            .collect();
+        perm.rotate_left(2);
+        let other = project_port_face(&g.mesh, &perm).unwrap();
+        // Equal up to the round-off of the area-weighted normal's sum order.
+        for (a, b) in [
+            (base.normal, other.normal),
+            (base.u, other.u),
+            (base.v, other.v),
+        ] {
+            assert!(norm(sub(a, b)) < 1e-14, "{a:?} vs {b:?}");
+        }
+        for (a, b) in base.tri_mesh.nodes.iter().zip(&other.tri_mesh.nodes) {
+            assert!((a[0] - b[0]).abs() + (a[1] - b[1]).abs() < 1e-14);
+        }
+        let a = base.wave_port(&edges, &[c64::new(1.0, 0.0); 3]).unwrap();
+        let b = other.wave_port(&edges, &[c64::new(1.0, 0.0); 3]).unwrap();
+        for (ma, mb) in a.modes.iter().zip(&b.modes) {
+            assert!((ma.k_c - mb.k_c).abs() < 1e-12 * ma.k_c);
+            let d = ma
+                .mode
+                .iter()
+                .zip(&mb.mode)
+                .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()));
+            assert!(d < 1e-9, "gauged mode moved by {d:e}");
+        }
+    }
+
     /// A `16 × 8`-face `a × b` guide of `nf` tet layers of `hf` from the
     /// port, then `nc` of `hc` (the Judge's probe of PR #827, issue #845).
     fn stepped_guide(
@@ -1922,6 +2168,69 @@ mod tests {
     fn rect_face(nx: usize, ny: usize, a: f64, b: f64) -> PortFaceProjection {
         let g = extruded_rect_waveguide_mesh(nx, ny, 1, a, b, 0.5);
         project_port_face(&g.mesh, &g.port1_faces).expect("rect face")
+    }
+
+    /// Issue #892: the degenerate-cluster confirmation compares the face's
+    /// p=1 and p=2 gaps, so a p=1 and a p=2 port of one face decide alike.
+    /// A continuously degenerate pair (TE₂₀ / TE₀₁ of a `2 × 1` face, split
+    /// at `O(h²)` by p=1) is one cluster at both orders. A physically
+    /// distinct near pair (TE₂₁ / TE₃₀ of a `2 × 0.9` face, `k_c²` 22.05 /
+    /// 22.21, a 0.7 % gap: a candidate) that p=1 resolves (20 × 10: p=1 gap
+    /// 5.6e-3, p=2 6.8e-3, ratio 1.2) stays two modes with their own
+    /// cutoffs at both orders. On 10 × 5, p=1 does not resolve it (gap
+    /// 2.9e-2 against p=2's 6.6e-3, ratio 0.23: most of the p=1 split is
+    /// discretization error), and the pair is one cluster at both orders.
+    #[test]
+    fn cluster_confirmation_agrees_across_orders_and_keeps_distinct_pairs() {
+        let lam = |m: &[WaveguideModeProfile]| m.iter().map(|m| m.lambda).collect::<Vec<_>>();
+        let lam2 = |m: &[crate::driven::ports::PortFaceModeP2]| {
+            m.iter().map(|m| m.lambda).collect::<Vec<_>>()
+        };
+        // 2 × 1: TE10, then the TE20 / TE01 pair.
+        let f = rect_face(8, 4, 2.0, 1.0);
+        let raw1: Vec<f64> =
+            solve_waveguide_modes_ungauged(&f.tri_mesh, &f.edges, &f.interior_edge_mask, 3, None)
+                .map(|(m, _)| lam(&m))
+                .unwrap();
+        let raw2 = lam2(&f.solve_modes_p2_raw(3, None).unwrap());
+        assert!(relative_gap(raw1[1], raw1[2]) > DEGENERATE_EXACT_REL_TOL);
+        let want = vec![(0, 1), (1, 3)];
+        assert_eq!(f.degenerate_clusters(&raw1, 3, ElementOrder::P1), want);
+        assert_eq!(f.degenerate_clusters(&raw2[..3], 3, ElementOrder::P2), want);
+        let (g1, g2) = (
+            lam(&f.solve_modes(3).unwrap()),
+            lam2(&f.solve_modes_p2(3).unwrap()),
+        );
+        assert_eq!(g1[1], g1[2], "p=1 pair shares its mean cutoff");
+        assert_eq!(g2[1], g2[2], "p=2 pair shares its mean cutoff");
+
+        // 2 × 0.9: TE10, TE20, TE01, TE11, TE21, TE30.
+        let (te21, te30) = (PI * PI * (1.0 + 1.0 / 0.81), (1.5 * PI).powi(2));
+        let f = rect_face(20, 10, 2.0, 0.9);
+        for (order, l) in [
+            (ElementOrder::P1, lam(&f.solve_modes(6).unwrap())),
+            (ElementOrder::P2, lam2(&f.solve_modes_p2(6).unwrap())),
+        ] {
+            let gap = relative_gap(l[4], l[5]);
+            assert!(
+                gap > DEGENERATE_EXACT_REL_TOL && gap < DEGENERATE_CANDIDATE_REL_TOL,
+                "{order:?}: TE21 / TE30 is a candidate pair, not merged (gap {gap:e})"
+            );
+            assert!(
+                (l[4] - te21).abs() / te21 < 5e-3 && (l[5] - te30).abs() / te30 < 5e-3,
+                "{order:?}: TE21 / TE30 keep their own cutoffs: {} / {}",
+                l[4],
+                l[5]
+            );
+        }
+        let f = rect_face(10, 5, 2.0, 0.9);
+        let l1 = lam(&f.solve_modes(6).unwrap());
+        let l2 = lam2(&f.solve_modes_p2(6).unwrap());
+        assert_eq!(
+            (l1[4], l2[4]),
+            (l1[5], l2[5]),
+            "unresolved at p=1: one cluster"
+        );
     }
 
     /// Issue #808: the PEC-rim TM cutoff of an `a × b` face converges to
