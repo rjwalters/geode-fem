@@ -559,8 +559,9 @@ jobs:
       # mie_driven_scattering 12 s, transmon_diffopt 10 s (two tests),
       # sphere_matched_upml_eigenmode 8 s (two tests), the rest 0-5 s.
       # wave_port_p2 (issue #884, the p=2 TM-guard measurement table):
-      # about 50 s locally for its structured / stepped rows; its Gmsh rows
-      # run only where gmsh is on PATH (not on this runner).
+      # about 90 s locally for its 177 structured / one-element-across /
+      # stepped rows; its 34 Gmsh rows run only where gmsh is on PATH (not on
+      # this runner).
       - name: geode-core release-only and heavy tests (--ignored tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \
