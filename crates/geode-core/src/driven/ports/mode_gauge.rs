@@ -462,3 +462,124 @@ pub(crate) fn reference_sign(
     let lead = if p[0].abs() >= p[1].abs() { p[0] } else { p[1] };
     Ok(if lead < 0.0 { -1.0 } else { 1.0 })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::analytic::waveguide::{
+        rect_pec_interior_edges, rect_tri_mesh, solve_waveguide_modes_ungauged,
+    };
+
+    /// The lowest `n` raw modes (and the further ones of the pass) of a
+    /// `w × h` rectangle, `nx × ny`.
+    fn rect_modes(
+        nx: usize,
+        ny: usize,
+        w: f64,
+        h: f64,
+        n: usize,
+    ) -> (TriMesh, Vec<[u32; 2]>, Vec<WaveguideModeProfile>) {
+        let mesh = rect_tri_mesh(nx, ny, w, h);
+        let (edges, mask) = rect_pec_interior_edges(&mesh, w, h);
+        let (mut m, more) = solve_waveguide_modes_ungauged(&mesh, &edges, &mask, n).unwrap();
+        m.extend(more);
+        (mesh, edges, m)
+    }
+
+    fn max_diff(a: &[f64], b: &[f64]) -> f64 {
+        a.iter()
+            .zip(b)
+            .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()))
+    }
+
+    /// Negating any input mode, or rotating a degenerate cluster by any
+    /// angle, leaves the canonical modes unchanged.
+    #[test]
+    fn canonical_modes_ignore_input_signs_and_cluster_rotations() {
+        // 2 × 1: TE10, then the TE20 / TE01 pair (discretization-split).
+        let (mesh, edges, modes) = rect_modes(8, 4, 2.0, 1.0, 3);
+        let clusters = [(0, 1), (1, 3)];
+        let base = gauge_whitney_modes(&mesh, &edges, &modes[..3], &clusters, 3).unwrap();
+        // The cluster members share the mean cutoff.
+        let mean = 0.5 * (modes[1].lambda + modes[2].lambda);
+        assert_eq!((base[1].lambda, base[2].lambda), (mean, mean));
+        assert_eq!(base[0].lambda, modes[0].lambda);
+        for (flip, angle) in [
+            ([-1.0, 1.0, -1.0], 0.0),
+            ([1.0, -1.0, 1.0], 0.7),
+            ([-1.0; 3], 2.4),
+        ] {
+            let mut m: Vec<WaveguideModeProfile> = modes[..3].to_vec();
+            for (mi, f) in m.iter_mut().zip(flip) {
+                mi.e_edges.iter_mut().for_each(|x| *x *= f);
+            }
+            let (c, s) = (f64::cos(angle), f64::sin(angle));
+            let (e1, e2) = (m[1].e_edges.clone(), m[2].e_edges.clone());
+            for k in 0..e1.len() {
+                m[1].e_edges[k] = c * e1[k] - s * e2[k];
+                m[2].e_edges[k] = s * e1[k] + c * e2[k];
+            }
+            let got = gauge_whitney_modes(&mesh, &edges, &m, &clusters, 3).unwrap();
+            for (g, b) in got.iter().zip(&base) {
+                let d = max_diff(&g.e_edges, &b.e_edges);
+                assert!(d < 1e-12, "flip {flip:?} angle {angle}: moved by {d:e}");
+            }
+        }
+        // The canonical cluster basis: TE20 (ŷ sin 2πsx) first, then TE01.
+        let quad_fields = |e: &[f64]| whitney_samples(&mesh, &edges, &[e]);
+        let rel = |e: &[f64], r: usize| {
+            let (q, f) = quad_fields(e);
+            let (mut p, mut n2) = (0.0, 0.0);
+            for (k, (w, x)) in q.weights.iter().zip(&q.points).enumerate() {
+                let fr = reference_field(r, x[0], x[1]);
+                p += w * (f[0][k][0] * fr[0] + f[0][k][1] * fr[1]);
+                n2 += w * (fr[0] * fr[0] + fr[1] * fr[1]);
+            }
+            p / n2.sqrt()
+        };
+        assert!(rel(&base[0].e_edges, 0) > 0.9, "TE10 on ŷ sin(πsx)");
+        assert!(rel(&base[1].e_edges, 1) > 0.9, "TE20 on ŷ sin(2πsx)");
+        assert!(rel(&base[2].e_edges, 2) > 0.9, "TE01 on x̂ sin(πsy)");
+    }
+
+    /// A cluster cut by `n_keep` keeps its first canonical direction.
+    #[test]
+    fn a_cut_cluster_keeps_its_first_canonical_direction() {
+        let (mesh, edges, modes) = rect_modes(8, 4, 2.0, 1.0, 3);
+        let clusters = [(0, 1), (1, 3)];
+        let full = gauge_whitney_modes(&mesh, &edges, &modes[..3], &clusters, 3).unwrap();
+        let cut = gauge_whitney_modes(&mesh, &edges, &modes[..3], &clusters, 2).unwrap();
+        assert_eq!(cut.len(), 2);
+        for (c, f) in cut.iter().zip(&full) {
+            assert_eq!(c.e_edges, f.e_edges);
+        }
+    }
+
+    /// A mode no reference reaches is loud, never silently signed; the
+    /// complex sign follows the larger part of the overlap.
+    #[test]
+    fn unreachable_modes_are_ungaugable_and_complex_signs_follow_the_lead() {
+        let quad = GaugeQuadrature {
+            weights: vec![0.5, 0.5],
+            points: vec![[0.25, 0.5], [0.75, 0.5]],
+        };
+        let zero = vec![[0.0, 0.0]; 2];
+        let err = canonical_coefficients(&quad, &[zero.clone()], &[(0, 1)], 1).unwrap_err();
+        assert!(
+            matches!(err, EigenError::UngaugableMode { mode: 0, .. }),
+            "{err:?}"
+        );
+        // An all-zero mode has no sign to pin.
+        assert_eq!(reference_sign(&quad, &zero, None, 0).unwrap(), 1.0);
+        // ŷ everywhere: positive on the first reference (ŷ sin πsx).
+        let up = vec![[0.0, 1.0]; 2];
+        let down = vec![[0.0, -1.0]; 2];
+        assert_eq!(reference_sign(&quad, &up, None, 0).unwrap(), 1.0);
+        assert_eq!(reference_sign(&quad, &down, None, 0).unwrap(), -1.0);
+        // Complex: the larger part decides.
+        let small = vec![[0.0, 0.1]; 2];
+        assert_eq!(reference_sign(&quad, &small, Some(&down), 0).unwrap(), -1.0);
+        assert_eq!(reference_sign(&quad, &down, Some(&small), 0).unwrap(), -1.0);
+        assert_eq!(reference_sign(&quad, &up, Some(&small), 0).unwrap(), 1.0);
+    }
+}

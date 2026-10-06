@@ -2011,6 +2011,75 @@ mod tests {
     use crate::driven::ports::{ExtrudedWaveguideMesh, extruded_rect_waveguide_mesh};
     use std::f64::consts::PI;
 
+    /// Issue #888: the canonical frame of an axis-aligned plane is a fixed
+    /// global frame, for either orientation of the fitted normal, up to the
+    /// round-off of a fitted normal.
+    #[test]
+    fn canonical_frame_of_axis_planes() {
+        let x = [1.0, 0.0, 0.0];
+        let y = [0.0, 1.0, 0.0];
+        let z = [0.0, 0.0, 1.0];
+        let close = |a: [f64; 3], b: [f64; 3]| norm(sub(a, b)) < 1e-12;
+        for (n, want) in [(x, (x, y, z)), (y, (y, x, scale(z, -1.0))), (z, (z, x, y))] {
+            for s in [1.0, -1.0] {
+                // A fitted normal carries round-off off the axis.
+                let noisy = [n[0] * s + 3e-17, n[1] * s - 2e-17, n[2] * s + 1e-17];
+                let nc = canonical_normal(scale(noisy, 1.0 / norm(noisy)));
+                let (u, v) = canonical_in_plane_axes(nc);
+                assert!(close(nc, want.0), "normal {nc:?} for {n:?}·{s}");
+                assert!(close(u, want.1), "u {u:?} for {n:?}·{s}");
+                assert!(close(v, want.2), "v {v:?} for {n:?}·{s}");
+            }
+        }
+    }
+
+    /// Issue #888: on a tilted plane, the projected face (frame, 2-D nodes,
+    /// mode cutoffs and gauged mode vectors) does not depend on the order or
+    /// winding of the face list.
+    #[test]
+    fn projection_is_independent_of_face_order_and_winding() {
+        let mut g = extruded_rect_waveguide_mesh(6, 3, 2, 2.0, 1.0, 1.0);
+        // Tilt the guide: rotate about x by 0.3 rad, then about y by 0.2.
+        for p in &mut g.mesh.nodes {
+            let (c, s) = (0.3_f64.cos(), 0.3_f64.sin());
+            let q = [p[0], c * p[1] - s * p[2], s * p[1] + c * p[2]];
+            let (c, s) = (0.2_f64.cos(), 0.2_f64.sin());
+            *p = [c * q[0] + s * q[2], q[1], -s * q[0] + c * q[2]];
+        }
+        let edges = g.mesh.edges();
+        let base = project_port_face(&g.mesh, &g.port1_faces).unwrap();
+        let mut perm: Vec<[u32; 3]> = g
+            .port1_faces
+            .iter()
+            .rev()
+            .map(|t| [t[2], t[1], t[0]])
+            .collect();
+        perm.rotate_left(2);
+        let other = project_port_face(&g.mesh, &perm).unwrap();
+        // Equal up to the round-off of the area-weighted normal's sum order.
+        for (a, b) in [
+            (base.normal, other.normal),
+            (base.u, other.u),
+            (base.v, other.v),
+        ] {
+            assert!(norm(sub(a, b)) < 1e-14, "{a:?} vs {b:?}");
+        }
+        for (a, b) in base.tri_mesh.nodes.iter().zip(&other.tri_mesh.nodes) {
+            assert!((a[0] - b[0]).abs() + (a[1] - b[1]).abs() < 1e-14);
+        }
+        let a = base.wave_port(&edges, &[c64::new(1.0, 0.0); 3]).unwrap();
+        let b = other.wave_port(&edges, &[c64::new(1.0, 0.0); 3]).unwrap();
+        for (ma, mb) in a.modes.iter().zip(&b.modes) {
+            assert!((ma.k_c - mb.k_c).abs() < 1e-12 * ma.k_c);
+            let d = ma
+                .mode
+                .iter()
+                .zip(&mb.mode)
+                .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()));
+            assert!(d < 1e-9, "gauged mode moved by {d:e}");
+        }
+    }
+
     /// A `16 × 8`-face `a × b` guide of `nf` tet layers of `hf` from the
     /// port, then `nc` of `hc` (the Judge's probe of PR #827, issue #845).
     fn stepped_guide(

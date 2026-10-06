@@ -188,10 +188,15 @@ jobs:
       # default + 0.52 s ignored, wave_port_from_tags 0.05 s,
       # iterative_sweep 0.04 s, driven_matrix_free_equivalence 1.4 s,
       # wave_port_step_mode_matching 0.14 s.
+      # Issue #888: `wave_port_gauge` (the canonical port-face frame and
+      # mode gauge: S21 phase vs e^{-jβL} under face reordering / re-winding,
+      # committed Gmsh guides, the degenerate square-guide pair, filled,
+      # mixed lumped + wave, and hybrid ports); ~1 s in release.
       - name: Wave ports + iterative sweep + matrix-free driven equivalence
         run: |
           cargo test --features arpack -p geode-core --release \
               --test wave_port_from_tags \
+              --test wave_port_gauge \
               --test iterative_sweep \
               --test driven_matrix_free_equivalence
           cargo test --features arpack -p geode-core --release \
