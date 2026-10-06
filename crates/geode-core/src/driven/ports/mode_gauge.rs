@@ -310,50 +310,8 @@ pub(crate) fn gauge_whitney_modes(
     clusters: &[(usize, usize)],
     n_keep: usize,
 ) -> Result<Vec<WaveguideModeProfile>, EigenError> {
-    let index: std::collections::HashMap<(u32, u32), usize> = edges
-        .iter()
-        .enumerate()
-        .map(|(i, e)| ((e[0], e[1]), i))
-        .collect();
-    let (lo, ext) = GaugeQuadrature::bounding_box(mesh);
-    let mut quad = GaugeQuadrature::default();
-    let mut fields: Vec<Vec<[f64; 2]>> = vec![Vec::new(); modes.len()];
-    for tri in &mesh.tris {
-        let c = tri.map(|n| mesh.nodes[n as usize]);
-        let (grad, _, _, area) = crate::analytic::waveguide::tri_bary_grads(&c);
-        // (global edge, sign) of the three local edges.
-        let local = TRI_LOCAL_EDGES.map(|(a, b)| {
-            let (na, nb) = (tri[a], tri[b]);
-            let (key, sign) = if na < nb {
-                ((na, nb), 1.0)
-            } else {
-                ((nb, na), -1.0)
-            };
-            (index[&key], sign, a, b)
-        });
-        for row in TRI_QUAD_DEG4.iter() {
-            let lam = [row[0], row[1], row[2]];
-            quad.weights.push(row[3] * area);
-            let x = [0, 1].map(|k| {
-                let xk = lam[0] * c[0][k] + lam[1] * c[1][k] + lam[2] * c[2][k];
-                (xk - lo[k]) / ext[k]
-            });
-            quad.points.push(x);
-            // Whitney N = λ_a∇λ_b − λ_b∇λ_a for the local edge (a, b).
-            let shapes = local.map(|(_, sign, a, b)| {
-                [0, 1].map(|k| sign * (lam[a] * grad[b][k] - lam[b] * grad[a][k]))
-            });
-            for (mode, f) in modes.iter().zip(fields.iter_mut()) {
-                let mut e = [0.0_f64; 2];
-                for (l, sh) in local.iter().zip(&shapes) {
-                    let v = mode.e_edges[l.0];
-                    e[0] += v * sh[0];
-                    e[1] += v * sh[1];
-                }
-                f.push(e);
-            }
-        }
-    }
+    let vectors: Vec<&[f64]> = modes.iter().map(|m| m.e_edges.as_slice()).collect();
+    let (quad, fields) = whitney_samples(mesh, edges, &vectors);
     let coeffs = canonical_coefficients(&quad, &fields, clusters, n_keep)?;
     // A degenerate cluster's members share its mean cutoff, so the port's
     // modal term over the cluster (`Σ jβ f fᵀ`) does not depend on the
@@ -387,4 +345,120 @@ pub(crate) fn gauge_whitney_modes(
             }
         })
         .collect())
+}
+
+/// Degree-4 quadrature of the face `mesh` and the Whitney fields of the
+/// edge vectors `vectors` (each indexed by `edges`, the mesh's lower-first
+/// edge table) at its samples.
+pub(crate) fn whitney_samples(
+    mesh: &TriMesh,
+    edges: &[[u32; 2]],
+    vectors: &[&[f64]],
+) -> (GaugeQuadrature, Vec<Vec<[f64; 2]>>) {
+    let index: std::collections::HashMap<(u32, u32), usize> = edges
+        .iter()
+        .enumerate()
+        .map(|(i, e)| ((e[0], e[1]), i))
+        .collect();
+    let (lo, ext) = GaugeQuadrature::bounding_box(mesh);
+    let mut quad = GaugeQuadrature::default();
+    let mut fields: Vec<Vec<[f64; 2]>> = vec![Vec::new(); vectors.len()];
+    for tri in &mesh.tris {
+        let c = tri.map(|n| mesh.nodes[n as usize]);
+        let (grad, _, _, area) = crate::analytic::waveguide::tri_bary_grads(&c);
+        // (global edge, sign) of the three local edges.
+        let local = TRI_LOCAL_EDGES.map(|(a, b)| {
+            let (na, nb) = (tri[a], tri[b]);
+            let (key, sign) = if na < nb {
+                ((na, nb), 1.0)
+            } else {
+                ((nb, na), -1.0)
+            };
+            (index[&key], sign, a, b)
+        });
+        for row in TRI_QUAD_DEG4.iter() {
+            let lam = [row[0], row[1], row[2]];
+            quad.weights.push(row[3] * area);
+            let x = [0, 1].map(|k| {
+                let xk = lam[0] * c[0][k] + lam[1] * c[1][k] + lam[2] * c[2][k];
+                (xk - lo[k]) / ext[k]
+            });
+            quad.points.push(x);
+            // Whitney N = λ_a∇λ_b − λ_b∇λ_a for the local edge (a, b).
+            let shapes = local.map(|(_, sign, a, b)| {
+                [0, 1].map(|k| sign * (lam[a] * grad[b][k] - lam[b] * grad[a][k]))
+            });
+            for (vec, f) in vectors.iter().zip(fields.iter_mut()) {
+                let mut e = [0.0_f64; 2];
+                for (l, sh) in local.iter().zip(&shapes) {
+                    let v = vec[l.0];
+                    e[0] += v * sh[0];
+                    e[1] += v * sh[1];
+                }
+                f.push(e);
+            }
+        }
+    }
+    (quad, fields)
+}
+
+/// The canonical sign (`±1`) of one mode (issue #888, the rule of the
+/// module docs for a mode outside any cluster), from its field samples
+/// `re` and, for a complex mode, `im`. The overlap with a reference is then
+/// complex; its larger part (real or imaginary) is made positive. Used by
+/// the hybrid ports at their first frequency, whose modes are otherwise
+/// signed by their largest edge DOF (a mesh-dependent choice).
+///
+/// # Errors
+///
+/// [`EigenError::UngaugableMode`] (with index `mode`) if no reference
+/// reaches the mode.
+pub(crate) fn reference_sign(
+    quad: &GaugeQuadrature,
+    re: &[[f64; 2]],
+    im: Option<&[[f64; 2]]>,
+    mode: usize,
+) -> Result<f64, EigenError> {
+    let nq = quad.weights.len();
+    let field = |q: usize| (re[q], im.map_or([0.0, 0.0], |f| f[q]));
+    let e_norm = (0..nq)
+        .map(|q| {
+            let (a, b) = field(q);
+            quad.weights[q] * (a[0] * a[0] + a[1] * a[1] + b[0] * b[0] + b[1] * b[1])
+        })
+        .sum::<f64>()
+        .sqrt();
+    if e_norm <= f64::MIN_POSITIVE {
+        return Ok(1.0);
+    }
+    let overlaps: Vec<([f64; 2], f64)> = (0..N_REFERENCE_FIELDS)
+        .map(|r| {
+            let (mut p, mut f2) = ([0.0_f64; 2], 0.0_f64);
+            for q in 0..nq {
+                let [sx, sy] = quad.points[q];
+                let f = reference_field(r, sx, sy);
+                let w = quad.weights[q];
+                let (a, b) = field(q);
+                p[0] += w * (a[0] * f[0] + a[1] * f[1]);
+                p[1] += w * (b[0] * f[0] + b[1] * f[1]);
+                f2 += w * (f[0] * f[0] + f[1] * f[1]);
+            }
+            let rel = if f2 > 0.0 {
+                p[0].hypot(p[1]) / (e_norm * f2.sqrt())
+            } else {
+                0.0
+            };
+            (p, rel)
+        })
+        .collect();
+    let best = overlaps.iter().fold(0.0_f64, |a, o| a.max(o.1));
+    let threshold = GAUGE_FLOOR.max(GAUGE_LEAD_RATIO * best);
+    let Some((p, _)) = overlaps.iter().find(|o| o.1 >= threshold && o.1 > 0.0) else {
+        return Err(EigenError::UngaugableMode {
+            mode,
+            best_rel_proj: best,
+        });
+    };
+    let lead = if p[0].abs() >= p[1].abs() { p[0] } else { p[1] };
+    Ok(if lead < 0.0 { -1.0 } else { 1.0 })
 }

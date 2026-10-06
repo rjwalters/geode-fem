@@ -25,7 +25,9 @@
 //! 5. a mixed lumped + wave port: the lumped sheet reads `+ŷ`, so the cross
 //!    term has the pure-wave phase with no sign ambiguity;
 //! 6. a port normal along `x` (the `(ŷ, ẑ)` frame), against the same guide
-//!    along `z`.
+//!    along `z`;
+//! 7. hybrid ports (slab-loaded and lossy fills) on the Gmsh guides, whose
+//!    modes were signed by their largest edge DOF.
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test wave_port_gauge -- --nocapture
@@ -36,8 +38,9 @@ use std::path::PathBuf;
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::driven::ports::{
-    LumpedPort, MixedPortSweepPoint, PortMedium, WavePort, extruded_rect_waveguide_mesh,
-    project_port_face, solve_mixed_port_sweep_with_mode, solve_wave_port_sweep,
+    HybridPortFace, HybridWavePort, HybridWavePortOpts, LumpedPort, MixedPortSweepPoint,
+    PortMedium, WavePort, WavePortSpec, extruded_rect_waveguide_mesh, project_port_face,
+    solve_mixed_port_sweep_with_mode, solve_wave_port_spec_sweep_with_mode, solve_wave_port_sweep,
 };
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, SolverMode};
 use geode_core::mesh::{TetMesh, pec_interior_mask_from_triangles};
@@ -406,5 +409,84 @@ fn guide_along_x_matches_the_guide_along_z() {
         let d = max_diff(&s_x, &s_z);
         eprintln!("along x vs along z: max |ΔS| {d:.2e}");
         assert!(d < 1e-8, "along x: S moved by {d:e}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Hybrid ports
+// ---------------------------------------------------------------------------
+
+/// One hybrid-port straight-section run (TE₁₀-like mode, ω = 1.6): the
+/// per-tet `ε` (`eps_c`; `lossy` routes the face through the complex
+/// solver), port 2's face list `p2`. Returns `arg(S21/e^{−jβL})` in
+/// degrees.
+fn hybrid_phase(g: &Guide, p2: &[[u32; 3]], eps_c: &[c64], lossy: bool) -> f64 {
+    let opts = HybridWavePortOpts {
+        accuracy: None,
+        ..Default::default()
+    };
+    let mk = |f: &[[u32; 3]]| {
+        let face = if lossy {
+            HybridPortFace::from_volume_lossy(&g.mesh, f, eps_c)
+        } else {
+            let eps: Vec<f64> = eps_c.iter().map(|z| z.re).collect();
+            HybridPortFace::from_volume(&g.mesh, f, &eps)
+        };
+        WavePortSpec::from(HybridWavePort::new(face.expect("face"), vec![one()]).with_opts(opts))
+    };
+    let ports = [mk(&g.port1), mk(p2)];
+    let mask = pec_interior_mask_from_triangles(&g.mesh.edges(), &[g.walls.as_slice()]);
+    let out = solve_wave_port_spec_sweep_with_mode::<B>(
+        &g.mesh,
+        DrivenMaterials::Scalar(eps_c),
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        &ports,
+        &[],
+        &[1.6],
+        SolverMode::Direct,
+        &device(),
+    )
+    .expect("hybrid sweep");
+    let p = &out.points[0];
+    let jbl = c64::new(0.0, -1.0) * p.beta[0] * g.len;
+    let r = p.s[2] / jbl.exp();
+    r.im.atan2(r.re).to_degrees()
+}
+
+/// Hybrid ports had the same defect by a different route: their modes are
+/// signed by the largest edge DOF, which depends on the mesh (on `main`
+/// before #888 the uniformly filled Gmsh lc 0.22 guide gave `+179.6°`).
+/// They now take the canonical reference sign at the first frequency. On the
+/// Gmsh guides, a slab-loaded fill (`ε_r = 2.25` below `y = b/2`) and a
+/// lossy uniform fill (`ε_r = 2.2 − 0.02j`), port 2 as listed and
+/// re-wound: `arg(S21/e^{−jβL})` within the p=1 discretization error.
+#[test]
+fn hybrid_ports_transmit_with_the_analytic_phase() {
+    for fixture in [
+        "guide_box_lc030.msh",
+        "guide_box_lc022.msh",
+        "guide_box_lc018.msh",
+    ] {
+        let g = gmsh_guide(fixture, 1.0, 2);
+        let slab: Vec<c64> = g
+            .mesh
+            .tets
+            .iter()
+            .map(|t| {
+                let yc = t.iter().map(|&v| g.mesh.nodes[v as usize][1]).sum::<f64>() / 4.0;
+                c64::new(if yc < 0.45 { 2.25 } else { 1.0 }, 0.0)
+            })
+            .collect();
+        let lossy = vec![c64::new(2.2, -0.02); g.mesh.n_tets()];
+        for (label, eps, is_lossy) in [("slab", &slab, false), ("lossy", &lossy, true)] {
+            for (wound, p2) in [("listed", g.port2.clone()), ("re-wound", rewound(&g.port2))] {
+                let e = hybrid_phase(&g, &p2, eps, is_lossy);
+                eprintln!("hybrid {fixture} {label} port 2 {wound}: arg(S21/e^-jβL) {e:+.2}°");
+                assert!(e.abs() < 10.0, "hybrid {fixture} {label} {wound}: {e:+.2}°");
+            }
+        }
     }
 }

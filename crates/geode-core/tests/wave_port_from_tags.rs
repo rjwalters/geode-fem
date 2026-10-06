@@ -207,16 +207,21 @@ fn projected_cutoffs_match_hand_built_and_analytic() {
         .expect("hand-built modal solve");
     // Analytic: TE10 = π/2, then the TE20 / TE01 degenerate pair at π.
     let analytic = [PI / A, PI, PI];
+    // The port-face gauge (issue #888) treats the discretization-split
+    // TE20 / TE01 pair as one degenerate cluster, whose members share the
+    // mean of the two discrete cutoffs k_c².
+    let pair = (0.5 * (hand[1].lambda + hand[2].lambda)).sqrt();
+    let want = [hand[0].k_c, pair, pair];
     for m in 0..n_modes {
         eprintln!(
             "mode {m}: projected k_c = {:.12}, hand-built = {:.12}, analytic = {:.6}",
-            got[m].k_c, hand[m].k_c, analytic[m]
+            got[m].k_c, want[m], analytic[m]
         );
         assert!(
-            rel(got[m].k_c, hand[m].k_c) < 1e-9,
+            rel(got[m].k_c, want[m]) < 1e-9,
             "mode {m}: projected {} vs hand-built {}",
             got[m].k_c,
-            hand[m].k_c
+            want[m]
         );
         assert!(
             rel(got[m].k_c, analytic[m]) < 0.05,
