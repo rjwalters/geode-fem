@@ -91,7 +91,7 @@ use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::surface_p2::{TRI_NEDELEC2_TRACE_DOFS, assemble_p2_surface_mass_triplets};
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSource,
-    SolverMode, SurfaceImpedanceBc, validate_driven_surfaces,
+    SolverMode, SurfaceImpedanceBc,
 };
 use crate::eigen::dense::EigenError;
 use crate::elements::ElementOrder;
@@ -873,7 +873,7 @@ fn mixed_p2<B: burn::tensor::backend::Backend>(
             want: space.n_dofs(),
         });
     }
-    validate_driven_surfaces(mesh, "wave port", wave.iter().map(|p| p.faces.as_slice()))?;
+    // Validates the port faces (issue #725) and every profile length.
     let channels = modal_channels_on_space(space, mesh, lumped.len(), wave)?;
     let zero_source = CurrentSource {
         j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],

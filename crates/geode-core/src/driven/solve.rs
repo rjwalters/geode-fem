@@ -81,10 +81,12 @@
 //! matched-UPML ε, σ damping, volume J, tagged face-exact PEC — and (issue
 //! #857, Phase 1b) the surface terms on the p=2 tangential trace: lumped
 //! ports and every impedance-surface model (Leontovich, rough conductor,
-//! London, Silver-Müller). Every feature without a p=2 path yet (the
-//! matrix-free solver, AMS, wave ports in the PROM, the transient solver)
-//! returns [`DrivenError::UnsupportedAtOrder`]; nothing is silently solved
-//! at another order.
+//! London, Silver-Müller). Geometric wave ports join at p=2 through the
+//! `*_on_space` sweeps of [`crate::driven::ports`] (issue #884, Phase 3a).
+//! Every feature without a p=2 path yet (the matrix-free solver, AMS,
+//! hybrid wave ports, the transient solver) returns
+//! [`DrivenError::UnsupportedAtOrder`]; nothing is silently solved at another
+//! order.
 //!
 //! # Solver
 //!
@@ -1767,9 +1769,10 @@ impl DrivenOperator {
     /// The errors of [`DrivenOperator::assemble`];
     /// [`DrivenError::SpaceMeshMismatch`] if `space` was built on another
     /// mesh. The solver-side p=2 limits (matrix-free, AMS) are reported by
-    /// [`DrivenOperator::prepare_at`]; wave ports have no p=2 path yet (Epic
-    /// #836 Phase 3) and are rejected where they meet an operator
-    /// ([`crate::driven::rom::DrivenRom::build_with_wave_ports`]).
+    /// [`DrivenOperator::prepare_at`]. Geometric wave ports run at p=2 through
+    /// the `*_on_space` sweeps of [`crate::driven::ports`] and the adaptive
+    /// PROM (issue #884, Epic #836 Phase 3a); hybrid ports at p=2 are
+    /// Phase 3b.
     #[allow(clippy::too_many_arguments)]
     pub fn assemble_with_space<B: Backend>(
         space: &crate::assembly::hcurl_space::HcurlSpace,
