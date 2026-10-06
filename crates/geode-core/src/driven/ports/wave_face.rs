@@ -25,7 +25,7 @@
 //!    triangles is an interior DOF. An edge shared by three or more face
 //!    triangles is rejected (non-manifold port face).
 //! 3. [`PortFaceProjection::wave_port`] runs the general cross-section
-//!    modal solver [`solve_waveguide_modes`] on the projected mesh and
+//!    modal solver [`crate::analytic::waveguide::solve_waveguide_modes`] on the projected mesh and
 //!    lifts each profile onto the 3-D edge table with
 //!    [`map_mode_profile_to_full_mesh`], yielding a [`WavePort`] ready for
 //!    [`super::solve_wave_port_sweep`].
@@ -68,8 +68,9 @@ use std::collections::HashMap;
 
 use faer::c64;
 
+use super::mode_gauge::gauge_whitney_modes;
 use super::wave::{PortMedium, PortMode, WavePort, map_mode_profile_to_full_mesh};
-use crate::analytic::waveguide::{TriMesh, WaveguideModeProfile, solve_waveguide_modes};
+use crate::analytic::waveguide::{TriMesh, WaveguideModeProfile, solve_waveguide_modes_ungauged};
 use crate::eigen::dense::EigenError;
 use crate::elements::ElementOrder;
 use crate::mesh::TetMesh;
@@ -183,12 +184,15 @@ pub struct PortFaceProjection {
     pub interior_edge_mask: Vec<bool>,
     /// A point on the plane (the face-node centroid).
     pub origin: [f64; 3],
-    /// First in-plane unit axis.
+    /// First in-plane unit axis: the canonical axis of the plane (issue
+    /// #888), the projection of the global axis least aligned with
+    /// [`Self::normal`]. Independent of the face list's order and winding.
     pub u: [f64; 3],
     /// Second in-plane unit axis (`normal × u`).
     pub v: [f64; 3],
-    /// Unit face normal (orientation follows the first non-degenerate
-    /// triangle's winding).
+    /// Unit face normal in its canonical orientation (issue #888): the
+    /// largest-magnitude component is positive, so parallel faces share it
+    /// whatever their winding. It is **not** an outward normal.
     pub normal: [f64; 3],
     /// Total face area (mesh units²).
     pub area: f64,
@@ -334,7 +338,9 @@ impl PortFaceProjection {
     }
 
     /// Solve the `n_modes` lowest-cutoff cross-section modes on the
-    /// projected mesh ([`solve_waveguide_modes`]). Profiles are indexed
+    /// projected mesh ([`crate::analytic::waveguide::solve_waveguide_modes`],
+    /// without its #300 gauge), in the canonical gauge of issue #888
+    /// ([`crate::driven::ports::reference_field`]). Profiles are indexed
     /// by [`Self::edges`].
     ///
     /// # Errors
@@ -360,7 +366,7 @@ impl PortFaceProjection {
                 found: available,
             });
         }
-        let modes = solve_waveguide_modes(
+        let (mut modes, beyond) = solve_waveguide_modes_ungauged(
             &self.tri_mesh,
             &self.edges,
             &self.interior_edge_mask,
@@ -372,7 +378,13 @@ impl PortFaceProjection {
                 found: modes.len(),
             });
         }
-        Ok(modes)
+        modes.extend(beyond);
+        Ok(gauge_whitney_modes(
+            &self.tri_mesh,
+            &self.edges,
+            &modes,
+            n_modes,
+        )?)
     }
 
     /// Lowest **TM** cutoff wavenumber `k_c^TM` of the port mesh
@@ -722,6 +734,47 @@ impl PortFaceProjection {
     }
 }
 
+/// Relative tolerance under which two components of a unit normal count as
+/// equal in magnitude for the canonical frame ([`canonical_normal`],
+/// [`canonical_in_plane_axes`]); far above the round-off of a fitted plane
+/// normal and far below any geometric difference.
+const FRAME_TIE_TOL: f64 = 1e-9;
+
+/// The canonical orientation of a unit plane normal (issue #888): the sign
+/// that makes its largest-magnitude component positive (the first such
+/// component, in `x, y, z` order, on a tie within [`FRAME_TIE_TOL`]). So
+/// the two end faces of a straight guide, and any parallel faces, share
+/// one normal however their triangles are wound.
+fn canonical_normal(n: [f64; 3]) -> [f64; 3] {
+    let big = n.iter().fold(0.0_f64, |a, c| a.max(c.abs()));
+    let lead = n
+        .iter()
+        .copied()
+        .find(|c| c.abs() >= big - FRAME_TIE_TOL)
+        .unwrap_or(1.0);
+    if lead < 0.0 { scale(n, -1.0) } else { n }
+}
+
+/// The canonical in-plane axes `(u, v)` of a plane with (canonical) unit
+/// normal `n` (issue #888): `u` is the projection onto the plane of the
+/// global axis least aligned with `n` (the first such axis, in `x, y, z`
+/// order, on a tie within [`FRAME_TIE_TOL`]), normalized; `v = n × u`.
+///
+/// A port at constant `z` gets `(x̂, ŷ)`, at constant `x` `(ŷ, ẑ)`, at
+/// constant `y` `(x̂, −ẑ)`: fixed global directions, the same for every
+/// face parallel to the plane however it is meshed, listed or wound.
+fn canonical_in_plane_axes(n: [f64; 3]) -> ([f64; 3], [f64; 3]) {
+    let small = n.iter().fold(f64::INFINITY, |a, c| a.min(c.abs()));
+    let k = (0..3)
+        .find(|&k| n[k].abs() <= small + FRAME_TIE_TOL)
+        .unwrap_or(0);
+    let mut axis = [0.0_f64; 3];
+    axis[k] = 1.0;
+    let u_raw = sub(axis, scale(n, dot(axis, n)));
+    let u = scale(u_raw, 1.0 / norm(u_raw));
+    (u, cross(n, u))
+}
+
 fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
@@ -1016,7 +1069,7 @@ pub fn project_port_face(
         let s = if dot(c, r) < 0.0 { -1.0 } else { 1.0 };
         acc = [acc[0] + s * c[0], acc[1] + s * c[1], acc[2] + s * c[2]];
     }
-    let normal = scale(acc, 1.0 / norm(acc));
+    let normal = canonical_normal(scale(acc, 1.0 / norm(acc)));
 
     let inv_n = 1.0 / local_to_global.len() as f64;
     let origin = local_to_global.iter().fold([0.0_f64; 3], |o, &g| {
@@ -1041,12 +1094,9 @@ pub fn project_port_face(
         });
     }
 
-    // In-plane basis: u along the first triangle's first edge (with the
-    // normal component removed), v = n × u.
-    let e0 = sub(p(faces[0][1]), p(faces[0][0]));
-    let u_raw = sub(e0, scale(normal, dot(e0, normal)));
-    let u = scale(u_raw, 1.0 / norm(u_raw));
-    let v = cross(normal, u);
+    // Canonical in-plane basis (issue #888): from the plane alone, never
+    // from the face list's order or winding.
+    let (u, v) = canonical_in_plane_axes(normal);
 
     let nodes: Vec<[f64; 2]> = local_to_global
         .iter()

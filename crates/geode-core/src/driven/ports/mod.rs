@@ -50,6 +50,7 @@ mod hybrid_lossy;
 mod hybrid_z;
 mod lumped;
 pub(crate) mod mixed;
+mod mode_gauge;
 mod strip_line;
 mod wave;
 mod wave_face;
@@ -75,6 +76,10 @@ pub use lumped::{
     port_voltage,
 };
 pub use mixed::{MixedPortSweepPoint, solve_mixed_port_sweep_with_mode};
+pub use mode_gauge::{
+    DEGENERATE_REL_TOL as GAUGE_DEGENERATE_REL_TOL, GAUGE_FLOOR, GAUGE_LEAD_RATIO,
+    N_REFERENCE_FIELDS, REF_MAX_INDEX, reference_field,
+};
 pub use strip_line::{StripLineSection, strip_line_section};
 pub(crate) use wave::assemble_modal_flux;
 pub use wave::{
