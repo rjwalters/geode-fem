@@ -625,7 +625,8 @@ pub struct WarningResult {
     /// `"sensitivity_shape_rigid"` (a shape parameter translating the whole
     /// model: gradients zero by construction) and
     /// `"sensitivity_shape_moves_boundary"` (a shape parameter moving a
-    /// wall it does not own off its plane: pin it if it is fixed).
+    /// wall it does not own off its plane, or resizing a finite plate's
+    /// free perimeter in its plane: pin it if it is fixed).
     pub kind: &'static str,
     /// Wave-port index (spec order), if the warning is about one port.
     pub wave_port: Option<usize>,

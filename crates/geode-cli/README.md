@@ -1307,9 +1307,12 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   extension is a constant, the whole model translates rigidly and every
   gradient is zero by construction), and `sensitivity_shape_moves_boundary`
   (naming the group) when a `pec` / `leontovich` / `silver_muller` group
-  the parameter does not own has a node moving along its face normal
-  (motion in a wall's own plane — a wall sliding with the slab it bounds
-  — and hybrid port faces are not flagged). Both are also printed on
+  the parameter does not own has a node moving along its face normal, or
+  a node on its free perimeter moving across that edge in the wall's
+  plane (a finite plate resized — a forgotten `ground` on a patch
+  antenna). In-plane motion of a wall whose perimeter is held — a wall
+  sliding with the slab it bounds, its edges on pinned port faces — and
+  hybrid port faces are not flagged. Both are also printed on
   stderr; the run still succeeds.
 - **Observables.** `entry` / `entries` index the report's flat S-matrix
   order (lumped ports first, then the wave channels port-major,

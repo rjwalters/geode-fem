@@ -575,10 +575,14 @@ const STILL_TOL: f64 = 1e-9;
 /// * `sensitivity_shape_moves_boundary` — a `pec` / `leontovich` /
 ///   `silver_muller` group that is not one of the parameter's own groups
 ///   has a node (not one of the moving groups' nodes) moving along its
-///   face normal, i.e. the wall itself is reshaped or displaced. Motion in
-///   a wall's own plane (a wall sliding with a slab it bounds) and hybrid
-///   wave-port faces (which move in-plane with the cross-section by
-///   design) are not flagged.
+///   face normal, i.e. the wall itself is reshaped or displaced; or has a
+///   node on its free perimeter (an edge used by exactly one of the
+///   group's triangles) moving across that edge in the wall's plane, i.e.
+///   a finite plate (a forgotten ground plane) is resized. Motion in a
+///   wall's own plane whose perimeter is held (a wall sliding with a slab
+///   it bounds, its edges on pinned port faces) and hybrid wave-port faces
+///   (which move in-plane with the cross-section by design) are not
+///   flagged.
 fn shape_warnings(p: &Problem, prm: &SensitivityParameter, col: &[[f64; 3]]) -> Vec<WarningResult> {
     let Some(sh) = prm.shape.as_ref() else {
         return Vec::new();
@@ -644,7 +648,7 @@ fn shape_warnings(p: &Problem, prm: &SensitivityParameter, col: &[[f64; 3]]) -> 
                 (m[0] * n[0] + m[1] * n[1] + m[2] * n[2]).abs() / nn > STILL_TOL * max
             })
         });
-        if moves_normal {
+        if moves_normal || moves_perimeter(&p.tagged.mesh.nodes, &surf.triangles, &own, col, max) {
             flagged.push((bc, &surf.name));
         }
     }
@@ -664,6 +668,56 @@ fn shape_warnings(p: &Problem, prm: &SensitivityParameter, col: &[[f64; 3]]) -> 
         out.push(w);
     }
     out
+}
+
+/// Whether a node (not in `own`) on the free perimeter of the surface
+/// `tris` — an edge used by exactly one of its triangles — moves across
+/// that edge within the triangle's plane (along `n × e`) by more than
+/// `STILL_TOL * max`: the plate's extent changes. Either sign counts (the
+/// parameter's sign is arbitrary: a shrink is a resize too); sliding along
+/// the edge and normal motion (checked separately) do not.
+fn moves_perimeter(
+    nodes: &[[f64; 3]],
+    tris: &[[u32; 3]],
+    own: &std::collections::HashSet<u32>,
+    col: &[[f64; 3]],
+    max: f64,
+) -> bool {
+    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let cross = |u: [f64; 3], v: [f64; 3]| {
+        [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ]
+    };
+    let dot = |u: [f64; 3], v: [f64; 3]| u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    let mut uses: std::collections::HashMap<(u32, u32), (u32, usize)> =
+        std::collections::HashMap::new();
+    for (ti, t) in tris.iter().enumerate() {
+        for i in 0..3 {
+            let (a, b) = (t[i], t[(i + 1) % 3]);
+            uses.entry((a.min(b), a.max(b))).or_insert((0, ti)).0 += 1;
+        }
+    }
+    uses.iter()
+        .filter(|(_, (n, _))| *n == 1)
+        .any(|(&(a, b), &(_, ti))| {
+            let t = tris[ti];
+            let c = t.iter().copied().find(|&k| k != a && k != b).unwrap_or(a);
+            let (xa, xb, xc) = (nodes[a as usize], nodes[b as usize], nodes[c as usize]);
+            let e = sub(xb, xa);
+            let n = cross(e, sub(xc, xa));
+            let d = cross(n, e);
+            let dn = dot(d, d).sqrt();
+            if dn == 0.0 {
+                return false;
+            }
+            [a, b]
+                .iter()
+                .filter(|k| !own.contains(k))
+                .any(|&k| dot(col[k as usize], d).abs() / dn > STILL_TOL * max)
+        })
 }
 
 /// The parameter's summary in the report.

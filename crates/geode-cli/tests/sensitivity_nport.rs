@@ -281,7 +281,8 @@ fn assert_fd_agreement(report: &Value, what: &str) -> Value {
     );
     assert!(f(&s["forward_parity"]) <= 1e-12, "{what}: forward parity");
     // Every FD spec pins what must not move: no forgotten-pin warning (the
-    // slab guide's walls slide in their own plane with the slab).
+    // slab guide's walls slide in their own plane with the slab, their
+    // perimeters held on the pinned port faces).
     assert_eq!(shape_warnings(&s), Vec::<(String, Value)>::new(), "{what}");
     s
 }
@@ -844,6 +845,53 @@ fn unpinned_shape_parameters_warn_rigid_motion_and_moved_walls() {
     for e in s["entries"].as_array().unwrap() {
         assert!(f(&e["gradient"]).abs() < 1e-6, "rigid motion: {e}");
     }
+}
+
+/// A finite PEC plate resized in its own plane is warned about (issue #883
+/// review, round 2): on the patch-antenna smoke mesh, stretching the patch
+/// along x with the ground plane pinned raises nothing, but forgetting to
+/// pin `ground` drags its free edges outward with the patch — the plate
+/// moves only in its own plane (no normal motion), yet its extent changes,
+/// so `sensitivity_shape_moves_boundary` names `ground`. The closed
+/// `outer_boundary` (pinned) stays silent either way.
+#[test]
+fn forgotten_ground_pin_warns_on_in_plane_plate_resize() {
+    let mesh = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../geode-core/tests/fixtures/patch_2g4_smoke.msh");
+    let run = |name: &str, pinned: Value| -> Value {
+        let dir = Scratch::new("geode-cli-nport-889-", name);
+        let v = json!({
+            "schema_version": 1,
+            "mesh": {"path": mesh.display().to_string(), "length_unit_m": 1e-3},
+            "materials": [{"physical_group": "substrate", "eps_r": [4.4, -0.088]}],
+            "boundary_conditions": {"pec": ["patch", "ground", "outer_boundary"]},
+            "ports": [{"physical_group": "port", "e_hat": [0.0, 0.0, 1.0],
+                       "resistance_ohm": 50.0}],
+            "frequencies": {"unit": "ghz", "values": [2.4]},
+            "sensitivity": {
+                "parameters": [{"kind": "shape", "name": "patch_length",
+                                "physical_group": "patch", "motion": "stretch",
+                                "axis": [1, 0, 0], "pinned": pinned}],
+                "observables": [{"quantity": "s", "entry": [0, 0], "form": "db"}]
+            }
+        });
+        let spec =
+            ScratchFile::write_in(dir, "spec.json", serde_json::to_string_pretty(&v).unwrap());
+        ok(&geode(&["driven", spec.to_str().unwrap()]), name)["sensitivities"].clone()
+    };
+
+    let s = run("pinned", json!(["port", "outer_boundary", "ground"]));
+    assert_eq!(shape_warnings(&s), vec![], "{s:#}");
+
+    let s = run("ground-forgotten", json!(["port", "outer_boundary"]));
+    assert_eq!(
+        shape_warnings(&s),
+        vec![(
+            "sensitivity_shape_moves_boundary".to_string(),
+            json!("ground")
+        )],
+        "{s:#}"
+    );
 }
 
 // ---------------------------------------------------------------------------
