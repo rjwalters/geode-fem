@@ -20,9 +20,9 @@
 //! - **Realification.** The real `2n` pencil `[[Re, −Im], [Im, Re]]` has
 //!   exactly the Hermitian spectrum, doubled. The native block solve
 //!   matches the dense spectrum.
-//! - **Refusals (#804).** A driven solve with a complex phase, p=2
-//!   periodic, and the zero-phase cavity solve with a complex constraint
-//!   all fail loudly.
+//! - **Refusals (#804).** p=2 periodic and the zero-phase cavity solve
+//!   with a complex constraint fail loudly. (A driven solve with a complex
+//!   phase is accepted since issue #870.)
 
 #[path = "common/periodic_fixtures.rs"]
 mod fixtures;
@@ -375,18 +375,16 @@ fn driven_operator(mesh: &TetMesh) -> DrivenOperator {
     .unwrap()
 }
 
-/// Refusals: complex-phase driven, p=2 periodic, and the zero-phase cavity
-/// solve with a complex constraint.
+/// Refusals: p=2 periodic and the zero-phase cavity solve with a complex
+/// constraint (complex-phase driven is accepted since issue #870).
 #[test]
 fn bloch_refusals_are_typed_and_loud() {
     let c = cell(box_tet_mesh([2, 2, 2], [1.0, 1.0, 1.0]), &[0, 1, 2], false);
     let phased = c.constraint.with_bloch_phase(K_GENERIC);
-    match PeriodicDrivenOperator::new(driven_operator(&c.mesh), &phased) {
-        Err(PeriodicError::Unsupported { feature, .. }) => {
-            assert!(feature.contains("Bloch"), "{feature}");
-        }
-        other => panic!("want Unsupported, got {:?}", other.err()),
-    }
+    // Issue #870 (Epic #837 Phase 3a) lifted the complex-phase driven
+    // refusal: the Bloch driven solve is direct LU on the non-symmetric
+    // `Pᴴ A P` (goldens in `floquet_ports.rs`).
+    assert!(PeriodicDrivenOperator::new(driven_operator(&c.mesh), &phased).is_ok());
     // A real (anti-periodic, k·d = π) phase is still a sign: allowed.
     let anti = c.constraint.with_bloch_phase([PI, 0.0, 0.0]);
     assert!(!anti.has_complex_phase());

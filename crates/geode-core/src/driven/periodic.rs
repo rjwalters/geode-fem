@@ -1,5 +1,5 @@
-//! Zero-phase **periodic** direct driven solve (issue #839, Epic #837
-//! Phase 1).
+//! **Periodic** direct driven solve: zero phase (issue #839, Epic #837
+//! Phase 1) and complex **Bloch phase** (issue #870, Phase 3a).
 //!
 //! A [`PeriodicDrivenOperator`] wraps an assembled p=1
 //! [`DrivenOperator`] and a [`PeriodicConstraint`]. Per frequency it
@@ -30,6 +30,30 @@
 //!   complex-symmetric and COCG would remain valid, but the iterative,
 //!   matrix-free and AMS paths are not wired in this phase.
 //!
+//! # Complex Bloch phase (issue #870)
+//!
+//! With a constraint from
+//! [`PeriodicConstraint::with_bloch_phase`] the reduced operator
+//! `A_r(k) = Pᴴ A P` is **Hermitian-structured, not complex-symmetric**:
+//! `A_r(k)ᵀ = Pᵀ A P̄ = A_r(−k)` (for the lossless real pencil it is
+//! Hermitian; losses add a non-Hermitian but still non-symmetric part).
+//! The solve is the general sparse LU on that reduced system, which never
+//! assumes symmetry. Consequences:
+//!
+//! - **No Krylov path.** COCG (the codebase's complex-symmetric Krylov
+//!   method) is invalid for `A_r ≠ A_rᵀ`, and no GMRES exists. No
+//!   iterative, matrix-free or AMS entry point accepts a periodic
+//!   constraint, so a Bloch problem cannot silently reach one.
+//! - **Adjoint.** The adjoint of `A_r(k)` is
+//!   [`FactoredPeriodicOperator::back_solve_transpose`] on the same LU
+//!   (the explicit-transpose path of #842), equivalently a forward solve at
+//!   `−k`. Never reuse [`FactoredPeriodicOperator::back_solve`] as the
+//!   adjoint with a complex phase.
+//! - **Port read-outs.** Lumped-port voltages are linear in the expanded
+//!   full field and stay valid (the port's edges are off the periodic
+//!   faces, so their `P` rows are `1`). Floquet ports, which do sit on the
+//!   cell's open faces, are [`crate::driven::floquet`].
+//!
 //! # p=2
 //!
 //! A p=2 operator returns [`PeriodicError::Unsupported`] (the constraint
@@ -58,9 +82,10 @@ impl<'c> PeriodicDrivenOperator<'c> {
     ///
     /// # Errors
     ///
-    /// - [`PeriodicError::Unsupported`] for a p=2 operator, or for a
-    ///   constraint with a complex Bloch phase
-    ///   ([`PeriodicConstraint::has_complex_phase`]; Epic #837 Phase 3);
+    /// - [`PeriodicError::Unsupported`] for a p=2 operator. A constraint with
+    ///   a complex Bloch phase is accepted since issue #870 (see the
+    ///   [module docs](self#complex-bloch-phase-issue-870)): the solve is
+    ///   direct LU on the non-symmetric `Pᴴ A P`;
     /// - [`PeriodicError::Mismatch`] if the constraint has another DOF
     ///   count, or keeps a DOF the operator eliminated as PEC (build both
     ///   with the same mask);
@@ -76,17 +101,10 @@ impl<'c> PeriodicDrivenOperator<'c> {
                 phase: "the p=2 face-block pairing lands with Epic #836",
             });
         }
-        if constraint.has_complex_phase() {
-            // A complex Bloch phase makes `A_r = Pᴴ A P` non-symmetric
-            // (`A_rᵀ = A_r(−k)`): the port read-outs, COCG and the adjoint
-            // shortcut `Aᵀ = A` all assume complex symmetry. Phase 3 of
-            // Epic #837 (Floquet ports) owns the Bloch driven path.
-            return Err(PeriodicError::Unsupported {
-                feature: "a driven solve with a complex Bloch phase",
-                phase: "Bloch-phase driven solves with Floquet ports land in Epic #837 Phase 3; \
-                        use a zero-phase constraint or the Bloch eigen path (eigen::bloch)",
-            });
-        }
+        // A complex Bloch phase (issue #870) is accepted: `A_r = Pᴴ A P` is
+        // then non-symmetric (`A_rᵀ = A_r(−k)`), and the only solve here is
+        // the general sparse LU, which does not assume symmetry. The
+        // adjoint is `back_solve_transpose`, never `back_solve`.
         if op.n_dofs() != constraint.n_full() {
             return Err(PeriodicError::Mismatch(format!(
                 "the operator has {} DOFs, the periodic constraint {}",
@@ -135,7 +153,8 @@ impl<'c> PeriodicDrivenOperator<'c> {
         self.interior.n_reduced()
     }
 
-    /// The reduced system matrix `A_r(ω) = Pᵀ A(ω) P`.
+    /// The reduced system matrix `A_r(ω) = Pᴴ A(ω) P` (`Pᵀ A P` at zero
+    /// phase).
     ///
     /// # Errors
     ///
@@ -178,6 +197,16 @@ impl<'c> PeriodicDrivenOperator<'c> {
     /// As [`Self::factor_at`].
     pub fn solve_at(&self, omega: f64) -> Result<DrivenSolution, PeriodicError> {
         self.factor_at(omega)?.solve()
+    }
+}
+
+/// `Aᵀ out = b` through a cached complex sparse LU.
+pub(crate) fn lu_solve_transpose(lu: &Lu<usize, c64>, b: &[c64], out: &mut [c64]) {
+    use faer::linalg::solvers::Solve;
+    let mut work = faer::Mat::<c64>::from_fn(b.len(), 1, |i, _| b[i]);
+    lu.solve_transpose_in_place(work.as_mut());
+    for (i, o) in out.iter_mut().enumerate() {
+        *o = work[(i, 0)];
     }
 }
 
@@ -236,6 +265,34 @@ impl FactoredPeriodicOperator<'_, '_> {
         assert_eq!(b_r.len(), self.op.n_reduced(), "b_r length mismatch");
         assert_eq!(out.len(), self.op.n_reduced(), "out length mismatch");
         solve_with_lu(&self.lu, b_r, out).map_err(|e| PeriodicError::Solve(format!("{e}")))
+    }
+
+    /// Back-substitute through the **transpose** `A_r(ω)ᵀ` of the cached
+    /// factorization (`A_rᵀ out = b_r`), with no new factorization: the
+    /// adjoint solve (issue #870, reusing #842's explicit-transpose path).
+    ///
+    /// With a complex Bloch phase `A_r(k)ᵀ = A_r(−k) ≠ A_r(k)`, so this is
+    /// **not** [`Self::back_solve`]; it equals a forward solve of the
+    /// operator re-phased at `−k`.
+    ///
+    /// # Errors
+    ///
+    /// Never at present (kept fallible for parity with [`Self::back_solve`]).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `b_r` or `out` is not of length
+    /// [`PeriodicDrivenOperator::n_reduced`].
+    pub fn back_solve_transpose(&self, b_r: &[c64], out: &mut [c64]) -> Result<(), PeriodicError> {
+        assert_eq!(b_r.len(), self.op.n_reduced(), "b_r length mismatch");
+        assert_eq!(out.len(), self.op.n_reduced(), "out length mismatch");
+        lu_solve_transpose(&self.lu, b_r, out);
+        Ok(())
+    }
+
+    /// The factored reduced matrix `A_r(ω)`.
+    pub fn matrix(&self) -> &SparseColMat<usize, c64> {
+        &self.a_r
     }
 
     fn solve_with(&self, excited: Option<usize>) -> Result<DrivenSolution, PeriodicError> {

@@ -123,6 +123,7 @@ jobs:
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
+              --test floquet_ports \
               --test formulation_audit_graddiv \
               --test hcurl_error_estimator \
               --test hcurl_space_p2 \
@@ -207,6 +208,7 @@ jobs:
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
+              --test floquet_ports \
               --test formulation_audit_graddiv \
               --test hcurl_error_estimator \
               --test hcurl_space_p2 \
