@@ -39,12 +39,17 @@
 //!
 //! # Gauge
 //!
-//! The modes carry the same reference-integral sign convention as the p=1
-//! modes (issue #300). The projection `∫ e_h · F dA` onto the same ordered
-//! reference fields is evaluated as a quadrature over the face, which is a
-//! continuous functional of the mode. A p=1 and a p=2 solve on the same
-//! face therefore pick the same sign. A mode that no reference spans is
-//! [`crate::eigen::dense::EigenError::UngaugableMode`], as at p=1.
+//! The modes carry the reference-integral sign convention of the p=1 modes
+//! (issue #300): the sign makes `∫ e_h · F dA` positive for the first
+//! reference field `F` that overlaps the mode. The projection is a
+//! quadrature over the face, so it is a continuous functional of the mode
+//! and stable under refinement. The reference list starts with the p=1
+//! list, in order, and continues with the TE_mn transverse shapes, so modes
+//! beyond the p=1 list (TE₁₁, TE₂₁, …) are gauged too. A reference counts
+//! only above 1 % of the Cauchy–Schwarz ceiling, so discretization noise in
+//! a continuously orthogonal reference never sets the sign. A mode that no
+//! reference spans is [`crate::eigen::dense::EigenError::UngaugableMode`],
+//! as at p=1.
 //!
 //! # Sweeps
 //!
@@ -290,9 +295,17 @@ impl PortFaceProjection {
 
     /// The reference-integral gauge of issue #300 at p=2 (module docs): flip
     /// the mode so `∫ e_h · F dA` is positive for the first reference field
-    /// `F` that it overlaps by more than `10⁻⁶` of the Cauchy–Schwarz
-    /// ceiling `‖e‖·‖F‖`. The reference fields and their order are those of
-    /// the p=1 gauge.
+    /// `F` it overlaps by more than [`P2_GAUGE_FLOOR`] of the Cauchy–Schwarz
+    /// ceiling `‖e‖·‖F‖`.
+    ///
+    /// The references start with the six fields of the p=1 gauge, in the same
+    /// order, and continue with the TE_mn transverse shapes
+    /// ([`reference_field`]). The floor is far above the p=1 gauge's `10⁻⁶`
+    /// because the p=2 projection is a quadrature of the continuous overlap:
+    /// a reference orthogonal to the continuous mode (TE₀₁ against the
+    /// y-directed `sin(πx/a)` field) projects to discretization noise of
+    /// `O(h⁴)`, which a `10⁻⁶` floor would let decide the sign. A matched
+    /// reference overlaps at `O(1)`.
     fn gauge_p2(
         &self,
         layout: &FaceLayoutP2,
@@ -308,16 +321,7 @@ impl PortFaceProjection {
             }
         }
         let ext = [0, 1].map(|k| (hi[k] - lo[k]).max(f64::EPSILON));
-        type RefField = fn(f64, f64) -> [f64; 2];
-        let refs: [RefField; 6] = [
-            |sx, _| [0.0, (std::f64::consts::PI * sx).sin()],
-            |sx, _| [0.0, (2.0 * std::f64::consts::PI * sx).sin()],
-            |_, sy| [(std::f64::consts::PI * sy).sin(), 0.0],
-            |_, sy| [(2.0 * std::f64::consts::PI * sy).sin(), 0.0],
-            |_, _| [1.0, 0.0],
-            |_, _| [0.0, 1.0],
-        ];
-        // Quadrature samples of the mode: (weight, point, e_h(point)).
+        // Quadrature samples of the mode: (weight, in-box point, e_h).
         let mut samples: Vec<(f64, [f64; 2], [f64; 2])> =
             Vec::with_capacity(layout.tris.len() * TRI_QUAD_DEG4.len());
         let mut e_norm2 = 0.0_f64;
@@ -334,7 +338,10 @@ impl PortFaceProjection {
                     e[0] += v * sh[0];
                     e[1] += v * sh[1];
                 }
-                let x = [0, 1].map(|k| lam[0] * c[0][k] + lam[1] * c[1][k] + lam[2] * c[2][k]);
+                let x = [0, 1].map(|k| {
+                    let xk = lam[0] * c[0][k] + lam[1] * c[1][k] + lam[2] * c[2][k];
+                    (xk - lo[k]) / ext[k]
+                });
                 e_norm2 += w * (e[0] * e[0] + e[1] * e[1]);
                 samples.push((w, x, e));
             }
@@ -343,17 +350,17 @@ impl PortFaceProjection {
             return Ok(());
         }
         let mut best = 0.0_f64;
-        for f in &refs {
+        for r in 0..N_REFERENCE_FIELDS {
             let (mut proj, mut f_norm2) = (0.0_f64, 0.0_f64);
             for &(w, x, e) in &samples {
-                let fv = f((x[0] - lo[0]) / ext[0], (x[1] - lo[1]) / ext[1]);
+                let fv = reference_field(r, x[0], x[1]);
                 proj += w * (e[0] * fv[0] + e[1] * fv[1]);
                 f_norm2 += w * (fv[0] * fv[0] + fv[1] * fv[1]);
             }
             let ceiling = (e_norm2 * f_norm2).sqrt();
             if ceiling > 0.0 {
                 best = best.max(proj.abs() / ceiling);
-                if proj.abs() > 1e-6 * ceiling {
+                if proj.abs() > P2_GAUGE_FLOOR * ceiling {
                     if proj < 0.0 {
                         dofs.iter_mut().for_each(|v| *v = -*v);
                     }
@@ -450,6 +457,51 @@ impl PortFaceProjection {
             modes,
             medium: PortMedium::VACUUM,
         })
+    }
+}
+
+/// Relative projection floor of the p=2 gauge (see
+/// [`PortFaceProjection::solve_modes_p2`]): a reference counts only if it
+/// overlaps the mode by more than 1 % of the Cauchy–Schwarz ceiling.
+const P2_GAUGE_FLOOR: f64 = 1e-2;
+
+/// Highest TE_mn index of the extended p=2 reference list.
+const REF_MAX_INDEX: usize = 4;
+
+/// The six p=1 reference fields plus one x- and one y-directed TE_mn shape
+/// for every `0 ≤ m, n ≤ REF_MAX_INDEX` with a non-zero component.
+const N_REFERENCE_FIELDS: usize = 6 + 2 * (REF_MAX_INDEX + 1) * (REF_MAX_INDEX + 1);
+
+/// Reference field `r` at the in-box point `(sx, sy) ∈ [0, 1]²`.
+///
+/// - `r < 6`: the p=1 gauge's list, in its order: `ŷ sin(πsx)`,
+///   `ŷ sin(2πsx)`, `x̂ sin(πsy)`, `x̂ sin(2πsy)`, `x̂`, `ŷ`.
+/// - `r ≥ 6`: for `(m, n)` in row-major order, the TE_mn transverse shapes
+///   `x̂ cos(mπsx) sin(nπsy)` then `ŷ sin(mπsx) cos(nπsy)`. A shape that
+///   vanishes identically (`n = 0` for x, `m = 0` for y) projects to zero
+///   and is skipped by the floor.
+fn reference_field(r: usize, sx: f64, sy: f64) -> [f64; 2] {
+    let pi = std::f64::consts::PI;
+    match r {
+        0 => [0.0, (pi * sx).sin()],
+        1 => [0.0, (2.0 * pi * sx).sin()],
+        2 => [(pi * sy).sin(), 0.0],
+        3 => [(2.0 * pi * sy).sin(), 0.0],
+        4 => [1.0, 0.0],
+        5 => [0.0, 1.0],
+        _ => {
+            let k = r - 6;
+            let (mn, comp) = (k / 2, k % 2);
+            let (m, n) = (
+                (mn / (REF_MAX_INDEX + 1)) as f64,
+                (mn % (REF_MAX_INDEX + 1)) as f64,
+            );
+            if comp == 0 {
+                [(m * pi * sx).cos() * (n * pi * sy).sin(), 0.0]
+            } else {
+                [0.0, (m * pi * sx).sin() * (n * pi * sy).cos()]
+            }
+        }
     }
 }
 
