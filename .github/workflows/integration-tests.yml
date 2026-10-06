@@ -43,10 +43,20 @@ name: integration-tests
 # stays out is in scripts/ci-test-coverage-ignored-allowlist.txt.
 
 on:
-  push:
-    branches: [main]
+  # Issue #899: no `push:` trigger. Every PR runs this workflow, so it does
+  # not run again on each merge. main-batch.yml dispatches it on the newest
+  # main every 3 hours, unless that commit already has a successful run. A
+  # manual dispatch always runs.
+  workflow_dispatch: {}
   pull_request:
     branches: [main]
+
+# Issue #899: a newer push to a PR cancels that PR's older run. On main a
+# started run is never cancelled, and at most one run waits: a newer one
+# replaces the waiting one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   core-tests-a:

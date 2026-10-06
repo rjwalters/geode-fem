@@ -136,7 +136,9 @@ use crate::assembly::nedelec::{
 use crate::assembly::p1::upload_mesh;
 use crate::eigen::complex::SparseComplexShiftInvertLanczos;
 use crate::eigen::dense::EigenError;
-use crate::eigen::hcurl_null::{GRADIENT_FRACTION_CUT, GradientNullCount, GradientNullSpace};
+use crate::eigen::hcurl_null::{
+    GRADIENT_FRACTION_CUT, GradientNullCount, GradientNullSpace, LoopHarmonics,
+};
 use crate::eigen::lanczos::ConvergenceCheck;
 use crate::elements::ElementOrder;
 use crate::mesh::{TaggedTetMesh, TetMesh, pec_interior_mask_from_triangles};
@@ -855,7 +857,9 @@ pub struct SpaceLossyCavityModes {
     pub wall_ref_offset: Option<Vec<f64>>,
     /// Advisory diagnostics (empty when nothing is flagged): one
     /// [`LossyCavityWarning::FrozenWallMismatch`] per mode whose
-    /// `wall_ref_offset` exceeds [`FrozenWalls::warn_rel_offset`].
+    /// `wall_ref_offset` exceeds [`FrozenWalls::warn_rel_offset`], then a
+    /// [`LossyCavityWarning::HarmonicFieldsPresent`] when the mesh topology
+    /// allows loop harmonics.
     pub warnings: Vec<LossyCavityWarning>,
 }
 
@@ -887,6 +891,24 @@ pub enum LossyCavityWarning {
         /// The threshold it exceeded ([`FrozenWalls::warn_rel_offset`]).
         threshold: f64,
     },
+    /// The mesh is multiply connected (`b₁ > 0`) and its walls do not close
+    /// its whole boundary, so the curl-curl operator can have **loop
+    /// harmonics**: curl-free fields circulating through a handle that are
+    /// neither gradients nor resonances
+    /// ([`crate::eigen::hcurl_null`], "Loop harmonics"). They are outside
+    /// [`SpaceLossyCavityModes::gradient_null`]`.dim` and the gradient
+    /// classifier; `λ ≈ 0` harmonic pairs are removed by the magnitude
+    /// filter only.
+    HarmonicFieldsPresent {
+        /// First Betti number `b₁` of the mesh (its handle count).
+        b1: usize,
+        /// The number of loop harmonics when `exact`, otherwise an upper
+        /// bound on it (`≤ b1`).
+        loop_harmonics: usize,
+        /// Whether `loop_harmonics` is the exact count (no wall on the
+        /// multiply-connected part) or only a bound.
+        exact: bool,
+    },
 }
 
 impl std::fmt::Display for LossyCavityWarning {
@@ -906,6 +928,16 @@ impl std::fmt::Display for LossyCavityWarning {
                 100.0 * rel_offset,
                 100.0 * threshold
             ),
+            Self::HarmonicFieldsPresent {
+                b1,
+                loop_harmonics,
+                exact,
+            } => LoopHarmonics {
+                b1: *b1,
+                count: *loop_harmonics,
+                exact: *exact,
+            }
+            .fmt(f),
         }
     }
 }
@@ -1227,7 +1259,14 @@ pub fn solve_lossy_cavity_modes_on_space<B: Backend>(
             Some(worst)
         }
     };
-    let (wall_ref_offset, warnings) = frozen_wall_diagnostics(&walls, &modes);
+    let (wall_ref_offset, mut warnings) = frozen_wall_diagnostics(&walls, &modes);
+    if let Some(h) = null.counts().loop_harmonics() {
+        warnings.push(LossyCavityWarning::HarmonicFieldsPresent {
+            b1: h.b1,
+            loop_harmonics: h.count,
+            exact: h.exact,
+        });
+    }
     Ok(SpaceLossyCavityModes {
         order: space.order(),
         modes,
