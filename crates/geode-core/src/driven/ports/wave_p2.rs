@@ -79,6 +79,7 @@ use faer::sparse::{SparseColMat, Triplet};
 use super::hybrid::{MixedPortSpecSweep, WavePortSpec, WavePortSpecSweep};
 use super::lumped::LumpedPort;
 use super::mixed::{MixedPortSweepPoint, ModalChannel, mixed_sweep_points, modal_channels_with};
+use super::mode_gauge::{GaugeQuadrature, canonical_modes};
 use super::wave::{
     PortMedium, PortMode, WavePort, WavePortSweepPoint, assemble_modal_flux,
     solve_wave_port_sweep_with_mode,
@@ -198,6 +199,40 @@ impl PortFaceProjection {
     /// solve resolves fewer; [`PortFaceError::Modal`] if the eigensolve
     /// fails or a mode cannot be gauged.
     pub fn solve_modes_p2(&self, n_modes: usize) -> Result<Vec<PortFaceModeP2>, PortFaceError> {
+        let mut modes = self.solve_modes_p2_raw(n_modes, None)?;
+        let lam: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
+        let clusters = self.degenerate_clusters(&lam, n_modes, ElementOrder::P2);
+        let upto = clusters.last().map_or(0, |c| c.1);
+        modes.truncate(upto);
+        let layout = self.layout_p2();
+        let vectors: Vec<&[f64]> = modes.iter().map(|m| m.dofs.as_slice()).collect();
+        let (quad, fields) = self.p2_samples(&layout, &vectors);
+        Ok(
+            canonical_modes(&quad, &fields, &vectors, &lam[..upto], &clusters, n_modes)?
+                .into_iter()
+                .map(|(lambda, dofs)| PortFaceModeP2 {
+                    k_c: lambda.max(0.0).sqrt(),
+                    lambda,
+                    dofs,
+                })
+                .collect(),
+        )
+    }
+
+    /// The **ungauged** p=2 face modes ([`Self::solve_modes_p2`] without its
+    /// gauge): the `n_modes` lowest, with the Lanczos signs, then the
+    /// further converged modes of the same pass (`λ` ascending, possibly
+    /// none, not checked for completeness). `sigma` is an explicit shift
+    /// (`None`: [`estimate_modal_shift`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::solve_modes_p2`], except the gauge's.
+    pub(crate) fn solve_modes_p2_raw(
+        &self,
+        n_modes: usize,
+        sigma: Option<f64>,
+    ) -> Result<Vec<PortFaceModeP2>, PortFaceError> {
         let layout = self.layout_p2();
         let n_keep = layout.keep.iter().filter(|&&k| k).count();
         let null_dim = self.null_dim_p2();
@@ -251,7 +286,10 @@ impl PortFaceProjection {
         let k = sparse(&k_trips)?;
         let m = sparse(&m_trips)?;
 
-        let (sigma, _first) = estimate_modal_shift(k.as_ref(), m.as_ref(), n_modes, null_dim)?;
+        let sigma = match sigma {
+            Some(s) => s,
+            None => estimate_modal_shift(k.as_ref(), m.as_ref(), n_modes, null_dim)?.0,
+        };
         let threshold = 0.1 * sigma;
         let mut n_request = (n_modes + 8).min(dim);
         let pairs = loop {
@@ -264,7 +302,9 @@ impl PortFaceProjection {
                 n_modes,
             )?;
             if pass.physical.len() == n_modes && !pass.unresolved_below {
-                break pass.physical;
+                let mut all = pass.physical;
+                all.extend(pass.beyond);
+                break all;
             }
             if n_request >= dim {
                 return Err(PortFaceError::TooFewModes {
@@ -274,104 +314,62 @@ impl PortFaceProjection {
             }
             n_request = (n_request * 2).min(dim);
         };
-        pairs
+        Ok(pairs
             .into_iter()
-            .enumerate()
-            .map(|(idx, pair)| {
+            .map(|pair| {
                 let mut dofs = vec![0.0_f64; layout.n_dofs()];
                 for (i, &full) in interior_to_full.iter().enumerate() {
                     dofs[full] = pair.vector[i];
                 }
-                self.gauge_p2(&layout, &mut dofs, idx)?;
-                let lambda = pair.lambda;
-                Ok(PortFaceModeP2 {
-                    k_c: lambda.max(0.0).sqrt(),
-                    lambda,
+                PortFaceModeP2 {
+                    k_c: pair.lambda.max(0.0).sqrt(),
+                    lambda: pair.lambda,
                     dofs,
-                })
+                }
             })
-            .collect()
+            .collect())
     }
 
-    /// The reference-integral gauge of issue #300 at p=2 (module docs): flip
-    /// the mode so `∫ e_h · F dA` is positive for the first reference field
-    /// `F` it overlaps by more than [`P2_GAUGE_FLOOR`] of the Cauchy–Schwarz
-    /// ceiling `‖e‖·‖F‖`.
-    ///
-    /// The references start with the six fields of the p=1 gauge, in the same
-    /// order, and continue with the TE_mn transverse shapes
-    /// ([`reference_field`]). The floor is far above the p=1 gauge's `10⁻⁶`
-    /// because the p=2 projection is a quadrature of the continuous overlap:
-    /// a reference orthogonal to the continuous mode (TE₀₁ against the
-    /// y-directed `sin(πx/a)` field) projects to discretization noise of
-    /// `O(h⁴)`, which a `10⁻⁶` floor would let decide the sign. A matched
-    /// reference overlaps at `O(1)`.
-    fn gauge_p2(
+    /// Degree-4 quadrature of the face and the p=2 trace fields of the face
+    /// vectors `vectors` (the [`PortFaceModeP2::dofs`] layout) at its
+    /// samples, in the canonical frame's bounding box (the p=2 input of
+    /// [`canonical_modes`], issue #894).
+    fn p2_samples(
         &self,
         layout: &FaceLayoutP2,
-        dofs: &mut [f64],
-        mode: usize,
-    ) -> Result<(), PortFaceError> {
+        vectors: &[&[f64]],
+    ) -> (GaugeQuadrature, Vec<Vec<[f64; 2]>>) {
         let nodes = &self.tri_mesh.nodes;
-        let (mut lo, mut hi) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
-        for p in nodes {
-            for k in 0..2 {
-                lo[k] = lo[k].min(p[k]);
-                hi[k] = hi[k].max(p[k]);
-            }
-        }
-        let ext = [0, 1].map(|k| (hi[k] - lo[k]).max(f64::EPSILON));
-        // Quadrature samples of the mode: (weight, in-box point, e_h).
-        let mut samples: Vec<(f64, [f64; 2], [f64; 2])> =
-            Vec::with_capacity(layout.tris.len() * TRI_QUAD_DEG4.len());
-        let mut e_norm2 = 0.0_f64;
+        let (lo, ext) = GaugeQuadrature::bounding_box(&self.tri_mesh);
+        let n_samples = layout.tris.len() * TRI_QUAD_DEG4.len();
+        let mut quad = GaugeQuadrature {
+            weights: Vec::with_capacity(n_samples),
+            points: Vec::with_capacity(n_samples),
+        };
+        let mut fields: Vec<Vec<[f64; 2]>> = vec![Vec::with_capacity(n_samples); vectors.len()];
         for (s, d) in &layout.tris {
             let c = s.map(|n| nodes[n as usize]);
             let (g, area) = tri_grads_2d(&c);
             for row in TRI_QUAD_DEG4.iter() {
                 let lam = [row[0], row[1], row[2]];
-                let w = row[3] * area;
-                let shapes = trace_shapes_2d(&lam, &g);
-                let mut e = [0.0_f64; 2];
-                for (i, sh) in shapes.iter().enumerate() {
-                    let v = dofs[d[i]];
-                    e[0] += v * sh[0];
-                    e[1] += v * sh[1];
-                }
-                let x = [0, 1].map(|k| {
+                quad.weights.push(row[3] * area);
+                quad.points.push([0, 1].map(|k| {
                     let xk = lam[0] * c[0][k] + lam[1] * c[1][k] + lam[2] * c[2][k];
                     (xk - lo[k]) / ext[k]
-                });
-                e_norm2 += w * (e[0] * e[0] + e[1] * e[1]);
-                samples.push((w, x, e));
-            }
-        }
-        if e_norm2 <= f64::MIN_POSITIVE {
-            return Ok(());
-        }
-        let mut best = 0.0_f64;
-        for r in 0..N_REFERENCE_FIELDS {
-            let (mut proj, mut f_norm2) = (0.0_f64, 0.0_f64);
-            for &(w, x, e) in &samples {
-                let fv = reference_field(r, x[0], x[1]);
-                proj += w * (e[0] * fv[0] + e[1] * fv[1]);
-                f_norm2 += w * (fv[0] * fv[0] + fv[1] * fv[1]);
-            }
-            let ceiling = (e_norm2 * f_norm2).sqrt();
-            if ceiling > 0.0 {
-                best = best.max(proj.abs() / ceiling);
-                if proj.abs() > P2_GAUGE_FLOOR * ceiling {
-                    if proj < 0.0 {
-                        dofs.iter_mut().for_each(|v| *v = -*v);
+                }));
+                let shapes = trace_shapes_2d(&lam, &g);
+                for (v, f) in vectors.iter().zip(fields.iter_mut()) {
+                    let mut e = [0.0_f64; 2];
+                    for (i, sh) in shapes.iter().enumerate() {
+                        let x = v[d[i]];
+                        e[0] += x * sh[0];
+                        e[1] += x * sh[1];
                     }
-                    return Ok(());
+                    f.push(e);
                 }
             }
         }
-        Err(PortFaceError::Modal(EigenError::UngaugableMode {
-            mode,
-            best_rel_proj: best,
-        }))
+        (quad, fields)
     }
 
     /// Lift a face p=2 vector (the [`PortFaceModeP2::dofs`] layout) onto the
@@ -461,51 +459,6 @@ impl PortFaceProjection {
             modes,
             medium: PortMedium::VACUUM,
         })
-    }
-}
-
-/// Relative projection floor of the p=2 gauge (see
-/// [`PortFaceProjection::solve_modes_p2`]): a reference counts only if it
-/// overlaps the mode by more than 1 % of the Cauchy–Schwarz ceiling.
-const P2_GAUGE_FLOOR: f64 = 1e-2;
-
-/// Highest TE_mn index of the extended p=2 reference list.
-const REF_MAX_INDEX: usize = 4;
-
-/// The six p=1 reference fields plus one x- and one y-directed TE_mn shape
-/// for every `0 ≤ m, n ≤ REF_MAX_INDEX` with a non-zero component.
-const N_REFERENCE_FIELDS: usize = 6 + 2 * (REF_MAX_INDEX + 1) * (REF_MAX_INDEX + 1);
-
-/// Reference field `r` at the in-box point `(sx, sy) ∈ [0, 1]²`.
-///
-/// - `r < 6`: the p=1 gauge's list, in its order: `ŷ sin(πsx)`,
-///   `ŷ sin(2πsx)`, `x̂ sin(πsy)`, `x̂ sin(2πsy)`, `x̂`, `ŷ`.
-/// - `r ≥ 6`: for `(m, n)` in row-major order, the TE_mn transverse shapes
-///   `x̂ cos(mπsx) sin(nπsy)` then `ŷ sin(mπsx) cos(nπsy)`. A shape that
-///   vanishes identically (`n = 0` for x, `m = 0` for y) projects to zero
-///   and is skipped by the floor.
-fn reference_field(r: usize, sx: f64, sy: f64) -> [f64; 2] {
-    let pi = std::f64::consts::PI;
-    match r {
-        0 => [0.0, (pi * sx).sin()],
-        1 => [0.0, (2.0 * pi * sx).sin()],
-        2 => [(pi * sy).sin(), 0.0],
-        3 => [(2.0 * pi * sy).sin(), 0.0],
-        4 => [1.0, 0.0],
-        5 => [0.0, 1.0],
-        _ => {
-            let k = r - 6;
-            let (mn, comp) = (k / 2, k % 2);
-            let (m, n) = (
-                (mn / (REF_MAX_INDEX + 1)) as f64,
-                (mn % (REF_MAX_INDEX + 1)) as f64,
-            );
-            if comp == 0 {
-                [(m * pi * sx).cos() * (n * pi * sy).sin(), 0.0]
-            } else {
-                [0.0, (m * pi * sx).sin() * (n * pi * sy).cos()]
-            }
-        }
     }
 }
 

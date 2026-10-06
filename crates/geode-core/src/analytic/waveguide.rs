@@ -3981,14 +3981,23 @@ pub fn solve_waveguide_modes_with_opts(
 /// path applies its own canonical gauge
 /// ([`crate::driven::ports::PortFaceProjection::solve_modes`]) and reads the
 /// second list to complete a degenerate cluster cut by `n_modes`.
+///
+/// `sigma` is an explicit shift-invert shift (`None`: the probe estimator
+/// [`estimate_modal_shift`], as [`solve_waveguide_modes`]). The probe
+/// budget grows with the gradient null space, which makes it the dominant,
+/// roughly cubic cost of the solve; a caller that already knows the
+/// spectrum (the degenerate-cluster confirmation of issue #892, which knows
+/// the face's lowest cutoff from the solve it confirms) passes
+/// `σ = λ_first / 2` and skips it.
 pub(crate) fn solve_waveguide_modes_ungauged(
     mesh: &TriMesh,
     edges: &[[u32; 2]],
     interior_edge_mask: &[bool],
     n_modes: usize,
+    sigma: Option<f64>,
 ) -> Result<(Vec<WaveguideModeProfile>, Vec<WaveguideModeProfile>), EigenError> {
     let opts = WaveguideSolveOpts {
-        sigma: None,
+        sigma,
         spurious_threshold: None,
         sigma_relative_threshold: 0.1,
     };

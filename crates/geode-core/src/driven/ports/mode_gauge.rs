@@ -290,12 +290,56 @@ pub(crate) fn canonical_coefficients(
     Ok(out)
 }
 
+/// The first `n_keep` canonical modes ([`canonical_coefficients`]) of the
+/// M-orthonormal mode vectors `vectors` (any DOF layout; their fields at
+/// the samples of `quad` are `fields`), with cutoffs `lambda` (`λ`
+/// ascending, partitioned into degenerate `clusters`): per slot, the
+/// slot's cutoff (the cluster's mean inside a degenerate cluster) and the
+/// combined vector. Shared by the p=1 ([`gauge_whitney_modes`]) and p=2
+/// (issue #894) port faces.
+///
+/// # Errors
+///
+/// As [`canonical_coefficients`].
+pub(crate) fn canonical_modes(
+    quad: &GaugeQuadrature,
+    fields: &[Vec<[f64; 2]>],
+    vectors: &[&[f64]],
+    lambda: &[f64],
+    clusters: &[(usize, usize)],
+    n_keep: usize,
+) -> Result<Vec<(f64, Vec<f64>)>, EigenError> {
+    let coeffs = canonical_coefficients(quad, fields, clusters, n_keep)?;
+    // A degenerate cluster's members share its mean cutoff, so the port's
+    // modal term over the cluster (`Σ jβ f fᵀ`) does not depend on the
+    // basis chosen inside it.
+    let mut lambda = lambda.to_vec();
+    for &(s, e) in clusters.iter().filter(|c| c.1 - c.0 > 1) {
+        let mean = lambda[s..e].iter().sum::<f64>() / (e - s) as f64;
+        lambda[s..e].iter_mut().for_each(|l| *l = mean);
+    }
+    let len = vectors.first().map_or(0, |v| v.len());
+    Ok(coeffs
+        .iter()
+        .enumerate()
+        .map(|(slot, c)| {
+            let mut out = vec![0.0_f64; len];
+            for (cj, v) in c.iter().zip(vectors) {
+                if *cj != 0.0 {
+                    out.iter_mut().zip(*v).for_each(|(x, y)| *x += cj * y);
+                }
+            }
+            (lambda[slot], out)
+        })
+        .collect())
+}
+
 /// Gauge the lowest-order (Whitney) modes of a projected port face (issue
 /// #888): `modes` are the M-orthonormal profiles of
 /// `solve_waveguide_modes_ungauged`, `λ` ascending (the requested ones,
 /// then any further ones of the same solve), partitioned into degenerate
 /// `clusters`; returns the first `n_keep` canonical modes
-/// ([`canonical_coefficients`]), each with the cutoff of its slot (the
+/// ([`canonical_modes`]), each with the cutoff of its slot (the
 /// cluster's mean inside a degenerate cluster).
 ///
 /// # Errors
@@ -310,39 +354,22 @@ pub(crate) fn gauge_whitney_modes(
 ) -> Result<Vec<WaveguideModeProfile>, EigenError> {
     let vectors: Vec<&[f64]> = modes.iter().map(|m| m.e_edges.as_slice()).collect();
     let (quad, fields) = whitney_samples(mesh, edges, &vectors);
-    let coeffs = canonical_coefficients(&quad, &fields, clusters, n_keep)?;
-    // A degenerate cluster's members share its mean cutoff, so the port's
-    // modal term over the cluster (`Σ jβ f fᵀ`) does not depend on the
-    // basis chosen inside it.
-    let mut lambda: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
-    for &(s, e) in clusters.iter().filter(|c| c.1 - c.0 > 1) {
-        let mean = lambda[s..e].iter().sum::<f64>() / (e - s) as f64;
-        lambda[s..e].iter_mut().for_each(|l| *l = mean);
-    }
-    Ok(coeffs
-        .iter()
-        .enumerate()
-        .map(|(slot, c)| {
-            let mut e_edges = vec![0.0_f64; edges.len()];
-            for (cj, m) in c.iter().zip(modes) {
-                if *cj != 0.0 {
-                    e_edges
-                        .iter_mut()
-                        .zip(&m.e_edges)
-                        .for_each(|(x, y)| *x += cj * y);
-                }
-            }
-            WaveguideModeProfile {
-                k_c: if lambda[slot] == modes[slot].lambda {
+    let lambda: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
+    Ok(
+        canonical_modes(&quad, &fields, &vectors, &lambda, clusters, n_keep)?
+            .into_iter()
+            .enumerate()
+            .map(|(slot, (lambda, e_edges))| WaveguideModeProfile {
+                k_c: if lambda == modes[slot].lambda {
                     modes[slot].k_c
                 } else {
-                    lambda[slot].max(0.0).sqrt()
+                    lambda.max(0.0).sqrt()
                 },
-                lambda: lambda[slot],
+                lambda,
                 e_edges,
-            }
-        })
-        .collect())
+            })
+            .collect(),
+    )
 }
 
 /// Degree-4 quadrature of the face `mesh` and the Whitney fields of the
@@ -479,7 +506,7 @@ mod tests {
     ) -> (TriMesh, Vec<[u32; 2]>, Vec<WaveguideModeProfile>) {
         let mesh = rect_tri_mesh(nx, ny, w, h);
         let (edges, mask) = rect_pec_interior_edges(&mesh, w, h);
-        let (mut m, more) = solve_waveguide_modes_ungauged(&mesh, &edges, &mask, n).unwrap();
+        let (mut m, more) = solve_waveguide_modes_ungauged(&mesh, &edges, &mask, n, None).unwrap();
         m.extend(more);
         (mesh, edges, m)
     }

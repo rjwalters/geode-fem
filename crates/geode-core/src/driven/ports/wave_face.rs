@@ -383,6 +383,7 @@ impl PortFaceProjection {
             &self.edges,
             &self.interior_edge_mask,
             n_modes,
+            None,
         )?;
         if modes.len() < n_modes {
             return Err(PortFaceError::TooFewModes {
@@ -391,7 +392,9 @@ impl PortFaceProjection {
             });
         }
         modes.extend(beyond);
-        let clusters = self.degenerate_clusters(&mut modes, n_modes);
+        let lam: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
+        let clusters = self.degenerate_clusters(&lam, n_modes, ElementOrder::P1);
+        modes.truncate(clusters.last().map_or(0, |c| c.1));
         Ok(gauge_whitney_modes(
             &self.tri_mesh,
             &self.edges,
@@ -401,30 +404,40 @@ impl PortFaceProjection {
         )?)
     }
 
-    /// The degenerate clusters of `modes` (`k_c` ascending, the requested
-    /// `n_keep` first) for the canonical gauge (issue #888,
-    /// [`crate::driven::ports::DEGENERATE_CANDIDATE_REL_TOL`]). `modes` is
-    /// truncated after the cluster that holds mode `n_keep − 1`.
+    /// The degenerate clusters (`[start, end)`, consecutive, from mode 0)
+    /// of the cutoffs `lam` (`k_c²` ascending, the requested `n_keep`
+    /// first, then any further modes of the same solve) of this face's
+    /// `order` mode solve, for the canonical gauge (issue #888,
+    /// [`crate::driven::ports::DEGENERATE_CANDIDATE_REL_TOL`]). The
+    /// clusters end with the one that holds mode `n_keep − 1`; the caller
+    /// truncates its modes there.
     ///
-    /// A pair at round-off is degenerate outright. A candidate pair is
-    /// re-solved on the face refined once ([`refine_tri_mesh`]) and is
-    /// degenerate if its relative gap shrank to at most
-    /// [`crate::driven::ports::DEGENERATE_CONVERGENCE_RATIO`] of the gap
-    /// here. If the refined solve fails, candidates stay distinct.
+    /// A pair at round-off is degenerate outright. A **candidate** pair
+    /// (gap ≤ 5 %) is confirmed against the same face solved at the
+    /// **other** element order (p=1 ↔ p=2): it is degenerate if the p=2 gap
+    /// is at most [`crate::driven::ports::DEGENERATE_CONVERGENCE_RATIO`] of
+    /// the p=1 gap. A discretization split shrinks from `O(h²)` to
+    /// `O(h⁴)` between the orders; a physical split is the same at both.
+    /// The ratio is the same number whichever order the port runs at, so
+    /// a p=1 and a p=2 port of one face decide alike.
+    ///
+    /// The confirming solve is given its shift (`σ = λ₀ / 2`, from `lam`)
+    /// instead of running the shift probe (issue #892), whose budget grows
+    /// with the gradient null space and dominates the cost of an
+    /// unshifted face solve. If it fails, candidates stay distinct.
     pub(crate) fn degenerate_clusters(
         &self,
-        modes: &mut Vec<WaveguideModeProfile>,
+        lam: &[f64],
         n_keep: usize,
+        order: ElementOrder,
     ) -> Vec<(usize, usize)> {
         let gap = |l: &[f64], i: usize| relative_gap(l[i], l[i + 1]);
-        let lam: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
         // Modes needed: through the end of the candidate chain holding
         // mode n_keep − 1.
-        let mut upto = n_keep;
-        while upto < lam.len() && gap(&lam, upto - 1) <= DEGENERATE_CANDIDATE_REL_TOL {
+        let mut upto = n_keep.min(lam.len());
+        while upto < lam.len() && gap(lam, upto - 1) <= DEGENERATE_CANDIDATE_REL_TOL {
             upto += 1;
         }
-        modes.truncate(upto);
         let lam = &lam[..upto];
         let mut links: Vec<bool> = (0..upto.saturating_sub(1))
             .map(|i| gap(lam, i) <= DEGENERATE_EXACT_REL_TOL)
@@ -433,32 +446,44 @@ impl PortFaceProjection {
             .filter(|&i| !links[i] && gap(lam, i) <= DEGENERATE_CANDIDATE_REL_TOL)
             .collect();
         if !candidates.is_empty()
-            && let Some(fine) = self.refined_cutoffs(upto)
+            && let Some(other) = self.confirmation_cutoffs(upto, order, 0.5 * lam[0])
         {
             for i in candidates {
-                links[i] = gap(&fine, i) <= DEGENERATE_CONVERGENCE_RATIO * gap(lam, i);
+                let (p1, p2) = match order {
+                    ElementOrder::P1 => (gap(lam, i), gap(&other, i)),
+                    ElementOrder::P2 => (gap(&other, i), gap(lam, i)),
+                };
+                links[i] = p2 <= DEGENERATE_CONVERGENCE_RATIO * p1;
             }
         }
         clusters_from_links(upto, &links)
     }
 
-    /// The lowest `n` cutoffs `k_c²` of the face refined once (each triangle
-    /// split in four, the rim kept), or `None` if that solve fails.
-    fn refined_cutoffs(&self, n: usize) -> Option<Vec<f64>> {
-        let rim: Vec<[u32; 2]> = self
-            .edges
+    /// The lowest `n` cutoffs `k_c²` of this face solved at the order
+    /// **other** than `order`, with the explicit shift `sigma`, or `None`
+    /// if that solve fails or returns fewer than `n`.
+    fn confirmation_cutoffs(&self, n: usize, order: ElementOrder, sigma: f64) -> Option<Vec<f64>> {
+        let lam: Vec<f64> = match order {
+            ElementOrder::P1 => self
+                .solve_modes_p2_raw(n, Some(sigma))
+                .ok()?
+                .iter()
+                .map(|m| m.lambda)
+                .collect(),
+            ElementOrder::P2 => solve_waveguide_modes_ungauged(
+                &self.tri_mesh,
+                &self.edges,
+                &self.interior_edge_mask,
+                n,
+                Some(sigma),
+            )
+            .ok()?
+            .0
             .iter()
-            .zip(&self.interior_edge_mask)
-            .filter(|&(_, &interior)| !interior)
-            .map(|(e, _)| *e)
-            .collect();
-        let (nodes, tris, rim) = refine_tri_mesh(&self.tri_mesh.nodes, &self.tri_mesh.tris, &rim);
-        let mesh = TriMesh { nodes, tris };
-        let edges = mesh.edges();
-        let rim: std::collections::HashSet<[u32; 2]> = rim.into_iter().collect();
-        let mask: Vec<bool> = edges.iter().map(|e| !rim.contains(e)).collect();
-        let (modes, _) = solve_waveguide_modes_ungauged(&mesh, &edges, &mask, n).ok()?;
-        (modes.len() == n).then(|| modes.iter().map(|m| m.lambda).collect())
+            .map(|m| m.lambda)
+            .collect(),
+        };
+        (lam.len() >= n).then(|| lam[..n].to_vec())
     }
 
     /// Lowest **TM** cutoff wavenumber `k_c^TM` of the port mesh
@@ -2115,6 +2140,67 @@ mod tests {
     fn rect_face(nx: usize, ny: usize, a: f64, b: f64) -> PortFaceProjection {
         let g = extruded_rect_waveguide_mesh(nx, ny, 1, a, b, 0.5);
         project_port_face(&g.mesh, &g.port1_faces).expect("rect face")
+    }
+
+    /// Issue #892: the degenerate-cluster confirmation compares the face's
+    /// p=1 and p=2 gaps, so a p=1 and a p=2 port of one face decide alike.
+    /// A continuously degenerate pair (TE₂₀ / TE₀₁ of a `2 × 1` face, split
+    /// at `O(h²)` by p=1) is one cluster at both orders. A physically
+    /// distinct near pair (TE₂₁ / TE₃₀ of a `2 × 0.9` face, `k_c²` 22.05 /
+    /// 22.21, a 0.7 % gap: a candidate) that p=1 resolves (20 × 10: p=1 gap
+    /// 5.6e-3, p=2 6.8e-3, ratio 1.2) stays two modes with their own
+    /// cutoffs at both orders. On 10 × 5, p=1 does not resolve it (gap
+    /// 2.9e-2 against p=2's 6.6e-3, ratio 0.23: most of the p=1 split is
+    /// discretization error), and the pair is one cluster at both orders.
+    #[test]
+    fn cluster_confirmation_agrees_across_orders_and_keeps_distinct_pairs() {
+        let lam = |m: &[WaveguideModeProfile]| m.iter().map(|m| m.lambda).collect::<Vec<_>>();
+        let lam2 = |m: &[crate::driven::ports::PortFaceModeP2]| {
+            m.iter().map(|m| m.lambda).collect::<Vec<_>>()
+        };
+        // 2 × 1: TE10, then the TE20 / TE01 pair.
+        let f = rect_face(8, 4, 2.0, 1.0);
+        let raw1: Vec<f64> = solve_waveguide_modes_ungauged(
+            &f.tri_mesh,
+            &f.edges,
+            &f.interior_edge_mask,
+            3,
+            None,
+        )
+        .map(|(m, _)| lam(&m))
+        .unwrap();
+        let raw2 = lam2(&f.solve_modes_p2_raw(3, None).unwrap());
+        assert!(relative_gap(raw1[1], raw1[2]) > DEGENERATE_EXACT_REL_TOL);
+        let want = vec![(0, 1), (1, 3)];
+        assert_eq!(f.degenerate_clusters(&raw1, 3, ElementOrder::P1), want);
+        assert_eq!(f.degenerate_clusters(&raw2[..3], 3, ElementOrder::P2), want);
+        let (g1, g2) = (lam(&f.solve_modes(3).unwrap()), lam2(&f.solve_modes_p2(3).unwrap()));
+        assert_eq!(g1[1], g1[2], "p=1 pair shares its mean cutoff");
+        assert_eq!(g2[1], g2[2], "p=2 pair shares its mean cutoff");
+
+        // 2 × 0.9: TE10, TE20, TE01, TE11, TE21, TE30.
+        let (te21, te30) = (PI * PI * (1.0 + 1.0 / 0.81), (1.5 * PI).powi(2));
+        let f = rect_face(20, 10, 2.0, 0.9);
+        for (order, l) in [
+            (ElementOrder::P1, lam(&f.solve_modes(6).unwrap())),
+            (ElementOrder::P2, lam2(&f.solve_modes_p2(6).unwrap())),
+        ] {
+            let gap = relative_gap(l[4], l[5]);
+            assert!(
+                gap > DEGENERATE_EXACT_REL_TOL && gap < DEGENERATE_CANDIDATE_REL_TOL,
+                "{order:?}: TE21 / TE30 is a candidate pair, not merged (gap {gap:e})"
+            );
+            assert!(
+                (l[4] - te21).abs() / te21 < 5e-3 && (l[5] - te30).abs() / te30 < 5e-3,
+                "{order:?}: TE21 / TE30 keep their own cutoffs: {} / {}",
+                l[4],
+                l[5]
+            );
+        }
+        let f = rect_face(10, 5, 2.0, 0.9);
+        let l1 = lam(&f.solve_modes(6).unwrap());
+        let l2 = lam2(&f.solve_modes_p2(6).unwrap());
+        assert_eq!((l1[4], l2[4]), (l1[5], l2[5]), "unresolved at p=1: one cluster");
     }
 
     /// Issue #808: the PEC-rim TM cutoff of an `a × b` face converges to
