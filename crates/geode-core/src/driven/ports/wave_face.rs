@@ -425,7 +425,9 @@ impl PortFaceProjection {
     /// TM₁₁ = 3.512. The p=2 axial law has no room for that error: over one
     /// tet layer of 1.25 it put the guard at 3.478, **above** the 3-D p=2
     /// TM cutoff 3.463 (Judge probe, PR #887). The P2 estimate on that face
-    /// is 3.512 (the continuum to 10⁻⁵) and the guard 3.336.
+    /// is 3.511 (TM₁₁ 3.512 to 3·10⁻⁴); the p=2 law then also reads the
+    /// face's longest edge `h_f = √2` ([`TM_GUARD_AXIAL_COEFF_P2`]), and the
+    /// guard is 3.084.
     ///
     /// The P2 levels hold about 4× the DOFs of the P1 ones (the P2 nodes of
     /// a level are the P1 nodes of the next refinement), a 2-D solve.
