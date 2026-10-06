@@ -374,11 +374,19 @@ pub struct CurrentPathSpec {
 /// | `inductance` | every `L_ij` (H) | `nu_r`, `mu_r` | self-adjoint energy form |
 /// | `eigen` (lossless) | `frequency_hz` of the listed `modes` | `eps_r` | Hellmann–Feynman |
 /// | `driven` (one lumped port, direct, dense, no UPML) | squared reflection `s11_mag_sq` per frequency | `eps_r` | port-loaded discrete adjoint |
+/// | `driven` with `observables` or the N-port parameter kinds (issue #883) | any `S_ij` (`mag`, `mag_sq`, `db`, `phase_deg`, `real`, `imag`), sums of `\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `shape` | N-port S-matrix adjoint (reciprocity, zero extra solves) |
 ///
-/// Not supported in v1 (rejected with `invalid_spec`): extract specs
-/// (`Z`, `L₀`, `Q`), multi-port / wave-port / UPML / adaptive / iterative
-/// driven specs, N-terminal capacitance matrices, lossy / open eigen specs
-/// (`Q`), loss-tangent (`Im ε_r`) and shape / geometry parameters.
+/// The N-port driven path (Epic #841 Phase 5a) covers lumped, wave
+/// (geometric, filled), mixed, walled and hybrid (microstrip / stripline)
+/// specs, with shape parameters bound to named groups. A driven spec
+/// without `observables` whose parameters are all `eps_r` and that has
+/// exactly one lumped port keeps the original `s11_mag_sq` report.
+///
+/// Not supported in v1 (rejected with `invalid_spec`, naming what would
+/// lift it): extract specs (`Z`, `L₀`, `Q`), UPML / adaptive / iterative /
+/// dispersive / anisotropic driven specs, N-terminal capacitance matrices,
+/// lossy / open eigen specs (`Q`), and the new parameter kinds or
+/// `observables` on any analysis other than `driven`.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SensitivitySpec {
@@ -403,35 +411,209 @@ pub struct SensitivitySpec {
     /// re-solved at `p·(1 ± relative_step)` and each gradient entry is
     /// compared to the FD estimate. A disagreement above `tolerance`
     /// fails the run with `solve_failed`. Costs two extra forward solves
-    /// per parameter.
+    /// per parameter. `geode driven --check-gradient` turns it on with the
+    /// defaults when the section omits it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fd_check: Option<FdCheckSpec>,
+    /// Driven specs only (additive in v1, issue #883): the differentiated
+    /// observables. Omitted: every `|S_ij|²` (`mag_sq` of each entry), or,
+    /// for a one-lumped-port spec whose parameters are all `eps_r`, the
+    /// original `s11_mag_sq` report.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observables: Option<Vec<SensitivityObservableSpec>>,
+    /// Driven specs only (additive in v1, issue #883): the frequencies to
+    /// differentiate, each one of the spec's swept `frequencies` (matched
+    /// to 1e-9 relative). Omitted: every swept frequency.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frequencies: Option<FrequencySpec>,
 }
 
-/// One design parameter of a [`SensitivitySpec`].
+/// One differentiated observable of a driven [`SensitivitySpec`] (issue
+/// #883). Channel indices follow the report's flat S-matrix order: lumped
+/// ports first (spec order), then the wave channels (port-major,
+/// mode-minor) — the `channel` numbers of `results[].wave_channels`.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SensitivityObservableSpec {
+    /// What is differentiated.
+    pub quantity: ObservableQuantity,
+    /// `quantity = "s"`: `[i, j]`, the entry `S_ij` (row `i` = the
+    /// outgoing channel, column `j` = the excited one; `[0, 0]` is `S11`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<[usize; 2]>,
+    /// `quantity = "s_sum_sq"`: the entries `[i, j]` whose `|S_ij|²` are
+    /// summed (`≥ 1`, distinct; e.g. the power leaving every channel for
+    /// excitation `j`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entries: Option<Vec<[usize; 2]>>,
+    /// How a complex observable becomes the real number differentiated.
+    /// Defaults: `mag_sq` for `s`, `real` for `z0` / `eps_eff`; not allowed
+    /// for `s_sum_sq`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form: Option<ObservableForm>,
+    /// `quantity = "z0"` / `"eps_eff"`: the hybrid wave port (its
+    /// `physical_group`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wave_port: Option<String>,
+    /// `quantity = "z0"` / `"eps_eff"`: the port's reported channel
+    /// (default `0`, `< n_modes`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<usize>,
+}
+
+/// The quantity of a [`SensitivityObservableSpec`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ObservableQuantity {
+    /// One power-wave S-matrix entry `S_ij` (dimensionless).
+    S,
+    /// `Σ |S_ij|²` over `entries` (dimensionless).
+    SSumSq,
+    /// The line impedance of a hybrid port's channel (Ω), under the port's
+    /// `impedance_definition` (`power_current` by default) — the 2-D face
+    /// quantity of Epic #841 Phase 3a, which a design reaches only through
+    /// parameters that touch the port face.
+    Z0,
+    /// The effective permittivity `ε_eff = β²/k₀²` of a hybrid port's
+    /// channel (dimensionless).
+    EpsEff,
+}
+
+impl ObservableQuantity {
+    /// Lower-case name, as used in reports and messages.
+    pub fn name(self) -> &'static str {
+        match self {
+            ObservableQuantity::S => "s",
+            ObservableQuantity::SSumSq => "s_sum_sq",
+            ObservableQuantity::Z0 => "z0",
+            ObservableQuantity::EpsEff => "eps_eff",
+        }
+    }
+}
+
+/// How a complex observable `z` becomes a real one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ObservableForm {
+    /// `|z|`.
+    Mag,
+    /// `|z|²`.
+    MagSq,
+    /// `20·log₁₀|z|` (dB).
+    Db,
+    /// `arg z` in degrees (`(−180, 180]`).
+    PhaseDeg,
+    /// `Re z`.
+    Real,
+    /// `Im z`.
+    Imag,
+}
+
+impl ObservableForm {
+    /// Lower-case name, as used in reports and messages.
+    pub fn name(self) -> &'static str {
+        match self {
+            ObservableForm::Mag => "mag",
+            ObservableForm::MagSq => "mag_sq",
+            ObservableForm::Db => "db",
+            ObservableForm::PhaseDeg => "phase_deg",
+            ObservableForm::Real => "real",
+            ObservableForm::Imag => "imag",
+        }
+    }
+}
+
+/// One design parameter of a [`SensitivitySpec`]: a material property of
+/// one volume group (`physical_group`), or (`kind = "shape"`, driven only,
+/// issue #883) a motion of named geometry groups.
+///
+/// A shape parameter binds to **group names**, never node ids, so it
+/// survives re-meshing: the groups' nodes move as `motion` prescribes, the
+/// nodes of the `pinned` groups stay fixed (pinned wins on a shared node),
+/// and the motion is extended into the volume harmonically (one P1-Laplace
+/// solve). Every other boundary node is free to slide with the extension,
+/// so pin what must not move (an outer shield, a lumped / geometric
+/// wave-port face, an impedance wall); the report lists the named surfaces
+/// a shape parameter moves (`moved_groups`). A hybrid (microstrip /
+/// stripline) port face may move in its plane: the port modes follow it.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SensitivityParameterSpec {
-    /// Which material property.
+    /// Which property.
     pub kind: SensitivityParameterKind,
-    /// Name of a dimension-3 physical group (need not be listed in
-    /// `materials`: an unlisted group is differentiated at its vacuum
-    /// default).
-    pub physical_group: String,
+    /// Material kinds: name of a dimension-3 physical group (need not be
+    /// listed in `materials`: an unlisted group is differentiated at its
+    /// vacuum default). Shape: one moving group (2-D or 3-D), the same as a
+    /// one-element `physical_groups`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_group: Option<String>,
+    /// Shape only: the moving 2-D and / or 3-D physical groups.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_groups: Option<Vec<String>>,
+    /// Shape only: the parameter's name in the report (default: the motion
+    /// and the groups, e.g. `stretch(strip)`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Shape only (required): how the groups move.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion: Option<ShapeMotion>,
+    /// Shape only (required): the motion's direction (normalized; any
+    /// non-zero vector). `translate`: the parameter is the displacement
+    /// along it (m). `stretch`: the parameter is the groups' extent along
+    /// it (m; a strip width), changed symmetrically about its centre.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis: Option<[f64; 3]>,
+    /// Shape only: 2-D / 3-D physical groups whose nodes stay fixed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<Vec<String>>,
 }
 
-/// Material property differentiated by a sensitivity parameter.
+/// The motion of a shape [`SensitivityParameterSpec`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ShapeMotion {
+    /// Rigid translation along `axis`; the parameter is the displacement
+    /// (value `0` at the meshed geometry).
+    Translate,
+    /// Symmetric stretch along `axis` about the centre of the groups'
+    /// extent; the parameter is the extent itself (a strip width, a slab
+    /// thickness).
+    Stretch,
+}
+
+impl ShapeMotion {
+    /// Lower-case name, as used in reports and messages.
+    pub fn name(self) -> &'static str {
+        match self {
+            ShapeMotion::Translate => "translate",
+            ShapeMotion::Stretch => "stretch",
+        }
+    }
+}
+
+/// Property differentiated by a sensitivity parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SensitivityParameterKind {
-    /// Real relative permittivity `Re ε_r` (capacitance, eigen, driven).
+    /// Real relative permittivity `ε′ = Re ε_r`, `Im ε_r` held
+    /// (capacitance, eigen, driven).
     EpsR,
+    /// Loss part `ε″ = −Im ε_r` (`ε_r = ε′ − jε″`), `ε′` held (driven,
+    /// issue #883). At a lossless point (`ε″ = 0`) the gradient is the
+    /// passive-side (`ε″ → 0⁺`) one.
+    EpsRImag,
+    /// Loss tangent `tan δ = ε″/ε′`, `ε′` held (driven, issue #883):
+    /// `∂/∂tan δ = ε′·∂/∂ε″`.
+    TanDelta,
     /// Relative reluctivity `ν_r = 1/μ_r` (inductance) — the parameter
     /// the inductance energy form is linear in.
     NuR,
     /// Relative permeability `μ_r` (inductance): `∂L/∂μ_r =
     /// −ν_r² ∂L/∂ν_r`.
     MuR,
+    /// A geometry parameter (driven, issue #883): see
+    /// [`SensitivityParameterSpec`].
+    Shape,
 }
 
 impl SensitivityParameterKind {
@@ -439,9 +621,17 @@ impl SensitivityParameterKind {
     pub fn name(self) -> &'static str {
         match self {
             SensitivityParameterKind::EpsR => "eps_r",
+            SensitivityParameterKind::EpsRImag => "eps_r_imag",
+            SensitivityParameterKind::TanDelta => "tan_delta",
             SensitivityParameterKind::NuR => "nu_r",
             SensitivityParameterKind::MuR => "mu_r",
+            SensitivityParameterKind::Shape => "shape",
         }
+    }
+
+    /// A material kind (bound to one volume group).
+    pub fn is_material(self) -> bool {
+        self != SensitivityParameterKind::Shape
     }
 }
 
@@ -1419,7 +1609,7 @@ mod tests {
             .is_err()
         );
         assert!(
-            serde_json::from_str::<SensitivitySpec>(r#"{"parameters":[],"shape":[]}"#).is_err()
+            serde_json::from_str::<SensitivitySpec>(r#"{"parameters":[],"shapes":[]}"#).is_err()
         );
         assert!(serde_json::from_str::<FdCheckSpec>(r#"{"step":1e-3}"#).is_err());
         // Absent section is not serialized.
