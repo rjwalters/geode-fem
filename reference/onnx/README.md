@@ -53,15 +53,39 @@ the Epic #88 reference backends and ONNX inherits them unchanged.
 reference/onnx/
 ├── README.md                          — this file
 ├── requirements.txt                   — pinned onnx + onnxruntime + onnxscript
-├── audit/                             — Phase F.1 deliverable
-│   ├── cube_cavity_operator_audit.md  — the gap-list / operator inventory
+├── audit/                             — expressibility audits (Phase F.1 onward)
+│   ├── cube_cavity_operator_audit.md  — the gap-list / operator inventory (F.1)
 │   ├── probe_p1_local.py              — per-element P1 local matrices
 │   ├── probe_assembly_scatter.py      — global K/M scatter-add (ScatterND)
-│   └── probe_dirichlet_mask.py        — interior-DOF restriction (NonZero)
-└── cube_cavity/                       — Phase F.2 runtime payload
-    ├── README.md                      — graph design + reproduction notes
-    ├── assembly_graph.py              — analog of tf_java/.../AssemblyGraph.java
-    └── gen_cube_cavity_reduced.py     — emits reduced_kM.json sidecar
+│   ├── probe_dirichlet_mask.py        — interior-DOF restriction (NonZero)
+│   ├── sphere_pec/                    — Nédélec sphere-PEC audit (Phase G.6, #135)
+│   │   ├── nedelec_operator_audit.md
+│   │   ├── probe_edge_enumeration.py  — edge enumeration (build_edges)
+│   │   ├── probe_nedelec_local.py     — element-local 6×6 curl-curl matrix
+│   │   ├── probe_nedelec_scatter.py   — irregular edge scatter-add
+│   │   └── probe_pec_mask.py          — PEC boundary mask
+│   ├── sphere_pml/                    — Nédélec sphere-PML audit (Phase H.5, #157)
+│   │   ├── nedelec_pml_operator_audit.md
+│   │   ├── probe_complex_eps_ramp.py  — build_complex_epsilon_r_pml
+│   │   └── probe_complex_local_scatter.py — complex Nédélec local + global scatter
+│   ├── derham/                        — discrete de Rham audit (Phase I.3, #169)
+│   │   ├── derham_operator_audit.md
+│   │   ├── probe_d0_apply.py          — d⁰ application (discrete gradient matvec)
+│   │   ├── probe_d1_apply.py          — d¹ application (discrete curl matvec)
+│   │   └── probe_exactness_in_graph.py — in-graph d¹ · (d⁰ · φ) ≡ 0
+│   └── sphere_mie/                    — Mie sphere audit (Phase J.6, #175)
+│       ├── mie_operator_audit.md
+│       ├── probe_root_finding_loop.py — analytic Mie root finder
+│       └── probe_tensor_eps_ramp.py   — anisotropic UPML tensor-ε pipeline
+├── cube_cavity/                       — Phase F.2 runtime payload
+│   ├── README.md                      — graph design + reproduction notes
+│   ├── __init__.py
+│   ├── assembly_graph.py              — analog of tf_java/.../AssemblyGraph.java
+│   └── gen_cube_cavity_reduced.py     — emits reduced_kM.json sidecar
+└── sphere_pec/                        — Phase G.7 runtime payload (#140)
+    ├── __init__.py
+    ├── assembly_graph.py              — Nédélec partial-assembly graph
+    └── gen_sphere_pec_reduced.py      — emits a schema-v1 sidecar
 ```
 
 ## Re-running the Phase F.1 probes

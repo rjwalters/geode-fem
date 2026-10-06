@@ -17,71 +17,35 @@ shared docs that the Rust-side comparison harness
 **Epic #88 close-out:** see [`CONFORMANCE.md`](CONFORMANCE.md) for the
 cross-backend conformance matrix (spine operators × backends), the
 consolidated disagreement catalogue (friction artifacts 1–14), and the
-Burn re-anchoring statement. The layout sketch below reflects the early
-phases; `CONFORMANCE.md` is the authoritative per-slice coverage map.
+Burn re-anchoring statement. The layout sketch below lists the top-level
+directories; `CONFORMANCE.md` is the authoritative per-slice coverage map.
 
 ## Layout
 
+Top-level directories only (tracked files); each subdirectory README carries
+its own file list.
+
 ```
 reference/
-├── README.md                       — this file
-├── SCHEMA.md                       — fixture schema (v1)
-├── fixtures/                       — canonical (input, golden output) bundles
-│   ├── p1_reference_tet/
-│   │   └── local_stiffness.json    — Phase A smoke fixture
-│   ├── p1_local/                   — 5 per-case canonical fixtures (one fixture pins one identity; #90 / #101)
-│   │   ├── canonical_reference_tet.json
-│   │   ├── regular_tet.json
-│   │   ├── anisotropic_well_shaped.json
-│   │   ├── near_degenerate_sliver.json
-│   │   └── inverted_tet.json
-│   ├── cube_cavity/
-│   │   ├── baseline.json           — cube-cavity NumPy baseline (eigenvalues + sub-stages + Q_numpy, #92)
-│   │   ├── baseline.schema.md      — per-fixture schema notes for `baseline.json`
-│   │   ├── jax_baseline.json       — lowest 5 eigenvalues + traces from JAX (#93)
-│   │   ├── julia_baseline.json     — lowest 5 eigenvalues + sub-stages from Julia + Arpack.jl (#115)
-│   │   └── unit_cube.msh           — shared n=10 mesh (MSH 4.1 ASCII via meshio, #92)
-│   └── sphere_pec/
-│       ├── baseline.json           — sphere-PEC NumPy baseline (#118)
-│       ├── baseline.schema.md      — per-fixture schema notes for `baseline.json`
-│       └── sphere.msh              — bundled sphere fixture (copy of crates/geode-core/tests/fixtures/sphere.msh, #118)
-├── numpy/                          — NumPy/SciPy reference impls (Python)
-│   ├── README.md
-│   ├── requirements.txt            — pinned NumPy + scipy + meshio versions (#90, #92)
-│   ├── mesh.py                     — shared mesh builders (cube_tet_mesh, cube_interior_mask, load_msh, write_msh) (#103)
-│   ├── p1_local_matrices.py        — P1 element-local K and M (#90)
-│   ├── nedelec_local_matrices.py   — Nédélec element-local K and M (#117)
-│   ├── gen_p1_local_per_case.py    — regenerates `fixtures/p1_local/<case>.json` (#90 / #101)
-│   ├── cube_cavity.py              — cube-cavity end-to-end driver, n=10 + Gmsh-fixture path (#92)
-│   ├── cube_cavity_minimal.py      — sibling cube-cavity driver, programmatic n=4 path (#93)
-│   ├── gen_cube_cavity_baseline.py — regenerates `fixtures/cube_cavity/baseline.json` (#92)
-│   ├── sphere_pec.py               — sphere-PEC end-to-end driver (#118)
-│   └── gen_sphere_pec_baseline.py  — regenerates `fixtures/sphere_pec/baseline.json` (#118)
-├── jax/                            — JAX reference impls (Python)
-│   ├── README.md                   — DX friction notes (per #88 JAX-DX follow-up)
-│   ├── cube_cavity.py              — Cube-cavity assembly + autodiff anchor (#93)
-│   └── gen_cube_cavity_fixture.py  — regenerates fixtures/cube_cavity/jax_baseline.json (#93)
-├── tf_java/                        — TF-Java reference impls (Java + Maven)
-│   ├── README.md
-│   └── cube_cavity/                — Maven project, static-graph assembly (#93)
-│       ├── pom.xml
-│       └── src/main/java/dev/geodefem/refcubecavity/
-│           ├── CubeMesh.java        — JVM-side mesh
-│           ├── AssemblyGraph.java   — TF-Java Ops + Session static graph
-│           └── CubeCavityMain.java  — driver + sidecar emitter
-├── driver/                         — cross-language seam scripts
-│   ├── README.md
-│   ├── eigensolve_from_tfjava.py    — SciPy eigensolve from TF-Java sidecar
-│   ├── emit_numpy_eigenvalues.py    — fixture-schema JSON shim for NumPy n=4/n=10 in-job
-│   └── compare_eigenvalues.py       — cross-IR agreement table (TF-Java / Julia vs JAX / NumPy / Burn)
-├── julia/                          — Julia reference impls
-│   ├── README.md                   — toolchain bootstrap + Julia friction notes (#115)
-│   ├── Project.toml                — pinned Arpack.jl + JSON3.jl deps
-│   ├── mesh.jl                     — cube_tet_mesh + inline MSH 4.1 parser + cube_interior_mask
-│   ├── cube_cavity.jl              — Cube-cavity assembly + Arpack.jl eigensolve (#115)
-│   └── gen_cube_cavity_baseline.jl — regenerates fixtures/cube_cavity/julia_baseline.json
-└── onnx/                           — ONNX graph references (deferred)
-    └── README.md
+├── README.md        — this file
+├── SCHEMA.md        — fixture schema (v1)
+├── CONFORMANCE.md   — cross-backend conformance matrix (Epic #88 close-out)
+├── fixtures/        — canonical (input, golden output) bundles, one directory per
+│                      fixture (p1_local, nedelec_local, cube_cavity, derham, sphere_pec,
+│                      sphere_pml, sphere_mie, mie_roots, *_palace, *_mom, …)
+├── numpy/           — NumPy/SciPy reference impls (Python)        → numpy/README.md
+├── jax/             — JAX reference impls (Python)                → jax/README.md
+├── julia/           — Julia reference impls                       → julia/README.md
+├── onnx/            — ONNX graph references + operator audits     → onnx/README.md
+├── tf_java/         — TF-Java reference impls (Java + Maven)      → tf_java/README.md
+├── driver/          — cross-language seam scripts (sidecar eigensolves, comparisons)
+│                                                                  → driver/README.md
+├── palace/          — Palace 3-D oracle: docker recipe + GEODE baseline crates
+│                                                                  → palace/README.md
+├── meep/            — Meep 3-D FDTD + adjoint docker recipe       → meep/docker/README.md
+├── gmsh/            — Gmsh `.geo` geometries, fixture generators and layout YAMLs
+└── matrices/        — sparse test matrices (Nédélec H(curl) sparsity pattern)
+                                                                   → matrices/nedelec_hcurl/README.md
 ```
 
 ## Workspace shape — answer to #88 open question #1

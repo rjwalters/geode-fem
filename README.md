@@ -148,11 +148,13 @@ The full roadmap, with epics, sequencing and non-goals, is in **[`docs/ROADMAP.m
 
 - **v0.4–v0.7 (released):** the `geode` CLI for EDA flows: `check` / `driven` / `eigen` / `extract`, Touchstone, `geode mesh`, C/L + SPICE, lossy eigen, sensitivities, and the adaptive sweep.
 - **v0.8.0 (released 2026-10-04):** physics breadth (Epic #756): dispersive, anisotropic and rough materials; mixed, filled and walled wave ports; and hybrid microstrip/stripline ports (Epic #778).
-- **v0.9.0 (planned):**
+- **v0.9.0 (in progress):**
   - p=2 accuracy (#836);
   - differentiable EDA and `geode optimize` (#841);
   - adaptive meshing (#835);
   - periodic/Floquet (#837).
+
+  Landed on `main` so far: p=2 driven, eigen and geometric wave ports; N-port ∂S, including designs that move hybrid port faces; CLI N-port sensitivities with shape parameters; the H(curl) error estimator and the adaptive loop; periodic, Bloch and Floquet unit cells. Per-epic status is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 The early internal milestones (v0–v2: Nédélec elements, UPML, driven solves, wave ports, Krylov solvers, the benchmark tearsheets) are recorded in `CHANGELOG.md` and the closed epics.
 
@@ -263,8 +265,11 @@ crates/
   geode-app/         # shared application spine (logging / verbosity seam)
                      # for the GEODE-FEM example binaries
   geode-cli/         # the `geode` binary: headless JSON/TOML problem spec
-                     # in, versioned JSON report out (check / driven);
-                     # schema reference in crates/geode-cli/README.md
+                     # in, versioned JSON report out (check / driven /
+                     # eigen / extract / capacitance / inductance / mesh /
+                     # schema); reference in crates/geode-cli/README.md
+  geode-optimize/    # pure-Rust, physics-independent L-BFGS-B + MMA/GCMMA
+                     # optimizer core for the design loop (Epic #841, #873)
   geode-validation/  # cross-backend reference tests (NumPy / JAX / Julia /
                      # ONNX / TF-Java) and analytic-oracle gates
 ```

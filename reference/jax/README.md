@@ -266,19 +266,21 @@ the JAX docs cover this via Wirtinger calculus support, but for a
 FEM-shaped probe the split-real-input pattern is friction-free and
 the conventional choice. No surprises here.
 
-## Planned layout
+## Layout
 
-This directory will grow per-spine-slice files alongside
-`cube_cavity.py`. The pattern (per `reference/README.md`):
+One file per spine slice, alongside `cube_cavity.py`, each with its
+`gen_*` fixture generator:
 
 ```
 reference/jax/
 ├── README.md                         — this file
+├── requirements.txt                  — CPU-only JAX install pins
 ├── cube_cavity.py                    — Epic #88 / #93 (#93 wave 2)
 ├── gen_cube_cavity_fixture.py
 ├── sphere_pec.py                     — Epic #88 / #128 (Phase G.3)
 ├── gen_sphere_pec_fixture.py
 ├── sphere_pml.py                     — Epic #88 / #148 (Phase H.3)
 ├── gen_sphere_pml_fixture.py
-└── <next_slice>.py                   — future spine slices
+├── sphere_mie.py                     — Epic #88 / #173 (Phase J.4)
+└── gen_sphere_mie_fixture.py         — fixtures/sphere_mie_small/jax_baseline.json
 ```
