@@ -276,8 +276,9 @@ fn wave_specs(p: &Problem) -> Result<Vec<WavePortSpec>, CliError> {
 }
 
 /// Run the library sensitivity on the spec's forward at `omegas`
-/// (`port_modes`: also the hybrid port-mode observables). Exposed for the
-/// golden test's library-parity check through the CLI's own binding.
+/// (`port_modes`: also the hybrid port-mode observables). The golden
+/// `tests/sensitivity_nport.rs` rebuilds this network in-process from the
+/// mesh and checks the CLI's gradients against it bit for bit.
 fn library_sweep(
     p: &Problem,
     design: &SDesign,
