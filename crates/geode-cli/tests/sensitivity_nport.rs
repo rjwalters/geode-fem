@@ -282,7 +282,9 @@ fn assert_fd_agreement(report: &Value, what: &str) -> Value {
     assert!(f(&s["forward_parity"]) <= 1e-12, "{what}: forward parity");
     // Every FD spec pins what must not move: no forgotten-pin warning (the
     // slab guide's walls slide in their own plane with the slab, their
-    // perimeters held on the pinned port faces).
+    // perimeters held on the pinned port faces), no tangential motion and
+    // no interface dragged by the extension (issue #893: the slab's faces
+    // are the parameter's own, and they move along their normal).
     assert_eq!(shape_warnings(&s), Vec::<(String, Value)>::new(), "{what}");
     s
 }
@@ -731,6 +733,13 @@ fn microstrip_cookbook_strip_width_check_gradient_agrees() {
 /// `translate` without `pinned` moves the whole model rigidly
 /// (`sensitivity_shape_rigid`: every gradient zero by construction). The
 /// runs still succeed.
+///
+/// Issue #893: sliding the strip along the line (`translate` z, the port
+/// faces pinned) moves every node within its own wall, sheet or interface
+/// — the mesh moves, the geometry does not — and raises
+/// `sensitivity_shape_tangential` (and nothing else); the pinned width
+/// stretch above stays silent (the substrate fills the box: its interface
+/// with the air only slides in its own plane).
 #[test]
 fn unpinned_shape_parameters_warn_rigid_motion_and_moved_walls() {
     use geode_core::analytic::microstrip::{ShieldedStripFace, StripMeshOpts};
@@ -809,6 +818,29 @@ fn unpinned_shape_parameters_warn_rigid_motion_and_moved_walls() {
     assert_eq!(shape_warnings(&s), vec![], "{s:#}");
     assert!(f(&s["entries"][0]["gradient"]).abs() > 1e-3, "{s:#}");
 
+    // Issue #893: the strip slid along the line is a reparametrisation of
+    // the mesh (every surface slides within itself): warned, and only that.
+    let (s, stderr) = run(
+        "tangential",
+        json!({"kind": "shape", "name": "strip_slide", "physical_group": "strip",
+               "motion": "translate", "axis": [0, 0, 1], "pinned": ["port_in", "port_out"]}),
+    );
+    assert_eq!(
+        shape_warnings(&s),
+        vec![("sensitivity_shape_tangential".to_string(), Value::Null)],
+        "{s:#}"
+    );
+    let msg = s["warnings"][0]["message"].as_str().unwrap();
+    assert!(
+        msg.contains("`strip_slide` moves the mesh but not the geometry")
+            && msg.contains("discretisation sensitivity"),
+        "{msg}"
+    );
+    assert!(
+        stderr.contains("warning: shape parameter `strip_slide` moves the mesh"),
+        "{stderr}"
+    );
+
     // Unpinned stretch: the shield box widens with the strip.
     let (s, stderr) = run("unpinned-stretch", stretch(json!([])));
     assert_eq!(
@@ -854,6 +886,15 @@ fn unpinned_shape_parameters_warn_rigid_motion_and_moved_walls() {
 /// moves only in its own plane (no normal motion), yet its extent changes,
 /// so `sensitivity_shape_moves_boundary` names `ground`. The closed
 /// `outer_boundary` (pinned) stays silent either way.
+///
+/// Issue #893 changed what "pinned" asserts here, deliberately: this spec
+/// is that issue's second case. The substrate is a finite slab whose
+/// lateral faces (normal to x) are an untagged `substrate` / `air`
+/// interface, and the harmonic extension of the patch's x-stretch drags
+/// them along x whatever is pinned — so both runs now also raise
+/// `sensitivity_shape_moves_interface` (no group: the message names the two
+/// volume groups). The `moves_boundary` expectations are unchanged: none
+/// with `ground` pinned, exactly `ground` without.
 #[test]
 fn forgotten_ground_pin_warns_on_in_plane_plate_resize() {
     let mesh = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -880,18 +921,75 @@ fn forgotten_ground_pin_warns_on_in_plane_plate_resize() {
         ok(&geode(&["driven", spec.to_str().unwrap()]), name)["sensitivities"].clone()
     };
 
+    let interface = ("sensitivity_shape_moves_interface".to_string(), Value::Null);
     let s = run("pinned", json!(["port", "outer_boundary", "ground"]));
-    assert_eq!(shape_warnings(&s), vec![], "{s:#}");
+    assert_eq!(shape_warnings(&s), vec![interface.clone()], "{s:#}");
+    let msg = s["warnings"][0]["message"].as_str().unwrap();
+    assert!(
+        msg.contains("between the volume groups `substrate` and `air`")
+            && msg.contains("not in a named surface group"),
+        "{msg}"
+    );
 
     let s = run("ground-forgotten", json!(["port", "outer_boundary"]));
     assert_eq!(
         shape_warnings(&s),
-        vec![(
-            "sensitivity_shape_moves_boundary".to_string(),
-            json!("ground")
-        )],
+        vec![
+            (
+                "sensitivity_shape_moves_boundary".to_string(),
+                json!("ground")
+            ),
+            interface
+        ],
         "{s:#}"
     );
+}
+
+/// The issue #893 case as filed: on the microstrip cookbook mesh
+/// (`microstrip_line_smoke.msh`) the strip `translate`d along the line with
+/// the port faces pinned reports `∂∠S21/∂θ ≈ 1.05 °/m` that is pure
+/// discretisation sensitivity — every node moves within its own wall,
+/// sheet or interface. The gradient is still reported (it is the morph's),
+/// with `sensitivity_shape_tangential` beside it. Release tier: the graded
+/// hybrid face takes minutes in debug.
+#[test]
+#[ignore = "release tier (minutes in debug): run with --release -- --ignored"]
+fn microstrip_cookbook_strip_slide_along_the_line_warns_tangential() {
+    let mesh = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../geode-core/tests/fixtures/microstrip_line_smoke.msh");
+    let dir = Scratch::new("geode-cli-nport-893-", "tangential");
+    let v = json!({
+        "schema_version": 1,
+        "mesh": {"path": mesh.display().to_string(), "length_unit_m": 1e-3},
+        "materials": [{"physical_group": "substrate", "eps_r": [4.4, 0.0]}],
+        "boundary_conditions": {"pec": ["shield", "strip"]},
+        "wave_ports": [{"physical_group": "port_in", "reference_ohm": 50},
+                       {"physical_group": "port_out", "reference_ohm": 50}],
+        "frequencies": {"unit": "ghz", "values": [2.0]},
+        "sensitivity": {
+            "parameters": [{"kind": "shape", "name": "strip_slide",
+                            "physical_group": "strip", "motion": "translate",
+                            "axis": [0, 0, 1], "pinned": ["port_in", "port_out"]}],
+            "observables": [{"quantity": "s", "entry": [1, 0], "form": "phase_deg"}]
+        }
+    });
+    let spec = ScratchFile::write_in(dir, "spec.json", serde_json::to_string_pretty(&v).unwrap());
+    let out = geode(&["driven", spec.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let s = ok(&out, "strip slide")["sensitivities"].clone();
+    assert_eq!(
+        shape_warnings(&s),
+        vec![("sensitivity_shape_tangential".to_string(), Value::Null)],
+        "{s:#}"
+    );
+    assert!(
+        stderr.contains("warning: shape parameter `strip_slide` moves the mesh"),
+        "{stderr}"
+    );
+    // Advisory only: the morph's gradient is reported as before.
+    let g = f(&s["entries"][0]["gradient"]);
+    eprintln!("strip slide: d(phase S21)/d(theta) = {g:.6e} deg per metre");
+    assert!(g.is_finite() && g.abs() > 1e-3, "{s:#}");
 }
 
 // ---------------------------------------------------------------------------

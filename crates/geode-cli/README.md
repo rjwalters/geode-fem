@@ -1312,8 +1312,28 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   plane (a finite plate resized — a forgotten `ground` on a patch
   antenna). In-plane motion of a wall whose perimeter is held — a wall
   sliding with the slab it bounds, its edges on pinned port faces — and
-  hybrid port faces are not flagged. Both are also printed on
-  stderr; the run still succeeds.
+  hybrid port faces are not flagged. Two more advisory kinds cover morphs
+  that are legitimate but probably not what was meant:
+  `sensitivity_shape_tangential` when the mesh moves and the geometry does
+  not — no face of the mesh boundary, of a named surface group (walls,
+  port faces, the parameter's own groups) or of a material interface has a
+  node moving along its normal, and no named surface's free perimeter
+  moves across itself (a strip `translate`d along its own line with the
+  port faces pinned). The morph is then a reparametrisation: the continuum
+  gradient is zero and the reported one is discretisation sensitivity,
+  which vanishes under refinement. The check is conservative (one
+  normal-moving node anywhere silences it). And
+  `sensitivity_shape_moves_interface`, one per pair of volume groups (named
+  in the message; `physical_group` is `null`), when a material interface —
+  a face between two volume groups of different material — has a node the
+  parameter does not own moving along the face normal: the harmonic
+  extension drags that interface with the motion (a patch `stretch` drags
+  the lateral faces of a finite substrate). It is raised whatever is
+  pinned, because an interface is usually not a named surface group; to
+  hold it, tag it as a surface group in the mesh and pin it (the message
+  names the group when the faces are already tagged). A rigid motion
+  raises only `sensitivity_shape_rigid`. All of these are also printed on
+  stderr; the run still succeeds and the gradients are unchanged.
 - **Observables.** `entry` / `entries` index the report's flat S-matrix
   order (lumped ports first, then the wave channels port-major,
   mode-minor — `results[].wave_channels[].channel`; `[0, 0]` is `S11`).
