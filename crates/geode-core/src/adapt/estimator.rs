@@ -35,7 +35,10 @@
 //!       + ½ Σ_{F interior}  h_F/(|k²| ε_F)  ‖ [[n · R]] ‖²_F         normal jump
 //!       + Σ_{F natural}  ( h_F/ν_T ‖ n × ν∇×E_h ‖²_F
 //!                        + h_F/(|k²| ε_T) ‖ n · R ‖²_F )           boundary
+//!       + Robin (impedance / lumped-port) face and edge terms        boundary, boundary_edge
 //! ```
+//!
+//! (the Robin terms are given in "Impedance (Robin) boundaries" below).
 //!
 //! with `h_T` the tet diameter (longest edge), `h_F` the face diameter,
 //! `ν_F`, `ε_F` the **smaller** of the two adjacent tets' values, and
@@ -81,16 +84,72 @@
 //! invariant under a mesh-unit change. Every reported quantity that is
 //! meant to be compared across problems is relative.
 //!
+//! # Impedance (Robin) boundaries (issue #879)
+//!
+//! A [`BoundaryFaceKind::Robin`] face carries the boundary condition the
+//! driven solve assembles for a Leontovich surface (good / rough conductor,
+//! London superconductor, fixed `Z_s`), a Silver-Müller absorber
+//! (`Z_s = 1`) and a lumped port (`Z_s = R w / l` with the drive
+//! `V_inc`). All of them add `c ∮ E_t · v_t` to the bilinear form and
+//! `∮ g · v` to the load ([`RobinBoundary`]), with
+//!
+//! ```text
+//!   c = iω / Z_s(ω)                      (SurfaceImpedanceModel::weak_coefficient)
+//!   g = 2 c (V_inc / l) ê                (lumped port; 0 for an impedance surface)
+//! ```
+//!
+//! Integrating `∇×(ν∇×E)` by parts against that weak form gives the strong
+//! boundary condition `−n × ν∇×E + w = 0` with `w = c E_t − g_t`, and,
+//! through the surface identity `n · ∇×A = −div_Γ(n × A)`, the normal-flux
+//! condition `n · R + div_Γ w = 0`. The face and edge residuals are
+//!
+//! ```text
+//! Σ_{F Robin}  ( ω_t(F) ‖ g_t − c E_{h,t} + n × ν∇×E_h ‖²_F
+//!              + ω_n(F) ‖ n · R + div_Γ(c E_{h,t} − g) ‖²_F )         boundary
+//! Σ_{e Robin}  h_e / c_e ‖ [[w_h · m]] ‖²_e                         boundary_edge
+//!
+//! ω_t(F) = min( h_F / ν_T ,          1 / |c| )
+//! ω_n(F) = min( h_F / (|k²| ε_T) ,   h_F² / |c| )
+//! ```
+//!
+//! with `m` the in-plane unit normal of each boundary face at the edge `e`
+//! (pointing out of the face), `[[w · m]] = w_F · m_F + w_{F'} · m_{F'}`
+//! the jump of the surface flux across `e`, and `c_e` the larger `|c|` of
+//! the two faces. The edge term runs over every boundary edge shared by
+//! two Robin or natural faces (`w = 0` on a natural face) with at least
+//! one Robin face; an edge touching a PEC, periodic or uncovered face is
+//! skipped (the gradient test function vanishes on a PEC face).
+//!
+//! **The weights.** The error of an impedance problem is measured in the
+//! impedance energy norm `‖E‖²_E + |c| ‖E_t‖²_Γ`, and each residual has two
+//! valid weights: the volume one (as for a natural face) and the one that
+//! uses the surface part of the norm (`‖z_t‖_Γ ≤ |c|^{-1/2} ‖z‖`,
+//! `‖φ − I φ‖_F ≲ h_F ‖∇_Γφ‖_F`, `‖φ − I φ‖_e ≲ h_e^{1/2} ‖∇_Γφ‖`).
+//! Either gives an upper bound, so the smaller is taken. The surface
+//! weights matter: at p=1 `div_Γ E_{h,t} = 0` on every face, so the
+//! normal-flux residual of a field with `div_Γ E_t ≠ 0` does not converge
+//! pointwise, and with the volume weight alone it would grow relative to
+//! the error under refinement. They also give the PEC limit: as
+//! `|c| → ∞` every Robin weight goes to zero, like a PEC face. Each weight
+//! is unit-invariant (`c` scales as `1/L`, like `k`). For `c = 0` and
+//! `g = 0` the face terms are exactly the natural-face terms.
+//!
+//! `g` is constant on a face (the uniform lumped port), so `div_Γ g = 0`.
+//! `div_Γ E_{h,t}` is evaluated by central differences along the face, which
+//! is exact for p ≤ 2.
+//!
 //! # Coverage, not silence
 //!
-//! Phase 1 models interior faces, material interfaces, PEC faces and natural
-//! (PMC, `n × ν∇×E = 0`) faces. Boundary faces of any other kind
-//! (Leontovich, Silver-Müller, lumped port, wave/hybrid port) are classified
+//! The estimator models interior faces, material interfaces, PEC faces,
+//! natural (PMC, `n × ν∇×E = 0`) faces and Robin faces (impedance surfaces,
+//! Silver-Müller absorbers and lumped ports, see above; counted by kind in
+//! [`EstimatorCoverage::robin_faces`]). Boundary faces of any other kind
+//! (wave/hybrid ports, Epic #835 Phase 5) are classified
 //! [`BoundaryFaceKind::Uncovered`] by the caller, **counted by kind** in
-//! [`ErrorEstimate::coverage`], and contribute no boundary term (Epic #835
-//! Phases 3 and 5 add those). UPML tets are estimated normally and counted
-//! in [`EstimatorCoverage::upml_tets`]; the adaptive loop (Phase 3) will
-//! exclude them from marking, because PML error is a design parameter.
+//! [`ErrorEstimate::coverage`], and contribute no boundary term. UPML tets
+//! are estimated normally and counted in [`EstimatorCoverage::upml_tets`];
+//! the adaptive loop excludes them from marking, because PML error is a
+//! design parameter.
 //!
 //! # Pre-asymptotic caveat (pollution)
 //!
@@ -155,15 +214,17 @@ pub const PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH: f64 = 6.0;
 
 /// The empirical effectivity range `θ = η / ‖E − E_h‖_E` this estimator was
 /// validated to on the analytic problems of the `hcurl_error_estimator`
-/// test target (issue #840), every level of each:
+/// test target (issues #840 and #879), every level of each:
 ///
 /// | problem | θ (measured) |
 /// |---|---|
 /// | driven manufactured PEC cube, `n = 2, 4, 8, 16` | 5.97, 6.50, 6.75, 6.85 |
 /// | PEC box cavity `(1,1,0)` mode, `h = 0.2 … 0.05` (energy norm vs the analytic mode) | 5.82, 6.22, 6.32, 6.36 |
 /// | gradient error at an `ε = 4 : 1` interface, `n = 4, 8, 16` | 3.92, 3.76, 3.72 |
+/// | manufactured impedance cube (#879), five `Z_s` models, `n = 4, 8, 16` | 7.03–7.13, 7.30–7.37, 7.41–7.48 |
+/// | port-fed, Silver-Müller-capped guide (#879), `n = 4, 8, 16` | 6.35, 6.48, 6.53 |
 ///
-/// The range is these values rounded outward, `[3.5, 7.0]`. It is
+/// The range is these values rounded outward, `[3.5, 8.0]`. It is
 /// empirical: it holds for shape-regular meshes and smooth or mildly
 /// singular fields like these, in the asymptotic regime (≥ 6 points per
 /// wavelength). A singular field, strong anisotropy or a badly shaped mesh
@@ -171,13 +232,15 @@ pub const PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH: f64 = 6.0;
 /// field in the test target, so it only checks that the eigenvalue ratio
 /// `(|λ_h − λ|/λ)/η_rel²` stays constant (spread 1.02).
 ///
-/// The top of the range has a thin margin. On the manufactured cube `θ`
-/// rises under refinement (6.50 → 6.75 → 6.85) and extrapolates to about
-/// 6.9, against the 7.0 ceiling. A finer mesh of a similar problem can
-/// therefore sit just under the ceiling, and a slightly different one can
-/// cross it. The floor (3.72) comes from a synthetic gradient error
+/// The ceiling was 7.0 until #879. The manufactured impedance cube crossed
+/// it (7.48 at `n = 16`, still rising by about 0.1 per halving and
+/// extrapolating to about 7.55), as the #840 docs warned a slightly
+/// different problem could. Most of that is the volume terms on that field,
+/// not the Robin terms (the boundary and edge terms are about 6 % of `η²`
+/// at `n = 16`). The ceiling is rounded outward to 8.0 to cover the
+/// extrapolation. The floor (3.72) comes from a synthetic gradient error
 /// (golden 3b), which can only widen the upper error bound.
-pub const VALIDATED_EFFECTIVITY: EffectivityRange = EffectivityRange { min: 3.5, max: 7.0 };
+pub const VALIDATED_EFFECTIVITY: EffectivityRange = EffectivityRange { min: 3.5, max: 8.0 };
 
 /// A range `[min, max]` of the effectivity index `θ = η / ‖E − E_h‖_E`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -198,11 +261,70 @@ pub enum BoundaryFaceKind {
     /// Natural / PMC boundary (`n × ν∇×E = 0`, no surface term in the weak
     /// form): the tangential and normal flux residuals are estimated.
     Natural,
-    /// A boundary kind Phase 1 does not model. The face is counted in
+    /// A Robin (impedance) face: entry `i` of [`EstimatorInput::robin`]
+    /// gives its coefficient `c` and drive `g` (Leontovich, Silver-Müller,
+    /// lumped port; see the [module docs](self)). The face and edge
+    /// residuals of the Robin condition are estimated, and the face is
+    /// counted in [`EstimatorCoverage::robin_faces`] under the entry's
+    /// name.
+    Robin(usize),
+    /// A boundary kind the estimator does not model. The face is counted in
     /// [`EstimatorCoverage::uncovered`] under this name and contributes no
-    /// term. Use `"leontovich"`, `"silver_muller"`, `"lumped_port"` or
-    /// `"wave_port"`.
+    /// term. Use `"wave_port"` (or `"hybrid_port"`); impedance surfaces and
+    /// lumped ports are [`BoundaryFaceKind::Robin`].
     Uncovered(&'static str),
+}
+
+/// The data of one Robin boundary ([`BoundaryFaceKind::Robin`]): the weak
+/// form adds `c ∮ E_t · v_t` to the bilinear form and `∮ g · v` to the
+/// load, as [`crate::driven::solve::DrivenOperator`] assembles impedance
+/// surfaces and lumped ports (see the [module docs](self)).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RobinBoundary {
+    /// The kind name the faces are counted under in
+    /// [`EstimatorCoverage::robin_faces`] (`"leontovich"`,
+    /// `"silver_muller"`, `"lumped_port"`, ...).
+    pub name: &'static str,
+    /// `c = iω / Z_s(ω)`
+    /// ([`crate::driven::solve::SurfaceImpedanceModel::weak_coefficient`];
+    /// `iω / (R w / l)` for a lumped port). Finite.
+    pub coefficient: c64,
+    /// The constant surface drive `g` (only its tangential part enters):
+    /// `2 c (V_inc / l) ê` for a lumped port, zero for an impedance
+    /// surface. Finite.
+    pub drive: [c64; 3],
+}
+
+impl RobinBoundary {
+    /// An impedance surface (`g = 0`) with weak coefficient `c = iω/Z_s`.
+    pub fn impedance(name: &'static str, coefficient: c64) -> Self {
+        Self {
+            name,
+            coefficient,
+            drive: [c64::new(0.0, 0.0); 3],
+        }
+    }
+
+    /// A uniform lumped port of surface impedance `Z_s = R w / l` at
+    /// frequency `omega`: `c = iω / Z_s`, `g = 2 c (V_inc / l) ê`, the
+    /// terms of [`crate::driven::ports::LumpedPort`].
+    pub fn lumped_port(
+        omega: f64,
+        e_hat: [f64; 3],
+        resistance: f64,
+        width: f64,
+        length: f64,
+        v_inc: c64,
+    ) -> Self {
+        let z_s = resistance * width / length;
+        let c = c64::new(0.0, omega / z_s);
+        let amp = c * 2.0 * v_inc / length;
+        Self {
+            name: "lumped_port",
+            coefficient: c,
+            drive: e_hat.map(|e| amp * e),
+        }
+    }
 }
 
 /// A volume source `f` of `∇×(ν∇×E) − k²εE = f`, with its divergence.
@@ -284,6 +406,9 @@ pub struct EstimatorInput<'a> {
     pub paired_face: Option<&'a (dyn Fn([u32; 3]) -> Option<FacePairing> + Sync)>,
     /// Optional per-tet UPML flag (counted in the coverage report).
     pub upml_tet: Option<&'a [bool]>,
+    /// The Robin boundaries [`BoundaryFaceKind::Robin`] indexes into
+    /// (empty by default).
+    pub robin: &'a [RobinBoundary],
 }
 
 impl std::fmt::Debug for EstimatorInput<'_> {
@@ -295,6 +420,7 @@ impl std::fmt::Debug for EstimatorInput<'_> {
             .field("source", &self.source.is_some())
             .field("periodic_map", &self.periodic_map.is_some())
             .field("paired_face", &self.paired_face.is_some())
+            .field("robin", &self.robin)
             .finish_non_exhaustive()
     }
 }
@@ -324,6 +450,7 @@ impl<'a> EstimatorInput<'a> {
             periodic_map: None,
             paired_face: None,
             upml_tet: None,
+            robin: &[],
         }
     }
 
@@ -359,6 +486,12 @@ impl<'a> EstimatorInput<'a> {
     /// Set the per-tet UPML flags.
     pub fn with_upml_tets(mut self, upml: &'a [bool]) -> Self {
         self.upml_tet = Some(upml);
+        self
+    }
+
+    /// Set the Robin boundaries [`BoundaryFaceKind::Robin`] indexes into.
+    pub fn with_robin(mut self, robin: &'a [RobinBoundary]) -> Self {
+        self.robin = robin;
         self
     }
 }
@@ -419,8 +552,12 @@ pub struct EstimateComponents {
     pub tangential_jump: f64,
     /// Interior (and periodic) faces: `½ h_F/(|k²|ε_F) ‖[[n · R]]‖²_F`.
     pub normal_jump: f64,
-    /// Natural boundary faces: tangential plus normal flux residuals.
+    /// Natural and Robin boundary faces: tangential plus normal flux
+    /// residuals.
     pub boundary: f64,
+    /// Robin boundary edges: `h_e / c_e ‖[[w_h · m]]‖²_e` (half to each of
+    /// the two faces' tets; see the [module docs](self)).
+    pub boundary_edge: f64,
     /// The hierarchical p-surplus (#836 Phase 5a). Always `0` in Phase 1;
     /// reserved so the p=1-vs-p=2 difference enters as one more component
     /// of this estimate rather than a second estimator.
@@ -436,6 +573,7 @@ impl EstimateComponents {
             + self.tangential_jump
             + self.normal_jump
             + self.boundary
+            + self.boundary_edge
             + self.p_surplus
     }
 
@@ -445,6 +583,7 @@ impl EstimateComponents {
         self.tangential_jump += o.tangential_jump;
         self.normal_jump += o.normal_jump;
         self.boundary += o.boundary;
+        self.boundary_edge += o.boundary_edge;
         self.p_surplus += o.p_surplus;
     }
 }
@@ -463,8 +602,13 @@ pub struct EstimatorCoverage {
     pub pec_faces: usize,
     /// Natural (PMC) boundary faces (boundary term estimated).
     pub natural_faces: usize,
-    /// Boundary faces of a kind Phase 1 does not model, by kind name. They
-    /// contribute no term.
+    /// Robin boundary faces (impedance surfaces, lumped ports; boundary
+    /// terms estimated), by [`RobinBoundary::name`].
+    pub robin_faces: BTreeMap<&'static str, usize>,
+    /// Boundary edges carrying a Robin edge term.
+    pub robin_edges: usize,
+    /// Boundary faces of a kind the estimator does not model, by kind name.
+    /// They contribute no term.
     pub uncovered: BTreeMap<&'static str, usize>,
     /// Tets flagged UPML (estimated normally; excluded from marking by the
     /// adaptive loop).
@@ -690,6 +834,29 @@ pub enum EstimatorError {
         /// Faces of the given mesh.
         mesh_faces: usize,
     },
+    /// A face is classified [`BoundaryFaceKind::Robin`] with an index
+    /// outside [`EstimatorInput::robin`].
+    #[error(
+        "face {face:?} is classified Robin({index}), but only {len} Robin boundaries are given"
+    )]
+    UnknownRobin {
+        /// The face (sorted).
+        face: [u32; 3],
+        /// Its Robin index.
+        index: usize,
+        /// `robin.len()`.
+        len: usize,
+    },
+    /// A Robin boundary has a non-finite coefficient or drive.
+    #[error("Robin boundary {index} ({name}) is invalid: {detail}")]
+    InvalidRobin {
+        /// Its index.
+        index: usize,
+        /// Its name.
+        name: &'static str,
+        /// What is wrong.
+        detail: String,
+    },
     /// Both a periodic map and a `paired_face` closure were given.
     #[error("give either a periodic map or a paired_face closure, not both")]
     ConflictingPeriodicInputs,
@@ -836,6 +1003,23 @@ fn central_diff(
     std::array::from_fn(|k| (p[k] - m[k]) * s)
 }
 
+/// The derivative of `g` along the physical unit direction `dir` by a
+/// central difference of step `delta`: exact for `g` of polynomial degree
+/// ≤ 2.
+fn dir_diff(
+    g: impl Fn([f64; 4]) -> [c64; 3],
+    bary: [f64; 4],
+    grad: &[[f64; 3]; 4],
+    dir: [f64; 3],
+    delta: f64,
+) -> [c64; 3] {
+    let shifted = |s: f64| -> [f64; 4] { std::array::from_fn(|i| bary[i] + s * dot(grad[i], dir)) };
+    let p = g(shifted(delta));
+    let m = g(shifted(-delta));
+    let s = 0.5 / delta;
+    std::array::from_fn(|k| (p[k] - m[k]) * s)
+}
+
 /// `∇×∇×E_h` in tet `t` (constant for p ≤ 2), by central differences of
 /// `∇×E_h` at the centroid.
 fn curl_curl(field: &dyn FieldReconstruction, t: usize, delta: f64) -> [c64; 3] {
@@ -920,6 +1104,7 @@ enum FaceClass {
     Periodic,
     Pec,
     Natural,
+    Robin(usize),
     Uncovered(&'static str),
 }
 
@@ -1183,10 +1368,51 @@ pub fn estimate_hcurl(input: &EstimatorInput<'_>) -> Result<ErrorEstimate, Estim
         let class = match (input.boundary_kind)(face) {
             BoundaryFaceKind::Pec => FaceClass::Pec,
             BoundaryFaceKind::Natural => FaceClass::Natural,
+            BoundaryFaceKind::Robin(i) => {
+                if i >= input.robin.len() {
+                    return Err(EstimatorError::UnknownRobin {
+                        face,
+                        index: i,
+                        len: input.robin.len(),
+                    });
+                }
+                FaceClass::Robin(i)
+            }
             BoundaryFaceKind::Uncovered(k) => FaceClass::Uncovered(k),
         };
         let (mut tang, mut normal) = (0.0, 0.0);
-        if matches!(class, FaceClass::Natural) {
+        // Natural is the Robin condition with c = 0, g = 0 (bit-identical:
+        // the extra terms are exact zeros).
+        let robin = match class {
+            FaceClass::Natural => Some((c64::new(0.0, 0.0), [c64::new(0.0, 0.0); 3])),
+            FaceClass::Robin(i) => Some((input.robin[i].coefficient, input.robin[i].drive)),
+            _ => None,
+        };
+        if let Some((cr, g)) = robin {
+            // The Robin terms need the outward normal (n × ν∇×E flips with
+            // n, c E_t does not).
+            let opp = mesh.tets[a]
+                .iter()
+                .find(|v| !face.contains(v))
+                .map(|&v| mesh.nodes[v as usize])
+                .expect("a tet has a vertex off its face");
+            let n = if dot(n, sub(opp, p[0])) > 0.0 {
+                scale(n, -1.0)
+            } else {
+                n
+            };
+            let c_abs = cr.norm();
+            // g_t = g − (g·n) n (constant on the face).
+            let gn: c64 = (0..3).map(|d| g[d] * n[d]).sum();
+            let g_t: [c64; 3] = std::array::from_fn(|d| g[d] - gn * n[d]);
+            // An in-plane orthonormal frame, for div_Γ.
+            let t1 = {
+                let e = sub(p[1], p[0]);
+                scale(e, 1.0 / norm(e))
+            };
+            let t2 = cross(n, t1);
+            let grad_a = field.grad_bary(a);
+            let delta = 0.5 * ta.h;
             for mu in &TRI_RULE_DEG5 {
                 let x = [
                     mu[0] * p[0][0] + mu[1] * p[1][0] + mu[2] * p[2][0],
@@ -1196,13 +1422,34 @@ pub fn estimate_hcurl(input: &EstimatorInput<'_>) -> Result<ErrorEstimate, Estim
                 let la = ba(mu);
                 let ca = field.curl_e_at(a, la);
                 let jc: [c64; 3] = std::array::from_fn(|d| ca[d] * ta.nu);
-                tang += mu[3] * cross_rc(n, jc).iter().map(|v| v.norm_sqr()).sum::<f64>();
+                let mut rt = cross_rc(n, jc);
                 let ra = load(a, x, la);
-                let jn: c64 = (0..3).map(|d| ra[d] * n[d]).sum();
+                let mut jn: c64 = (0..3).map(|d| ra[d] * n[d]).sum();
+                if c_abs > 0.0 || gn.norm() > 0.0 || g_t.iter().any(|v| v.norm() > 0.0) {
+                    let e = field.e_at(a, la);
+                    let en: c64 = (0..3).map(|d| e[d] * n[d]).sum();
+                    for d in 0..3 {
+                        rt[d] += g_t[d] - cr * (e[d] - en * n[d]);
+                    }
+                    // div_Γ E_t = Σ_i t_i · ∂_{t_i} E on a flat face.
+                    let mut div_t = c64::new(0.0, 0.0);
+                    for t in [t1, t2] {
+                        let de = dir_diff(|b| field.e_at(a, b), la, grad_a, t, delta);
+                        div_t += (0..3).map(|d| de[d] * t[d]).sum::<c64>();
+                    }
+                    jn += cr * div_t;
+                }
+                tang += mu[3] * rt.iter().map(|v| v.norm_sqr()).sum::<f64>();
                 normal += mu[3] * jn.norm_sqr();
             }
-            tang *= area * h_f / ta.nu;
-            normal *= area * h_f / (k2_abs * ta.eps_w);
+            let mut w_t = h_f / ta.nu;
+            let mut w_n = h_f / (k2_abs * ta.eps_w);
+            if c_abs > 0.0 {
+                w_t = w_t.min(1.0 / c_abs);
+                w_n = w_n.min(h_f * h_f / c_abs);
+            }
+            tang *= area * w_t;
+            normal *= area * w_n;
         }
         Ok(FaceResult {
             class,
@@ -1228,8 +1475,10 @@ pub fn estimate_hcurl(input: &EstimatorInput<'_>) -> Result<ErrorEstimate, Estim
             .map_or(0, |u| u.iter().filter(|&&b| b).count()),
         ..Default::default()
     };
-    for fr in face_results {
+    let mut face_class: Vec<Option<FaceClass>> = vec![None; n_faces];
+    for (gf, fr) in face_results.into_iter().enumerate() {
         let fr = fr?;
+        face_class[gf] = Some(fr.class);
         match fr.class {
             FaceClass::Interior => {
                 coverage.interior_faces += 1;
@@ -1251,11 +1500,27 @@ pub fn estimate_hcurl(input: &EstimatorInput<'_>) -> Result<ErrorEstimate, Estim
                 coverage.natural_faces += 1;
                 terms[fr.tets[0]].boundary += fr.tang + fr.normal;
             }
+            FaceClass::Robin(i) => {
+                *coverage.robin_faces.entry(input.robin[i].name).or_insert(0) += 1;
+                terms[fr.tets[0]].boundary += fr.tang + fr.normal;
+            }
             FaceClass::Uncovered(kind) => {
                 *coverage.uncovered.entry(kind).or_insert(0) += 1;
             }
         }
     }
+
+    // ---- Robin boundary edges. --------------------------------------------
+    robin_edge_terms(
+        input,
+        &field,
+        faces,
+        &owners,
+        &n_owners,
+        &face_class,
+        &mut terms,
+        &mut coverage,
+    );
 
     let mut components = EstimateComponents::default();
     for c in &terms {
@@ -1297,6 +1562,126 @@ pub fn estimate_hcurl(input: &EstimatorInput<'_>) -> Result<ErrorEstimate, Estim
         pre_asymptotic: min_ppw < PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH,
         coverage,
     })
+}
+
+/// 3-point Gauss–Legendre on `[0, 1]` as `(s, w)`: exact to degree 5 (the
+/// edge integrand `|[[w_h · m]]|²` is of degree ≤ 4 for p ≤ 2).
+const GL3: [(f64, f64); 3] = [
+    (0.5 - 0.387_298_334_620_741_7, 5.0 / 18.0),
+    (0.5, 8.0 / 18.0),
+    (0.5 + 0.387_298_334_620_741_7, 5.0 / 18.0),
+];
+
+/// One face of a Robin edge: owning tet, `c`, `g`, the in-plane outward
+/// normal `m` at the edge, and the face.
+type EdgeSide = (usize, c64, [c64; 3], [f64; 3], [u32; 3]);
+
+/// The Robin edge terms `h_e / c_e ‖[[w_h · m]]‖²_e` (see the
+/// [module docs](self)), half to each face's tet, in sorted edge order.
+#[allow(clippy::too_many_arguments)]
+fn robin_edge_terms(
+    input: &EstimatorInput<'_>,
+    field: &dyn FieldReconstruction,
+    faces: &[[u32; 3]],
+    owners: &[[usize; 2]],
+    n_owners: &[u8],
+    face_class: &[Option<FaceClass>],
+    terms: &mut [EstimateComponents],
+    coverage: &mut EstimatorCoverage,
+) {
+    if input.robin.is_empty() {
+        return;
+    }
+    // Boundary edge → its boundary faces.
+    let mut edge_faces: HashMap<[u32; 2], Vec<usize>> = HashMap::new();
+    for (gf, face) in faces.iter().enumerate() {
+        if n_owners[gf] != 1 {
+            continue;
+        }
+        for (i, j) in [(0, 1), (0, 2), (1, 2)] {
+            edge_faces.entry([face[i], face[j]]).or_default().push(gf);
+        }
+    }
+    let robin_data = |gf: usize| -> Option<(c64, [c64; 3])> {
+        match face_class[gf]? {
+            FaceClass::Natural => Some((c64::new(0.0, 0.0), [c64::new(0.0, 0.0); 3])),
+            FaceClass::Robin(i) => Some((input.robin[i].coefficient, input.robin[i].drive)),
+            _ => None,
+        }
+    };
+    let mut edges: Vec<([u32; 2], [usize; 2])> = edge_faces
+        .into_iter()
+        .filter_map(|(e, fs)| {
+            if fs.len() != 2 {
+                return None;
+            }
+            let (a, b) = (fs[0], fs[1]);
+            let both = robin_data(a).is_some() && robin_data(b).is_some();
+            let any_robin = matches!(face_class[a], Some(FaceClass::Robin(_)))
+                || matches!(face_class[b], Some(FaceClass::Robin(_)));
+            (both && any_robin).then_some((e, [a, b]))
+        })
+        .collect();
+    edges.sort_unstable();
+    let mesh = input.mesh;
+    let results: Vec<([usize; 2], f64)> = par_map(edges.len(), |k| {
+        let (e, fs) = edges[k];
+        let pa = mesh.nodes[e[0] as usize];
+        let pb = mesh.nodes[e[1] as usize];
+        let len = norm(sub(pb, pa));
+        let tangent = scale(sub(pb, pa), 1.0 / len);
+        let mut c_e: f64 = 0.0;
+        // Per face: tet, (c, g), in-plane outward normal m at the edge.
+        let sides: [EdgeSide; 2] = std::array::from_fn(|s| {
+            let gf = fs[s];
+            let face = faces[gf];
+            let (cr, g) = robin_data(gf).expect("edge faces are Robin or natural");
+            c_e = c_e.max(cr.norm());
+            let p: [[f64; 3]; 3] = std::array::from_fn(|i| mesh.nodes[face[i] as usize]);
+            let nrm = cross(sub(p[1], p[0]), sub(p[2], p[0]));
+            let n = scale(nrm, 1.0 / norm(nrm));
+            let opp = *face
+                .iter()
+                .find(|&&v| v != e[0] && v != e[1])
+                .expect("a face has a vertex off the edge");
+            // m ⟂ edge, in the face plane, away from the opposite vertex.
+            let mut m = cross(tangent, n);
+            if dot(m, sub(mesh.nodes[opp as usize], pa)) > 0.0 {
+                m = scale(m, -1.0);
+            }
+            (owners[gf][0], cr, g, m, face)
+        });
+        if c_e == 0.0 {
+            return ([sides[0].0, sides[1].0], 0.0);
+        }
+        let mut acc = 0.0;
+        for &(sq, wq) in &GL3 {
+            let mut jump = c64::new(0.0, 0.0);
+            for &(t, cr, g, m, face) in &sides {
+                let at = |v: u32| {
+                    if v == e[0] {
+                        1.0 - sq
+                    } else if v == e[1] {
+                        sq
+                    } else {
+                        0.0
+                    }
+                };
+                let mu = [at(face[0]), at(face[1]), at(face[2]), 0.0];
+                let ev = field.e_at(t, face_bary(&mesh.tets[t], &face, &mu));
+                // w · m = (c E − g) · m (m is tangential, so the normal
+                // parts drop out).
+                jump += (0..3).map(|d| (cr * ev[d] - g[d]) * m[d]).sum::<c64>();
+            }
+            acc += wq * jump.norm_sqr();
+        }
+        ([sides[0].0, sides[1].0], acc * len * len / c_e)
+    });
+    for (tets, v) in results {
+        coverage.robin_edges += 1;
+        terms[tets[0]].boundary_edge += 0.5 * v;
+        terms[tets[1]].boundary_edge += 0.5 * v;
+    }
 }
 
 fn validate(input: &EstimatorInput<'_>) -> Result<(), EstimatorError> {
@@ -1343,6 +1728,19 @@ fn validate(input: &EstimatorInput<'_>) -> Result<(), EstimatorError> {
     }
     if let Some(u) = input.upml_tet {
         len("upml_tet", u.len(), n_tets)?;
+    }
+    let finite = |z: &c64| z.re.is_finite() && z.im.is_finite();
+    for (index, r) in input.robin.iter().enumerate() {
+        if !finite(&r.coefficient) || !r.drive.iter().all(finite) {
+            return Err(EstimatorError::InvalidRobin {
+                index,
+                name: r.name,
+                detail: format!(
+                    "coefficient {} and drive {:?} must be finite",
+                    r.coefficient, r.drive
+                ),
+            });
+        }
     }
     let k2 = input.k2;
     if !(k2.re.is_finite() && k2.im.is_finite()) || k2.norm() == 0.0 {
@@ -1396,7 +1794,8 @@ fn validate(input: &EstimatorInput<'_>) -> Result<(), EstimatorError> {
 /// Cell arrays: `eta` (`η_T`), `eta_share` (`η_T² / η²`, the fraction of
 /// the global estimate each tet carries), `eta2_volume`,
 /// `eta2_divergence`, `eta2_tangential_jump`, `eta2_normal_jump`,
-/// `eta2_boundary` (the per-tet term breakdown, squared), and `upml` (0/1)
+/// `eta2_boundary`, `eta2_boundary_edge` (the per-tet term breakdown,
+/// squared), and `upml` (0/1)
 /// when `upml_tet` is given.
 ///
 /// # Errors
@@ -1480,6 +1879,10 @@ pub fn write_estimate_vtu(
     );
     array("eta2_normal_jump", &mut terms.iter().map(|c| c.normal_jump));
     array("eta2_boundary", &mut terms.iter().map(|c| c.boundary));
+    array(
+        "eta2_boundary_edge",
+        &mut terms.iter().map(|c| c.boundary_edge),
+    );
     if let Some(u) = upml_tet {
         array("upml", &mut u.iter().map(|&b| if b { 1.0 } else { 0.0 }));
     }

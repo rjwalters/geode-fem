@@ -15,8 +15,12 @@
 //!    cascades), `max_dofs` is never exceeded and a capped step is
 //!    reported.
 //! 5. **Stopping and warnings.** Every stop reason, the pre-asymptotic
-//!    guard on the target, and INCOMPLETE coverage (impedance surface +
-//!    lumped port) are reached and reported.
+//!    guard on the target, and INCOMPLETE coverage are reached and
+//!    reported. 5b: an impedance surface and a lumped port are COMPLETE
+//!    (#879); 5c: the port face terms are a material part of `η` and the
+//!    marking concentrates at the port; 5d: a target reached on an
+//!    INCOMPLETE estimate is not declared met; 5e: a lost eigenmode stops
+//!    the loop on the level it is lost.
 //! 6. **Determinism.** Two runs give bit-identical mesh sequences.
 //! 7. **Periodic.** A periodic driven problem adapts through the mirrored
 //!    refinement; the seam stays matched and the true error falls.
@@ -37,7 +41,10 @@ use geode_core::adapt::driver::{
     Marking, PeriodicSpec, StopReason, TetCtx, adapt_driven, adapt_eigen, adapt_with,
     bisection_mesh, dorfler_mark, space_dofs,
 };
-use geode_core::adapt::estimator::{ErrorEstimate, EstimateComponents, EstimatorCoverage};
+use geode_core::adapt::estimator::{
+    BoundaryFaceKind, BoundaryKinds, ErrorEstimate, EstimateComponents, EstimatorCoverage,
+    EstimatorInput, RobinBoundary, VolumeSource, estimate_hcurl,
+};
 use geode_core::adapt::refine::Refined;
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::driven::solve::{
@@ -843,6 +850,8 @@ struct Synthetic {
     pre_asymptotic: fn(usize) -> bool,
     upml: fn([f64; 3]) -> bool,
     only_upml_error: bool,
+    /// Boundary faces reported uncovered (as `"wave_port"`) on every level.
+    wave_port_faces: usize,
     prolongs: usize,
 }
 
@@ -855,6 +864,7 @@ impl Synthetic {
             pre_asymptotic: |_| false,
             upml: |_| false,
             only_upml_error: false,
+            wave_port_faces: 0,
             prolongs: 0,
         }
     }
@@ -908,6 +918,11 @@ impl LevelSolver for Synthetic {
             coverage: EstimatorCoverage {
                 n_tets: n,
                 upml_tets: upml.iter().filter(|&&u| u).count(),
+                uncovered: if self.wave_port_faces > 0 {
+                    [("wave_port", self.wave_port_faces)].into_iter().collect()
+                } else {
+                    Default::default()
+                },
                 ..Default::default()
             },
         };
@@ -1167,27 +1182,17 @@ fn dorfler_marking_rules() {
     assert!(dorfler_mark(&[0.0; 4], 0.5, None).is_empty());
 }
 
-/// Golden 5b: INCOMPLETE coverage is surfaced for an impedance
-/// (Silver-Müller) surface and a lumped port, and the summary says so.
-#[test]
-fn golden5b_incomplete_coverage_is_reported() {
-    let eps = |_: &TetCtx| c(1.0);
-    let bc = |f: &FaceCtx| {
-        if f.points.iter().all(|p| (p[2] - 1.0).abs() < 1e-12) {
-            FaceBc::Impedance(0)
-        } else if f.points.iter().all(|p| p[2].abs() < 1e-12)
-            && f.points
-                .iter()
-                .all(|p| p[0] >= 1.0 / 3.0 - 1e-12 && p[0] <= 2.0 / 3.0 + 1e-12)
-        {
-            FaceBc::LumpedPort(0)
-        } else {
-            FaceBc::Pec
-        }
-    };
-    let current = |_: &TetCtx, _: [f64; 3]| [ZERO; 3];
-    let div = |_: &TetCtx, _: [f64; 3]| ZERO;
-    let mut spec = DrivenAdaptSpec::new(unit_cube(3), 2.0, &eps, &bc, &current, &div);
+/// The golden-5b problem: a unit cube (`m` cells per axis) with a
+/// Silver-Müller top (`z = 1`), a lumped port on the strip
+/// `z = 0, x ∈ [1/3, 2/3]` and PEC elsewhere, at `ω = 2`.
+fn port_cube_spec<'a>(
+    m: usize,
+    eps: &'a (dyn Fn(&TetCtx) -> c64 + Sync),
+    bc: &'a (dyn Fn(&FaceCtx) -> FaceBc + Sync),
+    current: &'a (dyn Fn(&TetCtx, [f64; 3]) -> [c64; 3] + Sync),
+    div: &'a (dyn Fn(&TetCtx, [f64; 3]) -> c64 + Sync),
+) -> DrivenAdaptSpec<'a> {
+    let mut spec = DrivenAdaptSpec::new(unit_cube(m), 2.0, eps, bc, current, div);
     spec.surfaces = vec![SurfaceImpedanceModel::Fixed(c(1.0))];
     spec.lumped_ports = vec![LumpedPortSpec {
         e_hat: [0.0, 1.0, 0.0],
@@ -1196,6 +1201,37 @@ fn golden5b_incomplete_coverage_is_reported() {
         length: 1.0,
         v_inc: c(1.0),
     }];
+    spec
+}
+
+fn port_cube_bc(f: &FaceCtx) -> FaceBc {
+    if f.points.iter().all(|p| (p[2] - 1.0).abs() < 1e-12) {
+        FaceBc::Impedance(0)
+    } else if port_face(f) {
+        FaceBc::LumpedPort(0)
+    } else {
+        FaceBc::Pec
+    }
+}
+
+fn port_face(f: &FaceCtx) -> bool {
+    f.points.iter().all(|p| p[2].abs() < 1e-12)
+        && f.points
+            .iter()
+            .all(|p| p[0] >= 1.0 / 3.0 - 1e-12 && p[0] <= 2.0 / 3.0 + 1e-12)
+}
+
+/// Golden 5b: an impedance (Silver-Müller) surface and a lumped port are
+/// estimated (#879): every level's estimate is COMPLETE, both kinds are
+/// counted as covered Robin faces, and neither the warnings nor the
+/// summary say INCOMPLETE. (Before #879 this golden checked that the same
+/// spec was reported INCOMPLETE.)
+#[test]
+fn golden5b_impedance_and_port_faces_are_covered() {
+    let eps = |_: &TetCtx| c(1.0);
+    let current = |_: &TetCtx, _: [f64; 3]| [ZERO; 3];
+    let div = |_: &TetCtx, _: [f64; 3]| ZERO;
+    let spec = port_cube_spec(3, &eps, &port_cube_bc, &current, &div);
     let opts = AdaptOptions {
         target_rel_error: 0.0,
         max_iterations: 3,
@@ -1204,21 +1240,222 @@ fn golden5b_incomplete_coverage_is_reported() {
     let r = adapt_driven::<B>(&spec, &opts, &device()).expect("adapt");
     let sum = r.report.summary();
     eprintln!("golden5b: {sum}");
-    let w = r
-        .report
-        .warnings
-        .iter()
-        .find_map(|w| match w {
-            AdaptWarning::CoverageIncomplete { uncovered, .. } => Some(uncovered.clone()),
-            _ => None,
-        })
-        .expect("a CoverageIncomplete warning");
-    assert!(w.get("silver_muller").copied().unwrap_or(0) > 0, "{w:?}");
-    assert!(w.get("lumped_port").copied().unwrap_or(0) > 0, "{w:?}");
-    assert!(r.report.history.iter().all(|h| !h.coverage_complete));
-    assert!(sum.contains("INCOMPLETE"), "{sum}");
+    assert!(
+        !r.report
+            .warnings
+            .iter()
+            .any(|w| matches!(w, AdaptWarning::CoverageIncomplete { .. })),
+        "{:?}",
+        r.report.warnings
+    );
+    assert!(r.report.history.iter().all(|h| h.coverage_complete));
+    assert!(!sum.contains("INCOMPLETE"), "{sum}");
+    let cov = &r.estimates[0].coverage;
+    eprintln!("golden5b final coverage: {cov:?}");
+    assert!(cov.is_complete());
+    assert!(
+        cov.robin_faces.get("silver_muller").copied().unwrap_or(0) > 0,
+        "{cov:?}"
+    );
+    assert!(
+        cov.robin_faces.get("lumped_port").copied().unwrap_or(0) > 0,
+        "{cov:?}"
+    );
+    assert!(cov.robin_edges > 0);
+    assert!(r.estimates[0].components.boundary > 0.0);
     assert!(r.solutions[0].e_edges.iter().any(|z| z.norm() > 0.0));
     assert_eq!(r.report.stop_reason, StopReason::MaxIterations);
+
+    // The loop hands the estimator exactly the Robin data of the BCs it
+    // solved with: the final estimate equals a direct estimate built from
+    // the spec by hand (c = iω/Z_s for the cap; c = iω/(R w/l) and
+    // g = 2c (V_inc/l) ê for the port), and the face counts match the
+    // classification of the final mesh.
+    let m = &r.mesh.mesh;
+    let (mut cap, mut port, mut pec_f) = (Vec::new(), Vec::new(), Vec::new());
+    for f in m.boundary_faces() {
+        let ctx = FaceCtx {
+            nodes: f,
+            points: std::array::from_fn(|i| m.nodes[f[i] as usize]),
+            tag: None,
+        };
+        match port_cube_bc(&ctx) {
+            FaceBc::Impedance(_) => cap.push(f),
+            FaceBc::LumpedPort(_) => port.push(f),
+            _ => pec_f.push(f),
+        }
+    }
+    assert_eq!(cov.robin_faces.get("silver_muller"), Some(&cap.len()));
+    assert_eq!(cov.robin_faces.get("lumped_port"), Some(&port.len()));
+    assert_eq!(cov.pec_faces, pec_f.len());
+    let kinds = BoundaryKinds::new(BoundaryFaceKind::Pec)
+        .with(&cap, BoundaryFaceKind::Robin(0))
+        .with(&port, BoundaryFaceKind::Robin(1));
+    let kind = |f: [u32; 3]| kinds.kind(f);
+    let omega = 2.0;
+    let robin = [
+        RobinBoundary::impedance("silver_muller", c64::new(0.0, omega)),
+        RobinBoundary {
+            name: "lumped_port",
+            coefficient: c64::new(0.0, omega * 3.0),
+            drive: [ZERO, c64::new(0.0, omega * 3.0) * 2.0, ZERO],
+        },
+    ];
+    let space = HcurlSpace::build(m, ElementOrder::P1);
+    let eps_v = vec![c(1.0); m.n_tets()];
+    let nu = vec![1.0; m.n_tets()];
+    let f0 = |_: usize, _: [f64; 3]| [ZERO; 3];
+    let d0 = |_: usize, _: [f64; 3]| ZERO;
+    let direct = estimate_hcurl(
+        &EstimatorInput::new(
+            m,
+            &space,
+            &r.solutions[0].e_edges,
+            c(omega * omega),
+            &eps_v,
+            &nu,
+            &kind,
+        )
+        .with_source(VolumeSource { f: &f0, div_f: &d0 })
+        .with_robin(&robin),
+    )
+    .expect("direct estimate");
+    let d = (direct.eta - r.estimates[0].eta).abs() / direct.eta;
+    eprintln!(
+        "golden5b: loop eta {:.12e} vs direct {:.12e} ({d:.1e})",
+        r.estimates[0].eta, direct.eta
+    );
+    assert!(
+        d <= 1e-12,
+        "the loop's Robin data differ from the spec: {d:e}"
+    );
+}
+
+/// Golden 5c: on the port-fed cube the port's face and edge terms are a
+/// material part of `η` (the field is singular at the port's edges), and
+/// the Dörfler set concentrates at the port: most marked tets touch the
+/// port strip's neighbourhood. Measured numbers are printed.
+#[test]
+fn golden5c_port_terms_are_material_and_marking_concentrates_at_the_port() {
+    let eps = |_: &TetCtx| c(1.0);
+    let current = |_: &TetCtx, _: [f64; 3]| [ZERO; 3];
+    let div = |_: &TetCtx, _: [f64; 3]| ZERO;
+    let spec = port_cube_spec(6, &eps, &port_cube_bc, &current, &div);
+    let opts = AdaptOptions {
+        target_rel_error: 0.0,
+        max_iterations: 1,
+        ..AdaptOptions::default()
+    };
+    let r = adapt_driven::<B>(&spec, &opts, &device()).expect("adapt");
+    let est = &r.estimates[0];
+    let m = &r.mesh.mesh;
+    // Tets with a face on the port, and tets near the port strip.
+    let port_faces: std::collections::HashSet<[u32; 3]> = m
+        .boundary_faces()
+        .into_iter()
+        .filter(|f| {
+            port_face(&FaceCtx {
+                nodes: *f,
+                points: std::array::from_fn(|i| m.nodes[f[i] as usize]),
+                tag: None,
+            })
+        })
+        .collect();
+    let on_port: Vec<bool> = m
+        .tets
+        .iter()
+        .map(|t| {
+            (0..4).any(|skip| {
+                let mut f: Vec<u32> = (0..4).filter(|&i| i != skip).map(|i| t[i]).collect();
+                f.sort_unstable();
+                port_faces.contains(&[f[0], f[1], f[2]])
+            })
+        })
+        .collect();
+    let near_port = |t: usize| {
+        let cen: [f64; 3] = std::array::from_fn(|d| {
+            m.tets[t]
+                .iter()
+                .map(|&v| m.nodes[v as usize][d])
+                .sum::<f64>()
+                / 4.0
+        });
+        let dx = (1.0 / 3.0 - cen[0]).max(cen[0] - 2.0 / 3.0).max(0.0);
+        (dx * dx + cen[2] * cen[2]).sqrt() <= 0.25
+    };
+    let eta2 = est.eta * est.eta;
+    let port_robin: f64 = (0..m.n_tets())
+        .filter(|&t| on_port[t])
+        .map(|t| est.eta_t2_terms[t].boundary + est.eta_t2_terms[t].boundary_edge)
+        .sum();
+    let marked = dorfler_mark(&est.eta_t2, 0.5, None);
+    let near = marked.iter().filter(|&&t| near_port(t)).count();
+    let near_frac_all =
+        (0..m.n_tets()).filter(|&t| near_port(t)).count() as f64 / m.n_tets() as f64;
+    eprintln!(
+        "golden5c: port face+edge share of eta^2 = {:.3}; boundary {:.3e}, edge {:.3e}, eta^2          {eta2:.3e}; Dörfler marks {} tets, {near} near the port ({:.2}; {:.2} of all tets are)",
+        port_robin / eta2,
+        est.components.boundary,
+        est.components.boundary_edge,
+        marked.len(),
+        near as f64 / marked.len() as f64,
+        near_frac_all
+    );
+    assert!(est.coverage.is_complete());
+    assert!(
+        port_robin / eta2 >= 0.05,
+        "port terms {:.3} of eta^2",
+        port_robin / eta2
+    );
+    assert!(
+        near as f64 / marked.len() as f64 >= 0.6,
+        "only {near} of {} marked tets are near the port",
+        marked.len()
+    );
+}
+
+/// Golden 5d: a target reached on an asymptotic but INCOMPLETE estimate
+/// (uncovered wave-port faces, or UPML tets) is not declared met: the loop
+/// stops with `TargetMetIncomplete`, `target_met()` is false and the summary
+/// says the target is NOT verified.
+#[test]
+fn golden5d_target_on_an_incomplete_estimate_is_not_met() {
+    let base = AdaptOptions {
+        target_rel_error: 0.1,
+        max_iterations: 20,
+        max_dofs: 10_000_000,
+        ..AdaptOptions::default()
+    };
+    for case in ["wave_port", "upml"] {
+        let mut s = Synthetic::new([0.3, 0.4, 0.5], 0.05);
+        if case == "wave_port" {
+            s.wave_port_faces = 7;
+        } else {
+            s.upml = |c| c[0] > 0.9;
+        }
+        let r = run_synthetic(&mut s, &base);
+        let sum = r.summary();
+        eprintln!("golden5d {case}: {sum}");
+        assert_eq!(r.stop_reason, StopReason::TargetMetIncomplete, "{case}");
+        assert!(!r.target_met());
+        assert_eq!(
+            r.history.len(),
+            5,
+            "{case}: stops where the target is reached"
+        );
+        assert!(sum.contains("NOT verified"), "{sum}");
+        assert!(
+            !sum.contains("met;") && !sum.contains("1.0e-1 met"),
+            "{sum}"
+        );
+        assert!(sum.contains("INCOMPLETE"), "{sum}");
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| matches!(w, AdaptWarning::CoverageIncomplete { .. }))
+        );
+        assert_eq!(r.stop_reason.name(), "target_met_incomplete");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1704,4 +1941,90 @@ fn unsupported_combinations_are_rejected() {
         adapt_eigen::<B>(&spec, &opts, &device()),
         Err(AdaptError::Unsupported(_))
     ));
+}
+
+/// The near-degenerate pair of golden 5e: the `(1,0,1)` and `(0,1,1)` modes
+/// of the PEC box `1 × 0.99 × 0.7` (`λ/π² = 3.0408, 3.0611`, 0.7 % apart),
+/// with the shift between them and one tracked mode.
+fn swapping_pair(marking: Marking, extra_candidates: usize) -> AdaptReport {
+    let b = 0.99;
+    let mesh = untagged(box_mesh([3, 3, 2], [1.0, b, 0.7], [0.0; 3], |_, _, _| true));
+    let eps = |_: &TetCtx| 1.0;
+    let l101 = PI * PI * (1.0 + 1.0 / 0.49);
+    let l011 = PI * PI * (1.0 / (b * b) + 1.0 / 0.49);
+    let mut spec = EigenAdaptSpec::new(mesh, 0.5 * (l101 + l011), 1, &eps, &pec);
+    spec.extra_candidates = extra_candidates;
+    let opts = AdaptOptions {
+        target_rel_error: 0.0,
+        max_iterations: 5,
+        marking,
+        ..AdaptOptions::default()
+    };
+    adapt_eigen::<B>(&spec, &opts, &device())
+        .expect("eigen adapt")
+        .report
+}
+
+/// Golden 5e: a lost mode stops the loop **on the level it is lost**.
+///
+/// The near-degenerate pair swaps under refinement: with no extra
+/// candidates (`extra_candidates = 0`) the only candidate on a refined mesh
+/// is the mode closest to the shift, which becomes the neighbour. The
+/// overlap is checked on every level: the loop stops with `ModeLost` on the
+/// first level whose overlap is below 0.5 (that level is recorded but not
+/// refined, and carries the `ModeTracking` warning), and every earlier level
+/// has an overlap ≥ 0.5. Measured (overlap per level):
+///
+/// - uniform: 0.136 on level 1 → stops at level 1;
+/// - Dörfler 0.5: 0.978, 0.865, 0.767, then 0.349 on level 4 → stops at
+///   level 4.
+///
+/// Control: with the default two extra candidates the same runs keep the
+/// mode (every overlap ≥ 0.5) and stop on `MaxIterations`.
+#[test]
+fn golden5e_lost_mode_stops_on_the_level_it_is_lost() {
+    for marking in [Marking::Uniform, Marking::Dorfler { theta: 0.5 }] {
+        let r = swapping_pair(marking, 0);
+        let overlaps: Vec<Option<f64>> = r
+            .history
+            .iter()
+            .map(|h| match &h.quantities {
+                LevelQuantities::Eigen(d) => d[0].overlap,
+                _ => unreachable!(),
+            })
+            .collect();
+        let sum = r.summary();
+        eprintln!("golden5e {marking:?}: overlaps {overlaps:?}; {sum}");
+        assert_eq!(r.stop_reason, StopReason::ModeLost, "{marking:?}");
+        assert!(!r.target_met());
+        let lost = r.history.len() - 1;
+        assert!(lost >= 1);
+        assert!(overlaps[lost].unwrap() < 0.5, "{overlaps:?}");
+        assert!(
+            overlaps[1..lost].iter().all(|o| o.unwrap() >= 0.5),
+            "an earlier level was already lost: {overlaps:?}"
+        );
+        assert!(r.last().refinement.is_none(), "the lost level was refined");
+        assert!(r.history[..lost].iter().all(|h| h.refinement.is_some()));
+        let tracking: Vec<usize> = r
+            .warnings
+            .iter()
+            .filter_map(|w| match w {
+                AdaptWarning::ModeTracking { level, .. } => Some(*level),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tracking, vec![lost]);
+        assert!(sum.contains("LOST"), "{sum}");
+        assert!(sum.contains("stopped on mode_lost"), "{sum}");
+
+        let ok = swapping_pair(marking, 2);
+        eprintln!("golden5e control {marking:?}: {}", ok.summary());
+        assert_eq!(ok.stop_reason, StopReason::MaxIterations);
+        assert!(
+            !ok.warnings
+                .iter()
+                .any(|w| matches!(w, AdaptWarning::ModeTracking { .. }))
+        );
+    }
 }

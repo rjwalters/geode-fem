@@ -40,13 +40,17 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::adapt::estimator::{
-    BoundaryFaceKind, BoundaryKinds, ErrorEstimate, EstimatorInput, FacePairing,
+    BoundaryFaceKind, BoundaryKinds, ErrorEstimate, EstimatorInput, FacePairing, RobinBoundary,
     VALIDATED_EFFECTIVITY, VolumeSource, estimate_hcurl, write_estimate_vtu,
 };
 use geode_core::analytic::loaded_guide::{LsFamily, SlabLoadedGuide};
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::nedelec::boundary_pec_interior_edges;
-use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, QuadCurrentSource, driven_solve_quad};
+use geode_core::driven::ports::LumpedPort;
+use geode_core::driven::solve::{
+    DrivenBcs, DrivenMaterials, DrivenOperator, DrivenSource, QuadCurrentSource,
+    SurfaceImpedanceBc, SurfaceImpedanceModel, SurfaceRoughness, driven_solve_quad,
+};
 use geode_core::eigen::pec_cavity::{
     PecCavitySettings, assemble_lossless_pencil, solve_pec_cavity_modes,
 };
@@ -1860,4 +1864,962 @@ fn nu_eps_source_coscaling_leaves_eta_rel_unchanged() {
     eprintln!("coscaling: eta_rel {a:.15e} vs {b:.15e}; {ca:?} / {cb:?}");
     assert!(ca.divergence > 0.0, "the divergence term must be exercised");
     assert!((a - b).abs() <= 1e-12 * a, "{a} vs {b}");
+}
+
+// ---------------------------------------------------------------------------
+// Golden 8: Robin (impedance / Silver-Müller / lumped-port) faces (#879)
+// ---------------------------------------------------------------------------
+
+/// The classification of a unit-cube boundary face by its side (`axis`,
+/// `0.0 | 1.0`), with every other side PEC.
+#[derive(Clone, Copy, PartialEq)]
+enum Side {
+    Pec,
+    Natural,
+    /// Index into the problem's surfaces (then its ports).
+    Robin(usize),
+}
+
+/// A solved Robin problem on the cube `[0, s]³` (structured, `n` per axis).
+struct RobinSolved {
+    mesh: TetMesh,
+    space: HcurlSpace,
+    x: Vec<c64>,
+    k2: c64,
+    eps: Vec<c64>,
+    nu: Vec<f64>,
+    kinds: BoundaryKinds,
+    robin: Vec<RobinBoundary>,
+    f: Box<dyn Fn(usize, [f64; 3]) -> [c64; 3] + Sync>,
+    div_f: Box<dyn Fn(usize, [f64; 3]) -> c64 + Sync>,
+    err: f64,
+}
+
+impl RobinSolved {
+    fn estimate_with(&self, robin: &[RobinBoundary], kinds: &BoundaryKinds) -> ErrorEstimate {
+        let kind = |f: [u32; 3]| kinds.kind(f);
+        estimate_hcurl(
+            &EstimatorInput::new(
+                &self.mesh,
+                &self.space,
+                &self.x,
+                self.k2,
+                &self.eps,
+                &self.nu,
+                &kind,
+            )
+            .with_source(VolumeSource {
+                f: &*self.f,
+                div_f: &*self.div_f,
+            })
+            .with_robin(robin),
+        )
+        .expect("estimate")
+    }
+
+    fn estimate(&self) -> ErrorEstimate {
+        self.estimate_with(&self.robin, &self.kinds)
+    }
+}
+
+/// The side a boundary face of `[0, s]³` lies on: `(axis, 0 | 1)`.
+fn face_side(mesh: &TetMesh, f: &[u32; 3], s: f64) -> (usize, usize) {
+    for d in 0..3 {
+        for (k, v) in [(0usize, 0.0), (1, s)] {
+            if f.iter()
+                .all(|&i| (mesh.nodes[i as usize][d] - v).abs() <= 1e-9 * s)
+            {
+                return (d, k);
+            }
+        }
+    }
+    panic!("face {f:?} is not on the cube boundary");
+}
+
+/// Solve `∇×∇×E − ω²E = iωJ` on `[0, s]³` with the per-side BCs `sides[axis][k]`,
+/// the impedance surfaces `surfaces` and lumped ports `ports` (Robin index
+/// `i < surfaces.len()` is a surface, the rest are ports), and measure the
+/// energy error against the exact `e`, `curl_e`.
+#[allow(clippy::too_many_arguments)]
+fn robin_solve(
+    n: usize,
+    s: f64,
+    omega: f64,
+    sides: [[Side; 2]; 3],
+    surfaces: &[SurfaceImpedanceModel],
+    ports: &[(f64, f64, f64, c64)],
+    e_hat: [f64; 3],
+    e: impl Fn([f64; 3]) -> [c64; 3] + Sync,
+    curl_e: impl Fn([f64; 3]) -> [c64; 3] + Sync,
+    f: impl Fn([f64; 3]) -> [c64; 3] + Sync + 'static,
+    div_f: impl Fn([f64; 3]) -> c64 + Sync + 'static,
+) -> RobinSolved {
+    let mesh = box_mesh([n; 3], [s; 3], [0.0; 3], |_, _, _| true);
+    let space = HcurlSpace::build(&mesh, ElementOrder::P1);
+    let n_s = surfaces.len();
+    let mut pec_faces = Vec::new();
+    let mut robin_faces: Vec<Vec<[u32; 3]>> = vec![Vec::new(); n_s + ports.len()];
+    let mut natural_faces = Vec::new();
+    for fc in mesh.boundary_faces() {
+        let (d, k) = face_side(&mesh, &fc, s);
+        match sides[d][k] {
+            Side::Pec => pec_faces.push(fc),
+            Side::Natural => natural_faces.push(fc),
+            Side::Robin(i) => robin_faces[i].push(fc),
+        }
+    }
+    let mask = space
+        .pec_interior_mask(&mesh, &[&pec_faces])
+        .expect("pec mask");
+    let surf_bcs: Vec<SurfaceImpedanceBc<'_>> = surfaces
+        .iter()
+        .enumerate()
+        .map(|(i, m)| SurfaceImpedanceBc {
+            triangles: &robin_faces[i],
+            model: *m,
+        })
+        .collect();
+    let port_bcs: Vec<LumpedPort<'_>> = ports
+        .iter()
+        .enumerate()
+        .map(|(j, &(r, w, l, v))| LumpedPort {
+            faces: &robin_faces[n_s + j],
+            e_hat,
+            resistance: r,
+            width: w,
+            length: l,
+            v_inc: v,
+        })
+        .collect();
+    let iw = c64::new(0.0, omega);
+    let jf = |_: usize, x: [f64; 3]| f(x).map(|v| v / iw);
+    let eps = vec![c(1.0); mesh.n_tets()];
+    let nu = vec![1.0; mesh.n_tets()];
+    let op = DrivenOperator::assemble_with_space::<B>(
+        &space,
+        &mesh,
+        DrivenMaterials::Scalar(&eps),
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        &port_bcs,
+        &surf_bcs,
+        DrivenSource::Function(&jf),
+        &device(),
+    )
+    .expect("operator");
+    let sol = op.factor_at(omega).expect("factor").solve().expect("solve");
+    assert!(sol.residual_rel < 1e-9, "residual {}", sol.residual_rel);
+    let k2 = c(omega * omega);
+    let err = energy_error(&mesh, &space, &sol.e_edges, k2, &eps, &nu, &e, &curl_e);
+    let mut kinds =
+        BoundaryKinds::new(BoundaryFaceKind::Pec).with(&natural_faces, BoundaryFaceKind::Natural);
+    for (i, list) in robin_faces.iter().enumerate() {
+        kinds = kinds.with(list, BoundaryFaceKind::Robin(i));
+    }
+    let mut robin: Vec<RobinBoundary> = surfaces
+        .iter()
+        .map(|m| RobinBoundary::impedance("leontovich", m.weak_coefficient(omega).unwrap()))
+        .collect();
+    for &(r, w, l, v) in ports {
+        robin.push(RobinBoundary::lumped_port(omega, e_hat, r, w, l, v));
+    }
+    drop(op);
+    RobinSolved {
+        x: sol.e_edges,
+        mesh,
+        space,
+        k2,
+        eps,
+        nu,
+        kinds,
+        robin,
+        f: Box::new(move |_, x| f(x)),
+        div_f: Box::new(move |_, x| div_f(x)),
+        err,
+    }
+}
+
+/// The manufactured impedance cube: `E = x̂ cos(πX) sin(πY) h(Z)` on
+/// `[0, s]³` (`X = x/s`), `h(Z) = (1 − Z)(1 + βZ)` with `β = 1 + c s`, so
+/// that the Robin condition `n × ∇×E = c E_t` holds on `z = 0` (where
+/// `div_Γ E_t = ∂_x E_x ≠ 0`), and `E_t = 0` on the five PEC sides. Driven
+/// at `ω = π / s` with the manufactured `f = ∇×∇×E − ω² E`.
+fn leontovich_level(n: usize, s: f64, model: SurfaceImpedanceModel) -> RobinSolved {
+    let omega = PI / s;
+    let cs = model.weak_coefficient(omega).unwrap() * s;
+    let beta = c(1.0) + cs;
+    let k2s = c((omega * s) * (omega * s));
+    let hz = move |z: f64| (1.0 - z) * (beta * z + 1.0);
+    let dhz = move |z: f64| beta - 1.0 - beta * (2.0 * z);
+    let ddh = -beta * 2.0;
+    let e = move |x: [f64; 3]| {
+        let (u, v, w) = (x[0] / s, x[1] / s, x[2] / s);
+        [hz(w) * ((PI * u).cos() * (PI * v).sin()), ZERO, ZERO]
+    };
+    let curl_e = move |x: [f64; 3]| {
+        let (u, v, w) = (x[0] / s, x[1] / s, x[2] / s);
+        let (cx, sy, cy) = ((PI * u).cos(), (PI * v).sin(), (PI * v).cos());
+        [ZERO, dhz(w) * (cx * sy) / s, -hz(w) * (cx * PI * cy) / s]
+    };
+    let f = move |x: [f64; 3]| {
+        let (u, v, w) = (x[0] / s, x[1] / s, x[2] / s);
+        let (cx, sx, sy, cy) = (
+            (PI * u).cos(),
+            (PI * u).sin(),
+            (PI * v).sin(),
+            (PI * v).cos(),
+        );
+        let ex = hz(w) * (cx * sy);
+        [
+            (ex * (PI * PI) - ddh * (cx * sy) - k2s * ex) / (s * s),
+            hz(w) * (-PI * PI * sx * cy) / (s * s),
+            dhz(w) * (-PI * sx * sy) / (s * s),
+        ]
+    };
+    let div_f = move |x: [f64; 3]| {
+        let (u, v, w) = (x[0] / s, x[1] / s, x[2] / s);
+        k2s * hz(w) * (PI * (PI * u).sin() * (PI * v).sin()) / (s * s * s)
+    };
+    let sides = [
+        [Side::Pec, Side::Pec],
+        [Side::Pec, Side::Pec],
+        [Side::Robin(0), Side::Pec],
+    ];
+    robin_solve(
+        n,
+        s,
+        omega,
+        sides,
+        &[model],
+        &[],
+        [0.0; 3],
+        e,
+        curl_e,
+        f,
+        div_f,
+    )
+}
+
+/// The guide: `E = ŷ e^{−ikz}` in `[0, s]³`, `k = π/s`, PMC (natural) on
+/// `x = 0, s`, PEC on `y = 0, s`, a Silver-Müller cap (`Z_s = 1`) on
+/// `z = s` and a matched lumped port (`R w / l = 1`, `ê = ŷ`,
+/// `V_inc / l = 1`) on `z = 0`. Source-free; the plane wave is exact for
+/// both boundary conditions.
+fn guide_level(n: usize, s: f64) -> RobinSolved {
+    let k = PI / s;
+    let e = move |x: [f64; 3]| [ZERO, c64::from_polar(1.0, -k * x[2]), ZERO];
+    let curl_e = move |x: [f64; 3]| {
+        [
+            c64::new(0.0, k) * c64::from_polar(1.0, -k * x[2]),
+            ZERO,
+            ZERO,
+        ]
+    };
+    let sides = [
+        [Side::Natural, Side::Natural],
+        [Side::Pec, Side::Pec],
+        [Side::Robin(1), Side::Robin(0)],
+    ];
+    robin_solve(
+        n,
+        s,
+        k,
+        sides,
+        &[SurfaceImpedanceModel::Fixed(c(1.0))],
+        &[(1.0, s, s, c(s))],
+        [0.0, 1.0, 0.0],
+        e,
+        curl_e,
+        |_| [ZERO; 3],
+        |_| ZERO,
+    )
+}
+
+fn leontovich_models() -> Vec<(&'static str, SurfaceImpedanceModel)> {
+    let omega = PI;
+    let sigma = 50.0 / PI;
+    let delta = (2.0 / (omega * sigma)).sqrt();
+    vec![
+        ("silver_muller", SurfaceImpedanceModel::Fixed(c(1.0))),
+        (
+            "fixed_complex",
+            SurfaceImpedanceModel::Fixed(c64::new(0.4, 0.3)),
+        ),
+        (
+            "good_conductor",
+            SurfaceImpedanceModel::GoodConductor { sigma },
+        ),
+        (
+            "rough_conductor",
+            SurfaceImpedanceModel::RoughConductor {
+                sigma,
+                roughness: SurfaceRoughness::HammerstadJensen { rms: delta },
+            },
+        ),
+        ("london", SurfaceImpedanceModel::London { lambda_l: 0.1 }),
+    ]
+}
+
+/// The same model at mesh scale `s` (`ω → ω/s`): `σ → σ/s`, `λ_L → λ_L s`,
+/// roughness `→ · s`, so `c s` is unchanged.
+fn scaled_model(m: SurfaceImpedanceModel, s: f64) -> SurfaceImpedanceModel {
+    match m {
+        SurfaceImpedanceModel::GoodConductor { sigma } => {
+            SurfaceImpedanceModel::GoodConductor { sigma: sigma / s }
+        }
+        SurfaceImpedanceModel::RoughConductor { sigma, roughness } => {
+            let roughness = match roughness {
+                SurfaceRoughness::HammerstadJensen { rms } => {
+                    SurfaceRoughness::HammerstadJensen { rms: rms * s }
+                }
+                other => other,
+            };
+            SurfaceImpedanceModel::RoughConductor {
+                sigma: sigma / s,
+                roughness,
+            }
+        }
+        SurfaceImpedanceModel::London { lambda_l } => SurfaceImpedanceModel::London {
+            lambda_l: lambda_l * s,
+        },
+        other => other,
+    }
+}
+
+fn report_robin(tag: &str, n: usize, l: &RobinSolved, est: &ErrorEstimate) {
+    let cmp = &est.components;
+    eprintln!(
+        "{tag} n={n:>2}: eta={:.4e} err={:.4e} theta={:.4} [vol {:.2e} div {:.2e} tj {:.2e} \
+         nj {:.2e} bd {:.2e} be {:.2e}] ppw={:.1} robin={:?} edges={}",
+        est.eta,
+        l.err,
+        est.eta / l.err,
+        cmp.volume,
+        cmp.divergence,
+        cmp.tangential_jump,
+        cmp.normal_jump,
+        cmp.boundary,
+        cmp.boundary_edge,
+        est.min_points_per_wavelength,
+        est.coverage.robin_faces,
+        est.coverage.robin_edges,
+    );
+}
+
+/// Golden 8a: the effectivity on the manufactured impedance cube is
+/// bounded and constant under refinement for every impedance model
+/// (Silver-Müller, a fixed complex `Z_s`, good conductor, rough conductor,
+/// London), and the estimate is COMPLETE. `div_Γ E_t ≠ 0` on the impedance
+/// face, so this is the case the surface weights exist for: the Robin face
+/// terms' share of `η²` must not grow from `n = 8` to `n = 16`.
+///
+/// Measured (θ at n = 4, 8, 16): 7.03–7.13, 7.30–7.37, 7.41–7.48 over the
+/// five models (spread ≤ 1.056); the face share falls (Silver-Müller 3.2 %
+/// → 2.9 %). With the volume weights alone (the `min` removed) θ drifts
+/// about 4 % per halving (London 7.13 → 7.50 → 7.83) and the face term is
+/// 10× larger at n = 16; that fails the share bar.
+#[test]
+fn golden8a_impedance_cube_effectivity_every_model() {
+    let ns = [4usize, 8, 16];
+    for (name, model) in leontovich_models() {
+        let mut thetas = Vec::new();
+        let mut shares = Vec::new();
+        for &n in &ns {
+            let l = leontovich_level(n, 1.0, model);
+            let est = l.estimate();
+            shares.push(est.components.boundary / est.components.total());
+            report_robin(&format!("golden8a {name}"), n, &l, &est);
+            assert!(est.coverage.is_complete(), "{name}: {:?}", est.coverage);
+            assert!(!est.summary().contains("INCOMPLETE"), "{}", est.summary());
+            assert_eq!(
+                est.coverage.robin_faces.get("leontovich"),
+                Some(&(2 * n * n))
+            );
+            assert!(est.components.boundary > 0.0);
+            let theta = est.eta / l.err;
+            assert!(
+                (0.1..=10.0).contains(&theta),
+                "{name} n={n}: theta {theta} outside [0.1, 10]"
+            );
+            if !est.pre_asymptotic {
+                assert!(
+                    (VALIDATED_EFFECTIVITY.min..=VALIDATED_EFFECTIVITY.max).contains(&theta),
+                    "{name} n={n}: theta {theta} outside {VALIDATED_EFFECTIVITY:?}"
+                );
+            }
+            thetas.push(theta);
+        }
+        let sp = spread(&thetas);
+        eprintln!("golden8a {name}: theta {thetas:?}, spread {sp:.4}, boundary share {shares:?}");
+        assert!(
+            sp <= 1.5,
+            "{name}: effectivity spread {sp} > 1.5 ({thetas:?})"
+        );
+        // The Robin face terms converge with the error: their share of η²
+        // does not grow under refinement (with the volume weights alone it
+        // grows like h^{-1}).
+        assert!(
+            shares[2] <= 1.1 * shares[1],
+            "{name}: Robin face share grows {shares:?}"
+        );
+    }
+}
+
+/// Golden 8b: the Silver-Müller-capped guide driven by a matched lumped
+/// port. The effectivity is bounded and constant, the estimate is COMPLETE
+/// (both kinds counted), and the port and cap face terms are measured.
+///
+/// Mutations of the Robin data, from the same solution: dropping the port
+/// drive `g` or treating the port or the cap as a natural face leaves an
+/// `O(1)` face residual, which no longer converges with the error, so the
+/// effectivity grows under refinement (`θ(16)/θ(8) ≥ 1.05`, against
+/// ≤ 1.03 for the correct terms; measured 1.0084 correct, 1.21 without
+/// `g`, 1.09 with the port natural).
+#[test]
+fn golden8b_guide_port_and_silver_muller_effectivity() {
+    let ns = [4usize, 8, 16];
+    let levels: Vec<RobinSolved> = ns.iter().map(|&n| guide_level(n, 1.0)).collect();
+    let mut thetas = Vec::new();
+    for (&n, l) in ns.iter().zip(&levels) {
+        let est = l.estimate();
+        report_robin("golden8b", n, l, &est);
+        assert!(est.coverage.is_complete(), "{:?}", est.coverage);
+        assert_eq!(
+            est.coverage.robin_faces.get("lumped_port"),
+            Some(&(2 * n * n))
+        );
+        assert_eq!(
+            est.coverage.robin_faces.get("leontovich"),
+            Some(&(2 * n * n))
+        );
+        assert_eq!(est.coverage.natural_faces, 4 * n * n);
+        let theta = est.eta / l.err;
+        assert!((0.1..=10.0).contains(&theta), "n={n}: theta {theta}");
+        if !est.pre_asymptotic {
+            assert!(
+                (VALIDATED_EFFECTIVITY.min..=VALIDATED_EFFECTIVITY.max).contains(&theta),
+                "n={n}: theta {theta} outside {VALIDATED_EFFECTIVITY:?}"
+            );
+        }
+        thetas.push(theta);
+    }
+    let sp = spread(&thetas);
+    eprintln!("golden8b: theta {thetas:?}, spread {sp:.4}");
+    assert!(sp <= 1.5, "effectivity spread {sp} > 1.5 ({thetas:?})");
+
+    // Mutations.
+    let natural_port = |l: &RobinSolved| {
+        let port: Vec<[u32; 3]> = l
+            .mesh
+            .boundary_faces()
+            .into_iter()
+            .filter(|f| l.kinds.kind(*f) == BoundaryFaceKind::Robin(1))
+            .collect();
+        l.kinds.clone().with(&port, BoundaryFaceKind::Natural)
+    };
+    let natural_cap = |l: &RobinSolved| {
+        let cap: Vec<[u32; 3]> = l
+            .mesh
+            .boundary_faces()
+            .into_iter()
+            .filter(|f| l.kinds.kind(*f) == BoundaryFaceKind::Robin(0))
+            .collect();
+        l.kinds.clone().with(&cap, BoundaryFaceKind::Natural)
+    };
+    type Mutation<'m> = (&'m str, &'m dyn Fn(&RobinSolved) -> ErrorEstimate);
+    let no_drive = |l: &RobinSolved| {
+        let mut r = l.robin.clone();
+        r[1].drive = [ZERO; 3];
+        l.estimate_with(&r, &l.kinds)
+    };
+    let port_nat = |l: &RobinSolved| l.estimate_with(&l.robin, &natural_port(l));
+    let cap_nat = |l: &RobinSolved| l.estimate_with(&l.robin, &natural_cap(l));
+    let mutations: [Mutation<'_>; 3] = [
+        ("port drive g dropped", &no_drive),
+        ("port as a natural face", &port_nat),
+        ("Silver-Müller cap as a natural face", &cap_nat),
+    ];
+    let growth = thetas[2] / thetas[1];
+    eprintln!("golden8b: theta(16)/theta(8) = {growth:.4}");
+    assert!(growth <= 1.03, "effectivity drifts: {growth}");
+    for (what, m) in mutations {
+        let th: Vec<f64> = levels.iter().map(|l| m(l).eta / l.err).collect();
+        let g = th[2] / th[1];
+        eprintln!(
+            "golden8b mutation '{what}': theta {th:?}, spread {:.4}, theta(16)/theta(8) {g:.4}",
+            spread(&th)
+        );
+        assert!(
+            g >= 1.05,
+            "mutation '{what}' is not detected: theta(16)/theta(8) = {g} ({th:?})"
+        );
+    }
+}
+
+/// Golden 8c: unit invariance. The impedance cube (every model) and the
+/// port-fed guide in µm (`s = 1e-6`, `ω = π · 1e6`, `σ → σ/s`,
+/// `λ_L → λ_L s`, port `w, l, V_inc → · s`) give the same `eta_rel`, `θ`
+/// and per-term shares to a relative 1e-9.
+#[test]
+fn golden8c_robin_unit_invariance() {
+    let check = |tag: &str, a: &RobinSolved, b: &RobinSolved| {
+        let (ea, eb) = (a.estimate(), b.estimate());
+        let d_rel = (ea.eta_rel - eb.eta_rel).abs() / ea.eta_rel;
+        let (ta, tb) = (ea.eta / a.err, eb.eta / b.err);
+        let d_theta = (ta - tb).abs() / ta;
+        let share = |e: &ErrorEstimate| {
+            let c = &e.components;
+            let t = c.total();
+            [c.boundary / t, c.boundary_edge / t]
+        };
+        let (sa, sb) = (share(&ea), share(&eb));
+        eprintln!(
+            "golden8c {tag}: eta_rel {:.12e} vs {:.12e} ({d_rel:.1e}), theta {d_theta:.1e}, \
+             boundary share {:.6e} vs {:.6e}, edge share {:.6e} vs {:.6e}",
+            ea.eta_rel, eb.eta_rel, sa[0], sb[0], sa[1], sb[1]
+        );
+        assert!(d_rel <= 1e-9, "{tag}: eta_rel {d_rel:e}");
+        assert!(d_theta <= 1e-9, "{tag}: theta {d_theta:e}");
+        for i in 0..2 {
+            assert!(
+                (sa[i] - sb[i]).abs() <= 1e-9 * sa[i].max(1e-30),
+                "{tag}: share {i}"
+            );
+        }
+        assert!(sa[0] > 0.0);
+    };
+    for n in [2usize, 4] {
+        for (name, model) in leontovich_models() {
+            let a = leontovich_level(n, 1.0, model);
+            let b = leontovich_level(n, 1e-6, scaled_model(model, 1e-6));
+            check(&format!("{name} n={n}"), &a, &b);
+        }
+        check(
+            &format!("guide n={n}"),
+            &guide_level(n, 1.0),
+            &guide_level(n, 1e-6),
+        );
+    }
+}
+
+/// The tet owning each boundary face (sorted triple), and the tet-local
+/// barycentric of a face point with face barycentrics `mu` (sorted-face
+/// order).
+fn boundary_owner(mesh: &TetMesh) -> std::collections::HashMap<[u32; 3], usize> {
+    let mut count: std::collections::HashMap<[u32; 3], (usize, usize)> =
+        std::collections::HashMap::new();
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        for skip in 0..4 {
+            let mut f: Vec<u32> = (0..4).filter(|&i| i != skip).map(|i| tet[i]).collect();
+            f.sort_unstable();
+            let e = count.entry([f[0], f[1], f[2]]).or_insert((t, 0));
+            e.1 += 1;
+        }
+    }
+    count
+        .into_iter()
+        .filter(|(_, (_, k))| *k == 1)
+        .map(|(f, (t, _))| (f, t))
+        .collect()
+}
+
+fn tet_bary_of_face_point(tet: &[u32; 4], face: &[u32; 3], mu: [f64; 3]) -> [f64; 4] {
+    std::array::from_fn(|i| {
+        face.iter()
+            .position(|&v| v == tet[i])
+            .map_or(0.0, |j| mu[j])
+    })
+}
+
+/// Golden 8d: every Robin face and edge term **and its weight** against an
+/// independent evaluation (the space's own `field_at` / `curl_at`, the
+/// edge-midpoint face rule and Simpson's edge rule, both exact for the p=1
+/// integrands), on a random Whitney field with `ν = 0.5`, complex `ε` and
+/// `k²`, three Robin boundaries with different `|c|` (one with a drive),
+/// natural faces and PEC faces. Each Robin weight is the minimum of its
+/// volume and surface forms; the coefficients are chosen so that both
+/// branches of every minimum are taken on this mesh.
+///
+/// So dropping `g`, `c E_t`, the `min`, the edge term, its `½` split, or
+/// taking `min |c|` for `c_e`, each fails here.
+#[test]
+fn golden8d_every_robin_term_and_weight_matches_its_closed_form() {
+    let n = 3;
+    let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let space = HcurlSpace::build(&mesh, ElementOrder::P1);
+    let x: Vec<c64> = (0..space.n_dofs())
+        .map(|i| c64::new((0.37 * i as f64).sin(), (0.11 * i as f64 + 0.3).cos()))
+        .collect();
+    let nu_v = 0.5;
+    let eps_v = c64::new(2.0, -0.4);
+    let k2 = c64::new(3.0, 0.5);
+    let nu = vec![nu_v; mesh.n_tets()];
+    let eps = vec![eps_v; mesh.n_tets()];
+    let robin = [
+        // |c| h ≫ ν: the surface weights win.
+        RobinBoundary::impedance("leontovich", c64::new(20.0, 20.0)),
+        // |c| small: the volume weights win.
+        RobinBoundary::impedance("silver_muller", c64::new(0.0, 0.3)),
+        RobinBoundary::lumped_port(1.7, [0.0, 1.0, 0.0], 1.0, 1.0, 1.0, c64::new(0.8, -0.2)),
+    ];
+    // Sides: x=0 Robin 0, x=1 Robin 1, y=0 natural, y=1 PEC, z=0 Robin 2,
+    // z=1 natural.
+    let side_kind = |d: usize, k: usize| match (d, k) {
+        (0, 0) => BoundaryFaceKind::Robin(0),
+        (0, 1) => BoundaryFaceKind::Robin(1),
+        (1, 0) => BoundaryFaceKind::Natural,
+        (1, 1) => BoundaryFaceKind::Pec,
+        (2, 0) => BoundaryFaceKind::Robin(2),
+        _ => BoundaryFaceKind::Natural,
+    };
+    let bf = mesh.boundary_faces();
+    let mut kinds = BoundaryKinds::new(BoundaryFaceKind::Pec);
+    for fc in &bf {
+        let (d, k) = face_side(&mesh, fc, 1.0);
+        kinds = kinds.with(&[*fc], side_kind(d, k));
+    }
+    let kind = |f: [u32; 3]| kinds.kind(f);
+    let est = estimate_hcurl(
+        &EstimatorInput::new(&mesh, &space, &x, k2, &eps, &nu, &kind).with_robin(&robin),
+    )
+    .expect("estimate");
+
+    let owner = boundary_owner(&mesh);
+    let data = |kd: BoundaryFaceKind| -> Option<(c64, [c64; 3])> {
+        match kd {
+            BoundaryFaceKind::Natural => Some((ZERO, [ZERO; 3])),
+            BoundaryFaceKind::Robin(i) => Some((robin[i].coefficient, robin[i].drive)),
+            _ => None,
+        }
+    };
+    let unit_normal = |p: &[[f64; 3]; 3]| {
+        let nn = vcross(vsub(p[1], p[0]), vsub(p[2], p[0]));
+        let l = vlen(nn);
+        [nn[0] / l, nn[1] / l, nn[2] / l]
+    };
+    // Faces.
+    let mut want_face = 0.0;
+    let mut branches = [[false; 2]; 2]; // [tangential, normal] × [volume, surface]
+    for fc in &bf {
+        let Some((cr, g)) = data(kind(*fc)) else {
+            continue;
+        };
+        let t = owner[fc];
+        let tet = mesh.tets[t];
+        let p: [[f64; 3]; 3] = std::array::from_fn(|i| mesh.nodes[fc[i] as usize]);
+        // Outward: away from the tet's fourth vertex.
+        let mut nrm = unit_normal(&p);
+        let off = *tet.iter().find(|v| !fc.contains(v)).unwrap();
+        let to_off = vsub(mesh.nodes[off as usize], p[0]);
+        if nrm[0] * to_off[0] + nrm[1] * to_off[1] + nrm[2] * to_off[2] > 0.0 {
+            nrm = [-nrm[0], -nrm[1], -nrm[2]];
+        }
+        let area = 0.5 * vlen(vcross(vsub(p[1], p[0]), vsub(p[2], p[0])));
+        let h_f = vlen(vsub(p[1], p[0]))
+            .max(vlen(vsub(p[2], p[0])))
+            .max(vlen(vsub(p[2], p[1])));
+        let mids = [[0.5, 0.5, 0.0], [0.0, 0.5, 0.5], [0.5, 0.0, 0.5]];
+        let (mut tang, mut normal) = (0.0, 0.0);
+        for mu in mids {
+            let b = tet_bary_of_face_point(&tet, fc, mu);
+            let e = space.field_at(&mesh, t, b, &x);
+            let cu = space.curl_at(&mesh, t, b, &x);
+            let en: c64 = (0..3).map(|d| e[d] * nrm[d]).sum();
+            let gn: c64 = (0..3).map(|d| g[d] * nrm[d]).sum();
+            let ncu = [
+                (cu[2] * nrm[1] - cu[1] * nrm[2]) * nu_v,
+                (cu[0] * nrm[2] - cu[2] * nrm[0]) * nu_v,
+                (cu[1] * nrm[0] - cu[0] * nrm[1]) * nu_v,
+            ];
+            let rt: f64 = (0..3)
+                .map(|d| (g[d] - gn * nrm[d] - cr * (e[d] - en * nrm[d]) + ncu[d]).norm_sqr())
+                .sum();
+            // n · R with R = k² ε E (no source); div_Γ E_t = 0 at p=1.
+            let nr = k2 * eps_v * en;
+            tang += rt / 3.0;
+            normal += nr.norm_sqr() / 3.0;
+        }
+        let (vt, vn) = (h_f / nu_v, h_f / (k2.norm() * eps_v.norm()));
+        let (st, sn) = if cr.norm() > 0.0 {
+            (1.0 / cr.norm(), h_f * h_f / cr.norm())
+        } else {
+            (f64::INFINITY, f64::INFINITY)
+        };
+        branches[0][usize::from(st < vt)] = true;
+        branches[1][usize::from(sn < vn)] = true;
+        want_face += area * (tang * vt.min(st) + normal * vn.min(sn));
+    }
+    // Edges.
+    let mut edge_faces: std::collections::HashMap<[u32; 2], Vec<[u32; 3]>> =
+        std::collections::HashMap::new();
+    for fc in &bf {
+        for (i, j) in [(0, 1), (0, 2), (1, 2)] {
+            edge_faces.entry([fc[i], fc[j]]).or_default().push(*fc);
+        }
+    }
+    let mut want_edge = 0.0;
+    let mut n_edges = 0;
+    for (e, fs) in &edge_faces {
+        assert_eq!(fs.len(), 2);
+        let (d0, d1) = (data(kind(fs[0])), data(kind(fs[1])));
+        let robin_side = |f: &[u32; 3]| matches!(kind(*f), BoundaryFaceKind::Robin(_));
+        let (Some(a), Some(b)) = (d0, d1) else {
+            continue;
+        };
+        if !(robin_side(&fs[0]) || robin_side(&fs[1])) {
+            continue;
+        }
+        n_edges += 1;
+        let pa = mesh.nodes[e[0] as usize];
+        let pb = mesh.nodes[e[1] as usize];
+        let len = vlen(vsub(pb, pa));
+        let c_e = a.0.norm().max(b.0.norm());
+        let mut acc = 0.0;
+        for (sq, wq) in [(0.0, 1.0 / 6.0), (0.5, 4.0 / 6.0), (1.0, 1.0 / 6.0)] {
+            let mut jump = ZERO;
+            for (fc, (cr, g)) in [(fs[0], a), (fs[1], b)] {
+                let t = owner[&fc];
+                let p: [[f64; 3]; 3] = std::array::from_fn(|i| mesh.nodes[fc[i] as usize]);
+                let nrm = unit_normal(&p);
+                let opp = *fc.iter().find(|&&v| v != e[0] && v != e[1]).unwrap();
+                let tg = vsub(pb, pa);
+                let tg = [tg[0] / len, tg[1] / len, tg[2] / len];
+                let mut m = vcross(tg, nrm);
+                let to_opp = vsub(mesh.nodes[opp as usize], pa);
+                if m[0] * to_opp[0] + m[1] * to_opp[1] + m[2] * to_opp[2] > 0.0 {
+                    m = [-m[0], -m[1], -m[2]];
+                }
+                let mu: [f64; 3] = std::array::from_fn(|i| {
+                    if fc[i] == e[0] {
+                        1.0 - sq
+                    } else if fc[i] == e[1] {
+                        sq
+                    } else {
+                        0.0
+                    }
+                });
+                let ev =
+                    space.field_at(&mesh, t, tet_bary_of_face_point(&mesh.tets[t], &fc, mu), &x);
+                jump += (0..3).map(|d| (cr * ev[d] - g[d]) * m[d]).sum::<c64>();
+            }
+            acc += wq * jump.norm_sqr();
+        }
+        want_edge += len * len / c_e * acc;
+    }
+    let cmp = &est.components;
+    let rf = (cmp.boundary - want_face).abs() / want_face;
+    let re = (cmp.boundary_edge - want_edge).abs() / want_edge;
+    eprintln!(
+        "golden8d: boundary {:.12e} vs {want_face:.12e} ({rf:.1e}); edge {:.12e} vs \
+         {want_edge:.12e} ({re:.1e}); {n_edges} edges; branches {branches:?}; coverage {:?}",
+        cmp.boundary, cmp.boundary_edge, est.coverage
+    );
+    assert!(
+        branches.iter().all(|b| b[0] && b[1]),
+        "both weight branches: {branches:?}"
+    );
+    assert!(rf <= 1e-10, "Robin face terms mismatch {rf:e}");
+    assert!(re <= 1e-10, "Robin edge terms mismatch {re:e}");
+    assert_eq!(est.coverage.robin_edges, n_edges);
+    assert_eq!(
+        est.coverage.robin_faces.get("leontovich"),
+        Some(&(2 * n * n))
+    );
+    assert_eq!(
+        est.coverage.robin_faces.get("silver_muller"),
+        Some(&(2 * n * n))
+    );
+    assert_eq!(
+        est.coverage.robin_faces.get("lumped_port"),
+        Some(&(2 * n * n))
+    );
+    assert!(est.coverage.is_complete());
+    // The per-tet split: the edge terms sum to the total.
+    let per_tet: f64 = est.eta_t2_terms.iter().map(|t| t.boundary_edge).sum();
+    assert!((per_tet - cmp.boundary_edge).abs() <= 1e-12 * cmp.boundary_edge);
+}
+
+/// Least-squares DOFs of a field that lies in the p=2 space: each tet's 20
+/// local coefficients are fitted at the 64 degree-4 points (normal
+/// equations, exact for an in-space field up to round-off); shared DOFs get
+/// the same value from every tet.
+fn p2_fit(mesh: &TetMesh, space: &HcurlSpace, e: impl Fn([f64; 3]) -> [c64; 3]) -> Vec<c64> {
+    let quad = tet_quad_deg4();
+    let mut x = vec![ZERO; space.n_dofs()];
+    for t in 0..mesh.n_tets() {
+        let dofs = space.tet_dofs(t).to_vec();
+        let nl = dofs.len();
+        let tet = mesh.tets[t];
+        let v: [[f64; 3]; 4] = std::array::from_fn(|i| mesh.nodes[tet[i] as usize]);
+        // a[i][j] = Σ_q φ_i · φ_j, rhs[i] = Σ_q φ_i · e.
+        let mut a = vec![vec![ZERO; nl + 1]; nl];
+        let mut unit = vec![ZERO; space.n_dofs()];
+        for (b, _) in &quad {
+            let xq: [f64; 3] = std::array::from_fn(|d| (0..4).map(|i| b[i] * v[i][d]).sum());
+            let phi: Vec<[c64; 3]> = dofs
+                .iter()
+                .map(|&g| {
+                    unit[g as usize] = c(1.0);
+                    let r = space.field_at(mesh, t, *b, &unit);
+                    unit[g as usize] = ZERO;
+                    r
+                })
+                .collect();
+            let ev = e(xq);
+            for i in 0..nl {
+                for j in 0..nl {
+                    a[i][j] += (0..3).map(|d| phi[i][d] * phi[j][d]).sum::<c64>();
+                }
+                a[i][nl] += (0..3).map(|d| phi[i][d] * ev[d]).sum::<c64>();
+            }
+        }
+        // Gaussian elimination with partial pivoting.
+        for col in 0..nl {
+            let piv = (col..nl)
+                .max_by(|&p, &q| a[p][col].norm().total_cmp(&a[q][col].norm()))
+                .unwrap();
+            a.swap(col, piv);
+            let pivot = a[col].clone();
+            let d = pivot[col];
+            for (r, row) in a.iter_mut().enumerate() {
+                if r != col {
+                    let fac = row[col] / d;
+                    for (v, p) in row.iter_mut().zip(&pivot).skip(col) {
+                        *v -= fac * p;
+                    }
+                }
+            }
+        }
+        for i in 0..nl {
+            x[dofs[i] as usize] = a[i][nl] / a[i][i];
+        }
+    }
+    x
+}
+
+/// Golden 8e: exactness on Robin faces.
+///
+/// - p=1: the constant `E = x̂` with `f = −k² E`, a port-like Robin face
+///   on `z = 0` (`c`, `g = c x̂`) and PEC elsewhere has `η` at round-off;
+///   the same field with `g = 0` or with `c` alone on a natural-looking
+///   face (`c = 0`, `g = c x̂`) does not.
+/// - p=2: `E = a x x̂ + b(x z x̂ − x² ẑ)` with `b = c a / 3` is in the p=2
+///   space and satisfies `n × ∇×E = c E_t` on `z = 0` with
+///   `div_Γ E_t = a ≠ 0`. With the exact `f` and PEC elsewhere, `η` is at
+///   round-off, so the `c div_Γ E_t` part of the normal-flux residual is
+///   load-bearing: without it the residual is `n · R = −3b`.
+#[test]
+fn golden8e_robin_exactness_p1_and_p2() {
+    let n = 2;
+    let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let k2 = c64::new(2.0, 0.3);
+    let eps = vec![c(1.0); mesh.n_tets()];
+    let nu = vec![1.0; mesh.n_tets()];
+    let cr = c64::new(1.5, 2.5);
+    let z0: Vec<[u32; 3]> = mesh
+        .boundary_faces()
+        .into_iter()
+        .filter(|f| f.iter().all(|&i| mesh.nodes[i as usize][2].abs() < 1e-12))
+        .collect();
+    let kinds = BoundaryKinds::new(BoundaryFaceKind::Pec).with(&z0, BoundaryFaceKind::Robin(0));
+    let kind = |f: [u32; 3]| kinds.kind(f);
+
+    // p=1.
+    let space1 = HcurlSpace::build(&mesh, ElementOrder::P1);
+    let x1 = interpolate(&mesh, |_| [c(1.0), ZERO, ZERO]);
+    let f1 = move |_: usize, _: [f64; 3]| [-k2, ZERO, ZERO];
+    let div0 = |_: usize, _: [f64; 3]| ZERO;
+    let run1 = |r: RobinBoundary| {
+        let rb = [r];
+        estimate_hcurl(
+            &EstimatorInput::new(&mesh, &space1, &x1, k2, &eps, &nu, &kind)
+                .with_source(VolumeSource {
+                    f: &f1,
+                    div_f: &div0,
+                })
+                .with_robin(&rb),
+        )
+        .unwrap()
+    };
+    let exact = RobinBoundary {
+        name: "lumped_port",
+        coefficient: cr,
+        drive: [cr, ZERO, ZERO],
+    };
+    let e_ok = run1(exact);
+    let e_no_g = run1(RobinBoundary {
+        drive: [ZERO; 3],
+        ..exact
+    });
+    let e_no_c = run1(RobinBoundary {
+        coefficient: ZERO,
+        ..exact
+    });
+    eprintln!(
+        "golden8e p=1: eta_rel exact {:.3e}, without g {:.3e}, without c {:.3e}",
+        e_ok.eta_rel, e_no_g.eta_rel, e_no_c.eta_rel
+    );
+    assert!(e_ok.eta_rel <= 1e-12, "{}", e_ok.eta_rel);
+    assert!(e_no_g.eta_rel > 1e-2);
+    assert!(e_no_c.eta_rel > 1e-2);
+
+    // p=2.
+    let space2 = HcurlSpace::build(&mesh, ElementOrder::P2);
+    let a = c64::new(0.7, -0.2);
+    let b = cr * a / 3.0;
+    let field = move |p: [f64; 3]| [a * p[0] + b * (p[0] * p[2]), ZERO, -b * (p[0] * p[0])];
+    let x2 = p2_fit(&mesh, &space2, field);
+    // Check the fit reproduces the field.
+    let mut fit_err: f64 = 0.0;
+    for t in [0, 7, 30] {
+        let bary = [0.1, 0.2, 0.3, 0.4];
+        let tet = mesh.tets[t];
+        let pt: [f64; 3] = std::array::from_fn(|d| {
+            (0..4)
+                .map(|i| bary[i] * mesh.nodes[tet[i] as usize][d])
+                .sum()
+        });
+        let got = space2.field_at(&mesh, t, bary, &x2);
+        let want = field(pt);
+        for d in 0..3 {
+            fit_err = fit_err.max((got[d] - want[d]).norm());
+        }
+    }
+    assert!(fit_err < 1e-10, "p=2 fit error {fit_err}");
+    // f = ∇×∇×E − k² E, ∇×∇×E = (0, 0, 3b); div f = −k² ∂_x E_x.
+    let f2 = move |_: usize, p: [f64; 3]| {
+        let e = field(p);
+        [-k2 * e[0], -k2 * e[1], b * 3.0 - k2 * e[2]]
+    };
+    let df2 = move |_: usize, p: [f64; 3]| -k2 * (a + b * p[2]);
+    let rb = [RobinBoundary::impedance("leontovich", cr)];
+    let e2 = estimate_hcurl(
+        &EstimatorInput::new(&mesh, &space2, &x2, k2, &eps, &nu, &kind)
+            .with_source(VolumeSource {
+                f: &f2,
+                div_f: &df2,
+            })
+            .with_robin(&rb),
+    )
+    .unwrap();
+    // Natural instead of Robin: the normal residual is n·R = −3b and the
+    // tangential one n × ∇×E = 3b x x̂.
+    let rb_nat = [RobinBoundary::impedance("leontovich", ZERO)];
+    let e2_nat = estimate_hcurl(
+        &EstimatorInput::new(&mesh, &space2, &x2, k2, &eps, &nu, &kind)
+            .with_source(VolumeSource {
+                f: &f2,
+                div_f: &df2,
+            })
+            .with_robin(&rb_nat),
+    )
+    .unwrap();
+    eprintln!(
+        "golden8e p=2: eta_rel {:.3e} ({:?}); with c = 0 {:.3e}",
+        e2.eta_rel, e2.components, e2_nat.eta_rel
+    );
+    assert!(e2.eta_rel <= 1e-9, "{} {:?}", e2.eta_rel, e2.components);
+    assert!(e2_nat.eta_rel > 1e-2);
 }
