@@ -79,3 +79,28 @@ deciding.
 
 Whether applied or confirmed, preserve the README's existing style and voice —
 just fix the factual inaccuracies, never rewrite prose to "improve" it.
+
+### Verify after write
+
+Applying a README fix is not proof it survived. A concurrent writer — another
+agent working in the same clone, a background `git stash` or `git checkout --`,
+a pre-commit hook, a Loom sweep quarantining the primary clone's working tree —
+can revert a file between the moment you fix it and the moment you report it,
+leaving this command claiming a fix that is no longer on disk.
+
+So immediately after applying each fix, and **before counting it as applied**,
+re-read the changed region of the file and confirm your specific edit is
+present. `git diff -- <path>` / `git status --porcelain -- <path>` is a cheap
+first pass, but only proves the path differs from HEAD — it cannot distinguish
+your edit from someone else's, so it must not be the sole check when the file
+may carry other uncommitted changes.
+
+This check is **unconditional** — run it whether or not you have any reason to
+suspect a concurrent writer. Detecting a daemon first would be racy (one can
+start right after the check), and in a repo with no concurrent writer the check
+always finds the edit still applied, so nothing about the reported output
+changes.
+
+If a fix is gone on re-check, report it on its own line as **reverted after
+apply — needs re-run**. Do not silently re-apply it, and do not count it in the
+fixed total — that total must only ever include edits confirmed still on disk.
