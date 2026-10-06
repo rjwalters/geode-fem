@@ -411,7 +411,7 @@ impl PortFaceProjection {
     /// degenerate if its relative gap shrank to at most
     /// [`crate::driven::ports::DEGENERATE_CONVERGENCE_RATIO`] of the gap
     /// here. If the refined solve fails, candidates stay distinct.
-    fn degenerate_clusters(
+    pub(crate) fn degenerate_clusters(
         &self,
         modes: &mut Vec<WaveguideModeProfile>,
         n_keep: usize,
