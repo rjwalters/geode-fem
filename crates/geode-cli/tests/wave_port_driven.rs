@@ -1444,9 +1444,9 @@ fn vacuum_wave_and_mixed_ports_match_the_pre_fill_solver() {
 /// Re-recorded again for issue #888 (the canonical wave-port mode gauge).
 /// Port mode 2 of the 8×4 face is the TE₂₀ member of the TE₂₀ / TE₀₁ pair,
 /// which is degenerate in the continuum (`k_c = π` for both on a `2 × 1`
-/// guide) and split by the discretization (relative gap `6.5e-4` in `k_c²`,
-/// `1.7e-4` on the face refined once, so the gauge confirms the pair as one
-/// cluster). The members of a degenerate cluster now share its mean cutoff,
+/// guide) and split by the discretization (relative gap `6.5e-4` in `k_c²`
+/// at p=1, `3.9e-8` in the p=2 solve of the same face, so the gauge
+/// confirms the pair as one cluster; #892). The members of a degenerate cluster now share its mean cutoff,
 /// so the port's modal term over the cluster does not depend on the basis
 /// the gauge picks inside it. That moves this mode's `k_c²` from the lower
 /// discrete value 9.69543 to the pair mean 9.69859, its evanescent `β` by

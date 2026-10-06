@@ -39,17 +39,16 @@
 //!
 //! # Gauge
 //!
-//! The modes carry the reference-integral sign convention of the p=1 modes
-//! (issue #300): the sign makes `∫ e_h · F dA` positive for the first
-//! reference field `F` that overlaps the mode. The projection is a
-//! quadrature over the face, so it is a continuous functional of the mode
-//! and stable under refinement. The reference list starts with the p=1
-//! list, in order, and continues with the TE_mn transverse shapes, so modes
-//! beyond the p=1 list (TE₁₁, TE₂₁, …) are gauged too. A reference counts
-//! only above 1 % of the Cauchy–Schwarz ceiling, so discretization noise in
-//! a continuously orthogonal reference never sets the sign. A mode that no
-//! reference spans is [`crate::eigen::dense::EigenError::UngaugableMode`],
-//! as at p=1.
+//! The modes take the canonical port-mode gauge of the p=1 face (issue
+//! #888, [`super::mode_gauge`]; issue #894): the same reference list,
+//! floor and lead rule, evaluated on the continuous overlap `∫ e_h · F dA`
+//! by a degree-4 rule over the p=2 trace field. Degenerate clusters (the
+//! square guide's TE₁₀ / TE₀₁, the circular TE₁₁ and TE₂₁) are found by
+//! [`PortFaceProjection::degenerate_clusters`], which compares the face's
+//! p=1 and p=2 gaps, so a p=1 and a p=2 port of one face cluster alike.
+//! A cluster gets the canonical basis and its members the cluster's mean
+//! cutoff. A mode that no reference spans is
+//! [`crate::eigen::dense::EigenError::UngaugableMode`], as at p=1.
 //!
 //! # Sweeps
 //!

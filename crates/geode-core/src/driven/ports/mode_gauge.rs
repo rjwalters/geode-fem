@@ -50,9 +50,11 @@
 //! face the discrete modes are the diagonal combinations `TE₁₀ ± TE₀₁`. Two
 //! consecutive modes are one cluster when their relative cutoff gap is at
 //! round-off ([`DEGENERATE_EXACT_REL_TOL`]), or below
-//! [`DEGENERATE_CANDIDATE_REL_TOL`] and shrinking under refinement
-//! ([`DEGENERATE_CONVERGENCE_RATIO`]; the projected face is refined once
-//! and re-solved).
+//! [`DEGENERATE_CANDIDATE_REL_TOL`] and shrinking from the p=1 to the p=2
+//! solve of the same face ([`DEGENERATE_CONVERGENCE_RATIO`]; issue #892).
+//! The confirming solve runs at the other order with an explicit shift, so
+//! it costs a fraction of the port's own modal solve, and a p=1 and a p=2
+//! port of one face reach the same decision.
 //! The gauge builds the cluster's basis one direction at a time with the
 //! same rule: the first reference that reaches the floor and the lead ratio
 //! **within the part of the cluster not yet used** fixes the next direction
@@ -88,8 +90,8 @@ pub const GAUGE_LEAD_RATIO: f64 = 0.5;
 pub const DEGENERATE_EXACT_REL_TOL: f64 = 1e-6;
 
 /// Relative cutoff gap ([`relative_gap`]) up to which two consecutive modes
-/// are a **candidate** degenerate pair, confirmed by refinement
-/// ([`DEGENERATE_CONVERGENCE_RATIO`]).
+/// are a **candidate** degenerate pair, confirmed against the other element
+/// order ([`DEGENERATE_CONVERGENCE_RATIO`]).
 ///
 /// A continuously degenerate pair is split by the discretization at
 /// `O(h²)`: measured 1.2 % for TE₁₀ / TE₀₁ on a 6 × 6 structured square
@@ -98,10 +100,21 @@ pub const DEGENERATE_EXACT_REL_TOL: f64 = 1e-6;
 /// TE₂₀ / TE₀₁ on the 8 × 4 face of a `2 × 1` guide.
 pub const DEGENERATE_CANDIDATE_REL_TOL: f64 = 5e-2;
 
-/// A candidate pair is degenerate when its relative gap on the uniformly
-/// refined face (`h/2`) is at most this fraction of the gap on the face:
-/// a discretization split shrinks as `O(h²)` (ratio ≈ 1/4), a physical one
-/// stays (ratio ≈ 1).
+/// A candidate pair is degenerate when its relative gap in the p=2 solve of
+/// the face is at most this fraction of its gap in the p=1 solve (issue
+/// #892): a discretization split shrinks from `O(h²)` to `O(h⁴)`, a
+/// physical one stays (ratio ≈ 1).
+///
+/// Measured ratios of continuously degenerate pairs: 0.002 (TE₂₀ / TE₀₁,
+/// `2 × 1`, 8 × 4), 0.005 (TE₁₀ / TE₀₁, 6 × 6 structured square), 0.003 to
+/// 0.13 (TE₁₁ / TE₂₁ of Gmsh circular faces of 144 to 932 triangles), and
+/// at most 0.16 on a Gmsh coax face, where the polygonal rims split the
+/// pair at both orders (the face refined once, its rim kept, gave 0.43 and
+/// 0.52 for the two ports of that guide, either side of this threshold).
+/// A physically distinct pair is kept when p=1 resolves it (TE₂₁ / TE₃₀ of
+/// a `2 × 0.9` face, 0.7 % apart: ratio 1.2 on 20 × 10). A pair whose p=1
+/// split is mostly discretization error is one cluster at both orders
+/// (ratio 0.23 on 10 × 5): its members share the mean cutoff.
 pub const DEGENERATE_CONVERGENCE_RATIO: f64 = 0.5;
 
 /// Relative gap `|b − a| / max(|a|, |b|)` of two cutoffs `k_c²`.

@@ -1,0 +1,20 @@
+fixture:        guide_coax_lc018_015.msh
+sha256:         bed1c0e0a9ebc3626c91da04f18abaf6f56a238fe95789c369f312ff03351666
+generated:      2026-10-06T06:58:34+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/guide_coax.geo
+command:        gmsh reference/gmsh/guide_coax.geo -3 -format msh41 -v 0 -setnumber lc 0.18 -setnumber lc1 0.15 -o crates/geode-core/tests/fixtures/guide_coax_lc018_015.msh
+
+parameter values:
+  r:   1     (outer radius, mesh units; default)
+  ri:  0.35  (inner conductor radius; default)
+  d:   1     (z extent: the guide length; default)
+  lc:  0.18  (mesh size at the z = 0 port: a 224-triangle face)
+  lc1: 0.15  (mesh size at z = d: a 315-triangle face)
+
+physical groups: 3-D "domain"; 2-D "walls" (all faces). The tests take the
+                 ports from boundary_faces() at z = 0 / z = d, in its order.
+nodes:          912
+consumed by:    crates/geode-core/tests/wave_port_gauge.rs (issues #892 / #896:
+                the Judge's coax probe, where the pre-#892 refinement test
+                split the TE11 cluster decision between the two ports)

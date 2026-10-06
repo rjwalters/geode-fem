@@ -32,7 +32,8 @@
 //!    guide's canonical cluster basis;
 //! 9. the degenerate-cluster confirmation (issue #892): a cost guard on a
 //!    338-triangle circular face (≤ 2× the raw modal solve) and the p=1 /
-//!    p=2 agreement of its cluster decision.
+//!    p=2 agreement of its cluster decision, and the coax guide whose two
+//!    ports used to decide its TE₁₁ cluster differently (#896).
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test wave_port_gauge -- --nocapture
@@ -670,4 +671,22 @@ fn p1_and_p2_cluster_the_circular_pairs_alike() {
     }
     // j'₁₁² = 3.3900, j'₂₁² = 9.3284 for r = 1 (the polygonal rim lowers both).
     assert!((l2[0] - 3.39).abs() < 0.03 && (l2[2] - 9.33).abs() < 0.1);
+}
+
+/// The #896 Judge probe: a coax guide whose two ports have different face
+/// meshes (`lc` 0.18 / 0.15). The pre-#892 confirmation (the face refined
+/// once, rim kept) measured the TE₁₁ split shrinking to 0.52 of itself on
+/// port 1 (distinct) and 0.43 on port 2 (cluster): one TE₁₁ mode came out at
+/// `+178.6°` and the off-diagonal of the TE₁₁ block at 0.70, silently. The
+/// p=1 / p=2 gap ratio is 0.16 / 0.11, so both ports cluster the pair, the
+/// block is diagonal and the phase analytic.
+#[test]
+fn coax_ports_decide_the_te11_cluster_alike() {
+    let g = gmsh_guide("guide_coax_lc018_015.msh", 1.0, 2);
+    let (s, beta) = sweep(&g, &g.port1, &g.port2, 2, 1.0, 2.2);
+    check_phases("coax TE11", &s, &beta, g.len, 5.0);
+    let n = 4;
+    let (x, y) = (s[2 * n + 1].norm(), s[3 * n].norm());
+    eprintln!("coax TE11 block off-diagonal {x:.2e}, {y:.2e}");
+    assert!(x < 0.02 && y < 0.02, "coax TE11 cross terms {x:e}, {y:e}");
 }
