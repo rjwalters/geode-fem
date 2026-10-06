@@ -236,7 +236,11 @@ impl PortFaceProjection {
     /// A face one element across reads `≤ 1`: an `nx × 1` structured face
     /// of a `2 × 1` guide `1/√(1 + (2/nx)²)`, the crossed `2 × 1`-cell Gmsh
     /// face (`lc ≥ 1` on `b = 1`) `1.0`. Two or more elements across read
-    /// `≥ 1.4` (`4 × 2`: 1.41, `8 × 2`: 1.79, `16 × 8`: 5.66). The value is
+    /// `≥ 1.4` (`4 × 2`: 1.41, `8 × 2`: 1.79, `16 × 8`: 5.66) when their
+    /// cells are near-square. It is a width, not an element count: with
+    /// elongated cells a face two or three across can read below
+    /// [`TM_GUARD_MIN_ELEMENTS_ACROSS_P2`] (issue #895: 3 × 3 cells of a
+    /// `2.3 × 1` face, 1.196). The value is
     /// exact below [`TM_GUARD_MIN_ELEMENTS_ACROSS_P2`] and a lower bound
     /// above it (the scan stops once the face clears the threshold). A face with
     /// every vertex on the rim always reads `≤ 2/√3`: its triangle holding
@@ -1422,19 +1426,23 @@ pub fn tm_guard_margin(k_c: f64, axial_spacing: f64) -> f64 {
 /// | structured, `2 × 2` faces of a `1 × 1` guide | 3.33 … 5.33 | 1.44 % | 1.8·10⁻⁵ |
 /// | structured, stepped layers (fine at the port, coarse behind) | 2.11 … 3.51 | 0.32 % | 2.1·10⁻⁵ |
 /// | Gmsh, uniform (`lc` 0.25 … 0.9) and graded (0.08 → 0.5, 0.12 → 0.6, 0.6 → 0.12), incl. `lc` 0.9 at the TE₁₀₂ / TE₁₀₃ degeneracies (`d` = 2, 3, 3.1) | 1.12 … 3.51 | 1.85 % (`2 × 1 × 3.1`, `lc` 0.9) | 2.9·10⁻⁴ (`2 × 1 × 3`, `lc` 0.9, `k_c·h` 2.71) |
+/// | Gmsh faces 1.28 … 1.33 longest edges across (`1.5 × 1` at `lc` 0.92, `2.3 × 1` and `3 × 1` at `lc` 0.9; issue #895), `d` = 1 … 3.1 | 2.48 … 3.78 | 3.95 % (`1.5 × 1 × 3.1`) | 4.1·10⁻⁴ (`1.5 × 1 × 3`, `k_c·h` 2.83) |
 ///
-/// Those are the faces **two or more elements across**
-/// ([`PortFaceProjection::face_elements_across`] ≥ 1.38). Faces about one
-/// element across (`nx × 1`, `1 × ny`, `2 × 1`, `3 × 1`, `2 × 2` cells of a
-/// `2 × 1` guide, the crossed Gmsh faces at `lc` ≥ 1) undershoot more; they
-/// get the floor [`TM_GUARD_MARGIN_P2_COARSE_FACE`] and a note.
+/// Those are the faces at or above
+/// [`TM_GUARD_MIN_ELEMENTS_ACROSS_P2`] longest edges across
+/// ([`PortFaceProjection::face_elements_across`]). Faces about one element
+/// across (`nx × 1`, `1 × ny`, `2 × 1`, `3 × 1`, `2 × 2` cells of a `2 × 1`
+/// guide, the crossed Gmsh faces at `lc` ≥ 1) undershoot more; they get the
+/// floor [`TM_GUARD_MARGIN_P2_COARSE_FACE`] and a note, and so do faces two or
+/// three across with elongated cells that read under the threshold.
 ///
 /// Compare p=1 on the same meshes: 6.0 % on the stepped `2 × 1` guide, 18.5 %
-/// at `k_c·h_n` = 3.51. Every row of the measurement (211 rows, both face
+/// at `k_c·h_n` = 3.51. Every row of the measurement (235 rows, both face
 /// classes) has the p=2 guard below the 3-D p=2 TM-like cutoff; the
-/// tightest two-or-more-across row by 3.21 points (Gmsh `2 × 1 × 3.1`,
-/// `lc` 0.9), the tightest overall by 2.18 points (the `24 × 1` face of a
-/// `3 × 1` guide over one layer of 1.01, under the face floor).
+/// tightest row under the mesh law by 1.10 points (Gmsh `1.5 × 1 × 3.1`,
+/// `lc` 0.92, 1.28 longest edges across, near the TE₁₀₃ / TM₁₁₀
+/// degeneracy), the tightest under the face floor by 2.18 points (the
+/// `24 × 1` face of a `3 × 1` guide over one layer of 1.01).
 ///
 /// **Why `h` includes the face.** On a coarse port face the 3-D p=2 model's
 /// TM cutoff undershoots by more than the axial spacing alone predicts: 4.1
@@ -1451,8 +1459,8 @@ pub fn tm_guard_margin(k_c: f64, axial_spacing: f64) -> f64 {
 /// measured ratio is 2.8·10⁻⁵, far inside `C₄`. Below it the base margin
 /// `δ₀` = 5 % governs, and the ratio is not the bound: near a box
 /// degeneracy (TE₁₀ₚ meeting TM₁₁₀ at `d = p·b`) the ratio reaches
-/// 2.9·10⁻⁴ there, above `C₄`, but the undershoot stays at 1.85 % or less
-/// against 5 %. So `C₄ = 2·10⁻⁴` is a bound over the measured range, not a
+/// 4.1·10⁻⁴ there, above `C₄`, but the undershoot stays at 3.95 % or less
+/// against 5 % on the rows measured. So `C₄ = 2·10⁻⁴` is a bound over the measured range, not a
 /// model: it holds for the rows above (`k_c·h` up to
 /// [`TM_GUARD_MEASURED_KH_P2`]), on rectangular guides, with the face
 /// estimate taken at P2. Beyond that range it is extrapolated
@@ -1475,19 +1483,24 @@ pub const TM_GUARD_AXIAL_COEFF_P2: f64 = 2e-4;
 /// `k_c·h`. The longest edge `h_f` alone does not see "one element across":
 /// on a `16 × 1` face it is ≈ 1.03.
 ///
-/// 8 % covers every such row measured (159 rows of
+/// 8 % covers every such row measured (170 rows of
 /// `tm_guard_p2_measurement_table`, `d` within 0.05 % of the degeneracy and
 /// either side of it; worst 5.95 %, 2.18 points to spare). The margin is
 /// `max(8 %, C₄·(k_c·h)⁴)`, so a coarser face widens it further.
-/// [`TmCutoffEstimate::p2_resolution_warning`] asks for two or more elements
-/// across the port face.
+/// [`TmCutoffEstimate::p2_resolution_warning`] names the longest face edge
+/// that clears [`TM_GUARD_MIN_ELEMENTS_ACROSS_P2`]; on a face one element
+/// across that takes two or more elements across the port face.
 pub const TM_GUARD_MARGIN_P2_COARSE_FACE: f64 = 0.08;
 
 /// The p=2 TM guard treats a port face with
 /// [`PortFaceProjection::face_elements_across`] below this as about one
 /// element across ([`TM_GUARD_MARGIN_P2_COARSE_FACE`]). Measured faces one
-/// element across read `≤ 1.0`, faces two or more across `≥ 1.38` (Gmsh
-/// `lc` 0.9 on `b = 1`; structured `4 × 2` of a `2 × 1` guide: 1.41).
+/// element across read `≤ 1.0`, and faces two or more across with near-square
+/// cells `≥ 1.38` (Gmsh `lc` 0.9 on `2 × 1`; structured `4 × 2` of a `2 × 1`
+/// guide: 1.41). The value is a width in longest edges, not an element
+/// count, so faces two or three across with elongated cells can read below
+/// it (issue #895: 3 × 3 cells of `2.3 × 1` read 1.196, Gmsh `lc` 0.9 on
+/// `2.5 × 1` 1.20); they get the floor too, which is conservative.
 pub const TM_GUARD_MIN_ELEMENTS_ACROSS_P2: f64 = 1.25;
 
 /// Largest `k_c^TM·max(h_n, h_f)` at which a p=2 undershoot was measured
@@ -1660,8 +1673,13 @@ impl TmCutoffEstimate {
     /// one element across its narrow side ([`Self::face_elements_across`]
     /// below [`TM_GUARD_MIN_ELEMENTS_ACROSS_P2`]). Its margin is then at
     /// least [`TM_GUARD_MARGIN_P2_COARSE_FACE`] ([`Self::margin`]), and
-    /// [`Self::p2_resolution_warning`] asks for two or more elements across.
-    /// Only the p=2 law ([`Self::margin_law`]) reads it.
+    /// [`Self::p2_resolution_warning`] names the longest face edge that
+    /// clears it. Only the p=2 law ([`Self::margin_law`]) reads it.
+    ///
+    /// The measure is a width in longest edges, not an element count, so it
+    /// is also true on a face two or three elements across whose cells are
+    /// elongated (issue #895: 3 × 3 cells of a `2.3 × 1` face read 1.196).
+    /// That is conservative: the margin is wider than such a face needs.
     pub fn face_under_resolved(&self) -> bool {
         self.face_elements_across < TM_GUARD_MIN_ELEMENTS_ACROSS_P2
     }
@@ -1795,10 +1813,14 @@ impl TmCutoffEstimate {
     /// - a P2 solve guarded by a **P1** face estimate (the p=1 law, which is
     ///   safe but wide): build it with
     ///   [`PortFaceProjection::tm_cutoff_estimate_at_order`];
-    /// - a port face about one element across its narrow side
+    /// - a port face whose narrow half-width is under
+    ///   [`TM_GUARD_MIN_ELEMENTS_ACROSS_P2`]`/2` longest face edges
     ///   ([`Self::face_under_resolved`], the floor
-    ///   [`TM_GUARD_MARGIN_P2_COARSE_FACE`]): use two or more elements
-    ///   across;
+    ///   [`TM_GUARD_MARGIN_P2_COARSE_FACE`]). That is a face one element
+    ///   across, or one two or three across with elongated cells (issue
+    ///   #895), so the note names the longest face edge that clears the
+    ///   threshold, `h_f·n_across/`[`TM_GUARD_MIN_ELEMENTS_ACROSS_P2`]; on a
+    ///   face one element across that takes two or more elements across;
     /// - the mesh term widening the margin past [`TM_GUARD_MARGIN`], naming
     ///   whether the port face (`h_f`) or the guide (`h_n`) sets it and the
     ///   spacing that restores the base margin;
@@ -1822,11 +1844,52 @@ impl TmCutoffEstimate {
         let kh = self.resolution_kh();
         let mut notes = Vec::new();
         if self.face_under_resolved() {
+            // Issue #895: say what the measure reads, not "one element
+            // across". `n = 2·r/h_f` (`r` the narrow half-width, `h_f` the
+            // longest face edge) is below the threshold `n_min` on a face one
+            // element across, and also on a face two or three across whose
+            // cells are elongated (3 × 3 cells of a 2.3 × 1 face: 1.196).
+            // Both are cured by a shorter longest edge. `r` is set by the
+            // face outline, so refining to `h_f' ≤ X` with
+            //   2·r/X = n_min,  r = n·h_f/2   ⇒   X = h_f·n/n_min
+            // clears the threshold. On a face one element across `X` is
+            // below the narrow width, which no rim-to-rim edge fits under:
+            // there it takes two or more elements across.
+            let n = self.face_elements_across;
+            let n_min = TM_GUARD_MIN_ELEMENTS_ACROSS_P2;
+            let (reads, target) = if self.face_spacing > 0.0 {
+                let h_f = self.face_spacing;
+                (
+                    format!(
+                        "the port face's narrow half-width {:.3} is under {:.3} of its longest \
+                         edge {h_f:.3} (width {n:.2} longest edges, threshold {n_min})",
+                        0.5 * n * h_f,
+                        0.5 * n_min
+                    ),
+                    format!(
+                        "refine the port face until its longest edge is at most {:.3}",
+                        h_f * n / n_min
+                    ),
+                )
+            } else {
+                (
+                    format!(
+                        "the port face's narrow half-width is under {:.3} of its longest edge \
+                         (width {n:.2} longest edges, threshold {n_min})",
+                        0.5 * n_min
+                    ),
+                    format!(
+                        "refine the port face until its longest edge is at most {:.2} of the \
+                         present one",
+                        n / n_min
+                    ),
+                )
+            };
             notes.push(format!(
-                "the port face is about one element across its narrow side (width {:.2} \
-                 longest edges), so the p=2 TM guard margin is at least {:.0} % (base {:.0} %): \
-                 use two or more elements across the narrow side of the port face",
-                self.face_elements_across,
+                "{reads}, so the p=2 TM guard margin is at least {:.0} % (base {:.0} %). Either \
+                 the face is one element across its narrow side or its cells are elongated: \
+                 {target}, which on a face one element across takes two or more elements across \
+                 the narrow side",
                 100.0 * TM_GUARD_MARGIN_P2_COARSE_FACE,
                 100.0 * TM_GUARD_MARGIN
             ));
@@ -2314,6 +2377,9 @@ mod tests {
         assert_eq!(p2.margin(), TM_GUARD_MARGIN_P2_COARSE_FACE);
         let note = p2.p2_resolution_warning().expect("one-element-across note");
         assert!(note.contains("two or more elements across"), "{note}");
+        // The note names the longest edge that clears the threshold (issue
+        // #895): 2·r/1.25 = 0.8 with r = b/2, below the narrow width b.
+        assert!(note.contains("longest edge is at most 0.800"), "{note}");
         // No axial refinement admits a k above the floor.
         assert!(p2.axial_spacing_admitting(0.93 * p2.k_c()).is_none());
         assert!(p2.axial_spacing_admitting(0.9 * p2.k_c()).is_some());
@@ -2331,6 +2397,69 @@ mod tests {
             p1.with_element_order(ElementOrder::P2).margin().to_bits(),
             p1.margin().to_bits()
         );
+    }
+
+    /// Issue #895: the measure is a width in longest edges, so faces two or
+    /// three elements across with elongated cells read under the threshold
+    /// too (3 × 3 cells of a `2.3 × 1` face: 1.196; a 4 × 2 face of a
+    /// `2 × 1` guide with its interior row shifted by 0.05 b: 1.21). They
+    /// keep the floor, and the note names the longest face edge that clears
+    /// the threshold instead of calling them one element across.
+    #[test]
+    fn elongated_faces_two_or_three_across_get_a_longest_edge_target() {
+        let n_min = TM_GUARD_MIN_ELEMENTS_ACROSS_P2;
+        let check = |face: &PortFaceProjection, n_want: f64, h_want: f64| {
+            let n = face.face_elements_across();
+            assert!((n - n_want).abs() < 1e-12, "{n} vs {n_want}");
+            assert!(n > 1.0 && n < n_min, "{n}");
+            assert!((face.face_spacing() - h_want).abs() < 1e-12);
+            let est = face
+                .tm_cutoff_estimate_at_order(None, ElementOrder::P2)
+                .unwrap()
+                .with_axial_spacing(0.5);
+            assert!(est.face_under_resolved());
+            assert_eq!(est.margin(), TM_GUARD_MARGIN_P2_COARSE_FACE);
+            let note = est.p2_resolution_warning().expect("elongated-face note");
+            assert!(!note.contains("about one element across"), "{note}");
+            assert!(note.contains("cells are elongated"), "{note}");
+            // X = h_f·n/n_min = 2·r/n_min.
+            let target = format!("longest edge is at most {:.3}", h_want * n_want / n_min);
+            assert!(note.contains(&target), "{note} vs {target}");
+        };
+        // 3 × 3 cells of 2.3 × 1 (0.767 × 0.333): r = b/2, so X = 0.8.
+        let (a, b) = (2.3, 1.0);
+        let h_f = (a / 3.0_f64).hypot(b / 3.0);
+        check(&rect_face(3, 3, a, b), b / h_f, h_f);
+        assert!((b / h_f - 1.196).abs() < 1e-3);
+        // Refined to that target (4 × 3, longest edge 0.665) it clears.
+        let fine = rect_face(4, 3, a, b);
+        assert!(fine.face_spacing() < 0.8);
+        assert!(fine.face_elements_across() > n_min);
+        let est = fine
+            .tm_cutoff_estimate_at_order(None, ElementOrder::P2)
+            .unwrap()
+            .with_axial_spacing(0.5);
+        assert_eq!(est.margin(), TM_GUARD_MARGIN);
+        assert!(est.p2_resolution_warning().is_none());
+
+        // 4 × 2 cells of 2 × 1, interior row at y = 0.55: r = 0.45.
+        let mut g = extruded_rect_waveguide_mesh(4, 2, 1, 2.0, 1.0, 0.5);
+        for p in &mut g.mesh.nodes {
+            if (p[1] - 0.5).abs() < 1e-12 {
+                p[1] = 0.55;
+            }
+        }
+        let shifted = project_port_face(&g.mesh, &g.port1_faces).expect("shifted face");
+        let h_f = 0.5_f64.hypot(0.55);
+        check(&shifted, 0.9 / h_f, h_f);
+        assert!((0.9 / h_f - 1.21).abs() < 2e-3);
+
+        // With no face spacing set the target is relative.
+        let bare = TmCutoffEstimate::from_levels_at_order([3.6, 3.53, 3.515], ElementOrder::P2)
+            .with_element_order(ElementOrder::P2)
+            .with_face_elements_across(1.2);
+        let note = bare.p2_resolution_warning().expect("bare note");
+        assert!(note.contains("at most 0.96 of the present one"), "{note}");
     }
 
     /// Issue #808 (Judge, PR #811): the face P1 value on the 8 × 4 face of

@@ -1020,8 +1020,12 @@ struct GuardRow {
     kh: f64,
     /// 3-D p=2 TM-like undershoot against the P2 face estimate.
     under: f64,
-    /// The face is one element across ([`TmCutoffEstimate::face_under_resolved`]).
+    /// The face is flagged under-resolved and carries the face floor
+    /// ([`TmCutoffEstimate::face_under_resolved`]).
     coarse_face: bool,
+    /// The face's width in longest edges
+    /// ([`TmCutoffEstimate::face_elements_across`]).
+    across: f64,
     /// Points between the p=2 guard and the 3-D p=2 TM-like cutoff.
     pts_left: f64,
 }
@@ -1063,12 +1067,14 @@ fn measure_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
     if let Some(note) = est.p2_resolution_warning() {
         eprintln!("    note: {note}");
     }
-    // A face one element across always carries the note.
+    // A flagged face always carries the note, with the longest-edge target
+    // that clears the threshold (issue #895).
     if est.face_under_resolved() {
         let note = est
             .p2_resolution_warning()
             .expect("one-element-across note");
         assert!(note.contains("two or more elements across"), "{note}");
+        assert!(note.contains("longest edge is at most"), "{note}");
     }
     assert!(guard < k3d, "{label}: p=2 guard {guard} ≥ 3-D p=2 TM {k3d}");
     assert!(
@@ -1079,6 +1085,7 @@ fn measure_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
         kh,
         under,
         coarse_face: est.face_under_resolved(),
+        across: est.face_elements_across,
         pts_left: 100.0 * (1.0 - guard / k3d),
     }
 }
@@ -1205,6 +1212,45 @@ fn p2_tm_guard_is_safe_on_a_face_one_element_across() {
     check_p2_guard("face 8×2, one layer of 0.995", &g.mesh, a, b);
 }
 
+/// Issue #895 (Judge round 3, PR #887): a face **three elements across**
+/// with elongated cells (3 × 3 cells of a `2.3 × 1` guide, 0.767 × 0.333)
+/// reads 1.196 longest edges across, under the 1.25 threshold. It keeps the
+/// 8 % floor, which is conservative (the 3-D p=2 TM-like branch undershoots
+/// by 0.67 %), but the note no longer calls it one element across: it names
+/// the longest face edge that clears the threshold. A face refined to that
+/// target (4 × 3) is at the base margin with no note.
+#[test]
+fn p2_tm_guard_note_names_the_longest_edge_on_an_anisotropic_face() {
+    use geode_core::driven::ports::TM_GUARD_MARGIN_P2_COARSE_FACE;
+    let (a, b) = (2.3, 1.0);
+    let g = extruded_rect_waveguide_mesh(3, 3, 1, a, b, 0.999);
+    let est = guard_estimate_at(&g.mesh, ElementOrder::P2);
+    assert!(
+        (est.face_elements_across - 1.196).abs() < 1e-3,
+        "{}",
+        est.face_elements_across
+    );
+    assert!(est.face_under_resolved(), "{est:?}");
+    assert_eq!(est.margin(), TM_GUARD_MARGIN_P2_COARSE_FACE);
+    let r = measure_p2_guard("face 3×3 of 2.3×1, one layer of 0.999", &g.mesh, a, b);
+    assert!(r.under > 0.0 && r.under < 0.01, "undershoot {}", r.under);
+    assert!(r.pts_left > 7.0, "{} pt left", r.pts_left);
+    let note = est.p2_resolution_warning().expect("anisotropic-face note");
+    assert!(!note.contains("about one element across"), "{note}");
+    assert!(note.contains("cells are elongated"), "{note}");
+    // 2·r/1.25 with r = b/2: the longest edge 0.836 must come down to 0.8.
+    assert!(note.contains("longest edge 0.836"), "{note}");
+    assert!(note.contains("longest edge is at most 0.800"), "{note}");
+    // Refined to that target, the face clears the threshold.
+    let g = extruded_rect_waveguide_mesh(4, 3, 1, a, b, 0.999);
+    let est = guard_estimate_at(&g.mesh, ElementOrder::P2);
+    assert!(est.face_spacing < 0.8, "{est:?}");
+    assert!(!est.face_under_resolved(), "{est:?}");
+    assert_eq!(est.margin(), TM_GUARD_MARGIN);
+    assert!(est.p2_resolution_warning().is_none(), "{est:?}");
+    check_p2_guard("face 4×3 of 2.3×1, one layer of 0.999", &g.mesh, a, b);
+}
+
 /// The p=2 margin law and its inverses are consistent.
 #[test]
 fn p2_tm_guard_margin_law() {
@@ -1265,7 +1311,10 @@ fn p2_tm_guard_margin_law() {
 /// the TE₁₀₁ / TM₁₁₀ box degeneracy at `d = b`), stepped layers, and (when
 /// `gmsh` is on `PATH`) uniform and graded Gmsh guides from
 /// `reference/gmsh/guide_box.geo`. Every case asserts that the p=2 guard is
-/// below the 3-D p=2 TM-like cutoff; no case is skipped. On faces two or
+/// below the 3-D p=2 TM-like cutoff; no case is skipped. The Gmsh rows of
+/// issue #895 fill the band between a crossed face (1.0 longest edges
+/// across) and the uniform `lc` 0.9 face (1.375), on both sides of the 1.25
+/// threshold. On faces two or
 /// more elements across, the worst ratio `÷(k_c·h)⁴` where the `C₄` term
 /// sets the margin (`k_c·h ≥ (δ₀/C₄)^¼` ≈ 3.98) must be below `C₄`, and the
 /// worst undershoot below it below the base margin `δ₀`. On faces about one
@@ -1282,13 +1331,17 @@ fn tm_guard_p2_measurement_table() {
     let mut worst_under_base = 0.0_f64;
     let mut worst_coarse_under = 0.0_f64;
     let mut tightest = f64::INFINITY;
+    let mut tightest_fine = f64::INFINITY;
     let mut rows = 0usize;
+    let mut coarse_rows = 0usize;
     let mut record = |r: GuardRow| {
         rows += 1;
         tightest = tightest.min(r.pts_left);
         if r.coarse_face {
+            coarse_rows += 1;
             worst_coarse_under = worst_coarse_under.max(r.under);
         } else {
+            tightest_fine = tightest_fine.min(r.pts_left);
             worst_under = worst_under.max(r.under);
             if r.under > 1e-3 {
                 worst_ratio = worst_ratio.max(r.under / r.kh.powi(4));
@@ -1400,6 +1453,20 @@ fn tm_guard_p2_measurement_table() {
         );
         record(r);
     }
+    // Two or three elements across with elongated cells (issue #895): 3 × 3
+    // cells of a `2.3 × 1` guide read 1.196 longest edges across, so they
+    // carry the face floor too.
+    for d in [0.95, 0.999, 1.0, 1.001, 1.05] {
+        let g = extruded_rect_waveguide_mesh(3, 3, 1, 2.3, 1.0, d);
+        let r = measure_p2_guard(
+            &format!("elongated cells 2.3×1, face 3×3, 1 layer(s) over {d}"),
+            &g.mesh,
+            2.3,
+            1.0,
+        );
+        assert!(r.coarse_face && r.across > 1.0, "3×3 of 2.3×1: {r:?}");
+        record(r);
+    }
     for (nx, ny, a, zs) in [
         (16usize, 8usize, 2.0, [0.0, 0.15, 0.75]),
         (24, 8, 3.0, [0.0, 0.2, 0.9]),
@@ -1424,6 +1491,10 @@ fn tm_guard_p2_measurement_table() {
     let dir = std::env::temp_dir().join(format!("geode-884-gmsh-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut ran_gmsh = false;
+    // Gmsh rows with the face between 1.0 and 1.37 longest edges across
+    // (issue #895): (flagged rows, unflagged rows, worst undershoot, fewest
+    // points left).
+    let mut band = (0usize, 0usize, 0.0_f64, f64::INFINITY);
     for (a, b, d, lc, lc1) in [
         (2.0, 1.0, 0.5, 0.25, 0.25),
         (2.0, 1.0, 0.5, 0.4, 0.4),
@@ -1465,6 +1536,31 @@ fn tm_guard_p2_measurement_table() {
         (2.0, 1.0, 2.0, 0.9, 0.9),
         (2.0, 1.0, 3.0, 0.9, 0.9),
         (2.0, 1.0, 3.1, 0.9, 0.9),
+        // Between a crossed face (1.0) and uniform `lc` 0.9 on `2 × 1`
+        // (1.375), which uniform `2 × 1` guides jump over (issue #895).
+        // Gmsh 4.15 reads: `2.5 × 1` 1.20 (two across, flagged), `4 × 1`
+        // 1.25 − 3·10⁻¹⁵ (flagged by roundoff), `1.5 × 1` at `lc` 0.92
+        // 1.28, `2.3 × 1` 1.30, `3 × 1` 1.33 (base margin). `d` = 1, 2, 3
+        // are the TE₁₀ₚ / TM₁₁₀ degeneracies.
+        (2.5, 1.0, 0.999, 0.9, 0.9),
+        (2.5, 1.0, 1.0, 0.9, 0.9),
+        (2.5, 1.0, 2.0, 0.9, 0.9),
+        (2.5, 1.0, 3.0, 0.9, 0.9),
+        (4.0, 1.0, 1.0, 0.9, 0.9),
+        (4.0, 1.0, 2.0, 0.9, 0.9),
+        (1.5, 1.0, 1.0, 0.92, 0.92),
+        (1.5, 1.0, 2.0, 0.92, 0.92),
+        (1.5, 1.0, 2.9, 0.92, 0.92),
+        (1.5, 1.0, 3.0, 0.92, 0.92),
+        (1.5, 1.0, 3.1, 0.92, 0.92),
+        (2.3, 1.0, 0.999, 0.9, 0.9),
+        (2.3, 1.0, 2.0, 0.9, 0.9),
+        (2.3, 1.0, 3.0, 0.9, 0.9),
+        (2.3, 1.0, 3.1, 0.9, 0.9),
+        (3.0, 1.0, 1.0, 0.9, 0.9),
+        (3.0, 1.0, 2.0, 0.9, 0.9),
+        (3.0, 1.0, 3.0, 0.9, 0.9),
+        (3.0, 1.0, 3.1, 0.9, 0.9),
     ] {
         let out = dir.join(format!("g_{a}x{b}_{d}_{lc}_{lc1}.msh"));
         let status = std::process::Command::new("gmsh")
@@ -1486,12 +1582,22 @@ fn tm_guard_p2_measurement_table() {
         ran_gmsh = true;
         let tagged =
             geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(&out).unwrap()).expect("msh");
-        record(measure_p2_guard(
+        let r = measure_p2_guard(
             &format!("gmsh {a}×{b}×{d}, lc {lc} → {lc1}"),
             &tagged.mesh,
             a,
             b,
-        ));
+        );
+        if r.across > 1.0 + 1e-9 && r.across < 1.37 {
+            if r.coarse_face {
+                band.0 += 1;
+            } else {
+                band.1 += 1;
+            }
+            band.2 = band.2.max(r.under);
+            band.3 = band.3.min(r.pts_left);
+        }
+        record(r);
     }
     let _ = std::fs::remove_dir_all(&dir);
     eprintln!(
@@ -1505,6 +1611,26 @@ fn tm_guard_p2_measurement_table() {
         100.0 * TM_GUARD_MARGIN_P2_COARSE_FACE,
         if ran_gmsh { "run" } else { "skipped" }
     );
+    eprintln!(
+        "{coarse_rows} rows under the face floor, {} at the mesh law (tightest \
+         {tightest_fine:.2} pt); Gmsh faces 1.0 … 1.37 longest edges across: {} flagged + {} \
+         unflagged rows, worst undershoot {:.3} %, tightest {:.2} pt",
+        rows - coarse_rows,
+        band.0,
+        band.1,
+        100.0 * band.2,
+        band.3
+    );
+    // Issue #895: the band is measured on both sides of the threshold.
+    if ran_gmsh {
+        assert!(
+            band.0 >= 2 && band.1 >= 2,
+            "Gmsh rows 1.0 … 1.37 across: {} flagged, {} unflagged (a different Gmsh \
+             version may mesh these faces differently: pick new rows)",
+            band.0,
+            band.1
+        );
+    }
     assert!(worst_under < 0.06, "p=2 undershoot {worst_under}");
     assert!(
         worst_ratio_law < TM_GUARD_AXIAL_COEFF_P2,
